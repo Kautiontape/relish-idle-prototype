@@ -1,18 +1,9 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: relish-idle-prototype:latest
-    container_name: relish-idle-prototype
+    container_name: relish_idle_prototype
     ports:
-      - "3030:80"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      - "127.0.0.1:8104:80"
+    restart: always

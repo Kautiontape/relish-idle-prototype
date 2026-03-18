@@ -1,0 +1,16 @@
+name: Deploy to ktn
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, ktn]
+    steps:
+      - name: Deploy
+        run: |
+          cd /opt/services/relish-idle-prototype
+          git pull origin main
+          docker compose build
+          docker compose up -d
