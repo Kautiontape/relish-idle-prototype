@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relish — kautiontape</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+    :root {
+      --yellow: #FFD000;
+      --yellow-dim: #FFD00018;
+      --yellow-mid: #FFD00040;
+      --green: #22c55e;
+      --green-dim: #22c55e18;
+      --green-mid: #22c55e40;
+      --bg: #0C0C0E;
+      --bg-card: #141417;
+      --bg-card-hover: #1A1A1F;
+      --border: #2A2A30;
+      --border-hover: #3A3A42;
+      --text: #E8E8EC;
+      --text-dim: #8888A0;
+      --text-mid: #AAAAB8;
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 256px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 4rem;
+    }
+
+    .back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      margin-bottom: 2rem;
+      transition: color 0.2s;
+    }
+    .back:hover { color: var(--yellow); }
+
+    header { margin-bottom: 2.5rem; }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .brand-stripe {
+      width: 4px;
+      height: 2.25rem;
+      background: repeating-linear-gradient(-45deg, var(--yellow), var(--yellow) 3px, var(--bg) 3px, var(--bg) 6px);
+      border-radius: 2px;
+    }
+
+    .brand h1 {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand h1 span { color: var(--yellow); }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+      max-width: 620px;
+      padding-left: 1.25rem;
+    }
+
+    /* about section */
+    .about {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: cardIn 0.4s ease forwards;
+      animation-delay: 0.05s;
+    }
+
+    @keyframes cardIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .about h2 {
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    .about p {
+      font-size: 0.85rem;
+      color: var(--text-mid);
+      line-height: 1.7;
+      margin-bottom: 0.75rem;
+    }
+
+    .about p:last-child { margin-bottom: 0; }
+
+    .pillars {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .pillar {
+      padding: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .pillar-name {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    .pillar-desc {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    /* section label */
+    .section-label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.75rem;
+    }
+
+    /* prototype cards */
+    .prototypes {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .prototype {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 1.25rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-decoration: none;
+      color: var(--text);
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+      position: relative;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: cardIn 0.4s ease forwards;
+    }
+    .prototype:nth-child(1) { animation-delay: 0.15s; }
+    .prototype:nth-child(2) { animation-delay: 0.2s; }
+    .prototype:nth-child(3) { animation-delay: 0.25s; }
+
+    .prototype:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    .prototype::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--yellow);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.3s ease;
+    }
+
+    .prototype:hover::after { transform: scaleX(1); }
+
+    .proto-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .proto-left {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .proto-icon { font-size: 1.3rem; line-height: 1; }
+
+    .proto-name {
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .proto-arrow {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--yellow);
+      opacity: 0;
+      transform: translateX(-4px);
+      transition: opacity 0.2s, transform 0.2s;
+    }
+
+    .prototype:hover .proto-arrow {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .proto-desc {
+      font-size: 0.82rem;
+      color: var(--text-mid);
+      line-height: 1.5;
+    }
+
+    .proto-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.25rem;
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+
+    .tag-tech {
+      background: var(--yellow-dim);
+      color: var(--text-dim);
+      border-color: var(--yellow-mid);
+    }
+
+    .tag-status {
+      background: var(--green-dim);
+      color: var(--green);
+      border-color: var(--green-mid);
+    }
+
+    .tag-wip {
+      background: #f59e0b18;
+      color: #f59e0b;
+      border-color: #f59e0b40;
+    }
+
+    .proto-question {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-style: italic;
+      line-height: 1.5;
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer p {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    @media (max-width: 580px) {
+      .page { padding: 2rem 1rem 3rem; }
+      .brand h1 { font-size: 1.25rem; }
+      .pillars { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <a href="https://kautiontape.com" class="back">&larr; back to kautiontape.com</a>
+
+    <header>
+      <div class="brand">
+        <div class="brand-stripe"></div>
+        <h1>&#128128; <span>Relish</span></h1>
+      </div>
+      <p class="subtitle">
+        A cozy undead-automation idle RPG. Build massive undead armies, manage a sprawling necromancer empire, and challenge death gods — playable in 2-minute sessions or 2-hour marathons.
+      </p>
+    </header>
+
+    <div class="about">
+      <h2>About the Project</h2>
+      <p>
+        Relish is an ongoing game project exploring idle/incremental RPG mechanics with a necromancer theme. The core fantasy: you're a necromancer building exponentially growing armies — thousands to millions of undead — while balancing town management with dangerous quests.
+      </p>
+      <p>
+        The project is being developed through iterative prototypes, each testing different mechanics and approaches. Each prototype is independent and throwaway — exploring a specific design question before committing to an approach.
+      </p>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="pillar-name">Dual-layer Gameplay</div>
+          <div class="pillar-desc">Town management for passive growth, adventure mode for risky quests with permanent losses</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-name">Mobile-first</div>
+          <div class="pillar-desc">Glanceable progress, offline progression, meaningful 2-5 minute sessions</div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-name">Undead Construction</div>
+          <div class="pillar-desc">Forms, cores, and augments combine into custom minions with quirks and instability</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-label">Prototypes</div>
+    <div class="prototypes">
+      <a href="/casting/" class="prototype">
+        <div class="proto-top">
+          <div class="proto-left">
+            <span class="proto-icon">&#10024;</span>
+            <span class="proto-name">Casting</span>
+          </div>
+          <span class="proto-arrow">&rarr;</span>
+        </div>
+        <div class="proto-desc">
+          Gesture-based rune drawing on canvas to summon minions with randomized behaviors. Minions auto-fight enemy waves in timed combat, then survivors get assigned to town buildings for bonuses.
+        </div>
+        <div class="proto-question">Does gesture-casting feel satisfying enough to be the primary player action?</div>
+        <div class="proto-meta">
+          <span class="tag tag-tech">Vite + Canvas</span>
+          <span class="tag tag-tech">TypeScript</span>
+          <span class="tag tag-status">live</span>
+        </div>
+      </a>
+
+    </div>
+
+    <footer>
+      <p>kautiontape.com &middot; relish.kautiontape.com</p>
+    </footer>
+  </div>
+</body>
+</html>

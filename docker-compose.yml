@@ -1,9 +1,27 @@
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: relish_idle_prototype
+  caddy:
+    image: caddy:alpine
+    container_name: relish_caddy
     ports:
       - "127.0.0.1:8104:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./landing:/srv/landing:ro
+    depends_on:
+      - casting
     restart: always
+    networks:
+      - relish
+
+  casting:
+    build:
+      context: ./prototypes/casting
+      dockerfile: Dockerfile
+    container_name: relish_casting
+    restart: always
+    networks:
+      - relish
+
+networks:
+  relish:
+    driver: bridge

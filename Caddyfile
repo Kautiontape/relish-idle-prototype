@@ -1,0 +1,15 @@
+:80 {
+    # Redirect bare prototype paths to trailing slash
+    redir /casting /casting/ 301
+
+    # Casting prototype — strip prefix, proxy to its nginx container
+    handle_path /casting/* {
+        reverse_proxy casting:80
+    }
+
+    # Landing hub — served directly by Caddy
+    handle {
+        root * /srv/landing
+        file_server
+    }
+}
