@@ -9,6 +9,8 @@ services:
       - ./landing:/srv/landing:ro
     depends_on:
       - casting
+      - horde-scale
+      - quest-loop
     restart: always
     networks:
       - relish
@@ -18,6 +20,24 @@ services:
       context: ./prototypes/casting
       dockerfile: Dockerfile
     container_name: relish_casting
+    restart: always
+    networks:
+      - relish
+
+  horde-scale:
+    build:
+      context: ./prototypes/horde-scale
+      dockerfile: Dockerfile
+    container_name: relish_horde_scale
+    restart: always
+    networks:
+      - relish
+
+  quest-loop:
+    build:
+      context: ./prototypes/quest-loop
+      dockerfile: Dockerfile
+    container_name: relish_quest_loop
     restart: always
     networks:
       - relish

@@ -1,10 +1,22 @@
 :80 {
     # Redirect bare prototype paths to trailing slash
     redir /casting /casting/ 301
+    redir /horde-scale /horde-scale/ 301
+    redir /quest-loop /quest-loop/ 301
 
-    # Casting prototype — strip prefix, proxy to its nginx container
+    # Casting prototype
     handle_path /casting/* {
         reverse_proxy casting:80
+    }
+
+    # Horde Scale prototype
+    handle_path /horde-scale/* {
+        reverse_proxy horde-scale:80
+    }
+
+    # Quest Loop prototype
+    handle_path /quest-loop/* {
+        reverse_proxy quest-loop:80
     }
 
     # Landing hub — served directly by Caddy
