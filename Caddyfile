@@ -3,6 +3,7 @@
     redir /casting /casting/ 301
     redir /horde-scale /horde-scale/ 301
     redir /quest-loop /quest-loop/ 301
+    redir /essence-casting /essence-casting/ 301
 
     # Casting prototype
     handle_path /casting/* {
@@ -17,6 +18,11 @@
     # Quest Loop prototype
     handle_path /quest-loop/* {
         reverse_proxy quest-loop:80
+    }
+
+    # Essence Casting prototype
+    handle_path /essence-casting/* {
+        reverse_proxy essence-casting:80
     }
 
     # Landing hub — served directly by Caddy

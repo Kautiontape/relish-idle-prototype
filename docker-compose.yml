@@ -11,6 +11,7 @@ services:
       - casting
       - horde-scale
       - quest-loop
+      - essence-casting
     restart: always
     networks:
       - relish
@@ -38,6 +39,15 @@ services:
       context: ./prototypes/quest-loop
       dockerfile: Dockerfile
     container_name: relish_quest_loop
+    restart: always
+    networks:
+      - relish
+
+  essence-casting:
+    build:
+      context: ./prototypes/essence-casting
+      dockerfile: Dockerfile
+    container_name: relish_essence_casting
     restart: always
     networks:
       - relish
