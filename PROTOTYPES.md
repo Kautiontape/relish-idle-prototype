@@ -26,6 +26,14 @@ Tests the bodies-on-the-field summoning loop: enemies die → bodies pile up →
 - **Status:** Tested, findings documented. See `prototypes/quest-loop/FINDINGS.md`
 - **Verdict:** Tension exists but choices don't feel impactful enough. Body type distinction too flat. Boss combat needs its own prototype. Spell effectiveness vs enemy tags works well. Collection safety on loss works well.
 
+### Essence Casting (`/essence-casting/`)
+Combines gesture-casting with battlefield essence drops. Infinite horde combat — enemies die and drop colored essences (Flesh/Breath/Veil/Chain) that light up matching runes. Swipe between lit runes to cast spells from the full 60-archetype set. PixiJS rendering with flocking undead, top-down enemy flow, Relish as a target.
+
+- **Stack:** Vite + TypeScript + PixiJS (WebGL)
+- **Key question:** Does gesture-casting with essence-gating feel good as the core combat loop?
+- **Status:** In development
+- **Builds on:** Casting (gesture system, archetypes), Horde Scale (PixiJS rendering), Quest Loop (bodies-as-resource insight)
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)
