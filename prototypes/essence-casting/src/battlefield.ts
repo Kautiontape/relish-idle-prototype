@@ -223,7 +223,8 @@ export class Battlefield {
       this.undead.push(this.createUnit(
         center.x + Math.cos(angle) * dist,
         center.y + Math.sin(angle) * dist,
-        BASE_HP, BASE_DAMAGE, BASE_SPEED, BASE_RADIUS,
+        BASE_HP * debugState.undeadHpMult, BASE_DAMAGE * debugState.undeadDmgMult,
+        BASE_SPEED * debugState.undeadSpeedMult, BASE_RADIUS,
         UNDEAD_COLOR, [],
       ));
     }
@@ -234,9 +235,9 @@ export class Battlefield {
     const center = runeCenter(this.fieldW, this.fieldH);
     const angle = Math.random() * Math.PI * 2;
     const dist = Math.random() * 40;
-    const hp = BASE_HP * arch.stats.health;
-    const dmg = BASE_DAMAGE * arch.stats.damage;
-    const spd = BASE_SPEED * arch.stats.speed;
+    const hp = BASE_HP * arch.stats.health * debugState.undeadHpMult;
+    const dmg = BASE_DAMAGE * arch.stats.damage * debugState.undeadDmgMult;
+    const spd = BASE_SPEED * arch.stats.speed * debugState.undeadSpeedMult;
     const sz = BASE_RADIUS * arch.stats.size;
     const color = parseHexColor(arch.color);
     const unit = this.createUnit(
@@ -299,7 +300,7 @@ export class Battlefield {
       this.enemies.y[idx] = ey;
       this.enemies.vx[idx] = 0;
       this.enemies.vy[idx] = 0;
-      const hpVal = ENEMY_HP * et.strength * debugState.enemyStrength;
+      const hpVal = ENEMY_HP * et.strength * debugState.enemyStrength * debugState.enemyHpMult;
       this.enemies.hp[idx] = hpVal;
       this.enemies.maxHp[idx] = hpVal;
       this.enemies.slowTimer[idx] = 0;
@@ -592,7 +593,7 @@ export class Battlefield {
 
   private moveEnemies(_dt: number) {
     const relish = runeCenter(this.fieldW, this.fieldH);
-    const baseSpeed = ENEMY_SPEED * debugState.enemyStrength;
+    const baseSpeed = ENEMY_SPEED * debugState.enemySpeedMult;
 
     for (let i = 0; i < this.enemies.count; i++) {
       // Rooted enemies can't move
@@ -670,7 +671,7 @@ export class Battlefield {
 
   private resolveCombat(dt: number) {
     const basePDmg = BASE_DAMAGE;
-    const baseEDmg = ENEMY_DAMAGE * debugState.enemyStrength;
+    const baseEDmg = ENEMY_DAMAGE * debugState.enemyDmgMult;
 
     for (let ei = 0; ei < this.enemies.count; ei++) {
       if (this.enemies.hp[ei] <= 0) continue;

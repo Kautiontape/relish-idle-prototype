@@ -176,6 +176,11 @@ async function main() {
     }
   });
 
+  // Debug: spawn undead
+  window.addEventListener('debug-spawn-undead', ((e: CustomEvent) => {
+    battlefield.spawnUndead(e.detail);
+  }) as EventListener);
+
   // Cancel on pointer leave
   app.canvas.addEventListener('pointerleave', () => {
     if (gesture.isActive) {
