@@ -1,17 +1,49 @@
 services:
   caddy:
-    image: caddy:alpine
+    # Custom Caddy with the Sablier plugin. Built OFF-BOX (the xcaddy Go
+    # compile OOMs the 2 GB droplet) and loaded onto ktn via `docker load`.
+    # Do NOT add a `build:` here — keep it an image reference.
+    # Rebuild: see caddy-sablier/Dockerfile.
+    image: ghcr.io/shawnsquire/caddy-sablier:2.10.0-sablier1.13
+    # Image is loaded locally on ktn (not in a reachable registry) — never pull.
+    pull_policy: never
     container_name: relish_caddy
     ports:
       - "127.0.0.1:8104:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./landing:/srv/landing:ro
+    restart: always
+    networks:
+      - relish
+
+  # Scale-to-zero controller. Wakes prototype containers on first request,
+  # stops them after `session_duration` of inactivity (see Caddyfile).
+  sablier:
+    image: sablierapp/sablier:1.13.0
+    container_name: relish_sablier
+    command:
+      - start
+      - --provider.name=docker
+    environment:
+      # Talk to Docker through the hardened proxy, never the raw socket.
+      - DOCKER_HOST=tcp://socket-proxy:2375
     depends_on:
-      - casting
-      - horde-scale
-      - quest-loop
-      - essence-casting
+      - socket-proxy
+    restart: always
+    networks:
+      - relish
+
+  # Least-privilege Docker API proxy: exposes only container list/inspect
+  # (CONTAINERS) + start/stop (POST). No images/volumes/secrets/exec surface.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: relish_socket_proxy
+    environment:
+      - CONTAINERS=1
+      - POST=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: always
     networks:
       - relish
@@ -21,7 +53,17 @@ services:
       context: ./prototypes/casting
       dockerfile: Dockerfile
     container_name: relish_casting
-    restart: always
+    # restart "no" so Sablier owns the lifecycle (no fight with the daemon).
+    restart: "no"
+    # Image HEALTHCHECK wgets ::1 (IPv6 localhost) but the app binds IPv4
+    # only -> permanently "unhealthy", and Sablier waits for healthy before
+    # serving. Disable it so readiness = running. (Proper fix: 127.0.0.1 in
+    # the prototype Dockerfile's HEALTHCHECK.)
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-casting
     networks:
       - relish
 
@@ -30,7 +72,12 @@ services:
       context: ./prototypes/horde-scale
       dockerfile: Dockerfile
     container_name: relish_horde_scale
-    restart: always
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-horde-scale
     networks:
       - relish
 
@@ -39,7 +86,12 @@ services:
       context: ./prototypes/quest-loop
       dockerfile: Dockerfile
     container_name: relish_quest_loop
-    restart: always
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-quest-loop
     networks:
       - relish
 
@@ -48,7 +100,12 @@ services:
       context: ./prototypes/essence-casting
       dockerfile: Dockerfile
     container_name: relish_essence_casting
-    restart: always
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-essence-casting
     networks:
       - relish
 

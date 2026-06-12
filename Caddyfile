@@ -1,33 +1,77 @@
+{
+	# `sablier` is a custom handler directive — it must run before reverse_proxy.
+	order sablier before reverse_proxy
+}
+
 :80 {
-    # Redirect bare prototype paths to trailing slash
-    redir /casting /casting/ 301
-    redir /horde-scale /horde-scale/ 301
-    redir /quest-loop /quest-loop/ 301
-    redir /essence-casting /essence-casting/ 301
+	# Redirect bare prototype paths to trailing slash
+	redir /casting /casting/ 301
+	redir /horde-scale /horde-scale/ 301
+	redir /quest-loop /quest-loop/ 301
+	redir /essence-casting /essence-casting/ 301
 
-    # Casting prototype
-    handle_path /casting/* {
-        reverse_proxy casting:80
-    }
+	# Each prototype is scaled to zero by Sablier and woken on first request.
+	# A themed loading page shows while the container starts; after
+	# session_duration of no traffic, Sablier stops it again.
+	handle_path /casting/* {
+		sablier http://sablier:10000 {
+			group relish-casting
+			session_duration 10m
+			dynamic {
+				display_name "Casting"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy casting:80
+	}
 
-    # Horde Scale prototype
-    handle_path /horde-scale/* {
-        reverse_proxy horde-scale:80
-    }
+	handle_path /horde-scale/* {
+		sablier http://sablier:10000 {
+			group relish-horde-scale
+			session_duration 10m
+			dynamic {
+				display_name "Horde Scale"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy horde-scale:80
+	}
 
-    # Quest Loop prototype
-    handle_path /quest-loop/* {
-        reverse_proxy quest-loop:80
-    }
+	handle_path /quest-loop/* {
+		sablier http://sablier:10000 {
+			group relish-quest-loop
+			session_duration 10m
+			dynamic {
+				display_name "Quest Loop"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy quest-loop:80
+	}
 
-    # Essence Casting prototype
-    handle_path /essence-casting/* {
-        reverse_proxy essence-casting:80
-    }
+	handle_path /essence-casting/* {
+		sablier http://sablier:10000 {
+			group relish-essence-casting
+			session_duration 10m
+			dynamic {
+				display_name "Essence Casting"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy essence-casting:80
+	}
 
-    # Landing hub — served directly by Caddy
-    handle {
-        root * /srv/landing
-        file_server
-    }
+	# Landing hub — served directly by Caddy (always instant, no container)
+	handle {
+		root * /srv/landing
+		file_server
+	}
 }
