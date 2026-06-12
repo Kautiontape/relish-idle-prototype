@@ -1,0 +1,12 @@
+{
+  "order": 3,
+  "name": "The Garrison",
+  "door_x": 0.75,
+  "spawns": [
+    { "type": "guard", "count": 5, "zone": [0.15, 0.15, 0.85, 0.5] },
+    { "type": "cultist_archer", "count": 2, "zone": [0.25, 0.05, 0.75, 0.18] },
+    { "type": "brute", "count": 1, "zone": [0.4, 0.25, 0.6, 0.4] }
+  ],
+  "sarcophagi": [[0.15, 0.3]],
+  "waves": []
+}

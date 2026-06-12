@@ -34,6 +34,13 @@ Combines gesture-casting with battlefield essence drops. Infinite horde combat �
 - **Status:** In development
 - **Builds on:** Casting (gesture system, archetypes), Horde Scale (PixiJS rendering), Quest Loop (bodies-as-resource insight)
 
+### Raid & Raise (`/raid-and-raise/`)
+Full Phase 1 build of the "Raid & Raise" design doc (`prototypes/raid-and-raise/DESIGN.md`). Relish as a conduit: portrait two-thumb input — command grammar (lasso/tap/drag) on one thumb, hold-the-button Trance with least-squares circle scoring on the other. Eight watchable stats, force-field steering (Charm pull / Dread push as nav bias), proximity×size targeting with Wits as the anti-Beef, the sacrifice chain, a 5-chamber authored tomb + Tomb Colossus climax, loot dings (essence/remnants/husks), haul summary, death = total reset. Includes 5 debug playrooms isolating each risky mechanic and a live-tunables debug panel with the §12 RTS-drift telemetry.
+
+- **Stack:** Godot 4.6 (Compatibility renderer, single-threaded web export)
+- **Key question:** Does tracing circles in bullet-time feel good enough to be the heart of combat? (Gate: the trance gym playroom. Second gate: a full run fits ~10 minutes and you want another.)
+- **Status:** In development
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)

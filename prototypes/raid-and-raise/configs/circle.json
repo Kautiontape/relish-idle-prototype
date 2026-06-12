@@ -1,0 +1,13 @@
+{
+  "multiplier_base": 0.5,
+  "multiplier_per_100": 1.0,
+  "min_points": 8,
+  "min_path_length_px": 110,
+  "tap_max_length_px": 24,
+  "dev_penalty_at_frac": 0.25,
+  "dev_weight": 0.65,
+  "closure_penalty_at_frac": 0.5,
+  "closure_weight": 0.35,
+  "min_arc_deg": 300,
+  "feedback_hold_s": 0.7
+}

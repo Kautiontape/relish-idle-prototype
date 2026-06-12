@@ -109,6 +109,20 @@ services:
     networks:
       - relish
 
+  raid-and-raise:
+    build:
+      context: ./prototypes/raid-and-raise
+      dockerfile: Dockerfile
+    container_name: relish_raid_and_raise
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-raid-and-raise
+    networks:
+      - relish
+
 networks:
   relish:
     driver: bridge

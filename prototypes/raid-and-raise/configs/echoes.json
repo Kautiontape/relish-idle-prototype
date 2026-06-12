@@ -1,0 +1,18 @@
+{
+  "combat": {
+    "life_drain": { "name": "Life Drain", "per_point": 0.05, "desc": "heal 5%/pt of damage dealt" },
+    "frenzy": { "name": "Frenzy", "per_point": 0.15, "desc": "+15%/pt cadence below 50% HP" },
+    "heavy_blow": { "name": "Heavy Blow", "per_point": 0.5, "desc": "+50%/pt knockback" },
+    "volatile": { "name": "Volatile", "per_point": 6.0, "desc": "explodes on death, 6 dmg/pt" },
+    "vengeful": { "name": "Vengeful", "per_point": 0.1, "desc": "+10%/pt damage for 5s after an ally dies" }
+  },
+  "town": {
+    "organization": { "name": "Organization", "per_point": 1.0, "desc": "town income points" },
+    "salesmanship": { "name": "Salesmanship", "per_point": 1.0, "desc": "town income points" },
+    "tireless": { "name": "Tireless", "per_point": 1.0, "desc": "town income points" },
+    "frugal": { "name": "Frugal", "per_point": 1.0, "desc": "town income points" },
+    "crafty": { "name": "Crafty", "per_point": 1.0, "desc": "town income points" }
+  },
+  "volatile_radius_px": 80,
+  "vengeful_duration_s": 5.0
+}

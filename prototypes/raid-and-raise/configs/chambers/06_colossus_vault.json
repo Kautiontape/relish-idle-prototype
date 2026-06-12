@@ -1,0 +1,17 @@
+{
+  "order": 6,
+  "name": "Vault of the Colossus",
+  "door_x": 0.5,
+  "climax": true,
+  "spawns": [
+    { "type": "tomb_colossus", "count": 1, "zone": [0.45, 0.12, 0.55, 0.2] },
+    { "type": "guard", "count": 6, "zone": [0.15, 0.2, 0.85, 0.45] },
+    { "type": "tomb_rat", "count": 4, "zone": [0.1, 0.3, 0.9, 0.5] },
+    { "type": "cultist_archer", "count": 2, "zone": [0.3, 0.05, 0.7, 0.14] }
+  ],
+  "sarcophagi": [],
+  "waves": [
+    { "at_hp_frac": 0.66, "spawns": [{ "type": "tomb_rat", "count": 4, "zone": [0.1, 0.1, 0.9, 0.3] }, { "type": "guard", "count": 2, "zone": [0.3, 0.1, 0.7, 0.25] }] },
+    { "at_hp_frac": 0.33, "spawns": [{ "type": "tomb_rat", "count": 4, "zone": [0.1, 0.1, 0.9, 0.3] }, { "type": "guard", "count": 2, "zone": [0.3, 0.1, 0.7, 0.25] }] }
+  ]
+}

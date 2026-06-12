@@ -1,0 +1,11 @@
+{
+  "name": "Tomb Rat",
+  "stats": { "power": 1, "beef": 0, "speed": 4, "wits": 0, "charm": 0, "dread": 0, "magic": 0, "persistence": 0 },
+  "cadence": 1.4,
+  "base_hp": 10,
+  "base_dmg": 2,
+  "base_speed": 80,
+  "color": "#9c7b5a",
+  "elite": false,
+  "boss": false
+}

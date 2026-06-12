@@ -1,0 +1,11 @@
+{
+  "name": "Brute",
+  "stats": { "power": 4, "beef": 7, "speed": 0, "wits": 0, "charm": 0, "dread": 0, "magic": 0, "persistence": 0 },
+  "cadence": 0.6,
+  "base_hp": 30,
+  "base_dmg": 2,
+  "base_speed": 50,
+  "color": "#8a3a30",
+  "elite": false,
+  "boss": false
+}

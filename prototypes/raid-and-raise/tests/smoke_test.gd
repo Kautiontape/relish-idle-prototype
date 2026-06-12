@@ -1,0 +1,274 @@
+extends SceneTree
+## Headless verification: godot --headless --script res://tests/smoke_test.gd
+## Parse-checks every script, validates configs, unit-tests scoring/loot/
+## factory math, then boots the real raid and simulates a trance summon, a
+## lasso command, the sacrifice chain, and a kill. Exit code 0 = green.
+##
+## NOTE: --script mode compiles before autoload globals are registered, so the
+## test resolves singletons (Cfg/GS/Factory) and classes (CS/LT/US) by path.
+
+var fails := 0
+var cfg: Node
+var gs: Node
+var factory: Node
+var CS: GDScript  # CircleScorer
+var LT: GDScript  # Loot
+var US: GDScript  # RRUnit
+
+func _initialize() -> void:
+	_run.call_deferred()
+
+func _run() -> void:
+	await process_frame
+	_ensure_autoloads()
+	CS = load("res://scripts/systems/circle_scorer.gd")
+	LT = load("res://scripts/systems/loot.gd")
+	US = load("res://scripts/entities/unit.gd")
+	_test_scripts_parse()
+	_test_configs()
+	_test_circle_scorer()
+	_test_loot()
+	_test_factory()
+	await _test_raid_boot()
+	if fails == 0:
+		print("SMOKE: ALL PASS")
+	else:
+		print("SMOKE: %d FAILURES" % fails)
+	quit(1 if fails > 0 else 0)
+
+func _ensure_autoloads() -> void:
+	for pair in [["ConfigDb", "res://scripts/autoload/config_db.gd"],
+			["GameState", "res://scripts/autoload/game_state.gd"],
+			["EntityFactory", "res://scripts/autoload/entity_factory.gd"]]:
+		if root.get_node_or_null(NodePath(pair[0])) == null:
+			var n: Node = (load(pair[1]) as GDScript).new()
+			n.name = pair[0]
+			root.add_child(n)
+	cfg = root.get_node(^"ConfigDb")
+	gs = root.get_node(^"GameState")
+	factory = root.get_node(^"EntityFactory")
+
+func check(cond: bool, label: String) -> void:
+	if cond:
+		print("  ok  %s" % label)
+	else:
+		fails += 1
+		print("FAIL  %s" % label)
+
+# 1. Every script must load (parse/compile check)
+func _test_scripts_parse() -> void:
+	print("[scripts]")
+	var count := 0
+	for path in _gd_files("res://scripts"):
+		var s: Variant = load(path)
+		check(s != null, path)
+		count += 1
+	check(count >= 20, "found %d scripts" % count)
+
+func _gd_files(dir: String) -> Array:
+	var out: Array = []
+	for f in DirAccess.get_files_at(dir):
+		if f.ends_with(".gd"):
+			out.append(dir + "/" + f)
+	for d in DirAccess.get_directories_at(dir):
+		out.append_array(_gd_files(dir + "/" + d))
+	return out
+
+# 2. Configs: §11 keys present, cross-references valid
+func _test_configs() -> void:
+	print("[configs]")
+	for key in ["hp_per_beef", "dmg_per_power", "speed_per_speed", "size_per_beef",
+			"wits_lock_threshold", "wits_antibeef_coeff", "field_radius_px", "field_strength",
+			"field_bias_clamp", "magic_bolt_dmg_per_magic", "magic_bolt_range_px",
+			"persistence_rise_per_point", "persistence_rise_cap", "sacrifice_iframes_s",
+			"chaff_base_power", "chaff_base_beef", "chaff_base_speed"]:
+		check(cfg.data["stats"].has(key), "stats.%s" % key)
+	for key in ["trance_time_scale", "trance_max_hold_s", "summon_cooldown_s",
+			"essence_lifetime_s", "selection_expiry_s", "jar_slots"]:
+		check(cfg.data["timers"].has(key), "timers.%s" % key)
+	check(float(cfg.v("timers", "essence_lifetime_s")) > float(cfg.v("timers", "summon_cooldown_s")),
+		"essence lifetime comfortably above summon cooldown (§13.5)")
+	check(cfg.data["husks"].size() == 7, "7 husks (got %d)" % cfg.data["husks"].size())
+	var chambers: Array = cfg.chambers_sorted()
+	check(chambers.size() == 6, "6 chambers (5 + climax)")
+	for c in chambers:
+		for grp in c["spawns"]:
+			check(cfg.data["enemies"].has(grp["type"]), "chamber %s enemy '%s' exists" % [c["name"], grp["type"]])
+	check(bool(chambers[chambers.size() - 1].get("climax", false)), "last chamber is the climax")
+	# loadout fits anatomy & echo ids exist
+	var aspect_of: Dictionary = LT.ASPECT_OF_STAT
+	for spec in cfg.data["loadout"]["permanents"]:
+		var husk: Dictionary = cfg.husk(spec["husk"])
+		var used := {"muscle": 0, "nerve": 0, "presence": 0, "anima": 0}
+		for r in spec["remnants"]:
+			used[aspect_of[r["stat"]]] += 1
+			for e in r.get("echoes", []):
+				var id: String = e["id"]
+				check(cfg.data["echoes"]["combat"].has(id) or cfg.data["echoes"]["town"].has(id),
+					"echo '%s' exists" % id)
+		for a in used:
+			check(used[a] <= int(husk["anatomy"][a]), "%s: %s hollows fit (%d <= %d)" % [spec["name"], a, used[a], husk["anatomy"][a]])
+
+# 3. Circle scorer: grading must rank perfect > noisy > half-arc > line
+func _test_circle_scorer() -> void:
+	print("[circle scorer]")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1234
+	var center := Vector2(100, -400)
+	var perfect := PackedVector2Array()
+	for i in 64:
+		perfect.append(center + Vector2(120, 0).rotated(TAU * i / 64.0))
+	var noisy := PackedVector2Array()
+	for i in 64:
+		noisy.append(center + Vector2(120 + rng.randf_range(-18, 18), 0).rotated(TAU * i / 64.0))
+	var arc := PackedVector2Array()
+	for i in 32:
+		arc.append(center + Vector2(120, 0).rotated(PI * i / 31.0))
+	var line := PackedVector2Array()
+	for i in 40:
+		line.append(Vector2(i * 8.0, i * 8.0))
+	var sp: int = CS.grade(perfect)["score"]
+	var sn: int = CS.grade(noisy)["score"]
+	var sa: int = CS.grade(arc)["score"]
+	var sl: int = CS.grade(line)["score"]
+	print("  scores: perfect=%d noisy=%d arc=%d line=%d" % [sp, sn, sa, sl])
+	check(sp >= 90, "perfect circle >= 90")
+	check(sn < sp and sn > 35, "noisy circle between 35 and perfect")
+	check(sa < sn and sa < 45, "half arc graded low")
+	check(sl < 15, "straight line graded ~0")
+	check(absf(CS.multiplier(100) - 1.5) < 0.001, "multiplier(100) = 1.5")
+	check(absf(CS.multiplier(0) - 0.5) < 0.001, "multiplier(0) = 0.5")
+
+# 4. Loot: rarity weights honored, magnitudes in range, echo budget exact
+func _test_loot() -> void:
+	print("[loot]")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 99
+	var counts := {"common": 0, "uncommon": 0, "rare": 0, "legendary": 0}
+	var budget_ok := true
+	var mag_ok := true
+	var n := 3000
+	for i in n:
+		var r: Dictionary = LT.roll_remnant(rng)
+		counts[r["rarity"]] += 1
+		var mag_range: Array = cfg.data["rarity"]["magnitude"][r["rarity"]]
+		if r["magnitude"] < int(mag_range[0]) or r["magnitude"] > int(mag_range[1]):
+			mag_ok = false
+		var pts := 0
+		for e in r["echoes"]:
+			pts += int(e["points"])
+		if pts != int(cfg.data["rarity"]["echo_budget"][r["rarity"]]):
+			budget_ok = false
+	print("  rarity counts: %s" % str(counts))
+	check(absf(counts["common"] / float(n) - 0.70) < 0.05, "common ~70%")
+	check(counts["legendary"] > 0, "legendary occurs")
+	check(mag_ok, "magnitudes within rarity ranges")
+	check(budget_ok, "echo points spend the budget exactly")
+
+# 5. Factory: derived stats follow §11 formulas
+func _test_factory() -> void:
+	print("[factory]")
+	for id in cfg.data["enemies"]:
+		var e: Node = factory.make_enemy(id)
+		check(e != null and e.max_hp > 0, "enemy %s builds" % id)
+		e.free()
+	var squad: Array = factory.default_loadout()
+	check(squad.size() == int(cfg.v("timers", "jar_slots")), "loadout fills the jar (5)")
+	var bulwark: Node = squad[0]
+	check(absf(bulwark.max_hp - (20.0 + 10.0 * 7.0)) < 0.001, "Bulwark HP = base 20 + 10×Beef7 = 90 (got %.0f)" % bulwark.max_hp)
+	check(absf(bulwark.damage() - (2.0 + 2.0 * 2.0)) < 0.001, "Bulwark dmg = 2 + 2×Power2 = 6")
+	check(absf(bulwark.size_scale() - (1.0 + 0.15 * 7.0)) < 0.001, "Bulwark size = 1 + 0.15×Beef7")
+	var fang: Node = squad[1]
+	check(fang.stats.wits >= 3.0 and fang.stats.magic > 0.0, "Fang has wits lock + magic bolt")
+	for u in squad:
+		u.free()
+	var chaff: Node = factory.make_chaff(1.5)
+	check(absf(chaff.stats.power - 3.0) < 0.001 and absf(chaff.stats.speed - 4.5) < 0.001, "chaff = base × 1.5 multiplier")
+	chaff.free()
+
+# 6. Boot the real game, run the raid, simulate the core verbs
+func _test_raid_boot() -> void:
+	print("[raid boot]")
+	var main_scene: Node = (load("res://scenes/main.tscn") as PackedScene).instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	check(main_scene.hud != null and main_scene.hud.screens_open(), "menu shows")
+	main_scene.start_raid()
+	for i in 10:
+		await physics_frame
+	var bf: Node2D = main_scene.mode.battlefield
+	check(bf != null, "battlefield exists")
+	check(bf.relish != null and bf.relish.alive, "relish spawned")
+	check(bf.nav_region.navigation_polygon.get_polygon_count() > 0, "navmesh baked (%d polys)" % bf.nav_region.navigation_polygon.get_polygon_count())
+	var enemy_faction: int = US.Faction.ENEMY
+	var player_faction: int = US.Faction.PLAYER
+	var chaff_kind: int = US.Kind.CHAFF
+	var enemies: int = bf.living(enemy_faction).size()
+	var inactive := 0
+	for u in bf.all_units():
+		if u.faction == enemy_faction and not u.active:
+			inactive += 1
+	print("  enemies targetable now: %d, dormant in later chambers: %d" % [enemies, inactive])
+	check(enemies + inactive == 55, "all 55 authored enemies spawned (got %d)" % (enemies + inactive))
+	check(inactive == 49, "only chamber 1 active at start")
+	check(bf.living(player_faction).size() == 6, "relish + 5 permanents")
+
+	# Trance summon: button → trace a circle around essence → chaff
+	var trance: Node = main_scene.mode.trance
+	var spot: Vector2 = bf.relish.global_position + Vector2(0, -80)
+	bf.spawn_essence(spot, 3)
+	await physics_frame
+	trance.button_down()
+	check(trance.state == 1, "trance active on hold")  # State.ACTIVE
+	check(absf(Engine.time_scale - float(cfg.v("timers", "trance_time_scale"))) < 0.001, "world time dilated ×0.35")
+	var trace := PackedVector2Array()
+	for i in 48:
+		trace.append(spot + Vector2(90, 0).rotated(TAU * i / 48.0))
+	trance.trace = trace
+	trance._finish_trace()
+	check(gs.trance_summons == 1, "summon counted")
+	check(gs.circle_scores.size() == 1 and gs.circle_scores[0] >= 85, "clean circle scored high (%d)" % gs.circle_scores[0])
+	check(bf.count_kind(chaff_kind) == 3, "3 essence → 3 chaff (got %d)" % bf.count_kind(chaff_kind))
+	check(trance.state == 2, "summon ends trance → cooldown")  # State.COOLDOWN
+	check(absf(Engine.time_scale - 1.0) < 0.001, "time scale restored")
+
+	# Command grammar: lasso the squad, send them
+	var command: Node = main_scene.mode.command
+	var centroid: Vector2 = bf.player_minion_centroid()
+	var lasso := PackedVector2Array()
+	for i in 24:
+		lasso.append(centroid + Vector2(260, 0).rotated(TAU * i / 24.0))
+	command._stroke = lasso
+	command._handle_lasso()
+	check(command.selection.size() >= 5, "lasso selected the squad (%d)" % command.selection.size())
+	command._handle_tap(centroid + Vector2(0, -150))
+	check(gs.command_touches == 2, "lasso + send = 2 command touches")
+	var moved := 0
+	for u in bf.living(player_faction):
+		if u.cmd == 1:  # Cmd.MOVE
+			moved += 1
+	check(moved >= 5, "selected units took the move order")
+
+	# Sacrifice chain: chaff dies in her place
+	var chaff_before: int = bf.count_kind(chaff_kind)
+	bf.relish_hit(null)
+	await physics_frame
+	check(bf.count_kind(chaff_kind) == chaff_before - 1, "nearest chaff died in Relish's place")
+	check(bf.relish.alive, "relish survived")
+
+	# Kill an enemy: drops flow
+	var kills_before: int = gs.kills
+	var essence_before: int = gs.essence_dropped
+	var victim: Node = bf.living(enemy_faction)[0]
+	victim.take_hit(null, 99999.0)
+	check(gs.kills == kills_before + 1, "kill counted")
+	check(gs.essence_dropped > essence_before, "kill dropped essence")
+
+	# Run combat for a while; nothing should crash
+	for i in 240:
+		await physics_frame
+	check(true, "240 physics frames of live combat without crashing")
+	main_scene.show_menu()
+	await process_frame
+	main_scene.queue_free()
+	await process_frame

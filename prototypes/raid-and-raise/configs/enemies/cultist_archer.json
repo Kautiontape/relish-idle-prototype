@@ -1,0 +1,11 @@
+{
+  "name": "Cultist Archer",
+  "stats": { "power": 0, "beef": 1, "speed": 2, "wits": 0, "charm": 0, "dread": 0, "magic": 3, "persistence": 0 },
+  "cadence": 0.9,
+  "base_hp": 14,
+  "base_dmg": 2,
+  "base_speed": 64,
+  "color": "#c08a5a",
+  "elite": false,
+  "boss": false
+}

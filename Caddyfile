@@ -9,6 +9,7 @@
 	redir /horde-scale /horde-scale/ 301
 	redir /quest-loop /quest-loop/ 301
 	redir /essence-casting /essence-casting/ 301
+	redir /raid-and-raise /raid-and-raise/ 301
 
 	# Each prototype is scaled to zero by Sablier and woken on first request.
 	# A themed loading page shows while the container starts; after
@@ -67,6 +68,20 @@
 			}
 		}
 		reverse_proxy essence-casting:80
+	}
+
+	handle_path /raid-and-raise/* {
+		sablier http://sablier:10000 {
+			group relish-raid-and-raise
+			session_duration 10m
+			dynamic {
+				display_name "Raid & Raise"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy raid-and-raise:80
 	}
 
 	# Landing hub — served directly by Caddy (always instant, no container)

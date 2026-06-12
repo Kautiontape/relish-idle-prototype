@@ -1,0 +1,10 @@
+{
+  "name": "Wraith",
+  "anatomy": { "muscle": 0, "nerve": 1, "presence": 2, "anima": 1 },
+  "cadence": 1.1,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#b9a7e0",
+  "notes": "fast, eerie"
+}

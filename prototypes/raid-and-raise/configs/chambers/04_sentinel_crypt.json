@@ -1,0 +1,12 @@
+{
+  "order": 4,
+  "name": "Crypt of the Sentinel",
+  "door_x": 0.5,
+  "spawns": [
+    { "type": "elite_sentinel", "count": 1, "zone": [0.42, 0.2, 0.58, 0.32] },
+    { "type": "guard", "count": 6, "zone": [0.15, 0.1, 0.85, 0.5] },
+    { "type": "cultist_archer", "count": 2, "zone": [0.3, 0.05, 0.7, 0.15] }
+  ],
+  "sarcophagi": [[0.1, 0.45], [0.9, 0.45]],
+  "waves": []
+}

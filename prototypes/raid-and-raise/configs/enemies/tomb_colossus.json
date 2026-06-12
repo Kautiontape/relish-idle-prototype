@@ -1,0 +1,11 @@
+{
+  "name": "Tomb Colossus",
+  "stats": { "power": 8, "beef": 14, "speed": 0, "wits": 0, "charm": 0, "dread": 0, "magic": 0, "persistence": 0 },
+  "cadence": 0.5,
+  "base_hp": 80,
+  "base_dmg": 2,
+  "base_speed": 40,
+  "color": "#6a2a3a",
+  "elite": false,
+  "boss": true
+}

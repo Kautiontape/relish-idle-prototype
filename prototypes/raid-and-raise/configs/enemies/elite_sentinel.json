@@ -1,0 +1,11 @@
+{
+  "name": "Elite Sentinel",
+  "stats": { "power": 3, "beef": 4, "speed": 1, "wits": 0, "charm": 0, "dread": 5, "magic": 0, "persistence": 0 },
+  "cadence": 0.8,
+  "base_hp": 40,
+  "base_dmg": 2,
+  "base_speed": 58,
+  "color": "#d84a6a",
+  "elite": true,
+  "boss": false
+}

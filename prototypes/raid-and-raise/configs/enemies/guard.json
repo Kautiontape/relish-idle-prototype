@@ -1,0 +1,11 @@
+{
+  "name": "Guard",
+  "stats": { "power": 2, "beef": 2, "speed": 1, "wits": 0, "charm": 0, "dread": 0, "magic": 0, "persistence": 0 },
+  "cadence": 1.0,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#b05a4a",
+  "elite": false,
+  "boss": false
+}

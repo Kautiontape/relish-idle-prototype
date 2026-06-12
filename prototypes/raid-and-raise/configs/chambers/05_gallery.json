@@ -1,0 +1,12 @@
+{
+  "order": 5,
+  "name": "Gallery of Giants",
+  "door_x": 0.5,
+  "spawns": [
+    { "type": "brute", "count": 3, "zone": [0.2, 0.12, 0.8, 0.4] },
+    { "type": "tomb_rat", "count": 4, "zone": [0.1, 0.3, 0.9, 0.55] },
+    { "type": "cultist_archer", "count": 2, "zone": [0.3, 0.05, 0.7, 0.15] }
+  ],
+  "sarcophagi": [[0.88, 0.25]],
+  "waves": []
+}

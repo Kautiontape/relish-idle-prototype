@@ -1,0 +1,7 @@
+{
+  "room_w": 660,
+  "room_h": 1060,
+  "corridor_w": 220,
+  "corridor_h": 110,
+  "wall_margin": 30
+}

@@ -1,0 +1,56 @@
+{
+  "comment": "Default Phase 1 squad — stands in for the Soul Jar until the Slab exists. One permanent per Jar slot.",
+  "permanents": [
+    {
+      "name": "Bulwark",
+      "husk": "hulk",
+      "remnants": [
+        { "stat": "beef", "magnitude": 4, "rarity": "uncommon", "echoes": [] },
+        { "stat": "beef", "magnitude": 3, "rarity": "uncommon", "echoes": [{ "id": "heavy_blow", "points": 2 }] },
+        { "stat": "power", "magnitude": 2, "rarity": "common", "echoes": [] },
+        { "stat": "speed", "magnitude": 2, "rarity": "common", "echoes": [] }
+      ]
+    },
+    {
+      "name": "Fang",
+      "husk": "lich",
+      "remnants": [
+        { "stat": "wits", "magnitude": 5, "rarity": "rare", "echoes": [{ "id": "vengeful", "points": 2 }] },
+        { "stat": "wits", "magnitude": 3, "rarity": "uncommon", "echoes": [] },
+        { "stat": "speed", "magnitude": 3, "rarity": "common", "echoes": [] },
+        { "stat": "magic", "magnitude": 3, "rarity": "uncommon", "echoes": [] }
+      ]
+    },
+    {
+      "name": "Allure",
+      "husk": "siren",
+      "remnants": [
+        { "stat": "charm", "magnitude": 5, "rarity": "rare", "echoes": [] },
+        { "stat": "charm", "magnitude": 3, "rarity": "uncommon", "echoes": [] },
+        { "stat": "charm", "magnitude": 2, "rarity": "common", "echoes": [{ "id": "volatile", "points": 2 }] },
+        { "stat": "speed", "magnitude": 3, "rarity": "common", "echoes": [] }
+      ]
+    },
+    {
+      "name": "Aegis",
+      "husk": "wraith",
+      "remnants": [
+        { "stat": "dread", "magnitude": 4, "rarity": "uncommon", "echoes": [] },
+        { "stat": "dread", "magnitude": 3, "rarity": "uncommon", "echoes": [] },
+        { "stat": "speed", "magnitude": 3, "rarity": "common", "echoes": [] },
+        { "stat": "persistence", "magnitude": 2, "rarity": "common", "echoes": [] }
+      ]
+    },
+    {
+      "name": "Morrow",
+      "husk": "revenant",
+      "remnants": [
+        { "stat": "power", "magnitude": 4, "rarity": "uncommon", "echoes": [{ "id": "life_drain", "points": 2 }] },
+        { "stat": "power", "magnitude": 3, "rarity": "uncommon", "echoes": [{ "id": "frenzy", "points": 2 }] },
+        { "stat": "charm", "magnitude": 2, "rarity": "common", "echoes": [] },
+        { "stat": "persistence", "magnitude": 5, "rarity": "rare", "echoes": [] },
+        { "stat": "persistence", "magnitude": 3, "rarity": "uncommon", "echoes": [] }
+      ]
+    }
+  ]
+}
