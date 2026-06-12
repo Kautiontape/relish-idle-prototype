@@ -306,6 +306,22 @@ func _test_raid_boot() -> void:
 	check(grew2, "RMB circle raised 2 chaff (have %d, wanted %d)" % [bf.count_kind(chaff_kind), chaff_b4 + 2])
 	check(trance.state == 2 and absf(Engine.time_scale - 1.0) < 0.001, "RMB trance ended → cooldown")
 
+	# Escort: chamber cleared → Relish heads for the door, and idle minions
+	# take point toward that same door instead of trailing her
+	for u in bf.living(enemy_faction):
+		u.take_hit(null, 99999.0)
+	for i in 50:
+		await physics_frame
+	var door_goal: Vector2 = bf.escort_door_goal()
+	check(door_goal != Vector2.INF, "relish heading reveals the next door")
+	check(door_goal.y < bf.relish.global_position.y, "door goal lies ahead of her")
+	var escorting := 0
+	for u in bf.living(player_faction):
+		if u.kind != US.Kind.RELISH and u.cmd == 0 and u._nav_goal != Vector2.INF \
+				and u._nav_goal.distance_to(door_goal) < 220.0:
+			escorting += 1
+	check(escorting >= 4, "%d idle minions taking point to the door" % escorting)
+
 	# Obstacle room: carved navmesh + the lasso-then-drag path grammar
 	main_scene.start_playroom("obstacles")
 	for i in 5:

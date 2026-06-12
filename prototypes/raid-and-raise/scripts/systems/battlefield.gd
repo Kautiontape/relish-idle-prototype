@@ -19,6 +19,7 @@ var relish: RRUnit = null
 var trance_active := false
 var outline := PackedVector2Array()
 var obstacles: Array = []
+var doorways: Array = []  # corridor centers, registered by the raid director
 
 func _ready() -> void:
 	corpses_root = Node2D.new()
@@ -141,6 +142,31 @@ func active_hostiles_near(pos: Vector2, radius: float) -> Array:
 		if u.global_position.distance_to(pos) <= radius:
 			out.append(u)
 	return out
+
+## Escort anticipation (playtest feedback): idle minions don't trail Relish —
+## they move to (and through) the door she LOOKS like she's heading toward,
+## so they enter the next chamber ahead of her. Heading is her live velocity,
+## so backtracking and forks work without any scripting.
+func escort_door_goal() -> Vector2:
+	if relish == null or not is_instance_valid(relish) or not relish.alive or doorways.is_empty():
+		return Vector2.INF
+	var vel := relish.velocity
+	if vel.length() < float(ConfigDb.v("stats", "escort_min_relish_speed_px")):
+		return Vector2.INF
+	var dirn := vel.normalized()
+	var best := Vector2.INF
+	var best_d := INF
+	for d in doorways:
+		var to: Vector2 = d - relish.global_position
+		var dist := to.length()
+		if dist < 60.0 or dist > float(ConfigDb.v("stats", "escort_door_range_px")):
+			continue
+		if dirn.dot(to / dist) < float(ConfigDb.v("stats", "escort_door_cone_dot")):
+			continue
+		if dist < best_d:
+			best_d = dist
+			best = d + dirn * float(ConfigDb.v("stats", "escort_through_px"))
+	return best
 
 func player_minion_centroid() -> Vector2:
 	var sum := Vector2.ZERO

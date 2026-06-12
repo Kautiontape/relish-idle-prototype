@@ -38,10 +38,21 @@ func _ready() -> void:
 	command.battlefield = battlefield
 	add_child(command)
 	_populate()
+	_register_doorways()
 	battlefield.make_camera(_rooms[0]["center"])
 	_spawn_squad()
 	# Deferred so main can connect chamber_changed/boss_engaged after add_child.
 	_activate_chamber.call_deferred(0)
+
+## Corridor centers — the escort system steers idle minions toward whichever
+## of these Relish is heading for.
+func _register_doorways() -> void:
+	var w := float(layout["room_w"])
+	var cw := float(layout["corridor_w"])
+	var ch := float(layout["corridor_h"])
+	for i in range(0, chambers.size() - 1):
+		var cx := clampf(-w / 2.0 + float(chambers[i]["door_x"]) * w, -w / 2.0 + cw / 2.0 + 20.0, w / 2.0 - cw / 2.0 - 20.0)
+		battlefield.doorways.append(Vector2(cx, float(_rooms[i]["top"]) - ch / 2.0))
 
 func handle_input(ev: InputEvent) -> bool:
 	if trance.handle_input(ev):

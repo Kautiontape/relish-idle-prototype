@@ -219,8 +219,12 @@ func _desired_velocity(delta: float) -> Vector2:
 			v = _nav_velocity_to(target.global_position)
 	elif faction == Faction.PLAYER and battlefield != null and battlefield.relish != null:
 		var rel: RRUnit = battlefield.relish
-		if rel.alive and global_position.distance_to(rel.global_position) > float(ConfigDb.v("stats", "follow_relish_distance_px")):
-			v = _nav_velocity_to(rel.global_position)
+		if rel.alive:
+			var door: Vector2 = battlefield.escort_door_goal()
+			if door != Vector2.INF:
+				v = _nav_velocity_to(door)  # take point: through the door ahead of her
+			elif global_position.distance_to(rel.global_position) > float(ConfigDb.v("stats", "follow_relish_distance_px")):
+				v = _nav_velocity_to(rel.global_position)
 	if battlefield != null:
 		v += battlefield.field_bias(self)  # §6: bias, never hard displacement
 	return v
