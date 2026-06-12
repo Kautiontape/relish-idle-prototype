@@ -7,7 +7,7 @@ extends CharacterBody2D
 
 enum Kind { RELISH, PERMANENT, CHAFF, ENEMY }
 enum Faction { PLAYER, ENEMY }
-enum Cmd { NONE, MOVE, HOLD }
+enum Cmd { NONE, MOVE, HOLD, PATH }
 
 signal died(unit: RRUnit)
 
@@ -40,6 +40,9 @@ var battlefield = null               # Battlefield (untyped: avoids cyclic prelo
 var target: RRUnit = null
 var cmd: int = Cmd.NONE
 var cmd_point := Vector2.ZERO
+var cmd_path: Array = []             # lasso-drawn group path (world coords)
+var path_offset := Vector2.ZERO      # per-unit formation offset along the path
+var path_complete := false           # stroke released; finish then hold/drift
 var path_override: Array = []        # Relish drag-path waypoints (world coords)
 var relish_anchor := Vector2.INF     # auto-advance goal (raid director sets)
 var iframes := 0.0
@@ -193,6 +196,8 @@ func _nearest(units: Array) -> RRUnit:
 func _desired_velocity(delta: float) -> Vector2:
 	if kind == Kind.RELISH:
 		return _relish_ai()
+	if cmd == Cmd.PATH:
+		return _follow_cmd_path()  # commands override fields (§5)
 	if cmd == Cmd.MOVE:
 		if global_position.distance_to(cmd_point) < 28.0:
 			cmd = Cmd.HOLD
@@ -362,12 +367,43 @@ func _revive() -> void:
 func reset_chamber_flags() -> void:
 	rose_this_chamber = false
 
-# ---- Orders (coarse only: group-and-point, §8.1) ----
+# ---- Orders (coarse only: group-and-point / group-and-path, §8.1) ----
 
 func order_move(point: Vector2) -> void:
 	cmd = Cmd.MOVE
 	cmd_point = point
+	cmd_path.clear()
 	path_override.clear()
+
+## Lasso-path: the whole selection follows one drawn path (still no per-unit
+## micro). Waypoints stream in live while the player drags.
+func order_path(offset: Vector2) -> void:
+	cmd = Cmd.PATH
+	cmd_path = []
+	path_offset = offset
+	path_complete = false
+
+func append_path_point(p: Vector2) -> void:
+	cmd_path.append(p + path_offset)
+
+func finish_path() -> void:
+	path_complete = true
+
+func cancel_empty_path() -> void:
+	if cmd == Cmd.PATH and cmd_path.is_empty():
+		cmd = Cmd.NONE
+
+func _follow_cmd_path() -> Vector2:
+	if cmd_path.size() > 0:
+		var pt: Vector2 = cmd_path[0]
+		if global_position.distance_to(pt) < 20.0 + radius() * 0.5:
+			cmd_path.pop_front()
+			return Vector2.ZERO
+		return (pt - global_position).normalized() * max_speed()
+	if path_complete:
+		cmd = Cmd.HOLD  # arrived: high Wits holds, low Wits drifts (§5)
+		_drift_t = float(ConfigDb.v("stats", "low_wits_drift_delay_s"))
+	return Vector2.ZERO
 
 # ---- Visuals: ugly is correct; size must be SEEN (Beef scales the body) ----
 

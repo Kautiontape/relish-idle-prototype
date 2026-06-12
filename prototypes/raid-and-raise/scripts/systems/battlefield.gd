@@ -18,6 +18,7 @@ var overlay: TranceOverlay
 var relish: RRUnit = null
 var trance_active := false
 var outline := PackedVector2Array()
+var obstacles: Array = []
 
 func _ready() -> void:
 	corpses_root = Node2D.new()
@@ -34,21 +35,28 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0  # never leave a dead battlefield's trance dilation behind
 
-## walkable: a single simple polygon (rooms ∪ corridors). Walls are the same
-## outline as segment collision; nav is baked with agent-radius erosion.
-func build_arena(walkable: PackedVector2Array) -> void:
+## walkable: a single simple polygon (rooms ∪ corridors). obstacles: interior
+## polygons carved out of the navmesh (pillars, bars — the obstacle course).
+## Walls and obstacles double as segment collision; nav bakes with
+## agent-radius erosion so doorways/gaps stay generous (§13.3).
+func build_arena(walkable: PackedVector2Array, obstacle_polys: Array = []) -> void:
 	outline = walkable
+	obstacles = obstacle_polys
 	nav_region = NavigationRegion2D.new()
 	add_child(nav_region)
 	var np := NavigationPolygon.new()
 	np.agent_radius = float(ConfigDb.v("stats", "unit_radius_px")) + 2.0
 	var src := NavigationMeshSourceGeometryData2D.new()
 	src.add_traversable_outline(walkable)
+	for ob in obstacles:
+		src.add_obstruction_outline(ob)
 	NavigationServer2D.bake_from_source_geometry_data(np, src)
 	if np.get_polygon_count() == 0:
-		# Fallback path if baking is unavailable: triangulate the raw outline.
+		# Fallback path if baking is unavailable: triangulate the raw outlines.
 		np = NavigationPolygon.new()
 		np.add_outline(walkable)
+		for ob in obstacles:
+			np.add_outline(ob)
 		np.make_polygons_from_outlines()
 	nav_region.navigation_polygon = np
 
@@ -58,6 +66,11 @@ func build_arena(walkable: PackedVector2Array) -> void:
 	poly.build_mode = CollisionPolygon2D.BUILD_SEGMENTS
 	poly.polygon = walkable
 	walls.add_child(poly)
+	for ob in obstacles:
+		var op := CollisionPolygon2D.new()
+		op.build_mode = CollisionPolygon2D.BUILD_SEGMENTS
+		op.polygon = ob
+		walls.add_child(op)
 	add_child(walls)
 	queue_redraw()
 
@@ -333,3 +346,8 @@ func _draw() -> void:
 	var closed := outline.duplicate()
 	closed.append(outline[0])
 	draw_polyline(closed, Color(0.24, 0.23, 0.28), 5.0)
+	for ob in obstacles:
+		draw_colored_polygon(ob, Color(0.2, 0.19, 0.24))
+		var obc: PackedVector2Array = ob.duplicate()
+		obc.append(ob[0])
+		draw_polyline(obc, Color(0.32, 0.3, 0.38), 4.0)

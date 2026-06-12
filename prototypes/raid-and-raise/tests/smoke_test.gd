@@ -268,6 +268,73 @@ func _test_raid_boot() -> void:
 	for i in 240:
 		await physics_frame
 	check(true, "240 physics frames of live combat without crashing")
+
+	# RMB trance: right-mouse drag = hold + trace, through the real input routing
+	trance.state = 0  # force READY (skip cooldown)
+	trance.cooldown_left = 0.0
+	var spot2: Vector2 = bf.relish.global_position + Vector2(110, -50)
+	bf.spawn_essence(spot2, 2)
+	await physics_frame
+	var ct := bf.get_viewport().get_canvas_transform()
+	var chaff_b4: int = bf.count_kind(chaff_kind)
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_RIGHT
+	down.pressed = true
+	down.position = ct * (spot2 + Vector2(75, 0))
+	main_scene._unhandled_input(down)
+	check(trance.state == 1, "RMB press enters trance")
+	for i in range(1, 33):
+		var mm := InputEventMouseMotion.new()
+		mm.position = ct * (spot2 + Vector2(75, 0).rotated(TAU * i / 32.0))
+		main_scene._unhandled_input(mm)
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_RIGHT
+	up.pressed = false
+	up.position = down.position
+	main_scene._unhandled_input(up)
+	check(gs.trance_summons == 2, "RMB release summoned (summons=%d)" % gs.trance_summons)
+	check(bf.count_kind(chaff_kind) == chaff_b4 + 2, "RMB circle raised 2 chaff")
+	check(trance.state == 2 and absf(Engine.time_scale - 1.0) < 0.001, "RMB trance ended → cooldown")
+
+	# Obstacle room: carved navmesh + the lasso-then-drag path grammar
+	main_scene.start_playroom("obstacles")
+	for i in 5:
+		await physics_frame
+	var bf2: Node2D = main_scene.mode.battlefield
+	check(bf2.nav_region.navigation_polygon.get_polygon_count() >= 8,
+		"obstacle navmesh carved (%d polys)" % bf2.nav_region.navigation_polygon.get_polygon_count())
+	check(bf2.obstacles.size() == 5, "5 obstacles drawn")
+	var cc: Node = main_scene.mode.command
+	var c2: Vector2 = bf2.player_minion_centroid()
+	cc._press(c2 + Vector2(170, 0))
+	for i in range(1, 37):
+		cc._move(c2 + Vector2(170, 0).rotated(TAU * i / 36.0))
+	check(cc.selection.size() >= 5, "mid-stroke lasso selected the squad (%d)" % cc.selection.size())
+	check(cc._mode == 1, "stroke flipped to PATH mode")  # Mode.PATH
+	for i in range(1, 7):
+		cc._move(c2 + Vector2(170, -40.0 * i))
+	cc._release()
+	var pathing := 0
+	for u in bf2.living(player_faction):
+		if u.cmd == 3 and u.cmd_path.size() > 0:  # Cmd.PATH
+			pathing += 1
+	check(pathing >= 5, "squad follows the drawn path (%d units)" % pathing)
+	check(gs.command_touches == 1, "lasso+path = ONE command touch")
+	for i in 60:
+		await physics_frame
+	# Esc clears a fresh selection
+	var lasso2 := PackedVector2Array()
+	for i in 20:
+		lasso2.append(c2 + Vector2(220, 0).rotated(TAU * i / 20.0))
+	cc._stroke = lasso2
+	cc._handle_lasso()
+	check(cc.selection.size() > 0, "release-lasso still selects")
+	var esc := InputEventKey.new()
+	esc.keycode = KEY_ESCAPE
+	esc.pressed = true
+	cc.handle_input(esc)
+	check(cc.selection.is_empty(), "Esc clears the selection")
+
 	main_scene.show_menu()
 	await process_frame
 	main_scene.queue_free()

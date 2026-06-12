@@ -9,6 +9,7 @@ const PLAYROOM_NAMES := [
 	["targeting", "Targeting — wits vs proximity×size"],
 	["sacrifice", "Sacrifice — the chain that guards Relish"],
 	["command", "Command — lasso, tap, hold vs drift"],
+	["obstacles", "Obstacle Course — pathing & lasso-paths"],
 ]
 
 const PLAYROOM_SCRIPTS := {
@@ -17,6 +18,7 @@ const PLAYROOM_SCRIPTS := {
 	"targeting": preload("res://scripts/playrooms/room_targeting.gd"),
 	"sacrifice": preload("res://scripts/playrooms/room_sacrifice.gd"),
 	"command": preload("res://scripts/playrooms/room_command.gd"),
+	"obstacles": preload("res://scripts/playrooms/room_obstacles.gd"),
 }
 
 var world: Node2D
@@ -113,7 +115,12 @@ func _unhandled_input(ev: InputEvent) -> void:
 			debug_spawn(place_spawn["id"], place_spawn["count"], bf.screen_to_world(ev.position))
 			place_spawn = null
 			return
-	if ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventKey:
+	# Raw mouse events must flow too: touch emulation only covers the LEFT
+	# button, and the right-mouse trance binding lives on raw mouse events.
+	if ev is InputEventMouseButton and ev.pressed and _point_on_ui(ev.position):
+		return
+	if ev is InputEventScreenTouch or ev is InputEventScreenDrag or ev is InputEventKey \
+			or ev is InputEventMouseButton or ev is InputEventMouseMotion:
 		mode.handle_input(ev)
 
 func _point_on_ui(p: Vector2) -> bool:

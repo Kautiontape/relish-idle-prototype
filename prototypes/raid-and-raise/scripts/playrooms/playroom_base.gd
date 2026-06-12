@@ -23,7 +23,7 @@ func _ready() -> void:
 	battlefield.build_arena(PackedVector2Array([
 		Vector2(-ROOM_W / 2, 0), Vector2(ROOM_W / 2, 0),
 		Vector2(ROOM_W / 2, -ROOM_H), Vector2(-ROOM_W / 2, -ROOM_H),
-	]))
+	]), _obstacles())
 	battlefield.make_camera(Vector2(0, -ROOM_H / 2))
 	trance = TranceController.new()
 	trance.battlefield = battlefield
@@ -39,6 +39,9 @@ func _exit_tree() -> void:
 
 func _setup() -> void:
 	pass  # rooms override
+
+func _obstacles() -> Array:
+	return []  # rooms override: interior polygons carved from the navmesh
 
 func room_point(nx: float, ny: float) -> Vector2:
 	return Vector2(-ROOM_W / 2 + nx * ROOM_W, -ROOM_H + ny * ROOM_H)

@@ -49,7 +49,8 @@ Mutations · essence-typed spell-casting · remnant reroll · Anima-hollow ascen
 - **Magic units are pure ranged attackers** (bolt replaces melee) — keeps "bolts flying" watchable.
 - **Sacrifice is global-nearest** (soul link), not radius-limited; a red fx line makes the chain legible.
 - **Enemy statlines, chamber layouts, boss adds waves** — authored to the doc's archetype list and counts.
-- **Playroom roster**: trance gym, force field, targeting, sacrifice, command (user asked for the concept + magnetism example; rest are my picks for the riskiest mechanics).
+- **Playroom roster**: trance gym, force field, targeting, sacrifice, command, obstacle course (user asked for the concept + the magnetism and obstacle rooms; rest are my picks for the riskiest mechanics).
+- **Lasso-path grammar** (user-directed, playtest): close the lasso and keep dragging — the loop selects mid-stroke, the rest of the stroke streams live as the group's path; with an active selection a new drag is also a path. Still group-level (one path for the whole selection), so the §14 "no micro beyond group-and-point" ban is stretched to group-and-path on the design owner's call. Esc clears selection; expiry raised 2s→4s (`timers.json`) on playtest feedback.
 - **No audio** (heartbeat/muffle earmarked with polish); trance mode-state is carried visually (dim overlay, essence ignite, trace color).
 
 ## Known tensions in the doc (resolved, not hidden)
