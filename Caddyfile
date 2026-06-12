@@ -84,6 +84,14 @@
 		reverse_proxy raid-and-raise:80
 	}
 
+	# Read-only wake/sleep status for the landing page. Rewrites to one fixed,
+	# label-filtered Docker query — inspecting never wakes a container, and no
+	# other Docker API path is reachable through this route.
+	handle /api/status {
+		rewrite * "/containers/json?all=true&filters=%7B%22label%22%3A%5B%22sablier.enable%3Dtrue%22%5D%7D"
+		reverse_proxy socket-proxy:2375
+	}
+
 	# Landing hub — served directly by Caddy (always instant, no container)
 	handle {
 		root * /srv/landing

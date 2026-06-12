@@ -284,6 +284,12 @@
     }
 
     .tag-status {
+      background: #8888a018;
+      color: var(--text-dim);
+      border-color: #8888a040;
+    }
+
+    .tag-status.tag-awake {
       background: var(--green-dim);
       color: var(--green);
       border-color: var(--green-mid);
@@ -376,7 +382,7 @@
         <div class="proto-meta">
           <span class="tag tag-tech">Vite + Canvas</span>
           <span class="tag tag-tech">TypeScript</span>
-          <span class="tag tag-status">live</span>
+          <span class="tag tag-status" data-proto="casting">&hellip;</span>
         </div>
       </a>
 
@@ -396,6 +402,7 @@
           <span class="tag tag-tech">PixiJS + WebGL</span>
           <span class="tag tag-tech">TypeScript</span>
           <span class="tag tag-wip">new</span>
+          <span class="tag tag-status" data-proto="horde-scale">&hellip;</span>
         </div>
       </a>
 
@@ -415,6 +422,7 @@
           <span class="tag tag-tech">Vite + Canvas</span>
           <span class="tag tag-tech">TypeScript</span>
           <span class="tag tag-wip">new</span>
+          <span class="tag tag-status" data-proto="quest-loop">&hellip;</span>
         </div>
       </a>
 
@@ -434,6 +442,7 @@
           <span class="tag tag-tech">PixiJS + WebGL</span>
           <span class="tag tag-tech">TypeScript</span>
           <span class="tag tag-wip">new</span>
+          <span class="tag tag-status" data-proto="essence-casting">&hellip;</span>
         </div>
       </a>
 
@@ -453,6 +462,7 @@
           <span class="tag tag-tech">Godot 4 + WebGL</span>
           <span class="tag tag-tech">GDScript</span>
           <span class="tag tag-wip">new</span>
+          <span class="tag tag-status" data-proto="raid-and-raise">&hellip;</span>
         </div>
       </a>
 
@@ -462,5 +472,35 @@
       <p>kautiontape.com &middot; relish.kautiontape.com</p>
     </footer>
   </div>
+
+  <script>
+    // Polls /api/status (a read-only, label-filtered Docker container listing
+    // proxied by Caddy) and maps each container's sablier.group label onto a
+    // card's status tag. Inspecting never wakes a container.
+    async function refreshStatus() {
+      let containers;
+      try {
+        const res = await fetch('/api/status');
+        containers = await res.json();
+      } catch {
+        return; // transient failure — keep whatever is shown
+      }
+      const awakeByProto = {};
+      for (const c of containers) {
+        const group = (c.Labels || {})['sablier.group'];
+        if (group) awakeByProto[group.replace(/^relish-/, '')] = c.State === 'running';
+      }
+      for (const tag of document.querySelectorAll('.tag-status[data-proto]')) {
+        const awake = awakeByProto[tag.dataset.proto];
+        if (awake === undefined) continue;
+        tag.textContent = awake ? 'awake' : 'asleep';
+        tag.classList.toggle('tag-awake', awake);
+        tag.title = awake ? 'container is running'
+                          : 'scaled to zero — wakes on first visit';
+      }
+    }
+    refreshStatus();
+    setInterval(refreshStatus, 10000);
+  </script>
 </body>
 </html>
