@@ -144,9 +144,7 @@ func _finish_trace() -> void:
 		var mult := CircleScorer.multiplier(g["score"])
 		for e in battlefield.essence_list():
 			if e.global_position.distance_to(g["center"]) <= g["radius"]:
-				var chaff := EntityFactory.make_chaff(mult)
-				battlefield.spawn_unit(chaff, e.global_position)
-				e.consume()
+				e.absorb(mult)  # flies to Relish; the chaff grows from her side
 				summoned += 1
 	GameState.add_summon(int(g["score"]), summoned)
 	_complete()

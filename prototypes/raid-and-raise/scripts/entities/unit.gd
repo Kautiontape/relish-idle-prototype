@@ -47,6 +47,7 @@ var path_override: Array = []        # Relish drag-path waypoints (world coords)
 var relish_anchor := Vector2.INF     # auto-advance goal (raid director sets)
 var iframes := 0.0
 
+var grow_scale := 1.0               # rrawwwwr: summoned chaff grow in (visual only)
 var nav: NavigationAgent2D
 var _shape: CollisionShape2D
 var _attack_cd := 0.0
@@ -393,6 +394,20 @@ func cancel_empty_path() -> void:
 	if cmd == Cmd.PATH and cmd_path.is_empty():
 		cmd = Cmd.NONE
 
+func cancel_path() -> void:
+	if cmd == Cmd.PATH:
+		cmd = Cmd.NONE
+		cmd_path.clear()
+
+## Summon entrance: scale up from nothing with an overshoot (TRANS_BACK).
+## Visual only — radius() for combat/physics is unaffected.
+func grow_in(duration: float) -> void:
+	grow_scale = 0.05
+	_attack_cd = maxf(_attack_cd, duration)
+	var tw := create_tween()
+	tw.tween_property(self, "grow_scale", 1.0, duration) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
 func _follow_cmd_path() -> Vector2:
 	if cmd_path.size() > 0:
 		var pt: Vector2 = cmd_path[0]
@@ -408,7 +423,7 @@ func _follow_cmd_path() -> Vector2:
 # ---- Visuals: ugly is correct; size must be SEEN (Beef scales the body) ----
 
 func _draw() -> void:
-	var r := radius()
+	var r := radius() * grow_scale
 	var body := color if alive else color.darkened(0.6)
 	if rising:
 		return

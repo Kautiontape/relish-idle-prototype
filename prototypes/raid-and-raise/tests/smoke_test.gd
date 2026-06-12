@@ -48,6 +48,13 @@ func _ensure_autoloads() -> void:
 	gs = root.get_node(^"GameState")
 	factory = root.get_node(^"EntityFactory")
 
+func _wait_for_chaff(bf: Node2D, chaff_kind: int, target: int, max_frames: int) -> bool:
+	for i in max_frames:
+		if bf.count_kind(chaff_kind) >= target:
+			return true
+		await physics_frame
+	return bf.count_kind(chaff_kind) >= target
+
 func check(cond: bool, label: String) -> void:
 	if cond:
 		print("  ok  %s" % label)
@@ -228,7 +235,9 @@ func _test_raid_boot() -> void:
 	trance._finish_trace()
 	check(gs.trance_summons == 1, "summon counted")
 	check(gs.circle_scores.size() == 1 and gs.circle_scores[0] >= 85, "clean circle scored high (%d)" % gs.circle_scores[0])
-	check(bf.count_kind(chaff_kind) == 3, "3 essence → 3 chaff (got %d)" % bf.count_kind(chaff_kind))
+	# Essence flies to Relish first (fwwwwooomp), then the chaff grows beside her.
+	var grew := await _wait_for_chaff(bf, chaff_kind, 3, 240)
+	check(grew, "3 essence absorbed → 3 chaff grew beside Relish (got %d)" % bf.count_kind(chaff_kind))
 	check(trance.state == 2, "summon ends trance → cooldown")  # State.COOLDOWN
 	check(absf(Engine.time_scale - 1.0) < 0.001, "time scale restored")
 
@@ -293,7 +302,8 @@ func _test_raid_boot() -> void:
 	up.position = down.position
 	main_scene._unhandled_input(up)
 	check(gs.trance_summons == 2, "RMB release summoned (summons=%d)" % gs.trance_summons)
-	check(bf.count_kind(chaff_kind) == chaff_b4 + 2, "RMB circle raised 2 chaff")
+	var grew2 := await _wait_for_chaff(bf, chaff_kind, chaff_b4 + 2, 240)
+	check(grew2, "RMB circle raised 2 chaff (have %d, wanted %d)" % [bf.count_kind(chaff_kind), chaff_b4 + 2])
 	check(trance.state == 2 and absf(Engine.time_scale - 1.0) < 0.001, "RMB trance ended → cooldown")
 
 	# Obstacle room: carved navmesh + the lasso-then-drag path grammar
@@ -311,8 +321,11 @@ func _test_raid_boot() -> void:
 		cc._move(c2 + Vector2(170, 0).rotated(TAU * i / 36.0))
 	check(cc.selection.size() >= 5, "mid-stroke lasso selected the squad (%d)" % cc.selection.size())
 	check(cc._mode == 1, "stroke flipped to PATH mode")  # Mode.PATH
-	for i in range(1, 7):
+	cc._move(c2 + Vector2(170, -40.0))
+	check(not cc._path_begun, "path waits until the drag pulls away from the loop")
+	for i in range(2, 7):
 		cc._move(c2 + Vector2(170, -40.0 * i))
+	check(cc._path_begun, "path begins past the pull-away threshold")
 	cc._release()
 	var pathing := 0
 	for u in bf2.living(player_faction):
@@ -334,6 +347,43 @@ func _test_raid_boot() -> void:
 	esc.pressed = true
 	cc.handle_input(esc)
 	check(cc.selection.is_empty(), "Esc clears the selection")
+
+	# Fresh room: seal-anywhere lasso (stroke crosses ITSELF, not at its start)
+	main_scene.start_playroom("obstacles")
+	for i in 5:
+		await physics_frame
+	var bf3: Node2D = main_scene.mode.battlefield
+	var cc3: Node = main_scene.mode.command
+	var c3: Vector2 = bf3.player_minion_centroid()
+	var rho := [Vector2(250, 250), Vector2(200, 200), Vector2(150, 150),
+		Vector2(-15, 150), Vector2(-180, 150), Vector2(-180, 0), Vector2(-180, -180),
+		Vector2(0, -180), Vector2(180, -180), Vector2(180, 25), Vector2(180, 230)]
+	cc3._press(c3 + rho[0])
+	for i in range(1, rho.size()):
+		cc3._move(c3 + rho[i])
+	check(cc3.selection.size() >= 4, "self-crossing loop sealed away from its start (%d selected)" % cc3.selection.size())
+	cc3._move(c3 + Vector2(180, 330))
+	cc3._move(c3 + Vector2(180, 420))
+	cc3._move(c3 + Vector2(180, 500))
+	cc3._release()
+	var pathing3 := 0
+	for u in bf3.living(player_faction):
+		if u.cmd == 3:  # Cmd.PATH
+			pathing3 += 1
+	check(pathing3 >= 4, "rho-lasso squad follows the tail (%d)" % pathing3)
+	# Tap on Relish clears a selection; then a ground tap moves HER again
+	var lasso3 := PackedVector2Array()
+	for i in 20:
+		lasso3.append(c3 + Vector2(260, 0).rotated(TAU * i / 20.0))
+	cc3._stroke = lasso3
+	cc3._handle_lasso()
+	check(cc3.selection.size() > 0, "re-lassoed for the relish-tap test")
+	cc3._press(bf3.relish.global_position)
+	cc3._release()
+	check(cc3.selection.is_empty(), "tapping Relish clears the selection")
+	cc3._press(bf3.relish.global_position + Vector2(0, -200))
+	cc3._release()
+	check(bf3.relish.cmd == 1, "ground tap moves Relish after commands")  # Cmd.MOVE
 
 	main_scene.show_menu()
 	await process_frame

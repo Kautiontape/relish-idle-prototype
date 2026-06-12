@@ -21,6 +21,8 @@ var _touch_index := -1
 var _mode: int = Mode.CLASSIFY
 var _path_streamed := 0        # waypoints sent to the selection this stroke
 var _path_from_lasso := false  # PATH began with a mid-stroke lasso (vs pre-selection)
+var _path_begun := false       # streaming starts once the drag leaves the loop
+var _closure_pt := Vector2.ZERO
 var _last_path_pt := Vector2.ZERO
 var _line: Line2D = null
 
@@ -56,15 +58,17 @@ func _press(w: Vector2) -> void:
 	_stroke = PackedVector2Array([w])
 	_path_streamed = 0
 	_path_from_lasso = false
+	_path_begun = false
 	_make_line()
 	if battlefield.relish != null and battlefield.relish.alive \
-			and w.distance_to(battlefield.relish.global_position) < battlefield.relish.radius() + 22.0:
+			and w.distance_to(battlefield.relish.global_position) < battlefield.relish.radius() + 34.0:
 		_mode = Mode.RELISH
 		battlefield.relish.path_override.clear()
 		battlefield.relish.cmd = RRUnit.Cmd.NONE
 		_last_path_pt = w
 	elif _live_selection().size() > 0:
 		_mode = Mode.PATH  # active selection: this stroke is their path
+		_path_begun = true
 		_begin_path(w)
 	else:
 		_mode = Mode.CLASSIFY
@@ -81,7 +85,12 @@ func _move(w: Vector2) -> void:
 				battlefield.relish.path_override.append(w)  # she follows as you draw
 				_last_path_pt = w
 		Mode.PATH:
-			if w.distance_to(_last_path_pt) > 14.0:
+			if not _path_begun:
+				# They only break formation once the drag pulls AWAY from the loop.
+				if w.distance_to(_closure_pt) >= float(ConfigDb.v("circle", "path_start_px")):
+					_path_begun = true
+					_begin_path(w)
+			elif w.distance_to(_last_path_pt) > 14.0:
 				for u in _live_selection():
 					u.append_path_point(w)  # they follow as you draw
 				_path_streamed += 1
@@ -100,6 +109,8 @@ func _release() -> void:
 		Mode.RELISH:
 			if length > tap_max:
 				GameState.add_command_touch()  # drag-her-path command
+			else:
+				clear_selection()  # tapping the conduit resets the grammar
 		Mode.PATH:
 			if _path_streamed == 0:
 				# Loop closed (or selection grabbed) but no path drawn.
@@ -129,24 +140,43 @@ func _abort_stroke() -> void:
 	_kill_line()
 	if _mode == Mode.PATH:
 		for u in _live_selection():
-			u.cancel_empty_path()
+			u.cancel_path()
 	_stroke = PackedVector2Array()
 	_mode = Mode.CLASSIFY
 	_touch_index = -1
 
 # ---- The neat part: the lasso that becomes a path, one unbroken stroke ----
+## A loop counts as sealed wherever the stroke crosses ITSELF — no need to
+## return to the starting point (playtest feedback).
 
 func _try_mid_stroke_lasso(w: Vector2) -> void:
-	if _stroke_length() < 160.0 or w.distance_to(_stroke[0]) > 45.0:
+	var n := _stroke.size()
+	if n < 8:
 		return
-	var picked := _units_in_polygon(_stroke)
+	var loop := PackedVector2Array()
+	if w.distance_to(_stroke[0]) <= 45.0:
+		loop = _stroke  # came back to the start — classic closure
+	else:
+		var a1 := _stroke[n - 2]
+		var a2 := _stroke[n - 1]
+		for i in range(0, n - 4):  # newest segment vs every earlier segment
+			var hit: Variant = Geometry2D.segment_intersects_segment(a1, a2, _stroke[i], _stroke[i + 1])
+			if hit != null:
+				loop = PackedVector2Array([hit])
+				for j in range(i + 1, n):
+					loop.append(_stroke[j])
+				break
+	if loop.size() < 3 or _polyline_length(loop) < float(ConfigDb.v("circle", "lasso_min_loop_px")):
+		return
+	var picked := _units_in_polygon(loop)
 	if picked.is_empty():
 		return
 	_set_selection(picked)
 	GameState.add_command_touch()
 	_mode = Mode.PATH
 	_path_from_lasso = true
-	_begin_path(w)
+	_path_begun = false  # path starts once the drag leaves the loop (path_start_px)
+	_closure_pt = w
 	if _line != null:
 		_line.default_color = Color(0.5, 1.0, 0.6, 0.85)  # visible mode flip: lasso → path
 
@@ -223,9 +253,12 @@ func _formation_offset(i: int, n: int) -> Vector2:
 	return Vector2(34.0 * ring, 0).rotated(TAU * slot / 6.0 + ring * 0.5)
 
 func _stroke_length() -> float:
+	return _polyline_length(_stroke)
+
+func _polyline_length(pts: PackedVector2Array) -> float:
 	var length := 0.0
-	for i in range(1, _stroke.size()):
-		length += _stroke[i].distance_to(_stroke[i - 1])
+	for i in range(1, pts.size()):
+		length += pts[i].distance_to(pts[i - 1])
 	return length
 
 func _make_line() -> void:

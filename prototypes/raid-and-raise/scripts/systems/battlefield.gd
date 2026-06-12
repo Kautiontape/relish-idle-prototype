@@ -295,6 +295,16 @@ func spawn_essence(pos: Vector2, n: int) -> void:
 		e.position = pos + Vector2(rng.randf_range(-12, 12), rng.randf_range(-12, 12))
 		add_child(e)
 
+## Summon landing: the chaff grows out of the ground beside Relish.
+func spawn_chaff_grown(mult: float) -> void:
+	if relish == null or not is_instance_valid(relish) or not relish.alive:
+		return
+	var ring := float(ConfigDb.v("circle", "grow_ring_px"))
+	var pos := relish.global_position + Vector2(ring, 0).rotated(rng.randf_range(0, TAU))
+	var u := EntityFactory.make_chaff(mult)
+	spawn_unit(u, pos)
+	u.grow_in(float(ConfigDb.v("circle", "grow_time_s")))
+
 func essence_list() -> Array:
 	var out: Array = []
 	for e in get_tree().get_nodes_in_group("rr_essence"):

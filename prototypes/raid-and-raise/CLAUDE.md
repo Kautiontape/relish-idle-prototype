@@ -51,6 +51,10 @@ Mutations · essence-typed spell-casting · remnant reroll · Anima-hollow ascen
 - **Enemy statlines, chamber layouts, boss adds waves** — authored to the doc's archetype list and counts.
 - **Playroom roster**: trance gym, force field, targeting, sacrifice, command, obstacle course (user asked for the concept + the magnetism and obstacle rooms; rest are my picks for the riskiest mechanics).
 - **Lasso-path grammar** (user-directed, playtest): close the lasso and keep dragging — the loop selects mid-stroke, the rest of the stroke streams live as the group's path; with an active selection a new drag is also a path. Still group-level (one path for the whole selection), so the §14 "no micro beyond group-and-point" ban is stretched to group-and-path on the design owner's call. Esc clears selection; expiry raised 2s→4s (`timers.json`) on playtest feedback.
+  - A loop seals wherever the stroke crosses ITSELF (self-intersection), not only back at its start.
+  - The group starts following only once the drag pulls `path_start_px` away from the loop (no twitching while you finish the circle).
+  - Tapping Relish clears the selection (resets the grammar); her drag-grab radius is generous (+34px).
+- **Summon presentation** (user-directed): enclosed essence is pulled into Relish with accelerating speed (fwwwwooomp), then each chaff grows out of the ground beside her with a TRANS_BACK overshoot (rrawwwwr). Spawn point moved from the essence position to a ring around Relish (`circle.json: grow_ring_px`) — flagged: this changes where chaff enter the fight.
 - **No audio** (heartbeat/muffle earmarked with polish); trance mode-state is carried visually (dim overlay, essence ignite, trace color).
 
 ## Known tensions in the doc (resolved, not hidden)

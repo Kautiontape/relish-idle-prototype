@@ -27,8 +27,13 @@ func _ready() -> void:
 	add_child(toggle)
 
 	panel = PanelContainer.new()
-	panel.position = Vector2(8, 52)
-	panel.custom_minimum_size = Vector2(372, 900)
+	# Anchored to the viewport's full height — adapts to any screen/aspect
+	# instead of assuming the 1280 base fits.
+	panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	panel.offset_left = 8.0
+	panel.offset_right = 380.0
+	panel.offset_top = 52.0
+	panel.offset_bottom = -8.0
 	panel.visible = false
 	panel.add_to_group("rr_ui_block")
 	panel.self_modulate = Color(1, 1, 1, 0.96)

@@ -9,6 +9,9 @@ var life := 12.0
 var _pop := Vector2.ZERO
 var _t := 0.0
 var infinite := false  # playroom gyms keep essence alive
+var _absorbing := false
+var _mult := 1.0
+var _absorb_speed := 0.0
 
 func _ready() -> void:
 	life = float(ConfigDb.v("timers", "essence_lifetime_s"))
@@ -18,6 +21,10 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _absorbing:
+		_absorb_step(delta)
+		queue_redraw()
+		return
 	position += _pop * delta
 	_pop = _pop.move_toward(Vector2.ZERO, 180.0 * delta)
 	if not infinite:
@@ -27,6 +34,25 @@ func _process(delta: float) -> void:
 			return
 	queue_redraw()
 
+## Summoned: fwwwwooomp — an accelerating pull into Relish; the chaff grows
+## out of her side when it lands (battlefield.spawn_chaff_grown).
+func absorb(mult: float) -> void:
+	_absorbing = true
+	_mult = mult
+	_absorb_speed = float(ConfigDb.v("circle", "absorb_start_speed_px"))
+	remove_from_group("rr_essence")  # no longer summonable by another circle
+
+func _absorb_step(delta: float) -> void:
+	var rel = battlefield.relish if battlefield != null else null
+	if rel == null or not is_instance_valid(rel) or not rel.alive:
+		queue_free()
+		return
+	_absorb_speed += float(ConfigDb.v("circle", "absorb_accel_px")) * delta
+	global_position = global_position.move_toward(rel.global_position, _absorb_speed * delta)
+	if global_position.distance_to(rel.global_position) <= rel.radius() + 6.0:
+		battlefield.spawn_chaff_grown(_mult)
+		queue_free()
+
 func consume() -> void:
 	queue_free()
 
@@ -35,6 +61,16 @@ func _draw() -> void:
 	var pulse := 0.75 + 0.25 * sin(_t * 6.0)
 	var col := Color(0.49, 0.89, 0.63)
 	var r := 5.0
+	if _absorbing:
+		# streaking toward Relish: bright core + a motion tail
+		col = Color(0.7, 1.0, 0.85)
+		var rel = battlefield.relish if battlefield != null else null
+		if rel != null and is_instance_valid(rel):
+			var dir := (to_local(rel.global_position)).normalized()
+			draw_line(-dir * (8.0 + _absorb_speed * 0.04), Vector2.ZERO, Color(col.r, col.g, col.b, 0.5), 3.0)
+		draw_circle(Vector2.ZERO, 6.5, col)
+		draw_circle(Vector2.ZERO, 3.0, Color(1, 1, 1, 0.9))
+		return
 	if trance:
 		col = Color(0.6, 1.0, 0.75)
 		r = 7.0 + 2.0 * pulse
