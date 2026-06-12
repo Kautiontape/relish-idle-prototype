@@ -194,8 +194,10 @@ func _handle_tap(point: Vector2) -> void:
 			s.try_open(battlefield)
 			return  # opening a sarcophagus is not a command touch
 	if _live_selection().size() > 0:
+		battlefield.spawn_ping(point, Color(1.0, 0.9, 0.3))  # group confirm
 		_send_selection_to(point)
 	elif battlefield.relish != null and battlefield.relish.alive:
+		battlefield.spawn_ping(point, Color(0.78, 0.6, 0.95))  # her confirm
 		battlefield.relish.order_move(point)
 		GameState.add_command_touch()
 

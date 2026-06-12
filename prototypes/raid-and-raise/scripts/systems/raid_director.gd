@@ -148,7 +148,10 @@ func _activate_chamber(i: int) -> void:
 	for u in battlefield.living(RRUnit.Faction.PLAYER):
 		u.reset_chamber_flags()  # Persistence: once per CHAMBER (§11)
 	if battlefield.relish != null:
-		battlefield.relish.relish_anchor = _rooms[i]["center"]
+		# The anchor only pulls her through corridors. Once she's inside the
+		# chamber it releases — otherwise she'd wander to the room center
+		# after every fight or finished command.
+		battlefield.relish.relish_anchor = Vector2.INF
 	chamber_changed.emit(i, chambers[i]["name"], chambers.size())
 	if chambers[i].get("climax", false) and boss != null:
 		boss_engaged.emit(boss)

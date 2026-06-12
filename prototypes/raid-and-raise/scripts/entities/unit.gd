@@ -484,6 +484,17 @@ func _draw() -> void:
 		draw_polyline(PackedVector2Array([Vector2(-6, -r - 4), Vector2(0, -r - 12), Vector2(6, -r - 4)]), Color(0.85, 0.7, 1.0), 2.0)
 		if iframes > 0.0:
 			draw_arc(Vector2.ZERO, r + 6.0, 0, TAU, 32, Color(1, 1, 1, 0.7), 2.0)
+		# Pending route ghost: faint grey, consumed as she walks it
+		if alive and path_override.size() > 0:
+			var ghost := PackedVector2Array([Vector2.ZERO])
+			for p in path_override:
+				ghost.append(to_local(p))
+			draw_polyline(ghost, Color(0.82, 0.82, 0.88, 0.28), 3.0)
+			draw_circle(ghost[ghost.size() - 1], 5.0, Color(0.82, 0.82, 0.88, 0.4))
+		elif alive and cmd == Cmd.MOVE:
+			var lp := to_local(cmd_point)
+			draw_circle(lp, 4.5, Color(0.82, 0.82, 0.88, 0.35))
+			draw_arc(lp, 9.0, 0, TAU, 16, Color(0.82, 0.82, 0.88, 0.3), 1.5)
 	if is_elite:
 		draw_arc(Vector2.ZERO, r + 4.0, 0, TAU, 32, Color(1.0, 0.85, 0.3), 2.0)
 	if is_boss:

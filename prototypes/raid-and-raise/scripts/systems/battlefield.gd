@@ -348,6 +348,12 @@ func spawn_bolt(src: RRUnit, dst: RRUnit) -> void:
 	b.position = src.global_position
 	fx_root.add_child(b)
 
+func spawn_ping(pos: Vector2, color: Color) -> void:
+	var p := FxPing.new()
+	p.color = color
+	p.position = pos
+	fx_root.add_child(p)
+
 func spawn_ding(pos: Vector2, text: String, color: Color) -> void:
 	var d := FxDing.new()
 	d.text = text
