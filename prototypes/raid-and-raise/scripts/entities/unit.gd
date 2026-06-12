@@ -114,9 +114,25 @@ func _ready() -> void:
 	nav.neighbor_distance = 220.0
 	nav.path_desired_distance = 10.0
 	nav.target_desired_distance = 16.0
+	# Relish gets priority when she moves (§15.2 input feel): she never takes
+	# evasive action for her own minions — they yield to HER. Enemies stay
+	# mutually solid (they're supposed to be in the way).
+	# Avoidance layers: 1 = minions, 2 = Relish, 4 = enemies.
+	if kind == Kind.RELISH:
+		nav.avoidance_layers = 2
+		nav.avoidance_mask = 4
+		nav.avoidance_priority = 1.0
+	elif faction == Faction.PLAYER:
+		nav.avoidance_layers = 1
+		nav.avoidance_mask = 1 | 2 | 4
+		nav.avoidance_priority = 0.5
+	else:
+		nav.avoidance_layers = 4
+		nav.avoidance_mask = 1 | 4
+		nav.avoidance_priority = 0.7
 	nav.velocity_computed.connect(_on_safe_velocity)
-	add_child(nav)
 	add_to_group("rr_units")
+	add_child(nav)
 
 func _process(_delta: float) -> void:
 	queue_redraw()
@@ -138,6 +154,8 @@ func _physics_process(delta: float) -> void:
 			_retarget_t = float(ConfigDb.v("stats", "retarget_interval_s"))
 			_choose_target()
 		desired = _desired_velocity(delta) + _knock
+		if kind != Kind.RELISH and faction == Faction.PLAYER:
+			desired += _relish_push()  # she shoulders through her own dead
 		if kind != Kind.RELISH and not GameState.debug.pacifist:
 			_attack_cd -= delta
 			_try_attack()
@@ -324,6 +342,26 @@ func _strike(t: RRUnit) -> void:
 
 func apply_knock(v: Vector2) -> void:
 	_knock = (_knock + v).limit_length(320.0)
+
+## Bow wave: when moving Relish overlaps a minion, the minion gets shoved
+## radially clear — works even on units holding a commanded post (physical
+## yielding, not a command override).
+func _relish_push() -> Vector2:
+	if battlefield == null:
+		return Vector2.ZERO
+	var rel: RRUnit = battlefield.relish
+	if rel == null or not is_instance_valid(rel) or not rel.alive or rel == self:
+		return Vector2.ZERO
+	if rel.velocity.length() < float(ConfigDb.v("stats", "escort_min_relish_speed_px")):
+		return Vector2.ZERO
+	var d := global_position.distance_to(rel.global_position)
+	var clearance := rel.radius() + radius() + float(ConfigDb.v("stats", "relish_push_pad_px"))
+	if d >= clearance:
+		return Vector2.ZERO
+	var away := global_position - rel.global_position
+	if away.length() < 1.0:
+		away = rel.velocity.orthogonal()  # dead-center overlap: shove sideways
+	return away.normalized() * float(ConfigDb.v("stats", "relish_push_speed_px")) * (1.0 - d / clearance)
 
 func take_hit(attacker: RRUnit, dmg: float) -> void:
 	if not alive or rising:

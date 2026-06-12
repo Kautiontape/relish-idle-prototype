@@ -401,6 +401,27 @@ func _test_raid_boot() -> void:
 	cc3._release()
 	check(bf3.relish.cmd == 1, "ground tap moves Relish after commands")  # Cmd.MOVE
 
+	# Relish pushes her minions out of the way — she gets priority when moving
+	var rel3: Node = bf3.relish
+	check(rel3.nav.avoidance_mask == 4 and rel3.nav.avoidance_priority == 1.0, "relish avoidance ignores minions, top priority")
+	var blockers: Array = []
+	rel3.global_position = main_scene.mode.room_point(0.25, 0.5)
+	for i in 3:
+		var b: Node = factory.make_chaff(1.0)
+		bf3.spawn_unit(b, main_scene.mode.room_point(0.25, 0.55 + 0.025 * i))
+		blockers.append(b)
+	check(blockers[0].nav.avoidance_mask & 2 == 2 and blockers[0].nav.avoidance_priority < 1.0, "minions avoid relish at lower priority")
+	rel3.velocity = Vector2(0, 60)
+	blockers[0].global_position = rel3.global_position + Vector2(0, 20)
+	check(blockers[0]._relish_push().length() > 0.0, "overlapping minion gets the bow-wave shove")
+	var push_goal: Vector2 = main_scene.mode.room_point(0.25, 0.72)
+	rel3.order_move(push_goal)
+	for i in 260:
+		await physics_frame
+		if rel3.global_position.distance_to(push_goal) < 70.0:
+			break
+	check(rel3.global_position.distance_to(push_goal) < 70.0, "relish plowed through the clump to her goal")
+
 	main_scene.show_menu()
 	await process_frame
 	main_scene.queue_free()

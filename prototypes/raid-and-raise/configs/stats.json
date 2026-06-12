@@ -32,6 +32,8 @@
   "escort_door_range_px": 900,
   "escort_through_px": 120,
   "escort_min_relish_speed_px": 20,
+  "relish_push_speed_px": 180,
+  "relish_push_pad_px": 8,
   "relish_flee_radius_px": 240,
   "relish_speed_stat": 3,
   "low_wits_drift_delay_s": 2.0,
