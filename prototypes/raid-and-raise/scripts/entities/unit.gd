@@ -133,6 +133,12 @@ func _ready() -> void:
 	nav.velocity_computed.connect(_on_safe_velocity)
 	add_to_group("rr_units")
 	add_child(nav)
+	# A NavigationAgent2D never runs avoidance — so velocity_computed never
+	# fires and _on_safe_velocity never moves us — until a target has been
+	# submitted once. Relish's swipe-path and flee branches feed raw velocities
+	# without one, which left her frozen until the first tap (order_move) woke
+	# the agent. Submit a no-op target so every unit is live from frame one.
+	nav.target_position = global_position
 
 func _process(_delta: float) -> void:
 	queue_redraw()

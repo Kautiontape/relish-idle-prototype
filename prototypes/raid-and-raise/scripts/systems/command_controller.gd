@@ -133,6 +133,8 @@ func _release() -> void:
 				var gap := _stroke[0].distance_to(endpoint)
 				if gap < maxf(60.0, length * 0.22):
 					_handle_lasso()
+				elif battlefield.relish != null and battlefield.relish.alive:
+					_send_relish_along(_stroke)  # open swipe: the stroke is HER path
 	_stroke = PackedVector2Array()
 	_mode = Mode.CLASSIFY
 
@@ -200,6 +202,20 @@ func _handle_tap(point: Vector2) -> void:
 		battlefield.spawn_ping(point, Color(0.78, 0.6, 0.95))  # her confirm
 		battlefield.relish.order_move(point)
 		GameState.add_command_touch()
+
+## Open-swipe fallback (playtest): a stroke that is neither tap nor lasso and
+## didn't start on Relish still belongs to her — she walks the drawn line.
+func _send_relish_along(pts: PackedVector2Array) -> void:
+	var rel: RRUnit = battlefield.relish
+	rel.cmd = RRUnit.Cmd.NONE
+	rel.path_override.clear()
+	var last := Vector2.INF
+	for p in pts:
+		if last == Vector2.INF or p.distance_to(last) > 14.0:
+			rel.path_override.append(p)
+			last = p
+	battlefield.spawn_ping(pts[0], Color(0.78, 0.6, 0.95))  # her confirm, at the pickup point
+	GameState.add_command_touch()
 
 func _send_selection_to(point: Vector2) -> void:
 	var live := _live_selection()

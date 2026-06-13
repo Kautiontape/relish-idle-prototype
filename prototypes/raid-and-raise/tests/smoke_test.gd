@@ -220,6 +220,39 @@ func _test_raid_boot() -> void:
 	check(inactive == 49, "only chamber 1 active at start")
 	check(bf.living(player_faction).size() == 6, "relish + 5 permanents")
 
+	# Regression: the FIRST input of a run is a swipe on Relish — she must move.
+	# NavigationAgent2D sits dormant (velocity_computed never fires) until a
+	# target is submitted once; her raw path_override velocities never submit
+	# one, so she froze until a tap's order_move woke the agent.
+	var rel0: Node = bf.relish
+	var spawn0: Vector2 = rel0.global_position
+	var ct0: Transform2D = bf.get_viewport().get_canvas_transform()
+	var sw := InputEventScreenTouch.new()
+	sw.pressed = true
+	sw.position = ct0 * spawn0
+	main_scene._unhandled_input(sw)
+	check(main_scene.mode.command._mode == 2, "first-input press on Relish grabs her")  # Mode.RELISH
+	for i in range(1, 6):
+		var dr := InputEventScreenDrag.new()
+		dr.position = ct0 * (spawn0 + Vector2(0, -36.0 * i))
+		main_scene._unhandled_input(dr)
+		await physics_frame
+	var sw_up := InputEventScreenTouch.new()
+	sw_up.pressed = false
+	sw_up.position = ct0 * (spawn0 + Vector2(0, -180))
+	main_scene._unhandled_input(sw_up)
+	var swiped := false
+	for i in 90:
+		await physics_frame
+		if rel0.global_position.distance_to(spawn0) > 40.0:
+			swiped = true
+			break
+	check(swiped, "first-input swipe moves her (agent live from frame one)")
+	rel0.path_override.clear()
+	rel0.global_position = spawn0
+	gs.command_touches = 0  # don't skew the counts the later checks expect
+	await physics_frame
+
 	# Trance summon: button → trace a circle around essence → chaff
 	var trance: Node = main_scene.mode.trance
 	var spot: Vector2 = bf.relish.global_position + Vector2(0, -80)
@@ -436,6 +469,20 @@ func _test_raid_boot() -> void:
 		if rel3.global_position.distance_to(push_goal) < 70.0:
 			break
 	check(rel3.global_position.distance_to(push_goal) < 70.0, "relish plowed through the clump to her goal")
+
+	# Open-swipe fallback: a long stroke that starts nowhere near her and never
+	# closes still belongs to her — the drawn line becomes her path.
+	var touches_b4: int = gs.command_touches
+	var far: Vector2 = rel3.global_position + Vector2(220, 0)
+	cc3._press(far)
+	check(cc3._mode == 0, "far press classifies (not a Relish grab)")  # Mode.CLASSIFY
+	for i in range(1, 7):
+		cc3._move(far + Vector2(0, -50.0 * i))
+	cc3._release()
+	check(rel3.cmd == 0 and rel3.path_override.size() >= 3,
+		"open swipe becomes her path (%d pts)" % rel3.path_override.size())
+	check(gs.command_touches == touches_b4 + 1, "open swipe counts one command touch")
+	rel3.path_override.clear()
 
 	main_scene.show_menu()
 	await process_frame

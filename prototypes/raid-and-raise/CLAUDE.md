@@ -54,6 +54,7 @@ Mutations · essence-typed spell-casting · remnant reroll · Anima-hollow ascen
   - A loop seals wherever the stroke crosses ITSELF (self-intersection), not only back at its start.
   - The group starts following only once the drag pulls `path_start_px` away from the loop (no twitching while you finish the circle).
   - Tapping Relish clears the selection (resets the grammar); her drag-grab radius is generous (+34px).
+  - **Open-swipe fallback** (user-directed, playtest): with no selection, a released stroke that is neither a tap nor a lasso and didn't start on Relish becomes HER path — she walks the drawn line from its start. Every swipe now does something.
 - **Summon presentation** (user-directed): enclosed essence is pulled into Relish with accelerating speed (fwwwwooomp), then each chaff grows out of the ground beside her with a TRANS_BACK overshoot (rrawwwwr). Spawn point moved from the essence position to a ring around Relish (`circle.json: grow_ring_px`) — flagged: this changes where chaff enter the fight.
 - **Door-anticipation escort** (user-directed): idle minions don't trail Relish between chambers — they move to and THROUGH the doorway her live velocity points at (cone + range in `stats.json: escort_*`), entering the next room ahead of her. Velocity-based, so backtracking and forks need no scripting. Supports doc §13.4 (auto-behavior good enough that commands are optimization).
 - **No audio** (heartbeat/muffle earmarked with polish); trance mode-state is carried visually (dim overlay, essence ignite, trace color).
