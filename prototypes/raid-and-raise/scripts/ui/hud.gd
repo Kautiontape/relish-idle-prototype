@@ -26,6 +26,19 @@ var flash_view: Control       # radiates "ready" / "not yet" from the Trance but
 var _flash_t := 0.0
 var _flash_dur := 0.55
 var _flash_color := Color(0.5, 1.0, 0.9)
+var _playrooms: Array = []     # cached for the Test Chambers submenu
+
+## Place the Trance button on the configured side (rebuilt live from settings).
+func apply_button_side() -> void:
+	if btn_view == null:
+		return
+	if String(ConfigDb.v("timers", "button_side")) == "left":
+		btn_view.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		btn_view.position = Vector2(18, -btn_radius * 2 - 54)
+	else:
+		btn_view.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		btn_view.position = Vector2(-btn_radius * 2 - 34, -btn_radius * 2 - 54)
+	btn_view.size = btn_view.custom_minimum_size
 
 func _ready() -> void:
 	layer = 10
@@ -62,13 +75,7 @@ func _ready() -> void:
 	btn_view = TranceButtonView.new()
 	btn_view.hud = self
 	btn_view.custom_minimum_size = Vector2(btn_radius * 2 + 16, btn_radius * 2 + 36)
-	if String(ConfigDb.v("timers", "button_side")) == "left":
-		btn_view.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-		btn_view.position = Vector2(18, -btn_radius * 2 - 54)
-	else:
-		btn_view.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-		btn_view.position = Vector2(-btn_radius * 2 - 34, -btn_radius * 2 - 54)
-	btn_view.size = btn_view.custom_minimum_size
+	apply_button_side()
 	btn_view.add_to_group("rr_ui_block")
 	btn_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(btn_view)
@@ -242,14 +249,61 @@ func _big_button(box: VBoxContainer, text: String, cb: Callable) -> void:
 
 func show_menu(playrooms: Array) -> void:
 	exit_gameplay()
+	_playrooms = playrooms
+	_build_main_menu()
+
+func _build_main_menu() -> void:
 	var box := _screen_base()
 	_title(box, "RAID & RAISE")
 	_text(box, "Relish raids tombs as a conduit: her army is her weapon, her shield, and her health bar. If Relish dies, everything is lost.", 16)
 	_big_button(box, "ENTER THE TOMB", func(): start_raid_pressed.emit())
-	_text(box, "PLAYROOMS — isolated mechanic tests, infinitely repeatable:", 15, Color(0.6, 0.6, 0.7))
-	for p in playrooms:
+	_big_button(box, "TEST CHAMBERS  ▸", func(): _build_test_chambers())
+	_settings_row(box)
+	_text(box, "Controls — tap: move Relish · lasso undead: select · tap: send them · drag from Relish: her path · HOLD the Trance button (or SPACE): trace a circle around glowing essence · DBG (top-left): tunables, spawns, telemetry.", 13, Color(0.55, 0.55, 0.65))
+
+func _build_test_chambers() -> void:
+	var box := _screen_base()
+	_title(box, "TEST CHAMBERS", Color(0.7, 0.85, 1.0), 32)
+	_text(box, "Isolated mechanic tests, infinitely repeatable. Not part of the raid.", 14, Color(0.6, 0.6, 0.7))
+	for p in _playrooms:
 		_big_button(box, p[1], func(): playroom_pressed.emit(p[0]))
-	_text(box, "Controls — tap: move Relish · lasso undead: select · tap: send them · drag from Relish: her path · HOLD corner button (or SPACE): Trance, then trace a circle around glowing essence · DBG (top-left): tunables, spawns, telemetry.", 13, Color(0.55, 0.55, 0.65))
+	_big_button(box, "◂  BACK", func(): _build_main_menu())
+
+## Settings surfaced on the first screen (§8 input feel is first-class).
+func _settings_row(box: VBoxContainer) -> void:
+	_text(box, "— SETTINGS —", 14, Color(0.95, 0.85, 0.4))
+	var side := Button.new()
+	side.focus_mode = Control.FOCUS_NONE
+	side.add_theme_font_size_override("font_size", 18)
+	side.custom_minimum_size = Vector2(0, 46)
+	var refresh: Callable = func(): side.text = "Trance button:  %s" % String(ConfigDb.v("timers", "button_side")).to_upper()
+	refresh.call()
+	side.pressed.connect(func():
+		var cur := String(ConfigDb.v("timers", "button_side"))
+		ConfigDb.set_v("timers", "button_side", "right" if cur == "left" else "left")
+		apply_button_side()
+		refresh.call())
+	box.add_child(side)
+	_menu_slider(box, "View size (UI scale)", "stats", "debug_ui_scale", 0.6, 2.0, 0.1)
+	_menu_slider(box, "Camera zoom", "stats", "debug_view_zoom", 0.6, 2.0, 0.1)
+
+func _menu_slider(box: VBoxContainer, label: String, file: String, key: String, from: float, to: float, step: float) -> void:
+	var l := Label.new()
+	l.add_theme_font_size_override("font_size", 14)
+	l.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
+	l.text = "%s: %.1f" % [label, float(ConfigDb.v(file, key))]
+	box.add_child(l)
+	var s := HSlider.new()
+	s.focus_mode = Control.FOCUS_NONE
+	s.min_value = from
+	s.max_value = to
+	s.step = step
+	s.value = float(ConfigDb.v(file, key))
+	s.custom_minimum_size = Vector2(0, 28)
+	s.value_changed.connect(func(val: float):
+		l.text = "%s: %.1f" % [label, val]
+		ConfigDb.set_v(file, key, val))
+	box.add_child(s)
 
 func show_haul() -> void:
 	var box := _screen_base()
