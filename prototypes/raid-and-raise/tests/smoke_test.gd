@@ -485,6 +485,23 @@ func _test_raid_boot() -> void:
 	rel3.path_override.clear()
 
 	main_scene.show_menu()
+	for i in 3:
+		await physics_frame
+	# Regression: relaunching after teardown frames must not collapse spawns.
+	# The shared nav map is briefly region-less between arenas; clamp_to_nav
+	# used to snap every spawn to the origin (everyone piled next to Relish).
+	main_scene.start_raid()
+	for i in 10:
+		await physics_frame
+	var bf4: Node2D = main_scene.mode.battlefield
+	var piled := 0
+	for u in bf4.all_units():
+		if u.faction == enemy_faction and u.global_position.distance_to(bf4.relish.global_position) < 300.0:
+			piled += 1
+	check(piled <= 1, "restart keeps enemies in their chambers (%d near Relish)" % piled)
+	check(bf4.relish.global_position.distance_to(Vector2(0, -110)) < 60.0, "restart keeps Relish at her spawn")
+
+	main_scene.show_menu()
 	await process_frame
 	main_scene.queue_free()
 	await process_frame

@@ -104,9 +104,14 @@ func spawn_unit(u: RRUnit, pos: Vector2) -> RRUnit:
 	return u
 
 func clamp_to_nav(pos: Vector2) -> Vector2:
+	# Trust authored positions until THIS arena's region is live on the map.
+	# The World2D nav map is shared across rebuilds: after a teardown it is
+	# briefly region-less (or holds only the doomed old arena), and
+	# map_get_closest_point would collapse every spawn to the origin — the
+	# restart-slams-everyone-into-room-1 bug.
 	var map := get_world_2d().navigation_map
-	if NavigationServer2D.map_get_iteration_id(map) == 0:
-		return pos  # map not synced yet (first frame) — trust authored positions
+	if nav_region == null or not NavigationServer2D.map_get_regions(map).has(nav_region.get_rid()):
+		return pos
 	return NavigationServer2D.map_get_closest_point(map, pos)
 
 func all_units() -> Array:
