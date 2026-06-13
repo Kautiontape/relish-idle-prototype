@@ -1,0 +1,26 @@
+{
+  "_note": "Adjective Noun naming. Noun = the form (husk name). Adjective = the build's defining trait — an echo wins if present (highest points), else the dominant stat. No remnants = 'Hollow'.",
+  "hollow_adjective": "Hollow",
+  "echo_adjectives": {
+    "life_drain": "Ravenous",
+    "frenzy": "Frenzied",
+    "heavy_blow": "Crushing",
+    "volatile": "Volatile",
+    "vengeful": "Vengeful",
+    "organization": "Dutiful",
+    "salesmanship": "Silver-Tongued",
+    "tireless": "Tireless",
+    "frugal": "Thrifty",
+    "crafty": "Crafty"
+  },
+  "stat_adjectives": {
+    "power": "Brutal",
+    "beef": "Hulking",
+    "speed": "Fleet",
+    "wits": "Clever",
+    "charm": "Beguiling",
+    "dread": "Dreadful",
+    "magic": "Witching",
+    "persistence": "Undying"
+  }
+}

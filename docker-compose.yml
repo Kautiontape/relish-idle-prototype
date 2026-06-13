@@ -123,6 +123,20 @@ services:
     networks:
       - relish
 
+  slab:
+    build:
+      context: ./prototypes/slab
+      dockerfile: Dockerfile
+    container_name: relish_slab
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-slab
+    networks:
+      - relish
+
 networks:
   relish:
     driver: bridge

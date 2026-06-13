@@ -1,0 +1,10 @@
+{
+  "name": "Hulk",
+  "anatomy": { "muscle": 3, "nerve": 1, "presence": 0, "anima": 0 },
+  "cadence": 0.5,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#c2b28f",
+  "notes": "the wall frame"
+}

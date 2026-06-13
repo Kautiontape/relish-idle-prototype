@@ -41,6 +41,14 @@ Full Phase 1 build of the "Raid & Raise" design doc (`prototypes/raid-and-raise/
 - **Key question:** Does tracing circles in bullet-time feel good enough to be the heart of combat? (Gate: the trance gym playroom. Second gate: a full run fits ~10 minutes and you want another.)
 - **Status:** Phase 1 complete — the circle gate passed (it's the heart of the game). Frozen as the playable alpha, tagged `raid-and-raise-v0.0.1`. Phase 2 (the Slab) is its own prototype, not bolted onto this one.
 
+### The Slab (`/slab/`)
+Phase 2 of Raid & Raise: the raising screen, as its own prototype with the raid faked. The crypt where Relish woke — a central slab where you place a form (husk), its rune slots bloom by anatomy, you slot remnants and the creature **morphs live** (one stat, one watchable verb) while its **Adjective Noun** name forms above it ("Frenzied Skeleton"); Raise it and name your new friend. Corner: the **bone pit** — one fullness meter that's also the quality dial (feed scraps with diminishing returns, pull always gives something, output capped below loot), the anti-stalemate floor so you never hit zero undead. Corner: **Vei's statue** (placeholder nemesis). Jar/town/persistence deferred.
+
+- **Stack:** Godot 4.6 (Compatibility renderer, single-threaded web export)
+- **Key question:** Does building a creature from a form + remnants feel like making something that's *yours* (the morph + the name + naming it)? Plus: does the bone-pit floor feel good?
+- **Status:** In development. Build-expression loop + ossuary working; raid faked, economy deferred.
+- **Builds on:** Raid & Raise (loot tables, stat/anatomy shapes, creature-visual language — copied, not shared)
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)

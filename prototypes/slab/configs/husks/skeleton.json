@@ -1,0 +1,10 @@
+{
+  "name": "Skeleton",
+  "anatomy": { "muscle": 1, "nerve": 2, "presence": 0, "anima": 0 },
+  "cadence": 1.0,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#d8d4c8",
+  "notes": "cheap baseline"
+}

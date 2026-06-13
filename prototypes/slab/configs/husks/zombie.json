@@ -1,0 +1,10 @@
+{
+  "name": "Zombie",
+  "anatomy": { "muscle": 2, "nerve": 0, "presence": 0, "anima": 0 },
+  "cadence": 0.6,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#8aa86f",
+  "notes": "dumb meat"
+}

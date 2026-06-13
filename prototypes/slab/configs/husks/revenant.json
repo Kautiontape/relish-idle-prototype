@@ -1,0 +1,10 @@
+{
+  "name": "Revenant",
+  "anatomy": { "muscle": 2, "nerve": 0, "presence": 1, "anima": 2 },
+  "cadence": 0.7,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#e8c87d",
+  "notes": "won't stay dead"
+}

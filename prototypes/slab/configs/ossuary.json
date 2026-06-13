@@ -1,0 +1,16 @@
+{
+  "_note": "The bone pit. One meter (fullness 0..1) IS the quality dial. Feeding scraps raises it (diminishing returns); pulling always yields something, quality scales with fullness, and the pull consumes a chunk. Output is hard-capped BELOW looted gear — usable, never desirable.",
+  "fill_per_scrap": 0.05,
+  "feed_chunk": 5,
+  "drop_per_pull": 0.22,
+  "quality_rng_band": 0.12,
+  "min_magnitude": 1,
+  "max_magnitude": 4,
+  "uncommon_quality_threshold": 0.62,
+  "echo_chance_at_full": 0.35,
+  "mid_form_chance_at_full": 0.22,
+  "scrap_form_weights": { "skeleton": 40, "zombie": 40, "hulk": 12, "wraith": 8 },
+  "decay_enabled": false,
+  "decay_per_s": 0.02,
+  "scraps_per_raid": 28
+}
