@@ -22,6 +22,10 @@ var warn_label: Label
 var boss_label: Label
 var _warn_t := 0.0
 var screen: Control = null
+var flash_view: Control       # radiates "ready" / "not yet" from the Trance button
+var _flash_t := 0.0
+var _flash_dur := 0.55
+var _flash_color := Color(0.5, 1.0, 0.9)
 
 func _ready() -> void:
 	layer = 10
@@ -69,6 +73,15 @@ func _ready() -> void:
 	btn_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(btn_view)
 
+	# Full-screen overlay the cooldown flash draws on (above the button so the
+	# pulse reads even with a thumb parked on the button).
+	flash_view = TranceFlashView.new()
+	flash_view.hud = self
+	flash_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_view.visible = false
+	root.add_child(flash_view)
+
 	GameState.haul_changed.connect(_update_counters)
 	_set_gameplay_visible(false)
 
@@ -82,6 +95,10 @@ func _label(font_size: int, color: Color) -> Label:
 func _process(delta: float) -> void:
 	if gameplay:
 		btn_view.queue_redraw()
+	if _flash_t > 0.0:
+		_flash_t -= delta
+		flash_view.visible = _flash_t > 0.0
+		flash_view.queue_redraw()
 	if _warn_t > 0.0:
 		_warn_t -= delta
 		warn_label.visible = fmod(_warn_t, 0.4) > 0.15
@@ -119,9 +136,22 @@ func enter_gameplay(t: TranceController) -> void:
 	trance = t
 	gameplay = true
 	boss = null
+	# Each mode owns a fresh TranceController; connect this one's flash signals
+	# (the old controller is freed with the old mode, taking its connections).
+	t.ready_flash.connect(func(): _flash(Color(0.5, 1.0, 0.9)))
+	t.rejected_flash.connect(func(): _flash(Color(1.0, 0.45, 0.4)))
 	_kill_screen()
 	_set_gameplay_visible(true)
 	_update_counters()
+
+func _flash(color: Color) -> void:
+	_flash_color = color
+	_flash_t = _flash_dur
+
+## Screen position of the Trance button's center (the flash radiates from here).
+func btn_center_screen() -> Vector2:
+	var rect := btn_view.get_global_rect()
+	return rect.position + Vector2(btn_radius + 8, btn_radius + 8)
 
 func exit_gameplay() -> void:
 	trance = null
@@ -272,23 +302,53 @@ class TranceButtonView:
 		var t: TranceController = hud.trance
 		var c := Vector2(hud.btn_radius + 8, hud.btn_radius + 8)
 		var r := hud.btn_radius
-		var base := Color(0.2, 0.16, 0.3, 0.9)
-		var rim := Color(0.6, 0.45, 0.9)
+		var base := Color(0.26, 0.2, 0.42, 0.95)  # READY
+		var rim := Color(0.72, 0.56, 1.0)
 		match t.state:
 			TranceController.State.ACTIVE:
-				base = Color(0.3, 0.2, 0.5, 0.95)
-				rim = Color(0.8, 0.65, 1.0)
+				base = Color(0.34, 0.2, 0.58, 0.95)
+				rim = Color(0.88, 0.72, 1.0)
 			TranceController.State.COOLDOWN, TranceController.State.LOCKOUT:
-				base = Color(0.13, 0.12, 0.17, 0.9)
-				rim = Color(0.35, 0.3, 0.5)
+				base = Color(0.11, 0.1, 0.15, 0.92)
+				rim = Color(0.4, 0.34, 0.55)
 		draw_circle(c, r, base)
 		var cd := t.cooldown_frac()
 		if cd > 0.0:
-			# radial fill: remaining cooldown as a pie wedge
-			draw_arc(c, r * 0.5, -PI / 2, -PI / 2 + TAU * cd, 40, Color(0.1, 0.08, 0.14, 0.9), r)
+			# Cooldown FILLS toward ready in bright amber (the old dark wedge on a
+			# dark base was invisible). The amber pie + rim sweep complete exactly
+			# as the trance becomes available.
+			var prog := 1.0 - cd
+			draw_circle(c, r * 0.76, Color(0.07, 0.06, 0.1, 0.92))
+			if prog > 0.001:
+				draw_arc(c, r * 0.38, -PI / 2, -PI / 2 + TAU * prog, 48, Color(1.0, 0.7, 0.25, 0.95), r * 0.76)
+				draw_arc(c, r, -PI / 2, -PI / 2 + TAU * prog, 56, Color(1.0, 0.74, 0.3), 5.0)
 		if t.state == TranceController.State.ACTIVE:
 			draw_arc(c, r + 5, -PI / 2, -PI / 2 + TAU * t.focus_frac(), 40, Color(0.5, 1.0, 0.85), 4.0)
-		draw_arc(c, r, 0, TAU, 48, rim, 3.0)
+		draw_arc(c, r, 0, TAU, 56, rim, 3.0)
 		var f := ThemeDB.fallback_font
-		draw_string(f, c + Vector2(-r, 6), "TRANCE", HORIZONTAL_ALIGNMENT_CENTER, r * 2, 18, Color(0.9, 0.85, 1.0))
+		var label_col := Color(0.92, 0.88, 1.0) if t.state != TranceController.State.COOLDOWN \
+			and t.state != TranceController.State.LOCKOUT else Color(0.55, 0.5, 0.62)
+		draw_string(f, c + Vector2(-r, 6), "TRANCE", HORIZONTAL_ALIGNMENT_CENTER, r * 2, 18, label_col)
 		draw_string(f, c + Vector2(-r, r + 24), "hold · SPACE / R-drag", HORIZONTAL_ALIGNMENT_CENTER, r * 2, 12, Color(0.6, 0.6, 0.7))
+
+## A pulse that radiates from the Trance button across the lower screen — green
+## "ready" when the cooldown clears, red "not yet" on a too-soon press. Reads
+## even with the player's thumb covering the button.
+class TranceFlashView:
+	extends Control
+	var hud: Hud
+
+	func _draw() -> void:
+		if hud == null or hud._flash_t <= 0.0:
+			return
+		var p := clampf(1.0 - hud._flash_t / hud._flash_dur, 0.0, 1.0)
+		var c := hud.btn_center_screen() - global_position  # Control has no to_local()
+		var max_r := size.x * 0.85
+		var r := max_r * sqrt(p)
+		var a := 1.0 - p
+		var col: Color = hud._flash_color
+		draw_circle(c, r * 0.5, Color(col.r, col.g, col.b, a * 0.12))
+		for i in 3:
+			var rr := r - i * 22.0
+			if rr > 4.0:
+				draw_arc(c, rr, 0, TAU, 64, Color(col.r, col.g, col.b, a * 0.55 * (1.0 - i * 0.25)), 6.0 - i * 1.4)

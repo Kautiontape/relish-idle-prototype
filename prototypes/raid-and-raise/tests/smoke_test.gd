@@ -354,6 +354,31 @@ func _test_raid_boot() -> void:
 	check(grew2, "RMB circle raised 2 chaff (have %d, wanted %d)" % [bf.count_kind(chaff_kind), chaff_b4 + 2])
 	check(trance.state == 2 and absf(Engine.time_scale - 1.0) < 0.001, "RMB trance ended → cooldown")
 
+	# Finger-held-through-cooldown: a parked thumb must re-enter the trance when
+	# the cooldown clears (no fresh press edge). This was the "stuck" report.
+	trance._button_held = true
+	trance.state = 2  # COOLDOWN
+	trance.cooldown_total = 1.0
+	trance.cooldown_left = 0.001
+	trance._process(0.05)
+	check(trance.state == 1, "held button auto-re-enters trance after cooldown")
+	trance._button_held = false
+	trance._end_trance()
+	trance.state = 0
+
+	# Pressing during cooldown emits a rejected flash (so the player learns why).
+	var rejected := [false]
+	trance.rejected_flash.connect(func(): rejected[0] = true)
+	trance.state = 2
+	trance.cooldown_total = 6.0
+	trance.cooldown_left = 5.0
+	trance.button_down()
+	check(rejected[0], "press during cooldown emits a rejected flash")
+	trance._button_held = false
+	trance._end_trance()
+	trance.state = 0
+	trance.cooldown_left = 0.0
+
 	# Escort: when Relish heads for a door, idle minions take point toward it.
 	# Staged deterministically: quiet the field, park her mid-room, send her
 	# at the nearest door, and poll (combat RNG must not decide this test).
@@ -498,6 +523,26 @@ func _test_raid_boot() -> void:
 		"open swipe becomes her path (%d pts)" % rel3.path_override.size())
 	check(gs.command_touches == touches_b4 + 1, "open swipe counts one command touch")
 	rel3.path_override.clear()
+
+	# Trance gym locks the trance ON for back-to-back circle practice.
+	main_scene.start_playroom("trance_gym")
+	for i in 5:
+		await physics_frame
+	var gym: Node = main_scene.mode
+	check(gym.trance.locked, "gym locks the trance on")
+	check(gym.trance.state == 1, "gym trance is active without holding a button")
+	check(absf(Engine.time_scale - 1.0) < 0.001, "gym practice mode does not dilate time")
+	var gbf: Node2D = gym.battlefield
+	var gspot: Vector2 = gbf.relish.global_position + Vector2(0, -90)
+	gbf.spawn_essence(gspot, 2)
+	await physics_frame
+	var gtrace := PackedVector2Array()
+	for i in 40:
+		gtrace.append(gspot + Vector2(80, 0).rotated(TAU * i / 40.0))
+	gym.trance.trace = gtrace
+	gym.trance._finish_trace()
+	check(gym.trance.state == 1, "gym stays active after a summon (no cooldown)")
+	check(absf(Engine.time_scale - 1.0) < 0.001, "gym never dilates, even after a summon")
 
 	main_scene.show_menu()
 	for i in 3:

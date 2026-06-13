@@ -11,9 +11,12 @@ enum State { READY, ACTIVE, COOLDOWN, LOCKOUT }
 const RMB_TRACE := -2  # sentinel index: trace driven by right-mouse drag
 
 signal state_changed
+signal ready_flash       # cooldown ended → Trance available (HUD radiates "ready")
+signal rejected_flash    # a press landed during cooldown → "not yet" (HUD red)
 
 var battlefield: Battlefield
 var enabled := true
+var locked := false       # practice mode (gym): always active, no cooldown, no dilation
 var state: int = State.READY
 var cooldown_left := 0.0
 var cooldown_total := 1.0
@@ -32,8 +35,15 @@ func _process(delta: float) -> void:
 			cooldown_left -= delta
 			if cooldown_left <= 0.0:
 				state = State.READY
+				ready_flash.emit()  # radiate "ready" even under the player's thumb
 				state_changed.emit()
+				# Held the button THROUGH the cooldown? Re-enter immediately — a
+				# press edge is no longer required, so a parked thumb keeps cycling.
+				if _button_held and enabled:
+					_begin()
 		State.ACTIVE:
+			if locked:
+				return  # practice mode: focus never drains, trance never ends
 			# Focus meter runs in REAL time — delta arrives dilated.
 			hold_left -= delta / maxf(0.05, Engine.time_scale)
 			if hold_left <= 0.0:
@@ -43,11 +53,23 @@ func button_down() -> void:
 	_button_held = true
 	if state == State.READY and enabled:
 		_begin()
+	elif state == State.COOLDOWN or state == State.LOCKOUT:
+		rejected_flash.emit()  # pressed too soon — tell them why nothing happened
 
 func button_up() -> void:
 	_button_held = false
-	if state == State.ACTIVE:
+	if state == State.ACTIVE and not locked:
 		_cancel()
+
+## Practice harness (gym): trance is permanently active so circles can be drawn
+## back to back, with no cooldown and no time dilation (snappy scoring reps).
+func set_locked(on: bool) -> void:
+	locked = on
+	if on:
+		state = State.ACTIVE
+		hold_left = float(ConfigDb.v("timers", "trance_max_hold_s"))
+		battlefield.set_trance(true)
+		state_changed.emit()
 
 func _begin() -> void:
 	state = State.ACTIVE
@@ -64,6 +86,14 @@ func _cancel() -> void:
 	state_changed.emit()
 
 func _complete() -> void:
+	if locked:
+		# Practice mode: a summon doesn't end the trance — clear the trace and
+		# stay active so the next circle can start right away.
+		_clear_trace()
+		_tracing_index = -1
+		battlefield.set_trance(true)
+		state_changed.emit()
+		return
 	_end_trance()
 	state = State.COOLDOWN
 	cooldown_total = float(ConfigDb.v("timers", "summon_cooldown_s"))
@@ -178,6 +208,8 @@ func cooldown_frac() -> float:
 	return 0.0
 
 func focus_frac() -> float:
+	if locked:
+		return 1.0
 	if state == State.ACTIVE:
 		return clampf(hold_left / float(ConfigDb.v("timers", "trance_max_hold_s")), 0.0, 1.0)
 	return 1.0

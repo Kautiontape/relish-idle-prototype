@@ -11,10 +11,13 @@ var _score_label: Label
 func _setup() -> void:
 	spawn_relish(room_point(0.5, 0.85))
 	_scatter()
+	# Practice harness: the Trance is locked ON so circles can be drawn back to
+	# back with no button-holding, no cooldown — pure scoring reps.
+	trance.set_locked(true)
 	add_button("Scatter essence", _scatter)
 	add_button("Clear chaff", battlefield.clear_chaff)
 	add_button("Spawn punching bag", func(): spawn_bag(room_point(0.5, 0.25), 6.0, "Bag"))
-	info.text = "TRANCE GYM — hold the corner button (touch) or just RIGHT-CLICK-DRAG a circle around glowing essence; release to summon. (SPACE also holds the trance.)\nBig sloppy circle = many weak idiots. Small perfect circle = few strong ones."
+	info.text = "TRANCE GYM — Trance is LOCKED ON. Just draw a circle (touch or drag) around glowing essence; release to summon. Draw again immediately.\nBig sloppy circle = many weak idiots. Small perfect circle = few strong ones."
 	_score_label = Label.new()
 	_score_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	_score_label.position = Vector2(-240, 90)
