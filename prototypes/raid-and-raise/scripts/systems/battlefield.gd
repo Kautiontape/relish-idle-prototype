@@ -121,12 +121,38 @@ func all_units() -> Array:
 			out.append(u)
 	return out
 
+# Per-physics-frame caches. Every unit's _physics_process used to call living()/
+# hostiles_of()/field_bias(), each of which rebuilt arrays from get_children() —
+# O(n²) array churn at hundreds of units (the end-of-run frame drop). The lists
+# are identical within a frame, so build them once. Behavior is unchanged: same
+# is_targetable() filter, same membership. queue_free is deferred, so instances
+# stay valid for the whole frame the cache covers.
+var _cache_frame := -1
+var _living_player: Array = []
+var _living_enemy: Array = []
+var _field_sources: Array = []  # the handful of units with charm or dread
+
+func _refresh_caches() -> void:
+	var fr := Engine.get_physics_frames()
+	if fr == _cache_frame:
+		return
+	_cache_frame = fr
+	_living_player.clear()
+	_living_enemy.clear()
+	_field_sources.clear()
+	for u in units_root.get_children():
+		if not (u is RRUnit) or not u.is_targetable():
+			continue
+		if u.faction == RRUnit.Faction.PLAYER:
+			_living_player.append(u)
+		else:
+			_living_enemy.append(u)
+		if u.stats.charm > 0.0 or u.stats.dread > 0.0:
+			_field_sources.append(u)
+
 func living(faction: int) -> Array:
-	var out: Array = []
-	for u in all_units():
-		if u.faction == faction and u.is_targetable():
-			out.append(u)
-	return out
+	_refresh_caches()
+	return _living_player if faction == RRUnit.Faction.PLAYER else _living_enemy
 
 func hostiles_of(u: RRUnit) -> Array:
 	return living(RRUnit.Faction.ENEMY if u.faction == RRUnit.Faction.PLAYER else RRUnit.Faction.PLAYER)
@@ -211,11 +237,14 @@ func field_bias(u: RRUnit) -> Vector2:
 	var radius := float(ConfigDb.v("stats", "field_radius_px"))
 	var k := float(ConfigDb.v("stats", "field_strength"))
 	var bias := Vector2.ZERO
-	for h in hostiles_of(u):
+	_refresh_caches()
+	# Only the handful of charm/dread units exert a field — loop those, not every
+	# hostile. Same math, same result (non-source units contributed zero anyway).
+	for h in _field_sources:
+		if h.faction == u.faction:
+			continue
 		var charm: float = h.stats.charm
 		var dread: float = h.stats.dread
-		if charm <= 0.0 and dread <= 0.0:
-			continue
 		var d := u.global_position.distance_to(h.global_position)
 		if d > radius or d < 1.0:
 			continue
