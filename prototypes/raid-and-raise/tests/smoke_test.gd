@@ -410,6 +410,32 @@ func _test_raid_boot() -> void:
 			escorting += 1
 	check(escorting >= 3, "%d idle minions taking point to the door" % escorting)
 
+	# Exit zone: chamber 0 is cleared (enemies killed above). Reaching the
+	# DOORWAY zone — not fully crossing into the next room — advances the chamber,
+	# and the cleared exit's glow flips open.
+	var rd2: Node = main_scene.mode
+	var from_chamber: int = rd2.current
+	bf.relish.snap_to(bf.doorways[from_chamber])
+	bf.relish.relish_anchor = Vector2.INF
+	for i in 12:
+		await physics_frame
+		if rd2.current != from_chamber:
+			break
+	check(rd2.current == from_chamber + 1, "doorway zone advances the chamber (no full crossing)")
+	check(rd2._door_glows[from_chamber].open, "cleared exit glow flips open")
+
+	# Straggler gather: a unit left off-screen after the slide snaps near Relish.
+	bf.camera.position = rd2._rooms[rd2.current]["center"]
+	var stray: Node = null
+	for u in bf.living(player_faction):
+		if u.kind != US.Kind.RELISH:
+			stray = u
+			break
+	stray.snap_to(rd2._rooms[0]["center"])  # stranded in the first room (off-screen)
+	rd2._gather_stragglers()
+	check(stray.global_position.distance_to(bf.relish.global_position) < 280.0,
+		"off-screen straggler teleported to a ring behind Relish")
+
 	# Obstacle room: carved navmesh + the lasso-then-drag path grammar
 	main_scene.start_playroom("obstacles")
 	for i in 5:

@@ -21,6 +21,8 @@ var _rooms: Array = []          # per chamber {top, bot, center}
 var _fired_waves: Dictionary = {}
 var _ended := false
 var _cleared_announced := false
+var _advancing := false        # slide-to-next-chamber in progress (fire once)
+var _door_glows: Array = []     # FxDoorGlow per doorway (red locked / blue open)
 
 func _ready() -> void:
 	layout = ConfigDb.tomb_layout()
@@ -45,14 +47,20 @@ func _ready() -> void:
 	_activate_chamber.call_deferred(0)
 
 ## Corridor centers — the escort system steers idle minions toward whichever
-## of these Relish is heading for.
+## of these Relish is heading for. Each also gets a door glow (red=locked,
+## blue=cleared) the player can read from inside the room.
 func _register_doorways() -> void:
 	var w := float(layout["room_w"])
 	var cw := float(layout["corridor_w"])
 	var ch := float(layout["corridor_h"])
 	for i in range(0, chambers.size() - 1):
 		var cx := clampf(-w / 2.0 + float(chambers[i]["door_x"]) * w, -w / 2.0 + cw / 2.0 + 20.0, w / 2.0 - cw / 2.0 - 20.0)
-		battlefield.doorways.append(Vector2(cx, float(_rooms[i]["top"]) - ch / 2.0))
+		var door := Vector2(cx, float(_rooms[i]["top"]) - ch / 2.0)
+		battlefield.doorways.append(door)
+		var glow := FxDoorGlow.new()
+		glow.position = door
+		battlefield.fx_root.add_child(glow)
+		_door_glows.append(glow)
 
 func handle_input(ev: InputEvent) -> bool:
 	if trance.handle_input(ev):
@@ -156,6 +164,50 @@ func _activate_chamber(i: int) -> void:
 	if chambers[i].get("climax", false) and boss != null:
 		boss_engaged.emit(boss)
 
+## Slide to the next chamber. Hard-order idle minions through the door so the
+## camera doesn't strand them, slide the camera, activate the next chamber, and
+## when the slide ends snap any unit still off-screen to a ring behind Relish
+## (an off-screen teleport — invisible, but the horde never gets left behind).
+func _begin_advance(i: int) -> void:
+	_advancing = true
+	var through := float(ConfigDb.v("stats", "escort_through_px"))
+	var goal: Vector2 = battlefield.doorways[i] + Vector2(0, -through)
+	var idx := 0
+	for u in battlefield.living(RRUnit.Faction.PLAYER):
+		if u.kind == RRUnit.Kind.RELISH:
+			continue
+		if u.cmd == RRUnit.Cmd.NONE:
+			u.order_move(goal + Vector2(30.0 * (idx % 5 - 2), 16.0 * (idx / 5)))
+			idx += 1
+	var tw := create_tween()
+	tw.tween_property(battlefield.camera, "position", _rooms[i + 1]["center"], 0.55) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.finished.connect(_gather_stragglers)
+	_activate_chamber(i + 1)
+
+func _gather_stragglers() -> void:
+	_advancing = false
+	var rel: RRUnit = battlefield.relish
+	if rel == null or not is_instance_valid(rel) or not rel.alive:
+		return
+	var rect := _camera_world_rect()
+	var idx := 0
+	for u in battlefield.living(RRUnit.Faction.PLAYER):
+		if u.kind == RRUnit.Kind.RELISH or rect.has_point(u.global_position):
+			continue
+		# Behind her, toward the door she came from (+y is back/down), in a ring.
+		var ring := float(ConfigDb.v("stats", "follow_relish_distance_px"))
+		var spot := rel.global_position + Vector2(0, ring * 0.6) \
+			+ Vector2(ring * 0.5, 0).rotated(TAU * float(idx) / 8.0)
+		u.snap_to(battlefield.clamp_to_nav(spot))
+		idx += 1
+
+func _camera_world_rect() -> Rect2:
+	var cam := battlefield.camera
+	var vp := battlefield.get_viewport_rect().size
+	var half := Vector2(vp.x / (2.0 * cam.zoom.x), vp.y / (2.0 * cam.zoom.y))
+	return Rect2(cam.position - half, half * 2.0)
+
 func _chamber_cleared(i: int) -> bool:
 	for u in _units_by_chamber[i]:
 		if is_instance_valid(u) and u.alive:
@@ -179,20 +231,21 @@ func _process(_delta: float) -> void:
 						battlefield.spawn_unit(u, _zone_point(climax, grp["zone"]))
 						_units_by_chamber[climax].append(u)
 				battlefield.spawn_ding(boss.global_position + Vector2(0, -60), "THE TOMB ANSWERS", Color(1, 0.5, 0.4))
-	# Auto-advance (§8.3: Relish auto-advances between chambers)
-	if current < chambers.size() - 1 and _chamber_cleared(current):
+	# Auto-advance (§8.3). The exit unlocks when the chamber clears; Relish only
+	# has to reach the doorway ZONE (not fully cross into the next room) to start
+	# the slide — that dead-air crossing was giving the horde time to act goofy.
+	if current < chambers.size() - 1 and _chamber_cleared(current) and not _advancing:
 		if not _cleared_announced:
 			_cleared_announced = true
 			battlefield.spawn_ding(_rooms[current]["center"], "CHAMBER CLEAR", Color(0.6, 1.0, 0.7))
+			if current < _door_glows.size():
+				_door_glows[current].set_open(true)  # red → blue, "come on in"
 			if battlefield.relish != null:
 				battlefield.relish.relish_anchor = _rooms[current + 1]["center"]
-		# Activate the next chamber once Relish steps into it
-		if battlefield.relish != null and battlefield.relish.alive \
-				and battlefield.relish.global_position.y < float(_rooms[current + 1]["bot"]) - 30.0:
-			var tw := create_tween()
-			tw.tween_property(battlefield.camera, "position", _rooms[current + 1]["center"], 0.55) \
-				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-			_activate_chamber(current + 1)
+		var rel: RRUnit = battlefield.relish
+		if rel != null and rel.alive \
+				and rel.global_position.distance_to(battlefield.doorways[current]) < float(ConfigDb.v("stats", "exit_zone_px")):
+			_begin_advance(current)
 
 func _on_enemy_killed(u: RRUnit) -> void:
 	if u.is_boss and not _ended:

@@ -424,6 +424,18 @@ func order_move(point: Vector2) -> void:
 	cmd_path.clear()
 	path_override.clear()
 
+## Off-screen reposition (chamber transition straggler gather): drop the unit at
+## a new spot and wipe stale movement state so it re-paths from there cleanly.
+func snap_to(pos: Vector2) -> void:
+	global_position = pos
+	velocity = Vector2.ZERO
+	cmd = Cmd.NONE
+	cmd_path.clear()
+	path_override.clear()
+	_nav_goal = Vector2.INF
+	if nav != null:
+		nav.target_position = pos
+
 ## Lasso-path: the whole selection follows one drawn path (still no per-unit
 ## micro). Waypoints stream in live while the player drags.
 func order_path(offset: Vector2) -> void:

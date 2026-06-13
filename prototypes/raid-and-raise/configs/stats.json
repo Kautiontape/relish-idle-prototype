@@ -31,6 +31,7 @@
   "escort_door_cone_dot": 0.7,
   "escort_door_range_px": 900,
   "escort_through_px": 120,
+  "exit_zone_px": 150,
   "escort_min_relish_speed_px": 20,
   "relish_push_speed_px": 180,
   "relish_push_pad_px": 8,
