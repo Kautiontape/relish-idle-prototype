@@ -39,7 +39,7 @@ Full Phase 1 build of the "Raid & Raise" design doc (`prototypes/raid-and-raise/
 
 - **Stack:** Godot 4.6 (Compatibility renderer, single-threaded web export)
 - **Key question:** Does tracing circles in bullet-time feel good enough to be the heart of combat? (Gate: the trance gym playroom. Second gate: a full run fits ~10 minutes and you want another.)
-- **Status:** In development
+- **Status:** Phase 1 complete — the circle gate passed (it's the heart of the game). Frozen as the playable alpha, tagged `raid-and-raise-v0.0.1`. Phase 2 (the Slab) is its own prototype, not bolted onto this one.
 
 ## Separate
 
