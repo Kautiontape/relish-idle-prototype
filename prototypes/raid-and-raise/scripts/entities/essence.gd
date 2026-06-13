@@ -71,6 +71,16 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO, 6.5, col)
 		draw_circle(Vector2.ZERO, 3.0, Color(1, 1, 1, 0.9))
 		return
+	# Glow pool: a wide, faint halo drawn above the crowd (z_index 60). One
+	# stray gem stays subtle; overlapping halos stack into a bright green pool,
+	# so a good BATCH of essence advertises itself through a churning horde.
+	var halo := float(ConfigDb.v("circle", "essence_halo_px"))
+	var halo_a := 0.05 + 0.02 * pulse
+	if trance:
+		halo *= 1.25
+		halo_a += 0.05
+	draw_circle(Vector2.ZERO, halo, Color(0.4, 1.0, 0.55, halo_a))
+	draw_circle(Vector2.ZERO, halo * 0.6, Color(0.5, 1.0, 0.62, halo_a))
 	if trance:
 		col = Color(0.6, 1.0, 0.75)
 		r = 7.0 + 2.0 * pulse

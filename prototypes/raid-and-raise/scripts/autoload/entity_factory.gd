@@ -80,7 +80,9 @@ func make_chaff(mult: float) -> RRUnit:
 		},
 		"cadence": s["chaff_cadence"],
 		"name": "",
-		"color": Color(0.62, 0.78, 0.6),
+		# Ash-lavender, NOT green: green is reserved for essence so a fresh batch
+		# reads against the horde (the army is cool-toned, enemies are warm).
+		"color": Color(0.66, 0.62, 0.74),
 	})
 
 func make_relish() -> RRUnit:

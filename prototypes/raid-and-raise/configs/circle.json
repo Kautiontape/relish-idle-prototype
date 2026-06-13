@@ -17,6 +17,7 @@
   "absorb_accel_px": 2400,
   "grow_time_s": 0.5,
   "grow_ring_px": 46,
+  "essence_halo_px": 26,
   "path_start_px": 70,
   "lasso_min_loop_px": 160
 }
