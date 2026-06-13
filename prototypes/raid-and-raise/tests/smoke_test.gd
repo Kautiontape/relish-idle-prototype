@@ -146,6 +146,21 @@ func _test_circle_scorer() -> void:
 	check(absf(CS.multiplier(100) - 1.5) < 0.001, "multiplier(100) = 1.5")
 	check(absf(CS.multiplier(0) - 0.5) < 0.001, "multiplier(0) = 0.5")
 
+	# Tail tolerance: a clean circle that stops ~25 deg short scores near a full
+	# one (best-closure), and a clean circle with a flick-off tail keeps most of
+	# its score (tail punished gently, not as a giant closure gap).
+	var short_circle := PackedVector2Array()
+	for i in 58:  # 58/64 of the way round ≈ 326 deg, finger lifted before the seam
+		short_circle.append(center + Vector2(120, 0).rotated(TAU * i / 64.0))
+	var tailed := perfect.duplicate()
+	for i in range(1, 11):  # full circle, then a straight 100px flick off the edge
+		tailed.append(center + Vector2(120, 0) + Vector2(i * 10.0, 0))
+	var ss: int = CS.grade(short_circle)["score"]
+	var st: int = CS.grade(tailed)["score"]
+	print("  tail-aware: short=%d tailed=%d (perfect=%d)" % [ss, st, sp])
+	check(ss >= sp - 12, "stop-short circle scores near perfect (%d vs %d)" % [ss, sp])
+	check(st >= sp - 20, "flick-off tail keeps most of the score (%d vs %d)" % [st, sp])
+
 # 4. Loot: rarity weights honored, magnitudes in range, echo budget exact
 func _test_loot() -> void:
 	print("[loot]")
