@@ -13,5 +13,10 @@ jobs:
           cd /opt/services/relish-idle-prototype
           git pull origin main
           docker compose build
-          docker compose up -d
+          # Prototypes are scale-to-zero: create/recreate their containers but
+          # never start them. `up -d` would wake every prototype, and Sablier
+          # only stops containers whose session expires — a compose-started
+          # container with no session runs forever. Only infra gets `up -d`.
+          docker compose create
+          docker compose up -d caddy sablier socket-proxy
           docker compose restart caddy
