@@ -1,0 +1,10 @@
+{
+  "name": "Lich",
+  "anatomy": { "muscle": 0, "nerve": 3, "presence": 0, "anima": 1 },
+  "cadence": 0.9,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#9fd8e8",
+  "notes": "the killer's eye frame"
+}

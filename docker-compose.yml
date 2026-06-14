@@ -137,6 +137,20 @@ services:
     networks:
       - relish
 
+  crypt:
+    build:
+      context: ./prototypes/crypt
+      dockerfile: Dockerfile
+    container_name: relish_crypt
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-crypt
+    networks:
+      - relish
+
 networks:
   relish:
     driver: bridge

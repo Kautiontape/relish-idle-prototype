@@ -49,6 +49,14 @@ Phase 2 of Raid & Raise: the raising screen, as its own prototype with the raid 
 - **Status:** In development. Build-expression loop + ossuary working; raid faked, economy deferred.
 - **Builds on:** Raid & Raise (loot tables, stat/anatomy shapes, creature-visual language — copied, not shared)
 
+### The Crypt (`/crypt/`)
+Horde management as the game — testing whether organizing and shaping a population of undead is fun on its own. A mobile-first command center: raise a wall of expendable **Hollows** (one tap, bulk), kit the precious few into **champions** by slotting aspect-gated remnants, then **sort / filter / tag** the horde and read its composition at a glance (role hats, a Vei-coverage strip). Raids are **"pick a party"** (a Jar that grows `2 + √raids`) — composition sets the losses and they fall on the Hollow screen first, so champions stay home unless you risk them. The Maw recycles surplus. The end-state is **Vei**, the Raven Queen: cover her fronts with your army's *shape*, not its size — win or total wipe.
+
+- **Stack:** Godot 4.6 (Compatibility renderer, single-threaded web export), mobile-first 400×866
+- **Key question:** Can horde management — organizing, shaping, picking who marches — be fun separately from what you use the horde for?
+- **Status:** In development. Core loop validated (assembling a rounded team to beat Vei feels good); raid-party + selection tools in; salvage, town, persistence deferred.
+- **Builds on:** The Slab (config shapes, loot/ossuary, build-state — copied, not shared)
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)

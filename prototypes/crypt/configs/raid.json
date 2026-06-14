@@ -1,0 +1,16 @@
+{
+  "_note": "Each raid rolls a THREAT that punishes a missing counter. Losses scale with how poorly your composition covers it (never random) and fall on your weakest power first — the Hollow screen dies for the champions. The haul refills the faucet so the population keeps churning (garden, not unpacking).",
+  "threats": [
+    { "id": "giants",  "desc": "a tomb-giant",   "counter_stat": "wits",  "base_loss_frac": 0.20 },
+    { "id": "swarm",   "desc": "a bone-tide",    "counter_stat": "dread", "base_loss_frac": 0.20 },
+    { "id": "carvers", "desc": "blade-cultists", "counter_stat": "beef",  "base_loss_frac": 0.18 },
+    { "id": "raw",     "desc": "a rival warband","counter_stat": "power", "base_loss_frac": 0.14 }
+  ],
+  "coverage_per_counter_point": 0.02,
+  "max_coverage": 0.9,
+  "min_losses_if_uncovered": 1,
+  "haul_forms": [3, 6],
+  "haul_remnants": [4, 8],
+  "haul_hollows": [2, 5],
+  "haul_scraps": 22
+}

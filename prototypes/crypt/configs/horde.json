@@ -1,0 +1,11 @@
+{
+  "_note": "Population tuning. A Hollow carries only its dead-flesh base power; remnants lift a unit into Risen then Champion tiers. Start values seed enough bodies that the horde reads as a 'wall' you have to organize to comprehend (spicy).",
+  "hollow_base_power": 2.0,
+  "risen_power_threshold": 5.0,
+  "champion_power_threshold": 14.0,
+  "start_forms": 6,
+  "start_remnants": 8,
+  "start_hollows": 10,
+  "kit_max_remnants": 4,
+  "jar_base": 2
+}

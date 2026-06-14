@@ -1,0 +1,10 @@
+{
+  "_note": "Preset tag chips for one-tap organizing; the player can also coin their own (typed once, then a reusable chip). Tags are the player's taxonomy — the durable artifact carried between raids. Coining a custom tag is the pass signal: naming a bucket is naming a creature one scale up.",
+  "presets": [
+    { "id": "keep",      "label": "Keep",      "color": "#6fcf6f" },
+    { "id": "fodder",    "label": "Fodder",    "color": "#b97a5a" },
+    { "id": "frontline", "label": "Frontline", "color": "#cf6f6f" },
+    { "id": "ranged",    "label": "Ranged",    "color": "#6f9fcf" },
+    { "id": "champion",  "label": "Champion",  "color": "#cfb86f" }
+  ]
+}

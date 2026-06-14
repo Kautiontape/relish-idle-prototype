@@ -1,0 +1,18 @@
+{
+  "_note": "Crypt + creature-preview tuning. Aspect colors drive the rune slots AND tint the morphing creature toward its dominant aspect.",
+  "aspect_colors": {
+    "muscle": "#d9533b",
+    "nerve": "#e0c64a",
+    "presence": "#d36bb0",
+    "anima": "#5bbfb0"
+  },
+  "preview_base_radius": 60.0,
+  "preview_aspect_tint": 0.45,
+  "rune_ring_radius": 188.0,
+  "rune_radius": 26.0,
+  "raise_grow_time_s": 0.6,
+  "silhouette_size": 300.0,
+  "silhouette_dim_alpha": 0.22,
+  "silhouette_per_beef": 0.05,
+  "raise_hold_time_s": 1.1
+}

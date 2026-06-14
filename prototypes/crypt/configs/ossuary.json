@@ -1,0 +1,23 @@
+{
+  "_note": "The Maw. One meter (fullness 0..1) is the quality dial. Toss scraps, unused remnants, or whole minions — each adds fullness by its WORTH (diminishing returns). A pull rolls quality in a HYBRID window [floor_frac*fullness .. fullness]: floor_frac 1.0 = deterministic, 0.0 = pure ceiling-lottery, 0.5 = floor rises with the ceiling. Output is hard-capped BELOW looted gear.",
+  "fill_per_scrap": 0.04,
+  "feed_chunk": 5,
+  "floor_frac": 0.5,
+  "drop_per_pull": 0.22,
+  "min_magnitude": 1,
+  "max_magnitude": 4,
+  "uncommon_quality_threshold": 0.62,
+  "echo_chance_at_full": 0.35,
+  "mid_form_chance_at_full": 0.22,
+  "scrap_form_weights": { "skeleton": 40, "zombie": 40, "hulk": 12, "wraith": 8 },
+  "worth": {
+    "_note": "Worth -> fill units (each unit fills like one scrap). A minion is a feast.",
+    "per_magnitude": 1.0,
+    "per_echo_point": 1.0,
+    "rarity_bonus": { "common": 0, "uncommon": 2, "rare": 5, "legendary": 10 },
+    "minion_form_base": 3
+  },
+  "decay_enabled": false,
+  "decay_per_s": 0.02,
+  "scraps_per_raid": 28
+}

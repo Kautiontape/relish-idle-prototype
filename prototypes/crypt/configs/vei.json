@@ -1,0 +1,10 @@
+{
+  "_note": "Vei's fronts. Each is a threat she fields, the counter-stat that answers it, a qualitative HINT shown to the player, and a HIDDEN threshold. Readiness is the player judging these fronts by eye against their own (organized) horde — 'do I feel ready', never a printed stat check. Meet fronts_required of them to win; lose = total wipe. raw uses total power, so a shapeless mob clears it on numbers alone but fails the specialist fronts.",
+  "fronts_required": 3,
+  "fronts": [
+    { "id": "giants",  "hint": "She fields giants that shrug off blows — bring something that fells the big.", "counter_stat": "wits",  "threshold": 14 },
+    { "id": "swarm",   "hint": "Her host is numberless — bring something that scatters or pulls a crowd.",   "counter_stat": "dread", "alt_stat": "charm", "threshold": 12 },
+    { "id": "carvers", "hint": "Her carvers cut deep and fast — bring a wall to soak them.",                  "counter_stat": "beef",  "threshold": 18 },
+    { "id": "raw",     "hint": "And she is mighty — bring force enough to end her.",                           "counter_stat": "power", "threshold": 40 }
+  ]
+}

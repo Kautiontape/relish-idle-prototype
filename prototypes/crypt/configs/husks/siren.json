@@ -1,0 +1,10 @@
+{
+  "name": "Siren",
+  "anatomy": { "muscle": 0, "nerve": 1, "presence": 3, "anima": 0 },
+  "cadence": 0.8,
+  "base_hp": 20,
+  "base_dmg": 2,
+  "base_speed": 60,
+  "color": "#e09ec8",
+  "notes": "presence platform"
+}
