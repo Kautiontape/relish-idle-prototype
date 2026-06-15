@@ -1,0 +1,12 @@
+{
+  "_note": "The mission board. Instead of one pending raid, the player sees a few missions and CHOOSES one — erring toward what they're suited for, or stretching into a harder one because of its SPOILS (the self-correcting loop: your weakness points you at the content that fixes it). A mission = a threat (counter-stat) + a difficulty (loss/reward multipliers) + a reward focus (biases the faked haul, and is hinted up front). Escalating quest CHAINS are deferred — first prove the single choice is fun.",
+  "board_size": 3,
+  "difficulties": [
+    { "id": "scout", "label": "Scouting", "loss_mult": 0.55, "reward_mult": 0.7, "weight": 3 },
+    { "id": "raid",  "label": "Raid",     "loss_mult": 1.0,  "reward_mult": 1.0, "weight": 4 },
+    { "id": "siege", "label": "Siege",    "loss_mult": 1.6,  "reward_mult": 1.85, "weight": 2 }
+  ],
+  "reward_weights": { "form": 3, "aspect": 3, "rarity": 2 },
+  "reward_bias_chance": 0.65,
+  "readiness_soft_target": 14
+}

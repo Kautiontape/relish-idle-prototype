@@ -1,5 +1,5 @@
 {
-  "_note": "Each raid rolls a THREAT that punishes a missing counter. Losses scale with how poorly your composition covers it (never random) and fall on your weakest power first — the Hollow screen dies for the champions. The haul refills the faucet so the population keeps churning (garden, not unpacking).",
+  "_note": "Each raid rolls a THREAT that punishes a missing counter. Coverage (how well your composition answers it) sets the party-wide DANGER. Who actually dies is then a per-unit roll weighted by survivability (see survival block) — frail-first in tendency, never weakest-first by fiat. The haul refills the faucet so the population keeps churning (garden, not unpacking).",
   "threats": [
     { "id": "giants",  "desc": "a tomb-giant",   "counter_stat": "wits",  "base_loss_frac": 0.20 },
     { "id": "swarm",   "desc": "a bone-tide",    "counter_stat": "dread", "base_loss_frac": 0.20 },
@@ -12,5 +12,13 @@
   "haul_forms": [3, 6],
   "haul_remnants": [4, 8],
   "haul_hollows": [2, 5],
-  "haul_scraps": 22
+  "haul_scraps": 22,
+  "_survival_note": "Losses are NOT weakest-first. Coverage sets party-wide DANGER (a base death fraction); that danger is redistributed per-unit by survivability so the frail soak most of it — but death_floor means even a champion can get out of position and fall, and death_cap means even a Hollow sometimes scrapes through. Survivability = weighted toughness stats (beef=HP, persistence, wits, speed) + survivability ECHOES (life_drain = life steal keeps you up; frenzy a little). Higher numbers => lower chance, never zero.",
+  "survival": {
+    "stat_weights": { "beef": 1.0, "persistence": 1.2, "wits": 0.5, "speed": 0.4 },
+    "echo_survival": { "life_drain": 0.6, "frenzy": 0.25 },
+    "coeff": 0.07,
+    "death_floor": 0.03,
+    "death_cap": 0.85
+  }
 }

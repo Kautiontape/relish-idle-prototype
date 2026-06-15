@@ -81,6 +81,8 @@ func _test_configs() -> void:
 	check(cfg.data["vei"].has("fronts_required"), "vei has fronts_required")
 	check((cfg.data["raid"]["threats"] as Array).size() >= 3, "raid has threats")
 	check((cfg.data["tags"]["presets"] as Array).size() >= 3, "tag presets present")
+	check((cfg.data["missions"]["difficulties"] as Array).size() >= 2, "missions board config present")
+	check(cfg.data["raid"].has("survival"), "raid survival model present")
 
 # 3. Unit creation
 func _test_units() -> void:
@@ -104,7 +106,8 @@ func _test_composition() -> void:
 	check(float(comp["counter"]["beef"]) == 8.0, "composition totals counter stats")
 	check(int(comp["by_role"].get("Hollow", 0)) == 2, "composition buckets by role")
 
-# 5. Raid — composition cuts losses, and they fall on the Hollow screen first
+# 5. Raid — composition cuts losses; the tough die LESS than the frail, but no
+#    one is safe and no one is doomed (probabilistic, not weakest-by-fiat).
 func _test_raid() -> void:
 	print("[raid]")
 	var rng := RandomNumberGenerator.new()
@@ -113,21 +116,30 @@ func _test_raid() -> void:
 	var weak: Array = []
 	for i in 10:
 		weak.append(H.make_hollow(i + 1, "skeleton"))
-	var r_weak: Dictionary = CS.resolve_raid(weak, giants, rng)
 	var strong: Array = weak.duplicate()
 	for i in 3:
 		strong.append(H.make_kitted(100 + i, "lich", [_rem("wits", 9)]))
-	var r_strong: Dictionary = CS.resolve_raid(strong, giants, rng)
-	check(float(r_strong["coverage"]) > float(r_weak["coverage"]), "wits coverage cuts giant losses (%.2f > %.2f)" % [r_strong["coverage"], r_weak["coverage"]])
-	var champ_ids := [100, 101, 102]
-	var champ_lost := false
-	for idx in r_strong["lost_indices"]:
-		if int(strong[idx]["id"]) in champ_ids:
-			champ_lost = true
-	if int(r_strong["n_losses"]) <= 10:
-		check(not champ_lost, "champions survive while Hollows remain (ablative screen)")
-	else:
-		check(true, "losses exceeded the Hollow screen")
+	check(CS.raid_coverage(strong, giants) > CS.raid_coverage(weak, giants), "wits coverage cuts giant losses (%.2f > %.2f)" % [CS.raid_coverage(strong, giants), CS.raid_coverage(weak, giants)])
+	# A frail Hollow vs a tough champion, many raids: the champion dies less often,
+	# but more than never (it can still get out of position and fall).
+	var mixed: Array = [H.make_hollow(1, "skeleton"), H.make_kitted(2, "hulk", [_rem("beef", 12), _rem("persistence", 8)])]
+	var hollow_deaths := 0
+	var champ_deaths := 0
+	var trials := 400
+	for t in trials:
+		var r: Dictionary = CS.resolve_raid(mixed, giants, rng)
+		if 0 in r["lost_indices"]:
+			hollow_deaths += 1
+		if 1 in r["lost_indices"]:
+			champ_deaths += 1
+	check(champ_deaths < hollow_deaths, "the tough die less than the frail (%d vs %d / %d)" % [champ_deaths, hollow_deaths, trials])
+	check(champ_deaths > 0, "but even the tough can fall — not weakest-only (%d)" % champ_deaths)
+	# Life steal (a combat perk) raises survivability — the sim now reads echoes.
+	var plain: Dictionary = H.make_kitted(3, "skeleton", [_rem("beef", 4)])
+	var lifesteal := {"stat": "beef", "magnitude": 4, "rarity": "uncommon",
+		"echoes": [{"id": "life_drain", "points": 6, "side": "combat"}], "combat_points": 6, "town_points": 0}
+	var thief: Dictionary = H.make_kitted(4, "skeleton", [lifesteal])
+	check(CS.survivability(thief) > CS.survivability(plain), "life steal raises survivability (%.1f > %.1f)" % [CS.survivability(thief), CS.survivability(plain)])
 
 # 6. Vei — a covering army wins, a shapeless mob dies on numbers alone
 func _test_vei() -> void:
@@ -154,7 +166,9 @@ func _test_game_state() -> void:
 	check(gs.horde.size() > 0, "seeded with a starting horde (%d)" % gs.horde.size())
 	gs.raise_all_hollows()
 	check(gs.forms.size() == 0, "raise-all turns every form into a Hollow")
-	check(gs.jar_size() >= 2 and not gs.next_threat.is_empty(), "jar seeded (>=2) and a threat is queued")
+	check(gs.jar_size() >= 2 and gs.mission_board.size() > 0, "jar seeded (>=2) and a mission board is rolled")
+	check((gs.mission_board[0] as Dictionary).has("reward") and (gs.mission_board[0] as Dictionary).has("difficulty"), "a mission carries spoils + difficulty")
+	gs.active_mission = gs.mission_board[0]
 	var party: Array = []
 	for u in gs.horde:
 		party.append(int(u["id"]))
@@ -162,7 +176,8 @@ func _test_game_state() -> void:
 			break
 	var delta: Dictionary = gs.raid(party)
 	check(delta.has("threat") and delta.has("lost") and delta.has("party_size"), "a raid returns a delta to assess")
-	check(gs.forms.size() >= int(cfg.data["raid"]["haul_forms"][0]), "raid haul refills forms")
+	check(gs.forms.size() >= 1, "raid haul refills forms")
+	check(gs.active_mission.is_empty() and gs.mission_board.size() > 0, "the board re-rolls after a raid")
 	var n0: int = gs.horde.size()
 	gs.shred_units([gs.horde[0]["id"]])
 	check(gs.horde.size() == n0 - 1 and gs.ossuary.fullness > 0.0, "shredding a unit feeds the Maw")

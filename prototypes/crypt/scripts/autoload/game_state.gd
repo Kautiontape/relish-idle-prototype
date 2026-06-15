@@ -16,14 +16,15 @@ var ossuary: Ossuary
 var custom_tags: Array = []   # player-coined {id,label,color}
 var won := false
 var raids_completed := 0
-var next_threat := {}
+var mission_board: Array = []     # the missions you can choose from
+var active_mission: Dictionary = {}   # the one you've committed to muster for
 var _next_id := 1
 
 func _ready() -> void:
 	rng.randomize()
 	ossuary = Ossuary.new(rng)
 	_seed_start()
-	_roll_next_threat()
+	roll_mission_board()
 
 func _take_id() -> int:
 	var i := _next_id
@@ -145,20 +146,59 @@ func pull_ossuary() -> Dictionary:
 
 # ---- The loop ----
 
-## "Let's go." A raid just happens: composition sets losses, the haul refills.
-func _roll_next_threat() -> void:
-	next_threat = CombatSim.roll_raid(rng)
+## A fresh board of missions to choose from. Re-rolled after every raid.
+func roll_mission_board() -> void:
+	mission_board.clear()
+	for i in int(ConfigDb.v("missions", "board_size")):
+		mission_board.append(_roll_mission(i))
+
+func _roll_mission(idx: int) -> Dictionary:
+	return {"id": idx, "threat": CombatSim.roll_raid(rng),
+		"difficulty": _roll_difficulty(), "reward": _roll_reward()}
+
+func _roll_difficulty() -> Dictionary:
+	var diffs: Array = ConfigDb.data["missions"]["difficulties"]
+	var weights := {}
+	for d in diffs:
+		weights[String(d["id"])] = float(d.get("weight", 1))
+	var pick := Loot.weighted_pick(rng, weights)
+	for d in diffs:
+		if String(d["id"]) == pick:
+			return d
+	return diffs[0]
+
+## A mission's SPOILS — hinted up front, then biases the (faked) haul. This is
+## the lever that makes a hard mission worth stretching for.
+func _roll_reward() -> Dictionary:
+	match Loot.weighted_pick(rng, ConfigDb.data["missions"]["reward_weights"]):
+		"form":
+			var fids: Array = ConfigDb.form_ids()
+			var fid: String = String(fids[rng.randi_range(0, fids.size() - 1)])
+			return {"kind": "form", "value": fid, "hint": "%s husks" % String(ConfigDb.husk(fid)["name"])}
+		"rarity":
+			var rar: String = "legendary" if rng.randf() < 0.4 else "rare"
+			return {"kind": "rarity", "value": rar, "hint": "%s remnants" % rar}
+		_:
+			var aspects := ["muscle", "nerve", "presence", "anima"]
+			var asp: String = aspects[rng.randi_range(0, aspects.size() - 1)]
+			return {"kind": "aspect", "value": asp, "hint": "%s remnants" % asp}
 
 func jar_size() -> int:
 	return int(ConfigDb.v("horde", "jar_base")) + int(floor(sqrt(float(raids_completed))))
 
-## "Let's go." Pick a party (up to jar_size) — only THEY march and take losses.
+## "Let's go." Mount the chosen mission with the mustered party (up to jar_size) —
+## only THEY march and take losses; the haul scales with the mission's difficulty
+## and skews toward its hinted spoils.
 func raid(party_ids: Array) -> Dictionary:
 	var party: Array = []
 	for u in horde:
 		if int(u["id"]) in party_ids:
 			party.append(u)
-	var threat: Dictionary = next_threat if not next_threat.is_empty() else CombatSim.roll_raid(rng)
+	var mission: Dictionary = active_mission if not active_mission.is_empty() else _roll_mission(0)
+	var diff: Dictionary = mission["difficulty"]
+	var reward: Dictionary = mission["reward"]
+	var threat: Dictionary = (mission["threat"] as Dictionary).duplicate(true)
+	threat["base_loss_frac"] = float(threat["base_loss_frac"]) * float(diff["loss_mult"])
 	var res := CombatSim.resolve_raid(party, threat, rng)
 	var lost: Array = []
 	for i in (res["lost_indices"] as Array):
@@ -166,23 +206,45 @@ func raid(party_ids: Array) -> Dictionary:
 	for u in lost:
 		horde.erase(u)
 	var cfg: Dictionary = ConfigDb.data["raid"]
-	var gf := rng.randi_range(int(cfg["haul_forms"][0]), int(cfg["haul_forms"][1]))
-	var gr := rng.randi_range(int(cfg["haul_remnants"][0]), int(cfg["haul_remnants"][1]))
-	var gh := rng.randi_range(int(cfg["haul_hollows"][0]), int(cfg["haul_hollows"][1]))
+	var rm := float(diff["reward_mult"])
+	var gf := int(round(rng.randi_range(int(cfg["haul_forms"][0]), int(cfg["haul_forms"][1])) * rm))
+	var gr := int(round(rng.randi_range(int(cfg["haul_remnants"][0]), int(cfg["haul_remnants"][1])) * rm))
+	var gh := int(round(rng.randi_range(int(cfg["haul_hollows"][0]), int(cfg["haul_hollows"][1])) * rm))
+	var sc := int(round(int(cfg["haul_scraps"]) * rm))
 	for i in gf:
-		forms.append(Loot.roll_husk(rng))
+		forms.append(_reward_form(reward))
 	for i in gr:
-		remnants.append(Loot.roll_remnant(rng))
+		remnants.append(_reward_remnant(reward))
 	for i in gh:
 		horde.append(Horde.make_hollow(_take_id(), Loot.roll_husk(rng)))
-	scraps += int(cfg["haul_scraps"])
+	scraps += sc
 	raids_completed += 1
-	_roll_next_threat()
+	active_mission = {}
+	roll_mission_board()
 	horde_changed.emit()
 	materials_changed.emit()
-	return {"threat": threat, "coverage": float(res["coverage"]), "lost": lost,
-		"gained_forms": gf, "gained_remnants": gr, "gained_hollows": gh, "scraps": int(cfg["haul_scraps"]),
+	return {"threat": threat, "mission": mission, "reward": reward, "coverage": float(res["coverage"]), "lost": lost,
+		"gained_forms": gf, "gained_remnants": gr, "gained_hollows": gh, "scraps": sc,
 		"party_size": party.size()}
+
+## A form drop, skewed toward the mission's spoils when it promises forms.
+func _reward_form(reward: Dictionary) -> String:
+	if String(reward["kind"]) == "form" and rng.randf() < float(ConfigDb.v("missions", "reward_bias_chance")):
+		return String(reward["value"])
+	return Loot.roll_husk(rng)
+
+## A remnant drop, skewed toward the mission's spoils (a rarity floor, or a stat
+## inside the promised aspect).
+func _reward_remnant(reward: Dictionary) -> Dictionary:
+	var bias := rng.randf() < float(ConfigDb.v("missions", "reward_bias_chance"))
+	if String(reward["kind"]) == "rarity" and bias:
+		return Loot.roll_remnant(rng, String(reward["value"]))
+	if String(reward["kind"]) == "aspect" and bias:
+		for _try in 8:
+			var r := Loot.roll_remnant(rng)
+			if Loot.ASPECT_OF_STAT[r["stat"]] == String(reward["value"]):
+				return r
+	return Loot.roll_remnant(rng)
 
 func fight_vei() -> Dictionary:
 	var res := CombatSim.resolve_vei(horde)
@@ -201,9 +263,10 @@ func _wipe() -> void:
 	remnants.clear()
 	scraps = 0
 	raids_completed = 0
+	active_mission = {}
 	ossuary.fullness = 0.0
 	_seed_start()
-	_roll_next_threat()
+	roll_mission_board()
 
 func reset() -> void:
 	won = false
