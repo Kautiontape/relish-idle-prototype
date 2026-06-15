@@ -81,6 +81,29 @@ static func essence_count(rng: RandomNumberGenerator, beef: int) -> int:
 static func remnant_label(r: Dictionary) -> String:
 	return "%s %d" % [String(r["stat"]).capitalize(), r["magnitude"]]
 
+## Worth = how much a thing fills the Maw (in scrap-equivalent units). A juicy
+## remnant or a whole minion is a feast; a scrap is a crumb.
+static func remnant_worth(r: Dictionary) -> float:
+	var w: Dictionary = ConfigDb.data["ossuary"]["worth"]
+	var echo_pts := 0
+	for e in r.get("echoes", []):
+		echo_pts += int(e.get("points", 0))
+	var bonus := float(w["rarity_bonus"].get(String(r.get("rarity", "common")), 0))
+	return float(w["per_magnitude"]) * float(r.get("magnitude", 0)) \
+		+ float(w["per_echo_point"]) * echo_pts + bonus
+
+## A raised creature's worth, from its derived snapshot (no raw remnants kept).
+static func minion_worth(derived: Dictionary) -> float:
+	var w: Dictionary = ConfigDb.data["ossuary"]["worth"]
+	var stat_sum := 0.0
+	for v in (derived.get("stats", {}) as Dictionary).values():
+		stat_sum += float(v)
+	var echo_sum := 0.0
+	for v in (derived.get("echoes", {}) as Dictionary).values():
+		echo_sum += float(v)
+	return float(w["per_magnitude"]) * stat_sum + float(w["per_echo_point"]) * echo_sum \
+		+ float(w["minion_form_base"])
+
 static func rarity_color(rarity: String) -> Color:
 	match rarity:
 		"uncommon": return Color(0.45, 0.85, 0.45)

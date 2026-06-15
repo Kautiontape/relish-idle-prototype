@@ -5,7 +5,7 @@ extends Node
 
 signal value_changed(file: String, key: String, value: Variant)
 
-const FILES := ["stats", "rarity", "echoes", "names", "slab", "ossuary"]
+const FILES := ["stats", "rarity", "echoes", "names", "slab", "ossuary", "roles"]
 const DIRS := ["husks"]
 
 var data: Dictionary = {}

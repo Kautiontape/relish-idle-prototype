@@ -46,6 +46,27 @@ func feed_ossuary() -> bool:
 	materials_changed.emit()
 	return true
 
+## Toss an unused remnant into the Maw — fills by its worth. Returns fill units.
+func feed_remnant(r: Dictionary) -> int:
+	if not remnants.has(r):
+		return 0
+	var units := maxi(1, int(round(Loot.remnant_worth(r))))
+	remnants.erase(r)
+	ossuary.feed(units)
+	materials_changed.emit()
+	return units
+
+## Sacrifice a raised minion to the Maw — a feast, scaled by what it was made of.
+func feed_minion(index: int) -> int:
+	if index < 0 or index >= shelf.size():
+		return 0
+	var units := maxi(1, int(round(Loot.minion_worth(shelf[index]))))
+	shelf.remove_at(index)
+	ossuary.feed(units)
+	shelf_changed.emit()
+	materials_changed.emit()
+	return units
+
 func pull_ossuary() -> Dictionary:
 	var out := ossuary.pull()
 	forms.append(out["form_id"])

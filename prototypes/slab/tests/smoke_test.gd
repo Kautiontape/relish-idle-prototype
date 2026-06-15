@@ -30,6 +30,7 @@ func _run() -> void:
 	_test_configs()
 	_test_loot()
 	_test_build_and_name()
+	_test_roles_worth()
 	_test_ossuary()
 	_test_game_state()
 	if fails == 0:
@@ -125,6 +126,33 @@ func _test_build_and_name() -> void:
 	var freed = b.unslot(m0)
 	check(freed["stat"] == "beef" and b.totals()["beef"] == 0.0, "unslot returns the remnant and clears its stat")
 
+	# Blend naming: two near-equal stats FUSE (proportions, not majority-wins)
+	var bb = BS.new()
+	bb.place_form("hulk")  # muscle 3, nerve 1
+	var s0: int = bb.empty_slot_for("muscle")
+	bb.slot_remnant(s0, {"stat": "power", "magnitude": 3, "rarity": "common", "echoes": [], "combat_points": 0, "town_points": 0})
+	var s1: int = bb.empty_slot_for("muscle")
+	bb.slot_remnant(s1, {"stat": "beef", "magnitude": 3, "rarity": "common", "echoes": [], "combat_points": 0, "town_points": 0})
+	check(bb.derived()["name"] == "Brutal-Hulking Hulk", "near-equal stats blend the name (%s)" % bb.derived()["name"])
+	var s2: int = bb.empty_slot_for("muscle")
+	bb.slot_remnant(s2, {"stat": "beef", "magnitude": 9, "rarity": "rare", "echoes": [], "combat_points": 0, "town_points": 0})
+	check(bb.derived()["name"] == "Hulking Hulk", "a runaway stat drops the blend (%s)" % bb.derived()["name"])
+
+# 4b. Role verdict + Maw worth
+func _test_roles_worth() -> void:
+	print("[roles + worth]")
+	var CR: GDScript = load("res://scripts/systems/creature_role.gd")
+	var bulwark: Dictionary = CR.of({"beef": 5.0}, {})
+	check(bulwark["role"] == "Bulwark", "beef-dominant reads as Bulwark (%s)" % bulwark["role"])
+	check("good for" in String(bulwark["line"]), "role line carries a use-case (%s)" % bulwark["line"])
+	var brawler: Dictionary = CR.of({"power": 4.0}, {"frenzy": 3})
+	check(brawler["role"] == "Brawler" and brawler["good_for"] != cfg.data["roles"]["stat_roles"]["power"]["good_for"],
+		"an echo flavors the use-case (%s)" % brawler["line"])
+	check(CR.of({}, {})["role"] == "Hollow", "no stats -> Hollow role")
+	var rich := float(LT.remnant_worth({"magnitude": 5, "rarity": "uncommon", "echoes": [{"id": "frenzy", "points": 3}]}))
+	var poor := float(LT.remnant_worth({"magnitude": 1, "rarity": "common", "echoes": []}))
+	check(rich > poor, "a richer remnant is worth more to the Maw (%.1f > %.1f)" % [rich, poor])
+
 # 5. The ossuary: floor + quality dial + hard cap
 func _test_ossuary() -> void:
 	print("[ossuary]")
@@ -167,6 +195,16 @@ func _test_ossuary() -> void:
 	pit.fullness = 1.0
 	pit.pull()
 	check(pit.fullness < 1.0, "a pull drains the pit (%.2f)" % pit.fullness)
+
+	# Hybrid window: quality never falls below floor_frac*fullness nor above fullness
+	var ff := float(cfg.v("ossuary", "floor_frac"))
+	var bounded := true
+	for i in 80:
+		pit.fullness = 0.8
+		var q := float(pit.pull()["quality"])
+		if q < ff * 0.8 - 0.001 or q > 0.8 + 0.001:
+			bounded = false
+	check(bounded, "pull quality stays inside the hybrid window [%.2f .. 0.80]" % (ff * 0.8))
 
 # 6. GameState material flow
 func _test_game_state() -> void:

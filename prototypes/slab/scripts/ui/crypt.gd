@@ -37,6 +37,15 @@ var name_edit: LineEdit
 var vei_panel: Panel
 var dbg_panel: Panel
 
+var role_label: Label
+var materials_panel: Panel
+var materials_list: VBoxContainer
+var confirm_panel: Panel
+var confirm_label: Label
+var _confirm_cb := Callable()
+var _holding := false
+var _hold_t := 0.0
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
@@ -65,11 +74,14 @@ func _ready() -> void:
 	_build_bottom()
 	_build_picker()
 	_build_name_prompt()
+	_build_materials()
+	_build_confirm()
 	_build_vei_panel()
 	_build_debug()
 
 	GameState.materials_changed.connect(_on_materials_changed)
 	GameState.shelf_changed.connect(_rebuild_shelf)
+	ConfigDb.value_changed.connect(func(_f, _k, _v): _refresh())  # debug tweaks apply live
 	GameState.grant_raid_haul()  # start with something to build (the faked raid)
 	_rebuild_forms()
 	_rebuild_shelf()
@@ -101,19 +113,42 @@ func _build_header() -> void:
 	add_child(name_label)
 
 	var sub := Label.new()
-	sub.position = Vector2(0, 142)
-	sub.size = Vector2(720, 22)
+	sub.position = Vector2(0, 140)
+	sub.size = Vector2(720, 20)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_font_size_override("font_size", 13)
 	sub.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
-	sub.text = "THE CRYPT — place a form, slot remnants, Raise"
+	sub.text = "THE CRYPT — place a form, slot remnants, hold to Raise"
 	add_child(sub)
 
-	# Twin lean bar (combat | town) — identity readout while building.
+	# The verdict: what this build is FOR (role — good for X), live as you slot.
+	role_label = Label.new()
+	role_label.position = Vector2(20, 162)
+	role_label.size = Vector2(680, 22)
+	role_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	role_label.add_theme_font_size_override("font_size", 15)
+	role_label.add_theme_color_override("font_color", Color(0.85, 0.78, 0.6))
+	add_child(role_label)
+
+	# Twin lean bar (combat | town), labeled so a stranger reads the trade-off.
+	var clab := Label.new()
+	clab.position = Vector2(150, 190)
+	clab.add_theme_font_size_override("font_size", 11)
+	clab.add_theme_color_override("font_color", Color(0.95, 0.5, 0.35))
+	clab.text = "COMBAT"
+	add_child(clab)
+	var tlab := Label.new()
+	tlab.position = Vector2(510, 190)
+	tlab.size = Vector2(60, 16)
+	tlab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	tlab.add_theme_font_size_override("font_size", 11)
+	tlab.add_theme_color_override("font_color", Color(0.5, 0.85, 0.5))
+	tlab.text = "TOWN"
+	add_child(tlab)
 	var bar := HBoxContainer.new()
-	bar.position = Vector2(210, 172)
-	bar.size = Vector2(300, 12)
-	bar.add_theme_constant_override("separation", 0)
+	bar.position = Vector2(150, 206)
+	bar.size = Vector2(420, 12)
+	bar.add_theme_constant_override("separation", 2)
 	combat_rect = ColorRect.new()
 	combat_rect.color = Color(0.95, 0.45, 0.3)
 	combat_rect.custom_minimum_size = Vector2(0, 12)
@@ -128,13 +163,29 @@ func _build_header() -> void:
 
 func _build_raise_button() -> void:
 	raise_btn = Button.new()
-	raise_btn.text = "✦ RAISE ✦"
+	raise_btn.text = "✦ HOLD TO RAISE ✦"
 	raise_btn.focus_mode = Control.FOCUS_NONE
-	raise_btn.add_theme_font_size_override("font_size", 22)
-	raise_btn.size = Vector2(220, 52)
-	raise_btn.position = SLAB_CENTER + Vector2(-110, 222)
-	raise_btn.pressed.connect(_on_raise)
+	raise_btn.add_theme_font_size_override("font_size", 20)
+	raise_btn.size = Vector2(260, 52)
+	raise_btn.position = SLAB_CENTER + Vector2(-130, 222)
+	# Press-and-hold: the creature fleshes in under a closing ring; release early
+	# cancels. Deliberate, not a one-click — you watch it become itself.
+	raise_btn.button_down.connect(_raise_begin)
+	raise_btn.button_up.connect(_raise_release)
 	add_child(raise_btn)
+
+func _process(delta: float) -> void:
+	if not _holding:
+		return
+	if not build.has_form():
+		_raise_cancel()
+		return
+	_hold_t += delta
+	var p := clampf(_hold_t / float(ConfigDb.v("slab", "raise_hold_time_s")), 0.0, 1.0)
+	preview.reveal_boost = p
+	preview.hold_progress = p
+	if p >= 1.0:
+		_raise_complete()
 
 # ---- The bone pit (ossuary) ----
 
@@ -154,53 +205,66 @@ func _build_pit() -> void:
 	title.position = Vector2(28, 798)
 	title.add_theme_font_size_override("font_size", 14)
 	title.add_theme_color_override("font_color", Color(0.85, 0.6, 0.5))
-	title.text = "THE BONE PIT — feed scraps, then pull (always gives something)"
+	title.text = "THE MAW — toss anything in"
 	add_child(title)
 
-	# Fullness/quality meter
+	# Quality/fullness meter
 	var meter_bg := ColorRect.new()
 	meter_bg.color = Color(0.05, 0.04, 0.04)
-	meter_bg.position = Vector2(28, 824)
-	meter_bg.size = Vector2(360, 16)
+	meter_bg.position = Vector2(28, 826)
+	meter_bg.size = Vector2(258, 18)
 	add_child(meter_bg)
 	pit_fill = ColorRect.new()
 	pit_fill.color = Color(0.9, 0.55, 0.2)
-	pit_fill.position = Vector2(28, 824)
-	pit_fill.size = Vector2(0, 16)
+	pit_fill.position = Vector2(28, 826)
+	pit_fill.size = Vector2(0, 18)
 	add_child(pit_fill)
 	pit_label = Label.new()
-	pit_label.position = Vector2(28, 846)
+	pit_label.position = Vector2(28, 848)
 	pit_label.add_theme_font_size_override("font_size", 12)
 	pit_label.add_theme_color_override("font_color", Color(0.7, 0.6, 0.55))
 	add_child(pit_label)
 
+	# The Maw's face: a cauldron, lit warm.
+	add_child(_icon("res://assets/icons/_maw.svg", Vector2(296, 816), Vector2(52, 52), Color(0.95, 0.7, 0.45)))
+
 	var feed := Button.new()
-	feed.text = "FEED"
+	feed.text = "FEED scrap"
 	feed.focus_mode = Control.FOCUS_NONE
-	feed.position = Vector2(404, 820)
-	feed.size = Vector2(100, 56)
+	feed.add_theme_font_size_override("font_size", 12)
+	feed.position = Vector2(356, 808)
+	feed.size = Vector2(82, 30)
 	feed.pressed.connect(func(): GameState.feed_ossuary())
 	add_child(feed)
+
+	var toss := Button.new()
+	toss.text = "TOSS…"
+	toss.focus_mode = Control.FOCUS_NONE
+	toss.add_theme_font_size_override("font_size", 12)
+	toss.position = Vector2(356, 846)
+	toss.size = Vector2(82, 30)
+	toss.pressed.connect(_open_materials)
+	add_child(toss)
 
 	var pull := Button.new()
 	pull.text = "PULL"
 	pull.focus_mode = Control.FOCUS_NONE
-	pull.position = Vector2(512, 820)
-	pull.size = Vector2(100, 56)
+	pull.position = Vector2(448, 808)
+	pull.size = Vector2(96, 68)
 	pull.pressed.connect(_on_pull)
 	add_child(pull)
 
 	pit_result = Label.new()
-	pit_result.position = Vector2(620, 824)
-	pit_result.size = Vector2(80, 56)
+	pit_result.position = Vector2(556, 806)
+	pit_result.size = Vector2(142, 72)
 	pit_result.autowrap_mode = TextServer.AUTOWRAP_WORD
-	pit_result.add_theme_font_size_override("font_size", 11)
-	pit_result.add_theme_color_override("font_color", Color(0.8, 0.75, 0.6))
+	pit_result.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pit_result.add_theme_font_size_override("font_size", 12)
+	pit_result.add_theme_color_override("font_color", Color(0.85, 0.8, 0.62))
 	add_child(pit_result)
 
 func _build_statue() -> void:
 	var statue := Button.new()
-	statue.text = "VEI"
 	statue.focus_mode = Control.FOCUS_NONE
 	statue.position = Vector2(612, 196)
 	statue.size = Vector2(92, 150)
@@ -209,10 +273,22 @@ func _build_statue() -> void:
 	sb.border_color = Color(0.35, 0.35, 0.45)
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(6)
-	statue.add_theme_stylebox_override("normal", sb)
-	statue.add_theme_color_override("font_color", Color(0.6, 0.62, 0.72))
+	for st in ["normal", "hover", "pressed"]:
+		statue.add_theme_stylebox_override(st, sb)
 	statue.pressed.connect(func(): vei_panel.visible = true)
 	add_child(statue)
+
+	add_child(_icon("res://assets/icons/_vei.svg", Vector2(624, 204), Vector2(68, 104), Color(0.62, 0.64, 0.78)))
+
+	var cap := Label.new()
+	cap.position = Vector2(612, 314)
+	cap.size = Vector2(92, 20)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cap.add_theme_font_size_override("font_size", 13)
+	cap.add_theme_color_override("font_color", Color(0.6, 0.62, 0.72))
+	cap.text = "VEI"
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(cap)
 
 # ---- Bottom: forms inventory + shelf ----
 
@@ -232,7 +308,7 @@ func _build_bottom() -> void:
 	slabel.position = Vector2(16, 1110)
 	slabel.add_theme_font_size_override("font_size", 13)
 	slabel.add_theme_color_override("font_color", Color(0.6, 0.65, 0.7))
-	slabel.text = "RAISED"
+	slabel.text = "ROSTER  (your warband — feed any to the Maw)"
 	add_child(slabel)
 	shelf_box = HFlowContainer.new()
 	shelf_box.position = Vector2(16, 1132)
@@ -293,6 +369,127 @@ func _build_name_prompt() -> void:
 	skip.pressed.connect(func(): _confirm_raise(""))
 	name_prompt.add_child(skip)
 
+# ---- The Maw's materials drawer (also: your remnants, finally visible) ----
+
+func _build_materials() -> void:
+	materials_panel = _overlay_panel(Vector2(90, 250), Vector2(540, 660))
+	var t := Label.new()
+	t.position = Vector2(20, 16)
+	t.add_theme_font_size_override("font_size", 18)
+	t.add_theme_color_override("font_color", Color(0.92, 0.82, 0.72))
+	t.text = "TOSS INTO THE MAW"
+	materials_panel.add_child(t)
+	var sub := Label.new()
+	sub.position = Vector2(20, 42)
+	sub.size = Vector2(500, 18)
+	sub.add_theme_font_size_override("font_size", 12)
+	sub.add_theme_color_override("font_color", Color(0.6, 0.6, 0.62))
+	sub.text = "richer things fill more — also where your spare remnants live"
+	materials_panel.add_child(sub)
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(12, 68)
+	scroll.size = Vector2(516, 540)
+	materials_panel.add_child(scroll)
+	materials_list = VBoxContainer.new()
+	materials_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	materials_list.custom_minimum_size = Vector2(500, 0)
+	scroll.add_child(materials_list)
+	var close := Button.new()
+	close.text = "done"
+	close.focus_mode = Control.FOCUS_NONE
+	close.position = Vector2(12, 616)
+	close.size = Vector2(516, 34)
+	close.pressed.connect(func(): materials_panel.visible = false)
+	materials_panel.add_child(close)
+
+func _open_materials() -> void:
+	_populate_materials()
+	materials_panel.visible = true
+
+func _populate_materials() -> void:
+	for c in materials_list.get_children():
+		c.queue_free()
+	if GameState.scraps > 0:
+		var chunk := mini(int(ConfigDb.v("ossuary", "feed_chunk")), GameState.scraps)
+		_mat_row("Scraps ×%d" % GameState.scraps, "feed %d" % chunk, Color(0.72, 0.66, 0.6),
+			func(): GameState.feed_ossuary(); _post_toss("fed %d scraps" % chunk))
+	for r in GameState.remnants:
+		var w := int(round(Loot.remnant_worth(r)))
+		_mat_row(_remnant_label(r), "+%d fill" % w, Loot.rarity_color(r["rarity"]), _toss_remnant.bind(r))
+	for idx in GameState.shelf.size():
+		var c: Dictionary = GameState.shelf[idx]
+		var w := int(round(Loot.minion_worth(c)))
+		_mat_row("⚰ " + String(c["display_name"]), "sacrifice  +%d fill" % w, Color(0.82, 0.52, 0.52),
+			_sacrifice_minion.bind(idx))
+	if materials_list.get_child_count() == 0:
+		var l := Label.new()
+		l.text = "Nothing to toss. Raid for more."
+		l.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+		materials_list.add_child(l)
+
+func _mat_row(title: String, sub: String, col: Color, cb: Callable) -> void:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 46)
+	b.add_theme_font_size_override("font_size", 14)
+	b.text = "%s     —     %s" % [title, sub]
+	b.add_theme_color_override("font_color", col)
+	b.pressed.connect(cb)
+	materials_list.add_child(b)
+
+func _toss_remnant(r: Dictionary) -> void:
+	var units := GameState.feed_remnant(r)
+	_post_toss("tossed %s  (+%d)" % [String(r["stat"]).capitalize(), units])
+
+func _sacrifice_minion(idx: int) -> void:
+	if idx < 0 or idx >= GameState.shelf.size():
+		return
+	var c: Dictionary = GameState.shelf[idx]
+	var w := int(round(Loot.minion_worth(c)))
+	_ask_confirm("Feed %s to the Maw?\nVei takes the body — you keep +%d fullness." % [String(c["display_name"]), w],
+		func():
+			var u := GameState.feed_minion(idx)
+			_post_toss("%s dissolved  (+%d)" % [String(c["display_name"]), u]))
+
+func _post_toss(msg: String) -> void:
+	pit_result.text = msg
+	if materials_panel.visible:
+		_populate_materials()
+	_refresh()
+
+func _build_confirm() -> void:
+	confirm_panel = _overlay_panel(Vector2(120, 470), Vector2(480, 240))
+	confirm_label = Label.new()
+	confirm_label.position = Vector2(24, 22)
+	confirm_label.size = Vector2(432, 116)
+	confirm_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	confirm_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	confirm_label.add_theme_font_size_override("font_size", 16)
+	confirm_label.add_theme_color_override("font_color", Color(0.88, 0.82, 0.86))
+	confirm_panel.add_child(confirm_label)
+	var yes := Button.new()
+	yes.text = "Feed it"
+	yes.focus_mode = Control.FOCUS_NONE
+	yes.position = Vector2(40, 162)
+	yes.size = Vector2(180, 52)
+	yes.pressed.connect(func():
+		confirm_panel.visible = false
+		if _confirm_cb.is_valid():
+			_confirm_cb.call())
+	confirm_panel.add_child(yes)
+	var no := Button.new()
+	no.text = "Keep it"
+	no.focus_mode = Control.FOCUS_NONE
+	no.position = Vector2(260, 162)
+	no.size = Vector2(180, 52)
+	no.pressed.connect(func(): confirm_panel.visible = false)
+	confirm_panel.add_child(no)
+
+func _ask_confirm(msg: String, cb: Callable) -> void:
+	confirm_label.text = msg
+	_confirm_cb = cb
+	confirm_panel.visible = true
+
 func _build_vei_panel() -> void:
 	vei_panel = _overlay_panel(Vector2(110, 380), Vector2(500, 360))
 	var t := Label.new()
@@ -333,18 +530,21 @@ func _build_debug() -> void:
 	dbg.pressed.connect(func(): dbg_panel.visible = not dbg_panel.visible)
 	add_child(dbg)
 
-	dbg_panel = _overlay_panel(Vector2(8, 44), Vector2(330, 360))
+	dbg_panel = _overlay_panel(Vector2(8, 44), Vector2(330, 470))
 	dbg_panel.visible = false
 	var box := VBoxContainer.new()
 	box.position = Vector2(12, 12)
-	box.size = Vector2(306, 336)
+	box.size = Vector2(306, 446)
 	box.add_theme_constant_override("separation", 6)
 	dbg_panel.add_child(box)
 	_dbg_button(box, "RAID COMPLETE — grant haul", func(): GameState.grant_raid_haul())
 	_dbg_button(box, "+50 scrap", func(): GameState.scraps += 50; GameState.materials_changed.emit())
 	_dbg_button(box, "Reset crypt", func(): _reset_all())
-	_dbg_slider(box, "pit fill / scrap", "ossuary", "fill_per_scrap", 0.01, 0.2, 0.01)
-	_dbg_slider(box, "pit drop / pull", "ossuary", "drop_per_pull", 0.05, 0.6, 0.05)
+	_dbg_slider(box, "maw floor frac (1=sure, 0=lottery)", "ossuary", "floor_frac", 0.0, 1.0, 0.05)
+	_dbg_slider(box, "name blend threshold", "names", "blend_threshold", 0.3, 1.0, 0.05)
+	_dbg_slider(box, "raise hold time (s)", "slab", "raise_hold_time_s", 0.3, 2.5, 0.1)
+	_dbg_slider(box, "maw fill / scrap", "ossuary", "fill_per_scrap", 0.01, 0.2, 0.01)
+	_dbg_slider(box, "maw drop / pull", "ossuary", "drop_per_pull", 0.05, 0.6, 0.05)
 	var decay := CheckButton.new()
 	decay.text = "pit passive decay"
 	decay.focus_mode = Control.FOCUS_NONE
@@ -490,9 +690,25 @@ func _remnant_label(r: Dictionary) -> String:
 			s += "  +%s" % side[e["id"]]["name"]
 	return s
 
-func _on_raise() -> void:
-	if not build.has_form():
-		return
+func _raise_begin() -> void:
+	if build.has_form():
+		_holding = true
+		_hold_t = 0.0
+
+func _raise_release() -> void:
+	if _holding:
+		_raise_cancel()  # let go before it formed — nothing happens
+
+func _raise_cancel() -> void:
+	_holding = false
+	_hold_t = 0.0
+	preview.reveal_boost = 0.0
+	preview.hold_progress = 0.0
+
+func _raise_complete() -> void:
+	_holding = false
+	preview.hold_progress = 0.0
+	preview.reveal_boost = 1.0
 	preview.grow = 0.6
 	var tw := create_tween()
 	tw.tween_property(preview, "grow", 1.0, float(ConfigDb.v("slab", "raise_grow_time_s"))) \
@@ -505,24 +721,59 @@ func _confirm_raise(custom: String) -> void:
 	GameState.raise_creature(build.derived(), custom)
 	build.clear()  # form + slotted remnants were consumed when placed/slotted
 	name_prompt.visible = false
+	preview.reveal_boost = 0.0
+	preview.grow = 1.0
+	preview.hold_progress = 0.0
 	_rebuild_runes()
 	_refresh()
 
 func _rebuild_shelf() -> void:
 	for c in shelf_box.get_children():
 		c.queue_free()
-	for c in GameState.shelf:
-		var p := Panel.new()
-		p.custom_minimum_size = Vector2(150, 56)
-		var l := Label.new()
-		l.position = Vector2(8, 6)
-		l.size = Vector2(138, 44)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD
-		l.add_theme_font_size_override("font_size", 13)
-		l.add_theme_color_override("font_color", Color(String(c.get("color", "#cccccc"))).lightened(0.2))
-		l.text = String(c["display_name"])
-		p.add_child(l)
-		shelf_box.add_child(p)
+	for idx in GameState.shelf.size():
+		shelf_box.add_child(_roster_card(GameState.shelf[idx], idx))
+
+## One creature in the box: silhouette + name + role line + feed-to-Maw.
+func _roster_card(c: Dictionary, idx: int) -> Panel:
+	var col := Color(String(c.get("color", "#cccccc")))
+	var card := Panel.new()
+	card.custom_minimum_size = Vector2(214, 118)
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = Color(0.13, 0.13, 0.17)
+	csb.set_corner_radius_all(8)
+	csb.border_color = col.darkened(0.25)
+	csb.set_border_width_all(2)
+	card.add_theme_stylebox_override("panel", csb)
+
+	card.add_child(_icon("res://assets/icons/%s.svg" % String(c.get("form_id", "zombie")), Vector2(8, 10), Vector2(60, 60), col.lightened(0.12)))
+
+	var nm := Label.new()
+	nm.position = Vector2(74, 8)
+	nm.size = Vector2(132, 42)
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD
+	nm.add_theme_font_size_override("font_size", 14)
+	nm.add_theme_color_override("font_color", col.lightened(0.35))
+	nm.text = String(c["display_name"])
+	card.add_child(nm)
+
+	var rl := Label.new()
+	rl.position = Vector2(74, 50)
+	rl.size = Vector2(134, 38)
+	rl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	rl.add_theme_font_size_override("font_size", 11)
+	rl.add_theme_color_override("font_color", Color(0.72, 0.7, 0.6))
+	rl.text = String(c.get("role_line", c.get("role", "")))
+	card.add_child(rl)
+
+	var feed := Button.new()
+	feed.text = "▼ feed to Maw"
+	feed.focus_mode = Control.FOCUS_NONE
+	feed.add_theme_font_size_override("font_size", 11)
+	feed.position = Vector2(8, 84)
+	feed.size = Vector2(198, 26)
+	feed.pressed.connect(_sacrifice_minion.bind(idx))
+	card.add_child(feed)
+	return card
 
 # ---- Refresh / signals ----
 
@@ -532,10 +783,12 @@ func _refresh() -> void:
 	if build.has_form():
 		name_label.text = d["name"]
 		name_label.add_theme_color_override("font_color", Color(0.82, 0.8, 0.9))
+		role_label.text = String(d["role_line"])
 		raise_btn.visible = true
 	else:
 		name_label.text = "— empty slab —"
 		name_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.55))
+		role_label.text = ""
 		raise_btn.visible = false
 	combat_rect.size_flags_stretch_ratio = maxf(0.02, float(d["combat_pts"]))
 	town_rect.size_flags_stretch_ratio = maxf(0.02, float(d["town_pts"]))
@@ -544,7 +797,7 @@ func _refresh() -> void:
 
 func _update_pit() -> void:
 	var f: float = GameState.ossuary.fullness
-	pit_fill.size = Vector2(360.0 * f, 16)
+	pit_fill.size = Vector2(258.0 * f, 18)
 	pit_fill.color = Color(0.55, 0.5, 0.5).lerp(Color(1.0, 0.65, 0.2), f)
 	pit_label.text = "quality %d%%   ·   scraps: %d" % [int(f * 100.0), GameState.scraps]
 
@@ -553,12 +806,14 @@ func _on_materials_changed() -> void:
 	_update_pit()
 	if picker.visible and _picking_slot >= 0 and _picking_slot < build.slots.size():
 		_populate_picker(build.slots[_picking_slot]["aspect"])
+	if materials_panel.visible:
+		_populate_materials()
 
 func _on_pull() -> void:
 	var out := GameState.pull_ossuary()
 	var noun: String = ConfigDb.husk(out["form_id"])["name"]
 	var r: Dictionary = out["remnant"]
-	pit_result.text = "%s + %s%d" % [noun, STATS_SHORT[r["stat"]], int(r["magnitude"])]
+	pit_result.text = "PULLED:\n%s  +  %s %d [%s]" % [noun, String(r["stat"]).capitalize(), int(r["magnitude"]), r["rarity"]]
 
 func _reset_all() -> void:
 	build.clear()
@@ -570,6 +825,20 @@ func _reset_all() -> void:
 	_refresh()
 
 # ---- tiny helpers ----
+
+# A fixed-size, tintable icon. expand_mode MUST be set before size, else the
+# default KEEP_SIZE pins min-size to the texture's 512px and clamps size up.
+func _icon(path: String, pos: Vector2, sz: Vector2, tint: Color) -> TextureRect:
+	var tr := TextureRect.new()
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.texture = load(path)
+	tr.position = pos
+	tr.custom_minimum_size = sz
+	tr.size = sz
+	tr.modulate = tint
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return tr
 
 func _overlay_panel(pos: Vector2, sz: Vector2) -> Panel:
 	var p := Panel.new()

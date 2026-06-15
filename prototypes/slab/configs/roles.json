@@ -1,0 +1,21 @@
+{
+  "_note": "The verdict stamp: a role (from the dominant stat) + a 'good for X' use-case so a stranger can tell what a build is FOR. Combat-only for now — town roles come when town exists. If an echo is present it flavors the 'good for'.",
+  "stat_roles": {
+    "power":       { "role": "Brawler",    "good_for": "deleting single targets" },
+    "beef":        { "role": "Bulwark",    "good_for": "soaking the front line" },
+    "speed":       { "role": "Skirmisher", "good_for": "flanking and chasing runners" },
+    "wits":        { "role": "Stalker",    "good_for": "picking off priority targets" },
+    "charm":       { "role": "Charmer",    "good_for": "pulling enemies out of position" },
+    "dread":       { "role": "Terror",     "good_for": "scattering crowds" },
+    "magic":       { "role": "Hexer",      "good_for": "ranged bursts" },
+    "persistence": { "role": "Undying",    "good_for": "stalling a fight — it won't stay down" }
+  },
+  "echo_good_for": {
+    "life_drain":   "outlasting drawn-out fights",
+    "frenzy":       "finishing wounded packs",
+    "heavy_blow":   "knocking enemies off objectives",
+    "volatile":     "trading itself for a crowd",
+    "vengeful":     "punishing a losing fight"
+  },
+  "hollow": { "role": "Hollow", "good_for": "feeding the Maw" }
+}

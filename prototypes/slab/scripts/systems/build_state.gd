@@ -81,6 +81,7 @@ func derived() -> Dictionary:
 	var echoes := echo_points()
 	var ct := combat_town_pts()
 	var noun: String = String(form.get("name", "?")) if has_form() else "?"
+	var role := CreatureRole.of(stats, echoes)
 	return {
 		"form_id": form_id,
 		"noun": noun,
@@ -92,6 +93,9 @@ func derived() -> Dictionary:
 		"beef": float(stats["beef"]),
 		"adjective": CreatureNamer.adjective(stats, echoes),
 		"name": CreatureNamer.full_name(noun, stats, echoes),
+		"role": role["role"],
+		"good_for": role["good_for"],
+		"role_line": role["line"],
 		"slot_count": slots.size(),
 		"filled": filled_count(),
 	}

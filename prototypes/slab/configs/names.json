@@ -1,5 +1,7 @@
 {
-  "_note": "Adjective Noun naming. Noun = the form (husk name). Adjective = the build's defining trait — an echo wins if present (highest points), else the dominant stat. No remnants = 'Hollow'.",
+  "_note": "Naming. Noun = the form (husk). With an echo present, the echo names it (it's the spice). With no echo, the name BLENDS the top two stats when the 2nd is within blend_threshold of the 1st (e.g. 'Brutal-Fleet Skeleton') instead of majority-wins. blend_threshold 1.0 = near-equal only, lower = blends more eagerly.",
+  "blend_threshold": 0.6,
+  "blend_connector": "-",
   "hollow_adjective": "Hollow",
   "echo_adjectives": {
     "life_drain": "Ravenous",

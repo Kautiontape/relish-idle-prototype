@@ -1,13 +1,17 @@
 class_name CreaturePreview
 extends Control
-## The thing on the slab. Reads a build's derived stats and draws a creature
-## that visibly BECOMES itself as remnants slot — one stat, one watchable verb
-## (the same rule the raid's units obey). This is the whole point of the test:
-## numbers going up should read as an identity, not a spreadsheet.
+## The thing on the slab. Draws the husk's SILHOUETTE (a real shape, so a stranger
+## reads "an undead being made"), tinted toward its dominant aspect and fleshing
+## in from a faint ghost to a solid body as remnants slot. The raid's rule still
+## holds: one stat, one watchable verb (spikes/auras/motes/wisps) layered around
+## the shape. reveal_boost is driven by hold-to-raise — watch it become itself.
 
 var derived: Dictionary = {}
 var _t := 0.0
-var grow := 1.0   # raise overshoot (TRANS_BACK) — set by the crypt on "Raise"
+var grow := 1.0          # raise overshoot (TRANS_BACK) — set by the crypt on Raise
+var reveal_boost := 0.0  # hold-to-raise fleshing (0..1) — set by the crypt
+var hold_progress := 0.0 # hold-to-raise ring closing around the creature (0..1)
+var _tex_cache: Dictionary = {}
 
 func set_build(d: Dictionary) -> void:
 	derived = d
@@ -20,15 +24,18 @@ func _process(delta: float) -> void:
 func _stat(s: String) -> float:
 	return float((derived.get("stats", {}) as Dictionary).get(s, 0.0))
 
+func _tex(form_id: String) -> Texture2D:
+	if not _tex_cache.has(form_id):
+		_tex_cache[form_id] = load("res://assets/icons/%s.svg" % form_id) as Texture2D
+	return _tex_cache[form_id]
+
 func _draw() -> void:
 	var c := size * 0.5
 	if String(derived.get("form_id", "")) == "":
-		# Empty slab: a dim waiting ring.
-		draw_arc(c, 54.0, 0, TAU, 48, Color(0.5, 0.5, 0.58, 0.25), 2.0)
+		draw_arc(c, 54.0, 0, TAU, 48, Color(0.5, 0.5, 0.58, 0.25), 2.0)  # empty: waiting ring
 		return
 
 	var slab: Dictionary = ConfigDb.data["slab"]
-	var stats_cfg: Dictionary = ConfigDb.data["stats"]
 	var beef := _stat("beef")
 	var power := _stat("power")
 	var speed := _stat("speed")
@@ -38,20 +45,33 @@ func _draw() -> void:
 	var magic := _stat("magic")
 	var persist := _stat("persistence")
 
-	var base_r := float(slab["preview_base_radius"])
-	var r := base_r * (float(stats_cfg["size_base"]) + float(stats_cfg["size_per_beef"]) * beef) * grow
-	r = minf(r, base_r * 3.2)  # cap so a beefy build never overruns the slab
+	# How "fleshed" the creature is: empty form = faint ghost, fully slotted = solid.
+	var slot_count := int(derived.get("slot_count", 0))
+	var fill_frac := float(derived.get("filled", 0)) / float(maxi(slot_count, 1))
+	var dim := float(slab["silhouette_dim_alpha"])
+	var reveal := clampf(maxf(dim + (1.0 - dim) * fill_frac, reveal_boost), 0.0, 1.0)
+
+	# Size: silhouette grows with Beef, then the raise overshoot (grow) on top.
+	var sz := float(slab["silhouette_size"]) * (1.0 + float(slab["silhouette_per_beef"]) * beef) * grow
+	sz = minf(sz, float(slab["silhouette_size"]) * 1.9)
+	var r := sz * 0.42   # nominal body radius for placing the stat verbs
 	var pulse := 0.5 + 0.5 * sin(_t * 2.2)
 
 	var body := Color(String(derived.get("color", "#cccccc")))
 	var aspect_col: Variant = _dominant_aspect_color()
 	if aspect_col != null:
-		body = body.lerp(aspect_col, float(slab["preview_aspect_tint"]))
+		body = body.lerp(aspect_col, float(slab["preview_aspect_tint"]) * (0.4 + 0.6 * fill_frac))
+	if wits > 0.0:
+		body = body.lightened(clampf(wits * 0.04, 0.0, 0.35))  # the killer's clarity
 
-	# Persistence — a faint after-image that refuses to fully die (undying).
-	if persist > 0.0:
-		var a := clampf(0.12 + 0.05 * persist, 0.0, 0.5)
-		draw_circle(c + Vector2(sin(_t * 1.3), cos(_t * 1.1)) * 8.0, r, Color(body.r, body.g, body.b, a))
+	var tex := _tex(String(derived["form_id"]))
+	var rect := Rect2(c - Vector2(sz, sz) * 0.5, Vector2(sz, sz))
+
+	# Persistence — a faint after-image of the actual shape that refuses to die.
+	if persist > 0.0 and tex != null:
+		var pa := clampf(0.10 + 0.05 * persist, 0.0, 0.5) * reveal
+		var off := Vector2(sin(_t * 1.3), cos(_t * 1.1)) * 9.0
+		draw_texture_rect(tex, Rect2(rect.position + off, rect.size), false, Color(body.r, body.g, body.b, pa))
 
 	# Dread — a cold pressure ring pushing outward (the field that repels).
 	if dread > 0.0:
@@ -65,25 +85,25 @@ func _draw() -> void:
 
 	# Magic — an inner glow with orbiting motes (bolts waiting to fly).
 	if magic > 0.0:
-		draw_circle(c, r * 0.7, Color(0.5, 0.9, 1.0, clampf(0.06 + 0.04 * magic, 0, 0.5)))
+		draw_circle(c, r * 0.7, Color(0.5, 0.9, 1.0, clampf(0.06 + 0.04 * magic, 0, 0.5) * reveal))
 		var motes := clampi(int(round(magic)), 1, 8)
 		for i in motes:
 			var ang := _t * 1.6 + TAU * i / float(motes)
 			draw_circle(c + Vector2(cos(ang), sin(ang)) * (r + 16.0), 3.0, Color(0.6, 0.95, 1.0, 0.85))
 
-	# Body — size is Beef made literal; outline thickens with Beef too.
-	draw_circle(c, r, body)
-	draw_arc(c, r, 0, TAU, 48, body.lightened(0.3), 2.0 + minf(beef * 0.4, 6.0))
+	# The body itself — the husk silhouette, tinted and fleshed by the build.
+	if tex != null:
+		draw_texture_rect(tex, rect, false, Color(body.r, body.g, body.b, reveal))
 
 	# Power — jagged spikes around the rim (the deletion stat, visibly sharp).
 	if power > 0.0:
 		var spikes := clampi(int(round(power)) + 4, 4, 16)
-		var len := 7.0 + power * 1.6
+		var slen := 7.0 + power * 1.6
 		for i in spikes:
 			var ang := TAU * i / float(spikes) - PI / 2.0
 			var d := Vector2(cos(ang), sin(ang))
 			var base := c + d * r
-			var tip := c + d * (r + len)
+			var tip := c + d * (r + slen)
 			var perp := d.orthogonal() * (3.0 + power * 0.2)
 			draw_colored_polygon(PackedVector2Array([base - perp, tip, base + perp]), Color(0.95, 0.35, 0.25, 0.9))
 
@@ -96,13 +116,10 @@ func _draw() -> void:
 			draw_arc(c + off + Vector2(0, sway), 9.0 - i, PI * 0.5, PI * 1.5, 12,
 				Color(0.95, 0.9, 0.4, clampf(0.5 - i * 0.07, 0, 0.6)), 2.5)
 
-	# Wits — the killer's eye: a bright glint that sharpens with Wits.
-	var eye_r := 3.0 + clampf(wits, 0, 8) * 1.1
-	var eye_a := clampf(0.4 + wits * 0.08, 0.4, 1.0)
-	for ex in [-1.0, 1.0]:
-		var ep := c + Vector2(ex * r * 0.32, -r * 0.22)
-		draw_circle(ep, eye_r, Color(1, 1, 1, eye_a))
-		draw_circle(ep, eye_r * 0.45, Color(0.1, 0.05, 0.15, eye_a))
+	# Hold-to-raise — a bright ring closing around the creature as it forms.
+	if hold_progress > 0.0 and hold_progress < 1.0:
+		draw_arc(c, r + 22.0, -PI / 2.0, -PI / 2.0 + TAU * hold_progress, 64,
+			Color(0.95, 0.9, 1.0, 0.9), 4.0)
 
 	# Echo badges — small pips above the head, combat (orange) / town (green).
 	var echoes: Dictionary = derived.get("echoes", {})
@@ -116,7 +133,6 @@ func _draw() -> void:
 			i += 1
 
 func _dominant_aspect_color() -> Variant:
-	var stats: Dictionary = derived.get("stats", {})
 	var sums := {
 		"muscle": _stat("power") + _stat("beef"),
 		"nerve": _stat("speed") + _stat("wits"),

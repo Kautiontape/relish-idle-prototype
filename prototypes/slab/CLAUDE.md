@@ -24,11 +24,17 @@ Godot 4.6.2, Compatibility renderer, portrait 720×1280, single-threaded web exp
 
 - `scripts/autoload/` — `ConfigDb` (all JSON, live-tweakable), `GameState`
   (material pool: forms + remnants + scraps, the shelf, the `Ossuary` instance).
-- `scripts/systems/` — `loot.gd` (remnant/form rolls, copied), `build_state.gd`
-  (form + slotted remnants → derived stats/echoes/name), `creature_namer.gd`
-  (Adjective Noun), `ossuary.gd` (the bone pit).
-- `scripts/ui/` — `creature_preview.gd` (the morph — one stat, one verb),
-  `crypt.gd` (the whole room, built in code), `main.gd`.
+- `scripts/systems/` — `loot.gd` (remnant/form rolls + Maw `worth`, copied),
+  `build_state.gd` (form + slotted remnants → derived stats/echoes/name/role),
+  `creature_namer.gd` (blend-aware Adjective Noun), `creature_role.gd` (role +
+  "good for X" verdict), `ossuary.gd` (the Maw — hybrid pull).
+- `scripts/ui/` — `creature_preview.gd` (the silhouette morph — one stat, one
+  verb, fleshes in), `crypt.gd` (the whole room, built in code), `main.gd`.
+- `assets/icons/*.svg` — game-icons.net silhouettes (CC BY 3.0), bg-stripped and
+  runtime-tinted via `modulate`. Husks load by id (`<form_id>.svg`); `_vei`,
+  `_maw`, `_bones` are room dressing. **TextureRect gotcha:** set `expand_mode`
+  before `size`, else the default `KEEP_SIZE` pins min-size to the 512px texture
+  and clamps your size up — use the `_icon()` helper.
 - Scenes are built in code; `scenes/main.tscn` just hosts `main.gd`.
 
 ## Terms
@@ -36,6 +42,20 @@ Godot 4.6.2, Compatibility renderer, portrait 720×1280, single-threaded web exp
 - **Form** = husk (the body). **Remnant** = a slotted trait-piece. **Rune slot**
   = where a remnant goes; its **aspect** (muscle/nerve/presence/anima) gates which
   remnants fit. The form gives no stats — a blank form is a **Hollow** creature.
+
+## Pass 2 — this round's user-directed changes
+
+- **Silhouettes** (showability): husks/Vei/Maw draw as real game-icons shapes, so
+  a stranger reads "an undead is being assembled." Slab creature fleshes in from a
+  ghost; **hold-to-raise** forms it under a closing ring.
+- **The Maw** (was the bone pit): a **universal sink** — toss scraps, spare
+  remnants, or whole minions (fill ∝ `worth`); minion = sacrifice w/ confirm. The
+  TOSS drawer is also the long-missing **remnant inventory**.
+- **Hybrid pull**: quality `[floor_frac·fullness … fullness]` (slider).
+- **Role verdict** ("Brawler — good for deleting single targets", echo-flavored)
+  + **roster cards** (portrait + name + role) replacing the name-list shelf.
+- **Blend names**: top two close stats fuse instead of majority-wins.
+- Town role/lean is **named but deferred** (town doesn't exist yet).
 
 ## Made up here (flagged per prototype rules)
 
