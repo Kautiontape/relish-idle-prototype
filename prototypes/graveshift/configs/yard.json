@@ -1,0 +1,19 @@
+{
+  "bg_color": "#0e0d12",
+  "yard_top": 56,
+  "yard_bottom": 808,
+  "station_radius_px": 30,
+  "worker_radius_px": 9,
+  "living_radius_px": 6,
+  "reach_px": 10,
+  "grab_radius_px": 22,
+  "idle_wander_px": 30,
+  "stations": [
+    { "id": "quarry", "kind": "quarry",     "x": 78,  "y": 150, "label": "Bone Quarry", "color": "#9a8b73" },
+    { "id": "pit",    "kind": "pit",        "x": 322, "y": 150, "label": "Bone Pit",    "color": "#5a5550" },
+    { "id": "bench",  "kind": "workshop",   "x": 322, "y": 430, "label": "Workshop",    "color": "#6f8fb0" },
+    { "id": "store",  "kind": "storehouse", "x": 78,  "y": 600, "label": "Storehouse",  "color": "#b0a06f" },
+    { "id": "inn",    "kind": "inn",        "x": 110, "y": 752, "label": "Inn",         "color": "#b07a7a" },
+    { "id": "market", "kind": "market",     "x": 300, "y": 720, "label": "Market",      "color": "#7ab08f" }
+  ]
+}

@@ -151,6 +151,20 @@ services:
     networks:
       - relish
 
+  graveshift:
+    build:
+      context: ./prototypes/graveshift
+      dockerfile: Dockerfile
+    container_name: relish_graveshift
+    restart: "no"
+    healthcheck:
+      disable: true
+    labels:
+      - sablier.enable=true
+      - sablier.group=relish-graveshift
+    networks:
+      - relish
+
 networks:
   relish:
     driver: bridge

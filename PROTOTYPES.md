@@ -57,6 +57,14 @@ Horde management as the game — testing whether organizing and shaping a popula
 - **Status:** In development. Core loop validated (assembling a rounded team to beat Vei feels good); raid-party + selection tools in; salvage, town, persistence deferred.
 - **Builds on:** The Slab (config shapes, loot/ossuary, build-state — copied, not shared)
 
+### Graveshift (`/graveshift/`)
+The third prong: the **town as a self-running machine** (the focused Town Manager concept, realized). A bird's-eye yard where dumb, tireless undead scatter between stations — harvest bone at the **Quarry**, self-haul it to the **Workshop**, craft a good, carry it to the **Storehouse** (one **Supplies** meter) — while the **living** mill at the inn/market as pure ambient vibe. **Drag** an undead onto the Quarry or Workshop to crew it; its stats are its job aptitude (Beef/Power harvest, Wits/Power craft, Speed walks), so who you place where sets the pace. The fun being tested is **noticing a bottleneck** (overload the bench → undead idle at an empty quarry, in plain sight) **and fixing it because you want to.** Cozy + Factorio; fighting, the living-as-customers economy, the masquerade, immortality, gold, building placement, and persistence are all deferred. Debug panel (live tunables for harvest/craft/walk/aptitude + crew readouts) is front and center.
+
+- **Stack:** Godot 4.6 (Compatibility renderer, single-threaded web export), portrait 400×866
+- **Key question:** Is running a settlement of needless, tireless undead — assigning workers, watching the machine, fixing bottlenecks — fun on its own, fighting handwaved? (Pass signal: you leave it running just to watch, and reach in to fix a bottleneck because you *want* to.)
+- **Status:** In development. One chain, one meter, one verb (drag-to-assign); roster faked from a "crypt sends N" button.
+- **Builds on:** The Crypt / Slab (stat shape, archetype/aspect language — copied, not shared)
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)
@@ -67,10 +75,11 @@ Tick-based idle RPG with deep mechanics: ritual system, incantations, component-
 
 ## Pending
 
-### Town Manager
+### Town Manager — realized as **Graveshift** (see Current)
 Focused prototype for the building/job assignment loop. How does it feel to assign minions to jobs, upgrade buildings, and watch passive resource generation? Strips away combat to isolate whether town management is engaging on its own.
 
 - **Key question:** Is the town loop fun without combat pressure?
+- **Status:** First cut built as **Graveshift** — the self-running undead work-machine, combat handwaved. Building upgrades/placement and passive-while-away idle are still open follow-ups.
 
 ### New Town
 Starting a new town with entirely different challenges/constraints. The "prestige" alternative — you don't reset, you expand. Like Factorio Space Age: new world, new rules, you bring some resources but the challenge is so different you WANT to rebuild. Tests whether horizontal expansion feels better than vertical prestige.

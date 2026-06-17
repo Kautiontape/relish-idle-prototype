@@ -1,0 +1,11 @@
+{
+  "start_count": 12,
+  "send_count": 4,
+  "stat_jitter": 1,
+  "archetypes": [
+    { "id": "brute",  "name": "Brute",  "weight": 3, "aspect": "muscle", "color": "#c98f6f", "stats": { "beef": 6, "power": 4, "speed": 1, "wits": 0 } },
+    { "id": "tinker", "name": "Tinker", "weight": 3, "aspect": "nerve",   "color": "#6f9fcf", "stats": { "wits": 6, "power": 3, "speed": 2, "beef": 0 } },
+    { "id": "runner", "name": "Runner", "weight": 2, "aspect": "nerve",   "color": "#8fcf9f", "stats": { "speed": 7, "wits": 2, "beef": 1, "power": 1 } },
+    { "id": "hollow", "name": "Hollow", "weight": 4, "aspect": "hollow",  "color": "#b8b2a6", "stats": { "beef": 1, "power": 1, "speed": 1, "wits": 1 } }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "base_walk_px": 55,
+  "walk_per_speed": 7,
+  "harvest_time_s": 2.6,
+  "craft_time_s": 3.2,
+  "aptitude_strength": 0.13,
+  "quarry_aptitude_stats": ["beef", "power"],
+  "workshop_aptitude_stats": ["wits", "power"],
+  "supplies_target": 80,
+  "throughput_window_s": 10.0,
+  "num_living": 6,
+  "living_walk_px": 34,
+  "debug_ui_scale": 1.0
+}

@@ -12,6 +12,7 @@
 	redir /raid-and-raise /raid-and-raise/ 301
 	redir /slab /slab/ 301
 	redir /crypt /crypt/ 301
+	redir /graveshift /graveshift/ 301
 
 	# Each prototype is scaled to zero by Sablier and woken on first request.
 	# A themed loading page shows while the container starts; after
@@ -112,6 +113,20 @@
 			}
 		}
 		reverse_proxy crypt:80
+	}
+
+	handle_path /graveshift/* {
+		sablier http://sablier:10000 {
+			group relish-graveshift
+			session_duration 10m
+			dynamic {
+				display_name "Graveshift"
+				theme ghost
+				show_details true
+				refresh_frequency 3s
+			}
+		}
+		reverse_proxy graveshift:80
 	}
 
 	# Read-only wake/sleep status for the landing page. Rewrites to one fixed,
