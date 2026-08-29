@@ -21,6 +21,15 @@ func _ready() -> void:
 			_scene = arg.trim_prefix("--scene=")
 		elif arg.begins_with("--speed="):
 			Game.time_scale = float(arg.trim_prefix("--speed="))
+		elif arg == "--cheat=boss":
+			Game.army = {"soldier": 40, "elite": 8}
+			Game.town["forge_level"] = 4
+			Game.realm.vei["undead_queue"] = 18000.0
+		elif arg == "--cheat=rich":
+			Game.res["gold"] = 500.0
+			Game.res["materials"] = 200.0
+			Game.res["bodies"] = 60.0
+			Game.idle_undead = 20
 		elif arg.begins_with("--clicks="):
 			for pair in arg.trim_prefix("--clicks=").split(";"):
 				var xy := pair.split(",")

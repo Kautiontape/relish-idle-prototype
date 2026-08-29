@@ -40,8 +40,17 @@ func _physics_process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 3.0)
 	var d := move_target - global_position
 	if d.length() > 6.0:
-		global_position += d.normalized() * minf(speed * delta, d.length())
-	global_position = raid.resolve_walls(global_position, radius)
+		var step := d.normalized() * minf(speed * delta, d.length())
+		var start := global_position
+		var got: Vector2 = raid.resolve_walls(start + step, radius)
+		if (got - start).length() < step.length() * 0.3:
+			# blocked by a wall: slide along whichever axis still makes progress
+			var gx: Vector2 = raid.resolve_walls(start + Vector2(step.x, 0), radius)
+			var gy: Vector2 = raid.resolve_walls(start + Vector2(0, step.y), radius)
+			got = gx if (gx - start).length() > (gy - start).length() else gy
+		global_position = got
+	else:
+		global_position = raid.resolve_walls(global_position, radius)
 	queue_redraw()
 
 
