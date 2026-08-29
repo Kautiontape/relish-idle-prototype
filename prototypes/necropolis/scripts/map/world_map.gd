@@ -50,6 +50,8 @@ func _ready() -> void:
 	Game.victory.connect(_on_victory)
 	Game.defeat_boss.connect(func(): _show_toast("She threw the horde back. The factory must grow."))
 	await get_tree().process_frame
+	if not is_inside_tree():
+		return
 	_fit_camera()
 	if Game.won:
 		_on_victory()
@@ -86,6 +88,8 @@ func _build_world() -> void:
 func _fit_camera() -> void:
 	var ws: Vector2 = Game.field.world_size
 	var vp := get_viewport_rect().size
+	if vp.x < 1.0 or vp.y < 1.0:
+		return
 	var z: float = minf(vp.x / ws.x, vp.y / ws.y) * 0.98
 	cam.zoom = Vector2(z, z)
 	cam.position = ws * 0.5

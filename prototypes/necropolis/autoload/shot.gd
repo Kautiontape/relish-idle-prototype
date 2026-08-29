@@ -7,6 +7,7 @@ var _shot_path := ""
 var _frames := 40
 var _scene := ""
 var _clicks: Array = []
+var _trace := Vector3.ZERO  # cx, cy, radius — synthetic trance circle
 var _n := 0
 
 
@@ -25,6 +26,10 @@ func _ready() -> void:
 				var xy := pair.split(",")
 				if xy.size() == 2:
 					_clicks.append(Vector2(float(xy[0]), float(xy[1])))
+		elif arg.begins_with("--trace="):
+			var t3 := arg.trim_prefix("--trace=").split(",")
+			if t3.size() == 3:
+				_trace = Vector3(float(t3[0]), float(t3[1]), float(t3[2]))
 	if _shot_path != "":
 		print("SHOT_BOOT frames=", _frames, " scene=", _scene)
 		_run.call_deferred()
@@ -39,12 +44,58 @@ func _run() -> void:
 		await _click(c)
 		for i in 10:
 			await get_tree().process_frame
+	if _trace != Vector3.ZERO:
+		await _do_trace(Vector2(_trace.x, _trace.y), _trace.z)
 	for i in _frames:
 		await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(_shot_path)
 	print("SHOT_SAVED ", _shot_path)
 	get_tree().quit()
+
+
+func _do_trace(c: Vector2, r: float) -> void:
+	var space := InputEventKey.new()
+	space.keycode = KEY_SPACE
+	space.physical_keycode = KEY_SPACE
+	space.pressed = true
+	Input.parse_input_event(space)
+	for i in 12:
+		await get_tree().process_frame
+	var start := c + Vector2(r, 0)
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = start
+	down.global_position = start
+	Input.parse_input_event(down)
+	await get_tree().process_frame
+	var steps := 44
+	var prev := start
+	for i in range(1, steps + 1):
+		var ang := TAU * float(i) / steps
+		var p := c + Vector2(cos(ang), sin(ang)) * r
+		var mo := InputEventMouseMotion.new()
+		mo.position = p
+		mo.global_position = p
+		mo.relative = p - prev
+		mo.button_mask = MOUSE_BUTTON_MASK_LEFT
+		prev = p
+		Input.parse_input_event(mo)
+		await get_tree().process_frame
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	up.position = prev
+	up.global_position = prev
+	Input.parse_input_event(up)
+	await get_tree().process_frame
+	var space_up := InputEventKey.new()
+	space_up.keycode = KEY_SPACE
+	space_up.physical_keycode = KEY_SPACE
+	space_up.pressed = false
+	Input.parse_input_event(space_up)
+	print("TRACE_DONE center=", c, " r=", r)
 
 
 func _click(pos: Vector2) -> void:
