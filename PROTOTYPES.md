@@ -65,6 +65,14 @@ The third prong: the **town as a self-running machine** (the focused Town Manage
 - **Status:** In development. One chain, one meter, one verb (drag-to-assign); roster faked from a "crypt sends N" button.
 - **Builds on:** The Crypt / Slab (stat shape, archetype/aspect language — copied, not shared)
 
+### Necropolis (`/necropolis/`)
+The **sum of all concepts** baseline: everything above composed into one playable idle game. The canonical REALM strategic map (ported from the relish-realms prototype program: LIVING/DEAD/UNDEAD continuous-rate sim, the kills-stay-here vs kills-arm-Vei asymmetry, backlog-at-her-gates as the win meter) rendered as a pannable necrosis map — influence spreads faster the longer a side holds ground, opposing pressure erodes entrenchment first. Fortress raids are raid-and-raise's circle-trance (Kåsa scorer verbatim): sloppy circles mass worthless chaff that gets thrown at Vei to clog her digestion, clean circles bank soldiers/elites at Covington. Covington is a graveshift-style yard grown into the factory screen: assignment steppers (trade/forge/jobs/gather-with-travel-time/slab crew), clone vats (death insurance), simulacrum stations (limited-charge auto-raising copies of Relish). Vei's panel is the only place the undead numbers appear; the finale is a boss raid where your massed backlog streams in as the horde.
+
+- **Stack:** Godot 4.7 (Compatibility renderer, desktop-first 1600×900, native run — not web-deployed)
+- **Key question:** Does the concept-stack cohere as ONE game — map necrosis + circle raids + town factory + hidden-number escalation against a single recycling enemy?
+- **Status:** Built in one overnight session (2026-08-29). Sim + pacing test-validated (idle never wins; an active factory crosses 60% odds ~2 sim-hours in). Map/town/raid/boss playable.
+- **Builds on:** everything — realm-sim + BRIEF (relish-realms), Raid & Raise (circle scorer, trance), Slab/Crypt (quality tiers, Vei fronts idea), Graveshift (yard + assignment), copied not shared.
+
 ## Separate
 
 ### Relish Idle (separate repo: `relish-idle`)

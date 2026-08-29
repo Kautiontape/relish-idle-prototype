@@ -18,12 +18,15 @@ func _ready() -> void:
 			_frames = int(arg.trim_prefix("--frames="))
 		elif arg.begins_with("--scene="):
 			_scene = arg.trim_prefix("--scene=")
+		elif arg.begins_with("--speed="):
+			Game.time_scale = float(arg.trim_prefix("--speed="))
 		elif arg.begins_with("--clicks="):
 			for pair in arg.trim_prefix("--clicks=").split(";"):
 				var xy := pair.split(",")
 				if xy.size() == 2:
 					_clicks.append(Vector2(float(xy[0]), float(xy[1])))
 	if _shot_path != "":
+		print("SHOT_BOOT frames=", _frames, " scene=", _scene)
 		_run.call_deferred()
 
 

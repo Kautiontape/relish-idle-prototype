@@ -53,6 +53,16 @@ func _ready() -> void:
 	_fit_camera()
 	if Game.won:
 		_on_victory()
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--select="):
+			selected_id = arg.trim_prefix("--select=")
+			nodes_view.selected_id = selected_id
+			sidebar.visible = true
+			_refresh_sidebar()
+		elif arg.begins_with("--teleport="):
+			var dest := arg.trim_prefix("--teleport=")
+			await get_tree().create_timer(0.3).timeout
+			finished.emit({"teleport_to": dest})
 
 
 func _build_world() -> void:

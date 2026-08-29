@@ -54,22 +54,22 @@
     "vat_pod_spacing": 30.0,
     "ground_specks": 70,
     "stations": {
-      "slab":   { "pos": [0.46, 0.42], "r": 46.0, "label": "The Slab",           "color": "#7a6b96" },
-      "forge":  { "pos": [0.73, 0.20], "r": 30.0, "label": "Forge",              "color": "#6f8fb0" },
-      "jobs":   { "pos": [0.27, 0.16], "r": 27.0, "label": "Job Board",          "color": "#b0a06f" },
-      "trade":  { "pos": [0.83, 0.60], "r": 30.0, "label": "Trading Post",       "color": "#7ab08f" },
-      "gather": { "pos": [0.15, 0.56], "r": 27.0, "label": "Gather Camp",        "color": "#9a8b73" },
-      "vats":   { "pos": [0.31, 0.84], "r": 11.0, "label": "Clone Vats",         "color": "#5f8f7a" },
-      "sim":    { "pos": [0.66, 0.82], "r": 26.0, "label": "Simulacrum Station", "color": "#C04CFF" }
+      "slab":   { "pos": [0.47, 0.44], "r": 46.0, "label": "The Slab",           "color": "#7a6b96" },
+      "forge":  { "pos": [0.72, 0.22], "r": 30.0, "label": "Forge",              "color": "#6f8fb0" },
+      "jobs":   { "pos": [0.25, 0.19], "r": 27.0, "label": "Job Board",          "color": "#b0a06f" },
+      "trade":  { "pos": [0.80, 0.58], "r": 30.0, "label": "Trading Post",       "color": "#7ab08f" },
+      "gather": { "pos": [0.15, 0.55], "r": 27.0, "label": "Gather Camp",        "color": "#9a8b73" },
+      "vats":   { "pos": [0.33, 0.80], "r": 11.0, "label": "Clone Vats",         "color": "#5f8f7a" },
+      "sim":    { "pos": [0.66, 0.78], "r": 26.0, "label": "Simulacrum Station", "color": "#C04CFF" }
     },
     "supply_points": {
-      "trade":  [0.93, 0.71],
-      "forge":  [0.57, 0.31],
-      "jobs":   [0.12, 0.28],
-      "gather": [0.09, 0.67],
-      "slab":   [0.33, 0.53]
+      "trade":  [0.90, 0.68],
+      "forge":  [0.58, 0.30],
+      "jobs":   [0.11, 0.30],
+      "gather": [0.09, 0.66],
+      "slab":   [0.34, 0.54]
     },
-    "exit_point": [0.03, 0.80],
+    "exit_point": [0.03, 0.78],
     "roads": [
       ["slab", "forge"],
       ["slab", "jobs"],

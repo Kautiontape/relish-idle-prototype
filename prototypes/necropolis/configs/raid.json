@@ -1,0 +1,45 @@
+{
+  "relish": { "hp": 30.0, "speed": 240.0, "radius": 13.0, "iframes_s": 0.5 },
+  "trance": { "time_scale": 0.35, "max_hold_s": 4.0, "cooldown_s": 6.0, "lockout_s": 1.0, "dim_alpha": 0.2 },
+  "essence": { "lifetime_s": 12.0, "drift_radius_px": 120.0, "drift_speed_px": 46.0, "stir_radius_px": 90.0, "stir_orbs_min": 2, "stir_orbs_max": 4, "pop_speed_px": 85.0 },
+  "mass": { "enemies_per_cap": 26.0, "enemy_min": 5, "enemy_max": 34, "pile_mass_div": 8.0, "pile_min": 2, "pile_max": 24, "garrison_mass_div": 10.0, "garrison_max": 12, "garrison_keep_cap_frac": 0.25 },
+  "combat": { "aggro_px": 260.0, "separation_px": 26.0, "separation_push": 110.0, "wander_speed_frac": 0.55, "wander_repick_min_s": 2.0, "wander_repick_max_s": 5.0, "strike_reach_pad": 7.0, "ally_follow_px": 150.0 },
+  "enemies": {
+    "spearman": { "hp": 12.0, "dmg": 4.0, "speed": 95.0, "cadence_s": 1.0, "radius": 10.0 },
+    "runner": { "hp": 8.0, "dmg": 3.0, "speed": 175.0, "cadence_s": 0.75, "radius": 8.0 },
+    "brute": { "hp": 36.0, "dmg": 7.0, "speed": 55.0, "cadence_s": 1.5, "radius": 15.0 }
+  },
+  "tier_mix": {
+    "1": { "spearman": 1.0 },
+    "2": { "spearman": 0.72, "runner": 0.28 },
+    "3": { "spearman": 0.52, "runner": 0.26, "brute": 0.22 },
+    "4": { "spearman": 0.44, "runner": 0.3, "brute": 0.26 }
+  },
+  "undead": {
+    "chaff": { "hp": 8.0, "dmg": 1.5, "speed": 112.0, "cadence_s": 0.9, "radius": 8.0 },
+    "soldier": { "hp": 22.0, "dmg": 4.0, "speed": 122.0, "cadence_s": 0.9, "radius": 10.0 },
+    "elite": { "hp": 50.0, "dmg": 9.0, "speed": 128.0, "cadence_s": 0.85, "radius": 13.0 }
+  },
+  "raise": { "soldier_min_score": 60, "elite_min_score": 90, "soldier_orb_div": 3.0, "elite_orb_div": 4.0, "spawn_ring_px": 52.0 },
+  "layout": {
+    "tier_w": { "1": 1100, "2": 1450, "3": 1800, "4": 2200 },
+    "tier_h": { "1": 800, "2": 1050, "3": 1250, "4": 1500 },
+    "boss_w": 2600, "boss_h": 1800, "boss_doors": 7, "boss_rooms": 4,
+    "wall_thickness": 30.0, "wall_glow_px": 26.0, "door_width": 150.0,
+    "inner_gap_width": 165.0, "min_room_px": 300.0, "grid_cell": 32.0, "grid_step_px": 128.0
+  },
+  "camera": { "zoom_min": 0.72, "zoom_max": 1.15, "view_pad_px": 120.0, "smoothing": 5.0 },
+  "boss": {
+    "hp_base": 1400.0, "hp_per_missing_odds": 3200.0, "odds_pivot": 0.8,
+    "radius": 46.0, "initial_guards": 8,
+    "smite_range_px": 92.0, "smite_dmg": 16.0, "smite_targets": 4, "smite_cadence_s": 1.1, "smite_dmg_relish": 12.0,
+    "pulse_radius_px": 340.0, "pulse_windup_s": 1.2, "pulse_cadence_full_s": 9.0, "pulse_cadence_low_s": 3.2,
+    "pulse_dmg_soldier": 30.0, "pulse_dmg_relish": 10.0,
+    "revive_radius_px": 400.0, "revive_channel_s": 2.0, "revive_cooldown_s": 7.0, "revive_min_mass": 24.0,
+    "revive_mass_per_guard": 10.0, "revive_guard_cap": 18,
+    "guard": { "hp": 16.0, "dmg": 5.0, "speed": 108.0, "cadence_s": 0.9, "radius": 10.0, "mass": 10.0 },
+    "heal_per_s": 6.0, "heal_contact_pad_px": 42.0,
+    "stream_rate_base": 2.0, "stream_backlog_div": 1500.0, "stream_mass_per_spawn": 8.0, "max_chaff_alive": 130,
+    "remnant_mass": 3.0, "remnant_cap": 40
+  }
+}

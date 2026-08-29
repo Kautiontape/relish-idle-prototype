@@ -88,11 +88,17 @@ func _tick(dt: float) -> void:
 	_tick_gather(dt, cfg)
 	_field_acc += dt
 	var period: float = 1.0 / float(cfg.get("field", {}).get("tick_hz", 5.0))
-	while _field_acc >= period:
+	# Cap field work per tick: at high time_scale the field may lag behind the
+	# realm (it is territory visualisation + town control; exactness not needed).
+	var field_ticks := 0
+	while _field_acc >= period and field_ticks < 2:
 		_field_acc -= period
 		_inject_sources(period)
 		field.tick(period)
+		field_ticks += 1
+	if field_ticks > 0:
 		_update_towns(cfg)
+	_field_acc = minf(_field_acc, period * 4.0)
 	realm_ticked.emit()
 
 
