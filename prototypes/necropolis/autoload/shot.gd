@@ -8,6 +8,8 @@ var _frames := 40
 var _scene := ""
 var _clicks: Array = []
 var _trace := Vector3.ZERO  # cx, cy, radius — synthetic trance circle
+var _finish_raid := false   # emit a canned raid result through the real path
+var consumed_teleport := false  # world_map's --teleport arg fires only once per run
 var _n := 0
 
 
@@ -25,6 +27,8 @@ func _ready() -> void:
 			Game.army = {"soldier": 40, "elite": 8}
 			Game.town["forge_level"] = 4
 			Game.realm.vei["undead_queue"] = 18000.0
+		elif arg == "--finish-raid":
+			_finish_raid = true
 		elif arg == "--cheat=rich":
 			Game.res["gold"] = 500.0
 			Game.res["materials"] = 200.0
@@ -55,6 +59,20 @@ func _run() -> void:
 			await get_tree().process_frame
 	if _trace != Vector3.ZERO:
 		await _do_trace(Vector2(_trace.x, _trace.y), _trace.z)
+	if _finish_raid:
+		for i in 20:
+			await get_tree().process_frame
+		var main := get_node_or_null("/root/Main")
+		if main != null and main.get("current") != null and main.current.has_signal("finished"):
+			var fid: String = Game.raiding_fort_id()
+			main.current.finished.emit({
+				"fort_id": fid, "killed_living_mass": 42.0, "raised_chaff_mass": 26.0,
+				"raised_soldiers": 3, "raised_elites": 1, "good_mass": 9.0,
+				"garrison_mass": 12.0, "relish_died": false, "aborted": false,
+			})
+			print("FINISH_RAID emitted for ", fid)
+		for i in 20:
+			await get_tree().process_frame
 	for i in _frames:
 		await get_tree().process_frame
 	var img := get_viewport().get_texture().get_image()

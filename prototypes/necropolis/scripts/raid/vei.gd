@@ -137,8 +137,10 @@ func _do_pulse(b: Dictionary) -> void:
 			continue
 		if a.kind == "chaff":
 			a.die()  # she deletes crowds
+		elif a.kind == "elite":
+			a.take_hit(float(b.get("pulse_dmg_elite", 30.0)))
 		else:
-			a.take_hit(float(b.get("pulse_dmg_soldier", 30.0)))
+			a.take_hit(float(b.get("pulse_dmg_soldier", 18.0)))
 	var rel = boss.relish
 	if rel != null and is_instance_valid(rel) and rel.alive \
 			and rel.global_position.distance_to(global_position) <= r:

@@ -61,10 +61,12 @@ func _ready() -> void:
 			nodes_view.selected_id = selected_id
 			sidebar.visible = true
 			_refresh_sidebar()
-		elif arg.begins_with("--teleport="):
+		elif arg.begins_with("--teleport=") and not Shot.consumed_teleport:
+			Shot.consumed_teleport = true
 			var dest := arg.trim_prefix("--teleport=")
 			await get_tree().create_timer(0.3).timeout
-			finished.emit({"teleport_to": dest})
+			if is_inside_tree():
+				finished.emit({"teleport_to": dest})
 
 
 func _build_world() -> void:

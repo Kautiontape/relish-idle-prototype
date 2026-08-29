@@ -84,15 +84,34 @@ Boss result: `{fort_id, won, relish_died, backlog_spent, army_lost:{soldier,elit
   Note: `--script` mode has no autoloads, so anything referencing `ConfigDb` cannot be exercised there (same constraint as the existing suites); scene scripts compile clean in the real runs below.
 - Windowed runs (Shot harness): zero script errors from `scripts/raid/**` or the two scenes. (The `world_map.gd` errors visible in logs come from the map worker's scene, loaded by Main before Shot swaps.)
 
+### Smoke command (acceptance run)
+
+Walks Relish onto the deterministic Vespers corpse pile (stir → essence), then the
+harness holds SPACE and drags a circle around her (score ~97 → 1 elite), then lets
+the elite fight. The final frame must show `RAISED … elite 1`, `ESSENCE > 0` (orbs
+from the elite's kills), `LIVING < 20`, and the log no `SCRIPT ERROR`:
+
+```sh
+WAYLAND_DISPLAY=wayland-2 flock -w 300 /tmp/necropolis-godot.lock timeout 150 \
+  godot --display-driver wayland --audio-driver Dummy --rendering-driver opengl3 \
+  --path /home/shawn/documents/apps/games/relish-idle-prototype/prototypes/necropolis -- \
+  --shot=/tmp/necropolis-raid-raise.png --frames=240 --scene=res://scenes/raid/Raid.tscn \
+  --clicks="960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546" \
+  --trace=960,546,120
+```
+
+(Coords assume the 1584×873 nested-compositor window: pile A of "vespers" t2 sits at
+world (890, 790); the camera is pinned at (725, 681.6) for the whole walk, zoom 1.019.)
+
 ### Screenshots taken & reviewed
 - `/tmp/necropolis-raid.png` — Vespers t2: rainbow slab walls + door gaps, orange wanderers spread away from spawn, grey matte pile, garrison chaff, Relish inside the south door, full HUD + TELEPORT button.
+- `/tmp/necropolis-raid-raise.png` — the acceptance frame: after the smoke command, LIVING 17 / ESSENCE 3 / RAISED elite 1, orbs pooled at Relish, elite mid-fight, amber cooldown arc. An earlier 40-frame variant of the same run captured the feedback itself: "97 — GREAT" over the fitted ring, elite growing in.
 - `/tmp/necropolis-raid-action.png` — death flow: Relish mobbed, conduit sacrifice consumed the garrison chaff, then death → standalone panel shows the emitted result dict (`relish_died: true`, `aborted: true` — nothing was killed/raised — exact contract keys).
 - `/tmp/necropolis-boss.png` — 30s in: Vei white-gold with halo/rays mobbed by a green melee ring, hp bar bitten down, backlog streaming from the south doors, remnants + essence afield, LOST counter ticking (attrition, no wipe).
 
 ## Known rough edges
 
-- **No pathfinding**: units wall-slide (axis fallback) instead of navigating; a unit can hug an internal wall for a while before finding a gap. Layout guarantees multiple routes, which masks most of it.
-- **Trance can't be exercised by the screenshot harness** (no key-hold injection), so circle scoring/feedback in-scene was verified by review of the ported code + the scorer's own passing math, not by pixels.
+- **No pathfinding**: units (and Relish) wall-slide (axis fallback) instead of navigating; a unit can hug an internal wall for a while before finding a gap. Layout guarantees multiple routes, which masks most of it. A click target on the far side of a wall makes Relish skirt along it rather than route around intelligently.
 - Enemies never de-aggro once hostile.
 - The trance meter reads READY while a raise's essence is still flying in (cooldown starts at release — intended, mildly confusing).
 - Boss pacing beyond the 30s probe is config-guess: pulse cadence/heal were tuned so odds 0.61 + 41s/9e is a multi-minute attrition fight, but a full win/loss playthrough wasn't scripted.
