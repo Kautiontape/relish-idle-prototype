@@ -10,6 +10,7 @@ Green = UNDEAD. Orange = LIVING. Grey = DEAD (matte, never glows). Blue = towns/
 ## Run
 
 ```sh
+godot --headless --path prototypes/necropolis --import   # first run only (build import cache)
 godot --path prototypes/necropolis        # Godot 4.7, GL Compatibility, 1600×900
 ```
 

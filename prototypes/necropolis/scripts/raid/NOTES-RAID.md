@@ -60,7 +60,7 @@ Boss result: `{fort_id, won, relish_died, backlog_spent, army_lost:{soldier,elit
 - `raise`: soldier ≥60, elite ≥90, orb divisors 3/4, spawn ring.
 - `layout`: per-tier sizes (t1 1100×800 … t4 2200×1500, boss 2600×1800), wall thickness/glow, door width 150, inner gap 165, min room 300, flood-fill cell 32, floor grid step.
 - `camera`: zoom clamp + view pad + smoothing.
-- `boss`: hp formula knobs (`hp_base 1400 + hp_per_missing_odds 3200 * max(0, 0.8 - odds)`), smite (range/dmg/targets/cadence), pulse (radius 340, windup 1.2, cadence 7→4s as hp drops, dmg), revive (radius 400, channel 2s, cooldown, mass/guard 10, guard cap), guard statline, heal 8/s when uncontacted, stream (`2 + backlog/1500`/s, 8 mass/spawn, alive-chaff cap 130), remnants (mass, cap 40).
+- `boss`: hp formula knobs (`hp_base 1400 + hp_per_missing_odds 3200 * max(0, 0.8 - odds)`), smite (range 92 / dmg 14 / 8 targets / 1.1s), pulse (radius 340, windup 1.2, cadence 5.5→3s as hp drops, dmg: chaff instant, soldier 18, elite 30, relish 10), revive (radius 400, channel 2s, cooldown 6, min mass 16, mass/guard 10, guard cap 24), guard statline, heal 10/s when uncontacted, stream (`2 + backlog/1500`/s, 8 mass/spawn, alive-chaff cap 90), remnants (mass, cap 40).
 - Circle scoring knobs live in `configs/circle.json` (verbatim; owned by the scorer).
 
 ## Deviations from the spec (all flagged)
@@ -71,7 +71,7 @@ Boss result: `{fort_id, won, relish_died, backlog_spent, army_lost:{soldier,elit
 4. **Invalid-but-long traces cost the trance** (score → feedback → cooldown, even at score 0) — matches the source prototype's behavior; sub-threshold scribbles are free retries within the same hold.
 5. **Outer door gaps are visual**: units are clamped inside the arena, so perimeter doors are entrances in fiction only (nothing escapes into the void). Relish still spawns just inside the southernmost door.
 6. **Boss layout north 42% is one open audience chamber** (no internal walls) so Vei's court is a clean battlefield; partitions only in the south. Boss doors: 7 (4 on the south for the stream).
-7. **Vei's pulse also damages elites** (same heavy hit as soldiers) — spec only named soldiers; elites surviving ~3 pulses felt right for "brutal".
+7. **Vei's pulse also damages elites** (own knob `pulse_dmg_elite` 30 — two unhealed pulses kill an elite): spec only named soldiers, but a 30s probe showed pulse-immune elites (LOST e0) shredding her in <30s at odds 0.61. Soldiers take 18 (survive one pulse at full hp — attrition, no one-shots).
 8. **Undead deaths in the boss leave small grey remnants** (capped 40) — this is the matter REVIVE recycles ("she recycles your dead!"); Relish can also stir remnants back into essence, so the mid-field is a contested resource.
 9. **Boss keeps the TELEPORT exit** (retreat): emits `{won: false, relish_died: false, ...}`.
 10. **Garrison undead at spawn are not ledger mass** — they're the fort's pre-existing undead; their deaths report nothing.
@@ -114,5 +114,5 @@ world (890, 790); the camera is pinned at (725, 681.6) for the whole walk, zoom 
 - **No pathfinding**: units (and Relish) wall-slide (axis fallback) instead of navigating; a unit can hug an internal wall for a while before finding a gap. Layout guarantees multiple routes, which masks most of it. A click target on the far side of a wall makes Relish skirt along it rather than route around intelligently.
 - Enemies never de-aggro once hostile.
 - The trance meter reads READY while a raise's essence is still flying in (cooldown starts at release — intended, mildly confusing).
-- Boss pacing beyond the 30s probe is config-guess: pulse cadence/heal were tuned so odds 0.61 + 41s/9e is a multi-minute attrition fight, but a full win/loss playthrough wasn't scripted.
+- **Boss pacing is NOT converged.** Two full autoplay probes at odds 0.61 with the demo army (41s/9e + 9421 backlog) ended in a WIN around the ~30s mark (probe 1: army_lost e0 — elites were pulse-immune, fixed with `pulse_dmg_elite`; probe 2: army_lost s41 e2 — attrition works, but the refilled melee ring still out-paces her 2008 hp). Final shipped values push further toward the 2-4 min target (pulse every 5.5s, smite 8 targets, heal 10/s, alive-chaff cap 90) but were NOT re-probed before the deadline. If she still dies fast, the honest levers are: interruptive AI (pulse should break contact), damage reduction while >N attackers, or nerfing undead dps vs bosses — all beyond knob-turning. Win/loss/exit RESULT FLOWS are fully verified either way (both probes show the exact boss result dict emitted once).
 - `Engine.time_scale` is global: in integrated play the trance dilates the idle sim too (out of scope to fix here; scenes always restore 1.0 on exit/death/finish).
