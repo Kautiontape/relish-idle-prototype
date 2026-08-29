@@ -1,0 +1,81 @@
+{
+  "costs": {
+    "slab_gold_per_current": 25.0,
+    "vat_gold": 30.0,
+    "vat_materials": 8.0,
+    "sim_station_gold": 80.0,
+    "sim_station_materials": 40.0,
+    "simulacrum_materials": 30.0,
+    "forge_materials_per_next_level": 12.0
+  },
+  "simulacrum": { "charges": 300.0, "rate": 3.0 },
+  "forge_quality_bonus": 0.25,
+  "spend_grace": 5.0,
+
+  "copy": {
+    "flavor": "The factory. It never sleeps.",
+    "live_caption": "(live totals tick in the realm)",
+    "effects": {
+      "trade": "+0.03 gold, +0.03 materials /s each · fuels simulacra",
+      "forge": "hands for the forge — enables quality work",
+      "jobs": "+0.06 gold /s each",
+      "gather": "hauls corpses home · travel time scales with distance",
+      "slab": "burns bodies to boost minting"
+    },
+    "task_names": {
+      "trade": "Trade",
+      "forge": "Forge",
+      "jobs": "Jobs",
+      "gather": "Gather bodies",
+      "slab": "Slab crew"
+    },
+    "blurbs": {
+      "slab": "mints more undead every second",
+      "vat": "a spare body. If Relish dies, she wakes here.",
+      "sim_station": "unlocks the crafting of simulacra",
+      "simulacrum": "a copy of Relish. She raises the dead where you plant her, then burns out.",
+      "forge": "+0.25 undead quality — they get harder for Vei to digest"
+    }
+  },
+
+  "yard": {
+    "walk_speed": 44.0,
+    "walk_jitter": 14.0,
+    "work_min_s": 0.8,
+    "work_max_s": 2.0,
+    "idle_wander_px": 56.0,
+    "reach_px": 3.0,
+    "worker_r": 4.0,
+    "living_count": 3,
+    "living_walk_speed": 22.0,
+    "living_r": 3.5,
+    "convoy_speed": 34.0,
+    "vat_pod_r": 11.0,
+    "vat_pod_spacing": 30.0,
+    "ground_specks": 70,
+    "stations": {
+      "slab":   { "pos": [0.46, 0.42], "r": 46.0, "label": "The Slab",           "color": "#7a6b96" },
+      "forge":  { "pos": [0.73, 0.20], "r": 30.0, "label": "Forge",              "color": "#6f8fb0" },
+      "jobs":   { "pos": [0.27, 0.16], "r": 27.0, "label": "Job Board",          "color": "#b0a06f" },
+      "trade":  { "pos": [0.83, 0.60], "r": 30.0, "label": "Trading Post",       "color": "#7ab08f" },
+      "gather": { "pos": [0.15, 0.56], "r": 27.0, "label": "Gather Camp",        "color": "#9a8b73" },
+      "vats":   { "pos": [0.31, 0.84], "r": 11.0, "label": "Clone Vats",         "color": "#5f8f7a" },
+      "sim":    { "pos": [0.66, 0.82], "r": 26.0, "label": "Simulacrum Station", "color": "#C04CFF" }
+    },
+    "supply_points": {
+      "trade":  [0.93, 0.71],
+      "forge":  [0.57, 0.31],
+      "jobs":   [0.12, 0.28],
+      "gather": [0.09, 0.67],
+      "slab":   [0.33, 0.53]
+    },
+    "exit_point": [0.03, 0.80],
+    "roads": [
+      ["slab", "forge"],
+      ["slab", "jobs"],
+      ["slab", "trade"],
+      ["slab", "gather"],
+      ["slab", "sim"]
+    ]
+  }
+}
