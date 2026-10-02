@@ -49,6 +49,7 @@ services:
       - relish
 
   casting:
+    image: ghcr.io/kautiontape/relish-idle-prototype-casting:latest
     build:
       context: ./prototypes/casting
       dockerfile: Dockerfile
@@ -68,6 +69,7 @@ services:
       - relish
 
   horde-scale:
+    image: ghcr.io/kautiontape/relish-idle-prototype-horde-scale:latest
     build:
       context: ./prototypes/horde-scale
       dockerfile: Dockerfile
@@ -82,6 +84,7 @@ services:
       - relish
 
   quest-loop:
+    image: ghcr.io/kautiontape/relish-idle-prototype-quest-loop:latest
     build:
       context: ./prototypes/quest-loop
       dockerfile: Dockerfile
@@ -96,6 +99,7 @@ services:
       - relish
 
   essence-casting:
+    image: ghcr.io/kautiontape/relish-idle-prototype-essence-casting:latest
     build:
       context: ./prototypes/essence-casting
       dockerfile: Dockerfile
@@ -110,6 +114,7 @@ services:
       - relish
 
   raid-and-raise:
+    image: ghcr.io/kautiontape/relish-idle-prototype-raid-and-raise:latest
     build:
       context: ./prototypes/raid-and-raise
       dockerfile: Dockerfile
@@ -124,6 +129,7 @@ services:
       - relish
 
   slab:
+    image: ghcr.io/kautiontape/relish-idle-prototype-slab:latest
     build:
       context: ./prototypes/slab
       dockerfile: Dockerfile
@@ -138,6 +144,7 @@ services:
       - relish
 
   crypt:
+    image: ghcr.io/kautiontape/relish-idle-prototype-crypt:latest
     build:
       context: ./prototypes/crypt
       dockerfile: Dockerfile
@@ -152,6 +159,7 @@ services:
       - relish
 
   graveshift:
+    image: ghcr.io/kautiontape/relish-idle-prototype-graveshift:latest
     build:
       context: ./prototypes/graveshift
       dockerfile: Dockerfile
