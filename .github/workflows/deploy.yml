@@ -1,23 +1,41 @@
 name: Deploy to ktn
 
 on:
-  push:
+  # After each successful image build on main; ktn only pulls, never builds.
+  workflow_run:
+    workflows: ['build & publish']
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, ktn]
+    permissions:
+      packages: read
+    env:
+      PROTOTYPES: casting horde-scale quest-loop essence-casting raid-and-raise slab crypt graveshift
     steps:
+      # Ephemeral per-run login, so ktn keeps no registry credential.
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Deploy
         run: |
           cd /opt/services/relish-idle-prototype
           git pull origin main
-          docker compose build
+          # Only the prototypes come from GHCR; caddy/sablier/socket-proxy are pinned images.
+          # shellcheck disable=SC2086 # one word per service
+          docker compose pull $PROTOTYPES
           # Prototypes are scale-to-zero: create/recreate their containers but
           # never start them. `up -d` would wake every prototype, and Sablier
           # only stops containers whose session expires — a compose-started
           # container with no session runs forever. Only infra gets `up -d`.
-          docker compose create
-          docker compose up -d caddy sablier socket-proxy
+          docker compose create --no-build
+          docker compose up -d --no-build caddy sablier socket-proxy
           docker compose restart caddy
+          docker image prune -f
