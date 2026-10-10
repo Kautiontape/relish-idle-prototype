@@ -20,7 +20,7 @@ services:
   # Scale-to-zero controller. Wakes prototype containers on first request,
   # stops them after `session_duration` of inactivity (see Caddyfile).
   sablier:
-    image: sablierapp/sablier:1.13.0
+    image: sablierapp/sablier:1.18.0
     container_name: relish_sablier
     command:
       - start
@@ -37,7 +37,7 @@ services:
   # Least-privilege Docker API proxy: exposes only container list/inspect
   # (CONTAINERS) + start/stop (POST). No images/volumes/secrets/exec surface.
   socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
+    image: tecnativa/docker-socket-proxy:v0.5.0
     container_name: relish_socket_proxy
     environment:
       - CONTAINERS=1
