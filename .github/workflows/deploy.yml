@@ -39,3 +39,10 @@ jobs:
           docker compose up -d --no-build caddy sablier socket-proxy
           docker compose restart caddy
           docker image prune -f
+
+      # Every ktn deploy logs in with its job token, which is revoked when the
+      # job ends; leaving it in the runner's Docker config makes the next job's
+      # ghcr pulls fail with "denied".
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io
