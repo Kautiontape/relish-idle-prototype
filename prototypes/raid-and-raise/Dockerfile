@@ -1,7 +1,7 @@
 # Build stage: headless Godot imports the project, runs the smoke test, and
 # exports a single-threaded web build (no SharedArrayBuffer → no COOP/COEP
 # headers needed, works on mobile Safari).
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 
 ARG GODOT_VERSION=4.6.2
 
