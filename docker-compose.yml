@@ -20,7 +20,7 @@ services:
   # Scale-to-zero controller. Wakes prototype containers on first request,
   # stops them after `session_duration` of inactivity (see Caddyfile).
   sablier:
-    image: sablierapp/sablier:1.18.0
+    image: sablierapp/sablier:1.19.1
     container_name: relish_sablier
     command:
       - start
