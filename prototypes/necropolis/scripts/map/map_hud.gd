@@ -95,6 +95,12 @@ func _relayout() -> void:
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 
 
+## Screen px the HUD plates cover from the top: the camera frames the map below this.
+func top_inset() -> float:
+	_relayout()
+	return _obj_plate.position.y + _obj_plate.size.y
+
+
 func _label(font_size: int, color_key: String) -> Label:
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", font_size)

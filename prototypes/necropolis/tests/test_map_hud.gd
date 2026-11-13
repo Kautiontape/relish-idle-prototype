@@ -16,6 +16,7 @@ func run() -> int:
 	_callout_rows(t)
 	_placement(t)
 	_one_source(t)
+	_fit(t)
 	return t.failures
 
 
@@ -226,3 +227,40 @@ func _one_source(t: TestUtil) -> void:
 			var vd: Dictionary = MapLogic.cfg()["demo_nodes"]["vei"]
 			t.ok(is_equal_approx(float(ro["odds"]), float(vd["odds"])) and int(ro["sign"]) == int(vd["sign"]) \
 				and is_equal_approx(float(ro["drain_s"]), float(vd["drain_s"])) and is_equal_approx(float(ro["backlog"]), float(vd["backlog"])), "demo: the overlay's values come through the readout")
+
+
+func _fit(t: TestUtil) -> void:
+	t.suite("map_hud-fit")
+	var cfg := MapLogic.cfg()
+	var vp := Vector2(1600, 900)
+	var inset := 70.0
+	var content := Rect2(300, -40, 1500, 1400)
+	var v := MapLogic.fit_view(content, vp, inset)
+	var z: float = v["zoom"]
+	var centre: Vector2 = v["centre"]
+	# screen position of a world point: (p - centre) * z + viewport / 2
+	var tl := (content.position - centre) * z + vp * 0.5
+	var br := (content.end - centre) * z + vp * 0.5
+	t.ok(tl.x >= 0.0 and br.x <= vp.x, "the content fits the viewport width")
+	t.ok(tl.y >= inset - 1e-3 and br.y <= vp.y + 1e-3, "the content fits below the inset (top %.1f >= %.0f)" % [tl.y, inset])
+	t.ok(MapLogic.fit_view(Rect2(), vp, inset).is_empty() and MapLogic.fit_view(content, vp, vp.y).is_empty(), "degenerate input fits nothing")
+	var wide := MapLogic.fit_view(Rect2(0, 0, 4000, 100), vp, inset)
+	t.near(float(wide["zoom"]), vp.x / 4000.0 * float(cfg["fit_margin"]), 1e-6, "a wide content is width-limited")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var rect := m.content_rect()
+	t.ok(rect.size.x > 0.0 and rect.size.y > 0.0, "the model has a content rect")
+	for f in m.forts:
+		t.ok(rect.has_point(MapModel.to_vec(f["pos"])), "%s is inside the content" % f["id"])
+	t.ok(rect.has_point(m.node_pos("covington")) and rect.has_point(m.node_pos("vei")), "Covington and Vei are inside the content")
+	var reach := NodeLogic.vei_reach(float(m.realm["vei"]["radius"]), float(m.vei["backlog"]))
+	t.ok(rect.position.y <= m.node_pos("vei").y - reach, "the whole Vei stack is inside the content")
+	var fit := MapLogic.fit_view(rect, vp, inset)
+	var tier := MapLogic.zoom_tier(float(fit["zoom"]), "mid")
+	t.ok(tier == "mid", "the default fit is the mid tier (zoom %.3f)" % float(fit["zoom"]))
+	t.ok(float(fit["zoom"]) >= float(cfg["zoom_far_below"]) + float(cfg["zoom_hysteresis"]), "with at least the hysteresis margin above far (%.3f >= %.2f + %.2f)" % [float(fit["zoom"]), float(cfg["zoom_far_below"]), float(cfg["zoom_hysteresis"])])
+	var vtop := ((m.node_pos("vei").y - reach) - float(fit["centre"].y)) * float(fit["zoom"]) + vp.y * 0.5
+	t.ok(vtop >= inset, "Vei's stack starts below the HUD (%.1f >= %.0f)" % [vtop, inset])

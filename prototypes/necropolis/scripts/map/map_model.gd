@@ -111,6 +111,34 @@ func village(id: String) -> Dictionary:
 	return _villages_by_id.get(id, {})
 
 
+## The bounding box of everything drawn at a node (world px): every fort with its ring stack, Covington,
+## the villages, and Vei with her whole backlog stack and her odds reading, each grown by
+## fit_pad_px, with fit_label_px more below for the name under it. The camera's default fit frames this.
+func content_rect() -> Rect2:
+	var cfg := MapLogic.cfg()
+	var pad := float(cfg["fit_pad_px"])
+	var below := float(cfg["fit_label_px"])
+	var box := Rect2()
+	var first := true
+	var items: Array = []
+	for f in forts:
+		items.append([to_vec(f["pos"]), NodeLogic.outer_radius("fort", int(f["tier"]), 0.0)])
+	items.append([node_pos(COVINGTON), NodeLogic.outer_radius("covington", 0, 0.0)])
+	for v in villages:
+		items.append([to_vec(v["pos"]), float(NodeLogic.ncfg()["village_size_px"])])
+	for it in items:
+		var r := float(it[1]) + pad
+		var rect := Rect2(it[0] - Vector2(r, r), Vector2(r * 2.0, r * 2.0 + below))
+		box = rect if first else box.merge(rect)
+		first = false
+	if realm.has("vei"):
+		var r := NodeLogic.outer_radius("vei", 0, float(realm["vei"].get("radius", 0.0)), float(vei.get("backlog", 0.0))) + pad
+		var read := float(cfg["fit_vei_reading_px"])
+		var rect := Rect2(node_pos(VEI) - Vector2(r + read, r), Vector2((r + read) * 2.0, r * 2.0))
+		box = rect if first else box.merge(rect)
+	return box
+
+
 func world_size() -> Vector2:
 	return to_vec(realm.get("size"))
 

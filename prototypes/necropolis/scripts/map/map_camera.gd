@@ -9,6 +9,7 @@ signal clicked(node_id: String)  # "" for empty ground
 
 var model: MapModel
 var tier := "mid"
+var user_moved := false  # the player has panned or zoomed since the fit
 
 var _pressed := false
 var _panning := false
@@ -19,13 +20,15 @@ func _process(_delta: float) -> void:
 	tier = MapLogic.zoom_tier(zoom.x, tier)
 
 
-func fit(viewport_size: Vector2) -> void:
-	var ws := model.world_size()
-	if viewport_size.x < 1.0 or viewport_size.y < 1.0 or ws.x < 1.0 or ws.y < 1.0:
+## The default fit: frame the map's content below `inset_top` px of HUD. Boot and F6 only; once
+## the player has panned or zoomed (user_moved) the caller does not re-fit.
+func fit(viewport_size: Vector2, inset_top := 0.0) -> void:
+	var v := MapLogic.fit_view(model.content_rect(), viewport_size, inset_top)
+	if v.is_empty():
 		return
-	var z := minf(viewport_size.x / ws.x, viewport_size.y / ws.y) * float(MapLogic.cfg()["fit_margin"])
-	zoom = Vector2(z, z)
-	position = ws * 0.5
+	zoom = Vector2(v["zoom"], v["zoom"])
+	position = v["centre"]
+	tier = MapLogic.zoom_tier(zoom.x, "mid")
 
 
 func to_world(screen_pos: Vector2) -> Vector2:
@@ -56,11 +59,13 @@ func handle_input(e: InputEvent) -> void:
 		if not _panning and (e.position - _press_pos).length() > float(cfg["drag_threshold_px"]):
 			_panning = true
 		if _panning:
+			user_moved = true
 			position -= e.relative / zoom.x
 
 
 func zoom_at(factor: float, screen_pos: Vector2) -> void:
 	var cfg := MapLogic.cfg()
+	user_moved = true
 	var before := to_world(screen_pos)
 	var z := clampf(zoom.x * factor, float(cfg["zoom_min"]), float(cfg["zoom_max"]))
 	zoom = Vector2(z, z)

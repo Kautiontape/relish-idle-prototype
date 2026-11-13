@@ -42,8 +42,8 @@ func _ready() -> void:
 	await get_tree().process_frame
 	if not is_inside_tree():
 		return
-	cam.fit(get_viewport_rect().size)
 	hud.start()
+	cam.fit(get_viewport_rect().size, hud.top_inset())
 	_replay_clicks()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
@@ -101,6 +101,17 @@ func _build_ui() -> void:
 ## reaches here is on the bare map.
 func _unhandled_input(e: InputEvent) -> void:
 	cam.handle_input(e)
+
+
+## F6 reloads the configs (ground handles the key): re-frame the map, unless the player moved it.
+func _input(e: InputEvent) -> void:
+	if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F6:
+		_refit.call_deferred()
+
+
+func _refit() -> void:
+	if cam != null and not cam.user_moved:
+		cam.fit(get_viewport_rect().size, hud.top_inset())
 
 
 func _on_clicked(id: String) -> void:

@@ -160,6 +160,20 @@ static func sign_glyph(sign: int) -> String:
 	return "holding"
 
 
+# --- camera fit ------------------------------------------------------------------
+
+## The default fit: the zoom and the camera centre that frame `content` (world px) inside the
+## viewport below `inset_top` screen px (the HUD plates), scaled by fit_margin. The content's
+## centre lands in the middle of the free area, so the content fits inside it.
+static func fit_view(content: Rect2, viewport: Vector2, inset_top: float) -> Dictionary:
+	var free_h := viewport.y - inset_top
+	if content.size.x < 1.0 or content.size.y < 1.0 or viewport.x < 1.0 or free_h < 1.0:
+		return {}
+	var z := minf(viewport.x / content.size.x, free_h / content.size.y) * _num("fit_margin")
+	var centre := content.get_center() - Vector2(0.0, inset_top * 0.5 / z)
+	return {"zoom": z, "centre": centre}
+
+
 # --- zoom tiers ------------------------------------------------------------------
 
 ## The `--map-clicks=x,y;x,y` list as screen-px points; malformed pairs are skipped.
