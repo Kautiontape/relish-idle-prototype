@@ -5,6 +5,8 @@ The systems spec. Player intent is in `GAMEPLAY.md`. Starting numbers and pacing
 exact field lists of every command, view, seed, result and event live in `docs/STATE-API.md`, which
 the economy unit writes at milestone E1 from §1.2 here.
 
+**Idle model:** `IDLE.md` (2026-11-13, from Shawn's answers) wins over this doc wherever they conflict.
+
 v2 folds in two reviews (run folder `reports/review-docs-vision.md` and
 `reports/review-docs-systems.md`).
 
@@ -137,7 +139,7 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 - The autoload feeds it **real** delta × `Game.time_scale`:
   `delta / max(0.05, Engine.time_scale) * time_scale`. Trance's `Engine.time_scale` never slows the
   realm.
-- At most `sim.max_substeps_per_frame` per frame; any remainder after a hitch is dropped.
+- At most `sim.max_substeps_per_frame` per frame. A gap above `idle.gap_s` goes through catch-up instead of being dropped (IDLE.md §4); smaller remainders are dropped.
 - Entering a dungeon or boss forces time scale 1. The router resets `Engine.time_scale = 1` on every
   scene swap.
 
@@ -247,7 +249,7 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
 ### 3.4 Flips and tithe waves
 **Flip.** On `warden_beaten`:
 - all the fort's living become dead, applied as a clamped delta;
-- the fort is **held** for `flip.hold_s · (1 + flip.tier_mult · tier)`.
+- the fort is **held**: a grace period of `flip.hold_s · (1 + flip.tier_mult · tier)`, then a support-vs-pressure contest (IDLE.md §3).
 
 **While held:**
 - **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,

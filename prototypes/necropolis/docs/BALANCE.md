@@ -3,6 +3,8 @@
 Targets, how they're measured, and starting numbers. Every number here is a *starting* value; the
 configs are the truth. When tuning moves a number, update this file in the same commit.
 
+**Idle model:** `IDLE.md` (2026-11-13, from Shawn's answers) wins over this doc wherever they conflict.
+
 ## 0. Start state (`economy.json` `opening.*`)
 | item | value |
 |---|---|
@@ -15,7 +17,7 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | Relish | home, phylactery 0, no vats |
 | first dungeon | Old Sluice (tier 1, Bellringer), flagged "first"; starter party `opening.starter_party` = 8 units; the chest holds a husk and the first blueprint |
 
-## 1. Pacing targets (active play at 1×; time controls 1×/2×/4× exist)
+## 1. Pacing targets (superseded by IDLE.md §7: days of sessions; the early-session rows still hold)
 | moment | target |
 |---|---|
 | first stream response to the valve | under 5 s |
@@ -27,7 +29,7 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | first tithe wave | about 12–15 min (after the first flip) |
 | town reaches Village / Town / City | about 20 min / 1 h / 2 h |
 | Vei-ready (odds ≥ 0.6 and 3 of 4 fronts met) | **2.5–3.5 h** |
-| idle (no input) for 4 h | odds < 0.10; the town visibly runs and grows a little |
+| idle | see IDLE.md §7: most growth happens while away |
 
 ## 2. Lever-ablation targets ("the economies feed each other")
 From the autoplayer (§4): hours to Vei-ready with one lever removed, against the active profile.

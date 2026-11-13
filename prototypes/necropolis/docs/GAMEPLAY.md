@@ -3,6 +3,8 @@
 What the game is, what the player does, and why it's fun. Systems and formulas are in `MECHANICS.md`,
 numbers and pacing in `BALANCE.md`, and the look in `VISUAL-LANGUAGE.md`.
 
+**Idle model:** `IDLE.md` (2026-11-13, from Shawn's answers) wins over this doc wherever they conflict.
+
 ## The ask (Shawn, 2026-11-13, verbatim excerpts)
 > "the player should feel like they are building an autonomous collective of constantly streaming
 > resources. they shouldn't worry about having certain quantities of undead, they should [worry]
@@ -212,7 +214,7 @@ unmade for a while. The war goes on. Nothing ever resets.
    - The workers' steady-state number shows where WORK is heading.
 2. **0:30.** The nearest fortress, Old Sluice (tier 1), pulses as **"your first dungeon"**. Its card
    already shows the warden (a Bellringer), its tell, the loot hint and the risk ("low").
-3. **1:00.** Click it, then MOVE. Relish travels; time controls (1×/2×/4×) are in the corner. While
+3. **1:00.** Click it, then MOVE. Relish travels (no speed buttons: real time is the engine, IDLE.md I9). While
    she walks, click Covington to dive into the town.
 4. **1:30, the town.** Already built: the crypt, one raising pit, a charnel house and a small market.
    Ten living, a dozen workers walking. A starter stock of gold and bone buys the first house or bone
@@ -226,7 +228,7 @@ unmade for a while. The war goes on. Nothing ever resets.
 **The first death is taught, not sprung.** The first dungeon is "low" risk, and the descend
 dialog says what a death would cost right now.
 
-## 7. The arc of a game (about 3–4 hours of active play)
+## 7. The arc of a game (the order of beats; the pacing is days of sessions, IDLE.md §7)
 - **0–20 min, the crypt and a trickle.** One slab, a handful of workers, the first WAR stream, the
   first corpses hauled home. Build the charnel house and a market. The first dungeon is the nearest,
   weakest fort, where you learn the circle.
@@ -243,7 +245,8 @@ dialog says what a death would cost right now.
 
 ## 8. Feel targets (what the reviewers check)
 - Within 2 minutes you have set the valve, watched a stream respond, and seen the town move.
-- Leaving the game alone never wins, but the collective visibly keeps working.
+- Leaving it alone is how it grows (IDLE.md). Coming back finds it bigger, with forts to retake and
+  husks to raise, and the active minutes always have a raid worth doing.
 - At any moment the player can say whether they're winning (the ▲/▼ beside the odds) and why (which
   stream changed).
 - Each scene has its own verb:
