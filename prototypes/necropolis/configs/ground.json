@@ -1,5 +1,5 @@
 {
-  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
+  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Figure over ground: streak_width_px is on-screen width at any zoom; spawn_empty_weight sets how sparse the empty-ground current is (each streak legible, alpha_empty) and spawn_land_weight thins held ground the same way; seam_land stops empty-ground streaks piling up on living rims, clump_limit stops them piling into sinks (reads last frame's trail); moat_* thins streaks beside live lanes (lane_bow mirrors map_routes.gd's bow). density_exp keeps on-screen ink constant across zoom. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
   "mode": "flow",
   "readout": true,
 
@@ -7,11 +7,20 @@
 
   "field_hz": 6.0,
   "streaks": 9000,
-  "trail_scale": 0.62,
+  "trail_screen_scale": 1.0,
   "trail_keep_per_s": 0.03,
-  "streak_width": 2.2,
+  "streak_width_px": 1.1,
+  "view_margin_px": 48.0,
+  "density_exp": 1.0,
   "life_s": [2.0, 5.0],
-  "spawn_empty_weight": 0.3,
+  "spawn_empty_weight": 0.05,
+  "spawn_land_weight": 0.7,
+  "seam_land": 0.35,
+  "clump_limit": 0.8,
+  "lane_bow": 0.07,
+  "moat_px": 5.0,
+  "moat_strength": 0.9,
+  "moat_end": [25.0, 70.0],
 
   "speed": 110.0,
   "speed_empty": 0.75,
@@ -37,7 +46,7 @@
   "dash_px": 22.0,
   "dash_duty": 0.5,
 
-  "alpha_empty": 0.07,
+  "alpha_empty": 0.35,
   "alpha_land": 0.95,
   "alpha_front": 0.95,
   "core_mix": 0.3,
