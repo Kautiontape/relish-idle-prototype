@@ -7,8 +7,8 @@ signal finished(result: Dictionary)
 
 var world: Node2D
 var cam: MapCamera
-var nodes_view: Node2D
-var routes_view: Node2D
+var nodes_view: MapNodes
+var routes_view: MapRoutes
 var model: MapModel
 var hud: MapHud
 var sidebar: MapSidebar
@@ -31,6 +31,8 @@ func _ready() -> void:
 	MapLogic.configure(ConfigDb.data.get("map_view", {}))
 	model = MapModel.new(Game.state)
 	model.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
+	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
+	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
 	model.refresh(true)
 	_build_world()
 	_build_ui()
@@ -58,13 +60,12 @@ func _build_world() -> void:
 	var field := Sprite2D.new()
 	field.set_script(load("res://scripts/map/map_field_view.gd"))
 	world.add_child(field)
-	routes_view = Node2D.new()
-	routes_view.set_script(load("res://scripts/map/map_routes.gd"))
+	routes_view = MapRoutes.new()
 	routes_view.model = model
 	world.add_child(routes_view)
-	nodes_view = Node2D.new()
-	nodes_view.set_script(load("res://scripts/map/map_nodes.gd"))
+	nodes_view = MapNodes.new()
 	nodes_view.model = model
+	nodes_view.routes = routes_view
 	world.add_child(nodes_view)
 	cam = MapCamera.new()
 	cam.name = "Camera2D"

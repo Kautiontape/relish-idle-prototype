@@ -278,11 +278,11 @@ static func host_edge(host_half: float, gw: float, min_cos := 1.0) -> float:
 ## halos but stops at the host core's outer edge; the cut, pure black, dashed; the lip on the near
 ## edge (toward the host, +UV.y), dead lightened, alpha lip_alpha_base + lip_alpha_per_a x a,
 ## dashed; the far rim, dead darkened, dimmer, dashed. Never glows. Width follows u_dead.
-static func gutter_layers(ch: Dictionary, host_half: float, min_cos := 1.0) -> Array:
+static func gutter_layers(ch: Dictionary, host_half: float, min_cos := 1.0, lit := false) -> Array:
 	var g := _sub("gutter")
 	var a := float(ch["alpha"])
 	var gw := MapLogic.gutter_width(float(ch["u"]))
-	var dead := Palette.c("dead")
+	var dead := Palette.c("dead_lit" if lit else "dead")
 	var half := (gw + float(g["spill_px"])) * 0.5
 	var inner := minf(half, host_edge(host_half, gw, min_cos) - host_half)
 	return [
@@ -341,9 +341,9 @@ static func chevron_stroke(size: float) -> float:
 
 
 ## A gutter's chevrons: the lip grey at the dead flow's alpha x chevron_alpha_mult.
-static func gutter_chevron_color(ch: Dictionary) -> Color:
+static func gutter_chevron_color(ch: Dictionary, lit := false) -> Color:
 	var g := _sub("gutter")
-	return Color(Palette.c("dead").lightened(float(g["lip_lighten"])),
+	return Color(Palette.c("dead_lit" if lit else "dead").lightened(float(g["lip_lighten"])),
 		float(ch["alpha"]) * float(g["chevron_alpha_mult"]))
 
 

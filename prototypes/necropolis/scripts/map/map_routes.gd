@@ -36,12 +36,14 @@ class Ribbon:
 	var mode := "off"
 	var u := -2.0
 	var u_host := -2.0
+	var lit := false  # gutter: its fort stands in Relish's light (dead_lit instead of dead)
 	var speed := 0.0
 	var period := 1.0
 
 
 var _lanes := {}    # lane id -> Ribbon
 var _gutters := {}  # dead lane id -> Ribbon
+var _lit_forts := {}  # fort id -> true: forts in Relish's light (set_lit_forts)
 var _moving: Array = []  # lit Ribbons this rev: their offsets walk every frame
 var _lane_layer: Node2D
 var _gutter_layer: Node2D
@@ -207,6 +209,19 @@ func _sync() -> void:
 	_carts.set_tracks(tracks)
 
 
+## The forts whose dead lane's gutter reads dead_lit (still matte) instead of dead: the nodes
+## layer calls this on a model refresh with the forts inside Relish's light. Only gutters whose
+## state changed touch their uniforms.
+func set_lit_forts(ids: Array) -> void:
+	var now := {}
+	for id in ids:
+		now[id] = true
+	_lit_forts = now
+	for r: Ribbon in _gutters.values():
+		if r.mode == "lit" and r.lit != _lit_forts.has(str(r.row["from"])):
+			_apply_gutter(r, r.u, r.u_host)
+
+
 func _hide(r: Ribbon) -> void:
 	r.node.visible = false
 	r.mode = "off"
@@ -331,20 +346,22 @@ func _apply_gutter(r: Ribbon, u_dead: float, u_host: float) -> void:
 	if not LaneStyle.gutter_on(u_dead):
 		_hide(r)
 		return
-	if r.mode == "lit" and absf(u_dead - r.u) <= _eps and is_equal_approx(u_host, r.u_host):
+	var lit := _lit_forts.has(str(r.row["from"]))
+	if r.mode == "lit" and absf(u_dead - r.u) <= _eps and is_equal_approx(u_host, r.u_host) and lit == r.lit:
 		return
 	r.mode = "lit"
+	r.lit = lit
 	r.u = u_dead
 	_updates += 1
 	r.u_host = u_host
 	var ch: Dictionary = Pulse.channels(u_dead, Palette.hue(r.style["hue_key"]))
 	# the spill stops at the host core's drawn edge (u_host < 0: the phantom's u = 0 geometry)
 	var host_half := MapLogic.lane_half_width(u_host)
-	_set_layers(r, LaneStyle.gutter_layers(ch, host_half, r.min_cos))
+	_set_layers(r, LaneStyle.gutter_layers(ch, host_half, r.min_cos, lit))
 	r.mat.set_shader_parameter(&"clip_edge", LaneStyle.host_edge(host_half, MapLogic.gutter_width(u_dead), r.min_cos))
 	r.mat.set_shader_parameter(&"clip_half", host_half)
 	_set_motion(r, LaneStyle.motion(ch, r.style))
-	r.mat.set_shader_parameter(&"chev_col", LaneStyle.gutter_chevron_color(ch))
+	r.mat.set_shader_parameter(&"chev_col", LaneStyle.gutter_chevron_color(ch, lit))
 	r.node.position = MapLogic.gutter_curve(r.a, r.b, u_host, u_dead)["a"] - r.origin
 	r.node.visible = true
 

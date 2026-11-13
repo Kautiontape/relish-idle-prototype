@@ -8,6 +8,8 @@ const VEI := "vei"
 
 var state: GameState
 var demo := false  # --lanes=demo: synthetic lanes instead of the view's (debug only)
+var nodes_demo := false  # --nodes=demo: E2-only node states overlaid on the views (debug only)
+var flip_cfg := {}  # realm.json "flip", for the held grace total (set by world_map)
 var rev := -1
 var realm := {}
 var relish := {}
@@ -49,6 +51,8 @@ func refresh(force := false) -> bool:
 	_villages_by_id.clear()
 	for v in villages:
 		_villages_by_id[v["id"]] = v
+	if nodes_demo:
+		NodeLogic.demo_overlay(forts, vei, relish, node_pos(COVINGTON), flip_cfg)  # TODO(api E2): debug stand-in
 	if demo:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
