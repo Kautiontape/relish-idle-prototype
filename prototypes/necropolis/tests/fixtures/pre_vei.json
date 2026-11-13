@@ -1,6 +1,6 @@
 {
 	"acc": 0.0,
-	"api_version": 2,
+	"api_version": 3,
 	"applied_runs": [],
 	"backups": {
 		"clones_ready": 1,
@@ -94,17 +94,21 @@
 	},
 	"ledger": {
 		"sinks": {
-			"burned": 0.0,
-			"cleared": 0.0,
+			"burned": 9205.24115306659,
+			"cleared": 4824.90019421381,
 			"dungeon": 0.0,
-			"milled": 0.0,
+			"haul_overflow": 0.0,
+			"milled": 420.86692717747,
 			"pool_overflow": 0.0,
-			"rot_loss": 0.0,
+			"rot_loss": 6770.30106326331,
+			"rot_overflow": 0.0,
+			"store_overflow": 0.0,
 			"vei_fight": 0.0
 		},
 		"sources": {
-			"debug": 0.0,
-			"mint": 0.0
+			"debug": -109057.745012756,
+			"mint": 207694.16735519,
+			"opening": 3163.5
 		}
 	},
 	"next_run_id": 1,

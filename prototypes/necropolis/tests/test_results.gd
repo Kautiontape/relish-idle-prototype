@@ -16,6 +16,11 @@ func _fort(s: GameState, id: String) -> Dictionary:
 	return s.realm.fort_by_id(id)
 
 
+## The raid writeback's loss so far: ledger().sinks.dungeon.
+func _sink(s: GameState) -> float:
+	return float(s.ledger()["sinks"]["dungeon"])
+
+
 func _set_fort(s: GameState, id: String, living: float, dead: float, undead: float) -> void:
 	var f := _fort(s, id)
 	f["living"] = living
@@ -73,7 +78,7 @@ func _snap(s: GameState) -> Dictionary:
 		"forts": s.realm.forts.duplicate(true), "vei": s.realm.vei.duplicate(), "relics": s.relics,
 		"essence": s.essence, "bps": s.blueprints.duplicate(), "bu": s.big_undead.duplicate(true),
 		"party": s.party_uids.duplicate(), "clones": s.clones_ready, "town": s.town_sim.to_dict(),
-		"relish": s.relish.duplicate(true), "sink": s._dungeon_sink, "husks": s.husks.duplicate(true),
+		"relish": s.relish.duplicate(true), "sink": _sink(s), "husks": s.husks.duplicate(true),
 		"remnants": s.remnants.duplicate(true), "stats": s.stats.duplicate(), "won": s.won,
 		"cleared": s.cleared_forts.duplicate(), "first": s.first_dungeon_id,
 	}
@@ -457,7 +462,7 @@ func _raid_writeback() -> void:
 	t.near(f["living"], 0.0, 1e-9, "kills are clamped at the live living mass")
 	t.near(f["dead"], 0.0, 1e-9, "raised mass is clamped at the live dead mass")
 	t.near(s.realm.vei["undead_queue"] - q0, 8.0, 1e-9, "chaff goes to Vei's queue")
-	t.near(s._dungeon_sink, 15.0 + 20.0 - 20.0 - 8.0, 1e-9, "sink = in + R' - out")
+	t.near(_sink(s), 15.0 + 20.0 - 20.0 - 8.0, 1e-9, "sink = in + R' - out")
 	t.near(s.ledger()["sinks"]["dungeon"], 7.0, 1e-9, "ledger().sinks.dungeon shows it")
 	# step 4: the bound
 	s = _mk()
@@ -468,7 +473,7 @@ func _raid_writeback() -> void:
 	# out 80 > in 20 + R' 10 = 30: both scaled by 30/80
 	t.near(s.realm.vei["undead_queue"] - q0, 15.0, 1e-9, "step 4: chaff scaled to fit")
 	t.near(_fort(s, "old-sluice")["undead"], 25.0 + 15.0 - 20.0, 1e-9, "step 4: garrison scaled; the net delta is applied")
-	t.near(s._dungeon_sink, 0.0, 1e-9, "everything that fit is accounted for: no sink")
+	t.near(_sink(s), 0.0, 1e-9, "everything that fit is accounted for: no sink")
 	# step 5: the undead clamp at the live fort
 	s = _mk()
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
@@ -476,14 +481,14 @@ func _raid_writeback() -> void:
 	_set_fort(s, "old-sluice", 60.0, 30.0, 4.0)  # the fort lost its undead meanwhile
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 0.0}))
 	t.near(_fort(s, "old-sluice")["undead"], 0.0, 1e-9, "step 5: undead never goes negative")
-	t.near(s._dungeon_sink, 4.0, 1e-9, "the 4 undead that were left are what the dungeon ate (net of the clamp, never negative)")
+	t.near(_sink(s), 4.0, 1e-9, "the 4 undead that were left are what the dungeon ate (net of the clamp, never negative)")
 	# a loss of garrison goes to the sink
 	s = _mk()
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
 	sd = _begin(s)
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 5.0}))
 	t.near(_fort(s, "old-sluice")["undead"], 10.0, 1e-9, "garrison that fell: undead 25 - 20 + 5")
-	t.near(s._dungeon_sink, 15.0, 1e-9, "and the 15 that fell are the dungeon sink")
+	t.near(_sink(s), 15.0, 1e-9, "and the 15 that fell are the dungeon sink")
 
 	# the flip, loot, caps, uids
 	s = _mk()
@@ -681,14 +686,14 @@ func _mass_and_charges() -> void:
 	t.near(sd["garrison_in_mass"], 20.0, 1e-9, "garrison_in is 20")
 	_set_fort(s, "old-sluice", 60.0, 30.0, 15.0)  # the fort was drained during the run
 	var f := _fort(s, "old-sluice")
-	var total0: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	var total0: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + _sink(s)
 	var q0: float = s.realm.vei["undead_queue"]
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 0.0, "chaff_mass": 20.0}))
 	f = _fort(s, "old-sluice")
 	t.near(f["undead"], 0.0, 1e-9, "drained fort: undead clamped at 0")
 	t.near(s.realm.vei["undead_queue"] - q0, 15.0, 1e-9, "Vei gains exactly what the fort lost")
-	t.near(s._dungeon_sink, 0.0, 1e-9, "no sink")
-	var total1: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	t.near(_sink(s), 0.0, 1e-9, "no sink")
+	var total1: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + _sink(s)
 	t.near(total1, total0, 1e-9, "fort + Vei + sink is conserved")
 	var v := GameState.new(TestUtil.configs())
 	v.debug_enabled = true
@@ -777,7 +782,7 @@ func _parity() -> void:
 		t.near(b.realm.vei["undead_queue"], a.realm.vei["undead_queue"], 1e-9, "%s: vei.undead_queue equals" % tag)
 		# the one deliberate change: good_mass stays at the fort as undead
 		t.near(fb["undead"], fa["undead"] + v1["good_mass"], 1e-9, "%s: undead = legacy + good_mass (the deliberate change)" % tag)
-		t.near(b._dungeon_sink, 0.0, 1e-9, "%s: nothing is lost to the dungeon sink" % tag)
+		t.near(_sink(b), 0.0, 1e-9, "%s: nothing is lost to the dungeon sink" % tag)
 		t.ok(b.stats["deaths"] == a.stats["deaths"] and b.clones_ready == a.clones_ready and b.town_sim.shock == a.town_sim.shock,
 			"%s: deaths, clones and the morale shock equal" % tag)
 		t.ok(b.view_relish()["state"] == a.view_relish()["state"] or not died, "%s: relish state" % tag)
@@ -845,7 +850,7 @@ func _misc() -> void:
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
 	var sd3 := _begin(s)
 	s.apply_result("raid", _raid_res(sd3, {"garrison_mass": 0.0}))
-	t.ok(s._dungeon_sink == 20.0, "garrison lost is sunk")
+	t.ok(_sink(s) == 20.0, "garrison lost is sunk")
 	s.cmd_new_game(3)
 	t.ok(s.ledger()["sinks"]["dungeon"] == 0.0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a new game resets the sink and the forts")
 	# the caller's dictionary is never changed

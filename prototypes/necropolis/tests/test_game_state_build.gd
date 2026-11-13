@@ -149,6 +149,32 @@ func _build_reasons() -> void:
 	t.ok(_cat(b, "house")["reason"] == "needs_building", "and the catalog says so")
 	b.town_sim.place_building("lot-06", "bakery", 1)
 	t.ok(b.cmd_build("house", "lot-05")["ok"], "with the bakery built, the house goes up")
+	_unique()
+
+
+## The Crypt is `unique` (buildings.json, the Crypt only): a second one is refused right after
+## unknown_lot, and view_catalog says so, while one stands finished or under construction.
+func _unique() -> void:
+	var cfg: Dictionary = _cfgs()["buildings"]
+	var flagged: Array = cfg.keys().filter(func(id): return bool(cfg[id].get("unique", false)))
+	t.ok(flagged == ["crypt"], "buildings.json: only the Crypt is unique: %s" % [flagged])
+	var s := _mk()
+	t.ok(s.cmd_build("crypt", "lot-99")["reason"] == "unknown_lot", "unknown_lot still comes first")
+	var r := s.cmd_build("crypt", "lot-13")
+	t.ok(r == {"ok": false, "reason": "unique", "cost": {}}, "a second Crypt: unique, before lot_locked (lot-13 is a Village lot): %s" % [r])
+	s.town_tier = "village"
+	t.ok(s.cmd_build("crypt", "lot-13")["reason"] == "unique", "unique on a free, unlocked lot of its size")
+	var c := _cat(s, "crypt")
+	t.ok(not c["can_build"] and c["reason"] == "unique" and c["count"] == 1, "view_catalog: can_build false, reason unique")
+	# with no Crypt standing it builds; under construction it already counts
+	s.town_sim.buildings.erase("lot-01")
+	t.ok(_cat(s, "crypt")["can_build"] and _cat(s, "crypt")["reason"] == "", "no Crypt: the catalog offers one")
+	t.ok(s.cmd_build("crypt", "lot-13")["ok"], "and the first one builds")
+	t.ok(s.cmd_build("crypt", "lot-14")["reason"] == "unique" and _cat(s, "crypt")["reason"] == "unique",
+		"one under construction already blocks a second")
+	_run(s, 2.0)
+	t.ok(_bld(s, "lot-13")["level"] == 1 and s.cmd_build("crypt", "lot-14")["reason"] == "unique", "and so does the finished one")
+	t.ok(s.view_big_undead()["cap"] == 4, "one Crypt, so the big-undead cap counts one Crypt's level")
 
 
 func _build_pays_and_completes() -> void:

@@ -97,7 +97,7 @@ func _slot_path(slot: String) -> String:
 
 ## Every view but the live field and the seeds, `rev` stripped, village dominance dropped (A6), and
 ## the session-only values (STATE-API §9.1) dropped: the last substep's split, mint rate and raw
-## diff, view_rates' mint, work, war and flood, the lanes out of Covington's session rates (FLOOD and
+## diff, view_rates' mint, work, war, flood, corpses and backlog, the lanes out of Covington's session rates (FLOOD and
 ## WAR fallen through to Vei, WORK), and the lane callouts (a lane shown only for its callout goes too).
 func _views(s: GameState) -> Dictionary:
 	var out := {}
@@ -116,7 +116,7 @@ func _views(s: GameState) -> Dictionary:
 	out["view_hud"].erase("split")
 	out["view_hud"]["rates"][0].erase("rate")
 	out["view_vei"].erase("diff")
-	for id in ["mint", "work", "war", "flood"]:
+	for id in ["mint", "work", "war", "flood", "corpses", "backlog"]:
 		out["view_rates"]["rates"].erase(id)
 	var lanes: Array = []
 	for l in out["view_lanes"]["lanes"]:

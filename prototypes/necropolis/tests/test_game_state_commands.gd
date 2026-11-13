@@ -413,7 +413,7 @@ func _town_views() -> void:
 		and by["house"]["cost"] == {"gold": 40.0, "bone": 10.0, "relics": 0} and by["house"]["count"] == 0, "house: buildable on lots 5-8")
 	t.ok(by["inn"]["reason"] == "needs_tier" and by["inn"]["lots"] == [] and not by["inn"]["can_build"], "inn: needs_tier")
 	t.ok(by["embalmer"]["reason"] == "needs_tier" and by["embalmer"]["requires"]["blueprint"] == "embalmer", "embalmer: village and a blueprint")
-	t.ok(by["crypt"]["count"] == 1 and by["crypt"]["reason"] == "no_lot", "crypt: built once, no free 2-lot at Hamlet")
+	t.ok(by["crypt"]["count"] == 1 and by["crypt"]["reason"] == "unique", "crypt: built once, and unique")
 	t.ok(c["crafts"] == [{"item_id": "simulacrum", "cost": {"essence": 20, "relics": 1}, "can_craft": false, "reason": "needs_building"},
 		{"item_id": "phylactery_charge", "cost": {"essence": 15, "relics": 0}, "can_craft": false, "reason": "needs_building"}],
 		"crafts need the Ossuary Tower")
@@ -511,7 +511,9 @@ func _realm_views() -> void:
 	t.ok(_ids(vv["fronts"]) == GameState.FRONT_IDS and vv["fronts_required"] == 3 and vv["fronts_met"] == 0, "four fronts, 3 required")
 	t.ok(vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0 and not vv["tithe"]["warning"], "no flip yet, so no tithe")
 	var l := s.ledger()
-	t.ok(l["sources"].values().all(func(x): return x == 0.0) and l["held"].size() == 9, "ledger: E2 stub, all zero")
+	t.ok(l["held"].keys() == GameState.Ledger.HELD and l["sources"].keys() == GameState.Ledger.SOURCES
+		and l["sinks"].keys() == GameState.Ledger.SINKS,
+		"ledger: every held, source and sink key (test_ledger checks the numbers)")
 
 
 # ----------------------------------------- can_descend / can_begin agreement ----

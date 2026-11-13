@@ -112,7 +112,7 @@ const REASONS := {
 	"cmd_move_relish": ["dead", "in_dungeon", "in_boss", "unknown_node"],
 	"cmd_cancel_travel": ["not_travelling"],
 	"cmd_set_haul_target": ["unknown_fort"],
-	"cmd_build": ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small",
+	"cmd_build": ["unknown_building", "unknown_lot", "unique", "lot_locked", "lot_taken", "lot_too_small",
 		"needs_tier", "needs_blueprint", "needs_building", "no_gold", "no_bone", "no_relics"],
 	"cmd_upgrade": ["unknown_lot", "empty_lot", "under_construction", "unpaid", "max_level", "needs_tier",
 		"no_gold", "no_bone", "no_relics"],
@@ -265,12 +265,14 @@ const EVENTS := {
 }
 
 # ----------------------------------------------------------- members (§1.5, §4) ----
+## api_version 3 added sources.opening, sinks rot_overflow, haul_overflow and store_overflow, and
+## held.work_pending.
 const LEDGER := {
-	"sources": {"mint": F, "debug": F},
+	"sources": {"mint": F, "debug": F, "opening": F},
 	"sinks": {"cleared": F, "rot_loss": F, "burned": F, "milled": F, "vei_fight": F, "dungeon": F,
-		"pool_overflow": F},
+		"pool_overflow": F, "rot_overflow": F, "haul_overflow": F, "store_overflow": F},
 	"held": {"fort_living": F, "fort_undead": F, "corpses": F, "backlog": F, "vei_dead": F,
-		"living_pool": F, "bodies": F, "workers": F, "convoys": F},
+		"living_pool": F, "bodies": F, "workers": F, "convoys": F, "work_pending": F},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
 ## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will

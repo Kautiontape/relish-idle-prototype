@@ -39,7 +39,7 @@ v2 folds in two reviews (run folder `reports/review-docs-vision.md` and
 | TownSim | `scripts/sim/town_sim.gd` | economy | workforce, jobs, living, gold, bone, buildings' effects |
 | Stances | `scripts/sim/stances.gd` | economy | the job ladder and stances (§4.5) |
 | Backups | `scripts/sim/backups.gd` | economy | the only writer of Relish's death and respawn state; vats, clones, phylactery |
-| Ledger | `scripts/sim/ledger.gd` | economy | source/sink/held accounting (§2.1) |
+| Ledger | `scripts/sim/ledger.gd` | economy | source/sink/held accounting (§2.1); preloaded as `GameState.Ledger`, with no `class_name` (the dungeon's inner `RaidLogic.Ledger` would clash with a global one) |
 | Game (autoload) | `autoload/game.gd` | economy | thin shell: real-delta ticking, autosave, `events` signal |
 | Shot (autoload) | `autoload/shot.gd` | economy | debug harness; cheats become `cmd_debug_*` |
 | Router | `scripts/main.gd`, `scenes/Main.tscn` | economy through E1, **map** after | scene swap, dive transition, `Engine.time_scale` reset |
@@ -178,16 +178,26 @@ values**.
 | backlog | mass | Vei's queue (RealmSim) | FLOOD, drain, chaff, raise | digestion, a lost Vei fight | tank level with net rate |
 
 ### 2.1 Conservation (the ledger)
-Matter has sources (mint) and sinks:
-- `k_clear` and rot loss (1 − `body_return`);
-- pit burn, milling;
-- a lost Vei fight;
-- dungeon loss;
-- Vei's pool overflow, which is clamped so it is always 0. Her take is limited to the pool's
-  headroom.
+Matter has one true source, the mint. Two more source keys keep the count honest: `opening`, the
+mass on the board when the count began (a new game's forts, workers and bodies), and `debug`, the
+net mass debug commands added or removed. The sinks (`ledger()` keys, STATE-API §4.7):
+- `cleared` (`k_clear`) and `rot_loss` (1 − `body_return` of what rots);
+- `burned` (pit burn) and `milled`;
+- `rot_overflow` and `haul_overflow`: rot return and haul loads lost to the body cap;
+- `vei_fight` (a lost Vei fight) and `dungeon` (the raid writeback's loss);
+- `pool_overflow`, Vei's pool overflow, which is clamped so it is always 0. Her take is limited to
+  the pool's headroom;
+- `store_overflow`, 0 until E2b's store caps (IDLE §6).
 
-`GameState.ledger()` returns `{sources, sinks, held}`. A soak test runs 1 h with random valves,
-flips, redirects and musters, and asserts `held + Σsinks == Σsources` within 1e-6 relative.
+Everything else is an internal transfer: Vei turning dead and undead into living, her shipping and
+surges, the valve, muster, haul pickups, the redirect and simulacra. `held` is every pool of mass,
+summed live: the forts' living, undead and corpses, Vei's three queues, bodies, workers × `worker.mass`,
+convoy loads and the WORK in flight to TownSim. `scripts/sim/ledger.gd` books it (§1.3 step 7).
+
+`GameState.ledger()` returns `{sources, sinks, held}`, and `Σheld + Σsinks == Σsources` holds within
+1e-6 relative at every substep and at any `sim.substep_s` (misses measure about 1e-14). The soak
+(§10) runs 1 h with random valves, Relish's moves, raids and flips, a lost Vei fight, musters, builds
+and debug grants, and asserts it after every tick.
 
 ### 2.2 Digest quality `q`
 `q = clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise, 1, q_max)` (`realm.json` `q.*`).
@@ -678,29 +688,45 @@ GameState mints uids for looted items when it applies the result. The town scene
 | `project.godot` | foundation or economy only | autoloads |
 
 ## 10. Tests (headless; `tests/run.sh` imports, then runs)
-- **E0 infra:** suite discovery (`--only`, `--slow`), the lint, the shared config loader.
+Each line names the suites that cover it at the end of E2a (`tests/test_<name>.gd`, slow ones in
+`tests/slow/`, run with `--slow`); "not yet" marks what a later milestone adds.
+- **E0 infra:** suite discovery (`--only`, `--slow`), the lint, the shared config loader
+  (`run_tests.gd`, `lint`, `game_state_configs`).
 - **Contract:** API key sets and types, additive-only; `Results.validate` for every kind; the seed
-  schemas.
+  schemas (`api_contract`, `results`, `game_state_runs`).
 - **Persistence:** JSON round trip; the 3 fixtures load after every change (save compatibility);
-  `in_dungeon` is never saved.
-- **Determinism:** the same seed and command log give the same `to_dict()`.
-- **Ledger soak:** 1 h of random inputs, conserved, with no NaN, no negatives and every pool within
-  its cap.
+  `in_dungeon` is never saved (`game_state_persist`).
+- **Determinism:** the same seed and command log give the same `to_dict()` (`game_state`).
+- **Ledger:** where every flow books, the invariant at every substep and at any substep length, the
+  totals across a load, saves from before the ledger, and a 10 sim-min soak (`ledger`); the full 1 h
+  soak of random inputs, conserved, with no NaN, no negatives and every pool within its cap
+  (`slow/soak`).
+- **Rates:** every `view_rates` id against the stream it describes, and `view_hud` from the same
+  numbers (`game_state_rates`).
 - **Valve:** the L1 slew keeps the sum at 1; zero is refused; held forts always stage WAR, and with
-  no target at all it falls through to Vei.
+  no target at all it falls through to Vei (`game_state_macro`, `realm_sim`).
 - **Relish:** travel, retarget and cancel; tide; redirect; nothing applies while dead; the order
-  contract.
+  contract (`game_state_relish`, `game_state_macro`).
 - **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
-  wave, counters, the E2a hold loss.
+  wave, counters, the E2a hold loss (`game_state_macro`, `realm_sim`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK one substep late, pits and feed drive the mint,
-  muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate.
-- **Ladder and stances:** ordering, hold, no chatter.
-- **Backups:** order; clones grow only while staffed; the loot-loss bound.
-- **`q`:** the formula, and the circle EMA (mass-weighted, unchanged by 12 h of idle ticking).
-- **Readouts:** the sign moves only on a sustained differential; drain time and odds.
-- **Pacing** (BALANCE §4): the fast smoke run by default; the 4 h profiles and ablations in
-  `tests/slow/`.
-- **Budget:** one `tick()` stays under its µs budget; the EMA readout costs nothing extra.
-- **Dungeon:** seeded loot, re-clear decay, warden specs, essence from both sides.
-- **Vei:** front thresholds, the break-beats rule, backup order.
+  muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate
+  (`town_sim`, `game_state_town`). Building, upgrading, tiers, caps and the catalog agreeing with
+  `cmd_build` (`game_state_build`).
+- **Ladder and stances:** ladder ordering (`town_sim`); stances, hold and no chatter are E3 (not yet).
+- **Backups:** order; clones grow only while staffed; the loot-loss bound: E3 (not yet).
+- **`q`:** the formula, and the circle EMA (mass-weighted, unchanged by 12 h of idle ticking)
+  (`game_state_macro`).
+- **Readouts:** the sign moves only on a sustained differential; drain time and odds
+  (`game_state_macro`).
+- **Pacing** (BALANCE §4): the fast smoke run by default (`pacing`); the 4 h profiles and ablations
+  in `tests/slow/` (not yet; IDLE §8's autoplayer).
+- **Budget** (`game_state_budget`, on `midgame_2flips`): per frame, `tick(1/60)` with the shipped
+  configs, the median under the 8 ms frame budget (the max, a substep frame, is reported); per
+  substep with the field slowed (what catch-up and the soaks pay), a generous ceiling. The EMA
+  readout is a constant-time update inside the substep, so it has no separate measurement. The
+  field's own cost is ground's (`slow/field_bench`).
+- **Dungeon:** seeded loot, re-clear decay, warden specs, essence from both sides (`raid_logic`,
+  the dungeon unit's).
+- **Vei:** front thresholds, the break-beats rule, backup order: E3 (not yet).

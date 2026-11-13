@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 2)
+# Necropolis: GameState API (api_version 3)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -13,6 +13,10 @@ from `BALANCE.md` §0.
 - Every addition updates `tests/test_api_contract.gd` in the same commit and bumps
   `GameState.API_VERSION`. The test asserts the key sets and value types of every command return,
   view, event, seed and result, and fails on any rename or removal.
+- **Additions so far:** `api_version` 2 (E2a T2.4) added the `unpaid` reason to `cmd_upgrade` (§4.3).
+  `api_version` 3 (E2a T2.5) added the `unique` reason to `cmd_build` and `view_catalog` (§4.3,
+  §5.10), and the ledger keys `sources.opening`, `sinks.rot_overflow`, `sinks.haul_overflow`,
+  `sinks.store_overflow` and `held.work_pending` (§4.7).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -29,7 +33,7 @@ from `BALANCE.md` §0.
   Action commands (raise, craft, deploy; build, upgrade, demolish and cancel were stubs until
   E2a T2.4) run their id checks
   (`unknown_*`), then return `ok` with zero-valued extras and change nothing. Stub views return
-  BALANCE §0 constants, or legacy-derived values where noted.
+  BALANCE §0 constants or the stub values noted at each view.
 
 ### 1.2 Where it lives
 - `scripts/sim/game_state.gd`, `class_name GameState extends RefCounted`.
@@ -67,7 +71,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 2
+const API_VERSION := 3
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -113,6 +117,7 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `ledger() -> Dictionary` | §4.7 (tests). |
 | `legacy_teleport_relish(node_id: String) -> Dictionary` | **Not contract**; §2.2. |
 | `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
+| `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
 ## 2. The `Game` shell (`autoload/game.gd`)
@@ -297,7 +302,8 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      is halved; `siege_block` (fort id → the fraction of a surge a siege cancels) is `{}` until E3.
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
      respawn. Emits `relish_respawned`.
-  7. **The ledger.**
+  7. **The ledger.** Books the substep's mint (source) and its sinks: TownSim's rot loss, rot and
+     haul overflow, pit burn and milling, and RealmSim's `k_clear` (§4.7). `held` is read live.
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
   9. **The influence field** at `field.tick_hz`, time-sliced (owned by the ground unit after E1).
      `field.advance(budget_cells)` is called once per `tick(dt)` call, after the
@@ -425,6 +431,8 @@ Game.state.cmd_set_haul_target("ashgate")  # -> {ok: true, reason: "", haul_targ
 ### 4.3 Town
 Reasons shared by the build family, in check order:
 - `unknown_building`, `unknown_lot`;
+- `unique` (`cmd_build` only: a `unique` building, the Crypt, already stands on a lot, finished or
+  under construction; added at `api_version` 3);
 - `lot_locked` (the current tier doesn't open the lot);
 - `lot_taken`, `lot_too_small`, `empty_lot`, `under_construction`;
 - `needs_tier`, `needs_blueprint`, `needs_building`;
@@ -436,12 +444,16 @@ tier opens lots: the id lists are `economy.json` `town.tiers.<tier>.lots` (BALAN
 the Chapel of Vats at Village, the Reliquary, with its blueprint, at Town; MECHANICS §4.4). A
 construction costs its `cost` (a build) or `level_costs[level - 2]` (an upgrade to `level`), paid
 at once from TownSim's gold and bone and from the relics; the `build` job advances it. A cancel
-refunds that cost in full. `api_version` 2 added `unpaid` to `cmd_upgrade`.
+refunds that cost in full. `api_version` 2 added `unpaid` to `cmd_upgrade`; `api_version` 3 added
+`unique` to `cmd_build`.
 
 **`cmd_build(building_id: String, lot_id: String)` · E2**
 - **Extras:** `cost: {gold: float, bone: float, relics: int}`.
-- **Reasons:** `unknown_building`, `unknown_lot`, `lot_locked`, `lot_taken`, `lot_too_small`,
+- **Reasons:** `unknown_building`, `unknown_lot`, `unique`, `lot_locked`, `lot_taken`, `lot_too_small`,
   `needs_tier`, `needs_blueprint`, `needs_building`, `no_gold`, `no_bone`, `no_relics`.
+- `unique`: `buildings.json` marks a building `"unique": true` (only the Crypt), and one already
+  stands on some lot, built or under construction. Without it a second Crypt would cost nothing
+  and add its level to the big-undead cap.
 - **Effect:** pays the cost at once and starts construction, which the `build` job advances by
   `build_work`. Emits `building_started`, and `building_done` when finished.
 ```gdscript
@@ -546,8 +558,8 @@ Game.state.cmd_rename_big_undead("u4", "Gristle the Patient")  # -> {ok: true, r
   - `bad_place`, `unknown_lot`, `empty_lot`;
   - `foreman_taken` (one foreman per lot);
   - `unknown_fort`.
-- **Effect:** removes it from the party, if it was in it. The place is recorded at E1; foreman and
-  siege effects are E2.
+- **Effect:** removes it from the party, if it was in it. The place is recorded; the foreman's `q`
+  and the siege's block are E3 (MECHANICS §2.2, §3 step 5 here).
 ```gdscript
 Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: "", place: "town:lot-04"}
 ```
@@ -703,6 +715,9 @@ and the whole call changes nothing. New keys are additive.
 - From E2a `gold`, `bone`, `bodies`, `workers` and `living` write TownSim's stocks (`workers` is a
   float and the job slots refill at once); `bodies` and `living` are capped at `body_cap` and
   `living_cap`, but a grant never pulls an over-cap stock down. `backlog` → `vei.undead_queue`.
+- The mass a grant applies (`bodies`, `workers` × `worker.mass`, `backlog`) books to
+  `ledger().sources.debug`, a removal as a negative amount; so does `cmd_debug_set_state`'s `forts`
+  (§4.7).
 ```gdscript
 Game.state.cmd_debug_grant({"gold": 500, "bone": 200, "husks": 1})
 # -> {ok: true, reason: "", key: "", applied: {gold: 500.0, bone: 200.0, husks: 1, minted: ["h14"]}}
@@ -740,14 +755,42 @@ Game.state.cmd_debug_load_fixture("pre_vei")  # -> {ok: true, reason: ""}
 Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 1200}
 ```
 
-### 4.7 `ledger() -> Dictionary` · E2 (for tests)
-- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary}`: `String → float` mass
-  totals since the new game.
-- `sources`: `mint`, `debug`.
-- `sinks`: `cleared` (`k_clear`), `rot_loss`, `burned`, `milled`, `vei_fight`, `dungeon`,
-  `pool_overflow` (always 0).
-- `held`: every pool of mass.
-- Invariant: `Σheld + Σsinks == Σsources` within 1e-6 relative.
+### 4.7 `ledger() -> Dictionary` · E2 (for tests; live from E2a T2.5)
+- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary}`, each `String → float` mass.
+  `sources` and `sinks` are totals since the new game, booked where mass enters or leaves the world
+  (`scripts/sim/ledger.gd`, preloaded as `GameState.Ledger`); `held` is summed from the live state
+  at the call. A fresh copy, like a view.
+- **Invariant:** `Σheld + Σsinks == Σsources` within 1e-6 relative (`|miss| / max(1, Σsources)`) at
+  every substep boundary and at any `sim.substep_s` (catch-up, IDLE §4). Measured misses are about
+  1e-14.
+- **Keys** in this order; the ones marked "+3" were added at `api_version` 3:
+
+| section | key | what books it |
+|---|---|---|
+| `sources` | `mint` | the pits' production, `mint · dt` each substep (§3 step 3). The only true flow in. |
+| | `debug` | net mass the debug commands added: `cmd_debug_grant`'s `bodies`, `workers` (× `worker.mass`) and `backlog`, and `cmd_debug_set_state`'s `forts`. What was applied after clamping; a removal books a negative amount. |
+| | `opening` (+3) | not a flow: the mass on the board when the count began. `cmd_new_game` sets it to Σheld (the forts' garrisons and the opening workers and bodies). A save without it (written before `api_version` 3) loads with its `sinks.dungeon` kept, every other total 0, and `opening = Σheld + dungeon`. |
+| `sinks` | `cleared` | `k_clear`: garrisons clearing corpses (RealmSim) |
+| | `rot_loss` | rotted workers' mass that never returns: `rot · worker.mass · (1 − body_return)` |
+| | `burned`, `milled` | pit burn and milling (bone is not mass) |
+| | `vei_fight` | a lost Vei fight: `(1 − loss_backlog_keep)` of the backlog (§8.3) |
+| | `dungeon` | the raid writeback's loss (§8.3 step 7) |
+| | `pool_overflow` | always 0: Vei converts at most her pool's headroom |
+| | `rot_overflow` (+3) | rot return lost to the body cap (MECHANICS §4.1) |
+| | `haul_overflow` (+3) | a landing convoy's load lost to the body cap |
+| | `store_overflow` (+3) | 0 until E2b's store caps (IDLE §6) |
+| `held` | `fort_living`, `fort_undead`, `corpses` | Σ forts' `living`, `undead`, `dead` |
+| | `backlog`, `vei_dead`, `living_pool` | Vei's undead queue, dead queue and living pool |
+| | `bodies` | Covington's body store |
+| | `workers` | the workforce in mass: `workers · worker.mass` |
+| | `convoys` | the load of a convoy on its way home |
+| | `work_pending` (+3) | the WORK the last substep sent, which TownSim takes in the next (§3 step 2) |
+
+- **Internal transfers book nothing:** the valve split, WORK into workers, muster into WAR, haul
+  pickups, combat, drain, Vei's conversion (dead and undead into living) and her shipping, tithe
+  surges, the redirect and simulacra raises, and the raid writeback's kills, flip and chaff.
+- Not mass, so not in the ledger: gold, bone, Covington's living (people), relics, essence, items.
+- The totals are saved (§9.1 `ledger`) and survive a load to the 15 digits a save keeps.
 
 ## 5. Views
 
@@ -758,7 +801,8 @@ Types are exact. "mass" means a float in mass units.
 Every field is live from E2a:
 - `sign`, `drain_s` and `odds` are the sustained readout (§5.14);
 - `split` is the last substep's mass/s, after the slew (WAR includes TownSim's muster), and the
-  `mint` entry's `rate` is that substep's mint (MECHANICS §3.2);
+  `mint` entry's `rate` is that substep's mint (MECHANICS §3.2): `view_rates`' `work`, `war`, `flood`
+  and `mint` `in`;
 - the `workers`, `bodies`, `gold`, `bone` and `living` entries are TownSim's: the same stocks and
   caps `view_town` shows, and the net rates of `view_rates` (bodies count the haul trip-averaged);
 - `workers_steady` is TownSim's last inflow × the lifetime now, as `view_town.workers.steady`.
@@ -797,10 +841,19 @@ each of `GameState.RATE_IDS`.
 - Rates are the last substep's flows divided by `sim.substep_s`.
 - Lumps are not rates: build costs, dungeon writebacks and debug grants.
 - Haul shows as its trip-averaged rate: the last landed trip's load over its round trip, while a
-  convoy is out (0 while none is).
-- **E2a:** `mint`, `work`, `war` and `flood` are the last substep's (session-only, §9.1); `workers`,
-  `bodies`, `gold`, `bone` and `living` are TownSim's last step (saved with it). `corpses` and
-  `backlog` are still 0.
+  convoy is out (0 while none is). It is the same number in `corpses.out` and `bodies.in`.
+- **Every id is live from E2a (T2.5).** `mint`, `work`, `war`, `flood`, `corpses` and `backlog` are
+  the last substep's (session-only, §9.1: 0 after a load until the first substep, except the haul's
+  part of `corpses.out`); `workers`, `bodies`, `gold`, `bone` and `living` are TownSim's last step
+  (saved with it). `view_hud.rates` reads the same numbers (§5.1).
+- `workers.in` is TownSim's inflow, which takes the **previous** substep's WORK (§3 step 2): with a
+  steady valve it equals `work.in / worker.mass`, and it trails a change by one substep.
+- `corpses`: the garrisons' own kills (destroyed undead) go to Vei's dead queue straight from the
+  fight and never lie at the fort, so they are in neither column; where Relish or a simulacrum
+  redirects, they stay as corpses and count in `in`. With no convoy out, `corpses.net` is the rate of
+  change of Σ forts' `dead`, lumps aside.
+- `backlog`: Relish's raises reach the queue as fort drain; her chaff (§8.3) is a lump. `net` is
+  `view_vei.diff` exactly, and the backlog's rate of change, lumps aside.
 
 | id | unit | in | out | net |
 |---|---|---|---|---|
@@ -811,8 +864,8 @@ each of `GameState.RATE_IDS`.
 | `gold` | gold/s | trade | upkeep | in − out |
 | `bone` | bone/s | mill | upkeep | in − out |
 | `living` | living/s | migrants | departures | in − out |
-| `corpses` | mass/s | Σ forts: your kills + redirected garrison kills | haul + Relish's raise + shipping to Vei + `k_clear` | in − out |
-| `backlog` | mass/s | FLOOD + fort drain + Relish's raises | Vei's digestion | the raw `diff` |
+| `corpses` | mass/s | Σ forts: your kills + redirected garrison kills | haul + Relish's and the simulacra's raises + `k_clear` (shipping to Vei never lands here; see above) | in − out |
+| `backlog` | mass/s | FLOOD + fort drain + WAR that fell through to Vei | Vei's digestion | the raw `diff` |
 ```gdscript
 {rev: 3, rates: {"mint": {in: 12.8, out: 12.8, net: 0.0, unit: "mass/s"},
                  "workers": {in: 0.128, out: 0.025, net: 0.103, unit: "workers/s"},
@@ -887,8 +940,9 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 ```
 
 ### 5.5 `view_fort(id: String)` · E1
-The masses, positions, `relish_here` and `can_descend` are live at E1. Held, flip, tithe and siege
-are E2. The warden, threat and loot hint are E2 (E1 stubs: `bellringer`, `risk: "low"`).
+The masses, positions, `relish_here` and `can_descend` are live from E1; held, flip and tithe from
+E2a. `siege` lists the big undead placed there (the siege's effect is E3). The warden, threat, loot
+hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) until their E2 specs.
 
 | key | type | meaning |
 |---|---|---|
@@ -965,7 +1019,7 @@ doesn't copy a 128 × 90 grid every frame. Read it only.
 ```
 
 ### 5.8 `view_relish()` · E1
-The dead fields and the backups are E3. At E1 a death respawns her at once.
+The dead fields and the backups are E3. Until then a death respawns her at once.
 
 | key | type | meaning |
 |---|---|---|
@@ -1062,8 +1116,8 @@ From E2a `no_gold` and `no_bone` read TownSim's stocks, `count` counts the build
 has finished, and a lot under construction is not free. From T2.4 (E2a) the gates are `cmd_build`'s
 (the tier, blueprint and building gates, the unlocked lots, the tier-gate fix of MECHANICS §4.4), and
 `can_build`/`reason` always agree with what `cmd_build` would answer on the first lot in `lots`. Its
-`reason` order is `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot`, `no_gold`, `no_bone`,
-`no_relics`.
+`reason` order is `unique` (from `api_version` 3: the Crypt once one stands), `needs_tier`,
+`needs_blueprint`, `needs_building`, `no_lot`, `no_gold`, `no_bone`, `no_relics`.
 
 | key | type | meaning |
 |---|---|---|
@@ -1082,7 +1136,7 @@ Each `buildings` entry:
 | `lot_size`, `max_level`, `count` | int | `count` is the number built |
 | `requires` | Dictionary | `{tier: String, blueprint: String, building: String}`, with `""` = none |
 | `can_build` | bool | |
-| `reason` | String | the first failing reason among `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot` (no free unlocked lot fits), `no_gold`, `no_bone`, `no_relics` |
+| `reason` | String | the first failing reason among `unique`, `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot` (no free unlocked lot fits), `no_gold`, `no_bone`, `no_relics` |
 | `lots` | Array[String] | free unlocked lots it fits |
 ```gdscript
 {rev: 3, buildings: [
@@ -1118,7 +1172,8 @@ Each `stances` entry:
 ```
 
 ### 5.12 `view_inventory()`, `view_big_undead()`, `view_party()` · E1
-Loot comes in through `apply_result` and grants at E1. The big-undead raise is E2.
+Loot comes in through `apply_result` and grants. The big-undead raise is E2 (still a §1.1 stub at
+E2a).
 
 **`view_inventory()`**
 
@@ -1181,10 +1236,9 @@ phylactery charges are stored as is. `death` follows the E1-safe rule of §8.3 s
 ```
 
 ### 5.14 `view_vei()` · E1 (EMA sign E2, tithe E2, fronts E3)
-At E1, `backlog`, `living_pool`, `odds`, `sign` and `drain_s` come from the legacy readout. From E2a
-they are the sustained readout (MECHANICS §3.5): `diff` is what entered her undead queue last
-substep less the undead she took, per second (the backlog's net rate without lumps); `diff_ema` its
-EMA; `sign` ±1 past ±`readout.sign_eps`. `tithe.target` is the running wave's fort (`eta_s` 0.0,
+`sign`, `drain_s` and `odds` are the sustained readout (MECHANICS §3.5): `diff` is what entered her
+undead queue last substep less the undead she took, per second (the backlog's net rate without
+lumps, and `view_rates.backlog.net`); `diff_ema` its EMA; `sign` ±1 past ±`readout.sign_eps`. `tithe.target` is the running wave's fort (`eta_s` 0.0,
 `wave_s_left`), else the warned fort (`eta_s` to its wave), else `""` and -1.0. `warning` is true
 while a warning is pending.
 
@@ -1225,7 +1279,7 @@ when no run of that kind is open at that fort.
 | type | fields | ms |
 |---|---|---|
 | `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0; `phylactery` and timers E3) |
-| `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate at E1) |
+| `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate until E3) |
 | `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts; `cmd_build` and `cmd_upgrade` do not emit it themselves, and a cancel before that substep drops it) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
@@ -1542,8 +1596,12 @@ take the router's legacy path (§2.3).
   `vats` (one per ready clone until E3; only `staffed` is read back).
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
   mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
-  save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50). `ledger`: `sources` and `sinks` as
-  `ledger()` shows them; `sinks.dungeon` is read back. `inventory.simulacra_ready` is written as 0.
+  save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50).
+- `ledger`: `{sources, sinks}` as `ledger()` shows them (§4.7), every key. A block with
+  `sources.opening` is read back key by key (a missing key reads 0). One without it (a save from before
+  `api_version` 3: E1, E2a, older fixtures) keeps only `sinks.dungeon`, and `opening` becomes what the
+  save holds at load plus that sink, so the count balances from the load on.
+- `inventory.simulacra_ready` is written as 0.
 - `villages` owners are `player`, `vei` or `none`. Floats are written at 15 significant digits (§10 A12).
 
 **Not saved:**
@@ -1551,7 +1609,8 @@ take the router's legacy path (§2.3).
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
 - the open run, which is forfeited;
 - the last substep's rates outside the fort, Vei and town blocks: `view_hud`'s `split` and mint
-  `rate`, `view_rates`' `mint`, `work`, `war` and `flood`, `view_vei`'s raw `diff`, and the three lanes
+  `rate`, `view_rates`' `mint`, `work`, `war`, `flood`, `corpses` and `backlog` (the haul's part of
+  `corpses.out` is TownSim's, saved), `view_vei`'s raw `diff`, and the three lanes
   out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). They read 0 (or the lane
   is absent) until the first substep after a load. Lane callouts are not saved either;
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
@@ -1621,6 +1680,9 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
   by hand when the save shape changes (it takes about 5 minutes). The `realm.tithe` it writes on `midgame_2flips` is still the
   E1 placeholder `{warning}`; from E2a the load maps it into the tithe state (a warning pending on
   Ashgate, 150 s to the wave), so the file holds the full E2a block (§9.1).
+- From `api_version` 3 each fixture carries its live ledger (§4.7): `opening` is the new game's, and
+  the generator's debug grants book to `sources.debug` (negative on `midgame_2flips` and `pre_vei`,
+  whose hand-shaped backlogs are below what the hours left).
 - **Contract-test coverage:** across the three fixtures, every array a view exposes is non-empty at
   least once, so the contract test can check element shapes.
 

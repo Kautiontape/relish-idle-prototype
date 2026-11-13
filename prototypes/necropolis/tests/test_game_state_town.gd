@@ -259,7 +259,7 @@ func _views() -> void:
 	t.ok(hud[2]["cap"] == ts.body_cap() and hud[5]["cap"] == ts.living_cap() and hud[1]["stock"] == ts.workers, "caps and stocks")
 	for id in ["mint", "work", "war", "flood"]:
 		t.ok(rates[id]["in"] == s._split[id] and rates[id]["out"] == rates[id]["in"] and rates[id]["net"] == 0.0, "view_rates.%s: the valve stream, a pass-through" % id)
-	t.ok(rates["corpses"]["in"] == 0.0 and rates["backlog"]["net"] == 0.0, "corpses and backlog are still 0")
+	t.ok(rates["backlog"]["net"] == s.view_vei()["diff"], "backlog is live (test_game_state_rates checks every id)")
 	t.ok(_lane(s, "work:covington:covington")["rate"] == s._split["work"] and _lane(s, "work:covington:covington")["kind"] == "work",
 		"the work lane: Covington → Covington at the valve's WORK")
 	# the commands drive TownSim

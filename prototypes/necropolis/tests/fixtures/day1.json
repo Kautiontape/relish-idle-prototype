@@ -1,6 +1,6 @@
 {
 	"acc": 0.0,
-	"api_version": 2,
+	"api_version": 3,
 	"applied_runs": [],
 	"backups": {
 		"clones_ready": 0,
@@ -23,14 +23,18 @@
 			"burned": 0.0,
 			"cleared": 0.0,
 			"dungeon": 0.0,
+			"haul_overflow": 0.0,
 			"milled": 0.0,
 			"pool_overflow": 0.0,
 			"rot_loss": 0.0,
+			"rot_overflow": 0.0,
+			"store_overflow": 0.0,
 			"vei_fight": 0.0
 		},
 		"sources": {
 			"debug": 0.0,
-			"mint": 0.0
+			"mint": 0.0,
+			"opening": 3163.5
 		}
 	},
 	"next_run_id": 1,

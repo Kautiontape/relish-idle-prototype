@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 2
+const API_VERSION := 3
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -23,6 +23,8 @@ const WARDEN_ARCHETYPES := ["bellringer", "huntsman", "shieldwall", "pyre_priest
 const FIXTURES := ["day1", "midgame_2flips", "pre_vei"]
 const DEBUG_GRANT_KEYS := ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"]
 const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"]
+## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
+const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
 const HUSK_KINDS := ["skeleton", "zombie", "hulk", "siren", "lich", "wraith", "revenant"]
 ## The unit of each RATE_IDS rate (§5.2).
@@ -33,8 +35,6 @@ const _RATE_UNITS := {
 }
 ## E1 stub tells for view_fort.warden (the dungeon unit owns warden specs from E2).
 const _WARDEN_TELLS := {"bellringer": ["rings slam on the beat"]}
-## ledger().held: every pool of mass (§4.7).
-const _LEDGER_HELD := ["fort_living", "fort_undead", "corpses", "backlog", "vei_dead", "living_pool", "bodies", "workers", "convoys"]
 ## How long a lane's `why` callout lasts, in sim seconds (STATE-API §5.3).
 const _WHY_S := 10.0
 
@@ -74,7 +74,8 @@ var valve_target := {"work": 0.40, "war": 0.45, "flood": 0.15}
 var work_pending := 0.0
 var blueprints: Array = []  # owned blueprint ids (= the building ids they unlock), banked by apply_result
 var applied_runs: Array = []  # the last 32 run ids apply_result closed (for duplicate_run); kept across new games like next_run_id
-var _dungeon_sink := 0.0  # mass the raid writeback lost (ledger sinks.dungeon), since the new game
+## The mass ledger's sources and sinks since the new game (§4.7, MECHANICS §2.1); saved as `ledger`.
+var _ledger := Ledger.new()
 # --- settings GameState keeps (TownSim holds the job ladder and the staff caps) ---
 var haul_target := "auto"  # cmd_set_haul_target: "auto" or a fort id, TownSim's step input
 var stances_on: Array = []  # stance ids switched on, oldest first; the newest are suspended first
@@ -109,6 +110,11 @@ var _acc := 0.0
 ## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
 ## `war` includes). Session only.
 var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+## The realm's streams of the last substep for view_rates (§5.2), mass/s, as [in, out]: `corpses`
+## (Σ forts: kills and redirected garrison kills in; Relish's and the simulacra's raises and k_clear
+## out, the haul added at view time) and `backlog` (Vei's undead queue: its inflow in, her digestion
+## out). Session only.
+var _realm_flows := {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for tests
 var _field_acc := 0.0
 var _events: Array = []
@@ -190,10 +196,11 @@ func cmd_new_game(seed: int) -> Dictionary:
 	valve_target = valve.duplicate()
 	work_pending = 0.0
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+	_realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 	_realm_inputs = {}
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
-	_dungeon_sink = 0.0
+	_ledger.reset(Ledger.total(_held()))  # the opening: what the board holds now
 	_phylactery_charges = 0
 	clones_ready = 0
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
@@ -783,10 +790,13 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 		match k:
 			"gold", "bodies", "living", "bone", "workers":
 				applied[k] = _grant_town(k, v)
+				if k == "bodies" or k == "workers":
+					_ledger.source("debug", float(applied[k]) * (worker_mass() if k == "workers" else 1.0))
 			"backlog":
 				var old: float = realm.vei["undead_queue"]
 				realm.vei["undead_queue"] = maxf(0.0, old + v)
 				applied[k] = realm.vei["undead_queue"] - old
+				_ledger.source("debug", float(applied[k]))
 			"relics":
 				var old := relics
 				relics = clampi(old + int(v), 0, maxi(_cap_of("relics"), old))
@@ -902,7 +912,9 @@ func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
 				for id in v:
 					var f := realm.fort_by_id(str(id))
 					for m in v[id]:
+						var old: float = f[m]
 						f[m] = minf(float(v[id][m]), float(f["cap"]))
+						_ledger.source("debug", float(f[m]) - old)
 	rev += 1
 	return {"ok": true, "reason": "", "key": ""}
 
@@ -968,6 +980,17 @@ func _count_built(building_id: String) -> int:
 		if int(b["level"]) >= 1 and (building_id == "" or b["building_id"] == building_id):
 			n += 1
 	return n
+
+
+## A `unique` building (buildings.json; the Crypt) that already stands on a lot, finished or under
+## construction: a second one is refused (`unique`).
+func _unique_taken(building_id: String) -> bool:
+	if not bool(_buildings_cfg().get(building_id, {}).get("unique", false)):
+		return false
+	for lot_id in town_sim.buildings:
+		if town_sim.buildings[lot_id]["building_id"] == building_id:
+			return true
+	return false
 
 
 ## A building's job slots per job id (buildings.json `jobs`).
@@ -1047,7 +1070,7 @@ func _construction_cost(building_id: String, level: int) -> Dictionary:
 
 ## §4.3 · E2: pays the cost at once and starts construction on a free, unlocked lot. TownSim's
 ## `build` job advances it; `building_started` comes out of the next substep, `building_done` when
-## the work is in.
+## the work is in. A `unique` building (the Crypt) is refused while one stands (api_version 3).
 func cmd_build(building_id: String, lot_id: String) -> Dictionary:
 	var def: Dictionary = _buildings_cfg().get(building_id, {})
 	var lot := _lot(lot_id)
@@ -1057,6 +1080,8 @@ func cmd_build(building_id: String, lot_id: String) -> Dictionary:
 		why = "unknown_building"
 	elif lot.is_empty():
 		why = "unknown_lot"
+	elif _unique_taken(building_id):
+		why = "unique"
 	elif not _lot_unlocked(lot_id):
 		why = "lot_locked"
 	elif town_sim.buildings.has(lot_id):
@@ -1439,18 +1464,19 @@ func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 
 
 # ------------------------------------------------------------ §4.7 ledger ----
-## E2 stub: the documented shape, all zeros except sinks.dungeon (the raid writeback's loss).
-## `held` names every pool of mass.
+## {sources, sinks, held}: mass totals since the new game, and every pool of mass now (Ledger).
+## Σheld + Σsinks == Σsources at every substep boundary (MECHANICS §2.1).
 func ledger() -> Dictionary:
-	var held := {}
-	for k in _LEDGER_HELD:
-		held[k] = 0.0
-	return {
-		"sources": {"mint": 0.0, "debug": 0.0},
-		"sinks": {"cleared": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0, "vei_fight": 0.0,
-			"dungeon": _dungeon_sink, "pool_overflow": 0.0},
-		"held": held,
-	}
+	return {"sources": _ledger.sources.duplicate(), "sinks": _ledger.sinks.duplicate(), "held": _held()}
+
+
+func _held() -> Dictionary:
+	return Ledger.held(realm, town_sim, work_pending, worker_mass())
+
+
+## economy.json worker.mass: the mass of one worker.
+func worker_mass() -> float:
+	return float(_sec("economy", "worker").get("mass", 40.0))
 
 
 # ----------------------------------------------------------------- §5 views ----
@@ -1470,18 +1496,28 @@ func _pool_cap() -> float:
 	return float(_cfg().get("vei_pool_cap", 600.0))
 
 
-## The town's streams for the views, per second, from TownSim's last step (saved with it):
-## {id: [in, out]} for workers, bodies, gold, bone and living (§5.2). Bodies come in as rot return
-## plus the trip-averaged haul (_haul_rate), so a convoy's arrival is not a spike.
-func _town_flows() -> Dictionary:
+## Every RATE_IDS stream as {id: [in, out]} per second, the one source of view_rates and view_hud
+## (§5.2):
+## - mint, work, war, flood: the last substep's valve split (session only), each a pass-through;
+## - workers, bodies, gold, bone, living: TownSim's last step (saved with it). Bodies come in as rot
+##   return plus the trip-averaged haul (_haul_rate), so a convoy's arrival is not a spike;
+## - corpses, backlog: the realm's last substep (_realm_flows, session only); the haul leaves the
+##   corpses at the same trip-averaged rate the bodies receive it.
+func _rate_io() -> Dictionary:
 	var r: Dictionary = town_sim.rates
-	return {
+	var haul := _haul_rate()
+	var out := {
 		"workers": [float(r["workers"]["in"]), float(r["workers"]["out"])],
-		"bodies": [float(r["bodies"]["rot"]) + _haul_rate(), float(r["bodies"]["out"])],
+		"bodies": [float(r["bodies"]["rot"]) + haul, float(r["bodies"]["out"])],
 		"gold": [float(r["gold"]["in"]), float(r["gold"]["out"])],
 		"bone": [float(r["bone"]["in"]), float(r["bone"]["out"])],
 		"living": [float(r["living"]["in"]), float(r["living"]["out"])],
+		"corpses": [float(_realm_flows["corpses"][0]), float(_realm_flows["corpses"][1]) + haul],
+		"backlog": [float(_realm_flows["backlog"][0]), float(_realm_flows["backlog"][1])],
 	}
+	for id in ["mint", "work", "war", "flood"]:
+		out[id] = [float(_split[id]), float(_split[id])]
+	return out
 
 
 ## The convoy's trip-averaged corpse rate (mass/s): the last landed trip's load over its round trip,
@@ -1505,10 +1541,10 @@ func view_hud() -> Dictionary:
 	var ts := town_sim
 	var stock := {"mint": -1.0, "workers": ts.workers, "bodies": ts.bodies, "gold": ts.gold, "bone": ts.bone, "living": ts.living}
 	var cap := {"bodies": ts.body_cap(), "living": ts.living_cap()}
-	var flows := _town_flows()
+	var io := _rate_io()
 	var rates: Array = []
 	for id in HUD_RATE_IDS:
-		var rate := float(_split["mint"]) if id == "mint" else float(flows[id][0]) - float(flows[id][1])
+		var rate := float(io[id][0]) if id == "mint" else float(io[id][0]) - float(io[id][1])
 		rates.append({"id": id, "rate": rate, "stock": float(stock[id]), "cap": float(cap.get(id, -1.0)), "unit": _RATE_UNITS[id]})
 	return {
 		"rev": rev, "t": float(t), "time_scale": float(time_scale), "paused": paused, "rates": rates,
@@ -1520,19 +1556,15 @@ func view_hud() -> Dictionary:
 	}
 
 
-## §5.2 · E2. The mint and its valve streams are the last substep's (WAR with muster; each is a
-## pass-through, net 0); workers, bodies, gold, bone and living are TownSim's (_town_flows).
-## `corpses` and `backlog` are still 0.
+## §5.2 · E2, live for every id from E2a (_rate_io): the valve streams and the realm's corpses and
+## backlog are the last substep's (session only), the town's are TownSim's. `net` is in − out (0 for
+## the pass-throughs); backlog's is view_vei's raw `diff`.
 func view_rates() -> Dictionary:
 	var rates := {}
-	var flows := _town_flows()
+	var io := _rate_io()
 	for id in RATE_IDS:
-		var io := [0.0, 0.0]
-		if _split.has(id):
-			io = [float(_split[id]), float(_split[id])]
-		elif flows.has(id):
-			io = flows[id]
-		rates[id] = {"in": float(io[0]), "out": float(io[1]), "net": float(io[0]) - float(io[1]), "unit": _RATE_UNITS[id]}
+		var e: Array = io[id]
+		rates[id] = {"in": float(e[0]), "out": float(e[1]), "net": float(e[0]) - float(e[1]), "unit": _RATE_UNITS[id]}
 	return {"rev": rev, "rates": rates}
 
 
@@ -1857,9 +1889,11 @@ func _free_lots(size: int) -> Array:
 	return out
 
 
-## view_catalog's reason, in order: the gates of `cmd_build`, then no_lot (no free unlocked lot fits),
-## then what it costs.
-func _build_gate(req: Dictionary, cost: Dictionary, lots: Array) -> String:
+## view_catalog's reason, in order: the gates of `cmd_build` (unique first, as cmd_build checks it
+## before the lot), then no_lot (no free unlocked lot fits), then what it costs.
+func _build_gate(building_id: String, req: Dictionary, cost: Dictionary, lots: Array) -> String:
+	if _unique_taken(building_id):
+		return "unique"
 	var why := _req_reason(req)
 	if why == "" and lots.is_empty():
 		why = "no_lot"
@@ -1878,7 +1912,7 @@ func view_catalog() -> Dictionary:
 		var req := _req_of(bid)
 		var cost := _cost_of(def.get("cost", {}))
 		var lots := _free_lots(int(def.get("lot_size", 1)))
-		var why := _build_gate(req, cost, lots)
+		var why := _build_gate(bid, req, cost, lots)
 		out.append({
 			"building_id": str(bid), "cost": cost, "upkeep": _upkeep_of(bid),
 			"build_work": float(def.get("build_work", 0.0)), "lot_size": int(def.get("lot_size", 1)),
@@ -2148,10 +2182,18 @@ func _tick(dt: float) -> void:
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": float(rcfg.get("raise_rate", 4.0)),
 		"siege_block": {},
 	}
+	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
+	var cleared := realm.cleared_total - cleared0
 	var evs := realm.drain_events()
 	for ev in evs:
 		_emit(ev)
+	# §3 step 7: the ledger books this substep's source and sinks (held is read live)
+	_ledger.source("mint", mint * dt)
+	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
+		_ledger.sink(k, float(town[k]))
+	_ledger.sink("cleared", cleared)
+	_note_realm_flows(dt, cleared)
 	# §3 step 8: the readouts, and the lane callouts for what changed this substep
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
 	_note_lane_causes(evs)
@@ -2171,6 +2213,19 @@ func _tick(dt: float) -> void:
 		_update_towns(cfg)
 	_field_acc = minf(_field_acc, period * float(fcfg.get("acc_cap_periods", 4.0)))
 	rev += 1
+
+
+## view_rates' corpses and backlog for this substep (§5.2; _realm_flows).
+func _note_realm_flows(dt: float, cleared: float) -> void:
+	var made := 0.0
+	var raised := 0.0
+	for f in realm.forts:
+		made += float(f["r_kills"]) + float(f["r_redirected"])
+		raised += float(f["r_raised"])
+	_realm_flows = {
+		"corpses": [made, raised + cleared / dt],
+		"backlog": [float(realm.vei["r_in_undead"]), float(realm.r_digested_undead)],
+	}
 
 
 func _inject_sources(dt: float) -> void:
@@ -2396,7 +2451,7 @@ func _writeback_raid(r: Dictionary) -> Array:
 	chaff = minf(chaff, maxf(0.0, raised_in - undead_delta))
 	realm.vei["undead_queue"] += chaff
 	# 7. whatever went in and did not come out, net of the step 5 clamp (>= 0 by construction)
-	_dungeon_sink += raised_in - undead_delta - chaff
+	_ledger.sink("dungeon", raised_in - undead_delta - chaff)
 	stats["raised_total"] += raised_in
 	# 8. loot
 	var loot: Dictionary = r["loot"]
@@ -2455,7 +2510,9 @@ func _writeback_boss(r: Dictionary) -> void:
 		won = true
 	else:
 		var keep := float(_cfgs.get("vei", {}).get("loss_backlog_keep", 0.35))
-		realm.vei["undead_queue"] *= keep
+		var before: float = realm.vei["undead_queue"]
+		realm.vei["undead_queue"] = before * keep
+		_ledger.sink("vei_fight", before - float(realm.vei["undead_queue"]))
 		for uid in _seed_party_uids(sd):
 			_remove_big_undead(uid)
 	for uid in r["party_lost"]:
@@ -2520,7 +2577,6 @@ func to_dict() -> Dictionary:
 	for i in _vat_slots():
 		var ve := _vat_entry(i)
 		vats.append({"slot": i, "staffed": ve["staffed"], "grow": ve["grow"]})
-	var led := ledger()
 	var d := {
 		"v": SAVE_VERSION, "api_version": API_VERSION, "seed": rng_seed, "rng": str(rng.state),
 		"t": t, "acc": _acc, "next_run_id": next_run_id, "next_uid": next_uid,
@@ -2542,7 +2598,7 @@ func to_dict() -> Dictionary:
 		"party": party_uids.duplicate(),
 		"backups": {"phylactery_charges": _phylactery_charges, "clones_ready": clones_ready, "vats": vats},
 		"readout": _readout.duplicate(),
-		"ledger": {"sources": led["sources"], "sinks": led["sinks"]},
+		"ledger": _ledger.to_dict(),
 		"won": won, "stats": stats.duplicate(),
 		"cleared_forts": cleared_forts.keys(), "first_dungeon": first_dungeon_id,
 	}
@@ -2685,7 +2741,7 @@ func _apply_save(m: Dictionary) -> void:
 	var qe := float(m["readout"]["q_raise_ema"])
 	_readout = {"diff_ema": float(m["readout"]["diff_ema"]), "q_raise_ema": qe if qe != 0.0 else 50.0}
 	_diff = 0.0
-	_dungeon_sink = float(m["ledger"]["sinks"]["dungeon"])
+	_ledger.from_dict(m["ledger"], _held())  # after every pool of mass is restored
 	won = bool(m["won"])
 	var sm: Dictionary = m["stats"]
 	stats = {"raised_total": float(sm["raised_total"]), "raids": int(sm["raids"]), "deaths": int(sm["deaths"]),
@@ -2702,6 +2758,7 @@ func _apply_save(m: Dictionary) -> void:
 	paused = false
 	realm.digest_q = digest_q()
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+	_realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 	_realm_inputs = {}
 	_reset_lanes()
 	_prewarm_field()

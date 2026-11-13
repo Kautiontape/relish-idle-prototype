@@ -5,6 +5,7 @@
     "build_work": 0.0,
     "lot_size": 2,
     "max_level": 3,
+    "unique": true,
     "level_costs": [{"gold": 150.0, "bone": 60.0, "relics": 1}, {"gold": 300.0, "bone": 120.0, "relics": 2}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},

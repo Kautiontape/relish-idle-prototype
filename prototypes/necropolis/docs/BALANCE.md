@@ -78,39 +78,42 @@ else.
 
 ## 5. Starting numbers
 Raw Necropolis units (×1/100 of Realm mass). The keys follow MECHANICS.md; renames from the old code
-are marked ⟵.
+are marked ⟵ (old name after the arrow). Checked against the configs at the end of E2a: every key
+E2a added is here with its value.
 
 | key | start | note |
 |---|---|---|
-| `valve.default` | 0.40 / 0.45 / 0.15 | `directShare` 0.22 is removed |
+| `opening.valve` | 0.40 / 0.45 / 0.15 | `economy.json` (work / war / flood); `directShare` 0.22 is removed |
 | `valve.slew_per_s` | 0.10 (L1) | about 10 s for a full swing |
 | `P_relish` | 0 | top-level key, kept |
 | `P_base`, `P_per_pit` ⟵ `P_per_slab` | 2.0, 6.0 | `realm.json` (renamed at E2a); the start mint is (2 + 6 · 1) · (1 + 0.6) = 12.8 |
-| `pit.burn_per_s`, `pit.bonus` | 0.6 mass/s per pit, +0.6 at full feed | burn calibrated so rot alone covers about 60%; hauling covers the rest |
+| `pit.burn_per_s` ⟵ `slab_bodies_per_s`, `pit.bonus` ⟵ `slab_mint_bonus` | 0.6 mass/s per pit, +0.6 at full feed | burn calibrated so rot alone covers about 60%; hauling covers the rest (the old 0.12 and the ×1.6 multiplier, now written as its +0.6) |
+| raising pit `effects.pits` | 1 per level | the pits the mint and the burn count (`buildings.json`; replaces the pit's old `effects.mint` 6 and `effects.burn` 0.6) |
 | `worker.mass` | 40 | start inflow 12.8 × 0.4 / 40 = 0.128 workers/s → steady state about 61 |
 | `worker.lifetime_s` | 480 | |
 | `worker.body_return` | 0.25 | was 0.6, which made hauling decorative (systems review M6) |
 | `worker.idle_rot_mult`, `worker.idle_cap` | 0.5, 10 | idle above the cap musters to WAR. At the opening that caps the workforce at 7 slots + 10 = 17, and the rest of WORK musters to WAR until builds add slots. |
-| `relish.travel_speed` | 220 px/s | kept |
+| `relish.travel_speed` | 220 px/s | kept (the top-level duplicate `travelSpeed` is gone) |
 | `relish.tide_bias` | 3.0 | |
-| `relish.raise_rate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
+| `relish.raise_rate` ⟵ `raiseRate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
 | `relish.home_rot_mult` | 0.7 | |
+| `relish.home_stance_bonus` | 1 | extra stance slots while she is home |
 | `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | |
 | `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
 | `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge; a surge into the fort Relish stands at is × 0.5 (halved) |
-| `readout.ema_s` | 120 | |
-| `q0`, `q_forge`, `q_raise_max`, `q.raise_half_mass`, `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
+| `readout.ema_s`, `readout.sign_eps` | 120, 0.05 mass/s | the sign flips past ±`sign_eps` of the EMA |
+| `q.q0` ⟵ `q`, `q.q_forge` ⟵ `q_per_forge`, `q.q_raise_max`, `q.raise_half_mass`, `q.q_max` ⟵ `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
 | `stall.rate`, `market.shop_rate`, `market.price` | 0.15 /stall/s, 0.03 /living/s, 1 | start: min(2·0.15, 10·0.03) = 0.30 gold/s |
-| `town.migrant_rate`, `town.leave_rate` | 0.012 /held village/s, 0.004 /s | |
+| `town.migrant_rate` ⟵ `migrant_rate_per_town`, `town.leave_rate` | 0.012 /held village/s, 0.004 /s | the old top-level key is still in `realm.json`, unread |
 | `living_cap` | 16 (`opening.living_cap`) + per level: 8 per house, 2 per well, 4 per bakery, 20 per inn, 30 for walls | building `effects.living_cap` |
 | `inn.attract` | 0.02 /s per level | the Inn's `effects.attract` in `buildings.json` |
 | `morale.base`, `dread_ratio`, `dread_k`, `leave_below`, `death_shock`, `shock_s` | 0.6, 4 workers/living, 0.05, 0.35, 0.3, 600 | |
 | `morale.ease_per_s` | 0.005 /s | morale moves at most this much per second; a 0.3 swing takes 1 min |
 | amenity `effects.morale` (per level) | well 0.03, bakery 0.04, inn 0.04, walls 0.05, plaza 0.08, statue 0.05 | all six together lift the target from 0.6 to 0.89 |
 | statue `effects.death_shock_mult` | 0.5 | each death shock halved while the Statue works |
-| `job.haul.carry`, `job.mill.rate` | 14 mass, 0.5 bone/mass | |
-| `job.haul.speed`, `job.haul.auto_min_dead` | 140 px/s, 4 mass | the legacy gather speed and threshold; Ashgate (246 px) is a 3.5 s round trip |
+| `job.haul.carry` ⟵ `gather_carry`, `job.mill.rate` | 14 mass, 0.5 bone/mass | |
+| `job.haul.speed` ⟵ `gather_speed`, `job.haul.auto_min_dead` | 140 px/s, 4 mass | the legacy gather speed and threshold (`gather_speed` is still in `realm.json`, unread); Ashgate (246 px) is a 3.5 s round trip |
 | stables `effects.haul_speed_mult` | +0.3 per level | haul speed × (1 + Σ) |
 | `job.mill.mass_per_s` | 0.2 mass/s per miller | a level-1 mill (2 millers) turns 0.4 bodies/s into 0.2 bone/s: a 50-bone build in about 4 min |
 | `job.forge.rate` | 0.5 work per worker-second | a level-1 Forge (2 smiths) makes 1 work/s |
@@ -122,9 +125,18 @@ are marked ⟵.
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
 | E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
 | `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both to 18 and 90) | |
-| `big_undead.cap`, `big_undead.per_crypt_level` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
+| `big_undead.cap`, `big_undead.per_crypt_level` ⟵ crypt `effects.big_undead_cap` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
+| crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
 | `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
-| `town.tiers.<tier>.lots` | below | explicit lot ids per tier |
+| `town.tiers.<tier>.lots` | below the table | explicit lot ids per tier |
+| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet |
+| `vats.grow_per_s` | 1/300 per staffed vat | |
+| `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
+| `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
+| `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
+| `loot.reclear_decay` | 0.5 | |
+| `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
+| `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
 
 **Lots per tier** (`economy.json` `town.tiers.<tier>.lots`; sizes are `town.json`'s: lot-01..04 and
 lot-13..16 are size 2, lot-05..12 and lot-17..22 size 1, lot-23 and lot-24 size 3):
@@ -142,14 +154,6 @@ Walls (size 3) at Village on lot-23; the Reliquary (size 3) at Town on lot-24. L
 shut until then so nothing small is put on them first, and a size-1 building may sit on a bigger lot
 (a lot too small is the only size refusal), so the player can still block lot-23 with a house:
 demolish it. Town needs 12 buildings, which Village's 17 lots hold; City needs 20 of Town's 22.
-| `stance.base_slots`, `stance.hold_s` | 2, 10 | |
-| `vats.grow_per_s` | 1/300 per staffed vat | |
-| `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
-| `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
-| `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
-| `loot.reclear_decay` | 0.5 | |
-| `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
-| `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
 
 **Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
 them in `buildings.json`.

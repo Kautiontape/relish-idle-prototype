@@ -26,6 +26,8 @@ extends RefCounted
 ##   relics_spent: int      relics the forge used (GameState takes them off the stock)
 ##   rot_overflow: float    rot return lost to the body cap (mass; a ledger sink)
 ##   haul_overflow: float   haul deliveries lost to the body cap (mass; a ledger sink)
+##   rot_loss: float        rotted mass that never returns as bodies, (1 − body_return) (a ledger sink)
+##   burned, milled: float  bodies the pits burned and the mills milled (mass; ledger sinks)
 ##   events: Array          {type, ...} without `t` (GameState stamps it): building_started,
 ##                          building_done, building_unpaid
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
@@ -360,7 +362,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var events: Array = _pending
 	_pending = []
 	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "relics_spent": 0,
-		"rot_overflow": 0.0, "haul_overflow": 0.0, "events": events}
+		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0, "events": events}
 	if not is_finite(dt) or dt <= 0.0:
 		out["rates"] = rates.duplicate(true)
 		return out
@@ -375,10 +377,12 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var w0 := workers
 	var wf := workforce(w0, r, dt, life, _idle_rot, used_slots, _idle_cap)
 	workers = wf["w"]
-	var rot_mass: float = float(wf["rot"]) * _mass * _body_return
+	var rotted: float = float(wf["rot"]) * _mass
+	var rot_mass: float = rotted * _body_return
 	var rot_in := clampf(cap - bodies, 0.0, rot_mass)
 	bodies += rot_in
 	out["rot_overflow"] = rot_mass - rot_in
+	out["rot_loss"] = rotted - rot_mass
 	out["muster_mass"] = float(wf["muster"]) * _mass
 
 	# 2. haul (§4.2): the convoy, as many legs as the step holds
@@ -405,6 +409,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var burned := want_pit * share
 	var milled := want_mill * share
 	bodies = maxf(0.0, bodies - burned - milled)
+	out["burned"] = burned
+	out["milled"] = milled
 	var bone_in := milled * _mill_rate
 	bone += bone_in
 	var wanted := _burn * pits * dt

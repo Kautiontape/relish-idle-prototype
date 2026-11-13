@@ -96,7 +96,8 @@ func _start_state() -> void:
 	var out := s.step(0.5, _inp())
 	t.near(float(out["rates"]["trade_rate"]), 0.30, 1e-9, "start trade: min(2 · 0.15, 10 · 0.03) = 0.30 sales/s")
 	t.ok(int(out["pits"]) == 1, "one start pit")
-	for k in ["pits", "feed", "muster_mass", "pickups", "relics_spent", "rot_overflow", "haul_overflow", "events", "rates"]:
+	for k in ["pits", "feed", "muster_mass", "pickups", "relics_spent", "rot_overflow", "haul_overflow", "rot_loss", "burned",
+			"milled", "events", "rates"]:
 		t.ok(out.has(k), "step output has %s" % k)
 
 
@@ -677,6 +678,14 @@ func _handles() -> void:
 	t.ok(full.lot_output("lot-04", 6.0, 0.0) == {}, "an unpaid building gives no output")
 
 
+## Covington's mass: workers × worker.mass, bodies and the convoy's load.
+func _mass(s: TownSim) -> float:
+	var m := s.workers * float(_eco("worker")["mass"]) + s.bodies
+	for c in s.haul["convoys"]:
+		m += float(c["load"])
+	return m
+
+
 func _soak() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
@@ -716,9 +725,18 @@ func _soak() -> void:
 		var inp := _inp({"work_mass": rng.randf_range(0.0, 12.0) * dt, "relish_home": rng.randf() < 0.5,
 			"held_villages": rng.randi_range(0, 6), "forts": forts, "haul_target": targets[rng.randi() % targets.size()],
 			"relics_available": rng.randi_range(0, 2)})
+		var m0 := _mass(s)
 		var o := s.step(dt, inp)
 		time += dt
 		steps += 1
+		# mass: in (WORK, pickups) = Δheld + out (muster) + the ledger sinks, at every dt
+		var picked := 0.0
+		for p in o["pickups"]:
+			picked += float(p["mass"])
+		var sinks := float(o["rot_loss"]) + float(o["rot_overflow"]) + float(o["haul_overflow"]) + float(o["burned"]) + float(o["milled"])
+		var miss: float = float(inp["work_mass"]) + picked - (_mass(s) - m0) - float(o["muster_mass"]) - sinks
+		if absf(miss) > 1e-9 * maxf(1.0, m0):
+			bad.append("mass off by %f at %.1f s (dt %.1f)" % [miss, time, dt])
 		var vals := {"workers": s.workers, "bodies": s.bodies, "gold": s.gold, "bone": s.bone, "living": s.living,
 			"morale": s.morale, "shock": s.shock, "feed": float(o["feed"]), "muster": float(o["muster_mass"]),
 			"rot_overflow": float(o["rot_overflow"]), "haul_overflow": float(o["haul_overflow"])}
@@ -747,5 +765,5 @@ func _soak() -> void:
 				bad.append("rates.%s not finite" % k)
 		if bad.size() > 5:
 			break
-	t.ok(bad.is_empty(), "4 h of random inputs (%d steps): no NaN, no negatives, every cap held %s" % [steps, bad])
+	t.ok(bad.is_empty(), "4 h of random inputs (%d steps): no NaN, no negatives, every cap held, mass conserved %s" % [steps, bad])
 	t.ok(int(s.forge["level"]) >= 0 and s.haul is Dictionary, "the soak ends in a sane state")
