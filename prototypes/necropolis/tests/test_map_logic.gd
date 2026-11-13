@@ -137,17 +137,20 @@ func _contrast(t: TestUtil) -> void:
 	var ground := Palette.c("ground")
 	var dead := MapLogic.contrast_ratio(Palette.c("dead"), ground)
 	t.ok(dead >= 3.0 and dead < 4.5, "canon dead is ~3.9:1 on the ground (%.2f)" % dead)
-	# the alpha floor: the dimmest lane colour, at the floor alpha, clears 3:1 for both hues
+	# the alpha floor, measured against the stroke the lane shader draws as its core: the pale
+	# core (undead_core / living_core) at the lane's alpha. Both clear 3:1 at the floor, the
+	# binding one (living) fails just below it, and the floor never lifts Pulse's u=0 alpha, so
+	# alpha keeps its u-dependence (0.4 + 0.6u).
 	var p: Node = PULSE.new()
 	p.configure(TestUtil.load_json("res://configs/pulse.json"))
 	var floor_a: float = MapLogic.cfg()["lane_alpha_floor"]
-	for key in ["undead", "living"]:
-		var col: Color = p.channels(0.0, Palette.hue(key))["color"]
-		var at_floor := MapLogic.contrast_ratio(Color(col, floor_a), ground)
-		t.ok(at_floor >= 3.0, "lowest-u %s lane at the alpha floor reaches 3:1 (%.2f)" % [key, at_floor])
-		var below := MapLogic.contrast_ratio(Color(col, floor_a - 0.02), ground)
-		t.ok(below < 3.0, "the floor is the smallest: 0.02 less fails (%.2f)" % below)
-		t.ok(float(p.channels(0.0, Palette.hue(key))["alpha"]) < floor_a, "Pulse's own u=0 alpha is below the floor, so the floor matters")
+	var worst_below := INF
+	for key in ["undead_core", "living_core"]:
+		var at_floor := MapLogic.contrast_ratio(Palette.c(key, floor_a), ground)
+		t.ok(at_floor >= 3.0, "%s at the alpha floor reaches 3:1 (%.2f)" % [key, at_floor])
+		worst_below = minf(worst_below, MapLogic.contrast_ratio(Palette.c(key, floor_a - 0.01), ground))
+	t.ok(worst_below < 3.0, "the floor is the smallest: 0.01 less fails for the dimmest core (%.2f)" % worst_below)
+	t.ok(floor_a <= float(p.channels(0.0, Palette.hue("undead"))["alpha"]) + 1e-6, "the floor does not lift Pulse's u=0 alpha (%.2f)" % floor_a)
 	p.free()
 
 

@@ -52,16 +52,30 @@ static func _loop_curve(p: Vector2, half_width: float) -> Dictionary:
 
 
 ## The lane's quadratic Bezier: a = from, b = to, control point bowed left of travel by
-## lane_bow x chord. Self-loops (from == to) return a degenerate curve with loop = true.
-static func lane_curve(from_pos: Vector2, to_pos: Vector2, u: float) -> Dictionary:
+## `bow` x chord (bow < 0, the default, uses lane_bow). Self-loops (from == to) return a
+## degenerate curve with loop = true.
+static func lane_curve(from_pos: Vector2, to_pos: Vector2, u: float, bow := -1.0) -> Dictionary:
 	var hw := lane_half_width(u)
 	var chord := from_pos.distance_to(to_pos)
 	if chord < 1.0:
 		return _loop_curve(from_pos, hw)
 	var dir := (to_pos - from_pos) / chord
 	var perp := Vector2(-dir.y, dir.x)
-	var c := (from_pos + to_pos) * 0.5 - perp * chord * _num("lane_bow")
+	var k := bow if bow >= 0.0 else _num("lane_bow")
+	var c := (from_pos + to_pos) * 0.5 - perp * chord * k
 	return {"a": from_pos, "c": c, "b": to_pos, "half_width": hw, "loop": false}
+
+
+## True for the valve's direct FLOOD lane, Covington -> Vei: the separate, straighter, hotter line.
+static func is_direct_flood(row: Dictionary) -> bool:
+	return str(row.get("kind", "")) == "flood" and str(row.get("from", "")) == "covington" \
+		and str(row.get("to", "")) == "vei"
+
+
+## lane_curve for a view_lanes row: the direct Covington -> Vei FLOOD bows by flood_direct_bow,
+## every other row by lane_bow. The routes and the ground's lane moat both call this.
+static func lane_curve_for(row: Dictionary, from_pos: Vector2, to_pos: Vector2, u: float) -> Dictionary:
+	return lane_curve(from_pos, to_pos, u, _num("flood_direct_bow") if is_direct_flood(row) else -1.0)
 
 
 ## Width of the dead gutter at dead intensity `u_dead` (u < 0 counts as 0).

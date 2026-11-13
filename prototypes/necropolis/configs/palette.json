@@ -1,5 +1,6 @@
 {
   "ground": "#05060A",
+  "void": "#000000",
   "undead": "#39FF9E",
   "undead_core": "#C9FFE8",
   "living": "#FF6A2B",
