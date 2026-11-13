@@ -13,6 +13,8 @@ var vcfg: Dictionary = {}
 var lot: Dictionary = {}
 ## Street distance of this lot's door from the plaza (px), for Pulse.wave(hops, model.depth).
 var hops := 0.0
+## Relish's light on this lot (0 = none): the view multiplies its pulse by 1 + brighten.
+var brighten := 0.0
 
 var _snap: Variant = null
 var _shown := 0.0  # the construction reveal on screen; eases toward the entry's reveal
@@ -46,6 +48,10 @@ func set_lot(l: Dictionary, force := false) -> void:
 	set_process(not is_equal_approx(_shown, _target))
 	queue_redraw()
 	_matte.queue_redraw()
+
+
+func set_brighten(f: float) -> void:
+	brighten = maxf(f, 0.0)
 
 
 func _process(delta: float) -> void:

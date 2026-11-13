@@ -6,8 +6,11 @@ extends Control
 ##   beds         faint street beds (static);
 ##   lots         one lot node per lot (static: redraws only on change, pulsed via `self_modulate`
 ##                above 1 from Pulse.wave at the lot's street distance from the slab, law 5; never
-##                below 1, so a core line never drops under its 3:1 contrast);
-##   flow         per frame: street flows and the slab's rings (TownFlow);
+##                below 1, so a core line never drops under its 3:1 contrast; within Relish's light
+##                it is lifted by 1 + her brighten, TownAgents.lot_brighten);
+##   flow         per frame: street flows (the agents' live streams) and the slab's rings (TownFlow);
+##   agents       per frame: undead workers, the living, trade arcs, carts, foremen, Relish
+##                (TownAgents steps them, town_agents_layer.gd draws them);
 ##   walls        tier walls and the tier-up set piece (TownWalls);
 ##   overlay      labels: the crypt always, any other building on hover.
 ## Contract: bind(views) on each fetch, on_game_event(ev) from the shell, signal command_issued.
@@ -17,8 +20,10 @@ signal command_issued
 const LotScript := preload("res://scripts/town/town_lot.gd")
 const FlowScript := preload("res://scripts/town/town_flow.gd")
 const WallsScript := preload("res://scripts/town/town_walls.gd")
+const AgentsScript := preload("res://scripts/town/town_agents_layer.gd")
 
 var model: TownModel
+var agents: TownAgents
 var views := {}
 
 var _v: Dictionary = {}
@@ -27,6 +32,7 @@ var _beds: Node2D
 var _lot_layer: Node2D
 var _lots: Array = []  # a LotScript node per model lot, same order
 var _flow: FlowScript
+var _agents: AgentsScript
 var _walls: WallsScript
 var _overlay: Node2D
 var _laid := Vector2.ZERO
@@ -41,13 +47,21 @@ func _ready() -> void:
 	_v = (db.get("town", {}) as Dictionary).get("view", {})
 	_pulse_gain = float(_v.get("lot_pulse_gain", 0.0))
 	model = TownModel.new(db.get("town", {}), db.get("buildings_view", {}), db.get("buildings", {}), db.get("economy", {}))
+	agents = TownAgents.new(_v, db.get("buildings", {}), db.get("economy", {}), Pulse.tempo_ms / 1000.0)
 	_beds = _layer("Beds", _draw_beds)
 	_lot_layer = _layer("Lots")
 	_flow = FlowScript.new()
 	_flow.name = "Flow"
 	_flow.model = model
 	_flow.vcfg = _v
+	_flow.agents = agents
 	add_child(_flow)
+	_agents = AgentsScript.new()
+	_agents.name = "Agents"
+	_agents.model = model
+	_agents.vcfg = _v
+	_agents.agents = agents
+	add_child(_agents)
 	_walls = WallsScript.new()
 	_walls.name = "Walls"
 	_walls.model = model
@@ -97,6 +111,7 @@ func _refresh() -> void:
 		return
 	var relayout := size != _laid
 	model.update(views, Rect2(Vector2.ZERO, size))
+	agents.sync(model, views)
 	if relayout:
 		_laid = size
 		while _lots.size() < model.lots.size():
@@ -108,6 +123,7 @@ func _refresh() -> void:
 		_beds.queue_redraw()
 	for i in model.lots.size():
 		_lots[i].set_lot(model.lots[i], relayout)
+		_lots[i].set_brighten(agents.lot_brighten[i] if i < agents.lot_brighten.size() else 0.0)
 	_flow.slab_rect = _crypt_rect()
 	if relayout:
 		_build_floor()
@@ -117,11 +133,15 @@ func _refresh() -> void:
 	_overlay.queue_redraw()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if model == null or _lots.is_empty():
 		return
+	agents.step(delta, Pulse.phase(), Pulse.reduced_motion)
+	_agents.queue_redraw()
 	for n in _lots:
-		var k := 1.0 + _pulse_gain * Pulse.wave(n.hops, model.depth)
+		# Relish's light lifts the lot by her brighten. Keep view.relish_brighten small: modulate above 1
+		# clips the matter colours' saturated channels (a big lift turns living orange amber).
+		var k: float = (1.0 + _pulse_gain * Pulse.wave(n.hops, model.depth)) * (1.0 + n.brighten)
 		n.self_modulate = Color(k, k, k)
 
 

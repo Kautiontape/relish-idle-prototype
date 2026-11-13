@@ -1,15 +1,18 @@
 extends Node2D
 ## The town view's per-frame layer: the street flows and the crypt slab's rings.
-## Flows (law 3, law 4): each street carries its worker stream outward from the plaza; the rate
-## drives Pulse's five channels and the dashes walk at Pulse.dash_offset. A zero rate switches the
-## street off (only its bed shows). Reduced motion: the dashes hold still (Pulse) and each carries
-## a chevron pointing along the flow.
+## Flows (law 3, law 4): each street carries its undead stream, TownAgents.edge_rates (the agents
+## walking it, per second, smoothed), drawn outward from the plaza; the rate drives Pulse's five
+## channels and the dashes walk at Pulse.dash_offset. A zero rate switches the street off (only its
+## bed shows). Reduced motion: the dashes hold still (Pulse) and each carries a chevron pointing
+## along the flow.
 ## The slab (law 5): the town's tempo source, hops 0. Concentric undead rings around the crypt
 ## (ellipses fitted to its footprint, so they ring the building instead of crossing its lines)
 ## breathe on the beat, and one ring rides out from them each beat.
 
 var model: TownModel
 var vcfg: Dictionary = {}
+## The streams' source: edge_rates, indexed like model.streets.
+var agents: TownAgents
 ## The crypt's footprint (the slab sits at its centre); an empty rect when the town has no crypt.
 var slab_rect := Rect2()
 
@@ -31,8 +34,10 @@ func _draw_flows() -> void:
 	var hue := Palette.hue("undead")
 	var core := Palette.c("undead_core")
 	var chev := float(vcfg.get("chevron_px", 0.0)) * model.scale
-	for s in model.streets:
-		var u := Pulse.rate_to_u(float(s["rate"]), ref)
+	for i in model.streets.size():
+		var s: Dictionary = model.streets[i]
+		var rate := agents.edge_rates[i] if agents != null and i < agents.edge_rates.size() else 0.0
+		var u := Pulse.rate_to_u(rate, ref)
 		if u == Pulse.OFF:
 			continue
 		var ch := Pulse.channels(u, hue)

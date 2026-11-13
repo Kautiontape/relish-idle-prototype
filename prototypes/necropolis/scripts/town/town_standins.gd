@@ -62,6 +62,30 @@ static func staffing_pips(b: Dictionary, jobs: Dictionary, vcfg: Dictionary) -> 
 	return {"pips": pips, "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, ""))}
 
 
+# STANDIN(E2): view_town's trade_rate is 0 while outputs are stubbed. Until then, stall sales per
+# second come from staffing the way MECHANICS §4.2 prices them: min(stall staffed * stall.rate,
+# living * market.shop_rate), from economy.json. The caller uses it only while
+# TownModel.staffing_standin holds (every output {}), so real outputs switch it off. 0 when
+# economy.json has no stall/market keys yet (they land with the economy unit's E2 config).
+static func trade_rate(town: Dictionary, economy: Dictionary) -> float:
+	var per_stall := float(economy.get("stall", {}).get("rate", 0.0))
+	var per_living := float(economy.get("market", {}).get("shop_rate", 0.0))
+	var staffed := 0.0
+	for j in town.get("jobs", []):
+		if String(j.get("id", "")) == "stall":
+			staffed += float(j.get("staffed", 0.0))
+	return maxf(minf(staffed * per_stall, float(town.get("living", 0.0)) * per_living), 0.0)
+
+
+# STANDIN(E2): a foreman's diamond draws one stroke per filled remnant slot, but view_big_undead
+# entries carry no remnants yet (the raise is E2), so it draws view.foreman_strokes. An entry that
+# carries a `remnants` array switches this off.
+static func foreman_strokes(entry: Dictionary, vcfg: Dictionary) -> int:
+	if entry.get("remnants") is Array:
+		return maxi((entry["remnants"] as Array).size(), 1)
+	return int(vcfg.get("foreman_strokes", 0))
+
+
 ## A synthetic full city for `--town-demo=full`, built on `base` (the shell's views dict) so every
 ## view and key a real fetch has is present. Only `town` and the HUD's worker/living stocks change.
 static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Dictionary) -> Dictionary:

@@ -15,9 +15,9 @@ extends RefCounted
 ## hops: float (the door's street distance from the plaza, px), building: {} or a display entry
 ## (see _entry)}.
 var lots: Array = []
-## Per street edge: {a, b, from: Vector2, to: Vector2, near: Vector2, far: Vector2, rate: float}.
-## `near`/`far` orient the edge away from the plaza (near is the end closer along the streets);
-## `rate` is the edge's worker stream (see _edge_rates).
+## Per street edge: {a, b, from: Vector2, to: Vector2, near: Vector2, far: Vector2, length: float}.
+## `near`/`far` orient the edge away from the plaza (near is the end closer along the streets).
+## The streams they carry are the agents' (TownAgents.edge_rates, same index).
 var streets: Array = []
 ## Street node id -> Vector2 (px).
 var nodes: Dictionary = {}
@@ -42,8 +42,8 @@ var _bcfg: Dictionary = {}
 var _unit: Dictionary = {}  # building id -> Array[PackedVector2Array] in the unit box
 var _adj: Dictionary = {}   # node id -> Array[String]
 var _paths: Dictionary = {}  # "a|b" -> PackedVector2Array
+var _routes: Dictionary = {}  # "a|b" -> PackedStringArray
 var _edge_of: Dictionary = {}  # "a|b" (both orders) -> index into streets
-var _door_routes: Dictionary = {}  # door node -> Array of street indices from the plaza
 var _laid_out := false
 
 
@@ -93,7 +93,6 @@ func update(views: Dictionary, r: Rect2) -> void:
 	for lot in lots:
 		lot["unlocked"] = bool(view_lots.get(lot["id"], {}).get("unlocked", false))
 		lot["building"] = _entry(by_lot[lot["id"]], lot, town) if by_lot.has(lot["id"]) else {}
-	_edge_rates()
 
 
 func lot(id: String) -> Dictionary:
@@ -163,6 +162,25 @@ func path(from_node: String, to_node: String) -> PackedVector2Array:
 			out.append(nodes[id])
 	_paths[key] = out
 	return out
+
+
+## The street nodes of the shortest route between two nodes, ends included (cached per rect).
+## [] if either is unknown or they are not connected; [a] when a == b.
+func route(from_node: String, to_node: String) -> PackedStringArray:
+	var key := from_node + "|" + to_node
+	if _routes.has(key):
+		return _routes[key]
+	var out := PackedStringArray()
+	if nodes.has(from_node) and nodes.has(to_node):
+		for id in _route(from_node, to_node):
+			out.append(id)
+	_routes[key] = out
+	return out
+
+
+## Index into `streets` of the edge joining two nodes (either order), or -1.
+func edge_index(a: String, b: String) -> int:
+	return int(_edge_of.get(a + "|" + b, -1))
 
 
 ## The wall ring of `t` in px (an open polyline whose two ends flank the gate), if the town has
@@ -235,6 +253,7 @@ func _layout(r: Rect2) -> void:
 	rect = r
 	_laid_out = true
 	_paths.clear()
+	_routes.clear()
 	var ref_px: Array = _v.get("ref_px", [0, 0])
 	var ref := Vector2(float(ref_px[0]) - float(_v.get("dock_w", 0)), float(ref_px[1]) - float(_v.get("hud_h", 0)))
 	scale = minf(r.size.x / ref.x, r.size.y / ref.y) if ref.x > 0.0 and ref.y > 0.0 else 1.0
@@ -247,7 +266,6 @@ func _layout(r: Rect2) -> void:
 		depth = maxf(depth, dist[id])
 	streets = []
 	_edge_of = {}
-	_door_routes = {}
 	for e in _v.get("street_edges", []):
 		var a := String(e[0])
 		var b := String(e[1])
@@ -256,7 +274,8 @@ func _layout(r: Rect2) -> void:
 			_edge_of[a + "|" + b] = streets.size()
 			_edge_of[b + "|" + a] = streets.size()
 			streets.append({"a": a, "b": b, "from": nodes[a], "to": nodes[b],
-				"near": nodes[a] if a_near else nodes[b], "far": nodes[b] if a_near else nodes[a], "rate": 0.0})
+				"near": nodes[a] if a_near else nodes[b], "far": nodes[b] if a_near else nodes[a],
+				"length": nodes[a].distance_to(nodes[b])})
 	var unit := float(_v.get("lot_unit_px", 0)) * scale
 	var h := float(_v.get("lot_h_px", 0)) * scale
 	var pos: Dictionary = _v.get("lot_pos", {})
@@ -309,30 +328,6 @@ func _distances(src: String) -> Dictionary:
 				open.append(n)
 			elif d < out[n]:
 				out[n] = d
-	return out
-
-
-# STANDIN(task 3): until agents walk the streets, each street's stream is the staffed workers whose
-# job building's door route from the plaza uses it (undead are raised at the slab and walk out).
-func _edge_rates() -> void:
-	for s in streets:
-		s["rate"] = 0.0
-	for l in lots:
-		var b: Dictionary = l["building"]
-		if b.is_empty() or int(b.get("slots", 0)) <= 0 or float(b.get("staffed", 0.0)) <= 0.0:
-			continue
-		for i in _door_route(String(l["door"])):
-			streets[i]["rate"] += float(b["staffed"])
-
-
-func _door_route(door: String) -> Array:
-	if _door_routes.has(door):
-		return _door_routes[door]
-	var ids := _route("plaza", door) if nodes.has("plaza") and nodes.has(door) else []
-	var out: Array = []
-	for k in range(1, ids.size()):
-		out.append(int(_edge_of[ids[k - 1] + "|" + ids[k]]))
-	_door_routes[door] = out
 	return out
 
 
