@@ -31,7 +31,7 @@ An unknown key calls `push_error`, listing the known keys, and returns
 |---|---|---|
 | `ground` | `#05060A` | the near-black ground |
 | `undead` / `undead_core` | `#39FF9E` / `#C9FFE8` | undead, and the pale core of an undead glow stroke |
-| `living` | `#FF6A2B` | living |
+| `living` / `living_core` | `#FF6A2B` / `#FFD6B0` | living, and the pale core of a living glow stroke |
 | `dead` | `#6E6A7E` | dead matter: matte, never glows |
 | `dead_lit` | `#997FB0` | dead matter with Relish's violet falling on it (see below) |
 | `town` | `#3E5C8F` | towns and allies |
@@ -39,6 +39,9 @@ An unknown key calls `push_error`, listing the known keys, and returns
 | `vei` | `#FFF3D0` | Vei |
 | `danger` | `#FF2D55` | danger |
 | `graticule` / `contour` / `front` | `#12182A` / `#1E2A45` / `#3E5C8F` | Angiogram ground helpers (BRIEF §6) |
+| `text` / `text_dim` | `#E8E8EC` / `#8888A0` | UI text, and secondary or label text |
+| `ring_track` | `#202027` | the empty track behind a capacity ring |
+| `select` | `#FFD000` | UI-only selection and focus accent; distinct from every matter colour, never used for matter |
 
 **`dead_lit` is a lit surface, not a light source.** Dead matter never emits
 light, but Relish's violet falls on the piles near her or on the one she targets.

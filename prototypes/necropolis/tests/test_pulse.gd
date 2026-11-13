@@ -154,11 +154,13 @@ func _reduced(t: TestUtil, p: Node) -> void:
 func _palette(t: TestUtil) -> void:
 	t.suite("palette")
 	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
-	# DESIGN.md canon + BRIEF §6 Angiogram helpers, literally.
+	# DESIGN.md canon + BRIEF §6 Angiogram helpers + manager-approved UI keys, literally.
 	var canon := {
 		"ground": "05060a", "undead": "39ff9e", "undead_core": "c9ffe8", "living": "ff6a2b",
-		"dead": "6e6a7e", "town": "3e5c8f", "relish": "c04cff", "vei": "fff3d0",
-		"danger": "ff2d55", "graticule": "12182a", "contour": "1e2a45", "front": "3e5c8f",
+		"living_core": "ffd6b0", "dead": "6e6a7e", "town": "3e5c8f", "relish": "c04cff",
+		"vei": "fff3d0", "danger": "ff2d55", "graticule": "12182a", "contour": "1e2a45",
+		"front": "3e5c8f", "text": "e8e8ec", "text_dim": "8888a0", "ring_track": "202027",
+		"select": "ffd000",
 	}
 	var all_ok := true
 	for k in canon:
