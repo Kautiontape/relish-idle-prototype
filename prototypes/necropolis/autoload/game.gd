@@ -11,13 +11,39 @@ signal defeat_boss
 ## Created once, never replaced.
 var state := GameState.new()
 var _autosave_acc := 0.0  # real seconds since the last autosave
+## False for a harness/test session (--shot, --new-game, --fixture): autosave() writes nothing.
+## Set once in _ready; read-only by rule.
+var autosave_enabled := true
 
 
 func _ready() -> void:
 	state.setup(ConfigDb.data)
 	state.debug_enabled = OS.is_debug_build()
 	randomize()
-	state.cmd_new_game(randi())
+	_boot()
+
+
+## Boot rule (STATE-API 2.1): a harness arg disables autosave for the session and starts a
+## fresh or fixture game; a normal launch resumes the autosave, else starts a new game.
+func _boot() -> void:
+	var harness := false
+	var fixture := ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--shot=") or arg == "--new-game":
+			harness = true
+		elif arg.begins_with("--fixture="):
+			harness = true
+			fixture = arg.trim_prefix("--fixture=")
+	autosave_enabled = not harness
+	if harness:
+		if fixture != "":
+			var r := state.cmd_debug_load_fixture(fixture)
+			if r["ok"]:
+				return
+			printerr("Game: --fixture=%s refused (%s); starting a new game" % [fixture, r["reason"]])
+		state.cmd_new_game(randi())
+	elif not state.cmd_load("auto")["ok"]:
+		state.cmd_new_game(randi())
 
 
 func _process(delta: float) -> void:
@@ -41,8 +67,11 @@ func _process(delta: float) -> void:
 
 ## Writes the "auto" slot now (the router calls it after every scene swap) and restarts the
 ## 30 s clock. Returns cmd_save's result; autosaved / save_failed reach scenes as game_event.
+## In a harness session returns {ok: false, reason: "disabled"} and writes nothing.
 func autosave() -> Dictionary:
 	_autosave_acc = 0.0
+	if not autosave_enabled:
+		return {"ok": false, "reason": "disabled"}
 	return state.cmd_save("auto")
 
 

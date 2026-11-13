@@ -123,8 +123,18 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
 ```
 - **Boot (`_ready`):**
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
-  `state.debug_enabled = OS.is_debug_build()`, then `state.cmd_new_game(randi())`. Resuming the
-  autosave is a menu action (`cmd_load("auto")`), never automatic.
+  `state.debug_enabled = OS.is_debug_build()` (before any boot load, since fixtures need it), then
+  the boot rule over `OS.get_cmdline_user_args()`:
+  - **Harness/test session:** any of `--shot=<path>`, `--new-game`, `--fixture=<name>` is present.
+    `autosave_enabled = false` for the whole session (`autosave()` returns
+    `{ok: false, reason: "disabled"}` without writing, and the 30 s timer does nothing), so the
+    player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for
+    `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
+    otherwise `cmd_new_game(randi())`.
+  - **Normal launch** (none of those args): `cmd_load("auto")`; if that is not `ok` (no file, or
+    corrupt), `cmd_new_game(randi())`. Autosave stays enabled.
+  - Away-time catch-up on load (simulating the real time since the save file's `saved_at`) is a later
+    item. Today a resume continues from the saved `t`.
 - **Ticking (`_process(delta)`):**
   `state.tick(delta / maxf(0.05, Engine.time_scale) * state.time_scale, max_substeps)`. Here
   `max_substeps` is `economy.json` `sim.max_substeps_per_frame`, and any remainder over the cap is
@@ -212,6 +222,12 @@ signal finished(result: Dictionary)
     - then open the map.
   - A scene file that is missing or fails to load: `cmd_abort_dungeon()` if a run is open, then the
     map.
+  - **Stale emits.** `finished` is connected before the scene is added or `setup` runs, bound to
+    the emitting node. A `finished` from a node that is not `current` (a freed or replaced scene)
+    is ignored, and so is any second `finished` from a node already handled.
+  - **No run under the map or town.** Whenever the router is about to open the map or the town and
+    `view_relish().run_id != -1`, it calls `cmd_abort_dungeon()` first (with a `push_warning`).
+    "Map or town open with a run open" is unreachable.
 - **On every swap:** `Engine.time_scale = 1.0`, the old scene is freed, the new one gets
   `setup(args)`, then `Game.autosave()`.
 - Dungeon and boss runs force the sim's `time_scale` to 1 (§4.5).

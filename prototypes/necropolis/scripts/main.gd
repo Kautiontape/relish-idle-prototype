@@ -19,6 +19,13 @@ func _open_map() -> void:
 	_swap(MAP, {"mode": "map"})
 
 
+## Map or town must never be open with a run open: forfeit one if it is.
+func _forfeit_open_run() -> void:
+	if Game.state.view_relish().get("run_id", -1) != -1:
+		push_warning("necropolis: router forfeited an open run before opening the map or town")
+		Game.state.cmd_abort_dungeon()
+
+
 ## Frees the old scene and opens `path`. On a missing or unloadable scene: forfeits any open
 ## run and falls back to the map (unless the map itself is what failed).
 func _swap(path: String, args: Dictionary) -> void:
@@ -33,17 +40,22 @@ func _swap(path: String, args: Dictionary) -> void:
 		if path != MAP:
 			_open_map()
 		return
+	if path == MAP or path == TOWN:
+		_forfeit_open_run()
 	var node: Node = packed.instantiate()
-	add_child(node)
 	current = node
+	if node.has_signal("finished"):
+		node.finished.connect(_on_finished.bind(node, path))
+	add_child(node)
 	if node.has_method("setup"):
 		node.setup(args)
-	if node.has_signal("finished"):
-		node.finished.connect(_on_finished.bind(path))
 	Game.autosave()
 
 
-func _on_finished(result: Dictionary, path: String) -> void:
+func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
+	if emitter != current or emitter.has_meta("router_done"):
+		return  # a late or duplicate emit from a scene that is no longer current
+	emitter.set_meta("router_done", true)  # one handled emit per scene
 	var legacy := not result.has("v")
 	match path:
 		MAP:
