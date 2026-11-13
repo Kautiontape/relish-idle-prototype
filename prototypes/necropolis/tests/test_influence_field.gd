@@ -96,6 +96,14 @@ func run() -> int:
 	gs._cfgs["realm"]["field"]["slice_budget_cells"] = 2500
 	gs.tick(0.5)
 	t.ok(gs.field.advances == [0, 2500], "the budget comes from realm.json field.slice_budget_cells")
+	gs.tick(0.1)  # under one substep: no substep runs, advance still fires once
+	t.ok(gs.field.advances == [0, 2500, 2500], "a tick(dt) call that ran 0 substeps still advances once (%s)" % str(gs.field.advances))
+	gs.paused = true
+	gs.tick(1.0)
+	gs.paused = false
+	gs.tick(-1.0)
+	gs.tick(NAN)
+	t.ok(gs.field.advances == [0, 2500, 2500], "an early return (paused, bad dt) does not advance")
 	var gp := GameState.new(TestUtil.configs())
 	gp.cmd_new_game(1)
 	t.ok(TestUtil.configs()["realm"]["field"]["slice_budget_cells"] == 0, "realm.json ships slice_budget_cells 0 (synchronous)")

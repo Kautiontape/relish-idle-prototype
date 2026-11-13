@@ -1701,8 +1701,8 @@ func _advance(dt: float, max_substeps: int) -> int:
 		n += 1
 	if max_substeps > 0 and n >= max_substeps and _acc >= step - 1e-9:
 		_acc = 0.0
-	if n > 0:  # §3 step 9: once per tick(dt) call that ran a substep, after the loop
-		field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
+	# §3 step 9: once per tick(dt) call, after the loop, whether or not a substep ran
+	field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
 	return n
 
 
