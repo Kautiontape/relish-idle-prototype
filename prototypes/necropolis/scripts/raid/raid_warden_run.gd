@@ -57,6 +57,28 @@ func tick() -> void:
 		warden.wake()
 
 
+## Bodyguard post for a party big undead while an awake Huntsman hunts: {point, relish} when `u`
+## is a fast-enough big undead (speed_stat >= the weak point's threshold), else {}.
+func guard_for(u: RaidUnit) -> Dictionary:
+	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake \
+			or str(warden.spec.get("archetype", "")) != "huntsman" or u.kind != "big":
+		return {}
+	var rel: RaidRelish = _raid.relish
+	if rel == null or not is_instance_valid(rel) or not rel.alive:
+		return {}
+	var th := float((warden.spec.get("weak_point", {}) as Dictionary).get("threshold", 1.0e9))
+	if u.speed_stat < th:
+		return {}
+	var guards: Array = []
+	for a in _raid.allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and a.speed_stat >= th:
+			guards.append(a)
+	var at: Dictionary = warden.spec.get("attack", {})
+	return {"point": WardenLogic.guard_point(rel.global_position, warden.global_position,
+		float(at.get("guard_px", 46.0)), maxi(0, guards.find(u)), guards.size(), float(at.get("guard_spread_px", 18.0))),
+		"relish": rel.global_position}
+
+
 ## The nearest awake warden within `reach` of pos (an enemy for the undead), else null.
 func target_in(pos: Vector2, reach: float):
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake:

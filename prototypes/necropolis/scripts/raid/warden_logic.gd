@@ -189,3 +189,12 @@ static func stun_damage(sp: Dictionary, amount: float, stunned: bool) -> float:
 	if not stunned:
 		return amount
 	return amount * float((sp.get("weak_point", {}) as Dictionary).get("stun_dmg_mult", 1.0))
+
+
+## The bodyguard's post: `guard_px` from Relish toward the threat, guard `index` of `count` spread
+## sideways across the line by `spread_px` steps (centred on the line).
+static func guard_point(relish_pos: Vector2, threat_pos: Vector2, guard_px: float, index: int, count: int, spread_px: float) -> Vector2:
+	var d := threat_pos - relish_pos
+	var dir := d.normalized() if d.length() > 0.001 else Vector2.RIGHT
+	var side := (float(index) - float(count - 1) * 0.5) * 2.0 * spread_px if count > 1 else 0.0
+	return relish_pos + dir * guard_px + dir.orthogonal() * side

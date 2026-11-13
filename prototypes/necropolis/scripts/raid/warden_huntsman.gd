@@ -126,7 +126,7 @@ func _wall_clipped(from: Vector2, to: Vector2) -> Vector2:
 func _begin_lunge() -> void:
 	var at: Dictionary = spec.get("attack", {})
 	var from := global_position
-	var to := _wall_clipped(from, _lock_pt)
+	var to := _wall_clipped(from, WardenLogic.leash_clamp(_room, _lock_pt, radius))
 	_last_attack = _next_attack
 	_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)
 	_locked = false

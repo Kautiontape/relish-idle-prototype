@@ -384,6 +384,8 @@
           "speed_px_s": 900.0,
           "hit_radius_px": 22.0,
           "stalk_stop_px": 150.0,
+          "guard_px": 46.0,
+          "guard_spread_px": 18.0,
           "stun_wobble_px": 3.5,
           "dmg_relish": 12.0,
           "dmg_unit": 8.0

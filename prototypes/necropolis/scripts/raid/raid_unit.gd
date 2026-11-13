@@ -25,6 +25,7 @@ var from_army := false       # boss: brought army (loss accounting)
 var home_room := Rect2()
 var alive := true
 
+var _guard := {}             # bodyguard post this frame ({} when not guarding)
 var _target = null           # duck-typed: global_position / radius / take_hit / alive
 var _aggro := false
 var _strike_t := 0.0
@@ -73,7 +74,33 @@ func _physics_process(delta: float) -> void:
 	_pick_target(cfg)
 
 	var move := Vector2.ZERO
-	if _target != null and is_instance_valid(_target) and _target.alive:
+	_guard = raid.warden_run.guard_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null else {}
+	if not _guard.is_empty():
+		# bodyguard (fast big undead vs an awake Huntsman): strike what is in reach, never chase
+		var gp: Vector2 = _guard["point"]
+		var foe = null
+		var best_d := INF
+		for e in raid.enemies:
+			if is_instance_valid(e) and e.alive:
+				var dd: float = global_position.distance_to(e.global_position) - e.radius
+				if dd < best_d:
+					best_d = dd
+					foe = e
+		if foe == null or best_d > radius + float(cfg.get("strike_reach_pad", 7.0)):
+			foe = _target   # nothing else in reach: the warden, if it is close
+		if foe != null and is_instance_valid(foe) and foe.alive:
+			var tt: Vector2 = foe.global_position - global_position
+			var rch: float = radius + foe.radius + float(cfg.get("strike_reach_pad", 7.0))
+			if tt.length() <= rch and _strike_t <= 0.0:
+				_strike_t = cadence
+				_lunge = 1.0
+				_facing = tt.normalized()
+				foe.take_hit(dmg)
+		var tg := gp - global_position
+		if tg.length() > 6.0:
+			move = tg.normalized() * minf(speed * 1.3, tg.length() / maxf(delta, 0.001))
+			_facing = tg.normalized()
+	elif _target != null and is_instance_valid(_target) and _target.alive:
 		var to_t: Vector2 = _target.global_position - global_position
 		var reach: float = radius + _target.radius + float(cfg.get("strike_reach_pad", 7.0))
 		_facing = to_t.normalized() if to_t.length() > 1.0 else _facing
@@ -177,6 +204,10 @@ func die(sacrificed := false) -> void:
 ## + a hollow ring head; big undead = nested diamonds. Colours come from Palette.
 func _draw() -> void:
 	var lunge_off := _facing * _lunge * 5.0
+	if not _guard.is_empty():
+		# the bodyguard link to Relish, faint
+		LineGlow.polyline(self, PackedVector2Array([Vector2.ZERO, (_guard["relish"] as Vector2) - global_position]),
+			Palette.c("undead", 0.3), 1.5, 0.3)
 	if kind == "big":
 		_draw_big(lunge_off)
 	elif faction == "ally":
