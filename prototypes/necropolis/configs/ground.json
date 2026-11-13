@@ -44,7 +44,7 @@
   "alpha_land": 0.95,
   "alpha_front": 0.95,
   "core_mix": 0.3,
-  "composite_gain": 2.0,
+  "composite_gain": 2.4,
 
   "colors": {
     "green": "39ff9e",
