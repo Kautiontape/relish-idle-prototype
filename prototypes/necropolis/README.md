@@ -63,7 +63,7 @@ The runner discovers every `tests/test_*.gd`; a script error counts as a failure
 - `scenes/map|town|raid|boss` + `scripts/map|town|raid` — one scene per mode,
   swapped by `scripts/main.gd` via a uniform contract: `setup(seed)` in,
   `finished(result)` out. Every scene also runs standalone with demo data.
-- `autoload/` — ConfigDb (JSON configs), Game (owns all state, ticks always), Shot (debug),
+- `autoload/` — ConfigDb (JSON configs), Game (thin shell over `scripts/sim/game_state.gd`, which owns all state; ticks always), Shot (debug),
   Pulse (the one tempo and the route motion channels).
 - `scripts/fx/` — Palette and LineGlow. With Pulse they are the shared line language;
   see `docs/VISUAL-TOOLKIT.md`. No colour or tempo literals in scene scripts.
