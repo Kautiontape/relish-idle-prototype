@@ -96,6 +96,140 @@ static func foreman_strokes(entry: Dictionary, vcfg: Dictionary, slab_cfg: Dicti
 	return int(vcfg.get("foreman_strokes", 0))
 
 
+# TODO(api-request #3): the build queue lives here until E2 ships `cmd_queue_build`,
+# `cmd_unqueue`, `cmd_reorder_queue` and `view_town().queue` / `queue_max`. It mirrors that shape
+# (entries `{building_id, lot_id, upgrade, level, cost, status, reason}`, statuses `next`,
+# `waiting_funds`, `skipped_gate`, `queued`) and never touches GameState or calls a build command.
+# Not saved. It switches itself off when `view_town()` carries a `queue` key.
+static func queue_is_standin(town: Dictionary) -> bool:
+	return not town.has("queue")
+
+
+## The local queue. `ctx` (BuildSort.queue_context): {gold, bone, relics, gold_cap, bone_cap (-1 =
+## none), catalog: {building_id: row}, built: {lot_id: {building_id, level, max_level, state}},
+## gates: Array[String]}. IDLE 5: processed in order; a head blocked by a gate that time can't
+## resolve (tier, blueprint, building, relics, a taken lot, max level) is flagged and skipped; a head
+## blocked only by affordability holds the queue (everything behind it stays `queued`).
+class BuildQueue:
+	extends RefCounted
+	var entries: Array = []
+	var max_len := 8
+	## store -> building id that raises that cap (config view.cap_buildings; stand-in names until E2).
+	var cap_buildings: Dictionary = {}
+	var _ctx: Dictionary = {}
+
+	func _init(max_len_ := 8, cap_buildings_: Dictionary = {}) -> void:
+		max_len = max_len_
+		cap_buildings = cap_buildings_
+
+	## `e`: {building_id, lot_id, upgrade: bool, level: int (the level it builds), cost}. Mirrors
+	## cmd_queue_build: {ok, reason, index, cap_building}. Affordability never refuses.
+	func add(e: Dictionary, ctx: Dictionary) -> Dictionary:
+		var cost: Dictionary = e.get("cost", {})
+		if entries.size() >= max_len:
+			return _refuse("queue_full")
+		for store in ["gold", "bone"]:
+			var cap := float(ctx.get(store + "_cap", -1.0))
+			if cap >= 0.0 and float(cost.get(store, 0.0)) > cap:
+				var r := _refuse("cost_exceeds_cap")
+				r["cap_building"] = String(cap_buildings.get(store, ""))
+				r["store"] = store
+				return r
+		if not bool(e.get("upgrade", false)):
+			var row: Dictionary = ctx.get("catalog", {}).get(String(e.get("building_id", "")), {})
+			if row.is_empty():
+				return _refuse("unknown_building")
+			if String(row.get("reason", "")) in ctx.get("gates", []):
+				return _refuse(String(row["reason"]))
+			if not String(e.get("lot_id", "")) in row.get("lots", []):
+				return _refuse("lot_taken")
+		var ent := {
+			"building_id": String(e.get("building_id", "")), "lot_id": String(e.get("lot_id", "")),
+			"upgrade": bool(e.get("upgrade", false)), "level": int(e.get("level", 1)),
+			"cost": (cost as Dictionary).duplicate(), "status": "queued", "reason": "",
+		}
+		entries.append(ent)
+		evaluate(ctx)
+		return {"ok": true, "reason": "", "index": entries.size() - 1, "cap_building": ""}
+
+	## cmd_unqueue(index): {ok, reason}.
+	func unqueue(index: int) -> Dictionary:
+		if index < 0 or index >= entries.size():
+			return {"ok": false, "reason": "unknown_index"}
+		entries.remove_at(index)
+		evaluate(_ctx)
+		return {"ok": true, "reason": ""}
+
+	## cmd_reorder_queue(order): `order[k]` is the old index that moves to position k; a
+	## permutation of the current indices, else `bad_order`.
+	func reorder(order: Array) -> Dictionary:
+		var seen := {}
+		for i in order:
+			if not i is int or i < 0 or i >= entries.size() or seen.has(i):
+				return {"ok": false, "reason": "bad_order"}
+			seen[i] = true
+		if order.size() != entries.size():
+			return {"ok": false, "reason": "bad_order"}
+		var out: Array = []
+		for i in order:
+			out.append(entries[i])
+		entries = out
+		evaluate(_ctx)
+		return {"ok": true, "reason": ""}
+
+	## Moves entry `index` by `delta` places (clamped); a convenience over reorder().
+	func move(index: int, delta: int) -> Dictionary:
+		var to := clampi(index + delta, 0, maxi(entries.size() - 1, 0))
+		if index < 0 or index >= entries.size():
+			return {"ok": false, "reason": "unknown_index"}
+		var order: Array = range(entries.size())
+		order.remove_at(index)
+		order.insert(to, index)
+		return reorder(order)
+
+	## Recomputes every entry's status and reason against `ctx`.
+	func evaluate(ctx: Dictionary) -> void:
+		_ctx = ctx
+		var head_taken := false
+		for ent in entries:
+			ent["reason"] = ""
+			var gate := _gate(ent, ctx)
+			if gate != "":
+				ent["status"] = "skipped_gate"
+				ent["reason"] = gate
+			elif head_taken:
+				ent["status"] = "queued"
+			else:
+				head_taken = true
+				var why := ""
+				for k in ["gold", "bone"]:
+					if why == "" and float(ent["cost"].get(k, 0.0)) > float(ctx.get(k, 0.0)) + 0.0001:
+						why = "no_" + k
+				ent["status"] = "waiting_funds" if why != "" else "next"
+				ent["reason"] = why
+
+	func _gate(ent: Dictionary, ctx: Dictionary) -> String:
+		if float(ent["cost"].get("relics", 0)) > float(ctx.get("relics", 0.0)) + 0.0001:
+			return "no_relics"
+		if ent["upgrade"]:
+			var info: Dictionary = ctx.get("built", {}).get(ent["lot_id"], {})
+			if info.is_empty() or info.get("building_id", "") != ent["building_id"]:
+				return "empty_lot"
+			if int(info.get("level", 0)) >= int(info.get("max_level", 1)):
+				return "max_level"
+			return ""
+		var row: Dictionary = ctx.get("catalog", {}).get(ent["building_id"], {})
+		var why := String(row.get("reason", ""))
+		if why in ctx.get("gates", []):
+			return why
+		if not ent["lot_id"] in row.get("lots", []):
+			return "lot_taken"
+		return ""
+
+	func _refuse(reason: String) -> Dictionary:
+		return {"ok": false, "reason": reason, "index": -1, "cap_building": ""}
+
+
 ## A synthetic full city for `--town-demo=full`, built on `base` (the shell's views dict) so every
 ## view and key a real fetch has is present. Only `town` and the HUD's worker/living stocks change.
 static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Dictionary) -> Dictionary:

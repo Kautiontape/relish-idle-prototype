@@ -14,8 +14,13 @@ extends Control
 ##   walls        tier walls and the tier-up set piece (TownWalls);
 ##   overlay      labels: the crypt always, any other building on hover.
 ## Contract: bind(views) on each fetch, on_game_event(ev) from the shell, signal command_issued.
+## Build tab hooks: set_placement(building_id, lots) outlines the valid lots in `select` and dims the
+## rest; set_selected_lot(id) dashes the inspected lot; clicks emit lot_clicked(lot_id) (hit boxes
+## at least view.hit_min_px wide, "" for open ground) and right_clicked.
 
 signal command_issued
+signal lot_clicked(lot_id: String)
+signal right_clicked
 
 const LotScript := preload("res://scripts/town/town_lot.gd")
 const FlowScript := preload("res://scripts/town/town_flow.gd")
@@ -38,6 +43,10 @@ var _overlay: Node2D
 var _laid := Vector2.ZERO
 var _hover := ""
 var _pulse_gain := 0.0
+var _pick: Node2D
+var _place_id := ""
+var _place_lots: Array = []
+var _selected := ""
 
 
 func _ready() -> void:
@@ -69,6 +78,7 @@ func _ready() -> void:
 	_walls.vcfg = _v
 	add_child(_walls)
 	_overlay = _layer("Labels", _draw_labels)
+	_pick = _layer("Pick", _draw_pick)
 	_refresh()
 
 
@@ -103,6 +113,38 @@ func _gui_input(event: InputEvent) -> void:
 	var m := event as InputEventMouse
 	if m != null:
 		_set_hover(_building_at(m.position))
+	var b := event as InputEventMouseButton
+	if b != null and b.pressed and model != null:
+		if b.button_index == MOUSE_BUTTON_LEFT:
+			lot_clicked.emit(model.lot_at(b.position, float(_v.get("hit_min_px", 0.0))))
+			accept_event()
+		elif b.button_index == MOUSE_BUTTON_RIGHT:
+			right_clicked.emit()
+			accept_event()
+
+
+## Placement mode for the Build tab: `lots` (lot ids) are outlined in `select`, every other lot is
+## dimmed. An empty `building_id` ends it.
+func set_placement(building_id: String, lots: Array) -> void:
+	_place_id = building_id
+	_place_lots = lots.duplicate() if building_id != "" else []
+	_apply_dim()
+	if _pick != null:
+		_pick.queue_redraw()
+
+
+## The lot the inspector shows (dashed `select` outline); "" for none.
+func set_selected_lot(lot_id: String) -> void:
+	_selected = lot_id
+	if _pick != null:
+		_pick.queue_redraw()
+
+
+func _apply_dim() -> void:
+	var dim := float(_v.get("placement_dim", 1.0))
+	for i in _lots.size():
+		var lit: bool = _place_id == "" or (i < model.lots.size() and String(model.lots[i]["id"]) in _place_lots)
+		_lots[i].modulate = Color(1, 1, 1, 1.0 if lit else dim)
 
 
 ## Rebuild the display state; lots redraw only where their entry changed. Nothing happens until
@@ -132,6 +174,8 @@ func _refresh() -> void:
 		_floor.set_source(_flow.slab_rect.get_center())  # the crypt arrived after the first layout
 	_walls.sync_model(relayout)
 	_overlay.queue_redraw()
+	_apply_dim()
+	_pick.queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -226,3 +270,21 @@ func _label(r: Rect2, text: String, key: String) -> void:
 	var plate := Rect2(base - Vector2(4, font.get_ascent(fs) + 1), Vector2(sz.x + 8, sz.y + 2))
 	_overlay.draw_rect(plate, Palette.c("ground"))
 	_overlay.draw_string(font, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(key))
+
+
+# ----------------------------------------------------------------- picks ----
+func _draw_pick() -> void:
+	if model == null:
+		return
+	var sel := Palette.c("select")
+	for l in model.lots:
+		var r: Rect2 = l["rect"]
+		if String(l["id"]) in _place_lots:
+			var g := r.grow(3.0)
+			var pts := PackedVector2Array([g.position, Vector2(g.end.x, g.position.y), g.end, Vector2(g.position.x, g.end.y), g.position])
+			LineGlow.polyline(_pick, pts, sel, 2.0, 0.6)
+		elif String(l["id"]) == _selected:
+			var g := r.grow(3.0)
+			var c := [g.position, Vector2(g.end.x, g.position.y), g.end, Vector2(g.position.x, g.end.y)]
+			for i in 4:
+				_pick.draw_dashed_line(c[i], c[(i + 1) % 4], sel, 2.0, 6.0)
