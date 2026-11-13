@@ -15,7 +15,7 @@
     "dim_alpha": 0.3
   },
   "danger": {
-    "hp_arc_gap_px": 18.0,
+    "hp_arc_gap_px": 20.0,
     "hp_arc_width": 3.0,
     "hp_seg_hp": 5.0,
     "hp_low_frac": 0.34,
@@ -23,6 +23,7 @@
     "edge_inset_px": 5.0,
     "edge_alpha": 0.85,
     "edge_pulse_s": 0.7,
+    "edge_static_hold_s": 1.2,
     "edge_target_alpha": 0.4,
     "edge_static_alpha": 0.5,
     "target_hold_s": 0.2
@@ -205,10 +206,11 @@
     "boss_doors": 7,
     "boss_rooms": 4,
     "wall_thickness": 30.0,
-    "wall_glow_px": 26.0,
     "wall_stroke_px": 3.0,
     "wall_halo_px": 9.0,
-    "wall_intensity": 0.55,
+    "wall_intensity": 0.7,
+    "boss_wall_stroke_px": 6.0,
+    "boss_wall_intensity": 0.9,
     "door_width": 150.0,
     "inner_gap_width": 165.0,
     "min_room_px": 300.0,

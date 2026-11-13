@@ -82,7 +82,10 @@ func is_boss() -> bool:
 ## unit colours (living, undead): Vei's forts and the boss arena are "vei" (the boss runs hotter),
 ## a held (player) fortress is "town".
 func controller_key() -> String:
-	return str(seed_data.get("controller_key", "town" if held and not is_boss() else "vei"))
+	var k := str(seed_data.get("controller_key", ""))
+	if k == "vei" or k == "town":   # a seed can never hand the walls a unit colour
+		return k
+	return "town" if held and not is_boss() else "vei"
 
 
 ## Standalone setup args (VeiBoss overrides this with its legacy boss seed).

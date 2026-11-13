@@ -20,6 +20,10 @@ var _t := 0.0
 var _cent: Array[Vector2] = []
 var _rad: Array[float] = []
 var _cnt: Array[int] = []
+var _txt: Array[String] = []      # cached badge strings and sizes (set at refresh, not in _draw)
+var _box: Array[Rect2] = []       # badge backing rect, local to the centroid
+var _tpos: Array[Vector2] = []    # text baseline origin, local to the centroid
+var _fs := 16                     # badge font size in world px (font_px / camera zoom)
 var _buckets := {}   # Vector2i -> [count, sum_x, sum_y, min_x, min_y, max_x, max_y, label]
 
 
@@ -46,12 +50,15 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## Cluster the live allies: grid buckets, then 8-neighbour flood merge of the buckets that
-## hold at least a third of the threshold (so a swarm straddling a cell line still counts once).
+## Cluster the live allies: grid buckets, then an 8-neighbour flood merge of every occupied
+## bucket, so a thin or cell-straddling swarm is one cluster and its count is its true size.
 func _recluster() -> void:
 	_cent.clear()
 	_rad.clear()
 	_cnt.clear()
+	_txt.clear()
+	_box.clear()
+	_tpos.clear()
 	if raid == null:
 		return
 	_buckets.clear()
@@ -69,10 +76,13 @@ func _recluster() -> void:
 			b[2] += p.y
 	if _buckets.is_empty():
 		return
-	var floor_n := maxi(1, _min / 3)
+	var zoom := maxf(0.05, get_viewport().get_canvas_transform().get_scale().x)
+	_fs = maxi(8, roundi(float(_font) / zoom))   # about font_px on screen at any zoom
+	var pad := 5.0 / zoom
+	var font := ThemeDB.fallback_font
 	var seen := {}
 	for k in _buckets:
-		if seen.has(k) or int(_buckets[k][0]) < floor_n:
+		if seen.has(k):
 			continue
 		var stack: Array = [k]
 		seen[k] = true
@@ -96,23 +106,27 @@ func _recluster() -> void:
 			for dy in [-1, 0, 1]:
 				for dx in [-1, 0, 1]:
 					var nk := Vector2i(c.x + dx, c.y + dy)
-					if not seen.has(nk) and _buckets.has(nk) and int(_buckets[nk][0]) >= floor_n:
+					if not seen.has(nk) and _buckets.has(nk):
 						seen[nk] = true
 						stack.append(nk)
 		if n >= _min and _cnt.size() < _max:
 			_cent.append(Vector2(sx / n, sy / n))
 			_rad.append(maxf(_cell * 0.5, 0.5 * Vector2(maxx - minx, maxy - miny).length()) + _pad)
 			_cnt.append(n)
+			var txt := str(n)
+			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_CENTER, -1, _fs).x
+			_txt.append(txt)
+			_tpos.append(Vector2(-tw * 0.5, 0.0))
+			_box.append(Rect2(Vector2(-tw * 0.5 - pad, -_fs), Vector2(tw + pad * 2.0, _fs + pad)))
 
 
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
+	var ring := Palette.c("undead", _ring_a)
+	var back := Palette.c("ground", 0.8)
+	var ink := Palette.c("undead_core")
 	for i in _cnt.size():
 		var c := _cent[i]
-		var col := Palette.c("undead", _ring_a)
-		draw_arc(c, _rad[i], 0.0, TAU, 48, col, _ring_w)
-		var txt := str(_cnt[i])
-		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_CENTER, -1, _font).x
-		var at := c + Vector2(-w * 0.5, -_rad[i] * 0.0)
-		draw_rect(Rect2(at + Vector2(-5, -_font), Vector2(w + 10, _font + 6)), Palette.c("ground", 0.7))
-		draw_string(font, at, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, _font, Palette.c("undead_core"))
+		draw_arc(c, _rad[i], 0.0, TAU, 48, ring, _ring_w)
+		draw_rect(Rect2(c + _box[i].position, _box[i].size), back)
+		draw_string(font, c + _tpos[i], _txt[i], HORIZONTAL_ALIGNMENT_LEFT, -1, _fs, ink)

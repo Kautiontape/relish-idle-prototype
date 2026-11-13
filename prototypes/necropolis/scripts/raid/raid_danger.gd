@@ -14,6 +14,8 @@ var _alpha := 0.85
 var _target_alpha := 0.4
 var _static_alpha := 0.5
 var _hold_s := 0.2
+var _static_hold := 1.2
+var _static_left := 0.0   # reduced motion: real seconds the steady tint stays after a hit
 var _draw_node: Node2D = null
 var _pts := PackedVector2Array()
 var _last_alpha := -1.0
@@ -30,6 +32,7 @@ func _ready() -> void:
 	_target_alpha = float(c.get("edge_target_alpha", 0.4))
 	_static_alpha = float(c.get("edge_static_alpha", 0.5))
 	_hold_s = float(c.get("target_hold_s", 0.2))
+	_static_hold = maxf(float(c.get("edge_static_hold_s", 1.2)), _hold_s)
 	_draw_node = EdgeDraw.new()
 	_draw_node.owner_layer = self
 	add_child(_draw_node)
@@ -38,6 +41,7 @@ func _ready() -> void:
 ## Relish was hit, or an ally was spent in her place.
 func hit() -> void:
 	_hit_left = _pulse_s
+	_static_left = _static_hold
 
 
 ## A warden's tell is aimed at her. Call every physics frame the tell holds.
@@ -49,7 +53,7 @@ func targeted() -> void:
 func level() -> float:
 	var reduced: bool = Pulse.reduced_motion
 	if reduced:
-		return _static_alpha if (_hit_left > 0.0 or _target_left > 0.0) else 0.0
+		return _static_alpha if (_static_left > 0.0 or _target_left > 0.0) else 0.0
 	var a := 0.0
 	if _hit_left > 0.0:
 		a = _alpha * _hit_left / maxf(0.01, _pulse_s)
@@ -62,6 +66,7 @@ func _process(delta: float) -> void:
 	var real := delta / maxf(0.05, Engine.time_scale)   # real time, unaffected by the trance
 	_hit_left = maxf(0.0, _hit_left - real)
 	_target_left = maxf(0.0, _target_left - real)
+	_static_left = maxf(0.0, _static_left - real)
 	var a := level()
 	var sz := get_viewport().get_visible_rect().size
 	if a != _last_alpha or sz != _last_size:

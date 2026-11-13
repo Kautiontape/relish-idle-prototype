@@ -358,6 +358,16 @@ class TranceMeter:
 	func _process(_d: float) -> void:
 		queue_redraw()
 
+	## Cooldown reads by shape: one segment per second of cooldown, draining away.
+	func _segmented(r: Rect2, remaining_frac: float, total_s: float, col: Color) -> void:
+		var n := maxi(1, roundi(total_s))
+		var w := r.size.x / n
+		var left := remaining_frac * n
+		for i in n:
+			var fill := clampf(left - i, 0.0, 1.0)
+			if fill > 0.0:
+				draw_rect(Rect2(r.position.x + w * i, r.position.y, (w - 2.0) * fill, r.size.y), col)
+
 	func _draw() -> void:
 		if raid == null or raid.trance == null or raid._ended:
 			return
@@ -376,13 +386,11 @@ class TranceMeter:
 		elif tr.state == RaidTrance.State.COOLDOWN:
 			word = "COOLDOWN"
 			col = Palette.c("cooldown")
-			draw_rect(Rect2(r.position, Vector2(r.size.x * (1.0 - tr.cooldown_frac()), r.size.y)),
-				Palette.c("cooldown", 0.9))
+			_segmented(r, tr.cooldown_frac(), tr.cooldown_total, Palette.c("cooldown", 0.9))
 		elif tr.state == RaidTrance.State.LOCKOUT:
 			word = "…"
 			col = Palette.c("danger")
-			draw_rect(Rect2(r.position, Vector2(r.size.x * (1.0 - tr.cooldown_frac()), r.size.y)),
-				Palette.c("danger", 0.5))
+			_segmented(r, tr.cooldown_frac(), tr.cooldown_total, Palette.c("danger", 0.5))
 		draw_string(ThemeDB.fallback_font, Vector2(0, 8), word,
 			HORIZONTAL_ALIGNMENT_LEFT, 190, 14, col)
 

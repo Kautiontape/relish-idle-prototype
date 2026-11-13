@@ -107,10 +107,14 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		"arena_diag": _diag,
 		"stroke_half": float(lcfg.get("wall_stroke_px", 3.0)) * 0.5,
 		"halo_px": float(lcfg.get("wall_halo_px", 9.0)),
-		"intensity": float(lcfg.get("wall_intensity", 0.34)),
+		"intensity": float(lcfg.get("wall_intensity", 0.7)),
 		"wave_spread": Pulse.wave_spread,
 		"wave_decay": Pulse.wave_decay,
 	}
+	if bool(layout.get("boss", false)):
+		# Vei's arena: a thicker, brighter stroke (the camera is zoomed out here)
+		look["stroke_half"] = float(lcfg.get("boss_wall_stroke_px", 6.0)) * 0.5
+		look["intensity"] = float(lcfg.get("boss_wall_intensity", 0.9))
 	# the warden room's walls run hotter (VISUAL-LANGUAGE 2c)
 	var wr := int(layout.get("warden_room", -1))
 	var hot := look.duplicate()

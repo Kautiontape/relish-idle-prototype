@@ -121,9 +121,17 @@ func _draw() -> void:
 			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * f,
 				violet, 3.0, 0.5, Palette.c("text"))
 		elif tr.state == RaidTrance.State.COOLDOWN or tr.state == RaidTrance.State.LOCKOUT:
-			var f2: float = 1.0 - tr.cooldown_frac()
-			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5,
-				-PI * 0.5 + TAU * maxf(0.02, f2), Palette.c("cooldown"), 2.5, 0.5)
+			# segmented (one per second of cooldown) so it reads by shape, not hue alone
+			var segs := maxi(1, roundi(tr.cooldown_total))
+			var left: float = tr.cooldown_frac() * segs
+			var step := TAU / segs
+			var gap := minf(0.2, step * 0.3)
+			for i in segs:
+				var fill := clampf(left - i, 0.0, 1.0)
+				if fill > 0.0:
+					var a0 := -PI * 0.5 + step * i + gap * 0.5
+					LineGlow.arc(self, Vector2.ZERO, radius + 11.0, a0, a0 + (step - gap) * fill,
+						Palette.c("cooldown"), 2.5, 0.5)
 
 
 ## The HP arc: a ring of segments (one per `hp_seg_hp` hp, so the damage is countable) that
