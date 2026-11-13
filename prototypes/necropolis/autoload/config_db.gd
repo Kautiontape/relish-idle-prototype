@@ -10,25 +10,7 @@ func _ready() -> void:
 
 
 func reload() -> void:
-	data.clear()
-	_load_dir("res://configs")
-
-
-func _load_dir(path: String) -> void:
-	var dir := DirAccess.open(path)
-	if dir == null:
-		return
-	dir.list_dir_begin()
-	var f := dir.get_next()
-	while f != "":
-		var p := path + "/" + f
-		if dir.current_is_dir() and not f.begins_with("."):
-			_load_dir(p)
-		elif f.ends_with(".json"):
-			var parsed = JSON.parse_string(FileAccess.get_file_as_string(p))
-			if parsed != null:
-				data[f.trim_suffix(".json")] = parsed
-		f = dir.get_next()
+	data = GameState.load_configs("res://configs")
 
 
 func v(file: String, key: String, def = null):

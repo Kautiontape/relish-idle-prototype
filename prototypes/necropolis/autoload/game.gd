@@ -28,6 +28,56 @@ var _field_acc := 0.0
 var _raiding_fort := ""
 
 
+## Debug cheat keys -> where they land today. Generic names so callers survive
+## later model changes. "kind" is the value type; time_scale is set-only.
+const DEBUG_KEYS := {
+	"gold": {"path": ["res", "gold"], "kind": "float"},
+	"materials": {"path": ["res", "materials"], "kind": "float"},
+	"bodies": {"path": ["res", "bodies"], "kind": "float"},
+	"workers": {"path": ["idle_undead"], "kind": "int"},
+	"soldier": {"path": ["army", "soldier"], "kind": "int"},
+	"elite": {"path": ["army", "elite"], "kind": "int"},
+	"forge_level": {"path": ["town", "forge_level"], "kind": "int"},
+	"backlog": {"path": ["realm", "vei", "undead_queue"], "kind": "float"},
+	"time_scale": {"path": ["time_scale"], "kind": "scale", "set_only": true},
+}
+
+
+func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
+	return _debug_apply(amounts, true)
+
+
+func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
+	return _debug_apply(patch, false)
+
+
+func _debug_apply(values: Dictionary, additive: bool) -> Dictionary:
+	if not OS.is_debug_build():
+		return {"ok": false, "reason": "not_debug", "applied": []}
+	for k in values:
+		var spec: Dictionary = DEBUG_KEYS.get(k, {})
+		if spec.is_empty() or (additive and spec.get("set_only", false)):
+			return {"ok": false, "reason": "unknown_key", "applied": []}
+		if spec["kind"] == "scale" and float(values[k]) <= 0.0:
+			return {"ok": false, "reason": "bad_value", "applied": []}
+	var applied: Array = []
+	for k in values:
+		var spec: Dictionary = DEBUG_KEYS[k]
+		var path: Array = spec["path"]
+		var holder: Variant = self
+		for i in path.size() - 1:
+			holder = holder[path[i]]
+		var leaf: String = path[path.size() - 1]
+		var v: float = float(values[k])
+		if additive:
+			v += float(holder[leaf])
+		if spec["kind"] != "scale":
+			v = maxf(v, 0.0)
+		holder[leaf] = int(v) if spec["kind"] == "int" else v
+		applied.append(k)
+	return {"ok": true, "reason": "", "applied": applied}
+
+
 func raiding_fort_id() -> String:
 	return _raiding_fort
 

@@ -3,10 +3,11 @@ extends RefCounted
 
 
 func _mk(overrides := {}) -> RealmSim:
-	var cfg := TestUtil.load_json("res://configs/realm.json")
+	var all := TestUtil.configs()
+	var cfg: Dictionary = (all["realm"] as Dictionary).duplicate(true)
 	for k in overrides:
 		cfg[k] = overrides[k]
-	var world := TestUtil.load_json("res://configs/world.json")
+	var world: Dictionary = (all["world"] as Dictionary).duplicate(true)
 	var sim := RealmSim.new()
 	sim.setup(world, cfg)
 	return sim
