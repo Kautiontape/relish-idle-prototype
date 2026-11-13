@@ -12,12 +12,19 @@ extends RefCounted
 ## pixels at the reference 1600x900 window and scale with min(rect / reference view).
 
 ## Per lot, in config order: {id, size, rect: Rect2, unlocked, door: String, door_pos: Vector2,
-## building: {} or a display entry (see _entry)}.
+## hops: float (the door's street distance from the plaza, px), building: {} or a display entry
+## (see _entry)}.
 var lots: Array = []
-## Per street edge: {a, b, from: Vector2, to: Vector2}.
+## Per street edge: {a, b, from: Vector2, to: Vector2, near: Vector2, far: Vector2, rate: float}.
+## `near`/`far` orient the edge away from the plaza (near is the end closer along the streets);
+## `rate` is the edge's worker stream (see _edge_rates).
 var streets: Array = []
 ## Street node id -> Vector2 (px).
 var nodes: Dictionary = {}
+## Street node id -> shortest street distance from the plaza, px (the town's hop measure: the
+## crypt slab is the tempo source, law 5). `depth` is the largest, for Pulse.wave(d, depth).
+var dist: Dictionary = {}
+var depth := 0.0
 var tier := ""
 ## view_town's next_tier: {tier, have, need, missing}.
 var next_tier: Dictionary = {}
@@ -35,6 +42,8 @@ var _bcfg: Dictionary = {}
 var _unit: Dictionary = {}  # building id -> Array[PackedVector2Array] in the unit box
 var _adj: Dictionary = {}   # node id -> Array[String]
 var _paths: Dictionary = {}  # "a|b" -> PackedVector2Array
+var _edge_of: Dictionary = {}  # "a|b" (both orders) -> index into streets
+var _door_routes: Dictionary = {}  # door node -> Array of street indices from the plaza
 var _laid_out := false
 
 
@@ -84,6 +93,7 @@ func update(views: Dictionary, r: Rect2) -> void:
 	for lot in lots:
 		lot["unlocked"] = bool(view_lots.get(lot["id"], {}).get("unlocked", false))
 		lot["building"] = _entry(by_lot[lot["id"]], lot, town) if by_lot.has(lot["id"]) else {}
+	_edge_rates()
 
 
 func lot(id: String) -> Dictionary:
@@ -96,22 +106,31 @@ func lot(id: String) -> Dictionary:
 ## The silhouette of `building_id` scaled into `r`, truncated so the drawn length is `reveal` of the
 ## total (the last stroke partial). Reveal 0 draws nothing; an unknown id draws nothing.
 func strokes(building_id: String, r: Rect2, reveal: float) -> Array[PackedVector2Array]:
-	var out: Array[PackedVector2Array] = []
-	if reveal <= 0.0 or not _unit.has(building_id):
-		return out
 	var scaled: Array[PackedVector2Array] = []
-	var total := 0.0
+	if reveal <= 0.0 or not _unit.has(building_id):
+		return scaled
 	for pl in _unit[building_id]:
 		var p := PackedVector2Array()
 		p.resize(pl.size())
 		for i in pl.size():
 			p[i] = r.position + pl[i] * r.size
 		scaled.append(p)
+	return truncate(scaled, reveal)
+
+
+## `pls` drawn in order and cut so the drawn length is `frac` of the total (the last polyline
+## partial). The end of the last returned polyline is the drawing head. 0 -> [], >= 1 -> all.
+static func truncate(pls: Array[PackedVector2Array], frac: float) -> Array[PackedVector2Array]:
+	var out: Array[PackedVector2Array] = []
+	if frac <= 0.0:
+		return out
+	if frac >= 1.0:
+		return pls.duplicate()
+	var total := 0.0
+	for p in pls:
 		total += _length(p)
-	if reveal >= 1.0:
-		return scaled
-	var left := reveal * total
-	for p in scaled:
+	var left := frac * total
+	for p in pls:
 		var l := _length(p)
 		if l <= left:
 			out.append(p)
@@ -149,13 +168,39 @@ func path(from_node: String, to_node: String) -> PackedVector2Array:
 ## The wall ring of `t` in px (an open polyline whose two ends flank the gate), if the town has
 ## reached that tier; else [].
 func walls(t: String) -> PackedVector2Array:
-	var out := PackedVector2Array()
 	var idx := tiers.find(t)
 	if idx < 0 or idx > tiers.find(tier):
-		return out
+		return PackedVector2Array()
+	return wall_ring(t)
+
+
+## The wall ring of `t` in px whether or not the town has reached it (the tier-up set piece draws
+## it before the views catch up). [] for a tier without walls.
+func wall_ring(t: String) -> PackedVector2Array:
+	var out := PackedVector2Array()
 	for p in _v.get("tier_walls", {}).get(t, []):
 		out.append(_px(p))
 	return out
+
+
+## The floor's drift at `p` (px): along the nearest street, toward the crypt plaza, strength 1 on
+## the street falling linearly to 0 at view.floor_reach_px (scaled); zero inside any lot rect.
+func drift_at(p: Vector2) -> Vector2:
+	for l in lots:
+		if (l["rect"] as Rect2).has_point(p):
+			return Vector2.ZERO
+	var best := INF
+	var dir := Vector2.ZERO
+	for s in streets:
+		var q := Geometry2D.get_closest_point_to_segment(p, s["near"], s["far"])
+		var d := p.distance_to(q)
+		if d < best:
+			best = d
+			dir = (s["near"] - s["far"]).normalized()
+	var reach := float(_v.get("floor_reach_px", 0.0)) * scale
+	if reach <= 0.0:
+		return Vector2.ZERO
+	return dir * clampf(1.0 - best / reach, 0.0, 1.0)
 
 
 ## WCAG contrast ratio of `fg` (alpha-blended over `bg`) against opaque `bg`.
@@ -196,12 +241,22 @@ func _layout(r: Rect2) -> void:
 	nodes = {}
 	for id in _v.get("street_nodes", {}):
 		nodes[String(id)] = _px(_v["street_nodes"][id])
+	dist = _distances("plaza")
+	depth = 0.0
+	for id in dist:
+		depth = maxf(depth, dist[id])
 	streets = []
+	_edge_of = {}
+	_door_routes = {}
 	for e in _v.get("street_edges", []):
 		var a := String(e[0])
 		var b := String(e[1])
 		if nodes.has(a) and nodes.has(b):
-			streets.append({"a": a, "b": b, "from": nodes[a], "to": nodes[b]})
+			var a_near := float(dist.get(a, INF)) <= float(dist.get(b, INF))
+			_edge_of[a + "|" + b] = streets.size()
+			_edge_of[b + "|" + a] = streets.size()
+			streets.append({"a": a, "b": b, "from": nodes[a], "to": nodes[b],
+				"near": nodes[a] if a_near else nodes[b], "far": nodes[b] if a_near else nodes[a], "rate": 0.0})
 	var unit := float(_v.get("lot_unit_px", 0)) * scale
 	var h := float(_v.get("lot_h_px", 0)) * scale
 	var pos: Dictionary = _v.get("lot_pos", {})
@@ -214,7 +269,7 @@ func _layout(r: Rect2) -> void:
 		var door := _nearest(c)
 		lots.append({
 			"id": id, "size": size, "rect": Rect2(c - Vector2(w, h) * 0.5, Vector2(w, h)), "unlocked": false,
-			"door": door, "door_pos": nodes.get(door, c), "building": {},
+			"door": door, "door_pos": nodes.get(door, c), "hops": float(dist.get(door, 0.0)), "building": {},
 		})
 
 
@@ -229,16 +284,68 @@ func _nearest(p: Vector2) -> String:
 	return best
 
 
+## Street distance (px) from `src` to every node it reaches (Dijkstra).
+func _distances(src: String) -> Dictionary:
+	var out := {}
+	if not nodes.has(src):
+		return out
+	out[src] = 0.0
+	var open := [src]
+	var done := {}
+	while not open.is_empty():
+		var bi := 0
+		for i in open.size():
+			if out[open[i]] < out[open[bi]]:
+				bi = i
+		var u: String = open[bi]
+		open.remove_at(bi)
+		done[u] = true
+		for n in _adj.get(u, []):
+			if done.has(n) or not nodes.has(n):
+				continue
+			var d: float = out[u] + nodes[u].distance_to(nodes[n])
+			if not out.has(n):
+				out[n] = d
+				open.append(n)
+			elif d < out[n]:
+				out[n] = d
+	return out
+
+
+# STANDIN(task 3): until agents walk the streets, each street's stream is the staffed workers whose
+# job building's door route from the plaza uses it (undead are raised at the slab and walk out).
+func _edge_rates() -> void:
+	for s in streets:
+		s["rate"] = 0.0
+	for l in lots:
+		var b: Dictionary = l["building"]
+		if b.is_empty() or int(b.get("slots", 0)) <= 0 or float(b.get("staffed", 0.0)) <= 0.0:
+			continue
+		for i in _door_route(String(l["door"])):
+			streets[i]["rate"] += float(b["staffed"])
+
+
+func _door_route(door: String) -> Array:
+	if _door_routes.has(door):
+		return _door_routes[door]
+	var ids := _route("plaza", door) if nodes.has("plaza") and nodes.has(door) else []
+	var out: Array = []
+	for k in range(1, ids.size()):
+		out.append(int(_edge_of[ids[k - 1] + "|" + ids[k]]))
+	_door_routes[door] = out
+	return out
+
+
 ## Dijkstra over the street graph (a few dozen nodes), edge weights in px.
 func _route(a: String, b: String) -> Array:
-	var dist := {a: 0.0}
+	var best := {a: 0.0}
 	var prev := {}
 	var open := [a]
 	var done := {}
 	while not open.is_empty():
 		var bi := 0
 		for i in open.size():
-			if dist[open[i]] < dist[open[bi]]:
+			if best[open[i]] < best[open[bi]]:
 				bi = i
 		var u: String = open[bi]
 		open.remove_at(bi)
@@ -248,13 +355,13 @@ func _route(a: String, b: String) -> Array:
 		for n in _adj.get(u, []):
 			if done.has(n) or not nodes.has(n):
 				continue
-			var d: float = dist[u] + nodes[u].distance_to(nodes[n])
-			if not dist.has(n) or d < dist[n]:
-				if not dist.has(n):
+			var d: float = best[u] + nodes[u].distance_to(nodes[n])
+			if not best.has(n) or d < best[n]:
+				if not best.has(n):
 					open.append(n)
-				dist[n] = d
+				best[n] = d
 				prev[n] = u
-	if not dist.has(b):
+	if not best.has(b):
 		return []
 	var out := [b]
 	while out[0] != a:
@@ -275,13 +382,22 @@ func _entry(b: Dictionary, lot: Dictionary, town: Dictionary) -> Dictionary:
 	var pip := _pips(b, jobs)
 	return {
 		"lot_id": String(b.get("lot_id", "")), "building_id": bid,
-		"label": String(meta.get("label", bid.capitalize())), "ink": String(meta.get("ink", "town")),
+		"label": String(meta.get("label", bid.capitalize())), "ink": _ink(meta, town),
 		"state": state, "progress": progress, "reveal": progress if state == "constructing" else 1.0,
 		"glow": _glow(b, state, String(meta.get("light_by", "always")), town),
 		"pips": int(pip["pips"]), "pip_key": String(pip["pip_key"]),
 		"slots": slots, "staffed": staffed, "unpaid": state == "unpaid",
 		"foreman": String(b.get("foreman", "")), "rect": _footprint(bid, lot),
 	}
+
+
+## The building's ink key. Relish's violet only while she is home (the slab works); away, a
+## relish-inked building takes view.relish_away_ink.
+func _ink(meta: Dictionary, town: Dictionary) -> String:
+	var ink := String(meta.get("ink", "town"))
+	if ink == "relish" and not bool(town.get("relish_home", false)):
+		return String(_v.get("relish_away_ink", ink))
+	return ink
 
 
 ## The silhouette's rect: the building's own lot_size wide, centred in its lot.

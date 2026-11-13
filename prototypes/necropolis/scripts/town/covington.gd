@@ -26,6 +26,11 @@ var _last_rev := -1
 var _since_fetch := 0.0
 var _dirty := false
 var _refresh_s := 0.25
+## Debug-only harness (`--town-demo=full|tierup`, ignored unless Game.state.debug_enabled):
+## "full" binds the synthetic demo city instead of the fetched views; "tierup" fires a synthetic
+## tier_up event shortly after setup. Both say so on screen.
+var _demo := ""
+var _tier := ""  # the last fetched town tier (the synthetic tier_up's `from`)
 
 
 func _ready() -> void:
@@ -51,11 +56,35 @@ func _standalone_check() -> void:
 func setup(_args: Dictionary) -> void:
 	_setup_done = true
 	_fetch()
+	if _demo == "tierup":
+		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
+		get_tree().create_timer(float(spec.get("delay_s", 0.0))).timeout.connect(
+			_fire_demo_tierup.bind(String(spec.get("tier", ""))))
+
+
+func _fire_demo_tierup(tier: String) -> void:
+	if not is_inside_tree():
+		return
+	_on_game_event({"type": "tier_up", "t": 0.0, "tier": tier, "from": _tier})
+
+
+## Reads `--town-demo=<mode>`; only a debug build honours it.
+func _read_demo_flag() -> void:
+	if not Game.state.debug_enabled:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--town-demo="):
+			var mode := arg.trim_prefix("--town-demo=")
+			if mode in ["full", "tierup"]:
+				_demo = mode
+			else:
+				printerr("Covington: unknown --town-demo=%s (expected full or tierup)" % mode)
 
 
 func _build_ui() -> void:
 	var cfg: Dictionary = ConfigDb.v("town", "view", {})
 	_refresh_s = float(cfg.get("refresh_s", 0.25))
+	_read_demo_flag()
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
@@ -104,6 +133,13 @@ func _build_ui() -> void:
 	for n in _bound:
 		n.command_issued.connect(_on_command_issued)
 	_select_tab(0)
+	if _demo != "":
+		var tag := TownUI.label("SYNTHETIC DEMO TOWN (debug)" if _demo == "full" else "SYNTHETIC TIER-UP EVENT (debug)",
+			14, "select")
+		tag.position = Vector2(12, 8)
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tag.add_theme_stylebox_override("normal", TownUI.panel_box())
+		_view.add_child(tag)
 
 
 func _select_tab(i: int) -> void:
@@ -136,6 +172,9 @@ func _fetch() -> void:
 		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
 		"relish": s.view_relish(), "vei": s.view_vei(),
 	}
+	if _demo == "full":
+		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
+	_tier = String(views["town"].get("tier", ""))
 	for n in _bound:
 		n.bind(views)
 

@@ -58,6 +58,13 @@ func run() -> int:
 	_dim(day1)
 	_demo_city(demo)
 	_contrast()
+	_hops(day1)
+	_edge_rates(day1, demo)
+	_drift(day1)
+	_truncate()
+	_wall_ring(day1, mid)
+	_crypt_ink(day1)
+	_view_keys()
 	return t.failures
 
 
@@ -420,3 +427,176 @@ func _contrast() -> void:
 		var c := Palette.c(String(spec["key"]), float(spec["alpha"]))
 		var ratio := TownModel.contrast(c, ground)
 		t.ok(ratio >= 3.0, "%s (%s at %.2f) reaches 3:1 on ground: %.2f" % [k, spec["key"], spec["alpha"], ratio])
+
+
+# ------------------------------------------------------------- hops, flows ----
+func _hops(day1: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	t.ok(m.dist.size() == m.nodes.size() and is_zero_approx(m.dist["plaza"]), "every node has a street distance; the plaza is 0")
+	var deepest := 0.0
+	for n in m.dist:
+		deepest = maxf(deepest, m.dist[n])
+	t.near(m.depth, deepest, 0.001, "depth is the farthest node's distance")
+	var lot_hops := true
+	for l in m.lots:
+		lot_hops = lot_hops and is_equal_approx(l["hops"], m.dist[l["door"]])
+	t.ok(lot_hops, "a lot's hops is its door's street distance")
+	t.ok(is_zero_approx(m.lot("lot-01")["hops"]), "the crypt sits at hops 0 (the tempo source)")
+	var oriented := true
+	for s in m.streets:
+		var dn: float = m.dist[s["a"]] if s["near"] == s["from"] else m.dist[s["b"]]
+		var df: float = m.dist[s["b"]] if s["near"] == s["from"] else m.dist[s["a"]]
+		oriented = oriented and dn <= df and ((s["near"] == s["from"] and s["far"] == s["to"]) or (s["near"] == s["to"] and s["far"] == s["from"]))
+	t.ok(oriented, "every street is oriented near -> far from the plaza, keeping from/to as configured")
+
+
+## Expected rate per street: the staffed workers of every job building whose route from the plaza
+## to its door walks that street.
+func _expected_rates(m: TownModel) -> Dictionary:
+	var want := {}
+	for l in m.lots:
+		var b: Dictionary = l["building"]
+		if b.is_empty() or b["slots"] <= 0 or b["staffed"] <= 0.0:
+			continue
+		var p := m.path("plaza", l["door"])
+		for k in range(1, p.size()):
+			var key := _ek(p[k - 1], p[k])
+			want[key] = float(want.get(key, 0.0)) + b["staffed"]
+	return want
+
+
+func _edge_rates(day1: Dictionary, demo: Dictionary) -> void:
+	for pair in [["day1", day1], ["demo", demo]]:
+		var m := _model()
+		m.update(pair[1], VIEW_RECT)
+		var want := _expected_rates(m)
+		var match_all := true
+		var lit := 0
+		for s in m.streets:
+			var w := float(want.get(_ek(s["from"], s["to"]), 0.0))
+			match_all = match_all and is_equal_approx(s["rate"], w)
+			lit += 1 if s["rate"] > 0.0 else 0
+		t.ok(match_all, "%s: each street carries the staffed workers routed through it" % pair[0])
+		t.ok(lit > 0 and lit < m.streets.size(), "%s: some streets lit, the rest off (%d of %d)" % [pair[0], lit, m.streets.size()])
+		var out_of_plaza := 0.0
+		for s in m.streets:
+			if s["near"] == m.nodes["plaza"]:
+				out_of_plaza += s["rate"]
+		var routed := 0.0
+		for l in m.lots:
+			var b: Dictionary = l["building"]
+			if not b.is_empty() and b["slots"] > 0 and l["door"] != "plaza":
+				routed += b["staffed"]
+		t.near(out_of_plaza, routed, 0.0001, "%s: what leaves the plaza is every staffed worker not at a plaza door" % pair[0])
+	var m := _model()
+	m.update(_patched(day1, "lot-03", {"staffed": 0.0}), VIEW_RECT)
+	var charnel_door: String = m.lot("lot-03")["door"]
+	var p := m.path("plaza", charnel_door)
+	var dark := true
+	for s in m.streets:
+		for k in range(1, p.size()):
+			if _ek(p[k - 1], p[k]) == _ek(s["from"], s["to"]):
+				dark = dark and is_zero_approx(s["rate"])
+	t.ok(dark, "an unstaffed building's route goes dark (zero rate is off)")
+	m.update(day1, VIEW_RECT)
+	m.update({}, VIEW_RECT)
+	var none := true
+	for s in m.streets:
+		none = none and s["rate"] == 0.0
+	t.ok(none, "rates reset on every update (no building, no stream)")
+
+
+func _drift(day1: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	var zero_in_lots := true
+	for l in m.lots:
+		var r: Rect2 = l["rect"]
+		for p in [r.get_center(), r.position + Vector2(1, 1), r.end - Vector2(1, 1)]:
+			zero_in_lots = zero_in_lots and m.drift_at(p) == Vector2.ZERO
+	t.ok(zero_in_lots, "the floor's drift is zero inside every lot")
+	var reach := float(vcfg["floor_reach_px"]) * m.scale
+	var along := true
+	var falls := true
+	var checked := 0
+	for s in m.streets:
+		var mid: Vector2 = (s["near"] + s["far"]) * 0.5
+		var toward: Vector2 = (s["near"] - s["far"]).normalized()
+		var side := Vector2(-toward.y, toward.x)
+		var on := m.drift_at(mid + side * 1.0)
+		var off := m.drift_at(mid + side * reach * 0.5)
+		if on == Vector2.ZERO:
+			continue  # the midpoint sits in a lot's shadow or nearer another street
+		checked += 1
+		along = along and on.normalized().dot(toward) > 0.99 and on.length() > 0.9
+		falls = falls and off.length() < on.length()
+	t.ok(along and checked * 2 >= m.streets.size(),
+		"on a street the drift runs along it toward the plaza at full strength (%d of %d streets)" % [checked, m.streets.size()])
+	t.ok(falls, "the drift weakens away from the street")
+	var far_point := Vector2(VIEW_RECT.end.x - 2.0, VIEW_RECT.end.y - 2.0)
+	t.ok(m.drift_at(far_point) == Vector2.ZERO, "beyond floor_reach_px of every street there is no drift")
+
+
+func _truncate() -> void:
+	var pl: Array[PackedVector2Array] = [PackedVector2Array([Vector2(0, 0), Vector2(100, 0)]),
+		PackedVector2Array([Vector2(100, 0), Vector2(100, 100)])]
+	t.ok(TownModel.truncate(pl, 0.0).is_empty(), "truncate 0 draws nothing")
+	t.ok(TownModel.truncate(pl, 1.0) == pl, "truncate 1 draws everything")
+	var q := TownModel.truncate(pl, 0.75)
+	t.near(_len(q), 150.0, 0.001, "truncate 0.75 draws three quarters of the length")
+	t.ok(q.size() == 2 and q[1][q[1].size() - 1].is_equal_approx(Vector2(100, 50)), "the head is where the drawing stops")
+	var h := TownModel.truncate(pl, 0.25)
+	t.ok(h.size() == 1 and h[0][1].is_equal_approx(Vector2(50, 0)), "a quarter stops inside the first stroke")
+
+
+func _wall_ring(day1: Dictionary, mid: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	t.ok(m.walls("village").is_empty() and m.wall_ring("village").size() >= 4,
+		"a hamlet has no village wall, but the set piece can still draw its ring")
+	var ring := m.wall_ring("village")
+	m.update(mid, VIEW_RECT)
+	t.ok(m.walls("village") == ring, "once reached, walls() is the same ring")
+	t.ok(m.wall_ring("hamlet").is_empty(), "a tier without walls has no ring")
+
+
+func _crypt_ink(day1: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	t.ok(day1["town"]["relish_home"] and m.lot("lot-01")["building"]["ink"] == "relish", "Relish home: the crypt inks violet")
+	var away: Dictionary = day1.duplicate(true)
+	away["town"]["relish_home"] = false
+	m.update(away, VIEW_RECT)
+	t.ok(m.lot("lot-01")["building"]["ink"] == String(vcfg["relish_away_ink"]), "Relish away: the crypt takes relish_away_ink")
+	t.ok(m.lot("lot-02")["building"]["ink"] == "undead", "other inks are untouched")
+
+
+## Every number and key the town view reads lives in town.json's view block.
+func _view_keys() -> void:
+	var keys := ["relish_away_ink", "floor_tint", "floor_reach_px", "lot_pulse_gain", "bed", "bed_line", "junction_px",
+		"flow_ref", "flow_glow", "chevron_px", "blueprint_dash_px", "blueprint_w_px", "locked_dot", "sil_w_px",
+		"sil_glow", "sil_core_mix", "dim_w_px", "band_px", "pip_px", "pip_gap_px", "pip_glow", "slot_tick_px",
+		"group_gap_px", "progress_ticks", "progress_tick_w_px", "reveal_rate", "head", "warn", "slab_rings_px",
+		"slab_ring_w_px", "slab_ring_alpha", "slab_ring_reach_px", "label_px", "wall_w_px", "wall_glow", "tierup_beats",
+		"tierup_head", "tierup_flash", "demo_tierup", "slot_open_w_px", "pip_w_px", "chevron_w_mul"]
+	var nested := {"head": ["core_px", "ring_mul", "ring_w_px", "glow"], "warn": ["size_px", "line_px", "glow", "bang_px", "dot_px"],
+		"tierup_head": ["len_px", "gain", "w_mul", "ring_mul", "ring_w_px", "dot_mul", "glow"], "demo_tierup": ["tier", "delay_s"],
+		"bed": ["key", "alpha", "width_px"], "bed_line": ["key", "alpha", "width_px"], "locked_dot": ["key", "alpha", "step_px", "size_px"]}
+	var missing: Array = []
+	for k in keys:
+		if not vcfg.has(k):
+			missing.append(k)
+	for k in nested:
+		for sub in nested[k]:
+			if not vcfg.get(k, {}).has(sub):
+				missing.append("%s.%s" % [k, sub])
+	t.ok(missing.is_empty(), "town.json view has every key the town view reads: missing %s" % str(missing))
+	for k in ["relish_away_ink", "floor_tint"]:
+		t.ok(Palette.has(String(vcfg[k])), "view.%s is a Palette key" % k)
+	t.ok(not String(vcfg["floor_tint"]) in ["dead", "dead_lit"], "the floor never tints dead")
+	for k in ["bed", "bed_line", "locked_dot"]:
+		t.ok(Palette.has(String(vcfg[k]["key"])), "view.%s.key is a Palette key" % k)
+	t.ok(int(vcfg["label_px"]) >= 12, "labels are at least 12 px")
+	t.ok(float(vcfg["lot_pulse_gain"]) >= 0.0, "the lot pulse only brightens (gain >= 0)")
+	t.ok(vcfg["tier_walls"].has(String(vcfg["demo_tierup"]["tier"])), "the demo tier-up goes to a tier with walls")
