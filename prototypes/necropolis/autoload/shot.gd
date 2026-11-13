@@ -84,9 +84,16 @@ func _run() -> void:
 			await get_tree().process_frame
 	for i in _frames:
 		await get_tree().process_frame
-	var img := get_viewport().get_texture().get_image()
-	img.save_png(_shot_path)
-	print("SHOT_SAVED ", _shot_path)
+	# Headless has no framebuffer (get_image() is null): skip the capture, still quit cleanly,
+	# so `--headless ... --shot=` works as a bounded parse/boot check.
+	var img: Image = null
+	if DisplayServer.get_name() != "headless":
+		img = get_viewport().get_texture().get_image()
+	if img == null or img.is_empty():
+		print("SHOT_SKIPPED (no framebuffer, headless?) ", _shot_path)
+	else:
+		img.save_png(_shot_path)
+		print("SHOT_SAVED ", _shot_path)
 	get_tree().quit()
 
 
