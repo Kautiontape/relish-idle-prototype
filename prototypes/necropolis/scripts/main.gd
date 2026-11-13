@@ -59,10 +59,7 @@ func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
 	var legacy := not result.has("v")
 	match path:
 		MAP:
-			var id := str(result.get("teleport_to", ""))
-			if legacy and (id == "vei" or id == "covington" or not Game.state.realm.fort_by_id(id).is_empty()):
-				Game.state.legacy_teleport_relish(id)
-			_teleport(id)
+			_teleport(str(result.get("teleport_to", "")))  # a map result is always v2: it never moves Relish
 		TOWN:
 			if legacy:
 				Game.state.apply_town_result(result)

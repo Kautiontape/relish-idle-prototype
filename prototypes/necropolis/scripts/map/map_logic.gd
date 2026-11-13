@@ -186,6 +186,28 @@ static func parse_clicks(spec: String) -> Array[Vector2]:
 	return out
 
 
+## The whole `--map-clicks` script as steps: "x,y" is a click, "x,y>x,y" a drag, "wN" a wait of N
+## frames. Malformed items are skipped. [{kind: "click", pos}, {kind: "drag", from, to}, {kind: "wait", frames}]
+static func parse_steps(spec: String) -> Array:
+	var out: Array = []
+	for item in spec.split(";", false):
+		var it := item.strip_edges()
+		if it.length() > 1 and it[0] == "w" and it.substr(1).is_valid_int():
+			out.append({"kind": "wait", "frames": int(it.substr(1))})
+		elif it.contains(">"):
+			var ends := it.split(">", false)
+			if ends.size() == 2:
+				var a := parse_clicks(ends[0])
+				var b := parse_clicks(ends[1])
+				if a.size() == 1 and b.size() == 1:
+					out.append({"kind": "drag", "from": a[0], "to": b[0]})
+		else:
+			var pts := parse_clicks(it)
+			if pts.size() == 1:
+				out.append({"kind": "click", "pos": pts[0]})
+	return out
+
+
 ## "far" / "mid" / "near". With `prev` set, the tier is only left once the zoom is past the
 ## threshold by zoom_hysteresis, so a zoom resting on a boundary does not flicker.
 static func zoom_tier(zoom: float, prev: String) -> String:

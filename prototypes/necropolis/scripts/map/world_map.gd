@@ -12,9 +12,12 @@ var routes_view: MapRoutes
 var callouts_view: MapCallouts
 var model: MapModel
 var hud: MapHud
+var valve: MapValve
+var chip: MapRelishChip
 var sidebar: MapSidebar
 
 var selected_id := ""
+var _hover := ""
 var _ui_acc := 0.0
 var _setup_called := false
 
@@ -36,6 +39,7 @@ func _ready() -> void:
 	model.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
 	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
 	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
+	_apply_valve_arg()
 	model.refresh(true)
 	_build_world()
 	_build_ui()
@@ -54,7 +58,7 @@ func _ready() -> void:
 			Game.state.cmd_debug_set_state({"relish_at": dest})
 			await get_tree().create_timer(0.3).timeout
 			if is_inside_tree():
-				finished.emit({"v": 2, "teleport_to": dest})
+				_dive(dest)
 
 
 func _build_world() -> void:
@@ -70,6 +74,10 @@ func _build_world() -> void:
 	nodes_view = MapNodes.new()
 	nodes_view.model = model
 	nodes_view.routes = routes_view
+	var route_hint := MapRouteHint.new()  # Relish's route preview, under the nodes, on their context
+	route_hint.name = "RouteHint"
+	route_hint.ctx = nodes_view.ctx
+	world.add_child(route_hint)
 	world.add_child(nodes_view)
 	cam = MapCamera.new()
 	cam.name = "Camera2D"
@@ -90,9 +98,20 @@ func _build_ui() -> void:
 	hud = MapHud.new()
 	hud.model = model
 	layer.add_child(hud)
+	valve = MapValve.new()
+	valve.model = model
+	valve.toast.connect(hud.show_toast)
+	layer.add_child(valve)
+	chip = MapRelishChip.new()
+	chip.model = model
+	chip.hud = hud
+	chip.cam = cam
+	chip.toast.connect(hud.show_toast)
+	layer.add_child(chip)
 	sidebar = MapSidebar.new()
 	sidebar.model = model
-	sidebar.act.connect(func(result: Dictionary): finished.emit(result))
+	sidebar.dive.connect(_dive)
+	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
 
 
@@ -114,27 +133,68 @@ func _refit() -> void:
 		cam.fit(get_viewport_rect().size, hud.top_inset())
 
 
+## Covington is a door: one click enters the town, with no card. Everything else selects.
 func _on_clicked(id: String) -> void:
-	_select(id)
+	if id == MapModel.COVINGTON:
+		_dive(id)
+	else:
+		_select(id)
 
 
-## Debug only: `--map-clicks=x,y;x,y` (screen px). Shot's own --clicks fire before the camera
-## fit, so the map replays its own once the fit has settled, through the real input path.
+## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
+## fight, "covington" opens the town). The map never moves Relish through this.
+func _dive(node_id: String) -> void:
+	finished.emit({"v": 2, "teleport_to": node_id})
+
+
+## Debug only: `--valve=w,war,f` sets the valve at boot through cmd_set_valve.
+func _apply_valve_arg() -> void:
+	if not Game.state.debug_enabled:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--valve="):
+			var p := arg.trim_prefix("--valve=").split(",")
+			if p.size() == 3:
+				Game.state.cmd_set_valve(float(p[0]), float(p[1]), float(p[2]))
+
+
+## Debug only: `--map-clicks=` replays a script in screen px once the camera fit has settled,
+## through the real input path (Shot's own --clicks fire before the fit): `x,y` a click,
+## `x,y>x,y` a drag, `wN` waits N frames; steps are separated by `;`.
 func _replay_clicks() -> void:
 	if not Game.state.debug_enabled:
 		return
-	var clicks: Array[Vector2] = []
+	var steps: Array = []
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--map-clicks="):
-			clicks.append_array(MapLogic.parse_clicks(arg.trim_prefix("--map-clicks=")))
-	if clicks.is_empty():
+			steps.append_array(MapLogic.parse_steps(arg.trim_prefix("--map-clicks=")))
+	if steps.is_empty():
 		return
+	var gap := int(MapLogic.cfg()["map_clicks_gap_frames"])
 	await _frames(int(MapLogic.cfg()["map_clicks_wait_frames"]))
-	for c in clicks:
-		_inject_click(c, true)
-		await _frames(1)
-		_inject_click(c, false)
-		await _frames(int(MapLogic.cfg()["map_clicks_gap_frames"]))
+	for st in steps:
+		match st["kind"]:
+			"wait":
+				await _frames(int(st["frames"]))
+			"click":
+				_inject_click(st["pos"], true)
+				await _frames(1)
+				_inject_click(st["pos"], false)
+				await _frames(gap)
+			"drag":
+				var from: Vector2 = st["from"]
+				var to: Vector2 = st["to"]
+				var n := int(MapLogic.cfg()["map_drag_steps"])
+				_inject_click(from, true)
+				await _frames(1)
+				var prev := from
+				for i in range(1, n + 1):
+					var p := from.lerp(to, float(i) / n)
+					_inject_motion(p, p - prev)
+					prev = p
+					await _frames(1)
+				_inject_click(to, false)
+				await _frames(gap)
 
 
 func _frames(n: int) -> void:
@@ -156,18 +216,50 @@ func _inject_click(pos: Vector2, pressed: bool) -> void:
 	Input.parse_input_event(e)
 
 
+func _inject_motion(pos: Vector2, rel: Vector2) -> void:
+	if not is_inside_tree():
+		return
+	var e := InputEventMouseMotion.new()
+	e.position = pos
+	e.global_position = pos
+	e.relative = rel
+	e.button_mask = MOUSE_BUTTON_MASK_LEFT
+	Input.parse_input_event(e)
+
+
 func _select(id: String) -> void:
+	if id == MapModel.COVINGTON:
+		id = ""  # Covington has no card: it is a door
 	selected_id = id
 	nodes_view.selected_id = id
 	sidebar.select(id)
 
 
+## The pointer over Covington is a pointing hand with a hint in the HUD, so the door is findable.
+func _update_hover() -> void:
+	var over_gui := get_viewport().gui_get_hovered_control() != null
+	var id := "" if over_gui else cam.hit_test(get_viewport().get_mouse_position())
+	if id == _hover:
+		return
+	_hover = id
+	var door := id == MapModel.COVINGTON
+	Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND if door else Input.CURSOR_ARROW)
+	hud.set_hover_hint(str(MapLogic.cfg()["controls"]["hover_hint_covington"]) if door else "")
+
+
+func _exit_tree() -> void:
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+
 func _process(delta: float) -> void:
 	model.refresh()
 	hud.tick(delta)
+	_update_hover()
 	_ui_acc += delta
 	if _ui_acc < float(MapLogic.cfg()["ui_refresh_s"]):
 		return
 	_ui_acc = 0.0
 	hud.refresh()
+	valve.refresh()
+	chip.refresh()
 	sidebar.refresh()

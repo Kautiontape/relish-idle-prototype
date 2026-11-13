@@ -15,12 +15,16 @@ var realm := {}
 var relish := {}
 var vei := {}
 var hud := {}
+var haul := {}  # view_town().haul: {target, current, convoys}
+var names := {}  # node id -> display name (Covington, Vei, every fort)
 var villages: Array = []
 var lanes: Array = []
 var forts: Array = []
 var forts_by_id := {}
 
 var _villages_by_id := {}
+var _prev_relish := {}
+var _why_holds: Array = []  # RelishLogic.why_track: the "Relish here / left" stand-in's live holds
 var _last_read_s := -1.0e9
 
 
@@ -43,11 +47,14 @@ func refresh(force := false) -> bool:
 	relish = state.view_relish()
 	vei = state.view_vei()
 	hud = state.view_hud()
+	haul = state.view_town().get("haul", {})
 	villages = state.view_villages().get("villages", [])
 	forts = realm.get("forts", [])
 	forts_by_id.clear()
+	names = {COVINGTON: "Covington", VEI: "Vei"}
 	for f in forts:
 		forts_by_id[f["id"]] = f
+		names[str(f["id"])] = str(f["name"])
 	_villages_by_id.clear()
 	for v in villages:
 		_villages_by_id[v["id"]] = v
@@ -57,6 +64,10 @@ func refresh(force := false) -> bool:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
 		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []), forts, hud)
+		# TODO(api E2): view_lanes why ("Relish here" / "Relish left") replaces this stand-in
+		_why_holds = RelishLogic.why_track(_prev_relish, relish, _why_holds, now, float(MapLogic.cfg().get("why_hold_s", 0.0)))
+		lanes = RelishLogic.why_apply(lanes, _why_holds, now)
+	_prev_relish = relish
 	return true
 
 

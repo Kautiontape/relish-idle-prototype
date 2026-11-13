@@ -120,7 +120,7 @@
     12,
     8
   ],
-  "speed_row_y_px": 870,
+  "speed_row_y_px": 852,
   "font_title": 22,
   "font_sub": 12,
   "font_body": 14,
@@ -154,10 +154,10 @@
     10,
     60
   ],
-  "hint_half_width_px": 140,
+  "hint_half_width_px": 300,
   "hint_bottom_px": 26,
-  "toast_width_px": 520,
-  "toast_top_px": 40,
+  "toast_width_px": 420,
+  "toast_top_px": 196,
   "victory_width_px": 800,
   "victory_up_px": 60,
   "nodes": {
@@ -389,5 +389,80 @@
     "plate_alpha": 0.93,
     "leader_width_px": 1.0,
     "zoom_eps": 0.002
-  }
+  },
+  "valve_tri_px": 200,
+  "valve_send_hz": 8,
+  "why_hold_s": 10,
+  "controls": {
+    "valve_margin_px": [
+      10,
+      58
+    ],
+    "valve_pad_px": 36,
+    "valve_corner_btn_px": [
+      64,
+      44
+    ],
+    "valve_corner_gap_px": 2,
+    "valve_col_gap_px": 14,
+    "valve_rows_w_px": 214,
+    "valve_inner_pad_px": 8,
+    "valve_plate_alpha": 0.92,
+    "valve_edge_w_px": 2.0,
+    "valve_edge_glow": 0.6,
+    "valve_edge_halo_max_px": 8.0,
+    "valve_handle_r_px": 7.0,
+    "valve_ghost_r_px": 13.0,
+    "valve_ghost_w_px": 2.0,
+    "valve_sync_eps": 0.004,
+    "valve_title": "COVINGTON VALVE",
+    "valve_legend": "● target   ○ now",
+    "valve_feeds": {
+      "work": "→ workforce",
+      "war": "→ the forts",
+      "flood": "→ Vei's gates"
+    },
+    "valve_workers_fmt": "workers → %s",
+    "valve_supports_fmt": "WAR supports %d of %d held forts",
+    "valve_row_gap_px": 6,
+    "chip_margin_px": [
+      10,
+      6
+    ],
+    "chip_w_px": 300,
+    "chip_pad_px": 8,
+    "chip_plate_alpha": 0.92,
+    "chip_button_w_px": 104,
+    "chip_font_px": 14,
+    "centre_tween_s": 0.35,
+    "route_dash_px": 10.0,
+    "route_gap_px": 8.0,
+    "route_width_px": 2.0,
+    "route_glow": 0.35,
+    "route_halo_max_px": 6.0,
+    "route_travel_width_px": 1.0,
+    "route_label_px": 13,
+    "route_label_up_px": 18.0,
+    "hover_hint_covington": "Covington: click to enter the town",
+    "reason_fallback": "That can't be done now (%s)",
+    "reasons": {
+      "dead": "Relish is dead",
+      "in_dungeon": "Relish is in a dungeon",
+      "in_boss": "Relish is facing Vei",
+      "unknown_node": "That place doesn't exist",
+      "not_travelling": "Relish isn't travelling",
+      "not_at_fort": "Relish must stand here first. MOVE her.",
+      "not_at_vei": "Relish must stand at Vei's gates. MOVE her.",
+      "busy": "A run is already open",
+      "unknown_fort": "That fortress doesn't exist",
+      "zero_valve": "The valve can't be shut on all three",
+      "negative": "A valve share can't be negative",
+      "not_finite": "That valve setting isn't a number"
+    },
+    "toast_plate_alpha": 0.92,
+    "toast_pad_px": 6
+  },
+  "map_drag_steps": 10,
+  "hint_left_px": 214,
+  "toast_left_px": 10
 }

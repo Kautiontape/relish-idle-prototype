@@ -14,6 +14,7 @@ var user_moved := false  # the player has panned or zoomed since the fit
 var _pressed := false
 var _panning := false
 var _press_pos := Vector2.ZERO
+var _tween: Tween
 
 
 func _process(_delta: float) -> void:
@@ -29,6 +30,24 @@ func fit(viewport_size: Vector2, inset_top := 0.0) -> void:
 	zoom = Vector2(v["zoom"], v["zoom"])
 	position = v["centre"]
 	tier = MapLogic.zoom_tier(zoom.x, "mid")
+
+
+## Centres the camera on a world point: eased over centre_tween_s, or a jump under reduced motion.
+func centre_on(world_pos: Vector2) -> void:
+	user_moved = true
+	_stop_tween()
+	if Pulse.reduced_motion:
+		position = world_pos
+		return
+	_tween = create_tween()
+	_tween.tween_property(self, "position", world_pos, float(MapLogic.cfg()["controls"]["centre_tween_s"])) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
+func _stop_tween() -> void:
+	if _tween != null and _tween.is_valid():
+		_tween.kill()
+	_tween = null
 
 
 func to_world(screen_pos: Vector2) -> Vector2:
@@ -60,12 +79,14 @@ func handle_input(e: InputEvent) -> void:
 			_panning = true
 		if _panning:
 			user_moved = true
+			_stop_tween()
 			position -= e.relative / zoom.x
 
 
 func zoom_at(factor: float, screen_pos: Vector2) -> void:
 	var cfg := MapLogic.cfg()
 	user_moved = true
+	_stop_tween()
 	var before := to_world(screen_pos)
 	var z := clampf(zoom.x * factor, float(cfg["zoom_min"]), float(cfg["zoom_max"]))
 	zoom = Vector2(z, z)

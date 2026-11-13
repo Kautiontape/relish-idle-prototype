@@ -23,11 +23,12 @@ var _toast: Label
 var _victory: Label
 var _speed_row: HBoxContainer
 var _toast_t := 0.0
+var _hint_default := ""
 var _rev := -2
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)  # also sizes it: anchored labels need a real parent rect
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cfg := MapLogic.cfg()
 	var pos: Array = cfg["topbar_pos_px"]
@@ -45,23 +46,35 @@ func _ready() -> void:
 	add_child(_objective)
 	_hint = _label(int(cfg["font_hint"]), "text_dim")
 	MapType.style_label(_hint)
-	_hint.text = "drag to pan · wheel to zoom · click a fortress"
-	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hint.position = Vector2(-float(cfg["hint_half_width_px"]), -float(cfg["hint_bottom_px"]))
+	_hint_default = "drag to pan · wheel to zoom · click a fortress · click Covington to enter"
+	_hint.text = _hint_default
+	# bottom line, to the right of the debug speed row, clear of the valve panel and the node labels
+	_anchor_box(_hint, 0.0, 1.0, float(cfg["hint_left_px"]), float(cfg["hint_left_px"]) + float(cfg["hint_half_width_px"]) * 2.0, -float(cfg["hint_bottom_px"]))
 	_toast = _label(int(cfg["font_toast"]), "select")
-	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_toast.custom_minimum_size = Vector2(float(cfg["toast_width_px"]), 0.0)
-	_toast.position = Vector2(-float(cfg["toast_width_px"]) * 0.5, float(cfg["toast_top_px"]))
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# top-left under the Relish chip: clear of the nodes, near where the controls are
+	_anchor_box(_toast, 0.0, 0.0, float(cfg["toast_left_px"]), float(cfg["toast_left_px"]) + float(cfg["toast_width_px"]), float(cfg["toast_top_px"]))
+	_toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_toast.add_theme_stylebox_override("normal", MapUi.plate_box(float(cfg["controls"]["toast_plate_alpha"]), int(cfg["controls"]["toast_pad_px"])))
 	_toast.modulate.a = 0.0
 	_victory = _label(int(cfg["font_victory"]), "undead")
-	_victory.set_anchors_preset(Control.PRESET_CENTER)
-	_victory.custom_minimum_size = Vector2(float(cfg["victory_width_px"]), 0.0)
-	_victory.position = Vector2(-float(cfg["victory_width_px"]) * 0.5, -float(cfg["victory_up_px"]))
+	_anchor_box(_victory, 0.5, 0.5, -float(cfg["victory_width_px"]) * 0.5, float(cfg["victory_width_px"]) * 0.5, -float(cfg["victory_up_px"]))
 	_victory.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_victory.visible = false
 	_build_speed_row(cfg)
 	Game.game_event.connect(_on_event)
+
+
+## Pins `l` to a horizontal/vertical anchor with x offsets and a top offset (a Control's `position`
+## is absolute, so a centred label needs offsets from its anchor, not a negative position).
+func _anchor_box(l: Label, ax: float, ay: float, left: float, right: float, top: float) -> void:
+	l.anchor_left = ax
+	l.anchor_right = ax
+	l.anchor_top = ay
+	l.anchor_bottom = ay
+	l.offset_left = left
+	l.offset_right = right
+	l.offset_top = top
+	l.grow_vertical = Control.GROW_DIRECTION_END
 
 
 func _plate() -> ColorRect:
@@ -252,6 +265,11 @@ func tick(delta: float) -> void:
 	if _toast_t > 0.0:
 		_toast_t -= delta
 		_toast.modulate.a = clampf(_toast_t / float(MapLogic.cfg()["toast_fade_s"]), 0.0, 1.0)
+
+
+## A hover hint on the bottom line ("" restores the default).
+func set_hover_hint(text: String) -> void:
+	_hint.text = text if text != "" else _hint_default
 
 
 func show_toast(msg: String) -> void:
