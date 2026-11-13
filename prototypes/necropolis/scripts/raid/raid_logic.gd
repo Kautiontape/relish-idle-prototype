@@ -152,9 +152,24 @@ static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
 	return out
 
 
+## The checkpoint snapshot with its essence capped at what is still carried: motes circled into
+## undead after the checkpoint are spent, so a death must not pay them out. A copy; an empty
+## snapshot stays empty.
+static func clamp_banked_essence(banked: Dictionary, carried: int) -> Dictionary:
+	var out := banked.duplicate(true)
+	if out.has("essence"):
+		out["essence"] = mini(int(out["essence"]), maxi(0, carried))
+	return out
+
+
 ## True when a phylactery charge is left to spend in this dungeon (MECHANICS 7).
 static func can_revive(revived: int, seed: Dictionary) -> bool:
-	return revived < mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0)))
+	return revives_left(revived, seed) > 0
+
+
+## Phylactery charges still spendable this run: min(charges, max_per_dungeon) - revived.
+static func revives_left(revived: int, seed: Dictionary) -> int:
+	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
 ## Index into layout.doors of the exit whose inner point is within `radius` of p, nearest first; -1 if none.

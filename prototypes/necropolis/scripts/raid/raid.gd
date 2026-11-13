@@ -396,6 +396,8 @@ func _dev_autodie() -> void:
 func _track_position() -> void:
 	exit_idx = RaidLogic.near_exit(layout, relish.position, float(rcfg().get("exits", {}).get("radius_px", 120.0)))
 	var room := RaidLogic.room_of(layout, relish.position)
+	if room < 0:
+		return   # a doorway's wall band belongs to no room: A -> doorway -> A is not a change
 	if room != _room:
 		var prev := _room
 		_room = room
@@ -414,9 +416,23 @@ func _take_checkpoint(room: int, announce: bool) -> void:
 	arena.set_banked(banked_rooms)
 	if changed and announce and hud != null:
 		hud.show_checkpoint(banked)
-	# TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not in the state API yet
+	_send_checkpoint()
+
+
+## Tell the state what is banked. TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not
+## in the state API yet, so this is a no-op until it lands.
+func _send_checkpoint() -> void:
 	if _from_run and Game.state.has_method("cmd_run_checkpoint"):
 		Game.state.cmd_run_checkpoint(int(seed_data.get("run_id", 0)), banked)
+
+
+## Motes circled into undead are spent: a later death must not bank them (it would mint essence).
+func _clamp_banked() -> void:
+	var clamped := RaidLogic.clamp_banked_essence(banked, carried_count())
+	if clamped == banked:
+		return
+	banked = clamped
+	_send_checkpoint()
 
 
 ## Retreat is open only at an exit (the boss arena keeps its teleport).
@@ -797,6 +813,7 @@ func perform_raise(g: Dictionary) -> void:
 	for e in picked:
 		motes.append({"mass": e.mass, "recycled": e.recycled})
 		e.absorb()
+	_clamp_banked()
 	var cfg := rcfg()
 	var spec := RaidLogic.raise_spec_v2(score, motes, cfg, ConfigDb.data.get("circle", {}))
 	var count := int(spec["count"])
@@ -887,12 +904,13 @@ func telemetry_line() -> String:
 		RaidLogic.drift_ratio(moves, raises), str(RaidLogic.is_drifting(moves, raises, rcfg()))]
 
 
-## Standalone only (no router): write the result back to the open run and say what happened.
+## Standalone only (no router): say what the scene produced. The scene never writes to the state
+## (STATE-API 1.2); the headless writeback test in tests/test_raid_logic.gd covers that path.
 func standalone_apply(result: Dictionary) -> void:
 	if is_boss() or not _from_run or not result.has("v"):
 		return
-	var out: Dictionary = Game.state.apply_result("raid", result)
+	var errs := Results.validate("raid", result)
 	var ex := "relish_died" if result["relish_died"] else ("warden_beaten" if result["warden_beaten"] else "retreated")
-	print("RAID_RESULT exit=%s raised=%s garrison_mass=%.2f chaff_mass=%.2f apply: ok=%s reason=%s errors=%s" % [
+	print("RAID_RESULT exit=%s raised=%s garrison_mass=%.2f chaff_mass=%.2f valid=%s errors=%s" % [
 		ex, str(result["raised"]), float(result["garrison_mass"]), float(result["chaff_mass"]),
-		out["ok"], out["reason"], str(out["errors"])])
+		errs.is_empty(), str(errs)])

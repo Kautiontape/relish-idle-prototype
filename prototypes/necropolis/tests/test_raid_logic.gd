@@ -337,6 +337,7 @@ func run() -> int:
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
 	_checkpoint_tests(t, cfg)
+	_writeback_tests(t, cfg)
 	return t.failures
 
 
@@ -381,6 +382,16 @@ func _checkpoint_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lg2 := RaidLogic.LedgerV2.new(rs, cfg)
 	var res := lg2.build_result(rs, "relish_died", [], [], 1, snap, cfg)
 	t.ok(res["revived_in_place"] == 1 and res["loot"]["essence"] == 5, "result carries revives and the snapshot")
+	# motes circled into undead after a checkpoint are spent: the snapshot's essence is capped at what is carried
+	var banked := RaidLogic.loot_snapshot({"relics": 1}, 6)
+	var cl := RaidLogic.clamp_banked_essence(banked, 2)
+	t.ok(cl["essence"] == 2 and cl["relics"] == 1 and banked["essence"] == 6, "clamp_banked_essence caps essence, keeps the rest, copies")
+	t.ok(RaidLogic.clamp_banked_essence(banked, 9)["essence"] == 6, "clamp_banked_essence never raises essence")
+	t.ok(RaidLogic.clamp_banked_essence(banked, 0)["essence"] == 0 and RaidLogic.clamp_banked_essence(banked, -3)["essence"] == 0,
+		"clamp_banked_essence floors at zero")
+	t.ok(RaidLogic.clamp_banked_essence({}, 3) == {}, "clamp_banked_essence leaves an empty snapshot empty")
+	t.ok(RaidLogic.revives_left(0, sd) == 1 and RaidLogic.revives_left(1, sd) == 0 and RaidLogic.revives_left(5, sd) == 0
+		and RaidLogic.revives_left(1, {"phylactery_charges": 3, "phylactery_max_per_dungeon": 2}) == 1, "revives_left")
 
 
 func _role_tests(t: TestUtil, cfg: Dictionary, cell: float) -> void:
@@ -429,3 +440,105 @@ func _role_tests(t: TestUtil, cfg: Dictionary, cell: float) -> void:
 				t.ok(again["walls"] == lay["walls"] and again["doors"] == lay["doors"]
 					and again["roles"] == lay["roles"] and again["spawn"] == lay["spawn"],
 					"%s: deterministic" % label)
+
+
+## A day1 session at old-sluice with a dungeon run open; returns the seed.
+func _wb_open(t: TestUtil, s: GameState) -> Dictionary:
+	var r := s.cmd_begin_dungeon("old-sluice")
+	t.ok(r["ok"], "begin_dungeon old-sluice (%s)" % str(r["reason"]))
+	return r["seed"]
+
+
+## The scene's result for `seed`: kills and raises through the real LedgerV2.
+func _wb_result(sd: Dictionary, cfg: Dictionary, exit: String, killed: float, raises: Array, survivors: Array,
+		revived: int, carried: int) -> Dictionary:
+	var lg := RaidLogic.LedgerV2.new(sd, cfg)
+	lg.on_kill(killed)
+	for rz in raises:
+		lg.on_raise(int(rz[0]), float(rz[1]), int(rz[2]))
+	var loot := RaidLogic.loot_snapshot({}, carried)
+	return lg.build_result(sd, exit, survivors, [], revived, loot, cfg)
+
+
+func _writeback_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_writeback")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("day1")["ok"], "day1 loads")
+	t.ok(s.cmd_debug_set_state({"relish_at": "old-sluice"})["ok"], "relish_at old-sluice")
+	var sd := _wb_open(t, s)
+	var f0 := s.view_fort("old-sluice")
+	var ess0 := s.essence
+
+	# (a) a retreat with kills, raises, and survivors of each role
+	var gin := float(sd["garrison_in_mass"])
+	var killed := minf(10.0, float(f0["living"]))
+	var surv: Array = [{"role": "garrison", "tier": "chaff", "mass": gin},
+		{"role": "raised", "tier": "chaff", "mass": 4.0}, {"role": "raised", "tier": "soldier", "mass": 2.0},
+		{"role": "starter", "tier": "chaff", "mass": 0.0}, {"role": "party", "tier": "big", "mass": 0.0}]
+	var ra := _wb_result(sd, cfg, "retreated", killed, [[70, 4.0, 4], [95, 2.0, 1]], surv, 0, 3)
+	t.ok(Results.validate("raid", ra) == [], "the retreat result validates (%s)" % str(Results.validate("raid", ra)))
+	t.ok(ra["retreated"] and not ra["relish_died"] and ra["revived_in_place"] == 0 and ra["loot"]["essence"] == 3,
+		"retreat: no death, no revives, 3 essence banked")
+	s.drain_events()
+	var out := s.apply_result("raid", ra)
+	t.ok(out["ok"] and out["reason"] == "", "the retreat applies (%s)" % str(out))
+	var f1 := s.view_fort("old-sluice")
+	t.ok(float(f1["living"]) <= float(f0["living"]) + 1e-9 and absf(float(f0["living"]) - float(f1["living"]) - killed) < 1e-6,
+		"kills come off the fort's living (%.2f -> %.2f)" % [float(f0["living"]), float(f1["living"])])
+	var raised_mass := 6.0
+	var dead_gain := killed - minf(raised_mass, float(f0["dead"]) + killed)
+	t.ok(absf(float(f1["dead"]) - (float(f0["dead"]) + dead_gain)) < 1e-6,
+		"dead = dead + kills - raised (%.2f -> %.2f)" % [float(f0["dead"]), float(f1["dead"])])
+	var want_u := maxf(0.0, float(f0["undead"]) + float(ra["garrison_mass"]) - gin)
+	t.ok(absf(float(f1["undead"]) - want_u) < 1e-6, "undead moves by garrison_mass - garrison_in_mass (%.2f -> %.2f)" % [float(f0["undead"]), float(f1["undead"])])
+	var evs := s.drain_events()
+	var banked_ev := {}
+	for e in evs:
+		if e["type"] == "loot_banked":
+			banked_ev = e
+	t.ok(not banked_ev.is_empty() and banked_ev["essence"] == mini(3, 60 - ess0) and s.essence == ess0 + int(banked_ev["essence"]),
+		"loot_banked essence matches the result's carried essence (%s)" % str(banked_ev.get("essence")))
+	t.ok(s.run.is_empty() and s.view_relish()["state"] == "at_fort", "the run closed and Relish stays at the fort")
+
+	# (b) a death with no revives: the result carries the last checkpoint's essence
+	s.realm.fort_by_id("old-sluice")["undead"] = 25.0   # two garrison units go in, so a death must cost undead
+	var sd2 := _wb_open(t, s)
+	t.ok(float(sd2["garrison_in_mass"]) == 20.0, "the second seed takes in two garrison units (20 mass)")
+	var f2 := s.view_fort("old-sluice")
+	var ess1 := s.essence
+	var banked := RaidLogic.loot_snapshot({}, 5)
+	banked = RaidLogic.clamp_banked_essence(banked, 2)   # 3 of the 5 were circled away after the checkpoint
+	var lg := RaidLogic.LedgerV2.new(sd2, cfg)
+	var killed2 := minf(4.0, float(f2["living"]))
+	lg.on_kill(killed2)
+	var rb := lg.build_result(sd2, "relish_died", [], [], 0, banked, cfg)
+	t.ok(Results.validate("raid", rb) == [] and rb["relish_died"] and rb["revived_in_place"] == 0 and rb["loot"]["essence"] == 2,
+		"the death result validates: essence is only what was still carried (2)")
+	s.drain_events()
+	out = s.apply_result("raid", rb)
+	t.ok(out["ok"], "the death applies (%s)" % str(out))
+	var f3 := s.view_fort("old-sluice")
+	t.ok(absf(float(f2["living"]) - float(f3["living"]) - killed2) < 1e-6 and float(f3["dead"]) >= float(f2["dead"]) - 1e-9,
+		"death: kills still move living to dead")
+	var want_u2 := maxf(0.0, float(f2["undead"]) - float(sd2["garrison_in_mass"]))
+	t.ok(float(f3["undead"]) < float(f2["undead"]) and absf(float(f3["undead"]) - want_u2) < 1e-6, "death: no survivors, so undead drops by the garrison that went in (%.2f -> %.2f)" % [float(f2["undead"]), float(f3["undead"])])
+	var died := false
+	var essence_ev := -1
+	for e in s.drain_events():
+		died = died or e["type"] == "relish_died"
+		if e["type"] == "loot_banked":
+			essence_ev = int(e["essence"])
+	t.ok(died and essence_ev == mini(2, 60 - ess1) and s.essence == ess1 + essence_ev,
+		"relish_died emitted, loot_banked essence is the clamped 2 (%d)" % essence_ev)
+
+	# (c) a revive the seed has no charge for is refused: the scene must never revive without charges
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var sd3 := _wb_open(t, s)
+	t.ok(int(sd3["phylactery_charges"]) == 0, "day1 has no phylactery charges")
+	var rc := _wb_result(sd3, cfg, "relish_died", 0.0, [], [], 1, 0)
+	var rev := s.rev
+	out = s.apply_result("raid", rc)
+	t.ok(not out["ok"] and out["reason"] == "bad_revives" and s.rev == rev and not s.run.is_empty(),
+		"revived_in_place 1 with 0 charges is bad_revives and changes nothing (%s)" % str(out["reason"]))
+	t.ok(not RaidLogic.can_revive(0, sd3), "the scene's can_revive agrees: no charge, no revive")
