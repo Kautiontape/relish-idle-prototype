@@ -7,7 +7,6 @@ const GREEN := Color("39ff9e")
 const ORANGE := Color("ff6a2b")
 const GUTTER := Color("17171c")
 const VIOLET := Color("c04cff")
-const RATE_LOG_MAX := 25.0
 
 
 func _process(_delta: float) -> void:
@@ -47,9 +46,9 @@ func _draw_gather(_t: float) -> void:
 
 
 func _flow(a: Vector2, b: Vector2, rate: float, col: Color, t: float, lateral: float, matte := false) -> void:
-	if rate < 0.06:
+	var u := Pulse.rate_to_u(rate)
+	if u == Pulse.OFF:
 		return
-	var u := clampf(log(1.0 + rate) / log(1.0 + RATE_LOG_MAX), 0.0, 1.0)
 	var width := 1.1 + 2.6 * u
 	var alpha := 0.4 + 0.6 * u
 	var period := 96.0 - 52.0 * u
