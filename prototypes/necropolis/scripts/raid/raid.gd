@@ -33,12 +33,6 @@ var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
 var found_loot := {}             # loot found this run, minus essence (a later loot task fills it)
-var banked := {}                 # the last checkpoint snapshot (full loot shape)
-var banked_rooms := {}           # checkpoint room index -> true once it has banked
-var revived := 0                 # phylactery revives spent this run
-var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
-var _room := -2                  # Relish's current room
-var _autodie := -1               # --raid-autodie=<frames>
 var _last_feedback: RaidTraceFeedback = null
 
 var arena: RaidArena = null
@@ -47,14 +41,7 @@ var _setup_called := false
 var _built := false
 var _standalone := false
 var _from_run := false          # the seed came from Game.state (a run is open), not the demo
-var _stress := 0                # --raid-stress=N
-var _autoexit := -1             # --raid-autoexit=<frames>
-var _perf := false
-var _perf_cpu: Array = []
-var _perf_gpu: Array = []
-var _perf_done := false
-var _perf_last := 0
-var _perf_parts := [0.0, 0.0, 0.0]
+var _dev: RaidDev = null        # the standalone dev harness; null when the router launched us
 
 ## Run-over flag read by units, HUD, trance and the boss; lives on endings.
 var _ended: bool:
@@ -62,6 +49,18 @@ var _ended: bool:
 		return endings.ended
 	set(v):
 		endings.ended = v
+
+
+## Phylactery revives spent this run, and the exit Relish stands at (-1 = none); both live on
+## endings and are read by Relish and the HUD.
+var revived: int:
+	get:
+		return endings.revived
+var exit_idx: int:
+	get:
+		return endings.exit_idx
+
+
 
 
 func _init() -> void:
@@ -85,50 +84,8 @@ func controller_key() -> String:
 ## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
 ## A dev `--raid-fixture=<fixture>,<fort_id>` goes through commands only.
 func demo_seed() -> Dictionary:
-	var spec := _cli_value("--raid-fixture=")
-	if spec != "" and Game.autosave_enabled:
-		push_error("RAID_DEV --raid-fixture needs --new-game (harness session)")
-		print("RAID_DEV --raid-fixture needs --new-game (harness session)")
-		spec = ""
-	if spec != "":
-		var parts := spec.split(",")
-		if parts.size() == 2:
-			var fort_id := parts[1]
-			var st: GameState = Game.state
-			var r := st.cmd_debug_load_fixture(parts[0])
-			if not r["ok"]:
-				print("RAID_DEV refused: load_fixture %s -> %s" % [parts[0], r["reason"]])
-			else:
-				r = st.cmd_debug_set_state({"relish_at": fort_id})
-				if not r["ok"]:
-					print("RAID_DEV refused: set_state relish_at=%s -> %s" % [fort_id, r["reason"]])
-				else:
-					r = st.cmd_begin_dungeon(fort_id)
-					if not r["ok"]:
-						print("RAID_DEV refused: begin_dungeon %s -> %s" % [fort_id, r["reason"]])
-					else:
-						var sd: Dictionary = r["seed"]
-						print("RAID_DEV seed issued fort=%s run_id=%d seed_rev=%d tier=%d starter_units=%d garrison_units=%d party=%d" % [
-							fort_id, int(r["run_id"]), int(r["seed_rev"]), int(sd["fort"]["tier"]),
-							int(sd["starter_units"]), int(sd["garrison_units"]), sd["party"].size()])
-						return {"mode": "dungeon", "fort_id": fort_id,
-							"run_id": r["run_id"], "seed_rev": r["seed_rev"]}
-		else:
-			print("RAID_DEV refused: --raid-fixture wants <fixture>,<fort_id>")
-	return {"mode": "dungeon", "fort_id": ""}
-
-
-static func _cli_value(prefix: String) -> String:
-	for a in OS.get_cmdline_user_args():
-		if a.begins_with(prefix):
-			return a.trim_prefix(prefix)
-	return ""
-
-
-## Usage (all worktrees share user://, so the session must be a harness one):
-##   godot --path . res://scenes/raid/Raid.tscn -- --new-game --raid-fixture=day1,old-sluice
-static func _cli_flag(flag: String) -> bool:
-	return flag in OS.get_cmdline_user_args()
+	var sd := RaidDev.fixture_seed()
+	return sd if not sd.is_empty() else {"mode": "dungeon", "fort_id": ""}
 
 
 func _ready() -> void:
@@ -172,7 +129,7 @@ func _resolve_seed(args: Dictionary) -> Dictionary:
 func _is_held(fort_id: String) -> bool:
 	if _from_run:
 		return bool(Game.state.view_fort(fort_id).get("held", false))
-	return _cli_flag("--raid-held")
+	return RaidDev.cli_flag("--raid-held")
 
 
 func fort_name() -> String:
@@ -261,61 +218,10 @@ func _build() -> void:
 		relish.max_hp = relish.hp
 	_build_extra()
 	if not boss:
-		_room = RaidLogic.room_of(layout, relish.position)
-		_take_checkpoint(_room, false)
+		endings.start()
 	if _standalone:
-		_cli_harness()
-
-
-## Standalone dev args: --raid-stress=N, --raid-perf, --raid-autoexit=<frames>.
-func _cli_harness() -> void:
-	_stress = int(_cli_value("--raid-stress="))
-	_autoexit = int(_cli_value("--raid-autoexit=")) if _cli_value("--raid-autoexit=") != "" else -1
-	_autodie = int(_cli_value("--raid-autodie=")) if _cli_value("--raid-autodie=") != "" else -1
-	if _stress > 0 and not is_boss():
-		_spawn_stress(_stress)
-	var motes := int(_cli_value("--raid-motes=")) if _cli_value("--raid-motes=") != "" else 0
-	if motes > 0 and not is_boss():
-		_spawn_dev_motes(motes)
-	if _cli_flag("--raid-perf"):
-		_perf = true
-		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
-		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
-
-
-## Dev: N fresh motes (mass 1) around Relish.
-func _spawn_dev_motes(n: int) -> void:
-	for i in n:
-		var ang := TAU * i / float(n) + 0.3
-		var pos: Vector2 = relish.position + Vector2(46.0 + 12.0 * (i % 3), 0).rotated(ang)
-		spawn_mote(resolve_walls(pos, 6.0), 1.0, false)
-
-
-## Perf harness: N soldier-tier raised undead in rings around Relish, enemies topped up to the cap.
-func _spawn_stress(n: int) -> void:
-	var cfg := rcfg()
-	var mult := RaidLogic.stat_mult(75, ConfigDb.data.get("circle", {}))
-	var tier := RaidLogic.score_class(75, cfg)
-	var stats := RaidLogic.undead_stats(mult, tier, cfg)
-	var made := 0
-	var ring := 0
-	while made < n:
-		var r := 70.0 + 30.0 * ring
-		var cap_n := maxi(6, int(TAU * r / 26.0))
-		for i in mini(cap_n, n - made):
-			var ang := TAU * i / float(cap_n) + ring * 0.5
-			var pos: Vector2 = relish.position + Vector2(r, 0).rotated(ang)
-			spawn_ally_v2("raised", tier, mult, 0.0, "", stats, resolve_walls(pos, 10.0))
-			made += 1
-		ring += 1
-	var extra := int(cfg.get("mass", {}).get("enemy_max", 34)) - enemies.size()
-	if extra > 0:
-		var fid := str(seed_data.get("fort", {}).get("id", "fort"))
-		var spots := RaidLogic.populate_enemies(fid + "-stress", layout, extra, fort_tier(), cfg)
-		for sp in spots:
-			var u := spawn_unit("enemy", sp["kind"], sp["pos"])
-			u.mass = 1.0
-			u.home_room = layout["rooms"][sp["room"]]
+		_dev = RaidDev.new(self)
+		_dev.start()
 
 
 ## Standard fortress population from the v2 seed. The boss scene replaces this.
@@ -374,132 +280,8 @@ func _process(_delta: float) -> void:
 	if not _built:
 		return
 	_carry_t += _delta
-	var frame := Engine.get_process_frames()
-	if _autoexit >= 0 and frame >= _autoexit and not _ended:
-		_autoexit = -1
-		confirm_exit()
-	if _autodie > 0 and frame % _autodie == 0 and not _ended and not is_boss():
-		_dev_autodie()
-	if _perf:
-		_perf_sample(frame)
-
-
-## Dev: kill every ally and deal Relish a lethal hit (a revive, then the run's end).
-func _dev_autodie() -> void:
-	for a in allies.duplicate():
-		if is_instance_valid(a) and a.alive:
-			a.die(true)
-	relish.take_hit(relish.max_hp + 1000.0)
-
-
-## Update the exit Relish stands at and the checkpoint room she is in.
-func _track_position() -> void:
-	exit_idx = RaidLogic.near_exit(layout, relish.position, float(rcfg().get("exits", {}).get("radius_px", 120.0)))
-	var room := RaidLogic.room_of(layout, relish.position)
-	if room < 0:
-		return   # a doorway's wall band belongs to no room: A -> doorway -> A is not a change
-	if room != _room:
-		var prev := _room
-		_room = room
-		if RaidLogic.checkpoint_entered(layout, prev, room):
-			_take_checkpoint(room, true)
-
-
-## Bank loot: snapshot what was found plus what is carried now (MECHANICS 7).
-func _take_checkpoint(room: int, announce: bool) -> void:
-	if not (layout.get("checkpoints", []) as Array).has(room):
-		return
-	var snap := RaidLogic.loot_snapshot(found_loot, carried_count())
-	var changed := snap != banked
-	banked = snap
-	banked_rooms[room] = true
-	arena.set_banked(banked_rooms)
-	if changed and announce and hud != null:
-		hud.show_checkpoint(banked)
-	_send_checkpoint()
-
-
-## Tell the state what is banked. TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not
-## in the state API yet, so this is a no-op until it lands.
-func _send_checkpoint() -> void:
-	if _from_run and Game.state.has_method("cmd_run_checkpoint"):
-		Game.state.cmd_run_checkpoint(int(seed_data.get("run_id", 0)), banked)
-
-
-## Motes circled into undead are spent: a later death must not bank them (it would mint essence).
-func _clamp_banked() -> void:
-	var clamped := RaidLogic.clamp_banked_essence(banked, carried_count())
-	if clamped == banked:
-		return
-	banked = clamped
-	_send_checkpoint()
-
-
-## Retreat is open only at an exit (the boss arena keeps its teleport).
-func can_retreat() -> bool:
-	return is_boss() or exit_idx >= 0
-
-
-## The HUD's confirmed RETREAT: re-checks the exit, since Relish may have drifted off.
-func try_retreat() -> void:
-	if can_retreat():
-		confirm_exit()
-
-
-## A lethal hit with allies gone: spend a phylactery if one is left. True = Relish lives.
-func try_phylactery() -> bool:
-	if is_boss() or not RaidLogic.can_revive(revived, seed_data):
-		return false
-	revived += 1
-	var hp_frac := float(ConfigDb.data.get("backups", {}).get("phylactery", {}).get("revive_hp", 0.5))
-	var rc: Dictionary = rcfg().get("revive", {})
-	relish.revive(relish.max_hp * hp_frac, float(rcfg().get("relish", {}).get("revive_iframes_s", 1.5)))
-	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"),
-		float(rc.get("crack_radius_px", 90.0)), float(rc.get("crack_s", 1.1)))
-	hud.flash(Palette.c("relish"))
-	if _standalone:
-		print("RAID_REVIVE n=%d left=%d hp=%.1f" % [revived, phylactery_left(), relish.hp])
-	return true
-
-
-## Phylactery charges still spendable this run.
-func phylactery_left() -> int:
-	return maxi(0, mini(int(seed_data.get("phylactery_charges", 0)),
-		int(seed_data.get("phylactery_max_per_dungeon", 0))) - revived)
-
-
-func _perf_sample(frame: int) -> void:
-	if _perf_done or frame < 120:
-		return
-	var now := Time.get_ticks_usec()
-	if frame < 600:
-		if _perf_last > 0:
-			_perf_cpu.append((now - _perf_last) / 1000.0)  # wall-clock frame ms
-			_perf_gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid()))
-			_perf_parts[0] += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-			_perf_parts[1] += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-		_perf_last = now
-		return
-	_perf_done = true
-	_perf_cpu.sort()
-	_perf_gpu.sort()
-	var n := maxf(1.0, _perf_cpu.size())
-	print("RAID_PERF units=%d frames=%d frame_ms_avg=%.2f frame_ms_p99=%.2f gpu_avg=%.2f gpu_p99=%.2f | monitor (not frame time): process=%.2f physics=%.2f" % [
-		allies.size() + enemies.size(), _perf_cpu.size(), _avg(_perf_cpu), _p99(_perf_cpu),
-		_avg(_perf_gpu), _p99(_perf_gpu), _perf_parts[0] / n, _perf_parts[1] / n])
-
-
-static func _avg(a: Array) -> float:
-	var t := 0.0
-	for v in a:
-		t += float(v)
-	return t / maxf(1.0, a.size())
-
-
-static func _p99(a: Array) -> float:
-	if a.is_empty():
-		return 0.0
-	return float(a[mini(a.size() - 1, int(ceil(a.size() * 0.99)) - 1)])
+	if _dev != null:
+		_dev.tick()
 
 
 func _physics_process(delta: float) -> void:
@@ -507,7 +289,7 @@ func _physics_process(delta: float) -> void:
 		return
 	arena.rebuild_grid(allies, enemies, relish)
 	if not is_boss():
-		_track_position()
+		endings.track_position()
 	_cam_follow()
 	_post_physics(delta)
 
@@ -813,7 +595,7 @@ func perform_raise(g: Dictionary) -> void:
 	for e in picked:
 		motes.append({"mass": e.mass, "recycled": e.recycled})
 		e.absorb()
-	_clamp_banked()
+	endings.clamp_banked()
 	var cfg := rcfg()
 	var spec := RaidLogic.raise_spec_v2(score, motes, cfg, ConfigDb.data.get("circle", {}))
 	var count := int(spec["count"])
@@ -858,10 +640,8 @@ func _perform_raise_legacy(score: int, picked: Array) -> void:
 
 
 # --------------------------------------------------------------- endings -----
-func request_exit() -> void:
-	endings.request_exit()
-
-
+## Thin forwards to RaidEndings for what other files call. The result hooks stay here so the boss
+## scene can override them.
 func confirm_exit() -> void:
 	endings.confirm_exit()
 
@@ -870,47 +650,29 @@ func on_relish_died() -> void:
 	endings.on_relish_died()
 
 
+func can_retreat() -> bool:
+	return endings.can_retreat()
+
+
+func try_retreat() -> void:
+	endings.try_retreat()
+
+
+func try_phylactery() -> bool:
+	return endings.try_phylactery()
+
+
+func phylactery_left() -> int:
+	return endings.phylactery_left()
+
+
 func _exit_result() -> Dictionary:
-	return _build_result("retreated")
+	return endings.build_result("retreated")
 
 
 func _death_result() -> Dictionary:
-	return _build_result("relish_died")
-
-
-## Raid result v2 from the ledger and every living ally.
-func _build_result(exit: String) -> Dictionary:
-	var survivors: Array = []
-	for a in allies:
-		if is_instance_valid(a) and a.alive:
-			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
-	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
-	var loot := RaidLogic.loot_snapshot(found_loot, carried_count()) if exit == "retreated" else banked.duplicate(true)
-	if loot.is_empty():
-		loot = RaidLogic.empty_loot()
-	var r := ledger_v2.build_result(seed_data, exit, survivors, party_died, revived, loot, rcfg())
-	for e in Results.validate("raid", r):
-		push_error("necropolis: raid result invalid: " + e)
-	return r
+	return endings.build_result("relish_died")
 
 
 func _finish(result: Dictionary) -> void:
 	endings.finish(result)
-
-
-## RAID_TELEMETRY line (not part of the result dict).
-func telemetry_line() -> String:
-	return "RAID_TELEMETRY moves=%d raises=%d ratio=%.1f drifting=%s" % [moves, raises,
-		RaidLogic.drift_ratio(moves, raises), str(RaidLogic.is_drifting(moves, raises, rcfg()))]
-
-
-## Standalone only (no router): say what the scene produced. The scene never writes to the state
-## (STATE-API 1.2); the headless writeback test in tests/test_raid_logic.gd covers that path.
-func standalone_apply(result: Dictionary) -> void:
-	if is_boss() or not _from_run or not result.has("v"):
-		return
-	var errs := Results.validate("raid", result)
-	var ex := "relish_died" if result["relish_died"] else ("warden_beaten" if result["warden_beaten"] else "retreated")
-	print("RAID_RESULT exit=%s raised=%s garrison_mass=%.2f chaff_mass=%.2f valid=%s errors=%s" % [
-		ex, str(result["raised"]), float(result["garrison_mass"]), float(result["chaff_mass"]),
-		errs.is_empty(), str(errs)])
