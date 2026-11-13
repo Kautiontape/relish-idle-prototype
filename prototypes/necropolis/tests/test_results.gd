@@ -775,8 +775,16 @@ func _misc() -> void:
 	var sd2 := _begin(s)
 	var applied := s.applied_runs.duplicate()
 	s.apply_boss_result({"won": true})
-	t.ok(s.applied_runs == applied and s.run["run_id"] == sd2["run_id"], "a legacy boss win leaves the open run and applied_runs alone")
+	t.ok(s.applied_runs == applied and s.run["run_id"] == sd2["run_id"], "a legacy boss WIN leaves the open run and applied_runs alone")
 	t.ok(s.apply_result("raid", _raid_res(sd2))["ok"], "the open run still applies")
+	# a legacy DEATH closes an open run (the legacy wrapper clears it; the shipped router never mixes them):
+	# the run is forfeited, never recorded as applied, and a later v2 result for it is wrong_run
+	var sd2b := _begin(s)
+	var applied_b := s.applied_runs.duplicate()
+	s.apply_raid_result({"fort_id": "old-sluice", "relish_died": true})
+	t.ok(s.run.is_empty() and s.applied_runs == applied_b and s.view_relish()["state"] == "home",
+		"a legacy death with a run open forfeits it: closed, not applied, she is home")
+	t.ok(s.apply_result("raid", _raid_res(sd2b))["reason"] == "wrong_run", "a v2 result for the forfeited run is wrong_run")
 	# a new game keeps run ids unique, so applied_runs needs no reset
 	var n := s.next_run_id
 	s.cmd_new_game(2)
