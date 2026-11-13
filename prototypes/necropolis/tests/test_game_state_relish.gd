@@ -155,12 +155,13 @@ func run() -> int:
 	t.ok(s.view_relish()["state"] == "home" and s.realm.relish["state"] == "raising", "teleport home: home, raising")
 	t.ok(s.legacy_teleport_relish("zzz")["reason"] == "unknown_node", "teleport: unknown_node")
 
-	# --- legacy raid flag still feeds realm.raiding ---
+	# --- the open run feeds realm.raiding and raiding_fort_id ---
 	s = _mk()
-	s.begin_raid("old-sluice")
-	t.ok(s.realm.raiding and s.raiding_fort_id() == "old-sluice", "legacy begin_raid still flags the realm")
-	s.end_raid()
-	t.ok(not s.realm.raiding and s.raiding_fort_id() == "", "legacy end_raid clears it")
+	s.legacy_teleport_relish("old-sluice")
+	s.cmd_begin_dungeon("old-sluice")
+	t.ok(s.realm.raiding and s.raiding_fort_id() == "old-sluice", "an open raid flags the realm")
+	s.cmd_abort_dungeon()
+	t.ok(not s.realm.raiding and s.raiding_fort_id() == "", "aborting it clears the flag")
 
 	# --- staying home leaves the legacy mint untouched; leaving stops the home mint ---
 	var home := _mk()

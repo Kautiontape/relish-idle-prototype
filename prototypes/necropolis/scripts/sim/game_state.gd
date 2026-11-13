@@ -100,7 +100,6 @@ var stats := {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 var _cfgs := {}
 var _acc := 0.0
 var _field_acc := 0.0
-var _raiding_fort := ""  # legacy begin_raid/end_raid flag (the router still uses it)
 var _events: Array = []
 
 
@@ -168,7 +167,6 @@ func cmd_new_game(seed: int) -> Dictionary:
 	stats = {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 	_acc = 0.0
 	_field_acc = 0.0
-	_raiding_fort = ""
 	_events = []
 	t = 0.0
 	time_scale = 1.0
@@ -385,7 +383,7 @@ func _step_relish_travel(dt: float) -> void:
 
 ## E1 rule: RealmSim keeps its own relish dict and raiding flag. Home keeps the
 ## legacy P_relish mint; anywhere else (or dead) the legacy channel is idle (no raise
-## at forts until E2); realm.raiding follows the open run (or the legacy raid flag).
+## at forts until E2); realm.raiding follows the open run.
 func _sync_realm_relish() -> void:
 	if relish["state"] == "home":
 		realm.relish["at"] = "covington"
@@ -394,7 +392,7 @@ func _sync_realm_relish() -> void:
 		realm.relish["at"] = relish["at"]
 		realm.relish["state"] = "idle"
 	realm.relish["target"] = ""
-	realm.raiding = not run.is_empty() or _raiding_fort != ""
+	realm.raiding = not run.is_empty()
 
 
 func _descend_reason(fort_id: String) -> String:
@@ -669,11 +667,11 @@ func view_boss_seed() -> Dictionary:
 	return {}
 
 
-## The open raid's fort (or the legacy begin_raid fort), else "".
+## The open raid's fort else "".
 func raiding_fort_id() -> String:
 	if run.get("kind", "") == "raid":
 		return run["fort_id"]
-	return _raiding_fort
+	return ""
 
 
 # ------------------------------------------------------------------ debug ----
@@ -1866,63 +1864,6 @@ func raid_seed(fort_id: String) -> Dictionary:
 	}
 
 
-func begin_raid(fort_id: String) -> void:
-	_raiding_fort = fort_id
-	_sync_realm_relish()
-
-
-func end_raid() -> void:
-	_raiding_fort = ""
-	_sync_realm_relish()
-
-
-func apply_raid_result(r: Dictionary) -> void:
-	var f := realm.fort_by_id(str(r.get("fort_id", "")))
-	if f.is_empty():
-		return
-	stats["raids"] += 1
-	var killed: float = minf(f["living"], float(r.get("killed_living_mass", 0.0)))
-	f["living"] -= killed
-	f["dead"] += killed
-	var chaff: float = minf(f["dead"], float(r.get("raised_chaff_mass", 0.0)))
-	f["dead"] -= chaff
-	realm.vei["undead_queue"] += chaff  # worthless undead are thrown at Vei
-	var good_mass: float = minf(f["dead"], float(r.get("good_mass", 0.0)))
-	f["dead"] -= good_mass
-	army["soldier"] += int(r.get("raised_soldiers", 0))
-	army["elite"] += int(r.get("raised_elites", 0))
-	var garrison: float = minf(f["dead"], float(r.get("garrison_mass", 0.0)))
-	f["dead"] -= garrison
-	f["undead"] += garrison
-	stats["raised_total"] += chaff + good_mass + garrison
-	if bool(r.get("relish_died", false)):
-		_relish_dies()
-
-
-func auto_resolve_raid(fort_id: String) -> void:
-	# Fallback when the raid scene is unavailable: a decent but unspectacular raid.
-	var f := realm.fort_by_id(fort_id)
-	if f.is_empty():
-		return
-	apply_raid_result({
-		"fort_id": fort_id,
-		"killed_living_mass": f["living"] * 0.3,
-		"raised_chaff_mass": (f["dead"] + f["living"] * 0.3) * 0.5,
-		"raised_soldiers": 1 + int(f["tier"]),
-		"raised_elites": 0,
-		"good_mass": 4.0,
-		"garrison_mass": (f["dead"] + f["living"] * 0.3) * 0.2,
-		"relish_died": false,
-	})
-
-
-## Legacy death for the legacy result path: closes the open run, then the E1 death rule.
-func _relish_dies() -> void:
-	var run_id := int(run.get("run_id", -1))
-	run = {}
-	_legacy_death(run_id)
-
-
 ## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
 ## unmade and the army scatters; she respawns home at once. The caller has closed the run.
 func _legacy_death(run_id: int) -> void:
@@ -2175,32 +2116,6 @@ func boss_seed() -> Dictionary:
 		"army": army.duplicate(true), "vei_capacity": float(_cfg().get("R_vei", 50.0)),
 		"odds": realm.readout()["odds"],
 	}
-
-
-func apply_boss_result(r: Dictionary) -> void:
-	var run_id := int(run.get("run_id", -1))
-	if bool(r.get("won", false)):
-		won = true
-		_emit(_legacy_vei_result(run_id, true, 0))
-		return
-	realm.vei["undead_queue"] *= 0.35  # she digests a chunk of the massed horde
-	army["soldier"] = int(army["soldier"] * 0.3)
-	army["elite"] = int(army["elite"] * 0.4)
-	var died := bool(r.get("relish_died", true))
-	if died:
-		_relish_dies()
-	_emit(_legacy_vei_result(run_id, false, 1 if died else 0))
-
-
-## The §6 vei_result shape from the legacy path (no fronts until E3).
-func _legacy_vei_result(run_id: int, did_win: bool, deaths: int) -> Dictionary:
-	return {"type": "vei_result", "run_id": run_id, "won": did_win, "fronts_cleared": [],
-		"relish_deaths": deaths, "backlog_after": float(realm.vei["undead_queue"])}
-
-
-func auto_resolve_boss() -> void:
-	var odds: float = realm.readout()["odds"]
-	apply_boss_result({"won": rng.randf_range(0.0, 1.0) < odds, "relish_died": true})
 
 
 # ------------------------------------------------------------ §9 persistence ----
@@ -2642,7 +2557,6 @@ func _apply_save(m: Dictionary) -> void:
 	first_dungeon_id = str(m["first_dungeon"])
 	# session state: nothing of the old session survives a load
 	run = {}
-	_raiding_fort = ""
 	_field_acc = 0.0
 	_events = []
 	time_scale = 1.0

@@ -10,6 +10,23 @@ func _mk(seed_val := 1) -> GameState:
 	return s
 
 
+## Drives a boss run through the run API: Relish to Vei, begin, a v1 result converted, applied.
+func _run_boss(s: GameState, v1: Dictionary) -> void:
+	s.legacy_teleport_relish("vei")
+	var b := s.cmd_begin_boss()
+	s.apply_result("boss", Results.from_v1("boss", v1, b["seed"]))
+
+
+## Same for a raid at old-sluice; returns the run id.
+func _run_raid(s: GameState, v1: Dictionary) -> int:
+	s.legacy_teleport_relish("old-sluice")
+	var b := s.cmd_begin_dungeon("old-sluice")
+	var d := v1.duplicate()
+	d["fort_id"] = "old-sluice"
+	s.apply_result("raid", Results.from_v1("raid", d, b["seed"]))
+	return b["run_id"]
+
+
 func _precondition(s: GameState) -> void:
 	s.assignments["gather"] = 2
 	s.assignments["slab"] = 1
@@ -92,28 +109,28 @@ func run() -> int:
 		st.tick(120.0)
 	t.ok(x.realm.vei["undead_queue"] == y.realm.vei["undead_queue"], "same seed: undead_queue identical")
 	t.ok(x.res["gold"] == y.res["gold"], "same seed: gold identical")
-	x.auto_resolve_boss()
-	y.auto_resolve_boss()
+	_run_boss(x, {"won": false, "relish_died": true})
+	_run_boss(y, {"won": false, "relish_died": true})
 	t.ok(x.won == y.won, "same seed: same boss outcome")
 	t.ok(x._events == y._events, "same seed: same events")
 
 	# --- events ---
 	var e := _mk()
-	e.apply_boss_result({"won": true})
+	_run_boss(e, {"won": true})
 	var evs := e.drain_events()
 	t.ok(evs.size() == 1 and evs[0]["type"] == "vei_result" and evs[0]["won"] == true, "boss win queues vei_result")
 	t.ok(evs[0].has("t"), "event carries sim time")
 	t.ok(e.drain_events().is_empty(), "drain empties the queue")
-	e.apply_raid_result({"fort_id": e.realm.forts[0]["id"], "relish_died": true})
-	evs = e.drain_events()
+	var run_id := _run_raid(e, {"relish_died": true})
+	evs = e.drain_events().filter(func(ev): return ev["type"] != "loot_banked")
 	t.ok(evs.size() == 2 and evs[0]["type"] == "relish_died" and evs[0]["outcome"] == "unmade"
-		and evs[0]["in_place"] == false and evs[0]["at"] == "covington" and evs[0]["run_id"] == -1
+		and evs[0]["in_place"] == false and evs[0]["at"] == "old-sluice" and evs[0]["run_id"] == run_id
 		and evs[0]["respawn_s"] == 0.0, "relish death queues relish_died (unmade)")
 	t.ok(evs[1]["type"] == "relish_respawned" and evs[1]["with_clone"] == false and evs[1]["at"] == "covington",
 		"then relish_respawned without a clone")
 	e.town["vats"] = 1
-	e.apply_raid_result({"fort_id": e.realm.forts[0]["id"], "relish_died": true})
-	evs = e.drain_events()
+	_run_raid(e, {"relish_died": true})
+	evs = e.drain_events().filter(func(ev): return ev["type"] != "loot_banked")
 	t.ok(evs.size() == 2 and evs[0]["outcome"] == "clone" and evs[1]["with_clone"] == true, "legacy vat gives a clone respawn")
 	t.ok(e.relish["state"] == "home" and e.town["vats"] == 0, "she respawns home at once, the vat is spent")
 

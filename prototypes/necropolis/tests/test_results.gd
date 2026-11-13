@@ -679,6 +679,51 @@ func _boss_writeback() -> void:
 		"a loss with a clone spent: one vat used, she carries on at Vei (in-place events are E3)")
 
 
+# ---------------------------------------- the pre-E1 writeback, kept here as the oracle ----
+## The removed GameState.apply_raid_result, verbatim, run against `s` with no run open.
+func _legacy_raid(s: GameState, r: Dictionary) -> void:
+	var f := s.realm.fort_by_id(str(r.get("fort_id", "")))
+	if f.is_empty():
+		return
+	s.stats["raids"] += 1
+	var killed: float = minf(f["living"], float(r.get("killed_living_mass", 0.0)))
+	f["living"] -= killed
+	f["dead"] += killed
+	var chaff: float = minf(f["dead"], float(r.get("raised_chaff_mass", 0.0)))
+	f["dead"] -= chaff
+	s.realm.vei["undead_queue"] += chaff
+	var good_mass: float = minf(f["dead"], float(r.get("good_mass", 0.0)))
+	f["dead"] -= good_mass
+	s.army["soldier"] += int(r.get("raised_soldiers", 0))
+	s.army["elite"] += int(r.get("raised_elites", 0))
+	var garrison: float = minf(f["dead"], float(r.get("garrison_mass", 0.0)))
+	f["dead"] -= garrison
+	f["undead"] += garrison
+	s.stats["raised_total"] += chaff + good_mass + garrison
+	if bool(r.get("relish_died", false)):
+		s._legacy_death(-1)
+
+
+## The removed GameState.apply_boss_result, verbatim.
+func _legacy_boss(s: GameState, r: Dictionary) -> void:
+	if bool(r.get("won", false)):
+		s.won = true
+		s._emit(_legacy_vei(s, true, 0))
+		return
+	s.realm.vei["undead_queue"] *= 0.35
+	s.army["soldier"] = int(s.army["soldier"] * 0.3)
+	s.army["elite"] = int(s.army["elite"] * 0.4)
+	var died := bool(r.get("relish_died", true))
+	if died:
+		s._legacy_death(-1)
+	s._emit(_legacy_vei(s, false, 1 if died else 0))
+
+
+func _legacy_vei(s: GameState, did_win: bool, deaths: int) -> Dictionary:
+	return {"type": "vei_result", "run_id": -1, "won": did_win, "fronts_cleared": [],
+		"relish_deaths": deaths, "backlog_after": float(s.realm.vei["undead_queue"])}
+
+
 # -------------------------------------------------- v1 -> v2 -> writeback parity ----
 func _legacy_state(seed_val: int) -> GameState:
 	var s := _mk(seed_val)
@@ -696,7 +741,7 @@ func _parity() -> void:
 		v1d["relish_died"] = died
 		var a := _legacy_state(3)
 		a.legacy_teleport_relish("old-sluice")
-		a.apply_raid_result(v1d)
+		_legacy_raid(a, v1d)
 		var b := _legacy_state(3)
 		var sd := _begin(b)
 		var v2 := Results.from_v1("raid", v1d, sd)
@@ -724,7 +769,7 @@ func _parity() -> void:
 	a2.legacy_teleport_relish("old-sluice")
 	var vd := v1.duplicate()
 	vd["relish_died"] = true
-	a2.apply_raid_result(vd)
+	_legacy_raid(a2, vd)
 	var b2 := _legacy_state(4)
 	b2.town["vats"] = 1
 	var sd2 := _begin(b2)
@@ -740,7 +785,7 @@ func _parity() -> void:
 			b3.town["vats"] = vats
 			b3.cmd_debug_grant({"backlog": 2000.0})
 			a3.legacy_teleport_relish("vei")
-			a3.apply_boss_result(case)
+			_legacy_boss(a3, case)
 			var bsd := _begin_boss(b3)
 			var bv := Results.from_v1("boss", case, bsd)
 			t.ok(Results.validate("boss", bv) == [], "the converted boss result is valid")
@@ -770,21 +815,6 @@ func _misc() -> void:
 	var last_sd: Dictionary = s.cmd_begin_dungeon("old-sluice")["seed"]
 	t.ok(s.apply_result("raid", _raid_res(last_sd))["ok"], "the latest run still applies")
 	t.ok(s.apply_result("raid", _raid_res(last_sd))["reason"] == "duplicate_run", "and is a duplicate afterwards")
-	# legacy results do not touch the run state or applied_runs
-	s = _mk()
-	var sd2 := _begin(s)
-	var applied := s.applied_runs.duplicate()
-	s.apply_boss_result({"won": true})
-	t.ok(s.applied_runs == applied and s.run["run_id"] == sd2["run_id"], "a legacy boss WIN leaves the open run and applied_runs alone")
-	t.ok(s.apply_result("raid", _raid_res(sd2))["ok"], "the open run still applies")
-	# a legacy DEATH closes an open run (the legacy wrapper clears it; the shipped router never mixes them):
-	# the run is forfeited, never recorded as applied, and a later v2 result for it is wrong_run
-	var sd2b := _begin(s)
-	var applied_b := s.applied_runs.duplicate()
-	s.apply_raid_result({"fort_id": "old-sluice", "relish_died": true})
-	t.ok(s.run.is_empty() and s.applied_runs == applied_b and s.view_relish()["state"] == "home",
-		"a legacy death with a run open forfeits it: closed, not applied, she is home")
-	t.ok(s.apply_result("raid", _raid_res(sd2b))["reason"] == "wrong_run", "a v2 result for the forfeited run is wrong_run")
 	# a new game keeps run ids unique, so applied_runs needs no reset
 	var n := s.next_run_id
 	s.cmd_new_game(2)

@@ -64,6 +64,11 @@ func _run() -> void:
 	if _trace != Vector3.ZERO:
 		await _do_trace(Vector2(_trace.x, _trace.y), _trace.z)
 	if _finish_raid:
+		# wait for the router to open the raid (a --teleport fires after a 0.3 s timer)
+		for i in 600:
+			if Game.raiding_fort_id() != "":
+				break
+			await get_tree().process_frame
 		for i in 20:
 			await get_tree().process_frame
 		var main := get_node_or_null("/root/Main")
