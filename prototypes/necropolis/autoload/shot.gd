@@ -22,18 +22,13 @@ func _ready() -> void:
 		elif arg.begins_with("--scene="):
 			_scene = arg.trim_prefix("--scene=")
 		elif arg.begins_with("--speed="):
-			Game.time_scale = float(arg.trim_prefix("--speed="))
+			_cheat({"time_scale": float(arg.trim_prefix("--speed="))}, arg)
 		elif arg == "--cheat=boss":
-			Game.army = {"soldier": 40, "elite": 8}
-			Game.town["forge_level"] = 4
-			Game.realm.vei["undead_queue"] = 18000.0
+			_cheat({"soldier": 40, "elite": 8, "forge_level": 4, "backlog": 18000.0}, arg)
 		elif arg == "--finish-raid":
 			_finish_raid = true
 		elif arg == "--cheat=rich":
-			Game.res["gold"] = 500.0
-			Game.res["materials"] = 200.0
-			Game.res["bodies"] = 60.0
-			Game.idle_undead = 20
+			_cheat({"gold": 500.0, "materials": 200.0, "bodies": 60.0, "workers": 20}, arg)
 		elif arg.begins_with("--clicks="):
 			for pair in arg.trim_prefix("--clicks=").split(";"):
 				var xy := pair.split(",")
@@ -46,6 +41,13 @@ func _ready() -> void:
 	if _shot_path != "":
 		print("SHOT_BOOT frames=", _frames, " scene=", _scene)
 		_run.call_deferred()
+
+
+## Applies a debug patch and says so on stderr if the game refused it.
+func _cheat(patch: Dictionary, arg: String) -> void:
+	var r: Dictionary = Game.cmd_debug_set_state(patch)
+	if not r["ok"]:
+		printerr("Shot: cheat refused (%s): %s" % [r["reason"], arg])
 
 
 func _run() -> void:

@@ -25,3 +25,7 @@ func near(a: float, b: float, eps: float, msg: String) -> void:
 static func load_json(path: String) -> Dictionary:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
 	return parsed if parsed is Dictionary else {}
+
+
+static func configs() -> Dictionary:
+	return GameState.load_configs("res://configs")
