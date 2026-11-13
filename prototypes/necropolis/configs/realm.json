@@ -48,7 +48,7 @@
     "contest": 1.35,
     "town_threshold": 0.18,
     "tick_hz": 5.0,
-    "slice_budget_cells": 0,
+    "slice_budget_cells": 1400,
     "lag_ticks": 2
   },
 
