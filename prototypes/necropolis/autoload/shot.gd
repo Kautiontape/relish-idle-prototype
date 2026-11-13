@@ -22,13 +22,16 @@ func _ready() -> void:
 		elif arg.begins_with("--scene="):
 			_scene = arg.trim_prefix("--scene=")
 		elif arg.begins_with("--speed="):
-			_cheat({"time_scale": float(arg.trim_prefix("--speed="))}, arg)
+			_report(Game.state.cmd_debug_set_state({"time_scale": float(arg.trim_prefix("--speed="))}), arg)
 		elif arg == "--cheat=boss":
-			_cheat({"soldier": 40, "elite": 8, "forge_level": 4, "backlog": 18000.0}, arg)
+			_report(Game.state.cmd_debug_set_state({"forge_level": 4}), arg)
+			_report(Game.state.cmd_debug_grant({"backlog": 18000.0, "big_undead": 4}), arg)
+			Game.army["soldier"] = 40  # legacy forwarder, allowed at E1 (STATE-API 2.2)
+			Game.army["elite"] = 8
 		elif arg == "--finish-raid":
 			_finish_raid = true
 		elif arg == "--cheat=rich":
-			_cheat({"gold": 500.0, "materials": 200.0, "bodies": 60.0, "workers": 20}, arg)
+			_report(Game.state.cmd_debug_grant({"gold": 500.0, "bone": 200.0, "bodies": 60.0, "workers": 20}), arg)
 		elif arg.begins_with("--clicks="):
 			for pair in arg.trim_prefix("--clicks=").split(";"):
 				var xy := pair.split(",")
@@ -43,9 +46,8 @@ func _ready() -> void:
 		_run.call_deferred()
 
 
-## Applies a debug patch and says so on stderr if the game refused it.
-func _cheat(patch: Dictionary, arg: String) -> void:
-	var r: Dictionary = Game.cmd_debug_set_state(patch)
+## Says so on stderr if the game refused a debug command.
+func _report(r: Dictionary, arg: String) -> void:
 	if not r["ok"]:
 		printerr("Shot: cheat refused (%s): %s" % [r["reason"], arg])
 
@@ -62,6 +64,11 @@ func _run() -> void:
 	if _trace != Vector3.ZERO:
 		await _do_trace(Vector2(_trace.x, _trace.y), _trace.z)
 	if _finish_raid:
+		# wait for the router to open the raid (a --teleport fires after a 0.3 s timer)
+		for i in 600:
+			if Game.raiding_fort_id() != "":
+				break
+			await get_tree().process_frame
 		for i in 20:
 			await get_tree().process_frame
 		var main := get_node_or_null("/root/Main")

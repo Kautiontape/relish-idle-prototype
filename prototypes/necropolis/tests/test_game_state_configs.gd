@@ -36,6 +36,14 @@ func run() -> int:
 		t.ok(cfg.has(k), "has key %s" % k)
 		var direct = JSON.parse_string(FileAccess.get_file_as_string("res://configs/%s.json" % k))
 		t.ok(cfg.get(k) == direct, "%s equals the file parsed directly" % k)
+	var needed := {"realm": ["field", "relish"], "economy": ["sim", "opening"], "backups": ["phylactery", "vats", "backups"], "buildings": ["crypt"],
+		"vei": ["fronts_required", "break_beats", "loss_backlog_keep"], "town": ["lots"], "raid": ["relish"],
+		"world": ["size", "vei", "forts"], "pulse": ["tempo_ms"]}
+	for fname in needed:
+		t.ok(cfg.get(fname, null) is Dictionary and not cfg[fname].is_empty(), "config %s exists and is non-empty" % fname)
+		for key in needed[fname]:
+			t.ok(cfg.get(fname, {}).has(key), "config %s has key %s" % [fname, key])
+	t.ok(cfg["realm"]["field"].has("slice_budget_cells"), "realm.field.slice_budget_cells present")
 	var realm_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/realm.json"))
 	var world_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/world.json"))
 	t.near(float(cfg["realm"]["R_vei"]), float(realm_direct["R_vei"]), 0.0, "realm.R_vei matches")

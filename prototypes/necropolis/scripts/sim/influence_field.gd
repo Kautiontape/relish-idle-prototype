@@ -50,6 +50,18 @@ func inject(pos: Vector2, is_green: bool, amount: float, radius := 1) -> void:
 				orange[i] = minf(4.0, orange[i] + amount * fall)
 
 
+## The ground unit fills this in to time-slice field work between ticks. `budget_cells` is work units
+## per call (field cells processed), not time; 0 = synchronous (today's semantics).
+@warning_ignore("unused_parameter")
+func advance(budget_cells: int) -> void:
+	pass
+
+
+## Finish and publish any in-flight slice; the ground unit fills it in.
+func flush() -> void:
+	pass
+
+
 func tick(dt: float) -> void:
 	var d: float = float(cfg.get("diffuse", 0.16)) * dt * 5.0
 	var decay: float = float(cfg.get("decay", 0.012)) * dt * 5.0

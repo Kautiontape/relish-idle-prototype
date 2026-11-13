@@ -1,0 +1,39 @@
+{
+  "sim": {
+    "substep_s": 0.5,
+    "max_substeps_per_frame": 16,
+    "autosave_s": 30
+  },
+  "opening": {
+    "starter_party": 8,
+    "gold": 80.0,
+    "bone": 30.0,
+    "bodies": 40.0,
+    "workers": 12.0,
+    "living": 10.0,
+    "living_cap": 16.0,
+    "valve": { "work": 0.40, "war": 0.45, "flood": 0.15 },
+    "first_dungeon": "old-sluice",
+    "buildings": { "lot-01": "crypt", "lot-02": "raising_pit", "lot-03": "charnel_house", "lot-04": "market" }
+  },
+  "worker": { "lifetime_s": 480.0 },
+  "body_store": { "cap": 200.0 },
+  "morale": { "base": 0.6 },
+  "stance": { "base_slots": 2 },
+  "job": { "default_ladder": ["build", "haul", "pit", "stall", "mill", "forge", "tend"] },
+  "town": {
+    "tiers": {
+      "hamlet": { "buildings": 0, "requires": [], "lots": 8 },
+      "village": { "buildings": 6, "requires": ["market", "house"], "lots": 24 },
+      "town": { "buildings": 12, "requires": ["walls", "chapel_of_vats"], "lots": 24 },
+      "city": { "buildings": 20, "requires": ["reliquary"], "lots": 24 }
+    }
+  },
+  "craft": {
+    "simulacrum": { "essence": 20, "relics": 1 },
+    "phylactery_charge": { "essence": 15, "relics": 0 }
+  },
+  "relics": { "cap": 12 },
+  "essence": { "cap": 60 },
+  "big_undead": { "cap": 4 }
+}

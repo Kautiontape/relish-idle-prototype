@@ -1,0 +1,5 @@
+{
+  "phylactery": { "revive_hp": 0.5, "max_per_dungeon": 1 },
+  "vats": { "grow_per_s": 0.003333 },
+  "backups": { "clone_respawn_s": 60, "unmade_respawn_s": 600 }
+}

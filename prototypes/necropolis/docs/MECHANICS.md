@@ -52,7 +52,7 @@ v2 folds in two reviews (run folder `reports/review-docs-vision.md` and
 - Scenes never mutate state. They read views and send commands. In-scene play returns one result,
   and GameState applies it.
 - Files under `scripts/sim/`, `*_logic.gd`, `vei_fronts.gd` and `slab_logic.gd` never reference
-  `Game`, `ConfigDb` or `Engine`. A lint test enforces this.
+  an autoload (`Game`, `ConfigDb`, `Pulse`, `Shot`) or `Engine`. A lint test enforces this.
 - One config loader, `GameState.load_configs(dir)`, is shared by ConfigDb and the tests.
 
 ### 1.2 GameState API (E1 freezes names and shapes; additive only after that)
