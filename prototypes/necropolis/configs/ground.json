@@ -1,5 +1,5 @@
 {
-  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Figure over ground: streak_width_px is on-screen width at any zoom; spawn_empty_weight sets how sparse the empty-ground current is (each streak legible, alpha_empty) and spawn_land_weight thins held ground the same way; seam_land stops empty-ground streaks piling up on living rims, clump_limit stops them piling into sinks (reads last frame's trail); moat_* thins streaks beside the drawn lanes, on map's own lane curves and widths (GroundMoat). readout shows the frame-time meter in debug sessions only. old_base_darken darkens the old renderer's base colours from the palette hues. density_exp keeps on-screen ink constant across zoom. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
+  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Figure over ground: streak_width_px is on-screen width at any zoom; spawn_empty_weight sets how sparse the empty-ground current is (each streak legible, alpha_empty) and spawn_land_weight thins held ground the same way; seam_land stops empty-ground streaks piling up on living rims, clump_limit stops them piling into sinks (reads last frame's trail); moat_* thins streaks beside the drawn lanes, on map's own lane curves and widths (GroundMoat). readout shows the frame-time meter in debug sessions only. Reduced motion: the streaks crawl at reduced_speed with long trails (reduced_keep_per_s) and calmer eddies (reduced_turbulence), so a still frame shows the flow's direction. old_base_darken darkens the old renderer's base colours from the palette hues. density_exp keeps on-screen ink constant across zoom. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
   "mode": "flow",
   "readout": false,
   "old_base_darken": 0.77,
@@ -61,7 +61,8 @@
   },
 
   "reduced_speed": 0.1,
-  "reduced_keep_per_s": 0.72,
+  "reduced_keep_per_s": 0.9,
+  "reduced_turbulence": 0.35,
   "reduced_noise_evolve": 0.0,
   "reduced_life_scale": 3.0,
 

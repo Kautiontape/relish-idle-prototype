@@ -219,6 +219,11 @@ func apply_config(cfg: Dictionary) -> void:
 		_pmat.set_shader_parameter("noise_evolve", float(cfg.get("reduced_noise_evolve", 0.0)))
 		# longer lives so heads don't blink in and out while crawling
 		_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])) * float(cfg.get("reduced_life_scale", 3.0)))
+		# calmer eddies: the long, slow trails lie along the flow, so a still frame shows direction
+		var calm := float(cfg.get("reduced_turbulence", 1.0))
+		for k in ["turbulence", "turbulence_empty", "turbulence_land"]:
+			if cfg.has(k):
+				_pmat.set_shader_parameter(k, float(cfg[k]) * calm)
 
 
 func _process(delta: float) -> void:
