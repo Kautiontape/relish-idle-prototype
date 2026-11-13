@@ -1,9 +1,7 @@
 class_name RaidEssence
 extends Node2D
-## Bright green glowing essence: ammo for circle-raising. Decays in world time
+## A small violet-white mote (VISUAL-LANGUAGE 2c): ammo for circle-raising. Decays in world time
 ## (trance dilation slows decay). Drifts gently toward Relish when she is near.
-
-const CORE := Color("#39ff9e")
 
 var raid: Node = null
 var mass := 1.0
@@ -69,30 +67,25 @@ func _absorb_step(delta: float) -> void:
 
 
 func _draw() -> void:
-	var pulse := 0.75 + 0.25 * sin(_t * 6.0)
+	var reduced: bool = Pulse.reduced_motion
+	var pulse := 0.9 if reduced else 0.75 + 0.25 * sin(_t * 6.0)
+	var col := Palette.c("essence")
 	if absorbing:
-		var col := Color(0.7, 1.0, 0.85)
 		if raid != null and raid.relish != null and is_instance_valid(raid.relish):
 			var dir := to_local(raid.relish.global_position).normalized()
-			draw_line(-dir * (8.0 + _absorb_speed * 0.04), Vector2.ZERO, Color(col.r, col.g, col.b, 0.5), 3.0)
+			draw_line(-dir * (8.0 + _absorb_speed * 0.04), Vector2.ZERO, Palette.c("essence", 0.5), 3.0)
 		draw_circle(Vector2.ZERO, 6.5, col)
-		draw_circle(Vector2.ZERO, 3.0, Color(1, 1, 1, 0.9))
+		draw_circle(Vector2.ZERO, 3.0, Palette.c("text", 0.9))
 		return
-	var trance: bool = raid != null and raid.trance_active
-	var halo := 26.0
-	var halo_a := 0.05 + 0.02 * pulse
-	if trance:
-		halo *= 1.3
-		halo_a += 0.05
-	draw_circle(Vector2.ZERO, halo, Color(0.25, 1.0, 0.55, halo_a))
-	draw_circle(Vector2.ZERO, halo * 0.55, Color(0.3, 1.0, 0.6, halo_a))
-	var col := CORE
-	var r := 5.0 + 1.2 * pulse
-	if trance:
-		col = Color(0.55, 1.0, 0.8)
+	var r := 4.0 + 1.0 * pulse
+	if raid != null and raid.trance_active:
 		r += 2.0
-		draw_circle(Vector2.ZERO, r * 2.1, Color(col.r, col.g, col.b, 0.18))
-	if life < 3.0 and fmod(_t, 0.3) < 0.15:
-		col.a = 0.4  # flicker: about to dissipate
+	if life < 3.0:
+		# about to dissipate: flicker (steady half-alpha under reduced motion)
+		if reduced:
+			col.a = 0.5
+		elif fmod(_t, 0.3) < 0.15:
+			col.a = 0.4
+	LineGlow.ring(self, Vector2.ZERO, r + 3.0, col, 1.0, 0.5)
 	draw_circle(Vector2.ZERO, r, col)
-	draw_circle(Vector2.ZERO, r * 0.45, Color(1, 1, 1, 0.85 * pulse))
+	draw_circle(Vector2.ZERO, r * 0.45, Palette.c("text", 0.85 * pulse))

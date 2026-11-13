@@ -151,7 +151,7 @@ func _make_trace_line() -> void:
 	_clear_trace()
 	_trace_line = Line2D.new()
 	_trace_line.width = 4.0
-	_trace_line.default_color = Color("#50ffd9")
+	_trace_line.default_color = Palette.c("relish")
 	_trace_line.z_index = 70
 	raid.fx_root.add_child(_trace_line)
 

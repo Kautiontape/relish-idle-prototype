@@ -6,7 +6,7 @@ extends RefCounted
 ## Expanding, fading ring (sacrifice flash, pulse blast, teleport, win flash).
 class Ring:
 	extends Node2D
-	var color := Color.WHITE
+	var color: Color = Palette.c("text")
 	var max_radius := 60.0
 	var duration := 0.4
 	var width := 3.0
@@ -24,15 +24,18 @@ class Ring:
 
 	func _draw() -> void:
 		var f := _t / duration
-		var a := (1.0 - f) * color.a
-		draw_arc(Vector2.ZERO, maxf(2.0, max_radius * f), 0, TAU, 48,
-			Color(color.r, color.g, color.b, a), width * (1.0 - f * 0.5))
+		var col := color
+		col.a = (1.0 - f) * color.a
+		# reduced motion: no expansion, the ring holds its size and only fades
+		var rf := 0.6 if Pulse.reduced_motion else f
+		LineGlow.ring(self, Vector2.ZERO, maxf(2.0, max_radius * rf), col,
+			width * (1.0 - f * 0.5), 0.5)
 
 
 ## Small fading double-ring at a click point (move order ping).
 class Ping:
 	extends Node2D
-	var color := Color("#c04cff")
+	var color: Color = Palette.c("relish")
 	var _t := 0.0
 
 	func _ready() -> void:
@@ -47,9 +50,11 @@ class Ping:
 
 	func _draw() -> void:
 		var f := _t / 0.45
-		var a := (1.0 - f) * 0.8
-		draw_arc(Vector2.ZERO, 6.0 + 14.0 * f, 0, TAU, 20, Color(color.r, color.g, color.b, a), 2.0)
-		draw_circle(Vector2.ZERO, 2.5, Color(color.r, color.g, color.b, a))
+		var col := color
+		col.a = (1.0 - f) * 0.8
+		var rf := 0.6 if Pulse.reduced_motion else f
+		draw_arc(Vector2.ZERO, 6.0 + 14.0 * rf, 0, TAU, 20, col, 2.0)
+		draw_circle(Vector2.ZERO, 2.5, col)
 
 
 ## Red soul-link flash: line from the sacrificed ally to Relish.
@@ -70,8 +75,8 @@ class SoulLink:
 
 	func _draw() -> void:
 		var a := (1.0 - _t / 0.5) * 0.9
-		draw_line(Vector2.ZERO, to_local(to_point), Color(1.0, 0.18, 0.33, a), 3.0)
-		draw_circle(Vector2.ZERO, 7.0, Color(1.0, 0.18, 0.33, a * 0.7))
+		draw_line(Vector2.ZERO, to_local(to_point), Palette.c("danger", a), 3.0)
+		draw_circle(Vector2.ZERO, 7.0, Palette.c("danger", a * 0.7))
 
 
 static func ring(parent: Node, pos: Vector2, color: Color, max_radius: float,

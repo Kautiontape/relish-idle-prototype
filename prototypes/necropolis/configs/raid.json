@@ -10,7 +10,7 @@
     "max_hold_s": 4.0,
     "cooldown_s": 6.0,
     "lockout_s": 1.0,
-    "dim_alpha": 0.2
+    "line_dim_to": 0.4
   },
   "essence": {
     "lifetime_s": 12.0,
@@ -137,7 +137,13 @@
     "inner_gap_width": 165.0,
     "min_room_px": 300.0,
     "grid_cell": 32.0,
-    "grid_step_px": 128.0
+    "grid_step_px": 128.0,
+    "wall_drift_speed": 0.05,
+    "wall_wavelength_px": 1100.0,
+    "boss_wall_heat": 0.35
+  },
+  "floor": {
+    "tint": "contour"
   },
   "camera": {
     "zoom_min": 0.72,

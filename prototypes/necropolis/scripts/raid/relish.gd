@@ -3,11 +3,6 @@ extends Node2D
 ## Relish: a conduit, never a fighter. Click-to-move. If a lethal hit lands and
 ## any allied undead exists, the nearest ally is sacrificed in her place.
 
-const VIOLET := Color("#c04cff")
-const TRACE := Color("#50ffd9")
-const AMBER := Color(1.0, 0.72, 0.25)
-const DANGER := Color("#ff2d55")
-
 var raid: Node = null
 var hp := 30.0
 var max_hp := 30.0
@@ -29,7 +24,7 @@ func configure(p_raid: Node) -> void:
 	speed = float(r.get("speed", 240.0))
 	radius = float(r.get("radius", 13.0))
 	move_target = position
-	z_index = 35
+	z_index = 38  # above the trance dim (36): she stays at full strength
 
 
 func _physics_process(delta: float) -> void:
@@ -73,29 +68,31 @@ func take_hit(amount: float) -> void:
 
 
 func _draw() -> void:
-	var body := VIOLET
+	var violet := Palette.c("relish")
+	var body := violet
 	if _flash > 0.0:
-		body = body.lerp(DANGER, minf(0.8, _flash))
-	# glow ring halo
-	draw_circle(Vector2.ZERO, radius * 2.6, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.07))
-	draw_circle(Vector2.ZERO, radius * 1.8, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.12))
+		body = body.lerp(Palette.c("danger"), minf(0.8, _flash))
+	# halo breathes on the Pulse beat (steady under reduced motion)
+	var beat := 0.6 + 0.4 * Pulse.wave()
+	LineGlow.ring(self, Vector2.ZERO, radius * 1.8, violet, 1.5, 0.5 * beat)
 	draw_circle(Vector2.ZERO, radius, body)
-	draw_arc(Vector2.ZERO, radius + 3.5, 0, TAU, 24, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.85), 2.0)
-	draw_circle(Vector2.ZERO, radius * 0.4, Color(1, 1, 1, 0.9))
+	LineGlow.ring(self, Vector2.ZERO, radius + 3.5, violet, 2.0, beat, Palette.c("text", 0.6))
+	draw_circle(Vector2.ZERO, radius * 0.4, Palette.c("text", 0.9))
 	if _iframes > 0.0:
-		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Color(DANGER.r, DANGER.g, DANGER.b, 0.6), 2.0)
+		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Palette.c("danger", 0.6), 2.0)
 	if hp < max_hp:
 		var w := 30.0
 		var y := -radius - 12.0
-		draw_rect(Rect2(-w * 0.5, y, w, 4.0), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(-w * 0.5, y, w * clampf(hp / max_hp, 0.0, 1.0), 4.0), VIOLET)
+		draw_rect(Rect2(-w * 0.5, y, w, 4.0), Palette.c("ground", 0.8))
+		draw_rect(Rect2(-w * 0.5, y, w * clampf(hp / max_hp, 0.0, 1.0), 4.0), violet)
 	# trance focus / cooldown arc around her
 	if raid != null and raid.trance != null:
 		var tr = raid.trance
 		if tr.state == RaidTrance.State.ACTIVE:
 			var f: float = tr.focus_frac()
-			draw_arc(Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * f, 32, TRACE, 3.0)
+			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * f,
+				violet, 3.0, 0.5, Palette.c("text"))
 		elif tr.state == RaidTrance.State.COOLDOWN or tr.state == RaidTrance.State.LOCKOUT:
 			var f2: float = 1.0 - tr.cooldown_frac()
-			draw_arc(Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * maxf(0.02, f2), 32,
-				Color(AMBER.r, AMBER.g, AMBER.b, 0.8), 2.5)
+			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5,
+				-PI * 0.5 + TAU * maxf(0.02, f2), Palette.c("cooldown"), 2.5, 0.5)

@@ -3,14 +3,6 @@ extends Node2D
 ## One combat unit — enemy (orange family) or allied undead (green family).
 ## Simple kinematics: chase, melee on a cadence, neighbor separation, wall slide.
 
-const ORANGE := Color("#ff6a2b")
-const ORANGE_LIGHT := Color("#ff9a55")
-const ORANGE_DARK := Color("#c74a15")
-const GREEN := Color("#39ff9e")
-const GREEN_DIM := Color("#2bbf78")
-const GOLD := Color("#fff3d0")
-const DANGER := Color("#ff2d55")
-
 var raid: Node = null
 var faction := "enemy"       # "enemy" | "ally"
 var kind := "spearman"
@@ -176,7 +168,7 @@ func die(sacrificed := false) -> void:
 func _draw() -> void:
 	var body := _body_color()
 	if _flash > 0.0:
-		body = body.lerp(Color.WHITE, minf(0.85, _flash))
+		body = body.lerp(Palette.c("text"), minf(0.85, _flash))
 	var outline := body.darkened(0.55)
 	var lunge_off := _facing * _lunge * 5.0
 
@@ -184,17 +176,17 @@ func _draw() -> void:
 		"brute":
 			_draw_poly_body(6, radius, body, outline, lunge_off)
 		"elite":
-			draw_circle(lunge_off, radius * 1.7, Color(GREEN.r, GREEN.g, GREEN.b, 0.10))
 			_draw_poly_body(6, radius, body, outline, lunge_off)
-			draw_arc(lunge_off, radius + 3.0, 0, TAU, 20, Color(GREEN.r, GREEN.g, GREEN.b, 0.7), 1.5)
+			LineGlow.ring(self, lunge_off, radius + 3.0, Palette.c("undead"), 1.5, 0.7)
 		"runner":
-			draw_line(lunge_off - _facing * radius * 2.0, lunge_off, Color(body.r, body.g, body.b, 0.35), 2.0)
+			var trail := body
+			trail.a = 0.35
+			draw_line(lunge_off - _facing * radius * 2.0, lunge_off, trail, 2.0)
 			draw_circle(lunge_off, radius, body)
 			draw_arc(lunge_off, radius, 0, TAU, 16, outline, 1.5)
 		"guard":
-			draw_circle(lunge_off, radius * 1.5, Color(GOLD.r, GOLD.g, GOLD.b, 0.10))
 			draw_circle(lunge_off, radius, body)
-			draw_arc(lunge_off, radius, 0, TAU, 16, GOLD, 1.5)
+			LineGlow.ring(self, lunge_off, radius, Palette.c("vei"), 1.5, 0.7)
 		_:
 			draw_circle(lunge_off, radius, body)
 			draw_arc(lunge_off, radius, 0, TAU, 16, outline, 1.5)
@@ -205,8 +197,8 @@ func _draw() -> void:
 		var w := 18.0
 		var frac := clampf(hp / max_hp, 0.0, 1.0)
 		var y := -radius - 7.0
-		draw_rect(Rect2(-w * 0.5, y, w, 3.0), Color(0, 0, 0, 0.6))
-		var fill := GREEN if faction == "ally" else ORANGE
+		draw_rect(Rect2(-w * 0.5, y, w, 3.0), Palette.c("ground", 0.8))
+		var fill := Palette.c("undead" if faction == "ally" else "living")
 		draw_rect(Rect2(-w * 0.5, y, w * frac, 3.0), fill)
 
 
@@ -219,20 +211,21 @@ func _draw_poly_body(sides: int, r: float, body: Color, outline: Color, off: Vec
 	draw_polyline(pts, outline, 1.6)
 
 
+## Matter colours from the palette: living orange family, undead green family.
 func _body_color() -> Color:
 	match kind:
 		"spearman":
-			return ORANGE
+			return Palette.c("living")
 		"runner":
-			return ORANGE_LIGHT
+			return Palette.c("living").lerp(Palette.c("living_core"), 0.35)
 		"brute":
-			return ORANGE_DARK
+			return Palette.c("living").darkened(0.25)
 		"guard":
-			return Color("#ffb066")
+			return Palette.c("living").lerp(Palette.c("living_core"), 0.2)
 		"chaff":
-			return GREEN_DIM
+			return Palette.c("undead").darkened(0.25)
 		"soldier":
-			return GREEN
+			return Palette.c("undead")
 		"elite":
-			return Color("#7dffbe")
-	return ORANGE if faction == "enemy" else GREEN
+			return Palette.c("undead").lerp(Palette.c("undead_core"), 0.4)
+	return Palette.c("living" if faction == "enemy" else "undead")

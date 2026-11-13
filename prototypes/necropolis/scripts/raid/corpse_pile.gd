@@ -3,9 +3,6 @@ extends Node2D
 ## A grey, matte corpse pile. Dead matter never glows. When Relish walks close
 ## the pile stirs: its mass converts into 2-4 essence orbs.
 
-const GREY := Color("#6e6a7e")
-const GREY_DARK := Color("#57536a")
-
 var raid: Node = null
 var mass := 4.0
 var small := false          # boss remnants: dead undead, drawn smaller
@@ -13,6 +10,7 @@ var small := false          # boss remnants: dead undead, drawn smaller
 var _stirred := false
 var _shrink := -1.0
 var _lumps: Array = []
+var _lit := false           # Relish's light falls on it (dead_lit, still matte)
 
 
 func _ready() -> void:
@@ -46,8 +44,16 @@ func _process(delta: float) -> void:
 	if rel == null or not is_instance_valid(rel) or not rel.alive:
 		return
 	var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
-	if global_position.distance_to(rel.global_position) <= float(e.get("stir_radius_px", 90.0)):
+	var near: bool = global_position.distance_to(rel.global_position) <= float(e.get("stir_radius_px", 90.0))
+	_set_lit(near)
+	if near:
 		stir()
+
+
+func _set_lit(on: bool) -> void:
+	if on != _lit:
+		_lit = on
+		queue_redraw()
 
 
 ## The pile stirs: convert its mass into essence orbs.
@@ -55,6 +61,7 @@ func stir() -> void:
 	if _stirred:
 		return
 	_stirred = true
+	_set_lit(true)  # her light is on it as it stirs; it stays matte
 	remove_from_group("raid_piles")
 	if raid != null:
 		var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
@@ -75,9 +82,12 @@ func consume() -> void:
 
 
 func _draw() -> void:
+	# Dead is matte: flat fills only, never a glow stroke.
+	var base := Palette.c("dead_lit" if _lit else "dead")
+	var dark := base.darkened(0.2)
 	for l in _lumps:
-		var c := GREY.lerp(GREY_DARK, l["shade"])
-		draw_circle(l["off"], l["r"], c)
+		draw_circle(l["off"], l["r"], base.lerp(dark, l["shade"]))
 	# a couple of matte bone slivers
-	draw_line(Vector2(-6, 2), Vector2(5, -3), Color(0.78, 0.76, 0.82, 0.55), 2.0)
-	draw_line(Vector2(-2, 5), Vector2(7, 4), Color(0.72, 0.70, 0.78, 0.45), 2.0)
+	var bone := base.lightened(0.3)
+	draw_line(Vector2(-6, 2), Vector2(5, -3), bone, 2.0)
+	draw_line(Vector2(-2, 5), Vector2(7, 4), bone, 2.0)

@@ -16,5 +16,7 @@
   "text": "#E8E8EC",
   "text_dim": "#8888A0",
   "ring_track": "#202027",
-  "select": "#FFD000"
+  "select": "#FFD000",
+  "essence": "#EBD7FF",
+  "cooldown": "#FFB840"
 }

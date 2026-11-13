@@ -5,10 +5,6 @@ extends Node2D
 ## deletes crowds), REVIVE (recycles corpses/essence into living guards),
 ## passive heal when no undead is in contact.
 
-const GOLD := Color("#fff3d0")
-const DANGER := Color("#ff2d55")
-const ORANGE := Color("#ff6a2b")
-
 var boss: Node = null
 var hp := 2000.0
 var max_hp := 2000.0
@@ -86,7 +82,7 @@ func _physics_process(delta: float) -> void:
 			struck += 1
 		if struck > 0:
 			_smite_t = float(b.get("smite_cadence_s", 1.1))
-			RaidFx.ring(boss.fx_root, global_position, Color(GOLD.r, GOLD.g, GOLD.b, 0.7),
+			RaidFx.ring(boss.fx_root, global_position, Palette.c("vei", 0.7),
 				range_px + radius, 0.25, 2.0)
 		else:
 			_smite_t = 0.15  # nothing in reach — check again soon
@@ -128,8 +124,8 @@ func _physics_process(delta: float) -> void:
 
 func _do_pulse(b: Dictionary) -> void:
 	var r: float = float(b.get("pulse_radius_px", 340.0))
-	RaidFx.ring(boss.fx_root, global_position, GOLD, r, 0.5, 6.0)
-	RaidFx.ring(boss.fx_root, global_position, Color(1, 1, 1, 0.9), r * 0.7, 0.35, 3.0)
+	RaidFx.ring(boss.fx_root, global_position, Palette.c("vei"), r, 0.5, 6.0)
+	RaidFx.ring(boss.fx_root, global_position, Palette.c("text", 0.9), r * 0.7, 0.35, 3.0)
 	for a in boss.allies.duplicate():
 		if not is_instance_valid(a) or not a.alive:
 			continue
@@ -195,41 +191,45 @@ func _do_revive(b: Dictionary) -> void:
 		var pos := global_position + Vector2(radius + 40.0 + randf() * 70.0, 0).rotated(ang)
 		var u = boss.spawn_unit("enemy", "guard", boss.resolve_walls(pos, 10.0), true)
 		u.mass = float(b.get("guard", {}).get("mass", 10.0))
-	RaidFx.ring(boss.fx_root, global_position, ORANGE, 120.0, 0.5, 3.0)
+	RaidFx.ring(boss.fx_root, global_position, Palette.c("living"), 120.0, 0.5, 3.0)
 	_revive_cd = float(b.get("revive_cooldown_s", 7.0))
 
 
 func _draw() -> void:
 	var b := bcfg()
+	var vei := Palette.c("vei")
+	var reduced: bool = Pulse.reduced_motion
 	# radiant pulse telegraph: expanding indicator circle
 	if _windup >= 0.0:
 		var wind_f := _windup / maxf(0.05, float(b.get("pulse_windup_s", 1.2)))
 		var r: float = float(b.get("pulse_radius_px", 340.0))
-		draw_circle(Vector2.ZERO, r, Color(GOLD.r, GOLD.g, GOLD.b, 0.05 + 0.05 * wind_f))
-		draw_arc(Vector2.ZERO, r, 0, TAU, 64, Color(DANGER.r, DANGER.g, DANGER.b, 0.4 + 0.5 * wind_f), 3.0)
-		draw_arc(Vector2.ZERO, r * wind_f, 0, TAU, 48, Color(GOLD.r, GOLD.g, GOLD.b, 0.8), 2.0)
-	# revive channel: golden gathering glow
+		LineGlow.ring(self, Vector2.ZERO, r, Palette.c("danger", 0.4 + 0.5 * wind_f), 3.0, 0.6)
+		LineGlow.ring(self, Vector2.ZERO, r * wind_f, Palette.c("vei", 0.8), 2.0, 0.6)
+	# revive channel: gathering ring
 	if _channel >= 0.0:
 		var ch_f := _channel / maxf(0.05, float(b.get("revive_channel_s", 2.0)))
 		var rr: float = float(b.get("revive_radius_px", 400.0))
-		draw_arc(Vector2.ZERO, rr * (1.0 - ch_f * 0.7), 0, TAU, 64,
-			Color(ORANGE.r, ORANGE.g, ORANGE.b, 0.35 + 0.3 * ch_f), 2.5)
-	# halo + rays: imposing white-gold
-	draw_circle(Vector2.ZERO, radius * 2.4, Color(GOLD.r, GOLD.g, GOLD.b, 0.05))
-	draw_circle(Vector2.ZERO, radius * 1.7, Color(GOLD.r, GOLD.g, GOLD.b, 0.09))
+		LineGlow.ring(self, Vector2.ZERO, rr * (1.0 - ch_f * 0.7),
+			Palette.c("living", 0.35 + 0.3 * ch_f), 2.5, 0.6)
+	# halo + rays: imposing cream and gold (rays hold still under reduced motion)
+	LineGlow.ring(self, Vector2.ZERO, radius * 1.7, vei, 1.5, 0.5)
+	var spin := 0.0 if reduced else _t * 0.25
+	var ray := Palette.c("vei", 0.55)
 	for i in 12:
-		var ang := TAU * i / 12.0 + _t * 0.25
+		var ang := TAU * i / 12.0 + spin
+		var bob := 0.0 if reduced else 6.0 * sin(_t * 2.0 + i)
 		var a0 := Vector2(radius + 10.0, 0).rotated(ang)
-		var a1 := Vector2(radius + 30.0 + 6.0 * sin(_t * 2.0 + i), 0).rotated(ang)
-		draw_line(a0, a1, Color(GOLD.r, GOLD.g, GOLD.b, 0.55), 2.5)
-	draw_arc(Vector2.ZERO, radius + 9.0, 0, TAU, 48, Color(GOLD.r, GOLD.g, GOLD.b, 0.85), 2.5)
-	var body := GOLD
+		var a1 := Vector2(radius + 30.0 + bob, 0).rotated(ang)
+		draw_line(a0, a1, ray, 2.5)
+	LineGlow.ring(self, Vector2.ZERO, radius + 9.0, vei, 2.5, 0.8)
+	var body := vei
 	if _flash > 0.0:
-		body = body.lerp(DANGER, minf(0.7, _flash))
+		body = body.lerp(Palette.c("danger"), minf(0.7, _flash))
 	if not alive:
-		body = Color(0.5, 0.48, 0.55)
+		body = Palette.c("dead")
 	draw_circle(Vector2.ZERO, radius, body)
-	draw_circle(Vector2.ZERO, radius * 0.62, Color(1, 1, 1, 0.85))
+	draw_circle(Vector2.ZERO, radius * 0.62, Palette.c("text", 0.85))
 	# a stern face slit
-	draw_line(Vector2(-10, -6), Vector2(-4, -6), Color(0.25, 0.2, 0.1, 0.8), 2.5)
-	draw_line(Vector2(4, -6), Vector2(10, -6), Color(0.25, 0.2, 0.1, 0.8), 2.5)
+	var slit := Palette.c("ground", 0.8)
+	draw_line(Vector2(-10, -6), Vector2(-4, -6), slit, 2.5)
+	draw_line(Vector2(4, -6), Vector2(10, -6), slit, 2.5)

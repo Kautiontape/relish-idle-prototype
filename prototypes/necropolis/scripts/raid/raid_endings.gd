@@ -6,9 +6,6 @@ extends RefCounted
 ## The result dicts stay on the raid (`_exit_result` / `_death_result`) so the
 ## boss scene can override them.
 
-const VIOLET := Color("#c04cff")
-const DANGER := Color("#ff2d55")
-
 var ended := false      # run is over; gameplay stops (raid._ended forwards here)
 var finished := false   # `finished` already emitted
 
@@ -28,7 +25,7 @@ func confirm_exit() -> void:
 		return
 	ended = true
 	_raid.trance.force_end()
-	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, VIOLET, 60.0, 0.5, 4.0)
+	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 60.0, 0.5, 4.0)
 	finish(_raid._exit_result())
 
 
@@ -37,8 +34,8 @@ func on_relish_died() -> void:
 		return
 	ended = true
 	_raid.trance.force_end()
-	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, DANGER, 90.0, 0.8, 4.0)
-	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, VIOLET, 50.0, 0.8, 3.0)
+	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
+	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
 	_raid.get_tree().create_timer(0.9).timeout.connect(func() -> void: finish(_raid._death_result()))
 
 

@@ -5,12 +5,6 @@ extends Node2D
 
 signal finished(result: Dictionary)
 
-const GREEN := Color("#39ff9e")
-const ORANGE := Color("#ff6a2b")
-const VIOLET := Color("#c04cff")
-const GOLD := Color("#fff3d0")
-const DANGER := Color("#ff2d55")
-
 var seed_data := {}
 var layout := {}
 var ledger: RaidLogic.Ledger = null
@@ -56,6 +50,13 @@ func is_boss() -> bool:
 	return bool(seed_data.get("boss", false))
 
 
+## Palette key of the fortress's controller colour; it tints the walls. A Vei
+## fortress is "living", the boss arena is "vei". Held (player) fortresses
+## should be "undead": a later task sets `controller_key` in the seed.
+func controller_key() -> String:
+	return str(seed_data.get("controller_key", "vei" if is_boss() else "living"))
+
+
 func demo_seed() -> Dictionary:
 	return {"fort_id": "vespers", "name": "Vespers", "tier": 2,
 		"cap": 160.0, "living": 120.0, "undead": 10.0, "dead": 20.0,
@@ -88,7 +89,7 @@ func _build() -> void:
 	# arena first: floor + walls draw under the units
 	arena = RaidArena.new()
 	add_child(arena)
-	arena.build(layout, cfg)
+	arena.build(layout, cfg, controller_key())
 
 	units_root = Node2D.new()
 	add_child(units_root)
@@ -100,6 +101,7 @@ func _build() -> void:
 	relish.position = layout["spawn"]
 	units_root.add_child(relish)
 	relish.configure(self)
+	arena.bind_relish(relish)
 
 	# --- corpse piles: grey, matte, scattered on open ground ---
 	var dead := float(seed_data.get("dead", 0.0))
@@ -121,8 +123,8 @@ func _build() -> void:
 	cam = Camera2D.new()
 	cam.position_smoothing_enabled = true
 	cam.position_smoothing_speed = float(ccam.get("smoothing", 5.0))
-	var arena: Vector2 = layout["size"]
-	cam.zoom = Vector2.ONE * clampf(1600.0 / (arena.x + float(ccam.get("view_pad_px", 120.0))),
+	var arena_size: Vector2 = layout["size"]
+	cam.zoom = Vector2.ONE * clampf(1600.0 / (arena_size.x + float(ccam.get("view_pad_px", 120.0))),
 		float(ccam.get("zoom_min", 0.72)), float(ccam.get("zoom_max", 1.15)))
 	add_child(cam)
 	cam.make_current()
@@ -181,18 +183,18 @@ func _physics_process(delta: float) -> void:
 ## Follow Relish, but never waste the frame on void: clamp the view to the
 ## arena, and center any axis where the arena is smaller than the viewport.
 func _cam_follow() -> void:
-	var arena: Vector2 = layout["size"]
+	var arena_size: Vector2 = layout["size"]
 	var view: Vector2 = get_viewport_rect().size / cam.zoom.x
 	var t := relish.position
 	var m := 60.0
-	if view.x >= arena.x + 2.0 * m:
-		t.x = arena.x * 0.5
+	if view.x >= arena_size.x + 2.0 * m:
+		t.x = arena_size.x * 0.5
 	else:
-		t.x = clampf(t.x, view.x * 0.5 - m, arena.x - view.x * 0.5 + m)
-	if view.y >= arena.y + 2.0 * m:
-		t.y = arena.y * 0.5
+		t.x = clampf(t.x, view.x * 0.5 - m, arena_size.x - view.x * 0.5 + m)
+	if view.y >= arena_size.y + 2.0 * m:
+		t.y = arena_size.y * 0.5
 	else:
-		t.y = clampf(t.y, view.y * 0.5 - m, arena.y - view.y * 0.5 + m)
+		t.y = clampf(t.y, view.y * 0.5 - m, arena_size.y - view.y * 0.5 + m)
 	cam.position = t
 
 
@@ -243,7 +245,7 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 		ledger.on_kill(u.mass)
 		# kills drop essence at the corpse, carrying the enemy's mass
 		spawn_orb(u.global_position, u.mass, Vector2(randf_range(30, 70), 0).rotated(randf() * TAU))
-		RaidFx.ring(fx_root, u.global_position, Color(ORANGE.r, ORANGE.g, ORANGE.b, 0.6), 26.0, 0.3, 2.0)
+		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
 	else:
 		allies.erase(u)
 		if u.ledger_mass:
@@ -253,7 +255,7 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 		elif u.kind == "elite":
 			army_lost["elite"] += 1
 		if not sacrificed:
-			RaidFx.ring(fx_root, u.global_position, Color(GREEN.r, GREEN.g, GREEN.b, 0.4), 20.0, 0.25, 2.0)
+			RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
 		_on_ally_died(u)
 
 
@@ -283,8 +285,8 @@ func sacrifice_nearest_ally() -> void:
 	if best == null:
 		return
 	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
-	RaidFx.ring(fx_root, best.global_position, DANGER, 34.0, 0.45, 3.0)
-	RaidFx.ring(fx_root, relish.global_position, DANGER, 26.0, 0.45, 2.0)
+	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
 	best.die(true)
 
 
@@ -339,6 +341,7 @@ func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
 
 func set_trance(active: bool) -> void:
 	trance_active = active
+	arena.set_trance_dim(active)
 
 
 func show_trace_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
@@ -378,7 +381,7 @@ func perform_raise(g: Dictionary) -> void:
 		if str(spec["kind"]) == "chaff":
 			u.ledger_mass = true
 			u.mass = float(spec["unit_mass"])
-	RaidFx.ring(fx_root, relish.global_position, GREEN, ring_px + 26.0, 0.5, 3.0)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
 
 
 # --------------------------------------------------------------- endings -----
@@ -400,6 +403,7 @@ func _exit_result() -> Dictionary:
 
 func _death_result() -> Dictionary:
 	return ledger.result(str(seed_data.get("fort_id", "")), true, rcfg())
+
 
 func _finish(result: Dictionary) -> void:
 	endings.finish(result)
