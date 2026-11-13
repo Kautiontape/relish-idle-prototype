@@ -54,5 +54,25 @@
   "reduced_speed": 0.1,
   "reduced_keep_per_s": 0.72,
   "reduced_noise_evolve": 0.0,
-  "reduced_life_scale": 3.0
+  "reduced_life_scale": 3.0,
+
+  "drift_floor": {
+    "_doc": "DriftFloor (scripts/fx/drift_floor.gd), the shared town/dungeon floor. density = streaks per 100x100 px; speed = px/s at drift strength 1; the exhale surges speed and length on Pulse's beat; tint = a Palette key (never dead); the head is lifted to head_contrast against the ground (faint by sparsity, never below the 3:1 line floor at the head).",
+    "tint": "town",
+    "density": 1.6,
+    "max_streaks": 4000,
+    "cell_px": 32.0,
+    "max_cells": 128,
+    "speed": 16.0,
+    "length_px": 30.0,
+    "width_px": 2.0,
+    "head_frac": 0.22,
+    "head_power": 2.2,
+    "head_contrast": 3.4,
+    "alpha": 1.0,
+    "life_s": [4.0, 9.0],
+    "min_strength": 0.04,
+    "exhale_speed": 0.8,
+    "exhale_length": 0.35
+  }
 }
