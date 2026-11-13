@@ -48,7 +48,8 @@
     "contest": 1.35,
     "town_threshold": 0.18,
     "tick_hz": 5.0,
-    "slice_budget_cells": 0
+    "slice_budget_cells": 0,
+    "lag_ticks": 2
   },
 
   "flip": {"hold_s": 300.0, "tier_mult": 0.25, "haul_mult": 1.5}

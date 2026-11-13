@@ -78,15 +78,16 @@ func run() -> int:
 	var per_tick_ms := (Time.get_ticks_usec() - t0) / 1000.0 / 5.0
 	t.ok(per_tick_ms < 25.0, "field tick under 25ms (measured %.1fms)" % per_tick_ms)
 
-	# --- the time-slice hooks are no-ops until the ground unit fills them in ---
+	# --- the time-slice hooks: advance() computes off to the side, flush() publishes ---
 	var f5 := _mk()
 	f5.inject(p_a, true, 1.0, 1)
 	f5.tick(0.2)
 	var g5 := f5.green.duplicate()
 	f5.advance(0)
 	f5.advance(4000)
+	t.ok(f5.green == g5, "advance() never changes the live field (only tick() and flush() publish)")
 	f5.flush()
-	t.ok(f5.green == g5, "advance() and flush() change nothing in the base field")
+	t.ok(f5.green != g5 and f5.in_flight() == 0, "flush() publishes the job in flight and leaves nothing in flight")
 	var gs := GameState.new(TestUtil.configs())
 	gs.cmd_new_game(1)
 	gs.field = Spy.new()
