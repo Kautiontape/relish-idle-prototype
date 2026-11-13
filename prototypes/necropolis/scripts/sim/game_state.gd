@@ -48,7 +48,7 @@ var rng := RandomNumberGenerator.new()
 var rng_seed := ""  # String: 64-bit seeds do not survive JSON numbers
 var rev := 0  # +1 per substep and per successful command
 
-# --- Relish (owned here; realm.relish is a legacy mirror, see _sync_realm_relish) ---
+# --- Relish (owned here; RealmSim sees only her effects, as step inputs: _relish_effects) ---
 var relish := {}
 # --- runs and seeds (§4.5, §7) ---
 var run := {}  # {} or {run_id, kind: "raid"|"boss", fort_id, seed_rev, seed}
@@ -64,8 +64,11 @@ var husks: Array = []
 var remnants: Array = []
 var big_undead: Array = []
 var party_uids: Array = []
-var valve := {"work": 0.40, "war": 0.45, "flood": 0.15}
+var valve := {"work": 0.40, "war": 0.45, "flood": 0.15}  # the current vector; slews toward the target (§3 step 3)
 var valve_target := {"work": 0.40, "war": 0.45, "flood": 0.15}
+## WORK mass the valve has sent and nothing has consumed yet. TownSim will consume it; until it
+## lands this only accumulates. Held mass. Not saved yet (the save shape is frozen until its bump).
+var work_pending := 0.0
 var blueprints: Array = []  # owned blueprint ids (= the building ids they unlock), banked by apply_result
 var applied_runs: Array = []  # the last 32 run ids apply_result closed (for duplicate_run); kept across new games like next_run_id
 var _dungeon_sink := 0.0  # mass the raid writeback lost (ledger sinks.dungeon), since the new game
@@ -115,6 +118,8 @@ var gather: Dictionary:
 
 var _cfgs := {}
 var _acc := 0.0
+var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0}  # mass/s of the last substep (step 3)
+var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for tests
 var _field_acc := 0.0
 var _events: Array = []
 
@@ -193,6 +198,9 @@ func cmd_new_game(seed: int) -> Dictionary:
 	var v: Dictionary = opening.get("valve", {"work": 0.40, "war": 0.45, "flood": 0.15})
 	valve = _normalised(float(v.get("work", 0.4)), float(v.get("war", 0.45)), float(v.get("flood", 0.15)))
 	valve_target = valve.duplicate()
+	work_pending = 0.0
+	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0}
+	_realm_inputs = {}
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
 	_dungeon_sink = 0.0
@@ -218,20 +226,18 @@ func cmd_new_game(seed: int) -> Dictionary:
 		"pos": [float(realm.cov_pos.x), float(realm.cov_pos.y)], "heading": 0.0,
 		"dead_s_left": 0.0, "respawn_with_clone": false,
 	}
-	_sync_realm_relish()
 	_prewarm_field()
 	rev += 1
 	return {"ok": true, "reason": ""}
 
 
-## The config-built parts of a game: the realm (with Relish's mirror at Covington), an empty
-## field and the villages, all neutral. A load rebuilds them the same way (§9).
+## The config-built parts of a game: the realm, an empty field and the villages, all neutral. A
+## load rebuilds them the same way (§9).
 func _build_realm_field_towns() -> void:
 	var cfg: Dictionary = _cfg()
 	var world: Dictionary = _cfgs.get("world", {})
 	realm = RealmSim.new()
 	realm.setup(world, cfg)
-	realm.send_relish("covington")
 	legacy.realm = realm
 	field = InfluenceField.new()
 	field.setup(cfg.get("field", {}), RealmSim._vec(world.get("size", [2048, 1440])))
@@ -331,7 +337,6 @@ func _begin_travel(node_id: String) -> void:
 	relish["state"] = "travelling"
 	relish["target"] = node_id
 	_face(node_id)
-	_sync_realm_relish()
 
 
 func cmd_move_relish(node_id: String) -> Dictionary:
@@ -373,7 +378,6 @@ func _place_relish(node_id: String) -> void:
 	relish["pos"] = _node_xy(node_id)
 	relish["dead_s_left"] = 0.0
 	relish["respawn_with_clone"] = false
-	_sync_realm_relish()
 
 
 ## Substep step 4 (§3): straight-line travel and arrival.
@@ -388,7 +392,6 @@ func _step_relish_travel(dt: float) -> void:
 		relish["state"] = _state_at_node(tgt)
 		relish["at"] = tgt
 		relish["target"] = ""
-		_sync_realm_relish()
 		return
 	_face(tgt)
 	var p: Array = relish["pos"]
@@ -397,18 +400,17 @@ func _step_relish_travel(dt: float) -> void:
 	relish["pos"] = [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]
 
 
-## E1 rule: RealmSim keeps its own relish dict and raiding flag. Home keeps the
-## legacy P_relish mint; anywhere else (or dead) the legacy channel is idle (no raise
-## at forts until E2); realm.raiding follows the open run.
-func _sync_realm_relish() -> void:
-	if relish["state"] == "home":
-		realm.relish["at"] = "covington"
-		realm.relish["state"] = "raising"
-	else:
-		realm.relish["at"] = relish["at"]
-		realm.relish["state"] = "idle"
-	realm.relish["target"] = ""
-	realm.raiding = not run.is_empty()
+## What her position does now (MECHANICS §3.3): `tide_fort` is her fort while she stands at it or is
+## in its dungeon; `redirect_fort` only while she stands at it (not in its dungeon). Nothing while
+## dead, travelling, at Vei or home (home's rot and slab effects are TownSim's, E3's). The step-5
+## inputs and view_relish().effects both come from here.
+func _relish_effects() -> Dictionary:
+	var st: String = relish["state"]
+	var at: String = relish["at"]
+	return {
+		"tide_fort": at if st == "at_fort" or st == "in_dungeon" else "",
+		"redirect_fort": at if st == "at_fort" else "",
+	}
 
 
 func _descend_reason(fort_id: String) -> String:
@@ -435,12 +437,12 @@ func view_relish() -> Dictionary:
 		"can_descend": reason == "" and not realm.fort_by_id(at).is_empty(),
 		"reason": reason,
 		"run_id": int(run.get("run_id", -1)), "run_kind": str(run.get("kind", "")),
-		"effects": {"tide_fort": "", "redirect_fort": "", "home": relish["state"] == "home"},
+		"effects": _relish_effects().merged({"home": relish["state"] == "home"}),
 	}
 
 
 # ------------------------------------------------- §4.2 macro: valve, haul ----
-## E1/E2: stores the target (normalised) and, with no slew until E2, the current vector.
+## Sets the target (normalised) only; the current vector slews toward it each substep (§3 step 3).
 func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
 	var why := ""
 	if not (is_finite(work) and is_finite(war) and is_finite(flood)):
@@ -453,7 +455,6 @@ func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
 		return {"ok": false, "reason": why, "target": {}}
 	var m := maxf(work, maxf(war, flood))  # scale first so huge inputs cannot overflow the sum
 	valve_target = _normalised(work / m, war / m, flood / m)
-	valve = valve_target.duplicate()
 	rev += 1
 	return {"ok": true, "reason": "", "target": valve_target.duplicate()}
 
@@ -626,7 +627,6 @@ func _open_run(kind: String, fort_id: String) -> Dictionary:
 	relish["state"] = "in_dungeon" if kind == "raid" else "in_boss"
 	time_scale = 1.0
 	paused = false
-	_sync_realm_relish()
 	return {"ok": true, "reason": "", "seed": seed_d.duplicate(true), "run_id": run_id, "seed_rev": rev}
 
 
@@ -666,7 +666,6 @@ func cmd_abort_dungeon() -> Dictionary:
 	var run_id: int = run["run_id"]
 	relish["state"] = "at_fort" if run["kind"] == "raid" else "at_vei"
 	run = {}
-	_sync_realm_relish()
 	rev += 1
 	return {"ok": true, "reason": "", "run_id": run_id}
 
@@ -1039,7 +1038,7 @@ func _stance_slots() -> int:
 	var per_hall: Variant = _buildings_cfg().get("guildhall", {}).get("effects", {}).get("stance_slots", 1)
 	var n := int(_sec("economy", "stance").get("base_slots", 2)) + _count_built("guildhall") * int(per_hall)
 	if relish["state"] == "home":
-		n += 1
+		n += int(_cfg().get("relish", {}).get("home_stance_bonus", 1))  # her one live home effect (§3.3)
 	return n
 
 
@@ -1344,11 +1343,14 @@ func view_lanes() -> Dictionary:
 	return {"rev": rev, "lanes": lanes}
 
 
-## §5.4 · E1.
+## §5.4 · E1 (held_count live from E2a).
 func view_realm() -> Dictionary:
 	var forts: Array = []
+	var held := 0
 	for f in realm.forts:
 		forts.append(_fort_entry(f))
+		if RealmSim.is_held(f):
+			held += 1
 	return {
 		"rev": rev, "size": _world_size(),
 		"covington": {"pos": _xy(realm.cov_pos)},
@@ -1358,7 +1360,7 @@ func view_realm() -> Dictionary:
 			"living_pool": float(realm.vei["living_pool"]), "pool_cap": _pool_cap(),
 			"backlog": float(realm.vei["undead_queue"]),
 		},
-		"forts": forts, "held_count": 0, "digest_q": quality(),
+		"forts": forts, "held_count": held, "digest_q": quality(),
 	}
 
 
@@ -1376,24 +1378,27 @@ func _simulacrum_charges(fort_id: String) -> float:
 	return n
 
 
-## A fort in the view_fort shape, without `rev`. Live at E1: masses, positions, war_in,
-## ship_in, relish_here, siege, can_descend. Held, flip, tithe, threat and warden are E2 stubs.
+## A fort in the view_fort shape, without `rev`. Live: masses, positions, war_in (WAR arriving,
+## staging included), ship_in, held, held_s_left, relish_here, tide, redirect, siege, can_descend.
+## Tithe, threat and warden are still stubs.
 func _fort_entry(f: Dictionary) -> Dictionary:
 	var id: String = f["id"]
 	var why := _descend_reason(id)
+	var fx := _relish_effects()
 	var archetype := _warden_archetype(id)
 	return {
 		"id": id, "name": str(f["name"]), "tier": int(f["tier"]), "cap": float(f["cap"]),
 		"pos": _xy(f["pos"]),
 		"living": float(f["living"]), "undead": float(f["undead"]), "dead": float(f["dead"]),
 		"space": float(realm.space(f)), "war_in": float(f["r_in"]), "ship_in": float(f["r_shipped"]),
-		"held": false, "held_s_left": 0.0, "flipped_count": int(f.get("flipped_count", 0)),
+		"held": RealmSim.is_held(f), "held_s_left": float(f.get("held_s", 0.0)),
+		"flipped_count": int(f.get("flipped_count", 0)),
 		"first_clear": not cleared_forts.has(id), "first_dungeon": _is_first_dungeon(id),
 		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
 		"warden": {"archetype": archetype, "tells": (_WARDEN_TELLS.get(archetype, []) as Array).duplicate()},
 		"loot_hint": _loot_hint(id),
 		"threat": {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0},
-		"relish_here": _standing_fort() == id, "tide": false, "redirect": false,
+		"relish_here": _standing_fort() == id, "tide": fx["tide_fort"] == id, "redirect": fx["redirect_fort"] == id,
 		"simulacrum_charges": _simulacrum_charges(id),
 		"siege": _uids_at("fort:" + id),
 		"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false},
@@ -1683,6 +1688,22 @@ func quality() -> float:
 	return legacy.quality()
 
 
+## §3 step 3: the current valve moves toward the target along the straight line, by at most
+## `valve.slew_per_s · dt` of L1 distance, so its components always sum to 1.
+func _slew_valve(dt: float) -> void:
+	var rate := float(_cfg().get("valve", {}).get("slew_per_s", 0.10))
+	var l1 := 0.0
+	for k in valve:
+		l1 += absf(float(valve_target[k]) - float(valve[k]))
+	var max_step := rate * dt
+	if l1 <= max_step + 1e-12:
+		valve = valve_target.duplicate()
+		return
+	var f := max_step / l1
+	for k in valve:
+		valve[k] = float(valve[k]) + (float(valve_target[k]) - float(valve[k])) * f
+
+
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.
 ## max_substeps > 0 caps the work; the remainder is then dropped.
 func tick(dt: float, max_substeps := 0) -> int:
@@ -1709,10 +1730,25 @@ func _advance(dt: float, max_substeps: int) -> int:
 func _tick(dt: float) -> void:
 	t += dt
 	var cfg: Dictionary = _cfg()
-	realm.t["q"] = legacy.quality()
-	realm.t["P_base"] = legacy.mint_step(dt)
-	_step_relish_travel(dt)  # §3 step 4: after the legacy mint above, before realm.step
-	realm.step(dt)
+	# §3 step 3: the valve slews, then splits the mint. Interim mint until TownSim lands: the legacy
+	# mint, P_base + P_per_slab · slabs with the legacy slab bonus (it burns slab bodies).
+	_slew_valve(dt)
+	var mint := legacy.mint_step(dt)
+	_split = {"mint": mint, "work": mint * valve["work"], "war": mint * valve["war"], "flood": mint * valve["flood"]}
+	work_pending += _split["work"] * dt  # WORK has no consumer until TownSim
+	# §3 step 4: Relish's travel and state
+	_step_relish_travel(dt)
+	# §3 step 5: RealmSim, pure on these inputs; its events get this substep's t
+	var fx := _relish_effects()
+	var rcfg: Dictionary = cfg.get("relish", {})
+	_realm_inputs = {
+		"war": _split["war"], "flood": _split["flood"], "digest_q": quality(),
+		"tide_fort": fx["tide_fort"], "tide_bias": float(rcfg.get("tide_bias", 3.0)),
+		"redirect_fort": fx["redirect_fort"], "redirect_rate": float(rcfg.get("raise_rate", 4.0)),
+	}
+	realm.step(dt, _realm_inputs)
+	for ev in realm.drain_events():
+		_emit(ev)
 	legacy.tick_town(dt, green_towns)
 	legacy.tick_gather(dt)
 	_field_acc += dt
@@ -1872,7 +1908,7 @@ func _writeback_raid(r: Dictionary) -> Array:
 		f["living"] = 0.0
 		var fl: Dictionary = _cfg().get("flip", {})
 		var hold_s := float(fl.get("hold_s", 300.0)) * (1.0 + float(fl.get("tier_mult", 0.25)) * float(f["tier"]))
-		f["held_s"] = hold_s  # the hold's effect is E2
+		realm.hold(fort_id, hold_s)  # RealmSim counts it down and stops her shipping there
 		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
 		f["clears_since_retaken"] = int(f.get("clears_since_retaken", 0)) + 1
 		flip_ev = {"type": "fort_flipped", "fort_id": fort_id, "run_id": run_id, "hold_s": hold_s}
@@ -1943,7 +1979,6 @@ func _writeback_raid(r: Dictionary) -> Array:
 		_legacy_death(run_id)
 	else:
 		relish["state"] = "at_fort"
-		_sync_realm_relish()
 	return minted
 
 
@@ -1978,7 +2013,6 @@ func _writeback_boss(r: Dictionary) -> void:
 		_legacy_death(run_id)
 	else:
 		relish["state"] = "at_vei"
-		_sync_realm_relish()
 
 
 # ------------------------------------------------------------ §9 persistence ----
@@ -2116,8 +2150,9 @@ func _apply_save(m: Dictionary) -> void:
 	var rm: Dictionary = m["realm"]
 	for e in rm["forts"]:
 		var f := realm.fort_by_id(e["id"])
-		for k in ["living", "undead", "dead", "held_s", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
+		for k in ["living", "undead", "dead", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
 			f[k] = float(e[k])
+		realm.hold(e["id"], float(e["held_s"]))
 		f["flipped_count"] = int(e["flipped_count"])
 		f["clears_since_retaken"] = int(e["clears_since_retaken"])
 	for k in realm.cov:
@@ -2207,8 +2242,10 @@ func _apply_save(m: Dictionary) -> void:
 	_events = []
 	time_scale = 1.0
 	paused = false
-	realm.t["q"] = quality()
-	_sync_realm_relish()
+	realm.digest_q = quality()
+	work_pending = 0.0
+	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0}
+	_realm_inputs = {}
 	_prewarm_field()
 	rev += 1
 

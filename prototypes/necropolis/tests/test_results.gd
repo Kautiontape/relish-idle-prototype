@@ -421,7 +421,7 @@ func _raid_writeback() -> void:
 	t.ok(s.rev == rv + 1, "a success bumps rev once")
 	t.ok(s.run.is_empty() and s.applied_runs == [sd["run_id"]], "the run closes and is recorded")
 	t.ok(s.view_relish()["state"] == "at_fort" and s.view_relish()["at"] == "old-sluice", "Relish is at the fort again")
-	t.ok(s.realm.raiding == false, "the realm no longer sees a raid")
+	t.ok(s.raiding_fort_id() == "", "no raid is open any more")
 	var before := _snap(s)
 	var again := s.apply_result("raid", r)
 	t.ok(again == {"ok": false, "reason": "duplicate_run", "errors": [], "minted": []} and _snap(s) == before, "a repeat is duplicate_run and changes nothing")
@@ -597,7 +597,7 @@ func _raid_death() -> void:
 		t.ok(s.relics == 2 and s.essence == 7 and s.husks.size() == 1, "the banked loot is kept on a death")
 		t.ok(s.big_undead.is_empty() and s.party_uids == [], "the whole party is lost (A8); no stale uid in the party list")
 		t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington" and s.run.is_empty(), "she respawns home at once")
-		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0 and not _fort(s, "old-sluice").has("held_s"), "a death does not flip")
+		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a death does not flip")
 		t.ok(s.town["vats"] == 0, "the legacy vat is spent or was absent")
 		if vats == 1:
 			t.ok(s.army == {"soldier": 12, "elite": 10}, "a clone: the army stays (+2 soldiers from step 12)")
@@ -858,7 +858,7 @@ func _misc() -> void:
 	s.apply_result("raid", _raid_res(sd3, {"garrison_mass": 0.0}))
 	t.ok(s._dungeon_sink == 20.0, "garrison lost is sunk")
 	s.cmd_new_game(3)
-	t.ok(s.ledger()["sinks"]["dungeon"] == 0.0 and not _fort(s, "old-sluice").has("held_s"), "a new game resets the sink and the forts")
+	t.ok(s.ledger()["sinks"]["dungeon"] == 0.0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a new game resets the sink and the forts")
 	# the caller's dictionary is never changed
 	s = _mk()
 	var sd4 := _begin(s)

@@ -260,9 +260,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   3. **The valve.** Slew the current vector toward the target by at most `valve.slew_per_s · dt` of
      L1 distance (the sum stays 1). Split mint into WORK, WAR and FLOOD, and add muster to WAR.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
-  5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, redirect_fort, held: [...], surge})`.**
-     Includes hold expiry and the tithe cycle. Emits `fort_retaken`, `tithe_warning` and
-     `tithe_wave`.
+  5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.**
+     Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
+     expiry and the tithe cycle. Emits `fort_retaken`, `tithe_warning` and `tithe_wave`.
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
      respawn. Emits `relish_respawned`.
   7. **The ledger.**

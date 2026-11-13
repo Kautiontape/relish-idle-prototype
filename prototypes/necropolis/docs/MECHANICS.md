@@ -148,7 +148,8 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 2. TownSim (WORK arrives one substep late, which is accepted);
 3. the valve slew and split;
 4. Relish's travel and state (GameState);
-5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, redirect_fort, held:[...], surge})`;
+5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.
+   Holds and the tithe state are RealmSim's own state (§3.1), not inputs;
 6. Backups;
 7. the ledger;
 8. readouts (EMA);
@@ -205,9 +206,15 @@ Names, to avoid confusion:
 - Canonical continuous rates, scaled ×1/100, with the Necropolis extensions: EMPTY, `k_clear`, the
   pool cap and simulacra.
 - The asymmetry is unchanged: your kills stay; garrison kills ship to Vei. Vei digests with `cheap`.
-- `step(dt, inputs)` is pure on its inputs.
-- `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it.
+- `step(dt, inputs)` is pure on its inputs. The mint's split, `q` and Relish's position arrive as
+  inputs; RealmSim never reads them from its config or keeps its own Relish.
+- `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
+  (D2) and nothing reads it.
 - `forts[i].held_s` and the tithe-wave state are RealmSim state.
+- **Within a step:** WAR dispatch (§3.2), FLOOD into the queue, fort combat (kills at a redirect
+  fort stay, §3.3), `k_clear`, the redirect raises (Relish's, then simulacra), drain to Vei, Vei's
+  conversion (her take is clamped to her pool's headroom, §2.1), her shipping (§3.4), then the hold
+  countdown. A hold that runs out this step still counted as held for all of it.
 
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
@@ -217,8 +224,14 @@ Names, to avoid confusion:
   `flood = mint · v.flood` goes to `vei.undead_queue`.
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
-- **WAR with no living target** (every fort held or empty): it goes to the held forts as staging.
-  There the undead drain to Vei, so a held fort becomes a forward pump.
+- **WAR dispatch:** WAR splits over the forts with living > 0 by weight
+  `1/(dist/100)^covFalloff`, with the tide (§3.3) multiplying its fort's weight.
+- **WAR with no living target** (every fort held or empty): it goes to the held forts as staging,
+  split by the same weights. There the undead drain to Vei, so a held fort becomes a forward pump.
+  Staging is only this fallback: while any fort has living, held forts take no WAR.
+- **WAR with no target at all** (no living and nothing held): it falls through to
+  `vei.undead_queue` and counts in the inflow like FLOOD. RealmSim records which of the three
+  routes it took (`war_route`: `forts`, `staged`, `vei`) and the fall-through rate, for the lanes.
 - **The optimum split must move** over the arc and with Relish's position. Diminishing returns make
   sure of it:
   - WORK beyond filled slots plus `worker.idle_cap` is wasted;
@@ -251,9 +264,17 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
 - all the fort's living become dead, applied as a clamped delta;
 - the fort is **held**: a grace period of `flip.hold_s · (1 + flip.tier_mult · tier)`, then a support-vs-pressure contest (IDLE.md §3).
 
+E2a keeps the timer: RealmSim counts `held_s` down, and at 0 the fort is no longer held and
+RealmSim records `fort_retaken` with cause `expired` (GameState stamps `t`). The contest replaces it
+at E2b.
+
 **While held:**
 - **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,
-  so a held fort lowers her effective `S_vei`;
+  so a held fort lowers her effective `S_vei`. The share rule: fort `i` receives at most
+  `S_vei · cap_i / Σcap` per second, into its space and from her pool. `Σcap` runs over every fort,
+  held ones included, so a held fort's share is lost, not redistributed. The unused part of a full
+  fort's share is lost the same way. When her pool can't cover every share, each is scaled down
+  pro rata;
 - the fort pulls WAR as staging (§3.2);
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.
@@ -273,8 +294,8 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   Defending a flip is a real decision.
 
 ### 3.5 Readouts
-- **Differential:** `diff = inflow − digestion` each substep, where inflow includes FLOOD and drain
-  and excludes `directShare`.
+- **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
+  WAR that fell through to Vei (§3.2). `directShare` is gone.
 - **Sustained sign:** the EMA of `diff` over `readout.ema_s` (120 s). ▲ when > +ε, ▼ when < −ε,
   otherwise "holding".
 - **Drain time:** `backlog / −EMA` when the EMA < 0, else "holding". Never INF in state.
@@ -284,7 +305,9 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
 ### 3.6 Simulacra (kept, defined)
 - Crafted at the Ossuary from essence and a relic.
 - `cmd_deploy_simulacrum(fort_id)` plants one. It performs **Relish's redirect** at that fort at
-  `simulacrum.rate` until its charges run out.
+  `simulacrum.rate` until its charges run out: garrison kills there stay as corpses while it has
+  charges, and it raises corpses into the fort's undead. Charges are mass and only the raise spends
+  them.
 - The tide is hers alone.
 
 ## 4. Economic: Covington
@@ -570,7 +593,8 @@ GameState mints uids for looted items when it applies the result. The town scene
 - **Determinism:** the same seed and command log give the same `to_dict()`.
 - **Ledger soak:** 1 h of random inputs, conserved, with no NaN, no negatives and every pool within
   its cap.
-- **Valve:** the L1 slew keeps the sum at 1; zero is refused; WAR with no target stages.
+- **Valve:** the L1 slew keeps the sum at 1; zero is refused; WAR with no target stages, and with
+  nothing held it falls through to Vei.
 - **Relish:** travel, retarget and cancel; tide; redirect; nothing applies while dead; the order
   contract.
 - **Flips and tithe:** hold, shipping-share loss, warning, wave, counters.

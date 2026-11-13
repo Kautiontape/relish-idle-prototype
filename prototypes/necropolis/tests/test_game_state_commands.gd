@@ -74,7 +74,7 @@ func _valve() -> void:
 	t.near(r["target"]["war"], 0.4, 1e-12, "normalised war 0.4")
 	t.near(r["target"]["flood"], 0.2, 1e-12, "normalised flood 0.2")
 	h = s.view_hud()
-	t.ok(h["valve_target"] == r["target"] and h["valve"] == r["target"], "target echoed; current = target at E1 (the slew is E2)")
+	t.ok(h["valve_target"] == r["target"] and h["valve"] != r["target"], "target echoed; the current vector slews toward it (game_state_macro)")
 	rv = s.rev
 	for c in [[NAN, 1.0, 1.0, "not_finite"], [1.0, INF, 1.0, "not_finite"], [NAN, -1.0, 0.0, "not_finite"],
 			[-1.0, 1.0, 1.0, "negative"], [0.0, 0.0, -INF, "not_finite"], [0.0, -0.5, 0.0, "negative"],

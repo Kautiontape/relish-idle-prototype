@@ -112,7 +112,7 @@ func run() -> int:
 	t.ok(s.cmd_begin_dungeon("old-sluice")["reason"] == "busy", "busy while a run is open")
 	t.ok(s.cmd_begin_dungeon("nope")["reason"] == "unknown_fort", "unknown_fort beats busy")
 	t.ok(s.cmd_begin_boss()["reason"] == "busy", "boss: busy")
-	t.ok(s.raiding_fort_id() == "old-sluice" and s.realm.raiding, "raiding_fort_id is the open raid's fort")
+	t.ok(s.raiding_fort_id() == "old-sluice", "raiding_fort_id is the open raid's fort")
 
 	# --- the dungeon seed (7.1) ---
 	var sd: Dictionary = b["seed"]
@@ -144,7 +144,7 @@ func run() -> int:
 
 	# --- abort ---
 	t.ok(s.cmd_abort_dungeon() == {"ok": true, "reason": "", "run_id": 1}, "abort returns the run id")
-	t.ok(s.view_relish()["state"] == "at_fort" and s.view_relish()["run_id"] == -1 and not s.realm.raiding, "abort: back at the fort, run closed")
+	t.ok(s.view_relish()["state"] == "at_fort" and s.view_relish()["run_id"] == -1 and s.raiding_fort_id() == "", "abort: back at the fort, run closed")
 	t.ok(s.view_dungeon_seed("old-sluice").is_empty(), "seed gone after abort")
 	t.ok(s.cmd_abort_dungeon() == {"ok": false, "reason": "no_run", "run_id": -1}, "no_run")
 
@@ -325,7 +325,7 @@ func run() -> int:
 	s.cmd_move_relish("covington")
 	s.relish["state"] = "dead"
 	s.cmd_debug_set_state({"relish_at": "covington"})
-	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["dead_s_left"] == 0.0 and s.realm.relish["state"] == "raising",
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["dead_s_left"] == 0.0 and s.view_relish()["effects"]["home"],
 		"relish_at puts her alive and standing")
 	s.cmd_debug_set_state({"valve": {"work": 2, "war": 2, "flood": 1}})
 	t.near(s.valve["work"], 0.4, 1e-9, "valve normalised")
