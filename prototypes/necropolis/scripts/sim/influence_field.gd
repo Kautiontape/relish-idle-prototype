@@ -150,6 +150,8 @@ func _work(budget: int, upto := -1) -> int:
 	var last := _n if upto < 0 else mini(upto, _n)
 	var done := 0
 	while budget < 0 or done < budget:
+		if _job_n > last:  # a job past `upto` waits for its own tick or advance()
+			break
 		if _job_n == 0:
 			if _head_n >= last:
 				break
