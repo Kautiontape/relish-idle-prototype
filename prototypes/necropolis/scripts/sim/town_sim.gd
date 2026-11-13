@@ -191,7 +191,7 @@ func new_game() -> void:
 	forge = {"level": 0, "progress": 0.0}
 	rates = _zero_rates()
 	_pending = []
-	_staff()
+	_restaff()
 	morale = morale_target()
 
 
@@ -203,7 +203,7 @@ func place_building(lot_id: String, building_id: String, level: int) -> bool:
 	var cap := int(buildings.get(lot_id, {}).get("staff_cap", -1))
 	buildings[lot_id] = {"building_id": building_id, "level": level, "state": "active", "progress": 1.0,
 		"staff_cap": cap, "unpaid_s": 0.0, "build_level": level}
-	_staff()
+	_restaff()
 	return true
 
 
@@ -211,7 +211,7 @@ func place_building(lot_id: String, building_id: String, level: int) -> bool:
 ## there). Costs and gates are the caller's (T2.4); this only checks the lot and the level. The
 ## lot offers `job.build.slots` build slots and nothing else until it completes.
 ## `building_started` comes out of the next step(). Reasons: unknown_lot, unknown_building,
-## occupied, busy (already constructing), bad_level.
+## occupied, busy (already constructing), unpaid (an unpaid building can't upgrade), bad_level.
 func start_construction(lot_id: String, building_id: String, level: int) -> Dictionary:
 	if not _lots.has(lot_id):
 		return {"ok": false, "reason": "unknown_lot"}
@@ -228,6 +228,8 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 			return {"ok": false, "reason": "occupied"}
 		if b["state"] == "constructing":
 			return {"ok": false, "reason": "busy"}
+		if b["state"] == "unpaid":
+			return {"ok": false, "reason": "unpaid"}
 		if level != int(b["level"]) + 1 or level > int(_defs[building_id]["max_level"]):
 			return {"ok": false, "reason": "bad_level"}
 		b["state"] = "constructing"
@@ -235,7 +237,7 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 		b["unpaid_s"] = 0.0
 		b["build_level"] = level
 	_pending.append({"type": "building_started", "lot_id": lot_id, "building_id": building_id, "level": level})
-	_staff()
+	_restaff()
 	return {"ok": true, "reason": ""}
 
 
@@ -260,7 +262,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 		out["rates"] = rates.duplicate(true)
 		return out
 	var home := bool(inp.get("relish_home", false))
-	_staff()
+	_restaff()
 	var used_slots: float = staffing["slots"]
 	var cap := body_cap()
 
@@ -378,7 +380,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 
 	# 10. rates for the views
 	var tend := _job("tend")
-	_staff()
+	_restaff()
 	rates = {
 		"workers": {"in": r, "out": (float(wf["rot"]) + float(wf["muster"])) / dt, "rot": float(wf["rot"]) / dt,
 			"muster": float(wf["muster"]) / dt, "steady": r * life, "lifetime_s": life, "slots": used_slots},
@@ -608,8 +610,7 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 # --------------------------------------------------------- the job ladder ----
 ## Workers fill job slots top-down in ladder order, buildings in lot order, each lot up to its
 ## staff cap. A working building offers jobs × level slots; a constructing lot offers
-## job.build.slots build slots; unpaid buildings offer none. Also marks working buildings that
-## have job slots `active` (someone staffed) or `idle` (nobody).
+## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` only.
 func _staff() -> void:
 	var used := {}
 	var rooms: Array = []  # [lot_id, job, room] in fill order
@@ -646,6 +647,13 @@ func _staff() -> void:
 			_by_lot[e[0]] = {}
 		_by_lot[e[0]][e[1]] = float(_by_lot[e[0]].get(e[1], 0.0)) + take
 	staffing = {"jobs": jobs, "lots": lots, "idle": left, "slots": total}
+
+
+## `_staff()`, then marks working buildings that have job slots `active` (someone staffed) or
+## `idle` (nobody). A load never calls this, so a saved state comes back as it was saved.
+func _restaff() -> void:
+	_staff()
+	var lots: Dictionary = staffing["lots"]
 	for lot_id in buildings:
 		var b: Dictionary = buildings[lot_id]
 		if not WORKING.has(b["state"]):

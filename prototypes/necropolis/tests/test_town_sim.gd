@@ -428,6 +428,9 @@ func _build() -> void:
 	t.ok(s.buildings["lot-05"]["state"] == "active" and int(s.buildings["lot-05"]["level"]) == 1, "the house is active at level 1")
 	t.near(s.living_cap(), float(_eco("opening")["living_cap"]) + float(_base["buildings"]["house"]["effects"]["living_cap"]), 1e-9,
 		"and adds its living cap")
+	s.buildings["lot-05"]["state"] = "unpaid"
+	t.ok(s.start_construction("lot-05", "house", 2)["reason"] == "unpaid", "an unpaid building can't upgrade")
+	s.buildings["lot-05"]["state"] = "active"
 	r = s.start_construction("lot-05", "house", 2)
 	t.ok(r["ok"] and s.buildings["lot-05"]["state"] == "constructing" and int(s.buildings["lot-05"]["level"]) == 1, "an upgrade constructs from level 1")
 
@@ -572,6 +575,9 @@ func _rich() -> TownSim:
 func _round_trip() -> void:
 	var a := _rich()
 	t.ok(not a.haul["convoys"].is_empty(), "the rich state has a convoy in flight")
+	# settings changed after the last step (a command, a debug grant) must survive a load as saved
+	a.ladder = []
+	a.workers = 0.0
 	var d := a.to_dict()
 	var text := JSON.stringify(d)
 	var b := TownSim.new()
