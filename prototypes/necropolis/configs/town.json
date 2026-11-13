@@ -103,5 +103,38 @@
       ["slab", "gather"],
       ["slab", "sim"]
     ]
+  },
+  "slab": {
+    "anatomy": {
+      "skeleton":  {"muscle": 1, "nerve": 2, "presence": 0, "anima": 0},
+      "zombie":    {"muscle": 2, "nerve": 0, "presence": 0, "anima": 0},
+      "hulk":      {"muscle": 3, "nerve": 1, "presence": 0, "anima": 0},
+      "siren":     {"muscle": 0, "nerve": 1, "presence": 3, "anima": 0},
+      "lich":      {"muscle": 0, "nerve": 3, "presence": 0, "anima": 1},
+      "wraith":    {"muscle": 0, "nerve": 1, "presence": 2, "anima": 1},
+      "revenant":  {"muscle": 2, "nerve": 0, "presence": 1, "anima": 2}
+    },
+    "nouns": {"skeleton": "Skeleton", "zombie": "Zombie", "hulk": "Hulk", "siren": "Siren",
+      "lich": "Lich", "wraith": "Wraith", "revenant": "Revenant"},
+    "group_stats": {"muscle": ["power", "beef"], "nerve": ["wits", "speed"],
+      "presence": ["presence"], "anima": ["*"]},
+    "stat_adjectives": {"power": "Brutal", "beef": "Hulking", "wits": "Clever",
+      "presence": "Looming", "speed": "Fleet"},
+    "hollow_adjective": "Hollow",
+    "blend_threshold": 0.6,
+    "blend_connector": "-",
+    "roles": {
+      "brawler":    {"label": "Brawler",    "good_for": "breaking the raw front and a warden's armour"},
+      "bulwark":    {"label": "Bulwark",    "good_for": "holding the carvers front through warden slams"},
+      "stalker":    {"label": "Stalker",    "good_for": "outwitting the giants and flanking a Shieldwall"},
+      "herald":     {"label": "Herald",     "good_for": "turning the swarm, and morale as a foreman"},
+      "skirmisher": {"label": "Skirmisher", "good_for": "foreman throughput and a dungeon's pace"},
+      "hollow":     {"label": "Hollow",     "good_for": "nothing yet: slot a remnant"}
+    },
+    "role_by_stat": {"power": "brawler", "beef": "bulwark", "wits": "stalker",
+      "presence": "herald", "speed": "skirmisher"},
+    "stat_fronts": {"power": "raw", "beef": "carvers", "wits": "giants", "presence": "swarm", "speed": ""},
+    "min_remnants": 1,
+    "raise_hold_s": 1.1
   }
 }
