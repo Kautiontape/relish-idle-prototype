@@ -118,7 +118,7 @@ func apply_config(cfg: Dictionary) -> void:
 	var keys := ["speed", "speed_empty", "speed_settled", "speed_living", "front_boost", "draught",
 		"draught_empty", "push", "orbit_strength", "turbulence", "turbulence_empty", "turbulence_land", "noise_scale", "noise_evolve", "commit_dominance",
 		"commit_entrench", "entrench_ref", "tempo_amp", "tempo_spread", "dash_px", "dash_duty",
-		"streak_width", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
+		"streak_width", "spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))

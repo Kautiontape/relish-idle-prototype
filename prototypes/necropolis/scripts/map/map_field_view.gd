@@ -8,7 +8,8 @@ extends Sprite2D
 ##   off:  no ground, to show what the ground itself costs.
 ## Debug keys: F5 vsync, F6 reload configs, F7 cycle mode, F8 reduced motion,
 ## F9 greyscale check. CLI: --ground=, --reduced-motion, --vsync=off,
-## --streaks=N, --greyscale, and the --bench-* args in ground_meter.gd.
+## --streaks=N, --greyscale, --ground-only (hide routes and nodes, for contrast
+## measurement), and the --bench-* args in ground_meter.gd.
 
 const FLOW_SCRIPT := preload("res://scripts/map/flow_ground.gd")
 const METER_SCRIPT := preload("res://scripts/map/ground_meter.gd")
@@ -60,6 +61,8 @@ func _ready() -> void:
 			_streak_override = int(a.trim_prefix("--streaks="))
 		elif a == "--greyscale":
 			grey = true
+		elif a == "--ground-only":
+			_hide_siblings.call_deferred()
 	_old_mat = ShaderMaterial.new()
 	_old_mat.shader = OLD_SHADER
 	_comp_mat = ShaderMaterial.new()
@@ -80,6 +83,14 @@ func _ready() -> void:
 	_grey.visible = grey
 	add_child(_grey)
 	set_mode(mode)
+
+
+## Analysis captures: hide routes and nodes so only ground pixels remain.
+## Deferred because world_map adds them after this node.
+func _hide_siblings() -> void:
+	for sib in get_parent().get_children():
+		if sib != self and sib is CanvasItem:
+			(sib as CanvasItem).visible = false
 
 
 func set_mode(m: String) -> void:

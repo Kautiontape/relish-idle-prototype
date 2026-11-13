@@ -43,6 +43,7 @@ uniform float tempo_period = 1.714;
 uniform float tempo_amp = 0.53;
 uniform float tempo_spread = 1.25;
 uniform vec2 life_s = vec2(2.5, 6.5);
+uniform float spawn_empty_weight = 0.3;
 uniform float dash_px = 15.0;
 uniform float dash_duty = 0.5;
 uniform float streak_width = 1.6;
@@ -128,8 +129,18 @@ void process() {
 	if (CUSTOM.x > CUSTOM.y || p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
 		CUSTOM.w += 1.0;
 		uint s = seed_of(INDEX, CUSTOM.w);
+		// respawn biased toward held ground: that is where the information is
+		vec2 sp = spawn_pos(s);
+		for (uint k = 1u; k < 4u; k++) {
+			vec2 uv = sp / world_size;
+			float lnd = smoothstep(presence.x, presence.y, texture(field_g, uv).r + texture(field_o, uv).r);
+			if (hash1(s + k * 101u) < mix(spawn_empty_weight, 1.0, lnd)) {
+				break;
+			}
+			sp = spawn_pos(s + k * 7919u);
+		}
 		TRANSFORM = mat4(1.0);
-		TRANSFORM[3].xy = spawn_pos(s);
+		TRANSFORM[3].xy = sp;
 		TRANSFORM[0] = vec4(0.0);
 		TRANSFORM[1] = vec4(0.0);
 		CUSTOM.x = 0.0;

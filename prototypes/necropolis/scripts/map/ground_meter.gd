@@ -29,6 +29,7 @@ var _bmodes: Array = []
 var _bframes := 0
 var _bt0 := 0
 var _bsamples := {}
+var _warm_sim_s := 0.0
 
 
 func _ready() -> void:
@@ -116,7 +117,11 @@ func _run_bench(ms: float) -> void:
 	match _bstate:
 		"warm":
 			_bframes -= 1
+			_warm_sim_s += get_process_delta_time() * Game.time_scale
 			if _bframes <= 0:
+				print("BENCH_WARM frames=%s sim_s=%.0f (%.2f sim-hours) odds=%.2f massed=%.0f" % [
+					_bench.get("bench-warm", "120"), _warm_sim_s, _warm_sim_s / 3600.0,
+					Game.realm.readout()["odds"], Game.realm.readout()["massed"]])
 				Game.time_scale = float(_bench.get("bench-speed", "1"))
 				_next_mode()
 		"settle":
