@@ -80,6 +80,7 @@ func _draw() -> void:
 				var a0 := TAU * i / segs
 				var a1 := TAU * (i + 0.8) / segs
 				draw_arc(c, fitted_radius, a0, a1, 4, ring_col, 2.0)
+		_draw_notches(c, ring_col)
 		var text_col := col
 		text_col.a = a
 		draw_string(ThemeDB.fallback_font, c + Vector2(-80, -fitted_radius - 14),
@@ -91,3 +92,17 @@ func _draw() -> void:
 		var c2 := to_local(trace[trace.size() / 2]) if trace.size() > 0 else Vector2.ZERO
 		draw_string(ThemeDB.fallback_font, c2 + Vector2(-80, -20),
 			"0 — NOT A CIRCLE", HORIZONTAL_ALIGNMENT_CENTER, 160, 22, Palette.c("danger", a))
+
+
+## Tier shape-code: chaff 1 notch, soldier 2, elite 3 (short radial ticks on the ring), spread
+## evenly from the top, so the tier reads without the colour.
+func _draw_notches(c: Vector2, col: Color) -> void:
+	var n := 3 if raised_tier == "elite" else (2 if raised_tier == "soldier" else (1 if raised_tier == "chaff" else 0))
+	if n == 0:
+		return
+	var nc: Dictionary = ConfigDb.data.get("raid", {}).get("trace_notch", {})
+	var len_px := float(nc.get("len_px", 9.0))
+	var w := float(nc.get("width_px", 3.0))
+	for i in n:
+		var dir := Vector2.UP.rotated(TAU * i / float(n))
+		draw_line(c + dir * (fitted_radius - len_px), c + dir * (fitted_radius + len_px), col, w)

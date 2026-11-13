@@ -1,23 +1,19 @@
 class_name RaidHud
 extends CanvasLayer
-## Minimal raid HUD: fort name/tier, counters, trance meter, hint line, the
+## Raid HUD: fort name/tier, a compact glanceable stat block (the WARD chain and the carried
+## essence as pips with their integers beside them), trance meter, hint line, the
 ## always-visible teleport-home button (top-right) + its confirmation dialog.
 
 var raid: Node = null
 
 var _title: Label
-var _living: Label
-var _essence: Label
-var _ward: Label
-var _raised: Label
+var _stats: StatBlock
 var _hint: Label
 var _meter: Control
 var _exit_btn: Control
 var _dialog: ConfirmationDialog
 var _flash: ColorRect
 var _flash_t := -1.0
-var _phyl: Label
-var _loot: Label
 var _banner: Label
 var _banner_t := -1.0
 var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
@@ -35,14 +31,10 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	box.add_theme_constant_override("separation", 2)
 	add_child(box)
 	_title = _mk_label(box, 24, Palette.c("vei"))
-	_living = _mk_label(box, 17, Palette.c("living"))
-	_essence = _mk_label(box, 17, Palette.c("essence"))
-	_raised = _mk_label(box, 17, Palette.c("undead_core"))
-	_ward = _mk_label(box, 17, Palette.c("undead"))
-	_phyl = _mk_label(box, 17, Palette.c("relish"))
-	_phyl.visible = not boss_mode
-	_loot = _mk_label(box, 17, Palette.c("vei"))
-	_loot.visible = not boss_mode
+	_stats = StatBlock.new()
+	_stats.setup(boss_mode)
+	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(_stats)
 	_warden_line = _mk_label(box, 20, Palette.c("danger"))
 	_warden_line.visible = false
 
@@ -159,29 +151,30 @@ func _process(_delta: float) -> void:
 
 func refresh() -> void:
 	_title.text = "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
-	_living.text = "LIVING  %d" % raid.enemies.size()
+	var st := _stats
+	st.living = raid.enemies.size()
 	var motes: int = raid.get_tree().get_nodes_in_group("raid_essence").size()
-	_ward.visible = raid.ledger_v2 != null
 	if raid.ledger_v2 != null:
 		var cc: int = raid.carried_count()
-		var cmax := int(raid.rcfg().get("essence", {}).get("carry_max", 12))
-		_essence.text = "ESSENCE  %d loose  ·  %d/%d carried" % [maxi(0, motes - cc), cc, cmax]
+		st.carried = cc
+		st.carry_max = int(raid.rcfg().get("essence", {}).get("carry_max", 12))
+		st.loose = maxi(0, motes - cc)
 		var w: Dictionary = raid.ward_counts()
-		_ward.text = "WARD  chaff %d  ·  soldier %d  ·  elite %d  ·  big %d" % [w["chaff"], w["soldier"], w["elite"], w["big"]]
-	else:
-		_essence.text = "ESSENCE  %d" % motes
-	if raid.ledger_v2 != null:
+		st.ward[0] = int(w["chaff"])
+		st.ward[1] = int(w["soldier"])
+		st.ward[2] = int(w["elite"])
+		st.ward[3] = int(w["big"])
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
-		_raised.text = "RAISED  chaff %d  ·  soldier %d  ·  elite %d" % [rc["chaff"], rc["soldier"], rc["elite"]]
+		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	else:
+		st.loose = motes
 		var lg = raid.ledger
-		_raised.text = "RAISED  chaff %.0f  ·  sold %d  ·  elite %d" % [lg.chaff_pool, lg.soldiers, lg.elites]
+		st.raised_text = "%.0f chaff · %d soldier · %d elite" % [lg.chaff_pool, lg.soldiers, lg.elites]
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
-		var left: int = raid.phylactery_left()
-		_phyl.text = "PHYLACTERY  %d left" % left
+		st.phyl = raid.phylactery_left()
 		var f: Dictionary = raid.found_loot
-		_loot.text = "LOOT  relics %d · remnants %d · husks %d · blueprints %d" % [int(f.get("relics", 0)),
+		st.loot_text = "relics %d · remnants %d · husks %d · blueprints %d" % [int(f.get("relics", 0)),
 			(f.get("remnants", []) as Array).size(), (f.get("husks", []) as Array).size(), (f.get("blueprints", []) as Array).size()]
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
@@ -190,6 +183,7 @@ func refresh() -> void:
 			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
 	if _backlog != null:
 		_backlog.text = "BACKLOG  %.0f    LOST  s%d e%d" % [raid.backlog_left, raid.army_lost["soldier"], raid.army_lost["elite"]]
+	st.queue_redraw()
 
 
 func flash(color: Color) -> void:
@@ -257,6 +251,106 @@ func show_result(result: Dictionary, telemetry := "") -> void:
 
 
 # ------------------------------------------------------------- sub-controls --
+## The compact stat block. One neutral label tone (`text_dim`) and one value tone (`text`); the
+## pips carry the colour (WARD undead, essence, phylactery relish), so meaning is by shape and
+## position, not hue. Everything is drawn from cached ints; nothing is allocated per frame.
+class StatBlock:
+	extends Control
+	const RANKS := ["chaff", "soldier", "elite", "big"]
+	var boss := false
+	var living := 0
+	var carried := 0
+	var carry_max := 12
+	var loose := 0
+	var ward := [0, 0, 0, 0]
+	var raised_text := ""
+	var phyl := 0
+	var loot_text := ""
+	var _row := 20.0
+	var _lab := 13
+	var _val := 15
+	var _pip := 7.0
+	var _row_max := 24
+	var _col := 76.0
+
+	func setup(p_boss: bool) -> void:
+		boss = p_boss
+		var c: Dictionary = ConfigDb.data.get("raid", {}).get("hud", {})
+		_pip = float(c.get("pip_px", 7.0))
+		_lab = int(c.get("label_px", 13))
+		_val = int(c.get("value_px", 15))
+		_row_max = int(c.get("pip_row_max", 24))
+		var rows := 3.0 if boss else 10.0   # living, essence, raised | + 4 ward rows, phylactery, loot
+		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
+
+	func _label(y: float, text: String) -> void:
+		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
+
+	func _value(x: float, y: float, text: String) -> float:
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, Palette.c("text"))
+		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, _val).x
+
+	## `n` pips left to right from x, `filled` of them solid; returns the x after the row.
+	func _pips(x: float, y: float, n: int, filled: int, col: Color, r: float, diamond := false) -> float:
+		var step := r * 2.0 + 3.0
+		var dim := col
+		dim.a = 0.6
+		for i in n:
+			var p := Vector2(x + r + step * i, y)
+			if diamond:
+				var pts := PackedVector2Array([p + Vector2(0, -r), p + Vector2(r, 0), p + Vector2(0, r), p + Vector2(-r, 0), p + Vector2(0, -r)])
+				if i < filled:
+					draw_colored_polygon(pts, col)
+				else:
+					draw_polyline(pts, dim, 1.3)
+			elif i < filled:
+				draw_circle(p, r, col)
+			else:
+				draw_arc(p, r - 0.6, 0.0, TAU, 12, dim, 1.3)
+		return x + step * n
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		var y := _row - 5.0
+		var und := Palette.c("undead")
+		_label(y, "LIVING")
+		var lx := _pips(_col, y - 5.0, 1, 0, Palette.c("living"), _pip * 0.6)   # hollow ring = the living
+		_value(lx + 4.0, y, str(living))
+		y += _row
+		if boss:
+			_label(y, "ESSENCE")
+			_value(_col, y, str(loose))
+			y += _row
+		else:
+			_label(y, "WARD")
+			y += _row
+			for i in 4:
+				var n := int(ward[i])
+				_label(y, RANKS[i])
+				var r := _pip * (0.5 + 0.12 * i)
+				var shown := mini(n, _row_max)
+				var x := _pips(_col, y - 5.0, shown, shown, und, r, i == 3)
+				_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
+				y += _row
+			_label(y, "ESSENCE")
+			var ex := _pips(_col, y - 5.0, carry_max, carried, Palette.c("essence"), _pip * 0.5)
+			_value(ex + 6.0, y, "%d/%d" % [carried, carry_max])
+			if loose > 0:
+				_value(ex + 6.0 + 60.0, y, "+%d loose" % loose)
+			y += _row
+		_label(y, "RAISED")
+		_value(_col, y, raised_text)
+		y += _row
+		if not boss:
+			_label(y, "PHYLACT.")
+			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
+			_value(px + 4.0, y, str(phyl))
+			y += _row
+			_label(y, "LOOT")
+			_value(_col, y, loot_text)
+
+
 class TranceMeter:
 	extends Control
 	var raid: Node = null

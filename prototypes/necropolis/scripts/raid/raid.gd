@@ -15,6 +15,8 @@ var party_died: Array = []
 var relish: RaidRelish = null
 var trance: RaidTrance = null
 var hud: RaidHud = null
+var danger: RaidDanger = null
+var swarm: RaidSwarm = null
 var vei: Node2D = null          # boss only; here so shared HUD code can poke it
 var fx_root: Node2D = null
 var units_root: Node2D = null
@@ -76,10 +78,11 @@ func is_boss() -> bool:
 	return bool(seed_data.get("boss", false))
 
 
-## Palette key of the fortress's controller colour; it tints the walls. A Vei
-## fortress is "living", the boss arena is "vei", a held (player) fortress "undead".
+## Palette key of the fortress's controller colour; it tints the walls. Walls never use the
+## unit colours (living, undead): Vei's forts and the boss arena are "vei" (the boss runs hotter),
+## a held (player) fortress is "town".
 func controller_key() -> String:
-	return str(seed_data.get("controller_key", "vei" if is_boss() else ("undead" if held else "living")))
+	return str(seed_data.get("controller_key", "town" if held and not is_boss() else "vei"))
 
 
 ## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
@@ -215,6 +218,11 @@ func _build() -> void:
 	trance = RaidTrance.new()
 	trance.raid = self
 	add_child(trance)
+	danger = RaidDanger.new()
+	add_child(danger)
+	swarm = RaidSwarm.new()
+	swarm.configure(self)
+	add_child(swarm)
 	hud = RaidHud.new()
 	add_child(hud)
 	hud.build(self, is_boss())
@@ -401,10 +409,23 @@ func sacrifice_nearest_ally() -> void:
 	if k < 0:
 		return
 	var best: RaidUnit = pool[k]
+	danger_hit()
 	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
 	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
 	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
 	best.die(true)
+
+
+## The danger edge pulses: Relish was hit, or a unit was spent for her.
+func danger_hit() -> void:
+	if danger != null:
+		danger.hit()
+
+
+## A warden's tell is aimed at Relish (call each physics frame it holds).
+func danger_targeted() -> void:
+	if danger != null:
+		danger.targeted()
 
 
 ## Alive allies by sacrifice rank, for the HUD ward line.

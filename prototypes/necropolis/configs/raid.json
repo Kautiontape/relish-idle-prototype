@@ -14,6 +14,39 @@
     "sigil_radius_px": 14.0,
     "dim_alpha": 0.3
   },
+  "danger": {
+    "hp_arc_gap_px": 18.0,
+    "hp_arc_width": 3.0,
+    "hp_seg_hp": 5.0,
+    "hp_low_frac": 0.34,
+    "edge_width_px": 5.0,
+    "edge_inset_px": 5.0,
+    "edge_alpha": 0.85,
+    "edge_pulse_s": 0.7,
+    "edge_target_alpha": 0.4,
+    "edge_static_alpha": 0.5,
+    "target_hold_s": 0.2
+  },
+  "swarm": {
+    "min_count": 12,
+    "cell_px": 160.0,
+    "refresh_s": 0.25,
+    "font_px": 16,
+    "ring_pad_px": 36.0,
+    "ring_alpha": 0.2,
+    "ring_width": 1.5,
+    "max_clusters": 8
+  },
+  "hud": {
+    "pip_row_max": 24,
+    "pip_px": 8.0,
+    "label_px": 13,
+    "value_px": 15
+  },
+  "trace_notch": {
+    "len_px": 9.0,
+    "width_px": 3.0
+  },
   "checkpoint": {
     "banner_s": 2.5
   },
@@ -173,6 +206,9 @@
     "boss_rooms": 4,
     "wall_thickness": 30.0,
     "wall_glow_px": 26.0,
+    "wall_stroke_px": 3.0,
+    "wall_halo_px": 9.0,
+    "wall_intensity": 0.55,
     "door_width": 150.0,
     "inner_gap_width": 165.0,
     "min_room_px": 300.0,
@@ -180,7 +216,7 @@
     "grid_step_px": 128.0,
     "wall_drift_speed": 0.05,
     "wall_wavelength_px": 1100.0,
-    "boss_wall_heat": 0.35,
+    "boss_wall_heat": 0.6,
     "checkpoints_by_tier": {"1": 1, "2": 1, "3": 2, "4": 2},
     "held_rooms_delta": 1
   },

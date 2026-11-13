@@ -45,6 +45,11 @@ func _step(_delta: float) -> void:
 	muffled = WardenLogic.is_muffled(spec, _contacts())
 	var b := beat()
 	var at: Dictionary = spec.get("attack", {})
+	var rel0: RaidRelish = raid.relish
+	if rel0 != null and is_instance_valid(rel0) and rel0.alive and _slam_beat < 0.0 \
+			and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))) \
+			and rel0.global_position.distance_to(global_position) <= float(at.get("radius_px", 360.0)):
+		raid.danger_targeted()   # her edge warns while the slam tell reaches her
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack

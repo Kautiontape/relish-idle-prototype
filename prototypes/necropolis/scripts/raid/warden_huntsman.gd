@@ -86,6 +86,10 @@ func _step(delta: float) -> void:
 			_next_attack = ceilf(b + tell)   # stay on the tempo: snap to a whole beat
 	if _locked:
 		_aim = _lock_pt - global_position
+		var rel0: RaidRelish = raid.relish
+		if rel0 != null and is_instance_valid(rel0) and rel0.alive \
+				and WardenLogic.lunge_hits(global_position, _lock_pt, rel0.global_position, float(at.get("hit_radius_px", 22.0)) + rel0.radius):
+			raid.danger_targeted()   # the lunge tell is aimed at her
 		if b >= _next_attack:
 			_begin_lunge()
 		return   # planted while the tell shows

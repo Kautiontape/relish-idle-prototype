@@ -98,7 +98,6 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		str(cfg.get("floor", {}).get("tint", "contour")))
 
 	# --- walls (the showpiece) ---
-	var glow: float = float(lcfg.get("wall_glow_px", 26.0))
 	var heat := float(lcfg.get("boss_wall_heat", 0.6)) if bool(layout.get("boss", false)) else 0.0
 	var look := {
 		"color_a": Palette.c("relish"),
@@ -106,6 +105,9 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		"heat": heat,
 		"wavelength": float(lcfg.get("wall_wavelength_px", 1100.0)),
 		"arena_diag": _diag,
+		"stroke_half": float(lcfg.get("wall_stroke_px", 3.0)) * 0.5,
+		"halo_px": float(lcfg.get("wall_halo_px", 9.0)),
+		"intensity": float(lcfg.get("wall_intensity", 0.34)),
 		"wave_spread": Pulse.wave_spread,
 		"wave_decay": Pulse.wave_decay,
 	}
@@ -126,7 +128,7 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		for wrect in LayoutLogic.merge_walls(hot_rects if is_hot else cold_rects):
 			var seg := RaidWall.new()
 			add_child(seg)
-			seg.setup(wrect, glow, hot if is_hot else look)
+			seg.setup(wrect, hot if is_hot else look)
 			_walls.append(seg)
 
 	# --- exit doors (the dungeon only; the boss arena has none) ---
