@@ -453,3 +453,8 @@ static func wall_touches_room(wall: Rect2, room: Rect2) -> bool:
 
 static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) -> bool:
 	return LayoutLogic.checkpoint_entered(layout, prev_room, room)
+
+
+## Warden spec for a fort {id, tier, archetype?, first_dungeon?} (see WardenLogic.spec).
+static func warden_spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
+	return WardenLogic.spec(fort, cfg)

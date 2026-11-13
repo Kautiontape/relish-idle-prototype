@@ -290,4 +290,92 @@
       }
     }
   }
+  ,
+  "wardens": {
+    "by_fort": {
+      "ashgate": "huntsman",
+      "old-sluice": "bellringer",
+      "greywall": "huntsman",
+      "vespers": "bellringer",
+      "chime-fort": "huntsman",
+      "lantern-keep": "bellringer",
+      "hollow-redoubt": "huntsman",
+      "pale-bastion": "bellringer",
+      "mourners-gate": "huntsman",
+      "the-stair": "bellringer",
+      "whitecross": "huntsman",
+      "sable-hold": "bellringer"
+    },
+    "first_dungeon": {
+      "period_mult": 1.5,
+      "dmg_mult": 0.6,
+      "hp_mult": 0.8
+    },
+    "archetypes": {
+      "bellringer": {
+        "name": "The Bellringer",
+        "tells": [
+          "slams ring out on the beat, and beef soaks them",
+          "rings faster at each third of its health"
+        ],
+        "weak_point": {
+          "stat": "beef",
+          "threshold": 6,
+          "effect": "muffle",
+          "dmg_mult": 0.35,
+          "label": "a beefy big undead braced at the bell muffles its slams"
+        },
+        "hp_base": 300.0,
+        "hp_per_tier": 200.0,
+        "radius": 38.0,
+        "phases": [
+          {"until_hp_frac": 0.66, "period_beats": 4},
+          {"until_hp_frac": 0.33, "period_beats": 3},
+          {"until_hp_frac": 0.0, "period_beats": 2}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "ring_beats": 0.6,
+          "radius_px": 360.0,
+          "band_px": 36.0,
+          "dmg_unit": 6.0,
+          "dmg_relish": 9.0,
+          "soak_per_beef": 0.06,
+          "min_soak": 0.3
+        }
+      },
+      "huntsman": {
+        "name": "The Huntsman",
+        "tells": [
+          "stalks Relish and lunges on the beat",
+          "speed interceptors and the sacrifice chain counter it"
+        ],
+        "weak_point": {
+          "stat": "speed",
+          "threshold": 4,
+          "effect": "intercept",
+          "intercept_px": 40.0,
+          "stun_beats": 2,
+          "stun_dmg_mult": 1.5,
+          "label": "a fast big undead in its path intercepts the lunge"
+        },
+        "hp_base": 220.0,
+        "hp_per_tier": 150.0,
+        "radius": 22.0,
+        "phases": [
+          {"until_catches": 2, "period_beats": 4, "speed": 140.0},
+          {"until_catches": 4, "period_beats": 3, "speed": 165.0},
+          {"until_catches": -1, "period_beats": 2, "speed": 190.0}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "range_px": 320.0,
+          "speed_px_s": 900.0,
+          "hit_radius_px": 22.0,
+          "dmg_relish": 12.0,
+          "dmg_unit": 8.0
+        }
+      }
+    }
+  }
 }

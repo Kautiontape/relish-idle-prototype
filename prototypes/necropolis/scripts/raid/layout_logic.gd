@@ -549,14 +549,17 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return out
 
 
-## Corpse piles scattered anywhere open.
+## Corpse piles scattered anywhere open. With an antechamber, the first pile is the last chance
+## pile and sits inside the antechamber's inner rect.
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(fort_id) * 17 + 977
 	var rooms: Array = layout["rooms"]
+	var ante := int(layout.get("ante_room", -1))
 	var out: Array = []
 	for i in count:
-		var room: Rect2 = rooms[rng.randi_range(0, rooms.size() - 1)]
+		var room: Rect2 = rooms[ante] if (i == 0 and ante >= 0 and ante < rooms.size()) \
+			else rooms[rng.randi_range(0, rooms.size() - 1)]
 		var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
 		out.append(Vector2(rng.randf_range(inner.position.x, inner.end.x),
 			rng.randf_range(inner.position.y, inner.end.y)))
