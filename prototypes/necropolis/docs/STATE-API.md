@@ -45,7 +45,7 @@ from `BALANCE.md` §0.
 | `rev: int` | +1 on every substep and every successful command. Session-only: never saved, never reset, never decreases (a load or new game also adds 1). Every view carries the `rev` at call time. Scenes may read `Game.state.rev` directly to skip a refresh. |
 | commands | Return `{ok: bool, reason: String, ...extras}`. `reason == ""` iff `ok`. Extras are present on failure too, zero-valued (`0`, `0.0`, `""`, `[]`, `-1` for ids); a nested Dictionary extra is `{}` on failure. The contract test checks nested extras' key sets only when `ok`. An E1 stub returning `ok` fills nested extras with their full key set (e.g. `cost: {gold: 0.0, bone: 0.0, relics: 0}`, and a full `big_undead` entry). A refused command changes nothing and does not bump `rev`. |
 | view shape | Every view is a Dictionary with `rev` at the top level. Where MECHANICS gives a bare map or array (`view_rates`, `view_lanes`, `view_villages`), it sits under one named key (`rates`, `lanes`, `villages`). See §10 A11. |
-| shared reason | `not_debug`: any `cmd_debug_*` while `state.debug_enabled == false`. It is checked first. |
+| shared reason | `not_debug`: any `cmd_debug_*`, and the player time controls `cmd_set_time_scale` / `cmd_pause`, while `state.debug_enabled == false`. It is checked first. |
 | sentinels | `-1` / `-1.0` = none or not applicable, `""` = no id. No `INF` or `NaN` anywhere in the API. |
 | ids | Always `String`: node ids (12 forts from `world.json`, plus `"covington"` and `"vei"`), village ids, lot ids `"lot-01"`..`"lot-24"`, building, job, stance and front ids, item uids, slots, fixture names. Two exceptions are `int`: `run_id` and the vat `slot` index. |
 | uids | Opaque `String`s minted by GameState from one counter: husks `h<n>`, remnants `r<n>`, big undead `u<n>` (e.g. `"h1"`, `"r2"`, `"u4"`). Unique across kinds and never reused. |
@@ -134,7 +134,9 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
     otherwise `cmd_new_game(randi())`.
   - **Normal launch** (none of those args): `cmd_load("auto")`; if that is not `ok` (no file, or
-    corrupt), `cmd_new_game(randi())`. Autosave stays enabled.
+    corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
+    newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
+    and a warning is printed, so the newer save is never overwritten.
   - Away-time catch-up on load (simulating the real time since the save file's `saved_at`) is a later
     item. Today a resume continues from the saved `t`.
 - **Ticking (`_process(delta)`):**
@@ -1481,7 +1483,7 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 | A6 | **The field is not saved.** It is pre-warmed on load, and village owners are saved and restored. | It keeps saves small. Accepted drift: a village near the threshold may change owner shortly after a load, which moves migrants a little. |
 | A7 | **`rev` is session-only.** | A load must never make `rev` go backwards for a scene caching on it. `seed_rev` staleness compares against the run's recorded value, not the current `rev`. |
 | A8 | **A clone death and an unmade death both lose the whole party and the unbanked loot**; unmade adds the long respawn and the morale shock. MECHANICS §7's "nothing else is lost" for unmade means nothing in the town or realm resets. | Read literally, §7 made unmade (the worst outcome) cheaper for the party than a clone. The cost order must be phylactery < clone < unmade. MECHANICS §7 wording is fixed at E3. |
-| A9 | **`cmd_pause` is accepted anywhere,** and pauses only the realm. Runs force `time_scale = 1` and unpause on entry. | MECHANICS restricts only the time scale; a tree pause in the dungeon is the scene's business. |
+| A9 | **`cmd_pause` is accepted anywhere in debug builds** (release refuses `not_debug`, §4.1), and pauses only the realm. Runs force `time_scale = 1` and unpause on entry. | MECHANICS restricts only the time scale; a tree pause in the dungeon is the scene's business. |
 | A10 | Boss `backlog_spent` is informational. A loss keeps `loss_backlog_keep` of the backlog; a win leaves it alone. | Legacy parity, and the ledger counts the loss sink once. |
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |

@@ -47,8 +47,14 @@ func _boot() -> void:
 				return
 			printerr("Game: --fixture=%s refused (%s); starting a new game" % [fixture, r["reason"]])
 		state.cmd_new_game(randi())
-	elif not state.cmd_load("auto")["ok"]:
-		state.cmd_new_game(randi())
+	else:
+		var r := state.cmd_load("auto")
+		if not r["ok"]:
+			if r["reason"] == "bad_version":
+				# A newer build wrote it (worktrees share user://): never overwrite it.
+				autosave_enabled = false
+				push_warning("Game: auto.json is from a newer save version; autosave is off this session")
+			state.cmd_new_game(randi())
 
 
 func _process(delta: float) -> void:
