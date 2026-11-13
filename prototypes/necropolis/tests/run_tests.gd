@@ -5,8 +5,11 @@ extends SceneTree
 ## Suites run inside _init(), before autoloads exist: build what you test directly.
 ## A script error inside a suite (crash, compile error) counts as a failure;
 ## push_error() does not, so suites can exercise loud-failure paths.
+## Flags (after --): --only=a,b runs just those suites (name = file minus test_/.gd);
+## --slow also runs res://tests/slow/*.gd.
 
 const TEST_DIR := "res://tests"
+const SLOW_DIR := "res://tests/slow"
 
 
 ## Counts script errors; GDScript would otherwise abort the function and carry on.
@@ -22,8 +25,37 @@ class ScriptErrors extends Logger:
 func _init() -> void:
 	var failures := 0
 	var errors := ScriptErrors.new()
+	var only: Array[String] = []
+	var slow := false
+	for a in OS.get_cmdline_user_args():
+		if a == "--slow":
+			slow = true
+		elif a.begins_with("--only="):
+			for n in a.trim_prefix("--only=").split(",", false):
+				only.append(n.strip_edges())
+	var suites := _discover(slow)
+	if not only.is_empty():
+		var known := {}
+		for p in suites:
+			known[_suite_name(p)] = p
+		var unknown: Array[String] = []
+		var picked: Array[String] = []
+		for n in only:
+			var key := n.trim_suffix(".gd").trim_prefix("test_")
+			if known.has(key):
+				if not picked.has(known[key]):
+					picked.append(known[key])
+			else:
+				unknown.append(n)
+		if picked.is_empty() or not unknown.is_empty():
+			printerr("Unknown suite(s): %s" % ", ".join(unknown))
+			quit(1)
+			return
+		suites = picked.duplicate()
+		suites.sort_custom(func(x, y): return _order(x) < _order(y))
+	print("Running %d suite(s)" % suites.size())
 	OS.add_logger(errors)
-	for p in _discover():
+	for p in suites:
 		var before := errors.count
 		failures += _run_suite(p)
 		var crashed := errors.count - before
@@ -51,10 +83,26 @@ func _run_suite(p: String) -> int:
 	return n if n is int else 1
 
 
-func _discover() -> Array[String]:
+func _suite_name(p: String) -> String:
+	return p.get_file().trim_suffix(".gd").trim_prefix("test_")
+
+
+## Default suites sort before slow ones, each group by name.
+func _order(p: String) -> String:
+	return ("1" if p.begins_with(SLOW_DIR) else "0") + p
+
+
+func _discover(slow: bool) -> Array[String]:
 	var out: Array[String] = []
 	for f in DirAccess.get_files_at(TEST_DIR):
 		if f.begins_with("test_") and f.ends_with(".gd"):
 			out.append("%s/%s" % [TEST_DIR, f])
 	out.sort()
+	if slow and DirAccess.dir_exists_absolute(SLOW_DIR):
+		var extra: Array[String] = []
+		for f in DirAccess.get_files_at(SLOW_DIR):
+			if f.ends_with(".gd"):
+				extra.append("%s/%s" % [SLOW_DIR, f])
+		extra.sort()
+		out.append_array(extra)
 	return out
