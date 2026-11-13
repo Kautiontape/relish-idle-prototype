@@ -51,7 +51,8 @@ The runner discovers every `tests/test_*.gd`; a script error counts as a failure
 
 - Map bottom-left: sim speed ×1 / ×10 / ×60.
 - F12: screenshot to `user://`.
-- F9: toggle reduced motion (`Pulse.reduced_motion`); boot with `-- --reduced-motion`.
+- F8: toggle reduced motion (`Pulse.reduced_motion`, game-wide); boot with `-- --reduced-motion`.
+- Map only: F5 vsync, F6 reload configs, F7 cycle the ground, F9 greyscale check.
 - CLI (args after `--`): `--shot=/abs/path.png --frames=N` (screenshot & quit),
   `--scene=res://...` (boot a specific scene), `--select=<node-id>`,
   `--teleport=<node-id>`, `--speed=<n>`.

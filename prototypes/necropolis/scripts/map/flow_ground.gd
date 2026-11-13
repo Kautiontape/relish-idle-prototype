@@ -118,12 +118,12 @@ func apply_config(cfg: Dictionary) -> void:
 	var keys := ["speed", "speed_empty", "speed_settled", "speed_living", "front_boost",
 		"draught", "draught_empty", "push", "orbit_strength", "turbulence", "turbulence_empty",
 		"turbulence_land", "noise_scale", "noise_evolve", "commit_dominance", "commit_entrench",
-		"entrench_ref", "tempo_amp", "tempo_spread", "dash_px", "dash_duty", "streak_width",
+		"entrench_ref", "tempo_amp", "dash_px", "dash_duty", "streak_width",
 		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))
-	_pmat.set_shader_parameter("tempo_period", float(cfg.get("tempo_ms", 1714.0)) / 1000.0)
+	_pmat.set_shader_parameter("wave_spread", Pulse.wave_spread)
 	_pmat.set_shader_parameter("presence", _v2(cfg.get("presence", [0.01, 0.22])))
 	_pmat.set_shader_parameter("front_range", _v2(cfg.get("front", [0.03, 0.22])))
 	_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])))
@@ -143,7 +143,8 @@ func apply_config(cfg: Dictionary) -> void:
 func _process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_t += delta
-	_pmat.set_shader_parameter("t", _t)
+	_pmat.set_shader_parameter("t", _t)          # noise evolution only
+	_pmat.set_shader_parameter("beat", Pulse.phase(0.0))
 	var keep_s: float = float(_cfg.get("reduced_keep_per_s" if reduced else "trail_keep_per_s", 0.013))
 	_fade_mat.set_shader_parameter("keep", pow(clampf(keep_s, 0.0, 1.0), delta))
 	_field_acc += delta

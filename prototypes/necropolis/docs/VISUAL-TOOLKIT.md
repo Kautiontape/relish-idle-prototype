@@ -13,6 +13,7 @@ add the key there and say so in your report. Don't write a literal.
 | `Palette` (static class) | `scripts/fx/palette.gd` | `configs/palette.json` |
 | `Pulse` (autoload) | `autoload/pulse.gd` | `configs/pulse.json` |
 | `LineGlow` (static class) | `scripts/fx/line_glow.gd` | `configs/line_glow.json` |
+| `DriftFloor` (Node2D) | `scripts/fx/drift_floor.gd`, `shaders/drift_floor.gdshader` | `configs/ground.json` → `drift_floor` |
 
 ## Palette
 
@@ -117,7 +118,7 @@ Draw it with `Palette.c("dead")` and `matte_polyline`.
 `phase()` returns a steady 0, `wave()` a steady 0.6 (above zero, so pulsed marks
 stay visible) and `dash_offset()` 0. Anything else that moves (bobbing, rotating
 rays) must check the flag itself. Reduced motion must still show who is winning
-(BRIEF §8). Toggle it with **F9**, or boot with `-- --reduced-motion` (works
+(BRIEF §8). Toggle it with **F8**, or boot with `-- --reduced-motion` (works
 with `--shot`). The default is in `configs/pulse.json`.
 
 ## LineGlow
@@ -146,6 +147,75 @@ matte instead. `LineGlow.is_dead(col)` asks the same question, and
 A glowing stroke costs four draw calls and a matte one costs one. Nobody has
 measured a frame budget for it yet. If you add many glowing lanes, measure
 frame time at 1600×900 against the 8 ms budget.
+
+## DriftFloor
+
+The floor under town and dungeon (VISUAL-LANGUAGE law 1: "the ground is
+near-black and alive"). It is a slow current of sparse, faint streaks running
+along a direction field that your scene provides. The map has its own
+flow-field ground (`scripts/map/`); DriftFloor is the cheap version of the same
+idea for every other scene. The ground unit owns it; town and dungeon use it and
+don't edit it.
+
+```gdscript
+var floor := DriftFloor.new()
+world.add_child(floor)
+world.move_child(floor, 0)          # under everything else in the world
+floor.setup(
+	Rect2(Vector2.ZERO, room_size),   # where streaks live, in the floor's local space
+	func(p: Vector2) -> Vector2:      # drift at p; length = strength (0..1)
+		return (exit_pos - p).normalized(),
+	slab_pos,                         # the exhale's source (law 5)
+	"town")                           # a Palette key; "" = the config's default
+```
+
+- **The field** is one of:
+  - a `Callable(local_pos) -> Vector2`, baked once on a grid of `cell_px` cells
+    (at most `max_cells` a side);
+  - an `Image` (`FORMAT_RGF` or `RGH`, signed drift vectors covering the rect);
+  - a `Vector2`, one drift everywhere.
+
+  Length is strength. Streaks spawn more densely where the drift is strong, and
+  where it is below `min_strength` (zero, say, inside a wall or building) there
+  are none. Call `set_field()` again when your field changes (a door opens, a
+  street is built). **Never call it every frame:** it re-bakes on the CPU.
+- **The tempo.** The exhale is Pulse's beat. It surges streak speed and length,
+  with the beat lagged by distance from `source`. The lag reaches
+  `Pulse.wave_spread` at the rect's farthest corner, so the wave crosses the room
+  and never blinks in unison. Town's source is the crypt slab. In a dungeon,
+  Relish is the source: call `floor.set_source(relish.position)` each frame. It
+  sets one uniform.
+- **The colour** comes from a Palette key (`set_tint(key)`). The head is lifted,
+  keeping its hue, until it clears `head_contrast` (3.4:1) against `ground`, so
+  even a dim key like `contour` passes the 3:1 line floor. The floor stays faint
+  by being **sparse and short**, never by being dim. Dead keys (`dead`,
+  `dead_lit`) are refused with an error, because dead matter never emits light.
+- **Reduced motion** follows `Pulse.reduced_motion`, polled each frame. When it
+  is on, streaks freeze in place and the exhale stops. Each streak is a comet,
+  a solid head with a tail fading behind it, so a still frame still shows which
+  way the floor runs (law 13).
+- **Input.** It is a Node2D with no Control in it, so it never swallows mouse
+  input. A dungeon's circle drawing passes straight through.
+
+| Key (`drift_floor`) | Default | Meaning |
+|---|---|---|
+| `tint` | `town` | default Palette key |
+| `density` | 1.6 | streaks per 100×100 px of rect (`max_streaks` caps it) |
+| `speed` | 16 | px/s at drift strength 1 |
+| `length_px`, `width_px` | 30, 2.0 | streak size |
+| `head_frac`, `head_power` | 0.22, 2.2 | solid head share; tail fade curve |
+| `head_contrast` | 3.4 | the head's minimum contrast against `ground` |
+| `life_s` | [4, 9] | streak lifetime range in seconds (they fade in and out) |
+| `exhale_speed`, `exhale_length` | 0.8, 0.35 | the surge on the beat |
+| `cell_px`, `max_cells` | 32, 128 | Callable bake grid |
+
+**Cost.** Measured on 1600×900 at the defaults: 230 streaks, wall-clock frame
+0.213–0.227 ms with the floor against 0.178 ms without (vsync off, no other
+nodes). That is **+0.04 ms**, and the viewport GPU time is 0.014 ms. It uses one
+GPUParticles2D with a custom process shader: no SubViewport, no trail buffer, and
+no per-frame GDScript beyond two uniforms. Measured on an RX 6600 XT under GL
+Compatibility. Streak cores (the brightest 15% of marked pixels) were 100% ≥ 3:1,
+p85 3.76:1.
 
 ## Tests
 

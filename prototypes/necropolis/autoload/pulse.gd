@@ -2,7 +2,7 @@ extends Node
 ## Pulse (autoload): the game's one tempo and BRIEF §6's motion language.
 ## Every scene takes its beat, its wave and the reduced-motion flag from here;
 ## no scene script carries its own tempo. Tuning: configs/pulse.json.
-## Debug: F9 (pulse.json `reduced_motion_key`) or `-- --reduced-motion` on the CLI.
+## Debug: F8 (pulse.json `reduced_motion_key`) or `-- --reduced-motion` on the CLI.
 ##
 ## Headless tests run before autoloads exist, so they build one directly:
 ##   var p = load("res://autoload/pulse.gd").new(); p.configure(json); ...; p.free()

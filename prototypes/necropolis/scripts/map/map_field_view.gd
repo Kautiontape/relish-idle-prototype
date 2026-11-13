@@ -6,10 +6,13 @@ extends Sprite2D
 ##   old:  the original renderer. Game.field baked to a 128×90 texture on the
 ##         CPU at ~6 Hz, drawn through shaders/map_field.gdshader.
 ##   off:  no ground, to show what the ground itself costs.
-## Debug keys: F5 vsync, F6 reload configs, F7 cycle mode, F8 reduced motion,
-## F9 greyscale check. CLI: --ground=, --reduced-motion, --vsync=off,
-## --streaks=N, --greyscale, --ground-only (hide routes and nodes, for contrast
-## measurement), and the --bench-* args in ground_meter.gd.
+## Reduced motion is the one game-wide flag, Pulse.reduced_motion (F8, or
+## -- --reduced-motion); the ground polls it and follows. The tempo is Pulse's.
+## Debug keys: F5 vsync, F6 reload configs, F7 cycle mode, F9 greyscale check.
+## CLI: --ground=, --vsync=off, --streaks=N, --greyscale, --ground-only (hide
+## routes and nodes, for contrast measurement), --zoom=Z and --focus=x,y (set
+## the map camera after it fits, for captures), and the --bench-* args in
+## ground_meter.gd.
 
 const FLOW_SCRIPT := preload("res://scripts/map/flow_ground.gd")
 const METER_SCRIPT := preload("res://scripts/map/ground_meter.gd")
@@ -28,7 +31,6 @@ const ORANGE_CORE := Color("ffd6b0")
 const FRONT := Color("ff2d55")
 
 var mode := "flow"
-var reduced := false
 
 var _cfg := {}
 var _streak_override := 0
@@ -41,6 +43,7 @@ var _img: Image
 var _tex: ImageTexture
 var _acc := 1.0
 var _cpu_ms := 0.0
+var _reduced_applied := false
 
 
 func _ready() -> void:
@@ -48,13 +51,19 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_cfg = ConfigDb.data.get("ground", {})
 	mode = str(_cfg.get("mode", "flow"))
-	reduced = bool(_cfg.get("reduced_motion", false))
+	_reduced_applied = Pulse.reduced_motion
 	var grey := false
+	var zoom := 0.0
+	var focus := Vector2(-1, -1)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--ground="):
 			mode = a.trim_prefix("--ground=")
-		elif a == "--reduced-motion":
-			reduced = true
+		elif a.begins_with("--zoom="):
+			zoom = float(a.trim_prefix("--zoom="))
+		elif a.begins_with("--focus="):
+			var xy := a.trim_prefix("--focus=").split(",")
+			if xy.size() == 2:
+				focus = Vector2(float(xy[0]), float(xy[1]))
 		elif a == "--vsync=off":
 			_set_vsync(false)
 		elif a.begins_with("--streaks="):
@@ -83,6 +92,22 @@ func _ready() -> void:
 	_grey.visible = grey
 	add_child(_grey)
 	set_mode(mode)
+	if zoom > 0.0 or focus.x >= 0.0:
+		_set_camera_after_fit(zoom, focus)
+
+
+## Debug captures: world_map fits its camera one frame after _ready; wait past
+## that, then set zoom and/or centre. No effect on play.
+func _set_camera_after_fit(zoom: float, focus: Vector2) -> void:
+	for i in 3:
+		await get_tree().process_frame
+	var cam := get_viewport().get_camera_2d()
+	if cam == null:
+		return
+	if zoom > 0.0:
+		cam.zoom = Vector2(zoom, zoom)
+	if focus.x >= 0.0:
+		cam.position = focus
 
 
 ## Analysis captures: hide routes and nodes so only ground pixels remain.
@@ -105,7 +130,8 @@ func set_mode(m: String) -> void:
 			if _flow == null:
 				_flow = FLOW_SCRIPT.new()
 				add_child(_flow)
-				_flow.setup(_cfg, reduced, _streak_override)
+				_flow.setup(_cfg, Pulse.reduced_motion, _streak_override)
+				_reduced_applied = Pulse.reduced_motion
 			texture = _flow.texture()
 			scale = Vector2(f.world_size.x / _flow.trail_size.x, f.world_size.y / _flow.trail_size.y)
 			_comp_mat.set_shader_parameter("gain", float(_cfg.get("composite_gain", 1.25)))
@@ -126,10 +152,13 @@ func set_mode(m: String) -> void:
 	_cpu_ms = 0.0
 
 
-func set_reduced(on: bool) -> void:
-	reduced = on
+## Follow Pulse.reduced_motion (polled: Pulse has no signal for it).
+func _sync_reduced() -> void:
+	if Pulse.reduced_motion == _reduced_applied:
+		return
+	_reduced_applied = Pulse.reduced_motion
 	if _flow != null:
-		_flow.set_reduced(on)
+		_flow.set_reduced(_reduced_applied)
 
 
 func set_grey(on: bool) -> void:
@@ -187,8 +216,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 					_comp_mat.set_shader_parameter("gain", float(_cfg.get("composite_gain", 1.25)))
 		KEY_F7:
 			set_mode(MODES[(MODES.find(mode) + 1) % MODES.size()])
-		KEY_F8:
-			set_reduced(not reduced)
 		KEY_F9:
 			set_grey(not is_grey())
 		_:
@@ -197,6 +224,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	_sync_reduced()
 	if mode != "old":
 		return
 	_cpu_ms = 0.0

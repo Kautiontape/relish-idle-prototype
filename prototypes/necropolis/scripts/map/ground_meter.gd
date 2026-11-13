@@ -89,7 +89,7 @@ func _process(delta: float) -> void:
 	var s := _stats(_hist)
 	var main_rid := get_viewport().get_viewport_rid()
 	var lines := PackedStringArray()
-	lines.append("GROUND %s%s · %s" % [view.mode, "  [reduced motion]" if view.reduced else "", view.detail()])
+	lines.append("GROUND %s%s · %s" % [view.mode, "  [reduced motion]" if Pulse.reduced_motion else "", view.detail()])
 	var cap := ""
 	if Engine.max_fps > 0:
 		cap = "  fps cap %d" % Engine.max_fps
@@ -104,7 +104,7 @@ func _process(delta: float) -> void:
 			RenderingServer.viewport_get_measured_render_time_cpu(trid),
 			RenderingServer.viewport_get_measured_render_time_gpu(trid)])
 	lines.append("ground cpu %.2f ms this frame" % view.cpu_ms())
-	lines.append("F5 vsync · F6 reload cfg · F7 ground · F8 reduced · F9 grey")
+	lines.append("F5 vsync · F6 reload cfg · F7 ground · F8 reduced (Pulse) · F9 grey")
 	label.text = "\n".join(lines)
 
 
@@ -151,7 +151,7 @@ func _run_bench(ms: float) -> void:
 			if Time.get_ticks_msec() - _bt0 >= int(float(_bench["bench-seconds"]) * 1000.0):
 				_report()
 				if _bench.has("bench-shot"):
-					var p := "%s-%s%s%s%s.png" % [_bench["bench-shot"], view.mode, "-reduced" if view.reduced else "",
+					var p := "%s-%s%s%s%s.png" % [_bench["bench-shot"], view.mode, "-reduced" if Pulse.reduced_motion else "",
 					"-grey" if view.is_grey() else "", "-bare" if _bare else ""]
 					get_viewport().get_texture().get_image().save_png(p)
 					print("BENCH_SHOT ", p)
@@ -166,7 +166,7 @@ func _next_mode() -> void:
 		return
 	# a mode token is "<flow|old|off>[+reduced][+grey][+bare]" (bare: no routes or nodes)
 	var parts := str(_bmodes.pop_front()).split("+")
-	view.set_reduced(parts.has("reduced"))
+	Pulse.reduced_motion = parts.has("reduced")   # the game-wide flag; the view follows
 	view.set_grey(parts.has("grey"))
 	view.set_bare(parts.has("bare"))
 	_bare = parts.has("bare")
@@ -188,7 +188,7 @@ func _report() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var gc: Array = _bsamples["gcpu"]
 	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
-		view.mode, "+reduced" if view.reduced else "", "+grey" if view.is_grey() else "",
+		view.mode, "+reduced" if Pulse.reduced_motion else "", "+grey" if view.is_grey() else "",
 		"+bare" if _bare else "", f["n"],
 		f["mean"], f["p50"], f["p95"], f["p99"], f["max"],
 		mean.call("mcpu"), mean.call("mgpu"), mean.call("tcpu"), mean.call("tgpu"),
