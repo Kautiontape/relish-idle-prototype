@@ -55,7 +55,7 @@ func _draw() -> void:
 
 	# Vei's domain — the massed backlog is the green ring tightening around her
 	var vp: Vector2 = realm.vei_pos
-	var halo := 0.5 + 0.5 * sin(t * 2.0 * PI / 1.714)
+	var halo := 0.5 + 0.5 * sin(Pulse.phase() * TAU)
 	draw_circle(vp, 42, Color(ORANGE, 0.10 + 0.05 * halo))
 	draw_arc(vp, 42, 0, TAU, 64, ORANGE, 3.0)
 	draw_arc(vp, 30, 0, TAU, 48, Color(VEI_W, 0.8), 1.5)

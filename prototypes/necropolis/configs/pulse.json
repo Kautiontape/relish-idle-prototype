@@ -1,0 +1,31 @@
+{
+  "tempo_ms": 1714,
+  "map_max_hops": 2,
+  "wave_spread": 0.5,
+  "wave_decay": 3.2,
+
+  "reduced_motion": false,
+  "reduced_motion_key": "F9",
+  "reduced_phase": 0.0,
+  "reduced_wave": 0.6,
+
+  "rate_off": 0.06,
+  "rate_ref": 25.0,
+
+  "period_base": 96.0,
+  "period_per_u": -52.0,
+  "speed_base": 14.0,
+  "speed_per_u": 140.0,
+  "width_base": 1.1,
+  "width_per_u": 2.6,
+  "alpha_base": 0.4,
+  "alpha_per_u": 0.6,
+  "hue_dormant": 272.0,
+  "hue_ease": 3.2,
+  "hue_saturation": 1.0,
+  "lightness_base": 0.5,
+  "lightness_per_u": 0.12,
+  "mark_hz_min": 0.8,
+  "mark_hz_max": 7.0,
+  "dash_duty": 0.5
+}
