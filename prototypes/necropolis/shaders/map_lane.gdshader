@@ -9,7 +9,8 @@ render_mode blend_premul_alpha, unshaded;
 // Dashes walk along UV.x by `offset`, which GDScript sets from Pulse.dash_offset (never TIME),
 // so reduced motion freezes them for free. A stroke thinner than one screen pixel is drawn one
 // pixel wide with its alpha scaled by its coverage. Chevrons: 3 static arrowheads at 1/4, 1/2
-// and 3/4 of the lane (06 chevrons()), when chev_on.
+// and 3/4 of the lane (06 chevrons()), when chev_on. With chev_snap (reduced motion: the dashes
+// are frozen) each moves to the nearest gap centre, so it never hides inside a dash's pale core.
 
 uniform float half_extent = 1.0;
 uniform float lane_len = 0.0;
@@ -24,6 +25,7 @@ uniform float period = 96.0;
 uniform float dash = 48.0;
 uniform float offset = 0.0;
 uniform float chev_on = 0.0;
+uniform float chev_snap = 0.0;
 uniform float chev_size = 5.0;
 uniform float chev_width = 1.7;
 uniform vec4 chev_col : source_color = vec4(0.0);
@@ -62,9 +64,15 @@ void fragment() {
 	if (chev_on > 0.5) {
 		vec2 tip = vec2(0.55 * chev_size, 0.0);
 		vec2 wing = vec2(-chev_size, 0.8 * chev_size);
+		// the arrowhead spans s0 - size .. s0 + 0.55 size: centre that span in the gap
+		float gap_c = offset + dash + (period - dash) * 0.5 + 0.225 * chev_size;
 		float cd = 1e6;
 		for (int i = 1; i <= 3; i++) {
-			vec2 p = vec2(s - lane_len * float(i) * 0.25, d);
+			float s0 = lane_len * float(i) * 0.25;
+			if (chev_snap > 0.5) {
+				s0 = clamp(gap_c + round((s0 - gap_c) / period) * period, 0.0, lane_len);
+			}
+			vec2 p = vec2(s - s0, d);
 			cd = min(cd, min(seg_dist(p, wing, tip), seg_dist(p, tip, vec2(wing.x, -wing.y))));
 		}
 		acc = over(acc, chev_col, stroke(cd, px, chev_width, 0.0));

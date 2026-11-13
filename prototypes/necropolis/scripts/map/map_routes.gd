@@ -23,7 +23,10 @@ class Ribbon:
 	var mat: ShaderMaterial
 	var row := {}
 	var style := {}
-	var geo_key := ""
+	var built := false
+	var a := Vector2.ZERO
+	var b := Vector2.ZERO
+	var radius := 0.0
 	var origin := Vector2.ZERO  # gutter: start of the reference curve its mesh was built on
 	var pts := PackedVector2Array()
 	var cum := PackedFloat32Array()
@@ -45,6 +48,8 @@ var _carts: Node2D
 var _rev := -2
 var _cfg_ref = null
 var _chev := false
+var _snap := false
+var _eps := 0.0
 var _tier := ""
 var _cam: Camera2D
 var _log_max := 0.0
@@ -58,6 +63,8 @@ var _built_this_frame := false
 var _last_us := 0
 var _syncs := 0
 var _sync_ms_max := 0.0
+var _sync_ms_sum := 0.0
+var _updates := 0
 var _cart_ms_max := 0.0
 
 
@@ -90,8 +97,10 @@ func _process(_delta: float) -> void:
 		var ts := Time.get_ticks_usec()
 		_sync()
 		if not _built_this_frame:
+			var ms := (Time.get_ticks_usec() - ts) / 1000.0
 			_syncs += 1
-			_sync_ms_max = maxf(_sync_ms_max, (Time.get_ticks_usec() - ts) / 1000.0)
+			_sync_ms_sum += ms
+			_sync_ms_max = maxf(_sync_ms_max, ms)
 	_sync_chevrons()
 	for r: Ribbon in _moving:
 		r.mat.set_shader_parameter(&"offset", Pulse.dash_offset(r.speed, r.period))
@@ -125,9 +134,9 @@ func _exit_tree() -> void:
 		for x in a:
 			sum += x
 			mx = maxf(mx, x)
-		print("ROUTES_MS mode=%s n=%d mean=%.4f max=%.4f | lanes=%d gutters=%d moving=%d | syncs=%d sync_max=%.3f cart_draw_max=%.3f | builds=%d build_ms=%.3f" % [
+		print("ROUTES_MS mode=%s n=%d mean=%.4f max=%.4f | lanes=%d gutters=%d moving=%d | syncs=%d updates=%d sync_mean=%.3f sync_max=%.3f cart_draw_max=%.3f | builds=%d build_ms=%.3f" % [
 			mode, a.size(), sum / maxf(a.size(), 1.0), mx, _lanes.size(), _gutters.size(), _moving.size(),
-			_syncs, _sync_ms_max, _cart_ms_max, _builds, _build_ms])
+			_syncs, _updates, _sync_ms_sum / maxf(_syncs, 1.0), _sync_ms_max, _cart_ms_max, _builds, _build_ms])
 
 
 ## F6 reloads ConfigDb (map_field_view handles the key): a new map_view dictionary means new
@@ -139,11 +148,12 @@ func _check_config() -> void:
 	if _cfg_ref != null:
 		MapLogic.configure(live)
 		for r: Ribbon in _lanes.values() + _gutters.values():
-			r.geo_key = ""
+			r.built = false
 			r.mode = "stale"
 		_rev = -2
 	_cfg_ref = live
 	_log_max = float(MapLogic.cfg()["rate_log_max"])
+	_eps = float(MapLogic.cfg()["u_epsilon"])
 
 
 func _u(row) -> float:
@@ -225,10 +235,12 @@ func _lane(row: Dictionary) -> Ribbon:
 	var radius := 0.0
 	if a == b:
 		radius = LaneStyle.ring_radius(row, int(model.fort(row["from"]).get("tier", 1)))
-	var key := "%s|%s|%s" % [a, b, radius]
-	if key != r.geo_key:
+	if not r.built or a != r.a or b != r.b or radius != r.radius:
 		var t0 := Time.get_ticks_usec()
-		r.geo_key = key
+		r.built = true
+		r.a = a
+		r.b = b
+		r.radius = radius
 		r.style = LaneStyle.style_for(row)
 		r.ring = radius > 0.0
 		var pts: PackedVector2Array
@@ -251,10 +263,11 @@ func _gutter(row: Dictionary) -> Ribbon:
 	r.row = row
 	var a := model.node_pos(row["from"])
 	var b := model.node_pos(row["to"])
-	var key := "%s|%s" % [a, b]
-	if key != r.geo_key:
+	if not r.built or a != r.a or b != r.b:
 		var t0 := Time.get_ticks_usec()
-		r.geo_key = key
+		r.built = true
+		r.a = a
+		r.b = b
 		r.style = LaneStyle.style_for(row)
 		# built once on the off/off reference curve; gutter_curve only translates it with u
 		var ref := MapLogic.gutter_curve(a, b, LaneStyle.OFF, LaneStyle.OFF)
@@ -277,6 +290,7 @@ func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float) -
 	r.mat.set_shader_parameter(&"chev_size", chev_size)
 	r.mat.set_shader_parameter(&"chev_width", LaneStyle.chevron_stroke(chev_size))
 	r.mat.set_shader_parameter(&"chev_on", 1.0 if _chev else 0.0)
+	r.mat.set_shader_parameter(&"chev_snap", 1.0 if _snap else 0.0)
 
 
 func _note_build(t0: int) -> void:
@@ -290,11 +304,11 @@ func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool) -> void:
 	if mode == "off":
 		_hide(r)
 		return
-	var eps := float(MapLogic.cfg()["u_epsilon"])
-	if mode == r.mode and (mode == "phantom" or absf(u - r.u) <= eps):
+	if mode == r.mode and (mode == "phantom" or absf(u - r.u) <= _eps):
 		return
 	r.mode = mode
 	r.u = u
+	_updates += 1
 	var layers: Array
 	if mode == "phantom":
 		layers = LaneStyle.phantom_layers(r.style)
@@ -313,19 +327,17 @@ func _apply_gutter(r: Ribbon, u_dead: float, u_host: float) -> void:
 	if not LaneStyle.gutter_on(u_dead):
 		_hide(r)
 		return
-	var eps := float(MapLogic.cfg()["u_epsilon"])
-	if r.mode == "lit" and absf(u_dead - r.u) <= eps and is_equal_approx(u_host, r.u_host):
+	if r.mode == "lit" and absf(u_dead - r.u) <= _eps and is_equal_approx(u_host, r.u_host):
 		return
 	r.mode = "lit"
 	r.u = u_dead
+	_updates += 1
 	r.u_host = u_host
 	var ch: Dictionary = Pulse.channels(u_dead, Palette.hue(r.style["hue_key"]))
 	_set_layers(r, LaneStyle.gutter_layers(ch))
 	_set_motion(r, LaneStyle.motion(ch, r.style))
 	r.mat.set_shader_parameter(&"chev_col", LaneStyle.gutter_chevron_color(ch))
-	var a := model.node_pos(r.row["from"])
-	var b := model.node_pos(r.row["to"])
-	r.node.position = MapLogic.gutter_curve(a, b, u_host, u_dead)["a"] - r.origin
+	r.node.position = MapLogic.gutter_curve(r.a, r.b, u_host, u_dead)["a"] - r.origin
 	r.node.visible = true
 
 
@@ -352,7 +364,7 @@ func _track(r: Ribbon) -> Dictionary:
 		"spacing": c["spacing"], "pips": c["pips"]}
 
 
-# --- chevrons: reduced motion, or mid zoom and nearer ------------------------------------
+# --- chevrons: reduced motion, or mid zoom and nearer; snapped into the gaps while frozen ---
 
 func _sync_chevrons() -> void:
 	if _cam == null or not is_instance_valid(_cam):
@@ -363,9 +375,12 @@ func _sync_chevrons() -> void:
 	elif _cam != null:
 		tier = MapLogic.zoom_tier(_cam.zoom.x, _tier)
 	var on := LaneStyle.chevrons_on(Pulse.reduced_motion, tier)
+	var snap: bool = Pulse.reduced_motion
 	_tier = tier
-	if on == _chev:
+	if on == _chev and snap == _snap:
 		return
 	_chev = on
+	_snap = snap
 	for r: Ribbon in _lanes.values() + _gutters.values():
 		r.mat.set_shader_parameter(&"chev_on", 1.0 if on else 0.0)
+		r.mat.set_shader_parameter(&"chev_snap", 1.0 if snap else 0.0)
