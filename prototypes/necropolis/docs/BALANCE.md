@@ -90,7 +90,7 @@ are marked ⟵.
 | `worker.mass` | 40 | start inflow 12.8 × 0.4 / 40 = 0.128 workers/s → steady state about 61 |
 | `worker.lifetime_s` | 480 | |
 | `worker.body_return` | 0.25 | was 0.6, which made hauling decorative (systems review M6) |
-| `worker.idle_rot_mult`, `worker.idle_cap` | 0.5, 10 | idle above the cap musters to WAR |
+| `worker.idle_rot_mult`, `worker.idle_cap` | 0.5, 10 | idle above the cap musters to WAR. At the opening that caps the workforce at 7 slots + 10 = 17, and the rest of WORK musters to WAR until builds add slots. |
 | `relish.travel_speed` | 220 px/s | kept |
 | `relish.tide_bias` | 3.0 | |
 | `relish.raise_rate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
@@ -103,11 +103,23 @@ are marked ⟵.
 | `q0`, `q_forge`, `q_raise_max`, `q.raise_ema_s`, `q_max` | 1.2, 0.1 per level, 0.6, 600, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge) |
 | `stall.rate`, `market.shop_rate`, `market.price` | 0.15 /stall/s, 0.03 /living/s, 1 | start: min(2·0.15, 10·0.03) = 0.30 gold/s |
 | `town.migrant_rate`, `town.leave_rate` | 0.012 /held village/s, 0.004 /s | |
-| `living_cap` | 16 + 8 per house, +20 inn, +30 walls | |
-| `inn.attract` | 0.02 /s per level | |
+| `living_cap` | 16 (`opening.living_cap`) + per level: 8 per house, 2 per well, 4 per bakery, 20 per inn, 30 for walls | building `effects.living_cap` |
+| `inn.attract` | 0.02 /s per level | the Inn's `effects.attract` in `buildings.json` |
 | `morale.base`, `dread_ratio`, `dread_k`, `leave_below`, `death_shock`, `shock_s` | 0.6, 4 workers/living, 0.05, 0.35, 0.3, 600 | |
+| `morale.ease_per_s` | 0.005 /s | morale moves at most this much per second; a 0.3 swing takes 1 min |
+| amenity `effects.morale` (per level) | well 0.03, bakery 0.04, inn 0.04, walls 0.05, plaza 0.08, statue 0.05 | all six together lift the target from 0.6 to 0.89 |
+| statue `effects.death_shock_mult` | 0.5 | each death shock halved while the Statue works |
 | `job.haul.carry`, `job.mill.rate` | 14 mass, 0.5 bone/mass | |
-| `body_store.cap` | 200 + charnel/graveyard upgrades | |
+| `job.haul.speed`, `job.haul.auto_min_dead` | 140 px/s, 4 mass | the legacy gather speed and threshold; Ashgate (246 px) is a 3.5 s round trip |
+| stables `effects.haul_speed_mult` | +0.3 per level | haul speed × (1 + Σ) |
+| `job.mill.mass_per_s` | 0.2 mass/s per miller | a level-1 mill (2 millers) turns 0.4 bodies/s into 0.2 bone/s: a 50-bone build in about 4 min |
+| `job.forge.rate` | 0.5 work per worker-second | a level-1 Forge (2 smiths) makes 1 work/s |
+| `forge.level_work`, `forge.level_relics` | 120 · n work for level n (8 levels); relics 1, 1, 1, 1, 2, 2, 2, 2 | level 1 in 2 min, level 8 in 16 min at a level-1 Forge; 12 relics in all (the relic cap); +0.8 `q` at the top |
+| `job.build.rate`, `job.build.slots` | 0.5 work per worker-second, 3 per construction site | a House (60 work) in 40 s, the Reliquary (400) in about 4.5 min; an upgrade takes `build_work · target level` |
+| `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
+| `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
+| graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
+| E3 effects (data only for now) | chapel `vat_slots` 2, guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30, crypt `big_undead_cap` 1, ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
 | `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both) | |
 | `stance.base_slots`, `stance.hold_s` | 2, 10 | |
 | `vats.grow_per_s` | 1/300 per staffed vat | |

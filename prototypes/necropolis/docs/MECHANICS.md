@@ -313,42 +313,84 @@ at E2b.
 ## 4. Economic: Covington
 
 ### 4.1 Workforce
-- `workers' = work / worker.mass − workers / lifetime − muster`.
-- `lifetime = worker.lifetime_s · (1 + embalmer) · (home_rot_mult if Relish is home)`.
-- Rot returns `rot · worker.mass · worker.body_return` mass of bodies.
+TownSim (`scripts/sim/town_sim.gd`) runs §4.1–§4.3. Workers are counted in workers of `worker.mass`
+mass; bodies, rot return, WORK and muster are mass.
+- `workers' = work / worker.mass − rot − muster`. WORK arrives one substep late (§1.3).
+- **Rot:** a staffed worker rots at `1 / lifetime`, an idle one at `worker.idle_rot_mult / lifetime`.
+- `lifetime = worker.lifetime_s · (1 + Σ lifetime_bonus) / relish.home_rot_mult` while Relish is
+  home, and without the division otherwise. Home multiplies the rot *rate* by `home_rot_mult` (0.7),
+  so a home lifetime is ÷ 0.7. `lifetime_bonus` comes from working Graveyards and Embalmers, per level.
+- Rot returns `rot · worker.mass · worker.body_return` mass of bodies. What the body cap can't hold
+  is reported as `rot_overflow`, a ledger sink.
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count.
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
-  - Idle beyond `worker.idle_cap` are mustered to WAR automatically, so WORK is never a black hole,
-    but it is waste.
+  - Idle beyond `worker.idle_cap` are mustered to WAR at once (`n · worker.mass` mass), so WORK is
+    never a black hole, but it is waste. The workforce never ends a step above the staffable slots
+    plus `idle_cap`.
+- **The update is exact** (IDLE §4). With the step's inflow held constant, the equation is linear in
+  three regimes: all staffed (τ = `lifetime`), some idle (τ = `lifetime / idle_rot_mult`), and pinned
+  at slots + `idle_cap` with the surplus mustered. Each boundary crossing is timed exactly, so one
+  60 s step matches 120 half-second substeps. Rot is booked as `inflow · dt − Δworkers − muster`, so
+  the three always balance.
 
 ### 4.2 Jobs (rates per staffed worker; keys in `economy.json`)
+- **Slots.** A working building offers its `buildings.json` `jobs` × its level. A lot under
+  construction (a first build or an upgrade) offers `job.build.slots` build slots and nothing else.
+  An unpaid building offers none. Staffing is fractional.
+- **Effects.** A building's numeric `effects` are per level (× level), or a per-level table when the
+  value is an array: the Charnel House's `body_cap` is `[0, 50, 100]`, so only its upgrades add.
+  Flow effects (`pits`, `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`) need the building
+  working. Capacity effects (`living_cap`, `body_cap`) also count while it is unpaid or upgrading,
+  so an unpaid spell never destroys stock.
+
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | convoys move corpses from forts to bodies. `job.haul.carry` mass per trip. The target is the auto-richest fort or `cmd_set_haul_target`. At the body cap, haulers idle. |
-| mill | bone mill | bodies → bone at `job.mill.rate` (bone per mass) |
-| stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price` |
-| forge | forge | progress toward the next forge level (levels also cost relics) |
-| pit | raising pit | burns bodies at `pit.burn_per_s` per pit for the feed bonus |
-| tend | chapel of vats | grows clones (§7) |
-| build | construction | `build_work` progress |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom. The load lands on the way back; anything over the cap is `haul_overflow`. A long step runs as many legs as it holds. At the body cap haulers stay staffed, but no convoy leaves. |
+| mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass |
+| stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
+| forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
+| pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share. `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
+| tend | chapel of vats | grows clones (§7); E2 only counts the tenders |
+| build | construction | `job.build.rate` work per worker-second against `build_work · target level`. A `build_work` of 0 completes at once. |
 | foreman | (big undead only) | multiplies a building's output by `foreman.mult` + speed·`foreman.speed_k` |
 
+- **Pits and mills share the bodies** in proportion to what each wants when there aren't enough, so
+  feed falls smoothly and never toggles.
+
 ### 4.3 The living
-- `living' = migrants − departures`, capped at `living_cap`, which comes from housing (houses, inn,
-  walls).
-- `migrants = Σ held villages · town.migrant_rate + inn.attract · inn_level`.
+- `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt
+  district's huts) plus the `living_cap` effects of houses, wells, bakeries, the inn and walls. The
+  update is exact (IDLE §4); migrants the cap can't house are turned away.
+- `migrants = Σ held villages · town.migrant_rate + inn.attract · inn_level`. `inn.attract` is the
+  Inn's `effects.attract` in `buildings.json`, per level of each working inn.
 - `departures = living · town.leave_rate` while morale < `morale.leave_below`.
-- **Morale** ∈ [0, 1] moves toward its target at `morale.ease_per_s`. The target is:
+- **Morale** ∈ [0, 1] moves toward its target by at most `morale.ease_per_s` per second (stable at any
+  step). The target, clamped to [0, 1], is:
   - `morale.base`;
-  - plus Σ amenity gains;
-  - minus dread, `max(0, workers / living − morale.dread_ratio) · morale.dread_k`, in worker units;
-  - minus a death shock, which decays over `morale.shock_s`.
+  - plus Σ amenity gains: each working building's `morale` effect, per level;
+  - minus dread, `max(0, workers / max(living, 1) − morale.dread_ratio) · morale.dread_k`, in worker
+    units;
+  - minus a death shock (`add_shock`, called from E3), which decays as `e^(−t / morale.shock_s)`. A
+    working Statue multiplies each new shock by its `death_shock_mult`.
+
+  `view_town` lists these terms as factors: `base`, `amenity:<building_id>`, `dread` and `shock`.
 - **Interaction.** Each living agent cycles home → market → inn. Every stall sale is a trade event,
   which the town view draws as an arc between a living and an undead agent. The arcs are sampled, at
   most `view.max_trade_arcs`.
-- **Unpaid upkeep.** When gold or bone can't cover upkeep, the cheapest building goes idle (flag
-  `unpaid`, `building_unpaid` event). Stocks never go negative and there is no debt.
+- **Upkeep.** Each working building pays its `upkeep {gold, bone}` per second from the stocks, after
+  the step's income.
+  - **Unpaid.** When a stock can't cover it, the cheapest building by its upkeep in that stock goes
+    idle (flag `unpaid`, event `building_unpaid{lot_id, building_id, unpaid: true}`). Ties go in lot
+    order, and it repeats until the bill fits. Only buildings with upkeep in that stock are picked,
+    so never the crypt. A building that earns that stock (stalls for gold, mills for bone) is never
+    picked, because idling the only earner would lock the town out of ever paying again. What is
+    still owed is paid down to 0.
+  - An unpaid building gives no slots and no output.
+  - **Resume.** It stays unpaid for at least `upkeep.unpaid_hold_s`. It resumes (`unpaid: false`)
+    once the stock covers the paying upkeep plus its own for `max(unpaid_hold_s, dt)`, so it doesn't
+    chatter.
+  - Stocks never go negative and there is no debt. Gold and bone have no caps yet (IDLE §6 is E2b).
 
 ### 4.4 Buildings
 `configs/buildings.json` (economy) holds:

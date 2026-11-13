@@ -16,12 +16,25 @@
     "first_dungeon": "old-sluice",
     "buildings": { "lot-01": "crypt", "lot-02": "raising_pit", "lot-03": "charnel_house", "lot-04": "market" }
   },
-  "worker": { "lifetime_s": 480.0 },
+  "worker": { "lifetime_s": 480.0, "mass": 40.0, "body_return": 0.25, "idle_rot_mult": 0.5, "idle_cap": 10.0 },
   "body_store": { "cap": 200.0 },
-  "morale": { "base": 0.6 },
+  "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
   "stance": { "base_slots": 2 },
-  "job": { "default_ladder": ["build", "haul", "pit", "stall", "mill", "forge", "tend"] },
+  "job": {
+    "default_ladder": ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
+    "haul": { "speed": 140.0, "carry": 14.0, "auto_min_dead": 4.0 },
+    "mill": { "mass_per_s": 0.2, "rate": 0.5 },
+    "forge": { "rate": 0.5 },
+    "build": { "rate": 0.5, "slots": 3 }
+  },
+  "stall": { "rate": 0.15 },
+  "market": { "shop_rate": 0.03, "price": 1.0 },
+  "pit": { "burn_per_s": 0.6, "bonus": 0.6 },
+  "upkeep": { "unpaid_hold_s": 30.0 },
+  "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
+    "migrant_rate": 0.012,
+    "leave_rate": 0.004,
     "tiers": {
       "hamlet": { "buildings": 0, "requires": [], "lots": 8 },
       "village": { "buildings": 6, "requires": ["market", "house"], "lots": 24 },
