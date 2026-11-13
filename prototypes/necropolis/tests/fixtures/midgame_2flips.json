@@ -160,58 +160,58 @@
 	"next_uid": 10,
 	"party": [],
 	"readout": {
-		"diff_ema": 0.0,
-		"q_raise_ema": 0.0
+		"diff_ema": 1.67212967504784,
+		"q_raise_ema": 51.0219101322546
 	},
 	"realm": {
-		"cleared_total": 1914.30085015474,
+		"cleared_total": 611.639578284425,
 		"cov": {
-			"r_out": 8.0,
+			"r_out": 4.8,
 			"undead": 0.0
 		},
 		"elapsed": 3600.5,
 		"forts": [
 			{
 				"clears_since_retaken": 1,
-				"dead": 74.1605332069768,
+				"dead": 69.9808070739126,
 				"flipped_count": 1,
-				"held_s": 375.0,
+				"held_s": 374.5,
 				"id": "ashgate",
-				"living": 1.93741825542164,
+				"living": 0.0,
 				"r_dead_out": 0.0,
-				"r_drain": 0.0586537754100023,
-				"r_in": 0.0,
+				"r_drain": 0.321712662880925,
+				"r_in": 0.6853695771894,
 				"r_raised": 0.0,
-				"r_shipped": 3.87483651084327,
-				"undead": 0.948236035795037
+				"r_shipped": 0.0,
+				"undead": 5.20102138324163
 			},
 			{
 				"clears_since_retaken": 1,
-				"dead": 74.4656781077649,
+				"dead": 73.8378214849259,
 				"flipped_count": 1,
-				"held_s": 375.0,
+				"held_s": 374.5,
 				"id": "old-sluice",
-				"living": 1.82594865249753,
+				"living": 0.0,
 				"r_dead_out": 0.0,
-				"r_drain": 0.0571861058731335,
-				"r_in": 0.0,
+				"r_drain": 0.0837130040520651,
+				"r_in": 0.466076438253955,
 				"r_raised": 0.0,
-				"r_shipped": 3.65189730499507,
-				"undead": 0.924508711615659
+				"r_shipped": 0.0,
+				"undead": 1.35336023217505
 			},
 			{
 				"clears_since_retaken": 0,
-				"dead": 89.4347635887069,
+				"dead": 0.0,
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "greywall",
-				"living": 0.0,
-				"r_dead_out": 0.0,
-				"r_drain": 0.0419738742965911,
-				"r_in": 0.0,
+				"living": 88.5347919191642,
+				"r_dead_out": 0.40487421048302,
+				"r_drain": 0.0908124500363754,
+				"r_in": 0.532427319595858,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 0.678577634461556
+				"undead": 1.4681346089214
 			},
 			{
 				"clears_since_retaken": 0,
@@ -219,13 +219,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "vespers",
-				"living": 149.591945938533,
-				"r_dead_out": 0.619063260386216,
-				"r_drain": 0.635953715673593,
-				"r_in": 1.03142963617696,
+				"living": 160.0,
+				"r_dead_out": 0.316722728991902,
+				"r_drain": 0.0,
+				"r_in": 0.316722728991902,
 				"r_raised": 0.0,
-				"r_shipped": 0.166340374440533,
-				"undead": 10.2812517367231
+				"r_shipped": 0.00285050456091085,
+				"undead": 0.0
 			},
 			{
 				"clears_since_retaken": 0,
@@ -233,13 +233,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "chime-fort",
-				"living": 141.921747741101,
-				"r_dead_out": 0.587302875889008,
-				"r_drain": 0.493379544299087,
-				"r_in": 0.896344365545527,
+				"living": 150.0,
+				"r_dead_out": 0.27524188137967,
+				"r_drain": 0.0,
+				"r_in": 0.27524188137967,
 				"r_raised": 0.0,
-				"r_shipped": 0.13373839168773,
-				"undead": 7.97630263283524
+				"r_shipped": 0.00247717693241611,
+				"undead": 0.0
 			},
 			{
 				"clears_since_retaken": 0,
@@ -247,13 +247,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "lantern-keep",
-				"living": 160.089978543782,
-				"r_dead_out": 0.662495135731833,
-				"r_drain": 0.605373487606347,
-				"r_in": 1.04759365966265,
+				"living": 170.0,
+				"r_dead_out": 0.321686241237735,
+				"r_drain": 0.0,
+				"r_in": 0.321686241237735,
 				"r_raised": 0.0,
-				"r_shipped": 0.16154931968227,
-				"undead": 9.78687138296928
+				"r_shipped": 0.00289517617113688,
+				"undead": 0.0
 			},
 			{
 				"clears_since_retaken": 0,
@@ -261,12 +261,12 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "hollow-redoubt",
-				"living": 299.998307387204,
-				"r_dead_out": 0.622845504470597,
+				"living": 300.0,
+				"r_dead_out": 0.191258153728696,
 				"r_drain": 0.0,
-				"r_in": 0.622845504470597,
+				"r_in": 0.191258153728696,
 				"r_raised": 0.0,
-				"r_shipped": 0.00222038394732229,
+				"r_shipped": 0.00172132338354913,
 				"undead": 0.0
 			},
 			{
@@ -275,12 +275,12 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "pale-bastion",
-				"living": 319.998117390075,
-				"r_dead_out": 0.692760406318833,
+				"living": 320.0,
+				"r_dead_out": 0.212727033169324,
 				"r_drain": 0.0,
-				"r_in": 0.692760406318833,
+				"r_in": 0.212727033169324,
 				"r_raised": 0.0,
-				"r_shipped": 0.00246962380638522,
+				"r_shipped": 0.00191454329853968,
 				"undead": 0.0
 			},
 			{
@@ -289,12 +289,12 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "mourners-gate",
-				"living": 299.998548332721,
-				"r_dead_out": 0.534182679372556,
+				"living": 300.0,
+				"r_dead_out": 0.164032319856723,
 				"r_drain": 0.0,
-				"r_in": 0.534182679372556,
+				"r_in": 0.164032319856723,
 				"r_raised": 0.0,
-				"r_shipped": 0.00190430955625206,
+				"r_shipped": 0.00147629087871337,
 				"undead": 0.0
 			},
 			{
@@ -303,12 +303,12 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "the-stair",
-				"living": 479.998741022457,
-				"r_dead_out": 0.463276955470673,
+				"living": 480.0,
+				"r_dead_out": 0.142259187121668,
 				"r_drain": 0.0,
-				"r_in": 0.463276955470673,
+				"r_in": 0.142259187121668,
 				"r_raised": 0.0,
-				"r_shipped": 0.00165153751243575,
+				"r_shipped": 0.00128033268413219,
 				"undead": 0.0
 			},
 			{
@@ -317,12 +317,12 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "whitecross",
-				"living": 519.998583470983,
-				"r_dead_out": 0.521252546258273,
+				"living": 520.0,
+				"r_dead_out": 0.160061843439773,
 				"r_drain": 0.0,
-				"r_in": 0.521252546258273,
+				"r_in": 0.160061843439773,
 				"r_raised": 0.0,
-				"r_shipped": 0.0018582148829716,
+				"r_shipped": 0.0014405565909783,
 				"undead": 0.0
 			},
 			{
@@ -331,33 +331,37 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "sable-hold",
-				"living": 459.998830600213,
-				"r_dead_out": 0.430314246723933,
+				"living": 460.0,
+				"r_dead_out": 0.132137276035295,
 				"r_drain": 0.0,
-				"r_in": 0.430314246723933,
+				"r_in": 0.132137276035295,
 				"r_raised": 0.0,
-				"r_shipped": 0.00153402864575947,
+				"r_shipped": 0.00118923548427574,
 				"undead": 0.0
 			}
 		],
 		"raised_by_sims": 0.0,
 		"simulacra": [],
 		"tithe": {
+			"next_id": 2,
+			"next_s": 150.0,
+			"started": true,
 			"warning": {
 				"eta_s": 150.0,
 				"fort_id": "ashgate",
 				"surge": 24.0,
-				"wave_id": 1.0
-			}
+				"wave_id": 1
+			},
+			"wave": {}
 		},
 		"vei": {
-			"dead_queue": 0.0,
-			"living_pool": 596.0,
-			"r_converted": 16.7860141137807,
-			"r_in_dead": 5.13349361062192,
-			"r_in_undead": 0.0,
-			"r_shipped": 8.0,
-			"undead_queue": 0.0
+			"dead_queue": 9968.76461378792,
+			"living_pool": 599.991377430008,
+			"r_converted": 0.169760442969846,
+			"r_in_dead": 2.32100087544381,
+			"r_in_undead": 1.69623811696937,
+			"r_shipped": 0.0172451399846523,
+			"undead_queue": 5639.12849379555
 		}
 	},
 	"relish": {
@@ -451,7 +455,7 @@
 		},
 		{
 			"id": "saltcreek",
-			"owner": "none"
+			"owner": "vei"
 		},
 		{
 			"id": "moth-hollow",

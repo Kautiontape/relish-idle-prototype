@@ -62,12 +62,15 @@ func _rich(seed_val := 1) -> GameState:
 	s.cmd_rename_big_undead(bus[1]["uid"], "Old Gristle")
 	s.tick(30.0)
 	_flip(s, "old-sluice")
-	s._tithe = {"warning": {"fort_id": "ashgate", "eta_s": 150.5}}
+	# the flip started the tithe cycle; a warning on Ashgate rides along in the realm block
+	s.realm.tithe["warning"] = {"wave_id": 1, "fort_id": "ashgate", "eta_s": 150.5, "surge": 24.0}
+	s.realm.tithe["next_s"] = 150.5
+	s.realm.tithe["next_id"] = 2
 	s._phylactery_charges = 1
-	s._readout = {"diff_ema": -0.25, "q_raise_ema": 1.5}
 	s._stance_hold = {"harvest": 12.5}
 	s.cmd_move_relish("vei")
 	s.tick(1.0)
+	s._readout = {"diff_ema": -0.25, "q_raise_ema": 1.5}  # after the last tick, which moves diff_ema
 	s.cmd_set_time_scale(1.0)
 	s.towns[0]["control"] = "green"  # after the last tick, which would recompute them from the field
 	s.towns[1]["control"] = "orange"
@@ -90,7 +93,10 @@ func _slot_path(slot: String) -> String:
 	return "%s/%s.json" % [_dir, slot]
 
 
-## Every view but the live field and the seeds, `rev` stripped, village dominance dropped (A6).
+## Every view but the live field and the seeds, `rev` stripped, village dominance dropped (A6), and
+## the session-only values (STATE-API §9.1) dropped: the last substep's split, mint rate and raw
+## diff, the two lanes out of Covington's session rates (FLOOD to Vei, WAR fallen through), and the
+## lane callouts (a lane shown only for its callout goes too).
 func _views(s: GameState) -> Dictionary:
 	var out := {}
 	for name in ApiSchema.VIEWS:
@@ -105,6 +111,15 @@ func _views(s: GameState) -> Dictionary:
 		out[k].erase("rev")
 	for v in out["view_villages"]["villages"]:
 		v.erase("dominance")
+	out["view_hud"].erase("split")
+	out["view_hud"]["rates"][0].erase("rate")
+	out["view_vei"].erase("diff")
+	var lanes: Array = []
+	for l in out["view_lanes"]["lanes"]:
+		if l["rate"] > 0.0 and not (l["from"] == "covington" and l["to"] == "vei"):
+			l.erase("why")
+			lanes.append(l)
+	out["view_lanes"]["lanes"] = lanes
 	return out
 
 
@@ -378,6 +393,9 @@ func _bad_files() -> void:
 	t.ok(f.from_dict({"v": 99}) == {"ok": false, "reason": "bad_version"}, "v above SAVE_VERSION is bad_version")
 	t.ok(f.from_dict({"v": 1.5}) == {"ok": false, "reason": "bad_version"}, "a fractional v is bad_version (the migration fails)")
 	t.ok(f.rev == 0, "refused from_dict calls never bump rev")
+	var bt := before.duplicate(true)
+	bt["realm"]["tithe"]["warning"] = {"wave_id": 1, "fort_id": "nowhere", "eta_s": 1.0, "surge": 1.0}
+	t.ok(f.from_dict(bt) == {"ok": false, "reason": "corrupt"}, "a tithe naming an unknown fort is corrupt")
 
 
 # --------------------------------------------------------- saves and listing ----
@@ -551,8 +569,9 @@ func _gaps() -> void:
 	# E2/E3 placeholders ride along
 	var p := _rich()
 	var dp := p.to_dict()
-	t.ok(dp["realm"]["tithe"] == p._tithe and dp["backups"]["phylactery_charges"] == 1 and dp["readout"]["diff_ema"] == -0.25
-		and dp["stances"]["hold"] == {"harvest": 12.5}, "placeholders are saved")
+	t.ok(dp["realm"]["tithe"] == p.realm.tithe and dp["realm"]["tithe"]["warning"]["fort_id"] == "ashgate"
+		and dp["backups"]["phylactery_charges"] == 1 and dp["readout"]["diff_ema"] == -0.25
+		and dp["stances"]["hold"] == {"harvest": 12.5}, "the tithe, the readout and the placeholders are saved")
 	var q := GameState.new(TestUtil.configs())
 	q.from_dict(JSON.parse_string(JSON.stringify(dp)))
 	t.ok(q.to_dict() == dp, "and come back")
@@ -593,7 +612,9 @@ func _fixtures() -> void:
 		if float(f.get("held_s", 0.0)) > 0.0 and int(f.get("flipped_count", 0)) == 1:
 			held += 1
 	t.ok(held == 2, "midgame: Old Sluice and Ashgate are flipped and held")
-	t.ok(m._tithe.has("warning") and m._tithe["warning"]["fort_id"] == "ashgate", "midgame: a tithe warning on Ashgate")
+	var mw: Dictionary = m.realm.tithe["warning"]
+	t.ok(m.realm.tithe["started"] and mw["fort_id"] == "ashgate" and m.view_vei()["tithe"]["target"] == "ashgate"
+		and m.view_fort("ashgate")["tithe"]["targeted"], "midgame: a tithe warning on Ashgate")
 	var vr := m.view_relish()
 	t.ok(vr["state"] == "travelling" and vr["at"] == "covington" and vr["target"] == "greywall", "midgame: Relish travels Covington -> Greywall")
 	t.ok(m.husks.size() == 2 and m.remnants.size() == 4 and m.big_undead.size() == 3 and m.blueprints == ["embalmer"], "midgame: 2 husks, 4 remnants, 3 big undead, embalmer")

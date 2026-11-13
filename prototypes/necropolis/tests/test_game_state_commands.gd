@@ -472,16 +472,16 @@ func _realm_views() -> void:
 	var s := _mk()
 	s.tick(5.0)
 	var lanes: Array = s.view_lanes()["lanes"]
-	t.ok(lanes.size() == 13, "a WAR lane per fort plus the FLOOD lane")
 	var ok_war := true
 	for i in 12:
 		var f: Dictionary = s.realm.forts[i]
 		var l: Dictionary = lanes[i]
 		ok_war = ok_war and l["id"] == "war:covington:" + f["id"] and l["from"] == "covington" and l["to"] == f["id"]
 		ok_war = ok_war and l["kind"] == "war" and l["rate"] == f["r_in"] and l["bias"] == 1.0 and l["why"] == ""
-	t.ok(ok_war and lanes[0]["rate"] > 0.0, "WAR lanes: forts in world order at the legacy dispatch rate")
-	t.ok(lanes[12] == {"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": ""},
-		"the FLOOD lane to Vei at 0")
+	t.ok(ok_war and lanes[0]["rate"] > 0.0, "WAR lanes first: every fort (all have living), world order, at the dispatch rate")
+	t.ok(lanes[12] == {"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": s.realm.r_flood, "bias": 1.0, "why": ""}
+		and s.realm.r_flood > 0.0, "then the FLOOD lane to Vei at the valve's FLOOD")
+	t.ok(lanes.all(func(l): return l["rate"] > 0.0 or l["why"] != ""), "zero-rate lanes without a callout are omitted")
 	var realm := s.view_realm()
 	t.ok(realm["size"] == [2048.0, 1440.0] and realm["covington"]["pos"] == [1780.0, 1270.0], "size and Covington")
 	t.ok(realm["vei"]["pos"] == [1024.0, 130.0] and realm["vei"]["radius"] == 150.0 and realm["vei"]["pool_cap"] == 600.0, "Vei")
@@ -511,7 +511,7 @@ func _realm_views() -> void:
 	t.ok(vf["field"] == s.field and vf["world_size"] == [2048.0, 1440.0] and vf["tick_hz"] == 5.0, "view_field: the live field")
 	var vv := s.view_vei()
 	t.ok(_ids(vv["fronts"]) == GameState.FRONT_IDS and vv["fronts_required"] == 3 and vv["fronts_met"] == 0, "four fronts, 3 required")
-	t.ok(vv["diff_ema"] == vv["diff"] and vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0, "diff_ema = diff until E2; no tithe")
+	t.ok(vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0 and not vv["tithe"]["warning"], "no flip yet, so no tithe")
 	var l := s.ledger()
 	t.ok(l["sources"].values().all(func(x): return x == 0.0) and l["held"].size() == 9, "ledger: E2 stub, all zero")
 

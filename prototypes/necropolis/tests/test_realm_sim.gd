@@ -157,6 +157,56 @@ func run() -> int:
 	t.near(sim.vei["undead_queue"] - uq, 8.0, 1e-9, "WAR and FLOOD both reach the undead queue")
 	t.near(sim.readout()["inflow"], 8.0, 1e-9, "inflow = drain + FLOOD + fall-through")
 
+	# --- held forts always pull WAR: staging alongside the forts with living ----
+	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "k_clear": 0.0, "r_drain": 0.0})
+	h1 = sim.forts[2]
+	h1["living"] = 0.0
+	sim.hold(h1["id"], 100.0)
+	sim.step(1.0, {"war": 10.0})
+	var near_f: Dictionary = sim.forts[0]
+	t.ok(sim.war_route == "forts" and h1["r_staged"] > 0.0 and h1["r_in"] == h1["r_staged"],
+		"a held fort stages WAR while other forts have living (route forts)")
+	d1 = sim.cov_pos.distance_to(h1["pos"])
+	var d0: float = sim.cov_pos.distance_to(near_f["pos"])
+	t.near(h1["r_in"] / near_f["r_in"], d0 / d1, 1e-9, "at its distance weight, like any target")
+	t.ok(near_f["r_staged"] == 0.0, "only held forts record staging")
+	sum_in = 0.0
+	for ff in sim.forts:
+		sum_in += ff["r_in"]
+	t.near(sum_in, 10.0, 1e-9, "staging is a share of WAR, not extra")
+	var ratio_empty: float = h1["r_in"] / near_f["r_in"]
+	h1["living"] = 10.0
+	sim.step(1.0, {"war": 10.0})
+	t.near(h1["r_in"] / near_f["r_in"], ratio_empty, 1e-9, "a held fort with living is weighted once, not twice")
+	sim.step(1.0, {"war": 10.0, "tide_fort": h1["id"], "tide_bias": 3.0})
+	t.near(h1["r_in"] / near_f["r_in"], ratio_empty * 3.0, 1e-9, "the tide multiplies a held fort's staging too")
+	t.ok(sim.vei["undead_queue"] == 0.0 and sim.r_war_to_vei == 0.0, "nothing falls through while there is a target")
+
+	# --- the readout's digestion and the partial-headroom capacity -------------
+	sim = _mk({"vei_pool_cap": 100.0, "S_vei": 0.0, "R_vei": 1000.0, "k_clear": 0.0, "veiPolicy": "cheap"})
+	sim.vei["living_pool"] = 95.0
+	sim.vei["undead_queue"] = 500.0
+	sim.vei["dead_queue"] = 2.0
+	sim.step(1.0, {"digest_q": 2.0})
+	t.near(sim.r_digested_undead, 3.0, 1e-9, "digestion = the undead she took (headroom 5 less 2 dead)")
+	t.near(sim.readout()["capacity"], 3.0, 1e-9, "capacity: the headroom left after the dead, per second (not R/q = 500)")
+	sim = _mk({"vei_pool_cap": 1e6, "S_vei": 0.0, "R_vei": 50.0, "k_clear": 0.0})
+	sim.vei["undead_queue"] = 10.0
+	sim.step(0.5, {"digest_q": 2.0})
+	t.near(sim.r_digested_undead, 10.0 / 0.5, 1e-9, "digestion is what she took (the whole small queue)")
+	t.near(sim.readout()["capacity"], 25.0, 1e-9, "capacity is R/q with room to spare")
+
+	# --- a retake refreshes the yield ------------------------------------------
+	sim = _mk({})
+	f = sim.forts[1]
+	f["clears_since_retaken"] = 3
+	sim.hold(f["id"], 0.5)
+	sim.step(0.5, {})
+	t.ok(f["clears_since_retaken"] == 0 and sim.drain_events().size() == 1, "an expiry resets clears_since_retaken")
+
+	# --- tithe waves --------------------------------------------------------------
+	_tithe(t)
+
 	# --- FLOOD goes straight to the queue -------------------------------------
 	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "r_drain": 0.0})
 	uq = float(sim.vei["undead_queue"])
@@ -249,12 +299,14 @@ func run() -> int:
 
 	# --- a long run with random inputs: no negatives, mass accounted -----------
 	sim = _mk({})
+	sim.start_tithe()  # surges run too
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 12345
 	before = sim.total_matter()
 	var added := 0.0
 	var neg := false
 	var over_pool := false
+	var surged := 0.0
 	var ids: Array = sim.forts.map(func(x): return x["id"])
 	for i in 4000:
 		var dt := 0.5
@@ -277,8 +329,11 @@ func run() -> int:
 				neg = true
 		if sim.vei["living_pool"] > float(sim.t["vei_pool_cap"]) + 1e-9:
 			over_pool = true
+		for ff in sim.forts:
+			surged += ff["r_surge"] * dt
 		sim.drain_events()
-	t.ok(not neg, "no negative pool after 2000 s of random inputs, holds and simulacra")
+	t.ok(surged > 0.0, "tithe surges ran during the soak (%.0f mass)" % surged)
+	t.ok(not neg, "no negative pool after 2000 s of random inputs, holds, simulacra and tithe waves")
 	t.ok(not over_pool, "Vei's pool never exceeds its cap")
 	t.near(sim.total_matter(), before + added - sim.cleared_total, 1e-6 * maxf(1.0, before + added),
 		"matter: start + WAR + FLOOD − cleared")
@@ -286,3 +341,207 @@ func run() -> int:
 	t.ok(not sim.readout().has("directShare") and not sim.t.has("directShare"), "directShare is gone")
 
 	return t.failures
+
+
+## Steps `sim` at dt 0.5 with `inp` until an event of `type` appears (at most `max_s`). Returns
+## [elapsed when it appeared, the event], or [-1.0, {}].
+func _until(sim: RealmSim, type: String, inp: Dictionary, max_s: float) -> Array:
+	var start := sim.elapsed
+	while sim.elapsed - start < max_s:
+		sim.step(0.5, inp)
+		for ev in sim.drain_events():
+			if ev["type"] == type:
+				return [sim.elapsed, ev]
+	return [-1.0, {}]
+
+
+## A sim for tithe cases: no combat, no drain or clearing (masses stay where the test puts them),
+## a deep pool so the surge is never pool-bound unless the test says so.
+func _tsim(over := {}) -> RealmSim:
+	var o := {"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "r_drain": 0.0, "R_vei": 0.0, "vei_pool_cap": 1e9}
+	o.merge(over, true)
+	var sim := _mk(o)
+	sim.vei["living_pool"] = 1e6
+	return sim
+
+
+## The target of a warning raised at once (the clock forced to the warning point).
+func _target_now(sim: RealmSim, inp: Dictionary) -> String:
+	sim.start_tithe()
+	sim.tithe["next_s"] = 1.0
+	sim.drain_events()
+	sim.step(0.5, inp)
+	for ev in sim.drain_events():
+		if ev["type"] == "tithe_warning":
+			return ev["fort_id"]
+	return "?"
+
+
+func _tithe(t: TestUtil) -> void:
+	var tc: Dictionary = TestUtil.configs()["realm"]["tithe"]
+	var period := float(tc["period_s"])
+	var warn := float(tc["warning_s"])
+	var surge_s := float(tc["surge_s"])
+	var base: float = float(tc["surge_mult"]) * float(TestUtil.configs()["realm"]["S_vei"])
+
+	# no wave before the first flip
+	var sim := _tsim()
+	var r := _until(sim, "tithe_warning", {"war": 5.0}, 3.0 * period)
+	t.ok(r[0] < 0.0 and not sim.tithe["started"], "no tithe before the first flip (%.0f s of WAR)" % (3.0 * period))
+
+	# the clock: the first wave one period after the flip, its warning warning_s before
+	sim = _tsim()
+	var held: Dictionary = sim.forts[1]
+	sim.hold(held["id"], 1e6)
+	sim.start_tithe()
+	t.near(sim.tithe["next_s"], period, 1e-9, "start_tithe: the first wave is period_s away at odds 0")
+	sim.start_tithe()
+	t.near(sim.tithe["next_s"], period, 1e-9, "a running cycle is not restarted")
+	var w := _until(sim, "tithe_warning", {}, period)
+	t.near(w[0], period - warn, 1e-9, "the warning comes warning_s before the wave")
+	t.ok(w[1] == {"type": "tithe_warning", "wave_id": 1, "fort_id": held["id"], "eta_s": warn, "surge": base},
+		"tithe_warning {wave_id, fort_id, eta_s, surge before counters}: %s" % str(w[1]))
+	t.ok(typeof(w[1]["wave_id"]) == TYPE_INT and typeof(w[1]["eta_s"]) == TYPE_FLOAT, "wave_id int, eta_s float")
+	# the target stays fixed: another fort is held with far more undead before the wave
+	var other: Dictionary = sim.forts[4]
+	other["undead"] = 1e5
+	sim.hold(other["id"], 1e6)
+	var wv := _until(sim, "tithe_wave", {}, period)
+	t.near(wv[0] - w[0], warn, 1e-9, "the wave starts warning_s after its warning")
+	t.ok(wv[1]["fort_id"] == held["id"] and wv[1]["wave_id"] == 1, "the warned target stays fixed for its wave")
+	t.ok(wv[1] == {"type": "tithe_wave", "wave_id": 1, "fort_id": held["id"], "surge": base, "duration_s": surge_s,
+		"relish_here": false, "siege_block": 0.0}, "tithe_wave {wave_id, fort_id, surge, duration_s, relish_here, siege_block}: %s" % str(wv[1]))
+	t.near(sim.tithe["next_s"], period, 1e-9, "the next wave is scheduled start to start")
+
+	# the target rule: held forts first, the most undead, ties in world order
+	sim = _tsim()
+	sim.hold(sim.forts[3]["id"], 1e6)
+	sim.hold(sim.forts[6]["id"], 1e6)
+	sim.forts[3]["undead"] = 5.0
+	sim.forts[6]["undead"] = 9.0
+	t.ok(_target_now(sim, {"war": 5.0}) == sim.forts[6]["id"], "held first: the held fort with the most undead")
+	sim = _tsim()
+	sim.hold(sim.forts[3]["id"], 1e6)
+	sim.hold(sim.forts[6]["id"], 1e6)
+	sim.forts[3]["undead"] = 7.0
+	sim.forts[6]["undead"] = 7.0
+	t.ok(_target_now(sim, {}) == sim.forts[3]["id"], "a tie between held forts goes to world order")
+	sim = _tsim()
+	var far: Dictionary = sim.forts[8]
+	t.ok(_target_now(sim, {"war": 5.0, "tide_fort": far["id"], "tide_bias": 100.0}) == far["id"],
+		"nothing held: the fort receiving the most WAR now (the tide pulled it far)")
+	sim = _tsim()
+	t.ok(_target_now(sim, {"war": 5.0}) == sim.forts[0]["id"], "nothing held, no tide: the nearest fort gets most WAR")
+	sim = _tsim()
+	t.ok(_target_now(sim, {}) == sim.forts[0]["id"], "no WAR anywhere: all tied at 0, world order")
+
+	# the period shrinks as her odds rise
+	sim = _tsim()
+	var k := float(sim.t["K"])
+	sim.vei["undead_queue"] = k  # odds 0.5
+	sim.start_tithe()
+	t.near(sim.tithe["next_s"], period * (1.0 - float(tc["backlog_scale"]) * 0.5), 1e-9, "period · (1 − backlog_scale · odds)")
+	t.near(sim.tithe_period(), 315.0, 1e-9, "315 s at odds 0.5 (420 at odds 0)")
+
+	# the surge: size, Relish halves it, a siege blocks its share; it ignores share and space
+	for c in [["plain", {}, 1.0, false, 0.0], ["Relish", {"tide_fort": "@"}, 0.5, true, 0.0],
+			["siege", {"siege_block": {"@": 0.6}}, 0.4, false, 0.6], ["both", {"tide_fort": "@", "siege_block": {"@": 0.6}}, 0.2, true, 0.6]]:
+		sim = _tsim()
+		var tgt: Dictionary = sim.forts[2]
+		tgt["living"] = tgt["cap"]  # no space: the surge goes in anyway
+		var inp := {}
+		for key in c[1]:
+			inp[key] = c[1][key]
+		if inp.has("tide_fort"):
+			inp["tide_fort"] = tgt["id"]
+		if inp.has("siege_block"):
+			inp["siege_block"] = {tgt["id"]: 0.6}
+		sim.start_tithe()
+		sim.tithe["next_s"] = 1.0
+		sim.step(0.5, {"war": 5.0, "tide_fort": tgt["id"], "tide_bias": 1000.0})  # the warning picks tgt
+		t.ok(sim.tithe["warning"]["fort_id"] == tgt["id"], "%s: warned on the test fort" % c[0])
+		var ev := _until(sim, "tithe_wave", inp, 10.0)
+		t.ok(absf(ev[1]["surge"] - base * c[2]) < 1e-9 and ev[1]["relish_here"] == c[3] and ev[1]["siege_block"] == c[4],
+			"%s: tithe_wave surge %.1f, relish_here %s, siege_block %.1f: %s" % [c[0], base * c[2], c[3], c[4], str(ev[1])])
+		t.near(tgt["r_surge"], base * c[2], 1e-9, "%s: surge_mult · S_vei × counters living/s" % c[0])
+		t.ok(tgt["living"] > tgt["cap"], "%s: past the fort's space" % c[0])
+		var delivered: float = tgt["r_surge"] * 0.5
+		var guard := 0
+		while not (sim.tithe["wave"] as Dictionary).is_empty() and guard < 1000:
+			sim.step(0.5, inp)
+			delivered += tgt["r_surge"] * 0.5
+			guard += 1
+		t.near(delivered, base * c[2] * surge_s, 1e-6, "%s: the wave delivers rate × surge_s" % c[0])
+		sim.step(0.5, inp)
+		t.ok(tgt["r_surge"] == 0.0 and guard == int(surge_s / 0.5) - 1, "%s: then stops, after surge_s" % c[0])
+	# the surge comes out of her pool and is bounded by it; held forts get it (not the shipping share)
+	sim = _tsim({"S_vei": 8.0})
+	var hf: Dictionary = sim.forts[2]
+	sim.hold(hf["id"], 1e6)
+	sim.start_tithe()
+	sim.tithe["next_s"] = 0.5
+	sim.vei["living_pool"] = 5.0
+	var before := sim.total_matter()
+	sim.step(0.5, {})
+	t.near(hf["r_surge"], 5.0 / 0.5, 1e-9, "bounded by her pool (5 mass in a 12-mass step)")
+	t.ok(sim.vei["living_pool"] == 0.0 and hf["r_shipped"] == hf["r_surge"], "the pool empties into the held fort; r_shipped carries the surge")
+	t.near(sim.total_matter(), before, 1e-9, "the surge moves mass, it makes none")
+
+	# the hold: kept when the garrison outlasts the wave, lost (with the event) when overwhelmed
+	for c in [["outlasts", 2000.0, {}, true], ["overwhelmed", 100.0, {}, false], ["Relish saves it", 600.0, {"tide_fort": "@"}, true],
+			["no Relish", 600.0, {}, false]]:
+		sim = _tsim()
+		hf = sim.forts[2]
+		hf["clears_since_retaken"] = 2
+		sim.hold(hf["id"], 1e6)
+		hf["undead"] = c[1]
+		var inp: Dictionary = {"tide_fort": hf["id"]} if c[2].has("tide_fort") else {}
+		sim.start_tithe()
+		sim.tithe["next_s"] = 1.0
+		sim.drain_events()
+		var got: Array = []
+		for i in 200:
+			sim.step(0.5, inp)
+			got.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
+		t.ok(hf["held"] == c[3] and got.size() == (0 if c[3] else 1),
+			"%s: garrison %.0f vs %.0f delivered: held %s" % [c[0], c[1], base * surge_s * (0.5 if c[2].has("tide_fort") else 1.0), c[3]])
+		if not c[3]:
+			t.ok(got[0] == {"type": "fort_retaken", "fort_id": hf["id"], "cause": "tithe_wave"} and hf["clears_since_retaken"] == 0
+				and hf["held_s"] == 0.0, "%s: fort_retaken{tithe_wave}; the yield refreshes" % c[0])
+	# one retake per step: a wave that ends a hold in the step it would also expire
+	sim = _tsim()
+	hf = sim.forts[2]
+	sim.hold(hf["id"], 1e6)
+	sim.start_tithe()
+	sim.tithe["next_s"] = 1.0
+	_until(sim, "tithe_wave", {}, 10.0)
+	sim.hold(hf["id"], surge_s - 0.75)  # 0.25 s left when the wave's last step begins: both end it there
+	var all: Array = []
+	for i in 100:
+		sim.step(0.5, {})
+		all.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
+	t.ok(all.size() == 1 and all[0]["cause"] == "tithe_wave", "exactly one fort_retaken when the wave and the expiry coincide: %s" % str(all))
+
+	# load_tithe: the saved shape, the E1 placeholder, an empty block
+	sim = _tsim()
+	sim.start_tithe()
+	sim.tithe["next_s"] = 1.0
+	sim.step(0.5, {})
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(sim.tithe))
+	var back := _tsim()
+	back.load_tithe(saved, false)
+	t.ok(back.tithe == sim.tithe and typeof(back.tithe["next_id"]) == TYPE_INT
+		and typeof(back.tithe["warning"]["wave_id"]) == TYPE_INT, "the saved shape round-trips through JSON with its types")
+	back = _tsim()
+	back.load_tithe({"warning": {"wave_id": 1.0, "fort_id": "ashgate", "eta_s": 150.0, "surge": 24.0}}, true)
+	t.ok(back.tithe == {"started": true, "next_s": 150.0, "next_id": 2, "wave": {},
+		"warning": {"wave_id": 1, "fort_id": "ashgate", "eta_s": 150.0, "surge": 24.0}}, "the E1 placeholder becomes a pending warning: %s" % str(back.tithe))
+	back = _tsim()
+	back.load_tithe({}, true)
+	t.ok(back.tithe["started"] and back.tithe["next_s"] == period, "an empty block with a flipped fort starts the clock at load")
+	back = _tsim()
+	back.load_tithe({}, false)
+	t.ok(not back.tithe["started"], "and without one it idles")
+	back = _tsim()
+	back.load_tithe({"warning": {"wave_id": 1, "fort_id": "nowhere", "eta_s": 1.0, "surge": 1.0}, "started": true, "next_s": 3.0}, true)
+	t.ok(back.tithe["warning"].is_empty() and back.tithe["next_s"] == 3.0, "an entry naming an unknown fort is dropped")

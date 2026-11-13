@@ -260,9 +260,11 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   3. **The valve.** Slew the current vector toward the target by at most `valve.slew_per_s · dt` of
      L1 distance (the sum stays 1). Split mint into WORK, WAR and FLOOD, and add muster to WAR.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
-  5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.**
+  5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate, siege_block})`.**
      Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
-     expiry and the tithe cycle. Emits `fort_retaken`, `tithe_warning` and `tithe_wave`.
+     expiry and the tithe cycle, which starts at the first flip. Emits `fort_retaken`,
+     `tithe_warning` and `tithe_wave`. `tide_fort` is also where Relish stands, so a surge there
+     is halved; `siege_block` (fort id → the fraction of a surge a siege cancels) is `{}` until E3.
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
      respawn. Emits `relish_respawned`.
   7. **The ledger.**
@@ -706,6 +708,9 @@ Types are exact. "mass" means a float in mass units.
 At E1 these fields are live: `t`, `time_scale`, `paused`, `relics`, `essence` and their caps,
 `won`, plus `sign`, `drain_s`, `odds` (from the legacy readout). Stocks are the live stores (the
 legacy ones at E1), the same ones `view_town` and `view_catalog` read, and the rates are 0.
+From E2a: `sign`, `drain_s` and `odds` are the sustained readout (§5.14); `split` is live (the last
+substep's mass/s, after the slew), and so is the `mint` entry's `rate`. The other rates stay 0
+until TownSim.
 
 | key | type | meaning |
 |---|---|---|
@@ -780,6 +785,27 @@ each of `GameState.RATE_IDS`.
 | `living` | vei → fort | Vei's living shipments, tithe surges included |
 | `haul` | fort → covington | convoy corpses, trip-averaged |
 | `redirect` | fort → fort | corpses kept and raised there by Relish or a simulacrum |
+
+**E2a notes** (additive):
+- **Zero-rate lanes are omitted**, unless their `why` callout is live: a lane that just dropped to
+  0 (`"Relish left"`, `"held"`, `"retaken"`) stays at 0 until its callout ends. Order: kinds in
+  `LANE_KINDS` order, forts in world order within a kind.
+- Live kinds: `war` (covington → fort, staging at held forts included), `flood`, `dead`, `living`
+  and `redirect`. `work` and `haul` arrive with TownSim.
+- WAR that falls through to Vei (no fort has living and none is held) shows as a `war` lane
+  **covington → vei** (`war:covington:vei`). A `war` lane's `to` may therefore be `"vei"`.
+- `flood` fort → vei is the fort's undead draining into her queue; `dead` fort → vei is garrison
+  kills shipped; `living` vei → fort includes tithe surges; `redirect` carries the mass/s raised
+  there into undead (Relish and simulacra together).
+- `bias`: `relish.tide_bias` on the war lane to her tide fort; on the living lane to a wave's
+  target, `tithe.surge_mult` × the counters (½ while Relish stands there, × (1 − siege share)).
+- `why` causes: `"valve"` (a new valve target: every war lane and flood covington → vei);
+  `"Relish here"` / `"Relish left"` (her tide fort's war lane; her redirect fort's redirect and dead
+  lanes); `"held"` (living lane) and `"staging"` (war lane) when a fort is flipped; `"retaken"`
+  (both) when a hold ends; `"tithe wave"` (living lane) when a wave starts; `"simulacrum"` (redirect
+  and dead lanes) when one starts or stops working at a fort. The newest cause wins. A command's
+  callout starts at its `t`; the others at the substep that sees the change. Callouts are
+  session-only.
 ```gdscript
 {rev: 3, lanes: [
   {id: "war:covington:old-sluice", from: "covington", to: "old-sluice", kind: "war", rate: 1.21, bias: 3.0, why: "Relish here"},
@@ -814,7 +840,7 @@ are E2. The warden, threat and loot hint are E2 (E1 stubs: `bellringer`, `risk: 
 | `cap` | float | mass |
 | `pos` | Array | `[x, y]` |
 | `living`, `undead`, `dead`, `space` | float | mass; `space = max(0, cap − living − undead − dead)` |
-| `war_in`, `ship_in` | float | mass/s: WAR arriving; Vei's living arriving |
+| `war_in`, `ship_in` | float | mass/s: WAR arriving (staging included); Vei's living arriving (tithe surges included) |
 | `held` | bool | flipped and still held |
 | `held_s_left` | float | 0 when not held |
 | `flipped_count` | int | times flipped |
@@ -828,7 +854,7 @@ are E2. The warden, threat and loot hint are E2 (E1 stubs: `bellringer`, `risk: 
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here; 0 when none |
 | `siege` | Array[String] | big-undead uids placed here |
-| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool}`; `eta_s` is `-1.0` when not targeted |
+| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). |
 | `can_descend` | bool | `cmd_begin_dungeon(id)` would succeed now |
 | `reason` | String | the reason it would return (`""`, `busy`, `dead`, `not_at_fort`) |
 ```gdscript
@@ -1076,12 +1102,17 @@ view_party():      {rev: 3, party: [{uid: "u4", ...}], fort_id: "old-sluice", ga
 ```
 
 ### 5.14 `view_vei()` · E1 (EMA sign E2, tithe E2, fronts E3)
-At E1, `backlog`, `living_pool`, `odds`, `sign` and `drain_s` come from the legacy readout.
+At E1, `backlog`, `living_pool`, `odds`, `sign` and `drain_s` come from the legacy readout. From E2a
+they are the sustained readout (MECHANICS §3.5): `diff` is what entered her undead queue last
+substep less the undead she took, per second (the backlog's net rate without lumps); `diff_ema` its
+EMA; `sign` ±1 past ±`readout.sign_eps`. `tithe.target` is the running wave's fort (`eta_s` 0.0,
+`wave_s_left`), else the warned fort (`eta_s` to its wave), else `""` and -1.0. `warning` is true
+while a warning is pending.
 
 | key | type | meaning |
 |---|---|---|
 | `backlog`, `living_pool`, `pool_cap` | float | mass |
-| `diff` | float | mass/s: the raw differential this substep |
+| `diff` | float | mass/s: the raw differential this substep (0.0 after a load until the first substep) |
 | `diff_ema` | float | mass/s: the EMA over `readout.ema_s` |
 | `sign`, `drain_s`, `odds` | int, float, float | as in `view_hud` |
 | `digest_q` | float | |
@@ -1408,14 +1439,22 @@ take the router's legacy path (§2.3).
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,
   `clears_since_retaken`, and the per-second rates `r_in`, `r_drain`, `r_shipped`, `r_dead_out`,
   `r_raised`, which the views show), `cov`, `vei` (masses and rates), `simulacra`
-  (`{fort_id, charges, rate}`), `elapsed`, `cleared_total`, `raised_by_sims`, and `tithe` (an E2
-  placeholder object, stored and written back as is). Positions, names, caps and tiers come from config.
+  (`{fort_id, charges, rate}`), `elapsed`, `cleared_total`, `raised_by_sims`, and `tithe`. Positions,
+  names, caps and tiers come from config.
+- `realm.tithe` (E2a, RealmSim's countdowns): `{started: bool, next_s: float (to the next wave),
+  next_id: int, warning: {} | {wave_id: int, fort_id, eta_s, surge}, wave: {} | {wave_id: int,
+  fort_id, s_left, duration_s, mult, delivered}}`. Loading the E1 placeholder `{warning: {wave_id,
+  fort_id, eta_s, surge}}` gives a running cycle with that warning pending, `eta_s` read as the time
+  left. An empty block starts the clock at load when a fort has `flipped_count > 0`, else idles. A
+  `warning` or `wave` naming an unknown fort makes the save `corrupt`.
 - `town`: `tier`, `lots` (`[{lot_id, building_id, level}]`), `ladder`, `staff_caps`, `haul: {target}`.
   Gold, bone, bodies, living and workers stay in `legacy` until E2; the convoy is `legacy.gather`.
 - `stances`: `on` (oldest first) and `hold` (E3 timers, stored as is).
 - `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` and `vats` (E1: derived from the legacy
   vats; only `staffed` is read back).
-- `readout`: `diff_ema`, `q_raise_ema` (E2, stored as is). `ledger`: `sources` and `sinks` as
+- `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
+  mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
+  save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50). `ledger`: `sources` and `sinks` as
   `ledger()` shows them; `sinks.dungeon` is read back. `inventory.simulacra_ready` is written as 0.
 - `villages` owners are `player`, `vei` or `none`. Floats are written at 15 significant digits (§10 A12).
 
@@ -1423,6 +1462,10 @@ take the router's legacy path (§2.3).
 - `rev`, `debug_enabled`, `save_dir`, the event queue;
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
 - the open run, which is forfeited;
+- the last substep's rates outside the fort and Vei blocks: `view_hud`'s `split` and mint `rate`,
+  `view_vei`'s raw `diff`, and the two lanes out of Covington to Vei (FLOOD, WAR fallen through). They
+  read 0 (or the lane is absent) until the first substep after a load. Lane callouts are not saved
+  either;
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
   (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
@@ -1471,7 +1514,9 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 - They are produced by `tests/fixtures/make_fixtures.gd` (commands and debug commands from
   `cmd_new_game(1)`, then the fields no E1 command can make written into the dict: the town tier and
   `realm.tithe` on `midgame_2flips`, the tier and `backups.phylactery_charges` on `pre_vei`). Run it
-  by hand when the save shape changes.
+  by hand when the save shape changes. The `realm.tithe` it writes on `midgame_2flips` is still the
+  E1 placeholder `{warning}`; from E2a the load maps it into the tithe state (a warning pending on
+  Ashgate, 150 s to the wave), so the file holds the full E2a block (§9.1).
 - **Contract-test coverage:** across the three fixtures, every array a view exposes is non-empty at
   least once, so the contract test can check element shapes.
 

@@ -2,9 +2,10 @@ class_name LegacyEconomy
 extends RefCounted
 ## E1 legacy economy. E2a retires this file.
 ## Everything of the pre-extraction town lives here: the stores (res, army, town, assignments,
-## idle_undead, gather), the mint and slab burn, the town and gather ticks, the quality, the
-## legacy seeds and town snapshot, the death scatter, the raid and boss army parity, the stock
-## readers the views use, the targets of the debug grants and the save's `legacy` block.
+## idle_undead, gather), the mint and slab burn, the town and gather ticks, the legacy seeds and
+## town snapshot (their `quality` is GameState's q, passed in), the death scatter, the raid and
+## boss army parity, the stock readers the views use, the targets of the debug grants and the
+## save's `legacy` block.
 ## GameState forwards every public legacy name to the one instance it owns (`GameState.legacy`).
 ## It needs the RealmSim and the configs only; GameState hands them in.
 
@@ -48,14 +49,6 @@ func reset() -> void:
 	assignments = {"trade": 0, "forge": 0, "jobs": 0, "gather": 0, "slab": 0}
 	idle_undead = 6
 	gather = {"target": "", "phase": "idle", "eta": 0.0, "load": 0.0}
-
-
-func quality() -> float:
-	var cfg: Dictionary = _cfg()
-	var q: float = float(cfg.get("q", 1.2)) \
-		+ float(cfg.get("q_per_forge", 0.25)) * town["forge_level"] \
-		+ float(cfg.get("q_per_elite", 0.01)) * army["elite"]
-	return clampf(q, 1.0, float(cfg.get("q_max", 4.0)))
 
 
 # ------------------------------------------------------------------- tick ----
@@ -156,32 +149,32 @@ func spend_clones(clones: int) -> void:
 	town["vats"] = maxi(0, int(town["vats"]) - clones)
 
 
-func raid_seed(fort_id: String) -> Dictionary:
+func raid_seed(fort_id: String, q: float) -> Dictionary:
 	var f := realm.fort_by_id(fort_id)
 	if f.is_empty():
 		return {}
 	return {
 		"fort_id": fort_id, "name": f["name"], "tier": f["tier"], "cap": f["cap"],
 		"living": f["living"], "undead": f["undead"], "dead": f["dead"],
-		"boss": false, "quality": quality(),
+		"boss": false, "quality": q,
 	}
 
 
-func boss_seed() -> Dictionary:
+func boss_seed(q: float) -> Dictionary:
 	return {
 		"fort_id": "vei", "name": "Vei's Domain", "tier": 5, "cap": 800.0,
 		"living": 500.0, "undead": 0.0, "dead": 60.0, "boss": true,
-		"quality": quality(), "backlog": realm.vei["undead_queue"],
+		"quality": q, "backlog": realm.vei["undead_queue"],
 		"army": army.duplicate(true), "vei_capacity": float(_cfg().get("R_vei", 50.0)),
 		"odds": realm.readout()["odds"],
 	}
 
 
-func town_snapshot(green_towns: int) -> Dictionary:
+func town_snapshot(green_towns: int, q: float) -> Dictionary:
 	return {
 		"town": town.duplicate(true), "assignments": assignments.duplicate(true),
 		"res": res.duplicate(true), "army": army.duplicate(true),
-		"idle_undead": idle_undead, "quality": quality(),
+		"idle_undead": idle_undead, "quality": q,
 		"green_towns": green_towns, "gather": gather.duplicate(true),
 		"fort_ids": realm.forts.map(func(f): return f["id"]),
 		"simulacra": realm.simulacra.duplicate(true),

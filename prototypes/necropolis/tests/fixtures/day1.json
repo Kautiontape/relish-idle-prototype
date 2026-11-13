@@ -71,7 +71,7 @@
 	"party": [],
 	"readout": {
 		"diff_ema": 0.0,
-		"q_raise_ema": 0.0
+		"q_raise_ema": 50.0
 	},
 	"realm": {
 		"cleared_total": 0.0,
@@ -252,7 +252,13 @@
 		],
 		"raised_by_sims": 0.0,
 		"simulacra": [],
-		"tithe": {},
+		"tithe": {
+			"next_id": 1,
+			"next_s": 0.0,
+			"started": false,
+			"warning": {},
+			"wave": {}
+		},
 		"vei": {
 			"dead_queue": 0.0,
 			"living_pool": 0.0,

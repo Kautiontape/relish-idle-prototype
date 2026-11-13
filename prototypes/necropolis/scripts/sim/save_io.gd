@@ -146,6 +146,10 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	for s in m["realm"]["simulacra"]:
 		if not fort_ids.has(s["fort_id"]):
 			return "simulacrum fort"
+	for k in ["warning", "wave"]:  # realm.tithe is free-form (E1 placeholders); its forts are not
+		var e: Variant = m["realm"]["tithe"].get(k, {})
+		if e is Dictionary and e.has("fort_id") and not fort_ids.has(str(e["fort_id"])):
+			return "tithe fort"
 	for v in m["villages"]:
 		if not ["player", "vei", "none"].has(v["owner"]):
 			return "village owner"

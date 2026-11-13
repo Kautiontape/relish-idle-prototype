@@ -36,7 +36,7 @@ func run() -> int:
 
 	# --- doing nothing must not win the game ---------------------------------
 	var sim := _mk()
-	var idle := {"war": base_mint * float(v["war"]), "flood": base_mint * float(v["flood"]), "digest_q": float(cfg["q"])}
+	var idle := {"war": base_mint * float(v["war"]), "flood": base_mint * float(v["flood"]), "digest_q": float(cfg["q"]["q0"])}
 	for i in 3600 * 2:  # 1 sim-hour at dt 0.5
 		sim.step(0.5, idle)
 	var idle_odds: float = sim.readout()["odds"]

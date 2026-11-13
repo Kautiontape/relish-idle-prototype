@@ -35,6 +35,8 @@ const _RATE_UNITS := {
 const _WARDEN_TELLS := {"bellringer": ["rings slam on the beat"]}
 ## ledger().held: every pool of mass (§4.7).
 const _LEDGER_HELD := ["fort_living", "fort_undead", "corpses", "backlog", "vei_dead", "living_pool", "bodies", "workers", "convoys"]
+## How long a lane's `why` callout lasts, in sim seconds (STATE-API §5.3).
+const _WHY_S := 10.0
 
 var realm: RealmSim
 var field: InfluenceField
@@ -78,11 +80,17 @@ var ladder: Array = []  # the player's job order, top first
 var staff_caps := {}  # lot_id -> int cap; absent = -1 (no cap)
 var stances_on: Array = []  # stance ids switched on, oldest first; the newest are suspended first
 var vats_staffed: Array = []  # bool per vat slot
-# --- E2/E3 placeholders: saved and restored so a fixture can carry them; nothing reads them at E1 ---
-var _tithe := {}  # realm.tithe (E2)
+# --- E3 placeholders: saved and restored so a fixture can carry them; nothing reads them yet ---
 var _phylactery_charges := 0  # backups.phylactery_charges (E3)
-var _readout := {"diff_ema": 0.0, "q_raise_ema": 0.0}  # the diff and q_raise EMAs (E2)
 var _stance_hold := {}  # stance id -> hold seconds left (E3)
+# --- the readouts (§3 step 8, MECHANICS §2.2, §3.5); saved as the `readout` block ---
+## diff_ema: the EMA of the differential over readout.ema_s. q_raise_ema: the mass-weighted EMA of
+## raised circle scores behind q_raise (`ema_score`, from 50); only apply_result moves it (IDLE I2).
+var _readout := {"diff_ema": 0.0, "q_raise_ema": 50.0}
+var _diff := 0.0  # the raw differential of the last substep, mass/s (session only)
+# --- lane callouts (§5.3): lane id -> [why, until t]; the last substep's causes snapshot ---
+var _why := {}
+var _lane_prev := {}
 # --- the town at E1: the BALANCE §0 start set (TownSim owns this from E2) ---
 var town_tier := "hamlet"
 var lot_buildings := {}  # lot_id -> {building_id: String, level: int}
@@ -204,9 +212,9 @@ func cmd_new_game(seed: int) -> Dictionary:
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
 	_dungeon_sink = 0.0
-	_tithe = {}
 	_phylactery_charges = 0
-	_readout = {"diff_ema": 0.0, "q_raise_ema": 0.0}
+	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
+	_diff = 0.0
 	_stance_hold = {}
 	blueprints = []
 	haul_target = "auto"
@@ -226,6 +234,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 		"pos": [float(realm.cov_pos.x), float(realm.cov_pos.y)], "heading": 0.0,
 		"dead_s_left": 0.0, "respawn_with_clone": false,
 	}
+	_reset_lanes()
 	_prewarm_field()
 	rev += 1
 	return {"ok": true, "reason": ""}
@@ -454,7 +463,10 @@ func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
 	if why != "":
 		return {"ok": false, "reason": why, "target": {}}
 	var m := maxf(work, maxf(war, flood))  # scale first so huge inputs cannot overflow the sum
-	valve_target = _normalised(work / m, war / m, flood / m)
+	var target := _normalised(work / m, war / m, flood / m)
+	if target != valve_target:
+		_valve_callout()
+	valve_target = target
 	rev += 1
 	return {"ok": true, "reason": "", "target": valve_target.duplicate()}
 
@@ -496,16 +508,34 @@ func _backups_cfg() -> Dictionary:
 	return _cfgs.get("backups", {})
 
 
+## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
+## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
+## if that would not be finite); odds = backlog / (backlog + K).
 func _vei_readout() -> Dictionary:
-	var ro: Dictionary = realm.readout()
-	var diff: float = ro["differential"]
+	var ema := float(_readout["diff_ema"])
+	var eps := float(_sec("realm", "readout").get("sign_eps", 0.05))
 	var backlog: float = realm.vei["undead_queue"]
+	var drain := -1.0
+	if ema < 0.0:
+		var d := backlog / -ema
+		drain = d if is_finite(d) else -1.0
 	return {
-		"diff": diff,
-		"odds": float(ro["odds"]),
-		"sign": 1 if diff > 1e-9 else (-1 if diff < -1e-9 else 0),
-		"drain_s": backlog / -diff if diff < -1e-9 else -1.0,
+		"diff": _diff, "diff_ema": ema,
+		"odds": realm.odds(),
+		"sign": 1 if ema > eps else (-1 if ema < -eps else 0),
+		"drain_s": drain,
 	}
+
+
+## §3 step 8: `diff = inflow − digestion` (mass/s: what entered Vei's undead queue last substep, less
+## the undead she took from it), and its EMA over readout.ema_s. Lumps (dungeon chaff, grants) are
+## not in the inflow.
+func _update_readout(dt: float, inflow: float, digestion: float) -> void:
+	_diff = inflow - digestion
+	var ema_s := float(_sec("realm", "readout").get("ema_s", 120.0))
+	var a := 1.0 - exp(-dt / ema_s) if ema_s > 0.0 else 1.0
+	var ema := float(_readout["diff_ema"])
+	_readout["diff_ema"] = ema + a * (_diff - ema)
 
 
 func _is_first_dungeon(fort_id: String) -> bool:
@@ -586,7 +616,7 @@ func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
 		"garrison_units": g[0], "garrison_in_mass": g[1], "garrison_mass_div": _garrison_div(),
 		"starter_units": _starter_units(fort_id),
 		"party": _party_entries(),
-		"digest_q": quality(),
+		"digest_q": digest_q(),
 		"phylactery_charges": _phylactery_charges,
 		"phylactery_max_per_dungeon": _phylactery_max(),
 		"clones_ready": int(legacy.town["vats"]),
@@ -604,7 +634,7 @@ func _boss_seed_v2(run_id: int, seed_rev: int) -> Dictionary:
 		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
 		"rng_seed": _derived_rng_seed(run_id),
 		"backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
-		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": quality(),
+		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": digest_q(),
 		"vei_capacity": float(_cfg().get("R_vei", 50.0)),
 		"fronts": _fronts(false),
 		"fronts_required": _fronts_required(),
@@ -854,6 +884,7 @@ func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
 			"valve":
 				valve = _normalised(float(v["work"]), float(v["war"]), float(v["flood"]))
 				valve_target = valve.duplicate()
+				_valve_callout()
 			"forge_level":
 				legacy.set_forge_level(int(float(v)))
 			"forts":
@@ -1298,8 +1329,9 @@ func _pool_cap() -> float:
 	return float(_cfg().get("vei_pool_cap", 600.0))
 
 
-## §5.1 · E2. Live at E1: t, the time controls, relics and essence with their caps, won,
-## and the legacy readout (sign, drain_s, odds). Stocks are the legacy `res`; rates are 0.
+## §5.1 · E2. Live: t, the time controls, relics and essence with their caps, won, the readout
+## (sign, drain_s, odds), the valve and its split, and the mint's rate. Stocks are the legacy
+## `res`; the other rates are 0 until TownSim.
 func view_hud() -> Dictionary:
 	var ro := _vei_readout()
 	var stock := {
@@ -1309,10 +1341,11 @@ func view_hud() -> Dictionary:
 	var cap := {"bodies": _bodies_cap(), "living": legacy.town_stock("living_cap")}
 	var rates: Array = []
 	for id in HUD_RATE_IDS:
-		rates.append({"id": id, "rate": 0.0, "stock": stock[id], "cap": cap.get(id, -1.0), "unit": _RATE_UNITS[id]})
+		var rate := float(_split["mint"]) if id == "mint" else 0.0
+		rates.append({"id": id, "rate": rate, "stock": stock[id], "cap": cap.get(id, -1.0), "unit": _RATE_UNITS[id]})
 	return {
 		"rev": rev, "t": float(t), "time_scale": float(time_scale), "paused": paused, "rates": rates,
-		"split": {"work": 0.0, "war": 0.0, "flood": 0.0},
+		"split": {"work": float(_split["work"]), "war": float(_split["war"]), "flood": float(_split["flood"])},
 		"valve": valve.duplicate(), "valve_target": valve_target.duplicate(),
 		"workers_steady": 0.0,
 		"relics": relics, "relics_cap": _cap_of("relics"), "essence": essence, "essence_cap": _cap_of("essence"),
@@ -1328,19 +1361,115 @@ func view_rates() -> Dictionary:
 	return {"rev": rev, "rates": rates}
 
 
-func _lane(kind: String, from: String, to: String, rate: float) -> Dictionary:
-	return {"id": "%s:%s:%s" % [kind, from, to], "from": from, "to": to, "kind": kind,
-		"rate": rate, "bias": 1.0, "why": ""}
+static func _lane_id(kind: String, from: String, to: String) -> String:
+	return "%s:%s:%s" % [kind, from, to]
 
 
-## §5.3 · E2. E1: one WAR lane per fort (world order) at the legacy dispatch rate, then
-## the FLOOD lane to Vei at 0. Bias 1.0 and no callouts until E2.
+## Appends a lane when it carries mass or a live callout (zero-rate lanes are otherwise omitted).
+func _add_lane(lanes: Array, kind: String, from: String, to: String, rate: float, bias: float) -> void:
+	var id := _lane_id(kind, from, to)
+	var why := _why_of(id)
+	if rate > 0.0 or why != "":
+		lanes.append({"id": id, "from": from, "to": to, "kind": kind, "rate": float(rate), "bias": float(bias), "why": why})
+
+
+## §5.3 · E2 (work and haul arrive with TownSim). Kinds in LANE_KINDS order, forts in world order:
+## war covington→fort (staging at held forts included) and covington→vei (WAR that fell through);
+## flood covington→vei and fort→vei (drain); dead fort→vei; living vei→fort (shipping and surges);
+## redirect fort→fort (raised by Relish or a simulacrum). Rates are last substep's mass/s.
 func view_lanes() -> Dictionary:
 	var lanes: Array = []
+	var tide: String = _relish_effects()["tide_fort"]
+	var tide_bias := float(_cfg().get("relish", {}).get("tide_bias", 3.0))
+	var wave: Dictionary = realm.tithe.get("wave", {})
+	var wave_fort: String = str(wave.get("fort_id", ""))
 	for f in realm.forts:
-		lanes.append(_lane("war", "covington", f["id"], float(f["r_in"])))
-	lanes.append(_lane("flood", "covington", "vei", 0.0))
+		_add_lane(lanes, "war", "covington", f["id"], f["r_in"], tide_bias if f["id"] == tide else 1.0)
+	_add_lane(lanes, "war", "covington", "vei", realm.r_war_to_vei, 1.0)
+	_add_lane(lanes, "flood", "covington", "vei", realm.r_flood, 1.0)
+	for f in realm.forts:
+		_add_lane(lanes, "flood", f["id"], "vei", f["r_drain"], 1.0)
+	for f in realm.forts:
+		_add_lane(lanes, "dead", f["id"], "vei", f["r_dead_out"], 1.0)
+	for f in realm.forts:
+		_add_lane(lanes, "living", "vei", f["id"], f["r_shipped"], float(wave.get("mult", 1.0)) if f["id"] == wave_fort else 1.0)
+	for f in realm.forts:
+		_add_lane(lanes, "redirect", f["id"], f["id"], f["r_raised"], 1.0)
 	return {"rev": rev, "lanes": lanes}
+
+
+func _why_of(lane_id: String) -> String:
+	var e: Variant = _why.get(lane_id)
+	return str(e[0]) if e != null and t < float(e[1]) else ""
+
+
+## Starts a lane's callout for _WHY_S sim seconds; the newest cause wins.
+func _callout(lane_id: String, why: String) -> void:
+	_why[lane_id] = [why, t + _WHY_S]
+
+
+func _valve_callout() -> void:
+	for f in realm.forts:
+		_callout(_lane_id("war", "covington", f["id"]), "valve")
+	_callout(_lane_id("war", "covington", "vei"), "valve")
+	_callout(_lane_id("flood", "covington", "vei"), "valve")
+
+
+## What the lane causes compare between substeps: her tide and redirect forts, the held forts and
+## the forts with a live simulacrum.
+func _lane_state() -> Dictionary:
+	var fx := _relish_effects()
+	var held := {}
+	for f in realm.forts:
+		if RealmSim.is_held(f):
+			held[f["id"]] = true
+	var sims := {}
+	for sm in realm.simulacra:
+		if float(sm.get("charges", 0.0)) > 0.0:
+			sims[str(sm.get("fort_id", ""))] = true
+	return {"tide": fx["tide_fort"], "redirect": fx["redirect_fort"], "held": held, "sims": sims}
+
+
+## Clears the callouts and takes the current state as the baseline (new game, load).
+func _reset_lanes() -> void:
+	_why = {}
+	_lane_prev = _lane_state()
+
+
+## Once per substep, after RealmSim: starts the callouts for what changed since the last substep
+## (`evs` are this substep's realm events), and drops the expired ones.
+func _note_lane_causes(evs: Array) -> void:
+	var now := _lane_state()
+	var was := _lane_prev
+	if now["tide"] != was["tide"]:
+		if was["tide"] != "":
+			_callout(_lane_id("war", "covington", was["tide"]), "Relish left")
+		if now["tide"] != "":
+			_callout(_lane_id("war", "covington", now["tide"]), "Relish here")
+	if now["redirect"] != was["redirect"]:
+		for pair in [[was["redirect"], "Relish left"], [now["redirect"], "Relish here"]]:
+			if pair[0] != "":
+				_callout(_lane_id("redirect", pair[0], pair[0]), pair[1])
+				_callout(_lane_id("dead", pair[0], "vei"), pair[1])
+	for id in now["held"]:
+		if not was["held"].has(id):
+			_callout(_lane_id("living", "vei", id), "held")
+			_callout(_lane_id("war", "covington", id), "staging")
+	for id in was["held"]:
+		if not now["held"].has(id):
+			_callout(_lane_id("living", "vei", id), "retaken")
+			_callout(_lane_id("war", "covington", id), "retaken")
+	for id in now["sims"].keys() + was["sims"].keys():
+		if now["sims"].has(id) != was["sims"].has(id):
+			_callout(_lane_id("redirect", id, id), "simulacrum")
+			_callout(_lane_id("dead", id, "vei"), "simulacrum")
+	for ev in evs:
+		if ev["type"] == "tithe_wave":
+			_callout(_lane_id("living", "vei", ev["fort_id"]), "tithe wave")
+	for id in _why.keys():
+		if float(_why[id][1]) <= t:
+			_why.erase(id)
+	_lane_prev = now
 
 
 ## §5.4 · E1 (held_count live from E2a).
@@ -1360,7 +1489,7 @@ func view_realm() -> Dictionary:
 			"living_pool": float(realm.vei["living_pool"]), "pool_cap": _pool_cap(),
 			"backlog": float(realm.vei["undead_queue"]),
 		},
-		"forts": forts, "held_count": held, "digest_q": quality(),
+		"forts": forts, "held_count": held, "digest_q": digest_q(),
 	}
 
 
@@ -1379,8 +1508,8 @@ func _simulacrum_charges(fort_id: String) -> float:
 
 
 ## A fort in the view_fort shape, without `rev`. Live: masses, positions, war_in (WAR arriving,
-## staging included), ship_in, held, held_s_left, relish_here, tide, redirect, siege, can_descend.
-## Tithe, threat and warden are still stubs.
+## staging included), ship_in (tithe surges included), held, held_s_left, relish_here, tide,
+## redirect, siege, tithe, can_descend. Threat and warden are still stubs.
 func _fort_entry(f: Dictionary) -> Dictionary:
 	var id: String = f["id"]
 	var why := _descend_reason(id)
@@ -1401,9 +1530,36 @@ func _fort_entry(f: Dictionary) -> Dictionary:
 		"relish_here": _standing_fort() == id, "tide": fx["tide_fort"] == id, "redirect": fx["redirect_fort"] == id,
 		"simulacrum_charges": _simulacrum_charges(id),
 		"siege": _uids_at("fort:" + id),
-		"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false},
+		"tithe": _fort_tithe(id),
 		"can_descend": why == "", "reason": why,
 	}
+
+
+## view_fort.tithe: targeted while a warning names the fort or its wave runs; eta_s is the time to
+## the warned wave, 0.0 while the wave runs, else -1.0.
+func _fort_tithe(id: String) -> Dictionary:
+	var w: Dictionary = realm.tithe.get("warning", {})
+	var wv: Dictionary = realm.tithe.get("wave", {})
+	var warned: bool = not w.is_empty() and w["fort_id"] == id
+	var active: bool = not wv.is_empty() and wv["fort_id"] == id
+	var eta := maxf(0.0, float(realm.tithe["next_s"])) if warned else (0.0 if active else -1.0)
+	return {"targeted": warned or active, "eta_s": eta, "wave_active": active}
+
+
+## view_vei.tithe: the running wave's fort (eta_s 0.0), else the warned one (eta_s to its wave),
+## else "" and -1.0 (no target chosen yet).
+func _vei_tithe() -> Dictionary:
+	var w: Dictionary = realm.tithe.get("warning", {})
+	var wv: Dictionary = realm.tithe.get("wave", {})
+	var out := {"target": "", "eta_s": -1.0, "warning": not w.is_empty(), "wave_active": not wv.is_empty(), "wave_s_left": 0.0}
+	if not wv.is_empty():
+		out["target"] = str(wv["fort_id"])
+		out["eta_s"] = 0.0
+		out["wave_s_left"] = maxf(0.0, float(wv["s_left"]))
+	elif not w.is_empty():
+		out["target"] = str(w["fort_id"])
+		out["eta_s"] = maxf(0.0, float(realm.tithe["next_s"]))
+	return out
 
 
 ## §5.5 · E1. can_descend/reason are cmd_begin_dungeon(id)'s own check.
@@ -1668,24 +1824,53 @@ func view_backups() -> Dictionary:
 	}
 
 
-## §5.14 · E1. The readout is the legacy one (diff_ema = the raw diff until the E2 EMA);
-## tithe is E2, fronts E3 (assigned is live). can_begin/reason are cmd_begin_boss()'s check.
+## §5.14 · E2 (fronts E3; assigned is live). The readout, q and the tithe are live.
+## can_begin/reason are cmd_begin_boss()'s check.
 func view_vei() -> Dictionary:
 	var ro := _vei_readout()
 	var why := _boss_reason()
 	return {
 		"rev": rev, "backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
-		"pool_cap": _pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff"]),
-		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": quality(),
+		"pool_cap": _pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff_ema"]),
+		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": digest_q(),
 		"fronts": _fronts(true), "fronts_required": _fronts_required(), "fronts_met": 0,
-		"tithe": {"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "wave_s_left": 0.0},
+		"tithe": _vei_tithe(),
 		"can_begin": why == "", "reason": why, "won": won,
 	}
 
 
 # ----------------------------------------------------------------- §3 tick ----
+func _qcfg() -> Dictionary:
+	return _sec("realm", "q")
+
+
+## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
+## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is the legacy
+## store's until TownSim lands; Σ foreman_q is 0 until E3.
+func digest_q() -> float:
+	var qc := _qcfg()
+	var ema := float(_readout["q_raise_ema"])
+	var q_raise := float(qc.get("q_raise_max", 0.6)) * maxf(0.0, (ema - 50.0) / 50.0)
+	var foremen := 0.0
+	var q := float(qc.get("q0", 1.2)) + float(qc.get("q_forge", 0.1)) * float(legacy.town["forge_level"]) + foremen + q_raise
+	return clampf(q, 1.0, float(qc.get("q_max", 4.0)))
+
+
+## The legacy name (the Game shell's getter): the same q.
 func quality() -> float:
-	return legacy.quality()
+	return digest_q()
+
+
+## Each raised bucket {score, mass}, in apply order, moves ema_score by α = 1 − 0.5^(mass /
+## q.raise_half_mass): a half-life in mass raised, not in time, so it holds while no circles arrive.
+func _raise_ema(raised: Array) -> void:
+	var half := float(_qcfg().get("raise_half_mass", 200.0))
+	var ema := float(_readout["q_raise_ema"])
+	for e in raised:
+		var m := maxf(0.0, float(e["mass"]))
+		var a := (1.0 - pow(0.5, m / half)) if half > 0.0 else (1.0 if m > 0.0 else 0.0)
+		ema += a * (clampf(float(e["score"]), 0.0, 100.0) - ema)
+	_readout["q_raise_ema"] = ema
 
 
 ## §3 step 3: the current valve moves toward the target along the straight line, by at most
@@ -1741,16 +1926,22 @@ func _tick(dt: float) -> void:
 	# §3 step 5: RealmSim, pure on these inputs; its events get this substep's t
 	var fx := _relish_effects()
 	var rcfg: Dictionary = cfg.get("relish", {})
+	# (siege_block: the siege big undead's share per fort, E3; none yet)
 	_realm_inputs = {
-		"war": _split["war"], "flood": _split["flood"], "digest_q": quality(),
+		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
 		"tide_fort": fx["tide_fort"], "tide_bias": float(rcfg.get("tide_bias", 3.0)),
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": float(rcfg.get("raise_rate", 4.0)),
+		"siege_block": {},
 	}
 	realm.step(dt, _realm_inputs)
-	for ev in realm.drain_events():
+	var evs := realm.drain_events()
+	for ev in evs:
 		_emit(ev)
 	legacy.tick_town(dt, green_towns)
 	legacy.tick_gather(dt)
+	# §3 step 8: the readouts, and the lane callouts for what changed this substep
+	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
+	_note_lane_causes(evs)
 	_field_acc += dt
 	var fcfg: Dictionary = cfg.get("field", {})
 	var period: float = 1.0 / float(fcfg.get("tick_hz", 5.0))
@@ -1796,11 +1987,11 @@ func _update_towns(cfg: Dictionary) -> void:
 
 # ------------------------------------------- E1 legacy forwarders and death ----
 func raid_seed(fort_id: String) -> Dictionary:
-	return legacy.raid_seed(fort_id)
+	return legacy.raid_seed(fort_id, digest_q())
 
 
 func town_snapshot() -> Dictionary:
-	return legacy.town_snapshot(green_towns)
+	return legacy.town_snapshot(green_towns, digest_q())
 
 
 func apply_town_result(r: Dictionary) -> void:
@@ -1808,7 +1999,7 @@ func apply_town_result(r: Dictionary) -> void:
 
 
 func boss_seed() -> Dictionary:
-	return legacy.boss_seed()
+	return legacy.boss_seed(digest_q())
 
 
 ## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
@@ -1909,6 +2100,7 @@ func _writeback_raid(r: Dictionary) -> Array:
 		var fl: Dictionary = _cfg().get("flip", {})
 		var hold_s := float(fl.get("hold_s", 300.0)) * (1.0 + float(fl.get("tier_mult", 0.25)) * float(f["tier"]))
 		realm.hold(fort_id, hold_s)  # RealmSim counts it down and stops her shipping there
+		realm.start_tithe()  # the first flip starts Vei's tithe cycle (a running one is left alone)
 		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
 		f["clears_since_retaken"] = int(f.get("clears_since_retaken", 0)) + 1
 		flip_ev = {"type": "fort_flipped", "fort_id": fort_id, "run_id": run_id, "hold_s": hold_s}
@@ -1918,6 +2110,7 @@ func _writeback_raid(r: Dictionary) -> Array:
 		raised_total += float(e["mass"])
 	var raised_in := minf(raised_total, float(f["dead"]))
 	f["dead"] -= raised_in
+	_raise_ema(r["raised"])  # q's circle EMA, by the masses the circles reported
 	# 4. what leaves cannot exceed what went in plus what was raised
 	var garrison_out := float(r["garrison_mass"])
 	var chaff := float(r["chaff_mass"])
@@ -2070,7 +2263,7 @@ func to_dict() -> Dictionary:
 			"forts": forts, "cov": realm.cov.duplicate(), "vei": realm.vei.duplicate(),
 			"simulacra": realm.simulacra.duplicate(true), "elapsed": realm.elapsed,
 			"cleared_total": realm.cleared_total, "raised_by_sims": realm.raised_by_sims,
-			"tithe": _tithe.duplicate(true),
+			"tithe": realm.tithe.duplicate(true),
 		},
 		"villages": villages,
 		"town": {"tier": town_tier, "lots": lots, "ladder": ladder.duplicate(), "staff_caps": staff_caps.duplicate(),
@@ -2148,6 +2341,7 @@ func _apply_save(m: Dictionary) -> void:
 	valve_target = _valve_of(m["valve"]["target"])
 	valve = _valve_of(m["valve"]["current"])
 	var rm: Dictionary = m["realm"]
+	var flipped := false
 	for e in rm["forts"]:
 		var f := realm.fort_by_id(e["id"])
 		for k in ["living", "undead", "dead", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
@@ -2155,10 +2349,12 @@ func _apply_save(m: Dictionary) -> void:
 		realm.hold(e["id"], float(e["held_s"]))
 		f["flipped_count"] = int(e["flipped_count"])
 		f["clears_since_retaken"] = int(e["clears_since_retaken"])
+		flipped = flipped or f["flipped_count"] > 0
 	for k in realm.cov:
 		realm.cov[k] = float(rm["cov"][k])
 	for k in realm.vei:
 		realm.vei[k] = float(rm["vei"][k])
+	realm.load_tithe(rm["tithe"], flipped)
 	realm.simulacra = []
 	for s in rm["simulacra"]:
 		var e: Dictionary = (s as Dictionary).duplicate(true)
@@ -2168,7 +2364,6 @@ func _apply_save(m: Dictionary) -> void:
 	realm.elapsed = float(rm["elapsed"])
 	realm.cleared_total = float(rm["cleared_total"])
 	realm.raised_by_sims = float(rm["raised_by_sims"])
-	_tithe = (rm["tithe"] as Dictionary).duplicate(true)
 	var owners := {}
 	for v in m["villages"]:
 		owners[v["id"]] = v["owner"]
@@ -2225,7 +2420,11 @@ func _apply_save(m: Dictionary) -> void:
 				vats_staffed.append(false)
 			vats_staffed[slot] = bool(v["staffed"])
 	_phylactery_charges = int(m["backups"]["phylactery_charges"])
-	_readout = {"diff_ema": float(m["readout"]["diff_ema"]), "q_raise_ema": float(m["readout"]["q_raise_ema"])}
+	# an E1 save's q_raise_ema is the placeholder 0.0: it loads as the neutral 50 (an EMA that starts
+	# at 50 can never reach exactly 0)
+	var qe := float(m["readout"]["q_raise_ema"])
+	_readout = {"diff_ema": float(m["readout"]["diff_ema"]), "q_raise_ema": qe if qe != 0.0 else 50.0}
+	_diff = 0.0
 	_dungeon_sink = float(m["ledger"]["sinks"]["dungeon"])
 	won = bool(m["won"])
 	var sm: Dictionary = m["stats"]
@@ -2242,10 +2441,11 @@ func _apply_save(m: Dictionary) -> void:
 	_events = []
 	time_scale = 1.0
 	paused = false
-	realm.digest_q = quality()
+	realm.digest_q = digest_q()
 	work_pending = 0.0
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0}
 	_realm_inputs = {}
+	_reset_lanes()
 	_prewarm_field()
 	rev += 1
 

@@ -190,9 +190,17 @@ Matter has sources (mint) and sinks:
 flips, redirects and musters, and asserts `held + Σsinks == Σsources` within 1e-6 relative.
 
 ### 2.2 Digest quality `q`
-`q = clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise, 1, q_max)`.
-- `q_raise = q_raise_max · max(0, (EMA_score − 50) / 50)`, where the EMA is mass-weighted over every
-  raised undead's circle score, with half-life `q.raise_ema_s`.
+`q = clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise, 1, q_max)` (`realm.json` `q.*`).
+- `q_raise = q_raise_max · max(0, (ema_score − 50) / 50)`, where `ema_score` is a mass-weighted EMA
+  over every raised undead's circle score. It starts at 50, so `q_raise` starts at 0.
+- **Its half-life is in mass raised, not in seconds** (`q.raise_half_mass`, which replaces
+  `q.raise_ema_s`). It moves only when a raid result is applied: for each `raised` bucket
+  `{score, mass}`, in apply order, `α = 1 − 0.5^(mass / q.raise_half_mass)` and
+  `ema_score += α · (score − ema_score)`. The masses are the ones the circles report. Why: IDLE I2
+  says what active play earned never decays while you're away, and a time-based EMA would decay
+  with every idle hour. This one holds while no circles arrive.
+- `forge_level` is the legacy store's until TownSim lands; `Σ foreman_q` is 0 until E3. The save
+  keeps `ema_score` as `readout.q_raise_ema`.
 - Good circles visibly raise `q`, which makes every undead cost Vei more (vision review M7).
 
 Names, to avoid confusion:
@@ -206,15 +214,18 @@ Names, to avoid confusion:
 - Canonical continuous rates, scaled ×1/100, with the Necropolis extensions: EMPTY, `k_clear`, the
   pool cap and simulacra.
 - The asymmetry is unchanged: your kills stay; garrison kills ship to Vei. Vei digests with `cheap`.
-- `step(dt, inputs)` is pure on its inputs. The mint's split, `q` and Relish's position arrive as
-  inputs; RealmSim never reads them from its config or keeps its own Relish.
+- `step(dt, inputs)` is pure on its inputs. The mint's split, `q`, Relish's position and each
+  fort's siege share (`siege_block`, E3) arrive as inputs; RealmSim never reads them from its
+  config or keeps its own Relish.
 - `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
   (D2) and nothing reads it.
 - `forts[i].held_s` and the tithe-wave state are RealmSim state.
 - **Within a step:** WAR dispatch (§3.2), FLOOD into the queue, fort combat (kills at a redirect
   fort stay, §3.3), `k_clear`, the redirect raises (Relish's, then simulacra), drain to Vei, Vei's
-  conversion (her take is clamped to her pool's headroom, §2.1), her shipping (§3.4), then the hold
-  countdown. A hold that runs out this step still counted as held for all of it.
+  conversion (her take is clamped to her pool's headroom, §2.1), the tithe (§3.4: its clock, the
+  warning, a wave's start and its surge), her shipping (§3.4), then the hold countdown. A hold that
+  runs out this step still counted as held for all of it, and a fort retaken this step records one
+  `fort_retaken`, never two.
 
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
@@ -224,14 +235,16 @@ Names, to avoid confusion:
   `flood = mint · v.flood` goes to `vei.undead_queue`.
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
-- **WAR dispatch:** WAR splits over the forts with living > 0 by weight
-  `1/(dist/100)^covFalloff`, with the tide (§3.3) multiplying its fort's weight.
-- **WAR with no living target** (every fort held or empty): it goes to the held forts as staging,
-  split by the same weights. There the undead drain to Vei, so a held fort becomes a forward pump.
-  Staging is only this fallback: while any fort has living, held forts take no WAR.
-- **WAR with no target at all** (no living and nothing held): it falls through to
+- **WAR dispatch:** WAR splits over the forts with living > 0 **and every held fort** by weight
+  `1/(dist/100)^covFalloff`, with the tide (§3.3) multiplying its fort's weight. A fort that is both
+  (a held fort a tithe surge filled with living) counts once.
+- **Staging:** a held fort always pulls WAR as staging, at its weight, alongside the forts with
+  living (§3.4). There the undead drain to Vei, so a held fort becomes a forward pump. WAR staging is
+  split across the held forts, so holding more forts thins every garrison (IDLE §3).
+- **WAR with no target at all** (no living anywhere and nothing held): it falls through to
   `vei.undead_queue` and counts in the inflow like FLOOD. RealmSim records which of the three
-  routes it took (`war_route`: `forts`, `staged`, `vei`) and the fall-through rate, for the lanes.
+  routes it took (`war_route`: `forts` when some target has living, `staged` when only held forts
+  took it, `vei`) and the fall-through rate, for the lanes.
 - **The optimum split must move** over the arc and with Relish's position. Diminishing returns make
   sure of it:
   - WORK beyond filled slots plus `worker.idle_cap` is wasted;
@@ -279,28 +292,50 @@ at E2b.
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.
 
-**Tithe waves** (Vei's counter-current):
-- **When:** every `tithe.period_s` × (1 − `tithe.backlog_scale` · odds). She fights back harder as
-  the queue clogs.
-- **Warning:** `tithe.warning_s` ahead, with the target shown on the map and on the fort's ring
-  (`tithe_warning` event).
-- **Targets:** held forts first, then the fort holding most of your WAR.
-- **The wave:** a surge of `tithe.surge_mult` × `S_vei` living into the target for `tithe.surge_s`.
-  A held fort under a wave loses its hold.
-- **Counters:**
-  - Relish standing there halves the surge;
-  - a big undead placed there as siege cancels `tithe.siege_block` of it.
+**Tithe waves** (Vei's counter-current; RealmSim state, deterministic, all countdowns):
+- **Clock:** it starts at the game's **first flip**; no wave comes before any fort has been
+  flipped. The first wave comes one interval after that flip, and each wave schedules the next one
+  interval after its own start. The interval is `tithe.period_s` × (1 − `tithe.backlog_scale` ·
+  odds), with the odds read when it is scheduled. She fights back harder as the queue clogs.
+- **Warning:** `tithe.warning_s` before the wave, the target is chosen and announced
+  (`tithe_warning` event), with the target shown on the map and on the fort's ring. The target
+  stays fixed for that wave, whatever changes before it starts.
+- **Targets:** held forts first, the one with the most of your undead there; else the fort
+  receiving the most WAR at that moment. Ties go to world order, so with no WAR anywhere it is the
+  first fort.
+- **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
+  `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
+  shipping share and the fort's space, so it may overfill the fort; her normal shipping, which
+  comes after it in the step, still respects space.
+- **Counters** (applied every step of the wave; the event reports them at its start):
+  - Relish standing there (at the fort or in its dungeon) halves the surge;
+  - a big undead placed there as siege cancels `tithe.siege_block` of it. Siege is E3: RealmSim
+    takes the cancelled fraction per fort as its `siege_block` input, 0 until then.
 
   Defending a flip is a real decision.
+- **Hold loss (E2a; E2b replaces the hold model, IDLE §3):** when the wave ends, a held target
+  loses its hold (`fort_retaken`, cause `tithe_wave`) only if the living mass the wave delivered
+  exceeds your undead there. Otherwise the hold stands, so the counters matter.
+- **A retake** (either cause) resets the fort's `clears_since_retaken` to 0, so its yield refreshes
+  (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
-  WAR that fell through to Vei (§3.2). `directShare` is gone.
-- **Sustained sign:** the EMA of `diff` over `readout.ema_s` (120 s). ▲ when > +ε, ▼ when < −ε,
-  otherwise "holding".
+  WAR that fell through to Vei (§3.2). Relish's and the simulacra's raises reach her through fort
+  drain; lumps (dungeon chaff, grants) are not in it. Digestion is the undead she actually took
+  from her queue, per second, so `diff` is the backlog's net rate and an empty queue reads 0.
+  `directShare` is gone.
+- **Sustained sign:** the EMA of `diff`, `α = 1 − e^(−dt / readout.ema_s)` (120 s). It shows ▲
+  when the EMA is above +ε, ▼ when below −ε, otherwise "holding". ε is `readout.sign_eps`, a small
+  mass/s (0.05). One substep moves the EMA by about `diff / 240`, so a single substep flips the
+  sign only past about 12 mass/s.
 - **Drain time:** `backlog / −EMA` when the EMA < 0, else "holding". Never INF in state.
 - **Odds:** `backlog / (backlog + K)`.
+- The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
+- `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most
+  undead she could have taken last step: her rate at `q` after the dead she took first, and her
+  pool's headroom, so a nearly full pool limits it too.
 
 ### 3.6 Simulacra (kept, defined)
 - Crafted at the Ossuary from essence and a relic.
@@ -635,16 +670,18 @@ GameState mints uids for looted items when it applies the result. The town scene
 - **Determinism:** the same seed and command log give the same `to_dict()`.
 - **Ledger soak:** 1 h of random inputs, conserved, with no NaN, no negatives and every pool within
   its cap.
-- **Valve:** the L1 slew keeps the sum at 1; zero is refused; WAR with no target stages, and with
-  nothing held it falls through to Vei.
+- **Valve:** the L1 slew keeps the sum at 1; zero is refused; held forts always stage WAR, and with
+  no target at all it falls through to Vei.
 - **Relish:** travel, retarget and cancel; tide; redirect; nothing applies while dead; the order
   contract.
-- **Flips and tithe:** hold, shipping-share loss, warning, wave, counters.
+- **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
+  wave, counters, the E2a hold loss.
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale.
 - **Ladder and stances:** ordering, hold, no chatter.
 - **Backups:** order; clones grow only while staffed; the loot-loss bound.
-- **`q`:** the formula, and the circle EMA.
+- **`q`:** the formula, and the circle EMA (mass-weighted, unchanged by 12 h of idle ticking).
+- **Readouts:** the sign moves only on a sustained differential; drain time and odds.
 - **Pacing** (BALANCE §4): the fast smoke run by default; the 4 h profiles and ablations in
   `tests/slow/`.
 - **Budget:** one `tick()` stays under its µs budget; the EMA readout costs nothing extra.
