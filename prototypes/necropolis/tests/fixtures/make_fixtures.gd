@@ -9,7 +9,6 @@ extends SceneTree
 ## changes, and whenever E2/E3 can produce these fields for real.
 
 const OUT := "res://tests/fixtures"
-const SAVED_UNIX := 1794556800  # a fixed wall-clock stamp, so the files stay deterministic
 
 var _cfgs := {}
 
@@ -44,7 +43,6 @@ func _new() -> GameState:
 
 ## Takes the (edited) save dict `d`, loads it into a fresh state and writes what that state saves, so the file survives load -> to_dict unchanged.
 func _write(name: String, d: Dictionary) -> void:
-	d["saved_unix"] = SAVED_UNIX
 	var chk := GameState.new(_cfgs)
 	var r := chk.from_dict(JSON.parse_string(JSON.stringify(d)))
 	_need(r, "from_dict(%s)" % name)

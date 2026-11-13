@@ -271,6 +271,10 @@ func _exercise(s: GameState) -> void:
 	var u2: String = bus[1]["uid"]
 
 	# §4.1-4.4 at home: each command once ok, once refused
+	s.debug_enabled = false
+	_cmd(s, "cmd_set_time_scale", [2.0], false)
+	_cmd(s, "cmd_pause", [true], false)
+	s.debug_enabled = true
 	_cmd(s, "cmd_set_time_scale", [2.0], true)
 	_cmd(s, "cmd_set_time_scale", [3.0], false)
 	_cmd(s, "cmd_set_time_scale", [1.0], true)

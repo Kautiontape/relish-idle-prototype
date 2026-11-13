@@ -27,6 +27,24 @@ func run() -> int:
 	var bare := GameState.new()
 	t.ok(bare._cfgs.is_empty(), "_init() with no configs leaves it unset")
 
+	# --- time commands are debug-only ---
+	var rel := GameState.new(TestUtil.configs())
+	rel.cmd_new_game(1)
+	var rv0 := rel.rev
+	t.ok(rel.cmd_set_time_scale(2.0) == {"ok": false, "reason": "not_debug", "time_scale": 1.0} and rel.time_scale == 1.0, "release: cmd_set_time_scale is not_debug")
+	t.ok(rel.cmd_pause(true) == {"ok": false, "reason": "not_debug", "paused": false} and not rel.paused and rel.rev == rv0, "release: cmd_pause is not_debug, nothing changes")
+
+	# --- I4: a grant never pulls an over-cap store down ---
+	var og := GameState.new(TestUtil.configs())
+	og.debug_enabled = true
+	og.cmd_debug_load_fixture("midgame_2flips")
+	var cap0 := float(og._sec("economy", "opening").get("living_cap", INF))
+	var liv0: float = og.res["townsfolk"]
+	t.ok(liv0 > cap0, "the fixture's townsfolk is over the opening cap (%f > %f)" % [liv0, cap0])
+	var gr := og.cmd_debug_grant({"living": 1})
+	t.ok(gr["ok"] and og.res["townsfolk"] >= liv0 and gr["applied"]["living"] >= 0.0, "a positive living grant never lowers an over-cap store")
+	t.near(og.res["townsfolk"], liv0, 1e-9, "over-cap: unchanged, not pulled down to the cap")
+
 	# --- cmd_new_game ---
 	var s := _mk()
 	s.tick(30.0)

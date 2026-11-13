@@ -47,7 +47,6 @@ var fixture_dir := "res://tests/fixtures"  # cmd_debug_load_fixture reads <fixtu
 var rng := RandomNumberGenerator.new()
 var rng_seed := ""  # String: 64-bit seeds do not survive JSON numbers
 var rev := 0  # +1 per substep and per successful command
-var saved_unix := 0  # wall-clock unix seconds of the last save (0 = never saved); read back on load
 
 # --- Relish (owned here; realm.relish is a legacy mirror, see _sync_realm_relish) ---
 var relish := {}
@@ -135,8 +134,9 @@ func travel_speed() -> float:
 	return float(_cfg().get("relish", {}).get("travel_speed", 220.0))
 
 
-func drain_events() -> Array:
-	var out := _events
+func drain_events() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	out.assign(_events)
 	_events = []
 	return out
 
@@ -184,7 +184,6 @@ func cmd_new_game(seed: int) -> Dictionary:
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
 	_dungeon_sink = 0.0
-	saved_unix = 0
 	_tithe = {}
 	_phylactery_charges = 0
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 0.0}
@@ -242,6 +241,8 @@ func _prewarm_field() -> void:
 
 
 func cmd_set_time_scale(x: float) -> Dictionary:
+	if not debug_enabled:
+		return {"ok": false, "reason": "not_debug", "time_scale": time_scale}
 	if relish["state"] == "in_dungeon":
 		return {"ok": false, "reason": "in_dungeon", "time_scale": time_scale}
 	if relish["state"] == "in_boss":
@@ -254,6 +255,8 @@ func cmd_set_time_scale(x: float) -> Dictionary:
 
 
 func cmd_pause(b: bool) -> Dictionary:
+	if not debug_enabled:
+		return {"ok": false, "reason": "not_debug", "paused": paused}
 	paused = b
 	rev += 1
 	return {"ok": true, "reason": "", "paused": paused}
@@ -749,7 +752,8 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 				var hi := INF
 				if k == "living":
 					hi = float(_sec("economy", "opening").get("living_cap", INF))
-				res[store] = clampf(old + v, 0.0, maxf(hi, 0.0))
+				# a grant never pulls an over-cap store down
+				res[store] = clampf(old + v, 0.0, maxf(hi, old))
 				applied[k] = res[store] - old
 			"bone":
 				var old: float = res["materials"]
@@ -765,11 +769,11 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 				applied[k] = float(idle_undead - old)
 			"relics":
 				var old := relics
-				relics = clampi(old + int(v), 0, _cap_of("relics"))
+				relics = clampi(old + int(v), 0, maxi(_cap_of("relics"), old))
 				applied[k] = relics - old
 			"essence":
 				var old := essence
-				essence = clampi(old + int(v), 0, _cap_of("essence"))
+				essence = clampi(old + int(v), 0, maxi(_cap_of("essence"), old))
 				applied[k] = essence - old
 			"husks":
 				for i in int(v):
@@ -1746,6 +1750,8 @@ func _advance(dt: float, max_substeps: int) -> int:
 		n += 1
 	if max_substeps > 0 and n >= max_substeps and _acc >= step - 1e-9:
 		_acc = 0.0
+	if n > 0:  # §3 step 9: once per tick(dt) call that ran a substep, after the loop
+		field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
 	return n
 
 
@@ -1777,7 +1783,6 @@ func _tick(dt: float) -> void:
 		field_ticks += 1
 	if field_ticks > 0:
 		_update_towns(cfg)
-	field.advance(int(fcfg.get("slice_budget_us", 0)))  # §3 step 9: the ground unit's time slice
 	_field_acc = minf(_field_acc, period * float(fcfg.get("acc_cap_periods", 4.0)))
 	rev += 1
 
@@ -1988,10 +1993,11 @@ func _writeback_raid(r: Dictionary) -> Array:
 	var undead_before: float = f["undead"]
 	f["undead"] = maxf(0.0, undead_before + garrison_out - garrison_in)
 	var undead_delta: float = f["undead"] - undead_before
-	# 6. chaff leaves with Relish
+	# 6. chaff leaves with Relish, but never more than actually left the fort (no mass from the clamp)
+	chaff = minf(chaff, maxf(0.0, raised_in - undead_delta))
 	realm.vei["undead_queue"] += chaff
-	# 7. whatever went in and did not come out, net of the step 5 clamp
-	_dungeon_sink += maxf(0.0, raised_in - undead_delta - chaff)
+	# 7. whatever went in and did not come out, net of the step 5 clamp (>= 0 by construction)
+	_dungeon_sink += raised_in - undead_delta - chaff
 	stats["raised_total"] += raised_in
 	# 8. loot
 	var loot: Dictionary = r["loot"]
@@ -2016,7 +2022,8 @@ func _writeback_raid(r: Dictionary) -> Array:
 		minted.append(uid)
 	cleared_forts[fort_id] = true
 	first_dungeon_id = ""
-	# 9. the dead party members go (revives are E3: the seed holds no charges at E1)
+	# 9. the dead party members go; each in-place revive spends a phylactery charge
+	_phylactery_charges = maxi(0, _phylactery_charges - int(r["revived_in_place"]))
 	for uid in r["party_lost"]:
 		_remove_big_undead(uid)
 	# 12. E1 parity: soldiers and elites into the legacy army (before a death scatters it, as before)
@@ -2064,6 +2071,7 @@ func _writeback_boss(r: Dictionary) -> void:
 		army["elite"] = int(army["elite"] * 0.4)
 	for uid in r["party_lost"]:
 		_remove_big_undead(uid)
+	_phylactery_charges = maxi(0, _phylactery_charges - int(bs["phylactery"]))
 	town["vats"] = maxi(0, int(town["vats"]) - clones)  # legacy vats are the clones at E1
 	run = {}
 	var cleared: Array = []
@@ -2261,7 +2269,6 @@ func to_dict() -> Dictionary:
 	var led := ledger()
 	var d := {
 		"v": SAVE_VERSION, "api_version": API_VERSION, "seed": rng_seed, "rng": str(rng.state),
-		"saved_unix": saved_unix,
 		"t": t, "acc": _acc, "next_run_id": next_run_id, "next_uid": next_uid,
 		"applied_runs": applied_runs.duplicate(),
 		"relish": rl,
@@ -2433,7 +2440,6 @@ func _apply_save(m: Dictionary) -> void:
 	rng.state = (m["rng"] as String).to_int()
 	t = float(m["t"])
 	_acc = float(m["acc"])
-	saved_unix = int(m["saved_unix"]) if _fits(m.get("saved_unix"), _I) else 0
 	applied_runs = []
 	for id in m["applied_runs"]:
 		applied_runs.append(int(id))
@@ -2635,13 +2641,11 @@ func cmd_save(slot: String) -> Dictionary:
 	else:
 		var saved_at := int(Time.get_unix_time_from_system())
 		var d := to_dict()
-		d["saved_unix"] = saved_at  # the file carries the new stamp; the state takes it only once written
 		d["slot"] = slot
 		d["saved_at"] = saved_at
 		d["summary"] = _summary()
 		var path := "%s/%s.json" % [save_dir, slot]
 		if _write_atomic(path, JSON.stringify(d)):
-			saved_unix = saved_at
 			out = {"ok": true, "reason": "", "saved_at": saved_at, "path": path}
 		else:
 			out["reason"] = "write_failed"

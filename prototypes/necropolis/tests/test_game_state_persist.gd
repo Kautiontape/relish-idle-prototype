@@ -390,8 +390,7 @@ func _saves_and_list() -> void:
 	t.ok(r["ok"] and r["reason"] == "" and typeof(r["saved_at"]) == TYPE_INT and absi(int(r["saved_at"]) - now) <= 2
 		and r["path"] == _slot_path("slot1"), "cmd_save: ok, saved_at (int, now) and path")
 	t.ok(s.rev == rv + 1 and s.drain_events().is_empty(), "a non-auto save bumps rev once and emits nothing")
-	t.ok(s.saved_unix == r["saved_at"] and s.to_dict()["saved_unix"] == r["saved_at"], "cmd_save stamps saved_unix")
-	t.ok(_mk().to_dict()["saved_unix"] == 0, "a never-saved state has saved_unix 0")
+	t.ok(not s.to_dict().has("saved_unix"), "the save dict carries no saved_unix (the file's saved_at is the stamp)")
 	var files := Array(DirAccess.get_files_at(_dir))
 	t.ok(files.has("slot1.json") and not files.any(func(f: String): return f.ends_with(".tmp")), "the file is there and no .tmp is left")
 	var file: Dictionary = _read_json(_slot_path("slot1"))
@@ -435,7 +434,7 @@ func _saves_and_list() -> void:
 	var kept := s.to_dict()
 	s.save_dir = _dir + "/blocker/sub"
 	s.cmd_save("slot9")
-	t.ok(s.to_dict() == kept and s.saved_unix == kept["saved_unix"], "a failed save leaves to_dict() identical (saved_unix too)")
+	t.ok(s.to_dict() == kept, "a failed save leaves to_dict() identical")
 	s.drain_events()
 	s.save_dir = keep
 	# a missing directory is created
@@ -584,7 +583,6 @@ func _fixtures() -> void:
 		t.ok(s.rev > 0 and s.drain_events().is_empty() and s.run.is_empty(), "%s: events cleared, no run" % name)
 	var day1 := _load_fixture("day1")
 	var fresh := _mk(1)
-	fresh.saved_unix = 1794556800  # the fixtures carry a fixed stamp
 	t.ok(day1.to_dict() == fresh.to_dict() and day1.t == 0.0, "day1 is cmd_new_game(1) at t = 0")
 	t.ok(day1.res["gold"] == 30.0 and day1.res["materials"] == 12.0 and day1.idle_undead == 6, "day1 keeps the legacy start stocks at E1")
 	var m := _load_fixture("midgame_2flips")

@@ -50,10 +50,10 @@ func inject(pos: Vector2, is_green: bool, amount: float, radius := 1) -> void:
 				orange[i] = minf(4.0, orange[i] + amount * fall)
 
 
-## The ground unit fills this in to time-slice field work between ticks; 0 = synchronous
-## (today's semantics).
+## The ground unit fills this in to time-slice field work between ticks. `budget_cells` is work units
+## per call (field cells processed), not time; 0 = synchronous (today's semantics).
 @warning_ignore("unused_parameter")
-func advance(budget_us: int) -> void:
+func advance(budget_cells: int) -> void:
 	pass
 
 

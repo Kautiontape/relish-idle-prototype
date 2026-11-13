@@ -117,7 +117,9 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 ```gdscript
 var state: GameState                  # stable for the session (§1.2)
 signal game_event(ev: Dictionary)     # one signal for every event, in queue order; filter on ev.type
-func autosave() -> Dictionary         # = state.cmd_save("auto"); the router calls it after every swap
+var autosave_enabled: bool            # false in a harness session; set once at boot, read-only by rule
+func autosave() -> Dictionary         # = state.cmd_save("auto"); the router calls it after every swap;
+                                      # {ok: false, reason: "disabled"} (nothing written) when !autosave_enabled
 ```
 - **Boot (`_ready`):**
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
@@ -246,8 +248,11 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   7. **The ledger.**
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
   9. **The influence field** at `field.tick_hz`, time-sliced (owned by the ground unit after E1).
-     The slicing goes through `field.advance(field.slice_budget_us)`, called once per substep right
-     after the field ticks (`0` = synchronous).
+     `field.advance(budget_cells)` is called once per `tick(dt)` call that ran a substep, after the
+     substep loop. `budget_cells` is `field.slice_budget_cells`: work units (field cells processed)
+     per call, `0` = synchronous. Determinism holds because the field publishes only inside
+     `field.tick()`: `advance()` only fills a back buffer from a snapshotted input, and `tick()`
+     finishes any remainder synchronously, so frame cadence changes cost, never results.
 - Commands apply **immediately** when called, between frames. Their events carry the current `t`.
 - The sim keeps ticking while any scene is open, including dungeons. Writebacks are clamped deltas
   (§8.3).
@@ -302,7 +307,8 @@ Game.state.list_saves()  # -> [{slot: "auto", saved_at: 1794556800, summary: "1:
 **`cmd_set_time_scale(x: float)` · E1**
 - **Args:** exactly `1.0`, `2.0` or `4.0`.
 - **Extras:** `time_scale: float`.
-- **Reasons:** `in_dungeon`, `in_boss`, `invalid_scale`.
+- **Reasons:** `not_debug`, `in_dungeon`, `in_boss`, `invalid_scale`. `not_debug` is checked first:
+  player time controls are debug-only; the idle model runs the realm at 1×.
 - Debug speeds (×10, ×60) go through `cmd_debug_set_state({time_scale: x})`; the legacy
   `Game.time_scale` setter also works (§2.2). `time_scale` is not saved: a load starts at 1.
 ```gdscript
@@ -312,8 +318,8 @@ Game.state.cmd_set_time_scale(3)  # -> {ok: false, reason: "invalid_scale", time
 
 **`cmd_pause(b: bool)` · E1**
 - **Extras:** `paused: bool`.
-- **Reasons:** none.
-- Pauses only the realm sim. Accepted anywhere. `paused` is not saved.
+- **Reasons:** `not_debug` (checked first; player time controls are debug-only).
+- Pauses only the realm sim. Accepted anywhere (in debug). `paused` is not saved.
 ```gdscript
 Game.state.cmd_pause(true)  # -> {ok: true, reason: "", paused: true}
 ```
@@ -820,12 +826,14 @@ are E2. The warden, threat and loot hint are E2 (E1 stubs: `bellringer`, `risk: 
 doesn't copy a 128 × 90 grid every frame. Read it only.
 - The object is replaced on new game or load, so call `view_field()` again after a `rev` jump, or
   each refresh.
-- Its method signatures (`inject`, `tick`, `dominance_at`, `advance(budget_us: int)`, `flush()`)
+- Its method signatures (`inject`, `tick`, `dominance_at`, `advance(budget_cells: int)`, `flush()`)
   are frozen at E1, when the ground unit takes ownership.
-- `advance(budget_us)` is the time-slice hook: the ground unit fills it in to slice field work
-  between ticks, and `0` means synchronous (the E1 semantics). `flush()` finishes and publishes any
-  in-flight slice. Both are no-ops at E1. `GameState` calls `advance(field.slice_budget_us)` once
-  per substep (§3 step 9) and `flush()` once after the new-game pre-warm.
+- `advance(budget_cells)` is the time-slice hook: the ground unit fills it in to slice field work
+  between ticks. The budget is **work units per call (field cells processed)**, not time, and `0`
+  means synchronous (the E1 semantics). `flush()` finishes and publishes any in-flight slice. Both
+  are no-ops at E1. `GameState` calls `advance(field.slice_budget_cells)` once per `tick(dt)` call
+  after the substep loop (§3 step 9), so slicing is a deterministic function of the call sequence,
+  and `flush()` once after the new-game pre-warm.
 
 | key | type | meaning |
 |---|---|---|
@@ -1227,17 +1235,18 @@ order, each clamped. The sim has kept running during the run.
    mass-weighted and scaled by `R'/R` (E2).
 4. **Bound:** if `garrison_mass + chaff_mass > garrison_in_mass + R'`, scale both down
    proportionally to fit.
-5. `f.undead = max(0, f.undead + garrison_mass − garrison_in_mass)`.
-6. `vei.undead_queue += chaff_mass`.
-7. Whatever went in and didn't come out (`garrison_in_mass + R' − garrison_mass − chaff_mass`, net
-   of any clamp in step 5) goes to the ledger's `dungeon` sink.
+5. `f.undead = max(0, f.undead + garrison_mass − garrison_in_mass)`; `Δu` is the actual change.
+6. Chaff is bounded by what actually left the fort: `chaff = min(chaff_mass, max(0, R' − Δu))`,
+   then `vei.undead_queue += chaff`. A drained fort therefore cannot mint mass.
+7. The rest, `R' − Δu − chaff`, goes to the ledger's `dungeon` sink. It is ≥ 0 by construction, so
+   fort + Vei + sink is conserved.
 8. Loot is banked and `loot_banked` is emitted:
    - relics and essence are added, clamped to their caps (any overflow is lost);
    - blueprints are added to the set;
    - each husk and remnant gets a minted uid.
 
    `fort.first_clear` and the run-wide `first_dungeon` flag clear after any raid result.
-9. `party_lost` big undead are removed. `phylactery_charges −= revived_in_place`, with one
+9. `party_lost` big undead are removed. `phylactery_charges −= revived_in_place` (clamped at 0), with one
    `relish_died{outcome: "phylactery", in_place: true}` per revive (E3).
 10. If `relish_died` (E3, MECHANICS §7):
     - **A clone is ready:** `outcome: "clone"`. She respawns at Covington after
@@ -1353,7 +1362,6 @@ take the router's legacy path (§2.3).
 | `t` | float | sim seconds (keeps event `t` monotonic across a load) |
 | `acc` | float | the tick accumulator's remainder |
 | `next_run_id`, `next_uid` | int | counters (§4.5, §1.3) |
-| `saved_unix` | int | wall-clock unix seconds of the last save; 0 if never saved; read on load for a later away-time catch-up |
 | `applied_runs` | Array[int] | the last 32 applied run ids |
 | `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`. State is never `in_dungeon` or `in_boss`. |
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |

@@ -106,8 +106,8 @@ const REASONS := {
 	"cmd_new_game": ["busy"],
 	"cmd_save": ["bad_slot", "write_failed"],
 	"cmd_load": ["busy", "bad_slot", "no_save", "bad_version"],
-	"cmd_set_time_scale": ["in_dungeon", "in_boss", "invalid_scale"],
-	"cmd_pause": [],
+	"cmd_set_time_scale": ["not_debug", "in_dungeon", "in_boss", "invalid_scale"],
+	"cmd_pause": ["not_debug"],
 	"cmd_set_valve": ["not_finite", "negative", "zero_valve"],
 	"cmd_move_relish": ["dead", "in_dungeon", "in_boss", "unknown_node"],
 	"cmd_cancel_travel": ["not_travelling"],
@@ -277,7 +277,7 @@ const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
 ## change are opaque (D); the rest are typed.
 const SAVE := {
 	"v": I, "api_version": I, "seed": S, "rng": S, "t": F, "acc": F, "next_run_id": I, "next_uid": I,
-	"saved_unix": I, "applied_runs": [I],
+	"applied_runs": [I],
 	"relish": {"state": S, "at": S, "target": S, "pos": POS, "heading": F, "dead_s_left": F, "respawn_with_clone": B},
 	"valve": {"target": VALVE, "current": VALVE},
 	"realm": D, "villages": [{"id": S, "owner": S}], "town": D, "stances": D, "inventory": D,

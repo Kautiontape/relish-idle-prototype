@@ -7,8 +7,8 @@ class Spy extends InfluenceField:
 	var advances: Array = []
 	var flushes := 0
 
-	func advance(budget_us: int) -> void:
-		advances.append(budget_us)
+	func advance(budget_cells: int) -> void:
+		advances.append(budget_cells)
 
 	func flush() -> void:
 		flushes += 1
@@ -92,13 +92,13 @@ func run() -> int:
 	gs.field = Spy.new()
 	gs.field.setup(gs._cfg().get("field", {}), Vector2(2048, 1440))
 	gs.tick(1.0)
-	t.ok(gs.field.advances == [0, 0], "one advance(slice_budget_us = 0) per substep (%s)" % str(gs.field.advances))
-	gs._cfgs["realm"]["field"]["slice_budget_us"] = 2500
+	t.ok(gs.field.advances == [0], "one advance(slice_budget_cells = 0) per tick(dt) call, not per substep (%s)" % str(gs.field.advances))
+	gs._cfgs["realm"]["field"]["slice_budget_cells"] = 2500
 	gs.tick(0.5)
-	t.ok(gs.field.advances == [0, 0, 2500], "the budget comes from realm.json field.slice_budget_us")
+	t.ok(gs.field.advances == [0, 2500], "the budget comes from realm.json field.slice_budget_cells")
 	var gp := GameState.new(TestUtil.configs())
 	gp.cmd_new_game(1)
-	t.ok(TestUtil.configs()["realm"]["field"]["slice_budget_us"] == 0, "realm.json ships slice_budget_us 0 (synchronous)")
+	t.ok(TestUtil.configs()["realm"]["field"]["slice_budget_cells"] == 0, "realm.json ships slice_budget_cells 0 (synchronous)")
 	gp.field = Spy.new()
 	gp.field.setup(gp._cfg().get("field", {}), Vector2(2048, 1440))
 	gp._prewarm_field()

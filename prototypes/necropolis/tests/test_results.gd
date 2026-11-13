@@ -97,6 +97,7 @@ func run() -> int:
 	_raid_writeback()
 	_raid_death()
 	_boss_writeback()
+	_mass_and_charges()
 	_parity()
 	_misc()
 	return t.failures
@@ -639,7 +640,7 @@ func _boss_writeback() -> void:
 	q0 = s.realm.vei["undead_queue"]
 	out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 0, "backlog_spent": 700.0}))
 	t.ok(out["ok"], "a loss without a death")
-	t.near(s.realm.vei["undead_queue"], q0 * 0.35, 1e-9, "the loss keeps 35 % of the backlog (default; no vei.json)")
+	t.near(s.realm.vei["undead_queue"], q0 * 0.35, 1e-9, "the loss keeps 35 % of the backlog (vei.json)")
 	t.ok(s.won == false and s.big_undead.is_empty() and s.party_uids == [], "the whole party dies on a loss")
 	t.ok(s.army == {"soldier": 3, "elite": 4}, "legacy army x0.3 / x0.4")
 	evs = s.drain_events()
@@ -648,7 +649,7 @@ func _boss_writeback() -> void:
 	t.ok(s.view_relish()["state"] == "at_vei", "alive after a loss, she stays at Vei")
 	# loss_backlog_keep from vei.json
 	s = _mk()
-	s._cfgs["vei"] = {"loss_backlog_keep": 0.5}
+	s._cfgs["vei"]["loss_backlog_keep"] = 0.5
 	s.cmd_debug_grant({"backlog": 1000.0})
 	sd = _begin_boss(s)
 	s.apply_result("boss", _boss_res(sd, {"won": false}))
@@ -677,6 +678,37 @@ func _boss_writeback() -> void:
 	out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 1}}))
 	t.ok(out["ok"] and s.town["vats"] == 1 and _types(s.drain_events()) == ["vei_result"] and s.view_relish()["state"] == "at_vei",
 		"a loss with a clone spent: one vat used, she carries on at Vei (in-place events are E3)")
+
+
+## I2 (the writeback creates no mass) and phylactery charges are spent (§8.3).
+func _mass_and_charges() -> void:
+	var s := _mk()
+	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
+	var sd := _begin(s)
+	t.near(sd["garrison_in_mass"], 20.0, 1e-9, "garrison_in is 20")
+	_set_fort(s, "old-sluice", 60.0, 30.0, 15.0)  # the fort was drained during the run
+	var f := _fort(s, "old-sluice")
+	var total0: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	var q0: float = s.realm.vei["undead_queue"]
+	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 0.0, "chaff_mass": 20.0}))
+	f = _fort(s, "old-sluice")
+	t.near(f["undead"], 0.0, 1e-9, "drained fort: undead clamped at 0")
+	t.near(s.realm.vei["undead_queue"] - q0, 15.0, 1e-9, "Vei gains exactly what the fort lost")
+	t.near(s._dungeon_sink, 0.0, 1e-9, "no sink")
+	var total1: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	t.near(total1, total0, 1e-9, "fort + Vei + sink is conserved")
+	var v := GameState.new(TestUtil.configs())
+	v.debug_enabled = true
+	t.ok(v.cmd_debug_load_fixture("pre_vei")["ok"], "pre_vei loads")
+	t.ok(v._phylactery_charges == 1, "pre_vei holds 1 charge")
+	var bsd := _begin_boss(v)
+	t.ok(v.apply_result("boss", _boss_res(bsd, {"won": true, "relish_deaths": 1, "backups_spent": {"phylactery": 1, "clones": 0}}))["ok"], "boss with a revive applies")
+	t.ok(v._phylactery_charges == 0, "boss writeback spends the phylactery charge")
+	var w := _mk()
+	w._phylactery_charges = 1
+	var rsd := _begin(w)
+	t.ok(w.apply_result("raid", _raid_res(rsd, {"revived_in_place": 1}))["ok"], "raid with a revive applies")
+	t.ok(w._phylactery_charges == 0, "raid writeback spends the phylactery charge")
 
 
 # ---------------------------------------- the pre-E1 writeback, kept here as the oracle ----
