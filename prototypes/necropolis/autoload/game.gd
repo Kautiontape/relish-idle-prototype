@@ -4,7 +4,6 @@ extends Node
 ## active; this is an idle game, the realm never sleeps.
 
 signal game_event(ev: Dictionary)
-signal realm_ticked
 signal relish_respawned(with_vat: bool)
 signal victory
 signal defeat_boss
@@ -17,20 +16,18 @@ func _ready() -> void:
 	state.setup(ConfigDb.data)
 	state.debug_enabled = OS.is_debug_build()
 	randomize()
-	state.new_game(randi())
+	state.cmd_new_game(randi())
 
 
 func _process(delta: float) -> void:
 	# Real time: trance's Engine.time_scale must never slow the realm.
 	var dt := delta / maxf(0.05, Engine.time_scale) * state.time_scale
-	var n := state.tick(dt, state.max_substeps_per_frame())
-	if n > 0:
-		realm_ticked.emit()
+	state.tick(dt, state.max_substeps_per_frame())
 	for ev: Dictionary in state.drain_events():
 		game_event.emit(ev)
 		match ev["type"]:
 			"relish_respawned":
-				relish_respawned.emit(ev["with_vat"])
+				relish_respawned.emit(ev["with_clone"])
 			"vei_result":
 				if ev["won"]:
 					victory.emit()
@@ -80,6 +77,3 @@ func apply_town_result(r: Dictionary) -> void: state.apply_town_result(r)
 func boss_seed() -> Dictionary: return state.boss_seed()
 func apply_boss_result(r: Dictionary) -> void: state.apply_boss_result(r)
 func auto_resolve_boss() -> void: state.auto_resolve_boss()
-func new_game(seed: int) -> void: state.new_game(seed)
-func cmd_debug_grant(amounts: Dictionary) -> Dictionary: return state.cmd_debug_grant(amounts)
-func cmd_debug_set_state(patch: Dictionary) -> Dictionary: return state.cmd_debug_set_state(patch)

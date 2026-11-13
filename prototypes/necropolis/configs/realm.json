@@ -14,6 +14,7 @@
   "veiPolicy": "cheap",
   "raiseRate": 30.0,
   "travelSpeed": 220.0,
+  "relish": {"travel_speed": 220.0},
   "q": 1.2,
   "q_per_forge": 0.25,
   "q_per_elite": 0.01,

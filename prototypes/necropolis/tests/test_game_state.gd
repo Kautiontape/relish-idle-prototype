@@ -6,7 +6,7 @@ extends RefCounted
 func _mk(seed_val := 1) -> GameState:
 	var s := GameState.new()
 	s.setup(TestUtil.configs())
-	s.new_game(seed_val)
+	s.cmd_new_game(seed_val)
 	return s
 
 
@@ -106,12 +106,16 @@ func run() -> int:
 	t.ok(e.drain_events().is_empty(), "drain empties the queue")
 	e.apply_raid_result({"fort_id": e.realm.forts[0]["id"], "relish_died": true})
 	evs = e.drain_events()
-	t.ok(evs.size() == 1 and evs[0]["type"] == "relish_respawned" and evs[0]["with_vat"] == false,
-		"relish death queues relish_respawned")
+	t.ok(evs.size() == 2 and evs[0]["type"] == "relish_died" and evs[0]["outcome"] == "unmade"
+		and evs[0]["in_place"] == false and evs[0]["at"] == "covington" and evs[0]["run_id"] == -1
+		and evs[0]["respawn_s"] == 0.0, "relish death queues relish_died (unmade)")
+	t.ok(evs[1]["type"] == "relish_respawned" and evs[1]["with_clone"] == false and evs[1]["at"] == "covington",
+		"then relish_respawned without a clone")
 	e.town["vats"] = 1
 	e.apply_raid_result({"fort_id": e.realm.forts[0]["id"], "relish_died": true})
 	evs = e.drain_events()
-	t.ok(evs.size() == 1 and evs[0]["with_vat"] == true, "vat respawn flagged")
+	t.ok(evs.size() == 2 and evs[0]["outcome"] == "clone" and evs[1]["with_clone"] == true, "legacy vat gives a clone respawn")
+	t.ok(e.relish["state"] == "home" and e.town["vats"] == 0, "she respawns home at once, the vat is spent")
 
 	# --- debug commands ---
 	var g := _mk()
@@ -121,18 +125,20 @@ func run() -> int:
 	var gold0: float = g.res["gold"]
 	var rv := g.rev
 	r = g.cmd_debug_grant({"gold": 10, "bogus": 1})
-	t.ok(r["reason"] == "unknown_key" and g.res["gold"] == gold0 and g.rev == rv, "unknown key refuses atomically")
+	t.ok(r["reason"] == "unknown_key" and r["key"] == "bogus" and g.res["gold"] == gold0 and g.rev == rv,
+		"unknown key refuses atomically")
 	r = g.cmd_debug_grant({"time_scale": 5})
 	t.ok(r["reason"] == "unknown_key" and g.time_scale == 1.0, "time_scale refused by grant")
 	r = g.cmd_debug_set_state({"time_scale": 10})
-	t.ok(r["ok"] and g.time_scale == 10.0 and g.rev == rv + 1, "set_state accepts time_scale, bumps rev")
+	t.ok(r["ok"] and r["key"] == "" and g.time_scale == 10.0 and g.rev == rv + 1, "set_state accepts time_scale, bumps rev")
 	r = g.cmd_debug_set_state({"time_scale": 0})
 	t.ok(r["reason"] == "bad_value" and g.time_scale == 10.0, "non-positive time_scale refused")
-	g.cmd_debug_set_state({"workers": 7.9})
-	t.ok(g.idle_undead == 7 and g.idle_undead is int, "ints truncated")
+	r = g.cmd_debug_grant({"workers": 7.9})
+	t.ok(g.idle_undead == 13 and g.idle_undead is int and r["applied"]["workers"] == 7, "workers grant adds, ints truncated")
 	g.cmd_debug_grant({"gold": -9999})
 	t.ok(g.res["gold"] == 0.0, "clamped at 0")
-	g.cmd_debug_grant({"gold": 5.5})
+	r = g.cmd_debug_grant({"gold": 5.5})
 	t.near(g.res["gold"], 5.5, 1e-9, "grant adds")
+	t.near(r["applied"]["gold"], 5.5, 1e-9, "applied reports the delta")
 
 	return t.failures

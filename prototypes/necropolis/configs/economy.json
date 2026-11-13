@@ -2,5 +2,19 @@
   "sim": {
     "substep_s": 0.5,
     "max_substeps_per_frame": 16
-  }
+  },
+  "opening": {
+    "starter_party": 8,
+    "gold": 80.0,
+    "bone": 30.0,
+    "bodies": 40.0,
+    "workers": 12.0,
+    "living": 10.0,
+    "living_cap": 16.0,
+    "valve": { "work": 0.40, "war": 0.45, "flood": 0.15 },
+    "first_dungeon": "old-sluice"
+  },
+  "relics": { "cap": 12 },
+  "essence": { "cap": 60 },
+  "big_undead": { "cap": 1 }
 }

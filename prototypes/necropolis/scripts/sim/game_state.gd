@@ -4,17 +4,58 @@ extends RefCounted
 ## of these. Configs are injected through setup(); randomness comes from `rng`.
 ## Files in scripts/sim/ never reference an autoload or Engine (a lint test
 ## enforces this). No signals: consumers poll
-## `rev` and drain_events().
+## `rev` and drain_events(). The contract is docs/STATE-API.md.
+
+const API_VERSION := 1
+const SAVE_VERSION := 1
+const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
+const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
+const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
+const LANE_KINDS := ["war", "flood", "work", "dead", "living", "haul", "redirect"]
+const JOB_IDS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
+const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth"]
+const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
+const CRAFT_IDS := ["simulacrum", "phylactery_charge"]
+const TIERS := ["hamlet", "village", "town", "city"]
+const STATS := ["power", "beef", "wits", "presence", "speed"]
+const RARITIES := ["common", "uncommon", "rare", "legendary"]
+const WARDEN_ARCHETYPES := ["bellringer", "huntsman", "shieldwall", "pyre_priest"]
+const FIXTURES := ["day1", "midgame_2flips", "pre_vei"]
+const DEBUG_GRANT_KEYS := ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"]
+const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"]
+## Husk kinds (loot), STATE-API §1.4.
+const HUSK_KINDS := ["skeleton", "zombie", "hulk", "siren", "lich", "wraith", "revenant"]
 
 var realm: RealmSim
 var field: InfluenceField
 var time_scale := 1.0
+var paused := false
+var t := 0.0  # sim seconds since the new game
 var debug_enabled := false
 var rng := RandomNumberGenerator.new()
 var rng_seed := ""  # String: 64-bit seeds do not survive JSON numbers
-var rev := 0  # +1 per substep and per successful debug command
+var rev := 0  # +1 per substep and per successful command
 
-# --- Relish's holdings ---
+# --- Relish (owned here; realm.relish is a legacy mirror, see _sync_realm_relish) ---
+var relish := {}
+# --- runs and seeds (§4.5, §7) ---
+var run := {}  # {} or {run_id, kind: "raid"|"boss", fort_id, seed_rev, seed}
+var next_run_id := 1
+var next_uid := 1  # one counter for h<n>, r<n>, u<n>
+var game_seed := 0
+var first_dungeon_id := ""  # "" once a raid result has cleared it (T1.4)
+var cleared_forts := {}  # fort_id -> true once its first clear is spent (T1.4)
+# --- E1 stocks and inventories (T1.3b builds the views on these) ---
+var relics := 0
+var essence := 0
+var husks: Array = []
+var remnants: Array = []
+var big_undead: Array = []
+var party_uids: Array = []
+var valve := {"work": 0.40, "war": 0.45, "flood": 0.15}
+var valve_target := {"work": 0.40, "war": 0.45, "flood": 0.15}
+
+# --- Relish's holdings (legacy stores) ---
 var army := {"soldier": 0, "elite": 0}
 var res := {"gold": 30.0, "materials": 12.0, "bodies": 0.0, "townsfolk": 10.0}
 var town := {"slabs": 1, "vats": 0, "sim_stations": 0, "forge_level": 0, "trade_level": 0}
@@ -29,23 +70,14 @@ var stats := {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 var _cfgs := {}
 var _acc := 0.0
 var _field_acc := 0.0
-var _raiding_fort := ""
+var _raiding_fort := ""  # legacy begin_raid/end_raid flag (the router still uses it)
 var _events: Array = []
 
 
-## Debug cheat keys -> where they land today. Generic names so callers survive
-## later model changes. "kind" is the value type; time_scale is set-only.
-const DEBUG_KEYS := {
-	"gold": {"path": ["res", "gold"], "kind": "float"},
-	"materials": {"path": ["res", "materials"], "kind": "float"},
-	"bodies": {"path": ["res", "bodies"], "kind": "float"},
-	"workers": {"path": ["idle_undead"], "kind": "int"},
-	"soldier": {"path": ["army", "soldier"], "kind": "int"},
-	"elite": {"path": ["army", "elite"], "kind": "int"},
-	"forge_level": {"path": ["town", "forge_level"], "kind": "int"},
-	"backlog": {"path": ["realm", "vei", "undead_queue"], "kind": "float"},
-	"time_scale": {"path": ["time_scale"], "kind": "scale", "set_only": true},
-}
+## `configs` is keyed by file basename; a non-empty dict calls setup().
+func _init(configs: Dictionary = {}) -> void:
+	if not configs.is_empty():
+		setup(configs)
 
 
 ## `cfgs` is the dict returned by load_configs (keyed by file name).
@@ -57,12 +89,21 @@ func _cfg() -> Dictionary:
 	return _cfgs.get("realm", {})
 
 
+func _sec(file: String, section: String) -> Dictionary:
+	var d: Variant = _cfgs.get(file, {}).get(section, {})
+	return d if d is Dictionary else {}
+
+
 func substep_s() -> float:
 	return float(_cfgs.get("economy", {}).get("sim", {}).get("substep_s", 0.5))
 
 
 func max_substeps_per_frame() -> int:
 	return int(_cfgs.get("economy", {}).get("sim", {}).get("max_substeps_per_frame", 16))
+
+
+func travel_speed() -> float:
+	return float(_cfg().get("relish", {}).get("travel_speed", 220.0))
 
 
 func drain_events() -> Array:
@@ -72,55 +113,20 @@ func drain_events() -> Array:
 
 
 func _emit(ev: Dictionary) -> void:
-	ev["t"] = realm.elapsed
+	ev["t"] = t
 	_events.append(ev)
 
 
-func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
-	return _debug_apply(amounts, true)
-
-
-func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
-	return _debug_apply(patch, false)
-
-
-func _debug_apply(values: Dictionary, additive: bool) -> Dictionary:
-	if not debug_enabled:
-		return {"ok": false, "reason": "not_debug", "applied": []}
-	for k in values:
-		var spec: Dictionary = DEBUG_KEYS.get(k, {})
-		if spec.is_empty() or (additive and spec.get("set_only", false)):
-			return {"ok": false, "reason": "unknown_key", "applied": []}
-		if spec["kind"] == "scale" and float(values[k]) <= 0.0:
-			return {"ok": false, "reason": "bad_value", "applied": []}
-	var applied: Array = []
-	for k in values:
-		var spec: Dictionary = DEBUG_KEYS[k]
-		var path: Array = spec["path"]
-		var holder: Variant = self
-		for i in path.size() - 1:
-			holder = holder[path[i]]
-		var leaf: String = path[path.size() - 1]
-		var v: float = float(values[k])
-		if additive:
-			v += float(holder[leaf])
-		if spec["kind"] != "scale":
-			v = maxf(v, 0.0)
-		holder[leaf] = int(v) if spec["kind"] == "int" else v
-		applied.append(k)
-	rev += 1
-	return {"ok": true, "reason": "", "applied": applied}
-
-
-func raiding_fort_id() -> String:
-	return _raiding_fort
-
-
-func new_game(seed: int) -> void:
+# ------------------------------------------------------------------ game -----
+func cmd_new_game(seed: int) -> Dictionary:
+	if not run.is_empty():
+		return {"ok": false, "reason": "busy"}
 	rng.seed = seed
 	rng_seed = str(seed)
+	game_seed = seed
 	var cfg: Dictionary = _cfg()
 	var world: Dictionary = _cfgs.get("world", {})
+	var opening: Dictionary = _sec("economy", "opening")
 	realm = RealmSim.new()
 	realm.setup(world, cfg)
 	realm.send_relish("covington")
@@ -133,10 +139,583 @@ func new_game(seed: int) -> void:
 			"pos": RealmSim._vec(tw.get("pos", [0, 0])),
 			"pop": float(tw.get("pop", 30)), "control": "none",
 		})
+	# legacy stores back to the start state (the object is reset in place)
+	army = {"soldier": 0, "elite": 0}
+	res = {"gold": 30.0, "materials": 12.0, "bodies": 0.0, "townsfolk": 10.0}
+	town = {"slabs": 1, "vats": 0, "sim_stations": 0, "forge_level": 0, "trade_level": 0}
+	assignments = {"trade": 0, "forge": 0, "jobs": 0, "gather": 0, "slab": 0}
+	idle_undead = 6
+	gather = {"target": "", "phase": "idle", "eta": 0.0, "load": 0.0}
+	green_towns = 0
+	won = false
+	stats = {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
+	_acc = 0.0
+	_field_acc = 0.0
+	_raiding_fort = ""
+	_events = []
+	t = 0.0
+	time_scale = 1.0
+	paused = false
+	run = {}
+	relics = 0
+	essence = 0
+	husks = []
+	remnants = []
+	big_undead = []
+	party_uids = []
+	var v: Dictionary = opening.get("valve", {"work": 0.40, "war": 0.45, "flood": 0.15})
+	valve = _normalised(float(v.get("work", 0.4)), float(v.get("war", 0.45)), float(v.get("flood", 0.15)))
+	valve_target = valve.duplicate()
+	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
+	cleared_forts = {}
+	relish = {
+		"state": "home", "at": "covington", "target": "",
+		"pos": [float(realm.cov_pos.x), float(realm.cov_pos.y)], "heading": 0.0,
+		"dead_s_left": 0.0, "respawn_with_clone": false,
+	}
+	_sync_realm_relish()
 	# pre-warm the field so the map doesn't start blank
 	for i in 90:
 		_inject_sources(0.2)
 		field.tick(0.2)
+	rev += 1
+	return {"ok": true, "reason": ""}
+
+
+func cmd_set_time_scale(x: float) -> Dictionary:
+	if relish["state"] == "in_dungeon":
+		return {"ok": false, "reason": "in_dungeon", "time_scale": time_scale}
+	if relish["state"] == "in_boss":
+		return {"ok": false, "reason": "in_boss", "time_scale": time_scale}
+	if not (x == 1.0 or x == 2.0 or x == 4.0):
+		return {"ok": false, "reason": "invalid_scale", "time_scale": time_scale}
+	time_scale = x
+	rev += 1
+	return {"ok": true, "reason": "", "time_scale": time_scale}
+
+
+func cmd_pause(b: bool) -> Dictionary:
+	paused = b
+	rev += 1
+	return {"ok": true, "reason": "", "paused": paused}
+
+
+static func _normalised(w: float, a: float, f: float) -> Dictionary:
+	var s := w + a + f
+	return {"work": w / s, "war": a / s, "flood": f / s}
+
+
+# ----------------------------------------------------------------- relish ----
+func _node_valid(id: String) -> bool:
+	return id == "covington" or id == "vei" or not realm.fort_by_id(id).is_empty()
+
+
+func _node_xy(id: String) -> Array:
+	var p: Vector2 = realm.node_pos(id)
+	return [float(p.x), float(p.y)]
+
+
+func _state_at_node(id: String) -> String:
+	if id == "covington":
+		return "home"
+	return "at_vei" if id == "vei" else "at_fort"
+
+
+## Distance from her pos to a node, in doubles.
+func _dist_to(id: String) -> float:
+	var p: Array = relish["pos"]
+	var q := _node_xy(id)
+	return sqrt(pow(q[0] - p[0], 2.0) + pow(q[1] - p[1], 2.0))
+
+
+func _face(id: String) -> void:
+	var p: Array = relish["pos"]
+	var q := _node_xy(id)
+	if absf(q[0] - p[0]) > 1e-9 or absf(q[1] - p[1]) > 1e-9:
+		relish["heading"] = atan2(q[1] - p[1], q[0] - p[0])
+
+
+func _eta() -> float:
+	if relish["state"] != "travelling":
+		return -1.0
+	return _dist_to(relish["target"]) / travel_speed()
+
+
+func _move_refusal(node_id: String) -> String:
+	match relish["state"]:
+		"dead":
+			return "dead"
+		"in_dungeon":
+			return "in_dungeon"
+		"in_boss":
+			return "in_boss"
+	return "" if _node_valid(node_id) else "unknown_node"
+
+
+func _begin_travel(node_id: String) -> void:
+	relish["state"] = "travelling"
+	relish["target"] = node_id
+	_face(node_id)
+	_sync_realm_relish()
+
+
+func cmd_move_relish(node_id: String) -> Dictionary:
+	var why := _move_refusal(node_id)
+	if why != "":
+		return {"ok": false, "reason": why, "eta_s": 0.0}
+	if relish["state"] == "travelling":
+		if relish["target"] != node_id:
+			_begin_travel(node_id)
+	elif relish["at"] != node_id:
+		_begin_travel(node_id)
+	rev += 1
+	return {"ok": true, "reason": "", "eta_s": maxf(0.0, _eta())}
+
+
+func cmd_cancel_travel() -> Dictionary:
+	if relish["state"] != "travelling":
+		return {"ok": false, "reason": "not_travelling", "eta_s": 0.0}
+	if relish["target"] != relish["at"]:
+		_begin_travel(relish["at"])
+	rev += 1
+	return {"ok": true, "reason": "", "eta_s": maxf(0.0, _eta())}
+
+
+## NOT contract (§2.2): puts her, alive, at a node at once. For the legacy TELEPORT.
+func legacy_teleport_relish(node_id: String) -> Dictionary:
+	var why := _move_refusal(node_id)
+	if why != "":
+		return {"ok": false, "reason": why}
+	_place_relish(node_id)
+	rev += 1
+	return {"ok": true, "reason": ""}
+
+
+func _place_relish(node_id: String) -> void:
+	relish["state"] = _state_at_node(node_id)
+	relish["at"] = node_id
+	relish["target"] = ""
+	relish["pos"] = _node_xy(node_id)
+	relish["dead_s_left"] = 0.0
+	relish["respawn_with_clone"] = false
+	_sync_realm_relish()
+
+
+## Substep step 4 (§3): straight-line travel and arrival.
+func _step_relish_travel(dt: float) -> void:
+	if relish["state"] != "travelling":
+		return
+	var tgt: String = relish["target"]
+	var dist := _dist_to(tgt)
+	var step := travel_speed() * dt
+	if step >= dist - 1e-9:
+		relish["pos"] = _node_xy(tgt)
+		relish["state"] = _state_at_node(tgt)
+		relish["at"] = tgt
+		relish["target"] = ""
+		_sync_realm_relish()
+		return
+	_face(tgt)
+	var p: Array = relish["pos"]
+	var q := _node_xy(tgt)
+	var f := step / dist
+	relish["pos"] = [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f]
+
+
+## E1 rule: RealmSim keeps its own relish dict and raiding flag. Home keeps the
+## legacy P_relish mint; anywhere else (or dead) the legacy channel is idle (no raise
+## at forts until E2); realm.raiding follows the open run (or the legacy raid flag).
+func _sync_realm_relish() -> void:
+	if relish["state"] == "home":
+		realm.relish["at"] = "covington"
+		realm.relish["state"] = "raising"
+	else:
+		realm.relish["at"] = relish["at"]
+		realm.relish["state"] = "idle"
+	realm.relish["target"] = ""
+	realm.raiding = not run.is_empty() or _raiding_fort != ""
+
+
+func _descend_reason(fort_id: String) -> String:
+	if not run.is_empty():
+		return "busy"
+	if relish["state"] == "dead":
+		return "dead"
+	if relish["state"] != "at_fort" or relish["at"] != fort_id:
+		return "not_at_fort"
+	return ""
+
+
+func view_relish() -> Dictionary:
+	var at: String = relish["at"]
+	var reason := _descend_reason(at)
+	var travelling: bool = relish["state"] == "travelling"
+	return {
+		"rev": rev, "state": relish["state"], "at": at, "target": relish["target"],
+		"pos": (relish["pos"] as Array).duplicate(), "heading": float(relish["heading"]),
+		"speed": travel_speed() if travelling else 0.0, "eta_s": _eta(),
+		"dead_s_left": float(relish["dead_s_left"]),
+		"respawn_with_clone": bool(relish["respawn_with_clone"]),
+		"phylactery_charges": 0, "clones_ready": int(town["vats"]),
+		"can_descend": reason == "" and not realm.fort_by_id(at).is_empty(),
+		"reason": reason,
+		"run_id": int(run.get("run_id", -1)), "run_kind": str(run.get("kind", "")),
+		"effects": {"tide_fort": "", "redirect_fort": "", "home": relish["state"] == "home"},
+	}
+
+
+# ------------------------------------------------------------------- runs ----
+func _derived_rng_seed(run_id: int) -> String:
+	var hi: int = hash([game_seed, run_id])
+	var lo: int = hash([run_id, game_seed])
+	return str((hi << 32) | lo)
+
+
+func _party_entries(with_front := false) -> Array:
+	var out: Array = []
+	for uid in party_uids:
+		for b in big_undead:
+			if b["uid"] == uid:
+				var e: Dictionary = {
+					"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
+					"stats": (b["stats"] as Dictionary).duplicate(),
+				}
+				if with_front:
+					e["front"] = b["front"]
+				out.append(e)
+	return out
+
+
+func _backups_cfg() -> Dictionary:
+	return _cfgs.get("backups", {})
+
+
+func _vei_readout() -> Dictionary:
+	var ro: Dictionary = realm.readout()
+	var diff: float = ro["differential"]
+	var backlog: float = realm.vei["undead_queue"]
+	return {
+		"odds": float(ro["odds"]),
+		"sign": 1 if diff > 1e-9 else (-1 if diff < -1e-9 else 0),
+		"drain_s": backlog / -diff if diff < -1e-9 else -1.0,
+	}
+
+
+func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
+	var f := realm.fort_by_id(fort_id)
+	var mass: Dictionary = _sec("raid", "mass")
+	var div := float(mass.get("garrison_mass_div", 10.0))
+	var units := clampi(int(f["undead"] / div), 0, int(mass.get("garrison_max", 12)))
+	var first: bool = first_dungeon_id != "" and fort_id == first_dungeon_id
+	var by_fort: Dictionary = _sec("raid", "wardens").get("by_fort", {})
+	var archetype := str(by_fort.get(fort_id, "bellringer"))
+	var tier := int(f["tier"])
+	return {
+		"v": 2, "kind": "raid", "run_id": run_id, "seed_rev": seed_rev,
+		"rng_seed": _derived_rng_seed(run_id),
+		"fort": {
+			"id": fort_id, "name": f["name"], "tier": tier, "cap": float(f["cap"]),
+			"first_clear": not cleared_forts.has(fort_id), "first_dungeon": first,
+			"clears_since_retaken": 0, "yield_mult": 1.0,
+		},
+		"living": float(f["living"]), "dead": float(f["dead"]), "undead": float(f["undead"]),
+		"garrison_units": units, "garrison_in_mass": float(units) * div,
+		"starter_units": int(_sec("economy", "opening").get("starter_party", 8)) if first else 0,
+		"party": _party_entries(),
+		"digest_q": quality(),
+		"phylactery_charges": 0,
+		"phylactery_max_per_dungeon": int(_backups_cfg().get("phylactery", {}).get("max_per_dungeon", 1)),
+		"clones_ready": int(town["vats"]),
+		"warden": {"archetype": archetype, "tier": tier}, "warden_spec": {},
+		"loot_table_id": "t%d.%s" % [tier, archetype],
+		"loot_hint": "a husk and a blueprint" if first else "",
+		"chest_husk": first, "watchtower": false,
+		"relish_hp": float(_cfgs.get("raid", {}).get("relish", {}).get("hp", 30.0)),
+	}
+
+
+func _boss_seed_v2(run_id: int, seed_rev: int) -> Dictionary:
+	var ro := _vei_readout()
+	var fronts: Array = []
+	for id in FRONT_IDS:
+		fronts.append({"id": id, "need": 0.0, "have": 0.0, "assigned": []})
+	return {
+		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
+		"rng_seed": _derived_rng_seed(run_id),
+		"backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
+		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": quality(),
+		"vei_capacity": float(_cfg().get("R_vei", 50.0)),
+		"fronts": fronts,
+		"fronts_required": int(_cfgs.get("vei", {}).get("fronts_required", 3)),
+		"party": _party_entries(true),
+		"phylactery_charges": 0, "clones_ready": int(town["vats"]),
+		"relish_hp": float(_cfgs.get("raid", {}).get("relish", {}).get("hp", 30.0)),
+	}
+
+
+func _open_run(kind: String, fort_id: String) -> Dictionary:
+	var run_id := next_run_id
+	next_run_id += 1
+	rev += 1
+	var seed_d := _dungeon_seed(fort_id, run_id, rev) if kind == "raid" else _boss_seed_v2(run_id, rev)
+	run = {"run_id": run_id, "kind": kind, "fort_id": fort_id, "seed_rev": rev, "seed": seed_d}
+	relish["state"] = "in_dungeon" if kind == "raid" else "in_boss"
+	time_scale = 1.0
+	paused = false
+	_sync_realm_relish()
+	return {"ok": true, "reason": "", "seed": seed_d.duplicate(true), "run_id": run_id, "seed_rev": rev}
+
+
+func cmd_begin_dungeon(fort_id: String) -> Dictionary:
+	var fail := {"ok": false, "reason": "", "seed": {}, "run_id": -1, "seed_rev": -1}
+	if realm.fort_by_id(fort_id).is_empty():
+		fail["reason"] = "unknown_fort"
+		return fail
+	var why := _descend_reason(fort_id)
+	if why != "":
+		fail["reason"] = why
+		return fail
+	return _open_run("raid", fort_id)
+
+
+func cmd_begin_boss() -> Dictionary:
+	var fail := {"ok": false, "reason": "", "seed": {}, "run_id": -1, "seed_rev": -1}
+	if not run.is_empty():
+		fail["reason"] = "busy"
+	elif relish["state"] == "dead":
+		fail["reason"] = "dead"
+	elif relish["state"] != "at_vei":
+		fail["reason"] = "not_at_vei"
+	if fail["reason"] != "":
+		return fail
+	return _open_run("boss", "vei")
+
+
+func cmd_abort_dungeon() -> Dictionary:
+	if run.is_empty():
+		return {"ok": false, "reason": "no_run", "run_id": -1}
+	var run_id: int = run["run_id"]
+	relish["state"] = "at_fort" if run["kind"] == "raid" else "at_vei"
+	run = {}
+	_sync_realm_relish()
+	rev += 1
+	return {"ok": true, "reason": "", "run_id": run_id}
+
+
+func view_dungeon_seed(fort_id: String) -> Dictionary:
+	if run.get("kind", "") == "raid" and run["fort_id"] == fort_id:
+		return (run["seed"] as Dictionary).duplicate(true)
+	return {}
+
+
+func view_boss_seed() -> Dictionary:
+	if run.get("kind", "") == "boss":
+		return (run["seed"] as Dictionary).duplicate(true)
+	return {}
+
+
+## The open raid's fort (or the legacy begin_raid fort), else "".
+func raiding_fort_id() -> String:
+	if run.get("kind", "") == "raid":
+		return run["fort_id"]
+	return _raiding_fort
+
+
+# ------------------------------------------------------------------ debug ----
+func _is_num(v: Variant) -> bool:
+	return (typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT) and is_finite(float(v))
+
+
+func _is_count(v: Variant) -> bool:
+	return _is_num(v) and float(v) >= 0.0 and float(v) == floorf(float(v))
+
+
+func _mint_uid(prefix: String) -> String:
+	var uid := "%s%d" % [prefix, next_uid]
+	next_uid += 1
+	return uid
+
+
+func _mint_husk() -> String:
+	var h := {
+		"uid": _mint_uid("h"), "kind": HUSK_KINDS[rng.randi_range(0, HUSK_KINDS.size() - 1)],
+		"rarity": RARITIES[rng.randi_range(0, RARITIES.size() - 1)],
+	}
+	husks.append(h)
+	return h["uid"]
+
+
+func _mint_remnant() -> String:
+	var r := {
+		"uid": _mint_uid("r"), "aspect": STATS[rng.randi_range(0, STATS.size() - 1)],
+		"rarity": RARITIES[rng.randi_range(0, RARITIES.size() - 1)],
+		"magnitude": rng.randi_range(1, 5),
+	}
+	remnants.append(r)
+	return r["uid"]
+
+
+func _mint_big_undead() -> String:
+	var uid := _mint_uid("u")
+	var st := {}
+	for s in STATS:
+		st[s] = rng.randf_range(1.0, 10.0)
+	big_undead.append({
+		"uid": uid, "name": "Big " + uid, "kind": HUSK_KINDS[rng.randi_range(0, HUSK_KINDS.size() - 1)],
+		"role": "brute", "stats": st, "place": "crypt", "front": "",
+	})
+	return uid
+
+
+func _cap_of(section: String) -> int:
+	return int(_sec("economy", section).get("cap", 1 << 30))
+
+
+func _debug_fail(reason: String, key: String) -> Dictionary:
+	return {"ok": false, "reason": reason, "key": key, "applied": {}}
+
+
+func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
+	if not debug_enabled:
+		return _debug_fail("not_debug", "")
+	for k in amounts:
+		if not DEBUG_GRANT_KEYS.has(k):
+			return _debug_fail("unknown_key", str(k))
+	for k in amounts:
+		var counted: bool = k == "husks" or k == "remnants" or k == "big_undead"
+		if not (_is_count(amounts[k]) if counted else _is_num(amounts[k])):
+			return _debug_fail("bad_value", str(k))
+	var applied := {}
+	var minted: Array = []
+	for k in amounts:
+		var v := float(amounts[k])
+		match k:
+			"gold", "bodies", "living":
+				var store: String = "townsfolk" if k == "living" else k
+				var old: float = res[store]
+				res[store] = maxf(0.0, old + v)
+				applied[k] = res[store] - old
+			"bone":
+				var old: float = res["materials"]
+				res["materials"] = maxf(0.0, old + v)
+				applied[k] = res["materials"] - old
+			"backlog":
+				var old: float = realm.vei["undead_queue"]
+				realm.vei["undead_queue"] = maxf(0.0, old + v)
+				applied[k] = realm.vei["undead_queue"] - old
+			"workers":
+				var old := idle_undead
+				idle_undead = maxi(0, int(old + v))
+				applied[k] = idle_undead - old
+			"relics":
+				var old := relics
+				relics = clampi(old + int(v), 0, _cap_of("relics"))
+				applied[k] = relics - old
+			"essence":
+				var old := essence
+				essence = clampi(old + int(v), 0, _cap_of("essence"))
+				applied[k] = essence - old
+			"husks":
+				for i in int(v):
+					minted.append(_mint_husk())
+				applied[k] = int(v)
+			"remnants":
+				for i in int(v):
+					minted.append(_mint_remnant())
+				applied[k] = int(v)
+			"big_undead":
+				for i in int(v):
+					minted.append(_mint_big_undead())
+				applied[k] = int(v)
+	applied["minted"] = minted
+	rev += 1
+	return {"ok": true, "reason": "", "key": "", "applied": applied}
+
+
+func _valid_valve(v: Variant) -> bool:
+	if not (v is Dictionary):
+		return false
+	var sum := 0.0
+	for k in ["work", "war", "flood"]:
+		if not v.has(k) or not _is_num(v[k]) or float(v[k]) < 0.0:
+			return false
+		sum += float(v[k])
+	return sum > 0.0
+
+
+func _valid_forts(v: Variant) -> bool:
+	if not (v is Dictionary):
+		return false
+	for id in v:
+		if realm.fort_by_id(str(id)).is_empty() or not (v[id] is Dictionary):
+			return false
+		for k in v[id]:
+			if not ["living", "undead", "dead"].has(k) or not _is_num(v[id][k]) or float(v[id][k]) < 0.0:
+				return false
+	return true
+
+
+func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
+	if not debug_enabled:
+		return {"ok": false, "reason": "not_debug", "key": ""}
+	for k in patch:
+		if not DEBUG_STATE_KEYS.has(k):
+			return {"ok": false, "reason": "unknown_key", "key": str(k)}
+	for k in patch:
+		var v: Variant = patch[k]
+		var good := false
+		match k:
+			"time_scale":
+				good = _is_num(v) and float(v) > 0.0 and float(v) <= 100.0
+			"paused", "won":
+				good = typeof(v) == TYPE_BOOL
+			"relish_at":
+				good = typeof(v) == TYPE_STRING and _node_valid(v)
+			"valve":
+				good = _valid_valve(v)
+			"forge_level":
+				good = _is_num(v) and float(v) >= 0.0
+			"forts":
+				good = _valid_forts(v)
+		if not good:
+			return {"ok": false, "reason": "bad_value", "key": str(k)}
+	if patch.has("relish_at") and not run.is_empty():
+		return {"ok": false, "reason": "busy", "key": "relish_at"}
+	for k in patch:
+		var v: Variant = patch[k]
+		match k:
+			"time_scale":
+				time_scale = float(v)
+			"paused":
+				paused = v
+			"won":
+				won = v
+			"relish_at":
+				_place_relish(v)
+			"valve":
+				valve = _normalised(float(v["work"]), float(v["war"]), float(v["flood"]))
+				valve_target = valve.duplicate()
+			"forge_level":
+				town["forge_level"] = int(float(v))
+			"forts":
+				for id in v:
+					var f := realm.fort_by_id(str(id))
+					for m in v[id]:
+						f[m] = minf(float(v[id][m]), float(f["cap"]))
+	rev += 1
+	return {"ok": true, "reason": "", "key": ""}
+
+
+func cmd_debug_skip_time(seconds: float) -> Dictionary:
+	if not debug_enabled:
+		return {"ok": false, "reason": "not_debug", "substeps": 0}
+	if not is_finite(seconds) or seconds <= 0.0 or seconds > 86400.0:
+		return {"ok": false, "reason": "bad_value", "substeps": 0}
+	var n := _advance(seconds, 0)
+	rev += 1
+	return {"ok": true, "reason": "", "substeps": n}
+
+
 
 
 func quality() -> float:
@@ -150,6 +729,12 @@ func quality() -> float:
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.
 ## max_substeps > 0 caps the work; the remainder is then dropped.
 func tick(dt: float, max_substeps := 0) -> int:
+	if paused or not is_finite(dt) or dt <= 0.0:
+		return 0
+	return _advance(dt, max_substeps)
+
+
+func _advance(dt: float, max_substeps: int) -> int:
 	var step := substep_s()
 	_acc += dt
 	var n := 0
@@ -163,6 +748,7 @@ func tick(dt: float, max_substeps := 0) -> int:
 
 
 func _tick(dt: float) -> void:
+	t += dt
 	var cfg: Dictionary = _cfg()
 	realm.t["q"] = quality()
 	var mint: float = float(cfg.get("P_base", 2.0)) + float(cfg.get("P_per_slab", 2.0)) * town["slabs"]
@@ -171,6 +757,7 @@ func _tick(dt: float) -> void:
 		res["bodies"] -= burn
 		mint *= float(cfg.get("slab_mint_bonus", 1.6))
 	realm.t["P_base"] = mint
+	_step_relish_travel(dt)  # §3 step 4: after the legacy town bits above, before realm.step
 	realm.step(dt)
 	_tick_town(dt, cfg)
 	_tick_gather(dt, cfg)
@@ -276,12 +863,12 @@ func raid_seed(fort_id: String) -> Dictionary:
 
 func begin_raid(fort_id: String) -> void:
 	_raiding_fort = fort_id
-	realm.raiding = true
+	_sync_realm_relish()
 
 
 func end_raid() -> void:
 	_raiding_fort = ""
-	realm.raiding = false
+	_sync_realm_relish()
 
 
 func apply_raid_result(r: Dictionary) -> void:
@@ -324,16 +911,23 @@ func auto_resolve_raid(fort_id: String) -> void:
 	})
 
 
+## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
+## unmade and the army scatters; she respawns home at once.
 func _relish_dies() -> void:
 	stats["deaths"] += 1
-	if town["vats"] > 0:
+	var clone: bool = town["vats"] > 0
+	var at_node: String = relish["at"]
+	var run_id := int(run.get("run_id", -1))
+	if clone:
 		town["vats"] -= 1
-		_emit({"type": "relish_respawned", "with_vat": true})
 	else:
-		# no clone vat: the realm carries on without her for a while and the army scatters
 		army["soldier"] = int(army["soldier"] * 0.6)
 		army["elite"] = int(army["elite"] * 0.7)
-		_emit({"type": "relish_respawned", "with_vat": false})
+	_emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
+		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
+	run = {}
+	_place_relish("covington")
+	_emit({"type": "relish_respawned", "with_clone": clone, "at": "covington"})
 
 
 # ------------------------------------------------------------------ town -----
