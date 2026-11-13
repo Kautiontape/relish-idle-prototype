@@ -432,6 +432,11 @@ func _saves_and_list() -> void:
 	var wev := s.drain_events()
 	t.ok(wf == {"ok": false, "reason": "write_failed", "saved_at": 0, "path": ""} and s.rev == rv, "an unwritable directory is write_failed")
 	t.ok(wev.size() == 1 and wev[0]["type"] == "save_failed" and wev[0]["slot"] == "auto" and wev[0]["reason"] == "write_failed", "save_failed carries slot and reason")
+	var kept := s.to_dict()
+	s.save_dir = _dir + "/blocker/sub"
+	s.cmd_save("slot9")
+	t.ok(s.to_dict() == kept and s.saved_unix == kept["saved_unix"], "a failed save leaves to_dict() identical (saved_unix too)")
+	s.drain_events()
 	s.save_dir = keep
 	# a missing directory is created
 	s.save_dir = _dir + "/deep/er"
@@ -604,6 +609,15 @@ func _fixtures() -> void:
 	t.near(v.view_vei()["odds"], 0.6, 0.005, "pre_vei: odds about 0.6")
 	t.ok(v.party_uids.size() == 4 and v.big_undead.all(func(b): return b["front"] != "" and b["place"] == "party"), "pre_vei: a party of 4, each on a front")
 	t.ok(v._phylactery_charges == 1 and v.view_backups()["clones_ready"] == 1, "pre_vei: 1 phylactery charge, 1 clone ready")
+	t.ok(v.view_backups()["phylactery_charges"] == 1 and v.view_relish()["phylactery_charges"] == 1
+		and v.view_inventory()["phylactery_charges"] == 1, "pre_vei: the views show the charge")
+	var bs := v.cmd_begin_boss()
+	t.ok(bs["seed"]["phylactery_charges"] == 1, "pre_vei: the boss seed carries the charge")
+	v.cmd_abort_dungeon()
+	v.cmd_debug_set_state({"relish_at": "ashgate"})
+	t.ok(v.cmd_begin_dungeon("ashgate")["seed"]["phylactery_charges"] == 1, "pre_vei: the raid seed carries the charge")
+	v.cmd_abort_dungeon()
+	v.cmd_debug_set_state({"relish_at": "vei"})
 	t.ok(v.view_vei()["can_begin"] and v.view_relish()["state"] == "at_vei", "pre_vei: Relish at Vei, cmd_begin_boss would succeed")
 	t.ok(v.cmd_begin_boss()["ok"], "pre_vei: cmd_begin_boss succeeds")
 	# the reasons of cmd_debug_load_fixture

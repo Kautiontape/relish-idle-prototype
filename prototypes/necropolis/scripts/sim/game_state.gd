@@ -417,7 +417,7 @@ func view_relish() -> Dictionary:
 		"speed": travel_speed() if travelling else 0.0, "eta_s": _eta(),
 		"dead_s_left": float(relish["dead_s_left"]),
 		"respawn_with_clone": bool(relish["respawn_with_clone"]),
-		"phylactery_charges": 0, "clones_ready": int(town["vats"]),
+		"phylactery_charges": _phylactery_charges, "clones_ready": int(town["vats"]),
 		"can_descend": reason == "" and not realm.fort_by_id(at).is_empty(),
 		"reason": reason,
 		"run_id": int(run.get("run_id", -1)), "run_kind": str(run.get("kind", "")),
@@ -572,7 +572,7 @@ func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
 		"starter_units": _starter_units(fort_id),
 		"party": _party_entries(),
 		"digest_q": quality(),
-		"phylactery_charges": 0,
+		"phylactery_charges": _phylactery_charges,
 		"phylactery_max_per_dungeon": _phylactery_max(),
 		"clones_ready": int(town["vats"]),
 		"warden": {"archetype": archetype, "tier": tier}, "warden_spec": {},
@@ -594,7 +594,7 @@ func _boss_seed_v2(run_id: int, seed_rev: int) -> Dictionary:
 		"fronts": _fronts(false),
 		"fronts_required": _fronts_required(),
 		"party": _party_entries(true),
-		"phylactery_charges": 0, "clones_ready": int(town["vats"]),
+		"phylactery_charges": _phylactery_charges, "clones_ready": int(town["vats"]),
 		"relish_hp": _relish_hp(),
 	}
 
@@ -1659,7 +1659,7 @@ func view_inventory() -> Dictionary:
 	return {
 		"rev": rev, "husks": hs, "remnants": rs, "blueprints": bps,
 		"relics": relics, "relics_cap": _cap_of("relics"), "essence": essence, "essence_cap": _cap_of("essence"),
-		"simulacra_ready": 0, "phylactery_charges": 0,
+		"simulacra_ready": 0, "phylactery_charges": _phylactery_charges,
 	}
 
 
@@ -1700,7 +1700,7 @@ func view_backups() -> Dictionary:
 	if outcome == "unmade":
 		loses.append("morale")
 	return {
-		"rev": rev, "phylactery_charges": 0, "phylactery_max_per_dungeon": _phylactery_max(),
+		"rev": rev, "phylactery_charges": _phylactery_charges, "phylactery_max_per_dungeon": _phylactery_max(),
 		"clones_ready": n, "vats": vats, "death": {"outcome": outcome, "respawn_s": 0.0, "loses": loses},
 		"dead_s_left": float(relish["dead_s_left"]),
 	}
@@ -2720,13 +2720,14 @@ func cmd_save(slot: String) -> Dictionary:
 		out["reason"] = "write_failed"  # no game to save
 	else:
 		var saved_at := int(Time.get_unix_time_from_system())
-		saved_unix = saved_at
 		var d := to_dict()
+		d["saved_unix"] = saved_at  # the file carries the new stamp; the state takes it only once written
 		d["slot"] = slot
 		d["saved_at"] = saved_at
 		d["summary"] = _summary()
 		var path := "%s/%s.json" % [save_dir, slot]
 		if _write_atomic(path, JSON.stringify(d)):
+			saved_unix = saved_at
 			out = {"ok": true, "reason": "", "saved_at": saved_at, "path": path}
 		else:
 			out["reason"] = "write_failed"

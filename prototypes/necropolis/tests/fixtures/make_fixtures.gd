@@ -42,8 +42,7 @@ func _new() -> GameState:
 	return s
 
 
-## Dumps, edits (`edit` gets the dict), loads the edit into a fresh state and writes what that
-## state saves, so the file survives load -> to_dict unchanged.
+## Takes the (edited) save dict `d`, loads it into a fresh state and writes what that state saves, so the file survives load -> to_dict unchanged.
 func _write(name: String, d: Dictionary) -> void:
 	d["saved_unix"] = SAVED_UNIX
 	var chk := GameState.new(_cfgs)
