@@ -58,6 +58,15 @@ uniform float spawn_empty_weight = 0.3;
 // Seams: streaks born on empty ground fade and respawn once they are this far
 // into held living ground, so the draught can't pile them up along a vortex rim.
 uniform float seam_land = 0.35;
+// Clumps: an empty-born streak whose spot in last frame's trail is already this
+// bright (HDR buffer, mean rgb) respawns elsewhere. Caps sinks and pile-ups
+// in the empty current without dimming any one streak. <= 0 turns it off.
+uniform sampler2D trail_prev : filter_linear, repeat_disable;
+uniform vec2 tr_x = vec2(1.0, 0.0);   // world -> history-buffer px, as columns
+uniform vec2 tr_y = vec2(0.0, 1.0);
+uniform vec2 tr_o = vec2(0.0, 0.0);
+uniform vec2 tr_size = vec2(1600.0, 900.0);
+uniform float clump_limit = 0.0;
 uniform float dash_px = 15.0;
 uniform float dash_duty = 0.5;
 uniform float streak_width_px = 1.35;   // on screen, at any zoom
@@ -244,6 +253,13 @@ void process() {
 		float os = texture(field_o, uvs).r;
 		float liv_here = smoothstep(presence.x, presence.y, gs + os) * clamp((os - gs) / 0.04, 0.0, 1.0);
 		bool seam = CUSTOM.y < 0.0 && liv_here > seam_land;
+		if (CUSTOM.y < 0.0 && clump_limit > 0.0 && CUSTOM.x > 0.5) {
+			vec2 tuv = (tr_x * p.x + tr_y * p.y + tr_o) / tr_size;
+			if (tuv.x > 0.0 && tuv.y > 0.0 && tuv.x < 1.0 && tuv.y < 1.0) {
+				vec3 here = texture(trail_prev, tuv).rgb;
+				seam = seam || (here.r + here.g + here.b) / 3.0 > clump_limit;
+			}
+		}
 		if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
 				|| p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
 			CUSTOM.w += 1.0;

@@ -103,6 +103,7 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	_pmat.set_shader_parameter("grid_size", Vector2(f.w, f.h))
 	_pmat.set_shader_parameter("cov_pos", Game.realm.cov_pos)
 	_pmat.set_shader_parameter("vei_pos", Game.realm.vei_pos)
+	_pmat.set_shader_parameter("trail_prev", _hist.get_texture())
 
 	_parts = GPUParticles2D.new()
 	_parts.name = "Streaks"
@@ -186,7 +187,7 @@ func apply_config(cfg: Dictionary) -> void:
 		"turbulence_land", "noise_scale", "noise_evolve", "commit_dominance", "commit_entrench",
 		"entrench_ref", "tempo_amp", "dash_px", "dash_duty", "streak_width_px",
 		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix", "seam_land",
-		"moat_px", "moat_strength"]
+		"moat_px", "moat_strength", "clump_limit"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))
@@ -245,6 +246,12 @@ func _sync_camera() -> void:
 	_reproj_mat.set_shader_parameter("m_y", m.y)
 	_reproj_mat.set_shader_parameter("m_o", m.origin)
 	_reproj_mat.set_shader_parameter("keep", _keep if _have_prev else 0.0)
+	# the history holds last frame, drawn through last frame's transform
+	var last := _prev_xform if _have_prev else to_trail
+	_pmat.set_shader_parameter("tr_x", last.x)
+	_pmat.set_shader_parameter("tr_y", last.y)
+	_pmat.set_shader_parameter("tr_o", last.origin)
+	_pmat.set_shader_parameter("tr_size", ts)
 	_prev_xform = to_trail
 	_have_prev = true
 
