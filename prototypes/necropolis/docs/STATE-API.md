@@ -112,7 +112,7 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `ledger() -> Dictionary` | §4.7 (tests). |
 | `legacy_teleport_relish(node_id: String) -> Dictionary` | **Not contract**; §2.2. |
 | `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
-| `var town_sim: TownSim` | Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator read it; scenes use the views. |
+| `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
 ## 2. The `Game` shell (`autoload/game.gd`)
 
