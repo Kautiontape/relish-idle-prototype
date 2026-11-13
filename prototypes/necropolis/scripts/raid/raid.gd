@@ -40,6 +40,7 @@ var _perf := false
 var _perf_cpu: Array = []
 var _perf_gpu: Array = []
 var _perf_done := false
+var _perf_last := 0
 var _perf_parts := [0.0, 0.0, 0.0]
 
 ## Run-over flag read by units, HUD, trance and the boss; lives on endings.
@@ -73,6 +74,10 @@ func controller_key() -> String:
 ## A dev `--raid-fixture=<fixture>,<fort_id>` goes through commands only.
 func demo_seed() -> Dictionary:
 	var spec := _cli_value("--raid-fixture=")
+	if spec != "" and Game.autosave_enabled:
+		push_error("RAID_DEV --raid-fixture needs --new-game (harness session)")
+		print("RAID_DEV --raid-fixture needs --new-game (harness session)")
+		spec = ""
 	if spec != "":
 		var parts := spec.split(",")
 		if parts.size() == 2:
@@ -108,6 +113,8 @@ static func _cli_value(prefix: String) -> String:
 	return ""
 
 
+## Usage (all worktrees share user://, so the session must be a harness one):
+##   godot --path . res://scenes/raid/Raid.tscn -- --new-game --raid-fixture=day1,old-sluice
 static func _cli_flag(flag: String) -> bool:
 	return flag in OS.get_cmdline_user_args()
 
@@ -177,6 +184,7 @@ func _build() -> void:
 
 	# arena first: floor + walls draw under the units
 	arena = RaidArena.new()
+	arena.rng = rng_combat
 	add_child(arena)
 	arena.build(layout, cfg, controller_key())
 
@@ -341,24 +349,22 @@ func _process(_delta: float) -> void:
 func _perf_sample(frame: int) -> void:
 	if _perf_done or frame < 120:
 		return
+	var now := Time.get_ticks_usec()
 	if frame < 600:
-		var rid := get_viewport().get_viewport_rid()
-		var rcpu := RenderingServer.viewport_get_measured_render_time_cpu(rid)
-		var proc := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-		var phys := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
-		_perf_parts[0] += proc
-		_perf_parts[1] += phys
-		_perf_parts[2] += rcpu
-		_perf_cpu.append(proc + phys + rcpu)
-		_perf_gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(rid))
+		if _perf_last > 0:
+			_perf_cpu.append((now - _perf_last) / 1000.0)  # wall-clock frame ms
+			_perf_gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid()))
+			_perf_parts[0] += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+			_perf_parts[1] += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		_perf_last = now
 		return
 	_perf_done = true
-	var n := maxf(1.0, _perf_cpu.size())
 	_perf_cpu.sort()
 	_perf_gpu.sort()
-	print("RAID_PERF units=%d frames=%d cpu_avg=%.2f cpu_p99=%.2f (process+physics+render_cpu) gpu_avg=%.2f gpu_p99=%.2f | avg process=%.2f physics=%.2f render_cpu=%.2f" % [
+	var n := maxf(1.0, _perf_cpu.size())
+	print("RAID_PERF units=%d frames=%d frame_ms_avg=%.2f frame_ms_p99=%.2f gpu_avg=%.2f gpu_p99=%.2f | monitor (not frame time): process=%.2f physics=%.2f" % [
 		allies.size() + enemies.size(), _perf_cpu.size(), _avg(_perf_cpu), _p99(_perf_cpu),
-		_avg(_perf_gpu), _p99(_perf_gpu), _perf_parts[0] / n, _perf_parts[1] / n, _perf_parts[2] / n])
+		_avg(_perf_gpu), _p99(_perf_gpu), _perf_parts[0] / n, _perf_parts[1] / n])
 
 
 static func _avg(a: Array) -> float:

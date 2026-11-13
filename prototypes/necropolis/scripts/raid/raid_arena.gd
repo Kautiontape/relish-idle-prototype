@@ -13,6 +13,7 @@ const DIM_Z := 36
 
 var layout := {}
 var cfg := {}
+var rng: RandomNumberGenerator = null   # the raid's rng_combat (set by raid.gd)
 var relish: Node2D = null   # pulse source for the wall wave and the floor
 
 var _grid := {}
@@ -179,7 +180,7 @@ func separation_push(u: Node2D) -> Vector2:
 				if l < sep and l > 0.01:
 					out += d / l * (1.0 - l / sep)
 				elif l <= 0.01:
-					out += Vector2(randf() - 0.5, randf() - 0.5)
+					out += Vector2(rng.randf() - 0.5, rng.randf() - 0.5) if rng != null else Vector2(0.5, 0.0)
 	return out
 
 

@@ -69,11 +69,11 @@ func stir() -> void:
 	remove_from_group("raid_piles")
 	if raid != null:
 		var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
-		var n := randi_range(int(e.get("stir_orbs_min", 2)), int(e.get("stir_orbs_max", 4)))
+		var n: int = raid.rng_combat.randi_range(int(e.get("stir_orbs_min", 2)), int(e.get("stir_orbs_max", 4)))
 		n = maxi(1, n)
 		for i in n:
-			var ang := randf() * TAU
-			raid.spawn_orb(global_position + Vector2(randf_range(4, 16), 0).rotated(ang),
+			var ang: float = raid.rng_combat.randf() * TAU
+			raid.spawn_orb(global_position + Vector2(raid.rng_combat.randf_range(4, 16), 0).rotated(ang),
 				mass / n, Vector2(float(e.get("pop_speed_px", 85.0)), 0).rotated(ang))
 	_shrink = 0.0
 

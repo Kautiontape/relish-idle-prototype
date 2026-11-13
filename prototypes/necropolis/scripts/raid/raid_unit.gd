@@ -175,16 +175,15 @@ func die(sacrificed := false) -> void:
 ## + a hollow ring head; big undead = nested diamonds. Colours come from Palette.
 func _draw() -> void:
 	var lunge_off := _facing * _lunge * 5.0
-	var s := radius / (9.0 if faction == "ally" else 10.0)
 	if kind == "big":
 		_draw_big(lunge_off)
 	elif faction == "ally":
-		_draw_undead(lunge_off, s)
+		_draw_undead(lunge_off)
 	else:
-		_draw_living(lunge_off, s)
+		_draw_living(lunge_off)
 	if hp < max_hp:
 		# minimal hp: a short bar under the glyph
-		var w := 14.0 * s
+		var w := 1.4 * radius
 		var y := radius + 6.0
 		var frac := clampf(hp / max_hp, 0.0, 1.0)
 		draw_line(Vector2(-w * 0.5, y), Vector2(w * 0.5, y), Palette.c("ground", 0.8), 2.0)
@@ -198,34 +197,39 @@ func _flashed(col: Color) -> Color:
 	return col
 
 
-## n parallel strokes (chaff 1, soldier 2, elite 3) along the heading, a core dot at the head.
-func _draw_undead(off: Vector2, s: float) -> void:
+## n parallel strokes (chaff 1, soldier 2, elite 3), ~2 x radius long, along the heading,
+## with a core dot at the head. Sized from `radius` (dungeon zoom), not town pixels.
+func _draw_undead(off: Vector2) -> void:
 	var col := _flashed(Palette.c("undead"))
 	var n := 3 if kind == "elite" else (2 if kind == "soldier" else 1)
-	var half := 5.0 * s
+	var half := radius
+	var gap := radius * 0.38
+	var w := maxf(2.0, radius * 0.22)
 	var perp := _facing.orthogonal()
-	var spread := 3.0 * (n - 1)
+	var spread := gap * (n - 1)
 	# one shared halo (LineGlow's outer layers) for the whole stroke group
-	var layers := LineGlow.layers(col, 2.0 + spread, 0.45)
+	var layers := LineGlow.layers(col, w + spread, 0.45)
 	for i in layers.size() - 1:
 		draw_line(off - _facing * half, off + _facing * half, layers[i][1], layers[i][0])
 	for i in n:
-		var o := perp * (3.0 * (i - (n - 1) * 0.5))
-		draw_line(off + o - _facing * half, off + o + _facing * half, col, 2.0)
-	draw_circle(off + _facing * (half + 1.0), 2.6, _flashed(Palette.c("undead_core")))
+		var o := perp * (gap * (i - (n - 1) * 0.5))
+		draw_line(off + o - _facing * half, off + o + _facing * half, col, w)
+	draw_circle(off + _facing * (half + 1.0), radius * 0.3, _flashed(Palette.c("undead_core")))
 
 
-## A bow arc (~6 px, scaled by the kind's radius) with a hollow ring at its tip.
-func _draw_living(off: Vector2, s: float) -> void:
+## A bow arc (spans ~2.2 x radius) with a hollow ring head (r ~0.45 x radius) at its tip.
+## A heavier `living_core` stroke keeps it readable against the orange walls.
+func _draw_living(off: Vector2) -> void:
 	var col := _flashed(Palette.c("living"))
-	var r := 6.0 * s
-	var c := off - _facing * (3.0 * s)
-	var a0 := _facing.angle() - 1.0
-	var width := 2.6 if kind == "brute" else 1.8
-	LineGlow.arc(self, c, r, a0, a0 + 2.0, col, width, 0.4)
-	LineGlow.ring(self, off + _facing * (3.0 * s), 2.6 * s, col, 1.5, 0.0)
+	var core := _flashed(Palette.c("living_core"))
+	var r := radius * 1.1
+	var c := off - _facing * (radius * 0.55)
+	var a0 := _facing.angle() - 1.2
+	var width := maxf(2.6, radius * (0.3 if kind == "brute" else 0.24))
+	LineGlow.arc(self, c, r, a0, a0 + 2.4, col, width, 0.4, core)
+	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(2.0, width * 0.8), 0.0, core)
 	if kind == "guard":
-		LineGlow.ring(self, off, r + 5.0, Palette.c("vei"), 1.5, 0.4)
+		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)
 
 
 ## Big undead: a diamond outline ~2x an undead glyph, a core dot, nested per filled slot,
