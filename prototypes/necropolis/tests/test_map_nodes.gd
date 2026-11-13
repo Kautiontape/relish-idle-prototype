@@ -26,6 +26,8 @@ func run() -> int:
 	_valve(t)
 	_relish(t)
 	_wake(t)
+	_labels(t)
+	_relish_clock(t)
 	_light(t)
 	_misc(t)
 	_demo(t)
@@ -139,7 +141,19 @@ func _trim(t: TestUtil) -> void:
 	t.ok(fort < MapLogic.fort_radius(2) + float(MapLogic.cfg()["redirect_ring_pad_px"]), "and stays inside the REDIRECT ring")
 	t.ok(NodeLogic.outer_radius("fort", 4, 0.0) > NodeLogic.outer_radius("fort", 1, 0.0), "bigger tiers trim more")
 	t.near(NodeLogic.outer_radius("covington", 0, 0.0), float(n["cov_half_px"]) + pad, 1e-6, "Covington: its glyph plus the pad")
-	t.near(NodeLogic.outer_radius("vei", 0, 150.0), NodeLogic.vei_struct_radius(150.0) + pad, 1e-6, "Vei: her structure plus the pad")
+	var ro := NodeLogic.vei_struct_radius(150.0)
+	var beat := ro + float(n["vei_beat_reach_px"]) + float(n["source_halo_max_px"]) * 0.5
+	t.near(NodeLogic.outer_radius("vei", 0, 150.0), beat + pad, 1e-6, "Vei with no backlog: her beat ring at full reach plus the pad")
+	var last := 0.0
+	var growing := true
+	for rings in range(1, int(n["backlog_ring_max"]) + 1):
+		var r := NodeLogic.outer_radius("vei", 0, 150.0, float(rings) * float(n["backlog_ring_mass"]))
+		var stack_edge := ro + float(n["backlog_first_gap_px"]) + (rings - 1) * float(n["backlog_step_px"])
+		growing = growing and r >= last and r > stack_edge + pad
+		last = r
+	t.ok(growing, "Vei's trim clears the outer edge of every ring shown, never shrinking as rings are added")
+	t.ok(NodeLogic.outer_radius("vei", 0, 150.0, 99999.0) == NodeLogic.outer_radius("vei", 0, 150.0, float(n["backlog_ring_max"]) * float(n["backlog_ring_mass"])), "past the cap the radius stops growing (the +N is text, not a ring)")
+	t.ok(NodeLogic.outer_radius("vei", 0, 150.0, float(n["backlog_ring_max"]) * float(n["backlog_ring_mass"])) >= ro + 59.0, "with the full stack it clears ~59 px past the structure")
 	t.ok(NodeLogic.outer_radius("village", 0, 0.0) == 0.0, "other nodes: no trim")
 	var tr := NodeLogic.trim_lengths(40.0, 60.0, 500.0)
 	t.ok(tr["start"] == 40.0 and tr["end"] == 60.0, "trim lengths are the end radii on a long lane")
@@ -149,12 +163,95 @@ func _trim(t: TestUtil) -> void:
 	tr = NodeLogic.trim_lengths(-5.0, 0.0, 10.0)
 	t.ok(tr["start"] == 0.0 and tr["end"] == 0.0, "no negative trim")
 	var sh := FileAccess.get_file_as_string("res://shaders/map_lane.gdshader")
-	t.ok(sh.contains("uniform float trim_start") and sh.contains("uniform float trim_end") and sh.contains("discard;"), "the lane shader discards outside the trimmed range")
+	t.ok(sh.contains("uniform float trim_start") and sh.contains("uniform float trim_end") and not sh.contains("discard;"), "the lane shader trims by coverage, never by discard")
 	t.ok(sh.contains("trim_start + (lane_len - trim_start - trim_end)"), "chevrons sit inside the trimmed range")
 	var carts := FileAccess.get_file_as_string("res://scripts/map/map_carts.gd")
 	t.ok(carts.contains("tr[\"lo\"]") and carts.contains("tr[\"hi\"]"), "carts stay inside the trimmed range")
 	t.ok(NodeLogic.drain_line(0.0, 0.0) == str(n["queue_empty_text"]) and NodeLogic.drain_line(-3.0, -1.0) == str(n["queue_empty_text"]), "no backlog: queue empty, not a drain time")
 	t.ok(NodeLogic.drain_line(500.0, -1.0) == "drain ∞" and NodeLogic.drain_line(500.0, 520.0) == "drain 8m 40s", "with a backlog: holding is ∞, else the time")
+
+
+func _relish_clock(t: TestUtil) -> void:
+	t.suite("map_nodes-relish-clock")
+	var rel := {"pos": [100.0, 200.0], "state": "travelling", "target": "ashgate", "heading": 0.3}
+	var same := {"pos": [100.0, 200.0], "state": "travelling", "target": "ashgate", "heading": 0.3, "rev_noise": 7}
+	t.ok(NodeLogic.relish_sig(rel) == NodeLogic.relish_sig(same), "a refresh that leaves pos, state and target alone keeps the same key")
+	t.ok(NodeLogic.relish_sig(rel) != NodeLogic.relish_sig({"pos": [101.0, 200.0], "state": "travelling", "target": "ashgate"}), "a new position restarts the clock")
+	t.ok(NodeLogic.relish_sig(rel) != NodeLogic.relish_sig({"pos": [100.0, 200.0], "state": "at_fort", "target": "ashgate"}), "a new state restarts it")
+	t.ok(NodeLogic.relish_sig(rel) != NodeLogic.relish_sig({"pos": [100.0, 200.0], "state": "travelling", "target": "greywall"}), "a new target restarts it")
+	t.ok(NodeLogic.relish_sig({}) == [], "no Relish entry: an empty key")
+	var j := float(NodeLogic.ncfg()["wake_jump_px"])
+	t.ok(not NodeLogic.wake_jumped(Vector2.ZERO, Vector2(j * 0.5, 0)), "a normal step does not clear the wake")
+	t.ok(not NodeLogic.wake_jumped(Vector2.ZERO, Vector2(j, 0)), "exactly wake_jump_px is not a jump")
+	t.ok(NodeLogic.wake_jumped(Vector2.ZERO, Vector2(j + 1.0, 0)), "past wake_jump_px is")
+	t.ok(NodeLogic.wake_jumped(Vector2(1780, 1270), Vector2(1024, 130)), "a teleport across the map is")
+	var rel_src := FileAccess.get_file_as_string("%s/map_relish.gd" % MAP_DIR)
+	t.ok(rel_src.contains("join"), "the wake only joins her token while she travels")
+	t.ok(j > float(NodeLogic.ncfg()["relish_gap_px"]) + MapLogic.fort_radius(4), "the jump distance clears a standing offset above the biggest fort")
+
+
+## Real positions: Covington, the forts' centroid, Vei (configs/world.json).
+func _labels(t: TestUtil) -> void:
+	t.suite("map_nodes-labels")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var cov := Vector2(float(world["covington"]["pos"][0]), float(world["covington"]["pos"][1]))
+	var vei := Vector2(float(world["vei"]["pos"][0]), float(world["vei"]["pos"][1]))
+	var cen := NodeLogic.fort_centroid(world["forts"])
+	var size := float(MapLogic.cfg()["font_label"])
+	var text_w := {"war": 30.0, "flood": 44.0, "work": 38.0, "covington": 88.0}
+	var cases := [NodeLogic.valve_dirs(cov, cen, vei)]
+	for a in [0.0, 25.0, 60.0, 100.0, 170.0, 250.0, 330.0]:
+		var w := Vector2.from_angle(deg_to_rad(a))
+		cases.append(NodeLogic.valve_dirs(Vector2.ZERO, w * 500.0, Vector2.from_angle(deg_to_rad(a + 15.0)) * 500.0))
+		cases.append(NodeLogic.valve_dirs(Vector2.ZERO, w * 500.0, Vector2.from_angle(deg_to_rad(a + 120.0)) * 500.0))
+	var shares := [{"work": 0.4, "war": 0.45, "flood": 0.15}, {"work": 1.0, "war": 0.0, "flood": 0.0}, {"work": 0.0, "war": 0.5, "flood": 0.5},
+		{"work": 0.2, "war": 0.2, "flood": 0.6}, {"work": 0.0, "war": 0.0, "flood": 0.0}, {"work": 0.34, "war": 0.33, "flood": 0.33}]
+	var checked := 0
+	var bad := 0
+	for dirs in cases:
+		for sh in shares:
+			var widths := NodeLogic.valve_widths(sh)
+			for z in [0.3, 0.55, 0.61, 0.8, 1.0, 1.6, 2.0, 3.0]:
+				for on in [true, false]:
+					var lay := NodeLogic.valve_label_layout(dirs, widths, on, z, text_w, size)
+					var keys := lay.keys()
+					checked += 1
+					if not lay.has("covington") or (on and (widths["war"] > 0.0) != lay.has("war")):
+						bad += 1
+					for i in keys.size():
+						for j in range(i + 1, keys.size()):
+							if (lay[keys[i]]["rect"] as Rect2).intersects(lay[keys[j]]["rect"]):
+								bad += 1
+								printerr("    overlap %s/%s dirs=%s share=%s zoom=%s" % [keys[i], keys[j], str(dirs), str(sh), z])
+	t.ok(checked > 500 and bad == 0, "no two valve labels overlap across %d layouts (shares x directions x zoom x label modes), %d bad" % [checked, bad])
+	# the real fixture, at the fit zoom and the tier edges: no label meets the glyph, a drawn stem or the hook
+	var dirs0: Dictionary = cases[0]
+	var widths0 := NodeLogic.valve_widths({"work": 0.4, "war": 0.45, "flood": 0.15})
+	var glue := 0
+	for z: float in [0.55, 0.61, 1.0, 1.6, 3.0]:
+		var lay := NodeLogic.valve_label_layout(dirs0, widths0, true, z, text_w, size)
+		var n := NodeLogic.ncfg()
+		var h := float(n["cov_half_px"]) * z
+		var glyph := Rect2(-h, -h, h * 2.0, h * 2.0)
+		var inner := float(n["valve_in_px"]) * z
+		var tip := inner + float(n["valve_len_px"]) * z
+		var hr := float(n["valve_hook_r_px"]) * z
+		var hook := Rect2(dirs0["work"] * (inner + hr) - Vector2(hr, hr), Vector2(hr, hr) * 2.0)
+		for k in lay:
+			var rect: Rect2 = lay[k]["rect"]
+			if rect.intersects(glyph) or rect.intersects(hook):
+				glue += 1
+				printerr("    glue %s zoom=%s rect=%s glyph=%s hook=%s" % [k, z, rect, glyph, hook])
+			for st in ["war", "flood"]:
+				var stem := Rect2(dirs0[st] * inner, Vector2.ZERO).expand(dirs0[st] * tip)
+				if rect.intersects(stem):
+					glue += 1
+	t.ok(glue == 0, "on the real layout no label touches the glyph, a stem or the WORK hook (%d)" % glue)
+	var lay1 := NodeLogic.valve_label_layout(dirs0, widths0, true, 0.61, text_w, size)
+	t.ok(lay1["covington"]["off"].y > 0.0 and lay1["covington"]["align"] == 0, "COVINGTON sits centred below the glyph")
+	var stem_dir: Vector2 = dirs0["war"]
+	t.ok((lay1["war"]["off"] as Vector2).normalized().dot(stem_dir) > 0.999, "WAR's label is beyond its stem's end along the stem")
+	t.ok((lay1["war"]["off"] as Vector2).length() >= (float(NodeLogic.ncfg()["valve_in_px"]) + float(NodeLogic.ncfg()["valve_len_px"])) * 0.61, "and at least at the stem's tip")
 
 
 func _valve(t: TestUtil) -> void:
@@ -363,7 +460,11 @@ func _sources(t: TestUtil) -> void:
 	t.ok(layers.contains("Pulse.wave(") and layers.contains("Pulse.phase(") and layers.contains("hops_of("), "the layers take their tempo from Pulse.wave and Pulse.phase at model.hops_of")
 	t.ok(not layers.contains("Pulse.wave(1") and not layers.contains("Pulse.wave(0") and not layers.contains("Pulse.wave(2"), "no literal hop counts")
 	t.ok(layers.contains("LineGlow.") or layers.contains("glow_arc("), "glows go through LineGlow")
+	var vei_src := FileAccess.get_file_as_string("%s/map_vei.gd" % MAP_DIR)
+	var static_body := vei_src.substr(vei_src.find("func _draw_static"), vei_src.find("func sync_rings") - vei_src.find("func _draw_static"))
+	t.ok(not static_body.contains("sync_rings") and vei_src.contains("func reset_rings"), "Vei's digestion rings never sync from _draw, and F6 resets them")
 	var nodes := FileAccess.get_file_as_string("%s/map_nodes.gd" % MAP_DIR)
+	t.ok(nodes.contains("_vei_s.sync_rings()") and nodes.contains("_vei_s.reset_rings()"), "MapNodes syncs the rings on refresh and camera change, and resets them on a config reload")
 	t.ok(nodes.contains("Pulse.reduced_motion") and nodes.contains("Pulse.now_ms()"), "Vei's turning reads Pulse's clock and the reduced-motion flag")
 	t.ok(nodes.contains("set_lit_forts"), "the nodes layer lights the gutters")
 	t.ok(FileAccess.get_file_as_string("%s/map_routes.gd" % MAP_DIR).contains("func set_lit_forts("), "MapRoutes has set_lit_forts")

@@ -26,6 +26,7 @@ func run() -> int:
 	_curves(t)
 	_motion(t)
 	_carts(t)
+	_phase(t)
 	_contrast(t)
 	_sources(t)
 	p.free()
@@ -420,6 +421,45 @@ func _carts(t: TestUtil) -> void:
 	t.ok(LaneStyle.cart_positions(0.0, 5000.0, length).size() == 1, "a still frame (reduced motion) still shows a cart")
 
 
+func _phase(t: TestUtil) -> void:
+	t.suite("map_routes-phase")
+	# a lane at speed 100 px/s, period 80, anchored at t = 0 with offset 10
+	var off := LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 80.0, false)
+	t.near(off, fposmod(10.0 + 50.0, 80.0), 1e-4, "offset = anchor + elapsed x speed")
+	t.near(LaneStyle.phase_offset(10.0, 0.0, 0.0, 100.0, 80.0, false), 10.0, 1e-5, "at the anchor it shows the anchor offset")
+	var wrapped := LaneStyle.phase_offset(10.0, 0.0, 12345.0, 100.0, 80.0, false)
+	t.ok(wrapped >= 0.0 and wrapped < 80.0, "the offset wraps into [0, period) (%.2f)" % wrapped)
+	t.near(LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 80.0, true), 0.0, 1e-6, "reduced motion: 0")
+	t.near(LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 0.0, false), 0.0, 1e-6, "a zero period shows 0")
+	# continuity across a speed / period change, minutes into play
+	var now := 600000.0
+	var before := LaneStyle.phase_offset(10.0, 0.0, now, 100.0, 80.0, false)
+	var re_same := LaneStyle.rebase_offset(10.0, 0.0, now, 100.0, 80.0, 80.0)
+	t.near(re_same, before, 1e-3, "a speed-only change: the offset right after equals the one before")
+	var after_speed := LaneStyle.phase_offset(re_same, now, now + 1000.0, 260.0, 80.0, false)
+	t.near(after_speed, fposmod(before + 260.0, 80.0), 1e-3, "and it then walks at the new speed")
+	var re_per := LaneStyle.rebase_offset(10.0, 0.0, now, 100.0, 80.0, 120.0)
+	t.near(re_per / 120.0, before / 80.0, 1e-4, "a period change keeps the dash fraction")
+	t.near(LaneStyle.phase_offset(re_per, now, now, 90.0, 120.0, false), re_per, 1e-5, "and the new anchor is shown at once")
+	var rm_re := LaneStyle.rebase_offset(10.0, 0.0, now, 100.0, 80.0, 80.0)
+	t.near(rm_re, before, 1e-3, "rebasing ignores reduced motion: F8 off again resumes the same phase")
+	t.near(LaneStyle.rebase_offset(0.0, 0.0, 1000.0, 0.0, 1.0, 80.0), 0.0, 1e-6, "a fresh ribbon (speed 0, anchor 0) starts at 0")
+	# carts: the lead cart keeps its place across a spacing change
+	var length := 700.0
+	var base0 := LaneStyle.phase_offset(33.0, 0.0, now, 140.0, 300.0, false)
+	var lead0 := LaneStyle.cart_lead(base0, 300.0, length)
+	var anchor1 := LaneStyle.cart_anchor(33.0, 0.0, now, 140.0, 300.0, 180.0, length)
+	var lead1 := LaneStyle.cart_lead(LaneStyle.phase_offset(anchor1, now, now, 140.0, 180.0, false), 180.0, length)
+	t.near(lead1, fposmod(lead0, 180.0), 1e-3, "a spacing change leaves a cart where the lead stood (%.1f mod the new spacing)" % lead0)
+	var pos := LaneStyle.cart_positions(LaneStyle.phase_offset(anchor1, now, now, 140.0, 180.0, false), 180.0, length)
+	t.near(pos[0], fposmod(lead0, 180.0), 1e-3, "and cart_positions agrees")
+	var anchor2 := LaneStyle.cart_anchor(anchor1, now, now + 2000.0, 140.0, 180.0, 180.0, length)
+	var lead_a := LaneStyle.cart_lead(LaneStyle.phase_offset(anchor1, now, now + 2000.0, 140.0, 180.0, false), 180.0, length)
+	var lead_b := LaneStyle.cart_lead(LaneStyle.phase_offset(anchor2, now + 2000.0, now + 2000.0, 140.0, 180.0, false), 180.0, length)
+	t.near(lead_b, lead_a, 1e-3, "a speed-only re-anchor does not move the train")
+	t.near(LaneStyle.cart_anchor(5.0, 0.0, now, 140.0, 0.0, 180.0, length), 0.0, 1e-6, "a train that had no carts starts at 0")
+
+
 func _contrast(t: TestUtil) -> void:
 	t.suite("map_routes-contrast")
 	var ground := Palette.c("ground")
@@ -453,6 +493,12 @@ func _sources(t: TestUtil) -> void:
 		code += line.split("//")[0] + "\n"
 	t.ok(shader.length() > 0 and not code.contains("TIME"), "the lane shader never reads TIME")
 	t.ok(code.contains("fwidth") or code.contains("dFdx"), "the lane shader antialiases from screen derivatives")
+	t.ok(not code.contains("discard"), "the lane shader discards nothing (the trim is a coverage multiply)")
+	var frag := code.substr(code.find("void fragment"))
+	var first_if := frag.find("if (")
+	var last_dfd := maxi(frag.rfind("dFdx"), frag.rfind("dFdy"))
+	t.ok(first_if > 0 and last_dfd > 0 and last_dfd < first_if, "every derivative runs before the first branch")
 	var routes := FileAccess.get_file_as_string(ROUTES_FILE)
+	t.ok(routes.contains("static func lane_curve_for(") and routes.contains("MapLogic.lane_curve_for(row, from_pos, to_pos, u)"), "MapRoutes.lane_curve_for forwards to MapLogic")
 	t.ok(not routes.contains("func _draw"), "the old GDScript dash walker is gone (no _draw in map_routes)")
 	t.ok(routes.contains("MapLogic.lane_curve(from_pos, to_pos, u, bow)"), "MapRoutes.lane_curve forwards to MapLogic")

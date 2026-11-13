@@ -67,7 +67,7 @@ func _build_speed_row(cfg: Dictionary) -> void:
 	for spd in cfg["speed_buttons"]:
 		var b := Button.new()
 		b.text = "×%d" % int(spd)
-		b.custom_minimum_size = Vector2(0, float(cfg["button_min_h_px"]))
+		b.custom_minimum_size = Vector2(float(cfg["button_min_h_px"]), float(cfg["button_min_h_px"]))
 		b.add_theme_font_size_override("font_size", int(cfg["font_label"]))
 		b.pressed.connect(_set_speed.bind(float(spd)))
 		_speed_row.add_child(b)

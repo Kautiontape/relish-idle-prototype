@@ -36,6 +36,9 @@ var _cam: Camera2D
 var _cfg_ref = null
 var _stamp_s := 0.0  # Pulse's clock when the model's relish entry last changed
 var _lit_key := ""
+var _relish_sig: Array = []  # NodeLogic.relish_sig at the last refresh: the clock restarts only when it changes
+var _drawn_prev := Vector2.ZERO  # her drawn position last frame (the wake's jump rule)
+var _has_drawn := false
 var _draw_ms := 0.0
 var _last_us := 0
 
@@ -104,6 +107,7 @@ func _process(_delta: float) -> void:
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
 	if refreshed or _dirty:
+		_vei_s.sync_rings()
 		for l in _statics:
 			l.queue_redraw()
 		queue_redraw()
@@ -142,6 +146,7 @@ func _check_config() -> void:
 			MapLogic.configure(live)
 			_dirty = true
 			_lit_key = "stale"
+			_vei_s.reset_rings()
 		_cfg_ref = live
 
 
@@ -161,7 +166,7 @@ func _sync_camera() -> void:
 
 
 ## Once per model refresh: pull the model's entries into the context, find the forts in Relish's
-## light and tell the routes, and restart the extrapolation clock.
+## light and tell the routes, and restart the extrapolation clock when she moved.
 func _on_refresh() -> void:
 	_rev = model.rev
 	ctx.forts = model.forts
@@ -170,7 +175,10 @@ func _on_refresh() -> void:
 	ctx.cov_pos = model.node_pos("covington")
 	ctx.vei_pos = model.node_pos("vei")
 	ctx.vei_radius = float(model.realm.get("vei", {}).get("radius", 0.0))
-	_stamp_s = ctx.now_s
+	var sig := NodeLogic.relish_sig(model.relish)
+	if sig != _relish_sig:
+		_relish_sig = sig
+		_stamp_s = ctx.now_s
 	var ids: Array = []
 	if not model.relish.is_empty():
 		ids = NodeLogic.lit_fort_ids(model.forts, MapModel.to_vec(model.relish["pos"]), float(NodeLogic.ncfg()["relish_light_radius_px"]))
@@ -193,6 +201,7 @@ func _on_refresh() -> void:
 func _update_relish(rm: bool) -> void:
 	var rel := model.relish
 	if rel.is_empty():
+		_has_drawn = false
 		return
 	var n := NodeLogic.ncfg()
 	var state := str(rel["state"])
@@ -213,6 +222,10 @@ func _update_relish(rm: bool) -> void:
 			at = "covington"  # E1 respawns at once; dead she is hollow at home
 		ctx.relish_pos = model.node_pos(at) if state == "dead" else base
 		ctx.relish_pos.y -= _node_radius(at) + float(n["relish_gap_px"])
+	if _has_drawn and NodeLogic.wake_jumped(_drawn_prev, ctx.relish_pos):
+		ctx.wake.clear()  # she jumped (new game, fixture, teleport): no streak across the map
+	_drawn_prev = ctx.relish_pos
+	_has_drawn = true
 	if not rm:
 		NodeLogic.wake_prune(ctx.wake, ctx.now_s)
 

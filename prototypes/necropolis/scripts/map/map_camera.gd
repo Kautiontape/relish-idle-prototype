@@ -2,7 +2,8 @@ class_name MapCamera
 extends Camera2D
 ## The map camera: fit to the world, wheel zoom at the cursor, drag pan past a threshold, and
 ## click hit-testing in screen space (a node's target is at least click_min_radius_px wide).
-## world_map forwards its _gui_input events to handle_input().
+## world_map forwards its _unhandled_input events to handle_input(): they arrive in viewport
+## (screen) coordinates, after the HUD and the sidebar have had first refusal.
 
 signal clicked(node_id: String)  # "" for empty ground
 
@@ -49,6 +50,9 @@ func handle_input(e: InputEvent) -> void:
 					clicked.emit(hit_test(e.position))
 				_pressed = false
 	elif e is InputEventMouseMotion and _pressed:
+		if not (e.button_mask & MOUSE_BUTTON_MASK_LEFT):
+			_pressed = false  # the release went to a panel: never pan on a stale press
+			return
 		if not _panning and (e.position - _press_pos).length() > float(cfg["drag_threshold_px"]):
 			_panning = true
 		if _panning:

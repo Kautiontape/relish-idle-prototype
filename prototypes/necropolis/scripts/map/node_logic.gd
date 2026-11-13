@@ -211,6 +211,99 @@ static func valve_dirs(cov: Vector2, centroid: Vector2, vei: Vector2) -> Diction
 	return {"war": war, "flood": flood, "work": work}
 
 
+## Where the valve's four labels go, in SCREEN px from Covington's centre (the glyph scales with
+## the zoom, the text does not). Each stem's label sits beyond the stem's end along its direction
+## and is pushed further out until its rect clears every other label and every other piece of
+## the glyph; COVINGTON sits centred below the glyph, pushed down (else up) until clear of the
+## stems and the WORK hook. `widths`: valve_widths (a stem with 0 is not drawn, so it is no
+## obstacle and has no label); `labels_on`: stem labels show (not at far zoom); `text_w`: each
+## label's width in screen px, keyed war / flood / work / covington; `size`: the font size.
+## Returns {key: {off, align (-1 left, 0 centre, 1 right), dy, rect}}: `off` is the text anchor,
+## `dy` the baseline drop (MapNodeLayer.text's convention), `rect` the plate the text covers.
+static func valve_label_layout(dirs: Dictionary, widths: Dictionary, labels_on: bool, zoom: float,
+		text_w: Dictionary, size: float) -> Dictionary:
+	var pad := _n("valve_label_pad_px")
+	var step := maxf(_n("valve_label_step_px"), 1.0)
+	var tries := int(_n("valve_label_tries"))
+	var gap := _n("valve_label_gap_px")
+	var inner := _n("valve_in_px") * zoom
+	var tip := inner + _n("valve_len_px") * zoom
+	var hr := _n("valve_hook_r_px") * zoom
+	var eps := _n("valve_label_axis_eps")
+	var half_w := _n("valve_glyph_max_w") * 0.5
+	var h := _n("cov_half_px") * zoom
+	var obstacles := {"glyph": Rect2(-h, -h, h * 2.0, h * 2.0).grow(_n("cov_width_px"))}
+	for k in ["war", "flood"]:
+		if widths.get(k, 0.0) > 0.0:
+			var d: Vector2 = dirs[k]
+			obstacles[k] = Rect2(d * inner, Vector2.ZERO).expand(d * tip).grow(half_w)
+	var hook_c: Vector2 = dirs["work"] * (inner + hr)
+	if widths.get("work", 0.0) > 0.0:
+		obstacles["work"] = Rect2(hook_c - Vector2(hr, hr), Vector2(hr, hr) * 2.0).grow(half_w)
+	var out := {}
+
+	var plate := func(off: Vector2, align: int, dy: float, w: float) -> Rect2:
+		var x := off.x - (w * 0.5 if align == 0 else (w if align == 1 else 0.0))
+		return Rect2(x, off.y + dy - size * _n("plate_ascent"), w, size * _n("plate_height"))
+	var clear := func(r: Rect2) -> bool:
+		for k in obstacles:
+			if r.grow(pad).intersects(obstacles[k]):
+				return false
+		for k in out:
+			if r.grow(pad).intersects(out[k]["rect"]):
+				return false
+		return true
+
+	if labels_on:
+		var order := [["war", tip + gap], ["flood", tip + gap], ["work", inner + hr * 2.0 + gap]]
+		for e in order:
+			var k: String = e[0]
+			if widths.get(k, 0.0) <= 0.0:
+				continue
+			var d: Vector2 = dirs[k]
+			var align := 0
+			if d.x < -eps:
+				align = 1
+			elif d.x > eps:
+				align = -1
+			var dy := size * (1.0 if d.y > eps else (_n("text_mid_ratio") if absf(d.y) <= eps else 0.0))
+			var r: float = e[1]
+			var rect: Rect2
+			var off := Vector2.ZERO
+			for i in tries + 1:
+				off = d * r
+				rect = plate.call(off, align, dy, float(text_w[k]))
+				if clear.call(rect):
+					break
+				r += step
+			out[k] = {"off": off, "align": align, "dy": dy, "rect": rect}
+
+	# COVINGTON: centred under the glyph, then pushed down (else up) until it clears everything
+	var cw := float(text_w["covington"])
+	var cgap := _n("cov_label_gap_px")
+	var best := {}
+	for sgn in [1.0, -1.0]:
+		var y: float = (h + cgap) * sgn
+		for i in tries + 1:
+			var off := Vector2(0.0, y)
+			var dy := size if sgn > 0.0 else 0.0
+			var rect: Rect2 = plate.call(off, 0, dy, cw)
+			if best.is_empty():
+				best = {"off": off, "align": 0, "dy": dy, "rect": rect}
+			if clear.call(rect):
+				best = {"off": off, "align": 0, "dy": dy, "rect": rect}
+				break
+			y += step * sgn
+		if clear.call(best["rect"]):
+			break
+		best = {}
+	if best.is_empty():
+		var off0 := Vector2(0.0, h + cgap)
+		best = {"off": off0, "align": 0, "dy": size, "rect": plate.call(off0, 0, size, cw)}
+	out["covington"] = best
+	return out
+
+
 # --- Vei's domain -----------------------------------------------------------------------
 
 ## Backlog ring stack: one ring per backlog_ring_mass, up to backlog_ring_max, the rest as "+N".
@@ -247,17 +340,30 @@ static func fmt_odds(odds: float) -> String:
 # --- lane trim -----------------------------------------------------------------------------
 
 ## A node's outermost drawn radius, where lanes stop: a fort's ring stack out to its tithe ring,
-## Covington's glyph, Vei's structure, plus lane_trim_pad_px. kind: "fort", "covington", "vei"
-## (anything else, e.g. a village, gets no trim).
-static func outer_radius(kind: String, tier: int, vei_domain_radius: float) -> float:
+## Covington's glyph, Vei's structure plus the outer edge of her countable backlog stack (the
+## rings shown for `backlog`) or her beat ring, whichever reaches further, plus
+## lane_trim_pad_px. kind: "fort", "covington", "vei" (anything else, e.g. a village, gets no trim).
+static func outer_radius(kind: String, tier: int, vei_domain_radius: float, backlog := 0.0) -> float:
 	var pad := _n("lane_trim_pad_px")
 	if kind == "fort":
 		return MapLogic.fort_radius(tier) + _n("tithe_off_px") + _n("tithe_halo_max_px") * 0.5 + pad
 	if kind == "covington":
 		return _n("cov_half_px") + pad
 	if kind == "vei":
-		return vei_struct_radius(vei_domain_radius) + pad
+		return vei_reach(vei_domain_radius, backlog) + pad
 	return 0.0
+
+
+## How far Vei's marks reach from her centre: the structure, then the further of the backlog
+## stack's outermost ring (with its halo) and the beat ring at its full reach (with its halo).
+static func vei_reach(vei_domain_radius: float, backlog: float) -> float:
+	var ro := vei_struct_radius(vei_domain_radius)
+	var rings := int(backlog_rings(backlog)["rings"])
+	var beat := ro + _n("vei_beat_reach_px") + _n("source_halo_max_px") * 0.5
+	if rings <= 0:
+		return beat
+	var stack := ro + _n("backlog_first_gap_px") + (rings - 1) * _n("backlog_step_px") + _n("backlog_halo_max_px") * 0.5
+	return maxf(stack, beat)
 
 
 ## Arc lengths to skip at a lane's two ends: {start, end}. Radii approximate arc length (lanes
@@ -280,6 +386,20 @@ static func trim_lengths(start_radius: float, end_radius: float, length: float) 
 ## sim speed still glides to the next hop instead of stopping short.
 static func extrap_dt(real_s: float, speed_scale: float) -> float:
 	return clampf(real_s, 0.0, _n("relish_extrap_max_s")) * maxf(speed_scale, 0.0)
+
+
+## What the extrapolation clock keys on: her model position, state and target. A model refresh
+## that leaves all three alone (a command, an autosave) must not restart the clock.
+static func relish_sig(rel: Dictionary) -> Array:
+	if rel.is_empty():
+		return []
+	return [MapModel.to_vec(rel["pos"]), str(rel.get("state", "")), str(rel.get("target", ""))]
+
+
+## True when her drawn position moved farther than wake_jump_px since the last refresh (a new
+## game, a fixture, a teleport): the wake must be cleared, not stretched across the map.
+static func wake_jumped(prev: Vector2, cur: Vector2) -> bool:
+	return prev.distance_to(cur) > _n("wake_jump_px")
 
 
 ## Where to draw her: while travelling, the model's `pos` advanced along `heading` at `speed`

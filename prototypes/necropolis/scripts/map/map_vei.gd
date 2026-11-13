@@ -24,7 +24,6 @@ func _draw_static() -> void:
 	var vp := ctx.vei_pos
 	var hw := ctx.hair_w()
 	var ro := NodeLogic.vei_struct_radius(ctx.vei_radius)
-	_sync_rings(ro, hw)
 	draw_circle(vp, float(n["vei_core_px"]), Palette.c("vei"))
 
 	var b := NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0)))
@@ -53,12 +52,17 @@ func _draw_static() -> void:
 		draw_arc(vp, r_out + float(n["vei_select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
-## (Re)creates and redraws the digestion rings when the structure's radius or the hairline moved.
-func _sync_rings(ro: float, hw: float) -> void:
-	var key := "%.2f/%.3f" % [ro, hw]
+## (Re)creates and redraws the digestion rings when the structure's radius, her position or the
+## hairline moved. Called by MapNodes on a model refresh or a camera change, never from _draw.
+func sync_rings() -> void:
+	if ctx == null or ctx.model == null or ctx.model.realm.is_empty():
+		return
+	var ro := NodeLogic.vei_struct_radius(ctx.vei_radius)
+	var key := "%.2f/%.3f/%s" % [ro, ctx.hair_w(), ctx.vei_pos]
 	var specs: Array = NodeLogic.ncfg()["vei_rings"]
 	if get_child_count() != specs.size():
 		for c in get_children():
+			remove_child(c)
 			c.queue_free()
 		for i in specs.size():
 			var ring := DigestRing.new()
@@ -72,6 +76,11 @@ func _sync_rings(ro: float, hw: float) -> void:
 	for c in get_children():
 		c.position = ctx.vei_pos
 		c.queue_redraw()
+
+
+## F6 reloaded the config: the ring specs may have changed, so the next sync redraws.
+func reset_rings() -> void:
+	_ring_key = "stale"
 
 
 ## Draws digestion ring `i` around its own origin: `dashes` chords at `duty` of the circle, the

@@ -18,6 +18,7 @@ func run() -> int:
 	_gutter(t)
 	_format(t)
 	_zoom(t)
+	_clicks(t)
 	_contrast(t)
 	_adapter(t)
 	_demo(t)
@@ -127,6 +128,16 @@ func _zoom(t: TestUtil) -> void:
 	t.ok(MapLogic.zoom_tier(1.64, "mid") == "mid" and MapLogic.zoom_tier(1.66, "mid") == "near", "mid leaves for near past 1.65")
 	t.ok(MapLogic.zoom_tier(1.58, "near") == "near" and MapLogic.zoom_tier(1.54, "near") == "mid", "near holds down to 1.55")
 	t.ok(MapLogic.zoom_tier(3.0, "far") == "near", "a jump skips the middle tier")
+
+
+func _clicks(t: TestUtil) -> void:
+	t.suite("map_logic-clicks")
+	var c := MapLogic.parse_clicks("1042,807;300, 400.5")
+	t.ok(c.size() == 2 and c[0] == Vector2(1042, 807) and c[1] == Vector2(300, 400.5), "--map-clicks parses x,y pairs")
+	t.ok(MapLogic.parse_clicks("").is_empty() and MapLogic.parse_clicks("12;a,b;1,2,3").is_empty(), "malformed pairs are skipped")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("func _unhandled_input(") and not wm.contains("func _gui_input(") and wm.contains("MOUSE_FILTER_IGNORE"), "map input is unhandled (screen) input and the root takes none")
+	t.ok(wm.contains("debug_enabled") and wm.contains("Input.parse_input_event"), "the click replay is debug-only and uses the real input path")
 
 
 func _contrast(t: TestUtil) -> void:

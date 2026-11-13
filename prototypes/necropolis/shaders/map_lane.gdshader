@@ -13,6 +13,8 @@ render_mode blend_premul_alpha, unshaded;
 // core) keeps its full alpha, any other layer has its alpha scaled by its coverage
 // (LaneStyle.drawn_stroke). clip_edge / clip_half (gutters only) keep layer 0, the spill, off
 // the host lane's drawn core band and its antialiased edge (LaneStyle.spill_clip).
+// The trim (the lane's drawn range, trim_start .. lane_len - trim_end) multiplies the premultiplied
+// output by a one-pixel coverage ramp, so the cut is antialiased and nothing is discarded.
 // Chevrons: 3 static arrowheads at 1/4, 1/2
 // and 3/4 of the lane (06 chevrons()), when chev_on. With chev_snap (reduced motion: the dashes
 // are frozen) each moves to the nearest gap centre, so it never hides inside a dash's pale core.
@@ -71,13 +73,20 @@ float seg_dist(vec2 p, vec2 a, vec2 b) {
 }
 
 void fragment() {
+	// every derivative first, before any branch (they are undefined in non-uniform control flow)
 	float s = UV.x;
-	if (s < trim_start || s > lane_len - trim_end) {
-		discard;
-	}
 	float d = UV.y * half_extent;
 	float px = max(length(vec2(dFdx(d), dFdy(d))), 1e-4);
 	float ps = max(length(vec2(dFdx(s), dFdy(s))), 1e-4);
+	// the trim is a coverage multiply, antialiased one pixel; a zero trim (a ring, a node with no
+	// rings) is left alone so a seam at s = 0 or lane_len never fades
+	float cov = 1.0;
+	if (trim_start > 0.0) {
+		cov *= clamp((s - trim_start) / ps + 0.5, 0.0, 1.0);
+	}
+	if (trim_end > 0.0) {
+		cov *= clamp((lane_len - trim_end - s) / ps + 0.5, 0.0, 1.0);
+	}
 	float ph = mod(s - offset, period);
 	float sd = ph < dash ? min(ph, dash - ph) : -min(ph - dash, period - ph);
 	float butt = clamp(sd / ps + 0.5, 0.0, 1.0);
@@ -106,5 +115,5 @@ void fragment() {
 		}
 		acc = over(acc, chev_col, stroke(cd, px, chev_width, 0.0));
 	}
-	COLOR = acc;
+	COLOR = acc * cov;
 }

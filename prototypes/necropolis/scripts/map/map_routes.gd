@@ -40,6 +40,13 @@ class Ribbon:
 	var lit := false  # gutter: its fort stands in Relish's light (dead_lit instead of dead)
 	var speed := 0.0
 	var period := 1.0
+	var anchor_ms := 0.0  # Pulse's clock when speed/period last changed, and the offset then
+	var anchor_off := 0.0
+	var cart_spacing := 0.0  # haul lanes: the cart train, re-derived only when the lane's motion changed
+	var cart_pips := 0
+	var cart_speed := 0.0
+	var cart_ms := 0.0
+	var cart_off := 0.0
 
 
 var _lanes := {}    # lane id -> Ribbon
@@ -57,6 +64,7 @@ var _eps := 0.0
 var _tier := ""
 var _cam: Camera2D
 var _log_max := 0.0
+var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ring) the lanes were last trimmed to
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
 var _bench := false
@@ -72,9 +80,18 @@ var _updates := 0
 var _cart_ms_max := 0.0
 
 
-## The single source of lane geometry, forwarded so callers can reach it from the routes script.
+## The single source of lane geometry, forwarded so callers (the ground) can reach it from the
+## routes script. Both return {a, c, b, half_width, loop}: the quadratic Bezier's start, control
+## and end, the CORE stroke's half width (before commit_width_mult and the halo), and whether it
+## is a self-loop. Use lane_curve_for for any view_lanes row: it knows the direct FLOOD lane's
+## flood_direct_bow, which lane_curve(a, b, u) alone cannot reproduce. lane_curve is the plain
+## curve between two points (bow < 0: the config default).
 static func lane_curve(from_pos: Vector2, to_pos: Vector2, u: float, bow := -1.0) -> Dictionary:
 	return MapLogic.lane_curve(from_pos, to_pos, u, bow)
+
+
+static func lane_curve_for(row: Dictionary, from_pos: Vector2, to_pos: Vector2, u: float) -> Dictionary:
+	return MapLogic.lane_curve_for(row, from_pos, to_pos, u)
 
 
 func _ready() -> void:
@@ -106,8 +123,10 @@ func _process(_delta: float) -> void:
 			_sync_ms_sum += ms
 			_sync_ms_max = maxf(_sync_ms_max, ms)
 	_sync_chevrons()
+	var now := Pulse.now_ms()
+	var rm: bool = Pulse.reduced_motion
 	for r: Ribbon in _moving:
-		r.mat.set_shader_parameter(&"offset", Pulse.dash_offset(r.speed, r.period))
+		r.mat.set_shader_parameter(&"offset", LaneStyle.phase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, rm))
 	_carts.tick(_tier != "far")
 	_last_us = Time.get_ticks_usec() - t0
 
@@ -178,6 +197,7 @@ func _sync() -> void:
 		var hid := LaneStyle.host_id(r)
 		if hid != "" and _u(r) >= 0.0:
 			dead_on_host[hid] = true
+	_retrim_vei()
 	_moving.clear()
 	var tracks: Array = []
 	var seen := {}
@@ -309,24 +329,42 @@ func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, r
 	r.mat.set_shader_parameter(&"lane_len", r.length)
 	# lanes stop at the nodes' outer rings (a self-loop ring is untouched); only the drawn range
 	# changes, never the curve or the mesh
-	var t := {"start": 0.0, "end": 0.0}
-	if not r.ring:
-		t = NodeLogic.trim_lengths(_outer(str(row["from"])), _outer(str(row["to"])), r.length)
-	r.trim = Vector2(t["start"], t["end"])
-	r.mat.set_shader_parameter(&"trim_start", r.trim.x)
-	r.mat.set_shader_parameter(&"trim_end", r.trim.y)
+	_trim(r)
 	r.mat.set_shader_parameter(&"chev_size", chev_size)
 	r.mat.set_shader_parameter(&"chev_width", LaneStyle.chevron_stroke(chev_size))
 	r.mat.set_shader_parameter(&"chev_on", 1.0 if _chev else 0.0)
 	r.mat.set_shader_parameter(&"chev_snap", 1.0 if _snap else 0.0)
 
 
-## Where lanes stop at a node: its outermost drawn radius (NodeLogic.outer_radius).
+## The arc length a ribbon does not draw at each end (a self-loop ring is untouched).
+func _trim(r: Ribbon) -> void:
+	var t := {"start": 0.0, "end": 0.0}
+	if not r.ring:
+		t = NodeLogic.trim_lengths(_outer(str(r.row["from"])), _outer(str(r.row["to"])), r.length)
+	r.trim = Vector2(t["start"], t["end"])
+	r.mat.set_shader_parameter(&"trim_start", r.trim.x)
+	r.mat.set_shader_parameter(&"trim_end", r.trim.y)
+
+
+## Vei's trim radius follows her backlog stack: when the rings shown (or her radius) change,
+## the lanes that end or start at her are re-trimmed. A refresh-time check, no per-frame cost.
+func _retrim_vei() -> void:
+	var o := _outer(MapModel.VEI)
+	if is_equal_approx(o, _vei_outer):
+		return
+	_vei_outer = o
+	for r: Ribbon in _lanes.values() + _gutters.values():
+		if r.built and (str(r.row["from"]) == MapModel.VEI or str(r.row["to"]) == MapModel.VEI):
+			_trim(r)
+
+
+## Where lanes stop at a node: its outermost drawn radius (NodeLogic.outer_radius); at Vei that
+## reaches past her backlog stack and beat ring so a lane never crosses the rings to count.
 func _outer(id: String) -> float:
 	if id == MapModel.COVINGTON:
 		return NodeLogic.outer_radius("covington", 0, 0.0)
 	if id == MapModel.VEI:
-		return NodeLogic.outer_radius("vei", 0, float(model.realm.get("vei", {}).get("radius", 0.0)))
+		return NodeLogic.outer_radius("vei", 0, float(model.realm.get("vei", {}).get("radius", 0.0)), float(model.vei.get("backlog", 0.0)))
 	if model.forts_by_id.has(id):
 		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
 	return 0.0
@@ -359,6 +397,8 @@ func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool) -> void:
 		_set_motion(r, LaneStyle.motion(ch, r.style, r.length if r.ring else 0.0))
 		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style))
 	_set_layers(r, layers)
+	if mode == "lit" and str(r.row["kind"]) == "haul":
+		_set_carts(r)
 	r.node.visible = true
 
 
@@ -396,18 +436,33 @@ func _set_layers(r: Ribbon, layers: Array) -> void:
 		r.mat.set_shader_parameter(COL_PARAMS[i], p["colors"][i])
 
 
+## A motion change keeps the phase: the offset shown now becomes the new anchor on Pulse's clock.
 func _set_motion(r: Ribbon, m: Dictionary) -> void:
+	var now := Pulse.now_ms()
+	r.anchor_off = LaneStyle.rebase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, m["period"])
+	r.anchor_ms = now
 	r.speed = m["speed"]
 	r.period = m["period"]
 	r.mat.set_shader_parameter(&"period", m["period"])
 	r.mat.set_shader_parameter(&"dash", m["dash"])
-	r.mat.set_shader_parameter(&"offset", Pulse.dash_offset(r.speed, r.period))
+	r.mat.set_shader_parameter(&"offset", LaneStyle.phase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, Pulse.reduced_motion))
+
+
+## Haul lanes: the cart train is re-derived only when the lane's motion changed (the same
+## u_epsilon gate as the dashes), anchored so the lead cart keeps its place.
+func _set_carts(r: Ribbon) -> void:
+	var c := LaneStyle.carts(float(r.row["rate"]), r.speed, r.length)
+	var now := Pulse.now_ms()
+	r.cart_off = LaneStyle.cart_anchor(r.cart_off, r.cart_ms, now, r.cart_speed, r.cart_spacing, c["spacing"], r.length)
+	r.cart_ms = now
+	r.cart_speed = r.speed
+	r.cart_spacing = c["spacing"]
+	r.cart_pips = c["pips"]
 
 
 func _track(r: Ribbon) -> Dictionary:
-	var c := LaneStyle.carts(float(r.row["rate"]), r.speed, r.length)
-	return {"pts": r.pts, "cum": r.cum, "length": r.length, "speed": r.speed, "lo": r.trim.x, "hi": r.length - r.trim.y,
-		"spacing": c["spacing"], "pips": c["pips"]}
+	return {"pts": r.pts, "cum": r.cum, "length": r.length, "speed": r.cart_speed, "lo": r.trim.x, "hi": r.length - r.trim.y,
+		"spacing": r.cart_spacing, "pips": r.cart_pips, "anchor_off": r.cart_off, "anchor_ms": r.cart_ms}
 
 
 # --- chevrons: reduced motion, or mid zoom and nearer; snapped into the gaps while frozen ---

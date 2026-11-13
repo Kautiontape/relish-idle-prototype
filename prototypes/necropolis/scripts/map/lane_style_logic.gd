@@ -386,6 +386,44 @@ static func motion(ch: Dictionary, style: Dictionary, ring_len := 0.0) -> Dictio
 	return {"period": period, "dash": period * duty, "speed": speed}
 
 
+## The dash offset shown at `now_ms` for a ribbon whose motion was last changed at `anchor_ms`
+## (its offset then: `anchor_off`): the anchor walked at `speed` px/s, wrapped to `period`.
+## Reduced motion: 0 (dashes hold still). The clock is Pulse's (Pulse.now_ms()), passed in.
+static func phase_offset(anchor_off: float, anchor_ms: float, now_ms: float, speed: float, period: float, reduced: bool) -> float:
+	if reduced or period <= 0.0:
+		return 0.0
+	return fposmod(anchor_off + (now_ms - anchor_ms) * 0.001 * speed, period)
+
+
+## The new `anchor_off` for a ribbon whose motion changes at `now_ms` from (speed, old_period)
+## to a new period: the offset it is showing right now (never the reduced-motion zero, so F8
+## does not lose the phase), rescaled by new / old period so the dash fraction holds. Re-anchor
+## with anchor_ms = now_ms and set the new speed and period.
+static func rebase_offset(anchor_off: float, anchor_ms: float, now_ms: float, speed: float, old_period: float, new_period: float) -> float:
+	if new_period <= 0.0 or old_period <= 0.0:
+		return 0.0
+	var shown := phase_offset(anchor_off, anchor_ms, now_ms, speed, old_period, false)
+	return fposmod(shown * new_period / old_period, new_period)
+
+
+## Where the train's first cart (the one nearest the lane's start) stands for a base offset.
+static func cart_lead(base: float, spacing: float, length: float) -> float:
+	if spacing <= 0.0:
+		return 0.0
+	return fposmod(base + 0.5 * minf(spacing, length), spacing)
+
+
+## The new cart-train anchor when its spacing changes at `now_ms` (or its speed: pass the old
+## speed): chosen so the first cart stays exactly where it stands, instead of the whole train
+## teleporting. Re-anchor with anchor_ms = now_ms.
+static func cart_anchor(anchor_off: float, anchor_ms: float, now_ms: float, old_speed: float, old_spacing: float, new_spacing: float, length: float) -> float:
+	if new_spacing <= 0.0 or old_spacing <= 0.0:
+		return 0.0
+	var base := phase_offset(anchor_off, anchor_ms, now_ms, old_speed, old_spacing, false)
+	var lead := cart_lead(base, old_spacing, length)
+	return fposmod(lead - 0.5 * minf(new_spacing, length), new_spacing)
+
+
 ## The period nearest `period` that tiles `circumference` a whole number of times (at least once).
 static func ring_period(circumference: float, period: float) -> float:
 	if period <= 0.0 or circumference <= 0.0:

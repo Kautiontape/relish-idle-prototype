@@ -5,7 +5,8 @@ extends Node2D
 ## the lane's dash speed, spaced by its rate (LaneStyle.carts). This is the routes' one
 ## per-frame _draw: it redraws only while carts show, and holds still under reduced motion.
 
-## [{pts, cum, length, speed, spacing, pips, lo, hi}] (lo..hi: the arc range the lane is drawn over) per lit haul lane, from map_routes on a rev.
+## [{pts, cum, length, speed, spacing, pips, lo, hi, anchor_off, anchor_ms}] (lo..hi: the arc
+## range the lane is drawn over; anchor_*: the train's phase anchor on Pulse's clock) per lit haul lane, from map_routes on a rev.
 var tracks: Array = []
 ## GDScript ms of the last _draw (map_routes adds it to its readout and resets it).
 var draw_ms := 0.0
@@ -45,8 +46,10 @@ func _draw() -> void:
 	var pip := float(c["pip_px"])
 	var step := pip + float(c["pip_gap_px"])
 	var pip_y := hh - stroke - pip * 0.5
+	var now := Pulse.now_ms()
+	var rm: bool = Pulse.reduced_motion
 	for tr in tracks:
-		var base: float = Pulse.dash_offset(tr["speed"], tr["spacing"])
+		var base := LaneStyle.phase_offset(tr["anchor_off"], tr["anchor_ms"], now, tr["speed"], tr["spacing"], rm)
 		var n: int = tr["pips"]
 		var x0 := -step * (n - 1) * 0.5
 		for s in LaneStyle.cart_positions(base, tr["spacing"], tr["length"]):

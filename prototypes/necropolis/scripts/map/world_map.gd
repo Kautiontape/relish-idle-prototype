@@ -27,7 +27,9 @@ func demo_seed() -> Dictionary:
 
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	# The root Control sits under the Camera2D's canvas transform (world space), so it takes no
+	# input; the map's input comes through _unhandled_input in screen space.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	MapLogic.configure(ConfigDb.data.get("map_view", {}))
 	model = MapModel.new(Game.state)
 	model.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
@@ -41,6 +43,7 @@ func _ready() -> void:
 		return
 	cam.fit(get_viewport_rect().size)
 	hud.start()
+	_replay_clicks()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
 			_select(arg.trim_prefix("--select="))
@@ -87,14 +90,53 @@ func _build_ui() -> void:
 	layer.add_child(sidebar)
 
 
-func _gui_input(e: InputEvent) -> void:
+## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar
+## live in a CanvasLayer and take their own clicks first through the GUI, so anything that
+## reaches here is on the bare map.
+func _unhandled_input(e: InputEvent) -> void:
 	cam.handle_input(e)
 
 
 func _on_clicked(id: String) -> void:
-	if sidebar.covers(get_global_mouse_position()):
-		return
 	_select(id)
+
+
+## Debug only: `--map-clicks=x,y;x,y` (screen px). Shot's own --clicks fire before the camera
+## fit, so the map replays its own once the fit has settled, through the real input path.
+func _replay_clicks() -> void:
+	if not Game.state.debug_enabled:
+		return
+	var clicks: Array[Vector2] = []
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--map-clicks="):
+			clicks.append_array(MapLogic.parse_clicks(arg.trim_prefix("--map-clicks=")))
+	if clicks.is_empty():
+		return
+	await _frames(int(MapLogic.cfg()["map_clicks_wait_frames"]))
+	for c in clicks:
+		_inject_click(c, true)
+		await _frames(1)
+		_inject_click(c, false)
+		await _frames(int(MapLogic.cfg()["map_clicks_gap_frames"]))
+
+
+func _frames(n: int) -> void:
+	for i in n:
+		if not is_inside_tree():
+			return
+		await get_tree().process_frame
+
+
+func _inject_click(pos: Vector2, pressed: bool) -> void:
+	if not is_inside_tree():
+		return
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = pressed
+	e.position = pos
+	e.global_position = pos
+	e.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
+	Input.parse_input_event(e)
 
 
 func _select(id: String) -> void:

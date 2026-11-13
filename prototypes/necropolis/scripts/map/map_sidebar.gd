@@ -69,10 +69,6 @@ func select(id: String) -> void:
 		refresh()
 
 
-func covers(screen_pos: Vector2) -> bool:
-	return visible and get_global_rect().has_point(screen_pos)
-
-
 func refresh() -> void:
 	if not visible:
 		return

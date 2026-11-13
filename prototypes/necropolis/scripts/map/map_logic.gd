@@ -162,6 +162,16 @@ static func sign_glyph(sign: int) -> String:
 
 # --- zoom tiers ------------------------------------------------------------------
 
+## The `--map-clicks=x,y;x,y` list as screen-px points; malformed pairs are skipped.
+static func parse_clicks(spec: String) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for pair in spec.split(";", false):
+		var xy := pair.strip_edges().split(",", false)
+		if xy.size() == 2 and xy[0].strip_edges().is_valid_float() and xy[1].strip_edges().is_valid_float():
+			out.append(Vector2(float(xy[0]), float(xy[1])))
+	return out
+
+
 ## "far" / "mid" / "near". With `prev` set, the tier is only left once the zoom is past the
 ## threshold by zoom_hysteresis, so a zoom resting on a boundary does not flicker.
 static func zoom_tier(zoom: float, prev: String) -> String:

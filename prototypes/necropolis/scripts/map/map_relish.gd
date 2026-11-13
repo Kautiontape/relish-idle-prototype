@@ -14,7 +14,7 @@ func _draw_pulse() -> void:
 	var state := str(ctx.relish.get("state", "home"))
 	var rp := ctx.relish_pos
 	var w: float = Pulse.wave(ctx.model.hops_of(str(ctx.relish.get("at", "covington"))))
-	_wake(rp, hw, n)
+	_wake(rp, hw, n, state == "travelling")
 	var hr := maxf(float(n["relish_halo_r_px"]), ctx.px(float(n["relish_min_screen_px"])))
 	var cr := maxf(float(n["relish_core_r_px"]), ctx.px(float(n["relish_core_min_screen_px"])))
 	if state == "dead":
@@ -34,7 +34,9 @@ func _draw_pulse() -> void:
 
 ## The wake: a polyline of her recent drawn positions, alpha 1 at her and 0 at the tail, with a
 ## wider, fainter pass under it. Frozen (reduced motion): it fades along its length only.
-func _wake(rp: Vector2, hw: float, n: Dictionary) -> void:
+## Only while she travels does the polyline reach her token; standing, her token is offset from
+## the node, so joining it to the last travel point would draw a streak.
+func _wake(rp: Vector2, hw: float, n: Dictionary, join: bool) -> void:
 	var buf := ctx.wake
 	if buf.size() < 2:
 		return
@@ -46,9 +48,10 @@ func _wake(rp: Vector2, hw: float, n: Dictionary) -> void:
 		pts.append(Vector2(buf[i].x, buf[i].y))
 		core.append(Palette.c("relish", alphas[i]))
 		halo.append(Palette.c("relish", alphas[i] * float(n["wake_halo_alpha"])))
-	pts.append(rp)
-	core.append(Palette.c("relish"))
-	halo.append(Palette.c("relish", float(n["wake_halo_alpha"])))
+	if join:
+		pts.append(rp)
+		core.append(Palette.c("relish"))
+		halo.append(Palette.c("relish", float(n["wake_halo_alpha"])))
 	var ww := maxf(float(n["wake_width_px"]), ctx.px(float(n["wake_min_screen_px"])))
 	draw_polyline_colors(pts, halo, ww * float(n["wake_halo_mult"]))
 	draw_polyline_colors(pts, core, ww)
