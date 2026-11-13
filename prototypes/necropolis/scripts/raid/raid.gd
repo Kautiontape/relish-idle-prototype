@@ -33,10 +33,10 @@ var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
 var found_loot := {}             # loot found this run, minus essence (a later loot task fills it)
-var _last_feedback: RaidTraceFeedback = null
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
+var raiser: RaidRaise = null
 var _setup_called := false
 var _built := false
 var _standalone := false
@@ -51,20 +51,15 @@ var _ended: bool:
 		endings.ended = v
 
 
-## Phylactery revives spent this run, and the exit Relish stands at (-1 = none); both live on
-## endings and are read by Relish and the HUD.
+## Phylactery revives spent this run (lives on endings; Relish draws a mark per revive).
 var revived: int:
 	get:
 		return endings.revived
-var exit_idx: int:
-	get:
-		return endings.exit_idx
-
-
 
 
 func _init() -> void:
 	endings = RaidEndings.new(self)
+	raiser = RaidRaise.new(self)
 
 
 func rcfg() -> Dictionary:
@@ -190,7 +185,7 @@ func _build() -> void:
 			units_root.add_child(pile)
 
 	if not is_boss():
-		_populate_raid(cfg, fort_id, tier)
+		RaidPopulate.new(self).populate(cfg, fort_id, tier)
 
 	# --- camera ---
 	var ccam: Dictionary = cfg.get("camera", {})
@@ -222,48 +217,6 @@ func _build() -> void:
 	if _standalone:
 		_dev = RaidDev.new(self)
 		_dev.start()
-
-
-## Standard fortress population from the v2 seed. The boss scene replaces this.
-func _populate_raid(cfg: Dictionary, fort_id: String, tier: int) -> void:
-	var sd := seed_data
-	var living := float(sd.get("living", 0.0))
-	var cap := float(sd.get("fort", {}).get("cap", 100.0))
-	if living > 0.05:
-		var n := RaidLogic.enemy_count(living, cap, cfg)
-		var mpe := living / n
-		var spots := RaidLogic.populate_enemies(fort_id, layout, n, tier, cfg)
-		for s in spots:
-			var u := spawn_unit("enemy", s["kind"], s["pos"])
-			u.mass = mpe
-			u.home_room = layout["rooms"][s["room"]]
-	# garrison: exactly the seed's units, each carrying garrison_mass_div of ledger mass
-	var gn := int(sd.get("garrison_units", 0))
-	var gdiv := float(sd.get("garrison_mass_div", 10.0))
-	var gmult := float(cfg.get("garrison", {}).get("stat_mult", 1.0))
-	var gstats := RaidLogic.undead_stats(gmult, "chaff", cfg)
-	for i in gn:
-		var ang := TAU * i / maxf(1.0, gn) + 0.4
-		var pos: Vector2 = relish.position + Vector2(54.0 + (i % 3) * 22.0, 0).rotated(ang)
-		spawn_ally_v2("garrison", "chaff", gmult, gdiv, "", gstats, resolve_walls(pos, 8.0))
-	# starters: massless chaff
-	var sn := int(sd.get("starter_units", 0))
-	var smult := float(cfg.get("starter", {}).get("stat_mult", 1.0))
-	var sstats := RaidLogic.undead_stats(smult, "chaff", cfg)
-	for i in sn:
-		var ang := TAU * i / maxf(1.0, sn) + 0.9
-		var pos: Vector2 = relish.position + Vector2(96.0 + (i % 2) * 22.0, 0).rotated(ang)
-		spawn_ally_v2("starter", "chaff", smult, 0.0, "", sstats, resolve_walls(pos, 8.0))
-	# party: one big undead per entry
-	var party: Array = sd.get("party", [])
-	for i in party.size():
-		var e: Dictionary = party[i]
-		var ang := TAU * i / maxf(1.0, party.size()) - 0.7
-		var pos: Vector2 = relish.position + Vector2(150.0, 0).rotated(ang)
-		var u := spawn_ally_v2("party", "big", 1.0, 0.0, str(e.get("uid", "")),
-			RaidLogic.big_undead_stats(e.get("stats", {}), cfg), resolve_walls(pos, 20.0), false, "big")
-		# TODO(api-request #6): party entries carry no filled_slots yet; 1 nested diamond until they do
-		u.slots = maxi(1, int(e.get("filled_slots", 1)))
 
 
 ## Boss hook — overridden by VeiBoss.
@@ -488,14 +441,8 @@ func resolve_walls(p: Vector2, r: float) -> Vector2:
 
 # ------------------------------------------------------------- essence -------
 func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
-	if mass <= 0.001:
-		return
-	var o := RaidEssence.new()
-	o.raid = self
-	o.mass = mass
-	o.position = pos
-	o.pop(pop_vel)
-	units_root.add_child(o)
+	if mass > 0.001:
+		spawn_mote(pos, mass, false, pop_vel)
 
 
 ## One mote with explicit mass/recycled (mass 0 allowed: massless undead return no mass).
@@ -514,7 +461,6 @@ func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
 	if n <= 0:
 		return
 	var parts := RaidLogic.split_mass(mass, n)
-	var e: Dictionary = rcfg().get("essence", {})
 	for i in n:
 		var ang := rng_combat.randf() * TAU
 		var spd := rng_combat.randf_range(30.0, 70.0)
@@ -566,77 +512,12 @@ func set_trance(active: bool) -> void:
 
 
 func show_trace_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
-	var fb := RaidTraceFeedback.new()
-	fb.trace = trace
-	fb.fitted_center = g["center"]
-	fb.fitted_radius = g["radius"]
-	fb.score = int(g["score"])
-	fb.valid = g["valid"]
-	fx_root.add_child(fb)
-	_last_feedback = fb
+	raiser.show_feedback(g, trace)
 
 
-## A released, scored circle: consume enclosed essence, raise one undead per mote
-## (MECHANICS 5.3). The boss keeps the legacy mass-ledger raise.
+## A released, scored circle (MECHANICS 5.3); see RaidRaise.
 func perform_raise(g: Dictionary) -> void:
-	var score := int(g["score"])
-	var center: Vector2 = g["center"]
-	var radius: float = g["radius"]
-	var picked: Array = []
-	for e in get_tree().get_nodes_in_group("raid_essence"):
-		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
-			picked.append(e)
-	if picked.is_empty():
-		return
-	if is_boss():
-		_perform_raise_legacy(score, picked)
-		return
-	var motes: Array = []
-	for e in picked:
-		motes.append({"mass": e.mass, "recycled": e.recycled})
-		e.absorb()
-	endings.clamp_banked()
-	var cfg := rcfg()
-	var spec := RaidLogic.raise_spec_v2(score, motes, cfg, ConfigDb.data.get("circle", {}))
-	var count := int(spec["count"])
-	if count <= 0:
-		return
-	ledger_v2.on_raise(score, float(spec["fresh_mass"]), count)
-	first_raise_done = true
-	raises += 1
-	var tier := str(spec["tier"])
-	if _last_feedback != null and is_instance_valid(_last_feedback):
-		_last_feedback.raised_n = count
-		_last_feedback.raised_tier = tier
-	var mult := float(spec["stat_mult"])
-	var stats := RaidLogic.undead_stats(mult, tier, cfg)
-	var masses: Array = spec["unit_masses"]
-	var ring_px: float = float(cfg.get("raise", {}).get("spawn_ring_px", 52.0))
-	for i in count:
-		var ang := TAU * i / float(count) + rng_combat.randf() * 0.8
-		var pos: Vector2 = relish.global_position + Vector2(ring_px + rng_combat.randf_range(-10, 26), 0).rotated(ang)
-		spawn_ally_v2("raised", tier, mult, float(masses[i]), "", stats, resolve_walls(pos, 10.0), true)
-	RaidFx.ring(fx_root, relish.global_position, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
-
-
-func _perform_raise_legacy(score: int, picked: Array) -> void:
-	var total_mass := 0.0
-	for e in picked:
-		total_mass += e.mass
-		e.absorb()
-	var spec := ledger.on_raise(score, total_mass, picked.size(), rcfg())
-	if int(spec["count"]) <= 0:
-		return
-	first_raise_done = true
-	var ring_px: float = float(rcfg().get("raise", {}).get("spawn_ring_px", 52.0))
-	for i in int(spec["count"]):
-		var ang := TAU * i / float(spec["count"]) + rng_combat.randf() * 0.8
-		var pos: Vector2 = relish.global_position + Vector2(ring_px + rng_combat.randf_range(-10, 26), 0).rotated(ang)
-		var u := spawn_unit("ally", str(spec["kind"]), resolve_walls(pos, 10.0), true)
-		if str(spec["kind"]) == "chaff":
-			u.ledger_mass = true
-			u.mass = float(spec["unit_mass"])
-	RaidFx.ring(fx_root, relish.global_position, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
+	raiser.perform(g)
 
 
 # --------------------------------------------------------------- endings -----
@@ -656,6 +537,10 @@ func can_retreat() -> bool:
 
 func try_retreat() -> void:
 	endings.try_retreat()
+
+
+func exit_hint_ready() -> bool:
+	return endings.exit_hint_ready()
 
 
 func try_phylactery() -> bool:

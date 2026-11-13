@@ -338,6 +338,7 @@ func run() -> int:
 
 	_checkpoint_tests(t, cfg)
 	_writeback_tests(t, cfg)
+	_wall_tests(t, cfg)
 	return t.failures
 
 
@@ -542,3 +543,60 @@ func _writeback_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not out["ok"] and out["reason"] == "bad_revives" and s.rev == rev and not s.run.is_empty(),
 		"revived_in_place 1 with 0 charges is bad_revives and changes nothing (%s)" % str(out["reason"]))
 	t.ok(not RaidLogic.can_revive(0, sd3), "the scene's can_revive agrees: no charge, no revive")
+
+
+func _wall_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_walls")
+	var flush := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(150, 100, 80, 30)])
+	t.ok(flush == [Rect2(0, 100, 230, 30)], "two flush horizontal rects merge into one (%s)" % str(flush))
+	var overlap := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(100, 100, 150, 30)])
+	t.ok(overlap == [Rect2(0, 100, 250, 30)], "overlapping horizontal rects merge")
+	var gap := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(160, 100, 80, 30)])
+	t.ok(gap.size() == 2, "a gap between them keeps two rects")
+	var vert := LayoutLogic.merge_walls([Rect2(40, 0, 30, 100), Rect2(40, 100, 30, 60), Rect2(40, 160, 30, 40)])
+	t.ok(vert == [Rect2(40, 0, 30, 200)], "a chain of flush vertical rects merges into one (%s)" % str(vert))
+	var perp := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(150, 100, 30, 150)])
+	t.ok(perp.size() == 2 and perp.has(Rect2(0, 100, 150, 30)) and perp.has(Rect2(150, 100, 30, 150)), "perpendicular rects are untouched")
+	var thick := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(150, 100, 80, 20)])
+	var off := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(150, 130, 80, 30)])
+	t.ok(thick.size() == 2 and off.size() == 2, "different thickness or a different line is not merged")
+	t.ok(RaidLogic.merge_walls([Rect2(0, 0, 10, 4), Rect2(10, 0, 10, 4)]).size() == 1, "RaidLogic delegates merge_walls")
+	# on real layouts: merging never grows the wall area, keeps real door gaps open, and shrinks the count
+	var world := TestUtil.load_json("res://configs/world.json")
+	var merged_any := false
+	for f in world["forts"]:
+		var lay := RaidLogic.gen_layout(str(f["id"]), 3, false, cfg)
+		var walls: Array = lay["walls"]
+		var m := LayoutLogic.merge_walls(walls)
+		merged_any = merged_any or m.size() < walls.size()
+		var open_ok := true
+		for d in lay["doors"]:
+			for w in m:
+				open_ok = open_ok and not (w as Rect2).grow(-1.0).intersects((d["rect"] as Rect2).grow(-1.0))
+		t.ok(m.size() <= walls.size() and open_ok, "%s: merged walls keep every real door gap open" % str(f["id"]))
+		var same := true
+		var size: Vector2 = lay["size"]
+		for gy in range(0, int(size.y), 13):
+			for gx in range(0, int(size.x), 13):
+				var pt := Vector2(gx + 0.5, gy + 0.5)
+				var in_a := false
+				var in_b := false
+				for w in walls:
+					in_a = in_a or (w as Rect2).has_point(pt)
+				for w in m:
+					in_b = in_b or (w as Rect2).has_point(pt)
+				same = same and in_a == in_b
+		t.ok(same, "%s: the merged walls cover exactly the same ground" % str(f["id"]))
+	t.ok(merged_any, "at least one fort has flush rects to merge (closed doors / sealed gaps)")
+
+	t.suite("raid_antechamber")
+	var seen := 0
+	var roles_ok := true
+	for i in 200:
+		var lay := RaidLogic.gen_layout("ante-%d" % i, 1 + i % 4, false, cfg)
+		var ar := int(lay["ante_room"])
+		if ar >= 0 and (lay["checkpoints"] as Array).has(ar):
+			seen += 1
+			roles_ok = roles_ok and lay["roles"][ar] == "antechamber"
+	t.ok(seen > 0, "some layouts put the antechamber on a checkpoint (%d of 200)" % seen)
+	t.ok(roles_ok, "an antechamber that is also a checkpoint keeps the role \"antechamber\"")

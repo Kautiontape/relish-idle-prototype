@@ -9,6 +9,9 @@ extends RefCounted
 ## Deterministic per fort_id (and `opts`): each fortress is recognizably itself on revisits.
 ## `opts`: `held` (bool, ignored for the boss arena): the player's held fort, which gets one
 ## fewer room and no warden or antechamber.
+## Roles are exclusive and the warden room and antechamber are assigned last, so the antechamber
+## may also be a checkpoint (an exit beside the warden is intended: bank and leave before the
+## fight) and still reads `roles[ante_room] == "antechamber"`; `checkpoints` lists it all the same.
 ## Returns { size, wall_t, walls (all Rect2), inner_walls, doors, rooms, spawn, boss, gaps, held,
 ## roles (per room: spawn / checkpoint / antechamber / warden / normal), hops (BFS from the spawn
 ## room), adj (room adjacency), warden_room and ante_room (-1 if none), checkpoints (room indices,
@@ -573,6 +576,52 @@ static func near_exit(layout: Dictionary, p: Vector2, radius: float) -> int:
 			bd = d
 			best = i
 	return best
+
+
+## Merge collinear wall rects that touch or overlap along their length into one, so closed doors
+## and sealed gaps do not draw as separate segments (the wall shader fades each segment's ends,
+## which reads as a door jamb where there is no door). Rects are merged only when they share an
+## axis (horizontal: size.x >= size.y), the same thickness and the same line; a real gap between
+## two rects keeps them apart, and perpendicular rects are never touched.
+static func merge_walls(rects: Array) -> Array:
+	var out: Array = rects.duplicate()
+	var merged := true
+	while merged:
+		merged = false
+		for i in out.size():
+			for j in range(i + 1, out.size()):
+				var m := _merge_pair(out[i], out[j])
+				if not m.is_empty():
+					out[i] = m[0]
+					out.remove_at(j)
+					merged = true
+					break
+			if merged:
+				break
+	return out
+
+
+## [merged] when the two rects are flush on one axis, else [].
+static func _merge_pair(a: Rect2, b: Rect2) -> Array:
+	var eps := 0.01
+	var ha := a.size.x >= a.size.y
+	if ha != (b.size.x >= b.size.y):
+		return []
+	var lo_a := a.position.x if ha else a.position.y
+	var lo_b := b.position.x if ha else b.position.y
+	var len_a := a.size.x if ha else a.size.y
+	var len_b := b.size.x if ha else b.size.y
+	var off_a := a.position.y if ha else a.position.x
+	var off_b := b.position.y if ha else b.position.x
+	var th_a := a.size.y if ha else a.size.x
+	var th_b := b.size.y if ha else b.size.x
+	if absf(off_a - off_b) > eps or absf(th_a - th_b) > eps:
+		return []
+	if lo_a > lo_b + len_b + eps or lo_b > lo_a + len_a + eps:
+		return []
+	var lo := minf(lo_a, lo_b)
+	var hi := maxf(lo_a + len_a, lo_b + len_b)
+	return [Rect2(lo, off_a, hi - lo, th_a) if ha else Rect2(off_a, lo, th_a, hi - lo)]
 
 
 ## True when the wall rect borders or overlaps the room (the 2 px grow catches flush edges).

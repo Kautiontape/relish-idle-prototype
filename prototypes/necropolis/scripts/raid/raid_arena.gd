@@ -113,12 +113,21 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 	var wr := int(layout.get("warden_room", -1))
 	var hot := look.duplicate()
 	hot["heat"] = float(lcfg.get("boss_wall_heat", 0.6))
+	# collinear flush rects (closed doors, sealed gaps and their neighbours) become one segment,
+	# so the shader's end fade only draws jambs at real door gaps; hot and cold merge apart
+	var hot_rects: Array = []
+	var cold_rects: Array = []
 	for wrect in layout["walls"]:
-		var seg := RaidWall.new()
-		add_child(seg)
-		var is_hot := wr >= 0 and RaidLogic.wall_touches_room(wrect, layout["rooms"][wr])
-		seg.setup(wrect, glow, hot if is_hot else look)
-		_walls.append(seg)
+		if wr >= 0 and LayoutLogic.wall_touches_room(wrect, layout["rooms"][wr]):
+			hot_rects.append(wrect)
+		else:
+			cold_rects.append(wrect)
+	for is_hot in [false, true]:
+		for wrect in LayoutLogic.merge_walls(hot_rects if is_hot else cold_rects):
+			var seg := RaidWall.new()
+			add_child(seg)
+			seg.setup(wrect, glow, hot if is_hot else look)
+			_walls.append(seg)
 
 	# --- exit doors (the dungeon only; the boss arena has none) ---
 	if not bool(layout.get("boss", false)):

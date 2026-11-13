@@ -443,6 +443,10 @@ static func near_exit(layout: Dictionary, p: Vector2, radius: float) -> int:
 	return LayoutLogic.near_exit(layout, p, radius)
 
 
+static func merge_walls(rects: Array) -> Array:
+	return LayoutLogic.merge_walls(rects)
+
+
 static func wall_touches_room(wall: Rect2, room: Rect2) -> bool:
 	return LayoutLogic.wall_touches_room(wall, room)
 

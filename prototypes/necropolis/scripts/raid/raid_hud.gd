@@ -174,7 +174,7 @@ func refresh() -> void:
 	if not raid.is_boss():
 		var left: int = raid.phylactery_left()
 		_phyl.text = "PHYLACTERY  %d left" % left
-		if raid.exit_idx >= 0 and not raid._ended:
+		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true
 		else:

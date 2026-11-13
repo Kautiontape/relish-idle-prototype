@@ -14,9 +14,11 @@ var banked := {}                 # the last checkpoint snapshot (full loot shape
 var banked_rooms := {}           # checkpoint room index -> true once it has banked
 var revived := 0                 # phylactery revives spent this run
 var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
+var left_spawn_exit := false     # Relish has been outside the spawn exit's radius once
 
 var _raid: Node2D
 var _room := -2                  # Relish's current room
+var _spawn_exit := -1            # the exit Relish spawns inside (spawn sits within its radius)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -25,6 +27,8 @@ func _init(p_raid: Node2D) -> void:
 
 ## Called once the arena is built (dungeon only): the spawn room's checkpoint banks at once.
 func start() -> void:
+	var radius := float(_raid.rcfg().get("exits", {}).get("radius_px", 120.0))
+	_spawn_exit = RaidLogic.near_exit(_raid.layout, _raid.layout["spawn"], radius)
 	_room = RaidLogic.room_of(_raid.layout, _raid.relish.position)
 	take_checkpoint(_room, false)
 
@@ -35,6 +39,8 @@ func track_position() -> void:
 	var layout: Dictionary = _raid.layout
 	var pos: Vector2 = _raid.relish.position
 	exit_idx = RaidLogic.near_exit(layout, pos, float(_raid.rcfg().get("exits", {}).get("radius_px", 120.0)))
+	if exit_idx != _spawn_exit:
+		left_spawn_exit = true
 	var room := RaidLogic.room_of(layout, pos)
 	if room < 0:
 		return   # a doorway's wall band belongs to no room: A -> doorway -> A is not a change
@@ -76,6 +82,12 @@ func _send_checkpoint() -> void:
 
 
 # ------------------------------------------------------------------ retreat ---
+## The "AT EXIT" hint: Relish stands at an exit, and has either left the spawn exit's radius once
+## or raised (spawn is inside that radius, so the hint would hide the circle hint from frame one).
+func exit_hint_ready() -> bool:
+	return exit_idx >= 0 and not ended and (left_spawn_exit or _raid.first_raise_done)
+
+
 ## Retreat is open only at an exit (the boss arena keeps its teleport).
 func can_retreat() -> bool:
 	return _raid.is_boss() or exit_idx >= 0
