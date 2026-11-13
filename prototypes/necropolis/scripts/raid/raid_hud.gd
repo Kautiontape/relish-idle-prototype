@@ -8,6 +8,7 @@ var raid: Node = null
 var _title: Label
 var _living: Label
 var _essence: Label
+var _ward: Label
 var _raised: Label
 var _hint: Label
 var _meter: Control
@@ -32,6 +33,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_living = _mk_label(box, 17, Palette.c("living"))
 	_essence = _mk_label(box, 17, Palette.c("essence"))
 	_raised = _mk_label(box, 17, Palette.c("undead_core"))
+	_ward = _mk_label(box, 17, Palette.c("undead"))
 
 	_hint = _mk_label(self, 19, Palette.c("text"))
 	_hint.text = "HOLD SPACE — TRACE A CIRCLE"
@@ -128,7 +130,16 @@ func _process(_delta: float) -> void:
 func refresh() -> void:
 	_title.text = "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
 	_living.text = "LIVING  %d" % raid.enemies.size()
-	_essence.text = "ESSENCE  %d" % raid.get_tree().get_nodes_in_group("raid_essence").size()
+	var motes: int = raid.get_tree().get_nodes_in_group("raid_essence").size()
+	_ward.visible = raid.ledger_v2 != null
+	if raid.ledger_v2 != null:
+		var cc: int = raid.carried_count()
+		var cmax := int(raid.rcfg().get("essence", {}).get("carry_max", 12))
+		_essence.text = "ESSENCE  %d loose  ·  %d/%d carried" % [maxi(0, motes - cc), cc, cmax]
+		var w: Dictionary = raid.ward_counts()
+		_ward.text = "WARD  chaff %d  ·  soldier %d  ·  elite %d  ·  big %d" % [w["chaff"], w["soldier"], w["elite"], w["big"]]
+	else:
+		_essence.text = "ESSENCE  %d" % motes
 	if raid.ledger_v2 != null:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		_raised.text = "RAISED  chaff %d  ·  soldier %d  ·  elite %d" % [rc["chaff"], rc["soldier"], rc["elite"]]
@@ -155,7 +166,7 @@ func open_exit_dialog() -> void:
 
 
 ## Standalone runs: show the emitted result so the scene is testable by itself.
-func show_result(result: Dictionary) -> void:
+func show_result(result: Dictionary, telemetry := "") -> void:
 	var panel := PanelContainer.new()
 	add_child(panel)
 	panel.anchor_left = 0.5
@@ -168,7 +179,7 @@ func show_result(result: Dictionary) -> void:
 	panel.offset_bottom = 190.0
 	var lbl := Label.new()
 	lbl.add_theme_font_size_override("font_size", 15)
-	lbl.text = "finished(result) emitted — standalone run\n\n" + JSON.stringify(result, "  ")
+	lbl.text = "finished(result) emitted — standalone run\n" + telemetry + "\n\n" + JSON.stringify(result, "  ")
 	panel.add_child(lbl)
 
 

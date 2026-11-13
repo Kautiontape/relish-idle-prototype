@@ -300,4 +300,33 @@ func run() -> int:
 			stress_ok = false
 	t.ok(stress_ok, "60-iteration stress: bound holds, masses >= 0, validates")
 
+	# --- sacrifice chain, drift telemetry, essence from both sides ----------
+	t.suite("raid_sacrifice_essence")
+	t.ok(RaidLogic.sacrifice_pick([]) == -1, "no candidates -> -1")
+	t.ok(RaidLogic.sacrifice_pick([{"rank": 3, "dist": 5.0}, {"rank": 1, "dist": 90.0}, {"rank": 0, "dist": 200.0}]) == 2,
+		"lowest rank wins over a nearer higher rank")
+	t.ok(RaidLogic.sacrifice_pick([{"rank": 0, "dist": 80.0}, {"rank": 0, "dist": 30.0}, {"rank": 1, "dist": 1.0}]) == 1,
+		"same rank: the nearest wins")
+	t.ok(RaidLogic.sacrifice_pick([{"rank": 2, "dist": 10.0}]) == 0, "a single candidate is picked")
+	t.ok(RaidLogic.ally_rank("garrison", "chaff") == 0 and RaidLogic.ally_rank("starter", "chaff") == 0
+		and RaidLogic.ally_rank("raised", "chaff") == 0, "chaff-tier roles rank 0")
+	t.ok(RaidLogic.ally_rank("raised", "soldier") == 1 and RaidLogic.ally_rank("raised", "elite") == 2
+		and RaidLogic.ally_rank("party", "big") == 3, "soldier 1, elite 2, party 3")
+	t.near(RaidLogic.drift_ratio(24, 3), 8.0, 0.0001, "24 moves / 3 raises = 8")
+	t.near(RaidLogic.drift_ratio(13, 0), 13.0, 0.0001, "no raises -> the move count")
+	t.ok(not RaidLogic.is_drifting(24, 3, cfg), "8:1 is not above 8:1")
+	t.ok(RaidLogic.is_drifting(25, 3, cfg), "8.33:1 drifts")
+	t.ok(RaidLogic.is_drifting(9, 0, cfg) and not RaidLogic.is_drifting(8, 0, cfg), "no raises: ratio is the moves")
+	for nn in [1, 2, 3, 7]:
+		var parts := RaidLogic.split_mass(10.0, nn)
+		var tot := 0.0
+		for pm in parts:
+			tot += float(pm)
+		t.ok(parts.size() == nn and absf(tot - 10.0) < 1e-9, "split_mass(10, %d) sums to 10" % nn)
+	t.ok(RaidLogic.split_mass(0.0, 2) == [0.0, 0.0], "massless splits to zeros")
+	t.ok(RaidLogic.split_mass(5.0, 0).size() == 1, "n < 1 is treated as 1")
+	t.ok(RaidLogic.carry_room(0, cfg) == 12 and RaidLogic.carry_room(11, cfg) == 1
+		and RaidLogic.carry_room(12, cfg) == 0 and RaidLogic.carry_room(20, cfg) == 0, "carry_room against carry_max 12")
+	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
+
 	return t.failures

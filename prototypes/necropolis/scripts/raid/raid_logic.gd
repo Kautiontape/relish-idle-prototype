@@ -141,6 +141,65 @@ static func empty_loot() -> Dictionary:
 	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
 
 
+## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
+## 1 soldier, 2 elite, 3 big undead (party).
+static func ally_rank(role: String, tier: String) -> int:
+	if role == "party" or tier == "big":
+		return 3
+	match tier:
+		"soldier":
+			return 1
+		"elite":
+			return 2
+	return 0
+
+
+## Candidates are [{rank: int, dist: float}]. The lowest rank wins, then the nearest.
+## Returns its index, or -1 when there are none.
+static func sacrifice_pick(candidates: Array) -> int:
+	var best := -1
+	for i in candidates.size():
+		var c: Dictionary = candidates[i]
+		if best < 0:
+			best = i
+			continue
+		var b: Dictionary = candidates[best]
+		var cr := int(c.get("rank", 0))
+		var br := int(b.get("rank", 0))
+		if cr < br or (cr == br and float(c.get("dist", 0.0)) < float(b.get("dist", 0.0))):
+			best = i
+	return best
+
+
+## RTS-drift guard (MECHANICS 5.0): move clicks per successful raise.
+static func drift_ratio(moves: int, raises: int) -> float:
+	if raises <= 0:
+		return float(moves)
+	return float(moves) / float(raises)
+
+
+static func is_drifting(moves: int, raises: int, cfg: Dictionary) -> bool:
+	return drift_ratio(moves, raises) > float(cfg.get("telemetry", {}).get("drift_ratio", 8.0))
+
+
+## Split a mass into n equal parts (n >= 1); the parts sum to mass.
+static func split_mass(mass: float, n: int) -> Array:
+	var k := maxi(1, n)
+	var out: Array = []
+	var each := mass / float(k)
+	var acc := 0.0
+	for i in k - 1:
+		out.append(each)
+		acc += each
+	out.append(mass - acc)
+	return out
+
+
+## Free places in Relish's carried cluster.
+static func carry_room(carried: int, cfg: Dictionary) -> int:
+	return maxi(0, int(cfg.get("essence", {}).get("carry_max", 12)) - carried)
+
+
 ## Raid result v2 builder (STATE-API 8.1). Pure bookkeeping, no scene state.
 class LedgerV2:
 	extends RefCounted

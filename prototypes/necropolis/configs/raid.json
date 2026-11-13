@@ -20,7 +20,16 @@
     "stir_radius_px": 90.0,
     "stir_orbs_min": 2,
     "stir_orbs_max": 4,
-    "pop_speed_px": 85.0
+    "pop_speed_px": 85.0,
+    "per_living": 1,
+    "per_undead": 1,
+    "gather_radius_px": 28.0,
+    "carry_max": 12,
+    "carry_orbit_px": 24.0,
+    "carry_spin_rad_s": 0.8
+  },
+  "telemetry": {
+    "drift_ratio": 8
   },
   "mass": {
     "enemies_per_cap": 26.0,

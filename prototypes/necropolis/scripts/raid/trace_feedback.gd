@@ -9,6 +9,8 @@ var fitted_center := Vector2.ZERO
 var fitted_radius := 0.0
 var score := 0
 var valid := false
+var raised_n := 0          # set by perform_raise: units the circle made
+var raised_tier := ""      # display tier: chaff | soldier | elite
 var _age := 0.0
 
 
@@ -82,6 +84,9 @@ func _draw() -> void:
 		text_col.a = a
 		draw_string(ThemeDB.fallback_font, c + Vector2(-80, -fitted_radius - 14),
 			"%d — %s" % [score, _grade_word()], HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
+		if raised_n > 0 and raised_tier != "":
+			draw_string(ThemeDB.fallback_font, c + Vector2(-80, fitted_radius + 28),
+				"×%d %s" % [raised_n, raised_tier.to_upper()], HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
 	else:
 		var c2 := to_local(trace[trace.size() / 2]) if trace.size() > 0 else Vector2.ZERO
 		draw_string(ThemeDB.fallback_font, c2 + Vector2(-80, -20),

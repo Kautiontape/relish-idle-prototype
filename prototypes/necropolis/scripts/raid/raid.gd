@@ -27,6 +27,10 @@ var trance_active := false
 var first_raise_done := false
 var backlog_left := 0.0          # boss only
 var army_lost := {"soldier": 0, "elite": 0}
+var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
+var moves := 0                   # RAID_TELEMETRY: Relish move clicks
+var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
+var _last_feedback: RaidTraceFeedback = null
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
@@ -250,10 +254,21 @@ func _cli_harness() -> void:
 	_autoexit = int(_cli_value("--raid-autoexit=")) if _cli_value("--raid-autoexit=") != "" else -1
 	if _stress > 0 and not is_boss():
 		_spawn_stress(_stress)
+	var motes := int(_cli_value("--raid-motes=")) if _cli_value("--raid-motes=") != "" else 0
+	if motes > 0 and not is_boss():
+		_spawn_dev_motes(motes)
 	if _cli_flag("--raid-perf"):
 		_perf = true
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+
+
+## Dev: N fresh motes (mass 1) around Relish.
+func _spawn_dev_motes(n: int) -> void:
+	for i in n:
+		var ang := TAU * i / float(n) + 0.3
+		var pos: Vector2 = relish.position + Vector2(46.0 + 12.0 * (i % 3), 0).rotated(ang)
+		spawn_mote(resolve_walls(pos, 6.0), 1.0, false)
 
 
 ## Perf harness: N soldier-tier raised undead in rings around Relish, enemies topped up to the cap.
@@ -415,6 +430,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
 		var w := screen_to_world(ev.position)
 		relish.move_target = w
+		moves += 1
 		RaidFx.ping(fx_root, w)
 		get_viewport().set_input_as_handled()
 
@@ -473,7 +489,10 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 		else:
 			ledger_v2.on_kill(u.mass)
 		# kills drop essence at the corpse, carrying the enemy's mass
-		spawn_orb(u.global_position, u.mass, Vector2(rng_combat.randf_range(30, 70), 0).rotated(rng_combat.randf() * TAU))
+		if is_boss():
+			spawn_orb(u.global_position, u.mass, Vector2(rng_combat.randf_range(30, 70), 0).rotated(rng_combat.randf() * TAU))
+		else:
+			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
 	else:
 		allies.erase(u)
@@ -484,8 +503,12 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 				army_lost["soldier"] += 1
 			elif u.kind == "elite":
 				army_lost["elite"] += 1
-		elif u.role == "party":
-			party_died.append(u.uid)
+		else:
+			if u.role == "party":
+				party_died.append(u.uid)
+			# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
+			var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
+			_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
 		if not sacrificed:
 			RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
 		_on_ally_died(u)
@@ -503,23 +526,36 @@ func has_allies() -> bool:
 	return false
 
 
-## THE CONDUIT RULE: a lethal hit on Relish consumes the nearest allied undead.
+## THE SACRIFICE CHAIN (MECHANICS 5.0): a lethal hit on Relish consumes the nearest ally of the
+## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest.
 func sacrifice_nearest_ally() -> void:
-	var best: RaidUnit = null
-	var bd := INF
+	var pool: Array = []
+	var cands: Array = []
 	for a in allies:
 		if not is_instance_valid(a) or not a.alive:
 			continue
-		var d: float = a.global_position.distance_to(relish.global_position)
-		if d < bd:
-			bd = d
-			best = a
-	if best == null:
+		pool.append(a)
+		cands.append({"rank": 0 if is_boss() else RaidLogic.ally_rank(a.role, a.tier),
+			"dist": a.global_position.distance_to(relish.global_position)})
+	var k := RaidLogic.sacrifice_pick(cands)
+	if k < 0:
 		return
+	var best: RaidUnit = pool[k]
 	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
 	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
 	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
 	best.die(true)
+
+
+## Alive allies by sacrifice rank, for the HUD ward line.
+func ward_counts() -> Dictionary:
+	var out := {"chaff": 0, "soldier": 0, "elite": 0, "big": 0}
+	var names := ["chaff", "soldier", "elite", "big"]
+	for a in allies:
+		if is_instance_valid(a) and a.alive:
+			var k: String = names[RaidLogic.ally_rank(a.role, a.tier)]
+			out[k] = int(out[k]) + 1
+	return out
 
 
 func nearest_enemy_of(pos: Vector2):
@@ -571,6 +607,60 @@ func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
 	units_root.add_child(o)
 
 
+## One mote with explicit mass/recycled (mass 0 allowed: massless undead return no mass).
+func spawn_mote(pos: Vector2, mass: float, recycled: bool, pop_vel := Vector2.ZERO) -> void:
+	var o := RaidEssence.new()
+	o.raid = self
+	o.mass = maxf(0.0, mass)
+	o.recycled = recycled
+	o.position = pos
+	o.pop(pop_vel)
+	units_root.add_child(o)
+
+
+## A death drops n motes splitting `mass` evenly.
+func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
+	if n <= 0:
+		return
+	var parts := RaidLogic.split_mass(mass, n)
+	var e: Dictionary = rcfg().get("essence", {})
+	for i in n:
+		var ang := rng_combat.randf() * TAU
+		var spd := rng_combat.randf_range(30.0, 70.0)
+		spawn_mote(pos + Vector2(rng_combat.randf_range(0, 6), 0).rotated(ang), float(parts[i]), recycled,
+			Vector2(spd, 0).rotated(ang))
+
+
+# --- carried cluster ---
+func carried_count() -> int:
+	return carried.size()
+
+
+func carry_room() -> int:
+	return 0 if is_boss() else RaidLogic.carry_room(carried.size(), rcfg())
+
+
+## Take a mote into the cluster at the lowest free slot. Returns false when full.
+func carry_add(o: RaidEssence) -> bool:
+	if carry_room() <= 0 or o.carried:
+		return false
+	var used := {}
+	for c in carried:
+		used[c.carry_slot] = true
+	var slot := 0
+	while used.has(slot):
+		slot += 1
+	o.carry_slot = slot
+	o.carried = true
+	carried.append(o)
+	return true
+
+
+func carry_release(o: RaidEssence) -> void:
+	carried.erase(o)
+	o.carried = false
+
+
 func set_trance(active: bool) -> void:
 	trance_active = active
 	arena.set_trance_dim(active)
@@ -584,6 +674,7 @@ func show_trace_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
 	fb.score = int(g["score"])
 	fb.valid = g["valid"]
 	fx_root.add_child(fb)
+	_last_feedback = fb
 
 
 ## A released, scored circle: consume enclosed essence, raise one undead per mote
@@ -612,7 +703,11 @@ func perform_raise(g: Dictionary) -> void:
 		return
 	ledger_v2.on_raise(score, float(spec["fresh_mass"]), count)
 	first_raise_done = true
+	raises += 1
 	var tier := str(spec["tier"])
+	if _last_feedback != null and is_instance_valid(_last_feedback):
+		_last_feedback.raised_n = count
+		_last_feedback.raised_tier = tier
 	var mult := float(spec["stat_mult"])
 	var stats := RaidLogic.undead_stats(mult, tier, cfg)
 	var masses: Array = spec["unit_masses"]
@@ -671,7 +766,10 @@ func _build_result(exit: String) -> Dictionary:
 	for a in allies:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
-	var r := ledger_v2.build_result(seed_data, exit, survivors, party_died, 0, RaidLogic.empty_loot(), rcfg())
+	var loot := RaidLogic.empty_loot()
+	if exit == "retreated":
+		loot["essence"] = carried_count()  # banked: motes carried out
+	var r := ledger_v2.build_result(seed_data, exit, survivors, party_died, 0, loot, rcfg())
 	for e in Results.validate("raid", r):
 		push_error("necropolis: raid result invalid: " + e)
 	return r
@@ -679,6 +777,12 @@ func _build_result(exit: String) -> Dictionary:
 
 func _finish(result: Dictionary) -> void:
 	endings.finish(result)
+
+
+## RAID_TELEMETRY line (not part of the result dict).
+func telemetry_line() -> String:
+	return "RAID_TELEMETRY moves=%d raises=%d ratio=%.1f drifting=%s" % [moves, raises,
+		RaidLogic.drift_ratio(moves, raises), str(RaidLogic.is_drifting(moves, raises, rcfg()))]
 
 
 ## Standalone only (no router): write the result back to the open run and say what happened.

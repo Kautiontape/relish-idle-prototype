@@ -46,6 +46,12 @@ func finish(result: Dictionary) -> void:
 	ended = true
 	Engine.time_scale = 1.0
 	_raid.finished.emit(result)
+	var tele := ""
+	if not _raid.is_boss():
+		tele = _raid.telemetry_line()
+		print(tele)
 	if _raid._standalone:
+		if not _raid.is_boss():
+			print("RAID_RESULT_DICT ", JSON.stringify(result))
 		_raid.standalone_apply(result)
-		_raid.hud.show_result(result)
+		_raid.hud.show_result(result, tele)

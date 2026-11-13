@@ -7,7 +7,9 @@ var raid: Node = null
 var mass := 1.0
 var life := 12.0
 var absorbing := false
-var recycled := false   # mass that was already raised once: not fresh dead (later task sets it)
+var recycled := false   # mass that was already raised once: not fresh dead
+var carried := false    # in Relish's carried cluster (dungeon only)
+var carry_slot := 0
 
 var _t := 0.0
 var _pop := Vector2.ZERO
@@ -32,6 +34,10 @@ func _process(delta: float) -> void:
 		_absorb_step(delta)
 		queue_redraw()
 		return
+	if carried:
+		_carry_step(delta)
+		queue_redraw()
+		return
 	position += _pop * delta
 	_pop = _pop.move_toward(Vector2.ZERO, 220.0 * delta)
 	var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
@@ -39,9 +45,16 @@ func _process(delta: float) -> void:
 		var rp: Vector2 = raid.relish.global_position
 		var d := global_position.distance_to(rp)
 		var drift_r: float = float(e.get("drift_radius_px", 120.0))
-		if d < drift_r and d > raid.relish.radius + 10.0:
+		# a full cluster keeps loose motes outside the ring so its count stays readable
+		var stop_d: float = raid.relish.radius + 10.0
+		if raid.carry_room() <= 0:
+			stop_d = maxf(stop_d, float(e.get("carry_orbit_px", 24.0)) + 14.0)
+		if d < drift_r and d > stop_d:
 			var speed: float = float(e.get("drift_speed_px", 46.0)) * (1.3 - d / drift_r)
 			global_position = global_position.move_toward(rp, speed * delta)
+		if d <= float(e.get("gather_radius_px", 28.0)) and raid.carry_add(self):
+			queue_redraw()
+			return
 	life -= delta
 	if life <= 0.0:
 		queue_free()
@@ -51,9 +64,28 @@ func _process(delta: float) -> void:
 
 ## Consumed by a circle: streak into Relish, then vanish (units grow at her side).
 func absorb() -> void:
+	if carried and raid != null:
+		raid.carry_release(self)
 	absorbing = true
 	remove_from_group("raid_essence")
 	_absorb_speed = 90.0
+
+
+## A carried mote holds its slot on the ring around Relish: no decay, no drift.
+func _carry_step(delta: float) -> void:
+	if raid == null or raid.relish == null or not is_instance_valid(raid.relish) or not raid.relish.alive:
+		return
+	var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
+	var slots := maxi(1, int(e.get("carry_max", 12)))
+	var spin := 0.0 if Pulse.reduced_motion else _t * float(e.get("carry_spin_rad_s", 0.8))
+	var ang := -PI * 0.5 + TAU * carry_slot / float(slots) + spin
+	var target: Vector2 = raid.relish.global_position + Vector2(float(e.get("carry_orbit_px", 24.0)), 0).rotated(ang)
+	global_position = global_position.move_toward(target, 700.0 * delta)
+
+
+func _exit_tree() -> void:
+	if carried and raid != null:
+		raid.carry_release(self)
 
 
 func _absorb_step(delta: float) -> void:
@@ -77,6 +109,11 @@ func _draw() -> void:
 			draw_line(-dir * (8.0 + _absorb_speed * 0.04), Vector2.ZERO, Palette.c("essence", 0.5), 3.0)
 		draw_circle(Vector2.ZERO, 6.5, col)
 		draw_circle(Vector2.ZERO, 3.0, Palette.c("text", 0.9))
+		return
+	if carried:
+		# small and crisp so the ring reads as a count
+		draw_circle(Vector2.ZERO, 3.6, col)
+		draw_circle(Vector2.ZERO, 1.7, Palette.c("text", 0.9))
 		return
 	var r := 4.0 + 1.0 * pulse
 	if raid != null and raid.trance_active:
