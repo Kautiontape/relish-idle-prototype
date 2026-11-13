@@ -123,6 +123,8 @@ func _resolve_seed(args: Dictionary) -> Dictionary:
 		_from_run = false
 	else:
 		_from_run = true
+	if standalone and RaidAutopilot.enabled():
+		RaidAutopilot.apply_seed(sd)
 	for e in Results.validate("raid_seed", sd):
 		push_error("necropolis: raid seed invalid: " + e)
 	return sd
@@ -249,6 +251,8 @@ func _process(_delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if not _built or _ended:
 		return
+	if _dev != null:
+		_dev.physics_tick(delta)
 	arena.rebuild_grid(allies, enemies, relish)
 	if not is_boss():
 		endings.track_position()

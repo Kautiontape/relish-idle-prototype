@@ -129,6 +129,12 @@ func _complete(raised := true) -> void:
 		cooldown_left = 0.0
 
 
+## Dev autopilot (RaidAutopilot): what `_finish_trace` does after a drawn circle, without the trance
+## having been entered: the normal cooldown whether or not anything rose (and `free_next` honoured).
+func bot_raise_cooldown(raised := true) -> void:
+	_complete(raised)
+
+
 ## The antechamber's last chance: ready now, and the next completed raise starts no cooldown.
 func grant_free() -> void:
 	free_next = true

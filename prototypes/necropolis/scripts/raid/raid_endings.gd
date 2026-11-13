@@ -177,6 +177,8 @@ func finish(result: Dictionary) -> void:
 			print("RAID_RESULT_DICT ", JSON.stringify(result))
 			_print_standalone_result(result)
 		_raid.hud.show_result(result, tele)
+		if _raid._dev != null:
+			_raid._dev.on_finish(result)
 
 
 ## RAID_TELEMETRY line (not part of the result dict).

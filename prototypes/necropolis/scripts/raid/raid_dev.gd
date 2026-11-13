@@ -6,7 +6,8 @@ extends RefCounted
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-motes=N, --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
-## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest).
+## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
+## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -15,6 +16,7 @@ var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
 var _go := false                # --raid-warden-go autopilot
+var _ap: RaidAutopilot = null   # --raid-autopilot=<score>: the headless measuring bot
 var _perf := false
 var _perf_cpu: Array = []
 var _perf_gpu: Array = []
@@ -94,6 +96,9 @@ func start() -> void:
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	_go = cli_flag("--raid-warden-go")
+	if RaidAutopilot.enabled() and not _raid.is_boss():
+		_ap = RaidAutopilot.new(_raid)
+		_ap.start()
 	if cli_value("--raid-ding-chance=") != "":
 		var by_tier: Dictionary = ConfigDb.data["loot"]["ding"]["chance_by_tier"]
 		for k in by_tier.keys():
@@ -121,6 +126,18 @@ func tick() -> void:
 		_perf_sample(frame)
 	if _go and not _raid._ended:
 		_autopilot()
+
+
+## Hook 3: every physics frame of a live run (the measuring bot's think step).
+func physics_tick(delta: float) -> void:
+	if _ap != null:
+		_ap.physics_tick(delta)
+
+
+## Hook 4: the run ended (RaidEndings.finish); the bot prints its result line and quits.
+func on_finish(result: Dictionary) -> void:
+	if _ap != null:
+		_ap.on_finish(result)
 
 
 ## --raid-warden: Relish starts at the centre of the antechamber (nothing without one: held, boss).

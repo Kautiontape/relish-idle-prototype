@@ -291,6 +291,31 @@
       }
     }
   },
+  "autopilot": {
+    "think_frames": 3,
+    "max_s": 600.0,
+    "hold_px": 200.0,
+    "kite_px": 240.0,
+    "collect_px": 320.0,
+    "pile_px": 900.0,
+    "foe_clear_px": 90.0,
+    "retreat_step_px": 90.0,
+    "arrive_px": 30.0,
+    "stall_s": 20.0,
+    "idle_s": 60.0,
+    "bail_hp_frac": 0.0,
+    "min_motes": 3,
+    "raise_reach_px": 300.0,
+    "raise_pad_px": 14.0,
+    "trace_points": 44,
+    "trace_tries": 8,
+    "trace_amp_max": 0.6,
+    "score_tol": 5,
+    "dodge": 0.5,
+    "dodge_step_px": 60.0,
+    "bell_margin_px": 24.0,
+    "bell_enter_margin_s": 1.5
+  },
   "wardens": {
     "chest_open_px": 44.0,
     "victory_s": 1.5,
