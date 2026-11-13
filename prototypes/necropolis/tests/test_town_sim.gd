@@ -149,6 +149,34 @@ func _workforce() -> void:
 		t.near(mc, mf, 0.01 * maxf(mass, mf), "60 s steps match 0.5 s steps (muster mass): %s" % case["name"])
 		t.near(rot_c, rot_f, 0.01 * maxf(1.0, rot_f), "60 s steps match 0.5 s steps (rot): %s" % case["name"])
 
+	# the closed form w(t) = w_ss + (w0 − w_ss)·e^(−t/τ) under constant inflow, computed here from the
+	# config alone, so a formula that is wrong at every step size still fails
+	var r_a := 0.01  # workers/s: rL = 4.8, under the opening's 7 slots, so everyone stays staffed
+	for dt in [300.0, 0.5]:
+		var sa := _sim()
+		sa.workers = 2.0
+		for i in int(300.0 / dt):
+			sa.step(dt, _inp({"work_mass": r_a * mass * dt}))
+		var ss_a := r_a * life
+		t.near(sa.workers, ss_a + (2.0 - ss_a) * exp(-300.0 / life), 1e-9,
+			"all staffed: w = rL + (w0 − rL)e^(−t/L) after 300 s (dt %.1f)" % dt)
+	var sh := _sim()
+	sh.workers = 2.0
+	sh.step(300.0, _inp({"work_mass": r_a * mass * 300.0, "relish_home": true}))
+	var l_home := life / home_mult
+	t.near(sh.workers, r_a * l_home + (2.0 - r_a * l_home) * exp(-300.0 / l_home), 1e-9,
+		"home: the same closed form with lifetime / home_rot_mult")
+	var r_b := 0.012  # ladder [stall]: S = 2, rL = 5.76, so w_ss = S + (rL − S)/m = 9.52, inside S + C
+	for dt in [300.0, 0.5]:
+		var sb := _sim()
+		sb.ladder = ["stall"]
+		sb.workers = 5.0
+		for i in int(300.0 / dt):
+			sb.step(dt, _inp({"work_mass": r_b * mass * dt}))
+		var ss_b := 2.0 + (r_b * life - 2.0) / m
+		t.near(sb.workers, ss_b + (5.0 - ss_b) * exp(-300.0 * m / life), 1e-9,
+			"idle band: w = w_ss + (w0 − w_ss)e^(−t·m/L), w_ss = S + (rL − S)/m (dt %.1f)" % dt)
+
 	# rot returns bodies at worker.body_return (all staffed: rot = w (1 − e^(−dt/L)))
 	s = _sim()
 	s.ladder = ["stall"]
@@ -193,6 +221,9 @@ func _workforce() -> void:
 	var r := 0.5  # workers/s, far above what 17 rot away
 	o = s.step(2.0, _inp({"work_mass": r * mass * 2.0}))
 	t.near(float(o["muster_mass"]), (r - (slots + m * cap) / life) * 2.0 * mass, 1e-9, "at the cap the surplus inflow musters at r − (S + m·C) / L")
+	t.near(float(o["rates"]["workers"]["rot"]), (slots + m * cap) / life, 1e-12, "pinned: S staffed rot at 1/L and C idle at m/L")
+	t.near(float(o["rates"]["workers"]["in"]) * 2.0, float(o["rates"]["workers"]["rot"]) * 2.0 + float(o["muster_mass"]) / mass, 1e-12,
+		"pinned: inflow = rot + muster")
 	t.near(s.workers, slots + cap, 1e-9, "and the workforce stays pinned at S + idle_cap")
 	# conservation: in − rot − muster = Δworkers
 	s = _sim()
@@ -578,7 +609,9 @@ func _round_trip() -> void:
 	# settings changed after the last step (a command, a debug grant) must survive a load as saved
 	a.ladder = []
 	a.workers = 0.0
+	t.ok(a.start_construction("lot-07", "house", 1)["ok"], "a build is queued just before the save")
 	var d := a.to_dict()
+	t.ok(d["pending"].size() == 1 and d["pending"][0]["type"] == "building_started", "its building_started is saved as pending")
 	var text := JSON.stringify(d)
 	var b := TownSim.new()
 	b.setup(_cfgs())
@@ -593,7 +626,10 @@ func _round_trip() -> void:
 	for i in 200:
 		var inp := _inp({"forts": forts, "work_mass": 2.0, "held_villages": 1, "relics_available": 1})
 		a.step(0.5, inp)
-		b.step(0.5, inp)
+		var ob := b.step(0.5, inp)
+		if i == 0:
+			t.ok(ob["events"].any(func(e): return e["type"] == "building_started" and e["lot_id"] == "lot-07" and e["level"] is int),
+				"the loaded state returns the pending building_started from its first step")
 	t.ok(JSON.stringify(a.to_dict()) == JSON.stringify(b.to_dict()), "two loads of one dict step identically for 100 s")
 
 

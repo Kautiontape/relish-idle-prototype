@@ -19,7 +19,7 @@
     "level_costs": [{"gold": 180.0, "bone": 80.0, "relics": 0}, {"gold": 270.0, "bone": 120.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"pit": 2},
-    "effects": {"mint": 6.0, "burn": 0.6, "pits": 1}
+    "effects": {"pits": 1}
   },
   "charnel_house": {
     "cost": {"gold": 80.0, "bone": 30.0, "relics": 0},

@@ -36,43 +36,62 @@ const EPS := 1e-9
 const MAX_LEGS := 256  # convoy legs one step may run (a long catch-up step makes many trips)
 const MIN_TRIP_S := 0.01
 
-# ---- tunables, read once in setup() ----
+## Every config value TownSim reads, as "file.section.key" paths. setup() reads only these, and
+## tests/test_game_state_configs.gd asserts each one is present in res://configs, so the numbers
+## live in the configs alone. (Per-building keys are covered by the buildings.json shape test.)
+const REQUIRED := [
+	"economy.opening.workers", "economy.opening.bodies", "economy.opening.gold", "economy.opening.bone",
+	"economy.opening.living", "economy.opening.living_cap", "economy.opening.buildings",
+	"economy.worker.mass", "economy.worker.lifetime_s", "economy.worker.body_return",
+	"economy.worker.idle_rot_mult", "economy.worker.idle_cap", "economy.body_store.cap",
+	"economy.morale.base", "economy.morale.ease_per_s", "economy.morale.dread_ratio", "economy.morale.dread_k",
+	"economy.morale.leave_below", "economy.morale.shock_s",
+	"economy.job.default_ladder", "economy.job.haul.speed", "economy.job.haul.carry", "economy.job.haul.auto_min_dead",
+	"economy.job.mill.mass_per_s", "economy.job.mill.rate", "economy.job.forge.rate",
+	"economy.job.build.rate", "economy.job.build.slots",
+	"economy.stall.rate", "economy.market.shop_rate", "economy.market.price", "economy.pit.burn_per_s",
+	"economy.upkeep.unpaid_hold_s", "economy.forge.level_work", "economy.forge.level_relics",
+	"economy.town.migrant_rate", "economy.town.leave_rate",
+	"realm.relish.home_rot_mult", "realm.flip.haul_mult", "town.lots", "buildings",
+]
+
+# ---- tunables, read once in setup() from REQUIRED (no numbers here) ----
 var _lots: Array[String] = []  # town.json lot ids, in order
 var _defs := {}  # building id -> {jobs: {job: int}, effects: {}, upkeep_gold, upkeep_bone, build_work, max_level}
-var _open := {}
+var _start := {}  # economy.json opening: workers, bodies, gold, bone, living (floats), buildings {lot_id: id}
 var _default_ladder: Array[String] = []
-var _mass := 40.0
-var _lifetime := 480.0
-var _body_return := 0.25
-var _idle_rot := 0.5
-var _idle_cap := 10.0
-var _home_rot := 0.7
-var _body_cap := 200.0
-var _living_cap := 16.0
-var _haul_speed := 140.0
-var _carry := 14.0
-var _auto_min := 4.0
-var _haul_mult := 1.5
-var _mill_mass := 0.2
-var _mill_rate := 0.5
-var _forge_rate := 0.5
-var _build_rate := 0.5
-var _build_slots := 3
-var _stall_rate := 0.15
-var _shop_rate := 0.03
-var _price := 1.0
-var _burn := 0.6
-var _hold_s := 30.0
+var _mass := 0.0
+var _lifetime := 0.0
+var _body_return := 0.0
+var _idle_rot := 0.0
+var _idle_cap := 0.0
+var _home_rot := 0.0
+var _body_cap := 0.0
+var _living_cap := 0.0
+var _haul_speed := 0.0
+var _carry := 0.0
+var _auto_min := 0.0
+var _haul_mult := 0.0
+var _mill_mass := 0.0
+var _mill_rate := 0.0
+var _forge_rate := 0.0
+var _build_rate := 0.0
+var _build_slots := 0
+var _stall_rate := 0.0
+var _shop_rate := 0.0
+var _price := 0.0
+var _burn := 0.0
+var _hold_s := 0.0
 var _forge_work: Array[float] = []
 var _forge_relics: Array[int] = []
-var _migrant_rate := 0.012
-var _leave_rate := 0.004
-var _morale_base := 0.6
-var _ease := 0.005
-var _dread_ratio := 4.0
-var _dread_k := 0.05
-var _leave_below := 0.35
-var _shock_s := 600.0
+var _migrant_rate := 0.0
+var _leave_rate := 0.0
+var _morale_base := 0.0
+var _ease := 0.0
+var _dread_ratio := 0.0
+var _dread_k := 0.0
+var _leave_below := 0.0
+var _shock_s := 0.0
 
 # ---- state (to_dict / from_dict) ----
 var workers := 0.0  # workers
@@ -104,70 +123,84 @@ var _haul_trip := -1.0  # this step's landed trip, load / round trip (mass/s); -
 
 
 func setup(cfgs: Dictionary) -> void:
-	var eco := _d(cfgs.get("economy"))
-	var realm := _d(cfgs.get("realm"))
-	var worker := _d(eco.get("worker"))
-	var job := _d(eco.get("job"))
-	var hl := _d(job.get("haul"))
-	var ml := _d(job.get("mill"))
-	var morale_c := _d(eco.get("morale"))
-	var town := _d(eco.get("town"))
-	_open = _d(eco.get("opening")).duplicate(true)
-	_mass = maxf(EPS, float(worker.get("mass", 40.0)))
-	_lifetime = maxf(EPS, float(worker.get("lifetime_s", 480.0)))
-	_body_return = float(worker.get("body_return", 0.25))
-	_idle_rot = maxf(0.0, float(worker.get("idle_rot_mult", 0.5)))
-	_idle_cap = maxf(0.0, float(worker.get("idle_cap", 10.0)))
-	_home_rot = maxf(EPS, float(_d(realm.get("relish")).get("home_rot_mult", 0.7)))
-	_haul_mult = float(_d(realm.get("flip")).get("haul_mult", 1.5))
-	_body_cap = float(_d(eco.get("body_store")).get("cap", 200.0))
-	_living_cap = float(_open.get("living_cap", 16.0))
-	_haul_speed = float(hl.get("speed", 140.0))
-	_carry = float(hl.get("carry", 14.0))
-	_auto_min = float(hl.get("auto_min_dead", 4.0))
-	_mill_mass = float(ml.get("mass_per_s", 0.2))
-	_mill_rate = float(ml.get("rate", 0.5))
-	_forge_rate = float(_d(job.get("forge")).get("rate", 0.5))
-	_build_rate = float(_d(job.get("build")).get("rate", 0.5))
-	_build_slots = int(_d(job.get("build")).get("slots", 3))
-	_stall_rate = float(_d(eco.get("stall")).get("rate", 0.15))
-	_shop_rate = float(_d(eco.get("market")).get("shop_rate", 0.03))
-	_price = float(_d(eco.get("market")).get("price", 1.0))
-	_burn = float(_d(eco.get("pit")).get("burn_per_s", 0.6))
-	_hold_s = float(_d(eco.get("upkeep")).get("unpaid_hold_s", 30.0))
+	for k in ["workers", "bodies", "gold", "bone", "living"]:
+		_start[k] = _num(cfgs, "economy.opening." + k)
+	_start["buildings"] = _d(_at(cfgs, "economy.opening.buildings")).duplicate(true)
+	_living_cap = _num(cfgs, "economy.opening.living_cap")
+	_mass = maxf(EPS, _num(cfgs, "economy.worker.mass"))
+	_lifetime = maxf(EPS, _num(cfgs, "economy.worker.lifetime_s"))
+	_body_return = _num(cfgs, "economy.worker.body_return")
+	_idle_rot = maxf(0.0, _num(cfgs, "economy.worker.idle_rot_mult"))
+	_idle_cap = maxf(0.0, _num(cfgs, "economy.worker.idle_cap"))
+	_home_rot = maxf(EPS, _num(cfgs, "realm.relish.home_rot_mult"))
+	_haul_mult = _num(cfgs, "realm.flip.haul_mult")
+	_body_cap = _num(cfgs, "economy.body_store.cap")
+	_haul_speed = _num(cfgs, "economy.job.haul.speed")
+	_carry = _num(cfgs, "economy.job.haul.carry")
+	_auto_min = _num(cfgs, "economy.job.haul.auto_min_dead")
+	_mill_mass = _num(cfgs, "economy.job.mill.mass_per_s")
+	_mill_rate = _num(cfgs, "economy.job.mill.rate")
+	_forge_rate = _num(cfgs, "economy.job.forge.rate")
+	_build_rate = _num(cfgs, "economy.job.build.rate")
+	_build_slots = int(_num(cfgs, "economy.job.build.slots"))
+	_stall_rate = _num(cfgs, "economy.stall.rate")
+	_shop_rate = _num(cfgs, "economy.market.shop_rate")
+	_price = _num(cfgs, "economy.market.price")
+	_burn = _num(cfgs, "economy.pit.burn_per_s")
+	_hold_s = _num(cfgs, "economy.upkeep.unpaid_hold_s")
 	_forge_work = []
 	_forge_relics = []
-	var fc := _d(eco.get("forge"))
-	for w in fc.get("level_work", []):
+	for w in _arr(_at(cfgs, "economy.forge.level_work")):
 		_forge_work.append(float(w))
-	for r in fc.get("level_relics", []):
+	for r in _arr(_at(cfgs, "economy.forge.level_relics")):
 		_forge_relics.append(int(r))
 	while _forge_relics.size() < _forge_work.size():
 		_forge_relics.append(0)
-	_migrant_rate = float(town.get("migrant_rate", 0.012))
-	_leave_rate = float(town.get("leave_rate", 0.004))
-	_morale_base = float(morale_c.get("base", 0.6))
-	_ease = float(morale_c.get("ease_per_s", 0.005))
-	_dread_ratio = float(morale_c.get("dread_ratio", 4.0))
-	_dread_k = float(morale_c.get("dread_k", 0.05))
-	_leave_below = float(morale_c.get("leave_below", 0.35))
-	_shock_s = float(morale_c.get("shock_s", 600.0))
+	_migrant_rate = _num(cfgs, "economy.town.migrant_rate")
+	_leave_rate = _num(cfgs, "economy.town.leave_rate")
+	_morale_base = _num(cfgs, "economy.morale.base")
+	_ease = _num(cfgs, "economy.morale.ease_per_s")
+	_dread_ratio = _num(cfgs, "economy.morale.dread_ratio")
+	_dread_k = _num(cfgs, "economy.morale.dread_k")
+	_leave_below = _num(cfgs, "economy.morale.leave_below")
+	_shock_s = _num(cfgs, "economy.morale.shock_s")
 	_default_ladder = []
-	for j in job.get("default_ladder", JOBS):
+	for j in _arr(_at(cfgs, "economy.job.default_ladder")):
 		_default_ladder.append(str(j))
 	_lots = []
-	for l in cfgs.get("town", {}).get("lots", []):
-		_lots.append(str(l.get("id", "")))
+	for l in _arr(_at(cfgs, "town.lots")):
+		_lots.append(str(_d(l).get("id", "")))
 	_defs = {}
-	var bcfg := _d(cfgs.get("buildings"))
+	var bcfg := _d(_at(cfgs, "buildings"))
 	for id in bcfg:
 		var b := _d(bcfg[id])
 		var up := _d(b.get("upkeep"))
 		_defs[str(id)] = {
 			"jobs": _d(b.get("jobs")), "effects": _d(b.get("effects")),
 			"upkeep_gold": float(up.get("gold", 0.0)), "upkeep_bone": float(up.get("bone", 0.0)),
-			"build_work": float(b.get("build_work", 0.0)), "max_level": int(b.get("max_level", 1)),
+			"build_work": float(b.get("build_work", 0.0)), "max_level": int(b.get("max_level", 0)),
 		}
+
+
+## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
+static func _at(cfgs: Dictionary, path: String) -> Variant:
+	assert(REQUIRED.has(path), "TownSim reads %s; add it to REQUIRED" % path)
+	var v: Variant = cfgs
+	for k in path.split("."):
+		if not (v is Dictionary and (v as Dictionary).has(k)):
+			push_error("TownSim: config %s is missing" % path)
+			return null
+		v = v[k]
+	return v
+
+
+static func _num(cfgs: Dictionary, path: String) -> float:
+	var v: Variant = _at(cfgs, path)
+	return float(v) if v is float or v is int else 0.0
+
+
+static func _arr(v: Variant) -> Array:
+	return v if v is Array else []
 
 
 static func _d(v: Variant) -> Dictionary:
@@ -176,14 +209,14 @@ static func _d(v: Variant) -> Dictionary:
 
 ## BALANCE §0: the start buildings on their lots, the opening stocks and the default ladder.
 func new_game() -> void:
-	workers = float(_open.get("workers", 12.0))
-	bodies = float(_open.get("bodies", 40.0))
-	gold = float(_open.get("gold", 80.0))
-	bone = float(_open.get("bone", 30.0))
-	living = float(_open.get("living", 10.0))
+	workers = float(_start["workers"])
+	bodies = float(_start["bodies"])
+	gold = float(_start["gold"])
+	bone = float(_start["bone"])
+	living = float(_start["living"])
 	shock = 0.0
 	buildings = {}
-	var start := _d(_open.get("buildings"))
+	var start: Dictionary = _start["buildings"]
 	for lot_id in start:
 		place_building(str(lot_id), str(start[lot_id]), 1)
 	ladder = _default_ladder.duplicate()
@@ -752,7 +785,8 @@ func morale_target() -> float:
 
 
 # ---------------------------------------------------------- persistence ----
-## JSON-safe, floats canonical (SaveIO.canon), buildings in lot order.
+## JSON-safe, floats canonical (SaveIO.canon), buildings in lot order. `pending` holds the events
+## a command queued that no step() has returned yet (a building_started before a save).
 func to_dict() -> Dictionary:
 	var bl: Array = []
 	for lot_id in _lots:
@@ -769,6 +803,7 @@ func to_dict() -> Dictionary:
 		"workers": workers, "bodies": bodies, "gold": gold, "bone": bone, "living": living, "morale": morale, "shock": shock,
 		"buildings": bl, "ladder": ladder.duplicate(), "haul": {"current": str(haul["current"]), "convoys": cv},
 		"forge": {"level": int(forge["level"]), "progress": float(forge["progress"])}, "rates": rates.duplicate(true),
+		"pending": _pending.duplicate(true),
 	}
 	return SaveIO.canon(d)
 
@@ -797,7 +832,7 @@ func from_dict(d: Dictionary) -> void:
 	haul = {"current": str(h.get("current", "")), "convoys": []}
 	for c in h.get("convoys", []):
 		haul["convoys"].append({"fort": str(c.get("fort", "")), "phase": str(c.get("phase", "out")), "t": float(c.get("t", 0.0)),
-			"trip_s": float(c.get("trip_s", 1.0)), "load": float(c.get("load", 0.0)), "crew": float(c.get("crew", 0.0))})
+			"trip_s": float(c.get("trip_s", MIN_TRIP_S)), "load": float(c.get("load", 0.0)), "crew": float(c.get("crew", 0.0))})
 	var fg := _d(d.get("forge"))
 	forge = {"level": int(fg.get("level", 0)), "progress": float(fg.get("progress", 0.0))}
 	rates = _zero_rates()
@@ -806,6 +841,12 @@ func from_dict(d: Dictionary) -> void:
 		if rd.has(k):
 			rates[k] = rd[k].duplicate(true) if rd[k] is Dictionary else float(rd[k])
 	_pending = []
+	for e in d.get("pending", []):
+		if e is Dictionary:
+			var ev: Dictionary = e.duplicate(true)
+			if ev.has("level"):
+				ev["level"] = int(ev["level"])
+			_pending.append(ev)
 	_staff()
 
 

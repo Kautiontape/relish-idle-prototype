@@ -44,6 +44,15 @@ func run() -> int:
 		for key in needed[fname]:
 			t.ok(cfg.get(fname, {}).has(key), "config %s has key %s" % [fname, key])
 	t.ok(cfg["realm"]["field"].has("slice_budget_cells"), "realm.field.slice_budget_cells present")
+	# TownSim reads only these paths, with no numeric fallbacks, so each must be in the configs
+	var missing: Array = []
+	for path in TownSim.REQUIRED:
+		var v: Variant = cfg
+		for k in str(path).split("."):
+			v = (v as Dictionary).get(k, null) if v is Dictionary else null
+		if v == null:
+			missing.append(path)
+	t.ok(missing.is_empty() and TownSim.REQUIRED.size() > 30, "every TownSim.REQUIRED config path is present: missing %s" % [missing])
 	var realm_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/realm.json"))
 	var world_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/world.json"))
 	t.near(float(cfg["realm"]["R_vei"]), float(realm_direct["R_vei"]), 0.0, "realm.R_vei matches")
