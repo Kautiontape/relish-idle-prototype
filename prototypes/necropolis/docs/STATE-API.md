@@ -268,8 +268,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   7. **The ledger.**
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
   9. **The influence field** at `field.tick_hz`, time-sliced (owned by the ground unit after E1).
-     `field.advance(budget_cells)` is called once per `tick(dt)` call that ran a substep, after the
-     substep loop. `budget_cells` is `field.slice_budget_cells`: work units (field cells processed)
+     `field.advance(budget_cells)` is called once per `tick(dt)` call, after the
+     substep loop, whether or not a substep ran (not when `tick` returns early: paused, or `dt` not
+     finite or <= 0). `budget_cells` is `field.slice_budget_cells`: work units (field cells processed)
      per call, `0` = synchronous. Determinism holds because the field publishes only inside
      `field.tick()`: `advance()` only fills a back buffer from a snapshotted input, and `tick()`
      finishes any remainder synchronously, so frame cadence changes cost, never results.
