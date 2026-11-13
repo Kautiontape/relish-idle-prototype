@@ -171,6 +171,7 @@ func _on_refresh() -> void:
 	_rev = model.rev
 	ctx.forts = model.forts
 	ctx.vei = model.vei
+	ctx.readout = model.readout()
 	ctx.relish = model.relish
 	ctx.cov_pos = model.node_pos("covington")
 	ctx.vei_pos = model.node_pos("vei")

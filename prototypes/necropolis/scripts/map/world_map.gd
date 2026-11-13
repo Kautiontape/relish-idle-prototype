@@ -9,6 +9,7 @@ var world: Node2D
 var cam: MapCamera
 var nodes_view: MapNodes
 var routes_view: MapRoutes
+var callouts_view: MapCallouts
 var model: MapModel
 var hud: MapHud
 var sidebar: MapSidebar
@@ -73,6 +74,11 @@ func _build_world() -> void:
 	cam = MapCamera.new()
 	cam.name = "Camera2D"
 	cam.model = model
+	callouts_view = MapCallouts.new()
+	callouts_view.name = "Callouts"
+	callouts_view.model = model
+	callouts_view.cam = cam
+	world.add_child(callouts_view)
 	cam.clicked.connect(_on_clicked)
 	world.add_child(cam)
 	cam.make_current()

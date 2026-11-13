@@ -52,12 +52,19 @@ func refresh(force := false) -> bool:
 	for v in villages:
 		_villages_by_id[v["id"]] = v
 	if nodes_demo:
-		NodeLogic.demo_overlay(forts, vei, relish, node_pos(COVINGTON), flip_cfg)  # TODO(api E2): debug stand-in
+		NodeLogic.demo_overlay(forts, vei, hud, relish, node_pos(COVINGTON), flip_cfg)  # TODO(api E2): debug stand-in
 	if demo:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
 		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []), forts, hud)
 	return true
+
+
+## Whether they are winning: the one reading the top bar and Vei's node both draw. Odds, sign and
+## drain_s come from view_hud, the backlog from view_vei; the demo overlay writes the same two.
+func readout() -> Dictionary:
+	return {"odds": float(hud.get("odds", 0.0)), "sign": int(hud.get("sign", 0)),
+		"drain_s": float(hud.get("drain_s", -1.0)), "backlog": float(vei.get("backlog", 0.0))}
 
 
 static func to_vec(a) -> Vector2:

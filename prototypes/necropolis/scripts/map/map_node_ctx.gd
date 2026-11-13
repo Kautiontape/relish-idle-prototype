@@ -10,6 +10,7 @@ var zoom := 1.0
 var tier := "mid"
 var forts: Array = []
 var vei := {}
+var readout := {}  # MapModel.readout(): odds, sign, drain_s, backlog
 var vei_pos := Vector2.ZERO
 var vei_radius := 0.0
 var cov_pos := Vector2.ZERO

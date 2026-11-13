@@ -1,0 +1,104 @@
+class_name MapCallouts
+extends Node2D
+## Lane "why" callouts (VISUAL-LANGUAGE 2d): at mid and near zoom, a small dim plate near the
+## midpoint of each lane that carries a `why`, joined to the lane by a 1 px leader. Drawn in
+## screen pixels: the node is scaled by 1/zoom, so text is the same size at every zoom. The
+## layout (text, plate rects, greedy placement) is rebuilt only when the model's rev, the zoom
+## tier or the zoom changes, never per frame. Text and placement: scripts/map/hud_logic.gd.
+
+var model: MapModel
+var cam: MapCamera
+
+var _rev := -2
+var _tier := ""
+var _zoom := -1.0
+var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
+
+
+func _process(_delta: float) -> void:
+	if model == null or cam == null:
+		return
+	var z := cam.zoom.x
+	var eps: float = MapLogic.cfg()["callouts"]["zoom_eps"]
+	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps:
+		return
+	_rev = model.rev
+	_tier = cam.tier
+	_zoom = z
+	scale = Vector2.ONE / z
+	_layout(z)
+	queue_redraw()
+
+
+func _names() -> Dictionary:
+	var names := {MapModel.COVINGTON: "Covington", MapModel.VEI: "Vei"}
+	for f in model.forts:
+		names[str(f["id"])] = str(f["name"])
+	return names
+
+
+## The lane's curve point at t = 0.5, in world px (the quadratic's (a + 2c + b) / 4).
+func _mid(row: Dictionary) -> Vector2:
+	var from_id := str(row["from"])
+	var to_id := str(row["to"])
+	var c := MapLogic.lane_curve_for(row, model.node_pos(from_id), model.node_pos(to_id), 0.0)
+	return ((c["a"] as Vector2) + 2.0 * (c["c"] as Vector2) + (c["b"] as Vector2)) * 0.25
+
+
+func _layout(z: float) -> void:
+	_shown.clear()
+	if _tier == "far":
+		return
+	var cfg: Dictionary = MapLogic.cfg()["callouts"]
+	var size_px := int(cfg["size_px"])
+	var pad := float(cfg["pad_px"])
+	var off: Array = cfg["offset_px"]
+	var names := _names()
+	var rows: Array = []
+	for r in HudLogic.callout_rows(model.lanes):
+		if model.has_node(str(r["from"])) and model.has_node(str(r["to"])):
+			rows.append(r)
+	var items: Array = []
+	var options: Array = []
+	var lf := MapType.label_font()
+	var rf := MapType.rate_font()
+	for r in rows:
+		var p := HudLogic.callout_parts(r, names)
+		var hw := lf.get_string_size(p["head"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var rw := rf.get_string_size(p["rate"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var tw := lf.get_string_size(p["tail"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+		var text_h := maxf(lf.get_height(size_px), rf.get_height(size_px))
+		var size := Vector2(hw + rw + tw + pad * 2.0, text_h + pad * 2.0)
+		var anchor := _mid(r) * z
+		items.append({"parts": p, "anchor": anchor, "hw": hw, "rw": rw, "text_h": text_h})
+		options.append(HudLogic.candidate_rects(anchor, size, Vector2(float(off[0]), float(off[1]))))
+	var picks := HudLogic.place(options, int(cfg["max_count"]), float(cfg["gap_px"]))
+	for i in items.size():
+		if picks[i] < 0:
+			continue
+		var plate: Rect2 = options[i][picks[i]]
+		var it: Dictionary = items[i]
+		_shown.append({"plate": plate, "from": it["anchor"], "to": HudLogic.leader_end(plate, it["anchor"]),
+			"head": it["parts"]["head"], "rate": it["parts"]["rate"], "tail": it["parts"]["tail"],
+			"hw": it["hw"], "rw": it["rw"], "text_h": it["text_h"]})
+
+
+func _draw() -> void:
+	if _shown.is_empty():
+		return
+	var cfg: Dictionary = MapLogic.cfg()["callouts"]
+	var size_px := int(cfg["size_px"])
+	var pad := float(cfg["pad_px"])
+	var bg := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	bg.a = float(cfg["plate_alpha"])
+	var lf := MapType.label_font()
+	var rf := MapType.rate_font()
+	for s in _shown:
+		var plate: Rect2 = s["plate"]
+		draw_line(s["from"], s["to"], Palette.c("text_dim"), float(cfg["leader_width_px"]))
+		draw_rect(plate, bg)
+		draw_rect(plate, Palette.c("contour", float(MapLogic.cfg()["panel_border_alpha"])), false, 1.0)
+		var base := plate.position + Vector2(pad, pad + maxf(lf.get_ascent(size_px), rf.get_ascent(size_px)))
+		draw_string(lf, base, s["head"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Palette.c("text_dim"))
+		draw_string(rf, base + Vector2(float(s["hw"]), 0.0), s["rate"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Palette.c("text"))
+		draw_string(lf, base + Vector2(float(s["hw"]) + float(s["rw"]), 0.0), s["tail"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, Palette.c("text_dim"))

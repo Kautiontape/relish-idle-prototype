@@ -469,7 +469,7 @@ static func village_edge_key(owner: String) -> String:
 ## pulse, a simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json
 ## "demo_nodes". Relish stands still (speed 0) so her place holds between refreshes.
 # TODO(api E2): debug stand-in
-static func demo_overlay(forts: Array, vei: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
+static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
 	var d: Dictionary = MapLogic.cfg().get("demo_nodes", {})
 	var by_id := {}
 	for f in forts:
@@ -507,9 +507,10 @@ static func demo_overlay(forts: Array, vei: Dictionary, relish: Dictionary, cov_
 	var vd: Dictionary = d.get("vei", {})
 	if not vd.is_empty():
 		vei["backlog"] = float(vd["backlog"])
-		vei["sign"] = int(vd["sign"])
-		vei["drain_s"] = float(vd["drain_s"])
-		vei["odds"] = float(vd["odds"])
+		# the reading lives in view_hud (MapModel.readout); Vei's node and the top bar share it
+		hud["sign"] = int(vd["sign"])
+		hud["drain_s"] = float(vd["drain_s"])
+		hud["odds"] = float(vd["odds"])
 
 
 ## A trail of `n` wake points behind `pos` along `heading`, newest last, spread over the
