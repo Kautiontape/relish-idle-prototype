@@ -31,30 +31,62 @@ func _init() -> void:
 		if a == "--slow":
 			slow = true
 		elif a.begins_with("--only="):
-			for n in a.trim_prefix("--only=").split(",", false):
+			var items := a.trim_prefix("--only=").split(",")
+			for n in items:
+				if n.strip_edges() == "":
+					printerr("unknown arg: %s (--only needs a non-empty comma-separated list of suite names)" % a)
+					quit(2)
+					return
 				only.append(n.strip_edges())
-	var suites := _discover(slow)
+		else:
+			printerr("unknown arg: %s (expected --slow or --only=a,b)" % a)
+			quit(2)
+			return
+	var fast := _discover(TEST_DIR, true)
+	var slow_suites := _discover(SLOW_DIR, false)
+	var by_name := {}
+	for p in fast + slow_suites:
+		var nm := _suite_name(p)
+		if by_name.has(nm):
+			printerr("Suite name '%s' is ambiguous: %s and %s" % [nm, by_name[nm], p])
+			quit(1)
+			return
+		by_name[nm] = p
+	var suites: Array[String] = fast.duplicate()
+	if slow:
+		suites.append_array(slow_suites)
 	if not only.is_empty():
-		var known := {}
-		for p in suites:
-			known[_suite_name(p)] = p
 		var unknown: Array[String] = []
+		var slow_only: Array[String] = []
 		var picked: Array[String] = []
 		for n in only:
 			var key := n.trim_suffix(".gd").trim_prefix("test_")
-			if known.has(key):
-				if not picked.has(known[key]):
-					picked.append(known[key])
-			else:
+			if not by_name.has(key):
 				unknown.append(n)
-		if picked.is_empty() or not unknown.is_empty():
-			printerr("Unknown suite(s): %s" % ", ".join(unknown))
+			elif not slow and slow_suites.has(by_name[key]):
+				slow_only.append(n)
+			elif not picked.has(by_name[key]):
+				picked.append(by_name[key])
+		if not unknown.is_empty() or not slow_only.is_empty():
+			if not unknown.is_empty():
+				printerr("Unknown suite(s): %s" % ", ".join(unknown))
+			for n in slow_only:
+				printerr("'%s' is a slow suite; add --slow" % n)
 			quit(1)
 			return
 		suites = picked.duplicate()
 		suites.sort_custom(func(x, y): return _order(x) < _order(y))
 	print("Running %d suite(s)" % suites.size())
 	OS.add_logger(errors)
+	if not slow:
+		# Slow suites do not run by default, but they must still compile.
+		for p in slow_suites:
+			var before := errors.count
+			var sc = load(p)
+			if sc == null or not sc.can_instantiate():
+				printerr("  FAIL slow suite does not compile: %s" % p)
+				failures += 1
+			failures += errors.count - before
 	for p in suites:
 		var before := errors.count
 		failures += _run_suite(p)
@@ -92,17 +124,12 @@ func _order(p: String) -> String:
 	return ("1" if p.begins_with(SLOW_DIR) else "0") + p
 
 
-func _discover(slow: bool) -> Array[String]:
+func _discover(dir: String, require_prefix: bool) -> Array[String]:
 	var out: Array[String] = []
-	for f in DirAccess.get_files_at(TEST_DIR):
-		if f.begins_with("test_") and f.ends_with(".gd"):
-			out.append("%s/%s" % [TEST_DIR, f])
+	if not DirAccess.dir_exists_absolute(dir):
+		return out
+	for f in DirAccess.get_files_at(dir):
+		if f.ends_with(".gd") and (f.begins_with("test_") or not require_prefix):
+			out.append("%s/%s" % [dir, f])
 	out.sort()
-	if slow and DirAccess.dir_exists_absolute(SLOW_DIR):
-		var extra: Array[String] = []
-		for f in DirAccess.get_files_at(SLOW_DIR):
-			if f.ends_with(".gd"):
-				extra.append("%s/%s" % [SLOW_DIR, f])
-		extra.sort()
-		out.append_array(extra)
 	return out

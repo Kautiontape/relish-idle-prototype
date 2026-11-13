@@ -2,7 +2,8 @@ extends RefCounted
 ## GameState.load_configs: the one shared config loader (ConfigDb and the
 ## headless suites both use it).
 
-const TMP := "user://t02_cfg"
+## Per-process, so concurrent runs (other worktrees) cannot collide.
+var TMP := "user://t02_cfg_%d" % OS.get_process_id()
 
 
 func _write(path: String, text: String) -> void:
@@ -16,6 +17,7 @@ func _rm_tree(path: String) -> void:
 	var d := DirAccess.open(path)
 	if d == null:
 		return
+	d.include_hidden = true
 	for sub in d.get_directories():
 		_rm_tree(path + "/" + sub)
 	for fn in d.get_files():
@@ -27,7 +29,9 @@ func run() -> int:
 	var t := TestUtil.new()
 	t.suite("game_state_configs")
 
-	var cfg := GameState.load_configs("res://configs")
+	var real_errors: Array = []
+	var cfg := GameState.load_configs("res://configs", real_errors)
+	t.ok(real_errors.is_empty(), "res://configs loads with no duplicates or parse errors: %s" % [real_errors])
 	for k in ["realm", "world", "raid", "town", "circle", "palette", "pulse"]:
 		t.ok(cfg.has(k), "has key %s" % k)
 		var direct = JSON.parse_string(FileAccess.get_file_as_string("res://configs/%s.json" % k))
@@ -46,11 +50,16 @@ func run() -> int:
 	_write(TMP + "/bad.json", "{not json")
 	_write(TMP + "/.hidden/secret.json", '{"x": 1}')
 	_write(TMP + "/ok.json", '{"v": 2}')
-	var got := GameState.load_configs(TMP)
+	var errs: Array = []
+	var got := GameState.load_configs(TMP, errs)
 	_rm_tree(TMP)
+	t.ok(not DirAccess.dir_exists_absolute(TMP), "fixture dir fully removed (incl. dot-dirs)")
+	t.ok(errs.size() == 2, "exactly two load errors reported, got %d: %s" % [errs.size(), errs])
+	t.ok(errs.any(func(e): return "duplicate config 'dup'" in e and "/b/dup.json" in e), "duplicate reported, naming the ignored file")
+	t.ok(errs.any(func(e): return "failed to parse" in e and "bad.json" in e), "bad JSON reported")
 	t.ok(got.has("dup") and got["dup"]["who"] == "a", "duplicate basename keeps the first in sorted order")
 	t.ok(not got.has("bad"), "unparseable file skipped")
-	t.ok(not got.has("secret"), "dot-directories skipped")
+	t.ok(not got.has("secret"), "dot-directories skipped (loader walks hidden entries, so only its guard skips them)")
 	t.ok(got.has("ok") and int(got["ok"]["v"]) == 2, "sibling files still load")
 	t.ok(got.size() == 2, "only dup and ok loaded")
 	return t.failures

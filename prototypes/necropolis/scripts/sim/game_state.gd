@@ -11,29 +11,35 @@ extends RefCounted
 ## Files are walked in sorted order so the result is deterministic. On a
 ## basename collision the first file wins and an error names both paths.
 ## A file that fails to parse is reported and skipped. A missing dir is {}.
-static func load_configs(dir: String) -> Dictionary:
+## Each duplicate or parse failure also appends one string to `errors`, so
+## callers (the test suite) can fail on them.
+static func load_configs(dir: String, errors: Array = []) -> Dictionary:
 	var out := {}
 	var paths := {}
-	_load_into(dir, out, paths)
+	_load_into(dir, out, paths, errors)
 	return out
 
 
-static func _load_into(dir: String, out: Dictionary, paths: Dictionary) -> void:
+static func _load_into(dir: String, out: Dictionary, paths: Dictionary, errors: Array) -> void:
 	var d := DirAccess.open(dir)
 	if d == null:
 		return
+	d.include_hidden = true  # so the "." guards below, not the OS filter, skip dot entries
 	var files := Array(d.get_files())
 	files.sort()
 	for f: String in files:
-		if not f.ends_with(".json"):
+		if f.begins_with(".") or not f.ends_with(".json"):
 			continue
 		var p := dir.path_join(f)
 		var key := f.trim_suffix(".json")
 		if out.has(key):
-			push_error("GameState.load_configs: duplicate config '%s': keeping %s, ignoring %s" % [key, paths[key], p])
+			var msg := "duplicate config '%s': keeping %s, ignoring %s" % [key, paths[key], p]
+			errors.append(msg)
+			push_error("GameState.load_configs: " + msg)
 			continue
 		var parsed = JSON.parse_string(FileAccess.get_file_as_string(p))
 		if parsed == null:
+			errors.append("failed to parse %s" % p)
 			push_error("GameState.load_configs: failed to parse %s" % p)
 			continue
 		out[key] = parsed
@@ -42,4 +48,4 @@ static func _load_into(dir: String, out: Dictionary, paths: Dictionary) -> void:
 	subs.sort()
 	for s: String in subs:
 		if not s.begins_with("."):
-			_load_into(dir.path_join(s), out, paths)
+			_load_into(dir.path_join(s), out, paths, errors)
