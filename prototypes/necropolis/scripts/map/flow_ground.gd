@@ -343,6 +343,8 @@ func upload_lanes() -> void:
 ## a to b with control point c. Mirrors map_routes.gd (the map unit's): the bow
 ## bends left of travel with the control point `bow`·chord off the midpoint, the
 ## width is Pulse's 1.1 + 2.6u. A route is live above Pulse's rate_off.
+## TODO(api-request #1): read lane endpoints from view_lanes() and the bow and
+## gutter offset from a shared config key, so the moat can't drift off the lanes.
 static func lanes(realm: RealmSim, bow: float) -> Array:
 	var out: Array = []
 	var add := func(a: Vector2, b: Vector2, rate: float, gutter: float) -> void:
