@@ -47,7 +47,7 @@ func _process(delta: float) -> void:
 		var drift_r: float = float(e.get("drift_radius_px", 120.0))
 		# a full cluster keeps loose motes outside the ring so its count stays readable
 		var stop_d: float = raid.relish.radius + 10.0
-		if raid.carry_room() <= 0:
+		if not raid.is_boss() and raid.carry_room() <= 0:
 			stop_d = maxf(stop_d, float(e.get("carry_orbit_px", 24.0)) + 14.0)
 		if d < drift_r and d > stop_d:
 			var speed: float = float(e.get("drift_speed_px", 46.0)) * (1.3 - d / drift_r)
@@ -76,9 +76,7 @@ func _carry_step(delta: float) -> void:
 	if raid == null or raid.relish == null or not is_instance_valid(raid.relish) or not raid.relish.alive:
 		return
 	var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
-	var slots := maxi(1, int(e.get("carry_max", 12)))
-	var spin := 0.0 if Pulse.reduced_motion else _t * float(e.get("carry_spin_rad_s", 0.8))
-	var ang := -PI * 0.5 + TAU * carry_slot / float(slots) + spin
+	var ang: float = raid.carry_angle(carry_slot)
 	var target: Vector2 = raid.relish.global_position + Vector2(float(e.get("carry_orbit_px", 24.0)), 0).rotated(ang)
 	global_position = global_position.move_toward(target, 700.0 * delta)
 

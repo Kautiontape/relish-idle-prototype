@@ -30,6 +30,7 @@ var army_lost := {"soldier": 0, "elite": 0}
 var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
 var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
+var _carry_t := 0.0
 var _last_feedback: RaidTraceFeedback = null
 
 var arena: RaidArena = null
@@ -353,6 +354,7 @@ func _post_physics(_delta: float) -> void:
 func _process(_delta: float) -> void:
 	if not _built:
 		return
+	_carry_t += _delta
 	var frame := Engine.get_process_frames()
 	if _autoexit >= 0 and frame >= _autoexit and not _ended:
 		_autoexit = -1
@@ -632,6 +634,14 @@ func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
 
 
 # --- carried cluster ---
+## Angle of a clock slot; one shared spin so every mote and tick turns together.
+func carry_angle(slot: int) -> float:
+	var e: Dictionary = rcfg().get("essence", {})
+	var slots := maxi(1, int(e.get("carry_max", 12)))
+	var spin := 0.0 if Pulse.reduced_motion else _carry_t * float(e.get("carry_spin_rad_s", 0.8))
+	return -PI * 0.5 + TAU * slot / float(slots) + spin
+
+
 func carried_count() -> int:
 	return carried.size()
 

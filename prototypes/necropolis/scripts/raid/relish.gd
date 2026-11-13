@@ -78,6 +78,17 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, radius, body)
 	LineGlow.ring(self, Vector2.ZERO, radius + 3.5, violet, 2.0, beat, Palette.c("text", 0.6))
 	draw_circle(Vector2.ZERO, radius * 0.4, Palette.c("text", 0.9))
+	if raid != null and not raid.is_boss() and raid.carried_count() > 0:
+		# empty carry slots: faint matte ticks, so "7 of 12" reads at a glance
+		var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
+		var used := {}
+		for c in raid.carried:
+			used[c.carry_slot] = true
+		for i in int(e.get("carry_max", 12)):
+			if not used.has(i):
+				var dir := Vector2.RIGHT.rotated(raid.carry_angle(i))
+				var orbit := float(e.get("carry_orbit_px", 24.0))
+				draw_line(dir * (orbit - 2.0), dir * (orbit + 2.0), Palette.c("essence", 0.28), 1.5)
 	if _iframes > 0.0:
 		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Palette.c("danger", 0.6), 2.0)
 	if hp < max_hp:
