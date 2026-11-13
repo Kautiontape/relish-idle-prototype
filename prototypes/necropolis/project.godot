@@ -12,6 +12,7 @@ config/features=PackedStringArray("4.7")
 ConfigDb="*res://autoload/config_db.gd"
 Game="*res://autoload/game.gd"
 Shot="*res://autoload/shot.gd"
+Pulse="*res://autoload/pulse.gd"
 
 [display]
 

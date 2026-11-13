@@ -1,0 +1,7 @@
+{
+  "widths": [10.0, 6.0, 3.0, 1.5],
+  "alphas": [0.10, 0.22, 0.65, 1.0],
+  "arc_segment_px": 6.0,
+  "arc_segments_min": 8,
+  "arc_segments_max": 128
+}

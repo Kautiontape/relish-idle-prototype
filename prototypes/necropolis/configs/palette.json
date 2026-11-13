@@ -1,0 +1,15 @@
+{
+  "ground": "#05060A",
+  "undead": "#39FF9E",
+  "undead_core": "#C9FFE8",
+  "living": "#FF6A2B",
+  "dead": "#6E6A7E",
+  "dead_lit": "#997FB0",
+  "town": "#3E5C8F",
+  "relish": "#C04CFF",
+  "vei": "#FFF3D0",
+  "danger": "#FF2D55",
+  "graticule": "#12182A",
+  "contour": "#1E2A45",
+  "front": "#3E5C8F"
+}
