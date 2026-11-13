@@ -39,53 +39,20 @@ func _rel(t: TestUtil, got: float, want: float, msg: String) -> void:
 	t.ok(absf(got - want) <= 1e-6 * maxf(1.0, absf(want)), "%s (%s vs %s)" % [msg, str(got), str(want)])
 
 
-func _check_golden(t: TestUtil, s: GameState, tag: String) -> void:
-	var v: Dictionary = s.realm.vei
-	var l := 0.0
-	var d := 0.0
-	var u := 0.0
-	for f in s.realm.forts:
-		l += f["living"]
-		d += f["dead"]
-		u += f["undead"]
-	var fs := [0.0, 0.0, 0.0]
-	for x in s.field.green:
-		fs[0] += x
-	for x in s.field.orange:
-		fs[1] += x
-	for x in s.field.entrench:
-		fs[2] += x
-	_rel(t, v["undead_queue"], 0.0, tag + " undead_queue")
-	_rel(t, v["dead_queue"], 0.0, tag + " dead_queue")
-	_rel(t, v["living_pool"], 599.9570080097985, tag + " living_pool")
-	_rel(t, l, 2868.0327421751444, tag + " forts living")
-	_rel(t, d, 151.31843753977864, tag + " forts dead")
-	_rel(t, u, 91.09017048540989, tag + " forts undead")
-	_rel(t, s.res["gold"], 243.36510000000152, tag + " gold")
-	_rel(t, s.res["materials"], 30.000000000000682, tag + " materials")
-	_rel(t, s.res["bodies"], 280.71001190347215, tag + " bodies")
-	_rel(t, s.res["townsfolk"], 16.87600000000026, tag + " townsfolk")
-	t.ok(s.green_towns == 1, tag + " green_towns")
-	t.ok(s.gather["phase"] == "out", tag + " gather phase")
-	_rel(t, fs[0], 283.3603042630535, tag + " field green sum")
-	_rel(t, fs[1], 1010.8601058052695, tag + " field orange sum")
-	_rel(t, fs[2], -4763.510489614215, tag + " field entrench sum")
-
-
 func run() -> int:
 	var t := TestUtil.new()
 	t.suite("game-state")
 
-	# --- golden parity (numbers captured from the old Game._tick(0.5) x 1200) ---
+	# --- stepped and bulk ticking agree. (The E1 golden parity numbers, captured from the old
+	# Game._tick, retired once ground's approved one-substep field lag moved them; E2a replaces
+	# the legacy economy they pinned.) ---
 	var a := _mk()
 	_precondition(a)
 	for i in 1200:
 		a.tick(0.5)
-	_check_golden(t, a, "stepped")
 	var b := _mk()
 	_precondition(b)
 	t.ok(b.tick(600.0) == 1200, "tick(600) uncapped runs 1200 substeps")
-	_check_golden(t, b, "bulk")
 	t.ok(a.res["gold"] == b.res["gold"] and a.realm.vei["living_pool"] == b.realm.vei["living_pool"],
 		"stepped and bulk ticking agree exactly")
 
