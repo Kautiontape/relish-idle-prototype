@@ -16,5 +16,5 @@
   },
   "relics": { "cap": 12 },
   "essence": { "cap": 60 },
-  "big_undead": { "cap": 1 }
+  "big_undead": { "cap": 2 }
 }

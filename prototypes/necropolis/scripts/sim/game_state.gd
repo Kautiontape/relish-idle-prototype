@@ -593,7 +593,10 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 			"gold", "bodies", "living":
 				var store: String = "townsfolk" if k == "living" else k
 				var old: float = res[store]
-				res[store] = maxf(0.0, old + v)
+				var hi := INF
+				if k == "living":
+					hi = float(_sec("economy", "opening").get("living_cap", INF))
+				res[store] = clampf(old + v, 0.0, maxf(hi, 0.0))
 				applied[k] = res[store] - old
 			"bone":
 				var old: float = res["materials"]
@@ -606,7 +609,7 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 			"workers":
 				var old := idle_undead
 				idle_undead = maxi(0, int(old + v))
-				applied[k] = idle_undead - old
+				applied[k] = float(idle_undead - old)
 			"relics":
 				var old := relics
 				relics = clampi(old + int(v), 0, _cap_of("relics"))
@@ -624,9 +627,11 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 					minted.append(_mint_remnant())
 				applied[k] = int(v)
 			"big_undead":
-				for i in int(v):
+				var room := maxi(0, _cap_of("big_undead") - big_undead.size())
+				var n := mini(int(v), room)
+				for i in n:
 					minted.append(_mint_big_undead())
-				applied[k] = int(v)
+				applied[k] = n
 	applied["minted"] = minted
 	rev += 1
 	return {"ok": true, "reason": "", "key": "", "applied": applied}
@@ -674,7 +679,7 @@ func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
 			"valve":
 				good = _valid_valve(v)
 			"forge_level":
-				good = _is_num(v) and float(v) >= 0.0
+				good = _is_count(v)
 			"forts":
 				good = _valid_forts(v)
 		if not good:

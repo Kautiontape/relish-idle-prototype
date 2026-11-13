@@ -134,7 +134,7 @@ func run() -> int:
 	r = g.cmd_debug_set_state({"time_scale": 0})
 	t.ok(r["reason"] == "bad_value" and g.time_scale == 10.0, "non-positive time_scale refused")
 	r = g.cmd_debug_grant({"workers": 7.9})
-	t.ok(g.idle_undead == 13 and g.idle_undead is int and r["applied"]["workers"] == 7, "workers grant adds, ints truncated")
+	t.ok(g.idle_undead == 13 and g.idle_undead is int and r["applied"]["workers"] == 7.0 and r["applied"]["workers"] is float, "workers grant adds, ints truncated")
 	g.cmd_debug_grant({"gold": -9999})
 	t.ok(g.res["gold"] == 0.0, "clamped at 0")
 	r = g.cmd_debug_grant({"gold": 5.5})

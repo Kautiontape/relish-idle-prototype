@@ -234,7 +234,7 @@ func run() -> int:
 	t.near(s.res["townsfolk"], before["liv"] + 3.0, 1e-9, "living lands on townsfolk")
 	t.ok(s.idle_undead == before["w"] + 20, "workers land on idle_undead")
 	t.near(s.realm.vei["undead_queue"], 18000.0, 1e-9, "backlog lands on vei.undead_queue")
-	t.ok(r["applied"]["gold"] == 500.0 and r["applied"]["workers"] == 20 and r["applied"]["backlog"] == 18000.0, "applied echoes the deltas")
+	t.ok(r["applied"]["gold"] == 500.0 and r["applied"]["workers"] == 20.0 and r["applied"]["workers"] is float and r["applied"]["backlog"] == 18000.0, "applied echoes the deltas")
 	r = s.cmd_debug_grant({"relics": 100, "essence": 1000})
 	t.ok(s.relics == 12 and s.essence == 60 and r["applied"]["relics"] == 12 and r["applied"]["essence"] == 60, "relics and essence clamp to their caps")
 	r = s.cmd_debug_grant({"relics": -100, "gold": -1.0e9})
@@ -243,10 +243,29 @@ func run() -> int:
 	s.cmd_debug_grant({"backlog": -1.0e9})
 	t.ok(s.realm.vei["undead_queue"] == 0.0, "backlog floored at 0")
 
+	# --- debug: caps on big_undead and living, forge_level type ---
+	s = _mk()
+	s.debug_enabled = true
+	r = s.cmd_debug_grant({"big_undead": 5})
+	t.ok(r["ok"] and s.big_undead.size() == 2 and r["applied"]["big_undead"] == 2 and r["applied"]["minted"].size() == 2,
+		"big_undead mints only up to the cap (2)")
+	s = _mk()
+	s.debug_enabled = true
+	s.cmd_debug_grant({"big_undead": 1})
+	r = s.cmd_debug_grant({"big_undead": 5})
+	t.ok(s.big_undead.size() == 2 and r["applied"]["big_undead"] == 1, "existing count counts toward the cap")
+	r = s.cmd_debug_grant({"living": 1000.0})
+	t.ok(s.res["townsfolk"] == 16.0 and r["applied"]["living"] == 6.0, "living clamps to opening.living_cap")
+	rv = s.rev
+	r = s.cmd_debug_set_state({"forge_level": 1.5})
+	t.ok(r["reason"] == "bad_value" and r["key"] == "forge_level" and s.town["forge_level"] == 0 and s.rev == rv,
+		"forge_level 1.5 refused, nothing changes")
+
 	# --- debug: minting ---
 	s = _mk()
 	s.debug_enabled = true
 	r = s.cmd_debug_grant({"husks": 3, "remnants": 4, "big_undead": 2})
+	t.ok(s.cmd_debug_grant({"big_undead": 5})["applied"] == {"big_undead": 0, "minted": []}, "big_undead at its cap mints nothing")
 	var m: Array = r["applied"]["minted"]
 	t.ok(r["ok"] and m.size() == 9 and r["applied"]["husks"] == 3 and r["applied"]["remnants"] == 4, "nine items minted")
 	var seen := {}
