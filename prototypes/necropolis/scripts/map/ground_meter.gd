@@ -113,14 +113,15 @@ func _process(delta: float) -> void:
 func _stats(arr: PackedFloat32Array) -> Dictionary:
 	var v := Array(arr).filter(func(x): return x > 0.0)
 	if v.is_empty():
-		return {"mean": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0, "n": 0}
+		return {"mean": 0.0, "p50": 0.0, "p95": 0.0, "p99": 0.0, "p999": 0.0, "max": 0.0, "over4": 0, "n": 0}
 	v.sort()
 	var sum := 0.0
 	for x in v:
 		sum += x
 	var n := v.size()
 	return {"mean": sum / n, "p50": v[int(0.5 * (n - 1))], "p95": v[int(0.95 * (n - 1))],
-		"p99": v[int(0.99 * (n - 1))], "max": v[n - 1], "n": n}
+		"p99": v[int(0.99 * (n - 1))], "p999": v[int(0.999 * (n - 1))], "max": v[n - 1],
+		"over4": v.filter(func(x): return x > 4.0).size(), "n": n}
 
 
 func _run_bench(ms: float) -> void:
@@ -190,10 +191,10 @@ func _report() -> void:
 		return s / a.size()
 	var vs := get_viewport().get_visible_rect().size
 	var gc: Array = _bsamples["gcpu"]
-	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu(+history)=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
+	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f p99.9=%.3f max=%.3f over4ms=%d | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu(+history)=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
 		view.mode, "+reduced" if Pulse.reduced_motion else "", "+grey" if view.is_grey() else "",
 		"+bare" if _bare else "", f["n"],
-		f["mean"], f["p50"], f["p95"], f["p99"], f["max"],
+		f["mean"], f["p50"], f["p95"], f["p99"], f["p999"], f["max"], f["over4"],
 		mean.call("mcpu"), mean.call("mgpu"), mean.call("tcpu"), mean.call("tgpu"),
 		mean.call("gcpu"), gc.max() if not gc.is_empty() else 0.0, view.detail(), int(vs.x), int(vs.y), str(DisplayServer.window_get_size()),
 		"off" if DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_DISABLED else "on",
