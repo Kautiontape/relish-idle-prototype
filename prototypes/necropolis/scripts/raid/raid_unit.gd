@@ -3,14 +3,6 @@ extends Node2D
 ## One combat unit — enemy (orange family) or allied undead (green family).
 ## Simple kinematics: chase, melee on a cadence, neighbor separation, wall slide.
 
-const ORANGE := Color("#ff6a2b")
-const ORANGE_LIGHT := Color("#ff9a55")
-const ORANGE_DARK := Color("#c74a15")
-const GREEN := Color("#39ff9e")
-const GREEN_DIM := Color("#2bbf78")
-const GOLD := Color("#fff3d0")
-const DANGER := Color("#ff2d55")
-
 var raid: Node = null
 var faction := "enemy"       # "enemy" | "ally"
 var kind := "spearman"
@@ -21,6 +13,11 @@ var speed := 100.0
 var cadence := 1.0
 var radius := 10.0
 var mass := 0.0              # enemies: dropped as essence; chaff: ledger pool mass
+var role := ""               # v2 allies: "raised" | "garrison" | "starter" | "party"
+var tier := ""               # v2 allies: chaff | soldier | elite | big
+var stat_mult := 1.0
+var uid := ""                # party only
+var slots := 1               # party: nested diamonds (filled slots)
 var ledger_mass := false     # true only for chaff raised this raid
 var from_army := false       # boss: brought army (loss accounting)
 var home_room := Rect2()
@@ -48,7 +45,7 @@ func configure(p_raid: Node, p_faction: String, p_kind: String, stats: Dictionar
 	cadence = float(stats.get("cadence_s", 1.0))
 	radius = float(stats.get("radius", 10.0))
 	z_index = 30 if p_faction == "enemy" else 32
-	_strike_t = randf() * cadence
+	_strike_t = raid.rng_combat.randf() * cadence
 	_wander_pt = position
 
 
@@ -127,11 +124,11 @@ func _pick_target(cfg: Dictionary) -> void:
 func _wander(delta: float, cfg: Dictionary) -> Vector2:
 	_wander_t -= delta
 	if _wander_t <= 0.0:
-		_wander_t = randf_range(float(cfg.get("wander_repick_min_s", 2.0)),
+		_wander_t = raid.rng_combat.randf_range(float(cfg.get("wander_repick_min_s", 2.0)),
 			float(cfg.get("wander_repick_max_s", 5.0)))
 		var room := home_room.grow(-40.0) if home_room.size.x > 120.0 else home_room
-		_wander_pt = Vector2(randf_range(room.position.x, room.end.x),
-			randf_range(room.position.y, room.end.y))
+		_wander_pt = Vector2(raid.rng_combat.randf_range(room.position.x, room.end.x),
+			raid.rng_combat.randf_range(room.position.y, room.end.y))
 	var d := _wander_pt - global_position
 	if d.length() < 12.0:
 		return Vector2.ZERO
@@ -173,66 +170,80 @@ func die(sacrificed := false) -> void:
 	queue_free()
 
 
+## Glyphs (VISUAL-LANGUAGE 2c). Every kind differs by shape, not only colour:
+## undead = straight strokes (count = quality) + a solid head dot; living = a bow arc
+## + a hollow ring head; big undead = nested diamonds. Colours come from Palette.
 func _draw() -> void:
-	var body := _body_color()
-	if _flash > 0.0:
-		body = body.lerp(Color.WHITE, minf(0.85, _flash))
-	var outline := body.darkened(0.55)
 	var lunge_off := _facing * _lunge * 5.0
-
-	match kind:
-		"brute":
-			_draw_poly_body(6, radius, body, outline, lunge_off)
-		"elite":
-			draw_circle(lunge_off, radius * 1.7, Color(GREEN.r, GREEN.g, GREEN.b, 0.10))
-			_draw_poly_body(6, radius, body, outline, lunge_off)
-			draw_arc(lunge_off, radius + 3.0, 0, TAU, 20, Color(GREEN.r, GREEN.g, GREEN.b, 0.7), 1.5)
-		"runner":
-			draw_line(lunge_off - _facing * radius * 2.0, lunge_off, Color(body.r, body.g, body.b, 0.35), 2.0)
-			draw_circle(lunge_off, radius, body)
-			draw_arc(lunge_off, radius, 0, TAU, 16, outline, 1.5)
-		"guard":
-			draw_circle(lunge_off, radius * 1.5, Color(GOLD.r, GOLD.g, GOLD.b, 0.10))
-			draw_circle(lunge_off, radius, body)
-			draw_arc(lunge_off, radius, 0, TAU, 16, GOLD, 1.5)
-		_:
-			draw_circle(lunge_off, radius, body)
-			draw_arc(lunge_off, radius, 0, TAU, 16, outline, 1.5)
-	# facing tick (spear tip / fang)
-	var tip := lunge_off + _facing * (radius + 4.0)
-	draw_line(lunge_off + _facing * radius * 0.6, tip, outline.lightened(0.3), 2.0)
+	if kind == "big":
+		_draw_big(lunge_off)
+	elif faction == "ally":
+		_draw_undead(lunge_off)
+	else:
+		_draw_living(lunge_off)
 	if hp < max_hp:
-		var w := 18.0
+		# minimal hp: a short bar under the glyph
+		var w := 1.4 * radius
+		var y := radius + 6.0
 		var frac := clampf(hp / max_hp, 0.0, 1.0)
-		var y := -radius - 7.0
-		draw_rect(Rect2(-w * 0.5, y, w, 3.0), Color(0, 0, 0, 0.6))
-		var fill := GREEN if faction == "ally" else ORANGE
-		draw_rect(Rect2(-w * 0.5, y, w * frac, 3.0), fill)
+		draw_line(Vector2(-w * 0.5, y), Vector2(w * 0.5, y), Palette.c("ground", 0.8), 2.0)
+		draw_line(Vector2(-w * 0.5, y), Vector2(-w * 0.5 + w * frac, y),
+			Palette.c("undead" if faction == "ally" else "living"), 2.0)
 
 
-func _draw_poly_body(sides: int, r: float, body: Color, outline: Color, off: Vector2) -> void:
-	var pts := PackedVector2Array()
-	for i in sides:
-		pts.append(off + Vector2(r * 1.15, 0).rotated(TAU * i / sides + 0.3))
-	draw_colored_polygon(pts, body)
-	pts.append(pts[0])
-	draw_polyline(pts, outline, 1.6)
+func _flashed(col: Color) -> Color:
+	if _flash > 0.0:
+		return col.lerp(Palette.c("text"), minf(0.85, _flash))
+	return col
 
 
-func _body_color() -> Color:
-	match kind:
-		"spearman":
-			return ORANGE
-		"runner":
-			return ORANGE_LIGHT
-		"brute":
-			return ORANGE_DARK
-		"guard":
-			return Color("#ffb066")
-		"chaff":
-			return GREEN_DIM
-		"soldier":
-			return GREEN
-		"elite":
-			return Color("#7dffbe")
-	return ORANGE if faction == "enemy" else GREEN
+## n parallel strokes (chaff 1, soldier 2, elite 3), ~2 x radius long, along the heading,
+## with a core dot at the head. Sized from `radius` (dungeon zoom), not town pixels.
+func _draw_undead(off: Vector2) -> void:
+	var col := _flashed(Palette.c("undead"))
+	var n := 3 if kind == "elite" else (2 if kind == "soldier" else 1)
+	var half := radius
+	var gap := radius * 0.38
+	var w := maxf(2.0, radius * 0.22)
+	var perp := _facing.orthogonal()
+	var spread := gap * (n - 1)
+	# one shared halo (LineGlow's outer layers) for the whole stroke group
+	var layers := LineGlow.layers(col, w + spread, 0.45)
+	for i in layers.size() - 1:
+		draw_line(off - _facing * half, off + _facing * half, layers[i][1], layers[i][0])
+	for i in n:
+		var o := perp * (gap * (i - (n - 1) * 0.5))
+		draw_line(off + o - _facing * half, off + o + _facing * half, col, w)
+	draw_circle(off + _facing * (half + 1.0), radius * 0.3, _flashed(Palette.c("undead_core")))
+
+
+## A bow arc (spans ~2.2 x radius) with a hollow ring head (r ~0.45 x radius) at its tip.
+## A heavier `living_core` stroke keeps it readable against the orange walls.
+func _draw_living(off: Vector2) -> void:
+	var col := _flashed(Palette.c("living"))
+	var core := _flashed(Palette.c("living_core"))
+	var r := radius * 1.1
+	var c := off - _facing * (radius * 0.55)
+	var a0 := _facing.angle() - 1.2
+	var width := maxf(2.6, radius * (0.3 if kind == "brute" else 0.24))
+	LineGlow.arc(self, c, r, a0, a0 + 2.4, col, width, 0.4, core)
+	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(2.0, width * 0.8), 0.0, core)
+	if kind == "guard":
+		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)
+
+
+## Big undead: a diamond outline ~2x an undead glyph, a core dot, nested per filled slot,
+## breathing on the Pulse (steady under reduced motion).
+func _draw_big(off: Vector2) -> void:
+	var col := _flashed(Palette.c("undead"))
+	var k := 1.0 + 0.06 * Pulse.wave()
+	var r0 := radius * 0.9 * k
+	for i in slots:
+		var r := r0 * (1.0 - 0.24 * i)
+		var pts := PackedVector2Array([off + Vector2(0, -r), off + Vector2(r, 0), off + Vector2(0, r),
+			off + Vector2(-r, 0), off + Vector2(0, -r)])
+		if i == 0:
+			LineGlow.polyline(self, pts, col, 2.0, 0.5)
+		else:
+			draw_polyline(pts, col, 1.6)
+	draw_circle(off, 3.4, _flashed(Palette.c("undead_core")))

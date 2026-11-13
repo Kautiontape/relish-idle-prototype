@@ -5,19 +5,13 @@ extends Node2D
 
 signal finished(result: Dictionary)
 
-const GROUND := Color("#0d0d14")
-const GRID_LINE := Color(0.24, 0.24, 0.34, 0.16)
-const GREEN := Color("#39ff9e")
-const ORANGE := Color("#ff6a2b")
-const VIOLET := Color("#c04cff")
-const GOLD := Color("#fff3d0")
-const DANGER := Color("#ff2d55")
-
-const SPATIAL_CELL := 56.0
-
 var seed_data := {}
 var layout := {}
-var ledger: RaidLogic.Ledger = null
+var ledger: RaidLogic.Ledger = null          # legacy (boss only)
+var ledger_v2: RaidLogic.LedgerV2 = null     # dungeon (non-boss)
+var rng_combat := RandomNumberGenerator.new()
+var rng_loot := RandomNumberGenerator.new()  # reserved for the loot task
+var party_died: Array = []
 var relish: RaidRelish = null
 var trance: RaidTrance = null
 var hud: RaidHud = null
@@ -33,13 +27,39 @@ var trance_active := false
 var first_raise_done := false
 var backlog_left := 0.0          # boss only
 var army_lost := {"soldier": 0, "elite": 0}
+var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
+var moves := 0                   # RAID_TELEMETRY: Relish move clicks
+var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
+var _carry_t := 0.0
+var held := false                # the fort is the player's (view_fort.held, or --raid-held)
+var found_loot := {}             # loot found this run, minus essence (a later loot task fills it)
 
-var _grid := {}
+var arena: RaidArena = null
+var endings: RaidEndings = null
+var raiser: RaidRaise = null
 var _setup_called := false
 var _built := false
 var _standalone := false
-var _ended := false
-var _finished := false
+var _from_run := false          # the seed came from Game.state (a run is open), not the demo
+var _dev: RaidDev = null        # the standalone dev harness; null when the router launched us
+
+## Run-over flag read by units, HUD, trance and the boss; lives on endings.
+var _ended: bool:
+	get:
+		return endings.ended
+	set(v):
+		endings.ended = v
+
+
+## Phylactery revives spent this run (lives on endings; Relish draws a mark per revive).
+var revived: int:
+	get:
+		return endings.revived
+
+
+func _init() -> void:
+	endings = RaidEndings.new(self)
+	raiser = RaidRaise.new(self)
 
 
 func rcfg() -> Dictionary:
@@ -50,10 +70,17 @@ func is_boss() -> bool:
 	return bool(seed_data.get("boss", false))
 
 
+## Palette key of the fortress's controller colour; it tints the walls. A Vei
+## fortress is "living", the boss arena is "vei", a held (player) fortress "undead".
+func controller_key() -> String:
+	return str(seed_data.get("controller_key", "vei" if is_boss() else ("undead" if held else "living")))
+
+
+## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
+## A dev `--raid-fixture=<fixture>,<fort_id>` goes through commands only.
 func demo_seed() -> Dictionary:
-	return {"fort_id": "vespers", "name": "Vespers", "tier": 2,
-		"cap": 160.0, "living": 120.0, "undead": 10.0, "dead": 20.0,
-		"boss": false, "quality": 1.5}
+	var sd := RaidDev.fixture_seed()
+	return sd if not sd.is_empty() else {"mode": "dungeon", "fort_id": ""}
 
 
 func _ready() -> void:
@@ -63,28 +90,75 @@ func _ready() -> void:
 		_build()
 
 
-func setup(sd: Dictionary) -> void:
-	seed_data = sd.duplicate(true)
+## Router args `{mode: "dungeon", fort_id, run_id, seed_rev}` (legacy keys ignored).
+## The legacy boss args (`boss: true`) are used as the seed as before.
+func setup(args: Dictionary) -> void:
+	if bool(args.get("boss", false)):
+		seed_data = args.duplicate(true)
+	else:
+		seed_data = _resolve_seed(args)
 	_setup_called = true
 	if is_inside_tree() and not _built:
 		_build()
+
+
+func _resolve_seed(args: Dictionary) -> Dictionary:
+	var standalone := is_inside_tree() and get_tree().current_scene == self
+	var fort_id := str(args.get("fort_id", ""))
+	var sd: Dictionary = {}
+	if fort_id != "":
+		sd = Game.state.view_dungeon_seed(fort_id)
+	if sd.is_empty():
+		if not standalone:
+			push_warning("necropolis: raid has no open run for '%s'; using the demo seed" % fort_id)
+		sd = RaidLogic.demo_seed(rcfg())
+		_from_run = false
+	else:
+		_from_run = true
+	for e in Results.validate("raid_seed", sd):
+		push_error("necropolis: raid seed invalid: " + e)
+	return sd
+
+
+## Open run: the economy's view of the fort. Standalone demo: the --raid-held dev arg.
+func _is_held(fort_id: String) -> bool:
+	if _from_run:
+		return bool(Game.state.view_fort(fort_id).get("held", false))
+	return RaidDev.cli_flag("--raid-held")
+
+
+func fort_name() -> String:
+	return str(seed_data.get("fort", {}).get("name", seed_data.get("name", "?")))
+
+
+func fort_tier() -> int:
+	return int(seed_data.get("fort", {}).get("tier", seed_data.get("tier", 1)))
 
 
 func _build() -> void:
 	_built = true
 	_standalone = get_tree().current_scene == self
 	var cfg := rcfg()
-	var fort_id := str(seed_data.get("fort_id", "fort"))
-	var tier := int(seed_data.get("tier", 1))
-	layout = RaidLogic.gen_layout(fort_id, tier, is_boss(), cfg)
-	ledger = RaidLogic.Ledger.new(float(seed_data.get("dead", 0.0)), float(seed_data.get("cap", 100.0)))
+	var boss := is_boss()
+	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
+	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
+	held = false if boss else _is_held(fort_id)
+	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held})
+	if boss:
+		rng_combat.randomize()
+		rng_loot.randomize()
+		ledger = RaidLogic.Ledger.new(float(seed_data.get("dead", 0.0)), float(seed_data.get("cap", 100.0)))
+	else:
+		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
+		rng_combat.seed = base ^ 0x6C0AB47
+		rng_loot.seed = base ^ 0x10075EED
+		ledger_v2 = RaidLogic.LedgerV2.new(seed_data, cfg)
 
-	# --- walls (the showpiece) ---
-	var glow: float = float(cfg.get("layout", {}).get("wall_glow_px", 26.0))
-	for wrect in layout["walls"]:
-		var seg := RaidWall.new()
-		add_child(seg)
-		seg.setup(wrect, glow)
+	# arena first: floor + walls draw under the units
+	arena = RaidArena.new()
+	arena.rng = rng_combat
+	add_child(arena)
+	arena.build(layout, cfg, controller_key())
 
 	units_root = Node2D.new()
 	add_child(units_root)
@@ -96,6 +170,7 @@ func _build() -> void:
 	relish.position = layout["spawn"]
 	units_root.add_child(relish)
 	relish.configure(self)
+	arena.bind_relish(relish)
 
 	# --- corpse piles: grey, matte, scattered on open ground ---
 	var dead := float(seed_data.get("dead", 0.0))
@@ -110,15 +185,15 @@ func _build() -> void:
 			units_root.add_child(pile)
 
 	if not is_boss():
-		_populate_raid(cfg, fort_id, tier)
+		RaidPopulate.new(self).populate(cfg, fort_id, tier)
 
 	# --- camera ---
 	var ccam: Dictionary = cfg.get("camera", {})
 	cam = Camera2D.new()
 	cam.position_smoothing_enabled = true
 	cam.position_smoothing_speed = float(ccam.get("smoothing", 5.0))
-	var arena: Vector2 = layout["size"]
-	cam.zoom = Vector2.ONE * clampf(1600.0 / (arena.x + float(ccam.get("view_pad_px", 120.0))),
+	var arena_size: Vector2 = layout["size"]
+	cam.zoom = Vector2.ONE * clampf(1600.0 / (arena_size.x + float(ccam.get("view_pad_px", 120.0))),
 		float(ccam.get("zoom_min", 0.72)), float(ccam.get("zoom_max", 1.15)))
 	add_child(cam)
 	cam.make_current()
@@ -133,28 +208,15 @@ func _build() -> void:
 	add_child(hud)
 	hud.build(self, is_boss())
 
+	if not boss:
+		relish.hp = float(seed_data.get("relish_hp", relish.hp))
+		relish.max_hp = relish.hp
 	_build_extra()
-	queue_redraw()
-
-
-## Standard fortress population (enemies + garrison). The boss scene replaces this.
-func _populate_raid(cfg: Dictionary, fort_id: String, tier: int) -> void:
-	var living := float(seed_data.get("living", 0.0))
-	var cap := float(seed_data.get("cap", 100.0))
-	if living > 0.05:
-		var n := RaidLogic.enemy_count(living, cap, cfg)
-		var mpe := living / n
-		var spots := RaidLogic.populate_enemies(fort_id, layout, n, tier, cfg)
-		for s in spots:
-			var u := spawn_unit("enemy", s["kind"], s["pos"])
-			u.mass = mpe
-			u.home_room = layout["rooms"][s["room"]]
-	# allied garrison undead near her spawn (the fort's own undead — not ledger mass)
-	var gn := RaidLogic.garrison_count(float(seed_data.get("undead", 0.0)), cfg)
-	for i in gn:
-		var ang := TAU * i / maxf(1.0, gn) + 0.4
-		var pos: Vector2 = relish.position + Vector2(54.0 + (i % 3) * 22.0, 0).rotated(ang)
-		spawn_unit("ally", "chaff", resolve_walls(pos, 8.0))
+	if not boss:
+		endings.start()
+	if _standalone:
+		_dev = RaidDev.new(self)
+		_dev.start()
 
 
 ## Boss hook — overridden by VeiBoss.
@@ -167,10 +229,20 @@ func _post_physics(_delta: float) -> void:
 
 
 # ----------------------------------------------------------------- runtime ---
+func _process(_delta: float) -> void:
+	if not _built:
+		return
+	_carry_t += _delta
+	if _dev != null:
+		_dev.tick()
+
+
 func _physics_process(delta: float) -> void:
 	if not _built or _ended:
 		return
-	_rebuild_grid()
+	arena.rebuild_grid(allies, enemies, relish)
+	if not is_boss():
+		endings.track_position()
 	_cam_follow()
 	_post_physics(delta)
 
@@ -178,41 +250,19 @@ func _physics_process(delta: float) -> void:
 ## Follow Relish, but never waste the frame on void: clamp the view to the
 ## arena, and center any axis where the arena is smaller than the viewport.
 func _cam_follow() -> void:
-	var arena: Vector2 = layout["size"]
+	var arena_size: Vector2 = layout["size"]
 	var view: Vector2 = get_viewport_rect().size / cam.zoom.x
 	var t := relish.position
 	var m := 60.0
-	if view.x >= arena.x + 2.0 * m:
-		t.x = arena.x * 0.5
+	if view.x >= arena_size.x + 2.0 * m:
+		t.x = arena_size.x * 0.5
 	else:
-		t.x = clampf(t.x, view.x * 0.5 - m, arena.x - view.x * 0.5 + m)
-	if view.y >= arena.y + 2.0 * m:
-		t.y = arena.y * 0.5
+		t.x = clampf(t.x, view.x * 0.5 - m, arena_size.x - view.x * 0.5 + m)
+	if view.y >= arena_size.y + 2.0 * m:
+		t.y = arena_size.y * 0.5
 	else:
-		t.y = clampf(t.y, view.y * 0.5 - m, arena.y - view.y * 0.5 + m)
+		t.y = clampf(t.y, view.y * 0.5 - m, arena_size.y - view.y * 0.5 + m)
 	cam.position = t
-
-
-func _process(_delta: float) -> void:
-	if not _built:
-		return
-	queue_redraw()  # floor grid is static, but cheap; keeps draw order simple
-
-
-func _draw() -> void:
-	if layout.is_empty():
-		return
-	var size: Vector2 = layout["size"]
-	draw_rect(Rect2(Vector2.ZERO, size), GROUND)
-	var step: float = float(rcfg().get("layout", {}).get("grid_step_px", 128.0))
-	var x := step
-	while x < size.x:
-		draw_line(Vector2(x, 0), Vector2(x, size.y), GRID_LINE, 1.0)
-		x += step
-	var y := step
-	while y < size.y:
-		draw_line(Vector2(0, y), Vector2(size.x, y), GRID_LINE, 1.0)
-		y += step
 
 
 func _unhandled_input(ev: InputEvent) -> void:
@@ -224,6 +274,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
 		var w := screen_to_world(ev.position)
 		relish.move_target = w
+		moves += 1
 		RaidFx.ping(fx_root, w)
 		get_viewport().set_input_as_handled()
 
@@ -256,23 +307,54 @@ func spawn_unit(faction: String, kind: String, pos: Vector2, grown := false) -> 
 	return u
 
 
+## A v2 ally (raised, garrison, starter or party) with its ledger fields.
+func spawn_ally_v2(role: String, tier: String, mult: float, mass: float, uid: String,
+		stats: Dictionary, pos: Vector2, grown := false, kind := "") -> RaidUnit:
+	var u := RaidUnit.new()
+	u.position = pos
+	units_root.add_child(u)
+	u.configure(self, "ally", kind if kind != "" else tier, stats)
+	u.role = role
+	u.tier = tier
+	u.stat_mult = mult
+	u.mass = mass
+	u.uid = uid
+	if grown:
+		u.grow_in()
+	allies.append(u)
+	return u
+
+
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
-		ledger.on_kill(u.mass)
+		if is_boss():
+			ledger.on_kill(u.mass)
+		else:
+			ledger_v2.on_kill(u.mass)
 		# kills drop essence at the corpse, carrying the enemy's mass
-		spawn_orb(u.global_position, u.mass, Vector2(randf_range(30, 70), 0).rotated(randf() * TAU))
-		RaidFx.ring(fx_root, u.global_position, Color(ORANGE.r, ORANGE.g, ORANGE.b, 0.6), 26.0, 0.3, 2.0)
+		if is_boss():
+			spawn_orb(u.global_position, u.mass, Vector2(rng_combat.randf_range(30, 70), 0).rotated(rng_combat.randf() * TAU))
+		else:
+			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
+		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
 	else:
 		allies.erase(u)
-		if u.ledger_mass:
-			ledger.on_chaff_death(u.mass)
-		if u.kind == "soldier":
-			army_lost["soldier"] += 1
-		elif u.kind == "elite":
-			army_lost["elite"] += 1
+		if is_boss():
+			if u.ledger_mass:
+				ledger.on_chaff_death(u.mass)
+			if u.kind == "soldier":
+				army_lost["soldier"] += 1
+			elif u.kind == "elite":
+				army_lost["elite"] += 1
+		else:
+			if u.role == "party":
+				party_died.append(u.uid)
+			# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
+			var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
+			_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
 		if not sacrificed:
-			RaidFx.ring(fx_root, u.global_position, Color(GREEN.r, GREEN.g, GREEN.b, 0.4), 20.0, 0.25, 2.0)
+			RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
 		_on_ally_died(u)
 
 
@@ -288,23 +370,36 @@ func has_allies() -> bool:
 	return false
 
 
-## THE CONDUIT RULE: a lethal hit on Relish consumes the nearest allied undead.
+## THE SACRIFICE CHAIN (MECHANICS 5.0): a lethal hit on Relish consumes the nearest ally of the
+## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest.
 func sacrifice_nearest_ally() -> void:
-	var best: RaidUnit = null
-	var bd := INF
+	var pool: Array = []
+	var cands: Array = []
 	for a in allies:
 		if not is_instance_valid(a) or not a.alive:
 			continue
-		var d: float = a.global_position.distance_to(relish.global_position)
-		if d < bd:
-			bd = d
-			best = a
-	if best == null:
+		pool.append(a)
+		cands.append({"rank": 0 if is_boss() else RaidLogic.ally_rank(a.role, a.tier),
+			"dist": a.global_position.distance_to(relish.global_position)})
+	var k := RaidLogic.sacrifice_pick(cands)
+	if k < 0:
 		return
+	var best: RaidUnit = pool[k]
 	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
-	RaidFx.ring(fx_root, best.global_position, DANGER, 34.0, 0.45, 3.0)
-	RaidFx.ring(fx_root, relish.global_position, DANGER, 26.0, 0.45, 2.0)
+	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
 	best.die(true)
+
+
+## Alive allies by sacrifice rank, for the HUD ward line.
+func ward_counts() -> Dictionary:
+	var out := {"chaff": 0, "soldier": 0, "elite": 0, "big": 0}
+	var names := ["chaff", "soldier", "elite", "big"]
+	for a in allies:
+		if is_instance_valid(a) and a.alive:
+			var k: String = names[RaidLogic.ally_rank(a.role, a.tier)]
+			out[k] = int(out[k]) + 1
+	return out
 
 
 func nearest_enemy_of(pos: Vector2):
@@ -333,166 +428,136 @@ func nearest_ally_of(pos: Vector2):
 	return best
 
 
-# --------------------------------------------------------------- spatial -----
-func _rebuild_grid() -> void:
-	_grid.clear()
-	for u in allies:
-		_grid_put(u)
-	for u in enemies:
-		_grid_put(u)
-	if relish != null and relish.alive:
-		_grid_put(relish)
 
-
-func _grid_put(u: Node2D) -> void:
-	var k := Vector2i(int(u.position.x / SPATIAL_CELL), int(u.position.y / SPATIAL_CELL))
-	if not _grid.has(k):
-		_grid[k] = []
-	_grid[k].append(u)
-
-
+# --------------------------------------------------------------- arena -------
 func separation_push(u: Node2D) -> Vector2:
-	var sep: float = float(rcfg().get("combat", {}).get("separation_px", 26.0))
-	var out := Vector2.ZERO
-	var c := Vector2i(int(u.position.x / SPATIAL_CELL), int(u.position.y / SPATIAL_CELL))
-	for dy in [-1, 0, 1]:
-		for dx in [-1, 0, 1]:
-			var k := Vector2i(c.x + dx, c.y + dy)
-			if not _grid.has(k):
-				continue
-			for o in _grid[k]:
-				if o == u or not is_instance_valid(o):
-					continue
-				var d: Vector2 = u.position - o.position
-				var l := d.length()
-				if l < sep and l > 0.01:
-					out += d / l * (1.0 - l / sep)
-				elif l <= 0.01:
-					out += Vector2(randf() - 0.5, randf() - 0.5)
-	return out
+	return arena.separation_push(u)
 
 
 ## Keep a point inside the arena and out of internal walls (slide-friendly).
 func resolve_walls(p: Vector2, r: float) -> Vector2:
-	var size: Vector2 = layout["size"]
-	var t: float = layout["wall_t"]
-	p.x = clampf(p.x, t + r, size.x - t - r)
-	p.y = clampf(p.y, t + r, size.y - t - r)
-	for pass_i in 2:
-		for wrect in layout["inner_walls"]:
-			var g: Rect2 = (wrect as Rect2).grow(r)
-			if not g.has_point(p):
-				continue
-			var left := p.x - g.position.x
-			var right := g.end.x - p.x
-			var top := p.y - g.position.y
-			var bottom := g.end.y - p.y
-			var m := minf(minf(left, right), minf(top, bottom))
-			if m == left:
-				p.x = g.position.x
-			elif m == right:
-				p.x = g.end.x
-			elif m == top:
-				p.y = g.position.y
-			else:
-				p.y = g.end.y
-	return p
+	return arena.resolve_walls(p, r)
 
 
 # ------------------------------------------------------------- essence -------
 func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
-	if mass <= 0.001:
-		return
+	if mass > 0.001:
+		spawn_mote(pos, mass, false, pop_vel)
+
+
+## One mote with explicit mass/recycled (mass 0 allowed: massless undead return no mass).
+func spawn_mote(pos: Vector2, mass: float, recycled: bool, pop_vel := Vector2.ZERO) -> void:
 	var o := RaidEssence.new()
 	o.raid = self
-	o.mass = mass
+	o.mass = maxf(0.0, mass)
+	o.recycled = recycled
 	o.position = pos
 	o.pop(pop_vel)
 	units_root.add_child(o)
 
 
+## A death drops n motes splitting `mass` evenly.
+func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
+	if n <= 0:
+		return
+	var parts := RaidLogic.split_mass(mass, n)
+	for i in n:
+		var ang := rng_combat.randf() * TAU
+		var spd := rng_combat.randf_range(30.0, 70.0)
+		spawn_mote(pos + Vector2(rng_combat.randf_range(0, 6), 0).rotated(ang), float(parts[i]), recycled,
+			Vector2(spd, 0).rotated(ang))
+
+
+# --- carried cluster ---
+## Angle of a clock slot; one shared spin so every mote and tick turns together.
+func carry_angle(slot: int) -> float:
+	var e: Dictionary = rcfg().get("essence", {})
+	var slots := maxi(1, int(e.get("carry_max", 12)))
+	var spin := 0.0 if Pulse.reduced_motion else _carry_t * float(e.get("carry_spin_rad_s", 0.8))
+	return -PI * 0.5 + TAU * slot / float(slots) + spin
+
+
+func carried_count() -> int:
+	return carried.size()
+
+
+func carry_room() -> int:
+	return 0 if is_boss() else RaidLogic.carry_room(carried.size(), rcfg())
+
+
+## Take a mote into the cluster at the lowest free slot. Returns false when full.
+func carry_add(o: RaidEssence) -> bool:
+	if carry_room() <= 0 or o.carried:
+		return false
+	var used := {}
+	for c in carried:
+		used[c.carry_slot] = true
+	var slot := 0
+	while used.has(slot):
+		slot += 1
+	o.carry_slot = slot
+	o.carried = true
+	carried.append(o)
+	return true
+
+
+func carry_release(o: RaidEssence) -> void:
+	carried.erase(o)
+	o.carried = false
+
+
 func set_trance(active: bool) -> void:
 	trance_active = active
+	arena.set_trance_dim(active)
 
 
 func show_trace_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
-	var fb := RaidTraceFeedback.new()
-	fb.trace = trace
-	fb.fitted_center = g["center"]
-	fb.fitted_radius = g["radius"]
-	fb.score = int(g["score"])
-	fb.valid = g["valid"]
-	fx_root.add_child(fb)
+	raiser.show_feedback(g, trace)
 
 
-## A released, scored circle: consume enclosed essence, raise undead.
+## A released, scored circle (MECHANICS 5.3); see RaidRaise.
 func perform_raise(g: Dictionary) -> void:
-	var score := int(g["score"])
-	var center: Vector2 = g["center"]
-	var radius: float = g["radius"]
-	var picked: Array = []
-	for e in get_tree().get_nodes_in_group("raid_essence"):
-		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
-			picked.append(e)
-	if picked.is_empty():
-		return
-	var total_mass := 0.0
-	for e in picked:
-		total_mass += e.mass
-		e.absorb()
-	var spec := ledger.on_raise(score, total_mass, picked.size(), rcfg())
-	if int(spec["count"]) <= 0:
-		return
-	first_raise_done = true
-	var ring_px: float = float(rcfg().get("raise", {}).get("spawn_ring_px", 52.0))
-	for i in int(spec["count"]):
-		var ang := TAU * i / float(spec["count"]) + randf() * 0.8
-		var pos: Vector2 = relish.global_position + Vector2(ring_px + randf_range(-10, 26), 0).rotated(ang)
-		var u := spawn_unit("ally", str(spec["kind"]), resolve_walls(pos, 10.0), true)
-		if str(spec["kind"]) == "chaff":
-			u.ledger_mass = true
-			u.mass = float(spec["unit_mass"])
-	RaidFx.ring(fx_root, relish.global_position, GREEN, ring_px + 26.0, 0.5, 3.0)
+	raiser.perform(g)
 
 
 # --------------------------------------------------------------- endings -----
-func request_exit() -> void:
-	hud.open_exit_dialog()
-
-
+## Thin forwards to RaidEndings for what other files call. The result hooks stay here so the boss
+## scene can override them.
 func confirm_exit() -> void:
-	if _ended:
-		return
-	_ended = true
-	trance.force_end()
-	RaidFx.ring(fx_root, relish.global_position, VIOLET, 60.0, 0.5, 4.0)
-	_finish(_exit_result())
+	endings.confirm_exit()
 
 
 func on_relish_died() -> void:
-	if _ended:
-		return
-	_ended = true
-	trance.force_end()
-	RaidFx.ring(fx_root, relish.global_position, DANGER, 90.0, 0.8, 4.0)
-	RaidFx.ring(fx_root, relish.global_position, VIOLET, 50.0, 0.8, 3.0)
-	get_tree().create_timer(0.9).timeout.connect(func() -> void: _finish(_death_result()))
+	endings.on_relish_died()
+
+
+func can_retreat() -> bool:
+	return endings.can_retreat()
+
+
+func try_retreat() -> void:
+	endings.try_retreat()
+
+
+func exit_hint_ready() -> bool:
+	return endings.exit_hint_ready()
+
+
+func try_phylactery() -> bool:
+	return endings.try_phylactery()
+
+
+func phylactery_left() -> int:
+	return endings.phylactery_left()
 
 
 func _exit_result() -> Dictionary:
-	return ledger.result(str(seed_data.get("fort_id", "")), false, rcfg())
+	return endings.build_result("retreated")
 
 
 func _death_result() -> Dictionary:
-	return ledger.result(str(seed_data.get("fort_id", "")), true, rcfg())
+	return endings.build_result("relish_died")
 
 
 func _finish(result: Dictionary) -> void:
-	if _finished:
-		return
-	_finished = true
-	_ended = true
-	Engine.time_scale = 1.0
-	finished.emit(result)
-	if _standalone:
-		hud.show_result(result)
+	endings.finish(result)
