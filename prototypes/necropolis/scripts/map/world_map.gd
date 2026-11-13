@@ -254,6 +254,7 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	model.refresh()
 	hud.tick(delta)
+	chip.refresh()  # every frame: it is a no-op until the model has a new rev
 	_update_hover()
 	_ui_acc += delta
 	if _ui_acc < float(MapLogic.cfg()["ui_refresh_s"]):
@@ -261,5 +262,4 @@ func _process(delta: float) -> void:
 	_ui_acc = 0.0
 	hud.refresh()
 	valve.refresh()
-	chip.refresh()
 	sidebar.refresh()

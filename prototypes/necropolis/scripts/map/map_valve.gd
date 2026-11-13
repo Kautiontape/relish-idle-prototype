@@ -89,16 +89,16 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> void:
 	for k in ValveLogic.KEYS:
 		var box := VBoxContainer.new()
 		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_theme_constant_override("separation", 0)
+		box.add_theme_constant_override("separation", int(c["valve_box_sep_px"]))
 		col.add_child(box)
 		var top := HBoxContainer.new()
 		top.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		top.add_theme_constant_override("separation", 8)
+		top.add_theme_constant_override("separation", int(c["valve_row_hsep_px"]))
 		box.add_child(top)
 		var parts := {"name": _label(top, "text_dim"), "pct": Label.new(), "rate": Label.new(), "feed": null}
-		(parts["name"] as Label).custom_minimum_size.x = 52.0
+		(parts["name"] as Label).custom_minimum_size.x = float(c["valve_name_w_px"])
 		MapType.style_mass(parts["pct"])
-		(parts["pct"] as Label).custom_minimum_size.x = 50.0
+		(parts["pct"] as Label).custom_minimum_size.x = float(c["valve_pct_w_px"])
 		MapType.style_rate(parts["rate"])
 		for key in ["pct", "rate"]:
 			(parts[key] as Label).mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -176,6 +176,7 @@ func _gui_input(e: InputEvent) -> void:
 func _drag_to(pos: Vector2, released: bool) -> void:
 	_override = ValveLogic.valve_at(pos - _origin, _side)
 	refresh()
+	queue_redraw()  # the handle follows the pointer even when no percentage changed
 	var now := Time.get_ticks_msec() / 1000.0  # lint-ok: send throttle, not animation
 	if ValveLogic.should_send(now, _last_sent, float(MapLogic.cfg()["valve_send_hz"]), released):
 		_last_sent = now
@@ -185,6 +186,7 @@ func _drag_to(pos: Vector2, released: bool) -> void:
 func _snap(key: String) -> void:
 	_override = ValveLogic.snap(key)
 	refresh()
+	queue_redraw()
 	_send()
 
 

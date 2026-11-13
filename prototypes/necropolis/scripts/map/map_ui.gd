@@ -28,11 +28,13 @@ static func style_button(b: Button, size := 0) -> void:
 	b.add_theme_color_override("font_hover_color", Palette.c("select"))
 	b.add_theme_color_override("font_pressed_color", Palette.c("select"))
 	b.add_theme_color_override("font_disabled_color", Palette.c("text_dim"))
-	var base := Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]) * 2.0)
+	var c: Dictionary = cfg["controls"]
+	var step := float(cfg["panel_bg_lighten"])
+	var base := Palette.c("ground").lightened(step * float(c["ui_button_lighten_mult"]))
 	for state in ["normal", "hover", "pressed", "disabled"]:
 		var box := StyleBoxFlat.new()
-		box.bg_color = base.lightened(float(cfg["panel_bg_lighten"]) * (2.0 if state == "hover" else 0.0))
-		box.border_color = Palette.c("contour" if state != "hover" else "select", 0.9 if state != "disabled" else float(cfg["panel_border_alpha"]))
+		box.bg_color = base.lightened(step * float(c["ui_hover_lighten_mult"]) if state == "hover" else 0.0)
+		box.border_color = Palette.c("contour" if state != "hover" else "select", float(c["ui_button_border_alpha"]) if state != "disabled" else float(cfg["panel_border_alpha"]))
 		box.set_border_width_all(1)
-		box.set_content_margin_all(6)
+		box.set_content_margin_all(int(c["ui_button_margin_px"]))
 		b.add_theme_stylebox_override(state, box)

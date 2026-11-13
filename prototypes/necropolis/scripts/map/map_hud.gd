@@ -5,6 +5,8 @@ extends Control
 ## banner and the debug speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
 
+signal inset_changed(inset: float)  # the plates' bottom edge moved (the bar wrapped or its text changed)
+
 var model: MapModel
 
 var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
@@ -23,6 +25,7 @@ var _toast: Label
 var _victory: Label
 var _speed_row: HBoxContainer
 var _toast_t := 0.0
+var _last_inset := -1.0
 var _hint_default := ""
 var _rev := -2
 
@@ -105,6 +108,10 @@ func _relayout() -> void:
 	var osz := _objective.get_combined_minimum_size()
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
+	var inset := _obj_plate.position.y + _obj_plate.size.y
+	if inset != _last_inset:
+		_last_inset = inset
+		inset_changed.emit(inset)
 
 
 ## Screen px the HUD plates cover from the top: the camera frames the map below this.
@@ -152,6 +159,11 @@ func start() -> void:
 	if model.hud.get("won", false):
 		_on_victory()
 	refresh(true)
+	# the labels' sizes settle after their first layout: wrap and place the plates once more, so
+	# panels that sit under them (the Relish chip) do not jump at the first UI tick
+	await get_tree().process_frame
+	if is_inside_tree():
+		refresh(true)
 
 
 ## Builds the bar's labels once, from the first read's stream list: one box per stream,

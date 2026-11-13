@@ -460,7 +460,17 @@
       "not_finite": "That valve setting isn't a number"
     },
     "toast_plate_alpha": 0.92,
-    "toast_pad_px": 6
+    "toast_pad_px": 6,
+    "valve_name_w_px": 52,
+    "valve_pct_w_px": 50,
+    "valve_row_hsep_px": 8,
+    "valve_box_sep_px": 0,
+    "chip_vsep_px": 4,
+    "chip_hsep_px": 6,
+    "ui_button_margin_px": 6,
+    "ui_button_border_alpha": 0.9,
+    "ui_button_lighten_mult": 2.0,
+    "ui_hover_lighten_mult": 2.0
   },
   "map_drag_steps": 10,
   "hint_left_px": 214,

@@ -15,7 +15,6 @@ var _name: Button
 var _home: Button
 var _cancel: Button
 var _rev := -2
-var _inset := -1.0
 
 
 func _ready() -> void:
@@ -24,7 +23,7 @@ func _ready() -> void:
 	add_theme_stylebox_override("panel", MapUi.plate_box(float(c["chip_plate_alpha"]), int(c["chip_pad_px"])))
 	custom_minimum_size.x = float(c["chip_w_px"])
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 4)
+	vb.add_theme_constant_override("separation", int(c["chip_vsep_px"]))
 	add_child(vb)
 	_name = Button.new()
 	_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -35,13 +34,22 @@ func _ready() -> void:
 	_name.pressed.connect(_centre)
 	vb.add_child(_name)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("separation", int(c["chip_hsep_px"]))
 	vb.add_child(row)
 	_home = _button(row, "GO HOME", float(c["chip_button_w_px"]))
 	_home.pressed.connect(_go_home)
 	_cancel = _button(row, "CANCEL", float(c["chip_button_w_px"]))
 	_cancel.pressed.connect(_do_cancel)
+	if hud != null:
+		hud.inset_changed.connect(_sit)
+		_sit(hud.top_inset())
 	refresh(true)
+
+
+## Sits the chip just under the HUD plates; the HUD says when their edge moves.
+func _sit(inset: float) -> void:
+	var m: Array = MapLogic.cfg()["controls"]["chip_margin_px"]
+	position = Vector2(float(m[0]), inset + float(m[1]))
 
 
 func _button(parent: Node, text: String, w: float) -> Button:
@@ -53,14 +61,9 @@ func _button(parent: Node, text: String, w: float) -> Button:
 	return b
 
 
-## Sets the text and buttons from the model (only when it has a new rev) and sits under the plates.
+## Sets the text and buttons from the model. Without `force` it is a no-op until the model has a
+## new rev (so it is cheap to call every frame: a click shows at once).
 func refresh(force := false) -> void:
-	if hud != null:
-		var inset := hud.top_inset()
-		if inset != _inset:
-			_inset = inset
-			var m: Array = MapLogic.cfg()["controls"]["chip_margin_px"]
-			position = Vector2(float(m[0]), inset + float(m[1]))
 	if not force and model.rev == _rev:
 		return
 	_rev = model.rev
@@ -68,6 +71,7 @@ func refresh(force := false) -> void:
 	var b := RelishLogic.chip_buttons(model.relish)
 	_home.visible = b["go_home"]
 	_cancel.visible = b["cancel"]
+	reset_size.call_deferred()  # shrink the plate when a button hides
 
 
 func _centre() -> void:
