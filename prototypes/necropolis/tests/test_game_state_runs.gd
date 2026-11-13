@@ -100,7 +100,7 @@ func run() -> int:
 	var sd: Dictionary = b["seed"]
 	_types_ok(t, sd, {"v": TYPE_INT, "kind": TYPE_STRING, "run_id": TYPE_INT, "seed_rev": TYPE_INT,
 		"rng_seed": TYPE_STRING, "fort": TYPE_DICTIONARY, "living": TYPE_FLOAT, "dead": TYPE_FLOAT,
-		"undead": TYPE_FLOAT, "garrison_units": TYPE_INT, "garrison_in_mass": TYPE_FLOAT,
+		"undead": TYPE_FLOAT, "garrison_units": TYPE_INT, "garrison_in_mass": TYPE_FLOAT, "garrison_mass_div": TYPE_FLOAT,
 		"starter_units": TYPE_INT, "party": TYPE_ARRAY, "digest_q": TYPE_FLOAT,
 		"phylactery_charges": TYPE_INT, "phylactery_max_per_dungeon": TYPE_INT, "clones_ready": TYPE_INT,
 		"warden": TYPE_DICTIONARY, "warden_spec": TYPE_DICTIONARY, "loot_table_id": TYPE_STRING,
@@ -117,6 +117,7 @@ func run() -> int:
 	var div := 10.0
 	t.ok(sd["garrison_units"] == clampi(int(f["undead"] / div), 0, 12), "garrison_units formula")
 	t.near(sd["garrison_in_mass"], sd["garrison_units"] * div, 1e-9, "garrison_in_mass = units x div")
+	t.ok(sd["garrison_mass_div"] == div, "the seed carries garrison_mass_div (§7.1)")
 	t.ok(sd["rng_seed"].to_int() != 0 and str(sd["rng_seed"].to_int()) == sd["rng_seed"], "rng_seed is a decimal 64-bit String")
 	t.ok(s.view_dungeon_seed("old-sluice") == sd, "view_dungeon_seed returns the same seed")
 	t.ok(s.view_dungeon_seed("ashgate").is_empty() and s.view_boss_seed().is_empty(), "other seeds are {}")

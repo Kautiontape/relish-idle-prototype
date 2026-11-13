@@ -334,6 +334,8 @@ func _exercise(s: GameState) -> void:
 		t.ok(vf["can_descend"] == (want == "") and vf["reason"] == want, "view_fort(%s) can_descend agrees with cmd_begin_dungeon" % f["id"])
 	_cmd(s, "cmd_begin_dungeon", ["ashgate"], false)
 	var bd := _cmd(s, "cmd_begin_dungeon", ["old-sluice"], true)
+	t.ok(Results.validate("raid_seed", bd["seed"]) == [], "Results.validate accepts the raid seed as issued: %s" % str(Results.validate("raid_seed", bd["seed"])))
+	t.ok(bd["seed"]["garrison_mass_div"] == 10.0, "the raid seed carries garrison_mass_div (§7.1)")
 	t.ok(s.view_dungeon_seed("old-sluice") == bd["seed"] and bd["seed"]["party"].size() == 2, "view_dungeon_seed is the issued seed, with the party")
 	t.ok(s.view_dungeon_seed("nope") == {} and s.view_fort("nope") == {}, "views of unknown ids are {}")
 	_cmd(s, "cmd_new_game", [2], false)
@@ -349,20 +351,72 @@ func _exercise(s: GameState) -> void:
 	t.ok(s.view_vei()["can_begin"] and s.view_vei()["reason"] == "", "view_vei can_begin at Vei")
 	var bb := _cmd(s, "cmd_begin_boss", [], true)
 	t.ok(s.view_boss_seed() == bb["seed"] and bb["seed"]["fronts"][0]["assigned"] == [u1], "view_boss_seed is the issued seed, fronts echoed")
+	t.ok(Results.validate("boss_seed", bb["seed"]) == [], "Results.validate accepts the boss seed as issued: %s" % str(Results.validate("boss_seed", bb["seed"])))
 	t.ok(s.view_vei()["reason"] == "busy" and not s.view_vei()["can_begin"], "view_vei reason busy during the run")
 	_all_views(s)  # in the boss
 	_cmd(s, "cmd_abort_dungeon", [], true)
 
-	# events reachable at E1: the legacy death path (relish_died, relish_respawned) and the
-	# legacy boss result (vei_result); the rest arrive with T1.4/T1.5 and E2/E3
+	# §4.5 apply_result and the events it reaches: loot_banked and fort_flipped (a won dungeon),
+	# vei_result and relish_died (a lost boss with a final death), then relish_died via a raid death
 	_event_list(s)
-	s.apply_raid_result({"fort_id": "old-sluice", "relish_died": true})
-	s.apply_boss_result({"won": false, "relish_died": true})
+	_cmd(s, "cmd_move_relish", ["old-sluice"], true)
+	_travel(s)
+	var d1 := _cmd(s, "cmd_begin_dungeon", ["old-sluice"], true)
+	var win := _raid_result(d1["seed"], {"warden_beaten": true, "retreated": false, "killed_living_mass": 20.0, "party_lost": [u2],
+		"raised": [{"score": 80, "count": 2, "mass": 5.0}], "chaff_mass": 2.0,
+		"loot": {"relics": 1, "blueprints": ["reliquary"], "husks": [{"kind": "hulk"}],
+			"remnants": [{"aspect": "beef", "rarity": "rare", "magnitude": 2}], "essence": 5}})
+	var bad := _cmd(s, "apply_result", ["raid", _raid_result(d1["seed"], {"chaff_mass": -1.0})], false)
+	t.ok(bad["reason"] == "invalid" and bad["errors"] == ["range:chaff_mass"], "an invalid result names its errors")
+	_cmd(s, "apply_result", ["raid", {"v": 1}], false)
+	var won_raid := _cmd(s, "apply_result", ["raid", win], true)
+	t.ok(won_raid["minted"].size() == 2 and won_raid["errors"] == [], "the husk and the remnant are minted")
+	var dup := _cmd(s, "apply_result", ["raid", win], false)
+	t.ok(dup["reason"] == "duplicate_run" and dup["minted"] == [] and dup["errors"] == [], "a repeat is duplicate_run")
 	var evs := _event_list(s)
-	t.ok(evs.size() == 5, "two deaths, two respawns and a vei_result (%d events)" % evs.size())
-	for ty in ["relish_died", "relish_respawned", "vei_result"]:
+	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "fort_flipped"], "a won dungeon emits loot_banked, then fort_flipped")
+	t.ok(evs[1]["hold_s"] == 375.0 and evs[0]["minted"] == won_raid["minted"], "hold_s 375 (tier 1) and the minted uids")
+	t.ok(s.view_relish()["state"] == "at_fort" and s.view_fort("old-sluice")["flipped_count"] == 1, "she stays at the fort, which has flipped once")
+	_all_views(s)  # after a flip, a loot and a lost party member
+	_cmd(s, "cmd_move_relish", ["vei"], true)
+	_travel(s)
+	var b2 := _cmd(s, "cmd_begin_boss", [], true)
+	var lose := {"v": 2, "run_id": b2["run_id"], "seed_rev": b2["seed_rev"], "won": false, "fronts_cleared": [],
+		"relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "backlog_spent": 100.0}
+	_cmd(s, "apply_result", ["boss", _with_key(lose, "relish_deaths", 3)], false)
+	_cmd(s, "apply_result", ["boss", lose], true)
+	evs = _event_list(s)
+	t.ok(evs.map(func(e): return e["type"]) == ["vei_result", "relish_died", "relish_respawned"], "a lost boss with a final death: vei_result first")
+	t.ok(s.view_relish()["state"] == "home" and s.view_party()["party"].is_empty(), "she is home, the party died")
+	_all_views(s)  # after a boss loss
+	_cmd(s, "cmd_move_relish", ["ashgate"], true)
+	_travel(s)
+	var d2 := _cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
+	_cmd(s, "apply_result", ["raid", _raid_result(d2["seed"], {"retreated": false, "relish_died": true,
+		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 0}})], true)
+	evs = _event_list(s)
+	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died", "relish_respawned"], "a raid death emits relish_died and relish_respawned")
+	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death
+
+
+## A valid raid result for `sd` (a retreat that changes nothing); `over` replaces keys.
+func _raid_result(sd: Dictionary, over := {}) -> Dictionary:
+	var r := {
+		"v": 2, "run_id": sd["run_id"], "seed_rev": sd["seed_rev"], "fort_id": sd["fort"]["id"],
+		"warden_beaten": false, "retreated": true, "relish_died": false, "revived_in_place": 0,
+		"killed_living_mass": 0.0, "raised": [], "chaff_mass": 0.0, "garrison_mass": sd["garrison_in_mass"],
+		"party_lost": [], "loot": {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0},
+	}
+	r.merge(over, true)
+	return r
+
+
+func _with_key(d: Dictionary, k: String, v: Variant) -> Dictionary:
+	var c := d.duplicate(true)
+	c[k] = v
+	return c
 
 
 func _check_coverage() -> void:

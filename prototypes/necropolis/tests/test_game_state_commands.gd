@@ -145,6 +145,7 @@ func _staff_caps() -> void:
 	var b := _bld(s, "lot-03")
 	t.ok(b["building_id"] == "charnel_house" and b["slots"] == 3 and b["staffed"] == 3.0 and b["staff_cap"] == -1,
 		"charnel house: 3 haul slots, full, no cap")
+	s.cmd_debug_grant({"workers": 6})  # the live stores: 6 idle at the start, so 12 workers in all
 	t.near(s.view_town()["workers"]["idle"], 5.0, 1e-9, "12 workers fill 7 slots, 5 idle")
 	var r := s.cmd_set_staff_cap("lot-03", 1)
 	t.ok(r == {"ok": true, "reason": "", "cap": 1}, "cap 1 accepted")
@@ -378,9 +379,17 @@ func _town_views() -> void:
 	var m := _bld(s, "lot-04")
 	t.ok(m["building_id"] == "market" and m["level"] == 1 and m["state"] == "active" and m["progress"] == 1.0
 		and m["slots"] == 2 and m["upkeep"] == {"gold": 0.03, "bone": 0.0} and m["foreman"] == "", "the small market (2 stalls)")
-	t.ok(v["gold"] == 80.0 and v["bone"] == 30.0 and v["bodies"] == 40.0 and v["bodies_cap"] == 200.0, "BALANCE §0 stocks")
-	t.ok(v["workers"]["total"] == 12.0 and v["workers"]["lifetime_s"] == 480.0 and v["living"] == 10.0 and v["living_cap"] == 16.0,
-		"BALANCE §0 workers and living")
+	t.ok(v["gold"] == s.res["gold"] and v["bone"] == s.res["materials"] and v["bodies"] == s.res["bodies"]
+		and v["bodies_cap"] == 200.0, "the stocks are the live legacy stores (§5.9)")
+	t.ok(v["workers"]["total"] == float(s.idle_undead) and v["workers"]["lifetime_s"] == 480.0
+		and v["living"] == s.res["townsfolk"] and v["living_cap"] == 16.0, "workers and living are live too")
+	s.cmd_debug_grant({"gold": 50.0, "bone": 18.0, "bodies": 40.0, "workers": 6, "living": 2})
+	var vg: Dictionary = s.view_town()
+	t.ok(vg["gold"] == 80.0 and vg["bone"] == 30.0 and vg["bodies"] == 40.0 and vg["workers"]["total"] == 12.0 and vg["living"] == 12.0,
+		"a debug grant shows up in view_town")
+	var hg: Array = s.view_hud()["rates"]
+	t.ok(hg[3]["stock"] == vg["gold"] and hg[4]["stock"] == vg["bone"] and hg[2]["stock"] == vg["bodies"]
+		and hg[1]["stock"] == vg["workers"]["total"] and hg[5]["stock"] == vg["living"], "view_hud and view_town agree on every stock")
 	t.ok(v["morale"] == {"value": 0.6, "target": 0.6, "factors": [{"id": "base", "delta": 0.6}]}, "morale at its base")
 	t.ok(v["relish_home"], "relish_home")
 	var hud := s.view_hud()
@@ -414,6 +423,16 @@ func _town_views() -> void:
 		{"id": "reliquary", "owned": false}], "the three blueprints")
 	s.blueprints.append("embalmer")
 	t.ok(s.view_catalog()["blueprints"][0]["owned"] and s.view_inventory()["blueprints"] == ["embalmer"], "owned blueprints echoed")
+	var house := func() -> String:
+		for e in s.view_catalog()["buildings"]:
+			if e["building_id"] == "house":
+				return e["reason"]
+		return "?"
+	s.res["gold"] = 10.0
+	t.ok(house.call() == "no_gold", "view_catalog no_gold reads the live gold")
+	s.res["gold"] = 80.0
+	s.res["materials"] = 5.0
+	t.ok(house.call() == "no_bone", "view_catalog no_bone reads the live bone (res.materials)")
 
 
 ## buildings.json: the shape every entry has, and values the views rely on.

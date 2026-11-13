@@ -47,6 +47,9 @@
     "src_fort": 1.1,
     "contest": 1.35,
     "town_threshold": 0.18,
-    "tick_hz": 5.0
-  }
+    "tick_hz": 5.0,
+    "slice_budget_us": 0
+  },
+
+  "flip": {"hold_s": 300.0, "tier_mult": 0.25, "haul_mult": 1.5}
 }

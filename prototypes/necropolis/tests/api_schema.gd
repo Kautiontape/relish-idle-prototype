@@ -33,7 +33,7 @@ const RAID_SEED := {
 	"v": I, "kind": S, "run_id": I, "seed_rev": I, "rng_seed": S,
 	"fort": {"id": S, "name": S, "tier": I, "cap": F, "first_clear": B, "first_dungeon": B,
 		"clears_since_retaken": I, "yield_mult": F},
-	"living": F, "dead": F, "undead": F, "garrison_units": I, "garrison_in_mass": F, "starter_units": I,
+	"living": F, "dead": F, "undead": F, "garrison_units": I, "garrison_in_mass": F, "garrison_mass_div": F, "starter_units": I,
 	"party": [SEED_PARTY], "digest_q": F, "phylactery_charges": I, "phylactery_max_per_dungeon": I,
 	"clones_ready": I, "warden": {"archetype": S, "tier": I}, "warden_spec": D, "loot_table_id": S,
 	"loot_hint": S, "chest_husk": B, "watchtower": B, "relish_hp": F,
@@ -277,9 +277,9 @@ const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",
 	"migrate", "list_saves", "ledger", "legacy_teleport_relish"]
 const MEMBER_VARS := ["debug_enabled", "save_dir", "rev"]
-## Contract names not implemented yet. T1.4 (apply_result) and T1.5 (saves, fixtures) remove
-## theirs; the contract test fails if a listed name exists, so the list cannot go stale.
-const EXPECTED_MISSING := ["apply_result", "cmd_save", "cmd_load", "list_saves", "cmd_debug_load_fixture",
+## Contract names not implemented yet. T1.5 (saves, fixtures) removes
+## its names; the contract test fails if a listed name exists, so the list cannot go stale.
+const EXPECTED_MISSING := ["cmd_save", "cmd_load", "list_saves", "cmd_debug_load_fixture",
 	"to_dict", "from_dict", "migrate"]
 
 

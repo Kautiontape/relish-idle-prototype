@@ -2,6 +2,18 @@ extends RefCounted
 ## Tests for the necrosis influence field: growth, entrenchment, pushback.
 
 
+## Records the time-slice hook calls (STATE-API §5.6) and otherwise behaves as the field.
+class Spy extends InfluenceField:
+	var advances: Array = []
+	var flushes := 0
+
+	func advance(budget_us: int) -> void:
+		advances.append(budget_us)
+
+	func flush() -> void:
+		flushes += 1
+
+
 func _mk() -> InfluenceField:
 	var cfg: Dictionary = TestUtil.load_json("res://configs/realm.json").get("field", {})
 	var f := InfluenceField.new()
@@ -65,5 +77,31 @@ func run() -> int:
 		f4.tick(0.2)
 	var per_tick_ms := (Time.get_ticks_usec() - t0) / 1000.0 / 5.0
 	t.ok(per_tick_ms < 25.0, "field tick under 25ms (measured %.1fms)" % per_tick_ms)
+
+	# --- the time-slice hooks are no-ops until the ground unit fills them in ---
+	var f5 := _mk()
+	f5.inject(p_a, true, 1.0, 1)
+	f5.tick(0.2)
+	var g5 := f5.green.duplicate()
+	f5.advance(0)
+	f5.advance(4000)
+	f5.flush()
+	t.ok(f5.green == g5, "advance() and flush() change nothing in the base field")
+	var gs := GameState.new(TestUtil.configs())
+	gs.cmd_new_game(1)
+	gs.field = Spy.new()
+	gs.field.setup(gs._cfg().get("field", {}), Vector2(2048, 1440))
+	gs.tick(1.0)
+	t.ok(gs.field.advances == [0, 0], "one advance(slice_budget_us = 0) per substep (%s)" % str(gs.field.advances))
+	gs._cfgs["realm"]["field"]["slice_budget_us"] = 2500
+	gs.tick(0.5)
+	t.ok(gs.field.advances == [0, 0, 2500], "the budget comes from realm.json field.slice_budget_us")
+	var gp := GameState.new(TestUtil.configs())
+	gp.cmd_new_game(1)
+	t.ok(TestUtil.configs()["realm"]["field"]["slice_budget_us"] == 0, "realm.json ships slice_budget_us 0 (synchronous)")
+	gp.field = Spy.new()
+	gp.field.setup(gp._cfg().get("field", {}), Vector2(2048, 1440))
+	gp._prewarm_field()
+	t.ok(gp.field.flushes == 1, "the pre-warm helper flushes once after the 90 ticks")
 
 	return t.failures

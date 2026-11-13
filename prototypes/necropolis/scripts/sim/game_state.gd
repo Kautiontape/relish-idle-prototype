@@ -66,6 +66,8 @@ var party_uids: Array = []
 var valve := {"work": 0.40, "war": 0.45, "flood": 0.15}
 var valve_target := {"work": 0.40, "war": 0.45, "flood": 0.15}
 var blueprints: Array = []  # owned blueprint ids (= the building ids they unlock), banked by apply_result
+var applied_runs: Array = []  # the last 32 run ids apply_result closed (for duplicate_run); kept across new games like next_run_id
+var _dungeon_sink := 0.0  # mass the raid writeback lost (ledger sinks.dungeon), since the new game
 # --- E1 settings: stored by commands and echoed in views (§1.1 "E1 stubs") ---
 var haul_target := "auto"  # cmd_set_haul_target; the legacy convoy's own pick is gather.target
 var ladder: Array = []  # the player's job order, top first
@@ -189,6 +191,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	valve_target = valve.duplicate()
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
+	_dungeon_sink = 0.0
 	blueprints = []
 	haul_target = "auto"
 	ladder = []
@@ -208,12 +211,18 @@ func cmd_new_game(seed: int) -> Dictionary:
 		"dead_s_left": 0.0, "respawn_with_clone": false,
 	}
 	_sync_realm_relish()
-	# pre-warm the field so the map doesn't start blank
+	_prewarm_field()
+	rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## Pre-warms the field so the map doesn't start blank, then publishes any in-flight slice.
+## A load reuses it (T1.5).
+func _prewarm_field() -> void:
 	for i in 90:
 		_inject_sources(0.2)
 		field.tick(0.2)
-	rev += 1
-	return {"ok": true, "reason": ""}
+	field.flush()
 
 
 func cmd_set_time_scale(x: float) -> Dictionary:
@@ -476,9 +485,14 @@ func _garrison(fort_id: String) -> Array:
 	if f.is_empty():
 		return [0, 0.0]
 	var mass: Dictionary = _sec("raid", "mass")
-	var div := float(mass.get("garrison_mass_div", 10.0))
+	var div := _garrison_div()
 	var units := clampi(int(f["undead"] / div), 0, int(mass.get("garrison_max", 12)))
 	return [units, float(units) * div]
+
+
+## raid.json mass.garrison_mass_div, which the seed carries so Results.from_v1 needs no config.
+func _garrison_div() -> float:
+	return float(_sec("raid", "mass").get("garrison_mass_div", 10.0))
 
 
 func _starter_units(fort_id: String) -> int:
@@ -533,10 +547,10 @@ func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
 		"fort": {
 			"id": fort_id, "name": str(f["name"]), "tier": tier, "cap": float(f["cap"]),
 			"first_clear": not cleared_forts.has(fort_id), "first_dungeon": first,
-			"clears_since_retaken": 0, "yield_mult": 1.0,
+			"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
 		},
 		"living": float(f["living"]), "dead": float(f["dead"]), "undead": float(f["undead"]),
-		"garrison_units": g[0], "garrison_in_mass": g[1],
+		"garrison_units": g[0], "garrison_in_mass": g[1], "garrison_mass_div": _garrison_div(),
 		"starter_units": _starter_units(fort_id),
 		"party": _party_entries(),
 		"digest_q": quality(),
@@ -918,9 +932,21 @@ func _zero_cost() -> Dictionary:
 	return {"gold": 0.0, "bone": 0.0, "relics": 0}
 
 
-## The town's stocks at E1: the economy.json `opening` constants (BALANCE §0). view_town
-## and view_catalog read these; view_hud reads the legacy `res` (STATE-API §5.1).
+## The town's stocks at E1: the live legacy stores, the same ones view_hud shows (§5.1), so
+## fixtures and debug grants show up in every view. `living_cap` is the economy.json
+## `opening` constant.
 func _town_stock(key: String) -> float:
+	match key:
+		"gold":
+			return float(res["gold"])
+		"bone":
+			return float(res["materials"])
+		"bodies":
+			return float(res["bodies"])
+		"living":
+			return float(res["townsfolk"])
+		"workers":
+			return _legacy_workers()
 	return float(_sec("economy", "opening").get(key, 0.0))
 
 
@@ -1242,7 +1268,8 @@ func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 
 
 # ------------------------------------------------------------ §4.7 ledger ----
-## E2 stub: the documented shape, all zeros. `held` names every pool of mass.
+## E2 stub: the documented shape, all zeros except sinks.dungeon (the raid writeback's loss).
+## `held` names every pool of mass.
 func ledger() -> Dictionary:
 	var held := {}
 	for k in _LEDGER_HELD:
@@ -1250,7 +1277,7 @@ func ledger() -> Dictionary:
 	return {
 		"sources": {"mint": 0.0, "debug": 0.0},
 		"sinks": {"cleared": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0, "vei_fight": 0.0,
-			"dungeon": 0.0, "pool_overflow": 0.0},
+			"dungeon": _dungeon_sink, "pool_overflow": 0.0},
 		"held": held,
 	}
 
@@ -1368,9 +1395,9 @@ func _fort_entry(f: Dictionary) -> Dictionary:
 		"pos": _xy(f["pos"]),
 		"living": float(f["living"]), "undead": float(f["undead"]), "dead": float(f["dead"]),
 		"space": float(realm.space(f)), "war_in": float(f["r_in"]), "ship_in": float(f["r_shipped"]),
-		"held": false, "held_s_left": 0.0, "flipped_count": 0,
+		"held": false, "held_s_left": 0.0, "flipped_count": int(f.get("flipped_count", 0)),
 		"first_clear": not cleared_forts.has(id), "first_dungeon": _is_first_dungeon(id),
-		"clears_since_retaken": 0, "yield_mult": 1.0,
+		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
 		"warden": {"archetype": archetype, "tells": (_WARDEN_TELLS.get(archetype, []) as Array).duplicate()},
 		"loot_hint": _loot_hint(id),
 		"threat": {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0},
@@ -1471,8 +1498,8 @@ func _convoys() -> Array:
 	return [{"from": fid, "to": "covington", "phase": "back", "t": prog, "load": float(gather["load"])}]
 
 
-## §5.9 · E2. E1: the BALANCE §0 start set and stocks (economy.json `opening`), lots from
-## town.json, the stored settings (ladder, staff caps, haul target, foremen), the legacy convoy.
+## §5.9 · E2. E1: the BALANCE §0 start layout (buildings on lots from economy.json `opening`,
+## lots from town.json) with the live legacy stocks, the stored settings (ladder, staff caps, haul target, foremen), the legacy convoy.
 func view_town() -> Dictionary:
 	var unlocked := _lots_unlocked()
 	var lots: Array = []
@@ -1734,6 +1761,7 @@ func _tick(dt: float) -> void:
 		field_ticks += 1
 	if field_ticks > 0:
 		_update_towns(cfg)
+	field.advance(int(fcfg.get("slice_budget_us", 0)))  # §3 step 9: the ground unit's time slice
 	_field_acc = minf(_field_acc, period * float(fcfg.get("acc_cap_periods", 4.0)))
 	rev += 1
 
@@ -1870,13 +1898,19 @@ func auto_resolve_raid(fort_id: String) -> void:
 	})
 
 
-## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
-## unmade and the army scatters; she respawns home at once.
+## Legacy death for the legacy result path: closes the open run, then the E1 death rule.
 func _relish_dies() -> void:
+	var run_id := int(run.get("run_id", -1))
+	run = {}
+	_legacy_death(run_id)
+
+
+## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
+## unmade and the army scatters; she respawns home at once. The caller has closed the run.
+func _legacy_death(run_id: int) -> void:
 	stats["deaths"] += 1
 	var clone: bool = town["vats"] > 0
 	var at_node: String = relish["at"]
-	var run_id := int(run.get("run_id", -1))
 	if clone:
 		town["vats"] -= 1
 	else:
@@ -1884,9 +1918,205 @@ func _relish_dies() -> void:
 		army["elite"] = int(army["elite"] * 0.7)
 	_emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
 		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
-	run = {}
 	_place_relish("covington")
 	_emit({"type": "relish_respawned", "with_clone": clone, "at": "covington"})
+
+
+# ------------------------------------------------------------ apply_result ----
+func _ar_fail(reason: String, errors: Array = []) -> Dictionary:
+	return {"ok": false, "reason": reason, "errors": errors, "minted": []}
+
+
+## §4.5. Refusals are checked in the documented order and change nothing (no rev, no events,
+## no uids, no rng). Ints may arrive as integral floats, so every int is read with int().
+func apply_result(kind: String, result: Dictionary) -> Dictionary:
+	if kind != "raid" and kind != "boss":
+		return _ar_fail("unknown_kind")
+	if not Results.has_v2(result):
+		return _ar_fail("unknown_v")
+	var errs := Results.validate(kind, result)
+	if not errs.is_empty():
+		return _ar_fail("invalid", errs)
+	var run_id := int(result["run_id"])
+	if applied_runs.has(run_id):
+		return _ar_fail("duplicate_run")
+	if run.is_empty() or int(run["run_id"]) != run_id:
+		return _ar_fail("wrong_run")
+	if run["kind"] != kind:
+		return _ar_fail("wrong_kind")
+	if int(result["seed_rev"]) != int(run["seed_rev"]):
+		return _ar_fail("stale_seed")
+	var sd: Dictionary = run["seed"]
+	if kind == "raid":
+		if str(result["fort_id"]) != str(run["fort_id"]):
+			return _ar_fail("wrong_fort")
+		if int(result["revived_in_place"]) > mini(int(sd["phylactery_charges"]), int(sd["phylactery_max_per_dungeon"])):
+			return _ar_fail("bad_revives")
+	var party := _seed_party_uids(sd)
+	for uid in result["party_lost"]:
+		if not party.has(uid):
+			return _ar_fail("bad_party")
+	if kind == "boss":
+		var bs: Dictionary = result["backups_spent"]
+		if int(bs["phylactery"]) > int(sd["phylactery_charges"]) or int(bs["clones"]) > int(sd["clones_ready"]):
+			return _ar_fail("bad_backups")
+	var minted: Array = []
+	if kind == "raid":
+		minted = _writeback_raid(result)
+	else:
+		_writeback_boss(result)
+	applied_runs.append(run_id)
+	while applied_runs.size() > 32:
+		applied_runs.remove_at(0)
+	rev += 1
+	return {"ok": true, "reason": "", "errors": [], "minted": minted}
+
+
+func _seed_party_uids(sd: Dictionary) -> Array:
+	var out: Array = []
+	for e in sd["party"]:
+		out.append(e["uid"])
+	return out
+
+
+## Removes a big undead for good (death in a run), from the party too.
+func _remove_big_undead(uid: String) -> void:
+	for i in big_undead.size():
+		if big_undead[i]["uid"] == uid:
+			big_undead.remove_at(i)
+			break
+	party_uids.erase(uid)
+
+
+## §8.3 raid steps 1-12 with the E1 rules. The result is already validated and matched to the
+## open run. Returns the minted uids.
+func _writeback_raid(r: Dictionary) -> Array:
+	var sd: Dictionary = run["seed"]
+	var run_id: int = run["run_id"]
+	var fort_id: String = run["fort_id"]
+	var f := realm.fort_by_id(fort_id)
+	stats["raids"] += 1
+	# 1. kills, against the live fort
+	var k := minf(float(r["killed_living_mass"]), float(f["living"]))
+	f["living"] -= k
+	f["dead"] += k
+	# 2. the flip
+	var flip_ev := {}
+	if r["warden_beaten"]:
+		f["dead"] += f["living"]
+		f["living"] = 0.0
+		var fl: Dictionary = _cfg().get("flip", {})
+		var hold_s := float(fl.get("hold_s", 300.0)) * (1.0 + float(fl.get("tier_mult", 0.25)) * float(f["tier"]))
+		f["held_s"] = hold_s  # the hold's effect is E2
+		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
+		f["clears_since_retaken"] = int(f.get("clears_since_retaken", 0)) + 1
+		flip_ev = {"type": "fort_flipped", "fort_id": fort_id, "run_id": run_id, "hold_s": hold_s}
+	# 3. raised mass comes out of the dead
+	var raised_total := 0.0
+	for e in r["raised"]:
+		raised_total += float(e["mass"])
+	var raised_in := minf(raised_total, float(f["dead"]))
+	f["dead"] -= raised_in
+	# 4. what leaves cannot exceed what went in plus what was raised
+	var garrison_out := float(r["garrison_mass"])
+	var chaff := float(r["chaff_mass"])
+	var garrison_in := float(sd["garrison_in_mass"])
+	if garrison_out + chaff > garrison_in + raised_in + 1e-9:
+		var sc := (garrison_in + raised_in) / (garrison_out + chaff)
+		garrison_out *= sc
+		chaff *= sc
+	# 5. the net garrison delta, clamped at the live undead
+	var undead_before: float = f["undead"]
+	f["undead"] = maxf(0.0, undead_before + garrison_out - garrison_in)
+	var undead_delta: float = f["undead"] - undead_before
+	# 6. chaff leaves with Relish
+	realm.vei["undead_queue"] += chaff
+	# 7. whatever went in and did not come out, net of the step 5 clamp
+	_dungeon_sink += maxf(0.0, raised_in - undead_delta - chaff)
+	stats["raised_total"] += raised_in
+	# 8. loot
+	var loot: Dictionary = r["loot"]
+	var relics_in := mini(int(loot["relics"]), maxi(0, _cap_of("relics") - relics))
+	relics += relics_in
+	var essence_in := mini(int(loot["essence"]), maxi(0, _cap_of("essence") - essence))
+	essence += essence_in
+	var new_bps: Array = []
+	for bp in loot["blueprints"]:
+		if not blueprints.has(bp):
+			blueprints.append(bp)
+			new_bps.append(bp)
+	var minted: Array = []
+	for h in loot["husks"]:
+		var uid := _mint_uid("h")
+		husks.append({"uid": uid, "kind": str(h["kind"]), "rarity": "common"})
+		minted.append(uid)
+	for m in loot["remnants"]:
+		var uid := _mint_uid("r")
+		remnants.append({"uid": uid, "aspect": str(m["aspect"]), "rarity": str(m["rarity"]),
+			"magnitude": int(m["magnitude"])})
+		minted.append(uid)
+	cleared_forts[fort_id] = true
+	first_dungeon_id = ""
+	# 9. the dead party members go (revives are E3: the seed holds no charges at E1)
+	for uid in r["party_lost"]:
+		_remove_big_undead(uid)
+	# 12. E1 parity: soldiers and elites into the legacy army (before a death scatters it, as before)
+	for e in r["raised"]:
+		var score := int(e["score"])
+		if score >= 90:
+			army["elite"] += int(e["count"])
+		elif score >= 60:
+			army["soldier"] += int(e["count"])
+	var died: bool = r["relish_died"]
+	var party := _seed_party_uids(sd)
+	run = {}
+	_emit({"type": "loot_banked", "run_id": run_id, "fort_id": fort_id, "relics": relics_in,
+		"essence": essence_in, "blueprints": new_bps, "minted": minted.duplicate()})
+	if not flip_ev.is_empty():
+		_emit(flip_ev)
+	# 10. death: the whole party is lost (A8), then the legacy rule; 11. otherwise she stays
+	if died:
+		for uid in party:
+			_remove_big_undead(uid)
+		_legacy_death(run_id)
+	else:
+		relish["state"] = "at_fort"
+		_sync_realm_relish()
+	return minted
+
+
+## §8.3 boss steps 1-6 with the E1 rules.
+func _writeback_boss(r: Dictionary) -> void:
+	var sd: Dictionary = run["seed"]
+	var run_id: int = run["run_id"]
+	var did_win: bool = r["won"]
+	var bs: Dictionary = r["backups_spent"]
+	var clones := int(bs["clones"])
+	var deaths := int(r["relish_deaths"])
+	var final_death := deaths == int(bs["phylactery"]) + clones + 1
+	if did_win:
+		won = true
+	else:
+		var keep := float(_cfgs.get("vei", {}).get("loss_backlog_keep", 0.35))
+		realm.vei["undead_queue"] *= keep
+		for uid in _seed_party_uids(sd):
+			_remove_big_undead(uid)
+		army["soldier"] = int(army["soldier"] * 0.3)  # E1 parity
+		army["elite"] = int(army["elite"] * 0.4)
+	for uid in r["party_lost"]:
+		_remove_big_undead(uid)
+	town["vats"] = maxi(0, int(town["vats"]) - clones)  # legacy vats are the clones at E1
+	run = {}
+	var cleared: Array = []
+	for fid in r["fronts_cleared"]:
+		cleared.append(str(fid))
+	_emit({"type": "vei_result", "run_id": run_id, "won": did_win, "fronts_cleared": cleared,
+		"relish_deaths": deaths, "backlog_after": float(realm.vei["undead_queue"])})
+	if final_death:
+		_legacy_death(run_id)
+	else:
+		relish["state"] = "at_vei"
+		_sync_realm_relish()
 
 
 # ------------------------------------------------------------------ town -----

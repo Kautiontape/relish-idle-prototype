@@ -244,6 +244,8 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   7. **The ledger.**
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
   9. **The influence field** at `field.tick_hz`, time-sliced (owned by the ground unit after E1).
+     The slicing goes through `field.advance(field.slice_budget_us)`, called once per substep right
+     after the field ticks (`0` = synchronous).
 - Commands apply **immediately** when called, between frames. Their events carry the current `t`.
 - The sim keeps ticking while any scene is open, including dungeons. Writebacks are clamped deltas
   (§8.3).
@@ -589,6 +591,13 @@ Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
   - closes the run and records `run_id` as applied;
   - bumps `rev`;
   - emits `loot_banked`, plus `fort_flipped` or `vei_result`, plus `relish_died` when it applies.
+- **E1 notes:**
+  - ints are read with `int()`, so integral floats work, and the caller's dictionary is never changed;
+  - the last 32 applied run ids are kept in `applied_runs` (for `duplicate_run`; saved at T1.5);
+  - `loot_banked` reports what was actually banked: relics and essence after their caps, and only
+    the blueprints that were new;
+  - looted husks are minted with rarity `common` (the result carries a kind only);
+  - the legacy `apply_raid_result` / `apply_boss_result` stay until the router (T1.6) drops them.
 ```gdscript
 Game.state.apply_result("raid", r)  # -> {ok: true, reason: "", errors: [], minted: ["h12", "r13"]}
 Game.state.apply_result("raid", r)  # again -> {ok: false, reason: "duplicate_run", errors: [], minted: []}
@@ -608,6 +617,7 @@ and the whole call changes nothing. New keys are additive.
 - **Extras:**
   - `key: String`: the offending key, `""` on success;
   - `applied: Dictionary`: the actual deltas after clamping, plus `minted: Array[String]` for items.
+    `applied.minted` is always present (`[]` when nothing was minted).
 - **Reasons:** `not_debug`, `unknown_key`, `bad_value`.
 - At E1 these keys write the legacy stores they forward to: bone → `materials`, workers →
   `idle_undead`, living → `townsfolk`, backlog → `vei.undead_queue`.
@@ -664,8 +674,8 @@ Types are exact. "mass" means a float in mass units.
 
 ### 5.1 `view_hud()` · E2
 At E1 these fields are live: `t`, `time_scale`, `paused`, `relics`, `essence` and their caps,
-`won`, plus `sign`, `drain_s`, `odds` (from the legacy readout). The stocks come from the legacy
-`res`, and the rates are 0.
+`won`, plus `sign`, `drain_s`, `odds` (from the legacy readout). Stocks are the live stores (the
+legacy ones at E1), the same ones `view_town` and `view_catalog` read, and the rates are 0.
 
 | key | type | meaning |
 |---|---|---|
@@ -807,8 +817,12 @@ are E2. The warden, threat and loot hint are E2 (E1 stubs: `bellringer`, `risk: 
 doesn't copy a 128 × 90 grid every frame. Read it only.
 - The object is replaced on new game or load, so call `view_field()` again after a `rev` jump, or
   each refresh.
-- Its method signatures (`inject`, `tick`, `dominance_at`) are frozen at E1, when the ground unit
-  takes ownership.
+- Its method signatures (`inject`, `tick`, `dominance_at`, `advance(budget_us: int)`, `flush()`)
+  are frozen at E1, when the ground unit takes ownership.
+- `advance(budget_us)` is the time-slice hook: the ground unit fills it in to slice field work
+  between ticks, and `0` means synchronous (the E1 semantics). `flush()` finishes and publishes any
+  in-flight slice. Both are no-ops at E1. `GameState` calls `advance(field.slice_budget_us)` once
+  per substep (§3 step 9) and `flush()` once after the new-game pre-warm.
 
 | key | type | meaning |
 |---|---|---|
@@ -860,7 +874,13 @@ The dead fields and the backups are E3. At E1 a death respawns her at once.
  run_id: -1, run_kind: "", effects: {tide_fort: "", redirect_fort: "", home: false}}
 ```
 
-### 5.9 `view_town()` · E2 (E1: the BALANCE §0 start-state constants, lots from `town.json`)
+### 5.9 `view_town()` · E2 (E1: the BALANCE §0 start layout on lots from `town.json`, live stocks)
+At E1 stocks are the live stores (the legacy ones at E1); lots and buildings are the BALANCE §0
+start layout. `gold`, `bone`, `bodies`, `living`, `workers.total` and `workers.idle` (and so the job
+staffing fill) and `view_catalog`'s `no_gold`/`no_bone` checks read the same stores as `view_hud`, so
+fixtures and debug grants show up in every view. Lots, the start buildings, tier, morale and the caps
+stay constants.
+
 | key | type | meaning |
 |---|---|---|
 | `tier` | String | one of `TIERS` |
@@ -1104,6 +1124,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `living`, `dead`, `undead` | float | the fort's masses at issue |
 | `garrison_units` | int | `clampi(int(undead / raid.mass.garrison_mass_div), 0, raid.mass.garrison_max)` |
 | `garrison_in_mass` | float | `garrison_units × garrison_mass_div`: the writeback baseline (§8.3). It is recorded, never recomputed. |
+| `garrison_mass_div` | float | `raid.mass.garrison_mass_div` (10.0). `Results.from_v1` reads it from the seed, so the adapter needs no config. |
 | `starter_units` | int | `opening.starter_party` (8) when `fort.first_dungeon`, else 0. **Massless:** they never write back. |
 | `party` | Array[Dictionary] | big undead in party order: `{uid, name, kind, role, stats: {power, beef, wits, presence, speed}}` |
 | `digest_q` | float | |
@@ -1121,7 +1142,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 {v: 2, kind: "raid", run_id: 1, seed_rev: 512, rng_seed: "7203661890244157873",
  fort: {id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, first_clear: true, first_dungeon: true,
         clears_since_retaken: 0, yield_mult: 1.0},
- living: 61.2, dead: 3.1, undead: 6.4, garrison_units: 0, garrison_in_mass: 0.0, starter_units: 8, party: [],
+ living: 61.2, dead: 3.1, undead: 6.4, garrison_units: 0, garrison_in_mass: 0.0, garrison_mass_div: 10.0, starter_units: 8, party: [],
  digest_q: 1.2, phylactery_charges: 0, phylactery_max_per_dungeon: 1, clones_ready: 0,
  warden: {archetype: "bellringer", tier: 1}, warden_spec: {}, loot_table_id: "t1.bellringer",
  loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0}
