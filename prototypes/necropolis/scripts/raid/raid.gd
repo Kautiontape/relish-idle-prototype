@@ -5,15 +5,11 @@ extends Node2D
 
 signal finished(result: Dictionary)
 
-const GROUND := Color("#0d0d14")
-const GRID_LINE := Color(0.24, 0.24, 0.34, 0.16)
 const GREEN := Color("#39ff9e")
 const ORANGE := Color("#ff6a2b")
 const VIOLET := Color("#c04cff")
 const GOLD := Color("#fff3d0")
 const DANGER := Color("#ff2d55")
-
-const SPATIAL_CELL := 56.0
 
 var seed_data := {}
 var layout := {}
@@ -34,12 +30,22 @@ var first_raise_done := false
 var backlog_left := 0.0          # boss only
 var army_lost := {"soldier": 0, "elite": 0}
 
-var _grid := {}
+var arena: RaidArena = null
+var endings: RaidEndings = null
 var _setup_called := false
 var _built := false
 var _standalone := false
-var _ended := false
-var _finished := false
+
+## Run-over flag read by units, HUD, trance and the boss; lives on endings.
+var _ended: bool:
+	get:
+		return endings.ended
+	set(v):
+		endings.ended = v
+
+
+func _init() -> void:
+	endings = RaidEndings.new(self)
 
 
 func rcfg() -> Dictionary:
@@ -79,12 +85,10 @@ func _build() -> void:
 	layout = RaidLogic.gen_layout(fort_id, tier, is_boss(), cfg)
 	ledger = RaidLogic.Ledger.new(float(seed_data.get("dead", 0.0)), float(seed_data.get("cap", 100.0)))
 
-	# --- walls (the showpiece) ---
-	var glow: float = float(cfg.get("layout", {}).get("wall_glow_px", 26.0))
-	for wrect in layout["walls"]:
-		var seg := RaidWall.new()
-		add_child(seg)
-		seg.setup(wrect, glow)
+	# arena first: floor + walls draw under the units
+	arena = RaidArena.new()
+	add_child(arena)
+	arena.build(layout, cfg)
 
 	units_root = Node2D.new()
 	add_child(units_root)
@@ -134,7 +138,6 @@ func _build() -> void:
 	hud.build(self, is_boss())
 
 	_build_extra()
-	queue_redraw()
 
 
 ## Standard fortress population (enemies + garrison). The boss scene replaces this.
@@ -170,7 +173,7 @@ func _post_physics(_delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	if not _built or _ended:
 		return
-	_rebuild_grid()
+	arena.rebuild_grid(allies, enemies, relish)
 	_cam_follow()
 	_post_physics(delta)
 
@@ -191,28 +194,6 @@ func _cam_follow() -> void:
 	else:
 		t.y = clampf(t.y, view.y * 0.5 - m, arena.y - view.y * 0.5 + m)
 	cam.position = t
-
-
-func _process(_delta: float) -> void:
-	if not _built:
-		return
-	queue_redraw()  # floor grid is static, but cheap; keeps draw order simple
-
-
-func _draw() -> void:
-	if layout.is_empty():
-		return
-	var size: Vector2 = layout["size"]
-	draw_rect(Rect2(Vector2.ZERO, size), GROUND)
-	var step: float = float(rcfg().get("layout", {}).get("grid_step_px", 128.0))
-	var x := step
-	while x < size.x:
-		draw_line(Vector2(x, 0), Vector2(x, size.y), GRID_LINE, 1.0)
-		x += step
-	var y := step
-	while y < size.y:
-		draw_line(Vector2(0, y), Vector2(size.x, y), GRID_LINE, 1.0)
-		y += step
 
 
 func _unhandled_input(ev: InputEvent) -> void:
@@ -333,70 +314,15 @@ func nearest_ally_of(pos: Vector2):
 	return best
 
 
-# --------------------------------------------------------------- spatial -----
-func _rebuild_grid() -> void:
-	_grid.clear()
-	for u in allies:
-		_grid_put(u)
-	for u in enemies:
-		_grid_put(u)
-	if relish != null and relish.alive:
-		_grid_put(relish)
 
-
-func _grid_put(u: Node2D) -> void:
-	var k := Vector2i(int(u.position.x / SPATIAL_CELL), int(u.position.y / SPATIAL_CELL))
-	if not _grid.has(k):
-		_grid[k] = []
-	_grid[k].append(u)
-
-
+# --------------------------------------------------------------- arena -------
 func separation_push(u: Node2D) -> Vector2:
-	var sep: float = float(rcfg().get("combat", {}).get("separation_px", 26.0))
-	var out := Vector2.ZERO
-	var c := Vector2i(int(u.position.x / SPATIAL_CELL), int(u.position.y / SPATIAL_CELL))
-	for dy in [-1, 0, 1]:
-		for dx in [-1, 0, 1]:
-			var k := Vector2i(c.x + dx, c.y + dy)
-			if not _grid.has(k):
-				continue
-			for o in _grid[k]:
-				if o == u or not is_instance_valid(o):
-					continue
-				var d: Vector2 = u.position - o.position
-				var l := d.length()
-				if l < sep and l > 0.01:
-					out += d / l * (1.0 - l / sep)
-				elif l <= 0.01:
-					out += Vector2(randf() - 0.5, randf() - 0.5)
-	return out
+	return arena.separation_push(u)
 
 
 ## Keep a point inside the arena and out of internal walls (slide-friendly).
 func resolve_walls(p: Vector2, r: float) -> Vector2:
-	var size: Vector2 = layout["size"]
-	var t: float = layout["wall_t"]
-	p.x = clampf(p.x, t + r, size.x - t - r)
-	p.y = clampf(p.y, t + r, size.y - t - r)
-	for pass_i in 2:
-		for wrect in layout["inner_walls"]:
-			var g: Rect2 = (wrect as Rect2).grow(r)
-			if not g.has_point(p):
-				continue
-			var left := p.x - g.position.x
-			var right := g.end.x - p.x
-			var top := p.y - g.position.y
-			var bottom := g.end.y - p.y
-			var m := minf(minf(left, right), minf(top, bottom))
-			if m == left:
-				p.x = g.position.x
-			elif m == right:
-				p.x = g.end.x
-			elif m == top:
-				p.y = g.position.y
-			else:
-				p.y = g.end.y
-	return p
+	return arena.resolve_walls(p, r)
 
 
 # ------------------------------------------------------------- essence -------
@@ -457,26 +383,15 @@ func perform_raise(g: Dictionary) -> void:
 
 # --------------------------------------------------------------- endings -----
 func request_exit() -> void:
-	hud.open_exit_dialog()
+	endings.request_exit()
 
 
 func confirm_exit() -> void:
-	if _ended:
-		return
-	_ended = true
-	trance.force_end()
-	RaidFx.ring(fx_root, relish.global_position, VIOLET, 60.0, 0.5, 4.0)
-	_finish(_exit_result())
+	endings.confirm_exit()
 
 
 func on_relish_died() -> void:
-	if _ended:
-		return
-	_ended = true
-	trance.force_end()
-	RaidFx.ring(fx_root, relish.global_position, DANGER, 90.0, 0.8, 4.0)
-	RaidFx.ring(fx_root, relish.global_position, VIOLET, 50.0, 0.8, 3.0)
-	get_tree().create_timer(0.9).timeout.connect(func() -> void: _finish(_death_result()))
+	endings.on_relish_died()
 
 
 func _exit_result() -> Dictionary:
@@ -486,13 +401,5 @@ func _exit_result() -> Dictionary:
 func _death_result() -> Dictionary:
 	return ledger.result(str(seed_data.get("fort_id", "")), true, rcfg())
 
-
 func _finish(result: Dictionary) -> void:
-	if _finished:
-		return
-	_finished = true
-	_ended = true
-	Engine.time_scale = 1.0
-	finished.emit(result)
-	if _standalone:
-		hud.show_result(result)
+	endings.finish(result)
