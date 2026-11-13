@@ -43,13 +43,15 @@ godot --headless --path prototypes/necropolis --script res://tests/run_tests.gd
 
 Suites: realm sim (conservation, asymmetry, break-even, Vei policy, EMPTY,
 simulacra), influence field (entrenchment, pushback, perf), pacing (idle must
-not win; the active factory crosses 60% odds at ~2.1 sim-hours), plus the
-raid/town logic suites.
+not win; the active factory crosses 60% odds at ~2.1 sim-hours), the
+raid/town logic suites, and the visual toolkit (Pulse, Palette, LineGlow).
+The runner discovers every `tests/test_*.gd`; a script error counts as a failure.
 
 ## Debug
 
 - Map bottom-left: sim speed ×1 / ×10 / ×60.
 - F12: screenshot to `user://`.
+- F9: toggle reduced motion (`Pulse.reduced_motion`); boot with `-- --reduced-motion`.
 - CLI (args after `--`): `--shot=/abs/path.png --frames=N` (screenshot & quit),
   `--scene=res://...` (boot a specific scene), `--select=<node-id>`,
   `--teleport=<node-id>`, `--speed=<n>`.
@@ -61,7 +63,10 @@ raid/town logic suites.
 - `scenes/map|town|raid|boss` + `scripts/map|town|raid` — one scene per mode,
   swapped by `scripts/main.gd` via a uniform contract: `setup(seed)` in,
   `finished(result)` out. Every scene also runs standalone with demo data.
-- `autoload/` — ConfigDb (JSON configs), Game (owns all state, ticks always), Shot (debug).
+- `autoload/` — ConfigDb (JSON configs), Game (owns all state, ticks always), Shot (debug),
+  Pulse (the one tempo and the route motion channels).
+- `scripts/fx/` — Palette and LineGlow. With Pulse they are the shared line language;
+  see `docs/VISUAL-TOOLKIT.md`. No colour or tempo literals in scene scripts.
 
 See DESIGN.md for the model and the design decisions; the session working notes
 live outside the repo in `../relish-idle-working/`.
