@@ -33,9 +33,6 @@ extends RefCounted
 ##   redirect_rate: float  mass/s she raises there, bounded by the fort's dead
 ##   siege_block: Dictionary  fort_id -> fraction 0..1 of a tithe surge a siege cancels there (E3)
 
-## A tithe surge into the fort Relish stands at is multiplied by this (MECHANICS §3.4: halved).
-const RELISH_SURGE_MULT := 0.5
-
 var t := {}
 var forts: Array = []
 ## Kept for the save shape: `undead` is always 0 (WAR leaves in the step it arrives); `r_out` is the
@@ -503,10 +500,10 @@ static func _siege_at(siege: Dictionary, fort_id: String) -> float:
 	return clampf(float(v), 0.0, 1.0) if _num(v) else 0.0
 
 
-## surge_mult × the counters: halved where Relish stands, less the siege's share.
+## surge_mult × the counters: × tithe.relish_mult (halved) where Relish stands, less the siege's share.
 func _surge_mult(fort_id: String, relish_fort: String, block: float) -> float:
 	var m := float(_tcfg().get("surge_mult", 3.0)) * (1.0 - block)
-	return m * RELISH_SURGE_MULT if relish_fort == fort_id else m
+	return m * float(_tcfg().get("relish_mult", 0.5)) if relish_fort == fort_id else m
 
 
 ## The wave ends: a held fort it overwhelmed (delivered > the undead there now) is retaken.

@@ -98,7 +98,7 @@ are marked ⟵.
 | `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | |
 | `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
-| `tithe.siege_block` | 0.6 | Relish halves the surge |
+| `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge; a surge into the fort Relish stands at is × 0.5 (halved) |
 | `readout.ema_s` | 120 | |
 | `q0`, `q_forge`, `q_raise_max`, `q.raise_half_mass`, `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
 | `stall.rate`, `market.shop_rate`, `market.price` | 0.15 /stall/s, 0.03 /living/s, 1 | start: min(2·0.15, 10·0.03) = 0.30 gold/s |
@@ -119,8 +119,29 @@ are marked ⟵.
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
 | `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
-| E3 effects (data only for now) | chapel `vat_slots` 2, guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30, crypt `big_undead_cap` 1, ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
-| `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both) | |
+| cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
+| E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
+| `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both to 18 and 90) | |
+| `big_undead.cap`, `big_undead.per_crypt_level` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
+| `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
+| `town.tiers.<tier>.lots` | below | explicit lot ids per tier |
+
+**Lots per tier** (`economy.json` `town.tiers.<tier>.lots`; sizes are `town.json`'s: lot-01..04 and
+lot-13..16 are size 2, lot-05..12 and lot-17..22 size 1, lot-23 and lot-24 size 3):
+
+| tier | lots | count |
+|---|---|---|
+| Hamlet | lot-01..lot-08 | 8 |
+| Village | lot-01..lot-16, lot-23 | 17 |
+| Town | lot-01..lot-20, lot-23, lot-24 | 22 |
+| City | lot-01..lot-24 | 24 |
+
+Chosen so that each tier-defining building has a lot of its size in the tier where it becomes
+buildable (the tier-gate fix, MECHANICS §4.4): the Chapel of Vats (size 2) at Village on lot-13..16;
+Walls (size 3) at Village on lot-23; the Reliquary (size 3) at Town on lot-24. Lot-23 and lot-24 stay
+shut until then so nothing small is put on them first, and a size-1 building may sit on a bigger lot
+(a lot too small is the only size refusal), so the player can still block lot-23 with a house:
+demolish it. Town needs 12 buildings, which Village's 17 lots hold; City needs 20 of Town's 22.
 | `stance.base_slots`, `stance.hold_s` | 2, 10 | |
 | `vats.grow_per_s` | 1/300 per staffed vat | |
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |

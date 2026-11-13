@@ -303,22 +303,15 @@ func _stubs() -> void:
 	var h: String = s.husks[0]["uid"]
 	var r1: String = s.remnants[0]["uid"]
 	var r2: String = s.remnants[1]["uid"]
-	var zero := {"gold": 0.0, "bone": 0.0, "relics": 0}
 	var before := _snapshot(s)
 	var rv := s.rev
-	t.ok(s.cmd_build("house", "lot-05") == {"ok": true, "reason": "", "cost": zero}, "build: ok with a zero cost")
-	t.ok(s.cmd_build("inn", "lot-01")["ok"], "build: the stub skips the state checks (E2)")
-	t.ok(s.cmd_upgrade("lot-04") == {"ok": true, "reason": "", "level": 0, "cost": zero}, "upgrade: ok, level 0, zero cost")
-	t.ok(s.cmd_upgrade("lot-05")["ok"], "upgrade: an empty lot passes the stub")
-	t.ok(s.cmd_demolish("lot-01") == {"ok": true, "reason": ""}, "demolish: ok (nothing happens)")
-	t.ok(s.cmd_cancel_build("lot-07") == {"ok": true, "reason": "", "refund": zero}, "cancel_build: ok, zero refund")
 	t.ok(s.cmd_craft("phylactery_charge") == {"ok": true, "reason": "", "count": 0}, "craft: ok, count 0")
 	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}, "deploy: ok, nothing planted")
 	var raised := s.cmd_raise_big_undead(h, [r1, r2], "Old Gristle")
 	t.ok(raised["ok"] and raised["big_undead"] == {"uid": "", "name": "", "kind": "", "role": "",
 		"stats": {"power": 0.0, "beef": 0.0, "wits": 0.0, "presence": 0.0, "speed": 0.0}, "place": "", "front": ""},
 		"raise: ok with a full-shape zero entry")
-	t.ok(s.rev == rv + 9, "each stub success adds 1 to rev")
+	t.ok(s.rev == rv + 3, "each stub success adds 1 to rev")
 	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "the stubs change nothing")
 	t.ok(s.cmd_build("nope", "lot-99") == {"ok": false, "reason": "unknown_building", "cost": {}}, "build: unknown_building first")
 	t.ok(s.cmd_build("house", "lot-99")["reason"] == "unknown_lot", "build: unknown_lot")
@@ -346,11 +339,13 @@ func _vats() -> void:
 		"no vats, no backups")
 	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": 0.0, "loses": ["unbanked_loot", "morale"]},
 		"a death now: unmade (the E1-safe rule, an immediate respawn until E3)")
-	s.clones_ready = 2
+	s.clones_ready = 1
+	t.ok(s.cmd_staff_vat(0, true)["reason"] == "unknown_slot", "a clone stock alone makes no vat: it takes a Chapel of Vats")
+	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)
 	t.ok(s.cmd_staff_vat(1, true) == {"ok": true, "reason": "", "staffed": true}, "staff vat 1")
 	v = s.view_backups()
-	t.ok(v["clones_ready"] == 2 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
-		{"slot": 1, "staffed": true, "grow": 1.0, "ready": true}], "each ready clone is a ready vat until E3; staffing echoed")
+	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
+		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}], "a level-1 Chapel is 2 vats, one ready for the clone; staffing echoed")
 	t.ok(v["death"]["outcome"] == "clone" and v["death"]["loses"] == ["unbanked_loot"], "with a clone: no morale shock")
 	s.cmd_debug_grant({"big_undead": 1})
 	s.cmd_set_party([s.big_undead[0]["uid"]])

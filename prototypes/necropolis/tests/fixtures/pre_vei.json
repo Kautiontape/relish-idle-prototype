@@ -1,6 +1,6 @@
 {
 	"acc": 0.0,
-	"api_version": 1,
+	"api_version": 2,
 	"applied_runs": [],
 	"backups": {
 		"clones_ready": 1,
@@ -9,6 +9,11 @@
 			{
 				"grow": 1.0,
 				"slot": 0,
+				"staffed": false
+			},
+			{
+				"grow": 0.0,
+				"slot": 1,
 				"staffed": false
 			}
 		]

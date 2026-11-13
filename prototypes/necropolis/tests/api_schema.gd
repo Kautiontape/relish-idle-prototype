@@ -114,7 +114,7 @@ const REASONS := {
 	"cmd_set_haul_target": ["unknown_fort"],
 	"cmd_build": ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small",
 		"needs_tier", "needs_blueprint", "needs_building", "no_gold", "no_bone", "no_relics"],
-	"cmd_upgrade": ["unknown_lot", "empty_lot", "under_construction", "max_level", "needs_tier",
+	"cmd_upgrade": ["unknown_lot", "empty_lot", "under_construction", "unpaid", "max_level", "needs_tier",
 		"no_gold", "no_bone", "no_relics"],
 	"cmd_demolish": ["unknown_lot", "empty_lot", "under_construction", "protected"],
 	"cmd_cancel_build": ["unknown_lot", "not_building"],

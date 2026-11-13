@@ -310,7 +310,7 @@ at E2b.
   shipping share and the fort's space, so it may overfill the fort; her normal shipping, which
   comes after it in the step, still respects space.
 - **Counters** (applied every step of the wave; the event reports them at its start):
-  - Relish standing there (at the fort or in its dungeon) halves the surge;
+  - Relish standing there (at the fort or in its dungeon) multiplies the surge by `tithe.relish_mult` (0.5: halves it);
   - a big undead placed there as siege cancels `tithe.siege_block` of it. Siege is E3: RealmSim
     takes the cancelled fraction per fort as its `siege_block` input, 0 until then.
 
@@ -373,7 +373,8 @@ mass; bodies, rot return, WORK and muster are mass.
 
 ### 4.2 Jobs (rates per staffed worker; keys in `economy.json`)
 - **Slots.** A working building offers its `buildings.json` `jobs` × its level. A lot under
-  construction (a first build or an upgrade) offers `job.build.slots` build slots and nothing else.
+  construction offers `job.build.slots` build slots; a first build offers nothing else, and an
+  upgrade keeps its old level's slots too (its building keeps working).
   An unpaid building offers none. Staffing is fractional.
 - **Effects.** A building's numeric `effects` are per level (× level), or a per-level table when the
   value is an array: the Charnel House's `body_cap` is `[0, 50, 100]`, so only its upgrades add.
@@ -444,13 +445,26 @@ ids and sizes are API, written by economy at E1. The town unit may move position
 - **Town**: 12 buildings including walls and a chapel;
 - **City**: 20 buildings including a reliquary.
 
-A tier-up is a set piece (the walls draw themselves).
+The tier rises by itself, in the substep the requirements first hold (`economy.json`
+`town.tiers.<tier>.requires`; `tier_up{tier, from}` once per rise), and never falls: demolishing a
+required building later does not take the tier away. Each tier opens lots by explicit id list
+(BALANCE §5); `cmd_build` refuses a locked lot. A tier-up is a set piece (the walls draw themselves).
+
+**Tier-gate fix (T2.4, manager ruling).** A building that *defines* the next tier must be buildable
+in the tier before it, or the tier could never be reached: Walls and the Chapel of Vats are
+buildable at **Village** (they make Town), and the Reliquary at **Town**, with its blueprint (it
+makes City). Every other gate is as it was. Walls and the Reliquary are the only size-3 buildings and
+the town has two size-3 lots, so lot-23 opens at Village and lot-24 at Town.
+
+**Upgrades.** A building mid-upgrade works at its old level (slots, output, upkeep, effects, caps)
+until the new level completes; the construction adds `job.build.slots` build slots. A cancelled
+upgrade refunds in full and changes nothing else.
 
 **Every building has a numeric benefit** (vision review S7):
 
 | building | benefit | gate |
 |---|---|---|
-| Crypt | holds the slab; idle rest; big-undead cap +1 per level | start |
+| Crypt | holds the slab; idle rest; big-undead cap +1 per level above 1 | start |
 | Raising Pit | +`P_per_pit` mint; pit job | start (1) |
 | Charnel House | haul job; body store cap + | start |
 | Market | stall jobs (gold) | start (small) |
@@ -462,13 +476,13 @@ A tier-up is a set piece (the walls draw themselves).
 | Graveyard | + body store cap; + worker lifetime | Village |
 | Embalmer | + worker lifetime | Village + blueprint |
 | Stables | haul trips faster | Village |
-| Chapel of Vats | vat slots; tend job | Town |
+| Chapel of Vats | vat slots (view_backups.vats: 2 per level); tend job | Village (makes Town) |
 | Ossuary Tower | crafts simulacra and phylactery charges | Town + blueprint |
 | Guildhall | + stance slots | Town |
 | Watchtower | adds precision to fort hints (exact warden tells, death-risk %) | Town |
-| Walls and Gate | Town tier; + morale; + living cap | Town |
+| Walls and Gate | Town tier; + morale; + living cap | Village (makes Town) |
 | Plaza, Statue of Relish | + morale; the statue softens the death shock | Town |
-| Reliquary | + relic and essence caps | City + blueprint |
+| Reliquary | + relic and essence caps (6 and 30) | Town + blueprint (makes City) |
 
 ### 4.5 The job ladder and stances (D11)
 - **The job ladder:** an ordered list of jobs. Workers fill slots top-down. The player drags to
@@ -512,7 +526,7 @@ A tier-up is a set piece (the walls draw themselves).
   - fort siege (`fort:<id>`), which adds kill power there and blocks tithe;
   - the party (`cmd_set_party`);
   - the crypt.
-- Cap: `big_undead.cap` (crypt levels). They die only in dungeons or the Vei fight.
+- Cap: `big_undead.cap` (4, + `big_undead.per_crypt_level` per Crypt level above 1). They die only in dungeons or the Vei fight.
 
 ## 5. Micro: dungeons
 

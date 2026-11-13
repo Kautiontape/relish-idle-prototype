@@ -1,6 +1,6 @@
 {
 	"acc": 0.0,
-	"api_version": 1,
+	"api_version": 2,
 	"applied_runs": [
 		1,
 		2
@@ -328,7 +328,7 @@
 			"r_in_dead": 4.89987289048914,
 			"r_in_undead": 6.18222134482177,
 			"r_shipped": 0.255854708353436,
-			"undead_queue": 16788.7213375778
+			"undead_queue": 4000.0
 		}
 	},
 	"relish": {

@@ -2,8 +2,9 @@ extends SceneTree
 ## Regenerates the three fixture saves (STATE-API 9.4). Run by hand, from the repo root:
 ##   godot --headless --path prototypes/necropolis --script res://tests/fixtures/make_fixtures.gd
 ## It takes a few minutes (it really simulates 1 h and 3 h). Every state is built with
-## cmd_new_game(1), then commands, debug commands and TownSim.place_building (the build commands are
-## stubs until T2.4), so the files are reproducible. Fields that no command can produce yet are
+## cmd_new_game(1), then commands, debug commands and TownSim.place_building (a placement is instant
+## and free, which a build is not; the town's tier then rises by itself, as in play), so the files are
+## reproducible. Fields that no command can produce yet are
 ## written straight into the state or the save dict, marked "E2 field" or "E3 field" below; the
 ## state is then loaded and re-dumped, so each file is exactly what `to_dict()` gives after a load.
 ## Run it again (and commit the JSON) whenever the save shape changes, and whenever E2/E3 can
@@ -57,7 +58,7 @@ func _write(name: String, d: Dictionary) -> void:
 
 ## Puts finished buildings on lots at once: [[lot_id, building_id, level], ...]. The lot must be free
 ## (or hold the same building, which takes the new level) and big enough; tiers and costs are not
-## checked (the fixture writes its tier).
+## checked (the town's tier rises on its own once the sim runs).
 func _place(s: GameState, specs: Array) -> void:
 	var sizes := {}
 	for l in _cfgs["town"]["lots"]:
@@ -108,6 +109,8 @@ func _midgame() -> Dictionary:
 	_place(s, [["lot-05", "house", 1], ["lot-06", "well", 1], ["lot-07", "bone_mill", 1]])
 	_need(s.cmd_debug_skip_time(3600.0), "skip_time")
 	_check_paid(s, "midgame")
+	if s.town_tier != "village":
+		_fail("midgame is not a Village: %s" % s.town_tier)
 	_flip(s, "old-sluice", {"relics": 1, "essence": 5, "blueprints": ["embalmer"], "husks": [{"kind": "hulk"}],
 		"remnants": [{"aspect": "power", "rarity": "common", "magnitude": 2}, {"aspect": "beef", "rarity": "uncommon", "magnitude": 3}]})
 	_flip(s, "ashgate", {"relics": 1, "essence": 4, "blueprints": [], "husks": [{"kind": "zombie"}],
@@ -130,8 +133,11 @@ func _midgame() -> Dictionary:
 	s.tick(0.5)  # a convoy is out and Relish is on the road, both still in flight
 	if (s.town_sim.haul["convoys"] as Array).size() != 1 or s.relish["state"] != "travelling":
 		_fail("the convoy or the journey is not in flight: %s / %s" % [str(s.town_sim.haul), s.relish["state"]])
+	# HAND-SHAPED VALUE: with the full mint an hour of continuous sim leaves Vei's backlog low (odds
+	# about 0.58, close to pre_vei's 0.6), which does not look mid-game. The backlog is set to 4000
+	# (odds about 0.25) with a debug command.
+	_need(s.cmd_debug_grant({"backlog": 4000.0 - float(s.realm.vei["undead_queue"])}), "backlog")
 	var d := s.to_dict()
-	d["town"]["tier"] = "village"  # E2 field: no command promotes the town yet (T2.4)
 	# E2 field: the tithe block. The warning mirrors the tithe_warning event (§6).
 	d["realm"]["tithe"] = {"warning": {"wave_id": 1, "fort_id": "ashgate", "eta_s": 150.0, "surge": 24.0}}
 	return d
@@ -154,6 +160,8 @@ func _pre_vei() -> Dictionary:
 	_need(s.cmd_debug_grant({"gold": 2500.0, "bone": 200.0}), "grant upkeep")
 	_need(s.cmd_debug_skip_time(1800.0), "skip_time")
 	_check_paid(s, "pre_vei")
+	if s.town_tier != "city":
+		_fail("pre_vei is not a City: %s" % s.town_tier)
 	_need(s.cmd_debug_grant({"big_undead": 4}), "grant big undead")
 	var u := _uids(s)
 	_need(s.cmd_set_party(u), "party")
@@ -163,7 +171,6 @@ func _pre_vei() -> Dictionary:
 	_need(s.cmd_debug_grant({"backlog": 1.5 * k - float(s.realm.vei["undead_queue"])}), "backlog")
 	_need(s.cmd_debug_set_state({"relish_at": "vei"}), "relish at Vei")
 	var d := s.to_dict()
-	d["town"]["tier"] = "city"  # E2 field: no command promotes the town yet (T2.4)
 	d["backups"]["phylactery_charges"] = 1  # E3 field: no system makes a charge yet
 	d["backups"]["clones_ready"] = 1  # E3 field: no system grows a clone yet
 	return d

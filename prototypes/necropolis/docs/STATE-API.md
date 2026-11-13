@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 1)
+# Necropolis: GameState API (api_version 2)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -26,7 +26,8 @@ from `BALANCE.md` §0.
     from E2a: the valve and TownSim act on them);
   - `cmd_set_stance`, `cmd_staff_vat`, `cmd_assign_front`.
 
-  Action commands (build, upgrade, demolish, cancel, raise, craft, deploy) run their id checks
+  Action commands (raise, craft, deploy; build, upgrade, demolish and cancel were stubs until
+  E2a T2.4) run their id checks
   (`unknown_*`), then return `ok` with zero-valued extras and change nothing. Stub views return
   BALANCE §0 constants, or legacy-derived values where noted.
 
@@ -66,7 +67,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 1
+const API_VERSION := 2
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -429,6 +430,14 @@ Reasons shared by the build family, in check order:
 - `needs_tier`, `needs_blueprint`, `needs_building`;
 - `no_gold`, `no_bone`, `no_relics`.
 
+Live from E2a (T2.4). The town's tier rises when its requirements hold (§5.9; `tier_up`), and the
+tier opens lots: the id lists are `economy.json` `town.tiers.<tier>.lots` (BALANCE §5), Hamlet being
+`lot-01`..`lot-08`. A building that defines the next tier is buildable one tier before it (Walls and
+the Chapel of Vats at Village, the Reliquary, with its blueprint, at Town; MECHANICS §4.4). A
+construction costs its `cost` (a build) or `level_costs[level - 2]` (an upgrade to `level`), paid
+at once from TownSim's gold and bone and from the relics; the `build` job advances it. A cancel
+refunds that cost in full. `api_version` 2 added `unpaid` to `cmd_upgrade`.
+
 **`cmd_build(building_id: String, lot_id: String)` · E2**
 - **Extras:** `cost: {gold: float, bone: float, relics: int}`.
 - **Reasons:** `unknown_building`, `unknown_lot`, `lot_locked`, `lot_taken`, `lot_too_small`,
@@ -442,10 +451,12 @@ Game.state.cmd_build("inn", "lot-06")    # -> {ok: false, reason: "needs_tier", 
 
 **`cmd_upgrade(lot_id: String)` · E2**
 - **Extras:** `level: int` (the target level), `cost: {gold, bone, relics}` from `level_costs`.
-- **Reasons:** `unknown_lot`, `empty_lot`, `under_construction`, `max_level`, `needs_tier`,
-  `no_gold`, `no_bone`, `no_relics`.
+- **Reasons:** `unknown_lot`, `empty_lot`, `under_construction`, `unpaid` (an unpaid building can't
+  upgrade; added at `api_version` 2), `max_level`, `needs_tier` (the building's own tier, which only
+  a placed building can lack), `no_gold`, `no_bone`, `no_relics`.
 - **Effect:** pays, then runs construction like a build. The building keeps working at its old
-  level until the upgrade is done.
+  level (slots, output, upkeep and effects) until the upgrade is done; `view_town` shows it
+  `constructing` meanwhile, with its old `level`.
 ```gdscript
 Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {gold: 80.0, bone: 30.0, relics: 0}}
 ```
@@ -453,7 +464,8 @@ Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {g
 **`cmd_demolish(lot_id: String)` · E2**
 - **Reasons:** `unknown_lot`, `empty_lot`, `under_construction` (use `cmd_cancel_build`),
   `protected` (the Crypt).
-- **Effect:** frees the lot with no refund. A foreman placed there returns to the crypt.
+- **Effect:** frees the lot with no refund (its staff cap goes too). A foreman placed there returns
+  to the crypt. `protected` is any Crypt.
 ```gdscript
 Game.state.cmd_demolish("lot-03")  # -> {ok: true, reason: ""}
 ```
@@ -462,8 +474,10 @@ Game.state.cmd_demolish("lot-03")  # -> {ok: true, reason: ""}
 - **Extras:** `refund: {gold, bone, relics}`.
 - **Reasons:** `unknown_lot`, `not_building`.
 - **Effect:**
-  - Refunds the full cost; relics are clamped to the cap.
-  - A cancelled new build frees the lot. A cancelled upgrade keeps the old level.
+  - Refunds the full cost (`refund` shows what came back; relics are clamped to the cap).
+  - A cancelled new build frees the lot (a foreman there returns to the crypt) and drops its
+    `building_started` if no substep has emitted it yet. A cancelled upgrade keeps the old level,
+    still working.
 ```gdscript
 Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold: 40.0, bone: 10.0, relics: 0}}
 ```
@@ -982,7 +996,8 @@ From E2a (T2.3b) it is TownSim's town (MECHANICS §4): buildings with their real
 slots, staffing and output; the ladder and the jobs it staffs; the workforce and its flows; the
 living, morale and its factors; the stocks and caps; trade; the convoy. The stocks are the ones
 `view_hud` and `view_catalog`'s `no_gold`/`no_bone` read, so fixtures and debug grants show up in
-every view. The tier is GameState's (stored; tier-ups are T2.4), lots come from `town.json`, and
+every view. The tier is GameState's (stored; it rises in `tick` when the requirements hold, T2.4: `tier_up`),
+lots come from `town.json` and are unlocked by the tier, and
 `ladder_effective` is the ladder until stances (E3). Flows are TownSim's last step: 0 at a new game
 until the first substep.
 - `workers.lifetime_s` is the lifetime now (`worker.lifetime_s · (1 + Σ lifetime_bonus)`, ÷
@@ -997,8 +1012,8 @@ until the first substep.
 | key | type | meaning |
 |---|---|---|
 | `tier` | String | one of `TIERS` |
-| `next_tier` | Dictionary | `{tier: String, have: int, need: int, missing: Array[String]}`. `have`/`need` count buildings; `missing` lists required building ids not yet built. `tier` is `""` at City. |
-| `lots` | Array[Dictionary] | `{id: String, size: int, unlocked: bool, building_id: String}` (`""` when empty) |
+| `next_tier` | Dictionary | `{tier: String, have: int, need: int, missing: Array[String]}`. `have`/`need` count buildings whose first build is done (the Crypt included); `missing` lists required building ids not yet built. The tier rises when `have >= need` and `missing` is empty. `tier` is `""` at City (`need` 0). |
+| `lots` | Array[Dictionary] | `{id: String, size: int, unlocked: bool, building_id: String}` (`""` when empty). `unlocked` is the tier's lot list (BALANCE §5); a lot with a building stays listed unlocked or not. |
 | `buildings` | Array[Dictionary] | one per built or building lot (below) |
 | `ladder` | Array[String] | the player's job order |
 | `ladder_effective` | Array[String] | the order after stances |
@@ -1044,7 +1059,11 @@ Each `buildings` entry:
 
 ### 5.10 `view_catalog()` · E2 (crafts E3)
 From E2a `no_gold` and `no_bone` read TownSim's stocks, `count` counts the buildings whose first build
-has finished, and a lot under construction is not free. The other gates are unchanged until T2.4.
+has finished, and a lot under construction is not free. From T2.4 (E2a) the gates are `cmd_build`'s
+(the tier, blueprint and building gates, the unlocked lots, the tier-gate fix of MECHANICS §4.4), and
+`can_build`/`reason` always agree with what `cmd_build` would answer on the first lot in `lots`. Its
+`reason` order is `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot`, `no_gold`, `no_bone`,
+`no_relics`.
 
 | key | type | meaning |
 |---|---|---|
@@ -1108,13 +1127,13 @@ Loot comes in through `apply_result` and grants at E1. The big-undead raise is E
 | `husks` | Array[Dictionary] | `{uid: String, kind: String}` |
 | `remnants` | Array[Dictionary] | `{uid: String, aspect: String (one of STATS), rarity: String (one of RARITIES), magnitude: int}` |
 | `blueprints` | Array[String] | owned blueprint ids |
-| `relics`, `relics_cap`, `essence`, `essence_cap`, `simulacra_ready`, `phylactery_charges` | int | simulacra and charges are fungible counts, not uids |
+| `relics`, `relics_cap`, `essence`, `essence_cap`, `simulacra_ready`, `phylactery_charges` | int | simulacra and charges are fungible counts, not uids. From T2.4 the caps are the base plus the Reliquary (`relic_cap` 6, `essence_cap` 30). |
 
 **`view_big_undead()`**
 
 | key | type | meaning |
 |---|---|---|
-| `cap`, `count` | int | `big_undead.cap` (crypt levels) |
+| `cap`, `count` | int | `big_undead.cap` (4) plus `big_undead.per_crypt_level` (1) per Crypt level above 1 |
 | `big_undead` | Array[Dictionary] | entries as below |
 
 Each big-undead entry:
@@ -1146,7 +1165,8 @@ view_party():      {rev: 3, party: [{uid: "u4", ...}], fort_id: "old-sluice", ga
 
 ### 5.13 `view_backups()` · E3
 Until E3 `clones_ready` is a plain stock (GameState's, saved in `backups`; the fixtures and tests set
-it, no system grows one yet) and each ready clone is a vat slot (`grow` 1.0, `ready`); the
+it, no system grows one yet). From T2.4 the vats are the Chapel of Vats' `vat_slots` per level (none
+without a Chapel): slot `i` is `ready` (`grow` 1.0) while `i < clones_ready`, else `grow` 0.0. The
 phylactery charges are stored as is. `death` follows the E1-safe rule of §8.3 step 10.
 | key | type | meaning |
 |---|---|---|
@@ -1206,10 +1226,10 @@ when no run of that kind is open at that fort.
 |---|---|---|
 | `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0; `phylactery` and timers E3) |
 | `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate at E1) |
-| `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts) |
+| `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts; `cmd_build` and `cmd_upgrade` do not emit it themselves, and a cancel before that substep drops it) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
-| `tier_up` | `tier: String`, `from: String` | E2 |
+| `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String` (`expired`\|`tithe_wave`) | E2 |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
@@ -1581,7 +1601,7 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 | file | represents |
 |---|---|
 | `day1.json` | `cmd_new_game(1)` at t ≈ 0: the BALANCE §0 start. Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no clones or vats; Old Sluice flagged first. |
-| `midgame_2flips.json` | About 1 h in, Village tier: the start set plus a House, a Well and a Bone Mill (lots 5–7), which ran the hour. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight (to Greywall), 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
+| `midgame_2flips.json` | About 1 h in, Village tier (it rises by itself on the first substep): the start set plus a House, a Well and a Bone Mill (lots 5–7), which ran the hour. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Vei's backlog is hand-shaped to 4000 (odds ≈ 0.25), since an hour of the full mint would leave it near `pre_vei`'s. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight (to Greywall), 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
 | `pre_vei.json` | About 3 h in, City tier: 20 buildings (the start set with the pit and the market at level 2, three more pits, two houses, a well, a bakery, a bone mill, a statue, a Chapel of Vats, a forge, an inn, a graveyard, a watchtower, the Walls and the Reliquary, whose blueprint is owned), up for the last 30 min and none unpaid. Odds ≈ 0.6, a party of 4 big undead assigned to fronts (views show fronts at 0 until E3 computes need/have; the party's front assignments are in the fixture; 3 of 4 fronts would be met), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
 | `v1_day1.json`, `v1_midgame_2flips.json` | The E1 (save v1) `day1` and `midgame_2flips`, kept as they were for the v1 → v2 migration tests. Not loadable by name. |
 
@@ -1592,8 +1612,12 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
   what `to_dict()` gives after loading it (the placeholders survive).
 - They are produced by `tests/fixtures/make_fixtures.gd` (commands, debug commands and
   `TownSim.place_building` from `cmd_new_game(1)`, then the fields no command can make yet written
-  into the state or the dict: the town tier and `realm.tithe` on `midgame_2flips`; the tier, the
-  Reliquary blueprint, `backups.phylactery_charges` and `backups.clones_ready` on `pre_vei`). Run it
+  into the state or the dict: `realm.tithe` on `midgame_2flips`; the Reliquary blueprint,
+  `backups.phylactery_charges` and `backups.clones_ready` on `pre_vei`). The town tier is no longer
+  written: it rises by itself while the generator runs the sim (Village on `midgame_2flips`, City
+  on `pre_vei`), and the generator stops if it does not. `midgame_2flips`'s Vei backlog is a
+  hand-shaped value (4000, set with `cmd_debug_grant` after the hour): left alone, an hour of the
+  full mint leaves odds near `pre_vei`'s, which does not look mid-game. Run it
   by hand when the save shape changes (it takes about 5 minutes). The `realm.tithe` it writes on `midgame_2flips` is still the
   E1 placeholder `{warning}`; from E2a the load maps it into the tithe state (a warning pending on
   Ashgate, 150 s to the wave), so the file holds the full E2a block (§9.1).

@@ -31,7 +31,7 @@ extends RefCounted
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
 
 const JOBS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
-const WORKING := ["active", "idle"]  # built, paid and not under construction
+const WORKING := ["active", "idle"]  # built, paid and not under construction (_works() adds a building mid-upgrade)
 const EPS := 1e-9
 const MAX_LEGS := 256  # convoy legs one step may run (a long catch-up step makes many trips)
 const MIN_TRIP_S := 0.01
@@ -274,6 +274,54 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 	return {"ok": true, "reason": ""}
 
 
+## Cancels the construction under way on a lot (costs and refunds are the caller's). A first build
+## frees the lot; an upgrade goes back to its old level, working as before. The `building_started`
+## it queued, if no step() has returned it yet, is dropped. Reasons: unknown_lot, not_building.
+## `level` is the level the construction was heading to.
+func cancel_construction(lot_id: String) -> Dictionary:
+	if not _lots.has(lot_id):
+		return {"ok": false, "reason": "unknown_lot", "building_id": "", "level": 0, "upgrade": false}
+	var b: Dictionary = buildings.get(lot_id, {})
+	if b.is_empty() or b["state"] != "constructing":
+		return {"ok": false, "reason": "not_building", "building_id": "", "level": 0, "upgrade": false}
+	var out := {"ok": true, "reason": "", "building_id": b["building_id"], "level": int(b["build_level"]), "upgrade": int(b["level"]) >= 1}
+	if out["upgrade"]:
+		b["state"] = "active"
+		b["progress"] = 1.0
+		b["build_level"] = int(b["level"])
+	else:
+		buildings.erase(lot_id)
+	_drop_pending(lot_id)
+	_restaff()
+	return out
+
+
+## Removes a finished building (no refund; GameState's rules). Reasons: unknown_lot, empty_lot,
+## constructing (cancel_construction first). Its staff cap goes with it.
+func demolish(lot_id: String) -> Dictionary:
+	if not _lots.has(lot_id):
+		return {"ok": false, "reason": "unknown_lot"}
+	var b: Dictionary = buildings.get(lot_id, {})
+	if b.is_empty():
+		return {"ok": false, "reason": "empty_lot"}
+	if b["state"] == "constructing":
+		return {"ok": false, "reason": "constructing"}
+	buildings.erase(lot_id)
+	_drop_pending(lot_id)
+	_restaff()
+	return {"ok": true, "reason": ""}
+
+
+func _drop_pending(lot_id: String) -> void:
+	_pending = _pending.filter(func(e): return not (e.get("type", "") == "building_started" and e.get("lot_id", "") == lot_id))
+
+
+## The sum of a building effect over every built building (a level counts once its build is done,
+## unpaid or mid-upgrade too): caps and slots, as GameState reads them.
+func built_effect(key: String) -> float:
+	return _sum_built(key)
+
+
 ## The player's job order, top first (a permutation of JOBS; GameState checks it), then a restaff.
 func set_ladder(order: Array) -> void:
 	ladder = []
@@ -302,7 +350,7 @@ func add_shock(x: float) -> void:
 	var k := 1.0
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
-		if not b.is_empty() and WORKING.has(b["state"]) and _defs[b["building_id"]]["effects"].has("death_shock_mult"):
+		if not b.is_empty() and _works(b) and _defs[b["building_id"]]["effects"].has("death_shock_mult"):
 			k *= pow(float(_defs[b["building_id"]]["effects"]["death_shock_mult"]), int(b["level"]))
 	shock = maxf(0.0, shock + x * k)
 
@@ -341,7 +389,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var pit_can := 0.0  # mass/s the staffed pits can burn
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not WORKING.has(b["state"]):
+		if b.is_empty() or not _works(b):
 			continue
 		var p := int(_eff(b, "pits"))
 		if p <= 0:
@@ -412,7 +460,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var mig := float(inp.get("held_villages", 0)) * _migrant_rate
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
-		if not b.is_empty() and WORKING.has(b["state"]):
+		if not b.is_empty() and _works(b):
 			mig += _eff(b, "attract")
 	var k := _leave_rate if morale < _leave_below else 0.0
 	var l0 := living
@@ -613,7 +661,7 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if b.is_empty():
 			continue
-		if WORKING.has(b["state"]):
+		if _works(b):
 			due_g += float(_defs[b["building_id"]]["upkeep_gold"])
 			due_b += float(_defs[b["building_id"]]["upkeep_bone"])
 		elif b["state"] == "unpaid":
@@ -664,7 +712,7 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 
 # --------------------------------------------------------- the job ladder ----
 ## Workers fill job slots top-down in ladder order, buildings in lot order, each lot up to its
-## staff cap. A working building offers jobs × level slots; a constructing lot offers
+## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
 ## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` only.
 func _staff() -> void:
 	var used := {}
@@ -719,10 +767,16 @@ func _restaff() -> void:
 		b["state"] = "active" if not has_jobs or float(lots.get(lot_id, 0.0)) > 0.0 else "idle"
 
 
+## A building at work: built and paid, or built and mid-upgrade (it keeps working at its old level
+## until the upgrade completes; a first build, level 0, never works).
+func _works(b: Dictionary) -> bool:
+	return WORKING.has(b["state"]) or (b["state"] == "constructing" and int(b["level"]) >= 1)
+
+
 func _slots(b: Dictionary, job: String) -> int:
 	if job == "build":
 		return _build_slots if b["state"] == "constructing" else 0
-	if not WORKING.has(b["state"]):
+	if not _works(b):
 		return 0
 	return int(_defs[b["building_id"]]["jobs"].get(job, 0)) * int(b["level"])
 
@@ -748,7 +802,7 @@ func _sum_working(key: String) -> float:
 	var s := 0.0
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
-		if not b.is_empty() and WORKING.has(b["state"]):
+		if not b.is_empty() and _works(b):
 			s += _eff(b, key)
 	return s
 
@@ -786,11 +840,11 @@ func lot_slots(lot_id: String) -> int:
 ## {mint: mint_per_pit · pits, burn: pit.burn_per_s · pits · its staffed share}; stalls {gold}, their
 ## share of the town's sales; millers {bone}; haulers {bodies}, their share of `haul_rate` (the
 ## trip-averaged haul, which GameState passes in with the realm's P_per_pit); smiths {forge} (work/s,
-## while a forge level is left); an inn {living} (its migrants). {} while constructing or unpaid.
+## while a forge level is left); an inn {living} (its migrants). {} during a first build or while unpaid.
 func lot_output(lot_id: String, mint_per_pit: float, haul_rate: float) -> Dictionary:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var out := {}
-	if b.is_empty() or not WORKING.has(b["state"]):
+	if b.is_empty() or not _works(b):
 		return out
 	var st: Dictionary = _by_lot.get(lot_id, {})
 	var p := _eff(b, "pits")
@@ -834,7 +888,7 @@ func morale_factors() -> Array:
 	var amen := {}
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not WORKING.has(b["state"]):
+		if b.is_empty() or not _works(b):
 			continue
 		var v := _eff(b, "morale")
 		if v != 0.0:

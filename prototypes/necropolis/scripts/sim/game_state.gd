@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 1
+const API_VERSION := 2
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -744,8 +744,22 @@ func _mint_big_undead() -> String:
 	return uid
 
 
+## A capped stock's cap: its base in economy.json plus the buildings' (Reliquary `relic_cap` and
+## `essence_cap`; big undead: `per_crypt_level` per Crypt level above 1).
 func _cap_of(section: String) -> int:
-	return int(_sec("economy", section).get("cap", 1 << 30))
+	var sec := _sec("economy", section)
+	var n := int(sec.get("cap", 1 << 30))
+	match section:
+		"relics":
+			n += int(town_sim.built_effect("relic_cap"))
+		"essence":
+			n += int(town_sim.built_effect("essence_cap"))
+		"big_undead":
+			for lot_id in town_sim.buildings:
+				var b: Dictionary = town_sim.buildings[lot_id]
+				if b["building_id"] == "crypt":
+					n += int(sec.get("per_crypt_level", 0)) * maxi(0, int(b["level"]) - 1)
+	return n
 
 
 func _debug_fail(reason: String, key: String) -> Dictionary:
@@ -905,8 +919,9 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 
 # ------------------------------------------------------------- §4.3 town ----
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
-# staffing. The build family, raise, craft and deploy are still §1.1 stubs (id checks, then ok
-# with zero extras, no change) until T2.4; stances and vat staffing are stored and echoed (E3).
+# staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
+# through TownSim's build job. Raise, craft and deploy are still §1.1 stubs (id checks, then ok
+# with zero extras, no change); stances and vat staffing are stored and echoed (E3).
 
 func _buildings_cfg() -> Dictionary:
 	var d: Variant = _cfgs.get("buildings", {})
@@ -925,9 +940,14 @@ func _lot(lot_id: String) -> Dictionary:
 	return {}
 
 
-## The current tier opens the first N lots (Hamlet: 8).
-func _lots_unlocked() -> int:
-	return int(_sec("economy", "town").get("tiers", {}).get(town_tier, {}).get("lots", 8))
+## The lot ids a tier opens (economy.json town.tiers.<tier>.lots; BALANCE §5).
+func _tier_lots(tier: String) -> Array:
+	var d: Variant = _sec("economy", "town").get("tiers", {}).get(tier, {}).get("lots", [])
+	return d if d is Array else []
+
+
+func _lot_unlocked(lot_id: String) -> bool:
+	return _tier_lots(town_tier).has(lot_id)
 
 
 ## Lots holding a building (built, or a first build under way), in lot order.
@@ -979,41 +999,164 @@ func _zero_cost() -> Dictionary:
 	return {"gold": 0.0, "bone": 0.0, "relics": 0}
 
 
-## E2 stub: checks the ids, then ok with a zero cost. Nothing is built or paid.
+## A building's `requires` as {tier, blueprint, building} strings.
+func _req_of(building_id: String) -> Dictionary:
+	var r: Variant = _buildings_cfg().get(building_id, {}).get("requires", {})
+	var d: Dictionary = r if r is Dictionary else {}
+	return {"tier": str(d.get("tier", "")), "blueprint": str(d.get("blueprint", "")), "building": str(d.get("building", ""))}
+
+
+## The tier, blueprint and building gates, in order: needs_tier, needs_blueprint, needs_building.
+func _req_reason(req: Dictionary) -> String:
+	if TIERS.find(req["tier"]) > TIERS.find(town_tier):
+		return "needs_tier"
+	if req["blueprint"] != "" and not blueprints.has(req["blueprint"]):
+		return "needs_blueprint"
+	if req["building"] != "" and _count_built(req["building"]) == 0:
+		return "needs_building"
+	return ""
+
+
+## no_gold, no_bone, no_relics: gold and bone are TownSim's stocks, as view_town shows them.
+func _afford_reason(cost: Dictionary) -> String:
+	if town_sim.gold < cost["gold"]:
+		return "no_gold"
+	if town_sim.bone < cost["bone"]:
+		return "no_bone"
+	if relics < cost["relics"]:
+		return "no_relics"
+	return ""
+
+
+func _pay(cost: Dictionary) -> void:
+	town_sim.gold -= float(cost["gold"])
+	town_sim.bone -= float(cost["bone"])
+	relics -= int(cost["relics"])
+
+
+## What a construction heading to `level` cost: the building's cost for level 1, else the upgrade's
+## level_costs[level - 2].
+func _construction_cost(building_id: String, level: int) -> Dictionary:
+	var def: Dictionary = _buildings_cfg().get(building_id, {})
+	if level <= 1:
+		return _cost_of(def.get("cost", {}))
+	var lc: Variant = def.get("level_costs", [])
+	var arr: Array = lc if lc is Array else []
+	return _cost_of(arr[level - 2]) if level - 2 < arr.size() else _zero_cost()
+
+
+## §4.3 · E2: pays the cost at once and starts construction on a free, unlocked lot. TownSim's
+## `build` job advances it; `building_started` comes out of the next substep, `building_done` when
+## the work is in.
 func cmd_build(building_id: String, lot_id: String) -> Dictionary:
+	var def: Dictionary = _buildings_cfg().get(building_id, {})
+	var lot := _lot(lot_id)
+	var cost := _construction_cost(building_id, 1)
 	var why := ""
-	if not _buildings_cfg().has(building_id):
+	if def.is_empty():
 		why = "unknown_building"
-	elif _lot(lot_id).is_empty():
+	elif lot.is_empty():
 		why = "unknown_lot"
+	elif not _lot_unlocked(lot_id):
+		why = "lot_locked"
+	elif town_sim.buildings.has(lot_id):
+		why = "lot_taken"
+	elif int(lot.get("size", 1)) < int(def.get("lot_size", 1)):
+		why = "lot_too_small"
+	else:
+		why = _req_reason(_req_of(building_id))
+		if why == "":
+			why = _afford_reason(cost)
 	if why != "":
 		return {"ok": false, "reason": why, "cost": {}}
+	var r := town_sim.start_construction(lot_id, building_id, 1)
+	if not r["ok"]:
+		return {"ok": false, "reason": str(r["reason"]), "cost": {}}  # unreachable: every gate is checked above
+	_pay(cost)
 	rev += 1
-	return {"ok": true, "reason": "", "cost": _zero_cost()}
+	return {"ok": true, "reason": "", "cost": cost}
 
 
-## E2 stub: checks the lot id, then ok with level 0 and a zero cost.
+## §4.3 · E2: pays level_costs and constructs the next level. The building works at its old level
+## meanwhile (TownSim). Reasons in order: unknown_lot, empty_lot, under_construction, unpaid,
+## max_level, needs_tier, no_gold, no_bone, no_relics.
 func cmd_upgrade(lot_id: String) -> Dictionary:
+	var b: Dictionary = town_sim.buildings.get(lot_id, {})
+	var why := ""
+	var level := 0
+	var cost := {}
 	if _lot(lot_id).is_empty():
-		return {"ok": false, "reason": "unknown_lot", "level": 0, "cost": {}}
+		why = "unknown_lot"
+	elif b.is_empty():
+		why = "empty_lot"
+	elif b["state"] == "constructing":
+		why = "under_construction"
+	elif b["state"] == "unpaid":
+		why = "unpaid"
+	else:
+		var bid: String = b["building_id"]
+		level = int(b["level"]) + 1
+		if level > int(_buildings_cfg().get(bid, {}).get("max_level", 1)):
+			why = "max_level"
+		else:
+			cost = _construction_cost(bid, level)
+			why = _req_reason({"tier": _req_of(bid)["tier"], "blueprint": "", "building": ""})
+			if why == "":
+				why = _afford_reason(cost)
+	if why != "":
+		return {"ok": false, "reason": why, "level": 0, "cost": {}}
+	var r := town_sim.start_construction(lot_id, b["building_id"], level)
+	if not r["ok"]:
+		return {"ok": false, "reason": str(r["reason"]), "level": 0, "cost": {}}  # unreachable
+	_pay(cost)
 	rev += 1
-	return {"ok": true, "reason": "", "level": 0, "cost": _zero_cost()}
+	return {"ok": true, "reason": "", "level": level, "cost": cost}
 
 
-## E2 stub: checks the lot id, then ok. Nothing is demolished.
+## A foreman placed on a lot that is cleared goes back to the crypt.
+func _foreman_home(lot_id: String) -> void:
+	for b in big_undead:
+		if b["place"] == "town:" + lot_id:
+			b["place"] = "crypt"
+
+
+## §4.3 · E2: removes a finished building, no refund. The Crypt is protected.
 func cmd_demolish(lot_id: String) -> Dictionary:
+	var b: Dictionary = town_sim.buildings.get(lot_id, {})
+	var why := ""
 	if _lot(lot_id).is_empty():
-		return {"ok": false, "reason": "unknown_lot"}
+		why = "unknown_lot"
+	elif b.is_empty():
+		why = "empty_lot"
+	elif b["state"] == "constructing":
+		why = "under_construction"
+	elif b["building_id"] == "crypt":
+		why = "protected"
+	if why != "":
+		return {"ok": false, "reason": why}
+	town_sim.demolish(lot_id)
+	_foreman_home(lot_id)
 	rev += 1
 	return {"ok": true, "reason": ""}
 
 
-## E2 stub: checks the lot id, then ok with a zero refund.
+## §4.3 · E2: cancels the construction under way and refunds its cost in full (relics clamped to the
+## cap). A cancelled first build frees the lot; a cancelled upgrade keeps the old level.
 func cmd_cancel_build(lot_id: String) -> Dictionary:
 	if _lot(lot_id).is_empty():
 		return {"ok": false, "reason": "unknown_lot", "refund": {}}
+	var r := town_sim.cancel_construction(lot_id)
+	if not r["ok"]:
+		return {"ok": false, "reason": str(r["reason"]), "refund": {}}
+	var cost := _construction_cost(str(r["building_id"]), int(r["level"]))
+	town_sim.gold += float(cost["gold"])
+	town_sim.bone += float(cost["bone"])
+	var back := mini(int(cost["relics"]), maxi(0, _cap_of("relics") - relics))
+	relics += back
+	if not r["upgrade"]:
+		_foreman_home(lot_id)
 	rev += 1
-	return {"ok": true, "reason": "", "refund": _zero_cost()}
+	return {"ok": true, "reason": "", "refund": {"gold": float(cost["gold"]), "bone": float(cost["bone"]), "relics": back}}
 
 
 ## The ladder, a permutation of JOB_IDS, top first: TownSim's workers fill job slots in this order.
@@ -1059,8 +1202,7 @@ func cmd_set_staff_cap(lot_id: String, cap: int) -> Dictionary:
 
 ## stance.base_slots, plus the Guildhall's, plus 1 while Relish is home (MECHANICS §4.5).
 func _stance_slots() -> int:
-	var per_hall: Variant = _buildings_cfg().get("guildhall", {}).get("effects", {}).get("stance_slots", 1)
-	var n := int(_sec("economy", "stance").get("base_slots", 2)) + _count_built("guildhall") * int(per_hall)
+	var n := int(_sec("economy", "stance").get("base_slots", 2)) + int(town_sim.built_effect("stance_slots"))
 	if relish["state"] == "home":
 		n += int(_cfg().get("relish", {}).get("home_stance_bonus", 1))  # her one live home effect (§3.3)
 	return n
@@ -1221,9 +1363,15 @@ func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
 	return {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}
 
 
-## Vat slots until E3: one per ready clone (the E1 rule, now on the clones_ready stock).
+## Vat slots: the Chapel of Vats' `vat_slots` per level (E3 makes them grow clones).
 func _vat_slots() -> int:
-	return maxi(0, clones_ready)
+	return int(town_sim.built_effect("vat_slots"))
+
+
+## A vat as view_backups and the save show it. Until E3 a vat is ready while a clone stock covers it.
+func _vat_entry(i: int) -> Dictionary:
+	var ready := i < clones_ready
+	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0 if ready else 0.0, "ready": ready}
 
 
 ## E1/E3: stores the staffing (clones grow only while staffed from E3).
@@ -1657,11 +1805,10 @@ func _convoys() -> Array:
 ## morale and its factors, the stocks and caps, trade, the convoy. Stances (ladder_effective) are E3.
 func view_town() -> Dictionary:
 	var ts := town_sim
-	var unlocked := _lots_unlocked()
 	var lots: Array = []
 	for l in _lots_cfg():
 		var id := str(l.get("id", ""))
-		lots.append({"id": id, "size": int(l.get("size", 1)), "unlocked": lots.size() < unlocked,
+		lots.append({"id": id, "size": int(l.get("size", 1)), "unlocked": _lot_unlocked(id),
 			"building_id": str(ts.buildings.get(id, {}).get("building_id", ""))})
 	var p_per_pit := float(_cfg().get("P_per_pit", 6.0))
 	var haul_rate := _haul_rate()
@@ -1703,33 +1850,22 @@ func view_town() -> Dictionary:
 ## Free unlocked lots that fit a building of `size`, in lot order.
 func _free_lots(size: int) -> Array:
 	var out: Array = []
-	var unlocked := _lots_unlocked()
-	var i := 0
 	for l in _lots_cfg():
 		var id := str(l.get("id", ""))
-		if i < unlocked and not town_sim.buildings.has(id) and int(l.get("size", 1)) >= size:
+		if _lot_unlocked(id) and not town_sim.buildings.has(id) and int(l.get("size", 1)) >= size:
 			out.append(id)
-		i += 1
 	return out
 
 
-## view_catalog's reason, in order. Gold and bone are TownSim's stocks, as view_town shows them.
+## view_catalog's reason, in order: the gates of `cmd_build`, then no_lot (no free unlocked lot fits),
+## then what it costs.
 func _build_gate(req: Dictionary, cost: Dictionary, lots: Array) -> String:
-	if TIERS.find(req["tier"]) > TIERS.find(town_tier):
-		return "needs_tier"
-	if req["blueprint"] != "" and not blueprints.has(req["blueprint"]):
-		return "needs_blueprint"
-	if req["building"] != "" and _count_built(req["building"]) == 0:
-		return "needs_building"
-	if lots.is_empty():
-		return "no_lot"
-	if town_sim.gold < cost["gold"]:
-		return "no_gold"
-	if town_sim.bone < cost["bone"]:
-		return "no_bone"
-	if relics < cost["relics"]:
-		return "no_relics"
-	return ""
+	var why := _req_reason(req)
+	if why == "" and lots.is_empty():
+		why = "no_lot"
+	if why == "":
+		why = _afford_reason(cost)
+	return why
 
 
 ## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating.
@@ -1739,9 +1875,7 @@ func view_catalog() -> Dictionary:
 	var bps: Array = []
 	for bid in cfg:
 		var def: Dictionary = cfg[bid]
-		var r: Dictionary = def.get("requires", {})
-		var req := {"tier": str(r.get("tier", "")), "blueprint": str(r.get("blueprint", "")),
-			"building": str(r.get("building", ""))}
+		var req := _req_of(bid)
 		var cost := _cost_of(def.get("cost", {}))
 		var lots := _free_lots(int(def.get("lot_size", 1)))
 		var why := _build_gate(req, cost, lots)
@@ -1833,8 +1967,8 @@ func view_backups() -> Dictionary:
 	var n := _vat_slots()
 	var vats: Array = []
 	for i in n:
-		vats.append({"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0, "ready": true})
-	var outcome := "clone" if n > 0 else "unmade"
+		vats.append(_vat_entry(i))
+	var outcome := "clone" if clones_ready > 0 else "unmade"
 	var loses: Array = []
 	if not party_uids.is_empty():
 		loses.append("party")
@@ -1843,7 +1977,7 @@ func view_backups() -> Dictionary:
 		loses.append("morale")
 	return {
 		"rev": rev, "phylactery_charges": _phylactery_charges, "phylactery_max_per_dungeon": _phylactery_max(),
-		"clones_ready": n, "vats": vats, "death": {"outcome": outcome, "respawn_s": 0.0, "loses": loses},
+		"clones_ready": clones_ready, "vats": vats, "death": {"outcome": outcome, "respawn_s": 0.0, "loses": loses},
 		"dead_s_left": float(relish["dead_s_left"]),
 	}
 
@@ -1971,6 +2105,19 @@ func _emit_town(ev: Dictionary) -> void:
 	_emit(e)
 
 
+## The tier a town holds: it rises while the next tier's requirements hold (enough finished
+## buildings and every required building id), one `tier_up` per rise. Tiers never fall.
+func _rise_tiers() -> void:
+	while true:
+		var nt := _next_tier()
+		if nt["tier"] == "" or int(nt["have"]) < int(nt["need"]) or not (nt["missing"] as Array).is_empty():
+			return
+		var from := town_tier
+		town_tier = str(nt["tier"])
+		_emit({"type": "tier_up", "tier": town_tier, "from": from})
+		rev += 1
+
+
 func _tick(dt: float) -> void:
 	t += dt
 	var cfg: Dictionary = _cfg()
@@ -1981,6 +2128,7 @@ func _tick(dt: float) -> void:
 	relics = maxi(0, relics - int(town["relics_spent"]))
 	for ev in town["events"]:
 		_emit_town(ev)
+	_rise_tiers()
 	# §3 step 3: the valve slews, then splits the mint; TownSim's muster joins WAR
 	_slew_valve(dt)
 	var mint := _mint(int(town["pits"]), float(town["feed"]))
@@ -2370,7 +2518,8 @@ func to_dict() -> Dictionary:
 			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate()})
 	var vats: Array = []
 	for i in _vat_slots():
-		vats.append({"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0})
+		var ve := _vat_entry(i)
+		vats.append({"slot": i, "staffed": ve["staffed"], "grow": ve["grow"]})
 	var led := ledger()
 	var d := {
 		"v": SAVE_VERSION, "api_version": API_VERSION, "seed": rng_seed, "rng": str(rng.state),

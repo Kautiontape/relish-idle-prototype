@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 1,
+	"API_VERSION": 2,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -250,7 +250,7 @@ func _exercise(s: GameState) -> void:
 	_all_views(s)  # the fresh state
 
 	# fill every array a view exposes
-	var g := _cmd(s, "cmd_debug_grant", [{"husks": 2, "remnants": 3, "big_undead": 2, "relics": 3, "essence": 25, "gold": 10.0}], true)
+	var g := _cmd(s, "cmd_debug_grant", [{"husks": 2, "remnants": 3, "big_undead": 2, "relics": 3, "essence": 25, "gold": 500.0, "bone": 200.0}], true)
 	t.ok(g.get("applied", {}).get("minted", []).size() == 7, "grant minted 7 items")
 	_cmd(s, "cmd_debug_grant", [{"materials": 5}], false)
 	s.debug_enabled = false
@@ -258,7 +258,8 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_debug_set_state", [{"paused": false}], false)
 	_cmd(s, "cmd_debug_skip_time", [1.0], false)
 	s.debug_enabled = true
-	s.clones_ready = 2  # the backups stub stock: ready clones, one vat slot each until E3
+	s.clones_ready = 1  # the backups stub stock (a vat is ready while a clone covers it)
+	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)  # two vat slots
 	s.blueprints.append("embalmer")  # blueprints are banked by apply_result (T1.4)
 	var inv := s.view_inventory()
 	var h: String = inv["husks"][0]["uid"]
@@ -287,10 +288,13 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_build", ["nope", "lot-05"], false)
 	_cmd(s, "cmd_upgrade", ["lot-04"], true)
 	_cmd(s, "cmd_upgrade", ["lot-99"], false)
-	_cmd(s, "cmd_demolish", ["lot-03"], true)
+	_cmd(s, "cmd_upgrade", ["lot-04"], false)  # under_construction
+	s.town_sim.place_building("lot-06", "well", 1)
+	_cmd(s, "cmd_demolish", ["lot-06"], true)
 	_cmd(s, "cmd_demolish", ["lot-99"], false)
 	_cmd(s, "cmd_cancel_build", ["lot-05"], true)
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
+	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
 	_cmd(s, "cmd_set_job_priority", [["haul", "build", "pit", "stall", "mill", "forge", "tend"]], true)
 	_cmd(s, "cmd_set_job_priority", [["haul"]], false)
 	_cmd(s, "cmd_set_staff_cap", ["lot-03", 2], true)
