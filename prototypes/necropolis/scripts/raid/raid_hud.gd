@@ -17,6 +17,7 @@ var _dialog: ConfirmationDialog
 var _flash: ColorRect
 var _flash_t := -1.0
 var _phyl: Label
+var _loot: Label
 var _banner: Label
 var _banner_t := -1.0
 var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
@@ -40,6 +41,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_ward = _mk_label(box, 17, Palette.c("undead"))
 	_phyl = _mk_label(box, 17, Palette.c("relish"))
 	_phyl.visible = not boss_mode
+	_loot = _mk_label(box, 17, Palette.c("vei"))
+	_loot.visible = not boss_mode
 	_warden_line = _mk_label(box, 20, Palette.c("danger"))
 	_warden_line.visible = false
 
@@ -177,6 +180,9 @@ func refresh() -> void:
 	if not raid.is_boss():
 		var left: int = raid.phylactery_left()
 		_phyl.text = "PHYLACTERY  %d left" % left
+		var f: Dictionary = raid.found_loot
+		_loot.text = "LOOT  relics %d · remnants %d · husks %d · blueprints %d" % [int(f.get("relics", 0)),
+			(f.get("remnants", []) as Array).size(), (f.get("husks", []) as Array).size(), (f.get("blueprints", []) as Array).size()]
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true

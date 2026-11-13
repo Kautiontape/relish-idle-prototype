@@ -6,7 +6,7 @@ extends RefCounted
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-motes=N, --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
-## --raid-warden-go (with it: Relish walks into the warden room, then to the chest).
+## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -94,6 +94,10 @@ func start() -> void:
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	_go = cli_flag("--raid-warden-go")
+	if cli_value("--raid-ding-chance=") != "":
+		var by_tier: Dictionary = ConfigDb.data["loot"]["ding"]["chance_by_tier"]
+		for k in by_tier.keys():
+			by_tier[k] = float(cli_value("--raid-ding-chance="))
 	if _stress > 0 and not _raid.is_boss():
 		_spawn_stress(_stress)
 	var motes := int(cli_value("--raid-motes=")) if cli_value("--raid-motes=") != "" else 0

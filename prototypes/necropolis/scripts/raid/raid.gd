@@ -10,7 +10,7 @@ var layout := {}
 var ledger: RaidLogic.Ledger = null          # legacy (boss only)
 var ledger_v2: RaidLogic.LedgerV2 = null     # dungeon (non-boss)
 var rng_combat := RandomNumberGenerator.new()
-var rng_loot := RandomNumberGenerator.new()  # reserved for the loot task
+var rng_loot := RandomNumberGenerator.new()  # every loot roll (RaidLoot); seeded from the run seed
 var party_died: Array = []
 var relish: RaidRelish = null
 var trance: RaidTrance = null
@@ -32,7 +32,7 @@ var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
-var found_loot := {}             # loot found this run, minus essence (a later loot task fills it)
+var found_loot := {}             # loot found this run, minus essence (dings + the chest)
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
@@ -66,6 +66,10 @@ func _init() -> void:
 
 func rcfg() -> Dictionary:
 	return ConfigDb.data.get("raid", {})
+
+
+func lcfg() -> Dictionary:
+	return ConfigDb.data.get("loot", {})
 
 
 func is_boss() -> bool:
@@ -344,6 +348,8 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 		else:
 			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
+		if not is_boss():
+			_roll_ding(u.global_position)
 	else:
 		allies.erase(u)
 		if is_boss():
@@ -424,9 +430,27 @@ func nearest_enemy_of(pos: Vector2):
 	return best
 
 
-## Loot the warden's chest holds, in the loot shape. A later loot task fills it.
+## Loot the warden's chest holds, in the loot shape (RaidLoot, rolled on rng_loot).
 func chest_loot() -> Dictionary:
-	return RaidLogic.empty_loot()
+	var fort: Dictionary = seed_data.get("fort", {})
+	var owned: Array = []
+	if _from_run:
+		owned = Game.state.view_inventory().get("blueprints", [])
+	var info := {"tier": fort_tier(), "archetype": str(seed_data.get("warden", {}).get("archetype", "")),
+		"first_clear": bool(fort.get("first_clear", false)), "chest_husk": bool(seed_data.get("chest_husk", false)),
+		"yield_mult": float(fort.get("yield_mult", 1.0))}
+	return RaidLoot.chest(rng_loot, info, owned, lcfg())
+
+
+## A living kill may ding a remnant: it joins found_loot and a small spark rises at the corpse.
+func _roll_ding(pos: Vector2) -> void:
+	var fort: Dictionary = seed_data.get("fort", {})
+	var rem := RaidLoot.ding(rng_loot, fort_tier(), str(seed_data.get("warden", {}).get("archetype", "")),
+		float(fort.get("yield_mult", 1.0)), lcfg())
+	if rem.is_empty():
+		return
+	found_loot = RaidLogic.merge_loot(found_loot, {"remnants": [rem]})
+	RaidFx.ding(fx_root, pos, lcfg().get("ding", {}).get("fx", {}))
 
 
 func nearest_ally_of(pos: Vector2):
