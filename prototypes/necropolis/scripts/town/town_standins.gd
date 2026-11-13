@@ -58,7 +58,7 @@ static func staffing_pips(b: Dictionary, jobs: Dictionary, vcfg: Dictionary) -> 
 	if jobs.is_empty() or int(b.get("slots", 0)) <= 0:
 		return {"pips": 0, "pip_key": ""}
 	var out_key := String(vcfg.get("standin_job_output", {}).get(String(jobs.keys()[0]), ""))
-	var pips := clampi(roundi(float(b.get("staffed", 0.0))), 0, int(vcfg.get("pip_max", 8)))
+	var pips := clampi(roundi(float(b.get("staffed", 0.0))), 0, int(vcfg.get("pip_max", 0)))
 	return {"pips": pips, "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, ""))}
 
 

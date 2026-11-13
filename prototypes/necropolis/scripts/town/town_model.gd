@@ -190,7 +190,7 @@ func _layout(r: Rect2) -> void:
 	rect = r
 	_laid_out = true
 	_paths.clear()
-	var ref_px: Array = _v.get("ref_px", [1600, 900])
+	var ref_px: Array = _v.get("ref_px", [0, 0])
 	var ref := Vector2(float(ref_px[0]) - float(_v.get("dock_w", 0)), float(ref_px[1]) - float(_v.get("hud_h", 0)))
 	scale = minf(r.size.x / ref.x, r.size.y / ref.y) if ref.x > 0.0 and ref.y > 0.0 else 1.0
 	nodes = {}
@@ -202,8 +202,8 @@ func _layout(r: Rect2) -> void:
 		var b := String(e[1])
 		if nodes.has(a) and nodes.has(b):
 			streets.append({"a": a, "b": b, "from": nodes[a], "to": nodes[b]})
-	var unit := float(_v.get("lot_unit_px", 80)) * scale
-	var h := float(_v.get("lot_h_px", 88)) * scale
+	var unit := float(_v.get("lot_unit_px", 0)) * scale
+	var h := float(_v.get("lot_h_px", 0)) * scale
 	var pos: Dictionary = _v.get("lot_pos", {})
 	lots = []
 	for l in _lots_cfg:
@@ -295,7 +295,7 @@ func _footprint(bid: String, lot: Dictionary) -> Rect2:
 func _glow(b: Dictionary, state: String, light_by: String, town: Dictionary) -> float:
 	match state:
 		"constructing", "unpaid":
-			return float(_v.get("glow_dim", 0.15))
+			return float(_v.get("glow_dim", 0.0))
 		"idle":
 			return 0.0
 	match light_by:
@@ -306,13 +306,13 @@ func _glow(b: Dictionary, state: String, light_by: String, town: Dictionary) -> 
 			var out: Dictionary = b.get("output", {})
 			for k in out:
 				rate += maxf(float(out[k]), 0.0)
-			var ref := float(_v.get("glow_ref", 8.0))
+			var ref := float(_v.get("glow_ref", 0.0))
 			return clampf(log(1.0 + rate) / log(1.0 + ref), 0.0, 1.0) if ref > 0.0 else 0.0
 		"living":
 			var cap := float(town.get("living_cap", 0.0))
 			return clampf(float(town.get("living", 0.0)) / cap, 0.0, 1.0) if cap > 0.0 else 0.0
 		"always":
-			return float(_v.get("glow_always", 0.35))
+			return float(_v.get("glow_always", 0.0))
 	return 0.0
 
 
@@ -328,5 +328,5 @@ func _pips(b: Dictionary, jobs: Dictionary) -> Dictionary:
 			continue
 		var unit := float(_v.get("pip_unit", {}).get(k, 0.0))
 		var pips := floori(rate / unit + 1e-6) if unit > 0.0 else 0
-		return {"pips": clampi(pips, 0, int(_v.get("pip_max", 8))), "pip_key": String(_v.get("pip_ink", {}).get(k, ""))}
+		return {"pips": clampi(pips, 0, int(_v.get("pip_max", 0))), "pip_key": String(_v.get("pip_ink", {}).get(k, ""))}
 	return {"pips": 0, "pip_key": ""}
