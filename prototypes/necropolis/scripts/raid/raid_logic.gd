@@ -381,19 +381,26 @@ class Ledger:
 # ------------------------------------------------------ layout generation ----
 ## Deterministic per fort_id: each fortress is recognizably itself on revisits.
 ## Returns { size, wall_t, walls (all Rect2), inner_walls, doors, rooms, spawn }.
-static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionary) -> Dictionary:
+static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionary, opts: Dictionary = {}) -> Dictionary:
 	var lay: Dictionary = cfg.get("layout", {})
+	var held := bool(opts.get("held", false)) and not is_boss
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(fort_id)
 	var last := {}
 	for attempt in 8:
-		last = _gen_once(rng, tier, is_boss, lay)
-		if layout_reachable(last, float(lay.get("grid_cell", 32.0))):
-			return last
+		var cand := _gen_once(rng, tier, is_boss, lay, held)
+		if cand.is_empty():
+			continue   # role assignment failed; the rng has moved on
+		last = cand
+		if layout_reachable(cand, float(lay.get("grid_cell", 32.0))):
+			return cand
+	if last.is_empty():
+		# every attempt failed to place a warden room: fall back to a held-style layout
+		last = _gen_once(rng, tier, is_boss, lay, true)
 	return last
 
 
-static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay: Dictionary) -> Dictionary:
+static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay: Dictionary, held: bool = false) -> Dictionary:
 	var w: float
 	var h: float
 	if is_boss:
@@ -444,15 +451,19 @@ static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay:
 	var min_room := float(lay.get("min_room_px", 300.0))
 	var gap_w := float(lay.get("inner_gap_width", 165.0))
 	var inner_walls: Array = []
+	var gaps: Array = []
 	var rooms: Array = []
 	if is_boss:
 		# the north zone stays one open audience chamber for Vei
 		var split_y := t + (h - 2.0 * t) * 0.42
 		var south := Rect2(t, split_y, w - 2.0 * t, h - t - split_y)
-		rooms = _bsp([south], int(lay.get("boss_rooms", 4)) - 1, min_room, gap_w, t, rng, inner_walls)
+		rooms = _bsp([south], int(lay.get("boss_rooms", 4)) - 1, min_room, gap_w, t, rng, inner_walls, gaps)
 		rooms.push_front(Rect2(t, t, w - 2.0 * t, split_y - t))
 	else:
-		rooms = _bsp([interior], 2 + tier, min_room, gap_w, t, rng, inner_walls)
+		var n_rooms := 2 + tier
+		if held:
+			n_rooms = maxi(2, 2 + tier - int(lay.get("held_rooms_delta", 1)))
+		rooms = _bsp([interior], n_rooms, min_room, gap_w, t, rng, inner_walls, gaps)
 	walls.append_array(inner_walls)
 
 	# --- Relish spawns just inside the southernmost door ---
@@ -465,9 +476,233 @@ static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay:
 		s_door = doors[0]
 	var spawn: Vector2 = Vector2(s_door["center"].x, h - t - 70.0)
 
-	return {"size": Vector2(w, h), "wall_t": t, "walls": walls,
+	var layout := {"size": Vector2(w, h), "wall_t": t, "walls": walls,
 		"inner_walls": inner_walls, "doors": doors, "rooms": rooms,
-		"spawn": spawn, "boss": is_boss}
+		"spawn": spawn, "boss": is_boss, "gaps": gaps, "held": held}
+	if is_boss:
+		var roles: Array[String] = []
+		for i in rooms.size():
+			roles.append("normal")
+		layout["roles"] = roles
+		layout["warden_room"] = -1
+		layout["ante_room"] = -1
+		var empty_i: Array[int] = []
+		layout["checkpoints"] = empty_i
+		layout["adj"] = room_adjacency(layout)
+		layout["hops"] = room_hops(layout["adj"], room_of(layout, spawn))
+	elif not _assign_roles(layout, tier, held, lay):
+		return {}
+	return layout
+
+
+# -------------------------------------------------------------- room roles ---
+## Rooms touched by a gap: the gap rect grown by ~wall_t/2 + 4 meets both rooms.
+static func _gap_rooms(layout: Dictionary, g: Rect2) -> Array[int]:
+	var out: Array[int] = []
+	var grown := g.grow(float(layout["wall_t"]) * 0.5 + 4.0)
+	var rooms: Array = layout["rooms"]
+	for i in rooms.size():
+		if grown.intersects(rooms[i] as Rect2):
+			out.append(i)
+	return out
+
+
+## adj[i] = sorted neighbour room indices (rooms sharing a wall gap).
+static func room_adjacency(layout: Dictionary) -> Array:
+	var n: int = (layout["rooms"] as Array).size()
+	var adj: Array = []
+	for i in n:
+		var e: Array[int] = []
+		adj.append(e)
+	for g in layout.get("gaps", []):
+		var rs := _gap_rooms(layout, g)
+		for a in rs:
+			for b in rs:
+				if a != b and not (adj[a] as Array).has(b):
+					(adj[a] as Array).append(b)
+	for l in adj:
+		(l as Array).sort()
+	return adj
+
+
+## The room containing p, else -1.
+static func room_of(layout: Dictionary, p: Vector2) -> int:
+	var rooms: Array = layout["rooms"]
+	for i in rooms.size():
+		if (rooms[i] as Rect2).has_point(p):
+			return i
+	return -1
+
+
+## BFS hop counts from `start` (-1 = unreachable).
+static func room_hops(adj: Array, start: int) -> Array[int]:
+	var hops: Array[int] = []
+	hops.resize(adj.size())
+	hops.fill(-1)
+	if start < 0 or start >= adj.size():
+		return hops
+	hops[start] = 0
+	var queue: Array[int] = [start]
+	var qi := 0
+	while qi < queue.size():
+		var c: int = queue[qi]
+		qi += 1
+		for nb in adj[c]:
+			if hops[nb] < 0:
+				hops[nb] = hops[c] + 1
+				queue.append(nb)
+	return hops
+
+
+static func _door_room(layout: Dictionary, d: Dictionary) -> int:
+	var r := room_of(layout, d["inner"])
+	if r >= 0:
+		return r
+	var best := -1
+	var bd := INF
+	var rooms: Array = layout["rooms"]
+	for i in rooms.size():
+		var rc: Rect2 = rooms[i]
+		var cl := Vector2(clampf(d["inner"].x, rc.position.x, rc.end.x), clampf(d["inner"].y, rc.position.y, rc.end.y))
+		var dd: float = cl.distance_to(d["inner"])
+		if dd < bd:
+			bd = dd
+			best = i
+	return best
+
+
+## Spawn room, sealed warden room + antechamber (unless held), checkpoints, and
+## one real exit per checkpoint. Mutates layout; false = this attempt failed.
+static func _assign_roles(layout: Dictionary, tier: int, held: bool, lay: Dictionary) -> bool:
+	var rooms: Array = layout["rooms"]
+	var n := rooms.size()
+	var spawn_room := room_of(layout, layout["spawn"])
+	if spawn_room < 0:
+		return false
+	var adj := room_adjacency(layout)
+	var hops := room_hops(adj, spawn_room)
+	var w_room := -1
+	var a_room := -1
+	if not held:
+		var order: Array[int] = []
+		for i in n:
+			if i != spawn_room and hops[i] >= 1:
+				order.append(i)
+		order.sort_custom(func(x: int, y: int) -> bool:
+			if hops[x] != hops[y]:
+				return hops[x] > hops[y]
+			var ax: float = (rooms[x] as Rect2).get_area()
+			var ay: float = (rooms[y] as Rect2).get_area()
+			if ax != ay:
+				return ax > ay
+			return x < y)
+		for w in order:
+			var best := -1
+			for nb in adj[w]:
+				if nb == spawn_room:
+					continue
+				if hops[w] >= 2 and hops[nb] != hops[w] - 1:
+					continue
+				if best < 0 or (rooms[nb] as Rect2).get_area() > (rooms[best] as Rect2).get_area():
+					best = nb
+			if best >= 0:
+				w_room = w
+				a_room = best
+				break
+		if w_room < 0:
+			return false
+		# seal every gap into W except one toward A
+		var kept := false
+		var new_gaps: Array = []
+		for g in layout["gaps"]:
+			var rs := _gap_rooms(layout, g)
+			if not rs.has(w_room):
+				new_gaps.append(g)
+				continue
+			var only_wa := true
+			for r in rs:
+				if r != w_room and r != a_room:
+					only_wa = false
+			if only_wa and rs.has(a_room) and not kept:
+				kept = true
+				new_gaps.append(g)
+			else:
+				(layout["inner_walls"] as Array).append(g)
+				(layout["walls"] as Array).append(g)
+		layout["gaps"] = new_gaps
+		adj = room_adjacency(layout)
+		hops = room_hops(adj, spawn_room)
+		var only_a: Array[int] = [a_room]
+		if adj[w_room] != only_a or hops[w_room] < 2 or hops[w_room] != hops[a_room] + 1:
+			return false
+		for h in hops:
+			if h < 0:
+				return false
+
+	# --- checkpoints: spawn + deepest door-bearing rooms ---
+	var door_rooms: Array[int] = []
+	var doors: Array = layout["doors"]
+	for d in doors:
+		var dr := _door_room(layout, d)
+		d["room"] = dr
+		door_rooms.append(dr)
+	var cands: Array[int] = []
+	for i in n:
+		if i != w_room and i != spawn_room and door_rooms.has(i):
+			cands.append(i)
+	cands.sort_custom(func(x: int, y: int) -> bool:
+		if hops[x] != hops[y]:
+			return hops[x] > hops[y]
+		return x < y)
+	var extra := int((lay.get("checkpoints_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 1))
+	var checkpoints: Array[int] = [spawn_room]
+	for c in cands:
+		if checkpoints.size() >= 1 + extra:
+			break
+		checkpoints.append(c)
+
+	# --- exits: one door per checkpoint, everything else becomes wall ---
+	var kept_doors: Array = []
+	for ci in checkpoints:
+		var pick := {}
+		var pd := INF
+		for d in doors:
+			if d["room"] != ci:
+				continue
+			var dist: float
+			if ci == spawn_room:
+				dist = absf(d["inner"].x - layout["spawn"].x) + (0.0 if d["side"] == "s" else 1.0e5)
+			else:
+				dist = (d["center"] as Vector2).distance_to((rooms[ci] as Rect2).get_center())
+			if dist < pd:
+				pd = dist
+				pick = d
+		if pick.is_empty():
+			return false
+		kept_doors.append(pick)
+	for d in doors:
+		if not kept_doors.has(d):
+			(layout["walls"] as Array).append(d["rect"])
+	for d in kept_doors:
+		d["exit"] = true
+	layout["doors"] = kept_doors
+
+	var roles: Array[String] = []
+	for i in n:
+		roles.append("normal")
+	for c in checkpoints:
+		roles[c] = "checkpoint"
+	roles[spawn_room] = "spawn"
+	if not held:
+		roles[a_room] = "antechamber"
+		roles[w_room] = "warden"
+	layout["roles"] = roles
+	layout["hops"] = hops
+	layout["adj"] = adj
+	layout["warden_room"] = w_room
+	layout["ante_room"] = a_room
+	layout["checkpoints"] = checkpoints
+	return true
 
 
 static func _mk_door(side: String, along: float, dw: float, w: float, h: float, t: float) -> Dictionary:
@@ -526,7 +761,7 @@ static func _band_rect(side: String, a: float, b: float, w: float, h: float, t: 
 ## Split leaves until `target` rooms exist; each split line becomes a wall with
 ## 1-2 wide gaps (multiple routes, never a single corridor).
 static func _bsp(leaves: Array, target: int, min_room: float, gap_w: float, t: float,
-		rng: RandomNumberGenerator, out_walls: Array) -> Array:
+		rng: RandomNumberGenerator, out_walls: Array, out_gaps: Array = []) -> Array:
 	var ls: Array = leaves.duplicate()
 	while ls.size() < target:
 		var bi := -1
@@ -545,18 +780,18 @@ static func _bsp(leaves: Array, target: int, min_room: float, gap_w: float, t: f
 		var cut := clampf(rng.randf_range(0.42, 0.58) * dim, min_room, dim - min_room)
 		if vert:
 			var x := r.position.x + cut
-			_wall_with_gaps(Rect2(x - t * 0.5, r.position.y, t, r.size.y), gap_w, rng, out_walls)
+			_wall_with_gaps(Rect2(x - t * 0.5, r.position.y, t, r.size.y), gap_w, rng, out_walls, out_gaps)
 			ls.append(Rect2(r.position, Vector2(cut - t * 0.5, r.size.y)))
 			ls.append(Rect2(Vector2(x + t * 0.5, r.position.y), Vector2(r.size.x - cut - t * 0.5, r.size.y)))
 		else:
 			var y := r.position.y + cut
-			_wall_with_gaps(Rect2(r.position.x, y - t * 0.5, r.size.x, t), gap_w, rng, out_walls)
+			_wall_with_gaps(Rect2(r.position.x, y - t * 0.5, r.size.x, t), gap_w, rng, out_walls, out_gaps)
 			ls.append(Rect2(r.position, Vector2(r.size.x, cut - t * 0.5)))
 			ls.append(Rect2(Vector2(r.position.x, y + t * 0.5), Vector2(r.size.x, r.size.y - cut - t * 0.5)))
 	return ls
 
 
-static func _wall_with_gaps(band: Rect2, gap_w: float, rng: RandomNumberGenerator, out_walls: Array) -> void:
+static func _wall_with_gaps(band: Rect2, gap_w: float, rng: RandomNumberGenerator, out_walls: Array, out_gaps: Array = []) -> void:
 	var horizontal := band.size.x >= band.size.y
 	var lo := band.position.x if horizontal else band.position.y
 	var hi := band.end.x if horizontal else band.end.y
@@ -572,6 +807,7 @@ static func _wall_with_gaps(band: Rect2, gap_w: float, rng: RandomNumberGenerato
 		var g := rng.randf_range(glo, maxf(glo, ghi))
 		if g - x > 10.0:
 			out_walls.append(_sub_band(band, horizontal, x, g))
+		out_gaps.append(_sub_band(band, horizontal, g, g + gap_w))
 		x = g + gap_w
 	if hi - x > 10.0:
 		out_walls.append(_sub_band(band, horizontal, x, hi))

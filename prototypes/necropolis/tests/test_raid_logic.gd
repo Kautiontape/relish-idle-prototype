@@ -106,13 +106,13 @@ func run() -> int:
 			var lay := RaidLogic.gen_layout(fid, tier, false, cfg)
 			var label := "%s t%d" % [fid, tier]
 			var doors: Array = lay["doors"]
-			t.ok(doors.size() >= 2 + tier, "%s: doors >= 2+tier (%d)" % [label, doors.size()])
+			t.ok(doors.size() == (lay["checkpoints"] as Array).size(), "%s: doors == checkpoints (%d)" % [label, doors.size()])
 			var south := 0
 			for d in doors:
 				if d["side"] == "s":
 					south += 1
 			t.ok(south >= 1, "%s: at least one south door" % label)
-			t.ok((lay["rooms"] as Array).size() >= 2 + tier, "%s: rooms >= 2+tier (%d)" % [label, (lay["rooms"] as Array).size()])
+			t.ok((lay["rooms"] as Array).size() == 2 + tier, "%s: rooms == 2+tier (%d)" % [label, (lay["rooms"] as Array).size()])
 			t.ok(RaidLogic.layout_reachable(lay, cell), "%s: all rooms + doors reachable" % label)
 			var spawn: Vector2 = lay["spawn"]
 			var size: Vector2 = lay["size"]
@@ -141,8 +141,15 @@ func run() -> int:
 			bsouth += 1
 	t.ok(bsouth >= 2, "boss: multiple south doors for the streaming horde")
 	t.ok(RaidLogic.layout_reachable(bl, cell), "boss: reachable")
+	t.ok(int(bl["warden_room"]) == -1 and int(bl["ante_room"]) == -1, "boss: no warden or antechamber")
+	var bnormal := true
+	for r in bl["roles"]:
+		bnormal = bnormal and r == "normal"
+	t.ok(bnormal and (bl["roles"] as Array).size() == (bl["rooms"] as Array).size(), "boss: every role is normal")
 	t.ok((bl["size"] as Vector2).x > (RaidLogic.gen_layout("x", 4, false, cfg)["size"] as Vector2).x,
 		"boss arena is the biggest layout")
+
+	_role_tests(t, cfg, cell)
 
 	# --- population sanity ---------------------------------------------------
 	t.suite("raid_population")
@@ -330,3 +337,51 @@ func run() -> int:
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
 	return t.failures
+
+
+func _role_tests(t: TestUtil, cfg: Dictionary, cell: float) -> void:
+	t.suite("raid_roles")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var lcfg: Dictionary = cfg.get("layout", {})
+	var cps: Dictionary = lcfg.get("checkpoints_by_tier", {})
+	var delta := int(lcfg.get("held_rooms_delta", 1))
+	for f in world["forts"]:
+		var fid := str(f["id"])
+		for tier in [1, 2, 3, 4]:
+			for held in [false, true]:
+				var label := "%s t%d%s" % [fid, tier, " held" if held else ""]
+				var lay := RaidLogic.gen_layout(fid, tier, false, cfg, {"held": held})
+				t.ok(RaidLogic.layout_reachable(lay, cell), "%s: reachable" % label)
+				var cks: Array = lay["checkpoints"]
+				var roles: Array = lay["roles"]
+				var rooms: Array = lay["rooms"]
+				t.ok(bool(lay["held"]) == held, "%s: held flag" % label)
+				t.ok(not cks.is_empty() and roles[cks[0]] == "spawn"
+					and cks[0] == RaidLogic.room_of(lay, lay["spawn"]), "%s: spawn room is checkpoints[0]" % label)
+				t.ok(cks.size() <= 1 + int(cps.get(str(tier), 0)), "%s: checkpoint count (%d)" % [label, cks.size()])
+				t.ok((lay["doors"] as Array).size() == cks.size(), "%s: one exit per checkpoint" % label)
+				var doors_ok := true
+				for d in lay["doors"]:
+					doors_ok = doors_ok and bool(d.get("exit", false)) and cks.has(int(d.get("room", -1)))
+				t.ok(doors_ok, "%s: every door is an exit of a checkpoint" % label)
+				var wr := int(lay["warden_room"])
+				if held:
+					t.ok(wr == -1 and int(lay["ante_room"]) == -1 and not roles.has("warden"), "%s: no warden" % label)
+					t.ok(rooms.size() == maxi(2, 2 + tier - delta), "%s: held room count (%d)" % [label, rooms.size()])
+				else:
+					var ar := int(lay["ante_room"])
+					var adj: Array = lay["adj"]
+					var hops: Array = lay["hops"]
+					t.ok(wr >= 0 and ar >= 0 and wr != cks[0] and ar != cks[0], "%s: W and A are not spawn" % label)
+					t.ok(wr >= 0 and adj[wr] == [ar], "%s: adj[W] == [A]" % label)
+					t.ok(wr >= 0 and hops[wr] >= 2 and hops[wr] == hops[ar] + 1, "%s: warden hops" % label)
+					var wdoor := false
+					for d in lay["doors"]:
+						wdoor = wdoor or int(d["room"]) == wr
+					t.ok(not wdoor, "%s: no door in the warden room" % label)
+					t.ok(roles.count("warden") == 1 and roles.count("antechamber") == 1, "%s: one warden, one antechamber" % label)
+					t.ok(rooms.size() == 2 + tier, "%s: room count" % label)
+				var again := RaidLogic.gen_layout(fid, tier, false, cfg, {"held": held})
+				t.ok(again["walls"] == lay["walls"] and again["doors"] == lay["doors"]
+					and again["roles"] == lay["roles"] and again["spawn"] == lay["spawn"],
+					"%s: deterministic" % label)

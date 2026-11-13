@@ -162,7 +162,9 @@
     "grid_step_px": 128.0,
     "wall_drift_speed": 0.05,
     "wall_wavelength_px": 1100.0,
-    "boss_wall_heat": 0.35
+    "boss_wall_heat": 0.35,
+    "checkpoints_by_tier": {"1": 1, "2": 1, "3": 2, "4": 2},
+    "held_rooms_delta": 1
   },
   "floor": {
     "tint": "contour"
