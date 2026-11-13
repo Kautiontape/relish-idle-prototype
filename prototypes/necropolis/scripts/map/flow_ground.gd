@@ -1,10 +1,12 @@
 extends Node
 ## Flow-field ground. Thousands of streak heads are advected on the GPU by a
 ## GPUParticles2D process shader (shaders/flow_particles.gdshader) that reads
-## Game.field as three float textures. Each frame the heads draw a short
-## segment into an HDR trail buffer that is never cleared, only carried over,
-## so the segments accumulate into trails. This node also shows the buffer,
-## on a screen-space layer under the map (shaders/flow_composite.gdshader).
+## the sim's influence field (Game.state.view_field()) as three float textures.
+## Each frame the heads draw a short segment into an HDR trail buffer that is
+## never cleared, only carried over, so the segments accumulate into trails.
+## This node also shows the buffer, on a screen-space layer under the map
+## (shaders/flow_composite.gdshader). Streaks thin out beside the routes (the
+## moat, GroundMoat), on map's own lane curves.
 ##
 ## The trail buffer follows the camera at screen resolution, so near zoom
 ## stays crisp (the spike's world-space buffer went soft past the fit zoom):
@@ -28,6 +30,7 @@ const STREAK_SHADER := preload("res://shaders/flow_streak.gdshader")
 const REPROJECT_SHADER := preload("res://shaders/flow_reproject.gdshader")
 const COPY_SHADER := preload("res://shaders/flow_copy.gdshader")
 const COMPOSITE_SHADER := preload("res://shaders/flow_composite.gdshader")
+const MAX_LANES := 64   # flow_particles.gdshader's MAX_LANES
 
 var reduced := false
 var field_upload_ms := 0.0
@@ -55,12 +58,20 @@ var _prev_xform := Transform2D.IDENTITY
 var _have_prev := false
 var _prev_area := -1.0
 var _frame := 0
+var _world_size := Vector2(2048, 1440)
+var _pos := {}           # node id -> world position, from view_realm (nodes don't move)
+var _forts: Array = []   # view_realm().forts, for map's demo lanes
+var _demo_lanes := false # --lanes=demo: the routes draw map's demo lanes, so the moat follows them
+var _moat_cache := {}    # GroundMoat's per-lane cache (cleared when the positions change)
 
 
 func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	_cfg = cfg
 	reduced = reduced_motion
-	var f: InfluenceField = Game.field
+	var f := _field()
+	_world_size = f.world_size
+	_demo_lanes = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
+	_refresh_nodes()
 	trail_size = _trail_size_for()
 
 	_hist = _hdr_viewport("FlowHistory")
@@ -101,8 +112,8 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	_pmat.set_shader_parameter("field_e", _texs[2])
 	_pmat.set_shader_parameter("world_size", f.world_size)
 	_pmat.set_shader_parameter("grid_size", Vector2(f.w, f.h))
-	_pmat.set_shader_parameter("cov_pos", Game.realm.cov_pos)
-	_pmat.set_shader_parameter("vei_pos", Game.realm.vei_pos)
+	_pmat.set_shader_parameter("cov_pos", _pos.get("covington", Vector2.ZERO))
+	_pmat.set_shader_parameter("vei_pos", _pos.get("vei", Vector2.ZERO))
 	_pmat.set_shader_parameter("trail_prev", _hist.get_texture())
 
 	_parts = GPUParticles2D.new()
@@ -258,7 +269,7 @@ func _sync_camera() -> void:
 	# the visible world, and how much of the screen it covers
 	var inv := canvas.affine_inverse()
 	var view := Rect2(inv * Vector2.ZERO, Vector2.ZERO).expand(inv * vsize)
-	var ws: Vector2 = Game.field.world_size
+	var ws := _world_size
 	var world := Rect2(Vector2.ZERO, ws)
 	zoom = canvas.get_scale().x
 	var margin := float(_cfg.get("view_margin_px", 48.0)) / maxf(zoom, 1e-3)
@@ -315,21 +326,44 @@ func _hdr_viewport(vp_name: String) -> SubViewport:
 
 func upload_field() -> void:
 	var t0 := Time.get_ticks_usec()
-	var f: InfluenceField = Game.field
+	var f := _field()
 	var layers := [f.green, f.orange, f.entrench]
 	for i in 3:
 		_texs[i].update(_layer_image(layers[i], f.w, f.h))
 	field_upload_ms = (Time.get_ticks_usec() - t0) / 1000.0
 
 
-## Live routes as quadratic bows for the moat (and, later, the rate splat).
+## The live field (STATE-API 5.6: the one view that is not a copy).
+func _field() -> InfluenceField:
+	return Game.state.view_field()["field"]
+
+
+## Node positions from view_realm. Nodes don't move, so this runs at setup and again only when a
+## lane names a node the cache lacks.
+func _refresh_nodes() -> void:
+	var realm := Game.state.view_realm()
+	_pos = {"covington": _v2(realm["covington"]["pos"]), "vei": _v2(realm["vei"]["pos"])}
+	_forts = realm["forts"]
+	for f in _forts:
+		_pos[str(f["id"])] = _v2(f["pos"])
+	_moat_cache.clear()
+
+
+## The lanes the routes draw, as the moat's quadratic bows (GroundMoat): view_lanes rows, or map's
+## demo lanes when the routes draw those, on map's own curves.
 func upload_lanes() -> void:
-	var ls := lanes(Game.realm, float(_cfg.get("lane_bow", 0.07)))
-	var n := mini(ls.size(), 64)
+	var rows: Array = MapLogic.demo_lanes(_forts) if _demo_lanes else Game.state.view_lanes().get("lanes", [])
+	if rows.any(func(r): return not _pos.has(str(r["from"])) or not _pos.has(str(r["to"]))):
+		_refresh_nodes()
+	var log_max := float(MapLogic.cfg()["rate_log_max"])
+	var ls := GroundMoat.lanes(rows, _pos, func(rate: float) -> float: return Pulse.rate_to_u(rate, log_max), _moat_cache)
+	if ls.size() > MAX_LANES:
+		push_warning("flow ground: %d lanes, the moat shader takes %d" % [ls.size(), MAX_LANES])
+	var n := mini(ls.size(), MAX_LANES)
 	var ac := PackedVector4Array()
 	var bw := PackedVector4Array()
-	ac.resize(64)
-	bw.resize(64)
+	ac.resize(MAX_LANES)
+	bw.resize(MAX_LANES)
 	for i in n:
 		var l: Dictionary = ls[i]
 		ac[i] = Vector4(l["a"].x, l["a"].y, l["c"].x, l["c"].y)
@@ -337,32 +371,6 @@ func upload_lanes() -> void:
 	_pmat.set_shader_parameter("lane_ac", ac)
 	_pmat.set_shader_parameter("lane_bw", bw)
 	_pmat.set_shader_parameter("lane_count", n)
-
-
-## Every live route on the map as {a, c, b, half_width, u}: a quadratic bow from
-## a to b with control point c. Mirrors map_routes.gd (the map unit's): the bow
-## bends left of travel with the control point `bow`·chord off the midpoint, the
-## width is Pulse's 1.1 + 2.6u. A route is live above Pulse's rate_off.
-## TODO(api-request #1): read lane endpoints from view_lanes() and the bow and
-## gutter offset from a shared config key, so the moat can't drift off the lanes.
-static func lanes(realm: RealmSim, bow: float) -> Array:
-	var out: Array = []
-	var add := func(a: Vector2, b: Vector2, rate: float, gutter: float) -> void:
-		var u := Pulse.rate_to_u(rate)
-		if u == Pulse.OFF:
-			return
-		var dir := (b - a).normalized()
-		var perp := Vector2(-dir.y, dir.x)
-		var c := (a + b) * 0.5 - perp * a.distance_to(b) * bow
-		out.append({"a": a, "c": c, "b": b, "half_width": (1.1 + 2.6 * u) * 0.5 + gutter, "u": u})
-	for f in realm.forts:
-		add.call(realm.cov_pos, f["pos"], f["r_in"], 0.0)
-		# the corpse gutter rides 7 px off the drain lane (map_routes.gd)
-		var dead_out: float = f["r_dead_out"]
-		add.call(f["pos"], realm.vei_pos, maxf(f["r_drain"], dead_out), 7.0 if Pulse.rate_to_u(dead_out) != Pulse.OFF else 0.0)
-		add.call(realm.vei_pos, f["pos"], f["r_shipped"], 0.0)
-	add.call(realm.cov_pos, realm.vei_pos, realm.cov["r_out"] * float(realm.t.get("directShare", 0.22)), 0.0)
-	return out
 
 
 func _layer_image(arr: PackedFloat32Array, w: int, h: int) -> Image:
