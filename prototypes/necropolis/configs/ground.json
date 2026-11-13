@@ -1,0 +1,61 @@
+{
+  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion, F9 greyscale check.",
+  "mode": "flow",
+  "reduced_motion": false,
+  "readout": true,
+
+  "tempo_ms": 1714,
+  "tempo_amp": 0.53,
+  "tempo_spread": 1.25,
+
+  "field_hz": 6.0,
+  "streaks": 9000,
+  "trail_scale": 0.62,
+  "trail_keep_per_s": 0.03,
+  "streak_width": 2.2,
+  "life_s": [2.0, 5.0],
+  "spawn_empty_weight": 0.3,
+
+  "speed": 110.0,
+  "speed_empty": 0.75,
+  "speed_settled": 0.4,
+  "speed_living": 0.7,
+  "front_boost": 0.7,
+  "draught": 1.0,
+  "draught_empty": 0.5,
+  "push": 0.35,
+  "orbit_strength": 1.0,
+  "turbulence": 1.6,
+  "turbulence_empty": 0.4,
+  "turbulence_land": 0.15,
+  "noise_scale": 0.0032,
+  "noise_evolve": 0.12,
+
+  "presence": [0.01, 0.22],
+  "front": [0.03, 0.22],
+  "commit_dominance": 3.0,
+  "commit_entrench": 0.35,
+  "entrench_ref": 2.5,
+
+  "dash_px": 22.0,
+  "dash_duty": 0.5,
+
+  "alpha_empty": 0.07,
+  "alpha_land": 0.95,
+  "alpha_front": 0.95,
+  "core_mix": 0.3,
+  "composite_gain": 2.4,
+
+  "colors": {
+    "green": "39ff9e",
+    "green_core": "c9ffe8",
+    "orange": "ff6a2b",
+    "orange_core": "ffd6b0",
+    "violet": "9660ff"
+  },
+
+  "reduced_speed": 0.1,
+  "reduced_keep_per_s": 0.72,
+  "reduced_noise_evolve": 0.0,
+  "reduced_life_scale": 3.0
+}
