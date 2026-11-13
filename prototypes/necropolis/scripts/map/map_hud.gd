@@ -7,7 +7,9 @@ extends Control
 
 var model: MapModel
 
-var _bar: HFlowContainer
+var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
+var _cells: Array = []  # the bar items (a box per stream, then the status box), in order
+var _row_sig := ""
 var _bar_plate: ColorRect
 var _obj_plate: ColorRect
 var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on the first read
@@ -32,13 +34,10 @@ func _ready() -> void:
 	# darkening plates behind the bar and the objective: the map's brightest content may sit under them
 	_bar_plate = _plate()
 	_obj_plate = _plate()
-	_bar = HFlowContainer.new()
+	_bar = VBoxContainer.new()
 	_bar.position = Vector2(float(pos[0]), float(pos[1]))
-	_bar.size.x = float(cfg["topbar_max_w_px"])
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_bar.add_theme_constant_override("h_separation", int(cfg["topbar_gap_px"]))
-	_bar.add_theme_constant_override("v_separation", int(cfg["topbar_row_gap_px"]))
-	_bar.sort_children.connect(_relayout)
+	_bar.add_theme_constant_override("separation", int(cfg["topbar_row_gap_px"]))
 	add_child(_bar)
 	_objective = Label.new()
 	_objective.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -84,8 +83,8 @@ func _relayout() -> void:
 	var cfg := MapLogic.cfg()
 	var pad := float(cfg["topbar_plate_pad_px"])
 	var right := 0.0
-	for c in _bar.get_children():
-		right = maxf(right, (c as Control).position.x + (c as Control).size.x)
+	for row in _bar.get_children():
+		right = maxf(right, (row as Control).get_combined_minimum_size().x)
 	var bar_bottom := _bar.position.y + _bar.get_combined_minimum_size().y
 	_bar_plate.position = Vector2.ZERO
 	_bar_plate.size = Vector2(_bar.position.x + right + pad, bar_bottom + pad)
@@ -150,7 +149,7 @@ func _build_bar(items: Array) -> void:
 		var box := HBoxContainer.new()
 		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_theme_constant_override("separation", int(cfg["topbar_item_gap_px"]))
-		_bar.add_child(box)
+		_cells.append(box)
 		var parts := {"box": box, "name": _bar_label(box), "rate": _bar_label(box), "stock": _bar_label(box), "cap": _bar_label(box)}
 		MapType.style_label(parts["name"])
 		MapType.style_rate(parts["rate"])
@@ -163,8 +162,8 @@ func _build_bar(items: Array) -> void:
 	var spacer := Control.new()
 	spacer.custom_minimum_size = Vector2(float(cfg["topbar_group_gap_px"]), 0.0)
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_bar.add_child(spacer)
-	_bar.add_child(status)
+	status.add_child(spacer)
+	_cells.append(status)
 	var odds_name := _bar_label(status)
 	MapType.style_label(odds_name)
 	odds_name.text = "ODDS"
@@ -211,7 +210,32 @@ func refresh(force := false) -> void:
 	_drain.text = st["drain_text"]
 	_speed_tag.text = HudLogic.speed_text(hud)
 	_objective.text = HudLogic.objective_text(hud)
+	_wrap_cells()
+	_relayout()
 	_relayout.call_deferred()
+
+
+## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), rebuilding the
+## row boxes only when the rows changed.
+func _wrap_cells() -> void:
+	var cfg := MapLogic.cfg()
+	var widths: Array = _cells.map(func(c): return (c as Control).get_combined_minimum_size().x)
+	var rows := HudLogic.wrap_rows(widths, float(cfg["topbar_gap_px"]), float(cfg["topbar_max_w_px"]))
+	if str(rows) == _row_sig:
+		return
+	_row_sig = str(rows)
+	for row in _bar.get_children():
+		for c in row.get_children():
+			row.remove_child(c)
+		_bar.remove_child(row)
+		row.queue_free()
+	for r in rows:
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_theme_constant_override("separation", int(cfg["topbar_gap_px"]))
+		_bar.add_child(row)
+		for i in r:
+			row.add_child(_cells[i])
 
 
 ## Backlog growing is good (undead), shrinking is danger; holding is neutral. The glyph is the

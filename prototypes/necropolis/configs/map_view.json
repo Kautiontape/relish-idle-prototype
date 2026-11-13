@@ -365,6 +365,7 @@
   "topbar_gap_px": 10,
   "topbar_item_gap_px": 4,
   "topbar_group_gap_px": 16,
+  "meter_reserve_px": 500,
   "topbar_max_w_px": 1070,
   "topbar_row_gap_px": 2,
   "topbar_plate_pad_px": 6,

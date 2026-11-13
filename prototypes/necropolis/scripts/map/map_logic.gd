@@ -211,6 +211,11 @@ static func _lin(c: float) -> float:
 	return c / 12.92 if c <= 0.04045 else pow((c + 0.055) / 1.055, 2.4)
 
 
+## WCAG relative luminance of `c`.
+static func luminance(c: Color) -> float:
+	return _luminance(c)
+
+
 static func _luminance(c: Color) -> float:
 	return 0.2126 * _lin(c.r) + 0.7152 * _lin(c.g) + 0.0722 * _lin(c.b)
 

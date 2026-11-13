@@ -17,6 +17,7 @@ func run() -> int:
 	_placement(t)
 	_one_source(t)
 	_fit(t)
+	_wrap(t)
 	return t.failures
 
 
@@ -59,10 +60,14 @@ func _contrast(t: TestUtil) -> void:
 	# the HUD plate: ground at topbar_plate_alpha, with the brightest map content (vei) showing
 	# through at 1 - alpha
 	var a := float(cfg["topbar_plate_alpha"])
-	var through := Palette.c("ground").lerp(Palette.c("vei"), 1.0 - a)
+	var bright_key := ""
+	for k in Palette.keys():
+		if bright_key == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright_key)):
+			bright_key = k
+	var through := Palette.c("ground").lerp(Palette.c(bright_key), 1.0 - a)
 	for key in ["text", "text_dim", "undead", "danger", "select"]:
 		var r := MapLogic.contrast_ratio(Palette.c(key), through)
-		t.ok(r >= 4.5, "%s on the top-bar plate over vei is %.1f:1 (>= 4.5)" % [key, r])
+		t.ok(r >= 4.5, "%s on the top-bar plate over the brightest palette key (%s) is %.1f:1 (>= 4.5)" % [key, bright_key, r])
 	t.ok(a > 0.0 and a <= 1.0, "plate alpha in range")
 	for key in ["text", "text_dim", "undead", "danger", "select"]:
 		for g in grounds:
@@ -264,3 +269,31 @@ func _fit(t: TestUtil) -> void:
 	t.ok(float(fit["zoom"]) >= float(cfg["zoom_far_below"]) + float(cfg["zoom_hysteresis"]), "with at least the hysteresis margin above far (%.3f >= %.2f + %.2f)" % [float(fit["zoom"]), float(cfg["zoom_far_below"]), float(cfg["zoom_hysteresis"])])
 	var vtop := ((m.node_pos("vei").y - reach) - float(fit["centre"].y)) * float(fit["zoom"]) + vp.y * 0.5
 	t.ok(vtop >= inset, "Vei's stack starts below the HUD (%.1f >= %.0f)" % [vtop, inset])
+
+
+func _wrap(t: TestUtil) -> void:
+	t.suite("map_hud-wrap")
+	var cfg := MapLogic.cfg()
+	var gap := float(cfg["topbar_gap_px"])
+	var max_w := float(cfg["topbar_max_w_px"])
+	var widths := [150, 190, 140, 170, 130, 180, 260, 220, 90]
+	var rows := HudLogic.wrap_rows(widths, gap, max_w)
+	var flat: Array = []
+	for r in rows:
+		flat.append_array(r)
+	t.ok(flat == range(widths.size()), "every item appears once, in order")
+	t.ok(rows.size() > 1, "these widths wrap (%d rows)" % rows.size())
+	for r in rows:
+		var w: float = gap * (r.size() - 1)
+		for i in r:
+			w += float(widths[i])
+		t.ok(w <= max_w, "a row of %d items is %.0f px (<= %.0f)" % [r.size(), w, max_w])
+	t.ok(HudLogic.wrap_rows([100, 100], gap, max_w) == [[0, 1]], "items that fit share a row")
+	t.ok(HudLogic.wrap_rows([max_w], gap, max_w) == [[0]] and HudLogic.wrap_rows([max_w, 1], gap, max_w) == [[0], [1]], "a row may be exactly max_w; one more px wraps")
+	t.ok(HudLogic.wrap_rows([2000, 50], gap, max_w) == [[0], [1]], "an over-wide item stands alone")
+	t.ok(HudLogic.wrap_rows([], gap, max_w).is_empty(), "no items, no rows")
+	var pos: Array = cfg["topbar_pos_px"]
+	var right_edge := float(pos[0]) + max_w + float(cfg["topbar_plate_pad_px"])
+	t.ok(right_edge <= 1600.0 - float(cfg["meter_reserve_px"]), "the bar's plate (%.0f) stops left of the ground meter's reserve (%.0f)" % [right_edge, 1600.0 - float(cfg["meter_reserve_px"])])
+	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hud_src.contains("HudLogic.wrap_rows("), "the bar lays its rows out with wrap_rows")

@@ -32,6 +32,26 @@ static func rate_items(hud: Dictionary) -> Array:
 	return out
 
 
+## The bar's one wrapping rule: items of the given `widths` go left to right with `gap` between
+## them; an item that would push the row past `max_w` starts a new row (an item alone in a row
+## stays, however wide). Returns the rows as arrays of item indices.
+static func wrap_rows(widths: Array, gap: float, max_w: float) -> Array:
+	var rows: Array = []
+	var row: Array = []
+	var x := 0.0
+	for i in widths.size():
+		var w := float(widths[i])
+		if not row.is_empty() and x + gap + w > max_w:
+			rows.append(row)
+			row = []
+			x = 0.0
+		x += (gap if not row.is_empty() else 0.0) + w
+		row.append(i)
+	if not row.is_empty():
+		rows.append(row)
+	return rows
+
+
 ## Whether they are winning, from MapModel.readout() (the same one Vei's node draws):
 ## {odds_text, sign, sign_text, drain_text}. An empty backlog reads as Vei's node does.
 static func status(readout: Dictionary) -> Dictionary:
