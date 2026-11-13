@@ -115,10 +115,11 @@ func set_reduced(on: bool) -> void:
 ## Push every tuning key to the shader. Safe to call after a config reload.
 func apply_config(cfg: Dictionary) -> void:
 	_cfg = cfg
-	var keys := ["speed", "speed_empty", "speed_settled", "speed_living", "front_boost", "draught",
-		"draught_empty", "push", "orbit_strength", "turbulence", "turbulence_empty", "turbulence_land", "noise_scale", "noise_evolve", "commit_dominance",
-		"commit_entrench", "entrench_ref", "tempo_amp", "tempo_spread", "dash_px", "dash_duty",
-		"streak_width", "spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
+	var keys := ["speed", "speed_empty", "speed_settled", "speed_living", "front_boost",
+		"draught", "draught_empty", "push", "orbit_strength", "turbulence", "turbulence_empty",
+		"turbulence_land", "noise_scale", "noise_evolve", "commit_dominance", "commit_entrench",
+		"entrench_ref", "tempo_amp", "tempo_spread", "dash_px", "dash_duty", "streak_width",
+		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))
@@ -135,6 +136,8 @@ func apply_config(cfg: Dictionary) -> void:
 		_pmat.set_shader_parameter("speed", float(cfg.get("speed", 64.0)) * float(cfg.get("reduced_speed", 0.1)))
 		_pmat.set_shader_parameter("tempo_amp", 0.0)
 		_pmat.set_shader_parameter("noise_evolve", float(cfg.get("reduced_noise_evolve", 0.0)))
+		# longer lives so heads don't blink in and out while crawling
+		_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])) * float(cfg.get("reduced_life_scale", 3.0)))
 
 
 func _process(delta: float) -> void:

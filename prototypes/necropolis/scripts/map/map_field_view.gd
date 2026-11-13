@@ -62,7 +62,7 @@ func _ready() -> void:
 		elif a == "--greyscale":
 			grey = true
 		elif a == "--ground-only":
-			_hide_siblings.call_deferred()
+			set_bare.call_deferred(true)
 	_old_mat = ShaderMaterial.new()
 	_old_mat.shader = OLD_SHADER
 	_comp_mat = ShaderMaterial.new()
@@ -86,11 +86,11 @@ func _ready() -> void:
 
 
 ## Analysis captures: hide routes and nodes so only ground pixels remain.
-## Deferred because world_map adds them after this node.
-func _hide_siblings() -> void:
+## Called deferred from _ready because world_map adds them after this node.
+func set_bare(on: bool) -> void:
 	for sib in get_parent().get_children():
 		if sib != self and sib is CanvasItem:
-			(sib as CanvasItem).visible = false
+			(sib as CanvasItem).visible = not on
 
 
 func set_mode(m: String) -> void:
@@ -126,6 +126,20 @@ func set_mode(m: String) -> void:
 	_cpu_ms = 0.0
 
 
+func set_reduced(on: bool) -> void:
+	reduced = on
+	if _flow != null:
+		_flow.set_reduced(on)
+
+
+func set_grey(on: bool) -> void:
+	_grey.visible = on
+
+
+func is_grey() -> bool:
+	return _grey.visible
+
+
 func detail() -> String:
 	match mode:
 		"flow":
@@ -147,6 +161,7 @@ func cpu_ms() -> float:
 	return _cpu_ms
 
 
+## Off also lifts any fps cap (e.g. --max-fps), so frame time shows real cost.
 func _set_vsync(on: bool) -> void:
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if on else DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
@@ -173,11 +188,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_F7:
 			set_mode(MODES[(MODES.find(mode) + 1) % MODES.size()])
 		KEY_F8:
-			reduced = not reduced
-			if _flow != null:
-				_flow.set_reduced(reduced)
+			set_reduced(not reduced)
 		KEY_F9:
-			_grey.visible = not _grey.visible
+			set_grey(not is_grey())
 		_:
 			return
 	get_viewport().set_input_as_handled()

@@ -22,11 +22,11 @@
   "speed_living": 0.7,
   "front_boost": 0.7,
   "draught": 1.0,
-  "draught_empty": 0.3,
+  "draught_empty": 0.5,
   "push": 0.35,
   "orbit_strength": 1.0,
   "turbulence": 1.6,
-  "turbulence_empty": 0.45,
+  "turbulence_empty": 0.4,
   "turbulence_land": 0.15,
   "noise_scale": 0.0032,
   "noise_evolve": 0.12,
@@ -40,11 +40,11 @@
   "dash_px": 22.0,
   "dash_duty": 0.5,
 
-  "alpha_empty": 0.1,
+  "alpha_empty": 0.07,
   "alpha_land": 0.95,
   "alpha_front": 0.95,
   "core_mix": 0.3,
-  "composite_gain": 1.25,
+  "composite_gain": 2.0,
 
   "colors": {
     "green": "39ff9e",
@@ -56,5 +56,6 @@
 
   "reduced_speed": 0.1,
   "reduced_keep_per_s": 0.72,
-  "reduced_noise_evolve": 0.0
+  "reduced_noise_evolve": 0.0,
+  "reduced_life_scale": 3.0
 }

@@ -4,13 +4,18 @@ extends CanvasLayer
 ##
 ## Readout: wall-clock frame time (mean / p95 / max over the last 240 frames),
 ## main and trail viewport CPU/GPU render time from
-## RenderingServer.viewport_get_measured_render_time_*, field upload time and
-## the engine's process time. With vsync on, frame time pins to the refresh
-## interval; press F5 (or pass --vsync=off) to see the real cost.
+## RenderingServer.viewport_get_measured_render_time_*, and the GDScript time
+## the ground spent this frame. With vsync on or an fps cap, frame time pins
+## to the refresh interval; press F5 (or pass --vsync=off, which also lifts any
+## --max-fps cap) to see the real cost. The GPU
+## particle pass is not attributed to either viewport's GPU timer, so the
+## vsync-off wall-clock frame time is the honest total.
 ##
 ## Bench (CLI, args after `--`):
 ##   --bench-seconds=S     measure each mode for S wall seconds
-##   --bench-modes=a,b,c   modes to measure back to back (default flow,old,off)
+##   --bench-modes=a,b,c   modes to measure back to back (default flow,old,off);
+##                         a mode may add +reduced, +grey and/or +bare (routes and
+##                         nodes hidden, for contrast captures), e.g. flow+reduced
 ##   --bench-warm=N        frames to wait first (e.g. at --speed=60 to reach late game)
 ##   --bench-speed=X       sim speed to switch to after warm-up (default 1)
 ##   --bench-shot=/abs/prefix  save <prefix>-<mode>.png at the end of each mode
@@ -30,6 +35,7 @@ var _bframes := 0
 var _bt0 := 0
 var _bsamples := {}
 var _warm_sim_s := 0.0
+var _bare := false
 
 
 func _ready() -> void:
@@ -84,8 +90,11 @@ func _process(delta: float) -> void:
 	var main_rid := get_viewport().get_viewport_rid()
 	var lines := PackedStringArray()
 	lines.append("GROUND %s%s · %s" % [view.mode, "  [reduced motion]" if view.reduced else "", view.detail()])
-	lines.append("frame %.2f ms  p95 %.2f  max %.2f   vsync %s" % [s["mean"], s["p95"], s["max"],
-		"ON (pinned to refresh)" if DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED else "OFF"])
+	var cap := ""
+	if Engine.max_fps > 0:
+		cap = "  fps cap %d" % Engine.max_fps
+	lines.append("frame %.2f ms  p95 %.2f  max %.2f   vsync %s%s" % [s["mean"], s["p95"], s["max"],
+		"ON" if DisplayServer.window_get_vsync_mode() != DisplayServer.VSYNC_DISABLED else "OFF", cap])
 	lines.append("main  cpu %.2f  gpu %.2f ms" % [
 		RenderingServer.viewport_get_measured_render_time_cpu(main_rid),
 		RenderingServer.viewport_get_measured_render_time_gpu(main_rid)])
@@ -94,8 +103,7 @@ func _process(delta: float) -> void:
 		lines.append("trail cpu %.2f  gpu %.2f ms" % [
 			RenderingServer.viewport_get_measured_render_time_cpu(trid),
 			RenderingServer.viewport_get_measured_render_time_gpu(trid)])
-	lines.append("ground cpu %.2f ms · process %.2f ms" % [view.cpu_ms(),
-		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0])
+	lines.append("ground cpu %.2f ms this frame" % view.cpu_ms())
 	lines.append("F5 vsync · F6 reload cfg · F7 ground · F8 reduced · F9 grey")
 	label.text = "\n".join(lines)
 
@@ -129,11 +137,10 @@ func _run_bench(ms: float) -> void:
 			if _bframes <= 0:
 				_bstate = "measure"
 				_bt0 = Time.get_ticks_msec()
-				_bsamples = {"frame": [], "proc": [], "mcpu": [], "mgpu": [], "tcpu": [], "tgpu": [], "gcpu": []}
+				_bsamples = {"frame": [], "mcpu": [], "mgpu": [], "tcpu": [], "tgpu": [], "gcpu": []}
 		"measure":
 			var main_rid := get_viewport().get_viewport_rid()
 			_bsamples["frame"].append(ms)
-			_bsamples["proc"].append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 			_bsamples["mcpu"].append(RenderingServer.viewport_get_measured_render_time_cpu(main_rid))
 			_bsamples["mgpu"].append(RenderingServer.viewport_get_measured_render_time_gpu(main_rid))
 			_bsamples["gcpu"].append(view.cpu_ms())
@@ -144,7 +151,8 @@ func _run_bench(ms: float) -> void:
 			if Time.get_ticks_msec() - _bt0 >= int(float(_bench["bench-seconds"]) * 1000.0):
 				_report()
 				if _bench.has("bench-shot"):
-					var p := "%s-%s%s.png" % [_bench["bench-shot"], view.mode, "-reduced" if view.reduced else ""]
+					var p := "%s-%s%s%s%s.png" % [_bench["bench-shot"], view.mode, "-reduced" if view.reduced else "",
+					"-grey" if view.is_grey() else "", "-bare" if _bare else ""]
 					get_viewport().get_texture().get_image().save_png(p)
 					print("BENCH_SHOT ", p)
 				_next_mode()
@@ -156,7 +164,13 @@ func _next_mode() -> void:
 		print("BENCH_DONE")
 		get_tree().quit()
 		return
-	view.set_mode(str(_bmodes.pop_front()))
+	# a mode token is "<flow|old|off>[+reduced][+grey][+bare]" (bare: no routes or nodes)
+	var parts := str(_bmodes.pop_front()).split("+")
+	view.set_reduced(parts.has("reduced"))
+	view.set_grey(parts.has("grey"))
+	view.set_bare(parts.has("bare"))
+	_bare = parts.has("bare")
+	view.set_mode(parts[0])
 	_bstate = "settle"
 	_bframes = 90
 
@@ -172,9 +186,12 @@ func _report() -> void:
 			s += x
 		return s / a.size()
 	var vs := get_viewport().get_visible_rect().size
-	print("BENCH mode=%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | process_ms=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu=%.3f | ground_cpu_ms=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
-		view.mode, "(reduced)" if view.reduced else "", f["n"], f["mean"], f["p50"], f["p95"], f["p99"], f["max"],
-		mean.call("proc"), mean.call("mcpu"), mean.call("mgpu"), mean.call("tcpu"), mean.call("tgpu"),
-		mean.call("gcpu"), view.detail(), int(vs.x), int(vs.y), str(DisplayServer.window_get_size()),
+	var gc: Array = _bsamples["gcpu"]
+	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
+		view.mode, "+reduced" if view.reduced else "", "+grey" if view.is_grey() else "",
+		"+bare" if _bare else "", f["n"],
+		f["mean"], f["p50"], f["p95"], f["p99"], f["max"],
+		mean.call("mcpu"), mean.call("mgpu"), mean.call("tcpu"), mean.call("tgpu"),
+		mean.call("gcpu"), gc.max() if not gc.is_empty() else 0.0, view.detail(), int(vs.x), int(vs.y), str(DisplayServer.window_get_size()),
 		"off" if DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_DISABLED else "on",
 		str(Game.time_scale)])
