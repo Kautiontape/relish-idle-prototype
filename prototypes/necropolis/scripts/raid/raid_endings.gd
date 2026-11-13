@@ -47,4 +47,5 @@ func finish(result: Dictionary) -> void:
 	Engine.time_scale = 1.0
 	_raid.finished.emit(result)
 	if _raid._standalone:
+		_raid.standalone_apply(result)
 		_raid.hud.show_result(result)

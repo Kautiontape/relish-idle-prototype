@@ -126,11 +126,15 @@ func _process(_delta: float) -> void:
 
 
 func refresh() -> void:
-	_title.text = "%s — TIER %d" % [str(raid.seed_data.get("name", "?")).to_upper(), int(raid.seed_data.get("tier", 1))]
+	_title.text = "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
 	_living.text = "LIVING  %d" % raid.enemies.size()
 	_essence.text = "ESSENCE  %d" % raid.get_tree().get_nodes_in_group("raid_essence").size()
-	var lg = raid.ledger
-	_raised.text = "RAISED  chaff %.0f  ·  sold %d  ·  elite %d" % [lg.chaff_pool, lg.soldiers, lg.elites]
+	if raid.ledger_v2 != null:
+		var rc: Dictionary = raid.ledger_v2.raised_counts()
+		_raised.text = "RAISED  chaff %d  ·  soldier %d  ·  elite %d" % [rc["chaff"], rc["soldier"], rc["elite"]]
+	else:
+		var lg = raid.ledger
+		_raised.text = "RAISED  chaff %.0f  ·  sold %d  ·  elite %d" % [lg.chaff_pool, lg.soldiers, lg.elites]
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if _backlog != null:
 		_backlog.text = "BACKLOG  %.0f    LOST  s%d e%d" % [raid.backlog_left, raid.army_lost["soldier"], raid.army_lost["elite"]]

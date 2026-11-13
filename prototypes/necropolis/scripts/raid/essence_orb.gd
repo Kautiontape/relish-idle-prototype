@@ -7,6 +7,7 @@ var raid: Node = null
 var mass := 1.0
 var life := 12.0
 var absorbing := false
+var recycled := false   # mass that was already raised once: not fresh dead (later task sets it)
 
 var _t := 0.0
 var _pop := Vector2.ZERO
