@@ -187,7 +187,7 @@ func apply_config(cfg: Dictionary) -> void:
 		"turbulence_land", "noise_scale", "noise_evolve", "commit_dominance", "commit_entrench",
 		"entrench_ref", "tempo_amp", "dash_px", "dash_duty", "streak_width_px",
 		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix", "seam_land",
-		"moat_px", "moat_strength", "clump_limit"]
+		"moat_px", "moat_strength", "clump_limit", "spawn_land_weight"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))
@@ -195,7 +195,7 @@ func apply_config(cfg: Dictionary) -> void:
 	_pmat.set_shader_parameter("presence", _v2(cfg.get("presence", [0.01, 0.22])))
 	_pmat.set_shader_parameter("front_range", _v2(cfg.get("front", [0.03, 0.22])))
 	_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])))
-	_pmat.set_shader_parameter("moat_end", _v2(cfg.get("moat_end", [40.0, 120.0])))
+	_pmat.set_shader_parameter("moat_end", _v2(cfg.get("moat_end", [25.0, 70.0])))
 	var cols: Dictionary = cfg.get("colors", {})
 	for k in ["green", "green_core", "orange", "orange_core", "violet"]:
 		if cols.has(k):

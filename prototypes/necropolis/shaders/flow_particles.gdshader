@@ -12,7 +12,8 @@ shader_type particles;
 //   ENTRENCHED ground is slow and laminar: no noise, saturated toward the core.
 // Figure over ground (the routes stay figure): every streak that exists clears
 // 3:1 at its core, and the ink is set by how many there are, never by dimming.
-//   - EMPTY ground is a sparse current (spawn_empty_weight), not a dense dim one;
+//   - EMPTY ground is a sparse current (spawn_empty_weight), not a dense dim one,
+//     and held ground is thinned the same way (spawn_land_weight);
 //   - a streak born on empty ground fades and respawns once it is seam_land into
 //     living ground, so the draught can't pile violet seams along a vortex rim;
 //   - streaks thin out in a narrow moat beside each live lane (moat_*), except
@@ -55,6 +56,7 @@ uniform float wave_spread = 0.5;
 uniform float tempo_amp = 0.53;
 uniform vec2 life_s = vec2(2.5, 6.5);
 uniform float spawn_empty_weight = 0.3;
+uniform float spawn_land_weight = 1.0;   // < 1: fewer streaks on held ground (less overlap, same core)
 // Seams: streaks born on empty ground fade and respawn once they are this far
 // into held living ground, so the draught can't pile them up along a vortex rim.
 uniform float seam_land = 0.35;
@@ -85,7 +87,7 @@ uniform vec4 lane_bw[MAX_LANES];   // end.xy, half width (world), rate u
 uniform int lane_count = 0;
 uniform float moat_px = 10.0;      // moat beyond the lane's edge, screen px
 uniform float moat_strength = 0.0; // 0 = off; 1 = the moat's core is empty
-uniform vec2 moat_end = vec2(40.0, 120.0); // world px from a lane's ends: no moat -> full moat
+uniform vec2 moat_end = vec2(25.0, 70.0);  // world px from a lane's ends: no moat -> full moat
                                            // (held ground round a node keeps its streaks)
 uniform float alpha_empty = 0.2;
 uniform float alpha_land = 0.95;
@@ -195,7 +197,7 @@ float land_at(vec2 p) {
 }
 
 // Where a streak is born. Up to four tries in view; each is kept with
-// mix(spawn_empty_weight, 1, land), less beside a lane (the moat). Held ground
+// mix(spawn_empty_weight, spawn_land_weight, land), less beside a lane (the moat). Held ground
 // is where the information is, so it fills first; empty ground gets a sparse
 // current of legible streaks, not a dense dim one. If no try is kept, the
 // streak sleeps one life (z = 0) and tries again: no forced fallback.
@@ -207,7 +209,7 @@ vec4 pick_spawn(uint s) {
 			sp = spawn_pos(s + k * 7919u);
 		}
 		float lnd = land_at(sp);
-		float keep_here = mix(spawn_empty_weight, 1.0, lnd);
+		float keep_here = mix(spawn_empty_weight, spawn_land_weight, lnd);
 		if (moat_strength > 0.0 && lane_count > 0) {
 			keep_here *= 1.0 - moat_strength * moat_at(sp);
 		}
