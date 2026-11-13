@@ -28,6 +28,7 @@ class Ribbon:
 	var b := Vector2.ZERO
 	var radius := 0.0
 	var origin := Vector2.ZERO  # gutter: start of the reference curve its mesh was built on
+	var min_cos := 1.0  # gutter: LaneStyle.lateral_cos_min of its curve
 	var pts := PackedVector2Array()
 	var cum := PackedFloat32Array()
 	var length := 0.0
@@ -249,7 +250,7 @@ func _lane(row: Dictionary) -> Ribbon:
 		else:
 			var c := MapLogic.lane_curve_for(row, a, b, 0.0)
 			pts = MapLogic.sample_quad(c["a"], c["c"], c["b"], int(MapLogic.cfg()["ribbon_samples"]))
-		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]))
+		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]), true)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
@@ -273,19 +274,22 @@ func _gutter(row: Dictionary) -> Ribbon:
 		var ref := MapLogic.gutter_curve(a, b, LaneStyle.OFF, LaneStyle.OFF)
 		r.origin = ref["a"]
 		var pts := MapLogic.sample_quad(ref["a"], ref["c"], ref["b"], int(MapLogic.cfg()["ribbon_samples"]))
-		_build(r, pts, LaneStyle.gutter_half_extent(), float(MapLogic.cfg()["gutter_chevron_size_px"]))
+		r.min_cos = LaneStyle.lateral_cos_min(pts, a, b)
+		_build(r, pts, LaneStyle.gutter_half_extent(), float(MapLogic.cfg()["gutter_chevron_size_px"]), false)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
 
 
-func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float) -> void:
+## round_caps: lit lanes give their dashes round caps; the gutter keeps butt ends (06).
+func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, round_caps: bool) -> void:
 	var rb := LaneStyle.ribbon(pts, half, r.ring)
 	r.node.mesh = LaneStyle.to_mesh(rb)
 	r.pts = pts
 	r.cum = rb["cum"]
 	r.length = rb["length"]
 	r.mat.set_shader_parameter(&"half_extent", half)
+	r.mat.set_shader_parameter(&"round_caps", 1.0 if round_caps else 0.0)
 	r.mat.set_shader_parameter(&"lane_len", r.length)
 	r.mat.set_shader_parameter(&"chev_size", chev_size)
 	r.mat.set_shader_parameter(&"chev_width", LaneStyle.chevron_stroke(chev_size))
@@ -334,7 +338,11 @@ func _apply_gutter(r: Ribbon, u_dead: float, u_host: float) -> void:
 	_updates += 1
 	r.u_host = u_host
 	var ch: Dictionary = Pulse.channels(u_dead, Palette.hue(r.style["hue_key"]))
-	_set_layers(r, LaneStyle.gutter_layers(ch))
+	# the spill stops at the host core's drawn edge (u_host < 0: the phantom's u = 0 geometry)
+	var host_half := MapLogic.lane_half_width(u_host)
+	_set_layers(r, LaneStyle.gutter_layers(ch, host_half, r.min_cos))
+	r.mat.set_shader_parameter(&"clip_edge", LaneStyle.host_edge(host_half, MapLogic.gutter_width(u_dead), r.min_cos))
+	r.mat.set_shader_parameter(&"clip_half", host_half)
 	_set_motion(r, LaneStyle.motion(ch, r.style))
 	r.mat.set_shader_parameter(&"chev_col", LaneStyle.gutter_chevron_color(ch))
 	r.node.position = MapLogic.gutter_curve(r.a, r.b, u_host, u_dead)["a"] - r.origin
@@ -346,6 +354,7 @@ func _set_layers(r: Ribbon, layers: Array) -> void:
 	r.mat.set_shader_parameter(&"widths", p["widths"])
 	r.mat.set_shader_parameter(&"offsets", p["offsets"])
 	r.mat.set_shader_parameter(&"dashed", p["dashed"])
+	r.mat.set_shader_parameter(&"hairline", p["hairline"])
 	for i in LaneStyle.MAX_LAYERS:
 		r.mat.set_shader_parameter(COL_PARAMS[i], p["colors"][i])
 

@@ -5,8 +5,10 @@ extends RefCounted
 ##   - the ribbon mesh builder (a triangle strip; UV.x = arc length, UV.y = -1..1 across);
 ##   - the per-kind style table (configs/map_view.json lane_kinds plus the commit and hot rules);
 ##   - the stroke-layer tables the lane shader composites, outermost first: a lit lane's
-##     LineGlow.layers(), the dead gutter's spill / cut / lip / rim (06-three-flow-geometry c5),
+##     LineGlow.layers() (halos capped at halo_max_px, the core a hairline), the dead gutter's
+##     spill / cut / lip / rim (06-three-flow-geometry c5, the spill kept off the host's core),
 ##     the phantom bank;
+##   - the on-screen stroke rules the shader applies (drawn_stroke, spill_clip), as pure mirrors;
 ##   - dash motion per kind, ring dash quantisation, haul cart spacing and pips.
 ## Ribbon sides: UV.y = +1 is MapLogic's +perp side, (-dir.y, dir.x), the right of travel on
 ## screen. Lanes bow and gutters shift to -perp, so a gutter's host lies on its +UV.y side.
@@ -44,19 +46,37 @@ static func ribbon(pts: PackedVector2Array, half_width: float, closed := false) 
 	for i in n:
 		if i > 0:
 			s += pts[i - 1].distance_to(pts[i])
-		var prev := pts[maxi(i - 1, 0)]
-		var next := pts[mini(i + 1, n - 1)]
-		if closed and n > 2 and (i == 0 or i == n - 1):
-			prev = pts[n - 2]
-			next = pts[1]
-		var t := (next - prev).normalized()
-		var nrm := Vector2(-t.y, t.x)
+		var nrm := _normal(pts, i, closed)
 		verts.append(pts[i] + nrm * half_width)
 		uvs.append(Vector2(s, 1.0))
 		verts.append(pts[i] - nrm * half_width)
 		uvs.append(Vector2(s, -1.0))
 		cum.append(s)
 	return {"verts": verts, "uvs": uvs, "cum": cum, "length": s}
+
+
+## The unit normal at point i (+perp of the local tangent; wrap-around neighbours on a ring).
+static func _normal(pts: PackedVector2Array, i: int, closed: bool) -> Vector2:
+	var n := pts.size()
+	var prev := pts[maxi(i - 1, 0)]
+	var next := pts[mini(i + 1, n - 1)]
+	if closed and n > 2 and (i == 0 or i == n - 1):
+		prev = pts[n - 2]
+		next = pts[1]
+	var t := (next - prev).normalized()
+	return Vector2(-t.y, t.x)
+
+
+## The smallest cosine between the curve's normals and its chord's normal (1 for a straight
+## lane; ~0.95 at a lane_bow lane's ends). A gutter is its host translated across the chord, so
+## the lateral gap between them shrinks by this factor where the curve turns away from the chord.
+static func lateral_cos_min(pts: PackedVector2Array, from_pos: Vector2, to_pos: Vector2) -> float:
+	var dir := (to_pos - from_pos).normalized()
+	var perp := Vector2(-dir.y, dir.x)
+	var c := 1.0
+	for i in pts.size():
+		c = minf(c, absf(_normal(pts, i, false).dot(perp)))
+	return c
 
 
 static func to_mesh(r: Dictionary) -> ArrayMesh:
@@ -188,8 +208,8 @@ static func gutter_on(u_dead: float) -> bool:
 	return u_dead >= 0.0
 
 
-static func _layer(width: float, color: Color, offset := 0.0, dashed := true) -> Dictionary:
-	return {"width": width, "color": color, "offset": offset, "dashed": dashed}
+static func _layer(width: float, color: Color, offset := 0.0, dashed := true, hairline := false) -> Dictionary:
+	return {"width": width, "color": color, "offset": offset, "dashed": dashed, "hairline": hairline}
 
 
 ## A lit lane's alpha: Pulse's alpha floored at lane_alpha_floor, times alpha_mult, capped at 1.
@@ -203,13 +223,42 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 
 
 ## A lit lane's strokes, outermost first: LineGlow.layers() of the hue colour at the lane's
-## alpha, so the hue carries the halos and the core is the pale core at that alpha. Dashed.
+## alpha, so the hue carries the halos and the core is the pale core at that alpha. Dashed. The
+## core is a hairline (never under a screen pixel, never faded by coverage). Halos wider than
+## halo_max_px are pulled in toward the core (capped_halo); the core keeps its width.
 static func lit_layers(ch: Dictionary, style: Dictionary) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
+	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
+	var n := stack.size()
+	var core_w: float = stack[n - 1][0]
+	var outer: float = stack[0][0]
 	var out: Array = []
-	for l in LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"]):
-		out.append(_layer(float(l[0]), l[1]))
+	for i in n:
+		var w: float = stack[i][0]
+		if i < n - 1:
+			w = capped_halo(w, core_w, outer)
+		out.append(_layer(w, stack[i][1], 0.0, true, i == n - 1))
 	return out
+
+
+## A halo `w` wide in a stack whose core is `core_w` and outermost halo `outer`: unchanged while
+## `outer` <= halo_max_px; past it, every halo is pulled toward the core by the same share, so the
+## outermost lands on halo_max_px (or on the core, if the core alone is wider) and the order holds.
+static func capped_halo(w: float, core_w: float, outer: float) -> float:
+	var hmax := _num("halo_max_px")
+	if hmax <= 0.0 or outer <= hmax or outer <= core_w:
+		return w
+	return core_w + (w - core_w) * maxf(hmax - core_w, 0.0) / (outer - core_w)
+
+
+## How the shader draws a stroke `width` world px wide at `alpha` when one screen pixel spans
+## `world_per_px` world px: {width_px, alpha}. Never thinner than 1 px; below a pixel a hairline
+## (a lit lane's core) keeps its alpha, any other stroke's alpha scales with its coverage.
+static func drawn_stroke(width: float, alpha: float, world_per_px: float, hairline: bool) -> Dictionary:
+	var wpx := width / maxf(world_per_px, 1e-6)
+	if wpx >= 1.0:
+		return {"width_px": wpx, "alpha": alpha}
+	return {"width_px": 1.0, "alpha": alpha if hairline else alpha * wpx}
 
 
 ## The colour the shader draws a lit lane's core in (the innermost stroke).
@@ -218,23 +267,39 @@ static func core_color(ch: Dictionary, style: Dictionary) -> Color:
 	return layers[layers.size() - 1]["color"]
 
 
-## The shadow gutter (06 c5), from the dead flow's channels (their colour is ignored):
-## spill, a wide black wash, undashed; the cut, pure black, dashed; the lip on the near edge
-## (toward the host, +UV.y), dead lightened, alpha lip_alpha_base + lip_alpha_per_a x a, dashed;
-## the far rim, dead darkened, dimmer, dashed. Never glows. Width follows u_dead.
-static func gutter_layers(ch: Dictionary) -> Array:
+## Lateral distance from a gutter's centre to its host's centre (gutter_curve's shift), times
+## `min_cos` (lateral_cos_min of the curve) so it holds along the whole lane.
+static func host_edge(host_half: float, gw: float, min_cos := 1.0) -> float:
+	return (host_half + gw * 0.5 + _num("gutter_offset_px")) * min_cos
+
+
+## The shadow gutter (06 c5), from the dead flow's channels (their colour is ignored), for a host
+## whose core is 2 x host_half wide: spill, a wide black wash, undashed, that eats the host's
+## halos but stops at the host core's outer edge; the cut, pure black, dashed; the lip on the near
+## edge (toward the host, +UV.y), dead lightened, alpha lip_alpha_base + lip_alpha_per_a x a,
+## dashed; the far rim, dead darkened, dimmer, dashed. Never glows. Width follows u_dead.
+static func gutter_layers(ch: Dictionary, host_half: float, min_cos := 1.0) -> Array:
 	var g := _sub("gutter")
 	var a := float(ch["alpha"])
 	var gw := MapLogic.gutter_width(float(ch["u"]))
 	var dead := Palette.c("dead")
+	var half := (gw + float(g["spill_px"])) * 0.5
+	var inner := minf(half, host_edge(host_half, gw, min_cos) - host_half)
 	return [
-		_layer(gw + float(g["spill_px"]), Palette.c("void", float(g["spill_alpha"])), 0.0, false),
+		_layer(inner + half, Palette.c("void", float(g["spill_alpha"])), (inner - half) * 0.5, false),
 		_layer(gw, Palette.c("void")),
 		_layer(float(g["lip_width_px"]), Color(dead.lightened(float(g["lip_lighten"])),
 			float(g["lip_alpha_base"]) + float(g["lip_alpha_per_a"]) * a), gw * 0.5),
 		_layer(float(g["rim_width_px"]), Color(dead.darkened(float(g["rim_darken"])),
 			float(g["rim_alpha_base"]) + float(g["rim_alpha_per_a"]) * a), -gw * 0.5),
 	]
+
+
+## Where the shader stops the spill (lateral, from the gutter's centre toward the host) at a
+## zoom where one screen pixel spans `world_per_px`: its antialiased edge ends where the host
+## core's drawn band (drawn_stroke, a hairline) and its antialiased edge begin.
+static func spill_clip(edge: float, host_half: float, world_per_px: float) -> float:
+	return edge - maxf(host_half, 0.5 * world_per_px) - world_per_px
 
 
 ## The phantom bank: one undashed phantom_width_px line along the host, host-coloured, at
@@ -248,6 +313,7 @@ static func pack(layers: Array) -> Dictionary:
 	var w := Vector4.ZERO
 	var o := Vector4.ZERO
 	var d := Vector4.ZERO
+	var h := Vector4.ZERO
 	var cols: Array[Color] = []
 	for i in MAX_LAYERS:
 		if i < layers.size():
@@ -255,10 +321,11 @@ static func pack(layers: Array) -> Dictionary:
 			w[i] = float(l["width"])
 			o[i] = float(l["offset"])
 			d[i] = 1.0 if l["dashed"] else 0.0
+			h[i] = 1.0 if l.get("hairline", false) else 0.0
 			cols.append(l["color"])
 		else:
 			cols.append(Palette.c("void", 0.0))
-	return {"widths": w, "offsets": o, "dashed": d, "colors": cols}
+	return {"widths": w, "offsets": o, "dashed": d, "hairline": h, "colors": cols}
 
 
 # --- chevrons -------------------------------------------------------------------------
@@ -282,11 +349,12 @@ static func gutter_chevron_color(ch: Dictionary) -> Color:
 
 # --- extents --------------------------------------------------------------------------
 
-## Half the ribbon a lit lane of this style needs: its widest halo at u = 1, or a chevron's
-## half span, plus ribbon_margin_px for the antialiased edge.
+## Half the ribbon a lit lane of this style needs: its widest (capped) halo at u = 1, or a
+## chevron's half span, plus ribbon_margin_px for the antialiased edge.
 static func lit_half_extent(style: Dictionary) -> float:
 	var w := MapLogic.lane_half_width(1.0) * 2.0 * float(style["width_mult"])
 	var outer: float = LineGlow.layers(Palette.c("void"), w, maxf(float(style["glow"]), 1.0))[0][0]
+	outer = capped_halo(outer, w, outer)
 	var size := _num("chevron_size_px")
 	return maxf(outer * 0.5, size * 0.8 + chevron_stroke(size)) + _num("ribbon_margin_px")
 

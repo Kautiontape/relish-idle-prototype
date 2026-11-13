@@ -20,6 +20,7 @@ func run() -> int:
 	_ribbon(t)
 	_styles(t)
 	_lit(t)
+	_screen(t)
 	_gutter(t)
 	_phantom(t)
 	_curves(t)
@@ -142,33 +143,77 @@ func _styles(t: TestUtil) -> void:
 func _lit(t: TestUtil) -> void:
 	t.suite("map_routes-lit")
 	var war := LaneStyle.style_for(_row("war", "covington", "ashgate"))
+	var hmax := float(MapLogic.cfg()["halo_max_px"])
+	# at u = 0 the stack is under halo_max_px: exactly LineGlow's
+	var ch0 := _ch(0.0, "undead")
+	var low := LaneStyle.lit_layers(ch0, war)
+	var expect := LineGlow.layers(Color(ch0["color"], LaneStyle.lane_alpha(ch0, war)),
+		float(ch0["width"]) * war["width_mult"], 1.0, Palette.c("undead_core"))
+	t.ok(expect[0][0] <= hmax, "u = 0 committed stack is under halo_max_px (%.1f px)" % expect[0][0])
+	t.ok(low.size() == expect.size() and low.size() == 4, "a lit lane is LineGlow's 4-stroke stack")
+	var same := true
+	for i in low.size():
+		same = same and is_equal_approx(low[i]["width"], expect[i][0]) and low[i]["color"].is_equal_approx(expect[i][1]) \
+			and low[i]["offset"] == 0.0 and low[i]["dashed"]
+	t.ok(same, "below the cap: widths and colours are exactly LineGlow.layers(), centred and dashed")
+	t.ok(low[3]["hairline"] and not low[0]["hairline"] and not low[1]["hairline"] and not low[2]["hairline"], "only the core is a hairline")
+	# at u = 0.6 the stack is capped
 	var ch := _ch(0.6, "undead")
 	var layers := LaneStyle.lit_layers(ch, war)
 	var a := LaneStyle.lane_alpha(ch, war)
-	var expect := LineGlow.layers(Color(ch["color"], a), float(ch["width"]) * war["width_mult"], 1.0, Palette.c("undead_core"))
-	t.ok(layers.size() == expect.size() and layers.size() == 4, "a lit lane is LineGlow's 4-stroke stack")
-	var same := true
+	var raw := LineGlow.layers(Color(ch["color"], a), float(ch["width"]) * war["width_mult"], 1.0, Palette.c("undead_core"))
+	t.ok(raw[0][0] > hmax, "u = 0.6 committed stack exceeds halo_max_px uncapped (%.1f px)" % raw[0][0])
+	t.near(layers[0]["width"], hmax, 1e-4, "the capped outer halo is halo_max_px")
+	t.near(layers[3]["width"], raw[3][0], 1e-6, "the cap keeps the core width")
+	t.ok(layers[0]["width"] > layers[1]["width"] and layers[1]["width"] > layers[2]["width"] and layers[2]["width"] > layers[3]["width"], "capped halos keep their order, all wider than the core")
+	var cols_same := true
 	for i in layers.size():
-		same = same and is_equal_approx(layers[i]["width"], expect[i][0]) and layers[i]["color"].is_equal_approx(expect[i][1]) \
-			and layers[i]["offset"] == 0.0 and layers[i]["dashed"]
-	t.ok(same, "widths and colours are exactly LineGlow.layers(), centred and dashed")
-	t.ok(layers[0]["width"] > layers[3]["width"], "outermost first")
+		cols_same = cols_same and layers[i]["color"].is_equal_approx(raw[i][1])
+	t.ok(cols_same, "the cap changes widths only, never colours or alphas")
+	t.near(LaneStyle.capped_halo(hmax * 3.0, hmax * 2.0, hmax * 3.0), hmax * 2.0, 1e-4, "a core wider than halo_max_px keeps its halos at the core")
 	var core: Color = layers[3]["color"]
 	t.ok(Color(core, 1.0).is_equal_approx(Palette.c("undead_core")) and is_equal_approx(core.a, a), "the core is the pale undead_core at the lane's alpha")
 	t.ok(Color(layers[1]["color"], 1.0).is_equal_approx(Color(ch["color"], 1.0)), "the halos carry the hue colour")
 	t.near(layers[3]["width"], float(ch["width"]) * float(MapLogic.cfg()["commit_width_mult"]), 1e-5, "core width = Pulse width x commit")
+	var plain := LaneStyle.style_for(_row("flood", "ashgate", "vei"))
+	t.ok(LaneStyle.lit_layers(ch, war)[3]["width"] > LaneStyle.lit_layers(ch, plain)[3]["width"] * 1.2, "a committed core stays visibly wider than an uncommitted one at the same u")
 	var direct := LaneStyle.style_for(_row("flood", "covington", "vei"))
 	var hot_a := LaneStyle.lane_alpha(_ch(0.9, "undead"), direct)
 	t.ok(hot_a <= 1.0 and hot_a > LaneStyle.lane_alpha(_ch(0.9, "undead"), war) - 1e-6, "the direct flood is hotter, alpha capped at 1")
 	var packed := LaneStyle.pack(layers.slice(0, 2))
 	t.ok(packed["widths"].z == 0.0 and packed["widths"].w == 0.0 and packed["colors"].size() == 4, "pack pads to 4 layers with zero width")
 	t.ok(packed["colors"][3].a == 0.0 and packed["dashed"].x == 1.0, "padding is transparent; dashed flags carry")
+	t.ok(LaneStyle.pack(layers)["hairline"] == Vector4(0, 0, 0, 1), "pack carries the hairline flag on the core only")
 	t.ok(LaneStyle.chevrons_on(false, "mid") and LaneStyle.chevrons_on(false, "near"), "chevrons at mid zoom and nearer")
 	t.ok(not LaneStyle.chevrons_on(false, "far") and LaneStyle.chevrons_on(true, "far"), "none at far zoom unless reduced motion")
 	var size := float(MapLogic.cfg()["chevron_size_px"])
-	var outer: float = LineGlow.layers(Palette.c("undead"), MapLogic.lane_half_width(1.0) * 2.0 * direct["width_mult"])[0][0]
 	var he := LaneStyle.lit_half_extent(direct)
-	t.ok(he >= outer * 0.5 and he >= size * 0.8, "the ribbon holds the widest halo and a chevron (%.1f px)" % he)
+	var widest: float = LaneStyle.lit_layers(_ch(1.0, "undead"), direct)[0]["width"]
+	t.ok(he >= widest * 0.5 and he >= size * 0.8, "the ribbon holds the widest (capped) halo and a chevron (%.1f px)" % he)
+
+
+func _screen(t: TestUtil) -> void:
+	t.suite("map_routes-screen")
+	var fit := 1.0 / (minf(1600.0 / 2048.0, 900.0 / 1440.0) * float(MapLogic.cfg()["fit_margin"]))
+	var core := LaneStyle.drawn_stroke(1.1, 0.4, fit, true)
+	t.near(core["width_px"], 1.0, 1e-6, "a sub-pixel core is drawn 1 screen px wide")
+	t.near(core["alpha"], 0.4, 1e-6, "and keeps its full alpha (a hairline never loses alpha to coverage)")
+	var halo := LaneStyle.drawn_stroke(1.1, 0.4, fit, false)
+	t.ok(is_equal_approx(halo["width_px"], 1.0) and halo["alpha"] < 0.4 * 0.7, "a sub-pixel halo is 1 px with its alpha scaled by coverage (%.2f)" % halo["alpha"])
+	var wide := LaneStyle.drawn_stroke(6.0, 0.7, 0.5, true)
+	t.ok(is_equal_approx(wide["width_px"], 12.0) and is_equal_approx(wide["alpha"], 0.7), "a stroke wider than a pixel is drawn as it is")
+	# the centre pixel of the weakest lanes at fit zoom over the ground, composited as the shader
+	# does: every layer covers the centre pixel at its drawn alpha, outermost first
+	var ground := Palette.c("ground")
+	for row in [_row("living", "vei", "whitecross"), _row("flood", "ashgate", "vei"), _row("war", "covington", "ashgate")]:
+		var style := LaneStyle.style_for(row)
+		var ch := _ch(0.0, style["hue_key"])
+		var px := ground
+		for l in LaneStyle.lit_layers(ch, style):
+			var dr := LaneStyle.drawn_stroke(l["width"], l["color"].a, fit, l["hairline"])
+			px = px.lerp(Color(l["color"], 1.0), dr["alpha"])
+		var cr := MapLogic.contrast_ratio(px, ground)
+		t.ok(cr >= 3.0, "%s at u = 0, fit zoom: the drawn centre pixel reaches 3:1 over ground (%.2f)" % [row["id"], cr])
 
 
 func _gutter(t: TestUtil) -> void:
@@ -177,13 +222,15 @@ func _gutter(t: TestUtil) -> void:
 	var ch := _ch(0.4, "dead")
 	var a := float(ch["alpha"])
 	var gw := MapLogic.gutter_width(0.4)
-	var layers := LaneStyle.gutter_layers(ch)
+	var host_half := MapLogic.lane_half_width(0.3)
+	var layers := LaneStyle.gutter_layers(ch, host_half)
 	t.ok(layers.size() == 4, "spill, cut, lip, rim")
 	var spill: Dictionary = layers[0]
 	var cut: Dictionary = layers[1]
 	var lip: Dictionary = layers[2]
 	var rim: Dictionary = layers[3]
-	t.near(spill["width"], gw + float(g["spill_px"]), 1e-5, "spill = gutter width + spill_px")
+	var half := (gw + float(g["spill_px"])) * 0.5
+	t.near(spill["offset"] - spill["width"] * 0.5, -half, 1e-5, "the spill's far edge is (gutter width + spill_px) / 2 out")
 	t.ok(Color(spill["color"], 1.0) == Palette.c("void") and is_equal_approx(spill["color"].a, 0.6) and not spill["dashed"], "spill: black at 0.60, undashed")
 	t.ok(cut["color"] == Palette.c("void") and cut["dashed"] and is_equal_approx(cut["width"], gw), "cut: pure black, dashed, gutter-wide")
 	t.near(lip["offset"], gw * 0.5, 1e-5, "lip on the near edge (+UV.y, toward the host)")
@@ -200,24 +247,63 @@ func _gutter(t: TestUtil) -> void:
 		lum_ok = lum_ok and Color(l["color"], 1.0).get_luminance() <= Palette.c("dead").lightened(float(g["lip_lighten"])).get_luminance() + 1e-4
 	t.ok(lum_ok, "no gutter stroke is brighter than the matte lip: it never glows")
 	t.ok(MapLogic.gutter_width(0.9) > MapLogic.gutter_width(0.4), "the gutter widens as the garrison wins")
-	t.ok(LaneStyle.gutter_layers(_ch(0.9, "dead"))[1]["width"] > cut["width"], "the cut follows u_dead")
+	t.ok(LaneStyle.gutter_layers(_ch(0.9, "dead"), host_half)[1]["width"] > cut["width"], "the cut follows u_dead")
 	var he := LaneStyle.gutter_half_extent()
 	var fits := true
-	for l in LaneStyle.gutter_layers(_ch(1.0, "dead")):
+	for l in LaneStyle.gutter_layers(_ch(1.0, "dead"), MapLogic.lane_half_width(1.0)):
 		fits = fits and absf(l["offset"]) + l["width"] * 0.5 <= he
 	t.ok(fits, "every gutter stroke at u = 1 fits the gutter ribbon (%.1f px)" % he)
-	# the gutter is the reference curve translated: one vector for a, c and b
+	t.near(LaneStyle.host_edge(host_half, gw), host_half + gw * 0.5 + float(MapLogic.cfg()["gutter_offset_px"]), 1e-5, "host_edge is gutter_curve's shift")
+	t.ok(spill["width"] < gw + float(g["spill_px"]), "the spill is clamped on the host side (%.2f of %.2f px)" % [spill["width"], gw + float(g["spill_px"])])
+	# the spill never overlaps the host's core band, whatever the host and dead widths
 	var fa := Vector2(1560, 1160)
 	var vei := Vector2(1024, 130)
+	var hpts := MapLogic.sample_quad(fa, MapLogic.lane_curve(fa, vei, 0.0)["c"], vei, 400)
 	var ref := MapLogic.gutter_curve(fa, vei, LaneStyle.OFF, LaneStyle.OFF)
-	var live := MapLogic.gutter_curve(fa, vei, 0.7, 0.3)
-	var d: Vector2 = live["a"] - ref["a"]
-	t.ok((live["c"] - ref["c"]).distance_to(d) < 1e-3 and (live["b"] - ref["b"]).distance_to(d) < 1e-3 and d.length() > 1.0,
+	var rpts := MapLogic.sample_quad(ref["a"], ref["c"], ref["b"], 40)
+	var mc := LaneStyle.lateral_cos_min(rpts, fa, vei)
+	t.ok(mc < 1.0 and mc > 0.9, "a bowed lane's normals turn off its chord at the ends (min cos %.3f)" % mc)
+	t.near(LaneStyle.lateral_cos_min(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(10, 0)]), Vector2(0, 0), Vector2(10, 0)), 1.0, 1e-6, "a straight lane: 1")
+	var table_ok := true
+	var geo_ok := true
+	var worst := INF
+	for uh in [LaneStyle.OFF, 0.0, 0.3, 0.7, 1.0]:
+		var hh := MapLogic.lane_half_width(uh)
+		for ud in [0.0, 0.5, 1.0]:
+			var sl: Dictionary = LaneStyle.gutter_layers(_ch(ud, "dead"), hh, mc)[0]
+			var inner: float = sl["offset"] + sl["width"] * 0.5
+			var gwi := MapLogic.gutter_width(ud)
+			table_ok = table_ok and inner <= LaneStyle.host_edge(hh, gwi, mc) - hh + 1e-6
+			# along the real curve: the spill's inner edge stays outside the host's core band
+			var live := MapLogic.gutter_curve(fa, vei, uh, ud)
+			var gpts := MapLogic.sample_quad(live["a"], live["c"], live["b"], 40)
+			var gv: PackedVector2Array = LaneStyle.ribbon(gpts, 1.0)["verts"]
+			for i in gpts.size():
+				var q: Vector2 = gpts[i] + (gv[2 * i] - gpts[i]) * inner
+				var dmin := INF
+				for hp in hpts:
+					dmin = minf(dmin, q.distance_to(hp))
+				worst = minf(worst, dmin - hh)
+				geo_ok = geo_ok and dmin >= hh - 0.05
+	t.ok(table_ok, "the spill's inner edge never passes the host core's outer edge (table)")
+	t.ok(geo_ok, "along the curve the spill stops outside the host's core band (closest %.2f px clear)" % worst)
+	# on screen: the shader's clip ends the spill's antialiased edge where the drawn core's begins
+	var clip_ok := true
+	for wpp in [0.3, 0.6, 1.0 / 0.6125, 3.3]:
+		for hh in [MapLogic.lane_half_width(0.0), MapLogic.lane_half_width(1.0)]:
+			var edge := LaneStyle.host_edge(hh, gw, mc)
+			var drawn_half: float = LaneStyle.drawn_stroke(hh * 2.0, 1.0, wpp, true)["width_px"] * wpp * 0.5
+			clip_ok = clip_ok and LaneStyle.spill_clip(edge, hh, wpp) + 0.5 * wpp <= edge - drawn_half - 0.5 * wpp + 1e-5
+	t.ok(clip_ok, "spill_clip keeps the spill's AA edge off the drawn core and its AA edge at every zoom")
+	# the gutter is the reference curve translated: one vector for a, c and b
+	var live2 := MapLogic.gutter_curve(fa, vei, 0.7, 0.3)
+	var d: Vector2 = live2["a"] - ref["a"]
+	t.ok((live2["c"] - ref["c"]).distance_to(d) < 1e-3 and (live2["b"] - ref["b"]).distance_to(d) < 1e-3 and d.length() > 1.0,
 		"gutter_curve(u) is the reference translated (one vector for a, c, b)")
 	# the lip side faces the host: +UV.y of the gutter ribbon points at the host curve
 	var host := MapLogic.lane_curve(fa, vei, 0.7)
-	var gpts := MapLogic.sample_quad(live["a"], live["c"], live["b"], 20)
-	var gr := LaneStyle.ribbon(gpts, 4.0)
+	var gpts2 := MapLogic.sample_quad(live2["a"], live2["c"], live2["b"], 20)
+	var gr := LaneStyle.ribbon(gpts2, 4.0)
 	var hmid := MapLogic.sample_quad(host["a"], host["c"], host["b"], 20)[10]
 	var v: PackedVector2Array = gr["verts"]
 	t.ok(v[20].distance_to(hmid) < v[21].distance_to(hmid), "the gutter's +UV.y side (the lip) faces its host")
