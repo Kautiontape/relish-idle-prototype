@@ -19,6 +19,7 @@ var _flash_t := -1.0
 var _phyl: Label
 var _banner: Label
 var _banner_t := -1.0
+var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
 # boss extras
 var _vei_bar: Control = null
 var _backlog: Label = null
@@ -39,6 +40,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_ward = _mk_label(box, 17, Palette.c("undead"))
 	_phyl = _mk_label(box, 17, Palette.c("relish"))
 	_phyl.visible = not boss_mode
+	_warden_line = _mk_label(box, 20, Palette.c("danger"))
+	_warden_line.visible = false
 
 	_banner = _mk_label(self, 20, Palette.c("relish"))
 	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -189,6 +192,15 @@ func flash(color: Color) -> void:
 	_flash.color = c
 	_flash.visible = true
 	_flash_t = 0.0
+
+
+## The warden's status line under the counters; empty text hides it.
+func set_warden_line(text: String, color_key := "danger") -> void:
+	if _warden_line == null:
+		return
+	_warden_line.visible = text != ""
+	_warden_line.text = text
+	_warden_line.add_theme_color_override("font_color", Palette.c(color_key))
 
 
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).

@@ -5,6 +5,7 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-motes=N, --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-warden-go (with it: Relish walks into the warden room, then to the chest).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
@@ -70,6 +71,19 @@ static func fixture_seed() -> Dictionary:
 		fort_id, int(r["run_id"]), int(r["seed_rev"]), int(sd["fort"]["tier"]),
 		int(sd["starter_units"]), int(sd["garrison_units"]), sd["party"].size()])
 	return {"mode": "dungeon", "fort_id": fort_id, "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
+
+
+## Standalone demo seed overrides: `--raid-archetype=<id>` swaps the warden archetype and
+## `--raid-big-speed=<n>` sets the party big undead's speed stat (to test the Huntsman's intercept).
+static func apply_demo_overrides(sd: Dictionary) -> void:
+	var arche := cli_value("--raid-archetype=")
+	if arche != "":
+		sd["warden"]["archetype"] = arche
+		sd["loot_table_id"] = "t%d.%s" % [int(sd["warden"].get("tier", 1)), arche]
+	var spd := cli_value("--raid-big-speed=")
+	if spd != "":
+		for e in sd.get("party", []):
+			e["stats"]["speed"] = float(spd)
 
 
 ## Hook 1: the scene is built. Reads the dev flags and spawns the stress / mote setups.

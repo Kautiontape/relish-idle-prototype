@@ -114,6 +114,8 @@ func _resolve_seed(args: Dictionary) -> Dictionary:
 		if not standalone:
 			push_warning("necropolis: raid has no open run for '%s'; using the demo seed" % fort_id)
 		sd = RaidLogic.demo_seed(rcfg())
+		if standalone:
+			RaidDev.apply_demo_overrides(sd)
 		_from_run = false
 	else:
 		_from_run = true

@@ -338,7 +338,7 @@
         },
         "hp_base": 300.0,
         "hp_per_tier": 200.0,
-        "radius": 38.0,
+        "radius": 52.0,
         "phases": [
           {"until_hp_frac": 0.66, "period_beats": 4},
           {"until_hp_frac": 0.33, "period_beats": 3},
@@ -372,7 +372,7 @@
         },
         "hp_base": 220.0,
         "hp_per_tier": 150.0,
-        "radius": 22.0,
+        "radius": 30.0,
         "phases": [
           {"until_catches": 2, "period_beats": 4, "speed": 140.0},
           {"until_catches": 4, "period_beats": 3, "speed": 165.0},
@@ -383,6 +383,8 @@
           "range_px": 320.0,
           "speed_px_s": 900.0,
           "hit_radius_px": 22.0,
+          "stalk_stop_px": 150.0,
+          "stun_wobble_px": 3.5,
           "dmg_relish": 12.0,
           "dmg_unit": 8.0
         }

@@ -29,8 +29,14 @@ func build() -> void:
 	var w := RaidLogic.warden_spec({"id": str(fort.get("id", "")), "tier": _raid.fort_tier(),
 		"archetype": str(_raid.seed_data.get("warden", {}).get("archetype", "")),
 		"first_dungeon": bool(fort.get("first_dungeon", false))}, _raid.rcfg())
-	# TODO(task 6c): the Huntsman node; until then any other archetype is the inert base glyph
-	var node: RaidWarden = RaidBellringer.new() if str(w["archetype"]) == "bellringer" else RaidWarden.new()
+	var node: RaidWarden
+	match str(w["archetype"]):
+		"huntsman":
+			node = RaidHuntsman.new()
+		"bellringer":
+			node = RaidBellringer.new()
+		_:
+			node = RaidWarden.new()   # an archetype with no attack yet is the inert base glyph
 	node.position = (rooms[int(_raid.layout["warden_room"])] as Rect2).get_center()
 	_raid.units_root.add_child(node)
 	node.configure(_raid, w)

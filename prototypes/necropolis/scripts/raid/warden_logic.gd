@@ -152,3 +152,40 @@ static func lunge_hits(from: Vector2, to: Vector2, target_pos: Vector2, hit_radi
 	var len2 := seg.length_squared()
 	var t := 0.0 if len2 <= 0.0 else clampf((target_pos - from).dot(seg) / len2, 0.0, 1.0)
 	return target_pos.distance_to(from + seg * t) <= hit_radius
+
+
+## Where the Huntsman wants to be: on Relish while she is inside its room, else the room's centre.
+static func leash_target(room: Rect2, relish_pos: Vector2) -> Vector2:
+	return relish_pos if room.has_point(relish_pos) else room.get_center()
+
+
+## A position clamped inside the room, `margin` px in from every edge (a room smaller than the
+## margin collapses to its centre).
+static func leash_clamp(room: Rect2, pos: Vector2, margin: float) -> Vector2:
+	var inner := room.grow(-margin)
+	if inner.size.x <= 0.0 or inner.size.y <= 0.0:
+		return room.get_center()
+	return Vector2(clampf(pos.x, inner.position.x, inner.end.x), clampf(pos.y, inner.position.y, inner.end.y))
+
+
+## The locked lunge point: `aim` clipped to `range_px` along the line from `from`.
+static func lunge_target(from: Vector2, aim: Vector2, range_px: float) -> Vector2:
+	var d := aim - from
+	if d.length() <= range_px:
+		return aim
+	return from + d.normalized() * range_px
+
+
+## Where an intercepted lunge ends: the point of from->to nearest the interceptor.
+static func lunge_stop(from: Vector2, to: Vector2, interceptor_pos: Vector2) -> Vector2:
+	var seg := to - from
+	var len2 := seg.length_squared()
+	var t := 0.0 if len2 <= 0.0 else clampf((interceptor_pos - from).dot(seg) / len2, 0.0, 1.0)
+	return from + seg * t
+
+
+## Damage the Huntsman takes: the weak point's stun_dmg_mult while it is stunned.
+static func stun_damage(sp: Dictionary, amount: float, stunned: bool) -> float:
+	if not stunned:
+		return amount
+	return amount * float((sp.get("weak_point", {}) as Dictionary).get("stun_dmg_mult", 1.0))

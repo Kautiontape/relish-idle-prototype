@@ -52,4 +52,5 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 			RaidLogic.big_undead_stats(e.get("stats", {}), cfg), _raid.resolve_walls(pos, 20.0), false, "big")
 		# TODO(api-request #6): party entries carry no filled_slots yet; 1 nested diamond until they do
 		u.beef = float((e.get("stats", {}) as Dictionary).get("beef", 0.0))
+		u.speed_stat = float((e.get("stats", {}) as Dictionary).get("speed", 0.0))
 		u.slots = maxi(1, int(e.get("filled_slots", 1)))
