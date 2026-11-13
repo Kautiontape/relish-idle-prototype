@@ -125,7 +125,9 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
   `state.debug_enabled = OS.is_debug_build()` (before any boot load, since fixtures need it), then
   the boot rule over `OS.get_cmdline_user_args()`:
-  - **Harness/test session:** any of `--shot=<path>`, `--new-game`, `--fixture=<name>` is present.
+  - **Harness/test session:** any dev argument is present: `--shot=`, `--new-game`, `--fixture=<name>`,
+    `--teleport=`, `--scene=`, `--select=`, `--speed=`, `--cheat=`, `--finish-raid`, `--trace=`,
+    `--clicks=` (the `DEV_ARGS` const; `--reduced-motion` is a player flag and is not one).
     `autosave_enabled = false` for the whole session (`autosave()` returns
     `{ok: false, reason: "disabled"}` without writing, and the 30 s timer does nothing), so the
     player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for

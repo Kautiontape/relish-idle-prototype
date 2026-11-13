@@ -8,6 +8,11 @@ signal relish_respawned(with_vat: bool)
 signal victory
 signal defeat_boss
 
+## Any of these CLI user args makes the session a harness/test session (STATE-API 2.1).
+## --reduced-motion is a player accessibility flag and is deliberately not listed.
+const DEV_ARGS: Array[String] = ["--shot", "--new-game", "--fixture", "--teleport", "--scene",
+		"--select", "--speed", "--cheat", "--finish-raid", "--trace", "--clicks"]
+
 ## Created once, never replaced.
 var state := GameState.new()
 var _autosave_acc := 0.0  # real seconds since the last autosave
@@ -29,10 +34,10 @@ func _boot() -> void:
 	var harness := false
 	var fixture := ""
 	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--shot=") or arg == "--new-game":
-			harness = true
-		elif arg.begins_with("--fixture="):
-			harness = true
+		for pre in DEV_ARGS:
+			if arg == pre or arg.begins_with(pre + "="):
+				harness = true
+		if arg.begins_with("--fixture="):
 			fixture = arg.trim_prefix("--fixture=")
 	autosave_enabled = not harness
 	if harness:
