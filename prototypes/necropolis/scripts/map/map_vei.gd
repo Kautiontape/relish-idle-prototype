@@ -45,7 +45,7 @@ func _draw_static() -> void:
 	var odds := "%s %s" % [NodeLogic.fmt_odds(float(ctx.vei.get("odds", 0.0))), MapLogic.sign_glyph(int(ctx.vei.get("sign", 0)))]
 	text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
 	text(Vector2(x0, vp.y), odds, int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
-	text(Vector2(x0, vp.y), "drain " + MapLogic.fmt_drain(float(ctx.vei.get("drain_s", -1.0))), int(n["font_odds_sub"]),
+	text(Vector2(x0, vp.y), NodeLogic.drain_line(float(ctx.vei.get("backlog", 0.0)), float(ctx.vei.get("drain_s", -1.0))), int(n["font_odds_sub"]),
 		Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
 	text(Vector2(vp.x - r_out - float(n["odds_gap_px"]), vp.y), "VEI'S DOMAIN", size,
 		Palette.c("vei", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_RIGHT, size * float(n["text_mid_ratio"]))

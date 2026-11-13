@@ -19,6 +19,8 @@ render_mode blend_premul_alpha, unshaded;
 
 uniform float half_extent = 1.0;
 uniform float lane_len = 0.0;
+uniform float trim_start = 0.0; // arc-length px not drawn at the start (inside the from node)
+uniform float trim_end = 0.0;   // ... and at the end (inside the to node)
 uniform vec4 widths = vec4(0.0);
 uniform vec4 offsets = vec4(0.0);
 uniform vec4 dashed = vec4(0.0);
@@ -70,6 +72,9 @@ float seg_dist(vec2 p, vec2 a, vec2 b) {
 
 void fragment() {
 	float s = UV.x;
+	if (s < trim_start || s > lane_len - trim_end) {
+		discard;
+	}
 	float d = UV.y * half_extent;
 	float px = max(length(vec2(dFdx(d), dFdy(d))), 1e-4);
 	float ps = max(length(vec2(dFdx(s), dFdy(s))), 1e-4);
@@ -92,9 +97,9 @@ void fragment() {
 		float gap_c = offset + dash + (period - dash) * 0.5 + 0.225 * chev_size;
 		float cd = 1e6;
 		for (int i = 1; i <= 3; i++) {
-			float s0 = lane_len * float(i) * 0.25;
+			float s0 = trim_start + (lane_len - trim_start - trim_end) * float(i) * 0.25;
 			if (chev_snap > 0.5) {
-				s0 = clamp(gap_c + round((s0 - gap_c) / period) * period, 0.0, lane_len);
+				s0 = clamp(gap_c + round((s0 - gap_c) / period) * period, trim_start, lane_len - trim_end);
 			}
 			vec2 p = vec2(s - s0, d);
 			cd = min(cd, min(seg_dist(p, wing, tip), seg_dist(p, tip, vec2(wing.x, -wing.y))));

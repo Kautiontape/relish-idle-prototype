@@ -5,7 +5,7 @@ extends Node2D
 ## the lane's dash speed, spaced by its rate (LaneStyle.carts). This is the routes' one
 ## per-frame _draw: it redraws only while carts show, and holds still under reduced motion.
 
-## [{pts, cum, length, speed, spacing, pips}] per lit haul lane, from map_routes on a rev.
+## [{pts, cum, length, speed, spacing, pips, lo, hi}] (lo..hi: the arc range the lane is drawn over) per lit haul lane, from map_routes on a rev.
 var tracks: Array = []
 ## GDScript ms of the last _draw (map_routes adds it to its readout and resets it).
 var draw_ms := 0.0
@@ -50,6 +50,8 @@ func _draw() -> void:
 		var n: int = tr["pips"]
 		var x0 := -step * (n - 1) * 0.5
 		for s in LaneStyle.cart_positions(base, tr["spacing"], tr["length"]):
+			if s < tr["lo"] or s > tr["hi"]:
+				continue  # inside a node's rings: the lane is not drawn there
 			var p := LaneStyle.point_at(tr["pts"], tr["cum"], s)
 			var pts := PackedVector2Array()
 			for v in box:

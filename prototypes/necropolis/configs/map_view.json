@@ -309,7 +309,10 @@
     "plate_height": 1.2,
     "embolden": 0.6,
     "demo_wake_life": 0.98,
-    "bench_skip_frames": 10
+    "bench_skip_frames": 10,
+    "lane_trim_pad_px": 3.0,
+    "queue_empty_text": "queue empty",
+    "drain_prefix": "drain "
   },
   "demo_nodes": {
     "held": {

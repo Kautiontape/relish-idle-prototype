@@ -32,6 +32,7 @@ class Ribbon:
 	var pts := PackedVector2Array()
 	var cum := PackedFloat32Array()
 	var length := 0.0
+	var trim := Vector2.ZERO  # arc length not drawn at the start and end (inside the nodes)
 	var ring := false
 	var mode := "off"
 	var u := -2.0
@@ -265,7 +266,7 @@ func _lane(row: Dictionary) -> Ribbon:
 		else:
 			var c := MapLogic.lane_curve_for(row, a, b, 0.0)
 			pts = MapLogic.sample_quad(c["a"], c["c"], c["b"], int(MapLogic.cfg()["ribbon_samples"]))
-		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]), true)
+		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]), true, row)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
@@ -290,14 +291,14 @@ func _gutter(row: Dictionary) -> Ribbon:
 		r.origin = ref["a"]
 		var pts := MapLogic.sample_quad(ref["a"], ref["c"], ref["b"], int(MapLogic.cfg()["ribbon_samples"]))
 		r.min_cos = LaneStyle.lateral_cos_min(pts, a, b)
-		_build(r, pts, LaneStyle.gutter_half_extent(), float(MapLogic.cfg()["gutter_chevron_size_px"]), false)
+		_build(r, pts, LaneStyle.gutter_half_extent(), float(MapLogic.cfg()["gutter_chevron_size_px"]), false, row)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
 
 
 ## round_caps: lit lanes give their dashes round caps; the gutter keeps butt ends (06).
-func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, round_caps: bool) -> void:
+func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, round_caps: bool, row: Dictionary) -> void:
 	var rb := LaneStyle.ribbon(pts, half, r.ring)
 	r.node.mesh = LaneStyle.to_mesh(rb)
 	r.pts = pts
@@ -306,10 +307,29 @@ func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, r
 	r.mat.set_shader_parameter(&"half_extent", half)
 	r.mat.set_shader_parameter(&"round_caps", 1.0 if round_caps else 0.0)
 	r.mat.set_shader_parameter(&"lane_len", r.length)
+	# lanes stop at the nodes' outer rings (a self-loop ring is untouched); only the drawn range
+	# changes, never the curve or the mesh
+	var t := {"start": 0.0, "end": 0.0}
+	if not r.ring:
+		t = NodeLogic.trim_lengths(_outer(str(row["from"])), _outer(str(row["to"])), r.length)
+	r.trim = Vector2(t["start"], t["end"])
+	r.mat.set_shader_parameter(&"trim_start", r.trim.x)
+	r.mat.set_shader_parameter(&"trim_end", r.trim.y)
 	r.mat.set_shader_parameter(&"chev_size", chev_size)
 	r.mat.set_shader_parameter(&"chev_width", LaneStyle.chevron_stroke(chev_size))
 	r.mat.set_shader_parameter(&"chev_on", 1.0 if _chev else 0.0)
 	r.mat.set_shader_parameter(&"chev_snap", 1.0 if _snap else 0.0)
+
+
+## Where lanes stop at a node: its outermost drawn radius (NodeLogic.outer_radius).
+func _outer(id: String) -> float:
+	if id == MapModel.COVINGTON:
+		return NodeLogic.outer_radius("covington", 0, 0.0)
+	if id == MapModel.VEI:
+		return NodeLogic.outer_radius("vei", 0, float(model.realm.get("vei", {}).get("radius", 0.0)))
+	if model.forts_by_id.has(id):
+		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
+	return 0.0
 
 
 func _note_build(t0: int) -> void:
@@ -386,7 +406,7 @@ func _set_motion(r: Ribbon, m: Dictionary) -> void:
 
 func _track(r: Ribbon) -> Dictionary:
 	var c := LaneStyle.carts(float(r.row["rate"]), r.speed, r.length)
-	return {"pts": r.pts, "cum": r.cum, "length": r.length, "speed": r.speed,
+	return {"pts": r.pts, "cum": r.cum, "length": r.length, "speed": r.speed, "lo": r.trim.x, "hi": r.length - r.trim.y,
 		"spacing": c["spacing"], "pips": c["pips"]}
 
 

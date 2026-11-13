@@ -231,9 +231,46 @@ static func vei_struct_radius(domain_radius: float) -> float:
 	return domain_radius * _n("vei_struct_frac")
 
 
+## Vei's drain line: "queue empty" when there is no backlog (a drain time would read 0s),
+## else "drain " + MapLogic.fmt_drain (holding, -1.0, is "∞").
+static func drain_line(backlog: float, drain_s: float) -> String:
+	if backlog <= 0.0:
+		return str(ncfg()["queue_empty_text"])
+	return str(ncfg()["drain_prefix"]) + MapLogic.fmt_drain(drain_s)
+
+
 ## Odds as the integer percent the map prints.
 static func fmt_odds(odds: float) -> String:
 	return "%d%%" % roundi(clampf(odds, 0.0, 1.0) * 100.0)
+
+
+# --- lane trim -----------------------------------------------------------------------------
+
+## A node's outermost drawn radius, where lanes stop: a fort's ring stack out to its tithe ring,
+## Covington's glyph, Vei's structure, plus lane_trim_pad_px. kind: "fort", "covington", "vei"
+## (anything else, e.g. a village, gets no trim).
+static func outer_radius(kind: String, tier: int, vei_domain_radius: float) -> float:
+	var pad := _n("lane_trim_pad_px")
+	if kind == "fort":
+		return MapLogic.fort_radius(tier) + _n("tithe_off_px") + _n("tithe_halo_max_px") * 0.5 + pad
+	if kind == "covington":
+		return _n("cov_half_px") + pad
+	if kind == "vei":
+		return vei_struct_radius(vei_domain_radius) + pad
+	return 0.0
+
+
+## Arc lengths to skip at a lane's two ends: {start, end}. Radii approximate arc length (lanes
+## leave nodes nearly radially); the pair is scaled down together so at least half the lane stays.
+static func trim_lengths(start_radius: float, end_radius: float, length: float) -> Dictionary:
+	var s := maxf(start_radius, 0.0)
+	var e := maxf(end_radius, 0.0)
+	var room := length * 0.5
+	if s + e > room and s + e > 0.0:
+		var k := room / (s + e)
+		s *= k
+		e *= k
+	return {"start": s, "end": e}
 
 
 # --- Relish -----------------------------------------------------------------------------

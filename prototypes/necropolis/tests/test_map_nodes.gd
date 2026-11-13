@@ -32,6 +32,7 @@ func run() -> int:
 	_hops(t)
 	_contrast(t)
 	_lit_gutter(t)
+	_trim(t)
 	_sources(t)
 	p.free()
 	return t.failures
@@ -127,6 +128,33 @@ func _vei(t: TestUtil) -> void:
 	t.near(NodeLogic.vei_spin(100.0), 2.0 * NodeLogic.vei_spin(50.0), 1e-9, "the digestion rings turn in proportion to R_vei")
 	t.ok(NodeLogic.vei_spin(0.0) == 0.0, "no capacity, no turning")
 	t.ok(NodeLogic.vei_struct_radius(150.0) > 0.0 and NodeLogic.vei_struct_radius(150.0) < 150.0, "the structure sits inside the domain")
+
+
+func _trim(t: TestUtil) -> void:
+	t.suite("map_nodes-trim")
+	var n := NodeLogic.ncfg()
+	var pad := float(n["lane_trim_pad_px"])
+	var fort := NodeLogic.outer_radius("fort", 2, 0.0)
+	t.near(fort, MapLogic.fort_radius(2) + float(n["tithe_off_px"]) + float(n["tithe_halo_max_px"]) * 0.5 + pad, 1e-6, "a fort's outer radius reaches past its tithe ring")
+	t.ok(fort < MapLogic.fort_radius(2) + float(MapLogic.cfg()["redirect_ring_pad_px"]), "and stays inside the REDIRECT ring")
+	t.ok(NodeLogic.outer_radius("fort", 4, 0.0) > NodeLogic.outer_radius("fort", 1, 0.0), "bigger tiers trim more")
+	t.near(NodeLogic.outer_radius("covington", 0, 0.0), float(n["cov_half_px"]) + pad, 1e-6, "Covington: its glyph plus the pad")
+	t.near(NodeLogic.outer_radius("vei", 0, 150.0), NodeLogic.vei_struct_radius(150.0) + pad, 1e-6, "Vei: her structure plus the pad")
+	t.ok(NodeLogic.outer_radius("village", 0, 0.0) == 0.0, "other nodes: no trim")
+	var tr := NodeLogic.trim_lengths(40.0, 60.0, 500.0)
+	t.ok(tr["start"] == 40.0 and tr["end"] == 60.0, "trim lengths are the end radii on a long lane")
+	tr = NodeLogic.trim_lengths(40.0, 60.0, 100.0)
+	t.near(tr["start"] + tr["end"], 50.0, 1e-6, "a short lane keeps at least half its length")
+	t.near(tr["start"] / tr["end"], 40.0 / 60.0, 1e-6, "scaled together")
+	tr = NodeLogic.trim_lengths(-5.0, 0.0, 10.0)
+	t.ok(tr["start"] == 0.0 and tr["end"] == 0.0, "no negative trim")
+	var sh := FileAccess.get_file_as_string("res://shaders/map_lane.gdshader")
+	t.ok(sh.contains("uniform float trim_start") and sh.contains("uniform float trim_end") and sh.contains("discard;"), "the lane shader discards outside the trimmed range")
+	t.ok(sh.contains("trim_start + (lane_len - trim_start - trim_end)"), "chevrons sit inside the trimmed range")
+	var carts := FileAccess.get_file_as_string("res://scripts/map/map_carts.gd")
+	t.ok(carts.contains("tr[\"lo\"]") and carts.contains("tr[\"hi\"]"), "carts stay inside the trimmed range")
+	t.ok(NodeLogic.drain_line(0.0, 0.0) == str(n["queue_empty_text"]) and NodeLogic.drain_line(-3.0, -1.0) == str(n["queue_empty_text"]), "no backlog: queue empty, not a drain time")
+	t.ok(NodeLogic.drain_line(500.0, -1.0) == "drain ∞" and NodeLogic.drain_line(500.0, 520.0) == "drain 8m 40s", "with a backlog: holding is ∞, else the time")
 
 
 func _valve(t: TestUtil) -> void:
