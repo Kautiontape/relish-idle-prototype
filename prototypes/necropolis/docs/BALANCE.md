@@ -1,109 +1,144 @@
-# Necropolis: balance
+# Necropolis: balance (v2)
 
-Targets, how they're measured, and starting numbers. Every number here is a *starting* value for
-`configs/*.json`; the configs are the truth. When tuning moves a number, update the table here in
-the same commit.
+Targets, how they're measured, and starting numbers. Every number here is a *starting* value; the
+configs are the truth. When tuning moves a number, update this file in the same commit.
 
-## 1. Pacing targets (active play, sim ×1)
+## 0. Start state (`economy.json` `opening.*`)
+| item | value |
+|---|---|
+| buildings | Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls) |
+| lots | 24 (Hamlet uses the first 8) |
+| gold / bone / bodies | 80 / 30 / 40 |
+| workers | 12 (the steady state at the default valve is about 50, so the stream visibly grows) |
+| living | 10 (`living_cap` 16 from the crypt district's huts) |
+| valve | work 0.40 · war 0.45 · flood 0.15 |
+| Relish | home, phylactery 0, no vats |
+| first dungeon | Old Sluice (tier 1, Bellringer), flagged "first"; starter party `opening.starter_party` = 8 units; the chest holds a husk and the first blueprint |
+
+## 1. Pacing targets (active play at 1×; time controls 1×/2×/4× exist)
 | moment | target |
 |---|---|
 | first stream response to the valve | under 5 s |
-| first dungeon available (Relish reaches the nearest fort) | under 3 min |
+| first dungeon descent | under 4 min |
 | one dungeon run, entry to exit | 3–6 min real time |
-| a new building affordable | every 2–4 min early, every 5–8 min late |
-| first warden beaten (fort flipped) | 15–30 min |
-| first big undead raised | 20–40 min |
+| a building affordable | every 2–4 min early, 5–8 min late |
+| first big undead | under 15 min (the starter husk) |
+| first warden beaten (fort flipped) | under 10 min |
+| first tithe wave | about 12–15 min (after the first flip) |
 | town reaches Village / Town / City | about 20 min / 1 h / 2 h |
-| Vei odds ≥ 60% with a winnable front composition | **2.5–3.5 h** |
-| idle (no input at all) for 4 h | odds < 0.10, but the town visibly keeps running and growing a little |
+| Vei-ready (odds ≥ 0.6 and 3 of 4 fronts met) | **2.5–3.5 h** |
+| idle (no input) for 4 h | odds < 0.10; the town visibly runs and grows a little |
 
 ## 2. Lever-ablation targets ("the economies feed each other")
-These come from the autoplayer (§4), comparing hours to "Vei-ready" (odds ≥ 0.6 and fronts
-clearable) with one lever removed.
+From the autoplayer (§4): hours to Vei-ready with one lever removed, against the active profile.
 
 | removed lever | must cost at least |
 |---|---|
-| dungeons (Relish never descends) | +40%, or never ready (relics gate the higher buildings) |
+| **the valve** (left at default all game) | **+40%** |
+| **a static valve schedule** (a timetable fixed in advance) | **+25%** (otherwise the macro is a solved opening book) |
+| **Relish's tide and redirect** (she only leaves home to descend) | **+30%** |
+| dungeons (never descends) | never ready (relics gate the City tier, phylactery and forge levels) |
 | town building (no new buildings) | +40% |
-| Relish's tide and redirect (she stays home, except to descend) | +20% |
-| policies (none) | +10%. Defaults must be decent, so the gap is small but real |
-| the valve (left at default) | +15% |
+| circle quality (always 55 instead of 85) | +15% |
+| defending against tithe waves (never) | +15% |
+| the job ladder and stances (defaults only) | +5–10% (defaults must be decent) |
 
 If any lever costs less than its target, it is decorative. Fix the design before tuning anything
 else.
 
 ## 3. Risk targets
-- A dungeon run at a fort at or below the party's tier should kill Relish less than 10% of the time
-  with reasonable circles. A run two tiers above should be risky (more than 40%).
-- An unmade death (no clone ready) should cost about 10 minutes of progress: the respawn, the morale
-  dip and the lost loot.
-- At the final test with odds of about 0.6 and 3 of 4 fronts met, the win rate with 2 backups should
-  be about 60–70%. With 0 backups, well under 50%.
+- A dungeon at or below the party's tier: under 10% chance Relish dies with circles around 70.
+  Two tiers above: over 40%. The first dungeon: under 5%.
+- An unmade death costs about 10 minutes of progress: the respawn, the morale dip and the loot lost
+  since the last checkpoint.
+- Final test at odds of about 0.6 with 3 of 4 fronts met: about 60–70% win with 2 backups, under
+  40% with 0.
 
 ## 4. How it's measured
-- **`tests/test_pacing.gd`**, already in the repo, is rewritten to drive the real `GameState`. Relish
-  is set at home by default, which fixes the audit's C4: the old test never turned `P_relish` on.
-- **`tests/autoplay.gd`** (new): a headless player with three profiles.
-  - **idle:** no input.
-  - **active:** sets the valve, moves Relish to the richest corpse fort, descends on a cadence,
-    builds by a priority list, and keeps the default policies.
-  - **ablation:** active, minus one lever (§2).
-
-  Dungeons use a **stand-in model**: expected loot, flip chance, duration and death chance by fort
-  tier, party strength and an assumed circle score. The dungeon unit calibrates it from real runs and
-  writes the averages into `configs/balance_standins.json`.
-- **The no-unbounded-stock check.** Over a 4 h active run, no stock (gold, bone, bodies, essence,
-  relics) may finish above `2 ×` its value at 2 h, unless it has a cap. Gold in particular must stay
-  a stream: upkeep plus build costs consume most of income.
-- Output: one line per profile in the test log, e.g. `[pacing] active: ready 2.9 h · odds 0.62 ·
-  fronts 3/4`, and the ablation table.
+- **`tests/run.sh`** imports, then runs. The default suites include a **1 h smoke** of the active
+  profile.
+- **`tests/slow/autoplay.gd`**: the 4 h profiles (idle, active, each ablation, static schedule). It
+  takes several minutes, so it runs on demand and before every balance commit.
+- **The autoplayer** drives the real GameState through commands only. The active profile:
+  - reacts to the sign and the drain time;
+  - moves Relish (tide and redirect at the richest corpse fort, home for the slab, defending against
+    tithe warnings);
+  - descends on a cadence;
+  - builds from a priority list;
+  - keeps the default stances.
+- **Dungeon stand-in** (`configs/balance_standins.json`): loot, flip chance, duration and death
+  chance by tier, party strength and an assumed circle score. Economy ships v0; the dungeon unit
+  adjusts the values from real runs.
+- **No unbounded stock:** over a 4 h active run, no uncapped stock may end above 2× its value at 2 h.
+  Gold must stay a stream.
+- Output: one line per profile, e.g. `[pacing] active: ready 2.9 h · odds 0.62 · fronts 3/4`, plus
+  the ablation table.
 
 ## 5. Starting numbers
-Raw Necropolis units (×1/100 of Realm mass). The keys follow MECHANICS.md.
+Raw Necropolis units (×1/100 of Realm mass). The keys follow MECHANICS.md; renames from the old code
+are marked ⟵.
 
 | key | start | note |
 |---|---|---|
-| `valve.default` | work 0.40, war 0.45, flood 0.15 | `flood` replaces `directShare` 0.22 |
-| `valve.slew_per_s` | 0.10 | a full swing takes about 10 s |
-| `relish.P_relish` | 0 | D2 |
+| `valve.default` | 0.40 / 0.45 / 0.15 | `directShare` 0.22 is removed |
+| `valve.slew_per_s` | 0.10 (L1) | about 10 s for a full swing |
+| `P_relish` | 0 | top-level key, kept |
+| `P_base`, `P_per_pit` ⟵ `P_per_slab` | 2.0, 6.0 | migrate `game.gd`'s default (2.0) to the config's 6.0 |
+| `pit.burn_per_s`, `pit.bonus` | 0.6 mass/s per pit, +0.6 at full feed | burn calibrated so rot alone covers about 60%; hauling covers the rest |
+| `worker.mass` | 40 | start inflow 12.8 × 0.4 / 40 = 0.128 workers/s → steady state about 61 |
+| `worker.lifetime_s` | 480 | |
+| `worker.body_return` | 0.25 | was 0.6, which made hauling decorative (systems review M6) |
+| `worker.idle_rot_mult`, `worker.idle_cap` | 0.5, 10 | idle above the cap musters to WAR |
 | `relish.travel_speed` | 220 px/s | kept |
-| `relish.tide_bias` | 3.0 | her fort's dispatch weight multiplier |
-| `relish.raise_rate` | 1.5 /s | was 30, which emptied any pile in seconds |
-| `relish.home_rot_mult` | 0.7 | workers last longer while she's home |
-| `P_base`, `P_per_pit` | 2.0, 6.0 | kept (the old slabs). Pits are buildings now |
-| `pit feed bonus` | ×1.6 while bodies > 0 | kept |
-| `worker.lifetime_s` | 480 | 8 min. Steady state = inflow × 480 |
-| `worker.body_return` | 0.6 | rot → bodies |
-| `worker.idle_rot_mult` | 0.5 | |
-| `flip.hold_s` | 360 | × (1 + 0.25·tier) |
-| `flip.haul_mult` | 1.5 | |
-| `market.shop_rate` | 0.02 /living/s | × price 1 gold, capped by staffed stalls |
-| `town.migrant_rate` | 0.012 /held village/s | kept |
-| `inn.attract` | 0.01 /s per level | |
-| `morale.dread_ratio` | 3.0 | undead per living before dread |
-| `morale.leave_below` | 0.35 | |
-| `morale.death_shock` | 0.30 | decays over `morale.shock_s` 600 |
-| building upkeep | 0.01–0.2 gold/s | scales with tier |
-| `policy.base_slots` | 3 | +1 per Guildhall level |
-| `vats.grow_per_s` | 1/300 | about 5 min per clone per staffed vat |
-| `backups.clone_respawn_s` | 60 | |
-| `backups.unmade_respawn_s` | 600 | |
-| `phylactery.revive_hp` | 0.5 | at most 1 per dungeon |
-| `essence.per_living` | 1 | |
-| `essence.per_undead_mult` | 0.5 | × the fallen undead's quality multiplier |
-| `essence.life_s` | 12 | kept from R&R |
-| `vei.fronts_required` | 3 of 4 | from crypt |
-| `vei.loss_backlog_mult` | 0.35 | kept |
-| `K` | 12000 | kept for now; flagged by the audit as ×4.8 canon, so revisit with the autoplayer |
-| `S_vei` | 8.0 | kept; flagged ×1.6 |
+| `relish.tide_bias` | 3.0 | |
+| `relish.raise_rate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
+| `relish.home_rot_mult` | 0.7 | |
+| `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | |
+| `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
+| `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
+| `tithe.siege_block` | 0.6 | Relish halves the surge |
+| `readout.ema_s` | 120 | |
+| `q0`, `q_forge`, `q_raise_max`, `q.raise_ema_s`, `q_max` | 1.2, 0.1 per level, 0.6, 600, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge) |
+| `stall.rate`, `market.shop_rate`, `market.price` | 0.15 /stall/s, 0.03 /living/s, 1 | start: min(2·0.15, 10·0.03) = 0.30 gold/s |
+| `town.migrant_rate`, `town.leave_rate` | 0.012 /held village/s, 0.004 /s | |
+| `living_cap` | 16 + 8 per house, +20 inn, +30 walls | |
+| `inn.attract` | 0.02 /s per level | |
+| `morale.base`, `dread_ratio`, `dread_k`, `leave_below`, `death_shock`, `shock_s` | 0.6, 4 workers/living, 0.05, 0.35, 0.3, 600 | |
+| `job.haul.carry`, `job.mill.rate` | 14 mass, 0.5 bone/mass | |
+| `body_store.cap` | 200 + charnel/graveyard upgrades | |
+| `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both) | |
+| `stance.base_slots`, `stance.hold_s` | 2, 10 | |
+| `vats.grow_per_s` | 1/300 per staffed vat | |
+| `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
+| `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
+| `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
+| `loot.reclear_decay` | 0.5 | |
+| `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
+| `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
+
+**Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
+them in `buildings.json`.
+
+| building | cost | upkeep |
+|---|---|---|
+| House, Well, Bakery | 30–50 / 10 / 0 | 0.01 |
+| Bone Mill, Raising Pit | 60–90 / 20–40 / 0 | 0.03 |
+| Market expansion, Charnel upgrade | 80 / 30 / 0 | 0.03 |
+| Inn, Forge, Graveyard, Stables | 120–180 / 50 / 0–1 | 0.05 |
+| Embalmer, Watchtower | 200 / 80 / 1 | 0.08 |
+| Chapel of Vats, Guildhall, Walls | 300–400 / 120 / 2 | 0.12 |
+| Ossuary Tower, Plaza/Statue | 350–450 / 150 / 2–3 | 0.15 |
+| Reliquary | 600 / 250 / 4 | 0.2 |
 
 ## 6. Known balance risks
-- **Slabs dwarf the other levers** (audit). Pits now feed on bodies, which ties minting to hauling
-  and corpses. If the autoplayer still shows pits dominating, cap pits by tier.
-- **FLOOD could be a no-brainer.** It is cheap for Vei to digest at low `q`, so it pays only once
-  quality is up. Check that the ablation of WAR loses as well.
-- **Gold bloat** (27k in the old late-game screenshot). Upkeep must scale.
-- **`q` granularity:** forge steps of +0.25 are wider than the knife edge (Δq ≈ 0.19; audit).
-  Consider steps of +0.1 with more levels.
-- **The boss isn't converged** (NOTES-RAID). Vei's fronts replace the HP scaling; tune it with
-  `vei.json`.
+- **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
+  capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
+  `q` > 2. Calibrate pits, `K` and `S_vei` together in E4.
+- **Redirect value at low `q`** is small under `cheap`. If the +30% ablation fails, raise
+  `raise_rate` or let the redirect add the haul bonus.
+- **FLOOD as a no-brainer** once `q` is high. The tithe waves and WORK's diminishing returns must keep
+  the split moving; the static-schedule ablation checks it.
+- **Gold:** the living cap and upkeep tiers must hold the stock rule.
+- **Rate normalisation** (`view.rate_log_max`, 25/s on the map today) saturates at the new flow
+  sizes, so it moves into config.
+- **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.

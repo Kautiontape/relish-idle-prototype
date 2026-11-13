@@ -46,7 +46,9 @@ at Vei's gates than she can digest, and the queue clogs. Then she can be faced.
    bar. Where she stands is the decision that matters most, because she can only be in one place.
 5. **Preparation beats reflexes.** Death is real and costs time, loot and momentum. Backups buy it
    off, and you build them before you need them.
-6. **Every scale feeds the others.** Nothing in one scene is self-contained. Loot builds the town,
+6. **Every control points at the current need.** Lists sort by what the next warden or front needs.
+   Lanes say why they changed ("−1.2/s: Relish left"). Fort cards show the threat before you commit.
+7. **Every scale feeds the others.** Nothing in one scene is self-contained. Loot builds the town,
    the town shapes the streams, the streams decide the war, and the war produces the corpses.
 
 ## 3. The three scenes
@@ -55,7 +57,7 @@ at Vei's gates than she can digest, and the queue clogs. Then she can be faced.
 A pannable, zoomable map:
 - Covington at the bottom right;
 - Vei's domain at the top;
-- ten fortresses of the living between them;
+- twelve fortresses of the living between them, four tiers of three;
 - villages scattered across the ground.
 
 Everything you see is a flow. Green lanes carry your undead out from Covington. Orange lanes carry
@@ -77,6 +79,10 @@ her. The ground itself streams like a current toward Vei wherever the realm is l
   - the dead near her catch her violet light.
 
   A fortress under Relish turns from Vei's supply depot into your recruiting ground.
+- **Defend what you take.** Vei pushes back. Every few minutes she sends a **tithe wave**, a surge of
+  the living into one fortress. It's telegraphed on the map well ahead, and it targets your held
+  forts first. Relish standing there, or a big undead placed as a siege, blunts it. Her waves come
+  faster as her queue clogs, so the closer you are to winning, the harder she fights.
 - **Read the war at a glance.** Vei's domain shows three numbers: the backlog (a countable stack at
   her gates), the sustained differential (▲ or ▼, in/s), and the drain time. Her odds grow as the
   backlog grows.
@@ -96,13 +102,18 @@ charnel house, the forge sparking, and the crypt slab pulsing at the heart of it
 - **Build.** Place buildings on open lots. Each costs gold, bone and relics (relics come only from
   dungeons). Each adds rates (more gold, faster minting, better quality, longer-lived workers,
   stronger backups) and new jobs.
-- **Set policies.** A few prioritised rules decide how the undead behave on their own:
-  - "If bodies run low, send haulers."
-  - "If Vei's differential turns ▼, open the FLOOD."
-  - "If Relish is away, protect the vats."
+- **Set how the undead behave on their own.**
+  - **The job ladder:** drag jobs into the order the undead fill them (haul, mill, stalls, forge,
+    pits, vats, build).
+  - **Stances:** toggle named behaviours:
+    - *Vigil*: tend the vats while Relish is away;
+    - *Harvest*: haul when bodies run low;
+    - *Thrift*: idle costly buildings when gold runs short;
+    - *Muster*: send idle hands to war;
+    - *Hearth*: keep the living happy.
 
-  Policies change the town's rates, and those rates feed the macro valve. You'll start with 3 rule
-  slots and earn more.
+    Each stance shows what it will do to your rates before you turn it on. You start with 2 stance
+    slots and earn more.
 - **Raise big undead at the crypt slab.** Only while Relish is home. Lay a husk on the slab, slot in
   remnants from dungeons, watch it take shape, hold to raise, name it. Big undead are the few you
   count by name. They lead dungeon parties, run a building as foreman, or break a fortress as a
@@ -139,15 +150,20 @@ corpses as lie there, and your undead already fighting at its walls.
   you have.
 
 ### 3d. Vei (the final test)
-When the backlog is high enough, Vei can be faced in her domain:
+Vei can be faced any time from her domain. The dialog shows your odds, the sign, the drain time and
+each front's "have / need", so you choose the moment:
 - Your backlog pours in as the horde, and your big undead lead it.
 - Vei fights on **fronts** that each need a different strength: giants, swarms, carvers and raw
   power. Mass alone clears one; a balanced composition clears enough.
+- Then the break. Vei is a ferry, and her ferry rate drains your horde. Relish raises at anchor
+  points with her circles until your raise rate beats Vei's ferry rate for long enough, and she
+  breaks.
 - She hunts Relish. Every backup Relish spends shows as a cracked violet ring that doesn't come
   back.
 
-**Win and you beat the game.** Lose and the queue drains (Vei digests most of the backlog). You
-wake in a vat, and the war goes on. Nothing ever resets.
+**Win and you beat the game.** Lose and the queue drains: Vei digests about two-thirds of the
+backlog. Relish's last death follows the usual rules: a clone if one is ready, otherwise she is
+unmade for a while. The war goes on. Nothing ever resets.
 
 ## 4. How the economies feed each other
 
@@ -181,12 +197,36 @@ wake in a vat, and the war goes on. Nothing ever resets.
 3. **What do I build next?** Every building is a rate tradeoff, and the best ones need dungeon loot.
 4. **Which dungeon?** Each fortress card hints at its loot. Your town's weakness points at the
    dungeon that fixes it.
-5. **Am I ready to risk her?** A dungeon death without a staffed vat costs a long respawn and
-   unbanked loot, and the town's morale wavers.
-6. **When do I face Vei?** The odds, the sign and the drain time are on screen. Your composition
+5. **Am I ready to risk her?** Every fort card shows the warden, its tell, the loot hint and the
+   death risk *before* you descend. A death without a staffed vat costs a long respawn and unbanked
+   loot, and the town's morale wavers.
+6. **Which fort do I defend?** Tithe waves are telegraphed. Relish or a big undead can blunt one, but
+   not every one.
+7. **When do I face Vei?** The odds, the sign and the drain time are on screen. Your composition
    decides the fronts.
 
-## 6. The arc of a game (about 3–4 hours of active play)
+## 6. The opening (the first 10 minutes)
+1. **0:00, the map.** One line at the top: *"Clog Vei's queue until she can be faced."*
+   - The valve glyph at Covington pulses.
+   - Drag it, and within 5 s the lanes brighten.
+   - The workers' steady-state number shows where WORK is heading.
+2. **0:30.** The nearest fortress, Old Sluice (tier 1), pulses as **"your first dungeon"**. Its card
+   already shows the warden (a Bellringer), its tell, the loot hint and the risk ("low").
+3. **1:00.** Click it, then MOVE. Relish travels; time controls (1×/2×/4×) are in the corner. While
+   she walks, click Covington to dive into the town.
+4. **1:30, the town.** Already built: the crypt, one raising pit, a charnel house and a small market.
+   Ten living, a dozen workers walking. A starter stock of gold and bone buys the first house or bone
+   mill right away.
+5. **3:00, the descent.** A guaranteed starter party. The first trance is taught in-world: the
+   essence glows, and a ghost ring shows where to draw. The Bellringer's slams are slow. The chest
+   holds the first blueprint and **a husk**.
+6. **8:00, home.** The slab lights up: raise your first big undead and name it. The first flip shows
+   on the map, then the first tithe warning, 4 minutes out, at your new fort.
+
+**The first death is taught, not sprung.** The first dungeon is "low" risk, and the descend
+dialog says what a death would cost right now.
+
+## 7. The arc of a game (about 3–4 hours of active play)
 - **0–20 min, the crypt and a trickle.** One slab, a handful of workers, the first WAR stream, the
   first corpses hauled home. Build the charnel house and a market. The first dungeon is the nearest,
   weakest fort, where you learn the circle.
@@ -201,7 +241,7 @@ wake in a vat, and the war goes on. Nothing ever resets.
 - **3–4 h, the final test.** Vei. Win, and the game is beaten. Lose, and you rebuild the backlog,
   wiser.
 
-## 7. Feel targets (what the reviewers check)
+## 8. Feel targets (what the reviewers check)
 - Within 2 minutes you have set the valve, watched a stream respond, and seen the town move.
 - Leaving the game alone never wins, but the collective visibly keeps working.
 - At any moment the player can say whether they're winning (the ▲/▼ beside the odds) and why (which

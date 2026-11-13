@@ -37,8 +37,8 @@ this file's older Necropolis notes.
    pass at ≥ 0.8 Hz), width `1.1 + 2.6u`, alpha `0.4 + 0.6u`, and hue. Hue eases from dormant violet
    (272°) at u=0 to the flow's own hue at u=1, so green and orange keep their identity. Use
    `Pulse.channels(u, flow_hue)`.
-5. **One tempo for the whole game: T = 1714 ms**, deliberately out of step with the 1000 ms sim
-   tick. Everything that pulses shares it, phase-offset by graph distance from the scene's source,
+5. **One tempo for the whole game: T = 1714 ms**, deliberately out of step with the sim's 0.5 s
+   substep and with whole seconds. Everything that pulses shares it, phase-offset by graph distance from the scene's source,
    so the pulse reads as a wave crossing the scene, never a blink in unison:
    - **map:** Covington is the source;
    - **town:** the crypt slab is the heart;
@@ -178,6 +178,39 @@ this file's older Necropolis notes.
   - Her attacks land on the tempo.
   - Each backup Relish spends is a visible cracked violet ring that doesn't come back.
 
+### 2d. Zoom levels on the map (vision: "see how my units flow")
+- **Far** (zoom < 0.6): lanes are rate lines and the ground is the current.
+- **Mid** (0.6–1.6): lanes gain chevrons. Fort pips become readable. Lane callouts appear (*why* a
+  rate changed: "WAR → Ashgate −1.2/s · Relish left").
+- **Near** (> 1.6): lanes resolve into **individual marching glyphs**, the same unit glyphs as town
+  and dungeon, spaced by rate. Convoys show as carts. Relish's wake is visible.
+
+The three scales should feel like one world you can zoom into.
+
+### 2e. Set pieces (the performance piece's named moments)
+Each gets a deliberate, short treatment on the tempo:
+- **the dive** into a scene;
+- **a valve swing:** the three lines from Covington visibly re-proportion;
+- **the first flip:** the fortress ring re-inks from orange to green, stroke by stroke;
+- **a tithe wave:** an orange tide line sweeps from Vei toward the target;
+- **a tier-up:** the walls draw themselves around Covington;
+- **a big undead raised:** the slab's rings collapse into the creature's outline;
+- **a backup cracking** in a fight;
+- **Vei's first weave;**
+- **victory:** every lane in the realm runs green toward Vei and stops.
+
+### 2f. Sound (minimal; synthesised, no asset pipeline needed)
+`AudioStreamGenerator` blips are fine:
+- a low pulse on the tempo (scene-wide, quiet);
+- the essence absorb ("fwwwwooomp": a falling sweep);
+- the raise grow-out ("rrawwwwr": a rising, gritty sweep);
+- the ring-fit chime, with pitch by score;
+- a valve whoosh;
+- a tithe-warning horn;
+- a backup-crack shatter.
+
+Respect a master mute and a volume setting.
+
 ## 3. Moving between scenes
 "Click to bounce into the main town" is one click on Covington, then a short **dive**:
 - the camera zooms into the node;
@@ -185,7 +218,9 @@ this file's older Necropolis notes.
 - the town fades up around them.
 
 The return is the reverse. Dungeons dive through the fortress ring into the first room. The dive is
-under 600 ms. With reduced motion it becomes a 150 ms crossfade.
+under 600 ms. With reduced motion it becomes a 150 ms crossfade. The router in `scripts/main.gd`
+(owned by the map unit after E1) keeps the old scene alive under a `Transition` node for the dive,
+then frees it. It resets `Engine.time_scale` on every swap.
 
 ## 4. Per-scene acceptance checklist
 - [ ] No hardcoded colours, tempos or glow stacks (`Palette`, `Pulse`, `LineGlow` only).
