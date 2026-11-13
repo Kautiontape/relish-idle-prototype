@@ -25,13 +25,14 @@ const DOC_CONSTANTS := {
 	"DEBUG_STATE_KEYS": ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"],
 }
 ## Arrays and maps that are empty at E1 by design, so their element schemas only run once
-## E2/E3 fill them (or in the fixtures, T1.5).
+## E2/E3 fill them. The fixtures cannot fill them either (the test checks it).
 const E1_EMPTY := {
 	"view_town.buildings[].output": "building output is E2",
 	"view_stances.stances[].projected": "stance projections are E3",
 }
 
 var t: TestUtil
+var _dir := "user://test_saves_contract_%d" % OS.get_process_id()
 var _ok := {}  # command -> seen succeeding
 var _fail := {}  # command -> seen refused
 var _views_seen := {}
@@ -45,10 +46,13 @@ func run() -> int:
 	_schema_self_check()
 	var s := GameState.new(TestUtil.configs())
 	s.debug_enabled = true
+	s.save_dir = _dir
 	_check_constants(s)
 	_check_names(s)
 	_exercise(s)
+	_fixtures()
 	_check_coverage()
+	t.ok(_cleanup(), "the contract test's save directory is gone")
 	return t.failures
 
 
@@ -399,6 +403,7 @@ func _exercise(s: GameState) -> void:
 	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death
+	_persistence(s)
 
 
 ## A valid raid result for `sd` (a retreat that changes nothing); `over` replaces keys.
@@ -442,3 +447,107 @@ func _check_coverage() -> void:
 	t.ok(empty.is_empty(), "every array and map element schema ran on real data (never filled: %s)" % str(empty))
 	for p in E1_EMPTY:
 		t.ok(paths.has(p), "E1_EMPTY names a schema path: %s" % p)
+
+
+# --------------------------------------------------------------- persistence ----
+func _write(path: String, text: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(text)
+	f.close()
+
+
+func _cleanup() -> bool:
+	var d := DirAccess.open(_dir)
+	if d != null:
+		d.include_hidden = true
+		for f in d.get_files():
+			d.remove(f)
+	DirAccess.remove_absolute(_dir)
+	return not DirAccess.dir_exists_absolute(_dir)
+
+
+## cmd_save, cmd_load, list_saves, to_dict and their events (§4.1, §6, §9).
+func _persistence(s: GameState) -> void:
+	var d := s.to_dict()
+	var errs: Array = []
+	ApiSchema.check(d, ApiSchema.SAVE, "to_dict", errs)
+	ApiSchema.non_finite(d, "to_dict", errs)
+	t.ok(errs.is_empty(), "to_dict() matches the top-level save schema%s" % ("" if errs.is_empty() else ": " + str(errs)))
+	t.ok(d["v"] == GameState.SAVE_VERSION and d["api_version"] == GameState.API_VERSION, "to_dict carries v and api_version")
+	_event_list(s)
+	var sv := _cmd(s, "cmd_save", ["slot1"], true)
+	t.ok(FileAccess.file_exists(sv["path"]) and sv["path"] == _dir + "/slot1.json", "cmd_save wrote its path")
+	_cmd(s, "cmd_save", ["auto"], true)
+	_cmd(s, "cmd_save", ["Bad Slot"], false)
+	var evs := _event_list(s)
+	t.ok(evs.map(func(e): return e["type"]) == ["autosaved", "save_failed"], "autosaved on the auto slot, save_failed on a refusal")
+	t.ok(evs[0]["slot"] == "auto" and evs[1]["reason"] == "bad_slot" and evs[1]["slot"] == "Bad Slot", "their fields")
+	var keep := s.save_dir
+	print("  (an ERROR about not creating a directory is expected next)")
+	s.save_dir = _dir + "/slot1.json/sub"  # under a regular file: unwritable
+	var wf := _cmd(s, "cmd_save", ["slot2"], false)
+	t.ok(wf["reason"] == "write_failed" and _event_list(s).map(func(e): return e["reason"]) == ["write_failed"], "write_failed and its save_failed event")
+	s.save_dir = keep
+	_write(_dir + "/future.json", JSON.stringify({"v": GameState.SAVE_VERSION + 1}))
+	_write(_dir + "/junk.json", "{nope")
+	var list := s.list_saves()
+	errs = []
+	ApiSchema.check(list, ApiSchema.LIST_SAVES, "list_saves", errs, _filled)
+	t.ok(errs.is_empty() and list.size() == 3, "list_saves matches its schema; corrupt omitted, a future file listed %s" % str(errs))
+	var rv := s.rev
+	s.list_saves()
+	t.ok(s.rev == rv, "list_saves is not a command: rev stays")
+	_cmd(s, "cmd_load", ["slot1"], true)
+	_cmd(s, "cmd_load", ["nothing"], false)
+	_cmd(s, "cmd_load", ["junk"], false)
+	_cmd(s, "cmd_load", ["Bad Slot"], false)
+	_cmd(s, "cmd_load", ["future"], false)
+	t.ok(s.cmd_load("future")["reason"] == "bad_version" and s.cmd_load("junk")["reason"] == "no_save" and s.cmd_load("nothing")["reason"] == "no_save",
+		"bad_version for a future file, no_save for a corrupt or missing one")
+	s.legacy_teleport_relish("ashgate")
+	_cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
+	_cmd(s, "cmd_load", ["slot1"], false)
+	_cmd(s, "cmd_debug_load_fixture", ["day1"], false)
+	_cmd(s, "cmd_abort_dungeon", [], true)
+	s.debug_enabled = false
+	_cmd(s, "cmd_debug_load_fixture", ["day1"], false)
+	s.debug_enabled = true
+	_cmd(s, "cmd_debug_load_fixture", ["nope"], false)
+	_cmd(s, "cmd_debug_load_fixture", ["day1"], true)
+	_all_views(s)  # after a load
+
+
+## §9.4: the three fixtures load through cmd_debug_load_fixture, pass every view check, and
+## between them make every array a view exposes non-empty (except E1_EMPTY).
+func _fixtures() -> void:
+	var base := _filled
+	_filled = {}
+	for name in GameState.FIXTURES:
+		var s := GameState.new(TestUtil.configs())
+		s.debug_enabled = true
+		s.save_dir = _dir
+		_cmd(s, "cmd_debug_load_fixture", [name], true)
+		_all_views(s)
+		if name == "pre_vei":
+			# the seed views are empty without a run: open the boss, then a raid with the party
+			_cmd(s, "cmd_begin_boss", [], true)
+			_all_views(s)
+			_cmd(s, "cmd_abort_dungeon", [], true)
+			s.cmd_debug_set_state({"relish_at": "ashgate"})
+			_cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
+			_all_views(s)
+			_cmd(s, "cmd_abort_dungeon", [], true)
+	var fixed := _filled
+	_filled = base
+	for k in fixed:
+		_filled[k] = true
+	var paths: Array = []
+	for name in ApiSchema.VIEWS:
+		ApiSchema.containers(ApiSchema.VIEWS[name], name, paths)
+	var never: Array = []
+	for p in paths:
+		if not fixed.has(p) and not E1_EMPTY.has(p):
+			never.append(p)
+	t.ok(never.is_empty(), "across the fixtures every array a view exposes is non-empty (never: %s)" % str(never))
+	for p in E1_EMPTY:
+		t.ok(not fixed.has(p), "%s is still empty in every fixture (else drop it from E1_EMPTY)" % p)

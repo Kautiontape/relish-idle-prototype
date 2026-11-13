@@ -43,9 +43,11 @@ var paused := false
 var t := 0.0  # sim seconds since the new game
 var debug_enabled := false
 var save_dir := "user://saves"  # saves (§9); tests point it at a temp dir
+var fixture_dir := "res://tests/fixtures"  # cmd_debug_load_fixture reads <fixture_dir>/<name>.json
 var rng := RandomNumberGenerator.new()
 var rng_seed := ""  # String: 64-bit seeds do not survive JSON numbers
 var rev := 0  # +1 per substep and per successful command
+var saved_unix := 0  # wall-clock unix seconds of the last save (0 = never saved); read back on load
 
 # --- Relish (owned here; realm.relish is a legacy mirror, see _sync_realm_relish) ---
 var relish := {}
@@ -74,6 +76,11 @@ var ladder: Array = []  # the player's job order, top first
 var staff_caps := {}  # lot_id -> int cap; absent = -1 (no cap)
 var stances_on: Array = []  # stance ids switched on, oldest first; the newest are suspended first
 var vats_staffed: Array = []  # bool per vat slot
+# --- E2/E3 placeholders: saved and restored so a fixture can carry them; nothing reads them at E1 ---
+var _tithe := {}  # realm.tithe (E2)
+var _phylactery_charges := 0  # backups.phylactery_charges (E3)
+var _readout := {"diff_ema": 0.0, "q_raise_ema": 0.0}  # the diff and q_raise EMAs (E2)
+var _stance_hold := {}  # stance id -> hold seconds left (E3)
 # --- the town at E1: the BALANCE §0 start set (TownSim owns this from E2) ---
 var town_tier := "hamlet"
 var lot_buildings := {}  # lot_id -> {building_id: String, level: int}
@@ -147,21 +154,8 @@ func cmd_new_game(seed: int) -> Dictionary:
 	rng.seed = seed
 	rng_seed = str(seed)
 	game_seed = seed
-	var cfg: Dictionary = _cfg()
-	var world: Dictionary = _cfgs.get("world", {})
 	var opening: Dictionary = _sec("economy", "opening")
-	realm = RealmSim.new()
-	realm.setup(world, cfg)
-	realm.send_relish("covington")
-	field = InfluenceField.new()
-	field.setup(cfg.get("field", {}), RealmSim._vec(world.get("size", [2048, 1440])))
-	towns = []
-	for tw in world.get("towns", []):
-		towns.append({
-			"id": tw.get("id", ""), "name": tw.get("name", "?"),
-			"pos": RealmSim._vec(tw.get("pos", [0, 0])),
-			"pop": float(tw.get("pop", 30)), "control": "none",
-		})
+	_build_realm_field_towns()
 	# legacy stores back to the start state (the object is reset in place)
 	army = {"soldier": 0, "elite": 0}
 	res = {"gold": 30.0, "materials": 12.0, "bodies": 0.0, "townsfolk": 10.0}
@@ -192,6 +186,11 @@ func cmd_new_game(seed: int) -> Dictionary:
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
 	_dungeon_sink = 0.0
+	saved_unix = 0
+	_tithe = {}
+	_phylactery_charges = 0
+	_readout = {"diff_ema": 0.0, "q_raise_ema": 0.0}
+	_stance_hold = {}
 	blueprints = []
 	haul_target = "auto"
 	ladder = []
@@ -214,6 +213,25 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_prewarm_field()
 	rev += 1
 	return {"ok": true, "reason": ""}
+
+
+## The config-built parts of a game: the realm (with Relish's mirror at Covington), an empty
+## field and the villages, all neutral. A load rebuilds them the same way (§9).
+func _build_realm_field_towns() -> void:
+	var cfg: Dictionary = _cfg()
+	var world: Dictionary = _cfgs.get("world", {})
+	realm = RealmSim.new()
+	realm.setup(world, cfg)
+	realm.send_relish("covington")
+	field = InfluenceField.new()
+	field.setup(cfg.get("field", {}), RealmSim._vec(world.get("size", [2048, 1440])))
+	towns = []
+	for tw in world.get("towns", []):
+		towns.append({
+			"id": tw.get("id", ""), "name": tw.get("name", "?"),
+			"pos": RealmSim._vec(tw.get("pos", [0, 0])),
+			"pop": float(tw.get("pop", 30)), "control": "none",
+		})
 
 
 ## Pre-warms the field so the map doesn't start blank, then publishes any in-flight slice.
@@ -2183,6 +2201,591 @@ func _legacy_vei_result(run_id: int, did_win: bool, deaths: int) -> Dictionary:
 func auto_resolve_boss() -> void:
 	var odds: float = realm.readout()["odds"]
 	apply_boss_result({"won": rng.randf_range(0.0, 1.0) < odds, "relish_died": true})
+
+
+# ------------------------------------------------------------ §9 persistence ----
+# The save spec: TYPE_FLOAT = any finite number, TYPE_INT = an integral number (JSON has one
+# number type, so a loaded int arrives as a float and is restored with int()), [spec] = an
+# Array of spec, {"*": spec} = a map, {key: spec} = a Dictionary holding at least those keys.
+const _I := TYPE_INT
+const _F := TYPE_FLOAT
+const _S := TYPE_STRING
+const _B := TYPE_BOOL
+const _D := TYPE_DICTIONARY
+const _VALVE_SPEC := {"work": _F, "war": _F, "flood": _F}
+const _SAVE_SPEC := {
+	"v": _I, "api_version": _I, "seed": _S, "rng": _S, "t": _F, "acc": _F,
+	"next_run_id": _I, "next_uid": _I, "applied_runs": [_I],
+	"relish": {"state": _S, "at": _S, "target": _S, "pos": [_F], "heading": _F, "dead_s_left": _F, "respawn_with_clone": _B},
+	"valve": {"target": _VALVE_SPEC, "current": _VALVE_SPEC},
+	"realm": {
+		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "held_s": _F, "flipped_count": _I,
+			"clears_since_retaken": _I, "r_in": _F, "r_drain": _F, "r_shipped": _F, "r_dead_out": _F, "r_raised": _F}],
+		"cov": {"undead": _F, "r_out": _F},
+		"vei": {"undead_queue": _F, "dead_queue": _F, "living_pool": _F, "r_in_undead": _F, "r_in_dead": _F,
+			"r_converted": _F, "r_shipped": _F},
+		"simulacra": [{"fort_id": _S, "charges": _F, "rate": _F}],
+		"elapsed": _F, "cleared_total": _F, "raised_by_sims": _F, "tithe": _D,
+	},
+	"villages": [{"id": _S, "owner": _S}],
+	"town": {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
+		"staff_caps": {"*": _I}, "haul": {"target": _S}},
+	"stances": {"on": [_S], "hold": {"*": _F}},
+	"inventory": {
+		"husks": [{"uid": _S, "kind": _S, "rarity": _S}],
+		"remnants": [{"uid": _S, "aspect": _S, "rarity": _S, "magnitude": _I}],
+		"blueprints": [_S], "relics": _I, "essence": _I, "simulacra_ready": _I,
+	},
+	"big_undead": [{"uid": _S, "name": _S, "kind": _S, "role": _S, "place": _S, "front": _S,
+		"stats": {"power": _F, "beef": _F, "wits": _F, "presence": _F, "speed": _F}}],
+	"party": [_S],
+	"backups": {"phylactery_charges": _I, "clones_ready": _I, "vats": [{"slot": _I, "staffed": _B, "grow": _F}]},
+	"readout": {"diff_ema": _F, "q_raise_ema": _F},
+	"ledger": {"sources": {"*": _F}, "sinks": {"dungeon": _F}},
+	"won": _B,
+	"stats": {"raised_total": _F, "raids": _I, "deaths": _I, "sims_built": _I},
+	"legacy": {
+		"res": {"gold": _F, "materials": _F, "bodies": _F, "townsfolk": _F},
+		"army": {"soldier": _I, "elite": _I},
+		"town": {"slabs": _I, "vats": _I, "sim_stations": _I, "forge_level": _I, "trade_level": _I},
+		"assignments": {"trade": _I, "forge": _I, "jobs": _I, "gather": _I, "slab": _I},
+		"idle_undead": _I, "gather": {"target": _S, "phase": _S, "eta": _F, "load": _F},
+	},
+	"cleared_forts": [_S], "first_dungeon": _S,
+}
+
+
+## True if `v` fits `spec` (see _SAVE_SPEC).
+static func _fits(v: Variant, spec: Variant) -> bool:
+	if typeof(spec) == TYPE_INT:
+		var ty := typeof(v)
+		match spec:
+			TYPE_FLOAT:
+				return (ty == TYPE_INT or ty == TYPE_FLOAT) and is_finite(float(v))
+			TYPE_INT:
+				return ty == TYPE_INT or (ty == TYPE_FLOAT and is_finite(v) and absf(v) < 9.0e15 and v == floorf(v))
+			_:
+				return ty == spec
+	if spec is Array:
+		if typeof(v) != TYPE_ARRAY:
+			return false
+		for e in v:
+			if not _fits(e, spec[0]):
+				return false
+		return true
+	if typeof(v) != TYPE_DICTIONARY:
+		return false
+	if spec.has("*"):
+		for k in v:
+			if typeof(k) != TYPE_STRING or not _fits(v[k], spec["*"]):
+				return false
+		return true
+	for k in spec:
+		if not v.has(k) or not _fits(v[k], spec[k]):
+			return false
+	return true
+
+
+## Every float in `v` as JSON writes it (15 significant digits), so that to_dict, its JSON text
+## and a load of that text all agree to the last bit. Godot's JSON parser is not exact for
+## 17-digit floats. A non-finite float becomes 0.0 (the state never holds one).
+static func _canon(v: Variant) -> Variant:
+	match typeof(v):
+		TYPE_FLOAT:
+			return float(JSON.parse_string(JSON.stringify(v))) if is_finite(v) else 0.0
+		TYPE_ARRAY:
+			for i in v.size():
+				v[i] = _canon(v[i])
+		TYPE_DICTIONARY:
+			for k in v:
+				v[k] = _canon(v[k])
+	return v
+
+
+## §9.1. A deep copy that survives JSON; the open run is written in its forfeited form.
+func to_dict() -> Dictionary:
+	var rl := {
+		"state": relish["state"], "at": relish["at"], "target": relish["target"],
+		"pos": (relish["pos"] as Array).duplicate(), "heading": relish["heading"],
+		"dead_s_left": relish["dead_s_left"], "respawn_with_clone": relish["respawn_with_clone"],
+	}
+	if not run.is_empty():
+		var at: String = run["fort_id"]
+		rl = {"state": "at_vei" if run["kind"] == "boss" else "at_fort", "at": at, "target": "",
+			"pos": _node_xy(at), "heading": relish["heading"], "dead_s_left": 0.0, "respawn_with_clone": false}
+	var forts: Array = []
+	for f in realm.forts:
+		forts.append({
+			"id": f["id"], "living": f["living"], "undead": f["undead"], "dead": f["dead"],
+			"held_s": float(f.get("held_s", 0.0)), "flipped_count": int(f.get("flipped_count", 0)),
+			"clears_since_retaken": int(f.get("clears_since_retaken", 0)),
+			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
+			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
+		})
+	var villages: Array = []
+	for tw in towns:
+		villages.append({"id": str(tw["id"]), "owner": {"green": "player", "orange": "vei"}.get(tw["control"], "none")})
+	var lots: Array = []
+	var lot_ids := lot_buildings.keys()
+	lot_ids.sort()
+	for id in lot_ids:
+		lots.append({"lot_id": id, "building_id": lot_buildings[id]["building_id"], "level": int(lot_buildings[id]["level"])})
+	var husk_list: Array = []
+	for h in husks:
+		husk_list.append({"uid": h["uid"], "kind": h["kind"], "rarity": h["rarity"]})
+	var remnant_list: Array = []
+	for r in remnants:
+		remnant_list.append({"uid": r["uid"], "aspect": r["aspect"], "rarity": r["rarity"], "magnitude": int(r["magnitude"])})
+	var bus: Array = []
+	for b in big_undead:
+		bus.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
+			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate()})
+	var vats: Array = []
+	for i in _vat_slots():
+		vats.append({"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0})
+	var led := ledger()
+	var d := {
+		"v": SAVE_VERSION, "api_version": API_VERSION, "seed": rng_seed, "rng": str(rng.state),
+		"saved_unix": saved_unix,
+		"t": t, "acc": _acc, "next_run_id": next_run_id, "next_uid": next_uid,
+		"applied_runs": applied_runs.duplicate(),
+		"relish": rl,
+		"valve": {"target": valve_target.duplicate(), "current": valve.duplicate()},
+		"realm": {
+			"forts": forts, "cov": realm.cov.duplicate(), "vei": realm.vei.duplicate(),
+			"simulacra": realm.simulacra.duplicate(true), "elapsed": realm.elapsed,
+			"cleared_total": realm.cleared_total, "raised_by_sims": realm.raised_by_sims,
+			"tithe": _tithe.duplicate(true),
+		},
+		"villages": villages,
+		"town": {"tier": town_tier, "lots": lots, "ladder": ladder.duplicate(), "staff_caps": staff_caps.duplicate(),
+			"haul": {"target": haul_target}},
+		"stances": {"on": stances_on.duplicate(), "hold": _stance_hold.duplicate()},
+		"inventory": {"husks": husk_list, "remnants": remnant_list, "blueprints": blueprints.duplicate(),
+			"relics": relics, "essence": essence, "simulacra_ready": 0},
+		"big_undead": bus,
+		"party": party_uids.duplicate(),
+		"backups": {"phylactery_charges": _phylactery_charges, "clones_ready": _vat_slots(), "vats": vats},
+		"readout": _readout.duplicate(),
+		"ledger": {"sources": led["sources"], "sinks": led["sinks"]},
+		"won": won, "stats": stats.duplicate(),
+		"legacy": {
+			"res": res.duplicate(), "army": army.duplicate(), "town": town.duplicate(),
+			"assignments": assignments.duplicate(), "idle_undead": idle_undead, "gather": gather.duplicate(),
+		},
+		"cleared_forts": cleared_forts.keys(), "first_dungeon": first_dungeon_id,
+	}
+	(d["cleared_forts"] as Array).sort()
+	return _canon(d)
+
+
+## §9.1 `static migrate`: one version at a time up to SAVE_VERSION. `{}` on failure (no `v`, a
+## `v` that is not a whole number from 1 up, a version from the future, or a missing step).
+## v1 is the identity: it returns a deep copy.
+static func migrate(d: Dictionary) -> Dictionary:
+	if not d.has("v") or not _fits(d["v"], _I):
+		return {}
+	var v := int(d["v"])
+	if v < 1 or v > SAVE_VERSION:
+		return {}
+	var out := d.duplicate(true)
+	while v < SAVE_VERSION:
+		match v:
+			_:  # a step per old version goes here, e.g. 1: out = _migrate_1_to_2(out)
+				return {}
+		v += 1
+	out["v"] = v
+	return out
+
+
+## "" if the migrated save `m` is sound, else why not. The shape first, then every id it names.
+func _save_problem(m: Dictionary) -> String:
+	if not _fits(m, _SAVE_SPEC):
+		return "shape"
+	if not (m["seed"] as String).is_valid_int() or not (m["rng"] as String).is_valid_int():
+		return "seed"
+	var world: Dictionary = _cfgs.get("world", {})
+	var fort_ids := {}
+	for f in world.get("forts", []):
+		fort_ids[str(f.get("id", ""))] = true
+	var nodes := fort_ids.duplicate()
+	nodes["covington"] = true
+	nodes["vei"] = true
+	var rl: Dictionary = m["relish"]
+	if not RELISH_STATES.has(rl["state"]) or rl["state"] == "in_dungeon" or rl["state"] == "in_boss":
+		return "relish state"
+	if not nodes.has(rl["at"]) or (rl["target"] != "" and not nodes.has(rl["target"])) or (rl["pos"] as Array).size() != 2:
+		return "relish node"
+	if rl["state"] == "travelling" and rl["target"] == "":
+		return "relish target"
+	var seen := {}
+	for f in m["realm"]["forts"]:
+		if not fort_ids.has(f["id"]) or seen.has(f["id"]):
+			return "fort id"
+		seen[f["id"]] = true
+	if seen.size() != fort_ids.size():
+		return "fort set"
+	for s in m["realm"]["simulacra"]:
+		if not fort_ids.has(s["fort_id"]):
+			return "simulacrum fort"
+	for v in m["villages"]:
+		if not ["player", "vei", "none"].has(v["owner"]):
+			return "village owner"
+	if not TIERS.has(m["town"]["tier"]):
+		return "tier"
+	var lot_ids := {}
+	for l in _lots_cfg():
+		lot_ids[str(l.get("id", ""))] = true
+	seen = {}
+	for l in m["town"]["lots"]:
+		if not lot_ids.has(l["lot_id"]) or seen.has(l["lot_id"]) or not _buildings_cfg().has(l["building_id"]):
+			return "lot"
+		seen[l["lot_id"]] = true
+	for lot_id in m["town"]["staff_caps"]:
+		if not lot_ids.has(lot_id):
+			return "staff cap lot"
+	var jobs := {}
+	for j in m["town"]["ladder"]:
+		if not JOB_IDS.has(j) or jobs.has(j):
+			return "ladder"
+		jobs[j] = true
+	if jobs.size() != JOB_IDS.size():
+		return "ladder"
+	var haul: String = m["town"]["haul"]["target"]
+	if haul != "auto" and not fort_ids.has(haul):
+		return "haul target"
+	var on := {}
+	for st in m["stances"]["on"]:
+		if not STANCE_IDS.has(st) or on.has(st):
+			return "stance"
+		on[st] = true
+	var uids := {}
+	for h in m["inventory"]["husks"]:
+		if uids.has(h["uid"]):
+			return "uid"
+		uids[h["uid"]] = true
+	for r in m["inventory"]["remnants"]:
+		if uids.has(r["uid"]):
+			return "uid"
+		uids[r["uid"]] = true
+	var bu_uids := {}
+	for b in m["big_undead"]:
+		if uids.has(b["uid"]) or bu_uids.has(b["uid"]) or (b["front"] != "" and not FRONT_IDS.has(b["front"])):
+			return "big undead"
+		bu_uids[b["uid"]] = true
+	seen = {}
+	for u in m["party"]:
+		if not bu_uids.has(u) or seen.has(u):
+			return "party"
+		seen[u] = true
+	if not ["idle", "out", "back"].has(m["legacy"]["gather"]["phase"]):
+		return "gather phase"
+	var gt: String = m["legacy"]["gather"]["target"]
+	if gt != "" and not fort_ids.has(gt):
+		return "gather target"
+	for id in m["cleared_forts"]:
+		if not fort_ids.has(id):
+			return "cleared fort"
+	return ""
+
+
+## The number in a uid: "h12" -> 12, anything else 0.
+static func _uid_num(uid: String) -> int:
+	return int(uid.substr(1)) if uid.length() > 1 and uid.substr(1).is_valid_int() else 0
+
+
+## §9.1. Resets in place from a save. `{ok, reason}`: `corrupt` (wrong shape, a node or id the
+## configs do not know), `bad_version` (a `v` from the future, or one that cannot be migrated).
+## Nothing changes on a refusal; on success `rev` rises by 1.
+func from_dict(d: Dictionary) -> Dictionary:
+	if not d.has("v") or not _fits(d["v"], TYPE_FLOAT):
+		return {"ok": false, "reason": "corrupt"}
+	var m := migrate(d)
+	if m.is_empty():
+		return {"ok": false, "reason": "bad_version"}
+	if _save_problem(m) != "":
+		return {"ok": false, "reason": "corrupt"}
+	_apply_save(m)
+	return {"ok": true, "reason": ""}
+
+
+## Applies a migrated, checked save. Types are restored here: ints from floats, Vector2 from [x, y].
+func _apply_save(m: Dictionary) -> void:
+	_build_realm_field_towns()
+	rng_seed = m["seed"]
+	game_seed = rng_seed.to_int()
+	rng.seed = game_seed  # first: setting the seed resets the state
+	rng.state = (m["rng"] as String).to_int()
+	t = float(m["t"])
+	_acc = float(m["acc"])
+	saved_unix = int(m["saved_unix"]) if _fits(m.get("saved_unix"), _I) else 0
+	applied_runs = []
+	for id in m["applied_runs"]:
+		applied_runs.append(int(id))
+	var top := maxi(maxi(next_uid, int(m["next_uid"])), 1)
+	for h in m["inventory"]["husks"]:
+		top = maxi(top, _uid_num(h["uid"]) + 1)
+	for r in m["inventory"]["remnants"]:
+		top = maxi(top, _uid_num(r["uid"]) + 1)
+	for b in m["big_undead"]:
+		top = maxi(top, _uid_num(b["uid"]) + 1)
+	next_uid = top
+	next_run_id = maxi(next_run_id, int(m["next_run_id"]))
+	var rl: Dictionary = m["relish"]
+	relish = {
+		"state": rl["state"], "at": rl["at"], "target": rl["target"],
+		"pos": [float(rl["pos"][0]), float(rl["pos"][1])], "heading": float(rl["heading"]),
+		"dead_s_left": float(rl["dead_s_left"]), "respawn_with_clone": bool(rl["respawn_with_clone"]),
+	}
+	valve_target = _valve_of(m["valve"]["target"])
+	valve = _valve_of(m["valve"]["current"])
+	var rm: Dictionary = m["realm"]
+	for e in rm["forts"]:
+		var f := realm.fort_by_id(e["id"])
+		for k in ["living", "undead", "dead", "held_s", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
+			f[k] = float(e[k])
+		f["flipped_count"] = int(e["flipped_count"])
+		f["clears_since_retaken"] = int(e["clears_since_retaken"])
+	for k in realm.cov:
+		realm.cov[k] = float(rm["cov"][k])
+	for k in realm.vei:
+		realm.vei[k] = float(rm["vei"][k])
+	realm.simulacra = []
+	for s in rm["simulacra"]:
+		var e: Dictionary = (s as Dictionary).duplicate(true)
+		e["charges"] = float(e["charges"])
+		e["rate"] = float(e["rate"])
+		realm.simulacra.append(e)
+	realm.elapsed = float(rm["elapsed"])
+	realm.cleared_total = float(rm["cleared_total"])
+	realm.raised_by_sims = float(rm["raised_by_sims"])
+	_tithe = (rm["tithe"] as Dictionary).duplicate(true)
+	var owners := {}
+	for v in m["villages"]:
+		owners[v["id"]] = v["owner"]
+	green_towns = 0
+	for tw in towns:
+		tw["control"] = {"player": "green", "vei": "orange"}.get(owners.get(tw["id"], "none"), "none")
+		if tw["control"] == "green":
+			green_towns += 1
+	var tm: Dictionary = m["town"]
+	town_tier = tm["tier"]
+	lot_buildings = {}
+	for l in tm["lots"]:
+		lot_buildings[l["lot_id"]] = {"building_id": l["building_id"], "level": int(l["level"])}
+	ladder = []
+	for j in tm["ladder"]:
+		ladder.append(str(j))
+	staff_caps = {}
+	for k in tm["staff_caps"]:
+		staff_caps[k] = int(tm["staff_caps"][k])
+	haul_target = tm["haul"]["target"]
+	stances_on = []
+	for st in m["stances"]["on"]:
+		stances_on.append(str(st))
+	_stance_hold = {}
+	for k in m["stances"]["hold"]:
+		_stance_hold[k] = float(m["stances"]["hold"][k])
+	var inv: Dictionary = m["inventory"]
+	husks = []
+	for h in inv["husks"]:
+		husks.append({"uid": h["uid"], "kind": h["kind"], "rarity": h["rarity"]})
+	remnants = []
+	for r in inv["remnants"]:
+		remnants.append({"uid": r["uid"], "aspect": r["aspect"], "rarity": r["rarity"], "magnitude": int(r["magnitude"])})
+	blueprints = []
+	for b in inv["blueprints"]:
+		blueprints.append(str(b))
+	relics = int(inv["relics"])
+	essence = int(inv["essence"])
+	big_undead = []
+	for b in m["big_undead"]:
+		var st := {}
+		for k in STATS:
+			st[k] = float(b["stats"][k])
+		big_undead.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
+			"stats": st, "place": b["place"], "front": b["front"]})
+	party_uids = []
+	for u in m["party"]:
+		party_uids.append(str(u))
+	vats_staffed = []
+	for v in m["backups"]["vats"]:
+		var slot := int(v["slot"])
+		if slot >= 0 and slot < 1024:
+			while vats_staffed.size() <= slot:
+				vats_staffed.append(false)
+			vats_staffed[slot] = bool(v["staffed"])
+	_phylactery_charges = int(m["backups"]["phylactery_charges"])
+	_readout = {"diff_ema": float(m["readout"]["diff_ema"]), "q_raise_ema": float(m["readout"]["q_raise_ema"])}
+	_dungeon_sink = float(m["ledger"]["sinks"]["dungeon"])
+	won = bool(m["won"])
+	var sm: Dictionary = m["stats"]
+	stats = {"raised_total": float(sm["raised_total"]), "raids": int(sm["raids"]), "deaths": int(sm["deaths"]),
+		"sims_built": int(sm["sims_built"])}
+	var lg: Dictionary = m["legacy"]
+	res = {}
+	for k in lg["res"]:
+		res[k] = float(lg["res"][k])
+	army = {"soldier": int(lg["army"]["soldier"]), "elite": int(lg["army"]["elite"])}
+	town = {}
+	for k in lg["town"]:
+		town[k] = int(lg["town"][k])
+	assignments = {}
+	for k in lg["assignments"]:
+		assignments[k] = int(lg["assignments"][k])
+	idle_undead = int(lg["idle_undead"])
+	gather = {"target": str(lg["gather"]["target"]), "phase": str(lg["gather"]["phase"]),
+		"eta": float(lg["gather"]["eta"]), "load": float(lg["gather"]["load"])}
+	cleared_forts = {}
+	for id in m["cleared_forts"]:
+		cleared_forts[str(id)] = true
+	first_dungeon_id = str(m["first_dungeon"])
+	# session state: nothing of the old session survives a load
+	run = {}
+	_raiding_fort = ""
+	_field_acc = 0.0
+	_events = []
+	time_scale = 1.0
+	paused = false
+	realm.t["q"] = quality()
+	_sync_realm_relish()
+	_prewarm_field()
+	rev += 1
+
+
+static func _valve_of(v: Dictionary) -> Dictionary:
+	return {"work": float(v["work"]), "war": float(v["war"]), "flood": float(v["flood"])}
+
+
+## economy.json sim.autosave_s: real seconds between the shell's autosaves.
+func autosave_s() -> float:
+	return float(_cfgs.get("economy", {}).get("sim", {}).get("autosave_s", 30.0))
+
+
+# ------------------------------------------------------- §4.1 save and load ----
+## `^[a-z0-9_-]{1,32}$`, checked by hand (a regex `$` would let a trailing newline through).
+static func _slot_ok(slot: String) -> bool:
+	if slot.length() < 1 or slot.length() > 32:
+		return false
+	for i in slot.length():
+		var c := slot.unicode_at(i)
+		if not ((c >= 97 and c <= 122) or (c >= 48 and c <= 57) or c == 95 or c == 45):
+			return false
+	return true
+
+
+## "1:04 · Village · odds 0.08": the clock as h:mm, the town tier, the Vei odds.
+@warning_ignore("integer_division")
+func _summary() -> String:
+	var mins := int(t / 60.0)
+	return "%d:%02d · %s · odds %.2f" % [mins / 60, mins % 60, town_tier.capitalize(), float(_vei_readout()["odds"])]
+
+
+## Writes `text` to `path` by way of `<path>.tmp` and a rename (§9.3). False on any failure.
+static func _write_atomic(path: String, text: String) -> bool:
+	var dir := path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(dir) and DirAccess.make_dir_recursive_absolute(dir) != OK:
+		return false
+	var tmp := path + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(text)
+	var err := f.get_error()
+	f.close()
+	if err != OK or DirAccess.rename_absolute(tmp, path) != OK:
+		DirAccess.remove_absolute(tmp)
+		return false
+	return true
+
+
+## A save file as a Dictionary holding `v`, else {} (missing, unreadable, not JSON, not a
+## Dictionary, no `v`): every one of those is "no save", never an error (§9.3).
+static func _read_save_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var j := JSON.new()
+	if j.parse(FileAccess.get_file_as_string(path)) != OK:
+		return {}
+	if typeof(j.data) != TYPE_DICTIONARY or not (j.data as Dictionary).has("v"):
+		return {}
+	return j.data
+
+
+func cmd_save(slot: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "saved_at": 0, "path": ""}
+	if not _slot_ok(slot):
+		out["reason"] = "bad_slot"
+	elif realm == null:
+		out["reason"] = "write_failed"  # no game to save
+	else:
+		var saved_at := int(Time.get_unix_time_from_system())
+		saved_unix = saved_at
+		var d := to_dict()
+		d["slot"] = slot
+		d["saved_at"] = saved_at
+		d["summary"] = _summary()
+		var path := "%s/%s.json" % [save_dir, slot]
+		if _write_atomic(path, JSON.stringify(d)):
+			out = {"ok": true, "reason": "", "saved_at": saved_at, "path": path}
+		else:
+			out["reason"] = "write_failed"
+	if out["ok"]:
+		rev += 1
+		if slot == "auto":
+			_emit({"type": "autosaved", "slot": slot, "saved_at": out["saved_at"]})
+	else:
+		_emit({"type": "save_failed", "slot": slot, "reason": out["reason"]})
+	return out
+
+
+func cmd_load(slot: String) -> Dictionary:
+	if not run.is_empty():
+		return {"ok": false, "reason": "busy"}
+	if not _slot_ok(slot):
+		return {"ok": false, "reason": "bad_slot"}
+	var d := _read_save_file("%s/%s.json" % [save_dir, slot])
+	if d.is_empty():
+		return {"ok": false, "reason": "no_save"}
+	var r := from_dict(d)
+	if r["ok"]:
+		return {"ok": true, "reason": ""}
+	return {"ok": false, "reason": "bad_version" if r["reason"] == "bad_version" else "no_save"}
+
+
+## §4.1: `[{slot, saved_at, summary}]`, newest first (ties by slot). Not a command: no rev bump.
+func list_saves() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not DirAccess.dir_exists_absolute(save_dir):
+		return out
+	for fname in DirAccess.get_files_at(save_dir):
+		if not fname.ends_with(".json"):
+			continue
+		var slot := fname.trim_suffix(".json")
+		if not _slot_ok(slot):
+			continue
+		var d := _read_save_file("%s/%s" % [save_dir, fname])
+		if d.is_empty():
+			continue
+		var at: Variant = d.get("saved_at", 0)
+		out.append({"slot": slot, "saved_at": int(at) if _fits(at, _I) else 0, "summary": str(d.get("summary", ""))})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return a["slot"] < b["slot"] if a["saved_at"] == b["saved_at"] else a["saved_at"] > b["saved_at"])
+	return out
+
+
+## §4.6, E1. Loads <fixture_dir>/<name>.json through from_dict.
+func cmd_debug_load_fixture(name: String) -> Dictionary:
+	if not debug_enabled:
+		return {"ok": false, "reason": "not_debug"}
+	if not run.is_empty():
+		return {"ok": false, "reason": "busy"}
+	if not FIXTURES.has(name):
+		return {"ok": false, "reason": "unknown_fixture"}
+	var d := _read_save_file("%s/%s.json" % [fixture_dir, name])
+	if d.is_empty() or not from_dict(d)["ok"]:
+		return {"ok": false, "reason": "bad_fixture"}
+	return {"ok": true, "reason": ""}
 
 
 ## Recursively loads every *.json under `dir` into a Dictionary keyed by the

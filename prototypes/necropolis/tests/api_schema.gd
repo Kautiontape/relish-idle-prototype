@@ -273,14 +273,26 @@ const LEDGER := {
 		"living_pool": F, "bodies": F, "workers": F, "convoys": F},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
+## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will
+## change are opaque (D); the rest are typed.
+const SAVE := {
+	"v": I, "api_version": I, "seed": S, "rng": S, "t": F, "acc": F, "next_run_id": I, "next_uid": I,
+	"saved_unix": I, "applied_runs": [I],
+	"relish": {"state": S, "at": S, "target": S, "pos": POS, "heading": F, "dead_s_left": F, "respawn_with_clone": B},
+	"valve": {"target": VALVE, "current": VALVE},
+	"realm": D, "villages": [{"id": S, "owner": S}], "town": D, "stances": D, "inventory": D,
+	"big_undead": [D], "party": [S], "backups": D, "readout": {"diff_ema": F, "q_raise_ema": F},
+	"ledger": {"sources": {"*": F}, "sinks": {"*": F}},
+	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I}, "legacy": D,
+	"cleared_forts": [S], "first_dungeon": S,
+}
 ## Methods on GameState besides the commands and views (§1.5).
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",
 	"migrate", "list_saves", "ledger", "legacy_teleport_relish"]
 const MEMBER_VARS := ["debug_enabled", "save_dir", "rev"]
-## Contract names not implemented yet. T1.5 (saves, fixtures) removes
-## its names; the contract test fails if a listed name exists, so the list cannot go stale.
-const EXPECTED_MISSING := ["cmd_save", "cmd_load", "list_saves", "cmd_debug_load_fixture",
-	"to_dict", "from_dict", "migrate"]
+## Contract names not implemented yet (none after T1.5). The contract test fails if a listed name
+## exists, so the list cannot go stale.
+const EXPECTED_MISSING := []
 
 
 ## Appends one message per mismatch to `errs`, each naming the path

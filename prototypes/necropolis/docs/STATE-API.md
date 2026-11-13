@@ -100,6 +100,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `static load_configs(dir: String) -> Dictionary` | The one config loader, shared by `ConfigDb` and the tests. |
 | `var debug_enabled: bool = false` | The shell sets it from `OS.is_debug_build()`; tests set it to true. |
 | `var save_dir: String = "user://saves"` | Tests point it at a temp dir. |
+| `var fixture_dir: String = "res://tests/fixtures"` | `cmd_debug_load_fixture` reads `<fixture_dir>/<name>.json`. Tests point it at a temp dir to make a bad fixture. |
+| `autosave_s() -> float` | `economy.json` `sim.autosave_s` (30): the shell's autosave period in real seconds. |
 | `var rev: int` | Read-only by rule. |
 | `tick(dt: float, max_substeps := 0) -> int` | §3. |
 | `drain_events() -> Array[Dictionary]` | §6. Called by the shell and tests, **never by scenes**. |
@@ -259,7 +261,8 @@ order, effect, example. Every command also returns `ok` and `reason`.
 **`cmd_new_game(seed: int)` · E1**
 - **Reasons:** `busy` (a dungeon or boss run is open).
 - **Effect:**
-  - Rebuilds the BALANCE §0 start state from configs, in place.
+  - Rebuilds the BALANCE §0 start state from configs, in place. E1: the legacy start stocks (gold 30,
+    bone 12, bodies 0, 6 workers); E2 switches the new game to the BALANCE §0 start.
   - Sets `t = 0`, `time_scale = 1`, `paused = false`.
   - Clears the event queue.
   - Leaves `run_id` and the uid counters running: they never repeat within a session.
@@ -1350,6 +1353,7 @@ take the router's legacy path (§2.3).
 | `t` | float | sim seconds (keeps event `t` monotonic across a load) |
 | `acc` | float | the tick accumulator's remainder |
 | `next_run_id`, `next_uid` | int | counters (§4.5, §1.3) |
+| `saved_unix` | int | wall-clock unix seconds of the last save; 0 if never saved; read on load for a later away-time catch-up |
 | `applied_runs` | Array[int] | the last 32 applied run ids |
 | `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`. State is never `in_dungeon` or `in_boss`. |
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |
@@ -1366,13 +1370,30 @@ take the router's legacy path (§2.3).
 | `won` | bool | |
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
 | `legacy` | Dictionary | **E1 only:** `res`, `army`, `town`, `assignments`, `idle_undead`, `gather`. Migration drops it at E2. |
+| `cleared_forts` | Array[String] | forts whose first clear is spent (sorted) |
+| `first_dungeon` | String | the first dungeon's id until a raid result clears it, then `""` |
+
+**What each block holds at E1** (additive keys and E2/E3 placeholders; E2/E3 migrate them):
+- `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,
+  `clears_since_retaken`, and the per-second rates `r_in`, `r_drain`, `r_shipped`, `r_dead_out`,
+  `r_raised`, which the views show), `cov`, `vei` (masses and rates), `simulacra`
+  (`{fort_id, charges, rate}`), `elapsed`, `cleared_total`, `raised_by_sims`, and `tithe` (an E2
+  placeholder object, stored and written back as is). Positions, names, caps and tiers come from config.
+- `town`: `tier`, `lots` (`[{lot_id, building_id, level}]`), `ladder`, `staff_caps`, `haul: {target}`.
+  Gold, bone, bodies, living and workers stay in `legacy` until E2; the convoy is `legacy.gather`.
+- `stances`: `on` (oldest first) and `hold` (E3 timers, stored as is).
+- `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` and `vats` (E1: derived from the legacy
+  vats; only `staffed` is read back).
+- `readout`: `diff_ema`, `q_raise_ema` (E2, stored as is). `ledger`: `sources` and `sinks` as
+  `ledger()` shows them; `sinks.dungeon` is read back. `inventory.simulacra_ready` is written as 0.
+- `villages` owners are `player`, `vei` or `none`. Floats are written at 15 significant digits (§10 A12).
 
 **Not saved:**
 - `rev`, `debug_enabled`, `save_dir`, the event queue;
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
 - the open run, which is forfeited;
-- the influence field: after a load it is pre-warmed from the loaded realm, as a new game does, and
-  village owners are restored from `villages`.
+- the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
+  (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
 **Open runs.** `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or `at_vei`)
 with no run. On load the run is forfeited: no loot, no flip, the party intact.
@@ -1390,27 +1411,36 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 - A save file is `to_dict()` plus three file-only keys, `slot: String`, `saved_at: int` (unix
   seconds) and `summary: String`, which `from_dict` ignores.
 - The path is `<save_dir>/<slot>.json`.
-- `list_saves()` reads only `slot`, `saved_at` and `summary`, but skips any file that fails to parse
-  or lacks `v`.
+- `list_saves()` reads only `saved_at` and `summary` (the slot is the file name), but skips any file
+  that fails to parse, is not a Dictionary or lacks `v`. Order: `saved_at` descending, then slot.
+- `summary` is `"<h>:<mm> · <Tier> · odds <0.00>"` (sim clock, town tier, Vei odds).
 
 ### 9.3 Atomic writes and corruption
 - **Write:** `<slot>.json.tmp`, then close, then `DirAccess.rename_absolute` over `<slot>.json`.
 - **Read:** a file that doesn't parse, isn't a Dictionary or lacks `v` is **no save** (`no_save`),
   never a crash.
-- **Autosave:** slot `"auto"`, every 30 real seconds and on every scene change. It never persists
-  `in_dungeon` or `in_boss`.
+- **Autosave:** slot `"auto"`, every `sim.autosave_s` (30) real seconds and on every scene change. It
+  never persists `in_dungeon` or `in_boss`.
+- **Refusals:** `cmd_save` emits `save_failed` for every refusal (`bad_slot` too, with the offered
+  slot) and bumps `rev` only on success. `cmd_load` reports a `from_dict` `corrupt` as `no_save`, and
+  checks `busy`, then `bad_slot`, before reading. A refused load changes nothing.
 
 ### 9.4 Fixtures (`tests/fixtures/`, loaded by `cmd_debug_load_fixture` and the tests)
 | file | represents |
 |---|---|
-| `day1.json` | `cmd_new_game(1)` at t ≈ 0, which is the BALANCE §0 start: Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no vats; Old Sluice flagged first. |
+| `day1.json` | `cmd_new_game(1)` at t ≈ 0. E1: the legacy start stocks; E2 switches the new game to the BALANCE §0 start: Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no vats; Old Sluice flagged first. |
 | `midgame_2flips.json` | About 1 h in, Village tier. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight, 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
 | `pre_vei.json` | About 3 h in, City tier, odds ≈ 0.6, 3 of 4 fronts met with a party of 4 big undead assigned to fronts, 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
 
 - Each fixture is a `to_dict()` at the current `v`. Fields from E2/E3 systems are written by the
   generator until those systems produce them, and the fixtures are regenerated or migrated in the
   same commit as any save-shape change.
-- A test loads all three after every change (save compatibility).
+- A test loads all three after every change (save compatibility), and checks that each file is exactly
+  what `to_dict()` gives after loading it (the placeholders survive).
+- They are produced by `tests/fixtures/make_fixtures.gd` (commands and debug commands from
+  `cmd_new_game(1)`, then the fields no E1 command can make written into the dict: the town tier and
+  `realm.tithe` on `midgame_2flips`, the tier and `backups.phylactery_charges` on `pre_vei`). Run it
+  by hand when the save shape changes.
 - **Contract-test coverage:** across the three fixtures, every array a view exposes is non-empty at
   least once, so the contract test can check element shapes.
 
@@ -1428,3 +1458,5 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 | A9 | **`cmd_pause` is accepted anywhere,** and pauses only the realm. Runs force `time_scale = 1` and unpause on entry. | MECHANICS restricts only the time scale; a tree pause in the dungeon is the scene's business. |
 | A10 | Boss `backlog_spent` is informational. A loss keeps `loss_backlog_keep` of the backlog; a win leaves it alone. | Legacy parity, and the ledger counts the loss sink once. |
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
+| A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
+| A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold`, `backups.phylactery_charges` and `readout` are saved and restored as is; no E1 view reads them. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |

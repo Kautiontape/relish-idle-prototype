@@ -248,13 +248,14 @@ func run() -> int:
 	s = _mk()
 	s.debug_enabled = true
 	r = s.cmd_debug_grant({"big_undead": 5})
-	t.ok(r["ok"] and s.big_undead.size() == 2 and r["applied"]["big_undead"] == 2 and r["applied"]["minted"].size() == 2,
-		"big_undead mints only up to the cap (2)")
+	t.ok(r["ok"] and s.big_undead.size() == 4 and r["applied"]["big_undead"] == 4 and r["applied"]["minted"].size() == 4,
+		"big_undead mints only up to the cap (4)")
+	t.ok(s.cmd_debug_grant({"big_undead": 5})["applied"] == {"big_undead": 0, "minted": []}, "big_undead at its cap mints nothing")
 	s = _mk()
 	s.debug_enabled = true
-	s.cmd_debug_grant({"big_undead": 1})
+	s.cmd_debug_grant({"big_undead": 3})
 	r = s.cmd_debug_grant({"big_undead": 5})
-	t.ok(s.big_undead.size() == 2 and r["applied"]["big_undead"] == 1, "existing count counts toward the cap")
+	t.ok(s.big_undead.size() == 4 and r["applied"]["big_undead"] == 1, "existing count counts toward the cap")
 	r = s.cmd_debug_grant({"living": 1000.0})
 	t.ok(s.res["townsfolk"] == 16.0 and r["applied"]["living"] == 6.0, "living clamps to opening.living_cap")
 	rv = s.rev
@@ -266,7 +267,6 @@ func run() -> int:
 	s = _mk()
 	s.debug_enabled = true
 	r = s.cmd_debug_grant({"husks": 3, "remnants": 4, "big_undead": 2})
-	t.ok(s.cmd_debug_grant({"big_undead": 5})["applied"] == {"big_undead": 0, "minted": []}, "big_undead at its cap mints nothing")
 	var m: Array = r["applied"]["minted"]
 	t.ok(r["ok"] and m.size() == 9 and r["applied"]["husks"] == 3 and r["applied"]["remnants"] == 4, "nine items minted")
 	var seen := {}
