@@ -14,7 +14,7 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | workers | 12 (the steady state at the default valve is about 50, so the stream visibly grows) |
 | living | 10 (`living_cap` 16 from the crypt district's huts) |
 | valve | work 0.40 · war 0.45 · flood 0.15 |
-| Relish | home, phylactery 0, no vats |
+| Relish | home, phylactery 0, no clones or vats |
 | first dungeon | Old Sluice (tier 1, Bellringer), flagged "first"; starter party `opening.starter_party` = 8 units; the chest holds a husk and the first blueprint |
 
 ## 1. Pacing targets (superseded by IDLE.md §7: days of sessions; the early-session rows still hold)
@@ -85,7 +85,7 @@ are marked ⟵.
 | `valve.default` | 0.40 / 0.45 / 0.15 | `directShare` 0.22 is removed |
 | `valve.slew_per_s` | 0.10 (L1) | about 10 s for a full swing |
 | `P_relish` | 0 | top-level key, kept |
-| `P_base`, `P_per_pit` ⟵ `P_per_slab` | 2.0, 6.0 | migrate `game.gd`'s default (2.0) to the config's 6.0 |
+| `P_base`, `P_per_pit` ⟵ `P_per_slab` | 2.0, 6.0 | `realm.json` (renamed at E2a); the start mint is (2 + 6 · 1) · (1 + 0.6) = 12.8 |
 | `pit.burn_per_s`, `pit.bonus` | 0.6 mass/s per pit, +0.6 at full feed | burn calibrated so rot alone covers about 60%; hauling covers the rest |
 | `worker.mass` | 40 | start inflow 12.8 × 0.4 / 40 = 0.128 workers/s → steady state about 61 |
 | `worker.lifetime_s` | 480 | |
@@ -100,7 +100,7 @@ are marked ⟵.
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
 | `tithe.siege_block` | 0.6 | Relish halves the surge |
 | `readout.ema_s` | 120 | |
-| `q0`, `q_forge`, `q_raise_max`, `q.raise_ema_s`, `q_max` | 1.2, 0.1 per level, 0.6, 600, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge) |
+| `q0`, `q_forge`, `q_raise_max`, `q.raise_half_mass`, `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
 | `stall.rate`, `market.shop_rate`, `market.price` | 0.15 /stall/s, 0.03 /living/s, 1 | start: min(2·0.15, 10·0.03) = 0.30 gold/s |
 | `town.migrant_rate`, `town.leave_rate` | 0.012 /held village/s, 0.004 /s | |
 | `living_cap` | 16 (`opening.living_cap`) + per level: 8 per house, 2 per well, 4 per bakery, 20 per inn, 30 for walls | building `effects.living_cap` |

@@ -64,6 +64,7 @@ func run() -> int:
 	_living_morale()
 	_upkeep()
 	_round_trip()
+	_handles()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -634,6 +635,48 @@ func _round_trip() -> void:
 
 
 # -------------------------------------------------------------------- soak ----
+# ------------------------------------------- GameState's handles (T2.3b) ----
+func _handles() -> void:
+	var s := _sim()
+	var order := ["stall", "pit", "haul", "build", "mill", "forge", "tend"]
+	s.set_ladder(order)
+	t.ok(s.ladder == order and s.staffing["jobs"].keys() == order, "set_ladder sets the order and restaffs at once")
+	t.ok(s.set_staff_cap("lot-04", 1) and s.buildings["lot-04"]["staff_cap"] == 1 and _staffed(s, "stall") == 1.0,
+		"set_staff_cap caps a lot and restaffs at once")
+	t.ok(not s.set_staff_cap("lot-09", 1) and not s.buildings.has("lot-09"), "set_staff_cap: false on an empty lot, nothing changes")
+	s.set_staff_cap("lot-04", -1)
+	s.workers = 3.0
+	s.restaff()
+	t.ok(_staffed(s, "stall") == 2.0 and _staffed(s, "pit") == 1.0 and s.buildings["lot-03"]["state"] == "idle",
+		"restaff refills the slots from a changed workforce (and marks the unstaffed idle)")
+	t.ok(s.pits() == 1, "pits(): the working pits")
+	s.place_building("lot-05", "raising_pit", 2)
+	t.ok(s.pits() == 3, "a level-2 pit counts 2")
+	t.ok(s.lot_slots("lot-02") == 2 and s.lot_slots("lot-05") == 4 and s.lot_slots("lot-01") == 0 and s.lot_slots("lot-09") == 0,
+		"lot_slots: jobs × level; none for the crypt or an empty lot")
+	s.start_construction("lot-06", "house", 1)
+	t.ok(s.lot_slots("lot-06") == int(_eco("job")["build"]["slots"]), "a construction offers the build slots")
+	var full := _sim()
+	var burn := float(_eco("pit")["burn_per_s"])
+	t.ok(full.lot_output("lot-02", 6.0, 0.0) == {"mint": 6.0, "burn": burn}, "a staffed pit: {mint: P_per_pit, burn}")
+	t.ok(full.lot_output("lot-04", 6.0, 0.0) == {"gold": minf(2.0 * float(_eco("stall")["rate"]), 10.0 * float(_eco("market")["shop_rate"])) * float(_eco("market")["price"])},
+		"the market: its stalls' sales × price")
+	t.ok(full.lot_output("lot-03", 6.0, 1.5) == {"bodies": 1.5} and full.lot_output("lot-01", 6.0, 1.5) == {} and full.lot_output("lot-09", 6.0, 1.5) == {},
+		"the haulers: the trip-averaged haul; the crypt and an empty lot: none")
+	full.set_staff_cap("lot-02", 1)
+	t.ok(full.lot_output("lot-02", 6.0, 0.0) == {"mint": 6.0, "burn": burn * 0.5}, "a half-staffed pit burns half")
+	full.place_building("lot-05", "bone_mill", 1)
+	full.place_building("lot-13", "inn", 1)
+	full.place_building("lot-14", "forge", 1)
+	full.workers = 20.0
+	full.restaff()
+	var mill := float(_eco("job")["mill"]["mass_per_s"]) * float(_eco("job")["mill"]["rate"])
+	t.ok(full.lot_output("lot-05", 6.0, 0.0) == {"bone": 2.0 * mill} and full.lot_output("lot-13", 6.0, 0.0) == {"living": float(_base["buildings"]["inn"]["effects"]["attract"])}
+		and full.lot_output("lot-14", 6.0, 0.0) == {"forge": 2.0 * float(_eco("job")["forge"]["rate"])}, "a mill {bone}, an inn {living}, a forge {forge}")
+	full.buildings["lot-04"]["state"] = "unpaid"
+	t.ok(full.lot_output("lot-04", 6.0, 0.0) == {}, "an unpaid building gives no output")
+
+
 func _soak() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7

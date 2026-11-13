@@ -41,8 +41,9 @@ func _flip(s: GameState, fort: String, loot_over := {}) -> Dictionary:
 	return res
 
 
-## A state with something in every block: stores, settings, big undead and a party with fronts, a
-## flipped fort, village owners, a convoy, Relish on the road, and the E2/E3 placeholders.
+## A state with something in every block: TownSim's stocks, buildings (an extra one, a staff cap, a
+## construction whose building_started is still pending), settings, big undead and a party with
+## fronts, a flipped fort, village owners, a convoy, Relish on the road, and the E2/E3 placeholders.
 func _rich(seed_val := 1) -> GameState:
 	var s := _mk(seed_val)
 	s.cmd_debug_grant({"gold": 120.5, "bone": 40.25, "bodies": 30.0, "husks": 2, "remnants": 3,
@@ -51,9 +52,9 @@ func _rich(seed_val := 1) -> GameState:
 	s.cmd_set_stance("harvest", true)
 	s.cmd_set_job_priority(["haul", "build", "pit", "stall", "mill", "forge", "tend"])
 	s.cmd_set_staff_cap("lot-03", 2)
-	s.town["vats"] = 2
+	s.clones_ready = 2
 	s.cmd_staff_vat(1, true)
-	s.apply_town_result({"assignments": {"trade": 1, "forge": 0, "jobs": 1, "gather": 1, "slab": 0}, "idle_undead": 3})
+	s.town_sim.place_building("lot-05", "house", 1)
 	s.cmd_set_haul_target("ashgate")
 	var bus: Array = s.view_big_undead()["big_undead"]
 	s.cmd_place_big_undead(bus[2]["uid"], "town:lot-04")
@@ -70,6 +71,7 @@ func _rich(seed_val := 1) -> GameState:
 	s._stance_hold = {"harvest": 12.5}
 	s.cmd_move_relish("vei")
 	s.tick(1.0)
+	s.town_sim.start_construction("lot-06", "well", 1)  # its building_started is pending until a step
 	s._readout = {"diff_ema": -0.25, "q_raise_ema": 1.5}  # after the last tick, which moves diff_ema
 	s.cmd_set_time_scale(1.0)
 	s.towns[0]["control"] = "green"  # after the last tick, which would recompute them from the field
@@ -95,8 +97,8 @@ func _slot_path(slot: String) -> String:
 
 ## Every view but the live field and the seeds, `rev` stripped, village dominance dropped (A6), and
 ## the session-only values (STATE-API §9.1) dropped: the last substep's split, mint rate and raw
-## diff, the two lanes out of Covington's session rates (FLOOD to Vei, WAR fallen through), and the
-## lane callouts (a lane shown only for its callout goes too).
+## diff, view_rates' mint, work, war and flood, the lanes out of Covington's session rates (FLOOD and
+## WAR fallen through to Vei, WORK), and the lane callouts (a lane shown only for its callout goes too).
 func _views(s: GameState) -> Dictionary:
 	var out := {}
 	for name in ApiSchema.VIEWS:
@@ -114,9 +116,11 @@ func _views(s: GameState) -> Dictionary:
 	out["view_hud"].erase("split")
 	out["view_hud"]["rates"][0].erase("rate")
 	out["view_vei"].erase("diff")
+	for id in ["mint", "work", "war", "flood"]:
+		out["view_rates"]["rates"].erase(id)
 	var lanes: Array = []
 	for l in out["view_lanes"]["lanes"]:
-		if l["rate"] > 0.0 and not (l["from"] == "covington" and l["to"] == "vei"):
+		if l["rate"] > 0.0 and not (l["from"] == "covington" and (l["to"] == "vei" or l["to"] == "covington")):
 			l.erase("why")
 			lanes.append(l)
 	out["view_lanes"]["lanes"] = lanes
@@ -219,7 +223,15 @@ func _round_trip() -> void:
 	t.ok(b.towns[0]["control"] == "green" and b.towns[1]["control"] == "orange" and b.green_towns == 1, "village owners come back from `villages`")
 	t.ok(not text.contains("in_dungeon") and not text.contains("in_boss") and not text.contains("debug_enabled")
 		and not text.contains("time_scale") and not text.contains("paused") and not text.contains("\"rev\""), "session-only fields are not saved")
-	t.ok(d["seed"] is String and d["rng"] is String and d["v"] == 1 and d["api_version"] == GameState.API_VERSION, "seed and rng are strings; v and api_version")
+	t.ok(d["seed"] is String and d["rng"] is String and d["v"] == 2 and d["api_version"] == GameState.API_VERSION, "seed and rng are strings; v and api_version")
+	t.ok(not d.has("legacy") and d["town"]["pending"].size() == 1 and d["town"]["work_pending"] > 0.0
+		and d["town"]["haul"]["target"] == "ashgate" and d["backups"]["clones_ready"] == 2, "v2: no legacy block; the town block holds TownSim, its pending event, the WORK in flight and the haul target")
+	var built: Array = b.view_town()["buildings"].map(func(x): return [x["lot_id"], x["state"], x["staff_cap"]])
+	t.ok(built.has(["lot-03", "active", 2]) and built.has(["lot-06", "constructing", -1]) and built.size() == 6,
+		"the loaded town: its buildings, a staff cap and the construction (%s)" % str(built))
+	b.tick(0.5)
+	t.ok(b.drain_events().any(func(e): return e["type"] == "building_started" and e["lot_id"] == "lot-06" and e["upgrade"] == false),
+		"the pending building_started comes out of the loaded state's first substep, with upgrade")
 	# the generator state survives: the same next number from a loaded copy
 	var fresh := _rich()
 	var e := GameState.new(TestUtil.configs())
@@ -261,9 +273,10 @@ func _in_place_and_ints() -> void:
 	# ints come back as ints
 	var d := s.to_dict()
 	for pair in [["next_run_id", d["next_run_id"]], ["next_uid", d["next_uid"]], ["relics", d["inventory"]["relics"]],
-			["essence", d["inventory"]["essence"]], ["slabs", d["legacy"]["town"]["slabs"]],
-			["idle_undead", d["legacy"]["idle_undead"]], ["raids", d["stats"]["raids"]],
-			["staff cap", d["town"]["staff_caps"]["lot-03"]], ["level", d["town"]["lots"][0]["level"]],
+			["essence", d["inventory"]["essence"]], ["forge level", d["town"]["forge"]["level"]],
+			["clones", d["backups"]["clones_ready"]], ["raids", d["stats"]["raids"]],
+			["staff cap", d["town"]["buildings"][2]["staff_cap"]], ["level", d["town"]["buildings"][0]["level"]],
+			["build level", d["town"]["buildings"][0]["build_level"]],
 			["flipped", d["realm"]["forts"][1]["flipped_count"]], ["magnitude", d["inventory"]["remnants"][0]["magnitude"]],
 			["applied run", d["applied_runs"][0]]]:
 		t.ok(typeof(pair[1]) == TYPE_INT, "%s is an int after a load" % pair[0])
@@ -365,8 +378,17 @@ func _bad_files() -> void:
 	zero["v"] = 0
 	_write(_slot_path("zero"), JSON.stringify(zero))
 	var broken := s.to_dict()
-	broken.erase("legacy")
+	broken["town"].erase("workers")
 	_write(_slot_path("broken"), JSON.stringify(broken))
+	var bstate := s.to_dict()
+	bstate["town"]["buildings"][0]["state"] = "melting"
+	_write(_slot_path("bstate"), JSON.stringify(bstate))
+	var bconvoy := s.to_dict()
+	bconvoy["town"]["haul"]["convoys"] = [{"fort": "nowhere", "phase": "out", "t": 0.5, "trip_s": 2.0, "load": 0.0, "crew": 3.0}]
+	_write(_slot_path("bconvoy"), JSON.stringify(bconvoy))
+	var bmorale := s.to_dict()
+	bmorale["town"]["morale"] = "high"
+	_write(_slot_path("bmorale"), JSON.stringify(bmorale))
 	var typed := s.to_dict()
 	typed["realm"]["forts"][0]["living"] = "lots"
 	_write(_slot_path("typed"), JSON.stringify(typed))
@@ -381,7 +403,8 @@ func _bad_files() -> void:
 	_write(_slot_path("partym"), JSON.stringify(partym))
 	var before := s.to_dict()
 	var rv := s.rev
-	for slot in ["garbage", "array", "string", "nov", "empty", "strv", "broken", "typed", "node", "fortset", "partym", "missing"]:
+	for slot in ["garbage", "array", "string", "nov", "empty", "strv", "broken", "bstate", "bconvoy", "bmorale", "typed", "node",
+			"fortset", "partym", "missing"]:
 		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "no_save"}, "%s is no_save" % slot)
 	for slot in ["future", "zero"]:
 		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version"}, "%s is bad_version" % slot)
@@ -603,9 +626,13 @@ func _fixtures() -> void:
 	var day1 := _load_fixture("day1")
 	var fresh := _mk(1)
 	t.ok(day1.to_dict() == fresh.to_dict() and day1.t == 0.0, "day1 is cmd_new_game(1) at t = 0")
-	t.ok(day1.res["gold"] == 30.0 and day1.res["materials"] == 12.0 and day1.idle_undead == 6, "day1 keeps the legacy start stocks at E1")
+	var d1 := day1.town_sim
+	t.ok([d1.gold, d1.bone, d1.bodies, d1.workers, d1.living, d1.living_cap()] == [80.0, 30.0, 40.0, 12.0, 10.0, 16.0]
+		and d1.buildings.size() == 4, "day1 is BALANCE §0: 80/30/40, 12 workers, 10 living of 16, the 4 start buildings")
 	var m := _load_fixture("midgame_2flips")
 	t.ok(m.t > 3300.0 and m.t < 3900.0 and m.town_tier == "village", "midgame: about 1 h in, village tier (t=%f)" % m.t)
+	t.ok(m.view_town()["next_tier"]["have"] >= 6 and m.town_sim.buildings.has("lot-05") and m.town_sim.buildings["lot-05"]["building_id"] == "house",
+		"midgame: a village's buildings, a house among them")
 	var held := 0
 	for id in ["old-sluice", "ashgate"]:
 		var f := m.realm.fort_by_id(id)
@@ -621,10 +648,14 @@ func _fixtures() -> void:
 	var places: Array = m.big_undead.map(func(b): return b["place"])
 	places.sort()
 	t.ok(places == ["crypt", "fort:ashgate", "town:lot-04"], "midgame: crypt, foreman and siege: %s" % str(places))
-	t.ok(m.town["forge_level"] == 1 and m.relics == 3 and m.essence == 14, "midgame: forge 1, relics 3, essence 14")
-	t.ok(m.gather["phase"] == "out" and m.view_town()["haul"]["convoys"].size() == 1, "midgame: a haul convoy in flight")
+	t.ok(m.town_sim.forge["level"] == 1 and m.relics == 3 and m.essence == 14, "midgame: forge 1, relics 3, essence 14")
+	t.ok(m.town_sim.haul["convoys"].size() == 1 and m.view_town()["haul"]["convoys"].size() == 1, "midgame: a haul convoy in flight")
 	var v := _load_fixture("pre_vei")
 	t.ok(v.t > 10000.0 and v.town_tier == "city" and not v.won, "pre_vei: about 3 h in, city, not won (t=%f)" % v.t)
+	var vt := v.view_town()
+	t.ok(vt["next_tier"]["have"] >= 20 and vt["buildings"].all(func(x): return x["state"] != "unpaid")
+		and ["walls", "chapel_of_vats", "reliquary"].all(func(id): return vt["lots"].any(func(l): return l["building_id"] == id)),
+		"pre_vei: a city of 20 buildings (Walls, a Chapel of Vats, the Reliquary), none unpaid")
 	t.near(v.view_vei()["odds"], 0.6, 0.005, "pre_vei: odds about 0.6")
 	t.ok(v.party_uids.size() == 4 and v.big_undead.all(func(b): return b["front"] != "" and b["place"] == "party"), "pre_vei: a party of 4, each on a front")
 	t.ok(v._phylactery_charges == 1 and v.view_backups()["clones_ready"] == 1, "pre_vei: 1 phylactery charge, 1 clone ready")
@@ -670,7 +701,7 @@ func _migrate() -> void:
 	m["relish"]["at"] = "x"
 	t.ok(d["relish"]["at"] != "x", "the copy is deep")
 	var up := d.duplicate(true)
-	up["v"] = 1.0
+	up["v"] = float(GameState.SAVE_VERSION)
 	t.ok(GameState.migrate(up) == d and typeof(GameState.migrate(up)["v"]) == TYPE_INT, "a float v is restored to an int")
 	for bad in [0, -1, GameState.SAVE_VERSION + 1, 1.5, "1", null]:
 		var x := d.duplicate(true)

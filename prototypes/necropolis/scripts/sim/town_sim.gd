@@ -274,6 +274,28 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 	return {"ok": true, "reason": ""}
 
 
+## The player's job order, top first (a permutation of JOBS; GameState checks it), then a restaff.
+func set_ladder(order: Array) -> void:
+	ladder = []
+	for j in order:
+		ladder.append(str(j))
+	_restaff()
+
+
+## A lot's staff cap (-1 = none), then a restaff. False (nothing changes) for a lot with no building.
+func set_staff_cap(lot_id: String, cap: int) -> bool:
+	if not buildings.has(lot_id):
+		return false
+	buildings[lot_id]["staff_cap"] = cap
+	_restaff()
+	return true
+
+
+## Refills the job slots after GameState changed a stock directly (a debug grant of workers).
+func restaff() -> void:
+	_restaff()
+
+
 ## A death shock (E3 calls it). Each working building with `death_shock_mult` (the Statue)
 ## multiplies it by that, per level.
 func add_shock(x: float) -> void:
@@ -743,6 +765,56 @@ func _sum_built(key: String) -> float:
 
 func body_cap() -> float:
 	return _body_cap + _sum_built("body_cap")
+
+
+## Working pits now: the mint's `pits` before a step has run (step() reports the same count).
+func pits() -> int:
+	return int(_sum_working("pits"))
+
+
+## The job slots a lot offers now (build slots while constructing, none while unpaid); 0 when empty.
+func lot_slots(lot_id: String) -> int:
+	var b: Dictionary = buildings.get(lot_id, {})
+	var n := 0
+	if not b.is_empty():
+		for job in JOBS:
+			n += _slots(b, job)
+	return n
+
+
+## view_town's `output` for a lot (STATE-API §5.9): per second, at the current staffing. A pit gives
+## {mint: mint_per_pit · pits, burn: pit.burn_per_s · pits · its staffed share}; stalls {gold}, their
+## share of the town's sales; millers {bone}; haulers {bodies}, their share of `haul_rate` (the
+## trip-averaged haul, which GameState passes in with the realm's P_per_pit); smiths {forge} (work/s,
+## while a forge level is left); an inn {living} (its migrants). {} while constructing or unpaid.
+func lot_output(lot_id: String, mint_per_pit: float, haul_rate: float) -> Dictionary:
+	var b: Dictionary = buildings.get(lot_id, {})
+	var out := {}
+	if b.is_empty() or not WORKING.has(b["state"]):
+		return out
+	var st: Dictionary = _by_lot.get(lot_id, {})
+	var p := _eff(b, "pits")
+	if p > 0.0:
+		var slots := _slots(b, "pit")
+		var frac := 1.0 if slots <= 0 else float(st.get("pit", 0.0)) / slots
+		out["mint"] = mint_per_pit * p
+		out["burn"] = _burn * p * frac
+	var stall := float(st.get("stall", 0.0))
+	if stall > 0.0:
+		out["gold"] = minf(_job("stall") * _stall_rate, living * _shop_rate) * _price * (stall / _job("stall"))
+	var mill := float(st.get("mill", 0.0))
+	if mill > 0.0:
+		out["bone"] = mill * _mill_mass * _mill_rate
+	var haul_n := float(st.get("haul", 0.0))
+	if haul_n > 0.0:
+		out["bodies"] = haul_rate * (haul_n / _job("haul"))
+	var smiths := float(st.get("forge", 0.0))
+	if smiths > 0.0 and int(forge["level"]) < _forge_work.size():
+		out["forge"] = smiths * _forge_rate
+	var attract := _eff(b, "attract")
+	if attract > 0.0:
+		out["living"] = attract
+	return out
 
 
 ## opening.living_cap (the crypt district's huts) plus housing.

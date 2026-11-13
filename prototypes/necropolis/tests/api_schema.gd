@@ -283,7 +283,7 @@ const SAVE := {
 	"realm": D, "villages": [{"id": S, "owner": S}], "town": D, "stances": D, "inventory": D,
 	"big_undead": [D], "party": [S], "backups": D, "readout": {"diff_ema": F, "q_raise_ema": F},
 	"ledger": {"sources": {"*": F}, "sinks": {"*": F}},
-	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I}, "legacy": D,
+	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I},
 	"cleared_forts": [S], "first_dungeon": S,
 }
 ## Methods on GameState besides the commands and views (§1.5).

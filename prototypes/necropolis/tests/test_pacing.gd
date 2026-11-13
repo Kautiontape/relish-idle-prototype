@@ -3,8 +3,8 @@ extends RefCounted
 ## q lands more undead at Vei, nothing goes negative, idle base minting doesn't win quickly. The
 ## active-model curve is printed as information; pacing gates are IDLE §8's and move to the E3
 ## autoplayer (BALANCE §1's thresholds are retired).
-## Active model: slabs every ~24 min (the interim legacy mint, P_base + P_per_slab · slabs), the
-## opening valve, q rising, a raid every 2.5 min with Relish's tide on the raided fort, and four
+## Active model: a pit every ~24 min (the mint P_base + P_per_pit · pits, its feed bonus left out),
+## the opening valve, q rising, a raid every 2.5 min with Relish's tide on the raided fort, and four
 ## simulacra kept deployed.
 
 
@@ -32,7 +32,7 @@ func run() -> int:
 	var all := TestUtil.configs()
 	var cfg: Dictionary = all["realm"]
 	var v: Dictionary = all["economy"]["opening"]["valve"]
-	var base_mint: float = float(cfg["P_base"]) + float(cfg["P_per_slab"])  # one slab, no slab bonus
+	var base_mint: float = float(cfg["P_base"]) + float(cfg["P_per_pit"])  # one pit, no feed bonus
 
 	# --- doing nothing must not win the game ---------------------------------
 	var sim := _mk()
@@ -53,8 +53,8 @@ func run() -> int:
 	for i in 3600 * 2 * 4:  # 4 sim-hours at dt 0.5
 		var dt := 0.5
 		var h: float = sim2.elapsed / 3600.0
-		var slabs: int = 1 + mini(7, int(h * 2.5))
-		var mint: float = float(cfg["P_base"]) + float(cfg["P_per_slab"]) * slabs
+		var pits: int = 1 + mini(7, int(h * 2.5))
+		var mint: float = float(cfg["P_base"]) + float(cfg["P_per_pit"]) * pits
 		sim2.step(dt, {"war": mint * float(v["war"]), "flood": mint * float(v["flood"]),
 			"digest_q": minf(3.0, 1.2 + 0.45 * h), "tide_fort": raid_fort,
 			"tide_bias": float(cfg["relish"]["tide_bias"])})

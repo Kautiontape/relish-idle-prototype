@@ -1,6 +1,6 @@
 extends RefCounted
-## GameState: what is real at E1 behind the remaining commands (STATE-API §4.2-4.4) and
-## the views that echo them (§5). Key sets and types are test_api_contract's job; this
+## GameState: what is real behind the remaining commands (STATE-API §4.2-4.4) and the views
+## that echo them (§5). Key sets and types are test_api_contract's job; this
 ## suite checks behaviour and reasons. Headless, no autoloads.
 
 ## STATE-API §1.4's building ids, in order.
@@ -94,17 +94,16 @@ func _haul() -> void:
 	t.ok(s.view_town()["haul"] == {"target": "auto", "current": "", "convoys": []}, "haul target auto, no convoy at the start")
 	var r := s.cmd_set_haul_target("greywall")
 	t.ok(r == {"ok": true, "reason": "", "haul_target": "greywall"}, "a fort id is accepted")
-	t.ok(s.gather["target"] == "greywall" and s.view_town()["haul"]["target"] == "greywall", "it sets the legacy target and is echoed")
-	s.assignments["gather"] = 1
-	s.tick(1.0)  # the convoy leaves on the first substep and moves on the second
+	t.ok(s.haul_target == "greywall" and s.view_town()["haul"]["target"] == "greywall", "it is stored and echoed")
+	s.tick(1.0)  # the Charnel House's haulers leave on the first substep and move on the second
 	var hv: Dictionary = s.view_town()["haul"]
-	t.ok(s.gather["phase"] == "out" and s.gather["target"] == "greywall", "the legacy convoy honours it")
+	t.ok(s.town_sim.haul["convoys"].size() == 1 and s.town_sim.haul["convoys"][0]["fort"] == "greywall", "TownSim's convoy honours it")
 	t.ok(hv["current"] == "greywall" and hv["convoys"].size() == 1 and hv["convoys"][0]["to"] == "greywall"
 		and hv["convoys"][0]["from"] == "covington" and hv["convoys"][0]["phase"] == "out", "the convoy shows in view_town")
 	t.ok(hv["convoys"][0]["t"] > 0.0 and hv["convoys"][0]["t"] < 1.0, "trip progress is between 0 and 1")
 	r = s.cmd_set_haul_target("auto")
-	t.ok(r["ok"] and r["haul_target"] == "auto" and s.gather["target"] == "" and s.view_town()["haul"]["target"] == "auto",
-		"auto clears the legacy target (the convoy picks the richest fort)")
+	t.ok(r["ok"] and r["haul_target"] == "auto" and s.view_town()["haul"]["target"] == "auto"
+		and s.view_town()["haul"]["current"] == "greywall", "auto is stored; the convoy out finishes its trip")
 	var rv := s.rev
 	for bad in ["nope", "covington", "vei", "", "bellwether"]:
 		t.ok(s.cmd_set_haul_target(bad) == {"ok": false, "reason": "unknown_fort", "haul_target": ""}, "haul target '%s': unknown_fort" % bad)
@@ -145,12 +144,12 @@ func _staff_caps() -> void:
 	var b := _bld(s, "lot-03")
 	t.ok(b["building_id"] == "charnel_house" and b["slots"] == 3 and b["staffed"] == 3.0 and b["staff_cap"] == -1,
 		"charnel house: 3 haul slots, full, no cap")
-	s.cmd_debug_grant({"workers": 6})  # the live stores: 6 idle at the start, so 12 workers in all
-	t.near(s.view_town()["workers"]["idle"], 5.0, 1e-9, "12 workers fill 7 slots, 5 idle")
+	t.near(s.view_town()["workers"]["idle"], 5.0, 1e-9, "BALANCE §0's 12 workers fill 7 slots, 5 idle")
 	var r := s.cmd_set_staff_cap("lot-03", 1)
 	t.ok(r == {"ok": true, "reason": "", "cap": 1}, "cap 1 accepted")
 	b = _bld(s, "lot-03")
-	t.ok(b["staff_cap"] == 1 and b["staffed"] == 1.0, "the cap is echoed and limits the staffing")
+	t.ok(b["staff_cap"] == 1 and b["staffed"] == 1.0 and s.town_sim.buildings["lot-03"]["staff_cap"] == 1,
+		"the cap is echoed, is TownSim's and limits the staffing")
 	t.near(s.view_town()["workers"]["idle"], 7.0, 1e-9, "the freed workers idle")
 	t.ok(s.cmd_set_staff_cap("lot-03", 9)["cap"] == 9 and _bld(s, "lot-03")["staffed"] == 3.0, "a cap above the slots is accepted (effective min)")
 	t.ok(s.cmd_set_staff_cap("lot-03", 0)["ok"] and _bld(s, "lot-03")["staffed"] == 0.0, "cap 0 empties it")
@@ -346,12 +345,12 @@ func _vats() -> void:
 	t.ok(v["vats"] == [] and v["clones_ready"] == 0 and v["phylactery_charges"] == 0 and v["phylactery_max_per_dungeon"] == 1,
 		"no vats, no backups")
 	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": 0.0, "loses": ["unbanked_loot", "morale"]},
-		"a death now: unmade (legacy rule, immediate respawn at E1)")
-	s.town["vats"] = 2
+		"a death now: unmade (the E1-safe rule, an immediate respawn until E3)")
+	s.clones_ready = 2
 	t.ok(s.cmd_staff_vat(1, true) == {"ok": true, "reason": "", "staffed": true}, "staff vat 1")
 	v = s.view_backups()
 	t.ok(v["clones_ready"] == 2 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
-		{"slot": 1, "staffed": true, "grow": 1.0, "ready": true}], "legacy vats are ready clones; staffing echoed")
+		{"slot": 1, "staffed": true, "grow": 1.0, "ready": true}], "each ready clone is a ready vat until E3; staffing echoed")
 	t.ok(v["death"]["outcome"] == "clone" and v["death"]["loses"] == ["unbanked_loot"], "with a clone: no morale shock")
 	s.cmd_debug_grant({"big_undead": 1})
 	s.cmd_set_party([s.big_undead[0]["uid"]])
@@ -379,13 +378,17 @@ func _town_views() -> void:
 	var m := _bld(s, "lot-04")
 	t.ok(m["building_id"] == "market" and m["level"] == 1 and m["state"] == "active" and m["progress"] == 1.0
 		and m["slots"] == 2 and m["upkeep"] == {"gold": 0.03, "bone": 0.0} and m["foreman"] == "", "the small market (2 stalls)")
-	t.ok(v["gold"] == s.res["gold"] and v["bone"] == s.res["materials"] and v["bodies"] == s.res["bodies"]
-		and v["bodies_cap"] == 200.0, "the stocks are the live legacy stores (§5.9)")
-	t.ok(v["workers"]["total"] == float(s.idle_undead) and v["workers"]["lifetime_s"] == 480.0
-		and v["living"] == s.res["townsfolk"] and v["living_cap"] == 16.0, "workers and living are live too")
+	t.ok(m["output"] == {"gold": 0.3}, "its output: min(2 · 0.15, 10 · 0.03) gold/s (%s)" % str(m["output"]))
+	t.ok(_bld(s, "lot-02")["output"] == {"mint": 6.0, "burn": 0.6} and _bld(s, "lot-01")["output"] == {},
+		"the pit: P_per_pit mint and its burn; the crypt: none")
+	var ts := s.town_sim
+	t.ok(v["gold"] == ts.gold and v["bone"] == ts.bone and v["bodies"] == ts.bodies and v["bodies_cap"] == 200.0
+		and [v["gold"], v["bone"], v["bodies"]] == [80.0, 30.0, 40.0], "the stocks are TownSim's, BALANCE §0's 80/30/40 (§5.9)")
+	t.ok(v["workers"]["total"] == 12.0 and v["workers"]["total"] == ts.workers and absf(v["workers"]["lifetime_s"] - 480.0 / 0.7) < 1e-9
+		and v["living"] == 10.0 and v["living_cap"] == 16.0, "12 workers, living 10 of 16; Relish home: lifetime 480 / 0.7")
 	s.cmd_debug_grant({"gold": 50.0, "bone": 18.0, "bodies": 40.0, "workers": 6, "living": 2})
 	var vg: Dictionary = s.view_town()
-	t.ok(vg["gold"] == 80.0 and vg["bone"] == 30.0 and vg["bodies"] == 40.0 and vg["workers"]["total"] == 12.0 and vg["living"] == 12.0,
+	t.ok(vg["gold"] == 130.0 and vg["bone"] == 48.0 and vg["bodies"] == 80.0 and vg["workers"]["total"] == 18.0 and vg["living"] == 12.0,
 		"a debug grant shows up in view_town")
 	var hg: Array = s.view_hud()["rates"]
 	t.ok(hg[3]["stock"] == vg["gold"] and hg[4]["stock"] == vg["bone"] and hg[2]["stock"] == vg["bodies"]
@@ -394,8 +397,8 @@ func _town_views() -> void:
 	t.ok(v["relish_home"], "relish_home")
 	var hud := s.view_hud()
 	t.ok(_ids(hud["rates"]) == GameState.HUD_RATE_IDS, "view_hud.rates follow HUD_RATE_IDS")
-	t.ok(hud["rates"][3]["stock"] == s.res["gold"] and hud["rates"][4]["stock"] == s.res["materials"]
-		and hud["rates"][1]["stock"] == float(s.idle_undead), "view_hud stocks are the legacy res (§5.1)")
+	t.ok(hud["rates"][3]["stock"] == ts.gold and hud["rates"][4]["stock"] == ts.bone
+		and hud["rates"][1]["stock"] == ts.workers, "view_hud stocks are TownSim's (§5.1)")
 	t.ok(hud["rates"][0]["stock"] == -1.0 and hud["rates"][0]["cap"] == -1.0 and hud["rates"][2]["cap"] == 200.0
 		and hud["rates"][5]["cap"] == 16.0, "mint has no stock or cap; bodies and living are capped")
 	t.ok(hud["relics_cap"] == 12 and hud["essence_cap"] == 60 and hud["won"] == false, "caps and won")
@@ -428,11 +431,11 @@ func _town_views() -> void:
 			if e["building_id"] == "house":
 				return e["reason"]
 		return "?"
-	s.res["gold"] = 10.0
-	t.ok(house.call() == "no_gold", "view_catalog no_gold reads the live gold")
-	s.res["gold"] = 80.0
-	s.res["materials"] = 5.0
-	t.ok(house.call() == "no_bone", "view_catalog no_bone reads the live bone (res.materials)")
+	ts.gold = 10.0
+	t.ok(house.call() == "no_gold", "view_catalog no_gold reads TownSim's gold")
+	ts.gold = 80.0
+	ts.bone = 5.0
+	t.ok(house.call() == "no_bone", "view_catalog no_bone reads TownSim's bone")
 
 
 ## buildings.json: the shape every entry has, and values the views rely on.

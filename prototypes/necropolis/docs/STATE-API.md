@@ -22,7 +22,8 @@ from `BALANCE.md` §0.
   - `E3`: stances, backups, Vei fronts.
   - `E1/E2` (or `E1/E3`): recorded and echoed at E1, with its sim effect at the later milestone.
 - **E1 stubs.** Setting commands store the setting and echo it in views:
-  - `cmd_set_valve`, `cmd_set_haul_target`, `cmd_set_job_priority`, `cmd_set_staff_cap`;
+  - `cmd_set_valve`, `cmd_set_haul_target`, `cmd_set_job_priority`, `cmd_set_staff_cap` (live
+    from E2a: the valve and TownSim act on them);
   - `cmd_set_stance`, `cmd_staff_vat`, `cmd_assign_front`.
 
   Action commands (build, upgrade, demolish, cancel, raise, craft, deploy) run their id checks
@@ -66,7 +67,7 @@ from `BALANCE.md` §0.
 ### 1.4 Constants on `GameState`
 ```gdscript
 const API_VERSION := 1
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
 const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
@@ -110,6 +111,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
 | `legacy_teleport_relish(node_id: String) -> Dictionary` | **Not contract**; §2.2. |
+| `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
+| `var town_sim: TownSim` | Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator read it; scenes use the views. |
 
 ## 2. The `Game` shell (`autoload/game.gd`)
 
@@ -163,24 +166,50 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
 
 ### 2.2 Legacy (will be removed)
 **New code must use views and commands.** These members exist only so unported scenes keep running.
-Each is deleted when its last reader is ported. From E2 the forwarders are filled from the new state
-as a best effort, and writes to them are ignored; `time_scale` is the exception.
+Each is deleted when its last reader is ported. From E2a (T2.3b) the forwarders are filled from the
+new state as a best effort, and writes to them are ignored; `time_scale` is the exception.
 
 | member on `Game` | forwards to | today's readers |
 |---|---|---|
 | `realm: RealmSim` | `state.realm`, a live object replaced on new game or load, so re-read it on every use | map_nodes, map_routes, world_map, shot |
 | `field: InfluenceField` | `state.field` (same caveat) | world_map, map_field_view |
 | `towns: Array` | legacy village list (`{id, name, pos: Vector2, pop, control: green\|orange\|none}`) | map_nodes, world_map |
-| `res`, `army`, `town`, `assignments`, `idle_undead`, `gather`, `won` | the legacy fields of the same names (writes pass through at E1 for shot.gd) | world_map, map_routes, shot |
+| `res`, `army`, `town`, `assignments`, `idle_undead`, `gather` | fresh dicts from `state.legacy_stores()`, rebuilt on every read (below); writes change nothing | world_map, map_routes |
+| `won` | `state.won` | world_map |
 | `time_scale: float` | get: `state.time_scale`. Set: writes `state.time_scale` **unvalidated** (any value > 0). Keeps working in release builds; used by the map's ×1/×10/×60 buttons and `--speed=`. | world_map, shot |
-| `quality() -> float` | the legacy `q` | world_map |
+| `quality() -> float` | `state.quality()`, which is `digest_q()` | world_map |
 | `raiding_fort_id() -> String` | the active raid run's fort id, or `""` | map_nodes, shot |
-| `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()` | legacy seed dicts | the router, for unported scenes (§2.3) |
-| `apply_town_result(r)` | the legacy town result | the router, for an unported town scene |
+| `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()` | `state`'s compatibility members (below) | the router, for unported scenes (§2.3) |
+| `apply_town_result(r)` | `state.apply_town_result(r)`, a no-op from E2a | the router, for an unported town scene |
+
+**`legacy_stores()`** (E2a, what `Game`'s legacy getters read): the E1 stores rebuilt from TownSim and
+the backups stock, every count an `int`:
+- `res = {gold, materials: bone, bodies, townsfolk: living}`;
+- `army = {soldier: 0, elite: 0}` (the army is gone);
+- `town = {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0}`;
+- `assignments`: staffed workers per old job, rounded: `trade` (stall), `forge`, `jobs` (build),
+  `gather` (haul), `slab` (pit); `idle_undead`: idle workers, rounded;
+- `gather = {target, phase, eta, load}`: TownSim's convoy (`eta = (1 − t) · trip_s`), or phase `idle`
+  with the set haul target (`""` for `auto`) when none is out.
+
+**Compatibility members on `GameState`** (not contract; each is marked `# legacy: delete when map
+drops the call` and goes when the map unit drops its call):
+
+| member | E2a behaviour | why it stays |
+|---|---|---|
+| `raid_seed(fort_id)` | the pre-E1 raid seed keys (`fort_id, name, tier, cap, living, undead, dead, boss: false, quality`) from the live fort and `q`; `{}` for an unknown fort | `scripts/main.gd` merges it into an unported dungeon's args |
+| `boss_seed()` | the pre-E1 boss seed keys, with `quality`, `backlog`, `vei_capacity` and `odds` live and `army: {soldier: 0, elite: 0}` | `scripts/main.gd` merges it into an unported boss's args |
+| `town_snapshot()` | `{}` (the town reads views) | `scripts/main.gd` merges it into the town's args |
+| `apply_town_result(r)` | a no-op (town actions are commands) | `scripts/main.gd` calls it for a legacy town result |
+| `legacy_stores()` | above | `Game`'s getters (world_map, map_routes) |
+| `quality()` | `digest_q()` | `Game.quality()` (world_map) |
 
 **Removed at E1** (replaced by commands): `new_game`, `begin_raid`, `end_raid`, `apply_raid_result`,
 `auto_resolve_raid`, `apply_boss_result`, `auto_resolve_boss`. shot.gd's cheats move to
-`cmd_debug_*`.
+`cmd_debug_*` (from E2a `--cheat=boss` no longer writes `Game.army`).
+
+**Removed at E2a:** `scripts/sim/legacy_economy.gd` (`LegacyEconomy`) and `GameState`'s `legacy`, `res`,
+`army`, `town`, `assignments`, `idle_undead` and `gather` members. TownSim is the town.
 
 **`GameState.legacy_teleport_relish(node_id: String) -> {ok, reason}`** is not contract:
 - It puts Relish, alive, at the node at once, with state `home`, `at_fort` or `at_vei`.
@@ -205,7 +234,7 @@ signal finished(result: Dictionary)
   keys into `args`:
   - dungeon: `Game.raid_seed(id)`;
   - boss: `Game.boss_seed()`;
-  - town: `Game.town_snapshot()`.
+  - town: `Game.town_snapshot()` (`{}` from E2a: the town reads views).
 
   Ported scenes ignore unknown `args` keys.
 - **`teleport_to`** names the node whose scene opens next; `""` means the map. With `v: 2` it never
@@ -289,8 +318,10 @@ order, effect, example. Every command also returns `ok` and `reason`.
 **`cmd_new_game(seed: int)` · E1**
 - **Reasons:** `busy` (a dungeon or boss run is open).
 - **Effect:**
-  - Rebuilds the BALANCE §0 start state from configs, in place. E1: the legacy start stocks (gold 30,
-    bone 12, bodies 0, 6 workers); E2 switches the new game to the BALANCE §0 start.
+  - Rebuilds the BALANCE §0 start state from configs, in place: TownSim's opening (`economy.json`
+    `opening`: the Crypt, a Raising Pit, the Charnel House and a small Market on lots 1–4;
+    gold/bone/bodies 80/30/40; 12 workers; 10 living of 16; the default ladder), the opening valve,
+    Relish home with no phylactery charge or clone, Old Sluice flagged first.
   - Sets `t = 0`, `time_scale = 1`, `paused = false`.
   - Clears the event queue.
   - Leaves `run_id` and the uid counters running: they never repeat within a session.
@@ -384,6 +415,8 @@ Game.state.cmd_cancel_travel()  # -> {ok: true, reason: "", eta_s: 0.82}
 - **Args:** a fort id or `"auto"` (the richest corpse fort).
 - **Extras:** `haul_target: String`.
 - **Reasons:** `unknown_fort`.
+- **Effect (E2a):** TownSim's convoy takes it from its next departure (a named fort is worked even
+  with no dead there); a convoy already out finishes its trip.
 ```gdscript
 Game.state.cmd_set_haul_target("ashgate")  # -> {ok: true, reason: "", haul_target: "ashgate"}
 ```
@@ -439,6 +472,7 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
 - **Args:** a permutation of `JOB_IDS`, top first.
 - **Extras:** `order: Array[String]`.
 - **Reasons:** `unknown_job`, `duplicate_job`, `missing_job`.
+- **Effect (E2a):** TownSim's workers refill the job slots in this order at once.
 ```gdscript
 Game.state.cmd_set_job_priority(["haul", "build", "pit", "stall", "mill", "forge", "tend"])
 # -> {ok: true, reason: "", order: ["haul", "build", "pit", "stall", "mill", "forge", "tend"]}
@@ -450,6 +484,7 @@ Game.state.cmd_set_job_priority(["haul", "build", "pit", "stall", "mill", "forge
 - **Reasons:** `unknown_lot`, `empty_lot`, `no_jobs` (the building has no slots), `bad_cap`
   (`< -1`).
 - A cap above the building's slots is accepted. The effective cap is `min(cap, slots)`.
+- **Effect (E2a):** TownSim's staffing honours it at once. A new game clears every cap.
 ```gdscript
 Game.state.cmd_set_staff_cap("lot-03", 1)  # -> {ok: true, reason: "", cap: 1}
 ```
@@ -629,7 +664,7 @@ Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
   - `loot_banked` reports what was actually banked: relics and essence after their caps, and only
     the blueprints that were new;
   - looted husks are minted with rarity `common` (the result carries a kind only);
-  - the legacy `apply_raid_result` / `apply_boss_result` stay until the router (T1.6) drops them.
+  - the pre-E1 `apply_raid_result` / `apply_boss_result` are gone (T1.6).
 ```gdscript
 Game.state.apply_result("raid", r)  # -> {ok: true, reason: "", errors: [], minted: ["h12", "r13"]}
 Game.state.apply_result("raid", r)  # again -> {ok: false, reason: "duplicate_run", errors: [], minted: []}
@@ -651,8 +686,9 @@ and the whole call changes nothing. New keys are additive.
   - `applied: Dictionary`: the actual deltas after clamping, plus `minted: Array[String]` for items.
     `applied.minted` is always present (`[]` when nothing was minted).
 - **Reasons:** `not_debug`, `unknown_key`, `bad_value`.
-- At E1 these keys write the legacy stores they forward to: bone → `materials`, workers →
-  `idle_undead`, living → `townsfolk`, backlog → `vei.undead_queue`.
+- From E2a `gold`, `bone`, `bodies`, `workers` and `living` write TownSim's stocks (`workers` is a
+  float and the job slots refill at once); `bodies` and `living` are capped at `body_cap` and
+  `living_cap`, but a grant never pulls an over-cap stock down. `backlog` → `vei.undead_queue`.
 ```gdscript
 Game.state.cmd_debug_grant({"gold": 500, "bone": 200, "husks": 1})
 # -> {ok: true, reason: "", key: "", applied: {gold: 500.0, bone: 200.0, husks: 1, minted: ["h14"]}}
@@ -664,7 +700,7 @@ Game.state.cmd_debug_grant({"materials": 5})  # -> {ok: false, reason: "unknown_
   - `time_scale: float` (0 < x ≤ 100), `paused: bool`;
   - `relish_at: String` (a node id: puts her there, alive and standing);
   - `valve: {work, war, flood}` (target and current, with no slew);
-  - `forge_level: int` (≥ 0), `won: bool`;
+  - `forge_level: int` (≥ 0; TownSim's forge level, its progress reset to 0), `won: bool`;
   - `forts: {fort_id: {living?, undead?, dead?}}` (masses ≥ 0, clamped to the cap).
 - **Extras:** `key: String`.
 - **Reasons:** `not_debug`, `unknown_key`, `bad_value`, `busy` (`relish_at` while a run is open).
@@ -705,12 +741,13 @@ Every view returns a deep copy with `rev: int` first (§1.3). A view of an unkno
 Types are exact. "mass" means a float in mass units.
 
 ### 5.1 `view_hud()` · E2
-At E1 these fields are live: `t`, `time_scale`, `paused`, `relics`, `essence` and their caps,
-`won`, plus `sign`, `drain_s`, `odds` (from the legacy readout). Stocks are the live stores (the
-legacy ones at E1), the same ones `view_town` and `view_catalog` read, and the rates are 0.
-From E2a: `sign`, `drain_s` and `odds` are the sustained readout (§5.14); `split` is live (the last
-substep's mass/s, after the slew), and so is the `mint` entry's `rate`. The other rates stay 0
-until TownSim.
+Every field is live from E2a:
+- `sign`, `drain_s` and `odds` are the sustained readout (§5.14);
+- `split` is the last substep's mass/s, after the slew (WAR includes TownSim's muster), and the
+  `mint` entry's `rate` is that substep's mint (MECHANICS §3.2);
+- the `workers`, `bodies`, `gold`, `bone` and `living` entries are TownSim's: the same stocks and
+  caps `view_town` shows, and the net rates of `view_rates` (bodies count the haul trip-averaged);
+- `workers_steady` is TownSim's last inflow × the lifetime now, as `view_town.workers.steady`.
 
 | key | type | meaning |
 |---|---|---|
@@ -718,7 +755,7 @@ until TownSim.
 | `time_scale` | float | |
 | `paused` | bool | |
 | `rates` | Array[Dictionary] | one per `HUD_RATE_IDS`, in order: `{id: String, rate: float, stock: float, cap: float, unit: String}`. `rate` is the signed net per sim-second; for `mint` it is production (≥ 0). `stock` is `-1.0` for mint; `cap` is `-1.0` when uncapped. |
-| `split` | Dictionary | `{work, war, flood}`: mass/s now, after the slew |
+| `split` | Dictionary | `{work, war, flood}`: mass/s now, after the slew; `war` includes muster (`muster_mass / dt`) |
 | `valve`, `valve_target` | Dictionary | `{work, war, flood}` fractions summing to 1 |
 | `workers_steady` | float | workers: `(work / worker.mass) · lifetime` |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
@@ -745,7 +782,11 @@ until TownSim.
 each of `GameState.RATE_IDS`.
 - Rates are the last substep's flows divided by `sim.substep_s`.
 - Lumps are not rates: build costs, dungeon writebacks and debug grants.
-- Haul shows as its trip-averaged rate.
+- Haul shows as its trip-averaged rate: the last landed trip's load over its round trip, while a
+  convoy is out (0 while none is).
+- **E2a:** `mint`, `work`, `war` and `flood` are the last substep's (session-only, §9.1); `workers`,
+  `bodies`, `gold`, `bone` and `living` are TownSim's last step (saved with it). `corpses` and
+  `backlog` are still 0.
 
 | id | unit | in | out | net |
 |---|---|---|---|---|
@@ -764,7 +805,7 @@ each of `GameState.RATE_IDS`.
                  "gold": {in: 0.3, out: 0.08, net: 0.22, unit: "gold/s"}, ...one entry per RATE_IDS}}
 ```
 
-### 5.3 `view_lanes()` · E2 (E1: WAR lanes from the legacy dispatch, with other rates 0)
+### 5.3 `view_lanes()` · E2
 `{rev: int, lanes: Array[Dictionary]}`. Each lane has these keys:
 
 | key | type | meaning |
@@ -790,8 +831,10 @@ each of `GameState.RATE_IDS`.
 - **Zero-rate lanes are omitted**, unless their `why` callout is live: a lane that just dropped to
   0 (`"Relish left"`, `"held"`, `"retaken"`) stays at 0 until its callout ends. Order: kinds in
   `LANE_KINDS` order, forts in world order within a kind.
-- Live kinds: `war` (covington → fort, staging at held forts included), `flood`, `dead`, `living`
-  and `redirect`. `work` and `haul` arrive with TownSim.
+- Every kind is live: `war` (covington → fort, staging at held forts included), `flood`, `dead`,
+  `living` and `redirect`, and from T2.3b `work` (covington → covington at the valve's WORK) and
+  `haul` (from the fort TownSim's convoy works to covington, at the trip-averaged rate of §5.2 while
+  the convoy is out).
 - WAR that falls through to Vei (no fort has living and none is held) shows as a `war` lane
   **covington → vei** (`war:covington:vei`). A `war` lane's `to` may therefore be `"vei"`.
 - `flood` fort → vei is the fort's undead draining into her queue; `dead` fort → vei is garrison
@@ -934,12 +977,22 @@ The dead fields and the backups are E3. At E1 a death respawns her at once.
  run_id: -1, run_kind: "", effects: {tide_fort: "", redirect_fort: "", home: false}}
 ```
 
-### 5.9 `view_town()` · E2 (E1: the BALANCE §0 start layout on lots from `town.json`, live stocks)
-At E1 stocks are the live stores (the legacy ones at E1); lots and buildings are the BALANCE §0
-start layout. `gold`, `bone`, `bodies`, `living`, `workers.total` and `workers.idle` (and so the job
-staffing fill) and `view_catalog`'s `no_gold`/`no_bone` checks read the same stores as `view_hud`, so
-fixtures and debug grants show up in every view. Lots, the start buildings, tier, morale and the caps
-stay constants.
+### 5.9 `view_town()` · E2
+From E2a (T2.3b) it is TownSim's town (MECHANICS §4): buildings with their real state, progress,
+slots, staffing and output; the ladder and the jobs it staffs; the workforce and its flows; the
+living, morale and its factors; the stocks and caps; trade; the convoy. The stocks are the ones
+`view_hud` and `view_catalog`'s `no_gold`/`no_bone` read, so fixtures and debug grants show up in
+every view. The tier is GameState's (stored; tier-ups are T2.4), lots come from `town.json`, and
+`ladder_effective` is the ladder until stances (E3). Flows are TownSim's last step: 0 at a new game
+until the first substep.
+- `workers.lifetime_s` is the lifetime now (`worker.lifetime_s · (1 + Σ lifetime_bonus)`, ÷
+  `relish.home_rot_mult` while Relish is home: 685.7 at a new game); `workers.steady` is the last
+  inflow × that lifetime.
+- `buildings[].output` (per second, at the current staffing; `{}` while constructing or unpaid, and
+  for a building with none): a pit `{mint: P_per_pit · pits, burn: pit.burn_per_s · pits · its
+  staffed share}`; stalls `{gold}` (their share of the town's sales × price); millers `{bone}`;
+  haulers `{bodies}` (their share of the trip-averaged haul); smiths `{forge}` (work/s while a forge
+  level is left); an inn `{living}` (its migrants/s).
 
 | key | type | meaning |
 |---|---|---|
@@ -990,6 +1043,9 @@ Each `buildings` entry:
 ```
 
 ### 5.10 `view_catalog()` · E2 (crafts E3)
+From E2a `no_gold` and `no_bone` read TownSim's stocks, `count` counts the buildings whose first build
+has finished, and a lot under construction is not free. The other gates are unchanged until T2.4.
+
 | key | type | meaning |
 |---|---|---|
 | `buildings` | Array[Dictionary] | one per building id (below) |
@@ -1088,7 +1144,10 @@ view_big_undead(): {rev: 3, cap: 2, count: 1, big_undead: [{uid: "u4", name: "Ol
 view_party():      {rev: 3, party: [{uid: "u4", ...}], fort_id: "old-sluice", garrison_units: 0, garrison_in_mass: 0.0, starter_units: 8, strength: 8.0}
 ```
 
-### 5.13 `view_backups()` · E3 (E1: legacy vats become `clones_ready`; charges 0)
+### 5.13 `view_backups()` · E3
+Until E3 `clones_ready` is a plain stock (GameState's, saved in `backups`; the fixtures and tests set
+it, no system grows one yet) and each ready clone is a vat slot (`grow` 1.0, `ready`); the
+phylactery charges are stored as is. `death` follows the E1-safe rule of §8.3 step 10.
 | key | type | meaning |
 |---|---|---|
 | `phylactery_charges`, `phylactery_max_per_dungeon`, `clones_ready` | int | |
@@ -1145,9 +1204,9 @@ when no run of that kind is open at that fort.
 
 | type | fields | ms |
 |---|---|---|
-| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (E1: `clone`/`unmade` from the legacy vats, respawn 0; `phylactery` and timers E3) |
+| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0; `phylactery` and timers E3) |
 | `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate at E1) |
-| `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` | E2 |
+| `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
 | `tier_up` | `tier: String`, `from: String` | E2 |
@@ -1310,24 +1369,24 @@ order, each clamped. The sim has kept running during the run.
     - In both cases the **whole party** and the unbanked loot are lost (the scene already dropped
       loot found since the last checkpoint), the fort doesn't flip, Relish is `dead`, then
       `relish_respawned`. Nothing in the town or the realm resets (A8).
-    - **E1:** the legacy rule. A legacy vat gives `clone`, otherwise `unmade`; legacy army
-      scatters; she respawns home at once.
+    - **Until E3** (the E1-safe rule): a ready clone (`clones_ready` > 0, spent) gives `clone`;
+      otherwise `unmade`, and the town takes `morale.death_shock` (`TownSim.add_shock`). She
+      respawns home at once.
 11. If she didn't die, Relish is `at_fort` at that fort. The run closes.
-12. **E1 only (parity):** `raised` entries with score 60–89 add their `count` to legacy
-    `army.soldier`, and those ≥ 90 add to `army.elite`. This is removed at E2.
+
+(E1's step 12, the legacy army parity, and boss step 6 below were removed at E2a with the legacy
+economy.)
 
 **Boss.**
 1. If `won`: set `won = true`. The backlog is unchanged.
    If lost: `vei.undead_queue ×= vei.loss_backlog_keep` (0.35 kept), and the whole party dies
    (MECHANICS §6).
 2. `party_lost` big undead are removed.
-3. `phylactery_charges −= backups_spent.phylactery`; `clones_ready −= backups_spent.clones`; one
-   `relish_died{in_place: true}` per spent backup (E3).
+3. `phylactery_charges −= backups_spent.phylactery`; `clones_ready −= backups_spent.clones` (both
+   clamped at 0); one `relish_died{in_place: true}` per spent backup (E3).
 4. A final death (`relish_deaths == s + 1`) gives `outcome: "unmade"` (MECHANICS §7), and she is
-   `dead`. Otherwise she is `at_vei`.
+   `dead`. Otherwise she is `at_vei`. Until E3 a final death follows raid step 10's E1-safe rule.
 5. Emits `vei_result` (a boss result carries no loot, so there is no `loot_banked`).
-6. **E1 only (parity):** a loss scales legacy `army` by 0.3 / 0.4, and a final death uses the legacy
-   vat rule.
 
 ### 8.4 `Results.validate(kind: String, d: Dictionary) -> Array[String]` (`scripts/sim/results.gd`)
 - A pure function of its arguments, with no state and no seed. It returns reasons, and an empty
@@ -1380,7 +1439,7 @@ Buckets with `count == 0` and `mass == 0` are omitted. The writeback then matche
 - undead += garrison.
 
 The one deliberate change: `good_mass` now stays at the fort as undead (MECHANICS §5.3) instead of
-vanishing into `army`. At E1, `army` still gets the counts (§8.3, raid step 12).
+vanishing into `army`, which is gone from E2a.
 
 **Boss** (today's `vei_boss.gd` keys)
 
@@ -1390,7 +1449,7 @@ vanishing into `army`. At E1, `army` still gets the counts (§8.3, raid step 12)
 | `won` | `won` |
 | `relish_died` | `relish_deaths = 1 if relish_died and not won else 0` |
 | `backlog_spent` | `backlog_spent` |
-| `army_lost` | dropped. `party_lost: []` (v1 has no uids); E1 applies the legacy army loss (§8.3, boss step 6). |
+| `army_lost` | dropped. `party_lost: []` (v1 has no uids). |
 | (none) | `v: 2`, `run_id`, `seed_rev` from the seed, `fronts_cleared: []`, `backups_spent: {phylactery: 0, clones: 0}` |
 
 **Town and map v1** are not converted. A legacy map result `{teleport_to}` and a legacy town result
@@ -1409,7 +1468,7 @@ take the router's legacy path (§2.3).
 
 | top-level key | type | contents |
 |---|---|---|
-| `v` | int | `SAVE_VERSION` (1 at E1) |
+| `v` | int | `SAVE_VERSION` (1 at E1, 2 from E2a) |
 | `api_version` | int | `API_VERSION` when written (diagnostic only; never rejected) |
 | `seed` | String | the game seed |
 | `rng` | String | RNG state |
@@ -1421,7 +1480,7 @@ take the router's legacy path (§2.3).
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |
 | `realm` | Dictionary | RealmSim: forts (array with ids: masses, `held_s`, flip and clear counts), Vei, tithe, simulacra |
 | `villages` | Array[Dictionary] | `{id, owner}` |
-| `town` | Dictionary | TownSim: lots and buildings, ladder, staff caps, workers, living, morale, tier, haul, convoys, gold, bone, bodies |
+| `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers |
 | `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` |
 | `big_undead` | Array[Dictionary] | the entries, with `place` and `front` |
@@ -1431,11 +1490,10 @@ take the router's legacy path (§2.3).
 | `ledger` | Dictionary | sources and sinks so far |
 | `won` | bool | |
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
-| `legacy` | Dictionary | **E1 only:** `res`, `army`, `town`, `assignments`, `idle_undead`, `gather`. Migration drops it at E2. |
 | `cleared_forts` | Array[String] | forts whose first clear is spent (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a raid result clears it, then `""` |
 
-**What each block holds at E1** (additive keys and E2/E3 placeholders; E2/E3 migrate them):
+**What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,
   `clears_since_retaken`, and the per-second rates `r_in`, `r_drain`, `r_shipped`, `r_dead_out`,
   `r_raised`, which the views show), `cov`, `vei` (masses and rates), `simulacra`
@@ -1447,11 +1505,21 @@ take the router's legacy path (§2.3).
   fort_id, eta_s, surge}}` gives a running cycle with that warning pending, `eta_s` read as the time
   left. An empty block starts the clock at load when a fort has `flipped_count > 0`, else idles. A
   `warning` or `wave` naming an unknown fort makes the save `corrupt`.
-- `town`: `tier`, `lots` (`[{lot_id, building_id, level}]`), `ladder`, `staff_caps`, `haul: {target}`.
-  Gold, bone, bodies, living and workers stay in `legacy` until E2; the convoy is `legacy.gather`.
+- `town` (v2): `workers`, `bodies`, `gold`, `bone`, `living`, `morale`, `shock`; `buildings`
+  (`[{lot_id, building_id, level, state, progress, staff_cap, unpaid_s, build_level}]` in lot order;
+  `state` is `constructing`, `active`, `idle` or `unpaid`); `ladder`; `haul: {target, current,
+  convoys: [{fort, phase, t, trip_s, load, crew}]}` (at most one convoy); `forge: {level, progress}`
+  (the q forge); `rates` (TownSim's last step, which the views show); `pending` (events a command
+  queued that no substep has emitted yet, e.g. a `building_started`); and GameState's `tier` and
+  `work_pending` (the WORK mass the last substep sent, which TownSim takes in the next). `morale`,
+  `shock`, `rates` and `pending` are optional on load (TownSim's defaults: morale at its base, no
+  shock, zero rates, nothing pending). A building on an unknown or repeated lot, of an unknown id, in
+  another state or at a level the building lacks, a ladder that is not a permutation of `JOB_IDS`, or a
+  haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
+  building states and recomputes the staffing; the first substep restaffs.
 - `stances`: `on` (oldest first) and `hold` (E3 timers, stored as is).
-- `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` and `vats` (E1: derived from the legacy
-  vats; only `staffed` is read back).
+- `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` (the stub stock, read back) and
+  `vats` (one per ready clone until E3; only `staffed` is read back).
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
   mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
   save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50). `ledger`: `sources` and `sinks` as
@@ -1462,10 +1530,10 @@ take the router's legacy path (§2.3).
 - `rev`, `debug_enabled`, `save_dir`, the event queue;
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
 - the open run, which is forfeited;
-- the last substep's rates outside the fort and Vei blocks: `view_hud`'s `split` and mint `rate`,
-  `view_vei`'s raw `diff`, and the two lanes out of Covington to Vei (FLOOD, WAR fallen through). They
-  read 0 (or the lane is absent) until the first substep after a load. Lane callouts are not saved
-  either;
+- the last substep's rates outside the fort, Vei and town blocks: `view_hud`'s `split` and mint
+  `rate`, `view_rates`' `mint`, `work`, `war` and `flood`, `view_vei`'s raw `diff`, and the three lanes
+  out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). They read 0 (or the lane
+  is absent) until the first substep after a load. Lane callouts are not saved either;
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
   (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
@@ -1479,7 +1547,17 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
   `next_run_id = max(saved, current)` and `next_uid = max(saved, current)`, so neither ever repeats within a session.
 
 **`static migrate(d: Dictionary) -> Dictionary`** upgrades one version at a time up to
-`SAVE_VERSION`. It returns `{}` on failure.
+`SAVE_VERSION`. It returns `{}` on failure (no `v`, a `v` that is not a whole number from 1 up, or a
+`v` from the future); a save it cannot convert comes back as is, and `from_dict` then calls it
+`corrupt`.
+- **v1 → v2** (E1 → E2a, `SaveIO._migrate_1_to_2`, no configs needed): the `legacy` block goes.
+  `legacy.res` gold, materials, bodies and townsfolk become the town's `gold`, `bone`, `bodies` and
+  `living`; `legacy.idle_undead` + Σ `legacy.assignments` become `workers`; `legacy.town.forge_level`
+  becomes `forge.level` (progress 0); `legacy.town.vats` becomes `backups.clones_ready`. v1's
+  `town.lots` (the BALANCE §0 start set, which nothing at E1 changed) become working buildings with
+  v1's `staff_caps`; `tier`, `ladder` and `haul.target` carry over. The legacy army, assignments and
+  convoy are dropped (no convoy is out; `work_pending` 0), and morale, shock and the rates start
+  fresh. A v1 save loads into a playable v2 state (tests: `tests/fixtures/v1_*.json`).
 
 ### 9.2 Files
 - A save file is `to_dict()` plus three file-only keys, `slot: String`, `saved_at: int` (unix
@@ -1502,19 +1580,21 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 ### 9.4 Fixtures (`tests/fixtures/`, loaded by `cmd_debug_load_fixture` and the tests)
 | file | represents |
 |---|---|
-| `day1.json` | `cmd_new_game(1)` at t ≈ 0. E1: the legacy start stocks; E2 switches the new game to the BALANCE §0 start: Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no vats; Old Sluice flagged first. |
-| `midgame_2flips.json` | About 1 h in, Village tier. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight, 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
-| `pre_vei.json` | About 3 h in, City tier, odds ≈ 0.6, a party of 4 big undead assigned to fronts (E1 views show fronts at 0 until E3 computes need/have; the party's front assignments are in the fixture; 3 of 4 fronts would be met), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
+| `day1.json` | `cmd_new_game(1)` at t ≈ 0: the BALANCE §0 start. Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no clones or vats; Old Sluice flagged first. |
+| `midgame_2flips.json` | About 1 h in, Village tier: the start set plus a House, a Well and a Bone Mill (lots 5–7), which ran the hour. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight (to Greywall), 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
+| `pre_vei.json` | About 3 h in, City tier: 20 buildings (the start set with the pit and the market at level 2, three more pits, two houses, a well, a bakery, a bone mill, a statue, a Chapel of Vats, a forge, an inn, a graveyard, a watchtower, the Walls and the Reliquary, whose blueprint is owned), up for the last 30 min and none unpaid. Odds ≈ 0.6, a party of 4 big undead assigned to fronts (views show fronts at 0 until E3 computes need/have; the party's front assignments are in the fixture; 3 of 4 fronts would be met), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
+| `v1_day1.json`, `v1_midgame_2flips.json` | The E1 (save v1) `day1` and `midgame_2flips`, kept as they were for the v1 → v2 migration tests. Not loadable by name. |
 
 - Each fixture is a `to_dict()` at the current `v`. Fields from E2/E3 systems are written by the
   generator until those systems produce them, and the fixtures are regenerated or migrated in the
   same commit as any save-shape change.
 - A test loads all three after every change (save compatibility), and checks that each file is exactly
   what `to_dict()` gives after loading it (the placeholders survive).
-- They are produced by `tests/fixtures/make_fixtures.gd` (commands and debug commands from
-  `cmd_new_game(1)`, then the fields no E1 command can make written into the dict: the town tier and
-  `realm.tithe` on `midgame_2flips`, the tier and `backups.phylactery_charges` on `pre_vei`). Run it
-  by hand when the save shape changes. The `realm.tithe` it writes on `midgame_2flips` is still the
+- They are produced by `tests/fixtures/make_fixtures.gd` (commands, debug commands and
+  `TownSim.place_building` from `cmd_new_game(1)`, then the fields no command can make yet written
+  into the state or the dict: the town tier and `realm.tithe` on `midgame_2flips`; the tier, the
+  Reliquary blueprint, `backups.phylactery_charges` and `backups.clones_ready` on `pre_vei`). Run it
+  by hand when the save shape changes (it takes about 5 minutes). The `realm.tithe` it writes on `midgame_2flips` is still the
   E1 placeholder `{warning}`; from E2a the load maps it into the tithe state (a warning pending on
   Ashgate, 150 s to the wave), so the file holds the full E2a block (§9.1).
 - **Contract-test coverage:** across the three fixtures, every array a view exposes is non-empty at

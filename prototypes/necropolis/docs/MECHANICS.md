@@ -199,7 +199,7 @@ flips, redirects and musters, and asserts `held + Σsinks == Σsources` within 1
   `ema_score += α · (score − ema_score)`. The masses are the ones the circles report. Why: IDLE I2
   says what active play earned never decays while you're away, and a time-based EMA would decay
   with every idle hour. This one holds while no circles arrive.
-- `forge_level` is the legacy store's until TownSim lands; `Σ foreman_q` is 0 until E3. The save
+- `forge_level` is TownSim's forge level (the forge job, §4.2); `Σ foreman_q` is 0 until E3. The save
   keeps `ema_score` as `readout.q_raise_ema`.
 - Good circles visibly raise `q`, which makes every undead cost Vei more (vision review M7).
 
@@ -230,9 +230,11 @@ Names, to avoid confusion:
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
   `feed = min(1, burned / wanted)` and `wanted = pit.burn_per_s · pits`. Proportional, so nothing
-  toggles.
-- `work = mint · v.work` goes to TownSim, `war = mint · v.war` goes to RealmSim dispatch, and
-  `flood = mint · v.flood` goes to `vei.undead_queue`.
+  toggles. `P_base` and `P_per_pit` (6.0; it was `P_per_slab`) are `realm.json` keys, `pit.bonus` and
+  `pit.burn_per_s` are `economy.json`'s; `pits` and `feed` are this substep's, from TownSim (step 2).
+- `work = mint · v.work` goes to TownSim (it arrives the next substep), `war = mint · v.war` plus
+  TownSim's muster (`muster_mass / dt`) goes to RealmSim dispatch, and `flood = mint · v.flood` goes
+  to `vei.undead_queue`.
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
 - **WAR dispatch:** WAR splits over the forts with living > 0 **and every held fort** by weight
@@ -677,7 +679,8 @@ GameState mints uids for looted items when it applies the result. The town scene
 - **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
   wave, counters, the E2a hold loss.
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
-  living cap; morale.
+  living cap; morale. Wired into GameState: WORK one substep late, pits and feed drive the mint,
+  muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate.
 - **Ladder and stances:** ordering, hold, no chatter.
 - **Backups:** order; clones grow only while staffed; the loot-loss bound.
 - **`q`:** the formula, and the circle EMA (mass-weighted, unchanged by 12 h of idle ticking).

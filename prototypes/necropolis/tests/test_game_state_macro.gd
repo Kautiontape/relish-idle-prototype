@@ -110,21 +110,20 @@ func _valve() -> void:
 # ------------------------------------------------------------------ the split ----
 func _split() -> void:
 	var s := _mk()
-	var w0 := s.work_pending
-	var work_sum := 0.0
 	var ok := true
+	var pending_ok := true
 	for i in 20:
 		s.tick(s.substep_s())
 		var sp: Dictionary = s._split
-		if absf(sp["work"] + sp["war"] + sp["flood"] - sp["mint"]) > 1e-9 * maxf(1.0, sp["mint"]):
+		if absf(sp["work"] + sp["war"] + sp["flood"] - sp["mint"] - sp["muster"]) > 1e-9 * maxf(1.0, sp["mint"]):
 			ok = false
 		for k in ["work", "war", "flood"]:
-			if absf(sp[k] - sp["mint"] * s.valve[k]) > 1e-12:
+			if absf(sp[k] - sp["mint"] * s.valve[k] - (sp["muster"] if k == "war" else 0.0)) > 1e-12:
 				ok = false
-		work_sum += sp["work"] * s.substep_s()
-	t.ok(s._split["mint"] > 0.0, "the interim (legacy) mint runs: %.2f mass/s" % s._split["mint"])
-	t.ok(ok, "work + war + flood = mint, each its valve share, every substep")
-	t.near(s.work_pending - w0, work_sum, 1e-9, "WORK accumulates in work_pending (no consumer until TownSim)")
+		pending_ok = pending_ok and s.work_pending == sp["work"] * s.substep_s()
+	t.ok(s._split["mint"] > 0.0, "the mint runs: %.2f mass/s" % s._split["mint"])
+	t.ok(ok, "work + war + flood = mint + muster, each its valve share (WAR plus muster), every substep")
+	t.ok(pending_ok, "work_pending holds only the last substep's WORK (TownSim takes it all)")
 	var inp: Dictionary = s._realm_inputs
 	t.ok(inp["war"] == s._split["war"] and inp["flood"] == s._split["flood"], "WAR and FLOOD are RealmSim's inputs")
 	t.near(s.realm.cov["r_out"], s._split["war"] + s._split["flood"], 1e-12, "RealmSim received them")
@@ -376,8 +375,9 @@ func _q() -> void:
 	s.tick(s.substep_s())
 	t.ok(s._realm_inputs["digest_q"] == q and s.realm.digest_q == q, "RealmSim steps at q")
 	t.ok(s.view_vei()["digest_q"] == q and s.view_realm()["digest_q"] == q and s.quality() == q, "view_vei, view_realm and quality() show it")
-	t.ok(s.raid_seed("ashgate")["quality"] == q and s.town_snapshot()["quality"] == q and s.boss_seed()["quality"] == q,
-		"the legacy seeds and snapshot carry it (no elite term)")
+	t.ok(s.raid_seed("ashgate")["quality"] == q and s.boss_seed()["quality"] == q and s.town_snapshot() == {},
+		"the legacy seeds carry it (no elite term); the legacy town snapshot is {}")
+	t.ok(s.town_sim.forge["level"] == 2, "forge_level is TownSim's")
 	s.legacy_teleport_relish("ashgate")
 	t.ok(s.cmd_begin_dungeon("ashgate")["seed"]["digest_q"] == q, "the dungeon seed carries it")
 	s.cmd_abort_dungeon()
@@ -484,8 +484,9 @@ func _lanes() -> void:
 		shape_ok = shape_ok and l["id"] == "%s:%s:%s" % [l["kind"], l["from"], l["to"]] and GameState.LANE_KINDS.has(l["kind"])
 		shape_ok = shape_ok and (l["rate"] > 0.0 or l["why"] != "") and l["why"] == ""
 	t.ok(shape_ok, "ids are kind:from:to; every lane carries mass; no callouts yet")
-	t.ok(kinds.has("war") and kinds.has("flood") and kinds.has("dead") and kinds.has("living") and not kinds.has("work") and not kinds.has("haul"),
-		"after 30 s: war, flood, dead and living lanes (work and haul are TownSim's): %s" % str(kinds.keys()))
+	t.ok(kinds.has("war") and kinds.has("flood") and kinds.has("dead") and kinds.has("living") and kinds.has("work"),
+		"after 30 s: war, flood, work, dead and living lanes: %s" % str(kinds.keys()))
+	t.ok(_lane(s, "work:covington:covington")["rate"] == s._split["work"], "the work lane carries the valve's WORK")
 	var ash := _fort(s, "ashgate")
 	t.ok(_lane(s, "flood:ashgate:vei")["rate"] == ash["r_drain"] and _lane(s, "dead:ashgate:vei")["rate"] == ash["r_dead_out"]
 		and _lane(s, "living:vei:ashgate").get("rate", 0.0) == ash["r_shipped"], "flood (drain), dead and living lanes carry the fort's rates")

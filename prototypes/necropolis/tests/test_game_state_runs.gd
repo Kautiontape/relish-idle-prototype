@@ -34,16 +34,16 @@ func run() -> int:
 	t.ok(rel.cmd_set_time_scale(2.0) == {"ok": false, "reason": "not_debug", "time_scale": 1.0} and rel.time_scale == 1.0, "release: cmd_set_time_scale is not_debug")
 	t.ok(rel.cmd_pause(true) == {"ok": false, "reason": "not_debug", "paused": false} and not rel.paused and rel.rev == rv0, "release: cmd_pause is not_debug, nothing changes")
 
-	# --- I4: a grant never pulls an over-cap store down ---
+	# --- I4: a grant never pulls an over-cap stock down ---
 	var og := GameState.new(TestUtil.configs())
 	og.debug_enabled = true
-	og.cmd_debug_load_fixture("midgame_2flips")
-	var cap0 := float(og._sec("economy", "opening").get("living_cap", INF))
-	var liv0: float = og.res["townsfolk"]
-	t.ok(liv0 > cap0, "the fixture's townsfolk is over the opening cap (%f > %f)" % [liv0, cap0])
-	var gr := og.cmd_debug_grant({"living": 1})
-	t.ok(gr["ok"] and og.res["townsfolk"] >= liv0 and gr["applied"]["living"] >= 0.0, "a positive living grant never lowers an over-cap store")
-	t.near(og.res["townsfolk"], liv0, 1e-9, "over-cap: unchanged, not pulled down to the cap")
+	og.cmd_new_game(1)
+	for key in ["living", "bodies"]:
+		var cap0 := og.town_sim.living_cap() if key == "living" else og.town_sim.body_cap()
+		og.town_sim.set(key, cap0 + 5.0)  # over the cap (a demolished house, say)
+		var gr := og.cmd_debug_grant({key: 1})
+		t.ok(gr["ok"] and float(og.town_sim.get(key)) == cap0 + 5.0 and gr["applied"][key] == 0.0,
+			"over-cap %s: a positive grant leaves it, never pulls it down to the cap (%f)" % [key, cap0])
 
 	# --- cmd_new_game ---
 	var s := _mk()
@@ -213,10 +213,10 @@ func run() -> int:
 	t.ok(s.cmd_debug_set_state({"paused": true})["reason"] == "not_debug", "set_state: not_debug first")
 	t.ok(s.cmd_debug_grant({"bogus": 1}) == {"ok": false, "reason": "not_debug", "key": "", "applied": {}}, "grant: not_debug beats unknown_key")
 	s.debug_enabled = true
-	var g0: float = s.res["gold"]
+	var g0: float = s.town_sim.gold
 	rv = s.rev
 	var r := s.cmd_debug_grant({"gold": 50, "husks": -1})
-	t.ok(r == {"ok": false, "reason": "bad_value", "key": "husks", "applied": {}} and s.res["gold"] == g0 and s.rev == rv,
+	t.ok(r == {"ok": false, "reason": "bad_value", "key": "husks", "applied": {}} and s.town_sim.gold == g0 and s.rev == rv,
 		"bad_value is atomic (nothing applied)")
 	r = s.cmd_debug_grant({"gold": "50"})
 	t.ok(r["reason"] == "bad_value" and r["key"] == "gold", "a string is a bad value")
@@ -238,26 +238,27 @@ func run() -> int:
 	t.ok(s.cmd_debug_set_state({"forge_level": -1})["reason"] == "bad_value", "forge_level >= 0")
 	t.ok(s.cmd_debug_set_state({"forts": {"nope": {"living": 1.0}}})["reason"] == "bad_value", "forts: unknown fort")
 	t.ok(s.cmd_debug_set_state({"forts": {"ashgate": {"living": -1.0}}})["reason"] == "bad_value", "forts: negative mass")
-	t.ok(s.cmd_debug_set_state({"forge_level": 2, "time_scale": 0})["reason"] == "bad_value" and s.town["forge_level"] == 0,
+	t.ok(s.cmd_debug_set_state({"forge_level": 2, "time_scale": 0})["reason"] == "bad_value" and s.town_sim.forge["level"] == 0,
 		"the whole patch is validated before anything applies")
 
 	# --- debug: grants and clamps ---
 	s = _mk()
 	s.debug_enabled = true
-	var before := {"gold": s.res["gold"], "mat": s.res["materials"], "bod": s.res["bodies"], "liv": s.res["townsfolk"], "w": s.idle_undead}
+	var ts := s.town_sim
+	var before := {"gold": ts.gold, "bone": ts.bone, "bod": ts.bodies, "liv": ts.living, "w": ts.workers}
 	r = s.cmd_debug_grant({"gold": 500.0, "bone": 200.0, "bodies": 60.0, "living": 3.0, "workers": 20, "backlog": 18000.0})
 	t.ok(r["ok"] and r["key"] == "" and r["applied"]["minted"] == [], "grant ok, nothing minted")
-	t.near(s.res["gold"], before["gold"] + 500.0, 1e-9, "gold")
-	t.near(s.res["materials"], before["mat"] + 200.0, 1e-9, "bone lands on materials")
-	t.near(s.res["bodies"], before["bod"] + 60.0, 1e-9, "bodies")
-	t.near(s.res["townsfolk"], before["liv"] + 3.0, 1e-9, "living lands on townsfolk")
-	t.ok(s.idle_undead == before["w"] + 20, "workers land on idle_undead")
+	t.near(ts.gold, before["gold"] + 500.0, 1e-9, "gold lands on TownSim's gold")
+	t.near(ts.bone, before["bone"] + 200.0, 1e-9, "bone on its bone")
+	t.near(ts.bodies, before["bod"] + 60.0, 1e-9, "bodies")
+	t.near(ts.living, before["liv"] + 3.0, 1e-9, "living")
+	t.ok(ts.workers == before["w"] + 20.0 and ts.staffing["idle"] == ts.workers - 7.0, "workers, restaffed at once (7 slots)")
 	t.near(s.realm.vei["undead_queue"], 18000.0, 1e-9, "backlog lands on vei.undead_queue")
 	t.ok(r["applied"]["gold"] == 500.0 and r["applied"]["workers"] == 20.0 and r["applied"]["workers"] is float and r["applied"]["backlog"] == 18000.0, "applied echoes the deltas")
 	r = s.cmd_debug_grant({"relics": 100, "essence": 1000})
 	t.ok(s.relics == 12 and s.essence == 60 and r["applied"]["relics"] == 12 and r["applied"]["essence"] == 60, "relics and essence clamp to their caps")
 	r = s.cmd_debug_grant({"relics": -100, "gold": -1.0e9})
-	t.ok(s.relics == 0 and r["applied"]["relics"] == -12 and s.res["gold"] == 0.0, "negative removes, floored at 0")
+	t.ok(s.relics == 0 and r["applied"]["relics"] == -12 and s.town_sim.gold == 0.0, "negative removes, floored at 0")
 	t.near(r["applied"]["gold"], -(before["gold"] + 500.0), 1e-9, "applied gold is the actual (clamped) delta")
 	s.cmd_debug_grant({"backlog": -1.0e9})
 	t.ok(s.realm.vei["undead_queue"] == 0.0, "backlog floored at 0")
@@ -274,11 +275,12 @@ func run() -> int:
 	s.cmd_debug_grant({"big_undead": 3})
 	r = s.cmd_debug_grant({"big_undead": 5})
 	t.ok(s.big_undead.size() == 4 and r["applied"]["big_undead"] == 1, "existing count counts toward the cap")
-	r = s.cmd_debug_grant({"living": 1000.0})
-	t.ok(s.res["townsfolk"] == 16.0 and r["applied"]["living"] == 6.0, "living clamps to opening.living_cap")
+	r = s.cmd_debug_grant({"living": 1000.0, "bodies": 1000.0})
+	t.ok(s.town_sim.living == 16.0 and r["applied"]["living"] == 6.0, "living clamps to living_cap() (opening.living_cap at the start)")
+	t.ok(s.town_sim.bodies == 200.0 and r["applied"]["bodies"] == 160.0, "bodies clamp to body_cap()")
 	rv = s.rev
 	r = s.cmd_debug_set_state({"forge_level": 1.5})
-	t.ok(r["reason"] == "bad_value" and r["key"] == "forge_level" and s.town["forge_level"] == 0 and s.rev == rv,
+	t.ok(r["reason"] == "bad_value" and r["key"] == "forge_level" and s.town_sim.forge["level"] == 0 and s.rev == rv,
 		"forge_level 1.5 refused, nothing changes")
 
 	# --- debug: minting ---
@@ -301,8 +303,15 @@ func run() -> int:
 	var stats_ok: bool = bu["stats"].size() == 5
 	for k in GameState.STATS:
 		stats_ok = stats_ok and bu["stats"][k] is float and bu["stats"][k] >= 1.0 and bu["stats"][k] <= 10.0
-	t.ok(stats_ok and bu["name"] == "Big " + bu["uid"] and bu["place"] == "crypt" and bu["front"] == "" and bu["role"] != "",
+	t.ok(stats_ok and bu["name"] == "Big " + bu["uid"] and bu["place"] == "crypt" and bu["front"] == "",
 		"big undead: float stats 1..10, name, crypt, no front")
+	var roles: Dictionary = TestUtil.configs()["town"]["slab"]["role_by_stat"]
+	var top := "power"
+	for k in GameState.STATS:
+		if bu["stats"][k] > bu["stats"][top]:
+			top = k
+	t.ok(bu["role"] == roles[top] and s.big_undead.all(func(b): return TestUtil.configs()["town"]["slab"]["roles"].has(b["role"])),
+		"its role is SlabLogic's for its highest stat (%s: %s), a role id the slab knows" % [top, bu["role"]])
 	var s2 := _mk()
 	s2.debug_enabled = true
 	s2.cmd_debug_grant({"husks": 3, "remnants": 4, "big_undead": 2})
@@ -318,7 +327,7 @@ func run() -> int:
 	s.debug_enabled = true
 	r = s.cmd_debug_set_state({"relish_at": "ashgate", "paused": true, "won": true, "forge_level": 3.0})
 	t.ok(r["ok"] and s.view_relish()["state"] == "at_fort" and s.view_relish()["at"] == "ashgate" and s.paused and s.won
-		and s.town["forge_level"] == 3, "relish_at, paused, won, forge_level")
+		and s.town_sim.forge == {"level": 3, "progress": 0.0}, "relish_at, paused, won, forge_level (TownSim's)")
 	s.cmd_debug_set_state({"paused": false})
 	s.cmd_debug_set_state({"relish_at": "vei"})
 	t.ok(s.view_relish()["state"] == "at_vei", "relish_at vei")

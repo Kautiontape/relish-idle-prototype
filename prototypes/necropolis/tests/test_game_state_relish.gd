@@ -30,9 +30,9 @@ func run() -> int:
 	t.ok(v["can_descend"] == false and v["reason"] == "not_at_fort", "home cannot descend")
 	t.ok(v["run_id"] == -1 and v["run_kind"] == "" and v["clones_ready"] == 0 and v["phylactery_charges"] == 0, "no run")
 	t.ok(v["effects"] == {"tide_fort": "", "redirect_fort": "", "home": true}, "effects: home only")
-	s.town["vats"] = 2
-	t.ok(s.view_relish()["clones_ready"] == 2, "clones_ready is the legacy vat count")
-	s.town["vats"] = 0
+	s.clones_ready = 2
+	t.ok(s.view_relish()["clones_ready"] == 2, "clones_ready is the backups stub stock")
+	s.clones_ready = 0
 
 	# --- travel ETA and arrival ---
 	var eta := COV.distance_to(SLUICE) / 220.0
@@ -169,7 +169,8 @@ func run() -> int:
 	away.cmd_move_relish("old-sluice")
 	home.tick(60.0)
 	away.tick(60.0)
-	t.ok(home._split["mint"] == away._split["mint"] and home._split["mint"] > 0.0, "no home mint: the mint is the same home or away")
+	t.ok(home._split["mint"] == away._split["mint"] and home._split["mint"] > 0.0,
+		"no home mint: the mint is the same home or away (both pits fed; home changes only the rot)")
 
 	# --- paused sim: travel holds ---
 	s = _mk()

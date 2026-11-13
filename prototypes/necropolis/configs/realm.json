@@ -1,7 +1,7 @@
 {
   "P_base": 2.0,
   "P_relish": 0.0,
-  "P_per_slab": 6.0,
+  "P_per_pit": 6.0,
   "covFalloff": 1.0,
   "k_kill": 0.018,
   "k_destroy": 0.006,
@@ -16,22 +16,11 @@
   "tithe": {"period_s": 420.0, "backlog_scale": 0.5, "warning_s": 150.0, "surge_s": 40.0, "surge_mult": 3.0, "siege_block": 0.6},
   "readout": {"ema_s": 120.0, "sign_eps": 0.05},
   "q": {"q0": 1.2, "q_forge": 0.1, "q_raise_max": 0.6, "raise_half_mass": 200.0, "q_max": 4.0},
-  "q_per_forge": 0.25,
-  "q_per_elite": 0.01,
-  "q_max": 4.0,
   "K": 12000.0,
   "start_living_frac": 0.85,
 
-  "gold_per_townsfolk": 0.02,
-  "gold_per_job_worker": 0.06,
-  "materials_per_trade_worker": 0.03,
-  "gold_per_trade_worker": 0.03,
   "migrant_rate_per_town": 0.012,
   "gather_speed": 140.0,
-  "gather_carry": 14.0,
-  "bodies_per_gatherer": 1.0,
-  "slab_bodies_per_s": 0.12,
-  "slab_mint_bonus": 1.6,
 
   "field": {
     "max_ticks_per_step": 2,

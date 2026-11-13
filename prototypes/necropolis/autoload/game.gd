@@ -86,7 +86,7 @@ func autosave() -> Dictionary:
 	return state.cmd_save("auto")
 
 
-# Legacy, for scenes not yet on Game.state views; new code reads Game.state.
+# Legacy, for scenes not yet on Game.state views; new code reads Game.state (STATE-API §2.2).
 var realm: RealmSim:
 	get: return state.realm
 var field: InfluenceField:
@@ -95,18 +95,20 @@ var towns: Array:
 	get: return state.towns
 var green_towns: int:
 	get: return state.green_towns
+# legacy: delete when map drops the reads (world_map.gd, map_routes.gd). Fresh dicts built from the
+# new state on every read (GameState.legacy_stores); writes to them change nothing.
 var army: Dictionary:
-	get: return state.army
+	get: return state.legacy_stores()["army"]
 var res: Dictionary:
-	get: return state.res
+	get: return state.legacy_stores()["res"]
 var town: Dictionary:
-	get: return state.town
+	get: return state.legacy_stores()["town"]
 var assignments: Dictionary:
-	get: return state.assignments
+	get: return state.legacy_stores()["assignments"]
 var idle_undead: int:
-	get: return state.idle_undead
+	get: return state.legacy_stores()["idle_undead"]
 var gather: Dictionary:
-	get: return state.gather
+	get: return state.legacy_stores()["gather"]
 var won: bool:
 	get: return state.won
 var stats: Dictionary:
@@ -116,8 +118,10 @@ var time_scale: float:
 	set(v): state.time_scale = v
 
 
-func quality() -> float: return state.quality()
+func quality() -> float: return state.quality()  # legacy: delete when map drops the call (world_map.gd)
 func raiding_fort_id() -> String: return state.raiding_fort_id()
+# legacy: delete each when map drops the call (scripts/main.gd calls the GameState members these
+# forward to, for unported scenes; STATE-API §2.2)
 func raid_seed(fort_id: String) -> Dictionary: return state.raid_seed(fort_id)
 func town_snapshot() -> Dictionary: return state.town_snapshot()
 func apply_town_result(r: Dictionary) -> void: state.apply_town_result(r)

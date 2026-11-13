@@ -28,8 +28,17 @@ const SAVE_SPEC := {
 		"elapsed": _F, "cleared_total": _F, "raised_by_sims": _F, "tithe": _D,
 	},
 	"villages": [{"id": _S, "owner": _S}],
-	"town": {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
-		"staff_caps": {"*": _I}, "haul": {"target": _S}},
+	# TownSim.to_dict() plus GameState's tier, haul.target and work_pending. TownSim's morale, shock,
+	# rates and pending are written too but optional (a migrated v1 save has none): _town_problem
+	# checks their types when present, and TownSim.from_dict defaults them.
+	"town": {
+		"tier": _S, "work_pending": _F, "workers": _F, "bodies": _F, "gold": _F, "bone": _F, "living": _F,
+		"buildings": [{"lot_id": _S, "building_id": _S, "level": _I, "state": _S, "progress": _F, "staff_cap": _I,
+			"unpaid_s": _F, "build_level": _I}],
+		"ladder": [_S],
+		"haul": {"target": _S, "current": _S, "convoys": [{"fort": _S, "phase": _S, "t": _F, "trip_s": _F, "load": _F, "crew": _F}]},
+		"forge": {"level": _I, "progress": _F},
+	},
 	"stances": {"on": [_S], "hold": {"*": _F}},
 	"inventory": {
 		"husks": [{"uid": _S, "kind": _S, "rarity": _S}],
@@ -44,8 +53,18 @@ const SAVE_SPEC := {
 	"ledger": {"sources": {"*": _F}, "sinks": {"dungeon": _F}},
 	"won": _B,
 	"stats": {"raised_total": _F, "raids": _I, "deaths": _I, "sims_built": _I},
-	"legacy": LegacyEconomy.SAVE_SPEC,
 	"cleared_forts": [_S], "first_dungeon": _S,
+}
+## TownSim's optional town keys (see SAVE_SPEC's town).
+const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
+const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
+## A v1 (E1) save's town and legacy blocks, as migrate reads them.
+const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
+	"staff_caps": {"*": _I}, "haul": {"target": _S}}
+const _V1_LEGACY := {
+	"res": {"gold": _F, "materials": _F, "bodies": _F, "townsfolk": _F},
+	"town": {"vats": _I, "forge_level": _I},
+	"assignments": {"*": _I}, "idle_undead": _I,
 }
 
 
@@ -98,7 +117,7 @@ static func canon(v: Variant) -> Variant:
 
 ## §9.1 `GameState.migrate`: one version at a time up to `latest` (GameState.SAVE_VERSION). `{}` on
 ## failure (no `v`, a `v` that is not a whole number from 1 up, a version from the future, or a
-## missing step). v1 is the identity: it returns a deep copy.
+## missing step). At `latest` it returns a deep copy.
 static func migrate(d: Dictionary, latest: int) -> Dictionary:
 	if not d.has("v") or not fits(d["v"], _I):
 		return {}
@@ -108,11 +127,45 @@ static func migrate(d: Dictionary, latest: int) -> Dictionary:
 	var out := d.duplicate(true)
 	while v < latest:
 		match v:
-			_:  # a step per old version goes here, e.g. 1: out = _migrate_1_to_2(out)
+			1:
+				out = _migrate_1_to_2(out)
+			_:
 				return {}
 		v += 1
 	out["v"] = v
 	return out
+
+
+## v1 (E1) → v2 (E2a, TownSim). The `legacy` block's stocks become the town block's: gold, bone
+## (materials), bodies, living (townsfolk), workers (idle_undead + every assignment); its forge level
+## becomes TownSim's, and its vats backups.clones_ready. v1's town.lots (the BALANCE §0 start set,
+## which nothing at E1 changed) become working buildings with their staff caps. The legacy army,
+## assignments and convoy are dropped; morale, shock and the rates start fresh at the load. A v1
+## save whose town or legacy block is malformed is left as is, so the v2 check calls it corrupt.
+static func _migrate_1_to_2(d: Dictionary) -> Dictionary:
+	if not fits(d.get("town"), _V1_TOWN) or not fits(d.get("legacy"), _V1_LEGACY) or not (d.get("backups") is Dictionary):
+		return d
+	var tn: Dictionary = d["town"]
+	var lg: Dictionary = d["legacy"]
+	var buildings: Array = []
+	for l in tn["lots"]:
+		var lot_id: String = l["lot_id"]
+		buildings.append({"lot_id": lot_id, "building_id": l["building_id"], "level": int(l["level"]), "state": "active",
+			"progress": 1.0, "staff_cap": int(tn["staff_caps"].get(lot_id, -1)), "unpaid_s": 0.0, "build_level": int(l["level"])})
+	var workers := float(lg["idle_undead"])
+	for k in lg["assignments"]:
+		workers += float(lg["assignments"][k])
+	var res: Dictionary = lg["res"]
+	d["town"] = {
+		"tier": tn["tier"], "work_pending": 0.0, "workers": maxf(0.0, workers),
+		"bodies": float(res["bodies"]), "gold": float(res["gold"]), "bone": float(res["materials"]), "living": float(res["townsfolk"]),
+		"buildings": buildings, "ladder": (tn["ladder"] as Array).duplicate(),
+		"haul": {"target": tn["haul"]["target"], "current": "", "convoys": []},
+		"forge": {"level": int(lg["town"]["forge_level"]), "progress": 0.0},
+	}
+	d["backups"]["clones_ready"] = maxi(0, int(lg["town"]["vats"]))
+	d.erase("legacy")
+	return d
 
 
 ## "" if the migrated save `m` is sound, else why not. The shape first, then every id it names
@@ -153,33 +206,9 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	for v in m["villages"]:
 		if not ["player", "vei", "none"].has(v["owner"]):
 			return "village owner"
-	if not GameState.TIERS.has(m["town"]["tier"]):
-		return "tier"
-	var lots_cfg: Variant = cfgs.get("town", {}).get("lots", [])
-	var bcfg: Variant = cfgs.get("buildings", {})
-	if not (bcfg is Dictionary):
-		bcfg = {}
-	var lot_ids := {}
-	for l in (lots_cfg if lots_cfg is Array else []):
-		lot_ids[str(l.get("id", ""))] = true
-	seen = {}
-	for l in m["town"]["lots"]:
-		if not lot_ids.has(l["lot_id"]) or seen.has(l["lot_id"]) or not bcfg.has(l["building_id"]):
-			return "lot"
-		seen[l["lot_id"]] = true
-	for lot_id in m["town"]["staff_caps"]:
-		if not lot_ids.has(lot_id):
-			return "staff cap lot"
-	var jobs := {}
-	for j in m["town"]["ladder"]:
-		if not GameState.JOB_IDS.has(j) or jobs.has(j):
-			return "ladder"
-		jobs[j] = true
-	if jobs.size() != GameState.JOB_IDS.size():
-		return "ladder"
-	var haul: String = m["town"]["haul"]["target"]
-	if haul != "auto" and not fort_ids.has(haul):
-		return "haul target"
+	var town_why := _town_problem(m["town"], cfgs, fort_ids)
+	if town_why != "":
+		return town_why
 	var on := {}
 	for st in m["stances"]["on"]:
 		if not GameState.STANCE_IDS.has(st) or on.has(st):
@@ -204,12 +233,53 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not bu_uids.has(u) or seen.has(u):
 			return "party"
 		seen[u] = true
-	var lg_why := LegacyEconomy.save_problem(m["legacy"], fort_ids)
-	if lg_why != "":
-		return lg_why
 	for id in m["cleared_forts"]:
 		if not fort_ids.has(id):
 			return "cleared fort"
+	return ""
+
+
+## "" if the town block `tn` (it already fits SAVE_SPEC) is sound: a known tier; buildings on known,
+## distinct lots, of known ids, in a known state, at a level the building has; the ladder a
+## permutation of JOB_IDS; the haul target, its current fort and at most one convoy naming known
+## forts; TownSim's optional keys of the right type.
+static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary) -> String:
+	if not GameState.TIERS.has(tn["tier"]):
+		return "tier"
+	var lots_cfg: Variant = cfgs.get("town", {}).get("lots", [])
+	var bcfg: Variant = cfgs.get("buildings", {})
+	if not (bcfg is Dictionary):
+		bcfg = {}
+	var lot_ids := {}
+	for l in (lots_cfg if lots_cfg is Array else []):
+		lot_ids[str(l.get("id", ""))] = true
+	var seen := {}
+	for b in tn["buildings"]:
+		if not lot_ids.has(b["lot_id"]) or seen.has(b["lot_id"]) or not bcfg.has(b["building_id"]):
+			return "lot"
+		seen[b["lot_id"]] = true
+		var top := int(bcfg[b["building_id"]].get("max_level", 1))
+		if not _BUILDING_STATES.has(b["state"]) or int(b["level"]) < 0 or int(b["level"]) > top \
+				or int(b["build_level"]) < 1 or int(b["build_level"]) > top:
+			return "building"
+	var jobs := {}
+	for j in tn["ladder"]:
+		if not GameState.JOB_IDS.has(j) or jobs.has(j):
+			return "ladder"
+		jobs[j] = true
+	if jobs.size() != GameState.JOB_IDS.size():
+		return "ladder"
+	var haul: Dictionary = tn["haul"]
+	if haul["target"] != "auto" and not fort_ids.has(haul["target"]):
+		return "haul target"
+	if (haul["current"] != "" and not fort_ids.has(haul["current"])) or haul["convoys"].size() > 1:
+		return "haul"
+	for c in haul["convoys"]:
+		if not fort_ids.has(c["fort"]) or not ["out", "back"].has(c["phase"]):
+			return "convoy"
+	for k in _TOWN_OPTIONAL:
+		if tn.has(k) and not fits(tn[k], _TOWN_OPTIONAL[k]):
+			return "town " + k
 	return ""
 
 
