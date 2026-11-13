@@ -26,6 +26,25 @@ func bcfg() -> Dictionary:
 	return ConfigDb.data.get("raid", {}).get("boss", {})
 
 
+## The pulse windup telegraph lives in its own node above the trance dim
+## (z 37, under Relish at 38) so the danger ring stays readable in trance.
+class Telegraph:
+	extends Node2D
+	var vei_ref: RaidVei = null
+
+	func _process(_d: float) -> void:
+		queue_redraw()
+
+	func _draw() -> void:
+		var v := vei_ref
+		if v == null or v._windup < 0.0:
+			return
+		var wind_f := v._windup / maxf(0.05, float(v.bcfg().get("pulse_windup_s", 1.2)))
+		var r: float = float(v.bcfg().get("pulse_radius_px", 340.0))
+		LineGlow.ring(self, Vector2.ZERO, r, Palette.c("danger", 0.4 + 0.5 * wind_f), 3.0, 0.6)
+		LineGlow.ring(self, Vector2.ZERO, r * wind_f, Palette.c("vei", 0.8), 2.0, 0.6)
+
+
 func configure(p_boss: Node, odds: float) -> void:
 	boss = p_boss
 	var b := bcfg()
@@ -35,6 +54,11 @@ func configure(p_boss: Node, odds: float) -> void:
 	hp = max_hp
 	_pulse_t = _pulse_cadence()
 	z_index = 34
+	var tg := Telegraph.new()
+	tg.vei_ref = self
+	tg.z_as_relative = false
+	tg.z_index = 37
+	add_child(tg)
 
 
 func _pulse_cadence() -> float:
@@ -199,19 +223,18 @@ func _draw() -> void:
 	var b := bcfg()
 	var vei := Palette.c("vei")
 	var reduced: bool = Pulse.reduced_motion
-	# radiant pulse telegraph: expanding indicator circle
-	if _windup >= 0.0:
-		var wind_f := _windup / maxf(0.05, float(b.get("pulse_windup_s", 1.2)))
-		var r: float = float(b.get("pulse_radius_px", 340.0))
-		LineGlow.ring(self, Vector2.ZERO, r, Palette.c("danger", 0.4 + 0.5 * wind_f), 3.0, 0.6)
-		LineGlow.ring(self, Vector2.ZERO, r * wind_f, Palette.c("vei", 0.8), 2.0, 0.6)
 	# revive channel: gathering ring
-	if _channel >= 0.0:
+	if _channel >= 0.0 and alive:
 		var ch_f := _channel / maxf(0.05, float(b.get("revive_channel_s", 2.0)))
 		var rr: float = float(b.get("revive_radius_px", 400.0))
 		LineGlow.ring(self, Vector2.ZERO, rr * (1.0 - ch_f * 0.7),
 			Palette.c("living", 0.35 + 0.3 * ch_f), 2.5, 0.6)
 	# halo + rays: imposing cream and gold (rays hold still under reduced motion)
+	if not alive:
+		# dead matter never emits: a matte ring, no halo, no rays
+		LineGlow.matte_ring(self, Vector2.ZERO, radius + 9.0, Palette.c("dead"), 2.5)
+		_draw_body(Palette.c("dead"))
+		return
 	LineGlow.ring(self, Vector2.ZERO, radius * 1.7, vei, 1.5, 0.5)
 	var spin := 0.0 if reduced else _t * 0.25
 	var ray := Palette.c("vei", 0.55)
@@ -225,10 +248,13 @@ func _draw() -> void:
 	var body := vei
 	if _flash > 0.0:
 		body = body.lerp(Palette.c("danger"), minf(0.7, _flash))
-	if not alive:
-		body = Palette.c("dead")
+	_draw_body(body)
+
+
+func _draw_body(body: Color) -> void:
 	draw_circle(Vector2.ZERO, radius, body)
-	draw_circle(Vector2.ZERO, radius * 0.62, Palette.c("text", 0.85))
+	var core := Palette.c("text", 0.85) if alive else Palette.c("dead").lightened(0.2)
+	draw_circle(Vector2.ZERO, radius * 0.62, core)
 	# a stern face slit
 	var slit := Palette.c("ground", 0.8)
 	draw_line(Vector2(-10, -6), Vector2(-4, -6), slit, 2.5)

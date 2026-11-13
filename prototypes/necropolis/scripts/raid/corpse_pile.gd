@@ -38,16 +38,20 @@ func _process(delta: float) -> void:
 		if _shrink >= 0.25:
 			queue_free()
 		return
-	if _stirred or raid == null:
+	if raid == null:
 		return
 	var rel = raid.relish
 	if rel == null or not is_instance_valid(rel) or not rel.alive:
+		if not _stirred:
+			_set_lit(false)
 		return
-	var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})
-	var near: bool = global_position.distance_to(rel.global_position) <= float(e.get("stir_radius_px", 90.0))
-	_set_lit(near)
-	if near:
-		stir()
+	var d: float = global_position.distance_to(rel.global_position)
+	var rcfg: Dictionary = ConfigDb.data.get("raid", {})
+	# Relish's violet falls on the dead near her (matte, never emits)
+	if not _stirred:
+		_set_lit(d <= float(rcfg.get("relish", {}).get("light_radius_px", 220.0)))
+		if d <= float(rcfg.get("essence", {}).get("stir_radius_px", 90.0)):
+			stir()
 
 
 func _set_lit(on: bool) -> void:
@@ -77,6 +81,7 @@ func stir() -> void:
 ## Consumed whole by Vei's revive (no orbs — she takes the matter directly).
 func consume() -> void:
 	_stirred = true
+	_set_lit(false)  # Vei takes it; no light of Relish's on it
 	remove_from_group("raid_piles")
 	_shrink = 0.0
 

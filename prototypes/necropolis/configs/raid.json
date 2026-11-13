@@ -3,7 +3,8 @@
     "hp": 30.0,
     "speed": 240.0,
     "radius": 13.0,
-    "iframes_s": 0.5
+    "iframes_s": 0.5,
+    "light_radius_px": 220.0
   },
   "trance": {
     "time_scale": 0.35,

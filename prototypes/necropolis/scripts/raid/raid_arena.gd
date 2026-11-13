@@ -99,13 +99,10 @@ func _process(delta: float) -> void:
 	var steady: float = Pulse.wave() if reduced else -1.0
 	var beat: float = Pulse.phase()
 	var rp := relish.global_position if relish != null and is_instance_valid(relish) else Vector2.ZERO
+	if _floor != null and relish != null and is_instance_valid(relish):
+		_floor.set_source(_floor.to_local(rp))
 	for seg in _walls:
 		seg.set_beat(beat, rp, _drift, steady)
-
-
-func _physics_process(_delta: float) -> void:
-	if _floor != null and relish != null and is_instance_valid(relish):
-		_floor.set_source(relish.position)
 
 
 ## Drift field: unit vector toward the nearest door's inner point, strength 1
@@ -133,7 +130,8 @@ func _draw() -> void:
 	if layout.is_empty():
 		return
 	var size: Vector2 = layout["size"]
-	draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground"))
+	# ground well beyond the arena, so a small arena never shows the clear colour
+	draw_rect(Rect2(Vector2.ZERO, size).grow(4000.0), Palette.c("ground"))
 	var grid := Palette.c("graticule")
 	var step: float = float(cfg.get("layout", {}).get("grid_step_px", 128.0))
 	var x := step
