@@ -143,6 +143,7 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	_sync_camera()                   # spawn uniforms are right before the first start()
 	_vp.add_child(_parts)
 	upload_field()
+	upload_lanes()
 	get_viewport().size_changed.connect(_resize)
 	RenderingServer.frame_pre_draw.connect(_sync_camera)
 
@@ -184,7 +185,8 @@ func apply_config(cfg: Dictionary) -> void:
 		"draught", "draught_empty", "push", "orbit_strength", "turbulence", "turbulence_empty",
 		"turbulence_land", "noise_scale", "noise_evolve", "commit_dominance", "commit_entrench",
 		"entrench_ref", "tempo_amp", "dash_px", "dash_duty", "streak_width_px",
-		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix"]
+		"spawn_empty_weight", "alpha_empty", "alpha_land", "alpha_front", "core_mix", "seam_land",
+		"moat_px", "moat_strength"]
 	for k in keys:
 		if cfg.has(k):
 			_pmat.set_shader_parameter(k, float(cfg[k]))
@@ -192,6 +194,7 @@ func apply_config(cfg: Dictionary) -> void:
 	_pmat.set_shader_parameter("presence", _v2(cfg.get("presence", [0.01, 0.22])))
 	_pmat.set_shader_parameter("front_range", _v2(cfg.get("front", [0.03, 0.22])))
 	_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])))
+	_pmat.set_shader_parameter("moat_end", _v2(cfg.get("moat_end", [40.0, 120.0])))
 	var cols: Dictionary = cfg.get("colors", {})
 	for k in ["green", "green_core", "orange", "orange_core", "violet"]:
 		if cols.has(k):
@@ -217,6 +220,7 @@ func _process(delta: float) -> void:
 	if _field_acc >= 1.0 / maxf(0.1, float(_cfg.get("field_hz", 6.0))):
 		_field_acc = 0.0
 		upload_field()
+		upload_lanes()
 	last_cpu_ms = (Time.get_ticks_usec() - t0) / 1000.0
 
 
@@ -309,6 +313,47 @@ func upload_field() -> void:
 	for i in 3:
 		_texs[i].update(_layer_image(layers[i], f.w, f.h))
 	field_upload_ms = (Time.get_ticks_usec() - t0) / 1000.0
+
+
+## Live routes as quadratic bows for the moat (and, later, the rate splat).
+func upload_lanes() -> void:
+	var ls := lanes(Game.realm, float(_cfg.get("lane_bow", 0.07)))
+	var n := mini(ls.size(), 64)
+	var ac := PackedVector4Array()
+	var bw := PackedVector4Array()
+	ac.resize(64)
+	bw.resize(64)
+	for i in n:
+		var l: Dictionary = ls[i]
+		ac[i] = Vector4(l["a"].x, l["a"].y, l["c"].x, l["c"].y)
+		bw[i] = Vector4(l["b"].x, l["b"].y, l["half_width"], l["u"])
+	_pmat.set_shader_parameter("lane_ac", ac)
+	_pmat.set_shader_parameter("lane_bw", bw)
+	_pmat.set_shader_parameter("lane_count", n)
+
+
+## Every live route on the map as {a, c, b, half_width, u}: a quadratic bow from
+## a to b with control point c. Mirrors map_routes.gd (the map unit's): the bow
+## bends left of travel with the control point `bow`·chord off the midpoint, the
+## width is Pulse's 1.1 + 2.6u. A route is live above Pulse's rate_off.
+static func lanes(realm: RealmSim, bow: float) -> Array:
+	var out: Array = []
+	var add := func(a: Vector2, b: Vector2, rate: float, gutter: float) -> void:
+		var u := Pulse.rate_to_u(rate)
+		if u == Pulse.OFF:
+			return
+		var dir := (b - a).normalized()
+		var perp := Vector2(-dir.y, dir.x)
+		var c := (a + b) * 0.5 - perp * a.distance_to(b) * bow
+		out.append({"a": a, "c": c, "b": b, "half_width": (1.1 + 2.6 * u) * 0.5 + gutter, "u": u})
+	for f in realm.forts:
+		add.call(realm.cov_pos, f["pos"], f["r_in"], 0.0)
+		# the corpse gutter rides 7 px off the drain lane (map_routes.gd)
+		var dead_out: float = f["r_dead_out"]
+		add.call(f["pos"], realm.vei_pos, maxf(f["r_drain"], dead_out), 7.0 if Pulse.rate_to_u(dead_out) != Pulse.OFF else 0.0)
+		add.call(realm.vei_pos, f["pos"], f["r_shipped"], 0.0)
+	add.call(realm.cov_pos, realm.vei_pos, realm.cov["r_out"] * float(realm.t.get("directShare", 0.22)), 0.0)
+	return out
 
 
 func _layer_image(arr: PackedFloat32Array, w: int, h: int) -> Image:

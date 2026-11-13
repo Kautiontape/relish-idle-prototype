@@ -10,6 +10,13 @@ shader_type particles;
 //   (dash rhythm by distance).
 //   The FRONT (both sides present) is violet churn: curl-noise turbulence.
 //   ENTRENCHED ground is slow and laminar: no noise, saturated toward the core.
+// Figure over ground (the routes stay figure): every streak that exists clears
+// 3:1 at its core, and the ink is set by how many there are, never by dimming.
+//   - EMPTY ground is a sparse current (spawn_empty_weight), not a dense dim one;
+//   - a streak born on empty ground fades and respawns once it is seam_land into
+//     living ground, so the draught can't pile violet seams along a vortex rim;
+//   - streaks thin out in a narrow moat beside each live lane (moat_*), except
+//     near the lane's ends, where held ground round a node keeps its streaks.
 render_mode disable_velocity, disable_force;
 
 uniform sampler2D field_g : filter_linear, repeat_disable;
@@ -48,6 +55,9 @@ uniform float wave_spread = 0.5;
 uniform float tempo_amp = 0.53;
 uniform vec2 life_s = vec2(2.5, 6.5);
 uniform float spawn_empty_weight = 0.3;
+// Seams: streaks born on empty ground fade and respawn once they are this far
+// into held living ground, so the draught can't pile them up along a vortex rim.
+uniform float seam_land = 0.35;
 uniform float dash_px = 15.0;
 uniform float dash_duty = 0.5;
 uniform float streak_width_px = 1.35;   // on screen, at any zoom
@@ -58,6 +68,16 @@ uniform float active = 1.0;        // share of particles alive (constant ink acr
 uniform float regrow = 0.0;        // share to respawn this frame (zoom-out uncovered world)
 uniform float frame_seed = 0.0;
 uniform float px_world = 1.0;      // world units per screen px
+// Lanes (figure over ground): each live route as a quadratic bow, refreshed
+// by flow_ground.gd at field_hz. Streaks thin out in a moat beside each lane.
+const int MAX_LANES = 64;
+uniform vec4 lane_ac[MAX_LANES];   // start.xy, control.xy
+uniform vec4 lane_bw[MAX_LANES];   // end.xy, half width (world), rate u
+uniform int lane_count = 0;
+uniform float moat_px = 10.0;      // moat beyond the lane's edge, screen px
+uniform float moat_strength = 0.0; // 0 = off; 1 = the moat's core is empty
+uniform vec2 moat_end = vec2(40.0, 120.0); // world px from a lane's ends: no moat -> full moat
+                                           // (held ground round a node keeps its streaks)
 uniform float alpha_empty = 0.2;
 uniform float alpha_land = 0.95;
 uniform float alpha_front = 0.95;
@@ -113,6 +133,41 @@ vec2 spawn_pos(uint s) {
 	return spawn_rect.xy + vec2(hash1(s), hash1(s ^ 0x9e3779b9u)) * spawn_rect.zw;
 }
 
+float seg_dist(vec2 p, vec2 a, vec2 b) {
+	vec2 ab = b - a;
+	float f = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+	return distance(p, a + ab * f);
+}
+
+// 1 on a lane, 0 beyond its moat (smooth). Bounding-box reject first.
+float moat_at(vec2 p) {
+	float m = 0.0;
+	float mw = moat_px * px_world;
+	for (int i = 0; i < lane_count; i++) {
+		vec2 a = lane_ac[i].xy;
+		vec2 c = lane_ac[i].zw;
+		vec2 b = lane_bw[i].xy;
+		float hw = lane_bw[i].z;
+		float reach = hw + mw;
+		vec2 lo = min(min(a, b), c) - reach;
+		vec2 hi = max(max(a, b), c) + reach;
+		if (p.x < lo.x || p.y < lo.y || p.x > hi.x || p.y > hi.y) {
+			continue;
+		}
+		float d = 1e9;
+		vec2 prev = a;
+		for (int k = 1; k <= 10; k++) {
+			float s = float(k) / 10.0;
+			vec2 q = mix(mix(a, c, s), mix(c, b, s), s);
+			d = min(d, seg_dist(p, prev, q));
+			prev = q;
+		}
+		float ends = smoothstep(moat_end.x, moat_end.y, min(distance(p, a), distance(p, b)));
+		m = max(m, ends * (1.0 - smoothstep(hw, reach, d)));
+	}
+	return m;
+}
+
 bool outside(vec2 p, vec4 r) {
 	return p.x < r.x || p.y < r.y || p.x > r.x + r.z || p.y > r.y + r.w;
 }
@@ -125,15 +180,47 @@ uint seed_of(uint idx, float gen) {
 	return idx * 2654435761u ^ (uint(gen) * 2246822519u + 374761393u);
 }
 
+float land_at(vec2 p) {
+	vec2 uv = p / world_size;
+	return smoothstep(presence.x, presence.y, texture(field_g, uv).r + texture(field_o, uv).r);
+}
+
+// Where a streak is born. Up to four tries in view; each is kept with
+// mix(spawn_empty_weight, 1, land), less beside a lane (the moat). Held ground
+// is where the information is, so it fills first; empty ground gets a sparse
+// current of legible streaks, not a dense dim one. If no try is kept, the
+// streak sleeps one life (z = 0) and tries again: no forced fallback.
+// Returns xy = the point, z = 1 if kept, w = land there.
+vec4 pick_spawn(uint s) {
+	vec2 sp = spawn_pos(s);
+	for (uint k = 0u; k < 4u; k++) {
+		if (k > 0u) {
+			sp = spawn_pos(s + k * 7919u);
+		}
+		float lnd = land_at(sp);
+		float keep_here = mix(spawn_empty_weight, 1.0, lnd);
+		if (moat_strength > 0.0 && lane_count > 0) {
+			keep_here *= 1.0 - moat_strength * moat_at(sp);
+		}
+		if (hash1(s + (k + 1u) * 101u) < keep_here) {
+			return vec4(sp, 1.0, lnd);
+		}
+	}
+	return vec4(sp, 0.0, 0.0);
+}
+
 void start() {
 	uint s = seed_of(INDEX, 0.0);
+	vec4 sp = pick_spawn(s);
 	TRANSFORM = mat4(1.0);
-	TRANSFORM[3].xy = spawn_pos(s);
+	TRANSFORM[3].xy = sp.xy;
 	TRANSFORM[0] = vec4(0.0);
 	TRANSFORM[1] = vec4(0.0);
 	float life = life_of(s);
-	// random starting age so respawns never synchronise
-	CUSTOM = vec4(hash1(s + 29u) * life, life, 0.0, 0.0);
+	// CUSTOM: x age (random start, so respawns never synchronise); y life,
+	// negative for a streak born on empty ground (the seam rule); z distance
+	// travelled (dash rhythm), -1 while asleep; w generation.
+	CUSTOM = vec4(hash1(s + 29u) * life, sp.w < 0.5 ? -life : life, sp.z > 0.5 ? 0.0 : -1.0, 0.0);
 	VELOCITY = vec3(0.0);
 	COLOR = vec4(0.0);
 }
@@ -144,35 +231,38 @@ void process() {
 	// dead so it respawns in view the moment it is active again.
 	bool parked = hash1(INDEX * 0x2c1b3c6du + 11u) > active;
 	if (parked) {
-		CUSTOM.x = CUSTOM.y + 1.0;
+		CUSTOM.x = abs(CUSTOM.y) + 1.0;
 		COLOR = vec4(0.0);
 		TRANSFORM[0] = vec4(0.0);
 		TRANSFORM[1] = vec4(0.0);
 	} else {
 		CUSTOM.x += DELTA;
 		bool regrown = hash1(INDEX * 0x165667b1u ^ uint(frame_seed) * 0x27d4eb2fu) < regrow;
-		if (CUSTOM.x > CUSTOM.y || regrown || outside(p, keep_rect)
+		// empty-born streak deep enough into living ground: a seam in the making
+		vec2 uvs = p / world_size;
+		float gs = texture(field_g, uvs).r;
+		float os = texture(field_o, uvs).r;
+		float liv_here = smoothstep(presence.x, presence.y, gs + os) * clamp((os - gs) / 0.04, 0.0, 1.0);
+		bool seam = CUSTOM.y < 0.0 && liv_here > seam_land;
+		if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
 				|| p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
 			CUSTOM.w += 1.0;
 			uint s = seed_of(INDEX, CUSTOM.w);
-			// respawn biased toward held ground: that is where the information is
-			vec2 sp = spawn_pos(s);
-			for (uint k = 1u; k < 4u; k++) {
-				vec2 uv = sp / world_size;
-				float lnd = smoothstep(presence.x, presence.y, texture(field_g, uv).r + texture(field_o, uv).r);
-				if (hash1(s + k * 101u) < mix(spawn_empty_weight, 1.0, lnd)) {
-					break;
-				}
-				sp = spawn_pos(s + k * 7919u);
-			}
+			vec4 sp = pick_spawn(s);
 			TRANSFORM = mat4(1.0);
-			TRANSFORM[3].xy = sp;
+			TRANSFORM[3].xy = sp.xy;
 			TRANSFORM[0] = vec4(0.0);
 			TRANSFORM[1] = vec4(0.0);
+			float lf = life_of(s);
 			CUSTOM.x = 0.0;
-			CUSTOM.y = life_of(s);
-			CUSTOM.z = 0.0;
+			CUSTOM.y = sp.w < 0.5 ? -lf : lf;   // negative: born on empty ground
+			CUSTOM.z = sp.z > 0.5 ? 0.0 : -1.0;  // -1: asleep this life
 			COLOR = vec4(0.0);
+		} else if (CUSTOM.z < 0.0) {
+			// asleep: draws nothing until its life runs out, then tries again
+			COLOR = vec4(0.0);
+			TRANSFORM[0] = vec4(0.0);
+			TRANSFORM[1] = vec4(0.0);
 		} else {
 			vec2 cell = world_size / grid_size;
 			vec2 h = cell * 1.5;
@@ -252,7 +342,16 @@ void process() {
 			float on = step(fract(CUSTOM.z / dash_px + hash1(INDEX + 3u)), dash_duty);
 			a *= mix(1.0, on, living);
 			// fade in after spawn, out before respawn
-			a *= smoothstep(0.0, 0.35, CUSTOM.x) * (1.0 - smoothstep(CUSTOM.y - 0.6, CUSTOM.y, CUSTOM.x));
+			float lf = abs(CUSTOM.y);
+		a *= smoothstep(0.0, 0.35, CUSTOM.x) * (1.0 - smoothstep(lf - 0.6, lf, CUSTOM.x));
+		// figure over ground: streaks thin out beside the lanes
+		if (moat_strength > 0.0 && lane_count > 0) {
+			a *= 1.0 - moat_strength * moat_at(np);
+		}
+		// an empty-born streak fades as it nears the seam line, instead of piling up there
+		if (CUSTOM.y < 0.0) {
+			a *= 1.0 - smoothstep(seam_land * 0.3, seam_land, liv);
+		}
 			COLOR = vec4(col, a);
 
 			// segment p -> np, drawn as a quad of length 2*len centred on np.
