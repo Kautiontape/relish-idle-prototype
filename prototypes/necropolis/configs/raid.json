@@ -86,6 +86,18 @@
     }
   },
   "undead": {
+    "base": {
+      "hp": 10.0,
+      "dmg": 2.0,
+      "speed": 118.0,
+      "cadence_s": 0.9,
+      "radius": 9.0
+    },
+    "radius_by_tier": {
+      "chaff": 8.0,
+      "soldier": 10.0,
+      "elite": 12.0
+    },
     "chaff": {
       "hp": 8.0,
       "dmg": 1.5,
@@ -192,5 +204,62 @@
     "max_chaff_alive": 90,
     "remnant_mass": 3.0,
     "remnant_cap": 40
+  },
+  "party": {
+    "hp_base": 30.0,
+    "hp_per_beef": 8.0,
+    "dmg_base": 3.0,
+    "dmg_per_power": 1.2,
+    "speed_base": 90.0,
+    "speed_per_speed": 10.0,
+    "cadence_s": 1.0,
+    "radius": 20.0
+  },
+  "garrison": {
+    "stat_mult": 1.0
+  },
+  "starter": {
+    "stat_mult": 1.0
+  },
+  "demo": {
+    "fort_id": "vespers",
+    "fort_name": "Vespers",
+    "tier": 2,
+    "cap": 160.0,
+    "living": 120.0,
+    "dead": 20.0,
+    "undead": 10.0,
+    "rng_seed": "1234567",
+    "run_id": 0,
+    "seed_rev": 0,
+    "first_clear": true,
+    "first_dungeon": false,
+    "clears_since_retaken": 0,
+    "yield_mult": 1.0,
+    "starter_units": 0,
+    "digest_q": 1.0,
+    "phylactery_charges": 1,
+    "phylactery_max_per_dungeon": 1,
+    "clones_ready": 0,
+    "warden": {
+      "archetype": "bellringer",
+      "tier": 2
+    },
+    "loot_hint": "a husk and a blueprint",
+    "chest_husk": false,
+    "watchtower": false,
+    "big_undead": {
+      "uid": "u1",
+      "name": "Old Gristle",
+      "kind": "hulk",
+      "role": "brute",
+      "stats": {
+        "power": 6.0,
+        "beef": 9.0,
+        "wits": 2.0,
+        "presence": 3.0,
+        "speed": 2.5
+      }
+    }
   }
 }

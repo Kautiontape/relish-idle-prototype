@@ -171,4 +171,133 @@ func run() -> int:
 			t1_kinds = false
 	t.ok(t1_kinds, "tier 1 fields spearmen only")
 
+	# --- v2: seed, per-mote raise, statlines, LedgerV2 ------------------------
+	var ccfg := TestUtil.load_json("res://configs/circle.json")
+	t.suite("raid_v2_seed")
+	var dseed := RaidLogic.demo_seed(cfg)
+	t.ok(Results.validate("raid_seed", dseed) == [], "demo_seed validates as raid_seed: %s" % str(Results.validate("raid_seed", dseed)))
+	t.ok(int(dseed["garrison_units"]) == RaidLogic.garrison_count(float(dseed["undead"]), cfg), "garrison_units from garrison_count")
+	t.near(float(dseed["garrison_in_mass"]), float(dseed["garrison_units"]) * 10.0, 0.001, "garrison_in_mass = units x div")
+	t.ok(dseed["rng_seed"] is String and str(dseed["rng_seed"]).is_valid_int(), "rng_seed is a decimal String")
+	t.ok((dseed["party"] as Array).size() >= 1, "demo party has a big undead")
+
+	t.suite("raid_v2_raise")
+	t.near(RaidLogic.stat_mult(0, ccfg), 0.5, 0.0001, "stat_mult 0 = 0.5")
+	t.near(RaidLogic.stat_mult(50, ccfg), 1.0, 0.0001, "stat_mult 50 = 1.0")
+	t.near(RaidLogic.stat_mult(100, ccfg), 1.5, 0.0001, "stat_mult 100 = 1.5")
+	var motes: Array = [{"mass": 2.0, "recycled": false}, {"mass": 3.0, "recycled": true}, {"mass": 1.5, "recycled": false}]
+	var rs := RaidLogic.raise_spec_v2(75, motes, cfg, ccfg)
+	t.ok(int(rs["count"]) == 3, "count == motes")
+	t.near(float(rs["fresh_mass"]), 3.5, 0.0001, "fresh_mass excludes recycled")
+	t.ok(rs["tier"] == "soldier", "75 is soldier")
+	t.near(float(rs["stat_mult"]), 1.25, 0.0001, "stat_mult 1.25 at 75")
+	t.ok((rs["unit_masses"] as Array).size() == 3 and is_equal_approx(float((rs["unit_masses"] as Array)[1]), 3.0), "unit_masses one per mote")
+	t.ok(RaidLogic.raise_spec_v2(59, motes, cfg, ccfg)["tier"] == "chaff", "59 chaff")
+	t.ok(RaidLogic.raise_spec_v2(60, motes, cfg, ccfg)["tier"] == "soldier", "60 soldier")
+	t.ok(RaidLogic.raise_spec_v2(89, motes, cfg, ccfg)["tier"] == "soldier", "89 soldier")
+	t.ok(RaidLogic.raise_spec_v2(90, motes, cfg, ccfg)["tier"] == "elite", "90 elite")
+	var rz := RaidLogic.raise_spec_v2(95, [], cfg, ccfg)
+	t.ok(int(rz["count"]) == 0 and rz["tier"] == "" and float(rz["fresh_mass"]) == 0.0, "zero motes: count 0, tier empty, fresh 0")
+
+	t.suite("raid_v2_stats")
+	var us := RaidLogic.undead_stats(1.5, "elite", cfg)
+	t.near(float(us["hp"]), 15.0, 0.0001, "hp x mult")
+	t.near(float(us["dmg"]), 3.0, 0.0001, "dmg x mult")
+	t.near(float(us["speed"]), 118.0, 0.0001, "speed unchanged")
+	t.near(float(us["cadence_s"]), 0.9, 0.0001, "cadence unchanged")
+	t.near(float(us["radius"]), 12.0, 0.0001, "elite radius 12")
+	t.near(float(RaidLogic.undead_stats(1.0, "chaff", cfg)["radius"]), 8.0, 0.0001, "chaff radius 8")
+	var bs := RaidLogic.big_undead_stats({"power": 5.0, "beef": 4.0, "wits": 1.0, "presence": 1.0, "speed": 2.0}, cfg)
+	t.near(float(bs["hp"]), 30.0 + 8.0 * 4.0, 0.0001, "big hp")
+	t.near(float(bs["dmg"]), 3.0 + 1.2 * 5.0, 0.0001, "big dmg")
+	t.near(float(bs["speed"]), 90.0 + 10.0 * 2.0, 0.0001, "big speed")
+	t.near(float(bs["cadence_s"]), 1.0, 0.0001, "big cadence")
+	t.near(float(bs["radius"]), 20.0, 0.0001, "big radius")
+
+	t.suite("raid_v2_ledger")
+	var vs := RaidLogic.demo_seed(cfg)
+	vs["phylactery_charges"] = 1
+	var uid0: String = str((vs["party"] as Array)[0]["uid"])
+	var keep: float = float((cfg["mass"] as Dictionary)["garrison_keep_cap_frac"]) * float((vs["fort"] as Dictionary)["cap"])
+	for ex in ["warden_beaten", "retreated", "relish_died"]:
+		var lgx := RaidLogic.LedgerV2.new(vs, cfg)
+		lgx.on_kill(12.0)
+		lgx.on_raise(40, 5.0, 2)
+		var r := lgx.build_result(vs, ex, [], [], 1 if ex == "retreated" else 0, {}, cfg)
+		t.ok(Results.validate("raid", r) == [], "%s validates: %s" % [ex, str(Results.validate("raid", r))])
+		t.ok(bool(r[ex]), "%s flag set" % ex)
+		t.ok(int(r["revived_in_place"]) == (1 if ex == "retreated" else 0), "revived echoed")
+		if ex == "relish_died":
+			t.ok(r["party_lost"] == [uid0], "relish_died loses whole party")
+		t.ok(int(r["run_id"]) == int(vs["run_id"]) and r["fort_id"] == "vespers", "ids echoed")
+	var lgm := RaidLogic.LedgerV2.new(vs, cfg)
+	lgm.on_kill(-4.0)
+	lgm.on_kill(10.0)
+	lgm.on_raise(40, 100.0, 10)
+	lgm.on_raise(40, 50.0, 5)
+	lgm.on_raise(75, 10.0, 0)
+	lgm.on_raise(75, 30.0, 3)
+	lgm.on_raise(95, 20.0, 2)
+	var r2 := lgm.build_result(vs, "retreated", [
+		{"role": "garrison", "tier": "chaff", "mass": 7.0},
+		{"role": "raised", "tier": "soldier", "mass": 4.0},
+		{"role": "raised", "tier": "elite", "mass": 2.0},
+		{"role": "raised", "tier": "chaff", "mass": 100.0},
+		{"role": "raised", "tier": "chaff", "mass": 20.0},
+		{"role": "starter", "tier": "chaff", "mass": 50.0},
+		{"role": "party", "tier": "", "mass": 50.0}], [uid0, "nope"], 0, {"relics": 2}, cfg)
+	t.ok((r2["raised"] as Array).size() == 3, "same-score raises merge; count<=0 ignored")
+	var b40: Dictionary = {}
+	for bk in r2["raised"]:
+		if int(bk["score"]) == 40:
+			b40 = bk
+	t.ok(int(b40["count"]) == 15 and is_equal_approx(float(b40["mass"]), 150.0), "merged bucket sums")
+	t.near(float(r2["killed_living_mass"]), 10.0, 0.0001, "negative kill ignored")
+	t.near(float(r2["garrison_mass"]), 7.0 + 4.0 + 2.0 + keep, 0.0001, "garrison = garrison+soldier+elite+kept chaff")
+	t.near(float(r2["chaff_mass"]), 120.0 - keep, 0.0001, "chaff leaves = pool - kept")
+	t.ok(r2["party_lost"] == [uid0], "party_died filtered to seed party")
+	t.ok(int(r2["loot"]["relics"]) == 2 and (r2["loot"]["blueprints"] as Array).is_empty() and int(r2["loot"]["essence"]) == 0, "loot normalised")
+	t.ok(Results.validate("raid", r2) == [], "mixed result validates")
+	var rc := RaidLogic.LedgerV2.new(vs, cfg)
+	rc.on_raise(40, 10.0, 2)
+	rc.on_raise(75, 4.0, 1)
+	rc.on_raise(99, 4.0, 3)
+	var cnt := rc.raised_counts()
+	t.ok(int(cnt["chaff"]) == 2 and int(cnt["soldier"]) == 1 and int(cnt["elite"]) == 3, "raised_counts by tier")
+	var rb := RaidLogic.LedgerV2.new(vs, cfg).build_result(vs, "retreated", [
+		{"role": "garrison", "tier": "chaff", "mass": 10.0},
+		{"role": "raised", "tier": "soldier", "mass": 50.0}], [], 0, {}, cfg)
+	t.ok(float(rb["garrison_mass"]) + float(rb["chaff_mass"]) <= float(vs["garrison_in_mass"]) + 1e-6, "bound scales to fit")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 424242
+	var stress_ok := true
+	for it in 60:
+		var sd := RaidLogic.demo_seed(cfg)
+		sd["undead"] = rng.randf_range(0.0, 200.0)
+		sd["garrison_units"] = RaidLogic.garrison_count(float(sd["undead"]), cfg)
+		sd["garrison_in_mass"] = float(sd["garrison_units"]) * float(sd["garrison_mass_div"])
+		var lgs := RaidLogic.LedgerV2.new(sd, cfg)
+		var total_raised := 0.0
+		for _k in rng.randi_range(0, 6):
+			lgs.on_kill(rng.randf_range(0.0, 20.0))
+		for _k in rng.randi_range(0, 6):
+			var ms: Array = []
+			for _m in rng.randi_range(0, 8):
+				ms.append({"mass": rng.randf_range(0.1, 5.0), "recycled": rng.randf() < 0.4})
+			var sc := rng.randi_range(0, 100)
+			var spec := RaidLogic.raise_spec_v2(sc, ms, cfg, ccfg)
+			lgs.on_raise(sc, float(spec["fresh_mass"]), int(spec["count"]))
+			total_raised += float(spec["fresh_mass"]) if int(spec["count"]) > 0 else 0.0
+		var surv: Array = []
+		for _k in rng.randi_range(0, 12):
+			surv.append({"role": ["garrison", "raised", "starter", "party"][rng.randi_range(0, 3)],
+				"tier": ["chaff", "soldier", "elite"][rng.randi_range(0, 2)], "mass": rng.randf_range(0.0, 15.0)})
+		var rr := lgs.build_result(sd, ["warden_beaten", "retreated", "relish_died"][rng.randi_range(0, 2)], surv, [], 0, {}, cfg)
+		var gm := float(rr["garrison_mass"])
+		var cm := float(rr["chaff_mass"])
+		if gm < 0.0 or cm < 0.0 or gm + cm > float(sd["garrison_in_mass"]) + total_raised + 1e-6 \
+				or Results.validate("raid", rr) != []:
+			stress_ok = false
+	t.ok(stress_ok, "60-iteration stress: bound holds, masses >= 0, validates")
+
 	return t.failures

@@ -57,6 +57,173 @@ static func raise_spec(score: int, total_mass: float, orb_count: int, cfg: Dicti
 	return {"kind": "chaff", "count": orb_count, "unit_mass": total_mass / orb_count}
 
 
+# ------------------------------------------------- v2: seed, raise, statlines --
+## A dungeon seed in the STATE-API 7.1 shape for standalone runs.
+static func demo_seed(cfg: Dictionary) -> Dictionary:
+	var d: Dictionary = cfg.get("demo", {})
+	var div := float(cfg.get("mass", {}).get("garrison_mass_div", 10.0))
+	var undead := float(d.get("undead", 0.0))
+	var units := garrison_count(undead, cfg)
+	var bu: Dictionary = d.get("big_undead", {})
+	var st: Dictionary = bu.get("stats", {})
+	var party: Array = []
+	if not bu.is_empty():
+		party.append({"uid": str(bu.get("uid", "u1")), "name": str(bu.get("name", "")),
+			"kind": str(bu.get("kind", "")), "role": str(bu.get("role", "")),
+			"stats": {"power": float(st.get("power", 0.0)), "beef": float(st.get("beef", 0.0)),
+				"wits": float(st.get("wits", 0.0)), "presence": float(st.get("presence", 0.0)),
+				"speed": float(st.get("speed", 0.0))}})
+	var w: Dictionary = d.get("warden", {})
+	var tier := int(d.get("tier", 1))
+	return {
+		"v": 2, "kind": "raid", "run_id": int(d.get("run_id", 0)), "seed_rev": int(d.get("seed_rev", 0)),
+		"rng_seed": str(d.get("rng_seed", "1")),
+		"fort": {"id": str(d.get("fort_id", "")), "name": str(d.get("fort_name", "")), "tier": tier,
+			"cap": float(d.get("cap", 100.0)), "first_clear": bool(d.get("first_clear", false)),
+			"first_dungeon": bool(d.get("first_dungeon", false)),
+			"clears_since_retaken": int(d.get("clears_since_retaken", 0)),
+			"yield_mult": float(d.get("yield_mult", 1.0))},
+		"living": float(d.get("living", 0.0)), "dead": float(d.get("dead", 0.0)), "undead": undead,
+		"garrison_units": units, "garrison_in_mass": float(units) * div, "garrison_mass_div": div,
+		"starter_units": int(d.get("starter_units", 0)), "party": party,
+		"digest_q": float(d.get("digest_q", 1.0)),
+		"phylactery_charges": int(d.get("phylactery_charges", 0)),
+		"phylactery_max_per_dungeon": int(d.get("phylactery_max_per_dungeon", 1)),
+		"clones_ready": int(d.get("clones_ready", 0)),
+		"warden": {"archetype": str(w.get("archetype", "bellringer")), "tier": int(w.get("tier", tier))},
+		"warden_spec": {},
+		"loot_table_id": "t%d.%s" % [tier, str(w.get("archetype", "bellringer"))],
+		"loot_hint": str(d.get("loot_hint", "")), "chest_husk": bool(d.get("chest_husk", false)),
+		"watchtower": bool(d.get("watchtower", false)),
+		"relish_hp": float(cfg.get("relish", {}).get("hp", 30.0)),
+	}
+
+
+## Pure twin of CircleScorer.multiplier (circle.json keys).
+static func stat_mult(score: int, circle_cfg: Dictionary) -> float:
+	return float(circle_cfg.get("multiplier_base", 0.5)) \
+		+ float(circle_cfg.get("multiplier_per_100", 1.0)) * float(score) / 100.0
+
+
+## MECHANICS 5.3: every mote raises one undead at stat_mult(score). `motes` is
+## [{mass: float, recycled: bool}]. Recycled motes carry mass but are not newly
+## raised dead, so they stay out of fresh_mass.
+static func raise_spec_v2(score: int, motes: Array, cfg: Dictionary, circle_cfg: Dictionary) -> Dictionary:
+	var masses: Array[float] = []
+	var fresh := 0.0
+	for m in motes:
+		var mm := maxf(0.0, float(m.get("mass", 0.0)))
+		masses.append(mm)
+		if not bool(m.get("recycled", false)):
+			fresh += mm
+	return {"tier": score_class(score, cfg) if not motes.is_empty() else "",
+		"count": motes.size(), "stat_mult": stat_mult(score, circle_cfg),
+		"unit_masses": masses, "fresh_mass": fresh}
+
+
+static func undead_stats(mult: float, tier: String, cfg: Dictionary) -> Dictionary:
+	var u: Dictionary = cfg.get("undead", {})
+	var b: Dictionary = u.get("base", {})
+	return {"hp": float(b.get("hp", 10.0)) * mult, "dmg": float(b.get("dmg", 2.0)) * mult,
+		"speed": float(b.get("speed", 118.0)), "cadence_s": float(b.get("cadence_s", 0.9)),
+		"radius": float(u.get("radius_by_tier", {}).get(tier, b.get("radius", 9.0)))}
+
+
+static func big_undead_stats(stats: Dictionary, cfg: Dictionary) -> Dictionary:
+	var p: Dictionary = cfg.get("party", {})
+	return {"hp": float(p.get("hp_base", 30.0)) + float(p.get("hp_per_beef", 8.0)) * float(stats.get("beef", 0.0)),
+		"dmg": float(p.get("dmg_base", 3.0)) + float(p.get("dmg_per_power", 1.2)) * float(stats.get("power", 0.0)),
+		"speed": float(p.get("speed_base", 90.0)) + float(p.get("speed_per_speed", 10.0)) * float(stats.get("speed", 0.0)),
+		"cadence_s": float(p.get("cadence_s", 1.0)), "radius": float(p.get("radius", 20.0))}
+
+
+static func empty_loot() -> Dictionary:
+	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
+
+
+## Raid result v2 builder (STATE-API 8.1). Pure bookkeeping, no scene state.
+class LedgerV2:
+	extends RefCounted
+	var garrison_in_mass := 0.0
+	var cap := 1.0
+	var keep_frac := 0.25
+	var killed := 0.0
+	var buckets: Array = []  # {score, count, mass}
+	var _cfg: Dictionary = {}
+
+	func _init(seed: Dictionary, cfg: Dictionary) -> void:
+		_cfg = cfg
+		garrison_in_mass = float(seed.get("garrison_in_mass", 0.0))
+		cap = maxf(1.0, float(seed.get("fort", {}).get("cap", 1.0)))
+		keep_frac = float(cfg.get("mass", {}).get("garrison_keep_cap_frac", 0.25))
+
+	func on_kill(mass: float) -> void:
+		killed += maxf(0.0, mass)
+
+	func on_raise(score: int, fresh_mass: float, count: int) -> void:
+		if count <= 0:
+			return
+		for b in buckets:
+			if int(b["score"]) == score:
+				b["count"] = int(b["count"]) + count
+				b["mass"] = float(b["mass"]) + maxf(0.0, fresh_mass)
+				return
+		buckets.append({"score": score, "count": count, "mass": maxf(0.0, fresh_mass)})
+
+	func raised_counts() -> Dictionary:
+		var out := {"chaff": 0, "soldier": 0, "elite": 0}
+		for b in buckets:
+			var tier := RaidLogic.score_class(int(b["score"]), _cfg)
+			out[tier] = int(out[tier]) + int(b["count"])
+		return out
+
+	func build_result(seed: Dictionary, exit: String, survivors: Array, party_died: Array,
+			revived: int, loot: Dictionary, cfg: Dictionary) -> Dictionary:
+		var garrison := 0.0
+		var pool := 0.0
+		for s in survivors:
+			var m := maxf(0.0, float(s.get("mass", 0.0)))
+			match str(s.get("role", "")):
+				"garrison":
+					garrison += m
+				"raised":
+					if str(s.get("tier", "chaff")) == "chaff":
+						pool += m
+					else:
+						garrison += m
+		var kept := minf(pool, keep_frac * cap)
+		garrison += kept
+		var chaff := pool - kept
+		var raised_total := 0.0
+		for b in buckets:
+			raised_total += float(b["mass"])
+		var limit := garrison_in_mass + raised_total
+		var total := garrison + chaff
+		if total > limit + 1e-6:
+			var f := limit / total
+			garrison *= f
+			chaff *= f
+		var lost: Array = []
+		for u in seed.get("party", []):
+			var uid := str(u.get("uid", ""))
+			if (exit == "relish_died" or party_died.has(uid)) and not lost.has(uid):
+				lost.append(uid)
+		var full := RaidLogic.empty_loot()
+		for k in full:
+			if loot.has(k):
+				full[k] = loot[k]
+		var raised_out: Array = []
+		for b in buckets:
+			raised_out.append(b.duplicate())
+		return {"v": 2, "run_id": int(seed.get("run_id", 0)), "seed_rev": int(seed.get("seed_rev", 0)),
+			"fort_id": str(seed.get("fort", {}).get("id", "")),
+			"warden_beaten": exit == "warden_beaten", "retreated": exit == "retreated",
+			"relish_died": exit == "relish_died", "revived_in_place": maxi(0, revived),
+			"killed_living_mass": killed, "raised": raised_out,
+			"chaff_mass": maxf(0.0, chaff), "garrison_mass": maxf(0.0, garrison),
+			"party_lost": lost, "loot": full}
+
+
 ## Which enemy kinds a tier fields (keys of the tier's mix).
 static func tier_kinds(tier: int, cfg: Dictionary) -> Array:
 	var mix: Dictionary = cfg.get("tier_mix", {}).get(str(clampi(tier, 1, 4)), {"spearman": 1.0})
