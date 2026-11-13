@@ -55,6 +55,14 @@ func _contrast(t: TestUtil) -> void:
 	var cfg := MapLogic.cfg()
 	var panel := Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]))
 	var grounds := {"ground": Palette.c("ground"), "panel": panel}
+	# the HUD plate: ground at topbar_plate_alpha, with the brightest map content (vei) showing
+	# through at 1 - alpha
+	var a := float(cfg["topbar_plate_alpha"])
+	var through := Palette.c("ground").lerp(Palette.c("vei"), 1.0 - a)
+	for key in ["text", "text_dim", "undead", "danger", "select"]:
+		var r := MapLogic.contrast_ratio(Palette.c(key), through)
+		t.ok(r >= 4.5, "%s on the top-bar plate over vei is %.1f:1 (>= 4.5)" % [key, r])
+	t.ok(a > 0.0 and a <= 1.0, "plate alpha in range")
 	for key in ["text", "text_dim", "undead", "danger", "select"]:
 		for g in grounds:
 			var r := MapLogic.contrast_ratio(Palette.c(key), grounds[g])

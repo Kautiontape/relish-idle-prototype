@@ -7,7 +7,9 @@ extends Control
 
 var model: MapModel
 
-var _bar: HBoxContainer
+var _bar: HFlowContainer
+var _bar_plate: ColorRect
+var _obj_plate: ColorRect
 var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on the first read
 var _odds: Label
 var _sign: Label
@@ -27,15 +29,20 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cfg := MapLogic.cfg()
 	var pos: Array = cfg["topbar_pos_px"]
-	_bar = HBoxContainer.new()
+	# darkening plates behind the bar and the objective: the map's brightest content may sit under them
+	_bar_plate = _plate()
+	_obj_plate = _plate()
+	_bar = HFlowContainer.new()
 	_bar.position = Vector2(float(pos[0]), float(pos[1]))
+	_bar.size.x = float(cfg["topbar_max_w_px"])
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_bar.add_theme_constant_override("separation", int(cfg["topbar_gap_px"]))
+	_bar.add_theme_constant_override("h_separation", int(cfg["topbar_gap_px"]))
+	_bar.add_theme_constant_override("v_separation", int(cfg["topbar_row_gap_px"]))
+	_bar.sort_children.connect(_relayout)
 	add_child(_bar)
 	_objective = Label.new()
 	_objective.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	MapType.style_label(_objective, "text_dim", int(cfg["objective_size_px"]))
-	_objective.position = Vector2(float(pos[0]), float(cfg["objective_y_px"]))
 	add_child(_objective)
 	_hint = _label(int(cfg["font_hint"]), "text_dim")
 	MapType.style_label(_hint)
@@ -56,6 +63,36 @@ func _ready() -> void:
 	_victory.visible = false
 	_build_speed_row(cfg)
 	Game.game_event.connect(_on_event)
+
+
+func _plate() -> ColorRect:
+	var r := ColorRect.new()
+	r.color = MapHud.plate_color()
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(r)
+	return r
+
+
+## The darkening plate behind the bar text: `ground` at topbar_plate_alpha (no palette key).
+static func plate_color() -> Color:
+	return Palette.c("ground", float(MapLogic.cfg()["topbar_plate_alpha"]))
+
+
+## Places the objective under the bar's last row and sizes both plates: each runs from the left
+## edge to the right end of its content (the bar wraps before the ground meter).
+func _relayout() -> void:
+	var cfg := MapLogic.cfg()
+	var pad := float(cfg["topbar_plate_pad_px"])
+	var right := 0.0
+	for c in _bar.get_children():
+		right = maxf(right, (c as Control).position.x + (c as Control).size.x)
+	var bar_bottom := _bar.position.y + _bar.get_combined_minimum_size().y
+	_bar_plate.position = Vector2.ZERO
+	_bar_plate.size = Vector2(_bar.position.x + right + pad, bar_bottom + pad)
+	_objective.position = Vector2(_bar.position.x, _bar_plate.size.y)
+	var osz := _objective.get_combined_minimum_size()
+	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
+	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 
 
 func _label(font_size: int, color_key: String) -> Label:
@@ -168,6 +205,7 @@ func refresh(force := false) -> void:
 	_drain.text = st["drain_text"]
 	_speed_tag.text = HudLogic.speed_text(hud)
 	_objective.text = HudLogic.objective_text(hud)
+	_relayout.call_deferred()
 
 
 ## Backlog growing is good (undead), shrinking is danger; holding is neutral. The glyph is the
