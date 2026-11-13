@@ -268,9 +268,10 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   7. **The ledger.**
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
   9. **The influence field** at `field.tick_hz`, time-sliced (owned by the ground unit after E1).
-     `field.advance(budget_cells)` is called once per `tick(dt)` call that ran a substep, after the
-     substep loop. `budget_cells` is `field.slice_budget_cells`: work units (field cells processed)
-     per call, `0` = synchronous. Determinism holds because the field publishes only inside
+     `field.advance(budget_cells)` is called once per `tick(dt)` call, after the
+     substep loop, whether or not a substep ran (not when `tick` returns early: paused, or `dt` not
+     finite or <= 0). `budget_cells` is `field.slice_budget_cells`: work units (field cells processed)
+     per call, `0` = no slicing; the field publishes `field.lag_ticks` late at every budget (§5.6). Determinism holds because the field publishes only inside
      `field.tick()`: `advance()` only fills a back buffer from a snapshotted input, and `tick()`
      finishes any remainder synchronously, so frame cadence changes cost, never results.
 - Commands apply **immediately** when called, between frames. Their events carry the current `t`.
@@ -849,9 +850,11 @@ doesn't copy a 128 × 90 grid every frame. Read it only.
 - Its method signatures (`inject`, `tick`, `dominance_at`, `advance(budget_cells: int)`, `flush()`)
   are frozen at E1, when the ground unit takes ownership.
 - `advance(budget_cells)` is the time-slice hook: the ground unit fills it in to slice field work
-  between ticks. The budget is **work units per call (field cells processed)**, not time, and `0`
-  means synchronous (the E1 semantics). `flush()` finishes and publishes any in-flight slice. Both
-  are no-ops at E1. `GameState` calls `advance(field.slice_budget_cells)` once per `tick(dt)` call
+  between ticks. The budget is **work units per call (field cells processed)**, not time; `0` means
+  no slicing (all field work happens inside `tick()`). At **every** budget the field publishes
+  `field.lag_ticks` ticks late (realm.json, ground-owned; default 2 = one substep, since ticks come in
+  pairs per substep) — the approved lag, so results are the same at every budget. `flush()` finishes
+  and publishes any in-flight slice. `GameState` calls `advance(field.slice_budget_cells)` once per `tick(dt)` call
   after the substep loop (§3 step 9), so slicing is a deterministic function of the call sequence,
   and `flush()` once after the new-game pre-warm.
 

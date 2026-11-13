@@ -84,17 +84,34 @@ var _stance_hold := {}  # stance id -> hold seconds left (E3)
 var town_tier := "hamlet"
 var lot_buildings := {}  # lot_id -> {building_id: String, level: int}
 
-# --- Relish's holdings (legacy stores) ---
-var army := {"soldier": 0, "elite": 0}
-var res := {"gold": 30.0, "materials": 12.0, "bodies": 0.0, "townsfolk": 10.0}
-var town := {"slabs": 1, "vats": 0, "sim_stations": 0, "forge_level": 0, "trade_level": 0}
-var assignments := {"trade": 0, "forge": 0, "jobs": 0, "gather": 0, "slab": 0}
-var idle_undead := 6  # unassigned workers in Covington
-var gather := {"target": "", "phase": "idle", "eta": 0.0, "load": 0.0}
+# --- the villages and the shared flags ---
 var towns: Array = []
 var green_towns := 0
 var won := false
 var stats := {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
+
+# --- the E1 legacy economy (scripts/sim/legacy_economy.gd; E2a retires it) ---
+## Owns the legacy stores; the names below stay as forwarders so the shell, the scenes and the
+## tests read and write them as before.
+var legacy := LegacyEconomy.new()
+var army: Dictionary:
+	get: return legacy.army
+	set(v): legacy.army = v
+var res: Dictionary:
+	get: return legacy.res
+	set(v): legacy.res = v
+var town: Dictionary:
+	get: return legacy.town
+	set(v): legacy.town = v
+var assignments: Dictionary:
+	get: return legacy.assignments
+	set(v): legacy.assignments = v
+var idle_undead: int:
+	get: return legacy.idle_undead
+	set(v): legacy.idle_undead = v
+var gather: Dictionary:
+	get: return legacy.gather
+	set(v): legacy.gather = v
 
 var _cfgs := {}
 var _acc := 0.0
@@ -111,6 +128,7 @@ func _init(configs: Dictionary = {}) -> void:
 ## `cfgs` is the dict returned by load_configs (keyed by file name).
 func setup(cfgs: Dictionary) -> void:
 	_cfgs = cfgs
+	legacy.cfgs = cfgs
 
 
 func _cfg() -> Dictionary:
@@ -155,13 +173,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	game_seed = seed
 	var opening: Dictionary = _sec("economy", "opening")
 	_build_realm_field_towns()
-	# legacy stores back to the start state (the object is reset in place)
-	army = {"soldier": 0, "elite": 0}
-	res = {"gold": 30.0, "materials": 12.0, "bodies": 0.0, "townsfolk": 10.0}
-	town = {"slabs": 1, "vats": 0, "sim_stations": 0, "forge_level": 0, "trade_level": 0}
-	assignments = {"trade": 0, "forge": 0, "jobs": 0, "gather": 0, "slab": 0}
-	idle_undead = 6
-	gather = {"target": "", "phase": "idle", "eta": 0.0, "load": 0.0}
+	legacy.reset()
 	green_towns = 0
 	won = false
 	stats = {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
@@ -220,6 +232,7 @@ func _build_realm_field_towns() -> void:
 	realm = RealmSim.new()
 	realm.setup(world, cfg)
 	realm.send_relish("covington")
+	legacy.realm = realm
 	field = InfluenceField.new()
 	field.setup(cfg.get("field", {}), RealmSim._vec(world.get("size", [2048, 1440])))
 	towns = []
@@ -418,7 +431,7 @@ func view_relish() -> Dictionary:
 		"speed": travel_speed() if travelling else 0.0, "eta_s": _eta(),
 		"dead_s_left": float(relish["dead_s_left"]),
 		"respawn_with_clone": bool(relish["respawn_with_clone"]),
-		"phylactery_charges": _phylactery_charges, "clones_ready": int(town["vats"]),
+		"phylactery_charges": _phylactery_charges, "clones_ready": int(legacy.town["vats"]),
 		"can_descend": reason == "" and not realm.fort_by_id(at).is_empty(),
 		"reason": reason,
 		"run_id": int(run.get("run_id", -1)), "run_kind": str(run.get("kind", "")),
@@ -451,7 +464,7 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 	if target != "auto" and realm.fort_by_id(target).is_empty():
 		return {"ok": false, "reason": "unknown_fort", "haul_target": ""}
 	haul_target = target
-	gather["target"] = "" if target == "auto" else target
+	legacy.set_gather_target("" if target == "auto" else target)
 	rev += 1
 	return {"ok": true, "reason": "", "haul_target": haul_target}
 
@@ -575,7 +588,7 @@ func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
 		"digest_q": quality(),
 		"phylactery_charges": _phylactery_charges,
 		"phylactery_max_per_dungeon": _phylactery_max(),
-		"clones_ready": int(town["vats"]),
+		"clones_ready": int(legacy.town["vats"]),
 		"warden": {"archetype": archetype, "tier": tier}, "warden_spec": {},
 		"loot_table_id": "t%d.%s" % [tier, archetype],
 		"loot_hint": _loot_hint(fort_id),
@@ -595,7 +608,7 @@ func _boss_seed_v2(run_id: int, seed_rev: int) -> Dictionary:
 		"fronts": _fronts(false),
 		"fronts_required": _fronts_required(),
 		"party": _party_entries(true),
-		"phylactery_charges": _phylactery_charges, "clones_ready": int(town["vats"]),
+		"phylactery_charges": _phylactery_charges, "clones_ready": int(legacy.town["vats"]),
 		"relish_hp": _relish_hp(),
 	}
 
@@ -746,27 +759,12 @@ func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
 	for k in amounts:
 		var v := float(amounts[k])
 		match k:
-			"gold", "bodies", "living":
-				var store: String = "townsfolk" if k == "living" else k
-				var old: float = res[store]
-				var hi := INF
-				if k == "living":
-					hi = float(_sec("economy", "opening").get("living_cap", INF))
-				# a grant never pulls an over-cap store down
-				res[store] = clampf(old + v, 0.0, maxf(hi, old))
-				applied[k] = res[store] - old
-			"bone":
-				var old: float = res["materials"]
-				res["materials"] = maxf(0.0, old + v)
-				applied[k] = res["materials"] - old
+			"gold", "bodies", "living", "bone", "workers":
+				applied[k] = legacy.grant(k, v)
 			"backlog":
 				var old: float = realm.vei["undead_queue"]
 				realm.vei["undead_queue"] = maxf(0.0, old + v)
 				applied[k] = realm.vei["undead_queue"] - old
-			"workers":
-				var old := idle_undead
-				idle_undead = maxi(0, int(old + v))
-				applied[k] = float(idle_undead - old)
 			"relics":
 				var old := relics
 				relics = clampi(old + int(v), 0, maxi(_cap_of("relics"), old))
@@ -858,7 +856,7 @@ func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
 				valve = _normalised(float(v["work"]), float(v["war"]), float(v["flood"]))
 				valve_target = valve.duplicate()
 			"forge_level":
-				town["forge_level"] = int(float(v))
+				legacy.set_forge_level(int(float(v)))
 			"forts":
 				for id in v:
 					var f := realm.fort_by_id(str(id))
@@ -950,24 +948,6 @@ func _upkeep_of(building_id: String) -> Dictionary:
 
 func _zero_cost() -> Dictionary:
 	return {"gold": 0.0, "bone": 0.0, "relics": 0}
-
-
-## The town's stocks at E1: the live legacy stores, the same ones view_hud shows (§5.1), so
-## fixtures and debug grants show up in every view. `living_cap` is the economy.json
-## `opening` constant.
-func _town_stock(key: String) -> float:
-	match key:
-		"gold":
-			return float(res["gold"])
-		"bone":
-			return float(res["materials"])
-		"bodies":
-			return float(res["bodies"])
-		"living":
-			return float(res["townsfolk"])
-		"workers":
-			return _legacy_workers()
-	return float(_sec("economy", "opening").get(key, 0.0))
 
 
 func _bodies_cap() -> float:
@@ -1220,7 +1200,7 @@ func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
 
 ## Vat slots at E1: the legacy vat count. Each legacy vat is a ready clone.
 func _vat_slots() -> int:
-	return maxi(0, int(town["vats"]))
+	return legacy.vats()
 
 
 ## E1/E3: stores the staffing (clones grow only while staffed from E3).
@@ -1319,23 +1299,15 @@ func _pool_cap() -> float:
 	return float(_cfg().get("vei_pool_cap", 600.0))
 
 
-## The legacy workforce: idle plus assigned.
-func _legacy_workers() -> float:
-	var n := idle_undead
-	for k in assignments:
-		n += int(assignments[k])
-	return float(n)
-
-
 ## §5.1 · E2. Live at E1: t, the time controls, relics and essence with their caps, won,
 ## and the legacy readout (sign, drain_s, odds). Stocks are the legacy `res`; rates are 0.
 func view_hud() -> Dictionary:
 	var ro := _vei_readout()
 	var stock := {
-		"mint": -1.0, "workers": _legacy_workers(), "bodies": float(res["bodies"]),
+		"mint": -1.0, "workers": legacy.workers(), "bodies": float(res["bodies"]),
 		"gold": float(res["gold"]), "bone": float(res["materials"]), "living": float(res["townsfolk"]),
 	}
-	var cap := {"bodies": _bodies_cap(), "living": _town_stock("living_cap")}
+	var cap := {"bodies": _bodies_cap(), "living": legacy.town_stock("living_cap")}
 	var rates: Array = []
 	for id in HUD_RATE_IDS:
 		rates.append({"id": id, "rate": 0.0, "stock": stock[id], "cap": cap.get(id, -1.0), "unit": _RATE_UNITS[id]})
@@ -1501,23 +1473,6 @@ func _next_tier() -> Dictionary:
 	return {"tier": nt, "have": have, "need": int(spec.get("buildings", 0)), "missing": missing}
 
 
-func _haul_current() -> String:
-	return gather["target"] if gather["phase"] != "idle" else ""
-
-
-## The legacy convoy as a §5.9 convoy: out is Covington -> fort, back is fort -> Covington.
-func _convoys() -> Array:
-	var phase: String = gather["phase"]
-	var fid: String = gather["target"]
-	if (phase != "out" and phase != "back") or realm.fort_by_id(fid).is_empty():
-		return []
-	var trip: float = realm.cov_pos.distance_to(realm.node_pos(fid)) / float(_cfg().get("gather_speed", 140.0))
-	var prog := clampf(1.0 - float(gather["eta"]) / trip, 0.0, 1.0) if trip > 0.0 else 1.0
-	if phase == "out":
-		return [{"from": "covington", "to": fid, "phase": "out", "t": prog, "load": 0.0}]
-	return [{"from": fid, "to": "covington", "phase": "back", "t": prog, "load": float(gather["load"])}]
-
-
 ## §5.9 · E2. E1: the BALANCE §0 start layout (buildings on lots from economy.json `opening`,
 ## lots from town.json) with the live legacy stocks, the stored settings (ladder, staff caps, haul target, foremen), the legacy convoy.
 func view_town() -> Dictionary:
@@ -1527,7 +1482,7 @@ func view_town() -> Dictionary:
 		var id := str(l.get("id", ""))
 		lots.append({"id": id, "size": int(l.get("size", 1)), "unlocked": lots.size() < unlocked,
 			"building_id": str(lot_buildings.get(id, {}).get("building_id", ""))})
-	var workers := _town_stock("workers")
+	var workers := legacy.town_stock("workers")
 	var st := _staffing(workers)
 	var buildings: Array = []
 	for lot_id in _built_lots():
@@ -1551,12 +1506,12 @@ func view_town() -> Dictionary:
 			"total": workers, "idle": float(st["idle"]), "in": 0.0, "rot": 0.0, "muster": 0.0, "steady": 0.0,
 			"lifetime_s": float(_sec("economy", "worker").get("lifetime_s", 480.0)),
 		},
-		"living": _town_stock("living"), "living_cap": _town_stock("living_cap"),
+		"living": legacy.town_stock("living"), "living_cap": legacy.town_stock("living_cap"),
 		"migrants": 0.0, "departures": 0.0,
 		"morale": {"value": morale, "target": morale, "factors": [{"id": "base", "delta": morale}]},
-		"gold": _town_stock("gold"), "bone": _town_stock("bone"), "bodies": _town_stock("bodies"),
+		"gold": legacy.town_stock("gold"), "bone": legacy.town_stock("bone"), "bodies": legacy.town_stock("bodies"),
 		"bodies_cap": _bodies_cap(), "trade_rate": 0.0,
-		"haul": {"target": haul_target, "current": _haul_current(), "convoys": _convoys()},
+		"haul": {"target": haul_target, "current": legacy.haul_current(), "convoys": legacy.convoys()},
 		"relish_home": relish["state"] == "home",
 	}
 
@@ -1584,9 +1539,9 @@ func _build_gate(req: Dictionary, cost: Dictionary, lots: Array) -> String:
 		return "needs_building"
 	if lots.is_empty():
 		return "no_lot"
-	if _town_stock("gold") < cost["gold"]:
+	if legacy.town_stock("gold") < cost["gold"]:
 		return "no_gold"
-	if _town_stock("bone") < cost["bone"]:
+	if legacy.town_stock("bone") < cost["bone"]:
 		return "no_bone"
 	if relics < cost["relics"]:
 		return "no_relics"
@@ -1725,11 +1680,7 @@ func view_vei() -> Dictionary:
 
 # ----------------------------------------------------------------- §3 tick ----
 func quality() -> float:
-	var cfg: Dictionary = _cfg()
-	var q: float = float(cfg.get("q", 1.2)) \
-		+ float(cfg.get("q_per_forge", 0.25)) * town["forge_level"] \
-		+ float(cfg.get("q_per_elite", 0.01)) * army["elite"]
-	return clampf(q, 1.0, float(cfg.get("q_max", 4.0)))
+	return legacy.quality()
 
 
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.
@@ -1750,25 +1701,20 @@ func _advance(dt: float, max_substeps: int) -> int:
 		n += 1
 	if max_substeps > 0 and n >= max_substeps and _acc >= step - 1e-9:
 		_acc = 0.0
-	if n > 0:  # §3 step 9: once per tick(dt) call that ran a substep, after the loop
-		field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
+	# §3 step 9: once per tick(dt) call, after the loop, whether or not a substep ran
+	field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
 	return n
 
 
 func _tick(dt: float) -> void:
 	t += dt
 	var cfg: Dictionary = _cfg()
-	realm.t["q"] = quality()
-	var mint: float = float(cfg.get("P_base", 2.0)) + float(cfg.get("P_per_slab", 2.0)) * town["slabs"]
-	if res["bodies"] > 0.5 and assignments["slab"] > 0:
-		var burn: float = minf(res["bodies"], float(cfg.get("slab_bodies_per_s", 0.12)) * town["slabs"] * dt)
-		res["bodies"] -= burn
-		mint *= float(cfg.get("slab_mint_bonus", 1.6))
-	realm.t["P_base"] = mint
-	_step_relish_travel(dt)  # §3 step 4: after the legacy town bits above, before realm.step
+	realm.t["q"] = legacy.quality()
+	realm.t["P_base"] = legacy.mint_step(dt)
+	_step_relish_travel(dt)  # §3 step 4: after the legacy mint above, before realm.step
 	realm.step(dt)
-	_tick_town(dt, cfg)
-	_tick_gather(dt, cfg)
+	legacy.tick_town(dt, green_towns)
+	legacy.tick_gather(dt)
 	_field_acc += dt
 	var fcfg: Dictionary = cfg.get("field", {})
 	var period: float = 1.0 / float(fcfg.get("tick_hz", 5.0))
@@ -1787,56 +1733,11 @@ func _tick(dt: float) -> void:
 	rev += 1
 
 
-func _tick_town(dt: float, cfg: Dictionary) -> void:
-	res["gold"] += (float(cfg.get("gold_per_townsfolk", 0.02)) * res["townsfolk"] \
-		+ float(cfg.get("gold_per_job_worker", 0.06)) * assignments["jobs"] \
-		+ float(cfg.get("gold_per_trade_worker", 0.03)) * assignments["trade"]) * dt
-	res["materials"] += float(cfg.get("materials_per_trade_worker", 0.03)) * assignments["trade"] * dt
-	res["townsfolk"] += float(cfg.get("migrant_rate_per_town", 0.012)) * green_towns * dt
-
-
-func _tick_gather(dt: float, cfg: Dictionary) -> void:
-	if assignments["gather"] <= 0:
-		gather["phase"] = "idle"
-		return
-	var speed: float = float(cfg.get("gather_speed", 140.0))
-	match gather["phase"]:
-		"idle":
-			var best := ""
-			var best_dead := 4.0
-			for f in realm.forts:
-				if f["dead"] > best_dead:
-					best_dead = f["dead"]
-					best = f["id"]
-			if gather["target"] != "" and not realm.fort_by_id(gather["target"]).is_empty():
-				best = gather["target"]
-			if best != "":
-				gather["phase"] = "out"
-				gather["target"] = best
-				gather["eta"] = realm.cov_pos.distance_to(realm.node_pos(best)) / speed
-		"out":
-			gather["eta"] -= dt
-			if gather["eta"] <= 0.0:
-				var f := realm.fort_by_id(gather["target"])
-				if not f.is_empty():
-					var carry: float = float(cfg.get("gather_carry", 14.0)) * assignments["gather"]
-					gather["load"] = minf(f["dead"], carry)
-					f["dead"] -= gather["load"]
-				gather["phase"] = "back"
-				gather["eta"] = realm.cov_pos.distance_to(realm.node_pos(gather["target"])) / speed
-		"back":
-			gather["eta"] -= dt
-			if gather["eta"] <= 0.0:
-				res["bodies"] += gather["load"]
-				gather["load"] = 0.0
-				gather["phase"] = "idle"
-
-
 func _inject_sources(dt: float) -> void:
 	var fcfg: Dictionary = _cfg().get("field", {})
 	var src_main: float = float(fcfg.get("src_main", 3.0))
 	var src_fort: float = float(fcfg.get("src_fort", 1.1))
-	field.inject(realm.cov_pos, true, src_main * (1.0 + 0.15 * town["slabs"]) * dt, 2)
+	field.inject(realm.cov_pos, true, src_main * (1.0 + 0.15 * legacy.town["slabs"]) * dt, 2)
 	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, float(_cfg().get("vei_pool_cap", 600.0)))
 	field.inject(realm.vei_pos, false, src_main * vei_str * dt, 3)
 	for f in realm.forts:
@@ -1857,29 +1758,29 @@ func _update_towns(cfg: Dictionary) -> void:
 			green_towns += 1
 
 
-# ------------------------------------------------------------------ raids ----
+# ------------------------------------------- E1 legacy forwarders and death ----
 func raid_seed(fort_id: String) -> Dictionary:
-	var f := realm.fort_by_id(fort_id)
-	if f.is_empty():
-		return {}
-	return {
-		"fort_id": fort_id, "name": f["name"], "tier": f["tier"], "cap": f["cap"],
-		"living": f["living"], "undead": f["undead"], "dead": f["dead"],
-		"boss": false, "quality": quality(),
-	}
+	return legacy.raid_seed(fort_id)
+
+
+func town_snapshot() -> Dictionary:
+	return legacy.town_snapshot(green_towns)
+
+
+func apply_town_result(r: Dictionary) -> void:
+	stats["sims_built"] += legacy.apply_town_result(r)
+
+
+func boss_seed() -> Dictionary:
+	return legacy.boss_seed()
 
 
 ## Legacy death (E1 rule, §8.3 step 10): a legacy vat gives a clone, otherwise she is
 ## unmade and the army scatters; she respawns home at once. The caller has closed the run.
 func _legacy_death(run_id: int) -> void:
 	stats["deaths"] += 1
-	var clone: bool = town["vats"] > 0
 	var at_node: String = relish["at"]
-	if clone:
-		town["vats"] -= 1
-	else:
-		army["soldier"] = int(army["soldier"] * 0.6)
-		army["elite"] = int(army["elite"] * 0.7)
+	var clone := legacy.death_scatter()
 	_emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
 		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
 	_place_relish("covington")
@@ -2027,12 +1928,7 @@ func _writeback_raid(r: Dictionary) -> Array:
 	for uid in r["party_lost"]:
 		_remove_big_undead(uid)
 	# 12. E1 parity: soldiers and elites into the legacy army (before a death scatters it, as before)
-	for e in r["raised"]:
-		var score := int(e["score"])
-		if score >= 90:
-			army["elite"] += int(e["count"])
-		elif score >= 60:
-			army["soldier"] += int(e["count"])
+	legacy.add_raised(r["raised"])
 	var died: bool = r["relish_died"]
 	var party := _seed_party_uids(sd)
 	run = {}
@@ -2067,12 +1963,11 @@ func _writeback_boss(r: Dictionary) -> void:
 		realm.vei["undead_queue"] *= keep
 		for uid in _seed_party_uids(sd):
 			_remove_big_undead(uid)
-		army["soldier"] = int(army["soldier"] * 0.3)  # E1 parity
-		army["elite"] = int(army["elite"] * 0.4)
+		legacy.boss_loss_scatter()
 	for uid in r["party_lost"]:
 		_remove_big_undead(uid)
 	_phylactery_charges = maxi(0, _phylactery_charges - int(bs["phylactery"]))
-	town["vats"] = maxi(0, int(town["vats"]) - clones)  # legacy vats are the clones at E1
+	legacy.spend_clones(clones)  # legacy vats are the clones at E1
 	run = {}
 	var cleared: Array = []
 	for fid in r["fronts_cleared"]:
@@ -2086,144 +1981,8 @@ func _writeback_boss(r: Dictionary) -> void:
 		_sync_realm_relish()
 
 
-# ------------------------------------------------------------------ town -----
-func town_snapshot() -> Dictionary:
-	return {
-		"town": town.duplicate(true), "assignments": assignments.duplicate(true),
-		"res": res.duplicate(true), "army": army.duplicate(true),
-		"idle_undead": idle_undead, "quality": quality(),
-		"green_towns": green_towns, "gather": gather.duplicate(true),
-		"fort_ids": realm.forts.map(func(f): return f["id"]),
-		"simulacra": realm.simulacra.duplicate(true),
-	}
-
-
-func apply_town_result(r: Dictionary) -> void:
-	if r.has("town"):
-		town = r["town"]
-	if r.has("assignments"):
-		assignments = r["assignments"]
-	if r.has("idle_undead"):
-		idle_undead = int(r["idle_undead"])
-	var spend: Dictionary = r.get("spend", {})
-	res["gold"] = maxf(0.0, res["gold"] - float(spend.get("gold", 0.0)))
-	res["materials"] = maxf(0.0, res["materials"] - float(spend.get("materials", 0.0)))
-	if r.has("gather_target"):
-		gather["target"] = str(r["gather_target"])
-	for s in r.get("deploy_simulacra", []):
-		realm.simulacra.append(s)
-		stats["sims_built"] += 1
-
-
-# ------------------------------------------------------------------ boss -----
-func boss_seed() -> Dictionary:
-	return {
-		"fort_id": "vei", "name": "Vei's Domain", "tier": 5, "cap": 800.0,
-		"living": 500.0, "undead": 0.0, "dead": 60.0, "boss": true,
-		"quality": quality(), "backlog": realm.vei["undead_queue"],
-		"army": army.duplicate(true), "vei_capacity": float(_cfg().get("R_vei", 50.0)),
-		"odds": realm.readout()["odds"],
-	}
-
-
 # ------------------------------------------------------------ §9 persistence ----
-# The save spec: TYPE_FLOAT = any finite number, TYPE_INT = an integral number (JSON has one
-# number type, so a loaded int arrives as a float and is restored with int()), [spec] = an
-# Array of spec, {"*": spec} = a map, {key: spec} = a Dictionary holding at least those keys.
-const _I := TYPE_INT
-const _F := TYPE_FLOAT
-const _S := TYPE_STRING
-const _B := TYPE_BOOL
-const _D := TYPE_DICTIONARY
-const _VALVE_SPEC := {"work": _F, "war": _F, "flood": _F}
-const _SAVE_SPEC := {
-	"v": _I, "api_version": _I, "seed": _S, "rng": _S, "t": _F, "acc": _F,
-	"next_run_id": _I, "next_uid": _I, "applied_runs": [_I],
-	"relish": {"state": _S, "at": _S, "target": _S, "pos": [_F], "heading": _F, "dead_s_left": _F, "respawn_with_clone": _B},
-	"valve": {"target": _VALVE_SPEC, "current": _VALVE_SPEC},
-	"realm": {
-		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "held_s": _F, "flipped_count": _I,
-			"clears_since_retaken": _I, "r_in": _F, "r_drain": _F, "r_shipped": _F, "r_dead_out": _F, "r_raised": _F}],
-		"cov": {"undead": _F, "r_out": _F},
-		"vei": {"undead_queue": _F, "dead_queue": _F, "living_pool": _F, "r_in_undead": _F, "r_in_dead": _F,
-			"r_converted": _F, "r_shipped": _F},
-		"simulacra": [{"fort_id": _S, "charges": _F, "rate": _F}],
-		"elapsed": _F, "cleared_total": _F, "raised_by_sims": _F, "tithe": _D,
-	},
-	"villages": [{"id": _S, "owner": _S}],
-	"town": {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
-		"staff_caps": {"*": _I}, "haul": {"target": _S}},
-	"stances": {"on": [_S], "hold": {"*": _F}},
-	"inventory": {
-		"husks": [{"uid": _S, "kind": _S, "rarity": _S}],
-		"remnants": [{"uid": _S, "aspect": _S, "rarity": _S, "magnitude": _I}],
-		"blueprints": [_S], "relics": _I, "essence": _I, "simulacra_ready": _I,
-	},
-	"big_undead": [{"uid": _S, "name": _S, "kind": _S, "role": _S, "place": _S, "front": _S,
-		"stats": {"power": _F, "beef": _F, "wits": _F, "presence": _F, "speed": _F}}],
-	"party": [_S],
-	"backups": {"phylactery_charges": _I, "clones_ready": _I, "vats": [{"slot": _I, "staffed": _B, "grow": _F}]},
-	"readout": {"diff_ema": _F, "q_raise_ema": _F},
-	"ledger": {"sources": {"*": _F}, "sinks": {"dungeon": _F}},
-	"won": _B,
-	"stats": {"raised_total": _F, "raids": _I, "deaths": _I, "sims_built": _I},
-	"legacy": {
-		"res": {"gold": _F, "materials": _F, "bodies": _F, "townsfolk": _F},
-		"army": {"soldier": _I, "elite": _I},
-		"town": {"slabs": _I, "vats": _I, "sim_stations": _I, "forge_level": _I, "trade_level": _I},
-		"assignments": {"trade": _I, "forge": _I, "jobs": _I, "gather": _I, "slab": _I},
-		"idle_undead": _I, "gather": {"target": _S, "phase": _S, "eta": _F, "load": _F},
-	},
-	"cleared_forts": [_S], "first_dungeon": _S,
-}
-
-
-## True if `v` fits `spec` (see _SAVE_SPEC).
-static func _fits(v: Variant, spec: Variant) -> bool:
-	if typeof(spec) == TYPE_INT:
-		var ty := typeof(v)
-		match spec:
-			TYPE_FLOAT:
-				return (ty == TYPE_INT or ty == TYPE_FLOAT) and is_finite(float(v))
-			TYPE_INT:
-				return ty == TYPE_INT or (ty == TYPE_FLOAT and is_finite(v) and absf(v) < 9.0e15 and v == floorf(v))
-			_:
-				return ty == spec
-	if spec is Array:
-		if typeof(v) != TYPE_ARRAY:
-			return false
-		for e in v:
-			if not _fits(e, spec[0]):
-				return false
-		return true
-	if typeof(v) != TYPE_DICTIONARY:
-		return false
-	if spec.has("*"):
-		for k in v:
-			if typeof(k) != TYPE_STRING or not _fits(v[k], spec["*"]):
-				return false
-		return true
-	for k in spec:
-		if not v.has(k) or not _fits(v[k], spec[k]):
-			return false
-	return true
-
-
-## Every float in `v` as JSON writes it (15 significant digits), so that to_dict, its JSON text
-## and a load of that text all agree to the last bit. Godot's JSON parser is not exact for
-## 17-digit floats. A non-finite float becomes 0.0 (the state never holds one).
-static func _canon(v: Variant) -> Variant:
-	match typeof(v):
-		TYPE_FLOAT:
-			return float(JSON.parse_string(JSON.stringify(v))) if is_finite(v) else 0.0
-		TYPE_ARRAY:
-			for i in v.size():
-				v[i] = _canon(v[i])
-		TYPE_DICTIONARY:
-			for k in v:
-				v[k] = _canon(v[k])
-	return v
-
+# The save spec, its checker and the file plumbing are SaveIO (scripts/sim/save_io.gd).
 
 ## §9.1. A deep copy that survives JSON; the open run is written in its forfeited form.
 func to_dict() -> Dictionary:
@@ -2291,124 +2050,18 @@ func to_dict() -> Dictionary:
 		"readout": _readout.duplicate(),
 		"ledger": {"sources": led["sources"], "sinks": led["sinks"]},
 		"won": won, "stats": stats.duplicate(),
-		"legacy": {
-			"res": res.duplicate(), "army": army.duplicate(), "town": town.duplicate(),
-			"assignments": assignments.duplicate(), "idle_undead": idle_undead, "gather": gather.duplicate(),
-		},
+		"legacy": legacy.to_dict(),
 		"cleared_forts": cleared_forts.keys(), "first_dungeon": first_dungeon_id,
 	}
 	(d["cleared_forts"] as Array).sort()
-	return _canon(d)
+	return SaveIO.canon(d)
 
 
-## §9.1 `static migrate`: one version at a time up to SAVE_VERSION. `{}` on failure (no `v`, a
-## `v` that is not a whole number from 1 up, a version from the future, or a missing step).
-## v1 is the identity: it returns a deep copy.
+## §9.1 `static migrate`: one version at a time up to SAVE_VERSION (the steps are SaveIO's). `{}` on
+## failure (no `v`, a `v` that is not a whole number from 1 up, a version from the future, or a
+## missing step). v1 is the identity: it returns a deep copy.
 static func migrate(d: Dictionary) -> Dictionary:
-	if not d.has("v") or not _fits(d["v"], _I):
-		return {}
-	var v := int(d["v"])
-	if v < 1 or v > SAVE_VERSION:
-		return {}
-	var out := d.duplicate(true)
-	while v < SAVE_VERSION:
-		match v:
-			_:  # a step per old version goes here, e.g. 1: out = _migrate_1_to_2(out)
-				return {}
-		v += 1
-	out["v"] = v
-	return out
-
-
-## "" if the migrated save `m` is sound, else why not. The shape first, then every id it names.
-func _save_problem(m: Dictionary) -> String:
-	if not _fits(m, _SAVE_SPEC):
-		return "shape"
-	if not (m["seed"] as String).is_valid_int() or not (m["rng"] as String).is_valid_int():
-		return "seed"
-	var world: Dictionary = _cfgs.get("world", {})
-	var fort_ids := {}
-	for f in world.get("forts", []):
-		fort_ids[str(f.get("id", ""))] = true
-	var nodes := fort_ids.duplicate()
-	nodes["covington"] = true
-	nodes["vei"] = true
-	var rl: Dictionary = m["relish"]
-	if not RELISH_STATES.has(rl["state"]) or rl["state"] == "in_dungeon" or rl["state"] == "in_boss":
-		return "relish state"
-	if not nodes.has(rl["at"]) or (rl["target"] != "" and not nodes.has(rl["target"])) or (rl["pos"] as Array).size() != 2:
-		return "relish node"
-	if rl["state"] == "travelling" and rl["target"] == "":
-		return "relish target"
-	var seen := {}
-	for f in m["realm"]["forts"]:
-		if not fort_ids.has(f["id"]) or seen.has(f["id"]):
-			return "fort id"
-		seen[f["id"]] = true
-	if seen.size() != fort_ids.size():
-		return "fort set"
-	for s in m["realm"]["simulacra"]:
-		if not fort_ids.has(s["fort_id"]):
-			return "simulacrum fort"
-	for v in m["villages"]:
-		if not ["player", "vei", "none"].has(v["owner"]):
-			return "village owner"
-	if not TIERS.has(m["town"]["tier"]):
-		return "tier"
-	var lot_ids := {}
-	for l in _lots_cfg():
-		lot_ids[str(l.get("id", ""))] = true
-	seen = {}
-	for l in m["town"]["lots"]:
-		if not lot_ids.has(l["lot_id"]) or seen.has(l["lot_id"]) or not _buildings_cfg().has(l["building_id"]):
-			return "lot"
-		seen[l["lot_id"]] = true
-	for lot_id in m["town"]["staff_caps"]:
-		if not lot_ids.has(lot_id):
-			return "staff cap lot"
-	var jobs := {}
-	for j in m["town"]["ladder"]:
-		if not JOB_IDS.has(j) or jobs.has(j):
-			return "ladder"
-		jobs[j] = true
-	if jobs.size() != JOB_IDS.size():
-		return "ladder"
-	var haul: String = m["town"]["haul"]["target"]
-	if haul != "auto" and not fort_ids.has(haul):
-		return "haul target"
-	var on := {}
-	for st in m["stances"]["on"]:
-		if not STANCE_IDS.has(st) or on.has(st):
-			return "stance"
-		on[st] = true
-	var uids := {}
-	for h in m["inventory"]["husks"]:
-		if uids.has(h["uid"]):
-			return "uid"
-		uids[h["uid"]] = true
-	for r in m["inventory"]["remnants"]:
-		if uids.has(r["uid"]):
-			return "uid"
-		uids[r["uid"]] = true
-	var bu_uids := {}
-	for b in m["big_undead"]:
-		if uids.has(b["uid"]) or bu_uids.has(b["uid"]) or (b["front"] != "" and not FRONT_IDS.has(b["front"])):
-			return "big undead"
-		bu_uids[b["uid"]] = true
-	seen = {}
-	for u in m["party"]:
-		if not bu_uids.has(u) or seen.has(u):
-			return "party"
-		seen[u] = true
-	if not ["idle", "out", "back"].has(m["legacy"]["gather"]["phase"]):
-		return "gather phase"
-	var gt: String = m["legacy"]["gather"]["target"]
-	if gt != "" and not fort_ids.has(gt):
-		return "gather target"
-	for id in m["cleared_forts"]:
-		if not fort_ids.has(id):
-			return "cleared fort"
-	return ""
+	return SaveIO.migrate(d, SAVE_VERSION)
 
 
 ## The number in a uid: "h12" -> 12, anything else 0.
@@ -2420,12 +2073,12 @@ static func _uid_num(uid: String) -> int:
 ## configs do not know), `bad_version` (a `v` from the future, or one that cannot be migrated).
 ## Nothing changes on a refusal; on success `rev` rises by 1.
 func from_dict(d: Dictionary) -> Dictionary:
-	if not d.has("v") or not _fits(d["v"], TYPE_FLOAT):
+	if not d.has("v") or not SaveIO.fits(d["v"], TYPE_FLOAT):
 		return {"ok": false, "reason": "corrupt"}
 	var m := migrate(d)
 	if m.is_empty():
 		return {"ok": false, "reason": "bad_version"}
-	if _save_problem(m) != "":
+	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	_apply_save(m)
 	return {"ok": true, "reason": ""}
@@ -2543,20 +2196,7 @@ func _apply_save(m: Dictionary) -> void:
 	var sm: Dictionary = m["stats"]
 	stats = {"raised_total": float(sm["raised_total"]), "raids": int(sm["raids"]), "deaths": int(sm["deaths"]),
 		"sims_built": int(sm["sims_built"])}
-	var lg: Dictionary = m["legacy"]
-	res = {}
-	for k in lg["res"]:
-		res[k] = float(lg["res"][k])
-	army = {"soldier": int(lg["army"]["soldier"]), "elite": int(lg["army"]["elite"])}
-	town = {}
-	for k in lg["town"]:
-		town[k] = int(lg["town"][k])
-	assignments = {}
-	for k in lg["assignments"]:
-		assignments[k] = int(lg["assignments"][k])
-	idle_undead = int(lg["idle_undead"])
-	gather = {"target": str(lg["gather"]["target"]), "phase": str(lg["gather"]["phase"]),
-		"eta": float(lg["gather"]["eta"]), "load": float(lg["gather"]["load"])}
+	legacy.from_dict(m["legacy"])
 	cleared_forts = {}
 	for id in m["cleared_forts"]:
 		cleared_forts[str(id)] = true
@@ -2583,17 +2223,6 @@ func autosave_s() -> float:
 
 
 # ------------------------------------------------------- §4.1 save and load ----
-## `^[a-z0-9_-]{1,32}$`, checked by hand (a regex `$` would let a trailing newline through).
-static func _slot_ok(slot: String) -> bool:
-	if slot.length() < 1 or slot.length() > 32:
-		return false
-	for i in slot.length():
-		var c := slot.unicode_at(i)
-		if not ((c >= 97 and c <= 122) or (c >= 48 and c <= 57) or c == 95 or c == 45):
-			return false
-	return true
-
-
 ## "1:04 · Village · odds 0.08": the clock as h:mm, the town tier, the Vei odds.
 @warning_ignore("integer_division")
 func _summary() -> String:
@@ -2601,40 +2230,9 @@ func _summary() -> String:
 	return "%d:%02d · %s · odds %.2f" % [mins / 60, mins % 60, town_tier.capitalize(), float(_vei_readout()["odds"])]
 
 
-## Writes `text` to `path` by way of `<path>.tmp` and a rename (§9.3). False on any failure.
-static func _write_atomic(path: String, text: String) -> bool:
-	var dir := path.get_base_dir()
-	if not DirAccess.dir_exists_absolute(dir) and DirAccess.make_dir_recursive_absolute(dir) != OK:
-		return false
-	var tmp := path + ".tmp"
-	var f := FileAccess.open(tmp, FileAccess.WRITE)
-	if f == null:
-		return false
-	f.store_string(text)
-	var err := f.get_error()
-	f.close()
-	if err != OK or DirAccess.rename_absolute(tmp, path) != OK:
-		DirAccess.remove_absolute(tmp)
-		return false
-	return true
-
-
-## A save file as a Dictionary holding `v`, else {} (missing, unreadable, not JSON, not a
-## Dictionary, no `v`): every one of those is "no save", never an error (§9.3).
-static func _read_save_file(path: String) -> Dictionary:
-	if not FileAccess.file_exists(path):
-		return {}
-	var j := JSON.new()
-	if j.parse(FileAccess.get_file_as_string(path)) != OK:
-		return {}
-	if typeof(j.data) != TYPE_DICTIONARY or not (j.data as Dictionary).has("v"):
-		return {}
-	return j.data
-
-
 func cmd_save(slot: String) -> Dictionary:
 	var out := {"ok": false, "reason": "", "saved_at": 0, "path": ""}
-	if not _slot_ok(slot):
+	if not SaveIO.slot_ok(slot):
 		out["reason"] = "bad_slot"
 	elif realm == null:
 		out["reason"] = "write_failed"  # no game to save
@@ -2645,7 +2243,7 @@ func cmd_save(slot: String) -> Dictionary:
 		d["saved_at"] = saved_at
 		d["summary"] = _summary()
 		var path := "%s/%s.json" % [save_dir, slot]
-		if _write_atomic(path, JSON.stringify(d)):
+		if SaveIO.write_atomic(path, JSON.stringify(d)):
 			out = {"ok": true, "reason": "", "saved_at": saved_at, "path": path}
 		else:
 			out["reason"] = "write_failed"
@@ -2661,9 +2259,9 @@ func cmd_save(slot: String) -> Dictionary:
 func cmd_load(slot: String) -> Dictionary:
 	if not run.is_empty():
 		return {"ok": false, "reason": "busy"}
-	if not _slot_ok(slot):
+	if not SaveIO.slot_ok(slot):
 		return {"ok": false, "reason": "bad_slot"}
-	var d := _read_save_file("%s/%s.json" % [save_dir, slot])
+	var d := SaveIO.read_file("%s/%s.json" % [save_dir, slot])
 	if d.is_empty():
 		return {"ok": false, "reason": "no_save"}
 	var r := from_dict(d)
@@ -2674,23 +2272,7 @@ func cmd_load(slot: String) -> Dictionary:
 
 ## §4.1: `[{slot, saved_at, summary}]`, newest first (ties by slot). Not a command: no rev bump.
 func list_saves() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
-	if not DirAccess.dir_exists_absolute(save_dir):
-		return out
-	for fname in DirAccess.get_files_at(save_dir):
-		if not fname.ends_with(".json"):
-			continue
-		var slot := fname.trim_suffix(".json")
-		if not _slot_ok(slot):
-			continue
-		var d := _read_save_file("%s/%s" % [save_dir, fname])
-		if d.is_empty():
-			continue
-		var at: Variant = d.get("saved_at", 0)
-		out.append({"slot": slot, "saved_at": int(at) if _fits(at, _I) else 0, "summary": str(d.get("summary", ""))})
-	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return a["slot"] < b["slot"] if a["saved_at"] == b["saved_at"] else a["saved_at"] > b["saved_at"])
-	return out
+	return SaveIO.list_saves(save_dir)
 
 
 ## §4.6, E1. Loads <fixture_dir>/<name>.json through from_dict.
@@ -2701,7 +2283,7 @@ func cmd_debug_load_fixture(name: String) -> Dictionary:
 		return {"ok": false, "reason": "busy"}
 	if not FIXTURES.has(name):
 		return {"ok": false, "reason": "unknown_fixture"}
-	var d := _read_save_file("%s/%s.json" % [fixture_dir, name])
+	var d := SaveIO.read_file("%s/%s.json" % [fixture_dir, name])
 	if d.is_empty() or not from_dict(d)["ok"]:
 		return {"ok": false, "reason": "bad_fixture"}
 	return {"ok": true, "reason": ""}
@@ -2715,38 +2297,4 @@ func cmd_debug_load_fixture(name: String) -> Dictionary:
 ## Each duplicate or parse failure also appends one string to `errors`, so
 ## callers (the test suite) can fail on them.
 static func load_configs(dir: String, errors: Array = []) -> Dictionary:
-	var out := {}
-	var paths := {}
-	_load_into(dir, out, paths, errors)
-	return out
-
-
-static func _load_into(dir: String, out: Dictionary, paths: Dictionary, errors: Array) -> void:
-	var d := DirAccess.open(dir)
-	if d == null:
-		return
-	d.include_hidden = true  # so the "." guards below, not the OS filter, skip dot entries
-	var files := Array(d.get_files())
-	files.sort()
-	for f: String in files:
-		if f.begins_with(".") or not f.ends_with(".json"):
-			continue
-		var p := dir.path_join(f)
-		var key := f.trim_suffix(".json")
-		if out.has(key):
-			var msg := "duplicate config '%s': keeping %s, ignoring %s" % [key, paths[key], p]
-			errors.append(msg)
-			push_error("GameState.load_configs: " + msg)
-			continue
-		var parsed = JSON.parse_string(FileAccess.get_file_as_string(p))
-		if parsed == null:
-			errors.append("failed to parse %s" % p)
-			push_error("GameState.load_configs: failed to parse %s" % p)
-			continue
-		out[key] = parsed
-		paths[key] = p
-	var subs := Array(d.get_directories())
-	subs.sort()
-	for s: String in subs:
-		if not s.begins_with("."):
-			_load_into(dir.path_join(s), out, paths, errors)
+	return SaveIO.load_configs(dir, errors)

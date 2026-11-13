@@ -18,11 +18,11 @@ func _build_extra() -> void:
 	var b: Dictionary = rcfg().get("boss", {})
 	ally_engage_px = 5000.0  # the horde marches the full arena to reach her
 	backlog_left = float(seed_data.get("backlog", 0.0))
-	var arena: Vector2 = layout["size"]
+	var arena_size: Vector2 = layout["size"]
 
 	# Vei at the far north end
 	vei = RaidVei.new()
-	vei.position = Vector2(arena.x * 0.5, float(layout["wall_t"]) + 210.0)
+	vei.position = Vector2(arena_size.x * 0.5, float(layout["wall_t"]) + 210.0)
 	units_root.add_child(vei)
 	vei.configure(self, float(seed_data.get("odds", 0.5)))
 
@@ -113,9 +113,9 @@ func on_vei_died() -> void:
 		return
 	_ended = true
 	trance.force_end()
-	hud.flash(Color("#fff3d0"))
-	RaidFx.ring(fx_root, vei.global_position, Color("#fff3d0"), 700.0, 1.1, 8.0)
-	RaidFx.ring(fx_root, vei.global_position, Color(1, 1, 1, 0.9), 400.0, 0.8, 5.0)
+	hud.flash(Palette.c("vei"))
+	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), 700.0, 1.1, 8.0)
+	RaidFx.ring(fx_root, vei.global_position, Palette.c("text", 0.9), 400.0, 0.8, 5.0)
 	get_tree().create_timer(1.2).timeout.connect(func() -> void: _finish(_boss_result(true, false)))
 
 
