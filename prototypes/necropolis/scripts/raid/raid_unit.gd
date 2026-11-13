@@ -17,6 +17,7 @@ var role := ""               # v2 allies: "raised" | "garrison" | "starter" | "p
 var tier := ""               # v2 allies: chaff | soldier | elite | big
 var stat_mult := 1.0
 var uid := ""                # party only
+var beef := 0.0              # party only: the entry's beef stat (the Bellringer's weak point)
 var slots := 1               # party: nested diamonds (filled slots)
 var ledger_mass := false     # true only for chaff raised this raid
 var from_army := false       # boss: brought army (loss accounting)

@@ -39,6 +39,7 @@
     "stir_orbs_max": 4,
     "pop_speed_px": 85.0,
     "per_living": 1,
+    "per_warden": 6,
     "per_undead": 1,
     "gather_radius_px": 28.0,
     "carry_max": 12,
@@ -289,9 +290,19 @@
         "speed": 2.5
       }
     }
-  }
-  ,
+  },
   "wardens": {
+    "chest_open_px": 44.0,
+    "victory_s": 1.5,
+    "muffle_pad_px": 14.0,
+    "phase_flash_s": 0.6,
+    "wake_banner_s": 3.5,
+    "last_chance_banner_s": 3.5,
+    "ignite_s": 0.8,
+    "glyph_ring_step": 0.2,
+    "tell_ring_start": 2.6,
+    "tell_preview_alpha": 0.16,
+    "chest_half_px": 13.0,
     "by_fort": {
       "ashgate": "huntsman",
       "old-sluice": "bellringer",

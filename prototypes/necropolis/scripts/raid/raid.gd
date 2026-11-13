@@ -37,6 +37,7 @@ var found_loot := {}             # loot found this run, minus essence (a later l
 var arena: RaidArena = null
 var endings: RaidEndings = null
 var raiser: RaidRaise = null
+var warden_run: RaidWardenRun = null
 var _setup_called := false
 var _built := false
 var _standalone := false
@@ -60,6 +61,7 @@ var revived: int:
 func _init() -> void:
 	endings = RaidEndings.new(self)
 	raiser = RaidRaise.new(self)
+	warden_run = RaidWardenRun.new(self)
 
 
 func rcfg() -> Dictionary:
@@ -186,6 +188,7 @@ func _build() -> void:
 
 	if not is_boss():
 		RaidPopulate.new(self).populate(cfg, fort_id, tier)
+		warden_run.build()
 
 	# --- camera ---
 	var ccam: Dictionary = cfg.get("camera", {})
@@ -243,6 +246,7 @@ func _physics_process(delta: float) -> void:
 	arena.rebuild_grid(allies, enemies, relish)
 	if not is_boss():
 		endings.track_position()
+		warden_run.tick()
 	_cam_follow()
 	_post_physics(delta)
 
@@ -412,7 +416,15 @@ func nearest_enemy_of(pos: Vector2):
 		if d < bd:
 			bd = d
 			best = e
+	var w = warden_run.target_in(pos, bd)   # the warden is a target but not an `enemies` entry
+	if w != null:
+		best = w
 	return best
+
+
+## Loot the warden's chest holds, in the loot shape. A later loot task fills it.
+func chest_loot() -> Dictionary:
+	return RaidLogic.empty_loot()
 
 
 func nearest_ally_of(pos: Vector2):

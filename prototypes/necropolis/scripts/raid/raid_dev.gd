@@ -4,7 +4,8 @@ extends RefCounted
 ##   godot --path . res://scenes/raid/Raid.tscn -- --new-game --raid-fixture=day1,old-sluice
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
-## --raid-motes=N, --raid-held.
+## --raid-motes=N, --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-warden-go (with it: Relish walks into the warden room, then to the chest).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -12,6 +13,7 @@ var _raid: Node2D
 var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
+var _go := false                # --raid-warden-go autopilot
 var _perf := false
 var _perf_cpu: Array = []
 var _perf_gpu: Array = []
@@ -75,6 +77,9 @@ func start() -> void:
 	_stress = int(cli_value("--raid-stress="))
 	_autoexit = int(cli_value("--raid-autoexit=")) if cli_value("--raid-autoexit=") != "" else -1
 	_autodie = int(cli_value("--raid-autodie=")) if cli_value("--raid-autodie=") != "" else -1
+	if cli_flag("--raid-warden") and not _raid.is_boss():
+		_place_in_antechamber()
+	_go = cli_flag("--raid-warden-go")
 	if _stress > 0 and not _raid.is_boss():
 		_spawn_stress(_stress)
 	var motes := int(cli_value("--raid-motes=")) if cli_value("--raid-motes=") != "" else 0
@@ -96,6 +101,40 @@ func tick() -> void:
 		_autodie_hit()
 	if _perf:
 		_perf_sample(frame)
+	if _go and not _raid._ended:
+		_autopilot()
+
+
+## --raid-warden: Relish starts at the centre of the antechamber (nothing without one: held, boss).
+func _place_in_antechamber() -> void:
+	var ar := int(_raid.layout.get("ante_room", -1))
+	if ar < 0:
+		print("RAID_DEV --raid-warden: this layout has no antechamber")
+		return
+	var rel: RaidRelish = _raid.relish
+	var from := rel.position
+	rel.position = _raid.resolve_walls((_raid.layout["rooms"][ar] as Rect2).get_center(), rel.radius)
+	for a in _raid.allies:   # the garrison, starters and party come along
+		a.position = _raid.resolve_walls(a.position + (rel.position - from), a.radius)
+	rel.move_target = rel.position
+	_raid._cam_follow()
+	_raid.cam.reset_smoothing()
+
+
+## --raid-warden-go: walk to the warden room's near edge, then the chest once it exists.
+func _autopilot() -> void:
+	var wr := int(_raid.layout.get("warden_room", -1))
+	if wr < 0:
+		return
+	var run: RaidWardenRun = _raid.warden_run
+	if run.chest != null and is_instance_valid(run.chest):
+		_raid.relish.move_target = run.chest.global_position
+	elif run.warden != null and is_instance_valid(run.warden) and not run.warden.awake:
+		var room: Rect2 = _raid.layout["rooms"][wr]
+		var c := room.get_center()
+		var from: Vector2 = _raid.relish.position
+		# a point 80px inside the room towards where Relish stands
+		_raid.relish.move_target = c + (from - c).normalized() * minf(room.size.x, room.size.y) * 0.3
 
 
 ## Kill every ally and deal Relish a lethal hit (a revive, then the run's end).

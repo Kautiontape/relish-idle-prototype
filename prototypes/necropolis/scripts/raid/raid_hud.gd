@@ -191,8 +191,17 @@ func flash(color: Color) -> void:
 	_flash_t = 0.0
 
 
+## A plain banner line for `secs` seconds (warden wake, last chance, victory).
+func show_banner(text: String, secs: float, color_key := "relish") -> void:
+	_banner.text = text
+	_banner.add_theme_color_override("font_color", Palette.c(color_key))
+	_banner.visible = true
+	_banner_t = secs
+
+
 ## The banner when a checkpoint room banks new loot.
 func show_checkpoint(loot: Dictionary) -> void:
+	_banner.add_theme_color_override("font_color", Palette.c("relish"))
 	_banner.text = "CHECKPOINT · loot banked\nrelics %d · blueprints %d · husks %d · remnants %d · essence %d" % [
 		int(loot["relics"]), (loot["blueprints"] as Array).size(), (loot["husks"] as Array).size(),
 		(loot["remnants"] as Array).size(), int(loot["essence"])]

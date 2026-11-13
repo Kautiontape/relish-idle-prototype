@@ -152,7 +152,7 @@ func build_result(exit: String) -> Dictionary:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
 	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
-	var loot := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()) if exit == "retreated" else banked.duplicate(true)
+	var loot := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()) if exit in ["retreated", "warden_beaten"] else banked.duplicate(true)
 	if loot.is_empty():
 		loot = RaidLogic.empty_loot()
 	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, _raid.party_died, revived, loot, _raid.rcfg())

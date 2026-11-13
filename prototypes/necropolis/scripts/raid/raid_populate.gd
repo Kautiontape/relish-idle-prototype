@@ -51,4 +51,5 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 		var u: RaidUnit = _raid.spawn_ally_v2("party", "big", 1.0, 0.0, str(e.get("uid", "")),
 			RaidLogic.big_undead_stats(e.get("stats", {}), cfg), _raid.resolve_walls(pos, 20.0), false, "big")
 		# TODO(api-request #6): party entries carry no filled_slots yet; 1 nested diamond until they do
+		u.beef = float((e.get("stats", {}) as Dictionary).get("beef", 0.0))
 		u.slots = maxi(1, int(e.get("filled_slots", 1)))

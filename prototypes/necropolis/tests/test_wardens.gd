@@ -156,6 +156,25 @@ func run() -> int:
 	t.ok(not WardenLogic.lunge_hits(from, to, Vector2(330, 0), 22.0), "lunge stops short of a distant target")
 	t.ok(WardenLogic.lunge_hits(from, from, Vector2(10, 0), 22.0), "a zero-length lunge still hits what is inside the circle")
 
+	t.suite("warden_run_config")
+	var wc: Dictionary = cfg["wardens"]
+	t.ok(float(wc.get("chest_open_px", 0.0)) > 0.0 and float(wc.get("victory_s", 0.0)) > 0.0, "chest_open_px and victory_s are set")
+	t.ok(int(cfg["essence"].get("per_warden", 0)) > 0, "essence.per_warden is set")
+	var ph: Array = archs["bellringer"]["phases"]
+	t.ok(float(ph[0]["period_beats"]) > float(ph[1]["period_beats"]) and float(ph[1]["period_beats"]) > float(ph[2]["period_beats"]), "each bellringer phase rings faster")
+	t.ok(float(archs["bellringer"]["attack"]["tell_beats"]) < float(ph[2]["period_beats"]), "the tell fits inside the fastest period")
+
+	t.suite("merge_loot")
+	var base := {"relics": 1, "blueprints": ["a"], "husks": [], "remnants": [], "essence": 0}
+	var add := {"relics": 2, "blueprints": ["b"], "husks": [{"x": 1}], "remnants": [], "essence": 5}
+	var m := RaidLogic.merge_loot(base, add)
+	t.ok(int(m["relics"]) == 3, "relics add")
+	t.ok(m["blueprints"] == ["a", "b"] and (m["husks"] as Array).size() == 1, "arrays append")
+	t.ok(int(m.get("essence", 0)) == 0, "essence is skipped (it is the carried cluster)")
+	t.ok(base["blueprints"] == ["a"] and int(base["relics"]) == 1, "inputs are unchanged")
+	t.ok(RaidLogic.merge_loot({}, RaidLogic.empty_loot()).get("relics", -1) == 0, "merging the empty loot into nothing is safe")
+	t.ok(RaidLogic.merge_loot(base, {}) == base, "merging nothing changes nothing")
+
 	t.suite("warden_ante_pile")
 	var checked := 0
 	var ante_ok := true

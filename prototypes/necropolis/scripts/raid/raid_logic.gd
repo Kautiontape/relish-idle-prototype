@@ -142,6 +142,24 @@ static func empty_loot() -> Dictionary:
 	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
 
 
+## `found` with `add` (the loot shape) merged in: relics add, arrays append, essence is skipped
+## (it is the carried cluster, counted when the loot is banked). A new dictionary; inputs unchanged.
+static func merge_loot(found: Dictionary, add: Dictionary) -> Dictionary:
+	var out := found.duplicate(true)
+	for k in add:
+		if k == "essence":
+			continue
+		if add[k] is Array:
+			var cur: Array = out.get(k, [])
+			cur.append_array((add[k] as Array).duplicate(true))
+			out[k] = cur
+		elif k == "relics":
+			out[k] = int(out.get(k, 0)) + int(add[k])
+		else:
+			out[k] = add[k]
+	return out
+
+
 ## A deep copy of `found` (loot shape minus essence) in the full loot shape, with essence set to
 ## what Relish carries now: the checkpoint's banked loot (MECHANICS 7).
 static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
