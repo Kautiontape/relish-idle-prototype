@@ -1,12 +1,9 @@
 {
-  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion, F9 greyscale check.",
+  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
   "mode": "flow",
-  "reduced_motion": false,
   "readout": true,
 
-  "tempo_ms": 1714,
   "tempo_amp": 0.53,
-  "tempo_spread": 1.25,
 
   "field_hz": 6.0,
   "streaks": 9000,

@@ -39,9 +39,12 @@ uniform vec2 front_range = vec2(0.03, 0.22);
 uniform float commit_dominance = 3.0;
 uniform float commit_entrench = 0.35;
 uniform float entrench_ref = 2.5;
-uniform float tempo_period = 1.714;
+// The exhale is Pulse's beat (one tempo, one clock): beat = Pulse.phase(0) at
+// Covington, and the lag grows to Pulse.wave_spread at Vei's distance, the
+// same lag her node pulse gets two hops out.
+uniform float beat = 0.0;
+uniform float wave_spread = 0.5;
 uniform float tempo_amp = 0.53;
-uniform float tempo_spread = 1.25;
 uniform vec2 life_s = vec2(2.5, 6.5);
 uniform float spawn_empty_weight = 0.3;
 uniform float dash_px = 15.0;
@@ -197,9 +200,9 @@ void process() {
 		float dl = length(dir);
 		dir = dl > 1e-5 ? dir / dl : to_vei;
 
-		// the 1714 ms exhale, phase-offset by distance from Covington
-		float gdist = distance(p, cov_pos) / length(world_size);
-		float ph = fract(t / tempo_period - gdist * tempo_spread);
+		// the exhale, phase-offset by distance from Covington (Pulse's wave)
+		float lag = wave_spread * clamp(distance(p, cov_pos) / max(1.0, distance(vei_pos, cov_pos)), 0.0, 1.0);
+		float ph = fract(beat - lag);
 		float c = 0.5 + 0.5 * cos(ph * 6.2831853);
 		float tempo = 1.0 + tempo_amp * (c * c * c - 0.18);
 

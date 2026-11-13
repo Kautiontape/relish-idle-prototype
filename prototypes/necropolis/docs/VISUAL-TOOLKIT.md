@@ -117,7 +117,7 @@ Draw it with `Palette.c("dead")` and `matte_polyline`.
 `phase()` returns a steady 0, `wave()` a steady 0.6 (above zero, so pulsed marks
 stay visible) and `dash_offset()` 0. Anything else that moves (bobbing, rotating
 rays) must check the flag itself. Reduced motion must still show who is winning
-(BRIEF §8). Toggle it with **F9**, or boot with `-- --reduced-motion` (works
+(BRIEF §8). Toggle it with **F8**, or boot with `-- --reduced-motion` (works
 with `--shot`). The default is in `configs/pulse.json`.
 
 ## LineGlow
