@@ -336,7 +336,51 @@ func run() -> int:
 		and RaidLogic.carry_room(12, cfg) == 0 and RaidLogic.carry_room(20, cfg) == 0, "carry_room against carry_max 12")
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
+	_checkpoint_tests(t, cfg)
 	return t.failures
+
+
+func _checkpoint_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_checkpoint_exit_death")
+	var found := {"relics": 2, "blueprints": ["bp_a"], "husks": [], "remnants": [{"k": 1}], "essence": 99}
+	var snap := RaidLogic.loot_snapshot(found, 5)
+	t.ok(snap["essence"] == 5 and snap["relics"] == 2 and snap["blueprints"] == ["bp_a"], "snapshot: counts and carried essence")
+	t.ok(snap.keys().size() == RaidLogic.empty_loot().keys().size(), "snapshot has the full loot shape")
+	(found["blueprints"] as Array).append("bp_b")
+	(found["remnants"][0] as Dictionary)["k"] = 9
+	t.ok(snap["blueprints"] == ["bp_a"] and snap["remnants"][0]["k"] == 1, "snapshot is a deep copy")
+	t.ok(RaidLogic.loot_snapshot({}, 0) == RaidLogic.empty_loot(), "empty found, nothing carried = empty loot")
+	var sd := {"phylactery_charges": 1, "phylactery_max_per_dungeon": 1}
+	t.ok(RaidLogic.can_revive(0, sd) and not RaidLogic.can_revive(1, sd), "1 charge: one revive")
+	t.ok(not RaidLogic.can_revive(0, {"phylactery_charges": 0, "phylactery_max_per_dungeon": 1}), "0 charges: none")
+	t.ok(not RaidLogic.can_revive(1, {"phylactery_charges": 3, "phylactery_max_per_dungeon": 1}), "capped by max_per_dungeon")
+	t.ok(RaidLogic.can_revive(1, {"phylactery_charges": 3, "phylactery_max_per_dungeon": 2})
+		and not RaidLogic.can_revive(2, {"phylactery_charges": 3, "phylactery_max_per_dungeon": 2}), "max 2 of 3 charges")
+	var radius := float(cfg.get("exits", {}).get("radius_px", 120.0))
+	t.ok(radius == 120.0, "exits.radius_px is 120")
+	var lay := RaidLogic.gen_layout("old-sluice", 2, false, cfg)
+	var doors: Array = lay["doors"]
+	t.ok(RaidLogic.near_exit(lay, doors[0]["inner"], radius) == 0, "standing on an exit's inner point is near it")
+	var far := Vector2(-5000, -5000)
+	t.ok(RaidLogic.near_exit(lay, far, radius) == -1, "far away is near no exit")
+	var edge: Vector2 = doors[0]["inner"] + Vector2(radius + 1.0, 0)
+	var nd := RaidLogic.near_exit({"doors": [doors[0]]}, edge, radius)
+	t.ok(nd == -1, "just outside the radius is not near")
+	t.ok(RaidLogic.near_exit({"doors": [doors[0]]}, doors[0]["inner"] + Vector2(radius - 1.0, 0), radius) == 0, "just inside the radius is near")
+	t.ok(RaidLogic.near_exit({"doors": [{"inner": Vector2.ZERO}]}, Vector2.ZERO, radius) == -1, "a door without exit: true never counts")
+	t.ok(RaidLogic.near_exit({"doors": [{"exit": true, "inner": Vector2(0, 0)}, {"exit": true, "inner": Vector2(50, 0)}]},
+		Vector2(40, 0), radius) == 1, "nearest exit wins")
+	var two := {"checkpoints": [0, 3]}
+	t.ok(RaidLogic.checkpoint_entered(two, 1, 3) and not RaidLogic.checkpoint_entered(two, 3, 3)
+		and not RaidLogic.checkpoint_entered(two, 0, 1) and not RaidLogic.checkpoint_entered(two, 3, -1), "checkpoint_entered on room change into a checkpoint")
+	var room := Rect2(100, 100, 200, 200)
+	t.ok(RaidLogic.wall_touches_room(Rect2(70, 100, 30, 200), room) and RaidLogic.wall_touches_room(Rect2(150, 90, 40, 10), room)
+		and not RaidLogic.wall_touches_room(Rect2(400, 100, 30, 200), room), "wall_touches_room: flush yes, far no")
+	# the retreat and death results validate
+	var rs := RaidLogic.demo_seed(cfg)
+	var lg2 := RaidLogic.LedgerV2.new(rs, cfg)
+	var res := lg2.build_result(rs, "relish_died", [], [], 1, snap, cfg)
+	t.ok(res["revived_in_place"] == 1 and res["loot"]["essence"] == 5, "result carries revives and the snapshot")
 
 
 func _role_tests(t: TestUtil, cfg: Dictionary, cell: float) -> void:

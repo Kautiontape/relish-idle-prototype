@@ -21,6 +21,7 @@ var _built := false
 var _walls: Array = []
 var _floor: DriftFloor = null
 var _dim: TranceDim = null
+var _marks: ExitMarks = null
 var _drift := 0.0           # wall colour drift position, in cycles
 var _drift_speed := 0.05
 var _diag := 1000.0
@@ -34,6 +35,51 @@ class TranceDim:
 
 	func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size).grow(80.0), col)
+
+
+## Exit doors (VISUAL-LANGUAGE 2c: gaps with a glow lip): a relish lip on each jamb and a ring
+## sigil at the door's inner point, dim until that checkpoint has banked, then lit.
+class ExitMarks:
+	extends Node2D
+	var doors: Array = []
+	var wall_t := 30.0
+	var lip_len := 34.0
+	var lip_w := 3.0
+	var sigil_r := 14.0
+	var dim_alpha := 0.3
+	var banked := {}
+
+	func _process(_d: float) -> void:
+		queue_redraw()
+
+	func _draw() -> void:
+		var violet := Palette.c("relish")
+		for d in doors:
+			var inward := Vector2.ZERO
+			var along := Vector2(1, 0)
+			match str(d["side"]):
+				"s": inward = Vector2(0, -1)
+				"n": inward = Vector2(0, 1)
+				"w": inward = Vector2(1, 0)
+				_: inward = Vector2(-1, 0)
+			if inward.x != 0.0:
+				along = Vector2(0, 1)
+			var r: Rect2 = d["rect"]
+			var half_w := (r.size.x if along.x != 0.0 else r.size.y) * 0.5
+			var c: Vector2 = d["center"]
+			var a: Vector2 = c - inward * wall_t * 0.5
+			var b: Vector2 = c + inward * (wall_t * 0.5 + lip_len)
+			for sgn in [-1.0, 1.0]:
+				var off: Vector2 = along * half_w * sgn
+				LineGlow.polyline(self, PackedVector2Array([a + off, b + off]), violet, lip_w, 0.8)
+			var lit := bool(banked.get(int(d.get("room", -1)), false))
+			var p: Vector2 = d["inner"]
+			if lit:
+				var beat := 0.7 + 0.3 * Pulse.wave()
+				LineGlow.ring(self, p, sigil_r, violet, 2.0, beat, Palette.c("text", 0.6))
+				draw_circle(p, 3.0, Palette.c("text", 0.9))
+			else:
+				LineGlow.matte_ring(self, p, sigil_r, Palette.c("relish", dim_alpha), 1.5)
 
 
 ## `controller_key`: Palette key of the fortress's controller colour.
@@ -63,11 +109,29 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		"wave_spread": Pulse.wave_spread,
 		"wave_decay": Pulse.wave_decay,
 	}
+	# the warden room's walls run hotter (VISUAL-LANGUAGE 2c)
+	var wr := int(layout.get("warden_room", -1))
+	var hot := look.duplicate()
+	hot["heat"] = float(lcfg.get("boss_wall_heat", 0.6))
 	for wrect in layout["walls"]:
 		var seg := RaidWall.new()
 		add_child(seg)
-		seg.setup(wrect, glow, look)
+		var is_hot := wr >= 0 and RaidLogic.wall_touches_room(wrect, layout["rooms"][wr])
+		seg.setup(wrect, glow, hot if is_hot else look)
 		_walls.append(seg)
+
+	# --- exit doors (the dungeon only; the boss arena has none) ---
+	if not bool(layout.get("boss", false)):
+		var ex: Dictionary = cfg.get("exits", {})
+		_marks = ExitMarks.new()
+		_marks.z_index = 21
+		_marks.doors = layout["doors"]
+		_marks.wall_t = float(layout["wall_t"])
+		_marks.lip_len = float(ex.get("lip_len_px", 34.0))
+		_marks.lip_w = float(ex.get("lip_width", 3.0))
+		_marks.sigil_r = float(ex.get("sigil_radius_px", 14.0))
+		_marks.dim_alpha = float(ex.get("dim_alpha", 0.3))
+		add_child(_marks)
 
 	# --- trance dim overlay (hidden until the trance starts) ---
 	_dim = TranceDim.new()
@@ -84,6 +148,12 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 ## Bind Relish: the dungeon's pulse source (the floor and the wall wave).
 func bind_relish(r: Node2D) -> void:
 	relish = r
+
+
+## Checkpoint rooms that have banked (lights their exit sigils).
+func set_banked(rooms: Dictionary) -> void:
+	if _marks != null:
+		_marks.banked = rooms.duplicate()
 
 
 func set_trance_dim(on: bool) -> void:

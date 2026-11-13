@@ -31,6 +31,14 @@ var carried: Array = []          # essence motes in Relish's carried cluster (du
 var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
+var held := false                # the fort is the player's (view_fort.held, or --raid-held)
+var found_loot := {}             # loot found this run, minus essence (a later loot task fills it)
+var banked := {}                 # the last checkpoint snapshot (full loot shape)
+var banked_rooms := {}           # checkpoint room index -> true once it has banked
+var revived := 0                 # phylactery revives spent this run
+var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
+var _room := -2                  # Relish's current room
+var _autodie := -1               # --raid-autodie=<frames>
 var _last_feedback: RaidTraceFeedback = null
 
 var arena: RaidArena = null
@@ -69,10 +77,9 @@ func is_boss() -> bool:
 
 
 ## Palette key of the fortress's controller colour; it tints the walls. A Vei
-## fortress is "living", the boss arena is "vei". Held (player) fortresses
-## should be "undead": a later task sets `controller_key` in the seed.
+## fortress is "living", the boss arena is "vei", a held (player) fortress "undead".
 func controller_key() -> String:
-	return str(seed_data.get("controller_key", "vei" if is_boss() else "living"))
+	return str(seed_data.get("controller_key", "vei" if is_boss() else ("undead" if held else "living")))
 
 
 ## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
@@ -161,6 +168,13 @@ func _resolve_seed(args: Dictionary) -> Dictionary:
 	return sd
 
 
+## Open run: the economy's view of the fort. Standalone demo: the --raid-held dev arg.
+func _is_held(fort_id: String) -> bool:
+	if _from_run:
+		return bool(Game.state.view_fort(fort_id).get("held", false))
+	return _cli_flag("--raid-held")
+
+
 func fort_name() -> String:
 	return str(seed_data.get("fort", {}).get("name", seed_data.get("name", "?")))
 
@@ -176,7 +190,8 @@ func _build() -> void:
 	var boss := is_boss()
 	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
-	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg)
+	held = false if boss else _is_held(fort_id)
+	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held})
 	if boss:
 		rng_combat.randomize()
 		rng_loot.randomize()
@@ -245,6 +260,9 @@ func _build() -> void:
 		relish.hp = float(seed_data.get("relish_hp", relish.hp))
 		relish.max_hp = relish.hp
 	_build_extra()
+	if not boss:
+		_room = RaidLogic.room_of(layout, relish.position)
+		_take_checkpoint(_room, false)
 	if _standalone:
 		_cli_harness()
 
@@ -253,6 +271,7 @@ func _build() -> void:
 func _cli_harness() -> void:
 	_stress = int(_cli_value("--raid-stress="))
 	_autoexit = int(_cli_value("--raid-autoexit=")) if _cli_value("--raid-autoexit=") != "" else -1
+	_autodie = int(_cli_value("--raid-autodie=")) if _cli_value("--raid-autodie=") != "" else -1
 	if _stress > 0 and not is_boss():
 		_spawn_stress(_stress)
 	var motes := int(_cli_value("--raid-motes=")) if _cli_value("--raid-motes=") != "" else 0
@@ -359,8 +378,78 @@ func _process(_delta: float) -> void:
 	if _autoexit >= 0 and frame >= _autoexit and not _ended:
 		_autoexit = -1
 		confirm_exit()
+	if _autodie > 0 and frame % _autodie == 0 and not _ended and not is_boss():
+		_dev_autodie()
 	if _perf:
 		_perf_sample(frame)
+
+
+## Dev: kill every ally and deal Relish a lethal hit (a revive, then the run's end).
+func _dev_autodie() -> void:
+	for a in allies.duplicate():
+		if is_instance_valid(a) and a.alive:
+			a.die(true)
+	relish.take_hit(relish.max_hp + 1000.0)
+
+
+## Update the exit Relish stands at and the checkpoint room she is in.
+func _track_position() -> void:
+	exit_idx = RaidLogic.near_exit(layout, relish.position, float(rcfg().get("exits", {}).get("radius_px", 120.0)))
+	var room := RaidLogic.room_of(layout, relish.position)
+	if room != _room:
+		var prev := _room
+		_room = room
+		if RaidLogic.checkpoint_entered(layout, prev, room):
+			_take_checkpoint(room, true)
+
+
+## Bank loot: snapshot what was found plus what is carried now (MECHANICS 7).
+func _take_checkpoint(room: int, announce: bool) -> void:
+	if not (layout.get("checkpoints", []) as Array).has(room):
+		return
+	var snap := RaidLogic.loot_snapshot(found_loot, carried_count())
+	var changed := snap != banked
+	banked = snap
+	banked_rooms[room] = true
+	arena.set_banked(banked_rooms)
+	if changed and announce and hud != null:
+		hud.show_checkpoint(banked)
+	# TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not in the state API yet
+	if _from_run and Game.state.has_method("cmd_run_checkpoint"):
+		Game.state.cmd_run_checkpoint(int(seed_data.get("run_id", 0)), banked)
+
+
+## Retreat is open only at an exit (the boss arena keeps its teleport).
+func can_retreat() -> bool:
+	return is_boss() or exit_idx >= 0
+
+
+## The HUD's confirmed RETREAT: re-checks the exit, since Relish may have drifted off.
+func try_retreat() -> void:
+	if can_retreat():
+		confirm_exit()
+
+
+## A lethal hit with allies gone: spend a phylactery if one is left. True = Relish lives.
+func try_phylactery() -> bool:
+	if is_boss() or not RaidLogic.can_revive(revived, seed_data):
+		return false
+	revived += 1
+	var hp_frac := float(ConfigDb.data.get("backups", {}).get("phylactery", {}).get("revive_hp", 0.5))
+	var rc: Dictionary = rcfg().get("revive", {})
+	relish.revive(relish.max_hp * hp_frac, float(rcfg().get("relish", {}).get("revive_iframes_s", 1.5)))
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"),
+		float(rc.get("crack_radius_px", 90.0)), float(rc.get("crack_s", 1.1)))
+	hud.flash(Palette.c("relish"))
+	if _standalone:
+		print("RAID_REVIVE n=%d left=%d hp=%.1f" % [revived, phylactery_left(), relish.hp])
+	return true
+
+
+## Phylactery charges still spendable this run.
+func phylactery_left() -> int:
+	return maxi(0, mini(int(seed_data.get("phylactery_charges", 0)),
+		int(seed_data.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
 func _perf_sample(frame: int) -> void:
@@ -401,6 +490,8 @@ func _physics_process(delta: float) -> void:
 	if not _built or _ended:
 		return
 	arena.rebuild_grid(allies, enemies, relish)
+	if not is_boss():
+		_track_position()
 	_cam_follow()
 	_post_physics(delta)
 
@@ -776,10 +867,11 @@ func _build_result(exit: String) -> Dictionary:
 	for a in allies:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
-	var loot := RaidLogic.empty_loot()
-	if exit == "retreated":
-		loot["essence"] = carried_count()  # banked: motes carried out
-	var r := ledger_v2.build_result(seed_data, exit, survivors, party_died, 0, loot, rcfg())
+	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
+	var loot := RaidLogic.loot_snapshot(found_loot, carried_count()) if exit == "retreated" else banked.duplicate(true)
+	if loot.is_empty():
+		loot = RaidLogic.empty_loot()
+	var r := ledger_v2.build_result(seed_data, exit, survivors, party_died, revived, loot, rcfg())
 	for e in Results.validate("raid", r):
 		push_error("necropolis: raid result invalid: " + e)
 	return r

@@ -141,6 +141,47 @@ static func empty_loot() -> Dictionary:
 	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
 
 
+## A deep copy of `found` (loot shape minus essence) in the full loot shape, with essence set to
+## what Relish carries now: the checkpoint's banked loot (MECHANICS 7).
+static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
+	var out := empty_loot()
+	for k in out:
+		if found.has(k) and k != "essence":
+			out[k] = found[k].duplicate(true) if (found[k] is Array or found[k] is Dictionary) else found[k]
+	out["essence"] = maxi(0, carried)
+	return out
+
+
+## True when a phylactery charge is left to spend in this dungeon (MECHANICS 7).
+static func can_revive(revived: int, seed: Dictionary) -> bool:
+	return revived < mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0)))
+
+
+## Index into layout.doors of the exit whose inner point is within `radius` of p, nearest first; -1 if none.
+static func near_exit(layout: Dictionary, p: Vector2, radius: float) -> int:
+	var best := -1
+	var bd := radius
+	var doors: Array = layout.get("doors", [])
+	for i in doors.size():
+		if not bool(doors[i].get("exit", false)):
+			continue
+		var d := p.distance_to(doors[i]["inner"])
+		if d <= bd:
+			bd = d
+			best = i
+	return best
+
+
+## True when the wall rect borders or overlaps the room (the 2 px grow catches flush edges).
+static func wall_touches_room(wall: Rect2, room: Rect2) -> bool:
+	return wall.grow(2.0).intersects(room)
+
+
+## Relish crossing into a checkpoint room: the room changed and the new one is a checkpoint.
+static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) -> bool:
+	return room >= 0 and room != prev_room and (layout.get("checkpoints", []) as Array).has(room)
+
+
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
 ## 1 soldier, 2 elite, 3 big undead (party).
 static func ally_rank(role: String, tier: String) -> int:
@@ -379,8 +420,14 @@ class Ledger:
 
 
 # ------------------------------------------------------ layout generation ----
-## Deterministic per fort_id: each fortress is recognizably itself on revisits.
-## Returns { size, wall_t, walls (all Rect2), inner_walls, doors, rooms, spawn }.
+## Deterministic per fort_id (and `opts`): each fortress is recognizably itself on revisits.
+## `opts`: `held` (bool, ignored for the boss arena): the player's held fort, which gets one
+## fewer room and no warden or antechamber.
+## Returns { size, wall_t, walls (all Rect2), inner_walls, doors, rooms, spawn, boss, gaps, held,
+## roles (per room: spawn / checkpoint / antechamber / warden / normal), hops (BFS from the spawn
+## room), adj (room adjacency), warden_room and ante_room (-1 if none), checkpoints (room indices,
+## spawn first) }. Every door is an exit {side, rect, center, inner, exit: true, room}; closed
+## doors are drawn as wall.
 static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionary, opts: Dictionary = {}) -> Dictionary:
 	var lay: Dictionary = cfg.get("layout", {})
 	var held := bool(opts.get("held", false)) and not is_boss

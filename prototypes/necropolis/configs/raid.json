@@ -4,7 +4,24 @@
     "speed": 240.0,
     "radius": 13.0,
     "iframes_s": 0.5,
+    "revive_iframes_s": 1.5,
     "light_radius_px": 220.0
+  },
+  "exits": {
+    "radius_px": 120.0,
+    "lip_len_px": 34.0,
+    "lip_width": 3.0,
+    "sigil_radius_px": 14.0,
+    "dim_alpha": 0.3
+  },
+  "checkpoint": {
+    "banner_s": 2.5
+  },
+  "revive": {
+    "crack_s": 1.1,
+    "crack_radius_px": 90.0,
+    "mark_radius_px": 19.0,
+    "mark_step_px": 4.0
   },
   "trance": {
     "time_scale": 0.35,

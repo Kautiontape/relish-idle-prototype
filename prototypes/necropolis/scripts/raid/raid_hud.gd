@@ -16,6 +16,9 @@ var _exit_btn: Control
 var _dialog: ConfirmationDialog
 var _flash: ColorRect
 var _flash_t := -1.0
+var _phyl: Label
+var _banner: Label
+var _banner_t := -1.0
 # boss extras
 var _vei_bar: Control = null
 var _backlog: Label = null
@@ -34,6 +37,18 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_essence = _mk_label(box, 17, Palette.c("essence"))
 	_raised = _mk_label(box, 17, Palette.c("undead_core"))
 	_ward = _mk_label(box, 17, Palette.c("undead"))
+	_phyl = _mk_label(box, 17, Palette.c("relish"))
+	_phyl.visible = not boss_mode
+
+	_banner = _mk_label(self, 20, Palette.c("relish"))
+	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_banner.anchor_left = 0.5
+	_banner.anchor_right = 0.5
+	_banner.offset_left = -300.0
+	_banner.offset_right = 300.0
+	_banner.offset_top = 70.0
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.visible = false
 
 	_hint = _mk_label(self, 19, Palette.c("text"))
 	_hint.text = "HOLD SPACE — TRACE A CIRCLE"
@@ -67,10 +82,15 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_exit_btn.offset_bottom = 60.0
 
 	_dialog = ConfirmationDialog.new()
-	_dialog.title = "Teleport"
-	_dialog.dialog_text = "Are you sure you wish to Teleport home?"
-	_dialog.get_ok_button().text = "Teleport"
-	_dialog.confirmed.connect(func() -> void: raid.confirm_exit())
+	if boss_mode:
+		_dialog.title = "Teleport"
+		_dialog.dialog_text = "Are you sure you wish to Teleport home?"
+		_dialog.get_ok_button().text = "Teleport"
+	else:
+		_dialog.title = "Retreat"
+		_dialog.dialog_text = "Retreat through this exit? Your loot is banked and the fort does not flip."
+		_dialog.get_ok_button().text = "Retreat"
+	_dialog.confirmed.connect(func() -> void: raid.try_retreat())
 	add_child(_dialog)
 
 	_flash = ColorRect.new()
@@ -115,6 +135,10 @@ func _process(_delta: float) -> void:
 	if raid == null:
 		return
 	refresh()
+	if _banner_t >= 0.0:
+		_banner_t -= _delta
+		if _banner_t < 0.0:
+			_banner.visible = false
 	if _flash_t >= 0.0:
 		_flash_t += _delta / maxf(0.05, Engine.time_scale)
 		var f := _flash_t / 0.9
@@ -147,6 +171,14 @@ func refresh() -> void:
 		var lg = raid.ledger
 		_raised.text = "RAISED  chaff %.0f  ·  sold %d  ·  elite %d" % [lg.chaff_pool, lg.soldiers, lg.elites]
 	_hint.visible = not raid.first_raise_done and not raid._ended
+	if not raid.is_boss():
+		var left: int = raid.phylactery_left()
+		_phyl.text = "PHYLACTERY  %d left" % left
+		if raid.exit_idx >= 0 and not raid._ended:
+			_hint.text = "AT EXIT · RETREAT banks your loot"
+			_hint.visible = true
+		else:
+			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
 	if _backlog != null:
 		_backlog.text = "BACKLOG  %.0f    LOST  s%d e%d" % [raid.backlog_left, raid.army_lost["soldier"], raid.army_lost["elite"]]
 
@@ -159,8 +191,22 @@ func flash(color: Color) -> void:
 	_flash_t = 0.0
 
 
+## The banner when a checkpoint room banks new loot.
+func show_checkpoint(loot: Dictionary) -> void:
+	_banner.text = "CHECKPOINT · loot banked\nrelics %d · blueprints %d · husks %d · remnants %d · essence %d" % [
+		int(loot["relics"]), (loot["blueprints"] as Array).size(), (loot["husks"] as Array).size(),
+		(loot["remnants"] as Array).size(), int(loot["essence"])]
+	_banner.visible = true
+	_banner_t = float(raid.rcfg().get("checkpoint", {}).get("banner_s", 2.5))
+
+
+## Retreat is live only at an exit (always for the boss's teleport).
+func exit_enabled() -> bool:
+	return raid != null and raid.can_retreat()
+
+
 func open_exit_dialog() -> void:
-	if raid._ended:
+	if raid._ended or not exit_enabled():
 		return
 	_dialog.popup_centered()
 
@@ -235,9 +281,14 @@ class ExitButton:
 			accept_event()
 			hud.open_exit_dialog()
 
+	func _process(_d: float) -> void:
+		queue_redraw()
+
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
-		var border := Palette.c("relish", 1.0 if _hover else 0.55)
+		var on := hud.exit_enabled()
+		var boss: bool = hud.raid != null and hud.raid.is_boss()
+		var border := Palette.c("relish", (1.0 if _hover else 0.55) if on else 0.2)
 		var vei := Palette.c("vei")
 		draw_rect(r, Palette.c("ground", 0.92))
 		draw_rect(r, border, false, 2.0)
@@ -251,7 +302,12 @@ class ExitButton:
 		draw_line(d0 + Vector2(22, 14), d0 + Vector2(32, 14), vei, 2.0)
 		draw_line(d0 + Vector2(28, 10), d0 + Vector2(32, 14), vei, 2.0)
 		draw_line(d0 + Vector2(28, 18), d0 + Vector2(32, 14), vei, 2.0)
-		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "TELEPORT",
+		if not on:
+			draw_rect(r, Palette.c("ground", 0.55))   # visibly disabled
+			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), "reach an exit",
+				HORIZONTAL_ALIGNMENT_LEFT, 96, 13, Palette.c("text_dim", 0.8))
+			return
+		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "TELEPORT" if boss else "RETREAT",
 			HORIZONTAL_ALIGNMENT_LEFT, 100, 15, Palette.c("vei", 1.0 if _hover else 0.8))
 
 

@@ -79,6 +79,52 @@ class SoulLink:
 		draw_circle(Vector2.ZERO, 7.0, Palette.c("danger", a * 0.7))
 
 
+## A violet ring that holds, then cracks into drifting shards that fade (a backup cracking,
+## VISUAL-LANGUAGE 2e). Used for the phylactery revive.
+class Crack:
+	extends Node2D
+	var color: Color = Palette.c("relish")
+	var radius := 90.0
+	var duration := 1.1
+	var shards := 9
+	var _t := 0.0
+
+	func _ready() -> void:
+		z_index = 72
+
+	func _process(delta: float) -> void:
+		_t += delta / maxf(0.05, Engine.time_scale)
+		if _t >= duration:
+			queue_free()
+			return
+		queue_redraw()
+
+	func _draw() -> void:
+		var f := _t / duration
+		var hold := 0.3
+		var k := clampf((f - hold) / (1.0 - hold), 0.0, 1.0)   # 0 while the ring is intact
+		if Pulse.reduced_motion:
+			k = 0.5 if f > hold else 0.0                      # no drift: it just shows broken
+		var col := color
+		col.a = color.a * (1.0 if f < hold else 1.0 - k * 0.9)
+		var span := TAU / shards
+		for i in shards:
+			var a0 := span * i
+			var gap := span * 0.55 * k + (span * 0.06 if f >= hold else 0.0)
+			var push := (0.5 + 0.5 * sin(float(i) * 2.7 + 1.3)) * 26.0 * k
+			LineGlow.arc(self, Vector2.ZERO, radius * (0.55 + 0.45 * minf(1.0, f * 3.0)) + push,
+				a0 + gap * 0.5, a0 + span - gap * 0.5, col, 3.5 * (1.0 - k * 0.5), 0.6)
+
+
+static func crack(parent: Node, pos: Vector2, color: Color, radius: float, duration := 1.1) -> void:
+	var c := Crack.new()
+	c.position = pos
+	c.color = color
+	c.radius = radius
+	c.duration = duration
+	parent.add_child(c)
+
+
 static func ring(parent: Node, pos: Vector2, color: Color, max_radius: float,
 		duration := 0.4, width := 3.0) -> void:
 	var r := Ring.new()

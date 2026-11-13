@@ -62,8 +62,19 @@ func take_hit(amount: float) -> void:
 	hp -= amount
 	_flash = 1.0
 	if hp <= 0.0:
+		if raid.try_phylactery():
+			queue_redraw()
+			return
 		alive = false
 		raid.on_relish_died()
+	queue_redraw()
+
+
+## Phylactery revive: back to `new_hp` with i-frames.
+func revive(new_hp: float, iframes_s: float) -> void:
+	hp = clampf(new_hp, 1.0, max_hp)
+	_iframes = iframes_s
+	_flash = 1.0
 	queue_redraw()
 
 
@@ -89,6 +100,14 @@ func _draw() -> void:
 				var dir := Vector2.RIGHT.rotated(raid.carry_angle(i))
 				var orbit := float(e.get("carry_orbit_px", 24.0))
 				draw_line(dir * (orbit - 2.0), dir * (orbit + 2.0), Palette.c("essence", 0.28), 1.5)
+	if raid != null and not raid.is_boss() and raid.revived > 0:
+		# one small cracked violet ring per spent phylactery; it does not come back
+		var rc: Dictionary = ConfigDb.data.get("raid", {}).get("revive", {})
+		for i in int(raid.revived):
+			var rr: float = float(rc.get("mark_radius_px", 19.0)) + float(rc.get("mark_step_px", 4.0)) * i
+			for j in 3:   # three shards with two gaps and a break: reads as cracked
+				var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
+				draw_arc(Vector2.ZERO, rr, a0, a0 + TAU / 3.0 - 0.55, 10, Palette.c("relish", 0.8), 1.5)
 	if _iframes > 0.0:
 		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Palette.c("danger", 0.6), 2.0)
 	if hp < max_hp:
