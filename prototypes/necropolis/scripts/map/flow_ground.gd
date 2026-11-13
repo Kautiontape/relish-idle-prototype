@@ -63,6 +63,7 @@ var _pos := {}           # node id -> world position, from view_realm (nodes don
 var _forts: Array = []   # view_realm().forts, for map's demo lanes
 var _demo_lanes := false # --lanes=demo: the routes draw map's demo lanes, so the moat follows them
 var _moat_cache := {}    # GroundMoat's per-lane cache (cleared when the positions change)
+var _warned_lanes := false
 
 
 func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
@@ -362,8 +363,9 @@ func upload_lanes() -> void:
 		_refresh_nodes()
 	var log_max := float(MapLogic.cfg()["rate_log_max"])
 	var ls := GroundMoat.lanes(rows, _pos, func(rate: float) -> float: return Pulse.rate_to_u(rate, log_max), _moat_cache)
-	if ls.size() > MAX_LANES:
-		push_warning("flow ground: %d lanes, the moat shader takes %d" % [ls.size(), MAX_LANES])
+	if ls.size() > MAX_LANES and not _warned_lanes:
+		_warned_lanes = true
+		push_warning("flow ground: %d lanes, the moat shader takes %d; the rest get no moat" % [ls.size(), MAX_LANES])
 	var n := mini(ls.size(), MAX_LANES)
 	var ac := PackedVector4Array()
 	var bw := PackedVector4Array()
