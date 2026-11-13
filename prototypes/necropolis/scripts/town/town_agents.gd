@@ -41,6 +41,8 @@ class Agent:
 	var gone := false
 	## Arrived at a hold post (stall, forge, tend, build).
 	var holding := false
+	## Set by sync() when a held agent's post or cycle changed; step() re-assigns it.
+	var reroute := false
 	## Out of town (a hauler past the gate).
 	var hidden := false
 	## Carrying a dead pip (a pit worker on its way from the charnel house).
@@ -107,6 +109,7 @@ var scale := 1.0
 var _v: Dictionary
 var _bcfg: Dictionary
 var _econ: Dictionary
+var _slab: Dictionary
 var _tempo_s := 0.0
 var _rng := RandomNumberGenerator.new()
 var _model: TownModel
@@ -134,7 +137,8 @@ var _was_reduced := false
 
 
 func _init(view_cfg: Dictionary = {}, buildings_cfg: Dictionary = {}, economy_cfg: Dictionary = {},
-		tempo_s := 0.0, seed := 1) -> void:
+		tempo_s := 0.0, seed := 1, slab_cfg := {}) -> void:
+	_slab = slab_cfg
 	_v = view_cfg
 	_bcfg = buildings_cfg
 	_econ = economy_cfg
@@ -208,10 +212,14 @@ func sync(model: TownModel, views: Dictionary) -> void:
 	_read_foremen(model, views)
 	_read_relish(model, town)
 	for a in undead:
+		var old_site := a.site
 		_refresh_stops(a)
+		# a held agent whose post or cycle changed under it must walk again (step() re-routes it)
+		if a.holding and not a.leaving and (a.site != old_site or not _holds(a)):
+			a.reroute = true
 	for a in living:
 		_refresh_stops(a)
-	if not _seeded:
+	if not _seeded and views.has("town"):  # an empty first fetch must not spend the entry seed
 		_seeded = true
 		_seed()
 
@@ -289,7 +297,7 @@ static func _scale_for(total: float, cap: float) -> int:
 func _read_trade(model: TownModel, town: Dictionary) -> void:
 	trade_standin = model.staffing_standin
 	if trade_standin:
-		trade_rate = TownStandins.trade_rate(town, _econ)  # STANDIN(E2): off once outputs arrive
+		trade_rate = TownStandins.trade_rate(town, _v)  # STANDIN(E2): off once outputs arrive
 	else:
 		trade_rate = maxf(float(town.get("trade_rate", 0.0)), 0.0)
 
@@ -347,7 +355,7 @@ func _read_foremen(model: TownModel, views: Dictionary) -> void:
 			continue
 		var p: Vector2 = fr["c"] + fr["n"] * big * 1.5
 		foremen.append({"lot_id": String(l["id"]), "pos": p,
-			"strokes": TownStandins.foreman_strokes(by_uid.get(String(b["foreman"]), {}), _v)})
+			"strokes": TownStandins.foreman_strokes(by_uid.get(String(b["foreman"]), {}), _v, _slab)})
 
 
 func _read_relish(model: TownModel, town: Dictionary) -> void:
@@ -650,6 +658,7 @@ func _warm(a: Agent) -> void:
 
 func _hold_at(a: Agent, p: Dictionary) -> void:
 	a.holding = true
+	a.carry = false
 	a.pos = p["pos"]
 	a.base = a.pos
 	a.dir = p.get("face", Vector2.UP)
@@ -813,6 +822,10 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		_was_reduced = false
 	var g1 := _gait
 	_clock += dt
+	for a in undead:
+		if a.reroute:
+			a.reroute = false
+			_assign(a, a.job, reduced_motion)
 	_reconcile(dt, reduced_motion)
 	if not reduced_motion:
 		var step := _px("step_px")

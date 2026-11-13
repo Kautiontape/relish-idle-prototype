@@ -161,9 +161,11 @@
     "relish_brighten": 0.15,
     "flow_smooth_s": 2.5,
     "foreman_strokes": 4,
+    "standin_sales_per_stall": 0.12,
+    "standin_sales_per_living": 0.05,
     "agent": {
-      "undead_len_px": 10.0, "undead_w_px": 1.5, "undead_glow": 0.6, "core_px": 3.0, "flash_mul": 2.4, "carry_px": 3.0,
-      "living_len_px": 6.0, "living_bend": 0.35, "living_w_px": 1.4, "living_ring_px": 2.2, "living_glow": 0.6,
+      "undead_len_px": 12.0, "undead_w_px": 2.0, "undead_glow": 0.6, "core_px": 2.5, "flash_mul": 2.4, "carry_px": 3.0,
+      "living_len_px": 8.0, "living_bend": 0.35, "living_w_px": 1.8, "living_ring_px": 3.0, "living_glow": 0.6,
       "big_px": 10.0, "big_w_px": 1.6, "big_gap": 0.22, "big_glow": 0.8,
       "cart_pip_px": 3.0, "cart_pip_gap_px": 1.5, "cart_cols": 3, "cart_w_px": 1.4, "tow_px": 5.0,
       "arc_w_px": 1.4, "arc_glow": 0.8, "arc_bulge": 0.35, "arc_grow": 0.3, "arc_fade": 0.4, "arc_chevron_px": 4.0,

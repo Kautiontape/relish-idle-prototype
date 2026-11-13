@@ -72,6 +72,8 @@ func run() -> int:
 	_agent_lockstep(day1)
 	_agent_reduced(day1)
 	_agent_missing(day1)
+	_agent_held(day1)
+	_agent_seed(day1)
 	_agent_loops(day1, demo)
 	_trade_arcs(day1)
 	_trade_standin(day1)
@@ -407,8 +409,17 @@ func _demo_city(demo: Dictionary) -> void:
 	# 14 size-1, 8 size-2 and 2 size-3 lots hold at most 18 distinct ids (13 ids need size >= 2)
 	t.ok(ids.size() >= 18 and ids.has("crypt") and ids.has("walls") and ids.has("reliquary"),
 		"demo: %d distinct buildings, as many as the lot sizes allow" % ids.size())
-	t.near(town["workers"]["total"], 180.0, 0.001, "demo: 180 workers")
-	t.near(town["workers"]["idle"] + staffed, 180.0, 0.001, "demo: staffed plus idle is the workforce")
+	t.near(town["workers"]["idle"], 8.0, 0.001, "demo: 8 idle")
+	t.near(town["workers"]["total"], staffed + 8.0, 0.001, "demo: workers = staffed + 8 idle")
+	var leveled := true
+	for b in town["buildings"]:
+		var jobs: Dictionary = cfg["buildings"][b["building_id"]]["jobs"]
+		var n := 0
+		for j in jobs:
+			n += int(jobs[j])
+		if b["state"] == "active" and n > 0:
+			leveled = leveled and b["slots"] == n * b["level"] and b["staffed"] == float(b["slots"])
+	t.ok(leveled and staffed > 30.0, "demo: active job buildings staffed to their job slots x level (%d staffed)" % int(staffed))
 	var jobs_full := true
 	for j in town["jobs"]:
 		jobs_full = jobs_full and is_equal_approx(j["staffed"], float(j["slots"]))
@@ -557,22 +568,11 @@ func _routes(day1: Dictionary) -> void:
 
 
 # ------------------------------------------------------------------ agents ----
-## economy.json plus the stall and market keys the trade stand-in reads. The economy unit's E2
-## config adds them; until it merges they are absent on this branch and the stand-in reads 0.
-func _econ() -> Dictionary:
-	var e: Dictionary = cfg["economy"].duplicate(true)
-	if not e.has("stall"):
-		e["stall"] = {"rate": 0.15}
-	if not e.has("market"):
-		e["market"] = {"shop_rate": 0.03, "price": 1.0}
-	return e
-
-
 ## [model, agents] synced to `views` (a fixed seed, so every run walks the same way).
 func _agents(views: Dictionary, econ: Dictionary = {}) -> Array:
 	var m := _model()
 	m.update(views, VIEW_RECT)
-	var a := TownAgents.new(vcfg, cfg["buildings"], _econ() if econ.is_empty() else econ, tempo_s, 7)
+	var a := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"] if econ.is_empty() else econ, tempo_s, 7)
 	a.sync(m, views)
 	return [m, a]
 
@@ -613,16 +613,21 @@ func _agent_counts(day1: Dictionary, demo: Dictionary, pre: Dictionary) -> void:
 	_run(a, 30.0)
 	t.ok(_counts_match(a, town) and a.living_count() == roundi(town["living"]), "after 30 s of walking the counts still equal the stream")
 
-	var dtown: Dictionary = demo["town"]
+	var big: Dictionary = day1.duplicate(true)
+	big["town"]["workers"]["idle"] = 300.0
+	var dtown: Dictionary = big["town"]
 	var total := float(dtown["workers"]["idle"])
 	for j in dtown["jobs"]:
 		total += float(j["staffed"])
 	var k := ceili(total / float(vcfg["max_undead_agents"]))
-	a = _agents(demo)[1]
-	t.ok(k > 1 and a.undead_scale == k, "demo: %d workers over max_undead_agents %d: 1 stroke = %d (got %d)"
+	a = _agents(big)[1]
+	t.ok(k > 1 and a.undead_scale == k, "crowd: %d workers over max_undead_agents %d: 1 stroke = %d (got %d)"
 		% [total, vcfg["max_undead_agents"], k, a.undead_scale])
-	t.ok(_counts_match(a, dtown, k), "demo: every job and the idle sampled by k")
-	t.ok(a.undead.size() <= int(vcfg["max_undead_agents"]) + dtown["jobs"].size(), "demo: the strokes stay at the cap (%d)" % a.undead.size())
+	t.ok(_counts_match(a, dtown, k), "crowd: every job and the idle sampled by k")
+	t.ok(a.undead.size() <= int(vcfg["max_undead_agents"]) + dtown["jobs"].size(), "crowd: the strokes stay at the cap (%d)" % a.undead.size())
+	a = _agents(demo)[1]
+	t.ok(a.undead_scale == 1 and _counts_match(a, demo["town"]) and a.count("idle") == 8,
+		"demo: every job building staffed, 8 idle at the crypt, under the cap (1 stroke = 1)")
 	var lk := ceili(float(pre["town"]["living"]) / float(vcfg["max_living_agents"]))
 	a = _agents(pre)[1]
 	t.ok(lk > 1 and a.living_scale == lk and a.living_count() == roundi(float(pre["town"]["living"]) / float(lk)),
@@ -812,6 +817,93 @@ func _agent_missing(day1: Dictionary) -> void:
 	t.ok(a.count("build") == 2 and at_lot, "build goes to the constructing lot")
 
 
+func _holding(a: TownAgents, jobs: Array) -> int:
+	var n := 0
+	for u in a.undead:
+		if u.job in jobs and u.holding:
+			n += 1
+	return n
+
+
+func _agent_held(day1: Dictionary) -> void:
+	var up := _patched(day1, "lot-03", {"state": "constructing", "progress": 0.4})
+	var pair := _agents(day1)
+	var m: TownModel = pair[0]
+	var a: TownAgents = pair[1]
+	var clock := _run(a, 1.0)
+	# a pit worker on its way to the pit with a body when the charnel house goes up for upgrade
+	var guard := 0
+	while guard < 600 and not _any_carry(a):
+		clock = _run(a, 0.1, clock)
+		guard += 1
+	t.ok(_any_carry(a), "a pit worker is carrying before the upgrade")
+	_resync(m, a, up)
+	clock = _run(a, 90.0, clock)
+	t.ok(_holding(a, ["pit"]) > 0, "charnel house under construction: pit workers stand at the pit")
+	var carried := false
+	for u in a.undead:
+		carried = carried or (u.holding and u.carry)
+	t.ok(not carried, "a held pit worker carries no pip")
+	_resync(m, a, day1)
+	clock = _run(a, 1.0, clock)
+	t.ok(_holding(a, ["pit", "haul"]) == 0, "charnel house active again: no pit or haul worker is still held")
+	var loops := true
+	for u in a.undead:
+		if u.job == "pit":
+			loops = loops and u.stops == ["lot:lot-03", "lot:lot-02"]
+	t.ok(loops, "and the pit loop is charnel -> pit again")
+
+	# a builder follows the work: its lot finishes, another is still constructing
+	var b2: Dictionary = day1.duplicate(true)
+	b2["town"]["jobs"].append({"id": "build", "slots": 2, "staffed": 2.0})
+	for lot in ["lot-05", "lot-06"]:
+		b2["town"]["buildings"].append({"lot_id": lot, "building_id": "house", "level": 0, "state": "constructing",
+			"progress": 0.3, "slots": 0, "staffed": 0.0, "staff_cap": -1, "foreman": "", "output": {}, "upkeep": {"gold": 0.0, "bone": 0.0}})
+	pair = _agents(b2)
+	m = pair[0]
+	a = pair[1]
+	clock = _run(a, 20.0)
+	var done := _patched(b2, "lot-05", {"state": "active", "progress": 1.0, "level": 1})
+	_resync(m, a, done)
+	clock = _run(a, 30.0, clock)
+	var on_6 := true
+	var builders := 0
+	for u in a.undead:
+		if u.job == "build":
+			builders += 1
+			on_6 = on_6 and u.site == "lot-06" and u.holding and (m.lot("lot-06")["rect"] as Rect2).grow(48.0).has_point(u.pos)
+	t.ok(builders == 2 and on_6, "a builder at a finished lot re-routes to the remaining constructing lot and holds there")
+
+	# a stall worker leaves a market that is upgrading (and stops being a seller)
+	var mk := _patched(day1, "lot-04", {"state": "constructing", "progress": 0.4})
+	pair = _agents(day1)
+	m = pair[0]
+	a = pair[1]
+	clock = _run(a, 1.0)
+	_resync(m, a, mk)
+	clock = _run(a, 10.0, clock)
+	t.ok(_holding(a, ["stall"]) == 0, "a market under construction holds no stall worker")
+
+
+func _any_carry(a: TownAgents) -> bool:
+	for u in a.undead:
+		if u.carry:
+			return true
+	return false
+
+
+func _agent_seed(day1: Dictionary) -> void:
+	var m := _model()
+	var a := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 7)
+	m.update({}, VIEW_RECT)
+	a.sync(m, {})
+	t.ok(a.undead.is_empty() and a.living.is_empty(), "no town view yet: nobody is placed")
+	m.update(day1, VIEW_RECT)
+	a.sync(m, day1)
+	t.ok(_counts_match(a, day1["town"]) and a.living_count() == roundi(day1["town"]["living"]),
+		"the first sync with a town places the whole day1 population at once (not trickled)")
+
+
 func _agent_loops(day1: Dictionary, demo: Dictionary) -> void:
 	var pair := _agents(day1)
 	var m: TownModel = pair[0]
@@ -907,26 +999,30 @@ func _trade_arcs(day1: Dictionary) -> void:
 
 
 func _trade_standin(day1: Dictionary) -> void:
-	var e := _econ()
-	var a: TownAgents = _agents(day1, e)[1]
+	var a: TownAgents = _agents(day1)[1]
 	var stall := 0.0
 	for j in day1["town"]["jobs"]:
 		if j["id"] == "stall":
 			stall += float(j["staffed"])
-	var want := minf(stall * float(e["stall"]["rate"]), float(day1["town"]["living"]) * float(e["market"]["shop_rate"]))
-	t.ok(a.trade_standin and want > 0.0 and is_equal_approx(a.trade_rate, want),
-		"outputs stubbed: the stand-in rate is min(stall staffed x stall.rate, living x market.shop_rate) = %.3f" % want)
-	var v := _patched(day1, "lot-04", {"output": {"gold": 0.3}})
+	var want := stall * float(vcfg["standin_sales_per_stall"])
+	t.ok(a.trade_standin and stall > 0.0 and want > 0.0 and is_equal_approx(a.trade_rate, want),
+		"outputs stubbed: the stand-in rate is staffed stalls x standin_sales_per_stall = %.3f (day1: > 0)" % want)
+	var v: Dictionary = day1.duplicate(true)
+	for j in v["town"]["jobs"]:
+		if j["id"] == "stall":
+			j["staffed"] = 2.0
+	a = _agents(v)[1]
+	t.ok(is_equal_approx(a.trade_rate, 2.0 * float(vcfg["standin_sales_per_stall"])), "two staffed stalls sell twice as fast")
+	v["town"]["living"] = 1.0
+	a = _agents(v)[1]
+	t.ok(is_equal_approx(a.trade_rate, float(vcfg["standin_sales_per_living"])), "capped by living x standin_sales_per_living")
+	v = _patched(day1, "lot-04", {"output": {"gold": 0.3}})
 	v["town"]["trade_rate"] = 0.7
-	a = _agents(v, e)[1]
+	a = _agents(v)[1]
 	t.ok(not a.trade_standin and is_equal_approx(a.trade_rate, 0.7), "one real output switches the stand-in off: the view's trade_rate")
 	v["town"]["trade_rate"] = 0.0
-	a = _agents(v, e)[1]
+	a = _agents(v)[1]
 	t.ok(a.trade_rate == 0.0, "and a real zero stays zero")
-	var bare: Dictionary = cfg["economy"].duplicate(true)
-	bare.erase("stall")
-	bare.erase("market")
-	t.ok(_agents(day1, bare)[1].trade_rate == 0.0, "without economy.json's stall/market keys the stand-in reads 0")
 
 
 ## Distance along `poly` of the point on it nearest `p`.
@@ -1026,9 +1122,19 @@ func _foremen(mid: Dictionary) -> void:
 	var a: TownAgents = pair[1]
 	t.ok(a.foremen.size() == 1 and a.foremen[0]["lot_id"] == "lot-04", "midgame: the market's foreman stands at it")
 	if a.foremen.size() == 1:
-		t.ok(a.foremen[0]["strokes"] == int(vcfg["foreman_strokes"]), "no remnant slots in view_big_undead yet: foreman_strokes strokes")
+		var uid := String(m.lot("lot-04")["building"]["foreman"])
+		var kind := ""
+		for e in mid["big_undead"]["big_undead"]:
+			if e["uid"] == uid:
+				kind = String(e["kind"])
+		var want := SlabLogic.slots_for(kind, cfg["town"]["slab"]).size()
+		t.ok(want > 0 and a.foremen[0]["strokes"] == want, "no filled_slots in view_big_undead yet: the %s's anatomy slots (%d)" % [kind, want])
 		t.ok((m.lot("lot-04")["rect"] as Rect2).grow(48.0).has_point(a.foremen[0]["pos"]), "at its building")
-	t.ok(TownStandins.foreman_strokes({"remnants": [{}, {}, {}]}, vcfg) == 3, "an entry with remnants switches the stand-in off")
+	var slab: Dictionary = cfg["town"]["slab"]
+	t.ok(TownStandins.foreman_strokes({"kind": "zombie", "filled_slots": 3}, vcfg, slab) == 3, "an entry with filled_slots: that count (api-request #6)")
+	t.ok(TownStandins.foreman_strokes({"kind": "zombie"}, vcfg, slab) == 2, "no filled_slots: the kind's anatomy slots (zombie: 2)")
+	t.ok(TownStandins.foreman_strokes({"kind": "ghost"}, vcfg, slab) == int(vcfg["foreman_strokes"]), "unknown kind: view.foreman_strokes")
+	t.ok(TownStandins.foreman_strokes({}, vcfg, slab) == int(vcfg["foreman_strokes"]), "no entry: view.foreman_strokes")
 
 
 func _edge_rates(day1: Dictionary, demo: Dictionary) -> void:
@@ -1085,7 +1191,7 @@ func _view_keys() -> void:
 		"undead_dwell_steps", "haul_away_steps", "idle_dwell_steps", "idle_ring_px", "lane_px", "front_gap_px",
 		"post_spread", "stall_shuffle_px", "hammer_deg", "living_speed_px", "living_dwell_s", "living_sway_px",
 		"living_sway_stride_px", "trade_arc_s", "trade_reach_px", "max_trade_arcs", "cart_town_frac", "cart_pip_mass",
-		"relish_light_r", "relish_brighten", "flow_smooth_s", "foreman_strokes", "agent"]
+		"relish_light_r", "relish_brighten", "flow_smooth_s", "foreman_strokes", "standin_sales_per_stall", "standin_sales_per_living", "agent"]
 	var nested := {"head": ["core_px", "ring_mul", "ring_w_px", "glow"], "warn": ["size_px", "line_px", "glow", "bang_px", "dot_px"],
 		"tierup_head": ["len_px", "gain", "w_mul", "ring_mul", "ring_w_px", "dot_mul", "glow"], "demo_tierup": ["tier", "delay_s"],
 		"bed": ["key", "alpha", "width_px"], "bed_line": ["key", "alpha", "width_px"], "locked_dot": ["key", "alpha", "step_px", "size_px"],

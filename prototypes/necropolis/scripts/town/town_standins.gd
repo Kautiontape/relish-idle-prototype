@@ -29,7 +29,7 @@ const DEMO_OUTPUT := {
 	"forge": {"q": 0.04}, "tend": {"q": 0.02},
 }
 const DEMO_FORTS := ["old-sluice", "greywall", "ashgate"]
-const DEMO_WORKERS := 180.0
+const DEMO_IDLE := 8.0
 const DEMO_LIVING := 64.0
 const DEMO_LIVING_CAP := 80.0
 const DEMO_TRADE := 2.0
@@ -62,27 +62,37 @@ static func staffing_pips(b: Dictionary, jobs: Dictionary, vcfg: Dictionary) -> 
 	return {"pips": pips, "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, ""))}
 
 
-# STANDIN(E2): view_town's trade_rate is 0 while outputs are stubbed. Until then, stall sales per
-# second come from staffing the way MECHANICS §4.2 prices them: min(stall staffed * stall.rate,
-# living * market.shop_rate), from economy.json. The caller uses it only while
-# TownModel.staffing_standin holds (every output {}), so real outputs switch it off. 0 when
-# economy.json has no stall/market keys yet (they land with the economy unit's E2 config).
-static func trade_rate(town: Dictionary, economy: Dictionary) -> float:
-	var per_stall := float(economy.get("stall", {}).get("rate", 0.0))
-	var per_living := float(economy.get("market", {}).get("shop_rate", 0.0))
+# STANDIN(E2): display only; real trade_rate arrives with E2a. view_town's trade_rate is 0 while
+# outputs are stubbed, so the arcs run on staffing: sum of stall staffed x view.standin_sales_per_stall,
+# capped at living x view.standin_sales_per_living. The caller uses it only while
+# TownModel.staffing_standin holds (every output {}), so real outputs switch it off.
+static func trade_rate(town: Dictionary, vcfg: Dictionary) -> float:
 	var staffed := 0.0
 	for j in town.get("jobs", []):
 		if String(j.get("id", "")) == "stall":
 			staffed += float(j.get("staffed", 0.0))
-	return maxf(minf(staffed * per_stall, float(town.get("living", 0.0)) * per_living), 0.0)
+	var rate := staffed * float(vcfg.get("standin_sales_per_stall", 0.0))
+	var cap := float(town.get("living", 0.0)) * float(vcfg.get("standin_sales_per_living", 0.0))
+	return maxf(minf(rate, cap), 0.0)
 
 
-# STANDIN(E2): a foreman's diamond draws one stroke per filled remnant slot, but view_big_undead
-# entries carry no remnants yet (the raise is E2), so it draws view.foreman_strokes. An entry that
-# carries a `remnants` array switches this off.
-static func foreman_strokes(entry: Dictionary, vcfg: Dictionary) -> int:
-	if entry.get("remnants") is Array:
-		return maxi((entry["remnants"] as Array).size(), 1)
+# TODO(api-request #6): the filled-slot count of a big undead (`filled_slots: int` on its
+# view_big_undead entry). One accessor, so the swap is a one-line change.
+static func _filled_slots(entry: Dictionary) -> int:
+	var f: Variant = entry.get("filled_slots")
+	return int(f) if f is int else -1
+
+
+# TODO(api-request #6): a foreman's diamond draws one stroke per filled remnant slot. Until the
+# entry carries `filled_slots` it falls back to the kind's anatomy slots (SlabLogic.slots_for),
+# then to view.foreman_strokes. `slab_cfg` = configs["town"]["slab"].
+static func foreman_strokes(entry: Dictionary, vcfg: Dictionary, slab_cfg: Dictionary) -> int:
+	var filled := _filled_slots(entry)
+	if filled >= 0:
+		return maxi(filled, 1)
+	var n := SlabLogic.slots_for(String(entry.get("kind", "")), slab_cfg).size()
+	if n > 0:
+		return n
 	return int(vcfg.get("foreman_strokes", 0))
 
 
@@ -104,9 +114,12 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 		var def: Dictionary = buildings_cfg.get(bid, {})
 		var jobs: Dictionary = def.get("jobs", {})
 		var st: Array = DEMO_STATES.get(lot_id, ["active", 1.0, 1])
+		var lvl := int(st[2])
+		if st[0] == "active" and not jobs.is_empty():
+			lvl = maxi(int(def.get("max_level", 1)), 1)  # a full city: job buildings at their top level
 		var slots := 0
 		for j in jobs:
-			slots += int(jobs[j])
+			slots += int(jobs[j]) * maxi(lvl, 1)
 		var active: bool = st[0] == "active"
 		var output := {}
 		if active and not jobs.is_empty():
@@ -117,11 +130,11 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 			else:
 				output = (DEMO_OUTPUT.get(job, {}) as Dictionary).duplicate()
 			for j in jobs:
-				job_slots[j] = int(job_slots.get(j, 0)) + int(jobs[j])
+				job_slots[j] = int(job_slots.get(j, 0)) + int(jobs[j]) * lvl
 			staffed_total += float(slots)
 		var up: Dictionary = def.get("upkeep", {})
 		buildings.append({
-			"lot_id": lot_id, "building_id": bid, "level": int(st[2]), "state": String(st[0]),
+			"lot_id": lot_id, "building_id": bid, "level": lvl, "state": String(st[0]),
 			"progress": float(st[1]), "slots": slots, "staffed": float(slots) if active else 0.0,
 			"staff_cap": 0 if st[0] == "idle" else -1, "foreman": "", "output": output,
 			"upkeep": {"gold": float(up.get("gold", 0.0)), "bone": float(up.get("bone", 0.0))},
@@ -136,8 +149,8 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 	town["buildings"] = buildings
 	town["jobs"] = jobs_out
 	var workers: Dictionary = town.get("workers", {})
-	workers["total"] = DEMO_WORKERS
-	workers["idle"] = DEMO_WORKERS - staffed_total
+	workers["total"] = staffed_total + DEMO_IDLE
+	workers["idle"] = DEMO_IDLE
 	town["workers"] = workers
 	town["living"] = DEMO_LIVING
 	town["living_cap"] = DEMO_LIVING_CAP
@@ -151,7 +164,7 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 	v["town"] = town
 	for r in v.get("hud", {}).get("rates", []):
 		if r.get("id", "") == "workers":
-			r["stock"] = DEMO_WORKERS
+			r["stock"] = staffed_total + DEMO_IDLE
 		elif r.get("id", "") == "living":
 			r["stock"] = DEMO_LIVING
 			r["cap"] = DEMO_LIVING_CAP

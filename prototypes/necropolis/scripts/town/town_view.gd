@@ -47,7 +47,8 @@ func _ready() -> void:
 	_v = (db.get("town", {}) as Dictionary).get("view", {})
 	_pulse_gain = float(_v.get("lot_pulse_gain", 0.0))
 	model = TownModel.new(db.get("town", {}), db.get("buildings_view", {}), db.get("buildings", {}), db.get("economy", {}))
-	agents = TownAgents.new(_v, db.get("buildings", {}), db.get("economy", {}), Pulse.tempo_ms / 1000.0)
+	agents = TownAgents.new(_v, db.get("buildings", {}), db.get("economy", {}), Pulse.tempo_ms / 1000.0, 1,
+		(db.get("town", {}) as Dictionary).get("slab", {}))
 	_beds = _layer("Beds", _draw_beds)
 	_lot_layer = _layer("Lots")
 	_flow = FlowScript.new()
