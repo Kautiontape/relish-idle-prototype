@@ -6,7 +6,8 @@ shader_type particles;
 //   drift toward Vei · turbulence at the front · stillness on settled ground.
 // Necropolis reading (the non-hue channels):
 //   UNDEAD ground flows TOWARD Vei, continuous streaks, brightest luminance.
-//   LIVING ground flows AWAY from Vei, dashed streaks (dash rhythm by distance).
+//   LIVING ground circulates on its own pressure contours, dashed streaks
+//   (dash rhythm by distance).
 //   The FRONT (both sides present) is violet churn: curl-noise turbulence.
 //   ENTRENCHED ground is slow and laminar: no noise, saturated toward the core.
 render_mode disable_velocity, disable_force;
@@ -49,7 +50,14 @@ uniform vec2 life_s = vec2(2.5, 6.5);
 uniform float spawn_empty_weight = 0.3;
 uniform float dash_px = 15.0;
 uniform float dash_duty = 0.5;
-uniform float streak_width = 1.6;
+uniform float streak_width_px = 1.35;   // on screen, at any zoom
+// the camera (flow_ground.gd sets these every frame, in frame_pre_draw)
+uniform vec4 spawn_rect = vec4(0.0, 0.0, 2048.0, 1440.0);   // visible world: x, y, w, h
+uniform vec4 keep_rect = vec4(-64.0, -64.0, 2176.0, 1568.0); // visible world + margin
+uniform float active = 1.0;        // share of particles alive (constant ink across zoom)
+uniform float regrow = 0.0;        // share to respawn this frame (zoom-out uncovered world)
+uniform float frame_seed = 0.0;
+uniform float px_world = 1.0;      // world units per screen px
 uniform float alpha_empty = 0.2;
 uniform float alpha_land = 0.95;
 uniform float alpha_front = 0.95;
@@ -102,7 +110,11 @@ vec2 curl(vec2 p) {
 }
 
 vec2 spawn_pos(uint s) {
-	return vec2(hash1(s), hash1(s ^ 0x9e3779b9u)) * world_size;
+	return spawn_rect.xy + vec2(hash1(s), hash1(s ^ 0x9e3779b9u)) * spawn_rect.zw;
+}
+
+bool outside(vec2 p, vec4 r) {
+	return p.x < r.x || p.y < r.y || p.x > r.x + r.z || p.y > r.y + r.w;
 }
 
 float life_of(uint s) {
@@ -128,115 +140,127 @@ void start() {
 
 void process() {
 	vec2 p = TRANSFORM[3].xy;
-	CUSTOM.x += DELTA;
-	if (CUSTOM.x > CUSTOM.y || p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
-		CUSTOM.w += 1.0;
-		uint s = seed_of(INDEX, CUSTOM.w);
-		// respawn biased toward held ground: that is where the information is
-		vec2 sp = spawn_pos(s);
-		for (uint k = 1u; k < 4u; k++) {
-			vec2 uv = sp / world_size;
-			float lnd = smoothstep(presence.x, presence.y, texture(field_g, uv).r + texture(field_o, uv).r);
-			if (hash1(s + k * 101u) < mix(spawn_empty_weight, 1.0, lnd)) {
-				break;
-			}
-			sp = spawn_pos(s + k * 7919u);
-		}
-		TRANSFORM = mat4(1.0);
-		TRANSFORM[3].xy = sp;
+	// Parked: beyond the active share (zoomed in, fewer, longer streaks). Marked
+	// dead so it respawns in view the moment it is active again.
+	bool parked = hash1(INDEX * 0x2c1b3c6du + 11u) > active;
+	if (parked) {
+		CUSTOM.x = CUSTOM.y + 1.0;
+		COLOR = vec4(0.0);
 		TRANSFORM[0] = vec4(0.0);
 		TRANSFORM[1] = vec4(0.0);
-		CUSTOM.x = 0.0;
-		CUSTOM.y = life_of(s);
-		CUSTOM.z = 0.0;
-		COLOR = vec4(0.0);
 	} else {
-		vec2 cell = world_size / grid_size;
-		vec2 h = cell * 1.5;
-		vec2 inv = 1.0 / world_size;
-		float g = texture(field_g, p * inv).r;
-		float o = texture(field_o, p * inv).r;
-		float e = texture(field_e, p * inv).r;
-		float gr = texture(field_g, (p + vec2(h.x, 0.0)) * inv).r;
-		float gl = texture(field_g, (p - vec2(h.x, 0.0)) * inv).r;
-		float gd = texture(field_g, (p + vec2(0.0, h.y)) * inv).r;
-		float gu = texture(field_g, (p - vec2(0.0, h.y)) * inv).r;
-		float orr = texture(field_o, (p + vec2(h.x, 0.0)) * inv).r;
-		float ol = texture(field_o, (p - vec2(h.x, 0.0)) * inv).r;
-		float od = texture(field_o, (p + vec2(0.0, h.y)) * inv).r;
-		float ou = texture(field_o, (p - vec2(0.0, h.y)) * inv).r;
+		CUSTOM.x += DELTA;
+		bool regrown = hash1(INDEX * 0x165667b1u ^ uint(frame_seed) * 0x27d4eb2fu) < regrow;
+		if (CUSTOM.x > CUSTOM.y || regrown || outside(p, keep_rect)
+				|| p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
+			CUSTOM.w += 1.0;
+			uint s = seed_of(INDEX, CUSTOM.w);
+			// respawn biased toward held ground: that is where the information is
+			vec2 sp = spawn_pos(s);
+			for (uint k = 1u; k < 4u; k++) {
+				vec2 uv = sp / world_size;
+				float lnd = smoothstep(presence.x, presence.y, texture(field_g, uv).r + texture(field_o, uv).r);
+				if (hash1(s + k * 101u) < mix(spawn_empty_weight, 1.0, lnd)) {
+					break;
+				}
+				sp = spawn_pos(s + k * 7919u);
+			}
+			TRANSFORM = mat4(1.0);
+			TRANSFORM[3].xy = sp;
+			TRANSFORM[0] = vec4(0.0);
+			TRANSFORM[1] = vec4(0.0);
+			CUSTOM.x = 0.0;
+			CUSTOM.y = life_of(s);
+			CUSTOM.z = 0.0;
+			COLOR = vec4(0.0);
+		} else {
+			vec2 cell = world_size / grid_size;
+			vec2 h = cell * 1.5;
+			vec2 inv = 1.0 / world_size;
+			float g = texture(field_g, p * inv).r;
+			float o = texture(field_o, p * inv).r;
+			float e = texture(field_e, p * inv).r;
+			float gr = texture(field_g, (p + vec2(h.x, 0.0)) * inv).r;
+			float gl = texture(field_g, (p - vec2(h.x, 0.0)) * inv).r;
+			float gd = texture(field_g, (p + vec2(0.0, h.y)) * inv).r;
+			float gu = texture(field_g, (p - vec2(0.0, h.y)) * inv).r;
+			float orr = texture(field_o, (p + vec2(h.x, 0.0)) * inv).r;
+			float ol = texture(field_o, (p - vec2(h.x, 0.0)) * inv).r;
+			float od = texture(field_o, (p + vec2(0.0, h.y)) * inv).r;
+			float ou = texture(field_o, (p - vec2(0.0, h.y)) * inv).r;
 
-		float pr = g - o;                      // + undead, - living
-		float land = smoothstep(presence.x, presence.y, g + o);
-		// gradient of pressure, per cell
-		vec2 gp = vec2((gr - orr) - (gl - ol), (gd - od) - (gu - ou)) * (1.0 / 3.0);
-		float gpl = length(gp);
-		vec2 gpn = gpl > 1e-5 ? gp / gpl : vec2(0.0);
-		// the FRONT: both sides present within ~1.5 cells
-		float gmax = max(g, max(max(gr, gl), max(gd, gu)));
-		float omax = max(o, max(max(orr, ol), max(od, ou)));
-		float front = smoothstep(front_range.x, front_range.y, min(gmax, omax));
-		// SETTLED: entrenched and not contested
-		float settle = smoothstep(0.15, 0.9, abs(e) / entrench_ref) * (1.0 - front);
-		float side = clamp(pr / 0.04, -1.0, 1.0);   // smooth sign of who holds it
+			float pr = g - o;                      // + undead, - living
+			float land = smoothstep(presence.x, presence.y, g + o);
+			// gradient of pressure, per cell
+			vec2 gp = vec2((gr - orr) - (gl - ol), (gd - od) - (gu - ou)) * (1.0 / 3.0);
+			float gpl = length(gp);
+			vec2 gpn = gpl > 1e-5 ? gp / gpl : vec2(0.0);
+			// the FRONT: both sides present within ~1.5 cells
+			float gmax = max(g, max(max(gr, gl), max(gd, gu)));
+			float omax = max(o, max(max(orr, ol), max(od, ou)));
+			float front = smoothstep(front_range.x, front_range.y, min(gmax, omax));
+			// SETTLED: entrenched and not contested
+			float settle = smoothstep(0.15, 0.9, abs(e) / entrench_ref) * (1.0 - front);
+			float side = clamp(pr / 0.04, -1.0, 1.0);   // smooth sign of who holds it
 
-		// direction. UNDEAD streams toward Vei and down the pressure slope into
-		// the front. LIVING circulates along its own pressure contours (perp of a
-		// gradient: divergence-free, so held ground never empties or pools); a
-		// plateau with no slope orbits Vei instead. EMPTY ground drifts weakly
-		// toward Vei. The front and empty ground churn with curl noise.
-		vec2 to_vei = vei_pos - p;
-		float dv = length(to_vei);
-		to_vei = dv > 1e-3 ? to_vei / dv : vec2(0.0, -1.0);
-		float und = land * clamp(side, 0.0, 1.0);
-		float liv = land * clamp(-side, 0.0, 1.0);
-		float slope = min(1.0, gpl / 0.08);
-		vec2 stream = to_vei * draught - gpn * slope * push;
-		vec2 orbit = vec2(-gpn.y, gpn.x) * slope + vec2(-to_vei.y, to_vei.x) * (1.0 - slope);
-		vec2 dir = stream * und + orbit * orbit_strength * liv + to_vei * draught_empty * (1.0 - land);
-		float turb = mix(turbulence_empty, turbulence_land, land) + turbulence * front;
-		turb *= 1.0 - settle;
-		dir += curl(p) * turb;
-		float dl = length(dir);
-		dir = dl > 1e-5 ? dir / dl : to_vei;
+			// direction. UNDEAD streams toward Vei and down the pressure slope into
+			// the front. LIVING circulates along its own pressure contours (perp of a
+			// gradient: divergence-free, so held ground never empties or pools); a
+			// plateau with no slope orbits Vei instead. EMPTY ground drifts weakly
+			// toward Vei. The front and empty ground churn with curl noise.
+			vec2 to_vei = vei_pos - p;
+			float dv = length(to_vei);
+			to_vei = dv > 1e-3 ? to_vei / dv : vec2(0.0, -1.0);
+			float und = land * clamp(side, 0.0, 1.0);
+			float liv = land * clamp(-side, 0.0, 1.0);
+			float slope = min(1.0, gpl / 0.08);
+			vec2 stream = to_vei * draught - gpn * slope * push;
+			vec2 orbit = vec2(-gpn.y, gpn.x) * slope + vec2(-to_vei.y, to_vei.x) * (1.0 - slope);
+			vec2 dir = stream * und + orbit * orbit_strength * liv + to_vei * draught_empty * (1.0 - land);
+			float turb = mix(turbulence_empty, turbulence_land, land) + turbulence * front;
+			turb *= 1.0 - settle;
+			dir += curl(p) * turb;
+			float dl = length(dir);
+			dir = dl > 1e-5 ? dir / dl : to_vei;
 
-		// the exhale, phase-offset by distance from Covington (Pulse's wave)
-		float lag = wave_spread * clamp(distance(p, cov_pos) / max(1.0, distance(vei_pos, cov_pos)), 0.0, 1.0);
-		float ph = fract(beat - lag);
-		float c = 0.5 + 0.5 * cos(ph * 6.2831853);
-		float tempo = 1.0 + tempo_amp * (c * c * c - 0.18);
+			// the exhale, phase-offset by distance from Covington (Pulse's wave)
+			float lag = wave_spread * clamp(distance(p, cov_pos) / max(1.0, distance(vei_pos, cov_pos)), 0.0, 1.0);
+			float ph = fract(beat - lag);
+			float c = 0.5 + 0.5 * cos(ph * 6.2831853);
+			float tempo = 1.0 + tempo_amp * (c * c * c - 0.18);
 
-		float spd = speed * mix(speed_empty, 1.0, land) * mix(1.0, speed_settled, settle)
-			* mix(1.0, speed_living, liv)
-			* (1.0 + front_boost * front) * tempo;
-		vec2 np = p + dir * spd * DELTA;
-		vec2 d = np - p;
-		float len = length(d);
-		vec2 sd = len > 1e-6 ? d / len : dir;
+			float spd = speed * mix(speed_empty, 1.0, land) * mix(1.0, speed_settled, settle)
+				* mix(1.0, speed_living, liv)
+				* (1.0 + front_boost * front) * tempo;
+			vec2 np = p + dir * spd * DELTA;
+			vec2 d = np - p;
+			float len = length(d);
+			vec2 sd = len > 1e-6 ? d / len : dir;
 
-		// colour: violet = uncommitted / front, saturating to green or orange
-		float commit = clamp(abs(pr) * commit_dominance + abs(e) * commit_entrench, 0.0, 1.0);
-		commit *= land * (1.0 - front);
-		vec4 tgt = pr >= 0.0 ? col_green : col_orange;
-		vec4 core = pr >= 0.0 ? col_green_core : col_orange_core;
-		vec3 col = mix(col_violet.rgb, tgt.rgb, pow(commit, 0.85));
-		col = mix(col, core.rgb, core_mix * settle * commit);
-		float a = mix(alpha_empty, alpha_land, land);
-		a = max(a, alpha_front * front);
-		// living: dash rhythm by distance travelled (a non-hue channel)
-		CUSTOM.z += len;
-		float living = liv * (1.0 - front);
-		float on = step(fract(CUSTOM.z / dash_px + hash1(INDEX + 3u)), dash_duty);
-		a *= mix(1.0, on, living);
-		// fade in after spawn, out before respawn
-		a *= smoothstep(0.0, 0.35, CUSTOM.x) * (1.0 - smoothstep(CUSTOM.y - 0.6, CUSTOM.y, CUSTOM.x));
-		COLOR = vec4(col, a);
+			// colour: violet = uncommitted / front, saturating to green or orange
+			float commit = clamp(abs(pr) * commit_dominance + abs(e) * commit_entrench, 0.0, 1.0);
+			commit *= land * (1.0 - front);
+			vec4 tgt = pr >= 0.0 ? col_green : col_orange;
+			vec4 core = pr >= 0.0 ? col_green_core : col_orange_core;
+			vec3 col = mix(col_violet.rgb, tgt.rgb, pow(commit, 0.85));
+			col = mix(col, core.rgb, core_mix * settle * commit);
+			float a = mix(alpha_empty, alpha_land, land);
+			a = max(a, alpha_front * front);
+			// living: dash rhythm by distance travelled (a non-hue channel)
+			CUSTOM.z += len;
+			float living = liv * (1.0 - front);
+			float on = step(fract(CUSTOM.z / dash_px + hash1(INDEX + 3u)), dash_duty);
+			a *= mix(1.0, on, living);
+			// fade in after spawn, out before respawn
+			a *= smoothstep(0.0, 0.35, CUSTOM.x) * (1.0 - smoothstep(CUSTOM.y - 0.6, CUSTOM.y, CUSTOM.x));
+			COLOR = vec4(col, a);
 
-		// segment p -> np, drawn as a quad of length 2*len centred on np.
-		// Successive quads tile the path, so deposit per unit path is
-		// independent of frame rate.
-		TRANSFORM[0] = vec4(sd * max(len * 2.0, 1e-4), 0.0, 0.0);
-		TRANSFORM[1] = vec4(vec2(-sd.y, sd.x) * streak_width, 0.0, 0.0);
-		TRANSFORM[3].xy = np;
+			// segment p -> np, drawn as a quad of length 2*len centred on np.
+			// Successive quads tile the path, so deposit per unit path is
+			// independent of frame rate.
+			TRANSFORM[0] = vec4(sd * max(len * 2.0, 1e-4), 0.0, 0.0);
+			TRANSFORM[1] = vec4(vec2(-sd.y, sd.x) * streak_width_px * px_world, 0.0, 0.0);
+			TRANSFORM[3].xy = np;
+		}
 	}
 }

@@ -100,9 +100,11 @@ func _process(delta: float) -> void:
 		RenderingServer.viewport_get_measured_render_time_gpu(main_rid)])
 	var trid: RID = view.trail_rid()
 	if trid.is_valid():
-		lines.append("trail cpu %.2f  gpu %.2f ms" % [
+		var hrid: RID = view.history_rid()
+		lines.append("trail cpu %.2f  gpu %.2f ms · history gpu %.2f ms" % [
 			RenderingServer.viewport_get_measured_render_time_cpu(trid),
-			RenderingServer.viewport_get_measured_render_time_gpu(trid)])
+			RenderingServer.viewport_get_measured_render_time_gpu(trid),
+			RenderingServer.viewport_get_measured_render_time_gpu(hrid)])
 	lines.append("ground cpu %.2f ms this frame" % view.cpu_ms())
 	lines.append("F5 vsync · F6 reload cfg · F7 ground · F8 reduced (Pulse) · F9 grey")
 	label.text = "\n".join(lines)
@@ -147,7 +149,8 @@ func _run_bench(ms: float) -> void:
 			var trid: RID = view.trail_rid()
 			if trid.is_valid():
 				_bsamples["tcpu"].append(RenderingServer.viewport_get_measured_render_time_cpu(trid))
-				_bsamples["tgpu"].append(RenderingServer.viewport_get_measured_render_time_gpu(trid))
+				_bsamples["tgpu"].append(RenderingServer.viewport_get_measured_render_time_gpu(trid)
+					+ RenderingServer.viewport_get_measured_render_time_gpu(view.history_rid()))
 			if Time.get_ticks_msec() - _bt0 >= int(float(_bench["bench-seconds"]) * 1000.0):
 				_report()
 				if _bench.has("bench-shot"):
@@ -187,7 +190,7 @@ func _report() -> void:
 		return s / a.size()
 	var vs := get_viewport().get_visible_rect().size
 	var gc: Array = _bsamples["gcpu"]
-	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
+	print("BENCH mode=%s%s%s%s n=%d frame_ms mean=%.3f p50=%.3f p95=%.3f p99=%.3f max=%.3f | main cpu=%.3f gpu=%.3f | trail cpu=%.3f gpu(+history)=%.3f | ground_cpu_ms mean=%.3f max=%.3f | %s | viewport=%dx%d window=%s vsync=%s sim_speed=%s" % [
 		view.mode, "+reduced" if Pulse.reduced_motion else "", "+grey" if view.is_grey() else "",
 		"+bare" if _bare else "", f["n"],
 		f["mean"], f["p50"], f["p95"], f["p99"], f["max"],

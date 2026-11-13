@@ -7,9 +7,11 @@
 
   "field_hz": 6.0,
   "streaks": 9000,
-  "trail_scale": 0.62,
+  "trail_screen_scale": 1.0,
   "trail_keep_per_s": 0.03,
-  "streak_width": 2.2,
+  "streak_width_px": 1.35,
+  "view_margin_px": 48.0,
+  "density_exp": 1.0,
   "life_s": [2.0, 5.0],
   "spawn_empty_weight": 0.3,
 

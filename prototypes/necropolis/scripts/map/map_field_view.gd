@@ -11,13 +11,13 @@ extends Sprite2D
 ## Debug keys: F5 vsync, F6 reload configs, F7 cycle mode, F9 greyscale check.
 ## CLI: --ground=, --vsync=off, --streaks=N, --greyscale, --ground-only (hide
 ## routes and nodes, for contrast measurement), --zoom=Z and --focus=x,y (set
-## the map camera after it fits, for captures), and the --bench-* args in
-## ground_meter.gd.
+## the map camera after it fits, for captures), --pan-test=S (sweep the camera
+## sideways at S screen px/s, to check and time pans), and the --bench-* args
+## in ground_meter.gd.
 
 const FLOW_SCRIPT := preload("res://scripts/map/flow_ground.gd")
 const METER_SCRIPT := preload("res://scripts/map/ground_meter.gd")
 const OLD_SHADER := preload("res://shaders/map_field.gdshader")
-const COMPOSITE_SHADER := preload("res://shaders/flow_composite.gdshader")
 const GREY_SHADER := preload("res://shaders/greyscale_check.gdshader")
 const MODES := ["flow", "old", "off"]
 
@@ -37,13 +37,14 @@ var _streak_override := 0
 var _flow: Node = null
 var _meter: CanvasLayer
 var _grey: CanvasLayer
-var _comp_mat: ShaderMaterial
 var _old_mat: ShaderMaterial
 var _img: Image
 var _tex: ImageTexture
 var _acc := 1.0
 var _cpu_ms := 0.0
 var _reduced_applied := false
+var _pan_test := 0.0
+var _pan_dir := 1.0
 
 
 func _ready() -> void:
@@ -64,6 +65,8 @@ func _ready() -> void:
 			var xy := a.trim_prefix("--focus=").split(",")
 			if xy.size() == 2:
 				focus = Vector2(float(xy[0]), float(xy[1]))
+		elif a.begins_with("--pan-test="):
+			_pan_test = float(a.trim_prefix("--pan-test="))
 		elif a == "--vsync=off":
 			_set_vsync(false)
 		elif a.begins_with("--streaks="):
@@ -74,8 +77,6 @@ func _ready() -> void:
 			set_bare.call_deferred(true)
 	_old_mat = ShaderMaterial.new()
 	_old_mat.shader = OLD_SHADER
-	_comp_mat = ShaderMaterial.new()
-	_comp_mat.shader = COMPOSITE_SHADER
 	_meter = METER_SCRIPT.new()
 	_meter.view = self
 	add_child(_meter)
@@ -132,10 +133,10 @@ func set_mode(m: String) -> void:
 				add_child(_flow)
 				_flow.setup(_cfg, Pulse.reduced_motion, _streak_override)
 				_reduced_applied = Pulse.reduced_motion
-			texture = _flow.texture()
-			scale = Vector2(f.world_size.x / _flow.trail_size.x, f.world_size.y / _flow.trail_size.y)
-			_comp_mat.set_shader_parameter("gain", float(_cfg.get("composite_gain", 1.25)))
-			material = _comp_mat
+			# the flow ground draws itself on a screen-space layer under the map
+			texture = null
+			material = null
+			scale = Vector2.ONE
 			visible = true
 		"old":
 			if _img == null:
@@ -172,7 +173,8 @@ func is_grey() -> bool:
 func detail() -> String:
 	match mode:
 		"flow":
-			return "%d streaks · trail %dx%d HDR" % [_flow.streak_count(), _flow.trail_size.x, _flow.trail_size.y]
+			return "%d/%d streaks · trail %dx%d HDR, follows camera · zoom %.2f" % [_flow.active_streaks(),
+				_flow.streak_count(), _flow.trail_size.x, _flow.trail_size.y, _flow.zoom]
 		"old":
 			return "%dx%d CPU texture @6 Hz" % [Game.field.w, Game.field.h]
 	return "no ground"
@@ -180,6 +182,10 @@ func detail() -> String:
 
 func trail_rid() -> RID:
 	return _flow.viewport_rid() if _flow != null else RID()
+
+
+func history_rid() -> RID:
+	return _flow.history_rid() if _flow != null else RID()
 
 
 ## GDScript time the ground spent this frame (old: the per-cell bake; flow:
@@ -207,13 +213,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_cfg = ConfigDb.data.get("ground", {})
 			if _flow != null:
 				var want: int = _streak_override if _streak_override > 0 else int(_cfg.get("streaks", 9000))
-				if want != _flow.streak_count() or not is_equal_approx(
-						float(_cfg.get("trail_scale", 0.62)), _flow.trail_size.x / Game.field.world_size.x):
+				var want_size := Vector2i((get_viewport().get_visible_rect().size
+						* float(_cfg.get("trail_screen_scale", 1.0))).round())
+				if want != _flow.streak_count() or want_size != _flow.trail_size:
 					set_mode("off")
 					set_mode("flow")
 				else:
 					_flow.apply_config(_cfg)
-					_comp_mat.set_shader_parameter("gain", float(_cfg.get("composite_gain", 1.25)))
 		KEY_F7:
 			set_mode(MODES[(MODES.find(mode) + 1) % MODES.size()])
 		KEY_F9:
@@ -225,6 +231,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_sync_reduced()
+	if _pan_test != 0.0:
+		_pan_step(delta)
 	if mode != "old":
 		return
 	_cpu_ms = 0.0
@@ -235,6 +243,19 @@ func _process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()
 	_bake_old()
 	_cpu_ms = (Time.get_ticks_usec() - t0) / 1000.0
+
+
+## Debug: sweep the camera across the world and back (--pan-test).
+func _pan_step(delta: float) -> void:
+	var cam := get_viewport().get_camera_2d()
+	if cam == null:
+		return
+	var ws: Vector2 = Game.field.world_size
+	cam.position.x += _pan_dir * _pan_test * delta / cam.zoom.x
+	if cam.position.x > ws.x * 0.8:
+		_pan_dir = -1.0
+	elif cam.position.x < ws.x * 0.2:
+		_pan_dir = 1.0
 
 
 ## The original ground, kept verbatim for comparison.
