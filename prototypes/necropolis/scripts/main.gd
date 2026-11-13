@@ -1,7 +1,8 @@
 extends Node
 ## Scene router (STATE-API 2.3): one active scene at a time. Every scene gets setup(args)
 ## with ids only and emits finished(result); every exit routes through here.
-## E1 compatibility: scenes not yet ported also get their legacy seed keys merged into args.
+## E1 compatibility: the raid and boss scenes still get their legacy seed keys merged into args
+## until they are ported; the map and town are v2 and get ids only.
 
 const MAP := "res://scenes/map/WorldMap.tscn"
 const RAID := "res://scenes/raid/Raid.tscn"
@@ -56,16 +57,12 @@ func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
 	if emitter != current or emitter.has_meta("router_done"):
 		return  # a late or duplicate emit from a scene that is no longer current
 	emitter.set_meta("router_done", true)  # one handled emit per scene
-	var legacy := not result.has("v")
 	match path:
-		MAP:
-			_teleport(str(result.get("teleport_to", "")))  # a map result is always v2: it never moves Relish
-		TOWN:
-			if legacy:
-				Game.state.apply_town_result(result)
-			_teleport(str(result.get("teleport_to", "")))
+		MAP, TOWN:
+			_teleport(str(result.get("teleport_to", "")))  # map and town results are v2: they never move Relish
 		RAID:
-			_apply("raid", result, Game.state.view_dungeon_seed(Game.state.raiding_fort_id()))
+			# in_dungeon: Relish's `at` is the fort whose run is open
+			_apply("raid", result, Game.state.view_dungeon_seed(str(Game.state.view_relish().get("at", ""))))
 		BOSS:
 			_apply("boss", result, Game.state.view_boss_seed())
 
@@ -73,9 +70,7 @@ func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
 func _teleport(id: String) -> void:
 	var s := Game.state
 	if id == "covington":
-		var args := {"mode": "town"}
-		args.merge(s.town_snapshot())
-		_swap(TOWN, args)
+		_swap(TOWN, {"mode": "town"})
 	elif id == "vei":
 		var r := s.cmd_begin_boss()
 		if not r["ok"]:
@@ -84,7 +79,7 @@ func _teleport(id: String) -> void:
 		var args := {"mode": "boss", "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
 		args.merge(s.boss_seed())
 		_swap(BOSS, args)
-	elif id != "" and not s.realm.fort_by_id(id).is_empty():
+	elif id != "" and not s.view_fort(id).is_empty():
 		var r := s.cmd_begin_dungeon(id)
 		if not r["ok"]:
 			_open_map()

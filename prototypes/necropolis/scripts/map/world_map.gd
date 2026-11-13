@@ -18,6 +18,7 @@ var sidebar: MapSidebar
 
 var selected_id := ""
 var _hover := ""
+var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
 
@@ -237,8 +238,14 @@ func _select(id: String) -> void:
 
 ## The pointer over Covington is a pointing hand with a hint in the HUD, so the door is findable.
 func _update_hover() -> void:
+	# Hit-test only when the mouse or the camera moved: the targets are rebuilt per call.
+	var mouse := get_viewport().get_mouse_position()
+	var key := [mouse, cam.position, cam.zoom.x]
+	if key == _hover_key:
+		return
+	_hover_key = key
 	var over_gui := get_viewport().gui_get_hovered_control() != null
-	var id := "" if over_gui else cam.hit_test(get_viewport().get_mouse_position())
+	var id := "" if over_gui else cam.hit_test(mouse)
 	if id == _hover:
 		return
 	_hover = id

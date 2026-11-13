@@ -6,7 +6,6 @@ extends RefCounted
 const PULSE := preload("res://autoload/pulse.gd")
 const LINT := preload("res://tests/test_lint.gd")
 const MAP_DIR := "res://scripts/map"
-const GROUND_FILES := ["map_field_view.gd", "flow_ground.gd", "ground_meter.gd"]
 const LANE_KEYS := ["id", "from", "to", "kind", "rate", "bias", "why"]
 
 
@@ -271,7 +270,7 @@ func _lint(t: TestUtil) -> void:
 	legacy.compile("Game\\.(realm|field|towns|res|army|town|assignments|idle_undead|gather|quality|raiding_fort_id|time_scale|won|green_towns|stats|relish_respawned|victory|defeat_boss)\\b")
 	var files := 0
 	for f in DirAccess.get_files_at(MAP_DIR):
-		if not f.ends_with(".gd") or GROUND_FILES.has(f):
+		if not f.ends_with(".gd"):
 			continue
 		files += 1
 		var n := 0
