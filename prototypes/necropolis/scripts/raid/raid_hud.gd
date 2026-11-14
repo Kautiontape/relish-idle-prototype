@@ -29,6 +29,7 @@ var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
 var _boss_block: Control = null
+var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
 
 
 func build(p_raid: Node, boss_mode: bool) -> void:
@@ -132,6 +133,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	if boss_mode:
 		_boss_block = BossBlock.new()
 		_boss_block.raid = p_raid
+		_boss_block.hud = self
 		_boss_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_boss_block)
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -184,7 +186,7 @@ func refresh() -> void:
 	_title.text = raid.fort_name().to_upper() if raid.is_boss() else "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
 	var st := _stats
 	st.living = raid.enemies.size()
-	var motes: int = raid.get_tree().get_nodes_in_group("raid_essence").size()
+	var motes: int = raid.get_tree().get_node_count_in_group("raid_essence")   # a count, no array
 	if raid.is_boss():
 		# the boss keeps no ledger: the WARD (her sacrifice chain) and the raised that stand
 		st.loose = motes
@@ -197,7 +199,8 @@ func refresh() -> void:
 				else:
 					raised += 1
 		st.raised_text = "%d raised · %d big undead" % [raised, party]
-		var info: Dictionary = raid.hud_info()
+		boss_info = raid.hud_info()   # once a frame; the boss block reads this copy
+		var info: Dictionary = boss_info
 		_hint.text = str(info["hint"])
 		_hint.visible = _hint.text != ""
 		st.queue_redraw()
@@ -796,10 +799,14 @@ class ExitButton:
 ## (WardenBlock): break_beats pips lit from the left by the streak, a notch every `notch` pips, a
 ## lapse's pips slashed in `danger` while it shows (flashing, steady under reduced motion), and the
 ## running count "LAPSES ×n · lost k". Always: BACKUPS left as pips (a phylactery diamond, a clone
-## dot) and one cracked violet ring per backup spent. Drawn from raid.hud_info() each frame.
+## dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
+## redraws only when what it shows changes (or while a lapse flashes).
 class BossBlock:
 	extends Control
 	var raid: Node = null
+	var hud: Node = null
+	var _key := PackedInt32Array()
+	var _next := PackedInt32Array()
 	var _t := 0.0
 	static var _oblique: FontVariation = null
 
@@ -819,11 +826,34 @@ class BossBlock:
 		return ("-" if n < 0 else "") + t + out
 
 	func _info() -> Dictionary:
-		return raid.hud_info() if raid != null and raid.has_method("hud_info") else {}
+		return hud.boss_info if hud != null else {}
 
+	## Redraw when a shown number changes, or every frame while a lapse flashes (not under reduced motion).
 	func _process(d: float) -> void:
 		_t += d / maxf(0.05, Engine.time_scale)
-		queue_redraw()
+		var info := _info()
+		if info.is_empty():
+			return
+		_next.resize(16)
+		_next[0] = int(info["break_began"]) | (int(info["over"]) << 1) | (int(info["won"]) << 2) | (int(info["winning"]) << 3) | (int(info["lapse_on"]) << 4)
+		_next[1] = int(info["met"])
+		_next[2] = floori(float(info["t"]))
+		_next[3] = roundi(float(info["horde"]))
+		_next[4] = int(info["streak"])
+		_next[5] = int(info["break_beats"])
+		_next[6] = int(info["lapses"])
+		_next[7] = int(info["lapse_lost"])
+		_next[8] = int(info["lapse_lo"])
+		_next[9] = int(info["lapse_hi"])
+		_next[10] = int(info["phyl_left"])
+		_next[11] = int(info["clones_left"])
+		_next[12] = int(info["spent_phyl"]) + int(info["spent_clones"])
+		_next[13] = roundi(float(info["ferry"]) * 100.0)
+		_next[14] = int(info["required"])
+		_next[15] = int(info["notch"])
+		if _next != _key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
+			_key = _next.duplicate()
+			queue_redraw()
 
 	func _label(x: float, y: float, text: String) -> float:
 		var f := ThemeDB.fallback_font
