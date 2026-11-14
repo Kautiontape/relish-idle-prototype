@@ -41,6 +41,56 @@ static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
 	return float(w.get("total", 0.0)) if float(w.get("muster", 0.0)) > 0.0 else float(w.get("steady", 0.0))
 
 
+# TODO(api-request #16): the staffing a job order would give, display-only, until GameState has
+# `view_staffing_projection(order)` -> {rev, jobs: [{id, slots, staffed}], buildings, idle} (the Jobs
+# and Stances tabs call that whenever it exists, so this switches itself off). Today's assigned hands
+# (Σ jobs.staffed) fill the job slots top-down in `order`; a building's staff cap trims its job's room
+# (`bcfg` = buildings.json names the building's job; a site under construction keeps its room).
+# Returns {jobs: [{id, slots, staffed}] in `order`, idle}.
+static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionary = {}) -> Dictionary:
+	var town: Dictionary = views.get("town", {})
+	var slots := {}
+	var room := {}
+	var hands := 0.0
+	for j in town.get("jobs", []):
+		var id := String(j.get("id", ""))
+		slots[id] = int(slots.get(id, 0)) + int(j.get("slots", 0))
+		room[id] = float(slots[id])
+		hands += float(j.get("staffed", 0.0))
+	for b in town.get("buildings", []):
+		var cap := int(b.get("staff_cap", -1))
+		var def: Variant = bcfg.get(String(b.get("building_id", "")))
+		if cap < 0 or String(b.get("state", "")) == "constructing" or not def is Dictionary:
+			continue
+		var jobs: Dictionary = (def as Dictionary).get("jobs", {})
+		if jobs.is_empty() or not room.has(String(jobs.keys()[0])):
+			continue
+		var job := String(jobs.keys()[0])
+		room[job] = maxf(float(room[job]) - float(maxi(int(b.get("slots", 0)) - cap, 0)), 0.0)
+	var left := hands
+	var out: Array = []
+	for id in order:
+		if not slots.has(String(id)):
+			continue
+		var take := minf(float(room[String(id)]), left)
+		left -= take
+		out.append({"id": String(id), "slots": int(slots[String(id)]), "staffed": take})
+	return {"jobs": out, "idle": float(town.get("workers", {}).get("idle", 0.0)) + left}
+
+
+## STANDIN: the inputs of steady_kept's reason (the HUD's "kept: 9 slots + 10 idle cap"): {slots:
+## the hands in job slots (Σ jobs.staffed, rounded), cap: economy.json worker.idle_cap}. {} once the
+## views carry steady_kept (the reason is then the view's to give).
+## TODO(api-request #12): drop with steady_kept (E2b).
+static func kept_inputs(town: Dictionary, hud: Dictionary, idle_cap: float) -> Dictionary:
+	if (town.get("workers", {}) as Dictionary).has("steady_kept") or hud.has("workers_steady_kept"):
+		return {}
+	var in_slots := 0.0
+	for j in town.get("jobs", []):
+		in_slots += float(j.get("staffed", 0.0))
+	return {"slots": roundi(in_slots), "cap": roundi(idle_cap)}
+
+
 const DEMO_FORTS := ["old-sluice", "greywall", "ashgate"]
 const DEMO_IDLE := 8.0
 const DEMO_LIVING := 64.0

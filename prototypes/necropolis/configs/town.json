@@ -193,7 +193,7 @@
       "ink": {"workers": "undead", "living": "living", "gold": "living", "bone": "dead", "bodies": "dead"},
       "producer_input": {"bone_mill": "bodies", "market": "buyers"},
       "glyph": {"up": "▲", "down": "▼", "flat": "■"},
-      "cell_w_px": 140.0, "morale_w_px": 340.0, "morale_stretch": 2.8, "cell_stretch": {"workers": 1.4}, "tier_w_px": 100.0, "return_w_px": 170.0,
+      "cell_w_px": 140.0, "morale_w_px": 220.0, "morale_stretch": 1.0, "cell_stretch": {"workers": 4.0}, "tier_w_px": 100.0, "return_w_px": 170.0,
       "morale_bar": {"w_px": 120.0, "h_px": 8.0},
       "text": {
         "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}", "war": "→ WAR",
@@ -210,6 +210,11 @@
         "starved": "{id}: {rate}, {label} is starved: no {input}",
         "upkeep": "{id}: {rate}, upkeep beats {source}",
         "short_slots": "workers: {n} short of slots",
+        "idle_build": "{n} idle: build a {label} ({gain}) or let them muster",
+        "idle_jobs": "+{n} jobs",
+        "idle_none": "{n} idle: no job building affordable; mustering to WAR",
+        "idle_none_wait": "{n} idle: no job building affordable; waiting at the crypt",
+        "kept_reason": "kept: {slots} slots + {cap} idle cap",
         "source": {"gold": "trade", "bone": "milling"},
         "stuck_sep": "   ·   "
       },
@@ -217,7 +222,7 @@
     },
     "shortage_fix": {"gold": "market", "bone": "bone_mill", "relics": ""},
     "shortage_text": {
-      "build": "build a {label}", "staff": "staff the {label}", "relics": "dungeon loot",
+      "build": "build a {label}", "staff": "staff the {label}", "relics": "raid a fort", "also": "; ",
       "unit_relics_one": "relic", "unit_relics": "relics",
       "tier_progress": " ({have}/{need} buildings, missing: {missing})",
       "eta": "needs {n} more {unit}, about {eta} at {rate}",
@@ -234,6 +239,7 @@
       },
       "job_text": "{n} {job} jobs",
       "now": "now",
+      "standin": "at full staffing",
       "upgrade_now": "Upgrade gives"
     },
     "badge": {"px": 12, "gap_px": 2.0, "pad_px": 3.0, "working": "{n} working", "short": "{n} short", "sep": " · ", "idle": "{n} idle"},
@@ -292,6 +298,10 @@
       "hearth": "Stalls and the inn jump to the top while morale is under 0.5."
     },
     "stance_jobs": {"vigil": ["tend"], "harvest": ["haul"], "thrift": "idled", "muster": ["idle"], "hearth": ["stall"]},
+    "stance_trade": {
+      "vigil": {"when": "relish_away"}, "harvest": {"when": "bodies_under", "frac": 0.3}, "thrift": {"when": "gold_under_upkeep"},
+      "muster": {"when": "idle"}, "hearth": {"when": "morale_under", "below": 0.5}
+    },
     "behaviour": {
       "summary": "{total} workers, {idle} idle",
       "summary_muster": "Idle beyond the cap muster to WAR.",
@@ -306,11 +316,27 @@
       "slots_breakdown": "base {base} + Guildhall {guild} + Relish home {home}",
       "away_note": "Relish is away: her home slot is gone.",
       "suspended_note": "Suspended: {names}.",
-      "no_projection": "projection arrives with E3",
+      "no_projection": "projected rates arrive with E3",
       "projected_on": "turning on:",
       "projected_off": "turning off:",
       "hold": "holding {s} s",
       "chip_on": "on", "chip_off": "off", "chip_suspended": "suspended", "chip_active": "active",
+      "no_building": "no {site} yet",
+      "preview_hint": "Hover an arrow or drag a row: the hands it would move show here.",
+      "preview": "If you move it: {hands}",
+      "preview_none": "If you move it: no hands move",
+      "hand": "hand", "hands": "hands", "no_hands": "no hands move",
+      "trade_fires": "Now: {now} → it would fire; {move}",
+      "trade_holds": "Now: {now} → it wouldn't fire; if it did: {move}",
+      "trade_top": "{job} to the top: {hands}",
+      "trade_muster": "{n} idle hands leave for WAR at once",
+      "trade_thrift": "buildings over the upkeep threshold idle and their hands return to the crypt",
+      "now_relish_home": "Relish is home",
+      "now_relish_away": "Relish is away",
+      "now_bodies": "bodies {have} / {cap} (fires under {limit})",
+      "now_morale": "morale {v} (fires under {limit})",
+      "now_gold": "gold in {in} vs upkeep {out}",
+      "now_idle": "{n} idle at the crypt",
       "refusals": {
         "unknown_job": "no such job", "duplicate_job": "a job is listed twice", "missing_job": "a job is missing from the order",
         "unknown_lot": "no such lot", "empty_lot": "nothing is built there", "no_jobs": "that building has no job slots",
@@ -354,12 +380,13 @@
       "idle": "idle: no staff"
     },
     "needs": {
-      "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "tier", "gold", "bodies", "housing", "morale"],
+      "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "tier", "idle_hands", "gold", "bodies", "housing", "morale"],
       "bodies_frac": 0.3,
+      "idle_hands_min": 3,
       "morale_below": 0.5,
       "serves": {
         "tithe": ["front", "warden"], "front": ["front"], "warden": ["warden"], "gold": ["gold"],
-        "starved_bone": ["bone"], "starved_gold": ["gold"], "tier": [],
+        "starved_bone": ["bone"], "starved_gold": ["gold"], "tier": [], "idle_hands": [],
         "bodies": ["bodies"], "housing": ["housing"], "morale": ["morale"]
       },
       "chips": {
@@ -370,6 +397,7 @@
         "warden_to": "for the warden heading to {fort}: big undead and quality",
         "gold": "gold is falling",
         "tier": "next tier: {tier} needs a {label}",
+        "idle_hands": "{n} idle hands: build jobs for them",
         "starved_none": "{resource} isn't flowing: no {label}",
         "starved_staff": "{resource} isn't flowing: {label} has no staff",
         "bodies": "bodies are low ({have} of {cap})",
@@ -377,14 +405,28 @@
         "morale": "morale is low"
       }
     },
+    "relic_gate": {
+      "text": "Gated by relics: {list} {verb} {n} {unit} (you have {have}). Relics come from dungeons.",
+      "one": "needs", "many": "need", "join": " and ", "button": "To the realm"
+    },
     "queue_text": {
+      "title": "Queue (stand-in until E2b: not saved)",
       "next": "next: building now",
       "waiting_funds": "saving: {why}",
       "skipped_gate": "skipped: {why}",
       "queued": "queued",
       "cap_refusal": "{cost} is over the {store} cap of {cap}: build {label} first",
       "cap_refusal_none": "{cost} is over the {store} cap of {cap}",
-      "no_commands": "queue commands arrive with E2b"
+      "no_commands": "queue commands arrive with E2b",
+      "eta_now": "starts now",
+      "eta_head": "starts in ~{t}",
+      "eta_later": "starts in ≈ {t}",
+      "eta_later_now": "starts ≈ now",
+      "eta_stuck": "won't start: {resource} isn't flowing",
+      "eta_build": "then done in ~{t}",
+      "eta_work": "build time: {work} work",
+      "eta_sep": " · ",
+      "throughput_smooth_s": 10.0
     },
     "agent": {
       "undead_len_px": 12.0, "undead_w_px": 2.0, "undead_glow": 0.85, "core_px": 3.2, "flash_mul": 2.4, "carry_px": 3.0,

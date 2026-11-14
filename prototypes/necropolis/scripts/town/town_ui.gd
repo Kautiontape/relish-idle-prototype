@@ -95,6 +95,40 @@ static func rate_label(text := "", size := 14, key := "text") -> Label:
 	return l
 
 
+## A label for parts [[text, oblique]] (words upright, rates oblique; fill it with set_parts). `wrap`
+## grows it to fit wrapped lines; otherwise it is one line, clipped at its width (give it a tooltip).
+static func parts_label(size := 14, key := "text", wrap := false) -> RichTextLabel:
+	var r := RichTextLabel.new()
+	var px := maxi(size, MIN_TEXT)
+	r.scroll_active = false
+	r.fit_content = wrap
+	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wrap else TextServer.AUTOWRAP_OFF
+	r.clip_contents = true
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r.custom_minimum_size = Vector2(40, 0 if wrap else ceilf(px * 1.45))
+	r.mouse_filter = Control.MOUSE_FILTER_PASS
+	r.add_theme_font_size_override("normal_font_size", px)
+	r.add_theme_color_override("default_color", Palette.c(key))
+	r.set_meta("px", px)
+	return r
+
+
+## Fills a parts_label (only when the parts changed): oblique parts in the slanted font.
+static func set_parts(r: RichTextLabel, parts: Array) -> void:
+	if r.get_meta("parts", []) == parts:
+		return
+	r.set_meta("parts", parts.duplicate(true))
+	r.clear()
+	var px := int(r.get_meta("px", 14))
+	for p in parts:
+		if bool(p[1]):
+			r.push_font(oblique_font(), px)
+			r.add_text(String(p[0]))
+			r.pop()
+		else:
+			r.add_text(String(p[0]))
+
+
 ## Signed per-second text: "+0.42/s", "−0.10/s" (true minus sign). `unit` replaces "s".
 static func fmt_rate(x: float, unit := "s") -> String:
 	var sign_ch := "−" if x < 0.0 else "+"

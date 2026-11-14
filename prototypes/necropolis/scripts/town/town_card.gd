@@ -260,7 +260,7 @@ func _update_row(w: Dictionary, it: Dictionary, lot_id: String, st: Dictionary, 
 	w["plain"].visible = not ben["plain"].is_empty()
 	var why := ""
 	if not can:
-		why = BuildSort.reason_text(String(row.get("reason", "")), row, st, bview, vcfg)
+		why = BuildSort.row_reason(row, st, bview, vcfg)  # an unmet relic cost is said too
 	elif not here:
 		why = BuildSort.reason_text("no_lot", row, st, bview, vcfg)
 	w["reason"].visible = why != ""

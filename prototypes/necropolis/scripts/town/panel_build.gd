@@ -9,6 +9,8 @@ extends ScrollContainer
 ## The same data also drives the lot card in the town view (attach_card): an empty lot's card lists
 ## what fits it, a built lot's card reuses this tab's inspector widgets and commands. The panel also
 ## feeds the view its hover outline, the day-1 suggestion, the queue's ghosts and the build flash.
+## When relics hold the tier back, a row pinned at the top says so, with a To the realm button (the
+## shell's own exit). Under the catalog the Queue lists each entry with its status and an ETA.
 
 signal command_issued
 ## Ask the town view to outline `lots` for `building_id` (and dim the rest); "" ends placement.
@@ -26,6 +28,8 @@ signal suggestion_changed(sug: Dictionary)
 signal queue_changed(ghosts: Array)
 ## cmd_build / cmd_upgrade returned ok on this lot: the canvas flashes it on the next beat.
 signal build_started(lot_id: String)
+## The relic pin's To the realm: the shell leaves through its one exit (finished, once).
+signal to_realm
 
 var _views := {}
 var _vcfg: Dictionary = {}
@@ -76,6 +80,10 @@ var _cap_box: HBoxContainer
 var _cap_label: Label
 var _cap_btn: Button
 var _cap_building := ""
+var _tp: BuildSort.Throughput  # the build throughput, measured from the views between binds
+var _pin: PanelContainer
+var _pin_label: Label
+var _scroll_q_s := 0.0  # debug --town-queue: seconds the tab keeps the Queue (its last section) in view
 
 
 func _ready() -> void:
@@ -83,6 +91,7 @@ func _ready() -> void:
 	_bview = ConfigDb.data.get("buildings_view", {})
 	_bcfg = ConfigDb.data.get("buildings", {})
 	_q = TownStandins.BuildQueue.new(int(_vcfg.get("queue_max", 8)), _vcfg.get("cap_buildings", {}))
+	_tp = BuildSort.Throughput.new(float(_vcfg.get("queue_text", {}).get("throughput_smooth_s", 10.0)))
 	_style_row = TownUI.panel_box()
 	_style_focus = TownUI.panel_box()
 	_style_focus.border_color = Palette.c("select")
@@ -96,6 +105,7 @@ func _ready() -> void:
 	_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_root.add_theme_constant_override("separation", 6)
 	add_child(_root)
+	_build_pin()
 	_status = _wrap("", 14, "text")
 	_root.add_child(_status)
 	_build_banner()
@@ -136,6 +146,26 @@ func _btn(text: String, w := 76.0) -> Button:
 	return b
 
 
+## The relic pin: "Gated by relics: ... Relics come from dungeons." and To the realm (>= 44 px).
+func _build_pin() -> void:
+	_pin = PanelContainer.new()
+	var sb := TownUI.panel_box()
+	sb.border_color = Palette.c("select")
+	sb.set_border_width_all(2)
+	_pin.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	_pin.add_child(row)
+	_pin_label = _wrap("", 14, "text")
+	row.add_child(_pin_label)
+	var go := _btn(String(_vcfg.get("relic_gate", {}).get("button", "")), 130.0)
+	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	go.pressed.connect(func(): to_realm.emit())
+	row.add_child(go)
+	_pin.visible = false
+	_root.add_child(_pin)
+
+
 func _build_banner() -> void:
 	_banner = PanelContainer.new()
 	_banner.add_theme_stylebox_override("panel", _style_focus)
@@ -165,8 +195,12 @@ func bind(views: Dictionary) -> void:
 		_rebuild_rows(rows)
 	_empty.visible = rows.is_empty()
 	var names: Dictionary = views.get("fort_names", {})
-	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview), _bview, _vcfg)
+	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview, _bcfg), _bview, _vcfg)
 	_sorted = sorted
+	_tp.observe(views)
+	var gate := BuildSort.relic_gate(views, sorted, _st, _bview, _vcfg)
+	_pin.visible = not gate.is_empty()
+	_pin_label.text = String(gate.get("text", ""))
 	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg)
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
 	var listed := {}
@@ -200,6 +234,7 @@ func _seed_queue() -> void:
 			_q.entries.append({"building_id": bl[0], "lot_id": bl[1], "upgrade": false, "level": 1,
 				"cost": (row.get("cost", {}) as Dictionary).duplicate(), "status": "queued", "reason": ""})
 	_seed = ""
+	_scroll_q_s = 4.0  # the shot shows the Queue section, whatever the status line does meanwhile
 
 
 func on_game_event(_ev: Dictionary) -> void:
@@ -314,7 +349,7 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	w["queue"].disabled = _queue_full() or _free_lot(row) == ""
 	var why := String(row.get("reason", ""))
 	w["reason"].get_parent().visible = not can
-	w["reason"].text = _reason(why, row) if not can else ""
+	w["reason"].text = BuildSort.row_reason(row, _st, _bview, _vcfg)  # with an unmet relic cost said too
 	w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
 	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
 	w["link"].visible = target != ""
@@ -601,6 +636,10 @@ func _on_demolish() -> void:
 
 
 func _process(delta: float) -> void:
+	if _scroll_q_s > 0.0:
+		_scroll_q_s -= delta
+		if is_visible_in_tree():
+			scroll_vertical = int(get_v_scroll_bar().max_value)
 	if _armed_s > 0.0:
 		_armed_s = maxf(_armed_s - delta, 0.0)
 		_update_inspector()
@@ -709,8 +748,10 @@ func on_suggestion_dismissed() -> void:
 
 
 # ----------------------------------------------------------------- queue ----
+## The Queue, under the catalog: each entry with its number, label, lot, status shape, an ETA from
+## today's rates and the measured build throughput, Up / Down / Unqueue (>= 44 px).
 func _build_queue_section() -> void:
-	_q_title = TownUI.label("Build queue (stand-in until E2: not saved)", 16)
+	_q_title = TownUI.label(String(_vcfg.get("queue_text", {}).get("title", "")), 16)
 	_q_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_q_title.custom_minimum_size = Vector2(40, 0)
 	_root.add_child(_q_title)
@@ -800,6 +841,7 @@ func _update_queue() -> void:
 	while _q_pool.size() < entries.size():
 		_q_pool.append(_make_q_row(_q_pool.size()))
 	var tt: Dictionary = _vcfg.get("queue_text", {})
+	var etas := BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
 	for i in _q_pool.size():
 		var w: Dictionary = _q_pool[i]
 		w["node"].visible = i < entries.size()
@@ -815,6 +857,8 @@ func _update_queue() -> void:
 		w["detail"].text = "%s %s" % [glyph, BuildSort.fmt(String(tt.get(status, "")), {"why": why})]
 		w["detail"].add_theme_color_override("font_color", Palette.c(
 			{"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")))
+		w["eta"].text = String(etas[i])
+		w["eta"].visible = String(etas[i]) != ""  # a gate-skipped entry says why instead
 		w["up"].disabled = i == 0
 		w["down"].disabled = i == entries.size() - 1
 	var ghosts := BuildSort.ghosts(entries, _ctx.get("catalog", {}), _st, _bview, _vcfg)
@@ -855,6 +899,8 @@ func _make_q_row(index: int) -> Dictionary:
 	v.add_child(title)
 	var detail := _wrap("", 14, "text_dim")
 	v.add_child(detail)
+	var eta := _wrap("", 14, "text")
+	v.add_child(eta)
 	var up := _btn("Up", 56.0)
 	up.pressed.connect(func(): _move_queue(index, -1))
 	var down := _btn("Down", 56.0)
@@ -864,4 +910,4 @@ func _make_q_row(index: int) -> Dictionary:
 	for b in [up, down, rm]:
 		h.add_child(b)
 	_q_box.add_child(pc)
-	return {"node": pc, "title": title, "detail": detail, "up": up, "down": down}
+	return {"node": pc, "title": title, "detail": detail, "eta": eta, "up": up, "down": down}

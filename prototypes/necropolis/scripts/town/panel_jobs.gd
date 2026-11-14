@@ -3,7 +3,9 @@ extends VBoxContainer
 ## to reorder; `cmd_set_job_priority`) and one staffing-cap stepper per building with job slots
 ## (`cmd_set_staff_cap`). Rows are built once and updated in place on every bind, so drags, hover
 ## and held buttons survive the shell's ~4 Hz refetch. After a reorder or cap change the rows whose
-## staffing changed flash for one Pulse beat on the bind that shows it.
+## staffing changed flash for one Pulse beat on the bind that shows it. Before a move, hovering a
+## drop position (or an arrow) previews the hands it would move ("Mill +2 hands, Pit −2") from
+## TownSim's own allocation (view_staffing_projection) or, until that exists, the marked stand-in.
 
 signal command_issued
 
@@ -25,6 +27,9 @@ var _armed := 0
 var _flashing: Dictionary = {}
 var _town: Dictionary = {}
 var _stances: Dictionary = {}
+var _views: Dictionary = {}
+var _preview: Label
+var _hover := {}  # the hovered move: {src, job, dir} (an arrow) or {src, job, target, lower} (a drop); {} = none
 
 
 func _ready() -> void:
@@ -44,6 +49,11 @@ func _ready() -> void:
 	body.add_theme_constant_override("separation", 4)
 	scroll.add_child(body)
 	body.add_child(_wrap(_t("ladder_header"), 12, "text_dim"))
+	_preview = TownUI.label(_t("preview_hint"), 14, "text_dim")  # one reserved line: the rows never shift mid-drag
+	_preview.clip_text = true
+	_preview.custom_minimum_size = Vector2(40, 22)
+	_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(_preview)
 	_ladder_box = VBoxContainer.new()
 	_ladder_box.add_theme_constant_override("separation", 3)
 	body.add_child(_ladder_box)
@@ -85,6 +95,7 @@ func _site_text(job: String) -> String:
 func bind(views: Dictionary) -> void:
 	if _ladder_box == null:
 		return
+	_views = views
 	_town = views.get("town", {})
 	_stances = views.get("stances", {})
 	var ladder: Array = _town.get("ladder", [])
@@ -100,6 +111,8 @@ func bind(views: Dictionary) -> void:
 	_bind_ladder(ladder, jobs)
 	_bind_caps(_town.get("buildings", []))
 	_flash_changed(_town.get("jobs", []))
+	if not _hover.is_empty():
+		_refresh_preview()  # against the ladder as it stands now (an arrow press moved it)
 
 
 func _bind_ladder(ladder: Array, jobs: Dictionary) -> void:
@@ -110,6 +123,9 @@ func _bind_ladder(ladder: Array, jobs: Dictionary) -> void:
 			r.setup(String(id), _vcfg.get("slot_tick_px", [3.0, 9.0]))
 			r.dropped.connect(_on_dropped)
 			r.nudged.connect(_on_nudged)
+			r.hover_drop.connect(_on_hover_drop)
+			r.hover_nudge.connect(_on_hover_nudge)
+			r.hover_end.connect(_on_hover_end)
 			_rows[id] = r
 	var moves := {}
 	for m in TownBehaviour.ladder_moves(ladder, _town.get("ladder_effective", [])):
@@ -121,7 +137,8 @@ func _bind_ladder(ladder: Array, jobs: Dictionary) -> void:
 		if not dragging and row.get_index() != i:
 			_ladder_box.move_child(row, i)
 		var j: Dictionary = jobs.get(id, {})
-		row.update(i + 1, i == ladder.size() - 1, _job_label(id), _site_text(id),
+		var site := _site_text(id) if int(j.get("slots", 0)) > 0 else _t("no_building").format({"site": _site_text(id)})
+		row.update(i + 1, i == ladder.size() - 1, _job_label(id), site,
 			float(j.get("staffed", 0.0)), int(j.get("slots", 0)), _move_note(id, moves.get(id, {})))
 	_order = ladder.duplicate()
 
@@ -141,6 +158,50 @@ func _move_note(job: String, m: Dictionary) -> String:
 				break
 		return "↑ " + who + tail
 	return "↓ " + _t("moved_down") + tail
+
+
+# ---- the move preview ----
+## TownSim's allocation for `order`: view_staffing_projection when GameState has it, else the
+## display-only stand-in. TODO(api-request #16): the stand-in goes once the view exists.
+func _project(order: Array) -> Array:
+	if Game.state.has_method("view_staffing_projection"):  # called by name: GameState doesn't declare it yet
+		return (Game.state.call("view_staffing_projection", order) as Dictionary).get("jobs", [])
+	return TownStandins.staffing_projection(_views, order, _bcfg)["jobs"]
+
+
+func _on_hover_drop(job: String, target: String, lower: bool) -> void:
+	_hover = {"src": target, "job": job, "target": target, "lower": lower}
+	_refresh_preview()
+
+
+func _on_hover_nudge(job: String, dir: int) -> void:
+	_hover = {"src": job, "job": job, "dir": dir}
+	_refresh_preview()
+
+
+func _on_hover_end(source: String) -> void:
+	if not _hover.is_empty() and source == String(_hover["src"]):
+		_hover = {}
+		_preview.text = _t("preview_hint")
+		_preview.tooltip_text = ""
+		_preview.add_theme_color_override("font_color", Palette.c("text_dim"))
+
+
+## "If you move it: Mill +2 hands, Pit −2": the hovered move against today's ladder, as counts from
+## the projections of today's order and the moved one.
+func _refresh_preview() -> void:
+	var i := _order.find(String(_hover["job"]))
+	if i < 0:
+		return
+	var order := TownBehaviour.move(_order, i, i + int(_hover["dir"])) if _hover.has("dir") \
+		else TownBehaviour.move(_order, i, TownBehaviour.drop_index(i, _order.find(String(_hover["target"])), bool(_hover["lower"])))
+	var hands := ""
+	if order != _order:
+		hands = TownBehaviour.diff_text(TownBehaviour.staffing_diff(_project(_order), _project(order)),
+			_vcfg.get("job_labels", {}), _t("hand"), _t("hands"))
+	_preview.text = _t("preview").format({"hands": hands}) if hands != "" else _t("preview_none")
+	_preview.tooltip_text = _preview.text
+	_preview.add_theme_color_override("font_color", Palette.c("select" if hands != "" else "text"))
 
 
 # ---- reorder ----

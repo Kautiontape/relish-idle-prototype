@@ -50,11 +50,17 @@ static func stocks(views: Dictionary) -> Dictionary:
 
 # ------------------------------------------------------------------ needs ----
 ## The live needs, in `view.needs.order`: [{id, chip, serves: Array[String]}]. `fort_names` is
-## {fort id: name} (view_realm), used for chips and to tell a fort from Covington or Vei.
-static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, bview: Dictionary = {}) -> Array:
+## {fort id: name} (view_realm), used for chips and to tell a fort from Covington or Vei. `bcfg`
+## (buildings.json) names the buildings with job slots, which serve `idle_hands`.
+static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, bview: Dictionary = {}, bcfg: Dictionary = {}) -> Array:
 	var ncfg: Dictionary = vcfg.get("needs", {})
 	var out: Array = []
 	for id in ncfg.get("order", []):
+		if String(id) == "idle_hands":
+			var n := idle_need(views, ncfg, bcfg)
+			if not n.is_empty():
+				out.append(n)
+			continue
 		if String(id) == "tier":
 			var nt: Dictionary = views.get("town", {}).get("next_tier", {})
 			var placed := {}  # `missing` lists buildings under construction too: those are already asked for
@@ -70,6 +76,34 @@ static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, b
 		if chip != "":
 			out.append({"id": String(id), "chip": chip, "serves": (ncfg.get("serves", {}) as Dictionary).get(id, [])})
 	return out
+
+
+## Unspent workers are a need: `workers.idle` at or over `needs.idle_hands_min`, or a muster running
+## (idle beyond the cap leaving for WAR). Served by every building with job slots (buildings.json
+## `jobs`). {id, chip, serves, idle}, or {} when the hands are spent.
+static func idle_need(views: Dictionary, ncfg: Dictionary, bcfg: Dictionary) -> Dictionary:
+	var w: Dictionary = views.get("town", {}).get("workers", {})
+	var idle := float(w.get("idle", 0.0))
+	if idle < float(ncfg.get("idle_hands_min", INF)) and float(w.get("muster", 0.0)) <= 0.0:
+		return {}
+	var serves: Array = []
+	for bid in bcfg:
+		if job_slots(String(bid), bcfg) > 0:
+			serves.append("building:" + String(bid))
+	return {"id": "idle_hands", "chip": fmt(String((ncfg.get("chips", {}) as Dictionary).get("idle_hands", "")), {"n": roundi(idle)}),
+		"serves": serves, "idle": idle}
+
+
+## The job slots a building offers at level 1 (the sum of its buildings.json `jobs`); 0 for none.
+static func job_slots(bid: String, bcfg: Dictionary) -> int:
+	var d: Variant = bcfg.get(bid)
+	if not d is Dictionary:
+		return 0
+	var n := 0
+	var jobs: Dictionary = (d as Dictionary).get("jobs", {})
+	for j in jobs:
+		n += int(jobs[j])
+	return n
 
 
 static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictionary, vcfg: Dictionary = {}, bview: Dictionary = {}) -> String:
@@ -352,7 +386,7 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var bview: Dictionary = cfgs.get("buildings_view", {})
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
-	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview), bview, vcfg)
+	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {})), bview, vcfg)
 	var sug := suggest(items, bview, stocks(views), vcfg)
 	if sug.is_empty() or bool(sug.get("save", false)):
 		return {}
@@ -450,6 +484,74 @@ static func fix_target(reason: String, row: Dictionary, st: Dictionary, vcfg: Di
 	if cand != "" and bool((st.get("placeable", {}) as Dictionary).get(cand, false)):
 		return cand
 	return ""
+
+
+## "needs 2 relics: raid a fort" when the row's relic cost is over the relics held ("" otherwise).
+static func relic_text(row: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	if float((row.get("cost", {}) as Dictionary).get("relics", 0.0)) <= float(st.get("relics", 0.0)) + 0.0001:
+		return ""
+	return reason_text("no_relics", row, st, bview, vcfg)
+
+
+## A blocked row's refusal in words (reason_text), followed by its unmet relic cost when the reason
+## names something else (funds, a lot), so the relic gate is always said; "" for a buildable row. A
+## tier, blueprint or building gate is said alone.
+static func row_reason(row: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	if bool(row.get("can_build", false)):
+		return ""
+	var reason := String(row.get("reason", ""))
+	var why := reason_text(reason, row, st, bview, vcfg)
+	var rel := relic_text(row, st, bview, vcfg)
+	if rel != "" and reason != "no_relics" and reason != "unique" and not is_gated(row, vcfg):
+		why += String((vcfg.get("shortage_text", {}) as Dictionary).get("also", "; ")) + rel
+	return why
+
+
+## What relics are holding back: the next tier's missing buildings (not yet placed) when their summed
+## relic cost is over the relics held, and the tab's top need-serving row (the first of `items`, from
+## sort_rows, that serves a need and isn't tier-gated) when its own relic cost is. {ids: Array[String], need: int (summed relic cost), have: int, text: String
+## (view.relic_gate)}; {} when relics block neither.
+static func relic_gate(views: Dictionary, items: Array, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var cat := {}
+	for r in views.get("catalog", {}).get("buildings", []):
+		cat[String(r.get("building_id", ""))] = r
+	var placed := {}
+	for b in views.get("town", {}).get("buildings", []):
+		placed[String(b.get("building_id", ""))] = true
+	var have := int(st.get("relics", 0.0))
+	var ids: Array = []
+	var need := 0
+	for m in views.get("town", {}).get("next_tier", {}).get("missing", []):
+		var n := _relics(cat.get(String(m), {}))
+		if not placed.has(String(m)) and n > 0 and not ids.has(String(m)):
+			ids.append(String(m))
+			need += n
+	if need <= have:
+		ids.clear()
+		need = 0
+	var top: Dictionary = {}  # the first row of the tab that serves a need and isn't tier-gated
+	for it in items:
+		if String(it["need"]) != "" and int(it.get("cls", CLS_BUILDABLE)) != CLS_GATED:
+			top = it
+			break
+	if not top.is_empty():
+		var tid := String(top["row"].get("building_id", ""))
+		var tn := _relics(top["row"])
+		if tn > have and not ids.has(tid):
+			ids.append(tid)
+			need += tn
+	if ids.is_empty():
+		return {}
+	var rg: Dictionary = vcfg.get("relic_gate", {})
+	var tt: Dictionary = vcfg.get("shortage_text", {})
+	var labels: Array = ids.map(func(i): return label_of(String(i), bview))
+	return {"ids": ids, "need": need, "have": have, "text": fmt(String(rg.get("text", "")), {
+		"list": String(rg.get("join", " and ")).join(labels), "verb": String(rg.get("one" if ids.size() == 1 else "many", "")),
+		"n": need, "unit": String(tt.get("unit_relics_one" if need == 1 else "unit_relics", "relics")), "have": have})}
+
+
+static func _relics(row: Dictionary) -> int:
+	return int((row.get("cost", {}) as Dictionary).get("relics", 0))
 
 
 ## Why a click on `lot` (a view_town lots entry, {} if unknown) can't take building `row`.
@@ -597,7 +699,8 @@ static func rate_texts(projected: Dictionary, vcfg: Dictionary) -> Array:
 
 
 ## What a building brings, for the lot card: {rates: Array[String] (signed, oblique), plain:
-## Array[String] (upright), now: bool}.
+## Array[String] (upright), now: bool}. A stand-in rate of a building with job slots is labelled
+## `benefit.standin` ("at full staffing": the effect, not today's staffing); `projected` rates "now".
 ## TODO(api-request #9): while a catalog row has no `projected` ({rate_id: float}, the immediate
 ## rate change), the rates are the `buildings.json` effects stand-in (attract only since E2a: a pit's
 ## mint and burn are no longer effects keys, so a pit reads "+1 raising pit"; no "now" label) and plain text is the cap/slot effects, the jobs, or the buildings_view `benefit` line.
@@ -616,7 +719,10 @@ static func benefit(bid: String, row: Dictionary, bcfg: Dictionary, bview: Dicti
 	else:
 		for k in rate_fx:
 			if eff.has(k) and absf(float(eff[k])) > 0.00001:
-				rates.append("%s %s" % [TownUI.fmt_rate(float(eff[k]) * float(rate_fx[k].get("sign", 1.0))), rate_fx[k].get("unit", k)])
+				var txt := "%s %s" % [TownUI.fmt_rate(float(eff[k]) * float(rate_fx[k].get("sign", 1.0))), rate_fx[k].get("unit", k)]
+				if job_slots(bid, bcfg) > 0:
+					txt += " " + String(bc.get("standin", ""))
+				rates.append(txt.strip_edges())
 	for k in eff:
 		if not rate_fx.has(k) and (bc.get("plain_effects", {}) as Dictionary).has(k):
 			plain.append(fmt(String(bc["plain_effects"][k]), {"n": _num(float(eff[k]))}))
@@ -635,14 +741,30 @@ static func _num(x: float) -> String:
 
 # ----------------------------------------------------------------- ghosts ----
 ## The reason text of a queue entry (a shortage with its time estimate, a gate with its
-## requirement), using the catalog row for the building's requirements.
+## requirement), using the catalog row for the building's requirements. A head saving for its cost
+## names the store that holds it longest (one that isn't flowing first, else the longest shortage /
+## net rate), so its estimate matches the queue's ETA line, whichever store the queue recorded.
 static func entry_reason(e: Dictionary, catalog: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
 	if String(e.get("reason", "")) == "":
 		return ""
 	var row: Dictionary = (catalog.get(String(e.get("building_id", "")), {}) as Dictionary).duplicate()
 	row["cost"] = e.get("cost", {})
 	row["building_id"] = e.get("building_id", "")
-	return reason_text(String(e["reason"]), row, st, bview, vcfg)
+	var reason := String(e["reason"])
+	if String(e.get("status", "")) == "waiting_funds" and st.has("rates"):
+		var slowest := -1.0
+		for k in ["gold", "bone"]:
+			var short := float((row["cost"] as Dictionary).get(k, 0.0)) - float(st.get(k, 0.0))
+			if short <= 0.0001:
+				continue
+			var rate := float((st["rates"] as Dictionary).get(k, 0.0))
+			if rate <= 0.0:
+				reason = "no_" + k
+				break
+			if short / rate > slowest:
+				slowest = short / rate
+				reason = "no_" + k
+	return reason_text(reason, row, st, bview, vcfg)
 
 
 ## The queue as canvas ghosts, same entries and numbers as the panel: [{lot_id, number (1-based),
@@ -660,3 +782,109 @@ static func ghosts(entries: Array, catalog: Dictionary, st: Dictionary, bview: D
 			"text": entry_reason(e, catalog, st, bview, vcfg),
 		})
 	return out
+
+
+# ------------------------------------------------------------------- ETAs ----
+## The work a queue entry still needs: the catalog's `build_work` × the level it builds (MECHANICS §4,
+## the build job: construction is `build_work · target level`), less what is done when its lot is
+## already constructing that building.
+static func entry_work(e: Dictionary, catalog: Dictionary, town: Dictionary) -> float:
+	var bid := String(e.get("building_id", ""))
+	var work := float((catalog.get(bid, {}) as Dictionary).get("build_work", 0.0)) * maxi(int(e.get("level", 1)), 1)
+	for b in town.get("buildings", []):
+		if String(b.get("lot_id", "")) == String(e.get("lot_id", "")) and String(b.get("building_id", "")) == bid \
+				and String(b.get("state", "")) == "constructing":
+			return work * clampf(1.0 - float(b.get("progress", 0.0)), 0.0, 1.0)
+	return work
+
+
+## Each queue entry's ETA text, in order (texts in view.queue_text). The start: "starts now" for the
+## head that can be paid for; "starts in ~4 min" for a head saving for its cost (shortage / net rate,
+## st.rates); "starts in ≈ 7 min" for a later entry, from the costs of every unskipped entry up to it;
+## "won't start: gold isn't flowing" when a short store's net rate is <= 0. Then the build: "then done
+## in ~2 min" from the measured `throughput` (work/s, Throughput; < 0 or 0 = unknown) or "build time:
+## 90 work". A gate-skipped entry gets "" (it says why instead).
+static func queue_etas(entries: Array, st: Dictionary, catalog: Dictionary, town: Dictionary, throughput: float, vcfg: Dictionary) -> Array:
+	var qt: Dictionary = vcfg.get("queue_text", {})
+	var rates: Dictionary = st.get("rates", {})
+	var acc := {"gold": 0.0, "bone": 0.0}
+	var out: Array = []
+	for e in entries:
+		var status := String(e.get("status", "queued"))
+		if status == "skipped_gate":
+			out.append("")
+			continue
+		var cost: Dictionary = e.get("cost", {})
+		for k in acc:
+			acc[k] = float(acc[k]) + float(cost.get(k, 0.0))
+		var start := String(qt.get("eta_now", ""))
+		if status != "next":
+			var wait := 0.0
+			var stuck := ""
+			for k in ["gold", "bone"]:
+				var short := float(acc[k]) - float(st.get(k, 0.0))
+				if short <= 0.0001:
+					continue
+				var rate := float(rates.get(k, 0.0))
+				if rate <= 0.0:
+					stuck = k
+					break
+				wait = maxf(wait, short / rate)
+			if stuck != "":
+				out.append(fmt(String(qt.get("eta_stuck", "")), {"resource": stuck}))
+				continue
+			if status == "waiting_funds":
+				start = fmt(String(qt.get("eta_head", "")), {"t": fmt_eta(wait, vcfg)})
+			elif wait <= 0.0:
+				start = String(qt.get("eta_later_now", ""))
+			else:
+				start = fmt(String(qt.get("eta_later", "")), {"t": fmt_eta(wait, vcfg)})
+		var work := entry_work(e, catalog, town)
+		var build := fmt(String(qt.get("eta_build", "")), {"t": fmt_eta(work / throughput, vcfg)}) if throughput > 0.0 \
+			else fmt(String(qt.get("eta_work", "")), {"work": int(ceil(work))})
+		out.append(start + String(qt.get("eta_sep", " · ")) + build)
+	return out
+
+
+## The live build throughput, measured from the views (not a sim formula): on each observe(), every
+## lot constructing the same building at the same level as last time adds Δprogress × its work
+## (build_work × target level) over Δt of view_hud.t (sim seconds); smoothed over `smooth_s`. `rate`
+## is work/s, -1 until measured and again once nothing is constructing. A site's first sighting, a
+## finished site and a Δt <= 0 add nothing.
+class Throughput:
+	extends RefCounted
+	var rate := -1.0
+	var smooth_s := 10.0
+	var _last := {}  # lot_id -> {building_id, level, progress}
+	var _t := -1.0
+
+	func _init(smooth_s_ := 10.0) -> void:
+		smooth_s = maxf(smooth_s_, 0.001)
+
+	func observe(views: Dictionary) -> void:
+		var t := float(views.get("hud", {}).get("t", -1.0))
+		var work := {}
+		for r in views.get("catalog", {}).get("buildings", []):
+			work[String(r.get("building_id", ""))] = float(r.get("build_work", 0.0))
+		var now := {}
+		var done := 0.0
+		var seen := false
+		for b in views.get("town", {}).get("buildings", []):
+			if String(b.get("state", "")) != "constructing":
+				continue
+			var lot := String(b.get("lot_id", ""))
+			var e := {"building_id": String(b.get("building_id", "")), "level": int(b.get("level", 0)), "progress": float(b.get("progress", 0.0))}
+			now[lot] = e
+			var was: Dictionary = _last.get(lot, {})
+			if not was.is_empty() and was["building_id"] == e["building_id"] and was["level"] == e["level"] and e["progress"] >= was["progress"]:
+				done += (e["progress"] - was["progress"]) * float(work.get(e["building_id"], 0.0)) * float(e["level"] + 1)
+				seen = true
+		var dt := t - _t
+		if now.is_empty():
+			rate = -1.0
+		elif seen and _t >= 0.0 and dt > 0.0:
+			var inst := done / dt
+			rate = inst if rate < 0.0 else rate + (inst - rate) * (1.0 - exp(-dt / smooth_s))
+		if dt != 0.0 or _t < 0.0:
+			_last = now
+			_t = t

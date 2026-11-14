@@ -598,7 +598,7 @@ static func output_keys(output: Dictionary, vcfg: Dictionary) -> Array:
 
 ## The building's one-line status as parts [[text, oblique: bool]] (rates oblique, words upright):
 ## "building: 45%", "unpaid: −0.03 gold/s upkeep", "idle: no staff (Haul is above it on the
-## ladder)", "short 2 hands", "working: +0.30 gold/s", "no staff needed: +8 living cap", and the
+## ladder)", "short 2 hands", "working: +0.30 gold/s", "no staff needed: +8 housing", and the
 ## heart's "Relish away: slab idle". Templates: view.status. `b` is a view_town buildings entry,
 ## `look` its look_of(), `town` the view_town dict. Rates come from `output` (zero rates left out).
 static func status_of(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
@@ -642,7 +642,8 @@ static func _status_parts(b: Dictionary, look: String, town: Dictionary, bcfg: D
 		"heart":
 			return [[String(sc.get("heart_home" if bool(town.get("relish_home", false)) else "heart_away", "")), false]]
 		"calm":
-			var ben := String(bview.get(bid, {}).get("benefit", ""))
+			# the lot card's benefit with its numbers ("+8 housing"); the view's words when it has none
+			var ben := ", ".join(BuildSort.benefit(bid, {}, bcfg, bview, vcfg)["plain"])
 			if ben == "":
 				return [[String(sc.get("calm_none", "")), false]]
 			return [[BuildSort.fmt(String(sc.get("calm", "")), {"benefit": ben}), false]]

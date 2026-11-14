@@ -257,6 +257,7 @@ func _build_ui() -> void:
 	build.suggestion_changed.connect(_view.set_suggestion)
 	build.queue_changed.connect(_view.set_queue)
 	build.build_started.connect(_view.flash_lot)
+	build.to_realm.connect(_on_return)  # the relic pin's To the realm: the same one exit as the HUD's Return
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_select_tab(_debug_tab())
 	if _demo != "":

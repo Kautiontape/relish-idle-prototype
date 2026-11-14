@@ -79,6 +79,91 @@ static func surplus_rate(town: Dictionary, steady: float, kept_n: float, hcfg: D
 	return maxf(float(w.get("muster_steady", 0.0)), 0.0) if w.has("muster_steady") else 0.0
 
 
+## Why the town keeps fewer workers than its raw steady state: "kept: 9 slots + 10 idle cap", from
+## TownStandins.kept_inputs (api-request #12). "" when `kept_n` is not below `steady` by more than
+## the arrow's tolerance, or when the view carries its own kept value.
+static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n: float, idle_cap: float, hcfg: Dictionary) -> String:
+	var inputs := TownStandins.kept_inputs(town, hud, idle_cap)
+	if inputs.is_empty():
+		return ""
+	if steady - kept_n <= maxf(float(hcfg.get("tol_min", 0.5)), absf(steady) * float(hcfg.get("tol_frac", 0.02))):
+		return ""
+	return BuildSort.fmt(_t(hcfg, "kept_reason"), inputs)
+
+
+## The workers cell's idle line while idle hands are a need (BuildSort.idle_need), as parts
+## [[text, oblique]]: "10 idle: build a Charnel House (+3 jobs) or let them muster", naming the top
+## buildable row of the mission sort that has job slots, its gain the catalog row's `projected` rates
+## (api-request #9, oblique, "now") or else its job count; "10 idle: no job building affordable;
+## mustering to WAR" (or "waiting at the crypt" while nobody musters) when none can be built. [] when
+## the idle hands are no need.
+static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary) -> Array:
+	var hcfg: Dictionary = vcfg.get("hud", {})
+	var need := BuildSort.idle_need(views, vcfg.get("needs", {}), bcfg)
+	if need.is_empty():
+		return []
+	var n := roundi(float(need["idle"]))
+	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview, bcfg)
+	for it in BuildSort.sort_rows(views.get("catalog", {}).get("buildings", []), needs, bview, vcfg):
+		var row: Dictionary = it["row"]
+		var bid := String(row.get("building_id", ""))
+		if not bool(row.get("can_build", false)) or BuildSort.job_slots(bid, bcfg) <= 0:
+			continue
+		var gain: Array = []
+		if row.get("projected") is Dictionary:
+			var rt := BuildSort.rate_texts(row["projected"], vcfg)
+			if not rt.is_empty():
+				gain = [[", ".join(rt), true]]
+		if gain.is_empty():
+			gain = [[BuildSort.fmt(_t(hcfg, "idle_jobs"), {"n": BuildSort.job_slots(bid, bcfg)}), false]]
+		return fill_parts(_t(hcfg, "idle_build"), {"n": str(n), "label": BuildSort.label_of(bid, bview), "gain": gain})
+	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
+	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]
+
+
+## `tpl` with each `{key}` replaced by vars[key]: a String (upright) or parts [[text, oblique]].
+## Returns parts, neighbouring upright texts merged; an unknown key stays as written.
+static func fill_parts(tpl: String, vars: Dictionary) -> Array:
+	var out: Array = []
+	var rest := tpl
+	while true:
+		var i := rest.find("{")
+		var j := rest.find("}", i + 1) if i >= 0 else -1
+		if i < 0 or j < 0:
+			_push(out, rest, false)
+			break
+		var key := rest.substr(i + 1, j - i - 1)
+		_push(out, rest.substr(0, i), false)
+		if vars.has(key):
+			var v: Variant = vars[key]
+			if v is Array:
+				for p in v:
+					_push(out, String(p[0]), bool(p[1]))
+			else:
+				_push(out, str(v), false)
+		else:
+			_push(out, rest.substr(i, j - i + 1), false)
+		rest = rest.substr(j + 1)
+	return out
+
+
+static func _push(out: Array, text: String, oblique: bool) -> void:
+	if text == "":
+		return
+	if not out.is_empty() and bool(out[-1][1]) == oblique and not oblique:
+		out[-1][0] = String(out[-1][0]) + text
+	else:
+		out.append([text, oblique])
+
+
+## The parts joined into one string (tests, tooltips).
+static func parts_text(parts: Array) -> String:
+	var s := ""
+	for p in parts:
+		s += String(p[0])
+	return s
+
+
 ## "+0.07/s" (the oblique part); the upright "→ WAR" is `text.war`.
 static func war_text(rate: float, hcfg: Dictionary) -> String:
 	return net_text(rate, hcfg)
@@ -225,13 +310,14 @@ static func short_slots(town: Dictionary) -> int:
 ## What is stuck, one string per line item, most wanted first: (1) the first resource-short row of
 ## the mission-sorted catalog (gold or bone, its net rate in the dead band or negative, its
 ## `shortage_fix` producer named); (2) any other fixed stream with no flowing producer; (3) workers
-## short of slots. [] when nothing is stuck. `views.fort_names` feeds the mission sort.
-static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -> Array:
+## short of slots. [] when nothing is stuck. `views.fort_names` feeds the mission sort; `bcfg`
+## (buildings.json) lets idle hands rank the job buildings.
+static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary = {}) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var fixes: Dictionary = vcfg.get("shortage_fix", {})
 	var out: Array = []
 	var seen := {}
-	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview)
+	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview, bcfg)
 	for it in BuildSort.sort_rows(views.get("catalog", {}).get("buildings", []), needs, bview, vcfg):
 		var row: Dictionary = it["row"]
 		var reason := String(row.get("reason", ""))

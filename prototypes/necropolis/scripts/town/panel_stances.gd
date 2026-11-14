@@ -2,11 +2,15 @@ extends VBoxContainer
 ## Stances tab (MECHANICS §4.5): the stance slots with their breakdown, and one row per stance with
 ## a toggle (`cmd_set_stance`), state chips in text (on / suspended / active), the hold timer and
 ## the projected change to net rates BEFORE you toggle it (view_stances `projected`, signed and
-## oblique). Rows are built once and updated in place on every bind.
+## oblique). Under each rule, its trade in the town's numbers: the live condition and the hands it
+## would move ("Now: bodies 2 / 200 (fires under 60) → it would fire; Haul to the top: ..."), from the
+## views and the staffing projection. Rows are built once and updated in place on every bind.
 
 signal command_issued
 
 var _vcfg: Dictionary = {}
+var _bcfg: Dictionary = {}
+var _views: Dictionary = {}
 var _base := 2
 var _slots_label: Label
 var _break_label: Label
@@ -18,6 +22,7 @@ var _rows: Dictionary = {}  # stance id -> {toggle, chips, hold, proj, none, id}
 
 func _ready() -> void:
 	_vcfg = ConfigDb.v("town", "view", {})
+	_bcfg = ConfigDb.data.get("buildings", {})
 	_base = int(ConfigDb.data.get("economy", {}).get("stance", {}).get("base_slots", 2))
 	add_theme_constant_override("separation", 6)
 	_slots_label = TownUI.label("", 16)
@@ -74,11 +79,26 @@ func bind(views: Dictionary) -> void:
 	_note_label.text = " ".join(note)
 	_note_label.visible = not note.is_empty()
 	var units: Dictionary = _vcfg.get("rate_units", {})
+	_views = views
+	var town: Dictionary = views.get("town", {})
+	var ladder := TownBehaviour.effective(town)
+	var before := _project(ladder)
 	for s in rows:
 		var id := String(s.get("id", ""))
 		if not _rows.has(id):
 			_make_row(id)
 		_update_row(_rows[id], s, units)
+		var job := TownBehaviour.stance_job(id, town, _vcfg)
+		var after := _project(TownBehaviour.to_top(ladder, job)) if job != "" else []
+		TownUI.set_parts(_rows[id]["trade"], TownBehaviour.stance_trade(id, views, before, after, _vcfg))
+
+
+## TownSim's allocation for `order`: view_staffing_projection when GameState has it, else the
+## display-only stand-in. TODO(api-request #16): the stand-in goes once the view exists.
+func _project(order: Array) -> Array:
+	if Game.state.has_method("view_staffing_projection"):  # called by name: GameState doesn't declare it yet
+		return (Game.state.call("view_staffing_projection", order) as Dictionary).get("jobs", [])
+	return TownStandins.staffing_projection(_views, order, _bcfg)["jobs"]
 
 
 func _make_row(id: String) -> void:
@@ -102,6 +122,9 @@ func _make_row(id: String) -> void:
 	var chips := TownUI.label("", 14, "text_dim")
 	head.add_child(chips)
 	col.add_child(_wrap(String(_vcfg.get("stance_rules", {}).get(id, "")), 12, "text_dim"))
+	var trade := TownUI.parts_label(13, "text", true)  # its trade in the town's numbers
+	trade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(trade)
 	var hold := TownUI.label("", 12, "text_dim")
 	col.add_child(hold)
 	var proj := TownUI.rate_label("", 14)
@@ -109,7 +132,7 @@ func _make_row(id: String) -> void:
 	col.add_child(proj)
 	var none := TownUI.label(_t("no_projection"), 12, "text_dim")
 	col.add_child(none)
-	_rows[id] = {"toggle": toggle, "chips": chips, "hold": hold, "proj": proj, "none": none, "on": false}
+	_rows[id] = {"toggle": toggle, "chips": chips, "hold": hold, "proj": proj, "none": none, "on": false, "trade": trade}
 
 
 func _update_row(r: Dictionary, s: Dictionary, units: Dictionary) -> void:

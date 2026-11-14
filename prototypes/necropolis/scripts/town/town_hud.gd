@@ -2,7 +2,9 @@ extends PanelContainer
 ## Top strip. Streams, not stockpiles (law 10): one cell per stream (workers, living, gold, bone,
 ## bodies), each led by its signed oblique net rate with a sign glyph, then the in/out split, then
 ## the upright stock with its cap bar and "full in" readout; morale with its factors; the tier and
-## what the next one needs; the Return button. A bottleneck line under it names what is stuck.
+## what the next one needs; the Return button. A bottleneck line under it names what is stuck. The
+## workers cell also names the unspent hands and their best use ("10 idle: build a Forge (+2 jobs)
+## or let them muster") next to "→ WAR", and why the town keeps fewer than its steady state.
 ## All logic is HudModel's; this only lays out labels and reuses them on every bind.
 
 signal command_issued
@@ -30,6 +32,8 @@ class CapBar:
 var _hcfg: Dictionary = {}
 var _vcfg: Dictionary = {}
 var _bview: Dictionary = {}
+var _bcfg: Dictionary = {}
+var _idle_cap := 0.0
 var _cells := {}  # stream id -> {net, name, split, stock, bar}
 var _tier: Label
 var _next: Label
@@ -44,6 +48,8 @@ func _ready() -> void:
 	_vcfg = ConfigDb.v("town", "view", {})
 	_hcfg = _vcfg.get("hud", {})
 	_bview = ConfigDb.data.get("buildings_view", {})
+	_bcfg = ConfigDb.data.get("buildings", {})
+	_idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	var sb := TownUI.panel_box()
 	sb.set_content_margin_all(4)
 	add_theme_stylebox_override("panel", sb)
@@ -100,15 +106,23 @@ func _make_cell(id: String) -> Control:
 	col.add_child(split)
 	var war_row: HBoxContainer = null
 	var war_rate: Label = null
-	if id == "workers":  # the surplus past what the town keeps: "+0.07/s → WAR"
+	var war_word: Label = null
+	var idle_line: RichTextLabel = null
+	if id == "workers":  # the surplus past what the town keeps, "+0.07/s → WAR", and the idle hands' best use
 		war_row = HBoxContainer.new()
 		war_row.add_theme_constant_override("separation", 4)
+		war_row.mouse_filter = Control.MOUSE_FILTER_STOP  # the idle line is clipped: its tooltip carries it whole
 		war_rate = TownUI.rate_label("", int(_hcfg.get("split_px", 12)), "text_dim")
 		war_row.add_child(war_rate)
-		war_row.add_child(TownUI.label(String((_hcfg.get("text", {}) as Dictionary).get("war", "")), int(_hcfg.get("split_px", 12)), "text_dim"))
+		war_word = TownUI.label(String((_hcfg.get("text", {}) as Dictionary).get("war", "")), int(_hcfg.get("split_px", 12)), "text_dim")
+		war_row.add_child(war_word)
+		idle_line = TownUI.parts_label(int(_hcfg.get("split_px", 12)), "text")
+		war_row.add_child(idle_line)
 		war_row.visible = false
 		col.add_child(war_row)
 	var stock := _clip(TownUI.label("", int(_hcfg.get("stock_px", 13)), "text"))
+	if id == "workers":
+		stock.mouse_filter = Control.MOUSE_FILTER_STOP  # clipped with the kept reason: the tooltip carries it whole
 	col.add_child(stock)
 	var bar := CapBar.new()
 	bar.ink = ink
@@ -117,7 +131,8 @@ func _make_cell(id: String) -> Control:
 	bar.custom_minimum_size = Vector2(float(bc.get("w_px", 120.0)), float(bc.get("h_px", 6.0)))
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	col.add_child(bar)
-	_cells[id] = {"net": net, "split": split, "stock": stock, "bar": bar, "war_row": war_row, "war_rate": war_rate}
+	_cells[id] = {"net": net, "split": split, "stock": stock, "bar": bar, "war_row": war_row, "war_rate": war_rate,
+		"war_word": war_word, "idle": idle_line}
 	return col
 
 
@@ -159,16 +174,16 @@ func bind(views: Dictionary) -> void:
 	var hud: Dictionary = views.get("hud", {})
 	var rates: Dictionary = views.get("rates", {}).get("rates", {})
 	for id in _cells:
-		_bind_cell(String(id), _cells[id], town, hud, rates.get(id, {}))
+		_bind_cell(String(id), _cells[id], town, hud, rates.get(id, {}), views)
 	_bind_morale(town)
 	_tier.text = String(town.get("tier", "")).capitalize()
 	_next.text = HudModel.next_tier_line(String(town.get("tier", "")), town.get("next_tier", {}), _hcfg, _bview)
-	var stuck := HudModel.bottleneck(views, _vcfg, _bview)
+	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
 	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream
 
 
-func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, flow: Dictionary) -> void:
+func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, flow: Dictionary, views: Dictionary) -> void:
 	var hr := BuildSort.hud_rate(hud, id)
 	var net := float(hr.get("rate", 0.0))
 	c["net"].text = "%s %s" % [HudModel.glyph(net, _hcfg), HudModel.net_text(net, _hcfg)]
@@ -185,10 +200,20 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		var total := float(w.get("total", 0.0))
 		var steady := float(w.get("steady", 0.0))
 		var kept := HudModel.kept(town, hud)
-		c["stock"].text = "%d  %s %s" % [roundi(total), HudModel.steady_text(kept, _hcfg), HudModel.steady_arrow(total, kept, _hcfg)]
+		var why := HudModel.kept_reason(town, hud, steady, kept, _idle_cap, _hcfg)  # TODO(api-request #12)
+		c["stock"].text = "%d  %s %s%s" % [roundi(total), HudModel.steady_text(kept, _hcfg), HudModel.steady_arrow(total, kept, _hcfg),
+			"  (%s)" % why if why != "" else ""]
+		c["stock"].tooltip_text = c["stock"].text
 		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
-		(c["war_row"] as Control).visible = war > 0.0
+		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg)
+		(c["war_row"] as Control).visible = war > 0.0 or not idle.is_empty()
+		(c["war_rate"] as Label).visible = war > 0.0
+		(c["war_word"] as Label).visible = war > 0.0
 		(c["war_rate"] as Label).text = HudModel.war_text(war, _hcfg)
+		TownUI.set_parts(c["idle"], idle)
+		(c["idle"] as Control).visible = not idle.is_empty()
+		(c["war_row"] as Control).tooltip_text = HudModel.parts_text(idle)
+		(c["idle"] as Control).tooltip_text = HudModel.parts_text(idle)
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
 		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]
