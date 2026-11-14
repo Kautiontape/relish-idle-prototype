@@ -408,6 +408,12 @@ static func phase2_hint(break_beats: int, lapse_cost: int) -> String:
 	return s + (" · a lapse costs %d" % lapse_cost if lapse_cost >= 0 else " · a lapse resets the count")
 
 
+## card_unlocked(t, skip_after) -> bool
+##   Whether the Vei win card, shown for `t` real seconds, takes a press yet (`skip_after` s; 0 = at once).
+static func card_unlocked(t: float, skip_after: float) -> bool:
+	return t >= skip_after
+
+
 ## end_card(seed, spent, party_lost, fight_t, horde0, horde) -> Dictionary
 ##   What the Vei win card prints, from the fight's own numbers: time_text, backups spent (phylactery,
 ##   clone, and of how many the run began with), big undead lost of the party, and the backlog spent

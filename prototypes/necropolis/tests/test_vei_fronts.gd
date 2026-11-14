@@ -598,3 +598,13 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(int(mc.get("row_close_pips", -1)) >= 0 and int(mc.get("eta_window_beats", 0)) >= int(mc.get("eta_min_beats", 99)) \
 		and float(mc.get("hint_s", 0.0)) > 0.0, "vei.json meter: row_close_pips, the ETA window and hint_s")
 	t.ok(float(cfg.get("card", {}).get("button_h_px", 0.0)) >= 44.0, "vei.json card: the button is at least 44 px tall")
+	# the card's press gate (a held Space must not dismiss it unseen)
+	var skip := float(cfg.get("card", {}).get("skip_after_s", -1.0))
+	t.ok(skip >= 0.5 and str(cfg.get("card", {}).get("_doc", "")).contains("skip_after_s"), "vei.json card: skip_after_s is set (%s) and documented" % str(skip))
+	t.ok(not BossLogic.card_unlocked(0.0, skip) and not BossLogic.card_unlocked(skip - 0.01, skip) and BossLogic.card_unlocked(skip, skip), "the card takes no press until skip_after_s has passed")
+	var csrc := FileAccess.get_file_as_string("res://scripts/raid/vei_card.gd")
+	var in_i := csrc.find("func _input(")
+	var in_body := csrc.substr(in_i, csrc.find("\nfunc ", in_i + 1) - in_i)
+	var gui_i := csrc.find("func _gui_input(")
+	var gui_body := csrc.substr(gui_i, csrc.find("\nfunc ", gui_i + 1) - gui_i)
+	t.ok(in_body.contains("not can_skip()") and gui_body.contains("can_skip() and"), "keys and the click both go through can_skip()")

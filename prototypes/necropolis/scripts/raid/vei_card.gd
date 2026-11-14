@@ -6,20 +6,25 @@ extends Control
 ## lost, the backlog spent, and one button, "BACK TO THE REALM". Lines and plates only, colours from
 ## Palette, every label 14 px or more, static (nothing moves, so reduced motion has nothing to cut).
 ## The scene (vei_boss.gd `_win_card`) builds it from BossLogic.end_card plus `phyl_total` and
-## `clones_total`, and hands it the callable the button runs. Enter, Space and Escape press it too.
-## vei.json `card` holds the sizes and the dim.
+## `clones_total`, and hands it the callable the button runs. Enter, Space and Escape press it too,
+## and so does a click, all only after `card.skip_after_s` (as the death card's gate): the boss
+## trance key is Space, so a player still holding it as the set piece ends must not dismiss the
+## card unseen. Until then the button is dim. vei.json `card` holds the sizes, the dim and the gate.
 
 var _info := {}
 var _cfg := {}
 var _on_back := Callable()
 var _hover := false
 var _pressed := false
+var _t := 0.0
+var _skip_after := 0.8
 
 
 func setup(info: Dictionary, cfg: Dictionary, on_back: Callable) -> void:
 	_info = info
 	_cfg = cfg
 	_on_back = on_back
+	_skip_after = float(cfg.get("skip_after_s", 0.8))
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	size = get_viewport_rect().size   # a CanvasLayer parent gives the anchors nothing to resolve against
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -32,6 +37,17 @@ func setup(info: Dictionary, cfg: Dictionary, on_back: Callable) -> void:
 	focus_exited.connect(queue_redraw)
 	grab_focus.call_deferred()
 	queue_redraw()
+
+
+func can_skip() -> bool:
+	return BossLogic.card_unlocked(_t, _skip_after)
+
+
+func _process(delta: float) -> void:
+	var was := can_skip()
+	_t += delta / maxf(0.05, Engine.time_scale)
+	if can_skip() != was:
+		queue_redraw()
 
 
 func _plate() -> Rect2:
@@ -54,15 +70,15 @@ func _gui_input(ev: InputEvent) -> void:
 			_hover = h
 			queue_redraw()
 	elif ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
-		if _button_rect().has_point(ev.position):
+		if can_skip() and _button_rect().has_point(ev.position):
 			_press()
 		accept_event()
 
 
 ## The keys, whoever has focus: once the fight is over the scene ignores input (raid.gd), so the card
-## listens itself. Enter, Space and Escape press the button.
+## listens itself. Enter, Space and Escape press the button once `can_skip()`.
 func _input(ev: InputEvent) -> void:
-	if not visible or _info.is_empty():
+	if not visible or _info.is_empty() or not can_skip():
 		return
 	if ev is InputEventKey and ev.pressed and not ev.echo \
 			and (ev.keycode == KEY_ENTER or ev.keycode == KEY_KP_ENTER or ev.keycode == KEY_SPACE or ev.keycode == KEY_ESCAPE):
@@ -158,8 +174,9 @@ func _draw() -> void:
 
 	# the button
 	var b := _button_rect()
-	draw_rect(b, Palette.c("vei", 0.38 if _hover else 0.16))
-	draw_rect(b, vei, false, 3.0 if _hover else 2.0)
-	if has_focus():
+	var live := can_skip()
+	draw_rect(b, Palette.c("vei", 0.38 if (_hover and live) else 0.16))
+	draw_rect(b, vei if live else Palette.c("vei", 0.5), false, 3.0 if (_hover and live) else 2.0)
+	if has_focus() and live:
 		draw_rect(b.grow(5.0), Palette.c("text", 0.8), false, 1.5)
-	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, "BACK TO THE REALM", 20, "text", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
+	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, "BACK TO THE REALM", 20, "text" if live else "text_dim", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
