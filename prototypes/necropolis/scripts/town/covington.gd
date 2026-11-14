@@ -32,6 +32,13 @@ var _refresh_s := 0.25
 var _demo := ""
 var _tier := ""  # the last fetched town tier (the synthetic tier_up's `from`)
 var _fort_names := {}  # fort id -> name, read once from view_realm (the Build tab's chips)
+## Debug-only (`--town-grow=<sim_seconds>`, needs debug_enabled, no autosave and `--fixture=`/`--shot=`):
+## before the first bind an autoplayer builds what the Build tab suggests, on the real TownSim, and
+## skips sim time in view.grow_chunk_s steps until the target passes. `--town-grow-log` prints a line
+## per chunk. `--town-zoom=<cx>,<cy>,<scale>` scales the town view's content about a point.
+var _grow_label: Label
+var _grow_log: Array = []  # [{t, building_id, lot_id}] of what the autoplayer built
+var _grown_s := 0.0
 
 
 func _ready() -> void:
@@ -58,6 +65,8 @@ func setup(_args: Dictionary) -> void:
 	_setup_done = true
 	for f in Game.state.view_realm().get("forts", []):
 		_fort_names[String(f.get("id", ""))] = String(f.get("name", ""))
+	_grow()
+	_zoom()
 	_fetch()
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
@@ -82,6 +91,82 @@ func _read_demo_flag() -> void:
 				_demo = mode
 			else:
 				printerr("Covington: unknown --town-demo=%s (expected full or tierup)" % mode)
+
+
+## The value of a debug arg `--name=value` ("" absent); only a debug build reads it.
+func _debug_arg(name: String) -> String:
+	if not Game.state.debug_enabled:
+		return ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--%s=" % name):
+			return arg.trim_prefix("--%s=" % name)
+	return ""
+
+
+## `--town-grow=<sim_seconds>`: plays the town the way the suggestion tells a new player to (the top
+## buildable row on its nearest lot), skipping view.grow_chunk_s of sim between moves.
+func _grow() -> void:
+	var raw := _debug_arg("town-grow")
+	if raw == "" or not raw.is_valid_float():
+		return
+	var args := OS.get_cmdline_user_args()
+	var harness := false
+	for a in args:
+		if a.begins_with("--fixture=") or a.begins_with("--shot="):
+			harness = true
+	if Game.autosave_enabled or not harness:
+		printerr("Covington: --town-grow refused (needs --fixture= or --shot= alongside, and no autosave)")
+		return
+	var cfg: Dictionary = ConfigDb.v("town", "view", {})
+	var chunk := maxf(float(cfg.get("grow_chunk_s", 60.0)), 1.0)
+	var target := float(raw)
+	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
+		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
+	var log_chunks := "--town-grow-log" in args
+	while _grown_s < target:
+		var pick := BuildSort.autoplay_pick(_fetch_views(), cfgs)
+		if not pick.is_empty():
+			var r: Dictionary = Game.state.cmd_build(pick["building_id"], pick["lot_id"])
+			if bool(r.get("ok", false)):
+				_grow_log.append({"t": _grown_s, "building_id": pick["building_id"], "lot_id": pick["lot_id"]})
+		Game.state.cmd_debug_skip_time(chunk)
+		_grown_s += chunk
+		if log_chunks:
+			var town: Dictionary = Game.state.view_town()
+			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f living=%.1f/%.0f" % [_grown_s, town["tier"],
+				(town["buildings"] as Array).size(), _grow_log.size(), town["workers"]["total"], town["workers"]["steady"],
+				town["living"], town["living_cap"]])
+	if log_chunks:
+		var tw: Dictionary = Game.state.view_town()
+		var rates := []
+		for r in Game.state.view_hud().get("rates", []):
+			if r["id"] in ["gold", "bone", "bodies"]:
+				rates.append("%s %+.3f/s" % [r["id"], float(r["rate"])])
+		print("GROWSTATE t=%d tier=%s buildings=%s workers=%.1f steady=%.1f living=%.1f/%.0f %s gold=%.1f bone=%.1f bodies=%.1f next=%s" % [_grown_s,
+			tw["tier"], ",".join((tw["buildings"] as Array).map(func(b): return "%s@%s(%s)" % [b["building_id"], b["lot_id"], b["state"]])),
+			tw["workers"]["total"], tw["workers"]["steady"], tw["living"], tw["living_cap"], ", ".join(rates), tw["gold"], tw["bone"], tw["bodies"], str(tw["next_tier"])])
+	var h := int(_grown_s) / 3600
+	var m := (int(_grown_s) % 3600) / 60
+	_grow_label = TownUI.label(BuildSort.fmt(String(cfg.get("grow_text", "")),
+		{"h": h, "mm": "%02d" % m, "n": _grow_log.size()}), 14, "select")
+	_grow_label.position = Vector2(12, 8)
+	_grow_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_grow_label.add_theme_stylebox_override("normal", TownUI.panel_box())
+	_view.add_child(_grow_label)
+
+
+## `--town-zoom=<cx>,<cy>,<scale>` (debug): the town view's content scaled about a point.
+func _zoom() -> void:
+	var p := _debug_arg("town-zoom").split(",")
+	if p.size() != 3 or not p[2].is_valid_float() or float(p[2]) <= 0.0:
+		return
+	_view.set_zoom(Vector2(float(p[0]), float(p[1])), float(p[2]))
+	var cfg: Dictionary = ConfigDb.v("town", "view", {})
+	var tag := TownUI.label(BuildSort.fmt(String(cfg.get("zoom_text", "")), {"scale": p[2]}), 14, "select")
+	tag.position = Vector2(12, 8 if _grow_label == null and _demo == "" else 40)
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.add_theme_stylebox_override("normal", TownUI.panel_box())
+	_view.add_child(tag)
 
 
 func _build_ui() -> void:
@@ -192,10 +277,17 @@ func _process(delta: float) -> void:
 
 
 func _fetch() -> void:
-	var s = Game.state
-	_last_rev = s.rev
+	_last_rev = Game.state.rev
 	_since_fetch = 0.0
 	_dirty = false
+	var views := _fetch_views()
+	_tier = String(views["town"].get("tier", ""))
+	for n in _bound:
+		n.bind(views)
+
+
+func _fetch_views() -> Dictionary:
+	var s = Game.state
 	var views := {
 		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
@@ -204,9 +296,7 @@ func _fetch() -> void:
 	}
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
-	_tier = String(views["town"].get("tier", ""))
-	for n in _bound:
-		n.bind(views)
+	return views
 
 
 func _on_game_event(ev: Dictionary) -> void:

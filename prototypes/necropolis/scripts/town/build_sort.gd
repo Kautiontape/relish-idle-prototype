@@ -189,6 +189,30 @@ static func nearest_lot(lots: Array, hops: Dictionary) -> String:
 	return best
 
 
+## The debug autoplayer's move (`--town-grow`): the top buildable row of the mission sort, the one
+## `suggest` marks, on its suggested lot (`nearest_lot`). `cfgs` = {town, buildings_view, buildings,
+## economy} (the configs the town view's model takes); `views` as the shell fetches them. Returns
+## {building_id, lot_id}, or {} when nothing is buildable. Never offers a built unique building.
+static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
+	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
+	var bview: Dictionary = cfgs.get("buildings_view", {})
+	var rows: Array = views.get("catalog", {}).get("buildings", [])
+	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg), bview, vcfg)
+	var sug := suggest(items, bview)
+	if sug.is_empty():
+		return {}
+	var ref: Array = vcfg.get("ref_px", [1600, 900])
+	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))
+	model.update(views, Rect2(0, 0, float(ref[0]), float(ref[1])))
+	var hops := {}
+	for l in model.lots:
+		hops[String(l["id"])] = l["hops"]
+	var lot_id := nearest_lot(sug["lots"], hops)
+	if lot_id == "":
+		return {}
+	return {"building_id": sug["building_id"], "lot_id": lot_id}
+
+
 ## A row can be queued: not gated and it has a lot to take.
 static func can_queue(row: Dictionary, vcfg: Dictionary) -> bool:
 	return not is_gated(row, vcfg) and not (row.get("lots", []) as Array).is_empty()

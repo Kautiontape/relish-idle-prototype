@@ -90,6 +90,7 @@ func run() -> int:
 	_build_eta(day1)
 	_build_benefit()
 	_build_suggest(day1)
+	_autoplay(day1, mid)
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
@@ -1304,7 +1305,7 @@ func _view_keys() -> void:
 		"living_sway_stride_px", "trade_arc_s", "trade_reach_px", "max_trade_arcs", "cart_town_frac", "cart_pip_mass",
 		"relish_light_r", "relish_brighten", "flow_smooth_s", "foreman_strokes", "standin_sales_per_stall", "standin_sales_per_living", "agent",
 		"gate_reasons", "protected", "queue_max", "cap_buildings", "demolish_confirm_s", "placement_dim", "hit_min_px", "cap_bar",
-		"reasons", "states", "needs", "queue_text", "benefit", "card", "hover", "suggest", "ghost", "flash", "shortage_text"]
+		"grow_chunk_s", "grow_text", "zoom_text", "reasons", "states", "needs", "queue_text", "benefit", "card", "hover", "suggest", "ghost", "flash", "shortage_text"]
 	var nested := {"head": ["core_px", "ring_mul", "ring_w_px", "glow"], "warn": ["size_px", "line_px", "glow", "bang_px", "dot_px"],
 		"tierup_head": ["len_px", "gain", "w_mul", "ring_mul", "ring_w_px", "dot_mul", "glow"], "demo_tierup": ["tier", "delay_s"],
 		"bed": ["key", "alpha", "width_px"], "bed_line": ["key", "alpha", "width_px"], "locked_dot": ["key", "alpha", "step_px", "size_px"],
@@ -2853,3 +2854,33 @@ func _hud(day1: Dictionary, mid: Dictionary, pre: Dictionary, demo: Dictionary) 
 	var d: Dictionary = demo["town"]
 	t.ok(float(demo["hud"]["rates"][3]["rate"]) > 0.0 and demo.has("rates") and float(d["workers"]["steady"]) > float(d["workers"]["total"]),
 		"hud: the demo carries signed rates, a steady state above the count and morale factors")
+
+
+func _autoplay(day1: Dictionary, mid: Dictionary) -> void:
+	var pick: Dictionary = BuildSort.autoplay_pick(day1, cfg)
+	var row_ok := false
+	for r in day1["catalog"]["buildings"]:
+		if String(r["building_id"]) == String(pick.get("building_id", "")):
+			row_ok = bool(r["can_build"]) and (r["lots"] as Array).has(pick.get("lot_id", ""))
+	t.ok(not pick.is_empty() and row_ok, "autoplay: day1 picks a buildable row on one of its lots (%s)" % str(pick))
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	t.ok(bool(s.cmd_build(pick["building_id"], pick["lot_id"])["ok"]), "autoplay: the pick is accepted by cmd_build")
+	var none := day1.duplicate(true)
+	for r in none["catalog"]["buildings"]:
+		r["can_build"] = false
+		r["reason"] = "no_gold"
+	t.ok(BuildSort.autoplay_pick(none, cfg).is_empty(), "autoplay: nothing buildable picks {}")
+	var views := {"town": mid["town"], "hud": mid["hud"], "catalog": mid["catalog"], "vei": mid["vei"], "relish": mid["relish"],
+		"big_undead": mid["big_undead"], "fort_names": {}}
+	var rows: Array = views["catalog"]["buildings"].duplicate(true)
+	for r in rows:
+		if String(r["building_id"]) == "crypt":
+			r["can_build"] = true
+			r["count"] = 1
+			r["lots"] = ["lot-01"]
+		else:
+			r["can_build"] = false
+	views["catalog"] = {"buildings": rows}
+	t.ok(BuildSort.autoplay_pick(views, cfg).is_empty(), "autoplay: a built unique building is never picked")

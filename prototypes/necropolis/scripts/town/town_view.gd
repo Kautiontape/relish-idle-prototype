@@ -74,6 +74,8 @@ var _card_lot := ""
 var _sug := {}  # {building_id, label, lots} from the Build tab
 var _queue_raw: Array = []  # BuildSort.ghosts() of the queue
 var _tags: TagsScript
+var _zoom_c := Vector2.ZERO
+var _zoom_k := 1.0  # debug `--town-zoom`: the content's scale about _zoom_c (1 = off)
 
 
 func _ready() -> void:
@@ -123,6 +125,28 @@ func _ready() -> void:
 	card.resized.connect(_place_card)
 	add_child(card)
 	_refresh()
+
+
+## Debug `--town-zoom`: scales the drawn layers (not the lot card) by `k` about `center` (view
+## coordinates), keeping that point where it is on screen centre. A transform, not a crop.
+func set_zoom(center: Vector2, k: float) -> void:
+	_zoom_c = center
+	_zoom_k = k
+	_apply_zoom()
+
+
+func _apply_zoom() -> void:
+	if _zoom_k == 1.0:
+		return
+	var at := size * 0.5 - _zoom_c * _zoom_k
+	for n in [_floor, _beds, _lot_layer, _flow, _agents, _walls, _overlay, _pick, _build, _tags]:
+		if n is Node2D:
+			n.scale = Vector2(_zoom_k, _zoom_k)
+			n.position = at
+		elif n is Control:
+			n.pivot_offset = Vector2.ZERO
+			n.scale = Vector2(_zoom_k, _zoom_k)
+			n.position = at
 
 
 func _layer(n: String, painter := Callable()) -> Node2D:
@@ -341,6 +365,7 @@ func _refresh() -> void:
 	_overlay.queue_redraw()
 	_apply_dim()
 	_pick.queue_redraw()
+	_apply_zoom()
 
 
 func _process(delta: float) -> void:
