@@ -140,6 +140,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_pointers = Pointers.new()
 		_pointers.hud = self
 		add_child(_pointers)
+		move_child(_pointers, 0)   # under the stat block and its plate: the loot pointer never crosses HUD text
 
 	if boss_mode:
 		_boss_block = BossBlock.new()
@@ -155,6 +156,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.offset_top = 10.0
 		_boss_block.offset_bottom = 10.0 + BossBlock.H_BREAK
 		_banner.offset_top = 10.0 + BossBlock.H_BREAK + 8.0
+	if not boss_mode:
+		_banner.offset_top = 116.0   # its own row under the push line (up to two lines), so neither can run into the other
 	_banner_top = _banner.offset_top
 
 
@@ -883,7 +886,7 @@ class PushLine:
 	func _line(f: Font, y: float, s: String) -> void:
 		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 8.0, y), Vector2(w + 8.0, 22.0)), Palette.c("ground", 0.72))
+		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.86))))
 		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 	func _draw() -> void:

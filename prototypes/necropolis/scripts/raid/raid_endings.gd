@@ -20,6 +20,7 @@ var left_spawn_exit := false     # Relish has been outside the spawn exit's radi
 var _raid: Node2D
 var _room := -2                  # Relish's current room
 var _spawn_exit := -1            # the exit Relish spawns inside (spawn sits within its radius)
+var _card: Control = null         # the death card, freed at finish (a standalone result panel replaces it)
 var _seen := {}                  # room index -> true once Relish has stood in it (the HUD's "n of m rooms seen")
 
 
@@ -185,6 +186,7 @@ func on_relish_died() -> void:
 		var card := RaidDeathCard.new()
 		_raid.hud.add_child(card)
 		card.setup(death_rows())
+		_card = card
 		card.dismissed.connect(_finish_death)
 	_raid.get_tree().create_timer(wait).timeout.connect(_finish_death)
 
@@ -224,6 +226,8 @@ func finish(result: Dictionary) -> void:
 		return
 	finished = true
 	ended = true
+	if is_instance_valid(_card):
+		_card.queue_free()
 	Engine.time_scale = 1.0
 	_raid.finished.emit(result)
 	var tele := ""
