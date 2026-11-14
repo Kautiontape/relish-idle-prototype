@@ -2,8 +2,8 @@ class_name OpeningLogic
 extends RefCounted
 ## Pure logic for the opening (GAMEPLAY 6, the first 30 seconds; no autoloads, so headless tests
 ## compile it): whether the game is still young, which ask the objective strip holds (drag the
-## valve, send Relish to the first dungeon, descend into it), the valve pointer's dashes, the pulse
-## levels, and the first-tithe explanation's text. Tuning and words: configs/map_view.json "opening".
+## valve, send Relish to the first dungeon, descend into it), the valve pointer's line and chevrons,
+## the pulse levels, and the first-tithe explanation's text. Tuning and words: configs/map_view.json "opening".
 
 const VALVE := "valve"
 const SEND := "send"
@@ -69,7 +69,7 @@ static func ask(stage_id: String, forts: Array) -> Dictionary:
 	return {"text": "", "target": ""}
 
 
-## The valve pointer (line, triangle edge, hint) shows during the VALVE ask, and not while the
+## The valve pointer (line, triangle edge) shows during the VALVE ask, and not while the
 ## handle is held.
 static func pointer_shown(stage_id: String, dragging: bool) -> bool:
 	return stage_id == VALVE and not dragging
@@ -80,25 +80,47 @@ static func level(wave: float, reduced: bool) -> float:
 	return 1.0 if reduced else clampf(wave, 0.0, 1.0)
 
 
-## The pointer's dashes from `a` to `b` as segment endpoint pairs (draw_multiline's points):
-## dashes of `dash` px, `gap` apart, walking `offset` px along the line toward `b` (the first
-## dash may start before `a` and is clipped to it).
-static func dashes(a: Vector2, b: Vector2, dash: float, gap: float, offset: float) -> PackedVector2Array:
+## The valve pointer's line: from `from_c` (Covington, screen px) to `end` (the valve's FLOOD
+## corner), as [start, end]. It starts `start_px` out from Covington, and only its last `max_px`
+## are kept, so it never crosses the map; a Covington nearer than that keeps the whole line.
+static func pointer_segment(from_c: Vector2, end: Vector2, start_px: float, max_px: float) -> Array:
+	var dir := (end - from_c).normalized()
+	if from_c.distance_to(end) - start_px <= max_px:
+		return [from_c + dir * start_px, end]
+	return [end - dir * max_px, end]
+
+
+## The pointer's chevrons marching from `a` toward `b`, as draw_multiline's segment pairs: every
+## `spacing` px a tip with two arms `half` px back and out, walking `offset` px toward `b`. Tips stay
+## inside the line (the first `half` px and the last are left clear).
+static func chevrons(a: Vector2, b: Vector2, spacing: float, half: float, offset: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
 	var len := a.distance_to(b)
-	var period := dash + gap
-	if len <= 0.0 or period <= 0.0 or dash <= 0.0:
+	if len <= 0.0 or spacing <= 0.0:
 		return out
 	var dir := (b - a) / len
-	var s := fposmod(offset, period) - period
-	while s < len:
-		var s0 := maxf(s, 0.0)
-		var s1 := minf(s + dash, len)
-		if s1 > s0:
-			out.append(a + dir * s0)
-			out.append(a + dir * s1)
-		s += period
+	var perp := Vector2(-dir.y, dir.x)
+	var s := fposmod(offset, spacing) + half
+	while s <= len:
+		var tip := a + dir * s
+		var back := tip - dir * half
+		out.append(back + perp * half)
+		out.append(tip)
+		out.append(tip)
+		out.append(back - perp * half)
+		s += spacing
 	return out
+
+
+## True for the beat after a strip click (since_ms in [0, tempo_ms)); -1 means no flash.
+static func flash_active(since_ms: float, tempo_ms: float) -> bool:
+	return since_ms >= 0.0 and since_ms < tempo_ms
+
+
+## The opening pulse's level with a flash: full for one beat after the click (static, so the same
+## under reduced motion), then the usual level.
+static func flash_level(since_ms: float, tempo_ms: float, wave: float, reduced: bool) -> float:
+	return 1.0 if flash_active(since_ms, tempo_ms) else level(wave, reduced)
 
 
 # --- the 5 s promise --------------------------------------------------------------------
@@ -144,6 +166,18 @@ static func debug_tithe_fort(forts: Array, preferred: String) -> String:
 		if bool(f.get("tithe", {}).get("targeted", false)):
 			return str(f["id"])
 	return preferred
+
+
+## A warning already pending when the map mounts: {fort_id, eta_s} for the first fort a tithe
+## targets, or {} when the explanation was seen (`seen`) or none is targeted.
+static func pending_tithe(forts: Array, seen: bool) -> Dictionary:
+	if seen:
+		return {}
+	for f in forts:
+		var t: Dictionary = f.get("tithe", {})
+		if bool(t.get("targeted", false)):
+			return {"fort_id": str(f["id"]), "eta_s": float(t.get("eta_s", -1.0))}
+	return {}
 
 
 # --- placing the explanation panel ------------------------------------------------------

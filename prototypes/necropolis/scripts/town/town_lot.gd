@@ -275,8 +275,10 @@ func _draw_matte() -> void:
 ## after every view.pip_group.
 func _row_marks(fr: Rect2, b: Dictionary) -> Array:
 	var out: Array = []
-	var slots := int(b.get("slots", 0))
-	var staffed := TownModel.working_of(float(b.get("staffed", 0.0)))
+	var slots_all := int(b.get("slots", 0))
+	var tk := TownModel.slot_ticks(slots_all, TownModel.working_of(float(b.get("staffed", 0.0))), int(vcfg.get("pip_max", 8)))
+	var slots := int(tk["shown"])  # capped at pip_max like the pips, the whole count beside
+	var staffed := int(tk["working"])
 	var pip_key := String(b.get("pip_key", ""))
 	var pips := int(b.get("pips", 0)) if pip_key != "" else 0
 	if slots <= 0 and pips <= 0:
@@ -290,18 +292,24 @@ func _row_marks(fr: Rect2, b: Dictionary) -> Array:
 	var tg := float(vcfg.get("pip_group_gap_px", 0.0)) * k
 	var group := float(vcfg.get("group_gap_px", 6.0)) * k if slots > 0 and pips > 0 else 0.0
 	var count := TownModel.count_label(int(b.get("pip_count", pips)), tally) if pips > 0 else ""
+	var tcount := String(tk["count"])  # beside a capped tick row
+	var fs := maxi(int(vcfg.get("pip_count_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
 	var cw := 0.0
 	if count != "":
-		var fs := maxi(int(vcfg.get("pip_count_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
 		cw = gap * 2.0 + ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var tw := 0.0
+	if tcount != "":
+		tw = gap * 2.0 + ThemeDB.fallback_font.get_string_size(tcount, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var sw := TownModel.row_width(slots, ts.x, gap, tg, tally)
 	var pwid := TownModel.row_width(pips, pw, gap, tg, tally)
-	var x := fr.get_center().x - (sw + group + pwid + cw) * 0.5
+	var x := fr.get_center().x - (sw + tw + group + pwid + cw) * 0.5
 	var y := _band_y(fr)
 	var so := TownModel.row_offsets(slots, ts.x, gap, tg, tally)
 	for i in slots:
 		out.append(["staffed" if i < staffed else "open", Vector2(x + so[i] + ts.x * 0.5, y), ts, ""])
-	x += sw + group
+	if tcount != "":
+		out.append(["count", Vector2(x + sw + gap * 2.0, y), Vector2.ZERO, tcount])
+	x += sw + tw + group
 	var dead := pip_key == "dead" or pip_key == "dead_lit"
 	var po := TownModel.row_offsets(pips, pw, gap, tg, tally)
 	for i in pips:

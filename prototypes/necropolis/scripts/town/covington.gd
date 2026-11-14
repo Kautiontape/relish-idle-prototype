@@ -21,7 +21,9 @@ var _hud: Control
 var _view: Control
 var _panels: Array = []
 var _tabs: Array = []
-var _bound: Array = []  # everything that gets bind() and on_game_event()
+var _bound: Array = []  # everything that gets on_game_event()
+var _later: Array = []  # the nodes a refresh has still to bind, one per frame (see _fetch)
+var _tab := 0  # the tab on show: its panel binds on every fetch, the others once, when shown (see _select_tab)
 var _last_rev := -1
 var _since_fetch := 0.0
 var _dirty := false
@@ -36,6 +38,28 @@ var _fort_names := {}  # fort id -> name, read once from view_realm (the Build t
 ## before the first bind an autoplayer builds what the Build tab suggests, on the real TownSim, and
 ## skips sim time in view.grow_chunk_s steps until the target passes. `--town-grow-log` prints a line
 ## per chunk. `--town-zoom=<cx>,<cy>,<scale>` scales the town view's content about a point.
+## Sound: one shared Synth child (scripts/fx/synth.gd), which owns mute and volume (AudioPrefs; M;
+## harness sessions start muted). town.json `sound.kinds` maps each town event to a Synth kind. Fed by
+## the town view's sfx signal, the crypt tab's raise signals and Pulse's beat.
+var _synth: Synth
+var _beat_i := -1
+var _last_trade := -1.0  # seconds of the last trade blip that sounded (the limiter)
+## The staffing projections the Jobs, Stances and Backups tabs show, made once per rev (project_staffing),
+## and the lot hops (once per town rev); `_last_views` is what the panels were last bound to.
+var _staff_cache := RevCache.new()
+var _hops_cache := RevCache.new()
+var _last_views := {}
+## Debug-only set-piece drivers (debug builds only): `--town-raise[=<lot>]` auto-holds and keeps the
+## raise on the crypt tab (needs `--town-tab=crypt --town-slab=...`); once the rings have landed it
+## stands in for the E3 raise (which mints nothing yet) by granting one big undead and placing it at
+## <lot> with the real cmd_place_big_undead, so the walk-out is driven by the real view change.
+## `--town-place=<uid>:<lot>` places an existing big undead the same way, after demo_raise.place_delay_s.
+## `--town-staff-vat=<slot>[,<slot>]` staffs those clone vats (the real cmd_staff_vat) right after setup's
+## first fetch; the rev change shows it on the next one (a debug driver for the Backups tab's screenshot).
+var _raise_lot := ""
+var _log_set := false  # prints frame numbers of the set-piece beats
+var _frame := 0
+var _walkers_n := 0
 var _grow_label: Label
 var _grow_log: Array = []  # [{t, building_id, lot_id}] of what the autoplayer built
 var _grown_s := 0.0
@@ -67,7 +91,9 @@ func setup(_args: Dictionary) -> void:
 		_fort_names[String(f.get("id", ""))] = String(f.get("name", ""))
 	_grow()
 	_zoom()
+	_debug_slab()
 	_fetch()
+	_debug_set_pieces()
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
 		get_tree().create_timer(float(spec.get("delay_s", 0.0))).timeout.connect(
@@ -103,6 +129,16 @@ func _debug_arg(name: String) -> String:
 	return ""
 
 
+## Whether a debug arg is given, with or without a value (`--name` or `--name=value`); debug builds only.
+func _debug_has(name: String) -> bool:
+	if not Game.state.debug_enabled:
+		return false
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--" + name or arg.begins_with("--%s=" % name):
+			return true
+	return false
+
+
 ## `--town-grow=<sim_seconds>`: plays the town the way the suggestion tells a new player to (the top
 ## buildable row on its nearest lot), skipping view.grow_chunk_s of sim between moves.
 func _grow() -> void:
@@ -126,16 +162,44 @@ func _grow() -> void:
 	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
 	var log_chunks := "--town-grow-log" in args
+	var paid := {"build": {"gold": 0.0, "bone": 0.0, "relics": 0.0, "n": 0}, "upgrade": {"gold": 0.0, "bone": 0.0, "relics": 0.0, "n": 0}}
 	while _grown_s < target:
-		var pick := BuildSort.autoplay_pick(_fetch_views(), cfgs)
+		var vws := _fetch_views()
+		var why := BuildSort.autoplay_why(vws, cfgs) if log_chunks else ""
+		var pick := BuildSort.autoplay_pick(vws, cfgs)
+		var kind := "-"
 		if not pick.is_empty():
-			var r: Dictionary = Game.state.cmd_build(pick["building_id"], pick["lot_id"])
+			var is_up := bool(pick.get("upgrade", false))
+			kind = "upgrade" if is_up else "build"
+			var r: Dictionary = Game.state.cmd_upgrade(pick["lot_id"]) if is_up else Game.state.cmd_build(pick["building_id"], pick["lot_id"])
 			if bool(r.get("ok", false)):
-				_grow_log.append({"t": _grown_s, "building_id": pick["building_id"], "lot_id": pick["lot_id"]})
+				_grow_log.append({"t": _grown_s, "building_id": pick["building_id"], "lot_id": pick["lot_id"], "upgrade": is_up})
+				for k in ["gold", "bone", "relics"]:
+					paid[kind][k] += float((r.get("cost", {}) as Dictionary).get(k, 0.0))
+				paid[kind]["n"] += 1
+			else:
+				kind += "-refused:" + String(r.get("reason", ""))
 		Game.state.cmd_debug_skip_time(chunk)
 		_grown_s += chunk
 		if log_chunks:
 			var town: Dictionary = Game.state.view_town()
+			var counts := {}
+			var lv := []
+			for b in town["buildings"]:
+				counts[b["building_id"]] = int(counts.get(b["building_id"], 0)) + 1
+				lv.append("%s:%s@L%d" % [b["building_id"], b["lot_id"], int(b["level"])])
+			var rr := []
+			for r in Game.state.view_hud().get("rates", []):
+				rr.append("%s=%+.3f" % [r["id"], float(r["rate"])])
+			var slots := 0
+			for j in town.get("jobs", []):
+				slots += int(j.get("slots", 0))
+			var bone_in := float(Game.state.view_rates().get("rates", {}).get("bone", {}).get("in", 0.0))
+			print("GROW2 t=%d pick=%s | %s | bld=%s | rates %s | gold=%.0f bone=%.0f bodies=%.0f" % [_grown_s,
+				str(pick.get("building_id", "-")), why, JSON.stringify(counts), " ".join(rr), town["gold"], town["bone"], town["bodies"]])
+			print("GROW3 t=%d kind=%s levels=%s slots=%d bone_in=%.4f paid_build=%.0fg/%.0fb/%.0fr/%d paid_upgrade=%.0fg/%.0fb/%.0fr/%d" % [_grown_s, kind,
+				",".join(lv), slots, bone_in, paid["build"]["gold"], paid["build"]["bone"], paid["build"]["relics"], paid["build"]["n"],
+				paid["upgrade"]["gold"], paid["upgrade"]["bone"], paid["upgrade"]["relics"], paid["upgrade"]["n"]])
 			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f idle=%.1f muster=%.3f living=%.1f/%.0f" % [_grown_s, town["tier"],
 				(town["buildings"] as Array).size(), _grow_log.size(), town["workers"]["total"], town["workers"]["steady"],
 				town["workers"]["idle"], town["workers"]["muster"], town["living"], town["living_cap"]])
@@ -158,6 +222,26 @@ func _grow() -> void:
 	_view.add_child(_grow_label)
 
 
+## `--town-slab=<husk_uid>:<remnant_uid>,<remnant_uid>` (debug, e.g. h1:r2,r3): puts Relish home
+## (cmd_debug_set_state relish_at covington) and that husk with those remnants on the crypt slab
+## (the crypt tab applies it on the first bind whose inventory has them).
+func _debug_slab() -> void:
+	var raw := _debug_arg("town-slab")
+	if raw == "":
+		return
+	var parts := raw.split(":")
+	var rems: Array = []
+	if parts.size() > 1:
+		for r in parts[1].split(",", false):
+			rems.append(r)
+	var r: Dictionary = Game.state.cmd_debug_set_state({"relish_at": "covington"})
+	if not bool(r.get("ok", false)):
+		printerr("Covington: --town-slab could not bring Relish home (%s)" % r.get("reason", ""))
+	for p in _panels:
+		if p.has_method("debug_preset"):
+			p.debug_preset(parts[0], rems)
+
+
 ## `--town-zoom=<cx>,<cy>,<scale>` (debug): the town view's content scaled about a point.
 func _zoom() -> void:
 	var p := _debug_arg("town-zoom").split(",")
@@ -176,6 +260,14 @@ func _build_ui() -> void:
 	var cfg: Dictionary = ConfigDb.v("town", "view", {})
 	_refresh_s = float(cfg.get("refresh_s", 0.25))
 	_read_demo_flag()
+	_synth = Synth.new()
+	_synth.name = "Synth"
+	add_child(_synth)
+	var kinds: Array = []
+	for k in (ConfigDb.v("town", "sound", {}).get("kinds", {}) as Dictionary).values():
+		if not kinds.has(k):
+			kinds.append(k)
+	_synth.warm(kinds)
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
@@ -236,7 +328,17 @@ func _build_ui() -> void:
 	build.suggestion_changed.connect(_view.set_suggestion)
 	build.queue_changed.connect(_view.set_queue)
 	build.build_started.connect(_view.flash_lot)
+	_panels[3].show_building.connect(_on_show_building.bind(build))  # backups' No vats yet: the Build tab, that building selected
+	build.to_realm.connect(_on_return)  # the relic pin's To the realm: the same one exit as the HUD's Return
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
+	_view.sfx.connect(_on_sfx)
+	var crypt: Control = _panels[4]
+	crypt.hold_started.connect(_play.bind("raise_hold"))
+	crypt.raise_started.connect(_on_raise_started)
+	crypt.raise_landed.connect(_on_raise_landed)
+	for p in _panels:  # the one staffing-projection helper, handed in (a panel never asks GameState for it)
+		if "project" in p:
+			p.project = project_staffing
 	_select_tab(_debug_tab())
 	if _demo != "":
 		var tag := TownUI.label("SYNTHETIC DEMO TOWN (debug)" if _demo == "full" else "SYNTHETIC TIER-UP EVENT (debug)",
@@ -261,10 +363,19 @@ func _debug_tab() -> int:
 
 
 func _select_tab(i: int) -> void:
+	var was := _tab
+	_tab = i
 	for k in _panels.size():
 		_panels[k].visible = (k == i)
 		_tabs[k].set_pressed_no_signal(k == i)
 		_tabs[k].add_theme_stylebox_override("normal", TownUI.button_box("active" if k == i else "normal"))
+	if not _last_views.is_empty() and (i != was or i == 0):  # a hidden panel is current the moment it shows
+		_panels[i].bind(_last_views)
+
+
+func _on_show_building(bid: String, build: Control) -> void:
+	_select_tab(0)
+	build.select_building(bid)
 
 
 func _on_command_issued() -> void:
@@ -274,19 +385,66 @@ func _on_command_issued() -> void:
 func _process(delta: float) -> void:
 	if not _setup_done:
 		return
+	_frame += 1
+	if _log_set and _view.agents != null and _view.agents.walkers.size() != _walkers_n:
+		_walkers_n = _view.agents.walkers.size()
+		print("TOWNSET walkers=%d frame=%d" % [_walkers_n, _frame])
+	# a muted synth computes no beat; by clock otherwise, so it steps under reduced motion too
+	var beat := TownSound.beat_step(_synth.is_muted(), _beat_i, Pulse.now_ms(), Pulse.tempo_ms)
+	_beat_i = int(beat["i"])
+	if bool(beat["fire"]):
+		_play("beat")
+	if not _later.is_empty():
+		(_later.pop_front() as Node).bind(_last_views)
 	_since_fetch += delta
-	if _dirty or (Game.state.rev != _last_rev and _since_fetch >= _refresh_s):
+	if _dirty:
 		_fetch()
+	elif Game.state.rev != _last_rev and _since_fetch >= _refresh_s:
+		_fetch(true)
 
 
-func _fetch() -> void:
+## Fetches the views and binds what is on screen. `spread` (the twice-a-second refresh) fetches in this frame
+## and binds one node in each frame after, so no frame carries the whole refresh; a command's refresh, the
+## setup and the debug drivers bind it all at once.
+func _fetch(spread := false) -> void:
 	_last_rev = Game.state.rev
 	_since_fetch = 0.0
 	_dirty = false
 	var views := _fetch_views()
 	_tier = String(views["town"].get("tier", ""))
-	for n in _bound:
+	_last_views = views
+	var now := _bound.filter(_binds_now)
+	if spread:
+		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
+		return
+	_later = []
+	for n in now:
 		n.bind(views)
+
+
+## Whether `n` binds on this fetch: the HUD and the town view always; the tab on show; and the Build tab even
+## hidden, because it owns what the town view shows whatever tab is open (the suggestion tag, the queue ghosts,
+## the placement check) and measures the build throughput between binds. A hidden Build tab skips its rows
+## itself. The other tabs own nothing outside their own nodes: a hidden one keeps `_last_views` and binds once
+## when shown.
+func _binds_now(n: Node) -> bool:
+	var i := _panels.find(n)
+	return i < 0 or i == _tab or i == 0
+
+
+## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: the projection
+## view when GameState has it (api-request #16), else the display-only stand-in. Made once per (rev,
+## order, extra); the tabs get this as a Callable and never call GameState for it.
+func project_staffing(order: Array, extra := {}) -> Array:
+	var s = Game.state
+	var real: bool = s.has_method("view_staffing_projection")  # by name: GameState doesn't declare it yet
+	# the real view is as fresh as GameState; the stand-in reads the views fetched last
+	var key: int = int(s.rev) if real else int(_last_views.get("town", {}).get("rev", -1))
+	return _staff_cache.fetch(key, [order, extra], func() -> Variant:
+		if real:
+			var args: Array = [order] if extra.is_empty() else [order, extra]
+			return (s.callv("view_staffing_projection", args) as Dictionary).get("jobs", [])
+		return TownStandins.project(_last_views, order, ConfigDb.data.get("buildings", {}), extra)["jobs"]) as Array
 
 
 func _fetch_views() -> Dictionary:
@@ -294,18 +452,123 @@ func _fetch_views() -> Dictionary:
 	var views := {
 		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
-		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
-		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,
+		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(), "party": s.view_party(),
+		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names, "forts": _forts(s.view_realm()),
 	}
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
+	# the same lot hops the autoplayer breaks ties with, and the one suggestion the Build tab and the HUD show,
+	# computed once per fetch for every panel (the town view's own model binds after the HUD, so it can't lend them)
+	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
+		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
+	# (TownModel._layout reads only config and ref_px, so the hops never change: one compute, kept)
+	views["lot_hops"] = _hops_cache.fetch(0, "hops", func() -> Variant:
+		return BuildSort.lot_maps(views, cfgs)["hops"])
+	views["tab"] = BuildSort.tab_suggestion(views, cfgs["buildings_view"], cfgs["buildings"], cfgs["town"].get("view", {}))
 	return views
+
+
+## The forts as the crypt's Siege… chooser needs them: [{id, name, held}] in world order.
+func _forts(realm: Dictionary) -> Array:
+	var out: Array = []
+	for f in realm.get("forts", []):
+		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false))})
+	return out
 
 
 func _on_game_event(ev: Dictionary) -> void:
 	for n in _bound:
 		if n.has_method("on_game_event"):
 			n.on_game_event(ev)
+
+
+## Plays the Synth kind town.json `sound.kinds` gives `event` (nothing when it has none).
+func _play(event: String) -> void:
+	var kind := TownSound.kind_for(ConfigDb.v("town", "sound", {}), event)
+	if kind != "":
+		_synth.play(kind)
+
+
+func _on_sfx(id: String) -> void:
+	match id:
+		"tier_up":
+			_play("tier_up")
+		"trade":
+			var now := float(Time.get_ticks_msec()) * 0.001
+			if TownSound.allow(now, _last_trade, float(ConfigDb.v("town", "sound", {}).get("trade_min_gap_s", 0.0))):
+				_last_trade = now
+				_play("trade_blip")
+
+
+func _on_raise_started() -> void:
+	_view.echo_raise()
+	_play("raise_grow")
+	if _log_set:
+		print("TOWNSET raise_started frame=%d" % _frame)
+
+
+func _on_raise_landed() -> void:
+	_play("raise_done")
+	if _log_set:
+		print("TOWNSET raise_landed frame=%d" % _frame)
+	if _raise_lot != "":
+		var lot := _raise_lot
+		_raise_lot = ""
+		var delay := float(ConfigDb.v("town", "view", {}).get("demo_raise", {}).get("place_delay_s", 0.0))
+		get_tree().create_timer(delay).timeout.connect(_debug_raise_walk.bind(lot))
+
+
+## The debug set-piece drivers (see _raise_lot). All of them need a debug build.
+func _debug_set_pieces() -> void:
+	if not Game.state.debug_enabled:
+		return
+	var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_raise", {})
+	for slot in _debug_arg("town-staff-vat").split(",", false):
+		if slot.is_valid_int():
+			Game.state.cmd_staff_vat(int(slot), true)
+	if _debug_has("town-raise"):
+		_log_set = true
+		var lot := _debug_arg("town-raise")
+		_raise_lot = lot if lot != "" else _free_lot()
+		for p in _panels:
+			if p.has_method("debug_autoraise"):
+				p.debug_autoraise(float(spec.get("delay_s", 0.0)))
+	var place := _debug_arg("town-place").split(":")
+	if place.size() == 2:
+		_log_set = true
+		get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(_debug_place.bind(place[0], place[1]))
+
+
+## A building with no foreman, other than the crypt, for the demo raise's walk-out.
+func _free_lot() -> String:
+	for b in Game.state.view_town().get("buildings", []):
+		if String(b.get("foreman", "")) == "" and String(b.get("building_id", "")) != "crypt" and String(b.get("state", "")) != "constructing":
+			return String(b.get("lot_id", ""))
+	return ""
+
+
+## Stands in for the E3 raise (a stub that mints nothing): one big undead is granted, named as the demo
+## names it, and placed at `lot` with the real place command.
+func _debug_raise_walk(lot: String) -> void:
+	var before := {}
+	for e in Game.state.view_big_undead().get("big_undead", []):
+		before[String(e["uid"])] = true
+	Game.state.cmd_debug_grant({"big_undead": 1})
+	for e in Game.state.view_big_undead().get("big_undead", []):
+		var uid := String(e["uid"])
+		if not before.has(uid):
+			var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_raise", {})
+			Game.state.cmd_rename_big_undead(uid, String(spec.get("name", "")))
+			_debug_place(uid, lot)
+			return
+	printerr("Covington: --town-raise could not mint a big undead (at the cap?)")
+
+
+func _debug_place(uid: String, lot: String) -> void:
+	var r: Dictionary = Game.state.cmd_place_big_undead(uid, "town:" + lot)
+	_dirty = true
+	if _log_set:
+		print("TOWNSET place %s -> %s ok=%s %s frame=%d" % [uid, lot, str(r.get("ok", false)), str(r.get("reason", "")), _frame])
 
 
 func _on_return() -> void:

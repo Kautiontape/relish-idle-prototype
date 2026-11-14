@@ -38,6 +38,9 @@ signal command_issued
 signal lot_clicked(lot_id: String)
 signal right_clicked
 signal suggestion_dismissed
+## A sound cue for the shell's synth: "tier_up" when the walls start drawing, "trade" on each sale's arc
+## (the synth's limiter keeps blips sparse).
+signal sfx(id: String)
 
 const LotScript := preload("res://scripts/town/town_lot.gd")
 const FlowScript := preload("res://scripts/town/town_flow.gd")
@@ -76,6 +79,8 @@ var _queue_raw: Array = []  # BuildSort.ghosts() of the queue
 var _tags: TagsScript
 var _zoom_c := Vector2.ZERO
 var _zoom_k := 1.0  # debug `--town-zoom`: the content's scale about _zoom_c (1 = off)
+var _held_floats: Array = []  # floats on a building whose foreman is still walking there: shown on arrival
+var _trades_seen := 0
 
 
 func _ready() -> void:
@@ -166,8 +171,8 @@ func bind(v: Dictionary) -> void:
 func on_game_event(ev: Dictionary) -> void:
 	match String(ev.get("type", "")):
 		"tier_up":
-			if _walls != null:
-				_walls.tier_up(String(ev.get("tier", "")))
+			if _walls != null and _walls.tier_up(String(ev.get("tier", ""))):
+				sfx.emit("tier_up")
 		"stance_fired":
 			# the affected agents flash on the next Pulse beat (a changed fired_beat_id does the same
 			# on the next bind; the beat id keeps one firing from flashing twice)
@@ -229,6 +234,12 @@ func set_placement(building_id: String, lots: Array) -> void:
 		_pick.queue_redraw()
 
 
+## A raise was kept in the crypt tab: the slab's rings here contract toward the crypt for a beat.
+func echo_raise() -> void:
+	if _flow != null:
+		_flow.echo_raise()
+
+
 ## The lot the inspector shows (dashed `select` outline); "" for none.
 func set_selected_lot(lot_id: String) -> void:
 	_selected = lot_id
@@ -256,9 +267,11 @@ func _apply_suggestion() -> void:
 		_build.set_suggestion("", "")
 		return
 	var hops := {}
+	var sizes := {}
 	for l in model.lots:
 		hops[l["id"]] = l["hops"]
-	_build.set_suggestion(BuildSort.nearest_lot(_sug.get("lots", []), hops), String(_sug.get("label", "")))
+		sizes[l["id"]] = l["size"]
+	_build.set_suggestion(BuildSort.nearest_lot(_sug.get("lots", []), hops, sizes), String(_sug.get("label", "")))
 
 
 ## The stand-in queue as BuildSort.ghosts(): numbered ghosts on their lots.
@@ -334,7 +347,14 @@ func _refresh() -> void:
 	model.update(views, Rect2(Vector2.ZERO, size))
 	agents.sync(model, views)
 	if not model.floats.is_empty():
-		_tags.add_floats(model.floats)
+		# a float on a building a foreman is still walking to waits for him (the rate bump lands on arrival)
+		var now: Array = []
+		for f in model.floats:
+			if agents.is_walking(String(f["lot_id"])):
+				_held_floats.append(f)
+			else:
+				now.append(f)
+		_tags.add_floats(now)
 	if relayout:
 		_laid = size
 		while _lots.size() < model.lots.size():
@@ -375,6 +395,14 @@ func _process(delta: float) -> void:
 		return
 	agents.step(delta, Pulse.phase(), Pulse.reduced_motion)
 	_agents.queue_redraw()
+	if agents.trades_fired != _trades_seen:
+		_trades_seen = agents.trades_fired
+		sfx.emit("trade")
+	if not _held_floats.is_empty():
+		var due: Array = _held_floats.filter(func(f): return not agents.is_walking(String(f["lot_id"])))
+		if not due.is_empty():
+			_held_floats = _held_floats.filter(func(f): return agents.is_walking(String(f["lot_id"])))
+			_tags.add_floats(due)
 	for n in _lots:
 		# Relish's light lifts the lot by her brighten. Keep view.relish_brighten small: modulate above 1
 		# clips the matter colours' saturated channels (a big lift turns living orange amber). Steady

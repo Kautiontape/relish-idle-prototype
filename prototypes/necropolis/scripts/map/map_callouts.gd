@@ -4,10 +4,11 @@ extends Node2D
 ## midpoint of each lane that carries a `why`, joined to the lane by a 1 px leader. Drawn in
 ## screen pixels: the node is scaled by 1/zoom, so text is the same size at every zoom. The
 ## layout (text, plate rects, greedy placement) is rebuilt only when the model's rev, the zoom
-## tier or the zoom changes, never per frame; while the card is open, also when it moves or the
+## tier, the zoom, a drag starting or ending, or a held fort's chip rect changes, never per frame; while the card is open, also when it moves or the
 ## camera pans (the card is fixed on screen, so a pan moves it over the world). Lanes that share a
 ## kind, a cause and a source fold into one callout at that source ("WAR ×9 · valve · +2.6/s
-## total", HudLogic.callout_items). A callout never
+## total", HudLogic.callout_items). While the valve is dragged only callouts.drag_max_count show, the
+## loudest. A callout never
 ## takes a place under the open card or over a held fort's chip. Text and placement:
 ## scripts/map/hud_logic.gd.
 
@@ -20,6 +21,10 @@ var _rev := -2
 var _tier := ""
 var _zoom := -1.0
 var _card_key: Array = []
+var _chip_sig: Array = []  # what the chip rects depend on: recomputed only when it changes
+var _chip_rects_cache: Array = []
+var _chip_key: Array = []  # the held forts' chip rects as drawn (HudLogic.rects_key): a moved chip re-places
+var _capped := false  # a valve drag is on: only callouts.drag_max_count show
 var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
 
 
@@ -29,9 +34,17 @@ func _process(_delta: float) -> void:
 	var z := cam.zoom.x
 	var eps: float = MapLogic.cfg()["callouts"]["zoom_eps"]
 	var ck := _card_rect_key()
-	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps and ck == _card_key:
+	var sig := _chip_signature(z)
+	if sig != _chip_sig:  # the chip rects cost a measure and a placement per held fort: not per frame
+		_chip_sig = sig
+		_chip_rects_cache = _chip_rects(z, cam.tier)
+	var chips := HudLogic.rects_key(_chip_rects_cache)
+	var capped := not model.projection.is_empty()  # set only while the valve is being dragged
+	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps and ck == _card_key and chips == _chip_key and capped == _capped:
 		return
 	_card_key = ck
+	_chip_key = chips
+	_capped = capped
 	_rev = model.rev
 	_tier = cam.tier
 	_zoom = z
@@ -54,10 +67,27 @@ func _occupied(z: float) -> Array:
 	var out: Array = []
 	if not _card_key.is_empty():
 		out.append(HudLogic.screen_to_zoomed(_card_key[0], cam.position, z, get_viewport_rect().size))
-	if nodes != null and IdleLogic.chip_shown(_tier, z):
+	out.append_array(_chip_rects_cache)
+	return out
+
+
+## What the chips' drawn rects follow: the model rev (held set, clocks, projection), the zoom and
+## tier, the drag, the dragged margins (margin_sig: a drag moves them without a rev change), and
+## where Relish's token is drawn (a chip steps clear of it), on a coarse grid (callouts.token_key_px)
+## so her travelling does not refresh it every frame.
+func _chip_signature(z: float) -> Array:
+	var rp: Vector2 = nodes.relish_drawn_pos() if nodes != null else Vector2.ZERO
+	var grid: float = MapLogic.cfg()["callouts"]["token_key_px"]
+	return [model.rev, roundi(z * 1000.0), cam.tier, not model.projection.is_empty(), model.margin_sig, roundi(rp.x / grid), roundi(rp.y / grid)]
+
+
+## The held forts' chips as drawn (shift included), in this layer's frame; none while chips are hidden.
+func _chip_rects(z: float, tier: String) -> Array:
+	var out: Array = []
+	if nodes != null and IdleLogic.chip_shown(tier, z):
 		for f in model.forts:
 			if bool(f.get("held", false)):
-				var r := nodes.chip_world_rect(f)  # where it is drawn, shift included
+				var r := nodes.chip_world_rect(f)
 				out.append(Rect2(r.position * z, r.size * z))
 	return out
 
@@ -104,7 +134,7 @@ func _layout(z: float) -> void:
 		var anchor := (model.node_pos(str(r["from"])) if bool(r.get("group", false)) else _mid(r)) * z
 		items.append({"parts": p, "anchor": anchor, "hw": hw, "rw": rw, "text_h": text_h})
 		options.append(HudLogic.candidate_rects(anchor, size, Vector2(float(off[0]), float(off[1]))))
-	var picks := HudLogic.place(options, int(cfg["max_count"]), float(cfg["gap_px"]), _occupied(z))
+	var picks := HudLogic.place(options, HudLogic.callout_cap(_capped), float(cfg["gap_px"]), _occupied(z))
 	for i in items.size():
 		if picks[i] < 0:
 			continue

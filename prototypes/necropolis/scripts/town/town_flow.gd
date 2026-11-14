@@ -18,9 +18,31 @@ var agents: TownAgents
 ## The crypt's footprint (the slab sits at its centre); an empty rect when the town has no crypt.
 var slab_rect := Rect2()
 
+var _echo_ms := -1.0  # Pulse.now_ms() when a raise's echo began; -1 = none
+
 
 func _process(_delta: float) -> void:
 	queue_redraw()
+
+
+## A raise: the slab's rings contract toward the crypt's centre over view.raise_echo.beats beats, then
+## settle back (the town's echo of the crypt tab's collapse). Reduced motion: no movement, the rings
+## flash bright for the same time.
+func echo_raise() -> void:
+	_echo_ms = Pulse.now_ms()
+
+
+## 0..1..0 through the echo (0 when none): sin over its length.
+func _echo() -> float:
+	if _echo_ms < 0.0:
+		return 0.0
+	var spec: Dictionary = vcfg.get("raise_echo", {})
+	var dur := float(spec.get("beats", 1.0)) * Pulse.tempo_ms
+	var x := (Pulse.now_ms() - _echo_ms) / dur if dur > 0.0 else 1.0
+	if x >= 1.0:
+		_echo_ms = -1.0
+		return 0.0
+	return 1.0 if Pulse.reduced_motion else sin(PI * clampf(x, 0.0, 1.0))
 
 
 func _draw() -> void:
@@ -91,8 +113,12 @@ func _draw_slab() -> void:
 	var alpha := float(vcfg.get("slab_ring_alpha" if home else "slab_ring_away_alpha", 1.0))
 	var wave := Pulse.wave(0.0, model.depth)
 	var margins: Array = vcfg.get("slab_rings_px", [])
+	var echo := _echo()
+	var pull := 0.0 if Pulse.reduced_motion else echo * float(vcfg.get("raise_echo", {}).get("shrink", 0.0))
+	if echo > 0.0:
+		alpha = lerpf(alpha, float(vcfg.get("raise_echo", {}).get("flash_alpha", 1.0)), echo)
 	for m in margins:
-		LineGlow.polyline(self, _ellipse(float(m) * k), Palette.c("undead", alpha), w, wave)
+		LineGlow.polyline(self, _ellipse(float(m) * k * (1.0 - pull)), Palette.c("undead", alpha), w, maxf(wave, echo))
 	if margins.is_empty() or Pulse.reduced_motion or not home:
 		return
 	# One ring rides out from the outermost each beat, fading as it goes.

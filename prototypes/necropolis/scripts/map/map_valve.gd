@@ -30,7 +30,10 @@ var _workers: Label
 var _supports: Label
 var _over_rate: Label  # on WAR's feed line: "+3.1/s"
 var _over_text: Label  # "overflows to Vei"
-var _payoff: HBoxContainer  # the payoff line's spans, the panel's last row
+var _payoff: VBoxContainer  # the payoff, the panel's last block: two rows reserved (the cost may wrap)
+var _payoff_w := 0.0  # the payoff's inner width: the panel's, less its padding
+var _payoff_key := ""  # the parts' kinds and texts and the row width the Labels were last built for
+var _payoff_parts: Array = []  # the parts shown, [{kind, text}]: the differential and odds, then the costs
 var _since_release := -1.0  # seconds since the last drag's release (-1: none yet); the payoff's hold
 var _sig := ""
 var _proj := {}  # the last projection (IdleLogic), reused while the valve hasn't moved
@@ -59,10 +62,14 @@ func _ready() -> void:
 	# the payoff line spans the panel under the triangle's buttons and the rows, its height reserved
 	# so the panel never jumps when it shows
 	var top := maxf(_origin.y + tri_h + cgap + float(btn[1]), inner + col.get_combined_minimum_size().y) + inner
-	_payoff = _hbox(self, int(c["valve_payoff_sep_px"]))
+	_payoff = VBoxContainer.new()
+	_payoff.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_payoff.add_theme_constant_override("separation", int(c["valve_payoff_row_gap_px"]))
+	add_child(_payoff)
 	_payoff.position = Vector2(inner, top)
+	_payoff_w = w - inner * 2.0
 	var line_h := MapType.rate_font().get_height(MapType.size_of("size_rate"))
-	_place(cfg, w, top + line_h + inner)
+	_place(cfg, w, top + line_h * 2.0 + float(c["valve_payoff_row_gap_px"]) + inner)
 	refresh(true)
 
 
@@ -145,7 +152,8 @@ func _hbox(parent: Node, sep: int) -> HBoxContainer:
 	var h := HBoxContainer.new()
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_theme_constant_override("separation", sep)
-	parent.add_child(h)
+	if parent != null:
+		parent.add_child(h)
 	return h
 
 
@@ -175,7 +183,8 @@ func refresh(force := false) -> void:
 	var proj := _projection(shown)
 	if _dragging:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
-	var payoff := _payoff_line(proj)
+	var pay_parts := _payoff_parts_for(proj)
+	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
 	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, model.lanes, proj, _dragging))
 	var sig := "%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
@@ -195,18 +204,81 @@ func refresh(force := false) -> void:
 	var sup := ValveLogic.supports_text(proj)
 	_supports.text = sup
 	_supports.visible = sup != ""
-	_spans_into(_payoff, payoff)
+	_payoff_rows(pay_parts)
 	queue_redraw()
 
 
-## The payoff line while it shows (ValveLogic.payoff_shown), else "": Vei's differential now and
-## at the valve shown, the "now" side at the current valve through the same projection.
-func _payoff_line(proj: Dictionary) -> String:
+## The payoff's parts while it shows (ValveLogic.payoff_shown), else []: Vei's differential now and
+## at the valve shown (the "now" side at the current valve through the same projection) with the
+## drain or odds, then what the drag costs (ValveLogic.payoff_costs against the same base split).
+func _payoff_parts_for(proj: Dictionary) -> Array:
 	if not ValveLogic.payoff_shown(_dragging, _since_release):
-		return ""
+		return []
 	var base := IdleLogic.split_at(model.state, model.hud, model.hud.get("valve", {}), IdleLogic.held_forts(model.forts).size())
 	var p := ValveLogic.payoff(model.vei, proj, base, float(model.realm_cfg.get("K", 0.0)))
-	return ValveLogic.payoff_line(p, float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0)))
+	var eps := float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0))
+	var parts: Array = [{"kind": "main", "text": ValveLogic.payoff_line(p, eps)}]
+	parts.append_array(ValveLogic.payoff_cost_parts(proj, base, eps))
+	return parts
+
+
+## Lays the parts out in the payoff's two rows: one row when it fits the panel's inner width, else
+## the costs wrap whole under the first part, and the ones that still do not fit are dropped
+## (ValveLogic.payoff_rows).
+func _payoff_rows(parts: Array) -> void:
+	var key := "%s|%s" % [_payoff_w, "|".join(PackedStringArray(parts.map(func(q): return "%s:%s" % [q["kind"], q["text"]])))]
+	if key == _payoff_key:  # the same text on the same rows: keep the Labels
+		_payoff_parts = parts
+		return
+	_payoff_key = key
+	_payoff_parts = parts
+	for ch in _payoff.get_children():
+		_payoff.remove_child(ch)
+		ch.queue_free()
+	if parts.is_empty():
+		return
+	var sep_text := str(MapLogic.cfg()["controls"]["payoff_sep"])
+	var boxes: Array = []
+	var widths: Array = []
+	var kinds: Array = []
+	for part in parts:
+		var box := _hbox(null, int(MapLogic.cfg()["controls"]["valve_payoff_sep_px"]))
+		_spans_into(box, str(part["text"]))
+		boxes.append(box)
+		kinds.append(str(part["kind"]))
+		widths.append(_row_w(box))
+	var sep_probe := _sep_label(sep_text)
+	var sep_w := sep_probe.get_minimum_size().x
+	sep_probe.free()
+	var plan := ValveLogic.payoff_rows(widths, kinds, sep_w, _payoff_w)
+	var rows: Array = [_hbox(_payoff, 0), _hbox(_payoff, 0)]
+	var used := [0, 0]
+	for i in parts.size():
+		var r: int = plan[i]
+		if r < 0:
+			boxes[i].free()
+			continue
+		if used[r] > 0:
+			rows[r].add_child(_sep_label(sep_text))
+		rows[r].add_child(boxes[i])
+		used[r] += 1
+
+
+## A row of labels' width: their minimum widths plus the gaps between them (a container off the tree
+## can hand back a stale combined size).
+func _row_w(box: HBoxContainer) -> float:
+	var w := 0.0
+	for ch in box.get_children():
+		w += (ch as Control).get_minimum_size().x
+	return w + float(maxi(box.get_child_count() - 1, 0) * box.get_theme_constant("separation"))
+
+
+func _sep_label(text: String) -> Label:
+	var l := Label.new()
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.text = text
+	MapType.style_label(l, "text_dim")
+	return l
 
 
 ## The payoff line as runs: its rates in the rate face (AwayLogic.spans), the rest as labels.
@@ -214,7 +286,7 @@ func _spans_into(row: HBoxContainer, text: String) -> void:
 	for ch in row.get_children():
 		row.remove_child(ch)
 		ch.queue_free()
-	for sp in AwayLogic.spans(text):
+	for sp in ValveLogic.payoff_spans(text):
 		var l := Label.new()
 		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		l.text = str(sp["text"])

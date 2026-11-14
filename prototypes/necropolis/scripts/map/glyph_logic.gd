@@ -169,16 +169,31 @@ static func party_layout(rp: Vector2, heading: float, travelling: bool, n: int, 
 
 ## The ring the garrison's worker glyphs stand on inside a held fort of `tier` at `zoom`: clear of
 ## the state glyph (constant on screen, so its world size shrinks as you zoom in) and inside the
-## pip ring. {radius, slots}: slots = how many tangential workers fit (0 when none do).
+## pip ring. {radius, slots, scale}: slots = how many tangential workers fit (0 when none do).
+## The worker glyph shrinks (scale < 1, down to garrison_min_len_px on screen) before the ring
+## gives up; the scale is the one the slots were measured at.
 static func garrison_ring(tier: int, zoom: float) -> Dictionary:
-	var n := NodeLogic.ncfg()
 	var z := maxf(zoom, 0.001)
+	var k_min := minf(_g("garrison_min_len_px") / maxf(float(shape(UNDEAD)["len"]) * z, 0.001), 1.0)
+	var k := 1.0
+	while true:
+		k = maxf(k, k_min)
+		var ring := _ring_at(tier, z, k)
+		if int(ring["slots"]) > 0 or k <= k_min:
+			ring["scale"] = k
+			return ring
+		k *= _g("garrison_shrink_step")
+	return {"radius": 0.0, "slots": 0, "scale": k}
+
+
+static func _ring_at(tier: int, z: float, k: float) -> Dictionary:
+	var n := NodeLogic.ncfg()
 	var s := shape(UNDEAD)
-	var half_len := float(s["len"]) * 0.5
-	var head := float(s["head_r"])
-	var halo := maxf(_g("garrison_halo_max_px"), float(s["width"])) * 0.5
+	var half_len := float(s["len"]) * 0.5 * k
+	var head := float(s["head_r"]) * k
+	var halo := maxf(_g("garrison_halo_max_px"), float(s["width"])) * 0.5 * k
 	var gap := _g("garrison_gap_px")
-	var h := NodeLogic.state_glyph_half(zoom)
+	var h := NodeLogic.state_glyph_half(z)
 	# the held state diamond's tip, or its will-fall slash, with the state halo round either
 	var state_r := maxf(h, h * sqrt(2.0) * float(n.get("state_slash_ext", 0.0))) + float(n.get("state_halo_max_px", 0.0)) * 0.5 / z
 	var pip_r := maxf(float(n.get("pip_radius_px", 0.0)), float(n.get("pip_min_screen_px", 0.0)) / z * 0.5)
@@ -232,3 +247,30 @@ static func garrison_fill(units: int, slots: int) -> Dictionary:
 		return {"shown": u, "plus": 0}
 	var shown := mini(most, slots - 1)
 	return {"shown": shown, "plus": u - shown}
+
+
+## The garrison's whole plan at a held fort of `tier` centred on `centre`: {mode ("ring" | "out"),
+## scale (the worker glyph's size factor), glyphs [{pos, dir}], plus (the "+N" count), plus_pos}.
+## "ring": the slots inside the pip ring (garrison_fill). "out": no slot fits even at the minimum
+## size, so one worker glyph and the remainder as "+N" stand just outside the fort's ring, on
+## garrison_out_angle_deg. shown + plus == units whenever units > 0.
+static func garrison_plan(centre: Vector2, tier: int, zoom: float, units: int) -> Dictionary:
+	var z := maxf(zoom, 0.001)
+	var u := maxi(units, 0)
+	var ring := garrison_ring(tier, z)
+	if int(ring["slots"]) > 0:
+		var slots := garrison_slots(centre, tier, z)
+		var fill := garrison_fill(u, slots.size())
+		var plus_at := centre
+		if int(fill["plus"]) > 0:
+			plus_at = slots[int(fill["shown"])]["pos"]
+		return {"mode": "ring", "scale": ring["scale"], "glyphs": slots.slice(0, int(fill["shown"])), "plus": fill["plus"], "plus_pos": plus_at}
+	var k := float(ring["scale"])
+	var radial := Vector2.from_angle(deg_to_rad(_g("garrison_out_angle_deg")))
+	var r_out := MapLogic.fort_radius(tier) + _g("garrison_out_gap_px")  # world px: past the held and tithe rings
+	var glyphs: Array = []
+	if u > 0:
+		glyphs.append({"pos": centre + radial * r_out, "dir": Vector2(-radial.y, radial.x)})
+	var plus := maxi(u - 1, 0)
+	var text_r := r_out + _g("garrison_out_text_px") / z
+	return {"mode": "out", "scale": k, "glyphs": glyphs, "plus": plus, "plus_pos": centre + radial * text_r}

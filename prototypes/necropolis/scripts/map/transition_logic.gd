@@ -69,3 +69,22 @@ static func arrive_start(fit_zoom: float, node_pos: Vector2, c: Dictionary, zoom
 ## Zoom between two zooms at eased progress `e`, geometric so each frame scales by the same factor.
 static func mix_zoom(a: float, b: float, e: float) -> float:
 	return a * pow(b / a, e)
+
+
+## The map HUD's alpha `t` seconds into its fade (the HUD means the top bar, strip, chip, sidebar,
+## valve, callouts, toasts, away panel and tithe card). IN (the dive): 1 to 0 over hud_fade_s (x
+## `slow`), from the moment the dive starts; reduced motion hides it at once (t = 0). OUT (the
+## return): `t` counts from the end of the router's snapshot fade; 0 before it (t < 0), then 0 to 1
+## over hud_fade_s; reduced motion shows it at once when the crossfade ends.
+static func hud_alpha(c: Dictionary, kind: String, reduced: bool, slow: float, t: float) -> float:
+	var dur := float(c["hud_fade_s"]) * maxf(slow, 0.0)
+	if kind == IN:
+		return 0.0 if reduced else 1.0 - progress(t, dur)
+	if t < 0.0:
+		return 0.0
+	return 1.0 if reduced else progress(t, dur)
+
+
+## The dive's HUD fade length: hud_fade_s (x `slow`), never longer than the zoom it sits inside.
+static func hud_fade_len(c: Dictionary, slow: float, zoom_s: float) -> float:
+	return minf(float(c["hud_fade_s"]) * maxf(slow, 0.0), zoom_s)

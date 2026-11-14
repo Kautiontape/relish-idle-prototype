@@ -17,6 +17,7 @@ func run() -> int:
 	_percents_and_project(t)
 	_throttle(t)
 	_panel_text(t)
+	_payoff_cost(t)
 	_eta_and_chip(t)
 	_reasons(t)
 	_actions(t)
@@ -125,6 +126,49 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(ValveLogic.workers_text(float(pr["workers_steady"])) == "workers → 61", "workers → 61")
 	t.ok(ValveLogic.supports_text(pr) == "WAR supports 0 of 2 held forts", "the supports line shows when forts are held")
 	t.ok(ValveLogic.supports_text(ValveLogic.project(hud, hud["valve"], 0)) == "", "and is hidden when none is held")
+
+
+func _payoff_cost(t: TestUtil) -> void:
+	t.suite("map_controls-payoff-cost")
+	var eps := 0.05
+	var base := {"work": 5.1, "war": 9.7, "flood": 2.0}
+	var hold := {"n": 1, "m": 2}
+	t.ok(ValveLogic.payoff_costs({"split": base.duplicate(), "war_supports": hold}, base, eps).is_empty(), "a drag back onto the current valve costs nothing")
+	t.ok(ValveLogic.payoff_costs({"split": {"work": 6.0, "war": 10.0, "flood": 1.0}, "war_supports": hold}, base, eps).is_empty(), "raising WORK and WAR costs nothing")
+	t.ok(ValveLogic.payoff_costs({"split": {"work": 5.08, "war": 9.68, "flood": 2.0}, "war_supports": hold}, base, eps).is_empty(), "a fall within sign_eps costs nothing")
+	var work_only := ValveLogic.payoff_costs({"split": {"work": 1.5, "war": 9.7, "flood": 2.0}, "war_supports": hold}, base, eps)
+	t.ok(work_only == ["workers +5.1 → +1.5/s"], "WORK only: %s" % str(work_only))
+	var war_only := ValveLogic.payoff_costs({"split": {"work": 5.1, "war": 2.0, "flood": 2.0}, "war_supports": hold}, base, eps)
+	t.ok(war_only == ["WAR +9.7 → +2.0/s", "supports 1 of 2"], "WAR only, with its supports: %s" % str(war_only))
+	var both := ValveLogic.payoff_costs({"split": {"work": 1.5, "war": 2.0, "flood": 2.0}, "war_supports": hold}, base, eps)
+	t.ok(both == ["workers +5.1 → +1.5/s", "WAR +9.7 → +2.0/s", "supports 1 of 2"], "both, in WORK then WAR order: %s" % str(both))
+	var none_held := ValveLogic.payoff_costs({"split": {"work": 5.1, "war": 2.0, "flood": 2.0}, "war_supports": {"n": 0, "m": 0}}, base, eps)
+	t.ok(none_held == ["WAR +9.7 → +2.0/s"], "supports only when a fort is held: %s" % str(none_held))
+	var war_up := ValveLogic.payoff_costs({"split": {"work": 1.5, "war": 12.0, "flood": 2.0}, "war_supports": hold}, base, eps)
+	t.ok(war_up == ["workers +5.1 → +1.5/s"], "supports only when WAR falls: %s" % str(war_up))
+	for part in both.slice(0, 2):
+		var sp := ValveLogic.payoff_spans(part)
+		var rates := sp.filter(func(x): return x["kind"] == "rate").map(func(x): return x["text"])
+		t.ok(rates.size() == 2 and part.contains(rates[0]) and part.contains(rates[1]), "both numbers of '%s' are rate spans (%s)" % [part, str(rates)])
+	t.ok(ValveLogic.payoff_spans("odds in 10 min 67% → 68%").all(func(x): return x["kind"] != "rate"), "percentages stay out of the rate face")
+	t.ok(ValveLogic.payoff_spans("supports 1 of 2").all(func(x): return x["kind"] != "rate"), "the supports count is not a rate")
+	# the wrap choice: widths and kinds of [main, cost...], the separator's width, the inner width
+	var k3 := ["main", "work", "war"]
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 400.0) == [0, 0, 0], "everything fits: one row")
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 339.0) == [0, 1, 1], "it does not fit: the costs wrap whole, at the separator before the first")
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 340.0) == [0, 0, 0], "an exact fit stays on one row")
+	t.ok(ValveLogic.payoff_rows([200.0], ["main"], 10.0, 100.0) == [0], "a lone main part stays on row one")
+	t.ok(ValveLogic.payoff_rows([], [], 10.0, 100.0).is_empty(), "no parts, no rows")
+	var k4 := ["main", "work", "war", "supports"]
+	var w4 := [300.0, 100.0, 100.0, 80.0]
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 300.0) == [0, 1, 1, 1], "row 2 exactly fits: all costs stay (%s)" % str(ValveLogic.payoff_rows(w4, k4, 10.0, 300.0)))
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 299.0) == [0, 1, 1, -1], "row 2 overflows: supports is dropped first")
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 209.0) == [0, 1, -1, -1], "a further overflow: WAR goes too, whole parts only")
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 99.0) == [0, -1, -1, -1], "nothing fits: the main part alone")
+	t.ok(ValveLogic.payoff_rows([500.0, 100.0], ["main", "work"], 10.0, 400.0) == [0, 1], "an oversized first part sits alone on row 0, the cost below it")
+	t.ok(ValveLogic.payoff_rows([500.0], ["main"], 10.0, 400.0) == [0], "an oversized lone first part stays on row 0 (it clips at the plate)")
+	var kw := ["main", "war", "supports"]
+	t.ok(ValveLogic.payoff_rows([300.0, 100.0, 80.0], kw, 10.0, 150.0) == [0, 1, -1], "WAR with its supports: supports dropped, WAR kept")
 
 
 func _eta_and_chip(t: TestUtil) -> void:
@@ -339,7 +383,9 @@ func _steps(t: TestUtil) -> void:
 	t.ok(st.size() == 4, "four valid steps (%d)" % st.size())
 	t.ok(st[0] == {"kind": "click", "pos": Vector2(100, 200)}, "a click")
 	t.ok(st[1] == {"kind": "wait", "frames": 60}, "a wait token wN")
-	t.ok(st[2] == {"kind": "drag", "from": Vector2(300, 400), "to": Vector2(320, 420)}, "a drag x,y>x,y")
+	t.ok(st[2] == {"kind": "drag", "from": Vector2(300, 400), "to": Vector2(320, 420), "hold": false}, "a drag x,y>x,y releases")
+	var held := MapLogic.parse_steps("1,2>>3,4")
+	t.ok(held.size() == 1 and held[0]["hold"] == true and held[0]["to"] == Vector2(3, 4), "x,y>>x,y keeps the button down")
 	t.ok(st[3] == {"kind": "click", "pos": Vector2(500, 600)}, "the last click")
 	t.ok(MapLogic.parse_steps("").is_empty(), "empty spec: no steps")
 	t.ok(MapLogic.parse_clicks("100,200;w60;300,400").size() == 2, "parse_clicks still skips wait tokens")

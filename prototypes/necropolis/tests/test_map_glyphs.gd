@@ -30,6 +30,7 @@ func run() -> int:
 	_party(t)
 	_garrison_count(t)
 	_garrison_slots(t)
+	_garrison_small(t)
 	_tables(t)
 	_demo(t)
 	_sources(t)
@@ -285,9 +286,6 @@ func _garrison_slots(t: TestUtil) -> void:
 	t.suite("map_glyphs-garrison-slots")
 	var n := NodeLogic.ncfg()
 	var s := GlyphLogic.shape(GlyphLogic.UNDEAD)
-	var half_len := float(s["len"]) * 0.5
-	var head := float(s["head_r"])
-	var halo := maxf(float(GlyphLogic.gcfg()["garrison_halo_max_px"]), float(s["width"])) * 0.5
 	var fort := Vector2(200.0, 200.0)
 	var ok := true
 	var report := []
@@ -295,6 +293,10 @@ func _garrison_slots(t: TestUtil) -> void:
 		var row := []
 		for tier in [1, 2, 3, 4]:
 			var slots := GlyphLogic.garrison_slots(fort, tier, z)
+			var k := float(GlyphLogic.garrison_ring(tier, z)["scale"])  # the worker glyph's shrink
+			var half_len := float(s["len"]) * 0.5 * k
+			var head := float(s["head_r"]) * k
+			var halo := maxf(float(GlyphLogic.gcfg()["garrison_halo_max_px"]), float(s["width"])) * 0.5 * k
 			row.append(slots.size())
 			var h := NodeLogic.state_glyph_half(z)
 			var state_r: float = maxf(h, h * sqrt(2.0) * float(n["state_slash_ext"])) + float(n["state_halo_max_px"]) * 0.5 / z
@@ -319,7 +321,41 @@ func _garrison_slots(t: TestUtil) -> void:
 	var big := GlyphLogic.garrison_ring(4, 2.2)
 	t.ok(int(big["slots"]) >= int(GlyphLogic.garrison_ring(1, 2.2)["slots"]), "a bigger fort holds at least as many")
 	t.ok(int(GlyphLogic.garrison_ring(2, 2.2)["slots"]) >= 1, "a tier 2 fort shows its garrison at zoom 2.2")
-	t.ok(int(GlyphLogic.garrison_ring(1, 3.0)["slots"]) >= int(GlyphLogic.garrison_ring(1, 1.6)["slots"]), "zooming in never loses slots")
+	t.ok(int(GlyphLogic.garrison_ring(1, 3.0)["slots"]) >= 1 and int(GlyphLogic.garrison_ring(1, 1.6)["slots"]) >= 1, "a tier 1 ring holds a worker at both ends of near (the glyph shrinks at the low end)")
+
+
+func _garrison_small(t: TestUtil) -> void:
+	t.suite("map_glyphs-garrison-small-forts")
+	var g := GlyphLogic.gcfg()
+	var s := GlyphLogic.shape(GlyphLogic.UNDEAD)
+	var fort := Vector2(200.0, 200.0)
+	var lo := float(MapLogic.cfg()["zoom_near_above"])
+	var hi := float(MapLogic.cfg()["zoom_max"])
+	var ok_sum := true
+	var ok_min := true
+	var ok_out := true
+	var outs := 0
+	var tier1_low := GlyphLogic.garrison_plan(fort, 1, lo, 5)
+	for tier in [0, 1, 2, 3]:  # tier 0 is no real fort: a ring too small even at the minimum size, to reach the fallback
+		for i in 25:
+			var z := lo + (hi - lo) * i / 24.0
+			var k := float(GlyphLogic.garrison_ring(tier, z)["scale"])
+			ok_min = ok_min and k * float(s["len"]) * z >= minf(float(g["garrison_min_len_px"]), float(s["len"]) * z) - 1e-4 and k <= 1.0
+			for units in [1, 2, 5, 8, 9, 40]:
+				var plan := GlyphLogic.garrison_plan(fort, tier, z, units)
+				ok_sum = ok_sum and plan["glyphs"].size() + int(plan["plus"]) == units
+				if plan["mode"] == "out":
+					outs += 1
+					var d: float = plan["glyphs"][0]["pos"].distance_to(fort)
+					ok_out = ok_out and plan["glyphs"].size() == 1 and d > MapLogic.fort_radius(tier) + 14.0
+					ok_out = ok_out and (int(plan["plus"]) == 0 or plan["plus_pos"].distance_to(fort) > d)
+	t.ok(ok_sum, "shown + plus == units at every near zoom for tiers 1 to 3 (and 0)")
+	t.ok(ok_min, "the worker glyph shrinks no further than garrison_min_len_px on screen")
+	t.ok(ok_out, "the outside fallback is one glyph past the held and tithe rings, the +N beyond it")
+	t.ok(outs > 0, "the fallback is reached (%d cases)" % outs)
+	t.ok(GlyphLogic.garrison_plan(fort, 1, lo, 5)["glyphs"].size() >= 1, "a tier 1 fort at the low end of near still shows a worker (ring: %s, outside: %d cases)" % [tier1_low["mode"], outs])
+	t.ok(GlyphLogic.garrison_plan(fort, 1, lo, 0)["glyphs"].is_empty() and int(GlyphLogic.garrison_plan(fort, 1, lo, 0)["plus"]) == 0, "no garrison: no glyph and no +N")
+	t.ok(float(GlyphLogic.garrison_ring(1, lo)["scale"]) < 1.0 or int(GlyphLogic.garrison_ring(1, lo)["slots"]) > 0, "a small tier 1 ring shrinks its worker before giving up")
 
 
 func _tables(t: TestUtil) -> void:

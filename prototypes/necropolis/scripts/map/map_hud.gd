@@ -5,14 +5,15 @@ extends Control
 ## banner (shown by the victory set piece, MapSetpieces, once every lane stops) and the debug
 ## speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
-## The objective strip is one next action (NextLogic.choose: a fort about to fall, a raid ready,
-## the queue empty, Vei faceable, else the standing objective), a button at least 44 px tall on
+## The objective strip is one next action (NextLogic.choose, in strict order: a fort about to
+## fall, a refilled raid from the model's raid set, Vei in reach, a first-clear raid from the same
+## set, else the plan: the queue empty or the standing objective), a button at least 44 px tall on
 ## its plate: a click emits next_chosen with the line's AwayLogic action. Its text changes only
 ## when the pick changes (or its coarse clock ticks). The opening pushes its asks through
 ## set_opening_ask, which beats every rule until cleared with "".
 
 signal inset_changed(inset: float)  # the plates' bottom edge moved (the bar wrapped or its text changed)
-signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.action's {kind, ...}
+signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.action's {kind, ...}, or {kind: "opening"} for an opening ask with no target
 
 var model: MapModel
 
@@ -27,7 +28,11 @@ var _sign: Label
 var _drain: Label
 var _speed_tag: Label
 var _objective: Button
-var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes so it does not flicker
+var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
+var _leave_plate: ColorRect
+var _leave_rect := Rect2()  # the room kept for the leave line, shown or not
+static var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes and map mounts so it does not flicker or flip on a return from town
+static var _next_t := -1.0  # the game time of the last pick: time going backwards is a new game, which clears _next
 var _opening := {}  # set_opening_ask's {text, target}
 var _hint: Label
 var chip: Control  # the Relish chip: the toast sits under it (set by world_map)
@@ -48,6 +53,7 @@ func _ready() -> void:
 	# darkening plates behind the bar and the objective: the map's brightest content may sit under them
 	_bar_plate = _plate()
 	_obj_plate = _plate()
+	_leave_plate = _plate()
 	_bar = VBoxContainer.new()
 	_bar.position = Vector2(float(pos[0]), float(pos[1]))
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -56,8 +62,12 @@ func _ready() -> void:
 	_objective = Button.new()
 	_objective.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
-	_objective.pressed.connect(func(): next_chosen.emit(_next.get("action", {"kind": "none"})))
+	_objective.pressed.connect(_on_objective_pressed)
 	add_child(_objective)
+	_leave = _label(int(cfg["objective_size_px"]), "text")
+	MapType.style_label(_leave, "text", int(cfg["objective_size_px"]))
+	_leave.visible = false
+	_leave_plate.visible = false
 	_hint = _label(int(cfg["font_hint"]), "text_dim")
 	MapType.style_label(_hint)
 	_hint_default = "drag to pan · wheel to zoom · click a fortress · click Covington to enter"
@@ -123,16 +133,32 @@ func _relayout() -> void:
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 	var inset := _obj_plate.position.y + _obj_plate.size.y
+	# The leave line's room is always kept under the strip, shown or not: toggling the line (a hold
+	# starting or ending, a tithe warning) never changes the inset, so no refit and no chip jump.
+	var lsz := _leave.get_combined_minimum_size()
+	_leave.position = Vector2(_bar.position.x, inset)
+	_leave.size = lsz
+	_leave_plate.position = Vector2(0.0, inset)
+	_leave_plate.size = Vector2(_leave.position.x + lsz.x + pad, lsz.y + pad)
+	_leave_rect = Rect2(0.0, inset, _obj_plate.size.x, lsz.y + pad)
+	inset += _leave_rect.size.y
 	if inset != _last_inset:
 		_last_inset = inset
 		inset_changed.emit(inset)
+
+
+## The leave line's reserved room (screen px, the strip's width): the
+## default fit keeps the forts and Vei off it.
+func leave_rect() -> Rect2:
+	_relayout()
+	return _leave_rect
 
 
 ## Screen px the HUD plates cover from the top (the bar and the strip): the Relish chip and the
 ## toast sit below this.
 func top_inset() -> float:
 	_relayout()
-	return _obj_plate.position.y + _obj_plate.size.y
+	return _last_inset
 
 
 ## Screen px the top bar's plate covers: the camera frames the map below this.
@@ -217,7 +243,7 @@ func _build_bar(items: Array) -> void:
 	_cells.append(status)
 	var odds_name := _bar_label(status)
 	MapType.style_label(odds_name)
-	odds_name.text = "ODDS"
+	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	_sign = _bar_label(status)
@@ -289,11 +315,24 @@ func _wrap_cells() -> void:
 			row.add_child(_cells[i])
 
 
+## A strip click: the pick's action, except that an opening ask with nothing to select (the valve)
+## sends {kind: "opening"}, which the map routes to MapOpening (it flashes the triangle).
+func _on_objective_pressed() -> void:
+	var a: Dictionary = _next.get("action", {"kind": "none"})
+	if str(_next.get("rule", "")) == NextLogic.OPENING and str(a.get("kind", "none")) == "none":
+		a = {"kind": "opening"}
+	next_chosen.emit(a)
+
+
 ## The strip's pick from the model's views (its committed clocks, not a dragged valve's), kept to
 ## the last pick while it still holds.
 func _refresh_next() -> void:
-	var inp := {"forts": model.forts, "clocks": model.clocks, "queue": model.town_queue, "vei": model.vei,
-		"readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+	var inp := {"forts": model.forts, "clocks": model.clocks, "raids": model.raids, "queue": model.town_queue,
+		"vei": model.vei, "readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+	var now_t := float(model.hud.get("t", 0.0))
+	if NextLogic.restarted(_next_t, now_t):
+		_next = {}
+	_next_t = now_t
 	_next = NextLogic.choose(inp, _next)
 	var act := str(_next["action"].get("kind", "none")) != "none"
 	var text := str(_next["text"]) + (("   " + str(NextLogic.cfg()["hint"])) if act else "")
@@ -304,6 +343,12 @@ func _refresh_next() -> void:
 	_objective.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if act else Control.CURSOR_ARROW
 	if str(_next["rule"]) != NextLogic.OPENING:
 		set_opening_pulse(0.0)
+	inp["margins"] = model.margins
+	var quiet := NextLogic.quiet(inp, str(_next["rule"]))
+	if quiet:
+		_leave.text = NextLogic.leave_text(inp)
+	_leave.visible = quiet
+	_leave_plate.visible = quiet
 
 
 ## The opening's first-30-seconds ask (task 10): `text` on the strip, clicking acts on `target`

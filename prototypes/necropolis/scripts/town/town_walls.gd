@@ -34,10 +34,11 @@ func sync_model(force := false) -> void:
 		queue_redraw()
 
 
-## The set piece. `t` is the tier just reached.
-func tier_up(t: String) -> void:
+## The set piece. `t` is the tier just reached. Returns whether the drawing started (a tier with no
+## wall ring has nothing to draw, and so nothing to sound).
+func tier_up(t: String) -> bool:
 	if model == null or model.wall_ring(t).size() < 2:
-		return
+		return false
 	_raised[t] = true
 	if Pulse.reduced_motion:
 		_anim = ""
@@ -48,6 +49,7 @@ func tier_up(t: String) -> void:
 	_shown = _tiers()
 	set_process(true)
 	queue_redraw()
+	return true
 
 
 func _tiers() -> Array:
