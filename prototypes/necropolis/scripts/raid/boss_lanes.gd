@@ -432,6 +432,8 @@ class Labels:
 		var fs := int(round(float(ln.lc().get("label_px", 15)) / zoom))
 		var r := _plate_rect(i, zoom, fs, float(ln.lc().get("label_w_px", 150.0)) / zoom)
 		var pad: float = float(rel.radius) + 8.0 / zoom
+		if ln.boss.revive_cue:   # her i-frames ring (SafeCue) is part of her: clear all of it
+			pad = float(rel.radius) + (float(ln.boss.vcfg().get("backups", {}).get("cue_pad_px", 44.0)) + 8.0) / zoom
 		var c: Vector2 = rel.global_position
 		var near := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
 		if near.distance_to(c) >= pad:
@@ -577,6 +579,6 @@ class SafeCue:
 		var text := "SAFE %d s" % ceili(left)
 		var font := ThemeDB.fallback_font
 		var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var at := Vector2(-tw * 0.5, r + 22.0 / z)
+		var at := Vector2(-tw * 0.5, float(boss.relish.radius) + 26.0 / z)   # inside the ring: nothing outside it is touched
 		draw_rect(Rect2(at + Vector2(-6.0 / z, -fs * 0.95), Vector2(tw + 12.0 / z, fs * 1.3)), Palette.c("ground", 0.8))
 		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, violet.lerp(Palette.c("text"), 0.6))

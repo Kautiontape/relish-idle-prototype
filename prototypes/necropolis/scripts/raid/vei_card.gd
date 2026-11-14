@@ -57,10 +57,17 @@ func _gui_input(ev: InputEvent) -> void:
 		if _button_rect().has_point(ev.position):
 			_press()
 		accept_event()
-	elif ev is InputEventKey and ev.pressed and not ev.echo \
+
+
+## The keys, whoever has focus: once the fight is over the scene ignores input (raid.gd), so the card
+## listens itself. Enter, Space and Escape press the button.
+func _input(ev: InputEvent) -> void:
+	if not visible or _info.is_empty():
+		return
+	if ev is InputEventKey and ev.pressed and not ev.echo \
 			and (ev.keycode == KEY_ENTER or ev.keycode == KEY_KP_ENTER or ev.keycode == KEY_SPACE or ev.keycode == KEY_ESCAPE):
 		_press()
-		accept_event()
+		get_viewport().set_input_as_handled()
 
 
 func _press() -> void:

@@ -740,7 +740,7 @@ func _win_card() -> void:
 		_card = VeiCard.new()
 		hud.add_child(_card)
 		_card.setup(info, vcfg().get("card", {}), _emit.bind(true))
-	if _bot != null:
+	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
 
 
@@ -761,6 +761,7 @@ func _lose(reason: String) -> void:
 func _end_common() -> void:
 	phase = Phase.OVER
 	_ended = true
+	revive_cue = false   # the i-frames cue is gone with the fight (win card and loss both)
 	trance.force_end()
 	Engine.time_scale = 1.0
 	vei.stop_weaves()
