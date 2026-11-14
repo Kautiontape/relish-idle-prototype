@@ -6,9 +6,9 @@ extends MapNodeLayer
 ## simulacrum, the raid marker, the selection ring and the labels. Ownership reads by weight, so it
 ## survives greyscale: forts your undead hold (held or overrun) draw the outer ring
 ## NodeLogic.ring_weight heavy and fill their core (NodeLogic.has_core); hers keep the hairline
-## and an open core. A fort
-## whose raid is ready (NextLogic.raid_ready) carries a ▲ loot pip in `select` on its ring and, at
-## mid and near zoom, the word "raid": a shape and a word, never colour alone. While the flip set
+## and an open core. A fort in the model's raid set (MapModel.raid_why: NextLogic.raid_set, ranked
+## and capped at raid_tag_max) carries a ▲ loot pip in `select` on its ring and, at mid and near
+## zoom, the word "raid": a shape and a word, never colour alone. While the flip set
 ## piece re-inks a fort (ctx.reink), its outer ring is drawn as segments turning from living
 ## orange (hairline) to undead green (held weight) from 12 o'clock, and the fort draws as its old
 ## state until it is done. Pulse layer (every fort): the tithe countdown ring and the
@@ -31,7 +31,7 @@ func _draw_static() -> void:
 ## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
-	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), NextLogic.raid_ready(f, ctx.forts)), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
+	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), ctx.model.raid_why(fort_id), ctx.tier), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
 		ctx.reink.get(fort_id, {})]
 
 
@@ -101,7 +101,7 @@ func _static_fort(f: Dictionary) -> void:
 
 	# the outer ring: capacity, ring_weight heavy where your undead hold the fort. Held: re-inked
 	# undead green, with the grace countdown outside it.
-	var ow := hw * NodeLogic.ring_weight(state)
+	var ow := hw * NodeLogic.ring_weight(state, ctx.tier)
 	var rk: Dictionary = ctx.reink.get(fort_id, {})
 	if not rk.is_empty():
 		_reink(p, r, rk, hw, n)
@@ -120,7 +120,7 @@ func _static_fort(f: Dictionary) -> void:
 	if float(f.get("simulacrum_charges", 0.0)) > 0.0:
 		diamond(p + Vector2.from_angle(deg_to_rad(float(n["sim_angle_deg"]))) * r, maxf(float(n["sim_size_px"]), ctx.px(float(n["sim_min_screen_px"]))), Palette.c("relish"))
 
-	if NextLogic.raid_ready(f, ctx.forts) != "":
+	if ctx.model.raid_why(str(f["id"])) != "":
 		_raid_marker(p, r, n)
 
 	if ctx.selected_id == f["id"]:
@@ -129,7 +129,7 @@ func _static_fort(f: Dictionary) -> void:
 	if NodeLogic.fort_label_shown(ctx.tier, tier):
 		var at := p + Vector2(0.0, r + float(n["label_off_px"]))
 		var size := int(MapLogic.cfg()["font_label"])
-		text(at, str(f["name"]), size, Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
+		text(at, str(f["name"]), size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		if NodeLogic.first_dungeon_pulse(f) and ctx.tier != "far":
 			text(at, str(n["label_first_dungeon"]), size, Palette.c("relish"), ALIGN_CENTER, size + float(n["label_line_px"]))
 
@@ -143,7 +143,7 @@ func _reink(p: Vector2, r: float, rk: Dictionary, hw: float, n: Dictionary) -> v
 	for i in total:
 		var a := SetpieceLogic.segment_arc(i, total)
 		if i < switched:
-			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * float(n["held_ring_weight"]), 1.0, cap)
+			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * NodeLogic.ring_weight(IdleLogic.SAFE, ctx.tier), 1.0, cap)
 		else:
 			glow_arc(p, r, a.x, a.y, Palette.c("living"), hw, 1.0, cap)
 

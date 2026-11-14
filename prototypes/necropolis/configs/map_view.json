@@ -141,7 +141,12 @@
     "garrison_halo_max_px": 4.0,
     "garrison_plus_fmt": "+%d",
     "garrison_font": 12,
-    "garrison_slots_max": 32
+    "garrison_slots_max": 32,
+    "garrison_min_len_px": 8.0,
+    "garrison_shrink_step": 0.9,
+    "garrison_out_angle_deg": -60.0,
+    "garrison_out_gap_px": 18.0,
+    "garrison_out_text_px": 8.0
   },
   "drag_threshold_px": 6.0,
   "map_clicks_wait_frames": 6,
@@ -378,6 +383,8 @@
     "queue_empty_text": "queue empty",
     "drain_prefix": "drain ",
     "held_ring_weight": 2.2,
+    "held_overview_mult": 2.0,
+    "overview_tiers": ["far", "mid"],
     "held_core_alpha": 0.45,
     "held_core_inset_px": 0.0,
     "raid_angle_deg": 180.0,
@@ -407,7 +414,8 @@
     },
     "relish": {
       "target": "greywall",
-      "frac": 0.7
+      "frac": 0.7,
+      "eta_s": 42.0
     },
     "vei": {
       "backlog": 21000.0,
@@ -511,7 +519,9 @@
   "sidebar_row_label_px": 118,
   "sidebar_row_gap_px": 6,
   "callouts": {
+    "token_key_px": 12.0,
     "max_count": 8,
+    "drag_max_count": 4,
     "size_px": 13,
     "pad_px": 5.0,
     "offset_px": [
@@ -616,10 +626,14 @@
     "now_offset_px": 2.0,
     "payoff_vei_fmt": "Vei %s %s → %s %s",
     "payoff_drain_fmt": "drain %s → %s",
+    "payoff_work_fmt": "workers %s → %s",
+    "payoff_war_fmt": "WAR %s → %s",
+    "payoff_supports_fmt": "supports %d of %d",
     "payoff_odds_fmt": "odds in %s %d%% → %d%%",
     "payoff_window_text": "10 min",
     "valve_overflow_text": "overflows to Vei",
-    "valve_payoff_sep_px": 4,
+    "valve_payoff_sep_px": 3,
+    "valve_payoff_row_gap_px": 2,
     "payoff_sep": " · "
   },
   "map_drag_steps": 10,
@@ -773,8 +787,11 @@
     "colors": {
       "safe": "undead",
       "thin": "select",
-      "will_fall": "danger"
+      "will_fall": "danger",
+      "hold": "select"
     },
+    "hold_word": "HOLD",
+    "hold_fmt": "ends in %s",
     "chip_font": 12,
     "garrison_fmt": "garrison %s",
     "chip_pad_px": 4.0,
@@ -817,6 +834,7 @@
     "fall_h_fmt": "~%d h",
     "fall_d_fmt": "~%d d",
     "chip_sep": " · ",
+    "hold_text": "holds",
     "chip_gap_px": 2.0,
     "chip_line_px": 14.0,
     "chip_rate_gap_px": 6.0,
@@ -893,8 +911,12 @@
   },
   "next": {
     "next_fall_warn_s": 3600.0,
+    "next_fall_exit_mult": 1.1,
     "next_vei_odds": 0.6,
+    "next_vei_odds_exit": 0.55,
     "raid_ready_yield": 0.95,
+    "raid_ready_yield_exit": 0.85,
+    "raid_tag_max": 3,
     "switch_ratio": 0.5,
     "fall_fmt": "%s falls in %s: raise WAR or send Relish",
     "refilled_fmt": "%s refilled: raid it",
@@ -902,6 +924,10 @@
     "queue_text": "Queue empty: plan the next build in Covington",
     "vei_fmt": "Vei can be faced: your odds %d%%",
     "hint": ">",
+    "leave_fall_fmt": "Safe to leave: first fort falls in %s",
+    "leave_safe_s": 3600.0,
+    "leave_risk_fmt": "If you leave, %s falls in %s",
+    "leave_hold_text": "Safe to leave: every fort holds at these rates",
     "pad_px": 8
   },
   "fit_shift_steps": 8,
@@ -919,6 +945,7 @@
     "max_total_ms": 600,
     "ease_power": 3.0,
     "layer": 100,
+    "hud_fade_s": 0.12,
     "settle_frames": 2
   },
   "setpieces": {
@@ -972,20 +999,16 @@
   "opening": {
     "opening_s": 900.0,
     "response_frac": 0.25,
-    "valve_text": "Drag the triangle: split the stream",
-    "send_fmt": "Send Relish to %s, your first dungeon",
+    "valve_text": "Drag toward WAR to hold forts, toward FLOOD to drown Vei",
+    "send_fmt": "Send Relish to %s: its first clear holds a blueprint",
     "descend_fmt": "Descend into %s",
-    "hint_text": "Drag to split the stream: WORK · WAR · FLOOD",
-    "hint_font_px": 14,
-    "hint_pad_px": 8,
-    "hint_gap_px": 8,
-    "hint_plate_alpha": 0.92,
     "line_width_px": 1.0,
     "line_glow": 0.8,
     "line_halo_max_px": 6.0,
     "line_start_px": 40.0,
-    "line_dash_px": 10.0,
-    "line_gap_px": 8.0,
+    "line_max_px": 240.0,
+    "chevron_spacing_px": 24.0,
+    "chevron_half_px": 5.0,
     "line_speed_px_s": 40.0,
     "line_alpha_base": 0.4,
     "line_alpha_wave": 0.6,
@@ -995,6 +1018,7 @@
     "edge_glow_boost": 0.8,
     "edge_width_boost_px": 1.5,
     "cue_eps": 0.02,
+    "seen_new_game_s": 2.0,
     "tithe_text_fmt": "Vei is sending a tithe wave at %s in %s: a surge of the living to retake it. Stand Relish here, or place a big undead there as siege, to blunt it.",
     "tithe_now_text": "now",
     "tithe_debug_eta_s": 240.0,

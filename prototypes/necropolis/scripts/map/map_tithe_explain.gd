@@ -7,7 +7,7 @@ extends Control
 ## leave it open. It reappears only while the flag is unset. A LineGlow frame in the living colour
 ## (Vei's tide) on a plate, 14 px text, buttons at least 44 px. Debug: --setpiece=tithe_explain
 ## opens it on the targeted fort (or the demo fort) after debug_delay_s, through the same path as
-## the event; pair it with --fixture=. Text and placement: opening_logic.gd.
+## the event; pair it with --fixture=. A warning already pending at mount opens it too (open_pending). Text and placement: opening_logic.gd.
 
 signal toast(msg: String)
 
@@ -77,6 +77,14 @@ func on_event(ev: Dictionary) -> void:
 	refresh()
 
 
+## A warning already pending when the map mounts (the event fired before it): after the model's
+## first refresh, the explanation opens for the targeted fort as the event path does.
+func open_pending() -> void:
+	var p := OpeningLogic.pending_tithe(model.forts, seen.has(MapSeen.TITHE))
+	if not p.is_empty():
+		on_event({"type": "tithe_warning", "fort_id": p["fort_id"], "eta_s": p["eta_s"]})
+
+
 func is_open() -> bool:
 	return _panel.visible
 
@@ -112,7 +120,7 @@ func _draw_frame() -> void:
 
 
 func _got_it() -> void:
-	seen.mark(MapSeen.TITHE)
+	seen.mark(MapSeen.TITHE, float(model.hud.get("t", 0.0)))  # TODO(api-request #18)
 	_panel.visible = false
 
 

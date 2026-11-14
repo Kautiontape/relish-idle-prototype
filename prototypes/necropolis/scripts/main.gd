@@ -114,6 +114,8 @@ func _run_transition(old: Node, node: Node, args: Dictionary, dive_to: String, g
 	var tl := TransitionLogic.timeline(TransitionLogic.cfg(), kind, reduced, MapTransition.slow())
 	if dive_to != "" and not reduced and old.has_method("dive_to"):
 		await old.dive_to(dive_to, tl["zoom_s"])
+	elif old.has_method("hide_hud"):
+		old.hide_hud()  # no dive: the map still takes its HUD out of the snapshot
 	var shot: bool = await tr.snapshot() if gen == _gen else false
 	if is_instance_valid(old):
 		old.queue_free()

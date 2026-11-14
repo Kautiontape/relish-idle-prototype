@@ -3,8 +3,13 @@ extends Control
 ## camera) and the UI layer (HUD, sidebar), owns the shared MapModel and the set pieces
 ## (MapSetpieces), and exits only via finished(result).
 ## Reads views through the model and sends commands through GameState; nothing else.
+## Debug flags (harness sessions only, i.e. any --fixture): --valve=w,war,f  --select=<id>
+## --teleport=<id>  --map-clicks=...  --lanes=demo  --nodes=demo  --away=demo  --lanes-report
+## --skip-time=S (once at boot: cmd_debug_skip_time(S) seconds of sim, e.g. past a tithe wave).
 
 signal finished(result: Dictionary)
+
+static var _skipped := false  # --skip-time fires once per run, not per map entry
 
 var world: Node2D
 var cam: MapCamera
@@ -53,14 +58,20 @@ func _ready() -> void:
 	model.realm_cfg = ConfigDb.data.get("realm", {})
 	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
+	_apply_skip_arg()
 	model.refresh(true)
 	_build_world()
 	_build_ui()
-	await get_tree().process_frame
+	await get_tree().process_frame  # the router's setup(args) has run by now
 	if not is_inside_tree():
 		return
+	var return_layer := _router_layer()  # the router holds it opaque over this frame and the next
+	if return_layer != null:
+		_set_hud_alpha(0.0)
 	hud.start()
+	_hold_hud_for_return(return_layer)
 	opening.refresh()
+	tithe_explain.open_pending()
 	_fit()
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
@@ -148,6 +159,8 @@ func _build_ui() -> void:
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	# TODO(api-request #18): no view carries a game id, so an earlier game time than a flag's mark means a new game
+	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_new_game_s"]))
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -200,9 +213,9 @@ func _refit() -> void:
 
 
 ## The default fit: below the top bar, every fort and Vei clear of the valve panel, the objective
-## strip and Relish's chip.
+## strip, the leave line's room and Relish's chip.
 func _fit() -> void:
-	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), chip.get_global_rect()])
+	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), hud.leave_rect(), chip.get_global_rect()])
 
 
 ## The return from a town, dungeon or boss: the camera starts zoomed on `_arrive_from` and eases
@@ -217,18 +230,60 @@ func _begin_arrival() -> float:
 
 
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
-## into the node and the HUD, valve, chip, sidebar and callouts fade out over the same time. The
-## signal fires when the zoom ends.
+## into the node and the whole HUD (top bar, strip, chip, sidebar, valve, callouts, toasts, away
+## panel, tithe card) fades out over hud_fade_s inside that time, so the router's snapshot (taken
+## once the signal fires) has none of it. The signal fires when the zoom ends.
 func dive_to(node_id: String, duration_s: float) -> Signal:
 	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
 		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
 	cam.begin_dive(t["zoom"], t["centre"], duration_s)
-	var fade := create_tween().set_parallel()
+	_fade_hud(TransitionLogic.IN, TransitionLogic.hud_fade_len(TransitionLogic.cfg(), MapTransition.slow(), duration_s))
+	return cam.move_done
+
+
+## Hides the whole HUD at once: the router calls it when it skips the dive (reduced motion), so
+## its snapshot has none of it.
+func hide_hud() -> void:
+	_set_hud_alpha(0.0)
+
+
+## The router's Transition layer if one is up over this scene (a return from a town, dungeon or
+## boss); null otherwise. It frees itself when its snapshot has faded out.
+func _router_layer() -> MapTransition:
+	if _arrive_from == "" or get_parent() == null:
+		return null
+	var tr := get_parent().get_node_or_null("Transition")
+	return tr as MapTransition if tr is MapTransition and not tr.is_queued_for_deletion() else null
+
+
+## The return: the HUD stays out until the router's snapshot fade is over (its layer leaves the
+## tree), then fades in over hud_fade_s (at once under reduced motion).
+func _hold_hud_for_return(layer: MapTransition) -> void:
+	if layer == null:
+		return
+	if is_instance_valid(layer) and layer.is_inside_tree():
+		await layer.tree_exited
+	if is_inside_tree():
+		_fade_hud(TransitionLogic.OUT, float(TransitionLogic.cfg()["hud_fade_s"]) * MapTransition.slow())
+
+
+## Drives the HUD's alpha along TransitionLogic.hud_alpha over `seconds` (kind IN: out, OUT: in).
+func _fade_hud(kind: String, seconds: float) -> void:
+	var c := TransitionLogic.cfg()
+	var reduced: bool = Pulse.reduced_motion
+	var slow := MapTransition.slow()
+	if reduced or seconds <= 0.0:
+		_set_hud_alpha(0.0 if kind == TransitionLogic.IN else 1.0)  # a zero-length fade is its end state
+		return
+	create_tween().tween_method(func(t: float) -> void: _set_hud_alpha(TransitionLogic.hud_alpha(c, kind, false, slow, t)), 0.0, seconds, seconds)
+
+
+## The HUD's alpha: every UI layer child and the callouts.
+func _set_hud_alpha(a: float) -> void:
 	for c in _ui_layer.get_children():
 		if c is CanvasItem:
-			fade.tween_property(c, "modulate:a", 0.0, duration_s)
-	fade.tween_property(callouts_view, "modulate:a", 0.0, duration_s)
-	return cam.move_done
+			c.modulate.a = a
+	callouts_view.modulate.a = a
 
 
 ## Covington is a door: one click enters the town, with no card. Everything else selects.
@@ -250,6 +305,8 @@ func _act_on(a: Dictionary) -> void:
 			_dive(str(a["to"]))
 		"vei":
 			_select(MapModel.VEI)
+		"opening":
+			opening.flash()
 
 
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
@@ -269,9 +326,19 @@ func _apply_valve_arg() -> void:
 				Game.state.cmd_set_valve(float(p[0]), float(p[1]), float(p[2]))
 
 
+## Debug only: `--skip-time=S` advances the sim S seconds once, at the first map entry.
+func _apply_skip_arg() -> void:
+	if not Game.state.debug_enabled or _skipped:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--skip-time="):
+			_skipped = true
+			print("SKIP_TIME ", Game.state.cmd_debug_skip_time(float(arg.trim_prefix("--skip-time="))))
+
+
 ## Debug only: `--map-clicks=` replays a script in screen px once the camera fit has settled,
 ## through the real input path (Shot's own --clicks fire before the fit): `x,y` a click,
-## `x,y>x,y` a drag, `wN` waits N frames; steps are separated by `;`.
+## `x,y>x,y` a drag (`x,y>>x,y` keeps the button down at its end), `wN` waits N frames; steps are separated by `;`.
 func _replay_clicks() -> void:
 	if not Game.state.debug_enabled:
 		return
@@ -304,7 +371,8 @@ func _replay_clicks() -> void:
 					_inject_motion(p, p - prev)
 					prev = p
 					await _frames(1)
-				_inject_click(to, false)
+				if not bool(st.get("hold", false)):
+					_inject_click(to, false)
 				await _frames(gap)
 
 
