@@ -131,11 +131,14 @@ func _glyph_size(t: TestUtil) -> void:
 		var half := NodeLogic.state_glyph_half(z)
 		ok = ok and absf(half * 2.0 * z - float(n["state_glyph_px"])) < 1e-4
 	t.ok(ok, "its full extent is state_glyph_px on screen at every zoom")
-	# at the default zoom it stays inside the tier-1 pip ring
+	var sq := float(n["state_square_ratio"])
+	t.ok(sq * sqrt(2.0) >= 1.0 and sq <= 1.0, "the square and the hourglass span at least state_glyph_px corner to corner")
+	# at the default zoom every shape stays inside the tier-1 pip ring
 	var z0 := 0.61
 	var pip_r := maxf(float(n["pip_radius_px"]), float(n["pip_min_screen_px"]) / z0 * 0.5)
 	var pip_in := MapLogic.fort_radius(1) - float(n["pip_inset_px"]) - pip_r
-	t.ok(NodeLogic.state_glyph_half(z0) < pip_in, "at zoom 0.61 the glyph clears a tier-1 fort's pips (%.1f < %.1f world px)" % [NodeLogic.state_glyph_half(z0), pip_in])
+	var reach := NodeLogic.state_glyph_half(z0) * maxf(1.0, sq * sqrt(2.0))
+	t.ok(reach < pip_in, "at zoom 0.61 no glyph reaches a tier-1 fort's pips (%.1f < %.1f world px)" % [reach, pip_in])
 
 
 # --- 12b: lane focus and the glow cap ---------------------------------------------

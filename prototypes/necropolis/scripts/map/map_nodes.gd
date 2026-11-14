@@ -202,8 +202,8 @@ func _on_refresh() -> void:
 		ctx.wake.clear()
 
 
-## Relish's drawn position (interpolated while she travels, offset above her node when she
-## stands) and her wake. Reduced motion: no interpolation; the wake grows once per refresh.
+## Relish's drawn position (interpolated while she travels, above her node and clear of its marks
+## when she stands) and her wake. Reduced motion: no interpolation; the wake grows once per refresh.
 func _update_relish(rm: bool) -> void:
 	var rel := model.relish
 	if rel.is_empty():
@@ -227,7 +227,7 @@ func _update_relish(rm: bool) -> void:
 		if state == "dead":
 			at = "covington"  # E1 respawns at once; dead she is hollow at home
 		ctx.relish_pos = model.node_pos(at) if state == "dead" else base
-		ctx.relish_pos.y -= _node_radius(at) + float(n["relish_gap_px"])
+		ctx.relish_pos.y -= _node_reach(at) + float(n["relish_gap_px"]) + float(NodeLogic.relish_radii(ctx.zoom)["halo"])
 	if _has_drawn and NodeLogic.wake_jumped(_drawn_prev, ctx.relish_pos):
 		ctx.wake.clear()  # she jumped (new game, fixture, teleport): no streak across the map
 	_drawn_prev = ctx.relish_pos
@@ -236,11 +236,13 @@ func _update_relish(rm: bool) -> void:
 		NodeLogic.wake_prune(ctx.wake, ctx.now_s)
 
 
-func _node_radius(id: String) -> float:
+## How far a node's marks reach, so her standing token (halo included) sits clear of them: Vei's
+## structure, backlog stack and beat ring; a fort's rings out to its tithe ring; Covington's WORK ring.
+func _node_reach(id: String) -> float:
 	if id == "vei":
-		return NodeLogic.vei_struct_radius(ctx.vei_radius)
+		return NodeLogic.outer_radius("vei", 0, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)))
 	if model.forts_by_id.has(id):
-		return MapLogic.fort_radius(int(model.fort(id)["tier"]))
+		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
 	return float(MapLogic.cfg()["work_ring_radius_px"])
 
 

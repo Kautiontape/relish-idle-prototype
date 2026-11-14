@@ -110,8 +110,10 @@ func _draw_pulse() -> void:
 				maxf(float(n["first_width_px"]), hw), 1.0, float(n["first_halo_max_px"]))
 
 
-## The fort's one glanceable state (NodeLogic.fort_state), state_glyph_px across on screen at any
-## zoom, a distinct SHAPE per state so greyscale still tells them apart; colour is second:
+## The fort's one glanceable state (NodeLogic.fort_state), at least state_glyph_px across its
+## widest axis on screen at any zoom (the diamond tip to tip, the square and hourglass corner to
+## corner, the ring's outer edge), a distinct SHAPE per state so greyscale still tells them
+## apart; colour is second:
 ##   hers       a solid living square;
 ##   contested  an hourglass, the undead's half above, the living's below;
 ##   emptied    a matte dead ring (never glows, never pulses);
@@ -133,7 +135,7 @@ func _state_glyph(f: Dictionary, p: Vector2, w: float, n: Dictionary) -> void:
 			draw_colored_polygon(PackedVector2Array([p + Vector2(-q, -q), p + Vector2(q, -q), p]), Palette.c("undead", a))
 			draw_colored_polygon(PackedVector2Array([p, p + Vector2(q, q), p + Vector2(-q, q)]), Palette.c("living", a))
 		NodeLogic.EMPTIED:
-			LineGlow.matte_ring(self, p, h * float(n["state_ring_ratio"]), Palette.c("dead"), sw)
+			LineGlow.matte_ring(self, p, h - sw * 0.5, Palette.c("dead"), sw)
 		IdleLogic.SAFE:
 			diamond(p, h, Palette.c("undead", a))
 		_:
@@ -147,13 +149,14 @@ func _state_glyph(f: Dictionary, p: Vector2, w: float, n: Dictionary) -> void:
 		_badge(p + Vector2(h, -h), n)
 
 
-## The tithe badge: a living triangle on a ground backing that cuts it clear of the glyph.
+## The tithe badge: a living triangle (state_badge_px wide and tall) on a ground backing that
+## cuts it clear of the glyph.
 func _badge(c: Vector2, n: Dictionary) -> void:
 	var b := ctx.px(float(n["state_badge_px"]))
 	var back := b + ctx.px(float(n["state_badge_back_px"])) * 2.0
 	for k in [[back, Palette.c("ground")], [b, Palette.c("living")]]:
-		var s: float = k[0]
-		draw_colored_polygon(PackedVector2Array([c + Vector2(0.0, -s * 0.6), c + Vector2(s * 0.55, s * 0.4), c + Vector2(-s * 0.55, s * 0.4)]), k[1])
+		var hs: float = float(k[0]) * 0.5
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0.0, -hs), c + Vector2(hs, hs), c + Vector2(-hs, hs)]), k[1])
 
 
 ## The tithe warning: an orange ring whose sweep is the time left, pulsing on the fort's beat,
