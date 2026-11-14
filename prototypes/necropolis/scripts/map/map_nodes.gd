@@ -1,10 +1,12 @@
 class_name MapNodes
 extends Node2D
 ## Draws every node on the realm from the shared MapModel and owns the layers that do it: a
-## static layer and a pulse layer per kind (forts, Covington, Vei) plus Relish. Static layers
-## redraw only when the model refreshed, the zoom or tier changed, or the selection moved; pulse
-## layers redraw every frame (once per refresh under reduced motion). This node draws the villages
-## and turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
+## static layer per fort and per other kind (Covington, Vei, the held forts' chips), the forts'
+## state glyphs, and a pulse layer per kind plus Relish. A static layer redraws on a model refresh
+## only when its static_sig changed, and always when the zoom, tier, selection, reduced motion or
+## config changed; pulse layers redraw every frame (once per refresh under reduced motion). The
+## glyphs' beat is their layer's modulate, so it costs no redraw. This node draws the villages and
+## turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
 ## Pure logic: node_logic.gd. Tuning: configs/map_view.json "nodes".
 
 var model: MapModel
@@ -17,10 +19,16 @@ var selected_id := "":
 		_dirty = true
 ## GDScript + drawing ms the nodes spent last frame (the bench's NODES_MS).
 var nodes_ms := 0.0
+var timed_layers: Array = []  # sibling layers whose draw_ms also counts here (the route preview)
 
 var ctx := MapNodeCtx.new()
 
-var _forts_s: MapFortRing
+var _fort_box: Node2D  # the per-fort static ring layers, in world order
+var _fort_ids: Array = []
+var _glyph_beat: MapFortGlyph
+var _glyph_still: MapFortGlyph
+var _sigs := {}  # static layer -> its static_sig at its last redraw
+var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
 var _cov_s: MapCovington
 var _cov_p: MapCovington
@@ -30,6 +38,7 @@ var _relish: MapRelish
 var _statics: Array = []
 var _pulses: Array = []
 var _rev := -2
+var _margin_sig := ""  # model.margin_sig at the last redraw: the idle layer redraws when it changes
 var _dirty := true
 var _rm := false
 var _cam: Camera2D
@@ -54,9 +63,18 @@ func _ready() -> void:
 	var realm_cfg: Dictionary = ConfigDb.data.get("realm", {})
 	ctx.flip = realm_cfg.get("flip", {})
 	ctx.r_vei = float(realm_cfg.get("R_vei", 0.0))
-	_forts_s = _layer(MapFortRing, false)
+	_fort_box = Node2D.new()
+	_fort_box.name = "FortStatics"
+	add_child(_fort_box)
+	_sync_fort_layers()
+	_layer(MapFortIdle, false)
 	_cov_s = _layer(MapCovington, false)
 	_vei_s = _layer(MapVei, false)
+	_glyph_beat = _layer(MapFortGlyph, false)
+	_glyph_beat.beating = true
+	_glyph_beat.name = "MapFortGlyphBeat"
+	_glyph_still = _layer(MapFortGlyph, false)
+	_glyph_still.name = "MapFortGlyphStill"
 	_forts_p = _layer(MapFortRing, true)
 	_cov_p = _layer(MapCovington, true)
 	_vei_p = _layer(MapVei, true)
@@ -64,14 +82,31 @@ func _ready() -> void:
 	_bench = Array(OS.get_cmdline_user_args()).any(func(a): return str(a).begins_with("--bench-seconds"))
 
 
-func _layer(script: GDScript, is_pulse: bool) -> MapNodeLayer:
+func _layer(script: GDScript, is_pulse: bool, parent: Node = null) -> MapNodeLayer:
 	var l: MapNodeLayer = script.new()
 	l.ctx = ctx
 	l.pulse = is_pulse
 	l.name = "%s%s" % [script.get_global_name(), "Pulse" if is_pulse else "Static"]
-	add_child(l)
+	(self if parent == null else parent).add_child(l)
 	(_pulses if is_pulse else _statics).append(l)
 	return l
+
+
+## One static ring layer per fort, rebuilt only when the model's fort set changed (a new world).
+func _sync_fort_layers() -> void:
+	var ids: Array = model.forts.map(func(f): return str(f["id"]))
+	if ids == _fort_ids:
+		return
+	for l in _fort_box.get_children():
+		_statics.erase(l)
+		_sigs.erase(l)
+		_fort_box.remove_child(l)
+		l.queue_free()
+	_fort_ids = ids
+	for id in ids:
+		var l: MapFortRing = _layer(MapFortRing, false, _fort_box)
+		l.fort_id = id
+		l.name = "MapFortRingStatic_%s" % id
 
 
 func _exit_tree() -> void:
@@ -103,17 +138,28 @@ func _process(_delta: float) -> void:
 	if rm != _rm:
 		_rm = rm
 		_dirty = true
+	var margins_changed := model.margin_sig != _margin_sig  # only the layers whose own signature includes margins redraw
+	if margins_changed:
+		_margin_sig = model.margin_sig
 	_update_relish(rm)
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
-	if refreshed or _dirty:
+	if refreshed or _dirty or margins_changed:
 		_vei_s.sync_rings()
-		for l in _statics:
-			l.queue_redraw()
-		queue_redraw()
+		for l: MapNodeLayer in _statics:
+			var sig = l.static_sig()
+			if _dirty or sig == null or not _sigs.has(l) or _sigs[l] != sig:
+				_sigs[l] = sig
+				l.queue_redraw()
+		var vs: Array = model.villages.map(func(v): return str(v["owner"]))
+		if _dirty or vs != _vsig:
+			_vsig = vs
+			queue_redraw()
 	if not rm or refreshed or _dirty:
 		for l in _pulses:
 			l.queue_redraw()
+	if not _fort_ids.is_empty():
+		_glyph_beat.modulate.a = NodeLogic.state_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
 	_dirty = false
 	_last_us = Time.get_ticks_usec() - t0  # lint-ok: bench timing
 
@@ -122,7 +168,7 @@ func _process(_delta: float) -> void:
 ## and a bench sample (keyed by the ground's mode).
 func _record_last_frame() -> void:
 	var ms := _last_us / 1000.0 + _draw_ms
-	for l: MapNodeLayer in _statics + _pulses:
+	for l: MapNodeLayer in _statics + _pulses + timed_layers:
 		ms += l.draw_ms
 		l.draw_ms = 0.0
 	_draw_ms = 0.0
@@ -169,8 +215,10 @@ func _sync_camera() -> void:
 ## light and tell the routes, and restart the extrapolation clock when she moved.
 func _on_refresh() -> void:
 	_rev = model.rev
+	_sync_fort_layers()
 	ctx.forts = model.forts
 	ctx.vei = model.vei
+	ctx.readout = model.readout()
 	ctx.relish = model.relish
 	ctx.cov_pos = model.node_pos("covington")
 	ctx.vei_pos = model.node_pos("vei")
@@ -196,8 +244,8 @@ func _on_refresh() -> void:
 		ctx.wake.clear()
 
 
-## Relish's drawn position (interpolated while she travels, offset above her node when she
-## stands) and her wake. Reduced motion: no interpolation; the wake grows once per refresh.
+## Relish's drawn position (interpolated while she travels, above her node and clear of its marks
+## when she stands) and her wake. Reduced motion: no interpolation; the wake grows once per refresh.
 func _update_relish(rm: bool) -> void:
 	var rel := model.relish
 	if rel.is_empty():
@@ -221,7 +269,7 @@ func _update_relish(rm: bool) -> void:
 		if state == "dead":
 			at = "covington"  # E1 respawns at once; dead she is hollow at home
 		ctx.relish_pos = model.node_pos(at) if state == "dead" else base
-		ctx.relish_pos.y -= _node_radius(at) + float(n["relish_gap_px"])
+		ctx.relish_pos.y -= _node_reach(at) + float(n["relish_gap_px"]) + float(NodeLogic.relish_radii(ctx.zoom)["halo"])
 	if _has_drawn and NodeLogic.wake_jumped(_drawn_prev, ctx.relish_pos):
 		ctx.wake.clear()  # she jumped (new game, fixture, teleport): no streak across the map
 	_drawn_prev = ctx.relish_pos
@@ -230,11 +278,13 @@ func _update_relish(rm: bool) -> void:
 		NodeLogic.wake_prune(ctx.wake, ctx.now_s)
 
 
-func _node_radius(id: String) -> float:
+## How far a node's marks reach, so her standing token (halo included) sits clear of them: Vei's
+## structure, backlog stack and beat ring; a fort's rings out to its tithe ring; Covington's WORK ring.
+func _node_reach(id: String) -> float:
 	if id == "vei":
-		return NodeLogic.vei_struct_radius(ctx.vei_radius)
+		return NodeLogic.outer_radius("vei", 0, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)))
 	if model.forts_by_id.has(id):
-		return MapLogic.fort_radius(int(model.fort(id)["tier"]))
+		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
 	return float(MapLogic.cfg()["work_ring_radius_px"])
 
 
@@ -263,10 +313,5 @@ func _draw() -> void:
 
 
 func _village_label(at: Vector2, s: String, size: int) -> void:
-	var sc := 1.0 / maxf(ctx.zoom, 0.001)
-	var font := ThemeDB.fallback_font
-	draw_set_transform(at, 0.0, Vector2(sc, sc))
-	var w := font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	draw_string(font, Vector2(-w * 0.5, size), s, HORIZONTAL_ALIGNMENT_LEFT, -1, size,
-		Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	MapNodeLayer.draw_label(self, ctx.zoom, at, s, size, Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])),
+		MapNodeLayer.ALIGN_CENTER, size)

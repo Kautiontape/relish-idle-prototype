@@ -1,12 +1,19 @@
 class_name NodeLogic
 extends RefCounted
 ## Pure logic for the map's nodes (no autoloads, so headless tests compile it): pip counts and
-## arc fractions, tier notches, the held and tithe countdowns, the backlog ring stack, the valve
-## glyph's widths and directions, Relish's interpolation, wake and light, and the --nodes=demo
-## stand-ins. Pulse-derived values come in as arguments. Tuning: configs/map_view.json "nodes".
+## arc fractions, tier notches, each fort's state glyph and tithe badge, the held and tithe
+## countdowns, the backlog ring stack, the valve glyph's widths and directions, Relish's
+## interpolation, size, wake and light, the label plate, and the --nodes=demo stand-ins.
+## Pulse-derived values come in as arguments. Tuning: configs/map_view.json "nodes".
 
 const COVINGTON := "covington"
 const MATTERS := ["living", "undead", "dead"]
+## A fort's state glyph when it is not held (held forts show their margin: IdleLogic's safe / thin
+## / will_fall).
+const HERS := "hers"
+const OVERRUN := "overrun"
+const CONTESTED := "contested"
+const EMPTIED := "emptied"
 
 
 static func ncfg() -> Dictionary:
@@ -112,6 +119,63 @@ static func controller(f: Dictionary) -> String:
 	if l > 0.0:
 		return "living"
 	return "dead"
+
+
+## The one glanceable state a fort shows (its centre glyph). Held: its margin, `margin` (the
+## model's margin_of, so it always agrees with the chip): safe, thin or will_fall; "" or anything
+## else counts as safe, IdleLogic's committed fallback. Not held, a side is present at
+## state_present_frac of capacity or more (the mass that rounds to one pip):
+##   overrun    your undead present and the living not: yours inside, not flipped;
+##   contested  both sides present, and the undead at least contested_frac of the living, or
+##              both at contested_floor_frac of capacity or more;
+##   hers       otherwise, when the living are present;
+##   emptied    neither side present (the dead remain, or nothing does).
+## Held beats everything; overrun and contested never overlap; contested beats hers.
+static func fort_state(f: Dictionary, margin: String) -> String:
+	if bool(f.get("held", false)):
+		return margin if margin == IdleLogic.THIN or margin == IdleLogic.WILL_FALL else IdleLogic.SAFE
+	var cap := maxf(float(f.get("cap", 0.0)), 0.0)
+	var u := float(f.get("undead", 0.0))
+	var l := float(f.get("living", 0.0))
+	var present := _n("state_present_frac") * cap
+	var und_here := cap > 0.0 and u >= present and u > 0.0
+	var liv_here := cap > 0.0 and l >= present and l > 0.0
+	var floor_m := _n("contested_floor_frac") * cap
+	if und_here and not liv_here:
+		return OVERRUN
+	if und_here and (u >= _n("contested_frac") * l or (u >= floor_m and l >= floor_m)):
+		return CONTESTED
+	if liv_here:
+		return HERS
+	return EMPTIED
+
+
+## The state glyph's alpha on the forts' beat (`w`: Pulse.wave at their hop). MapNodes sets it as
+## the beating glyph layer's modulate, so the beat costs no redraw.
+static func state_alpha(w: float) -> float:
+	return _n("state_alpha_base") + _n("state_alpha_wave") * w
+
+
+## What a fort's static rings draw, quantized to static_sig_steps of a turn so sub-pixel drift (a
+## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
+## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name.
+## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
+static func fort_static_sig(f: Dictionary, flip: Dictionary) -> Array:
+	var steps := _n("static_sig_steps")
+	var fr := arc_fracs(f)
+	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
+		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
+		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", ""))]
+
+
+## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
+static func tithe_badge(f: Dictionary) -> bool:
+	return tithe_mode(f) != ""
+
+
+## Half the state glyph's extent in world px at `zoom`: state_glyph_px on screen at every zoom.
+static func state_glyph_half(zoom: float) -> float:
+	return _n("state_glyph_px") * 0.5 / maxf(zoom, 0.001)
 
 
 ## How long a flip holds: hold_s x (1 + tier_mult x tier) (realm.json "flip").
@@ -442,6 +506,16 @@ static func wake_alphas(buf: Array, now_s: float, frozen: bool) -> PackedFloat32
 	return out
 
 
+## Relish's token radii in world px at `zoom`, {core, halo, wide}: the core and halo never under
+## relish_min_core_px / relish_min_halo_px screen px (radii), the wide faint beat ring
+## relish_wide_mult x the halo.
+static func relish_radii(zoom: float) -> Dictionary:
+	var z := maxf(zoom, 0.001)
+	var halo := maxf(_n("relish_halo_r_px"), _n("relish_min_halo_px") / z)
+	return {"core": maxf(_n("relish_core_r_px"), _n("relish_min_core_px") / z), "halo": halo,
+		"wide": halo * _n("relish_wide_mult")}
+
+
 ## Ids of the forts within `radius` of Relish: their dead turn dead_lit.
 static func lit_fort_ids(forts: Array, relish_pos: Vector2, radius: float) -> Array:
 	var out: Array = []
@@ -449,6 +523,13 @@ static func lit_fort_ids(forts: Array, relish_pos: Vector2, radius: float) -> Ar
 		if MapModel.to_vec(f["pos"]).distance_to(relish_pos) <= radius:
 			out.append(f["id"])
 	return out
+
+
+# --- labels ---------------------------------------------------------------------------------
+
+## The plate behind every node label: the ground at label_plate_alpha.
+static func label_plate_color() -> Color:
+	return Palette.c("ground", _n("label_plate_alpha"))
 
 
 # --- villages ------------------------------------------------------------------------------
@@ -465,21 +546,40 @@ static func village_edge_key(owner: String) -> String:
 # --- --nodes=demo stand-ins -----------------------------------------------------------------
 
 ## Overlays stand-in values on the model's fort, vei and relish entries (in place) so one
-## screenshot shows what E2 will: a held fort, a tithe warning, a live wave, the first-dungeon
-## pulse, a simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json
-## "demo_nodes". Relish stands still (speed 0) so her place holds between refreshes.
+## screenshot shows what E2 will: held forts at each margin, a tithe warning, a live wave, an
+## overrun, a contested and an emptied fort (whatever the fixture holds), the first-dungeon pulse, a
+## simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json "demo_nodes".
+## Relish stands still (speed 0) so her place holds between refreshes.
 # TODO(api E2): debug stand-in
-static func demo_overlay(forts: Array, vei: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
+static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
 	var d: Dictionary = MapLogic.cfg().get("demo_nodes", {})
 	var by_id := {}
 	for f in forts:
 		by_id[f["id"]] = f
-	var held: Dictionary = d.get("held", {})
-	if by_id.has(held.get("fort", "")):
-		var f: Dictionary = by_id[held["fort"]]
-		f["held"] = true
-		f["flipped_count"] = 1
-		f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
+	var held_all: Array = [d.get("held", {})]
+	held_all.append_array(d.get("also_held", []))
+	for held in held_all:
+		if by_id.has(held.get("fort", "")):
+			var f: Dictionary = by_id[held["fort"]]
+			f["held"] = true
+			f["flipped_count"] = 1
+			f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
+			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
+			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
+	for mt in d.get("matter", []):  # fort state glyphs: an overrun, a contested and an emptied fort
+		if by_id.has(mt.get("fort", "")):
+			var mf: Dictionary = by_id[mt["fort"]]
+			for k in MATTERS:
+				mf[k] = float(mt.get(k, mf.get(k, 0.0)))
+	if d.has("mint_rate"):  # the valve's WAR split needs a mint rate; E1's is 0
+		var split := {}
+		var v := ValveLogic.normalise(hud.get("valve_target", hud.get("valve", {})))
+		for r in hud.get("rates", []):
+			if str(r.get("id", "")) == "mint":
+				r["rate"] = float(d["mint_rate"])
+		for k in ValveLogic.KEYS:
+			split[k] = float(d["mint_rate"]) * float(v[k])
+		hud["split"] = split
 	var tithe: Dictionary = d.get("tithe", {})
 	if by_id.has(tithe.get("fort", "")):
 		by_id[tithe["fort"]]["tithe"] = {"targeted": true, "eta_s": float(tithe["eta_s"]), "wave_active": false}
@@ -507,9 +607,10 @@ static func demo_overlay(forts: Array, vei: Dictionary, relish: Dictionary, cov_
 	var vd: Dictionary = d.get("vei", {})
 	if not vd.is_empty():
 		vei["backlog"] = float(vd["backlog"])
-		vei["sign"] = int(vd["sign"])
-		vei["drain_s"] = float(vd["drain_s"])
-		vei["odds"] = float(vd["odds"])
+		# the reading lives in view_hud (MapModel.readout); Vei's node and the top bar share it
+		hud["sign"] = int(vd["sign"])
+		hud["drain_s"] = float(vd["drain_s"])
+		hud["odds"] = float(vd["odds"])
 
 
 ## A trail of `n` wake points behind `pos` along `heading`, newest last, spread over the

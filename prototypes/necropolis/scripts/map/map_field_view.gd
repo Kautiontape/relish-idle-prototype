@@ -189,6 +189,11 @@ func detail() -> String:
 	return "no ground"
 
 
+## The flow ground node (flow_ground.gd), or null in the other modes.
+func flow() -> Node:
+	return _flow
+
+
 func trail_rid() -> RID:
 	return _flow.viewport_rid() if _flow != null else RID()
 

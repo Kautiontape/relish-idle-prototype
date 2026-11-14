@@ -1,7 +1,8 @@
 extends Node
 ## Scene router (STATE-API 2.3): one active scene at a time. Every scene gets setup(args)
 ## with ids only and emits finished(result); every exit routes through here.
-## E1 compatibility: scenes not yet ported also get their legacy seed keys merged into args.
+## Every scene gets ids only (STATE-API 2.3) and reads its seed from views. A v1 raid or boss
+## result is still converted with Results.from_v1 before it is applied.
 
 const MAP := "res://scenes/map/WorldMap.tscn"
 const RAID := "res://scenes/raid/Raid.tscn"
@@ -46,29 +47,37 @@ func _swap(path: String, args: Dictionary) -> void:
 	current = node
 	if node.has_signal("finished"):
 		node.finished.connect(_on_finished.bind(node, path))
+	# The scene is added deferred: a swap can run inside a notification (a window close
+	# mid-raid routes the retreat result from NOTIFICATION_WM_CLOSE_REQUEST), where
+	# add_child fails with "Parent node is busy setting up children". The result apply
+	# above and the autosave below stay synchronous, so quitting still saves.
+	_mount.call_deferred(node, args)
+	Game.autosave()
+
+
+## Adds a swapped-in scene and runs its setup. A scene replaced again before it mounted
+## (two swaps in one frame) is dropped instead of added.
+func _mount(node: Node, args: Dictionary) -> void:
+	if not is_instance_valid(node):
+		return
+	if node != current:
+		node.queue_free()
+		return
 	add_child(node)
 	if node.has_method("setup"):
 		node.setup(args)
-	Game.autosave()
 
 
 func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
 	if emitter != current or emitter.has_meta("router_done"):
 		return  # a late or duplicate emit from a scene that is no longer current
 	emitter.set_meta("router_done", true)  # one handled emit per scene
-	var legacy := not result.has("v")
 	match path:
-		MAP:
-			var id := str(result.get("teleport_to", ""))
-			if legacy and (id == "vei" or id == "covington" or not Game.state.realm.fort_by_id(id).is_empty()):
-				Game.state.legacy_teleport_relish(id)
-			_teleport(id)
-		TOWN:
-			if legacy:
-				Game.state.apply_town_result(result)
-			_teleport(str(result.get("teleport_to", "")))
+		MAP, TOWN:
+			_teleport(str(result.get("teleport_to", "")))  # map and town results are v2: they never move Relish
 		RAID:
-			_apply("raid", result, Game.state.view_dungeon_seed(Game.state.raiding_fort_id()))
+			# in_dungeon: Relish's `at` is the fort whose run is open
+			_apply("raid", result, Game.state.view_dungeon_seed(str(Game.state.view_relish().get("at", ""))))
 		BOSS:
 			_apply("boss", result, Game.state.view_boss_seed())
 
@@ -76,24 +85,20 @@ func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
 func _teleport(id: String) -> void:
 	var s := Game.state
 	if id == "covington":
-		var args := {"mode": "town"}
-		args.merge(s.town_snapshot())
-		_swap(TOWN, args)
+		_swap(TOWN, {"mode": "town"})
 	elif id == "vei":
 		var r := s.cmd_begin_boss()
 		if not r["ok"]:
 			_open_map()
 			return
 		var args := {"mode": "boss", "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
-		args.merge(s.boss_seed())
 		_swap(BOSS, args)
-	elif id != "" and not s.realm.fort_by_id(id).is_empty():
+	elif id != "" and not s.view_fort(id).is_empty():
 		var r := s.cmd_begin_dungeon(id)
 		if not r["ok"]:
 			_open_map()
 			return
 		var args := {"mode": "dungeon", "fort_id": id, "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
-		args.merge(s.raid_seed(id))
 		_swap(RAID, args)
 	else:
 		_open_map()

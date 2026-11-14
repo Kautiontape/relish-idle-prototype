@@ -28,11 +28,36 @@ const DEMO_OUTPUT := {
 	"haul": {"bodies": 1.2}, "stall": {"gold": 0.6}, "mill": {"bone": 0.4},
 	"forge": {"q": 0.04}, "tend": {"q": 0.02}, "pit": {"mint": 3.0, "burn": 0.6},
 }
+## STANDIN: the workforce the town keeps (the HUD's "→ steady N"). The view's `workers.steady_kept`
+## (or view_hud's `workers_steady_kept`) wins when present; until then the whole workforce while the
+## sim is mustering (idle beyond the cap leaves for WAR), else `workers.steady`.
+## TODO(api-request #12): drop once the views carry steady_kept (E2b).
+static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
+	var w: Dictionary = town.get("workers", {})
+	if w.has("steady_kept"):
+		return float(w["steady_kept"])
+	if hud.has("workers_steady_kept"):
+		return float(hud["workers_steady_kept"])
+	return float(w.get("total", 0.0)) if float(w.get("muster", 0.0)) > 0.0 else float(w.get("steady", 0.0))
+
+
 const DEMO_FORTS := ["old-sluice", "greywall", "ashgate"]
 const DEMO_IDLE := 8.0
 const DEMO_LIVING := 64.0
 const DEMO_LIVING_CAP := 80.0
 const DEMO_TRADE := 2.0
+## The demo's flows {id: [in, out]} per second (workers rising toward their steady count), so the HUD shows signed rates.
+const DEMO_FLOWS := {
+	"workers": [0.30, 0.12], "living": [0.05, 0.02], "gold": [2.0, 0.65],
+	"bone": [0.40, 0.55], "bodies": [1.60, 1.30],
+}
+const DEMO_STEADY := 120.0
+const DEMO_ROT := 0.12
+const DEMO_BODIES_CAP := 400.0
+const DEMO_CAPS := {"gold": 600.0, "bone": 300.0}
+const DEMO_MORALE := {"value": 0.64, "target": 0.72, "factors": [
+	{"id": "base", "delta": 0.60}, {"id": "amenity:well", "delta": 0.03}, {"id": "dread", "delta": -0.12},
+	{"id": "shock", "delta": -0.05}, {"id": "amenity:chapel_of_vats", "delta": 0.10}]}
 
 
 # STANDIN(E2): view_town's `output` is {} for every building at E1. While that holds, glow and
@@ -53,13 +78,13 @@ static func staffing_glow(b: Dictionary) -> float:
 
 
 # STANDIN(E2): pips = round(staffed), in the matter of the building's first job, while outputs
-# are stubbed. Returns {pips: int, pip_key: String}.
+# are stubbed. Returns {pips: int (capped at pip_max), pip_key: String, count: int (uncapped)}.
 static func staffing_pips(b: Dictionary, jobs: Dictionary, vcfg: Dictionary) -> Dictionary:
 	if jobs.is_empty() or int(b.get("slots", 0)) <= 0:
-		return {"pips": 0, "pip_key": ""}
+		return {"pips": 0, "pip_key": "", "count": 0}
 	var out_key := String(vcfg.get("standin_job_output", {}).get(String(jobs.keys()[0]), ""))
-	var pips := clampi(roundi(float(b.get("staffed", 0.0))), 0, int(vcfg.get("pip_max", 0)))
-	return {"pips": pips, "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, ""))}
+	var n := maxi(roundi(float(b.get("staffed", 0.0))), 0)
+	return {"pips": mini(n, int(vcfg.get("pip_max", 0))), "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, "")), "count": n}
 
 
 # STANDIN(E2): display only; real trade_rate arrives with E2a. view_town's trade_rate is 0 while
@@ -103,6 +128,11 @@ static func foreman_strokes(entry: Dictionary, vcfg: Dictionary, slab_cfg: Dicti
 # Not saved. It switches itself off when `view_town()` carries a `queue` key.
 static func queue_is_standin(town: Dictionary) -> bool:
 	return not town.has("queue")
+
+
+## The entries to show: the view's `queue` once it exists (even empty), else the stand-in's `local` ones.
+static func queue_entries(town: Dictionary, local: Array) -> Array:
+	return local if queue_is_standin(town) else town["queue"]
 
 
 ## The local queue. `ctx` (BuildSort.queue_context): {gold, bone, relics, gold_cap, bone_cap (-1 =
@@ -293,9 +323,28 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 	town["relish_home"] = true
 	v["town"] = town
 	for r in v.get("hud", {}).get("rates", []):
-		if r.get("id", "") == "workers":
+		var rid := String(r.get("id", ""))
+		if rid == "workers":
 			r["stock"] = staffed_total + DEMO_IDLE
-		elif r.get("id", "") == "living":
+		elif rid == "living":
 			r["stock"] = DEMO_LIVING
 			r["cap"] = DEMO_LIVING_CAP
+		if DEMO_FLOWS.has(rid):
+			r["rate"] = float(DEMO_FLOWS[rid][0]) - float(DEMO_FLOWS[rid][1])
+			if DEMO_CAPS.has(rid):
+				r["cap"] = float(DEMO_CAPS[rid])
+			elif rid == "bodies":
+				r["cap"] = DEMO_BODIES_CAP
+	town["bodies_cap"] = DEMO_BODIES_CAP
+	workers["steady"] = DEMO_STEADY
+	workers["in"] = float(DEMO_FLOWS["workers"][0])
+	workers["rot"] = DEMO_ROT
+	town["migrants"] = float(DEMO_FLOWS["living"][0])
+	town["departures"] = float(DEMO_FLOWS["living"][1])
+	town["morale"] = DEMO_MORALE.duplicate(true)
+	var rr: Dictionary = {}
+	for id in DEMO_FLOWS:
+		var f: Array = DEMO_FLOWS[id]
+		rr[id] = {"in": float(f[0]), "out": float(f[1]), "net": float(f[0]) - float(f[1]), "unit": "%s/s" % id}
+	v["rates"] = {"rev": int(v.get("hud", {}).get("rev", 0)), "rates": rr}
 	return v

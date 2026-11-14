@@ -1,25 +1,31 @@
 class_name MapSidebar
 extends PanelContainer
 ## The right-hand card panel: a fortress, Covington, Vei's domain or a village, rebuilt from the
-## shared MapModel's views. Actions leave through `act` (world_map turns them into `finished`).
+## shared MapModel's views. Its actions (MOVE / CANCEL / DESCEND / HAUL, the Vei card's BEGIN) are
+## built by RelishLogic and sent as commands; a dive (DESCEND, a confirmed BEGIN) leaves through
+## `dive(node_id)`, which world_map turns into the router's `finished({v: 2, teleport_to})`.
 
-signal act(result: Dictionary)
+signal dive(node_id: String)
+signal toast(msg: String)
 
 var model: MapModel
 var selected_id := ""
 
-var _title: Label
-var _sub: Label
-var _desc: Label
-var _stats: Label
-var _button: Button
+var _scroll: ScrollContainer
+var _card: MapCardView
+var _actions: VBoxContainer
+var _act_sig := ""
+var _act_nodes: Array = []
 var _confirm: ConfirmationDialog
+var _sep: HSeparator
 
 
 func _ready() -> void:
 	var cfg := MapLogic.cfg()
 	set_anchors_preset(Control.PRESET_RIGHT_WIDE)
 	offset_left = -float(cfg["sidebar_width_px"])
+	offset_right = 0.0
+	custom_minimum_size.x = float(cfg["sidebar_width_px"])
 	offset_top = float(cfg["sidebar_top_px"])
 	var style := StyleBoxFlat.new()
 	style.bg_color = Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]))
@@ -30,39 +36,34 @@ func _ready() -> void:
 	add_theme_stylebox_override("panel", style)
 	visible = false
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
+	vb.add_theme_constant_override("separation", int(cfg["sidebar_vsep_px"]))
 	add_child(vb)
-	_title = _label(vb, int(cfg["font_title"]), "text")
-	_sub = _label(vb, int(cfg["font_sub"]), "text_dim")
-	_desc = _label(vb, int(cfg["font_body"]), "text_dim")
-	_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(HSeparator.new())
-	_stats = _label(vb, int(cfg["font_body"]), "text")
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(spacer)
-	_button = Button.new()
-	_button.custom_minimum_size = Vector2(0, float(cfg["button_min_h_px"]))
-	_button.add_theme_font_size_override("font_size", int(cfg["font_button"]))
-	_button.pressed.connect(_on_action)
-	vb.add_child(_button)
+	# The card scrolls if it overflows; the actions stay pinned below it, always reachable.
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(_scroll)
+	_card = MapCardView.new()
+	_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_card.assign_front.connect(_assign_front)
+	_scroll.add_child(_card)
+	_sep = HSeparator.new()
+	vb.add_child(_sep)
+	_actions = VBoxContainer.new()
+	_actions.add_theme_constant_override("separation", int(cfg["sidebar_row_gap_px"]))
+	vb.add_child(_actions)
 	_confirm = ConfirmationDialog.new()
-	_confirm.dialog_text = "Vei waits at the heart of her domain.\nBegin the final confrontation?"
-	_confirm.ok_button_text = "Begin"
-	_confirm.confirmed.connect(func(): act.emit({"teleport_to": "vei"}))
+	_confirm.title = str(cfg["cards"]["confirm_title"])
+	_confirm.ok_button_text = str(cfg["cards"]["confirm_ok"])
+	_confirm.min_size.x = int(cfg["cards"]["confirm_w_px"])
+	_confirm.confirmed.connect(func(): dive.emit(MapModel.VEI))
 	add_child(_confirm)
-
-
-func _label(parent: Node, font_size: int, color_key: String) -> Label:
-	var l := Label.new()
-	l.add_theme_font_size_override("font_size", font_size)
-	l.add_theme_color_override("font_color", Palette.c(color_key))
-	parent.add_child(l)
-	return l
 
 
 ## Show the card for `id`, or hide the panel for "" / an unknown id.
 func select(id: String) -> void:
+	if id != selected_id:
+		_scroll.scroll_vertical = 0
 	selected_id = id
 	visible = id != ""
 	if visible:
@@ -72,17 +73,29 @@ func select(id: String) -> void:
 func refresh() -> void:
 	if not visible:
 		return
-	_button.visible = true
-	if selected_id == MapModel.COVINGTON:
-		_show_covington()
-	elif selected_id == MapModel.VEI:
-		_show_vei()
+	if selected_id == MapModel.VEI:
+		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names, model.readout()))
+		_flush_actions(RelishLogic.vei_actions(model.vei, model.relish))
 	elif model.forts_by_id.has(selected_id):
-		_show_fort(model.fort(selected_id))
+		var f := model.fort(selected_id)
+		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names))
+		_flush_actions(RelishLogic.fort_actions(f, model.relish, model.haul, model.names))
 	elif not model.village(selected_id).is_empty():
-		_show_village(model.village(selected_id))
+		_card.show_card(CardBlocksLogic.village_card(model.village(selected_id), ""))
+		_flush_actions([])
 	else:
 		visible = false
+		return
+	_fit_scroll()
+
+
+## The card's scroll is as tall as its content, up to what is left under the top and above the
+## bottom after the pinned actions; a taller card scrolls.
+func _fit_scroll() -> void:
+	var cfg := MapLogic.cfg()
+	var chrome := 2.0 * float(cfg["sidebar_margin_px"]) + 2.0 * float(cfg["sidebar_vsep_px"]) + _sep.get_combined_minimum_size().y
+	var room := get_viewport_rect().size.y - offset_top - float(cfg["sidebar_bottom_px"]) - chrome - _actions.get_combined_minimum_size().y
+	_scroll.custom_minimum_size.y = clampf(_card.get_combined_minimum_size().y, 0.0, maxf(room, 0.0))
 
 
 func _world_desc(key: String) -> String:
@@ -96,70 +109,81 @@ func _fort_desc(id: String) -> String:
 	return ""
 
 
-func _mint_rate() -> float:
-	for r in model.hud.get("rates", []):
-		if r["id"] == "mint":
-			return float(r["rate"])
-	return 0.0
+## The card's actions, from RelishLogic (lines and buttons). Buttons are rebuilt only when the
+## layout changes (so a press is never swallowed by a refresh); their texts update in place.
+func _flush_actions(items: Array) -> void:
+	_sep.visible = not items.is_empty()
+	var sig := RelishLogic.actions_sig(items)
+	if sig != _act_sig:
+		_act_sig = sig
+		for c in _actions.get_children():
+			_actions.remove_child(c)
+			c.queue_free()
+		_act_nodes.clear()
+		for it in items:
+			var ctl: Control
+			if it["kind"] == "button":
+				var b := Button.new()
+				MapUi.style_button(b)
+				b.disabled = not bool(it["enabled"])
+				b.pressed.connect(_do.bind(str(it["act"])))
+				ctl = b
+			else:
+				var l := Label.new()
+				MapType.style_label(l, "text_dim", int(MapLogic.cfg()["font_body"]))
+				l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				ctl = l
+			_actions.add_child(ctl)
+			_act_nodes.append(ctl)
+	for i in items.size():
+		(_act_nodes[i] as Control).set("text", items[i]["text"])
 
 
-func _show_covington() -> void:
-	var town := model.state.view_town()
-	var workers: Dictionary = town.get("workers", {})
-	_title.text = "Covington"
-	_sub.text = "HOME · THE FACTORY"
-	_desc.text = _world_desc("covington")
-	_stats.text = "Minting %s mass\nTier %s\nWorkers %s · idle %s\nLiving %s / %s" % [
-		MapLogic.fmt_rate(_mint_rate()), str(town.get("tier", "")).capitalize(),
-		MapLogic.fmt_mass(float(workers.get("total", 0.0))), MapLogic.fmt_mass(float(workers.get("idle", 0.0))),
-		MapLogic.fmt_mass(float(town.get("living", 0.0))), MapLogic.fmt_mass(float(town.get("living_cap", 0.0)))]
-	_button.text = "ENTER COVINGTON"
+func _name_of(id: String) -> String:
+	return HudLogic.node_name(id, model.names)
 
 
-func _show_vei() -> void:
-	var v := model.vei
-	var sign := int(v.get("sign", 0))
-	_title.text = "Vei's Domain"
-	_sub.text = "THE GODDESS OF LIFE"
-	_desc.text = _world_desc("vei")
-	_stats.text = "UNDEAD MASSED AT HER GATES\n    %s\n\nDifferential %s %s\nDrains in %s\n\nConfrontation odds %d%%" % [
-		MapLogic.fmt_mass(float(v.get("backlog", 0.0))), MapLogic.fmt_rate(float(v.get("diff", 0.0))),
-		MapLogic.sign_glyph(sign), MapLogic.fmt_drain(float(v.get("drain_s", -1.0))),
-		roundi(float(v.get("odds", 0.0)) * 100.0)]
-	_button.text = "BEGIN THE FINAL CONFRONTATION"
+## Sends the command an action button stands for, toasts its outcome (a refusal in plain words).
+func _do(act: String) -> void:
+	var s := model.state
+	var id := selected_id
+	var r := {"ok": true, "reason": ""}
+	var ok_msg := ""
+	match act:
+		"move":
+			r = s.cmd_move_relish(id)
+			ok_msg = "Relish → %s · %s" % [_name_of(id), RelishLogic.fmt_eta(float(r.get("eta_s", 0.0)))]
+		"cancel":
+			r = s.cmd_cancel_travel()
+			ok_msg = "Relish turns back · %s" % RelishLogic.fmt_eta(float(r.get("eta_s", 0.0)))
+		"haul":
+			r = s.cmd_set_haul_target(id)
+			ok_msg = "Haul from %s" % _name_of(id)
+		"haul_auto":
+			r = s.cmd_set_haul_target("auto")
+			ok_msg = "Haul: auto"
+		"descend":
+			if bool(model.fort(id).get("can_descend", false)):
+				dive.emit(id)
+			return
+		"begin":
+			if bool(model.vei.get("can_begin", false)):
+				_confirm.dialog_text = CardLogic.confirm_text(model.readout())
+				_confirm.popup_centered()
+			return
+	toast.emit(ok_msg if r["ok"] else RelishLogic.reason_text(str(r["reason"])))
+	model.refresh(true)
+	refresh()
 
 
-func _show_fort(f: Dictionary) -> void:
-	_title.text = str(f["name"])
-	_sub.text = "FORTRESS · TIER %d · CAPACITY %s%s" % [f["tier"], MapLogic.fmt_mass(float(f["cap"])),
-		" · HELD" if f.get("held", false) else ""]
-	_desc.text = _fort_desc(str(f["id"]))
-	var lines := "LIVING  %5s\nUNDEAD  %5s\nDEAD    %5s\nEMPTY   %5s\n\nWAR IN     %s\nLIVING IN  %s" % [
-		MapLogic.fmt_mass(float(f["living"])), MapLogic.fmt_mass(float(f["undead"])),
-		MapLogic.fmt_mass(float(f["dead"])), MapLogic.fmt_mass(float(f["space"])),
-		MapLogic.fmt_rate(float(f["war_in"])), MapLogic.fmt_rate(float(f["ship_in"]))]
-	if float(f.get("simulacrum_charges", 0.0)) > 0.0:
-		lines += "\nsimulacrum charges %s" % MapLogic.fmt_mass(float(f["simulacrum_charges"]))
-	_stats.text = lines
-	_button.text = "TELEPORT"
-
-
-func _show_village(v: Dictionary) -> void:
-	var owner := str(v.get("owner", "none"))
-	_title.text = str(v["name"])
-	_sub.text = "TOWN · %s" % owner.to_upper()
-	var mood := "Contested ground. Nobody sleeps well."
-	if owner == "player":
-		mood = "Under the necrosis, its people drift to Covington."
-	elif owner == "vei":
-		mood = "Held fast by Vei's living."
-	_desc.text = "A small blue town. Relish cannot visit; she can only watch its lights.\n\n" + mood
-	_stats.text = "Migrants to Covington\n%s" % MapLogic.fmt_rate(float(v.get("migrants", 0.0)))
-	_button.visible = false
-
-
-func _on_action() -> void:
-	if selected_id == MapModel.VEI:
-		_confirm.popup_centered()
-	elif selected_id != "":
-		act.emit({"teleport_to": selected_id})
+## A front selector changed: send it, toast a refusal in words, and redraw from the views.
+func _assign_front(uid: String, front_id: String) -> void:
+	var r := model.state.cmd_assign_front(uid, front_id)
+	if r["ok"]:
+		var who := str(model.unit_names.get(uid, uid))
+		var cards: Dictionary = MapLogic.cfg()["cards"]
+		toast.emit((str(cards["assign_ok_fmt"]) % [who, CardLogic.front_name(front_id)]) if front_id != "" else str(cards["assign_cleared_fmt"]) % who)
+	else:
+		toast.emit(RelishLogic.reason_text(str(r["reason"])))
+	model.refresh(true)
+	refresh()

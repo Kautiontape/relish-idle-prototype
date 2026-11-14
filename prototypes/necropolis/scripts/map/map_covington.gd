@@ -18,6 +18,11 @@ func _draw_static() -> void:
 			Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
+## The valve's stem widths and the selection: all that changes between zooms.
+func static_sig():
+	return [NodeLogic.valve_widths(ctx.model.hud.get("valve", {})), ctx.selected_id == "covington"]
+
+
 ## The valve: WAR toward the forts' centroid, FLOOD toward Vei, WORK a hook curling back home.
 ## Each stem is `valve_glyph_max_w x share` wide (never under a hairline); a share of 0 draws nothing.
 ## The four labels are placed by NodeLogic.valve_label_layout so none overlap.

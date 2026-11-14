@@ -165,9 +165,9 @@ func bind(views: Dictionary) -> void:
 		_rebuild_rows(rows)
 	_empty.visible = rows.is_empty()
 	var names: Dictionary = views.get("fort_names", {})
-	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg), _bview, _vcfg)
+	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview), _bview, _vcfg)
 	_sorted = sorted
-	_sug_data = BuildSort.suggest(sorted, _bview)
+	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg)
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
 	var listed := {}
 	for i in sorted.size():
@@ -253,8 +253,16 @@ func _make_row(bid: String) -> Dictionary:
 	var place := _btn("Place")
 	place.pressed.connect(_toggle_place.bind(bid))
 	top.add_child(place)
-	var benefit := _wrap("", 14, "text_dim")
-	v.add_child(benefit)
+	var ben := HBoxContainer.new()  # the live benefit, as the card draws it: rates oblique, words upright
+	ben.add_theme_constant_override("separation", 10)
+	v.add_child(ben)
+	var rates: Array = []
+	for k in 3:
+		var rl := TownUI.rate_label("", 14)
+		ben.add_child(rl)
+		rates.append(rl)
+	var plain := _wrap("", 14, "text_dim")
+	ben.add_child(plain)
 	var cost_row := HBoxContainer.new()
 	v.add_child(cost_row)
 	var costs: Array = []
@@ -276,7 +284,7 @@ func _make_row(bid: String) -> Dictionary:
 	var link := _btn("", 110.0)
 	link.pressed.connect(func(): _focus_building(String(link.get_meta("target", ""))))
 	rbox.add_child(link)
-	return {"node": pc, "name": nm, "count": count, "queue": queue, "place": place, "benefit": benefit,
+	return {"node": pc, "name": nm, "count": count, "queue": queue, "place": place, "rates": rates, "plain": plain,
 		"costs": costs, "chip": chip, "sug": sug, "reason": reason, "link": link}
 
 
@@ -288,7 +296,12 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
 	w["sug"].visible = bid == _sug_bid
 	w["count"].text = "built %d" % int(row.get("count", 0))
-	w["benefit"].text = String(_bview.get(bid, {}).get("benefit", ""))
+	var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
+	for k in 3:
+		w["rates"][k].visible = k < ben["rates"].size()
+		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
+	w["plain"].text = "  ".join(ben["plain"])
+	w["plain"].visible = not ben["plain"].is_empty()
 	var parts := BuildSort.cost_parts(row.get("cost", {}), _st)
 	for k in 3:
 		w["costs"][k].text = String(parts[k]["text"]) + ("  ·  " if k < 2 else "")
@@ -298,7 +311,7 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	w["place"].visible = can
 	w["place"].text = "Stop" if _placing == bid else "Place"
 	w["queue"].visible = BuildSort.can_queue(row, _vcfg)
-	w["queue"].disabled = _q.entries.size() >= _q.max_len or _free_lot(row) == ""
+	w["queue"].disabled = _queue_full() or _free_lot(row) == ""
 	var why := String(row.get("reason", ""))
 	w["reason"].get_parent().visible = not can
 	w["reason"].text = _reason(why, row) if not can else ""
@@ -538,7 +551,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["upgrade"].disabled = not u["enabled"]
 	w["upgrade"].text = "Upgrade to Lv %d: %s" % [u["level"], _cost_text(u["cost"])] if not (u["cost"] as Dictionary).is_empty() else "Upgrade"
 	w["queue_up"].visible = u["visible"]
-	w["queue_up"].disabled = not u["can_queue"] or _q.entries.size() >= _q.max_len or _queued_lot(_selected_lot)
+	w["queue_up"].disabled = not u["can_queue"] or _queue_full() or _queued_lot(_selected_lot)
 	var proj: Array = BuildSort.rate_texts(i["upgrade_projected"], _vcfg) if i["upgrade_projected"] is Dictionary else []
 	w["proj"].visible = u["visible"] and u["enabled"] and not proj.is_empty()
 	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
@@ -659,7 +672,7 @@ func _update_card() -> void:
 		return
 	var items := BuildSort.fitting(_sorted, int(lot.get("size", 1)))
 	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_bid,
-		_q.entries.size() < _q.max_len and not _queued_lot(_card_lot))
+		not _queue_full() and not _queued_lot(_card_lot))
 
 
 func _on_card_build(bid: String, lot_id: String) -> void:
@@ -724,7 +737,7 @@ func _free_lot(row: Dictionary) -> String:
 
 
 func _queued_lot(lot_id: String) -> bool:
-	for e in _q.entries:
+	for e in _queue_entries():
 		if e["lot_id"] == lot_id:
 			return true
 	return false
@@ -743,6 +756,10 @@ func _on_queue_upgrade() -> void:
 
 
 func _add_queue(e: Dictionary, row: Dictionary) -> bool:
+	if not TownStandins.queue_is_standin(_views.get("town", {})):
+		# TODO(api-request #3): call cmd_queue_build here once E2b ships it; the local queue is off meanwhile
+		_say(String(_vcfg.get("queue_text", {}).get("no_commands", "")))
+		return false
 	var r := _q.add(e, _ctx)
 	if r["ok"]:
 		_cap_box.visible = false
@@ -770,7 +787,11 @@ func _show_cap_refusal(e: Dictionary, r: Dictionary) -> void:
 
 
 func _queue_entries() -> Array:
-	return _q.entries
+	return TownStandins.queue_entries(_views.get("town", {}), _q.entries)
+
+
+func _queue_full() -> bool:
+	return _queue_entries().size() >= _q.max_len
 
 
 func _update_queue() -> void:
@@ -802,6 +823,19 @@ func _update_queue() -> void:
 		queue_changed.emit(ghosts)
 
 
+## Reorder (delta ±1) or remove (0) a stand-in entry. TODO(api-request #3): cmd_reorder_queue /
+## cmd_unqueue once the view has a queue; until then those arrive with E2b.
+func _move_queue(index: int, delta: int) -> void:
+	if not TownStandins.queue_is_standin(_views.get("town", {})):
+		_say(String(_vcfg.get("queue_text", {}).get("no_commands", "")))
+		return
+	if delta == 0:
+		_q.unqueue(index)
+	else:
+		_q.move(index, delta)
+	_update_queue()
+
+
 func _make_q_row(index: int) -> Dictionary:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", _style_row)
@@ -822,11 +856,11 @@ func _make_q_row(index: int) -> Dictionary:
 	var detail := _wrap("", 14, "text_dim")
 	v.add_child(detail)
 	var up := _btn("Up", 56.0)
-	up.pressed.connect(func(): _q.move(index, -1); _update_queue())
+	up.pressed.connect(func(): _move_queue(index, -1))
 	var down := _btn("Down", 56.0)
-	down.pressed.connect(func(): _q.move(index, 1); _update_queue())
+	down.pressed.connect(func(): _move_queue(index, 1))
 	var rm := _btn("Unqueue", 80.0)
-	rm.pressed.connect(func(): _q.unqueue(index); _update_queue())
+	rm.pressed.connect(func(): _move_queue(index, 0))
 	for b in [up, down, rm]:
 		h.add_child(b)
 	_q_box.add_child(pc)
