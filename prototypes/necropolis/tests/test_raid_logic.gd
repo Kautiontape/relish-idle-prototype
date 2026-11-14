@@ -376,6 +376,8 @@ func run() -> int:
 			["res://scripts/raid/warden.gd", "func _loose_pack(", "RaidWarden._loose_pack"],
 			["res://scripts/raid/warden.gd", "func _scatter_pack(", "RaidWarden._scatter_pack (the pack breaks)"],
 			["res://scripts/raid/raid_unit.gd", "func scatter(", "RaidUnit.scatter"],
+			["res://scripts/raid/warden_shieldwall.gd", "func posted(", "RaidShieldwall.posted"],
+			["res://scripts/raid/raid_unit.gd", "func _pack_in_reach(", "RaidUnit._pack_in_reach (a posted flanker strikes the pack)"],
 			["res://scripts/raid/warden.gd", "func take_hit(", "RaidWarden.take_hit (the pack's ward)"],
 			["res://scripts/raid/warden_huntsman.gd", "func _step(", "RaidHuntsman._step (no lunge while its pack runs)"],
 			["res://scripts/raid/raid.gd", "func on_unit_died(", "RaidRaid.on_unit_died (a pack drops nothing)"],
@@ -448,6 +450,8 @@ func run() -> int:
 	t.ok(sc_src.contains("u.scatter()") and not sc_src.contains(".die(") and sc_src.contains("THE PACK BREAKS"), "it leaves, not dies (no drops, no kill), with its banner")
 	var us_src := _func_body("res://scripts/raid/raid_unit.gd", "func scatter(")
 	t.ok(us_src.contains("raid.enemies.erase(self)") and not us_src.contains("on_unit_died"), "a scattered unit leaves the enemies without a kill")
+	var pt_src := _func_body("res://scripts/raid/raid_warden_run.gd", "func pack_target(")
+	t.ok(pt_src.contains(".planted or (warden as RaidShieldwall).posted(u)") and pt_src.contains("return warden"), "at the Shieldwall a posted wits big (and every pack breaker through a tell) keeps the wall (D-d/E 3c)")
 	return t.failures
 
 

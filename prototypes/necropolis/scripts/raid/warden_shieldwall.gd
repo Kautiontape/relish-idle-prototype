@@ -116,6 +116,17 @@ func _pinned() -> bool:
 		pts, orbit + float(spec.get("attack", {}).get("pin_px", 30.0)))
 
 
+## D-d/E 3c: `u` holds a post at its back (a wits flanker within its orbit + pin_px, off the shield: the
+## stand that pins a rush, `_pinned` for one unit). RaidWardenRun.pack_target keeps such a big on the wall.
+func posted(u: RaidUnit) -> bool:
+	if not is_instance_valid(u) or not u.alive or u.kind != "big" or not WardenLogic.is_flanker(spec, u.wits):
+		return false
+	var wp: Dictionary = spec.get("weak_point", {})
+	var orbit: float = radius + u.radius + float(wp.get("flank_gap_px", 3.0))
+	return WardenLogic.shield_pinned(facing, global_position, float(WardenLogic.shield_phase(spec, phase)["front_half_deg"]),
+		[u.global_position], orbit + float(spec.get("attack", {}).get("pin_px", 30.0)))
+
+
 ## Beats until the next bash's tell begins (negative while it shows).
 func beats_to_tell() -> float:
 	return (_next_attack - _tell()) - beat()

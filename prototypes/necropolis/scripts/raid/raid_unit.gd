@@ -137,7 +137,13 @@ func _physics_process(delta: float) -> void:
 		var w: RaidWarden = _flank["warden"]
 		var fp: Vector2 = _flank["point"]
 		var tw: Vector2 = w.global_position - global_position
-		if tw.length() <= radius + w.radius + float(cfg.get("strike_reach_pad", 7.0)) and _strike_t <= 0.0 \
+		var pu = _pack_in_reach(w, cfg)   # D-d/E 3c: holding the post, it strikes the pack that comes to it
+		if pu != null and _strike_t <= 0.0:
+			_strike_t = cadence
+			_lunge = 1.0
+			_facing = (pu.global_position - global_position).normalized()
+			_hit_enemy(pu)
+		elif tw.length() <= radius + w.radius + float(cfg.get("strike_reach_pad", 7.0)) and _strike_t <= 0.0 \
 				and not bool(_flank["front"]):
 			_strike_t = cadence
 			_lunge = 1.0
@@ -202,6 +208,20 @@ func _physics_process(delta: float) -> void:
 	move += raid.separation_push(self) * float(cfg.get("separation_push", 110.0))
 	_slide_move(move, delta)
 	queue_redraw()
+
+
+## The nearest of warden `w`'s standing pack within this unit's strike reach, else null (a flanker holding
+## its post at the Shieldwall's back strikes the pack units that come to it; RaidWardenRun.pack_target).
+func _pack_in_reach(w: RaidWarden, cfg: Dictionary):
+	var best = null
+	var bd := INF
+	for e in w.pack:
+		if is_instance_valid(e) and e.alive:
+			var d: float = global_position.distance_to(e.global_position) - e.radius
+			if d <= radius + float(cfg.get("strike_reach_pad", 7.0)) and d < bd:
+				bd = d
+				best = e
+	return best
 
 
 ## An undead's blow on a living foe: a warden's pack unit dies in one blow to a big undead that meets the
