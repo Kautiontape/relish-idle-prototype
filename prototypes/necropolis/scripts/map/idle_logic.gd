@@ -150,7 +150,8 @@ static func committed_clocks(forts: Array, hud: Dictionary) -> Dictionary:
 
 ## The clocks at a dragged valve: each committed rate shifted by the change in WAR's per-fort
 ## share (`war_proj` against the committed `war_now`), and its fall from the projection's fall_s
-## when `real` (view_projection) has one, else the stand-in. `real` may carry fall_s as a
+## when `real` (view_projection) has one, else the stand-in. A real garrison_rate (same two
+## shapes) replaces the shifted rate, and the stand-in fall follows it. `real` may carry fall_s as a
 ## {id: float} dict or inside {id: {margin, fall_s}} margins (api-request #13 allows either).
 static func projected_clocks(forts: Array, committed: Dictionary, war_now: float, war_proj: float, real := {}) -> Dictionary:
 	var held := held_forts(forts)
@@ -158,13 +159,25 @@ static func projected_clocks(forts: Array, committed: Dictionary, war_now: float
 	var out := {}
 	for f in held:
 		var id := str(f["id"])
-		var rate := float(committed.get(id, {}).get("rate", 0.0)) + shift
+		var rr = _real_rate(real, id)
+		var rate := float(rr) if rr != null else float(committed.get(id, {}).get("rate", 0.0)) + shift
 		var fall := fall_after(garrison(f), rate)
 		var rf = _real_fall(real, id)
 		if rf != null:
 			fall = float(rf)
 		out[id] = {"rate": rate, "fall_s": fall}
 	return out
+
+
+## The projection's own garrison_rate for `id` (api-request #13), in either shape, or null: the
+## chip shows it in place of the stand-in shift, so a real fall_s never sits by a stand-in rate.
+static func _real_rate(real: Dictionary, id: String):
+	if real.get("garrison_rate", null) is Dictionary and real["garrison_rate"].has(id):
+		return real["garrison_rate"][id]
+	var m = real.get("margins", {}).get(id, null)
+	if m is Dictionary and m.has("garrison_rate"):
+		return m["garrison_rate"]
+	return null
 
 
 ## The projection's fall_s for `id`, or null.

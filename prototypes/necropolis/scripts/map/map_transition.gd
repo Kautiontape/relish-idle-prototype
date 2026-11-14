@@ -24,9 +24,12 @@ static func slow() -> float:
 	return TransitionLogic.slow_factor(OS.get_cmdline_user_args(), Game.state.debug_enabled)
 
 
-## True when a real framebuffer exists to snapshot (not a headless boot).
+## True when a real framebuffer exists to snapshot: not a headless boot, and not a minimised
+## window (frame_post_draw does not fire while minimised, so a swap would wait and pile up events).
 static func can_snapshot() -> bool:
-	return DisplayServer.get_name() != "headless"
+	if DisplayServer.get_name() == "headless":
+		return false
+	return DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_MINIMIZED
 
 
 ## Snapshots the viewport as drawn this frame onto the layer. False (nothing shown) when there is

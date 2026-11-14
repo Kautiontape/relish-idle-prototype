@@ -216,14 +216,6 @@ func _begin_arrival() -> float:
 	return float(tl["zoom_s"])
 
 
-## The router's hand-over: game events drained while this map was mounting (a raid's loot_banked
-## and fort_flipped), for the set pieces.
-func take_events(evs: Array) -> void:
-	setpieces.take_events(evs)
-	for ev in evs:
-		tithe_explain.on_event(ev)
-
-
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
 ## into the node and the HUD, valve, chip, sidebar and callouts fade out over the same time. The
 ## signal fires when the zoom ends.

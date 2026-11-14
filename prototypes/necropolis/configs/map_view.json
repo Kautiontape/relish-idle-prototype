@@ -955,6 +955,7 @@
     "garrison_flip_beats": 0.5,
     "garrison_callout_beats": 4.0,
     "garrison_fmt": "Garrison cleared: −%s living",
+    "garrison_clear_eps": 0.5,
     "garrison_standin_text": "Garrison cleared",
     "garrison_counter_fmt": "living %s",
     "garrison_cleared_word": "CLEARED",

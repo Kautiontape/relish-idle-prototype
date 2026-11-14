@@ -82,6 +82,21 @@ func _router_source(t: TestUtil) -> void:
 	var run := _body(src, "func _run_transition(")
 	var ab := run.substr(run.find("if gen != _gen:"), 260)
 	t.ok(ab.contains("node.queue_free()") and ab.contains("node != current") and ab.find("node.queue_free()") < ab.find("return"), "an abandoned transition frees its unmounted node")
+	# B1: held events go back out through Game.game_event once the scene is mounted and set up
+	var mount := _body(src, "func _mount(")
+	var setup_at := mount.find("node.setup(args)")
+	var emit_at := mount.find("Game.game_event.emit(ev)")
+	t.ok(setup_at > 0 and emit_at > setup_at, "_mount re-emits held events through Game.game_event after setup")
+	t.ok(mount.find("add_child(node)") < emit_at and not mount.contains("take_events"), "_mount re-emits after add_child and has no take_events hand-over")
+	t.ok(mount.find("_held_events = []") > 0 and mount.find("_held_events = []") < emit_at, "held events are cleared before they are re-emitted (and so cannot be held twice)")
+	t.ok(not src.contains("take_events"), "main.gd has no take_events path")
+	for f in ["res://scripts/map/world_map.gd", "res://scripts/map/map_setpieces.gd"]:
+		t.ok(not FileAccess.get_file_as_string(f).contains("func take_events"), "%s has no private event path" % f.get_file())
+	# B3: a closing window skips the transition; a minimised one cannot snapshot
+	t.ok(src.contains("func _notification(what: int)") and src.contains("NOTIFICATION_WM_CLOSE_REQUEST") and src.contains("_closing = true"), "main.gd sets _closing on a close request")
+	t.ok(swap.contains("not _closing") and swap.find("not _closing") < swap.find("_run_transition"), "_swap skips the transition while closing")
+	var mt := FileAccess.get_file_as_string("res://scripts/map/map_transition.gd")
+	t.ok(_body(mt, "static func can_snapshot").contains("WINDOW_MODE_MINIMIZED"), "can_snapshot is false for a minimised window")
 
 
 func _body(src: String, head: String) -> String:

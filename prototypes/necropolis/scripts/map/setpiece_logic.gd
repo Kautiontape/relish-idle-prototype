@@ -16,6 +16,7 @@ const VICTORY := "victory"
 const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY]
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
+const ANY_FORT := "*"  # the `seen` bucket for events that name no fort (relish_died)
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
 
 
@@ -198,7 +199,10 @@ static func garrison_from_event(ev: Dictionary) -> Dictionary:
 
 ## The stand-in until that event is emitted: the map arrived from `arrive_from`'s dungeon, the fort
 ## is held, its raid banked loot, and neither a flip nor the real event came for it. {fort_id,
-## n: -1} (no number to show), else {}. `seen`: fort id -> {event type: true} since the map opened.
+## n: -1} (no number to show), else {}. `seen`: fort id -> {event type: true} since the map opened
+## (ANY_FORT holds relish_died). loot_banked fires on every writeback, a death or a retreat too, so
+## it also needs the fort's counter-garrison gone (living <= garrison_clear_eps; a real clear
+## zeroes it) and no relish_died.
 # TODO(api-request #10): drop this once apply_result emits counter_garrison_cleared.
 static func garrison_stand_in(arrive_from: String, forts_by_id: Dictionary, seen: Dictionary) -> Dictionary:
 	var f: Dictionary = forts_by_id.get(arrive_from, {})
@@ -206,6 +210,10 @@ static func garrison_stand_in(arrive_from: String, forts_by_id: Dictionary, seen
 		return {}
 	var s: Dictionary = seen.get(arrive_from, {})
 	if not s.has("loot_banked") or s.has("fort_flipped") or s.has("counter_garrison_cleared"):
+		return {}
+	if (seen.get(ANY_FORT, {}) as Dictionary).has("relish_died"):
+		return {}
+	if float(f.get("living", INF)) > float(cfg()["garrison_clear_eps"]):
 		return {}
 	return {"fort_id": arrive_from, "n": -1}
 

@@ -173,7 +173,7 @@ func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	t.ok(real == {"fort_id": "ashgate", "n": 24}, "the real event gives its fort and N")
 	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == "Garrison cleared: −24 living", "the real event's callout shows N")
 	t.ok(SetpieceLogic.garrison_from_event({"type": "loot_banked", "fort_id": "ashgate"}).is_empty(), "another event is not the source")
-	var forts := {"ashgate": {"id": "ashgate", "held": true}, "vespers": {"id": "vespers", "held": false}}
+	var forts := {"ashgate": {"id": "ashgate", "held": true, "living": 0.0}, "vespers": {"id": "vespers", "held": false}}
 	var seen := {"ashgate": {"loot_banked": true}}
 	var si := SetpieceLogic.garrison_stand_in("ashgate", forts, seen)
 	t.ok(si == {"fort_id": "ashgate", "n": -1}, "the stand-in: back from a held fort's raid that banked loot, no N")
@@ -182,6 +182,13 @@ func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "counter_garrison_cleared": true}}).is_empty(), "the real event replaces the stand-in")
 	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {}).is_empty(), "no raid banked: nothing")
 	t.ok(SetpieceLogic.garrison_stand_in("vespers", forts, {"vespers": {"loot_banked": true}}).is_empty(), "a fort that is not held: nothing")
+	var eps := float(c["garrison_clear_eps"])
+	var alive := {"ashgate": {"id": "ashgate", "held": true, "living": 40.0}}
+	t.ok(SetpieceLogic.garrison_stand_in("ashgate", alive, seen).is_empty(), "a retreat with garrison left alive: nothing")
+	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 0.5}}, seen) == {"fort_id": "ashgate", "n": -1}, "living within the eps counts as cleared")
+	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 2.0}}, seen).is_empty(), "living over the eps is not cleared")
+	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true}, SetpieceLogic.ANY_FORT: {"relish_died": true}}).is_empty(), "a death return: nothing, even with the garrison gone")
+	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true}}, seen).is_empty(), "no living figure in the model: nothing")
 	t.ok(SetpieceLogic.garrison_stand_in("", forts, seen).is_empty() and SetpieceLogic.garrison_stand_in("covington", forts, seen).is_empty(), "back from the town or nowhere: nothing")
 
 

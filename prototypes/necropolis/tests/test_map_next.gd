@@ -18,6 +18,16 @@ class FakeProj13 extends RefCounted:
 		return {"margins": {"a": "will_fall"}, "fall_s": {"a": 99.0}}
 
 
+## Projection with a real garrison_rate for fort a, in either shape.
+class FakeRate13 extends RefCounted:
+	var nested := false
+
+	func view_projection(_valve: Dictionary) -> Dictionary:
+		if nested:
+			return {"margins": {"a": {"margin": "thin", "fall_s": 1234.0, "garrison_rate": -0.7}}}
+		return {"margins": {"a": "will_fall"}, "fall_s": {"a": 99.0}, "garrison_rate": {"a": -0.7}}
+
+
 func run() -> int:
 	var t := TestUtil.new()
 	t.suite("map_next")
@@ -106,6 +116,13 @@ func _projected(t: TestUtil) -> void:
 	p13.nested = true
 	var nested := IdleLogic.projection(p13, hud, hud["valve"], forts)
 	t.ok(nested["margins"]["a"] == "thin" and float(nested["clocks"]["a"]["fall_s"]) == 1234.0, "{margin, fall_s} margins are read and normalised to the word")
+	var rp := FakeRate13.new()
+	var rflat := IdleLogic.projection(rp, hud, hud["valve"], forts)
+	t.ok(is_equal_approx(float(rflat["clocks"]["a"]["rate"]), -0.7) and float(rflat["clocks"]["a"]["fall_s"]) == 99.0, "a real garrison_rate dict is the chip's rate, beside the real fall_s")
+	t.ok(is_equal_approx(float(rflat["clocks"]["b"]["rate"]), float(committed["b"]["rate"])), "a fort the real rate leaves out keeps the stand-in")
+	rp.nested = true
+	var rnest := IdleLogic.projection(rp, hud, hud["valve"], forts)
+	t.ok(is_equal_approx(float(rnest["clocks"]["a"]["rate"]), -0.7) and float(rnest["clocks"]["a"]["fall_s"]) == 1234.0, "a real garrison_rate inside the margins is read too")
 	t.ok(IdleLogic.margin_words({"a": {"margin": "thin"}, "b": "safe"}) == {"a": "thin", "b": "safe"}, "margin_words takes both shapes")
 	# the model's one accessor follows the drag
 	var s := GameState.new(TestUtil.configs())

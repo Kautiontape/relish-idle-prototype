@@ -15,8 +15,8 @@ extends Node
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
 ##                 beats, then every dash stops and the victory line shows.
 ## Garrison and victory play no sound of their own (VISUAL-LANGUAGE 2f names none).
-## It hears events through Game.game_event, plus the ones the router held while the map mounted
-## (take_events). It drives the existing layers through small hooks: MapNodes' context
+## It hears events through Game.game_event (the router re-emits the ones it held while the map
+## mounted). It drives the existing layers through small hooks: MapNodes' context
 ## (valve_shares / valve_bright, reink, chip_fx) and redraw_* calls, MapRoutes.set_victory,
 ## MapHud.show_victory and its own MapSetpieceLayer (bands, rings, callouts). Set pieces wait
 ## until go_live (world_map calls it once the camera's ease out of the scene just left is over),
@@ -70,16 +70,11 @@ func _exit_tree() -> void:
 		Game.game_event.disconnect(on_event)
 
 
-## The events the router held while this map was mounting (a raid's loot_banked and fort_flipped
-## drain before the new map exists), in order.
-func take_events(evs: Array) -> void:
-	for ev in evs:
-		on_event(ev)
-
-
 func on_event(ev: Dictionary) -> void:
 	var type := str(ev.get("type", ""))
 	var id := str(ev.get("fort_id", ""))
+	if type == "relish_died":
+		id = SetpieceLogic.ANY_FORT  # a death names no fort: any held fort's stand-in refuses it
 	if id != "":
 		if not _seen.has(id):
 			_seen[id] = {}

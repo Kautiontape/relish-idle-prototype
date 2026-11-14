@@ -11,6 +11,7 @@ const BOSS := "res://scenes/boss/VeiBoss.tscn"
 
 var current: Node = null
 var _gen := 0  # one per swap: a transition from an older swap stops when it sees a newer one
+var _closing := false  # the window is closing: swaps mount directly, with no transition
 var _held_events: Array = []  # game events drained while the swapped-in scene was not mounted yet
 
 
@@ -20,9 +21,16 @@ func _ready() -> void:
 	_open_map()
 
 
+## main is notified before its children: a close request mid-transition must not start another
+## animation (the quit would wait on a snapshot).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_closing = true
+
+
 ## A result's events (loot_banked, fort_flipped) drain a frame or two after apply_result, often
 ## while the new scene waits for the dive's snapshot and is not in the tree to hear them: hold
-## them for it (_mount hands them over).
+## them for it (_mount re-emits them through Game.game_event).
 func _on_game_event(ev: Dictionary) -> void:
 	if current != null and not current.is_inside_tree():
 		_held_events.append(ev)
@@ -76,7 +84,7 @@ func _swap(path: String, args: Dictionary, dive_to := "") -> void:
 	# add_child fails with "Parent node is busy setting up children". The result apply
 	# above and the autosave below stay synchronous, so quitting still saves.
 	Game.autosave()
-	if old != null and MapTransition.can_snapshot():
+	if old != null and not _closing and MapTransition.can_snapshot():
 		_run_transition(old, node, args, dive_to, _gen)  # a coroutine: this call returns at its first suspension
 	else:
 		if old != null:
@@ -128,8 +136,12 @@ func _mount(node: Node, args: Dictionary) -> void:
 		node.setup(args)
 	var held := _held_events
 	_held_events = []
-	if node.has_method("take_events") and not held.is_empty():
-		node.take_events(held)
+	# Re-emit through Game.game_event so every listener the scene connected in _ready hears them
+	# (HUD toasts, the away report, the ground's ink sweeps, set pieces, the tithe explanation).
+	# The router does not act on game_event, and the legacy relish_respawned / victory signals
+	# fire from Game._process's drain, not from game_event, so nothing fires twice.
+	for ev in held:
+		Game.game_event.emit(ev)
 
 
 func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
