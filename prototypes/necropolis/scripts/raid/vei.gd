@@ -193,6 +193,42 @@ func _draw_vei() -> void:
 		draw_circle(Vector2.ZERO, radius * 0.09, Palette.c("text", 0.95))
 	if _flare > 0.0 and not reduced:
 		LineGlow.ring(self, Vector2.ZERO, radius * (1.2 + 0.8 * (1.0 - _flare)), Palette.c("vei", 0.7 * _flare), 2.5, 0.6)
+	if boss != null and float(boss.phase1_s) >= 0.0:
+		_draw_meter_row()
+
+
+## The break meter's echo under her rings, as the wardens' row (warden.gd _draw_meter_row): break_beats
+## pips lit by the streak, a notch every notch_every pips, a lapse's pips a slashed `danger` ring while
+## it shows. Sized in screen px (divided by the zoom). No text: the HUD carries the counts.
+func _draw_meter_row() -> void:
+	var vc: Dictionary = boss.vcfg()
+	var mc: Dictionary = vc.get("meter", {})
+	var z: float = maxf(0.05, boss.cam.zoom.x) if boss.cam != null else 1.0
+	var n := int(vc.get("break_beats", 8))
+	var st := int(boss.brk.get("streak", 0))
+	var notch := maxi(1, int(mc.get("notch_every", 5)))
+	var pr := float(mc.get("pip_px", 3.5)) / z
+	var step := pr * 2.7
+	var gap := pr * 1.6
+	var w := step * float(n - 1) + gap * floorf(float(n - 1) / float(notch))
+	var x := -w * 0.5
+	var y := radius + float(mc.get("gap_px", 16.0)) / z + pr
+	var lo: int = boss.lapse_lo
+	var hi: int = boss.lapse_hi if float(boss._lapse_t) > 0.0 else -1
+	for i in n:
+		if i > 0 and i % notch == 0:
+			var nx := x - step * 0.5 + gap * 0.5
+			draw_line(Vector2(nx, y - pr * 2.0), Vector2(nx, y + pr * 2.0), Palette.c("vei", 0.85), 1.6 / z)
+			x += gap
+		var p := Vector2(x, y)
+		if i < st:
+			draw_circle(p, pr, Palette.c("vei"))
+		elif i >= lo and i < hi:
+			draw_arc(p, pr, 0.0, TAU, 10, Palette.c("danger"), 1.4 / z)
+			draw_line(p + Vector2(-pr, pr), p + Vector2(pr, -pr), Palette.c("danger"), 1.4 / z)
+		else:
+			draw_arc(p, pr * 0.8, 0.0, TAU, 10, Palette.c("text_dim", 0.6), 1.0 / z)
+		x += step
 
 
 ## The weave telegraph (z 37, above the trance dim): the laid thread while it tells, and the

@@ -13,6 +13,7 @@ var raid: Node = null
 var kind := "remnant"          # relic | remnant | husk | blueprint (RaidLoot.FLOOR_KINDS)
 var remnant := {}              # the item: a remnant {aspect, rarity, magnitude}, a husk {kind}, a blueprint {id}
 var _lit := false              # Relish's light falls on it
+var _rm := false               # reduced motion as last drawn
 var _s := 9.0                  # glyph size (loot.json pickup.size_px)
 var _pts := PackedVector2Array()   # the kind's outline, built once
 
@@ -39,7 +40,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	queue_redraw()   # the loot ring breathes on the tempo (Pulse.wave is steady under reduced motion)
+	# the loot ring breathes on the tempo; under reduced motion Pulse.wave is steady, so redraw only
+	# when that flag or the light changes
+	var rm: bool = Pulse.reduced_motion
+	if not rm or rm != _rm:
+		_rm = rm
+		queue_redraw()
 
 
 func _physics_process(_delta: float) -> void:
@@ -52,7 +58,10 @@ func _physics_process(_delta: float) -> void:
 	var d: float = global_position.distance_to(rel.global_position)
 	if d <= reach:
 		raid.collect_pickup(self)
-	_lit = d <= float(ConfigDb.data.get("raid", {}).get("relish", {}).get("light_radius_px", 220.0))
+	var lit := d <= float(ConfigDb.data.get("raid", {}).get("relish", {}).get("light_radius_px", 220.0))
+	if lit != _lit:
+		_lit = lit
+		queue_redraw()
 
 
 func _draw() -> void:

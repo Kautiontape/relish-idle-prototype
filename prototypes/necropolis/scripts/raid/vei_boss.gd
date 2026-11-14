@@ -42,6 +42,11 @@ var ferry_beat := 0.0           # F per beat on the break's scale
 var uncleared := 0
 var brk := {}                   # VeiFronts break state
 var streak_max := 0
+var lapses := 0                 # beats that lapsed with a streak to lose (the meter's running count)
+var lapse_lost := 0             # break pips those lapses cost in all
+var lapse_lo := -1              # the last lapse took pips lapse_lo..lapse_hi-1 (flashed while _lapse_t > 0)
+var lapse_hi := -1
+var _lapse_t := 0.0             # real seconds the last lapse still shows
 var beat_raised := 0.0          # raised value this beat
 var t2 := 0.0                   # the break's scene clock (beat 0 on a tempo boundary)
 var anchors: Array = []
@@ -263,6 +268,7 @@ func _post_physics(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	super._process(delta)
+	_lapse_t = maxf(0.0, _lapse_t - delta / maxf(0.05, Engine.time_scale))
 	if _bdev != null:
 		_bdev.tick()
 	if _seq_kind != "":
@@ -396,6 +402,12 @@ func _step_break(delta: float) -> void:
 		brk = VeiFronts.break_beat(brk, beat_raised, ferry_beat, vc)
 		if int(brk["streak"]) > before:
 			RaidSound.play("streak", {"step": int(brk["streak"])})
+		elif int(brk["streak"]) < before:
+			lapses += 1
+			lapse_lost += before - int(brk["streak"])
+			lapse_lo = int(brk["streak"])
+			lapse_hi = before
+			_lapse_t = float(vc.get("meter", {}).get("lapse_flash_s", 1.2))
 		beat_raised = 0.0
 		streak_max = maxi(streak_max, int(brk["streak"]))
 		if VeiFronts.broken(brk, vc):
@@ -618,9 +630,11 @@ func try_phylactery() -> bool:
 	var bc: Dictionary = vcfg().get("backups", {})
 	relish.revive(relish.max_hp * float(bc.get("revive_hp_frac", 0.6)), float(bc.get("iframes_s", 2.0)))
 	# the backup-crack set piece: a violet ring holds, then cracks; a cracked ring stays on her
-	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), float(bc.get("crack_radius_px", 110.0)),
-		float(bc.get("crack_s", 1.2)))
-	RaidFx.ring(fx_root, relish.global_position, Palette.c("text", 0.8), 40.0, 0.5, 2.5)
+	# the loudest moment on screen: a wide violet crack, a white one inside it, a white flare ring
+	var cr := float(bc.get("crack_radius_px", 190.0))
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), cr, float(bc.get("crack_s", 1.2)))
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("text"), cr * 0.55, float(bc.get("crack_s", 1.2)) * 0.8)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("text"), cr * 1.3, 0.6, 5.0)
 	_revive_shove(bc)
 	trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
 	hud.flash(Palette.c("relish"))
@@ -819,4 +833,6 @@ func hud_info() -> Dictionary:
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
 		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,
-		"over": phase == Phase.OVER, "won": end_reason == "broken"}
+		"over": phase == Phase.OVER, "won": end_reason == "broken",
+		"lapses": lapses, "lapse_lost": lapse_lost, "lapse_lo": lapse_lo, "lapse_hi": lapse_hi, "lapse_on": _lapse_t > 0.0,
+		"notch": int(vc.get("meter", {}).get("notch_every", 5))}

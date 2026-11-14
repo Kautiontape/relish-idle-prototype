@@ -396,13 +396,40 @@ static func risk_phrase(c: Dictionary) -> String:
 
 
 ## The push-or-retreat line (D-b review MF-5): "LIVING 6 left · exit W, 2 rooms · 1 remnant at risk".
-## `exit_word` is the nearest exit's compass word, "" when Relish stands at one ("AT EXIT"); `hops` the
-## rooms between her room and the exit's (0 this room, -1 unknown: a doorway band).
-static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary) -> String:
-	var ex := "AT EXIT"
-	if exit_word != "":
-		ex = "exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops))
-	return "LIVING %d left · %s · %s" % [maxi(0, living), ex, risk_phrase(at_risk)]
+## `at_exit`: Relish stands at an exit ("AT EXIT"). Otherwise `exit_word` is the compass word of the
+## way to the nearest exit (the first step of its route, so never through a wall), "" when there is
+## none (the clause is dropped); `hops` the rooms between her room and the exit's (0 this room, -1
+## unknown: a doorway band).
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false) -> String:
+	var parts: PackedStringArray = ["LIVING %d left" % maxi(0, living)]
+	if at_exit:
+		parts.append("AT EXIT")
+	elif exit_word != "":
+		parts.append("exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops)))
+	parts.append(risk_phrase(at_risk))
+	return " · ".join(parts)
+
+
+## How much loose essence can still be banked: what lies loose, capped by the carry room left.
+static func bankable(loose: int, carried: int, cfg: Dictionary) -> int:
+	return mini(maxi(0, loose), carry_room(carried, cfg))
+
+
+## An angle for a new mark on a ring that already has marks at `taken`: `want` when nothing lies
+## within `sep` of it, else the first of want + sep, want + 2 sep, ... that is clear (want itself
+## when the ring is full). Keeps marks countable when they keep coming from the same side.
+static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> float:
+	var steps := maxi(1, ceili(TAU / maxf(0.01, sep)))
+	for k in steps:
+		var a := want + sep * k
+		var clear := true
+		for t in taken:
+			if absf(angle_difference(a, t)) < sep - 0.0001:
+				clear = false
+				break
+		if clear:
+			return wrapf(a, -PI, PI)
+	return wrapf(want, -PI, PI)
 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
@@ -425,6 +452,13 @@ static func exposed_level(phyl_left: int, hp_frac: float, cfg: Dictionary) -> fl
 		return 0.0
 	var d: Dictionary = cfg.get("danger", {})
 	return lerpf(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), 1.0 - clampf(hp_frac, 0.0, 1.0))
+
+
+## How far an exposed_level sits from the faint full-hp rim (0) to the strong no-hp one (1): the
+## PHYLACT. words lean from text_dim to danger by it, as the halo does.
+static func exposed_tint(level: float, cfg: Dictionary) -> float:
+	var d: Dictionary = cfg.get("danger", {})
+	return clampf(inverse_lerp(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), level), 0.0, 1.0)
 
 
 ## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true

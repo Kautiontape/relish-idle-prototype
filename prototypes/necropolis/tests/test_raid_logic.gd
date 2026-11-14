@@ -1382,7 +1382,36 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var more := {"relics": 2, "remnants": 0, "husks": 1, "blueprints": 0, "essence": 5}
 	t.ok(RaidLogic.push_line(0, "SE", 2, more) == "LIVING 0 left · exit SE, 2 rooms · 2 relics + 1 husk + 5 essence at risk",
 		RaidLogic.push_line(0, "SE", 2, more))
-	t.ok(RaidLogic.push_line(3, "", 1, {}) == "LIVING 3 left · AT EXIT · nothing at risk", "at an exit, nothing found")
+	t.ok(RaidLogic.push_line(3, "", 1, {}, true) == "LIVING 3 left · AT EXIT · nothing at risk", "at an exit, nothing found")
+	t.ok(RaidLogic.push_line(3, "", -1, one) == "LIVING 3 left · 1 remnant at risk", "no exit found: the clause is dropped, never AT EXIT")
+	t.ok(RaidLogic.push_line(2, "E", 3, one, true).contains("AT EXIT") and not RaidLogic.push_line(2, "E", 3, one, true).contains("exit E"),
+		"at an exit wins over the word")
+	var five := {"relics": 1, "remnants": 2, "husks": 0, "blueprints": 0, "essence": 1}
+	t.ok(RaidLogic.push_line(0, "E", 0, five).ends_with("1 relic + 2 remnants + 1 essence at risk"), "essence is in the at-risk phrase")
+	t.suite("raid_bankable")
+	var cmax := int(cfg.get("essence", {}).get("carry_max", 12))
+	t.ok(RaidLogic.bankable(10, 0, cfg) == mini(10, cmax), "10 loose, empty hands: 10")
+	t.ok(RaidLogic.bankable(10, cmax - 3, cfg) == 3, "10 loose, 3 slots left: 3")
+	t.ok(RaidLogic.bankable(10, cmax, cfg) == 0 and RaidLogic.bankable(-2, 0, cfg) == 0, "full hands or nothing loose: 0")
+	t.suite("raid_spread_angle")
+	var none := PackedFloat32Array()
+	t.near(RaidLogic.spread_angle(1.0, none, 0.75), 1.0, 0.0001, "an empty ring keeps the wanted angle")
+	var one_a := PackedFloat32Array([1.0])
+	var a2 := RaidLogic.spread_angle(1.1, one_a, 0.75)
+	t.ok(absf(angle_difference(a2, 1.0)) >= 0.7499, "a mark from the same side steps clear of the first (%.2f)" % a2)
+	var many := PackedFloat32Array()
+	for k in 6:
+		many.append(RaidLogic.spread_angle(0.5, many, 0.75))
+	var apart := true
+	for i in many.size():
+		for j in range(i + 1, many.size()):
+			apart = apart and absf(angle_difference(many[i], many[j])) >= 0.7499
+	t.ok(apart, "six catches from one side stay at least sep apart: %s" % str(many))
+	t.ok(RaidLogic.spread_angle(2.5, PackedFloat32Array([0.0]), 0.75) == wrapf(2.5, -PI, PI), "far from every mark: unchanged")
+	t.suite("raid_exposed_tint")
+	t.near(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 1.0, cfg), cfg), 0.0, 0.0001, "full hp: the words stay text_dim")
+	t.near(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.0, cfg), cfg), 1.0, 0.0001, "no hp: the words are danger")
+	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
 	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 essence to bank", "last chance names the loose essence")

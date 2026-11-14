@@ -137,8 +137,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_boss_block.anchor_left = 0.5
 		_boss_block.anchor_right = 0.5
-		_boss_block.offset_left = -250.0
-		_boss_block.offset_right = 250.0
+		_boss_block.offset_left = -300.0
+		_boss_block.offset_right = 300.0
 		_boss_block.offset_top = 10.0
 		_boss_block.offset_bottom = 104.0
 		_banner.offset_top = 112.0
@@ -792,16 +792,15 @@ class ExitButton:
 
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
 ## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
-## signed oblique rate, then the BREAK streak as break_beats pips that fill on the beat and visibly
-## drop on a lapse ("lapse -N"; past 10 beats the pips are smaller and grouped in fives, so they stay
-## countable), with which side is winning. Always: BACKUPS left as pips (a phylactery diamond, a clone
+## signed oblique rate and which side is winning, then the BREAK meter drawn as the wardens' meter
+## (WardenBlock): break_beats pips lit from the left by the streak, a notch every `notch` pips, a
+## lapse's pips slashed in `danger` while it shows (flashing, steady under reduced motion), and the
+## running count "LAPSES ×n · lost k". Always: BACKUPS left as pips (a phylactery diamond, a clone
 ## dot) and one cracked violet ring per backup spent. Drawn from raid.hud_info() each frame.
 class BossBlock:
 	extends Control
 	var raid: Node = null
-	var _prev_streak := 0
-	var _reset_t := 0.0          # seconds of the lapse flash left
-	var _lost := 0               # beats the last lapse cost
+	var _t := 0.0
 	static var _oblique: FontVariation = null
 
 	static func oblique() -> FontVariation:
@@ -819,8 +818,11 @@ class BossBlock:
 			t = t.substr(0, t.length() - 3)
 		return ("-" if n < 0 else "") + t + out
 
+	func _info() -> Dictionary:
+		return raid.hud_info() if raid != null and raid.has_method("hud_info") else {}
+
 	func _process(d: float) -> void:
-		_reset_t = maxf(0.0, _reset_t - d / maxf(0.05, Engine.time_scale))
+		_t += d / maxf(0.05, Engine.time_scale)
 		queue_redraw()
 
 	func _label(x: float, y: float, text: String) -> float:
@@ -850,10 +852,13 @@ class BossBlock:
 			var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
 			draw_arc(p, r, a0, a0 + TAU / 3.0 - 0.55, 8, Palette.c("relish", 0.9), 1.6)
 
+	func _notch(x: float, y: float) -> void:
+		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
 	func _draw() -> void:
-		if raid == null or not raid.has_method("hud_info"):
+		var info := _info()
+		if info.is_empty():
 			return
-		var info: Dictionary = raid.hud_info()
 		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
 		var x0 := 12.0
 		var col2 := 108.0
@@ -871,38 +876,47 @@ class BossBlock:
 				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
 			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
 		else:
+			# the horde, its rate, and which side the beat is going to
 			_label(x0, y, "HORDE")
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			_text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
-			_text(size.x - 150.0, y, "ferried by Vei", 13, "text_dim")
+			x2 = _text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
+			if bool(info["won"]):
+				_text(x2 + 18.0, y, "SHE BREAKS", 15, "vei")
+			elif bool(info["over"]):
+				_text(x2 + 18.0, y, "the fight is lost", 13, "danger")
+			elif bool(info["winning"]):
+				_text(x2 + 18.0, y, "raise > ferry", 13, "undead")
+			else:
+				_text(x2 + 18.0, y, "raise < ferry", 13, "living")
 			y += 28.0
+			# the break meter, as the wardens': lit from the left, notched, a lapse's pips slashed
 			_label(x0, y, "BREAK")
 			var n := int(info["break_beats"])
 			var st := int(info["streak"])
-			if st < _prev_streak and _prev_streak > 0:
-				_reset_t = 0.6
-				_lost = _prev_streak - st
-			_prev_streak = st
-			var pcol := Palette.c("danger") if _reset_t > 0.0 else Palette.c("vei")
-			var compact := n > 10
-			var pr := 4.5 if compact else 6.0
-			var step := 11.0 if compact else 18.0
-			var px0 := col2 + 8.0
+			var notch := maxi(1, int(info["notch"]))
+			var lo := int(info["lapse_lo"])
+			var hi := int(info["lapse_hi"]) if bool(info["lapse_on"]) else -1
+			var blink := 1.0 if Pulse.reduced_motion else 0.55 + 0.45 * sin(_t * 14.0)
+			var r := 5.0
+			var x := col2 + 8.0
 			for i in n:
-				var gx := px0 + step * i + (5.0 * floorf(i / 5.0) if compact else 0.0)
-				_pip(Vector2(gx, y - 5.0), pr, pcol, i < st, false)
-			var pend := px0 + step * n + (5.0 * floorf((n - 1) / 5.0) if compact else 0.0)
-			var x3 := _text(pend + 4.0, y, "%d/%d" % [st, n], 15)
-			if bool(info["won"]):
-				_text(x3 + 12.0, y, "SHE BREAKS", 15, "vei")
-			elif bool(info["over"]):
-				_text(x3 + 12.0, y, "the fight is lost", 13, "danger")
-			elif _reset_t > 0.0:
-				_text(x3 + 12.0, y, "lapse −%d" % _lost, 13, "danger")
-			elif bool(info["winning"]):
-				_text(x3 + 12.0, y, "raise > ferry", 13, "undead")
-			else:
-				_text(x3 + 12.0, y, "raise < ferry", 13, "living")
+				if i > 0 and i % notch == 0:
+					_notch(x - 3.5, y + 1.0)
+					x += 7.0
+				var p := Vector2(x, y - 5.0)
+				if i < st:
+					draw_circle(p, r, Palette.c("vei"))
+				elif i >= lo and i < hi:
+					# the lapse took this pip: it flashes, slashed (shape as well as colour)
+					draw_circle(p, r, Palette.c("danger", blink))
+					draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("ground", 0.9), 1.8)
+				else:
+					draw_arc(p, r - 0.6, 0.0, TAU, 12, Palette.c("text_dim", 0.6), 1.3)
+				x += 13.0
+			x = _text(x + 2.0, y, "%d/%d" % [st, n], 15)
+			var nl := int(info["lapses"])
+			var tag := "LAPSES ×%d" % nl + ("" if nl <= 0 else " · lost %d" % int(info["lapse_lost"]))
+			_text(x + 14.0, y, tag, 13, "danger" if hi > 0 else "text_dim")
 		y += 28.0
 		_label(x0, y, "BACKUPS")
 		var px := col2 + 8.0
