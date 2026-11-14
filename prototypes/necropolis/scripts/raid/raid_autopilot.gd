@@ -49,8 +49,10 @@ extends RefCounted
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
 ## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
 ## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing),
-## `unstick` (the unstick watch: aims pulled inside a room, targets given up) and `left_no_army` (she left
-## with no undead standing and nothing to raise). See NOTES-RAID "Run length and risk calibration".
+## `unstick` (the unstick watch: aims pulled inside a room, targets given up), `left_no_army` (she left
+## with no undead standing and nothing to raise), `relish_hits` (blows that reached her, by source: slam,
+## lunge, bash, rush, fire, hound, pack, living) and `relish_soaked` (of them, the lethal ones an undead took
+## in her place). See NOTES-RAID "Run length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -451,6 +453,9 @@ func on_finish(result: Dictionary) -> void:
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
 	out["left_no_army"] = _left_no_army
+	var rh: RaidRelish = _raid.relish
+	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
+	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())

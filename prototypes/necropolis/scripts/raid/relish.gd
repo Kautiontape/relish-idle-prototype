@@ -13,6 +13,8 @@ var speed := 240.0
 var radius := 13.0
 var alive := true
 var last_hit_src := ""   # what struck her last: "slam", "lunge", "bash", "rush", "fire", "hound", "pack" or "living" (the death card; never read by the sim)
+var hits := {}           # measuring only (the bot's relish_hits; never read by the sim): blows that reached her, by source
+var soaked := {}         # of them, the lethal ones an undead took in her place (the conduit rule)
 
 var move_target := Vector2.ZERO
 var _iframes := 0.0
@@ -72,8 +74,11 @@ func take_hit(amount: float, src := "") -> void:
 		return
 	if src != "":
 		last_hit_src = src   # what struck last (the death card names it); a soaked hit counts too
+	var key := src if src != "" else "wound"
+	hits[key] = int(hits.get(key, 0)) + 1
 	if hp - amount <= 0.0 and raid.has_allies():
 		# THE CONDUIT RULE: the nearest allied undead dies in her place.
+		soaked[key] = int(soaked.get(key, 0)) + 1
 		raid.sacrifice_nearest_ally()   # pings the danger edge
 		_iframes = float(ConfigDb.data.get("raid", {}).get("relish", {}).get("iframes_s", 0.5))
 		_flash = 1.0
