@@ -139,20 +139,33 @@ takes over 1 s.
 
   Nothing goes negative at any dt (tested to 120 s). `tests/slow/convergence.gd` measures 12 h with
   no input against a 0.5 s run, with steps clipped at the events listed under Method:
-  - Measured at `55c281f` (E2b T4.C: the clearing counts in Vei's shipping room, the raises in a
-    full fort's WAR fill, a fort WAR fills with no living takes only the living its undead kill,
-    and unpaid buildings resume in the order their stocks reach the threshold inside a step;
-    MECHANICS §3.2, §3.4, §4.3). The 12 h table (worst Vei+Covington stock at 5, 10, 15 and 30 s;
-    0.5 s reference): midgame_2flips 0.38%, 1.28%, 2.45%, 6.30% (bone the worst; the backlog
-    0.24%, 0.77%, 1.40%, 3.65%); fresh 0.61%, 0.34%, 0.22%, 0.61% (0.61% at 5 s against 0.33% at
+  - Measured at `40d62c0` (E2b-2 T4.P: a Chapel's tend slot opens only while its vat is staffed,
+    and the pits have first call on the bodies; MECHANICS §7, §4.1, §4.2). The 12 h table (worst
+    Vei+Covington stock at 5, 10, 15 and 30 s; 0.5 s reference): midgame_2flips 4.22%, 14.3%,
+    26.9%, 68.7% (bone the worst; the backlog 0.14%, 0.38%, 0.64%, 1.67%); fresh 0.61%, 0.34%,
+    0.22%, 0.61%; pre_vei 0.34%, 0.51%, 0.66%, 1.22%. midgame_2flips' bone is the convoy's: its
+    haul target is Greywall, and a pickup reads Greywall's corpses from the snapshot taken before
+    the step. At 10 s that snapshot holds the last step's kills, 0.04 mass, before this step's
+    clearing takes them; at 0.5 s the clearing takes them as they form. So over 12 h the convoy
+    lands 167 bodies at 10 s and 0.06 at 0.5 s. Its pit wants more than its supply every step, so
+    with the pits first the mills get wm / (w − rot) of what lands while the store holds it (0.56
+    of it): 95 bodies milled at 10 s against 1.2 at 0.5 s, 47 bone. The old proportional split gave
+    them wm / w (0.4) of a similar 183, 36.5 bone, but on a bone stock that grew by 2 520 in 12 h,
+    hence its 1.28%; the stock now grows by under 50.
+  - At `55c281f` (E2b T4.C: the clearing counts in Vei's shipping room, the raises in a full fort's
+    WAR fill, a fort WAR fills with no living takes only the living its undead kill, and unpaid
+    buildings resume in the order their stocks reach the threshold inside a step; MECHANICS §3.2,
+    §3.4, §4.3): midgame_2flips 0.38%, 1.28%, 2.45%, 6.30% (bone the worst; the backlog 0.24%,
+    0.77%, 1.40%, 3.65%); fresh 0.61%, 0.34%, 0.22%, 0.61% (0.61% at 5 s against 0.33% at
     `985c158` is inside fresh's own 0.25 s noise row, 0.69%); pre_vei 0.33%, 0.50%, 0.64%, 1.22%.
     At `985c158`: midgame_2flips 0.38%, 1.28%, 2.43%, 6.33%; fresh 0.33%, 1.56%, 0.91%, 1.17%;
     pre_vei 7.37%, 27.3%, 27.8%, 56.5%.
-  - So at 10 s (the planned `idle.catchup_dt_max_s`) the smooth stocks are within 0.34% on fresh,
-    0.50% on pre_vei and 1.28% on midgame_2flips (bone, unchanged by T4.C). 12 h at 15 s on
-    midgame_2flips (2.45%, bone) is above the 2% `idle.catchup_tol`. The 1 h gate
-    (`tests/test_convergence_1h.gd`, 2% at 15 s) reads 0.80% (midgame_2flips), 0.48% (pre_vei)
-    and 0.14% (fresh) at 15 s, against 1.33%, 0.35% and 0.74% at `46710b0`.
+  - So at 10 s (the planned `idle.catchup_dt_max_s`), at `40d62c0`, the smooth stocks are within
+    0.34% on fresh and 0.51% on pre_vei, but midgame_2flips' bone is 14.3% off (its backlog 0.38%),
+    above the 2% `idle.catchup_tol`; it was 1.28% at `55c281f`. Fixing it is the convoy's pickup
+    (it would read each fort's corpses at its own moment), not the store's split. The 1 h gate
+    (`tests/test_convergence_1h.gd`, 2% at 15 s) reads 1.50% (midgame_2flips, bone), 0.50%
+    (pre_vei) and 0.14% (fresh) at 15 s, against 0.80%, 0.48% and 0.14% at `55c281f`.
   - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s, err(0.5) / err(0.25)):
     midgame_2flips is first order on every stock and every fort pool, 2.1 to 2.8 (its corpses
     0.25% and 0.67%, its undead 0.06% and 0.17%; its undead were 1.48 at `985c158`). fresh's
