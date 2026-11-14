@@ -19,6 +19,9 @@ var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
+var _banner_plate: ColorRect = null   # a dark plate fitted to the banner's lines (walls run under it)
+var _banner_live := Callable()        # recomputes the banner's text while it shows (the last chance)
+var _banner_live_t := 0.0
 var _warden_block: Control = null   # dungeon only: the awake warden's break meter
 var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
 var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
@@ -46,6 +49,14 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_stats)
 
+	_banner_plate = ColorRect.new()
+	_banner_plate.color = Palette.c("ground", 0.72)
+	_banner_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_plate.visible = false
+	add_child(_banner_plate)
+	_banner_plate.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_banner_plate.anchor_left = 0.5
+	_banner_plate.anchor_right = 0.5
 	_banner = _mk_label(self, 20, Palette.c("relish"))
 	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_banner.anchor_left = 0.5
@@ -166,10 +177,23 @@ func _process(_delta: float) -> void:
 		var top := _banner_top + (14.0 if _warden_block.visible else 0.0)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
+			_fit_banner_plate()
+		if _push != null:
+			_push.max_w = _push_room()
 	if _banner_t >= 0.0:
 		_banner_t -= _delta
+		if _banner_live.is_valid():
+			_banner_live_t += _delta_real()
+			if _banner_live_t >= 0.25:
+				_banner_live_t = 0.0
+				var lt: String = _banner_live.call()
+				if lt != _banner.text:
+					_banner.text = lt
+					_fit_banner_plate()
 		if _banner_t < 0.0:
 			_banner.visible = false
+			_banner_plate.visible = false
+			_banner_live = Callable()
 	if _flash_t >= 0.0:
 		_flash_t += _delta / maxf(0.05, Engine.time_scale)
 		var f := _flash_t / 0.9
@@ -221,6 +245,11 @@ func refresh() -> void:
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
+		if st.phyl_word != "":
+			# the words lean from text_dim to danger with her hp, as the halo does (day 1 starts with none)
+			var rel: RaidRelish = raid.relish
+			var lvl := RaidLogic.exposed_level(st.phyl, rel.hp / maxf(1.0, rel.max_hp), raid.rcfg()) if rel != null else 1.0
+			st.phyl_tone = Palette.c("text_dim").lerp(Palette.c("danger"), RaidLogic.exposed_tint(lvl, raid.rcfg()))
 		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
 		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
 		var carried: int = raid.carried_count()
@@ -235,6 +264,7 @@ func refresh() -> void:
 			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
+			_push_t = 1.0   # the push line's "at risk" follows UNBANKED on the same frame
 		_push_t += _delta_real()
 		if _push != null and _push_t >= 0.25:
 			_push_t = 0.0
@@ -251,9 +281,11 @@ func _delta_real() -> float:
 	return get_process_delta_time() / maxf(0.05, Engine.time_scale)
 
 
-## The push-or-retreat line, 4 times a second: the living left, the nearest exit (by walking
-## distance; its compass word and how many rooms away) and what a death would lose now. Its text is
-## set only when it changes.
+## The push-or-retreat line, 4 times a second and on the frame UNBANKED changes: the living left,
+## the nearest exit by walking distance (the compass word of the first step of the route to it,
+## LayoutLogic.waypoint: the doorway to take, so it never points through a wall; and how many rooms
+## away), and what a death would lose now. No exit found drops the exit clause. Its text is set only
+## when it changes.
 func _update_push() -> void:
 	var lay: Dictionary = raid.layout
 	var rel: RaidRelish = raid.relish
@@ -272,13 +304,41 @@ func _update_push() -> void:
 	exit_pos = Vector2.INF if best < 0 else (doors[best]["inner"] as Vector2)
 	var word := ""
 	var hops := -1
-	if best >= 0 and raid.endings.exit_idx < 0:
-		word = RaidLogic.compass(exit_pos - rel.global_position)
+	var at_exit: bool = raid.endings.exit_idx >= 0
+	if best >= 0 and not at_exit:
+		var step := LayoutLogic.waypoint(lay, rel.global_position, exit_pos, rel.radius)
+		word = RaidLogic.compass(step - rel.global_position)
 		var rf := RaidLogic.room_of(lay, rel.global_position)
 		var rt := int(doors[best].get("room", -1))
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
-	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk))
+	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit))
+
+
+## Width the push line may use without running under the warden's block (narrow windows wrap it).
+func _push_room() -> float:
+	var room := _push.size.x
+	if _warden_block != null and _warden_block.visible:
+		var block_right := _warden_block.global_position.x + _warden_block.size.x
+		room = minf(room, _push.global_position.x + _push.size.x - block_right - 12.0)
+	return maxf(160.0, room)
+
+
+## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.
+func _fit_banner_plate() -> void:
+	if _banner_plate == null:
+		return
+	var f := ThemeDB.fallback_font
+	var w := 0.0
+	var lines := _banner.text.split("\n")
+	for l in lines:
+		w = maxf(w, f.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x)
+	var h := float(lines.size()) * _banner.get_line_height() + 8.0
+	_banner_plate.offset_left = -w * 0.5 - 14.0
+	_banner_plate.offset_right = w * 0.5 + 14.0
+	_banner_plate.offset_top = _banner.offset_top - 3.0
+	_banner_plate.offset_bottom = _banner.offset_top - 3.0 + h
+	_banner_plate.visible = _banner.visible
 
 
 ## Screen point at the end of the "N on the floor" note (the loot pointer starts there), or INF
@@ -299,10 +359,20 @@ func flash(color: Color) -> void:
 
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).
 func show_banner(text: String, secs: float, color_key := "relish") -> void:
+	_banner_live = Callable()
 	_banner.text = text
 	_banner.add_theme_color_override("font_color", Palette.c(color_key))
 	_banner.visible = true
 	_banner_t = secs
+	_fit_banner_plate()
+
+
+## A banner whose text `provider` recomputes 4 times a second while it shows (the last chance's
+## "N essence to bank" falls as Relish gathers).
+func show_banner_live(provider: Callable, secs: float, color_key := "relish") -> void:
+	show_banner(str(provider.call()), secs, color_key)
+	_banner_live = provider
+	_banner_live_t = 0.0
 
 
 ## The banner when a checkpoint room banks new loot.
@@ -311,8 +381,10 @@ func show_checkpoint(loot: Dictionary) -> void:
 	_banner.text = "CHECKPOINT · loot banked\nrelics %d · blueprints %d · husks %d · remnants %d · essence %d" % [
 		int(loot["relics"]), (loot["blueprints"] as Array).size(), (loot["husks"] as Array).size(),
 		(loot["remnants"] as Array).size(), int(loot["essence"])]
+	_banner_live = Callable()
 	_banner.visible = true
 	_banner_t = float(raid.rcfg().get("checkpoint", {}).get("banner_s", 2.5))
+	_fit_banner_plate()
 
 
 ## Retreat is live only at an exit (never in the boss: there is no retreat from Vei).
@@ -360,6 +432,7 @@ class StatBlock:
 	var raised_text := ""
 	var phyl := 0
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
+	var phyl_tone: Color = Palette.c("text_dim")   # text_dim at full hp, danger as it falls (exposed_tint)
 	var banked_text := ""
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
@@ -445,12 +518,12 @@ class StatBlock:
 		if not boss:
 			_label(y, "PHYLACT.")
 			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
-			var vx := _value(px + 4.0, y, str(phyl), Palette.c("danger") if phyl_word != "" else null)
+			var vx := _value(px + 4.0, y, str(phyl), phyl_tone if phyl_word != "" else null)
 			if phyl_word != "":
 				# no revive left: the state in words (the halo says it in the world)
 				var cut := phyl_word.find(" · ")
 				var head := phyl_word if cut < 0 else phyl_word.substr(0, cut)
-				var hx := _value(vx + 10.0, y, head, Palette.c("danger"))
+				var hx := _value(vx + 10.0, y, head, phyl_tone)
 				if cut >= 0:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
@@ -652,13 +725,17 @@ class WardenBlock:
 ## dashed `vei` line from the HUD's "N on the floor" to the nearest pickup, ringed, while it is on
 ## screen; an edge chevron marked LOOT pointing at it while it is off screen. The exit pointer: an
 ## edge chevron marked EXIT (`relish`, the exits' lip colour) toward the nearest exit while it is off
-## screen. The nearest pickup and exit are re-picked 4 times a second; only the projection runs per frame.
+## screen. The nearest pickup and exit are re-picked 4 times a second; each frame only projects them,
+## and it redraws only when what it would draw moves (nothing to point at: no redraw at all).
 class Pointers:
 	extends Node2D
 	var hud: RaidHud = null
 	var _t := 1.0
 	var _loot: Node2D = null
 	var _chev := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+	var _ep := Vector2.INF      # the off-screen exit's screen point (INF: no EXIT chevron)
+	var _sp := Vector2.INF      # the nearest pickup's screen point (INF: none)
+	var _from := Vector2.INF    # the HUD's "N on the floor" anchor
 
 	func _process(d: float) -> void:
 		var raid = hud.raid if hud != null else null
@@ -671,7 +748,23 @@ class Pointers:
 		if _t >= 0.25:
 			_t = 0.0
 			_loot = _nearest(raid, "raid_pickups")
-		queue_redraw()
+		var view := get_viewport_rect().size
+		var inner := Rect2(Vector2.ZERO, view).grow(-30.0)
+		var xf: Transform2D = raid.get_viewport().get_canvas_transform()
+		var ep := Vector2.INF
+		if hud.exit_pos != Vector2.INF:
+			ep = xf * hud.exit_pos
+			if inner.has_point(ep):
+				ep = Vector2.INF   # on screen: its lips and sigil already say where it is
+		var sp := Vector2.INF
+		if _loot != null and is_instance_valid(_loot) and _loot.is_in_group("raid_pickups"):
+			sp = xf * _loot.global_position
+		var from := hud.floor_anchor() if sp != Vector2.INF else Vector2.INF
+		if ep != _ep or sp != _sp or from != _from:
+			_ep = ep
+			_sp = sp
+			_from = from
+			queue_redraw()
 
 	func _nearest(raid: Node, group: String) -> Node2D:
 		var best: Node2D = null
@@ -704,46 +797,61 @@ class Pointers:
 		draw_string(f, lp, word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 
 	func _draw() -> void:
-		var raid = hud.raid
-		if raid == null:
-			return
 		var view := get_viewport_rect().size
-		var xf: Transform2D = raid.get_viewport().get_canvas_transform()
-		if hud.exit_pos != Vector2.INF:
-			var ep: Vector2 = xf * hud.exit_pos
-			if not Rect2(Vector2.ZERO, view).grow(-30.0).has_point(ep):
-				_edge(ep, view, Palette.c("relish"), "EXIT")
-		if _loot == null or not is_instance_valid(_loot) or not _loot.is_in_group("raid_pickups"):
+		if _ep != Vector2.INF:
+			_edge(_ep, view, Palette.c("relish"), "EXIT")
+		if _sp == Vector2.INF:
 			return
-		var sp: Vector2 = xf * _loot.global_position
-		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(sp):
-			var from := hud.floor_anchor()
-			if from != Vector2.INF:
-				draw_dashed_line(from, sp, Palette.c("vei", 0.45), 1.5, 7.0)
-			draw_arc(sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
+		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
+			if _from != Vector2.INF:
+				draw_dashed_line(_from, _sp, Palette.c("vei", 0.45), 1.5, 7.0)
+			draw_arc(_sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
 		else:
-			_edge(sp, view, Palette.c("vei"), "LOOT")
+			_edge(_sp, view, Palette.c("vei"), "LOOT")
 
 
-## The push-or-retreat line, right-aligned on a dark backing (walls run under the HUD); redrawn only
-## when its text changes.
+## The push-or-retreat line, right-aligned on a dark backing (walls run under the HUD). When it is
+## wider than `max_w` (a narrow window, where it would run under the warden's block) it wraps at its
+## " · " clauses onto more lines, still right-aligned. Redrawn only when its text or room changes.
 class PushLine:
 	extends Control
 	var text := ""
+	var max_w := 4096.0:
+		set(v):
+			if absf(v - max_w) >= 1.0:
+				max_w = v
+				queue_redraw()
 
 	func set_text(t: String) -> void:
 		if t != text:
 			text = t
 			queue_redraw()
 
+	func _line(f: Font, y: float, s: String) -> void:
+		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var x := size.x - w
+		draw_rect(Rect2(Vector2(x - 8.0, y), Vector2(w + 8.0, 22.0)), Palette.c("ground", 0.72))
+		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
+
 	func _draw() -> void:
 		if text == "":
 			return
 		var f := ThemeDB.fallback_font
-		var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 8.0, 0.0), Vector2(w + 8.0, size.y)), Palette.c("ground", 0.72))
-		draw_string(f, Vector2(x - 2.0, 17.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
+		if f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 8.0 <= max_w:
+			_line(f, 0.0, text)
+			return
+		var y := 0.0
+		var cur := ""
+		for part in text.split(" · "):
+			var next := part if cur == "" else cur + " · " + part
+			if cur != "" and f.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 8.0 > max_w:
+				_line(f, y, cur)
+				y += 22.0
+				cur = part
+			else:
+				cur = next
+		if cur != "":
+			_line(f, y, cur)
 
 
 class ExitButton:
