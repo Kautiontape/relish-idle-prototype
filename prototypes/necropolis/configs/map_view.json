@@ -921,6 +921,8 @@
     "vei_fmt": "Vei can be faced: your odds %d%%",
     "hint": ">",
     "leave_fall_fmt": "Safe to leave: first fort falls in %s",
+    "leave_safe_s": 3600.0,
+    "leave_risk_fmt": "If you leave, %s falls in %s",
     "leave_hold_text": "Safe to leave: every fort holds at these rates",
     "pad_px": 8
   },

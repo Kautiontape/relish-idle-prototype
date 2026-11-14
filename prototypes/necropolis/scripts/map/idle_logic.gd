@@ -199,14 +199,29 @@ static func margin_words(ms: Dictionary) -> Dictionary:
 	return out
 
 
+## How long a held fort lasts if left alone, in seconds: the smaller of its committed garrison
+## fall_s (when >= 0) and the hold timer held_s_left (when > 0), or -1.0 when neither applies.
+# TODO(api E2b): a support-vs-pressure contest replaces the hold timer; once the view stops counting
+# held_s_left down for held forts, the timer term goes.
+static func fort_horizon(f: Dictionary, clock: Dictionary) -> float:
+	var best := -1.0
+	var fall := float(clock.get("fall_s", -1.0))
+	if fall >= 0.0:
+		best = fall
+	var timer := float(f.get("held_s_left", 0.0))
+	if timer > 0.0 and (best < 0.0 or timer < best):
+		best = timer
+	return best
+
+
 ## The chip's parts for a held fort under its name: line one the garrison (an upright count) and
-## its signed rate, line two the margin word and, while falling, "falls in ~2 h" (a SAFE fort
-## that holds says "holds").
+## its signed rate, line two the margin word and, while falling, "falls in ~2 h" (the fort's
+## horizon, fort_horizon; a SAFE fort with none says "holds").
 ## {count, rate, word, key, fall}; `clock` is {rate, fall_s}.
 static func chip_parts(f: Dictionary, m: String, clock: Dictionary, c := {}) -> Dictionary:
 	if c.is_empty():
 		c = cfg()
-	var fall := fmt_fall(float(clock.get("fall_s", -1.0)), c)
+	var fall := fmt_fall(fort_horizon(f, clock), c)
 	var tail := (str(c["fall_fmt"]) % fall) if fall != "" else ""
 	if tail == "" and m == SAFE:  # a SAFE fort whose clock holds says so: "SAFE · holds"
 		tail = str(c["hold_text"])

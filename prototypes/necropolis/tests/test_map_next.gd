@@ -36,6 +36,7 @@ func run() -> int:
 	_clocks(t)
 	_projected(t)
 	_chip(t)
+	_horizon(t)
 	_quiet(t)
 	_anchoring(t)
 	_clear_of_token(t)
@@ -165,6 +166,30 @@ func _chip(t: TestUtil) -> void:
 	t.ok(chip_text == "SAFE · holds", "the chip's line two reads %s" % chip_text)
 	t.ok(IdleLogic.chip_top_px(true) > IdleLogic.chip_top_px(false), "the chip drops below the first-dungeon line")
 	t.ok(IdleLogic.chip_height_px() >= 2.0 * float(IdleLogic.cfg()["chip_font"]), "two lines fit the plate")
+
+
+## The fort's horizon: the nearer of the garrison clock and the hold timer.
+func _horizon(t: TestUtil) -> void:
+	t.suite("map_next-horizon")
+	var f := _held("a", 0.0, 10.0, {"held_s_left": 600.0})
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": 9000.0}), 600.0, 1e-6, "the timer alone is nearer")
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": 300.0}), 300.0, 1e-6, "the fall clock is nearer: the minimum")
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": -1.0}), 600.0, 1e-6, "the timer alone")
+	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0), {"fall_s": 900.0}), 900.0, 1e-6, "the fall clock alone")
+	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0), {"fall_s": -1.0}), -1.0, 1e-6, "neither: -1")
+	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0, {"held_s_left": 0.0}), {}), -1.0, 1e-6, "an empty timer does not count")
+	var sp := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
+	t.ok(sp["fall"] == "falls in ~10 min", "a SAFE chip with only a timer says its fall (%s)" % sp["fall"])
+	t.ok(IdleLogic.chip_parts(f, "thin", {"rate": 0.0, "fall_s": -1.0})["fall"] == "falls in ~10 min", "so does a THIN chip")
+	var ln := {"forts": [_held("a", 0.0, 10.0, {"held_s_left": 180.0}), _held("b", 0.0, 10.0, {"held_s_left": 7200.0})],
+		"clocks": {"a": {"fall_s": -1.0}, "b": {"fall_s": -1.0}}}
+	t.ok(NextLogic.leave_text(ln) == "If you leave, A falls in ~3 min", "a near timer is a risk, not safe (%s)" % NextLogic.leave_text(ln))
+	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 32400.0})]
+	t.ok(NextLogic.leave_text(ln) == "Safe to leave: first fort falls in ~9 h", "a far timer is safe (%s)" % NextLogic.leave_text(ln))
+	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 3600.0})]
+	t.ok(NextLogic.leave_text(ln).begins_with("Safe to leave"), "leave_safe_s itself is safe")
+	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 3599.0})]
+	t.ok(NextLogic.leave_text(ln).begins_with("If you leave"), "just under it is a risk")
 
 
 ## The quiet state and its leave line (D2).

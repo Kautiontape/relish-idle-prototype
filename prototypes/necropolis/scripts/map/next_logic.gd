@@ -170,20 +170,26 @@ static func quiet(inp: Dictionary, rule: String) -> bool:
 	return true
 
 
-## The leave line: the smallest committed fall_s >= 0 among the held forts ("first fort falls in
-## ~9 h"), or every fort holds. Words in "next".
+## The leave line, from the smallest IdleLogic.fort_horizon among the held forts (the garrison
+## clock or the hold timer, whichever is nearer): none, every fort holds; at least leave_safe_s,
+## "Safe to leave: first fort falls in ~9 h"; under it, "If you leave, Old Sluice falls in ~3 min"
+## (never called safe). Words in "next".
 static func leave_text(inp: Dictionary, c := {}) -> String:
 	if c.is_empty():
 		c = cfg()
 	var clocks: Dictionary = inp.get("clocks", {})
 	var best := -1.0
+	var who := {}
 	for f in IdleLogic.held_forts(inp.get("forts", [])):
-		var s := float(clocks.get(str(f["id"]), {}).get("fall_s", -1.0))
-		if s >= 0.0 and (best < 0.0 or s < best):
-			best = s
+		var h := IdleLogic.fort_horizon(f, clocks.get(str(f["id"]), {}))
+		if h >= 0.0 and (best < 0.0 or h < best):
+			best = h
+			who = f
 	if best < 0.0:
 		return str(c["leave_hold_text"])
-	return str(c["leave_fall_fmt"]) % IdleLogic.fmt_fall(best)
+	if best >= float(c["leave_safe_s"]):
+		return str(c["leave_fall_fmt"]) % IdleLogic.fmt_fall(best)
+	return str(c["leave_risk_fmt"]) % [str(who.get("name", who.get("id", ""))), IdleLogic.fmt_fall(best)]
 
 
 ## The raid line for the first of `list` (one kind of raid_set's entries), or `prev`'s target
