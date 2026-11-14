@@ -636,9 +636,12 @@ class TranceMeter:
 ## "MUFFLED x n of m" (lit `undead` once it has worked, "braced" while a brace is up), the Huntsman's
 ## "INTERCEPTED x n · took k" (k pips taken inside stun windows). Pips a stun window took stay as
 ## `undead` rings with a slash; the open window's pips flash (steady under reduced motion).
+## The Shieldwall's "FLANKED x n of m · took k" (hits from off its shield, of all the hits it took; k
+## pips taken by them), the weak point's words until the first flank.
 ## Row 2: the Bellringer's phase and its weak point; the Huntsman's CAUGHT track (danger diamonds,
-## notched where catches change its phase) and whether it is hunting your dead. Redrawn only when
-## what it shows changes (or every frame while a stun window flashes).
+## notched where catches change its phase) and whether it is hunting your dead; the Shieldwall's
+## phase and its shield (WardenLogic.shield_label: arc, multipliers, turn rate, bash period). Redrawn
+## only when what it shows changes (or every frame while a stun window flashes).
 class WardenBlock:
 	extends Control
 	var raid: Node = null
@@ -679,6 +682,9 @@ class WardenBlock:
 			var hw := w as RaidHuntsman
 			flashing = hw.is_stunned()
 			k2 = mini(hw.intercepts, 1023) | (mini(hw.catches, 1023) << 10) | (int(flashing) << 20) | (int(hw.hunting_undead) << 21)
+		elif w is RaidShieldwall:
+			var sw := w as RaidShieldwall
+			k2 = (sw.flanks & 0xFFFFF) | ((sw.hits & 0xFFFFF) << 20)
 		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
 			_key = k
 			_key2 = k2
@@ -775,6 +781,16 @@ class WardenBlock:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
 			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
 			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec), 13, "text_dim")
+		elif w is RaidShieldwall:
+			var sw := w as RaidShieldwall
+			var x6 := x + 14.0
+			if sw.flanks > 0:
+				_text(x6, y - 26.0, "FLANKED ×%d of %d" % [sw.flanks, sw.hits] + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken), 15, "undead")
+			else:   # no flank yet: teach the counter in words instead of a zero
+				_text(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase), 13, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint

@@ -363,12 +363,13 @@ static func flank_step(from: Vector2, pos: Vector2, post_angle: float, orbit_px:
 	return from + Vector2(orbit_px, 0).rotated(ang)
 
 
-## The HUD's shield line for a phase, from the spec: "front ±70° · turns 40°/s · glances ×0.1 · bash
-## every 4 beats" (period and turn rate per phase; the multiplier from the attack).
+## The HUD's shield line for a phase, from the spec: "front ±80° glances ×0.1 · back ×2.5 · turns
+## 40°/s · bash every 4 beats" (arc, turn rate and period per phase; the multipliers from the attack).
 static func shield_label(sp: Dictionary, phase: int) -> String:
 	var ph := shield_phase(sp, phase)
-	return "front ±%d° · turns %d°/s · a hit on it glances ×%s · bash every %s beats" % [roundi(ph["front_half_deg"]),
-		roundi(ph["turn_deg_s"]), _num(float(sp.get("attack", {}).get("front_mult", 0.1))), _num(ph["period_beats"])]
+	var at: Dictionary = sp.get("attack", {})
+	return "front ±%d° glances ×%s · back ×%s · turns %d°/s · bash every %s beats" % [roundi(ph["front_half_deg"]),
+		_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0))), roundi(ph["turn_deg_s"]), _num(ph["period_beats"])]
 
 
 static func _num(v: float) -> String:

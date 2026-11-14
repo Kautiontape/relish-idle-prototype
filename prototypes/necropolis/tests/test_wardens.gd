@@ -309,8 +309,9 @@ func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(ph_ok, "its phases are hp thirds")
 	t.near(float(WardenLogic.shield_phase(sw, 9)["turn_deg_s"]), float(ph[2]["turn_deg_s"]), 0.0001, "shield_phase clamps the phase")
 	var lab := WardenLogic.shield_label(sw, 0)
-	t.ok(lab.contains("±%d°" % int(ph[0]["front_half_deg"])) and lab.contains("%d°/s" % int(ph[0]["turn_deg_s"])) and lab.contains("×0.1")
-		and lab.contains("every 4 beats"), "the HUD's shield line comes from the spec: " + lab)
+	t.ok(lab.contains("±%d°" % int(ph[0]["front_half_deg"])) and lab.contains("%d°/s" % int(ph[0]["turn_deg_s"])) and lab.contains("glances ×0.1")
+		and lab.contains("back ×%s" % str(a["attack"]["back_mult"])) and lab.contains("every 4 beats"), "the HUD's shield line comes from the spec: " + lab)
+	t.ok(WardenLogic.shield_label(sw, 2).contains("every 2 beats"), "the shield line follows the phase")
 
 	t.suite("shieldwall_arc")
 	var o := Vector2(100, 100)
