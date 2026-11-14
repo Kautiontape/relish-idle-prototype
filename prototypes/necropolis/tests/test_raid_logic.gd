@@ -1032,6 +1032,35 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 		var d20 := LayoutLogic.route_dist(ag, pa, pb, 20.0)
 		t.ok(d20 > d13 + 100.0 and d13 == LayoutLogic.route_dist(ag, pa, pb),
 			"route_dist follows the mover's size (r=13 %.0f = the base table, r=20 %.0f)" % [d13, d20])
+
+	# the per-mover cache (RaidRoute.steer, as units and Relish move): walking on its cached answers, each
+	# size gets from every room to every other at a slow and a fast pace, on the narrow-gap layout, a
+	# held layout, the T-junction layout and the boss arena
+	var steer_bad := ""
+	var steer_walks := 0
+	var srng := RandomNumberGenerator.new()
+	srng.seed = 77
+	var steer_lays := [{"label": "ashgate t2", "lay": ag}, {"label": "old-sluice t4", "lay": RaidLogic.gen_layout("old-sluice", 4, false, cfg)},
+		{"label": "vespers t2 held", "lay": RaidLogic.gen_layout("vespers", 2, false, cfg, {"held": true})},
+		{"label": "boss", "lay": RaidLogic.gen_layout("vei", 5, true, cfg)}]
+	for sl in steer_lays:
+		var slay: Dictionary = sl["lay"]
+		var srooms: Array = slay["rooms"]
+		for radius in radii:
+			for speed in [90.0, 240.0]:
+				for i in srooms.size():
+					for j in srooms.size():
+						if i == j:
+							continue
+						var a_in := (srooms[i] as Rect2).grow(-(radius + 2.0))
+						var b_in := (srooms[j] as Rect2).grow(-(radius + 2.0))
+						var from := Vector2(srng.randf_range(a_in.position.x, a_in.end.x), srng.randf_range(a_in.position.y, a_in.end.y))
+						var to := Vector2(srng.randf_range(b_in.position.x, b_in.end.x), srng.randf_range(b_in.position.y, b_in.end.y))
+						steer_walks += 1
+						var why := _steer_walk(slay, from, to, radius, speed, cc)
+						if why != "" and steer_bad == "":
+							steer_bad = "%s r=%s v=%s %s -> %s: %s" % [sl["label"], radius, speed, from, to, why]
+	t.ok(steer_bad == "", "routing: walking on RaidRoute.steer's cached answers, every size reaches every room (%d walks; %s)" % [steer_walks, steer_bad])
 	t.ok(layouts == forts.size() * 8 + 1, "routing: every fort x tier 1-4 x held/unheld, plus the boss arena (%d)" % layouts)
 	t.ok(bad_tables == 0, "routing: portals + next_room tables are consistent (%s)" % first_bad["tables"])
 	t.ok(bad_hops == 0, "routing: waypoint-following reaches the target room within 3*rooms+4 hops (%s)" % first_bad["hops"])
@@ -1192,6 +1221,24 @@ func _walk(lay: Dictionary, from: Vector2, to: Vector2, radius: float, step: flo
 		pos = _push_out(lay, nxt, radius)
 	out["why"] = "ran out of steps at %s" % pos
 	return out
+
+
+## Walk `from` toward `to` as a unit does: each 1/60 s tick ask a RaidRoute (its cache, not waypoint
+## directly), move `speed` px/s toward its answer, then the arena's wall push-out. "" when it reaches
+## the target's room within 40 s of game time, else why not.
+func _steer_walk(lay: Dictionary, from: Vector2, to: Vector2, radius: float, speed: float, cc: Dictionary) -> String:
+	var rt := RaidRoute.new(cc)
+	var target_room := LayoutLogic.room_of(lay, to)
+	var dt := 1.0 / 60.0
+	var pos := from
+	for i in 2400:
+		if LayoutLogic.room_of(lay, pos) == target_room:
+			return ""
+		var aim := rt.steer(lay, pos, to, radius, dt) - pos
+		if aim.length() < 0.5:
+			aim = to - pos
+		pos = _push_out(lay, pos + aim.normalized() * minf(speed * dt, aim.length()), radius)
+	return "stuck at %s" % pos
 
 
 ## The arena's resolve_walls (raid_arena.gd), for the walker: the perimeter clamp and the push-out of inner walls.

@@ -153,11 +153,18 @@ func _physics_process(delta: float) -> void:
 
 
 func _pick_target(cfg: Dictionary) -> void:
+	var was = _target
 	if _target != null and (not is_instance_valid(_target) or not _target.alive):
 		_target = null
 	if faction == "ally":
 		_target = raid.nearest_enemy_of(global_position, radius)
-		return
+	else:
+		_pick_enemy_target(cfg)
+	if _target != was and _route != null:
+		_route.reset()   # the goal jumped: route to the new target now (relish.gd does the same)
+
+
+func _pick_enemy_target(cfg: Dictionary) -> void:
 	# enemy: aggro within range of Relish or any undead, then stay hostile
 	var best = null
 	var best_d := INF

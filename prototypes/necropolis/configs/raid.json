@@ -114,7 +114,6 @@
     "strike_reach_pad": 7.0,
     "ally_follow_px": 150.0,
     "route_repath_s": 0.25,
-    "route_arrive_px": 40.0,
     "route_door_pad_px": 14.0
   },
   "enemies": {
