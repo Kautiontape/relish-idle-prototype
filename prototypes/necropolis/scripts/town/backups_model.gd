@@ -153,3 +153,34 @@ static func chapel_upkeep(buildings: Array, chapel_id: String) -> Dictionary:
 		if String(b.get("building_id", "")) == chapel_id and b.get("upkeep") is Dictionary:
 			return b["upkeep"]
 	return {}
+
+
+# ------------------------------------------------------------- signatures ----
+## Each tab section as one number over exactly the view fields it reads. Equal inputs give an equal number, so
+## the panel can leave a section alone on a bind where it hasn't moved (the stocks and rates the town view
+## carries change every refresh and none of these read them).
+## The "what a death costs" section: the death fields, the wait, the party (with the lot and fort names its place
+## words use).
+static func death_sig(views: Dictionary) -> int:
+	var bk: Dictionary = views.get("backups", {})
+	var lots := {}
+	for b in views.get("town", {}).get("buildings", []):
+		lots[String(b.get("lot_id", ""))] = String(b.get("building_id", ""))
+	return [bk.get("death", {}), bk.get("dead_s_left", 0.0), views.get("party", {}).get("party", []), lots,
+		views.get("fort_names", {})].hash()
+
+
+## The vats section: the vats, the chapel's upkeep and what the staffing projection reads (the jobs, the hands,
+## the buildings' caps, the ladder).
+static func vats_sig(views: Dictionary) -> int:
+	var town: Dictionary = views.get("town", {})
+	return [views.get("backups", {}).get("vats", []), views.get("backups", {}).get("clones_ready", 0), town.get("buildings", []),
+		town.get("jobs", []), town.get("workers", {}), town.get("ladder", []), town.get("ladder_effective", [])].hash()
+
+
+## The ossuary section: the charges, the simulacra and stock, the craft rows.
+static func ossuary_sig(views: Dictionary) -> int:
+	var bk: Dictionary = views.get("backups", {})
+	var inv: Dictionary = views.get("inventory", {})
+	return [bk.get("phylactery_charges", 0), bk.get("phylactery_max_per_dungeon", 0), inv.get("simulacra_ready", 0),
+		inv.get("essence", 0), inv.get("relics", 0), views.get("catalog", {}).get("crafts", [])].hash()

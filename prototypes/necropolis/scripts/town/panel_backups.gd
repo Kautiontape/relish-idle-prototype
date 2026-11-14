@@ -37,6 +37,8 @@ var _stock: Label
 var _craft_box: VBoxContainer
 var _crafts: Dictionary = {}  # item id -> {node, name, cost, btn, why}
 var _craft_sig := ""
+var _sigs := {}  # section -> BackupsModel signature of the inputs it was last filled from
+var _ladder_now := "?"
 
 
 func _ready() -> void:
@@ -104,13 +106,15 @@ func _fill_death(bk: Dictionary) -> void:
 	_wait.text = String(_tx.get("dead_now", "")).format({"wait": BackupsModel.wait_text(left, _tx)}) if left > 0.0 else ""
 	_wait.visible = _wait.text != ""
 	var cur := String(death.get("outcome", ""))
-	for s in _steps:
-		var now: bool = s["id"] == cur
-		var l: Label = s["label"]
-		l.text = "%s %s%s" % [_t("ladder_mark") if now else _t("ladder_off"), String(_tx.get("ladder", {}).get(s["id"], s["id"])),
-			"\n(%s)" % _t("ladder_now") if now else ""]
-		l.add_theme_color_override("font_color", Palette.c("text" if now else "text_dim"))
-		s["box"].add_theme_stylebox_override("panel", TownUI.button_box_cached("active" if now else "normal"))
+	if cur != _ladder_now:  # the theme overrides are the cost: only when the outcome moved
+		_ladder_now = cur
+		for s in _steps:
+			var now: bool = s["id"] == cur
+			var l: Label = s["label"]
+			l.text = "%s %s%s" % [_t("ladder_mark") if now else _t("ladder_off"), String(_tx.get("ladder", {}).get(s["id"], s["id"])),
+				"\n(%s)" % _t("ladder_now") if now else ""]
+			l.add_theme_color_override("font_color", Palette.c("text" if now else "text_dim"))
+			s["box"].add_theme_stylebox_override("panel", TownUI.button_box_cached("active" if now else "normal"))
 	var town: Dictionary = _views.get("town", {})
 	var lots := CryptLogic.lot_labels(town.get("buildings", []), _labels())
 	var items: Array = []
@@ -304,9 +308,15 @@ func _on_craft(item_id: String) -> void:
 func bind(views: Dictionary) -> void:
 	_views = views
 	var bk: Dictionary = views.get("backups", {})
-	_fill_death(bk)
-	_fill_vats(bk)
-	_fill_ossuary(bk)
+	# a section is filled only when the fields it reads moved (the refresh is twice a second; the sections change rarely)
+	var sigs := {"death": BackupsModel.death_sig(views), "vats": BackupsModel.vats_sig(views), "ossuary": BackupsModel.ossuary_sig(views)}
+	if sigs["death"] != _sigs.get("death"):
+		_fill_death(bk)
+	if sigs["vats"] != _sigs.get("vats"):
+		_fill_vats(bk)
+	if sigs["ossuary"] != _sigs.get("ossuary"):
+		_fill_ossuary(bk)
+	_sigs = sigs
 
 
 func on_game_event(_ev: Dictionary) -> void:

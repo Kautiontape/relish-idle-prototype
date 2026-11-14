@@ -21,7 +21,9 @@ var _hud: Control
 var _view: Control
 var _panels: Array = []
 var _tabs: Array = []
-var _bound: Array = []  # everything that gets bind() and on_game_event()
+var _bound: Array = []  # everything that gets on_game_event()
+var _later: Array = []  # the nodes a refresh has still to bind, one per frame (see _fetch)
+var _tab := 0  # the tab on show: its panel binds on every fetch, the others once, when shown (see _select_tab)
 var _last_rev := -1
 var _since_fetch := 0.0
 var _dirty := false
@@ -361,10 +363,14 @@ func _debug_tab() -> int:
 
 
 func _select_tab(i: int) -> void:
+	var was := _tab
+	_tab = i
 	for k in _panels.size():
 		_panels[k].visible = (k == i)
 		_tabs[k].set_pressed_no_signal(k == i)
 		_tabs[k].add_theme_stylebox_override("normal", TownUI.button_box("active" if k == i else "normal"))
+	if not _last_views.is_empty() and (i != was or i == 0):  # a hidden panel is current the moment it shows
+		_panels[i].bind(_last_views)
 
 
 func _on_show_building(bid: String, build: Control) -> void:
@@ -388,20 +394,42 @@ func _process(delta: float) -> void:
 	_beat_i = int(beat["i"])
 	if bool(beat["fire"]):
 		_play("beat")
+	if not _later.is_empty():
+		(_later.pop_front() as Node).bind(_last_views)
 	_since_fetch += delta
-	if _dirty or (Game.state.rev != _last_rev and _since_fetch >= _refresh_s):
+	if _dirty:
 		_fetch()
+	elif Game.state.rev != _last_rev and _since_fetch >= _refresh_s:
+		_fetch(true)
 
 
-func _fetch() -> void:
+## Fetches the views and binds what is on screen. `spread` (the twice-a-second refresh) fetches in this frame
+## and binds one node in each frame after, so no frame carries the whole refresh; a command's refresh, the
+## setup and the debug drivers bind it all at once.
+func _fetch(spread := false) -> void:
 	_last_rev = Game.state.rev
 	_since_fetch = 0.0
 	_dirty = false
 	var views := _fetch_views()
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
-	for n in _bound:
+	_later = _bound.filter(_binds_now)
+	if spread:
+		return
+	var all := _later
+	_later = []
+	for n in all:
 		n.bind(views)
+
+
+## Whether `n` binds on this fetch: the HUD and the town view always; the tab on show; and the Build tab even
+## hidden, because it owns what the town view shows whatever tab is open (the suggestion tag, the queue ghosts,
+## the placement check) and measures the build throughput between binds. A hidden Build tab skips its rows
+## itself. The other tabs own nothing outside their own nodes: a hidden one keeps `_last_views` and binds once
+## when shown.
+func _binds_now(n: Node) -> bool:
+	var i := _panels.find(n)
+	return i < 0 or i == _tab or i == 0
 
 
 ## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: the projection

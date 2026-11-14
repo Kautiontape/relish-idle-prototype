@@ -66,6 +66,8 @@ var _rem_head: Label
 var _rem_grid: GridContainer
 var _rem_cells: Dictionary = {}  # uid -> {btn, why}
 var _rem_sig := ""
+var _bind_sig := 0  # CryptLogic.bind_sig of the views the panel last took (0 = none yet)
+var _stat_dom: Array = []  # per stat row: whether it was last drawn dominant (theme overrides only on a flip)
 var _roster_head: Label
 var _no_big: Label
 var _roster: VBoxContainer
@@ -222,6 +224,12 @@ func bind(views: Dictionary) -> void:
 	if _gate == null:
 		return
 	_views = views
+	# a bind whose inputs haven't moved changes nothing (every local change refreshes the slab itself), so
+	# an unchanged bind costs the one hash; a debug preset still waits for its inventory
+	var sig := CryptLogic.bind_sig(views)
+	if sig == _bind_sig and _preset.is_empty():
+		return
+	_bind_sig = sig
 	var relish: Dictionary = views.get("relish", {})
 	_home = String(relish.get("state", "")) == "home"
 	var gate := CryptLogic.gate_text(relish, views.get("fort_names", {}), _t)
@@ -353,12 +361,16 @@ func _refresh_slab() -> void:
 		(cells[1] as Label).text = String(rows[i]["stat"])
 		(cells[2] as Label).text = "%s %s" % [String(rows[i]["text"]), _tx("arrow")]
 		(cells[3] as Label).text = String(rows[i]["helps"])
-		for j in 3:
-			if dom:
-				(cells[j] as Label).add_theme_font_override("font", TownUI.bold_font())
-			else:
-				(cells[j] as Label).remove_theme_font_override("font")
-		(cells[3] as Label).add_theme_color_override("font_color", Palette.c("text" if dom else "text_dim"))
+		if _stat_dom.size() <= i:
+			_stat_dom.resize(i + 1)
+		if _stat_dom[i] != dom:  # a theme override is a relayout: only when the row flips
+			_stat_dom[i] = dom
+			for j in 3:
+				if dom:
+					(cells[j] as Label).add_theme_font_override("font", TownUI.bold_font())
+				else:
+					(cells[j] as Label).remove_theme_font_override("font")
+			(cells[3] as Label).add_theme_color_override("font_color", Palette.c("text" if dom else "text_dim"))
 
 	for uid in _husk_btns:
 		var on: bool = uid == String(_board.get("husk", ""))
@@ -571,6 +583,10 @@ func _sync_roster() -> void:
 	_roster_head.text = _tx("roster").format({"count": int(bu.get("count", 0)), "cap": int(bu.get("cap", 0))})
 	_no_big.visible = list.is_empty()
 	var seen := {}
+	# the place words and the open choosers' options read these as well as the creature itself
+	var blds: Array = _views.get("town", {}).get("buildings", [])
+	var place_ctx := [CryptLogic.lot_labels(blds, _labels()), _views.get("fort_names", {}), _views.get("forts", []),
+		CryptLogic.foreman_lots(blds, _labels()), list.map(func(x): return [x.get("uid", ""), x.get("name", "")])]
 	for i in list.size():
 		var e: Dictionary = list[i]
 		var uid := String(e.get("uid", ""))
@@ -580,7 +596,7 @@ func _sync_roster() -> void:
 		var row: Dictionary = _rows[uid]
 		if (row["box"] as Control).get_index() != i:
 			_roster.move_child(row["box"], i)
-		_update_row(row, e)
+		_update_row(row, e, place_ctx)
 	for uid in _rows.keys():
 		if not seen.has(uid):
 			(_rows[uid]["box"] as Node).queue_free()
@@ -647,17 +663,19 @@ func _make_row(uid: String) -> Dictionary:
 	return row
 
 
-func _update_row(row: Dictionary, e: Dictionary) -> void:
+func _update_row(row: Dictionary, e: Dictionary, place_ctx: Array) -> void:
+	var sig := [e, row["mode"], place_ctx].hash()  # only the rows whose creature, chooser or place words moved
+	if sig == int(row.get("sig", 0)):
+		return
+	row["sig"] = sig
 	var nm := String(e.get("name", ""))
 	row["name_now"] = nm
 	(row["name"] as Label).text = nm
 	var kind := String(e.get("kind", ""))
 	var place := String(e.get("place", ""))
 	row["place"] = place
-	var town: Dictionary = _views.get("town", {})
-	var labels := _labels()
 	var parts: Array = [String(_slab.get("nouns", {}).get(kind, kind.capitalize())), SlabLogic.role_label(String(e.get("role", "")), _slab),
-		CryptLogic.place_text(place, CryptLogic.lot_labels(town.get("buildings", []), labels), _views.get("fort_names", {}), _t)]
+		CryptLogic.place_text(place, place_ctx[0], _views.get("fort_names", {}), _t)]
 	(row["info"] as Label).text = _tx("sep").join(parts)
 	var st: Array = []
 	for s in SlabLogic.STATS:

@@ -155,6 +155,7 @@ func run() -> int:
 	_fix3b_cache()
 	_fix3b_small(mid)
 	_fix3b_lot_names()
+	_fix3d_sigs(day1, mid)
 	return t.failures
 
 
@@ -4698,3 +4699,67 @@ func _fix3b_lot_names() -> void:
 		t.ok(not pb.contains(bad), "panel_build: no raw id in `%s`" % bad)
 	t.ok(not _read_src("res://scripts/town/panel_jobs.gd").contains("trim_prefix(\"lot-\")"), "panel_jobs: no '(05)'")
 	t.ok(String(vcfg["crypt"].get("lot_option", "")) != "" and not String(vcfg["crypt"].get("lot_option", "")).contains("{lot_id}"), "crypt: the foreman option takes a lot name")
+
+
+# ---- fix 3d: the signatures that let a panel's bind skip unchanged work ----
+func _fix3d_sigs(day1: Dictionary, mid: Dictionary) -> void:
+	t.suite("town-fix3d-sigs")
+	# a fresh copy of the same views is the same number; a stock that every refresh moves is not in it
+	var again := day1.duplicate(true)
+	again["town"]["gold"] = float(again["town"].get("gold", 0.0)) + 7.0
+	again["town"]["rev"] = int(again["town"].get("rev", 0)) + 1
+	again["hud"]["t"] = float(again["hud"].get("t", 0.0)) + 1.0
+	t.ok(CryptLogic.bind_sig(day1) == CryptLogic.bind_sig(day1.duplicate(true)), "crypt sig: equal views, equal sig")
+	t.ok(CryptLogic.bind_sig(day1) == CryptLogic.bind_sig(again), "crypt sig: gold, rev and clock moves don't change it")
+	t.ok(BackupsModel.death_sig(day1) == BackupsModel.death_sig(again), "backups death sig: stocks don't change it")
+	t.ok(BackupsModel.ossuary_sig(day1) == BackupsModel.ossuary_sig(again), "backups ossuary sig: stocks don't change it")
+	t.ok(BackupsModel.vats_sig(day1) == BackupsModel.vats_sig(day1.duplicate(true)), "backups vats sig: equal views, equal sig")
+	# each field a section reads moves its sig
+	var base := CryptLogic.bind_sig(mid)
+	var variants := {
+		"a husk": func(v: Dictionary): v["inventory"]["husks"] = v["inventory"].get("husks", []) + [{"uid": "h-x", "kind": "warden"}],
+		"a remnant": func(v: Dictionary): v["inventory"]["remnants"] = v["inventory"].get("remnants", []) + [{"uid": "r-x", "aspect": "bone", "magnitude": 2}],
+		"a big undead": func(v: Dictionary): v["big_undead"]["big_undead"] = v["big_undead"].get("big_undead", []) + [{"uid": "b-x", "name": "X", "place": "crypt"}],
+		"the cap": func(v: Dictionary): v["big_undead"]["cap"] = int(v["big_undead"].get("cap", 0)) + 1,
+		"Relish's state": func(v: Dictionary): v["relish"]["state"] = String(v["relish"].get("state", "")) + "_x",
+		"a fort's name": func(v: Dictionary): v["fort_names"] = {"old-sluice": "Old Sluice"},
+		"a fort held": func(v: Dictionary): v["forts"] = [{"id": "old-sluice", "name": "Old Sluice", "held": true}],
+		"a lot's building": func(v: Dictionary): v["town"]["buildings"] = v["town"]["buildings"] + [{"lot_id": "lot-99", "building_id": "inn", "level": 1, "slots": 1}],
+	}
+	for k in variants:
+		var v := mid.duplicate(true)
+		(variants[k] as Callable).call(v)
+		t.ok(CryptLogic.bind_sig(v) != base, "crypt sig: %s changes it" % k)
+	var dead := mid.duplicate(true)
+	dead["relish"]["state"] = "dead"
+	dead["relish"]["dead_s_left"] = 30.2
+	var dead2 := dead.duplicate(true)
+	dead2["relish"]["dead_s_left"] = 29.2
+	t.ok(CryptLogic.bind_sig(dead) != CryptLogic.bind_sig(dead2), "crypt sig: a dead Relish's countdown moves it by the second")
+	var bk := mid.duplicate(true)
+	bk["backups"]["death"] = {"outcome": "__other"}
+	t.ok(BackupsModel.death_sig(bk) != BackupsModel.death_sig(mid), "backups death sig: the death outcome changes it")
+	var vt := mid.duplicate(true)
+	vt["backups"]["vats"] = [{"slot": 0, "staffed": true, "ready": false, "grow": 0.5}]
+	t.ok(BackupsModel.vats_sig(vt) != BackupsModel.vats_sig(mid), "backups vats sig: a vat changes it")
+	var cr := mid.duplicate(true)
+	cr["catalog"]["crafts"] = [{"item_id": "x", "can_craft": true, "cost": {}}]
+	t.ok(BackupsModel.ossuary_sig(cr) != BackupsModel.ossuary_sig(mid), "backups ossuary sig: a craft row changes it")
+	# the build row: the stocks aren't in it, the row, class, chip and the extras are
+	var row := {"building_id": "house", "can_build": true, "cost": {"gold": 10}, "count": 1}
+	var item := {"row": row, "cls": 1, "chip": ""}
+	var rs := BuildSort.row_sig(item, [false, "", false, false, false, ""])
+	t.ok(rs == BuildSort.row_sig(item.duplicate(true), [false, "", false, false, false, ""]), "row sig: equal inputs, equal sig")
+	t.ok(rs != BuildSort.row_sig({"row": row, "cls": 2, "chip": ""}, [false, "", false, false, false, ""]), "row sig: the class changes it")
+	t.ok(rs != BuildSort.row_sig({"row": row, "cls": 1, "chip": "need"}, [false, "", false, false, false, ""]), "row sig: the chip changes it")
+	t.ok(rs != BuildSort.row_sig(item, [true, "", false, false, false, ""]), "row sig: the suggestion flag changes it")
+	t.ok(rs != BuildSort.row_sig(item, [false, "", true, false, false, ""]), "row sig: placement changes it")
+	t.ok(rs != BuildSort.row_sig(item, [false, "", false, true, false, ""]), "row sig: focus changes it")
+	t.ok(rs != BuildSort.row_sig(item, [false, "", false, false, true, ""]), "row sig: a full queue changes it")
+	t.ok(rs != BuildSort.row_sig(item, [false, "", false, false, false, "inn"]), "row sig: the fix target changes it")
+	var r2 := row.duplicate()
+	r2["can_build"] = false
+	t.ok(rs != BuildSort.row_sig({"row": r2, "cls": 1, "chip": ""}, [false, "", false, false, false, ""]), "row sig: the row changes it")
+	# the shell binds only what is on screen
+	var src := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	t.ok(src.contains("func _binds_now(") and src.contains("_panels[i].bind(_last_views)"), "shell: hidden tabs bind on show, from the last views")

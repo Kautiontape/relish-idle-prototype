@@ -211,18 +211,19 @@ func bind(views: Dictionary) -> void:
 	_reserved = tab["reserved"]
 	_sug_data = tab["sug"]
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
-	var listed := {}
-	for i in sorted.size():
-		var bid := String(sorted[i]["row"]["building_id"])
-		var w: Dictionary = _rows[bid]
-		listed[bid] = true
-		w["node"].visible = true
-		if w["node"].get_index() != i:
-			_rows_box.move_child(w["node"], i)
-		_update_row(sorted[i], w)
-	for bid in _rows:
-		if not listed.has(bid):  # a built unique building is never offered again
-			_rows[bid]["node"].visible = false
+	if is_visible_in_tree():  # the rows are for the eye: a hidden tab's catch up in the bind its show makes
+		var listed := {}
+		for i in sorted.size():
+			var bid := String(sorted[i]["row"]["building_id"])
+			var w: Dictionary = _rows[bid]
+			listed[bid] = true
+			w["node"].visible = true
+			if w["node"].get_index() != i:
+				_rows_box.move_child(w["node"], i)
+			_update_row(sorted[i], w)
+		for bid in _rows:
+			if not listed.has(bid):  # a built unique building is never offered again
+				_rows[bid]["node"].visible = false
 	_check_placement()
 	_update_inspector()
 	_update_queue()
@@ -336,40 +337,53 @@ func _make_row(bid: String) -> Dictionary:
 		"costs": costs, "chip": chip, "sug": sug, "reason": reason, "link": link}
 
 
+## One catalog row's nodes, in place. Two parts: what only a change of the row, the sort, the suggestion, the
+## placement, the focus or the queue can alter (made only when `BuildSort.row_sig` differs from the last
+## bind's), and what the stocks move every refresh (the cost texts, with their "short" colour set only when it
+## flips, and the refusal text), which costs a string per cost and per blocked row.
 func _update_row(it: Dictionary, w: Dictionary) -> void:
 	var row: Dictionary = it["row"]
 	var bid := String(row.get("building_id", ""))
 	var can := bool(row.get("can_build", false))
-	w["name"].text = _label(bid)
-	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
-	w["sug"].visible = bid == _sug_bid
-	w["sug"].text = String(_sug_data.get("chip", "suggested")) if bool(_sug_data.get("upgrade", false)) else "suggested"
-	w["count"].text = "built %d" % int(row.get("count", 0))
-	var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
-	for k in 3:
-		w["rates"][k].visible = k < ben["rates"].size()
-		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
-	w["plain"].text = "  ".join(ben["plain"])
-	w["plain"].visible = not ben["plain"].is_empty()
+	var why := String(row.get("reason", ""))
+	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
+	var sug := bid == _sug_bid
+	var queue_off: bool = BuildSort.can_queue(row, _vcfg) and (_queue_full() or _free_lot(row) == "")
+	var sig := BuildSort.row_sig(it, [sug, String(_sug_data.get("chip", "suggested")) if sug and bool(_sug_data.get("upgrade", false)) else "",
+		_placing == bid, _focus == bid, queue_off, target])
+	if sig != int(w.get("sig", 0)):
+		w["sig"] = sig
+		w["name"].text = _label(bid)
+		w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
+		w["sug"].visible = sug
+		w["sug"].text = String(_sug_data.get("chip", "suggested")) if bool(_sug_data.get("upgrade", false)) else "suggested"
+		w["count"].text = "built %d" % int(row.get("count", 0))
+		var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
+		for k in 3:
+			w["rates"][k].visible = k < ben["rates"].size()
+			w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
+		w["plain"].text = "  ".join(ben["plain"])
+		w["plain"].visible = not ben["plain"].is_empty()
+		w["chip"].visible = it["chip"] != ""
+		w["chip"].text = "Needed now: " + String(it["chip"])
+		w["place"].visible = can
+		w["place"].text = "Stop" if _placing == bid else "Place"
+		w["queue"].visible = BuildSort.can_queue(row, _vcfg)
+		w["queue"].disabled = queue_off
+		w["reason"].get_parent().visible = not can
+		w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
+		w["link"].visible = target != ""
+		w["link"].set_meta("target", target)
+		w["link"].text = "Show " + _label(target) if target != "" else ""
+		w["node"].add_theme_stylebox_override("panel", _style_focus if _focus == bid else _style_row)
 	var parts := BuildSort.cost_parts(row.get("cost", {}), _st)
+	var shorts: Array = w.get("shorts", [])
 	for k in 3:
 		w["costs"][k].text = String(parts[k]["text"]) + ("  ·  " if k < 2 else "")
-		w["costs"][k].add_theme_color_override("font_color", Palette.c("danger" if parts[k]["short"] else "text"))
-	w["chip"].visible = it["chip"] != ""
-	w["chip"].text = "Needed now: " + String(it["chip"])
-	w["place"].visible = can
-	w["place"].text = "Stop" if _placing == bid else "Place"
-	w["queue"].visible = BuildSort.can_queue(row, _vcfg)
-	w["queue"].disabled = _queue_full() or _free_lot(row) == ""
-	var why := String(row.get("reason", ""))
-	w["reason"].get_parent().visible = not can
+		if shorts.size() != 3 or shorts[k] != parts[k]["short"]:
+			w["costs"][k].add_theme_color_override("font_color", Palette.c("danger" if parts[k]["short"] else "text"))
+	w["shorts"] = [parts[0]["short"], parts[1]["short"], parts[2]["short"]]
 	w["reason"].text = BuildSort.row_reason(row, _st, _bview, _vcfg)  # with an unmet relic cost said too
-	w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
-	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
-	w["link"].visible = target != ""
-	w["link"].set_meta("target", target)
-	w["link"].text = "Show " + _label(target) if target != "" else ""
-	w["node"].add_theme_stylebox_override("panel", _style_focus if _focus == bid else _style_row)
 
 
 # ------------------------------------------------------------- placement ----

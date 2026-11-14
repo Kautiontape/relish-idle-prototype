@@ -361,3 +361,20 @@ static func rune_points(groups: Array, center: Vector2, rx: float, ry: float, gr
 		var a := deg_to_rad(deg)
 		out.append(center + Vector2(cos(a) * rx, sin(a) * ry))
 	return out
+
+
+## Everything the crypt tab's bind reads from the views, as one number: Relish's place (what the gate says; a
+## dead Relish's wait by the whole second), the husks and remnants on hand, the big undead (count, cap, each
+## one's fields), the built lots (the place words and the Foreman choices) and the forts (the Siege choices,
+## the place words). Equal views give an equal number, so the panel can leave itself alone on a bind where none
+## of it moved; the stocks and rates the views also carry change every refresh and are not in it.
+static func bind_sig(views: Dictionary) -> int:
+	var relish: Dictionary = views.get("relish", {})
+	var inv: Dictionary = views.get("inventory", {})
+	var bu: Dictionary = views.get("big_undead", {})
+	var lots: Array = []
+	for b in views.get("town", {}).get("buildings", []):
+		lots.append([b.get("lot_id", ""), b.get("building_id", ""), b.get("level", 0), b.get("slots", 0), b.get("foreman", "")])
+	return [[relish.get("state", ""), relish.get("at", ""), relish.get("target", ""), relish.get("respawn_with_clone", false),
+		ceili(maxf(float(relish.get("dead_s_left", 0.0)), 0.0))], views.get("fort_names", {}), views.get("forts", []),
+		inv.get("husks", []), inv.get("remnants", []), bu.get("count", 0), bu.get("cap", 0), bu.get("big_undead", []), lots].hash()
