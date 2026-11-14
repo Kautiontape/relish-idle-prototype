@@ -547,8 +547,8 @@ func _free_lot() -> String:
 	return ""
 
 
-## Stands in for the E3 raise (a stub that mints nothing): one big undead is granted, named as the demo
-## names it, and placed at `lot` with the real place command.
+## Stands in for the raise while it is a stub that mints nothing: one big undead is granted, named as the slab
+## named it (CryptLogic.raise_name), and placed at `lot` with the real place command.
 func _debug_raise_walk(lot: String) -> void:
 	var before := {}
 	for e in Game.state.view_big_undead().get("big_undead", []):
@@ -557,8 +557,10 @@ func _debug_raise_walk(lot: String) -> void:
 	for e in Game.state.view_big_undead().get("big_undead", []):
 		var uid := String(e["uid"])
 		if not before.has(uid):
-			var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_raise", {})
-			Game.state.cmd_rename_big_undead(uid, String(spec.get("name", "")))
+			# the slab's name for the husk and remnants on it (what the raise was kept under), not a made-up one
+			var crypt: Control = _panels[4]
+			Game.state.cmd_rename_big_undead(uid, CryptLogic.raise_name(String(crypt.last_raise_name), e,
+				ConfigDb.data.get("town", {}).get("slab", {})))
 			_debug_place(uid, lot)
 			return
 	printerr("Covington: --town-raise could not mint a big undead (at the cap?)")

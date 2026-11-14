@@ -16,14 +16,30 @@ static func wait_text(s: float, tx: Dictionary) -> String:
 	return String(tx.get("wait_s", "{n} s")).format({"n": roundi(s)})
 
 
-## The outcome in words, with the wait from `respawn_s` ("" for an outcome the views don't know).
-static func outcome_text(death: Dictionary, tx: Dictionary) -> String:
+## Whether the death numbers are still a stub, so the panel tags them "coming": town.json view.backups
+## numbers_wired is false (STANDIN(E3)) and nothing in `death` shows the sim computing it for real, which
+## is a wait (respawn_s > 0) or a phylactery outcome (the stub never reports either).
+static func numbers_pending(death: Dictionary, tx: Dictionary) -> bool:
+	if bool(tx.get("numbers_wired", false)):
+		return false
+	return not (float(death.get("respawn_s", 0.0)) > 0.0 or String(death.get("outcome", "")) == "phylactery")
+
+
+## The ladder's current step's tag: "now", or "now · numbers coming" while the numbers are a stub.
+static func ladder_now_text(tx: Dictionary, pending: bool) -> String:
+	return String(tx.get("ladder_now_pending" if pending else "ladder_now", ""))
+
+
+## The outcome in words, with the wait from `respawn_s` ("" for an outcome the views don't know); `pending`
+## adds the "(numbers coming)" tag.
+static func outcome_text(death: Dictionary, tx: Dictionary, pending := false) -> String:
 	var line: String = String(tx.get("outcome", {}).get(String(death.get("outcome", "")), ""))
 	if line == "":
 		return ""
 	var wait := wait_text(float(death.get("respawn_s", 0.0)), tx)
 	var after: String = String(tx.get("after", "")).format({"wait": wait}) if wait != "" else String(tx.get("at_once", ""))
-	return line.format({"after": after})
+	var text := line.format({"after": after})
+	return text + " " + String(tx.get("numbers_coming", "")) if pending else text
 
 
 ## The three steps best first: [{id, current}], the step the outcome names marked.
@@ -48,20 +64,34 @@ static func loses_list(loses: Array, tx: Dictionary) -> Array:
 	return out
 
 
-## "the party: Old Gristle (foreman at the Market), Big u2". `crypt_texts` = view.crypt (its place words).
-static func party_text(party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary) -> String:
+## "the party: Old Gristle (foreman at the Market), Hulking-Brutal Hulk". `crypt_texts` = view.crypt (its place
+## words), `slab` = town.json slab: a member still carrying the mint default "Big u2" is shown by the slab's name.
+static func party_text(party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary, slab: Dictionary = {}) -> String:
 	var label := loses_text("party", tx)
 	if party.is_empty():
 		return label
 	var names: Array = []
 	for m in party:
 		var place := String(m.get("place", ""))
+		var shown := SlabLogic.display_name(m, slab)
 		if place == "party" or place == "":
-			names.append(String(tx.get("party_member_plain", "{name}")).format({"name": String(m.get("name", ""))}))
+			names.append(String(tx.get("party_member_plain", "{name}")).format({"name": shown}))
 		else:
-			names.append(String(tx.get("party_member", "{name}")).format({"name": String(m.get("name", "")),
+			names.append(String(tx.get("party_member", "{name}")).format({"name": shown,
 				"place": CryptLogic.place_text(place, lot_labels, fort_names, crypt_texts)}))
 	return String(tx.get("party_names", "{label}: {names}")).format({"label": label, "names": ", ".join(names)})
+
+
+## The loss as one headline: "She would lose: the party: Old Gristle, loot since the last checkpoint." `loses` =
+## death.loses, `party` = view_party().party; the rest as in party_text.
+static func loses_line(loses: Array, party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary, slab: Dictionary = {}) -> String:
+	var items: Array = []
+	for id in loses:
+		if String(id) == "party":
+			items.append(party_text(party, lot_labels, fort_names, crypt_texts, tx, slab))
+		else:
+			items.append(loses_text(String(id), tx))
+	return "%s: %s." % [String(tx.get("loses_header", "")), ", ".join(items) if not items.is_empty() else String(tx.get("loses_none", ""))]
 
 
 static func vat_state_text(vat: Dictionary, tx: Dictionary) -> String:
@@ -114,8 +144,10 @@ static func pips_text(n: int, tx: Dictionary) -> String:
 
 
 ## "staffing takes 1 hand from Pit" from a TownBehaviour.staffing_diff (the jobs that lose hands), for a vat
-## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is.
-static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false) -> String:
+## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is. When no
+## job hand moves and `idle` (workers.idle, -1 = unknown) holds a whole idle hand, the line says why: "10 idle
+## hands: staffing costs nothing today" (a staffed vat: "unstaffing frees nothing a job needs today"; the idle count rounded down).
+static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false, idle := -1.0) -> String:
 	var moved: Array = []
 	for d in diff:
 		var n := roundi(float(d["delta"]) * (1.0 if staffed else -1.0))
@@ -124,6 +156,9 @@ static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, 
 	moved.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1])
 	var pre := "unstaff_gain" if staffed else "staff_cost"
 	if moved.is_empty():
+		var n := floori(idle)
+		if n >= 1:
+			return String(tx.get("unstaff_idle" if staffed else "staff_idle", "")).format({"n": n, "hands": tx.get("hand" if n == 1 else "hands", "hands")})
 		return String(tx.get(pre + "_none", ""))
 	var items: Array = []
 	for l in moved:
@@ -196,10 +231,11 @@ static func staffing_costs(views: Dictionary, project: Callable, labels: Diction
 	if not project.is_valid():
 		return out
 	var order: Array = TownBehaviour.effective(views.get("town", {}))
+	var idle := float(views.get("town", {}).get("workers", {}).get("idle", -1.0))
 	for v in views.get("backups", {}).get("vats", []):
 		var staffed := bool(v.get("staffed", false))
 		var diff := TownBehaviour.staffing_diff(project.call(order), project.call(order, {int(v.get("slot", 0)): not staffed}))
-		out.append(staffing_cost_text(diff, labels, tx, staffed))
+		out.append(staffing_cost_text(diff, labels, tx, staffed, idle))
 	return out
 
 

@@ -78,7 +78,7 @@ static func evaluate(husk_kind: String, remnants: Array, cfg: Dictionary) -> Dic
 	var role_id := "hollow"
 	if dominant != "":
 		role_id = String(cfg.get("role_by_stat", {}).get(dominant, "hollow"))
-	var noun := String(cfg.get("nouns", {}).get(husk_kind, husk_kind.capitalize()))
+	var noun := noun_of(husk_kind, cfg)
 	var adj := _adjective(ranked, cfg)
 	var label := role_label(role_id, cfg)
 	var good_for := String(cfg.get("roles", {}).get(role_id, {}).get("good_for", ""))
@@ -89,7 +89,7 @@ static func evaluate(husk_kind: String, remnants: Array, cfg: Dictionary) -> Dic
 		"kind": husk_kind,
 		"noun": noun,
 		"adjective": adj,
-		"name": "%s %s" % [_name_adjectives(ranked, cfg), noun],
+		"name": _name_of(ranked, husk_kind, cfg),
 		"stats": stats,
 		"role": role_id,
 		"role_label": label,
@@ -100,6 +100,36 @@ static func evaluate(husk_kind: String, remnants: Array, cfg: Dictionary) -> Dic
 		"filled": filled,
 		"unplaced": unplaced,
 	}
+
+
+## The kind's noun ("hulk" -> "Hulk").
+static func noun_of(kind: String, cfg: Dictionary) -> String:
+	return String(cfg.get("nouns", {}).get(kind, kind.capitalize()))
+
+
+## The one naming rule: the Adjective(-Adjective) from the ranked stats, then the kind's noun.
+static func _name_of(ranked: Array, kind: String, cfg: Dictionary) -> String:
+	return "%s %s" % [_name_adjectives(ranked, cfg), noun_of(kind, cfg)]
+
+
+## The slab's Adjective-Noun name for a `kind` and its `stats` (a big undead's stats dict): exactly what
+## `evaluate` names a creature of the same kind and stat totals.
+static func name_for(kind: String, stats: Dictionary, cfg: Dictionary) -> String:
+	return _name_of(_ranked(stats), kind, cfg)
+
+
+## True when `entry`'s name is the sim's mint default ("Big " + uid, or empty) rather than a name somebody chose.
+static func has_default_name(entry: Dictionary, cfg: Dictionary) -> bool:
+	var nm := String(entry.get("name", ""))
+	return nm == "" or nm == String(cfg.get("default_name_prefix", "Big ")) + String(entry.get("uid", ""))
+
+
+## The name to show for a big undead entry: the slab's name for its kind and stats while it still carries the
+## mint default; its own name otherwise. An entry with no kind keeps whatever name it has.
+static func display_name(entry: Dictionary, cfg: Dictionary) -> String:
+	if has_default_name(entry, cfg) and String(entry.get("kind", "")) != "":
+		return name_for(String(entry["kind"]), entry.get("stats", {}), cfg)
+	return String(entry.get("name", ""))
 
 
 static func _first_empty(groups: Array, slot_rem: Array, stat: String, cfg: Dictionary, anima: bool) -> int:

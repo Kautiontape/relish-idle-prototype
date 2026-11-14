@@ -99,6 +99,18 @@ static func advance(d: float, g0: float, g1: float, step_px: float, mul: float, 
 	return minf(d + maxf(g1 - g0, 0.0) * step_px * mul, length)
 
 
+## Whether a big undead wears a name badge: only a foreman placed at a building (`town:<lot>`, the lot's
+## building not the crypt). One resting in the crypt, in the party or away at a fort has none.
+static func badge_shown(place: String, lot_id: String, building_id: String) -> bool:
+	return place.begins_with("town:") and place.trim_prefix("town:") == lot_id and lot_id != "" and building_id != "crypt"
+
+
+## Where the badge sits relative to the diamond, beyond its side offset: pushed down the building's way, away
+## from the street the foreman faces (`n`, the front's outward normal), so it never lands on the labels there.
+static func badge_offset(n: Vector2, diamond_h: float, text_h: float, gap: float) -> Vector2:
+	return Vector2(0.0, -signf(n.y) * (diamond_h * 0.5 + text_h * 0.5 + gap))
+
+
 ## The name badge's opacity: none while it walks, then up over `fade_s` after it arrives. Reduced
 ## motion: whole at once on arrival.
 static func badge_alpha(walking: bool, since_arrival_s: float, fade_s: float, reduced: bool) -> float:
@@ -115,7 +127,7 @@ static func badge_alpha(walking: bool, since_arrival_s: float, fade_s: float, re
 ## {starts: [{uid, name, lot_id, from_lot}], prev: the places now}. `from_lot` is the building he was
 ## at ("" when he came from the crypt, a fort or the party, or is new), so a foreman moved between
 ## buildings walks from his old one.
-static func transitions(prev: Dictionary, entries: Array, seeded: bool) -> Dictionary:
+static func transitions(prev: Dictionary, entries: Array, seeded: bool, slab := {}) -> Dictionary:
 	var starts: Array = []
 	var now := {}
 	for e in entries:
@@ -124,6 +136,6 @@ static func transitions(prev: Dictionary, entries: Array, seeded: bool) -> Dicti
 		now[uid] = place
 		if seeded and place.begins_with("town:") and String(prev.get(uid, "")) != place:
 			var was := String(prev.get(uid, ""))
-			starts.append({"uid": uid, "name": String(e.get("name", "")), "lot_id": place.trim_prefix("town:"),
+			starts.append({"uid": uid, "name": SlabLogic.display_name(e, slab) if not slab.is_empty() else String(e.get("name", "")), "lot_id": place.trim_prefix("town:"),
 				"from_lot": was.trim_prefix("town:") if was.begins_with("town:") else ""})
 	return {"starts": starts, "prev": now}

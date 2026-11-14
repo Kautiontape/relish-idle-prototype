@@ -97,7 +97,8 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 ## line names it: "10 idle: build a Charnel House (+3 jobs) or let them muster" / "10 idle: upgrade the
 ## Market to L2 (+2 jobs) or let them muster". When it isn't (a save-for target, a building with no jobs), the
 ## first buildable job item of the same list (upgrades merged, the next tier's lots kept free) is named
-## instead. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
+## instead; one the relics held can't pay for (BuildSort.relic_blocked) is never named while a relic-free job
+## item is buildable. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
 ## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
 ## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
 ## be paid for. [] when the idle hands are no need.
@@ -111,17 +112,30 @@ static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, b
 		tab = BuildSort.tab_suggestion(views, bview, bcfg, vcfg)
 	var best: Dictionary = {}
 	var sug: Dictionary = tab["sug"]
-	if not sug.is_empty() and not bool(sug.get("save", false)) and BuildSort.job_slots(String(sug.get("building_id", "")), bcfg) > 0:
+	var st: Dictionary = tab.get("stocks", {})
+	var cands := BuildSort.candidates(tab["items"], tab["ups"], tab["reserved"])
+	var sug_blocked := false  # the suggestion is the relic wall itself: it is not the line's building
+	for it in cands:
+		if String(it["row"].get("building_id", "")) == String(sug.get("building_id", "")) and bool(it.get("upgrade", false)) == bool(sug.get("upgrade", false)):
+			sug_blocked = BuildSort.relic_blocked(it["row"], st)
+			break
+	if not sug.is_empty() and not bool(sug.get("save", false)) and not sug_blocked and BuildSort.job_slots(String(sug.get("building_id", "")), bcfg) > 0:
 		best = {"row": {"building_id": sug["building_id"], "upgrade": bool(sug.get("upgrade", false)), "level": int(sug.get("level", 1))}}
 		for it in tab["items"]:  # its catalog row, for `projected`
 			if String(it["row"].get("building_id", "")) == String(sug["building_id"]) and not bool(sug.get("upgrade", false)):
 				best["row"] = it["row"]
 				break
 	else:
-		for it in BuildSort.candidates(tab["items"], tab["ups"], tab["reserved"]):
-			var row: Dictionary = it["row"]
-			if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty() and BuildSort.job_slots(String(row.get("building_id", "")), bcfg) > 0:
-				best = it
+		# the first buildable job item the relics pay for; only when there is none, a relic-blocked one (the wall)
+		for free_only in [true, false]:
+			for it in cands:
+				var row: Dictionary = it["row"]
+				if free_only and BuildSort.relic_blocked(row, st):
+					continue
+				if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty() and BuildSort.job_slots(String(row.get("building_id", "")), bcfg) > 0:
+					best = it
+					break
+			if not best.is_empty():
 				break
 	if not best.is_empty():
 		var row: Dictionary = best["row"]
@@ -263,6 +277,25 @@ static func next_tier_line(tier: String, next: Dictionary, hcfg: Dictionary, bvi
 		missing = BuildSort.fmt(_t(hcfg, "next_missing"), {"list": ", ".join(miss)})
 	return BuildSort.fmt(_t(hcfg, "next_tier"), {"tier": nt.capitalize(), "have": int(next.get("have", 0)),
 		"need": int(next.get("need", 0)), "missing": missing})
+
+
+## The top-right line: today's next-tier line, except while the relics held can't pay for the next tier's
+## missing gate buildings: "next: Town — needs 4 relics (have 3): raid a fort". N is those buildings' relic
+## costs summed (BuildSort.relic_wall: view_catalog costs of what view_town().next_tier.missing still asks for,
+## minus what stands or is being built), M the relics held (view_inventory().relics). {text, relics: bool (the
+## wall is the line), need, have}.
+static func next_line(views: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
+	var town: Dictionary = views.get("town", {})
+	var next: Dictionary = town.get("next_tier", {})
+	var wall := BuildSort.relic_wall(views) if String(next.get("tier", "")) != "" else {}
+	if wall.is_empty():
+		return {"text": next_tier_line(String(town.get("tier", "")), next, hcfg, bview), "relics": false, "need": 0, "have": 0}
+	return {"text": BuildSort.fmt(_t(hcfg, "next_relics"), {"tier": String(next["tier"]).capitalize(), "n": wall["need"],
+		"unit": _unit(int(wall["need"]), hcfg), "have": wall["have"]}), "relics": true, "need": wall["need"], "have": wall["have"]}
+
+
+static func _unit(n: int, hcfg: Dictionary) -> String:
+	return String((hcfg.get("relic_units", {}) as Dictionary).get("one" if n == 1 else "many", ""))
 
 
 # -------------------------------------------------------------- bottleneck ----

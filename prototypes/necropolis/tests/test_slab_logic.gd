@@ -14,6 +14,8 @@ func run() -> int:
 	t.suite("slab-logic")
 	var cfg: Dictionary = TestUtil.configs()["town"]["slab"]
 
+	_display_name(t, cfg)
+
 	# --- slots ---------------------------------------------------------------
 	var want := {
 		"skeleton": ["muscle", "nerve", "nerve"],
@@ -102,7 +104,7 @@ func run() -> int:
 	e = SlabLogic.evaluate("zombie", [], cfg)
 	t.ok(e["dominant"] == "" and e["role_label"] == "Hollow", "no stats: hollow, no dominant")
 	e = SlabLogic.evaluate("zombie", [_r("power", 2)], cfg)
-	t.ok(e["role_label"] == "Brawler" and e["role_line"] == "Brawler: good for breaking the raw front and a warden's armour", "role label and line")
+	t.ok(e["role_label"] == "Brawler" and e["role_line"] == "Brawler: good for breaking Vei's raw front and a warden's armour", "role label and line")
 	t.ok(SlabLogic.role_label("brute", cfg) == "Brute", "legacy role id capitalised")
 	t.ok(SlabLogic.role_label("stalker", cfg) == "Stalker", "configured label")
 
@@ -163,14 +165,14 @@ func _silhouettes(t: TestUtil, cfg: Dictionary) -> void:
 
 func _crypt_keys(t: TestUtil, texts: Dictionary) -> void:
 	var keys := ["gate", "vei_name", "sep", "husks", "no_husks", "remnants", "no_remnants", "empty_slab", "dominant_mark",
-		"front", "stat_uses", "arrow", "refuse", "block", "hold", "holding", "prompt", "keep", "suggest", "bad_name", "risen",
+		"arrow", "refuse", "block", "hold", "holding", "prompt", "keep", "suggest", "bad_name", "risen",
 		"risen_stub", "refused", "roster", "no_big", "rename", "save", "to_crypt", "to_party", "to_foreman", "to_siege",
 		"held", "lot_option", "taken", "no_lots", "no_forts", "reasons", "place", "name_px", "role_px", "stat_px", "text_px",
 		"small_px", "roster_name_px", "preview"]
 	var nested := {
 		"gate": ["home", "travelling", "travelling_home", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead_clone", "dead_unmade", "away", "roster_note"],
 		"refuse": ["no_husk", "on_slab", "no_slot", "full"], "block": ["away", "no_husk", "cap", "min", "unplaced", "kind", "raising"],
-		"place": ["crypt", "party", "town", "fort", "other"], "stat_uses": SlabLogic.STATS,
+		"place": ["crypt", "party", "town", "fort", "other"],
 		"reasons": ["_unknown", "not_home", "unknown_husk", "unknown_remnant", "duplicate_remnant", "invalid_recipe", "at_cap",
 			"bad_name", "unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot", "foreman_taken", "unknown_fort", "duplicate_uid"],
 		"preview": ["h_px", "body_px", "per_beef", "max_scale", "ghost", "w_px", "glow", "rings_px", "ring_w_px", "ring_alpha",
@@ -416,11 +418,8 @@ func _block_and_rows(t: TestUtil, cfg: Dictionary, texts: Dictionary) -> void:
 	t.ok(ids == SlabLogic.STATS, "in STATS order")
 	t.ok(rows[0]["dominant"] and rows.filter(func(r): return r["dominant"]).size() == 1, "power is the one dominant stat")
 	t.ok(rows[0]["text"] == "6" and rows[4]["text"] == "2" and rows[2]["text"] == "0", "upright whole numbers")
-	t.ok(rows[0]["helps"] == "the raw front · a warden's armour", "power helps the raw front and a warden's armour: %s" % rows[0]["helps"])
-	t.ok(rows[4]["helps"] == "foreman pace · a dungeon's pace", "speed has no front, only its uses: %s" % rows[4]["helps"])
-	for r in rows:
-		var front := String(cfg["stat_fronts"][r["stat"]])
-		t.ok(front == "" or ("the %s front" % front) in String(r["helps"]), "%s names its front" % r["stat"])
+	t.ok(rows[0]["helps"] == cfg["stat_helps"]["power"], "power helps what slab.stat_helps says: %s" % rows[0]["helps"])
+	t.ok(rows.all(func(r): return String(r["helps"]) != ""), "every stat says what it helps")
 	t.ok(CryptLogic.stat_rows({}, "", cfg, texts).all(func(r): return not r["dominant"]), "a hollow husk has no dominant stat")
 	t.ok(CryptLogic.fmt_stat(3.4893) == "3.5" and CryptLogic.fmt_stat(6.0) == "6" and CryptLogic.fmt_stat(5.97) == "6",
 		"stats print whole or with one decimal")
@@ -459,3 +458,24 @@ func _choices(t: TestUtil, cfg: Dictionary) -> void:
 				apart = apart and (pts[i] as Vector2).distance_to(pts[j]) >= 2.0 * float(pv["rune_hit_px"])
 		t.ok(apart, "%s: rune click targets never overlap" % kind)
 		t.ok(clear, "%s: runes sit outside the hold ring" % kind)
+
+
+## T-d1: a placed big undead carries the slab's name; the helper and `evaluate` share one naming rule.
+func _display_name(t: TestUtil, cfg: Dictionary) -> void:
+	var rems := [_r("beef", 6, 1), _r("beef", 5, 2), _r("power", 4, 3), _r("wits", 2, 4)]
+	for k in KINDS:
+		var ev := SlabLogic.evaluate(k, rems, cfg)
+		t.ok(SlabLogic.name_for(k, ev["stats"], cfg) == ev["name"], "display name: name_for agrees with evaluate for a %s (%s)" % [k, ev["name"]])
+		var entry := {"uid": "u7", "name": "Big u7", "kind": k, "stats": ev["stats"]}
+		t.ok(SlabLogic.display_name(entry, cfg) == ev["name"], "display name: the mint default 'Big u7' shows the slab name for a %s" % k)
+	var hulk := SlabLogic.evaluate("hulk", [_r("beef", 6, 1), _r("beef", 5, 2), _r("power", 4, 3)], cfg)
+	t.ok(String(hulk["name"]).contains(" ") and String(hulk["name"]).ends_with("Hulk"), "display name: a two-word name (%s)" % hulk["name"])
+	var kept := {"uid": "u7", "name": "Old Gristle", "kind": "hulk", "stats": hulk["stats"]}
+	t.ok(SlabLogic.display_name(kept, cfg) == "Old Gristle", "display name: a real name is kept")
+	t.ok(SlabLogic.display_name({"uid": "u8", "name": "Big u7", "kind": "hulk", "stats": hulk["stats"]}, cfg) == "Big u7",
+		"display name: another creature's 'Big u7' is a chosen name, not this one's default")
+	t.ok(SlabLogic.display_name({"uid": "u7", "name": "", "kind": "hulk", "stats": hulk["stats"]}, cfg) == hulk["name"], "display name: an empty name shows the slab name")
+	t.ok(SlabLogic.display_name({"uid": "u7", "name": "Big u7", "kind": "", "stats": {}}, cfg) == "Big u7", "display name: no kind to name, so the name stays")
+	var hollow := SlabLogic.display_name({"uid": "u9", "name": "Big u9", "kind": "zombie", "stats": {"power": 0.0}}, cfg)
+	t.ok(hollow == "%s Zombie" % cfg["hollow_adjective"], "display name: no stats at all names it Hollow (%s)" % hollow)
+	t.ok(String(cfg.get("default_name_prefix", "")) == "Big ", "display name: the mint prefix is in town.json slab.default_name_prefix")

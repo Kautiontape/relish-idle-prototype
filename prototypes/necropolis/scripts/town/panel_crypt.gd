@@ -12,8 +12,9 @@ extends VBoxContainer
 ##   naming    inline "Name your new friend?", then cmd_raise_big_undead(husk, slot order, name)
 ##   roster    every big undead: name (rename inline), kind, role, all five stats, its place in words;
 ##             Crypt, Party, Foreman at…, Siege… (cmd_place_big_undead, cmd_set_party), refusals in words
-## The raise is still a stub until E3 (ok, uid ""): the set piece plays, nothing is consumed, and the
-## panel says the raise lands with E2/E3.
+## The raise is still a stub (ok, uid ""): the set piece plays, nothing is consumed. Before the hold a note
+## says so (CryptLogic.raise_is_preview), after it a "coming" line, which clears a few seconds after the rings
+## settle. A foreman placement works for real but its boost is "coming", said by the button and on its line.
 
 signal command_issued
 ## Sound and set-piece hooks for the shell (the Synth kinds, the town view's slab echo): the hold began, was let
@@ -43,6 +44,8 @@ var _formed_sig := ""
 var _raising := false
 var _auto_t := -1.0  # debug --town-raise: seconds until it starts; -1 = off
 var _raised_name := ""
+## The name the last raise was kept under (the slab's own, or what the player typed over it): the debug raise reads it.
+var last_raise_name := ""
 var _raised_ev: Dictionary = {}  # the verdict the set piece shows (the board may empty under it)
 var _preset: Dictionary = {}  # debug --town-slab: {husk, remnants}, applied on the first bind that has them
 
@@ -56,6 +59,9 @@ var _preview: Control
 var _name: Label
 var _role: Label
 var _stat_cells: Array = []  # per stat [mark, name, value, helps]
+var _raise_note: Label  # "preview: nothing is spent ..." above the hold, while the raise is a stub
+var _raise_live := false  # a raise has returned a creature: the note is over for good
+var _line_left := -1.0  # seconds until the status line clears (-1 = not timed)
 var _hold_btn: Button
 var _hold_why: Label
 var _prompt: VBoxContainer
@@ -160,6 +166,8 @@ func _build_slab(col: VBoxContainer) -> void:
 			cells.append(l)
 		_stat_cells.append(cells)
 
+	_raise_note = _wrap(_tx("raise_note"), _px("text_px"), "text")
+	_slab_box.add_child(_raise_note)
 	var hold_row := HBoxContainer.new()
 	hold_row.add_theme_constant_override("separation", 8)
 	_slab_box.add_child(hold_row)
@@ -392,6 +400,7 @@ func _refresh_slab() -> void:
 		_cancel_hold()
 	if _formed and (_block != "" or _sig() != _formed_sig):
 		_close_prompt()
+	_raise_note.visible = CryptLogic.raise_is_preview(_slab, _raise_live)
 	_hold_btn.disabled = _block != "" or _formed
 	_hold_btn.text = _tx("holding") if _holding else _tx("hold")
 	_say(_hold_why, _block)
@@ -440,6 +449,7 @@ func _on_rune(i: int) -> void:
 func _board_changed() -> void:
 	if _holding:
 		_cancel_hold()
+	_line_left = -1.0
 	_say(_status, "")
 	_refresh_slab()
 
@@ -481,6 +491,11 @@ func _cancel_hold() -> void:
 func _process(delta: float) -> void:
 	if _auto_t >= 0.0:
 		_auto_raise(delta)
+	if _line_left > 0.0:
+		_line_left = CryptLogic.line_left(_line_left, delta)
+		if _line_left <= 0.0:
+			_line_left = -1.0
+			_say(_status, "")
 	if not _holding:
 		return
 	if not is_visible_in_tree():  # the tab was switched mid-hold: its release can't reach us
@@ -553,10 +568,13 @@ func _on_keep() -> void:
 		_refresh_slab()
 		return
 	_close_prompt()
-	var uid := String(r.get("big_undead", {}).get("uid", ""))
-	_say(_status, _tx("risen" if uid != "" else "risen_stub").format({"name": chk["name"]}))
+	var real := CryptLogic.raise_returned_creature(r)
+	_raise_live = _raise_live or real
+	_line_left = -1.0
+	_say(_status, _tx("risen" if real else "risen_stub").format({"name": chk["name"]}))
 	_raising = true
 	_raised_name = chk["name"]
+	last_raise_name = chk["name"]
 	_raised_ev = _ev.duplicate(true)
 	_preview.play_raise()
 	_refresh_slab()
@@ -567,6 +585,7 @@ func _on_raise_finished() -> void:
 	_raising = false
 	_raised_name = ""
 	_raised_ev = {}
+	_line_left = float(_t.get("stub_line_s", 4.0))  # the after-line stays a few seconds, then clears
 	_board = CryptLogic.board()  # the husk and its remnants went into the creature
 	_refresh_slab()
 
@@ -586,7 +605,7 @@ func _sync_roster() -> void:
 	# the place words and the open choosers' options read these as well as the creature itself
 	var blds: Array = _views.get("town", {}).get("buildings", [])
 	var place_ctx := [CryptLogic.lot_labels(blds, _labels()), _views.get("fort_names", {}), _views.get("forts", []),
-		CryptLogic.foreman_lots(blds, _labels()), list.map(func(x): return [x.get("uid", ""), x.get("name", "")])]
+		CryptLogic.foreman_lots(blds, _labels()), CryptLogic.display_names(list, _slab)]
 	for i in list.size():
 		var e: Dictionary = list[i]
 		var uid := String(e.get("uid", ""))
@@ -634,7 +653,9 @@ func _make_row(uid: String) -> Dictionary:
 	var btns := HBoxContainer.new()
 	btns.add_theme_constant_override("separation", 6)
 	col.add_child(btns)
-	var row := {"box": box, "name": nm, "edit_row": edit_row, "edit": edit, "info": info, "stats": stats,
+	var note := _wrap(_tx("foreman_coming"), _px("small_px"), "text_dim")  # by the Foreman button while its chooser is open
+	note.visible = false
+	var row := {"box": box, "name": nm, "edit_row": edit_row, "note": note, "edit": edit, "info": info, "stats": stats,
 		"mode": "", "opts_sig": "", "uid": uid}
 	for pair in [["crypt", "to_crypt"], ["party", "to_party"], ["foreman", "to_foreman"], ["siege", "to_siege"]]:
 		var b := TownUI.button(_tx(pair[1]))
@@ -642,6 +663,7 @@ func _make_row(uid: String) -> Dictionary:
 		b.pressed.connect(_on_place_btn.bind(uid, pair[0]))
 		btns.add_child(b)
 		row[pair[0]] = b
+	col.add_child(note)
 	var opts := HFlowContainer.new()
 	opts.add_theme_constant_override("h_separation", 6)
 	opts.add_theme_constant_override("v_separation", 4)
@@ -668,7 +690,7 @@ func _update_row(row: Dictionary, e: Dictionary, place_ctx: Array) -> void:
 	if sig == int(row.get("sig", 0)):
 		return
 	row["sig"] = sig
-	var nm := String(e.get("name", ""))
+	var nm := SlabLogic.display_name(e, _slab)  # the slab's name while the sim still says "Big u7"
 	row["name_now"] = nm
 	(row["name"] as Label).text = nm
 	var kind := String(e.get("kind", ""))
@@ -676,7 +698,9 @@ func _update_row(row: Dictionary, e: Dictionary, place_ctx: Array) -> void:
 	row["place"] = place
 	var parts: Array = [String(_slab.get("nouns", {}).get(kind, kind.capitalize())), SlabLogic.role_label(String(e.get("role", "")), _slab),
 		CryptLogic.place_text(place, place_ctx[0], _views.get("fort_names", {}), _t)]
-	(row["info"] as Label).text = _tx("sep").join(parts)
+	var placed_note := CryptLogic.place_note(place, _t)  # a foreman's boost is "coming": said on its placed line too
+	(row["info"] as Label).text = _tx("sep").join(parts) + ("\n" + placed_note if placed_note != "" else "")
+	(row["note"] as Control).visible = row["mode"] == "foreman"
 	var st: Array = []
 	for s in SlabLogic.STATS:
 		st.append("%s %s" % [s, CryptLogic.fmt_stat(float(e.get("stats", {}).get(s, 0.0)))])
@@ -734,9 +758,7 @@ func _fill_options(row: Dictionary) -> void:
 	var uid := String(row["uid"])
 	var opts: Array = []  # [text, place, disabled, active]
 	if row["mode"] == "foreman":
-		var names := {}
-		for e in _views.get("big_undead", {}).get("big_undead", []):
-			names[String(e.get("uid", ""))] = String(e.get("name", ""))
+		var names := CryptLogic.display_names(_views.get("big_undead", {}).get("big_undead", []), _slab)
 		for l in CryptLogic.foreman_lots(_views.get("town", {}).get("buildings", []), _labels()):
 			var fm := String(l["foreman"])
 			var taken := fm != "" and fm != uid
