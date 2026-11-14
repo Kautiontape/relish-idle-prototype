@@ -117,13 +117,23 @@ func _work() -> void:
 	t.ok(ok, "each substep TownSim takes exactly that substep's WORK (rate × dt)")
 	t.ok(never, "work_pending stays 0 at every step boundary")
 	t.ok(s.town_sim.workers > 12.0, "and the workforce grows from it (%.3f)" % s.town_sim.workers)
-	# a save from before the lag (E2a) can hold WORK in flight: it arrives with the next step's, once
-	var e := _mk()
-	e.work_pending = 3.0
-	var l0 := GameState.Ledger.error(e.ledger())
+	# a save from before the lag (E2a) can hold WORK in flight: it arrives with the next step's, once.
+	# The save is E2a-shaped: 3 mass in town.work_pending and a ledger block without `opening` (E2a
+	# predates the ledger), so the load counts the pending mass in what the save holds
+	var d: Dictionary = JSON.parse_string(JSON.stringify(_mk().to_dict()))
+	d["town"]["work_pending"] = 3.0
+	d["ledger"] = {"sources": {}, "sinks": {"dungeon": 0.0}}
+	var e := GameState.new(_cfgs())
+	e.debug_enabled = true
+	var r := e.from_dict(d)
+	t.ok(r["ok"] and e.work_pending == 3.0, "an E2a save with 3 mass of WORK in flight loads (%s)" % str(r.get("reason", "")))
+	t.ok(GameState.Ledger.error(e.ledger()) < 1e-12, "the ledger balances before the first step (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
 	e.tick(dt)
-	t.near(float(e.town_sim.rates["workers"]["in"]) * mass * dt, e._split["work"] * dt + 3.0, 1e-12, "an old save's work_pending is delivered with the next step's WORK")
-	t.ok(e.work_pending == 0.0 and GameState.Ledger.error(e.ledger()) <= l0 + 1e-12, "then it is 0, and the ledger still balances")
+	t.near(float(e.town_sim.rates["workers"]["in"]) * mass * dt, e._split["work"] * dt + 3.0, 1e-12, "step 1: TownSim's WORK is the pending 3 plus this step's")
+	t.ok(e.work_pending == 0.0 and GameState.Ledger.error(e.ledger()) < 1e-12, "then work_pending is 0, and the ledger balances (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
+	e.tick(dt)
+	t.near(float(e.town_sim.rates["workers"]["in"]) * mass * dt, e._split["work"] * dt, 1e-12, "step 2: this step's WORK only (delivered once)")
+	t.ok(GameState.Ledger.error(e.ledger()) < 1e-12, "and the ledger still balances (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
 
 
 # ------------------------------------------------------------ pits and feed ----

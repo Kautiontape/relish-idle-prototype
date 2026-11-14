@@ -335,11 +335,30 @@ at E2b.
 **While held:**
 - **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,
   so a held fort lowers her effective `S_vei`. The share rule: fort `i` receives at most
-  `S_vei · cap_i / Σcap` per second, into its room over the step (§3.1 step 2) and from her pool
+  `S_vei · cap_i / Σcap` per second, into its room over the step and from her pool
   (plus what she converts that step). `Σcap` runs over every fort,
   held ones included, so a held fort's share is lost, not redistributed. The unused part of a full
   fort's share is lost the same way. When her pool can't cover every share, each is scaled down
-  pro rata;
+  pro rata.
+  - **The room over the step** is `cap` less the fort's load at the step's end without her
+    living, less a surge arriving there, never below 0. The load is `L + D` now (kills only move
+    living to corpses), less the corpses raised (bounded by the corpses now), plus what U's own
+    path (§3.1 step 5) leaves at the step's end with this step's WAR and raises arriving, under
+    the drain and the garrison's pull `k_destroy · L̄ / q`. The undead the garrison destroys leave
+    for Vei, or stay as corpses at a redirect fort. Clearing isn't counted (it only frees room).
+  - `L̄` is the living's mean over the step with nothing shipped in, solved as fort combat solves
+    it (a predictor and two corrections). Her living only add to the pull, so the real load is at
+    most this one.
+  - WAR's dispatch reads the living arriving (§3.2), so shipping is planned on the load before
+    WAR (the pull read from the living now), then each share is cut to the room the step's WAR
+    leaves. What that cuts stays in her pool. A fort with no living already takes only the WAR
+    that leaves room for its shipping.
+  - So shipping never takes a fort past its cap, at any dt (tested to 60 s with no clearing); WAR
+    and the surge can. At a redirect fort the bound is loose by the drain the extra pull's kills
+    skip (not seen in the tests). E2b T3.0s: the room used to be `cap − L − U · e^(−r_drain · dt)
+    − D`, which left out WAR, the raises and the surge (Greywall reached 90.3 of 90 in play), and
+    a room with WAR but not the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s
+    over 1 h).
 - the fort pulls WAR as staging (§3.2);
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.

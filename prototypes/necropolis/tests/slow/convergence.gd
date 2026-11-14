@@ -45,8 +45,9 @@ const TIMING_H := 1.0
 const TOL := 0.005
 const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead", "fort_dead", "workers",
 	"bodies", "gold", "bone", "living"]
-## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies are
-## set by full forts flickering at the dispatch rules' edges and by the convoy's near-tie choices).
+## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies
+## didn't converge in T3.0's measurement; the cause is not yet measured, and the candidates are the
+## dispatch rules' edges, the convoy's choice of fort and the tithe surge's unbounded overfill).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",

@@ -209,6 +209,7 @@ func run() -> int:
 
 	# --- E2b: the step is exact at any dt -------------------------------------------
 	_long_steps(t)
+	_room(t)
 
 	# --- FLOOD goes straight to the queue -------------------------------------
 	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "r_drain": 0.0})
@@ -628,6 +629,71 @@ func _long_steps(t: TestUtil) -> void:
 	t.ok(h30["shipped"] > 0.0 and _rel(h30["converted"], h30["shipped"]) < 1e-9 and _rel(h30["converted"], h05["converted"]) < 0.01,
 		"at her cap a 30 s step converts what it ships (%.1f; %.1f at 0.5 s)" % [h30["converted"], h05["converted"]])
 	t.near(float(h30["sim"].vei["living_pool"]), 600.0, 1e-6, "and her pool stays full")
+
+
+## E2b T3.0s: shipping's room counts this step's WAR, the raises and the surge, so shipping never
+## takes a fort past its cap (WAR and the surge may: space doesn't bound them). Vei ships 5× her
+## rate from a deep pool into forts kept near full, with WAR, a wave cycle and Relish raising at
+## Greywall. `plain` has no garrison kills, so a fort's end total is exactly its start, what arrived
+## and what drained; `combat` runs every rate. Returns nothing; asserts per dt.
+func _room(t: TestUtil) -> void:
+	for c in [["plain", {"k_destroy": 0.0, "k_clear": 0.0}], ["combat", {}]]:
+		for dt in [0.5, 5.0, 30.0]:
+			var over := {"S_vei": 40.0}
+			over.merge(c[1], true)
+			var sim := _mk(over)
+			sim.vei["living_pool"] = 600.0
+			sim.vei["dead_queue"] = 1e5
+			sim.start_tithe()
+			sim.tithe["next_s"] = 200.0
+			var worst := -INF  # the most a fort that took shipping ended above its cap
+			var worst_redirect := -INF  # the same at Greywall, where Relish keeps the garrison's kills
+			var shipped := 0
+			var before := sim.total_matter()
+			var added := 0.0
+			for i in int(1200.0 / dt):
+				for f in sim.forts:  # keep the forts near full: the room, not the share, binds
+					var load: float = f["living"] + f["undead"] + f["dead"]
+					if load < f["cap"]:
+						f["dead"] = float(f["dead"]) + 0.98 * (f["cap"] - load)
+						added += 0.98 * (f["cap"] - load)
+				sim.step(dt, {"war": 6.0, "flood": 0.0, "redirect_fort": "greywall", "redirect_rate": 4.0})
+				added += 6.0 * dt
+				sim.drain_events()
+				for f in sim.forts:
+					if float(f["r_shipped"]) - float(f["r_surge"]) > 0.0:
+						shipped += 1
+						var o: float = f["living"] + f["undead"] + f["dead"] - f["cap"]
+						if f["id"] == "greywall":
+							worst_redirect = maxf(worst_redirect, o)
+						else:
+							worst = maxf(worst, o)
+			t.ok(shipped > 0 and worst <= 1e-9 * 520.0,
+				"%s, dt %.1f: a fort that took shipping ends at most at its cap (worst %+.6f, %d fort-steps shipped)" % [c[0], dt, worst, shipped])
+			t.near(sim.total_matter(), before + added - sim.cleared_total, 1e-9 * (before + added), "%s, dt %.1f: mass is exact" % [c[0], dt])
+			print("  [realm_sim] room %s, dt %.1f: at Greywall (Relish raising there) the worst end above cap after shipping: %+.6f" % [
+				c[0], dt, worst_redirect])
+	# contested forts, nothing cleared: the kills inside the step thin the living, so the garrison's
+	# pull is weaker than the living now says and the undead end higher. One step from each start
+	for dt in [0.5, 5.0, 30.0, 60.0]:
+		var worst := -INF
+		var shipped := 0
+		for lu in [[70.0, 9.0], [50.0, 29.0], [40.0, 39.0], [30.0, 49.0]]:
+			for war in [0.0, 6.0, 20.0]:
+				var sim := _mk({"k_clear": 0.0, "S_vei": 400.0})
+				sim.vei["living_pool"] = 600.0
+				sim.vei["dead_queue"] = 1e5
+				for f in sim.forts:
+					f["living"] = lu[0] * f["cap"] / 80.0
+					f["undead"] = lu[1] * f["cap"] / 80.0
+					f["dead"] = 0.0
+				sim.step(dt, {"war": war, "digest_q": 1.2})
+				for f in sim.forts:
+					if float(f["r_shipped"]) > 0.0:
+						shipped += 1
+						worst = maxf(worst, f["living"] + f["undead"] + f["dead"] - f["cap"])
+		t.ok(shipped > 0 and worst <= 1e-9 * 520.0,
+			"contested, no clearing, dt %.1f: a fort that took shipping ends at most at its cap (worst %+.6f, %d forts shipped)" % [dt, worst, shipped])
 
 
 ## The living one full-strength wave delivers at steps of `dt`, clipped at its start and end, and

@@ -141,14 +141,16 @@ takes over 1 s.
   no input against a 0.5 s run, with steps clipped at the events listed under Method:
   - Vei's stocks and Covington's smooth ones stay within 0.5% up to dt 5 s (midgame_2flips 0.32%,
     fresh 0.34%) and drift to about 0.6% at 10 s.
-  - The forts' pools and the body store don't converge at any dt. Full forts with no living sit at
-    the dispatch rules' edges, and 0.25 s already differs from 0.5 s by up to 19%.
+  - The forts' pools and the body store didn't converge at any dt: 0.25 s already differs from
+    0.5 s by up to 19%. The cause is not yet measured. The candidates are the dispatch rules'
+    edges, the convoy's choice of fort, and the tithe surge's unbounded overfill.
   - pre_vei's gold-floor upkeep cycle doesn't converge either: 2.5% at 2 s.
-  - Cost, best of 3 at a load average of about 4 on 12 cores, worst start (pre_vei): about 550 µs
-    per core step. 12 h at 5 s takes 5.5 s and 7 days 67 s with 150 field ticks, so this budget is
-    not met at any accurate dt. Most of the step is TownSim (two thirds to three quarters in a
-    profile taken before T3.0's realm changes), which runs `_restaff` twice per step: that is the
-    cost lever.
+  - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
+    (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
+    with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
+    adaptive, not fixed: with `idle.catchup_max_steps` set so that 12 h steps at 5 s, 7 days steps
+    at about 70 s. In a profile before T3.0, most of the step (two thirds to three quarters) was
+    TownSim, which runs `_restaff` twice per step: by that profile, that is the cost lever.
 - A thread is the fallback.
 
 **Determinism.**
