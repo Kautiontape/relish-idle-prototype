@@ -256,6 +256,7 @@ func run() -> int:
 	t.ok(Results.validate("boss", f).is_empty(), "filtered result validates")
 
 	_boss_logic(t, cfg)
+	_result_wiring(t, cfg)
 	return t.failures
 
 
@@ -480,3 +481,38 @@ func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(brk["fronts_cleared"] == ["giants", "swarm", "carvers"], "after the break began: the fronts cleared in phase 1")
 	t.near(float(brk["backlog_spent"]), 60.0, 0.0001, "backlog spent = H0 - H")
 	t.near(float(lost1["backlog_spent"]), 0.0, 0.0, "a phase-1 ending spends no horde")
+
+
+## The wiring: VeiBoss._result is BossLogic.result_of(fight_state(), won), and fight_state() is a
+## plain dump of its fields. (A bare VeiBoss can't be built here: the test runner doesn't resolve
+## autoload names, so vei_boss.gd doesn't compile in it.) This drives result_of with the state a
+## fight has at each ending, so a regression in what _result passes along is caught.
+func _result_wiring(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("boss_result_wiring")
+	var p1 := VeiFronts.phase1_start([
+		{"id": "giants", "have": 30.0, "need": 20.0}, {"id": "swarm", "have": 25.0, "need": 20.0},
+		{"id": "carvers", "have": 5.0, "need": 20.0}, {"id": "raw", "have": 5.0, "need": 40.0}])
+	for i in 1000:
+		p1 = VeiFronts.phase1_step(p1, 0.1, cfg)
+	# a phase-1 ending: the break never began (phase1_s -1), the frozen list is still empty
+	var st := {"seed": _seed(), "p1": p1, "fronts_cleared": [], "phase1_s": -1.0, "deaths": 0,
+		"spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "horde0": 0.0, "horde": 0.0}
+	var r := BossLogic.result_of(st, false)
+	t.ok(r["fronts_cleared"] == ["giants", "swarm"], "a phase-1 ending reports the fronts phase 1 cleared")
+	t.ok(Results.validate("boss", r).is_empty() and r["won"] == false, "and validates as a loss")
+	# after the break began: the list frozen then, whatever p1 says now
+	var st2 := st.duplicate(true)
+	st2["fronts_cleared"] = ["giants", "swarm", "carvers"]
+	st2["phase1_s"] = 19.5
+	st2["deaths"] = 1
+	st2["spent"] = {"phylactery": 1, "clones": 0}
+	st2["party_lost"] = ["a"]
+	st2["horde0"] = 1000.0
+	st2["horde"] = 700.0
+	var r2 := BossLogic.result_of(st2, true)
+	t.ok(r2["fronts_cleared"] == ["giants", "swarm", "carvers"], "after the break began: the frozen list")
+	t.near(float(r2["backlog_spent"]), 300.0, 0.0001, "backlog spent = horde0 - horde")
+	t.ok(int(r2["relish_deaths"]) == 1 and int(r2["backups_spent"]["phylactery"]) == 1 and r2["party_lost"] == ["a"],
+		"deaths, backups and the party lost carried")
+	t.ok(r2["won"] == true and Results.validate("boss", r2).is_empty(), "the win validates")
+	t.ok(Results.validate("boss", BossLogic.result_of({}, false)).is_empty(), "an empty state still builds a valid result")

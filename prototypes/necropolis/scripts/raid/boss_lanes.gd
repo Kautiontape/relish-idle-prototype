@@ -199,7 +199,7 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 	# Vei's rings behind the line, at her court end
 	var vcol := Palette.c("vei", (0.35 if cleared else 0.85) * dim)
 	LineGlow.ring(self, b, 15.0, vcol, 2.0, 0.4)
-	draw_arc(b, 24.0, 0.0, TAU, 24, Palette.c("vei", (0.2 if cleared else 0.5) * dim), 1.5)
+	LineGlow.ring(self, b, 24.0, Palette.c("vei", (0.2 if cleared else 0.5) * dim), 1.5, 0.0)
 
 
 ## The lane runs green toward Vei: undead dashes at a mid rate (VISUAL-LANGUAGE law 3). Their
@@ -345,19 +345,37 @@ class Labels:
 	var lanes_node: BossLanes = null
 	var _sig := ""
 
-	## Redraw only when what the labels say (or the zoom, or the loss dim) changes.
+	## Redraw only when what the labels say changes: the signature is the exact strings and status
+	## colours drawn, plus the zoom and the loss dim.
 	func _process(_d: float) -> void:
 		var ln := lanes_node
 		if ln == null or ln.boss == null or ln.boss.cam == null:
 			return
-		var sig := "%d|%.3f|%.2f" % [ln.phase, ln.boss.cam.zoom.x, maxf(ln.lose_f, 0.0)]
+		var sig := "%.3f|%.2f" % [ln.boss.cam.zoom.x, maxf(ln.lose_f, 0.0)]
 		for i in ln.lanes.size():
-			var f := ln._front(i)
-			sig += "|%d/%d/%s" % [floori(float(f.get("have", 0.0)) + 0.0001), ceili(float(f.get("need", 0.0)) - 0.0001),
-				str(f.get("cleared", false))]
+			sig += "|" + "/".join(lane_text(i))
 		if sig != _sig:
 			_sig = sig
 			queue_redraw()
+
+	## Lane i's label: [front name, "have X / need Y", status, status palette key].
+	func lane_text(i: int) -> PackedStringArray:
+		var ln := lanes_node
+		var f := ln._front(i)
+		var have := float(f.get("have", 0.0))
+		var need := float(f.get("need", 0.0))
+		var status := "SHORT %d" % ceili(need - have - 0.0001)
+		var skey := "living"
+		if bool(f.get("cleared", false)):
+			status = "CLEARED"
+			skey = "undead"
+		elif ln.phase >= 2:
+			status = "SENDS GUARDS"
+		elif have >= need:
+			status = "MET · breaking"
+			skey = "undead"
+		return PackedStringArray([String(ln.lanes[i]["id"]).to_upper(),
+			"have %d / need %d" % [floori(have + 0.0001), ceili(need - 0.0001)], status, skey])
 
 	func _draw() -> void:
 		var t0 := BossDev.pt()
@@ -374,38 +392,18 @@ class Labels:
 		var font := ThemeDB.fallback_font
 		var dim := 1.0 - 0.7 * maxf(ln.lose_f, 0.0)
 		for i in ln.lanes.size():
-			var lane: Dictionary = ln.lanes[i]
-			var f := ln._front(i)
-			var at: Vector2 = (lane["a"] as Vector2) + Vector2(0.0, 26.0 / zoom)
-			var have := float(f.get("have", 0.0))
-			var need := float(f.get("need", 0.0))
-			var cleared := bool(f.get("cleared", false))
-			var fname := String(lane["id"]).to_upper()
-			var line2 := "have %d / need %d" % [floori(have + 0.0001), ceili(need - 0.0001)]
-			var status := ""
-			var skey := "text_dim"
-			if cleared:
-				status = "CLEARED"
-				skey = "undead"
-			elif ln.phase >= 2:
-				status = "SENDS GUARDS"
-				skey = "living"
-			elif have >= need:
-				status = "MET · breaking"
-				skey = "undead"
-			else:
-				status = "SHORT %d" % ceili(need - have - 0.0001)
-				skey = "living"
-			var lines := [[fname, "text", fs], [line2, "text", fs], [status, skey, fs]]
+			var at: Vector2 = (ln.lanes[i]["a"] as Vector2) + Vector2(0.0, 26.0 / zoom)
+			var txt := lane_text(i)
+			var lines := [[txt[0], "text"], [txt[1], "text"], [txt[2], txt[3]]]
 			var y := at.y
 			var wmax := 0.0
 			for ln2 in lines:
-				wmax = maxf(wmax, font.get_string_size(ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, ln2[2]).x)
+				wmax = maxf(wmax, font.get_string_size(ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
 			draw_rect(Rect2(at.x - wmax * 0.5 - 6.0 / zoom, y - fs * 0.95, wmax + 12.0 / zoom, fs * 3.35),
 				Palette.c("ground", 0.72 * dim))
 			for ln2 in lines:
-				var tw := font.get_string_size(ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, ln2[2]).x
-				draw_string(font, Vector2(at.x - tw * 0.5, y), ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, ln2[2],
+				var tw := font.get_string_size(ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+				draw_string(font, Vector2(at.x - tw * 0.5, y), ln2[0], HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
 					Palette.c(ln2[1], dim))
 				y += fs * 1.1
 

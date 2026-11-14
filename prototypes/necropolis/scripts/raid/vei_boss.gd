@@ -691,11 +691,17 @@ func _step_sequence(delta: float) -> void:
 			_emit(false)
 
 
-## The boss result. fronts_cleared is the list frozen at the break, or, when the fight ended in
-## phase 1 (a timeout, a final death, a window close), what phase 1 had cleared by then.
+## The boss result (BossLogic.result_of, tested): fronts_cleared is the list frozen at the break, or,
+## when the fight ended in phase 1 (a timeout, a final death, a window close), what phase 1 had
+## cleared by then.
 func _result(won: bool) -> Dictionary:
-	return BossLogic.fight_result(seed_data, won, p1, fronts_cleared, phase1_s >= 0.0, deaths, spent, party_lost,
-		horde0, horde)
+	return BossLogic.result_of(fight_state(), won)
+
+
+## The fight's state as the result reads it; a plain dump of the fields, no logic.
+func fight_state() -> Dictionary:
+	return {"seed": seed_data, "p1": p1, "fronts_cleared": fronts_cleared, "phase1_s": phase1_s, "deaths": deaths,
+		"spent": spent, "party_lost": party_lost, "horde0": horde0, "horde": horde}
 
 
 func _emit(won: bool) -> void:
