@@ -49,7 +49,8 @@ extends RefCounted
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
 ## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
 ## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing),
-## `unstick` (the unstick watch: aims pulled inside a room, targets given up), `left_no_army` (she left
+## `tell_tally` (per tell: answered or missed, a missed one countered, struck by its blow), `unstick` (the
+## unstick watch: aims pulled inside a room, targets given up), `left_no_army` (she left
 ## with no undead standing and nothing to raise), `relish_hits` (blows that reached her, by source: slam,
 ## lunge, bash, rush, fire, hound, pack, living) and `relish_soaked` (of them, the lethal ones an undead took
 ## in her place). See NOTES-RAID "Run length and risk calibration".
@@ -69,6 +70,11 @@ var _tell_ok := false           # rolled: she answers it
 var _tell_side := 1.0           # rolled with it: the sidestep's side when nothing else decides
 var _tells := 0                 # warden tells seen / answered (the react dict)
 var _tells_ok := 0
+var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
+var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
+var _tally_hits0 := 0           # tell-attack blows on her when it was first seen
+var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
+var _tally_pinned := false      # the Shieldwall's tell was pinned
 var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
 var _threat_last := -1.0        # scene time one was last within kite_px
 var _bell_goal = null           # the Bellringer fight's last point inside the slam she was making for
@@ -453,6 +459,8 @@ func on_finish(result: Dictionary) -> void:
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
 	out["left_no_army"] = _left_no_army
+	_tally_close()
+	out["tell_tally"] = _tally.duplicate()
 	var rh: RaidRelish = _raid.relish
 	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
@@ -822,6 +830,7 @@ func _decide(pos: Vector2) -> Vector2:
 func _answers(kind: String, beat: float) -> bool:
 	var id := "%s:%.4f" % [kind, beat]
 	if id != _tell_id:
+		_tally_close()
 		_tell_id = id
 		_tell_seen = _sim_t
 		_tell_ok = _rng_react.randf() >= _miss
@@ -829,7 +838,55 @@ func _answers(kind: String, beat: float) -> bool:
 		_tells += 1
 		if _tell_ok:
 			_tells_ok += 1
+		_tally_open = true
+		_tally_hits0 = _tell_hits()
+		_tally_ctr0 = _counter_count()
+		var ww = _raid.warden_run.warden
+		_tally_pinned = ww != null and is_instance_valid(ww) and ww is RaidShieldwall and ww.pinned_tell
 	return _tell_ok and _sim_t - _tell_seen >= _delay - 1e-6
+
+
+## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
+## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it, or
+## a pinned bash) or not; and struck when a tell-attack blow reached her before the next tell.
+func _tally_close() -> void:
+	if not _tally_open:
+		return
+	_tally_open = false
+	var struck := _tell_hits() > _tally_hits0
+	var countered := _tally_pinned or _counter_count() > _tally_ctr0
+	_tally["tells"] += 1
+	if _tell_ok:
+		_tally["answered"] += 1
+		if struck:
+			_tally["answered_struck"] += 1
+	else:
+		_tally["missed"] += 1
+		if countered:
+			_tally["missed_countered"] += 1
+		elif struck:
+			_tally["missed_struck"] += 1
+
+
+func _tell_hits() -> int:
+	var rel: RaidRelish = _raid.relish
+	if rel == null or not is_instance_valid(rel):
+		return 0
+	var n := 0
+	for k in RaidLogic.TELL_ATTACKS:
+		n += int(rel.hits.get(k, 0))
+	return n
+
+
+func _counter_count() -> int:
+	var ww = _raid.warden_run.warden
+	if ww == null or not is_instance_valid(ww):
+		return 0
+	if ww is RaidBellringer:
+		return ww.slams_muffled
+	if ww is RaidHuntsman:
+		return ww.intercepts
+	return 0
 
 
 ## The living have no one-beat tell, so no miss: the kite starts `_delay` after a living foe in her room
