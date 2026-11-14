@@ -99,9 +99,11 @@ func _states_fixtures(t: TestUtil) -> void:
 	s.cmd_debug_load_fixture("midgame_2flips")
 	var m := MapModel.new(s)
 	m.refresh(true)
-	t.ok(NodeLogic.fort_state(m.fort("ashgate"), m.margin_of("ashgate")) == NodeLogic.EMPTIED, "midgame Ashgate (74 dead, a body or two of either side) is emptied")
-	t.ok(NodeLogic.fort_state(m.fort("vespers"), m.margin_of("vespers")) == NodeLogic.CONTESTED, "midgame Vespers (10 undead under WAR vs 150 living) is contested")
-	t.ok(NodeLogic.fort_state(m.fort("hollow-redoubt"), m.margin_of("hollow-redoubt")) == NodeLogic.HERS, "midgame Hollow Redoubt (living only) is hers")
+	var ash := m.fort("ashgate")
+	t.ok(bool(ash["held"]) and NodeLogic.fort_state(ash, m.margin_of("ashgate")) == m.margin_of("ashgate"), "midgame Ashgate is held: its glyph is its margin (%s)" % m.margin_of("ashgate"))
+	t.ok(NodeLogic.tithe_badge(ash), "and the real tithe on it carries the badge")
+	t.ok(NodeLogic.fort_state(m.fort("greywall"), m.margin_of("greywall")) == NodeLogic.CONTESTED, "midgame Greywall (22 undead, no living, not held) is contested")
+	t.ok(NodeLogic.fort_state(m.fort("vespers"), m.margin_of("vespers")) == NodeLogic.HERS, "midgame Vespers (living only) is hers")
 	var d := MapModel.new(s)
 	d.nodes_demo = true
 	d.flip_cfg = TestUtil.configs()["realm"]["flip"]
@@ -115,8 +117,7 @@ func _states_fixtures(t: TestUtil) -> void:
 		if bool(f["held"]) and st != d.margin_of(id):
 			agree = false
 	t.ok(agree and not d.margins.is_empty(), "every held fort's glyph state is its chip's margin (model.margin_of)")
-	t.ok(seen.has(IdleLogic.SAFE) and seen.has(IdleLogic.WILL_FALL) and seen.has(NodeLogic.EMPTIED) and seen.has(NodeLogic.HERS) and seen.has(NodeLogic.CONTESTED),
-		"--nodes=demo shows hers, contested, emptied and the held margins (%s)" % ",".join(seen.keys()))
+	t.ok(seen.size() == 6, "midgame with --nodes=demo shows all six states (%s)" % ",".join(seen.keys()))
 	var dn: Dictionary = MapLogic.cfg()["demo_nodes"]
 	t.ok(NodeLogic.tithe_badge(d.fort(dn["tithe"]["fort"])) and NodeLogic.tithe_badge(d.fort(dn["wave"]["fort"])), "the demo's tithe and wave forts carry the badge")
 

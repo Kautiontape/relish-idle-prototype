@@ -173,48 +173,23 @@ func _row_ok(r: Dictionary) -> bool:
 		and r["id"] == "%s:%s:%s" % [r["kind"], r["from"], r["to"]]
 
 
-func _forts() -> Array:
-	return [{"id": "ashgate", "ship_in": 0.3}, {"id": "old-sluice", "ship_in": 0.0}, {"id": "greywall", "ship_in": 1.2}]
-
-
 func _adapter(t: TestUtil) -> void:
 	t.suite("map_logic-adapter")
 	var view := [
 		{"id": "war:covington:ashgate", "from": "covington", "to": "ashgate", "kind": "war", "rate": 1.5, "bias": 3.0, "why": "Relish here"},
-		{"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": ""},
+		{"id": "war:covington:vei", "from": "covington", "to": "vei", "kind": "war", "rate": 0.4},
+		{"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": "valve"},
 	]
-	var hud := {"split": {"work": 1.0, "war": 2.0, "flood": 1.92}}
-	var out := MapLogic.lanes_from_views(view, _forts(), hud)
-	var by := {}
-	for r in out:
-		by[r["id"]] = r
-	t.ok(out.size() == by.size(), "ids are unique")
-	t.ok(by["war:covington:ashgate"]["rate"] == 1.5 and by["war:covington:ashgate"]["bias"] == 3.0 and by["war:covington:ashgate"]["why"] == "Relish here", "view rows pass through")
-	t.ok(by.has("living:vei:ashgate") and by.has("living:vei:old-sluice") and by.has("living:vei:greywall"), "a living row per fort")
-	t.near(by["living:vei:greywall"]["rate"], 1.2, 1e-6, "living rate is the fort's ship_in")
-	t.ok(by["living:vei:ashgate"]["from"] == "vei" and by["living:vei:ashgate"]["to"] == "ashgate", "living runs vei -> fort")
-	t.near(by["flood:covington:vei"]["rate"], 1.92, 1e-6, "a 0 cov->vei flood takes the split rate")
-	t.ok(out.size() == 2 + 3, "nothing else is invented (%d rows)" % out.size())
+	var out := MapLogic.lanes_from_views(view)
+	t.ok(out.size() == view.size(), "one row per view row, nothing invented (%d rows)" % out.size())
+	t.ok(out[0]["rate"] == 1.5 and out[0]["bias"] == 3.0 and out[0]["why"] == "Relish here", "view rows pass through, why included")
+	t.ok(out[1]["bias"] == 1.0 and out[1]["why"] == "" and out[1]["to"] == "vei", "a row without bias or why gets the defaults; WAR may end at Vei")
+	t.near(out[2]["rate"], 0.0, 1e-6, "a 0 rate is kept as the view says (no split stand-in)")
+	t.ok(not out.any(func(r): return str(r["kind"]) == "living"), "no living rows are invented from ship_in")
 	t.ok(out.all(func(r): return _row_ok(r)), "every row has the lane shape")
-	view[1]["rate"] = 4.0
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	t.near(out[1]["rate"], 4.0, 1e-6, "a nonzero view flood rate is kept")
-	hud["split"]["flood"] = 0.0
-	view[1]["rate"] = 0.0
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	t.near(out[1]["rate"], 0.0, 1e-6, "no split flood leaves the 0 alone")
-	# an E2 view that already carries a living row: no stand-in for it
-	view.append({"id": "living:vei:ashgate", "from": "vei", "to": "ashgate", "kind": "living", "rate": 9.0, "bias": 1.0, "why": ""})
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	var count := 0
-	for r in out:
-		if r["id"] == "living:vei:ashgate":
-			count += 1
-			t.near(r["rate"], 9.0, 1e-6, "the view's living rate wins over ship_in")
-	t.ok(count == 1, "the stand-in is not duplicated")
-	t.ok(out.size() == 2 + 1 + 2, "the other two forts still get stand-ins")
-	var none := MapLogic.lanes_from_views([], [], {})
-	t.ok(none.size() == 1 and none[0]["id"] == "flood:covington:vei", "empty inputs give just the flood lane")
+	out[0]["rate"] = 9.0
+	t.near(float(view[0]["rate"]), 1.5, 1e-6, "rows are copies: the view is untouched")
+	t.ok(MapLogic.lanes_from_views([]).is_empty(), "an empty view gives no lanes")
 
 
 func _demo(t: TestUtil) -> void:

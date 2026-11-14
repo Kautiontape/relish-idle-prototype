@@ -2,9 +2,8 @@ class_name RelishLogic
 extends RefCounted
 ## Pure logic for steering Relish from the map (no autoloads, so headless tests compile it): the
 ## chip's text and buttons, the m:ss ETA, the plain-words refusal reasons, the card's action list
-## (MOVE / CANCEL / DESCEND / HAUL, built from the views), the route preview versus the travel
-## route, and the "Relish here / Relish left" lane-why stand-in. Words live in
-## configs/map_view.json ("controls").
+## (MOVE / CANCEL / DESCEND / HAUL, built from the views) and the route preview versus the
+## travel route. Words live in configs/map_view.json ("controls").
 
 const DOT := "·"
 const ARROW := "→"
@@ -169,51 +168,4 @@ static func dash_segments(a: Vector2, b: Vector2, dash: float, gap: float) -> Ar
 	while d < total:
 		out.append([a + dir * d, a + dir * minf(d + dash, total)])
 		d += dash + maxf(gap, 0.0)
-	return out
-
-
-# --- "Relish here / Relish left" (stand-in) --------------------------------------
-
-## The lane-why events one refresh makes: Relish left fort A (she started walking, or jumped to
-## another fort) -> "Relish left" on war:covington:A; she arrived at fort B -> "Relish here" on
-## war:covington:B. Each is {id, why, until_s}. Empty `prev` (the first read) makes none.
-# TODO(api E2): view_lanes carries why
-static func why_events(prev: Dictionary, cur: Dictionary, now_s: float, hold_s: float) -> Array:
-	var out: Array = []
-	if prev.is_empty() or cur.is_empty():
-		return out
-	var ps := str(prev.get("state", ""))
-	var cs := str(cur.get("state", ""))
-	var moved_fort := cs == "at_fort" and str(cur.get("at", "")) != str(prev.get("at", ""))
-	if ps == "at_fort" and (cs == "travelling" or moved_fort):
-		out.append({"id": "war:covington:%s" % str(prev.get("at", "")), "why": "Relish left", "until_s": now_s + hold_s})
-	if cs == "at_fort" and (ps == "travelling" or (ps == "at_fort" and moved_fort)):
-		out.append({"id": "war:covington:%s" % str(cur.get("at", "")), "why": "Relish here", "until_s": now_s + hold_s})
-	return out
-
-
-## The live holds after a refresh: expired ones dropped, a new event replacing any hold on the same lane.
-static func why_track(prev: Dictionary, cur: Dictionary, holds: Array, now_s: float, hold_s: float) -> Array:
-	var out: Array = []
-	var fresh := why_events(prev, cur, now_s, hold_s)
-	for h in holds:
-		if float(h["until_s"]) > now_s and not fresh.any(func(e): return e["id"] == h["id"]):
-			out.append(h)
-	out.append_array(fresh)
-	return out
-
-
-## `rows` with each live hold's why filled in, only where the view's own why is empty. Returns
-## copies of the touched rows (the input is not changed).
-static func why_apply(rows: Array, holds: Array, now_s: float) -> Array:
-	var out: Array = []
-	for r in rows:
-		var row: Dictionary = r
-		if str(row.get("why", "")) == "":
-			for h in holds:
-				if h["id"] == row.get("id", "") and float(h["until_s"]) > now_s:
-					row = row.duplicate()
-					row["why"] = h["why"]
-					break
-		out.append(row)
 	return out

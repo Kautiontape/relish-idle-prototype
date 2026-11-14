@@ -524,9 +524,10 @@ static func village_edge_key(owner: String) -> String:
 # --- --nodes=demo stand-ins -----------------------------------------------------------------
 
 ## Overlays stand-in values on the model's fort, vei and relish entries (in place) so one
-## screenshot shows what E2 will: a held fort, a tithe warning, a live wave, the first-dungeon
-## pulse, a simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json
-## "demo_nodes". Relish stands still (speed 0) so her place holds between refreshes.
+## screenshot shows what E2 will: held forts at each margin, a tithe warning, a live wave, a
+## contested and an emptied fort (whatever the fixture holds), the first-dungeon pulse, a
+## simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json "demo_nodes".
+## Relish stands still (speed 0) so her place holds between refreshes.
 # TODO(api E2): debug stand-in
 static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
 	var d: Dictionary = MapLogic.cfg().get("demo_nodes", {})
@@ -543,6 +544,11 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 			f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
 			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
 			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
+	for mt in d.get("matter", []):  # fort state glyphs: a contested and an emptied fort
+		if by_id.has(mt.get("fort", "")):
+			var mf: Dictionary = by_id[mt["fort"]]
+			for k in MATTERS:
+				mf[k] = float(mt.get(k, mf.get(k, 0.0)))
 	if d.has("mint_rate"):  # the valve's WAR split needs a mint rate; E1's is 0
 		var split := {}
 		var v := ValveLogic.normalise(hud.get("valve_target", hud.get("valve", {})))

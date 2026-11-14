@@ -344,7 +344,7 @@
     "held": {
       "fort": "greywall",
       "frac": 0.6,
-      "ship_in": 0.3,
+      "ship_in": 0.15,
       "undead": 64.0
     },
     "tithe": {
@@ -375,17 +375,31 @@
       {
         "fort": "chime-fort",
         "frac": 0.4,
-        "ship_in": 0.6,
+        "ship_in": 0.25,
         "undead": 88.0
       },
       {
         "fort": "vespers",
         "frac": 0.5,
-        "ship_in": 1.2,
+        "ship_in": 0.9,
         "undead": 31.0
       }
     ],
-    "mint_rate": 3.0
+    "mint_rate": 3.0,
+    "matter": [
+      {
+        "fort": "hollow-redoubt",
+        "living": 200.0,
+        "undead": 80.0,
+        "dead": 20.0
+      },
+      {
+        "fort": "mourners-gate",
+        "living": 0.0,
+        "undead": 0.0,
+        "dead": 240.0
+      }
+    ]
   },
   "type": {
     "skew_deg": 9.0,
@@ -428,7 +442,6 @@
   },
   "valve_tri_px": 200,
   "valve_send_hz": 8,
-  "why_hold_s": 10,
   "controls": {
     "valve_margin_px": [
       10,

@@ -21,7 +21,6 @@ func run() -> int:
 	_reasons(t)
 	_actions(t)
 	_routes(t)
-	_why(t)
 	_real_state(t)
 	_steps(t)
 	_sources(t)
@@ -250,41 +249,6 @@ func _routes(t: TestUtil) -> void:
 	t.ok(RelishLogic.dash_segments(Vector2.ZERO, Vector2(50, 0), 0.0, 5.0).is_empty(), "a zero dash makes none (no endless loop)")
 
 
-func _why(t: TestUtil) -> void:
-	t.suite("map_controls-why")
-	var hold := float(MapLogic.cfg()["why_hold_s"])
-	t.ok(hold == 10.0, "why_hold_s is 10 real seconds")
-	var home := {"state": "home", "at": "covington", "target": ""}
-	var at_a := {"state": "at_fort", "at": "a", "target": ""}
-	var at_b := {"state": "at_fort", "at": "b", "target": ""}
-	var going := {"state": "travelling", "at": "a", "target": "b"}
-	t.ok(RelishLogic.why_events({}, at_a, 0.0, hold).is_empty(), "the first read makes no event")
-	t.ok(RelishLogic.why_events(home, going, 0.0, hold).is_empty(), "leaving Covington is not 'Relish left' on a fort")
-	var left := RelishLogic.why_events(at_a, going, 5.0, hold)
-	t.ok(left.size() == 1 and left[0]["id"] == "war:covington:a" and left[0]["why"] == "Relish left" and left[0]["until_s"] == 5.0 + hold, "leaving fort A: 'Relish left' on war:covington:a for the hold")
-	var here := RelishLogic.why_events(going, at_b, 7.0, hold)
-	t.ok(here.size() == 1 and here[0]["id"] == "war:covington:b" and here[0]["why"] == "Relish here", "arriving at fort B: 'Relish here' on war:covington:b")
-	var jump := RelishLogic.why_events(at_a, at_b, 0.0, hold)
-	t.ok(jump.size() == 2, "a jump from A to B is both")
-	t.ok(RelishLogic.why_events(at_a, at_a, 0.0, hold).is_empty(), "standing still makes none")
-	t.ok(RelishLogic.why_events(going, home, 0.0, hold).is_empty(), "arriving home makes none")
-	var rows := [{"id": "war:covington:a", "why": "", "rate": -1.2}, {"id": "war:covington:b", "why": "", "rate": 2.0}, {"id": "war:covington:c", "why": "from the view", "rate": 1.0}]
-	var holds := RelishLogic.why_track(at_a, going, [], 5.0, hold)
-	var out := RelishLogic.why_apply(rows, holds, 6.0)
-	t.ok(out[0]["why"] == "Relish left" and out[1]["why"] == "", "the hold fills only its lane")
-	t.ok(rows[0]["why"] == "", "the input rows are not changed")
-	var h2 := RelishLogic.why_track(going, at_b, holds, 7.0, hold)
-	var out2 := RelishLogic.why_apply(rows, h2, 8.0)
-	t.ok(out2[0]["why"] == "Relish left" and out2[1]["why"] == "Relish here", "both show inside the window")
-	var late := RelishLogic.why_apply(rows, h2, 5.0 + hold + 0.1)
-	t.ok(late[0]["why"] == "" and late[1]["why"] == "Relish here", "'Relish left' expires after the hold, 'Relish here' a little later")
-	t.ok(RelishLogic.why_track(at_a, at_a, h2, 100.0, hold).is_empty(), "expired holds are dropped")
-	var viewed := [{"id": "war:covington:a", "why": "the view's own", "rate": 1.0}]
-	t.ok(RelishLogic.why_apply(viewed, holds, 6.0)[0]["why"] == "the view's own", "a why the view carries is never overwritten")
-	var again := RelishLogic.why_track(at_a, going, holds, 6.0, hold)
-	t.ok(again.size() == 1 and again[0]["until_s"] == 6.0 + hold, "a repeat event on a lane replaces its hold")
-
-
 func _real_state(t: TestUtil) -> void:
 	t.suite("map_controls-state")
 	var s := GameState.new(TestUtil.configs())
@@ -341,24 +305,26 @@ func _real_state(t: TestUtil) -> void:
 	t.ok(s.cmd_set_haul_target("auto")["ok"] and s.view_town()["haul"]["target"] == "auto", "BACK TO AUTO is cmd_set_haul_target('auto')")
 	t.ok(RelishLogic.haul_line(s.view_town()["haul"], names).ends_with("(auto)"), "and reads (auto)")
 	t.ok(not s.cmd_set_haul_target("nowhere")["ok"], "an unknown fort is refused")
-	# the model's lane why stand-in, end to end
+	# the view's own lane why (E2a), through the model, end to end
 	var s2 := GameState.new(TestUtil.configs())
 	s2.debug_enabled = true
 	s2.cmd_debug_load_fixture("day1")
 	var model := MapModel.new(s2)
 	model.refresh(true)
 	s2.cmd_move_relish("old-sluice")
-	model.refresh(true)
 	for i in 40:
 		s2.tick(0.5)
+		if str(s2.view_relish()["state"]) == "at_fort":
+			break
 	model.refresh(true)
 	var here: Array = model.lanes.filter(func(l): return l["id"] == "war:covington:old-sluice")
-	t.ok(here.size() == 1 and here[0]["why"] == "Relish here", "the model's lanes say 'Relish here' at the fort she reached")
+	t.ok(here.size() == 1 and here[0]["why"] == "Relish here", "the model's lanes carry the view's 'Relish here' at the fort she reached")
 	var other_fort := str(s2.view_realm()["forts"].filter(func(f): return f["id"] != "old-sluice")[0]["id"])
 	s2.cmd_move_relish(other_fort)
+	s2.tick(0.5)
 	model.refresh(true)
 	var left: Array = model.lanes.filter(func(l): return l["id"] == "war:covington:old-sluice")
-	t.ok(left[0]["why"] == "Relish left", "and 'Relish left' when she sets off")
+	t.ok(left.size() == 1 and left[0]["why"] == "Relish left", "and the view's 'Relish left' once she sets off")
 
 
 func _steps(t: TestUtil) -> void:

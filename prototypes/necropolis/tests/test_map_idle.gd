@@ -231,11 +231,14 @@ func _model(t: TestUtil) -> void:
 	s.cmd_debug_load_fixture("midgame_2flips")
 	var m := MapModel.new(s)
 	m.refresh(true)
-	t.ok(m.margins.is_empty() and m.margin_sig == "" and m.supports == {"n": 0, "m": 0}, "E1 holds no fort: no margins, N of M is 0 of 0")
+	var real_held := IdleLogic.held_forts(m.forts).size()
+	t.ok(real_held > 0 and m.margins.size() == real_held and int(m.supports["m"]) == real_held,
+		"every fort the view holds has a margin, and N of M counts them (%d held)" % real_held)
 	var m2 := MapModel.new(s)
 	m2.nodes_demo = true
 	m2.refresh(true)
-	t.ok(m2.margins.size() == 3, "the demo holds three forts and the model has their margins")
+	var demo_held := IdleLogic.held_forts(m2.forts).size()
+	t.ok(demo_held > real_held and m2.margins.size() == demo_held, "the demo holds more forts and the model has every margin (%d)" % demo_held)
 	var before := m2.margin_sig
 	var id: String = m2.margins.keys()[0]
 	var held := m2.margin_of(id)

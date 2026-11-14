@@ -2,9 +2,9 @@ class_name MapLogic
 extends RefCounted
 ## Pure map logic (no autoloads, so headless tests can compile it): the single source of lane
 ## geometry (routes and the ground's lane moat both call it), the type law's text formatters,
-## zoom tiers, contrast, and the lane adapter / demo lanes that stand in until economy's E2
-## fills view_lanes. Tuning lives in configs/map_view.json; the u -> width numbers it needs
-## come from configs/pulse.json.
+## zoom tiers, contrast, the view_lanes adapter, and the demo lanes that --lanes=demo shots
+## draw. Tuning lives in configs/map_view.json; the u -> width numbers it needs come from
+## configs/pulse.json.
 
 const VIEW_FILE := "res://configs/map_view.json"
 const PULSE_FILE := "res://configs/pulse.json"
@@ -263,29 +263,12 @@ static func _copy_row(r: Dictionary) -> Dictionary:
 		"rate": float(r["rate"]), "bias": float(r.get("bias", 1.0)), "why": str(r.get("why", ""))}
 
 
-## view_lanes().lanes plus E1 stand-ins, in the STATE-API 5.3 row shape. A stand-in is added
-## only for an id the view does not carry; dead, fort -> vei flood, haul, redirect and work
-## stay whatever the view says (0 until economy's E2).
-# TODO(api E2): drop the stand-ins when view_lanes carries living rows and the FLOOD rate.
-static func lanes_from_views(view_lanes_rows: Array, forts: Array, hud: Dictionary) -> Array:
+## view_lanes().lanes as copies in the STATE-API 5.3 row shape (bias and why defaulted when a
+## row lacks them). Every kind is live since E2a, so nothing is invented.
+static func lanes_from_views(view_lanes_rows: Array) -> Array:
 	var out: Array = []
-	var by_id := {}
 	for r in view_lanes_rows:
-		var row := _copy_row(r)
-		by_id[row["id"]] = row
-		out.append(row)
-	for f in forts:
-		var row := _lane_row("living", "vei", str(f["id"]), float(f.get("ship_in", 0.0)))
-		if not by_id.has(row["id"]):
-			by_id[row["id"]] = row
-			out.append(row)
-	var flood := float(hud.get("split", {}).get("flood", 0.0))
-	var fid := "flood:covington:vei"
-	if by_id.has(fid):
-		if by_id[fid]["rate"] == 0.0 and flood > 0.0:
-			by_id[fid]["rate"] = flood
-	else:
-		out.append(_lane_row("flood", "covington", "vei", flood))
+		out.append(_copy_row(r))
 	return out
 
 

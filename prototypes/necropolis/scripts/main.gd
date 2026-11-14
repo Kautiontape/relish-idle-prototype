@@ -77,7 +77,6 @@ func _teleport(id: String) -> void:
 			_open_map()
 			return
 		var args := {"mode": "boss", "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
-		args.merge(s.boss_seed())
 		_swap(BOSS, args)
 	elif id != "" and not s.view_fort(id).is_empty():
 		var r := s.cmd_begin_dungeon(id)
@@ -85,7 +84,6 @@ func _teleport(id: String) -> void:
 			_open_map()
 			return
 		var args := {"mode": "dungeon", "fort_id": id, "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
-		args.merge(s.raid_seed(id))
 		_swap(RAID, args)
 	else:
 		_open_map()

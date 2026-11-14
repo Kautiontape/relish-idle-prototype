@@ -30,8 +30,6 @@ var projection := {}  # the dragged valve's IdleLogic.projection while the valve
 var margin_sig := ""  # the margins now shown (projected or committed): the nodes redraw when it changes
 
 var _villages_by_id := {}
-var _prev_relish := {}
-var _why_holds: Array = []  # RelishLogic.why_track: the "Relish here / left" stand-in's live holds
 var _last_read_s := -1.0e9
 
 
@@ -75,11 +73,7 @@ func refresh(force := false) -> bool:
 	if demo:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
-		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []), forts, hud)
-		# TODO(api E2): view_lanes why ("Relish here" / "Relish left") replaces this stand-in
-		_why_holds = RelishLogic.why_track(_prev_relish, relish, _why_holds, now, float(MapLogic.cfg().get("why_hold_s", 0.0)))
-		lanes = RelishLogic.why_apply(lanes, _why_holds, now)
-	_prev_relish = relish
+		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []))
 	margins = IdleLogic.committed_margins(forts, hud)
 	supports = IdleLogic.committed_supports(hud, forts)
 	_update_margin_sig()
