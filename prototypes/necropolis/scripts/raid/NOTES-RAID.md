@@ -680,3 +680,67 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - `de3c-shieldwall-pinned.png`: the first tell after that pack. BASH, PINNED.
     - `de3c-death-card.png`: "The Bellringer's slam · missed: the swing".
     - No shot shows a pinned rush with the pack standing, because the wall never tells while its pack stands.
+
+## Step 4 (D-d/E), before the lever: the 3c review items and the per-fort causes
+- **The Shieldwall's tell clause is moot by design** (b0977c1).
+  - The wall holds its bash while its pack stands, so "pinning outranks hunting through a tell" in `pack_target` could never fire. It is removed.
+  - Only posted wits bigs keep the wall. 4413cf3's message described the clause as live.
+- **The hold and the unstick watch as pure functions** (`RaidLogic.hold_blocks` / `unstick_step`; tests `raid_bot_rules`; b4763b1). Behaviour is unchanged: 14 lines are identical.
+- **The unstick watch fired on doorways, not on stuck walks.**
+  - Sampled firings (whitecross s3/s19, the-stair s5/s8, mourners-gate s5, pale-bastion s4) were all the same thing. The target was in another room, and the walking distance jumped at a doorway: straight in the gap, round by room centres beyond (1012-1257 px against 539-895 straight). She was walking on, with 0-1 undead touching her and no foe near.
+  - None was a crowd or a pinned walk. The clock now restarts when her room changes (0aa97d6).
+  - Seeds 1-6, t2-t4: firing runs 7 -> 1. The 6 changed lines differ only in the count.
+- **The residual idle is a classification gap.**
+  - the-stair s16 (16.8 s) and hollow-redoubt s11 (13.9 s) are both the hold on a hostile brute in the next room. The brute was fighting her army (its nearest undead 15-30 px away) 400-850 px from her.
+  - `time_class` calls that idle (no hostile foe within aggro_px or in her room), but it is the army's fight. It is kept as it is, so the baselines stay comparable.
+- **No army, nothing to raise: she leaves after her reaction delay** (5e2a7a9; `RaidLogic.can_raise_from`; result `left_no_army`).
+  - It applies with no undead standing, fewer than min_motes carried or within collect_px, and no pile within pile_px. It was 60 s inside a "fight".
+  - Seeds 1-6: 5 Huntsman lines change (chime-fort s2 112 -> 52 s, s5 158 -> 113, hollow-redoubt s4 228 -> 180, s5 569 -> 198, s2 died at 401 -> left at 395). t1 and P1 are identical.
+  - `army_zero_s` share of the run (c4): t2 0.1%, t3 0.5%, t4 0.5%.
+- **One outlier rule:** "> 2× its fort's median within the run set being reported".
+  - One iter is one run set, so the runner's `outlier_2x` is that rule: the tier set (`c4`) and the extra seeds (`c4x`) are separate iters.
+  - c3 mixed the tier set and the arms in one iter. Its row flags used 20-seed groups at the 8 arm forts.
+  - Under the rule the 3c tier shares stand as reported: t2 4.5 / 1.1, t3 7.3 / 1.1, t4 7.8 / 0.1 (travel / idle).
+- **Bad outcomes in the 3c arms** (died + retreated + timeout, seeds 1-20, with / without the counter):
+  - vespers 0 / 0, lantern-keep 0 / 0;
+  - chime-fort 6 / 0, hollow-redoubt 7 / 10;
+  - pale-bastion 14 / 17, the-stair 0 / 0;
+  - mourners-gate 1 / 2, whitecross 0 / 0.
+  - Pooled: 28 / 160 against 29 / 160.
+- **What held the three 600 s runs open:**
+  - chime-fort s8 (with speed): the army was gone and there was nothing to raise. She now leaves at 60 s.
+  - pale-bastion s13 (wits 0): 90 raises against a wall that glances from the front, with no flankers. The warden was at 16% at the cap.
+  - mourners-gate s15 (power 5): three undead chipped a priest warded by its living acolytes at 1.6 hp/s for 510 s. She held the pyre stand with one mote and a pile she would not stir. Progress that slow never trips the 60 s rule.
+  - The last two are counter-less grinds, and they count as bad outcomes.
+- **4.0: the no-counter arm faces more tells.** Tells at Relish (react.tells, 3c arms, 40 runs each), with / without:
+
+  | warden | median | total | per fight-minute |
+  |---|---|---|---|
+  | Bellringer | 18 / 33 | 838 / 1423 | 10.7 / 10.9 |
+  | Huntsman | 9 / 16 | 928 / 1226 | 5.4 / 7.1 |
+  | Shieldwall | 18 / 54 | 1153 / 2256 | 8.8 / 11.1 |
+  | Pyre-priest | 3 / 6 | 136 / 321 | 1.4 / 2.1 |
+
+  - The rate is about the same and the fights run 1.3-3× longer, so lethality per missed tell can separate the arms. The 4.3 re-measure is the verdict.
+- **4.1, the per-fort causes:**
+  - **pale-bastion against the-stair.** Same warden, but the warden rooms are 543 × 598 px against 1073 × 679.
+    - A 260 px rush covered nearly all of pale-bastion's, so an answered tell had nowhere to go. Rush hits on her: 9.4 a run there, 0.2-0.7 at the-stair, even without wits.
+    - Fixed by a general rule, not a per-fort one: the rush reach is capped at `rush_room_frac` 0.8 of the room's half-size (`WardenLogic.rush_reach`; ce17f3d). the-stair is unchanged.
+    - pale-bastion with wits, seeds 1-20: deaths 14 -> 0, rush hits 0.4 a run. But the fight runs longer (256 -> 335 s median): with its bigs lost it now grinds instead of killing.
+  - **chime-fort with speed.** The bodyguard post held its speed bigs at her side while the hounds ran (the Huntsman holds its lunge then).
+    - The hounds wiped the army away from her. s5 trace: 29 undead to hounds in 13 s, and 2 of the 29 motes in raise reach. Then she left.
+    - Fixed: there is no post while the pack stands, so they hunt it (7eecd95). Seeds 1-20: bad outcomes 6 -> 1, INTERCEPTED 51 -> 128 of 320 hounds.
+  - **sable-hold: not fixed in two probes.** The slam kills 280-440 undead a run (seeds 1-4, by damage source).
+    - 2 of the 3 bigs die to the fort's brutes before or at the wake in 3 of 4 seeds. The beef big then dies to the ringers or to slams.
+    - Unmuffled slams churn every raise for 200+ s.
+    - Probes, not committed: ringers at t4 8 -> 6 gave a median of 286 s; slam `dmg_unit` 11 -> 8 gave 259 s (339 now). Neither stops the grind.
+- **Seeds 1-6 at t2-t4** (c4, the code at ce17f3d; 58/58 in lockstep):
+
+  | tier | median s | per archetype (against the tier median) | deaths |
+  |---|---|---|---|
+  | t2 | 123 (human 144-201) | Bellringer 129 (+5%), Huntsman 118 (-3%) | 0 / 18 |
+  | t3 | 172 (200-266) | Huntsman 158 (-8%), Pyre-priest 154 (-10%), Shieldwall 316 (+84%) | 0 / 18 |
+  | t4 | 130 (152-202) | Bellringer 339 (+161%), Pyre-priest 116 (-11%), Shieldwall 112 (-14%) | 0 / 18 |
+
+  - Travel / idle: 4.5 / 1.2, 7.2 / 1.0, 7.8 / 0.1.
+  - t1 and P1 lines equal the bot-fixed ones. Vei is identical. Parity is 5 of 5.
