@@ -182,12 +182,11 @@
     },
     "benefit": {
       "rate_effects": {
-        "mint": {"unit": "mint", "sign": 1.0},
-        "burn": {"unit": "bodies", "sign": -1.0},
         "attract": {"unit": "migrants", "sign": 1.0}
       },
       "plain_effects": {
-        "living_cap": "+{n} housing", "stance_slots": "+{n} stance slot", "big_undead_cap": "+{n} big undead cap"
+        "living_cap": "+{n} housing", "stance_slots": "+{n} stance slot", "big_undead_cap": "+{n} big undead cap",
+        "pits": "+{n} raising pit"
       },
       "job_text": "{n} {job} jobs",
       "now": "now",

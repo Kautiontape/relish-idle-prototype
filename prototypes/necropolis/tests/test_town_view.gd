@@ -278,16 +278,36 @@ func _walls(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
 	m.update(mid, VIEW_RECT)
 	t.ok(m.tier == "village" and not m.walls("village").is_empty() and m.walls("town").is_empty() and m.walls("city").is_empty(),
 		"a village has its palisade only")
+	var village: Array = []
+	for l in mid["town"]["lots"]:
+		if l["unlocked"]:
+			village.append(l["id"])
+	var want: Array = []
+	for i in range(1, 17):
+		want.append("lot-%02d" % i)
+	want.append("lot-23")
+	t.ok(village == want, "a village's unlocked lots are lot-01..16 plus lot-23, not the first 17 (%s)" % str(village))
+	t.ok(not m.lot("lot-17")["unlocked"] and m.lot("lot-23")["unlocked"], "the model follows lots[].unlocked: lot-17 locked, lot-23 unlocked")
+	var wv := m.walls("village")
+	var inside := true
+	for id in village:
+		var r: Rect2 = m.lot(id)["rect"]
+		for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+			inside = inside and Geometry2D.is_point_in_polygon(c, wv)
+	t.ok(inside, "the village wall encloses every lot the view reports unlocked")
 	m.update(demo, VIEW_RECT)
 	t.ok(m.tier == "city", "the demo is a city")
 	var tiers: Dictionary = cfg["economy"]["town"]["tiers"]
 	for tier in cfg["town"]["view"]["tier_walls"]:
 		var w := m.walls(tier)
 		t.ok(w.size() >= 4, "%s wall is a polyline" % tier)
-		var n := int(tiers[tier]["lots"])
+		# the lots unlocked at a tier are its lot_ids, not "the first N": Village has lot-01..16 + lot-23
+		var ids: Array = tiers[tier]["lot_ids"]
+		var n := ids.size()
+		t.ok(n == int(tiers[tier]["lots"]), "%s: lots is the count of lot_ids" % tier)
 		var enclosed := true
-		for i in n:
-			var r: Rect2 = m.lots[i]["rect"]
+		for id in ids:
+			var r: Rect2 = m.lot(id)["rect"]
 			for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
 				enclosed = enclosed and Geometry2D.is_point_in_polygon(c, w)
 		t.ok(enclosed, "%s wall encloses the %d lots unlocked at %s" % [tier, n, tier])
@@ -338,10 +358,21 @@ func _glow_monotone(day1: Dictionary) -> void:
 	t.near(glows[7], 1.0, 0.0001, "glow caps at 1")
 
 
-func _standin(day1: Dictionary) -> void:
+## A copy of the views with every building's output blanked: the E1 stub the stand-ins are for.
+func _stub(views: Dictionary) -> Dictionary:
+	var v: Dictionary = views.duplicate(true)
+	for b in v["town"]["buildings"]:
+		b["output"] = {}
+	return v
+
+
+func _standin(live: Dictionary) -> void:
 	var m := _model()
+	m.update(live, VIEW_RECT)
+	t.ok(not m.staffing_standin, "live outputs (E2a): the staffing stand-in is off")
+	var day1 := _stub(live)
 	m.update(day1, VIEW_RECT)
-	t.ok(m.staffing_standin, "every output is the E1 stub: the staffing stand-in is on")
+	t.ok(m.staffing_standin, "every output blanked (the E1 stub): the staffing stand-in is on")
 	var charnel: Dictionary = m.lot("lot-03")["building"]
 	t.ok(charnel["building_id"] == "charnel_house" and charnel["slots"] > 0 and charnel["staffed"] > 0.0,
 		"day1: the charnel house is staffed")
@@ -606,6 +637,14 @@ func _run(a: TownAgents, secs: float, t0 := 0.0, reduced := false, fps := 30.0) 
 	return clock
 
 
+## Undead the stream asks for at 1 stroke = 1: every job's staffed plus the idle.
+func _undead_want(town: Dictionary) -> int:
+	var n := roundi(float(town["workers"]["idle"]))
+	for j in town["jobs"]:
+		n += roundi(float(j["staffed"]))
+	return n
+
+
 func _counts_match(a: TownAgents, town: Dictionary, k := 1) -> bool:
 	var ok := true
 	for j in town["jobs"]:
@@ -653,8 +692,10 @@ func _agent_growth(day1: Dictionary) -> void:
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var more: Dictionary = day1.duplicate(true)
-	more["town"]["workers"]["idle"] = 20.0
-	more["town"]["living"] = 30.0
+	var idle0 := a.count("idle")
+	var living0 := a.living_count()
+	more["town"]["workers"]["idle"] = float(idle0) + 20.0
+	more["town"]["living"] = float(living0) + 20.0
 	_resync(m, a, more)
 	var rate := float(vcfg["spawn_per_s"])
 	var fps := 30.0
@@ -668,7 +709,7 @@ func _agent_growth(day1: Dictionary) -> void:
 	for i in int(round((24.0 / rate + 2.0) * fps)):
 		clock += 1.0 / fps
 		a.step(1.0 / fps, fposmod(clock / tempo_s, 1.0), false)
-		gradual = gradual and a.count("idle") <= rate * clock + 1.0 + 1e-6 and a.living_count() - 10 <= rate * clock + 1.0 + 1e-6
+		gradual = gradual and a.count("idle") - idle0 <= rate * clock + 1.0 + 1e-6 and a.living_count() - living0 <= rate * clock + 1.0 + 1e-6
 		for u in a.undead:
 			if not old.has(u) and first_u == Vector2.INF:
 				first_u = u.pos
@@ -676,7 +717,7 @@ func _agent_growth(day1: Dictionary) -> void:
 			if not old.has(u) and first_l == Vector2.INF:
 				first_l = u.pos
 	t.ok(gradual, "growth is gradual: at most spawn_per_s new agents a second per kind")
-	t.ok(a.count("idle") == 20 and a.living_count() == 30, "and it reaches the stream: 20 idle, 30 living")
+	t.ok(a.count("idle") == idle0 + 20 and a.living_count() == living0 + 20, "and it reaches the stream: +20 idle, +20 living")
 	var crypt := (m.lot("lot-01")["building"]["rect"] as Rect2).get_center()
 	var step := float(vcfg["step_px"]) * m.scale
 	t.ok(first_u.distance_to(crypt) < 60.0 + 4.0 * step, "new undead rise at the crypt")
@@ -684,10 +725,13 @@ func _agent_growth(day1: Dictionary) -> void:
 	_resync(m, a, day1)
 	var before := a.living_count()
 	a.step(1.0 / fps, 0.0, false)
-	t.ok(a.living_count() >= before - 1 and a.count("idle") >= 19, "shrinking is gradual too")
+	t.ok(a.living_count() >= before - 1 and a.count("idle") >= idle0 + 19, "shrinking is gradual too")
 	_run(a, 200.0, clock)
-	t.ok(a.count("idle") == 0 and a.living_count() == 10 and a.undead.size() == 6 and a.living.size() == 10,
-		"the removed agents walk home (crypt, gate) and are gone: %d undead, %d living" % [a.undead.size(), a.living.size()])
+	var want_u := _undead_want(day1["town"])
+	var want_l := roundi(float(day1["town"]["living"]))
+	t.ok(a.count("idle") == idle0 and a.living_count() == want_l and a.undead.size() == want_u and a.living.size() == want_l,
+		"the removed agents walk home (crypt, gate) and are gone: %d undead (want %d), %d living (want %d)"
+		% [a.undead.size(), want_u, a.living.size(), want_l])
 
 
 func _agent_lockstep(day1: Dictionary) -> void:
@@ -769,6 +813,8 @@ func _agent_reduced(day1: Dictionary) -> void:
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var clock := _run(a, 2.0)
+	var want_u := _undead_want(day1["town"])
+	var want_l := roundi(float(day1["town"]["living"]))
 	var before := {}
 	for u in a.undead + a.living:
 		before[u] = [u.pos, u.dir]
@@ -778,21 +824,23 @@ func _agent_reduced(day1: Dictionary) -> void:
 		still = still and u.pos == before[u][0] and u.dir == before[u][1]
 	t.ok(still, "reduced motion: no agent moves or turns, whatever the beat does")
 	var more: Dictionary = day1.duplicate(true)
-	more["town"]["workers"]["idle"] = 4.0
-	more["town"]["living"] = 12.0
+	var idle_more := roundi(float(day1["town"]["workers"]["idle"])) + 4
+	var living_more := want_l + 2
+	more["town"]["workers"]["idle"] = float(idle_more)
+	more["town"]["living"] = float(living_more)
 	_resync(m, a, more)
 	_run(a, 10.0, clock, true)
 	still = true
 	for u in before:
 		still = still and u.pos == before[u][0]
-	t.ok(a.count("idle") == 4 and a.living_count() == 12 and still, "reduced motion: counts still follow the stream; the others stay put")
+	t.ok(a.count("idle") == idle_more and a.living_count() == living_more and still, "reduced motion: counts still follow the stream; the others stay put")
 	var calm := true
 	for u in a.undead:
 		calm = calm and u.tilt == 0.0 and u.flash == 0.0
 	t.ok(calm, "reduced motion: no beat actions")
 	_resync(m, a, day1)
 	_run(a, 10.0, clock, true)
-	t.ok(a.undead.size() == 6 and a.living.size() == 10, "reduced motion: removed agents vanish in place")
+	t.ok(a.undead.size() == want_u and a.living.size() == want_l, "reduced motion: removed agents vanish in place")
 
 
 func _agent_missing(day1: Dictionary) -> void:
@@ -802,8 +850,15 @@ func _agent_missing(day1: Dictionary) -> void:
 		if b["building_id"] != "charnel_house":
 			keep.append(b)
 	v["town"]["buildings"] = keep
+	var haulers := 0
+	var idle0 := roundi(float(day1["town"]["workers"]["idle"]))
+	for j in day1["town"]["jobs"]:
+		if j["id"] == "haul":
+			haulers = roundi(float(j["staffed"]))
+	t.ok(haulers > 0, "day1 has haulers to idle (%d)" % haulers)
 	var a: TownAgents = _agents(v)[1]
-	t.ok(a.count("haul") == 0 and a.count("idle") == 3, "no charnel house: its 3 haulers idle at the crypt")
+	t.ok(a.count("haul") == 0 and a.count("idle") == idle0 + haulers,
+		"no charnel house: its %d haulers idle at the crypt (with the %d already idle)" % [haulers, idle0])
 	var pit_hold := true
 	for u in a.undead:
 		if u.job == "pit":
@@ -815,12 +870,12 @@ func _agent_missing(day1: Dictionary) -> void:
 	var clock := _run(a, 2.0)
 	_resync(m, a, v)
 	_run(a, 0.1, clock)
-	t.ok(a.count("haul") == 0 and a.count("idle") == 3, "a job building gone mid-run re-tasks its agents to idle at once")
+	t.ok(a.count("haul") == 0 and a.count("idle") == idle0 + haulers, "a job building gone mid-run re-tasks its agents to idle at once")
 
 	var b2: Dictionary = day1.duplicate(true)
 	b2["town"]["jobs"].append({"id": "build", "slots": 2, "staffed": 2.0})
 	a = _agents(b2)[1]
-	t.ok(a.count("build") == 0 and a.count("idle") == 2, "build with nothing under construction: the builders idle")
+	t.ok(a.count("build") == 0 and a.count("idle") == idle0 + 2, "build with nothing under construction: the builders idle")
 	b2["town"]["buildings"].append({"lot_id": "lot-05", "building_id": "house", "level": 0, "state": "constructing",
 		"progress": 0.3, "slots": 0, "staffed": 0.0, "staff_cap": -1, "foreman": "", "output": {}, "upkeep": {"gold": 0.0, "bone": 0.0}})
 	a = _agents(b2)[1]
@@ -987,7 +1042,7 @@ func _trade_arcs(day1: Dictionary) -> void:
 	t.ok(a.trades_fired == 2 and a.arcs.size() >= 1, "2.0 sales/s for 1 s fires 2 arcs (%d)" % a.trades_fired)
 	var ends := true
 	for arc in a.arcs:
-		ends = ends and arc["seller"] == seller and not arc["buyer"].undead
+		ends = ends and arc["seller"].job == "stall" and not arc["buyer"].undead
 	t.ok(ends, "each arc runs from a living buyer to the stall worker")
 	v["town"]["trade_rate"] = 100.0
 	_resync(m, a, v)
@@ -1012,8 +1067,12 @@ func _trade_arcs(day1: Dictionary) -> void:
 	t.ok(a.trades_fired == fired, "no living agent within trade_reach_px: the sale draws no arc")
 
 
-func _trade_standin(day1: Dictionary) -> void:
-	var a: TownAgents = _agents(day1)[1]
+func _trade_standin(live: Dictionary) -> void:
+	var a: TownAgents = _agents(live)[1]
+	t.ok(not a.trade_standin and is_equal_approx(a.trade_rate, float(live["town"]["trade_rate"])),
+		"live outputs (E2a): the stand-in is off and the rate is the view's trade_rate")
+	var day1 := _stub(live)
+	a = _agents(day1)[1]
 	var stall := 0.0
 	for j in day1["town"]["jobs"]:
 		if j["id"] == "stall":
@@ -1666,19 +1725,22 @@ func _build_benefit() -> void:
 	var bv: Dictionary = cfg["buildings_view"]
 	var bc: Dictionary = cfg["buildings"]
 	var pit := BuildSort.benefit("raising_pit", {}, bc, bv, vcfg)
-	t.ok(pit["rates"] == ["+6.00/s mint", "−0.60/s bodies"] and not pit["now"], "benefit: the pit's effects as signed rates, no 'now' label (%s)" % str(pit["rates"]))
-	t.ok(pit["plain"] == ["2 pit jobs"], "benefit: jobs are plain text (%s)" % str(pit["plain"]))
+	t.ok(pit["rates"].is_empty() and not pit["now"], "benefit: E2a's pit effects ({pits}) carry no rate, no 'now' label (%s)" % str(pit["rates"]))
+	t.ok(pit["plain"] == ["+1 raising pit", "2 pit jobs"], "benefit: jobs are plain text (%s)" % str(pit["plain"]))
 	var house := BuildSort.benefit("house", {}, bc, bv, vcfg)
 	t.ok(house["rates"].is_empty() and house["plain"] == ["+8 housing"], "benefit: a cap is plain text, not a rate (%s)" % str(house["plain"]))
 	var inn := BuildSort.benefit("inn", {}, bc, bv, vcfg)
 	t.ok(inn["rates"] == ["+0.02/s migrants"] and inn["plain"] == ["+20 housing"], "benefit: the inn's migrants rate and housing cap")
 	t.ok(BuildSort.benefit("guildhall", {}, bc, bv, vcfg)["plain"] == ["+1 stance slot"], "benefit: stance slots")
-	t.ok(BuildSort.benefit("crypt", {}, bc, bv, vcfg)["plain"] == ["+1 big undead cap"], "benefit: the crypt's big-undead cap")
-	t.ok(BuildSort.benefit("well", {}, bc, bv, vcfg)["plain"] == [bv["well"]["benefit"]], "benefit: no effects or jobs falls back to the view line")
+	t.ok(BuildSort.benefit("crypt", {}, bc, bv, vcfg)["plain"] == [bv["crypt"]["benefit"]], "benefit: the crypt has no effects keys now (E2a), so its view line says the big-undead cap")
+	var synth := bc.duplicate(true)
+	synth["crypt"]["effects"] = {"big_undead_cap": 1}
+	t.ok(BuildSort.benefit("crypt", {}, synth, bv, vcfg)["plain"] == ["+1 big undead cap"], "benefit: a big_undead_cap effect is plain text")
+	t.ok(BuildSort.benefit("plaza", {}, bc, bv, vcfg)["plain"] == [bv["plaza"]["benefit"]], "benefit: no recognised effects or jobs falls back to the view line")
 	t.ok(BuildSort.benefit("market", {}, bc, bv, vcfg)["plain"] == ["2 stall jobs"], "benefit: a job building says its jobs")
 	var proj := BuildSort.benefit("raising_pit", {"projected": {"mint": 3.0, "gold": -0.05}}, bc, bv, vcfg)
 	t.ok(proj["now"] and proj["rates"] == ["+3.00/s mint now", "−0.05/s gold now"], "benefit: projected rates replace the stand-in and say 'now' (%s)" % str(proj["rates"]))
-	t.ok(proj["plain"] == ["2 pit jobs"], "benefit: with projected, jobs and caps stay as plain text")
+	t.ok(proj["plain"] == ["+1 raising pit", "2 pit jobs"], "benefit: with projected, jobs and caps stay as plain text")
 	var hp := BuildSort.benefit("house", {"projected": {}}, bc, bv, vcfg)
 	t.ok(hp["now"] and hp["rates"].is_empty() and hp["plain"] == ["+8 housing"], "benefit: an empty projected shows no rate but keeps the cap text")
 	t.ok(BuildSort.rate_texts({"gold": 0.3, "bone": 0.0}, vcfg) == ["+0.30/s gold now"], "benefit: zero changes are left out of upgrade_projected")

@@ -405,8 +405,8 @@ static func rate_texts(projected: Dictionary, vcfg: Dictionary) -> Array:
 ## What a building brings, for the lot card: {rates: Array[String] (signed, oblique), plain:
 ## Array[String] (upright), now: bool}.
 ## TODO(api-request #9): while a catalog row has no `projected` ({rate_id: float}, the immediate
-## rate change), the rates are the `buildings.json` effects stand-in (mint, burn, attract: no "now"
-## label) and plain text is the cap/slot effects, the jobs, or the buildings_view `benefit` line.
+## rate change), the rates are the `buildings.json` effects stand-in (attract only since E2a: a pit's
+## mint and burn are no longer effects keys, so a pit reads "+1 raising pit"; no "now" label) and plain text is the cap/slot effects, the jobs, or the buildings_view `benefit` line.
 ## Once `projected` is present its rates (labelled "now") replace the stand-in rates, and the cap and
 ## lifetime effects stay as plain text beside them.
 static func benefit(bid: String, row: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Dictionary:

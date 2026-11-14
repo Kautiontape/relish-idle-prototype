@@ -26,7 +26,7 @@ const DEMO_STATES := {
 ## Output per staffed job building (per second). The pit uses its real `effects` instead.
 const DEMO_OUTPUT := {
 	"haul": {"bodies": 1.2}, "stall": {"gold": 0.6}, "mill": {"bone": 0.4},
-	"forge": {"q": 0.04}, "tend": {"q": 0.02},
+	"forge": {"q": 0.04}, "tend": {"q": 0.02}, "pit": {"mint": 3.0, "burn": 0.6},
 }
 const DEMO_FORTS := ["old-sluice", "greywall", "ashgate"]
 const DEMO_IDLE := 8.0
@@ -258,11 +258,7 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 		var output := {}
 		if active and not jobs.is_empty():
 			var job := String(jobs.keys()[0])
-			if job == "pit":
-				var eff: Dictionary = def.get("effects", {})
-				output = {"mint": float(eff.get("mint", 0.0)), "burn": float(eff.get("burn", 0.0))}
-			else:
-				output = (DEMO_OUTPUT.get(job, {}) as Dictionary).duplicate()
+			output = (DEMO_OUTPUT.get(job, {}) as Dictionary).duplicate()
 			for j in jobs:
 				job_slots[j] = int(job_slots.get(j, 0)) + int(jobs[j]) * lvl
 			staffed_total += float(slots)
