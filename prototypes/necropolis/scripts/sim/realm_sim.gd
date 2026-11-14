@@ -105,9 +105,11 @@ var _lt := -1.0
 var _lb := 0.0
 var _bx := 0.0
 var _bi := 0.0
-# the dispatch's scratch (step 3, read at step 2's end): per fort, WAR filled it (_filled); the
-# water-filling's targets at their limit and the WAR it left over
+# the dispatch's scratch (step 3, read at step 2's end): per fort, WAR filled it (_filled) and the
+# most Vei ships it then (_fill_cap, mass this step); the water-filling's targets at their limit and
+# the WAR it left over
 var _filled: Array[bool] = []
+var _fill_cap: Array[float] = []
 var _capped: Array[bool] = []
 var _water_left := 0.0
 
@@ -369,13 +371,15 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# (step 2's end) this step's WAR takes its room: each give is cut to cap less the load with WAR
 	# and the garrison's pull solved as fort_step solves it, without her living (which only adds to
 	# the pull). A fort WAR filled (no living, at its fill rate: _filled) took exactly the WAR that
-	# leaves room for its give, so its give isn't cut (the load here leaves out the raise of the
-	# living Vei ships in, which the fill counts).
+	# leaves room for its give, so the load doesn't cut its give (it leaves out the raise of the
+	# living Vei ships in, which the fill counts); only what its undead kill does (_fill_cap).
 	var given := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var s_i: float = surge_amt if i == surge_fort else 0.0
-		if gives[i] > 0.0 and not _filled[i]:
+		if gives[i] > 0.0 and _filled[i]:
+			gives[i] = minf(gives[i], _fill_cap[i])
+		elif gives[i] > 0.0:
 			gives[i] = minf(gives[i], maxf(0.0, f["cap"] - _load(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), q, 4) - s_i))
 		arriving[i] = gives[i] + s_i
 		f["r_surge"] = s_i * inv
@@ -743,7 +747,18 @@ func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
 ## queue when every target is full or there is none. That is the continuous version of a full fort
 ## flickering in and out of the targets as its drain opens room, so the split doesn't depend on the
 ## step. Sets each fort's r_in (staging included) and r_staged, r_war_to_vei and war_route, and
-## _filled (step 2's end reads it); returns each fort's WAR rate.
+## _filled and _fill_cap (step 2's end reads them); returns each fort's WAR rate.
+##
+## A fort WAR fills (it takes its fill rate) takes from Vei only the living its undead kill over
+## the step (_fill_cap), and WAR fills the room the rest would have taken. More would leave it a
+## sliver of living, and a fort with living takes its whole weight's share with no limit, so the
+## next step would pour that share into it (E2b T4.C: pre_vei with no haulers, every fort full of
+## corpses, Vei's drain-room shipping outran the few undead's kills, since r_drain > k_kill, and a
+## fort with 0.04 living took all 32.7/s of WAR for a whole step, a burst that scaled with dt; the
+## forts' undead didn't converge: 56% between 0.25 and 0.5 s). With WAR to spare that is what the
+## rules do in continuous time: the moment living appear the WAR pours in, the room closes and
+## they die, so the fort stays at 0 living and full, its kills taking Vei's living. A fort WAR
+## doesn't fill (too little WAR) keeps her living, as before.
 func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], surge_fort: int,
 		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:
 	var n := forts.size()
@@ -765,6 +780,30 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 		f["r_in"] = 0.0
 		f["r_staged"] = 0.0
 	var rates := _water(war, weights, limits)
+	# a filled fort whose undead can't kill what Vei ships in takes only what they kill: K, from U's
+	# path under the least inflow any smaller give leaves it (with no living there is no pull), so
+	# the give, cut to K, is killed whole. Its fill then rises; the second water-filling re-splits
+	# (raising one limit only lowers the others' shares, so no new fort fills)
+	_fill_cap = []
+	_fill_cap.resize(n)
+	_fill_cap.fill(INF)
+	var k_kill := float(t.get("k_kill", 0.018))
+	var r := float(t.get("r_drain", 0.06))
+	var slid := false
+	for i in n:
+		if not (limits[i] < INF and _capped[i] and arriving[i] > 0.0):
+			continue
+		var f: Dictionary = forts[i]
+		var s0: float = arriving[i]
+		var least := maxf(_raise_rate(f, dt, want_r[i], 0.0), _fill_inflow(f, dt, s0, _raise_rate(f, dt, want_r[i], s0)))
+		_u_path(dt, maxf(0.0, float(f["undead"])), maxf(0.0, least), 0.0, r)
+		var kill := k_kill * _um * dt * (1.0 - 1e-9)
+		if kill < s0:
+			_fill_cap[i] = kill
+			limits[i] = _fill_rate(f, dt, kill, _raise_rate(f, dt, want_r[i], kill))
+			slid = true
+	if slid:
+		rates = _water(war, weights, limits)
 	_filled = []
 	_filled.resize(n)
 	for i in n:

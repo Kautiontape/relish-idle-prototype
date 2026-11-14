@@ -247,7 +247,7 @@ Names, to avoid confusion:
      fort's room over the step: `cap` less the fort's load at the step's end without her living
      (`L + D` now less the corpses cleared and raised, plus what U's path leaves with the step's
      WAR and raises arriving, under the drain and the garrison's pull), less a surge there, never
-     below 0 (§3.4). The surge takes all it wants, past the shipping share, the space and the cap. Both
+     below 0 (§3.4). A fort WAR fills with no living takes only what its undead kill (§3.2). The surge takes all it wants, past the shipping share, the space and the cap. Both
      draw on her pool now plus what she can convert this step before her headroom (from her
      queues as they stand after FLOOD), surge first. A long step ships what the short ones would,
      and her pool never leaves [0, cap];
@@ -307,6 +307,18 @@ Names, to avoid confusion:
     rate ρ, and that WAR went to other forts. With Relish at pre_vei's Ashgate (full, no living,
     raising the 0.21/s Vei ships in) it held 78.95 of 80 at 15 s and 80.00 at 0.5 s; at her
     full 4/s it is 20 per step at 15 s.
+  - **Vei ships it only what its undead kill** while WAR fills it (it takes its whole fill), and
+    WAR fills the room the rest would have taken. The rest stays in her pool. More would leave a
+    sliver of living at the step's end, and a fort with living takes its whole weight's share of
+    WAR, with no limit, for the whole next step. That is the continuous-time outcome of these
+    rules: the moment living appear WAR pours in, the room closes and they die, so the fort stays
+    full with 0 living, its kills taking her living. A fort WAR doesn't fill (too little WAR)
+    still takes her living into its room, so with no WAR such a fort fills with living again.
+    E2b T4.C measured why: in pre_vei with no haulers every fort fills with corpses within 20 min.
+    Vei's shipping into the drain's room (`r_drain · U`) then outran the few undead's kills
+    (`k_kill · U`, and `r_drain` > `k_kill`), so a fort with 0.04 living took all 32.7/s of WAR
+    for a step, and then another fort did. Each burst grew with dt, and the forts' undead differed
+    by 56% between 0.25 s and 0.5 s over 2 h. Now they differ by 0.08%.
 - **Staging:** a held fort always pulls WAR as staging, at its weight, alongside the forts with
   living (§3.4). There the undead drain to Vei, so a held fort becomes a forward pump. WAR staging is
   split across the held forts, so holding more forts thins every garrison (IDLE §3).
