@@ -31,8 +31,8 @@ func run() -> int:
 	t.ok(vals_ok, "every by_fort value is a known archetype")
 	t.ok(by_fort.size() == 12, "by_fort has exactly 12 entries")
 	t.ok(by_fort["old-sluice"] == "bellringer", "old-sluice is the bellringer")
-	t.ok(seen.has("bellringer") and seen.has("huntsman"), "both archetypes appear")
-	for a in ["bellringer", "huntsman"]:
+	t.ok(seen.has("bellringer") and seen.has("huntsman") and seen.has("shieldwall"), "all three archetypes appear")
+	for a in ["bellringer", "huntsman", "shieldwall"]:
 		var d: Dictionary = archs[a]
 		var has_all := true
 		for key in ["name", "tells", "weak_point", "hp_base", "hp_per_tier", "radius", "phases", "attack"]:
@@ -64,7 +64,7 @@ func run() -> int:
 	var fd_per := float(fdm["period_mult"])
 	var fd_dmg := float(fdm["dmg_mult"])
 	t.ok(fd_per > 1.0 and fd_dmg < 1.0, "the first dungeon's warden is slower and softer (period x%s, damage x%s)" % [fd_per, fd_dmg])
-	for a in ["bellringer", "huntsman"]:
+	for a in ["bellringer", "huntsman", "shieldwall"]:
 		var n := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a}, cfg)
 		var f := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a, "first_dungeon": true}, cfg)
 		t.ok(f["first_dungeon"] == true and n["first_dungeon"] == false, "%s: first_dungeon flag is carried" % a)
@@ -265,7 +265,134 @@ func run() -> int:
 	_hunt_tests(t)
 	_window_tests(t, tempo_s)
 	_meter_tests(t, cfg)
+	_shield_tests(t, cfg)
 	return t.failures
+
+
+func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("shieldwall_config")
+	var archs: Dictionary = cfg["wardens"]["archetypes"]
+	var a: Dictionary = archs["shieldwall"]
+	var by_fort: Dictionary = cfg["wardens"]["by_fort"]
+	t.ok(by_fort["pale-bastion"] == "shieldwall" and by_fort["the-stair"] == "shieldwall", "pale-bastion (t3) and the-stair (t4) are the Shieldwall")
+	t.ok(by_fort["hollow-redoubt"] == "huntsman" and by_fort["mourners-gate"] == "huntsman" and by_fort["whitecross"] == "huntsman"
+		and by_fort["sable-hold"] == "bellringer", "the other tier 3-4 forts keep their wardens")
+	t.ok(str(a.get("_doc", "")) != "" and str(a["name"]) == "The Shieldwall", "the Shieldwall is documented and named")
+	var wp: Dictionary = a["weak_point"]
+	t.ok(wp["stat"] == "wits" and wp["effect"] == "flank", "its weak point is wits, effect flank")
+	var prof3: Array = cfg["autopilot"]["party_profiles"]["3"]["party"]
+	var meets := false
+	for e in prof3:
+		meets = meets or float(e["stats"]["wits"]) >= float(wp["threshold"])
+	t.ok(meets, "a standard tier-3 party big meets the wits threshold (%s)" % str(wp["threshold"]))
+	var ph: Array = a["phases"]
+	var faster := true
+	for i in range(1, ph.size()):
+		faster = faster and float(ph[i]["turn_deg_s"]) > float(ph[i - 1]["turn_deg_s"]) \
+			and float(ph[i]["front_half_deg"]) >= float(ph[i - 1]["front_half_deg"]) \
+			and float(ph[i]["period_beats"]) < float(ph[i - 1]["period_beats"])
+	t.ok(ph.size() == 3 and faster, "each phase turns faster, keeps or widens the arc and bashes sooner")
+	t.ok(float(a["attack"]["tell_beats"]) < float(ph[ph.size() - 1]["period_beats"]), "the bash tell fits inside the fastest period")
+	t.ok(float(a["attack"]["front_mult"]) < 0.5 and float(a["attack"]["back_mult"]) >= 1.0, "the shield glances, the back lands in full")
+	t.ok(float(a["attack"]["reach_px"]) > float(a["radius"]), "the bash reaches past the wall's body")
+	t.ok(not str(a["attack"].keys()).contains("dmg_mult"), "no multiplier is named dmg_ (the first dungeon would scale it)")
+	var sw := WardenLogic.spec({"id": "pale-bastion", "tier": 3}, cfg)
+	t.ok(sw["archetype"] == "shieldwall" and WardenLogic.meter_bands(sw).size() == 4, "the Shieldwall's meter is notched at its hp thirds")
+	t.near(float(sw["hp"]), float(a["hp_base"]) + 3.0 * float(a["hp_per_tier"]), 0.001, "shieldwall hp at tier 3")
+	var swf := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "shieldwall", "first_dungeon": true}, cfg)
+	t.ok(WardenLogic.period_beats(swf, 0) > WardenLogic.period_beats(sw, 0) and float(swf["attack"]["dmg_unit"]) < float(sw["attack"]["dmg_unit"])
+		and float(swf["attack"]["front_mult"]) == float(sw["attack"]["front_mult"]), "a first-dungeon Shieldwall bashes slower and softer; its shield is the same")
+	var exp := {1.0: 0, 0.67: 0, 0.66: 1, 0.34: 1, 0.33: 2, 0.0: 2}
+	var ph_ok := true
+	for hf in exp.keys():
+		ph_ok = ph_ok and WardenLogic.bellringer_phase(sw, hf) == exp[hf]
+	t.ok(ph_ok, "its phases are hp thirds")
+	t.near(float(WardenLogic.shield_phase(sw, 9)["turn_deg_s"]), float(ph[2]["turn_deg_s"]), 0.0001, "shield_phase clamps the phase")
+	var lab := WardenLogic.shield_label(sw, 0)
+	t.ok(lab.contains("±%d°" % int(ph[0]["front_half_deg"])) and lab.contains("%d°/s" % int(ph[0]["turn_deg_s"])) and lab.contains("×0.1")
+		and lab.contains("every 4 beats"), "the HUD's shield line comes from the spec: " + lab)
+
+	t.suite("shieldwall_arc")
+	var o := Vector2(100, 100)
+	t.ok(WardenLogic.in_front(0.0, o, Vector2(200, 100), 70.0), "straight ahead is front")
+	t.ok(WardenLogic.in_front(0.0, o, o + Vector2(100, 0).rotated(deg_to_rad(70.0)), 70.0), "the arc's edge counts as front")
+	t.ok(not WardenLogic.in_front(0.0, o, o + Vector2(100, 0).rotated(deg_to_rad(71.0)), 70.0), "just past the edge is not")
+	t.ok(not WardenLogic.in_front(0.0, o, Vector2(0, 100), 70.0), "straight behind is not front")
+	t.ok(WardenLogic.in_front(deg_to_rad(175.0), o, o + Vector2(100, 0).rotated(deg_to_rad(-175.0)), 20.0), "the arc wraps across ±180° (175° facing, -175° attacker)")
+	t.ok(not WardenLogic.in_front(deg_to_rad(175.0), o, o + Vector2(100, 0).rotated(deg_to_rad(150.0)), 20.0), "25° off across the wrap is outside a ±20° arc")
+	t.ok(WardenLogic.in_front(1.0, o, o, 10.0), "a point on the centre counts as front")
+	t.ok(WardenLogic.in_front(0.0, o, Vector2(0, 100), 180.0), "a ±180° arc covers everything")
+	t.near(WardenLogic.angle_diff(deg_to_rad(170.0), deg_to_rad(-170.0)), deg_to_rad(20.0), 0.000001, "angle_diff takes the short way across ±180°")
+	t.near(WardenLogic.shield_mult(sw, "front"), float(a["attack"]["front_mult"]), 0.000001, "a hit on the shield glances at front_mult")
+	t.near(WardenLogic.shield_mult(sw, "side"), 1.0, 0.000001, "a hit from the side lands in full")
+	t.near(WardenLogic.shield_mult(sw, "back"), float(a["attack"]["back_mult"]), 0.000001, "a hit in the open back takes back_mult")
+	t.ok(WardenLogic.shield_zone(0.0, o, o + Vector2(80, 10), 70.0, 50.0) == "front", "zone: ahead is the front")
+	t.ok(WardenLogic.shield_zone(0.0, o, o + Vector2(0, 80), 70.0, 50.0) == "side", "zone: square to the facing is the side")
+	t.ok(WardenLogic.shield_zone(0.0, o, o + Vector2(-80, 30), 70.0, 50.0) == "back", "zone: behind is the back")
+	t.ok(WardenLogic.shield_zone(0.0, o, o + Vector2(100, 0).rotated(deg_to_rad(129.0)), 70.0, 50.0) == "side"
+		and WardenLogic.shield_zone(0.0, o, o + Vector2(100, 0).rotated(deg_to_rad(131.0)), 70.0, 50.0) == "back", "zone: the back arc starts back_half_deg from the rear")
+	t.ok(WardenLogic.shield_zone(0.0, o, o + Vector2(100, 0).rotated(deg_to_rad(100.0)), 120.0, 80.0) == "front", "zone: where the arcs overlap the shield wins")
+	t.ok(float(a["attack"]["back_half_deg"]) + float(ph[ph.size() - 1]["front_half_deg"]) <= 180.0, "the back arc and the widest front arc never overlap")
+	t.ok(WardenLogic.bash_hits(0.0, o, o + Vector2(140, 0), 70.0, 140.0, 0.0), "the bash reaches reach_px ahead")
+	t.ok(WardenLogic.bash_hits(0.0, o, o + Vector2(150, 0), 70.0, 140.0, 10.0), "a target's radius counts")
+	t.ok(not WardenLogic.bash_hits(0.0, o, o + Vector2(150, 0), 70.0, 140.0, 5.0), "beyond reach + radius is safe")
+	t.ok(not WardenLogic.bash_hits(0.0, o, o + Vector2(-60, 0), 70.0, 140.0, 10.0), "behind it is safe however close")
+	t.ok(WardenLogic.shove_point(0.0, o, o + Vector2(0, 60), 50.0).is_equal_approx(o + Vector2(0, 110)), "a shove pushes straight away from the wall")
+	t.ok(WardenLogic.shove_point(PI, o, o, 50.0).is_equal_approx(o + Vector2(-50, 0)), "a target on the centre is shoved along the facing")
+
+	t.suite("shieldwall_turn")
+	t.near(WardenLogic.turn_step(0.0, 1.0, 45.0, 0.1), deg_to_rad(4.5), 0.000001, "a step turns at most rate x delta")
+	t.near(WardenLogic.turn_step(0.0, 0.05, 45.0, 0.1), 0.05, 0.000001, "a step never overshoots the goal")
+	t.near(WardenLogic.turn_step(deg_to_rad(170.0), deg_to_rad(-170.0), 90.0, 0.1), deg_to_rad(179.0), 0.000001, "it turns the short way across ±180°")
+	var across := WardenLogic.turn_step(deg_to_rad(178.0), deg_to_rad(-170.0), 90.0, 0.1)
+	t.near(WardenLogic.angle_diff(across, deg_to_rad(-173.0)), 0.0, 0.000001, "a step through 180° wraps to the other sign (178° + 9° is -173°)")
+	var f := 0.0
+	for k in 600:
+		f = WardenLogic.turn_step(f, PI * 0.5, 40.0, 1.0 / 60.0)
+	t.near(f, PI * 0.5, 0.000001, "it settles on the goal and holds")
+	t.near(WardenLogic.turn_step(1.0, 2.0, 45.0, 0.0), 1.0, 0.000001, "no time, no turn")
+
+	t.suite("shieldwall_goal")
+	var c := Vector2(0, 0)
+	var crowd := [Vector2(100, 0), Vector2(100, 10), Vector2(100, -10), Vector2(-100, 0)]
+	var g := WardenLogic.shield_goal(c, crowd, 240.0, 70.0, PI)
+	t.ok(bool(g["ok"]) and int(g["count"]) == 3 and absf(float(g["angle"])) < 0.01, "it turns to the crowd of three, not the one behind it (facing it)")
+	t.ok(not bool(WardenLogic.shield_goal(c, [Vector2(400, 0)], 240.0, 70.0, 0.0)["ok"]), "undead beyond reach do not count")
+	t.ok(not bool(WardenLogic.shield_goal(c, [], 240.0, 70.0, 0.0)["ok"]), "no undead: no goal (the caller holds or faces Relish)")
+	var ring: Array = []
+	for k in 8:
+		ring.append(Vector2(100, 0).rotated(TAU * k / 8.0))
+	var g1 := WardenLogic.shield_goal(c, ring, 240.0, 70.0, deg_to_rad(44.0))
+	var g2 := WardenLogic.shield_goal(c, ring, 240.0, 70.0, deg_to_rad(-91.0))
+	t.ok(absf(WardenLogic.angle_diff(float(g1["angle"]), deg_to_rad(45.0))) < 0.01 and absf(WardenLogic.angle_diff(float(g2["angle"]), deg_to_rad(-90.0))) < 0.01,
+		"an even ring holds the facing (the tie goes to the bearing nearest it)")
+	t.ok(WardenLogic.shield_goal(c, crowd, 240.0, 70.0, 0.3) == WardenLogic.shield_goal(c, crowd, 240.0, 70.0, 0.3), "shield_goal is deterministic")
+	var wrap := WardenLogic.shield_goal(c, [Vector2(-100, 5), Vector2(-100, -5)], 240.0, 30.0, 0.0)
+	t.ok(absf(absf(float(wrap["angle"])) - PI) < 0.01 and int(wrap["count"]) == 2, "a crowd astride ±180° is one crowd")
+
+	t.suite("shieldwall_flank")
+	t.ok(WardenLogic.is_flanker(sw, float(wp["threshold"])) and not WardenLogic.is_flanker(sw, float(wp["threshold"]) - 0.1), "wits at the threshold flanks, under it does not")
+	var bellsp := WardenLogic.spec({"id": "old-sluice", "tier": 2}, cfg)
+	t.ok(not WardenLogic.is_flanker(bellsp, 99.0), "no other warden has flankers")
+	t.near(WardenLogic.flank_angle(0.0, 0, 1, 34.0), -PI, 0.000001, "a lone flanker's post is straight behind")
+	var fa := WardenLogic.flank_angle(0.0, 0, 2, 34.0)
+	var fb := WardenLogic.flank_angle(0.0, 1, 2, 34.0)
+	t.near(absf(WardenLogic.angle_diff(fa, fb)), deg_to_rad(34.0), 0.000001, "two flankers spread flank_spread_deg apart")
+	t.near(WardenLogic.angle_diff(fa + WardenLogic.angle_diff(fa, fb) * 0.5, PI), 0.0, 0.000001, "the spread is centred on the back")
+	var post := WardenLogic.flank_angle(0.0, 0, 1, 34.0)
+	var near := WardenLogic.flank_step(c, Vector2(-80, 10), post, 70.0, 40.0)
+	t.ok(near.is_equal_approx(Vector2(-70, 0)), "near its post it goes straight to it")
+	var far := WardenLogic.flank_step(c, Vector2(90, 0), post, 70.0, 40.0)
+	t.near(far.length(), 70.0, 0.001, "far from its post it steps along the orbit")
+	t.near(absf(far.angle()), deg_to_rad(40.0), 0.0001, "one flank_step_deg at a time (round the wall, not through it)")
+	var side := WardenLogic.flank_step(c, Vector2(0, 90), post, 70.0, 40.0)
+	t.ok(side.y > 0.0 and side.x < 0.0, "it goes round the shorter way")
+	var p0 := Vector2(90, 1)
+	var steps := 0
+	while p0.distance_to(Vector2(-70, 0)) > 0.5 and steps < 20:
+		p0 = WardenLogic.flank_step(c, p0, post, 70.0, 40.0)
+		steps += 1
+	t.ok(steps <= 6, "from the front it reaches its post in a few orbit steps (%d)" % steps)
 
 
 func _hunt_tests(t: TestUtil) -> void:

@@ -1,7 +1,8 @@
 class_name WardenLogic
 extends RefCounted
 ## Pure warden logic (MECHANICS 5.3, GAMEPLAY 3c): the spec built from raid.json `wardens`, beat
-## maths, phase gates, slam ring and lunge hit helpers. No scene-tree or autoload dependencies.
+## maths, phase gates, slam ring, lunge hit and shield arc helpers. No scene-tree or autoload
+## dependencies.
 ## Beats run on SCENE time (it slows with the trance's time scale), so callers pass elapsed scene
 ## seconds and the tempo length (pulse.json tempo_ms / 1000); nothing here reads the wall clock.
 
@@ -61,7 +62,8 @@ static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 
 
 # ------------------------------------------------------------------ phases ---
-## Bellringer phase index: the first phase whose until_hp_frac is below hp_frac, else the last.
+## Phase index of an hp-phased warden (the Bellringer, the Shieldwall): the first phase whose
+## until_hp_frac is below hp_frac, else the last.
 static func bellringer_phase(sp: Dictionary, hp_frac: float) -> int:
 	var phases: Array = sp.get("phases", [])
 	for i in phases.size():
@@ -230,6 +232,147 @@ static func hunt_target(room: Rect2, relish_pos: Vector2, relish_alive: bool, un
 	if best < 0:
 		return {"kind": "none", "index": -1, "pos": Vector2.ZERO}
 	return {"kind": "undead", "index": best, "pos": units[best]}
+
+
+# -------------------------------------------------------------- shieldwall ---
+## The Shieldwall's per-phase knobs (index clamped): {period_beats, turn_deg_s, front_half_deg}.
+static func shield_phase(sp: Dictionary, phase: int) -> Dictionary:
+	var phases: Array = sp.get("phases", [])
+	var ph: Dictionary = {} if phases.is_empty() else phases[clampi(phase, 0, phases.size() - 1)]
+	return {"period_beats": float(ph.get("period_beats", 4.0)), "turn_deg_s": float(ph.get("turn_deg_s", 45.0)),
+		"front_half_deg": float(ph.get("front_half_deg", 70.0))}
+
+
+## The signed smallest turn from angle `a` to angle `b`, in radians, in [-PI, PI).
+static func angle_diff(a: float, b: float) -> float:
+	return wrapf(b - a, -PI, PI)
+
+
+## True when `at` stands inside the front arc of a wall at `from` facing `facing` (radians): within
+## `half_deg` of the facing as seen from the wall's centre. A point on the centre counts as front.
+static func in_front(facing: float, from: Vector2, at: Vector2, half_deg: float) -> bool:
+	var d := at - from
+	if d.length_squared() < 0.0001:
+		return true
+	return absf(angle_diff(facing, d.angle())) <= deg_to_rad(half_deg) + 0.000001
+
+
+## One turn step: from `facing` toward `goal` by at most rate_deg_s x delta, never past it, wrapped
+## to [-PI, PI).
+static func turn_step(facing: float, goal: float, rate_deg_s: float, delta: float) -> float:
+	var diff := angle_diff(facing, goal)
+	var mx := deg_to_rad(maxf(0.0, rate_deg_s)) * maxf(0.0, delta)
+	return wrapf(facing + clampf(diff, -mx, mx), -PI, PI)
+
+
+## Where a strike from `at` lands on a wall at `from` facing `facing`: "front" inside the front arc
+## (±front_half_deg: the shield), "back" inside the back arc (±back_half_deg round facing + PI: the
+## open back), else "side". The front wins where the two would overlap.
+static func shield_zone(facing: float, from: Vector2, at: Vector2, front_half_deg: float, back_half_deg: float) -> String:
+	if in_front(facing, from, at, front_half_deg):
+		return "front"
+	return "back" if in_front(facing + PI, from, at, back_half_deg) else "side"
+
+
+## A hit's damage multiplier by zone: the shield glances (attack.front_mult), the side lands in full,
+## the open back takes the bonus (attack.back_mult).
+static func shield_mult(sp: Dictionary, zone: String) -> float:
+	var at: Dictionary = sp.get("attack", {})
+	match zone:
+		"front":
+			return float(at.get("front_mult", 0.1))
+		"back":
+			return float(at.get("back_mult", 1.0))
+	return 1.0
+
+
+## Where the Shieldwall turns: the densest crowd of undead within `reach_px` of `from`. For each
+## undead's bearing, count the undead within `half_deg` of it; the most wins, a tie goes to the
+## bearing nearest the current `facing` (then the lower index), so an even ring holds still. The
+## goal is the mean bearing of that sector's undead. `units` are Vector2 positions (the caller leaves
+## the flank-role undead out: they keep to its back). {ok: false} when none is in reach.
+static func shield_goal(from: Vector2, units: Array, reach_px: float, half_deg: float, facing: float) -> Dictionary:
+	var angs: Array[float] = []
+	var dirs: Array[Vector2] = []
+	for p in units:
+		var d: Vector2 = (p as Vector2) - from
+		if d.length() <= reach_px and d.length_squared() > 0.0001:
+			angs.append(d.angle())
+			dirs.append(d.normalized())
+	if angs.is_empty():
+		return {"ok": false, "angle": facing, "count": 0}
+	var half := deg_to_rad(half_deg) + 0.000001
+	var best := -1
+	var best_n := -1
+	var best_off := INF
+	for i in angs.size():
+		var n := 0
+		for j in angs.size():
+			if absf(angle_diff(angs[i], angs[j])) <= half:
+				n += 1
+		var off := absf(angle_diff(facing, angs[i]))
+		if n > best_n or (n == best_n and off < best_off - 0.000001):
+			best = i
+			best_n = n
+			best_off = off
+	var sum := Vector2.ZERO
+	for j in angs.size():
+		if absf(angle_diff(angs[best], angs[j])) <= half:
+			sum += dirs[j]
+	var ang := sum.angle() if sum.length() > 0.001 else angs[best]
+	return {"ok": true, "angle": ang, "count": best_n}
+
+
+## The bash reaches a target of radius `r` at `at`: inside the front arc and within reach_px (+ r)
+## of the wall's centre.
+static func bash_hits(facing: float, from: Vector2, at: Vector2, half_deg: float, reach_px: float, r: float) -> bool:
+	return at.distance_to(from) <= reach_px + r and in_front(facing, from, at, half_deg)
+
+
+## Where a bashed target lands: `at` pushed shove_px straight away from the wall (along the facing
+## when it stands on the centre).
+static func shove_point(facing: float, from: Vector2, at: Vector2, shove_px: float) -> Vector2:
+	var d := at - from
+	var dir := d.normalized() if d.length() > 0.001 else Vector2.RIGHT.rotated(facing)
+	return at + dir * shove_px
+
+
+## A big undead takes the flank role when its wits meet the weak point's threshold.
+static func is_flanker(sp: Dictionary, wits: float) -> bool:
+	var wp: Dictionary = sp.get("weak_point", {})
+	return str(wp.get("effect", "")) == "flank" and wits >= float(wp.get("threshold", 1.0e9))
+
+
+## The bearing of flanker `index` of `count`'s post: straight behind the wall (facing + PI), the
+## flankers spread by `spread_deg` steps centred on it.
+static func flank_angle(facing: float, index: int, count: int, spread_deg: float) -> float:
+	var side := (float(index) - float(count - 1) * 0.5) * deg_to_rad(spread_deg) if count > 1 else 0.0
+	return wrapf(facing + PI + side, -PI, PI)
+
+
+## Where a flanker at `pos` walks next toward its post at bearing `post_angle` on the circle of
+## `orbit_px` round the wall at `from`: the post itself once its own bearing is within `step_deg`,
+## else the orbit point `step_deg` round from its bearing the shorter way (so it walks round the
+## wall, never through it).
+static func flank_step(from: Vector2, pos: Vector2, post_angle: float, orbit_px: float, step_deg: float) -> Vector2:
+	var d := pos - from
+	var cur := d.angle() if d.length_squared() > 0.0001 else post_angle
+	var diff := angle_diff(cur, post_angle)
+	var stp := deg_to_rad(maxf(1.0, step_deg))
+	var ang := post_angle if absf(diff) <= stp else cur + signf(diff) * stp
+	return from + Vector2(orbit_px, 0).rotated(ang)
+
+
+## The HUD's shield line for a phase, from the spec: "front ±70° · turns 40°/s · glances ×0.1 · bash
+## every 4 beats" (period and turn rate per phase; the multiplier from the attack).
+static func shield_label(sp: Dictionary, phase: int) -> String:
+	var ph := shield_phase(sp, phase)
+	return "front ±%d° · turns %d°/s · a hit on it glances ×%s · bash every %s beats" % [roundi(ph["front_half_deg"]),
+		roundi(ph["turn_deg_s"]), _num(float(sp.get("attack", {}).get("front_mult", 0.1))), _num(ph["period_beats"])]
+
+
+static func _num(v: float) -> String:
+	return str(int(v)) if is_equal_approx(v, roundf(v)) else str(snappedf(v, 0.01))
 
 
 # ---------------------------------------------------------- slam window (bot) ---

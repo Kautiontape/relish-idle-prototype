@@ -352,7 +352,14 @@ func run() -> int:
 			["res://scripts/raid/warden.gd", "func wake(", "Warden.wake (the beat alignment)"],
 			["res://scripts/raid/vei_boss.gd", "func _begin_break(", "VeiBoss._begin_break (the break start alignment)"],
 			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
-			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"]]:
+			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _step(", "RaidShieldwall._step (facing and bash)"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _pick_goal(", "RaidShieldwall._pick_goal"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _bash(", "RaidShieldwall._bash"],
+			["res://scripts/raid/warden_shieldwall.gd", "func hit_from(", "RaidShieldwall.hit_from (the glance/flank rule)"],
+			["res://scripts/raid/raid_warden_run.gd", "func flank_for(", "RaidWardenRun.flank_for (the flank role)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_wall(", "the bot's Shieldwall fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _wall_stand(", "the bot's Shieldwall stand point"]]:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
@@ -413,7 +420,7 @@ func _profile_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.near(float(sd3["party"][0]["stats"]["beef"]), float(prof["party"][0]["stats"]["beef"]), 1e-6, "party stats are the profile's")
 	t.ok(not sd3["fort"]["first_clear"] and not sd3["fort"]["first_dungeon"] and int(sd3["phylactery_charges"]) == 0
 		and is_equal_approx(float(sd3["fort"]["yield_mult"]), 1.0), "first_* false, yield_mult 1, no phylactery charge")
-	t.ok(sd3["warden"]["archetype"] == "bellringer" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.bellringer", "warden from wardens.by_fort")
+	t.ok(sd3["warden"]["archetype"] == "shieldwall" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.shieldwall", "warden from wardens.by_fort")
 	var hr := {}
 	for f in world["forts"]:
 		if f["id"] == "hollow-redoubt":
@@ -1410,7 +1417,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not RaidLogic.push_line(15, "NW", 1, {}).contains("rooms seen"), "no room total (boss, held): no shape clause")
 	t.ok(RaidLogic.death_cause("slam", "The Bellringer") == "The Bellringer's slam" and RaidLogic.death_cause("lunge", "The Huntsman") == "The Huntsman's lunge"
 		and RaidLogic.death_cause("living", "") == "the living" and RaidLogic.death_cause("", "x") == "a wound"
-		and RaidLogic.death_cause("slam", "") == "The warden's slam", "the death cause words")
+		and RaidLogic.death_cause("slam", "") == "The warden's slam" and RaidLogic.death_cause("bash", "The Shieldwall") == "The Shieldwall's bash",
+		"the death cause words")
 	t.ok(RaidLogic.death_lost_line({"relics": 1, "essence": 4}, 2) == "relics 1 · essence 4 · 2 big undead", "lost: unbanked loot and the party")
 	t.ok(RaidLogic.death_lost_line({}, 0) == "nothing", "nothing lost")
 	var rows := RaidLogic.death_card_rows("the living", {"remnants": 1}, {"essence": 3}, 1)
