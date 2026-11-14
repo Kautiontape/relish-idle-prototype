@@ -4,7 +4,9 @@ extends Node2D
 ## the arena to Vei's court, one per front. Each draws its horde as a stream of `undead` glyphs
 ## marching up into a guard line of `living` glyphs, with Vei's `vei` rings behind it. Everything
 ## here is procedural: glyph positions come from the front's progress and a march clock, there is
-## no physics per glyph, and one `_draw` walks the lanes (BossLogic does the maths).
+## no physics per glyph, and one `_draw` walks the lanes (BossLogic does the maths). Each lane's
+## glyphs go out as a few batched draw_multiline calls (strokes, heads, guard bows, guard heads,
+## flow dashes), not one call per glyph.
 ##   stream density   BossLogic.stream_count(have) (phase 2: thinned by the horde left)
 ##   guard thickness  BossLogic.guard_rows(need) rows of guards_across
 ##   contact point    BossLogic.contact_s(progress): the stream pushes the guard line back
@@ -169,11 +171,17 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 	var ss := BossLogic.stream_s(count, s_end - s0, len_px, march)
 	var step_px := (s_end - s0) * len_px / float(maxi(1, count))
 	var base := floori(march / maxf(step_px, 0.001))
+	var strokes := PackedVector2Array()
+	var heads := PackedVector2Array()
 	for k in ss.size():
 		var g := k - base
 		var lat := sin(float(g) * 2.39 + float(i) * 1.7) * band * 0.5
 		var p := BossLogic.point_at(lane, s0 + ss[k]) + perp * lat
-		_undead(p, dir, glyph_r, dim * (0.75 + 0.25 * fl))
+		strokes.append(p - dir * glyph_r)
+		strokes.append(p + dir * glyph_r)
+		heads.append(p + dir * (glyph_r * 0.7 + 1.0))
+		heads.append(p + dir * (glyph_r * 1.3 + 1.0))
+	_undead_batch(strokes, heads, glyph_r, dim * (0.75 + 0.25 * fl))
 	# the party's big undead lead the stream
 	if party_shown and phase == 1:
 		var n := int(party_count[i]) if i < party_count.size() else 0
@@ -202,14 +210,18 @@ func _flow(a: Vector2, b: Vector2, len_px: float, dir: Vector2, dim: float, redu
 	var off := 0.0 if reduced else fposmod(_clock * float(ch["speed"]), period)
 	var col: Color = ch["color"]
 	col.a *= dim
+	var segs := PackedVector2Array()
 	var d := -period + off
 	while d < len_px:
 		var d0 := maxf(0.0, d)
 		var d1 := minf(len_px, d + dash)
 		if d1 > d0:
-			LineGlow.polyline(self, PackedVector2Array([a + dir * d0, a + dir * d1]), col, float(ch["width"]), 0.6,
-				Palette.c("undead_core", col.a))
+			segs.append(a + dir * d0)
+			segs.append(a + dir * d1)
 		d += period
+	if not segs.is_empty():
+		for l in LineGlow.layers(col, float(ch["width"]), 0.6, Palette.c("undead_core", col.a)):
+			draw_multiline(segs, l[1], l[0])
 	if reduced:
 		_chevrons(a, b, len_px, dir, dim)
 
@@ -236,8 +248,15 @@ func _guard_line(lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows
 	var alpha := (1.0 - kf) * dim
 	if alpha <= 0.0:
 		return
-	var col := Palette.c("living", alpha)
-	var core := Palette.c("living_core", alpha)
+	# one living glyph's shape (a bow arc and a hollow ring head, facing back down the lane),
+	# translated per guard into two batched multilines
+	var face := -dir
+	var bow_c := -face * (r * 0.55)
+	var a0 := face.angle() - 1.2
+	var bow := _arc_pts(bow_c, r * 1.1, a0, a0 + 2.4, 8)
+	var ring := _arc_pts(bow_c + face * r * 1.1, r * 0.45, 0.0, TAU, 10)
+	var mb := PackedVector2Array()
+	var mr := PackedVector2Array()
 	for row in rows:
 		for c in across:
 			var lat := (float(c) - (across - 1) * 0.5) * band / maxf(1.0, across - 1)
@@ -247,7 +266,33 @@ func _guard_line(lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows
 				var sgn := -1.0 if c < (across - 1) * 0.5 else 1.0
 				var push := 0.0 if reduced else kf * (30.0 + 12.0 * row)
 				p += perp * sgn * push + dir * push * 0.5
-			_living(p, -dir, r, col, core)
+			for j in bow.size() - 1:
+				mb.append(p + bow[j])
+				mb.append(p + bow[j + 1])
+			for j in ring.size() - 1:
+				mr.append(p + ring[j])
+				mr.append(p + ring[j + 1])
+	draw_multiline(mb, Palette.c("living", alpha), maxf(2.4, r * 0.26))
+	draw_multiline(mr, Palette.c("living_core", alpha), 1.6)
+
+
+## Points along an arc (count segments), for batching one glyph shape many times.
+static func _arc_pts(c: Vector2, r: float, a0: float, a1: float, count: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for k in count + 1:
+		out.append(c + Vector2(r, 0.0).rotated(lerpf(a0, a1, float(k) / float(count))))
+	return out
+
+
+## A lane's stream in three calls: a faint halo under every stroke, the strokes, and the heads
+## (raid_unit.gd's undead glyph: one stroke along the heading with a core at its head).
+func _undead_batch(strokes: PackedVector2Array, heads: PackedVector2Array, r: float, alpha: float) -> void:
+	if strokes.is_empty():
+		return
+	var w := maxf(2.0, r * 0.22)
+	draw_multiline(strokes, Palette.c("undead", 0.18 * alpha), w + 4.0)
+	draw_multiline(strokes, Palette.c("undead", clampf(alpha, 0.0, 1.0)), w)
+	draw_multiline(heads, Palette.c("undead_core", clampf(alpha, 0.0, 1.0)), r * 0.6)
 
 
 ## An undead glyph (raid_unit.gd's language): one stroke along the heading with a core dot at the head.
@@ -256,15 +301,6 @@ func _undead(p: Vector2, dir: Vector2, r: float, alpha: float) -> void:
 	draw_line(p - dir * r, p + dir * r, Palette.c("undead", 0.18 * alpha), maxf(2.0, r * 0.22) + 4.0)
 	draw_line(p - dir * r, p + dir * r, col, maxf(2.0, r * 0.22))
 	draw_circle(p + dir * (r + 1.0), r * 0.3, Palette.c("undead_core", clampf(alpha, 0.0, 1.0)))
-
-
-## A living glyph: a bow arc with a hollow ring head at its tip, facing `dir`.
-func _living(p: Vector2, dir: Vector2, r: float, col: Color, core: Color) -> void:
-	var rr := r * 1.1
-	var c := p - dir * (r * 0.55)
-	var a0 := dir.angle() - 1.2
-	draw_arc(c, rr, a0, a0 + 2.4, 8, col, maxf(2.4, r * 0.26))
-	draw_arc(c + dir * rr, r * 0.45, 0.0, TAU, 10, core, 1.6)
 
 
 ## A big undead: nested diamonds (two) with a core dot, breathing on the Pulse.

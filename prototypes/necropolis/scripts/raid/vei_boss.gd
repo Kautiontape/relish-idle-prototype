@@ -704,4 +704,5 @@ func hud_info() -> Dictionary:
 		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
-		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint}
+		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,
+		"over": phase == Phase.OVER, "won": end_reason == "broken"}

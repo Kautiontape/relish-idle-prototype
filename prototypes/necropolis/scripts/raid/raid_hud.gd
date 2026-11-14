@@ -557,7 +557,11 @@ class BossBlock:
 			for i in n:
 				_pip(Vector2(col2 + 8.0 + 18.0 * i, y - 5.0), 6.0, pcol, i < st, false)
 			var x3 := _text(col2 + 8.0 + 18.0 * n + 4.0, y, "%d/%d" % [st, n], 15)
-			if _reset_t > 0.0:
+			if bool(info["won"]):
+				_text(x3 + 12.0, y, "SHE BREAKS", 15, "vei")
+			elif bool(info["over"]):
+				_text(x3 + 12.0, y, "the fight is lost", 13, "danger")
+			elif _reset_t > 0.0:
 				_text(x3 + 12.0, y, "streak lost", 13, "danger")
 			elif bool(info["winning"]):
 				_text(x3 + 12.0, y, "raise > ferry", 13, "undead")

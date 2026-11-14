@@ -1,6 +1,8 @@
 extends RefCounted
 ## Pure-logic tests for VeiFronts: front have/need, phase-1 streams, the break-beats rule,
-## backup order, the boss result and the boss-seed adapter. No scene tree, no autoloads.
+## backup order, the boss result and the boss-seed adapter; and for BossLogic, the boss scene's
+## maths (lane geometry, streams, anchors, beat bookkeeping, guards, weaves, the demo seed). No
+## scene tree, no autoloads.
 
 
 func _u(uid: String, stats: Dictionary, front := "", place := "party") -> Dictionary:
@@ -161,8 +163,12 @@ func run() -> int:
 	var near_miss := VeiFronts.phase1_start(mk.call(18.0, 20.0))
 	near_miss = VeiFronts.phase1_step(near_miss, 30.0, cfg)
 	t.ok(not bool(near_miss["fronts"][2]["cleared"]), "near miss front is stuck")
-	var tipped := VeiFronts.phase1_add_raise(near_miss, "carvers", [1.0, 1.0], cfg)
-	t.near(float(tipped["fronts"][2]["have"]), 18.0 + 2.0 * float(cfg["raise_have_per_mult"]), 0.0001, "raise adds per-mult have")
+	var per := float(cfg["raise_have_per_mult"])
+	var tip: Array = []   # enough mults of 1.0 to cover the gap of 2 at this tuning
+	for i in ceili(2.0 / per - 0.0001):
+		tip.append(1.0)
+	var tipped := VeiFronts.phase1_add_raise(near_miss, "carvers", tip, cfg)
+	t.near(float(tipped["fronts"][2]["have"]), 18.0 + tip.size() * per, 0.0001, "raise adds per-mult have")
 	t.near(float(near_miss["fronts"][2]["have"]), 18.0, 0.0001, "phase1_add_raise does not mutate its input")
 	tipped = VeiFronts.phase1_step(tipped, 30.0, cfg)
 	t.ok(bool(tipped["fronts"][2]["cleared"]), "a raise tips the near-miss front over")
@@ -249,4 +255,183 @@ func run() -> int:
 	t.ok(f["party_lost"] == ["a", "b"], "unknown and duplicate party uids dropped")
 	t.ok(Results.validate("boss", f).is_empty(), "filtered result validates")
 
+	_boss_logic(t, cfg)
 	return t.failures
+
+
+func _lanes(cfg: Dictionary) -> Array:
+	return BossLogic.lanes(Vector2(2000, 1150), 30.0, Vector2(1000, 230), cfg)
+
+
+func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
+	# --- lanes ---------------------------------------------------------------
+	t.suite("boss_lanes")
+	var court := Vector2(1000, 230)
+	var ln := _lanes(cfg)
+	t.ok(ln.size() == 4, "one lane per front")
+	var ids: Array = []
+	for l in ln:
+		ids.append(l["id"])
+	t.ok(ids == VeiFronts.FRONT_IDS, "lanes in FRONT_IDS order")
+	var south := true
+	var west_to_east := true
+	var at_court := true
+	for i in ln.size():
+		south = south and is_equal_approx((ln[i]["a"] as Vector2).y, 1150.0 - 30.0 - float(cfg["lanes"]["south_margin_px"]))
+		at_court = at_court and is_equal_approx((ln[i]["b"] as Vector2).distance_to(court), float(cfg["lanes"]["court_r_px"]))
+		if i > 0:
+			west_to_east = west_to_east and (ln[i]["a"] as Vector2).x > (ln[i - 1]["a"] as Vector2).x \
+				and (ln[i]["b"] as Vector2).x > (ln[i - 1]["b"] as Vector2).x
+	t.ok(south, "every lane starts on the same south line")
+	t.ok(at_court, "every lane ends court_r_px from Vei")
+	t.ok(west_to_east, "lanes run west to east at both ends")
+	t.ok((ln[0]["b"] as Vector2).y > court.y and (ln[3]["b"] as Vector2).y > court.y, "lanes end on her south side")
+	t.ok(BossLogic.point_at(ln[1], 0.0) == ln[1]["a"] and BossLogic.point_at(ln[1], 1.0) == ln[1]["b"], "point_at spans a..b")
+	t.near(BossLogic.lane_len(ln[1]), (ln[1]["a"] as Vector2).distance_to(ln[1]["b"]), 0.001, "lane_len")
+	t.near(BossLogic.lane_dir(ln[1]).length(), 1.0, 0.0001, "lane_dir is a unit vector")
+	t.ok(BossLogic.lanes(Vector2(2000, 1150), 30.0, court, {}).size() == 4, "lanes work with an empty cfg")
+
+	# --- streams and guard lines --------------------------------------------
+	t.suite("boss_streams")
+	var s0 := float(cfg["lanes"]["guard_s0"])
+	var s1 := float(cfg["lanes"]["guard_s1"])
+	t.near(BossLogic.contact_s(0.0, cfg), s0, 0.0001, "contact at progress 0 is guard_s0")
+	t.near(BossLogic.contact_s(1.0, cfg), s1, 0.0001, "contact at progress 1 is guard_s1")
+	t.near(BossLogic.contact_s(5.0, cfg), s1, 0.0001, "contact clamps above 1")
+	t.ok(BossLogic.contact_s(0.5, cfg) > s0 and BossLogic.contact_s(0.5, cfg) < s1, "progress pushes the guard line back")
+	t.ok(BossLogic.stream_count(0.0, cfg) == 0 and BossLogic.stream_count(-3.0, cfg) == 0, "no have, no stream")
+	t.ok(BossLogic.stream_count(0.1, cfg) == int(cfg["lanes"]["glyphs_min"]), "a little have shows glyphs_min")
+	t.ok(BossLogic.stream_count(1.0e6, cfg) == int(cfg["lanes"]["glyphs_max"]), "stream density is capped")
+	t.ok(BossLogic.stream_count(30.0, cfg) > BossLogic.stream_count(10.0, cfg), "stream density scales with have")
+	t.ok(BossLogic.guard_rows(0.0, cfg) == 1, "a guard line is at least one row")
+	t.ok(BossLogic.guard_rows(1.0e6, cfg) == int(cfg["lanes"]["rows_max"]), "guard rows are capped")
+	t.ok(BossLogic.guard_rows(50.0, cfg) > BossLogic.guard_rows(15.0, cfg), "guard thickness scales with need")
+	var ss := BossLogic.stream_s(10, 0.5, 600.0, 0.0)
+	t.ok(ss.size() == 10, "stream_s gives count glyphs")
+	var inside := true
+	for v in ss:
+		inside = inside and v >= 0.0 and v < 0.5
+	t.ok(inside, "every glyph sits on 0..s_end")
+	t.near(ss[1] - ss[0], 0.05, 0.0001, "glyphs are evenly spaced")
+	var sm := BossLogic.stream_s(10, 0.5, 600.0, 12.0)
+	t.near(sm[0] - ss[0], 12.0 / 600.0, 0.0001, "march moves the glyphs forward")
+	var wrap := BossLogic.stream_s(10, 0.5, 600.0, 30.0)
+	t.near(wrap[0], 0.0, 0.0001, "the march wraps a whole spacing")
+	t.ok(BossLogic.stream_s(0, 0.5, 600.0, 0.0).is_empty() and BossLogic.stream_s(4, 0.0, 600.0, 0.0).is_empty(), "nothing to draw is empty")
+
+	# --- nearest lane --------------------------------------------------------
+	t.suite("boss_nearest")
+	t.near(BossLogic.seg_dist(Vector2(5, 3), Vector2(0, 0), Vector2(10, 0)), 3.0, 0.0001, "seg_dist to the middle")
+	t.near(BossLogic.seg_dist(Vector2(-4, 3), Vector2(0, 0), Vector2(10, 0)), 5.0, 0.0001, "seg_dist past an end is to the end")
+	t.near(BossLogic.seg_t(Vector2(20, 0), Vector2(0, 0), Vector2(10, 0)), 1.0, 0.0, "seg_t clamps")
+	for i in 4:
+		var p := BossLogic.point_at(ln[i], 0.4) + BossLogic.lane_dir(ln[i]).orthogonal() * 30.0
+		t.ok(BossLogic.nearest_lane(p, ln) == i, "a circle beside lane %d feeds lane %d" % [i, i])
+	t.ok(BossLogic.nearest_lane(Vector2.ZERO, []) == -1, "no lanes: -1")
+
+	# --- anchors -------------------------------------------------------------
+	t.suite("boss_anchors")
+	var an := BossLogic.anchors(ln, cfg)
+	t.ok(an.size() == int(cfg["anchors"]["count"]), "anchors.count anchors")
+	var between := true
+	var ls := float(cfg["anchors"]["lane_s"])
+	for k in an.size():
+		var lx := BossLogic.point_at(ln[k], ls).x
+		var rx := BossLogic.point_at(ln[k + 1], ls).x
+		between = between and (an[k] as Vector2).x > lx and (an[k] as Vector2).x < rx
+	t.ok(between, "one anchor between each pair of lanes")
+	t.ok(BossLogic.anchors([], cfg).is_empty(), "no lanes, no anchors")
+	t.ok(BossLogic.anchors(ln, {"anchors": {"count": 5}}).size() == 5, "any count spreads along the lanes")
+
+	# --- beats ---------------------------------------------------------------
+	t.suite("boss_beats")
+	t.near(BossLogic.beat_of(3.428, 1.714), 2.0, 0.0001, "beat_of")
+	t.ok(BossLogic.beats_crossed(0.9, 1.1) == 1, "crossing a beat counts one")
+	t.ok(BossLogic.beats_crossed(-0.01, 0.0) == 1, "beat 0 counts")
+	t.ok(BossLogic.beats_crossed(1.2, 1.3) == 0, "inside a beat counts none")
+	t.ok(BossLogic.beats_crossed(0.5, 3.5) == 3, "a long step counts every beat")
+	t.ok(BossLogic.beats_crossed(2.0, 1.0) == 0, "going back counts none")
+	var t0 := BossLogic.align_t(0.25, 2.0)
+	t.near(t0, -1.5, 0.0001, "align_t: beat 0 on the next boundary")
+	t.ok(BossLogic.beats_crossed(BossLogic.beat_of(t0, 2.0), BossLogic.beat_of(t0 + 1.5, 2.0)) == 1, "beat 0 lands after the rest of the Pulse beat")
+	t.near(BossLogic.ferry_per_beat(2.0, 1.714, cfg), 2.0 * 1.714 * float(cfg["ferry_beat_scale"]), 0.0001, "ferry per beat = F * tempo * scale")
+	t.near(BossLogic.ferry_per_beat(-1.0, 1.714, cfg), 0.0, 0.0, "no negative ferry")
+	# the break on the beat clock: a raise of V every 4 beats against F per beat
+	var fpb := 1.0
+	var run := func(v: float, every: int, beats_n: int) -> Dictionary:
+		var st := VeiFronts.break_start()
+		var mx := 0
+		for b in beats_n:
+			st = VeiFronts.break_beat(st, v if b % every == 0 else 0.0, fpb, cfg)
+			mx = maxi(mx, int(st["streak"]))
+			if VeiFronts.broken(st, cfg):
+				return {"broken": true, "beat": b, "max": mx}
+		return {"broken": false, "beat": -1, "max": mx}
+	var strong: Dictionary = run.call(10.0, 4, 60)
+	t.ok(bool(strong["broken"]), "raises well above the ferry break her")
+	var weak: Dictionary = run.call(2.0, 4, 60)
+	t.ok(not bool(weak["broken"]) and int(weak["max"]) < int(cfg["break_beats"]), "raises that dip below the ferry between them never break her")
+	t.ok(not bool(run.call(0.0, 1, 60)["broken"]), "no raising, no break")
+
+	# --- horde, accruals, guards --------------------------------------------
+	t.suite("boss_horde")
+	t.near(BossLogic.horde_step(10.0, 3.0, 1.0), 7.0, 0.0001, "the ferry drains the horde")
+	t.near(BossLogic.horde_step(1.0, 3.0, 1.0), 0.0, 0.0, "the horde stops at 0")
+	t.near(BossLogic.backlog_spent(100.0, 40.0), 60.0, 0.0, "backlog spent = H0 - H")
+	t.near(BossLogic.backlog_spent(100.0, 140.0), 0.0, 0.0, "backlog spent is never negative")
+	var ac := BossLogic.accrue(0.6, 2.0, 0.5)
+	t.ok(int(ac["n"]) == 1, "accrue: whole events")
+	t.near(float(ac["acc"]), 0.6, 0.0001, "accrue: the fraction carries")
+	t.near(BossLogic.anchor_mote_rate(4.0, cfg), 4.0 * float(cfg["anchors"]["motes_per_ferry"]), 0.0001, "anchor motes scale with the ferry")
+	t.ok(BossLogic.anchor_mote_rate(8.0, cfg) > BossLogic.anchor_mote_rate(2.0, cfg), "the faster she ferries, the more essence")
+	var gnone := BossLogic.guard_spawn(0.0, 100.0, 0, 0, cfg)
+	t.ok(int(gnone["n"]) == 0, "no uncleared front, no guards")
+	var rate := float(cfg["guards"]["rate_per_uncleared"])
+	var g1 := BossLogic.guard_spawn(0.0, 2.0 / rate, 1, 0, cfg)
+	t.ok(int(g1["n"]) == 2, "one uncleared front sends rate_per_uncleared guards a second")
+	t.ok(int(BossLogic.guard_spawn(0.0, 2.0 / rate, 2, 0, cfg)["n"]) == 4, "two uncleared fronts send twice as many")
+	var cap := int(cfg["guards"]["cap"])
+	var gc := BossLogic.guard_spawn(0.0, 1000.0, 1, cap - 1, cfg)
+	t.ok(int(gc["n"]) == 1, "spawns stop at the cap")
+	t.ok(float(gc["acc"]) <= 1.0, "at the cap the lanes don't bank a flood")
+	t.ok(int(BossLogic.guard_spawn(0.5, 1000.0, 1, cap, cfg)["n"]) == 0, "full: none")
+
+	# --- weaves --------------------------------------------------------------
+	t.suite("boss_weaves")
+	var o := Vector2(1000, 230)
+	var e := BossLogic.ray_to_bounds(o, Vector2(1000, 600), Vector2(2000, 1150), 30.0)
+	t.ok(e.is_equal_approx(Vector2(1000, 1120)), "a weave runs on to the south wall")
+	var e2 := BossLogic.ray_to_bounds(o, Vector2(1500, 730), Vector2(2000, 1150), 30.0)
+	t.ok(is_equal_approx(e2.y, 1120.0) and e2.x > 1500.0, "a diagonal weave is clipped by the first wall")
+	var e3 := BossLogic.ray_to_bounds(o, Vector2(1900, 300), Vector2(2000, 1150), 30.0)
+	t.ok(is_equal_approx(e3.x, 1970.0), "an east weave stops at the east wall")
+	t.ok(BossLogic.ray_to_bounds(o, o, Vector2(2000, 1150), 30.0).is_equal_approx(Vector2(1000, 1120)), "a degenerate aim runs south")
+	t.ok(BossLogic.weave_hits(o, e, Vector2(1020, 700), 32.0), "on the thread: hit")
+	t.ok(not BossLogic.weave_hits(o, e, Vector2(1060, 700), 32.0), "stepped off the thread: missed")
+	t.ok(BossLogic.is_tell(3.5, 4.0, 1.0) and not BossLogic.is_tell(2.9, 4.0, 1.0) and not BossLogic.is_tell(4.0, 4.0, 1.0), "the tell shows one beat ahead")
+
+	# --- the seed and the demo ----------------------------------------------
+	t.suite("boss_seed")
+	var demo := BossLogic.demo_seed(cfg)
+	t.ok(Results.validate("boss_seed", demo).is_empty(), "the demo seed is a valid boss seed")
+	t.ok(BossLogic.seed_fronts_empty(demo), "the demo's fronts are economy's pre-E3 zeros")
+	t.ok(not BossLogic.seed_fronts_empty(_seed()), "a seed with have/need is used as is")
+	t.ok(BossLogic.seed_fronts_empty({}), "no fronts at all: compute them")
+	var dfr := VeiFronts.have_need(VeiFronts.info_from_boss_seed(demo), cfg)
+	t.ok(VeiFronts.fronts_met(dfr) == 3, "the demo meets 3 of 4 fronts with the default numbers")
+	t.ok(not bool(_by(dfr, "raw")["cleared"]), "the demo is short on raw")
+	demo["backlog"] = 1.0
+	t.ok(float(BossLogic.demo_seed(cfg)["backlog"]) > 1.0, "demo_seed is a copy")
+	var pl := BossLogic.party_lanes(BossLogic.demo_seed(cfg), cfg)
+	t.ok(int(pl["u1"]) == 2 and int(pl["u2"]) == 2, "assigned carvers lead the carvers lane")
+	t.ok(int(pl["u3"]) == 0 and int(pl["u4"]) == 0, "assigned giants lead the giants lane")
+	t.ok(int(pl["u5"]) == 1, "an unassigned member leads its highest stat's lane (presence: swarm)")
+	var ff := BossLogic.force_fronts(dfr, 2, cfg)
+	t.ok(VeiFronts.fronts_met(ff) == 2 and bool(ff[0]["cleared"]) and bool(ff[1]["cleared"]), "--boss-fronts=2: the first two met")
+	t.ok(float(ff[2]["have"]) <= float(ff[2]["need"]) * float(cfg["demo"]["force_unmet_frac"]) + 0.0001, "the rest short by force_unmet_frac")
+	t.ok(VeiFronts.fronts_met(BossLogic.force_fronts(dfr, 4, cfg)) == 4, "--boss-fronts=4: all met")
+	t.ok(VeiFronts.fronts_met(dfr) == 3, "force_fronts does not mutate its input")
+	t.ok(BossLogic.backups_left({"phylactery": 1, "clones": 0}, 1, 2) == 2, "backups left")
+	t.ok(BossLogic.backups_left({"phylactery": 3, "clones": 5}, 1, 2) == 0, "backups left never negative")
+	t.ok(BossLogic.rng_int("42") == 42 and BossLogic.rng_int("-3317425092215838120") == -3317425092215838120, "rng_int reads an int seed")
+	t.ok(BossLogic.rng_int("abc") == hash("abc"), "rng_int hashes anything else")
