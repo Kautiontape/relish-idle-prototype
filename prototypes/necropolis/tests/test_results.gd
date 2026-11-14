@@ -30,14 +30,14 @@ func _set_fort(s: GameState, id: String, living: float, dead: float, undead: flo
 
 ## Relish at the fort, a dungeon run open; returns the seed.
 func _begin(s: GameState, fid := "old-sluice") -> Dictionary:
-	s.legacy_teleport_relish(fid)
+	s.cmd_debug_set_state({"relish_at": fid})
 	var r := s.cmd_begin_dungeon(fid)
 	t.ok(r["ok"], "begin dungeon at %s" % fid)
 	return r["seed"]
 
 
 func _begin_boss(s: GameState) -> Dictionary:
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	var r := s.cmd_begin_boss()
 	t.ok(r["ok"], "begin boss")
 	return r["seed"]
@@ -284,16 +284,15 @@ func _from_v1() -> void:
 	t.suite("results-from-v1")
 	var s := _mk()
 	var sd := _begin(s)
-	var cfg := TestUtil.load_json("res://configs/raid.json")
-	# a v1 result as RaidLogic.Ledger produces it
-	var lg := RaidLogic.Ledger.new(20.0, 160.0)
-	lg.on_kill(30.0)
-	lg.on_raise(40, 21.0, 7, cfg)
-	lg.on_raise(75, 10.0, 7, cfg)
-	lg.on_raise(95, 30.0, 9, cfg)
-	var v1 := lg.result("old-sluice", false, cfg)
+	# a v1 result as the old RaidLogic.Ledger produced it (kills 30; raises at
+	# 40/75/95), hard-coded so no dungeon code stays alive for this test
+	var v1 := {
+		"aborted": false, "fort_id": "old-sluice", "garrison_mass": 17.21311475409836,
+		"good_mass": 32.786885245901644, "killed_living_mass": 30.0, "raised_chaff_mass": 0.0,
+		"raised_elites": 2, "raised_soldiers": 2, "relish_died": false,
+	}
 	var v2 := Results.from_v1("raid", v1, sd)
-	t.ok(Results.validate("raid", v2) == [], "a RaidLogic result converts to a valid v2 result: %s" % str(Results.validate("raid", v2)))
+	t.ok(Results.validate("raid", v2) == [], "a v1 result converts to a valid v2 result: %s" % str(Results.validate("raid", v2)))
 	t.ok(v2["v"] == 2 and v2["run_id"] == sd["run_id"] and v2["seed_rev"] == sd["seed_rev"], "run_id and seed_rev come from the seed")
 	t.ok(v2["fort_id"] == "old-sluice" and v2["killed_living_mass"] == v1["killed_living_mass"], "fort and kills carry over")
 	t.ok(v2["warden_beaten"] == false and v2["retreated"] == true and v2["relish_died"] == false, "a clean v1 exit is a retreat")
@@ -562,13 +561,17 @@ func _raid_writeback() -> void:
 	var fe := s.drain_events()
 	t.near(fe[1]["hold_s"], 300.0 * 1.5, 1e-9, "tier 2 holds 450 s")
 	t.ok(_types(fe) == ["loot_banked", "fort_flipped"], "an empty loot still emits loot_banked first")
-	# the first clear: a retreat spends first_clear too
+	# the first clear: only a win spends first_clear and first_dungeon (api-request #15)
 	s = _mk()
-	sd = _begin(s, "ashgate")
-	t.ok(sd["fort"]["first_clear"] == true, "ashgate was never cleared")
+	sd = _begin(s, "old-sluice")
+	t.ok(sd["fort"]["first_clear"] == true, "old-sluice was never cleared")
 	s.apply_result("raid", _raid_res(sd))
-	t.ok(s.view_fort("ashgate")["first_clear"] == false and s.first_dungeon_id == "", "any raid result clears first_clear and first_dungeon")
-	t.ok(s.view_fort("ashgate")["flipped_count"] == 0, "a retreat does not flip")
+	t.ok(s.view_fort("old-sluice")["first_clear"] == true and s.first_dungeon_id == "old-sluice", "a retreat leaves first_clear and first_dungeon")
+	t.ok(s.view_fort("old-sluice")["flipped_count"] == 0, "a retreat does not flip")
+	s = _mk()
+	sd = _begin(s, "old-sluice")
+	s.apply_result("raid", _raid_res(sd, {"warden_beaten": true, "retreated": false}))
+	t.ok(s.view_fort("old-sluice")["first_clear"] == false and s.first_dungeon_id == "", "a win clears first_clear and first_dungeon")
 	# the flip hold comes from realm.json
 	s = _mk()
 	s._cfgs["realm"]["flip"] = {"hold_s": 100.0, "tier_mult": 1.0, "haul_mult": 1.5}
@@ -766,7 +769,7 @@ func _parity() -> void:
 		var v1d := v1.duplicate()
 		v1d["relish_died"] = died
 		var a := _legacy_state(3)
-		a.legacy_teleport_relish("old-sluice")
+		a.cmd_debug_set_state({"relish_at": "old-sluice"})
 		_legacy_raid(a, v1d)
 		var b := _legacy_state(3)
 		var sd := _begin(b)
@@ -792,7 +795,7 @@ func _parity() -> void:
 	# a ready clone
 	var a2 := _legacy_state(4)
 	a2.clones_ready = 1
-	a2.legacy_teleport_relish("old-sluice")
+	a2.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var vd := v1.duplicate()
 	vd["relish_died"] = true
 	_legacy_raid(a2, vd)
@@ -810,7 +813,7 @@ func _parity() -> void:
 			var b3 := _legacy_state(5)
 			b3.clones_ready = vats
 			b3.cmd_debug_grant({"backlog": 2000.0})
-			a3.legacy_teleport_relish("vei")
+			a3.cmd_debug_set_state({"relish_at": "vei"})
 			_legacy_boss(a3, case)
 			var bsd := _begin_boss(b3)
 			var bv := Results.from_v1("boss", case, bsd)

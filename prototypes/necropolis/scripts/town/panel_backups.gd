@@ -78,12 +78,14 @@ func _say(text: String) -> void:
 
 # ------------------------------------------------------------------ death ----
 func _build_death() -> void:
-	_body.add_child(_wrap(_t("title"), 16, "text_dim"))
-	_outcome = _wrap("", 22)
+	_body.add_child(_wrap(_t("title"), int(_tx.get("title_px", 16)), "text_dim"))
+	_loses = _wrap("", int(_tx.get("loses_px", 22)))  # the stake is the headline
+	_body.add_child(_loses)
+	_outcome = _wrap("", int(_tx.get("outcome_px", 14)), "text_dim")  # the comfort line is its subtitle
 	_body.add_child(_outcome)
 	_wait = _wrap("", 14, "text_dim")
 	_body.add_child(_wait)
-	_body.add_child(_wrap(_t("ladder_header"), 12, "text_dim"))
+	_body.add_child(_wrap(_t("ladder_header"), int(_tx.get("ladder_header_px", 12)), "text_dim"))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
 	_body.add_child(row)
@@ -95,35 +97,29 @@ func _build_death() -> void:
 		box.add_child(l)
 		row.add_child(box)
 		_steps.append({"id": id, "box": box, "label": l})
-	_loses = _wrap("", 14)
-	_body.add_child(_loses)
 
 
 func _fill_death(bk: Dictionary) -> void:
 	var death: Dictionary = bk.get("death", {})
-	_outcome.text = BackupsModel.outcome_text(death, _tx)
+	var pending := BackupsModel.numbers_pending(death, _tx)  # the stub's outcome and wait are tagged "coming"
+	_outcome.text = BackupsModel.outcome_text(death, _tx, pending)
 	var left := float(bk.get("dead_s_left", 0.0))
 	_wait.text = String(_tx.get("dead_now", "")).format({"wait": BackupsModel.wait_text(left, _tx)}) if left > 0.0 else ""
 	_wait.visible = _wait.text != ""
 	var cur := String(death.get("outcome", ""))
-	if cur != _ladder_now:  # the theme overrides are the cost: only when the outcome moved
-		_ladder_now = cur
+	var key := "%s|%s" % [cur, pending]
+	if key != _ladder_now:  # the theme overrides are the cost: only when the outcome moved
+		_ladder_now = key
 		for s in _steps:
 			var now: bool = s["id"] == cur
 			var l: Label = s["label"]
 			l.text = "%s %s%s" % [_t("ladder_mark") if now else _t("ladder_off"), String(_tx.get("ladder", {}).get(s["id"], s["id"])),
-				"\n(%s)" % _t("ladder_now") if now else ""]
+				"\n(%s)" % BackupsModel.ladder_now_text(_tx, pending) if now else ""]
 			l.add_theme_color_override("font_color", Palette.c("text" if now else "text_dim"))
 			s["box"].add_theme_stylebox_override("panel", TownUI.button_box_cached("active" if now else "normal"))
 	var town: Dictionary = _views.get("town", {})
 	var lots := CryptLogic.lot_labels(town.get("buildings", []), _labels())
-	var items: Array = []
-	for id in death.get("loses", []):
-		if String(id) == "party":
-			items.append(BackupsModel.party_text(_views.get("party", {}).get("party", []), lots, _views.get("fort_names", {}), _vcfg.get("crypt", {}), _tx))
-		else:
-			items.append(BackupsModel.loses_text(String(id), _tx))
-	_loses.text = "%s: %s." % [_t("loses_header"), ", ".join(items) if not items.is_empty() else _t("loses_none")]
+	_loses.text = BackupsModel.loses_line(death.get("loses", []), _views.get("party", {}).get("party", []), lots, _views.get("fort_names", {}), _vcfg.get("crypt", {}), _tx, ConfigDb.data.get("town", {}).get("slab", {}))
 
 
 func _labels() -> Dictionary:

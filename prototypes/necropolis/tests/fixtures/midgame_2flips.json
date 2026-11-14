@@ -110,20 +110,20 @@
 	},
 	"ledger": {
 		"sinks": {
-			"burned": 1147.72392100546,
-			"cleared": 1480.89230207827,
-			"dungeon": 1.7996655948553,
+			"burned": 895.388102915752,
+			"cleared": 1583.56267822064,
+			"dungeon": 3.0,
 			"haul_overflow": 0.0,
-			"milled": 765.149280670477,
+			"milled": 596.925401943972,
 			"pool_overflow": 0.0,
-			"rot_loss": 2200.36788688736,
+			"rot_loss": 2200.42973716437,
 			"rot_overflow": 0.0,
 			"store_overflow": 0.0,
 			"vei_fight": 0.0
 		},
 		"sources": {
-			"debug": -12788.7211789755,
-			"mint": 37985.7913680496,
+			"debug": -11025.6290371685,
+			"mint": 35964.7048233306,
 			"opening": 3163.5
 		}
 	},
@@ -131,11 +131,11 @@
 	"next_uid": 10,
 	"party": [],
 	"readout": {
-		"diff_ema": 6.28486569826376,
-		"q_raise_ema": 50.4976732671525
+		"diff_ema": 4.35438563597304,
+		"q_raise_ema": 50.6098590964342
 	},
 	"realm": {
-		"cleared_total": 1480.89230207827,
+		"cleared_total": 1583.56267822064,
 		"cov": {
 			"r_out": 11.6333333333333,
 			"undead": 0.0
@@ -149,40 +149,40 @@
 				"held_s": 374.5,
 				"id": "ashgate",
 				"living": 0.0,
-				"r_dead_out": 0.0,
-				"r_drain": 1.74613372259684,
+				"r_dead_out": 0.00000000000000488,
+				"r_drain": 1.39943233241856,
 				"r_in": 1.84922865549066,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 28.2291618486489
+				"undead": 23.4357590507737
 			},
 			{
 				"clears_since_retaken": 1,
-				"dead": 0.0,
+				"dead": 63.4174301073796,
 				"flipped_count": 1,
 				"held_s": 374.5,
 				"id": "old-sluice",
 				"living": 0.0,
-				"r_dead_out": 0.0,
-				"r_drain": 1.13862960918809,
+				"r_dead_out": 0.00000000000000144,
+				"r_drain": 0.654481546200449,
 				"r_in": 1.25754327877039,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 18.4078453485408
+				"undead": 11.0580373872914
 			},
 			{
 				"clears_since_retaken": 0,
-				"dead": 0.115524115755627,
+				"dead": 0.0,
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "greywall",
-				"living": 0.115755627009646,
-				"r_dead_out": 0.00053181363760872,
-				"r_drain": 1.35628909904332,
+				"living": 76.4979275214992,
+				"r_dead_out": 0.351083578228711,
+				"r_drain": 0.750425810785251,
 				"r_in": 1.43656778639105,
 				"r_raised": 0.0,
 				"r_shipped": 0.231511254019293,
-				"undead": 21.926673767867
+				"undead": 12.5904426290506
 			},
 			{
 				"clears_since_retaken": 0,
@@ -190,13 +190,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "vespers",
-				"living": 159.982010647191,
-				"r_dead_out": 0.735024631351816,
-				"r_drain": 0.0108183620447371,
+				"living": 159.995352052476,
+				"r_dead_out": 0.73431022000333,
+				"r_drain": 0.0112953261329694,
 				"r_in": 0.854564844705928,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 0.174896853056583
+				"undead": 0.215359063111629
 			},
 			{
 				"clears_since_retaken": 0,
@@ -204,13 +204,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "chime-fort",
-				"living": 149.985772784983,
-				"r_dead_out": 0.68909296223401,
-				"r_drain": 0.00325159441750358,
+				"living": 149.998883573075,
+				"r_dead_out": 0.688428082273049,
+				"r_drain": 0.00296678909876638,
 				"r_in": 0.74264337253737,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 0.0525674430829745
+				"undead": 0.0621945506052608
 			},
 			{
 				"clears_since_retaken": 0,
@@ -218,13 +218,13 @@
 				"flipped_count": 0,
 				"held_s": 0.0,
 				"id": "lantern-keep",
-				"living": 169.98269040648,
-				"r_dead_out": 0.780968711667961,
-				"r_drain": 0.00678175289849283,
+				"living": 169.997278215104,
+				"r_dead_out": 0.78021298769145,
+				"r_drain": 0.00678791257336776,
 				"r_in": 0.867957136080334,
 				"r_raised": 0.0,
 				"r_shipped": 0.0,
-				"undead": 0.109638338525634
+				"undead": 0.133269741399803
 			},
 			{
 				"clears_since_retaken": 0,
@@ -237,7 +237,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.516042833301316,
 				"r_raised": 0.0,
-				"r_shipped": 0.00464438549965962,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			},
 			{
@@ -251,7 +251,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.573969050606863,
 				"r_raised": 0.0,
-				"r_shipped": 0.00516572145545524,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			},
 			{
@@ -265,7 +265,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.442583500057863,
 				"r_raised": 0.0,
-				"r_shipped": 0.00398325150047185,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			},
 			{
@@ -279,7 +279,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.383836362289389,
 				"r_raised": 0.0,
-				"r_shipped": 0.00345452726060103,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			},
 			{
@@ -293,7 +293,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.431870566466202,
 				"r_raised": 0.0,
-				"r_shipped": 0.0038868350982284,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			},
 			{
@@ -307,7 +307,7 @@
 				"r_drain": 0.0,
 				"r_in": 0.356525946635972,
 				"r_raised": 0.0,
-				"r_shipped": 0.0032087335197275,
+				"r_shipped": 0.0,
 				"undead": 0.0
 			}
 		],
@@ -326,12 +326,12 @@
 			"wave": {}
 		},
 		"vei": {
-			"dead_queue": 14465.4670187193,
-			"living_pool": 599.872072645823,
-			"r_converted": 0.668307437391377,
-			"r_in_dead": 4.910446378249,
-			"r_in_undead": 6.18190414018898,
-			"r_shipped": 0.255854708353436,
+			"dead_queue": 14413.8901386158,
+			"living_pool": 600.0,
+			"r_converted": 0.231511254019324,
+			"r_in_dead": 5.25886312755415,
+			"r_in_undead": 4.74538971720936,
+			"r_shipped": 0.231511254019293,
 			"undead_queue": 4000.0
 		}
 	},
@@ -356,13 +356,13 @@
 	"stats": {
 		"deaths": 0,
 		"raids": 2,
-		"raised_total": 4.82675241157556,
+		"raised_total": 5.92604501607717,
 		"sims_built": 0
 	},
 	"t": 3600.5,
 	"town": {
-		"bodies": 2.57244319399785,
-		"bone": 412.574640335251,
+		"bodies": 1.97779340836013,
+		"bone": 328.462700971996,
 		"buildings": [
 			{
 				"build_level": 1,
@@ -445,9 +445,9 @@
 				{
 					"crew": 3.0,
 					"fort": "greywall",
-					"load": 5.08306109324759,
-					"phase": "back",
-					"t": 0.0315278046583857,
+					"load": 0.0,
+					"phase": "out",
+					"t": 0.221083255518792,
 					"trip_s": 2.26159144810268
 				}
 			],
@@ -487,7 +487,7 @@
 				"in": 0.3,
 				"out": 0.14
 			},
-			"haul_trip": 0.874430857597487,
+			"haul_trip": 1.22987003914274,
 			"living": {
 				"in": 0.0,
 				"out": 0.0
@@ -506,7 +506,7 @@
 		},
 		"shock": 0.0,
 		"tier": "village",
-		"work_pending": 2.56,
+		"work_pending": 0.0,
 		"workers": 19.0
 	},
 	"v": 2,
@@ -537,7 +537,7 @@
 		},
 		{
 			"id": "saltcreek",
-			"owner": "none"
+			"owner": "vei"
 		},
 		{
 			"id": "moth-hollow",

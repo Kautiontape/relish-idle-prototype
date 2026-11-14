@@ -22,8 +22,9 @@ extends RefCounted
 ##   milled         milled bodies (bone is not mass)
 ##   vei_fight      the backlog a lost Vei fight destroys
 ##   dungeon        what a raid writeback lost
-##   pool_overflow  Vei's pool overflow; always 0 (her take is limited to the pool's headroom)
-##   store_overflow store caps (IDLE §6); 0 until E2b
+##   pool_overflow  the march-back past Vei's pool cap (living above a fort's cap marching home); she
+##                  then converts only into the headroom left
+##   store_overflow store caps (IDLE §6); 0 until the store caps (E2b T3.2)
 ## Held: every pool of mass, see held().
 ## Internal transfers book nothing: the valve split, WORK into workers, muster into WAR, haul pickups,
 ## combat, drain, Vei's conversion (dead and undead to living) and shipping, surges, the redirect,

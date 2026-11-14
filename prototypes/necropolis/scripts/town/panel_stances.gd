@@ -149,12 +149,9 @@ func _update_row(r: Dictionary, s: Dictionary, units: Dictionary) -> void:
 	toggle.set_pressed_no_signal(on)
 	toggle.text = "On" if on else "Off"
 	toggle.add_theme_stylebox_override("normal", TownUI.button_box_cached("active" if on else "normal"))
-	var chips: Array = [_t("chip_on") if on else _t("chip_off")]
-	if bool(s.get("suspended", false)):
-		chips.append(_t("chip_suspended"))
-	if bool(s.get("active", false)):
-		chips.append(_t("chip_active"))
+	var chips := TownBehaviour.stance_chips(s, _vcfg.get("behaviour", {}))  # the toggle already says On / Off
 	(r["chips"] as Label).text = " · ".join(chips)
+	(r["chips"] as Label).visible = not chips.is_empty()
 	var hold := float(s.get("hold_s_left", 0.0))
 	(r["hold"] as Label).visible = hold > 0.0
 	(r["hold"] as Label).text = _t("hold").format({"s": ceili(hold)})

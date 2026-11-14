@@ -35,6 +35,7 @@ var _views := {}
 var _vcfg: Dictionary = {}
 var _bview: Dictionary = {}
 var _bcfg: Dictionary = {}
+var _slab: Dictionary = {}  # town.json slab (the big undead's display names)
 var _st := {}
 var _ctx := {}
 
@@ -93,6 +94,7 @@ func _ready() -> void:
 	_vcfg = ConfigDb.v("town", "view", {})
 	_bview = ConfigDb.data.get("buildings_view", {})
 	_bcfg = ConfigDb.data.get("buildings", {})
+	_slab = ConfigDb.data.get("town", {}).get("slab", {})
 	_q = TownStandins.BuildQueue.new(int(_vcfg.get("queue_max", 8)), _vcfg.get("cap_buildings", {}))
 	_tp = BuildSort.Throughput.new(float(_vcfg.get("queue_text", {}).get("throughput_smooth_s", 10.0)))
 	_style_row = TownUI.panel_box()
@@ -186,7 +188,7 @@ func _build_banner() -> void:
 # ------------------------------------------------------------------ bind ----
 func bind(views: Dictionary) -> void:
 	_views = views
-	_st = BuildSort.stocks(views)
+	_st = BuildSort.stocks(views, _slab)
 	_ctx = BuildSort.queue_context(views, _bcfg, _vcfg)
 	if TownStandins.queue_is_standin(views.get("town", {})):
 		_seed_queue()

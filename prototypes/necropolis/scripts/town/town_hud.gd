@@ -43,6 +43,7 @@ var _morale_bar: CapBar
 var _morale_line: Label
 var _stuck: Label
 var _return: Button
+var _next_lit := false
 
 
 func _ready() -> void:
@@ -76,7 +77,7 @@ func _ready() -> void:
 	_stuck = _clip(TownUI.label("", 13, "text"))
 	_stuck.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default: the tooltip needs it
 	foot.add_child(_stuck)
-	_next = TownUI.label("", 13, "text_dim")
+	_next = TownUI.label("", maxi(int(_hcfg.get("next_px", 13)), TownUI.MIN_TEXT), "text_dim")
 	_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	foot.add_child(_next)
 
@@ -166,6 +167,20 @@ func _make_tier() -> Control:
 	return col
 
 
+## While the relic wall shows, the one Return button is the way to act on it: a thick border in the wall's ink
+## (a shape change, and the line's own text points at it). Both boxes are built once and swapped.
+func _mark_return(on: bool) -> void:
+	if not on:
+		TownUI.style_button(_return)
+		return
+	var ink := Palette.c(String(_hcfg.get("relic_ink", "danger")))
+	for st in ["normal", "hover"]:
+		var sb := TownUI.button_box(st)
+		sb.border_color = ink
+		sb.set_border_width_all(int(_hcfg.get("relic_border_px", 3)))
+		_return.add_theme_stylebox_override(st, sb)
+
+
 func set_return_enabled(on: bool) -> void:
 	_return.disabled = not on
 
@@ -181,7 +196,13 @@ func bind(views: Dictionary) -> void:
 		_bind_cell(String(id), _cells[id], town, hud, rates.get(id, {}), views)
 	_bind_morale(town)
 	_tier.text = String(town.get("tier", "")).capitalize()
-	_next.text = HudModel.next_tier_line(String(town.get("tier", "")), town.get("next_tier", {}), _hcfg, _bview)
+	var nl := HudModel.next_line(views, _hcfg, _bview)
+	_next.text = String(nl["text"])
+	var lit: bool = nl["relics"]  # the relic wall: a lit colour, words not colour alone, and a way out
+	if lit != _next_lit:  # a theme override is a relayout: only when the line flips
+		_next_lit = lit
+		_next.add_theme_color_override("font_color", Palette.c(String(_hcfg.get("relic_ink", "danger")) if lit else "text_dim"))
+		_mark_return(lit)
 	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg, _tab)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
 	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream

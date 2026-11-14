@@ -96,6 +96,11 @@ func run() -> int:
 	_kept_reason(mid)
 	_ladder_preview(day1)
 	_relic_gate(mid)
+	_td1_relics(mid)
+	_td1_wall_line(day1, mid)
+	_td1_names(mid)
+	_td1_placeholders(day1, mid, pre)
+	_td2(day1, mid)
 	_queue_eta(day1)
 	_stance_trade(mid)
 	_full_staffing_label()
@@ -1732,7 +1737,7 @@ func _build_queue(day1: Dictionary) -> void:
 	var real_q: Array = [{"building_id": "inn", "lot_id": "lot-06"}]
 	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
 		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")
-	t.ok(String(vcfg["queue_text"].get("no_commands", "")) == "queue commands arrive with E2b", "queue: the add path says commands arrive with E2b once the view has a queue")
+	t.ok(String(vcfg["queue_text"].get("no_commands", "")) == "queue commands: coming", "queue: the add path says queue commands are coming once the view has a queue")
 	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
 	var ctx := _qctx()
 	var r := q.add(_entry("house", "lot-05"), ctx)
@@ -3378,20 +3383,31 @@ func _hud_idle(day1: Dictionary) -> void:
 ## The workers cell's "→ steady" says why the town keeps fewer than its raw steady state.
 func _kept_reason(mid: Dictionary) -> void:
 	var h: Dictionary = vcfg["hud"]
-	var town: Dictionary = mid["town"]
 	var cap := float(cfg["economy"]["worker"]["idle_cap"])
-	var kept := HudModel.kept(town, mid["hud"])
+	# the stand-in path: the view has no steady_kept (economy before E2b-1), so TownStandins gives the reason
+	var town: Dictionary = (mid["town"] as Dictionary).duplicate(true)
+	(town["workers"] as Dictionary).erase("steady_kept")
+	(town["workers"] as Dictionary).erase("muster_steady")
+	var hud: Dictionary = (mid["hud"] as Dictionary).duplicate(true)
+	hud.erase("workers_steady_kept")
+	var kept := HudModel.kept(town, hud)
 	var in_slots := 0.0
 	for j in town["jobs"]:
 		in_slots += float(j["staffed"])
-	var r := HudModel.kept_reason(town, mid["hud"], float(town["workers"]["steady"]), kept, cap, h)
+	var r := HudModel.kept_reason(town, hud, float(town["workers"]["steady"]), kept, cap, h)
 	t.ok(kept < float(town["workers"]["steady"]) and r == "kept: %d slots + %d idle cap" % [roundi(in_slots), roundi(cap)],
-		"kept reason: midgame keeps %d of steady %.1f: '%s'" % [roundi(kept), float(town["workers"]["steady"]), r])
-	t.ok(HudModel.kept_reason(town, mid["hud"], kept, kept, cap, h) == "", "kept reason: none when kept is the steady state")
-	t.ok(TownStandins.kept_inputs(town, mid["hud"], cap) == {"slots": roundi(in_slots), "cap": roundi(cap)}, "kept reason: its inputs are the stand-in's (TownStandins)")
+		"kept reason (stand-in path): keeps %d of steady %.1f: '%s'" % [roundi(kept), float(town["workers"]["steady"]), r])
+	t.ok(HudModel.kept_reason(town, hud, kept, kept, cap, h) == "", "kept reason: none when kept is the steady state")
+	t.ok(TownStandins.kept_inputs(town, hud, cap) == {"slots": roundi(in_slots), "cap": roundi(cap)}, "kept reason (stand-in path): its inputs are the stand-in's (TownStandins)")
+	# the real path: the view carries steady_kept (and muster_steady), so the stand-in switches itself off
 	var real: Dictionary = town.duplicate(true)
 	real["workers"]["steady_kept"] = kept
-	t.ok(HudModel.kept_reason(real, mid["hud"], float(town["workers"]["steady"]), kept, cap, h) == "", "kept reason: the view's own kept value (api-request #12) switches the stand-in reason off")
+	real["workers"]["muster_steady"] = 1.2
+	real["workers"]["muster"] = 0.0
+	t.ok(TownStandins.kept_inputs(real, hud, cap).is_empty(), "kept reason (real path): the stand-in's inputs are off once the view has steady_kept")
+	t.ok(HudModel.kept(real, hud) == kept, "kept reason (real path): the view's own kept value is what the HUD reads")
+	t.ok(HudModel.kept_reason(real, hud, float(town["workers"]["steady"]), kept, cap, h) == "", "kept reason (real path): the view's own kept value (api-request #12) switches the stand-in reason off")
+	t.ok(HudModel.surplus_rate(real, float(town["workers"]["steady"]), kept, h) >= 1.2 - 1e-6, "kept reason (real path): muster_steady is the surplus to WAR")
 
 
 ## The ladder preview: hands per job for a move, from the staffing projection (the stand-in until
@@ -3463,24 +3479,27 @@ func _relic_gate(mid: Dictionary) -> void:
 	for m in miss:
 		sum += int(bc[m]["cost"]["relics"])
 	var g := BuildSort.relic_gate(mid, items, st, bv, vcfg)
-	var want := "Gated by relics: %s need %d relics (you have %d). Relics come from dungeons." % [
-		" and ".join(miss.map(func(m): return BuildSort.label_of(String(m), bv))), sum, int(st["relics"])]
+	var want := "Gated by relics: %s. You have %d. Relics come from dungeons." % [
+		" · ".join(miss.map(func(m): return "%s %d%s" % [BuildSort.label_of(String(m), bv), int(bc[m]["cost"]["relics"]), ""])), int(st["relics"])]
+	want = want.replace("Walls and Gate 2", "Walls and Gate 2 ✓")  # 3 held: Walls is affordable, the Chapel then is not
 	t.ok(sum > int(st["relics"]) and g.get("ids", []) == miss and g.get("text", "") == want,
 		"relic gate: midgame's %s need %d relics, %d held: '%s'" % [str(miss), sum, int(st["relics"]), g.get("text", "")])
 	var rich: Dictionary = mid.duplicate(true)
 	rich["hud"]["relics"] = sum
+	rich["inventory"]["relics"] = sum
 	t.ok(BuildSort.relic_gate(rich, items, BuildSort.stocks(rich), bv, vcfg).is_empty(), "relic gate: enough relics for the whole tier set, no pin")
 	var one: Dictionary = mid.duplicate(true)
 	one["town"]["next_tier"]["missing"] = ["walls"]
 	one["hud"]["relics"] = 0
+	one["inventory"]["relics"] = 0
 	var g1 := BuildSort.relic_gate(one, BuildSort.sort_rows(one["catalog"]["buildings"], BuildSort.needs(one, {}, vcfg, bv, bc), bv, vcfg), BuildSort.stocks(one), bv, vcfg)
-	t.ok(String(g1.get("text", "")).begins_with("Gated by relics: Walls and Gate needs 2 relics (you have 0)."), "relic gate: one building 'needs' (%s)" % g1.get("text", ""))
+	t.ok(String(g1.get("text", "")).begins_with("Gated by relics: Walls and Gate 2. You have 0."), "relic gate: one building, its own cost, no mark (%s)" % g1.get("text", ""))
 	var placed: Dictionary = one.duplicate(true)
 	placed["town"]["buildings"].append({"lot_id": "lot-23", "building_id": "walls", "level": 0, "state": "constructing", "progress": 0.1})
 	t.ok(BuildSort.relic_gate(placed, [], BuildSort.stocks(placed), bv, vcfg).is_empty(), "relic gate: a missing building already placed is not asked for")
 	var top := [{"row": {"building_id": "forge", "cost": {"gold": 0.0, "bone": 0.0, "relics": 1}}, "need": "idle_hands", "rank": 0}]
 	var g2 := BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 0.0}, bv, vcfg)
-	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Gated by relics: Forge needs 1 relic (you have 0)."),
+	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Gated by relics: Forge 1. You have 0."),
 		"relic gate: the top need-serving row blocked by relics pins too (%s)" % g2.get("text", ""))
 	t.ok(BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 1.0}, bv, vcfg).is_empty(), "relic gate: a top row it can pay for, no pin")
 	t.ok(String(vcfg["relic_gate"]["button"]) == "To the realm", "relic gate: the pinned row's button says To the realm")
@@ -3618,7 +3637,7 @@ func _stance_trade(mid: Dictionary) -> void:
 	for id in GameState.STANCE_IDS:
 		var line := HudModel.parts_text(TownBehaviour.stance_trade(String(id), mid, before, proj.call(mid, TownBehaviour.stance_job(String(id), town, vcfg)), vcfg))
 		t.ok(line.begins_with("Now: ") and not line.contains("{") and vcfg["stance_trade"].has(id), "stance trade: %s has a line: %s" % [id, line])
-	t.ok(String(vcfg["behaviour"]["no_projection"]) == "projected rates arrive with E3", "stance trade: rates still wait for E3, and say so")
+	t.ok(String(vcfg["behaviour"]["no_projection"]) == "projected rates: coming", "stance trade: rates still wait, and say so in player words")
 
 
 ## A stand-in rate of a building with job slots says "at full staffing"; projected rates say "now".
@@ -3704,8 +3723,8 @@ func _backups(day1: Dictionary, pre: Dictionary) -> void:
 	var idle_now: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"])
 	var idle_on: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"], {0: true})
 	var idle_diff := TownBehaviour.staffing_diff(idle_now["jobs"], idle_on["jobs"])
-	t.ok(idle_diff.is_empty() and BackupsModel.staffing_cost_text(idle_diff, vcfg["job_labels"], tx) == "staffing takes no hand from a job",
-		"backups: with 10 idle hands an unstaffed vat takes no hand from a job (%s)" % str(idle_diff))
+	t.ok(idle_diff.is_empty() and BackupsModel.staffing_cost_text(idle_diff, vcfg["job_labels"], tx, false, 10.0) == "10 idle hands: staffing costs nothing today",
+		"backups: with 10 idle hands an unstaffed vat takes no hand from a job, and says so (%s)" % str(idle_diff))
 	t.near(float(idle_now["idle"]), 10.0, 0.001, "backups: idle is the hands left over, not counted twice (now %s)" % str(idle_now["idle"]))
 	t.near(float(idle_on["idle"]), 9.0, 0.001, "backups: staffing a vat from idle leaves 9 (%s)" % str(idle_on["idle"]))
 	# the stand-in with nothing taken is unchanged
@@ -3819,6 +3838,7 @@ func _up_world(day1: Dictionary, level: int, state: String, gold := 1000.0, bone
 	v["town"]["living_cap"] = 10.0
 	v["town"]["living"] = 10.0  # the housing need is live
 	v["hud"]["relics"] = 9
+	v["inventory"]["relics"] = 9
 	var rows: Array = []
 	for bid in ["well", "house"]:
 		var r := _row(bid, true, "", [lot_new])
@@ -4153,6 +4173,7 @@ func _fix3a_upgrades(day1: Dictionary) -> void:
 	rc["house"]["level_costs"][0]["relics"] = 1
 	v = _up_world(day1, 1, "active")
 	v["hud"]["relics"] = 0
+	v["inventory"]["relics"] = 0
 	ups = BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, rc), bv, rc, vcfg)
 	t.ok(ups.size() == 1 and ups[0]["cls"] == BuildSort.CLS_NEED_SHORT and ups[0]["row"]["reason"] == "no_relics", "up gaps: an upgrade short of relics is CLS_NEED_SHORT with no_relics")
 	s = _up_suggest(v, rc)
@@ -4367,6 +4388,12 @@ func _walk_math() -> void:
 	t.near(TownSetPiece.badge_alpha(false, 5.0, 0.5, false), 1.0, 1e-9, "badge: then holds")
 	t.near(TownSetPiece.badge_alpha(false, 0.0, 0.5, true), 1.0, 1e-9, "badge, reduced motion: whole at once")
 	t.near(TownSetPiece.badge_alpha(true, 0.0, 0.5, true), 0.0, 1e-9, "badge, reduced motion: still not before it arrives")
+	t.ok(TownSetPiece.badge_shown("town:lot-04", "lot-04", "market"), "badge: a foreman placed at its building wears it")
+	t.ok(not TownSetPiece.badge_shown("crypt", "lot-01", "crypt") and not TownSetPiece.badge_shown("crypt", "lot-04", "market"), "badge: none for a big undead resting in the crypt")
+	t.ok(not TownSetPiece.badge_shown("party", "lot-04", "market") and not TownSetPiece.badge_shown("fort:ashgate", "lot-04", "market"), "badge: none in the party or at a fort")
+	t.ok(not TownSetPiece.badge_shown("town:lot-01", "lot-01", "crypt") and not TownSetPiece.badge_shown("town:lot-02", "lot-04", "market"), "badge: none on the crypt lot, none on a lot that is not his place")
+	t.ok(TownSetPiece.badge_offset(Vector2(0, -1), 10.0, 14.0, 3.0).y == 15.0 and TownSetPiece.badge_offset(Vector2(0, 1), 10.0, 14.0, 3.0).y == -15.0
+		and TownSetPiece.badge_offset(Vector2(1, 0), 10.0, 14.0, 3.0) == Vector2.ZERO, "badge: pushed off the street the foreman faces, level on a side front")
 	# which big undead start a walk: a place that changes to town:<lot>, never the baseline
 	var e := func(uid: String, place: String) -> Dictionary: return {"uid": uid, "name": "N" + uid, "place": place}
 	var first := TownSetPiece.transitions({}, [e.call("a", "town:lot-1"), e.call("b", "crypt")], false)
@@ -4995,3 +5022,386 @@ func _live_sigs(v: Dictionary) -> Dictionary:
 		out["row:" + bid] = BuildSort.row_sig(it, [sug, String(tab["sug"].get("chip", "suggested")) if sug and bool(tab["sug"].get("upgrade", false)) else "",
 			false, false, false, target])
 	return out
+
+
+# ------------------------------------------------------------------- T-d1 ----
+## A world like midgame_2flips, but with `n` relics held in every view that carries them. With `consistent`
+## the catalog is re-derived the way the sim would (a row whose relic cost is over `n` can't be built:
+## no_relics); without it the catalog is left stale, so only the relic count says the row is blocked.
+func _with_relics(mid: Dictionary, n: int, consistent: bool) -> Dictionary:
+	var v: Dictionary = mid.duplicate(true)
+	v["hud"]["relics"] = n
+	v["inventory"]["relics"] = n
+	if consistent:
+		for r in v["catalog"]["buildings"]:
+			if int(r["cost"]["relics"]) > n and bool(r["can_build"]):
+				r["can_build"] = false
+				r["reason"] = "no_relics"
+	return v
+
+
+## No gold or bone and no flow of either: nothing can be afforded, upgraded or saved for.
+func _dry(v: Dictionary) -> void:
+	v["town"]["gold"] = 0.0
+	v["town"]["bone"] = 0.0
+	for r in v["hud"]["rates"]:
+		r["rate"] = 0.0
+	for r in v["catalog"]["buildings"]:
+		if int(r["cost"]["relics"]) == 0 and bool(r["can_build"]):
+			r["can_build"] = false
+			r["reason"] = "no_gold"
+
+
+## The label of the first job building (new or an upgrade) the tab would offer that costs no relics.
+func _first_free_job(tab: Dictionary, bc: Dictionary, bv: Dictionary) -> String:
+	for it in BuildSort.candidates(tab["items"], tab["ups"], tab["reserved"]):
+		var r: Dictionary = it["row"]
+		if bool(r["can_build"]) and not (r["lots"] as Array).is_empty() and int(r["cost"]["relics"]) == 0 and BuildSort.job_slots(String(r["building_id"]), bc) > 0:
+			return BuildSort.label_of(String(r["building_id"]), bv)
+	return ""
+
+
+func _sug_of(v: Dictionary) -> Dictionary:
+	return BuildSort.tab_suggestion(v, cfg["buildings_view"], cfg["buildings"], vcfg)["sug"]
+
+
+func _td1_relics(mid: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	# the budget: the next tier's missing buildings in order, each paid from what is left
+	var m3 := _with_relics(mid, 3, true)
+	var marks: Array = BuildSort.gate_marks(m3)
+	t.ok(marks.size() == 2 and marks[0] == {"id": "walls", "cost": 2, "ok": true} and marks[1] == {"id": "chapel_of_vats", "cost": 2, "ok": false},
+		"relic budget: with 3 relics Walls (2) is affordable and then the Chapel (2) is not (%s)" % str(marks))
+	t.ok(BuildSort.gate_marks(_with_relics(mid, 4, true)).all(func(m): return m["ok"]), "relic budget: 4 relics pay both")
+	t.ok(BuildSort.gate_marks(_with_relics(mid, 0, true)).all(func(m): return not m["ok"]), "relic budget: no relics pay neither")
+	t.ok(BuildSort.held_relics(m3) == 3, "relics held come from view_inventory (3)")
+	var inv_only: Dictionary = m3.duplicate(true)
+	inv_only["hud"]["relics"] = 9
+	t.ok(BuildSort.held_relics(inv_only) == 3 and BuildSort.stocks(inv_only)["relics"] == 3.0, "relics held: the inventory wins over the hud copy")
+
+	# the suggestion on midgame (3 relics): Walls stays (it is affordable); the Chapel is not a pick, the idle line skips it
+	var tab3 := BuildSort.tab_suggestion(m3, bv, bc, vcfg)
+	t.ok(String(tab3["sug"].get("building_id", "")) == "walls", "relics 3: the tag stays on Walls, which the relics pay for (%s)" % str(tab3["sug"]))
+	var idle3 := HudModel.parts_text(HudModel.idle_parts(m3, vcfg, bv, bc, tab3))
+	t.ok(not idle3.contains("Chapel") and idle3.begins_with("10 idle: "), "relics 3: the idle line does not name the unaffordable Chapel (%s)" % idle3)
+	var name3 := _first_free_job(tab3, bc, bv)
+	t.ok(name3 != "" and idle3.contains(name3), "relics 3: the idle line names the best relic-free job item, %s (%s)" % [name3, idle3])
+
+	# a relic-blocked top pick with a relic-free need row: the relic-free row wins (a stale catalog, and a consistent one)
+	for consistent in [false, true]:
+		var v0 := _with_relics(mid, 0, consistent)
+		var sug0: Dictionary = _sug_of(v0)
+		var cost0 := 99
+		for r in v0["catalog"]["buildings"]:
+			if String(r["building_id"]) == String(sug0.get("building_id", "")):
+				cost0 = int(r["cost"]["relics"])
+		t.ok(not sug0.is_empty() and cost0 == 0 and String(sug0["building_id"]) not in ["walls", "chapel_of_vats"],
+			"relic-free: 0 relics (%s catalog) suggests a relic-free building, not the gate (%s)" % ["consistent" if consistent else "stale", str(sug0)])
+		var idle0 := HudModel.parts_text(HudModel.idle_parts(v0, vcfg, bv, bc))
+		var free0 := _first_free_job(BuildSort.tab_suggestion(v0, bv, bc, vcfg), bc, bv)
+		t.ok(free0 != "" and idle0.contains(free0) and not idle0.contains("Chapel"), "relic-free: 0 relics, the idle line names a relic-free job item, %s (%s)" % [free0, idle0])
+		var au: Dictionary = BuildSort.autoplay_pick(v0, cfg)
+		t.ok(String(au.get("building_id", "")) == String(sug0.get("building_id", "")), "relic-free: the autoplayer follows the tag (%s)" % str(au))
+	# the save-for rule never saves for a relic-blocked row either
+	var v1 := _with_relics(mid, 0, false)
+	for r in v1["catalog"]["buildings"]:
+		if String(r["building_id"]) in ["walls", "chapel_of_vats"]:
+			r["can_build"] = false
+			r["reason"] = "no_gold"
+	t.ok(not _sug_of(v1).has("save") or String(_sug_of(v1).get("building_id", "")) not in ["walls", "chapel_of_vats"], "relic-free: no save-for a gate the relics can't open")
+
+	# nothing relic-free left: the suggestion is the wall (the gate row itself while it still reads buildable, none when it can't be)
+	var wall := _with_relics(mid, 0, false)
+	_dry(wall)
+	for r in wall["catalog"]["buildings"]:
+		if int(r["cost"]["relics"]) == 0 and bool(r["can_build"]):
+			r["can_build"] = false
+			r["reason"] = "no_gold"
+	var sw: Dictionary = _sug_of(wall)
+	t.ok(String(sw.get("building_id", "")) in ["walls", "chapel_of_vats", "forge", "embalmer"], "wall: with nothing relic-free left the suggestion is the relic wall (%s)" % str(sw))
+	var wc := _with_relics(mid, 0, true)
+	_dry(wc)
+	for r in wc["catalog"]["buildings"]:
+		if int(r["cost"]["relics"]) == 0 and bool(r["can_build"]):
+			r["can_build"] = false
+			r["reason"] = "no_gold"
+	t.ok(_sug_of(wc).is_empty(), "wall: and none while the sim says the gate can't be built (%s)" % str(_sug_of(wc)))
+	var idlew := HudModel.parts_text(HudModel.idle_parts(wall, vcfg, bv, bc))
+	t.ok(idlew.begins_with("10 idle: "), "wall: the idle line still says something (%s)" % idlew)
+
+	# the pin lists each gate building with its own relic cost and a mark when the relics held pay for it
+	var pin := func(v: Dictionary) -> String:
+		var st := BuildSort.stocks(v)
+		var items := BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv, bc), bv, vcfg)
+		return String(BuildSort.relic_gate(v, items, st, bv, vcfg).get("text", ""))
+	t.ok(pin.call(m3) == "Gated by relics: Walls and Gate 2 ✓ · Chapel of Vats 2. You have 3. Relics come from dungeons.", "pin: per building, Walls marked as affordable (%s)" % pin.call(m3))
+	var m0 := _with_relics(mid, 0, true)
+	t.ok(pin.call(m0) == "Gated by relics: Walls and Gate 2 · Chapel of Vats 2. You have 0. Relics come from dungeons.", "pin: with none, no building is marked (%s)" % pin.call(m0))
+	t.ok(pin.call(_with_relics(mid, 4, true)) == "", "pin: enough for both, no pin")
+	t.ok(String(vcfg["relic_gate"]["mark_ok"]) == "✓" and String(vcfg["relic_gate"]["button"]) == "To the realm", "pin: the mark and the To the realm button are town.json texts")
+
+
+## Item 2: the HUD's next-tier line says the relic wall on every tab, in a lit colour, with a route out.
+func _td1_wall_line(day1: Dictionary, mid: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var h: Dictionary = vcfg["hud"]
+	var m3 := _with_relics(mid, 3, true)
+	var nl: Dictionary = HudModel.next_line(m3, h, bv)
+	t.ok(nl["text"] == "next: Town — needs 4 relics (have 3): raid a fort → Return to the realm" and nl["relics"], "wall line: relics short -> '%s'" % nl["text"])
+	t.ok(HudModel.next_line(_with_relics(mid, 0, true), h, bv)["text"] == "next: Town — needs 4 relics (have 0): raid a fort → Return to the realm", "wall line: with none, have 0")
+	var plain := HudModel.next_line(_with_relics(mid, 4, true), h, bv)
+	t.ok(not plain["relics"] and plain["text"] == HudModel.next_tier_line(String(mid["town"]["tier"]), mid["town"]["next_tier"], h, bv),
+		"wall line: relics are not the block -> today's line (%s)" % plain["text"])
+	t.ok(not HudModel.next_line(day1, h, bv)["relics"], "wall line: day1 (nothing missing needs relics) keeps today's line")
+	var one: Dictionary = m3.duplicate(true)
+	one["town"]["next_tier"]["missing"] = ["walls"]
+	one["inventory"]["relics"] = 1
+	t.ok(HudModel.next_line(one, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort → Return to the realm", "wall line: N is the missing gate buildings' relic costs, summed")
+	var placed: Dictionary = m3.duplicate(true)
+	placed["town"]["buildings"].append({"building_id": "walls", "lot_id": "lot-23", "level": 0, "state": "constructing", "progress": 0.1})
+	t.ok(not HudModel.next_line(placed, h, bv)["relics"], "wall line: Walls placed, the Chapel's 2 relics are held (3): not a wall")
+	placed["inventory"]["relics"] = 1
+	t.ok(HudModel.next_line(placed, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort → Return to the realm", "wall line: a gate building already placed is not asked for again")
+	# lit: its ink reaches 4.5:1 on the ground, and the button is a 44 px target routed through the shell
+	var ink := Palette.c(String(h["relic_ink"]), 1.0)
+	t.ok(TownModel.contrast(ink, Palette.c("ground")) >= 4.5, "wall line: ink '%s' reaches 4.5:1 on ground (%.2f)" % [h["relic_ink"], TownModel.contrast(ink, Palette.c("ground"))])
+	t.ok(String(h["text"]["next_relics"]).ends_with("→ Return to the realm") and not h["text"].has("next_relics_btn") and int(h["relic_border_px"]) >= 2,
+		"wall line: it points at the one Return button, which gets a thick lit border (no second button)")
+	t.ok(float(h["return_w_px"]) > 0.0 and TownUI.MIN_TARGET >= 44, "wall line: the Return button stays a >= 44 px target")
+	t.ok(int(h["next_px"]) >= 12, "wall line: at least 12 px")
+	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	t.ok(not hud_src.contains("finished"), "wall line: the HUD never emits finished itself")
+	t.ok(not hud_src.contains("realm_pressed") and not shell.contains("realm_pressed") and shell.contains("_hud.return_pressed.connect(_on_return)"),
+		"wall line: one exit only: the HUD's Return through the shell's _on_return, no realm_pressed")
+
+
+## Item 3: a placed big undead carries the slab's name everywhere a big undead is named.
+func _td1_names(mid: Dictionary) -> void:
+	var slab: Dictionary = cfg["town"]["slab"]
+	var raw := {"uid": "u7", "name": "Big u7", "kind": "hulk", "role": "bulwark", "place": "party",
+		"stats": {"power": 3.0, "beef": 9.0, "wits": 1.0, "presence": 0.0, "speed": 2.0}}
+	var slab_name := SlabLogic.display_name(raw, slab)
+	t.ok(slab_name != "Big u7" and slab_name.ends_with("Hulk"), "names: the default 'Big u7' becomes '%s'" % slab_name)
+	# the crypt roster's names (and the Foreman chooser's)
+	var chosen := {"uid": "u4", "name": "Old Gristle", "kind": "hulk", "stats": raw["stats"]}
+	var names := CryptLogic.display_names([raw, chosen], slab)
+	t.ok(names == {"u7": slab_name, "u4": "Old Gristle"}, "names: the roster shows the slab name for the default and keeps a real one (%s)" % str(names))
+	# the backups loss line
+	var tx: Dictionary = vcfg["backups"]
+	var pt := BackupsModel.party_text([raw, chosen], {"lot-3": "Market"}, {}, vcfg["crypt"], tx, slab)
+	t.ok(pt == "the party: %s, Old Gristle" % slab_name, "names: the loss line names the party by the slab's names (%s)" % pt)
+	# the Build tab's foreman line (BuildSort.stocks) and the foreman badge / walk-out
+	var v: Dictionary = mid.duplicate(true)
+	v["big_undead"]["big_undead"] = [raw]
+	t.ok(BuildSort.stocks(v, slab)["foreman_names"] == {"u7": slab_name}, "names: the lot inspector's foreman is named by the slab (%s)" % str(BuildSort.stocks(v, slab)["foreman_names"]))
+	var mk := _model()
+	mk.update(v, VIEW_RECT)
+	var lot_id := String(mk.lot("lot-04")["id"])
+	var vb: Dictionary = v.duplicate(true)
+	for b in vb["town"]["buildings"]:
+		if String(b["lot_id"]) == lot_id:
+			b["foreman"] = "u7"
+	var ag := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 7, slab)
+	var m2 := _model()
+	m2.update(vb, VIEW_RECT)
+	ag.sync(m2, vb)
+	t.ok(ag.foremen.size() == 1 and ag.foremen[0]["name"] == slab_name, "names: the foreman badge shows '%s' (%s)" % [slab_name, str(ag.foremen.map(func(f): return f["name"]))])
+	# the walk-out: a creature just placed at a building walks out under the slab's name
+	var va: Dictionary = vb.duplicate(true)
+	for b in va["town"]["buildings"]:
+		if String(b["lot_id"]) == lot_id:
+			b["foreman"] = ""
+	va["big_undead"]["big_undead"][0]["place"] = "crypt"
+	var ag2 := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 7, slab)
+	var m3 := _model()
+	m3.update(va, VIEW_RECT)
+	ag2.sync(m3, va)
+	vb["big_undead"]["big_undead"][0]["place"] = "town:" + lot_id
+	var m4 := _model()
+	m4.update(vb, VIEW_RECT)
+	ag2.sync(m4, vb)
+	t.ok(ag2.walkers.size() == 1 and ag2.walkers[0]["name"] == slab_name, "names: the walk-out carries '%s' (%s)" % [slab_name, str(ag2.walkers.map(func(w): return w["name"]))])
+	# the debug raise names its creature by the slab's name for what is on the slab, never the demo's "Gravel"
+	t.ok(CryptLogic.raise_name("Hulking-Brutal Hulk", raw, slab) == "Hulking-Brutal Hulk", "names: the debug raise keeps the slab's evaluated name")
+	t.ok(CryptLogic.raise_name("", raw, slab) == slab_name, "names: with no slab name it falls back to the minted creature's slab name")
+	# every slab name is a legal name (the naming step defaults its field to it)
+	var longest := 0
+	for kind in slab["anatomy"]:
+		for a in SlabLogic.STATS:
+			for b in SlabLogic.STATS:
+				var st := {"power": 0.0, "beef": 0.0, "wits": 0.0, "presence": 0.0, "speed": 0.0}
+				st[a] = 6.0
+				st[b] = st[b] + 6.0
+				var nm := SlabLogic.name_for(String(kind), st, slab)
+				longest = maxi(longest, nm.length())
+				if not CryptLogic.check_name(nm)["ok"]:
+					t.ok(false, "names: '%s' is a legal name" % nm)
+	t.ok(longest <= CryptLogic.NAME_MAX, "names: every slab name fits the %d-character limit (longest %d)" % [CryptLogic.NAME_MAX, longest])
+	var crypt_src := FileAccess.get_file_as_string("res://scripts/town/panel_crypt.gd")
+	t.ok(crypt_src.contains("_name_edit.text = String(_ev.get(\"name\", \"\"))"), "names: the naming step's field defaults to the slab's name")
+
+
+## Item 4: placeholders say so before the fact, in player words; no dev tags on screen.
+func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> void:
+	var slab: Dictionary = cfg["town"]["slab"]
+	var ct: Dictionary = vcfg["crypt"]
+	# raise: a preview note above the hold, the after-line without dev tags, cleared a few seconds later
+	t.ok(ct["raise_note"] == "preview: nothing is spent and no big undead rises yet", "raise: the note before the hold (%s)" % ct["raise_note"])
+	t.ok(ct["risen_stub"] == "coming: raised undead join the town in a later build", "raise: the after-line (%s)" % ct["risen_stub"])
+	t.ok(float(ct["stub_line_s"]) > 0.0 and float(ct["stub_line_s"]) <= 10.0, "raise: the after-line clears a few seconds after the rings settle (%s s)" % ct["stub_line_s"])
+	t.ok(slab.has("raise_wired") and slab["raise_wired"] == false, "raise: slab.raise_wired is false while the raise is a stub (STANDIN)")
+	t.ok(CryptLogic.raise_is_preview(slab, false), "raise: a stub raise is a preview")
+	t.ok(not CryptLogic.raise_is_preview(slab, true), "raise: once a raise returned a creature, the note goes away")
+	var wired: Dictionary = slab.duplicate()
+	wired["raise_wired"] = true
+	t.ok(not CryptLogic.raise_is_preview(wired, false), "raise: a wired raise needs no note")
+	t.ok(CryptLogic.raise_returned_creature({"ok": true, "big_undead": {"uid": "u9"}}) and not CryptLogic.raise_returned_creature({"ok": true, "big_undead": {"uid": ""}})
+		and not CryptLogic.raise_returned_creature({"ok": false, "big_undead": {}}), "raise: only a non-empty uid says the raise is real")
+	t.near(CryptLogic.line_left(4.0, 1.5), 2.5, 0.0001, "raise: the line's clock runs down")
+	t.near(CryptLogic.line_left(1.0, 3.0), 0.0, 0.0001, "raise: and stops at 0")
+	# backups: the stub outcome/respawn line and the ladder step say 'coming'
+	var tx: Dictionary = vcfg["backups"]
+	var clone := {"outcome": "clone", "respawn_s": 0.0, "loses": []}
+	t.ok(tx.has("numbers_wired") and tx["numbers_wired"] == false, "backups: numbers_wired is false while the view is a stub (STANDIN)")
+	t.ok(BackupsModel.numbers_pending(clone, tx), "backups: a clone with respawn 0 on a stub view reads as pending")
+	t.ok(BackupsModel.numbers_pending({"outcome": "unmade", "respawn_s": 600.0}, tx) == false, "backups: a real wait (respawn_s > 0) shows the view is live")
+	t.ok(BackupsModel.numbers_pending({"outcome": "phylactery", "respawn_s": 0.0}, tx) == false, "backups: a phylactery outcome shows the view is live")
+	var live: Dictionary = tx.duplicate()
+	live["numbers_wired"] = true
+	t.ok(not BackupsModel.numbers_pending(clone, live), "backups: wired, never pending")
+	t.ok(BackupsModel.outcome_text(clone, tx, true) == "A ready clone: she wakes in Covington at once (numbers coming)", "backups: the outcome line is tagged (%s)" % BackupsModel.outcome_text(clone, tx, true))
+	t.ok(BackupsModel.outcome_text(clone, tx) == "A ready clone: she wakes in Covington at once", "backups: untagged when live")
+	t.ok(BackupsModel.ladder_now_text(tx, true) == "now · numbers coming" and BackupsModel.ladder_now_text(tx, false) == "now", "backups: the ladder's current step says numbers coming")
+	t.ok(BackupsModel.death_sig({"backups": {"death": clone}}) != BackupsModel.death_sig({"backups": {"death": {"outcome": "clone", "respawn_s": 60.0, "loses": []}}}), "backups: a live respawn moves the death signature")
+	# foreman: a 'coming' note by the button and on the placed line
+	t.ok(ct["foreman_coming"] == "coming: a foreman boosts its building in a later build", "foreman: the coming note (%s)" % ct["foreman_coming"])
+	t.ok(CryptLogic.place_note("town:lot-04", ct) == ct["foreman_coming"] and CryptLogic.place_note("crypt", ct) == "" and CryptLogic.place_note("fort:x", ct) == "",
+		"foreman: only a foreman place carries the note")
+	# no dev tags in any text a player reads
+	var bad := PackedStringArray()
+	var re := RegEx.new()
+	re.compile("\\bE[0-9][a-z]?\\b|(?i:\\bapi\\b|\\bapi-|stand-in|stand in)|TODO|STANDIN")  # an upper-case E3 (node ids like e1 are not tags)
+	for f in ["res://configs/town.json", "res://configs/buildings_view.json"]:
+		_scan_tags(TestUtil.load_json(f), f, "", re, bad)
+	t.ok(bad.is_empty(), "no dev tags in town.json / buildings_view.json strings (%s)" % ", ".join(bad))
+	# the scene scripts' on-screen strings (string literals, not comments) too
+	var dir := DirAccess.open("res://scripts/town")
+	var lit := RegEx.new()
+	lit.compile("\"[^\"\\n]*\"")
+	var lit_bad := PackedStringArray()
+	for fn in dir.get_files():
+		if not fn.ends_with(".gd"):
+			continue
+		for line in FileAccess.get_file_as_string("res://scripts/town/" + fn).split("\n"):
+			var code := String(line)
+			var hash := code.find("#")
+			if hash >= 0 and not code.substr(0, hash).contains("\""):
+				continue
+			for m in lit.search_all(code):
+				var str_lit := m.get_string()
+				if re.search(str_lit) != null and not str_lit.begins_with("\"res://"):
+					lit_bad.append("%s: %s" % [fn, str_lit])
+	t.ok(lit_bad.is_empty(), "no dev tags in the town scripts' string literals (%s)" % "; ".join(lit_bad))
+
+
+func _scan_tags(x: Variant, file: String, path: String, re: RegEx, out: PackedStringArray) -> void:
+	if x is Dictionary:
+		for k in x:
+			_scan_tags(x[k], file, path + "/" + str(k), re, out)
+	elif x is Array:
+		for i in x.size():
+			_scan_tags(x[i], file, path + "/" + str(i), re, out)
+	elif x is String and re.search(x) != null:
+		out.append("%s%s = '%s'" % [file.get_file(), path, x])
+
+
+## T-d2: the backups headline, the honest vat line, one Off per stance, the slab's stats in town words, text size and contrast.
+func _td2(day1: Dictionary, mid: Dictionary) -> void:
+	t.suite("town-td2")
+	var tx: Dictionary = vcfg["backups"]
+	var slab: Dictionary = cfg["town"]["slab"]
+	var labels: Dictionary = vcfg["job_labels"]
+	# 1. backups: the loss is the large first line, the comfort line its subtitle
+	t.ok(int(tx.get("loses_px", 0)) >= 20 and int(tx.get("outcome_px", 99)) < int(tx.get("loses_px", 0)) and int(tx.get("outcome_px", 0)) >= 12,
+		"backups: the loss line is the large one (loses_px %s), the outcome its subtitle (outcome_px %s)" % [tx.get("loses_px"), tx.get("outcome_px")])
+	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "place": "party", "stats": {}}]
+	var line := BackupsModel.loses_line(["party", "unbanked_loot"], party, {}, {}, vcfg["crypt"], tx, slab)
+	t.ok(line == "She would lose: the party: Old Gristle, loot since the last checkpoint.", "backups: the headline names the party and the loot (%s)" % line)
+	t.ok(BackupsModel.loses_line([], [], {}, {}, vcfg["crypt"], tx, slab) == "She would lose: nothing else.", "backups: nothing to lose still reads as a line")
+	# 2. vats: with idle hands, staffing costs nothing and says so
+	var idle10 := BackupsModel.staffing_cost_text([], labels, tx, false, 10.7)
+	t.ok(idle10 == "10 idle hands: staffing costs nothing today", "vat: idle hands round down, 10.7 -> 10 (%s)" % idle10)
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 10.7) == "10 idle hands: unstaffing frees nothing a job needs today", "vat: a staffed vat says unstaffing frees nothing (%s)" % BackupsModel.staffing_cost_text([], labels, tx, true, 10.7))
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 1.9) == "1 idle hand: unstaffing frees nothing a job needs today", "vat: staffed, one idle hand is singular")
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 1.9) == "1 idle hand: staffing costs nothing today", "vat: one idle hand is singular")
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 0.9) == "staffing takes no hand from a job", "vat: under one whole idle hand keeps the old line")
+	t.ok(BackupsModel.staffing_cost_text([{"id": "stall", "delta": -1.0}], labels, tx, false, 10.0) == "staffing takes 1 hand from Stall", "vat: a hand that does move is still named")
+	var idle_town := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}], "buildings": [], "workers": {"idle": 10.4}, "ladder": ["pit"]}
+	var idle_views := {"town": idle_town, "backups": {"vats": [{"slot": 0, "staffed": false}, {"slot": 1, "staffed": true}]}}
+	var proj := func(order: Array, extra := {}) -> Array: return TownStandins.project(idle_views, order, cfg["buildings"], extra)["jobs"]
+	var costs := BackupsModel.staffing_costs(idle_views, proj, labels, tx)
+	t.ok(costs.size() == 2 and costs[0] == idle10 and String(costs[1]).begins_with("10 idle hands"), "vat: the panel's lines carry the idle count (%s)" % str(costs))
+	idle_town["workers"]["idle"] = 11.2
+	t.ok(BackupsModel.vats_sig(idle_views, BackupsModel.staffing_costs(idle_views, proj, labels, tx)) != BackupsModel.vats_sig(idle_views, costs), "vat: the idle count is in the vats signature through the line")
+	# 3. stances: the toggle says On/Off, the chips never repeat it
+	var stx: Dictionary = vcfg["behaviour"]
+	t.ok(TownBehaviour.stance_chips({"on": false}, stx).is_empty() and TownBehaviour.stance_chips({"on": true}, stx).is_empty(), "stance: no 'off' or 'on' chip beside the toggle")
+	t.ok(TownBehaviour.stance_chips({"on": true, "suspended": true, "active": true}, stx) == ["suspended", "active"], "stance: suspended and active still show")
+	# 4. slab stats in town words
+	var jargon := ["foreman pace", "carters", "the carvers front", "the giants front", "the swarm front", "the raw front", "foreman throughput"]
+	var sh: Dictionary = slab.get("stat_helps", {})
+	for st in SlabLogic.STATS:
+		var h := String(sh.get(st, ""))
+		t.ok(h != "", "slab: %s has a town-words line (%s)" % [st, h])
+		for j in jargon:
+			t.ok(not h.contains(j), "slab: %s line has no '%s'" % [st, j])
+		t.ok(CryptLogic.stat_helps(st, slab, vcfg["crypt"]) == h, "slab: the crypt panel reads slab.stat_helps for %s" % st)
+	var bvw := TestUtil.load_json("res://configs/buildings_view.json")
+	t.ok(String(sh["beef"]).contains(String(bvw["charnel_house"]["label"])) and String(sh["beef"]).contains(String(bvw["raising_pit"]["label"])), "slab: beef points at the Charnel House and the Raising Pit (%s)" % sh["beef"])
+	for nm in ["well", "bakery", "inn"]:
+		t.ok(String(sh["presence"]).contains(String(bvw[nm]["label"])), "slab: presence points at the %s (%s)" % [nm, sh["presence"]])
+	t.ok(String(sh["speed"]).contains(String(bvw["stables"]["label"])) and not String(sh["speed"]).contains(String(bvw["market"]["label"])), "slab: speed points at the Stables, not the Market (%s)" % sh["speed"])
+	for r in slab["roles"]:
+		for j in jargon:
+			t.ok(not String(slab["roles"][r]["good_for"]).contains(j), "slab: role %s line has no '%s'" % [r, j])
+	# 5. text size and contrast: configured sizes at 12 px or more, the text colours at 4.5:1 on the ground (3:1 for lines)
+	var sizes := {"legend": vcfg["legend"]["px"], "hud.split": vcfg["hud"]["split_px"], "hud.name": vcfg["hud"]["name_px"], "hud.stock": vcfg["hud"]["stock_px"],
+		"hud.next": vcfg["hud"]["next_px"], "badge": vcfg["badge"]["px"], "status": vcfg["status"]["px"], "pick": vcfg["pick"]["px"], "ring_order": vcfg["ring_order"]["px"],
+		"upgrade_mark": vcfg["upgrade_mark"]["px"], "walkout badge": vcfg["walkout"]["badge_px"], "crypt small": vcfg["crypt"]["small_px"],
+		"crypt text": vcfg["crypt"]["text_px"], "preview caption": vcfg["crypt"]["preview"]["caption_px"], "pip count": vcfg["pip_count_px"],
+		"backups subtitle": tx["outcome_px"], "backups ladder header": tx["ladder_header_px"], "backups title": tx["title_px"]}
+	for k in sizes:
+		t.ok(float(sizes[k]) >= 12.0, "text size: %s is %s px (>= 12)" % [k, sizes[k]])
+	var ground := Palette.c("ground")
+	for key in ["text", "text_dim", "danger", "select", "relish", "undead", "living"]:
+		var cr := _wcag(Palette.c(key), ground)
+		t.ok(cr >= 4.5, "contrast: %s on ground is %.2f:1 (>= 4.5)" % [key, cr])
+	var on_btn := _wcag(Palette.c("text_dim"), Palette.c("ring_track"))
+	t.ok(on_btn >= 4.5, "contrast: text_dim on a button face is %.2f:1 (>= 4.5)" % on_btn)
+	var on_hover := _wcag(Palette.c("text_dim"), Palette.c("graticule"))
+	t.ok(on_hover >= 4.5, "contrast: text_dim on a hovered button is %.2f:1 (>= 4.5)" % on_hover)
+	var il: Dictionary = vcfg["idle_line"]
+	var line_cr := _wcag(_over(Palette.c(String(il["key"])), float(il["alpha"]), ground), ground)
+	t.ok(line_cr >= 3.0, "contrast: the unstaffed outline is %.2f:1 on ground (>= 3 for a line)" % line_cr)
+	# a walk seeded from the entry itself names the slab's name, never "Big u9"
+	var e9 := {"uid": "u9", "name": "Big u9", "kind": "hulk", "stats": {"beef": 3.0}, "place": "town:lot-1"}
+	var tr := TownSetPiece.transitions({"u9": "crypt"}, [e9], true, slab)
+	t.ok(tr["starts"].size() == 1 and String(tr["starts"][0]["name"]) == SlabLogic.display_name(e9, slab) and not String(tr["starts"][0]["name"]).begins_with("Big u"),
+		"walk seed: the slab's name (%s)" % str(tr["starts"]))
+
+
+static func _lum(c: Color) -> float:
+	var f := func(x: float) -> float: return x / 12.92 if x <= 0.03928 else pow((x + 0.055) / 1.055, 2.4)
+	return 0.2126 * f.call(c.r) + 0.7152 * f.call(c.g) + 0.0722 * f.call(c.b)
+
+
+static func _wcag(a: Color, b: Color) -> float:
+	var la := _lum(a)
+	var lb := _lum(b)
+	return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+
+
+static func _over(c: Color, alpha: float, bg: Color) -> Color:
+	return Color(c.r * alpha + bg.r * (1.0 - alpha), c.g * alpha + bg.g * (1.0 - alpha), c.b * alpha + bg.b * (1.0 - alpha))

@@ -120,10 +120,10 @@ func _split() -> void:
 		for k in ["work", "war", "flood"]:
 			if absf(sp[k] - sp["mint"] * s.valve[k] - (sp["muster"] if k == "war" else 0.0)) > 1e-12:
 				ok = false
-		pending_ok = pending_ok and s.work_pending == sp["work"] * s.substep_s()
+		pending_ok = pending_ok and s.work_pending == 0.0 and absf(float(s.town_sim.rates["workers"]["in"]) * s.worker_mass() - sp["work"]) <= 1e-12 * maxf(1.0, sp["work"])
 	t.ok(s._split["mint"] > 0.0, "the mint runs: %.2f mass/s" % s._split["mint"])
 	t.ok(ok, "work + war + flood = mint + muster, each its valve share (WAR plus muster), every substep")
-	t.ok(pending_ok, "work_pending holds only the last substep's WORK (TownSim takes it all)")
+	t.ok(pending_ok, "TownSim takes each substep's WORK in that substep (work_pending stays 0)")
 	var inp: Dictionary = s._realm_inputs
 	t.ok(inp["war"] == s._split["war"] and inp["flood"] == s._split["flood"], "WAR and FLOOD are RealmSim's inputs")
 	t.near(s.realm.cov["r_out"], s._split["war"] + s._split["flood"], 1e-12, "RealmSim received them")
@@ -147,7 +147,7 @@ func _effects() -> void:
 	var plain := _ratio(home)
 
 	var s := _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var fx: Dictionary = s.view_relish()["effects"]
 	t.ok(fx == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "at a fort: tide and redirect there (%s)" % str(fx))
 	s.tick(s.substep_s())
@@ -179,20 +179,20 @@ func _effects() -> void:
 	s.cmd_move_relish("ashgate")
 	_inputs_none(s, "travelling")
 	t.ok(s.view_relish()["state"] == "travelling", "(still travelling)")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.relish["state"] = "dead"
 	_inputs_none(s, "dead")
 	s.relish["state"] = "at_fort"
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	_inputs_none(s, "at Vei")
-	s.legacy_teleport_relish("covington")
+	s.cmd_debug_set_state({"relish_at": "covington"})
 	_inputs_none(s, "home")
 
 	# home's one live effect: relish.home_stance_bonus extra stance slots
 	s._cfgs["realm"]["relish"]["home_stance_bonus"] = 2
 	var base := int(s._cfgs["economy"]["stance"]["base_slots"])
 	t.ok(s._stance_slots() == base + 2, "home: base + relish.home_stance_bonus stance slots")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	t.ok(s._stance_slots() == base, "away: base slots")
 
 
@@ -224,7 +224,7 @@ func _order() -> void:
 # ------------------------------------------------------------------- the flip ----
 func _flip() -> void:
 	var s := _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var r := Results.from_v1("raid", {"fort_id": "old-sluice"}, b["seed"])
 	r["warden_beaten"] = true
@@ -265,7 +265,7 @@ func _legacy_realm_keys() -> void:
 ## Relish raids `fort` (teleported there); `raised` are the result's buckets. Returns apply_result's.
 ## `dead` < 0 tops the fort's dead up to what the buckets raise (so the EMA is unclamped); >= 0 sets it.
 func _raid(s: GameState, fort: String, raised: Array, beaten := false, dead := -1.0) -> Dictionary:
-	s.legacy_teleport_relish(fort)
+	s.cmd_debug_set_state({"relish_at": fort})
 	var want := 0.0
 	for e in raised:
 		want += float(e["mass"])
@@ -334,12 +334,15 @@ func _tithe() -> void:
 	t.near(wv["t"] - w["t"], w["eta_s"], s.substep_s(), "eta_s after its warning")
 	t.ok(wv["relish_here"] and absf(wv["surge"] - float(tc["surge_mult"]) * 8.0 * 0.5) < 1e-9, "Relish stands there: the surge is halved")
 	vv = s.view_vei()["tithe"]
+	# the wave began inside the substep that reported it, at its exact time: it covered that much of it
+	var covered: float = float(tc["surge_s"]) - float(vv["wave_s_left"])
 	t.ok(vv["wave_active"] and vv["target"] == "old-sluice" and vv["eta_s"] == 0.0 and not vv["warning"]
-		and absf(vv["wave_s_left"] - (float(tc["surge_s"]) - s.substep_s())) < 1e-9, "view_vei.tithe during the wave: %s" % str(vv))
+		and covered >= 0.0 and covered <= s.substep_s() + 1e-9, "view_vei.tithe during the wave (it began %.3f s before the substep's end): %s" % [covered, str(vv)])
 	t.ok(s.view_fort("old-sluice")["tithe"] == {"targeted": true, "eta_s": 0.0, "wave_active": true}, "view_fort.tithe during the wave")
 	var lane := _lane(s, "living:vei:old-sluice")
-	t.ok(lane["why"] == "tithe wave" and absf(lane["bias"] - float(tc["surge_mult"]) * 0.5) < 1e-9 and lane["rate"] > 0.0,
-		"the living lane: surge rate, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
+	t.ok(lane["why"] == "tithe wave" and absf(lane["bias"] - float(tc["surge_mult"]) * 0.5) < 1e-9
+		and absf(lane["rate"] - float(wv["surge"]) * covered / s.substep_s()) < 1e-9,
+		"the living lane: the surge's rate over the part of the substep after the start, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
 	t.ok(absf(s.view_fort("old-sluice")["ship_in"] - lane["rate"]) < 1e-12, "ship_in carries the surge")
 	var f := _fort(s, "old-sluice")
 	var end := s.t + float(tc["surge_s"])
@@ -384,10 +387,10 @@ func _q() -> void:
 	t.ok(s.raid_seed("ashgate")["quality"] == q and s.boss_seed()["quality"] == q and s.town_snapshot() == {},
 		"the legacy seeds carry it (no elite term); the legacy town snapshot is {}")
 	t.ok(s.town_sim.forge["level"] == 2, "forge_level is TownSim's")
-	s.legacy_teleport_relish("ashgate")
+	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	t.ok(s.cmd_begin_dungeon("ashgate")["seed"]["digest_q"] == q, "the dungeon seed carries it")
 	s.cmd_abort_dungeon()
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	t.ok(s.cmd_begin_boss()["seed"]["digest_q"] == q, "the boss seed carries it")
 	s.cmd_abort_dungeon()
 
@@ -424,7 +427,7 @@ func _q() -> void:
 	# it never decays: 12 h of ticking with no raids (a coarse 10 s substep in this copy)
 	var idle := _mk(10.0)
 	_raid(idle, "ashgate", [{"score": 95, "count": 4, "mass": 300.0}], true)
-	idle.legacy_teleport_relish("covington")
+	idle.cmd_debug_set_state({"relish_at": "covington"})
 	var ema0: float = idle._readout["q_raise_ema"]
 	var q0 := idle.digest_q()
 	idle.tick(12.0 * 3600.0)
@@ -523,7 +526,7 @@ func _lanes() -> void:
 	t.ok(_lane(s, "war:covington:ashgate")["why"] == "" and s.rev == rv + 1, "the same target again is no cause")
 	# Relish here, Relish left
 	s.cmd_debug_set_state({"forts": {"greywall": {"dead": 30.0}}})
-	s.legacy_teleport_relish("greywall")
+	s.cmd_debug_set_state({"relish_at": "greywall"})
 	s.tick(s.substep_s())
 	var war := _lane(s, "war:covington:greywall")
 	t.ok(war["why"] == "Relish here" and war["bias"] == 3.0, "her arrival: 'Relish here' on the war lane, bias tide_bias")
@@ -533,7 +536,7 @@ func _lanes() -> void:
 	t.ok(dl["why"] == "Relish here" and dl["rate"] == 0.0, "the dead lane drops to 0 but stays while its callout lives")
 	s.tick(_WHY_S())
 	t.ok(_lane(s, "dead:greywall:vei").is_empty() and _lane(s, "war:covington:greywall")["why"] == "", "10 s on: the empty dead lane is omitted, callouts gone")
-	s.legacy_teleport_relish("covington")
+	s.cmd_debug_set_state({"relish_at": "covington"})
 	s.tick(s.substep_s())
 	t.ok(_lane(s, "war:covington:greywall")["why"] == "Relish left" and _lane(s, "war:covington:greywall")["bias"] == 1.0
 		and _lane(s, "redirect:greywall:greywall")["why"] == "Relish left", "she leaves: 'Relish left', bias back to 1")
@@ -556,7 +559,7 @@ func _lanes() -> void:
 	var e := _mk()
 	var none := {}
 	for f in e.realm.forts:
-		none[f["id"]] = {"living": 0.0}
+		none[f["id"]] = {"living": 0.0, "dead": 1e6}  # no living and no room: Vei can ship nowhere
 	e.cmd_debug_set_state({"forts": none})
 	e.tick(e.substep_s())
 	var fall := _lane(e, "war:covington:vei")

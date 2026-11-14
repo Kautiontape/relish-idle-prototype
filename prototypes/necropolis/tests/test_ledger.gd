@@ -67,6 +67,8 @@ func run() -> int:
 	_keys()
 	_flows()
 	_overflow()
+	_demolish_over_cap()
+	_zero_step()
 	_debug()
 	_runs()
 	_any_dt()
@@ -109,8 +111,8 @@ func _flows() -> void:
 	var c0: float = s.realm.cleared_total
 	s.tick(dt)
 	t.ok(_src(s, "mint") == s._split["mint"] * dt, "mint: the substep's production × dt")
-	t.ok(s.ledger()["held"]["work_pending"] == s._split["work"] * dt and s.work_pending > 0.0,
-		"held.work_pending: the WORK TownSim takes next substep")
+	t.ok(s.ledger()["held"]["work_pending"] == 0.0 and s.work_pending == 0.0,
+		"held.work_pending: 0 at the step boundary (TownSim takes each step's WORK in that step)")
 	var r: Dictionary = s.town_sim.rates
 	t.near(_snk(s, "burned"), float(r["bodies"]["pit"]) * dt, 1e-12, "burned: the pits' burn")
 	var wk: Dictionary = _base["economy"]["worker"]
@@ -164,6 +166,62 @@ func _overflow() -> void:
 	t.ok(_err(s) < TIGHT, "balanced with both overflows")
 
 
+## I1: demolishing a body-cap building under a full store loses nothing but what comes in.
+func _demolish_over_cap() -> void:
+	var s := _mk()
+	t.ok(s.town_sim.place_building("lot-06", "graveyard", 1), "a graveyard stands on lot-06")
+	var cap := s.town_sim.body_cap()
+	s.cmd_debug_grant({"bodies": cap})
+	t.ok(s.town_sim.bodies == cap, "the store is full")
+	t.ok(s.cmd_demolish("lot-06")["ok"], "the graveyard is demolished")
+	var cap1 := s.town_sim.body_cap()
+	t.ok(cap1 < cap and s.town_sim.bodies > cap1, "the store now stands over its cap (%.1f > %.1f)" % [s.town_sim.bodies, cap1])
+	var b0 := s.town_sim.bodies
+	var ov0 := _snk(s, "rot_overflow") + _snk(s, "haul_overflow")
+	var drain0 := _snk(s, "burned") + _snk(s, "milled")
+	var w0 := s.town_sim.workers
+	s.tick(s.substep_s())
+	var ov := _snk(s, "rot_overflow") + _snk(s, "haul_overflow") - ov0
+	var drain := _snk(s, "burned") + _snk(s, "milled") - drain0
+	t.ok(ov < 1.0 and b0 - s.town_sim.bodies <= drain + ov + 1e-9 and b0 - s.town_sim.bodies >= drain - 1e-9,
+		"no body is lost beyond the step's inflow: overflow %.4f, drain %.4f, store %.2f -> %.2f" % [ov, drain, b0, s.town_sim.bodies])
+	t.ok(_err(s) < TIGHT, "and the ledger balances")
+
+
+## M2: a zero-length or non-finite core step books nothing (a catch-up runner clips steps to events).
+func _zero_step() -> void:
+	var s := _mk()
+	var f: Dictionary = {}
+	for x in s.realm.forts:
+		if not RealmSim.is_held(x):
+			f = x
+			break
+	var pool_cap := float(_cfgs()["realm"]["vei_pool_cap"])
+	var pool_add := pool_cap - float(s.realm.vei["living_pool"])
+	s.realm.vei["living_pool"] = pool_cap
+	var fort_add := float(f["cap"]) * 10.0
+	f["living"] = float(f["living"]) + fort_add
+	s._ledger.source("debug", pool_add + fort_add)
+	s._core_step(s.substep_s())
+	t.ok(s.realm.pool_overflow > 0.0 and _snk(s, "pool_overflow") > 0.0, "a normal step booked pool_overflow (%.3f)" % _snk(s, "pool_overflow"))
+	for bad_dt in [0.0, -1.0, NAN, INF]:
+		var before := s.ledger()
+		var t0 := s.t
+		s._core_step(bad_dt)
+		var after := s.ledger()
+		t.ok(after["sinks"] == before["sinks"] and after["sources"] == before["sources"] and s.t == t0 and _err(s) < TIGHT,
+			"_core_step(%s) books nothing and the ledger balances" % bad_dt)
+		var nan_free := true
+		for id in s.view_rates():
+			for v in s.view_rates()[id]:
+				nan_free = nan_free and is_finite(float(v))
+		for k in s._split:
+			nan_free = nan_free and is_finite(float(s._split[k]))
+		t.ok(nan_free, "no NaN in view_rates or _split after _core_step(%s)" % bad_dt)
+	s.realm.step(0.0, {})
+	t.ok(s.realm.pool_overflow == 0.0, "RealmSim.step(0) clears pool_overflow")
+
+
 # ------------------------------------------------------------------ debug ----
 func _debug() -> void:
 	var s := _mk()
@@ -195,7 +253,7 @@ func _debug() -> void:
 func _runs() -> void:
 	var s := _mk()
 	s.cmd_debug_set_state({"forts": {"old-sluice": {"undead": 20.0, "dead": 30.0}}})
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var sd: Dictionary = b["seed"]
 	s.tick(5.0)  # the realm keeps running during the run
@@ -211,7 +269,7 @@ func _runs() -> void:
 	t.ok(_err(s) < TIGHT, "balanced after the writeback")
 	# a lost Vei fight: (1 − loss_backlog_keep) of the backlog
 	s.cmd_debug_grant({"backlog": 1000.0})
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	var bb := s.cmd_begin_boss()
 	var q0: float = s.realm.vei["undead_queue"]
 	var res := {"v": 2, "run_id": bb["run_id"], "seed_rev": bb["seed_rev"], "won": false, "fronts_cleared": [],
@@ -223,10 +281,9 @@ func _runs() -> void:
 
 
 # ------------------------------------------------------------ any substep ----
-## Catch-up (IDLE §4) will step at long dt: the count must not depend on the substep length.
-## NOTE: at 30 s and 120 s the realm's forward-Euler drain overshoots and pools go NEGATIVE (a known
-## E2b item: catch-up will sub-step RealmSim), so those dt check the ledger only. At dt <= 8 s
-## nothing may go negative or non-finite either.
+## Catch-up (IDLE §4) steps at long dt: the count must not depend on the substep length, and since
+## E2b T3.0 (the exact drain, the fort's path, the netted body store) nothing goes negative or
+## non-finite at any of them either, 30 s and 120 s included.
 func _any_dt() -> void:
 	for dt in [0.1, 2.0, 8.0, 30.0, 120.0]:
 		var s := GameState.new(_cfgs(dt))
@@ -237,11 +294,9 @@ func _any_dt() -> void:
 		for i in 150:
 			s.tick(dt)
 			worst = maxf(worst, _err(s))
-			if dt <= 8.0:
-				_negatives(s, neg)
+			_negatives(s, neg)
 		t.ok(worst < TIGHT, "substep %.1f s: balanced at every substep for %d sim-s (worst %s)" % [dt, int(150 * dt), _e(worst)])
-		if dt <= 8.0:
-			t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
+		t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
 
 
 ## _soak_check's no-negatives and finiteness checks, on their own.
@@ -440,6 +495,54 @@ func soak(sim_s: float, seed_val: int) -> void:
 				"building_done": st["done"] += 1
 				"relish_died": st["deaths"] += 1
 		_soak_check(s, st, bad, idle_cap, pool_cap)
+	# Two forced phases, each asserted on its own delta (the random phase may or may not have reached
+	# these sinks, and the cumulative totals would hide that):
+	#  1. march-back: Vei's pool is full and a free fort holds living far above its cap, so the living
+	#     marching back land above her pool's cap and pool_overflow books (MECHANICS §3.4). Both
+	#     edits are booked as debug sources, as the debug commands do (set_state clamps living to
+	#     the cap, so it cannot make this state).
+	#  2. full store: every building unstaffed (nothing burns or mills bodies) and the body store
+	#     full, so rot's return overflows and rot_overflow books.
+	# Covered elsewhere (deterministic tests above): haul_overflow, in _overflow(), the convoy that
+	# lands on a full store. store_overflow is not live: nothing books it (GameState.step books the
+	# town's five sinks and the realm's cleared and pool_overflow only), so it is left out of the list.
+	if not s.run.is_empty():
+		s.cmd_abort_dungeon()
+	var fort_id := ""
+	for f in s.realm.forts:
+		if not RealmSim.is_held(f):
+			fort_id = str(f["id"])
+			break
+	if fort_id == "":
+		bad.append("no free fort for the march-back phase")
+	else:
+		var f: Dictionary = s.realm.fort_by_id(fort_id)
+		var pool_add := pool_cap - float(s.realm.vei["living_pool"])
+		var fort_add := float(f["cap"]) * 10.0
+		s.realm.vei["living_pool"] = pool_cap
+		f["living"] = float(f["living"]) + fort_add
+		s._ledger.source("debug", pool_add + fort_add)
+		var before: Dictionary = s.ledger()["sinks"].duplicate()
+		# the realm steps at SOAK_FIELD_HZ, so run past two of its periods: it steps at least once
+		var t_end := s.t + 2.0 / SOAK_FIELD_HZ
+		while s.t < t_end:
+			st["substeps"] += s.tick(dt)
+			s.drain_events()
+			_soak_check(s, st, bad, idle_cap, pool_cap)
+		st["phase_march"] = float(s.ledger()["sinks"]["pool_overflow"]) - float(before["pool_overflow"])
+		t.ok(st["phase_march"] > 0.0, "soak march-back phase: pool_overflow booked %.2f" % st["phase_march"])
+	for lot in s.town_sim.buildings:
+		s.cmd_set_staff_cap(lot, 0)
+	s.cmd_debug_grant({"bodies": 1000.0})
+	var before2: Dictionary = s.ledger()["sinks"].duplicate()
+	for i in 40:
+		st["substeps"] += s.tick(dt)
+		s.drain_events()
+		_soak_check(s, st, bad, idle_cap, pool_cap)
+	st["phase_rot"] = float(s.ledger()["sinks"]["rot_overflow"]) - float(before2["rot_overflow"])
+	t.ok(st["phase_rot"] > 0.0, "soak full-store phase: rot_overflow booked %.3f" % st["phase_rot"])
+	print("  [soak] forced phases: march-back pool_overflow +%.3f, full store rot_overflow +%.4f" % [
+		float(st.get("phase_march", -1.0)), st["phase_rot"]])
 	var wall := Time.get_ticks_msec() - wall0
 	var l := s.ledger()
 	print("  [soak] %d sim-s, %d substeps, %d checks, worst relative error %s, wall %d ms" % [
@@ -455,9 +558,9 @@ func soak(sim_s: float, seed_val: int) -> void:
 	t.ok(st["flips"] > 0 and st["raids"] >= 3 and st["boss_losses"] > 0 and st["muster"] > 0.0 and st["done"] > 0,
 		"soak exercised flips, raids, a lost fight, muster and builds")
 	var used := true
-	for k in ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon", "rot_overflow"]:
+	for k in ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon", "pool_overflow", "rot_overflow"]:
 		used = used and float(l["sinks"][k]) > 0.0
-	t.ok(used and l["sources"]["debug"] != 0.0, "every live sink booked mass, and so did debug")
+	t.ok(used and l["sources"]["debug"] != 0.0, "every sink the soak drives booked mass, and so did debug")
 	if sim_s >= 3600.0:
 		t.ok(st["waves"] > 0, "a full hour sees a tithe wave")
 

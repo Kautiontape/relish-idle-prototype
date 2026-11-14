@@ -58,6 +58,7 @@ func run() -> int:
 	_workforce()
 	_ladder()
 	_haul()
+	_over_cap()
 	_mill_stall_pit()
 	_forge()
 	_build()
@@ -344,6 +345,36 @@ func _haul() -> void:
 		got += float(p["mass"])
 	t.near(got, 50.0, 1e-9, "a 600 s step makes many trips, taking exactly the fort's 50 dead")
 	t.ok(s.bodies <= s.body_cap() + 1e-9, "and the store stays within its cap")
+
+
+# ------------------------------------------------- an over-cap store (I1) ----
+## A store above its cap (a demolished house dropped it) keeps its excess: only inflow is clipped,
+## and the pits draw the stock down.
+func _over_cap() -> void:
+	for dt in [0.5, 30.0]:
+		# (a) no inflow (body_return 0), pits staffed: no overflow, and the stock falls by what they burn
+		var s := _sim({"economy.worker.body_return": 0.0})
+		s.ladder = ["pit"]
+		s.workers = 3.0
+		var cap := s.body_cap()
+		s.bodies = cap + 500.0
+		var b0 := s.bodies
+		var o := s.step(dt, _inp({"work_mass": _hold_work(s, 3.0, dt)}))
+		t.ok(o["rot_overflow"] == 0.0 and o["haul_overflow"] == 0.0, "dt %s: an over-cap store with no inflow books no overflow" % dt)
+		t.ok(float(o["burned"]) > 0.0 and absf(s.bodies - (b0 - float(o["burned"]) - float(o["milled"]))) < 1e-9 and s.bodies > cap,
+			"dt %s: the pits draw the excess down (%.2f of %.2f, burned %.2f)" % [dt, s.bodies, b0, o["burned"]])
+		# (b) with rot inflow: all of this step's inflow overflows, and the stock falls by what the pits take
+		s = _sim()
+		s.ladder = ["pit"]
+		s.workers = 3.0
+		s.bodies = cap + 500.0
+		b0 = s.bodies
+		var w0 := s.workers
+		o = s.step(dt, _inp())
+		var rot_in := (w0 - s.workers) * float(_eco("worker")["mass"]) * float(_eco("worker")["body_return"])
+		t.ok(rot_in > 0.0 and absf(float(o["rot_overflow"]) - rot_in) < 1e-9, "dt %s: all of the step's rot inflow overflows (%.4f of %.4f)" % [dt, o["rot_overflow"], rot_in])
+		t.ok(absf(s.bodies - (b0 - float(o["burned"]) - float(o["milled"]))) < 1e-9 and s.bodies > cap,
+			"dt %s: the stock falls only by what the pits take" % dt)
 
 
 # ------------------------------------------------------- mill, stall, pit ----
