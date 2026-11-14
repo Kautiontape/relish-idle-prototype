@@ -9,6 +9,7 @@ extends RefCounted
 
 var ended := false      # run is over; gameplay stops (raid._ended forwards here)
 var finished := false   # `finished` already emitted
+var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
 var banked_rooms := {}           # checkpoint room index -> true once it has banked
@@ -88,9 +89,10 @@ func exit_hint_ready() -> bool:
 	return exit_idx >= 0 and not ended and (left_spawn_exit or _raid.first_raise_done)
 
 
-## Retreat is open only at an exit (the boss arena keeps its teleport).
+## Retreat is open only at an exit. There is no retreat from the Vei fight (the boss scene also
+## overrides this).
 func can_retreat() -> bool:
-	return _raid.is_boss() or exit_idx >= 0
+	return not _raid.is_boss() and exit_idx >= 0
 
 
 ## The HUD's confirmed RETREAT: re-checks the exit, since Relish may have drifted off.
@@ -106,6 +108,34 @@ func confirm_exit() -> void:
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 60.0, 0.5, 4.0)
 	finish(_raid._exit_result())
+
+
+# ------------------------------------------------------------------- close ---
+## "No run survives a close" (IDLE I5), the scene's stand-in until economy's cmd_run_checkpoint lands
+## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends now. Only a
+## router-launched run does this (not standalone); it must emit before the quit save, see raid.gd
+## `_notification`. True when it emitted.
+##   dungeon  a retreat paying the last checkpoint snapshot (what was found since is lost, the same
+##            bound as a death), with the phylactery revives spent; but during an ending beat it is
+##            the ending it already was (`pending_exit` from RaidLogic.pending_on, RaidLogic.close_plan): Relish's death beat
+##            stays a death, and the warden's victory beat stays the win with the chest in its loot
+##            (the same result the beat's timer would have built).
+##   boss     the boss scene's close_result(): lost with the backups spent so far still spent (a
+##            final-death beat counts its death), or the win if Vei already broke.
+func close_request() -> bool:
+	if finished or _raid._standalone or not _raid._from_run or not _raid._built:
+		return false
+	if _raid.is_boss():
+		var r: Dictionary = _raid.close_result()
+		ended = true
+		_raid.trance.force_end()
+		finish(r)
+		return true
+	var plan := RaidLogic.close_plan(ended, pending_exit)
+	ended = true
+	_raid.trance.force_end()
+	finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
+	return true
 
 
 # ------------------------------------------------------------------- revive ---
@@ -135,6 +165,7 @@ func on_relish_died() -> void:
 	if ended:
 		return
 	ended = true
+	pending_exit = RaidLogic.pending_on("relish_died")
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
@@ -146,15 +177,13 @@ func on_relish_died() -> void:
 
 # ------------------------------------------------------------------- result ---
 ## Raid result v2 from the ledger and every living ally.
-func build_result(exit: String) -> Dictionary:
+## `closing`: a window close, not a retreat the player chose: the loot is the last checkpoint snapshot.
+func build_result(exit: String, closing := false) -> Dictionary:
 	var survivors: Array = []
 	for a in _raid.allies:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
-	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
-	var loot := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()) if exit == "retreated" else banked.duplicate(true)
-	if loot.is_empty():
-		loot = RaidLogic.empty_loot()
+	var loot := RaidLogic.result_loot(exit, closing, _raid.found_loot, _raid.carried_count(), banked)
 	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, _raid.party_died, revived, loot, _raid.rcfg())
 	for e in Results.validate("raid", r):
 		push_error("necropolis: raid result invalid: " + e)
@@ -177,6 +206,8 @@ func finish(result: Dictionary) -> void:
 			print("RAID_RESULT_DICT ", JSON.stringify(result))
 			_print_standalone_result(result)
 		_raid.hud.show_result(result, tele)
+		if _raid._dev != null:
+			_raid._dev.on_finish(result)
 
 
 ## RAID_TELEMETRY line (not part of the result dict).

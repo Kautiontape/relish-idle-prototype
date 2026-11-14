@@ -10,6 +10,7 @@ var absorbing := false
 var recycled := false   # mass that was already raised once: not fresh dead
 var carried := false    # in Relish's carried cluster (dungeon only)
 var carry_slot := 0
+var ignite_t := 0.0     # >0: a brief ignite flash (the antechamber's last chance)
 
 var _t := 0.0
 var _pop := Vector2.ZERO
@@ -28,8 +29,16 @@ func pop(dir: Vector2) -> void:
 	_pop = dir
 
 
+## Lifetime back to full and a brief ignite flash (the antechamber's last chance).
+func ignite(flash_s: float) -> void:
+	life = float(ConfigDb.data.get("raid", {}).get("essence", {}).get("lifetime_s", 12.0))
+	ignite_t = flash_s
+	queue_redraw()
+
+
 func _process(delta: float) -> void:
 	_t += delta
+	ignite_t = maxf(0.0, ignite_t - delta)
 	if absorbing:
 		_absorb_step(delta)
 		queue_redraw()
@@ -123,5 +132,7 @@ func _draw() -> void:
 		elif fmod(_t, 0.3) < 0.15:
 			col.a = 0.4
 	LineGlow.ring(self, Vector2.ZERO, r + 3.0, col, 1.0, 0.5)
+	if ignite_t > 0.0:
+		LineGlow.ring(self, Vector2.ZERO, r + 8.0 + 10.0 * ignite_t, Palette.c("text", 0.9), 2.0, 1.0, col)
 	draw_circle(Vector2.ZERO, r, col)
 	draw_circle(Vector2.ZERO, r * 0.45, Palette.c("text", 0.85 * pulse))

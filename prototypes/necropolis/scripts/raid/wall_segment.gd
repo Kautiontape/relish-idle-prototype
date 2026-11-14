@@ -1,22 +1,27 @@
 class_name RaidWall
 extends Node2D
-## One chunky wall segment rendered with the wall shader. Local +x runs along
-## the wall's length; origin sits at the segment's left/top center-line.
-## The shader cycles between two Palette colours; the arena feeds it the Pulse
-## beat each frame through `set_beat`.
+## One wall segment rendered with the wall shader as a thin stroke along its centre line
+## (the collision band is not drawn). Local +x runs along the wall's length; origin sits at
+## the segment's left/top center-line. The shader cycles between two Palette colours; the
+## arena feeds it the Pulse beat each frame through `set_beat`.
 
 static var _shader: Shader = null
 
 var length := 100.0
 var core_half := 15.0
-var glow := 26.0
+var stroke_half := 1.5
+var halo := 9.0
 
 var _mat: ShaderMaterial = null
+var _base_a: Color = Palette.c("text")
+var _base_i := 0.7
 
 
-## `look`: color_a / color_b (Colors), heat, wavelength, arena_diag.
-func setup(rect: Rect2, glow_px: float, look: Dictionary) -> void:
-	glow = glow_px
+## `look`: color_a / color_b (Colors), heat, wavelength, arena_diag, stroke_half, halo_px,
+## intensity.
+func setup(rect: Rect2, look: Dictionary) -> void:
+	stroke_half = float(look.get("stroke_half", stroke_half))
+	halo = float(look.get("halo_px", halo))
 	var horizontal := rect.size.x >= rect.size.y
 	if horizontal:
 		length = rect.size.x
@@ -34,12 +39,18 @@ func setup(rect: Rect2, glow_px: float, look: Dictionary) -> void:
 	_mat = ShaderMaterial.new()
 	_mat.shader = _shader
 	_mat.set_shader_parameter("seg_len", length)
-	_mat.set_shader_parameter("core_half", core_half)
-	_mat.set_shader_parameter("glow_px", glow)
 	_mat.set_shader_parameter("world_off", position.x if horizontal else position.y)
 	for k in look:
 		_mat.set_shader_parameter(k, look[k])
+	_base_a = look.get("color_a", _base_a)
+	_base_i = float(look.get("intensity", _base_i))
 	material = _mat
+
+
+## A one-off flash toward `col`: k 0 is the normal look, 1 is fully flashed (brighter, `boost`).
+func set_flash(k: float, col: Color, boost: float) -> void:
+	_mat.set_shader_parameter("color_a", _base_a.lerp(col, k))
+	_mat.set_shader_parameter("intensity", lerpf(_base_i, boost, k))
 
 
 ## Per frame: the beat at the source, Relish's position, the colour drift
@@ -52,5 +63,5 @@ func set_beat(beat: float, relish_pos: Vector2, drift: float, steady: float) -> 
 
 
 func _draw() -> void:
-	var half_h := core_half + glow
+	var half_h := stroke_half + halo
 	draw_rect(Rect2(0.0, -half_h, length, half_h * 2.0), Palette.c("text"))

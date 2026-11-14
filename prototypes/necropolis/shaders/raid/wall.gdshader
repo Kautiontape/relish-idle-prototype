@@ -1,15 +1,18 @@
 shader_type canvas_item;
-// Fortress wall: a dark slab rimmed with neon that cycles only between two
-// palette colours (violet and the fortress's controller colour). The shimmer
-// runs on the Pulse beat, not TIME: the beat crosses the walls as a wave from
-// Relish (VISUAL-LANGUAGE law 5). All colours and tempo numbers are uniforms
-// set from Palette / Pulse / configs/raid.json by wall_segment.gd.
+// Fortress wall: a thin glowing stroke along the wall's centre line (VISUAL-LANGUAGE law 2:
+// everything is a line). The 30 px collision band is not drawn; only the stroke and a narrow
+// halo are. The colour cycles between two palette colours (violet and the fortress's
+// controller colour) and stays dimmer than the units. The shimmer runs on the Pulse beat,
+// not TIME: the beat crosses the walls as a wave from Relish (law 5). All colours and
+// numbers are uniforms set from Palette / Pulse / configs/raid.json by wall_segment.gd.
 // Geometry: a rect drawn from (0, -half_h) to (seg_len, +half_h), where
-// half_h = core_half + glow_px. Local +x runs along the wall's length.
+// half_h = stroke_half + halo_px. Local +x runs along the wall's length; the segment ends
+// are crisp, so door gaps read as clean jambs.
 
 uniform float seg_len = 200.0;
-uniform float core_half = 15.0;    // half the solid wall thickness
-uniform float glow_px = 26.0;      // glow apron beyond the core
+uniform float stroke_half = 1.5;   // half the stroke width
+uniform float halo_px = 9.0;       // soft halo beyond the stroke
+uniform float intensity = 0.34;    // overall brightness of the stroke (units stay brighter)
 uniform float world_off = 0.0;     // world offset along the wall axis, for colour continuity
 uniform float wavelength = 1100.0; // px per full colour cycle along the wall
 uniform vec4 color_a : source_color = vec4(1.0);  // Palette relish
@@ -36,6 +39,8 @@ void fragment() {
 	float d = abs(v_pos.y);
 	float k = 0.5 + 0.5 * sin(6.2831853 * (along / wavelength - drift));
 	vec3 neon = mix(color_a.rgb, color_b.rgb, k);
+	// equal perceived brightness whichever colours are cycling (cream vei is far brighter than blue town)
+	neon *= 0.45 / max(dot(neon, vec3(0.2126, 0.7152, 0.0722)), 0.12);
 
 	// the beat, lagged by distance from Relish: a wave crossing the walls
 	float lag = clamp(distance(v_world, relish_pos) / arena_diag, 0.0, 1.0) * wave_spread;
@@ -43,25 +48,14 @@ void fragment() {
 	float shimmer = smoothstep(0.72, 1.0, 0.5 + 0.5 * sin(along * 0.045)) * w;
 	float hot = 1.0 + heat;
 
-	vec3 col;
+	float lit = intensity * hot * (0.85 + 0.15 * w) + shimmer * 0.12 * hot;
+	vec3 col = min(neon * lit, vec3(1.0));
 	float a;
-	if (d <= core_half) {
-		// solid wall: a filled neon slab, brightest at the rim
-		float inner = d / core_half; // 0 center to 1 rim
-		vec3 base = neon * (0.34 + 0.12 * w) * hot;
-		float rim = smoothstep(0.45, 0.95, inner);
-		col = mix(base, neon * (0.92 + 0.08 * w) * hot, rim);
-		col += neon * shimmer * 0.28 * hot * (1.0 - inner * 0.4);
-		a = 1.0;
+	if (d <= stroke_half) {
+		a = 1.0; // the stroke
 	} else {
-		// soft glow apron spilling onto the floor
-		float g = clamp((d - core_half) / glow_px, 0.0, 1.0);
-		float fall = (1.0 - g) * (1.0 - g);
-		col = neon;
-		a = fall * (0.26 + 0.12 * w + shimmer * 0.10) * hot;
-		// fade the glow near the segment ends so door gaps read as crisp jambs
-		float endf = smoothstep(0.0, glow_px, v_pos.x) * smoothstep(0.0, glow_px, seg_len - v_pos.x);
-		a *= endf;
+		float g = clamp((d - stroke_half) / halo_px, 0.0, 1.0);
+		a = (1.0 - g) * (1.0 - g) * 0.4;
 	}
-	COLOR = vec4(min(col, vec3(1.0)), min(a, 1.0));
+	COLOR = vec4(col, min(a, 1.0));
 }

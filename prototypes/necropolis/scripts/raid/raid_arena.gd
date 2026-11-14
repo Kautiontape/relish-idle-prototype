@@ -25,6 +25,10 @@ var _marks: ExitMarks = null
 var _drift := 0.0           # wall colour drift position, in cycles
 var _drift_speed := 0.05
 var _diag := 1000.0
+var _flash_t := 0.0         # seconds of wall flash left (the held clear's set piece)
+var _flash_dur := 1.0
+var _flash_col: Color = Palette.c("text")
+var _flash_boost := 1.5
 
 
 ## The overlay that dims the line layers while the trance is active.
@@ -98,7 +102,6 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		str(cfg.get("floor", {}).get("tint", "contour")))
 
 	# --- walls (the showpiece) ---
-	var glow: float = float(lcfg.get("wall_glow_px", 26.0))
 	var heat := float(lcfg.get("boss_wall_heat", 0.6)) if bool(layout.get("boss", false)) else 0.0
 	var look := {
 		"color_a": Palette.c("relish"),
@@ -106,9 +109,16 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		"heat": heat,
 		"wavelength": float(lcfg.get("wall_wavelength_px", 1100.0)),
 		"arena_diag": _diag,
+		"stroke_half": float(lcfg.get("wall_stroke_px", 3.0)) * 0.5,
+		"halo_px": float(lcfg.get("wall_halo_px", 9.0)),
+		"intensity": float(lcfg.get("wall_intensity", 0.7)),
 		"wave_spread": Pulse.wave_spread,
 		"wave_decay": Pulse.wave_decay,
 	}
+	if bool(layout.get("boss", false)):
+		# Vei's arena: a thicker, brighter stroke (the camera is zoomed out here)
+		look["stroke_half"] = float(lcfg.get("boss_wall_stroke_px", 6.0)) * 0.5
+		look["intensity"] = float(lcfg.get("boss_wall_intensity", 0.9))
 	# the warden room's walls run hotter (VISUAL-LANGUAGE 2c)
 	var wr := int(layout.get("warden_room", -1))
 	var hot := look.duplicate()
@@ -126,7 +136,7 @@ func build(p_layout: Dictionary, p_cfg: Dictionary, controller_key := "living") 
 		for wrect in LayoutLogic.merge_walls(hot_rects if is_hot else cold_rects):
 			var seg := RaidWall.new()
 			add_child(seg)
-			seg.setup(wrect, glow, hot if is_hot else look)
+			seg.setup(wrect, hot if is_hot else look)
 			_walls.append(seg)
 
 	# --- exit doors (the dungeon only; the boss arena has none) ---
@@ -165,6 +175,25 @@ func set_banked(rooms: Dictionary) -> void:
 		_marks.banked = rooms.duplicate()
 
 
+## The walls flash toward `key`'s palette colour and fade back over `secs` (reduced motion: a steady
+## hold, then off, no fade).
+func flash_walls(key: String, secs: float, boost: float) -> void:
+	_flash_col = Palette.c(key)
+	_flash_dur = maxf(0.05, secs)
+	_flash_t = _flash_dur
+	_flash_boost = boost
+
+
+func _flash_step(delta: float) -> void:
+	if _flash_t <= 0.0:
+		return
+	_flash_t = maxf(0.0, _flash_t - delta / maxf(0.05, Engine.time_scale))
+	var f := _flash_t / _flash_dur
+	var k := (1.0 if f > 0.0 else 0.0) if Pulse.reduced_motion else f * f
+	for seg in _walls:
+		seg.set_flash(k, _flash_col, _flash_boost)
+
+
 func set_trance_dim(on: bool) -> void:
 	if _dim != null:
 		_dim.visible = on
@@ -183,6 +212,7 @@ func _process(delta: float) -> void:
 		_floor.set_source(_floor.to_local(rp))
 	for seg in _walls:
 		seg.set_beat(beat, rp, _drift, steady)
+	_flash_step(delta)
 
 
 ## Drift field: unit vector toward the nearest door's inner point, strength 1

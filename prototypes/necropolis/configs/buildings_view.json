@@ -2,7 +2,7 @@
   "crypt": {
     "label": "Crypt",
     "flavour": "Covington's oldest address. The slab inside has seen more births than the midwife.",
-    "benefit": "holds the slab; +1 big-undead cap per level",
+    "benefit": "holds the slab; more big-undead cap per level",
     "ink": "relish", "light_by": "always", "serves": ["front", "warden"], "unique": true,
     "strokes": [
       [[0.138, 0.568], [0.138, 1.0], [0.863, 1.0], [0.863, 0.568]],
@@ -18,7 +18,7 @@
   "raising_pit": {
     "label": "Raising Pit",
     "flavour": "Bodies in, workers out. The council calls it urban renewal.",
-    "benefit": "+6/s mint; 2 pit jobs burn 0.6/s bodies",
+    "benefit": "raising pit: more mint; pit jobs burn bodies",
     "ink": "undead", "light_by": "staffing", "serves": ["mint"],
     "strokes": [
       [[0.925, 0.864], [0.904, 0.899], [0.844, 0.93], [0.75, 0.956], [0.631, 0.972], [0.5, 0.977], [0.369, 0.972], [0.25, 0.956], [0.156, 0.93], [0.096, 0.899], [0.075, 0.864], [0.096, 0.829], [0.156, 0.797], [0.25, 0.772], [0.369, 0.756], [0.5, 0.75], [0.631, 0.756], [0.75, 0.772], [0.844, 0.797], [0.904, 0.829], [0.925, 0.864]],
@@ -33,7 +33,7 @@
   "charnel_house": {
     "label": "Charnel House",
     "flavour": "Open late. Deliveries round the back, and the back is very large.",
-    "benefit": "3 haul jobs: bodies hauled from the forts; + body store cap",
+    "benefit": "haul jobs: bodies hauled from the forts; + body store cap",
     "ink": "undead", "light_by": "staffing", "serves": ["bodies"],
     "strokes": [
       [[0.075, 0.5], [0.075, 1.0], [0.925, 1.0], [0.925, 0.5]],
@@ -50,7 +50,7 @@
   "market": {
     "label": "Market",
     "flavour": "Undead at the counter, living at the till. Haggling is brief: one side has nowhere to be.",
-    "benefit": "2 stall jobs: gold from trade",
+    "benefit": "stall jobs: gold from trade",
     "ink": "undead", "light_by": "staffing", "serves": ["gold"],
     "strokes": [
       [[0.062, 0.523], [0.062, 1.0]],
@@ -69,7 +69,7 @@
   "house": {
     "label": "House",
     "flavour": "Two rooms, one hearth and a neighbour who never sleeps. The rent is reasonable.",
-    "benefit": "+8 living cap",
+    "benefit": "+ living cap",
     "ink": "living", "light_by": "living", "serves": ["housing"],
     "strokes": [
       [[0.175, 0.523], [0.175, 1.0], [0.825, 1.0], [0.825, 0.523]],
@@ -111,7 +111,7 @@
   "bone_mill": {
     "label": "Bone Mill",
     "flavour": "Grinds bodies into bone with a pleasant creak. The flour is next door; do not mix them up.",
-    "benefit": "2 mill jobs: bodies into bone",
+    "benefit": "mill jobs: bodies into bone",
     "ink": "undead", "light_by": "staffing", "serves": ["bone"],
     "strokes": [
       [[0.3, 0.455], [0.225, 1.0], [0.775, 1.0], [0.7, 0.455]],
@@ -127,7 +127,7 @@
   "inn": {
     "label": "Inn",
     "flavour": "Warm beds, cold ale and a strict policy on guests who arrive by shovel.",
-    "benefit": "+20 living cap, +0.02/s migrants per level, + morale",
+    "benefit": "+ living cap, + migrants per level, + morale",
     "ink": "living", "light_by": "living", "serves": ["housing", "morale"],
     "strokes": [
       [[0.1, 0.659], [0.1, 1.0], [0.775, 1.0], [0.775, 0.659]],
@@ -145,7 +145,7 @@
   "forge": {
     "label": "Forge",
     "flavour": "Hammers that never tire, swung by arms that never did.",
-    "benefit": "2 forge jobs; forge levels need relics",
+    "benefit": "forge jobs; forge levels need relics",
     "ink": "undead", "light_by": "staffing", "serves": ["quality"],
     "strokes": [
       [[0.062, 0.5], [0.062, 1.0], [0.613, 1.0], [0.613, 0.5]],
@@ -210,7 +210,7 @@
   "chapel_of_vats": {
     "label": "Chapel of Vats",
     "flavour": "Services held hourly. The congregation is still growing.",
-    "benefit": "2 tend jobs: clone vat slots",
+    "benefit": "tend jobs: clone vat slots",
     "ink": "undead", "light_by": "staffing", "serves": ["backups"],
     "strokes": [
       [[0.1, 0.477], [0.1, 1.0], [0.525, 1.0], [0.525, 0.477]],
@@ -246,7 +246,7 @@
   "guildhall": {
     "label": "Guildhall",
     "flavour": "Where the town agrees on things. Minutes are taken, and now and then reanimated.",
-    "benefit": "+1 stance slot",
+    "benefit": "+ stance slot",
     "ink": "town", "light_by": "always", "serves": ["stances"],
     "strokes": [
       [[0.062, 0.5], [0.062, 1.0], [0.938, 1.0], [0.938, 0.5]],
@@ -277,7 +277,7 @@
   "walls": {
     "label": "Walls and Gate",
     "flavour": "Keeps the realm out and the citizens in. Mostly the citizens in.",
-    "benefit": "+30 living cap, + morale; needed for Town",
+    "benefit": "+ living cap, + morale; needed for Town",
     "ink": "town", "light_by": "always", "serves": ["morale", "housing"],
     "strokes": [
       [[0.025, 1.0], [0.025, 0.455], [0.025, 0.455], [0.063, 0.455], [0.063, 0.534], [0.101, 0.534], [0.101, 0.455], [0.139, 0.455], [0.139, 0.534], [0.177, 0.534], [0.177, 0.455], [0.215, 0.455], [0.215, 0.534], [0.253, 0.534], [0.253, 0.455], [0.291, 0.455], [0.291, 0.534], [0.329, 0.534], [0.329, 0.455], [0.367, 0.455], [0.367, 0.455]],
