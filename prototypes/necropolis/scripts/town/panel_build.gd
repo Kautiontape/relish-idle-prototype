@@ -60,6 +60,7 @@ var _card: Control  # the lot card (town_card.gd), a child of the town view
 var _card_lot := ""
 var _card_mode := ""  # "catalog" (an empty lot) | "inspect" (a built lot)
 var _insp_card := {}  # the card's own inspector widgets
+var _reserved := {}  # BuildSort.reserved_lots(): {lot id: gate building} kept free for the next tier
 var _sug_data := {}  # BuildSort.suggest(): the top buildable row
 var _sug_off := false  # the player dismissed the suggestion (kept for the scene's lifetime)
 var _sug_bid := ""  # the suggested building while the suggestion is live
@@ -202,7 +203,8 @@ func bind(views: Dictionary) -> void:
 	_pin.visible = not gate.is_empty()
 	_pin_label.text = String(gate.get("text", ""))
 	var ups := BuildSort.upgrade_items(views, BuildSort.needs(views, names, _vcfg, _bview, _bcfg), _bview, _bcfg, _vcfg)
-	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg, ups)
+	_reserved = BuildSort.reserved_lots(views, _bcfg)
+	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg, ups, _reserved)
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
 	var listed := {}
 	for i in sorted.size():
@@ -722,7 +724,7 @@ func _update_card() -> void:
 		return
 	var items := BuildSort.fitting(_sorted, int(lot.get("size", 1)))
 	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_new_bid(),
-		not _queue_full() and not _queued_lot(_card_lot))
+		not _queue_full() and not _queued_lot(_card_lot), BuildSort.reserved_note(_card_lot, _reserved, _bview, _vcfg))
 
 
 func _on_card_build(bid: String, lot_id: String) -> void:

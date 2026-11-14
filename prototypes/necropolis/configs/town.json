@@ -57,6 +57,7 @@
     "suggest_upgrade_text": "upgrade {label} to L{level}",
     "suggest_upgrade_chip": "suggested: upgrade {lot} to L{level}",
     "suggest_save_text": "save for {label} (~{eta})",
+    "reserved_lot_text": "kept for {label} (next tier)",
     "grow_text": "AUTOPLAY +{h}:{mm} sim, real TownSim (debug): built {n}",
     "zoom_text": "ZOOM ×{scale} (debug)",
     "tab_h": 44,

@@ -110,6 +110,7 @@ func run() -> int:
 	_autoplay(day1, mid)
 	_deep_levels(day1)
 	_upgrade_first(day1)
+	_gate_lots(day1)
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
@@ -3854,6 +3855,97 @@ func _upgrade_first(day1: Dictionary) -> void:
 	pick = BuildSort.autoplay_pick(v, cfg)
 	t.ok(not pick.has("upgrade") and pick["building_id"] == "well", "upgrade first (e): a new build has no upgrade flag (%s)" % str(pick))
 	t.ok(BuildSort.autoplay_why(_up_world(day1, 1, "active"), cfg).find("upgrade") >= 0, "upgrade first: the autoplay log line names the upgrade")
+
+
+# ------------------------------------------------------------ gate-lot reservation ----
+## A quiet town with lots of sizes 3 (lot-A), 1 (lot-B, lot-C), 2 (lot-D), a next tier needing `missing`
+## (walls: lot_size 3, well: lot_size 1) and a catalog where house/well/walls are buildable on every free lot.
+func _gate_world(day1: Dictionary, missing: Array, placed: Array = []) -> Dictionary:
+	var v: Dictionary = day1.duplicate(true)
+	var lots: Array = []
+	for spec in [["lot-A", 3], ["lot-B", 1], ["lot-C", 1], ["lot-D", 2]]:
+		lots.append({"id": spec[0], "size": spec[1], "unlocked": true, "building_id": ""})
+	v["town"]["buildings"] = (v["town"]["buildings"] as Array).filter(func(b): return b["building_id"] == "crypt")
+	for pb in placed:
+		v["town"]["buildings"].append({"lot_id": "lot-D", "building_id": pb, "level": 1, "state": "constructing", "progress": 0.5,
+			"slots": 0, "staffed": 0.0, "staff_cap": -1, "foreman": "", "output": {}, "upkeep": {"gold": 0.0, "bone": 0.0}})
+	v["town"]["lots"] = lots
+	v["town"]["next_tier"] = {"tier": "village", "have": 1, "need": 4, "missing": missing}
+	v["town"]["gold"] = 1000.0
+	v["town"]["bone"] = 1000.0
+	v["town"]["workers"]["idle"] = 0.0
+	v["town"]["workers"]["muster"] = 0.0
+	var rows: Array = []
+	for spec in [["walls", 3], ["well", 1], ["house", 1]]:
+		var r := _row(spec[0], true, "", ["lot-A", "lot-B", "lot-C", "lot-D"].filter(func(l): return int(spec[1]) <= {"lot-A": 3, "lot-B": 1, "lot-C": 1, "lot-D": 2}[l]))
+		r["lot_size"] = spec[1]
+		rows.append(r)
+	v["catalog"] = {"buildings": rows}
+	return v
+
+
+func _gate_lots(day1: Dictionary) -> void:
+	var bc: Dictionary = cfg["buildings"]
+	var v := _gate_world(day1, ["walls", "well"])
+	var rs := BuildSort.reservation(v, bc)
+	t.ok(rs["lots"] == {"lot-A": "walls", "lot-B": "well"} and rs["unfit"].is_empty(),
+		"gate lots: a size-3 and a size-1 gate keep the size-3 lot and the smallest free lot (%s)" % str(rs))
+	t.ok(BuildSort.reserved_lots(v, bc) == rs["lots"], "gate lots: reserved_lots is the reservation's lot map")
+	# hops break a tie between equal-size lots: the nearer one is kept
+	t.ok(BuildSort.reserved_lots(v, bc, {"lot-B": 5, "lot-C": 1}) == {"lot-A": "walls", "lot-C": "well"}, "gate lots: the nearer of two equal lots is kept")
+	# a size not in the catalog falls back to buildings.json
+	var v2 := _gate_world(day1, ["walls"])
+	v2["catalog"]["buildings"] = []
+	t.ok(BuildSort.reserved_lots(v2, {"walls": {"lot_size": 2}}) == {"lot-D": "walls"}, "gate lots: lot size from buildings.json when the catalog lacks the row")
+	# a house suggestion never lands on a reserved lot; the gate building may
+	var bview: Dictionary = cfg["buildings_view"]
+	var nd := BuildSort.needs(v, {}, vcfg, bview, bc)
+	var items := BuildSort.sort_rows(v["catalog"]["buildings"], nd, bview, vcfg)
+	var sug := BuildSort.suggest(items, bview, {}, {}, [], rs["lots"])
+	t.ok(not sug.is_empty() and sug["building_id"] in ["walls", "well"], "gate lots: the tier need leads (%s)" % str(sug))
+	for l in sug["lots"]:
+		t.ok(not rs["lots"].has(l) or rs["lots"][l] == sug["building_id"], "gate lots: the %s suggestion offers only lots free of other gates' (%s)" % [sug["building_id"], l])
+	var house_only := items.filter(func(i): return i["row"]["building_id"] == "house")
+	var hs := BuildSort.suggest(house_only, bview, {}, {}, [], rs["lots"])
+	t.ok(hs["lots"] == ["lot-C", "lot-D"], "gate lots: a house is never offered the reserved lots (%s)" % str(hs))
+	var well_only := items.filter(func(i): return i["row"]["building_id"] == "well")
+	t.ok(BuildSort.suggest(well_only, bview, {}, {}, [], rs["lots"])["lots"] == ["lot-B", "lot-C", "lot-D"],
+		"gate lots: the gate building keeps its own reserved lot and the free ones, loses the other gate's")
+	var walls_only := items.filter(func(i): return i["row"]["building_id"] == "walls")
+	t.ok(BuildSort.suggest(walls_only, bview, {}, {}, [], rs["lots"])["lots"] == ["lot-A"], "gate lots: walls may take its reserved lot")
+	# the fallback (no live need) skips them: with the tier need gone only a house is buildable
+	var v3 := _gate_world(day1, ["walls", "well"])
+	v3["catalog"]["buildings"] = v3["catalog"]["buildings"].filter(func(r): return r["building_id"] == "house")
+	var pick := BuildSort.autoplay_pick(v3, cfg)
+	t.ok(not pick.is_empty() and pick["building_id"] == "house" and pick["lot_id"] in ["lot-C", "lot-D"],
+		"gate lots: autoplay's house skips the reserved lots (%s)" % str(pick))
+	t.ok(BuildSort.autoplay_why(v3, cfg).find("reserved=lot-A:walls,lot-B:well") >= 0, "gate lots: the autoplay log names the reserved lots (%s)" % BuildSort.autoplay_why(v3, cfg))
+	# all non-gate lots reserved or taken: the house has no lot at all
+	var v4 := _gate_world(day1, ["walls", "well"])
+	v4["town"]["lots"] = v4["town"]["lots"].slice(0, 2)
+	v4["catalog"]["buildings"] = v4["catalog"]["buildings"].filter(func(r): return r["building_id"] == "house")
+	v4["catalog"]["buildings"][0]["lots"] = ["lot-A", "lot-B"]
+	t.ok(BuildSort.autoplay_pick(v4, cfg).is_empty(), "gate lots: a house with only reserved lots left gets none")
+	# a gate that fits no free lot reserves nothing and autoplay_why says so
+	var v5 := _gate_world(day1, ["walls"])
+	v5["town"]["lots"] = v5["town"]["lots"].filter(func(l): return l["id"] != "lot-A")
+	rs = BuildSort.reservation(v5, bc)
+	t.ok(rs["lots"].is_empty() and rs["unfit"] == ["walls"], "gate lots: a gate no free lot fits reserves nothing and is listed unfit (%s)" % str(rs))
+	t.ok(BuildSort.autoplay_why(v5, cfg).find("no_lot_for_gate=walls") >= 0, "gate lots: autoplay_why says the gate has no lot")
+	# nothing reserved: empty next_tier (top tier), no missing, built or constructing gates
+	var v6 := _gate_world(day1, [])
+	t.ok(BuildSort.reserved_lots(v6, bc).is_empty(), "gate lots: nothing missing reserves nothing")
+	v6["town"]["next_tier"] = {}
+	t.ok(BuildSort.reserved_lots(v6, bc).is_empty(), "gate lots: an empty next_tier (top tier) reserves nothing")
+	v6 = _gate_world(day1, ["walls", "well"], ["walls"])
+	t.ok(BuildSort.reserved_lots(v6, bc) == {"lot-A": "well"} or BuildSort.reserved_lots(v6, bc).keys() == ["lot-B"],
+		"gate lots: a gate under construction reserves nothing, the other still does (%s)" % str(BuildSort.reserved_lots(v6, bc)))
+	t.ok(not BuildSort.reserved_lots(v6, bc).values().has("walls"), "gate lots: the constructing walls keeps no lot")
+	v6 = _gate_world(day1, ["walls", "well"], ["walls", "well"])
+	t.ok(BuildSort.reserved_lots(v6, bc).is_empty(), "gate lots: every gate placed reserves nothing")
+	# the lot card note
+	t.ok(BuildSort.reserved_note("lot-A", rs, bview, vcfg) == "" and BuildSort.reserved_note("lot-A", {"lot-A": "walls"}, bview, vcfg) == "kept for %s (next tier)" % BuildSort.label_of("walls", bview),
+		"gate lots: the empty lot card names the gate the lot is kept for")
 
 
 # ------------------------------------------------------- sound and set pieces ----

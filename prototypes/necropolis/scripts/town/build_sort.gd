@@ -254,8 +254,8 @@ static func fitting(items: Array, lot_size: int) -> Array:
 ## (shortage / net rate) is within view.suggest_wait_s, the suggestion is that row, labelled "save for
 ## <Label> (~70 s)" with `save: true` and `eta_s`, instead of a lower-ranked buildable one. A stream
 ## that isn't flowing, or a longer wait, falls back to the plain rule.
-static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}, upgrades: Array = []) -> Dictionary:
-	var items := _with_upgrades(items_in, upgrades)
+static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}, upgrades: Array = [], reserved: Dictionary = {}) -> Dictionary:
+	var items := _with_upgrades(_without_reserved(items_in, reserved), upgrades)
 	if not st.is_empty() and not vcfg.is_empty():
 		var saving := _save_for(items, bview, st, vcfg)
 		if not saving.is_empty():
@@ -281,6 +281,84 @@ static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcf
 	if bool(best.get("upgrade", false)):
 		return _upgrade_suggestion(best, bview, vcfg, {"building_id": bid, "lots": (brow["lots"] as Array).duplicate()})
 	return {"building_id": bid, "label": label_of(bid, bview), "lots": (brow["lots"] as Array).duplicate()}
+
+
+## `items` with the lots reserved for another building (`reserved` = reserved_lots: {lot id: building id})
+## taken out of every row's `lots`: only the gate building itself keeps its reserved lot. Rows are copied,
+## the input is not touched. Nothing reserved: `items` as is.
+static func _without_reserved(items: Array, reserved: Dictionary) -> Array:
+	if reserved.is_empty():
+		return items
+	var out: Array = []
+	for it in items:
+		var row: Dictionary = it["row"]
+		var bid := String(row.get("building_id", ""))
+		var lots: Array = (row.get("lots", []) as Array).filter(func(l): return not reserved.has(String(l)) or String(reserved[String(l)]) == bid)
+		if lots.size() == (row.get("lots", []) as Array).size():
+			out.append(it)
+			continue
+		var c: Dictionary = it.duplicate()
+		var r: Dictionary = row.duplicate()
+		r["lots"] = lots
+		c["row"] = r
+		out.append(c)
+	return out
+
+
+## The lots the suggestion keeps free for the next tier's gate buildings: `view_town().next_tier.missing`
+## (the same list the tier need reads) minus the buildings already placed (built or under construction).
+## Each unplaced gate building gets one free unlocked lot of at least its lot size (the catalog row's
+## `lot_size`, else buildings.json `bcfg`), the biggest buildings first, each taking the smallest fitting
+## lot not yet taken, then the nearest the crypt (`nearest_lot` with `hops`). {lots: {lot id: building id},
+## unfit: Array[building id]}: `unfit` buildings found no lot, so nothing is kept for them.
+static func reservation(views: Dictionary, bcfg: Dictionary, hops: Dictionary = {}) -> Dictionary:
+	var town: Dictionary = views.get("town", {})
+	var placed := {}
+	for pb in town.get("buildings", []):
+		placed[String(pb.get("building_id", ""))] = true
+	var size_of := {}
+	for r in views.get("catalog", {}).get("buildings", []):
+		size_of[String(r.get("building_id", ""))] = int(r.get("lot_size", 1))
+	var gates: Array = []
+	for m in town.get("next_tier", {}).get("missing", []):
+		var bid := String(m)
+		if not placed.has(bid) and not bid in gates:
+			gates.append(bid)
+	gates.sort_custom(func(a, b): return _gate_size(a, size_of, bcfg) > _gate_size(b, size_of, bcfg))  # stable order kept on ties
+	var sizes := {}
+	var free: Array = []
+	for l in town.get("lots", []):
+		sizes[String(l.get("id", ""))] = int(l.get("size", 1))
+		if bool(l.get("unlocked", false)) and String(l.get("building_id", "")) == "":
+			free.append(String(l.get("id", "")))
+	var out := {"lots": {}, "unfit": []}
+	for bid in gates:
+		var need := _gate_size(bid, size_of, bcfg)
+		var cands: Array = free.filter(func(l): return int(sizes[l]) >= need and not (out["lots"] as Dictionary).has(l))
+		var lot := nearest_lot(cands, hops, sizes)
+		if lot == "":
+			(out["unfit"] as Array).append(bid)
+		else:
+			out["lots"][lot] = bid
+	return out
+
+
+## `reservation(...).lots`: {lot id: gate building id}.
+static func reserved_lots(views: Dictionary, bcfg: Dictionary, hops: Dictionary = {}) -> Dictionary:
+	return reservation(views, bcfg, hops)["lots"]
+
+
+static func _gate_size(bid: String, size_of: Dictionary, bcfg: Dictionary) -> int:
+	if size_of.has(bid):
+		return int(size_of[bid])
+	return int((bcfg.get(bid, {}) as Dictionary).get("lot_size", 1))
+
+
+## `reserved_lots` joined as the empty lot card's note (view.reserved_lot_text), "" for a lot kept for no one.
+static func reserved_note(lot_id: String, reserved: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	if not reserved.has(lot_id):
+		return ""
+	return fmt(String(vcfg.get("reserved_lot_text", "")), {"label": label_of(String(reserved[lot_id]), bview)})
 
 
 ## `items` with the upgrade candidates (upgrade_items) merged in: the same order as sort_rows (class, then
@@ -472,23 +550,31 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
 	var items := sort_rows(rows, nd, bview, vcfg)
 	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
-	var sug := suggest(items, bview, stocks(views), vcfg, ups)
+	var maps := _lot_maps(views, cfgs)
+	var reserved := reserved_lots(views, cfgs.get("buildings", {}), maps["hops"])
+	var sug := suggest(items, bview, stocks(views), vcfg, ups, reserved)
 	if sug.is_empty() or bool(sug.get("save", false)):
 		return {}
 	if bool(sug.get("upgrade", false)):  # upgrade the building on its own lot
 		return {"building_id": sug["building_id"], "lot_id": sug["lot_id"], "upgrade": true}
+	var lot_id := nearest_lot(sug["lots"], maps["hops"], maps["sizes"])
+	if lot_id == "":
+		return {}
+	return {"building_id": sug["building_id"], "lot_id": lot_id}
+
+
+## {hops, sizes}: {lot id: street distance from the crypt} and {lot id: size}, from the town model.
+static func _lot_maps(views: Dictionary, cfgs: Dictionary) -> Dictionary:
+	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var ref: Array = vcfg.get("ref_px", [1600, 900])
-	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))
+	var model := TownModel.new(cfgs.get("town", {}), cfgs.get("buildings_view", {}), cfgs.get("buildings", {}), cfgs.get("economy", {}))
 	model.update(views, Rect2(0, 0, float(ref[0]), float(ref[1])))
 	var hops := {}
 	var sizes := {}
 	for l in model.lots:
 		hops[String(l["id"])] = l["hops"]
 		sizes[String(l["id"])] = l["size"]
-	var lot_id := nearest_lot(sug["lots"], hops, sizes)
-	if lot_id == "":
-		return {}
-	return {"building_id": sug["building_id"], "lot_id": lot_id}
+	return {"hops": hops, "sizes": sizes}
 
 
 ## Debug (the autoplay log): why the suggestion is what it is, as one line:
@@ -499,22 +585,31 @@ static func autoplay_why(views: Dictionary, cfgs: Dictionary) -> String:
 	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
 	var items := sort_rows(views.get("catalog", {}).get("buildings", []), nd, bview, vcfg)
 	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
-	var sug := suggest(items, bview, stocks(views), vcfg, ups)
+	var rsv := reservation(views, cfgs.get("buildings", {}), _lot_maps(views, cfgs)["hops"])
+	var sug := suggest(items, bview, stocks(views), vcfg, ups, rsv["lots"])
+	var kept := ""
+	if not (rsv["lots"] as Dictionary).is_empty() or not (rsv["unfit"] as Array).is_empty():
+		var parts: Array = []
+		for l in rsv["lots"]:
+			parts.append("%s:%s" % [l, rsv["lots"][l]])
+		kept = " reserved=%s" % ",".join(parts)
+		if not (rsv["unfit"] as Array).is_empty():
+			kept += " no_lot_for_gate=%s" % ",".join(rsv["unfit"])
 	if sug.is_empty():
 		var blocked := []
 		for it in items + ups:
 			if String(it["need"]) != "":
 				var r: Dictionary = it["row"]
 				blocked.append("%s%s:%s%s" % ["up:" if bool(it.get("upgrade", false)) else "", r.get("building_id", ""), r.get("reason", "ok") if not bool(r.get("can_build", false)) else "buildable", "(nolot)" if (r.get("lots", []) as Array).is_empty() else ""])
-		return "none needs=%s blocked=%s" % [",".join(nd.map(func(n): return String(n["id"]))), ",".join(blocked)]
+		return "none needs=%s blocked=%s%s" % [",".join(nd.map(func(n): return String(n["id"]))), ",".join(blocked), kept]
 	var need := "none"
 	var is_up := bool(sug.get("upgrade", false))
 	for it in items + ups:
 		if String(it["row"].get("building_id", "")) == String(sug["building_id"]) and bool(it.get("upgrade", false)) == is_up:
 			need = String(it["need"]) if String(it["need"]) != "" else "none"
-	return "%s%s%s need=%s needs=%s" % [sug["building_id"], (" upgrade->L%d@%s" % [int(sug["level"]), sug["lot_id"]]) if is_up else "",
+	return "%s%s%s need=%s needs=%s%s" % [sug["building_id"], (" upgrade->L%d@%s" % [int(sug["level"]), sug["lot_id"]]) if is_up else "",
 		(" SAVE eta=%d" % int(sug.get("eta_s", 0))) if bool(sug.get("save", false)) else "",
-		need, ",".join(nd.map(func(n): return String(n["id"])))]
+		need, ",".join(nd.map(func(n): return String(n["id"]))), kept]
 
 
 ## A row can be queued: not gated and it has a lot to take.

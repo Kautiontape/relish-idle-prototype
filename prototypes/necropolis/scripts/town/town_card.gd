@@ -122,9 +122,10 @@ func _set_hover(bid: String) -> void:
 
 ## The catalog form: `items` are BuildSort.sort_rows() items already limited to those that fit the
 ## lot; `st` is BuildSort.stocks(); `suggested` the suggested building id; `queue_free` tells
-## whether a queue slot is free for this lot.
-func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, suggested: String, queue_free: bool) -> void:
-	_title.text = "Empty lot (size %d)" % lot_size
+## whether a queue slot is free for this lot. `note` (BuildSort.reserved_note) is the line under the title
+## when the suggestion keeps the lot for the next tier's gate building.
+func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, suggested: String, queue_free: bool, note := "") -> void:
+	_title.text = "Empty lot (size %d)" % lot_size + ("\n" + note if note != "" else "")
 	_rows_box.visible = true
 	insp_host.visible = false
 	var shown := {}
