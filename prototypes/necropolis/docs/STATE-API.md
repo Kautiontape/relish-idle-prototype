@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 4)
+# Necropolis: GameState API (api_version 5)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -30,6 +30,11 @@ from `BALANCE.md` §0.
     #15), and `pool_overflow` is no longer always 0 since the march-back (§4.7): a meaning change,
     not a shape change;
   - **removed:** the non-contract legacy teleport helper on `GameState` (§2.2).
+
+  `api_version` 5 (E2b-2; later E2b-2 tasks add to this entry) added:
+  - `view_staffing_projection(order, vats = {})` (§5.16, api-request #16): TownSim's own staffing
+    allocation run with another job order. Its `vats` override has no effect yet (E2b-2 T4.P's vat
+    rule makes it real).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -84,7 +89,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 4
+const API_VERSION := 5
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -527,6 +532,8 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
 - **Extras:** `order: Array[String]`.
 - **Reasons:** `unknown_job`, `duplicate_job`, `missing_job`.
 - **Effect (E2a):** TownSim's workers refill the job slots in this order at once.
+  `view_staffing_projection(order)` (§5.16) shows the staffing it would give before you send it, and
+  refuses an `order` with the same reasons.
 ```gdscript
 Game.state.cmd_set_job_priority(["haul", "build", "pit", "stall", "mill", "forge", "tend"])
 # -> {ok: true, reason: "", order: ["haul", "build", "pit", "stall", "mill", "forge", "tend"]}
@@ -1308,6 +1315,42 @@ while a warning is pending.
 ### 5.15 `view_dungeon_seed(fort_id: String)`, `view_boss_seed()` · E1
 These return the open run's seed (§7), identical to what `cmd_begin_*` returned. They return `{}`
 when no run of that kind is open at that fort.
+
+### 5.16 `view_staffing_projection(order: Array, vats: Dictionary = {})` · E2b (api_version 5, api-request #16)
+TownSim's own staffing allocation (`TownSim.staff_allocate`, the one `_restaff` runs every step)
+on today's workforce, buildings and staff caps, with the job order replaced by `order`. Stances
+change the order the same way they change the ladder's (`ladder_effective`, E3). The town uses it
+to show what a ladder drag or a vat toggle would do before it is sent, so the preview never drifts
+from the sim's rule.
+- **Args:** `order`, a permutation of `JOB_IDS`, top first (`cmd_set_job_priority`'s argument);
+  `vats` (optional), `{slot: bool}` with int slots: each listed vat counts as staffed (`true`) or not
+  (`false`) instead of its `view_backups` state; slots it doesn't list keep theirs, and a slot with no
+  vat is ignored. **Until E2b-2 T4.P's vat rule, `vats` is accepted and has no effect.**
+- **Pure:** nothing changes, `rev` stays, and no event is queued. Like every view it is a fresh deep
+  copy carrying `rev`.
+- **Refusals:** an `order` that `cmd_set_job_priority` would refuse gives its reason (`unknown_job`,
+  `duplicate_job`, `missing_job`, in that check order) with `jobs` and `buildings` `[]` and `idle`
+  0.0.
+
+| key | type | meaning |
+|---|---|---|
+| `jobs` | Array[Dictionary] | `{id: String, slots: int, staffed: float}`: the jobs with slots, in the effective order of `order`, as `view_town().jobs` lists them in `ladder_effective` order |
+| `buildings` | Array[Dictionary] | `{lot_id: String, staffed: float}`: every built lot, in `view_town().buildings` order |
+| `idle` | float | the workers left over (`view_town().workers.idle`) |
+| `reason` | String | `""`, or the refusal above |
+
+With `order` equal to today's `ladder_effective` and no `vats`, `jobs`, each `buildings[].staffed`
+and `idle` equal `view_town()`'s exactly. With another order they equal what `view_town()` shows
+after `cmd_set_job_priority(order)`.
+```gdscript
+Game.state.view_staffing_projection(["build", "haul", "pit", "mill", "stall", "forge", "tend"])
+# -> {rev: 812, jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0},
+#     {id: "mill", slots: 2, staffed: 2.0}, {id: "stall", slots: 2, staffed: 0.4}],
+#     buildings: [{lot_id: "lot-01", staffed: 0.0}, {lot_id: "lot-02", staffed: 2.0}, {lot_id: "lot-03", staffed: 3.0},
+#                 {lot_id: "lot-04", staffed: 0.4}, {lot_id: "lot-07", staffed: 2.0}], idle: 0.0, reason: ""}
+Game.state.view_staffing_projection(["haul", "pit"])
+# -> {rev: 812, jobs: [], buildings: [], idle: 0.0, reason: "missing_job"}
+```
 
 ## 6. Events
 

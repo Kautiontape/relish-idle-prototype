@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 4
+const API_VERSION := 5
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -649,25 +649,28 @@ func cmd_cancel_build(lot_id: String) -> Dictionary:
 
 ## The ladder, a permutation of JOB_IDS, top first: TownSim's workers fill job slots in this order.
 func cmd_set_job_priority(order: Array) -> Dictionary:
-	var why := ""
-	for j in order:
-		if not (typeof(j) == TYPE_STRING or typeof(j) == TYPE_STRING_NAME) or not JOB_IDS.has(str(j)):
-			why = "unknown_job"
-			break
-	var seen := {}
-	if why == "":
-		for j in order:
-			if seen.has(str(j)):
-				why = "duplicate_job"
-				break
-			seen[str(j)] = true
-	if why == "" and seen.size() < JOB_IDS.size():
-		why = "missing_job"
+	var why := _job_order_reason(order)
 	if why != "":
 		return {"ok": false, "reason": why, "order": []}
 	town_sim.set_ladder(order)
 	rev += 1
 	return {"ok": true, "reason": "", "order": town_sim.ladder.duplicate()}
+
+
+## Why cmd_set_job_priority refuses `order` (unknown_job, duplicate_job, missing_job, checked in that
+## order), or "" for a permutation of JOB_IDS. view_staffing_projection refuses with the same.
+func _job_order_reason(order: Array) -> String:
+	for j in order:
+		if not (typeof(j) == TYPE_STRING or typeof(j) == TYPE_STRING_NAME) or not JOB_IDS.has(str(j)):
+			return "unknown_job"
+	var seen := {}
+	for j in order:
+		if seen.has(str(j)):
+			return "duplicate_job"
+		seen[str(j)] = true
+	if seen.size() < JOB_IDS.size():
+		return "missing_job"
+	return ""
 
 
 ## A lot's staff cap (-1 = none) for TownSim's staffing. A cap above the slots is accepted.
@@ -1124,6 +1127,14 @@ func view_villages() -> Dictionary:
 ## morale and its factors, the stocks and caps, trade, the convoy. Stances (ladder_effective) are E3.
 func view_town() -> Dictionary:
 	return StateViews.town(self)
+
+
+## §5.16 · E2b (api_version 5, api-request #16): TownSim's own staffing allocation on today's workforce,
+## buildings and staff caps, with the job order replaced by `order` (stances applied the same way) and
+## the vats in `vats` ({slot: bool}) overriding the staffed ones. Pure: changes nothing, no rev bump.
+## An `order` cmd_set_job_priority would refuse gives its reason with empty jobs and buildings.
+func view_staffing_projection(order: Array, vats: Dictionary = {}) -> Dictionary:
+	return StateViews.staffing_projection(self, order, vats)
 
 
 ## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating.

@@ -99,7 +99,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - **Relish:** `view_relish()`: state, pos, target, heading, `dead_s_left`, phylactery charges,
   clones ready, `can_descend` and the reason.
 - **Town:** `view_town()`, `view_catalog()` (each building with cost, `can_build` and the reason),
-  `view_stances()`, `view_backups()` (including "what a death would cost right now").
+  `view_stances()`, `view_backups()` (including "what a death would cost right now"),
+  `view_staffing_projection(order, vats)` (the staffing another job order would give; E2b-2).
 - **Inventory:** `view_inventory()` (uids for everything), `view_big_undead()`, `view_party()`.
 - **Vei:** `view_vei()`: backlog, diff, sign, drain_s, odds, fronts `[{id, need, have}]`, the next
   tithe wave's ETA and target.
@@ -689,6 +690,11 @@ upgrade refunds in full and changes nothing else.
 - **The job ladder:** an ordered list of jobs. Workers fill slots top-down. The player drags to
   reorder (`cmd_set_job_priority`), and can cap a building's staffing. That is "how the undead are
   behaving on auto".
+- **One allocation** (E2b-2 T4.P): the fill is a pure function of the effective ladder (the ladder
+  after stances), each lot's building, state, level and staff cap, the building defs and the
+  workforce (`TownSim.staff_allocate`). Every restaff runs it, and so does
+  `view_staffing_projection` (STATE-API §5.16) with another order, so a preview never drifts from
+  the staffing it previews.
 - **Stances:** named, pre-written behaviours the player toggles. Slots: `stance.base_slots` (2), plus
   the Guildhall, plus 1 while Relish is home. Each shows its projected effect on net rates before you
   toggle it. None touches the valve (one controller per dial).

@@ -813,23 +813,42 @@ static func _covers(v: float, rate: float, need: float, at: float) -> Array:
 
 
 # --------------------------------------------------------- the job ladder ----
-## Workers fill job slots top-down in ladder order, buildings in lot order, each lot up to its
-## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
-## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` only.
-func _staff() -> void:
+## The order the workers fill the jobs in: `order` after stances (MECHANICS §4.5). Stances are E3;
+## until then it is `order` itself. `_staff()`, view_town's `ladder_effective` and the staffing
+## projection (STATE-API §5.16) all read it, so they apply the stances the same way.
+func effective_ladder(order: Array) -> Array:
+	return order.duplicate()
+
+
+## The staffing allocation (MECHANICS §4.5), pure on its inputs: staff_rooms() then staff_fill().
+## `_staff()` and the projection (project_staffing) both run it; nothing else fills rooms.
+static func staff_allocate(order: Array, lots: Array, buildings_in: Dictionary, defs: Dictionary, build_slots: int,
+		w: float, vats: Array) -> Dictionary:
+	return staff_fill(staff_rooms(order, lots, buildings_in, defs, build_slots, vats), w)
+
+
+## The allocation's rooms, which don't depend on the workforce. Jobs in `order` (the effective
+## ladder; an id outside JOBS or one already seen is skipped), lots in `lots` order: each lot offers
+## a job its slots (_slots_b), cut to what its staff cap leaves after the jobs above it.
+## `buildings_in` is lot_id -> {building_id, state, level, staff_cap}, `defs` the building defs,
+## `build_slots` job.build.slots. `_vats` (staffed, per vat slot) is accepted for the vat rule and
+## has no effect yet. Returns {rooms: [[lot_id, job, room]] in fill order, jobs: {job: slots} in
+## order, slots: Σ room (the staffable workers)}.
+static func staff_rooms(order: Array, lots: Array, buildings_in: Dictionary, defs: Dictionary, build_slots: int,
+		_vats: Array) -> Dictionary:
 	var used := {}
 	var rooms: Array = []  # [lot_id, job, room] in fill order
 	var jobs := {}
 	var total := 0.0
-	for job in ladder:
+	for job in order:
 		if not JOBS.has(job) or jobs.has(job):
 			continue
 		var n := 0
-		for lot_id in _lots:
-			var b: Dictionary = buildings.get(lot_id, {})
+		for lot_id in lots:
+			var b: Dictionary = buildings_in.get(lot_id, {})
 			if b.is_empty():
 				continue
-			var k := _slots(b, job)
+			var k := _slots_b(b, job, defs, build_slots)
 			if k <= 0:
 				continue
 			n += k
@@ -839,19 +858,50 @@ func _staff() -> void:
 			used[lot_id] = float(used.get(lot_id, 0.0)) + room
 			rooms.append([lot_id, job, room])
 			total += room
-		jobs[job] = {"slots": n, "staffed": 0.0}
-	var left := maxf(0.0, workers)
+		jobs[job] = n
+	return {"rooms": rooms, "jobs": jobs, "slots": total}
+
+
+## Fills staff_rooms()' rooms top-down with `w` workers. Returns {staffing, by_lot}: what `staffing`
+## ({jobs: {job: {slots, staffed}} in order, lots: {lot_id: staffed}, idle, slots}) and `_by_lot`
+## (lot_id -> {job: staffed}) hold.
+static func staff_fill(r: Dictionary, w: float) -> Dictionary:
+	var jobs := {}
+	var slots: Dictionary = r["jobs"]
+	for job in slots:
+		jobs[job] = {"slots": slots[job], "staffed": 0.0}
+	var left := maxf(0.0, w)
 	var lots := {}
-	_by_lot = {}
-	for e in rooms:
+	var by_lot := {}
+	for e in r["rooms"]:
 		var take := minf(float(e[2]), left)
 		left -= take
 		jobs[e[1]]["staffed"] = float(jobs[e[1]]["staffed"]) + take
 		lots[e[0]] = float(lots.get(e[0], 0.0)) + take
-		if not _by_lot.has(e[0]):
-			_by_lot[e[0]] = {}
-		_by_lot[e[0]][e[1]] = float(_by_lot[e[0]].get(e[1], 0.0)) + take
-	staffing = {"jobs": jobs, "lots": lots, "idle": left, "slots": total}
+		if not by_lot.has(e[0]):
+			by_lot[e[0]] = {}
+		by_lot[e[0]][e[1]] = float(by_lot[e[0]].get(e[1], 0.0)) + take
+	return {"staffing": {"jobs": jobs, "lots": lots, "idle": left, "slots": r["slots"]}, "by_lot": by_lot}
+
+
+## Workers fill job slots top-down in ladder order (effective_ladder), buildings in lot order, each lot up to its
+## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
+## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` and `_by_lot` only.
+func _staff() -> void:
+	var a := staff_allocate(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, workers, [])
+	staffing = a["staffing"]
+	_by_lot = a["by_lot"]
+
+
+## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
+## effective_ladder, as `_staff()` applies them) on today's workforce, buildings and staff caps. Pure:
+## changes nothing. `_vat_override` ({slot: bool}) overrides the staffed vats; it has no effect until
+## the vat rule. Returns staff_fill()'s {staffing, by_lot}.
+func project_staffing(order: Array, _vat_override: Dictionary) -> Dictionary:
+	var o: Array = []
+	for j in order:
+		o.append(str(j))
+	return staff_allocate(effective_ladder(o), _lots, buildings, _defs, _build_slots, workers, [])
 
 
 ## `_staff()`, then marks working buildings that have job slots `active` (someone staffed) or
@@ -872,15 +922,25 @@ func _restaff() -> void:
 ## A building at work: built and paid, or built and mid-upgrade (it keeps working at its old level
 ## until the upgrade completes; a first build, level 0, never works).
 func _works(b: Dictionary) -> bool:
+	return _works_b(b)
+
+
+static func _works_b(b: Dictionary) -> bool:
 	return WORKING.has(b["state"]) or (b["state"] == "constructing" and int(b["level"]) >= 1)
 
 
 func _slots(b: Dictionary, job: String) -> int:
+	return _slots_b(b, job, _defs, _build_slots)
+
+
+## The slots a building offers a job (MECHANICS §4.2): its def's jobs × level while it works,
+## job.build.slots build slots while it is constructing, none while unpaid.
+static func _slots_b(b: Dictionary, job: String, defs: Dictionary, build_slots: int) -> int:
 	if job == "build":
-		return _build_slots if b["state"] == "constructing" else 0
-	if not _works(b):
+		return build_slots if b["state"] == "constructing" else 0
+	if not _works_b(b):
 		return 0
-	return int(_defs[b["building_id"]]["jobs"].get(job, 0)) * int(b["level"])
+	return int(defs[b["building_id"]]["jobs"].get(job, 0)) * int(b["level"])
 
 
 func _job(job: String) -> float:
