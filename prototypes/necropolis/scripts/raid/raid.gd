@@ -527,7 +527,7 @@ func collect_pickup(pk: RaidPickup) -> void:
 
 ## Pickups still lying on the floor (lost if the run ends now).
 func pickups_left() -> int:
-	return get_tree().get_nodes_in_group("raid_pickups").size()
+	return get_tree().get_node_count_in_group("raid_pickups")
 
 
 func nearest_ally_of(pos: Vector2):

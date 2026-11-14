@@ -26,6 +26,7 @@ var _lunge_flash := 0.0
 var _hunting_undead := false   # this frame's target is an undead, not Relish
 var _lock_undead := false      # the locked lunge is aimed at an undead: it cannot catch
 var _route: RaidRoute = null   # stalk steering (the goal is leash-clamped, so it is a direct line today)
+var _hud_key := -1             # catches, hunting-undead and stunned as the HUD line was last set from
 
 
 func _on_wake() -> void:
@@ -217,8 +218,11 @@ func _advance_dash(delta: float) -> void:
 		_dashing = false
 
 
+## The HUD line, set only when what it says changes (it is asked every physics frame).
 func _update_hud() -> void:
-	if raid.hud != null:
+	var key := catches * 4 + (2 if _hunting_undead else 0) + (1 if is_stunned() else 0)
+	if raid.hud != null and key != _hud_key:
+		_hud_key = key
 		raid.hud.set_warden_line("CAUGHT %d%s%s" % [catches, "   HUNTING YOUR DEAD" if _hunting_undead else "",
 			"   INTERCEPTED" if is_stunned() else ""],
 			"undead" if is_stunned() else "danger")

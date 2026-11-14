@@ -19,6 +19,7 @@ var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
 var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
+var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
 var _boss_block: Control = null
 
@@ -176,13 +177,19 @@ func refresh() -> void:
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
-		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now
-		var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
-		var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, raid.carried_count(), raid.endings.banked)
-		st.banked_text = _loot_line(bk)
-		st.unbanked_text = _loot_line(ub)
-		st.unbanked_n = int(ub["total"])
-		st.floor_n = raid.pickups_left()
+		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
+		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
+		var carried: int = raid.carried_count()
+		var floor_n: int = raid.pickups_left()
+		if _loot_key.is_empty() or not is_same(_loot_key[0], raid.endings.banked) or not is_same(_loot_key[1], raid.found_loot) \
+				or int(_loot_key[2]) != carried or int(_loot_key[3]) != floor_n:
+			_loot_key = [raid.endings.banked, raid.found_loot, carried, floor_n]
+			var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
+			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
+			st.banked_text = _loot_line(bk)
+			st.unbanked_text = _loot_line(ub)
+			st.unbanked_n = int(ub["total"])
+			st.floor_n = floor_n
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true

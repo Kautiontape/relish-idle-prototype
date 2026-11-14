@@ -8,6 +8,7 @@ extends Node2D
 var raid: Node = null
 var _t := 0.0
 var _ring := {"ok": false}
+var _pts: Array = []   # the loose motes' positions, refilled in place each trance frame
 
 
 func _ready() -> void:
@@ -26,11 +27,15 @@ func _process(delta: float) -> void:
 		and raid.relish != null and is_instance_valid(raid.relish)
 	if on:
 		var c := _cfg()
-		var pts: Array = []
-		for o in get_tree().get_nodes_in_group("raid_essence"):
+		var motes := get_tree().get_nodes_in_group("raid_essence")
+		_pts.resize(motes.size())   # sizes within its capacity reuse the storage
+		var k := 0
+		for o in motes:
 			if is_instance_valid(o) and not o.absorbing:
-				pts.append(o.global_position)
-		_ring = RaidLogic.ghost_ring(pts, raid.relish.global_position, float(c.get("reach_px", 300.0)),
+				_pts[k] = o.global_position
+				k += 1
+		_pts.resize(k)
+		_ring = RaidLogic.ghost_ring(_pts, raid.relish.global_position, float(c.get("reach_px", 300.0)),
 			float(c.get("pad_px", 14.0)))
 		on = bool(_ring["ok"])
 	visible = on
