@@ -136,8 +136,19 @@ func _cache_holds(t: TestUtil) -> void:
 	t.ok(Synth._cache.is_empty() and Synth._holds == 0, "the last release clears the cache")
 	Synth.release()  # an unmatched release (a Synth freed before _ready) is harmless
 	t.ok(Synth._holds == 0, "holds never go negative")
-	var src := FileAccess.get_file_as_string("res://scripts/fx/synth.gd")
-	t.ok(src.contains("NOTIFICATION_PREDELETE") and src.contains("release()"), "a Synth releases its hold when it is freed")
+	# a real Synth: it takes a hold when it readies and releases it when freed
+	# (suites run in the runner's _init, before any tree exists, so _ready is called directly)
+	var s := Synth.new()
+	s._ready()  # retain
+	t.ok(Synth._holds == 1, "a live Synth holds the cache")
+	Synth._cache["probe"] = AudioStreamWAV.new()
+	s.free()  # PREDELETE: release, and it was the last holder
+	t.ok(Synth._holds == 0 and Synth._cache.is_empty(), "freeing the last live Synth clears the cache")
+	var s2 := Synth.new()
+	Synth.retain()  # someone else (the router) holds it
+	s2.free()  # never readied: it took no hold, so it releases none
+	t.ok(Synth._holds == 1, "a Synth freed before _ready releases nothing")
+	Synth.release()
 
 
 func _cache_config(t: TestUtil, c: Dictionary) -> void:
