@@ -241,7 +241,7 @@ func _draw_glyph(col: Color) -> void:
 	if dim:
 		draw_arc(Vector2.ZERO, r, -h, h, 28, col, 3.0)
 	else:
-		LineGlow.arc(self, Vector2.ZERO, r, -h, h, col, 5.0, 0.8, Palette.c("text", 0.9))
+		LineGlow.arc(self, Vector2.ZERO, r, -h, h, col, 6.5, 0.8, Palette.c("text", 0.9))
 	# plates behind the shield: one per phase left beyond the first (the innermost falls away first)
 	var n := rings_left()
 	var plate := col
@@ -261,10 +261,10 @@ func _draw_glyph(col: Color) -> void:
 	var bh := deg_to_rad(float(spec.get("attack", {}).get("back_half_deg", 50.0)))
 	var dashes := maxi(3, int(2.0 * bh * r / 12.0))
 	var bcol := col
-	bcol.a *= 0.7
+	bcol.a *= 0.85
 	for k in dashes:
 		var a0 := PI - bh + 2.0 * bh * float(k) / float(dashes)
-		draw_arc(Vector2.ZERO, r, a0, a0 + 2.0 * bh / float(dashes) * 0.55, 4, bcol, 2.0)
+		draw_arc(Vector2.ZERO, r, a0, a0 + 2.0 * bh / float(dashes) * 0.55, 4, bcol, 3.0)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -308,14 +308,16 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		var to: Vector2 = u.global_position - global_position
 		ci.draw_line(to.normalized() * radius, to, Palette.c("undead", 0.7), 2.0)
 		LineGlow.ring(ci, to, float(u.radius) + 6.0, Palette.c("undead"), 2.4, 0.8)
-	# words: the open back says FLANK until a flank lands, then FLANKED where it landed; GLANCE on the shield
+	# words, clear of the crowd at its body (`label_out_px` out): the open back says FLANK until a flank
+	# lands, then FLANKED where it landed; GLANCE over the shield (not over the lit arc's BASH)
 	var hold := float(wcfg().get("shield_label_s", 0.8))
+	var out := radius + float(wcfg().get("shield_label_out_px", 56.0)) + fs * 0.5
 	if _flank_t < hold:
-		_word(ci, Vector2.RIGHT.rotated(_flank_at) * (radius + fs * 1.6), "FLANKED", fs, Palette.c("undead"))
+		_word(ci, Vector2.RIGHT.rotated(_flank_at) * out, "FLANKED", fs, Palette.c("undead"))
 	else:
-		_word(ci, -dir * (radius + fs * 1.4), "FLANK", fs, Palette.c("text_dim"))
+		_word(ci, -dir * out, "FLANK", fs, Palette.c("text_dim"))
 	if _glance_t < hold and not planted:
-		_word(ci, dir * (radius + fs * 1.5), "GLANCE", fs, Palette.c("text"))
+		_word(ci, dir * out, "GLANCE", fs, Palette.c("text"))
 
 
 ## A word centred on `p` (canvas local), `px` tall.

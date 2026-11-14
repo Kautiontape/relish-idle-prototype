@@ -392,7 +392,7 @@
     }
   },
   "wardens": {
-    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit.",
+    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it).",
     "chest_open_px": 44.0,
     "victory_s": 1.5,
     "muffle_pad_px": 14.0,
@@ -413,6 +413,7 @@
     "clapper_hold_beats": 0.25,
     "clapper_swing_rad_s": 14.0,
     "shield_label_s": 0.8,
+    "shield_label_out_px": 56.0,
     "by_fort": {
       "ashgate": "huntsman",
       "old-sluice": "bellringer",
