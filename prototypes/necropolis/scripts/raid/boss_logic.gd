@@ -342,3 +342,89 @@ static func close_fields(end_reason: String, spent_total: int) -> Dictionary:
 ## A seed's rng_seed string as an int (a non-numeric string hashes).
 static func rng_int(rng_seed: String) -> int:
 	return rng_seed.to_int() if rng_seed.is_valid_int() else hash(rng_seed)
+
+
+# --------------------------------------------------- HUD read-outs (D-d) ---
+## clock_text(secs) -> "m:ss"    a fight time as the end card shows it (rounded to the second).
+static func clock_text(secs: float) -> String:
+	var s := maxi(0, roundi(secs))
+	return "%d:%02d" % [s / 60, s % 60]
+
+
+## push_beat(hist, gained, window) -> Array    the recent beats, newest last: 1 for a beat that
+##   gained a pip (raise > ferry), 0 for a lapse. Keeps the last `window`. A new array.
+static func push_beat(hist: Array, gained: bool, window: int) -> Array:
+	var out := hist.duplicate()
+	out.append(1 if gained else 0)
+	while out.size() > maxi(1, window):
+		out.pop_front()
+	return out
+
+
+## break_eta_s(hist, streak, need, lapse_cost, tempo_s, min_beats, max_s) -> float
+##   Seconds to the break at the recent pace: the net pips per beat over `hist` (each gain +1, each
+##   lapse -lapse_cost) against the pips still to fill, times the tempo. -1 (no hint) when fewer than
+##   min_beats beats are known, the pace does not gain, the rule resets on a lapse (lapse_cost < 0)
+##   and the window holds one, or the answer is past max_s. 0 when the meter is already full.
+static func break_eta_s(hist: Array, streak: int, need: int, lapse_cost: int, tempo_s: float,
+		min_beats: int, max_s: float) -> float:
+	if need - streak <= 0:
+		return 0.0
+	var n := hist.size()
+	if n < maxi(1, min_beats) or tempo_s <= 0.0:
+		return -1.0
+	var gains := 0
+	for h in hist:
+		gains += int(h)
+	var lapses := n - gains
+	if lapses > 0 and lapse_cost < 0:
+		return -1.0
+	var rate := (float(gains) - float(lapse_cost) * float(lapses)) / float(n) if lapse_cost >= 0 else float(gains) / float(n)
+	if rate <= 0.0:
+		return -1.0
+	var eta := float(need - streak) / rate * tempo_s
+	return eta if eta <= max_s else -1.0
+
+
+## eta_text(eta_s) -> String    "~30 s at this pace", rounded to 5 s from 10 s up; "" for no hint (< 0).
+static func eta_text(eta_s: float) -> String:
+	if eta_s < 0.0:
+		return ""
+	var s := roundi(eta_s) if eta_s < 10.0 else roundi(eta_s / 5.0) * 5
+	return "~%d s at this pace" % maxi(1, s)
+
+
+## lapse_text(lapses, lost) -> String    the meter's running count: "" before the first lapse, else
+##   "LAPSES ×4 · −10 beats" (the beats the streak actually lost, capped by what it held).
+static func lapse_text(lapses: int, lost: int) -> String:
+	if lapses <= 0:
+		return ""
+	return "LAPSES ×%d · −%d beat%s" % [lapses, lost, "" if lost == 1 else "s"]
+
+
+## phase2_hint(break_beats, lapse_cost) -> String    the line under the meter for the break's first seconds.
+static func phase2_hint(break_beats: int, lapse_cost: int) -> String:
+	var s := "keep raise > ferry for %d beats" % break_beats
+	return s + (" · a lapse costs %d" % lapse_cost if lapse_cost >= 0 else " · a lapse resets the count")
+
+
+## end_card(seed, spent, party_lost, fight_t, horde0, horde) -> Dictionary
+##   What the Vei win card prints, from the fight's own numbers: time_text, backups spent (phylactery,
+##   clone, and of how many the run began with), big undead lost of the party, and the backlog spent
+##   (horde0 - horde, never negative: the result's backlog_spent).
+static func end_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fight_t: float,
+		horde0: float, horde: float) -> Dictionary:
+	var party := 0
+	var lost := 0
+	var known: Array = []
+	for p in seed.get("party", []):
+		party += 1
+		known.append(String(p.get("uid", "")))
+	for u in party_lost:
+		if known.has(String(u)):
+			lost += 1
+	var sp := int(spent.get("phylactery", 0))
+	var sc := int(spent.get("clones", 0))
+	return {"time_text": clock_text(fight_t), "spent_phyl": sp, "spent_clones": sc, "spent": sp + sc,
+		"backups_total": int(seed.get("phylactery_charges", 0)) + int(seed.get("clones_ready", 0)),
+		"party_lost": lost, "party": party, "backlog_spent": backlog_spent(horde0, horde)}

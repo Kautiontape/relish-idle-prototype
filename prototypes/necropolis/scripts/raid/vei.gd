@@ -216,7 +216,8 @@ class MeterRow:
 			return
 		var vc: Dictionary = boss.vcfg()
 		var mc: Dictionary = vc.get("meter", {})
-		_next.resize(10)
+		_next.resize(11)
+		_next[10] = 1 if _shown(boss, vc) else 0
 		_next[0] = 1 if float(boss.phase1_s) >= 0.0 else 0
 		_next[1] = roundi((maxf(0.05, boss.cam.zoom.x) if boss.cam != null else 1.0) * 1000.0)
 		_next[2] = int(vc.get("break_beats", 8))
@@ -231,9 +232,19 @@ class MeterRow:
 			_key = _next.duplicate()
 			queue_redraw()
 
+	## The row under her is the close-to-the-break signal (the HUD meter is the full one): shown once
+	## the streak is within meter.row_close_pips of break_beats (0: always), and while a lapse flashes.
+	func _shown(boss, vc: Dictionary) -> bool:
+		if float(boss.phase1_s) < 0.0:
+			return false
+		var close := int(vc.get("meter", {}).get("row_close_pips", 0))
+		if close <= 0 or float(boss._lapse_t) > 0.0:
+			return true
+		return int(boss.brk.get("streak", 0)) >= int(vc.get("break_beats", 8)) - close
+
 	func _draw() -> void:
 		var t0 := BossDev.pt()
-		if vei != null and vei.boss != null and float(vei.boss.phase1_s) >= 0.0:
+		if vei != null and vei.boss != null and _shown(vei.boss, vei.boss.vcfg()):
 			_draw_row()
 		BossDev.pa("vei", t0)
 

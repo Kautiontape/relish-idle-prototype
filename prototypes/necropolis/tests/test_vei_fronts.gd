@@ -266,6 +266,7 @@ func run() -> int:
 
 	_boss_logic(t, cfg)
 	_result_wiring(t, cfg)
+	_hud_readouts(t, cfg)
 	return t.failures
 
 
@@ -545,3 +546,55 @@ func _result_wiring(t: TestUtil, cfg: Dictionary) -> void:
 		var cut := st2.duplicate(true)
 		cut.erase(key)
 		t.ok(BossLogic.result_of(cut, true).is_empty(), "result_of refuses a state without '%s' (a renamed fight_state key fails loudly)" % key)
+
+
+## The HUD read-outs (D-d): the seconds-to-break hint, the lapse count, the phase-2 rule and the end card.
+func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
+	var lc := int(cfg.get("lapse_cost", -1))
+	t.ok(BossLogic.clock_text(65.4) == "1:05" and BossLogic.clock_text(0.0) == "0:00" and BossLogic.clock_text(-3.0) == "0:00" \
+		and BossLogic.clock_text(600.0) == "10:00", "clock_text is m:ss, never negative")
+	# push_beat keeps the newest `window`, never edits its argument
+	var h0: Array = [1, 1]
+	var h1 := BossLogic.push_beat(h0, false, 3)
+	t.ok(h1 == [1, 1, 0] and h0 == [1, 1], "push_beat appends and leaves the old array alone")
+	t.ok(BossLogic.push_beat(h1, true, 3) == [1, 0, 1], "push_beat keeps the last `window` beats")
+	# the ETA: 8 beats all gaining, 10 of 20 filled, 2 s a beat -> 10 left at 1/beat = 20 s
+	var all_up: Array = [1, 1, 1, 1, 1, 1, 1, 1]
+	t.near(BossLogic.break_eta_s(all_up, 10, 20, lc, 2.0, 4, 240.0), 20.0, 0.0001, "ETA: the pips left over the net pace, times the tempo")
+	t.ok(BossLogic.break_eta_s(all_up, 20, 20, lc, 2.0, 4, 240.0) == 0.0, "ETA: a full meter is 0")
+	t.ok(BossLogic.break_eta_s([1, 1, 1], 5, 20, lc, 2.0, 4, 240.0) < 0.0, "no hint before min_beats beats are known")
+	# a lapse costs lapse_cost (4): 6 gains and 2 lapses over 8 = (6 - 8) / 8 < 0 -> no hint
+	var losing: Array = [1, 1, 0, 1, 0, 1, 1, 1]
+	t.ok(BossLogic.break_eta_s(losing, 10, 20, 4, 2.0, 4, 240.0) < 0.0, "no hint when lapses eat the gains (pace not gaining)")
+	# one lapse in 8 at cost 4: (7 - 4) / 8 = 0.375 a beat -> 10 left / 0.375 * 2 s
+	var one_lapse: Array = [1, 1, 1, 0, 1, 1, 1, 1]
+	t.near(BossLogic.break_eta_s(one_lapse, 10, 20, 4, 2.0, 4, 240.0), 10.0 / 0.375 * 2.0, 0.0001, "ETA charges a lapse its cost")
+	# the reset rule (cost -1) cannot say anything once the window holds a lapse
+	t.ok(BossLogic.break_eta_s(one_lapse, 10, 20, -1, 2.0, 4, 240.0) < 0.0, "reset rule: no hint with a lapse in the window")
+	t.near(BossLogic.break_eta_s(all_up, 0, 20, -1, 2.0, 4, 240.0), 40.0, 0.0001, "reset rule, no lapse: the plain pace")
+	t.ok(BossLogic.break_eta_s(all_up, 0, 20, lc, 2.0, 4, 30.0) < 0.0, "an answer past max_s is no hint")
+	t.ok(BossLogic.break_eta_s(all_up, 5, 20, lc, 0.0, 4, 240.0) < 0.0, "no tempo, no hint")
+	t.ok(BossLogic.eta_text(-1.0) == "" and BossLogic.eta_text(32.0) == "~30 s at this pace" \
+		and BossLogic.eta_text(33.0) == "~35 s at this pace" and BossLogic.eta_text(4.4) == "~4 s at this pace" \
+		and BossLogic.eta_text(0.0) == "~1 s at this pace", "eta_text rounds to 5 s from 10 s up")
+	# the lapse line says beats, and is absent before the first lapse
+	t.ok(BossLogic.lapse_text(0, 0) == "" and BossLogic.lapse_text(4, 10) == "LAPSES ×4 · −10 beats" \
+		and BossLogic.lapse_text(1, 1) == "LAPSES ×1 · −1 beat", "lapse_text: beats lost, nothing at zero")
+	t.ok(BossLogic.phase2_hint(20, 4) == "keep raise > ferry for 20 beats · a lapse costs 4" \
+		and BossLogic.phase2_hint(8, -1) == "keep raise > ferry for 8 beats · a lapse resets the count", "phase2_hint reads the config's numbers")
+	# the end card
+	var sd := _seed()
+	sd["phylactery_charges"] = 2
+	sd["clones_ready"] = 1
+	var ec := BossLogic.end_card(sd, {"phylactery": 1, "clones": 1}, ["a", "ghost", "b"], 65.4, 1000.0, 700.0)
+	t.ok(ec["time_text"] == "1:05" and ec["spent"] == 2 and ec["spent_phyl"] == 1 and ec["spent_clones"] == 1 \
+		and ec["backups_total"] == 3, "end_card: the time and the backups spent of those it began with")
+	t.ok(ec["party"] == (sd["party"] as Array).size() and ec["party_lost"] == 2, "end_card: big undead lost counts known party uids only")
+	t.near(float(ec["backlog_spent"]), 300.0, 0.0001, "end_card: backlog spent = horde0 - horde")
+	var ec0 := BossLogic.end_card(sd, {}, [], 0.0, 0.0, 10.0)
+	t.ok(ec0["spent"] == 0 and ec0["party_lost"] == 0 and float(ec0["backlog_spent"]) == 0.0, "end_card: an empty fight is all zeros (never negative)")
+	# the shipped config carries the new knobs
+	var mc: Dictionary = cfg.get("meter", {})
+	t.ok(int(mc.get("row_close_pips", -1)) >= 0 and int(mc.get("eta_window_beats", 0)) >= int(mc.get("eta_min_beats", 99)) \
+		and float(mc.get("hint_s", 0.0)) > 0.0, "vei.json meter: row_close_pips, the ETA window and hint_s")
+	t.ok(float(cfg.get("card", {}).get("button_h_px", 0.0)) >= 44.0, "vei.json card: the button is at least 44 px tall")

@@ -150,11 +150,11 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_boss_block.anchor_left = 0.5
 		_boss_block.anchor_right = 0.5
-		_boss_block.offset_left = -300.0
-		_boss_block.offset_right = 300.0
+		_boss_block.offset_left = -320.0
+		_boss_block.offset_right = 320.0
 		_boss_block.offset_top = 10.0
-		_boss_block.offset_bottom = 104.0
-		_banner.offset_top = 112.0
+		_boss_block.offset_bottom = 10.0 + BossBlock.H_BREAK
+		_banner.offset_top = 10.0 + BossBlock.H_BREAK + 8.0
 	_banner_top = _banner.offset_top
 
 
@@ -902,19 +902,24 @@ class ExitButton:
 
 
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
-## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
-## signed oblique rate and which side is winning, then the BREAK meter drawn as the wardens' meter
-## (WardenBlock): break_beats pips lit from the left by the streak, a notch every `notch` pips, a
-## lapse's pips slashed in `danger` while it shows (flashing, steady under reduced motion), and the
-## running count "LAPSES ×n · lost k". Always: BACKUPS left as pips (a phylactery diamond, a clone
-## dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
+## once it breaks through), and the phase-1 clock. The break: BACKLOG (the seed's horde) as an upright
+## integer with the ferry's rate in plain words (the real clock is deaths, so no minus, no slant) and
+## which side is winning, then the BREAK meter drawn as the wardens' meter (WardenBlock): break_beats
+## pips lit from the left by the streak, a notch every `notch` pips, a lapse's pips slashed in `danger`
+## while it shows (flashing, steady under reduced motion), the beat count and, while the pace gains,
+## "~30 s at this pace". Under it one line: the phase-2 rule for the break's first hint_s seconds, and
+## once a lapse has happened "LAPSES ×n · −k beats" (no row before the first). Always: BACKUPS left as
+## pips (a phylactery diamond, a clone dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
 ## redraws only when what it shows changes (or while a lapse flashes).
 class BossBlock:
 	extends Control
 	var raid: Node = null
 	var hud: Node = null
+	const H_FRONTS := 94.0   # the plate's height before the break (three rows)
+	const H_BREAK := 122.0  # and from the break on (four: the rule / lapse line sits under the meter)
 	var _key := PackedInt32Array()
 	var _next := PackedInt32Array()
+	var _eta_key := ""
 	var _t := 0.0
 	static var _oblique: FontVariation = null
 
@@ -942,7 +947,7 @@ class BossBlock:
 		var info := _info()
 		if info.is_empty():
 			return
-		_next.resize(16)
+		_next.resize(17)
 		_next[0] = int(info["break_began"]) | (int(info["over"]) << 1) | (int(info["won"]) << 2) | (int(info["winning"]) << 3) | (int(info["lapse_on"]) << 4)
 		_next[1] = int(info["met"])
 		_next[2] = floori(float(info["t"]))
@@ -959,8 +964,11 @@ class BossBlock:
 		_next[13] = roundi(float(info["ferry"]) * 100.0)
 		_next[14] = int(info["required"])
 		_next[15] = int(info["notch"])
-		if _next != _key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
+		_next[16] = int(info["rule_on"])
+		var eta_key := str(info["eta"])
+		if _next != _key or eta_key != _eta_key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
 			_key = _next.duplicate()
+			_eta_key = eta_key
 			queue_redraw()
 
 	func _label(x: float, y: float, text: String) -> float:
@@ -997,7 +1005,7 @@ class BossBlock:
 		var info := _info()
 		if info.is_empty():
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		draw_rect(Rect2(Vector2(0.0, 0.0), Vector2(size.x, H_BREAK if bool(info["break_began"]) else H_FRONTS)), Palette.c("ground", 0.62))
 		var x0 := 12.0
 		var col2 := 108.0
 		var y := 26.0
@@ -1014,10 +1022,11 @@ class BossBlock:
 				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
 			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
 		else:
-			# the horde, its rate, and which side the beat is going to
-			_label(x0, y, "HORDE")
+			# the backlog (the seed's horde), the ferry's rate in words, and which side the beat is going to.
+			# The backlog drains by deaths, not by this clock (it would take ~90 min): no minus, no slant.
+			_label(x0, y, "BACKLOG")
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			x2 = _text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
+			x2 = _text(x2 + 10.0, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
 			if bool(info["won"]):
 				_text(x2 + 18.0, y, "SHE BREAKS", 15, "vei")
 			elif bool(info["over"]):
@@ -1052,9 +1061,17 @@ class BossBlock:
 					draw_arc(p, r - 0.6, 0.0, TAU, 12, Palette.c("text_dim", 0.6), 1.3)
 				x += 13.0
 			x = _text(x + 2.0, y, "%d/%d" % [st, n], 15)
+			var eta := str(info["eta"])
+			if eta != "" and not bool(info["over"]):
+				_text(x + 10.0, y, eta, 13, "text_dim")
+			# under the meter: the rule for the break's first seconds, and the lapse count once there is one
+			y += 22.0
 			var nl := int(info["lapses"])
-			var tag := "LAPSES ×%d" % nl + ("" if nl <= 0 else " · lost %d" % int(info["lapse_lost"]))
-			_text(x + 14.0, y, tag, 13, "danger" if hi > 0 else "text_dim")
+			var tx := x0
+			if bool(info["rule_on"]):
+				tx = _text(x0, y, str(info["rule"]), 13, "text") + 18.0
+			if nl > 0:
+				_text(tx, y, BossLogic.lapse_text(nl, int(info["lapse_lost"])), 13, "danger" if hi > 0 else "text_dim")
 		y += 28.0
 		_label(x0, y, "BACKUPS")
 		var px := col2 + 8.0
