@@ -229,3 +229,25 @@ Updated direction:
 - **The suggestion keeps lots for the next tier's gate buildings,** and the no-need fallback never
   takes them.
 - Still held back: rent as a second gold source, pending trial G4.
+
+**Trial G4 (`reports/town/g4-trial.md`; C = G3's B2 + the Market bought with bone + monotonic relics +
+gate-lot reservation; 8 h on day1, no raids):** growth runs the full 8 h with no wall. Slots go
+9 → 18 (1 h) → 38 (4 h) → 53 (8 h), with 31 upgrades by 4 h, levels reach L5, and the gate lots stay
+free. The binder flips: gold piles up (+1.26/s, a 20k stock at 8 h) and bone binds (89–91% spent).
+Growth slows (about +3.8 slots/h over 4–8 h), and 186 of 240 chunks pick nothing (short of bone, or
+gates short of relics). Rent was not trialled (it needs TownSim code), and it isn't needed: gold is now
+in surplus.
+
+**Adopted structure (for economy to put in the configs after E2b; E4 tunes the numbers):**
+- the dead's buildings cost mostly bone; the bone mill stays gold-priced and the Market is bought with
+  bone (each producer is bought with the other resource);
+- a level ladder to L8 for the job buildings and the house, relic-free to L5, with relic costs that
+  never fall with level;
+- the suggestion reserves the next tier's gate lots (town code, 8f73c36) and prefers upgrades;
+- pits get first call on bodies.
+- **E4's job:** split costs so that **neither resource piles up**. Both should be ≥ 60% spent, and the
+  binder should alternate (today gold piles once the Market is bone-bought). Give gold real sinks: tier
+  gates, living buildings, upkeep that scales with level. Measure where the no-raid plateau lands with
+  E3's `pure_idle` and `town_only` profiles (target: 2–3 days, then "needs relics"). L6+ relic costs
+  are untested without raids.
+- Rent is dropped.
