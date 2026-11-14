@@ -99,6 +99,18 @@ static func advance(d: float, g0: float, g1: float, step_px: float, mul: float, 
 	return minf(d + maxf(g1 - g0, 0.0) * step_px * mul, length)
 
 
+## Whether a big undead wears a name badge: only a foreman placed at a building (`town:<lot>`, the lot's
+## building not the crypt). One resting in the crypt, in the party or away at a fort has none.
+static func badge_shown(place: String, lot_id: String, building_id: String) -> bool:
+	return place.begins_with("town:") and place.trim_prefix("town:") == lot_id and lot_id != "" and building_id != "crypt"
+
+
+## Where the badge sits relative to the diamond, beyond its side offset: pushed down the building's way, away
+## from the street the foreman faces (`n`, the front's outward normal), so it never lands on the labels there.
+static func badge_offset(n: Vector2, diamond_h: float, text_h: float, gap: float) -> Vector2:
+	return Vector2(0.0, -signf(n.y) * (diamond_h * 0.5 + text_h * 0.5 + gap))
+
+
 ## The name badge's opacity: none while it walks, then up over `fade_s` after it arrives. Reduced
 ## motion: whole at once on arrival.
 static func badge_alpha(walking: bool, since_arrival_s: float, fade_s: float, reduced: bool) -> float:

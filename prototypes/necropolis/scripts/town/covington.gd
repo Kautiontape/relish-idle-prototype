@@ -277,7 +277,6 @@ func _build_ui() -> void:
 	_hud.custom_minimum_size = Vector2(0, float(cfg.get("hud_h", 72)))
 	root.add_child(_hud)
 	_hud.return_pressed.connect(_on_return)
-	_hud.realm_pressed.connect(_on_return)  # the relic wall's To the realm: the same one exit
 
 	var body := HBoxContainer.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL

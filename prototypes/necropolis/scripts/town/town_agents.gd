@@ -569,7 +569,8 @@ func _read_foremen(model: TownModel, views: Dictionary) -> void:
 		if fr.is_empty():
 			continue
 		var e: Dictionary = by_uid.get(String(b["foreman"]), {})
-		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]),
+		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]), "n": fr["n"],
+			"badge": TownSetPiece.badge_shown(String(e.get("place", "")), String(l["id"]), String(b.get("building_id", ""))),
 			"name": SlabLogic.display_name(e, _slab), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
 	if views.has("big_undead"):
 		_read_walks(entries)

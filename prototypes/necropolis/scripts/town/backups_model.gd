@@ -146,7 +146,7 @@ static func pips_text(n: int, tx: Dictionary) -> String:
 ## "staffing takes 1 hand from Pit" from a TownBehaviour.staffing_diff (the jobs that lose hands), for a vat
 ## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is. When no
 ## job hand moves and `idle` (workers.idle, -1 = unknown) holds a whole idle hand, the line says why: "10 idle
-## hands: staffing costs nothing today" (the idle count rounded down).
+## hands: staffing costs nothing today" (a staffed vat: "unstaffing frees nothing a job needs today"; the idle count rounded down).
 static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false, idle := -1.0) -> String:
 	var moved: Array = []
 	for d in diff:
@@ -158,7 +158,7 @@ static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, 
 	if moved.is_empty():
 		var n := floori(idle)
 		if n >= 1:
-			return String(tx.get("staff_idle", "")).format({"n": n, "hands": tx.get("hand" if n == 1 else "hands", "hands")})
+			return String(tx.get("unstaff_idle" if staffed else "staff_idle", "")).format({"n": n, "hands": tx.get("hand" if n == 1 else "hands", "hands")})
 		return String(tx.get(pre + "_none", ""))
 	var items: Array = []
 	for l in moved:

@@ -9,8 +9,6 @@ extends PanelContainer
 
 signal command_issued
 signal return_pressed
-## The relic wall's To the realm: the shell leaves through its one exit (the HUD never finishes the scene itself).
-signal realm_pressed
 
 
 ## A thin fill bar: `frac` 0..1 of the track in matter ink; a negative frac (no cap) draws nothing.
@@ -46,7 +44,6 @@ var _morale_line: Label
 var _stuck: Label
 var _return: Button
 var _next_lit := false
-var _realm: Button  # the relic wall's route, visible only while the wall is the next-tier line
 
 
 func _ready() -> void:
@@ -167,13 +164,21 @@ func _make_tier() -> Control:
 	col.add_theme_constant_override("separation", 0)
 	_tier = TownUI.label("", 20, "text")
 	col.add_child(_tier)
-	# the relic wall's route sits under the tier name, in the top row's spare height: the strip never grows
-	_realm = TownUI.button(String((_hcfg.get("text", {}) as Dictionary).get("next_relics_btn", "")))
-	_realm.custom_minimum_size = Vector2(float(_hcfg.get("relic_btn_w_px", 112.0)), maxf(float(_hcfg.get("relic_btn_h_px", 44.0)), TownUI.MIN_TARGET))
-	_realm.pressed.connect(func(): realm_pressed.emit())
-	_realm.visible = false
-	col.add_child(_realm)
 	return col
+
+
+## While the relic wall shows, the one Return button is the way to act on it: a thick border in the wall's ink
+## (a shape change, and the line's own text points at it). Both boxes are built once and swapped.
+func _mark_return(on: bool) -> void:
+	if not on:
+		TownUI.style_button(_return)
+		return
+	var ink := Palette.c(String(_hcfg.get("relic_ink", "danger")))
+	for st in ["normal", "hover"]:
+		var sb := TownUI.button_box(st)
+		sb.border_color = ink
+		sb.set_border_width_all(int(_hcfg.get("relic_border_px", 3)))
+		_return.add_theme_stylebox_override(st, sb)
 
 
 func set_return_enabled(on: bool) -> void:
@@ -197,7 +202,7 @@ func bind(views: Dictionary) -> void:
 	if lit != _next_lit:  # a theme override is a relayout: only when the line flips
 		_next_lit = lit
 		_next.add_theme_color_override("font_color", Palette.c(String(_hcfg.get("relic_ink", "danger")) if lit else "text_dim"))
-		_realm.visible = lit
+		_mark_return(lit)
 	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg, _tab)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
 	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream

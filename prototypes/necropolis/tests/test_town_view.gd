@@ -4388,6 +4388,12 @@ func _walk_math() -> void:
 	t.near(TownSetPiece.badge_alpha(false, 5.0, 0.5, false), 1.0, 1e-9, "badge: then holds")
 	t.near(TownSetPiece.badge_alpha(false, 0.0, 0.5, true), 1.0, 1e-9, "badge, reduced motion: whole at once")
 	t.near(TownSetPiece.badge_alpha(true, 0.0, 0.5, true), 0.0, 1e-9, "badge, reduced motion: still not before it arrives")
+	t.ok(TownSetPiece.badge_shown("town:lot-04", "lot-04", "market"), "badge: a foreman placed at its building wears it")
+	t.ok(not TownSetPiece.badge_shown("crypt", "lot-01", "crypt") and not TownSetPiece.badge_shown("crypt", "lot-04", "market"), "badge: none for a big undead resting in the crypt")
+	t.ok(not TownSetPiece.badge_shown("party", "lot-04", "market") and not TownSetPiece.badge_shown("fort:ashgate", "lot-04", "market"), "badge: none in the party or at a fort")
+	t.ok(not TownSetPiece.badge_shown("town:lot-01", "lot-01", "crypt") and not TownSetPiece.badge_shown("town:lot-02", "lot-04", "market"), "badge: none on the crypt lot, none on a lot that is not his place")
+	t.ok(TownSetPiece.badge_offset(Vector2(0, -1), 10.0, 14.0, 3.0).y == 15.0 and TownSetPiece.badge_offset(Vector2(0, 1), 10.0, 14.0, 3.0).y == -15.0
+		and TownSetPiece.badge_offset(Vector2(1, 0), 10.0, 14.0, 3.0) == Vector2.ZERO, "badge: pushed off the street the foreman faces, level on a side front")
 	# which big undead start a walk: a place that changes to town:<lot>, never the baseline
 	var e := func(uid: String, place: String) -> Dictionary: return {"uid": uid, "name": "N" + uid, "place": place}
 	var first := TownSetPiece.transitions({}, [e.call("a", "town:lot-1"), e.call("b", "crypt")], false)
@@ -5142,8 +5148,8 @@ func _td1_wall_line(day1: Dictionary, mid: Dictionary) -> void:
 	var h: Dictionary = vcfg["hud"]
 	var m3 := _with_relics(mid, 3, true)
 	var nl: Dictionary = HudModel.next_line(m3, h, bv)
-	t.ok(nl["text"] == "next: Town — needs 4 relics (have 3): raid a fort" and nl["relics"], "wall line: relics short -> '%s'" % nl["text"])
-	t.ok(HudModel.next_line(_with_relics(mid, 0, true), h, bv)["text"] == "next: Town — needs 4 relics (have 0): raid a fort", "wall line: with none, have 0")
+	t.ok(nl["text"] == "next: Town — needs 4 relics (have 3): raid a fort → Return to the realm" and nl["relics"], "wall line: relics short -> '%s'" % nl["text"])
+	t.ok(HudModel.next_line(_with_relics(mid, 0, true), h, bv)["text"] == "next: Town — needs 4 relics (have 0): raid a fort → Return to the realm", "wall line: with none, have 0")
 	var plain := HudModel.next_line(_with_relics(mid, 4, true), h, bv)
 	t.ok(not plain["relics"] and plain["text"] == HudModel.next_tier_line(String(mid["town"]["tier"]), mid["town"]["next_tier"], h, bv),
 		"wall line: relics are not the block -> today's line (%s)" % plain["text"])
@@ -5151,21 +5157,24 @@ func _td1_wall_line(day1: Dictionary, mid: Dictionary) -> void:
 	var one: Dictionary = m3.duplicate(true)
 	one["town"]["next_tier"]["missing"] = ["walls"]
 	one["inventory"]["relics"] = 1
-	t.ok(HudModel.next_line(one, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort", "wall line: N is the missing gate buildings' relic costs, summed")
+	t.ok(HudModel.next_line(one, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort → Return to the realm", "wall line: N is the missing gate buildings' relic costs, summed")
 	var placed: Dictionary = m3.duplicate(true)
 	placed["town"]["buildings"].append({"building_id": "walls", "lot_id": "lot-23", "level": 0, "state": "constructing", "progress": 0.1})
 	t.ok(not HudModel.next_line(placed, h, bv)["relics"], "wall line: Walls placed, the Chapel's 2 relics are held (3): not a wall")
 	placed["inventory"]["relics"] = 1
-	t.ok(HudModel.next_line(placed, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort", "wall line: a gate building already placed is not asked for again")
+	t.ok(HudModel.next_line(placed, h, bv)["text"] == "next: Town — needs 2 relics (have 1): raid a fort → Return to the realm", "wall line: a gate building already placed is not asked for again")
 	# lit: its ink reaches 4.5:1 on the ground, and the button is a 44 px target routed through the shell
 	var ink := Palette.c(String(h["relic_ink"]), 1.0)
 	t.ok(TownModel.contrast(ink, Palette.c("ground")) >= 4.5, "wall line: ink '%s' reaches 4.5:1 on ground (%.2f)" % [h["relic_ink"], TownModel.contrast(ink, Palette.c("ground"))])
-	t.ok(float(h["relic_btn_h_px"]) >= 44.0 and String(h["text"]["next_relics_btn"]) == "To the realm", "wall line: a >= 44 px 'To the realm' button")
+	t.ok(String(h["text"]["next_relics"]).ends_with("→ Return to the realm") and not h["text"].has("next_relics_btn") and int(h["relic_border_px"]) >= 2,
+		"wall line: it points at the one Return button, which gets a thick lit border (no second button)")
+	t.ok(float(h["return_w_px"]) > 0.0 and TownUI.MIN_TARGET >= 44, "wall line: the Return button stays a >= 44 px target")
 	t.ok(int(h["next_px"]) >= 12, "wall line: at least 12 px")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
 	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
 	t.ok(not hud_src.contains("finished"), "wall line: the HUD never emits finished itself")
-	t.ok(shell.contains("_hud.realm_pressed.connect(_on_return)"), "wall line: the HUD's route goes through the shell's one exit (_on_return)")
+	t.ok(not hud_src.contains("realm_pressed") and not shell.contains("realm_pressed") and shell.contains("_hud.return_pressed.connect(_on_return)"),
+		"wall line: one exit only: the HUD's Return through the shell's _on_return, no realm_pressed")
 
 
 ## Item 3: a placed big undead carries the slab's name everywhere a big undead is named.
@@ -5324,7 +5333,8 @@ func _td2(day1: Dictionary, mid: Dictionary) -> void:
 	# 2. vats: with idle hands, staffing costs nothing and says so
 	var idle10 := BackupsModel.staffing_cost_text([], labels, tx, false, 10.7)
 	t.ok(idle10 == "10 idle hands: staffing costs nothing today", "vat: idle hands round down, 10.7 -> 10 (%s)" % idle10)
-	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 10.7) == idle10, "vat: unstaffing says the same truth (%s)" % BackupsModel.staffing_cost_text([], labels, tx, true, 10.7))
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 10.7) == "10 idle hands: unstaffing frees nothing a job needs today", "vat: a staffed vat says unstaffing frees nothing (%s)" % BackupsModel.staffing_cost_text([], labels, tx, true, 10.7))
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 1.9) == "1 idle hand: unstaffing frees nothing a job needs today", "vat: staffed, one idle hand is singular")
 	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 1.9) == "1 idle hand: staffing costs nothing today", "vat: one idle hand is singular")
 	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 0.9) == "staffing takes no hand from a job", "vat: under one whole idle hand keeps the old line")
 	t.ok(BackupsModel.staffing_cost_text([{"id": "stall", "delta": -1.0}], labels, tx, false, 10.0) == "staffing takes 1 hand from Stall", "vat: a hand that does move is still named")
@@ -5350,6 +5360,9 @@ func _td2(day1: Dictionary, mid: Dictionary) -> void:
 		t.ok(CryptLogic.stat_helps(st, slab, vcfg["crypt"]) == h, "slab: the crypt panel reads slab.stat_helps for %s" % st)
 	var bvw := TestUtil.load_json("res://configs/buildings_view.json")
 	t.ok(String(sh["beef"]).contains(String(bvw["charnel_house"]["label"])) and String(sh["beef"]).contains(String(bvw["raising_pit"]["label"])), "slab: beef points at the Charnel House and the Raising Pit (%s)" % sh["beef"])
+	for nm in ["well", "bakery", "inn"]:
+		t.ok(String(sh["presence"]).contains(String(bvw[nm]["label"])), "slab: presence points at the %s (%s)" % [nm, sh["presence"]])
+	t.ok(String(sh["speed"]).contains(String(bvw["stables"]["label"])) and not String(sh["speed"]).contains(String(bvw["market"]["label"])), "slab: speed points at the Stables, not the Market (%s)" % sh["speed"])
 	for r in slab["roles"]:
 		for j in jargon:
 			t.ok(not String(slab["roles"][r]["good_for"]).contains(j), "slab: role %s line has no '%s'" % [r, j])

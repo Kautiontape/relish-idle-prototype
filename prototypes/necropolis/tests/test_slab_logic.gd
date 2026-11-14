@@ -172,7 +172,7 @@ func _crypt_keys(t: TestUtil, texts: Dictionary) -> void:
 	var nested := {
 		"gate": ["home", "travelling", "travelling_home", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead_clone", "dead_unmade", "away", "roster_note"],
 		"refuse": ["no_husk", "on_slab", "no_slot", "full"], "block": ["away", "no_husk", "cap", "min", "unplaced", "kind", "raising"],
-		"place": ["crypt", "party", "town", "fort", "other"], 
+		"place": ["crypt", "party", "town", "fort", "other"],
 		"reasons": ["_unknown", "not_home", "unknown_husk", "unknown_remnant", "duplicate_remnant", "invalid_recipe", "at_cap",
 			"bad_name", "unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot", "foreman_taken", "unknown_fort", "duplicate_uid"],
 		"preview": ["h_px", "body_px", "per_beef", "max_scale", "ghost", "w_px", "glow", "rings_px", "ring_w_px", "ring_alpha",
