@@ -405,7 +405,9 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
   - **The run-length window:** the check at each step is the median per-run human estimate per tier: low at least 180 s, high at most 360 s. In bot seconds at today's factors that is about 151-211 s at t2, 158-243 s at t3 and 154-224 s at t4 (pooled 153-216 s). Today all three tiers sit 30-50 s under its floor.
 
 ## Run length, Step 3 (D-d/E): the levers
-The window: at t2-t4 the median per-run human estimate (bot-to-human factor above) must be at least 180 s at its low end and at most 360 s at its high end. No archetype at tier may be more than about 30% off its tier's median. Travel and idle shares may not rise above the seeds 1-6 baseline at 5b70259 (seeds 1-6, outliers out: t2 5.3 / 5.1 %, t3 10.5 / 7.5 %, t4 16.0 / 6.5 %; medians 101 / 115 / 117 s; human estimate 119-171 / 132-170 / 136-187 s; P1 100 s, 119-172 s). Tier 1 and the first dungeon stay as they are. The calibration log is the run's `reports/dungeon/calibration-dd-log.txt`.
+The window: at t2-t4 the median per-run human estimate (bot-to-human factor above) must be at least 180 s at its low end and at most 360 s at its high end. No archetype at tier may be more than about 30% off its tier's median. Travel and idle shares may not rise above the seeds 1-6 baseline at 5b70259 (t2 5.3 / 5.1 %, t3 10.5 / 7.5 %, t4 16.0 / 6.5 %; medians 101 / 115 / 117 s; human estimate 119-171 / 132-170 / 136-187 s; P1 100 s, 119-172 s; t1 106 s, 126-183 s, 3 of 18 died).
+  - **The convention:** shares are pooled seconds over the runs, with outliers (more than 2x their fort's median, the E brief's rule) left out. That removes one run at t2 and one at t4. With every row the ceilings would read t2 4.8 / 5.4 % and t4 14.1 / 5.7 %; t3 is the same either way. Per-run medians give a third set of numbers. Claims such as "idle fell at every tier" hold under this convention.
+  - **The routing fix alone** (5b70259 plus `_real_gaps`, seeds 1-6 at t2-t4, iter `rg`) gives every line byte-identical to the baseline. The two baseline outliers (chime-fort seed 2 and sable-hold seed 2, long fights) were not the T-junction stall, and the fix moves no share. Tier 1 and the first dungeon stay as they are. The calibration log is the run's `reports/dungeon/calibration-dd-log.txt`.
 
 - **More living on the approach: measured and dropped.**
   - The probe: 2 groups of 4 living at t2-t4, laid past each gap of the path within aggro range, sharing the seed's living mass. The patch is kept as `reports/dungeon/calibration-dd-approach-groups.patch`.
@@ -439,14 +441,16 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
 - **The guarded detour** (`raid.json detour`, `loot.json cache`, `LayoutLogic.detour_site` / `detour_guard`, `RaidPopulate`; tests `raid_detour`).
   - **Placement.** From `min_tier` 2 (never tier 1, the first dungeon or a held fort), the cache lies in a side room.
     - The room is off the shortest path from the spawn to the warden room and opens onto a path room that is not the warden's (a real opening, not just touching rects).
-    - A normal room is preferred to a checkpoint, because loot would bank there and change what is at risk. At lantern-keep and pale-bastion only a checkpoint opens onto the path.
+    - A normal room is preferred to a checkpoint, because loot would bank there and change what is at risk.
+    - **At lantern-keep and pale-bastion the cache room is a checkpoint.** lantern-keep has no other room off its path. pale-bastion's other side room (3, normal) opens only through that checkpoint, so going there would cross it anyway and add a walk the travel guard counts.
+    - What that does to risk: walking into the cache room banks what she already carries. The cache itself banks when she walks back into the spawn room, which is a checkpoint at every fort and borders the cache room at 8 of 9 forts (mourners-gate's borders the antechamber). So at every fort the cache is at risk only during the guard's fight and the walk out, checkpoint room or not.
     - The cache sits `cache_door_px` 320 into the room from that opening, deep enough that the army passing the door does not wake the guard.
   - **Contents.** `loot.json cache.relics_by_tier` relic pickups (1 / 1 / 2 at t2 / t3 / t4). The count is fixed, with no roll, so the chest's and the dings' rolls are untouched. They are fetched by walking over them like any floor loot: found loot, lost on a death before it is banked.
   - **The guard.** `guard_by_tier` (4 / 5 / 6) living of the tier's mix, within `guard_spread_px` 50 of the cache.
     - They come out of the fort's own count, so the run has the same bodies, mass and motes; only their place changes.
     - The cache draws a wider dashed `vei` ring and the word CACHE (shape as well as colour; no motion of its own). The loot pointer already points at it.
-  - **The bot's rule** (`_detour_decide`, `_detour_tick`; `RaidLogic.detour_take`; `autopilot.detour_*`; frozen with the reaction rule).
-    - **When:** once, at her first think in the antechamber before the wake (the approach is behind her).
+  - **The bot's first rule** (Step 3, f1bf38e; replaced in 3b, see "The detour rule" below).
+    - **When:** once, at her first think in the antechamber before the wake. In s3a that fell at 2.0-16.7 s (t2), 2.1-33.3 s (t3) and 3.6-59.8 s (t4).
     - **Take it when:** her hp is at least `detour_hp_frac` 0.6 of its most, and her army is at least `detour_army_mult` 2 × the guard still standing.
     - **Abandon:** if her hp falls below `detour_abandon_hp_frac` 0.3.
     - **Basis:** a decent player pushes for a side cache when healthy and with an army that wins that fight cleanly, and backs off when one or two more hits would kill her.
@@ -471,7 +475,7 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
     - Packs stand 12-48 s a fight.
     - Deaths: 1 / 2 / 2 of 9 per tier (packs 3, hounds 1, the living 1).
     - Tier 1 and the first dungeon are byte-identical.
-- **The Step 3 numbers** (iter `s3a`, seeds 1-6 at every t2-t4 fort, 54 runs, all in lockstep, none past 2x its fort's median). The pack sizes are set per warden (`size_by_tier`, t2 / t3 / t4): hounds 8 / 8, ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12. The detour guard is 4 / 5 / 6. Medians in scene s; the human estimate is the median per-run low-high; seeds 1-6 baseline at 5b70259 → now:
+- **The Step 3 numbers** (iter `s3a`, seeds 1-6 at every t2-t4 fort, 54 runs, all in lockstep, none past 2x its fort's median). The pack sizes are set per warden (`size_by_tier`, t2 / t3 / t4): hounds 8 / 8 (t4 unused: no t4 Huntsman fort), ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12. The detour guard is 4 / 5 / 6. Medians in scene s; the human estimate is the median per-run low-high; seeds 1-6 baseline at 5b70259 → now:
 
   | tier | median s | travel / fight / trance / idle % | walk in fight px | human estimate s | Relish died |
   |---|---|---|---|---|---|
@@ -505,4 +509,83 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
     - The decision is in the second room, so the take rate follows the garrison against the guard by fort (t2 7 of 18, t3 16, t4 18) more than the run's state. A later decision point would make it a real choice.
     - The Shieldwall's bash still never struck Relish (`shield.bash_relish` 0 in 12 of 12). The bearers have no wits counter, so they give the no-wits arm no mechanism of its own.
     - Pack units draw as ordinary living glyphs; only the WARDED label and the HUD row mark them as the warden's.
-  - **Bot changes made after the freeze** (none to the reaction rule; tier 1 and the first dungeon lines stay byte-identical with them): the routing through real openings (`_real_gaps`), and the detour rule's three knobs.
+  - **When each bot knob was frozen.**
+  - The reaction rule (`react_*`): at 5b70259.
+  - The routing through real openings (`_real_gaps`, a pathing fix): added at f1bf38e. On its own it leaves every 5b70259 line identical (iter `rg`).
+  - The first detour rule: Step 3. Its replacement (3b, below) and the `detour_*` knobs are frozen from 3b on. From here only game knobs move, including the guard and the cache.
+
+## Step 3b (D-d/E): every warden's danger gets a counter
+The review of Step 3 found two problems. 13 of its 14 deaths came from packs that ignored the counters, and the Shieldwall's bash never reached Relish. 3b changes the wardens and the detour rule; the reaction rule stays frozen.
+
+- **Packs answer their warden's counter** (`WardenLogic.pack_breaker` / `pack_verb`, `RaidWardenRun.breaks_pack` / `pack_target`, `RaidUnit._hit_enemy`, `RaidWarden.on_pack_broken`; tests `warden_pack`).
+  - **One blow.** A big undead whose stat meets the warden's own weak point kills a pack unit in one blow: beef for the ringers, speed for the hounds, wits for the bearers, power for the zealots. The threshold is the weak point's own.
+    - While a pack stands, such a big goes for the nearest pack unit. The Huntsman's speed bigs keep their bodyguard post at Relish and strike what comes into reach.
+    - The kill shows the weak point's verb where the unit fell, for `pack_label_s`: MUFFLED, INTERCEPTED, FLANKED or SNUFFED.
+    - The HUD's counter row adds the count, e.g. "SNUFFED ×3 · +6 zealots". The pack row teaches it: "... · power 6 kills one in a blow".
+    - AUTOPILOT_RESULT `pack.broken` counts these kills.
+  - **Off Relish.** A pack goes for her undead, not for her (`RaidUnit._pick_enemy_target`). It costs time and the army, and her risk stays in the warden's own counter-gated attacks: the unmuffled slam, the uncaught lunge, the rush and the fire.
+    - Once no undead stands, the pack turns on her. Without that, a wiped army stalled the fight until the bot gave up.
+    - Deaths of this kind show as "hound" or "pack" in `killed_by`, after a wipe.
+  - **The ward** while a pack stands is ×0.1, down from 0.25, so a pack's time adds to the fight.
+  - **The gates:** 2/3 and 1/3, on the Bellringer's and the Shieldwall's phase notches. The Pyre-priest has one gate at 0.4, its phase-3 notch.
+- **The Shieldwall's rush** (`RaidShieldwall._begin_tell` / `_end_rush` / `_pinned`, `WardenLogic.shield_pinned`; `attack.rush_px` 120, `rush_half_deg` 40, `pin_px` 30).
+  - **Tell.** As each bash tell starts, unless a wits flanker stands at its back, the bash is a rush. A flanker counts when it is within its orbit plus `pin_px` and off the shield's front arc. The rush lights an arc `rush_half_deg` wider and `rush_px` longer for its tell and bash, with RUSH over it. That arc reaches a conduit waiting at its side: the side stand is 223 px out at 110° off the facing, and a rush reaches 260 px at ±120-140°.
+  - **Counter and labelled result.** Wits flankers posted behind pin it: the bash stays a bash, with PINNED over the wall.
+  - **Why the wall and not the bot.** The bot reads the arc from `front_half_deg()` and `attack.reach_px`, and the rush writes its reach into `attack.reach_px` for those two beats. So the bot sees the lit rush arc and answers it like any bash tell, through the reaction rule (0.82 answered, 0.45 s). A missed tell, or an answer too slow to clear about 50 px, takes the 12-hp bash. The other two options were dropped:
+    - "The bash reaches her stand" alone moves the bot's stand outward, because the bot reads the reach.
+    - Pushing the fight into the arc depends on crowd flow.
+  - A horn over a rush's tell ends that rush.
+  - The `shield` dict gains `rushes`, `pins` and `rush_relish`.
+- **The detour rule** (bot policy, frozen from 3b on; `RaidAutopilot._detour_tick` / `_detour_decide`; `RaidLogic.detour_take` / `detour_retreat`; `autopilot.detour_*`).
+  - **When.** Once, before the wake, at the first think the guard is in view while no living foe is on her in her room. In view means a standing guard within `detour_view_px` 480 of her (about half a screen at tier zoom); with its guard down, the cache itself.
+  - **Take it when:**
+    - her hp is at least `detour_hp_frac` 0.6 of its most, or 0.4 with a phylactery revive left;
+    - and her army is at least `detour_army_mult` 1.5 × the guard she can see.
+  - **Reassess every think on the way in. Turn back when:**
+    - her hp falls below `detour_retreat_hp_frac` 0.5 (0.3 with a revive);
+    - or her army falls below `detour_retreat_army_mult` 1.0 × the guard still standing.
+  - **Basis, a decent player.**
+    - Fight a side guard only with clear numbers (1.5×, since raised soldiers trade about evenly with the tier's living) and at least one 12-hp hit of margin.
+    - A revive buys a lower floor.
+    - Turn back while one more hit still leaves you standing.
+    - The guard holds its post, so turning back works: it does not follow her out.
+- **The guard holds its post** (`RaidUnit.sentry`, `_pick_sentry_target`). It turns only on Relish or her undead inside its room, and never follows out. The fight therefore happens at the cache, the army passing the door does not draw it out, and leaving ends it.
+  - `cache_door_px` is down from 320 to 130, so the walk in and out is short. This is the fix for the travel breach.
+- **Measured** (the 3b code as committed: iter `s3e`, with pale-bastion and the-stair re-run as `s3f` after the rush reset; seeds 1-6 at every t2-t4 fort; all runs in lockstep; the baseline is 5b70259 seeds 1-6). Stopped rounds:
+  - `s3c`: pack unit hp 60-80. Armies the counter did not reach stalled (4 timeouts, 9 bot give-ups in 40 runs).
+  - `s3d`: three gates. Packs wiped t2 armies and the bot gave up.
+  - Final numbers: packs ×0.1 ward; sizes hounds 10 / 10 (t4 unused), ringers 5 / 8 / 8, bearers 8 / 11 / 12, zealots 8 / 8 / 14; units 30 hp (bearers 40); cache 130 px.
+
+  | tier | median s: base → all / survivors | travel / fight / trance / idle %, all runs | human estimate s, all / survivors | died (killed by) |
+  |---|---|---|---|---|
+  | t2 | 101 → 125 / 149 | 6.8 / 91.5 / 0 / 1.7 | 151-218 / 174-238 | 5 of 18 (hounds 4, living 1) |
+  | t3 | 115 → 123 / 117 | 6.8 / 87.2 / 0 / 6.0 (outliers out: 9.1 / 82.7 / 0 / 8.2) | 142-200 / 142-192 | 6 (pack 3, bash 2, hound 1) |
+  | t4 | 117 → 148 / 142 | 10.2 / 81.1 / 0 / 8.7 | 171-228 / 166-227 | 5 (pack 5) |
+
+  - **The window is not reached.** The low end is 151 / 142 / 171 s against 180 s.
+  - **The guard fails** at t2 travel (6.8 against 5.3%), and at t3 and t4 idle (8.2 against 7.5 and 8.7 against 6.5, outliers out).
+  - **Per archetype at tier** (tier median in brackets):
+    - t2: Bellringer 152 (+21%), Huntsman 83 (-34%) [125].
+    - t3: Huntsman 117, Pyre-priest 145 (+23%), Shieldwall 175 (+48%) [118].
+    - t4: Bellringer 184 (+24%), Pyre-priest 106 (-28%), Shieldwall 149 [148].
+  - **The detour** (offered / taken / won / abandoned / died after taking it; decision times):
+
+    | tier | offered | taken | won | abandoned | died after | decided at |
+    |---|---|---|---|---|---|---|
+    | t2 | 18 | 18 | 16 | 2 | 5 | 0-8 s |
+    | t3 | 14 | 14 | 8 | 4 | 3 | 1-30 s |
+    | t4 | 18 | 17 | 10 | 4 | 5 | 0-175 s |
+
+    The guard is usually in view from the spawn room, so the decision still falls early. Taking it is what lifts travel: runs that took it traveled about 9-11% at t2-t3 against 2-4% for those that did not (s3a, s3e).
+  - **With and without the counter** (10 seeds each, score 70; Relish died with / without):
+    - vespers (beef 5): 2 / 3. Living 2; living 2 and slam 1.
+    - hollow-redoubt (speed 3): 4 / 5. All hounds, after the army fell.
+    - pale-bastion (wits 0): 7 / 9. Rushes struck her 61 times in each arm. Pins: 77 of 439 bash tells with wits.
+    - mourners-gate (power 5): 1 / 2. Packs.
+    - The counters break the packs (pack.broken 40-88 of the units called with the counter, 0 without), but no counter yet halves deaths.
+  - **What blocks** (for the spec review):
+    - (1) **Pack strength.** Packs strong enough to lengthen a fight at tier wipe the army. With no undead left, the pack turns on her, so 13 of the 16 deaths at t2-t4 are "pack" or "hound" after a wipe (without that rule the fight stalls). Packs weak enough not to wipe it are broken in seconds by the counter, and the fights stay short.
+    - (2) **The Shieldwall's counter is split two ways.** Its wits bigs leave the flank to hunt bearers (`pack_target`), so the rush is rarely pinned, and the with-wits arm dies almost as often as the one without.
+    - (3) **The detour is decided from the spawn room** (the guard is in view there), and its walk is travel.
+  - **Unchanged:** tier 1, the first dungeon and Vei (byte-identical without the new keys). `parity_check.sh` gives identical results.
+  - **Shots:** `de-huntsman-hounds.png` (re-shot at 10 hounds), `de-ringers-muffled.png`, `de-bearers-flanked.png`, `de-zealots-snuffed.png`, `de-shieldwall-rush.png` (no-wits arm: RUSH lit to her side stand).
