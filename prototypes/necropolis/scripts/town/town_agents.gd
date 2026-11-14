@@ -570,7 +570,7 @@ func _read_foremen(model: TownModel, views: Dictionary) -> void:
 			continue
 		var e: Dictionary = by_uid.get(String(b["foreman"]), {})
 		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]),
-			"name": String(e.get("name", "")), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
+			"name": SlabLogic.display_name(e, _slab), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
 	if views.has("big_undead"):
 		_read_walks(entries)
 
@@ -607,7 +607,7 @@ func _read_walks(entries: Array) -> void:
 			if String(w["uid"]) == String(st["uid"]):
 				_walks.erase(w)
 				break
-		_walks.append({"uid": String(st["uid"]), "name": String(st["name"]), "lot_id": lot_id, "path": path,
+		_walks.append({"uid": String(st["uid"]), "name": SlabLogic.display_name(e, _slab) if not e.is_empty() else String(st["name"]), "lot_id": lot_id, "path": path,
 			"len": TownSetPiece.poly_len(path), "d": 0.0, "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
 	_pose_walkers()
 

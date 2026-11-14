@@ -14,6 +14,8 @@ func run() -> int:
 	t.suite("slab-logic")
 	var cfg: Dictionary = TestUtil.configs()["town"]["slab"]
 
+	_display_name(t, cfg)
+
 	# --- slots ---------------------------------------------------------------
 	var want := {
 		"skeleton": ["muscle", "nerve", "nerve"],
@@ -459,3 +461,24 @@ func _choices(t: TestUtil, cfg: Dictionary) -> void:
 				apart = apart and (pts[i] as Vector2).distance_to(pts[j]) >= 2.0 * float(pv["rune_hit_px"])
 		t.ok(apart, "%s: rune click targets never overlap" % kind)
 		t.ok(clear, "%s: runes sit outside the hold ring" % kind)
+
+
+## T-d1: a placed big undead carries the slab's name; the helper and `evaluate` share one naming rule.
+func _display_name(t: TestUtil, cfg: Dictionary) -> void:
+	var rems := [_r("beef", 6, 1), _r("beef", 5, 2), _r("power", 4, 3), _r("wits", 2, 4)]
+	for k in KINDS:
+		var ev := SlabLogic.evaluate(k, rems, cfg)
+		t.ok(SlabLogic.name_for(k, ev["stats"], cfg) == ev["name"], "display name: name_for agrees with evaluate for a %s (%s)" % [k, ev["name"]])
+		var entry := {"uid": "u7", "name": "Big u7", "kind": k, "stats": ev["stats"]}
+		t.ok(SlabLogic.display_name(entry, cfg) == ev["name"], "display name: the mint default 'Big u7' shows the slab name for a %s" % k)
+	var hulk := SlabLogic.evaluate("hulk", [_r("beef", 6, 1), _r("beef", 5, 2), _r("power", 4, 3)], cfg)
+	t.ok(String(hulk["name"]).contains(" ") and String(hulk["name"]).ends_with("Hulk"), "display name: a two-word name (%s)" % hulk["name"])
+	var kept := {"uid": "u7", "name": "Old Gristle", "kind": "hulk", "stats": hulk["stats"]}
+	t.ok(SlabLogic.display_name(kept, cfg) == "Old Gristle", "display name: a real name is kept")
+	t.ok(SlabLogic.display_name({"uid": "u8", "name": "Big u7", "kind": "hulk", "stats": hulk["stats"]}, cfg) == "Big u7",
+		"display name: another creature's 'Big u7' is a chosen name, not this one's default")
+	t.ok(SlabLogic.display_name({"uid": "u7", "name": "", "kind": "hulk", "stats": hulk["stats"]}, cfg) == hulk["name"], "display name: an empty name shows the slab name")
+	t.ok(SlabLogic.display_name({"uid": "u7", "name": "Big u7", "kind": "", "stats": {}}, cfg) == "Big u7", "display name: no kind to name, so the name stays")
+	var hollow := SlabLogic.display_name({"uid": "u9", "name": "Big u9", "kind": "zombie", "stats": {"power": 0.0}}, cfg)
+	t.ok(hollow == "%s Zombie" % cfg["hollow_adjective"], "display name: no stats at all names it Hollow (%s)" % hollow)
+	t.ok(String(cfg.get("default_name_prefix", "")) == "Big ", "display name: the mint prefix is in town.json slab.default_name_prefix")

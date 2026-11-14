@@ -16,14 +16,30 @@ static func wait_text(s: float, tx: Dictionary) -> String:
 	return String(tx.get("wait_s", "{n} s")).format({"n": roundi(s)})
 
 
-## The outcome in words, with the wait from `respawn_s` ("" for an outcome the views don't know).
-static func outcome_text(death: Dictionary, tx: Dictionary) -> String:
+## Whether the death numbers are still a stub, so the panel tags them "coming": town.json view.backups
+## numbers_wired is false (STANDIN(E3)) and nothing in `death` shows the sim computing it for real, which
+## is a wait (respawn_s > 0) or a phylactery outcome (the stub never reports either).
+static func numbers_pending(death: Dictionary, tx: Dictionary) -> bool:
+	if bool(tx.get("numbers_wired", false)):
+		return false
+	return not (float(death.get("respawn_s", 0.0)) > 0.0 or String(death.get("outcome", "")) == "phylactery")
+
+
+## The ladder's current step's tag: "now", or "now · numbers coming" while the numbers are a stub.
+static func ladder_now_text(tx: Dictionary, pending: bool) -> String:
+	return String(tx.get("ladder_now_pending" if pending else "ladder_now", ""))
+
+
+## The outcome in words, with the wait from `respawn_s` ("" for an outcome the views don't know); `pending`
+## adds the "(numbers coming)" tag.
+static func outcome_text(death: Dictionary, tx: Dictionary, pending := false) -> String:
 	var line: String = String(tx.get("outcome", {}).get(String(death.get("outcome", "")), ""))
 	if line == "":
 		return ""
 	var wait := wait_text(float(death.get("respawn_s", 0.0)), tx)
 	var after: String = String(tx.get("after", "")).format({"wait": wait}) if wait != "" else String(tx.get("at_once", ""))
-	return line.format({"after": after})
+	var text := line.format({"after": after})
+	return text + " " + String(tx.get("numbers_coming", "")) if pending else text
 
 
 ## The three steps best first: [{id, current}], the step the outcome names marked.
@@ -48,18 +64,20 @@ static func loses_list(loses: Array, tx: Dictionary) -> Array:
 	return out
 
 
-## "the party: Old Gristle (foreman at the Market), Big u2". `crypt_texts` = view.crypt (its place words).
-static func party_text(party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary) -> String:
+## "the party: Old Gristle (foreman at the Market), Hulking-Brutal Hulk". `crypt_texts` = view.crypt (its place
+## words), `slab` = town.json slab: a member still carrying the mint default "Big u2" is shown by the slab's name.
+static func party_text(party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary, slab: Dictionary = {}) -> String:
 	var label := loses_text("party", tx)
 	if party.is_empty():
 		return label
 	var names: Array = []
 	for m in party:
 		var place := String(m.get("place", ""))
+		var shown := SlabLogic.display_name(m, slab)
 		if place == "party" or place == "":
-			names.append(String(tx.get("party_member_plain", "{name}")).format({"name": String(m.get("name", ""))}))
+			names.append(String(tx.get("party_member_plain", "{name}")).format({"name": shown}))
 		else:
-			names.append(String(tx.get("party_member", "{name}")).format({"name": String(m.get("name", "")),
+			names.append(String(tx.get("party_member", "{name}")).format({"name": shown,
 				"place": CryptLogic.place_text(place, lot_labels, fort_names, crypt_texts)}))
 	return String(tx.get("party_names", "{label}: {names}")).format({"label": label, "names": ", ".join(names)})
 

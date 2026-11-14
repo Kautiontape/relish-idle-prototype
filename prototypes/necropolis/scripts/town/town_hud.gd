@@ -9,6 +9,8 @@ extends PanelContainer
 
 signal command_issued
 signal return_pressed
+## The relic wall's To the realm: the shell leaves through its one exit (the HUD never finishes the scene itself).
+signal realm_pressed
 
 
 ## A thin fill bar: `frac` 0..1 of the track in matter ink; a negative frac (no cap) draws nothing.
@@ -43,6 +45,8 @@ var _morale_bar: CapBar
 var _morale_line: Label
 var _stuck: Label
 var _return: Button
+var _next_lit := false
+var _realm: Button  # the relic wall's route, visible only while the wall is the next-tier line
 
 
 func _ready() -> void:
@@ -76,7 +80,7 @@ func _ready() -> void:
 	_stuck = _clip(TownUI.label("", 13, "text"))
 	_stuck.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default: the tooltip needs it
 	foot.add_child(_stuck)
-	_next = TownUI.label("", 13, "text_dim")
+	_next = TownUI.label("", maxi(int(_hcfg.get("next_px", 13)), TownUI.MIN_TEXT), "text_dim")
 	_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	foot.add_child(_next)
 
@@ -163,6 +167,12 @@ func _make_tier() -> Control:
 	col.add_theme_constant_override("separation", 0)
 	_tier = TownUI.label("", 20, "text")
 	col.add_child(_tier)
+	# the relic wall's route sits under the tier name, in the top row's spare height: the strip never grows
+	_realm = TownUI.button(String((_hcfg.get("text", {}) as Dictionary).get("next_relics_btn", "")))
+	_realm.custom_minimum_size = Vector2(float(_hcfg.get("relic_btn_w_px", 112.0)), maxf(float(_hcfg.get("relic_btn_h_px", 44.0)), TownUI.MIN_TARGET))
+	_realm.pressed.connect(func(): realm_pressed.emit())
+	_realm.visible = false
+	col.add_child(_realm)
 	return col
 
 
@@ -181,7 +191,13 @@ func bind(views: Dictionary) -> void:
 		_bind_cell(String(id), _cells[id], town, hud, rates.get(id, {}), views)
 	_bind_morale(town)
 	_tier.text = String(town.get("tier", "")).capitalize()
-	_next.text = HudModel.next_tier_line(String(town.get("tier", "")), town.get("next_tier", {}), _hcfg, _bview)
+	var nl := HudModel.next_line(views, _hcfg, _bview)
+	_next.text = String(nl["text"])
+	var lit: bool = nl["relics"]  # the relic wall: a lit colour, words not colour alone, and a way out
+	if lit != _next_lit:  # a theme override is a relayout: only when the line flips
+		_next_lit = lit
+		_next.add_theme_color_override("font_color", Palette.c(String(_hcfg.get("relic_ink", "danger")) if lit else "text_dim"))
+		_realm.visible = lit
 	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg, _tab)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
 	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream
