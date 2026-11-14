@@ -16,6 +16,9 @@ var relish := {}
 var vei := {}
 var hud := {}
 var haul := {}  # view_town().haul: {target, current, convoys}
+var backups := {}  # view_backups(): death is what a death costs now
+var party := {}  # view_party()
+var unit_names := {}  # big-undead uid -> name (view_big_undead)
 var names := {}  # node id -> display name (Covington, Vei, every fort)
 var villages: Array = []
 var lanes: Array = []
@@ -48,6 +51,11 @@ func refresh(force := false) -> bool:
 	vei = state.view_vei()
 	hud = state.view_hud()
 	haul = state.view_town().get("haul", {})
+	backups = state.view_backups()
+	party = state.view_party()
+	unit_names.clear()
+	for b in state.view_big_undead().get("big_undead", []):
+		unit_names[str(b["uid"])] = str(b["name"])
 	villages = state.view_villages().get("villages", [])
 	forts = realm.get("forts", [])
 	forts_by_id.clear()

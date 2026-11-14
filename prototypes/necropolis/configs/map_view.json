@@ -457,7 +457,10 @@
       "unknown_fort": "That fortress doesn't exist",
       "zero_valve": "The valve can't be shut on all three",
       "negative": "A valve share can't be negative",
-      "not_finite": "That valve setting isn't a number"
+      "not_finite": "That valve setting isn't a number",
+      "unknown_uid": "That undead isn't in the crypt",
+      "not_in_party": "Only party members take a front",
+      "unknown_front": "That front doesn't exist"
     },
     "toast_plate_alpha": 0.92,
     "toast_pad_px": 6,
@@ -474,5 +477,143 @@
   },
   "map_drag_steps": 10,
   "hint_left_px": 214,
-  "toast_left_px": 10
+  "toast_left_px": 10,
+  "cards": {
+    "warden_names": {
+      "bellringer": "The Bellringer",
+      "huntsman": "The Huntsman",
+      "shieldwall": "The Shieldwall",
+      "pyre_priest": "The Pyre Priest"
+    },
+    "warden_fallback_fmt": "The %s",
+    "tell_none": "no tell known yet",
+    "tell_label": "TELL",
+    "tells_label": "TELLS",
+    "loot": {
+      "full_text": "Loot: full",
+      "decayed_fmt": "Loot: %d%% (recovering)",
+      "full_eps": 0.005,
+      "first_clear_text": "FIRST CLEAR · guaranteed blueprint"
+    },
+    "threat_head": "THREAT IN ADVANCE",
+    "strength_fmt": "PARTY %s vs GARRISON %s",
+    "strength_unknown": "PARTY — vs GARRISON —",
+    "strength_decimals": 1,
+    "party_label": "PARTY",
+    "garrison_label": "GARRISON",
+    "risk_label": "DEATH RISK",
+    "risk_words": {
+      "low": "LOW",
+      "risky": "RISKY",
+      "deadly": "DEADLY"
+    },
+    "risk_keys": {
+      "low": "undead",
+      "risky": "select",
+      "deadly": "danger"
+    },
+    "risk_pct_fmt": "%s · %d%%",
+    "death_fmt": "If she dies now: %s.",
+    "death_outcomes": {
+      "phylactery": "a phylactery charge revives her in place",
+      "clone": "she wakes in a clone vat",
+      "unmade": "she is unmade"
+    },
+    "death_fallback_fmt": "outcome unknown (%s)",
+    "death_respawn_fmt": "Back on her feet in %s.",
+    "death_loses_fmt": "loses: %s",
+    "death_loses_none": "loses nothing",
+    "loses_words": {
+      "party": "the party",
+      "unbanked_loot": "unbanked loot",
+      "flip": "the flip",
+      "morale": "morale"
+    },
+    "matter_head": "MATTER",
+    "chips": {
+      "held_fmt": "HELD · %s left",
+      "tithe_in_fmt": "TITHE WAVE IN %s",
+      "tithe_now": "TITHE WAVE NOW",
+      "relish_here": "RELISH HERE",
+      "tide": "tide",
+      "redirect": "redirect",
+      "siege_fmt": "SIEGE · %s",
+      "simulacrum_fmt": "SIMULACRUM · %s charges",
+      "first_dungeon": "YOUR FIRST DUNGEON"
+    },
+    "chip_keys": {
+      "held": "undead",
+      "tithe": "danger",
+      "relish": "relish",
+      "siege": "undead",
+      "simulacrum": "essence",
+      "first_dungeon": "select"
+    },
+    "fort_sub_fmt": "FORTRESS · TIER %d · CAPACITY %s",
+    "village_sub_fmt": "TOWN · %s",
+    "village_owner_words": {
+      "player": "held by the necrosis: its people drift to Covington",
+      "vei": "held by Vei's living",
+      "none": "contested"
+    },
+    "village_owner_tags": {
+      "player": "NECROSIS",
+      "vei": "VEI'S LIVING",
+      "none": "CONTESTED"
+    },
+    "village_migrants_label": "MIGRANTS TO COVINGTON",
+    "vei_sub": "THE GODDESS OF LIFE",
+    "vei_backlog_text": " massed at her gates",
+    "vei_war_head": "THE WAR",
+    "vei_odds_label": "ODDS",
+    "vei_sign_label": "TREND",
+    "vei_diff_label": "DIFFERENTIAL",
+    "vei_drain_label": "DRAINS IN",
+    "fronts_head": "FRONTS",
+    "front_names": {
+      "giants": "Giants",
+      "swarm": "Swarm",
+      "carvers": "Carvers",
+      "raw": "Raw"
+    },
+    "front_met": "✓ met",
+    "front_open": "✗ open",
+    "front_assigned_fmt": "assigned: %s",
+    "front_unassigned": "no one assigned",
+    "fronts_met_fmt": "fronts met %d of %d required",
+    "composition_head": "COMPOSITION",
+    "party_empty": "No big undead in the party. Raise them at the crypt slab in Covington.",
+    "assign_none": "—",
+    "assign_sub_fmt": "%s · %s",
+    "assign_ok_fmt": "%s → %s",
+    "assign_cleared_fmt": "%s unassigned",
+    "confirm_title": "The final test",
+    "confirm_fmt": "Begin the final test?\n\nOdds %d%% %s · drains in %s",
+    "confirm_ok": "Begin",
+    "sign_words": {
+      "1": "gaining",
+      "0": "holding",
+      "-1": "losing"
+    },
+    "about_open": "ABOUT ▾",
+    "about_closed": "ABOUT ▸",
+    "desc_collapsed_default": true,
+    "chip_pad_px": 6,
+    "chip_gap_px": 6,
+    "chip_border_alpha": 0.9,
+    "chip_bg_alpha": 0.08,
+    "section_gap_px": 10,
+    "bar_h_px": 8,
+    "bar_gap_px": 4,
+    "bar_track_alpha": 0.35,
+    "bar_label_w_px": 88,
+    "front_count_w_px": 90,
+    "assign_option_w_px": 120,
+    "option_popup_pad_px": 6,
+    "confirm_w_px": 440,
+    "tell_more_prefix": "· ",
+    "hint_fmt": "Hint: %s"
+  },
+  "sidebar_bottom_px": 10.0,
+  "sidebar_vsep_px": 8
 }

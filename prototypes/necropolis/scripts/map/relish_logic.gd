@@ -130,7 +130,7 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 static func vei_actions(vei: Dictionary, relish: Dictionary) -> Array:
 	var out := move_items(relish, "vei", "Relish is at Vei's gates")
 	var can := bool(vei.get("can_begin", false))
-	out.append(_button("BEGIN THE FINAL CONFRONTATION", "begin", can))
+	out.append(_button("BEGIN THE FINAL TEST", "begin", can))
 	if not can and str(vei.get("reason", "")) != "":
 		out.append(_line(reason_text(str(vei["reason"]))))
 	return out

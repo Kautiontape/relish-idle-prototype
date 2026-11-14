@@ -38,3 +38,16 @@ static func style_button(b: Button, size := 0) -> void:
 		box.set_border_width_all(1)
 		box.set_content_margin_all(int(c["ui_button_margin_px"]))
 		b.add_theme_stylebox_override(state, box)
+
+
+## A dropdown: the button look, its list in the same faces and plate.
+static func style_option(ob: OptionButton) -> void:
+	var cfg := MapLogic.cfg()
+	style_button(ob)
+	var pop := ob.get_popup()
+	pop.add_theme_font_override("font", MapType.label_font())
+	pop.add_theme_font_size_override("font_size", int(cfg["font_button"]))
+	pop.add_theme_color_override("font_color", Palette.c("text"))
+	pop.add_theme_color_override("font_hover_color", Palette.c("select"))
+	pop.add_theme_stylebox_override("panel", plate_box(1.0, int(cfg["cards"]["option_popup_pad_px"])))
+	pop.add_theme_constant_override("v_separation", int(cfg["cards"]["option_popup_pad_px"]))
