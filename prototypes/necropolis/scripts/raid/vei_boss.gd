@@ -362,7 +362,10 @@ func _step_break(delta: float) -> void:
 	horde = BossLogic.horde_step(horde, ferry, delta)
 	lanes_node.horde_frac = horde / horde0 if horde0 > 0.0 else 0.0
 	for k in BossLogic.beats_crossed(b0, b1):
+		var before := int(brk.get("streak", 0))
 		brk = VeiFronts.break_beat(brk, beat_raised, ferry_beat, vc)
+		if int(brk["streak"]) > before:
+			RaidSound.play("streak", {"step": int(brk["streak"])})
 		beat_raised = 0.0
 		streak_max = maxi(streak_max, int(brk["streak"]))
 		if VeiFronts.broken(brk, vc):
@@ -461,6 +464,7 @@ func perform_raise(g: Dictionary) -> void:
 		mults.append(mult)
 	raises += 1
 	first_raise_done = true
+	RaidSound.play("raise")
 	var fb := raiser._last_feedback
 	if fb != null and is_instance_valid(fb):
 		fb.raised_n = n
@@ -644,6 +648,7 @@ func _win() -> void:
 		return
 	end_reason = "broken"
 	_end_common()
+	RaidSound.play("unravel")
 	hud.show_banner("VEI BREAKS · the game is beaten", 3.5, "vei")
 	vei.unravel_f = 0.0
 	_seq_kind = "win"
