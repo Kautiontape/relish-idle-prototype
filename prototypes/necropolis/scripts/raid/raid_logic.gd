@@ -839,6 +839,13 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
 
 
+## The measuring bot (D-d/E Step 4 review): can she still raise with no undead standing? `motes` is the
+## essence she has (carried, and loose within collect_px: `_motes_near` counts both), `piles` the unstirred
+## corpse piles within pile_px (stirring one gives motes). A raise needs `min_motes`.
+static func can_raise_from(motes: int, piles: int, min_motes: int) -> bool:
+	return motes >= min_motes or piles > 0
+
+
 ## The measuring bot's hold (D-d/E 3c): a living foe holds her back when it is hostile and stands in her room
 ## or the next one on her way. A taken detour is a push: its guard (`push_room`, -1 with none) does not hold
 ## her at its door, only once she is inside.

@@ -393,6 +393,7 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _aim_at(", "the bot's unstick watch"],
 			["res://scripts/raid/raid_logic.gd", "static func unstick_step(", "RaidLogic.unstick_step"],
 			["res://scripts/raid/raid_logic.gd", "static func hold_blocks(", "RaidLogic.hold_blocks"],
+			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],
@@ -465,6 +466,9 @@ func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not RaidLogic.hold_blocks(false, 4, 3, 4, -1) and not RaidLogic.hold_blocks(false, 3, 3, 4, -1), "a calm one does not (it held the-stair's spawn 20 s for nothing)")
 	t.ok(not RaidLogic.hold_blocks(true, 6, 3, 4, -1) and not RaidLogic.hold_blocks(true, -1, 3, 4, -1), "nor a hostile foe elsewhere or between rooms")
 	t.ok(not RaidLogic.hold_blocks(true, 5, 3, 5, 5) and RaidLogic.hold_blocks(true, 5, 5, 6, 5), "a taken detour's guard does not hold her at its door, only inside")
+	var mm := int(cfg["autopilot"]["min_motes"])
+	t.ok(RaidLogic.can_raise_from(mm, 0, mm) and RaidLogic.can_raise_from(0, 1, mm), "enough motes, or a pile to stir: she can still raise")
+	t.ok(not RaidLogic.can_raise_from(mm - 1, 0, mm), "fewer than min_motes and no pile: nothing to raise (with no undead standing she leaves)")
 	var ap: Dictionary = cfg["autopilot"]
 	var us := float(ap["unstick_s"])
 	var px := float(ap["unstick_px"])

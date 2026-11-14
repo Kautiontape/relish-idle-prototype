@@ -48,9 +48,9 @@ extends RefCounted
 ## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
 ## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
-## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing)
-## and `unstick` (the unstick watch: aims pulled inside a room, targets given up). See NOTES-RAID "Run
-## length and risk calibration".
+## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing),
+## `unstick` (the unstick watch: aims pulled inside a room, targets given up) and `left_no_army` (she left
+## with no undead standing and nothing to raise). See NOTES-RAID "Run length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -89,6 +89,8 @@ var _archetype := ""
 var _sig := ""                  # progress signature: raises, living, warden hp, chest
 var _sig_t := 0.0               # scene time the signature last changed
 var _giving_up := false         # nothing has moved for idle_s: head for an exit and retreat
+var _no_army_t := -1.0          # since when no undead stood and nothing could be raised (-1: not now)
+var _left_no_army := false      # she left for that (the result's `left_no_army`)
 var _why := ""                 # which policy branch chose the last goal (log only)
 var _foes: Array = []          # living enemies this think (for the retreat's heading choice)
 var _bail := 0.0               # retreat to an exit once hp is at or below this fraction (0 = never)
@@ -333,6 +335,27 @@ func _watch_progress() -> void:
 		_sig_t = _sim_t
 	elif _sim_t - _sig_t > _c("idle_s", 60.0):
 		_giving_up = true
+	# D-d/E Step 4 review: no undead standing and nothing to raise from (RaidLogic.can_raise_from): a player
+	# sees it and leaves, once she reacts (her reaction delay), not after idle_s of a warden fight she cannot win
+	var rel: RaidRelish = _raid.relish
+	if _allies_alive() == 0 and not RaidLogic.can_raise_from(_motes_near(rel.global_position, _c("collect_px", 320.0)).size(),
+			_piles_within(rel.global_position, _c("pile_px", 900.0)), int(_c("min_motes", 3.0))):
+		if _no_army_t < 0.0:
+			_no_army_t = _sim_t
+		elif _sim_t - _no_army_t >= _delay - 1e-6 and not _giving_up:
+			_giving_up = true
+			_left_no_army = true
+	else:
+		_no_army_t = -1.0
+
+
+## Unstirred corpse piles within `reach` of `pos`.
+func _piles_within(pos: Vector2, reach: float) -> int:
+	var n := 0
+	for o in _raid.get_tree().get_nodes_in_group("raid_piles"):
+		if is_instance_valid(o) and not o._stirred and o._shrink < 0.0 and o.global_position.distance_to(pos) <= reach:
+			n += 1
+	return n
 
 
 ## The warden died (RaidWardenRun.on_warden_died, before it lets go of it): read its counts one last
@@ -427,6 +450,7 @@ func on_finish(result: Dictionary) -> void:
 	out["army_zero_s"] = snappedf(_army_zero_s, 0.01)
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
+	out["left_no_army"] = _left_no_army
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
