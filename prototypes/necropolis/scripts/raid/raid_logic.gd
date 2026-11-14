@@ -230,6 +230,44 @@ static func close_exit(ended: bool, pending_exit: String) -> String:
 	return pending_exit if ended and pending_exit in ["relish_died", "warden_beaten"] else "retreated"
 
 
+## The exit an ending beat leaves pending when it starts: `chest_opened` (the warden's victory beat)
+## -> warden_beaten, `relish_died` (her death beat) -> relish_died; "" for anything else.
+static func pending_on(event: String) -> String:
+	match event:
+		"chest_opened":
+			return "warden_beaten"
+		"relish_died":
+			return "relish_died"
+	return ""
+
+
+## How a window close finishes a dungeon run (RaidEndings.close_request): {exit (close_exit), closing}.
+## `closing` (the result pays only the last checkpoint snapshot, RaidLogic.result_loot) is true for the
+## retreat a close stands in for; an ending beat already playing finishes as that beat would have.
+static func close_plan(ended: bool, pending_exit: String) -> Dictionary:
+	var exit := close_exit(ended, pending_exit)
+	return {"exit": exit, "closing": exit == "retreated"}
+
+
+## The loot a raid result carries (RaidEndings.build_result): a retreat or a win banks everything found
+## plus the carried motes, a death keeps the last checkpoint snapshot (`banked`), and a close
+## (`closing`) pays that snapshot whatever the exit. Always the full loot shape; inputs unchanged.
+static func result_loot(exit: String, closing: bool, found: Dictionary, carried: int, banked: Dictionary) -> Dictionary:
+	var loot := loot_snapshot(found, carried) if exit in ["retreated", "warden_beaten"] else banked.duplicate(true)
+	if closing:
+		loot = close_loot(banked)
+	if loot.is_empty():
+		loot = empty_loot()
+	return loot
+
+
+## The warden is a target for an undead of `radius` at `pos` when it is within `reach` px of walking
+## (LayoutLogic.walk_within: the same walking leash as the enemies; a straight line through a sealed
+## wall does not count). RaidWardenRun.target_in delegates here.
+static func warden_in_reach(layout: Dictionary, pos: Vector2, warden_pos: Vector2, reach: float, radius: float) -> bool:
+	return LayoutLogic.walk_within(layout, pos, warden_pos, reach, radius)
+
+
 ## A held fort's counter-garrison is cleared when its last living enemy falls (IDLE I3).
 ## `living_left` counts the living still alive; `started` is true once the clear has fired.
 static func held_clear_due(held: bool, boss: bool, living_left: int, started: bool) -> bool:

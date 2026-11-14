@@ -1281,6 +1281,29 @@ func _close_exit_tests(t: TestUtil) -> void:
 		"a pending exit without the run ended is not an ending beat")
 	t.ok(RaidLogic.close_exit(true, "retreated") == "retreated" and RaidLogic.close_exit(true, "bogus") == "retreated",
 		"only a death or a win is kept")
+	# the path the scene takes (each beat sets pending_exit from pending_on; close_request finishes with
+	# close_plan and build_result's result_loot): a close in each beat pays what that beat would have
+	t.ok(RaidLogic.pending_on("chest_opened") == "warden_beaten" and RaidLogic.pending_on("relish_died") == "relish_died"
+		and RaidLogic.pending_on("") == "", "pending_on: the victory beat leaves the win pending, the death beat the death")
+	var banked := RaidLogic.loot_snapshot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1}]}, 2)
+	var chest := {"relics": 2, "blueprints": ["embalmer"], "husks": [{"kind": "skeleton"}], "remnants": [], "essence": 0}
+	var found := RaidLogic.merge_loot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1},
+		{"aspect": "speed", "rarity": "rare", "magnitude": 2}]}, chest)   # a ding since the checkpoint, then the chest
+	var win := RaidLogic.close_plan(true, RaidLogic.pending_on("chest_opened"))
+	var win_loot := RaidLogic.result_loot(win["exit"], win["closing"], found, 5, banked)
+	t.ok(win == {"exit": "warden_beaten", "closing": false}, "close in the victory beat: finishes warden_beaten, not as a close (%s)" % str(win))
+	t.ok(win_loot == RaidLogic.result_loot("warden_beaten", false, found, 5, banked), "close in the victory beat pays what the beat's timer pays")
+	t.ok(win_loot["blueprints"] == ["embalmer"] and win_loot["husks"] == [{"kind": "skeleton"}] and int(win_loot["relics"]) == 3
+		and (win_loot["remnants"] as Array).size() == 2 and int(win_loot["essence"]) == 5,
+		"close in the victory beat: the chest's blueprint and husk, every find since the checkpoint, the carried motes (%s)" % str(win_loot))
+	var died := RaidLogic.close_plan(true, RaidLogic.pending_on("relish_died"))
+	t.ok(died == {"exit": "relish_died", "closing": false} and RaidLogic.result_loot(died["exit"], died["closing"], found, 5, banked) == banked,
+		"close in the death beat: relish_died with the checkpoint snapshot (%s)" % str(died))
+	var mid := RaidLogic.close_plan(false, "")
+	var mid_loot := RaidLogic.result_loot(mid["exit"], mid["closing"], found, 5, banked)
+	t.ok(mid == {"exit": "retreated", "closing": true} and mid_loot == banked and (mid_loot["blueprints"] as Array).is_empty(),
+		"close mid-run: a retreat paying the checkpoint snapshot, nothing found since (%s)" % str(mid_loot))
+	t.ok(RaidLogic.result_loot("retreated", false, {}, 0, {}) == RaidLogic.empty_loot(), "result_loot of nothing is the empty loot shape")
 
 
 ## The undead's warden pick is walking distance (LayoutLogic.walk_within, as the enemy leash): an undead
@@ -1319,6 +1342,11 @@ func _warden_reach_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var wc2: Vector2 = fx["wc"]
 	t.ok(not LayoutLogic.walk_within(lay2, p2, wc2, reach, r),
 		"behind a sealed wall: not in reach (straight %.0f, on foot %.0f)" % [p2.distance_to(wc2), LayoutLogic.route_dist(lay2, p2, wc2, r)])
+	# RaidWardenRun.target_in is this one call: the undead's warden pick
+	t.ok(p2.distance_to(wc2) < reach and not RaidLogic.warden_in_reach(lay2, p2, wc2, reach, r),
+		"the warden pick: behind a sealed wall, in straight reach (%.0f) but not on foot, is no target" % p2.distance_to(wc2))
 	var inside := wc2 + Vector2(40, 0)
-	t.ok(LayoutLogic.walk_within(lay2, inside, wc2, reach, r), "in the warden room: in reach")
-	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r), "the reach still bounds it")
+	t.ok(LayoutLogic.walk_within(lay2, inside, wc2, reach, r) and RaidLogic.warden_in_reach(lay2, inside, wc2, reach, r),
+		"in the warden room: in reach")
+	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r) and not RaidLogic.warden_in_reach(lay2, inside, wc2, 30.0, r),
+		"the reach still bounds it")

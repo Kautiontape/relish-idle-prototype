@@ -117,7 +117,7 @@ func confirm_exit() -> void:
 ## `_notification`. True when it emitted.
 ##   dungeon  a retreat paying the last checkpoint snapshot (what was found since is lost, the same
 ##            bound as a death), with the phylactery revives spent; but during an ending beat it is
-##            the ending it already was (`pending_exit`, RaidLogic.close_exit): Relish's death beat
+##            the ending it already was (`pending_exit` from RaidLogic.pending_on, RaidLogic.close_plan): Relish's death beat
 ##            stays a death, and the warden's victory beat stays the win with the chest in its loot
 ##            (the same result the beat's timer would have built).
 ##   boss     the boss scene's close_result(): lost with the backups spent so far still spent (a
@@ -131,16 +131,10 @@ func close_request() -> bool:
 		_raid.trance.force_end()
 		finish(r)
 		return true
-	var exit := RaidLogic.close_exit(ended, pending_exit)
+	var plan := RaidLogic.close_plan(ended, pending_exit)
 	ended = true
 	_raid.trance.force_end()
-	match exit:
-		"relish_died":
-			finish(_raid._death_result())
-		"warden_beaten":
-			finish(build_result("warden_beaten"))
-		_:
-			finish(build_result("retreated", true))
+	finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
 	return true
 
 
@@ -171,7 +165,7 @@ func on_relish_died() -> void:
 	if ended:
 		return
 	ended = true
-	pending_exit = "relish_died"
+	pending_exit = RaidLogic.pending_on("relish_died")
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
@@ -189,12 +183,7 @@ func build_result(exit: String, closing := false) -> Dictionary:
 	for a in _raid.allies:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
-	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
-	var loot := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()) if exit in ["retreated", "warden_beaten"] else banked.duplicate(true)
-	if closing:
-		loot = RaidLogic.close_loot(banked)
-	if loot.is_empty():
-		loot = RaidLogic.empty_loot()
+	var loot := RaidLogic.result_loot(exit, closing, _raid.found_loot, _raid.carried_count(), banked)
 	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, _raid.party_died, revived, loot, _raid.rcfg())
 	for e in Results.validate("raid", r):
 		push_error("necropolis: raid result invalid: " + e)

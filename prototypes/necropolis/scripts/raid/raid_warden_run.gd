@@ -84,7 +84,7 @@ func guard_for(u: RaidUnit) -> Dictionary:
 func target_in(pos: Vector2, reach: float, radius := 0.0):
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake:
 		return null
-	return warden if LayoutLogic.walk_within(_raid.layout, pos, warden.global_position, reach, radius) else null
+	return warden if RaidLogic.warden_in_reach(_raid.layout, pos, warden.global_position, reach, radius) else null
 
 
 ## The antechamber's last chance (MECHANICS 5.3): trance ready now, the next completed raise
@@ -122,7 +122,7 @@ func on_chest_opened(c: RaidChest) -> void:
 		return
 	_raid.found_loot = RaidLogic.merge_loot(_raid.found_loot, _raid.chest_loot())
 	e.ended = true
-	e.pending_exit = "warden_beaten"
+	e.pending_exit = RaidLogic.pending_on("chest_opened")
 	_raid.trance.force_end()
 	var wc: Dictionary = _raid.rcfg().get("wardens", {})
 	RaidFx.ring(_raid.fx_root, c.global_position, Palette.c("vei"), 120.0, 0.9, 5.0)
