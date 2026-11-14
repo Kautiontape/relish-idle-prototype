@@ -280,8 +280,8 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var hf := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)
 	t.ok(not h1.has("pack") and not hf.has("pack"), "no pack key at tier 1 or in the first dungeon: those specs are as they were")
 	var pk: Dictionary = h2["pack"]
-	t.ok(int(pk["size"]) == int(cfg["wardens"]["archetypes"]["huntsman"]["pack"]["size_by_tier"]["2"]) and int(h3["pack"]["size"]) > int(pk["size"]),
-		"the pack grows with the tier (%d at t2, %d at t3)" % [int(pk["size"]), int(h3["pack"]["size"])])
+	t.ok(int(pk["size"]) == int(cfg["wardens"]["archetypes"]["huntsman"]["pack"]["size_by_tier"]["2"]) and int(pk["size"]) > 0
+		and int(h3["pack"]["size"]) >= int(pk["size"]), "the pack never shrinks with the tier (%d at t2, %d at t3)" % [int(pk["size"]), int(h3["pack"]["size"])])
 	t.ok(not pk.has("_doc"), "the spec's pack carries no _doc")
 	for a in ["bellringer", "shieldwall", "pyre_priest"]:
 		var o := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a}, cfg)

@@ -471,3 +471,27 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
     - Packs stand 12-48 s a fight.
     - Deaths: 1 / 2 / 2 of 9 per tier (packs 3, hounds 1, the living 1).
     - Tier 1 and the first dungeon are byte-identical.
+- **The Step 3 numbers** (iter `s3a`, seeds 1-6 at every t2-t4 fort, 54 runs, all in lockstep, none past 2x its fort's median). The pack sizes are set per warden (`size_by_tier`, t2 / t3 / t4): hounds 8 / 8, ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12. The detour guard is 4 / 5 / 6. Medians in scene s; the human estimate is the median per-run low-high; seeds 1-6 baseline at 5b70259 → now:
+
+  | tier | median s | travel / fight / trance / idle % | walk in fight px | human estimate s | Relish died |
+  |---|---|---|---|---|---|
+  | t2 | 101 → 134 | 5.3 / 89.6 / 0 / 5.1 → 5.5 / 92.4 / 0 / 2.1 | 5964 → 13870 | 119-171 → **157-219** | 0 → 0 of 18 |
+  | t3 | 115 → 153 | 10.5 / 82.0 / 0 / 7.5 → 10.0 / 85.8 / 0 / 4.1 | 8468 → 14324 | 132-170 → **182-236** | 0 → 6 of 18 |
+  | t4 | 117 → 142 | 16.0 / 77.5 / 0 / 6.5 → 9.0 / 84.6 / 0 / 6.4 | 8100 → 15098 | 136-187 → **166-219** | 0 → 8 of 18 |
+
+  - **The window.**
+    - t3 is in it.
+    - t2 and t4 reach 87% and 92% of its floor (180 s at the low end); the high end is well inside 360 s.
+    - Tier 1 and the first dungeon are unchanged (P1 100 s, human 119-172 s).
+  - **The guard.** Idle fell at every tier and travel at t3 and t4. At t2 travel is 5.5% against 5.3%: the detour's walk where the guard has already fallen. This is a breach of 0.2 points.
+  - **Per warden at tier** (the tier median in brackets):
+    - t2: Bellringer 182 (+36%), Huntsman 101 (-25%) [134]. The Bellringer is outside the 30% rule.
+    - t3: Huntsman 122 (-20%), Pyre-priest 187 (+22%), Shieldwall 180 (+18%) [153].
+    - t4: Bellringer 173 (+22%), Pyre-priest 106 (-25%), Shieldwall 143 (+1%) [142].
+  - **Deaths** rose with the packs: t3 6 of 18 (hounds 4, the zealots 2), t4 8 of 18 (packs 7, the living 1).
+    - A death ends a run early, so t4's length is held down by its risk.
+    - Step 4's lever will move both. Run length and risk have to be read together from here.
+  - **The detour.**
+    - Offered in every run (54 of 54).
+    - Taken in 41: t2 7 of 18, t3 16, t4 18. The t2 army at the antechamber (about 7-9) is under twice a guard of 4.
+    - The cache was won in 25; she abandoned 10 below 0.3 hp.
