@@ -1,1 +1,18 @@
-{"fronts_required": 3, "break_beats": 8, "loss_backlog_keep": 0.35}
+{
+  "_doc": "Vei's final test (MECHANICS 6, GAMEPLAY 3d), read by VeiFronts (scripts/raid/vei_fronts.gd). Placeholders until calibrated. fronts_required of the four fronts must clear. fronts.<id>: have = per_stat * sum(stat of big undead counted on the front) + per_backlog * backlog + per_q * digest_q; need = need_base + need_per_pool * Vei's living pool; cleared = have >= need. phase1: ref_s = seconds to clear a front at have == need; max_rate caps have/need; phase1_max_s is the timeout (lost). raise_have_per_mult: what one raised undead adds to a front's have in phase 1, per stat_mult. ferry (phase 2): base + per_pool*living_pool + per_uncleared*uncleared (mass/s), divided by (1 + per_q_div*(q-1)). mote_mass = value of one raised mote toward the raise rate; raise_ema_beats = smoothing window of the raise rate in tempo beats. Vei breaks after break_beats consecutive beats with raise > ferry. loss_backlog_keep = share of the backlog kept on a loss.",
+  "fronts_required": 3,
+  "break_beats": 8,
+  "loss_backlog_keep": 0.35,
+  "phase1": {"ref_s": 20.0, "max_rate": 3.0},
+  "phase1_max_s": 90.0,
+  "raise_have_per_mult": 1.0,
+  "ferry": {"base": 0.5, "per_pool": 0.01, "per_uncleared": 0.5, "per_q_div": 0.25},
+  "mote_mass": 1.0,
+  "raise_ema_beats": 4,
+  "fronts": {
+    "giants": {"stat": "wits", "per_stat": 1, "per_backlog": 0, "per_q": 0, "need_base": 14, "need_per_pool": 0.02},
+    "swarm": {"stat": "presence", "per_stat": 1, "per_backlog": 0.0006, "per_q": 0, "need_base": 12, "need_per_pool": 0.02},
+    "carvers": {"stat": "beef", "per_stat": 1, "per_backlog": 0, "per_q": 3, "need_base": 18, "need_per_pool": 0.02},
+    "raw": {"stat": "power", "per_stat": 1, "per_backlog": 0.0012, "per_q": 0, "need_base": 40, "need_per_pool": 0.03}
+  }
+}
