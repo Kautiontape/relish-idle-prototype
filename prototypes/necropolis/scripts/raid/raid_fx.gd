@@ -117,6 +117,7 @@ class Crack:
 
 
 static func crack(parent: Node, pos: Vector2, color: Color, radius: float, duration := 1.1) -> void:
+	RaidSound.play("shatter")
 	var c := Crack.new()
 	c.position = pos
 	c.color = color

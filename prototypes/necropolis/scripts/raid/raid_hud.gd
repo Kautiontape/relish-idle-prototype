@@ -4,7 +4,8 @@ extends CanvasLayer
 ## essence as pips with their integers beside them), trance meter, hint line, the
 ## always-visible retreat button (top-right) + its confirmation dialog. The boss (Vei's final test)
 ## has no retreat: no button and no dialog; its BossBlock (top centre) shows the fronts, the horde,
-## the break's beat pips and the backups left.
+## the break's beat pips and the backups left. A dungeon's awake warden gets the WardenBlock (top
+## centre): its break meter and whether the counterplay is working.
 
 var raid: Node = null
 
@@ -18,10 +19,20 @@ var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
-var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
+var _banner_plate: ColorRect = null   # a dark plate fitted to the banner's lines (walls run under it)
+var _banner_live := Callable()        # recomputes the banner's text while it shows (the last chance)
+var _banner_live_t := 0.0
+var _warden_block: Control = null   # dungeon only: the awake warden's break meter
+var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
+var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
+var _push_t := 1.0
+var _risk := {}                     # the UNBANKED counts, for the push line
+var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
+var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
 var _boss_block: Control = null
+var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
 
 
 func build(p_raid: Node, boss_mode: bool) -> void:
@@ -37,9 +48,15 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_stats.setup(boss_mode)
 	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_stats)
-	_warden_line = _mk_label(box, 20, Palette.c("danger"))
-	_warden_line.visible = false
 
+	_banner_plate = ColorRect.new()
+	_banner_plate.color = Palette.c("ground", 0.72)
+	_banner_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_plate.visible = false
+	add_child(_banner_plate)
+	_banner_plate.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_banner_plate.anchor_left = 0.5
+	_banner_plate.anchor_right = 0.5
 	_banner = _mk_label(self, 20, Palette.c("relish"))
 	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_banner.anchor_left = 0.5
@@ -71,16 +88,40 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_meter.offset_right = 208.0
 	_meter.offset_bottom = -16.0
 
+	if not boss_mode:
+		_warden_block = WardenBlock.new()
+		_warden_block.raid = p_raid
+		_warden_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_warden_block.visible = false
+		add_child(_warden_block)
+		_warden_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_warden_block.anchor_left = 0.5
+		_warden_block.anchor_right = 0.5
+		_warden_block.offset_left = -340.0
+		_warden_block.offset_right = 340.0
+		_warden_block.offset_top = 10.0
+		_warden_block.offset_bottom = 72.0
+
 	if not boss_mode:   # there is no retreat from the Vei fight
 		_exit_btn = ExitButton.new()
 		_exit_btn.hud = self
 		add_child(_exit_btn)
 		_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		_exit_btn.anchor_left = 1.0
-		_exit_btn.offset_left = -168.0
+		_exit_btn.offset_left = -196.0
 		_exit_btn.offset_top = 14.0
 		_exit_btn.offset_right = -18.0
 		_exit_btn.offset_bottom = 60.0
+
+		_push = PushLine.new()
+		_push.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_push)
+		_push.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		_push.anchor_left = 1.0
+		_push.offset_left = -760.0
+		_push.offset_right = -18.0
+		_push.offset_top = 64.0
+		_push.offset_bottom = 88.0
 
 		_dialog = ConfirmationDialog.new()
 		_dialog.title = "Retreat"
@@ -95,19 +136,26 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	add_child(_flash)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 
+	if not boss_mode:
+		_pointers = Pointers.new()
+		_pointers.hud = self
+		add_child(_pointers)
+
 	if boss_mode:
 		_boss_block = BossBlock.new()
 		_boss_block.raid = p_raid
+		_boss_block.hud = self
 		_boss_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_boss_block)
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_boss_block.anchor_left = 0.5
 		_boss_block.anchor_right = 0.5
-		_boss_block.offset_left = -250.0
-		_boss_block.offset_right = 250.0
+		_boss_block.offset_left = -300.0
+		_boss_block.offset_right = 300.0
 		_boss_block.offset_top = 10.0
 		_boss_block.offset_bottom = 104.0
 		_banner.offset_top = 112.0
+	_banner_top = _banner.offset_top
 
 
 func _mk_label(parent: Node, size: int, color: Color) -> Label:
@@ -124,10 +172,28 @@ func _process(_delta: float) -> void:
 	if raid == null:
 		return
 	refresh()
+	if _warden_block != null:
+		# the banner steps down under the warden's block while it shows
+		var top := _banner_top + (14.0 if _warden_block.visible else 0.0)
+		if _banner.offset_top != top:
+			_banner.offset_top = top
+			_fit_banner_plate()
+		if _push != null:
+			_push.max_w = _push_room()
 	if _banner_t >= 0.0:
 		_banner_t -= _delta
+		if _banner_live.is_valid():
+			_banner_live_t += _delta_real()
+			if _banner_live_t >= 0.25:
+				_banner_live_t = 0.0
+				var lt: String = _banner_live.call()
+				if lt != _banner.text:
+					_banner.text = lt
+					_fit_banner_plate()
 		if _banner_t < 0.0:
 			_banner.visible = false
+			_banner_plate.visible = false
+			_banner_live = Callable()
 	if _flash_t >= 0.0:
 		_flash_t += _delta / maxf(0.05, Engine.time_scale)
 		var f := _flash_t / 0.9
@@ -144,7 +210,7 @@ func refresh() -> void:
 	_title.text = raid.fort_name().to_upper() if raid.is_boss() else "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
 	var st := _stats
 	st.living = raid.enemies.size()
-	var motes: int = raid.get_tree().get_nodes_in_group("raid_essence").size()
+	var motes: int = raid.get_tree().get_node_count_in_group("raid_essence")   # a count, no array
 	if raid.is_boss():
 		# the boss keeps no ledger: the WARD (her sacrifice chain) and the raised that stand
 		st.loose = motes
@@ -157,7 +223,8 @@ func refresh() -> void:
 				else:
 					raised += 1
 		st.raised_text = "%d raised · %d big undead" % [raised, party]
-		var info: Dictionary = raid.hud_info()
+		boss_info = raid.hud_info()   # once a frame; the boss block reads this copy
+		var info: Dictionary = boss_info
 		_hint.text = str(info["hint"])
 		_hint.visible = _hint.text != ""
 		st.queue_redraw()
@@ -177,6 +244,12 @@ func refresh() -> void:
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
+		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
+		if st.phyl_word != "":
+			# the words lean from text_dim to danger with her hp, as the halo does (day 1 starts with none)
+			var rel: RaidRelish = raid.relish
+			var lvl := RaidLogic.exposed_level(st.phyl, rel.hp / maxf(1.0, rel.max_hp), raid.rcfg()) if rel != null else 1.0
+			st.phyl_tone = Palette.c("text_dim").lerp(Palette.c("danger"), RaidLogic.exposed_tint(lvl, raid.rcfg()))
 		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
 		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
 		var carried: int = raid.carried_count()
@@ -186,10 +259,16 @@ func refresh() -> void:
 			_loot_key = [raid.endings.banked, raid.found_loot, carried, floor_n]
 			var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
 			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
-			st.banked_text = _loot_line(bk)
-			st.unbanked_text = _loot_line(ub)
+			st.banked_text = RaidLogic.loot_line(bk)
+			st.unbanked_text = RaidLogic.loot_line(ub)
+			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
+			_push_t = 1.0   # the push line's "at risk" follows UNBANKED on the same frame
+		_push_t += _delta_real()
+		if _push != null and _push_t >= 0.25:
+			_push_t = 0.0
+			_update_push()
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true
@@ -198,9 +277,76 @@ func refresh() -> void:
 	st.queue_redraw()
 
 
-func _loot_line(c: Dictionary) -> String:
-	return "relics %d · remnants %d · husks %d · blueprints %d · essence %d" % [int(c["relics"]), int(c["remnants"]),
-		int(c["husks"]), int(c["blueprints"]), int(c["essence"])]
+func _delta_real() -> float:
+	return get_process_delta_time() / maxf(0.05, Engine.time_scale)
+
+
+## The push-or-retreat line, 4 times a second and on the frame UNBANKED changes: the living left,
+## the nearest exit by walking distance (the compass word of the first step of the route to it,
+## LayoutLogic.waypoint: the doorway to take, so it never points through a wall; and how many rooms
+## away), and what a death would lose now. No exit found drops the exit clause. Its text is set only
+## when it changes.
+func _update_push() -> void:
+	var lay: Dictionary = raid.layout
+	var rel: RaidRelish = raid.relish
+	if rel == null or lay.is_empty():
+		return
+	var doors: Array = lay.get("doors", [])
+	var best := -1
+	var bd := INF
+	for i in doors.size():
+		if not bool(doors[i].get("exit", false)):
+			continue
+		var d := LayoutLogic.route_dist(lay, rel.global_position, doors[i]["inner"], rel.radius)
+		if d < bd:
+			bd = d
+			best = i
+	exit_pos = Vector2.INF if best < 0 else (doors[best]["inner"] as Vector2)
+	var word := ""
+	var hops := -1
+	var at_exit: bool = raid.endings.exit_idx >= 0
+	if best >= 0 and not at_exit:
+		var step := LayoutLogic.waypoint(lay, rel.global_position, exit_pos, rel.radius)
+		word = RaidLogic.compass(step - rel.global_position)
+		var rf := RaidLogic.room_of(lay, rel.global_position)
+		var rt := int(doors[best].get("room", -1))
+		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
+			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
+	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit))
+
+
+## Width the push line may use without running under the warden's block (narrow windows wrap it).
+func _push_room() -> float:
+	var room := _push.size.x
+	if _warden_block != null and _warden_block.visible:
+		var block_right := _warden_block.global_position.x + _warden_block.size.x
+		room = minf(room, _push.global_position.x + _push.size.x - block_right - 12.0)
+	return maxf(160.0, room)
+
+
+## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.
+func _fit_banner_plate() -> void:
+	if _banner_plate == null:
+		return
+	var f := ThemeDB.fallback_font
+	var w := 0.0
+	var lines := _banner.text.split("\n")
+	for l in lines:
+		w = maxf(w, f.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x)
+	var h := float(lines.size()) * _banner.get_line_height() + 8.0
+	_banner_plate.offset_left = -w * 0.5 - 14.0
+	_banner_plate.offset_right = w * 0.5 + 14.0
+	_banner_plate.offset_top = _banner.offset_top - 3.0
+	_banner_plate.offset_bottom = _banner.offset_top - 3.0 + h
+	_banner_plate.visible = _banner.visible
+
+
+## Screen point at the end of the "N on the floor" note (the loot pointer starts there), or INF
+## when nothing lies on the floor.
+func floor_anchor() -> Vector2:
+	if _stats == null or _stats.floor_n <= 0 or _stats.floor_end == Vector2.INF:
+		return Vector2.INF
+	return _stats.global_position + _stats.floor_end
 
 
 func flash(color: Color) -> void:
@@ -211,21 +357,22 @@ func flash(color: Color) -> void:
 	_flash_t = 0.0
 
 
-## The warden's status line under the counters; empty text hides it.
-func set_warden_line(text: String, color_key := "danger") -> void:
-	if _warden_line == null:
-		return
-	_warden_line.visible = text != ""
-	_warden_line.text = text
-	_warden_line.add_theme_color_override("font_color", Palette.c(color_key))
-
-
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).
 func show_banner(text: String, secs: float, color_key := "relish") -> void:
+	_banner_live = Callable()
 	_banner.text = text
 	_banner.add_theme_color_override("font_color", Palette.c(color_key))
 	_banner.visible = true
 	_banner_t = secs
+	_fit_banner_plate()
+
+
+## A banner whose text `provider` recomputes 4 times a second while it shows (the last chance's
+## "N essence to bank" falls as Relish gathers).
+func show_banner_live(provider: Callable, secs: float, color_key := "relish") -> void:
+	show_banner(str(provider.call()), secs, color_key)
+	_banner_live = provider
+	_banner_live_t = 0.0
 
 
 ## The banner when a checkpoint room banks new loot.
@@ -234,8 +381,10 @@ func show_checkpoint(loot: Dictionary) -> void:
 	_banner.text = "CHECKPOINT · loot banked\nrelics %d · blueprints %d · husks %d · remnants %d · essence %d" % [
 		int(loot["relics"]), (loot["blueprints"] as Array).size(), (loot["husks"] as Array).size(),
 		(loot["remnants"] as Array).size(), int(loot["essence"])]
+	_banner_live = Callable()
 	_banner.visible = true
 	_banner_t = float(raid.rcfg().get("checkpoint", {}).get("banner_s", 2.5))
+	_fit_banner_plate()
 
 
 ## Retreat is live only at an exit (never in the boss: there is no retreat from Vei).
@@ -282,10 +431,13 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
+	var phyl_tone: Color = Palette.c("text_dim")   # text_dim at full hp, danger as it falls (exposed_tint)
 	var banked_text := ""
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
 	var floor_n := 0         # pickups still on the floor
+	var floor_end := Vector2.INF   # local end of the "N on the floor" note (the loot pointer's start)
 	var _row := 20.0
 	var _lab := 13
 	var _val := 15
@@ -366,20 +518,32 @@ class StatBlock:
 		if not boss:
 			_label(y, "PHYLACT.")
 			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
-			_value(px + 4.0, y, str(phyl))
+			var vx := _value(px + 4.0, y, str(phyl), phyl_tone if phyl_word != "" else null)
+			if phyl_word != "":
+				# no revive left: the state in words (the halo says it in the world)
+				var cut := phyl_word.find(" · ")
+				var head := phyl_word if cut < 0 else phyl_word.substr(0, cut)
+				var hx := _value(vx + 10.0, y, head, phyl_tone)
+				if cut >= 0:
+					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
+			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")
-			_value(_col, y, banked_text)
+			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
 			y += _row
 			var risk := unbanked_n > 0
 			var tone := Palette.c("danger") if risk else Palette.c("text_dim")
 			_label(y, "UNBANKED")
-			_value(_col, y, unbanked_text, tone)
+			_value(_col, y, unbanked_text if unbanked_text != "" else "none", tone)
 			y += _row
 			# the stakes: one pip per unbanked thing (capped), then what it means
-			var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
-			var note := "lost if you die" + ("" if floor_n <= 0 else " · %d on the floor" % floor_n)
-			_value(px2 + 6.0, y, note, tone)
+			floor_end = Vector2.INF
+			if risk or floor_n > 0:
+				var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
+				var note := ("lost if you die" if risk else "") + ("" if floor_n <= 0 else (" · " if risk else "") + "%d on the floor" % floor_n)
+				var nx := _value(px2 + 6.0, y, note, tone if risk else Palette.c("vei"))
+				if floor_n > 0:
+					floor_end = Vector2(nx + 4.0, y - 5.0)
 
 
 class TranceMeter:
@@ -426,6 +590,270 @@ class TranceMeter:
 			HORIZONTAL_ALIGNMENT_LEFT, 190, 14, col)
 
 
+## The awake warden's break meter (top centre; hidden while it sleeps and once it falls). Row 1:
+## its name, the strength left as pips (`vei`, VISUAL-LANGUAGE law 9) with the phase notches where
+## its phases are hp gates, "n/N", and the counterplay's running count: the Bellringer's
+## "MUFFLED x n of m" (lit `undead` once it has worked, "braced" while a brace is up), the Huntsman's
+## "INTERCEPTED x n · took k" (k pips taken inside stun windows). Pips a stun window took stay as
+## `undead` rings with a slash; the open window's pips flash (steady under reduced motion).
+## Row 2: the Bellringer's phase and its weak point; the Huntsman's CAUGHT track (danger diamonds,
+## notched where catches change its phase) and whether it is hunting your dead. Redrawn only when
+## what it shows changes (or every frame while a stun window flashes).
+class WardenBlock:
+	extends Control
+	var raid: Node = null
+	var _key := -1
+	var _key2 := -1
+	var _t := 0.0
+
+	func _warden() -> RaidWarden:
+		if raid == null or raid.warden_run == null:
+			return null
+		var w = raid.warden_run.warden
+		if w == null or not is_instance_valid(w) or not w.alive or not w.awake:
+			return null
+		return w
+
+	func _process(d: float) -> void:
+		var w := _warden()
+		var show: bool = w != null and not raid._ended
+		if show != visible:
+			visible = show
+			_key = -1
+		if not show:
+			return
+		_t += d / maxf(0.05, Engine.time_scale)
+		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
+		var k2 := 0
+		var flashing := false
+		if w is RaidBellringer:
+			var bw := w as RaidBellringer
+			k2 = mini(bw.slams_muffled, 1023) | (mini(bw.slams, 1023) << 10) | (int(bw.muffled) << 20)
+		elif w is RaidHuntsman:
+			var hw := w as RaidHuntsman
+			flashing = hw.is_stunned()
+			k2 = mini(hw.intercepts, 1023) | (mini(hw.catches, 1023) << 10) | (int(flashing) << 20) | (int(hw.hunting_undead) << 21)
+		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
+			_key = k
+			_key2 = k2
+			queue_redraw()
+
+	func _text(x: float, y: float, text: String, px: int, key := "text") -> float:
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Palette.c(key))
+		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+	func _notch(x: float, y: float) -> void:
+		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
+	func _draw() -> void:
+		var w := _warden()
+		if w == null:
+			return
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		var x0 := 12.0
+		var px0 := 150.0
+		var y := 26.0
+		_text(x0, y, str(w.spec.get("name", "")).to_upper(), 13, "text_dim")
+		# row 1: the strength left, notched at the phase boundaries
+		var lit := w.meter_lit()
+		var hw: RaidHuntsman = w as RaidHuntsman
+		var win_lo := lit
+		var win_hi := -1
+		if hw != null and hw.is_stunned() and hw.stun_lit0 > lit:
+			win_hi = hw.stun_lit0
+		var blink := 1.0 if Pulse.reduced_motion else 0.55 + 0.45 * sin(_t * 14.0)
+		var x := px0 + 6.0
+		var r := 6.0
+		for i in w.meter_n:
+			if w.meter_notch.has(i):
+				_notch(x - 3.5, y + 1.0)
+				x += 9.0
+			var p := Vector2(x, y - 5.0)
+			if i < lit:
+				draw_circle(p, r, Palette.c("vei"))
+			elif i >= win_lo and i < win_hi:
+				# the open stun window took this pip: it flashes, slashed (shape as well as colour)
+				draw_circle(p, r, Palette.c("undead", blink))
+				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("ground", 0.9), 1.8)
+			elif w.weak_marks[i] != 0:
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
+				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
+			else:
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.6), 1.3)
+			x += 16.0
+		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
+		y += 26.0
+		if w is RaidBellringer:
+			var bw := w as RaidBellringer
+			var n := bw.slams_muffled
+			var x2 := _text(x + 14.0, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
+			if bw.muffled:
+				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x3 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+		elif hw != null:
+			var n2 := hw.intercepts
+			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken)
+			var x4 := _text(x + 14.0, y - 26.0, tag, 15, "undead" if n2 > 0 else "text_dim")
+			if win_hi > 0:
+				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
+			# row 2: the hunt, notched where catches change its phase
+			_text(x0, y, "CAUGHT", 13, "text_dim")
+			var notches := WardenLogic.catch_notches(w.spec)
+			var slots := maxi(WardenLogic.catch_slots(w.spec), hw.catches)
+			var cx := px0 + 6.0
+			for i in slots:
+				if notches.has(i):
+					_notch(cx - 3.5, y + 1.0)
+					cx += 9.0
+				var q := Vector2(cx, y - 5.0)
+				var pts := PackedVector2Array([q + Vector2(0, -6), q + Vector2(6, 0), q + Vector2(0, 6), q + Vector2(-6, 0), q + Vector2(0, -6)])
+				if i < hw.catches:
+					draw_colored_polygon(pts, Palette.c("danger"))
+				else:
+					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+				cx += 16.0
+			var x5 := _text(cx + 2.0, y, str(hw.catches), 15, "danger" if hw.catches > 0 else "text")
+			x5 = _text(x5 + 12.0, y, "phase %d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 13, "text_dim")
+			if hw.hunting_undead:
+				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
+
+
+## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
+## dashed `vei` line from the HUD's "N on the floor" to the nearest pickup, ringed, while it is on
+## screen; an edge chevron marked LOOT pointing at it while it is off screen. The exit pointer: an
+## edge chevron marked EXIT (`relish`, the exits' lip colour) toward the nearest exit while it is off
+## screen. The nearest pickup and exit are re-picked 4 times a second; each frame only projects them,
+## and it redraws only when what it would draw moves (nothing to point at: no redraw at all).
+class Pointers:
+	extends Node2D
+	var hud: RaidHud = null
+	var _t := 1.0
+	var _loot: Node2D = null
+	var _chev := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+	var _ep := Vector2.INF      # the off-screen exit's screen point (INF: no EXIT chevron)
+	var _sp := Vector2.INF      # the nearest pickup's screen point (INF: none)
+	var _from := Vector2.INF    # the HUD's "N on the floor" anchor
+
+	func _process(d: float) -> void:
+		var raid = hud.raid if hud != null else null
+		var on: bool = raid != null and not raid._ended and raid.relish != null
+		if on != visible:
+			visible = on
+		if not on:
+			return
+		_t += d / maxf(0.05, Engine.time_scale)
+		if _t >= 0.25:
+			_t = 0.0
+			_loot = _nearest(raid, "raid_pickups")
+		var view := get_viewport_rect().size
+		var inner := Rect2(Vector2.ZERO, view).grow(-30.0)
+		var xf: Transform2D = raid.get_viewport().get_canvas_transform()
+		var ep := Vector2.INF
+		if hud.exit_pos != Vector2.INF:
+			ep = xf * hud.exit_pos
+			if inner.has_point(ep):
+				ep = Vector2.INF   # on screen: its lips and sigil already say where it is
+		var sp := Vector2.INF
+		if _loot != null and is_instance_valid(_loot) and _loot.is_in_group("raid_pickups"):
+			sp = xf * _loot.global_position
+		var from := hud.floor_anchor() if sp != Vector2.INF else Vector2.INF
+		if ep != _ep or sp != _sp or from != _from:
+			_ep = ep
+			_sp = sp
+			_from = from
+			queue_redraw()
+
+	func _nearest(raid: Node, group: String) -> Node2D:
+		var best: Node2D = null
+		var bd := INF
+		var rp: Vector2 = raid.relish.global_position
+		for o in raid.get_tree().get_nodes_in_group(group):
+			var d: float = (o as Node2D).global_position.distance_to(rp)
+			if d < bd:
+				bd = d
+				best = o
+		return best
+
+	## A chevron on the screen's inset edge where the line from its centre to `sp` leaves it.
+	func _edge(sp: Vector2, view: Vector2, col: Color, word: String) -> void:
+		var c := view * 0.5
+		var dir := (sp - c).normalized()
+		var m := 34.0
+		var tx := INF if absf(dir.x) < 0.0001 else ((view.x - m) - c.x) / absf(dir.x)
+		var ty := INF if absf(dir.y) < 0.0001 else ((view.y - m) - c.y) / absf(dir.y)
+		var p := c + dir * minf(tx, ty)
+		_chev[0] = p + dir * 12.0
+		_chev[1] = p - dir * 6.0 + dir.orthogonal() * 10.0
+		_chev[2] = p - dir * 6.0 - dir.orthogonal() * 10.0
+		draw_colored_polygon(_chev, Palette.c("ground", 0.8))
+		draw_polyline(_chev, col, 2.0)
+		draw_line(_chev[2], _chev[0], col, 2.0)
+		var f := ThemeDB.fallback_font
+		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
+		draw_string(f, lp, word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+	func _draw() -> void:
+		var view := get_viewport_rect().size
+		if _ep != Vector2.INF:
+			_edge(_ep, view, Palette.c("relish"), "EXIT")
+		if _sp == Vector2.INF:
+			return
+		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
+			if _from != Vector2.INF:
+				draw_dashed_line(_from, _sp, Palette.c("vei", 0.45), 1.5, 7.0)
+			draw_arc(_sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
+		else:
+			_edge(_sp, view, Palette.c("vei"), "LOOT")
+
+
+## The push-or-retreat line, right-aligned on a dark backing (walls run under the HUD). When it is
+## wider than `max_w` (a narrow window, where it would run under the warden's block) it wraps at its
+## " · " clauses onto more lines, still right-aligned. Redrawn only when its text or room changes.
+class PushLine:
+	extends Control
+	var text := ""
+	var max_w := 4096.0:
+		set(v):
+			if absf(v - max_w) >= 1.0:
+				max_w = v
+				queue_redraw()
+
+	func set_text(t: String) -> void:
+		if t != text:
+			text = t
+			queue_redraw()
+
+	func _line(f: Font, y: float, s: String) -> void:
+		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var x := size.x - w
+		draw_rect(Rect2(Vector2(x - 8.0, y), Vector2(w + 8.0, 22.0)), Palette.c("ground", 0.72))
+		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
+
+	func _draw() -> void:
+		if text == "":
+			return
+		var f := ThemeDB.fallback_font
+		if f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 8.0 <= max_w:
+			_line(f, 0.0, text)
+			return
+		var y := 0.0
+		var cur := ""
+		for part in text.split(" · "):
+			var next := part if cur == "" else cur + " · " + part
+			if cur != "" and f.get_string_size(next, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 8.0 > max_w:
+				_line(f, y, cur)
+				y += 22.0
+				cur = part
+			else:
+				cur = next
+		if cur != "":
+			_line(f, y, cur)
+
+
 class ExitButton:
 	extends Control
 	var hud: RaidHud = null
@@ -466,22 +894,28 @@ class ExitButton:
 			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), "reach an exit",
 				HORIZONTAL_ALIGNMENT_LEFT, 96, 13, Palette.c("text_dim", 0.8))
 			return
-		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "RETREAT",
-			HORIZONTAL_ALIGNMENT_LEFT, 100, 15, Palette.c("vei", 1.0 if _hover else 0.8))
+		draw_string(ThemeDB.fallback_font, Vector2(56, 21), "RETREAT",
+			HORIZONTAL_ALIGNMENT_LEFT, 120, 15, Palette.c("vei", 1.0 if _hover else 0.8))
+		# what it does, always beside the button at an exit (the hint line may be teaching the circle)
+		draw_string(ThemeDB.fallback_font, Vector2(56, 38), "banks your loot",
+			HORIZONTAL_ALIGNMENT_LEFT, 130, 13, Palette.c("text", 0.85))
 
 
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
 ## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
-## signed oblique rate, then the BREAK streak as break_beats pips that fill on the beat and visibly
-## drop on a lapse ("lapse -N"; past 10 beats the pips are smaller and grouped in fives, so they stay
-## countable), with which side is winning. Always: BACKUPS left as pips (a phylactery diamond, a clone
-## dot) and one cracked violet ring per backup spent. Drawn from raid.hud_info() each frame.
+## signed oblique rate and which side is winning, then the BREAK meter drawn as the wardens' meter
+## (WardenBlock): break_beats pips lit from the left by the streak, a notch every `notch` pips, a
+## lapse's pips slashed in `danger` while it shows (flashing, steady under reduced motion), and the
+## running count "LAPSES ×n · lost k". Always: BACKUPS left as pips (a phylactery diamond, a clone
+## dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
+## redraws only when what it shows changes (or while a lapse flashes).
 class BossBlock:
 	extends Control
 	var raid: Node = null
-	var _prev_streak := 0
-	var _reset_t := 0.0          # seconds of the lapse flash left
-	var _lost := 0               # beats the last lapse cost
+	var hud: Node = null
+	var _key := PackedInt32Array()
+	var _next := PackedInt32Array()
+	var _t := 0.0
 	static var _oblique: FontVariation = null
 
 	static func oblique() -> FontVariation:
@@ -499,9 +933,35 @@ class BossBlock:
 			t = t.substr(0, t.length() - 3)
 		return ("-" if n < 0 else "") + t + out
 
+	func _info() -> Dictionary:
+		return hud.boss_info if hud != null else {}
+
+	## Redraw when a shown number changes, or every frame while a lapse flashes (not under reduced motion).
 	func _process(d: float) -> void:
-		_reset_t = maxf(0.0, _reset_t - d / maxf(0.05, Engine.time_scale))
-		queue_redraw()
+		_t += d / maxf(0.05, Engine.time_scale)
+		var info := _info()
+		if info.is_empty():
+			return
+		_next.resize(16)
+		_next[0] = int(info["break_began"]) | (int(info["over"]) << 1) | (int(info["won"]) << 2) | (int(info["winning"]) << 3) | (int(info["lapse_on"]) << 4)
+		_next[1] = int(info["met"])
+		_next[2] = floori(float(info["t"]))
+		_next[3] = roundi(float(info["horde"]))
+		_next[4] = int(info["streak"])
+		_next[5] = int(info["break_beats"])
+		_next[6] = int(info["lapses"])
+		_next[7] = int(info["lapse_lost"])
+		_next[8] = int(info["lapse_lo"])
+		_next[9] = int(info["lapse_hi"])
+		_next[10] = int(info["phyl_left"])
+		_next[11] = int(info["clones_left"])
+		_next[12] = int(info["spent_phyl"]) + int(info["spent_clones"])
+		_next[13] = roundi(float(info["ferry"]) * 100.0)
+		_next[14] = int(info["required"])
+		_next[15] = int(info["notch"])
+		if _next != _key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
+			_key = _next.duplicate()
+			queue_redraw()
 
 	func _label(x: float, y: float, text: String) -> float:
 		var f := ThemeDB.fallback_font
@@ -530,10 +990,13 @@ class BossBlock:
 			var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
 			draw_arc(p, r, a0, a0 + TAU / 3.0 - 0.55, 8, Palette.c("relish", 0.9), 1.6)
 
+	func _notch(x: float, y: float) -> void:
+		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
 	func _draw() -> void:
-		if raid == null or not raid.has_method("hud_info"):
+		var info := _info()
+		if info.is_empty():
 			return
-		var info: Dictionary = raid.hud_info()
 		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
 		var x0 := 12.0
 		var col2 := 108.0
@@ -551,38 +1014,47 @@ class BossBlock:
 				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
 			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
 		else:
+			# the horde, its rate, and which side the beat is going to
 			_label(x0, y, "HORDE")
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			_text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
-			_text(size.x - 150.0, y, "ferried by Vei", 13, "text_dim")
+			x2 = _text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
+			if bool(info["won"]):
+				_text(x2 + 18.0, y, "SHE BREAKS", 15, "vei")
+			elif bool(info["over"]):
+				_text(x2 + 18.0, y, "the fight is lost", 13, "danger")
+			elif bool(info["winning"]):
+				_text(x2 + 18.0, y, "raise > ferry", 13, "undead")
+			else:
+				_text(x2 + 18.0, y, "raise < ferry", 13, "living")
 			y += 28.0
+			# the break meter, as the wardens': lit from the left, notched, a lapse's pips slashed
 			_label(x0, y, "BREAK")
 			var n := int(info["break_beats"])
 			var st := int(info["streak"])
-			if st < _prev_streak and _prev_streak > 0:
-				_reset_t = 0.6
-				_lost = _prev_streak - st
-			_prev_streak = st
-			var pcol := Palette.c("danger") if _reset_t > 0.0 else Palette.c("vei")
-			var compact := n > 10
-			var pr := 4.5 if compact else 6.0
-			var step := 11.0 if compact else 18.0
-			var px0 := col2 + 8.0
+			var notch := maxi(1, int(info["notch"]))
+			var lo := int(info["lapse_lo"])
+			var hi := int(info["lapse_hi"]) if bool(info["lapse_on"]) else -1
+			var blink := 1.0 if Pulse.reduced_motion else 0.55 + 0.45 * sin(_t * 14.0)
+			var r := 5.0
+			var x := col2 + 8.0
 			for i in n:
-				var gx := px0 + step * i + (5.0 * floorf(i / 5.0) if compact else 0.0)
-				_pip(Vector2(gx, y - 5.0), pr, pcol, i < st, false)
-			var pend := px0 + step * n + (5.0 * floorf((n - 1) / 5.0) if compact else 0.0)
-			var x3 := _text(pend + 4.0, y, "%d/%d" % [st, n], 15)
-			if bool(info["won"]):
-				_text(x3 + 12.0, y, "SHE BREAKS", 15, "vei")
-			elif bool(info["over"]):
-				_text(x3 + 12.0, y, "the fight is lost", 13, "danger")
-			elif _reset_t > 0.0:
-				_text(x3 + 12.0, y, "lapse −%d" % _lost, 13, "danger")
-			elif bool(info["winning"]):
-				_text(x3 + 12.0, y, "raise > ferry", 13, "undead")
-			else:
-				_text(x3 + 12.0, y, "raise < ferry", 13, "living")
+				if i > 0 and i % notch == 0:
+					_notch(x - 3.5, y + 1.0)
+					x += 7.0
+				var p := Vector2(x, y - 5.0)
+				if i < st:
+					draw_circle(p, r, Palette.c("vei"))
+				elif i >= lo and i < hi:
+					# the lapse took this pip: it flashes, slashed (shape as well as colour)
+					draw_circle(p, r, Palette.c("danger", blink))
+					draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("ground", 0.9), 1.8)
+				else:
+					draw_arc(p, r - 0.6, 0.0, TAU, 12, Palette.c("text_dim", 0.6), 1.3)
+				x += 13.0
+			x = _text(x + 2.0, y, "%d/%d" % [st, n], 15)
+			var nl := int(info["lapses"])
+			var tag := "LAPSES ×%d" % nl + ("" if nl <= 0 else " · lost %d" % int(info["lapse_lost"]))
+			_text(x + 14.0, y, tag, 13, "danger" if hi > 0 else "text_dim")
 		y += 28.0
 		_label(x0, y, "BACKUPS")
 		var px := col2 + 8.0

@@ -2,6 +2,9 @@ class_name RaidRelish
 extends Node2D
 ## Relish: a conduit, never a fighter. Click-to-move. If a lethal hit lands and
 ## any allied undead exists, the nearest ally is sacrificed in her place.
+## Her safety is drawn as a state (dungeon only): with no phylactery charge left her halo breaks
+## into dashes leaning to `danger`, faint at full hp and stronger as it falls (RaidLogic.exposed_level),
+## and each Huntsman catch leaves a crack in her ring at the angle the lunge came from, for the run.
 
 var raid: Node = null
 var hp := 30.0
@@ -16,6 +19,9 @@ var _flash := 0.0
 var _t := 0.0
 var _route: RaidRoute = null   # click-to-move goes through doorways
 var _route_goal := Vector2.INF
+var _catch_angles := PackedFloat32Array()      # one per Huntsman catch: where the lunge came from
+var _cracks: Array[PackedVector2Array] = []    # each catch's jagged stroke, built once
+const CRACK_SEP := 0.75                        # radians kept between two catch notches
 
 
 func configure(p_raid: Node) -> void:
@@ -82,6 +88,30 @@ func take_hit(amount: float) -> void:
 	queue_redraw()
 
 
+## A Huntsman catch (dungeon): a notch broken out of her ring near the angle the lunge came from,
+## kept for the run (the warden is freed when it dies, so the marks live here). Each notch is a gap
+## in the ring, a thin crack into her, and a bold straight radial `danger` tick on a dark under-stroke
+## that runs out across every ring round her (halo, trance, hp arcs are all tangential, so the ticks
+## read as clock hands and count at the tier-4 zoom). A notch that would land within `CRACK_SEP` of
+## an earlier one steps round the ring (lunges often come from the same side), so they never stack.
+func mark_catch(from_angle: float) -> void:
+	var a := RaidLogic.spread_angle(from_angle, _catch_angles, CRACK_SEP)
+	var dir := Vector2.RIGHT.rotated(a)
+	var side := dir.orthogonal()
+	var ring := radius + 3.5
+	var pts := PackedVector2Array()
+	var steps := [[radius * 0.3, 0.0], [radius * 0.65, 2.5], [ring - 2.0, -2.0], [ring + 1.0, 0.0]]
+	for st in steps:
+		pts.append(dir * float(st[0]) + side * float(st[1]))
+	_catch_angles.append(a)
+	_cracks.append(pts)
+	queue_redraw()
+
+
+func catch_marks() -> int:
+	return _cracks.size()
+
+
 ## Phylactery revive: back to `new_hp` with i-frames.
 func revive(new_hp: float, iframes_s: float) -> void:
 	hp = clampf(new_hp, 1.0, max_hp)
@@ -97,10 +127,29 @@ func _draw() -> void:
 		body = body.lerp(Palette.c("danger"), minf(0.8, _flash))
 	# halo breathes on the Pulse beat (steady under reduced motion)
 	var beat := 0.6 + 0.4 * Pulse.wave()
-	LineGlow.ring(self, Vector2.ZERO, radius * 1.8, violet, 1.5, 0.5 * beat)
+	var exposed := 0.0
+	if raid != null and not raid.is_boss():
+		exposed = RaidLogic.exposed_level(raid.phylactery_left(), hp / maxf(1.0, max_hp), ConfigDb.data.get("raid", {}))
+	if exposed > 0.0:
+		# no revive left: the halo breaks into dashes and leans to danger (shape and colour)
+		var hc := violet.lerp(Palette.c("danger"), 0.35 + 0.65 * exposed)
+		hc.a = 0.45 + 0.55 * exposed
+		for k in 8:
+			var a0 := TAU * k / 8.0 + 0.2
+			LineGlow.arc(self, Vector2.ZERO, radius * 1.8, a0, a0 + TAU / 8.0 * 0.62, hc, 1.5 + 1.5 * exposed, 0.5 * beat)
+	else:
+		LineGlow.ring(self, Vector2.ZERO, radius * 1.8, violet, 1.5, 0.5 * beat)
 	draw_circle(Vector2.ZERO, radius, body)
 	LineGlow.ring(self, Vector2.ZERO, radius + 3.5, violet, 2.0, beat, Palette.c("text", 0.6))
 	draw_circle(Vector2.ZERO, radius * 0.4, Palette.c("text", 0.9))
+	for i in _cracks.size():
+		# a Huntsman catch: a notch broken out of the ring, a bold tick through it on a dark under-stroke
+		var ca := _catch_angles[i]
+		var cd := Vector2.RIGHT.rotated(ca)
+		draw_arc(Vector2.ZERO, radius + 3.5, ca - 0.4, ca + 0.4, 8, Palette.c("ground"), 6.0)
+		draw_polyline(_cracks[i], Palette.c("danger"), 2.0)
+		draw_line(cd * (radius + 2.0), cd * (radius + 31.0), Palette.c("ground", 0.95), 7.0)
+		draw_line(cd * (radius + 2.0), cd * (radius + 30.0), Palette.c("danger"), 3.5)
 	if raid != null and not raid.is_boss() and raid.carried_count() > 0:
 		# empty carry slots: faint matte ticks, so "7 of 12" reads at a glance
 		var e: Dictionary = ConfigDb.data.get("raid", {}).get("essence", {})

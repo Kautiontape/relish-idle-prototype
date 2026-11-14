@@ -201,4 +201,24 @@ func run() -> int:
 		for ar in ["bellringer", "huntsman"]:
 			all_tables = all_tables and RaidLoot.hint("t%d.%s" % [tier, ar], false, cfg) != ""
 	t.ok(all_tables, "every tier and archetype has a hint")
+	t.suite("loot_floor_glyph")
+	var shapes := {}
+	for k in RaidLoot.FLOOR_KINDS:
+		shapes[str(RaidLoot.floor_glyph(k, false)["shape"])] = true
+	t.ok(shapes.size() == 4, "the four floor kinds have four different glyphs: %s" % str(shapes.keys()))
+	for k in ["husk", "remnant"]:
+		var dark := RaidLoot.floor_glyph(k, false)
+		var lit := RaidLoot.floor_glyph(k, true)
+		t.ok(bool(dark["matte"]) and dark["key"] == "dead" and lit["key"] == "dead_lit" and dark["shape"] == lit["shape"],
+			"%s is dead matter: matte dead, dead_lit under her light, same shape" % k)
+	for k in ["relic", "blueprint"]:
+		var g := RaidLoot.floor_glyph(k, false)
+		t.ok(not bool(g["matte"]) and g["key"] == "vei" and RaidLoot.floor_glyph(k, true)["key"] == "vei", "%s is treasure: it glows vei" % k)
+	t.ok(RaidLoot.floor_glyph("???", true) == RaidLoot.floor_glyph("remnant", true), "an unknown kind lies as a remnant")
+	var rem := {"aspect": "beef", "rarity": "common", "magnitude": 1}
+	var pl := RaidLoot.pickup_loot("remnant", rem)
+	t.ok(pl == {"remnants": [rem]} and not is_same(pl["remnants"][0], rem), "a remnant pickup adds that remnant (a copy)")
+	t.ok(RaidLoot.pickup_loot("relic", {}) == {"relics": 1}, "a relic pickup adds one relic")
+	t.ok(RaidLoot.pickup_loot("husk", {"kind": "skeleton"}) == {"husks": [{"kind": "skeleton"}]}, "a husk pickup adds its husk")
+	t.ok(RaidLoot.pickup_loot("blueprint", {"id": "forge"}) == {"blueprints": ["forge"]}, "a blueprint pickup adds its id")
 	return t.failures

@@ -206,7 +206,7 @@ func on_finish(result: Dictionary) -> void:
 		"relish_hp_end": snappedf(_raid.relish.hp if _raid.relish != null and is_instance_valid(_raid.relish) else 0.0, 0.1),
 		"allies_end": _allies_alive()}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
-	_raid.get_tree().quit()
+	RaidQuit.finish(_raid.get_tree())
 
 
 func _allies_alive() -> int:

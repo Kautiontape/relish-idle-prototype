@@ -99,9 +99,21 @@ func last_chance() -> void:
 		if is_instance_valid(o) and not o.absorbing and not o.carried and rect.has_point(o.global_position):
 			o.ignite(float(wc.get("ignite_s", 0.8)))
 			lit += 1
-	_raid.hud.show_banner("LAST CHANCE · a free trance", float(wc.get("last_chance_banner_s", 3.5)), "essence")
+	# "N essence to bank": what lies loose in the room, capped by the carry room left; live while it shows
+	_raid.hud.show_banner_live(func() -> String:
+		return RaidLogic.last_chance_banner(RaidLogic.bankable(_loose_in(rect), _raid.carried_count(), _raid.rcfg())),
+		float(wc.get("last_chance_banner_s", 3.5)), "essence")
 	if _raid._standalone:
 		print("RAID_WARDEN last_chance lit=%d" % lit)
+
+
+## Loose essence in `rect` (neither carried nor being absorbed), for the last-chance banner.
+func _loose_in(rect: Rect2) -> int:
+	var n := 0
+	for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
+		if is_instance_valid(o) and not o.absorbing and not o.carried and rect.has_point(o.global_position):
+			n += 1
+	return n
 
 
 func on_warden_died(w: RaidWarden) -> void:

@@ -43,6 +43,7 @@ var _land_a := Vector2.ZERO
 var _land_b := Vector2.ZERO
 var _land_hit := false
 var _tg: Telegraph = null
+var _meter: MeterRow = null
 
 
 func wcfg() -> Dictionary:
@@ -61,6 +62,9 @@ func configure(p_boss: Node2D, cfg: Dictionary) -> void:
 	_tg.z_as_relative = false
 	_tg.z_index = 37   # above the trance dim (36), under Relish (38)
 	add_child(_tg)
+	_meter = MeterRow.new()
+	_meter.vei = self
+	add_child(_meter)
 
 
 ## Phase 2 begins: the first weave lands on `first_beat`.
@@ -162,7 +166,7 @@ func _draw_vei() -> void:
 	var gone := 0
 	if unravel_f >= 0.0:
 		gone = clampi(floori(total * unravel_f + 0.0001), 0, total)
-	var beat := Pulse.wave()
+	var beat: float = boss.beat_wave() if boss != null else Pulse.wave()   # on the boss's beat
 	var bright := 1.0 + 0.25 * _flare
 	if feed_f >= 0.0:
 		bright += 0.4 * feed_f
@@ -193,6 +197,76 @@ func _draw_vei() -> void:
 		draw_circle(Vector2.ZERO, radius * 0.09, Palette.c("text", 0.95))
 	if _flare > 0.0 and not reduced:
 		LineGlow.ring(self, Vector2.ZERO, radius * (1.2 + 0.8 * (1.0 - _flare)), Palette.c("vei", 0.7 * _flare), 2.5, 0.6)
+
+
+## The break meter's echo under her rings, as the wardens' row (warden.gd _draw_meter_row): break_beats
+## pips lit by the streak, a notch every notch_every pips, a lapse's pips a slashed `danger` ring while
+## it shows. Sized in screen px (divided by the zoom). No text: the HUD carries the counts. A child
+## of Vei so it redraws only when its inputs change (her rings spin, so her own _draw runs every
+## frame): the key holds every number _draw reads, compared as ints each frame.
+class MeterRow:
+	extends Node2D
+	var vei: RaidVei = null
+	var _key := PackedInt32Array()
+	var _next := PackedInt32Array()
+
+	func _process(_d: float) -> void:
+		var boss = vei.boss if vei != null else null
+		if boss == null:
+			return
+		var vc: Dictionary = boss.vcfg()
+		var mc: Dictionary = vc.get("meter", {})
+		_next.resize(10)
+		_next[0] = 1 if float(boss.phase1_s) >= 0.0 else 0
+		_next[1] = roundi((maxf(0.05, boss.cam.zoom.x) if boss.cam != null else 1.0) * 1000.0)
+		_next[2] = int(vc.get("break_beats", 8))
+		_next[3] = int(boss.brk.get("streak", 0))
+		_next[4] = int(mc.get("notch_every", 5))
+		_next[5] = roundi(float(mc.get("pip_px", 3.5)) * 100.0)
+		_next[6] = roundi(float(mc.get("gap_px", 16.0)) * 100.0)
+		_next[7] = int(boss.lapse_lo)
+		_next[8] = int(boss.lapse_hi) if float(boss._lapse_t) > 0.0 else -1
+		_next[9] = roundi(vei.radius * 100.0)
+		if _next != _key:
+			_key = _next.duplicate()
+			queue_redraw()
+
+	func _draw() -> void:
+		var t0 := BossDev.pt()
+		if vei != null and vei.boss != null and float(vei.boss.phase1_s) >= 0.0:
+			_draw_row()
+		BossDev.pa("vei", t0)
+
+	func _draw_row() -> void:
+		var boss = vei.boss
+		var vc: Dictionary = boss.vcfg()
+		var mc: Dictionary = vc.get("meter", {})
+		var z: float = maxf(0.05, boss.cam.zoom.x) if boss.cam != null else 1.0
+		var n := int(vc.get("break_beats", 8))
+		var st := int(boss.brk.get("streak", 0))
+		var notch := maxi(1, int(mc.get("notch_every", 5)))
+		var pr := float(mc.get("pip_px", 3.5)) / z
+		var step := pr * 2.7
+		var gap := pr * 1.6
+		var w := step * float(n - 1) + gap * floorf(float(n - 1) / float(notch))
+		var x := -w * 0.5
+		var y := vei.radius + float(mc.get("gap_px", 16.0)) / z + pr
+		var lo: int = boss.lapse_lo
+		var hi: int = boss.lapse_hi if float(boss._lapse_t) > 0.0 else -1
+		for i in n:
+			if i > 0 and i % notch == 0:
+				var nx := x - step * 0.5 + gap * 0.5
+				draw_line(Vector2(nx, y - pr * 2.0), Vector2(nx, y + pr * 2.0), Palette.c("vei", 0.85), 1.6 / z)
+				x += gap
+			var p := Vector2(x, y)
+			if i < st:
+				draw_circle(p, pr, Palette.c("vei"))
+			elif i >= lo and i < hi:
+				draw_arc(p, pr, 0.0, TAU, 10, Palette.c("danger"), 1.4 / z)
+				draw_line(p + Vector2(-pr, pr), p + Vector2(pr, -pr), Palette.c("danger"), 1.4 / z)
+			else:
+				draw_arc(p, pr * 0.8, 0.0, TAU, 10, Palette.c("text_dim", 0.6), 1.0 / z)
+			x += step
 
 
 ## The weave telegraph (z 37, above the trance dim): the laid thread while it tells, and the

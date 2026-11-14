@@ -233,3 +233,68 @@ static func slam_window_open(beats_to_tell: float, exit_px: float, speed_px_s: f
 		safe_beats: float) -> bool:
 	var exit_beats := maxf(0.0, exit_px) / maxf(1.0, speed_px_s) / maxf(0.001, tempo_s)
 	return beats_to_tell - exit_beats > safe_beats
+
+
+# ------------------------------------------------------------ break meter ---
+## The break meter is pips, never a percent (VISUAL-LANGUAGE law 9): the warden's remaining
+## strength. An hp-phased warden (every phase has until_hp_frac: the Bellringer) gets one segment
+## per phase, and each segment's pips count down through that phase's hp band, so a notch is
+## crossed on exactly the hit that changes bellringer_phase. A warden phased by anything else (the
+## Huntsman: catches) gets one flat segment and no notches on its strength.
+## The hp band edges, highest first: [1.0, 0.66, 0.33, 0.0] for the Bellringer, [1.0, 0.0] else.
+static func meter_bands(sp: Dictionary) -> Array[float]:
+	var out: Array[float] = [1.0]
+	var phases: Array = sp.get("phases", [])
+	var hp_phased := phases.size() > 1
+	for ph in phases:
+		hp_phased = hp_phased and (ph as Dictionary).has("until_hp_frac")
+	if hp_phased:
+		for i in phases.size() - 1:
+			out.append(clampf(float(phases[i]["until_hp_frac"]), 0.0, 1.0))
+	out.append(0.0)
+	return out
+
+
+## Pips per segment: `total` shared evenly over the bands (at least 1).
+static func meter_per_band(bands: Array, total: int) -> int:
+	return maxi(1, roundi(float(total) / float(maxi(1, bands.size() - 1))))
+
+
+## Lit pips (the strength left) at `hp_frac`: a band hp is above is full, one it is below is
+## empty, and the band it is in shows the ceiling of its share left. 0 only at hp_frac <= 0.
+static func meter_lit(bands: Array, per_band: int, hp_frac: float) -> int:
+	var lit := 0
+	for j in bands.size() - 1:
+		var hi := float(bands[j])
+		var lo := float(bands[j + 1])
+		if hp_frac >= hi:
+			lit += per_band
+		elif hp_frac > lo:
+			lit += clampi(ceili((hp_frac - lo) / maxf(0.000001, hi - lo) * per_band - 0.000001), 1, per_band)
+	return lit
+
+
+## Phase notches on the strength meter, as pip counts from the empty end ([4, 8] at 4 a band).
+static func meter_notches(bands: Array, per_band: int) -> Array[int]:
+	var out: Array[int] = []
+	for j in range(1, bands.size() - 1):
+		out.append(per_band * j)
+	return out
+
+
+## The Huntsman's phases are its catches: the until_catches of each bounded phase, ascending
+## ([2, 4]); [] for a warden not phased by catches.
+static func catch_notches(sp: Dictionary) -> Array[int]:
+	var out: Array[int] = []
+	for ph in sp.get("phases", []):
+		var u := int((ph as Dictionary).get("until_catches", -1))
+		if u > 0:
+			out.append(u)
+	out.sort()
+	return out
+
+
+## Slots on the CAUGHT track: the last notch plus two, so the open-ended last phase shows too.
+static func catch_slots(sp: Dictionary) -> int:
+	var n := catch_notches(sp)
+	return 0 if n.is_empty() else int(n[n.size() - 1]) + 2

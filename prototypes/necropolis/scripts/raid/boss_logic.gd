@@ -22,6 +22,8 @@ extends RefCounted
 ## accrue(acc, rate, dt) -> {acc, n}    whole events from a rate.
 ## guard_spawn(acc, dt, uncleared, alive, cfg) -> {acc, n}    guards to spawn now (cap-bounded).
 ## anchor_mote_rate(ferry, cfg)    motes/s at the anchors: the faster she ferries, the more essence.
+## guard_ceiling(uncleared, cfg)    the most guards that can stand at once: guards.cap, or, when they
+##   fall back after guards.life_s (> 0), rate_per_uncleared * uncleared * life_s if that is lower.
 ## ray_to_bounds(origin, through, size, wall_t)    a weave's far end: the ray from `origin` through
 ##   `through`, clipped to the arena's inner rect.
 ## weave_hits(a, b, p, reach), is_tell(beat, at, tell_beats)
@@ -32,8 +34,9 @@ extends RefCounted
 ## backups_left(spent, charges, clones), rng_int(rng_seed)
 ## cleared_ids(fronts) -> Array[String]    ids of the cleared fronts, in order.
 ## result_of(state, won) -> Dictionary    VeiBoss._result's wiring: fight_result from VeiBoss's
-##   fight_state() {seed, p1, fronts_cleared, phase1_s, deaths, spent, party_lost, horde0, horde};
-##   the break began when phase1_s >= 0 (it is -1 until then).
+##   fight_state() {seed, p1, fronts_cleared, phase1_s, deaths, spent, party_lost, horde0, horde}
+##   (RESULT_KEYS, all required: a missing one is an error and returns {}); the break began when
+##   phase1_s >= 0 (it is -1 until then).
 ## fight_result(seed, won, p1, frozen_cleared, break_began, deaths, spent, party_lost, h0, h)
 ##   VeiFronts.boss_result with the right fronts_cleared: the list frozen when the break began, or,
 ##   for a fight that ended in phase 1 (a timeout, a final death, a window close), the fronts the
@@ -217,6 +220,15 @@ static func guard_spawn(acc: float, dt: float, uncleared: int, alive: int, cfg: 
 	return {"acc": a, "n": n}
 
 
+static func guard_ceiling(uncleared: int, cfg: Dictionary) -> float:
+	var gc := _sec(cfg, "guards")
+	var cap := _f(gc, "cap", 12.0)
+	var life := _f(gc, "life_s", 0.0)
+	if life <= 0.0:
+		return cap
+	return minf(cap, _f(gc, "rate_per_uncleared", 0.3) * maxf(float(uncleared), 0.0) * life)
+
+
 static func anchor_mote_rate(ferry: float, cfg: Dictionary) -> float:
 	return maxf(ferry, 0.0) * _f(_sec(cfg, "anchors"), "motes_per_ferry", 0.5)
 
@@ -309,10 +321,17 @@ static func fight_result(seed: Dictionary, won: bool, p1: Dictionary, frozen_cle
 	return VeiFronts.boss_result(seed, won, cleared, deaths, spent, party_lost, backlog_spent(h0, h))
 
 
+## The keys result_of needs from VeiBoss.fight_state(); every one is required.
+const RESULT_KEYS := ["seed", "p1", "fronts_cleared", "phase1_s", "deaths", "spent", "party_lost", "horde0", "horde"]
+
+
 static func result_of(state: Dictionary, won: bool) -> Dictionary:
-	return fight_result(state.get("seed", {}), won, state.get("p1", {}), state.get("fronts_cleared", []),
-		_f(state, "phase1_s", -1.0) >= 0.0, int(_f(state, "deaths", 0.0)), state.get("spent", {}),
-		state.get("party_lost", []), _f(state, "horde0", 0.0), _f(state, "horde", 0.0))
+	for k in RESULT_KEYS:
+		if not state.has(k):
+			push_error("BossLogic.result_of: fight state has no '%s'" % k)
+			return {}
+	return fight_result(state["seed"], won, state["p1"], state["fronts_cleared"], float(state["phase1_s"]) >= 0.0,
+		int(state["deaths"]), state["spent"], state["party_lost"], float(state["horde0"]), float(state["horde"]))
 
 
 static func close_fields(end_reason: String, spent_total: int) -> Dictionary:
