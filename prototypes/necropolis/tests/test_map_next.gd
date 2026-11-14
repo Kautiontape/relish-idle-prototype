@@ -36,6 +36,7 @@ func run() -> int:
 	_clocks(t)
 	_projected(t)
 	_chip(t)
+	_quiet(t)
 	_anchoring(t)
 	_clear_of_token(t)
 	_raid(t)
@@ -154,9 +155,48 @@ func _chip(t: TestUtil) -> void:
 	t.ok(falling["word"] == "WILL FALL" and falling["fall"] == "falls in ~40 min", "line two: the word and the clock")
 	t.ok(falling["key"] == "danger", "the margin's colour")
 	var holding := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
-	t.ok(holding["rate"] == "+0.3/s" and holding["fall"] == "" and holding["word"] == "SAFE", "a holding fort has no clock")
+	t.ok(holding["rate"] == "+0.3/s" and holding["fall"] == "holds" and holding["word"] == "SAFE", "a SAFE fort whose clock holds says SAFE · holds")
+	var safe_falls := IdleLogic.chip_parts(f, "safe", {"rate": -0.1, "fall_s": 32400.0})
+	t.ok(safe_falls["word"] == "SAFE" and safe_falls["fall"] == "falls in ~9 h", "a SAFE fort with a real fall_s keeps the fall text (%s)" % safe_falls["fall"])
+	t.ok(IdleLogic.chip_parts(f, "thin", {"rate": 0.0, "fall_s": -1.0})["fall"] == "" and IdleLogic.chip_parts(f, "will_fall", {"rate": 0.0, "fall_s": -1.0})["fall"] == "",
+		"THIN and WILL FALL with no clock are unchanged")
+	var cfg := IdleLogic.cfg()
+	var chip_text := "%s%s%s" % [holding["word"], cfg["chip_sep"], holding["fall"]]
+	t.ok(chip_text == "SAFE · holds", "the chip's line two reads %s" % chip_text)
 	t.ok(IdleLogic.chip_top_px(true) > IdleLogic.chip_top_px(false), "the chip drops below the first-dungeon line")
 	t.ok(IdleLogic.chip_height_px() >= 2.0 * float(IdleLogic.cfg()["chip_font"]), "two lines fit the plate")
+
+
+## The quiet state and its leave line (D2).
+func _quiet(t: TestUtil) -> void:
+	t.suite("map_next-quiet")
+	var a := _held("a", 0.0, 10.0)
+	var b := _held("b", 0.0, 10.0)
+	var safe := {"a": "safe", "b": "safe"}
+	var inp := {"forts": [a, b], "margins": safe, "clocks": {"a": {"fall_s": -1.0}, "b": {"fall_s": -1.0}}}
+	t.ok(NextLogic.quiet(inp, NextLogic.DEFAULT), "two held SAFE forts, no tithe: quiet")
+	t.ok(NextLogic.quiet(inp, NextLogic.RAID) and NextLogic.quiet(inp, NextLogic.VEI), "a raid or Vei pick does not break it")
+	t.ok(not NextLogic.quiet({"forts": [{"id": "x", "held": false}], "margins": {}}, NextLogic.DEFAULT), "no held fort: not quiet")
+	t.ok(not NextLogic.quiet({"forts": [], "margins": {}}, NextLogic.DEFAULT), "no forts: not quiet")
+	t.ok(not NextLogic.quiet({"forts": [a, b], "margins": {"a": "safe", "b": "thin"}}, NextLogic.DEFAULT), "a THIN fort: not quiet")
+	t.ok(not NextLogic.quiet({"forts": [a, b], "margins": {"a": "will_fall", "b": "safe"}}, NextLogic.DEFAULT), "a WILL FALL fort: not quiet")
+	var tith := _held("b", 0.0, 10.0, {"tithe": {"targeted": true, "eta_s": 100.0, "wave_active": false}})
+	t.ok(not NextLogic.quiet({"forts": [a, tith], "margins": safe}, NextLogic.DEFAULT), "a targeted tithe: not quiet")
+	var calm := _held("b", 0.0, 10.0, {"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false}})
+	t.ok(NextLogic.quiet({"forts": [a, calm], "margins": safe}, NextLogic.DEFAULT), "an untargeted tithe is fine")
+	for rule in [NextLogic.FALL, NextLogic.OPENING, NextLogic.WON]:
+		t.ok(not NextLogic.quiet(inp, rule), "rule %s: not quiet" % rule)
+	t.ok(NextLogic.leave_text(inp) == "Safe to leave: every fort holds at these rates", "every clock < 0: the holding line (%s)" % NextLogic.leave_text(inp))
+	var fl := {"forts": [a, b], "margins": safe, "clocks": {"a": {"fall_s": 32400.0}, "b": {"fall_s": 7200.0}}}
+	t.ok(NextLogic.leave_text(fl) == "Safe to leave: first fort falls in ~2 h", "the smallest fall_s names the horizon (%s)" % NextLogic.leave_text(fl))
+	fl["clocks"] = {"a": {"fall_s": -1.0}, "b": {"fall_s": 32400.0}}
+	t.ok(NextLogic.leave_text(fl) == "Safe to leave: first fort falls in ~9 h", "a holding fort is skipped (%s)" % NextLogic.leave_text(fl))
+	# a real view's fall_s on the fort reaches the clock and so the line
+	var real := _held("a", 0.0, 10.0, {"fall_s": 32400.0, "garrison_rate": -0.1})
+	var ck := IdleLogic.committed_clocks([real], _hud(1.0))
+	t.ok(NextLogic.leave_text({"forts": [real], "clocks": ck}) == "Safe to leave: first fort falls in ~9 h", "a fort dict carrying fall_s")
+	var hud := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hud.contains("_leave = _label(") and hud.contains("NextLogic.quiet(inp"), "the HUD shows the line from NextLogic.quiet")
 
 
 ## At real positions, every fort's chip (each one as if held) sits nearer its own fort than any

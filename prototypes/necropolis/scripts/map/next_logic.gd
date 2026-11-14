@@ -154,6 +154,38 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
 
 
+## The quiet state: at least one held fort, every held fort's committed margin SAFE, none under
+## a targeted tithe (a warned surge the clocks do not count), and the strip's `rule` not the
+## opening, won or fall. `inp` is choose's input plus `margins` {id: word}.
+static func quiet(inp: Dictionary, rule: String) -> bool:
+	if rule == OPENING or rule == WON or rule == FALL:
+		return false
+	var held := IdleLogic.held_forts(inp.get("forts", []))
+	if held.is_empty():
+		return false
+	var ms: Dictionary = inp.get("margins", {})
+	for f in held:
+		if str(ms.get(str(f["id"]), "")) != IdleLogic.SAFE or bool(f.get("tithe", {}).get("targeted", false)):
+			return false
+	return true
+
+
+## The leave line: the smallest committed fall_s >= 0 among the held forts ("first fort falls in
+## ~9 h"), or every fort holds. Words in "next".
+static func leave_text(inp: Dictionary, c := {}) -> String:
+	if c.is_empty():
+		c = cfg()
+	var clocks: Dictionary = inp.get("clocks", {})
+	var best := -1.0
+	for f in IdleLogic.held_forts(inp.get("forts", [])):
+		var s := float(clocks.get(str(f["id"]), {}).get("fall_s", -1.0))
+		if s >= 0.0 and (best < 0.0 or s < best):
+			best = s
+	if best < 0.0:
+		return str(c["leave_hold_text"])
+	return str(c["leave_fall_fmt"]) % IdleLogic.fmt_fall(best)
+
+
 ## The raid line for the first of `list` (one kind of raid_set's entries), or `prev`'s target
 ## while it is still in the list.
 static func _raid(list: Array, prev: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:

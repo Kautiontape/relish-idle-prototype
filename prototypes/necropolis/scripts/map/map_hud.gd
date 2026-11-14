@@ -28,6 +28,8 @@ var _sign: Label
 var _drain: Label
 var _speed_tag: Label
 var _objective: Button
+var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
+var _leave_plate: ColorRect
 var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes so it does not flicker
 var _opening := {}  # set_opening_ask's {text, target}
 var _hint: Label
@@ -49,6 +51,7 @@ func _ready() -> void:
 	# darkening plates behind the bar and the objective: the map's brightest content may sit under them
 	_bar_plate = _plate()
 	_obj_plate = _plate()
+	_leave_plate = _plate()
 	_bar = VBoxContainer.new()
 	_bar.position = Vector2(float(pos[0]), float(pos[1]))
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -59,6 +62,10 @@ func _ready() -> void:
 	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
 	_objective.pressed.connect(func(): next_chosen.emit(_next.get("action", {"kind": "none"})))
 	add_child(_objective)
+	_leave = _label(int(cfg["objective_size_px"]), "text")
+	MapType.style_label(_leave, "text", int(cfg["objective_size_px"]))
+	_leave.visible = false
+	_leave_plate.visible = false
 	_hint = _label(int(cfg["font_hint"]), "text_dim")
 	MapType.style_label(_hint)
 	_hint_default = "drag to pan · wheel to zoom · click a fortress · click Covington to enter"
@@ -124,6 +131,13 @@ func _relayout() -> void:
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 	var inset := _obj_plate.position.y + _obj_plate.size.y
+	if _leave.visible:  # the leave line sits right under the strip's plate; what is below shifts down
+		var lsz := _leave.get_combined_minimum_size()
+		_leave.position = Vector2(_bar.position.x, inset)
+		_leave.size = lsz
+		_leave_plate.position = Vector2(0.0, inset)
+		_leave_plate.size = Vector2(_leave.position.x + lsz.x + pad, lsz.y + pad)
+		inset += _leave_plate.size.y
 	if inset != _last_inset:
 		_last_inset = inset
 		inset_changed.emit(inset)
@@ -133,7 +147,7 @@ func _relayout() -> void:
 ## toast sit below this.
 func top_inset() -> float:
 	_relayout()
-	return _obj_plate.position.y + _obj_plate.size.y
+	return _last_inset
 
 
 ## Screen px the top bar's plate covers: the camera frames the map below this.
@@ -305,6 +319,12 @@ func _refresh_next() -> void:
 	_objective.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if act else Control.CURSOR_ARROW
 	if str(_next["rule"]) != NextLogic.OPENING:
 		set_opening_pulse(0.0)
+	inp["margins"] = model.margins
+	var quiet := NextLogic.quiet(inp, str(_next["rule"]))
+	if quiet:
+		_leave.text = NextLogic.leave_text(inp)
+	_leave.visible = quiet
+	_leave_plate.visible = quiet
 
 
 ## The opening's first-30-seconds ask (task 10): `text` on the strip, clicking acts on `target`

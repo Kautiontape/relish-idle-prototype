@@ -200,14 +200,18 @@ static func margin_words(ms: Dictionary) -> Dictionary:
 
 
 ## The chip's parts for a held fort under its name: line one the garrison (an upright count) and
-## its signed rate, line two the margin word and, while falling, "falls in ~2 h".
+## its signed rate, line two the margin word and, while falling, "falls in ~2 h" (a SAFE fort
+## that holds says "holds").
 ## {count, rate, word, key, fall}; `clock` is {rate, fall_s}.
 static func chip_parts(f: Dictionary, m: String, clock: Dictionary, c := {}) -> Dictionary:
 	if c.is_empty():
 		c = cfg()
 	var fall := fmt_fall(float(clock.get("fall_s", -1.0)), c)
+	var tail := (str(c["fall_fmt"]) % fall) if fall != "" else ""
+	if tail == "" and m == SAFE:  # a SAFE fort whose clock holds says so: "SAFE · holds"
+		tail = str(c["hold_text"])
 	return {"count": garrison_text(f, c), "rate": MapLogic.fmt_rate(float(clock.get("rate", 0.0))),
-		"word": word(m), "key": color_key(m), "fall": (str(c["fall_fmt"]) % fall) if fall != "" else ""}
+		"word": word(m), "key": color_key(m), "fall": tail}
 
 
 # --- the chip's place: one plate under the fort's name -------------------------------------

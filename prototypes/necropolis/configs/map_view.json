@@ -817,6 +817,7 @@
     "fall_h_fmt": "~%d h",
     "fall_d_fmt": "~%d d",
     "chip_sep": " · ",
+    "hold_text": "holds",
     "chip_gap_px": 2.0,
     "chip_line_px": 14.0,
     "chip_rate_gap_px": 6.0,
@@ -906,6 +907,8 @@
     "queue_text": "Queue empty: plan the next build in Covington",
     "vei_fmt": "Vei can be faced: your odds %d%%",
     "hint": ">",
+    "leave_fall_fmt": "Safe to leave: first fort falls in %s",
+    "leave_hold_text": "Safe to leave: every fort holds at these rates",
     "pad_px": 8
   },
   "fit_shift_steps": 8,
