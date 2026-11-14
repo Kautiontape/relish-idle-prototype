@@ -37,6 +37,9 @@ this file's older Necropolis notes.
    pass at ≥ 0.8 Hz), width `1.1 + 2.6u`, alpha `0.4 + 0.6u`, and hue. Hue eases from dormant violet
    (272°) at u=0 to the flow's own hue at u=1, so green and orange keep their identity. Use
    `Pulse.channels(u, flow_hue)`.
+   On the map, a lit lane's hue takes `max(u, hue_u_floor)` (`configs/map_view.json`) so undead
+   stays green and living orange at low rates. Width, speed, dash and alpha keep the real u, so
+   ranking survives. Pulse is unchanged.
 5. **One tempo for the whole game: T = 1714 ms**, deliberately out of step with the sim's 0.5 s
    substep and with whole seconds. Everything that pulses shares it, phase-offset by graph distance from the scene's source,
    so the pulse reads as a wave crossing the scene, never a blink in unison:
