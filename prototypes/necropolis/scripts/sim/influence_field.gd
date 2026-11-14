@@ -168,16 +168,47 @@ func tick(dt: float) -> void:
 ## cell. Each cell's target is the backward-Euler blend, in tick units, of its value at the start of
 ## the step toward its own fixed point of T given its neighbours, found exactly piece by piece (green
 ## holds, orange holds, or both are wiped out). n is stretched to n_eff so the slowest mode (decay)
-## relaxes exactly: a small dt follows the live ticks, a large dt reaches T's fixed point.
-## field.catchup_sweeps red-black sweeps over-relax toward the targets (by field.catchup_omega, never
-## across zero), each over its rows' live spans only (cells beyond field.catchup_eps plus the
-## sources' cells, dilated). The entrench layer takes its exact closed form for n / sweeps ticks at
-## each cell update, read at the cell's target. Assumes the shipped contest (contest * 5 / tick_hz
-## >= 1) and inject amounts >= 0. Tests: test_field_catchup.gd; cost and accuracy against live ticks:
-## tests/slow/field_catchup_bench.gd.
+## relaxes exactly, and a large dt reaches T's fixed point. Red-black sweeps over-relax toward the
+## targets (by field.catchup_omega, never across zero), no more sweeps than half the step's ticks (a
+## sweep carries a change two cells, a live tick one):
+## - field.catchup_sweeps base sweeps over each row's live span (cells beyond field.catchup_eps, plus
+##   the inject cells; rows +-1, dilated 2). Each cell update also takes the entrench layer's exact
+##   closed form for n / catchup_sweeps ticks at the target's dom.
+## - then up to field.catchup_extra_sweeps extra sweeps over only the cells the previous sweep moved
+##   by more than field.catchup_extra_tol (a front still moving after a fort flips). An extra sweep
+##   pushes entrench toward the dominant side only, never decays it, and pushes by none of the base
+##   ramp for steps up to field.catchup_extra_ramp_ticks[0] ticks and all of it from [1] up: the
+##   fronts' creep that a held-dom ramp misses matters only once a step is long enough to finish it.
+## A step of up to field.catchup_exact_ticks ticks is that many live ticks instead (exact; backward
+## Euler reaches too far over a few ticks), plus one solve for what is left of a tick; so it costs
+## them. Assumes the shipped contest (contest * 5 / tick_hz >= 1) and inject amounts >= 0. Tests:
+## test_field_catchup.gd; cost and owner agreement with live ticks: tests/slow/field_catchup_bench.gd.
 func catchup_step(dt: float) -> void:
 	if not (dt > 0.0):
 		return
+	var period := 1.0 / float(cfg.get("tick_hz", 5.0))
+	var n := dt / period
+	var whole := int(floor(n + 1e-9))
+	if whole < 1 or n > float(cfg.get("catchup_exact_ticks", 8)):
+		_solve(dt)
+		return
+	# a short step: its whole ticks are live ticks (exact), the rest of a tick one solve
+	var injs := _open.duplicate()
+	for k in whole:
+		if k > 0:
+			for r in injs:
+				inject(r[0], r[1], r[2], r[3])
+		tick(period)
+	flush()
+	var frac := n - float(whole)
+	if frac > 1e-6:
+		for r in injs:
+			inject(r[0], r[1], r[2], r[3])
+		_solve(frac * period)
+
+
+## The solve behind catchup_step: dt seconds in one go (any dt > 0).
+func _solve(dt: float) -> void:
 	_work(-1)  # the queued live work, so the base is the chain's latest result
 	var cells := w * h
 	var w1 := w - 1
@@ -210,7 +241,9 @@ func catchup_step(dt: float) -> void:
 	var em := float(cfg.get("entrench_max", 2.5))
 	var ed := clampf(float(cfg.get("entrench_decay", 0.08)) * k5, 0.0, 1.0)
 	var sweeps := maxi(1, int(cfg.get("catchup_sweeps", 1)))
-	var extra := maxi(0, int(cfg.get("catchup_extra_sweeps", 10)))
+	# a red-black sweep carries a change two cells and a live tick one: a short step gets no more
+	# sweeps than half its ticks, so it spreads a change no faster than the ticks it stands for
+	var extra := clampi(int(ceil(n * 0.5)) - sweeps, 0, maxi(0, int(cfg.get("catchup_extra_sweeps", 10))))
 	var tol := float(cfg.get("catchup_extra_tol", 0.02))
 	var om := float(cfg.get("catchup_omega", 1.85))
 	var eps := float(cfg.get("catchup_eps", 0.003))
