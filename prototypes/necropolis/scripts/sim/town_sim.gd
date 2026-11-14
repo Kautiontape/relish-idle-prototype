@@ -145,6 +145,9 @@ var _sums_b := {}
 ## falses dropped. A vat slot's tend room is open only while its vat is staffed (MECHANICS §7).
 var _vats: Array[bool] = []
 var _n_rooms := 0  # staff_rooms() builds, for tests (not saved)
+## +1 whenever the rooms may have changed (_mark_rooms: a building's arrival or removal, state, level or
+## staff cap, the ladder, the vats). The build benefit's cache keys on it (StateViews.projections). Not saved.
+var structure_rev := 0
 var _n_fills := 0  # staff_fill() runs from _staff(), for tests (not saved)
 var _pending: Array = []  # events from commands, returned by the next step()
 var _haul_trip := -1.0  # this step's landed trip, load / round trip (mass/s); -1 when none landed
@@ -412,6 +415,66 @@ static func _vat_list(staffed: Array) -> Array[bool]:
 ## The vats as set_vats() keeps them, for the allocation and tests.
 func vats_on() -> Array[bool]:
 	return _vats.duplicate()
+
+
+## A copy for a hypothetical (view_catalog's `projected`, view_town's `upgrade_projected`; STATE-API
+## §5.10): setup()'s tunables shared (no step changes them; `_lots` too, unless the caller swaps in its own
+## list), the state deep-copied, nothing pending, the caches dirty. Stepping it never touches this one.
+func clone() -> TownSim:
+	var c := TownSim.new()
+	c._lots = _lots
+	c._defs = _defs
+	c._start = _start
+	c._default_ladder = _default_ladder
+	c._mass = _mass
+	c._lifetime = _lifetime
+	c._body_return = _body_return
+	c._idle_rot = _idle_rot
+	c._idle_cap = _idle_cap
+	c._home_rot = _home_rot
+	c._body_cap = _body_cap
+	c._gold_cap = _gold_cap
+	c._bone_cap = _bone_cap
+	c._living_cap = _living_cap
+	c._haul_speed = _haul_speed
+	c._carry = _carry
+	c._auto_min = _auto_min
+	c._haul_mult = _haul_mult
+	c._mill_mass = _mill_mass
+	c._mill_rate = _mill_rate
+	c._forge_rate = _forge_rate
+	c._build_rate = _build_rate
+	c._build_slots = _build_slots
+	c._stall_rate = _stall_rate
+	c._shop_rate = _shop_rate
+	c._price = _price
+	c._burn = _burn
+	c._hold_s = _hold_s
+	c._forge_work = _forge_work
+	c._forge_relics = _forge_relics
+	c._migrant_rate = _migrant_rate
+	c._leave_rate = _leave_rate
+	c._morale_base = _morale_base
+	c._ease = _ease
+	c._dread_ratio = _dread_ratio
+	c._dread_k = _dread_k
+	c._leave_below = _leave_below
+	c._shock_s = _shock_s
+	c.workers = workers
+	c.bodies = bodies
+	c.gold = gold
+	c.bone = bone
+	c.living = living
+	c.morale = morale
+	c.shock = shock
+	c.buildings = buildings.duplicate(true)
+	c.ladder = ladder.duplicate()
+	c.haul = haul.duplicate(true)
+	c.forge = forge.duplicate()
+	c.rates = rates.duplicate(true)
+	c._vats = _vats.duplicate()
+	c._mark_rooms()
+	return c
 
 
 ## Refills the job slots from scratch after a stock or a building was changed directly (a debug
@@ -1050,6 +1113,7 @@ func _staff() -> void:
 
 ## The rooms changed (or may have): the next _staff() rebuilds them and the next _restaff() refills.
 func _mark_rooms() -> void:
+	structure_rev += 1
 	_rooms_dirty = true
 	_staffed_w = NAN
 	_sums_w.clear()

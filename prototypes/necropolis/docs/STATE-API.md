@@ -57,6 +57,8 @@ from `BALANCE.md` §0.
   - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
     the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
     (§9.1);
+  - (T3.2) **build benefit** (api-request #9): `view_catalog().buildings[i].projected` and
+    `view_town().buildings[i].upgrade_projected` (§5.10, §5.9);
   - (T3.2) **construction time** (api-request #17): `view_town().buildings[i]` gains `work_left`, `eta_s`
     and `upgrade_work`, and `view_catalog().buildings[i]` gains `work` (§5.9, §5.10), TownSim's own numbers;
   - (T3.2) **the build queue** (IDLE §5, api-request #3; MECHANICS §4.4): `cmd_queue_build`, `cmd_unqueue`,
@@ -1275,6 +1277,7 @@ Each `buildings` entry:
 | `upkeep` | Dictionary | `{gold: float, bone: float}` per second |
 | `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
+| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
@@ -1320,6 +1323,43 @@ Each `buildings` entry:
 | `reason` | String | the first failing reason among `unique`, `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot` (no free unlocked lot fits), `no_gold`, `no_bone`, `no_relics` |
 | `lots` | Array[String] | free unlocked lots it fits |
 | `work` | float | v6 (E2b-2 T3.2, api-request #17): the build work a new build needs, `build_work · 1` |
+| `projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this building were finished now and staffed by the current ladder, at today's state (below) |
+
+**`projected` and `upgrade_projected`** (v6, api-request #9) use the sim's own code, never a mirrored
+formula. A copy of TownSim gets the building finished at level 1 on the row's first free lot (`lots[0]`),
+or, when no free unlocked lot fits, on a hypothetical lot after the last one, so it is staffed last in
+each job; for `upgrade_projected` the lot's building goes up a level in place. TownSim's own
+`place_building` restaffs it with the ladder's allocation. The copy is stepped one substep from the inputs
+the next core step will give TownSim (`_town_inputs`; the mint at the copy's working pits and the feed
+now; WORK at the valve that step splits with) and diffed against a copy of today's TownSim stepped from
+the same inputs, so the step's own drift cancels (the brief asked for a diff against the live last
+substep's rates; that one would carry a substep of drift):
+- `workers`, `bodies`, `gold`, `bone`, `living`: the change in that step's net rates, as `view_rates`
+  computes them (`bodies` with the trip-averaged haul);
+- `mint`: the change in the next step's mint (the pits' production);
+- `work`, `war`, `flood`: Δmint × the valve (the current valve slewed one substep toward its target, the
+  one the next step splits with; the current valve while no slew is pending). `war` leaves out any change
+  in TownSim's muster;
+- `backlog`: Δflood plus the change in the WAR that falls through to Vei at the next step's WAR
+  (`RealmSim.war_at`, the split `view_projection` reads). The dispatch it splits by is session-only, so
+  before the first substep after a load all of Δwar falls through (as in `view_projection`, §5.17);
+- `corpses`: 0.0.
+
+Checked against the sim (`test_api_v6`): a pit, a house, a market and a Bone Mill upgrade at
+`midgame_2flips` give, within 1e-9, the change in `view_rates` when the building is really finished in a
+copy (`place_building`) and one substep runs. Pure: nothing changes, `rev` stays, no event. **Cost and caching** (T3.2, best of 3 on 12 cores at a load of about 5; no time is asserted). Each row is
+a TownSim clone (24 µs), its `place_building` restaff (150 µs) and one step (250 µs): about 0.45 ms. At
+`pre_vei` (21 catalog rows, 20 built lots) an uncached `view_catalog()` plus `view_town()` costs 20.4 ms,
+against 1.8 ms for the two views without projections (they cost that before T3.2's §4 too), so the brief's
+2 ms can't be met with a light clone. The projections are therefore cached on the town's structure:
+each part (catalog, upgrades) is recomputed, with its own baseline, when `TownSim.structure_rev` (a
+building's arrival or removal, level, state or staff cap, the ladder, the vats), the tier, the valve
+target or Relish's being home changes, or once the sim time has moved `economy.json`
+`town.projection_refresh_s` (5 s) since it was computed. A repeated call costs what the views cost
+without projections (1.8 ms at `pre_vei`, 1.3 ms at `midgame_2flips`, the lookup itself a few µs), and
+`projected` may lag the stocks and the workforce by up to 5 s of sim. A recompute is a hitch of about
+20 ms at `pre_vei` (10 ms at `midgame_2flips`) every 5 s of sim; slicing the rows over frames would
+spread it.
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,

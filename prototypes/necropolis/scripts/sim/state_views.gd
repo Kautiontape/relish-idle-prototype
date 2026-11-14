@@ -251,6 +251,7 @@ static func town(gs: GameState) -> Dictionary:
 	var p_per_pit := float(gs._cfg().get("P_per_pit", 6.0))
 	var haul_rate := gs._haul_rate()
 	var staffed: Dictionary = ts.staffing.get("lots", {})
+	var ups := projections(gs, "upgrades")
 	var buildings: Array = []
 	for lot_id in BuildRules.built_lots(gs):
 		var b: Dictionary = ts.buildings[lot_id]
@@ -265,6 +266,8 @@ static func town(gs: GameState) -> Dictionary:
 			# v6 (E2b-2 T3.2, api-request #17): construction time, TownSim's own numbers
 			"work_left": float(cl["left"]), "eta_s": float(cl["eta_s"]),
 			"upgrade_work": ts.construction_work(bid, int(b["level"]) + 1) if int(b["level"]) < top else 0.0,
+			# v6 (E2b-2 T3.2, api-request #9): the change in each net rate if its next level were finished now
+			"upgrade_projected": (ups.get(lot_id, {}) as Dictionary).duplicate(),
 		})
 	var effective := ts.effective_ladder(ts.ladder)
 	var jobs := job_rows(effective, ts.staffing.get("jobs", {}))
@@ -381,6 +384,9 @@ static func projection(gs: GameState, valve_in: Dictionary) -> Dictionary:
 static func catalog(gs: GameState) -> Dictionary:
 	var rows := BuildRules.catalog_rows(gs)
 	var out: Array = rows["buildings"]
+	var proj := projections(gs, "catalog")
+	for r in out:  # v6 (E2b-2 T3.2, api-request #9): the change in each net rate if it were finished now
+		r["projected"] = (proj.get(r["building_id"], {}) as Dictionary).duplicate()
 	var bps: Array = rows["blueprints"]
 	var crafts: Array = []
 	for id in GameState.CRAFT_IDS:
@@ -499,3 +505,118 @@ static func vei(gs: GameState) -> Dictionary:
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
 	}
+
+
+# ------------------------------------------------------------ build benefit ----
+## The lot a catalog row's hypothetical goes on when no free unlocked lot fits it: after the last lot in
+## TownSim's order, so it is staffed last in each job.
+const HYPOTHETICAL_LOT := "lot-hypothetical"
+
+
+## §5.10 / §5.9 (E2b-2 T3.2, api-request #9): the change in each net rate (RATE_IDS) if a building, or a
+## built lot's next level, were finished now and staffed by the ladder, at today's state. The sim's own
+## code, never a mirrored formula: a clone of TownSim with it finished (place_building, so TownSim's own
+## allocation restaffs it), stepped one substep from the inputs the next core step will give TownSim,
+## against a clone of today's TownSim stepped from the same inputs, so the step's own drift cancels. The
+## mint is the next step's (GameState._mint at the clone's working pits and the feed now); work, war and
+## flood are Δmint × the valve that step splits with (the current valve slewed one substep toward its
+## target); backlog is Δflood plus the change in the WAR that falls through to Vei at that WAR
+## (RealmSim.war_at, the split view_projection reads); corpses 0.0. Pure: the clones are thrown away.
+## `part` is "catalog" ({building_id: projection}) or "upgrades" ({lot_id: projection, {} at max_level or
+## while constructing}).
+## Cached on the town's structure, since a part costs about one TownSim step per row (pre_vei: 21 catalog
+## rows, 20 lots, about 20 ms in all): each part is recomputed, with its own baseline, when the structure
+## changes (TownSim.structure_rev: a building's arrival or removal, level, state or staff cap, the ladder,
+## the vats), the tier, the valve target or Relish's being home changes, or when the sim time has moved
+## economy.json town.projection_refresh_s (5 s) since it was computed (a load or new game moves the
+## structure too). In between it lags the stocks and the workforce by up to that much.
+static func projections(gs: GameState, part: String) -> Dictionary:
+	var sig := [gs.town_sim.structure_rev, gs.town_tier, gs.valve_target.duplicate(), gs.relish["state"] == "home"]
+	var c: Dictionary = gs._proj_cache.get(part, {})
+	var age := gs.t - float(c.get("t", INF))
+	if c.get("sig", []) != sig or not (age >= 0.0 and age < gs._req_f("economy.town.projection_refresh_s")):
+		var b := _proj_base(gs)
+		c = {"sig": sig, "t": gs.t, "value": _proj_catalog(gs, b) if part == "catalog" else _proj_upgrades(gs, b)}
+		gs._proj_cache[part] = c
+	return c["value"]
+
+
+## The baseline both parts diff against: the next step's inputs and valve, and today's TownSim stepped once.
+static func _proj_base(gs: GameState) -> Dictionary:
+	var dt := gs.substep_s()
+	var b := {"dt": dt, "valve": gs._slewed_valve(dt), "feed": float(gs.town_sim.rates.get("feed", 0.0)),
+		"inputs": gs._town_inputs(0.0)}
+	b["rates"] = _proj_step(gs, gs.town_sim.clone(), b)
+	return b
+
+
+## Steps a hypothetical TownSim `ts` once from the baseline's inputs: {mint, muster, <town id>: net}.
+static func _proj_step(gs: GameState, ts: TownSim, b: Dictionary) -> Dictionary:
+	var dt := float(b["dt"])
+	var mint := gs._mint(ts.pits(), float(b["feed"]))
+	var inp: Dictionary = (b["inputs"] as Dictionary).duplicate()
+	inp["work_mass"] = mint * float(b["valve"]["work"]) * dt + gs.work_pending
+	var o := ts.step(dt, inp)
+	var io := GameState._town_io(ts)
+	var out := {"mint": mint, "muster": float(o["muster_mass"]) / dt}
+	for id in io:
+		out[id] = float(io[id][0]) - float(io[id][1])
+	return out
+
+
+## A stepped hypothetical `r` against the baseline `b`: {rate_id: Δ} over every RATE_IDS id.
+static func _proj_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionary:
+	var r0: Dictionary = b["rates"]
+	var v: Dictionary = b["valve"]
+	var dm := float(r["mint"]) - float(r0["mint"])
+	var war0 := float(r0["mint"]) * float(v["war"]) + float(r0["muster"])
+	var fell := float(gs.realm.war_at(war0 + dm * float(v["war"]))[1]) - float(gs.realm.war_at(war0)[1])
+	var out := {}
+	for id in GameState.RATE_IDS:
+		match id:
+			"mint":
+				out[id] = dm
+			"work", "war", "flood":
+				out[id] = dm * float(v[id])
+			"backlog":
+				out[id] = dm * float(v["flood"]) + fell
+			"corpses":
+				out[id] = 0.0
+			_:
+				out[id] = float(r[id]) - float(r0[id])
+	return out
+
+
+## Each catalog row's projection, by building id: finished at level 1 on its first free lot (the row's
+## `lots[0]`), or, when none fits, on HYPOTHETICAL_LOT.
+static func _proj_catalog(gs: GameState, b: Dictionary) -> Dictionary:
+	var out := {}
+	var cfg := BuildRules.buildings_cfg(gs)
+	for bid in cfg:
+		var lots := BuildRules.free_lots(gs, int(cfg[bid].get("lot_size", 1)))
+		var ts := gs.town_sim.clone()
+		var lot_id: String = HYPOTHETICAL_LOT
+		if lots.is_empty():
+			ts._lots = ts._lots.duplicate()
+			ts._lots.append(HYPOTHETICAL_LOT)
+		else:
+			lot_id = str(lots[0])
+		ts.place_building(lot_id, str(bid), 1)
+		out[str(bid)] = _proj_diff(gs, _proj_step(gs, ts, b), b)
+	return out
+
+
+## Each built lot's next level, by lot id ({} at max_level or while constructing).
+static func _proj_upgrades(gs: GameState, b: Dictionary) -> Dictionary:
+	var out := {}
+	for lot_id in BuildRules.built_lots(gs):
+		var bl: Dictionary = gs.town_sim.buildings[lot_id]
+		var bid: String = bl["building_id"]
+		var top := int(BuildRules.buildings_cfg(gs).get(bid, {}).get("max_level", 1))
+		if bl["state"] == "constructing" or int(bl["level"]) >= top:
+			out[lot_id] = {}
+			continue
+		var ts := gs.town_sim.clone()
+		ts.place_building(lot_id, bid, int(bl["level"]) + 1)
+		out[lot_id] = _proj_diff(gs, _proj_step(gs, ts, b), b)
+	return out

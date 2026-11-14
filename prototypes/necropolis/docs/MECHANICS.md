@@ -927,7 +927,10 @@ processing does.
   about 220 s. End of run: gold 9 261 against 9 330 (−0.74%), bone 29.2 against 28.5, the same levels
   everywhere; the mill's level 2 waits on bone in both. With no queue the two gold paths are identical.
 
-**Every building has a numeric benefit** (vision review S7):
+**Every building has a numeric benefit** (vision review S7). From E2b-2 (T3.2, api-request #9) the build
+card shows it as the change in each net rate if the building were finished now: `view_catalog`'s
+`projected` and `view_town`'s `upgrade_projected`, TownSim's own step run on a copy with the building
+finished against a copy without (STATE-API §5.10). The table is the design intent:
 
 | building | benefit | gate |
 |---|---|---|

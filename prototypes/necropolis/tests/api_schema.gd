@@ -169,6 +169,8 @@ const TOWN_BUILDING := {
 	"staff_cap": I, "foreman": S, "output": {"*": F}, "upkeep": UPKEEP,
 	# api_version 6 (E2b-2 T3.2, api-request #17): construction time
 	"work_left": F, "eta_s": F, "upgrade_work": F,
+	# api_version 6 (E2b-2 T3.2, api-request #9): the next level's rate change ({} at max level or constructing)
+	"upgrade_projected": {"*": F},
 }
 ## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
 const QUEUE_ENTRY := {
@@ -181,6 +183,8 @@ const CATALOG_BUILDING := {
 	"lots": [S],
 	# api_version 6 (E2b-2 T3.2, api-request #17): a new build's work
 	"work": F,
+	# api_version 6 (E2b-2 T3.2, api-request #9): the rate change if it were finished now
+	"projected": {"*": F},
 }
 
 ## Views without `rev` (every view carries `rev: int` except the two seed views, §7).

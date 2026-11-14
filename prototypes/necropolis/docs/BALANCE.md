@@ -131,6 +131,7 @@ E2a added is here with its value.
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
 | `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
 | `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250 |
+| `town.projection_refresh_s` | 5 s | the build benefit's cache (STATE-API §5.10, E2b-2 T3.2): `projected` and `upgrade_projected` are recomputed at most this often while the town's structure holds, so they lag the stocks and workforce by up to this much |
 | `queue.max_len` | 8 | the build queue's length (IDLE §5, E2b-2 T3.2), the town's stand-in's 8 |
 | `bone.cap`, bone mill `effects.bone_cap` | 200, + 100 per Bone Mill level (+50% of the base) | 300, 400, 500 at Bone Mill levels 1–3; a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |

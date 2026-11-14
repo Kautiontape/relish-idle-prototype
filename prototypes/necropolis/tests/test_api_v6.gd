@@ -30,6 +30,7 @@ func run() -> int:
 	_yield()
 	_store_caps()
 	_construction_time()
+	_projected()
 	return t.failures
 
 
@@ -613,3 +614,117 @@ func _bld(s: GameState, lot_id: String) -> Dictionary:
 		if b["lot_id"] == lot_id:
 			return b
 	return {}
+
+
+## Build benefit (E2b-2 T3.2, api-request #9; STATE-API §5.10, §5.9): `projected` on every catalog row and
+## `upgrade_projected` on every built lot ({} at max_level or while constructing), keyed by every RATE_IDS
+## id. Correct: for a pit, a house, a market and a Bone Mill upgrade at midgame_2flips, the town ids, mint,
+## work and flood equal the change in view_rates when it is really finished in a copy (place_building, the
+## same allocation restaffing it) and one substep runs, within 1e-9; war, backlog and corpses read as §5.10
+## defines them. Pure. A cached answer equals a fresh one, after time has moved too.
+func _projected() -> void:
+	t.suite("api-v6-projected")
+	var js := JSON.stringify(_fixture("midgame_2flips").to_dict())
+	var p := _load_js(js)
+	var cat := p.view_catalog()
+	var town := p.view_town()
+	var ids_ok := true
+	for r in cat["buildings"]:
+		ids_ok = ids_ok and (r["projected"] as Dictionary).keys() == GameState.RATE_IDS
+	for b in town["buildings"]:
+		var up: Dictionary = b["upgrade_projected"]
+		var top := int(TestUtil.configs()["buildings"][b["building_id"]]["max_level"])
+		ids_ok = ids_ok and (up.keys() == GameState.RATE_IDS if (b["state"] != "constructing" and int(b["level"]) < top) else up.is_empty())
+	t.ok(ids_ok, "every row's projected and every lot's upgrade_projected carries every RATE_IDS id ({} at max level or constructing)")
+	var v: Dictionary = p.view_hud()["valve"]
+	t.ok(v == p.view_hud()["valve_target"], "the valve is at its target (no slew pending)")
+	for c in [["raising_pit", "lot-08", false], ["house", "lot-08", false], ["market", "lot-13", false], ["bone_mill", "lot-07", true]]:
+		var proj: Dictionary = {}
+		if c[2]:
+			for b in town["buildings"]:
+				if b["lot_id"] == c[1]:
+					proj = b["upgrade_projected"]
+		else:
+			for r in cat["buildings"]:
+				if r["building_id"] == c[0]:
+					proj = r["projected"]
+					t.ok(not (r["lots"] as Array).is_empty() and r["lots"][0] == c[1], "%s: projected on its first free lot %s" % [c[0], c[1]])
+		var a := _load_js(js)
+		var level := int(a.town_sim.buildings.get(c[1], {}).get("level", 0)) + 1
+		t.ok(a.town_sim.place_building(c[1], c[0], level), "%s finished on %s at level %d in a copy (setup)" % [c[0], c[1], level])
+		var b0 := _load_js(js)
+		a.tick(a.substep_s())
+		b0.tick(b0.substep_s())
+		var ra: Dictionary = a.view_rates()["rates"]
+		var rb: Dictionary = b0.view_rates()["rates"]
+		var worst := 0.0
+		for id in ["workers", "bodies", "gold", "bone", "living"]:
+			worst = maxf(worst, absf(float(proj[id]) - (float(ra[id]["net"]) - float(rb[id]["net"]))))
+		for id in ["mint", "work", "flood"]:
+			worst = maxf(worst, absf(float(proj[id]) - (float(ra[id]["in"]) - float(rb[id]["in"]))))
+		t.ok(worst < 1e-9, "%s: projected = the realized change in view_rates after one substep (worst %s): %s" % [c[0], _sci(worst), str(proj)])
+		t.ok(absf(float(proj["war"]) - float(proj["mint"]) * float(v["war"])) < 1e-12 and proj["corpses"] == 0.0
+			and float(proj["backlog"]) >= float(proj["flood"]) - 1e-12, "%s: war = Δmint × valve.war, corpses 0, backlog ≥ Δflood" % c[0])
+	# pure: nothing changes, rev stays, no event; the live TownSim untouched
+	var q := _load_js(js)
+	q.tick(q.substep_s())
+	q.drain_events()
+	var before := _all(q)
+	var ts_before := q.town_sim.to_dict()
+	var staffing := q.town_sim.staffing.duplicate(true)
+	var rv := q.rev
+	q._proj_cache.clear()
+	q.view_catalog()
+	q.view_town()
+	t.ok(_all(q) == before and q.town_sim.to_dict() == ts_before and q.town_sim.staffing == staffing and q.rev == rv
+		and q.drain_events().is_empty(), "pure: every view, the save, TownSim and its staffing as before; rev stays; no event")
+	# the cache (on the town's structure, refreshed every town.projection_refresh_s): a cached answer equals
+	# a fresh one at the state it was computed; within the window it keeps that answer (the lag the doc
+	# states); a structure change or the window's end recomputes it, and it equals a fresh one again
+	var refresh := float(TestUtil.configs()["economy"]["town"]["projection_refresh_s"])
+	var first := [_proj_of(q.view_catalog()), _proj_of(q.view_town())]
+	q._proj_cache.clear()
+	t.ok([_proj_of(q.view_catalog()), _proj_of(q.view_town())] == first, "the cached projections equal fresh ones at the same state")
+	q.tick(q.substep_s())
+	q.town_sim.workers += 8.0  # the workforce moves (no structure change): the projections a fresh compute gives move with it
+	var lag := [_proj_of(q.view_catalog()), _proj_of(q.view_town())]
+	q._proj_cache.clear()
+	var fresh := [_proj_of(q.view_catalog()), _proj_of(q.view_town())]
+	t.ok(lag == first and fresh != first, "a substep later, the workforce moved (inside the %.0f s window): the cache keeps its answer; a fresh one has moved" % refresh)
+	var t1 := q.t
+	var rv1 := q.rev
+	q._core_step(refresh)  # a core step without a rev bump (as a catch-up runs it): the window ends
+	var c1 := [_proj_of(q.view_catalog()), _proj_of(q.view_town())]
+	q._proj_cache.clear()
+	t.ok(q.t >= t1 + refresh and q.rev == rv1 and [_proj_of(q.view_catalog()), _proj_of(q.view_town())] == c1,
+		"after %.0f s of sim (a core step that leaves rev alone) it is recomputed: it equals a fresh one" % refresh)
+	q.view_catalog()
+	q.view_town()
+	t.ok(q.town_sim.place_building("lot-08", "house", 1), "a house appears (setup)")
+	var c2 := [_proj_of(q.view_catalog()), _proj_of(q.view_town())]
+	q._proj_cache.clear()
+	t.ok([_proj_of(q.view_catalog()), _proj_of(q.view_town())] == c2 and c2 != c1, "a structure change recomputes it at once")
+	var cc := q.view_catalog()
+	cc["buildings"][0]["projected"]["gold"] = 1e9
+	t.ok(q.view_catalog()["buildings"][0]["projected"]["gold"] != 1e9, "a fresh copy each call")
+
+
+## The projections a catalog or town view carries, by row.
+static func _proj_of(v: Dictionary) -> Array:
+	return (v["buildings"] as Array).map(func(r): return r.get("projected", r.get("upgrade_projected", {})))
+
+
+func _load_js(js: String) -> GameState:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.from_dict(JSON.parse_string(js))
+	return s
+
+
+## Every view's output and the save, for purity checks.
+func _all(s: GameState) -> Array:
+	return [s.to_dict(), s.view_hud(), s.view_rates(), s.view_town(), s.view_catalog(), s.view_realm(), s.view_vei(), s.ledger()]
+
+
+static func _sci(x: float) -> String:
+	return String.num_scientific(x) if x != 0.0 else "0"

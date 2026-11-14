@@ -28,7 +28,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 ## hold and loot tunables, which used to carry inline defaults that duplicated the configs). setup()
 ## reads them once (_req); a missing one is an error at load, not a silent default, and
 ## tests/test_game_state_configs.gd asserts each one is present in res://configs.
-const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay"]
+const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay",
+	"economy.town.projection_refresh_s"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -132,6 +133,8 @@ var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0
 ## out). Session only.
 var _realm_flows := {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for tests
+## The build benefit projections (StateViews.projections), per part {sig, t, value}; session only, never saved.
+var _proj_cache := {}
 var _field_acc := 0.0
 var _events: Array = []
 
@@ -1056,28 +1059,38 @@ func _pool_cap() -> float:
 ## - corpses, backlog: the realm's last substep (_realm_flows, session only); the haul leaves the
 ##   corpses at the same trip-averaged rate the bodies receive it.
 func _rate_io() -> Dictionary:
-	var r: Dictionary = town_sim.rates
 	var haul := _haul_rate()
-	var out := {
-		"workers": [float(r["workers"]["in"]), float(r["workers"]["out"])],
-		"bodies": [float(r["bodies"]["rot"]) + haul, float(r["bodies"]["out"])],
-		"gold": [float(r["gold"]["in"]), float(r["gold"]["out"])],
-		"bone": [float(r["bone"]["in"]), float(r["bone"]["out"])],
-		"living": [float(r["living"]["in"]), float(r["living"]["out"])],
-		"corpses": [float(_realm_flows["corpses"][0]), float(_realm_flows["corpses"][1]) + haul],
-		"backlog": [float(_realm_flows["backlog"][0]), float(_realm_flows["backlog"][1])],
-	}
+	var out := _town_io(town_sim)
+	out["corpses"] = [float(_realm_flows["corpses"][0]), float(_realm_flows["corpses"][1]) + haul]
+	out["backlog"] = [float(_realm_flows["backlog"][0]), float(_realm_flows["backlog"][1])]
 	for id in ["mint", "work", "war", "flood"]:
 		out[id] = [float(_split[id]), float(_split[id])]
 	return out
 
 
+## TownSim's streams as _rate_io gives them, for `ts` (the live TownSim, or a hypothetical's): workers,
+## bodies (rot return plus the trip-averaged haul), gold, bone and living, each [in, out] per second.
+static func _town_io(ts: TownSim) -> Dictionary:
+	var r: Dictionary = ts.rates
+	return {
+		"workers": [float(r["workers"]["in"]), float(r["workers"]["out"])],
+		"bodies": [float(r["bodies"]["rot"]) + _haul_rate_of(ts), float(r["bodies"]["out"])],
+		"gold": [float(r["gold"]["in"]), float(r["gold"]["out"])],
+		"bone": [float(r["bone"]["in"]), float(r["bone"]["out"])],
+		"living": [float(r["living"]["in"]), float(r["living"]["out"])],
+	}
+
+
 ## The convoy's trip-averaged corpse rate (mass/s): the last landed trip's load over its round trip,
 ## while a convoy is out; 0 while none is.
 func _haul_rate() -> float:
-	if (town_sim.haul["convoys"] as Array).is_empty():
+	return _haul_rate_of(town_sim)
+
+
+static func _haul_rate_of(ts: TownSim) -> float:
+	if (ts.haul["convoys"] as Array).is_empty():
 		return 0.0
-	return float(town_sim.rates["haul_trip"])
+	return float(ts.rates["haul_trip"])
 
 
 ## TownSim's steady-state workforce: this substep's worker inflow × the lifetime now (§4.1).
@@ -1361,17 +1374,24 @@ func _raise_ema(raised: Array) -> void:
 ## §3 step 3: the current valve moves toward the target along the straight line, by at most
 ## `valve.slew_per_s · dt` of L1 distance, so its components always sum to 1.
 func _slew_valve(dt: float) -> void:
+	valve = _slewed_valve(dt)
+
+
+## The valve one slew of `dt` from now (pure): what _slew_valve sets, and what the build benefit's
+## hypothetical step splits with (StateViews.projections).
+func _slewed_valve(dt: float) -> Dictionary:
 	var rate := float(_cfg().get("valve", {}).get("slew_per_s", 0.10))
 	var l1 := 0.0
 	for k in valve:
 		l1 += absf(float(valve_target[k]) - float(valve[k]))
 	var max_step := rate * dt
 	if l1 <= max_step + 1e-12:
-		valve = valve_target.duplicate()
-		return
+		return valve_target.duplicate()
 	var f := max_step / l1
-	for k in valve:
-		valve[k] = float(valve[k]) + (float(valve_target[k]) - float(valve[k])) * f
+	var v := valve.duplicate()
+	for k in v:
+		v[k] = float(valve[k]) + (float(valve_target[k]) - float(valve[k])) * f
+	return v
 
 
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.

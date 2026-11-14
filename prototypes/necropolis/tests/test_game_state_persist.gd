@@ -121,6 +121,12 @@ func _views(s: GameState) -> Dictionary:
 	out["view_vei"].erase("diff")
 	for id in ["mint", "work", "war", "flood", "corpses", "backlog"]:
 		out["view_rates"]["rates"].erase(id)
+	# the build benefit's backlog reads the WAR's fall-through at the last dispatch (RealmSim.war_at),
+	# which is session-only, as view_projection's split is (STATE-API §5.10, §5.17)
+	for b in out["view_catalog"]["buildings"]:
+		(b["projected"] as Dictionary).erase("backlog")
+	for b in out["view_town"]["buildings"]:
+		(b["upgrade_projected"] as Dictionary).erase("backlog")
 	var lanes: Array = []
 	for l in out["view_lanes"]["lanes"]:
 		if l["rate"] > 0.0 and not (l["from"] == "covington" and (l["to"] == "vei" or l["to"] == "covington")):
