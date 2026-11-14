@@ -1,22 +1,157 @@
 extends VBoxContainer
-## Stances tab. Read-only skeleton: slots used and one row per stance (task 5 adds toggles).
+## Stances tab (MECHANICS §4.5): the stance slots with their breakdown, and one row per stance with
+## a toggle (`cmd_set_stance`), state chips in text (on / suspended / active), the hold timer and
+## the projected change to net rates BEFORE you toggle it (view_stances `projected`, signed and
+## oblique). Rows are built once and updated in place on every bind.
 
 signal command_issued
 
+var _vcfg: Dictionary = {}
+var _base := 2
+var _slots_label: Label
+var _break_label: Label
+var _note_label: Label
+var _status: Label
+var _list: VBoxContainer
+var _rows: Dictionary = {}  # stance id -> {toggle, chips, hold, proj, none, id}
+
+
+func _ready() -> void:
+	_vcfg = ConfigDb.v("town", "view", {})
+	_base = int(ConfigDb.data.get("economy", {}).get("stance", {}).get("base_slots", 2))
+	add_theme_constant_override("separation", 6)
+	_slots_label = TownUI.label("", 16)
+	add_child(_slots_label)
+	_break_label = _wrap("", 12, "text_dim")
+	add_child(_break_label)
+	_note_label = _wrap("", 14, "select")
+	add_child(_note_label)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+	_list = VBoxContainer.new()
+	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_list.add_theme_constant_override("separation", 6)
+	scroll.add_child(_list)
+	_status = _wrap("", 14, "select")
+	add_child(_status)
+
+
+func _t(key: String) -> String:
+	return String(_vcfg.get("behaviour", {}).get(key, key))
+
+
+func _wrap(text: String, size: int, key := "text") -> Label:
+	var l := TownUI.label(text, size, key)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return l
+
+
+func _name_of(id: String) -> String:
+	return String(_vcfg.get("stance_labels", {}).get(id, id.capitalize()))
+
 
 func bind(views: Dictionary) -> void:
-	TownUI.clear(self)
-	var st: Dictionary = views.get("stances", {})
-	add_child(TownUI.label("slots %d / %d" % [int(st.get("used", 0)), int(st.get("slots", 0))]))
-	var rows: Array = st.get("stances", [])
-	if rows.is_empty():
-		add_child(TownUI.label("No stances.", 14, "text_dim"))
+	if _list == null:
 		return
+	var st: Dictionary = views.get("stances", {})
+	var slots := int(st.get("slots", 0))
+	_slots_label.text = _t("slots_line").format({"used": int(st.get("used", 0)), "slots": slots})
+	var home: bool = String(views.get("relish", {}).get("state", "home")) == "home"
+	var parts := TownBehaviour.slot_breakdown(slots, _base, home)
+	_break_label.text = _t("slots_breakdown").format({"base": parts["base"], "guild": parts["guild"], "home": parts["home"]})
+	var rows: Array = st.get("stances", [])
+	var suspended: Array = []
 	for s in rows:
-		var on: bool = s.get("on", false)
-		var line := "%s    %s    %s" % [String(s.get("id", "")).capitalize(),
-			"on" if on else "off", "active" if s.get("active", false) else "idle"]
-		add_child(TownUI.label(line, 14, "text" if on else "text_dim"))
+		if bool(s.get("suspended", false)):
+			suspended.append(_name_of(String(s.get("id", ""))))
+	var note: Array = []
+	if not home:
+		note.append(_t("away_note"))
+	if not suspended.is_empty():
+		note.append(_t("suspended_note").format({"names": ", ".join(suspended)}))
+	_note_label.text = " ".join(note)
+	_note_label.visible = not note.is_empty()
+	var units: Dictionary = _vcfg.get("rate_units", {})
+	for s in rows:
+		var id := String(s.get("id", ""))
+		if not _rows.has(id):
+			_make_row(id)
+		_update_row(_rows[id], s, units)
+
+
+func _make_row(id: String) -> void:
+	var box := PanelContainer.new()
+	box.add_theme_stylebox_override("panel", TownUI.panel_box())
+	_list.add_child(box)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	box.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	col.add_child(head)
+	var toggle := TownUI.button("Off")
+	toggle.toggle_mode = true
+	toggle.custom_minimum_size = Vector2(72, TownUI.MIN_TARGET)
+	toggle.toggled.connect(_on_toggled.bind(id))
+	head.add_child(toggle)
+	var nm := TownUI.label(_name_of(id), 16)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(nm)
+	var chips := TownUI.label("", 14, "text_dim")
+	head.add_child(chips)
+	col.add_child(_wrap(String(_vcfg.get("stance_rules", {}).get(id, "")), 12, "text_dim"))
+	var hold := TownUI.label("", 12, "text_dim")
+	col.add_child(hold)
+	var proj := TownUI.rate_label("", 14)
+	proj.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(proj)
+	var none := TownUI.label(_t("no_projection"), 12, "text_dim")
+	col.add_child(none)
+	_rows[id] = {"toggle": toggle, "chips": chips, "hold": hold, "proj": proj, "none": none, "on": false}
+
+
+func _update_row(r: Dictionary, s: Dictionary, units: Dictionary) -> void:
+	var on := bool(s.get("on", false))
+	r["on"] = on
+	var toggle: Button = r["toggle"]
+	toggle.set_pressed_no_signal(on)
+	toggle.text = "On" if on else "Off"
+	toggle.add_theme_stylebox_override("normal", TownUI.button_box("active" if on else "normal"))
+	var chips: Array = [_t("chip_on") if on else _t("chip_off")]
+	if bool(s.get("suspended", false)):
+		chips.append(_t("chip_suspended"))
+	if bool(s.get("active", false)):
+		chips.append(_t("chip_active"))
+	(r["chips"] as Label).text = " · ".join(chips)
+	var hold := float(s.get("hold_s_left", 0.0))
+	(r["hold"] as Label).visible = hold > 0.0
+	(r["hold"] as Label).text = _t("hold").format({"s": ceili(hold)})
+	var lines := TownBehaviour.projected_parts(s.get("projected", {}), units)
+	var proj: Label = r["proj"]
+	var none: Label = r["none"]
+	var empty: bool = (s.get("projected", {}) as Dictionary).is_empty()
+	none.visible = empty
+	proj.visible = not empty
+	if not empty:
+		var lead := _t("projected_off") if on else _t("projected_on")
+		proj.text = lead + " " + ("   ".join(lines) if not lines.is_empty() else "±0")
+
+
+func _on_toggled(pressed: bool, id: String) -> void:
+	var r: Dictionary = Game.state.cmd_set_stance(id, pressed)
+	if bool(r.get("ok", false)):
+		_status.text = ""
+	else:
+		# the view, not the button, is the truth: snap back and say why
+		var row: Dictionary = _rows.get(id, {})
+		if not row.is_empty():
+			(row["toggle"] as Button).set_pressed_no_signal(not pressed)
+		var why := String(r.get("reason", ""))
+		var refusals: Dictionary = _vcfg.get("behaviour", {}).get("refusals", {})
+		_status.text = String(refusals.get(why, refusals.get("_unknown", why)))
+	command_issued.emit()
 
 
 func on_game_event(_ev: Dictionary) -> void:

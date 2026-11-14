@@ -4,10 +4,12 @@ extends Node2D
 ## walking it, per second, smoothed), drawn outward from the plaza; the rate drives Pulse's five
 ## channels and the dashes walk at Pulse.dash_offset. A zero rate switches the street off (only its
 ## bed shows). Reduced motion: the dashes hold still (Pulse) and each carries a chevron pointing
-## along the flow.
+## along the flow; every street also carries its ring number out from the crypt (1 at the plaza,
+## TownModel.street_order), small `text_dim`, the still equivalent of the wave.
 ## The slab (law 5): the town's tempo source, hops 0. Concentric undead rings around the crypt
 ## (ellipses fitted to its footprint, so they ring the building instead of crossing its lines)
-## breathe on the beat, and one ring rides out from them each beat.
+## breathe on the beat, and one ring rides out from them each beat. While Relish is away the slab
+## is idle: the rings still breathe, fainter (view.slab_ring_away_alpha), and none rides out.
 
 var model: TownModel
 var vcfg: Dictionary = {}
@@ -26,6 +28,8 @@ func _draw() -> void:
 		return
 	_draw_flows()
 	_draw_slab()
+	if Pulse.reduced_motion:
+		_draw_ring_order()
 
 
 func _draw_flows() -> void:
@@ -83,18 +87,41 @@ func _draw_slab() -> void:
 		return
 	var k := model.scale
 	var w := float(vcfg.get("slab_ring_w_px", 1.0))
-	var alpha := float(vcfg.get("slab_ring_alpha", 1.0))
+	var home := agents != null and agents.relish_home
+	var alpha := float(vcfg.get("slab_ring_alpha" if home else "slab_ring_away_alpha", 1.0))
 	var wave := Pulse.wave(0.0, model.depth)
 	var margins: Array = vcfg.get("slab_rings_px", [])
 	for m in margins:
 		LineGlow.polyline(self, _ellipse(float(m) * k), Palette.c("undead", alpha), w, wave)
-	if margins.is_empty() or Pulse.reduced_motion:
+	if margins.is_empty() or Pulse.reduced_motion or not home:
 		return
 	# One ring rides out from the outermost each beat, fading as it goes.
 	var b := Pulse.phase(0.0, model.depth)
 	var m0 := float(margins[margins.size() - 1]) * k
 	var reach := float(vcfg.get("slab_ring_reach_px", 0.0)) * k
 	LineGlow.polyline(self, _ellipse(m0 + b * reach), Palette.c("undead", alpha * wave), w, wave)
+
+
+## Each street's ring number at its middle, set off to one side (view.ring_order).
+func _draw_ring_order() -> void:
+	var rc: Dictionary = vcfg.get("ring_order", {})
+	var font := ThemeDB.fallback_font
+	var fs := maxi(int(rc.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	var off := float(rc.get("offset_px", 0.0)) * model.scale
+	var col := Palette.c("text_dim")
+	for i in mini(model.streets.size(), model.street_order.size()):
+		var n := model.street_order[i]
+		if n <= 0:
+			continue
+		var s: Dictionary = model.streets[i]
+		var a: Vector2 = s["near"]
+		var b: Vector2 = s["far"]
+		var d := (b - a).normalized()
+		var c := (a + b) * 0.5 + Vector2(-d.y, d.x) * off
+		var t := str(n)
+		var sz := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		draw_string(font, c + Vector2(-sz.x * 0.5, (font.get_ascent(fs) - font.get_descent(fs)) * 0.5), t,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 
 ## A closed ellipse around the crypt's footprint, `margin` px outside its half-extents.

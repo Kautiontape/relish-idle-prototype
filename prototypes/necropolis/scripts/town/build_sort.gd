@@ -51,19 +51,32 @@ static func stocks(views: Dictionary) -> Dictionary:
 # ------------------------------------------------------------------ needs ----
 ## The live needs, in `view.needs.order`: [{id, chip, serves: Array[String]}]. `fort_names` is
 ## {fort id: name} (view_realm), used for chips and to tell a fort from Covington or Vei.
-static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary) -> Array:
+static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, bview: Dictionary = {}) -> Array:
 	var ncfg: Dictionary = vcfg.get("needs", {})
 	var out: Array = []
 	for id in ncfg.get("order", []):
-		var chip := _chip(String(id), views, fort_names, ncfg)
+		if String(id) == "tier":
+			var nt: Dictionary = views.get("town", {}).get("next_tier", {})
+			var placed := {}  # `missing` lists buildings under construction too: those are already asked for
+			for pb in views.get("town", {}).get("buildings", []):
+				placed[String(pb.get("building_id", ""))] = true
+			for m in nt.get("missing", []):
+				if placed.has(String(m)):
+					continue
+				out.append({"id": "tier", "chip": fmt(String((ncfg.get("chips", {}) as Dictionary).get("tier", "")),
+					{"tier": String(nt.get("tier", "")).capitalize(), "label": label_of(String(m), bview)}), "serves": ["building:" + String(m)]})
+			continue
+		var chip := _chip(String(id), views, fort_names, ncfg, vcfg, bview)
 		if chip != "":
 			out.append({"id": String(id), "chip": chip, "serves": (ncfg.get("serves", {}) as Dictionary).get(id, [])})
 	return out
 
 
-static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictionary) -> String:
+static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictionary, vcfg: Dictionary = {}, bview: Dictionary = {}) -> String:
 	var chips: Dictionary = ncfg.get("chips", {})
 	var town: Dictionary = views.get("town", {})
+	if id.begins_with("starved_"):
+		return _starved_chip(id.trim_prefix("starved_"), views, ncfg, vcfg, bview)
 	match id:
 		"tithe":
 			var tithe: Dictionary = views.get("vei", {}).get("tithe", {})
@@ -106,6 +119,36 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 	return ""
 
 
+## A starved stream (`resource` = a `shortage_fix` key): its net rate is <= 0 and its producer is not
+## built, or (the stock is under the cheapest catalog cost in it and) the producer has no staff. A
+## producer still under construction is no need (it is already on its way). "" when not starved.
+static func _starved_chip(resource: String, views: Dictionary, ncfg: Dictionary, vcfg: Dictionary, bview: Dictionary) -> String:
+	var producer := String((vcfg.get("shortage_fix", {}) as Dictionary).get(resource, ""))
+	var rate := hud_rate(views.get("hud", {}), resource)
+	if producer == "" or rate.is_empty() or float(rate.get("rate", 0.0)) > 0.0:
+		return ""
+	var chips: Dictionary = ncfg.get("chips", {})
+	var vars := {"resource": resource, "label": label_of(producer, bview)}
+	var staffed := 0.0
+	var present := false
+	for b in views.get("town", {}).get("buildings", []):
+		if String(b.get("building_id", "")) == producer:
+			if String(b.get("state", "")) == "constructing":
+				return ""
+			present = true
+			staffed += float(b.get("staffed", 0.0))
+	if not present:
+		return fmt(String(chips.get("starved_none", "")), vars)
+	var cheapest := INF
+	for r in views.get("catalog", {}).get("buildings", []):
+		var c := float((r.get("cost", {}) as Dictionary).get(resource, 0.0))
+		if c > 0.0:
+			cheapest = minf(cheapest, c)
+	if staffed <= 0.0 and float(views.get("town", {}).get(resource, 0.0)) < cheapest:
+		return fmt(String(chips.get("starved_staff", "")), vars)
+	return ""
+
+
 # ------------------------------------------------------------------- sort ----
 static func is_gated(row: Dictionary, vcfg: Dictionary) -> bool:
 	return not bool(row.get("can_build", false)) and String(row.get("reason", "")) in vcfg.get("gate_reasons", [])
@@ -134,14 +177,18 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 		var row: Dictionary = rows[i]
 		if is_hidden(row, bview):
 			continue
-		var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+		var serves: Array = (bview.get(String(row.get("building_id", "")), {}).get("serves", []) as Array).duplicate()
+		serves.append("building:" + String(row.get("building_id", "")))
 		var need_id := ""
 		var chip := ""
-		for n in needs_in:
+		var rank := needs_in.size()  # no need: after every row that serves one
+		for ni in needs_in.size():
+			var n: Dictionary = needs_in[ni]
 			for s in n["serves"]:
 				if s in serves:
 					need_id = n["id"]
 					chip = n["chip"]
+					rank = ni
 					break
 			if need_id != "":
 				break
@@ -152,10 +199,12 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 			cls = CLS_NEED_SHORT if need_id != "" else CLS_SHORT
 		elif need_id != "":
 			cls = CLS_NEED_BUILDABLE
-		items.append({"row": row, "idx": i, "need": need_id, "chip": chip, "cls": cls})
+		items.append({"row": row, "idx": i, "need": need_id, "chip": chip, "cls": cls, "rank": rank})
 	items.sort_custom(func(a, b):
 		if a["cls"] != b["cls"]:
 			return a["cls"] < b["cls"]
+		if a["rank"] != b["rank"]:
+			return a["rank"] < b["rank"]  # the more important need's row first, no-need rows last
 		return a["idx"] < b["idx"])
 	return items
 
@@ -166,13 +215,119 @@ static func fitting(items: Array, lot_size: int) -> Array:
 
 
 ## The day-1 suggestion: the first buildable item with a free lot, as {building_id, label, lots};
-## {} when nothing is buildable.
-static func suggest(items: Array, bview: Dictionary) -> Dictionary:
+## {} when nothing is buildable. With `st` (stocks(views)) and `vcfg` it saves for a needed build:
+## when the top-ranked row serving a live need is blocked only by funds and the time to afford it
+## (shortage / net rate) is within view.suggest_wait_s, the suggestion is that row, labelled "save for
+## <Label> (~70 s)" with `save: true` and `eta_s`, instead of a lower-ranked buildable one. A stream
+## that isn't flowing, or a longer wait, falls back to the plain rule.
+static func suggest(items: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}) -> Dictionary:
+	if not st.is_empty() and not vcfg.is_empty():
+		var saving := _save_for(items, bview, st, vcfg)
+		if not saving.is_empty():
+			return saving
+	var best: Dictionary = {}
 	for it in items:
 		var row: Dictionary = it["row"]
-		if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty():
-			var bid := String(row.get("building_id", ""))
-			return {"building_id": bid, "label": label_of(bid, bview), "lots": (row["lots"] as Array).duplicate()}
+		if not (bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty()):
+			continue
+		if String(it["need"]) != "":
+			best = it  # a row serving a live need leads, as ever
+			break
+		if best.is_empty() or _variety_less(it, best, bview):
+			best = it  # no need served: variety (see _variety_less)
+	if not best.is_empty() and String(best["need"]) == "" and _third_amenity(best["row"], bview) and not st.is_empty() and not vcfg.is_empty():
+		var vs := _variety_save(items, bview, st, vcfg)
+		if not vs.is_empty():
+			return vs
+	if best.is_empty():
+		return {}
+	var brow: Dictionary = best["row"]
+	var bid := String(brow.get("building_id", ""))
+	return {"building_id": bid, "label": label_of(bid, bview), "lots": (brow["lots"] as Array).duplicate()}
+
+
+const PRODUCES := ["gold", "bone", "bodies", "mint"]
+
+
+## Fallback order among buildable rows serving no live need: fewest built first, then producers (a
+## `serves` tag in PRODUCES) before amenities, then the cheaper, then catalog order.
+static func _variety_less(a: Dictionary, b: Dictionary, bview: Dictionary) -> bool:
+	var ka := _variety_key(a, bview)
+	var kb := _variety_key(b, bview)
+	for i in ka.size():
+		if ka[i] != kb[i]:
+			return ka[i] < kb[i]
+	return false
+
+
+static func _variety_key(it: Dictionary, bview: Dictionary) -> Array:
+	var row: Dictionary = it["row"]
+	var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+	var producer := false
+	for s in serves:
+		producer = producer or s in PRODUCES
+	var cost: Dictionary = row.get("cost", {})
+	return [int(row.get("count", 0)), 0 if producer else 1, float(cost.get("gold", 0.0)) + float(cost.get("bone", 0.0)), int(it["idx"])]
+
+
+static func _save_for(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var top: Dictionary = {}  # the row serving the most important live need
+	for it in items:
+		if String(it["need"]) != "" and (top.is_empty() or int(it["rank"]) < int(top["rank"])):
+			top = it
+	for it in [top] if not top.is_empty() else []:
+		var row: Dictionary = it["row"]
+		if bool(row.get("can_build", false)) or not String(row.get("reason", "")) in ["no_gold", "no_bone"] \
+				or (row.get("lots", []) as Array).is_empty():
+			return {}
+		return _saving(row, bview, st, vcfg)
+	return {}
+
+
+## Time to afford `row` from the stocks and net rates, within view.suggest_wait_s: the suggestion
+## {building_id, lots, save, eta_s, label}, or {} (a stream not flowing, relics short, or too long).
+static func _saving(row: Dictionary, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var cost: Dictionary = row.get("cost", {})
+	if float(cost.get("relics", 0.0)) > float(st.get("relics", 0.0)):
+		return {}
+	var eta := 0.0
+	for k in ["gold", "bone"]:
+		var n := float(cost.get(k, 0.0)) - float(st.get(k, 0.0))
+		if n <= 0.0:
+			continue
+		var rate := float((st.get("rates", {}) as Dictionary).get(k, 0.0))
+		if rate <= 0.0:
+			return {}
+		eta = maxf(eta, n / rate)
+	if eta > float(vcfg.get("suggest_wait_s", 0.0)):
+		return {}
+	var bid := String(row.get("building_id", ""))
+	return {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta,
+		"label": fmt(String(vcfg.get("suggest_save_text", "")), {"label": label_of(bid, bview), "eta": fmt_eta(eta, vcfg)})}
+
+
+## True for a repeat (count >= 2) of a building that serves only morale or housing.
+static func _third_amenity(row: Dictionary, bview: Dictionary) -> bool:
+	if int(row.get("count", 0)) < 2:
+		return false
+	var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+	for s in serves:
+		if not s in ["morale", "housing"]:
+			return false
+	return true
+
+
+## An unbuilt type blocked only by funds that is affordable within the wait ({} if none): the
+## fallback saves for it instead of repeating an amenity.
+static func _variety_save(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var cands: Array = items.filter(func(it): return int(it["row"].get("count", 0)) == 0 and String(it["need"]) == "" \
+		and not bool(it["row"].get("can_build", false)) and String(it["row"].get("reason", "")) in ["no_gold", "no_bone"] \
+		and not (it["row"].get("lots", []) as Array).is_empty())
+	cands.sort_custom(func(a, b): return _variety_less(a, b, bview))
+	for it in cands:
+		var s := _saving(it["row"], bview, st, vcfg)
+		if not s.is_empty():
+			return s
 	return {}
 
 
@@ -187,6 +342,30 @@ static func nearest_lot(lots: Array, hops: Dictionary) -> String:
 			best = String(l)
 			best_h = h
 	return best
+
+
+## The debug autoplayer's move (`--town-grow`): the top buildable row of the mission sort, the one
+## `suggest` marks, on its suggested lot (`nearest_lot`). `cfgs` = {town, buildings_view, buildings,
+## economy} (the configs the town view's model takes); `views` as the shell fetches them. Returns
+## {building_id, lot_id}, or {} when nothing is buildable. Never offers a built unique building.
+static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
+	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
+	var bview: Dictionary = cfgs.get("buildings_view", {})
+	var rows: Array = views.get("catalog", {}).get("buildings", [])
+	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview), bview, vcfg)
+	var sug := suggest(items, bview, stocks(views), vcfg)
+	if sug.is_empty() or bool(sug.get("save", false)):
+		return {}
+	var ref: Array = vcfg.get("ref_px", [1600, 900])
+	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))
+	model.update(views, Rect2(0, 0, float(ref[0]), float(ref[1])))
+	var hops := {}
+	for l in model.lots:
+		hops[String(l["id"])] = l["hops"]
+	var lot_id := nearest_lot(sug["lots"], hops)
+	if lot_id == "":
+		return {}
+	return {"building_id": sug["building_id"], "lot_id": lot_id}
 
 
 ## A row can be queued: not gated and it has a lot to take.
@@ -286,6 +465,19 @@ static func lot_refusal(lot: Dictionary, row: Dictionary) -> String:
 	return "lot_taken"
 
 
+## The suggestion tag's dismiss hit box: at least 44 px square, starting at the x's cell and
+## growing outward (right, and away from the lot: up when the tag sits `above` it, else down), so
+## it covers the x and never the tag's text.
+static func dismiss_box(cell: Rect2, plate: Rect2, above: bool) -> Rect2:
+	var s := Vector2(maxf(44.0, cell.size.x), maxf(44.0, plate.size.y))
+	return Rect2(Vector2(cell.position.x, plate.end.y - s.y if above else plate.position.y), s)
+
+
+## How far dismiss_box reaches past the tag's right end, for an x cell `cell_w` wide.
+static func dismiss_room(cell_w: float) -> float:
+	return maxf(44.0 - cell_w, 0.0)
+
+
 static func label_of(building_id: String, bview: Dictionary) -> String:
 	return String(bview.get(building_id, {}).get("label", building_id.capitalize()))
 
@@ -335,6 +527,8 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	var up_reason := ""
 	if constructing:
 		up_reason = "under_construction"
+	elif state == "unpaid":
+		up_reason = "unpaid"
 	elif level >= max_level:
 		up_reason = "max_level"
 	else:
