@@ -330,7 +330,7 @@ func _open_runs() -> void:
 	var bus: Array = s.view_big_undead()["big_undead"]
 	s.cmd_set_party([bus[0]["uid"], bus[1]["uid"]])
 	var b := s.cmd_begin_dungeon("old-sluice")
-	t.ok(s.run.size() == 5 and s.relish["state"] == "in_dungeon", "a raid is open")
+	t.ok(s.run.size() == 6 and not s.run["held"] and s.relish["state"] == "in_dungeon", "a raid is open (its fort wasn't held: v6's `held`)")
 	var d := s.to_dict()
 	t.ok(d["relish"]["state"] == "at_fort" and d["relish"]["at"] == "old-sluice" and d["relish"]["target"] == "", "the open raid is saved as at_fort at its fort")
 	t.ok(JSON.stringify(d).find("in_dungeon") == -1, "in_dungeon never reaches the file")

@@ -79,7 +79,10 @@ static func open_run(gs: GameState, kind: String, fort_id: String) -> Dictionary
 	gs.next_run_id += 1
 	gs.rev += 1
 	var seed_d := dungeon_seed(gs, fort_id, run_id, gs.rev) if kind == "raid" else boss_seed_v2(gs, run_id, gs.rev)
-	gs.run = {"run_id": run_id, "kind": kind, "fort_id": fort_id, "seed_rev": gs.rev, "seed": seed_d}
+	# `held`: the fort was held when the run began (the seed carries no such field: the dungeon reads
+	# view_fort.held live), for counter_garrison_cleared (writeback_raid)
+	var held := kind == "raid" and RealmSim.is_held(gs.realm.fort_by_id(fort_id))
+	gs.run = {"run_id": run_id, "kind": kind, "fort_id": fort_id, "seed_rev": gs.rev, "seed": seed_d, "held": held}
 	gs.relish["state"] = "in_dungeon" if kind == "raid" else "in_boss"
 	gs.time_scale = 1.0
 	gs.paused = false
@@ -221,6 +224,10 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	var k := minf(float(r["killed_living_mass"]), float(f["living"]))
 	f["living"] -= k
 	f["dead"] += k
+	# a held fort's raid that cleared its counter-garrison (api-request #10): held when the run began,
+	# a retreat, and kills that reach the seed's living less half of one of the dungeon's living units
+	var cg_cleared: bool = bool(gs.run.get("held", false)) and bool(r["retreated"]) \
+		and float(r["killed_living_mass"]) >= float(sd["living"]) - gs._clear_tolerance(sd)
 	# 2. the flip
 	var flip_ev := {}
 	if r["warden_beaten"]:
@@ -300,6 +307,8 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 		"essence": essence_in, "blueprints": new_bps, "minted": minted.duplicate()})
 	if not flip_ev.is_empty():
 		gs._emit(flip_ev)
+	if cg_cleared:
+		gs._emit({"type": "counter_garrison_cleared", "fort_id": fort_id, "killed_mass": k})
 	# 10. death: the whole party is lost (A8), then the death rule; 11. otherwise she stays
 	if died:
 		for uid in party:

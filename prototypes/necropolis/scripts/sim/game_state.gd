@@ -500,6 +500,22 @@ func _garrison(fort_id: String) -> Array:
 	return [units, float(units) * div]
 
 
+## How far a held fort's raid may fall short of its seed's living and still clear the counter-garrison
+## (api-request #10): half of one living unit's mass as the dungeon spawns them (raid_populate.gd:
+## RaidLogic.enemy_count's clamp(round(living / cap · enemies_per_cap), enemy_min, enemy_max)
+## enemies of living / n each, raid.json mass), so a full clear reported to rounding counts. Living at
+## or under hold.clear_min_living (the dungeon's spawn floor, mirrored: it spawns no enemy then and
+## clears after held.empty_clear_s) is all tolerated: its clear reports 0.
+func _clear_tolerance(sd: Dictionary) -> float:
+	var living := maxf(0.0, float(sd.get("living", 0.0)))
+	if living <= float(_cfg().get("hold", {}).get("clear_min_living", 0.05)):
+		return living
+	var m: Dictionary = _sec("raid", "mass")
+	var cap := maxf(1.0, float(sd.get("fort", {}).get("cap", 100.0)))
+	var n := clampi(int(round(living / cap * float(m.get("enemies_per_cap", 26.0)))), int(m.get("enemy_min", 5)), int(m.get("enemy_max", 34)))
+	return 0.5 * living / float(maxi(1, n))
+
+
 ## raid.json mass.garrison_mass_div, which the seed carries so Results.from_v1 needs no config.
 func _garrison_div() -> float:
 	return float(_sec("raid", "mass").get("garrison_mass_div", 10.0))

@@ -268,6 +268,8 @@ const EVENTS := {
 	"fort_retaken": {"fort_id": S, "cause": S},
 	# api_version 6 (E2b-2 T3.1): a siege big undead at a retaken fort returns to the crypt (IDLE I6)
 	"big_undead_returned": {"uid": S, "fort_id": S},
+	# api_version 6 (E2b-2 T3.1, api-request #10): a held fort's raid cleared its counter-garrison
+	"counter_garrison_cleared": {"fort_id": S, "killed_mass": F},
 	"tithe_warning": {"wave_id": I, "fort_id": S, "eta_s": F, "surge": F},
 	"tithe_wave": {"wave_id": I, "fort_id": S, "surge": F, "duration_s": F, "relish_here": B, "siege_block": F},
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},

@@ -52,6 +52,8 @@ from `BALANCE.md` §0.
     `view_realm().forts[]`, `garrison`, `garrison_rate`, `fall_s`, `margin`, `margin_cause` and
     `grace_s_left` (§5.5); `view_hud.war_supports` (§5.1); and `view_projection(valve)` (§5.17), the
     same math at another valve, pure;
+  - the event `counter_garrison_cleared {fort_id, killed_mass}` (§6, §8.3, api-request #10): a held
+    fort's raid cleared its counter-garrison;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1460,6 +1462,7 @@ Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evalua
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
+| `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began, the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
 | `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int` | E3 |
@@ -1605,6 +1608,10 @@ order, each clamped. The sim has kept running during the run.
    - relics and essence are added, clamped to their caps (any overflow is lost);
    - blueprints are added to the set;
    - each husk and remnant gets a minted uid.
+
+   A held fort's raid that cleared its counter-garrison then raises `counter_garrison_cleared
+   {fort_id, killed_mass}` (§6; v6): the run records whether its fort was held when it began, and
+   `killed_mass` is step 1's clamped kill.
 
    `fort.first_clear` and the run-wide `first_dungeon` flag clear only when `warden_beaten` is true
    (api-request #15). A death or a retreat leaves both set, so the next first run still gets the

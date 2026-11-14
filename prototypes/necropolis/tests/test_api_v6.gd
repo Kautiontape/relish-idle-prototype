@@ -2,7 +2,7 @@ extends RefCounted
 ## STATE-API v6 additions (economy E2b-2 T3.1 onward; later E2b-2 tasks add to v6): the held forts'
 ## contest (fort_retaken's cause "broken", big_undead_returned, the save's hold keys) and their
 ## readouts (garrison, garrison_rate, fall_s, margin, margin_cause, grace_s_left, war_supports and
-## view_projection; api-requests #7, #13). Headless, no autoloads.
+## view_projection; api-requests #7, #13); counter_garrison_cleared (#10). Headless, no autoloads.
 
 var t: TestUtil
 
@@ -24,6 +24,7 @@ func run() -> int:
 	_supports_monotone()
 	_chip_predicts()
 	_grace_view()
+	_counter_garrison()
 	return t.failures
 
 
@@ -315,3 +316,107 @@ func _grace_view() -> void:
 			and (va["fall_s"] < 0.0 or absf(va["fall_s"] - vb["fall_s"] - 374.5) < 1e-9),
 			"%s in grace (%.1f s left): the post-grace margin %s (%s), rate %.4f, fall_s %.1f" % [id, va["grace_s_left"], va["margin"],
 			va["margin_cause"], va["garrison_rate"], va["fall_s"]])
+
+
+# --------------------------------------------- §3 counter_garrison_cleared (#10) ----
+## A raid result for the open run's seed: a retreat that kills `killed` living; `over` replaces keys.
+func _raid_res(sd: Dictionary, killed: float, over := {}) -> Dictionary:
+	var r := {
+		"v": 2, "run_id": sd["run_id"], "seed_rev": sd["seed_rev"], "fort_id": sd["fort"]["id"],
+		"warden_beaten": false, "retreated": true, "relish_died": false, "revived_in_place": 0,
+		"killed_living_mass": killed, "raised": [], "chaff_mass": 0.0, "garrison_mass": sd["garrison_in_mass"],
+		"party_lost": [], "loot": {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0},
+	}
+	r.merge(over, true)
+	return r
+
+
+## A new game with Greywall held and contested, `living` of her counter-garrison there, Relish at it.
+func _held_raid(living: float, held := true) -> GameState:
+	var s := _mk()
+	if held:
+		s.realm.hold("greywall", 0.0)
+	s.cmd_debug_set_state({"relish_at": "greywall", "forts": {"greywall": {"living": living, "undead": 20.0}}})
+	return s
+
+
+func _cleared(s: GameState) -> Array:
+	return s.drain_events().filter(func(e): return e["type"] == "counter_garrison_cleared")
+
+
+## apply_result("raid", …) raises counter_garrison_cleared {fort_id, killed_mass} when the run's fort
+## was held when it began, the result is a retreat and its kills reach the seed's living less half of
+## one of the dungeon's living units (raid_populate: enemy_count(living, cap) units of living / n);
+## killed_mass is the writeback's clamped kill. An empty held fort's clear (living 0) raises it with
+## 0. Not on a partial clear, a death, or a Vei fort's raid.
+func _counter_garrison() -> void:
+	t.suite("api-v6-counter-garrison")
+	var s := _held_raid(52.0)
+	var b := s.cmd_begin_dungeon("greywall")
+	var sd: Dictionary = b["seed"]
+	var rm: Dictionary = TestUtil.configs()["raid"]["mass"]  # how the dungeon turns living into units
+	var n := clampi(int(round(52.0 / 90.0 * float(rm["enemies_per_cap"]))), int(rm["enemy_min"]), int(rm["enemy_max"]))
+	var unit := 52.0 / float(n)
+	t.ok(b["ok"] and sd["living"] == 52.0 and s.run["held"] == true and not sd.has("held"),
+		"the run records the fort was held (the seed keeps its shape): %d units of %.3f" % [n, unit])
+	t.near(s._clear_tolerance(sd), 0.5 * unit, 1e-12, "the tolerance is half a unit (%.4f)" % (0.5 * unit))
+	s.drain_events()
+	t.ok(s.apply_result("raid", _raid_res(sd, 52.0 - 0.49 * unit))["ok"], "a full clear reported to rounding applies")
+	var evs := s.drain_events()
+	var cg := evs.filter(func(e): return e["type"] == "counter_garrison_cleared")
+	t.ok(cg.size() == 1 and cg[0] == {"type": "counter_garrison_cleared", "fort_id": "greywall", "killed_mass": 52.0 - 0.49 * unit, "t": s.t}
+		and evs[0]["type"] == "loot_banked", "counter_garrison_cleared {fort_id, killed_mass} after loot_banked: %s" % str(cg))
+	var errs: Array = ["none"]
+	if not cg.is_empty():
+		errs = []
+		ApiSchema.check(cg[0], ApiSchema.EVENTS["counter_garrison_cleared"], "counter_garrison_cleared", errs)
+	t.ok(errs.is_empty(), "in the contract%s" % ("" if errs.is_empty() else ": " + str(errs)))
+	# partial: short by more than half a unit
+	s = _held_raid(52.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 52.0 - 0.51 * unit))
+	t.ok(_cleared(s).is_empty(), "a partial clear (short by 0.51 of a unit) raises nothing")
+	# a death
+	s = _held_raid(52.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 52.0, {"retreated": false, "relish_died": true}))
+	t.ok(_cleared(s).is_empty(), "a death raises nothing, whatever it killed")
+	# a Vei fort's raid
+	s = _held_raid(52.0, false)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 52.0))
+	t.ok(_cleared(s).is_empty() and s.run.is_empty(), "a Vei fort's raid (not held) raises nothing")
+	# an empty held fort (in grace after a flip: no living): its clear reports 0 and raises it with 0
+	s = _held_raid(0.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 0.0))
+	cg = _cleared(s)
+	t.ok(sd["living"] == 0.0 and cg.size() == 1 and cg[0]["killed_mass"] == 0.0, "an empty held fort's clear raises it with killed_mass 0: %s" % str(cg))
+	# the clamp: her reship landed during the run; the kill is clamped to the living there now
+	s = _held_raid(52.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.realm.fort_by_id("greywall")["living"] = 30.0  # the garrison killed some while the run went on
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 52.0))
+	cg = _cleared(s)
+	t.ok(cg.size() == 1 and cg[0]["killed_mass"] == 30.0 and s.realm.fort_by_id("greywall")["living"] == 0.0,
+		"the writeback is the clamped delta: killed_mass is what the fort held now (30), its living 0: %s" % str(cg))
+	s = _held_raid(52.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	s.realm.fort_by_id("greywall")["living"] = 60.0  # her reship landed during the run
+	s.drain_events()
+	s.apply_result("raid", _raid_res(sd, 52.0))
+	cg = _cleared(s)
+	t.ok(cg.size() == 1 and cg[0]["killed_mass"] == 52.0 and absf(float(s.realm.fort_by_id("greywall")["living"]) - 8.0) < 1e-9,
+		"her reship during the run stays: 52 killed of 60, 8 left: %s" % str(cg))
+	# the seed of a contested fort is what the dungeon expects: its living as the counter-garrison, its
+	# undead as the garrison units, the warden as for any fort (the dungeon skips the warden room on a
+	# held fort, reading view_fort.held)
+	s = _held_raid(52.0)
+	sd = s.cmd_begin_dungeon("greywall")["seed"]
+	t.ok(Results.validate("raid_seed", sd) == [] and sd["living"] == 52.0 and sd["garrison_units"] == 2 and s.view_fort("greywall")["held"],
+		"a contested fort's seed validates, with its living (52) and its garrison (2 units of 20 mass)")
