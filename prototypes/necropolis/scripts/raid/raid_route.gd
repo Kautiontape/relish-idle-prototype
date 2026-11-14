@@ -6,6 +6,7 @@ extends RefCounted
 ## mover leaves the room it was routed from, or when it gets within `route_arrive_px` of it.
 
 static var _seq := 0   # movers made since the last reset_seq (the stagger is a function of it)
+static var recomputes := 0   # waypoint asks across every mover (the --raid-perf harness reads it)
 
 var _wp := Vector2.ZERO
 var _direct := true
@@ -35,6 +36,7 @@ func steer(layout: Dictionary, pos: Vector2, goal: Vector2, radius: float, delta
 	_t -= delta
 	if _t <= 0.0 or not _room.has_point(pos) or (not _direct and pos.distance_squared_to(_wp) < _arrive * _arrive):
 		_t = _repath
+		recomputes += 1
 		_wp = LayoutLogic.waypoint(layout, pos, goal, radius, _pad)
 		_direct = _wp == goal
 		var r := LayoutLogic.room_of(layout, pos)
