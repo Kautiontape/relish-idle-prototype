@@ -589,3 +589,90 @@ The review of Step 3 found two problems. 13 of its 14 deaths came from packs tha
     - (3) **The detour is decided from the spawn room** (the guard is in view there), and its walk is travel.
   - **Unchanged:** tier 1, the first dungeon and Vei (byte-identical without the new keys). `parity_check.sh` gives identical results.
   - **Shots:** `de-huntsman-hounds.png` (re-shot at 10 hounds), `de-ringers-muffled.png`, `de-bearers-flanked.png`, `de-zealots-snuffed.png`, `de-shieldwall-rush.png` (no-wits arm: RUSH lit to her side stand).
+
+## Step 3c (D-d/E): packs break off Relish, the idle sources, the death fields
+The review of 3b found that every death left no army standing, and that 13 of the 16 tier deaths were packs that turned on Relish after a wipe. 3c is one redirected round with a stop rule. The reaction rule and the detour rule stay frozen.
+
+- **The death fields** (measuring only): AUTOPILOT_RESULT gains `death_t`, `army_zero_t` (the first tick no undead stood, else -1) and `army_at_death_minus5` (undead standing 5 s before her death, from a half-second log). It also gains `unstick` {aimed_in, given_up} (below).
+- **The idle sources** (found before any tuning; a debug histogram of the bot's `_why` over idle ticks):
+  - **the-stair seed 1: 20 s in the spawn room and 20 s in the antechamber.** This is the bot's hold rule ("hold while living remain in this room or the next"). It waited on calm foes in the next room, about 1000 px away and 900 px from the nearest undead, until `stall_s` (20 s) ran out. Nothing moves in those 20 s and there is nothing to decide, so it is a bot wait, not a decision moment. It is cut.
+  - **sable-hold seed 2: 20 s, 6.6 s and 2.9 s.** The same rule, on calm foes.
+  - **hollow-redoubt seed 6: 99 s, then a retreat.** The bot walked to a remnant lying 6 px from a wall. Relish's slide makes no progress when the straight line runs along a wall face, so she stood pinned on the wall's corner until the bot's 60 s no-progress give-up. This is a bot wait.
+  - None of these is a game wait, and none is a gap in `time_class`: each was a tick with no hostile foe in reach and no movement.
+- **Bot fix 1, the unstick watch** (`RaidAutopilot._aim_at`; `autopilot.unstick_s` 1.5, `unstick_px` 8, `unstick_inset_px` 8). Walking to a mote, pile or pickup:
+  - if she does not close on it by 8 px of walking distance in 1.5 s, she aims at the same spot pulled inside its room, as a player re-clicks a reachable spot;
+  - if she still does not close in another 1.5 s, she gives it up.
+  - It changes nothing while she closes on the target. hollow-redoubt seed 6 goes from 100.9 s idle and a retreat to 26.4 s idle and a won run. Tier 1, P1, Vei and three tier 2-4 lines are byte-identical without the new key.
+- **Bot fix 2, the hold waits only on hostile foes** (`_decide`). A calm foe out of the army's reach is no fight to wait out.
+  - the-stair seed 1: idle 40.0 s -> 0.1 s. sable-hold seed 2: idle 30.1 s -> 0.7 s.
+  - **It changes the first dungeon and tier 1.** These runs held on calm foes too: P1 old-sluice seed 1 goes 98.1 -> 82.5 s, tier 1 ashgate 89.7 -> 105.6 s, old-sluice 113.2 -> 107.2 s, and pale-bastion seed 1 changes. Greywall, hollow-redoubt seed 1, whitecross seed 2 and Vei are identical. The game is untouched; only the bot's wait moved. P1 was calibrated earlier, so this is flagged.
+- **A pack never turns on Relish** (`WardenLogic.pack_breaks`, `RaidWarden._scatter_pack`, `RaidUnit.scatter`). The moment no undead stands, or none stands as its horn sounds, the pack breaks:
+  - it leaves the fight, gone and not killed (nothing drops, no kill is counted);
+  - its ward drops, and the warden fights her alone with its own attacks, each answered by its counter;
+  - THE PACK BREAKS · WARD DOWN shows over the warden for twice `pack_label_s`, and the banner says "THE PACK BREAKS — ward down";
+  - `pack` gains `scatters` and `scattered`.
+- **The Shieldwall's roles** (`RaidWardenRun.pack_target`, `RaidShieldwall.posted`, `RaidUnit._pack_in_reach`).
+  - A wits big holding its post at the wall's back keeps the wall as its target. "Holding its post" is the pin's own test, for one unit. It strikes the pack units that come to it with the one-blow FLANKED kill.
+  - Through a bash tell, every pack breaker keeps the wall. This clause never fires: the wall holds its own attack while its pack stands (`_pack_step` pushes the next tell past the pack), so no tell shows with a pack standing.
+  - The hunt goes to the breakers not posted there.
+  - The rush stays.
+  - **A first version was worse.** In it, posted flankers held the wall but did not strike the pack. At pale-bastion seed 1 the pack then ate them: 2 of 33 tells pinned, 0 pack units FLANKED.
+  - **With the strike** it is 8 of 9 tells and 16 of 18 units. That is about the 3b code's own seed-1 line (12 of 14 pinned, 21 of 22 FLANKED). The commit message of 4413cf3 compares against the first version, not 3b.
+- **The death card names the missed tell** (`RaidLogic.death_tell` / `death_line`): "The Bellringer's slam · missed: the swing", "the Huntsman's lunge · missed: the line", "the Shieldwall's bash / rush · missed: the lit arc", "the Pyre-priest's fire · missed: the marked ground". A pack, the living or a wound has no tell and no "missed:". A rush that strikes her is now its own source (`killed_by` "rush").
+- **Packs back to Step 3:** hounds 8 / 8, ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12; ward ×0.25.
+- **The detour's cache at the guard's post** (`detour.cache_door_px` 130 -> 45). LayoutLogic keeps it 40 px off the walls, so it lies about 55-60 px from the gap, and she takes it inside the guard fight, stepping through the door.
+  - t2, seeds 1-6: travel 7.4% -> 6.0% (`walk_travel_px` median 2628 -> 2194). That is still over the 5.3% ceiling.
+  - So **the detour starts at tier 3** (`detour.min_tier` 3).
+- **Pins under the measure.** In the with-wits arm, 326 of 1159 bash tells were pinned (28%). In 3b it was 77 of 435 (18%).
+- **AUTOPILOT_RESULT `army_zero_s`:** scene seconds after the wake with no undead standing (measuring only).
+- **Measured** (the 3c code, f8dfd39 = 87c4d53 without `army_zero_s`; iter `c3`; seeds 1-6 at every t2-t4 fort; 326 of 326 runs in lockstep).
+  - **Baselines.** The baseline is 5b70259. Because the bot fixes move it, `bfix` is 5b70259 with only the two bot fixes, seeds 1-6, as an A/B.
+  - **The split** is pooled seconds with outliers (more than 2× their fort's median) out.
+  - **The human estimate** is the median of per-run estimates.
+
+  | tier | median s: base / bfix → all / survivors | travel / fight / trance / idle % | human estimate s, all / survivors | died (killed by) |
+  |---|---|---|---|---|
+  | t2 | 103 / 107 → 125 / 125 | 4.5 / 94.4 / 0 / 1.1 | 146-203 / 146-203 | 0 of 18 (2 retreated) |
+  | t3 | 115 / 95 → 194 / 158 | 7.3 / 91.7 / 0 / 1.1 | 210-263 / 181-219 | 5 of 18 (rush 4, lunge 1; 2 retreated) |
+  | t4 | 118 / 114 → 130 / 130 | 7.8 / 92.1 / 0 / 0.1 | 152-202 / 152-202 | 0 of 18 |
+
+  - **The guards hold on both baselines.**
+    - Travel (base / bfix ceilings): t2 4.5 against 5.3 / 5.9, t3 7.3 against 10.5 / 14.5, t4 7.8 against 16.0 / 11.6.
+    - Idle: 1.1 / 1.1 / 0.1 against 5.1 / 7.5 / 6.5 (base) and 1.6 / 2.2 / 0.3 (bfix).
+    - In seconds, t4 travel is 14.1 s median, against 17.8 at base and 10.1 for bfix: the t4 detour's walk.
+    - Part of the low share is dilution: the fights got longer.
+  - **The bot fixes alone move the baseline** (bfix against base): t3 115 -> 95 s, travel t3 10.5 -> 14.5% and t4 16.0 -> 11.6%, idle 5-8% -> 0.3-2%.
+  - **Window.** The low end at t2 (146 s) and t4 (152 s) is under 160 s. That gap is reported, not padded. At t3 the survivors land 181-219 s.
+  - **Per archetype** (tier median in brackets):
+    - t2: Bellringer 129 (+3%; the +36% is gone with the t2 detour), Huntsman 104 (-17%) [125].
+    - t3: Huntsman 193 (0%), Pyre-priest 154 (-20%), Shieldwall 255 (+32%) [194].
+    - t4: Bellringer 339 (**+161%**), Pyre-priest 116 (-11%), Shieldwall 112 (-14%) [130].
+    - The sable-hold Bellringer loses its party in every seed and then grinds on with raised soldiers for 260-450 s. In 3b those runs died to the pack instead. Not fixed: no one-knob change was found, and the stop rule holds.
+  - **The detour** (none at t2; offered / taken / won / abandoned / taken ∧ died):
+    - t3: 13 / 12 / 10 / 2 / 1.
+    - t4: 18 / 17 / 7 / 5 / 0. Five were still unfinished when the run ended.
+  - **How a wiped army resolves** (19 tier runs with no undead standing at some point: t2 4, t3 9, t4 6; the pack broke in 12):
+    - `army_zero_s` is mostly 1-9 s. She raises again from her fallen undead's motes within seconds and grinds on. These are the long runs: all 5 tier outliers are among them.
+    - Or the warden's own attack kills her: all 5 t3 deaths (rush 4, lunge 1). A pack killed no one.
+    - Or there are no motes left, and the bot's existing 60 s no-progress rule retreats her. This happened in 4 Huntsman runs, with 48-71 s of no army.
+    - No wait was added. There were no timeouts at tier; the arms had 3 runs at the 600 s cap.
+  - **With and without the counter** (the manager's pooling: 2 forts per warden at tier, seeds 1-20, 40 runs per arm; deaths, 90% Wilson interval; fight = end minus wake, median):
+
+    | warden (forts; without = flag) | with: died | without: died | fight s with / without |
+    |---|---|---|---|
+    | Bellringer (vespers, lantern-keep; beef 5) | 0 / 40 (0-6%) | 0 / 40 (0-6%) | 100 / 181 |
+    | Huntsman (chime-fort, hollow-redoubt; speed 3) | 5 / 40 (6-24%), lunge 5 | 4 / 40 (5-21%), lunge 2, living 2 | 96 / 125 |
+    | Shieldwall (pale-bastion, the-stair; wits 0) | 14 / 40 (24-48%), rush 14 | 16 / 40 (28-53%), rush 16 | 126 / 295 |
+    | Pyre-priest (mourners-gate, whitecross; power 5) | 1 / 40 (1-10%), living 1 | 1 / 40 (1-10%), fire 1 | 105 / 193 |
+    | all four | 20 / 160 = 12.5% (8.8-17.4%) | 21 / 160 = 13.1% (9.3-18.1%) | |
+
+    - **The arms do not separate on deaths** (the bar is about 2× and at least 10 points). The counters separate on fight length, at 1.3-3×.
+    - pale-bastion carries the deaths: 14 / 20 with wits, 16 / 20 without. the-stair has 0 / 20 in both arms.
+    - **Why.** With packs off Relish, the warden's own attack is the only killer. Only the Shieldwall's rush kills at all often, and in both arms it kills once the army (flankers included) is down. Without its counter, a warden's fight simply runs longer.
+  - **Unchanged:** Vei byte-identical. Tier 1 and P1 equal the bot-fixed lines (bfix's own effect is above). `parity_check.sh` gives identical results, 5 of 5.
+  - **Shots:**
+    - `de3c-pack-breaks.png`: hollow-redoubt, no speed. The banner and THE PACK BREAKS · WARD DOWN over the Huntsman, LIVING 0.
+    - `de3c-shieldwall-posted.png`: pale-bastion seed 1. Posted wits flankers at the wall's back, FLANKED on the bearers coming at them while BEARERS · WARDED stands.
+    - `de3c-shieldwall-pinned.png`: the first tell after that pack. BASH, PINNED.
+    - `de3c-death-card.png`: "The Bellringer's slam · missed: the swing".
+    - No shot shows a pinned rush with the pack standing, because the wall never tells while its pack stands.
