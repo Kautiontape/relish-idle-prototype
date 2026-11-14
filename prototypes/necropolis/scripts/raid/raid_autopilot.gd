@@ -590,7 +590,7 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 func _aim_at(pos: Vector2, o) -> Vector2:
 	var p: Vector2 = o.global_position
 	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
-	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg)
+	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
 	_aim_obj = o
 	if step == "give_up":
 		_unreachable[o.get_instance_id()] = true

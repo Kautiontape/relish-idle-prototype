@@ -495,6 +495,16 @@ func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var st3 := {}
 	RaidLogic.unstick_step(st3, false, 0.0, 100.0, -1.0, ap)
 	t.ok(RaidLogic.unstick_step(st3, true, us + 0.5, 100.0, 0.0, ap) == "closing", "a think spent on something else restarts the clock (no firing on the first think back)")
+	# through a doorway the walking distance jumps up (straight in the doorway, round by room centres beyond):
+	# a new room restarts the clock, so walking on is never read as stuck (the-stair seed 16 gave up a pile so)
+	var st4 := {}
+	RaidLogic.unstick_step(st4, false, 0.0, 700.0, -1.0, ap, -1)
+	var through := ""
+	var tt := 0.0
+	for i in int(ceil(2.0 * us / dt)) + 2:
+		tt += dt
+		through += RaidLogic.unstick_step(st4, true, tt, 1240.0 - 12.0 * i, tt - dt, ap, 1).substr(0, 1)
+	t.ok(not through.contains("a") and not through.contains("g"), "walking on after a doorway's distance jump never fires (%s)" % through.substr(0, 12))
 
 
 ## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.

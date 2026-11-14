@@ -849,20 +849,25 @@ static func hold_blocks(hostile: bool, foe_room: int, cur_room: int, next_room: 
 
 
 ## The measuring bot's unstick watch, one think on its sticky target (D-d/E 3c; autopilot unstick_*):
-## `st` {d, t, in} is the watch's state, updated in place; `same` whether the target is the one watched,
-## `d` her walking distance to it now, `last` the last think it was walked to. Returns "new" (a new target:
-## the clock starts), "closing" (closer by unstick_px, or the first think back after one spent on something
-## else), "wait", "aim_in" (not closing for unstick_s: aim inside its room) or "give_up" (still not closing
+## `st` {d, t, in, room} is the watch's state, updated in place; `same` whether the target is the one
+## watched, `d` her walking distance to it now, `last` the last think it was walked to, `room` the room she
+## stands in (-1 in a doorway). Returns "new" (a new target: the clock starts), "closing" (closer by
+## unstick_px; the first think back after one spent on something else; or a new room of hers, since the
+## walking distance jumps at a doorway: straight in the doorway, round by the room centres beyond it),
+## "wait", "aim_in" (not closing for unstick_s: aim inside its room) or "give_up" (still not closing
 ## another unstick_s after that).
-static func unstick_step(st: Dictionary, same: bool, now: float, d: float, last: float, ap: Dictionary) -> String:
+static func unstick_step(st: Dictionary, same: bool, now: float, d: float, last: float, ap: Dictionary, room := -1) -> String:
 	if not same:
 		st["d"] = d
 		st["t"] = now
 		st["in"] = false
+		st["room"] = room
 		return "new"
-	if now - last > float(ap.get("think_frames", 3.0)) / 60.0 + 1e-6 or d < float(st["d"]) - float(ap.get("unstick_px", 8.0)):
+	if now - last > float(ap.get("think_frames", 3.0)) / 60.0 + 1e-6 or d < float(st["d"]) - float(ap.get("unstick_px", 8.0)) \
+			or room != int(st.get("room", room)):
 		st["d"] = d
 		st["t"] = now
+		st["room"] = room
 		return "closing"
 	if now - float(st["t"]) >= float(ap.get("unstick_s", 1.5)) - 1e-6:
 		var out := "give_up" if bool(st["in"]) else "aim_in"
