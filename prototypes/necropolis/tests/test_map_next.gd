@@ -171,6 +171,8 @@ func _chip(t: TestUtil) -> void:
 ## The fort's horizon: the nearer of the garrison clock and the hold timer.
 func _horizon(t: TestUtil) -> void:
 	t.suite("map_next-horizon")
+	t.ok(NextLogic.restarted(500.0, 3.0) and not NextLogic.restarted(500.0, 500.0) and not NextLogic.restarted(500.0, 900.0) and not NextLogic.restarted(-1.0, 0.0),
+		"time going backwards (and only that) starts the hysteresis memory over")
 	var f := _held("a", 0.0, 10.0, {"held_s_left": 600.0})
 	t.near(IdleLogic.fort_horizon(f, {"fall_s": 9000.0}), 600.0, 1e-6, "the timer alone is nearer")
 	t.near(IdleLogic.fort_horizon(f, {"fall_s": 300.0}), 300.0, 1e-6, "the fall clock is nearer: the minimum")
@@ -179,8 +181,16 @@ func _horizon(t: TestUtil) -> void:
 	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0), {"fall_s": -1.0}), -1.0, 1e-6, "neither: -1")
 	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0, {"held_s_left": 0.0}), {}), -1.0, 1e-6, "an empty timer does not count")
 	var sp := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
-	t.ok(sp["fall"] == "falls in ~10 min", "a SAFE chip with only a timer says its fall (%s)" % sp["fall"])
-	t.ok(IdleLogic.chip_parts(f, "thin", {"rate": 0.0, "fall_s": -1.0})["fall"] == "falls in ~10 min", "so does a THIN chip")
+	t.ok(sp["word"] == "HOLD" and sp["fall"] == "ends in ~10 min" and sp["key"] == "select", "a SAFE chip with only a timer reads HOLD, not SAFE (%s, %s)" % [sp["word"], sp["fall"]])
+	var tp := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": 9000.0})
+	t.ok(tp["word"] == "HOLD" and tp["fall"] == "ends in ~10 min" and tp["key"] == IdleLogic.cfg()["colors"]["hold"], "the timer nearer than the fall: HOLD in the hold colour")
+	var fp := IdleLogic.chip_parts(f, "thin", {"rate": -0.2, "fall_s": 300.0})
+	t.ok(fp["word"] == "THIN" and fp["fall"] == "falls in ~5 min" and fp["key"] == "select", "the fall nearer than the timer keeps its margin word (%s)" % fp["fall"])
+	t.ok(IdleLogic.chip_parts(f, "will_fall", {"rate": -0.2, "fall_s": 300.0})["word"] == "WILL FALL", "WILL FALL too")
+	var np := IdleLogic.chip_parts(_held("a", 0.0, 10.0), "safe", {"rate": 0.3, "fall_s": -1.0})
+	t.ok(np["word"] == "SAFE" and np["fall"] == "holds", "no timer: unchanged")
+	t.ok(IdleLogic.fort_horizon_parts(f, {"fall_s": 9000.0})["kind"] == "hold" and IdleLogic.fort_horizon_parts(f, {"fall_s": 300.0})["kind"] == "fall"
+		and IdleLogic.fort_horizon_parts(f, {"fall_s": 600.0})["kind"] == "fall" and IdleLogic.fort_horizon_parts(_held("a", 0.0, 10.0), {})["kind"] == "", "the kind of the winning term (a tie is the fall)")
 	var ln := {"forts": [_held("a", 0.0, 10.0, {"held_s_left": 180.0}), _held("b", 0.0, 10.0, {"held_s_left": 7200.0})],
 		"clocks": {"a": {"fall_s": -1.0}, "b": {"fall_s": -1.0}}}
 	t.ok(NextLogic.leave_text(ln) == "If you leave, A falls in ~3 min", "a near timer is a risk, not safe (%s)" % NextLogic.leave_text(ln))

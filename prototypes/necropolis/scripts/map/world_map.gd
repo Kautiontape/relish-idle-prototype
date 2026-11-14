@@ -160,7 +160,7 @@ func _build_ui() -> void:
 	hud.next_chosen.connect(_act_on)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
 	# TODO(api-request #18): no view carries a game id, so an earlier game time than a flag's mark means a new game
-	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_eps_s"]))
+	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_new_game_s"]))
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -213,9 +213,9 @@ func _refit() -> void:
 
 
 ## The default fit: below the top bar, every fort and Vei clear of the valve panel, the objective
-## strip and Relish's chip.
+## strip, the leave line's room and Relish's chip.
 func _fit() -> void:
-	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), chip.get_global_rect()])
+	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), hud.leave_rect(), chip.get_global_rect()])
 
 
 ## The return from a town, dungeon or boss: the camera starts zoomed on `_arrive_from` and eases

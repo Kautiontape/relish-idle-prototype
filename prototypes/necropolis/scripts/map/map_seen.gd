@@ -46,19 +46,23 @@ func mark(key: String, t := -1.0) -> void:
 
 
 ## A new game forgets what the last one saw. TODO(api-request #18): no view carries a game
-## identity, so a game time earlier than a flag's recorded time (by more than `eps`) stands in for
-## "this is a newer game": that flag is forgotten, in the file (when persisting) and in memory.
-## Flags with no recorded time (-1) are kept.
-func reconcile(now_t: float, eps: float) -> void:
+## identity, but a new game always mounts the map with game time near 0 (cmd_new_game runs only
+## from Game._boot). So when `now_t <= new_game_s` every flag is forgotten whose recorded time is
+## later than `now_t`, and every flag with no recorded time (-1, written before seen_at existed);
+## in the file (when persisting) and in memory. Later than that, nothing is forgotten (a reload of
+## a continuing game can be behind its last mark: the autosave lags).
+func reconcile(now_t: float, new_game_s: float) -> void:
+	if now_t > new_game_s:
+		return
 	var changed := false
 	var mem: Dictionary = _memory.get(_path, {})
 	for key in mem.keys():
-		if float(mem[key]) >= 0.0 and now_t < float(mem[key]) - eps:
+		if float(mem[key]) < 0.0 or float(mem[key]) > now_t:
 			mem.erase(key)
 	if _persist and _cfg.has_section(SECTION):
 		for key in _cfg.get_section_keys(SECTION):
 			var at := float(_cfg.get_value(TIMES, key, -1.0))
-			if at >= 0.0 and now_t < at - eps:
+			if at < 0.0 or at > now_t:
 				_cfg.erase_section_key(SECTION, key)
 				_cfg.erase_section_key(TIMES, key)
 				changed = true

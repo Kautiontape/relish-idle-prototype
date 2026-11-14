@@ -30,7 +30,9 @@ var _speed_tag: Label
 var _objective: Button
 var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
 var _leave_plate: ColorRect
-var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes so it does not flicker
+var _leave_rect := Rect2()  # the room kept for the leave line, shown or not
+static var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes and map mounts so it does not flicker or flip on a return from town
+static var _next_t := -1.0  # the game time of the last pick: time going backwards is a new game, which clears _next
 var _opening := {}  # set_opening_ask's {text, target}
 var _hint: Label
 var chip: Control  # the Relish chip: the toast sits under it (set by world_map)
@@ -131,16 +133,25 @@ func _relayout() -> void:
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 	var inset := _obj_plate.position.y + _obj_plate.size.y
-	if _leave.visible:  # the leave line sits right under the strip's plate; what is below shifts down
-		var lsz := _leave.get_combined_minimum_size()
-		_leave.position = Vector2(_bar.position.x, inset)
-		_leave.size = lsz
-		_leave_plate.position = Vector2(0.0, inset)
-		_leave_plate.size = Vector2(_leave.position.x + lsz.x + pad, lsz.y + pad)
-		inset += _leave_plate.size.y
+	# The leave line's room is always kept under the strip, shown or not: toggling the line (a hold
+	# starting or ending, a tithe warning) never changes the inset, so no refit and no chip jump.
+	var lsz := _leave.get_combined_minimum_size()
+	_leave.position = Vector2(_bar.position.x, inset)
+	_leave.size = lsz
+	_leave_plate.position = Vector2(0.0, inset)
+	_leave_plate.size = Vector2(_leave.position.x + lsz.x + pad, lsz.y + pad)
+	_leave_rect = Rect2(0.0, inset, _obj_plate.size.x, lsz.y + pad)
+	inset += _leave_rect.size.y
 	if inset != _last_inset:
 		_last_inset = inset
 		inset_changed.emit(inset)
+
+
+## The leave line's reserved room (screen px, the strip's width): the
+## default fit keeps the forts and Vei off it.
+func leave_rect() -> Rect2:
+	_relayout()
+	return _leave_rect
 
 
 ## Screen px the HUD plates cover from the top (the bar and the strip): the Relish chip and the
@@ -318,6 +329,10 @@ func _on_objective_pressed() -> void:
 func _refresh_next() -> void:
 	var inp := {"forts": model.forts, "clocks": model.clocks, "raids": model.raids, "queue": model.town_queue,
 		"vei": model.vei, "readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+	var now_t := float(model.hud.get("t", 0.0))
+	if NextLogic.restarted(_next_t, now_t):
+		_next = {}
+	_next_t = now_t
 	_next = NextLogic.choose(inp, _next)
 	var act := str(_next["action"].get("kind", "none")) != "none"
 	var text := str(_next["text"]) + (("   " + str(NextLogic.cfg()["hint"])) if act else "")

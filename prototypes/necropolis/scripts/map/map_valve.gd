@@ -32,6 +32,7 @@ var _over_rate: Label  # on WAR's feed line: "+3.1/s"
 var _over_text: Label  # "overflows to Vei"
 var _payoff: VBoxContainer  # the payoff, the panel's last block: two rows reserved (the cost may wrap)
 var _payoff_w := 0.0  # the payoff's inner width: the panel's, less its padding
+var _payoff_key := ""  # the parts' kinds and texts and the row width the Labels were last built for
 var _payoff_parts: Array = []  # the parts shown, [{kind, text}]: the differential and odds, then the costs
 var _since_release := -1.0  # seconds since the last drag's release (-1: none yet); the payoff's hold
 var _sig := ""
@@ -225,6 +226,11 @@ func _payoff_parts_for(proj: Dictionary) -> Array:
 ## the costs wrap whole under the first part, and the ones that still do not fit are dropped
 ## (ValveLogic.payoff_rows).
 func _payoff_rows(parts: Array) -> void:
+	var key := "%s|%s" % [_payoff_w, "|".join(PackedStringArray(parts.map(func(q): return "%s:%s" % [q["kind"], q["text"]])))]
+	if key == _payoff_key:  # the same text on the same rows: keep the Labels
+		_payoff_parts = parts
+		return
+	_payoff_key = key
 	_payoff_parts = parts
 	for ch in _payoff.get_children():
 		_payoff.remove_child(ch)

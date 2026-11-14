@@ -38,7 +38,8 @@ var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ran
 
 var _villages_by_id := {}
 var _last_read_s := -1.0e9
-var _raid_why := {}  # fort id -> why, for raids (its keys are the last set's ids: raid_set's memory)
+static var _raid_why := {}  # fort id -> why, for raids (its keys are the last set's ids: raid_set's memory, kept across map mounts)
+static var _raid_t := -1.0  # the game time of the last set: time going backwards is a new game, which clears _raid_why
 
 
 func _init(game_state: GameState) -> void:
@@ -105,6 +106,10 @@ func _refresh_raids() -> void:
 	var positions := {}
 	for f in forts:
 		positions[str(f["id"])] = node_pos(str(f["id"]))
+	var now_t := float(hud.get("t", 0.0))
+	if NextLogic.restarted(_raid_t, now_t):
+		_raid_why.clear()
+	_raid_t = now_t
 	raids = NextLogic.raid_set(forts, _raid_why.keys(), _raid_from(), positions)
 	_raid_why.clear()
 	for r in raids:

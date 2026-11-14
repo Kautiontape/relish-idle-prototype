@@ -204,24 +204,37 @@ static func margin_words(ms: Dictionary) -> Dictionary:
 # TODO(api E2b): a support-vs-pressure contest replaces the hold timer; once the view stops counting
 # held_s_left down for held forts, the timer term goes.
 static func fort_horizon(f: Dictionary, clock: Dictionary) -> float:
+	return float(fort_horizon_parts(f, clock)["s"])
+
+
+## fort_horizon and which term won: {s, kind}, kind "fall" (the garrison clock; also on a tie),
+## "hold" (the hold timer is strictly nearer) or "" (neither applies, s = -1).
+static func fort_horizon_parts(f: Dictionary, clock: Dictionary) -> Dictionary:
 	var best := -1.0
+	var kind := ""
 	var fall := float(clock.get("fall_s", -1.0))
 	if fall >= 0.0:
 		best = fall
+		kind = "fall"
 	var timer := float(f.get("held_s_left", 0.0))
 	if timer > 0.0 and (best < 0.0 or timer < best):
 		best = timer
-	return best
+		kind = "hold"
+	return {"s": best, "kind": kind}
 
 
 ## The chip's parts for a held fort under its name: line one the garrison (an upright count) and
 ## its signed rate, line two the margin word and, while falling, "falls in ~2 h" (the fort's
-## horizon, fort_horizon; a SAFE fort with none says "holds").
+## horizon, fort_horizon; when the hold timer is the nearer end, line two is HOLD · ends in ~3 min; a SAFE fort with none says "holds").
 ## {count, rate, word, key, fall}; `clock` is {rate, fall_s}.
 static func chip_parts(f: Dictionary, m: String, clock: Dictionary, c := {}) -> Dictionary:
 	if c.is_empty():
 		c = cfg()
-	var fall := fmt_fall(fort_horizon(f, clock), c)
+	var hz := fort_horizon_parts(f, clock)
+	var fall := fmt_fall(float(hz["s"]), c)
+	if str(hz["kind"]) == "hold" and fall != "":  # the timer ends the hold before the garrison falls: say so, not a margin word
+		return {"count": garrison_text(f, c), "rate": MapLogic.fmt_rate(float(clock.get("rate", 0.0))),
+			"word": str(c["hold_word"]), "key": str(c["colors"]["hold"]), "fall": str(c["hold_fmt"]) % fall}
 	var tail := (str(c["fall_fmt"]) % fall) if fall != "" else ""
 	if tail == "" and m == SAFE:  # a SAFE fort whose clock holds says so: "SAFE · holds"
 		tail = str(c["hold_text"])

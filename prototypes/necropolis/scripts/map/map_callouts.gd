@@ -72,10 +72,13 @@ func _occupied(z: float) -> Array:
 
 
 ## What the chips' drawn rects follow: the model rev (held set, clocks, projection), the zoom and
-## tier, the drag, and where Relish's token is drawn (a chip steps clear of it), whole px.
+## tier, the drag, the dragged margins (margin_sig: a drag moves them without a rev change), and
+## where Relish's token is drawn (a chip steps clear of it), on a coarse grid (callouts.token_key_px)
+## so her travelling does not refresh it every frame.
 func _chip_signature(z: float) -> Array:
 	var rp: Vector2 = nodes.relish_drawn_pos() if nodes != null else Vector2.ZERO
-	return [model.rev, roundi(z * 1000.0), cam.tier, not model.projection.is_empty(), roundi(rp.x), roundi(rp.y)]
+	var grid: float = MapLogic.cfg()["callouts"]["token_key_px"]
+	return [model.rev, roundi(z * 1000.0), cam.tier, not model.projection.is_empty(), model.margin_sig, roundi(rp.x / grid), roundi(rp.y / grid)]
 
 
 ## The held forts' chips as drawn (shift included), in this layer's frame; none while chips are hidden.

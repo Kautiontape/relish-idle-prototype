@@ -30,6 +30,12 @@ const REFILLED := "refilled"
 const FIRST_CLEAR := "first_clear"
 
 
+## Whether game time went backwards since `last_t` (-1: never read): a different game, so the
+## hysteresis memory kept across map mounts (the strip's pick, the raid set) starts over.
+static func restarted(last_t: float, now_t: float) -> bool:
+	return last_t >= 0.0 and now_t < last_t
+
+
 static func cfg() -> Dictionary:
 	return MapLogic.cfg().get("next", {})
 
@@ -225,6 +231,7 @@ static func _pick(rule: String, target: String, text: String, fort_ids: Array) -
 ## under next_fall_warn_s; `prev`'s fort (after a FALL pick) stays under next_fall_warn_s x
 ## next_fall_exit_mult, and gives way only to a fort that falls in under switch_ratio of its time.
 static func _fall(inp: Dictionary, prev: Dictionary, c: Dictionary) -> Dictionary:
+	# garrison fall_s only, not the hold timer: every held fort has a timer of a few minutes, so a timer rule would take over the strip and its advice (raise WAR, send Relish) doesn't apply to it.
 	var clocks: Dictionary = inp.get("clocks", {})
 	var warn := float(c["next_fall_warn_s"])
 	var kept_id := str(prev.get("target", "")) if str(prev.get("rule", "")) == FALL else ""
