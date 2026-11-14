@@ -95,11 +95,9 @@ var _bail := 0.0               # retreat to an exit once hp is at or below this 
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
 var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two rooms
 var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
-var _aim_obj = null             # the unstick watch (D-d/E 3c; _aim_at): the sticky target last walked to,
-var _aim_d := INF               # its closest walking distance so far,
-var _aim_t := 0.0               # when it last closed by unstick_px,
-var _aim_last := -1.0           # the last think it was walked to,
-var _aim_in := false            # and whether she now aims at the spot inside its room instead
+var _aim_obj = null             # the unstick watch (D-d/E 3c; _aim_at, RaidLogic.unstick_step): the sticky target,
+var _aim := {"d": INF, "t": 0.0, "in": false}   # its state (closest walking distance, when it last closed, aiming inside),
+var _aim_last := -1.0           # and the last think it was walked to
 var _unreachable := {}          # instance ids of targets she could not close on (skipped from then on)
 var _aimed_in := 0              # times the watch pulled her aim inside the room (the result's `unstick`)
 var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
@@ -592,23 +590,14 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 func _aim_at(pos: Vector2, o) -> Vector2:
 	var p: Vector2 = o.global_position
 	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
-	if o != _aim_obj:
-		_aim_obj = o
-		_aim_in = false
-		_aim_d = d
-		_aim_t = _sim_t
-	elif _sim_t - _aim_last > _c("think_frames", 3.0) / 60.0 + 1e-6 or d < _aim_d - _c("unstick_px", 8.0):
-		_aim_d = d   # (a think spent on something else restarts the clock)
-		_aim_t = _sim_t
-	elif _sim_t - _aim_t >= _c("unstick_s", 1.5) - 1e-6:
-		if _aim_in:
-			_unreachable[o.get_instance_id()] = true
-		else:
-			_aimed_in += 1
-		_aim_in = true
-		_aim_t = _sim_t
+	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg)
+	_aim_obj = o
+	if step == "give_up":
+		_unreachable[o.get_instance_id()] = true
+	elif step == "aim_in":
+		_aimed_in += 1
 	_aim_last = _sim_t
-	if _aim_in:
+	if bool(_aim["in"]):
 		var r := RaidLogic.room_of(_raid.layout, p)
 		if r >= 0:
 			var rr := (_raid.layout["rooms"][r] as Rect2).grow(-(_raid.relish.radius + _c("unstick_inset_px", 8.0)))
@@ -772,13 +761,12 @@ func _decide(pos: Vector2) -> Vector2:
 	# hold while hostile living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
+	var push := int(_det["room"]) if _det_state == "taken" else -1
 	for e in living:
-		if not e._aggro:
-			continue   # only a fight holds her: a calm foe a room on, out of the army's reach, held the spawn ~20 s (D-d/E 3c)
-		var er := RaidLogic.room_of(_raid.layout, e.global_position)
-		if er >= 0 and (er == _cur_room or er == nxt) \
-				and not (_det_state == "taken" and er == int(_det["room"]) and er != _cur_room):
-			blocked = true   # (a taken detour is a push: its guard does not hold her at its door)
+		# only a fight holds her (RaidLogic.hold_blocks): a calm foe a room on, out of the army's reach, held
+		# the spawn ~20 s (D-d/E 3c); a taken detour is a push, its guard does not hold her at its door
+		if RaidLogic.hold_blocks(e._aggro, RaidLogic.room_of(_raid.layout, e.global_position), _cur_room, nxt, push):
+			blocked = true
 			break
 	if blocked:
 		_hold_t += _c("think_frames", 3.0) / 60.0

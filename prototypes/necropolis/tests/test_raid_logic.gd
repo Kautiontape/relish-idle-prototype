@@ -391,6 +391,8 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _det_guard_seen(", "the bot's guard in view"],
 			["res://scripts/raid/raid_autopilot.gd", "func _det_foe_on_her(", "the bot's foe check"],
 			["res://scripts/raid/raid_autopilot.gd", "func _aim_at(", "the bot's unstick watch"],
+			["res://scripts/raid/raid_logic.gd", "static func unstick_step(", "RaidLogic.unstick_step"],
+			["res://scripts/raid/raid_logic.gd", "static func hold_blocks(", "RaidLogic.hold_blocks"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],
@@ -441,6 +443,7 @@ func run() -> int:
 	_time_split_tests(t)
 	_react_tests(t, cfg)
 	_detour_tests(t, cfg)
+	_bot_rule_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
 	t.ok(pick.contains("rel.alive and not warden_pack:") and not pick.contains("na == null"), "a warden's pack never takes Relish as its target (D-d/E 3c)")
 	var step_src := _func_body("res://scripts/raid/warden.gd", "func _pack_step(")
@@ -453,6 +456,45 @@ func run() -> int:
 	var pt_src := _func_body("res://scripts/raid/raid_warden_run.gd", "func pack_target(")
 	t.ok(pt_src.contains("(warden as RaidShieldwall).posted(u)") and pt_src.contains("return warden") and not pt_src.contains(".planted"), "at the Shieldwall a posted wits big keeps the wall (D-d/E 3c; no tell clause: the wall holds its bash while its pack stands)")
 	return t.failures
+
+
+## D-d/E 3c, the bot's hold and unstick watch: RaidLogic.hold_blocks / unstick_step.
+func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_bot_rules")
+	t.ok(RaidLogic.hold_blocks(true, 4, 3, 4, -1) and RaidLogic.hold_blocks(true, 3, 3, 4, -1), "a hostile foe in her room or the next holds her")
+	t.ok(not RaidLogic.hold_blocks(false, 4, 3, 4, -1) and not RaidLogic.hold_blocks(false, 3, 3, 4, -1), "a calm one does not (it held the-stair's spawn 20 s for nothing)")
+	t.ok(not RaidLogic.hold_blocks(true, 6, 3, 4, -1) and not RaidLogic.hold_blocks(true, -1, 3, 4, -1), "nor a hostile foe elsewhere or between rooms")
+	t.ok(not RaidLogic.hold_blocks(true, 5, 3, 5, 5) and RaidLogic.hold_blocks(true, 5, 5, 6, 5), "a taken detour's guard does not hold her at its door, only inside")
+	var ap: Dictionary = cfg["autopilot"]
+	var us := float(ap["unstick_s"])
+	var px := float(ap["unstick_px"])
+	var dt := float(ap["think_frames"]) / 60.0
+	var st := {}
+	t.ok(RaidLogic.unstick_step(st, false, 10.0, 300.0, -1.0, ap) == "new" and not bool(st["in"]), "a new target starts the clock")
+	# walking at 240 px/s she closes 12 px per think: never stuck
+	var walk := ""
+	var now := 10.0
+	var d := 300.0
+	for i in 40:
+		now += dt
+		d -= 12.0
+		walk += RaidLogic.unstick_step(st, true, now, d, now - dt, ap).substr(0, 1)
+	t.ok(not walk.contains("a") and not walk.contains("g"), "closing on it at walking pace never fires (%s)" % walk)
+	# pinned: the distance does not move
+	var pinned: Array[String] = []
+	for i in int(ceil(2.0 * us / dt)) + 2:
+		now += dt
+		var r := RaidLogic.unstick_step(st, true, now, d, now - dt, ap)
+		if r != "wait":
+			pinned.append("%s@%.2f" % [r, now])
+	t.ok(pinned.size() == 2 and pinned[0].begins_with("aim_in") and pinned[1].begins_with("give_up"), "pinned: aim inside after unstick_s, give up after another (%s)" % str(pinned))
+	var st2 := {}
+	RaidLogic.unstick_step(st2, false, 0.0, 100.0, -1.0, ap)
+	var slow := RaidLogic.unstick_step(st2, true, us + 0.01, 100.0 - px * 0.5, us + 0.01 - dt, ap)
+	t.ok(slow == "aim_in", "edging closer by under unstick_px in unstick_s counts as stuck")
+	var st3 := {}
+	RaidLogic.unstick_step(st3, false, 0.0, 100.0, -1.0, ap)
+	t.ok(RaidLogic.unstick_step(st3, true, us + 0.5, 100.0, 0.0, ap) == "closing", "a think spent on something else restarts the clock (no firing on the first think back)")
 
 
 ## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.

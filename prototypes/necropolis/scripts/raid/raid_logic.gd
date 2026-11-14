@@ -839,6 +839,39 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
 
 
+## The measuring bot's hold (D-d/E 3c): a living foe holds her back when it is hostile and stands in her room
+## or the next one on her way. A taken detour is a push: its guard (`push_room`, -1 with none) does not hold
+## her at its door, only once she is inside.
+static func hold_blocks(hostile: bool, foe_room: int, cur_room: int, next_room: int, push_room: int) -> bool:
+	if not hostile or foe_room < 0 or (foe_room != cur_room and foe_room != next_room):
+		return false
+	return not (foe_room == push_room and foe_room != cur_room)
+
+
+## The measuring bot's unstick watch, one think on its sticky target (D-d/E 3c; autopilot unstick_*):
+## `st` {d, t, in} is the watch's state, updated in place; `same` whether the target is the one watched,
+## `d` her walking distance to it now, `last` the last think it was walked to. Returns "new" (a new target:
+## the clock starts), "closing" (closer by unstick_px, or the first think back after one spent on something
+## else), "wait", "aim_in" (not closing for unstick_s: aim inside its room) or "give_up" (still not closing
+## another unstick_s after that).
+static func unstick_step(st: Dictionary, same: bool, now: float, d: float, last: float, ap: Dictionary) -> String:
+	if not same:
+		st["d"] = d
+		st["t"] = now
+		st["in"] = false
+		return "new"
+	if now - last > float(ap.get("think_frames", 3.0)) / 60.0 + 1e-6 or d < float(st["d"]) - float(ap.get("unstick_px", 8.0)):
+		st["d"] = d
+		st["t"] = now
+		return "closing"
+	if now - float(st["t"]) >= float(ap.get("unstick_s", 1.5)) - 1e-6:
+		var out := "give_up" if bool(st["in"]) else "aim_in"
+		st["in"] = true
+		st["t"] = now
+		return out
+	return "wait"
+
+
 ## The measuring bot's detour rule (raid.json autopilot detour_*; NOTES-RAID "the detour rule"): take the
 ## cache when her hp fraction is at least `detour_hp_frac` (`detour_hp_frac_revive` with a revive left) and
 ## her army is at least `detour_army_mult` times the guard she can see.
