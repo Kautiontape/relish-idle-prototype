@@ -5,9 +5,11 @@ extends RefCounted
 ## preference, not game state. Defaults come from configs/synth.json.
 ##
 ## Every scene plays on the Master bus, so `apply()` is all a scene needs. In a harness session
-## (/root/Game `autosave_enabled` is false: any dev arg such as --fixture) nothing is written:
-## worktrees share user://, and a screenshot must not change the player's settings. The change
-## still applies to the bus in memory. Reaches Game by node path, so headless tests can load this.
+## (/root/Game `autosave_enabled` is false: any dev arg such as --fixture) the bus starts MUTED
+## whatever the saved preference says, and nothing is written: worktrees share user://, a
+## screenshot must not change the player's settings, and no run of ours may play sound. A later
+## toggle still applies to the bus in memory. Reaches Game by node path, so headless tests can
+## load this.
 
 const SECTION := "audio"
 const BUS := "Master"
@@ -70,6 +72,10 @@ static func _values() -> Dictionary:
 			for key in cf.get_section_keys(SECTION):
 				saved[key] = cf.get_value(SECTION, key)
 		_prefs = SynthLogic.merge_prefs(saved)
+		# A harness session (any dev arg) never plays sound: it starts muted, whatever the saved
+		# preference says, and writes nothing (Shawn's rule: no run of ours may play sound).
+		if not can_save():
+			_prefs["muted"] = true
 	return _prefs
 
 
