@@ -21,6 +21,8 @@ var _rev := -2
 var _tier := ""
 var _zoom := -1.0
 var _card_key: Array = []
+var _chip_sig: Array = []  # what the chip rects depend on: recomputed only when it changes
+var _chip_rects_cache: Array = []
 var _chip_key: Array = []  # the held forts' chip rects as drawn (HudLogic.rects_key): a moved chip re-places
 var _capped := false  # a valve drag is on: only callouts.drag_max_count show
 var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
@@ -32,7 +34,11 @@ func _process(_delta: float) -> void:
 	var z := cam.zoom.x
 	var eps: float = MapLogic.cfg()["callouts"]["zoom_eps"]
 	var ck := _card_rect_key()
-	var chips := HudLogic.rects_key(_chip_rects(z, cam.tier))
+	var sig := _chip_signature(z)
+	if sig != _chip_sig:  # the chip rects cost a measure and a placement per held fort: not per frame
+		_chip_sig = sig
+		_chip_rects_cache = _chip_rects(z, cam.tier)
+	var chips := HudLogic.rects_key(_chip_rects_cache)
 	var capped := not model.projection.is_empty()  # set only while the valve is being dragged
 	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps and ck == _card_key and chips == _chip_key and capped == _capped:
 		return
@@ -61,8 +67,15 @@ func _occupied(z: float) -> Array:
 	var out: Array = []
 	if not _card_key.is_empty():
 		out.append(HudLogic.screen_to_zoomed(_card_key[0], cam.position, z, get_viewport_rect().size))
-	out.append_array(_chip_rects(z, _tier))
+	out.append_array(_chip_rects_cache)
 	return out
+
+
+## What the chips' drawn rects follow: the model rev (held set, clocks, projection), the zoom and
+## tier, the drag, and where Relish's token is drawn (a chip steps clear of it), whole px.
+func _chip_signature(z: float) -> Array:
+	var rp: Vector2 = nodes.relish_drawn_pos() if nodes != null else Vector2.ZERO
+	return [model.rev, roundi(z * 1000.0), cam.tier, not model.projection.is_empty(), roundi(rp.x), roundi(rp.y)]
 
 
 ## The held forts' chips as drawn (shift included), in this layer's frame; none while chips are hidden.

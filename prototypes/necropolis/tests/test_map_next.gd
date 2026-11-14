@@ -294,7 +294,7 @@ func _clear_of_token(t: TestUtil) -> void:
 	var shifted_rect := Rect2(base.position + (moved.position - base.position), base.size)
 	t.ok(shifted_rect == moved and shifted_rect != base, "a shifted chip's drawn rect is not its unshifted place")
 	var co := FileAccess.get_file_as_string("res://scripts/map/map_callouts.gd")
-	var occ := co.substr(co.find("func _occupied("), 700)
+	var occ := co.substr(co.find("func _chip_rects("), 700)
 	t.ok(occ.contains("nodes.chip_world_rect(") and not occ.contains("IdleLogic.chip_rect("), "the callouts' occupied rects are the drawn chips'")
 	var fi := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
 	var cw := fi.substr(fi.find("func chip_world_rect("), 500)

@@ -32,7 +32,7 @@ var _over_rate: Label  # on WAR's feed line: "+3.1/s"
 var _over_text: Label  # "overflows to Vei"
 var _payoff: VBoxContainer  # the payoff, the panel's last block: two rows reserved (the cost may wrap)
 var _payoff_w := 0.0  # the payoff's inner width: the panel's, less its padding
-var _payoff_parts: Array = []  # the parts shown, [differential and odds, cost...]
+var _payoff_parts: Array = []  # the parts shown, [{kind, text}]: the differential and odds, then the costs
 var _since_release := -1.0  # seconds since the last drag's release (-1: none yet); the payoff's hold
 var _sig := ""
 var _proj := {}  # the last projection (IdleLogic), reused while the valve hasn't moved
@@ -183,7 +183,7 @@ func refresh(force := false) -> void:
 	if _dragging:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
 	var pay_parts := _payoff_parts_for(proj)
-	var payoff := " | ".join(PackedStringArray(pay_parts))
+	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
 	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, model.lanes, proj, _dragging))
 	var sig := "%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
@@ -216,13 +216,14 @@ func _payoff_parts_for(proj: Dictionary) -> Array:
 	var base := IdleLogic.split_at(model.state, model.hud, model.hud.get("valve", {}), IdleLogic.held_forts(model.forts).size())
 	var p := ValveLogic.payoff(model.vei, proj, base, float(model.realm_cfg.get("K", 0.0)))
 	var eps := float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0))
-	var parts: Array = [ValveLogic.payoff_line(p, eps)]
-	parts.append_array(ValveLogic.payoff_costs(proj, base, eps))
+	var parts: Array = [{"kind": "main", "text": ValveLogic.payoff_line(p, eps)}]
+	parts.append_array(ValveLogic.payoff_cost_parts(proj, base, eps))
 	return parts
 
 
 ## Lays the parts out in the payoff's two rows: one row when it fits the panel's inner width, else
-## the costs wrap whole under the first part (ValveLogic.payoff_rows).
+## the costs wrap whole under the first part, and the ones that still do not fit are dropped
+## (ValveLogic.payoff_rows).
 func _payoff_rows(parts: Array) -> void:
 	_payoff_parts = parts
 	for ch in _payoff.get_children():
@@ -233,19 +234,24 @@ func _payoff_rows(parts: Array) -> void:
 	var sep_text := str(MapLogic.cfg()["controls"]["payoff_sep"])
 	var boxes: Array = []
 	var widths: Array = []
+	var kinds: Array = []
 	for part in parts:
 		var box := _hbox(null, int(MapLogic.cfg()["controls"]["valve_payoff_sep_px"]))
-		_spans_into(box, str(part))
+		_spans_into(box, str(part["text"]))
 		boxes.append(box)
+		kinds.append(str(part["kind"]))
 		widths.append(box.get_combined_minimum_size().x)
 	var sep_probe := _sep_label(sep_text)
 	var sep_w := sep_probe.get_minimum_size().x
 	sep_probe.free()
-	var plan := ValveLogic.payoff_rows(widths, sep_w, _payoff_w)
+	var plan := ValveLogic.payoff_rows(widths, kinds, sep_w, _payoff_w)
 	var rows: Array = [_hbox(_payoff, 0), _hbox(_payoff, 0)]
 	var used := [0, 0]
 	for i in parts.size():
 		var r: int = plan[i]
+		if r < 0:
+			boxes[i].free()
+			continue
 		if used[r] > 0:
 			rows[r].add_child(_sep_label(sep_text))
 		rows[r].add_child(boxes[i])

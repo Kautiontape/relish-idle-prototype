@@ -278,11 +278,11 @@ static func payoff_line(p: Dictionary, sign_eps: float) -> String:
 	return vei + str(c["payoff_sep"]) + second
 
 
-## What the drag gives up, one part per stream whose dragged split rate is lower than at the current
-## valve (`base_split`) by more than `sign_eps`: "workers +5.1/s → +1.5/s" (WORK), "WAR +9.7/s →
-## +2.0/s" (WAR), then, when WAR fell and a fort is held, "WAR supports 1 of 2". Empty when the drag
-## only raises WORK and WAR.
-static func payoff_costs(proj: Dictionary, base_split: Dictionary, sign_eps: float) -> Array:
+## What the drag gives up, as [{kind, text}]: "work" for a fall in WORK ("workers +5.1/s →
+## +1.5/s"), "war" for WAR ("WAR +9.7/s → +2.0/s"), then, when WAR fell and a fort is held,
+## "supports" ("WAR supports 1 of 2"). A stream counts when its dragged split rate is lower than at
+## the current valve (`base_split`) by more than `sign_eps`.
+static func payoff_cost_parts(proj: Dictionary, base_split: Dictionary, sign_eps: float) -> Array:
 	var c := _c()
 	var split: Dictionary = proj.get("split", {})
 	var out: Array = []
@@ -291,27 +291,49 @@ static func payoff_costs(proj: Dictionary, base_split: Dictionary, sign_eps: flo
 		var was := float(base_split.get(pair[0], 0.0))
 		var now := float(split.get(pair[0], 0.0))
 		if now < was - sign_eps:
-			out.append(str(c[pair[1]]) % [MapLogic.fmt_rate(was), MapLogic.fmt_rate(now)])
+			out.append({"kind": pair[0], "text": str(c[pair[1]]) % [MapLogic.fmt_rate(was), MapLogic.fmt_rate(now)]})
 			war_fell = war_fell or pair[0] == "war"
 	var sup: Dictionary = proj.get("war_supports", {})
 	if war_fell and int(sup.get("m", 0)) > 0:
-		out.append(str(c["payoff_supports_fmt"]) % [int(sup.get("n", 0)), int(sup.get("m", 0))])
+		out.append({"kind": "supports", "text": str(c["payoff_supports_fmt"]) % [int(sup.get("n", 0)), int(sup.get("m", 0))]})
 	return out
 
 
-## Which payoff row each part goes on (0 or 1). `widths` are the parts' widths, the first being the
-## differential and the odds or drain; `sep_w` the separator's; `max_w` the panel's inner width. All
-## on row 0 when they fit, else the first part stays and the costs wrap whole onto row 1, at the
-## separator before the first cost: a part is never broken.
-static func payoff_rows(widths: Array, sep_w: float, max_w: float) -> Array:
+## payoff_cost_parts' texts.
+static func payoff_costs(proj: Dictionary, base_split: Dictionary, sign_eps: float) -> Array:
+	return payoff_cost_parts(proj, base_split, sign_eps).map(func(p): return p["text"])
+
+
+## Which payoff row each part goes on: 0, 1, or -1 (dropped). `widths` are the parts' widths and
+## `kinds` their kinds: the first is "main" (the differential and odds), the rest "work", "war" or
+## "supports"; `sep_w` is the separator's width and `max_w` the panel's inner width. Everything on
+## row 0 when it fits. Else the main part is row 0 and the costs go to row 1, in order, whole: when
+## they do not all fit, "supports" goes first (the panel's own supports line shows the projected
+## n of m), then "war", then "work", until what is left fits. A part never breaks. A main part wider
+## than `max_w` still sits alone on row 0 (it clips at the plate; the panel never widens).
+static func payoff_rows(widths: Array, kinds: Array, sep_w: float, max_w: float) -> Array:
 	var out: Array = []
-	var total := 0.0
+	if widths.is_empty():
+		return out
+	if _row_width(widths, range(widths.size()), sep_w) <= max_w + EPS:
+		for i in widths.size():
+			out.append(0)
+		return out
+	var keep: Array = range(1, widths.size())
+	for kind in ["supports", "war", "work"]:
+		if _row_width(widths, keep, sep_w) <= max_w + EPS:
+			break
+		keep = keep.filter(func(i): return kinds[i] != kind)
 	for i in widths.size():
-		total += float(widths[i]) + (sep_w if i > 0 else 0.0)
-	var fits := total <= max_w + EPS
-	for i in widths.size():
-		out.append(0 if (fits or i == 0) else 1)
+		out.append(0 if i == 0 else (1 if keep.has(i) else -1))
 	return out
+
+
+static func _row_width(widths: Array, idx: Array, sep_w: float) -> float:
+	var total := 0.0
+	for n in idx.size():
+		total += float(widths[idx[n]]) + (sep_w if n > 0 else 0.0)
+	return total
 
 
 static func _sign_of(diff: float, eps: float) -> String:

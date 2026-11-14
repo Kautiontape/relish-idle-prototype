@@ -67,6 +67,11 @@ func chip_world_rect(f: Dictionary) -> Rect2:
 	return _idle.chip_world_rect(f)
 
 
+## Where Relish's token is drawn, in world px.
+func relish_drawn_pos() -> Vector2:
+	return ctx.relish_pos
+
+
 func _ready() -> void:
 	ctx.model = model
 	ctx.selected_id = selected_id

@@ -148,12 +148,23 @@ func _payoff_cost(t: TestUtil) -> void:
 	t.ok(war_up == ["workers +5.1/s → +1.5/s"], "supports only when WAR falls: %s" % str(war_up))
 	for part in both.slice(0, 2):
 		t.ok(AwayLogic.spans(part).any(func(sp): return sp["kind"] == "rate"), "the cost part '%s' has rate spans" % part)
-	# the wrap choice: widths of [main, cost...], the separator's width, the inner width
-	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], 10.0, 400.0) == [0, 0, 0], "everything fits: one row")
-	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], 10.0, 339.0) == [0, 1, 1], "it does not fit: the costs wrap whole, at the separator before the first")
-	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], 10.0, 340.0) == [0, 0, 0], "an exact fit stays on one row")
-	t.ok(ValveLogic.payoff_rows([200.0], 10.0, 100.0) == [0], "a lone main part stays on row one")
-	t.ok(ValveLogic.payoff_rows([], 10.0, 100.0).is_empty(), "no parts, no rows")
+	# the wrap choice: widths and kinds of [main, cost...], the separator's width, the inner width
+	var k3 := ["main", "work", "war"]
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 400.0) == [0, 0, 0], "everything fits: one row")
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 339.0) == [0, 1, 1], "it does not fit: the costs wrap whole, at the separator before the first")
+	t.ok(ValveLogic.payoff_rows([200.0, 60.0, 60.0], k3, 10.0, 340.0) == [0, 0, 0], "an exact fit stays on one row")
+	t.ok(ValveLogic.payoff_rows([200.0], ["main"], 10.0, 100.0) == [0], "a lone main part stays on row one")
+	t.ok(ValveLogic.payoff_rows([], [], 10.0, 100.0).is_empty(), "no parts, no rows")
+	var k4 := ["main", "work", "war", "supports"]
+	var w4 := [300.0, 100.0, 100.0, 80.0]
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 300.0) == [0, 1, 1, 1], "row 2 exactly fits: all costs stay (%s)" % str(ValveLogic.payoff_rows(w4, k4, 10.0, 300.0)))
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 299.0) == [0, 1, 1, -1], "row 2 overflows: supports is dropped first")
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 209.0) == [0, 1, -1, -1], "a further overflow: WAR goes too, whole parts only")
+	t.ok(ValveLogic.payoff_rows(w4, k4, 10.0, 99.0) == [0, -1, -1, -1], "nothing fits: the main part alone")
+	t.ok(ValveLogic.payoff_rows([500.0, 100.0], ["main", "work"], 10.0, 400.0) == [0, 1], "an oversized first part sits alone on row 0, the cost below it")
+	t.ok(ValveLogic.payoff_rows([500.0], ["main"], 10.0, 400.0) == [0], "an oversized lone first part stays on row 0 (it clips at the plate)")
+	var kw := ["main", "war", "supports"]
+	t.ok(ValveLogic.payoff_rows([300.0, 100.0, 80.0], kw, 10.0, 150.0) == [0, 1, -1], "WAR with its supports: supports dropped, WAR kept")
 
 
 func _eta_and_chip(t: TestUtil) -> void:
