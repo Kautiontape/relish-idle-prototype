@@ -65,7 +65,7 @@
   "reduced_turbulence": 0.35,
   "comet": {
     "_doc": "Reduced motion: nothing advects; each head is a still comet laid back along the flow, redrawn every frame (the trail buffer keeps nothing). length_px on screen; power = head-to-tail falloff; dashes along a living comet (the non-hue channel); gain lifts a lone comet to the moving trails' brightness; long lives with slow fades, so nothing blinks.",
-    "length_px": 30.0,
+    "length_px": 40.0,
     "gain": 1.0,
     "power": 1.6,
     "dashes": 3.0,
@@ -84,7 +84,7 @@
     "surge": {"seconds": 2.4, "tail": 0.25, "fade": 0.3, "reach_px": 40.0, "push": 2.5, "speed": 1.2, "ink": 0.85, "recruit": 0.15, "life_s": [0.5, 1.0], "reduced_recruit": 0.02,
       "warning_strength": 0.35, "warning_every_s": 8.0, "wave_every_s": 3.0},
     "ink": {"seconds": 5.0, "radius_px": 200.0, "band_px": 36.0, "push": 1.2, "hold": 0.85, "recruit": 0.1,
-      "reduced_recruit": 0.02},
+      "reduced_recruit": 0.05},
     "event_stale_s": 10.0
   },
 
