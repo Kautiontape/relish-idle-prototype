@@ -1072,6 +1072,107 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return out
 
 
+## D-d/E Step 3, the guarded detour: a cache in a side room, a living group on it. The cache room is a room
+## off the shortest path from the spawn to the warden room that borders a path room other than the warden
+## room: a "normal" room before a checkpoint (loot banks at a checkpoint, which would change what is at
+## risk), then the fewest hops from the spawn, then the lowest index. Its cache lies `detour.cache_door_px`
+## into it from the gap it shares with that path room (the walk in and out stays short; the fight is the
+## point). None below `detour.min_tier`, in the first dungeon or a held fort. Returns {room, from_room,
+## gap, pos}, or {}.
+static func detour_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	var dc: Dictionary = cfg.get("detour", {})
+	var wr := int(layout.get("warden_room", -1))
+	if dc.is_empty() or tier < int(dc.get("min_tier", 99)) or wr < 0 or bool(layout.get("first_dungeon", false)) \
+			or bool(layout.get("held", false)):
+		return {}
+	var path := room_path(layout, room_of(layout, layout["spawn"]), wr)
+	var adj: Array = layout["adj"]
+	var hops: Array = layout["hops"]
+	var roles: Array = layout["roles"]
+	var best := -1
+	var from := -1
+	var bkey := 0
+	var portals: Dictionary = layout.get("portals", {})
+	for i in (layout["rooms"] as Array).size():
+		if path.has(i):
+			continue
+		for nb in adj[i]:
+			# a real opening onto a path room that is not the warden's (adjacency alone can be a T-junction)
+			if not path.has(nb) or nb == wr or (portals.get("%d:%d" % [nb, i], []) as Array).is_empty():
+				continue
+			var key := (((0 if str(roles[i]) == "normal" else 1) * 100 + int(hops[i])) * 100 + int(hops[nb])) * 100 + i
+			if best < 0 or key < bkey:
+				best = i
+				from = nb
+				bkey = key
+	if best < 0:
+		return {}
+	var gc: Vector2 = (portals["%d:%d" % [from, best]] as Array)[0]
+	var rc: Rect2 = layout["rooms"][best]
+	var pos := _clamp_in(rc, gc + (rc.get_center() - gc).normalized() * float(dc.get("cache_door_px", 150.0)), 40.0)
+	return {"room": best, "from_room": from, "gap": gc, "pos": pos}
+
+
+## The detour's guard: `detour.guard_by_tier` living (the tier's mix) within `guard_spread_px` of the
+## cache, inside its room and off the walls. Its own seeded rng (the fort id). [] with no site.
+static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Dictionary) -> Array:
+	var out: Array = []
+	var site := detour_site(layout, tier, cfg)
+	if site.is_empty():
+		return out
+	var dc: Dictionary = cfg.get("detour", {})
+	var n := int((dc.get("guard_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(fort_id) * 47 + 7211
+	var room: int = site["room"]
+	var inner := (layout["rooms"][room] as Rect2).grow(-30.0)
+	var spread := float(dc.get("guard_spread_px", 50.0))
+	for i in n:
+		var pos: Vector2 = site["pos"]
+		for attempt in 12:
+			var c: Vector2 = (site["pos"] as Vector2) + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread))
+			c = Vector2(clampf(c.x, inner.position.x, inner.end.x), clampf(c.y, inner.position.y, inner.end.y))
+			pos = c
+			if not _in_walls(layout, c, 14.0):
+				break
+		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg), "pos": pos, "room": room})
+	return out
+
+
+## `p` kept inside `rc` shrunk by `inset` (by at most 0.4 of each side).
+static func _clamp_in(rc: Rect2, p: Vector2, inset: float) -> Vector2:
+	var ix := minf(inset, rc.size.x * 0.4)
+	var iy := minf(inset, rc.size.y * 0.4)
+	return Vector2(clampf(p.x, rc.position.x + ix, rc.end.x - ix), clampf(p.y, rc.position.y + iy, rc.end.y - iy))
+
+
+## Shortest room path from `a` to `b` over layout.adj, both ends included ([] if none).
+static func room_path(layout: Dictionary, a: int, b: int) -> Array[int]:
+	var out: Array[int] = []
+	if a < 0 or b < 0:
+		return out
+	var adj: Array = layout["adj"]
+	var prev := {a: -1}
+	var q: Array[int] = [a]
+	var qi := 0
+	while qi < q.size():
+		var c: int = q[qi]
+		qi += 1
+		if c == b:
+			break
+		for nb in adj[c]:
+			if not prev.has(nb):
+				prev[nb] = c
+				q.append(nb)
+	if not prev.has(b):
+		return out
+	var at := b
+	while at != -1:
+		out.push_front(at)
+		at = int(prev[at])
+	return out
+
+
 ## Corpse piles scattered anywhere open. With an antechamber, the first pile is the last chance
 ## pile and sits inside the antechamber's inner rect.
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:

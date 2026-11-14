@@ -32,6 +32,8 @@ var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
 var found_loot := {}             # loot found this run, minus essence (dings + the chest)
+var detour_guard: Array = []      # the guarded detour's living (RaidPopulate; raid.json detour)
+var detour_cache: Array = []      # its cache's pickups
 
 var arena: RaidArena = null
 var endings: RaidEndings = null

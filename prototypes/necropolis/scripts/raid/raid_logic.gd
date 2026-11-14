@@ -802,6 +802,21 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return LayoutLogic.populate_enemies(fort_id, layout, count, tier, cfg)
 
 
+## D-d/E Step 3: the guarded detour's site and guard (LayoutLogic.detour_site / detour_guard).
+static func detour_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	return LayoutLogic.detour_site(layout, tier, cfg)
+
+
+static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Dictionary) -> Array:
+	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
+
+
+## The measuring bot's detour rule (raid.json autopilot detour_*): take the cache when her hp is at least
+## `detour_hp_frac` of its most and her army is at least `detour_army_mult` times the guard still standing.
+static func detour_take(hp_frac: float, allies: int, guard: int, ap: Dictionary) -> bool:
+	return hp_frac >= float(ap.get("detour_hp_frac", 0.6)) and float(allies) >= float(ap.get("detour_army_mult", 2.0)) * float(guard)
+
+
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	return LayoutLogic.populate_piles(fort_id, layout, count)
 

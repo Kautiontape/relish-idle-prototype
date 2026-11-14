@@ -377,6 +377,9 @@ func run() -> int:
 			["res://scripts/raid/warden.gd", "func take_hit(", "RaidWarden.take_hit (the pack's ward)"],
 			["res://scripts/raid/warden_huntsman.gd", "func _step(", "RaidHuntsman._step (no lunge while its pack runs)"],
 			["res://scripts/raid/raid.gd", "func on_unit_died(", "RaidRaid.on_unit_died (a pack drops nothing)"],
+			["res://scripts/raid/raid_populate.gd", "func populate(", "RaidPopulate.populate (the detour's guard)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _detour_decide(", "the bot's detour rule"],
+			["res://scripts/raid/raid_autopilot.gd", "func _detour_tick(", "the bot's detour progress"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -416,7 +419,60 @@ func run() -> int:
 	_vis_tests(t, cfg)
 	_time_split_tests(t)
 	_react_tests(t, cfg)
+	_detour_tests(t, cfg)
 	return t.failures
+
+
+## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.
+func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_detour")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var dc: Dictionary = cfg["detour"]
+	var bad := ""
+	var normal := 0
+	var sites := 0
+	for f in world["forts"]:
+		var tier := int(f["tier"])
+		var fid := str(f["id"])
+		var lay := RaidLogic.gen_layout(fid, tier, false, cfg)
+		var site := RaidLogic.detour_site(lay, tier, cfg)
+		var guard := RaidLogic.detour_guard(fid, lay, tier, cfg)
+		if tier < int(dc["min_tier"]):
+			if not site.is_empty() or not guard.is_empty():
+				bad += " %s: a site at tier %d" % [fid, tier]
+			continue
+		if site.is_empty():
+			bad += " %s: no site" % fid
+			continue
+		sites += 1
+		var path := LayoutLogic.room_path(lay, RaidLogic.room_of(lay, lay["spawn"]), int(lay["warden_room"]))
+		var r := int(site["room"])
+		if path.has(r) or not path.has(int(site["from_room"])) or int(site["from_room"]) == int(lay["warden_room"]) \
+				or not (lay["adj"][r] as Array).has(int(site["from_room"])):
+			bad += " %s: room %d from %d" % [fid, r, int(site["from_room"])]
+		if not (lay["rooms"][r] as Rect2).has_point(site["pos"]) or (site["pos"] as Vector2).distance_to(site["gap"]) > float(dc["cache_door_px"]) + 1.0:
+			bad += " %s: cache at %s" % [fid, str(site["pos"])]
+		if str(lay["roles"][r]) == "normal":
+			normal += 1
+		if guard.size() != int(dc["guard_by_tier"][str(tier)]):
+			bad += " %s: guard %d" % [fid, guard.size()]
+		for m in guard:
+			if int(m["room"]) != r or not (lay["rooms"][r] as Rect2).has_point(m["pos"]) or LayoutLogic._in_walls(lay, m["pos"], 0.0):
+				bad += " %s: guard at %s" % [fid, str(m["pos"])]
+		if str(RaidLogic.detour_guard(fid, lay, tier, cfg)) != str(guard):
+			bad += " %s: guard not deterministic" % fid
+	t.ok(bad == "", "every tier 2-4 fort has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap, with its guard in that room, the same each build (%s)" % bad)
+	t.ok(sites == 9, "all nine tier 2-4 forts have one (%d)" % sites)
+	t.ok(normal >= 7, "a normal room is preferred to a checkpoint (%d of 9; at lantern-keep and pale-bastion only a checkpoint opens onto the path)" % normal)
+	var first := RaidLogic.gen_layout("vespers", 2, false, cfg, {"first_dungeon": true})
+	t.ok(RaidLogic.detour_site(first, 2, cfg).is_empty(), "no detour in the first dungeon")
+	var held := RaidLogic.gen_layout("vespers", 2, false, cfg, {"held": true})
+	t.ok(RaidLogic.detour_site(held, 2, cfg).is_empty(), "none in a held fort")
+	var ap: Dictionary = cfg["autopilot"]
+	t.ok(RaidLogic.detour_take(0.8, 10, 5, ap), "healthy, with twice the guard: she takes it")
+	t.ok(not RaidLogic.detour_take(0.5, 10, 5, ap), "below detour_hp_frac: she leaves it")
+	t.ok(not RaidLogic.detour_take(0.9, 9, 5, ap), "an army under twice the guard: she leaves it")
+	t.ok(RaidLogic.detour_take(0.6, 0, 0, ap), "a guard already down is no fight: healthy is enough")
 
 
 ## The bot's reaction rule (raid.json autopilot react_*, RaidLogic.react_at; RaidAutopilot._answers).

@@ -20,11 +20,16 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 	if living > 0.05:
 		var n := RaidLogic.enemy_count(living, cap, cfg)
 		var mpe := living / n
-		var spots := RaidLogic.populate_enemies(fort_id, layout, n, tier, cfg)
-		for s in spots:
+		# the guarded detour's guard comes out of the fort's own count: the same bodies, mass and motes, placed
+		var guard := RaidLogic.detour_guard(fort_id, layout, tier, cfg)
+		var spots := RaidLogic.populate_enemies(fort_id, layout, maxi(0, n - guard.size()), tier, cfg)
+		for s in spots + guard:
 			var u: RaidUnit = _raid.spawn_unit("enemy", s["kind"], s["pos"])
 			u.mass = mpe
 			u.home_room = layout["rooms"][s["room"]]
+		for i in guard.size():
+			_raid.detour_guard.append(_raid.enemies[_raid.enemies.size() - guard.size() + i])
+	_place_cache(tier)
 	# garrison: exactly the seed's units, each carrying garrison_mass_div of ledger mass
 	var gn := int(sd.get("garrison_units", 0))
 	var gdiv := float(sd.get("garrison_mass_div", 10.0))
@@ -56,3 +61,21 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 		u.wits = float((e.get("stats", {}) as Dictionary).get("wits", 0.0))
 		u.power = float((e.get("stats", {}) as Dictionary).get("power", 0.0))
 		u.slots = maxi(1, int(e.get("filled_slots", 1)))
+
+
+## The guarded detour's cache (raid.json detour, loot.json cache): relic pickups at the site, labelled CACHE.
+func _place_cache(tier: int) -> void:
+	var site := RaidLogic.detour_site(_raid.layout, tier, _raid.rcfg())
+	if site.is_empty():
+		return
+	var lc: Dictionary = ConfigDb.data.get("loot", {}).get("cache", {})
+	var n := int((lc.get("relics_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
+	var sp := float(lc.get("spread_px", 18.0))
+	for i in n:
+		var pk := RaidPickup.new()
+		pk.raid = _raid
+		pk.kind = "relic"
+		pk.cache = true
+		pk.position = _raid.resolve_walls((site["pos"] as Vector2) + Vector2(sp * (float(i) - float(n - 1) * 0.5), 0.0), 6.0)
+		_raid.units_root.add_child(pk)
+		_raid.detour_cache.append(pk)

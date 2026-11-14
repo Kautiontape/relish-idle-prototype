@@ -436,3 +436,25 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
     - Hounds killed Relish in 3 of 12 runs. That is a Step 4 risk to tune, not tuned here.
     - Every other warden's line, and tier 1 and the first dungeon, are byte-identical without the new keys.
   - **Shot:** `de-huntsman-hounds.png` (chime-fort t2, seed 1, frame 2830). It shows the first pack just loosed, HOUNDS · WARDED over the Huntsman inside its army, the HUD row "HOUNDS 5 of 5 · it takes ×0.25", and the meter notched at 2/3 and 1/3.
+- **The guarded detour** (`raid.json detour`, `loot.json cache`, `LayoutLogic.detour_site` / `detour_guard`, `RaidPopulate`; tests `raid_detour`).
+  - **Placement.** From `min_tier` 2 (never tier 1, the first dungeon or a held fort), the cache lies in a side room.
+    - The room is off the shortest path from the spawn to the warden room and opens onto a path room that is not the warden's (a real opening, not just touching rects).
+    - A normal room is preferred to a checkpoint, because loot would bank there and change what is at risk. At lantern-keep and pale-bastion only a checkpoint opens onto the path.
+    - The cache sits `cache_door_px` 320 into the room from that opening, deep enough that the army passing the door does not wake the guard.
+  - **Contents.** `loot.json cache.relics_by_tier` relic pickups (1 / 1 / 2 at t2 / t3 / t4). The count is fixed, with no roll, so the chest's and the dings' rolls are untouched. They are fetched by walking over them like any floor loot: found loot, lost on a death before it is banked.
+  - **The guard.** `guard_by_tier` (4 / 5 / 6) living of the tier's mix, within `guard_spread_px` 50 of the cache.
+    - They come out of the fort's own count, so the run has the same bodies, mass and motes; only their place changes.
+    - The cache draws a wider dashed `vei` ring and the word CACHE (shape as well as colour; no motion of its own). The loot pointer already points at it.
+  - **The bot's rule** (`_detour_decide`, `_detour_tick`; `RaidLogic.detour_take`; `autopilot.detour_*`; frozen with the reaction rule).
+    - **When:** once, at her first think in the antechamber before the wake (the approach is behind her).
+    - **Take it when:** her hp is at least `detour_hp_frac` 0.6 of its most, and her army is at least `detour_army_mult` 2 × the guard still standing.
+    - **Abandon:** if her hp falls below `detour_abandon_hp_frac` 0.3.
+    - **Basis:** a decent player pushes for a side cache when healthy and with an army that wins that fight cleanly, and backs off when one or two more hits would kill her.
+    - **Once taken:** the cache room is her goal, and its guard does not hold her at its door (a push: they turn hostile as she and the army come in). She is done when the cache is hers.
+  - AUTOPILOT_RESULT `detour` {room, guard, offered, taken, done, abandoned, at {t, hp_frac, army, guard}, done_s, cache, cache_left} on lines with a cache. `AUTOPILOT_DETOUR <taken|declined> ... frame=` prints the decision.
+  - The human factor counts a taken detour as one more room.
+- **A bot routing fix that the detour exposed** (`RaidAutopilot._real_gaps`).
+  - The problem: `_toward_room` walked to the nearest gap whose grown rect touched both rooms, then toward the far room's centre. A gap at a T-junction can touch both rooms and still open elsewhere, so at chime-fort the bot went back and forth between such a gap and the far room's centre until it gave up (3 of 3 seeds retreated).
+  - The fix: it now uses only the gaps within half a gap's width of one of the layout's portals for the pair. It keeps every gap when the layout has none.
+  - This is a pathing bug, not a reaction knob. Tier 1 and the first dungeon are byte-identical with it.
+- **Shot:** `de-detour.png` (chime-fort t2, seed 1, frame 640). It shows the guarded CACHE in the side room with its four living, the loot pointer running to it, and Relish's army on its way across after she took it at frame 317 (hp 1.0, army 9 against a guard of 4).

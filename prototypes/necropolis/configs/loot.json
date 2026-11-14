@@ -11,6 +11,11 @@
     },
     "fx": {"ring_px": 22.0, "ring_s": 0.35, "text_s": 0.8, "rise_px": 26.0}
   },
+  "cache": {
+    "_doc": "D-d/E Step 3: the guarded detour's cache (raid.json detour): relics_by_tier relic pickups lying together in the side room, fetched by walking over them like any floor loot (found loot, lost on a death before it is banked). A fixed count, no roll, so the chest's and the dings' rolls are untouched. Labelled CACHE on the floor.",
+    "relics_by_tier": {"1": 0, "2": 1, "3": 1, "4": 2},
+    "spread_px": 18.0
+  },
   "pickup": {"radius_px": 40.0, "size_px": 9.0, "z": 16},
   "magnitude_by_rarity": {
     "common": [1, 2],

@@ -108,6 +108,10 @@ var _rooms_entered := 0         # room changes (_track_room): decision points fo
 var _frames0 := [0, 0]          # the process and physics frame counters at start()
 var _living_start := 0          # living on the field when the run starts
 var _pack := {}                 # the warden's pack counts (a warden with a pack only), read like _shield / _pyre
+var _det := {}                  # the guarded detour's site (RaidLogic.detour_site); {} on a fort without one
+var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
+var _det_at := {}               # what she decided on: scene time, hp fraction, army, guard standing
+var _det_done_s := -1.0         # scene time the cache was hers (-1: not)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -146,6 +150,7 @@ func start() -> void:
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
 	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
 	_living_start = _raid.enemies.size()
+	_det = RaidLogic.detour_site(_raid.layout, _raid.fort_tier(), _raid.rcfg())
 	if w != null and is_instance_valid(w) and w.spec.has("pack"):
 		_pack = w.pack_telemetry()
 	_pin_clock()
@@ -259,7 +264,9 @@ func _engaged(rpos: Vector2) -> bool:
 ## path, through the nearest gap of each pair in turn (the human factor's route baseline).
 func _route_px() -> float:
 	var at: Vector2 = _raid.layout["spawn"]
-	var goal := _goal_room()
+	var goal := int(_raid.layout.get("warden_room", -1))
+	if goal < 0:
+		goal = _goal_room()
 	var p := _path(RaidLogic.room_of(_raid.layout, at), goal)
 	var px := 0.0
 	for i in range(1, p.size()):
@@ -374,6 +381,12 @@ func on_finish(result: Dictionary) -> void:
 	out["living_start"] = _living_start
 	if not _pack.is_empty():
 		out["pack"] = _pack
+	if not _det.is_empty():
+		var st := _det_state
+		out["detour"] = {"room": int(_det["room"]), "guard": _raid.detour_guard.size(), "offered": st != "",
+			"taken": st in ["taken", "done", "abandoned"], "done": st == "done", "abandoned": st == "abandoned",
+			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01),
+			"cache_left": _det_cache_left(), "cache": _raid.detour_cache.size()}
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
 	out["killed_by"] = (src if src != "" else "wound") if died else ""
@@ -486,6 +499,25 @@ func _gaps_between(a: int, b: int) -> Array:
 	return out
 
 
+## The gaps joining rooms a and b that really open between them: those within half a gap's width of one
+## of the layout's portals for the pair. A gap at a T-junction can touch both rooms' rects and still open
+## elsewhere; walking to it, then toward the far room's centre, sent the bot back to it (a dither that
+## stalled chime-fort until the bot gave up). Every gap when the layout has no portal for the pair.
+func _real_gaps(a: int, b: int) -> Array:
+	var all := _gaps_between(a, b)
+	var pts: Array = (_raid.layout.get("portals", {}) as Dictionary).get("%d:%d" % [a, b], [])
+	if pts.is_empty():
+		return all
+	var half := float(_raid.rcfg().get("layout", {}).get("inner_gap_width", 165.0)) * 0.5
+	var keep: Array = []
+	for g in all:
+		for p in pts:
+			if (g as Rect2).get_center().distance_to(p) <= half:
+				keep.append(g)
+				break
+	return keep if not keep.is_empty() else all
+
+
 ## The point to walk to now, to get to room `goal_room` and then `final` inside it: through the
 ## nearest gap into the next room on the path, then that room's centre.
 func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
@@ -499,7 +531,7 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 	var nxt: int = p[1]
 	var best := Vector2.ZERO
 	var bd := INF
-	for g in _gaps_between(_cur_room, nxt):
+	for g in _real_gaps(_cur_room, nxt):
 		var c := (g as Rect2).get_center()
 		var d := pos.distance_to(c)
 		if d < bd:
@@ -525,6 +557,8 @@ func _next_room() -> int:
 
 ## The warden room, or on a held fort the deepest room from the spawn.
 func _goal_room() -> int:
+	if _det_state == "taken":
+		return int(_det["room"])   # the guarded detour, until the cache is hers or she abandons it
 	var wr := int(_raid.layout.get("warden_room", -1))
 	if wr >= 0:
 		return wr
@@ -586,6 +620,7 @@ func _living() -> Array:
 
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
+	_detour_tick()
 	_avoid_arc = {}
 	_avoid_burn = {}
 	var hold_px := _c("hold_px", 200.0)
@@ -667,8 +702,9 @@ func _decide(pos: Vector2) -> Vector2:
 	var blocked := false
 	for e in living:
 		var er := RaidLogic.room_of(_raid.layout, e.global_position)
-		if er >= 0 and (er == _cur_room or er == nxt):
-			blocked = true
+		if er >= 0 and (er == _cur_room or er == nxt) \
+				and not (_det_state == "taken" and er == int(_det["room"]) and er != _cur_room):
+			blocked = true   # (a taken detour is a push: its guard does not hold her at its door)
 			break
 	if blocked:
 		_hold_t += _c("think_frames", 3.0) / 60.0
@@ -719,6 +755,53 @@ func _watch_threat(ne, nd: float) -> void:
 
 func _kite_due() -> bool:
 	return _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+
+
+## The guarded detour's rule (RaidLogic.detour_take; raid.json autopilot detour_*), applied once, at the
+## first think she stands in the antechamber before the wake (the approach is behind her): take the
+## cache when her hp is at least detour_hp_frac of its most and her army at least detour_army_mult times
+## the guard still standing.
+func _detour_decide() -> void:
+	var rel: RaidRelish = _raid.relish
+	var hpf: float = rel.hp / maxf(1.0, rel.max_hp)
+	var army := _allies_alive()
+	var guard := _det_guard()
+	_det_at = {"t": snappedf(_sim_t, 0.01), "hp_frac": snappedf(hpf, 0.01), "army": army, "guard": guard}
+	_det_state = "taken" if RaidLogic.detour_take(hpf, army, guard, _cfg) else "declined"
+	print("AUTOPILOT_DETOUR %s hp=%.2f army=%d guard=%d frame=%d" % [_det_state, hpf, army, guard, Engine.get_process_frames()])
+
+
+## Each think: the decision, at her first think in the antechamber before the wake; while a detour is
+## taken, done once the cache is hers, abandoned below detour_abandon_hp_frac.
+func _detour_tick() -> void:
+	if _det_state == "" and not _det.is_empty() and _cur_room >= 0 and _cur_room == int(_raid.layout.get("ante_room", -1)):
+		var w = _raid.warden_run.warden
+		if w == null or not is_instance_valid(w) or not w.awake:
+			_detour_decide()
+	if _det_state != "taken":
+		return
+	var rel: RaidRelish = _raid.relish
+	if _det_cache_left() == 0:
+		_det_state = "done"
+		_det_done_s = _sim_t
+	elif rel.hp < _c("detour_abandon_hp_frac", 0.3) * rel.max_hp:
+		_det_state = "abandoned"
+
+
+func _det_guard() -> int:
+	var n := 0
+	for e in _raid.detour_guard:
+		if is_instance_valid(e) and e.alive:
+			n += 1
+	return n
+
+
+func _det_cache_left() -> int:
+	var n := 0
+	for pk in _raid.detour_cache:
+		if is_instance_valid(pk) and pk.is_in_group("raid_pickups"):
+			n += 1
+	return n
 
 
 ## Walk to the exit nearest by rooms, and retreat once standing in it.
