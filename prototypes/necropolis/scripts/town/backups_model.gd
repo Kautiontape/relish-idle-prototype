@@ -173,9 +173,11 @@ static func death_sig(views: Dictionary) -> int:
 ## The vats section: the vats, the chapel's upkeep and what the staffing projection reads: per building its id,
 ## state, slots, staff_cap and upkeep; the idle hands; the jobs (id, slots, staffed); the ladder. Nothing else
 ## the town view carries (progress, output, rot, muster, lifetime, the other worker counts) is in it, so it
-## doesn't move on a refresh that only ran the sim. The idle hands count by whole hands: the text says whole
-## hands, and the count creeps by fractions every tick while the town grows.
-static func vats_sig(views: Dictionary) -> int:
+## doesn't move on a refresh that only ran the sim. The idle hands are not hashed: they creep by fractions every
+## tick, and they reach the vats only through the staffing-cost lines. `costs` is those lines as the panel shows
+## them (staffing_costs), so the sig moves exactly when a visible line does (idle 0.5 -> 0.6 flips "takes 1 hand"
+## to "no hand" with rooms full; 10.0 -> 10.4 flips nothing).
+static func vats_sig(views: Dictionary, costs := []) -> int:
 	var town: Dictionary = views.get("town", {})
 	var bs: Array = []
 	for b in town.get("buildings", []):
@@ -184,7 +186,21 @@ static func vats_sig(views: Dictionary) -> int:
 	for j in town.get("jobs", []):
 		jobs.append([j.get("id", ""), j.get("slots", 0), j.get("staffed", 0.0)])
 	return [views.get("backups", {}).get("vats", []), views.get("backups", {}).get("clones_ready", 0), bs, jobs,
-		roundi(float(town.get("workers", {}).get("idle", 0.0))), town.get("ladder", []), town.get("ladder_effective", [])].hash()
+		costs, town.get("ladder", []), town.get("ladder_effective", [])].hash()
+
+
+## The staffing-cost line of each vat, in vat order, from the shell's cached projection `project` (order, extra
+## -> jobs): "staffing takes 1 hand from Pit" or "unstaffing frees 1 hand for Pit". [] while there is no projection.
+static func staffing_costs(views: Dictionary, project: Callable, labels: Dictionary, tx: Dictionary) -> Array:
+	var out: Array = []
+	if not project.is_valid():
+		return out
+	var order: Array = TownBehaviour.effective(views.get("town", {}))
+	for v in views.get("backups", {}).get("vats", []):
+		var staffed := bool(v.get("staffed", false))
+		var diff := TownBehaviour.staffing_diff(project.call(order), project.call(order, {int(v.get("slot", 0)): not staffed}))
+		out.append(staffing_cost_text(diff, labels, tx, staffed))
+	return out
 
 
 ## The ossuary section: the charges, the simulacra and stock, the craft rows.

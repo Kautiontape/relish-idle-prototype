@@ -4848,7 +4848,6 @@ func _fix3e_sigs(mid: Dictionary) -> void:
 	var vv := {
 		"jobs.staffed": func(v: Dictionary): v["town"]["jobs"][0]["staffed"] = 2.0,
 		"jobs.slots": func(v: Dictionary): v["town"]["jobs"][0]["slots"] = 3,
-		"workers.idle": func(v: Dictionary): v["town"]["workers"]["idle"] = 4.0,
 		"the ladder": func(v: Dictionary): v["town"]["ladder"] = ["stall", "pit"],
 		"the effective ladder": func(v: Dictionary): v["town"]["ladder_effective"] = ["stall", "pit"],
 		"clones_ready": func(v: Dictionary): v["backups"]["clones_ready"] = int(v["backups"].get("clones_ready", 0)) + 1,
@@ -4862,6 +4861,22 @@ func _fix3e_sigs(mid: Dictionary) -> void:
 		var v := base_v.duplicate(true)
 		(vv[k] as Callable).call(v)
 		t.ok(BackupsModel.vats_sig(v) != v0, "vats sig: %s changes it" % k)
+	# the idle hands reach the vats only as the staffing-cost line: with every room full, idle 0.5 says "takes 1 hand",
+	# 0.6 says "no hand" (the same whole idle count), and the sig follows the line, not the count
+	var full_town := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}, {"id": "stall", "slots": 2, "staffed": 2.0}],
+		"buildings": [], "workers": {"idle": 0.5}, "ladder": ["pit", "stall"]}
+	var full_views := {"town": full_town, "backups": {"vats": [{"slot": 0, "staffed": false}]}}
+	var bcfg: Dictionary = cfg["buildings"]
+	var proj := func(order: Array, extra := {}) -> Array: return TownStandins.project(full_views, order, bcfg, extra)["jobs"]
+	var c_half := BackupsModel.staffing_costs(full_views, proj, vcfg["job_labels"], vcfg["backups"])
+	var sig_half := BackupsModel.vats_sig(full_views, c_half)
+	full_town["workers"]["idle"] = 0.6
+	var c_six := BackupsModel.staffing_costs(full_views, proj, vcfg["job_labels"], vcfg["backups"])
+	t.ok(c_half != c_six, "vats sig: idle 0.5 and 0.6 with rooms full read differently (%s / %s)" % [str(c_half), str(c_six)])
+	t.ok(BackupsModel.vats_sig(full_views, c_six) != sig_half, "vats sig: idle 0.5 -> 0.6 with rooms full and an unstaffed vat changes it")
+	full_town["workers"]["idle"] = 0.9
+	t.ok(BackupsModel.vats_sig(full_views, BackupsModel.staffing_costs(full_views, proj, vcfg["job_labels"], vcfg["backups"])) == BackupsModel.vats_sig(full_views, c_six),
+		"vats sig: idle creeping 0.6 -> 0.9 with the same line leaves it")
 	# what the vats fill does not read leaves it
 	var calm := base_v.duplicate(true)
 	var cb: Dictionary = calm["town"]["buildings"][0]

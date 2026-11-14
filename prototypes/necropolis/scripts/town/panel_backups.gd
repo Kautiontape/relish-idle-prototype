@@ -179,7 +179,7 @@ func _make_vat(slot: int) -> Dictionary:
 	return {"node": card, "fig": fig, "title": title, "state": state, "cost": cost, "toggle": toggle, "staffed": false}
 
 
-func _fill_vats(bk: Dictionary) -> void:
+func _fill_vats(bk: Dictionary, costs: Array) -> void:
 	var vats: Array = bk.get("vats", [])
 	_clones.text = String(_tx.get("clones_ready", "")).format({"n": int(bk.get("clones_ready", 0))})
 	_no_vats.visible = vats.is_empty()
@@ -194,8 +194,8 @@ func _fill_vats(bk: Dictionary) -> void:
 		_vats.clear()
 		for v in vats:
 			_vats[int(v.get("slot", 0))] = _make_vat(int(v.get("slot", 0)))
-	var order: Array = TownBehaviour.effective(_views.get("town", {}))
-	for v in vats:
+	for i in vats.size():
+		var v: Dictionary = vats[i]
 		var slot := int(v.get("slot", 0))
 		var w: Dictionary = _vats[slot]
 		var staffed := bool(v.get("staffed", false))
@@ -205,18 +205,9 @@ func _fill_vats(bk: Dictionary) -> void:
 		(w["title"] as Label).text = String(_tx.get("vat_title", "")).format({"n": slot + 1}) \
 			+ ("" if ready else "  " + String(_tx.get("vat_grow", "")).format({"pct": roundi(grow * 100.0)}))
 		(w["state"] as Label).text = BackupsModel.vat_state_text(v, _tx)
-		(w["cost"] as Label).text = _staff_cost(order, slot, staffed)
+		(w["cost"] as Label).text = String(costs[i]) if i < costs.size() else ""
 		(w["toggle"] as Button).text = _t("staff_off" if staffed else "staff_on")
 		(w["fig"] as Control).set_state(1.0 if ready else grow, ready)
-
-
-## What toggling the vat does to the jobs, from the shell's one projection helper (now vs the slot flipped):
-## "staffing takes 1 hand from Tend" for an unstaffed vat, "unstaffing frees 1 hand for Tend" for a staffed one.
-func _staff_cost(order: Array, slot: int, staffed: bool) -> String:
-	if not project.is_valid():
-		return ""
-	var diff := TownBehaviour.staffing_diff(project.call(order), project.call(order, {slot: not staffed}))
-	return BackupsModel.staffing_cost_text(diff, _vcfg.get("job_labels", {}), _tx, staffed)
 
 
 func _on_toggle(slot: int) -> void:
@@ -309,11 +300,12 @@ func bind(views: Dictionary) -> void:
 	_views = views
 	var bk: Dictionary = views.get("backups", {})
 	# a section is filled only when the fields it reads moved (the refresh is twice a second; the sections change rarely)
-	var sigs := {"death": BackupsModel.death_sig(views), "vats": BackupsModel.vats_sig(views), "ossuary": BackupsModel.ossuary_sig(views)}
+	var costs := BackupsModel.staffing_costs(views, project, _vcfg.get("job_labels", {}), _tx)
+	var sigs := {"death": BackupsModel.death_sig(views), "vats": BackupsModel.vats_sig(views, costs), "ossuary": BackupsModel.ossuary_sig(views)}
 	if sigs["death"] != _sigs.get("death"):
 		_fill_death(bk)
 	if sigs["vats"] != _sigs.get("vats"):
-		_fill_vats(bk)
+		_fill_vats(bk, costs)
 	if sigs["ossuary"] != _sigs.get("ossuary"):
 		_fill_ossuary(bk)
 	_sigs = sigs
