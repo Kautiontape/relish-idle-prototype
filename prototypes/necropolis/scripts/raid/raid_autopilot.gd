@@ -182,9 +182,19 @@ func on_finish(result: Dictionary) -> void:
 		"loot": {"relics": int(loot.get("relics", 0)), "blueprints": (loot.get("blueprints", []) as Array).size(),
 			"husks": (loot.get("husks", []) as Array).size(), "remnants": (loot.get("remnants", []) as Array).size(),
 			"essence": int(loot.get("essence", 0))},
-		"party_lost": result.get("party_lost", [])}
+		"party_lost": result.get("party_lost", []),
+		"relish_hp_end": snappedf(_raid.relish.hp if _raid.relish != null and is_instance_valid(_raid.relish) else 0.0, 0.1),
+		"allies_end": _allies_alive()}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	_raid.get_tree().quit()
+
+
+func _allies_alive() -> int:
+	var n := 0
+	for a in _raid.allies:
+		if is_instance_valid(a) and a.alive:
+			n += 1
+	return n
 
 
 ## Scene end: the warden's hp fraction (0 once killed, 1 while it never woke, -1 with no warden: a

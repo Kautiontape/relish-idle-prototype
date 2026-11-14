@@ -7,7 +7,8 @@ extends RefCounted
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
-## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits).
+## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
+## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -73,6 +74,27 @@ static func fixture_seed() -> Dictionary:
 		fort_id, int(r["run_id"]), int(r["seed_rev"]), int(sd["fort"]["tier"]),
 		int(sd["starter_units"]), int(sd["garrison_units"]), sd["party"].size()])
 	return {"mode": "dungeon", "fort_id": fort_id, "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
+
+
+## `--raid-profile=<party_tier> --raid-fort=<fort_id>` (DEV, BALANCE 3's measuring runs): the standard
+## party of that tier against that world.json fort (RaidLogic.profile_seed). {} when absent or refused.
+static func profile_seed(cfg: Dictionary) -> Dictionary:
+	var tier_s := cli_value("--raid-profile=")
+	var fid := cli_value("--raid-fort=")
+	if tier_s == "" and fid == "":
+		return {}
+	if tier_s == "" or fid == "":
+		print("RAID_DEV refused: --raid-profile=<party_tier> and --raid-fort=<fort_id> go together")
+		return {}
+	for f in ConfigDb.data.get("world", {}).get("forts", []):
+		if str(f.get("id", "")) == fid:
+			var sd := RaidLogic.profile_seed(f, int(tier_s), cfg)
+			print("RAID_DEV profile seed fort=%s tier=%d party_tier=%d living=%.1f dead=%.1f garrison_units=%d party=%d warden=%s" % [
+				fid, int(sd["fort"]["tier"]), int(tier_s), float(sd["living"]), float(sd["dead"]),
+				int(sd["garrison_units"]), (sd["party"] as Array).size(), str(sd["warden"]["archetype"])])
+			return sd
+	print("RAID_DEV refused: --raid-fort=%s is not a world.json fort" % fid)
+	return {}
 
 
 ## Standalone demo seed overrides: `--raid-archetype=<id>` swaps the warden archetype and

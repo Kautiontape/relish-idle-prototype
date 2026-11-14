@@ -387,7 +387,25 @@
     "slam_stand_frac": 0.5,
     "slam_cluster_frac": 0.4,
     "pickup_px": 900.0,
-    "pickup_foe_clear_px": 90.0
+    "pickup_foe_clear_px": 90.0,
+    "profile_living_frac": 0.85,
+    "profile_dead_frac": 0.1,
+    "party_profiles": {
+      "_doc": "BALANCE 3's standard 'party of tier T' (DEV: --raid-profile=<T> --raid-fort=<fort_id>, RaidLogic.profile_seed): what the risk targets and the dungeon stand-ins assume the player brings to a fort. garrison_units are the player's undead already at the fort's walls (chaff at garrison.stat_mult); starter_units are the first dungeon's only (0 here); party is one big undead per entry, stats as the slab rolls them (the pre_vei fixture's four bigs run power 3.4-8.8, beef 1.7-5.5, speed 3.7-7.6). Each tier adds a big and grows the stats; tier 2's big just meets both weak points (beef 6 braces the Bellringer, speed 4 intercepts the Huntsman). The fort holds living = cap * profile_living_frac (the start's realm start_living_frac) and dead = cap * profile_dead_frac; no phylactery charge. Fixed before calibration: tune the dungeon to the party, not the party to the targets.",
+      "1": {"garrison_units": 6, "starter_units": 0, "party": []},
+      "2": {"garrison_units": 6, "starter_units": 0, "party": [
+        {"stats": {"power": 5.0, "beef": 6.0, "wits": 3.0, "presence": 3.0, "speed": 4.0}}
+      ]},
+      "3": {"garrison_units": 8, "starter_units": 0, "party": [
+        {"stats": {"power": 6.0, "beef": 7.0, "wits": 4.0, "presence": 4.0, "speed": 4.0}},
+        {"stats": {"power": 6.5, "beef": 4.0, "wits": 4.0, "presence": 4.0, "speed": 6.0}}
+      ]},
+      "4": {"garrison_units": 12, "starter_units": 0, "party": [
+        {"stats": {"power": 7.0, "beef": 8.0, "wits": 5.0, "presence": 5.0, "speed": 4.5}},
+        {"stats": {"power": 7.5, "beef": 5.0, "wits": 5.0, "presence": 5.0, "speed": 7.0}},
+        {"stats": {"power": 8.0, "beef": 6.5, "wits": 5.0, "presence": 5.0, "speed": 5.5}}
+      ]}
+    }
   },
   "wardens": {
     "chest_open_px": 44.0,

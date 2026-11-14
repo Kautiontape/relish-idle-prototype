@@ -342,9 +342,54 @@ func run() -> int:
 	_checkpoint_tests(t, cfg)
 	_writeback_tests(t, cfg)
 	_held_clear_tests(t, cfg)
+	_profile_tests(t, cfg)
 	_wall_tests(t, cfg)
 	_routing_tests(t, cfg)
 	return t.failures
+
+
+## RaidLogic.profile_seed: BALANCE 3's standard party of tier T at a world.json fort.
+func _profile_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_profile_seed")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var ap: Dictionary = cfg["autopilot"]
+	var div := float(cfg["mass"]["garrison_mass_div"])
+	var bad := 0
+	var first_bad := ""
+	for f in world["forts"]:
+		for pt in [1, 2, 3, 4]:
+			var sd := RaidLogic.profile_seed(f, pt, cfg)
+			var errs := Results.validate("raid_seed", sd)
+			if not errs.is_empty():
+				bad += 1
+				first_bad = "%s t%d %s" % [f["id"], pt, str(errs)]
+	t.ok(bad == 0, "every world.json fort x party tier 1-4 validates as raid_seed (%s)" % first_bad)
+	var fort: Dictionary = {}
+	for f in world["forts"]:
+		if f["id"] == "pale-bastion":
+			fort = f
+	var sd3 := RaidLogic.profile_seed(fort, 3, cfg)
+	var prof: Dictionary = ap["party_profiles"]["3"]
+	t.ok(sd3["fort"]["id"] == "pale-bastion" and sd3["fort"]["name"] == "Pale Bastion" and typeof(sd3["fort"]["tier"]) == TYPE_INT
+		and int(sd3["fort"]["tier"]) == 3 and is_equal_approx(float(sd3["fort"]["cap"]), 320.0), "fort id, name, tier (an int) and cap come from world.json")
+	t.near(float(sd3["living"]), 320.0 * float(ap["profile_living_frac"]), 1e-6, "living = cap x profile_living_frac")
+	t.near(float(sd3["dead"]), 320.0 * float(ap["profile_dead_frac"]), 1e-6, "dead = cap x profile_dead_frac")
+	t.ok(int(sd3["garrison_units"]) == int(prof["garrison_units"]) and is_equal_approx(float(sd3["garrison_in_mass"]), int(prof["garrison_units"]) * div)
+		and is_equal_approx(float(sd3["undead"]), float(sd3["garrison_in_mass"])), "garrison_in_mass = units x div, and undead matches")
+	t.ok((sd3["party"] as Array).size() == (prof["party"] as Array).size() and int(sd3["starter_units"]) == int(prof["starter_units"]), "party and starters from party_profiles[3]")
+	t.near(float(sd3["party"][0]["stats"]["beef"]), float(prof["party"][0]["stats"]["beef"]), 1e-6, "party stats are the profile's")
+	t.ok(not sd3["fort"]["first_clear"] and not sd3["fort"]["first_dungeon"] and int(sd3["phylactery_charges"]) == 0
+		and is_equal_approx(float(sd3["fort"]["yield_mult"]), 1.0), "first_* false, yield_mult 1, no phylactery charge")
+	t.ok(sd3["warden"]["archetype"] == "bellringer" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.bellringer", "warden from wardens.by_fort")
+	var hr := {}
+	for f in world["forts"]:
+		if f["id"] == "hollow-redoubt":
+			hr = f
+	t.ok(RaidLogic.profile_seed(hr, 3, cfg)["warden"]["archetype"] == "huntsman", "hollow-redoubt fields a huntsman")
+	t.ok((RaidLogic.profile_seed(fort, 9, cfg)["party"] as Array).size() == (ap["party_profiles"]["4"]["party"] as Array).size(), "a party tier above 4 clamps to 4")
+	var p1 := RaidLogic.profile_seed(fort, 1, cfg)
+	var p4 := RaidLogic.profile_seed(fort, 4, cfg)
+	t.ok((p1["party"] as Array).size() < (p4["party"] as Array).size() and int(p1["garrison_units"]) <= int(p4["garrison_units"]), "a higher tier brings more")
 
 
 func _checkpoint_tests(t: TestUtil, cfg: Dictionary) -> void:

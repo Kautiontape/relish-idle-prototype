@@ -100,6 +100,47 @@ static func demo_seed(cfg: Dictionary) -> Dictionary:
 	}
 
 
+## BALANCE 3's standard "party of tier T" against a world.json fort (DEV: the autopilot's P2/P3
+## profiles; GameState seeds real runs). `fort` is the world.json entry {id, name, tier, cap}. The
+## fort holds living = cap * autopilot.profile_living_frac and dead = cap * profile_dead_frac, its
+## warden is wardens.by_fort's, the first_* flags are false, and there is no phylactery charge.
+## The party comes from autopilot.party_profiles[party_tier] (clamped to 1..4):
+## {garrison_units, starter_units, party: [{stats, name?, kind?, role?}]}. Validates as raid_seed.
+static func profile_seed(fort: Dictionary, party_tier: int, cfg: Dictionary) -> Dictionary:
+	var ap: Dictionary = cfg.get("autopilot", {})
+	var profs: Dictionary = ap.get("party_profiles", {})
+	var prof: Dictionary = profs.get(str(clampi(party_tier, 1, 4)), {})
+	var div := float(cfg.get("mass", {}).get("garrison_mass_div", 10.0))
+	var units := clampi(int(prof.get("garrison_units", 0)), 0, int(cfg.get("mass", {}).get("garrison_max", 12)))
+	var tier := clampi(int(fort.get("tier", 1)), 1, 4)
+	var cap := float(fort.get("cap", 100.0))
+	var fid := str(fort.get("id", ""))
+	var arche := str(cfg.get("wardens", {}).get("by_fort", {}).get(fid, WardenLogic.DEFAULT_ARCHETYPE))
+	var party: Array = []
+	var entries: Array = prof.get("party", [])
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		var st: Dictionary = e.get("stats", {})
+		party.append({"uid": "p%d" % (i + 1), "name": str(e.get("name", "Profile big %d" % (i + 1))),
+			"kind": str(e.get("kind", "hulk")), "role": str(e.get("role", "brute")),
+			"stats": {"power": float(st.get("power", 0.0)), "beef": float(st.get("beef", 0.0)),
+				"wits": float(st.get("wits", 0.0)), "presence": float(st.get("presence", 0.0)),
+				"speed": float(st.get("speed", 0.0))}})
+	return {
+		"v": 2, "kind": "raid", "run_id": 0, "seed_rev": 0, "rng_seed": "1",
+		"fort": {"id": fid, "name": str(fort.get("name", fid)), "tier": tier, "cap": cap,
+			"first_clear": false, "first_dungeon": false, "clears_since_retaken": 0, "yield_mult": 1.0},
+		"living": cap * float(ap.get("profile_living_frac", 0.85)), "dead": cap * float(ap.get("profile_dead_frac", 0.0)),
+		"undead": float(units) * div,
+		"garrison_units": units, "garrison_in_mass": float(units) * div, "garrison_mass_div": div,
+		"starter_units": maxi(0, int(prof.get("starter_units", 0))), "party": party,
+		"digest_q": 1.0, "phylactery_charges": 0, "phylactery_max_per_dungeon": 1, "clones_ready": 0,
+		"warden": {"archetype": arche, "tier": tier}, "warden_spec": {},
+		"loot_table_id": "t%d.%s" % [tier, arche], "loot_hint": "", "chest_husk": false, "watchtower": false,
+		"relish_hp": float(cfg.get("relish", {}).get("hp", 30.0)),
+	}
+
+
 ## Pure twin of CircleScorer.multiplier (circle.json keys).
 static func stat_mult(score: int, circle_cfg: Dictionary) -> float:
 	return float(circle_cfg.get("multiplier_base", 0.5)) \
