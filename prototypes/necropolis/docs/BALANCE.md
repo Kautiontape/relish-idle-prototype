@@ -131,7 +131,7 @@ E2a added is here with its value.
 | `big_undead.cap`, `big_undead.per_crypt_level` ⟵ crypt `effects.big_undead_cap` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
 | crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
 | `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
-| `town.tiers.<tier>.lots` | below the table | explicit lot ids per tier |
+| `town.tiers.<tier>.lot_ids`, `.lots` | below the table | explicit lot ids per tier; `.lots` is their count (kept for readers that want a number) |
 | `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet |
 | `vats.grow_per_s` | 1/300 per staffed vat | |
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
@@ -141,7 +141,7 @@ E2a added is here with its value.
 | `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
 | `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
 
-**Lots per tier** (`economy.json` `town.tiers.<tier>.lots`; sizes are `town.json`'s: lot-01..04 and
+**Lots per tier** (`economy.json` `town.tiers.<tier>.lot_ids`; sizes are `town.json`'s: lot-01..04 and
 lot-13..16 are size 2, lot-05..12 and lot-17..22 size 1, lot-23 and lot-24 size 3):
 
 | tier | lots | count |

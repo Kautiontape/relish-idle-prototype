@@ -960,9 +960,9 @@ func _lot(lot_id: String) -> Dictionary:
 	return {}
 
 
-## The lot ids a tier opens (economy.json town.tiers.<tier>.lots; BALANCE §5).
+## The lot ids a tier opens (economy.json town.tiers.<tier>.lot_ids; BALANCE §5). `.lots` is the count.
 func _tier_lots(tier: String) -> Array:
-	var d: Variant = _sec("economy", "town").get("tiers", {}).get(tier, {}).get("lots", [])
+	var d: Variant = _sec("economy", "town").get("tiers", {}).get(tier, {}).get("lot_ids", [])
 	return d if d is Array else []
 
 

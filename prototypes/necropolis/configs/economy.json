@@ -38,10 +38,10 @@
     "migrant_rate": 0.012,
     "leave_rate": 0.004,
     "tiers": {
-      "hamlet": { "buildings": 0, "requires": [], "lots": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08"] },
-      "village": { "buildings": 6, "requires": ["market", "house"], "lots": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-23"] },
-      "town": { "buildings": 12, "requires": ["walls", "chapel_of_vats"], "lots": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-17", "lot-18", "lot-19", "lot-20", "lot-23", "lot-24"] },
-      "city": { "buildings": 20, "requires": ["reliquary"], "lots": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-17", "lot-18", "lot-19", "lot-20", "lot-21", "lot-22", "lot-23", "lot-24"] }
+      "hamlet": { "buildings": 0, "requires": [], "lot_ids": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08"], "lots": 8 },
+      "village": { "buildings": 6, "requires": ["market", "house"], "lot_ids": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-23"], "lots": 17 },
+      "town": { "buildings": 12, "requires": ["walls", "chapel_of_vats"], "lot_ids": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-17", "lot-18", "lot-19", "lot-20", "lot-23", "lot-24"], "lots": 22 },
+      "city": { "buildings": 20, "requires": ["reliquary"], "lot_ids": ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08", "lot-09", "lot-10", "lot-11", "lot-12", "lot-13", "lot-14", "lot-15", "lot-16", "lot-17", "lot-18", "lot-19", "lot-20", "lot-21", "lot-22", "lot-23", "lot-24"], "lots": 24 }
     }
   },
   "craft": {

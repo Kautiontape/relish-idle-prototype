@@ -95,13 +95,13 @@ func _gates_config() -> void:
 	t.ok(b["reliquary"]["requires"]["tier"] == "town" and b["reliquary"]["requires"]["blueprint"] == "reliquary",
 		"the Reliquary is buildable at Town, with its blueprint")
 	var tiers: Dictionary = cfg["economy"]["town"]["tiers"]
-	t.ok(tiers["hamlet"]["lots"] == ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08"], "Hamlet opens lot-01..lot-08")
+	t.ok(tiers["hamlet"]["lot_ids"] == ["lot-01", "lot-02", "lot-03", "lot-04", "lot-05", "lot-06", "lot-07", "lot-08"], "Hamlet opens lot-01..lot-08")
 	var size := {}
 	for l in cfg["town"]["lots"]:
 		size[l["id"]] = int(l["size"])
 	var prev: Array = []
 	for tier in GameState.TIERS:
-		var ids: Array = tiers[tier]["lots"]
+		var ids: Array = tiers[tier]["lot_ids"]
 		t.ok(prev.all(func(id): return ids.has(id)), "%s keeps every lot the tier before it opened" % tier)
 		t.ok(ids.all(func(id): return size.has(id)), "%s lists real lots only" % tier)
 		prev = ids
@@ -109,11 +109,11 @@ func _gates_config() -> void:
 	for id in b:
 		var tier: String = b[id]["requires"]["tier"]
 		var need := int(b[id]["lot_size"])
-		var fit: Array = (tiers[tier]["lots"] as Array).filter(func(l): return size[l] >= need)
+		var fit: Array = (tiers[tier]["lot_ids"] as Array).filter(func(l): return size[l] >= need)
 		t.ok(not fit.is_empty(), "%s (size %d) has a lot at %s" % [id, need, tier])
-	t.ok((tiers["village"]["lots"] as Array).has("lot-23") and not (tiers["village"]["lots"] as Array).has("lot-24"),
+	t.ok((tiers["village"]["lot_ids"] as Array).has("lot-23") and not (tiers["village"]["lot_ids"] as Array).has("lot-24"),
 		"lot-23 (Walls) opens at Village, lot-24 only later")
-	t.ok((tiers["town"]["lots"] as Array).has("lot-24"), "lot-24 (the Reliquary) opens at Town")
+	t.ok((tiers["town"]["lot_ids"] as Array).has("lot-24"), "lot-24 (the Reliquary) opens at Town")
 
 
 # ----------------------------------------------------------- cmd_build ----
@@ -378,7 +378,7 @@ func _tiers() -> void:
 	var tiers: Dictionary = _cfgs()["economy"]["town"]["tiers"]
 	var v := s.view_town()
 	t.ok(v["tier"] == "hamlet" and v["next_tier"] == {"tier": "village", "have": 4, "need": 6, "missing": ["house"]}, "Hamlet: 4 of 6, no house: %s" % str(v["next_tier"]))
-	t.ok(v["lots"].all(func(l): return l["unlocked"] == tiers["hamlet"]["lots"].has(l["id"])), "Hamlet's lots are unlocked, the rest locked")
+	t.ok(v["lots"].all(func(l): return l["unlocked"] == tiers["hamlet"]["lot_ids"].has(l["id"])), "Hamlet's lots are unlocked, the rest locked")
 	# six buildings but no house: no Village
 	s.town_sim.place_building("lot-05", "well", 1)
 	s.town_sim.place_building("lot-06", "bakery", 1)
@@ -399,7 +399,7 @@ func _tiers() -> void:
 	t.ok(_of(evs, "tier_up").is_empty() and s.town_tier == "village", "and never again")
 	v = s.view_town()
 	t.ok(v["tier"] == "village" and v["next_tier"] == {"tier": "town", "have": 7, "need": 12, "missing": ["walls", "chapel_of_vats"]}, "Village: next is Town: %s" % str(v["next_tier"]))
-	t.ok(v["lots"].all(func(l): return l["unlocked"] == tiers["village"]["lots"].has(l["id"])), "Village's lots are unlocked")
+	t.ok(v["lots"].all(func(l): return l["unlocked"] == tiers["village"]["lot_ids"].has(l["id"])), "Village's lots are unlocked")
 	t.ok(_lot(s, "lot-23")["unlocked"] and not _lot(s, "lot-24")["unlocked"] and not _lot(s, "lot-17")["unlocked"], "lot-23 yes; lot-24 and lot-17 not yet")
 	# a tier never falls
 	s.cmd_demolish("lot-07")

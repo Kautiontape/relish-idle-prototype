@@ -439,7 +439,7 @@ Reasons shared by the build family, in check order:
 - `no_gold`, `no_bone`, `no_relics`.
 
 Live from E2a (T2.4). The town's tier rises when its requirements hold (§5.9; `tier_up`), and the
-tier opens lots: the id lists are `economy.json` `town.tiers.<tier>.lots` (BALANCE §5), Hamlet being
+tier opens lots: the id lists are `economy.json` `town.tiers.<tier>.lot_ids` (BALANCE §5; `.lots` is the count), Hamlet being
 `lot-01`..`lot-08`. A building that defines the next tier is buildable one tier before it (Walls and
 the Chapel of Vats at Village, the Reliquary, with its blueprint, at Town; MECHANICS §4.4). A
 construction costs its `cost` (a build) or `level_costs[level - 2]` (an upgrade to `level`), paid
