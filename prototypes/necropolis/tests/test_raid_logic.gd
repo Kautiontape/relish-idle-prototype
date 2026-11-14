@@ -493,13 +493,19 @@ func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 				bad += " %s: guard at %s" % [fid, str(m["pos"])]
 		if str(RaidLogic.detour_guard(fid, lay, tier, cfg)) != str(guard):
 			bad += " %s: guard not deterministic" % fid
-	t.ok(bad == "", "every tier 2-4 fort has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap (plus the 40 px it is kept off the walls), with its guard in that room, the same each build (%s)" % bad)
-	t.ok(sites == 9, "all nine tier 2-4 forts have one (%d)" % sites)
-	t.ok(normal >= 7, "a normal room is preferred to a checkpoint (%d of 9; at lantern-keep and pale-bastion only a checkpoint opens onto the path)" % normal)
-	var first := RaidLogic.gen_layout("vespers", 2, false, cfg, {"first_dungeon": true})
-	t.ok(RaidLogic.detour_site(first, 2, cfg).is_empty(), "no detour in the first dungeon")
-	var held := RaidLogic.gen_layout("vespers", 2, false, cfg, {"held": true})
-	t.ok(RaidLogic.detour_site(held, 2, cfg).is_empty(), "none in a held fort")
+	t.ok(bad == "", "every fort from detour.min_tier to tier 4 has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap (plus the 40 px it is kept off the walls), with its guard in that room, the same each build (%s)" % bad)
+	var want := 0
+	for f2 in world["forts"]:
+		if int(f2["tier"]) >= int(dc["min_tier"]) and int(f2["tier"]) <= 4:
+			want += 1
+	t.ok(sites == want and sites >= 6, "all %d forts from tier %d to 4 have one (%d)" % [want, int(dc["min_tier"]), sites])
+	t.ok(normal >= sites - 2, "a normal room is preferred to a checkpoint (%d of %d; at lantern-keep and pale-bastion only a checkpoint opens onto the path)" % [normal, sites])
+	var dt := maxi(3, int(dc["min_tier"]))
+	var first := RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg, {"first_dungeon": true})
+	t.ok(RaidLogic.detour_site(first, dt, cfg).is_empty(), "no detour in the first dungeon")
+	var held := RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg, {"held": true})
+	t.ok(RaidLogic.detour_site(held, dt, cfg).is_empty(), "none in a held fort")
+	t.ok(not RaidLogic.detour_site(RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg), dt, cfg).is_empty(), "(the same fort at tier %d has one)" % dt)
 	var ap: Dictionary = cfg["autopilot"]
 	t.ok(RaidLogic.detour_take(0.8, 0, 8, 5, ap), "healthy, with an army 1.5x the guard she sees: she takes it")
 	t.ok(not RaidLogic.detour_take(0.5, 0, 10, 5, ap), "below detour_hp_frac: she leaves it")
