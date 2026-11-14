@@ -613,7 +613,8 @@ func try_phylactery() -> bool:
 	RaidFx.crack(fx_root, relish.global_position, Palette.c("text"), cr * 0.55, float(bc.get("crack_s", 1.2)) * 0.8)
 	RaidFx.ring(fx_root, relish.global_position, Palette.c("text"), cr * 1.3, 0.6, 5.0)
 	_revive_shove(bc)
-	trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
+	if bool(bc.get("ready_trance", true)):
+		trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
 	hud.flash(Palette.c("relish"))
 	var left := backups_left()
 	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,
