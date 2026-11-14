@@ -11,8 +11,8 @@ extends RefCounted
 ## capped at halo_max_px, whichever LaneStyle.lit_layers draws widest.
 
 
-## One quadratic bow per lane the routes draw, as {a, c, b, half_width, u}: start, control and
-## end in world px, the drawn half width in world px, and Pulse's u.
+## One quadratic bow per lane the routes draw, as {a, c, b, half_width, u, kind}: start, control
+## and end in world px, the drawn half width in world px, Pulse's u, and the row's kind.
 ##   rows   view_lanes().lanes (or map's demo lanes), the STATE-API 5.3 row shape
 ##   pos    node id -> world position
 ##   u_of   rate -> Pulse u (Pulse.rate_to_u at map_view's rate_log_max); < 0 = off
@@ -48,7 +48,8 @@ static func lanes(rows: Array, pos: Dictionary, u_of: Callable, cache := {}) -> 
 		else:
 			curve = MapLogic.lane_curve_for(r, pos[from], pos[to], u)
 			half = drawn_half_width(r, curve["half_width"])
-		var lane := {"a": curve["a"], "c": curve["c"], "b": curve["b"], "half_width": half, "u": u}
+		var lane := {"a": curve["a"], "c": curve["c"], "b": curve["b"], "half_width": half, "u": u,
+			"kind": str(r["kind"])}
 		cache[id] = {"u": u, "u_host": u_host, "lane": lane}
 		out.append(lane)
 	return out
