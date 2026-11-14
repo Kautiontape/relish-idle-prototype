@@ -345,7 +345,7 @@ static func reservation(views: Dictionary, bcfg: Dictionary, hops: Dictionary = 
 		var bid := String(m)
 		if not placed.has(bid) and not bid in gates:
 			gates.append(bid)
-	gates.sort_custom(func(a, b): return _gate_size(a, size_of, bcfg) > _gate_size(b, size_of, bcfg))  # stable order kept on ties
+	gates.sort_custom(func(a, b): return _gate_size(a, size_of, bcfg) > _gate_size(b, size_of, bcfg))  # deterministic for the same input
 	var sizes := {}
 	var free: Array = []
 	for l in town.get("lots", []):

@@ -352,6 +352,8 @@
       "now_relish_away": "Relish is away",
       "now_bodies": "bodies {have} / {cap} (fires under {limit})",
       "now_morale": "morale {v} (fires under {limit})",
+      "now_bodies_live": "bodies {have} / {cap}",
+      "now_morale_live": "morale {v}",
       "now_gold": "gold in {in} vs upkeep {out}",
       "now_idle": "{n} idle at the crypt",
       "refusals": {

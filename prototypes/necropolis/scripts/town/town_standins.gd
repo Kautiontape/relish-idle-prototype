@@ -63,6 +63,9 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 		slots[id] = int(slots.get(id, 0)) + int(j.get("slots", 0))
 		room[id] = float(slots[id])
 		hands += float(j.get("staffed", 0.0))
+	# TownSim fills rooms top-down from all the workers and idle is what is left, so idle hands fill
+	# a new slot before any job loses one
+	hands += float(town.get("workers", {}).get("idle", 0.0))
 	for b in town.get("buildings", []):
 		var cap := int(b.get("staff_cap", -1))
 		var def: Variant = bcfg.get(String(b.get("building_id", "")))
@@ -81,7 +84,7 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 		var take := minf(float(room[String(id)]), left)
 		left -= take
 		out.append({"id": String(id), "slots": int(slots[String(id)]), "staffed": take})
-	return {"jobs": out, "idle": float(town.get("workers", {}).get("idle", 0.0)) + left}
+	return {"jobs": out, "idle": left}
 
 
 ## The stand-in answer to view_staffing_projection(order, extra): `extra` is {slot: on}, the vat slots

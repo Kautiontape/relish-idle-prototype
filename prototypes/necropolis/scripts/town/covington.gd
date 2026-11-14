@@ -408,9 +408,12 @@ func _fetch() -> void:
 ## view when GameState has it (api-request #16), else the display-only stand-in. Made once per (rev,
 ## order, extra); the tabs get this as a Callable and never call GameState for it.
 func project_staffing(order: Array, extra := {}) -> Array:
-	return _staff_cache.fetch(Game.state.rev, [order, extra], func() -> Variant:
-		var s = Game.state
-		if s.has_method("view_staffing_projection"):  # by name: GameState doesn't declare it yet
+	var s = Game.state
+	var real: bool = s.has_method("view_staffing_projection")  # by name: GameState doesn't declare it yet
+	# the real view is as fresh as GameState; the stand-in reads the views fetched last
+	var key: int = int(s.rev) if real else int(_last_views.get("town", {}).get("rev", -1))
+	return _staff_cache.fetch(key, [order, extra], func() -> Variant:
+		if real:
 			var args: Array = [order] if extra.is_empty() else [order, extra]
 			return (s.callv("view_staffing_projection", args) as Dictionary).get("jobs", [])
 		return TownStandins.project(_last_views, order, ConfigDb.data.get("buildings", {}), extra)["jobs"]) as Array
@@ -430,7 +433,8 @@ func _fetch_views() -> Dictionary:
 	# computed once per fetch for every panel (the town view's own model binds after the HUD, so it can't lend them)
 	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
-	views["lot_hops"] = _hops_cache.fetch(int(views["town"].get("rev", -1)), "hops", func() -> Variant:
+	# (TownModel._layout reads only config and ref_px, so the hops never change: one compute, kept)
+	views["lot_hops"] = _hops_cache.fetch(0, "hops", func() -> Variant:
 		return BuildSort.lot_maps(views, cfgs)["hops"])
 	views["tab"] = BuildSort.tab_suggestion(views, cfgs["buildings_view"], cfgs["buildings"], cfgs["town"].get("view", {}))
 	return views

@@ -3691,6 +3691,18 @@ func _backups(day1: Dictionary, pre: Dictionary) -> void:
 	t.ok(TownBehaviour.staffing_diff(TownStandins.staffing_projection(nohands, ["pit"], cfg["buildings"])["jobs"],
 		TownStandins.staffing_projection(nohands, ["pit"], cfg["buildings"], 1)["jobs"]).is_empty(), "backups: a vat with no hands to take from takes none")
 	t.ok(BackupsModel.staffing_cost_text([], vcfg["job_labels"], tx) == "staffing takes no hand from a job", "backups: no hand moves, said so")
+	# idle hands: every room is already full, so a vat slot is filled from idle and no job loses a hand
+	var idle_town := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}, {"id": "stall", "slots": 2, "staffed": 2.0}, {"id": "mill", "slots": 2, "staffed": 2.0}],
+		"buildings": [], "workers": {"idle": 10.0}}
+	var idle_views := {"town": idle_town, "backups": {"vats": [{"slot": 0, "staffed": false}]}}
+	var idle_order: Array = ["pit", "stall", "mill"]
+	var idle_now: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"])
+	var idle_on: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"], {0: true})
+	var idle_diff := TownBehaviour.staffing_diff(idle_now["jobs"], idle_on["jobs"])
+	t.ok(idle_diff.is_empty() and BackupsModel.staffing_cost_text(idle_diff, vcfg["job_labels"], tx) == "staffing takes no hand from a job",
+		"backups: with 10 idle hands an unstaffed vat takes no hand from a job (%s)" % str(idle_diff))
+	t.near(float(idle_now["idle"]), 10.0, 0.001, "backups: idle is the hands left over, not counted twice (now %s)" % str(idle_now["idle"]))
+	t.near(float(idle_on["idle"]), 9.0, 0.001, "backups: staffing a vat from idle leaves 9 (%s)" % str(idle_on["idle"]))
 	# the stand-in with nothing taken is unchanged
 	t.ok(TownStandins.staffing_projection(views, order, cfg["buildings"], 0) == TownStandins.staffing_projection(views, order, cfg["buildings"]), "backups: taking 0 hands changes nothing")
 	# the chapel's upkeep comes from the town view, not a constant
@@ -4595,6 +4607,12 @@ func _fix3b_stances(mid: Dictionary) -> void:
 	t.ok(h.contains("→ it would fire"), "stance trade: live and active, Harvest fires even with bodies full (%s)" % h)
 	h = HudModel.parts_text(TownBehaviour.stance_trade("hearth", live, before, [], vcfg))
 	t.ok(h.contains("→ it wouldn't fire"), "stance trade: live, a stance that is not active holds (%s)" % h)
+	t.ok(not h.contains("fires under"), "stance trade: live rows drop the stand-in limit (%s)" % h)
+	for sid in ["harvest", "hearth"]:
+		t.ok(not HudModel.parts_text(TownBehaviour.stance_trade(sid, live, before, after, vcfg)).contains("fires under"),
+			"stance trade: live %s row prints no threshold" % sid)
+	t.ok(HudModel.parts_text(TownBehaviour.stance_trade("harvest", live, before, after, vcfg)).contains("bodies %d / %d" % [int(float(live["town"]["bodies"])), roundi(cap)]),
+		"stance trade: live Harvest still says how many bodies there are")
 
 
 ## Items 3 and 15: one rev-keyed cache for staffing projections and the lot hops.
@@ -4616,8 +4634,10 @@ func _fix3b_cache() -> void:
 		t.ok(src != "" and not src.contains("view_staffing_projection") and not src.contains("TownStandins.staffing_projection"),
 			"%s: no projection of its own (the shell's project_staffing, handed in as a Callable)" % p)
 	var shell := _read_src("res://scripts/town/covington.gd")
-	t.ok(shell.contains("func project_staffing(order: Array, extra := {})") and shell.count("view_staffing_projection") == 2,
-		"covington: owns project_staffing (the view call, once with and once without extra)")
+	t.ok(shell.contains("func project_staffing(order: Array, extra := {})") and shell.contains("view_staffing_projection"),
+		"covington: owns project_staffing, which calls the projection view when GameState has it")
+	t.ok(shell.contains("int(_last_views.get(\"town\", {}).get(\"rev\", -1))") and shell.contains("_hops_cache.fetch(0,"),
+		"covington: the stand-in is keyed on the fetched town rev, the lot hops are computed once")
 	t.ok(shell.contains("RevCache"), "covington: caches the projections and the lot hops by rev")
 
 

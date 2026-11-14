@@ -191,6 +191,7 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 	var w: Dictionary = town.get("workers", {})
 	var now: Variant = ""
 	var fires := false
+	var live := stances_live(views)  # live stances say whether a row fires; the stand-in's limit clause goes
 	match String(spec.get("when", "")):
 		"relish_away":
 			fires = String(views.get("relish", {}).get("state", "home")) != "home"
@@ -199,11 +200,11 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 			var cap := float(town.get("bodies_cap", 0.0))
 			var limit := float(needs.get("bodies_frac", 0.0)) * cap
 			fires = cap > 0.0 and float(town.get("bodies", 0.0)) < limit
-			now = BuildSort.fmt(String(tx.get("now_bodies", "")), {"have": int(float(town.get("bodies", 0.0))), "cap": roundi(cap), "limit": roundi(limit)})
+			now = BuildSort.fmt(String(tx.get("now_bodies_live" if live else "now_bodies", "")), {"have": int(float(town.get("bodies", 0.0))), "cap": roundi(cap), "limit": roundi(limit)})
 		"morale_under":
 			var v := float(town.get("morale", {}).get("value", 0.0))
 			fires = v < float(needs.get("morale_below", 0.0))
-			now = BuildSort.fmt(String(tx.get("now_morale", "")), {"v": "%.2f" % v, "limit": "%.2f" % float(needs.get("morale_below", 0.0))})
+			now = BuildSort.fmt(String(tx.get("now_morale_live" if live else "now_morale", "")), {"v": "%.2f" % v, "limit": "%.2f" % float(needs.get("morale_below", 0.0))})
 		"gold_under_upkeep":
 			var g: Dictionary = views.get("rates", {}).get("rates", {}).get("gold", {})
 			fires = float(g.get("in", 0.0)) < float(g.get("out", 0.0))
@@ -212,7 +213,7 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 		"idle":
 			fires = roundi(float(w.get("idle", 0.0))) >= 1
 			now = BuildSort.fmt(String(tx.get("now_idle", "")), {"n": roundi(float(w.get("idle", 0.0)))})
-	if stances_live(views):
+	if live:
 		fires = false
 		for s in views.get("stances", {}).get("stances", []):
 			if String(s.get("id", "")) == id:
