@@ -17,7 +17,8 @@ extends Control
 ##   walls        tier walls and the tier-up set piece (TownWalls);
 ##   overlay      labels: the crypt always, any other building on hover; the count badges under
 ##                staffable buildings ("12 working · 3 short") and the crypt ("5 idle", and
-##                "Relish away: slab idle" while she is away);
+##                "Relish away: slab idle" while she is away); the stroke-scale legend in the
+##                bottom-left corner ("1 orange stroke = 5 living") while a kind is sampled;
 ##   build layer  hover outline and the hovered building's status tag, the day-1 suggestion, the
 ##                queue's numbered ghosts, the "construction started" flash (town_build_layer.gd);
 ##   tags         per frame while awake: the output-change floats and the picked agent's ring and
@@ -418,6 +419,27 @@ func _draw_labels() -> void:
 		if hovered or String(b["building_id"]) == TownModel.HEART:
 			_label(l["rect"], String(b["label"]), "text" if hovered else "text_dim")
 		_badges(b)
+	_legend()
+
+
+## The stroke scales, bottom-left: "1 green stroke = k undead", "1 orange stroke = k living", each
+## only while that kind is sampled (TownAgents.legend), small `text_dim` on a ground plate.
+func _legend() -> void:
+	var lines := agents.legend()
+	if lines.is_empty():
+		return
+	var lc: Dictionary = _v.get("legend", {})
+	var font := ThemeDB.fallback_font
+	var fs := maxi(int(lc.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	var pad := float(lc.get("pad_px", 8.0))
+	var h := font.get_height(fs)
+	var y := size.y - pad - h * lines.size()
+	for ln in lines:
+		var sz := font.get_string_size(String(ln), HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		_overlay.draw_rect(Rect2(pad - 3.0, y, sz.x + 6.0, h), Palette.c("ground"))
+		_overlay.draw_string(font, Vector2(pad, y + font.get_ascent(fs)), String(ln), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+			Palette.c("text_dim"))
+		y += h
 
 
 ## Under the building (below its pip row): the count badge, then the crypt's "Relish away" line.

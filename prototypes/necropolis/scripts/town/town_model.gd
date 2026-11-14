@@ -21,12 +21,14 @@ const LOOKS := ["staffed", "unstaffed", "unpaid", "calm", "constructing", "heart
 ## (see _entry)}.
 var lots: Array = []
 ## The output changes of the last update(), one per building whose output moved by more than
-## view.float.eps since the update before: {lot_id, key, delta, text (signed, "+0.30 gold/s"),
-## ink (the matter's Palette key), text_key (ink, or `text` where the ink is too dark for text)}.
-## A building first seen, or a different building on a lot, seeds silently.
+## view.float.eps since the update before *and* that had a player-visible cause in the same step:
+## its staffed count (rounded), level or state changed (a ladder move, a build, staffing). Output
+## swings without one (haul trips averaging out) don't float. {lot_id, key, delta, text (signed,
+## "+0.30 gold/s"), ink (the matter's Palette key), text_key (ink, or `text` where the ink is too
+## dark for text)}. A building first seen, or a different building on a lot, seeds silently.
 var floats: Array = []
-## Per street (same index): its ring from the crypt, 1 for the streets at the plaza, counted in
-## street hops (the still equivalent of the wave under reduced motion).
+## Per street (same index): its ring from the crypt, 1 for the streets of the plaza block round it,
+## counted in street hops (the still equivalent of the wave under reduced motion).
 var street_order := PackedInt32Array()
 ## Per street edge: {a, b, from: Vector2, to: Vector2, near: Vector2, far: Vector2, length: float}.
 ## `near`/`far` orient the edge away from the plaza (near is the end closer along the streets).
@@ -58,7 +60,7 @@ var _paths: Dictionary = {}  # "a|b" -> PackedVector2Array
 var _routes: Dictionary = {}  # "a|b" -> PackedStringArray
 var _edge_of: Dictionary = {}  # "a|b" (both orders) -> index into streets
 var _laid_out := false
-var _prev_out: Dictionary = {}  # lot id -> {building_id, output}: the last update's, for floats
+var _prev_out: Dictionary = {}  # lot id -> {building_id, output, cause}: the last update's, for floats
 
 
 func _init(town_cfg: Dictionary = {}, buildings_view: Dictionary = {}, buildings_cfg: Dictionary = {},
@@ -359,19 +361,22 @@ func _nearest(p: Vector2) -> String:
 	return best
 
 
-## Per street: 1 + the street hops from the plaza to its nearer end (breadth first). A street the
-## plaza can't reach gets 0.
+## Per street: 1 + the street hops from the crypt's plaza (every `plaza*` node, so the whole block
+## round the crypt is ring 1) to its nearer end, breadth first. A street the plaza can't reach
+## gets 0.
 func _ring_order() -> PackedInt32Array:
 	var hop := {}
-	if nodes.has("plaza"):
-		hop["plaza"] = 0
-		var q: Array = ["plaza"]
-		while not q.is_empty():
-			var u: String = q.pop_front()
-			for n in _adj.get(u, []):
-				if not hop.has(n) and nodes.has(n):
-					hop[n] = int(hop[u]) + 1
-					q.append(n)
+	var q: Array = []
+	for id in nodes:
+		if String(id).begins_with("plaza"):
+			hop[id] = 0
+			q.append(id)
+	while not q.is_empty():
+		var u: String = q.pop_front()
+		for n in _adj.get(u, []):
+			if not hop.has(n) and nodes.has(n):
+				hop[n] = int(hop[u]) + 1
+				q.append(n)
 	var out := PackedInt32Array()
 	for s in streets:
 		var ha := int(hop.get(s["a"], -1))
@@ -665,9 +670,10 @@ static func _idle_reason(b: Dictionary, town: Dictionary, bcfg: Dictionary, sc: 
 	return String(sc.get("idle", ""))
 
 
-## Compares lot `lot_id`'s building output with the last update's and records one float for the
-## first output key (display order) that moved by more than view.float.eps. A building first seen,
-## or a different building on the lot, seeds silently; an emptied lot forgets.
+## Compares lot `lot_id`'s building with the last update's. If a cause changed (its staffed count
+## rounded, its level or its state), records one float for the first output key (display order)
+## that moved by more than view.float.eps. A building first seen, or a different building on the
+## lot, seeds silently; an emptied lot forgets.
 func _check_float(lot_id: String, b: Dictionary) -> void:
 	if b.is_empty():
 		_prev_out.erase(lot_id)
@@ -675,8 +681,9 @@ func _check_float(lot_id: String, b: Dictionary) -> void:
 	var bid := String(b.get("building_id", ""))
 	var out: Dictionary = b.get("output", {})
 	var prev: Dictionary = _prev_out.get(lot_id, {})
-	_prev_out[lot_id] = {"building_id": bid, "output": out.duplicate()}
-	if prev.is_empty() or String(prev["building_id"]) != bid:
+	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", ""))]
+	_prev_out[lot_id] = {"building_id": bid, "output": out.duplicate(), "cause": cause}
+	if prev.is_empty() or String(prev["building_id"]) != bid or prev["cause"] == cause:
 		return
 	var eps := float(_v.get("float", {}).get("eps", 0.0))
 	var keys := output_keys(out, _v)

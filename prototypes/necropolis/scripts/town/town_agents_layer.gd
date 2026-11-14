@@ -6,12 +6,15 @@ extends Node2D
 ##   living         a short curved `living` stroke with a hollow ring head;
 ##   foreman        an `undead` diamond twice the size, one stroke per filled remnant slot, a core dot;
 ##   cart           an open `undead` U-box pulled by an undead worker, carrying matte `dead` pips;
-##   trade arc      a curve from the living buyer to the undead seller, `living` fading to `undead`,
-##                  with a chevron at the seller (shape, not only colour);
+##   trade arc      a hop from the living buyer to the undead seller (at least view.trade_arc_min_h_px
+##                  high, bowing up the screen), `living` fading to `undead`, with a chevron at the
+##                  seller (shape, not only colour) and one mote riding it buyer to seller over the
+##                  arc's life, `living` turning `undead` as it arrives;
 ##   Relish         the violet token at the slab, breathing on the beat.
 ## Dead pips (carried bodies, cart loads) are matte, and `dead_lit` inside Relish's light.
 ## Agents of one kind draw as one segment batch per glow layer, so the cost stays flat with count.
-## Reduced motion: TownAgents holds everything still; arcs draw whole and static here.
+## Reduced motion: TownAgents holds everything still; arcs draw whole and static here, their mote
+## still at the midpoint.
 
 var agents: TownAgents
 var model: TownModel
@@ -177,13 +180,16 @@ func _on_side(corners: Array[Vector2], side: float, i: int, s: float) -> Vector2
 
 
 # ---------------------------------------------------------------- trade arcs ----
-## Buyer to seller: a quadratic curve bowing to one side, drawn as it lives (grows over
-## view.agent.arc_grow of its life, fades over the last arc_fade); reduced motion: whole, static.
+## Buyer to seller: a quadratic hop (TownAgents.arc_ctrl), drawn as it lives (grows over
+## view.agent.arc_grow of its life, fades over the last arc_fade), with its mote riding it;
+## reduced motion: whole, static, the mote at the midpoint.
 func _draw_arcs(g: Dictionary, k: float) -> void:
 	var life := float(vcfg.get("trade_arc_s", 1.0))
 	var w := _f(g, "arc_w_px")
 	var glow := _f(g, "arc_glow")
 	var chev := _f(g, "arc_chevron_px") * k
+	var min_h := float(vcfg.get("trade_arc_min_h_px", 0.0)) * k
+	var mote := _f(g, "arc_mote_px") * k
 	var n := 12
 	for arc in agents.arcs:
 		var a: Vector2 = arc["buyer"].pos
@@ -196,13 +202,13 @@ func _draw_arcs(g: Dictionary, k: float) -> void:
 		if not Pulse.reduced_motion:
 			grow = clampf(x / maxf(_f(g, "arc_grow"), 1e-3), 0.0, 1.0)
 			alpha = clampf((1.0 - x) / maxf(_f(g, "arc_fade"), 1e-3), 0.0, 1.0)
-		var ctrl := (a + b) * 0.5 + Vector2(-(b - a).y, (b - a).x) * _f(g, "arc_bulge")
+		var ctrl := TownAgents.arc_ctrl(a, b, _f(g, "arc_bulge"), min_h)
 		var pts := PackedVector2Array()
 		var us := PackedFloat32Array()
 		var m := maxi(int(ceil(n * grow)), 1)
 		for i in m + 1:
 			var u := minf(float(i) / float(n), grow)
-			pts.append(a.lerp(ctrl, u).lerp(ctrl.lerp(b, u), u))
+			pts.append(TownAgents.arc_point(a, ctrl, b, u))
 			us.append(u)
 		var lay_l := LineGlow.layers(Palette.c("living", alpha), w, glow)
 		var lay_u := LineGlow.layers(Palette.c("undead", alpha), w, glow)
@@ -217,6 +223,12 @@ func _draw_arcs(g: Dictionary, k: float) -> void:
 			var s := Vector2(-d.y, d.x)
 			var c := PackedVector2Array([tip - d * chev + s * chev * 0.7, tip, tip - d * chev - s * chev * 0.7])
 			LineGlow.polyline(self, c, Palette.c("undead", alpha), w, glow)
+		if mote > 0.0:  # the sale travelling: a tiny core with a glow ring, living turning undead
+			var mu := TownAgents.mote_u(float(arc["age"]), life, Pulse.reduced_motion)
+			var mc := Palette.c("living", alpha).lerp(Palette.c("undead", alpha), mu)
+			var mp := TownAgents.arc_point(a, ctrl, b, mu)
+			LineGlow.ring(self, mp, mote * 1.4, mc, w, glow)
+			draw_circle(mp, mote * 0.6, Palette.c("living_core", alpha).lerp(Palette.c("undead_core", alpha), mu))
 
 
 # ------------------------------------------------------------------ Relish ----

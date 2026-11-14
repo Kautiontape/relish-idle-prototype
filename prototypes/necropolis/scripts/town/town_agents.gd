@@ -12,8 +12,10 @@ extends RefCounted
 ##   `workers.idle`, living = `living`. Both kinds share one budget, view.max_agents strokes, and
 ##   the undead (the product) come first: they keep one stroke per worker up to the budget less
 ##   what the living's floor reserves (min(living, view.min_living_agents)); the living take what
-##   is left, never less than that floor. A kind over its share is sampled by k = ceil(total /
-##   share) (`undead_scale`, `living_scale`: 1 stroke = k), so the living are thinned first.
+##   is left, never less than that floor, and never more than max(min_living_agents,
+##   floor(view.living_ratio_max x undead strokes)), so the undead stay the visible majority. A
+##   kind over its share is sampled by k = ceil(total / share) (`undead_scale`, `living_scale`:
+##   1 stroke = k), so the living are thinned first; legend() says so on screen.
 ## - **Entry, then growth.** The first sync (and any relayout) places the current population along
 ##   its loops at once: the town already exists when you walk in. After that every change in
 ##   counts is gradual: at most view.spawn_per_s agents a second per kind are added or removed,
@@ -189,6 +191,48 @@ func agent_at(p: Vector2, radius: float) -> Agent:
 				best_d = d
 				best = a
 	return best
+
+
+## The scale legend for the town view's corner: "1 green stroke = k undead" and "1 orange stroke =
+## k living", each only while its k > 1 (view.legend).
+static func legend_lines(u_scale: int, l_scale: int, vcfg: Dictionary) -> Array:
+	var lc: Dictionary = vcfg.get("legend", {})
+	var out: Array = []
+	if u_scale > 1:
+		out.append(BuildSort.fmt(String(lc.get("undead", "")), {"k": u_scale}))
+	if l_scale > 1:
+		out.append(BuildSort.fmt(String(lc.get("living", "")), {"k": l_scale}))
+	return out
+
+
+## legend_lines() at the current scales.
+func legend() -> Array:
+	return legend_lines(undead_scale, living_scale, _v)
+
+
+## A trade arc's control point: the quadratic from buyer `a` to seller `b` bows to the side by
+## `bulge` x their distance, but never so little that its hop (the curve's height over the chord,
+## half the control's offset) is under `min_h` px, so a buyer at the stall still reads as a toss.
+## It bows up the screen (the side whose normal points up).
+static func arc_ctrl(a: Vector2, b: Vector2, bulge: float, min_h: float) -> Vector2:
+	var d := b - a
+	var n := Vector2(-d.y, d.x).normalized() if d.length() > 1e-6 else Vector2.UP
+	if n.y > 0.0:
+		n = -n
+	return (a + b) * 0.5 + n * maxf(bulge * d.length(), 2.0 * min_h)
+
+
+## The point at `u` (0 buyer .. 1 seller) along the quadratic a -> ctrl -> b.
+static func arc_point(a: Vector2, ctrl: Vector2, b: Vector2, u: float) -> Vector2:
+	return a.lerp(ctrl, u).lerp(ctrl.lerp(b, u), u)
+
+
+## Where an arc's mote is (0 buyer .. 1 seller): it runs the arc's life; reduced motion holds it at
+## the midpoint.
+static func mote_u(age: float, life: float, reduced: bool) -> float:
+	if reduced:
+		return 0.5
+	return clampf(age / maxf(life, 1e-3), 0.0, 1.0)
 
 
 ## Whether `a` is still walking in town (one of this population, not gone).
@@ -367,7 +411,8 @@ func _read_targets(town: Dictionary) -> void:
 			used += int(targets[j])
 	targets["idle"] = roundi((idle + orphan) / float(undead_scale))
 	used += int(targets["idle"])
-	living_scale = _scale_for(people, maxf(budget - float(used), floor_l))
+	var ratio := maxf(_num("min_living_agents"), floorf(_num("living_ratio_max") * float(used)))
+	living_scale = _scale_for(people, minf(maxf(budget - float(used), floor_l), ratio))
 	living_target = roundi(people / float(living_scale))
 
 

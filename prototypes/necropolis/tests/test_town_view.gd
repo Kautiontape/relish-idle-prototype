@@ -106,6 +106,9 @@ func run() -> int:
 	_agent_pick(day1)
 	_floats(day1, demo)
 	_ring_order(day1)
+	_ratio([day1, mid, pre, demo], ["day1", "midgame_2flips", "pre_vei", "demo"])
+	_legend(pre)
+	_arc_shape()
 	_dismiss_box()
 	_legible_contrast()
 	return t.failures
@@ -630,13 +633,22 @@ func _routes(day1: Dictionary) -> void:
 
 
 # ------------------------------------------------------------------ agents ----
-## [model, agents] synced to `views` (a fixed seed, so every run walks the same way).
-func _agents(views: Dictionary, econ: Dictionary = {}) -> Array:
+## [model, agents] synced to `views` (a fixed seed, so every run walks the same way). `view_cfg`
+## replaces town.json's view block (e.g. _one_to_one()).
+func _agents(views: Dictionary, econ: Dictionary = {}, view_cfg: Dictionary = {}) -> Array:
 	var m := _model()
 	m.update(views, VIEW_RECT)
-	var a := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"] if econ.is_empty() else econ, tempo_s, 7)
+	var a := TownAgents.new(vcfg if view_cfg.is_empty() else view_cfg, cfg["buildings"], cfg["economy"] if econ.is_empty() else econ, tempo_s, 7)
 	a.sync(m, views)
 	return [m, a]
+
+
+## The view block with the living ratio cap lifted, so day1's few agents sample 1:1: the tests of
+## how counts follow the stream (growth, reduced motion, the entry seed) count people, not strokes.
+func _one_to_one() -> Dictionary:
+	var v: Dictionary = vcfg.duplicate(true)
+	v["living_ratio_max"] = 1000.0
+	return v
 
 
 func _resync(m: TownModel, a: TownAgents, views: Dictionary) -> void:
@@ -674,14 +686,17 @@ func _agent_counts(day1: Dictionary, demo: Dictionary, pre: Dictionary) -> void:
 	var a: TownAgents = pair[1]
 	var town: Dictionary = day1["town"]
 	t.ok(_counts_match(a, town), "day1 on entry: undead per job = its staffed, idle = workers.idle")
-	t.ok(a.living_count() == roundi(town["living"]), "day1 on entry: one living agent per living person (%d)" % a.living_count())
-	t.ok(a.undead_scale == 1 and a.living_scale == 1, "day1 is under the caps: 1 stroke = 1")
+	var lk := a.living_scale
+	t.ok(a.living_count() == roundi(float(town["living"]) / float(lk)),
+		"day1 on entry: the living sampled at 1 stroke = %d (%d strokes)" % [lk, a.living_count()])
+	t.ok(a.undead_scale == 1, "day1's workers fit: 1 green stroke = 1 worker")
 	var spots := {}
 	for u in a.undead + a.living:
 		spots["%d,%d" % [roundi(u.pos.x), roundi(u.pos.y)]] = true
 	t.ok(spots.size() >= a.undead.size() + a.living.size() - 2, "on entry the agents stand spread along their loops, not stacked")
 	_run(a, 30.0)
-	t.ok(_counts_match(a, town) and a.living_count() == roundi(town["living"]), "after 30 s of walking the counts still equal the stream")
+	t.ok(_counts_match(a, town) and a.living_count() == roundi(float(town["living"]) / float(lk)),
+		"after 30 s of walking the counts still equal the stream")
 
 	var big: Dictionary = day1.duplicate(true)
 	big["town"]["workers"]["idle"] = 300.0
@@ -700,15 +715,11 @@ func _agent_counts(day1: Dictionary, demo: Dictionary, pre: Dictionary) -> void:
 	t.ok(a.undead_scale == 1 and _counts_match(a, demo["town"]) and a.count("idle") == 8,
 		"demo: every job building staffed, 8 idle at the crypt, under the cap (1 stroke = 1)")
 	a = _agents(pre)[1]
-	var pre_n := roundi(float(pre["town"]["living"]))
-	var pre_u := _undead_want(pre["town"])
-	t.ok(pre_u + pre_n <= int(vcfg["max_agents"]) and a.undead_scale == 1 and _counts_match(a, pre["town"])
-		and a.living_scale == 1 and a.living_count() == pre_n,
-		"pre_vei: %d workers and %d living fit the shared budget of %d: 1 stroke each" % [pre_u, pre_n, vcfg["max_agents"]])
+	t.ok(a.undead_scale == 1 and _counts_match(a, pre["town"]), "pre_vei: every worker is a stroke (%d)" % a.undead.size())
 
 
 func _agent_growth(day1: Dictionary) -> void:
-	var pair := _agents(day1)
+	var pair := _agents(day1, {}, _one_to_one())
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var more: Dictionary = day1.duplicate(true)
@@ -829,7 +840,7 @@ func _agent_lockstep(day1: Dictionary) -> void:
 
 
 func _agent_reduced(day1: Dictionary) -> void:
-	var pair := _agents(day1)
+	var pair := _agents(day1, {}, _one_to_one())
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var clock := _run(a, 2.0)
@@ -983,7 +994,7 @@ func _any_carry(a: TownAgents) -> bool:
 
 func _agent_seed(day1: Dictionary) -> void:
 	var m := _model()
-	var a := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 7)
+	var a := TownAgents.new(_one_to_one(), cfg["buildings"], cfg["economy"], tempo_s, 7)
 	m.update({}, VIEW_RECT)
 	a.sync(m, {})
 	t.ok(a.undead.is_empty() and a.living.is_empty(), "no town view yet: nobody is placed")
@@ -1280,7 +1291,7 @@ func _view_keys() -> void:
 		"group_gap_px", "progress_ticks", "progress_tick_w_px", "reveal_rate", "head", "warn", "slab_rings_px",
 		"slab_ring_w_px", "slab_ring_alpha", "slab_ring_reach_px", "label_px", "wall_w_px", "wall_glow", "tierup_beats",
 		"tierup_head", "tierup_flash", "demo_tierup", "slot_open_w_px", "pip_w_px", "chevron_w_mul",
-		"max_agents", "min_living_agents", "agent_hit_px", "pip_group", "pip_group_gap_px", "pip_count_px",
+		"max_agents", "min_living_agents", "living_ratio_max", "legend", "trade_arc_min_h_px", "agent_hit_px", "pip_group", "pip_group_gap_px", "pip_count_px",
 		"slab_ring_away_alpha", "badge", "rate_units", "status", "agent_status", "pick", "float", "ring_order",
 		"spawn_per_s", "steps_per_beat", "step_duty", "step_px",
 		"undead_dwell_steps", "haul_away_steps", "idle_dwell_steps", "idle_ring_px", "lane_px", "front_gap_px",
@@ -1296,7 +1307,8 @@ func _view_keys() -> void:
 			"living_bend", "living_w_px", "living_ring_px", "living_glow", "big_px", "big_w_px", "big_gap", "big_glow",
 			"cart_pip_px", "cart_pip_gap_px", "cart_cols", "cart_w_px", "tow_px", "arc_w_px", "arc_glow", "arc_bulge",
 			"arc_grow", "arc_fade", "arc_chevron_px", "relish_r_px", "relish_core_px", "relish_bob_px", "relish_w_px",
-			"relish_glow"],
+			"relish_glow", "arc_mote_px"],
+		"legend": ["undead", "living", "px", "pad_px"],
 		"benefit": ["rate_effects", "plain_effects", "job_text", "now", "upgrade_now"],
 		"card": ["w_px", "max_h_px", "gap_px", "edge_px", "row_gap_px"], "hover": ["w_px", "alpha", "grow_px"],
 		"suggest": ["w_px", "dash_px", "alpha", "tag_prefix", "x_px", "tag_pad_px"],
@@ -1930,13 +1942,18 @@ func _budget(day1: Dictionary) -> void:
 	t.ok(a.living_scale == ceili(100.0 / fl) and a.living_count() == roundi(100.0 / a.living_scale) and a.living_count() <= fl,
 		"budget: 100 living get what's left, their floor of %d (1 stroke = %d, %d strokes)" % [fl, a.living_scale, a.living_count()])
 	t.ok(a.undead.size() + a.living_count() <= cap, "budget: all strokes stay within max_agents (%d)" % (a.undead.size() + a.living_count()))
-	# the living are thinned first: 60 workers keep 60 strokes, 200 living share what is left
+	# the living are thinned first: 60 workers keep 60 strokes; 200 living get what is left, and no
+	# more than living_ratio_max of the undead strokes
 	v = _crowd(day1, float(60 - staffed), 200.0)
 	a = _agents(v)[1]
-	var left := cap - 60
+	var allowed := mini(cap - 60, maxi(fl, floori(float(vcfg["living_ratio_max"]) * 60.0)))
 	t.ok(a.undead_scale == 1 and _counts_match(a, v["town"]) and a.undead.size() == 60, "budget: 60 workers, 60 strokes")
-	t.ok(a.living_scale == ceili(200.0 / left) and a.living_count() == roundi(200.0 / a.living_scale) and a.living_count() <= left,
-		"budget: 200 living thinned into the %d strokes left (1 stroke = %d)" % [left, a.living_scale])
+	t.ok(a.living_scale == ceili(200.0 / allowed) and a.living_count() == roundi(200.0 / a.living_scale) and a.living_count() <= allowed,
+		"budget: 200 living thinned into %d strokes (1 stroke = %d, %d strokes)" % [allowed, a.living_scale, a.living_count()])
+	# with the ratio cap lifted, the shared budget alone leaves the living cap - 60 strokes
+	a = _agents(v, {}, _one_to_one())[1]
+	t.ok(a.living_scale == ceili(200.0 / (cap - 60)) and a.living_count() <= cap - 60,
+		"budget: without the ratio cap 200 living share the %d strokes left (1 stroke = %d)" % [cap - 60, a.living_scale])
 	# far past the budget the undead are sampled too, and the living keep their floor
 	v = _crowd(day1, 1000.0, 300.0)
 	a = _agents(v)[1]
@@ -1954,9 +1971,39 @@ func _budget(day1: Dictionary) -> void:
 	a = _agents(v)[1]
 	t.ok(a.undead_scale == 1 and a.undead.size() == cap - 3 and a.living_count() == 3,
 		"budget: 3 living reserve 3 strokes, not the whole floor (%d undead, %d living)" % [a.undead.size(), a.living_count()])
-	# the real fixtures fit: one stroke each
+	# day1's workers fit: one stroke each
 	a = _agents(day1)[1]
-	t.ok(a.undead_scale == 1 and a.living_scale == 1, "budget: day1 fits the budget, 1 stroke = 1")
+	t.ok(a.undead_scale == 1, "budget: day1's workers fit the budget, 1 stroke = 1")
+
+
+## Undead stay the visible majority: living strokes <= max(min_living_agents, floor(living_ratio_max x
+## undead strokes)), sampled by k = ceil(living / allowed), on every real fixture and the demo.
+func _ratio(views: Array, names: Array) -> void:
+	var r := float(vcfg["living_ratio_max"])
+	var fl := int(vcfg["min_living_agents"])
+	t.ok(r > 0.0 and r < 1.0, "ratio: living_ratio_max %.2f keeps the living under the undead" % r)
+	for i in views.size():
+		var v: Dictionary = views[i]
+		var a: TownAgents = _agents(v)[1]
+		var u := a.undead.size()
+		var l := a.living_count()
+		var people := float(v["town"]["living"])
+		var allowed := mini(maxi(fl, floori(r * float(u))), int(vcfg["max_agents"]) - u)
+		var k := ceili(people / float(allowed) - 1e-9) if people > float(allowed) else 1
+		t.ok(l <= maxi(fl, floori(r * float(u))) and a.living_scale == k and l == roundi(people / float(k)),
+			"ratio: %s draws %d undead vs %d living strokes (%.0f living, 1 orange stroke = %d)" % [names[i], u, l, people, k])
+		t.ok(l < u, "ratio: on %s the undead are the majority (%d > %d)" % [names[i], u, l])
+
+
+func _legend(pre: Dictionary) -> void:
+	t.ok(TownAgents.legend_lines(1, 1, vcfg).is_empty(), "legend: nothing when every stroke is one")
+	t.ok(TownAgents.legend_lines(1, 5, vcfg) == ["1 orange stroke = 5 living"], "legend: '1 orange stroke = 5 living'")
+	t.ok(TownAgents.legend_lines(3, 2, vcfg) == ["1 green stroke = 3 undead", "1 orange stroke = 2 living"],
+		"legend: the undead's scale too when it is over 1")
+	var a: TownAgents = _agents(pre)[1]
+	t.ok(a.living_scale > 1 and a.legend() == ["1 orange stroke = %d living" % a.living_scale],
+		"legend: pre_vei reads %s" % str(a.legend()))
+	t.ok(int(vcfg["legend"]["px"]) >= 12, "legend: text at least 12 px")
 
 
 func _looks(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
@@ -2293,27 +2340,45 @@ func _floats(day1: Dictionary, demo: Dictionary) -> void:
 	t.ok(m.floats.is_empty(), "float: entering the scene floats nothing")
 	m.update(demo, VIEW_RECT)
 	t.ok(m.floats.is_empty(), "float: equal outputs float nothing")
+	# a cause (a hand taken off the market) and its effect on the output: one float
 	var gold := _out(demo, "lot-04", "gold")
-	var up := _patched(demo, "lot-04", {"output": {"gold": gold + 0.3}})
-	m.update(up, VIEW_RECT)
-	t.ok(m.floats.size() == 1, "float: one output change, one float (%d)" % m.floats.size())
+	var st := _field(demo, "lot-04", "staffed")
+	var less := _patched(demo, "lot-04", {"staffed": st - 1.0, "output": {"gold": gold - 0.1}})
+	m.update(less, VIEW_RECT)
+	t.ok(m.floats.size() == 1, "float: one staffing change with its output change, one float (%d)" % m.floats.size())
 	if m.floats.size() == 1:
 		var f: Dictionary = m.floats[0]
-		t.ok(f["lot_id"] == "lot-04" and f["text"] == "+0.30 gold/s" and f["ink"] == "living" and f["text_key"] == "living",
-			"float: the market floats '+0.30 gold/s' in gold's living orange: %s" % str(f))
-	m.update(up, VIEW_RECT)
-	t.ok(m.floats.is_empty(), "float: fires once, not again on the same value")
+		t.ok(f["lot_id"] == "lot-04" and f["text"] == "−0.10 gold/s" and f["ink"] == "living" and f["text_key"] == "living",
+			"float: the market floats '−0.10 gold/s' in gold's living orange: %s" % str(f))
+	m.update(less, VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: fires once, not again on the same values")
 	m.update(demo, VIEW_RECT)
-	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "−0.30 gold/s", "float: a drop floats '−0.30 gold/s'")
-	m.update(_patched(demo, "lot-04", {"output": {"gold": gold + float(vcfg["float"]["eps"]) * 0.5}}), VIEW_RECT)
-	t.ok(m.floats.is_empty(), "float: a change under float.eps floats nothing")
+	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "+0.10 gold/s", "float: the hand back floats '+0.10 gold/s'")
+	# no cause, no float: an output swing with the same staffing, level and state (haul trips)
+	var bodies := _out(demo, "lot-03", "bodies")
+	m.update(_patched(demo, "lot-03", {"output": {"bodies": bodies + 1.1}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: a haul output swing with unchanged staffing floats nothing")
+	m.update(_patched(demo, "lot-03", {"output": {"bodies": bodies - 0.6}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: nor its swing back down")
+	m.update(_patched(demo, "lot-04", {"staffed": st - 0.3, "output": {"gold": gold - 0.03}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: a staffing change that rounds to the same count is no cause")
 	m.update(demo, VIEW_RECT)
+	m.update(_patched(demo, "lot-04", {"staffed": st - 1.0, "output": {"gold": gold + float(vcfg["float"]["eps"]) * 0.5}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: a cause with an output change under float.eps floats nothing")
+	m.update(demo, VIEW_RECT)
+	# the level is a cause: an upgrade finishing
+	var lvl := int(_field(demo, "lot-04", "level"))
+	m.update(_patched(demo, "lot-04", {"level": lvl + 1, "output": {"gold": gold + 0.2}}), VIEW_RECT)
+	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "+0.20 gold/s", "float: a level change with its output floats")
+	m.update(demo, VIEW_RECT)
+	# the pit: more burn floats bodies spent (dead text falls back to `text`); one float per building
 	var mint := _out(demo, "lot-05", "mint")
 	var burn := _out(demo, "lot-05", "burn")
-	m.update(_patched(demo, "lot-05", {"output": {"mint": mint, "burn": burn + 0.6}}), VIEW_RECT)
+	var pst := _field(demo, "lot-05", "staffed")
+	m.update(_patched(demo, "lot-05", {"staffed": pst + 1.0, "output": {"mint": mint, "burn": burn + 0.6}}), VIEW_RECT)
 	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "−0.60 bodies/s" and m.floats[0]["ink"] == "dead"
 		and m.floats[0]["text_key"] == "text", "float: more burn floats bodies spent, its text in `text` (dead is too dark for text)")
-	m.update(_patched(demo, "lot-05", {"output": {"mint": mint + 2.0, "burn": burn + 1.0}}), VIEW_RECT)
+	m.update(_patched(demo, "lot-05", {"staffed": pst + 2.0, "output": {"mint": mint + 2.0, "burn": burn + 1.0}}), VIEW_RECT)
 	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "+2.00 mint/s", "float: one per building, its main output first")
 	# live day1: a market hand lost, the upkeep unpaid, a new building, a swapped one
 	var s := _model()
@@ -2324,8 +2389,8 @@ func _floats(day1: Dictionary, demo: Dictionary) -> void:
 	s.update(half, VIEW_RECT)
 	t.ok(s.floats.size() == 1 and s.floats[0]["lot_id"] == "lot-04" and s.floats[0]["text"] == TownModel.rate_text("gold", -g1 * 0.5, vcfg),
 		"float: a market losing a hand floats its lost gold (%s)" % (s.floats[0]["text"] if s.floats.size() == 1 else "none"))
-	s.update(_patched(half, "lot-04", {"state": "unpaid", "staffed": 0.0, "output": {}}), VIEW_RECT)
-	t.ok(s.floats.size() == 1 and s.floats[0]["text"] == TownModel.rate_text("gold", -g1 * 0.5, vcfg), "float: going unpaid floats the output lost")
+	s.update(_patched(half, "lot-04", {"state": "unpaid", "staffed": 1.0, "output": {}}), VIEW_RECT)
+	t.ok(s.floats.size() == 1 and s.floats[0]["text"] == TownModel.rate_text("gold", -g1 * 0.5, vcfg), "float: going unpaid (a state change) floats the output lost")
 	var added: Dictionary = half.duplicate(true)
 	added["town"]["buildings"].append({"lot_id": "lot-05", "building_id": "market", "level": 1, "state": "active", "progress": 1.0,
 		"slots": 2, "staffed": 2.0, "staff_cap": -1, "foreman": "", "output": {"gold": 0.3}, "upkeep": {"gold": 0.03, "bone": 0.0}})
@@ -2336,6 +2401,14 @@ func _floats(day1: Dictionary, demo: Dictionary) -> void:
 	t.ok(only_old, "float: a building first seen floats nothing")
 	s.update(_patched(added, "lot-05", {"building_id": "bone_mill", "output": {"bone": 0.2}}), VIEW_RECT)
 	t.ok(s.floats.is_empty(), "float: a different building on a lot floats nothing")
+
+
+## A building field on `lot_id` in `views` (0 if absent).
+func _field(views: Dictionary, lot_id: String, key: String) -> float:
+	for b in views["town"]["buildings"]:
+		if b["lot_id"] == lot_id:
+			return float(b.get(key, 0.0))
+	return 0.0
 
 
 ## A building output on `lot_id` in `views` (0 if absent).
@@ -2357,7 +2430,7 @@ func _ring_order(day1: Dictionary) -> void:
 		var s: Dictionary = m.streets[i]
 		var n: int = m.street_order[i]
 		top = maxi(top, n)
-		if s["a"] == "plaza" or s["b"] == "plaza":
+		if String(s["a"]).begins_with("plaza") or String(s["b"]).begins_with("plaza"):
 			plaza_ok = plaza_ok and n == 1
 		elif n <= 1:
 			chain_ok = false
@@ -2368,11 +2441,39 @@ func _ring_order(day1: Dictionary) -> void:
 				var shares: bool = o["a"] in [s["a"], s["b"]] or o["b"] in [s["a"], s["b"]]
 				linked = linked or (j != i and shares and m.street_order[j] == n - 1)
 			chain_ok = chain_ok and linked
-	t.ok(plaza_ok, "ring order: the streets at the crypt's plaza are 1")
+	t.ok(plaza_ok, "ring order: every street touching the crypt's plaza (any plaza* node) is 1, the whole block round the crypt")
+	t.ok(m.street_order[m.edge_index("plaza_nw", "plaza_ne")] == 1 and m.street_order[m.edge_index("w2", "plaza_nw")] == 1,
+		"ring order: the north side of the crypt's block is 1 too")
 	t.ok(chain_ok, "ring order: every other street touches one a ring nearer the crypt")
 	var gate := m.edge_index("gate", "w1")
-	t.ok(gate >= 0 and top >= 4 and m.street_order[gate] >= top - 1,
+	t.ok(gate >= 0 and top >= 3 and m.street_order[gate] >= top - 1,
 		"ring order: the gate road is out at the edge (ring %d of %d)" % [m.street_order[gate] if gate >= 0 else -1, top])
+
+
+## Trade arcs read as an exchange: a hop at least view.trade_arc_min_h_px high even for close
+## pairs, bowing up the screen, and a mote travelling buyer to seller over the arc's life.
+func _arc_shape() -> void:
+	var min_h := float(vcfg["trade_arc_min_h_px"])
+	var bulge := float(vcfg["agent"]["arc_bulge"])
+	t.ok(min_h >= 16.0, "arc: a hop of at least %.0f px" % min_h)
+	for pair in [[Vector2(100, 200), Vector2(112, 200)], [Vector2(100, 200), Vector2(100, 206)], [Vector2(100, 200), Vector2(300, 200)]]:
+		var a: Vector2 = pair[0]
+		var b: Vector2 = pair[1]
+		var c := TownAgents.arc_ctrl(a, b, bulge, min_h)
+		var top := TownAgents.arc_point(a, c, b, 0.5)
+		var chord := (a + b) * 0.5
+		var h := top.distance_to(chord)
+		var want := maxf(min_h, 0.5 * bulge * a.distance_to(b))
+		t.near(h, want, 0.01, "arc: %.0f px apart, the hop is %.1f px (max of min_h and the bulge)" % [a.distance_to(b), h])
+		if is_equal_approx(a.y, b.y):
+			t.ok(top.y < chord.y, "arc: a level pair bows up the screen (%.1f px above the chord)" % (chord.y - top.y))
+		t.ok(TownAgents.arc_point(a, c, b, 0.0).is_equal_approx(a) and TownAgents.arc_point(a, c, b, 1.0).is_equal_approx(b),
+			"arc: from the buyer to the seller")
+	t.ok(is_equal_approx(TownAgents.mote_u(0.0, 1.0, false), 0.0) and is_equal_approx(TownAgents.mote_u(0.5, 1.0, false), 0.5)
+		and is_equal_approx(TownAgents.mote_u(2.0, 1.0, false), 1.0), "arc: the mote runs buyer to seller over the arc's life")
+	t.ok(is_equal_approx(TownAgents.mote_u(0.1, 1.0, true), 0.5) and is_equal_approx(TownAgents.mote_u(0.9, 1.0, true), 0.5),
+		"arc: under reduced motion the mote sits still at the midpoint")
+	t.ok(float(vcfg["agent"]["arc_mote_px"]) > 0.0, "arc: the mote has a size")
 
 
 func _dismiss_box() -> void:
