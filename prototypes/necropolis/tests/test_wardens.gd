@@ -344,6 +344,8 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var stand := float(sat["reach_px"]) + 13.0 + float(cfg["autopilot"]["wall_margin_px"]) + float(cfg["autopilot"]["wall_stand_px"])
 	t.ok(float(sat["reach_px"]) + float(sat["rush_px"]) + 13.0 >= stand and 80.0 + float(sat["rush_half_deg"]) >= float(cfg["autopilot"]["wall_side_deg"]),
 		"a rush reaches a conduit waiting at its side stand (%d px, %d deg off its facing)" % [stand, float(cfg["autopilot"]["wall_side_deg"])])
+	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
+	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:
 		var w2 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a2}, cfg)
 		var w1 := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a2}, cfg)

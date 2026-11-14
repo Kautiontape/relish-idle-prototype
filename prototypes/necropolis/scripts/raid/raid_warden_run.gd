@@ -64,10 +64,13 @@ func tick() -> void:
 
 
 ## Bodyguard post for a party big undead while an awake Huntsman hunts: {point, relish} when `u`
-## is a fast-enough big undead (speed_stat >= the weak point's threshold), else {}.
+## is a fast-enough big undead (speed_stat >= the weak point's threshold), else {}. None while its
+## hounds run (D-d/E Step 4.1): the Huntsman holds its lunge then, so its speed bigs leave the post to
+## hunt the hounds (pack_target, INTERCEPTED in one blow) and take it again when the last falls (a full
+## tell before the next lunge). Held at her side, they let the hounds wipe the army away from her.
 func guard_for(u: RaidUnit) -> Dictionary:
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake \
-			or str(warden.spec.get("archetype", "")) != "huntsman" or u.kind != "big":
+			or str(warden.spec.get("archetype", "")) != "huntsman" or u.kind != "big" or warden.pack_alive() > 0:
 		return {}
 	var rel: RaidRelish = _raid.relish
 	if rel == null or not is_instance_valid(rel) or not rel.alive:
