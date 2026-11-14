@@ -24,12 +24,15 @@ const WARDEN_ARCHETYPES := ["bellringer", "huntsman", "shieldwall", "pyre_priest
 const FIXTURES := ["day1", "midgame_2flips", "pre_vei"]
 const DEBUG_GRANT_KEYS := ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"]
 const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"]
-## Every config value GameState reads with no fallback, as "file.section.key" paths (E2b-2 T3.2: the
-## hold and loot tunables, which used to carry inline defaults that duplicated the configs). setup()
-## reads them once (_req); a missing one is an error at load, not a silent default, and
-## tests/test_game_state_configs.gd asserts each one is present in res://configs.
+## Every config value GameState (and StateRuns and StateViews for it) reads with no fallback, as
+## "file.section.key" paths (E2b-2 T3.2: tunables whose inline defaults duplicated the configs). setup()
+## checks every one (_req), so a missing key is an error at load, not a silent default, and
+## tests/test_game_state_configs.gd asserts each one is present in res://configs. The first four are read
+## once in setup(); the rest are read live at each use (_req_f), since tests change some of them after
+## setup.
 const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay",
-	"economy.town.projection_refresh_s"]
+	"economy.town.projection_refresh_s", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
+	"realm.relish.tide_bias", "economy.queue.max_len"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -152,6 +155,8 @@ func setup(cfgs: Dictionary) -> void:
 	_clear_min_living = _req_f("realm.hold.clear_min_living")
 	_recover_s = _req_f("loot.recover_s")
 	_reclear_decay = _req_f("loot.reclear_decay")
+	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
+		_req(path)
 	town_sim.setup(cfgs)
 
 
@@ -1472,7 +1477,6 @@ func _core_step(dt: float) -> Array:
 		return []
 	t += dt
 	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
-	var cfg: Dictionary = _cfg()
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
 	_slew_valve(dt)
@@ -1498,11 +1502,10 @@ func _core_step(dt: float) -> Array:
 	_step_relish_travel(dt)
 	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
-	var rcfg: Dictionary = cfg.get("relish", {})
 	# (siege_block: the siege big undead's share per fort, E3; none yet)
 	_realm_inputs = {
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
-		"tide_fort": fx["tide_fort"], "tide_bias": float(rcfg.get("tide_bias", 3.0)),
+		"tide_fort": fx["tide_fort"], "tide_bias": _req_f("realm.relish.tide_bias"),
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
 		"siege_block": {},
 	}

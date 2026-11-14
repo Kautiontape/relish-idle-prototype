@@ -69,7 +69,7 @@ static func rates(gs: GameState) -> Dictionary:
 static func lanes(gs: GameState) -> Dictionary:
 	var lanes: Array = []
 	var tide: String = gs._relish_effects()["tide_fort"]
-	var tide_bias := float(gs._cfg().get("relish", {}).get("tide_bias", 3.0))
+	var tide_bias := gs._req_f("realm.relish.tide_bias")
 	var wave: Dictionary = gs.realm.tithe.get("wave", {})
 	var wave_fort: String = str(wave.get("fort_id", ""))
 	for f in gs.realm.forts:

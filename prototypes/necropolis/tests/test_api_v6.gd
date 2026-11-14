@@ -547,11 +547,21 @@ func _store_caps() -> void:
 	s.town_sim.place_building("lot-05", "bone_mill", 2)
 	t.ok(s.view_town()["bone_cap"] == base_b + 2.0 * per_b, "a level-2 Bone Mill adds two shares: %.0f" % s.view_town()["bone_cap"])
 	t.ok(s.cmd_demolish("lot-04")["ok"] and s.view_town()["gold_cap"] == base_g, "the Market demolished: the gold cap is the base again")
-	var m := _fixture("midgame_2flips")
-	t.ok(m.view_town()["bone"] > m.view_town()["bone_cap"], "midgame_2flips: its bone (%.1f) is over the cap (%.0f); it keeps the excess" % [m.view_town()["bone"], m.view_town()["bone_cap"]])
+	# pre_vei's mill earns bone (+0.107/s uncapped) while its store sits over the cap: it keeps the excess
+	# and every bone milled overflows, so the store never grows
+	var m := _fixture("pre_vei")
+	t.ok(m.view_town()["bone"] > m.view_town()["bone_cap"], "pre_vei: its bone (%.1f) is over the cap (%.0f); it keeps the excess" % [m.view_town()["bone"], m.view_town()["bone_cap"]])
 	var b0 := m.town_sim.bone
-	m.tick(m.substep_s())
-	t.ok(m.town_sim.bone <= b0 and absf(m.view_rates()["rates"]["bone"]["in"]) < 1e-9, "and earns no bone while over it (in 0)")
+	var milled := 0.0
+	var grew := false
+	for i in 2400:
+		var before := m.town_sim.bone
+		m.tick(m.substep_s())
+		milled += float(m.town_sim.rates["bone"].get("mill", 0.0)) * m.substep_s()
+		grew = grew or m.town_sim.bone > before
+	t.ok(milled > 1.0 and not grew and m.town_sim.bone <= b0 and absf(float(m.ledger()["stores"]["bone"]["overflow"]) - milled) < 1e-9 * maxf(1.0, milled),
+		"over 20 min it mills %.2f bone, all of it overflow (%.2f), and the store never grows: %.1f ≤ %.1f" % [
+		milled, m.ledger()["stores"]["bone"]["overflow"], m.town_sim.bone, b0])
 
 
 ## Construction time (E2b-2 T3.2, api-request #17; STATE-API §5.9, §5.10): view_town's work_left (build work

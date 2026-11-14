@@ -273,9 +273,8 @@ same profile with the game closed.
   unchanged.
 - **The first caps take at least about 8 h of the default income to fill,** which covers a night away
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
-- **Overflow is a ledger sink**, so the soak test stays exact. Gold and bone are not mass, so it is the
-  currency tally `ledger().stores` beside the mass ledger (`sinks.store_overflow` stays 0). The report
-  shows how much was wasted (T3.3).
+- **Overflow is tallied beside the ledger** (`ledger().stores`; gold and bone are not mass, so the mass
+  soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was wasted (T3.3).
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on

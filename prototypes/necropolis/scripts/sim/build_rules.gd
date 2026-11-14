@@ -356,9 +356,10 @@ static func cap_bonus(gs: GameState, section: String) -> int:
 ## entry shows is derived from today's state by queue_walk(), which the view, cmd_queue_build and the
 ## core step's processing all run, so a status always says what the next processing does.
 
-## economy.json queue.max_len.
+## economy.json queue.max_len (GameState.REQUIRED: a missing key is an error, never a silent 0 that would
+## make every cmd_queue_build queue_full).
 static func queue_max(gs: GameState) -> int:
-	return int(gs._sec("economy", "queue").get("max_len", 0))
+	return int(gs._req_f("economy.queue.max_len"))
 
 
 ## The building whose effects raise `store`'s cap (gold_cap, bone_cap, relic_cap), the first in
@@ -555,7 +556,8 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 ## The core step's processing (§3 step 3, right after rise_tiers): one walk, then each `next` entry starts
 ## through cmd_build's or cmd_upgrade's own path, in order, and leaves the queue with `queue_started
 ## {building_id, lot_id, level, upgrade, waited_on}`. Every entry that stays and was skipped or waited on
-## funds keeps that reason as its waited_on. A start its command refuses (it never should: the walk
+## funds keeps that reason as its waited_on, and one queued behind the head that waits on funds takes the
+## head's (no_gold, no_bone): the funds hold it now. A start its command refuses (it never should: the walk
 ## checks what they check) keeps its entry and stops this step's starts.
 static func process_queue(gs: GameState) -> void:
 	if gs.build_queue.is_empty():
@@ -574,13 +576,18 @@ static func process_queue(gs: GameState) -> void:
 		gs._emit({"type": "queue_started", "building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
 			"level": int(row["level"]), "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))})
 	var keep: Array = []
+	var held := ""  # the reason of the head waiting on funds, once the walk has reached it
 	for i in gs.build_queue.size():
+		var st: String = w["rows"][i]["status"]
+		if st == "waiting_funds" and held == "":
+			held = str(w["rows"][i]["reason"])
 		if gone.has(i):
 			continue
 		var e: Dictionary = gs.build_queue[i]
-		var st: String = w["rows"][i]["status"]
 		if st == "skipped_gate" or st == "waiting_funds":
 			e["waited_on"] = str(w["rows"][i]["reason"])
+		elif st == "queued" and held != "":
+			e["waited_on"] = held  # the head's funds hold it now, whatever gate held it before
 		keep.append(e)
 	gs.build_queue = keep
 

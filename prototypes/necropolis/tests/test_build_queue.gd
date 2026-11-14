@@ -53,6 +53,7 @@ func run() -> int:
 	_view_matches_step()
 	_tier_rise()
 	_demolish_under()
+	_walk_gates()
 	_cap_dropped()
 	_commands()
 	_save()
@@ -199,6 +200,13 @@ func _rule1_never_stalls() -> void:
 	j.drain_events()
 	j.tick(j.substep_s())
 	t.ok(_started(j.drain_events()).is_empty() and _q(j).size() == 2, "and nothing starts")
+	t.ok(j.build_queue[1]["waited_on"] == "no_gold", "queued behind the waiting head, its waited_on is the head's no_gold, not its old lot_locked")
+	j.cmd_debug_grant({"gold": 500.0, "bone": 200.0})
+	j.drain_events()
+	j.tick(j.substep_s())
+	var both := _started(j.drain_events())
+	t.ok(both.size() == 2 and both[1]["building_id"] == "house" and both[1]["waited_on"] == "no_gold",
+		"funded, both start in order, and the house's queue_started says the funds held it: %s" % str(both))
 
 
 ## Rule 2: a gated entry reserves nothing and claims no lot. Another entry or cmd_build taking its lot turns it
@@ -291,6 +299,19 @@ func _rule4_relics() -> void:
 	s.tick(s.substep_s())
 	var st := _started(s.drain_events())
 	t.ok(st.size() == 1 and st[0]["waited_on"] == "no_relics", "a relic in: it starts, waited_on no_relics: %s" % str(st))
+	# short of gold and relics both: the catalog (afford_reason's order) says no_gold, the queue no_relics
+	# (relics are a gate there), and cost.relics still agrees
+	var two := _fixture("midgame_2flips")
+	two.cmd_debug_grant({"relics": -100})
+	_funds(two, 10.0, 290.0)
+	var r2: Dictionary = {}
+	for r in two.view_catalog()["buildings"]:
+		if r["building_id"] == "forge":
+			r2 = r
+	t.ok(two.cmd_queue_build("forge", str(r2["lots"][0]))["ok"], "a forge queued short of gold and relics")
+	var e2: Dictionary = _q(two)[0]
+	t.ok(r2["reason"] == "no_gold" and e2["status"] == "skipped_gate" and e2["reason"] == "no_relics" and e2["cost"]["relics"] == r2["cost"]["relics"],
+		"both short: the catalog says %s, the queue skipped_gate / %s, cost.relics %d both" % [r2["reason"], e2["reason"], e2["cost"]["relics"]])
 
 
 ## An unaffordable head holds the queue (it saves toward it): nothing behind it starts first, and it starts
@@ -420,6 +441,45 @@ func _tier_rise() -> void:
 			break
 	t.ok(rose >= 0.0 and st.size() == 1 and st[0]["t"] == rose and st[0]["waited_on"] == "needs_tier" and e.town_tier == "village",
 		"it starts in the step the tier rose (t %.1f), waited_on needs_tier: %s" % [rose, str(st)])
+
+
+## The walk's own gates, past cmd_queue_build: max_level (a cmd_upgrade under two queued upgrades moves them
+## up a level), unique (a cmd_build of a unique building elsewhere), lot_too_small (an entry a save carries
+## that today's sizes refuse); and a gated entry reserves no relics.
+func _walk_gates() -> void:
+	t.suite("build_queue-walk-gates")
+	var s := _mk()
+	_funds(s, 0.0, 0.0)
+	s.cmd_queue_build("", "lot-02")
+	s.cmd_queue_build("", "lot-02")
+	_funds(s, 1000.0, 300.0)
+	t.ok(s.cmd_upgrade("lot-02")["ok"], "the pit's level 2 started by hand under its two queued upgrades")
+	var rows := _q(s)
+	t.ok(_col(rows, "level") == [3, 4] and rows[1]["status"] == "skipped_gate" and rows[1]["reason"] == "max_level",
+		"they now build 3 and 4; the second is skipped (max_level): %s" % str(_col(rows, "reason")))
+	var u := TestUtil.configs().duplicate(true)
+	u["buildings"]["well"]["unique"] = true
+	var w := _mk(u)
+	_funds(w, 0.0, 0.0)
+	w.cmd_queue_build("well", "lot-05")
+	_funds(w, 100.0, 30.0)
+	t.ok(w.cmd_build("well", "lot-06")["ok"], "a unique well built by hand elsewhere (setup)")
+	t.ok(_q(w)[0]["status"] == "skipped_gate" and _q(w)[0]["reason"] == "unique", "the queued one is skipped (unique)")
+	var d := _mk().to_dict()
+	d["queue"] = [{"building_id": "market", "lot_id": "lot-05", "upgrade": false, "waited_on": ""}]
+	var l := GameState.new(TestUtil.configs())
+	t.ok(l.from_dict(d)["ok"] and _q(l)[0]["status"] == "skipped_gate" and _q(l)[0]["reason"] == "lot_too_small",
+		"a saved market on a size-1 lot loads, skipped (lot_too_small)")
+	var r := _mk()
+	r.cmd_debug_grant({"relics": 1})
+	_funds(r, 1000.0, 200.0)
+	r.cmd_queue_build("embalmer", "lot-05")  # needs_tier, 1 relic
+	r.cmd_queue_build("", "lot-01")  # the crypt's level 2, 1 relic
+	t.ok(_col(_q(r), "status") == ["skipped_gate", "next"], "the gated embalmer reserves no relic: the crypt's upgrade is next with the only one")
+	r.drain_events()
+	r.tick(r.substep_s())
+	var st := _started(r.drain_events())
+	t.ok(st.size() == 1 and st[0]["lot_id"] == "lot-01" and r.relics == 0, "and starts with it: %s" % str(st))
 
 
 ## cmd_demolish under a queued upgrade: it shows skipped_gate (empty_lot) and the walk goes on.

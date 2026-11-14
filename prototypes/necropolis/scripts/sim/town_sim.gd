@@ -660,14 +660,13 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 9. upkeep: resume after the hold when the stocks cover it (on their paths over the step), idle
 	# the cheapest when short
 	var paid := _upkeep(dt, events, gold_in, bone_in)
-	# the gold and bone caps (IDLE §6): the body store's rule (step 4). Income and upkeep are netted
-	# first, and only what came in is clipped, to max(cap, the store before the step less its upkeep):
-	# a store already over its cap (a demolished cap building, an old save) keeps its excess, earns
-	# nothing until it is back under, and upkeep (and spending) draw it down. Gold's floor of 0 and
-	# upkeep are unchanged. At constant rates the clip is exact inside the step: one 10 s step ends with
-	# the stock and the overflow of twenty 0.5 s steps.
-	var g_over := store_overflow(g0, gold, float(paid["gold"]), gold_cap())
-	var b_over := store_overflow(bn0, bone, float(paid["bone"]), bone_cap())
+	# the gold and bone caps (IDLE §6): only what came in is clipped (store_overflow), exactly for
+	# constant rates inside the step: one 10 s step ends with the stock and the overflow of twenty 0.5 s
+	# steps, from under the cap or over it. A store already over its cap (a demolished cap building, an
+	# old save) keeps its excess, earns nothing until it is back under, and upkeep (and spending) draw it
+	# down. Gold's floor of 0 and upkeep are unchanged.
+	var g_over := store_overflow(g0, gold, gold_in, float(paid["gold"]), gold_cap())
+	var b_over := store_overflow(bn0, bone, bone_in, float(paid["bone"]), bone_cap())
 	gold -= g_over
 	bone -= b_over
 	out["gold_overflow"] = g_over
@@ -695,10 +694,15 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 
 
 ## What a capped store (gold, bone) loses to its cap over a step (IDLE §6, MECHANICS §4.3): `s0` before
-## the step, `end` after its income and upkeep, `out` the upkeep it paid. Only what came in is clipped,
-## to max(cap, s0 − out): an excess the store held before the step persists and the upkeep draws it
-## down. The body store's rule (step 4). Returns the overflow, ≥ 0 and never more than the income.
-static func store_overflow(s0: float, end: float, out: float, cap: float) -> float:
+## the step, `end` after its `income` and the upkeep `out` it paid. Only what came in is clipped, exactly
+## for constant rates inside the step. While the store is above its cap every coin in overflows and the
+## upkeep draws it down; when the upkeep outruns the income it reaches the cap (s0 − cap) / out of the
+## way through the step and runs on uncapped below it, so the overflow is income × min(1, that share).
+## Otherwise it is what ends above max(cap, s0 − out), the body store's rule (step 4). Returns the
+## overflow, ≥ 0 and never more than the income.
+static func store_overflow(s0: float, end: float, income: float, out: float, cap: float) -> float:
+	if s0 > cap and out > income:
+		return income * minf(1.0, (s0 - cap) / out)
 	return maxf(0.0, end - maxf(cap, s0 - out))
 
 

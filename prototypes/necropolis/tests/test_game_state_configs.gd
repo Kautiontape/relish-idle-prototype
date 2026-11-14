@@ -72,11 +72,19 @@ func run() -> int:
 			v = (v as Dictionary).get(k, null) if v is Dictionary else null
 		if v == null:
 			missing.append(path)
-	t.ok(missing.is_empty() and GameState.REQUIRED.size() >= 4, "every GameState.REQUIRED config path is present: missing %s" % [missing])
+	t.ok(missing.is_empty() and GameState.REQUIRED.size() >= 9, "every GameState.REQUIRED config path is present: missing %s" % [missing])
 	var gsr := GameState.new(cfg)
 	t.ok(gsr._raise_rate == float(cfg["realm"]["relish"]["raise_rate"]) and gsr._clear_min_living == float(cfg["realm"]["hold"]["clear_min_living"])
 		and gsr._recover_s == float(cfg["loot"]["recover_s"]) and gsr._reclear_decay == float(cfg["loot"]["reclear_decay"]),
 		"GameState holds the REQUIRED tunables as the configs give them")
+	var live_ok := true
+	for path in ["realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep", "realm.relish.tide_bias",
+			"economy.queue.max_len"]:
+		var v: Variant = cfg
+		for k in str(path).split("."):
+			v = v[k]
+		live_ok = live_ok and GameState.REQUIRED.has(path) and gsr._req_f(path) == float(v)
+	t.ok(live_ok, "the flip, death-shock, Vei-fight, tide and queue-length tunables are REQUIRED and read live, no fallback")
 	var realm_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/realm.json"))
 	var world_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/world.json"))
 	t.near(float(cfg["realm"]["R_vei"]), float(realm_direct["R_vei"]), 0.0, "realm.R_vei matches")

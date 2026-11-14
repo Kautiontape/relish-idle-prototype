@@ -140,7 +140,7 @@ static func death(gs: GameState, run_id: int) -> void:
 	if clone:
 		gs.clones_ready -= 1
 	else:
-		gs.town_sim.add_shock(float(gs._sec("economy", "morale").get("death_shock", 0.3)))
+		gs.town_sim.add_shock(gs._req_f("economy.morale.death_shock"))
 	gs._emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
 		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
 	gs._place_relish("covington")
@@ -233,8 +233,7 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	if r["warden_beaten"]:
 		f["dead"] += f["living"]
 		f["living"] = 0.0
-		var fl: Dictionary = gs._cfg().get("flip", {})
-		var hold_s := float(fl.get("hold_s", 300.0)) * (1.0 + float(fl.get("tier_mult", 0.25)) * float(f["tier"]))
+		var hold_s := gs._req_f("realm.flip.hold_s") * (1.0 + gs._req_f("realm.flip.tier_mult") * float(f["tier"]))
 		gs.realm.hold(fort_id, hold_s)  # RealmSim counts it down and stops her shipping there
 		gs.realm.start_tithe()  # the first flip starts Vei's tithe cycle (a running one is left alone)
 		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
@@ -333,7 +332,7 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	if did_win:
 		gs.won = true
 	else:
-		var keep := float(gs._cfgs.get("vei", {}).get("loss_backlog_keep", 0.35))
+		var keep := gs._req_f("vei.loss_backlog_keep")
 		var before: float = gs.realm.vei["undead_queue"]
 		gs.realm.vei["undead_queue"] = before * keep
 		gs._ledger.sink("vei_fight", before - float(gs.realm.vei["undead_queue"]))

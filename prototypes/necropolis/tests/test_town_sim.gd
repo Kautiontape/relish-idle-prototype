@@ -852,7 +852,7 @@ func _fresh_alloc(s: TownSim) -> Dictionary:
 	return TownSim.staff_allocate(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.workers, s.vats_on())
 
 
-const SUM_KEYS := ["pits", "body_cap", "living_cap", "lifetime_bonus", "haul_speed_mult", "attract"]
+const SUM_KEYS := ["pits", "body_cap", "living_cap", "lifetime_bonus", "haul_speed_mult", "attract", "gold_cap", "bone_cap"]
 
 
 ## The rooms and the effect sums from scratch (no cache): what a dirty mark must make TownSim redo.
@@ -1177,10 +1177,12 @@ func _run_capped(ts: TownSim, total: float, dt: float) -> Array:
 
 
 ## IDLE §6: gold and bone are capped (economy.json gold.cap, bone.cap, plus the Market's gold_cap and the
-## Bone Mill's bone_cap per level). Only what comes in is clipped, to max(cap, the store before the step
-## less its upkeep): over a fill a 10 s step ends with the stock and the overflow of twenty 0.5 s steps
-## (constant rates), a store over its cap keeps its excess and upkeep draws it down, all its income
-## overflowing, and gold's floor of 0 and upkeep are unchanged.
+## Bone Mill's bone_cap per level). Only what comes in is clipped, exactly for constant rates inside the
+## step: over a fill, from just over the cap and from far over it, a 10 s step ends with the stock and the
+## overflow of twenty 0.5 s steps; a store over its cap keeps its excess, all its income overflowing while
+## upkeep draws it down, and once the upkeep has brought it to the cap (it outruns the income) it runs on
+## uncapped below; gold's floor of 0 and upkeep are unchanged. (The body store keeps the step-end rule;
+## T3.3a owns step accuracy there.)
 func _store_caps() -> void:
 	t.suite("town_sim-store-caps")
 	var cfg := TestUtil.configs()
@@ -1205,6 +1207,23 @@ func _store_caps() -> void:
 		var g_want := maxf(gcap, float(c[1]) - g_out * 10.0)
 		t.ok(absf(b.gold - g_want) < 1e-9 and absf(ob[0] - (float(c[1]) + (g_in - g_out) * 10.0 - g_want)) < 1e-9,
 			"%s: gold ends at max(cap, start − upkeep) = %.3f and the rest of the income overflows" % [c[0], g_want])
+	# over the cap with the upkeep outrunning the income (a Reliquary and Walls add 0.32 gold/s of upkeep):
+	# every coin overflows until the upkeep has drawn the store to its cap, (s0 − cap) / upkeep in, and
+	# from there the store falls below it with nothing more overflowing. One 10 s step against twenty 0.5 s
+	for start in [gcap + 1.0, gcap + 0.2, gcap + 20.0]:
+		var p := _capped_town(start, 10.0)
+		var q := _capped_town(start, 10.0)
+		for o in [p, q]:
+			o.place_building("lot-23", "reliquary", 1)
+			o.place_building("lot-24", "walls", 1)
+		var op := _run_capped(p, 10.0, 0.5)
+		var oq := _run_capped(q, 10.0, 10.0)
+		var inc := float(q.rates["gold"]["trade"])
+		var up := float(q.rates["gold"]["out"])
+		var reach := minf(10.0, (start - gcap) / up)
+		t.ok(up > inc and absf(p.gold - q.gold) < 1e-9 and absf(op[0] - oq[0]) < 1e-9 and absf(oq[0] - inc * reach) < 1e-9,
+			"from %.1f over the cap, upkeep %.3f/s over income %.3f/s: 20 × 0.5 s and 1 × 10 s agree, gold %.9f / %.9f, overflow %.9f / %.9f = income × %.2f s" % [
+			start - gcap, up, inc, p.gold, q.gold, op[0], oq[0], reach])
 	# the over-cap store keeps its excess: all income overflows while upkeep draws it down
 	var x := _capped_town(gcap + 50.0, bcap + 50.0)
 	var g0 := x.gold

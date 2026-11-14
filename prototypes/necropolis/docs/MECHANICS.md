@@ -717,7 +717,7 @@ mass; bodies, rot return, WORK and muster are mass.
   exceeds the pits' want. So burned = want_pit/s · (dt − τ) + min(want_pit/s, rot/s) · τ and the
   mills the rest of out; with the store empty all step that is min(want_pit, in), the surplus to
   the mills. The two are netted before the cap clips, and
-  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`), split between `rot_overflow` and `haul_overflow` by
+  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`; a known edge, T3.3a's: from over the cap with the draw outrunning the inflow, a long step books no overflow where shorter steps book the inflow until the store reaches the cap, which the gold and bone stores solve exactly, §4.3), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
   loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so
@@ -824,13 +824,16 @@ mass; bodies, rot return, WORK and muster are mass.
   - Stocks never go negative and there is no debt.
 - **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
   bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
-  effects, so unpaid or mid-upgrade levels count). The body store's rule (§4.1): after the step's income
-  and upkeep are netted, only what came in is clipped, to `max(cap, S0 − upkeep)`, where `S0` is the
-  store before the step. A store over its cap (a demolished Market or Bone Mill, an old save, a debug
-  grant, which isn't clamped) keeps its excess and earns nothing until it is back under, while upkeep and
-  spending draw it down. Gold's floor of 0 and upkeep are unchanged. At constant rates the clip is exact
-  inside the step (one 10 s step ends with the stock and the overflow of twenty 0.5 s steps;
-  `test_town_sim`). The overflow goes to the currency tally `ledger().stores` (§2.1), and TownSim's
+  effects, so unpaid or mid-upgrade levels count). Only what came in is clipped, and the clip is exact
+  inside the step for constant rates (one 10 s step ends with the stock and the overflow of twenty 0.5 s
+  steps, from under the cap or over it; `test_town_sim`). A store at or under its cap fills at income −
+  upkeep and what would pass the cap overflows: the body store's rule (§4.1), what ends above `max(cap,
+  S0 − upkeep)`, `S0` the store before the step. A store over its cap (a demolished Market or Bone Mill,
+  an old save, a debug grant, which isn't clamped) keeps its excess and earns nothing while over it:
+  every coin in overflows and the upkeep (and spending) draws it down. When the upkeep outruns the income
+  it reaches the cap `(S0 − cap) / upkeep` into the step and runs on uncapped below it, so the overflow is
+  income × min(dt, that moment) (T3.2's review: the step-end rule booked nothing there at a long step).
+  Gold's floor of 0 and upkeep are unchanged. The overflow goes to the currency tally `ledger().stores` (§2.1), and TownSim's
   `rates.gold`/`rates.bone` carry it as `overflow`, with `in` net of it (the body store's convention), so
   `view_rates` and the HUD read the store's real net rate: 0 at a full store. The sizing is BALANCE §5.
   - Known edge: the unpaid-resume solver (Upkeep, above) reads the stocks' paths without the cap, so it
@@ -907,16 +910,21 @@ processing does.
      entry's gate (or `queued` when it has none).
   3. **The away report says when a gated entry started and why.** Each entry keeps `waited_on`, the last
      reason that kept it from starting (`""` if it never waited): a gate, or `no_gold`/`no_bone`. It is set
-     when the entry is queued (from that first walk) and by each step's processing, never by a view, and a
-     plain `queued` (behind a head) leaves it alone. `queue_started` carries it.
+     when the entry is queued (from that first walk) and by each step's processing, never by a view. An
+     entry `queued` behind a head that waits on funds takes the head's `no_gold`/`no_bone` (the funds hold
+     it now, whatever gate held it before; T3.2's review), so starting in the head's step reads "when the
+     funds came". `queue_started` carries it.
   4. **A relics-blocked entry reads as the plateau's ask:** its reason is exactly `no_relics`, the key
-     `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`.
+     `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`. The keys match when
+     gold and bone are covered; short of gold or bone as well, the catalog says `no_gold`/`no_bone`
+     (`afford_reason`'s order) while the queue still reads `no_relics`, since relics are a gate there.
 - **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
   rises this step opens its entries this step and this step's income counts: one walk, then each `next`
   entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the
   queue and emits `queue_started {building_id, lot_id, level, upgrade, waited_on}` at the step's `t`. Every
   entry that stays and was skipped or waited on funds keeps that reason as `waited_on`.
-- **At any dt** the queue starts entries at step boundaries, so a start is up to one step late at a long
+- **At any dt** (`tests/slow/queue_dt.gd` measures it; T3.3b re-measures with a build-start clip) the queue
+  starts entries at step boundaries, so a start is up to one step late at a long
   step (the funds or the tier arrive inside it). Measured over 12 h of `midgame_2flips` (core steps, the
   field frozen) with a full queue of 8 (two house and well upgrades, an inn, a graveyard, stables, and
   the pit's, the market's and the mill's level 2; T3.2): the five entries affordable at once start 9.5 s

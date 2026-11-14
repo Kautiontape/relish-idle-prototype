@@ -195,9 +195,12 @@ same way, from their load).
 
 | start | gold: cap, stock, net/s, fill | bone: cap, stock, net/s, fill |
 |---|---|---|
-| a new game (Market 1, no mill) | 9 750, 80, +0.210, 12.8 h (the base alone: 8.6 h) | 200, 30, 0, never (no mill) |
+| a new game (Market 1, no mill) | 9 750, 80, +0.210, 12.8 h (the base alone: 8.5 h) | 200, 30, 0, never (no mill) |
 | `midgame_2flips` (Market 1, Bone Mill 1) | 9 750, 656, +0.160, 15.8 h | 300, 328.5 (over the cap: it keeps the excess and earns nothing until under), 0 (the pits take every body), never |
 | `pre_vei` (Market 2, Bone Mill 1) | 13 000, 3 616, −0.470 (falling), never | 300, 459.6 (over the cap), +0.107 uncapped (the mill's share of a body surplus), earns nothing until spent under 300 |
+
+The 8 h rule covers only a new game: `pre_vei`'s bone, at its +0.107/s, fills its 300 cap in about 47 min
+from empty.
 
 **Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
 them in `buildings.json`.
