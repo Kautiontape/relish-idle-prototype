@@ -105,6 +105,11 @@ var _lt := -1.0
 var _lb := 0.0
 var _bx := 0.0
 var _bi := 0.0
+# the dispatch's scratch (step 3, read at step 2's end): per fort, WAR filled it (_filled); the
+# water-filling's targets at their limit and the WAR it left over
+var _filled: Array[bool] = []
+var _capped: Array[bool] = []
+var _water_left := 0.0
 
 
 ## Fort dict rates, all mass/s over the last step:
@@ -360,16 +365,17 @@ func step(dt: float, inputs: Dictionary) -> void:
 
 	# ---- 3. WAR dispatch (a rate over the step): forts with living, or living arriving, and every
 	# held fort; else Vei
-	var war_in := _dispatch(war, dt, held, arriving, surge_fort, tide_fort, tide_bias)
+	var war_in := _dispatch(war, dt, held, arriving, surge_fort, tide_fort, tide_bias, want_r)
 	# (step 2's end) this step's WAR takes its room: each give is cut to cap less the load with WAR
 	# and the garrison's pull solved as fort_step solves it, without her living (which only adds to
-	# the pull). A fort with no living already took at most the WAR that leaves its give room
-	# (_fill_rate).
+	# the pull). A fort WAR filled (no living, at its fill rate: _filled) took exactly the WAR that
+	# leaves room for its give, so its give isn't cut (the load here leaves out the raise of the
+	# living Vei ships in, which the fill counts).
 	var given := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var s_i: float = surge_amt if i == surge_fort else 0.0
-		if gives[i] > 0.0:
+		if gives[i] > 0.0 and not _filled[i]:
 			gives[i] = minf(gives[i], maxf(0.0, f["cap"] - _load(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), q, 4) - s_i))
 		arriving[i] = gives[i] + s_i
 		f["r_surge"] = s_i * inv
@@ -698,28 +704,48 @@ func _retaken(f: Dictionary, cause: String) -> void:
 	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause})
 
 
-## The WAR rate (mass/s) that brings a fort without living to full by the step's end: undead drain
-## while they arrive, so U_end = U0 · e^(−r·dt) + (w / r)(1 − e^(−r·dt)) is set to cap − D − what
-## Vei ships in (killed on arrival, it ends as corpses). Never below 0.
-func _fill_rate(f: Dictionary, dt: float, shipped: float) -> float:
+## The raises at a fort without living over a step, mass/s: `want` (Relish's and the simulacra's,
+## raise_at) as far as its corpses cover it, those now plus `shipped` (Vei's living, killed on
+## arrival). 0 where nobody raises.
+static func _raise_rate(f: Dictionary, dt: float, want: float, shipped: float) -> float:
+	if not (want > 0.0):
+		return 0.0
+	return minf(want, (maxf(0.0, float(f["dead"])) + shipped) / dt)
+
+
+## What flows into the undead of a fort without living (WAR plus the raises `rho`, mass/s) to bring
+## it to full by the step's end, before the floor at 0: undead drain while they arrive, so
+## U_end = U0 · e^(−r·dt) + (inflow / r)(1 − e^(−r·dt)) is set to cap − the corpses at the end,
+## D − rho · dt + what Vei ships in (killed on arrival, it ends as corpses).
+func _fill_inflow(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
 	var r := float(t.get("r_drain", 0.06))
-	var target: float = float(f["cap"]) - float(f["dead"]) - shipped
+	var target: float = float(f["cap"]) - (float(f["dead"]) - rho * dt) - shipped
 	if r * dt <= 1e-9:
-		return maxf(0.0, target - float(f["undead"])) / dt
+		return (target - float(f["undead"])) / dt
 	var e := exp(-r * dt)
-	return maxf(0.0, r * (target - float(f["undead"]) * e) / (1.0 - e))
+	return r * (target - float(f["undead"]) * e) / (1.0 - e)
+
+
+## The WAR rate (mass/s) that brings a fort without living to full by the step's end, with `rho`
+## mass/s raised into its undead (_fill_inflow less the raises). Never below 0. E2b T4.C (M1): the
+## raises used to be left out, so at a fort where Relish raises the step ended short of the cap by
+## rho · (dt − (1 − e^(−r·dt)) / r) and that WAR went elsewhere (1.05 of Ashgate's 80 at 15 s with
+## Relish there in pre_vei, 0.002 at 0.5 s; 20 at 15 s with rho at her 4/s).
+func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
+	return maxf(0.0, _fill_inflow(f, dt, shipped, rho) - rho)
 
 
 ## Step 3. `war` is WAR mass/s this step. The forts with living (or living arriving this step: Vei's
 ## shipping or a surge) and every held fort (as staging) take it by weight, a fort counted once
 ## however many reasons it has. A fort whose only living is Vei's shipping (no living now, no
-## surge, not held) takes at most what fills it by the step's end (_fill_rate): WAR it can't
-## take goes to the other targets by weight, and to Vei's undead queue when every target is full
-## or there is none. That is the continuous version of a full fort flickering in and out of the
-## targets as its drain opens room, so the split doesn't depend on the step. Sets each fort's
-## r_in (staging included) and r_staged, r_war_to_vei and war_route; returns each fort's WAR rate.
+## surge, not held) takes at most what fills it by the step's end (_fill_rate, with the raises
+## `want_r` there): WAR it can't take goes to the other targets by weight, and to Vei's undead
+## queue when every target is full or there is none. That is the continuous version of a full fort
+## flickering in and out of the targets as its drain opens room, so the split doesn't depend on the
+## step. Sets each fort's r_in (staging included) and r_staged, r_war_to_vei and war_route, and
+## _filled (step 2's end reads it); returns each fort's WAR rate.
 func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], surge_fort: int,
-		tide_fort: String, tide_bias: float) -> Array[float]:
+		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:
 	var n := forts.size()
 	var weights: Array[float] = []
 	var limits: Array[float] = []
@@ -731,16 +757,38 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 		var w := _war_weight(f, tide_fort, tide_bias) if live or held.has(f["id"]) else 0.0
 		var lim := INF
 		if w > 0.0 and not held.has(f["id"]) and not (f["living"] > 0.0) and i != surge_fort:
-			lim = _fill_rate(f, dt, arriving[i])
+			lim = _fill_rate(f, dt, arriving[i], _raise_rate(f, dt, want_r[i], arriving[i]))
 		any_target = any_target or w > 0.0
 		any_living = any_living or (live and w > 0.0)
 		weights.append(w)
 		limits.append(lim)
 		f["r_in"] = 0.0
 		f["r_staged"] = 0.0
+	var rates := _water(war, weights, limits)
+	_filled = []
+	_filled.resize(n)
+	for i in n:
+		_filled[i] = limits[i] < INF and _capped[i]
+	var left := _water_left
+	for i in n:
+		forts[i]["r_in"] = rates[i]
+		if held.has(forts[i]["id"]):
+			forts[i]["r_staged"] = rates[i]
+	war_route = ("forts" if any_living else "staged") if any_target else "vei"
+	vei["undead_queue"] += left * dt
+	r_war_to_vei = left
+	return rates
+
+
+## Water-filling: each target (weight > 0) takes its weight's share of `war` mass/s, at most its
+## limit; what a target over its limit can't take is re-split by weight over the rest. Returns the
+## rates; sets _capped (the target took its limit) and _water_left (what no target took).
+func _water(war: float, weights: Array[float], limits: Array[float]) -> Array[float]:
+	var n := weights.size()
 	var rates: Array[float] = []
 	rates.resize(n)
-	# water-filling: a target over its limit takes its limit; the rest re-split by weight
+	_capped = []
+	_capped.resize(n)
 	var left := war
 	var open := weights.duplicate()
 	for _pass in n + 1:
@@ -756,6 +804,7 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 				rates[i] += take
 				left -= take
 				open[i] = 0.0
+				_capped[i] = true
 				capped = true
 		if capped:
 			continue
@@ -763,14 +812,7 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 			if open[i] > 0.0:
 				rates[i] += left * open[i] / total
 		left = 0.0
-	left = maxf(0.0, left)
-	for i in n:
-		forts[i]["r_in"] = rates[i]
-		if held.has(forts[i]["id"]):
-			forts[i]["r_staged"] = rates[i]
-	war_route = ("forts" if any_living else "staged") if any_target else "vei"
-	vei["undead_queue"] += left * dt
-	r_war_to_vei = left
+	_water_left = maxf(0.0, left)
 	return rates
 
 

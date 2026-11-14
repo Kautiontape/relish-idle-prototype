@@ -294,12 +294,19 @@ Names, to avoid confusion:
   filled with living) counts once.
 - **A full fort with no living** (no living now, not held, not surged) takes at most the WAR that
   fills it by the step's end. Its undead drain while WAR arrives, so the rate is the one that brings
-  U to `cap − D − what Vei ships in`. The WAR it can't take is split over the other targets by
-  weight, and goes to `vei.undead_queue` (counted as fall-through) when every target is full. E2b
-  T3.0 added this: such a fort used to flicker in and out of the targets as its drain opened room,
-  and how far it flickered depended on the step. This rule is the continuous version of that
-  flicker. Living arriving counts for the same reason: Vei's living killed on arrival leaves a fort
-  at 0 living at the end of every step.
+  U to `cap` less its corpses at the step's end: `D` plus what Vei ships in (killed on arrival, it
+  ends as corpses) less what Relish and the simulacra raise there into U, as far as those corpses
+  cover their rate. The WAR it can't take is split over the other targets by weight, and goes to
+  `vei.undead_queue` (counted as fall-through) when every target is full. E2b T3.0 added this:
+  such a fort used to flicker in and out of the targets as its drain opened room, and how far it
+  flickered depended on the step. This rule is the continuous version of that flicker. Living
+  arriving counts for the same reason: Vei's living killed on arrival leaves a fort at 0 living at
+  the end of every step.
+  - **The raises count** (E2b T4.C). They used to be left out, so at a fort where Relish raises
+    the step ended short of the cap by `ρ · (dt − (1 − e^(−r_drain · dt)) / r_drain)` at a raise
+    rate ρ, and that WAR went to other forts. With Relish at pre_vei's Ashgate (full, no living,
+    raising the 0.21/s Vei ships in) it held 78.95 of 80 at 15 s and 80.00 at 0.5 s; at her
+    full 4/s it is 20 per step at 15 s.
 - **Staging:** a held fort always pulls WAR as staging, at its weight, alongside the forts with
   living (§3.4). There the undead drain to Vei, so a held fort becomes a forward pump. WAR staging is
   split across the held forts, so holding more forts thins every garrison (IDLE §3).
