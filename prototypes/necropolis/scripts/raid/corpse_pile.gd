@@ -2,6 +2,9 @@ class_name RaidPile
 extends Node2D
 ## A grey, matte corpse pile. Dead matter never glows. When Relish walks close
 ## the pile stirs: its mass converts into 2-4 essence orbs.
+## Countable (VISUAL-LANGUAGE law 9): a small "xN" badge in the swarm-badge style, N = its mass
+## rounded (the bodies in it), in matte text (`text_dim`, `dead_lit` while her light is on it). The
+## first dungeon's massless teaching pile has no badge: it holds no bodies to count.
 
 var raid: Node = null
 var mass := 4.0
@@ -11,6 +14,8 @@ var _stirred := false
 var _shrink := -1.0
 var _lumps: Array = []
 var _lit := false           # Relish's light falls on it (dead_lit, still matte)
+var _badge := ""            # "xN", built once (the mass is fixed until it stirs)
+var _base := 9.0
 
 
 func _ready() -> void:
@@ -19,6 +24,9 @@ func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(position.x * 13.0 + position.y * 7.0) + 11
 	var base := clampf(9.0 + (mass if look_mass < 0.0 else look_mass) * 0.7, 9.0, 26.0)
+	_base = base
+	if roundi(mass) >= 1:
+		_badge = "×%d" % roundi(mass)
 	var n := rng.randi_range(3, 5)
 	for i in n:
 		_lumps.append({
@@ -95,3 +103,13 @@ func _draw() -> void:
 	var bone := base.lightened(0.3)
 	draw_line(Vector2(-6, 2), Vector2(5, -3), bone, 2.0)
 	draw_line(Vector2(-2, 5), Vector2(7, 4), bone, 2.0)
+	if _badge != "" and _shrink < 0.0:
+		# the count, about swarm.font_px on screen at any zoom (redrawn only when the light changes)
+		var z := maxf(0.05, raid.cam.zoom.x) if raid != null and raid.cam != null else 1.0
+		var fs := maxi(8, roundi(float(ConfigDb.data.get("raid", {}).get("swarm", {}).get("font_px", 16)) * 0.85 / z))
+		var font := ThemeDB.fallback_font
+		var tw := font.get_string_size(_badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var at := Vector2(_base * 0.9, -_base * 0.75)
+		var pad := 4.0 / z
+		draw_rect(Rect2(at + Vector2(-pad, -fs), Vector2(tw + pad * 2.0, fs + pad)), Palette.c("ground", 0.8))
+		draw_string(font, at, _badge, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("dead_lit" if _lit else "text_dim"))
