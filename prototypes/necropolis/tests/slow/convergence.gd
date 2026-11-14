@@ -52,9 +52,8 @@ const TOL := 0.005
 const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead", "fort_dead", "workers",
 	"bodies", "gold", "bone", "living"]
 ## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies
-## didn't converge in T3.0's measurement; the candidates were the dispatch rules' edges, the convoy's
-## choice of fort and the tithe surge's overfill, unbounded then, bounded in T3.0s and marched back
-## since T3.0m; tests/slow/convergence_fine.gd measures convergence as dt → 0).
+## converge as dt → 0 since E2b T4.C on midgame_2flips and pre_vei, fresh's within about one convoy
+## load; at long steps they are still far off: IDLE §4, tests/slow/convergence_fine.gd).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",
