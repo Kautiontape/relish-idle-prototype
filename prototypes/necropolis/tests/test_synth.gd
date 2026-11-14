@@ -21,6 +21,7 @@ func run() -> int:
 	_volume(t, c)
 	_cache(t, c)
 	_cache_config(t, c)
+	_cache_holds(t)
 	_pcm(t)
 	_dungeon_kinds(t, c)
 	_prefs(t, c)
@@ -119,6 +120,24 @@ func _cache(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SynthLogic.cache_key("chime", {"score": 40.0}) != SynthLogic.cache_key("chime", {"score": 40.0 + step}), "a score step apart is another chime")
 	t.ok(SynthLogic.cache_key("chime", {}) == "chime:0", "no score is score 0")
 	t.ok(SynthLogic.score_bucket(-5.0, step) == 0 and SynthLogic.score_bucket(120.0, step) == 100, "buckets clamp to 0..100")
+
+
+## The render cache is cleared when its last holder lets go (no "ObjectDB instances leaked at exit"),
+## and survives while another holder (the router, or a second scene's Synth) keeps it.
+func _cache_holds(t: TestUtil) -> void:
+	Synth.clear_cache()
+	Synth._holds = 0
+	Synth._cache["probe"] = AudioStreamWAV.new()
+	Synth.retain()  # the router's session hold
+	Synth.retain()  # a scene's Synth
+	Synth.release()  # that scene's Synth is freed in a swap
+	t.ok(Synth._cache.has("probe"), "the cache survives a scene swap while the router holds it")
+	Synth.release()  # quit: the router lets go
+	t.ok(Synth._cache.is_empty() and Synth._holds == 0, "the last release clears the cache")
+	Synth.release()  # an unmatched release (a Synth freed before _ready) is harmless
+	t.ok(Synth._holds == 0, "holds never go negative")
+	var src := FileAccess.get_file_as_string("res://scripts/fx/synth.gd")
+	t.ok(src.contains("NOTIFICATION_PREDELETE") and src.contains("release()"), "a Synth releases its hold when it is freed")
 
 
 func _cache_config(t: TestUtil, c: Dictionary) -> void:

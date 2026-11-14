@@ -25,6 +25,12 @@ extends Node
 static var _cache := {}  # SynthLogic.cache_key -> AudioStreamWAV, shared by every scene's Synth
 static var _cache_sig := 0  # hash of the config the cache was rendered under (a retune clears it)
 static var _prefs_applied := false  # AudioPrefs.apply() runs once per session
+## Holders of the static cache: every live Synth, plus explicit retain() holders (the router holds it
+## for the whole session, so the cache survives scene swaps). When the last holder releases (at quit,
+## or when a run with no router frees its last Synth) the cache is cleared, so its AudioStreamWAVs
+## don't show up as "ObjectDB instances leaked at exit".
+static var _holds := 0
+var _held := false
 
 var _cfg := {}
 var _players: Array[AudioStreamPlayer] = []
@@ -41,6 +47,9 @@ func _ready() -> void:
 		SynthLogic.configure(live)
 	_cfg = SynthLogic.cfg()
 	sync_cache(_cfg)
+	if not _held:
+		_held = true
+		retain()
 	if not _prefs_applied:
 		_prefs_applied = true
 		AudioPrefs.apply()
@@ -54,6 +63,30 @@ func _ready() -> void:
 		add_child(p)
 		_players.append(p)
 		_started_ms.append(0)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and _held:
+		_held = false
+		release()
+
+
+## Takes a hold on the shared render cache (the router calls this once for the session).
+static func retain() -> void:
+	_holds += 1
+
+
+## Drops a hold; the last one out clears the cache.
+static func release() -> void:
+	_holds = maxi(_holds - 1, 0)
+	if _holds == 0:
+		clear_cache()
+
+
+## Frees every cached render now (also safe to call at quit).
+static func clear_cache() -> void:
+	_cache.clear()
+	_cache_sig = 0
 
 
 ## Drops every cached render when `cfg` differs from the config the cache was built under, so a
