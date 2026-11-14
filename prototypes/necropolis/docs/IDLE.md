@@ -139,14 +139,24 @@ takes over 1 s.
 
   Nothing goes negative at any dt (tested to 120 s). `tests/slow/convergence.gd` measures 12 h with
   no input against a 0.5 s run, with steps clipped at the events listed under Method:
-  - Vei's stocks and Covington's smooth ones stay within 0.5% up to dt 5 s (midgame_2flips 0.32%,
-    fresh 0.34%) and drift to about 0.6% at 10 s.
-  - The forts' pools and the body store didn't converge at any dt: 0.25 s already differs from
-    0.5 s by up to 19%. The cause is not yet measured. The candidates are the dispatch rules'
-    edges, the convoy's choice of fort, and the tithe surge's overfill (unbounded then; E2b
-    T3.0s bounded it, and T3.0m marches the living above a fort's cap back to Vei, MECHANICS
-    §3.4).
-  - pre_vei's gold-floor upkeep cycle doesn't converge either: 2.5% at 2 s.
+  - Measured at `985c158` (E2b T3.0m: the march-back and exact wave times, MECHANICS §3.4). Vei's
+    stocks and Covington's smooth ones stay within 0.4% up to dt 5 s (midgame_2flips 0.38%,
+    fresh 0.33%). At 10 s and 15 s they reach 1.3% and 2.4% on midgame_2flips (bone the worst;
+    the backlog 0.94% and 1.66%, against 3.05% and 4.47% at `3992014` under T3.0s's bound), and
+    1.6% and 0.9% on fresh.
+  - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s) midgame_2flips' backlog is
+    first order: 0.012% at 0.25 s, 0.036% at 0.5 s. Over 1 h its backlog's error is 0.012%,
+    0.036%, 0.062%, 0.13%, 0.28%, 0.88% and 1.37% at 0.25, 0.5, 1, 2, 5, 10 and 15 s (2.66% at
+    15 s under the bound, 0.46% before it).
+  - The forts' pools and the body store don't converge: 0.25 s already differs from 0.5 s by up
+    to 19% (pre_vei's corpses). The candidates are the dispatch rules' edges and the convoy's
+    choice of fort. midgame_2flips' corpses got worse with the march-back (19% at 5 s, 217% at
+    15 s, against 3% and 27% before): Ashgate now ends a wave near its cap instead of far above
+    it, and then fills with corpses about 10 min earlier at 15 s than at 0.125 s. The cause is
+    not yet measured.
+  - pre_vei is unchanged by T3.0m (no wave reaches it in 12 h with no input). Its gold-floor
+    upkeep cycle doesn't converge: 2.5% at 2 s, 7.4% at 5 s. At 10 s its backlog is 6.4% off and
+    Vei's dead 27%.
   - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
     (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
     with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
