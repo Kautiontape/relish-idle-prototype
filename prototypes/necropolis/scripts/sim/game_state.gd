@@ -594,54 +594,9 @@ func raiding_fort_id() -> String:
 
 
 # ------------------------------------------------------------------ debug ----
-func _is_num(v: Variant) -> bool:
-	return (typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT) and is_finite(float(v))
-
-
-func _is_count(v: Variant) -> bool:
-	return _is_num(v) and float(v) >= 0.0 and float(v) == floorf(float(v))
-
-
 func _mint_uid(prefix: String) -> String:
 	var uid := "%s%d" % [prefix, next_uid]
 	next_uid += 1
-	return uid
-
-
-func _mint_husk() -> String:
-	var h := {
-		"uid": _mint_uid("h"), "kind": HUSK_KINDS[rng.randi_range(0, HUSK_KINDS.size() - 1)],
-		"rarity": RARITIES[rng.randi_range(0, RARITIES.size() - 1)],
-	}
-	husks.append(h)
-	return h["uid"]
-
-
-func _mint_remnant() -> String:
-	var r := {
-		"uid": _mint_uid("r"), "aspect": STATS[rng.randi_range(0, STATS.size() - 1)],
-		"rarity": RARITIES[rng.randi_range(0, RARITIES.size() - 1)],
-		"magnitude": rng.randi_range(1, 5),
-	}
-	remnants.append(r)
-	return r["uid"]
-
-
-## Its role is SlabLogic's for its highest stat (town.json slab.role_by_stat; ties go in STATS
-## order), so a granted big undead carries a role id the town and dungeon scenes know.
-func _mint_big_undead() -> String:
-	var uid := _mint_uid("u")
-	var st := {}
-	var top := ""
-	for s in STATS:
-		st[s] = rng.randf_range(1.0, 10.0)
-		if top == "" or st[s] > st[top]:
-			top = s
-	var roles: Variant = _sec("town", "slab").get("role_by_stat", {})
-	big_undead.append({
-		"uid": uid, "name": "Big " + uid, "kind": HUSK_KINDS[rng.randi_range(0, HUSK_KINDS.size() - 1)],
-		"role": str((roles if roles is Dictionary else {}).get(top, "hollow")), "stats": st, "place": "crypt", "front": "",
-	})
 	return uid
 
 
@@ -651,164 +606,16 @@ func _cap_of(section: String) -> int:
 	return int(sec.get("cap", 1 << 30)) + BuildRules.cap_bonus(self, section)
 
 
-func _debug_fail(reason: String, key: String) -> Dictionary:
-	return {"ok": false, "reason": reason, "key": key, "applied": {}}
-
-
 func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
-	if not debug_enabled:
-		return _debug_fail("not_debug", "")
-	for k in amounts:
-		if not DEBUG_GRANT_KEYS.has(k):
-			return _debug_fail("unknown_key", str(k))
-	for k in amounts:
-		var counted: bool = k == "husks" or k == "remnants" or k == "big_undead"
-		if not (_is_count(amounts[k]) if counted else _is_num(amounts[k])):
-			return _debug_fail("bad_value", str(k))
-	var applied := {}
-	var minted: Array = []
-	for k in amounts:
-		var v := float(amounts[k])
-		match k:
-			"gold", "bodies", "living", "bone", "workers":
-				applied[k] = _grant_town(k, v)
-				if k == "bodies" or k == "workers":
-					_ledger.source("debug", float(applied[k]) * (worker_mass() if k == "workers" else 1.0))
-			"backlog":
-				var old: float = realm.vei["undead_queue"]
-				realm.vei["undead_queue"] = maxf(0.0, old + v)
-				applied[k] = realm.vei["undead_queue"] - old
-				_ledger.source("debug", float(applied[k]))
-			"relics":
-				var old := relics
-				relics = clampi(old + int(v), 0, maxi(_cap_of("relics"), old))
-				applied[k] = relics - old
-			"essence":
-				var old := essence
-				essence = clampi(old + int(v), 0, maxi(_cap_of("essence"), old))
-				applied[k] = essence - old
-			"husks":
-				for i in int(v):
-					minted.append(_mint_husk())
-				applied[k] = int(v)
-			"remnants":
-				for i in int(v):
-					minted.append(_mint_remnant())
-				applied[k] = int(v)
-			"big_undead":
-				var room := maxi(0, _cap_of("big_undead") - big_undead.size())
-				var n := mini(int(v), room)
-				for i in n:
-					minted.append(_mint_big_undead())
-				applied[k] = n
-	applied["minted"] = minted
-	rev += 1
-	return {"ok": true, "reason": "", "key": "", "applied": applied}
-
-
-## A grant to one of TownSim's stocks (workers in workers, the rest in their units): floored at 0;
-## bodies and living are capped at body_cap() and living_cap(), but a grant never pulls an over-cap
-## stock down (E1 I4). Workers are a float (staffing is fractional) and restaff at once. Returns the
-## applied delta.
-func _grant_town(key: String, v: float) -> float:
-	var old := float(town_sim.get(key))
-	var hi := INF
-	if key == "bodies":
-		hi = town_sim.body_cap()
-	elif key == "living":
-		hi = town_sim.living_cap()
-	var now := clampf(old + v, 0.0, maxf(hi, old))
-	town_sim.set(key, now)
-	if key == "workers":
-		town_sim.restaff()
-	return now - old
-
-
-func _valid_valve(v: Variant) -> bool:
-	if not (v is Dictionary):
-		return false
-	var sum := 0.0
-	for k in ["work", "war", "flood"]:
-		if not v.has(k) or not _is_num(v[k]) or float(v[k]) < 0.0:
-			return false
-		sum += float(v[k])
-	return sum > 0.0
-
-
-func _valid_forts(v: Variant) -> bool:
-	if not (v is Dictionary):
-		return false
-	for id in v:
-		if realm.fort_by_id(str(id)).is_empty() or not (v[id] is Dictionary):
-			return false
-		for k in v[id]:
-			if not ["living", "undead", "dead"].has(k) or not _is_num(v[id][k]) or float(v[id][k]) < 0.0:
-				return false
-	return true
+	return DebugCmds.grant(self, amounts)
 
 
 func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
-	if not debug_enabled:
-		return {"ok": false, "reason": "not_debug", "key": ""}
-	for k in patch:
-		if not DEBUG_STATE_KEYS.has(k):
-			return {"ok": false, "reason": "unknown_key", "key": str(k)}
-	for k in patch:
-		var v: Variant = patch[k]
-		var good := false
-		match k:
-			"time_scale":
-				good = _is_num(v) and float(v) > 0.0 and float(v) <= 100.0
-			"paused", "won":
-				good = typeof(v) == TYPE_BOOL
-			"relish_at":
-				good = typeof(v) == TYPE_STRING and _node_valid(v)
-			"valve":
-				good = _valid_valve(v)
-			"forge_level":
-				good = _is_count(v)
-			"forts":
-				good = _valid_forts(v)
-		if not good:
-			return {"ok": false, "reason": "bad_value", "key": str(k)}
-	if patch.has("relish_at") and not run.is_empty():
-		return {"ok": false, "reason": "busy", "key": "relish_at"}
-	for k in patch:
-		var v: Variant = patch[k]
-		match k:
-			"time_scale":
-				time_scale = float(v)
-			"paused":
-				paused = v
-			"won":
-				won = v
-			"relish_at":
-				_place_relish(v)
-			"valve":
-				valve = _normalised(float(v["work"]), float(v["war"]), float(v["flood"]))
-				valve_target = valve.duplicate()
-				_valve_callout()
-			"forge_level":
-				town_sim.forge = {"level": int(float(v)), "progress": 0.0}  # TownSim's q forge level
-			"forts":
-				for id in v:
-					var f := realm.fort_by_id(str(id))
-					for m in v[id]:
-						var old: float = f[m]
-						f[m] = minf(float(v[id][m]), float(f["cap"]))
-						_ledger.source("debug", float(f[m]) - old)
-	rev += 1
-	return {"ok": true, "reason": "", "key": ""}
+	return DebugCmds.set_state(self, patch)
 
 
 func cmd_debug_skip_time(seconds: float) -> Dictionary:
-	if not debug_enabled:
-		return {"ok": false, "reason": "not_debug", "substeps": 0}
-	if not is_finite(seconds) or seconds <= 0.0 or seconds > 86400.0:
-		return {"ok": false, "reason": "bad_value", "substeps": 0}
-	var n := _advance(seconds, 0)
-	rev += 1
-	return {"ok": true, "reason": "", "substeps": n}
+	return DebugCmds.skip_time(self, seconds)
 
 
 # ------------------------------------------------------------- §4.3 town ----
@@ -1740,16 +1547,7 @@ func list_saves() -> Array[Dictionary]:
 
 ## §4.6, E1. Loads <fixture_dir>/<name>.json through from_dict.
 func cmd_debug_load_fixture(name: String) -> Dictionary:
-	if not debug_enabled:
-		return {"ok": false, "reason": "not_debug"}
-	if not run.is_empty():
-		return {"ok": false, "reason": "busy"}
-	if not FIXTURES.has(name):
-		return {"ok": false, "reason": "unknown_fixture"}
-	var d := SaveIO.read_file("%s/%s.json" % [fixture_dir, name])
-	if d.is_empty() or not from_dict(d)["ok"]:
-		return {"ok": false, "reason": "bad_fixture"}
-	return {"ok": true, "reason": ""}
+	return DebugCmds.load_fixture(self, name)
 
 
 ## Recursively loads every *.json under `dir` into a Dictionary keyed by the
