@@ -397,7 +397,40 @@ func run() -> int:
 	_close_exit_tests(t)
 	_warden_reach_tests(t, cfg)
 	_vis_tests(t, cfg)
+	_time_split_tests(t)
 	return t.failures
+
+
+## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).
+func _time_split_tests(t: TestUtil) -> void:
+	t.suite("raid_time_split")
+	t.ok(RaidLogic.time_class(true, true, 4.0, 1.0) == "trance", "the trance wins over a fight and a walk")
+	t.ok(RaidLogic.time_class(false, true, 4.0, 1.0) == "fight", "engaged while walking (kiting) is fight")
+	t.ok(RaidLogic.time_class(false, true, 0.0, 1.0) == "fight", "engaged standing still (holding, off a slam) is fight")
+	t.ok(RaidLogic.time_class(false, false, 4.0, 1.0) == "travel", "nothing engaged, walking: travel")
+	t.ok(RaidLogic.time_class(false, false, 1.0, 1.0) == "idle", "moving no more than move_px is not travel")
+	t.ok(RaidLogic.time_class(false, false, 0.0, 1.0) == "idle", "nothing engaged, standing: idle")
+	var seen := {}
+	for tr in [false, true]:
+		for en in [false, true]:
+			for mv in [0.0, 4.0]:
+				var k := RaidLogic.time_class(tr, en, mv, 1.0)
+				seen[k] = true
+				t.ok(k in RaidLogic.SPLIT_BUCKETS, "every case lands in a named bucket (%s)" % k)
+	t.ok(seen.size() == RaidLogic.SPLIT_BUCKETS.size(), "every bucket is reachable")
+	var me := Vector2(100, 100)
+	t.ok(not RaidLogic.foe_engaged(me, 2, Vector2(110, 100), 2, false, 260.0), "a calm foe at her side is not engaged")
+	t.ok(RaidLogic.foe_engaged(me, 2, Vector2(900, 100), 2, true, 260.0), "a hostile foe anywhere in her room is engaged")
+	t.ok(RaidLogic.foe_engaged(me, 2, Vector2(300, 100), 3, true, 260.0), "a hostile foe within fight_px through a wall is engaged")
+	t.ok(not RaidLogic.foe_engaged(me, 2, Vector2(400, 100), 3, true, 260.0), "a hostile foe beyond fight_px in another room is not")
+	t.ok(not RaidLogic.foe_engaged(me, -1, Vector2(900, 100), -1, true, 260.0), "two doorway bands are not one room")
+	t.ok(RaidLogic.foe_engaged(me, -1, Vector2(200, 100), -1, true, 260.0), "in a doorway band the radius still counts")
+	# the split only reads the run: no rng draw, no goal, no routing state
+	for head in ["func _split_tick(", "func _engaged(", "func _route_px("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("_rng") and not body.contains("rng_combat") and not body.contains("move_target")
+			and not body.contains("_cur_room") and not body.contains("_hold_t") and not body.contains("_stick"),
+			"the bot's %s reads the run and changes nothing the policy uses" % head.trim_prefix("func ").trim_suffix("("))
 
 
 ## RaidLogic.profile_seed: BALANCE 3's standard party of tier T at a world.json fort.

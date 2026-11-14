@@ -38,6 +38,10 @@ extends RefCounted
 ##           it is exposed wait `pyre_exposed_px` from it. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
+## Measuring fields (read only, never fed back): `split` (scene seconds per RaidLogic.time_class bucket),
+## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
+## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`. See NOTES-RAID "Run length
+## and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -81,6 +85,14 @@ var _pyre := {}                 # the Pyre-priest's counts, read off it each thi
 var _burn_tell := -1.0          # the burn tell the step-off roll was made for
 var _stepping := true           # this tell is stepped off (rolled once per tell)
 var _min_hp := INF              # Relish's lowest hp so far (the pyre dict reports it)
+# measuring only (D-d/E): read off the run each physics tick, never fed back into a decision
+const SPLIT_MOVE_PX := 1.0      # a tick in which Relish moved more than this is travel (she walks 4 px a tick)
+var _split := {"travel": 0.0, "fight": 0.0, "trance": 0.0, "idle": 0.0}   # scene seconds per RaidLogic.time_class bucket
+var _last_pos := Vector2.INF    # Relish's position at the previous tick
+var _walk_px := 0.0             # how far Relish walked in all
+var _walk_travel_px := 0.0      # of it: in travel ticks
+var _rooms_entered := 0         # room changes (_track_room): decision points for the human factor
+var _frames0 := [0, 0]          # the process and physics frame counters at start()
 
 
 func _init(p_raid: Node2D) -> void:
@@ -112,6 +124,7 @@ func start() -> void:
 	_rng.seed = _seed ^ 0x0A170B07
 	var w = _raid.warden_run.warden
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
+	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
 	_pin_clock()
 
 
@@ -136,6 +149,7 @@ func physics_tick(delta: float) -> void:
 	var rel_hp: RaidRelish = _raid.relish
 	if rel_hp != null and is_instance_valid(rel_hp):
 		_min_hp = minf(_min_hp, rel_hp.hp)
+	_split_tick(delta)
 	_frame += 1
 	if _frame % maxi(1, int(_c("think_frames", 3.0))) != 0:
 		return
@@ -177,6 +191,63 @@ func physics_tick(delta: float) -> void:
 			_raid.carried_count(), _raid.get_tree().get_nodes_in_group("raid_essence").size() - _raid.carried_count(),
 			_raid.get_tree().get_nodes_in_group("raid_piles").size(), _raid.trance.state, _why, _hold_t,
 			_motes_near(pos, _c("raise_reach_px", 300.0)).size(), _motes_near(pos, 350.0).size(), _warden_log()])
+
+
+## One tick of the time split (RaidLogic.time_class; NOTES-RAID "Run length and risk calibration"):
+## reads the run, changes nothing. Runs every live physics tick, so the buckets sum to duration_s.
+func _split_tick(delta: float) -> void:
+	var rel: RaidRelish = _raid.relish
+	var rpos := Vector2.INF
+	var moved := 0.0
+	if rel != null and is_instance_valid(rel):
+		rpos = rel.global_position
+		if _last_pos != Vector2.INF:
+			moved = rpos.distance_to(_last_pos)
+		_last_pos = rpos
+	var tr: RaidTrance = _raid.trance
+	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
+	_split[k] = float(_split[k]) + delta
+	_walk_px += moved
+	if k == "travel":
+		_walk_travel_px += moved
+
+
+## The split's "engaged": the warden from its wake while it lives (standing off a slam or waiting out a
+## tell is its fight), or a hostile living foe in her room or within combat.aggro_px of her.
+func _engaged(rpos: Vector2) -> bool:
+	var w = _raid.warden_run.warden
+	if w != null and is_instance_valid(w) and w.alive and w.awake:
+		return true
+	if rpos == Vector2.INF:
+		return false
+	var fight_px := float((_raid.rcfg().get("combat", {}) as Dictionary).get("aggro_px", 260.0))
+	var rr := RaidLogic.room_of(_raid.layout, rpos)
+	for e in _raid.enemies:
+		if not is_instance_valid(e) or not e.alive or not e._aggro:
+			continue
+		if RaidLogic.foe_engaged(rpos, rr, e.global_position, RaidLogic.room_of(_raid.layout, e.global_position), true, fight_px):
+			return true
+	return false
+
+
+## The shortest walk the bot's own routing takes from the spawn to the goal room's centre: the BFS room
+## path, through the nearest gap of each pair in turn (the human factor's route baseline).
+func _route_px() -> float:
+	var at: Vector2 = _raid.layout["spawn"]
+	var goal := _goal_room()
+	var p := _path(RaidLogic.room_of(_raid.layout, at), goal)
+	var px := 0.0
+	for i in range(1, p.size()):
+		var best := _room_center(p[i])
+		var bd := INF
+		for g in _gaps_between(p[i - 1], p[i]):
+			var c := (g as Rect2).get_center()
+			if at.distance_to(c) < bd:
+				bd = at.distance_to(c)
+				best = c
+		px += at.distance_to(best)
+		at = best
+	return px + at.distance_to(_room_center(goal))
 
 
 func _warden_log() -> String:
@@ -244,6 +315,20 @@ func on_finish(result: Dictionary) -> void:
 			low = minf(low, _raid.relish.hp)   # the killing blow lands after the last tick
 		py["relish_min_hp"] = snappedf(maxf(0.0, low) if low < INF else -1.0, 0.1)
 		out["pyre"] = py
+	# measuring only (D-d/E): the time split, the frame counters (lockstep), the walk, the death's cause
+	out["split"] = {"travel_s": snappedf(float(_split["travel"]), 0.01), "fight_s": snappedf(float(_split["fight"]), 0.01),
+		"trance_s": snappedf(float(_split["trance"]), 0.01), "idle_s": snappedf(float(_split["idle"]), 0.01)}
+	out["frames_drawn"] = Engine.get_process_frames()
+	out["physics_frames"] = Engine.get_physics_frames()
+	out["frames_at_start"] = {"drawn": int(_frames0[0]), "physics": int(_frames0[1])}
+	out["run_ticks"] = _frame
+	out["walk_px"] = roundi(_walk_px)
+	out["walk_travel_px"] = roundi(_walk_travel_px)
+	out["route_px"] = roundi(_route_px())
+	out["rooms_entered"] = _rooms_entered
+	var died := exit == "relish_died"
+	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
+	out["killed_by"] = (src if src != "" else "wound") if died else ""
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -298,6 +383,7 @@ func _track_room(pos: Vector2) -> void:
 		_prev_room = _cur_room
 		_cur_room = r
 		_hold_t = 0.0
+		_rooms_entered += 1
 
 
 func _rooms() -> Array:

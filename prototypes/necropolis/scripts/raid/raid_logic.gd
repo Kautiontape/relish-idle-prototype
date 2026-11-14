@@ -823,3 +823,32 @@ static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) ->
 ## Warden spec for a fort {id, tier, archetype?, first_dungeon?} (see WardenLogic.spec).
 static func warden_spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	return WardenLogic.spec(fort, cfg)
+
+
+# ------------------------------------------------------ the run's time split ---
+## The measuring bot's time split (D-d/E; NOTES-RAID "Run length and risk calibration"): every physics
+## tick of a live run goes to one bucket, the first that matches: "trance" (the trance is open),
+## "fight" (something is engaged, `foe_engaged` or an awake warden), "travel" (Relish moved more than
+## `move_px` this tick), else "idle". The bot never opens the trance (its raise is instant), so its
+## trance share is 0 by construction.
+const SPLIT_BUCKETS := ["travel", "fight", "trance", "idle"]
+
+
+static func time_class(in_trance: bool, engaged: bool, moved_px: float, move_px: float) -> String:
+	if in_trance:
+		return "trance"
+	if engaged:
+		return "fight"
+	if moved_px > move_px:
+		return "travel"
+	return "idle"
+
+
+## A living foe is engaged once it is hostile (aggro'd: it never calms) and stands in Relish's room
+## (`rel_room` >= 0, a doorway band is no room) or within `fight_px` of her, wherever the wall is.
+static func foe_engaged(rel_pos: Vector2, rel_room: int, foe_pos: Vector2, foe_room: int, hostile: bool, fight_px: float) -> bool:
+	if not hostile:
+		return false
+	if rel_room >= 0 and foe_room == rel_room:
+		return true
+	return rel_pos.distance_to(foe_pos) <= fight_px
