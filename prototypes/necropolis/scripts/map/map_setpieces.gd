@@ -23,7 +23,9 @@ extends Node
 ## so they play where the player can see them. Every clock is beats on Pulse's wall clock, so
 ## reduced motion (each set piece straight to its end state) still times them; sounds still play.
 ## Debug: --setpiece=<kind> fires one at a demo fort debug_delay_s after going live;
-## --setpiece-slow=k stretches every set piece k times. Timing: setpiece_logic.gd. Tuning:
+## --setpiece-slow=k stretches every set piece k times. Always pair them with --fixture=:
+## --setpiece=valve sends a real cmd_set_valve, and --setpiece is not a harness arg (DEV_ARGS),
+## so without a fixture it would autosave over the shared auto.json (api-request #11). Timing: setpiece_logic.gd. Tuning:
 ## configs/map_view.json "setpieces"; sounds: configs/synth.json.
 
 var model: MapModel
