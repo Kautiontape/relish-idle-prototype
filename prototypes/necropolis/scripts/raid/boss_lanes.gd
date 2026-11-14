@@ -125,6 +125,7 @@ func _contact(i: int) -> float:
 
 # ------------------------------------------------------------------- draw ---
 func _draw() -> void:
+	var t0 := BossDev.pt()
 	var reduced: bool = Pulse.reduced_motion
 	var dim := 1.0 - 0.8 * maxf(lose_f, 0.0)
 	for i in lanes.size():
@@ -137,6 +138,7 @@ func _draw() -> void:
 		var head := BossLogic.point_at(lanes[i], _contact(i))
 		var p: Vector2 = rn["p"]
 		_undead(p, (head - p).normalized() if head.distance_to(p) > 1.0 else BossLogic.lane_dir(lanes[i]), r, 1.0)
+	BossDev.pa("lanes", t0)
 
 
 func _draw_lane(i: int, reduced: bool, dim: float) -> void:
@@ -197,7 +199,7 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 	# Vei's rings behind the line, at her court end
 	var vcol := Palette.c("vei", (0.35 if cleared else 0.85) * dim)
 	LineGlow.ring(self, b, 15.0, vcol, 2.0, 0.4)
-	LineGlow.ring(self, b, 24.0, Palette.c("vei", (0.2 if cleared else 0.5) * dim), 1.5, 0.3)
+	draw_arc(b, 24.0, 0.0, TAU, 24, Palette.c("vei", (0.2 if cleared else 0.5) * dim), 1.5)
 
 
 ## The lane runs green toward Vei: undead dashes at a mid rate (VISUAL-LANGUAGE law 3). Their
@@ -327,10 +329,13 @@ func _draw_anchor(p: Vector2, reduced: bool) -> void:
 	LineGlow.ring(self, p, r, Palette.c("relish", (0.45 + 0.3 * w) * dim), 2.0, 0.5)
 	LineGlow.matte_ring(self, p, r * 0.55, Palette.c("dead", 0.9 * dim), 2.0)
 	var spin := 0.0 if reduced else Pulse.phase() * TAU / 3.0
+	var ticks := PackedVector2Array()
 	for k in 3:
 		var ang := TAU * k / 3.0 + spin - PI * 0.5
 		var d := Vector2.RIGHT.rotated(ang)
-		draw_line(p + d * (r + 4.0), p + d * (r + 14.0), Palette.c("relish", 0.8 * dim), 2.0)
+		ticks.append(p + d * (r + 4.0))
+		ticks.append(p + d * (r + 14.0))
+	draw_multiline(ticks, Palette.c("relish", 0.8 * dim), 2.0)
 
 
 ## The lane labels: front, have / need as integers, and a status word. On screen at label_px
@@ -338,11 +343,28 @@ func _draw_anchor(p: Vector2, reduced: bool) -> void:
 class Labels:
 	extends Node2D
 	var lanes_node: BossLanes = null
+	var _sig := ""
 
+	## Redraw only when what the labels say (or the zoom, or the loss dim) changes.
 	func _process(_d: float) -> void:
-		queue_redraw()
+		var ln := lanes_node
+		if ln == null or ln.boss == null or ln.boss.cam == null:
+			return
+		var sig := "%d|%.3f|%.2f" % [ln.phase, ln.boss.cam.zoom.x, maxf(ln.lose_f, 0.0)]
+		for i in ln.lanes.size():
+			var f := ln._front(i)
+			sig += "|%d/%d/%s" % [floori(float(f.get("have", 0.0)) + 0.0001), ceili(float(f.get("need", 0.0)) - 0.0001),
+				str(f.get("cleared", false))]
+		if sig != _sig:
+			_sig = sig
+			queue_redraw()
 
 	func _draw() -> void:
+		var t0 := BossDev.pt()
+		_draw_labels()
+		BossDev.pa("labels", t0)
+
+	func _draw_labels() -> void:
 		var ln := lanes_node
 		if ln == null or ln.boss == null or ln.boss.cam == null:
 			return
@@ -393,9 +415,13 @@ class Labels:
 class BackupMarks:
 	extends Node2D
 	var boss: Node2D = null
+	var _n := -1
 
+	## Redraw only when a backup is spent (the marks ride on Relish's transform).
 	func _process(_d: float) -> void:
-		queue_redraw()
+		if boss != null and boss.backups_spent_total() != _n:
+			_n = boss.backups_spent_total()
+			queue_redraw()
 
 	func _draw() -> void:
 		if boss == null:

@@ -149,6 +149,12 @@ func ring_r(i: int) -> float:
 
 
 func _draw() -> void:
+	var t0 := BossDev.pt()
+	_draw_vei()
+	BossDev.pa("vei", t0)
+
+
+func _draw_vei() -> void:
 	var reduced: bool = Pulse.reduced_motion
 	var vei := Palette.c("vei")
 	var core := Palette.c("text")
@@ -179,7 +185,8 @@ func _draw() -> void:
 			var a0 := span * si + spin + gap * 0.5
 			var col := vei if gold else Palette.c("vei", 0.62)
 			col.a = clampf(col.a * bright, 0.0, 1.0)
-			LineGlow.arc(self, Vector2.ZERO, r, a0, a0 + span - gap, col, 3.0 if gold else 2.0, 0.6 if gold else 0.35,
+			# gold rings glow; the cream rings between them are single bright strokes (no halo stack)
+			LineGlow.arc(self, Vector2.ZERO, r, a0, a0 + span - gap, col, 3.0 if gold else 2.0, 0.6 if gold else 0.0,
 				core if gold else col)
 	if gone < total:
 		draw_circle(Vector2.ZERO, radius * 0.2, Palette.c("vei", clampf(0.9 * bright, 0.0, 1.0)))
@@ -193,11 +200,21 @@ func _draw() -> void:
 class Telegraph:
 	extends Node2D
 	var vei: RaidVei = null
+	var _shown := false
 
+	## Redraw only while a tell or a landing flash shows (and once more to clear it).
 	func _process(_d: float) -> void:
-		queue_redraw()
+		var on := vei != null and (vei.tell_on or vei._land_t >= 0.0)
+		if on or _shown:
+			queue_redraw()
+		_shown = on
 
 	func _draw() -> void:
+		var t0 := BossDev.pt()
+		_draw_tell()
+		BossDev.pa("tele", t0)
+
+	func _draw_tell() -> void:
 		if vei == null:
 			return
 		var w := vei.wcfg()

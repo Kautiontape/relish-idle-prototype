@@ -30,6 +30,11 @@ extends RefCounted
 ## force_fronts(fronts, n, cfg)    the demo's --boss-fronts=n override.
 ## demo_seed(cfg) -> Dictionary    vei.json demo.seed, deep-copied.
 ## backups_left(spent, charges, clones), rng_int(rng_seed)
+## cleared_ids(fronts) -> Array[String]    ids of the cleared fronts, in order.
+## fight_result(seed, won, p1, frozen_cleared, break_began, deaths, spent, party_lost, h0, h)
+##   VeiFronts.boss_result with the right fronts_cleared: the list frozen when the break began, or,
+##   for a fight that ended in phase 1 (a timeout, a final death, a window close), the fronts the
+##   phase-1 state `p1` has cleared so far. backlog_spent = H0 - H, never negative.
 ## close_fields(end_reason, spent_total) -> {won, relish_deaths}    a window close mid-fight (IDLE
 ##   I5): the win once she broke ("broken"), else lost; deaths = the backups spent, plus one when
 ##   the final-death beat was playing ("relish_unmade"). Always consistent with STATE-API 8.2.
@@ -285,6 +290,20 @@ static func demo_seed(cfg: Dictionary) -> Dictionary:
 
 static func backups_left(spent: Dictionary, charges: int, clones: int) -> int:
 	return maxi(0, charges - int(spent.get("phylactery", 0))) + maxi(0, clones - int(spent.get("clones", 0)))
+
+
+static func cleared_ids(fronts: Array) -> Array:
+	var out: Array = []
+	for f in fronts:
+		if typeof(f) == TYPE_DICTIONARY and bool(f.get("cleared", false)):
+			out.append(String(f.get("id", "")))
+	return out
+
+
+static func fight_result(seed: Dictionary, won: bool, p1: Dictionary, frozen_cleared: Array, break_began: bool,
+		deaths: int, spent: Dictionary, party_lost: Array, h0: float, h: float) -> Dictionary:
+	var cleared: Array = frozen_cleared if break_began else cleared_ids(p1.get("fronts", []))
+	return VeiFronts.boss_result(seed, won, cleared, deaths, spent, party_lost, backlog_spent(h0, h))
 
 
 static func close_fields(end_reason: String, spent_total: int) -> Dictionary:

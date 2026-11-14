@@ -456,3 +456,27 @@ func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(Results.validate("boss", VeiFronts.boss_result(cs, false, [], 0, {"phylactery": 0, "clones": 0}, [], 0.0)).is_empty(),
 		"a close with no backup spent validates")
 	t.ok(int(BossLogic.close_fields("", -3)["relish_deaths"]) == 0, "close_fields never counts negative deaths")
+
+	# --- the result's fronts_cleared, whichever phase the fight ended in ----
+	t.suite("boss_result_fronts")
+	var p1 := VeiFronts.phase1_start([
+		{"id": "giants", "have": 30.0, "need": 20.0}, {"id": "swarm", "have": 25.0, "need": 20.0},
+		{"id": "carvers", "have": 5.0, "need": 20.0}, {"id": "raw", "have": 5.0, "need": 40.0}])
+	for i in 1000:
+		p1 = VeiFronts.phase1_step(p1, 0.1, cfg)
+	t.ok(VeiFronts.phase1_outcome(p1, cfg) == "lost", "fixture: two of four at the timeout is a phase-1 loss")
+	t.ok(BossLogic.cleared_ids(p1["fronts"]) == ["giants", "swarm"], "cleared_ids lists the cleared fronts in order")
+	var none := {"phylactery": 0, "clones": 0}
+	var lost1 := BossLogic.fight_result(cs, false, p1, [], false, 0, none, [], 0.0, 0.0)
+	t.ok(lost1["fronts_cleared"] == ["giants", "swarm"], "a phase-1 loss reports the fronts it cleared")
+	t.ok(Results.validate("boss", lost1).is_empty(), "the phase-1 loss validates")
+	var died1 := BossLogic.fight_result(cs, false, p1, [], false, 1, none, [], 0.0, 0.0)
+	t.ok(died1["fronts_cleared"] == ["giants", "swarm"] and Results.validate("boss", died1).is_empty(),
+		"a final death in phase 1 reports them too")
+	var mid := VeiFronts.phase1_start([{"id": "giants", "have": 30.0, "need": 20.0}, {"id": "swarm", "have": 5.0, "need": 20.0}])
+	t.ok(BossLogic.fight_result(cs, false, mid, [], false, 0, none, [], 0.0, 0.0)["fronts_cleared"] == [],
+		"a close before any front clears reports none")
+	var brk := BossLogic.fight_result(cs, true, p1, ["giants", "swarm", "carvers"], true, 0, none, [], 100.0, 40.0)
+	t.ok(brk["fronts_cleared"] == ["giants", "swarm", "carvers"], "after the break began: the fronts cleared in phase 1")
+	t.near(float(brk["backlog_spent"]), 60.0, 0.0001, "backlog spent = H0 - H")
+	t.near(float(lost1["backlog_spent"]), 0.0, 0.0, "a phase-1 ending spends no horde")

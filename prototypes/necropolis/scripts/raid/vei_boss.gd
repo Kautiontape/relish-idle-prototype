@@ -29,7 +29,7 @@ enum Phase { FRONTS, BREAK, OVER }
 var phase: int = Phase.FRONTS
 var fronts: Array = []          # the seed's fronts with have/need, FRONT_IDS order
 var p1 := {}                    # VeiFronts phase-1 state
-var fronts_cleared: Array = []  # ids cleared in phase 1 (the result's)
+var fronts_cleared: Array = []  # ids cleared in phase 1, frozen when the break begins (_result)
 var lanes: Array = []           # BossLogic.lanes
 var lanes_node: BossLanes = null
 var party_lane := {}            # uid -> lane index (the front VeiFronts counts it on)
@@ -232,10 +232,12 @@ func _post_physics(delta: float) -> void:
 		_bdev.physics_tick(delta)
 	if _bot != null:
 		_bot.physics_tick(delta)
+	var t0 := BossDev.pt()
 	if phase == Phase.FRONTS:
 		_step_fronts(delta)
 	elif phase == Phase.BREAK:
 		_step_break(delta)
+	BossDev.pa("step", t0)
 
 
 func _process(delta: float) -> void:
@@ -689,9 +691,11 @@ func _step_sequence(delta: float) -> void:
 			_emit(false)
 
 
+## The boss result. fronts_cleared is the list frozen at the break, or, when the fight ended in
+## phase 1 (a timeout, a final death, a window close), what phase 1 had cleared by then.
 func _result(won: bool) -> Dictionary:
-	return VeiFronts.boss_result(seed_data, won, fronts_cleared, deaths, spent, party_lost,
-		BossLogic.backlog_spent(horde0, horde))
+	return BossLogic.fight_result(seed_data, won, p1, fronts_cleared, phase1_s >= 0.0, deaths, spent, party_lost,
+		horde0, horde)
 
 
 func _emit(won: bool) -> void:
@@ -713,7 +717,7 @@ func _emit(won: bool) -> void:
 ## What the boss HUD block shows, read each frame (raid_hud.gd BossBlock).
 func hud_info() -> Dictionary:
 	var vc := vcfg()
-	var met := VeiFronts.fronts_met(p1.get("fronts", [])) if phase == Phase.FRONTS else fronts_cleared.size()
+	var met := VeiFronts.fronts_met(p1.get("fronts", [])) if phase1_s < 0.0 else fronts_cleared.size()
 	var hint := ""
 	if not _ended:
 		if phase == Phase.FRONTS and _p1_raises == 0:
