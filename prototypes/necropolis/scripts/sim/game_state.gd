@@ -24,6 +24,11 @@ const WARDEN_ARCHETYPES := ["bellringer", "huntsman", "shieldwall", "pyre_priest
 const FIXTURES := ["day1", "midgame_2flips", "pre_vei"]
 const DEBUG_GRANT_KEYS := ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"]
 const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"]
+## Every config value GameState reads with no fallback, as "file.section.key" paths (E2b-2 T3.2: the
+## hold and loot tunables, which used to carry inline defaults that duplicated the configs). setup()
+## reads them once (_req); a missing one is an error at load, not a silent default, and
+## tests/test_game_state_configs.gd asserts each one is present in res://configs.
+const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -109,6 +114,11 @@ var won := false
 var stats := {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 
 var _cfgs := {}
+# ---- tunables read once in setup() from REQUIRED (no numbers here) ----
+var _raise_rate := 0.0  # realm.json relish.raise_rate: mass/s Relish raises where she redirects
+var _clear_min_living := 0.0  # realm.json hold.clear_min_living: the dungeon's spawn floor, mirrored
+var _recover_s := 0.0  # loot.json recover_s: a fort's loot yield back to 1 over this many seconds
+var _reclear_decay := 0.0  # loot.json reclear_decay: the yield × this per clear that paid loot
 var _acc := 0.0
 ## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
 ## `war` includes). Session only.
@@ -132,7 +142,28 @@ func _init(configs: Dictionary = {}) -> void:
 ## `cfgs` is the dict returned by load_configs (keyed by file name).
 func setup(cfgs: Dictionary) -> void:
 	_cfgs = cfgs
+	_raise_rate = _req_f("realm.relish.raise_rate")
+	_clear_min_living = _req_f("realm.hold.clear_min_living")
+	_recover_s = _req_f("loot.recover_s")
+	_reclear_decay = _req_f("loot.reclear_decay")
 	town_sim.setup(cfgs)
+
+
+## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
+func _req(path: String) -> Variant:
+	assert(REQUIRED.has(path), "GameState reads %s; add it to REQUIRED" % path)
+	var v: Variant = _cfgs
+	for k in path.split("."):
+		if not (v is Dictionary and (v as Dictionary).has(k)):
+			push_error("GameState: config %s is missing" % path)
+			return null
+		v = v[k]
+	return v
+
+
+func _req_f(path: String) -> float:
+	var v: Variant = _req(path)
+	return float(v) if v is float or v is int else 0.0
 
 
 func _cfg() -> Dictionary:
@@ -508,7 +539,7 @@ func _garrison(fort_id: String) -> Array:
 ## clears after held.empty_clear_s) is all tolerated: its clear reports 0.
 func _clear_tolerance(sd: Dictionary) -> float:
 	var living := maxf(0.0, float(sd.get("living", 0.0)))
-	if living <= float(_cfg().get("hold", {}).get("clear_min_living", 0.05)):
+	if living <= _clear_min_living:
 		return living
 	var m: Dictionary = _sec("raid", "mass")
 	var cap := maxf(1.0, float(sd.get("fort", {}).get("cap", 100.0)))
@@ -524,7 +555,7 @@ func _yield_mult(f: Dictionary) -> float:
 	var c := clampf(float(f.get("yield_c", 1.0)), 0.0, 1.0)
 	if c >= 1.0:
 		return 1.0
-	var rec := float(_cfgs.get("loot", {}).get("recover_s", 28800.0))
+	var rec := _recover_s
 	var left := 1.0 - (t - float(f.get("yield_t", 0.0))) / rec if rec > 0.0 else 0.0
 	return 1.0 - (1.0 - c) * clampf(left, 0.0, 1.0)
 
@@ -532,7 +563,7 @@ func _yield_mult(f: Dictionary) -> float:
 ## A clear that paid loot (a flip, a counter-garrison clear): the yield drops to yield_mult(now) ×
 ## loot.reclear_decay, from now.
 func _spend_yield(f: Dictionary) -> void:
-	f["yield_c"] = _yield_mult(f) * float(_cfgs.get("loot", {}).get("reclear_decay", 0.5))
+	f["yield_c"] = _yield_mult(f) * _reclear_decay
 	f["yield_t"] = t
 
 
@@ -1161,14 +1192,14 @@ func _fort_readout(f: Dictionary, w_in: float) -> Dictionary:
 	var fx := _relish_effects()
 	var id: String = f["id"]
 	var siege: Variant = _realm_inputs.get("siege_block", {})
-	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, float(_cfg().get("relish", {}).get("raise_rate", 4.0)),
+	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
 		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q())
 
 
 ## _fort_readout's garrison_rate alone (war_supports).
 func _fort_rate(f: Dictionary, w_in: float) -> float:
 	var fx := _relish_effects()
-	return realm.garrison_rate_of(f, w_in, fx["redirect_fort"] == str(f["id"]), float(_cfg().get("relish", {}).get("raise_rate", 4.0)), digest_q())
+	return realm.garrison_rate_of(f, w_in, fx["redirect_fort"] == str(f["id"]), _raise_rate, digest_q())
 
 
 ## view_projection's valve: `v` normalised as cmd_set_valve normalises it; the current valve for one
@@ -1425,7 +1456,7 @@ func _core_step(dt: float) -> Array:
 	_realm_inputs = {
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
 		"tide_fort": fx["tide_fort"], "tide_bias": float(rcfg.get("tide_bias", 3.0)),
-		"redirect_fort": fx["redirect_fort"], "redirect_rate": float(rcfg.get("raise_rate", 4.0)),
+		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
 		"siege_block": {},
 	}
 	var cleared0 := realm.cleared_total

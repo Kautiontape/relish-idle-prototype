@@ -24,6 +24,7 @@ func run() -> int:
 	_by_hand()
 	_supports_monotone()
 	_chip_predicts()
+	_chip_slow_fall()
 	_grace_view()
 	_counter_garrison()
 	_yield()
@@ -299,6 +300,47 @@ func _chip_predicts() -> void:
 	t.ok(ro["margin"] == "will_fall" and at >= 0.0, "Ashgate, no WAR, %.1f undead: will_fall, retaken at %.0f s (fall_s %.0f s)" % [
 		u_read, at, ro["fall_s"]])
 	print("  [api-v6-chip] Ashgate, no WAR: fall_s %.1f s, the sim's retake %.1f s (gap %.1f s)" % [ro["fall_s"], at, at - float(ro["fall_s"])])
+
+
+## The margin's order (E2b-2 T3.2 §0; MECHANICS §3.5): will_fall, then thin "wave" when one full wave
+## breaks it, then thin "fall" when it falls beyond the horizon, then safe. A contested Ashgate at q 2 (her
+## living's pile binds first) with 60 undead and its WAR just under the edge falls past the 8 h horizon.
+## With the shipped probe a falling fort's probe starts at the garrison its support holds, which is 0, so
+## a full wave always breaks it and the slow fall still reads "wave" (printed). The probe can only hold
+## where it can't see a break: with hold.probe_s under hold.break_s it never breaks, and the slow fall
+## reads cause "fall" (the reviewer's case: slow attrition, not a wave, is the threat).
+func _chip_slow_fall() -> void:
+	t.suite("api-v6-chip-slow-fall")
+	var horizon := float(TestUtil.configs()["realm"]["hold"]["safe_horizon_s"])
+	for short_probe in [false, true]:
+		var all := TestUtil.configs().duplicate(true)
+		if short_probe:
+			all["realm"]["hold"]["probe_s"] = 0.5 * float(all["realm"]["hold"]["break_s"])
+		var sim := RealmSim.new()
+		sim.setup(all["world"], all["realm"])
+		sim.vei["living_pool"] = 600.0
+		for o in sim.forts:
+			o["living"] = 0.0
+			o["undead"] = 0.0
+			o["dead"] = 0.0
+		sim.hold("ashgate", 0.0)
+		var f := sim.fort_by_id("ashgate")
+		f["undead"] = 60.0
+		var q := 2.0
+		var s := sim.reship_rate(f)
+		var hold_off := sim._r_drain * s / sim._k_kill
+		var pile := sim._k_destroy * (float(f["cap"]) + sim._march * s) / q
+		var w := minf(hold_off, pile) - 60.0 / (2.0 * horizon)  # a rate of −60 / 2h: it falls at about 2 × the horizon
+		var ro := sim.readout_of(f, w, false, 4.0, false, 0.0, q)
+		var breaks := sim._wave_breaks(f, w, s, w, false, 4.0, false, 0.0, q, hold_off)
+		var label := "probe_s %.0f" % float(all["realm"]["hold"]["probe_s"])
+		t.ok(ro["garrison_rate"] < 0.0 and float(ro["fall_s"]) > horizon and breaks == (not short_probe),
+			"%s: the premise: rate %.5f < 0, fall_s %.0f s past the %.0f s horizon, one full wave %s" % [
+			label, ro["garrison_rate"], ro["fall_s"], horizon, "breaks it" if breaks else "doesn't break it"])
+		var want := ["thin", "fall"] if short_probe else ["thin", "wave"]
+		t.ok([ro["margin"], ro["margin_cause"]] == want, "%s: the slow fall reads %s (%s)" % [label, ro["margin"], ro["margin_cause"]])
+		if not short_probe:
+			print("  [api-v6-chip-slow-fall] shipped probe: a falling fort's probe starts at a 0 garrison and breaks, so a slow fall reads thin (wave)")
 
 
 ## A fort in grace shows grace_s_left > 0 and its post-grace readouts: midgame_2flips at load (374.5 s

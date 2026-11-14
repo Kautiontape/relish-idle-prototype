@@ -57,6 +57,9 @@ from `BALANCE.md` §0.
   - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
     the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
     (§9.1);
+  - (T3.2) `margin_cause` `"fall"` on a `thin` margin: a held fort that falls beyond the horizon and that
+    one full wave wouldn't break reads `thin` / `"fall"`, no longer `thin` / `"wave"` (§5.5; MECHANICS
+    §3.5): a meaning change, not a shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1040,8 +1043,8 @@ hint are still the E1 stubs (`bellringer`, `risk: "low"`) until their E2 specs; 
 | `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
 | `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held |
 | `fall_s` | float | seconds until it is retaken at that rate (v6, api-request #13): `grace_s_left` + `garrison / −garrison_rate` + `hold.break_s` while the rate is < 0; −1.0 while it isn't falling or isn't held. Never INF. A straight-line estimate (MECHANICS §3.5) |
-| `margin` | String | v6 (api-request #7 a): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when it falls beyond the horizon or one full tithe wave would break it; else `"safe"` (it survives the next 8 h, a full wave included); `""` when not held |
-| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock), `"wave"` for `thin` (a full wave would break it), `""` for safe or not held |
+| `margin` | String | v6 (api-request #7 a), checked in this order: `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when one full tithe wave would break it; else `"thin"` when it falls beyond the horizon; else `"safe"` (it survives the next 8 h, a full wave included); `""` when not held |
+| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` a full wave would break; `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |

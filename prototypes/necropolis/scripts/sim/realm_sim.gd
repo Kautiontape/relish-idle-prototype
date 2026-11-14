@@ -1392,9 +1392,10 @@ func war_at(war: float) -> Array:
 ##   drain) or outlasting her living at their most (their pull, with no kills: the march-back's
 ##   level). ≥ 0: it holds without waves; < 0: it falls.
 ## - fall_s = grace left + garrison / −rate + break_s while the rate is < 0, else −1.
-## - margin: "will_fall" (cause "fall") when 0 ≤ fall_s ≤ safe_horizon_s; else "thin" (cause "wave")
-##   when it falls beyond the horizon or one full wave breaks it (_wave_breaks); else "safe". "" when
-##   not held.
+## - margin, in this order (E2b-2 T3.2): "will_fall" (cause "fall") when 0 ≤ fall_s ≤ safe_horizon_s;
+##   else "thin" (cause "wave") when one full wave breaks it (_wave_breaks); else "thin" (cause
+##   "fall") when it falls beyond the horizon (rate < 0: slow attrition, not a wave, is the threat);
+##   else "safe". "" when not held. A slow fall used to read cause "wave" whatever the probe said.
 func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, tide: bool, block: float, q: float) -> Dictionary:
 	if not is_held(f):
 		return {"garrison_rate": 0.0, "fall_s": -1.0, "margin": "", "margin_cause": ""}
@@ -1413,9 +1414,12 @@ func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, ti
 	if fall >= 0.0 and fall <= _horizon_s:
 		out["margin"] = "will_fall"
 		out["margin_cause"] = "fall"
-	elif rate < 0.0 or _wave_breaks(f, a, s, w_in, redirect, raise_max, tide, block, qq, hold_off):
+	elif _wave_breaks(f, a, s, w_in, redirect, raise_max, tide, block, qq, hold_off):
 		out["margin"] = "thin"
 		out["margin_cause"] = "wave"
+	elif rate < 0.0:
+		out["margin"] = "thin"
+		out["margin_cause"] = "fall"
 	return out
 
 

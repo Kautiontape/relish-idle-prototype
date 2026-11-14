@@ -631,9 +631,16 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   0.043/s at first, and must pile to `q · W / k_destroy` = 40 before they pin it); with no WAR and
   43.9 undead `fall_s` is 248 s and it falls at 209 s (the drain empties U faster than the line). So
   the clock is a hint of minutes against hours, not a timer.
-- **`margin`**: `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else
-  `thin` (cause `wave`) when it falls beyond the horizon (her living gather and a wave meets a
-  weakening garrison), or when **one full wave breaks it**; else `safe`.
+- **`margin`**, checked in this order (E2b-2 T3.2): `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤
+  `hold.safe_horizon_s` (8 h); else `thin` (cause `wave`) when **one full wave breaks it**; else `thin`
+  (cause `fall`) when it falls beyond the horizon (`garrison_rate` < 0: slow attrition, not a wave, is
+  the threat); else `safe`. A slow fall used to read cause `wave` whatever the probe said.
+  - With today's probe a falling fort still reads `wave`: its probe starts at the garrison its support
+    holds, which is 0 whenever `garrison_rate` < 0 (the stalemate's garrison `(A − k_destroy · L / q) /
+    r_drain` at her pile is > 0 exactly when the rate is), so a full wave always breaks it. Cause `fall`
+    on `thin` shows only where the probe can't reach a break (`hold.probe_s` < `hold.break_s`;
+    `test_api_v6`'s slow-fall case). Starting a falling fort's probe from today's garrison would make it
+    reachable; T3.2's report proposes it.
   - "A full wave would break it" is RealmSim's own fort_step run on a scratch copy of the fort at
     `hold.probe_dt_s` (10 s) for at most `hold.probe_s` (600 s): the garrison at the least of today's
     and the level its support holds (`A / r_drain`, or the stalemate's), her living at the level her
