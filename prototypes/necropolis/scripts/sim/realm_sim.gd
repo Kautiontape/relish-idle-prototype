@@ -90,6 +90,8 @@ var _drained := 0.0
 var _cleared := 0.0
 var _raised := 0.0
 var _marched := 0.0
+# seconds of this step the running wave covers (_tithe_clock, read by _wave_tail)
+var _wave_run := 0.0
 # the paths' scratch: undead end, mean, destroyed, drained, out time; living end, mean, out time,
 # marched back; the excess over cap's end and integral (_above)
 var _ue := 0.0
@@ -433,7 +435,7 @@ func step(dt: float, inputs: Dictionary) -> void:
 	_convert(dt, inv, q)
 
 	# ---- 8. The wave delivered its surge; it ends after surge_s. The next wave's warning -----
-	_wave_tail(dt, surge_amt)
+	_wave_tail(surge_amt)
 	_tithe_warn()
 
 	# ---- 9. Holds count down; expiry hands the fort back ---------------------
@@ -832,10 +834,15 @@ func _convert(dt: float, inv: float, q: float) -> void:
 ## Step 1. The clock counts down once started; at 0 the wave starts and the next is scheduled one
 ## tithe_period() on (start to start). The warning (`warning_s` before) is made at the step's end,
 ## after dispatch (_tithe_warn), unless a single step crosses both points: then it is made here.
-## Returns this step's surge, {fort_id, want} (want: surge_mult · S_vei · counters living/s over
-## min(dt, s_left), before her pool limits it), or {} with no wave running.
+## A wave starts at its exact time inside the step: it covers the step's last −next_s seconds (none
+## when the step ends exactly at its start), and at most its s_left, so its end is exact too
+## (_wave_run, which _wave_tail counts down). Returns this step's surge, {fort_id, want} (want:
+## surge_mult · S_vei · counters living/s over _wave_run, before her pool limits it), or {} with no
+## wave running in this step.
 func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictionary:
+	_wave_run = 0.0
 	if not bool(tithe.get("started", false)):
+		_wave_run = dt  # (a saved wave with the clock stopped counts down as before)
 		return {}
 	var tc := _tcfg()
 	tithe["next_s"] = float(tithe["next_s"]) - dt
@@ -843,8 +850,10 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 	if w.is_empty() and tithe["next_s"] <= 0.0:
 		_tithe_warn()
 		w = tithe["warning"]
+	var from := 0.0  # seconds into this step the running wave began (0 when it was already running)
 	if tithe["next_s"] <= 0.0:
 		if not w.is_empty():
+			from = clampf(dt + float(tithe["next_s"]), 0.0, dt)
 			if not (tithe["wave"] as Dictionary).is_empty():
 				_end_wave()  # only when a period is shorter than a wave
 			var fid: String = w["fort_id"]
@@ -859,11 +868,14 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 				"relish_here": relish_fort == fid, "siege_block": block})
 		tithe["next_s"] = float(tithe["next_s"]) + tithe_period()
 	var wv: Dictionary = tithe["wave"]
-	if wv.is_empty() or fort_by_id(wv["fort_id"]).is_empty():
+	if wv.is_empty():
+		return {}
+	_wave_run = clampf(minf(dt - from, float(wv["s_left"])), 0.0, dt)
+	if _wave_run <= 0.0 or fort_by_id(wv["fort_id"]).is_empty():
 		return {}
 	var mult := _surge_mult(wv["fort_id"], relish_fort, _siege_at(siege, wv["fort_id"]))
 	wv["mult"] = mult
-	return {"fort_id": wv["fort_id"], "want": mult * float(t.get("S_vei", 8.0)) * minf(dt, float(wv["s_left"]))}
+	return {"fort_id": wv["fort_id"], "want": mult * float(t.get("S_vei", 8.0)) * _wave_run}
 
 
 ## The warning, once the clock is within `warning_s` of the wave: the target (_tithe_target, which
@@ -884,14 +896,15 @@ func _tithe_warn() -> void:
 	events.append({"type": "tithe_warning", "wave_id": w["wave_id"], "fort_id": target, "eta_s": w["eta_s"], "surge": base})
 
 
-## Step 8. The running wave books what it delivered this step and counts down; after surge_s it
-## ends. When it ends, a held fort whose undead are fewer than the living it delivered is retaken.
-func _wave_tail(dt: float, amount: float) -> void:
+## Step 8. The running wave books what it delivered this step and counts down the part of the step
+## it covered (_wave_run); after surge_s it ends. When it ends, a held fort whose undead are fewer
+## than the living it delivered is retaken.
+func _wave_tail(amount: float) -> void:
 	var wv: Dictionary = tithe.get("wave", {})
 	if wv.is_empty():
 		return
 	wv["delivered"] = float(wv["delivered"]) + amount
-	wv["s_left"] = float(wv["s_left"]) - dt
+	wv["s_left"] = float(wv["s_left"]) - _wave_run
 	if wv["s_left"] <= 1e-9:
 		_end_wave()
 

@@ -20,8 +20,9 @@ extends RefCounted
 ## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at: a tithe warning, a
 ##   wave's start or end, a hold's end, a building's unpaid hold ending, gold or bone reaching their
 ##   floor (projected from the last step's net), and Relish arriving. Without it the table measures
-##   event timing (a wave starts up to one dt late), not the integrator. A garrison reaching 0 is
-##   not clipped: the fort step solves it inside the step.
+##   event timing (a hold's end and Relish's arrival land up to one dt late; since T3.0m a wave's
+##   start and end are exact inside a step, spread over it), not the integrator. A garrison
+##   reaching 0 is not clipped: the fort step solves it inside the step.
 ## - Cost: a run's µs per core step is its median 10-min chunk. The cost table and the projections
 ##   use the best of RUNS separate 1 h runs per start and dt (timing()), with the load average read
 ##   beside each; the error table's µs column is the accuracy run's own (one run, loaded). Wall clock
@@ -65,7 +66,7 @@ func run() -> int:
 	var res := measure(STARTS, HOURS, DTS, true)
 	print(table(res, HOURS))
 	var unclipped := measure(STARTS, HOURS, [0.5, 15.0, 30.0], false)
-	print(table(unclipped, HOURS, "no event clipping (waves, hold ends and Relish's arrival land up to one dt late)"))
+	print(table(unclipped, HOURS, "no event clipping (hold ends and Relish's arrival land up to one dt late; a wave starts and ends at its time, spread over its steps)"))
 	check(res)
 	print(attribution())
 	var cost := timing(STARTS, DTS)

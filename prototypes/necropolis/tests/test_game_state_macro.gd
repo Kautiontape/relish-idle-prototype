@@ -334,12 +334,15 @@ func _tithe() -> void:
 	t.near(wv["t"] - w["t"], w["eta_s"], s.substep_s(), "eta_s after its warning")
 	t.ok(wv["relish_here"] and absf(wv["surge"] - float(tc["surge_mult"]) * 8.0 * 0.5) < 1e-9, "Relish stands there: the surge is halved")
 	vv = s.view_vei()["tithe"]
+	# the wave began inside the substep that reported it, at its exact time: it covered that much of it
+	var covered: float = float(tc["surge_s"]) - float(vv["wave_s_left"])
 	t.ok(vv["wave_active"] and vv["target"] == "old-sluice" and vv["eta_s"] == 0.0 and not vv["warning"]
-		and absf(vv["wave_s_left"] - (float(tc["surge_s"]) - s.substep_s())) < 1e-9, "view_vei.tithe during the wave: %s" % str(vv))
+		and covered >= 0.0 and covered <= s.substep_s() + 1e-9, "view_vei.tithe during the wave (it began %.3f s before the substep's end): %s" % [covered, str(vv)])
 	t.ok(s.view_fort("old-sluice")["tithe"] == {"targeted": true, "eta_s": 0.0, "wave_active": true}, "view_fort.tithe during the wave")
 	var lane := _lane(s, "living:vei:old-sluice")
-	t.ok(lane["why"] == "tithe wave" and absf(lane["bias"] - float(tc["surge_mult"]) * 0.5) < 1e-9 and lane["rate"] > 0.0,
-		"the living lane: surge rate, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
+	t.ok(lane["why"] == "tithe wave" and absf(lane["bias"] - float(tc["surge_mult"]) * 0.5) < 1e-9
+		and absf(lane["rate"] - float(wv["surge"]) * covered / s.substep_s()) < 1e-9,
+		"the living lane: the surge's rate over the part of the substep after the start, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
 	t.ok(absf(s.view_fort("old-sluice")["ship_in"] - lane["rate"]) < 1e-12, "ship_in carries the surge")
 	var f := _fort(s, "old-sluice")
 	var end := s.t + float(tc["surge_s"])

@@ -206,6 +206,7 @@ func run() -> int:
 
 	# --- tithe waves --------------------------------------------------------------
 	_tithe(t)
+	_wave_timing(t)
 
 	# --- E2b: the step is exact at any dt -------------------------------------------
 	_long_steps(t)
@@ -471,27 +472,29 @@ func _tithe(t: TestUtil) -> void:
 		var ev := _until(sim, "tithe_wave", inp, 10.0)
 		t.ok(absf(ev[1]["surge"] - base * c[2]) < 1e-9 and ev[1]["relish_here"] == c[3] and ev[1]["siege_block"] == c[4],
 			"%s: tithe_wave surge %.1f, relish_here %s, siege_block %.1f: %s" % [c[0], base * c[2], c[3], c[4], str(ev[1])])
+		t.ok(tgt["r_surge"] == 0.0, "%s: the step that ends at the wave's start delivers none of it" % c[0])
+		sim.step(0.5, inp)
 		t.near(tgt["r_surge"], base * c[2], 1e-9, "%s: surge_mult · S_vei × counters living/s" % c[0])
 		t.ok(tgt["living"] > tgt["cap"], "%s: past the fort's space" % c[0])
 		var delivered: float = tgt["r_surge"] * 0.5
-		var guard := 0
+		var guard := 1
 		while not (sim.tithe["wave"] as Dictionary).is_empty() and guard < 1000:
 			sim.step(0.5, inp)
 			delivered += tgt["r_surge"] * 0.5
 			guard += 1
 		t.near(delivered, base * c[2] * surge_s, 1e-6, "%s: the wave delivers rate × surge_s" % c[0])
 		sim.step(0.5, inp)
-		t.ok(tgt["r_surge"] == 0.0 and guard == int(surge_s / 0.5) - 1, "%s: then stops, after surge_s" % c[0])
+		t.ok(tgt["r_surge"] == 0.0 and guard == int(surge_s / 0.5), "%s: then stops, after surge_s" % c[0])
 	# the surge comes out of her pool and is bounded by it; held forts get it (not the shipping share)
 	sim = _tsim({"S_vei": 8.0})
 	var hf: Dictionary = sim.forts[2]
 	sim.hold(hf["id"], 1e6)
 	sim.start_tithe()
-	sim.tithe["next_s"] = 0.5
+	sim.tithe["next_s"] = 0.25
 	sim.vei["living_pool"] = 5.0
 	var before := sim.total_matter()
 	sim.step(0.5, {})
-	t.near(hf["r_surge"], 5.0 / 0.5, 1e-9, "bounded by her pool (5 mass in a 12-mass step)")
+	t.near(hf["r_surge"], 5.0 / 0.5, 1e-9, "bounded by her pool (5 mass of the 6 the wave's first 0.25 s want)")
 	t.ok(sim.vei["living_pool"] == 0.0 and hf["r_shipped"] == hf["r_surge"], "the pool empties into the held fort; r_shipped carries the surge")
 	t.near(sim.total_matter(), before, 1e-9, "the surge moves mass, it makes none")
 
@@ -534,7 +537,7 @@ func _tithe(t: TestUtil) -> void:
 	sim.start_tithe()
 	sim.tithe["next_s"] = 1.0
 	_until(sim, "tithe_wave", {}, 10.0)
-	sim.hold(hf["id"], surge_s - 0.75)  # 0.25 s left when the wave's last step begins: both end it there
+	sim.hold(hf["id"], surge_s - 0.25)  # the wave began at the event step's end: 0.25 s of hold left when its last step begins, so both end it there
 	var all: Array = []
 	for i in 100:
 		sim.step(0.5, {})
@@ -564,6 +567,45 @@ func _tithe(t: TestUtil) -> void:
 	back = _tsim()
 	back.load_tithe({"warning": {"wave_id": 1, "fort_id": "nowhere", "eta_s": 1.0, "surge": 1.0}, "started": true, "next_s": 3.0}, true)
 	t.ok(back.tithe["warning"].is_empty() and back.tithe["next_s"] == 3.0, "an entry naming an unknown fort is dropped")
+
+
+## E2b T3.0m: a wave starts and ends at its exact time inside a step (MECHANICS §3.4). A step that
+## ends exactly at its start delivers none of it; one that straddles the start delivers the rate ×
+## the time after it; one that holds the whole wave delivers all of it and ends it. Unclipped steps
+## of 0.5, 7 and 30 s deliver exactly surge_mult · S_vei · surge_s (her pool deep).
+func _wave_timing(t: TestUtil) -> void:
+	var tc: Dictionary = TestUtil.configs()["realm"]["tithe"]
+	var rate: float = float(tc["surge_mult"]) * float(TestUtil.configs()["realm"]["S_vei"])
+	var surge_s := float(tc["surge_s"])
+	for c in [["ends at the start", 2.0, 0.0], ["straddles it", 2.75, 0.75], ["holds the whole wave", 60.0, surge_s]]:
+		var sim := _tsim()
+		var tgt: Dictionary = sim.forts[0]
+		sim.start_tithe()
+		sim.tithe["next_s"] = 3.0
+		sim.step(1.0, {})  # the warning; the wave is 2 s on
+		sim.drain_events()
+		sim.step(c[1], {})
+		var started := sim.drain_events().filter(func(e): return e["type"] == "tithe_wave").size() == 1
+		var got: float = float(tgt["r_surge"]) * float(c[1])
+		var wv: Dictionary = sim.tithe["wave"]
+		var left: float = float(wv["s_left"]) if not wv.is_empty() else 0.0
+		t.ok(started and absf(got - rate * float(c[2])) < 1e-9 and absf(left - (surge_s - float(c[2]))) < 1e-9
+			and wv.is_empty() == (c[2] == surge_s),
+			"a step that %s (%.2f s, the wave from 2 s in) delivers %.1f = %.0f/s × %.2f s; %.2f s of the wave left" % [
+				c[0], c[1], got, rate, c[2], left])
+	for dt in [0.5, 7.0, 30.0]:
+		var sim := _tsim()
+		var tgt: Dictionary = sim.forts[0]
+		sim.start_tithe()
+		sim.tithe["next_s"] = 200.0
+		var got := 0.0
+		var seen := false
+		for i in int(400.0 / dt):
+			sim.step(dt, {})
+			got += float(tgt["r_surge"]) * dt
+			seen = seen or not (sim.tithe["wave"] as Dictionary).is_empty()
+		t.ok(seen and absf(got - rate * surge_s) < 1e-9 * rate * surge_s,
+			"unclipped steps of %.1f s: the wave delivers %.6f, surge_mult · S_vei · surge_s = %.0f" % [dt, got, rate * surge_s])
 
 
 ## One fort's full state after `seconds` of steps of `dt` with constant inputs.

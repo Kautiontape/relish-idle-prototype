@@ -239,7 +239,7 @@ Names, to avoid confusion:
   (D2) and nothing reads it.
 - `forts[i].held_s` and the tithe-wave state are RealmSim state.
 - **Within a step** (E2b T3.0: exact at any `dt`, so catch-up's long steps match live play):
-  1. the tithe clock (§3.4: a wave's start);
+  1. the tithe clock (§3.4: a wave's start, at its exact time inside the step);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
      fort's room over the step: `cap` less the fort's load at the step's end without her living
      (`L + D` now less the corpses raised, plus what U's path leaves with the step's WAR and raises
@@ -379,7 +379,10 @@ at E2b.
   odds), with the odds read when it is scheduled. She fights back harder as the queue clogs.
 - **Warning:** `tithe.warning_s` before the wave, the target is chosen and announced
   (`tithe_warning` event), with the target shown on the map and on the fort's ring. The target
-  stays fixed for that wave, whatever changes before it starts.
+  stays fixed for that wave, whatever changes before it starts. It is made at the end of the step
+  that reaches `warning_s`, so it can come up to one step late, never early, and its `eta_s` is the
+  exact time left: the wave's own time doesn't depend on the step. (The target reads that step's
+  WAR, a rate constant over the step.)
 - **Targets:** held forts first, the one with the most of your undead there; else the fort
   receiving the most WAR at that moment. Ties go to world order, so with no WAR anywhere it is the
   first fort.
@@ -387,6 +390,13 @@ at E2b.
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
   shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
   still respects the room, so a fort the surge took past its cap gets none.
+  - **Its time is exact inside a step** (E2b T3.0m). The step that holds the wave's start surges
+    only for the part after it, and the step that holds its end only up to it, as a rate over the
+    step. A step that ends exactly at the start delivers none of it (the event comes in that step,
+    stamped at the start), and a step holding the whole wave delivers all of it and ends it. So a
+    wave delivers `surge_mult · S_vei · surge_s` at any dt, clipped or not. Before, the step that
+    crossed the start surged for all of it, so a wave began up to one step early (a whole catch-up
+    step when the harness clipped at the start).
 - **The march-back** (E2b T3.0m, which replaces T3.0s's bound `cap · (1 + tithe.overfill)`): at
   every fort, living above the fort's cap march back to Vei's pool at `(L − cap) / τ`, with
   τ = `tithe.march_back_s`.
