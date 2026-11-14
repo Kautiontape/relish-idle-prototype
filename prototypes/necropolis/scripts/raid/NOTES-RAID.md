@@ -623,7 +623,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - **The detour's cache at the guard's post** (`detour.cache_door_px` 130 -> 45). LayoutLogic keeps it 40 px off the walls, so it lies about 55-60 px from the gap, and she takes it inside the guard fight, stepping through the door.
   - t2, seeds 1-6: travel 7.4% -> 6.0% (`walk_travel_px` median 2628 -> 2194). That is still over the 5.3% ceiling.
   - So **the detour starts at tier 3** (`detour.min_tier` 3).
-- **Pins under the measure.** In the with-wits arm, 326 of 1159 bash tells were pinned (28%). In 3b it was 77 of 435 (18%).
+- **Pins under the measure.** At pale-bastion, seeds 1-10 with wits, 75 of 441 bash tells were pinned (17%), against 77 of 435 in 3b. The roles did not raise the pin rate where it counts.
 - **AUTOPILOT_RESULT `army_zero_s`:** scene seconds after the wake with no undead standing (measuring only).
 - **Measured** (the 3c code, f8dfd39 = 87c4d53 without `army_zero_s`; iter `c3`; seeds 1-6 at every t2-t4 fort; 326 of 326 runs in lockstep).
   - **Baselines.** The baseline is 5b70259. Because the bot fixes move it, `bfix` is 5b70259 with only the two bot fixes, seeds 1-6, as an A/B.
@@ -668,7 +668,11 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
     - **The arms do not separate on deaths** (the bar is about 2× and at least 10 points). The counters separate on fight length, at 1.3-3×.
     - pale-bastion carries the deaths: 14 / 20 with wits, 16 / 20 without. the-stair has 0 / 20 in both arms.
-    - **Why.** With packs off Relish, the warden's own attack is the only killer. Only the Shieldwall's rush kills at all often, and in both arms it kills once the army (flankers included) is down. Without its counter, a warden's fight simply runs longer.
+    - **Why.** With packs off Relish, the warden's own attack is the only killer, and only the Shieldwall's rush kills at all often.
+      - In every pale-bastion death, in both arms, both party bigs were already lost, so no wits flanker was left to pin.
+      - The unpinned rushes then cut down the raised soldiers along with her: 12-21 undead still stood 5 s before 10 of the 14 deaths with wits, and before 13 of the 16 without.
+      - So the risk sits in the rush's reach into the raised army after the bigs fall, not in a wipe followed by a lone finish.
+      - Without its counter, a warden's fight simply runs longer.
   - **Unchanged:** Vei byte-identical. Tier 1 and P1 equal the bot-fixed lines (bfix's own effect is above). `parity_check.sh` gives identical results, 5 of 5.
   - **Shots:**
     - `de3c-pack-breaks.png`: hollow-redoubt, no speed. The banner and THE PACK BREAKS · WARD DOWN over the Huntsman, LIVING 0.
