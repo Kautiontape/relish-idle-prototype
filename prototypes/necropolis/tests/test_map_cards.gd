@@ -246,15 +246,35 @@ func _real(t: TestUtil) -> void:
 	if (s.view_party()["party"] as Array).is_empty():
 		var sp := s.cmd_set_party([uid])
 		t.ok(sp["ok"], "the big undead joins the party (%s)" % sp["reason"])
-	var ar := s.cmd_assign_front(uid, "giants")
+	# pick a front she is not on now, so the command's effect is the only way the view can change
+	var cur := ""
+	for pm in s.view_party()["party"]:
+		if pm["uid"] == uid:
+			cur = str(pm["front"])
+	var target := "giants" if cur != "giants" else "swarm"
+	t.ok(not _assigned_to(s, target).has(uid), "before: %s is not on %s" % [uid, target])
+	var ar := s.cmd_assign_front(uid, target)
 	t.ok(ar["ok"], "assign_front succeeds (%s)" % ar["reason"])
 	m.refresh(true)
-	var giants: Dictionary = m.vei["fronts"].filter(func(f): return f["id"] == "giants")[0]
-	t.ok(giants["assigned"].has(uid), "view_vei shows the assignment")
+	t.ok(_assigned_to(s, target).has(uid) and m.vei["fronts"].filter(func(f): return f["id"] == target)[0]["assigned"].has(uid), "after: view_vei shows the assignment on %s" % target)
+	if cur != "":
+		t.ok(not _assigned_to(s, cur).has(uid), "and she left %s" % cur)
 	var vc2 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names)
-	var fr: Dictionary = vc2["blocks"].filter(func(b): return b["id"] == "front_giants")[0]
+	var fr: Dictionary = vc2["blocks"].filter(func(b): return b["id"] == "front_" + target)[0]
 	t.ok(str(fr["assigned"]).contains(str(m.unit_names[uid])), "the front row names her: " + str(fr["assigned"]))
-	var asg: Dictionary = vc2["blocks"].filter(func(b): return b["kind"] == "assign")[0]
-	t.ok(asg["selected"] == "giants", "the selector shows giants")
+	var asg: Dictionary = vc2["blocks"].filter(func(b): return b["kind"] == "assign" and b["uid"] == uid)[0]
+	t.ok(asg["selected"] == target, "the selector shows %s" % target)
+	t.ok(s.cmd_assign_front(uid, "")["ok"], "an empty front unassigns")
+	m.refresh(true)
+	var vc3 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names)
+	var asg3: Dictionary = vc3["blocks"].filter(func(b): return b["kind"] == "assign" and b["uid"] == uid)[0]
+	t.ok(asg3["selected"] == "" and asg3["labels"][0] == "—" and not _assigned_to(s, target).has(uid), "unassigned: the selector falls back to the dash")
 	t.ok(not s.cmd_assign_front("nobody", "giants")["ok"], "an unknown uid is refused")
 	t.ok(RelishLogic.reason_text("unknown_uid") != "" and not RelishLogic.reason_text("unknown_uid").contains("("), "a refusal reads in words")
+
+
+func _assigned_to(s: GameState, front_id: String) -> Array:
+	for f in s.view_vei()["fronts"]:
+		if f["id"] == front_id:
+			return f["assigned"]
+	return []
