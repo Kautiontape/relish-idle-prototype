@@ -498,7 +498,8 @@ func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
 		var ang := TAU * i / float(maxi(1, k)) + rng_combat.randf() * 0.8
 		var pos := rp + Vector2(ring_px + rng_combat.randf_range(-10.0, 26.0), 0.0).rotated(ang)
 		spawn_ally_v2("raised", tier, mult, 0.0, "", stats, resolve_walls(pos, 10.0), true)
-	RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
+	if k > 0:
+		RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
 
 
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:

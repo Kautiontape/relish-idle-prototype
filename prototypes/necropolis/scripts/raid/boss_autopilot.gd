@@ -101,8 +101,8 @@ func _status(rel: RaidRelish) -> void:
 # ------------------------------------------------------------------ dodge ---
 func _dodge_step(pos: Vector2) -> bool:
 	var v: RaidVei = _boss.vei
-	if v == null or not v.tell_on:
-		_dodging = false
+	if v == null or not v.tell_on or (v.hold_tell and not v.first_done):
+		_dodging = false   # (a held dev tell never lands: keep raising under it)
 		return false
 	var half: float = float(v.wcfg().get("width_px", 64.0)) * 0.5 + float(_boss.relish.radius)
 	if v.tell_start != _tell_seen:

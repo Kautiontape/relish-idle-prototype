@@ -61,5 +61,5 @@
     }
   },
   "autopilot": {"_doc": "DEV: the boss bot (scripts/raid/boss_autopilot.gd). Same circle approach as raid.json autopilot: a trace_points circle round the motes within raise_reach_px, jitter binary-searched to land within score_tol of the target. dodge: chance to sidestep a weave tell; cluster_px: how near motes count as one cluster.", "think_frames": 3, "max_s": 600.0, "min_motes": 3, "raise_reach_px": 260.0, "raise_pad_px": 14.0, "cluster_px": 120.0, "arrive_px": 30.0, "trace_points": 44, "trace_tries": 8, "trace_amp_max": 0.6, "score_tol": 5, "dodge": 0.5, "dodge_margin_px": 30.0},
-  "dev": {"_doc": "DEV: --boss-stress tops the guards up to the cap and spawns stress_raised raised undead and stress_motes motes at the anchors when the break begins.", "stress_raised": 36, "stress_motes": 36}
+  "dev": {"_doc": "DEV: --boss-stress tops the guards up to the cap and keeps stress_raised raised undead (at most raised.unit_cap) and stress_motes motes at the anchors, from the start of the break.", "stress_raised": 20, "stress_motes": 36}
 }

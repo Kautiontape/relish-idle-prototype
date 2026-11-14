@@ -7,7 +7,8 @@ extends RefCounted
 ##   --boss-backups=<p>,<c>   the demo's phylactery charges and ready clones
 ##   --boss-phase2            the break from the start: the met fronts clear at once (at least
 ##                            fronts_required of them)
-##   --boss-stress            with the break: guards held at the cap, dev.stress_raised raised undead
+##   --boss-stress            with the break: guards held at the cap, dev.stress_raised (at most
+##                            raised.unit_cap) raised undead
 ##                            and dev.stress_motes motes at the anchors kept topped up, Relish kept
 ##                            alive: the busiest phase-2 state, for --raid-perf (RaidDev, inherited)
 ##   --boss-autodie=<frames>  every ally gone and a lethal hit on Relish at that frame of the scene
@@ -137,7 +138,8 @@ func stress_tick() -> void:
 	for a in _boss.allies:
 		if is_instance_valid(a) and a.alive and a.role == "raised":
 			raised += 1
-	var want := int(dv.get("stress_raised", 36)) - raised
+	var cap_r := int(cfg.get("raised", {}).get("unit_cap", 40))
+	var want := mini(int(dv.get("stress_raised", 20)), cap_r) - raised
 	if want > 0:
 		_boss._spawn_raised(want, "soldier", 1.25, cfg)
 	var motes: int = _boss.get_tree().get_nodes_in_group("raid_essence").size()
