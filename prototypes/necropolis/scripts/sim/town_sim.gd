@@ -499,8 +499,9 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	shock = shock * exp(-dt / _shock_s) if _shock_s > 0.0 else 0.0
 	morale = clampf(move_toward(morale, morale_target(), _ease * dt), 0.0, 1.0)
 
-	# 9. upkeep: resume after the hold when the stock covers it, idle the cheapest when short
-	var paid := _upkeep(dt, events)
+	# 9. upkeep: resume after the hold when the stocks cover it (on their paths over the step), idle
+	# the cheapest when short
+	var paid := _upkeep(dt, events, gold_in, bone_in)
 
 	# 10. rates for the views
 	var tend := _job("tend")
@@ -701,14 +702,24 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
 	return best
 
 
-## Upkeep (§4.3). Unpaid buildings whose hold is over resume (lot order) when the stock covers
-## the paying upkeep plus theirs for max(unpaid_hold_s, dt). Then, while a stock can't cover this
-## step's upkeep, the cheapest paying building by its upkeep in that stock (ties in lot order)
-## goes unpaid, except a building that earns that stock (stalls for gold, mills for bone): idling
-## it could never pay the bill back. What is still owed is paid down to 0; there is no debt.
-func _upkeep(dt: float, events: Array) -> Dictionary:
+## Upkeep (§4.3), on the stocks' paths over the step: each starts at what it held before this
+## step's income (`gold_in`, `bone_in`), which comes in at a constant rate, and pays the working
+## buildings' upkeep as it goes. An unpaid building whose hold is over resumes at the first moment
+## its stocks cover the paying upkeep plus its own for max(unpaid_hold_s, dt). The moments are
+## solved on those paths; buildings resume in their order (ties in lot order), each raising the
+## upkeep the next must cover, and a resumed building pays from its moment on. Then, while a stock
+## can't cover the step's upkeep, the cheapest paying building by its upkeep in that stock (ties in
+## lot order) goes unpaid, except a building that earns that stock (stalls for gold, mills for
+## bone): idling it could never pay the bill back. What is still owed is paid down to 0; there is
+## no debt. E2b T4.C: resumes used to be checked at the step's end, in lot order, on the stocks
+## before the step's upkeep: a 10 s step from pre_vei resumed its raising pit (lot-02) at 7 804 s,
+## ahead of the house (lot-05) whose lower threshold the gold crossed first, and about 45 s before
+## the gold, net of upkeep, reached either (7 847 s, 7 853 s).
+func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictionary:
 	var due_g := 0.0
 	var due_b := 0.0
+	var secs := {}  # lot_id -> the seconds of this step its upkeep is paid for
+	var cands: Array = []  # [lot_id, seconds into the step its hold is over], in lot order
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if b.is_empty():
@@ -716,22 +727,49 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 		if _works(b):
 			due_g += float(_defs[b["building_id"]]["upkeep_gold"])
 			due_b += float(_defs[b["building_id"]]["upkeep_bone"])
+			secs[lot_id] = dt
 		elif b["state"] == "unpaid":
-			b["unpaid_s"] = maxf(0.0, float(b["unpaid_s"]) - dt)
+			var left := float(b["unpaid_s"])
+			b["unpaid_s"] = maxf(0.0, left - dt)
+			if float(b["unpaid_s"]) <= 0.0:
+				cands.append([lot_id, maxf(0.0, left)])
 	var span := maxf(_hold_s, dt)
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or b["state"] != "unpaid" or float(b["unpaid_s"]) > 0.0:
-			continue
-		var ug := float(_defs[b["building_id"]]["upkeep_gold"])
-		var ub := float(_defs[b["building_id"]]["upkeep_bone"])
-		if gold >= (due_g + ug) * span and bone >= (due_b + ub) * span:
-			b["state"] = "active"
-			due_g += ug
-			due_b += ub
-			events.append({"type": "building_unpaid", "lot_id": lot_id, "building_id": b["building_id"], "unpaid": false})
-	var owe_g := due_g * dt
-	var owe_b := due_b * dt
+	var at := 0.0  # how far into the step the paths are solved
+	var g := gold - gold_in  # the stocks at `at`
+	var bn := bone - bone_in
+	var in_g := gold_in / dt
+	var in_b := bone_in / dt
+	while not cands.is_empty():
+		var pick := -1
+		var when := INF
+		for k in cands.size():
+			var d: Dictionary = _defs[buildings[cands[k][0]]["building_id"]]
+			var tg := _covers(g, in_g - due_g, (due_g + float(d["upkeep_gold"])) * span, at)
+			var tb := _covers(bn, in_b - due_b, (due_b + float(d["upkeep_bone"])) * span, at)
+			var lo := maxf(maxf(at, float(cands[k][1])), maxf(float(tg[0]), float(tb[0])))
+			if lo <= minf(dt, minf(float(tg[1]), float(tb[1]))) + EPS and lo < when:
+				when = lo
+				pick = k
+		if pick < 0:
+			break
+		var lot_id: String = cands[pick][0]
+		var bd: Dictionary = buildings[lot_id]
+		var ug := float(_defs[bd["building_id"]]["upkeep_gold"])
+		var ub := float(_defs[bd["building_id"]]["upkeep_bone"])
+		g += (in_g - due_g) * (when - at)
+		bn += (in_b - due_b) * (when - at)
+		at = when
+		bd["state"] = "active"
+		due_g += ug
+		due_b += ub
+		secs[lot_id] = maxf(0.0, dt - when)
+		cands.remove_at(pick)
+		events.append({"type": "building_unpaid", "lot_id": lot_id, "building_id": bd["building_id"], "unpaid": false})
+	var owe_g := 0.0
+	var owe_b := 0.0
+	for lot_id in secs:
+		owe_g += float(_defs[buildings[lot_id]["building_id"]]["upkeep_gold"]) * float(secs[lot_id])
+		owe_b += float(_defs[buildings[lot_id]["building_id"]]["upkeep_bone"]) * float(secs[lot_id])
 	while gold < owe_g - EPS or bone < owe_b - EPS:
 		var short := "gold" if gold < owe_g - EPS else "bone"
 		var key := "upkeep_" + short
@@ -752,14 +790,26 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 		var pb: Dictionary = buildings[pick]
 		pb["state"] = "unpaid"
 		pb["unpaid_s"] = _hold_s
-		owe_g -= float(_defs[pb["building_id"]]["upkeep_gold"]) * dt
-		owe_b -= float(_defs[pb["building_id"]]["upkeep_bone"]) * dt
+		var paid_s := float(secs.get(pick, dt))
+		owe_g -= float(_defs[pb["building_id"]]["upkeep_gold"]) * paid_s
+		owe_b -= float(_defs[pb["building_id"]]["upkeep_bone"]) * paid_s
+		secs.erase(pick)
 		events.append({"type": "building_unpaid", "lot_id": pick, "building_id": pb["building_id"], "unpaid": true})
 	var pg := clampf(owe_g, 0.0, gold)
 	var pbn := clampf(owe_b, 0.0, bone)
 	gold -= pg
 	bone -= pbn
 	return {"gold": pg, "bone": pbn}
+
+
+## When a stock at `v` (`at` seconds into the step), changing at `rate`, is at least `need`:
+## [from, until] in seconds into the step, either end ±INF; from > until when never.
+static func _covers(v: float, rate: float, need: float, at: float) -> Array:
+	if v >= need:
+		return [-INF, at + (v - need) / -rate] if rate < 0.0 else [-INF, INF]
+	if rate > 0.0:
+		return [at + (need - v) / rate, INF]
+	return [INF, -INF]
 
 
 # --------------------------------------------------------- the job ladder ----

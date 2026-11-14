@@ -616,6 +616,41 @@ func _upkeep() -> void:
 			last[e["lot_id"]] = tnow
 	t.ok(n >= 2 and gaps_ok, "a marginal economy idles and resumes with no chatter (%d events, each ≥ unpaid_hold_s apart)" % n)
 	t.ok(not neg, "stocks never went negative")
+	# E2b T4.C: inside a step, buildings resume in the order their stocks reach each threshold, on the
+	# stocks' paths net of upkeep (they were checked at the step's end, in lot order, on the gold
+	# before the step's upkeep). The raising pit (lot-02) and a house (lot-05, cheaper, so a lower
+	# threshold, later in lot order) are unpaid with their holds over; the market sells against the
+	# charnel house's and its own upkeep. One 20 s step from 0 gold crosses both thresholds: the house
+	# resumes first, then the pit, and each pays its upkeep from its own moment.
+	s = _sim()
+	s.place_building("lot-05", "house", 1)
+	for lot in ["lot-02", "lot-05"]:
+		s.buildings[lot]["state"] = "unpaid"
+		s.buildings[lot]["unpaid_s"] = 0.0
+	s.ladder = ["stall"]
+	s.workers = 2.0
+	s.living = 10.0
+	s.gold = 0.0
+	s.restaff()
+	var bdefs: Dictionary = _base["buildings"]
+	var u_pit := float(bdefs["raising_pit"]["upkeep"]["gold"])
+	var u_house := float(bdefs["house"]["upkeep"]["gold"])
+	var due0 := float(bdefs["charnel_house"]["upkeep"]["gold"]) + float(bdefs["market"]["upkeep"]["gold"])
+	var sales := minf(_staffed(s, "stall") * float(_eco("stall")["rate"]), s.living * float(_eco("market")["shop_rate"])) \
+		* float(_eco("market")["price"])
+	var span := maxf(hold, 20.0)
+	var t1 := (due0 + u_house) * span / (sales - due0)  # the house's moment
+	var t2 := t1 + ((due0 + u_house + u_pit) * span - (sales - due0) * t1) / (sales - due0 - u_house)  # the pit's
+	o = s.step(20.0, _inp({"work_mass": _hold_work(s, 2.0, 20.0)}))
+	var order: Array = []
+	for e in o["events"]:
+		if e["type"] == "building_unpaid" and not bool(e["unpaid"]):
+			order.append(e["lot_id"])
+	t.ok(t1 > 0.0 and t1 < t2 and t2 < 20.0 and order == ["lot-05", "lot-02"],
+		"in one 20 s step the house (lower threshold, later in lot order) resumes before the pit: %s (moments %.2f s, %.2f s)" % [
+		str(order), t1, t2])
+	t.near(s.gold, sales * 20.0 - (due0 * 20.0 + u_house * (20.0 - t1) + u_pit * (20.0 - t2)), 1e-9,
+		"each pays its upkeep from its own moment (the gold at the step's end)")
 
 
 # -------------------------------------------------------------- round trip ----

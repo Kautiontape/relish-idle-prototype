@@ -612,8 +612,18 @@ mass; bodies, rot return, WORK and muster are mass.
     still owed is paid down to 0.
   - An unpaid building gives no slots and no output.
   - **Resume.** It stays unpaid for at least `upkeep.unpaid_hold_s`. It resumes (`unpaid: false`)
-    once the stock covers the paying upkeep plus its own for `max(unpaid_hold_s, dt)`, so it doesn't
-    chatter.
+    at the first moment its stocks cover the paying upkeep plus its own for
+    `max(unpaid_hold_s, dt)`, so it doesn't chatter. Inside a step that moment is solved on the
+    stocks' paths: each starts at what it held before the step's income, which comes in at a
+    constant rate, and pays the working buildings' upkeep as it goes. Buildings resume in the order
+    of their moments, ties in lot order. Each raises the upkeep the next must cover, and each pays
+    its own from its moment on.
+    - E2b T4.C: they used to be checked at the step's end, in lot order, on the stocks before the
+      step's upkeep was paid. From pre_vei's gold floor a 10 s step resumed the raising pit
+      (lot-02) at 7 804 s. The gold had crossed the house's (lot-05) lower threshold first, and,
+      net of upkeep, it reached neither until 7 847 s and 7 853 s. The pits and WAR came back about
+      45 s early, and three forts Vei had refilled with living fell instead of holding. Vei's dead
+      were 31.9% off at 10 s over 12 h; now 0.50%.
   - Stocks never go negative and there is no debt. Gold and bone have no caps yet (IDLE §6 is E2b).
 
 ### 4.4 Buildings
