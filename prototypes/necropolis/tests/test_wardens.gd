@@ -387,6 +387,34 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, true, false), "a muffled bell tolls nothing on her")
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, false, true), "no second blow where the slam's ring reaches her")
 	t.near(WardenLogic.lane_reach(Rect2(0, 0, 600, 400), Vector2(300, 200)), Vector2(300, 200).length(), 1e-6, "the lane reaches the room's farthest corner")
+	# every tell is answerable by a human: lead >= the score-50 delay + the time to clear, worst case from inside
+	var pulse := TestUtil.load_json("res://configs/pulse.json")
+	var beat_s := float(pulse["tempo_ms"]) / 1000.0
+	var spd := float(cfg["relish"]["speed"])
+	var rr := float(cfg["relish"]["radius"])
+	var d50 := float((cfg["autopilot"]["react_delay_s"] as Array)[0])   # the score-50 delay (react_score[0])
+	var archs: Dictionary = cfg["wardens"]["archetypes"]
+	var bell_at: Dictionary = archs["bellringer"]["attack"]
+	var clears := {
+		"slam": float(bell_at["radius_px"]) + float(bell_at["band_px"]) * 0.5 + rr - (float(archs["bellringer"]["radius"]) + rr),
+		"toll": float(bell_at["toll_radius_px"]) + rr,
+		"lunge": float(archs["huntsman"]["attack"]["hit_radius_px"]) + rr,
+		"bash": float(archs["shieldwall"]["attack"]["reach_px"]) + rr - (float(archs["shieldwall"]["radius"]) + rr),
+		"fire": 105.0 + rr,
+	}
+	var lane_r := 0.0
+	for fid in ["pale-bastion", "the-stair"]:
+		var lay := RaidLogic.gen_layout(fid, 3 if fid == "pale-bastion" else 4, false, cfg)
+		var wroom: Rect2 = lay["rooms"][int(lay["warden_room"])]
+		lane_r = maxf(lane_r, WardenLogic.lane_reach(wroom, wroom.get_center()))
+	clears["rush lane"] = lane_r * sin(deg_to_rad(float(archs["shieldwall"]["attack"]["rush_lane_half_deg"]))) + rr
+	var worst := ""
+	var ok_all := true
+	for k in clears:
+		var margin := float(archs["bellringer"]["attack"]["tell_beats"]) * beat_s - d50 - float(clears[k]) / spd
+		ok_all = ok_all and margin >= 0.0
+		worst += " %s %.2fs" % [k, margin]
+	t.ok(ok_all, "every tell-attack is answerable by a human (lead - 0.6 s - clear/speed >= 0):%s" % worst)
 	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
 	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:
