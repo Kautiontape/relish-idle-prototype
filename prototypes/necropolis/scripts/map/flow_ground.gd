@@ -240,12 +240,13 @@ func apply_config(cfg: Dictionary) -> void:
 	for pair in [["route", ["push", "reach_px", "speed", "calm"]],
 			["vortex", ["push", "spiral", "slow", "dense", "ink", "turbulence", "hold"]],
 			["relish", ["push", "swirl", "eye_px"]],
-			["surge", ["tail", "reach_px", "push", "speed", "ink"]],
-			["ink", ["band_px", "push", "hold"]]]:
+			["surge", ["tail", "reach_px", "push", "speed", "ink", "recruit"]],
+			["ink", ["band_px", "push", "hold", "recruit"]]]:
 		var c: Dictionary = sub.call(pair[0])
 		for k in pair[1]:
 			if c.has(k):
 				_pmat.set_shader_parameter("%s_%s" % [pair[0], k], float(c[k]))
+	_pmat.set_shader_parameter("surge_life_s", _v2(fc.get("surge", {}).get("life_s", [0.5, 1.0])))
 	var cm: Dictionary = cfg.get("comet", {})
 	_pmat.set_shader_parameter("comet", 1.0 if reduced else 0.0)
 	_smat.set_shader_parameter("comet", 1.0 if reduced else 0.0)
@@ -263,8 +264,11 @@ func apply_config(cfg: Dictionary) -> void:
 		_pmat.set_shader_parameter("comet_gain", float(cm.get("gain", 1.0)))
 		_pmat.set_shader_parameter("life_s", _v2(cm.get("life_s", [12.0, 30.0])))
 		_pmat.set_shader_parameter("fade_s", _v2(cm.get("fade_s", [1.5, 1.5])))
-		# a surge stands as one line brightening toward its fort instead of running
+		# a surge stands as one line brightening toward its fort instead of running, and it and an
+		# ink recruit fewer streaks, since a comet they recruit stays for a comet's life
 		_pmat.set_shader_parameter("surge_tail", 1.0)
+		_pmat.set_shader_parameter("surge_recruit", float(fc.get("surge", {}).get("reduced_recruit", 0.0)))
+		_pmat.set_shader_parameter("ink_recruit", float(fc.get("ink", {}).get("reduced_recruit", 0.0)))
 		# calmer eddies, so the comets lie along the flow and a still frame shows direction
 		var calm := float(cfg.get("reduced_turbulence", 1.0))
 		for k in ["turbulence", "turbulence_empty", "turbulence_land"]:

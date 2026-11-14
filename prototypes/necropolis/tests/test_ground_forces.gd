@@ -95,7 +95,8 @@ func run() -> int:
 	t.ok(gf.surge_arrays(every + 0.2, false)["count"] <= GroundForces.MAX_SURGES, "at most MAX_SURGES run at once")
 	var sa := gf.surge_arrays(float(gf.sweeps[-1]["t0"]) + dur * 0.5, true)
 	var red: Vector4 = sa["b"][sa["count"] - 1]   # the newest surge, mid-sweep
-	t.ok(red.z == 1.0 and red.w > 0.9, "reduced motion: the whole line stands, peaking mid-sweep instead of running")
+	var red0: Vector4 = gf.surge_arrays(float(gf.sweeps[-1]["t0"]), true)["b"][sa["count"] - 1]
+	t.ok(red.z == 1.0 and red.w > 0.9 and red0.w < 0.1, "reduced motion: the whole line stands and fades in, instead of running")
 	var quiet := GroundForces.new(fc)
 	quiet.update(0.0, {"target": "", "eta_s": -1.0, "warning": false, "wave_active": false}, pos)
 	quiet.update(0.0, {"target": "nowhere", "eta_s": 5.0, "warning": true, "wave_active": false}, pos)

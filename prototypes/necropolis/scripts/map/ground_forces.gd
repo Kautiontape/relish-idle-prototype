@@ -122,8 +122,8 @@ func _add(s: Dictionary, cap: int) -> void:
 ## The surges as the shader's arrays: ac = (a.xy, c.xy), b = (b.xy, head, strength). The head runs
 ## 0 -> 1 + surge.tail along the curve over the sweep, so the tail leaves the fort too; strength
 ## fades out over the last surge.fade share. Under reduced motion the head stands at the fort and
-## the strength rises and falls instead (the shader draws the whole line, brightening toward the
-## fort: direction without travel).
+## the strength fades in and out over the same share instead (the shader draws the whole line,
+## brightening toward the fort: direction without travel).
 func surge_arrays(now: float, reduced: bool) -> Dictionary:
 	var ac := PackedVector4Array()
 	var b := PackedVector4Array()
@@ -138,7 +138,7 @@ func surge_arrays(now: float, reduced: bool) -> Dictionary:
 			continue
 		var k := clampf((now - float(s["t0"])) / maxf(1e-3, float(s["dur"])), 0.0, 1.0)
 		var head := 1.0 if reduced else k * (1.0 + tail)
-		var env := sin(k * PI) if reduced else 1.0 - smoothstep(1.0 - fade, 1.0, k)
+		var env := (smoothstep(0.0, fade, k) if reduced else 1.0) * (1.0 - smoothstep(1.0 - fade, 1.0, k))
 		ac[i] = Vector4(s["a"].x, s["a"].y, s["c"].x, s["c"].y)
 		b[i] = Vector4(s["b"].x, s["b"].y, head, float(s["strength"]) * env)
 		i += 1

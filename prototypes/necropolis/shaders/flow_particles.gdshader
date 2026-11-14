@@ -128,12 +128,15 @@ uniform float surge_reach_px = 40.0;
 uniform float surge_push = 0.0;
 uniform float surge_speed = 0.0;
 uniform float surge_ink = 0.8;
+uniform float surge_recruit = 0.0;    // share of streaks per second respawned at a running head
+uniform vec2 surge_life_s = vec2(0.5, 1.0);   // a recruit's life: it lights the head, then goes
 const int MAX_INKS = 3;               // GroundForces.MAX_INKS
 uniform vec4 ink[MAX_INKS];           // x, y, front radius, strength (+ green, - orange)
 uniform int ink_count = 0;
 uniform float ink_band_px = 36.0;
 uniform float ink_push = 0.0;
 uniform float ink_hold = 0.5;         // wash inside the front
+uniform float ink_recruit = 0.0;      // share of streaks per second respawned on a running front
 uniform float comet = 0.0;            // 1 = reduced motion: frozen comets
 uniform float comet_px = 30.0;        // comet length, screen px
 uniform float comet_gain = 1.0;
@@ -265,6 +268,36 @@ float vortex_band(vec2 p) {
 	return smoothstep(vortex.w * 0.7, vortex.w, d) * (1.0 - smoothstep(vortex.y * 0.7, vortex.y, d));
 }
 
+// A point in surge (idx % surge_count)'s glowing window, for a recruited streak:
+// somewhere in the tail behind the head, scattered across the surge's reach.
+// False when that surge is too faint or its window has left the curve.
+bool surge_point(uint idx, out vec2 q) {
+	q = vec2(0.0);
+	int i = int(idx % uint(max(surge_count, 1)));
+	vec2 a = surge_ac[i].xy;
+	vec2 c = surge_ac[i].zw;
+	vec2 b = surge_b[i].xy;
+	float s = surge_b[i].z - surge_tail * 0.6 * hash1(idx * 0x2545f491u + 5u);
+	if (hash1(idx * 0x68e31da4u + 9u) > surge_b[i].w || s < 0.0 || s > 1.0) {
+		return false;
+	}
+	vec2 tg = 2.0 * (1.0 - s) * (c - a) + 2.0 * s * (b - c);
+	float tl = length(tg);
+	vec2 n = tl > 1e-5 ? vec2(-tg.y, tg.x) / tl : vec2(0.0);
+	q = mix(mix(a, c, s), mix(c, b, s), s) + n * (hash1(idx * 0x1b873593u + 13u) - 0.5) * surge_reach_px;
+	return true;
+}
+
+// A point on ink (idx % ink_count)'s front, for a recruited streak. False when
+// that ink is too faint.
+bool ink_point(uint idx, out vec2 q) {
+	int i = int(idx % uint(max(ink_count, 1)));
+	float ang = hash1(idx * 0x2545f491u + 7u) * 6.2831853;
+	float r = ink[i].z + (hash1(idx * 0x1b873593u + 17u) - 0.5) * ink_band_px;
+	q = ink[i].xy + vec2(cos(ang), sin(ang)) * max(r, 0.0);
+	return hash1(idx * 0x68e31da4u + 19u) <= abs(ink[i].w);
+}
+
 // The strongest surge head at p; `tg` gets its direction of travel there.
 float surge_at(vec2 p, out vec2 tg) {
 	float e = 0.0;
@@ -293,8 +326,9 @@ float surge_at(vec2 p, out vec2 tg) {
 			prev = q;
 		}
 		float head = surge_b[i].z;
-		float on = smoothstep(head - surge_tail, head, along) * (1.0 - smoothstep(head, head + 0.03, along));
-		float ei = on * (1.0 - smoothstep(0.0, surge_reach_px, d)) * st;
+		// full over the front 60% of the window and half the reach, so the head is a solid packet
+		float on = smoothstep(head - surge_tail, head - surge_tail * 0.6, along) * (1.0 - smoothstep(head, head + 0.03, along));
+		float ei = on * (1.0 - smoothstep(surge_reach_px * 0.5, surge_reach_px, d)) * st;
 		if (ei > e) {
 			e = ei;
 			tg = normalize(dir);
@@ -391,7 +425,32 @@ void process() {
 				seam = seam || (here.r + here.g + here.b) / 3.0 > clump_limit;
 			}
 		}
-		if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
+		// a running surge recruits streaks to its head, so it has a current to carry
+		// (and an ink to its front)
+		vec2 rp;
+		uint rseed = INDEX * 0x9e3779b1u ^ uint(frame_seed) * 0x85ebca6bu;
+		float rr = hash1(rseed) / max(DELTA, 1e-6);
+		bool recruit = false;
+		if (surge_count > 0 && rr < surge_recruit) {
+			recruit = surge_point(rseed, rp);
+		} else if (ink_count > 0 && rr >= surge_recruit && rr < surge_recruit + ink_recruit) {
+			recruit = ink_point(rseed, rp);
+		}
+		recruit = recruit && !outside(rp, keep_rect);
+		if (recruit) {
+			CUSTOM.w += 1.0;
+			TRANSFORM = mat4(1.0);
+			TRANSFORM[3].xy = rp;
+			TRANSFORM[0] = vec4(0.0);
+			TRANSFORM[1] = vec4(0.0);
+			CUSTOM.x = 0.0;
+			// moving: a short life, so it lights the head and goes instead of leaving a wake;
+			// a still comet keeps a comet's life
+			CUSTOM.y = comet > 0.5 ? life_of(seed_of(INDEX, CUSTOM.w))
+				: mix(surge_life_s.x, surge_life_s.y, hash1(rseed + 31u));
+			CUSTOM.z = 0.0;
+			COLOR = vec4(0.0);
+		} else if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
 				|| p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
 			CUSTOM.w += 1.0;
 			uint s = seed_of(INDEX, CUSTOM.w);
@@ -534,10 +593,9 @@ void process() {
 			// the clot is undead massing at her gates; a surge is living on its way; an ink is a fort
 			// changing hands
 			col = mix(col, col_green.rgb, vortex_ink * vb);
-			col = mix(col, mix(col_orange.rgb, col_orange_core.rgb, se), surge_ink * se);
+			col = mix(col, col_orange.rgb, surge_ink * se);
 			vec3 ink_col = ink_side > 0.0 ? col_green.rgb : col_orange.rgb;
-			vec3 ink_core = ink_side > 0.0 ? col_green_core.rgb : col_orange_core.rgb;
-			col = mix(mix(col, ink_col, ink_in), ink_core, ink_front);
+			col = mix(col, ink_col, min(1.0, ink_in + ink_front));
 			a = max(a, alpha_land * max(se, ink_front));
 			float living = liv * (1.0 - front);
 			if (comet > 0.5) {
@@ -555,7 +613,7 @@ void process() {
 			a *= smoothstep(0.0, fade_s.x, CUSTOM.x) * (1.0 - smoothstep(lf - fade_s.y, lf, CUSTOM.x));
 			// figure over ground: streaks thin out beside the lanes, and round Relish
 			if (moat_strength > 0.0) {
-				a *= 1.0 - moat_strength * moat;
+				a *= 1.0 - moat_strength * moat * (1.0 - se);   // a surge runs over its lane
 			}
 			a *= eye;
 			// an empty-born streak fades as it nears the seam line, instead of piling up there
