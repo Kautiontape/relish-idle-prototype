@@ -1163,6 +1163,25 @@ func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) ->
 		leave = _answers("slam", b._next_attack)
 	if leave:
 		_bell_goal = null
+		# the toll (Step 4b): answering the tell is also stepping out of the ring at her spot, to the
+		# nearest point clear of it that is also out of the slam (else out of the slam as before)
+		var tclear: float = _raid.relish.radius + _c("burn_clear_px", 16.0)
+		if b.toll_at != Vector2.INF:
+			_avoid_burn = {"areas": [b.toll_at], "r": b.toll_r + tclear}   # and fetch nothing inside it
+		if b.toll_at != Vector2.INF and pos.distance_to(b.toll_at) < b.toll_r + tclear:
+			var wr := int(_raid.layout.get("warden_room", -1))
+			var troom: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
+			var best := Vector2.INF
+			for k in 16:
+				var c: Vector2 = b.toll_at + Vector2.RIGHT.rotated(TAU * k / 16.0) * (b.toll_r + tclear + 4.0)
+				if troom.size != Vector2.ZERO:
+					c = WardenLogic.leash_clamp(troom, c, _raid.relish.radius + 8.0)
+				if c.distance_to(b.toll_at) >= b.toll_r + tclear and c.distance_to(wp) >= safe_px \
+						and (best == Vector2.INF or pos.distance_to(c) < pos.distance_to(best)):
+					best = c
+			if best != Vector2.INF:
+				_why = "toll-out"
+				return _to_point(pos, best)
 		if inside:
 			_why = "bell-out"
 			return _warden_retreat(pos, b, safe_px)
