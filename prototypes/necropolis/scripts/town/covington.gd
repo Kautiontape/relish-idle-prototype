@@ -67,6 +67,7 @@ func setup(_args: Dictionary) -> void:
 		_fort_names[String(f.get("id", ""))] = String(f.get("name", ""))
 	_grow()
 	_zoom()
+	_debug_slab()
 	_fetch()
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
@@ -156,6 +157,26 @@ func _grow() -> void:
 	_grow_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_grow_label.add_theme_stylebox_override("normal", TownUI.panel_box())
 	_view.add_child(_grow_label)
+
+
+## `--town-slab=<husk_uid>:<remnant_uid>,<remnant_uid>` (debug, e.g. h1:r2,r3): puts Relish home
+## (cmd_debug_set_state relish_at covington) and that husk with those remnants on the crypt slab
+## (the crypt tab applies it on the first bind whose inventory has them).
+func _debug_slab() -> void:
+	var raw := _debug_arg("town-slab")
+	if raw == "":
+		return
+	var parts := raw.split(":")
+	var rems: Array = []
+	if parts.size() > 1:
+		for r in parts[1].split(",", false):
+			rems.append(r)
+	var r: Dictionary = Game.state.cmd_debug_set_state({"relish_at": "covington"})
+	if not bool(r.get("ok", false)):
+		printerr("Covington: --town-slab could not bring Relish home (%s)" % r.get("reason", ""))
+	for p in _panels:
+		if p.has_method("debug_preset"):
+			p.debug_preset(parts[0], rems)
 
 
 ## `--town-zoom=<cx>,<cy>,<scale>` (debug): the town view's content scaled about a point.
@@ -294,12 +315,20 @@ func _fetch_views() -> Dictionary:
 	var views := {
 		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
-		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
-		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,
+		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(), "party": s.view_party(),
+		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names, "forts": _forts(s.view_realm()),
 	}
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
 	return views
+
+
+## The forts as the crypt's Siege… chooser needs them: [{id, name, held}] in world order.
+func _forts(realm: Dictionary) -> Array:
+	var out: Array = []
+	for f in realm.get("forts", []):
+		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false))})
+	return out
 
 
 func _on_game_event(ev: Dictionary) -> void:

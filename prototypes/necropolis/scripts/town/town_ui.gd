@@ -8,6 +8,7 @@ const MIN_TARGET := 44.0
 const SLANT_DEG := 9.0
 
 static var _oblique: FontVariation = null
+static var _bold: FontVariation = null
 
 
 ## Flat panel: `ground` fill, `contour` border.
@@ -77,6 +78,14 @@ static func oblique_font() -> FontVariation:
 		_oblique = FontVariation.new()
 		_oblique.variation_transform = Transform2D(Vector2(1, 0), Vector2(tan(deg_to_rad(SLANT_DEG)), 1), Vector2.ZERO)
 	return _oblique
+
+
+## The emboldened font (cached): emphasis that is not colour (the crypt's dominant stat).
+static func bold_font() -> FontVariation:
+	if _bold == null:
+		_bold = FontVariation.new()
+		_bold.variation_embolden = 0.9
+	return _bold
 
 
 ## A Label that shows a signed rate in the oblique font.
