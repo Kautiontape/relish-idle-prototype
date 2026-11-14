@@ -504,6 +504,7 @@
     },
     "archetypes": {
       "bellringer": {
+        "_doc": "The Bellringer (warden_bellringer.gd). The toll (D-d/E Step 4b): as a slam's tell begins, a ring attack.toll_radius_px wide lands where Relish stands in its room beyond the slam's own reach (TOLL); on the slam it strikes her if she is still in it (TOLLED; a tell-attack, so the chain does not soak it), unless a beefy big braces the bell (MUFFLED: the counter spares her) or the slam's own ring will reach her there. Stepping out is the answer; it reaches the stand she keeps outside the ring, which the slam alone never did.",
         "name": "The Bellringer",
         "tells": [
           "slams ring out on the beat, and beef soaks them",
@@ -539,6 +540,7 @@
         "attack": {
           "tell_beats": 1,
           "ring_beats": 0.6,
+          "toll_radius_px": 45.0,
           "radius_px": 260.0,
           "band_px": 36.0,
           "dmg_unit": 11.0,

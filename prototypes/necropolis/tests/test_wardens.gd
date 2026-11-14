@@ -381,6 +381,11 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lc)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
 		"tier 1 and the first dungeon are untouched by the lever")
 	t.ok(float(cfg["wardens"]["attack_dmg_mult"]) == 1.0 and float(cfg["wardens"]["relish_dmg_mult"]) == 1.0, "both levers rest at 1.0 until chosen")
+	# Step 4b, the reach at her stand: the toll and the aimed lane
+	t.ok(WardenLogic.toll_strikes(Vector2(100, 0), Vector2(60, 0), 70.0, 13.0, false, false), "the toll strikes her while she is still in its ring")
+	t.ok(not WardenLogic.toll_strikes(Vector2(200, 0), Vector2(60, 0), 70.0, 13.0, false, false), "stepped out: it misses")
+	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, true, false), "a muffled bell tolls nothing on her")
+	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, false, true), "no second blow where the slam's ring reaches her")
 	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
 	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:

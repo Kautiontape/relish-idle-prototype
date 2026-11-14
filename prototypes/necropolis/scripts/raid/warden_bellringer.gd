@@ -21,6 +21,13 @@ var _slam_muffled := false
 var _slams := 0
 var slams_muffled := 0         # slams rung while a beefy big braced the bell (autopilot telemetry)
 var slams := 0                 # slams rung, for the HUD's "MUFFLED x n of m" (a read-only mirror of _slams)
+var toll_at := Vector2.INF     # D-d/E Step 4b: where this tell's toll ring lies (her spot as the tell began; INF: none)
+var toll_r := 0.0              # its radius (attack.toll_radius_px)
+var tolls := 0                 # tolls rung (telemetry)
+var tolls_struck := 0          # of them, those that struck her
+var _toll_word_t := 99.0       # draw only: seconds since a toll resolved
+var _toll_word_at := Vector2.ZERO
+var _toll_word := ""
 
 var _bell := PackedVector2Array()   # the outline, built once from the radius
 var _ribs: Array[PackedVector2Array] = []   # rib i spans the bell at height RIB_Y[i]
@@ -76,6 +83,14 @@ func _step(delta: float) -> void:
 	if _slam_beat < 0.0 and _tell_for != _next_attack and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))):
 		_tell_for = _next_attack
 		RaidSound.play("tell")   # once per tell
+		# the toll: a ring where she stands as the tell begins (in its room); stepping out is the answer
+		toll_r = float(at.get("toll_radius_px", 0.0)) \
+			if WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) else 0.0
+		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+		# (only where the slam's own ring cannot reach her: inside it, the ring is the threat)
+		toll_at = rel0.global_position if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
+			and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) \
+			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + rel0.radius else Vector2.INF
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack
@@ -86,6 +101,19 @@ func _step(delta: float) -> void:
 		RaidSound.play("muffle" if muffled else "slam")
 		if muffled:
 			slams_muffled += 1
+		if toll_at != Vector2.INF:
+			tolls += 1
+			var rp: Vector2 = rel0.global_position if rel0 != null and is_instance_valid(rel0) else Vector2.INF
+			var in_ring: bool = rp != Vector2.INF and rp.distance_to(global_position) <= float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + rel0.radius
+			var struck := rel0 != null and is_instance_valid(rel0) and rel0.alive \
+				and WardenLogic.toll_strikes(rp, toll_at, toll_r, rel0.radius, muffled, in_ring)
+			if struck:
+				tolls_struck += 1
+				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false), "slam")
+			_toll_word = "MUFFLED" if muffled else ("TOLLED" if struck else "")
+			_toll_word_at = toll_at
+			_toll_word_t = 0.0
+			toll_at = Vector2.INF
 		_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)
 		if raid._standalone:
 			print("RAID_WARDEN slam n=%d muffled=%s phase=%d bigs_at_bell=%d frame=%d" % [_slams, str(_slam_muffled), phase, _contacts().size(), Engine.get_process_frames()])
@@ -96,7 +124,25 @@ func _step(delta: float) -> void:
 		else:
 			_apply_slam(_slam_prev_r, r, float(at.get("band_px", 36.0)))
 			_slam_prev_r = r
+	_toll_word_t += delta   # draw-only clock
 	_update_braced(b, at)   # visual only, and last
+
+
+## The toll in the world (tell -> counter -> labelled result): through the tell a `danger` ring where she
+## stood as it began, closing on the beat (steady under reduced motion) with TOLL over it; after the slam,
+## for `wardens.pack_label_s`, TOLLED (it struck her) or MUFFLED (a braced bell tolls nothing) at that spot.
+func _draw_toll(ci: CanvasItem) -> void:
+	var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
+	if toll_at != Vector2.INF:
+		var at: Dictionary = spec.get("attack", {})
+		var tell := float(at.get("tell_beats", 1.0))
+		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (_next_attack - beat()) / maxf(0.01, tell), 0.0, 1.0)
+		var p := toll_at - global_position
+		LineGlow.ring(ci, p, toll_r, Palette.c("danger", 0.45 + 0.45 * f), 2.5 / zoom(), 0.6)
+		ci.draw_arc(p, toll_r * (1.0 - 0.25 * (1.0 - f)), 0.0, TAU, 40, Palette.c("danger", 0.35), 1.5 / zoom())
+		_pack_word(ci, p + Vector2(0, -toll_r - fs * 0.8), "TOLL", fs, Palette.c("danger"))
+	elif _toll_word != "" and _toll_word_t < float(wcfg().get("pack_label_s", 1.2)):
+		_pack_word(ci, _toll_word_at - global_position, _toll_word, fs, Palette.c("undead") if _toll_word == "MUFFLED" else Palette.c("danger"))
 
 
 ## Who is bracing the bell (the bigs the muffle counts: beef at the threshold, within the pad), kept
@@ -216,6 +262,7 @@ func _draw_glyph(col: Color) -> void:
 
 
 func _draw_telegraph(ci: CanvasItem) -> void:
+	_draw_toll(ci)
 	var at: Dictionary = spec.get("attack", {})
 	var tell := float(at.get("tell_beats", 1.0))
 	var b := beat()

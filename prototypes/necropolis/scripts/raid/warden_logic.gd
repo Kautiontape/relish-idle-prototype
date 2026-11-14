@@ -482,6 +482,15 @@ static func rush_reach(base: float, rush_px: float, room_half: float, frac: floa
 	return maxf(base, r)
 
 
+## D-d/E Step 4b, the Bellringer's toll: as a slam's tell begins it marks a ring of `toll_r` where Relish
+## stands (`toll_at`); on the slam it strikes her if she is still in it, unless the bell is muffled (the counter
+## spares her) or she stands where the slam's own ring will reach her anyway (`in_ring`: no second blow).
+static func toll_strikes(rel_pos: Vector2, toll_at: Vector2, toll_r: float, rel_r: float, muffled: bool, in_ring: bool) -> bool:
+	if muffled or in_ring or toll_at == Vector2.INF or toll_r <= 0.0:
+		return false
+	return rel_pos.distance_to(toll_at) <= toll_r + rel_r
+
+
 ## D-d/E Step 4 / 4b, the risk gate: the lever and the tell-attacks' bypass of the sacrifice chain apply from
 ## `wardens.lever_min_tier` up and never in the first dungeon (`w` is raid.json `wardens`).
 static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:
