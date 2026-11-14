@@ -379,16 +379,10 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	workers = wf["w"]
 	var rotted: float = float(wf["rot"]) * _mass
 	var rot_mass: float = rotted * _body_return
-	var rot_in := clampf(cap - bodies, 0.0, rot_mass)
-	bodies += rot_in
-	out["rot_overflow"] = rot_mass - rot_in
 	out["rot_loss"] = rotted - rot_mass
 	out["muster_mass"] = float(wf["muster"]) * _mass
 
-	# 2. haul (§4.2): the convoy, as many legs as the step holds
-	var haul_in := _haul(dt, inp, _job("haul"), cap, out)
-
-	# 3. pits and mills share the bodies in proportion to what they want
+	# 2. what the pits and the mills want this step (they share the bodies in proportion, step 4)
 	var pits := 0
 	var pit_can := 0.0  # mass/s the staffed pits can burn
 	for lot_id in _lots:
@@ -405,10 +399,31 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var want_pit := pit_can * dt
 	var want_mill := _mill_mass * _job("mill") * dt
 	var want := want_pit + want_mill
-	var share := 1.0 if want <= bodies else (bodies / want if want > 0.0 else 0.0)
-	var burned := want_pit * share
-	var milled := want_mill * share
-	bodies = maxf(0.0, bodies - burned - milled)
+
+	# 3. haul (§4.2): the convoy, as many legs as the step holds. Its departures and pickups see the
+	# store's projected level (rot in, pits and mills out, the loads landed so far); loads land whole
+	var b0 := bodies
+	var haul_in := _haul(dt, inp, _job("haul"), cap, out, b0, (rot_mass - want) / dt)
+
+	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
+	# the cap clips (MECHANICS §4.1), so a long step near the cap books no phantom overflow. What
+	# overflows is split between rot and haul by their shares of the inflow.
+	var inflow := rot_mass + haul_in
+	var taken := minf(want, b0 + inflow)
+	var end := b0 + inflow - taken
+	# only what comes in is clipped: an excess the store held before the step (a demolished house
+	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
+	# the pits have drawn the stock this step, whichever is higher
+	var over := maxf(0.0, end - maxf(cap, b0 - taken))
+	bodies = maxf(0.0, end - over)
+	var rot_over := minf(over, over * rot_mass / inflow) if inflow > 0.0 else 0.0
+	var haul_over := maxf(0.0, over - rot_over)
+	out["rot_overflow"] = rot_over
+	out["haul_overflow"] = haul_over
+	var rot_in := rot_mass - rot_over
+	haul_in -= haul_over
+	var burned := taken * want_pit / want if want > 0.0 else 0.0
+	var milled := taken - burned
 	out["burned"] = burned
 	out["milled"] = milled
 	var bone_in := milled * _mill_rate
@@ -575,12 +590,40 @@ static func workforce(w0: float, r: float, dt: float, life: float, m: float, slo
 	return {"w": w, "rot": maxf(0.0, r * dt - (w - start) - muster), "muster": muster}
 
 
+## Where `workforce()` settles at a constant inflow `r` workers/s (lifetime `life`, idle rot multiplier
+## `m`, `slots` staffable, `idle_cap`), with exactly its regimes. Returns {kept, muster}: the settled
+## workforce, and the workers/s mustered to WAR there (0 unless the idle pool is pinned at its cap).
+static func workforce_steady(r: float, life: float, m: float, slots: float, idle_cap: float) -> Dictionary:
+	var s := maxf(0.0, slots)
+	var c := maxf(0.0, idle_cap)
+	var L := maxf(EPS, life)
+	var rl := r * L
+	if rl <= s:
+		return {"kept": rl, "muster": 0.0}
+	if m > 0.0:
+		var ss_b := s + (rl - s) / m
+		if ss_b <= s + c:
+			return {"kept": ss_b, "muster": 0.0}
+		return {"kept": s + c, "muster": maxf(0.0, r - (s + m * c) / L)}
+	return {"kept": s + c, "muster": maxf(0.0, r - s / L)}
+
+
+## workforce_steady() at the live inputs: this substep's inflow, the lifetime now, the staffable slots.
+func steady_kept(relish_home: bool) -> Dictionary:
+	return workforce_steady(float(rates["workers"]["in"]), lifetime_s(relish_home), _idle_rot,
+			float(staffing.get("slots", 0.0)), _idle_cap)
+
+
 ## The convoy. A leg takes distance / (job.haul.speed · stables) seconds. It leaves when haulers
 ## are staffed, the store is under the cap and there is a target (auto: the fort with the most
 ## dead above job.haul.auto_min_dead). The crew is fixed at departure. At arrival it picks up
 ## carry · crew (× flip.haul_mult at a held fort), clamped to the fort's dead left in the snapshot
-## and to the store's headroom; on the way back the load lands in bodies.
-func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary) -> float:
+## and to the store's headroom; on the way back the load lands (step() nets it into the store).
+## The store's level at a leg's moment is projected from `b0`: `net` mass/s (rot return less what
+## the pits and mills want) and each landed load, held within [0, cap]. Pickups read the forts'
+## dead as the snapshot had them, so a long step's later legs see no corpses made inside it.
+## Returns the mass landed.
+func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
 	var forts: Array = inp.get("forts", [])
 	var by_id := {}
@@ -593,11 +636,14 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 	var taken := {}
 	var delivered := 0.0
 	var left := dt
+	var hi := maxf(cap, b0)  # an over-cap store keeps its excess (step 4); it is the projection's ceiling
+	var lvl := clampf(b0, 0.0, hi)  # the projected store at `at_lvl` seconds into the step
+	var at_lvl := 0.0
 	for _i in MAX_LEGS:
 		if left <= 0.0:
 			break
 		if convoys.is_empty():
-			if crew_now <= EPS or bodies >= cap - EPS or speed <= 0.0:
+			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) >= cap - EPS or speed <= 0.0:
 				break
 			var fid := _haul_pick(forts, target, taken)
 			if fid == "":
@@ -616,16 +662,16 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 			var f: Dictionary = by_id.get(c["fort"], {})
 			var avail := maxf(0.0, float(f.get("dead", 0.0)) - float(taken.get(c["fort"], 0.0)))
 			var mult := _haul_mult if bool(f.get("held", false)) else 1.0
-			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - bodies))
+			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, hi)
+			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - level))
 			taken[c["fort"]] = float(taken.get(c["fort"], 0.0)) + load
 			c["load"] = load
 			c["phase"] = "back"
 			c["t"] = 0.0
 		else:
-			var add := clampf(cap - bodies, 0.0, float(c["load"]))
-			bodies += add
-			delivered += add
-			out["haul_overflow"] = float(out["haul_overflow"]) + float(c["load"]) - add
+			delivered += float(c["load"])
+			lvl = minf(hi, clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) + float(c["load"]))
+			at_lvl = dt - left
 			_haul_trip = float(c["load"]) / (2.0 * float(c["trip_s"]))
 			convoys.clear()
 			haul["current"] = ""

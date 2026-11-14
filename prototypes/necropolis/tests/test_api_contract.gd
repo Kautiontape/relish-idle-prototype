@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 3,
+	"API_VERSION": 4,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -510,7 +510,7 @@ func _persistence(s: GameState) -> void:
 	_cmd(s, "cmd_load", ["future"], false)
 	t.ok(s.cmd_load("future")["reason"] == "bad_version" and s.cmd_load("junk")["reason"] == "no_save" and s.cmd_load("nothing")["reason"] == "no_save",
 		"bad_version for a future file, no_save for a corrupt or missing one")
-	s.legacy_teleport_relish("ashgate")
+	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	_cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
 	_cmd(s, "cmd_load", ["slot1"], false)
 	_cmd(s, "cmd_debug_load_fixture", ["day1"], false)

@@ -224,8 +224,8 @@ func _round_trip() -> void:
 	t.ok(not text.contains("in_dungeon") and not text.contains("in_boss") and not text.contains("debug_enabled")
 		and not text.contains("time_scale") and not text.contains("paused") and not text.contains("\"rev\""), "session-only fields are not saved")
 	t.ok(d["seed"] is String and d["rng"] is String and d["v"] == 2 and d["api_version"] == GameState.API_VERSION, "seed and rng are strings; v and api_version")
-	t.ok(not d.has("legacy") and d["town"]["pending"].size() == 1 and d["town"]["work_pending"] > 0.0
-		and d["town"]["haul"]["target"] == "ashgate" and d["backups"]["clones_ready"] == 2, "v2: no legacy block; the town block holds TownSim, its pending event, the WORK in flight and the haul target")
+	t.ok(not d.has("legacy") and d["town"]["pending"].size() == 1 and d["town"]["work_pending"] == 0.0
+		and d["town"]["haul"]["target"] == "ashgate" and d["backups"]["clones_ready"] == 2, "v2: no legacy block; the town block holds TownSim, its pending event, the WORK in flight (0 from E2b) and the haul target")
 	var built: Array = b.view_town()["buildings"].map(func(x): return [x["lot_id"], x["state"], x["staff_cap"]])
 	t.ok(built.has(["lot-03", "active", 2]) and built.has(["lot-06", "constructing", -1]) and built.size() == 6,
 		"the loaded town: its buildings, a staff cap and the construction (%s)" % str(built))
@@ -639,7 +639,20 @@ func _fixtures() -> void:
 		var file: Variant = JSON.parse_string(text)
 		t.ok(file is Dictionary and file["v"] == GameState.SAVE_VERSION, "%s.json is a save at the current v" % name)
 		var s := _load_fixture(name)
-		t.ok(JSON.stringify(s.to_dict(), "\t") + "\n" == text, "%s: load then to_dict gives the file back (placeholders survive)" % name)
+		# a fixture written before game_id lacks it (a load computes the id from the seed); one written
+		# after carries it and the load keeps it. A fixture also keeps the api_version it was written at,
+		# and to_dict stamps today's
+		var back := s.to_dict()
+		var has_id: bool = file.has("game_id")
+		if has_id:
+			t.ok(back.get("game_id") == file["game_id"], "%s: the load keeps the file's game_id" % name)
+		else:
+			t.ok(back.get("game_id") == SaveIO.game_id_for(str(file["seed"])), "%s: the id a load computes is its seed's" % name)
+			back.erase("game_id")
+		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
+		if int(file["api_version"]) != int(back["api_version"]):
+			back["api_version"] = int(file["api_version"])
+		t.ok(JSON.stringify(back, "\t") + "\n" == text, "%s: load then to_dict gives the file back (placeholders survive)" % name)
 		t.ok(s.rev > 0 and s.drain_events().is_empty() and s.run.is_empty(), "%s: events cleared, no run" % name)
 	var day1 := _load_fixture("day1")
 	var fresh := _mk(1)

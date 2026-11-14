@@ -106,7 +106,7 @@ func run() -> int:
 	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"], "cancelled trip ends home")
 	# cancel from a leg that left a fort
 	s = _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.cmd_move_relish("ashgate")
 	s.tick(0.5)
 	s.cmd_cancel_travel()
@@ -123,41 +123,39 @@ func run() -> int:
 	t.ok(s.cmd_move_relish(vid)["reason"] == "unknown_node", "village ids are unknown nodes")
 	s.relish["state"] = "dead"
 	t.ok(s.cmd_move_relish("nowhere")["reason"] == "dead", "dead is checked before unknown_node")
-	t.ok(s.legacy_teleport_relish("old-sluice")["reason"] == "dead", "teleport refuses when dead")
 	s.relish["state"] = "home"
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	t.ok(b["ok"], "begin dungeon")
 	t.ok(s.cmd_move_relish("covington")["reason"] == "in_dungeon", "in_dungeon refuses a move")
-	t.ok(s.legacy_teleport_relish("covington")["reason"] == "in_dungeon", "teleport refuses in a dungeon")
+	t.ok(s.cmd_debug_set_state({"relish_at": "covington"})["reason"] == "busy", "the debug placement refuses while a run is open")
 	t.ok(s.raiding_fort_id() == "old-sluice" and s.view_relish()["effects"]["redirect_fort"] == "", "in the dungeon: raiding_fort_id, no redirect")
 	s.cmd_abort_dungeon()
 	t.ok(s.raiding_fort_id() == "", "raiding_fort_id clears when the run closes")
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	s.cmd_begin_boss()
 	t.ok(s.cmd_move_relish("covington")["reason"] == "in_boss", "in_boss refuses a move")
 	t.ok(s.cmd_cancel_travel()["reason"] == "not_travelling", "cancel in a boss run: not_travelling")
 
-	# --- legacy_teleport_relish ---
+	# --- placing her with the debug command: her state and effects follow the node ---
 	s = _mk()
 	s.cmd_move_relish("ashgate")
 	s.tick(0.5)
 	rv = s.rev
-	r = s.legacy_teleport_relish("old-sluice")
+	r = s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	v = s.view_relish()
-	t.ok(r == {"ok": true, "reason": ""} and s.rev == rv + 1, "teleport ok, bumps rev")
+	t.ok(r["ok"] and s.rev == rv + 1, "placement ok, bumps rev")
 	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["pos"] == [1420.0, 1305.0],
-		"teleport puts her at the fort, standing")
-	t.ok(s.view_relish()["effects"] == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "teleport: her effects follow")
-	s.legacy_teleport_relish("vei")
-	t.ok(s.view_relish()["state"] == "at_vei", "teleport to vei: at_vei")
-	s.legacy_teleport_relish("covington")
-	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"], "teleport home: home")
-	t.ok(s.legacy_teleport_relish("zzz")["reason"] == "unknown_node", "teleport: unknown_node")
+		"placed at the fort, standing")
+	t.ok(s.view_relish()["effects"] == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "at a fort: her effects follow")
+	s.cmd_debug_set_state({"relish_at": "vei"})
+	t.ok(s.view_relish()["state"] == "at_vei", "placed at vei: at_vei")
+	s.cmd_debug_set_state({"relish_at": "covington"})
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"], "placed home: home")
 
 	# --- the open run feeds raiding_fort_id ---
 	s = _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.cmd_begin_dungeon("old-sluice")
 	t.ok(s.raiding_fort_id() == "old-sluice", "an open raid names its fort")
 	s.cmd_abort_dungeon()

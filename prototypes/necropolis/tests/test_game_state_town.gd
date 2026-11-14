@@ -1,6 +1,6 @@
 extends RefCounted
 ## GameState with TownSim wired in (MECHANICS §1.3 step 2, §3.2, §4; STATE-API §2.2, §4.1, §5, §9):
-## WORK one substep late, the mint from pits and feed, muster into WAR, haul pickups off the forts,
+## WORK in the same substep, the mint from pits and last step's feed, muster into WAR, haul pickups off the forts,
 ## the views read from TownSim, the legacy getters, the BALANCE §0 new game, v1 → v2 saves and the
 ## fixtures. The influence field is shrunk in memory (a copy of the configs), so substeps stay cheap.
 
@@ -100,39 +100,59 @@ func _new_game() -> void:
 		"cmd_new_game resets the one TownSim in place")
 
 
-# ------------------------------------------------------- WORK, one substep late ----
+# ------------------------------------------ WORK in the same substep, the feed lagged ----
 func _work() -> void:
 	var s := _mk()
 	var dt := s.substep_s()
 	var mass := float(TestUtil.configs()["economy"]["worker"]["mass"])
 	s.tick(dt)
-	t.ok(s.town_sim.rates["workers"]["in"] == 0.0, "the first substep's TownSim gets no WORK (none was sent yet)")
-	t.near(s.work_pending, s._split["work"] * dt, 0.0, "the valve's WORK waits in work_pending")
+	t.near(float(s.town_sim.rates["workers"]["in"]) * mass, s._split["work"], 1e-12, "the first substep's TownSim gets that substep's WORK")
+	t.ok(s.work_pending == 0.0, "nothing waits in work_pending")
 	var ok := true
 	var never := true
 	for i in 40:
-		var sent := s.work_pending
 		s.tick(dt)
-		ok = ok and absf(float(s.town_sim.rates["workers"]["in"]) * mass * dt - sent) <= 1e-12 * maxf(1.0, sent)
-		never = never and s.work_pending == s._split["work"] * dt
-	t.ok(ok, "each substep TownSim takes exactly the WORK the previous substep sent")
-	t.ok(never, "work_pending is only the last substep's WORK: it never accumulates")
+		ok = ok and absf(float(s.town_sim.rates["workers"]["in"]) * mass - s._split["work"]) <= 1e-12 * maxf(1.0, s._split["work"])
+		never = never and s.work_pending == 0.0
+	t.ok(ok, "each substep TownSim takes exactly that substep's WORK (rate × dt)")
+	t.ok(never, "work_pending stays 0 at every step boundary")
 	t.ok(s.town_sim.workers > 12.0, "and the workforce grows from it (%.3f)" % s.town_sim.workers)
+	# a save from before the lag (E2a) can hold WORK in flight: it arrives with the next step's, once.
+	# The save is E2a-shaped: 3 mass in town.work_pending and a ledger block without `opening` (E2a
+	# predates the ledger), so the load counts the pending mass in what the save holds
+	var d: Dictionary = JSON.parse_string(JSON.stringify(_mk().to_dict()))
+	d["town"]["work_pending"] = 3.0
+	d["ledger"] = {"sources": {}, "sinks": {"dungeon": 0.0}}
+	var e := GameState.new(_cfgs())
+	e.debug_enabled = true
+	var r := e.from_dict(d)
+	t.ok(r["ok"] and e.work_pending == 3.0, "an E2a save with 3 mass of WORK in flight loads (%s)" % str(r.get("reason", "")))
+	t.ok(GameState.Ledger.error(e.ledger()) < 1e-12, "the ledger balances before the first step (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
+	e.tick(dt)
+	t.near(float(e.town_sim.rates["workers"]["in"]) * mass * dt, e._split["work"] * dt + 3.0, 1e-12, "step 1: TownSim's WORK is the pending 3 plus this step's")
+	t.ok(e.work_pending == 0.0 and GameState.Ledger.error(e.ledger()) < 1e-12, "then work_pending is 0, and the ledger balances (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
+	e.tick(dt)
+	t.near(float(e.town_sim.rates["workers"]["in"]) * mass * dt, e._split["work"] * dt, 1e-12, "step 2: this step's WORK only (delivered once)")
+	t.ok(GameState.Ledger.error(e.ledger()) < 1e-12, "and the ledger still balances (%s)" % String.num_scientific(GameState.Ledger.error(e.ledger())))
 
 
 # ------------------------------------------------------------ pits and feed ----
+## The mint reads the working pits now and the feed of the step before (MECHANICS §3.2).
 func _mint() -> void:
 	var cfg: Dictionary = TestUtil.configs()["realm"]
 	var bonus := float(TestUtil.configs()["economy"]["pit"]["bonus"])
 	var s := _mk()
 	s.tick(s.substep_s())
-	t.near(s._split["mint"], (2.0 + 6.0 * 1.0) * (1.0 + 0.6 * 1.0), 1e-12, "the start: (2 + 6 · 1) · (1 + 0.6 · feed 1) = 12.8")
+	t.near(s._split["mint"], 2.0 + 6.0 * 1.0, 1e-12, "the first substep: no step has burned yet (feed 0): 2 + 6 · 1 = 8")
+	s.tick(s.substep_s())
+	t.near(s._split["mint"], (2.0 + 6.0 * 1.0) * (1.0 + 0.6 * 1.0), 1e-12, "the next: (2 + 6 · 1) · (1 + 0.6 · feed 1) = 12.8")
 	t.ok(float(cfg["P_base"]) == 2.0 and float(cfg["P_per_pit"]) == 6.0 and bonus == 0.6 and not cfg.has("P_per_slab"),
 		"realm.json P_base 2, P_per_pit 6 (was P_per_slab); economy.json pit.bonus 0.6")
 	t.near(s.view_hud()["rates"][0]["rate"], 12.8, 1e-12, "view_hud's mint rate")
 	# the pit unstaffed: no burn, no feed bonus, but still a working pit
 	var u := _mk()
 	u.cmd_set_staff_cap("lot-02", 0)
+	u.tick(u.substep_s())
 	u.tick(u.substep_s())
 	t.ok(u.town_sim.rates["feed"] == 0.0 and u._split["mint"] == 8.0, "an unstaffed pit: feed 0, mint P_base + P_per_pit = 8")
 	# a starved pit: feed is burned / wanted, proportional
@@ -141,11 +161,13 @@ func _mint() -> void:
 	h.cmd_debug_grant({"bodies": -40.0})
 	h.tick(h.substep_s())
 	var feed := float(h.town_sim.rates["feed"])
+	h.tick(h.substep_s())
 	t.ok(feed > 0.0 and feed < 1.0, "bodies short: a partial feed (rot return only: %.4f)" % feed)
-	t.near(h._split["mint"], 8.0 * (1.0 + bonus * feed), 1e-12, "the mint follows the feed smoothly")
+	t.near(h._split["mint"], 8.0 * (1.0 + bonus * feed), 1e-12, "the mint follows the feed smoothly, a step behind")
 	# a second pit
 	var p := _mk()
 	p.town_sim.place_building("lot-05", "raising_pit", 1)
+	p.tick(p.substep_s())
 	p.tick(p.substep_s())
 	t.ok(p.town_sim.pits() == 2, "two working pits")
 	t.near(p._split["mint"], (2.0 + 6.0 * 2.0) * 1.6, 1e-12, "both fed: (2 + 6 · 2) · 1.6")

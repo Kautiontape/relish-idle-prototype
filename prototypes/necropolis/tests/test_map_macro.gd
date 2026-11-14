@@ -110,7 +110,12 @@ func _states_fixtures(t: TestUtil) -> void:
 	var ash := m.fort("ashgate")
 	t.ok(bool(ash["held"]) and NodeLogic.fort_state(ash, m.margin_of("ashgate")) == m.margin_of("ashgate"), "midgame Ashgate is held: its glyph is its margin (%s)" % m.margin_of("ashgate"))
 	t.ok(NodeLogic.tithe_badge(ash), "and the real tithe on it carries the badge")
-	t.ok(NodeLogic.fort_state(m.fort("greywall"), m.margin_of("greywall")) == NodeLogic.OVERRUN, "midgame Greywall (22 undead, no living, not held) is overrun")
+	# the regenerated midgame garrisons Greywall with living, so build the overrun state on the real path
+	s.cmd_debug_set_state({"forts": {"greywall": {"living": 0.0}}})
+	m.refresh(true)
+	var gw := m.fort("greywall")
+	t.ok(NodeLogic.fort_state(gw, m.margin_of("greywall")) == NodeLogic.OVERRUN and float(gw["undead"]) > 0.0 and not bool(gw["held"]),
+		"midgame Greywall with its living cleared (undead %.1f, no living, not held) is overrun" % float(gw["undead"]))
 	t.ok(NodeLogic.fort_state(m.fort("vespers"), m.margin_of("vespers")) == NodeLogic.HERS, "midgame Vespers (living only) is hers")
 	var d := MapModel.new(s)
 	d.nodes_demo = true

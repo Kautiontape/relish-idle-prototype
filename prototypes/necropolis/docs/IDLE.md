@@ -118,7 +118,10 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   inside a step until its head can't start.
 - The influence field ticks once per catch-up step with that step's `dt`. Village owners are the one
   sim quantity that reads it. The field's results are already the same at every slice budget, so
-  catch-up's field is the live field.
+  catch-up's field is the live field. (E2b T3.0 measured, `tests/slow/field_cap.gd`: one tick at a
+  long `dt` fills the field with NaN. Its update is explicit, with `diffuse · 5 · dt` past 1 above
+  about 1.25 s. 144 ticks at the live 0.2 s instead leave owners lagging: 96.8% of village-samples
+  matched over 12 h, with `green_towns` off in 37 of 144. Catch-up's field needs its own plan.)
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
   advances it in fixed chunks, and chunking never changes the result.
 
@@ -126,12 +129,46 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 takes over 1 s.
 - **E2 benchmarks one substep first.** If 12 h takes over 2 s, raise `idle.catchup_dt_max_s` before
   touching the design.
-- **Stability is set by the realm, not the workers.** RealmSim's drain is forward Euler, and its
-  fastest timescale is 1/r_drain ≈ 16.7 s, so pools go negative above that dt. Fort kills and clears
-  also scale with dt. Inside a long catch-up step, RealmSim must either be sub-stepped below
-  `idle.realm_dt_max_s` (≤ 4 s) or integrated exactly, while TownSim's exact first-order updates take
-  the long step. (Found in economy's E2a quality review; this replaces v2's "stable to about 120 s",
-  which held only for the workforce.)
+- **The step is exact in its pieces; accuracy sets `idle.catchup_dt_max_s`** (E2b T3.0, which
+  replaces E2a's "sub-step RealmSim below `idle.realm_dt_max_s`"). The core step
+  (`GameState._core_step`, MECHANICS §1.3) changed in four places:
+  - the drain is `U · (1 − e^(−r_drain · dt))`;
+  - fort combat follows living's and undead's paths inside the step;
+  - shipping and surges are rates, and Vei's headroom counts the step's shipping;
+  - TownSim nets the body store before its cap (MECHANICS §3.1, §4.1).
+
+  Nothing goes negative at any dt (tested to 120 s). `tests/slow/convergence.gd` measures 12 h with
+  no input against a 0.5 s run, with steps clipped at the events listed under Method:
+  - Measured at `985c158` (E2b T3.0m: the march-back and exact wave times, MECHANICS §3.4). Vei's
+    stocks and Covington's smooth ones stay within 0.4% up to dt 5 s (midgame_2flips 0.38%,
+    fresh 0.33%). At 10 s and 15 s they reach 1.3% and 2.4% on midgame_2flips (bone the worst;
+    the backlog 0.94% and 1.66%, against 3.05% and 4.47% at `3992014` under T3.0s's bound), and
+    1.6% and 0.9% on fresh. The 12 h table (worst Vei+Covington stock at 5, 10, 15 and 30 s;
+    0.5 s reference): midgame_2flips 0.38%, 1.28%, 2.43%, 6.33%; fresh 0.33%, 1.56%, 0.91%,
+    1.17%; pre_vei 7.37%, 27.3%, 27.8%, 56.5% (pre-march-back, see below).
+  - So 12 h at 15 s on midgame_2flips (2.4%, bone) is above the 2% `idle.catchup_tol`. Only the 1 h
+    gate (`tests/test_convergence_1h.gd`, 1.333% at 15 s) enforces 2%; at 12 h the largest dt
+    inside it is 10 s (1.28%).
+  - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s) midgame_2flips' backlog is
+    first order: 0.012% at 0.25 s, 0.036% at 0.5 s. Over 1 h its backlog's error is 0.012%,
+    0.036%, 0.062%, 0.13%, 0.28%, 0.88% and 1.37% at 0.25, 0.5, 1, 2, 5, 10 and 15 s (2.66% at
+    15 s under the bound, 0.46% before it).
+  - The forts' pools and the body store don't converge: 0.25 s already differs from 0.5 s by up
+    to 19% (pre_vei's corpses). The candidates are the dispatch rules' edges and the convoy's
+    choice of fort. midgame_2flips' corpses got worse with the march-back (19% at 5 s, 217% at
+    15 s, against 3% and 27% before): Ashgate now ends a wave near its cap instead of far above
+    it, and then fills with corpses about 10 min earlier at 15 s than at 0.125 s. The cause is
+    not yet measured.
+  - pre_vei is unchanged by T3.0m (no wave reaches it in 12 h with no input). Its gold-floor
+    upkeep cycle doesn't converge: 2.5% at 2 s, 7.4% at 5 s. At 10 s its backlog is 6.4% off and
+    Vei's dead 27%.
+  - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
+    (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
+    with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
+    adaptive, not fixed (the `dt` formula under Method). With `idle.catchup_max_steps` set so
+    that 12 h steps at 5 s, 7 days steps at about 70 s: that figure is derived (604 800 s /
+    `idle.catchup_max_steps`, 8 640 steps), not measured. In a profile before T3.0, most of the step (two thirds to three quarters) was
+    TownSim, which runs `_restaff` twice per step: by that profile, that is the cost lever.
 - A thread is the fallback.
 
 **Determinism.**
