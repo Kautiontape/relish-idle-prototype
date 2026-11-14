@@ -9,6 +9,8 @@ extends RefCounted
 const SYNTH_PATH := "res://scripts/fx/synth.gd"
 const SYNTH_LOGIC_PATH := "res://scripts/fx/synth_logic.gd"
 
+const WARM_KINDS := ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept"]
+
 static var _synth: Node = null
 static var _known: Array = []
 static var _last_ms := {}
@@ -23,14 +25,21 @@ static func attach(parent: Node) -> void:
 	_log = OS.get_cmdline_user_args().has("--raid-sound-log")
 	if not ResourceLoader.exists(SYNTH_PATH):
 		return
-	var script: Script = load(SYNTH_PATH)
-	if script == null:
+	var script := load(SYNTH_PATH) as Script
+	if script == null or not script.can_instantiate():
 		return
-	_synth = script.new()
+	var node = script.new()
+	if not RaidSoundLogic.synth_api_ok(node.has_method("play"), node.get_method_argument_count("play")):
+		push_warning("RaidSound: Synth.play has an unexpected signature; sound is off")
+		node.free()
+		return
+	_synth = node
 	parent.add_child(_synth)
 	if ResourceLoader.exists(SYNTH_LOGIC_PATH):
-		var consts: Dictionary = (load(SYNTH_LOGIC_PATH) as Script).get_script_constant_map()
-		_known = Array(consts.get("KINDS", []))
+		var logic := load(SYNTH_LOGIC_PATH) as Script
+		if logic != null:
+			_known = Array(logic.get_script_constant_map().get("KINDS", []))
+	warm(WARM_KINDS)
 
 
 static func warm(kinds: Array) -> void:

@@ -17,6 +17,11 @@ static func playable(kind: String, known: Array) -> bool:
 	return kind != "" and known.has(kind)
 
 
+## True when the Synth's `play` looks like play(kind, params): present, and 1 or 2 arguments.
+static func synth_api_ok(has_play: bool, arg_count: int) -> bool:
+	return has_play and arg_count >= 1 and arg_count <= 2
+
+
 ## The chime's params: score clamped to 0..100.
 static func chime_params(score: int) -> Dictionary:
 	return {"score": clampi(score, 0, 100)}
