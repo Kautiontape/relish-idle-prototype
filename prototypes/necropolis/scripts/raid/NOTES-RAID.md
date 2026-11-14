@@ -721,7 +721,14 @@ The review of 3b found that every death left no army standing, and that 13 of th
   | Shieldwall | 18 / 54 | 1153 / 2256 | 8.8 / 11.1 |
   | Pyre-priest | 3 / 6 | 136 / 321 | 1.4 / 2.1 |
 
-  - The rate is about the same and the fights run 1.3-3× longer, so lethality per missed tell can separate the arms. The 4.3 re-measure is the verdict.
+  - The per-minute rates are close (the Huntsman and the Pyre-priest a little higher without the counter), and the fights run 1.3-3× longer.
+- **But the lever multiplies hits that land on her, not tells.** Hits on Relish in the same rows, with / without the counter (totals over 40 runs):
+  - Huntsman catches: 50 / 110 (median 0 / 2 a run).
+  - Pyre-priest burns: 14 / 58.
+  - Shieldwall bashes and rushes: 194 / 269, almost all at pale-bastion (190 / 256; the-stair 4 / 13). Since the room cap, pale-bastion takes 0.4 a run, so the Shieldwall is near zero hits in both arms at both forts.
+  - Bellringer: slam hits on her are not recorded; 0 deaths in 80 runs.
+  - **What that means for the lever.** A damage multiplier can make the Huntsman and the Pyre-priest deadly, and separate their arms (2-4× the hits without the counter). It cannot do either for an archetype whose hits are near zero in both arms.
+  - Before 4.2, a measuring-only `relish_hits` key by source (slam, lunge, bash, rush, fire, pack, living) gives the Bellringer's count and the 4.3 cause mix.
 - **4.1, the per-fort causes:**
   - **pale-bastion against the-stair.** Same warden, but the warden rooms are 543 × 598 px against 1073 × 679.
     - A 260 px rush covered nearly all of pale-bastion's, so an answered tell had nowhere to go. Rush hits on her: 9.4 a run there, 0.2-0.7 at the-stair, even without wits.
@@ -743,4 +750,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   | t4 | 130 (152-202) | Bellringer 339 (+161%), Pyre-priest 116 (-11%), Shieldwall 112 (-14%) | 0 / 18 |
 
   - Travel / idle: 4.5 / 1.2, 7.2 / 1.0, 7.8 / 0.1.
+  - **The two game fixes change only their own forts.** Against the bot-fix lines (`s4b`), vespers, lantern-keep, mourners-gate, the-stair, whitecross, sable-hold, t1 and P1 are identical. chime-fort and hollow-redoubt (the bodyguard fix) change 6 of 6, and pale-bastion (the cap) 5 of 6.
+  - **Two forts now grind once their bigs fall:** pale-bastion (+84% at t3, against a wall its raised soldiers glance off) and sable-hold (+161%). A Relish-damage lever adds exposure in proportion to fight length, so expect its deaths to pile onto these two.
+  - Not tested at pale-bastion: the checkpoint-room cache and the t3 party against the t4 party. The room geometry explained the rush hits.
   - t1 and P1 lines equal the bot-fixed ones. Vei is identical. Parity is 5 of 5.
