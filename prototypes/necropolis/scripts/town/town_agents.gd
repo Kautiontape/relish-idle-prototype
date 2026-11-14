@@ -58,6 +58,8 @@ class Agent:
 	## Beat actions, 0 unless on the beat: a builder's hammer tilt (radians), a forge flash (0..1).
 	var tilt := 0.0
 	var flash := 0.0
+	## True while a stance flash covers this agent's job (set by step(); see flash()).
+	var stance_flash := false
 	## Hold post, and the unit along the building front (the stall shuffle's axis).
 	var base := Vector2.ZERO
 	var side := Vector2.ZERO
@@ -139,6 +141,11 @@ var _bud_l := 0.0
 var _trade_acc := 0.0
 var _rates_warm := false
 var _was_reduced := false
+var _fbeat := -1.0  # Pulse beats for the stance flashes; unlike _beats it also runs under reduced motion
+var _flashes: Array = []  # [{jobs: {job: true}, start: beat}]
+var _seen: Dictionary = {}  # stance id -> the fired beat id already handled (event or view)
+var _await: Dictionary = {}  # stance id -> syncs left to find the buildings a thrift firing idled
+var _prev_idle: Dictionary = {}  # lot id -> was the building idle in the last sync
 
 
 func _init(view_cfg: Dictionary = {}, buildings_cfg: Dictionary = {}, economy_cfg: Dictionary = {},
@@ -169,6 +176,47 @@ func living_count() -> int:
 		if not a.leaving:
 			n += 1
 	return n
+
+
+## The stance-flash clock in Pulse beats (0 before the first step).
+func beat() -> float:
+	return maxf(_fbeat, 0.0)
+
+
+## Schedule a one-beat flash for every agent whose job is in `job_ids` ("idle" included): it
+## starts at the NEXT beat after `now_beat` and lasts one beat.
+func flash(job_ids: Array, now_beat: float) -> void:
+	if job_ids.is_empty():
+		return
+	var jobs := {}
+	for j in job_ids:
+		jobs[String(j)] = true
+	_flashes.append({"jobs": jobs, "start": floorf(now_beat) + 1.0})
+
+
+## True while a scheduled flash covers `a`'s job at `beat_now`: from its start beat for one beat.
+func is_flashing(a: Agent, beat_now: float) -> bool:
+	if not a.undead or a.leaving:
+		return false
+	for f in _flashes:
+		if beat_now >= float(f["start"]) and beat_now < float(f["start"]) + 1.0 and (f["jobs"] as Dictionary).has(a.job):
+			return true
+	return false
+
+
+## A stance fired (a `stance_fired` event or a changed `fired_beat_id`). Each firing counts once
+## (`beat_id` dedupes the two paths). Flashes the stance's jobs (view.stance_jobs) on the next
+## beat; returns them. Thrift's jobs are the ones whose buildings turn idle, found by sync().
+func fire_stance(stance_id: String, beat_id: int) -> Array:
+	if _seen.get(stance_id, -2) == beat_id:
+		return []
+	_seen[stance_id] = beat_id
+	var spec = (_v.get("stance_jobs", {}) as Dictionary).get(stance_id, [])
+	if spec is String:
+		_await[stance_id] = 3
+		return []
+	flash(spec, beat())
+	return spec
 
 
 ## True where Relish's light falls (she is home and `p` is within view.relish_light_r).
@@ -333,6 +381,7 @@ func sync(model: TownModel, views: Dictionary) -> void:
 	_read_carts(town)
 	_read_foremen(model, views)
 	_read_relish(model, town)
+	_read_stances(views, town)
 	for a in undead:
 		var old_site := a.site
 		_refresh_stops(a)
@@ -344,6 +393,30 @@ func sync(model: TownModel, views: Dictionary) -> void:
 	if not _seeded and views.has("town"):  # an empty first fetch must not spend the entry seed
 		_seeded = true
 		_seed()
+
+
+## Stances that fired since the last sync (a changed `fired_beat_id`; the first sync is the
+## baseline), and thrift's flash once the buildings it idled show up.
+func _read_stances(views: Dictionary, town: Dictionary) -> void:
+	var idled: Array = TownBehaviour.idled_jobs(_prev_idle, town.get("buildings", []), _job_of_building)
+	for s in views.get("stances", {}).get("stances", []):
+		var id := String(s.get("id", ""))
+		var fb := int(s.get("fired_beat_id", -1))
+		if not _seen.has(id):
+			_seen[id] = fb
+		elif fb >= 0 and fb != int(_seen[id]):
+			fire_stance(id, fb)
+	for id in _await.keys():
+		if not idled.is_empty():
+			flash(idled, beat())
+			_await.erase(id)
+		else:
+			_await[id] = int(_await[id]) - 1
+			if int(_await[id]) <= 0:
+				_await.erase(id)
+	_prev_idle = {}
+	for b in town.get("buildings", []):
+		_prev_idle[String(b.get("lot_id", ""))] = String(b.get("state", "")) == "idle"
 
 
 func _read_sites(model: TownModel) -> void:
@@ -940,6 +1013,10 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 	var duty := _num("step_duty")
 	var g0 := _gait
 	if reduced_motion:
+		_fbeat = maxf(_fbeat, 0.0) + (dt / _tempo_s if _tempo_s > 0.0 else 0.0)
+	else:
+		_fbeat = beat_phase if _fbeat < 0.0 else _fbeat + fposmod(beat_phase - fposmod(_fbeat, 1.0), 1.0)
+	if reduced_motion:
 		_was_reduced = true
 	else:
 		var first := _beats < 0.0
@@ -965,6 +1042,7 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		for a in undead:
 			a.tilt = 0.0
 			a.flash = 0.0
+	_stance_flashes()
 	_trade(dt)
 	for c in carts.size():
 		if reduced_motion or g1 > g0:
@@ -974,6 +1052,17 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		carts[c]["lit"] = lit(carts[c]["pos"])
 	_rates(dt)
 	_sweep()
+
+
+## Flag the flashing agents for the renderer and drop flashes that are over.
+func _stance_flashes() -> void:
+	var i := _flashes.size() - 1
+	while i >= 0:
+		if _fbeat >= float(_flashes[i]["start"]) + 1.0:
+			_flashes.remove_at(i)
+		i -= 1
+	for a in undead:
+		a.stance_flash = not _flashes.is_empty() and is_flashing(a, _fbeat)
 
 
 func _step_undead(a: Agent, g0: float, g1: float, step: float, spb: int) -> void:

@@ -44,6 +44,7 @@ func _draw_undead(g: Dictionary, k: float) -> void:
 	var strokes := PackedVector2Array()
 	var dots := PackedVector2Array()
 	var flashes: Array = []
+	var stanced: Array = []  # [head, tail] of agents under a stance flash
 	var pips: Array = []  # [centre, lit]
 	var carry := _f(g, "carry_px") * k
 	for a in agents.undead:
@@ -56,6 +57,8 @@ func _draw_undead(g: Dictionary, k: float) -> void:
 		dots.append(a.pos + dir * core * 0.5)
 		if a.flash > 0.0:
 			flashes.append([a.pos, a.flash])
+		if a.stance_flash:
+			stanced.append([a.pos, a.pos - dir * length])
 		if a.carry:
 			pips.append([a.pos - dir * length * 0.5 + Vector2(-dir.y, dir.x) * carry * 1.4, agents.lit(a.pos)])
 	# carts: the puller is an undead worker ahead of the box
@@ -79,6 +82,15 @@ func _draw_undead(g: Dictionary, k: float) -> void:
 		var r: float = core * 0.5 * (1.0 + (_f(g, "flash_mul") - 1.0) * float(f[1]))
 		LineGlow.ring(self, f[0], r * 1.6, Palette.c("undead", float(f[1])), _f(g, "undead_w_px"), 1.0)
 		draw_circle(f[0], r, Palette.c("undead_core"))
+	# a stance fired: the affected strokes burn in their core colour, ringed, for one beat (static
+	# under reduced motion: it is the same picture, only the clock that ends it differs)
+	if not stanced.is_empty():
+		var sw := _f(g, "undead_w_px") * _f(g, "stance_flash_w_mul")
+		var sr := core * _f(g, "stance_flash_core_mul")
+		for sp in stanced:
+			draw_line(sp[1], sp[0], Palette.c("undead_core"), sw)
+			draw_circle(sp[0], sr, Palette.c("undead_core"))
+			LineGlow.ring(self, sp[0], core * _f(g, "stance_flash_ring_mul"), Palette.c("undead"), _f(g, "undead_w_px"), 1.0)
 	for b in boxes:
 		LineGlow.polyline(self, b["u"], Palette.c("undead"), _f(g, "cart_w_px"), _f(g, "undead_glow"))
 		for p in b["pips"]:

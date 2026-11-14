@@ -140,8 +140,15 @@ func bind(v: Dictionary) -> void:
 
 
 func on_game_event(ev: Dictionary) -> void:
-	if String(ev.get("type", "")) == "tier_up" and _walls != null:
-		_walls.tier_up(String(ev.get("tier", "")))
+	match String(ev.get("type", "")):
+		"tier_up":
+			if _walls != null:
+				_walls.tier_up(String(ev.get("tier", "")))
+		"stance_fired":
+			# the affected agents flash on the next Pulse beat (a changed fired_beat_id does the same
+			# on the next bind; the beat id keeps one firing from flashing twice)
+			if agents != null:
+				agents.fire_stance(String(ev.get("stance_id", "")), int(ev.get("beat_id", -1)))
 
 
 func _notification(what: int) -> void:

@@ -111,6 +111,10 @@ func run() -> int:
 	_arc_shape()
 	_dismiss_box()
 	_legible_contrast()
+	_behaviour_pure()
+	_stance_flash(day1, demo)
+	_behaviour_config()
+	_behaviour_commands()
 	return t.failures
 
 
@@ -2510,3 +2514,262 @@ func _legible_contrast() -> void:
 	var away := float(vcfg["slab_ring_away_alpha"])
 	t.ok(away < float(vcfg["slab_ring_alpha"]) and TownModel.contrast(Palette.c("undead", away), ground) >= 3.0,
 		"legible: the slab rings breathe fainter while Relish is away, still a 3:1 line (%.2f:1)" % TownModel.contrast(Palette.c("undead", away), ground))
+
+
+# -------------------------------------------------------- behaviour on auto ----
+func _is_perm(order: Array) -> bool:
+	var a := order.duplicate()
+	a.sort()
+	var b: Array = GameState.JOB_IDS.duplicate()
+	b.sort()
+	return a == b
+
+
+func _behaviour_pure() -> void:
+	var ids: Array = GameState.JOB_IDS
+	var all_perm := true
+	var lands := true
+	for i in ids.size():
+		for j in ids.size():
+			var o := TownBehaviour.move(ids, i, j)
+			all_perm = all_perm and _is_perm(o)
+			lands = lands and o[j] == ids[i]
+	t.ok(all_perm, "ladder: moving index i to j always yields a permutation of JOB_IDS")
+	t.ok(lands, "ladder: the moved job ends at index j")
+	t.ok(TownBehaviour.move(ids, 2, 2) == ids and TownBehaviour.move(ids, 99, 0) == ids, "ladder: a no-op move and a bad index change nothing")
+	# a drop on row k's upper or lower half puts the job before or after row k
+	var good := true
+	for i in ids.size():
+		for k in ids.size():
+			if i == k:
+				continue
+			for lower in [false, true]:
+				var o := TownBehaviour.move(ids, i, TownBehaviour.drop_index(i, k, lower))
+				var at := o.find(ids[k])
+				var me := o.find(ids[i])
+				good = good and _is_perm(o) and (me == at + 1 if lower else me == at - 1)
+	t.ok(good, "ladder: dropping on a row's upper half lands just above it, the lower half just below")
+
+	var eff := TownBehaviour.move(ids, 5, 0)  # a stance (tend) jumped to the top
+	var moves := TownBehaviour.ladder_moves(ids, eff)
+	t.ok(moves.size() == 6 and moves[0]["job"] == ids[5] and moves[0]["from"] == 5 and moves[0]["to"] == 0,
+		"ladder diff: the stance's job moved from 5 to 0, the six it passed each moved down one")
+	t.ok(TownBehaviour.ladder_moves(ids, ids).is_empty() and TownBehaviour.ladder_moves(ids, []).is_empty(),
+		"ladder diff: identical (or missing) effective order shows no moved rows")
+
+	# the cap stepper: all(-1) -> 0 -> 1 ... slots -> all, and back
+	for slots in [0, 1, 2, 3]:
+		var seq: Array = []
+		var c := -1
+		for n in slots + 2:
+			seq.append(c)
+			c = TownBehaviour.cap_step(c, slots, 1)
+		var want: Array = [-1]
+		for k in range(0, slots + 1):
+			want.append(k)
+		t.ok(seq == want and c == -1, "cap: %d slots step up %s and wrap to -1" % [slots, str(want)])
+		var down: Array = []
+		c = -1
+		for n in slots + 2:
+			down.append(c)
+			c = TownBehaviour.cap_step(c, slots, -1)
+		var rev: Array = [-1]
+		for k in range(slots, -1, -1):
+			rev.append(k)
+		t.ok(down == rev and c == -1, "cap: %d slots step down %s and wrap to -1" % [slots, str(rev)])
+	t.ok(TownBehaviour.cap_step(9, 3, 1) == -1 and TownBehaviour.cap_step(9, 3, -1) == 2, "cap: a stored cap above the slots counts as the slots")
+	t.ok(TownBehaviour.cap_text(-1, 3, "all") == "all" and TownBehaviour.cap_text(9, 3, "all") == "3", "cap: -1 reads \"all\", a big cap reads the slots")
+
+	var prev := {"haul": 3.0, "pit": 2.0}
+	var jobs := [{"id": "haul", "staffed": 3.0}, {"id": "pit", "staffed": 1.0}, {"id": "stall", "staffed": 2.0}]
+	t.ok(TownBehaviour.staffing_changes(prev, jobs, 0.05) == ["pit"] and TownBehaviour.staffing_changes({}, jobs, 0.05).is_empty(),
+		"staffing: only the job whose staffed moved is a change, and no baseline means none")
+	var sb := TownBehaviour.slot_breakdown(4, 2, true)
+	t.ok(sb == {"base": 2, "home": 1, "guild": 1} and TownBehaviour.slot_breakdown(2, 2, false) == {"base": 2, "home": 0, "guild": 0}
+		and TownBehaviour.slot_breakdown(1, 2, true)["guild"] == 0, "stance slots: base + Guildhall + 1 while Relish is home, never negative")
+	var units: Dictionary = vcfg["rate_units"]
+	var parts := TownBehaviour.projected_parts({"gold": -0.05, "bodies": 0.4, "q": 0.0}, units)
+	t.ok(parts == ["+0.40/s bodies", "−0.05/s gold"], "projected: signed rates, biggest first, zeros dropped, units from rate_units: %s" % str(parts))
+	t.ok(TownBehaviour.projected_parts({}, units).is_empty(), "projected: {} shows nothing (the panel says the projection is coming)")
+	var jb := {"market": ["stall"], "forge": ["forge"]}
+	var bs := [{"lot_id": "lot-01", "building_id": "market", "state": "idle"}, {"lot_id": "lot-02", "building_id": "forge", "state": "idle"},
+		{"lot_id": "lot-03", "building_id": "market", "state": "active"}]
+	t.ok(TownBehaviour.idled_jobs({"lot-01": false, "lot-02": true, "lot-03": false}, bs, jb) == ["stall"],
+		"thrift: only buildings that turned idle since the last view count (not ones already idle)")
+
+
+## A bare undead agent for the flash queries.
+func _bare(job: String) -> TownAgents.Agent:
+	var a := TownAgents.Agent.new()
+	a.job = job
+	return a
+
+
+func _stance_flash(day1: Dictionary, demo: Dictionary) -> void:
+	var ag := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 3)
+	ag.flash(["haul", "idle"], 2.3)
+	var h := _bare("haul")
+	t.ok(not ag.is_flashing(h, 2.3) and not ag.is_flashing(h, 2.99), "flash: nothing before the NEXT beat (scheduled at 2.3 -> starts at 3)")
+	t.ok(ag.is_flashing(h, 3.0) and ag.is_flashing(h, 3.99), "flash: lit for exactly one beat from the next beat")
+	t.ok(not ag.is_flashing(h, 4.0), "flash: over after one beat")
+	t.ok(ag.is_flashing(_bare("idle"), 3.5) and not ag.is_flashing(_bare("stall"), 3.5) and not ag.is_flashing(_bare("tend"), 3.5),
+		"flash: only the mapped jobs flash")
+	var l := _bare("haul")
+	l.undead = false
+	t.ok(not ag.is_flashing(l, 3.5), "flash: the living never do")
+	ag.flash(["tend"], 0.0)
+	t.ok(ag.is_flashing(_bare("tend"), 1.5) and ag.is_flashing(_bare("haul"), 3.5), "flash: two flashes coexist")
+
+	# firing: the stance's jobs (config), once per beat id
+	var jobs_of := {"vigil": ["tend"], "harvest": ["haul"], "muster": ["idle"], "hearth": ["stall"]}
+	for id in jobs_of:
+		var a2 := TownAgents.new(vcfg, cfg["buildings"], cfg["economy"], tempo_s, 3)
+		var got := a2.fire_stance(id, 10)
+		t.ok(got == jobs_of[id], "fire: %s flashes %s" % [id, str(jobs_of[id])])
+		t.ok(a2.fire_stance(id, 10).is_empty(), "fire: %s at the same beat id again is the same firing (event + view dedupe)" % id)
+		t.ok(a2.fire_stance(id, 11) == jobs_of[id], "fire: %s at a new beat id fires again" % id)
+	for id in vcfg["stance_jobs"]:
+		var spec = vcfg["stance_jobs"][id]
+		t.ok(GameState.STANCE_IDS.has(id) and (spec is String or (spec is Array and not spec.is_empty())),
+			"config: stance_jobs.%s is known and maps to jobs" % id)
+
+	# through sync(): a changed fired_beat_id flashes at the next beat; the first sync is a baseline
+	var pair := _agents(demo)
+	var m: TownModel = pair[0]
+	var a: TownAgents = pair[1]
+	var clock := _run(a, 2.0)
+	t.ok(a.count("haul") > 0, "flash: the demo city has haulers")
+	var v := demo.duplicate(true)
+	_resync(m, a, v)
+	var start := a.beat()
+	var first_lit := -1.0
+	var wrong := false
+	var lit_n := 0
+	var dt := 1.0 / 60.0
+	var armed := false
+	for f in int(4.0 * tempo_s * 60.0):
+		if f == 5 and not armed:
+			armed = true
+			for s in v["stances"]["stances"]:
+				if s["id"] == "harvest":
+					s["fired_beat_id"] = 42
+			_resync(m, a, v)
+		clock += dt
+		a.step(dt, fposmod(clock / tempo_s, 1.0), false)
+		var lit_haul := false
+		for u in a.undead:
+			if u.stance_flash:
+				wrong = wrong or u.job != "haul"
+				lit_haul = true
+		if lit_haul and first_lit < 0.0:
+			first_lit = a.beat()
+		if lit_haul:
+			lit_n += 1
+	t.ok(first_lit >= 0.0 and not wrong, "flash: a changed fired_beat_id lights haulers only (and nobody else)")
+	t.ok(first_lit == floorf(first_lit) or first_lit - floorf(first_lit) < 0.2, "flash: it starts on a beat boundary (%.3f)" % first_lit)
+	t.ok(lit_n > 0 and float(lit_n) * dt <= tempo_s + 3.0 * dt, "flash: it lasts one beat (%.2f s of %.2f s)" % [float(lit_n) * dt, tempo_s])
+	t.ok(first_lit >= floorf(start + 5.0 / 60.0 / tempo_s) + 1.0 - 0.001, "flash: not before the next beat after the change (%.3f vs %.3f)" % [first_lit, start])
+
+	# the event path and the view path are one firing
+	var b2 := _agents(demo)
+	var a3: TownAgents = b2[1]
+	_run(a3, 1.0)
+	a3.fire_stance("harvest", 7)
+	var v2 := demo.duplicate(true)
+	for s in v2["stances"]["stances"]:
+		if s["id"] == "harvest":
+			s["fired_beat_id"] = 7
+	var before := a3._flashes.size()
+	_resync(b2[0], a3, v2)
+	t.ok(a3._flashes.size() == before, "flash: the event then the view's fired_beat_id is one flash, not two")
+
+	# thrift: the jobs of buildings that turned idle
+	var b3 := _agents(day1)
+	var a4: TownAgents = b3[1]
+	var v3 := day1.duplicate(true)
+	var idx := -1
+	for i in v3["town"]["buildings"].size():
+		if String(v3["town"]["buildings"][i]["building_id"]) == "market":
+			idx = i
+	if idx >= 0:
+		v3["town"]["buildings"][idx]["state"] = "active"
+		_resync(b3[0], a4, v3)
+		a4.fire_stance("thrift", 3)
+		t.ok(a4._flashes.is_empty(), "thrift: waits for the idled buildings (none yet)")
+		v3["town"]["buildings"][idx]["state"] = "idle"
+		_resync(b3[0], a4, v3)
+		t.ok(a4._flashes.size() == 1 and (a4._flashes[0]["jobs"] as Dictionary).has("stall"),
+			"thrift: the idled market's job (stall) flashes")
+
+	# reduced motion: the flash still happens, as a static one-beat highlight
+	var rp := _agents(demo)
+	var ar: TownAgents = rp[1]
+	_run(ar, 1.0, 0.0, true)
+	ar.fire_stance("harvest", 5)
+	var seen := false
+	var secs := 0.0
+	var moved := false
+	var pos0 := {}
+	for u in ar.undead:
+		pos0[u] = u.pos
+	for f in int(3.0 * tempo_s * 30.0):
+		ar.step(1.0 / 30.0, 0.0, true)
+		secs += 1.0 / 30.0
+		for u in ar.undead:
+			if u.stance_flash:
+				seen = true
+				if pos0.has(u):
+					moved = moved or u.pos.distance_to(pos0[u]) > 0.01
+	t.ok(seen, "reduced motion: the stance flash still shows")
+	t.ok(not moved, "reduced motion: and nothing moves")
+	var gone := true
+	for u in ar.undead:
+		gone = gone and not u.stance_flash
+	t.ok(gone, "reduced motion: the highlight ends after its beat")
+	_run(ar, 0.0)
+
+
+func _behaviour_config() -> void:
+	for k in ["job_labels", "job_site_text", "stance_labels", "stance_rules", "stance_jobs", "behaviour"]:
+		t.ok(vcfg.has(k), "view.%s exists" % k)
+	for id in GameState.JOB_IDS:
+		t.ok(String(vcfg["job_labels"].get(id, "")) != "", "view.job_labels has %s" % id)
+	for id in GameState.STANCE_IDS:
+		t.ok(String(vcfg["stance_labels"].get(id, "")) != "" and String(vcfg["stance_rules"].get(id, "")) != "",
+			"view.stance_labels/rules have %s" % id)
+	for r in ["unknown_job", "duplicate_job", "missing_job", "bad_cap", "no_jobs", "no_slot", "unknown_stance", "_unknown"]:
+		t.ok(vcfg["behaviour"]["refusals"].has(r), "view.behaviour.refusals has %s" % r)
+	t.ok(String(vcfg["behaviour"]["refusals"]["no_slot"]).contains("turn one off"), "no_slot reads \"turn one off\"")
+
+
+## The commands the tabs send, against a live GameState: the ladder, a cap and a stance echo in the views.
+func _behaviour_commands() -> void:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var order: Array = TownBehaviour.move(s.view_town()["ladder"], 3, 0)
+	t.ok(s.cmd_set_job_priority(order)["ok"] and s.view_town()["ladder"] == order, "commands: a dropped ladder shows in view_town().ladder")
+	var bad := order.duplicate()
+	bad[1] = bad[0]
+	t.ok(not s.cmd_set_job_priority(bad)["ok"], "commands: a ladder with a job twice is refused (the panel shows the reason)")
+	var lot := ""
+	var slots := 0
+	for b in s.view_town()["buildings"]:
+		if int(b["slots"]) > 0:
+			lot = String(b["lot_id"])
+			slots = int(b["slots"])
+			break
+	if lot != "":
+		var cap := TownBehaviour.cap_step(-1, slots, 1)
+		t.ok(s.cmd_set_staff_cap(lot, cap)["ok"], "commands: a cap step is accepted")
+		var got := -2
+		for b in s.view_town()["buildings"]:
+			if String(b["lot_id"]) == lot:
+				got = int(b["staff_cap"])
+		t.ok(got == cap, "commands: the cap shows in view_town().buildings[].staff_cap")
+	t.ok(s.cmd_set_stance("harvest", true)["ok"], "commands: a stance turns on")
+	var on := false
+	for st in s.view_stances()["stances"]:
+		if st["id"] == "harvest":
+			on = bool(st["on"])
+	t.ok(on, "commands: it shows in view_stances().stances[].on")
