@@ -437,6 +437,15 @@ func soak(sim_s: float, seed_val: int) -> void:
 				"building_done": st["done"] += 1
 				"relish_died": st["deaths"] += 1
 		_soak_check(s, st, bad, idle_cap, pool_cap)
+	# then a full body store with every building unstaffed (nothing burns or mills it), so rot's return
+	# overflows and rot_overflow books whatever the random phase did (it reached the cap by chance)
+	for lot in s.town_sim.buildings:
+		s.cmd_set_staff_cap(lot, 0)
+	s.cmd_debug_grant({"bodies": 1000.0})
+	for i in 40:
+		st["substeps"] += s.tick(dt)
+		s.drain_events()
+		_soak_check(s, st, bad, idle_cap, pool_cap)
 	var wall := Time.get_ticks_msec() - wall0
 	var l := s.ledger()
 	print("  [soak] %d sim-s, %d substeps, %d checks, worst relative error %s, wall %d ms" % [

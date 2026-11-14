@@ -200,11 +200,16 @@ static func next_event_s(s: GameState) -> float:
 
 
 ## Runs `seconds` of core steps of at most `dt` from `s`, sampling every SAMPLE_S. Returns
-## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled}: `coupled` is
-## the mean number of forts per step in the coupled regime (living and undead both above 0 at the
-## step's end, or one of them reaching 0 inside the step).
+## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled, peak}: `coupled`
+## is the mean number of forts per step in the coupled regime (living and undead both above 0 at the
+## step's end, or one of them reaching 0 inside the step); `peak` is {fort_id: [the most living it
+## held at any step's end, its cap, its surge bound cap · (1 + tithe.overfill)]} (MECHANICS §3.4).
 func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 	var samples: Array = [sample(s)]
+	var o := float(s.realm.t.get("tithe", {}).get("overfill", 2.0))
+	var peak := {}
+	for f in s.realm.forts:
+		peak[f["id"]] = [float(f["living"]), float(f["cap"]), float(f["cap"]) * (1.0 + o)]
 	var neg: Array = []
 	var steps := 0
 	var worst_l := 0.0
@@ -230,6 +235,8 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			if (float(f["living"]) > 0.0 and float(f["undead"]) > 0.0) or float(f.get("t_living_out", -1.0)) > 0.0 \
 					or float(f.get("t_undead_out", -1.0)) > 0.0:
 				coupled += 1
+			var pk: Array = peak[f["id"]]
+			pk[0] = maxf(float(pk[0]), float(f["living"]))
 		if s.t - t0 >= next_sample - 1e-6:
 			samples.append(sample(s))
 			s.drain_events()
@@ -241,7 +248,7 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			next_sample += SAMPLE_S
 	chunk_us.sort()
 	return {"samples": samples, "steps": steps, "us_per_step": chunk_us[int(chunk_us.size() / 2.0)], "neg": neg,
-		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps))}
+		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps)), "peak": peak}
 
 
 func _negatives(s: GameState, bad: Array) -> void:
@@ -285,7 +292,7 @@ func measure(starts: Array, hours: float, dts: Array, clip: bool, edit := Callab
 					e = maxf(e, absf(x - y) / maxf(absf(y), floor_m))
 				err[m] = e
 			per[dt] = {"err": err, "steps": r["steps"], "us_per_step": r["us_per_step"], "coupled": r["coupled"],
-				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors}
+				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"]}
 		out[st] = per
 	return out
 
@@ -383,15 +390,45 @@ func table(res: Dictionary, hours: float, note := "") -> String:
 	return "\n".join(PackedStringArray(lines))
 
 
-## Balanced, finite, non-negative at every sample of every run.
+## Balanced, finite, non-negative at every sample of every run, and no fort's living ever past its
+## surge bound (E2b T3.0s: from midgame_2flips, 12 h with no input once took Greywall to about 850 ×
+## its cap).
 func check(res: Dictionary) -> void:
 	for st in res:
 		for dt in res[st]:
 			var r: Dictionary = res[st][dt]
+			t.ok(peaks_over(r["peak"]).is_empty(), "%s at %s s: every fort's living stays within cap · (1 + tithe.overfill)%s" % [
+				st, str(dt), "" if peaks_over(r["peak"]).is_empty() else ": " + ", ".join(PackedStringArray(peaks_over(r["peak"])))])
 			t.ok(float(r["ledger_err"]) < 1e-6, "%s at %s s: the ledger balances (worst %s)" % [st, str(dt),
 				String.num_scientific(float(r["ledger_err"]))])
 			t.ok((r["neg"] as Array).is_empty(), "%s at %s s: no negative or non-finite stock%s" % [st, str(dt),
 				"" if (r["neg"] as Array).is_empty() else ": " + str(r["neg"])])
+
+
+## The forts of a run_one `peak` whose living went past their surge bound, as "id peak/bound".
+static func peaks_over(peak: Dictionary) -> Array:
+	var out: Array = []
+	for id in peak:
+		var p: Array = peak[id]
+		if float(p[0]) > float(p[2]) * (1.0 + 1e-12) + 1e-9:
+			out.append("%s %.3f/%.0f" % [id, float(p[0]), float(p[2])])
+	return out
+
+
+## Each fort's peak living as a multiple of its cap, per dt of one start (run_one's `peak`).
+static func peak_table(res: Dictionary, start: String) -> String:
+	var per: Dictionary = res[start]
+	var dts: Array = per.keys()
+	var ids: Array = (per[dts[0]]["peak"] as Dictionary).keys()
+	var lines: Array = ["  [convergence] %s: each fort's peak living / cap (its surge bound is 1 + tithe.overfill)" % start,
+		"  | dt s | " + " | ".join(PackedStringArray(ids)) + " |", "  |" + "---|".repeat(ids.size() + 1)]
+	for dt in dts:
+		var cells: Array = []
+		for id in ids:
+			var p: Array = per[dt]["peak"][id]
+			cells.append("%.2f" % (float(p[0]) / float(p[1])))
+		lines.append("  | %s | %s |" % [str(dt), " | ".join(PackedStringArray(cells))])
+	return "\n".join(PackedStringArray(lines))
 
 
 ## The attribution run: pre_vei without haulers (every charnel house's staff cap at 0), 2 h. If the
