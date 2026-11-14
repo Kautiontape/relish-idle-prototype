@@ -457,27 +457,6 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 
 
 # ------------------------------------------------------------------- runs ----
-func _derived_rng_seed(run_id: int) -> String:
-	var hi: int = hash([game_seed, run_id])
-	var lo: int = hash([run_id, game_seed])
-	return str((hi << 32) | lo)
-
-
-func _party_entries(with_front := false) -> Array:
-	var out: Array = []
-	for uid in party_uids:
-		for b in big_undead:
-			if b["uid"] == uid:
-				var e: Dictionary = {
-					"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
-					"stats": (b["stats"] as Dictionary).duplicate(),
-				}
-				if with_front:
-					e["front"] = b["front"]
-				out.append(e)
-	return out
-
-
 func _backups_cfg() -> Dictionary:
 	return _cfgs.get("backups", {})
 
@@ -572,78 +551,12 @@ func _front_assigned(front_id: String) -> Array:
 	return out
 
 
-func _dungeon_seed(fort_id: String, run_id: int, seed_rev: int) -> Dictionary:
-	var f := realm.fort_by_id(fort_id)
-	var g := _garrison(fort_id)
-	var first := _is_first_dungeon(fort_id)
-	var archetype := _warden_archetype(fort_id)
-	var tier := int(f["tier"])
-	return {
-		"v": 2, "kind": "raid", "run_id": run_id, "seed_rev": seed_rev,
-		"rng_seed": _derived_rng_seed(run_id),
-		"fort": {
-			"id": fort_id, "name": str(f["name"]), "tier": tier, "cap": float(f["cap"]),
-			"first_clear": not cleared_forts.has(fort_id), "first_dungeon": first,
-			"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
-		},
-		"living": float(f["living"]), "dead": float(f["dead"]), "undead": float(f["undead"]),
-		"garrison_units": g[0], "garrison_in_mass": g[1], "garrison_mass_div": _garrison_div(),
-		"starter_units": _starter_units(fort_id),
-		"party": _party_entries(),
-		"digest_q": digest_q(),
-		"phylactery_charges": _phylactery_charges,
-		"phylactery_max_per_dungeon": _phylactery_max(),
-		"clones_ready": clones_ready,
-		"warden": {"archetype": archetype, "tier": tier}, "warden_spec": {},
-		"loot_table_id": "t%d.%s" % [tier, archetype],
-		"loot_hint": _loot_hint(fort_id),
-		"chest_husk": first, "watchtower": false,
-		"relish_hp": _relish_hp(),
-	}
-
-
-func _boss_seed_v2(run_id: int, seed_rev: int) -> Dictionary:
-	var ro := _vei_readout()
-	return {
-		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
-		"rng_seed": _derived_rng_seed(run_id),
-		"backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
-		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": digest_q(),
-		"vei_capacity": float(_cfg().get("R_vei", 50.0)),
-		"fronts": _fronts(false),
-		"fronts_required": _fronts_required(),
-		"party": _party_entries(true),
-		"phylactery_charges": _phylactery_charges, "clones_ready": clones_ready,
-		"relish_hp": _relish_hp(),
-	}
-
-
 func _fronts_required() -> int:
 	return int(_cfgs.get("vei", {}).get("fronts_required", 3))
 
 
-func _open_run(kind: String, fort_id: String) -> Dictionary:
-	var run_id := next_run_id
-	next_run_id += 1
-	rev += 1
-	var seed_d := _dungeon_seed(fort_id, run_id, rev) if kind == "raid" else _boss_seed_v2(run_id, rev)
-	run = {"run_id": run_id, "kind": kind, "fort_id": fort_id, "seed_rev": rev, "seed": seed_d}
-	relish["state"] = "in_dungeon" if kind == "raid" else "in_boss"
-	time_scale = 1.0
-	paused = false
-	return {"ok": true, "reason": "", "seed": seed_d.duplicate(true), "run_id": run_id, "seed_rev": rev}
-
-
 func cmd_begin_dungeon(fort_id: String) -> Dictionary:
-	var fail := {"ok": false, "reason": "", "seed": {}, "run_id": -1, "seed_rev": -1}
-	if realm.fort_by_id(fort_id).is_empty():
-		fail["reason"] = "unknown_fort"
-		return fail
-	var why := _descend_reason(fort_id)
-	if why != "":
-		fail["reason"] = why
-		return fail
-	return _open_run("raid", fort_id)
+	return StateRuns.begin_dungeon(self, fort_id)
 
 
 ## The reason cmd_begin_boss() would refuse with now, or "" (view_vei shares it).
@@ -658,32 +571,19 @@ func _boss_reason() -> String:
 
 
 func cmd_begin_boss() -> Dictionary:
-	var why := _boss_reason()
-	if why != "":
-		return {"ok": false, "reason": why, "seed": {}, "run_id": -1, "seed_rev": -1}
-	return _open_run("boss", "vei")
+	return StateRuns.begin_boss(self)
 
 
 func cmd_abort_dungeon() -> Dictionary:
-	if run.is_empty():
-		return {"ok": false, "reason": "no_run", "run_id": -1}
-	var run_id: int = run["run_id"]
-	relish["state"] = "at_fort" if run["kind"] == "raid" else "at_vei"
-	run = {}
-	rev += 1
-	return {"ok": true, "reason": "", "run_id": run_id}
+	return StateRuns.abort_dungeon(self)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:
-	if run.get("kind", "") == "raid" and run["fort_id"] == fort_id:
-		return (run["seed"] as Dictionary).duplicate(true)
-	return {}
+	return StateRuns.view_dungeon_seed(self, fort_id)
 
 
 func view_boss_seed() -> Dictionary:
-	if run.get("kind", "") == "boss":
-		return (run["seed"] as Dictionary).duplicate(true)
-	return {}
+	return StateRuns.view_boss_seed(self)
 
 
 ## The open raid's fort else "".
@@ -1740,215 +1640,14 @@ func legacy_stores() -> Dictionary:
 ## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
 ## The caller has closed the run.
 func _death(run_id: int) -> void:
-	stats["deaths"] += 1
-	var at_node: String = relish["at"]
-	var clone := clones_ready > 0
-	if clone:
-		clones_ready -= 1
-	else:
-		town_sim.add_shock(float(_sec("economy", "morale").get("death_shock", 0.3)))
-	_emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
-		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
-	_place_relish("covington")
-	_emit({"type": "relish_respawned", "with_clone": clone, "at": "covington"})
+	StateRuns.death(self, run_id)
 
 
 # ------------------------------------------------------------ apply_result ----
-func _ar_fail(reason: String, errors: Array = []) -> Dictionary:
-	return {"ok": false, "reason": reason, "errors": errors, "minted": []}
-
-
 ## §4.5. Refusals are checked in the documented order and change nothing (no rev, no events,
 ## no uids, no rng). Ints may arrive as integral floats, so every int is read with int().
 func apply_result(kind: String, result: Dictionary) -> Dictionary:
-	if kind != "raid" and kind != "boss":
-		return _ar_fail("unknown_kind")
-	if not Results.has_v2(result):
-		return _ar_fail("unknown_v")
-	var errs := Results.validate(kind, result)
-	if not errs.is_empty():
-		return _ar_fail("invalid", errs)
-	var run_id := int(result["run_id"])
-	if applied_runs.has(run_id):
-		return _ar_fail("duplicate_run")
-	if run.is_empty() or int(run["run_id"]) != run_id:
-		return _ar_fail("wrong_run")
-	if run["kind"] != kind:
-		return _ar_fail("wrong_kind")
-	if int(result["seed_rev"]) != int(run["seed_rev"]):
-		return _ar_fail("stale_seed")
-	var sd: Dictionary = run["seed"]
-	if kind == "raid":
-		if str(result["fort_id"]) != str(run["fort_id"]):
-			return _ar_fail("wrong_fort")
-		if int(result["revived_in_place"]) > mini(int(sd["phylactery_charges"]), int(sd["phylactery_max_per_dungeon"])):
-			return _ar_fail("bad_revives")
-	var party := _seed_party_uids(sd)
-	for uid in result["party_lost"]:
-		if not party.has(uid):
-			return _ar_fail("bad_party")
-	if kind == "boss":
-		var bs: Dictionary = result["backups_spent"]
-		if int(bs["phylactery"]) > int(sd["phylactery_charges"]) or int(bs["clones"]) > int(sd["clones_ready"]):
-			return _ar_fail("bad_backups")
-	var minted: Array = []
-	if kind == "raid":
-		minted = _writeback_raid(result)
-	else:
-		_writeback_boss(result)
-	applied_runs.append(run_id)
-	while applied_runs.size() > 32:
-		applied_runs.remove_at(0)
-	rev += 1
-	return {"ok": true, "reason": "", "errors": [], "minted": minted}
-
-
-func _seed_party_uids(sd: Dictionary) -> Array:
-	var out: Array = []
-	for e in sd["party"]:
-		out.append(e["uid"])
-	return out
-
-
-## Removes a big undead for good (death in a run), from the party too.
-func _remove_big_undead(uid: String) -> void:
-	for i in big_undead.size():
-		if big_undead[i]["uid"] == uid:
-			big_undead.remove_at(i)
-			break
-	party_uids.erase(uid)
-
-
-## §8.3 raid steps 1-11 (death by the E1-safe rule until E3). The result is already validated and
-## matched to the open run. Returns the minted uids.
-func _writeback_raid(r: Dictionary) -> Array:
-	var sd: Dictionary = run["seed"]
-	var run_id: int = run["run_id"]
-	var fort_id: String = run["fort_id"]
-	var f := realm.fort_by_id(fort_id)
-	stats["raids"] += 1
-	# 1. kills, against the live fort
-	var k := minf(float(r["killed_living_mass"]), float(f["living"]))
-	f["living"] -= k
-	f["dead"] += k
-	# 2. the flip
-	var flip_ev := {}
-	if r["warden_beaten"]:
-		f["dead"] += f["living"]
-		f["living"] = 0.0
-		var fl: Dictionary = _cfg().get("flip", {})
-		var hold_s := float(fl.get("hold_s", 300.0)) * (1.0 + float(fl.get("tier_mult", 0.25)) * float(f["tier"]))
-		realm.hold(fort_id, hold_s)  # RealmSim counts it down and stops her shipping there
-		realm.start_tithe()  # the first flip starts Vei's tithe cycle (a running one is left alone)
-		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
-		f["clears_since_retaken"] = int(f.get("clears_since_retaken", 0)) + 1
-		flip_ev = {"type": "fort_flipped", "fort_id": fort_id, "run_id": run_id, "hold_s": hold_s}
-	# 3. raised mass comes out of the dead
-	var raised_total := 0.0
-	for e in r["raised"]:
-		raised_total += float(e["mass"])
-	var raised_in := minf(raised_total, float(f["dead"]))
-	f["dead"] -= raised_in
-	# q's circle EMA, by the mass actually raised from the fort's dead (each mass scaled by R'/R)
-	var raised_scale := raised_in / raised_total if raised_total > 0.0 else 0.0
-	var raised_clamped: Array = []
-	for e in r["raised"]:
-		raised_clamped.append({"score": e["score"], "mass": float(e["mass"]) * raised_scale})
-	_raise_ema(raised_clamped)
-	# 4. what leaves cannot exceed what went in plus what was raised
-	var garrison_out := float(r["garrison_mass"])
-	var chaff := float(r["chaff_mass"])
-	var garrison_in := float(sd["garrison_in_mass"])
-	if garrison_out + chaff > garrison_in + raised_in + 1e-9:
-		var sc := (garrison_in + raised_in) / (garrison_out + chaff)
-		garrison_out *= sc
-		chaff *= sc
-	# 5. the net garrison delta, clamped at the live undead
-	var undead_before: float = f["undead"]
-	f["undead"] = maxf(0.0, undead_before + garrison_out - garrison_in)
-	var undead_delta: float = f["undead"] - undead_before
-	# 6. chaff leaves with Relish, but never more than actually left the fort (no mass from the clamp)
-	chaff = minf(chaff, maxf(0.0, raised_in - undead_delta))
-	realm.vei["undead_queue"] += chaff
-	# 7. whatever went in and did not come out, net of the step 5 clamp (>= 0 by construction)
-	_ledger.sink("dungeon", raised_in - undead_delta - chaff)
-	stats["raised_total"] += raised_in
-	# 8. loot
-	var loot: Dictionary = r["loot"]
-	var relics_in := mini(int(loot["relics"]), maxi(0, _cap_of("relics") - relics))
-	relics += relics_in
-	var essence_in := mini(int(loot["essence"]), maxi(0, _cap_of("essence") - essence))
-	essence += essence_in
-	var new_bps: Array = []
-	for bp in loot["blueprints"]:
-		if not blueprints.has(bp):
-			blueprints.append(bp)
-			new_bps.append(bp)
-	var minted: Array = []
-	for h in loot["husks"]:
-		var uid := _mint_uid("h")
-		husks.append({"uid": uid, "kind": str(h["kind"]), "rarity": "common"})
-		minted.append(uid)
-	for m in loot["remnants"]:
-		var uid := _mint_uid("r")
-		remnants.append({"uid": uid, "aspect": str(m["aspect"]), "rarity": str(m["rarity"]),
-			"magnitude": int(m["magnitude"])})
-		minted.append(uid)
-	cleared_forts[fort_id] = true
-	first_dungeon_id = ""
-	# 9. the dead party members go; each in-place revive spends a phylactery charge
-	_phylactery_charges = maxi(0, _phylactery_charges - int(r["revived_in_place"]))
-	for uid in r["party_lost"]:
-		_remove_big_undead(uid)
-	var died: bool = r["relish_died"]
-	var party := _seed_party_uids(sd)
-	run = {}
-	_emit({"type": "loot_banked", "run_id": run_id, "fort_id": fort_id, "relics": relics_in,
-		"essence": essence_in, "blueprints": new_bps, "minted": minted.duplicate()})
-	if not flip_ev.is_empty():
-		_emit(flip_ev)
-	# 10. death: the whole party is lost (A8), then the death rule; 11. otherwise she stays
-	if died:
-		for uid in party:
-			_remove_big_undead(uid)
-		_death(run_id)
-	else:
-		relish["state"] = "at_fort"
-	return minted
-
-
-## §8.3 boss steps 1-5 (a final death by the E1-safe rule until E3).
-func _writeback_boss(r: Dictionary) -> void:
-	var sd: Dictionary = run["seed"]
-	var run_id: int = run["run_id"]
-	var did_win: bool = r["won"]
-	var bs: Dictionary = r["backups_spent"]
-	var clones := int(bs["clones"])
-	var deaths := int(r["relish_deaths"])
-	var final_death := deaths == int(bs["phylactery"]) + clones + 1
-	if did_win:
-		won = true
-	else:
-		var keep := float(_cfgs.get("vei", {}).get("loss_backlog_keep", 0.35))
-		var before: float = realm.vei["undead_queue"]
-		realm.vei["undead_queue"] = before * keep
-		_ledger.sink("vei_fight", before - float(realm.vei["undead_queue"]))
-		for uid in _seed_party_uids(sd):
-			_remove_big_undead(uid)
-	for uid in r["party_lost"]:
-		_remove_big_undead(uid)
-	_phylactery_charges = maxi(0, _phylactery_charges - int(bs["phylactery"]))
-	clones_ready = maxi(0, clones_ready - clones)
-	run = {}
-	var cleared: Array = []
-	for fid in r["fronts_cleared"]:
-		cleared.append(str(fid))
-	_emit({"type": "vei_result", "run_id": run_id, "won": did_win, "fronts_cleared": cleared,
-		"relish_deaths": deaths, "backlog_after": float(realm.vei["undead_queue"])})
-	if final_death:
-		_death(run_id)
-	else:
-		relish["state"] = "at_vei"
+	return StateRuns.apply_result(self, kind, result)
 
 
 # ------------------------------------------------------------ §9 persistence ----
