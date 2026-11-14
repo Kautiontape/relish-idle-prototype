@@ -344,6 +344,7 @@ func run() -> int:
 		"the carry spin is drawn only: zero under reduced motion, t * rate otherwise")
 	for guarded in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle (the counted slot angle)"],
 			["res://scripts/raid/warden.gd", "func wake(", "Warden.wake (the beat alignment)"],
+			["res://scripts/raid/vei_boss.gd", "func _begin_break(", "VeiBoss._begin_break (the break start alignment)"],
 			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
 			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"]]:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))

@@ -365,7 +365,7 @@ func _begin_break() -> void:
 	horde = horde0
 	ferry_beat = BossLogic.ferry_per_beat(ferry, tempo_s(), vc)
 	brk = VeiFronts.break_start()
-	t2 = BossLogic.align_t(Pulse.phase(), tempo_s())
+	t2 = BossLogic.align_t(WardenLogic.wake_phase(Pulse.now_ms(), Pulse.tempo_ms), tempo_s())
 	anchors = BossLogic.anchors(lanes, vc)
 	lanes_node.phase = 2
 	lanes_node.anchors = anchors
