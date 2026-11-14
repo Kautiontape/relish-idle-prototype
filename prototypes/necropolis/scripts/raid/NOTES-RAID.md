@@ -178,6 +178,17 @@ Batches ran from a snapshot of the commit (another agent was editing the worktre
   The old doorway-stall and side-room misses (deaths at whitecross, a short t3) no longer show at this commit.
 
 
+## D-b review fixes (readability only)
+
+No mechanic or balance change: the two byte-identity smokes (day1 at old-sluice, P3 at hollow-redoubt, autopilot 70 seed 1) give the same `AUTOPILOT_RESULT` before and after.
+
+- **Wardens are `vei`, never the living's orange**, each with its own glyph: the Bellringer a bell outline (one rib per phase left, a clapper that swings through the tell and strikes on the slam, held at the struck angle under reduced motion), the Huntsman an arrowhead on a lance along its aim (tip `danger` while a lunge is locked).
+- **The break meter** (`WardenLogic.meter_*`, `wardens.meter_pips` 12; HUD `WardenBlock` top centre, a pip row under the glyph): the strength left as pips. An hp-phased warden gets one segment per phase, each counting down through that phase's hp band (ceil), so a notch is crossed on exactly the hit that changes `bellringer_phase` (tested at every 0.001 of hp). The Huntsman's phases are catches, so its strength is one flat row and its notches sit on the CAUGHT track (2, 4). Pips taken inside a stun window are marked `undead` with a slash for the fight and flash while the window is open; the Bellringer's counterplay reads as `MUFFLED x n of m`.
+- **The weak point as it happens**: a muffled slam goes out dim and dashed with MUFFLED riding it; through the tell each bracing big (the muffle's own rule) is ringed with a line into the bell; the live brace is the word BRACED.
+- **Relish's safety**: with no phylactery left her halo breaks into `danger`-leaning dashes, faint at full hp (`danger.exposed_min/max`); PHYLACT. says NO REVIVE · death ends the run; each Huntsman catch cracks her ring for the run.
+- **Loot**: one glyph per kind (`RaidLoot.floor_glyph`), all in a faint `vei` loot ring; husks and remnants matte (`dead_lit` under her light). Only remnants drop on the floor in play (`--raid-loot-sample` lays all four). A dashed pointer runs from "N on the floor" to the nearest pickup (LOOT chevron off screen). RETREAT says "banks your loot" itself, since the hint line keeps the circle hint at the spawn exit before the first raise.
+- **Push or retreat**: `LIVING n left · exit W, 2 rooms · ... at risk` under RETREAT, an EXIT chevron off screen; corpse piles carry an `xN` badge; the last chance names its loose essence; the held clear names `counter-garrison −N`.
+
 ## Vei's final test (task 9b)
 
 `vei_boss.gd` rebuilds the boss on fronts, then the break (MECHANICS 6, GAMEPLAY 3d). Rules are `VeiFronts`; `BossLogic` places and counts; `BossLanes` draws the fronts; `RaidVei` is Vei and her weaves. Knobs: `configs/vei.json` (each block has a `_doc`). Dev: `boss_dev.gd` (`--boss-phase2`, `--boss-stress`, `--boss-fronts=n`, `--boss-backups=p,c`, `--boss-autodie/autowin=<frames>`, `--boss-hold-tell`, `--boss-prof`, `--boss-hide=`) and the bot `--boss-autoplay=<score>` (`boss_autopilot.gd`).

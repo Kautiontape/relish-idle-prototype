@@ -597,8 +597,9 @@ class WardenBlock:
 			if i < lit:
 				draw_circle(p, r, Palette.c("vei"))
 			elif i >= win_lo and i < win_hi:
-				# the open stun window took this pip: it flashes
+				# the open stun window took this pip: it flashes, slashed (shape as well as colour)
 				draw_circle(p, r, Palette.c("undead", blink))
+				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("ground", 0.9), 1.8)
 			elif w.weak_marks[i] != 0:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
 				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
