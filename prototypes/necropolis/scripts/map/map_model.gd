@@ -24,6 +24,10 @@ var villages: Array = []
 var lanes: Array = []
 var forts: Array = []
 var forts_by_id := {}
+var margins := {}  # held fort id -> "safe" | "thin" | "will_fall": the views' (stand-in: IdleLogic)
+var supports := {}  # the committed "WAR supports N of M": {n, m}
+var projection := {}  # the dragged valve's IdleLogic.projection while the valve is being dragged, else {}
+var margin_sig := ""  # the margins now shown (projected or committed): the nodes redraw when it changes
 
 var _villages_by_id := {}
 var _prev_relish := {}
@@ -76,7 +80,43 @@ func refresh(force := false) -> bool:
 		_why_holds = RelishLogic.why_track(_prev_relish, relish, _why_holds, now, float(MapLogic.cfg().get("why_hold_s", 0.0)))
 		lanes = RelishLogic.why_apply(lanes, _why_holds, now)
 	_prev_relish = relish
+	margins = IdleLogic.committed_margins(forts, hud)
+	supports = IdleLogic.committed_supports(hud, forts)
+	_update_margin_sig()
 	return true
+
+
+## Publishes the dragged valve's projection: the fort chips and "N of M" read it until cleared.
+func set_projection(p: Dictionary) -> void:
+	projection = p
+	_update_margin_sig()
+
+
+func clear_projection() -> void:
+	if projection.is_empty():
+		return
+	projection = {}
+	_update_margin_sig()
+
+
+## The margin a held fort shows: the projection's while one is set, else the committed one.
+func margin_of(id: String) -> String:
+	if projection.has("margins") and projection["margins"].has(id):
+		return str(projection["margins"][id])
+	return str(margins.get(id, ""))
+
+
+## The "WAR supports N of M" now shown: the projection's while one is set, else the committed.
+func supports_now() -> Dictionary:
+	return projection["war_supports"] if projection.has("war_supports") else supports
+
+
+func _update_margin_sig() -> void:
+	var parts: Array = []
+	for f in forts:
+		if bool(f.get("held", false)):
+			parts.append("%s:%s" % [f["id"], margin_of(str(f["id"]))])
+	margin_sig = ",".join(parts)
 
 
 ## Whether they are winning: the one reading the top bar and Vei's node both draw. Odds, sign and

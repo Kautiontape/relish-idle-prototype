@@ -30,6 +30,7 @@ var _relish: MapRelish
 var _statics: Array = []
 var _pulses: Array = []
 var _rev := -2
+var _margin_sig := ""  # model.margin_sig at the last redraw: the idle layer redraws when it changes
 var _dirty := true
 var _rm := false
 var _cam: Camera2D
@@ -55,6 +56,7 @@ func _ready() -> void:
 	ctx.flip = realm_cfg.get("flip", {})
 	ctx.r_vei = float(realm_cfg.get("R_vei", 0.0))
 	_forts_s = _layer(MapFortRing, false)
+	_layer(MapFortIdle, false)
 	_cov_s = _layer(MapCovington, false)
 	_vei_s = _layer(MapVei, false)
 	_forts_p = _layer(MapFortRing, true)
@@ -102,6 +104,9 @@ func _process(_delta: float) -> void:
 		_on_refresh()
 	if rm != _rm:
 		_rm = rm
+		_dirty = true
+	if model.margin_sig != _margin_sig:
+		_margin_sig = model.margin_sig
 		_dirty = true
 	_update_relish(rm)
 	if not rm:

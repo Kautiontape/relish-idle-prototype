@@ -474,12 +474,25 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 	var by_id := {}
 	for f in forts:
 		by_id[f["id"]] = f
-	var held: Dictionary = d.get("held", {})
-	if by_id.has(held.get("fort", "")):
-		var f: Dictionary = by_id[held["fort"]]
-		f["held"] = true
-		f["flipped_count"] = 1
-		f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
+	var held_all: Array = [d.get("held", {})]
+	held_all.append_array(d.get("also_held", []))
+	for held in held_all:
+		if by_id.has(held.get("fort", "")):
+			var f: Dictionary = by_id[held["fort"]]
+			f["held"] = true
+			f["flipped_count"] = 1
+			f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
+			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
+			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
+	if d.has("mint_rate"):  # the valve's WAR split needs a mint rate; E1's is 0
+		var split := {}
+		var v := ValveLogic.normalise(hud.get("valve_target", hud.get("valve", {})))
+		for r in hud.get("rates", []):
+			if str(r.get("id", "")) == "mint":
+				r["rate"] = float(d["mint_rate"])
+		for k in ValveLogic.KEYS:
+			split[k] = float(d["mint_rate"]) * float(v[k])
+		hud["split"] = split
 	var tithe: Dictionary = d.get("tithe", {})
 	if by_id.has(tithe.get("fort", "")):
 		by_id[tithe["fort"]]["tithe"] = {"targeted": true, "eta_s": float(tithe["eta_s"]), "wave_active": false}

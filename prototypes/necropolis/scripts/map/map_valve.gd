@@ -21,6 +21,9 @@ var _rows := {}  # key -> {name, pct, rate, feed}
 var _workers: Label
 var _supports: Label
 var _sig := ""
+var _proj := {}  # the last projection (IdleLogic), reused while the valve hasn't moved
+var _proj_key := ""
+var _last_proj_s := -1.0
 
 
 func _ready() -> void:
@@ -135,7 +138,9 @@ func refresh(force := false) -> void:
 	if not _override.is_empty() and not _dragging and ValveLogic.same(_override, target, float(MapLogic.cfg()["controls"]["valve_sync_eps"])):
 		_override = {}
 	var shown := shown_target()
-	var proj := ValveLogic.project(model.hud, shown, int(model.realm.get("held_count", 0)))
+	var proj := _projection(shown)
+	if _dragging:
+		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
 	var sig := "%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"])]
 	var cur_sig := str(model.hud.get("valve", {}))
 	if not force and sig + cur_sig == _sig:
@@ -155,6 +160,23 @@ func refresh(force := false) -> void:
 	queue_redraw()
 
 
+## The projection of the valve shown: one per distinct valve and model rev, and while dragging at
+## most valve_send_hz projections a second (the same throttle as the valve sends).
+func _projection(shown: Dictionary) -> Dictionary:
+	var key := "%s|%d" % [str(ValveLogic.percents(shown)), model.rev]
+	if key == _proj_key and not _proj.is_empty():
+		return _proj
+	var now := Time.get_ticks_msec() / 1000.0  # lint-ok: projection throttle, not animation
+	if _dragging and not _proj.is_empty() and not ValveLogic.should_send(now, _last_proj_s, float(MapLogic.cfg()["valve_send_hz"]), false):
+		return _proj
+	_last_proj_s = now
+	_proj_key = key
+	_proj = IdleLogic.projection(model.state, model.hud, shown, model.forts)
+	if not _dragging and _override.is_empty() and model.hud.has("war_supports"):
+		_proj["war_supports"] = model.hud["war_supports"]  # TODO(api-request #7): the committed row
+	return _proj
+
+
 # --- input ------------------------------------------------------------------------
 
 func _gui_input(e: InputEvent) -> void:
@@ -167,6 +189,7 @@ func _gui_input(e: InputEvent) -> void:
 		elif not e.pressed and _dragging:
 			_dragging = false
 			_drag_to(e.position, true)
+			model.clear_projection()  # released: the committed values from the views take over
 			accept_event()
 	elif e is InputEventMouseMotion and _dragging:
 		_drag_to(e.position, false)

@@ -15,6 +15,7 @@ var hud: MapHud
 var valve: MapValve
 var chip: MapRelishChip
 var sidebar: MapSidebar
+var away: MapAway
 
 var selected_id := ""
 var _hover := ""
@@ -49,6 +50,7 @@ func _ready() -> void:
 		return
 	hud.start()
 	cam.fit(get_viewport_rect().size, hud.top_inset())
+	away.open_if_shown()
 	_replay_clicks()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
@@ -114,6 +116,13 @@ func _build_ui() -> void:
 	sidebar.dive.connect(_dive)
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
+	away = MapAway.new()  # last: it opens over everything
+	away.model = model
+	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
+	away.fort_chosen.connect(_on_away_fort)
+	away.dive.connect(_dive)
+	layer.add_child(away)
+	Game.game_event.connect(away.on_event)
 
 
 ## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar
@@ -140,6 +149,12 @@ func _on_clicked(id: String) -> void:
 		_dive(id)
 	else:
 		_select(id)
+
+
+## An away-report line named a fort: open its card and bring it to the middle.
+func _on_away_fort(id: String) -> void:
+	_select(id)
+	cam.centre_on(model.node_pos(id))
 
 
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
@@ -255,6 +270,8 @@ func _update_hover() -> void:
 
 
 func _exit_tree() -> void:
+	if away != null and Game.game_event.is_connected(away.on_event):
+		Game.game_event.disconnect(away.on_event)
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
