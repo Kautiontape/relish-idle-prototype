@@ -58,9 +58,9 @@ there.
 | I10 | **Pacing is measured in days of sessions** (§8). | "pacing would be days of sessions" |
 
 ## 3. Held forts: two pools, not a timer
-Today a flip holds a fort for `flip.hold_s`, so every hold lapses within hours however well you set
-up. That can't express "properly tuned to be supported". From E2, a held fort is contested by the
-two pools RealmSim already keeps for every fort.
+Until E2b-2 a flip held a fort for `flip.hold_s`, so every hold lapsed within hours however well
+you set up. That couldn't express "properly tuned to be supported". Since E2b-2 (T3.1), a held fort
+is contested by the two pools RealmSim already keeps for every fort (MECHANICS §3.4).
 
 **Grace.** A flip starts a grace period of `flip.hold_s · (1 + flip.tier_mult · tier)`. During grace,
 Vei ships nothing there and no tithe wave targets it.
@@ -110,7 +110,9 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 - `dt = clamp(elapsed / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`.
 - A step never straddles an event: `dt = min(dt, t_next_event − t)`. The events are a grace ending, a
   wave starting or ending, a garrison reaching 0, a break, a build starting or finishing, a store
-  hitting its cap, and a floor being hit.
+  hitting its cap, and a floor being hit. Since E2b-2 T3.1 RealmSim lands a grace ending, a garrison
+  reaching 0 and a break at their time inside its own step (it splits the step at the first and
+  last; fort combat solves the second), so catch-up needn't clip at them.
 - First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
 - `stance.hold_s` must be at least `dt`.

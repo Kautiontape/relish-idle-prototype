@@ -148,8 +148,8 @@ func run() -> int:
 	t.near(h1["r_staged"] / h2["r_staged"], d2 / d1, 1e-9, "staging is split by the same distance weight")
 	t.near(sim.vei["undead_queue"], uq, 1e-9, "no WAR reaches Vei while a fort is held")
 	t.ok(sim.forts[0]["r_staged"] == 0.0 and sim.forts[0]["r_in"] == 0.0, "an unheld empty fort takes nothing")
-	sim.hold(h1["id"], 0.0)
-	sim.hold(h2["id"], 0.0)
+	sim.release(h1["id"])
+	sim.release(h2["id"])
 	uq = float(sim.vei["undead_queue"])
 	sim.step(1.0, {"war": 6.0, "flood": 2.0})
 	t.ok(sim.war_route == "vei", "nothing held either: WAR falls through to Vei")
@@ -196,13 +196,20 @@ func run() -> int:
 	t.near(sim.r_digested_undead, 10.0 / 0.5, 1e-9, "digestion is what she took (the whole small queue)")
 	t.near(sim.readout()["capacity"], 25.0, 1e-9, "capacity is R/q with room to spare")
 
-	# --- a retake refreshes the yield ------------------------------------------
+	# --- a retake refreshes the yield and loses the fort's simulacrum (IDLE I6) --------
 	sim = _mk({})
 	f = sim.forts[1]
 	f["clears_since_retaken"] = 3
-	sim.hold(f["id"], 0.5)
-	sim.step(0.5, {})
-	t.ok(f["clears_since_retaken"] == 0 and sim.drain_events().size() == 1, "an expiry resets clears_since_retaken")
+	f["living"] = 0.0
+	f["undead"] = 0.0
+	sim.simulacra = [{"fort_id": f["id"], "charges": 30.0, "rate": 2.0}, {"fort_id": sim.forts[4]["id"], "charges": 30.0, "rate": 2.0}]
+	sim.hold(f["id"], 0.0)
+	var got_r: Array = []
+	for i in int(float(sim.t["hold"]["break_s"]) / 0.5) + 1:
+		sim.step(0.5, {})
+		got_r.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
+	t.ok(got_r.size() == 1 and f["clears_since_retaken"] == 0 and not f["held"], "a retake resets clears_since_retaken: %s" % str(got_r))
+	t.ok(sim.simulacra.size() == 1 and sim.simulacra[0]["fort_id"] == sim.forts[4]["id"], "and the simulacrum planted there is lost, the other kept")
 
 	# --- tithe waves --------------------------------------------------------------
 	_tithe(t)
@@ -289,20 +296,23 @@ func run() -> int:
 	t.near(pair[1].forts[4]["r_shipped"], pair[0].forts[4]["r_shipped"], 1e-12, "the held share is not redistributed")
 	t.ok(pair[1].forts[3]["held"] == true and pair[0].forts[3]["held"] == false, "held is visible in the fort dict")
 
-	# --- hold expiry emits fort_retaken{expired} --------------------------------
+	# --- the hold: grace, then the contest; no timer ends it ----------------------
 	sim = _mk({})
 	f = sim.forts[1]
 	t.ok(sim.hold(f["id"], 1.0) and not sim.hold("nowhere", 1.0), "hold() takes a known fort only")
+	t.ok(f["held"] and f["grace_s"] == 1.0 and f["zero_s"] == 0.0 and f["held_s"] == 1.0, "hold(): held, grace_s, zero_s 0 (held_s, deprecated, mirrors the grace)")
+	f["undead"] = 50.0
 	sim.step(0.5, {})
-	t.near(f["held_s"], 0.5, 1e-12, "held_s counts down in step")
-	t.ok(sim.drain_events().is_empty() and f["held"], "still held, no event")
+	t.near(f["grace_s"], 0.5, 1e-12, "grace_s counts down in step")
+	t.ok(sim.drain_events().is_empty() and f["held"] and RealmSim.in_grace(f), "still in grace, no event")
 	sim.step(0.5, {})
-	var evs := sim.drain_events()
-	t.ok(evs == [{"type": "fort_retaken", "fort_id": f["id"], "cause": "expired"}],
-		"expiry records fort_retaken{cause: expired} without t: %s" % str(evs))
-	t.ok(f["held_s"] == 0.0 and not f["held"] and sim.drain_events().is_empty(), "unheld; the queue is drained")
-	sim.step(0.5, {})
-	t.ok(sim.drain_events().is_empty(), "no repeat event")
+	t.ok(sim.drain_events().is_empty() and f["held"] and f["grace_s"] == 0.0 and RealmSim.is_contested(f),
+		"the grace's end is no retake: the fort is contested")
+	for i in 20:
+		sim.step(0.5, {"war": 30.0})
+	t.ok(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken").is_empty() and f["held"], "a garrison above 0 holds it")
+	t.ok(sim.release(f["id"]) and not f["held"] and f["grace_s"] == 0.0 and sim.drain_events().is_empty(), "release() ends a hold without an event")
+	_contest(t)
 
 	# --- a long run with random inputs: no negatives, mass accounted -----------
 	sim = _mk({})
@@ -319,7 +329,7 @@ func run() -> int:
 	for i in 4000:
 		var dt := 0.5
 		if rng.randf() < 0.01:
-			sim.hold(ids[rng.randi_range(0, ids.size() - 1)], rng.randf_range(5.0, 120.0))
+			sim.hold(ids[rng.randi_range(0, ids.size() - 1)], rng.randf_range(0.0, 120.0))
 		if rng.randf() < 0.005:
 			sim.simulacra.append({"fort_id": ids[rng.randi_range(0, ids.size() - 1)], "charges": 40.0, "rate": 3.0})
 		var war := rng.randf_range(0.0, 20.0)
@@ -331,7 +341,7 @@ func run() -> int:
 		added += (war + flood) * dt
 		lost += sim.pool_overflow
 		for ff in sim.forts:
-			if ff["living"] < -1e-9 or ff["dead"] < -1e-9 or ff["undead"] < -1e-9 or ff["held_s"] < 0.0:
+			if ff["living"] < -1e-9 or ff["dead"] < -1e-9 or ff["undead"] < -1e-9 or ff["grace_s"] < 0.0 or ff["zero_s"] < 0.0:
 				neg = true
 		for k in ["undead_queue", "dead_queue", "living_pool"]:
 			if sim.vei[k] < -1e-9:
@@ -401,7 +411,8 @@ func _tithe(t: TestUtil) -> void:
 	# the clock: the first wave one period after the flip, its warning warning_s before
 	sim = _tsim()
 	var held: Dictionary = sim.forts[1]
-	sim.hold(held["id"], 1e6)
+	sim.hold(held["id"], 0.0)  # contested (its undead never drain or die here, so it holds)
+	held["undead"] = 10.0
 	sim.start_tithe()
 	t.near(sim.tithe["next_s"], period, 1e-9, "start_tithe: the first wave is period_s away at odds 0")
 	sim.start_tithe()
@@ -414,7 +425,7 @@ func _tithe(t: TestUtil) -> void:
 	# the target stays fixed: another fort is held with far more undead before the wave
 	var other: Dictionary = sim.forts[4]
 	other["undead"] = 1e5
-	sim.hold(other["id"], 1e6)
+	sim.hold(other["id"], 0.0)
 	var wv := _until(sim, "tithe_wave", {}, period)
 	t.near(wv[0] - w[0], warn, 1e-9, "the wave starts warning_s after its warning")
 	t.ok(wv[1]["fort_id"] == held["id"] and wv[1]["wave_id"] == 1, "the warned target stays fixed for its wave")
@@ -422,19 +433,30 @@ func _tithe(t: TestUtil) -> void:
 		"relish_here": false, "siege_block": 0.0}, "tithe_wave {wave_id, fort_id, surge, duration_s, relish_here, siege_block}: %s" % str(wv[1]))
 	t.near(sim.tithe["next_s"], period, 1e-9, "the next wave is scheduled start to start")
 
-	# the target rule: held forts first, the most undead, ties in world order
+	# the target rule: contested forts first, the most undead, ties in world order; never a fort in grace
 	sim = _tsim()
-	sim.hold(sim.forts[3]["id"], 1e6)
-	sim.hold(sim.forts[6]["id"], 1e6)
+	sim.hold(sim.forts[3]["id"], 0.0)
+	sim.hold(sim.forts[6]["id"], 0.0)
 	sim.forts[3]["undead"] = 5.0
 	sim.forts[6]["undead"] = 9.0
-	t.ok(_target_now(sim, {"war": 5.0}) == sim.forts[6]["id"], "held first: the held fort with the most undead")
+	t.ok(_target_now(sim, {"war": 5.0}) == sim.forts[6]["id"], "held first: the contested fort with the most undead")
 	sim = _tsim()
-	sim.hold(sim.forts[3]["id"], 1e6)
-	sim.hold(sim.forts[6]["id"], 1e6)
+	sim.hold(sim.forts[3]["id"], 0.0)
+	sim.hold(sim.forts[6]["id"], 0.0)
 	sim.forts[3]["undead"] = 7.0
 	sim.forts[6]["undead"] = 7.0
-	t.ok(_target_now(sim, {}) == sim.forts[3]["id"], "a tie between held forts goes to world order")
+	t.ok(_target_now(sim, {}) == sim.forts[3]["id"], "a tie between contested forts goes to world order")
+	sim = _tsim()
+	sim.hold(sim.forts[3]["id"], 0.0)
+	sim.hold(sim.forts[6]["id"], 1e6)  # in grace, with the most undead
+	sim.forts[3]["undead"] = 5.0
+	sim.forts[6]["undead"] = 9.0
+	t.ok(_target_now(sim, {"war": 5.0}) == sim.forts[3]["id"], "a fort in grace is never a target, though it has the most undead")
+	sim = _tsim()
+	var near0: Dictionary = sim.forts[0]
+	sim.hold(near0["id"], 1e6)  # in grace and the nearest: with nothing contested it would get the most WAR
+	t.ok(_target_now(sim, {"war": 5.0}) != near0["id"] and float(near0["r_in"]) > 0.0,
+		"nor is it the fort taking the most WAR: the target is the most-WAR fort not in grace")
 	sim = _tsim()
 	var far: Dictionary = sim.forts[8]
 	t.ok(_target_now(sim, {"war": 5.0, "tide_fort": far["id"], "tide_bias": 100.0}) == far["id"],
@@ -489,61 +511,61 @@ func _tithe(t: TestUtil) -> void:
 	# the surge comes out of her pool and is bounded by it; held forts get it (not the shipping share)
 	sim = _tsim({"S_vei": 8.0})
 	var hf: Dictionary = sim.forts[2]
-	sim.hold(hf["id"], 1e6)
+	sim.hold(hf["id"], 0.0)
+	hf["undead"] = 10.0
 	sim.start_tithe()
 	sim.tithe["next_s"] = 0.25
 	sim.vei["living_pool"] = 5.0
 	var before := sim.total_matter()
 	sim.step(0.5, {})
 	t.near(hf["r_surge"], 5.0 / 0.5, 1e-9, "bounded by her pool (5 mass of the 6 the wave's first 0.25 s want)")
-	t.ok(sim.vei["living_pool"] == 0.0 and hf["r_shipped"] == hf["r_surge"], "the pool empties into the held fort; r_shipped carries the surge")
+	t.ok(sim.vei["living_pool"] == 0.0 and hf["r_shipped"] == hf["r_surge"], "the pool empties into the contested fort; r_shipped carries the surge (her reship found the pool empty)")
 	t.near(sim.total_matter(), before, 1e-9, "the surge moves mass, it makes none")
 
-	# the hold: kept when the garrison outlasts what the wave delivers, lost (with the event) when
-	# overwhelmed. The wave delivers all of itself (no combat or drain here; the march-back doesn't
-	# change what it delivered), so a garrison at the fort's full cap loses to a full wave (960) at
-	# every fort; with Relish there (a 480 wave) it keeps the hold only where cap > 480 (MECHANICS §3.4)
-	for c in [["outlasts", 10, 1000.0, {}, true], ["overwhelmed", 10, 100.0, {}, false],
-			["Relish saves it", 10, 600.0, {"tide_fort": "@"}, true], ["no Relish", 10, 600.0, {}, false],
-			["Greywall full garrison", 2, -1.0, {}, false], ["Greywall full garrison, Relish", 2, -1.0, {"tide_fort": "@"}, false],
-			["Whitecross full garrison", 10, -1.0, {}, false], ["Whitecross full garrison, Relish", 10, -1.0, {"tide_fort": "@"}, true]]:
-		sim = _tsim()
-		hf = sim.forts[c[1]]
-		hf["clears_since_retaken"] = 2
-		sim.hold(hf["id"], 1e6)
-		hf["living"] = 0.0
-		hf["dead"] = 0.0
-		hf["undead"] = c[2] if c[2] >= 0.0 else hf["cap"]
-		var garrison: float = hf["undead"]
-		var expect_in: float = base * surge_s * (0.5 if c[3].has("tide_fort") else 1.0)
-		var inp: Dictionary = {"tide_fort": hf["id"]} if c[3].has("tide_fort") else {}
-		sim.start_tithe()
-		sim.tithe["next_s"] = 1.0
-		sim.drain_events()
-		var got: Array = []
-		var delivered := 0.0
-		for i in 200:
-			sim.step(0.5, inp)
-			delivered += float(hf["r_surge"]) * 0.5
-			got.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
-		t.ok(hf["held"] == c[4] and got.size() == (0 if c[4] else 1) and absf(delivered - expect_in) < 1e-6,
-			"%s: garrison %.0f vs %.0f delivered (cap %.0f): held %s" % [c[0], garrison, delivered, hf["cap"], c[4]])
-		if not c[4]:
-			t.ok(got[0] == {"type": "fort_retaken", "fort_id": hf["id"], "cause": "tithe_wave"} and hf["clears_since_retaken"] == 0
-				and hf["held_s"] == 0.0, "%s: fort_retaken{tithe_wave}; the yield refreshes" % c[0])
-	# one retake per step: a wave that ends a hold in the step it would also expire
+	# no wave targets a fort in grace (MECHANICS §3.4): a warning naming one when it is flipped is
+	# dropped at once and made again for another target, under the next wave id
 	sim = _tsim()
-	hf = sim.forts[2]
-	sim.hold(hf["id"], 1e6)
+	var tgt4: Dictionary = sim.forts[4]
 	sim.start_tithe()
-	sim.tithe["next_s"] = 1.0
-	_until(sim, "tithe_wave", {}, 10.0)
-	sim.hold(hf["id"], surge_s - 0.25)  # the wave began at the event step's end: 0.25 s of hold left when its last step begins, so both end it there
-	var all: Array = []
-	for i in 100:
-		sim.step(0.5, {})
-		all.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
-	t.ok(all.size() == 1 and all[0]["cause"] == "tithe_wave", "exactly one fort_retaken when the wave and the expiry coincide: %s" % str(all))
+	sim.tithe["next_s"] = 3.0
+	sim.step(0.5, {"war": 5.0, "tide_fort": tgt4["id"], "tide_bias": 1000.0})
+	t.ok(sim.tithe["warning"].get("fort_id", "") == tgt4["id"], "a warning on Chime-fort (setup)")
+	sim.drain_events()
+	sim.hold(tgt4["id"], 1e6)
+	t.ok(sim.tithe["warning"].is_empty(), "flipped (in grace): its warning is dropped at once")
+	var rw := _until(sim, "tithe_warning", {"war": 5.0, "tide_fort": tgt4["id"], "tide_bias": 1000.0}, 1.0)
+	t.ok(rw[1].get("fort_id", tgt4["id"]) != tgt4["id"] and rw[1].get("wave_id", 0) == 2,
+		"and made again at the next step's end for another fort, wave 2: %s" % str(rw[1]))
+	var rwv := _until(sim, "tithe_wave", {"war": 5.0, "tide_fort": tgt4["id"], "tide_bias": 1000.0}, 10.0)
+	t.ok(rwv[1].get("fort_id", "") == rw[1].get("fort_id", "?") and tgt4["r_surge"] == 0.0, "its wave hits that fort, not the one in grace")
+	# a save can hold such a warning (midgame_2flips: Ashgate in grace, warned): it is kept as loaded and
+	# dropped by the first step's clock, which warns again (here at once: the wave is due in that step)
+	sim = _tsim()
+	sim.hold(sim.forts[0]["id"], 300.0)
+	sim.load_tithe({"warning": {"wave_id": 1, "fort_id": sim.forts[0]["id"], "eta_s": 0.25, "surge": 24.0}}, true)
+	t.ok(sim.tithe["warning"]["fort_id"] == sim.forts[0]["id"], "a loaded warning on a fort in grace is kept as loaded")
+	sim.step(0.5, {"war": 5.0})
+	var lw: Array = sim.drain_events()
+	t.ok(lw.size() == 2 and lw[0]["type"] == "tithe_warning" and lw[0]["fort_id"] != sim.forts[0]["id"] and lw[1]["type"] == "tithe_wave"
+		and lw[1]["fort_id"] == lw[0]["fort_id"] and sim.forts[0]["r_surge"] == 0.0,
+		"the first step drops it, warns another fort and starts the wave there: %s" % str(lw))
+	# a wave already running at a fort that enters grace delivers nothing until the grace ends; the
+	# grace's end inside a step is exact, so it then delivers rate × the rest of the wave at any dt
+	for dt in [0.5, 7.0, 30.0]:
+		sim = _tsim()
+		hf = sim.forts[2]
+		sim.start_tithe()
+		sim.tithe["next_s"] = 1e6
+		sim.tithe["wave"] = {"wave_id": 1, "fort_id": hf["id"], "s_left": surge_s, "duration_s": surge_s, "mult": 3.0, "delivered": 0.0}
+		sim.hold(hf["id"], 12.3)
+		hf["undead"] = 10.0
+		var dl := 0.0
+		for i in int(ceil(60.0 / dt)):
+			sim.step(dt, {})
+			dl += float(hf["r_surge"]) * dt
+		t.ok(absf(dl - base * (surge_s - 12.3)) < 1e-9 * base * surge_s and sim.tithe["wave"].is_empty(),
+			"dt %.1f: a wave into a fort 12.3 s from its grace's end delivers rate × (surge_s − 12.3) = %.4f (got %.6f)" % [
+			dt, base * (surge_s - 12.3), dl])
 
 	# load_tithe: the saved shape, the E1 placeholder, an empty block
 	sim = _tsim()
@@ -820,7 +842,7 @@ func _march_back(t: TestUtil) -> void:
 		t.near(sim.total_matter() + lost + sim.cleared_total, before, 1e-12 * before, "dt %.1f: mass is exact (%.1f lost past her pool's cap)" % [dt, lost])
 	_march_path(t)
 	_march_pool(t)
-	_march_holds(t)
+	_hold_rule(t)
 
 
 ## _l_path is a flow: one step of dt from any start equals two of dt / 2 (end, ∫L and the marched
@@ -933,51 +955,142 @@ func _pool_run(over: Dictionary, dt: float) -> Dictionary:
 		"living": float(tgt["living"]), "in_range": in_range}
 
 
-## The live hold (E2a's rule with combat, drain and the march-back on, MECHANICS §3.4): a held fort
-## with a garrison at its full cap and no living or corpses takes a full wave at 0.5 s, and every
-## other fort is full of corpses, so the held fort is WAR's only target (all of it stages there).
-## With no WAR the garrison drains and is destroyed before the wave ends, and the hold is lost at
-## Greywall (cap 90) and Whitecross (520), Relish there or not. With 30 mass/s staged the full wave
-## still takes it, but Relish there (the wave halved, her raise) or a siege (0.6 of it cancelled)
-## saves it: the counters matter.
-func _march_holds(t: TestUtil) -> void:
-	for id in ["greywall", "whitecross"]:
-		for war in [0.0, 30.0]:
-			for mode in ["none", "Relish", "siege"]:
-				var sim := _mk({})
-				sim.vei["living_pool"] = 600.0
-				sim.vei["dead_queue"] = 1e5
-				var f := sim.fort_by_id(id)
-				sim.hold(id, 1e6)
-				f["living"] = 0.0
-				f["dead"] = 0.0
-				f["undead"] = f["cap"]
-				for o in sim.forts:
-					if o["id"] != id:
-						o["living"] = 0.0
-						o["dead"] = o["cap"]
-				sim.start_tithe()
-				sim.tithe["next_s"] = 1e6
-				var surge_s := float(sim.t["tithe"]["surge_s"])
-				sim.tithe["wave"] = {"wave_id": 1, "fort_id": id, "s_left": surge_s, "duration_s": surge_s,
-					"mult": float(sim.t["tithe"]["surge_mult"]), "delivered": 0.0}
-				var inp := {"war": war}
-				if mode == "Relish":
-					inp.merge({"tide_fort": id, "tide_bias": 3.0, "redirect_fort": id, "redirect_rate": 4.0})
-				elif mode == "siege":
-					inp["siege_block"] = {id: float(sim.t["tithe"]["siege_block"])}
-				var delivered := 0.0
-				var got: Array = []
-				for guard in 1000:
-					if (sim.tithe["wave"] as Dictionary).is_empty():
-						break
-					sim.step(0.5, inp)
-					delivered += float(f["r_surge"]) * 0.5
-					got.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
-				var expect_held: bool = war > 0.0 and mode != "none"
-				t.ok(f["held"] == expect_held and got.size() == (0 if expect_held else 1),
-					"live, %s (cap %.0f), WAR %.0f, %s: delivered %.0f, the garrison ends at %.1f: held %s" % [
-						id, f["cap"], war, mode, delivered, f["undead"], f["held"]])
+## A contested fort alone: `id` held with no grace and no living or corpses, `u0` undead; every other
+## fort is full of corpses (no living, no room), so all the WAR stages at `id`; Vei's pool full and a
+## deep dead queue. With `wave`, one full wave starts there at once (no other wave comes).
+func _contested(id: String, u0: float, wave: bool) -> RealmSim:
+	var sim := _mk({})
+	sim.vei["living_pool"] = 600.0
+	sim.vei["dead_queue"] = 1e5
+	for o in sim.forts:
+		if o["id"] != id:
+			o["living"] = 0.0
+			o["undead"] = 0.0
+			o["dead"] = o["cap"]
+	var f := sim.fort_by_id(id)
+	sim.hold(id, 0.0)
+	f["living"] = 0.0
+	f["dead"] = 0.0
+	f["undead"] = u0
+	sim.start_tithe()
+	sim.tithe["next_s"] = 1e6
+	if wave:
+		var surge_s := float(sim.t["tithe"]["surge_s"])
+		sim.tithe["wave"] = {"wave_id": 1, "fort_id": id, "s_left": surge_s, "duration_s": surge_s,
+			"mult": float(sim.t["tithe"]["surge_mult"]), "delivered": 0.0}
+	return sim
+
+
+## RealmSim's inputs for a counter at `id`: "Relish" stands there (her tide and redirect: the wave
+## halved, her raise), "siege" blocks tithe.siege_block of the wave.
+func _counter(sim: RealmSim, id: String, war: float, mode: String) -> Dictionary:
+	var inp := {"war": war, "digest_q": 1.2}
+	if mode == "Relish":
+		inp.merge({"tide_fort": id, "tide_bias": 3.0, "redirect_fort": id, "redirect_rate": 4.0})
+	elif mode == "siege":
+		inp["siege_block"] = {id: float(sim.t["tithe"]["siege_block"])}
+	return inp
+
+
+## Runs `sim` at `dt` for up to `seconds`; the first fort_retaken's moment (seconds from the start,
+## from its place inside its step) and cause, or [-1.0, ""].
+func _retake_at(sim: RealmSim, dt: float, seconds: float, inp: Dictionary) -> Array:
+	var el := 0.0
+	while el < seconds - 1e-9:
+		sim.step(dt, inp)
+		for e in sim.drain_timed():
+			if e[1]["type"] == "fort_retaken":
+				return [el + float(e[0]), str(e[1]["cause"])]
+		el += dt
+	return [-1.0, ""]
+
+
+## Shawn's hold rule, both ways ("Needs WAR too", MECHANICS §3.4's arithmetic). (a) A full-cap
+## garrison with no WAR loses to a full wave at once, Relish there or not, a siege or not: broken by
+## the wave plus break_s (Whitecross's 520 undead outlast the 40 s wave: U reaches 0 41.5 s in, 55.5
+## with a siege and 75.5 with Relish, so by U's time at 0 plus break_s, within 80 s). (b) Ashgate with 0.8 mass/s of WAR, inside the band
+## [0.547, 1.035): its settled garrison (WAR / r_drain) is broken by a full wave alone, and holds it
+## with Relish there or a siege; with no wave it holds (0.8 > W_c 0.343).
+func _hold_rule(t: TestUtil) -> void:
+	t.suite("realm_sim-hold-rule")
+	var cfg: Dictionary = TestUtil.configs()["realm"]
+	var brk := float(cfg["hold"]["break_s"])
+	var surge_s := float(cfg["tithe"]["surge_s"])
+	for id in ["ashgate", "greywall", "whitecross"]:
+		for mode in ["none", "Relish", "siege"]:
+			var cap := float(_mk({}).fort_by_id(id)["cap"])
+			var sim := _contested(id, cap, true)
+			var r := _retake_at(sim, 0.5, 1200.0, _counter(sim, id, 0.0, mode))
+			var bound := surge_s + brk + (40.0 if id == "whitecross" else 0.0)
+			t.ok(r[1] == "broken" and r[0] > brk and r[0] <= bound,
+				"(a) %s (cap %.0f), no WAR, %s: a full-cap garrison is broken by a full wave at %.1f s (by %.0f s)" % [id, cap, mode, r[0], bound])
+	var w := 0.8
+	var u0: float = w / float(cfg["r_drain"])
+	for c in [["none", true, false], ["Relish", true, true], ["siege", true, true], ["none", false, true]]:
+		var sim := _contested("ashgate", u0, c[1])
+		var r := _retake_at(sim, 0.5, 1200.0, _counter(sim, "ashgate", w, c[0]))
+		var holds: bool = r[0] < 0.0
+		t.ok(holds == c[2], "(b) Ashgate, WAR %.1f (garrison %.1f), %s, %s: %s" % [w, u0, c[0],
+			"a full wave" if c[1] else "no wave", "holds" if holds else "broken at %.1f s" % r[0]])
+	t.suite("realm_sim")
+
+
+## The contest's two rules RealmSim applies itself (MECHANICS §3.4). Her reship into a contested fort
+## is hold.reship_share × (1 + tithe.backlog_scale · odds) of its share, not cut to the room (Ashgate
+## full of corpses still gets all of it), and nothing in grace. A grace end and a break land at their
+## time inside a step: a fort reaching its grace end with no garrison, no WAR and no living ("Needs
+## WAR too") starts its zero clock at the grace end and falls exactly break_s later, at steps of 0.5,
+## 7, 30 and 150 s (longer than break_s); her reship by then is rate × the time since the grace end.
+func _contest(t: TestUtil) -> void:
+	var cfg: Dictionary = TestUtil.configs()["realm"]
+	var share_k := float(cfg["hold"]["reship_share"])
+	var bscale := float(cfg["tithe"]["backlog_scale"])
+	var brk := float(cfg["hold"]["break_s"])
+	for odds_q in [0.0, 1.0]:
+		var sim := _alone({}, "corpses")
+		var f: Dictionary = sim.forts[0]
+		f["living"] = 0.0
+		f["undead"] = 20.0
+		f["dead"] = 80.0  # full of corpses: no room
+		sim.vei["undead_queue"] = float(sim.t["K"]) * odds_q  # odds 0 or 0.5
+		var od := sim.odds()
+		sim.hold(f["id"], 0.0)
+		sim.step(0.5, {})
+		var want: float = share_k * (1.0 + bscale * od) * _share_rate(sim, f)
+		t.near(float(f["r_shipped"]), want, 1e-12 * want,
+			"odds %.2f: a contested fort full of corpses gets her reship, reship_share × (1 + backlog_scale · odds) × its share (%.6f/s)" % [od, want])
+	var sim := _alone({}, "corpses")
+	sim.hold(sim.forts[0]["id"], 100.0)
+	sim.step(0.5, {})
+	t.ok(float(sim.forts[0]["r_shipped"]) == 0.0, "in grace she ships nothing there")
+	for dt in [0.5, 7.0, 30.0, 150.0]:
+		sim = _alone({}, "corpses")
+		var f: Dictionary = sim.forts[0]
+		f["living"] = 0.0
+		f["undead"] = 0.0
+		f["dead"] = 0.0
+		var grace := 3.7
+		sim.hold(f["id"], grace)
+		var rate: float = share_k * _share_rate(sim, f)  # her odds stay 0 (nothing reaches her queue)
+		var shipped := 0.0
+		var el := 0.0
+		var at := -1.0
+		var checked := false
+		while el < 300.0 - 1e-9:
+			sim.step(dt, {})
+			shipped += float(f["r_shipped"]) * dt
+			for e in sim.drain_timed():
+				if e[1]["type"] == "fort_retaken" and at < 0.0:
+					at = el + float(e[0])
+					t.ok(e[1] == {"type": "fort_retaken", "fort_id": f["id"], "cause": "broken"}, "dt %.1f: fort_retaken {fort_id, cause: broken}" % dt)
+			el += dt
+			if not checked and el >= 20.0 and el < grace + brk:
+				checked = true
+				t.near(shipped, rate * (el - grace), 1e-9 * rate * el,
+					"dt %.1f: by %.1f s her reship is rate × (%.1f − 3.7): the grace ends at its time" % [dt, el, el])
+				t.near(float(f["zero_s"]), el - grace, 1e-9, "dt %.1f: its zero clock runs from the grace's end (%.6f at %.1f s)" % [dt, float(f["zero_s"]), el])
+		t.near(at, grace + brk, 1e-9, "dt %.1f: Needs WAR too: no garrison and nothing coming, retaken break_s after the grace (%.6f)" % [dt, at])
+		t.ok(not f["held"] and f["zero_s"] == 0.0 and f["grace_s"] == 0.0, "dt %.1f: and is no longer held" % dt)
 
 
 ## The living one full-strength wave delivers at steps of `dt`, clipped at its start and end, or −1

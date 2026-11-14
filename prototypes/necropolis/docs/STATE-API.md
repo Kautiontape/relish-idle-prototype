@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 5)
+# Necropolis: GameState API (api_version 6)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -37,6 +37,18 @@ from `BALANCE.md` §0.
   - the vat rule (`cmd_staff_vat`, §4.3; MECHANICS §7): a staffed vat takes a hand, since a Chapel's
     tend slot is open only while its vat is staffed. So `view_town` shows a Chapel's tend `slots`
     only for its staffed vats: a meaning change, not a shape change.
+
+  `api_version` 6 (E2b-2 T3.1; later E2b-2 tasks add to this entry) added:
+  - **held forts as two pools** (IDLE §3, MECHANICS §3.4): a flip starts a grace, then her
+    counter-garrison contests your garrison; the fort is retaken once the garrison has sat at 0 for
+    `hold.break_s`. `fort_retaken`'s `cause` is now `"broken"` (§6); `"expired"` and `"tithe_wave"`
+    are no longer raised (the field stays). `fort_flipped.hold_s` now means the grace (same formula).
+    A `fort_retaken` carries its moment inside its substep as `t` (§6);
+  - the event `big_undead_returned {uid, fort_id}` (§6): a siege big undead at a retaken fort goes
+    back to the crypt (IDLE I6);
+  - the save's `realm.forts[]` hold keys `held`, `grace_s` and `zero_s` (§9.1). `held_s` is read
+    from older saves only (as the grace left) and no longer written;
+  - `view_fort.held_s_left` reads the grace left: a held fort is no longer on a timer (§5.5).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -91,7 +103,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 5
+const API_VERSION := 6
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -1003,8 +1015,8 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 | `pos` | Array | `[x, y]` |
 | `living`, `undead`, `dead`, `space` | float | mass; `space = max(0, cap − living − undead − dead)` |
 | `war_in`, `ship_in` | float | mass/s: WAR arriving (staging included); Vei's living arriving (tithe surges included) |
-| `held` | bool | flipped and still held |
-| `held_s_left` | float | 0 when not held |
+| `held` | bool | flipped and not yet retaken (in grace or contested; MECHANICS §3.4) |
+| `held_s_left` | float | the grace left, 0 when contested or not held (v6: no timer ends a hold any more) |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
@@ -1385,8 +1397,9 @@ Game.state.view_staffing_projection(["haul", "pit"])
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
-| `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` | E1 (hold effects E2) |
-| `fort_retaken` | `fort_id: String`, `cause: String` (`expired`\|`tithe_wave`) | E2 |
+| `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
+| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
+| `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
 | `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int` | E3 |
@@ -1516,8 +1529,8 @@ order, each clamped. The sim has kept running during the run.
 1. `k = min(killed_living_mass, f.living)`; `f.living −= k`; `f.dead += k`.
 2. If `warden_beaten`:
    - **all** the fort's living become dead: `f.dead += f.living`; `f.living = 0`;
-   - the fort flips: `fort_flipped`, held for `flip.hold_s · (1 + flip.tier_mult · tier)` (hold
-     E2);
+   - the fort flips: `fort_flipped`, held with a grace of `flip.hold_s · (1 + flip.tier_mult ·
+     tier)`, then contested (MECHANICS §3.4, v6);
    - `clears_since_retaken += 1`.
 3. `R = Σ raised.mass`; `R' = min(R, f.dead)`; `f.dead −= R'`. The `q_raise` EMA takes `raised`,
    mass-weighted and scaled by `R'/R` (E2).
@@ -1656,7 +1669,7 @@ take the router's legacy path (§2.3).
 | `applied_runs` | Array[int] | the last 32 applied run ids |
 | `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`. State is never `in_dungeon` or `in_boss`. |
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |
-| `realm` | Dictionary | RealmSim: forts (array with ids: masses, `held_s`, flip and clear counts), Vei, tithe, simulacra |
+| `realm` | Dictionary | RealmSim: forts (array with ids: masses, the hold, flip and clear counts), Vei, tithe, simulacra |
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers |
@@ -1672,11 +1685,17 @@ take the router's legacy path (§2.3).
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
-- `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,
+- `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
   `clears_since_retaken`, and the per-second rates `r_in`, `r_drain`, `r_shipped`, `r_dead_out`,
   `r_raised`, which the views show), `cov`, `vei` (masses and rates), `simulacra`
   (`{fort_id, charges, rate}`), `elapsed`, `cleared_total`, `raised_by_sims`, and `tithe`. Positions,
   names, caps and tiers come from config.
+- `realm.forts[]`'s hold (v6, MECHANICS §3.4): `held: bool`, `grace_s: float` (grace left; 0 once
+  contested) and `zero_s: float` (seconds the garrison has sat at 0 since it last didn't). All three
+  are optional on load and checked for type when present. A save from before v6 carries `held_s`
+  instead, read only on load: `held_s > 0` loads held with `grace_s = held_s` and `zero_s = 0`; a
+  fort with neither key loads unheld. The fixtures carry `held_s` and load this way (midgame_2flips:
+  Ashgate and Old Sluice held, 374.5 s of grace each).
 - `realm.tithe` (E2a, RealmSim's countdowns): `{started: bool, next_s: float (to the next wave),
   next_id: int, warning: {} | {wave_id: int, fort_id, eta_s, surge}, wave: {} | {wave_id: int,
   fort_id, s_left, duration_s, mult, delivered}}`. Loading the E1 placeholder `{warning: {wave_id,

@@ -46,5 +46,6 @@
     "catchup_eps": 0.003
   },
 
-  "flip": {"hold_s": 300.0, "tier_mult": 0.25, "haul_mult": 1.5}
+  "flip": {"hold_s": 300.0, "tier_mult": 0.25, "haul_mult": 1.5},
+  "hold": {"reship_share": 0.5, "break_s": 120.0, "safe_horizon_s": 28800.0}
 }

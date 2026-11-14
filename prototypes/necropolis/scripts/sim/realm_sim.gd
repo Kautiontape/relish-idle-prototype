@@ -13,12 +13,18 @@ extends RefCounted
 ##   - vei_pool_cap: Vei converts at most her pool's headroom, so nothing is discarded above it.
 ##   - per-fort shipping capacity: fort i receives at most S_vei · cap_i / Σcap per second; a held
 ##     fort's share is lost, not redistributed (MECHANICS §3.4).
-##   - held forts: forts[i].held_s counts down here; expiry records `fort_retaken` in `events`. A
-##     held fort always pulls WAR as staging (MECHANICS §3.2).
+##   - held forts (IDLE §3, MECHANICS §3.4): a flip starts a grace (forts[i].grace_s counts down here)
+##     in which Vei ships nothing there and no wave targets it; then the fort is contested: your
+##     undead there (the garrison, fed by WAR staging: a held fort always pulls WAR, MECHANICS §3.2)
+##     against her living (the counter-garrison: she reships there at hold.reship_share of her
+##     share, more as her odds rise, and waves surge into it), fought by the usual fort combat. The
+##     fort is retaken (`fort_retaken`, cause "broken") once the garrison has sat at 0 for
+##     hold.break_s (forts[i].zero_s). A step is split inside at every grace end and break, so both
+##     land at their time.
 ##   - redirect: at the redirect fort (Relish) and at every simulacrum's fort, garrison kills stay
 ##     as corpses and corpses are raised into that fort's undead (MECHANICS §3.3, §3.6).
 ##   - tithe waves: from the first flip (start_tithe()), Vei warns, then surges living into one
-##     fort, past its cap; a wave that overwhelms a held fort's garrison ends its hold (MECHANICS §3.4).
+##     fort, past its cap (MECHANICS §3.4).
 ##   - march-back: at every fort, living above the fort's cap march back to Vei's pool at
 ##     (L − cap) / tithe.march_back_s; what lands above her pool's cap is lost (pool_overflow).
 ##
@@ -41,7 +47,12 @@ extends RefCounted
 ## readers outside (tests); nothing changes it after setup().
 const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei", "vei_pool_cap", "K", "covFalloff",
 	"veiPolicy", "start_living_frac", "tithe.period_s", "tithe.backlog_scale", "tithe.warning_s", "tithe.surge_s",
-	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s"]
+	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s", "hold.reship_share", "hold.break_s"]
+## A step's rates that a split step (step()) averages over its parts, weighted by time.
+const _PART_FORT_RATES := ["r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised", "r_staged", "r_redirected", "r_kills", "r_surge"]
+const _PART_VEI_RATES := ["r_in_undead", "r_in_dead", "r_converted", "r_shipped"]
+## Seconds under which a grace end or a break counts as now (no part of a step is shorter).
+const _EPS_S := 1e-9
 
 var t := {}
 # ---- tunables, read once in setup() from REQUIRED (E2b T4.P: they were read per fort per step) ----
@@ -62,6 +73,8 @@ var _surge_s := 0.0
 var _surge_mult_t := 0.0
 var _relish_mult := 0.0
 var _march := 0.0  # tithe.march_back_s, kept above 0
+var _reship_share := 0.0
+var _break_s := 0.0
 ## _load calls a step made and skipped (a bound showed the room it computes can't cut the give), for
 ## tests (not saved).
 var _n_load := 0
@@ -108,7 +121,9 @@ var r_cap_undead := -1.0
 var tithe := {}
 ## Events since the last drain_events(), oldest first: fort_retaken {fort_id, cause}, tithe_warning
 ## {wave_id, fort_id, eta_s, surge}, tithe_wave {wave_id, fort_id, surge, duration_s, relish_here,
-## siege_block}. No `t`: RealmSim never knows the sim time; GameState stamps it.
+## siege_block}. No `t`: RealmSim never knows the sim time; GameState stamps it. Each carries `_at`
+## while queued, the seconds into its step it happened (drain_timed() hands them over; a retake is
+## at its moment, the rest at the end of the step's part that raised them).
 var events: Array = []
 ## Step 2's conversion plan (what she could make this step before her headroom), which shipping
 ## drew on; step 7 can always fall back to it. Session only, rebuilt every step.
@@ -151,7 +166,9 @@ var _water_left := 0.0
 ##   r_raised      corpses raised into undead there (Relish + simulacra)
 ##   r_drain       undead draining on to Vei              r_shipped     Vei's living arriving (surge too)
 ##   r_surge       the tithe surge's part of r_shipped
-## Plus held_s (seconds of hold left) and held (held_s > 0).
+## The hold (saved): held (flipped and not yet retaken), grace_s (grace left; contested at 0) and
+## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_s is
+## deprecated: a copy of grace_s kept for old readers, not saved.
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
 	_k_kill = _tf("k_kill")
@@ -171,6 +188,8 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_surge_mult_t = _tf("tithe.surge_mult")
 	_relish_mult = _tf("tithe.relish_mult")
 	_march = maxf(1e-6, _tf("tithe.march_back_s"))
+	_reship_share = maxf(0.0, _tf("hold.reship_share"))
+	_break_s = maxf(0.0, _tf("hold.break_s"))
 	var start_frac := _tf("start_living_frac")
 	cov_pos = _vec(world.get("covington", {}).get("pos", [1780, 1270]))
 	vei_pos = _vec(world.get("vei", {}).get("pos", [1024, 130]))
@@ -182,7 +201,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 			"pos": _vec(f.get("pos", [0, 0])), "tier": int(f.get("tier", 1)), "cap": cap,
 			"living": float(f.get("living", cap * start_frac)),
 			"dead": float(f.get("dead", 0.0)), "undead": float(f.get("undead", 0.0)),
-			"held_s": 0.0, "held": false,
+			"held": false, "grace_s": 0.0, "zero_s": 0.0, "held_s": 0.0,
 			"r_in": 0.0, "r_drain": 0.0, "r_shipped": 0.0, "r_dead_out": 0.0, "r_raised": 0.0,
 			"r_staged": 0.0, "r_redirected": 0.0, "r_kills": 0.0, "r_surge": 0.0,
 		})
@@ -232,23 +251,72 @@ func node_pos(id: String) -> Vector2:
 	return f.get("pos", cov_pos) if not f.is_empty() else cov_pos
 
 
+## Flipped and not yet retaken (in grace or contested).
 static func is_held(f: Dictionary) -> bool:
-	return float(f.get("held_s", 0.0)) > 0.0
+	return bool(f.get("held", false))
 
 
-## Holds a fort for `seconds` (0 releases it without an event). False for an unknown fort.
-func hold(fort_id: String, seconds: float) -> bool:
+## Held and still in grace: Vei ships nothing there and no wave targets it.
+static func in_grace(f: Dictionary) -> bool:
+	return is_held(f) and float(f.get("grace_s", 0.0)) > 0.0
+
+
+## Held and past its grace: the two pools contest it.
+static func is_contested(f: Dictionary) -> bool:
+	return is_held(f) and not (float(f.get("grace_s", 0.0)) > 0.0)
+
+
+## Starts a hold on a fort with `grace` seconds of grace (0: contested at once), its garrison's zero
+## clock at 0. A pending tithe warning naming it is dropped while it is in grace (no wave targets a
+## fort in grace; the clock warns again for another target). False for an unknown fort.
+func hold(fort_id: String, grace: float) -> bool:
 	var f := fort_by_id(fort_id)
 	if f.is_empty():
 		return false
-	f["held_s"] = maxf(0.0, seconds)
-	f["held"] = f["held_s"] > 0.0
+	f["held"] = true
+	f["grace_s"] = maxf(0.0, grace) if is_finite(grace) else 0.0
+	f["held_s"] = f["grace_s"]
+	f["zero_s"] = 0.0
+	_drop_grace_warning()
 	return true
+
+
+## Ends a hold without an event (tests, debug). False for an unknown fort.
+func release(fort_id: String) -> bool:
+	var f := fort_by_id(fort_id)
+	if f.is_empty():
+		return false
+	f["held"] = false
+	f["grace_s"] = 0.0
+	f["held_s"] = 0.0
+	f["zero_s"] = 0.0
+	return true
+
+
+## A pending warning whose fort is in grace is dropped (hold(), and each step's tithe clock for a
+## save that holds one): the step's end, or its clock if the wave is due within it, warns again.
+func _drop_grace_warning() -> void:
+	var w: Dictionary = tithe.get("warning", {})
+	if not w.is_empty() and in_grace(fort_by_id(str(w["fort_id"]))):
+		tithe["warning"] = {}
 
 
 ## The events recorded since the last call, oldest first; the queue is emptied.
 func drain_events() -> Array:
-	var out := events
+	var out: Array = []
+	for e in drain_timed():
+		out.append(e[1])
+	return out
+
+
+## drain_events() with each event's moment: [[seconds into the step that raised it, event], ...]
+## (−1 for one raised outside a step). GameState stamps `t` from it.
+func drain_timed() -> Array:
+	var out: Array = []
+	for e in events:
+		var at := float(e.get("_at", -1.0))
+		e.erase("_at")
+		out.append([at, e])
 	events = []
 	return out
 
@@ -328,7 +396,99 @@ func _war_weight(f: Dictionary, tide_fort: String, tide_bias: float) -> float:
 	return w * tide_bias if f["id"] == tide_fort else w
 
 
+## One step of `dt` (MECHANICS §3.1). It runs as one part unless a held fort's grace ends or its
+## garrison's break completes inside it: then it is split there (IDLE §4: a step never straddles
+## those events), each part with every fort in one regime (in grace, contested, unheld) for all of
+## it, so a grace end and a retake land at their time. A split step's rates are its parts'
+## time-weighted means and its pool_overflow their sum; a step with no such event is one part, as
+## before.
 func step(dt: float, inputs: Dictionary) -> void:
+	pool_overflow = 0.0  # per step: a step that does nothing leaves nothing to book
+	if not (dt > 0.0) or not is_finite(dt):
+		return
+	var done := 0.0
+	var parts := 0
+	var acc := {}
+	var lost := 0.0
+	var t_out := {}  # fort_id -> [t_living_out, t_undead_out], seconds into the step, -1 if not
+	while true:
+		var rem := dt - done
+		var h := _next_part(rem)
+		var last := h >= rem - _EPS_S
+		if last:
+			h = rem
+		_step_part(h, inputs, done)
+		lost += pool_overflow
+		parts += 1
+		if not last or parts > 1:
+			_accumulate(acc, t_out, h, done)
+		done += h
+		if last:
+			break
+	pool_overflow = lost
+	if parts > 1:
+		_average(acc, t_out, dt)
+
+
+## The longest first part of `rem` seconds of step: up to the nearest grace end, or the moment a
+## contested garrison that sits at exactly 0 completes its break (hold.break_s of zero_s). An event
+## within _EPS_S of now is taken at the part's start. `rem` when none falls inside.
+func _next_part(rem: float) -> float:
+	var h := rem
+	for f in forts:
+		if not is_held(f):
+			continue
+		var g := float(f["grace_s"])
+		if g > 0.0 and g <= _EPS_S:
+			f["grace_s"] = 0.0
+			f["held_s"] = 0.0
+			g = 0.0
+		if g > 0.0:
+			h = minf(h, g)
+		elif float(f["undead"]) <= 0.0:
+			var c := _break_s - float(f["zero_s"])
+			if c > _EPS_S:
+				h = minf(h, c)
+	return h
+
+
+## A split step's running sums: each part's rates × its length, and the first moment living or
+## undead reached 0 at each fort.
+func _accumulate(acc: Dictionary, t_out: Dictionary, h: float, at: float) -> void:
+	for f in forts:
+		var id: String = f["id"]
+		for k in _PART_FORT_RATES:
+			acc[id + "." + k] = float(acc.get(id + "." + k, 0.0)) + float(f[k]) * h
+		var to: Array = t_out.get(id, [-1.0, -1.0])
+		for j in 2:
+			var tk := float(f.get("t_living_out" if j == 0 else "t_undead_out", -1.0))
+			if to[j] < 0.0 and tk >= 0.0:
+				to[j] = at + tk
+		t_out[id] = to
+	for k in _PART_VEI_RATES:
+		acc["vei." + k] = float(acc.get("vei." + k, 0.0)) + float(vei[k]) * h
+	for k in ["r_war_to_vei", "r_marched", "r_digested_undead", "r_cap_undead"]:
+		acc[k] = float(acc.get(k, 0.0)) + float(get(k)) * h
+
+
+## A split step's rates as the time-weighted means of its parts' (see step()).
+func _average(acc: Dictionary, t_out: Dictionary, dt: float) -> void:
+	var inv := 1.0 / dt
+	for f in forts:
+		var id: String = f["id"]
+		for k in _PART_FORT_RATES:
+			f[k] = float(acc[id + "." + k]) * inv
+		f["t_living_out"] = t_out[id][0]
+		f["t_undead_out"] = t_out[id][1]
+	for k in _PART_VEI_RATES:
+		vei[k] = float(acc["vei." + k]) * inv
+	for k in ["r_war_to_vei", "r_marched", "r_digested_undead", "r_cap_undead"]:
+		set(k, float(acc[k]) * inv)
+
+
+## One part of a step (step()): MECHANICS §3.1's order, every held fort in grace or contested for
+## all of it. `at` is the seconds of the step before it (the moment its events carry).
+func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 	var war: float = maxf(0.0, float(inputs.get("war", 0.0)))
 	var flood: float = maxf(0.0, float(inputs.get("flood", 0.0)))
 	var q: float = maxf(1.0, float(inputs.get("digest_q", 1.0)))
@@ -337,20 +497,25 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var redirect_fort: String = str(inputs.get("redirect_fort", ""))
 	var redirect_rate: float = maxf(0.0, float(inputs.get("redirect_rate", 0.0)))
 	var siege: Variant = inputs.get("siege_block", {})
-	pool_overflow = 0.0  # per step: a step that does nothing leaves nothing to book
-	if not (dt > 0.0) or not is_finite(dt):
-		return
+	pool_overflow = 0.0
+	var ev0 := events.size()
 	var inv: float = 1.0 / dt
 	digest_q = q
-	# who holds a fort for this whole step (a hold that ends this step still counts as held)
+	# the held forts, in grace or contested for this whole part (step() splits at every grace end);
+	# her reship into a contested fort rises with her odds now, before this part's FLOOD
 	var held := {}
+	var grace := {}
 	for f in forts:
 		if is_held(f):
 			held[f["id"]] = true
+			if in_grace(f):
+				grace[f["id"]] = true
 		f["r_surge"] = 0.0
+	var reship_k: float = _reship_share * (1.0 + _backlog_scale * odds())
 
-	# ---- 1. The tithe clock: a wave's start, this step's surge (the warning is step 8's) ----
-	var surge := _tithe_clock(dt, tide_fort, siege if siege is Dictionary else {})
+	# ---- 1. The tithe clock: a wave's start, this step's surge (the warning is step 8's); a wave
+	# delivers nothing into a fort in grace ----
+	var surge := _tithe_clock(dt, tide_fort, siege if siege is Dictionary else {}, grace)
 
 	# Redirect sites keep their garrison kills as corpses and raise corpses into undead: Relish's fort
 	# (redirect_rate) and every live simulacrum's fort (its rate, until its charges run out). The
@@ -385,6 +550,10 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# dispatch (step 3) reads the living arriving, so shipping is planned on the load before WAR
 	# (`load`, the garrison's pull read from the living now), then each give is cut to the room this
 	# step's WAR leaves; what that cuts stays in her pool.
+	# Held forts: nothing in grace. A contested fort gets her reship, reship_k × its share (IDLE §3:
+	# hold.reship_share of it, × (1 + tithe.backlog_scale · odds)), drawn from her pool pro rata with
+	# the rest but, like the surge, not cut to the fort's room: a fort full of corpses, or a garrison
+	# above its cap, would otherwise shut her out for good (MECHANICS §3.4).
 	var raise_in: Array[float] = []
 	for i in forts.size():
 		var f: Dictionary = forts[i]
@@ -410,7 +579,10 @@ func step(dt: float, inputs: Dictionary) -> void:
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var g := 0.0
-		if not held.has(f["id"]):
+		if held.has(f["id"]):
+			if not grace.has(f["id"]):
+				g = reship_k * per_cap * float(f["cap"])
+		else:
 			# the load (the 1-pass _load) is read only where the room could be under the share (_load_cuts);
 			# a held fort's is never needed
 			var share: float = per_cap * float(f["cap"])
@@ -439,7 +611,9 @@ func step(dt: float, inputs: Dictionary) -> void:
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var s_i: float = surge_amt if i == surge_fort else 0.0
-		if gives[i] > 0.0 and _filled[i]:
+		if held.has(f["id"]):
+			pass  # her reship is not cut to the room (above)
+		elif gives[i] > 0.0 and _filled[i]:
 			gives[i] = minf(gives[i], _fill_cap[i])
 		elif gives[i] > 0.0 and _load_cuts(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), s_i, gives[i]):
 			gives[i] = minf(gives[i], maxf(0.0, f["cap"] - _load(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), q, 4) - s_i))
@@ -459,9 +633,12 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var dead_to_vei := 0.0
 	var drained := 0.0
 	var marched := 0.0
+	var u_start: Array[float] = []  # each fort's undead before its combat (the zero clock, step 9)
+	u_start.resize(forts.size())
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var keep: bool = raise_at.has(f["id"])
+		u_start[i] = maxf(0.0, float(f["undead"]))
 		fort_step(f, dt, arriving[i] * inv, war_in[i], want_r[i], keep, q)
 		f["r_kills"] = _kills * inv
 		f["r_drain"] = _drained * inv
@@ -507,18 +684,37 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# undead q
 	_convert(dt, inv, q)
 
-	# ---- 8. The wave delivered its surge; it ends after surge_s. The next wave's warning -----
+	# ---- 8. The wave delivered its surge; it ends after surge_s -----
 	_wave_tail(surge_amt)
-	_tithe_warn()
 
-	# ---- 9. Holds count down; expiry hands the fort back ---------------------
-	for f in forts:
-		# a wave that ended the hold this step already recorded the retake
-		if held.has(f["id"]) and is_held(f):
-			f["held_s"] = maxf(0.0, float(f["held_s"]) - dt)
-			if f["held_s"] <= 0.0:
-				_retaken(f, "expired")
-		f["held"] = is_held(f)
+	# ---- 9. The holds: grace counts down; a contested garrison's zero clock (zero_s) runs while it
+	# sits at 0 (fort_step's clamped regime: the pull meets or exceeds its inflow, or nothing comes or
+	# pulls at all) and restarts whenever it doesn't; break_s of it retakes the fort, at that moment
+	for i in forts.size():
+		var f: Dictionary = forts[i]
+		if not held.has(f["id"]):
+			continue
+		if grace.has(f["id"]):
+			var g: float = float(f["grace_s"]) - dt
+			f["grace_s"] = g if g > _EPS_S else 0.0
+			f["held_s"] = f["grace_s"]
+			f["zero_s"] = 0.0
+			continue
+		var tz := float(f.get("t_undead_out", -1.0))
+		var u0: float = u_start[i]
+		if not (tz >= 0.0 or (u0 <= 0.0 and float(f["undead"]) <= 0.0)):
+			f["zero_s"] = 0.0
+			continue
+		# at 0 from tz (from the start when it began there) to the part's end
+		f["zero_s"] = (dt - tz) if u0 > 0.0 else float(f["zero_s"]) + dt
+		if float(f["zero_s"]) >= _break_s - _EPS_S:
+			_retaken(f, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
+
+	# ---- 10. The next wave's warning, its target read from the forts as this part leaves them ----
+	_tithe_warn()
+	for k in range(ev0, events.size()):
+		if not (events[k] as Dictionary).has("_at"):
+			events[k]["_at"] = at + dt
 
 	elapsed += dt
 
@@ -786,12 +982,20 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 	_ud = maxf(0.0, total - _ue - _ug)
 
 
-## A hold ends: the event, and the fort's yield refreshes (MECHANICS §5.3).
-func _retaken(f: Dictionary, cause: String) -> void:
-	f["held_s"] = 0.0
+## A hold ends, `at` seconds into the step (IDLE I6): the event, the fort's yield refreshes (MECHANICS
+## §5.3), and a simulacrum planted there is lost. GameState sends a siege big undead there home.
+func _retaken(f: Dictionary, cause: String, at: float) -> void:
 	f["held"] = false
+	f["grace_s"] = 0.0
+	f["held_s"] = 0.0
+	f["zero_s"] = 0.0
 	f["clears_since_retaken"] = 0
-	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause})
+	var alive: Array = []
+	for sm in simulacra:
+		if str(sm.get("fort_id", "")) != str(f["id"]):
+			alive.append(sm)
+	simulacra = alive
+	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "_at": at})
 
 
 ## The raises at a fort without living over a step, mass/s: `want` (Relish's and the simulacra's,
@@ -1022,12 +1226,15 @@ func _convert(dt: float, inv: float, q: float) -> void:
 ## when the step ends exactly at its start), and at most its s_left, so its end is exact too
 ## (_wave_run, which _wave_tail counts down). Returns this step's surge, {fort_id, want} (want:
 ## surge_mult · S_vei · counters living/s over _wave_run, before her pool limits it), or {} with no
-## wave running in this step.
-func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictionary:
+## wave running in this step. No wave targets a fort in grace (`grace`, this part's): a warning
+## naming one (the fort flipped after it, or a save) is dropped and made again for another target,
+## and a running wave delivers nothing there while the grace lasts (it still counts down).
+func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary, grace: Dictionary = {}) -> Dictionary:
 	_wave_run = 0.0
 	if not bool(tithe.get("started", false)):
 		_wave_run = dt  # (a saved wave with the clock stopped counts down as before)
 		return {}
+	_drop_grace_warning()
 	tithe["next_s"] = float(tithe["next_s"]) - dt
 	var w: Dictionary = tithe["warning"]
 	if w.is_empty() and tithe["next_s"] <= 0.0:
@@ -1054,7 +1261,7 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 	if wv.is_empty():
 		return {}
 	_wave_run = clampf(minf(dt - from, float(wv["s_left"])), 0.0, dt)
-	if _wave_run <= 0.0 or fort_by_id(wv["fort_id"]).is_empty():
+	if _wave_run <= 0.0 or fort_by_id(wv["fort_id"]).is_empty() or grace.has(wv["fort_id"]):
 		return {}
 	var mult := _surge_mult(wv["fort_id"], relish_fort, _siege_at(siege, wv["fort_id"]))
 	wv["mult"] = mult
@@ -1079,8 +1286,7 @@ func _tithe_warn() -> void:
 
 
 ## Step 8. The running wave books what it delivered this step and counts down the part of the step
-## it covered (_wave_run); after surge_s it ends. When it ends, a held fort whose undead are fewer
-## than the living it delivered is retaken.
+## it covered (_wave_run); after surge_s it ends.
 func _wave_tail(amount: float) -> void:
 	var wv: Dictionary = tithe.get("wave", {})
 	if wv.is_empty():
@@ -1102,25 +1308,23 @@ func _surge_mult(fort_id: String, relish_fort: String, block: float) -> float:
 	return m * _relish_mult if relish_fort == fort_id else m
 
 
-## The wave ends: a held fort it overwhelmed (delivered > the undead there now) is retaken.
+## The wave ends. (E2a retook a held fort whose undead were fewer than the living it delivered; from
+## E2b-2 the wave surges into her counter-garrison and the contest decides, MECHANICS §3.4.)
 func _end_wave() -> void:
-	var wv: Dictionary = tithe["wave"]
 	tithe["wave"] = {}
-	var f := fort_by_id(wv["fort_id"])
-	if not f.is_empty() and is_held(f) and float(wv["delivered"]) > float(f["undead"]):
-		_retaken(f, "tithe_wave")
 
 
-## The next wave's target: the held fort with the most undead, else the fort receiving the most
-## WAR now (this step's r_in); ties go to the first in world order. "" only with no forts.
+## The next wave's target: the contested fort (held, past its grace) with the most undead, else the
+## fort not in grace receiving the most WAR now (this step's r_in); ties go to the first in world
+## order. "" only when every fort is in grace (or there are none).
 func _tithe_target() -> String:
 	var best := {}
 	for f in forts:
-		if is_held(f) and (best.is_empty() or f["undead"] > best["undead"]):
+		if is_contested(f) and (best.is_empty() or f["undead"] > best["undead"]):
 			best = f
 	if best.is_empty():
 		for f in forts:
-			if best.is_empty() or f["r_in"] > best["r_in"]:
+			if not in_grace(f) and (best.is_empty() or f["r_in"] > best["r_in"]):
 				best = f
 	return str(best.get("id", ""))
 

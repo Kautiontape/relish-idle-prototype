@@ -109,7 +109,7 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 **Events:** `drain_events() -> [{t, type, ...}]`. Types:
 - `relish_died{outcome}`, `relish_respawned`;
 - `building_started`, `building_done`, `building_unpaid`, `tier_up`;
-- `fort_flipped`, `fort_retaken`, `tithe_warning`, `tithe_wave`;
+- `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
 - `stance_fired`, `loot_banked`, `vei_result`;
 - `autosaved`, `save_failed`.
 
@@ -241,7 +241,12 @@ Names, to avoid confusion:
   config or keeps its own Relish.
 - `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
   (D2) and nothing reads it.
-- `forts[i].held_s` and the tithe-wave state are RealmSim state.
+- Each fort's hold (`held`, `grace_s`, `zero_s`; §3.4) and the tithe-wave state are RealmSim state.
+- **A step is split inside** at every held fort's grace end and at the moment a contested garrison
+  sitting at 0 completes `hold.break_s` there (E2b-2 T3.1), so each part has every fort in one regime
+  (in grace, contested or unheld) and both events land at their time at any dt. A split step's rates
+  are its parts' time-weighted means; a step with neither event is one part, as before. A retake's
+  `fort_retaken` carries its moment inside the step (GameState stamps `t` from it).
 - **Within a step** (E2b T3.0: exact at any `dt`, so catch-up's long steps match live play):
   1. the tithe clock (§3.4: a wave's start, at its exact time inside the step);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
@@ -273,10 +278,11 @@ Names, to avoid confusion:
   6. Vei's conversion. What the march-back took past her pool's cap is lost (`pool_overflow`,
      §2.1). Her take is clamped to her pool's headroom, which **counts this step's shipping** and
      the march-back, so at her cap a long step converts what it ships less what marched back;
-  7. the wave books what it delivered and ends after `surge_s`; then the next wave's warning, its
-     target read from this step's dispatch (§3.4);
-  8. the hold countdown. A hold that runs out this step still counted as held for all of it, and a
-     fort retaken this step records one `fort_retaken`, never two.
+  7. the wave books what it delivered and ends after `surge_s`;
+  8. the holds (§3.4): grace counts down; a contested garrison's zero clock runs while it sits at 0
+     and restarts when it doesn't; `hold.break_s` of it retakes the fort, at that moment;
+  9. the next wave's warning, its target read from this step's dispatch and the holds as the step
+     leaves them (§3.4).
 
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
@@ -362,15 +368,97 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
 ### 3.4 Flips and tithe waves
 **Flip.** On `warden_beaten`:
 - all the fort's living become dead, applied as a clamped delta;
-- the fort is **held**: a grace period of `flip.hold_s · (1 + flip.tier_mult · tier)`, then a support-vs-pressure contest (IDLE.md §3).
+- the fort is **held**: a grace of `flip.hold_s · (1 + flip.tier_mult · tier)` (`fort_flipped.hold_s`
+  is that grace), then a contest between two pools (IDLE.md §3; E2b-2 T3.1 replaced E2a's timer,
+  which retook the fort when `held_s` ran out, cause `expired`).
 
-E2a keeps the timer: RealmSim counts `held_s` down, and at 0 the fort is no longer held and
-RealmSim records `fort_retaken` with cause `expired` (GameState stamps `t`). The contest replaces it
-at E2b.
+**The hold's state** (RealmSim, saved): `held`, `grace_s` (grace left) and `zero_s` (seconds the
+garrison has sat at 0 since it last didn't). A save from before E2b-2 carries `held_s` instead: a
+fort with `held_s > 0` loads held, with `grace_s = held_s` and `zero_s = 0`.
+
+**Grace.** While `grace_s > 0`, Vei ships nothing there and no tithe wave targets it. A warning
+already naming the fort (it was warned, then flipped; or a save holds one) is dropped and made
+again, for another target, at that step's end (or at once when the wave is due within the step); a
+wave already running there delivers nothing while the grace lasts. midgame_2flips loads with such a
+warning on Ashgate (374.5 s of grace, the wave due in 150 s): its first step warns Greywall instead.
+
+**The contest** (after grace):
+- **your garrison** is your undead there (`undead`), fed by WAR staging (§3.2): WAR is split across
+  the held forts, so more forts thin every garrison;
+- **her counter-garrison** is her living there. She **reships** at `hold.reship_share` ×
+  (1 + `tithe.backlog_scale` · odds) of the share she ships any fort: `S_vei · cap_i / Σcap` per
+  second (the share rule below), with the odds read at the step's start. It is drawn from her pool
+  with the rest of her shipping, pro rata when the pool can't cover every give, but, like the
+  surge, it is **not cut to the fort's room**: a fort full of corpses, or a garrison above its cap,
+  would otherwise shut her out for good, and an unsupplied fort would never fall. With
+  `reship_share` 0.5 and `backlog_scale` 0.5 the reship is 0.5× her share at odds 0 and 0.75× at
+  odds 1 (Ashgate 0.103 to 0.154 mass/s, Whitecross 0.669 to 1.003);
+- tithe waves target it and surge into her living there, as at any fort (counters below);
+- the usual fort combat (§3.1 step 5) runs the exchange: your kills stay as corpses to haul, her
+  kills ship to Vei.
+
+**Retake.** The fort is retaken when the garrison has sat at 0 for `hold.break_s`
+(`fort_retaken {fort_id, cause: "broken"}`). "At 0" is fort_step's clamped regime for U: the
+garrison's pull meets or exceeds U's inflow, so U sits at 0 (its path's `t_undead_out` onward), or U
+is 0 with nothing arriving and nothing pulling (no WAR and no living there yet). It is not a mass
+threshold. Any time with U > 0 restarts the clock. The drain alone never takes U exactly to 0, so a
+held fort with no WAR keeps a dwindling garrison until her reship lands; from then her living's pull
+pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming falls exactly
+`break_s` later ("Needs WAR too"). The retake lands at its time inside the step (§3.1). On a retake
+(IDLE I6):
+- a siege big undead there (GameState's place `fort:<id>`) returns to the crypt, with
+  `big_undead_returned {uid, fort_id}` right after the `fort_retaken`;
+- a simulacrum planted there is lost (RealmSim drops it; `cmd_deploy_simulacrum` is still the E3
+  stub, so only a save or a test plants one today);
+- `clears_since_retaken` resets to 0 (§5.3).
+
+**The hold rule, both ways** (vision: "Needs WAR too"). Measured on RealmSim at 0.5 s (and 10 s) with
+`digest_q` 1.2: the fort contested (grace 0) with no living or corpses, every other fort full of
+corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
+- **Without waves**, a garrison holds if her reship dies on landing: the garrison its WAR `W`
+  sustains with no living there, `W / r_drain`, kills `k_kill · W / r_drain` ≥ her reship `S`, so
+  `W ≥ W_c = r_drain · S / k_kill` (3.33 S). Ashgate (cap 80, S 0.103 at odds 0): W_c 0.343 mass/s;
+  Greywall (90): 0.386; Vespers (160): 0.686; Whitecross (520): 2.23. Below it her living gather,
+  their pull grows and the garrison is pinned at 0, unless her living can't pile high enough: their
+  most, with no kills, is `cap + τ · S` (the march-back's level), whose pull `k_d · (cap + τ · S) / q`
+  (Ashgate 0.43 at q 1.2) the WAR may still beat. That stalemate (her living fill the fort, a small
+  garrison stands) binds first once `q` is above about 1.5 at odds 0, or 1.2 at odds 0.6.
+- **(a) A full-cap garrison with no staged WAR loses to a full wave, with or without Relish there.**
+  W = 0, U = cap: the drain (τ = 1 / r_drain = 17 s) and the wave's pull take U to 0 at `t_z` into
+  the wave, and the fort falls `break_s` later. With no Relish, U = U0 · e^(−r·t) less the pull's
+  integral `(k_d · c / q) · (e^(r·t)(t/r − 1/r²) + 1/r²) · e^(−r·t)` (c = 24 living/s arriving)
+  reaches 0 at t_z ≈ 23 s at Ashgate; measured 24.0 s (Greywall 25.0, Vespers 29.5, Whitecross 41.5),
+  so the retake comes at t_z + 120: 143.6, 144.5, 149.5 and 161.3 s after the wave starts. With
+  Relish there (her raise recycles the garrison's losses, and the wave is halved) U reaches 0 later:
+  37.0, 38.5, 46.0 and 75.5 s, retaken at 156.6, 158.0, 165.8 and 195.1 s. A siege: 32.0 to 55.5 s,
+  retaken at 151.5 to 175.4 s. At 10 s the retakes land within 1.2 s of these. So the fort falls by
+  the wave plus `break_s` (160 s) wherever U reaches 0 inside the wave: Ashgate and Greywall in every
+  mode, Vespers without Relish. At Vespers with Relish and at Whitecross U outlasts the wave (by 1.5
+  to 35.5 s), and the fort falls at `t_z + break_s`.
+- **(b) Near the threshold Relish or a siege flips the outcome.** The garrison settled at `W /
+  r_drain` before the wave. The smallest W that holds a full wave (measured by bisection, 0.5 s; 10 s
+  in brackets):
+
+  | fort | W_c (no waves) | no counter | Relish there (halved, her raise) | Relish's ×0.5 only (her tide, in its dungeon) | siege (0.6 blocked) |
+  |---|---|---|---|---|---|
+  | Ashgate (80) | 0.343 | 1.035 (1.040) | 0.547 (0.547) | 0.692 (0.703) | 0.625 (0.636) |
+  | Greywall (90) | 0.386 | 1.078 (1.086) | 0.583 (0.581) | 0.736 (0.749) | 0.670 (0.682) |
+  | Vespers (160) | 0.686 | 1.384 (1.407) | 0.834 (0.838) | 1.052 (1.056) | 0.988 (0.995) |
+  | Whitecross (520) | 2.229 | 3.029 (3.029) | 2.242 (2.219) | 2.802 (2.802) | 2.803 (2.803) |
+
+  So the band where a full wave breaks the fort without Relish and it holds with her is [0.547,
+  1.035) mass/s of WAR at Ashgate, [0.583, 1.078) at Greywall, [0.834, 1.384) at Vespers and
+  [2.242, 3.029) at Whitecross; a siege's band starts at its column. Every edge sits above W_c: a
+  fort that only just holds without waves is broken by a full wave. At Ashgate the band runs from 1.6
+  to 3.0 × W_c; at Whitecross from 1.0 to 1.36 × W_c.
+- `hold.reship_share` 0.5 and `hold.break_s` 120 satisfy both, so they stay at their starting values.
+  A longer `break_s` can only lower the wave columns (the garrison must sit at 0 longer); a larger
+  `reship_share` raises W_c in proportion.
 
 **While held:**
-- **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,
-  so a held fort lowers her effective `S_vei`. The share rule: fort `i` receives at most
+- **In grace, Vei's shipping share to that fort is lost; contested, it gets only her reship**
+  (above), because her shipping is per-fort capacity-limited, so a held fort lowers her effective
+  `S_vei`. The share rule: fort `i` receives at most
   `S_vei · cap_i / Σcap` per second, into its room over the step and from her pool
   (plus what she converts that step). `Σcap` runs over every fort,
   held ones included, so a held fort's share is lost, not redistributed. The unused part of a full
@@ -419,9 +507,9 @@ at E2b.
   that reaches `warning_s`, so it can come up to one step late, never early, and its `eta_s` is the
   exact time left: the wave's own time doesn't depend on the step. (The target reads that step's
   WAR, a rate constant over the step.)
-- **Targets:** held forts first, the one with the most of your undead there; else the fort
-  receiving the most WAR at that moment. Ties go to world order, so with no WAR anywhere it is the
-  first fort.
+- **Targets:** contested held forts first (past their grace), the one with the most of your undead
+  there; else the fort receiving the most WAR at that moment. A fort in grace is never a target
+  (above). Ties go to world order, so with no WAR anywhere it is the first fort not in grace.
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
   shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
@@ -472,23 +560,12 @@ at E2b.
       down to 210 s at odds 1. At P = 210 the peak is 722 at τ = 60, 858 at 90 and 988 at 120, so
       `cap + W` bounds every fort's living only for τ up to about 110. At τ = 60 the excess left
       when the next wave starts is `e^(−380/60) = 0.2%` at odds 0 and `e^(−170/60) = 6%` at P = 210.
-    - **The hold** (E2a's rule compares the living the wave delivered with your undead there when
-      it ends). The march-back doesn't change what the wave delivers: 960, or 480 with Relish
-      there, 384 with a siege, 192 with both. So statically, a garrison at its fort's full cap
-      (`U = cap ≤ 520`) loses to a full wave at every fort, Relish saves it only at Whitecross
-      (520 > 480), and The Stair (480) ties. That holds at any τ.
-    - **Live** (`realm_sim`'s `_march_holds`: combat, drain and march-back on, 0.5 s). A held fort
-      starts with `U = cap` and no living or corpses, and every other fort is full of corpses, so
-      all the WAR stages there.
-      - With no WAR its garrison drains and is destroyed before the wave ends: Greywall ends with
-        0 undead and Whitecross with 0, or 0 and 90 with Relish there. So the hold is lost with or
-        without Relish.
-      - With WAR staged there the counters decide. At 30 mass/s the full wave still takes the hold
-        (the garrison ends at 424 at Greywall and 465 at Whitecross, against 960). Relish saves it
-        (509 and 557, against 480), and so does a siege (453 and 501, against 384). At 20 mass/s
-        nothing saves it.
-      - From τ = 40 to 120 the garrison's end moves by at most 8 (Greywall) and 0 (Whitecross),
-        at 0 to 40 mass/s of WAR. Staging, the drain and the counters set the hold; τ doesn't.
+    - **The hold** is the contest's now (the hold rule above): the wave's living add to her
+      counter-garrison and their pull pins your garrison at 0 or doesn't. The march-back sets how
+      fast that pull fades after the wave, so it moves the band's edges with `break_s`. (E2a
+      compared the living a wave delivered, 960 or 480 with Relish there, with your undead at its
+      end, so a full-cap garrison lost everywhere but Whitecross with Relish; `realm_sim`'s
+      `_march_holds` measured that, and `_hold_rule` replaces it.)
     - So τ = 60 (1.5 · `surge_s`): the excess outlasts the wave (it peaks at 73% of W), it is
       nearly gone before the next wave, and `cap + W` bounds the living at the shortest period.
       `tests/slow/convergence.gd` asserts that bound over 12 h, and that no fort ends above
@@ -499,11 +576,9 @@ at E2b.
     takes the cancelled fraction per fort as its `siege_block` input, 0 until then.
 
   Defending a flip is a real decision.
-- **Hold loss (E2a; E2b replaces the hold model, IDLE §3):** when the wave ends, a held target
-  loses its hold (`fort_retaken`, cause `tithe_wave`) only if the living mass the wave delivered
-  exceeds your undead there. Otherwise the hold stands, so the counters matter.
-- **A retake** (either cause) resets the fort's `clears_since_retaken` to 0, so its yield refreshes
-  (§5.3).
+- **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
+  counter-garrison, and the contest decides (the retake above).
+- **A retake** resets the fort's `clears_since_retaken` to 0, so its yield refreshes (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +

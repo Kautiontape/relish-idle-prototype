@@ -596,7 +596,8 @@ func _gaps() -> void:
 	for f in d["realm"]["forts"]:
 		if f["id"] == "old-sluice":
 			os_ = f
-	t.ok(os_["held_s"] > 0.0 and os_["flipped_count"] == 1 and os_["clears_since_retaken"] == 1, "held_s, flipped_count and clears_since_retaken are saved")
+	t.ok(os_["held"] == true and os_["grace_s"] > 0.0 and os_["zero_s"] == 0.0 and not os_.has("held_s") and os_["flipped_count"] == 1
+		and os_["clears_since_retaken"] == 1, "the hold (held, grace_s, zero_s; no held_s), flipped_count and clears_since_retaken are saved")
 	t.ok(d["cleared_forts"].has("old-sluice") and d["first_dungeon"] == "", "the cleared forts and the first dungeon are saved")
 	var n := GameState.new(TestUtil.configs())
 	n.save_dir = _dir
@@ -605,6 +606,9 @@ func _gaps() -> void:
 	t.ok(n.applied_runs == [run_id, int(b2["run_id"])] and n.ledger()["sinks"]["dungeon"] == sink, "applied_runs and the sink come back")
 	var vf := n.view_fort("old-sluice")
 	t.ok(vf["flipped_count"] == 1 and vf["clears_since_retaken"] == 1 and not vf["first_clear"] and not vf["first_dungeon"], "the fort's counters and its first-clear flags come back")
+	var nf := n.realm.fort_by_id("old-sluice")
+	t.ok(nf["held"] and nf["grace_s"] == os_["grace_s"] and nf["zero_s"] == 0.0 and nf["held_s"] == nf["grace_s"], "and its hold, as saved")
+	_hold_saves()
 	t.ok(n.apply_result("raid", res)["reason"] == "duplicate_run", "a run applied before the save is still a duplicate afterwards")
 	n.cmd_debug_set_state({"relish_at": "greywall"})
 	var b3 := n.cmd_begin_dungeon("greywall")
@@ -651,6 +655,17 @@ func _fixtures() -> void:
 		else:
 			t.ok(back.get("game_id") == SaveIO.game_id_for(str(file["seed"])), "%s: the id a load computes is its seed's" % name)
 			back.erase("game_id")
+		# E2b-2 (api_version 6) writes each fort's hold as held, grace_s and zero_s; the fixtures carry
+		# held_s, which loads as held with that much grace and the zero clock at 0
+		var hold_ok := true
+		for i in (back["realm"]["forts"] as Array).size():
+			var bf: Dictionary = back["realm"]["forts"][i]
+			var hs := float(file["realm"]["forts"][i]["held_s"])
+			hold_ok = hold_ok and bf["held"] == (hs > 0.0) and bf["grace_s"] == hs and bf["zero_s"] == 0.0
+			bf["held_s"] = bf["grace_s"]
+			for k in ["held", "grace_s", "zero_s"]:
+				bf.erase(k)
+		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0" % name)
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])
@@ -669,9 +684,9 @@ func _fixtures() -> void:
 	var held := 0
 	for id in ["old-sluice", "ashgate"]:
 		var f := m.realm.fort_by_id(id)
-		if float(f.get("held_s", 0.0)) > 0.0 and int(f.get("flipped_count", 0)) == 1:
+		if RealmSim.in_grace(f) and int(f.get("flipped_count", 0)) == 1:
 			held += 1
-	t.ok(held == 2, "midgame: Old Sluice and Ashgate are flipped and held")
+	t.ok(held == 2, "midgame: Old Sluice and Ashgate are flipped and held, in grace")
 	var mw: Dictionary = m.realm.tithe["warning"]
 	t.ok(m.realm.tithe["started"] and mw["fort_id"] == "ashgate" and m.view_vei()["tithe"]["target"] == "ashgate"
 		and m.view_fort("ashgate")["tithe"]["targeted"], "midgame: a tithe warning on Ashgate")
@@ -743,3 +758,44 @@ func _migrate() -> void:
 	var nov := d.duplicate(true)
 	nov.erase("v")
 	t.ok(GameState.migrate(nov) == {}, "migrate fails with {} without v")
+
+
+## The hold's save keys (STATE-API §9.1, api_version 6): held, grace_s and zero_s round-trip; an older
+## save's held_s loads as held with that much grace; a save with neither loads unheld; a wrong type is
+## corrupt.
+func _hold_saves() -> void:
+	var s := _mk(1)
+	s.realm.hold("vespers", 0.0)
+	var vf := s.realm.fort_by_id("vespers")
+	vf["zero_s"] = 33.25
+	s.realm.hold("ashgate", 120.5)
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var n := _mk(2)
+	t.ok(n.from_dict(d)["ok"], "a save with contested and in-grace forts loads")
+	var nv := n.realm.fort_by_id("vespers")
+	var na := n.realm.fort_by_id("ashgate")
+	t.ok(nv["held"] and nv["grace_s"] == 0.0 and nv["zero_s"] == 33.25 and RealmSim.is_contested(nv), "a contested fort keeps its zero clock")
+	t.ok(na["held"] and na["grace_s"] == 120.5 and na["zero_s"] == 0.0 and RealmSim.in_grace(na), "a fort in grace keeps its grace")
+	t.ok(not n.realm.fort_by_id("greywall")["held"], "the rest are not held")
+	var old: Dictionary = d.duplicate(true)
+	for f in old["realm"]["forts"]:
+		var hs := 0.0
+		if f["id"] == "ashgate":
+			hs = 77.0
+		f["held_s"] = hs
+		for k in ["held", "grace_s", "zero_s"]:
+			f.erase(k)
+	var o := _mk(2)
+	t.ok(o.from_dict(old)["ok"], "a save from before api_version 6 (held_s only) loads")
+	var oa := o.realm.fort_by_id("ashgate")
+	t.ok(oa["held"] and oa["grace_s"] == 77.0 and oa["zero_s"] == 0.0 and oa["held_s"] == 77.0, "its held_s > 0 is held with that much grace, the zero clock at 0")
+	t.ok(not o.realm.fort_by_id("vespers")["held"], "and held_s 0 is not held")
+	var none: Dictionary = old.duplicate(true)
+	for f in none["realm"]["forts"]:
+		f.erase("held_s")
+	var z := _mk(2)
+	t.ok(z.from_dict(none)["ok"] and z.view_realm()["held_count"] == 0, "a fort with no hold keys at all loads unheld")
+	for bad in [["held", "yes"], ["grace_s", "x"], ["zero_s", true], ["held_s", "1"]]:
+		var c: Dictionary = d.duplicate(true)
+		c["realm"]["forts"][0][bad[0]] = bad[1]
+		t.ok(_mk(2).from_dict(c)["reason"] == "corrupt", "a fort's %s of the wrong type is corrupt" % bad[0])

@@ -18,11 +18,12 @@ extends RefCounted
 ##   forts' pools, and 1% of the metric's peak |ref| (at least 1) for the rest.
 ## - The 0.25 s row is the reference's own noise: no dt can be expected to match 0.5 s closer.
 ## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at: a tithe warning, a
-##   wave's start or end, a hold's end, a building's unpaid hold ending, gold or bone reaching their
-##   floor (projected from the last step's net), and Relish arriving. Without it the table measures
-##   event timing (a hold's end and Relish's arrival land up to one dt late; since T3.0m a wave's
-##   start and end are exact inside a step, spread over it), not the integrator. A garrison
-##   reaching 0 is not clipped: the fort step solves it inside the step.
+##   wave's start or end, a building's unpaid hold ending, gold or bone reaching their floor
+##   (projected from the last step's net), and Relish arriving. Without it the table measures event
+##   timing (Relish's arrival lands up to one dt late; since T3.0m a wave's start and end are exact
+##   inside a step, spread over it), not the integrator. The held forts' events are not clipped
+##   (E2b-2 T3.1): a garrison reaching 0 is solved inside the fort step, and RealmSim splits its own
+##   step at a grace end and at a break's end, so all three land at their time at any dt.
 ## - Outcomes (E2b T4.C, outcome_table()): beside the stocks, what a catch-up must get right: the
 ##   flips, retakes and tithe waves (fort and time), the buildings finished and the upkeep's
 ##   unpaid/resumed switches (lot and time), the tier, and at the end which forts are held and
@@ -72,7 +73,7 @@ func run() -> int:
 	print(table(res, HOURS))
 	print(outcome_table(res, HOURS))
 	var unclipped := measure(STARTS, HOURS, [0.5, 15.0, 30.0], false)
-	print(table(unclipped, HOURS, "no event clipping (hold ends and Relish's arrival land up to one dt late; a wave starts and ends at its time, spread over its steps)"))
+	print(table(unclipped, HOURS, "no event clipping (Relish's arrival lands up to one dt late; a wave starts and ends at its time, spread over its steps)"))
 	check(res)
 	print(attribution())
 	var cost := timing(STARTS, DTS)
@@ -200,9 +201,6 @@ static func next_event_s(s: GameState) -> float:
 		var wv: Dictionary = ti["wave"]
 		if not wv.is_empty() and float(wv["s_left"]) > 0.0:
 			e = minf(e, float(wv["s_left"]))
-	for f in r.forts:
-		if float(f["held_s"]) > 0.0:
-			e = minf(e, float(f["held_s"]))
 	return e
 
 

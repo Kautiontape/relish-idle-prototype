@@ -20,8 +20,10 @@ const SAVE_SPEC := {
 	"next_run_id": _I, "next_uid": _I, "applied_runs": [_I],
 	"relish": {"state": _S, "at": _S, "target": _S, "pos": [_F], "heading": _F, "dead_s_left": _F, "respawn_with_clone": _B},
 	"valve": {"target": _VALVE_SPEC, "current": _VALVE_SPEC},
+	# a fort's hold keys are optional (_FORT_OPTIONAL): held, grace_s and zero_s from E2b-2 (api_version
+	# 6), held_s before it
 	"realm": {
-		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "held_s": _F, "flipped_count": _I,
+		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "flipped_count": _I,
 			"clears_since_retaken": _I, "r_in": _F, "r_drain": _F, "r_shipped": _F, "r_dead_out": _F, "r_raised": _F}],
 		"cov": {"undead": _F, "r_out": _F},
 		"vei": {"undead_queue": _F, "dead_queue": _F, "living_pool": _F, "r_in_undead": _F, "r_in_dead": _F,
@@ -59,6 +61,9 @@ const SAVE_SPEC := {
 }
 ## TownSim's optional town keys (see SAVE_SPEC's town).
 const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
+## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
+## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
+const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F}
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
 const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
@@ -202,6 +207,9 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not fort_ids.has(f["id"]) or seen.has(f["id"]):
 			return "fort id"
 		seen[f["id"]] = true
+		for k in _FORT_OPTIONAL:
+			if f.has(k) and not fits(f[k], _FORT_OPTIONAL[k]):
+				return "fort " + k
 	if seen.size() != fort_ids.size():
 		return "fort set"
 	for s in m["realm"]["simulacra"]:
@@ -448,7 +456,8 @@ static func dump(gs: GameState) -> Dictionary:
 	for f in gs.realm.forts:
 		forts.append({
 			"id": f["id"], "living": f["living"], "undead": f["undead"], "dead": f["dead"],
-			"held_s": float(f.get("held_s", 0.0)), "flipped_count": int(f.get("flipped_count", 0)),
+			"held": RealmSim.is_held(f), "grace_s": float(f.get("grace_s", 0.0)), "zero_s": float(f.get("zero_s", 0.0)),
+			"flipped_count": int(f.get("flipped_count", 0)),
 			"clears_since_retaken": int(f.get("clears_since_retaken", 0)),
 			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
 			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
@@ -549,7 +558,18 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		var f := gs.realm.fort_by_id(e["id"])
 		for k in ["living", "undead", "dead", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
 			f[k] = float(e[k])
-		gs.realm.hold(e["id"], float(e["held_s"]))
+		# the hold, set as saved (never through RealmSim.hold, which would touch the tithe): an E2b-2
+		# save's held, grace_s and zero_s; an older one's held_s > 0 is held with that much grace left
+		if e.has("held"):
+			f["held"] = bool(e["held"])
+			f["grace_s"] = maxf(0.0, float(e.get("grace_s", 0.0))) if f["held"] else 0.0
+			f["zero_s"] = maxf(0.0, float(e.get("zero_s", 0.0))) if f["held"] else 0.0
+		else:
+			var hs := maxf(0.0, float(e.get("held_s", 0.0)))
+			f["held"] = hs > 0.0
+			f["grace_s"] = hs
+			f["zero_s"] = 0.0
+		f["held_s"] = f["grace_s"]
 		f["flipped_count"] = int(e["flipped_count"])
 		f["clears_since_retaken"] = int(e["clears_since_retaken"])
 		flipped = flipped or f["flipped_count"] > 0

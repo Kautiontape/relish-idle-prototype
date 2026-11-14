@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 5
+const API_VERSION := 6
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -1307,6 +1307,7 @@ func _core_step(dt: float) -> Array:
 	if not (dt > 0.0) or not is_finite(dt):
 		return []
 	t += dt
+	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
 	var cfg: Dictionary = _cfg()
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
@@ -1341,9 +1342,7 @@ func _core_step(dt: float) -> Array:
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
-	var evs := realm.drain_events()
-	for ev in evs:
-		_emit(ev)
+	var evs := _emit_realm(realm.drain_timed(), dt, mark)
 	# §3 step 7: the ledger books this step's source and sinks (held is read live)
 	_ledger.source("mint", mint * dt)
 	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
@@ -1354,6 +1353,37 @@ func _core_step(dt: float) -> Array:
 	# §3 step 8: the readouts
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
 	return evs
+
+
+## This step's realm events ([[seconds into the step, event], ...], RealmSim.drain_timed), stamped
+## at their moment: a retake inside the step carries its own time (IDLE §4), the rest the step's
+## end. One stamped before the step's end goes in ahead of the step's other events (from `mark`),
+## in time order, so `t` never decreases. A retake sends the siege big undead there home (IDLE I6,
+## `big_undead_returned` right after it). Returns the realm events, in queue order.
+func _emit_realm(timed: Array, dt: float, mark: int) -> Array:
+	var early: Array = []
+	var late: Array = []
+	for e in timed:
+		var at := float(e[0])
+		var ev: Dictionary = e[1]
+		ev["t"] = (t - dt + at) if at >= 0.0 and at < dt else t
+		var out: Array = early if float(ev["t"]) < t else late
+		out.append(ev)
+		if ev["type"] == "fort_retaken":
+			for uid in _uids_at("fort:" + str(ev["fort_id"])):
+				_find_uid(big_undead, uid)["place"] = "crypt"
+				out.append({"type": "big_undead_returned", "uid": uid, "fort_id": str(ev["fort_id"]), "t": ev["t"]})
+	# insertion by t keeps equal times in the order RealmSim raised them
+	var sorted: Array = []
+	for ev in early:
+		var k := sorted.size()
+		while k > 0 and float(sorted[k - 1]["t"]) > float(ev["t"]):
+			k -= 1
+		sorted.insert(k, ev)
+	for k in sorted.size():
+		_events.insert(mark + k, sorted[k])
+	_events.append_array(late)
+	return sorted + late
 
 
 ## The presentation step (§3 step 9 and the lane callouts): what only the map shows, plus the
