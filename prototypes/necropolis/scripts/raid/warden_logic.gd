@@ -243,8 +243,11 @@ static func slam_crosses(dist: float, r_prev: float, r_now: float, band_px: floa
 
 
 ## Slam damage to "unit", "big" or "relish". Big undead are soaked by beef; muffled slams are
-## scaled by the weak point's dmg_mult.
+## scaled by the weak point's dmg_mult for the undead, and do not reach Relish at all (D-d/E Step 4b:
+## the counter is the soak; the chain no longer soaks a slam).
 static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool) -> float:
+	if target == "relish" and muffled:
+		return 0.0
 	var at: Dictionary = sp.get("attack", {})
 	var d := float(at.get("dmg_relish", 0.0)) if target == "relish" else float(at.get("dmg_unit", 0.0))
 	if target == "big":
@@ -477,6 +480,12 @@ static func rush_reach(base: float, rush_px: float, room_half: float, frac: floa
 	if frac > 0.0:
 		r = minf(r, room_half * frac)
 	return maxf(base, r)
+
+
+## D-d/E Step 4b, the counter is the soak: a bash whose lit arc covers her strikes Relish unless a wits
+## flanker pinned it as its tell began (a pinned bash never reaches her; the chain no longer soaks it).
+static func bash_strikes_relish(in_arc: bool, pinned: bool) -> bool:
+	return in_arc and not pinned
 
 
 ## A big undead takes the flank role when its wits meet the weak point's threshold.

@@ -125,7 +125,8 @@ func _apply_slam(r_prev: float, r_now: float, band: float) -> void:
 			a.take_hit(WardenLogic.slam_damage(spec, "big" if big else "unit", a.beef if big else 0.0, _slam_muffled))
 	var rel: RaidRelish = raid.relish
 	if rel != null and is_instance_valid(rel) and rel.alive \
-			and WardenLogic.slam_crosses(rel.global_position.distance_to(global_position), r_prev, r_now, band):
+			and WardenLogic.slam_crosses(rel.global_position.distance_to(global_position), r_prev, r_now, band) \
+			and WardenLogic.slam_damage(spec, "relish", 0.0, _slam_muffled) > 0.0:   # a MUFFLED slam does not reach her
 		rel.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, _slam_muffled), "slam")
 
 

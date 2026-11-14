@@ -159,6 +159,9 @@ func run() -> int:
 	t.near(WardenLogic.slam_damage(bell, "big", 100.0, false), du * msk, 0.0001, "soak floors at min_soak")
 	t.near(WardenLogic.slam_damage(bell, "unit", 99.0, false), du, 0.0001, "beef never soaks small units")
 	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, true), du * mfl, 0.0001, "muffled unit damage x the weak point's dmg_mult")
+	t.ok(WardenLogic.slam_damage(bell, "relish", 0.0, true) == 0.0, "a MUFFLED slam does not reach Relish (Step 4b: the counter is the soak)")
+	t.ok(WardenLogic.bash_strikes_relish(true, false) and not WardenLogic.bash_strikes_relish(true, true) and not WardenLogic.bash_strikes_relish(false, false),
+		"a bash strikes her in its arc unless pinned; a pinned bash never does")
 	t.near(WardenLogic.slam_damage(bell, "big", 5.0, true), du * (1.0 - 5.0 * spb) * mfl, 0.0001, "muffle stacks with soak")
 	t.near(WardenLogic.slam_damage(bf, "relish", 0.0, false), dr * fd_dmg, 0.0001, "first dungeon relish damage x dmg_mult")
 	t.ok(mfl < 1.0 and du * mfl < du, "a muffled slam is softer")
