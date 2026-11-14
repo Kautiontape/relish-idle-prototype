@@ -79,9 +79,9 @@ var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two 
 var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
 var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
 var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 / -1; 0 before the first pick)
-var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think (it is freed on death)
+var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think, once more as it dies and at the finish
 var _avoid_burn := {}           # the Pyre-priest's lit burn areas this think ({areas, r}; {} for every other fight): spots in them are not safe
-var _pyre := {}                 # the Pyre-priest's counts, read off it each think (it is freed on death)
+var _pyre := {}                 # the Pyre-priest's counts, read off it each think, once more as it dies and at the finish
 var _burn_tell := -1.0          # the burn tell the step-off roll was made for
 var _stepping := true           # this tell is stepped off (rolled once per tell)
 var _min_hp := INF              # Relish's lowest hp so far (the pyre dict reports it)
@@ -271,10 +271,28 @@ func _watch_progress() -> void:
 		_giving_up = true
 
 
+## The warden died (RaidWardenRun.on_warden_died, before it lets go of it): read its counts one last
+## time, so the killing blow is in the `shield` / `pyre` dicts. The think-tick snapshots run before
+## the units' and the warden's physics, so they miss the last event of the run. Only those two dicts:
+## the older `_attacks` counters stay as the think tick leaves them (they feed every fort's line).
+func on_warden_died(w: RaidWarden) -> void:
+	_read_final(w)
+
+
+func _read_final(w) -> void:
+	if _done or w == null or not is_instance_valid(w):
+		return
+	if w is RaidShieldwall:
+		_shield = w.telemetry()
+	elif w is RaidPyrePriest:
+		_pyre = w.telemetry()
+
+
 ## The run ended (RaidEndings.finish): print the line once and quit.
 func on_finish(result: Dictionary) -> void:
 	if _done:
 		return
+	_read_final(_raid.warden_run.warden)   # still there when Relish died or the run timed out: its last counts
 	_done = true
 	var exit := "timeout" if _timed_out else ("relish_died" if bool(result.get("relish_died", false)) \
 		else ("warden_beaten" if bool(result.get("warden_beaten", false)) else "retreated"))

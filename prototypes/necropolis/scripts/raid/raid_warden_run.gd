@@ -170,6 +170,8 @@ func on_warden_died(w: RaidWarden) -> void:
 	c.position = _raid.resolve_walls(w.position, 14.0)
 	_raid.units_root.add_child(c)
 	chest = c
+	if _raid._dev != null:
+		_raid._dev.on_warden_died(w)   # the measuring bot's last read of its counts
 	warden = null
 
 

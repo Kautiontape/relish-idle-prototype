@@ -181,6 +181,12 @@ func physics_tick(delta: float) -> void:
 		_ap.physics_tick(delta)
 
 
+## Hook 5: the warden died, before the run lets go of it (the bot's last read of its counts).
+func on_warden_died(w: RaidWarden) -> void:
+	if _ap != null:
+		_ap.on_warden_died(w)
+
+
 ## Hook 4: the run ended (RaidEndings.finish); the bot prints its result line and quits.
 func on_finish(result: Dictionary) -> void:
 	if _ap != null:
