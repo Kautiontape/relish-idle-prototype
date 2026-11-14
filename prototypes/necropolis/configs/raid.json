@@ -26,7 +26,9 @@
     "edge_static_hold_s": 1.2,
     "edge_target_alpha": 0.4,
     "edge_static_alpha": 0.5,
-    "target_hold_s": 0.2
+    "target_hold_s": 0.2,
+    "exposed_min": 0.22,
+    "exposed_max": 1.0
   },
   "swarm": {
     "min_count": 12,

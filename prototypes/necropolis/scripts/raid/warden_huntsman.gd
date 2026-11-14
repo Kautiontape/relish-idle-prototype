@@ -226,6 +226,8 @@ func _begin_lunge() -> void:
 		_dashing = false
 	if outcome == "intercepted":
 		stun_lit0 = meter_lit()   # the window opens: the HUD flashes the pips it takes from here
+	elif outcome == "caught":
+		raid.relish.mark_catch((from - raid.relish.global_position).angle())   # a crack in her ring, for the run
 
 
 func _advance_dash(delta: float) -> void:

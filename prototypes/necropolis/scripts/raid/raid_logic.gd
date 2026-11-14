@@ -363,6 +363,23 @@ static func revives_left(revived: int, seed: Dictionary) -> int:
 	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
+## How exposed Relish is, 0..1, for her halo's danger rim. 0 while a phylactery charge is left.
+## With none, a faint `danger.exposed_min` at full hp rising to `exposed_max` as her hp falls: a hit
+## still has to get through the sacrifice chain and her hp first, so this is a rim, never an alarm
+## (day 1 starts with no charges, and a steady strong halo would be noise).
+static func exposed_level(phyl_left: int, hp_frac: float, cfg: Dictionary) -> float:
+	if phyl_left > 0:
+		return 0.0
+	var d: Dictionary = cfg.get("danger", {})
+	return lerpf(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), 1.0 - clampf(hp_frac, 0.0, 1.0))
+
+
+## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true
+## whatever her hp: the chain and her hp still stand between her and it).
+static func phylactery_word(phyl_left: int) -> String:
+	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+
+
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
 ## 1 soldier, 2 elite, 3 big undead (party).
 static func ally_rank(role: String, tier: String) -> int:

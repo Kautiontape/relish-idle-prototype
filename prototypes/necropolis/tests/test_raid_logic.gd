@@ -347,6 +347,7 @@ func run() -> int:
 	_routing_tests(t, cfg)
 	_close_exit_tests(t)
 	_warden_reach_tests(t, cfg)
+	_vis_tests(t, cfg)
 	return t.failures
 
 
@@ -1350,3 +1351,20 @@ func _warden_reach_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"in the warden room: in reach")
 	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r) and not RaidLogic.warden_in_reach(lay2, inside, wc2, 30.0, r),
 		"the reach still bounds it")
+
+
+## The D-b review's readability helpers (pure; the scene only draws what they return).
+func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_exposed")
+	var d: Dictionary = cfg.get("danger", {})
+	var lo := float(d.get("exposed_min", 0.2))
+	var hi := float(d.get("exposed_max", 1.0))
+	t.ok(RaidLogic.exposed_level(1, 0.1, cfg) == 0.0, "a phylactery left: no danger rim at any hp")
+	t.near(RaidLogic.exposed_level(0, 1.0, cfg), lo, 0.0001, "none left at full hp: the faint rim")
+	t.near(RaidLogic.exposed_level(0, 0.0, cfg), hi, 0.0001, "none left at no hp: the strong rim")
+	t.ok(lo < 0.35 and hi > lo, "the full-hp rim is faint, and it strengthens (%.2f to %.2f)" % [lo, hi])
+	t.ok(RaidLogic.exposed_level(0, 0.5, cfg) > RaidLogic.exposed_level(0, 0.9, cfg), "it rises as hp falls")
+	t.ok(RaidLogic.exposed_level(0, 2.0, cfg) == lo and RaidLogic.exposed_level(0, -1.0, cfg) == hi, "hp_frac is clamped")
+	t.ok(RaidLogic.phylactery_word(1) == "" and RaidLogic.phylactery_word(3) == "", "a charge left: no word")
+	var w := RaidLogic.phylactery_word(0)
+	t.ok(w.contains("NO REVIVE") and not w.contains("KILLS"), "none left: NO REVIVE, never NEXT HIT KILLS (%s)" % w)

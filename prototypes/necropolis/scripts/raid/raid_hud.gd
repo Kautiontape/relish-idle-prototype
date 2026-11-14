@@ -197,6 +197,7 @@ func refresh() -> void:
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
+		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
 		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
 		var carried: int = raid.carried_count()
@@ -293,6 +294,7 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
 	var banked_text := ""
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
@@ -377,7 +379,14 @@ class StatBlock:
 		if not boss:
 			_label(y, "PHYLACT.")
 			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
-			_value(px + 4.0, y, str(phyl))
+			var vx := _value(px + 4.0, y, str(phyl), Palette.c("danger") if phyl_word != "" else null)
+			if phyl_word != "":
+				# no revive left: the state in words (the halo says it in the world)
+				var cut := phyl_word.find(" · ")
+				var head := phyl_word if cut < 0 else phyl_word.substr(0, cut)
+				var hx := _value(vx + 10.0, y, head, Palette.c("danger"))
+				if cut >= 0:
+					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
 			_label(y, "BANKED")
 			_value(_col, y, banked_text)
