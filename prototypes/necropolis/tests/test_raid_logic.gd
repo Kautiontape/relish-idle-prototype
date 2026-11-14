@@ -395,6 +395,7 @@ func run() -> int:
 			["res://scripts/raid/raid_logic.gd", "static func hold_blocks(", "RaidLogic.hold_blocks"],
 			["res://scripts/raid/relish.gd", "func _draw_hit_cue(", "Relish's hit cue (static: the same under reduced motion)"],
 			["res://scripts/raid/warden_logic.gd", "static func toll_strikes(", "WardenLogic.toll_strikes"],
+			["res://scripts/raid/warden_logic.gd", "static func lane_reach(", "WardenLogic.lane_reach"],
 			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],

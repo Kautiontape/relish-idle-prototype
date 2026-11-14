@@ -491,6 +491,15 @@ static func toll_strikes(rel_pos: Vector2, toll_at: Vector2, toll_r: float, rel_
 	return rel_pos.distance_to(toll_at) <= toll_r + rel_r
 
 
+## D-d/E Step 4b, the Shieldwall's aimed rush: its lane reaches to the warden room's farthest corner from
+## the wall (anywhere she can stand in its room).
+static func lane_reach(room: Rect2, from: Vector2) -> float:
+	var r := 0.0
+	for c in [room.position, Vector2(room.end.x, room.position.y), Vector2(room.position.x, room.end.y), room.end]:
+		r = maxf(r, from.distance_to(c))
+	return r
+
+
 ## D-d/E Step 4 / 4b, the risk gate: the lever and the tell-attacks' bypass of the sacrifice chain apply from
 ## `wardens.lever_min_tier` up and never in the first dungeon (`w` is raid.json `wardens`).
 static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:

@@ -33,6 +33,7 @@ var rushing := false           # this bash is a rush (D-d/E 3b): wider and longe
 var rushes := 0                # bashes that were rushes
 var pins := 0                  # bashes a wits flanker at its back pinned (no rush)
 var pinned_tell := false       # this bash's tell was pinned (D-d/E Step 4b: then it never strikes Relish)
+var lane := false              # this rush is aimed at her (D-d/E Step 4b): a narrow lane across its room
 var rush_relish := 0           # rushes that struck Relish
 var _base_reach := -1.0        # attack.reach_px as configured (a rush lengthens it for its tell and bash)
 
@@ -94,6 +95,8 @@ func _tell() -> float:
 ## The bash arc's half-width now, in degrees: the phase's front, wider by `rush_half_deg` through a rush's
 ## tell and bash (the bot and the drawn arc read this).
 func front_half_deg() -> float:
+	if lane:
+		return float(spec.get("attack", {}).get("rush_lane_half_deg", 20.0))
 	var h := float(WardenLogic.shield_phase(spec, phase)["front_half_deg"])
 	return h + (float(spec.get("attack", {}).get("rush_half_deg", 0.0)) if rushing else 0.0)
 
@@ -241,13 +244,24 @@ func _begin_tell(at: Dictionary) -> void:
 	pinned_tell = not rushing
 	if rushing:
 		rushes += 1
-		at["reach_px"] = WardenLogic.rush_reach(_base_reach, float(at.get("rush_px", 0.0)),
-			minf(_room.size.x, _room.size.y) * 0.5, float(at.get("rush_room_frac", 0.0)))
+		var rel: RaidRelish = raid.relish
+		if float(at.get("rush_lane_half_deg", 0.0)) > 0.0 and rel != null and is_instance_valid(rel) and rel.alive \
+				and WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) \
+				and _room.has_point(rel.global_position) and rel.global_position.distance_to(global_position) > 1.0:
+			# D-d/E Step 4b: the rush aims at her: it turns to her as the tell begins and lights a lane
+			# rush_lane_half_deg wide across its room (stepping out of it is the answer; a pin spares her)
+			lane = true
+			facing = (rel.global_position - global_position).angle()
+			at["reach_px"] = WardenLogic.lane_reach(_room, global_position)
+		else:
+			at["reach_px"] = WardenLogic.rush_reach(_base_reach, float(at.get("rush_px", 0.0)),
+				minf(_room.size.x, _room.size.y) * 0.5, float(at.get("rush_room_frac", 0.0)))
 	else:
 		pins += 1
 
 
 func _end_rush(at: Dictionary) -> void:
+	lane = false
 	if rushing:
 		rushing = false
 		at["reach_px"] = _base_reach
