@@ -222,6 +222,13 @@ static func close_loot(banked: Dictionary) -> Dictionary:
 	return out
 
 
+## How a window close mid-run ends a dungeon (IDLE I5: no run survives a close): as a retreat,
+## unless Relish's death beat is already playing (`ended` and `dying`). That death happened while
+## she was present, so it stays a death; a close can't turn it into a retreat.
+static func close_exit(ended: bool, dying: bool) -> String:
+	return "relish_died" if ended and dying else "retreated"
+
+
 ## A held fort's counter-garrison is cleared when its last living enemy falls (IDLE I3).
 ## `living_left` counts the living still alive; `started` is true once the clear has fired.
 static func held_clear_due(held: bool, boss: bool, living_left: int, started: bool) -> bool:

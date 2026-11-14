@@ -435,3 +435,24 @@ func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(BossLogic.backups_left({"phylactery": 3, "clones": 5}, 1, 2) == 0, "backups left never negative")
 	t.ok(BossLogic.rng_int("42") == 42 and BossLogic.rng_int("-3317425092215838120") == -3317425092215838120, "rng_int reads an int seed")
 	t.ok(BossLogic.rng_int("abc") == hash("abc"), "rng_int hashes anything else")
+
+	# --- a window close mid-fight (IDLE I5) ---------------------------------
+	t.suite("boss_close")
+	var cs := _seed()
+	var sp := {"phylactery": 1, "clones": 1}
+	for reason in ["", "fronts_held", "horde_ferried", "closed"]:
+		var cf := BossLogic.close_fields(reason, 2)
+		t.ok(not bool(cf["won"]) and int(cf["relish_deaths"]) == 2, "close mid-fight (%s): lost, deaths = backups spent" % reason)
+		var cr := VeiFronts.boss_result(cs, false, [], int(cf["relish_deaths"]), sp, [], 0.0)
+		t.ok(Results.validate("boss", cr).is_empty(), "close mid-fight (%s) validates" % reason)
+	var cfd := BossLogic.close_fields("relish_unmade", 2)
+	t.ok(not bool(cfd["won"]) and int(cfd["relish_deaths"]) == 3, "close in the final-death beat: lost, deaths = spent + 1")
+	t.ok(Results.validate("boss", VeiFronts.boss_result(cs, false, [], 3, sp, [], 0.0)).is_empty(), "the final-death close validates")
+	var cfw := BossLogic.close_fields("broken", 2)
+	t.ok(bool(cfw["won"]) and int(cfw["relish_deaths"]) == 2, "close after she broke: the win, deaths = spent")
+	t.ok(Results.validate("boss", VeiFronts.boss_result(cs, true, ["giants"], 2, sp, [], 0.0)).is_empty(), "the win on close validates")
+	var c0 := BossLogic.close_fields("", 0)
+	t.ok(not bool(c0["won"]) and int(c0["relish_deaths"]) == 0, "close before any death: lost, no deaths")
+	t.ok(Results.validate("boss", VeiFronts.boss_result(cs, false, [], 0, {"phylactery": 0, "clones": 0}, [], 0.0)).is_empty(),
+		"a close with no backup spent validates")
+	t.ok(int(BossLogic.close_fields("", -3)["relish_deaths"]) == 0, "close_fields never counts negative deaths")

@@ -345,6 +345,7 @@ func run() -> int:
 	_profile_tests(t, cfg)
 	_wall_tests(t, cfg)
 	_routing_tests(t, cfg)
+	_close_exit_tests(t)
 	return t.failures
 
 
@@ -1090,3 +1091,12 @@ func _push_out(lay: Dictionary, p: Vector2, r: float) -> Vector2:
 			else:
 				p.y = g.end.y
 	return p
+
+
+## A window close mid-run (IDLE I5): a retreat, but Relish's death beat stays a death.
+func _close_exit_tests(t: TestUtil) -> void:
+	t.suite("raid_close_exit")
+	t.ok(RaidLogic.close_exit(false, false) == "retreated", "a close mid-run is a retreat")
+	t.ok(RaidLogic.close_exit(true, true) == "relish_died", "a close during the death beat stays a death")
+	t.ok(RaidLogic.close_exit(true, false) == "retreated", "a close during another ending beat keeps the retreat")
+	t.ok(RaidLogic.close_exit(false, true) == "retreated", "dying without the run ended is not a death beat")

@@ -9,6 +9,7 @@ extends RefCounted
 
 var ended := false      # run is over; gameplay stops (raid._ended forwards here)
 var finished := false   # `finished` already emitted
+var dying := false      # Relish's death beat is playing (on_relish_died, before its emit)
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
 var banked_rooms := {}           # checkpoint room index -> true once it has banked
@@ -111,16 +112,27 @@ func confirm_exit() -> void:
 
 # ------------------------------------------------------------------- close ---
 ## "No run survives a close" (IDLE I5), the scene's stand-in until economy's cmd_run_checkpoint lands
-## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends as a retreat paying
-## the last checkpoint snapshot (what was found since is lost, the same bound as a death), with the
-## phylactery revives spent. Only a router-launched dungeon run does this (not standalone, not the
-## boss); it must emit before the quit save, see raid.gd `_notification`. True when it emitted.
+## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends now. Only a
+## router-launched run does this (not standalone); it must emit before the quit save, see raid.gd
+## `_notification`. True when it emitted.
+##   dungeon  a retreat paying the last checkpoint snapshot (what was found since is lost, the same
+##            bound as a death), with the phylactery revives spent; but during Relish's death beat
+##            it is the death it already was (RaidLogic.close_exit), so a close can't dodge it.
+##   boss     the boss scene's close_result(): lost with the backups spent so far still spent (a
+##            final-death beat counts its death), or the win if Vei already broke.
 func close_request() -> bool:
-	if finished or _raid.is_boss() or _raid._standalone or not _raid._from_run or not _raid._built:
+	if finished or _raid._standalone or not _raid._from_run or not _raid._built:
 		return false
+	if _raid.is_boss():
+		var r: Dictionary = _raid.close_result()
+		ended = true
+		_raid.trance.force_end()
+		finish(r)
+		return true
+	var exit := RaidLogic.close_exit(ended, dying)
 	ended = true
 	_raid.trance.force_end()
-	finish(build_result("retreated", true))
+	finish(_raid._death_result() if exit == "relish_died" else build_result("retreated", true))
 	return true
 
 
@@ -151,6 +163,7 @@ func on_relish_died() -> void:
 	if ended:
 		return
 	ended = true
+	dying = true
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)

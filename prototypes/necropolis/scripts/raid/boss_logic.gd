@@ -30,6 +30,9 @@ extends RefCounted
 ## force_fronts(fronts, n, cfg)    the demo's --boss-fronts=n override.
 ## demo_seed(cfg) -> Dictionary    vei.json demo.seed, deep-copied.
 ## backups_left(spent, charges, clones), rng_int(rng_seed)
+## close_fields(end_reason, spent_total) -> {won, relish_deaths}    a window close mid-fight (IDLE
+##   I5): the win once she broke ("broken"), else lost; deaths = the backups spent, plus one when
+##   the final-death beat was playing ("relish_unmade"). Always consistent with STATE-API 8.2.
 
 const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
 
@@ -282,6 +285,11 @@ static func demo_seed(cfg: Dictionary) -> Dictionary:
 
 static func backups_left(spent: Dictionary, charges: int, clones: int) -> int:
 	return maxi(0, charges - int(spent.get("phylactery", 0))) + maxi(0, clones - int(spent.get("clones", 0)))
+
+
+static func close_fields(end_reason: String, spent_total: int) -> Dictionary:
+	var s := maxi(0, spent_total)
+	return {"won": end_reason == "broken", "relish_deaths": s + 1 if end_reason == "relish_unmade" else s}
 
 
 ## A seed's rng_seed string as an int (a non-numeric string hashes).

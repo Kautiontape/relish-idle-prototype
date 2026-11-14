@@ -20,7 +20,8 @@ extends "res://scripts/raid/raid.gd"
 ## Setup: `{mode: "boss", run_id, seed_rev, ...}` (STATE-API 2.3; the router's merged legacy keys are
 ## ignored) reads Game.state.view_boss_seed() (7.2); a standalone run uses vei.json `demo`. The
 ## result is VeiFronts.boss_result (8.2), emitted exactly once after the closing set piece;
-## standalone runs print `BOSS_RESULT {json}`. There is no retreat from this fight.
+## standalone runs print `BOSS_RESULT {json}`. There is no retreat from this fight; a window close
+## mid-fight ends it at once (close_result).
 ## Dev flags: boss_dev.gd; the bot: boss_autopilot.gd.
 
 enum Phase { FRONTS, BREAK, OVER }
@@ -584,6 +585,24 @@ func confirm_exit() -> void:
 
 func exit_hint_ready() -> bool:
 	return false
+
+
+## A window close mid-fight (RaidEndings.close_request; IDLE I5: no run survives a close): the fight
+## ends now, emitted synchronously before the quit save. The backups spent so far stay spent. Once
+## she broke (her unravel playing) it is the win; otherwise lost, with relish_deaths = the backups
+## spent, plus one if the final-death beat was playing (BossLogic.close_fields).
+func close_result() -> Dictionary:
+	var f := BossLogic.close_fields(end_reason, backups_spent_total())
+	deaths = int(f["relish_deaths"])
+	if phase != Phase.OVER:
+		end_reason = "closed"
+		phase = Phase.OVER
+	_emitted = true   # the closing set piece must not emit again
+	_seq_kind = ""
+	var r := _result(bool(f["won"]))
+	for e in Results.validate("boss", r):
+		push_error("necropolis: boss close result invalid: " + e)
+	return r
 
 
 func _exit_result() -> Dictionary:
