@@ -385,6 +385,8 @@ func _raid(t: TestUtil) -> void:
 	var sig0 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0}, {}, "", "")
 	var sig1 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0}, {}, "", "refilled")
 	t.ok(sig0 != sig1, "becoming raid-ready redraws the fort's ring")
+	var held_sig := func(tier: String) -> Array: return NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0}, {}, IdleLogic.SAFE, "", tier)
+	t.ok(held_sig.call("mid") != held_sig.call("near") and held_sig.call("mid") == held_sig.call("far"), "a held fort's ring signature changes between overview and near")
 	var ring := FileAccess.get_file_as_string("res://scripts/map/map_fort_ring.gd")
 	t.ok(ring.contains("ctx.model.raid_why(") and ring.contains("raid_word"), "the ring layer draws the marker and its word from the model's raid set")
 
@@ -718,13 +720,14 @@ func _weight(t: TestUtil) -> void:
 	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
 		t.ok(NodeLogic.ring_weight(st) == 1.0 and not NodeLogic.has_core(st), "%s keeps the thin ring and no core" % st)
 	var ring := FileAccess.get_file_as_string("res://scripts/map/map_fort_ring.gd")
-	var far_mult := float(NodeLogic.ncfg()["held_far_mult"])
-	t.ok(far_mult >= 2.0, "the far-zoom multiplier is at least 2x")
+	var over_mult := float(NodeLogic.ncfg()["held_overview_mult"])
+	t.ok(over_mult >= 2.0 and NodeLogic.ncfg()["overview_tiers"] == ["far", "mid"], "the overview multiplier is at least 2x, on far and mid")
 	for st in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, NodeLogic.OVERRUN]:
-		t.ok(is_equal_approx(NodeLogic.ring_weight(st, "far"), NodeLogic.ring_weight(st) * far_mult), "held (%s) ring is %.1fx heavier again at the far tier" % [st, far_mult])
-		t.ok(NodeLogic.ring_weight(st, "mid") == NodeLogic.ring_weight(st) and NodeLogic.ring_weight(st, "near") == NodeLogic.ring_weight(st), "held (%s) ring is unchanged at mid and near" % st)
+		for tier in ["far", "mid"]:
+			t.ok(is_equal_approx(NodeLogic.ring_weight(st, tier), NodeLogic.ring_weight(st) * over_mult), "held (%s) ring is %.1fx heavier again at the %s tier" % [st, over_mult, tier])
+		t.ok(NodeLogic.ring_weight(st, "near") == NodeLogic.ring_weight(st), "held (%s) ring is unchanged at near" % st)
 	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
-		t.ok(NodeLogic.ring_weight(st, "far") == 1.0, "%s ring stays a hairline at the far tier" % st)
+		t.ok(NodeLogic.ring_weight(st, "far") == 1.0 and NodeLogic.ring_weight(st, "mid") == 1.0, "%s ring stays a hairline in the overview tiers" % st)
 	t.ok(ring.contains("NodeLogic.ring_weight(") and ring.contains("NodeLogic.has_core("), "the ring layer draws with these")
 
 

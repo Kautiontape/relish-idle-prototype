@@ -241,6 +241,12 @@ func dive_to(node_id: String, duration_s: float) -> Signal:
 	return cam.move_done
 
 
+## Hides the whole HUD at once: the router calls it when it skips the dive (reduced motion), so
+## its snapshot has none of it.
+func hide_hud() -> void:
+	_set_hud_alpha(0.0)
+
+
 ## The router's Transition layer if one is up over this scene (a return from a town, dungeon or
 ## boss); null otherwise. It frees itself when its snapshot has faded out.
 func _router_layer() -> MapTransition:
@@ -267,7 +273,7 @@ func _fade_hud(kind: String, seconds: float) -> void:
 	var reduced: bool = Pulse.reduced_motion
 	var slow := MapTransition.slow()
 	if reduced or seconds <= 0.0:
-		_set_hud_alpha(TransitionLogic.hud_alpha(c, kind, reduced, slow, seconds))
+		_set_hud_alpha(0.0 if kind == TransitionLogic.IN else 1.0)  # a zero-length fade is its end state
 		return
 	create_tween().tween_method(func(t: float) -> void: _set_hud_alpha(TransitionLogic.hud_alpha(c, kind, false, slow, t)), 0.0, seconds, seconds)
 

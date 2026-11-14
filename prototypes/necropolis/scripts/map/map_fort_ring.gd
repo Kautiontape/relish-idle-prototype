@@ -31,7 +31,7 @@ func _draw_static() -> void:
 ## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
-	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), ctx.model.raid_why(fort_id)), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
+	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), ctx.model.raid_why(fort_id), ctx.tier), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
 		ctx.reink.get(fort_id, {})]
 
 

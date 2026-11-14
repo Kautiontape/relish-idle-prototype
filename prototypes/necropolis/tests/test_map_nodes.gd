@@ -406,7 +406,7 @@ func _contrast(t: TestUtil) -> void:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 3.0, "%s pips read 3:1" % k)
 	var lab := Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	t.ok(MapLogic.contrast_ratio(lab, ground) >= 4.5, "fort labels read 4.5:1 (%.2f)" % MapLogic.contrast_ratio(lab, ground))
-	t.ok(NodeLogic.fort_label_key("far") == "text" and NodeLogic.fort_label_key("mid") == "text_dim" and NodeLogic.fort_label_key("near") == "text_dim", "fort names are full text at the far tier, dim at mid and near")
+	t.ok(NodeLogic.fort_label_key("far") == "text" and NodeLogic.fort_label_key("mid") == "text" and NodeLogic.fort_label_key("near") == "text_dim", "fort names are full text in the overview tiers (far, mid), dim at near")
 	for tier in ["far", "mid", "near"]:
 		var tl := Palette.c(NodeLogic.fort_label_key(tier), float(MapLogic.cfg()["node_label_dim_alpha"]))
 		t.ok(MapLogic.contrast_ratio(tl, ground) >= 4.5, "fort names read 4.5:1 at the %s tier (%.2f)" % [tier, MapLogic.contrast_ratio(tl, ground)])

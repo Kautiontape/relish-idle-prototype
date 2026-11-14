@@ -153,17 +153,23 @@ static func fort_state(f: Dictionary, margin: String) -> String:
 ## Ownership by weight, so it survives greyscale: forts your undead hold, held (any margin) or
 ## overrun (your garrison inside, not yet flipped), draw the outer ring held_ring_weight times the
 ## hairline. Hers, contested and emptied keep the hairline (1).
-## At the far zoom tier it is held_far_mult heavier again, so ownership reads in greyscale at a glance.
+## In the overview tiers (nodes.overview_tiers: every tier below near) it is held_overview_mult
+## heavier again, so ownership reads in greyscale at a glance.
 static func ring_weight(state: String, zoom_tier := "") -> float:
 	if not yours(state):
 		return 1.0
-	return _n("held_ring_weight") * (_n("held_far_mult") if zoom_tier == "far" else 1.0)
+	return _n("held_ring_weight") * (_n("held_overview_mult") if is_overview(zoom_tier) else 1.0)
 
 
-## The palette key a fort's name is drawn in: full text at the far tier (so Whitecross and Sable
-## Hold read when the map is small), text_dim at mid and near.
+## Whether `zoom_tier` is one of the overview tiers (far and mid; near is not).
+static func is_overview(zoom_tier: String) -> bool:
+	return zoom_tier in ncfg().get("overview_tiers", [])
+
+
+## The palette key a fort's name is drawn in: full text in the overview tiers (so Whitecross and
+## Sable Hold read when the map is small), text_dim at near.
 static func fort_label_key(zoom_tier: String) -> String:
-	return "text" if zoom_tier == "far" else "text_dim"
+	return "text" if is_overview(zoom_tier) else "text_dim"
 
 
 ## The same forts fill their inner core; hers, contested and emptied stay open. (Held and overrun
@@ -189,12 +195,12 @@ static func state_alpha(w: float) -> float:
 ## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker
 ## (`raid`: MapModel.raid_why for the fort, its why in the model's raid set or "").
 ## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
-static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid := "") -> Array:
+static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid := "", zoom_tier := "") -> Array:
 	var steps := _n("static_sig_steps")
 	var fr := arc_fracs(f)
 	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
 		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
-		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state), has_core(state),
+		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state, zoom_tier), has_core(state),
 		raid != ""]
 
 

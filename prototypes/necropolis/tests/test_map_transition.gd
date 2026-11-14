@@ -76,6 +76,7 @@ func _hud(t: TestUtil, c: Dictionary) -> void:
 	t.near(TransitionLogic.hud_alpha(c, IN, false, 1.0, f * 0.5), 0.5, 1e-6, "dive: half-way through the fade, half alpha")
 	t.ok(TransitionLogic.hud_alpha(c, IN, false, 1.0, f) == 0.0 and TransitionLogic.hud_alpha(c, IN, false, 1.0, zoom_s) == 0.0, "dive: gone by the fade's end and stays gone")
 	t.ok(TransitionLogic.hud_alpha(c, IN, true, 1.0, 0.0) == 0.0, "dive, reduced motion: hidden at once")
+	t.ok(TransitionLogic.hud_alpha(c, IN, false, 0.0, 0.0) == 0.0 and TransitionLogic.hud_alpha(c, OUT, false, 0.0, 0.0) == 1.0, "a zero-length fade is its end state (dive: gone, return: on)")
 	t.near(TransitionLogic.hud_alpha(c, IN, false, 8.0, f * 8.0 * 0.5), 0.5, 1e-6, "dive: --transition-slow stretches the fade")
 	t.ok(TransitionLogic.hud_alpha(c, OUT, false, 1.0, -0.01) == 0.0 and TransitionLogic.hud_alpha(c, OUT, false, 1.0, -5.0) == 0.0, "return: hidden until the snapshot's fade has ended")
 	t.ok(TransitionLogic.hud_alpha(c, OUT, false, 1.0, 0.0) == 0.0, "return: starts at 0 when the fade ends")
@@ -110,6 +111,7 @@ func _router_source(t: TestUtil) -> void:
 	t.ok(_body(src, "func _ready(").contains("Synth.retain()") and src.contains("PREDELETE and _holding_sounds") and src.contains("Synth.release()"), "the router holds the sound cache for the session and releases only the hold it took")
 	t.ok(swap.contains("_held_events = []") and swap.find("_held_events = []") < swap.find("_run_transition"), "_swap resets _held_events before a new swap starts holding")
 	var run := _body(src, "func _run_transition(")
+	t.ok(run.contains("hide_hud") and run.find("hide_hud") < run.find("tr.snapshot()"), "when the dive is skipped, the old scene's HUD is hidden before the snapshot")
 	var ab := run.substr(run.find("if gen != _gen:"), 260)
 	t.ok(ab.contains("node.queue_free()") and ab.contains("node != current") and ab.find("node.queue_free()") < ab.find("return"), "an abandoned transition frees its unmounted node")
 	# B1: held events go back out through Game.game_event once the scene is mounted and set up
