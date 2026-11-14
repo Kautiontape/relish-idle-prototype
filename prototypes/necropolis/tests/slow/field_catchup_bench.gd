@@ -13,14 +13,17 @@ extends RefCounted
 ##   and in green villages at the end; against live is reported beside it (a field step can't place
 ##   an owner change finer than its own length). Also reported: the share left after dropping
 ##   samples within 0.01 of the threshold (IDLE §4's accuracy fixtures aren't within a hair of one).
+## - Also printed: the field's cost of a whole catch-up over elapsed times from 30 s to 7 d, at 150
+##   calls and with field steps of at least MIN_STEP_S, and a step on midgame_2flips' own field.
 ## Environment, for one-off runs: FIELD_CATCHUP_KINDS=jumps,drift,mixed picks scenarios (only jumps
-## asserts); FIELD_CATCHUP_FULL=1 runs them on the shipped grid instead of the 64 x 45 crop (about
+## asserts; none skips the owners); FIELD_CATCHUP_FULL=1 runs them on the shipped grid instead of the 64 x 45 crop (about
 ## 40 min per scenario).
 
 const HOURS := 12.0
 const STEP_S := 300.0
 const PERIOD := 0.2
 const HAIR := 0.01
+const MIN_STEP_S := 2.0  # the shortest field step economy should send (dt > catchup_exact_ticks / tick_hz)
 
 
 func run() -> int:
@@ -66,10 +69,40 @@ func run() -> int:
 		steps, STEP_S, total / 1000.0, med, sorted[-1], float(cells) / steps / (f.w * f.h), live_us[7], ratio])
 	t.ok(ratio <= 2.0, "a 300 s field step costs about one live tick (%.2f; loose bound <= 2)" % ratio)
 	t.ok(total <= 3e6, "a 12 h catch-up's field steps take %.2f s (loose bound <= 3 s)" % (total / 1e6))
+	# the field's cost over a catch-up's elapsed time E: 150 calls at E / 150, and with field steps of
+	# at least MIN_STEP_S (fewer calls for short gaps; steps up to catchup_exact_ticks ticks cost them)
+	var rows: Array = ["  [field_catchup_bench] field cost of a catch-up of E, shipped grid, from the field above:",
+		"  | E | 150 calls: dt, total ms | dt >= %.0f s: calls, dt, total ms |" % MIN_STEP_S, "  |---|---|---|"]
+	var worst := 0.0
+	for e_s in [30.0, 60.0, 240.0, 600.0, 7200.0, 43200.0, 604800.0]:
+		var a_ms := _cost(f, sc, e_s, 150) / 1000.0
+		var calls := mini(150, maxi(1, int(e_s / MIN_STEP_S)))
+		var b_ms := _cost(f, sc, e_s, calls) / 1000.0
+		worst = maxf(worst, b_ms)
+		rows.append("  | %s | %.2f s, %.0f | %d, %.1f s, %.0f |" % [_dur(e_s), e_s / 150.0, a_ms, calls, e_s / calls, b_ms])
+	print("\n".join(PackedStringArray(rows)))
+	t.ok(worst <= 3000.0, "with field steps >= %.0f s no catch-up's field takes over 3 s (worst %.0f ms; loose)" % [MIN_STEP_S, worst])
+	# the real game's field: midgame_2flips, its own sources (GameState._inject_sources)
+	var gs := GameState.new(TestUtil.configs())
+	gs.debug_enabled = true
+	gs.cmd_debug_load_fixture("midgame_2flips")
+	var real_us: Array = []
+	var real_cells := 0
+	for k in 20:
+		gs._inject_sources(PERIOD)
+		var t0 := Time.get_ticks_usec()
+		gs.field.catchup_step(STEP_S)
+		real_us.append(Time.get_ticks_usec() - t0)
+		real_cells += gs.field.last_catchup_cells
+	real_us.sort()
+	print("  [field_catchup_bench] midgame_2flips' own field and sources, 20 steps of %.0f s: median %d µs (%.2f live ticks), %.2f grids of cells per call" % [
+		STEP_S, real_us[10], float(real_us[10]) / float(live_us[7]), float(real_cells) / 20.0 / (gs.field.w * gs.field.h)])
 
 	var kinds := OS.get_environment("FIELD_CATCHUP_KINDS")
 	var full := OS.get_environment("FIELD_CATCHUP_FULL") == "1"
 	for kind in (kinds.split(",") if kinds != "" else PackedStringArray(["jumps"])):
+		if kind == "none":
+			continue
 		var r := _owners(kind, not full, cfg, th, steps, per)
 		var lines: Array = ["  [field_catchup_bench] owners, %s on the %s grid, 12 h, %d villages every %.0f s (%d samples)" % [
 			kind, "shipped 128 x 90" if full else "64 x 45 cropped", r["villages"], STEP_S, r["samples"]],
@@ -85,6 +118,34 @@ func run() -> int:
 			t.ok(r["green"][0] == r["green"][1], "jumps: green villages at the end match (%d)" % r["green"][0])
 		t.ok(r["nan"] == 0, "%s: catch-up stays finite" % kind)
 	return t.failures
+
+
+## µs for `calls` field steps covering e_s seconds, from a copy of f's state, sources injected per call.
+func _cost(f: InfluenceField, sc: FieldScenario, e_s: float, calls: int) -> int:
+	var c := InfluenceField.new()
+	c.setup(f.cfg, f.world_size)
+	c.green = f.green.duplicate()
+	c.orange = f.orange.duplicate()
+	c.entrench = f.entrench.duplicate()
+	c._head = [f.green.duplicate(), f.orange.duplicate(), f.entrench.duplicate()]
+	var dt := e_s / calls
+	var us := 0
+	for k in calls:
+		sc.inject(c, 43200.0 + dt * (k + 1), PERIOD)
+		var t0 := Time.get_ticks_usec()
+		c.catchup_step(dt)
+		us += Time.get_ticks_usec() - t0
+	return us
+
+
+static func _dur(s: float) -> String:
+	if s >= 86400.0:
+		return "%.0f d" % (s / 86400.0)
+	if s >= 3600.0:
+		return "%.0f h" % (s / 3600.0)
+	if s >= 60.0:
+		return "%.0f min" % (s / 60.0)
+	return "%.0f s" % s
 
 
 func _owners(kind: String, crop: bool, cfg: Dictionary, th: float, steps: int, per: int) -> Dictionary:

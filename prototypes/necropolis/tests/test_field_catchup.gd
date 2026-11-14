@@ -182,6 +182,16 @@ func run() -> int:
 		var dv := _vmax(s.doms(lv), s.doms(cu))
 		t.ok(dv <= row[2], "dt %.1f s after a flip: villages within %.3f of %d live ticks (%.4f; the ticks moved them %.4f)" % [
 			row[0], row[2], row[1], dv, _vmax(s.doms(lv), s.doms(settled))])
+	# runs of short steps: 2 s is the shortest field step economy sends (above catchup_exact_ticks)
+	for row in [[2.0, 30, 0.03], [48.0, 10, 0.03]]:
+		var lv := _clone(settled)
+		_live(lv, s, 2400.0, int(round(row[0] * row[1] / PERIOD)))
+		var cu := _clone(settled)
+		for k in row[1]:
+			s.inject(cu, 2400.0, PERIOD)
+			cu.catchup_step(row[0])
+		var dv := _vmax(s.doms(lv), s.doms(cu))
+		t.ok(dv <= row[2], "%d steps of %.0f s after a flip: villages within %.2f of the live ticks (%.4f)" % [row[1], row[0], row[2], dv])
 	var hold := _clone(settled)
 	s.inject(hold, 600.0, PERIOD)
 	hold.catchup_step(5000.0)
