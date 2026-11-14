@@ -50,7 +50,7 @@ func run() -> int:
 	f["undead"] = 100.0 * u_star * 1.3
 	sim.step(0.1, {"digest_q": q})
 	t.ok(f["r_kills"] > f["r_dead_out"], "above u* Relish banks more than she gifts")
-	t.near(f["r_dead_out"], 0.006 * 100.0 / q, 1e-9, "the garrison's kills fall with digest_q")
+	t.near(f["r_dead_out"], 0.006 * 100.0 / q, 1e-3 * 0.006 * 100.0 / q, "the garrison's kills fall with digest_q (k_destroy · L̄ / q: living falls a little in the step)")
 	f["living"] = 100.0
 	f["undead"] = 100.0 * u_star * 0.7
 	sim.step(0.1, {"digest_q": q})
@@ -206,6 +206,9 @@ func run() -> int:
 
 	# --- tithe waves --------------------------------------------------------------
 	_tithe(t)
+
+	# --- E2b: the step is exact at any dt -------------------------------------------
+	_long_steps(t)
 
 	# --- FLOOD goes straight to the queue -------------------------------------
 	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "r_drain": 0.0})
@@ -545,3 +548,110 @@ func _tithe(t: TestUtil) -> void:
 	back = _tsim()
 	back.load_tithe({"warning": {"wave_id": 1, "fort_id": "nowhere", "eta_s": 1.0, "surge": 1.0}, "started": true, "next_s": 3.0}, true)
 	t.ok(back.tithe["warning"].is_empty() and back.tithe["next_s"] == 3.0, "an entry naming an unknown fort is dropped")
+
+
+## One fort's full state after `seconds` of steps of `dt` with constant inputs.
+func _run_fort(over: Dictionary, setup: Dictionary, seconds: float, dt: float, inp: Dictionary) -> Dictionary:
+	var sim := _mk(over)
+	var f: Dictionary = sim.forts[0]
+	for k in setup:
+		if k == "pool":
+			sim.vei["living_pool"] = setup[k]
+		elif k in ["undead_queue", "dead_queue"]:
+			sim.vei[k] = setup[k]
+		else:
+			f[k] = setup[k]
+	var n := int(round(seconds / dt))
+	var kills := 0.0
+	var out_dead := 0.0
+	var cleared0 := sim.cleared_total
+	var shipped := 0.0
+	var converted := 0.0
+	for i in n:
+		sim.step(dt, inp)
+		kills += float(f["r_kills"]) * dt
+		out_dead += float(f["r_dead_out"]) * dt
+		shipped += float(sim.vei["r_shipped"]) * dt
+		converted += float(sim.vei["r_converted"]) * dt
+	return {"sim": sim, "f": f, "kills": kills, "dead_out": out_dead, "cleared": sim.cleared_total - cleared0,
+		"shipped": shipped, "converted": converted}
+
+
+static func _rel(a: float, b: float) -> float:
+	return absf(a - b) / maxf(1e-9, maxf(absf(a), absf(b)))
+
+
+## E2b T3.0: the problems review found at long dt (MECHANICS §3.1), each against the 0.5 s step.
+func _long_steps(t: TestUtil) -> void:
+	# the drain is exact: U · e^(−r·dt), never negative
+	var quiet := {"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "S_vei": 0.0, "R_vei": 0.0}
+	for dt in [0.5, 30.0, 120.0]:
+		var r := _run_fort(quiet, {"living": 0.0, "undead": 100.0, "dead": 0.0}, 120.0, dt, {})
+		t.near(float(r["f"]["undead"]), 100.0 * exp(-0.06 * 120.0), 1e-9, "dt %.1f: the drain is exact (U0 · e^(−r · 120 s))" % dt)
+	var big := _run_fort(quiet, {"living": 0.0, "undead": 100.0, "dead": 0.0}, 240.0, 240.0, {})
+	t.ok(float(big["f"]["undead"]) >= 0.0 and float(big["sim"].vei["undead_queue"]) > 0.0, "a 240 s step drains, never below 0")
+	# a fort pinned at 0 living: Vei's shipping is killed on arrival at any dt, so the garrison destroys
+	# nothing and k_clear (from ∫living) clears nothing. Under the lumps they did, k_destroy · L0 · dt / q
+	# with L0 the last step's shipping: about 0.006 · 0.21 · 30 / 1.2 ≈ 0.03 mass/s at 30 s.
+	var pin_cfg := {"r_drain": 0.0}
+	var pin := {"living": 0.0, "undead": 40.0, "dead": 0.0, "pool": 600.0, "dead_queue": 1e5}
+	var ref := _run_fort(pin_cfg, pin, 120.0, 0.5, {"digest_q": 1.2})
+	for dt in [5.0, 30.0]:
+		var r := _run_fort(pin_cfg, pin, 120.0, dt, {"digest_q": 1.2})
+		t.ok(_rel(r["kills"], ref["kills"]) < 1e-9 and r["kills"] > 20.0,
+			"pinned at 0, dt %.0f: the kills are what Vei shipped in (%.3f, %.3f at 0.5 s)" % [dt, r["kills"], ref["kills"]])
+		t.ok(float(r["dead_out"]) < 1e-9 and float(ref["dead_out"]) < 1e-9 and float(r["cleared"]) < 1e-9 and float(ref["cleared"]) < 1e-9
+			and float(r["f"]["living"]) == 0.0, "pinned at 0, dt %.0f: no garrison kills, no clearing, at any dt" % dt)
+	# living's path: it reaches 0 at t* = L0 / (k_kill · U − S), recorded on the fort
+	var sim := _mk({"r_drain": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "S_vei": 0.0, "R_vei": 0.0})
+	var f: Dictionary = sim.forts[0]
+	f["living"] = 9.0
+	f["undead"] = 50.0
+	f["dead"] = 0.0
+	sim.step(30.0, {})
+	t.near(float(f["t_living_out"]), 9.0 / (0.018 * 50.0), 1e-9, "t* = L0 / (k_kill · U): living reaches 0 at 10 s")
+	t.ok(f["living"] == 0.0 and absf(float(f["dead"]) - 9.0) < 1e-9, "then stays 0; the kills are all of it, no more")
+	sim.step(30.0, {})
+	t.ok(float(f["t_living_out"]) == 0.0 and float(f["t_undead_out"]) == -1.0, "t_living_out 0 when it starts at 0; t_undead_out −1 while undead remain")
+	# a full-strength wave at dt 30: drawn on her pool plus what she converts in the step, it
+	# delivers all of it, as at 0.5 s (a 30 s step wants 720 from a pool of 600)
+	var w05 := _wave_delivered(0.5)
+	var w30 := _wave_delivered(30.0)
+	var full: float = float(TestUtil.configs()["realm"]["tithe"]["surge_mult"]) * 8.0 * 40.0
+	t.ok(absf(w05 - full) < 1e-6 and absf(w30 - full) < 1e-6,
+		"a full wave delivers all %.0f at 30 s as at 0.5 s (%.1f, %.1f; −1: her pool left [0, cap])" % [full, w30, w05])
+	# Vei's headroom: at her cap, a long step converts what shipping took out in it (it used to see
+	# only the start's headroom, ~0, and under-digest)
+	var cap_in := {"living": 0.0, "undead": 0.0, "dead": 0.0, "pool": 600.0, "dead_queue": 1e5}
+	var h05 := _run_fort({"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0}, cap_in, 600.0, 0.5, {})
+	var h30 := _run_fort({"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0}, cap_in, 600.0, 30.0, {})
+	t.ok(h30["shipped"] > 0.0 and _rel(h30["converted"], h30["shipped"]) < 1e-9 and _rel(h30["converted"], h05["converted"]) < 0.01,
+		"at her cap a 30 s step converts what it ships (%.1f; %.1f at 0.5 s)" % [h30["converted"], h05["converted"]])
+	t.near(float(h30["sim"].vei["living_pool"]), 600.0, 1e-6, "and her pool stays full")
+
+
+## The living one full-strength wave delivers at steps of `dt`, clipped at its start and end, and
+## whether her pool stayed within [0, cap] throughout.
+func _wave_delivered(dt: float) -> float:
+	var ts := _mk({"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "r_drain": 0.0})
+	ts.vei["living_pool"] = 600.0
+	ts.vei["dead_queue"] = 1e5
+	ts.start_tithe()
+	ts.tithe["next_s"] = 150.0  # the warning at once, the wave 150 s on
+	var got := 0.0
+	var started := false
+	for guard in 2000:
+		var h := dt
+		if not started:
+			h = minf(dt, maxf(1e-3, float(ts.tithe["next_s"])))
+		elif not (ts.tithe["wave"] as Dictionary).is_empty():
+			h = minf(dt, float(ts.tithe["wave"]["s_left"]))
+		ts.step(h, {"war": 5.0})
+		for f in ts.forts:
+			got += float(f["r_surge"]) * h
+		if ts.vei["living_pool"] < 0.0 or ts.vei["living_pool"] > 600.0 + 1e-9:
+			return -1.0
+		started = started or not (ts.tithe["wave"] as Dictionary).is_empty()
+		if started and (ts.tithe["wave"] as Dictionary).is_empty():
+			break
+	return got

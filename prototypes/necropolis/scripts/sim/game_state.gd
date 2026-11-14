@@ -69,8 +69,9 @@ var big_undead: Array = []
 var party_uids: Array = []
 var valve := {"work": 0.40, "war": 0.45, "flood": 0.15}  # the current vector; slews toward the target (§3 step 3)
 var valve_target := {"work": 0.40, "war": 0.45, "flood": 0.15}
-## The WORK mass the valve sent in the last substep. TownSim takes all of it in the next substep
-## (§3 step 2: WORK arrives one substep late), so it never accumulates. Held mass; saved as
+## WORK in flight to TownSim: 0 at every step boundary now (§3: TownSim takes each step's WORK as
+## rate × dt in the same step; the mint lags instead, reading last step's feed). A save written
+## before that (E2a) can hold some; the next step delivers it with its own. Held mass; saved as
 ## town.work_pending.
 var work_pending := 0.0
 var blueprints: Array = []  # owned blueprint ids (= the building ids they unlock), banked by apply_result
@@ -1246,14 +1247,14 @@ func _mint(pits: int, feed: float) -> float:
 	return (float(cfg.get("P_base", 2.0)) + float(cfg.get("P_per_pit", 6.0)) * pits) * (1.0 + bonus * feed)
 
 
-## §3 step 2's inputs: last substep's WORK, Relish home, the villages that follow necrosis, a
-## snapshot of the forts before this substep's realm step, Covington, the haul target, the relics.
-func _town_inputs() -> Dictionary:
+## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
+## snapshot of the forts before this step's realm step, Covington, the haul target, the relics.
+func _town_inputs(work_mass: float) -> Dictionary:
 	var forts: Array = []
 	for f in realm.forts:
 		forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f)})
 	return {
-		"work_mass": work_pending, "relish_home": relish["state"] == "home", "held_villages": green_towns,
+		"work_mass": work_mass, "relish_home": relish["state"] == "home", "held_villages": green_towns,
 		"forts": forts, "cov_pos": _xy(realm.cov_pos), "haul_target": haul_target, "relics_available": relics,
 	}
 
@@ -1274,27 +1275,42 @@ func _emit_town(ev: Dictionary) -> void:
 	_emit(e)
 
 
+## One live substep (§3): the core step, then the presentation step, both at `dt`.
 func _tick(dt: float) -> void:
+	var evs := _core_step(dt)
+	_present_step(dt, evs)
+	rev += 1
+
+
+## The sim's step, valid at any `dt` (IDLE §4: live play runs it at sim.substep_s, catch-up at
+## longer steps): §3 steps 1–8, everything but the presentation. TownSim, RealmSim and the readouts
+## are exact or rate-based over the step, so nothing here assumes a short dt. Returns this step's
+## realm events (already emitted), for the presentation step's lane callouts. Never touches the
+## influence field: village owners (TownSim's held_villages) are read as they stand.
+func _core_step(dt: float) -> Array:
 	t += dt
 	var cfg: Dictionary = _cfg()
-	# §3 step 2: TownSim on last substep's WORK, all of it (WORK arrives one substep late)
-	var town := town_sim.step(dt, _town_inputs())
+	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
+	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
+	_slew_valve(dt)
+	var mint := _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+	var work := mint * float(valve["work"])
+	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
+	# WORK in flight: it arrives with this step's, once
+	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending))
 	work_pending = 0.0
 	_apply_pickups(town["pickups"])
 	relics = maxi(0, relics - int(town["relics_spent"]))
 	for ev in town["events"]:
 		_emit_town(ev)
 	BuildRules.rise_tiers(self)
-	# §3 step 3: the valve slews, then splits the mint; TownSim's muster joins WAR
-	_slew_valve(dt)
-	var mint := _mint(int(town["pits"]), float(town["feed"]))
+	# TownSim's muster joins this step's WAR
 	var muster := float(town["muster_mass"]) / dt
-	_split = {"mint": mint, "work": mint * valve["work"], "war": mint * valve["war"] + muster,
+	_split = {"mint": mint, "work": work, "war": mint * valve["war"] + muster,
 		"flood": mint * valve["flood"], "muster": muster}
-	work_pending = _split["work"] * dt  # delivered to TownSim next substep
 	# §3 step 4: Relish's travel and state
 	_step_relish_travel(dt)
-	# §3 step 5: RealmSim, pure on these inputs; its events get this substep's t
+	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
 	var rcfg: Dictionary = cfg.get("relish", {})
 	# (siege_block: the siege big undead's share per fort, E3; none yet)
@@ -1310,15 +1326,23 @@ func _tick(dt: float) -> void:
 	var evs := realm.drain_events()
 	for ev in evs:
 		_emit(ev)
-	# §3 step 7: the ledger books this substep's source and sinks (held is read live)
+	# §3 step 7: the ledger books this step's source and sinks (held is read live)
 	_ledger.source("mint", mint * dt)
 	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
 		_ledger.sink(k, float(town[k]))
 	_ledger.sink("cleared", cleared)
 	_note_realm_flows(dt, cleared)
-	# §3 step 8: the readouts, and the lane callouts for what changed this substep
+	# §3 step 8: the readouts
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
+	return evs
+
+
+## The presentation step (§3 step 9 and the lane callouts): what only the map shows, plus the
+## village owners the field decides. `evs` are the realm events since the last presentation step.
+## Live play runs it after every core step at the same dt.
+func _present_step(dt: float, evs: Array) -> void:
 	_note_lane_causes(evs)
+	var cfg: Dictionary = _cfg()
 	_field_acc += dt
 	var fcfg: Dictionary = cfg.get("field", {})
 	var period: float = 1.0 / float(fcfg.get("tick_hz", 5.0))
@@ -1334,7 +1358,6 @@ func _tick(dt: float) -> void:
 	if field_ticks > 0:
 		_update_towns(cfg)
 	_field_acc = minf(_field_acc, period * float(fcfg.get("acc_cap_periods", 4.0)))
-	rev += 1
 
 
 ## view_rates' corpses and backlog for this substep (§5.2; _realm_flows).
@@ -1365,11 +1388,20 @@ func _inject_sources(dt: float) -> void:
 			field.inject(f["pos"], false, src_fort * (f["living"] / cap) * dt, 1)
 
 
+## The field's signed dominance at `pos`, 0.0 where it is not finite (a field ticked far past its
+## stable dt can hold NaN; the API never carries one, STATE-API §1.3).
+func _dominance(pos: Vector2) -> float:
+	var d := float(field.dominance_at(pos))
+	return d if is_finite(d) else 0.0
+
+
+## Village owners from the field: green above field.town_threshold, orange below its negative,
+## else none (a non-finite field reads 0, so none).
 func _update_towns(cfg: Dictionary) -> void:
 	var thresh: float = float(cfg.get("field", {}).get("town_threshold", 0.18))
 	green_towns = 0
 	for tw in towns:
-		var dom: float = field.dominance_at(tw["pos"])
+		var dom: float = _dominance(tw["pos"])
 		tw["control"] = "green" if dom > thresh else ("orange" if dom < -thresh else "none")
 		if tw["control"] == "green":
 			green_towns += 1

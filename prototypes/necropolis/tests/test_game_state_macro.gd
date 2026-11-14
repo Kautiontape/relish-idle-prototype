@@ -120,10 +120,10 @@ func _split() -> void:
 		for k in ["work", "war", "flood"]:
 			if absf(sp[k] - sp["mint"] * s.valve[k] - (sp["muster"] if k == "war" else 0.0)) > 1e-12:
 				ok = false
-		pending_ok = pending_ok and s.work_pending == sp["work"] * s.substep_s()
+		pending_ok = pending_ok and s.work_pending == 0.0 and absf(float(s.town_sim.rates["workers"]["in"]) * s.worker_mass() - sp["work"]) <= 1e-12 * maxf(1.0, sp["work"])
 	t.ok(s._split["mint"] > 0.0, "the mint runs: %.2f mass/s" % s._split["mint"])
 	t.ok(ok, "work + war + flood = mint + muster, each its valve share (WAR plus muster), every substep")
-	t.ok(pending_ok, "work_pending holds only the last substep's WORK (TownSim takes it all)")
+	t.ok(pending_ok, "TownSim takes each substep's WORK in that substep (work_pending stays 0)")
 	var inp: Dictionary = s._realm_inputs
 	t.ok(inp["war"] == s._split["war"] and inp["flood"] == s._split["flood"], "WAR and FLOOD are RealmSim's inputs")
 	t.near(s.realm.cov["r_out"], s._split["war"] + s._split["flood"], 1e-12, "RealmSim received them")
@@ -556,7 +556,7 @@ func _lanes() -> void:
 	var e := _mk()
 	var none := {}
 	for f in e.realm.forts:
-		none[f["id"]] = {"living": 0.0}
+		none[f["id"]] = {"living": 0.0, "dead": 1e6}  # no living and no room: Vei can ship nowhere
 	e.cmd_debug_set_state({"forts": none})
 	e.tick(e.substep_s())
 	var fall := _lane(e, "war:covington:vei")

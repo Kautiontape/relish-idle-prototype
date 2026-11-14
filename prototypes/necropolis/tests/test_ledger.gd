@@ -109,8 +109,8 @@ func _flows() -> void:
 	var c0: float = s.realm.cleared_total
 	s.tick(dt)
 	t.ok(_src(s, "mint") == s._split["mint"] * dt, "mint: the substep's production × dt")
-	t.ok(s.ledger()["held"]["work_pending"] == s._split["work"] * dt and s.work_pending > 0.0,
-		"held.work_pending: the WORK TownSim takes next substep")
+	t.ok(s.ledger()["held"]["work_pending"] == 0.0 and s.work_pending == 0.0,
+		"held.work_pending: 0 at the step boundary (TownSim takes each step's WORK in that step)")
 	var r: Dictionary = s.town_sim.rates
 	t.near(_snk(s, "burned"), float(r["bodies"]["pit"]) * dt, 1e-12, "burned: the pits' burn")
 	var wk: Dictionary = _base["economy"]["worker"]
@@ -223,10 +223,9 @@ func _runs() -> void:
 
 
 # ------------------------------------------------------------ any substep ----
-## Catch-up (IDLE §4) will step at long dt: the count must not depend on the substep length.
-## NOTE: at 30 s and 120 s the realm's forward-Euler drain overshoots and pools go NEGATIVE (a known
-## E2b item: catch-up will sub-step RealmSim), so those dt check the ledger only. At dt <= 8 s
-## nothing may go negative or non-finite either.
+## Catch-up (IDLE §4) steps at long dt: the count must not depend on the substep length, and since
+## E2b T3.0 (the exact drain, the fort's path, the netted body store) nothing goes negative or
+## non-finite at any of them either, 30 s and 120 s included.
 func _any_dt() -> void:
 	for dt in [0.1, 2.0, 8.0, 30.0, 120.0]:
 		var s := GameState.new(_cfgs(dt))
@@ -237,11 +236,9 @@ func _any_dt() -> void:
 		for i in 150:
 			s.tick(dt)
 			worst = maxf(worst, _err(s))
-			if dt <= 8.0:
-				_negatives(s, neg)
+			_negatives(s, neg)
 		t.ok(worst < TIGHT, "substep %.1f s: balanced at every substep for %d sim-s (worst %s)" % [dt, int(150 * dt), _e(worst)])
-		if dt <= 8.0:
-			t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
+		t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
 
 
 ## _soak_check's no-negatives and finiteness checks, on their own.

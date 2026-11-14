@@ -199,7 +199,9 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 
 
 ## §5.7 · E1: the legacy village control, with live dominance. A player village sends TownSim
-## economy.json town.migrant_rate living/s (its held_villages input).
+## economy.json town.migrant_rate living/s (its held_villages input). A field that is not finite
+## there (ticked at a step far past its stable dt) reads 0.0: the API carries no NaN or INF, and
+## the owner is what the last field tick decided (GameState._dominance treats it as 0, so "none").
 static func villages(gs: GameState) -> Dictionary:
 	var rate := float(gs._sec("economy", "town").get("migrant_rate", 0.012))
 	var out: Array = []
@@ -207,7 +209,7 @@ static func villages(gs: GameState) -> Dictionary:
 		var owner: String = {"green": "player", "orange": "vei"}.get(tw["control"], "none")
 		out.append({
 			"id": str(tw["id"]), "name": str(tw["name"]), "pos": GameState._xy(tw["pos"]), "owner": owner,
-			"dominance": float(gs.field.dominance_at(tw["pos"])), "migrants": rate if owner == "player" else 0.0,
+			"dominance": gs._dominance(tw["pos"]), "migrants": rate if owner == "player" else 0.0,
 		})
 	return {"rev": gs.rev, "villages": out}
 

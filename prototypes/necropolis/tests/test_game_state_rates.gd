@@ -53,7 +53,8 @@ func _each_id() -> void:
 	var dt := s.substep_s()
 	var eco: Dictionary = _base["economy"]
 	var mass := float(eco["worker"]["mass"])
-	var work_before := float(s.view_rates()["rates"]["work"]["in"])
+	var feed_before := float(s.town_sim.rates["feed"])  # the mint reads the feed of the step before
+	var pits := s.town_sim.pits()
 	var c0: float = s.realm.cleared_total
 	# give Vei room to digest undead this substep (her pool fills fast, and she takes the dead first)
 	s.realm.vei["living_pool"] = 0.0
@@ -72,20 +73,19 @@ func _each_id() -> void:
 	t.ok(nets, "net is in − out everywhere, with §5.2's units")
 	# mint and the valve's streams
 	var rcfg: Dictionary = _base["realm"]
-	var pits := s.town_sim.pits()
-	var mint := (float(rcfg["P_base"]) + float(rcfg["P_per_pit"]) * pits) * (1.0 + float(eco["pit"]["bonus"]) * float(tr["feed"]))
-	t.near(r["mint"]["in"], mint, 1e-12, "mint.in: (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)")
+	var mint := (float(rcfg["P_base"]) + float(rcfg["P_per_pit"]) * pits) * (1.0 + float(eco["pit"]["bonus"]) * feed_before)
+	t.near(r["mint"]["in"], mint, 1e-12, "mint.in: (P_base + P_per_pit · pits) · (1 + pit.bonus · last step's feed)")
 	t.ok(r["mint"]["out"] == r["mint"]["in"] and r["mint"]["net"] == 0.0, "mint.out: all of it goes through the valve (net 0)")
 	var muster := float(tr["workers"]["muster"]) * mass
 	t.near(r["work"]["in"], mint * s.valve["work"], 1e-12, "work.in: mint · valve.work")
 	t.near(r["war"]["in"], mint * s.valve["war"] + muster, 1e-9, "war.in: mint · valve.war + muster × worker.mass")
 	t.near(r["flood"]["in"], mint * s.valve["flood"], 1e-12, "flood.in: mint · valve.flood")
 	t.near(r["war"]["in"], _sum(s, "r_in") + s.realm.r_war_to_vei, 1e-9, "war: what the forts (and Vei, on a fall-through) received")
-	t.ok(r["flood"]["in"] == s.realm.r_flood and s.work_pending == r["work"]["in"] * dt, "flood is what reached Vei; work is what TownSim takes next")
+	t.ok(r["flood"]["in"] == s.realm.r_flood and s.work_pending == 0.0, "flood is what reached Vei; work went to TownSim in the same substep")
 	for id in ["work", "war", "flood"]:
 		t.ok(r[id]["out"] == r[id]["in"] and r[id]["net"] == 0.0, "%s: delivered = in, net 0" % id)
 	# the town
-	t.near(r["workers"]["in"], work_before / mass, 1e-12, "workers.in: last substep's work / worker.mass (WORK arrives a substep late)")
+	t.near(r["workers"]["in"], r["work"]["in"] / mass, 1e-12, "workers.in: this substep's work / worker.mass (WORK arrives in the same substep)")
 	t.near(r["workers"]["out"], float(tr["workers"]["rot"]) + float(tr["workers"]["muster"]), 1e-12, "workers.out: rot + muster")
 	t.ok(r["bodies"]["in"] == float(tr["bodies"]["rot"]) + s._haul_rate() and r["bodies"]["out"] == float(tr["bodies"]["pit"]) + float(tr["bodies"]["mill"]),
 		"bodies: haul (trip-averaged) + rot return in, pit burn + mill out")
@@ -97,7 +97,8 @@ func _each_id() -> void:
 	# the realm
 	var cleared: float = s.realm.cleared_total - c0
 	t.near(r["corpses"]["in"], _sum(s, "r_kills") + _sum(s, "r_redirected"), 1e-12, "corpses.in: Σ forts' kills + redirected garrison kills")
-	t.ok(_sum(s, "r_redirected") > 0.0 and _sum(s, "r_raised") > 0.0, "Relish's redirect and raise both run at old-sluice")
+	var os: Dictionary = s.realm.fort_by_id("old-sluice")
+	t.ok(os["r_dead_out"] == 0.0 and os["r_raised"] > 0.0, "Relish's redirect and raise both run at old-sluice (its garrison kills stay; it ships none)")
 	t.near(r["corpses"]["out"], _sum(s, "r_raised") + cleared / dt + s._haul_rate(), 1e-12,
 		"corpses.out: raises (Relish, simulacra) + k_clear + the haul (trip-averaged)")
 	t.ok(cleared > 0.0, "k_clear runs")

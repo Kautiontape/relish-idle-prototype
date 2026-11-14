@@ -224,8 +224,8 @@ func _round_trip() -> void:
 	t.ok(not text.contains("in_dungeon") and not text.contains("in_boss") and not text.contains("debug_enabled")
 		and not text.contains("time_scale") and not text.contains("paused") and not text.contains("\"rev\""), "session-only fields are not saved")
 	t.ok(d["seed"] is String and d["rng"] is String and d["v"] == 2 and d["api_version"] == GameState.API_VERSION, "seed and rng are strings; v and api_version")
-	t.ok(not d.has("legacy") and d["town"]["pending"].size() == 1 and d["town"]["work_pending"] > 0.0
-		and d["town"]["haul"]["target"] == "ashgate" and d["backups"]["clones_ready"] == 2, "v2: no legacy block; the town block holds TownSim, its pending event, the WORK in flight and the haul target")
+	t.ok(not d.has("legacy") and d["town"]["pending"].size() == 1 and d["town"]["work_pending"] == 0.0
+		and d["town"]["haul"]["target"] == "ashgate" and d["backups"]["clones_ready"] == 2, "v2: no legacy block; the town block holds TownSim, its pending event, the WORK in flight (0 from E2b) and the haul target")
 	var built: Array = b.view_town()["buildings"].map(func(x): return [x["lot_id"], x["state"], x["staff_cap"]])
 	t.ok(built.has(["lot-03", "active", 2]) and built.has(["lot-06", "constructing", -1]) and built.size() == 6,
 		"the loaded town: its buildings, a staff cap and the construction (%s)" % str(built))

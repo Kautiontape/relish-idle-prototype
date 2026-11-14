@@ -118,7 +118,10 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   inside a step until its head can't start.
 - The influence field ticks once per catch-up step with that step's `dt`. Village owners are the one
   sim quantity that reads it. The field's results are already the same at every slice budget, so
-  catch-up's field is the live field.
+  catch-up's field is the live field. (E2b T3.0 measured, `tests/slow/field_cap.gd`: one tick at a
+  long `dt` fills the field with NaN. Its update is explicit, with `diffuse · 5 · dt` past 1 above
+  about 1.25 s. 144 ticks at the live 0.2 s instead leave owners lagging: 96.8% of village-samples
+  matched over 12 h, with `green_towns` off in 37 of 144. Catch-up's field needs its own plan.)
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
   advances it in fixed chunks, and chunking never changes the result.
 
@@ -126,12 +129,25 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 takes over 1 s.
 - **E2 benchmarks one substep first.** If 12 h takes over 2 s, raise `idle.catchup_dt_max_s` before
   touching the design.
-- **Stability is set by the realm, not the workers.** RealmSim's drain is forward Euler, and its
-  fastest timescale is 1/r_drain ≈ 16.7 s, so pools go negative above that dt. Fort kills and clears
-  also scale with dt. Inside a long catch-up step, RealmSim must either be sub-stepped below
-  `idle.realm_dt_max_s` (≤ 4 s) or integrated exactly, while TownSim's exact first-order updates take
-  the long step. (Found in economy's E2a quality review; this replaces v2's "stable to about 120 s",
-  which held only for the workforce.)
+- **The step is exact in its pieces; accuracy sets `idle.catchup_dt_max_s`** (E2b T3.0, which
+  replaces E2a's "sub-step RealmSim below `idle.realm_dt_max_s`"). The core step
+  (`GameState._core_step`, MECHANICS §1.3) changed in four places:
+  - the drain is `U · (1 − e^(−r_drain · dt))`;
+  - fort combat follows living's and undead's paths inside the step;
+  - shipping and surges are rates, and Vei's headroom counts the step's shipping;
+  - TownSim nets the body store before its cap (MECHANICS §3.1, §4.1).
+
+  Nothing goes negative at any dt (tested to 120 s). `tests/slow/convergence.gd` measures 12 h with
+  no input against a 0.5 s run, with steps clipped at the events listed under Method:
+  - Vei's stocks and Covington's smooth ones stay within 0.5% up to dt 5 s (midgame_2flips 0.32%,
+    fresh 0.34%) and drift to about 0.6% at 10 s.
+  - The forts' pools and the body store don't converge at any dt. Full forts with no living sit at
+    the dispatch rules' edges, and 0.25 s already differs from 0.5 s by up to 19%.
+  - pre_vei's gold-floor upkeep cycle doesn't converge either: 2.5% at 2 s.
+  - Cost, best of 3 at a load average of about 4 on 12 cores, worst start (pre_vei): about 550 µs
+    per core step. 12 h at 5 s takes 5.5 s and 7 days 67 s with 150 field ticks, so this budget is
+    not met at any accurate dt. About 75% of the step is TownSim, which runs `_restaff` twice per
+    step: that is the cost lever.
 - A thread is the fallback.
 
 **Determinism.**

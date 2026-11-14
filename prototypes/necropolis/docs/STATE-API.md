@@ -285,15 +285,18 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   - Otherwise `acc -= n * sim.substep_s`. The remainder is kept and saved.
   - `max_substeps = 0` means uncapped; tests and `cmd_debug_skip_time` use it.
 - Each substep advances `t += sim.substep_s`, runs the steps below **in this order** (a contract
-  with tests, MECHANICS §1.3), then `rev += 1`:
+  with tests, MECHANICS §1.3), then `rev += 1`. Steps 1–8 are the core step, valid at any length
+  (catch-up runs it at its own `dt`, IDLE §4); step 9 and the lanes' callouts are the presentation
+  step:
   1. **Stances and the job ladder.** Re-evaluated only when the beat index
      `beat_id = floor(t / beat_s)` changes, where `beat_s = pulse.json tempo_ms / 1000` (1.714).
      Emits `stance_fired`.
-  2. **TownSim.** Workforce, using the previous substep's WORK (one substep late, which is
-     accepted). Also jobs, haul, mill, pit burn, living, gold, bone, morale, construction and
-     upkeep. Emits `building_*` and `tier_up`.
-  3. **The valve.** Slew the current vector toward the target by at most `valve.slew_per_s · dt` of
-     L1 distance (the sum stays 1). Split mint into WORK, WAR and FLOOD, and add muster to WAR.
+  2. **The valve.** Slew the current vector toward the target by at most `valve.slew_per_s · dt` of
+     L1 distance (the sum stays 1). The mint reads the working pits now and the feed of the step
+     before (TownSim's `rates.feed`). Split it into WORK, WAR and FLOOD.
+  3. **TownSim.** Workforce, on this step's WORK (`work · dt`, in the same step: E2b replaced WORK
+     arriving one substep late). Also jobs, haul, mill, pit burn, living, gold, bone, morale,
+     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
   5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate, siege_block})`.**
      Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
@@ -784,7 +787,7 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `bodies` | Covington's body store |
 | | `workers` | the workforce in mass: `workers · worker.mass` |
 | | `convoys` | the load of a convoy on its way home |
-| | `work_pending` (+3) | the WORK the last substep sent, which TownSim takes in the next (§3 step 2) |
+| | `work_pending` (+3) | WORK in flight to TownSim: 0 at every substep boundary from E2b (TownSim takes each step's WORK in that step, §3 step 3). Only a save written before that can hold some, which the next step delivers. |
 
 - **Internal transfers book nothing:** the valve split, WORK into workers, muster into WAR, haul
   pickups, combat, drain, Vei's conversion (dead and undead into living) and her shipping, tithe
@@ -846,8 +849,8 @@ each of `GameState.RATE_IDS`.
   the last substep's (session-only, §9.1: 0 after a load until the first substep, except the haul's
   part of `corpses.out`); `workers`, `bodies`, `gold`, `bone` and `living` are TownSim's last step
   (saved with it). `view_hud.rates` reads the same numbers (§5.1).
-- `workers.in` is TownSim's inflow, which takes the **previous** substep's WORK (§3 step 2): with a
-  steady valve it equals `work.in / worker.mass`, and it trails a change by one substep.
+- `workers.in` is TownSim's inflow, which takes **this** substep's WORK (§3 step 3): it equals
+  `work.in / worker.mass`. (From E2b the mint trails TownSim's feed by one substep instead.)
 - `corpses`: the garrisons' own kills (destroyed undead) go to Vei's dead queue straight from the
   fight and never lie at the fort, so they are in neither column; where Relish or a simulacrum
   redirects, they stay as corpses and count in `in`. With no convoy out, `corpses.net` is the rate of
@@ -1012,7 +1015,7 @@ doesn't copy a 128 × 90 grid every frame. Read it only.
 | `id`, `name` | String | |
 | `pos` | Array | `[x, y]` |
 | `owner` | String | `"player"` (necrosis holds it; it sends migrants), `"vei"`, or `"none"` |
-| `dominance` | float | signed field value; above `field.town_threshold` means `player` |
+| `dominance` | float | signed field value; above `field.town_threshold` means `player`. 0.0 where the field is not finite (a field ticked far past its stable dt can hold NaN; the owner then reads `none`) |
 | `migrants` | float | living/s this village adds to Covington |
 ```gdscript
 {rev: 3, villages: [{id: "bellwether", name: "Bellwether", pos: [1680.0, 1330.0], owner: "player", dominance: 0.41, migrants: 0.012}, ...]}
@@ -1585,7 +1588,8 @@ take the router's legacy path (§2.3).
   convoys: [{fort, phase, t, trip_s, load, crew}]}` (at most one convoy); `forge: {level, progress}`
   (the q forge); `rates` (TownSim's last step, which the views show); `pending` (events a command
   queued that no substep has emitted yet, e.g. a `building_started`); and GameState's `tier` and
-  `work_pending` (the WORK mass the last substep sent, which TownSim takes in the next). `morale`,
+  `work_pending` (WORK in flight to TownSim: 0 in every save from E2b, which delivers each step's
+  WORK in that step; an older save's value is delivered with the next step's). `morale`,
   `shock`, `rates` and `pending` are optional on load (TownSim's defaults: morale at its base, no
   shock, zero rates, nothing pending). A building on an unknown or repeated lot, of an unknown id, in
   another state or at a level the building lacks, a ladder that is not a permutation of `JOB_IDS`, or a

@@ -145,8 +145,10 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 
 **Order per substep** (a contract with tests):
 1. stances and the job ladder (re-evaluated each beat, 1714 ms sim);
-2. TownSim (WORK arrives one substep late, which is accepted);
-3. the valve slew and split;
+2. the valve slew and split. The mint reads the working pits now and the feed of the step before
+   (both dimensionless), so the mint lags TownSim by one step, which is accepted (E2b: this
+   replaces WORK arriving one substep late, a mass re-divided by the next step's dt);
+3. TownSim, on this step's WORK as rate × dt, in the same step;
 4. Relish's travel and state (GameState);
 5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.
    Holds and the tithe state are RealmSim's own state (§3.1), not inputs;
@@ -154,6 +156,12 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 7. the ledger;
 8. readouts (EMA);
 9. the influence field, at `field.tick_hz`, time-sliced by the ground unit.
+
+Steps 1–8 are the **core step** (`GameState._core_step(dt)`): valid at any `dt`, everything in it is
+exact or a rate over the step (E2b T3.0; `tests/slow/convergence.gd` measures it). Step 9, the
+village owners it decides and the lanes' callouts are the **presentation step**. Live play runs the
+core step, then the presentation step, for each `sim.substep_s` substep; catch-up (IDLE §4) runs
+core steps of its own length and caps the presentation.
 
 The sim keeps ticking while any scene is open. Dungeon writebacks are **deltas clamped to the live
 values**.
@@ -230,26 +238,57 @@ Names, to avoid confusion:
 - `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
   (D2) and nothing reads it.
 - `forts[i].held_s` and the tithe-wave state are RealmSim state.
-- **Within a step:** WAR dispatch (§3.2), FLOOD into the queue, fort combat (kills at a redirect
-  fort stay, §3.3), `k_clear`, the redirect raises (Relish's, then simulacra), drain to Vei, Vei's
-  conversion (her take is clamped to her pool's headroom, §2.1), the tithe (§3.4: its clock, the
-  warning, a wave's start and its surge), her shipping (§3.4), then the hold countdown. A hold that
-  runs out this step still counted as held for all of it, and a fort retaken this step records one
-  `fort_retaken`, never two.
+- **Within a step** (E2b T3.0: exact at any `dt`, so catch-up's long steps match live play):
+  1. the tithe clock (§3.4: a wave's start);
+  2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
+     fort's room over the step: `cap − L − U · e^(−r_drain · dt) − D`, its space now plus what the
+     drain frees. Both draw on her pool now plus what she can convert this step before her
+     headroom (from her queues as they stand after FLOOD), surge first. A long step ships what the
+     short ones would, and her pool never leaves [0, cap];
+  3. WAR dispatch (§3.2), also a rate;
+  4. FLOOD into the queue;
+  5. **fort combat off each fort's path.** U is held at its mean over the step, so living's path
+     `dL/dt = S − k_kill · Ū` is linear. S is shipping plus the surge. If living reaches 0 at
+     `t* = L0 / (k_kill · Ū − S)` it stays there, and from then on the kills equal the inflow. U's
+     own path, `dU/dt = W + raises − r_drain · U − k_destroy · L̄ / q`, is exact, including the
+     moment U reaches 0. After that, every arriving undead is destroyed at once. Ū and L̄ come from
+     alternating the two paths: a predictor from L0, then two corrections. The garrison's kills
+     (`k_destroy · ∫L / q`, at most what the undead hold) and the drain come from U's path,
+     `k_clear · ∫L` (at most the corpses) from living's. Kills at a redirect fort stay (§3.3). The
+     redirect raises (Relish's, then the simulacra's) are a rate inside the step, bounded by the
+     corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`: the seconds into
+     the step when living or undead reached 0 (0 when they started there), −1 when they did not.
+     These are natural event boundaries for catch-up; nothing reads them yet;
+  6. Vei's conversion. Her take is clamped to her pool's headroom (§2.1), which **counts this
+     step's shipping**, so at her cap a long step converts what it ships;
+  7. the wave books what it delivered and ends after `surge_s`; then the next wave's warning, its
+     target read from this step's dispatch (§3.4);
+  8. the hold countdown. A hold that runs out this step still counted as held for all of it, and a
+     fort retaken this step records one `fort_retaken`, never two.
 
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
   `feed = min(1, burned / wanted)` and `wanted = pit.burn_per_s · pits`. Proportional, so nothing
   toggles. `P_base` and `P_per_pit` (6.0; it was `P_per_slab`) are `realm.json` keys, `pit.bonus` and
-  `pit.burn_per_s` are `economy.json`'s; `pits` and `feed` are this substep's, from TownSim (step 2).
-- `work = mint · v.work` goes to TownSim (it arrives the next substep), `war = mint · v.war` plus
+  `pit.burn_per_s` are `economy.json`'s. `pits` is the working pits now and `feed` the feed of the
+  step before (TownSim's `rates.feed`), both dimensionless (§1.3 step 2).
+- `work = mint · v.work` goes to TownSim as `work · dt` in the same step, `war = mint · v.war` plus
   TownSim's muster (`muster_mass / dt`) goes to RealmSim dispatch, and `flood = mint · v.flood` goes
   to `vei.undead_queue`.
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
-- **WAR dispatch:** WAR splits over the forts with living > 0 **and every held fort** by weight
-  `1/(dist/100)^covFalloff`, with the tide (§3.3) multiplying its fort's weight. A fort that is both
-  (a held fort a tithe surge filled with living) counts once.
+- **WAR dispatch:** WAR splits over the forts with living (living > 0, **or living arriving this
+  step**: Vei's shipping or a surge) **and every held fort** by weight `1/(dist/100)^covFalloff`,
+  with the tide (§3.3) multiplying its fort's weight. A fort that is both (a held fort a tithe surge
+  filled with living) counts once.
+- **A full fort with no living** (no living now, not held, not surged) takes at most the WAR that
+  fills it by the step's end. Its undead drain while WAR arrives, so the rate is the one that brings
+  U to `cap − D − what Vei ships in`. The WAR it can't take is split over the other targets by
+  weight, and goes to `vei.undead_queue` (counted as fall-through) when every target is full. E2b
+  T3.0 added this: such a fort used to flicker in and out of the targets as its drain opened room,
+  and how far it flickered depended on the step. This rule is the continuous version of that
+  flicker. Living arriving counts for the same reason: Vei's living killed on arrival leaves a fort
+  at 0 living at the end of every step.
 - **Staging:** a held fort always pulls WAR as staging, at its weight, alongside the forts with
   living (§3.4). There the undead drain to Vei, so a held fort becomes a forward pump. WAR staging is
   split across the held forts, so holding more forts thins every garrison (IDLE §3).
@@ -296,7 +335,8 @@ at E2b.
 **While held:**
 - **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,
   so a held fort lowers her effective `S_vei`. The share rule: fort `i` receives at most
-  `S_vei · cap_i / Σcap` per second, into its space and from her pool. `Σcap` runs over every fort,
+  `S_vei · cap_i / Σcap` per second, into its room over the step (§3.1 step 2) and from her pool
+  (plus what she converts that step). `Σcap` runs over every fort,
   held ones included, so a held fort's share is lost, not redistributed. The unused part of a full
   fort's share is lost the same way. When her pool can't cover every share, each is scaled down
   pro rata;
@@ -362,13 +402,21 @@ at E2b.
 ### 4.1 Workforce
 TownSim (`scripts/sim/town_sim.gd`) runs §4.1–§4.3. Workers are counted in workers of `worker.mass`
 mass; bodies, rot return, WORK and muster are mass.
-- `workers' = work / worker.mass − rot − muster`. WORK arrives one substep late (§1.3).
+- `workers' = work / worker.mass − rot − muster`. WORK arrives in the same step; the mint reads last
+  step's feed instead (§1.3).
 - **Rot:** a staffed worker rots at `1 / lifetime`, an idle one at `worker.idle_rot_mult / lifetime`.
 - `lifetime = worker.lifetime_s · (1 + Σ lifetime_bonus) / relish.home_rot_mult` while Relish is
   home, and without the division otherwise. Home multiplies the rot *rate* by `home_rot_mult` (0.7),
   so a home lifetime is ÷ 0.7. `lifetime_bonus` comes from working Graveyards and Embalmers, per level.
 - Rot returns `rot · worker.mass · worker.body_return` mass of bodies. What the body cap can't hold
   is reported as `rot_overflow`, a ledger sink.
+- **The store over a step** (E2b T3.0): rot return and convoy landings come in, and what the pits
+  and mills want goes out. The two are netted before the cap clips: out = min(want, B0 + in), and
+  only what is left above the cap overflows, split between `rot_overflow` and `haul_overflow` by
+  their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
+  departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
+  loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so
+  a long step's later legs don't see corpses made inside it (a known gap at long steps).
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count.
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
@@ -394,7 +442,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom. The load lands on the way back; anything over the cap is `haul_overflow`. A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -710,7 +758,7 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
 - **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
   wave, counters, the E2a hold loss (`game_state_macro`, `realm_sim`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
-  living cap; morale. Wired into GameState: WORK one substep late, pits and feed drive the mint,
+  living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
   muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate
   (`town_sim`, `game_state_town`). Building, upgrading, tiers, caps and the catalog agreeing with
   `cmd_build` (`game_state_build`).
@@ -727,6 +775,11 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   substep with the field slowed (what catch-up and the soaks pay), a generous ceiling. The EMA
   readout is a constant-time update inside the substep, so it has no separate measurement. The
   field's own cost is ground's (`slow/field_bench`).
+- **The step at any dt** (E2b T3.0): the exact drain, a fort pinned at 0 living, t*, a full wave and
+  Vei's headroom at 30 s against 0.5 s (`realm_sim`); the ledger and no negatives at 0.1–120 s
+  (`ledger`); the core step's drift from 0.5 s over 1 h at 15 s (`convergence_1h`) and the full
+  12 h table at 0.25–30 s with its cost, attribution and fallback price (`slow/convergence`); the
+  capped field's village owners (`slow/field_cap`).
 - **Dungeon:** seeded loot, re-clear decay, warden specs, essence from both sides (`raid_logic`,
   the dungeon unit's).
 - **Vei:** front thresholds, the break-beats rule, backup order: E3 (not yet).
