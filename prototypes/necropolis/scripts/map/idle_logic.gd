@@ -111,6 +111,17 @@ static func projection(state, hud: Dictionary, valve: Dictionary, forts: Array, 
 	return out
 
 
+## The projection the valve panel shows: while dragging, the dragged valve's own; otherwise its
+## "WAR supports N of M" is the committed one (`committed_now` = MapModel.supports_now()), so the
+## panel, the chips and the glyphs share one source while the split slews to the target.
+static func panel_projection(proj: Dictionary, committed_now: Dictionary, dragging: bool) -> Dictionary:
+	if dragging:
+		return proj
+	var out := proj.duplicate()
+	out["war_supports"] = committed_now
+	return out
+
+
 # --- chip text ---------------------------------------------------------------------
 
 static func word(m: String) -> String:

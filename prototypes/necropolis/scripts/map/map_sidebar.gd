@@ -74,7 +74,7 @@ func refresh() -> void:
 	if not visible:
 		return
 	if selected_id == MapModel.VEI:
-		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names))
+		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names, model.readout()))
 		_flush_actions(RelishLogic.vei_actions(model.vei, model.relish))
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
@@ -168,7 +168,7 @@ func _do(act: String) -> void:
 			return
 		"begin":
 			if bool(model.vei.get("can_begin", false)):
-				_confirm.dialog_text = CardLogic.confirm_text(model.vei)
+				_confirm.dialog_text = CardLogic.confirm_text(model.readout())
 				_confirm.popup_centered()
 			return
 	toast.emit(ok_msg if r["ok"] else RelishLogic.reason_text(str(r["reason"])))

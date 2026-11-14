@@ -171,3 +171,17 @@ static func dash_segments(a: Vector2, b: Vector2, dash: float, gap: float) -> Ar
 		out.append([a + dir * d, a + dir * minf(d + dash, total)])
 		d += dash + maxf(gap, 0.0)
 	return out
+
+
+## The dash segments of a -> b as a flat point list for draw_multiline (p0, p1 of each dash in turn).
+static func dash_points(a: Vector2, b: Vector2, dash: float, gap: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for seg in dash_segments(a, b, dash, gap):
+		out.append(seg[0])
+		out.append(seg[1])
+	return out
+
+
+## Whether the preview needs a redraw: she moved at least `min_px` screen px since the last draw.
+static func moved_enough(last: Vector2, now: Vector2, zoom: float, min_px: float) -> bool:
+	return last.distance_to(now) * zoom >= min_px

@@ -47,7 +47,7 @@ func _ready() -> void:
 ## Opens when the report says shown and this session hasn't closed it.
 func open_if_shown() -> void:
 	var rep := _report()
-	if bool(rep.get("shown", false)) and int(rep.get("rev", 0)) != _closed_rev:
+	if AwayLogic.should_open(model.state, demo, rep, _closed_rev):
 		_open(rep)
 
 
@@ -158,6 +158,7 @@ func _ready_row(line: Dictionary) -> Button:
 
 
 func _act(a: Dictionary) -> void:
+	AwayLogic.dismiss(model.state)  # a report is kept until dismissed: acting on a line dismisses it
 	_close()
 	if a["kind"] == "fort":
 		fort_chosen.emit(str(a["id"]))
@@ -166,8 +167,7 @@ func _act(a: Dictionary) -> void:
 
 
 func _dismiss() -> void:
-	if model.state.has_method("cmd_dismiss_away"):  # TODO(api-request #7)
-		model.state.cmd_dismiss_away()
+	AwayLogic.dismiss(model.state)
 	_close()
 
 

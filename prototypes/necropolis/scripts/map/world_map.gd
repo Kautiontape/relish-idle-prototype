@@ -50,6 +50,7 @@ func _ready() -> void:
 		return
 	hud.start()
 	cam.fit(get_viewport_rect().size, hud.top_inset())
+	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
 	for arg in OS.get_cmdline_user_args():
@@ -82,6 +83,7 @@ func _build_world() -> void:
 	route_hint.name = "RouteHint"
 	route_hint.ctx = nodes_view.ctx
 	world.add_child(route_hint)
+	nodes_view.timed_layers.append(route_hint)  # its drawing counts in NODES_MS
 	world.add_child(nodes_view)
 	cam = MapCamera.new()
 	cam.name = "Camera2D"
@@ -109,6 +111,7 @@ func _build_ui() -> void:
 	chip = MapRelishChip.new()
 	chip.model = model
 	chip.hud = hud
+	hud.chip = chip
 	chip.cam = cam
 	chip.toast.connect(hud.show_toast)
 	layer.add_child(chip)
@@ -140,6 +143,7 @@ func _input(e: InputEvent) -> void:
 
 
 func _refit() -> void:
+	MapLogic.configure(ConfigDb.data.get("map_view", {}))  # the deferred re-fit runs before MapNodes re-reads F6's tuning
 	if cam != null and not cam.user_moved:
 		cam.fit(get_viewport_rect().size, hud.top_inset())
 

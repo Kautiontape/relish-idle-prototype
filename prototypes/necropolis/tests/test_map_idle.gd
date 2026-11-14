@@ -14,6 +14,21 @@ class FakeE2 extends RefCounted:
 		return {"rev": 5, "shown": true, "away_s": 100.0, "capped": false, "gains": [], "ready": [], "losses": []}
 
 
+## An E2 away API: every view_away call carries a new rev, cmd_dismiss_away clears `shown`.
+class FakeAwayApi extends RefCounted:
+	var shown := true
+	var rev := 100
+	var dismissed := 0
+
+	func view_away() -> Dictionary:
+		rev += 1
+		return {"rev": rev, "shown": shown, "away_s": 100.0}
+
+	func cmd_dismiss_away() -> void:
+		shown = false
+		dismissed += 1
+
+
 ## One without them (E1).
 class FakeE1 extends RefCounted:
 	pass
@@ -29,6 +44,7 @@ func run() -> int:
 	_projection(t)
 	_switch(t)
 	_away(t)
+	_away_api(t)
 	_spans(t)
 	_demo(t)
 	_contrast(t)
@@ -146,6 +162,29 @@ func _switch(t: TestUtil) -> void:
 	t.ok(AwayLogic.report(FakeE2.new(), demo) == demo, "the debug flag's report wins over the real one")
 
 
+func _away_api(t: TestUtil) -> void:
+	var api := FakeAwayApi.new()
+	var closed := -1
+	# the real API: shown alone decides, whatever the rev did
+	var rep := AwayLogic.report(api, {})
+	t.ok(AwayLogic.should_open(api, false, rep, closed), "a shown real report opens")
+	closed = int(rep["rev"])  # what _close records
+	t.ok(AwayLogic.should_open(api, false, AwayLogic.report(api, {}), closed), "the real report's rev moves every call: the closed rev never matches")
+	# acting on a ready line dismisses through the API, so the panel stays closed on every mount
+	AwayLogic.dismiss(api)
+	t.ok(api.dismissed == 1 and not api.shown, "acting on a line sends cmd_dismiss_away")
+	t.ok(not AwayLogic.should_open(api, false, AwayLogic.report(api, {}), closed), "after a dismissed real report the panel does not reopen")
+	# the stand-in path compares rev
+	var demo := {"shown": true, "rev": 1}
+	t.ok(AwayLogic.should_open(FakeE1.new(), true, demo, -1), "the demo opens")
+	t.ok(not AwayLogic.should_open(FakeE1.new(), true, demo, 1), "the demo's closed rev keeps it closed")
+	t.ok(not AwayLogic.should_open(api, true, demo, 1), "the demo flag uses the rev even when the state has view_away")
+	t.ok(not AwayLogic.should_open(FakeE1.new(), false, {"shown": false}, -1), "not shown: never open")
+	AwayLogic.dismiss(FakeE1.new())
+	AwayLogic.dismiss(null)
+	t.ok(true, "dismiss tolerates a state without cmd_dismiss_away")
+
+
 func _away(t: TestUtil) -> void:
 	t.ok(AwayLogic.duration_text(33120.0) == "9 h 12 m", "9 h 12 m")
 	t.ok(AwayLogic.duration_text(720.0) == "12 m", "under an hour is minutes")
@@ -251,3 +290,9 @@ func _model(t: TestUtil) -> void:
 	m2.clear_projection()
 	t.ok(m2.margin_of(id) == held and m2.margin_sig == before, "cleared: the committed margins are back")
 	t.ok(m2.supports_now() == m2.supports, "cleared: the committed N of M is back")
+	# the valve panel: not dragging, N of M is the committed one even when the target differs
+	var tgt := IdleLogic.projection(s, hud, {"work": 1.0, "war": 0.0, "flood": 0.0}, m2.forts)
+	tgt["war_supports"] = {"n": int(m2.supports["n"]) + 1, "m": int(m2.supports["m"])}  # a target the split hasn't reached
+	t.ok(tgt["war_supports"] != m2.supports_now(), "the target's N of M differs from the committed (setup)")
+	t.ok(IdleLogic.panel_projection(tgt, m2.supports_now(), false)["war_supports"] == m2.supports_now(), "not dragging: the panel's N of M is supports_now()")
+	t.ok(IdleLogic.panel_projection(tgt, m2.supports_now(), true)["war_supports"] == tgt["war_supports"], "dragging: the panel shows the dragged valve's")

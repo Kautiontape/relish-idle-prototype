@@ -21,6 +21,7 @@ var _drain: Label
 var _speed_tag: Label
 var _objective: Label
 var _hint: Label
+var chip: Control  # the Relish chip: the toast sits under it (set by world_map)
 var _toast: Label
 var _victory: Label
 var _speed_row: HBoxContainer
@@ -54,8 +55,8 @@ func _ready() -> void:
 	# bottom line, to the right of the debug speed row, clear of the valve panel and the node labels
 	_anchor_box(_hint, 0.0, 1.0, float(cfg["hint_left_px"]), float(cfg["hint_left_px"]) + float(cfg["hint_half_width_px"]) * 2.0, -float(cfg["hint_bottom_px"]))
 	_toast = _label(int(cfg["font_toast"]), "select")
-	# top-left under the Relish chip: clear of the nodes, near where the controls are
-	_anchor_box(_toast, 0.0, 0.0, float(cfg["toast_left_px"]), float(cfg["toast_left_px"]) + float(cfg["toast_width_px"]), float(cfg["toast_top_px"]))
+	# top-left under the Relish chip (placed by _sit_toast): clear of the nodes, near where the controls are
+	_anchor_box(_toast, 0.0, 0.0, float(cfg["toast_left_px"]), float(cfg["toast_left_px"]) + float(cfg["toast_width_px"]), 0.0)
 	_toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_toast.add_theme_stylebox_override("normal", MapUi.plate_box(float(cfg["controls"]["toast_plate_alpha"]), int(cfg["controls"]["toast_pad_px"])))
 	_toast.modulate.a = 0.0
@@ -276,6 +277,7 @@ func _sign_key(sign: int) -> String:
 
 func tick(delta: float) -> void:
 	if _toast_t > 0.0:
+		_sit_toast()
 		_toast_t -= delta
 		_toast.modulate.a = clampf(_toast_t / float(MapLogic.cfg()["toast_fade_s"]), 0.0, 1.0)
 
@@ -285,8 +287,15 @@ func set_hover_hint(text: String) -> void:
 	_hint.text = text if text != "" else _hint_default
 
 
+## Puts the toast under the Relish chip's bottom edge (the HUD's inset when there is no chip).
+func _sit_toast() -> void:
+	var bottom := chip.position.y + chip.size.y if chip != null and is_instance_valid(chip) else 0.0
+	_toast.offset_top = HudLogic.toast_top(bottom, _last_inset, float(MapLogic.cfg()["toast_gap_px"]))
+
+
 func show_toast(msg: String) -> void:
 	_toast.text = msg
+	_sit_toast()
 	_toast_t = float(MapLogic.cfg()["toast_s"])
 	_toast.modulate.a = 1.0
 

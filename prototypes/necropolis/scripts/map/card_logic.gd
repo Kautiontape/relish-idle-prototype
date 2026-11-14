@@ -202,12 +202,14 @@ static func fronts_met_text(vei: Dictionary) -> String:
 	return str(_c().get("fronts_met_fmt", "%d %d")) % [int(vei.get("fronts_met", 0)), int(vei.get("fronts_required", 0))]
 
 
-## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding).
-static func confirm_text(vei: Dictionary) -> String:
-	var sign := int(vei.get("sign", 0))
-	return str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(float(vei.get("odds", 0.0)) * 100.0),
-		"%s %s" % [MapLogic.sign_glyph(sign), sign_word(sign)] if sign != 0 else sign_word(0),
-		MapLogic.fmt_drain(float(vei.get("drain_s", -1.0)))]
+## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding,
+## "queue empty" with no backlog) from MapModel.readout(), as the top bar and Vei's node read them.
+static func confirm_text(readout: Dictionary) -> String:
+	var st := HudLogic.status(readout)
+	var sign := int(st["sign"])
+	return str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
+		"%s %s" % [st["sign_text"], sign_word(sign)] if sign != 0 else sign_word(0),
+		st["drain_text"]]
 
 
 # --- villages ------------------------------------------------------------------------------

@@ -247,6 +247,12 @@ func _routes(t: TestUtil) -> void:
 	t.ok((segs.back()[1] as Vector2).is_equal_approx(Vector2(100, 0)) or (segs.back()[1] as Vector2).x <= 100.0, "no dash runs past the end")
 	t.ok(RelishLogic.dash_segments(Vector2(3, 3), Vector2(3, 3), 10.0, 5.0).is_empty(), "a zero-length line has no dashes")
 	t.ok(RelishLogic.dash_segments(Vector2.ZERO, Vector2(50, 0), 0.0, 5.0).is_empty(), "a zero dash makes none (no endless loop)")
+	var flat := RelishLogic.dash_points(Vector2.ZERO, Vector2(100, 0), 10.0, 5.0)
+	t.ok(flat.size() == segs.size() * 2 and flat[0] == segs[0][0] and flat[1] == segs[0][1] and flat[flat.size() - 1] == segs.back()[1], "dash_points is the segments' endpoints in order, ready for one draw_multiline")
+	t.ok(RelishLogic.dash_points(Vector2(3, 3), Vector2(3, 3), 10.0, 5.0).is_empty(), "no points for a zero-length line")
+	t.ok(not RelishLogic.moved_enough(Vector2.ZERO, Vector2(0.2, 0.0), 1.0, 0.5), "under half a screen px: no redraw")
+	t.ok(RelishLogic.moved_enough(Vector2.ZERO, Vector2(0.2, 0.0), 2.5, 0.5), "the same drift at zoom 2.5 is half a px: redraw")
+	t.ok(float(MapLogic.cfg()["controls"]["route_redraw_px"]) > 0.0, "route_redraw_px is configured")
 
 
 func _real_state(t: TestUtil) -> void:

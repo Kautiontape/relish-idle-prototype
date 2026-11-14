@@ -20,6 +20,7 @@
   "quiet_width_mult": 0.6,
   "quiet_alpha_floor": 0.9,
   "glow_cap_per_kind": 4,
+  "glow_cap_hysteresis": 0.1,
   "lane_kinds": {
     "war": {
       "hue": "undead",
@@ -162,7 +163,7 @@
   "hint_half_width_px": 300,
   "hint_bottom_px": 26,
   "toast_width_px": 420,
-  "toast_top_px": 196,
+  "toast_gap_px": 8,
   "victory_width_px": 800,
   "victory_up_px": 60,
   "nodes": {
@@ -495,6 +496,7 @@
     "route_dash_px": 10.0,
     "route_gap_px": 8.0,
     "route_width_px": 2.0,
+    "route_redraw_px": 0.5,
     "route_glow": 0.35,
     "route_halo_max_px": 6.0,
     "route_travel_width_px": 1.0,

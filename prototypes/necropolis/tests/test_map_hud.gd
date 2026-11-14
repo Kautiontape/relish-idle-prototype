@@ -112,6 +112,10 @@ func _bar(t: TestUtil) -> void:
 
 
 func _status(t: TestUtil) -> void:
+	var gap := float(MapLogic.cfg()["toast_gap_px"])
+	t.ok(HudLogic.toast_top(200.0, 90.0, gap) == 200.0 + gap, "the toast sits a gap under a two-row bar's chip, below its bottom edge")
+	t.ok(HudLogic.toast_top(130.0, 90.0, gap) >= 130.0 + gap and HudLogic.toast_top(0.0, 90.0, gap) == 90.0 + gap, "one row: under the chip; no chip yet: under the inset")
+	t.ok(not MapLogic.cfg().has("toast_top_px"), "the fixed toast_top_px is gone")
 	t.suite("map_hud-status")
 	var hold := HudLogic.status(_hud([], {"odds": 0.614, "sign": 0, "drain_s": -1.0}))
 	t.ok(hold["odds_text"] == "61%", "odds are an integer percent (%s)" % hold["odds_text"])

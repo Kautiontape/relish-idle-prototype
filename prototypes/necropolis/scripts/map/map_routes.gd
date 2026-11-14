@@ -279,9 +279,13 @@ func _channels(u: float, hue_key: String) -> Dictionary:
 	return LaneStyle.with_hue(Pulse.channels(u, hue), Pulse.channels(LaneStyle.hue_u(u), hue))
 
 
+var _cap_memo := {}  # the glow cap's loud set last time: LaneStyle.quiet_ids keeps it steady
+
+
 func _quiet_ids(lit_rows: Array) -> Dictionary:
 	return LaneStyle.quiet_ids(lit_rows, LaneStyle.selection_focus(selected_id, model.forts_by_id),
-		LaneStyle.relish_focus(model.relish, model.forts_by_id), int(MapLogic.cfg()["glow_cap_per_kind"]))
+		LaneStyle.relish_focus(model.relish, model.forts_by_id), int(MapLogic.cfg()["glow_cap_per_kind"]),
+		_cap_memo, float(MapLogic.cfg()["glow_cap_hysteresis"]))
 
 
 ## A selection changed the focus: re-apply only the lit lanes whose quiet flag flipped.

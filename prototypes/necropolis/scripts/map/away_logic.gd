@@ -27,6 +27,23 @@ static func report(state, demo := {}) -> Dictionary:
 	return {"shown": false}
 
 
+## Whether the panel opens for this report. With the real view_away, `shown` is the only
+## authority (its rev moves every substep); on the stand-in path (the demo, or a state without
+## view_away) the closed rev is compared too.
+static func should_open(state, demo: bool, rep: Dictionary, closed_rev: int) -> bool:
+	if not bool(rep.get("shown", false)):
+		return false
+	if demo or state == null or not state.has_method("view_away"):
+		return int(rep.get("rev", 0)) != closed_rev
+	return true
+
+
+## Dismisses through the API when the state has it (a ready line acts as DISMISS does).
+static func dismiss(state) -> void:
+	if state != null and state.has_method("cmd_dismiss_away"):  # TODO(api-request #7)
+		state.cmd_dismiss_away()
+
+
 ## "9 h 12 m"; "12 m" under an hour; the configured words under a minute.
 static func duration_text(away_s: float) -> String:
 	var s := maxf(away_s, 0.0)

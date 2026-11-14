@@ -119,6 +119,10 @@ func _vei(t: TestUtil) -> void:
 	t.ok(lose.contains("▼") and lose.contains("1m 10s"), "confirm for a losing war: " + lose)
 
 
+func _readout(vei: Dictionary) -> Dictionary:
+	return {"odds": vei.get("odds", 0.0), "sign": vei.get("sign", 0), "drain_s": vei.get("drain_s", -1.0), "backlog": vei.get("backlog", 0.0)}
+
+
 func _village(t: TestUtil) -> void:
 	t.ok(CardLogic.village_owner_text("player") == "held by the necrosis: its people drift to Covington", "player village")
 	t.ok(CardLogic.village_owner_text("vei") == "held by Vei's living", "Vei's village")
@@ -170,7 +174,7 @@ func _blocks(t: TestUtil) -> void:
 
 	var vei := {"backlog": 18450.0, "odds": 0.61, "sign": 1, "diff_ema": 6.1, "drain_s": -1.0, "fronts_met": 1, "fronts_required": 3,
 		"fronts": [{"id": "giants", "need": 24.0, "have": 26.5, "cleared": true, "assigned": ["u1"]}]}
-	var vc := CardBlocksLogic.vei_card(vei, "", [], {"u1": "Old Gristle"})
+	var vc := CardBlocksLogic.vei_card(vei, "", [], {"u1": "Old Gristle"}, _readout(vei))
 	var by := {}
 	for b in vc["blocks"]:
 		by[b["id"]] = b
@@ -181,7 +185,7 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of 3 required", "front row and the met count")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
-	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {})
+	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})
 	var asg: Dictionary = vp["blocks"].filter(func(b): return b["kind"] == "assign")[0]
 	t.ok(asg["options"] == ["", "giants", "swarm", "carvers", "raw"] and asg["labels"][0] == "—" and asg["labels"][1] == "Giants", "selector: a dash plus the four fronts")
 	t.ok(asg["selected"] == "giants" and asg["sub"] == "hulk · brute", "selector shows the current front, the kind and the role")
@@ -233,9 +237,27 @@ func _real(t: TestUtil) -> void:
 				if b.has(k) and b["kind"] in ["para", "row", "versus", "head"] and str(b[k]) == "" :
 					empty = true
 		t.ok(not empty and str(card["title"]) != "" and str(card["sub"]) != "", "fort %s card has no empty required line" % f["id"])
-	var vc := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names)
+	var vc := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names, m.readout())
 	t.ok(str(vc["title"]) != "" and (vc["blocks"] as Array).size() > 8, "the Vei card builds from the real view")
-	t.ok(CardLogic.confirm_text(m.vei).contains("%"), "the confirm text builds from the real view")
+	t.ok(CardLogic.confirm_text(m.readout()).contains("%"), "the confirm text builds from the real view")
+	# the card and the dialog read the one readout the bar and Vei's node draw, with and without the demo
+	for demo in [false, true]:
+		var md := MapModel.new(s)
+		md.nodes_demo = demo
+		md.refresh(true)
+		var ro := md.readout()
+		var st := HudLogic.status(ro)
+		var card: Dictionary = CardBlocksLogic.vei_card(md.vei, "", md.party["party"], md.unit_names, ro)
+		var cb := {}
+		for b in card["blocks"]:
+			cb[b["id"]] = b
+		t.ok(cb["odds"]["value"] == st["odds_text"] and cb["sign"]["value"] == st["sign_text"] and cb["drain"]["value"] == st["drain_text"],
+			"demo=%s: the Vei card's odds, sign and drain are the bar's" % demo)
+		t.ok(CardLogic.confirm_text(ro).contains(st["odds_text"]) and CardLogic.confirm_text(ro).contains(st["drain_text"]), "demo=%s: the dialog repeats the same" % demo)
+	var empty := {"odds": 0.5, "sign": 1, "drain_s": 0.0, "backlog": 0.0}
+	var ec := CardBlocksLogic.vei_card({"backlog": 0.0}, "", [], {}, empty)
+	t.ok(ec["blocks"].filter(func(b): return b["id"] == "drain")[0]["value"] == "queue empty", "an empty backlog reads queue empty on the card")
+	t.ok(CardLogic.confirm_text(empty).contains("queue empty"), "and in the dialog")
 	for v in m.villages:
 		var vcard := CardBlocksLogic.village_card(v, "")
 		t.ok(str(vcard["sub"]) != "" and str(vcard["blocks"][0]["text"]) != "", "village %s card builds" % v["id"])
@@ -259,14 +281,14 @@ func _real(t: TestUtil) -> void:
 	t.ok(_assigned_to(s, target).has(uid) and m.vei["fronts"].filter(func(f): return f["id"] == target)[0]["assigned"].has(uid), "after: view_vei shows the assignment on %s" % target)
 	if cur != "":
 		t.ok(not _assigned_to(s, cur).has(uid), "and she left %s" % cur)
-	var vc2 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names)
+	var vc2 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names, m.readout())
 	var fr: Dictionary = vc2["blocks"].filter(func(b): return b["id"] == "front_" + target)[0]
 	t.ok(str(fr["assigned"]).contains(str(m.unit_names[uid])), "the front row names her: " + str(fr["assigned"]))
 	var asg: Dictionary = vc2["blocks"].filter(func(b): return b["kind"] == "assign" and b["uid"] == uid)[0]
 	t.ok(asg["selected"] == target, "the selector shows %s" % target)
 	t.ok(s.cmd_assign_front(uid, "")["ok"], "an empty front unassigns")
 	m.refresh(true)
-	var vc3 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names)
+	var vc3 := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names, m.readout())
 	var asg3: Dictionary = vc3["blocks"].filter(func(b): return b["kind"] == "assign" and b["uid"] == uid)[0]
 	t.ok(asg3["selected"] == "" and asg3["labels"][0] == "—" and not _assigned_to(s, target).has(uid), "unassigned: the selector falls back to the dash")
 	t.ok(not s.cmd_assign_front("nobody", "giants")["ok"], "an unknown uid is refused")

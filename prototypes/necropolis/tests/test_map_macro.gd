@@ -227,6 +227,33 @@ func _glow_cap(t: TestUtil) -> void:
 	var qt := LaneStyle.quiet_ids(tie, [], [], 2)
 	t.ok(qt.size() == 1 and qt.has("war:covington:c"), "ties break by id, so the choice is stable between refreshes")
 	t.ok(LaneStyle.quiet_ids(lit, [], [], 3).is_empty(), "at the cap nothing is quiet")
+	# hysteresis: two near-equal lanes at the boundary don't flip-flop
+	var memo := {}
+	var h := float(MapLogic.cfg()["glow_cap_hysteresis"])
+	t.ok(h > 0.0, "glow_cap_hysteresis is configured")
+	var near := [_row("war", "covington", "a", 2.0), _row("war", "covington", "b", 1.0), _row("war", "covington", "c", 0.98)]
+	var q1 := LaneStyle.quiet_ids(near, [], [], 2, memo, h)
+	t.ok(q1.size() == 1 and q1.has("war:covington:c"), "first call: the two fastest are loud")
+	near[2]["rate"] = 1.04  # c passes b, but not by 10%
+	var q2 := LaneStyle.quiet_ids(near, [], [], 2, memo, h)
+	t.ok(q2.size() == 1 and q2.has("war:covington:c"), "c just ahead of b does not displace it")
+	near[2]["rate"] = 1.2  # clearly ahead
+	var q3 := LaneStyle.quiet_ids(near, [], [], 2, memo, h)
+	t.ok(q3.size() == 1 and q3.has("war:covington:b"), "c clearly ahead of b displaces it")
+	near[1]["rate"] = 1.25  # b is back ahead of c, but not by 10%
+	var q4 := LaneStyle.quiet_ids(near, [], [], 2, memo, h)
+	t.ok(q4.size() == 1 and q4.has("war:covington:b"), "and b slightly ahead again does not flip it back")
+	var flips := 0
+	var last := q4
+	for i in 8:  # rates wobbling around equality never flip the set
+		near[1]["rate"] = 1.2 + (0.02 if i % 2 == 0 else -0.02)
+		near[2]["rate"] = 1.2 - (0.02 if i % 2 == 0 else -0.02)
+		var qi := LaneStyle.quiet_ids(near, [], [], 2, memo, h)
+		if qi != last:
+			flips += 1
+		last = qi
+	t.ok(flips == 0, "near-equal lanes wobbling at the boundary never flip (%d flips)" % flips)
+	t.ok(LaneStyle.quiet_ids(near, [], [], 2).size() == 1, "without a memo the plain ranking still answers")
 	t.ok(int(MapLogic.cfg()["glow_cap_per_kind"]) >= 1 and not MapLogic.cfg().has("glow_cap"), "glow_cap_per_kind replaces the global glow_cap")
 
 

@@ -18,7 +18,9 @@ func _process(_delta: float) -> void:
 	if ctx == null or ctx.model == null or ctx.model.realm.is_empty():
 		return
 	var rev := ctx.model.rev
-	if ctx.relish_pos != _last_pos or ctx.selected_id != _last_sel or ctx.zoom != _last_zoom or rev != _last_rev:
+	var min_px := float(MapLogic.cfg()["controls"]["route_redraw_px"])
+	if _last_pos == Vector2.INF or RelishLogic.moved_enough(_last_pos, ctx.relish_pos, ctx.zoom, min_px) \
+			or ctx.selected_id != _last_sel or ctx.zoom != _last_zoom or rev != _last_rev:
 		_last_pos = ctx.relish_pos
 		_last_sel = ctx.selected_id
 		_last_zoom = ctx.zoom
@@ -54,9 +56,10 @@ func _preview_route(rel: Dictionary, id: String) -> void:
 	var from := ctx.relish_pos
 	var col := Palette.c("relish")
 	var w := maxf(ctx.px(float(c["route_width_px"])), ctx.hair_w())
-	for seg in RelishLogic.dash_segments(from, to, ctx.px(float(c["route_dash_px"])), ctx.px(float(c["route_gap_px"]))):
+	var pts := RelishLogic.dash_points(from, to, ctx.px(float(c["route_dash_px"])), ctx.px(float(c["route_gap_px"])))
+	if not pts.is_empty():
 		for l in NodeLogic.capped_layers(col, w, float(c["route_glow"]), ctx.px(float(c["route_halo_max_px"]))):
-			draw_polyline(PackedVector2Array([seg[0], seg[1]]), l[1], l[0])
+			draw_multiline(pts, l[1], l[0])  # one call per glow layer, not one per dash
 	var eta := RelishLogic.eta_s(MapModel.to_vec(rel["pos"]).distance_to(to), _travel_speed())
 	text((from + to) * 0.5, RelishLogic.fmt_eta(eta), int(c["route_label_px"]), col, ALIGN_CENTER, float(c["route_label_px"]) * 0.5)
 

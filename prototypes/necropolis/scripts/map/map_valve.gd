@@ -163,7 +163,7 @@ func refresh(force := false) -> void:
 ## The projection of the valve shown: one per distinct valve and model rev, and while dragging at
 ## most valve_send_hz projections a second (the same throttle as the valve sends).
 func _projection(shown: Dictionary) -> Dictionary:
-	var key := "%s|%d" % [str(ValveLogic.percents(shown)), model.rev]
+	var key := "%s|%d|%s" % [str(ValveLogic.percents(shown)), model.rev, str(_dragging)]
 	if key == _proj_key and not _proj.is_empty():
 		return _proj
 	var now := Time.get_ticks_msec() / 1000.0  # lint-ok: projection throttle, not animation
@@ -171,9 +171,7 @@ func _projection(shown: Dictionary) -> Dictionary:
 		return _proj
 	_last_proj_s = now
 	_proj_key = key
-	_proj = IdleLogic.projection(model.state, model.hud, shown, model.forts)
-	if not _dragging and _override.is_empty() and model.hud.has("war_supports"):
-		_proj["war_supports"] = model.hud["war_supports"]  # TODO(api-request #7): the committed row
+	_proj = IdleLogic.panel_projection(IdleLogic.projection(model.state, model.hud, shown, model.forts), model.supports_now(), _dragging)
 	return _proj
 
 

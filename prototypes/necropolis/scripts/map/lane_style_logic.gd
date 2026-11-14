@@ -392,8 +392,10 @@ static func focus(row: Dictionary, focus_ids: Array) -> bool:
 ## With a fort selected (`selected`), its lanes are loud too and every other lane is quiet,
 ## whatever its rate. With none, each kind's `cap_per_kind` highest-rate lanes are loud as well
 ## (ties by id, so the choice holds between refreshes) and the rest quiet; cap_per_kind <= 0 is
-## no cap.
-static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_kind: int) -> Dictionary:
+## no cap. `memo` is the cap's loud set from the last call (read, then rewritten in place):
+## a quiet lane displaces a loud one only when its rate exceeds the weakest loud lane's by
+## `hysteresis` (a fraction), so two near-equal lanes at the boundary don't swap every substep.
+static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_kind: int, memo := {}, hysteresis := 0.0) -> Dictionary:
 	if selected.is_empty() and cap_per_kind <= 0:
 		return {}
 	var loud := {}
@@ -401,6 +403,8 @@ static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_k
 		if focus(r, relish) or focus(r, selected):
 			loud[str(r["id"])] = true
 	if selected.is_empty():
+		var prev := memo.duplicate()
+		memo.clear()
 		var by_kind := {}
 		for r in lit_rows:
 			var k := str(r["kind"])
@@ -408,18 +412,54 @@ static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_k
 				by_kind[k] = []
 			by_kind[k].append(r)
 		for k in by_kind:
-			var ranked: Array = by_kind[k]
-			ranked.sort_custom(func(a, b):
-				var ra := float(a["rate"])
-				var rb := float(b["rate"])
-				return ra > rb or (ra == rb and str(a["id"]) < str(b["id"])))
-			for i in mini(cap_per_kind, ranked.size()):
-				loud[str(ranked[i]["id"])] = true
+			for id in _cap_loud(by_kind[k], cap_per_kind, prev, hysteresis):
+				loud[id] = true
+				memo[id] = true
 	var out := {}
 	for r in lit_rows:
 		if not loud.has(str(r["id"])):
 			out[str(r["id"])] = true
 	return out
+
+
+## One kind's loud-by-cap ids: last call's (`prev`) still-lit ones, topped up from the fastest,
+## then any quiet lane that beats the weakest loud one by the hysteresis takes its place.
+static func _cap_loud(rows: Array, cap: int, prev: Dictionary, hysteresis: float) -> Array:
+	var ranked := rows.duplicate()
+	ranked.sort_custom(_faster)
+	var chosen: Array = []
+	for r in ranked:
+		if chosen.size() < cap and prev.has(str(r["id"])):
+			chosen.append(r)
+	for r in ranked:
+		if chosen.size() < cap and not chosen.has(r):
+			chosen.append(r)
+	while chosen.size() < ranked.size() and not chosen.is_empty():
+		var weakest: Dictionary = chosen[0]
+		for r in chosen:
+			if _faster(weakest, r):
+				weakest = r
+		var challenger: Dictionary = {}
+		for r in ranked:
+			if not chosen.has(r):
+				challenger = r
+				break
+		var w := float(weakest["rate"])
+		if float(challenger["rate"]) <= w + absf(w) * hysteresis:
+			break
+		chosen.erase(weakest)
+		chosen.append(challenger)
+	var out: Array = []
+	for r in chosen:
+		out.append(str(r["id"]))
+	return out
+
+
+## Rate descending, ties by id.
+static func _faster(a: Dictionary, b: Dictionary) -> bool:
+	var ra := float(a["rate"])
+	var rb := float(b["rate"])
+	return ra > rb or (ra == rb and str(a["id"]) < str(b["id"]))
 
 
 # --- chevrons -------------------------------------------------------------------------

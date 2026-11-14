@@ -69,6 +69,12 @@ static func status(readout: Dictionary) -> Dictionary:
 		"sign_text": MapLogic.sign_glyph(sign), "drain_text": drain}
 
 
+## Where the toast's top edge sits: `gap` px under the Relish chip's bottom edge (or the HUD's
+## inset when the chip is not there), so the two never overlap however tall the bar and chip grow.
+static func toast_top(chip_bottom: float, inset: float, gap: float) -> float:
+	return maxf(chip_bottom, inset) + gap
+
+
 ## "×10" off 1x speed, else "".
 static func speed_text(hud: Dictionary) -> String:
 	var ts := float(hud.get("time_scale", 1.0))

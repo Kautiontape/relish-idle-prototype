@@ -19,6 +19,7 @@ var selected_id := "":
 		_dirty = true
 ## GDScript + drawing ms the nodes spent last frame (the bench's NODES_MS).
 var nodes_ms := 0.0
+var timed_layers: Array = []  # sibling layers whose draw_ms also counts here (the route preview)
 
 var ctx := MapNodeCtx.new()
 
@@ -137,13 +138,13 @@ func _process(_delta: float) -> void:
 	if rm != _rm:
 		_rm = rm
 		_dirty = true
-	if model.margin_sig != _margin_sig:
+	var margins_changed := model.margin_sig != _margin_sig  # only the layers whose own signature includes margins redraw
+	if margins_changed:
 		_margin_sig = model.margin_sig
-		_dirty = true
 	_update_relish(rm)
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
-	if refreshed or _dirty:
+	if refreshed or _dirty or margins_changed:
 		_vei_s.sync_rings()
 		for l: MapNodeLayer in _statics:
 			var sig = l.static_sig()
@@ -167,7 +168,7 @@ func _process(_delta: float) -> void:
 ## and a bench sample (keyed by the ground's mode).
 func _record_last_frame() -> void:
 	var ms := _last_us / 1000.0 + _draw_ms
-	for l: MapNodeLayer in _statics + _pulses:
+	for l: MapNodeLayer in _statics + _pulses + timed_layers:
 		ms += l.draw_ms
 		l.draw_ms = 0.0
 	_draw_ms = 0.0

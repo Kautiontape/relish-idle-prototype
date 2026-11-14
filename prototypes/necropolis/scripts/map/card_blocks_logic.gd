@@ -93,17 +93,19 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 
 
 ## Vei's card: the war at a glance, the fronts, the composition. `party` is view_party().party,
-## `names` maps big-undead uids to names.
-static func vei_card(vei: Dictionary, desc: String, party: Array, names: Dictionary) -> Dictionary:
+## `names` maps big-undead uids to names. `readout` is MapModel.readout(): the odds, sign and drain
+## the top bar and Vei's node also draw (an empty backlog reads "queue empty", not "0s").
+static func vei_card(vei: Dictionary, desc: String, party: Array, names: Dictionary, readout: Dictionary) -> Dictionary:
 	var c := _c()
-	var sign := int(vei.get("sign", 0))
+	var st := HudLogic.status(readout)
+	var sign := int(st["sign"])
 	var blocks: Array = []
 	blocks.append({"kind": "massline", "id": "backlog", "mass": MapLogic.fmt_mass(float(vei.get("backlog", 0.0))),
 		"text": str(c.get("vei_backlog_text", ""))})
-	blocks.append(_row("odds", str(c.get("vei_odds_label", "")), "%d%%" % roundi(float(vei.get("odds", 0.0)) * 100.0), "mass"))
-	blocks.append(_row("sign", str(c.get("vei_sign_label", "")), MapLogic.sign_glyph(sign), "text"))
+	blocks.append(_row("odds", str(c.get("vei_odds_label", "")), str(st["odds_text"]), "mass"))
+	blocks.append(_row("sign", str(c.get("vei_sign_label", "")), str(st["sign_text"]), "text"))
 	blocks.append(_row("diff", str(c.get("vei_diff_label", "")), MapLogic.fmt_rate(float(vei.get("diff_ema", 0.0))), "rate"))
-	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), MapLogic.fmt_drain(float(vei.get("drain_s", -1.0))), "mass"))
+	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), str(st["drain_text"]), "mass"))
 	blocks.append(_head("fronts_head", str(c.get("fronts_head", ""))))
 	for r in CardLogic.front_rows(vei.get("fronts", []), names):
 		blocks.append({"kind": "front", "id": "front_%s" % r["id"], "name": r["name"], "count": "%s / %s" % [r["have"], r["need"]],
