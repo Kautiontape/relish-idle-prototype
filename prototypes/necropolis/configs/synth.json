@@ -1,0 +1,25 @@
+{
+  "sample_rate": 22050,
+  "master_db": -6.0,
+  "muted": false,
+  "mute_key": "M",
+  "mute_db": -80.0,
+  "max_db": 6.0,
+  "max_voices": 6,
+  "peak": 0.89,
+  "log_once": ["pulse"],
+  "kinds": {
+    "pulse": {"len_s": 0.24, "gain_db": -24.0, "f0": 72.0, "f1": 42.0, "glide_pow": 0.7, "attack_s": 0.004, "decay_pow": 2.6},
+    "absorb": {"len_s": 0.72, "gain_db": -8.0, "f0": 520.0, "f1": 55.0, "glide_pow": 0.6, "attack_s": 0.03, "decay_pow": 1.4, "saw_mix": 0.25},
+    "raise": {"len_s": 0.8, "gain_db": -9.0, "f0": 70.0, "f1": 240.0, "glide_pow": 1.4, "attack_s": 0.05, "decay_pow": 0.8,
+      "grit": 0.55, "grit_hz": 38.0, "drive": 2.2, "seed": 3},
+    "chime": {"len_s": 0.9, "gain_db": -9.0, "f_lo": 330.0, "f_hi": 1320.0, "attack_s": 0.003, "score_step": 5,
+      "partials": [[1.0, 1.0, 1.0], [2.76, 0.45, 2.2], [5.4, 0.2, 3.6]]},
+    "whoosh": {"len_s": 0.6, "gain_db": -9.0, "cut0": 260.0, "cut1": 3400.0, "peak_at": 0.42, "rise_pow": 1.6, "fall_pow": 2.2, "seed": 11},
+    "horn": {"len_s": 1.1, "gain_db": -9.0, "f0": 98.0, "f1": 92.0, "glide_pow": 1.0, "attack_s": 0.12, "release_s": 0.35,
+      "harmonics": [1.0, 0.6, 0.35, 0.2], "vibrato_hz": 5.0, "vibrato_depth": 0.008, "drive": 1.6},
+    "shatter": {"len_s": 0.55, "gain_db": -10.0, "decay_pow": 5.0, "noise_mix": 0.6, "pings": 6, "ping_lo": 1800.0, "ping_hi": 5200.0,
+      "ping_decay_pow": 7.0, "seed": 7},
+    "flip": {"len_s": 0.32, "gain_db": -10.0, "f0": 660.0, "f1": 990.0, "split": 0.42, "attack_s": 0.004, "decay_pow": 2.0, "tri_mix": 0.4}
+  }
+}
