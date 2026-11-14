@@ -13,7 +13,7 @@ extends Control
 ## set_opening_ask, which beats every rule until cleared with "".
 
 signal inset_changed(inset: float)  # the plates' bottom edge moved (the bar wrapped or its text changed)
-signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.action's {kind, ...}
+signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.action's {kind, ...}, or {kind: "opening"} for an opening ask with no target
 
 var model: MapModel
 
@@ -60,7 +60,7 @@ func _ready() -> void:
 	_objective = Button.new()
 	_objective.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
-	_objective.pressed.connect(func(): next_chosen.emit(_next.get("action", {"kind": "none"})))
+	_objective.pressed.connect(_on_objective_pressed)
 	add_child(_objective)
 	_leave = _label(int(cfg["objective_size_px"]), "text")
 	MapType.style_label(_leave, "text", int(cfg["objective_size_px"]))
@@ -302,6 +302,15 @@ func _wrap_cells() -> void:
 		_bar.add_child(row)
 		for i in r:
 			row.add_child(_cells[i])
+
+
+## A strip click: the pick's action, except that an opening ask with nothing to select (the valve)
+## sends {kind: "opening"}, which the map routes to MapOpening (it flashes the triangle).
+func _on_objective_pressed() -> void:
+	var a: Dictionary = _next.get("action", {"kind": "none"})
+	if str(_next.get("rule", "")) == NextLogic.OPENING and str(a.get("kind", "none")) == "none":
+		a = {"kind": "opening"}
+	next_chosen.emit(a)
 
 
 ## The strip's pick from the model's views (its committed clocks, not a dragged valve's), kept to

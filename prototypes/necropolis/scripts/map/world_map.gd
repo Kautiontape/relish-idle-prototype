@@ -67,6 +67,7 @@ func _ready() -> void:
 		return
 	hud.start()
 	opening.refresh()
+	tithe_explain.open_pending()
 	_fit()
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
@@ -154,6 +155,8 @@ func _build_ui() -> void:
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	# TODO(api-request #18): no view carries a game id, so an earlier game time than a flag's mark means a new game
+	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_eps_s"]))
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -256,6 +259,8 @@ func _act_on(a: Dictionary) -> void:
 			_dive(str(a["to"]))
 		"vei":
 			_select(MapModel.VEI)
+		"opening":
+			opening.flash()
 
 
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss

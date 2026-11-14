@@ -11,8 +11,9 @@ const PATH := "user://map_seen.cfg"
 const SECTION := "seen"
 const VALVE := "valve"
 const TITHE := "tithe_explain"
+const TIMES := "seen_at"  # the file's second section: the game time (view_hud().t) each flag was marked at
 
-static var _memory := {}  # path -> {key: true}: this process's flags, written or not
+static var _memory := {}  # path -> {key: game time marked at (-1: unknown)}: this process's flags, written or not
 
 var _path := PATH
 var _persist := true
@@ -32,13 +33,36 @@ func has(key: String) -> bool:
 	return _persist and bool(_cfg.get_value(SECTION, key, false))
 
 
-## Sets `key`: in memory always, in the file only when this session may write.
-func mark(key: String) -> void:
+## Sets `key`, marked at game time `t` (view_hud().t; -1 unknown): in memory always, in the file
+## only when this session may write.
+func mark(key: String, t := -1.0) -> void:
 	if not _memory.has(_path):
 		_memory[_path] = {}
-	_memory[_path][key] = true
+	_memory[_path][key] = t
 	if _persist:
 		_cfg.set_value(SECTION, key, true)
+		_cfg.set_value(TIMES, key, t)
+		_cfg.save(_path)
+
+
+## A new game forgets what the last one saw. TODO(api-request #18): no view carries a game
+## identity, so a game time earlier than a flag's recorded time (by more than `eps`) stands in for
+## "this is a newer game": that flag is forgotten, in the file (when persisting) and in memory.
+## Flags with no recorded time (-1) are kept.
+func reconcile(now_t: float, eps: float) -> void:
+	var changed := false
+	var mem: Dictionary = _memory.get(_path, {})
+	for key in mem.keys():
+		if float(mem[key]) >= 0.0 and now_t < float(mem[key]) - eps:
+			mem.erase(key)
+	if _persist and _cfg.has_section(SECTION):
+		for key in _cfg.get_section_keys(SECTION):
+			var at := float(_cfg.get_value(TIMES, key, -1.0))
+			if at >= 0.0 and now_t < at - eps:
+				_cfg.erase_section_key(SECTION, key)
+				_cfg.erase_section_key(TIMES, key)
+				changed = true
+	if changed:
 		_cfg.save(_path)
 
 
