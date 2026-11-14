@@ -2,7 +2,10 @@ extends RefCounted
 ## Tests for synth_logic.gd (the shared synthesised sounds): every kind renders to its length,
 ## peaks at or under 1 with no NaN, renders the same twice, and pitches the right way (absorb
 ## falls, raise rises, chime rises with score); the master volume and mute map to a player's
-## volume_db; the cache keys a chime by its score bucket. No autoloads.
+## volume_db; the cache keys a chime by its score bucket; the dungeon's six kinds (tell, slam,
+## muffle, intercept, streak, unravel) behave as designed; AudioPrefs round-trips the saved mute and
+## volume through a temp file, applies them to the Master bus and never writes in a harness
+## session. No autoloads.
 
 const SR := 22050
 
@@ -18,6 +21,8 @@ func run() -> int:
 	_volume(t, c)
 	_cache(t, c)
 	_pcm(t)
+	_dungeon_kinds(t, c)
+	_prefs(t, c)
 	return t.failures
 
 
@@ -121,3 +126,164 @@ func _pcm(t: TestUtil) -> void:
 	t.ok(p.size() == 10, "16-bit PCM is two bytes a sample")
 	t.ok(p.decode_s16(2) == 32767 and p.decode_s16(4) == -32767 and p.decode_s16(0) == 0, "full scale maps to +-32767")
 	t.ok(p.decode_s16(8) == 32767, "an over-range sample clips")
+
+
+func _energy(buf: PackedFloat32Array, from: int, to: int) -> float:
+	var e := 0.0
+	for i in range(from, mini(to, buf.size())):
+		e += buf[i] * buf[i]
+	return e
+
+
+func _dungeon_kinds(t: TestUtil, c: Dictionary) -> void:
+	for kind in ["tell", "slam", "muffle", "intercept", "streak", "unravel"]:
+		t.ok(SynthLogic.KINDS.has(kind), "%s is a kind" % kind)
+		var a := SynthLogic.render(kind, {"step": 7}, SR)
+		t.ok(a.size() == int(float(c["kinds"][kind]["len_s"]) * SR) and a.size() > 0, "%s renders its length" % kind)
+		t.ok(SynthLogic.peak(a) <= 1.0, "%s peaks at most 1" % kind)
+		t.ok(SynthLogic.render(kind, {"step": 7}, SR) == a, "%s renders the same twice" % kind)
+	var ks: Dictionary = c["kinds"]
+	# streak: pitch rises with step; the cache buckets by step.
+	var z0 := SynthLogic.zero_crossings(SynthLogic.render("streak", {"step": 0}, SR), 0, 100000)
+	var z10 := SynthLogic.zero_crossings(SynthLogic.render("streak", {"step": 10}, SR), 0, 100000)
+	var z20 := SynthLogic.zero_crossings(SynthLogic.render("streak", {"step": 20}, SR), 0, 100000)
+	t.ok(z0 < z10 and z10 < z20, "streak pitch rises with step (%d < %d < %d crossings)" % [z0, z10, z20])
+	t.ok(SynthLogic.freq_at("streak", {"step": 0}, 0.0) < SynthLogic.freq_at("streak", {"step": 20}, 0.0), "streak's pitch track rises with step")
+	t.ok(SynthLogic.cache_key("streak", {"step": 4.2}) == "streak:4" and SynthLogic.cache_key("streak", {"step": 4}) == "streak:4", "nearby steps share a streak tick")
+	t.ok(SynthLogic.cache_key("streak", {"step": 5}) != SynthLogic.cache_key("streak", {"step": 4}), "a step apart is another tick")
+	t.ok(SynthLogic.cache_key("streak", {}) == "streak:0", "no step is step 0")
+	t.ok(SynthLogic.cache_key("streak", {"step": 99}) == "streak:20" and SynthLogic.cache_key("streak", {"step": -3}) == "streak:0", "steps clamp to 0..20")
+	# muffle vs slam: same onset, shorter, no ring tail.
+	var slam := SynthLogic.render("slam", {}, SR)
+	var muf := SynthLogic.render("muffle", {}, SR)
+	t.ok(muf.size() < slam.size(), "muffle is shorter than slam")
+	var onset := SR / 50  # 20 ms
+	var dot := 0.0
+	var na := 0.0
+	var nb := 0.0
+	for i in onset:
+		dot += slam[i] * muf[i]
+		na += slam[i] * slam[i]
+		nb += muf[i] * muf[i]
+	t.ok(dot / sqrt(na * nb) > 0.9, "muffle starts like slam (onset correlation %.3f)" % (dot / sqrt(na * nb)))
+	var half_s := _energy(slam, slam.size() / 2, slam.size())
+	var half_m := _energy(muf, muf.size() / 2, muf.size())
+	t.ok(half_m < 0.05 * half_s, "muffle has no ring tail (last-half energy %.2f vs slam %.2f)" % [half_m, half_s])
+	t.ok(float(ks["muffle"]["bell_mix"]) == 0.0 and float(ks["slam"]["bell_mix"]) > 0.0, "only slam has the bell")
+	for key in ["boom_f0", "boom_f1", "boom_glide", "boom_decay", "thump_mix", "thump_decay", "seed"]:
+		t.ok(ks["slam"][key] == ks["muffle"][key], "slam and muffle share %s (the same boom)" % key)
+	# unravel: about 2 s, falls.
+	var un := SynthLogic.render("unravel", {}, SR)
+	t.ok(absf(float(un.size()) / SR - 2.0) < 0.25, "unravel is about 2 s (%.2f)" % (float(un.size()) / SR))
+	var th := _thirds(un)
+	t.ok(th.x > th.y * 1.5, "unravel falls: more crossings early than late (%.4f vs %.4f)" % [th.x, th.y])
+	# tell: shorter and quieter than slam.
+	t.ok(float(ks["tell"]["len_s"]) < float(ks["slam"]["len_s"]) and float(ks["tell"]["gain_db"]) < float(ks["slam"]["gain_db"]), "tell is shorter and quieter than slam")
+	# intercept: a sharp attack.
+	var ic := SynthLogic.render("intercept", {}, SR)
+	var pk := SynthLogic.peak(ic)
+	var pk10 := SynthLogic.peak(ic.slice(0, SR / 100))
+	t.ok(pk10 > 0.99 * pk, "intercept peaks within its first 10 ms (%.3f of %.3f)" % [pk10, pk])
+	t.ok(SynthLogic.peak(ic.slice(SR / 100, ic.size())) <= pk, "intercept's attack is its peak")
+	# the buzz: energy continues after the clang has rung down.
+	t.ok(_energy(ic, int(0.2 * SR), int(0.3 * SR)) > 0.0005 * _energy(ic, 0, SR / 20), "intercept buzzes after the clang")
+
+
+func _fake_game(autosave: bool) -> Node:
+	var scr := GDScript.new()
+	scr.source_code = "extends Node\nvar autosave_enabled := true\n"
+	scr.reload()
+	var n := Node.new()
+	n.set_script(scr)
+	n.name = "Game"
+	n.set("autosave_enabled", autosave)
+	AudioPrefs.game_node = n  # a script test has no scene tree to hold /root/Game
+	return n
+
+
+func _prefs(t: TestUtil, c: Dictionary) -> void:
+	var tmp := "user://test_synth_settings.cfg"
+	var tmp_abs := ProjectSettings.globalize_path(tmp)
+	DirAccess.remove_absolute(tmp_abs)
+	AudioPrefs.settings_path = tmp
+	AudioPrefs.reset()
+	var bus := AudioServer.get_bus_index("Master")
+	t.ok(bus >= 0, "there is a Master bus")
+	var was_mute := AudioServer.is_bus_mute(bus)
+	var was_db := AudioServer.get_bus_volume_db(bus)
+	# pure parts
+	t.ok(SynthLogic.clamp_master_db(-200.0, c) == float(c["mute_db"]) and SynthLogic.clamp_master_db(40.0, c) == float(c["max_db"]), "master_db clamps to [mute_db, max_db]")
+	t.ok(SynthLogic.clamp_master_db(-3.0, c) == -3.0, "an in-range master_db is kept")
+	var d := SynthLogic.merge_prefs({}, c)
+	t.ok(d["muted"] == bool(c["muted"]) and d["master_db"] == float(c["master_db"]), "no saved values give the defaults")
+	var m := SynthLogic.merge_prefs({"muted": true, "master_db": -12}, c)
+	t.ok(m["muted"] == true and m["master_db"] == -12.0, "saved values override the defaults (an int db too)")
+	m = SynthLogic.merge_prefs({"muted": "yes", "master_db": "loud"}, c)
+	t.ok(m["muted"] == bool(c["muted"]) and m["master_db"] == float(c["master_db"]), "wrongly typed values fall back to the defaults")
+	t.ok(SynthLogic.merge_prefs({"master_db": 99.0}, c)["master_db"] == float(c["max_db"]), "a saved db out of range is clamped")
+	# defaults when the file is missing
+	t.ok(not AudioPrefs.muted() and AudioPrefs.master_db() == float(c["master_db"]), "a missing file gives the defaults")
+	# a corrupt file
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string("[audio\nmuted = = nonsense {{{")
+	f.close()
+	AudioPrefs.reset()
+	t.ok(not AudioPrefs.muted() and AudioPrefs.master_db() == float(c["master_db"]), "a corrupt file gives the defaults")
+	DirAccess.remove_absolute(tmp_abs)
+	# a round trip (no Game node: a plain test run may save)
+	t.ok(AudioPrefs.can_save(), "with no Game node a session may save")
+	AudioPrefs.reset()
+	AudioPrefs.set_muted(true)
+	AudioPrefs.set_master_db(-14.0)
+	var cf := ConfigFile.new()
+	t.ok(cf.load(tmp) == OK and cf.get_value("audio", "muted") == true and cf.get_value("audio", "master_db") == -14.0, "the preference is saved to settings.cfg's audio section")
+	AudioPrefs.reset()
+	t.ok(AudioPrefs.muted() and AudioPrefs.master_db() == -14.0, "it reads back after a reload")
+	# apply puts it on the Master bus
+	AudioServer.set_bus_mute(bus, false)
+	AudioServer.set_bus_volume_db(bus, 0.0)
+	AudioPrefs.apply()
+	t.ok(AudioServer.is_bus_mute(bus) and AudioServer.get_bus_volume_db(bus) == -14.0, "apply sets the Master bus mute and volume")
+	AudioPrefs.toggle_mute()
+	t.ok(not AudioServer.is_bus_mute(bus) and not AudioPrefs.muted(), "toggle_mute unmutes the bus")
+	cf = ConfigFile.new()
+	cf.load(tmp)
+	t.ok(cf.get_value("audio", "muted") == false, "the toggle is saved")
+	AudioPrefs.set_master_db(500.0)
+	t.ok(AudioServer.get_bus_volume_db(bus) == float(c["max_db"]), "set_master_db clamps on the bus")
+	# other sections survive a save
+	cf = ConfigFile.new()
+	cf.load(tmp)
+	cf.set_value("other", "keep", 1)
+	cf.save(tmp)
+	AudioPrefs.set_muted(true)
+	cf = ConfigFile.new()
+	cf.load(tmp)
+	t.ok(cf.get_value("other", "keep", 0) == 1, "saving keeps other sections")
+	# Synth mirrors it
+	var synth := Synth.new()
+	t.ok(synth.is_muted() == AudioPrefs.muted() and synth.is_muted(), "Synth.is_muted mirrors AudioPrefs")
+	synth.set_muted(false)
+	t.ok(not AudioPrefs.muted() and not synth.is_muted() and not AudioServer.is_bus_mute(bus), "Synth.set_muted forwards to AudioPrefs and the bus")
+	synth.free()
+	# a harness session applies in memory and never writes
+	var mtime_before := FileAccess.get_modified_time(tmp)
+	var before := FileAccess.get_file_as_string(tmp)
+	var game := _fake_game(false)
+	t.ok(not AudioPrefs.can_save(), "autosave_enabled false is a harness session")
+	AudioPrefs.set_muted(true)
+	AudioPrefs.set_master_db(-30.0)
+	t.ok(AudioServer.is_bus_mute(bus) and AudioServer.get_bus_volume_db(bus) == -30.0, "a harness session still applies to the bus")
+	t.ok(FileAccess.get_file_as_string(tmp) == before and FileAccess.get_modified_time(tmp) == mtime_before, "a harness session does not write the file")
+	game.free()
+	AudioPrefs.game_node = null
+	var game2 := _fake_game(true)
+	t.ok(AudioPrefs.can_save(), "autosave_enabled true may save")
+	game2.free()
+	AudioPrefs.game_node = null
+	# clean up: the file, the static state and the bus
+	DirAccess.remove_absolute(tmp_abs)
+	AudioPrefs.settings_path = AudioPrefs.DEFAULT_PATH
+	AudioPrefs.reset()
+	AudioServer.set_bus_mute(bus, was_mute)
+	AudioServer.set_bus_volume_db(bus, was_db)

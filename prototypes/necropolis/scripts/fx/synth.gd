@@ -14,15 +14,16 @@ extends Node
 ## buffer filling and nothing to underrun when a frame is slow. A small pool of AudioStreamPlayers
 ## (max_voices) lets sounds overlap; when all are busy the longest-playing voice is reused.
 ##
-## Volume: each player's volume_db is master_db + the kind's gain_db (SynthLogic.volume_db).
-## Mute: the mute_key (M) toggles it in any scene, and it holds for the rest of the session (a
-## static, so the next scene's Synth starts muted too); configs/synth.json `muted` is the start.
+## Volume: each player's volume_db is the kind's gain_db; the master level and the mute live on the
+## Master bus (AudioPrefs), saved as a player preference in user://settings.cfg.
+## Mute: the mute_key (M) toggles AudioPrefs in any scene; configs/synth.json `muted` and
+## `master_db` are the defaults. The first Synth of a session applies the saved preference.
 ## Debug sessions print "SYNTH play <kind>" per sound played (log_once kinds only on their first).
 ## Headless and the dummy audio driver are fine: players play into nothing. Reaches ConfigDb and
 ## Game by path, so a headless test can load this script.
 
 static var _cache := {}  # SynthLogic.cache_key -> AudioStreamWAV, shared by every scene's Synth
-static var _session_muted = null  # null until the key toggles it: then it holds across scenes
+static var _prefs_applied := false  # AudioPrefs.apply() runs once per session
 
 var _cfg := {}
 var _players: Array[AudioStreamPlayer] = []
@@ -38,25 +39,29 @@ func _ready() -> void:
 	if live is Dictionary and not (live as Dictionary).is_empty():
 		SynthLogic.configure(live)
 	_cfg = SynthLogic.cfg()
+	if not _prefs_applied:
+		_prefs_applied = true
+		AudioPrefs.apply()
 	var game := get_node_or_null("/root/Game")
 	_debug = game != null and bool(game.get("state").get("debug_enabled"))
 	_mute_key = OS.find_keycode_from_string(str(_cfg.get("mute_key", "")))
 	for i in maxi(int(_cfg.get("max_voices", 1)), 1):
 		var p := AudioStreamPlayer.new()
+		p.bus = AudioPrefs.BUS
 		p.name = "Voice%d" % i
 		add_child(p)
 		_players.append(p)
 		_started_ms.append(0)
 
 
-## Whether sound is off: the session's toggle once pressed, else synth.json `muted`.
+## Whether sound is off: the saved preference (AudioPrefs).
 func is_muted() -> bool:
-	return bool(_session_muted) if _session_muted != null else bool(_cfg.get("muted", false))
+	return AudioPrefs.muted()
 
 
-## Mutes or unmutes for the rest of the session (every scene's Synth); muting stops what plays.
+## Mutes or unmutes (the bus, saved as a player preference); muting stops what plays.
 func set_muted(on: bool) -> void:
-	_session_muted = on
+	AudioPrefs.set_muted(on)
 	if on:
 		for p in _players:
 			p.stop()
@@ -79,7 +84,7 @@ func play(kind: String, params := {}) -> void:
 		return
 	var p := _voice()
 	p.stream = _stream(kind, params)
-	p.volume_db = SynthLogic.volume_db(float(_cfg["master_db"]), float(SynthLogic.kind_cfg(kind, _cfg)["gain_db"]), false, _cfg)
+	p.volume_db = SynthLogic.volume_db(0.0, float(SynthLogic.kind_cfg(kind, _cfg)["gain_db"]), false, _cfg)
 	p.play()
 	_started_ms[_players.find(p)] = Time.get_ticks_msec()
 	if _debug and (not Array(_cfg.get("log_once", [])).has(kind) or not _logged.has(kind)):
@@ -114,4 +119,8 @@ func _voice() -> AudioStreamPlayer:
 func _unhandled_key_input(e: InputEvent) -> void:
 	var k := e as InputEventKey
 	if k != null and k.pressed and not k.echo and k.keycode == _mute_key:
-		set_muted(not is_muted())
+		AudioPrefs.toggle_mute()
+		if AudioPrefs.muted():
+			for p in _players:
+				p.stop()
+		print("Synth: sound ", "OFF" if AudioPrefs.muted() else "ON")

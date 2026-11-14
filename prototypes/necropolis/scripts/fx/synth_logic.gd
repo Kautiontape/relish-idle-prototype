@@ -6,10 +6,15 @@ extends RefCounted
 ## volume_db is master_db + the kind's gain_db (volume_db), so every buffer peaks the same.
 ## Kinds: pulse (the tempo's low thump), absorb (a falling sweep), raise (a rising gritty sweep),
 ## chime (pitch from params.score 0..100), whoosh (the valve swing), horn (the tithe warning),
-## shatter (a backup cracking), flip (a short bright re-ink). Tuning: configs/synth.json.
+## shatter (a backup cracking), flip (a short bright re-ink), and the dungeon's: tell (a low bronze
+## knell, the warning), slam (a heavy boom with a bell tail), muffle (the same boom choked: no
+## tail), intercept (a metal clang and a buzzing stun), streak (a rising tick, params.step 0..20),
+## unravel (a long falling glassy shimmer). Bronze is inharmonic bell partials; glassy is high pure
+## ones. Tuning: configs/synth.json.
 
 const CONFIG_FILE := "res://configs/synth.json"
-const KINDS := ["pulse", "absorb", "raise", "chime", "whoosh", "horn", "shatter", "flip"]
+const KINDS := ["pulse", "absorb", "raise", "chime", "whoosh", "horn", "shatter", "flip",
+	"tell", "slam", "muffle", "intercept", "streak", "unravel"]
 
 static var _cfg := {}
 
@@ -56,7 +61,46 @@ static func score_bucket(score: float, step: float) -> int:
 static func cache_key(kind: String, params := {}, c := {}) -> String:
 	if kind == "chime":
 		return "chime:%d" % score_bucket(float(params.get("score", 0.0)), float(kind_cfg(kind, c)["score_step"]))
+	if kind == "streak":
+		return "streak:%d" % step_bucket(float(params.get("step", 0.0)), kind_cfg(kind, c))
 	return kind
+
+
+## The streak step a tick renders at: clamped to 0..step_max and rounded to step_bucket.
+static func step_bucket(step: float, k: Dictionary) -> int:
+	var b := maxf(float(k["step_bucket"]), 1.0)
+	return roundi(roundf(clampf(step, 0.0, float(k["step_max"])) / b) * b)
+
+
+## The pitch (Hz) of a streak tick's start at `step`: f_lo at 0 to f_hi at step_max, exponentially.
+static func streak_freq(step: float, k: Dictionary) -> float:
+	var s := step_bucket(step, k)
+	return float(k["f_lo"]) * pow(float(k["f_hi"]) / float(k["f_lo"]), s / float(k["step_max"]))
+
+
+# --- player prefs (pure parts; AudioPrefs does the file and the bus) --------------------
+
+## A master level clamped to [mute_db, max_db].
+static func clamp_master_db(db: float, c := {}) -> float:
+	if c.is_empty():
+		c = cfg()
+	return clampf(db, float(c["mute_db"]), float(c["max_db"]))
+
+
+## The saved audio preference over the config's defaults: `saved` may hold `muted` (bool) and
+## `master_db` (float); a missing or wrongly typed key falls back to the default. Returns
+## {"muted": bool, "master_db": float (clamped)}.
+static func merge_prefs(saved: Dictionary, c := {}) -> Dictionary:
+	if c.is_empty():
+		c = cfg()
+	var muted := bool(c["muted"])
+	var db := float(c["master_db"])
+	if saved.get("muted") is bool:
+		muted = saved["muted"]
+	var sd = saved.get("master_db")
+	if (sd is float or sd is int) and not is_nan(float(sd)) and not is_inf(float(sd)):
+		db = float(sd)
+	return {"muted": muted, "master_db": clamp_master_db(db, c)}
 
 
 # --- pitch ----------------------------------------------------------------------------
@@ -83,6 +127,10 @@ static func freq_at(kind: String, params: Dictionary, x: float, c := {}) -> floa
 			return chime_freq(float(params.get("score", 0.0)), k)
 		"flip":
 			return float(k["f0"]) if x < float(k["split"]) else float(k["f1"])
+		"streak":
+			return streak_freq(float(params.get("step", 0.0)), k) * pow(float(k["glide"]), x)
+		"unravel":
+			return glide(float(k["f0"]), float(k["f1"]), x, float(k["glide_pow"]))
 	return 0.0
 
 
@@ -113,6 +161,16 @@ static func render(kind: String, params := {}, sample_rate := 0, c := {}) -> Pac
 			_shatter(buf, k, sr)
 		"flip":
 			_flip(buf, k, sr)
+		"tell":
+			_tell(buf, k, sr)
+		"slam", "muffle":
+			_slam(buf, k, sr)
+		"intercept":
+			_intercept(buf, k, sr)
+		"streak":
+			_streak(buf, params, k, sr, c)
+		"unravel":
+			_unravel(buf, k, sr, c)
 		_:
 			return PackedFloat32Array()
 	return _normalise(buf, float(c["peak"]))
@@ -247,6 +305,115 @@ static func _flip(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
 		ph = fposmod(ph + f / sr, 1.0)
 		var s := sin(TAU * ph) * (1.0 - tm) + (1.0 - 4.0 * absf(ph - 0.5)) * tm
 		buf[i] = s * (_env(i - cut, n - cut, att, dp) if second else _env(i, cut, att, dp))
+
+
+## The sum of bell partials [ratio, amp, decay per s] of fundamental f at time t.
+static func _bell(t: float, f: float, parts: Array) -> float:
+	var s := 0.0
+	for p in parts:
+		s += float(p[1]) * sin(TAU * f * float(p[0]) * t) * exp(-float(p[2]) * t)
+	return s
+
+
+## Fades the last `secs` of buf to silence (so a long ring ends without a click).
+static func _fade_out(buf: PackedFloat32Array, secs: float, sr: int) -> void:
+	var n := buf.size()
+	var m := maxi(int(secs * sr), 1)
+	for i in range(maxi(n - m, 0), n):
+		buf[i] *= float(n - i) / m
+
+
+## tell: a short bronze knell, inharmonic partials (about 1, 2, 2.4, 3, 4.2) with the highs
+## dying fastest, a hard strike and a short release.
+static func _tell(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	for i in buf.size():
+		buf[i] = _bell(float(i) / sr, float(k["f"]), k["partials"]) * minf(float(i) / att, 1.0)
+	_fade_out(buf, float(k["release_s"]), sr)
+
+
+## slam and muffle: a boom (a sine falling from boom_f0 to boom_f1, plus a seeded noise thump)
+## and, for slam, a bronze bell tail at bell_mix. Muffle uses the same boom keys with no bell and
+## a `choke` (extra decay per s), so the two start the same and muffle stops dead.
+static func _slam(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(k["seed"])
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var batt := maxi(int(float(k["bell_attack_s"]) * sr), 1)
+	var ph := 0.0
+	var f0 := float(k["boom_f0"])
+	var f1 := float(k["boom_f1"])
+	for i in buf.size():
+		var t := float(i) / sr
+		ph = fposmod(ph + (f1 + (f0 - f1) * exp(-float(k["boom_glide"]) * t)) / sr, 1.0)
+		var boom := sin(TAU * ph) * exp(-float(k["boom_decay"]) * t)
+		boom += (rng.randf() * 2.0 - 1.0) * float(k["thump_mix"]) * exp(-float(k["thump_decay"]) * t)
+		var s := boom
+		var bm := float(k["bell_mix"])
+		if bm > 0.0:
+			s += bm * _bell(t, float(k["bell_f"]), k["partials"]) * minf(float(i) / batt, 1.0)
+		buf[i] = s * minf(float(i) / att, 1.0) * exp(-float(k["choke"]) * t)
+	_fade_out(buf, float(k["release_s"]), sr)
+
+
+## intercept: a metal clang (inharmonic partials, a noise click) with a buzzing stun under it: a
+## driven saw at buzz_f, chopped by an amplitude wobble at buzz_am_hz, gated on between buzz_from_s
+## and buzz_to_s with soft edges.
+static func _intercept(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(k["seed"])
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var b0 := float(k["buzz_from_s"])
+	var b1 := float(k["buzz_to_s"])
+	var edge := 0.02
+	var ph := 0.0
+	for i in buf.size():
+		var t := float(i) / sr
+		var s := _bell(t, float(k["f"]), k["partials"]) * minf(float(i) / att, 1.0)
+		s += (rng.randf() * 2.0 - 1.0) * float(k["click_mix"]) * exp(-float(k["click_decay"]) * t)
+		if t > b0 - edge and t < b1 + edge:
+			ph = fposmod(ph + float(k["buzz_f"]) / sr, 1.0)
+			var gate := clampf((t - b0) / edge + 1.0, 0.0, 1.0) * clampf((b1 - t) / edge + 1.0, 0.0, 1.0)
+			var wob := 0.5 + 0.5 * sin(TAU * float(k["buzz_am_hz"]) * t)
+			s += float(k["buzz_mix"]) * tanh(float(k["buzz_drive"]) * (2.0 * ph - 1.0)) * wob * gate
+		buf[i] = s
+	_fade_out(buf, float(k["release_s"]), sr)
+
+
+## streak: one soft tick, a sine with tri_mix of triangle at the step's pitch, gliding up a little
+## through it.
+static func _streak(buf: PackedFloat32Array, params: Dictionary, k: Dictionary, sr: int, c: Dictionary) -> void:
+	var n := buf.size()
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var tm := float(k["tri_mix"])
+	var ph := 0.0
+	for i in n:
+		ph = fposmod(ph + freq_at("streak", params, float(i) / n, c) / sr, 1.0)
+		var s := sin(TAU * ph) * (1.0 - tm) + (1.0 - 4.0 * absf(ph - 0.5)) * tm
+		buf[i] = s * _env(i, n, att, float(k["decay_pow"]))
+
+
+## unravel: glassy pure partials of one gliding fundamental, each slightly detuned and shimmering
+## (a slow amplitude wobble at its own phase); the upper ones die first, so the ring comes apart
+## from the top as the pitch falls.
+static func _unravel(buf: PackedFloat32Array, k: Dictionary, sr: int, c: Dictionary) -> void:
+	var n := buf.size()
+	var parts: Array = k["partials"]
+	var phs: Array = []
+	phs.resize(parts.size())
+	phs.fill(0.0)
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	for i in n:
+		var x := float(i) / n
+		var t := float(i) / sr
+		var f := freq_at("unravel", {}, x, c)
+		var s := 0.0
+		for h in parts.size():
+			var p: Array = parts[h]
+			phs[h] = fposmod(phs[h] + f * float(p[0]) * (1.0 + float(k["detune"]) * h) / sr, 1.0)
+			var shim := 1.0 - float(k["shimmer_depth"]) * (0.5 + 0.5 * sin(TAU * float(k["shimmer_hz"]) * t + h * 1.7))
+			s += float(p[1]) * sin(TAU * phs[h]) * shim * exp(-float(p[2]) * t)
+		buf[i] = s * _env(i, n, att, float(k["decay_pow"]))
 
 
 ## Scales to `peak` (a silent buffer stays silent); a NaN sample becomes 0.
