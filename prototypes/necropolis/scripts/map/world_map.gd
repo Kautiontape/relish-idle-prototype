@@ -3,8 +3,13 @@ extends Control
 ## camera) and the UI layer (HUD, sidebar), owns the shared MapModel and the set pieces
 ## (MapSetpieces), and exits only via finished(result).
 ## Reads views through the model and sends commands through GameState; nothing else.
+## Debug flags (harness sessions only, i.e. any --fixture): --valve=w,war,f  --select=<id>
+## --teleport=<id>  --map-clicks=...  --lanes=demo  --nodes=demo  --away=demo  --lanes-report
+## --skip-time=S (once at boot: cmd_debug_skip_time(S) seconds of sim, e.g. past a tithe wave).
 
 signal finished(result: Dictionary)
+
+static var _skipped := false  # --skip-time fires once per run, not per map entry
 
 var world: Node2D
 var cam: MapCamera
@@ -53,6 +58,7 @@ func _ready() -> void:
 	model.realm_cfg = ConfigDb.data.get("realm", {})
 	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
+	_apply_skip_arg()
 	model.refresh(true)
 	_build_world()
 	_build_ui()
@@ -267,6 +273,16 @@ func _apply_valve_arg() -> void:
 			var p := arg.trim_prefix("--valve=").split(",")
 			if p.size() == 3:
 				Game.state.cmd_set_valve(float(p[0]), float(p[1]), float(p[2]))
+
+
+## Debug only: `--skip-time=S` advances the sim S seconds once, at the first map entry.
+func _apply_skip_arg() -> void:
+	if not Game.state.debug_enabled or _skipped:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--skip-time="):
+			_skipped = true
+			print("SKIP_TIME ", Game.state.cmd_debug_skip_time(float(arg.trim_prefix("--skip-time="))))
 
 
 ## Debug only: `--map-clicks=` replays a script in screen px once the camera fit has settled,

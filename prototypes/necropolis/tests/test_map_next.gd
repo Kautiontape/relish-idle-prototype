@@ -196,6 +196,8 @@ func _quiet(t: TestUtil) -> void:
 	var ck := IdleLogic.committed_clocks([real], _hud(1.0))
 	t.ok(NextLogic.leave_text({"forts": [real], "clocks": ck}) == "Safe to leave: first fort falls in ~9 h", "a fort dict carrying fall_s")
 	var hud := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("--skip-time=") and wm.contains("cmd_debug_skip_time(") and wm.contains("not Game.state.debug_enabled or _skipped"), "--skip-time is a once-only debug flag")
 	t.ok(hud.contains("_leave = _label(") and hud.contains("NextLogic.quiet(inp"), "the HUD shows the line from NextLogic.quiet")
 
 
