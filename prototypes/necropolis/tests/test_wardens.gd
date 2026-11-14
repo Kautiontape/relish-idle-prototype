@@ -351,6 +351,18 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var small := WardenLogic.rush_reach(float(sat["reach_px"]), float(sat["rush_px"]), 271.5, rf)
 	t.ok(small < full and small <= 271.5 * rf + 1e-6 and small + 13.0 < 271.5, "in pale-bastion's (543 px) it stops at %d px: with her 13 px radius it still reaches her side stand (%d px), but the ring out to the room's half-size (271 px) is clear" % [small, stand])
 	t.ok(WardenLogic.rush_reach(140.0, 120.0, 100.0, rf) == 140.0 and WardenLogic.rush_reach(140.0, 120.0, 100.0, 0.0) == 260.0, "never below the bash's own reach; frac 0 is no cap")
+	# Step 4, the lever candidates: from lever_min_tier up, never the first dungeon
+	var lc: Dictionary = cfg.duplicate(true)
+	lc["wardens"]["attack_dmg_mult"] = 2.0
+	lc["wardens"]["relish_dmg_mult"] = 3.0
+	var base2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, cfg)["attack"]
+	var lev2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, lc)["attack"]
+	t.ok(is_equal_approx(float(lev2["dmg_unit"]), 2.0 * float(base2["dmg_unit"])) and is_equal_approx(float(lev2["dmg_relish"]), 6.0 * float(base2["dmg_relish"])),
+		"at tier 2 attack_dmg_mult scales all its damage, relish_dmg_mult only Relish's (%s)" % str(lev2))
+	t.ok(str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "bellringer"}, lc)) == str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "bellringer"}, cfg))
+		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lc)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
+		"tier 1 and the first dungeon are untouched by the lever")
+	t.ok(float(cfg["wardens"]["attack_dmg_mult"]) == 1.0 and float(cfg["wardens"]["relish_dmg_mult"]) == 1.0, "both levers rest at 1.0 until chosen")
 	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
 	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:

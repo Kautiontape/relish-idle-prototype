@@ -34,9 +34,17 @@ static func spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	for ph in phases:
 		ph["period_beats"] = float(ph.get("period_beats", 4.0)) * period_mult
 	var attack: Dictionary = a.get("attack", {})
+	# D-d/E Step 4, the risk lever candidates (wardens.lever_min_tier up, never the first dungeon):
+	# attack_dmg_mult on all of its attack's damage (to her undead and to Relish), relish_dmg_mult on its
+	# damage to Relish only. 1.0 each leaves every spec as it was.
+	var lever := not first and tier >= int(w.get("lever_min_tier", 2))
+	var all_m := float(w.get("attack_dmg_mult", 1.0)) if lever else 1.0
+	var rel_m := float(w.get("relish_dmg_mult", 1.0)) if lever else 1.0
 	for k in attack.keys():
 		if str(k).begins_with("dmg_"):
 			attack[k] = float(attack[k]) * dmg_mult
+			if lever:
+				attack[k] = float(attack[k]) * all_m * (rel_m if str(k) == "dmg_relish" else 1.0)
 	var out := {"archetype": arche, "name": str(a.get("name", arche)), "tier": tier, "hp": hp,
 		"radius": float(a.get("radius", 30.0)), "tells": a.get("tells", []).duplicate(),
 		"weak_point": a.get("weak_point", {}), "phases": phases, "attack": attack,
