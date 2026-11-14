@@ -2,7 +2,9 @@ class_name SaveIO
 extends RefCounted
 ## Save-file plumbing, static only: the save spec and its checker, float canonicalisation, the
 ## migrate steps, the shape-and-ids check, slot validation, atomic write, reading a save file,
-## the list_saves scan and the config loader. GameState owns what goes in a save and forwards here.
+## the list_saves scan and the config loader. The mapping between a GameState and its save dict is
+## here too (`dump` and `apply`, the bodies of GameState.to_dict and _apply_save); GameState keeps the
+## public to_dict, from_dict, cmd_save and cmd_load and forwards.
 
 # The save spec: TYPE_FLOAT = any finite number, TYPE_INT = an integral number (JSON has one
 # number type, so a loaded int arrives as a float and is restored with int()), [spec] = an
@@ -423,3 +425,218 @@ static func _load_into(dir: String, out: Dictionary, paths: Dictionary, errors: 
 	for s: String in subs:
 		if not s.begins_with("."):
 			_load_into(dir.path_join(s), out, paths, errors)
+
+
+## §9.1. A deep copy that survives JSON; the open run is written in its forfeited form.
+static func dump(gs: GameState) -> Dictionary:
+	var rl := {
+		"state": gs.relish["state"], "at": gs.relish["at"], "target": gs.relish["target"],
+		"pos": (gs.relish["pos"] as Array).duplicate(), "heading": gs.relish["heading"],
+		"dead_s_left": gs.relish["dead_s_left"], "respawn_with_clone": gs.relish["respawn_with_clone"],
+	}
+	if not gs.run.is_empty():
+		var at: String = gs.run["fort_id"]
+		rl = {"state": "at_vei" if gs.run["kind"] == "boss" else "at_fort", "at": at, "target": "",
+			"pos": gs._node_xy(at), "heading": gs.relish["heading"], "dead_s_left": 0.0, "respawn_with_clone": false}
+	var forts: Array = []
+	for f in gs.realm.forts:
+		forts.append({
+			"id": f["id"], "living": f["living"], "undead": f["undead"], "dead": f["dead"],
+			"held_s": float(f.get("held_s", 0.0)), "flipped_count": int(f.get("flipped_count", 0)),
+			"clears_since_retaken": int(f.get("clears_since_retaken", 0)),
+			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
+			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
+		})
+	var villages: Array = []
+	for tw in gs.towns:
+		villages.append({"id": str(tw["id"]), "owner": {"green": "player", "orange": "vei"}.get(tw["control"], "none")})
+	# TownSim's block, plus what GameState keeps for the town: the tier, the haul target and the WORK
+	# on its way (delivered next substep)
+	var town: Dictionary = gs.town_sim.to_dict()
+	town["tier"] = gs.town_tier
+	town["haul"]["target"] = gs.haul_target
+	town["work_pending"] = gs.work_pending
+	var husk_list: Array = []
+	for h in gs.husks:
+		husk_list.append({"uid": h["uid"], "kind": h["kind"], "rarity": h["rarity"]})
+	var remnant_list: Array = []
+	for r in gs.remnants:
+		remnant_list.append({"uid": r["uid"], "aspect": r["aspect"], "rarity": r["rarity"], "magnitude": int(r["magnitude"])})
+	var bus: Array = []
+	for b in gs.big_undead:
+		bus.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
+			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate()})
+	var vats: Array = []
+	for i in gs._vat_slots():
+		var ve := gs._vat_entry(i)
+		vats.append({"slot": i, "staffed": ve["staffed"], "grow": ve["grow"]})
+	var d := {
+		"v": GameState.SAVE_VERSION, "api_version": GameState.API_VERSION, "seed": gs.rng_seed, "rng": str(gs.rng.state),
+		"t": gs.t, "acc": gs._acc, "next_run_id": gs.next_run_id, "next_uid": gs.next_uid,
+		"applied_runs": gs.applied_runs.duplicate(),
+		"relish": rl,
+		"valve": {"target": gs.valve_target.duplicate(), "current": gs.valve.duplicate()},
+		"realm": {
+			"forts": forts, "cov": gs.realm.cov.duplicate(), "vei": gs.realm.vei.duplicate(),
+			"simulacra": gs.realm.simulacra.duplicate(true), "elapsed": gs.realm.elapsed,
+			"cleared_total": gs.realm.cleared_total, "raised_by_sims": gs.realm.raised_by_sims,
+			"tithe": gs.realm.tithe.duplicate(true),
+		},
+		"villages": villages,
+		"town": town,
+		"stances": {"on": gs.stances_on.duplicate(), "hold": gs._stance_hold.duplicate()},
+		"inventory": {"husks": husk_list, "remnants": remnant_list, "blueprints": gs.blueprints.duplicate(),
+			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": 0},
+		"big_undead": bus,
+		"party": gs.party_uids.duplicate(),
+		"backups": {"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready, "vats": vats},
+		"readout": gs._readout.duplicate(),
+		"ledger": gs._ledger.to_dict(),
+		"won": gs.won, "stats": gs.stats.duplicate(),
+		"cleared_forts": gs.cleared_forts.keys(), "first_dungeon": gs.first_dungeon_id,
+	}
+	(d["cleared_forts"] as Array).sort()
+	return SaveIO.canon(d)
+
+
+## The number in a uid: "h12" -> 12, anything else 0.
+static func uid_num(uid: String) -> int:
+	return int(uid.substr(1)) if uid.length() > 1 and uid.substr(1).is_valid_int() else 0
+
+
+## Applies a migrated, checked save. Types are restored here: ints from floats, Vector2 from [x, y].
+static func apply(gs: GameState, m: Dictionary) -> void:
+	gs._build_realm_field_towns()
+	gs.rng_seed = m["seed"]
+	gs.game_seed = gs.rng_seed.to_int()
+	gs.rng.seed = gs.game_seed  # first: setting the seed resets the state
+	gs.rng.state = (m["rng"] as String).to_int()
+	gs.t = float(m["t"])
+	gs._acc = float(m["acc"])
+	gs.applied_runs = []
+	for id in m["applied_runs"]:
+		gs.applied_runs.append(int(id))
+	var top := maxi(maxi(gs.next_uid, int(m["next_uid"])), 1)
+	for h in m["inventory"]["husks"]:
+		top = maxi(top, uid_num(h["uid"]) + 1)
+	for r in m["inventory"]["remnants"]:
+		top = maxi(top, uid_num(r["uid"]) + 1)
+	for b in m["big_undead"]:
+		top = maxi(top, uid_num(b["uid"]) + 1)
+	gs.next_uid = top
+	gs.next_run_id = maxi(gs.next_run_id, int(m["next_run_id"]))
+	var rl: Dictionary = m["relish"]
+	gs.relish = {
+		"state": rl["state"], "at": rl["at"], "target": rl["target"],
+		"pos": [float(rl["pos"][0]), float(rl["pos"][1])], "heading": float(rl["heading"]),
+		"dead_s_left": float(rl["dead_s_left"]), "respawn_with_clone": bool(rl["respawn_with_clone"]),
+	}
+	if gs.relish["state"] == "travelling" and gs._dist_to(gs.relish["target"]) <= GameState.ARRIVE_EPS:
+		gs._arrive(gs.relish["target"])  # a save taken at ~0 px left loads settled, not stuck
+	gs.valve_target = valve_of(m["valve"]["target"])
+	gs.valve = valve_of(m["valve"]["current"])
+	var rm: Dictionary = m["realm"]
+	var flipped := false
+	for e in rm["forts"]:
+		var f := gs.realm.fort_by_id(e["id"])
+		for k in ["living", "undead", "dead", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
+			f[k] = float(e[k])
+		gs.realm.hold(e["id"], float(e["held_s"]))
+		f["flipped_count"] = int(e["flipped_count"])
+		f["clears_since_retaken"] = int(e["clears_since_retaken"])
+		flipped = flipped or f["flipped_count"] > 0
+	for k in gs.realm.cov:
+		gs.realm.cov[k] = float(rm["cov"][k])
+	for k in gs.realm.vei:
+		gs.realm.vei[k] = float(rm["vei"][k])
+	gs.realm.load_tithe(rm["tithe"], flipped)
+	gs.realm.simulacra = []
+	for s in rm["simulacra"]:
+		var e: Dictionary = (s as Dictionary).duplicate(true)
+		e["charges"] = float(e["charges"])
+		e["rate"] = float(e["rate"])
+		gs.realm.simulacra.append(e)
+	gs.realm.elapsed = float(rm["elapsed"])
+	gs.realm.cleared_total = float(rm["cleared_total"])
+	gs.realm.raised_by_sims = float(rm["raised_by_sims"])
+	var owners := {}
+	for v in m["villages"]:
+		owners[v["id"]] = v["owner"]
+	gs.green_towns = 0
+	for tw in gs.towns:
+		tw["control"] = {"player": "green", "vei": "orange"}.get(owners.get(tw["id"], "none"), "none")
+		if tw["control"] == "green":
+			gs.green_towns += 1
+	var tm: Dictionary = m["town"]
+	gs.town_tier = tm["tier"]
+	gs.haul_target = tm["haul"]["target"]
+	gs.work_pending = float(tm["work_pending"])
+	gs.town_sim.from_dict(tm)  # a load restores the saved staffing states as they were (no restaff)
+	gs.stances_on = []
+	for st in m["stances"]["on"]:
+		gs.stances_on.append(str(st))
+	gs._stance_hold = {}
+	for k in m["stances"]["hold"]:
+		gs._stance_hold[k] = float(m["stances"]["hold"][k])
+	var inv: Dictionary = m["inventory"]
+	gs.husks = []
+	for h in inv["husks"]:
+		gs.husks.append({"uid": h["uid"], "kind": h["kind"], "rarity": h["rarity"]})
+	gs.remnants = []
+	for r in inv["remnants"]:
+		gs.remnants.append({"uid": r["uid"], "aspect": r["aspect"], "rarity": r["rarity"], "magnitude": int(r["magnitude"])})
+	gs.blueprints = []
+	for b in inv["blueprints"]:
+		gs.blueprints.append(str(b))
+	gs.relics = int(inv["relics"])
+	gs.essence = int(inv["essence"])
+	gs.big_undead = []
+	for b in m["big_undead"]:
+		var st := {}
+		for k in GameState.STATS:
+			st[k] = float(b["stats"][k])
+		gs.big_undead.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
+			"stats": st, "place": b["place"], "front": b["front"]})
+	gs.party_uids = []
+	for u in m["party"]:
+		gs.party_uids.append(str(u))
+	gs.vats_staffed = []
+	for v in m["backups"]["vats"]:
+		var slot := int(v["slot"])
+		if slot >= 0 and slot < 1024:
+			while gs.vats_staffed.size() <= slot:
+				gs.vats_staffed.append(false)
+			gs.vats_staffed[slot] = bool(v["staffed"])
+	gs._phylactery_charges = int(m["backups"]["phylactery_charges"])
+	gs.clones_ready = maxi(0, int(m["backups"]["clones_ready"]))
+	# an E1 save's q_raise_ema is the placeholder 0.0: it loads as the neutral 50 (an EMA that starts
+	# at 50 can never reach exactly 0)
+	var qe := float(m["readout"]["q_raise_ema"])
+	gs._readout = {"diff_ema": float(m["readout"]["diff_ema"]), "q_raise_ema": qe if qe != 0.0 else 50.0}
+	gs._diff = 0.0
+	gs._ledger.from_dict(m["ledger"], gs._held())  # after every pool of mass is restored
+	gs.won = bool(m["won"])
+	var sm: Dictionary = m["stats"]
+	gs.stats = {"raised_total": float(sm["raised_total"]), "raids": int(sm["raids"]), "deaths": int(sm["deaths"]),
+		"sims_built": int(sm["sims_built"])}
+	gs.cleared_forts = {}
+	for id in m["cleared_forts"]:
+		gs.cleared_forts[str(id)] = true
+	gs.first_dungeon_id = str(m["first_dungeon"])
+	# session state: nothing of the old session survives a load
+	gs.run = {}
+	gs._field_acc = 0.0
+	gs._events = []
+	gs.time_scale = 1.0
+	gs.paused = false
+	gs.realm.digest_q = gs.digest_q()
+	gs._split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+	gs._realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
+	gs._realm_inputs = {}
+	gs._reset_lanes()
+	gs._prewarm_field()
+	gs.rev += 1
+
+
+static func valve_of(v: Dictionary) -> Dictionary:
+	return {"work": float(v["work"]), "war": float(v["war"]), "flood": float(v["flood"])}
