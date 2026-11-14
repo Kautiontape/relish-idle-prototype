@@ -1,6 +1,6 @@
 extends RefCounted
-## GameState: what is real at E1 behind the remaining commands (STATE-API §4.2-4.4) and
-## the views that echo them (§5). Key sets and types are test_api_contract's job; this
+## GameState: what is real behind the remaining commands (STATE-API §4.2-4.4) and the views
+## that echo them (§5). Key sets and types are test_api_contract's job; this
 ## suite checks behaviour and reasons. Headless, no autoloads.
 
 ## STATE-API §1.4's building ids, in order.
@@ -74,7 +74,7 @@ func _valve() -> void:
 	t.near(r["target"]["war"], 0.4, 1e-12, "normalised war 0.4")
 	t.near(r["target"]["flood"], 0.2, 1e-12, "normalised flood 0.2")
 	h = s.view_hud()
-	t.ok(h["valve_target"] == r["target"] and h["valve"] == r["target"], "target echoed; current = target at E1 (the slew is E2)")
+	t.ok(h["valve_target"] == r["target"] and h["valve"] != r["target"], "target echoed; the current vector slews toward it (game_state_macro)")
 	rv = s.rev
 	for c in [[NAN, 1.0, 1.0, "not_finite"], [1.0, INF, 1.0, "not_finite"], [NAN, -1.0, 0.0, "not_finite"],
 			[-1.0, 1.0, 1.0, "negative"], [0.0, 0.0, -INF, "not_finite"], [0.0, -0.5, 0.0, "negative"],
@@ -94,17 +94,16 @@ func _haul() -> void:
 	t.ok(s.view_town()["haul"] == {"target": "auto", "current": "", "convoys": []}, "haul target auto, no convoy at the start")
 	var r := s.cmd_set_haul_target("greywall")
 	t.ok(r == {"ok": true, "reason": "", "haul_target": "greywall"}, "a fort id is accepted")
-	t.ok(s.gather["target"] == "greywall" and s.view_town()["haul"]["target"] == "greywall", "it sets the legacy target and is echoed")
-	s.assignments["gather"] = 1
-	s.tick(1.0)  # the convoy leaves on the first substep and moves on the second
+	t.ok(s.haul_target == "greywall" and s.view_town()["haul"]["target"] == "greywall", "it is stored and echoed")
+	s.tick(1.0)  # the Charnel House's haulers leave on the first substep and move on the second
 	var hv: Dictionary = s.view_town()["haul"]
-	t.ok(s.gather["phase"] == "out" and s.gather["target"] == "greywall", "the legacy convoy honours it")
+	t.ok(s.town_sim.haul["convoys"].size() == 1 and s.town_sim.haul["convoys"][0]["fort"] == "greywall", "TownSim's convoy honours it")
 	t.ok(hv["current"] == "greywall" and hv["convoys"].size() == 1 and hv["convoys"][0]["to"] == "greywall"
 		and hv["convoys"][0]["from"] == "covington" and hv["convoys"][0]["phase"] == "out", "the convoy shows in view_town")
 	t.ok(hv["convoys"][0]["t"] > 0.0 and hv["convoys"][0]["t"] < 1.0, "trip progress is between 0 and 1")
 	r = s.cmd_set_haul_target("auto")
-	t.ok(r["ok"] and r["haul_target"] == "auto" and s.gather["target"] == "" and s.view_town()["haul"]["target"] == "auto",
-		"auto clears the legacy target (the convoy picks the richest fort)")
+	t.ok(r["ok"] and r["haul_target"] == "auto" and s.view_town()["haul"]["target"] == "auto"
+		and s.view_town()["haul"]["current"] == "greywall", "auto is stored; the convoy out finishes its trip")
 	var rv := s.rev
 	for bad in ["nope", "covington", "vei", "", "bellwether"]:
 		t.ok(s.cmd_set_haul_target(bad) == {"ok": false, "reason": "unknown_fort", "haul_target": ""}, "haul target '%s': unknown_fort" % bad)
@@ -145,12 +144,12 @@ func _staff_caps() -> void:
 	var b := _bld(s, "lot-03")
 	t.ok(b["building_id"] == "charnel_house" and b["slots"] == 3 and b["staffed"] == 3.0 and b["staff_cap"] == -1,
 		"charnel house: 3 haul slots, full, no cap")
-	s.cmd_debug_grant({"workers": 6})  # the live stores: 6 idle at the start, so 12 workers in all
-	t.near(s.view_town()["workers"]["idle"], 5.0, 1e-9, "12 workers fill 7 slots, 5 idle")
+	t.near(s.view_town()["workers"]["idle"], 5.0, 1e-9, "BALANCE §0's 12 workers fill 7 slots, 5 idle")
 	var r := s.cmd_set_staff_cap("lot-03", 1)
 	t.ok(r == {"ok": true, "reason": "", "cap": 1}, "cap 1 accepted")
 	b = _bld(s, "lot-03")
-	t.ok(b["staff_cap"] == 1 and b["staffed"] == 1.0, "the cap is echoed and limits the staffing")
+	t.ok(b["staff_cap"] == 1 and b["staffed"] == 1.0 and s.town_sim.buildings["lot-03"]["staff_cap"] == 1,
+		"the cap is echoed, is TownSim's and limits the staffing")
 	t.near(s.view_town()["workers"]["idle"], 7.0, 1e-9, "the freed workers idle")
 	t.ok(s.cmd_set_staff_cap("lot-03", 9)["cap"] == 9 and _bld(s, "lot-03")["staffed"] == 3.0, "a cap above the slots is accepted (effective min)")
 	t.ok(s.cmd_set_staff_cap("lot-03", 0)["ok"] and _bld(s, "lot-03")["staffed"] == 0.0, "cap 0 empties it")
@@ -304,22 +303,15 @@ func _stubs() -> void:
 	var h: String = s.husks[0]["uid"]
 	var r1: String = s.remnants[0]["uid"]
 	var r2: String = s.remnants[1]["uid"]
-	var zero := {"gold": 0.0, "bone": 0.0, "relics": 0}
 	var before := _snapshot(s)
 	var rv := s.rev
-	t.ok(s.cmd_build("house", "lot-05") == {"ok": true, "reason": "", "cost": zero}, "build: ok with a zero cost")
-	t.ok(s.cmd_build("inn", "lot-01")["ok"], "build: the stub skips the state checks (E2)")
-	t.ok(s.cmd_upgrade("lot-04") == {"ok": true, "reason": "", "level": 0, "cost": zero}, "upgrade: ok, level 0, zero cost")
-	t.ok(s.cmd_upgrade("lot-05")["ok"], "upgrade: an empty lot passes the stub")
-	t.ok(s.cmd_demolish("lot-01") == {"ok": true, "reason": ""}, "demolish: ok (nothing happens)")
-	t.ok(s.cmd_cancel_build("lot-07") == {"ok": true, "reason": "", "refund": zero}, "cancel_build: ok, zero refund")
 	t.ok(s.cmd_craft("phylactery_charge") == {"ok": true, "reason": "", "count": 0}, "craft: ok, count 0")
 	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}, "deploy: ok, nothing planted")
 	var raised := s.cmd_raise_big_undead(h, [r1, r2], "Old Gristle")
 	t.ok(raised["ok"] and raised["big_undead"] == {"uid": "", "name": "", "kind": "", "role": "",
 		"stats": {"power": 0.0, "beef": 0.0, "wits": 0.0, "presence": 0.0, "speed": 0.0}, "place": "", "front": ""},
 		"raise: ok with a full-shape zero entry")
-	t.ok(s.rev == rv + 9, "each stub success adds 1 to rev")
+	t.ok(s.rev == rv + 3, "each stub success adds 1 to rev")
 	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "the stubs change nothing")
 	t.ok(s.cmd_build("nope", "lot-99") == {"ok": false, "reason": "unknown_building", "cost": {}}, "build: unknown_building first")
 	t.ok(s.cmd_build("house", "lot-99")["reason"] == "unknown_lot", "build: unknown_lot")
@@ -346,12 +338,14 @@ func _vats() -> void:
 	t.ok(v["vats"] == [] and v["clones_ready"] == 0 and v["phylactery_charges"] == 0 and v["phylactery_max_per_dungeon"] == 1,
 		"no vats, no backups")
 	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": 0.0, "loses": ["unbanked_loot", "morale"]},
-		"a death now: unmade (legacy rule, immediate respawn at E1)")
-	s.town["vats"] = 2
+		"a death now: unmade (the E1-safe rule, an immediate respawn until E3)")
+	s.clones_ready = 1
+	t.ok(s.cmd_staff_vat(0, true)["reason"] == "unknown_slot", "a clone stock alone makes no vat: it takes a Chapel of Vats")
+	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)
 	t.ok(s.cmd_staff_vat(1, true) == {"ok": true, "reason": "", "staffed": true}, "staff vat 1")
 	v = s.view_backups()
-	t.ok(v["clones_ready"] == 2 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
-		{"slot": 1, "staffed": true, "grow": 1.0, "ready": true}], "legacy vats are ready clones; staffing echoed")
+	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
+		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}], "a level-1 Chapel is 2 vats, one ready for the clone; staffing echoed")
 	t.ok(v["death"]["outcome"] == "clone" and v["death"]["loses"] == ["unbanked_loot"], "with a clone: no morale shock")
 	s.cmd_debug_grant({"big_undead": 1})
 	s.cmd_set_party([s.big_undead[0]["uid"]])
@@ -379,13 +373,17 @@ func _town_views() -> void:
 	var m := _bld(s, "lot-04")
 	t.ok(m["building_id"] == "market" and m["level"] == 1 and m["state"] == "active" and m["progress"] == 1.0
 		and m["slots"] == 2 and m["upkeep"] == {"gold": 0.03, "bone": 0.0} and m["foreman"] == "", "the small market (2 stalls)")
-	t.ok(v["gold"] == s.res["gold"] and v["bone"] == s.res["materials"] and v["bodies"] == s.res["bodies"]
-		and v["bodies_cap"] == 200.0, "the stocks are the live legacy stores (§5.9)")
-	t.ok(v["workers"]["total"] == float(s.idle_undead) and v["workers"]["lifetime_s"] == 480.0
-		and v["living"] == s.res["townsfolk"] and v["living_cap"] == 16.0, "workers and living are live too")
+	t.ok(m["output"] == {"gold": 0.3}, "its output: min(2 · 0.15, 10 · 0.03) gold/s (%s)" % str(m["output"]))
+	t.ok(_bld(s, "lot-02")["output"] == {"mint": 6.0, "burn": 0.6} and _bld(s, "lot-01")["output"] == {},
+		"the pit: P_per_pit mint and its burn; the crypt: none")
+	var ts := s.town_sim
+	t.ok(v["gold"] == ts.gold and v["bone"] == ts.bone and v["bodies"] == ts.bodies and v["bodies_cap"] == 200.0
+		and [v["gold"], v["bone"], v["bodies"]] == [80.0, 30.0, 40.0], "the stocks are TownSim's, BALANCE §0's 80/30/40 (§5.9)")
+	t.ok(v["workers"]["total"] == 12.0 and v["workers"]["total"] == ts.workers and absf(v["workers"]["lifetime_s"] - 480.0 / 0.7) < 1e-9
+		and v["living"] == 10.0 and v["living_cap"] == 16.0, "12 workers, living 10 of 16; Relish home: lifetime 480 / 0.7")
 	s.cmd_debug_grant({"gold": 50.0, "bone": 18.0, "bodies": 40.0, "workers": 6, "living": 2})
 	var vg: Dictionary = s.view_town()
-	t.ok(vg["gold"] == 80.0 and vg["bone"] == 30.0 and vg["bodies"] == 40.0 and vg["workers"]["total"] == 12.0 and vg["living"] == 12.0,
+	t.ok(vg["gold"] == 130.0 and vg["bone"] == 48.0 and vg["bodies"] == 80.0 and vg["workers"]["total"] == 18.0 and vg["living"] == 12.0,
 		"a debug grant shows up in view_town")
 	var hg: Array = s.view_hud()["rates"]
 	t.ok(hg[3]["stock"] == vg["gold"] and hg[4]["stock"] == vg["bone"] and hg[2]["stock"] == vg["bodies"]
@@ -394,8 +392,8 @@ func _town_views() -> void:
 	t.ok(v["relish_home"], "relish_home")
 	var hud := s.view_hud()
 	t.ok(_ids(hud["rates"]) == GameState.HUD_RATE_IDS, "view_hud.rates follow HUD_RATE_IDS")
-	t.ok(hud["rates"][3]["stock"] == s.res["gold"] and hud["rates"][4]["stock"] == s.res["materials"]
-		and hud["rates"][1]["stock"] == float(s.idle_undead), "view_hud stocks are the legacy res (§5.1)")
+	t.ok(hud["rates"][3]["stock"] == ts.gold and hud["rates"][4]["stock"] == ts.bone
+		and hud["rates"][1]["stock"] == ts.workers, "view_hud stocks are TownSim's (§5.1)")
 	t.ok(hud["rates"][0]["stock"] == -1.0 and hud["rates"][0]["cap"] == -1.0 and hud["rates"][2]["cap"] == 200.0
 		and hud["rates"][5]["cap"] == 16.0, "mint has no stock or cap; bodies and living are capped")
 	t.ok(hud["relics_cap"] == 12 and hud["essence_cap"] == 60 and hud["won"] == false, "caps and won")
@@ -415,7 +413,7 @@ func _town_views() -> void:
 		and by["house"]["cost"] == {"gold": 40.0, "bone": 10.0, "relics": 0} and by["house"]["count"] == 0, "house: buildable on lots 5-8")
 	t.ok(by["inn"]["reason"] == "needs_tier" and by["inn"]["lots"] == [] and not by["inn"]["can_build"], "inn: needs_tier")
 	t.ok(by["embalmer"]["reason"] == "needs_tier" and by["embalmer"]["requires"]["blueprint"] == "embalmer", "embalmer: village and a blueprint")
-	t.ok(by["crypt"]["count"] == 1 and by["crypt"]["reason"] == "no_lot", "crypt: built once, no free 2-lot at Hamlet")
+	t.ok(by["crypt"]["count"] == 1 and by["crypt"]["reason"] == "unique", "crypt: built once, and unique")
 	t.ok(c["crafts"] == [{"item_id": "simulacrum", "cost": {"essence": 20, "relics": 1}, "can_craft": false, "reason": "needs_building"},
 		{"item_id": "phylactery_charge", "cost": {"essence": 15, "relics": 0}, "can_craft": false, "reason": "needs_building"}],
 		"crafts need the Ossuary Tower")
@@ -428,11 +426,11 @@ func _town_views() -> void:
 			if e["building_id"] == "house":
 				return e["reason"]
 		return "?"
-	s.res["gold"] = 10.0
-	t.ok(house.call() == "no_gold", "view_catalog no_gold reads the live gold")
-	s.res["gold"] = 80.0
-	s.res["materials"] = 5.0
-	t.ok(house.call() == "no_bone", "view_catalog no_bone reads the live bone (res.materials)")
+	ts.gold = 10.0
+	t.ok(house.call() == "no_gold", "view_catalog no_gold reads TownSim's gold")
+	ts.gold = 80.0
+	ts.bone = 5.0
+	t.ok(house.call() == "no_bone", "view_catalog no_bone reads TownSim's bone")
 
 
 ## buildings.json: the shape every entry has, and values the views rely on.
@@ -472,16 +470,16 @@ func _realm_views() -> void:
 	var s := _mk()
 	s.tick(5.0)
 	var lanes: Array = s.view_lanes()["lanes"]
-	t.ok(lanes.size() == 13, "a WAR lane per fort plus the FLOOD lane")
 	var ok_war := true
 	for i in 12:
 		var f: Dictionary = s.realm.forts[i]
 		var l: Dictionary = lanes[i]
 		ok_war = ok_war and l["id"] == "war:covington:" + f["id"] and l["from"] == "covington" and l["to"] == f["id"]
 		ok_war = ok_war and l["kind"] == "war" and l["rate"] == f["r_in"] and l["bias"] == 1.0 and l["why"] == ""
-	t.ok(ok_war and lanes[0]["rate"] > 0.0, "WAR lanes: forts in world order at the legacy dispatch rate")
-	t.ok(lanes[12] == {"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": ""},
-		"the FLOOD lane to Vei at 0")
+	t.ok(ok_war and lanes[0]["rate"] > 0.0, "WAR lanes first: every fort (all have living), world order, at the dispatch rate")
+	t.ok(lanes[12] == {"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": s.realm.r_flood, "bias": 1.0, "why": ""}
+		and s.realm.r_flood > 0.0, "then the FLOOD lane to Vei at the valve's FLOOD")
+	t.ok(lanes.all(func(l): return l["rate"] > 0.0 or l["why"] != ""), "zero-rate lanes without a callout are omitted")
 	var realm := s.view_realm()
 	t.ok(realm["size"] == [2048.0, 1440.0] and realm["covington"]["pos"] == [1780.0, 1270.0], "size and Covington")
 	t.ok(realm["vei"]["pos"] == [1024.0, 130.0] and realm["vei"]["radius"] == 150.0 and realm["vei"]["pool_cap"] == 600.0, "Vei")
@@ -511,9 +509,11 @@ func _realm_views() -> void:
 	t.ok(vf["field"] == s.field and vf["world_size"] == [2048.0, 1440.0] and vf["tick_hz"] == 5.0, "view_field: the live field")
 	var vv := s.view_vei()
 	t.ok(_ids(vv["fronts"]) == GameState.FRONT_IDS and vv["fronts_required"] == 3 and vv["fronts_met"] == 0, "four fronts, 3 required")
-	t.ok(vv["diff_ema"] == vv["diff"] and vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0, "diff_ema = diff until E2; no tithe")
+	t.ok(vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0 and not vv["tithe"]["warning"], "no flip yet, so no tithe")
 	var l := s.ledger()
-	t.ok(l["sources"].values().all(func(x): return x == 0.0) and l["held"].size() == 9, "ledger: E2 stub, all zero")
+	t.ok(l["held"].keys() == GameState.Ledger.HELD and l["sources"].keys() == GameState.Ledger.SOURCES
+		and l["sinks"].keys() == GameState.Ledger.SINKS,
+		"ledger: every held, source and sink key (test_ledger checks the numbers)")
 
 
 # ----------------------------------------- can_descend / can_begin agreement ----

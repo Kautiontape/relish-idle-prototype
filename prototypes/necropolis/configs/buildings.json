@@ -5,10 +5,11 @@
     "build_work": 0.0,
     "lot_size": 2,
     "max_level": 3,
+    "unique": true,
     "level_costs": [{"gold": 150.0, "bone": 60.0, "relics": 1}, {"gold": 300.0, "bone": 120.0, "relics": 2}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {"big_undead_cap": 1}
+    "effects": {}
   },
   "raising_pit": {
     "cost": {"gold": 90.0, "bone": 40.0, "relics": 0},
@@ -19,7 +20,7 @@
     "level_costs": [{"gold": 180.0, "bone": 80.0, "relics": 0}, {"gold": 270.0, "bone": 120.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"pit": 2},
-    "effects": {"mint": 6.0, "burn": 0.6}
+    "effects": {"pits": 1}
   },
   "charnel_house": {
     "cost": {"gold": 80.0, "bone": 30.0, "relics": 0},
@@ -30,7 +31,7 @@
     "level_costs": [{"gold": 80.0, "bone": 30.0, "relics": 0}, {"gold": 160.0, "bone": 60.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"haul": 3},
-    "effects": {}
+    "effects": {"body_cap": [0.0, 50.0, 100.0]}
   },
   "market": {
     "cost": {"gold": 80.0, "bone": 30.0, "relics": 0},
@@ -63,7 +64,7 @@
     "level_costs": [{"gold": 60.0, "bone": 20.0, "relics": 0}, {"gold": 90.0, "bone": 30.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"morale": 0.03, "living_cap": 2.0}
   },
   "bakery": {
     "cost": {"gold": 50.0, "bone": 10.0, "relics": 0},
@@ -74,7 +75,7 @@
     "level_costs": [{"gold": 100.0, "bone": 20.0, "relics": 0}, {"gold": 150.0, "bone": 30.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"morale": 0.04, "living_cap": 4.0}
   },
   "bone_mill": {
     "cost": {"gold": 60.0, "bone": 20.0, "relics": 0},
@@ -96,7 +97,7 @@
     "level_costs": [{"gold": 300.0, "bone": 100.0, "relics": 0}, {"gold": 450.0, "bone": 150.0, "relics": 0}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {"living_cap": 20.0, "attract": 0.02}
+    "effects": {"living_cap": 20.0, "attract": 0.02, "morale": 0.04}
   },
   "forge": {
     "cost": {"gold": 180.0, "bone": 50.0, "relics": 1},
@@ -118,7 +119,7 @@
     "level_costs": [{"gold": 240.0, "bone": 100.0, "relics": 0}, {"gold": 360.0, "bone": 150.0, "relics": 0}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"body_cap": 100.0, "lifetime_bonus": 0.15}
   },
   "embalmer": {
     "cost": {"gold": 200.0, "bone": 80.0, "relics": 1},
@@ -129,7 +130,7 @@
     "level_costs": [{"gold": 400.0, "bone": 160.0, "relics": 2}, {"gold": 600.0, "bone": 240.0, "relics": 3}],
     "requires": {"tier": "village", "blueprint": "embalmer", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"lifetime_bonus": 0.5}
   },
   "stables": {
     "cost": {"gold": 120.0, "bone": 50.0, "relics": 0},
@@ -140,7 +141,7 @@
     "level_costs": [{"gold": 240.0, "bone": 100.0, "relics": 0}, {"gold": 360.0, "bone": 150.0, "relics": 0}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"haul_speed_mult": 0.3}
   },
   "chapel_of_vats": {
     "cost": {"gold": 300.0, "bone": 120.0, "relics": 2},
@@ -149,9 +150,9 @@
     "lot_size": 2,
     "max_level": 3,
     "level_costs": [{"gold": 600.0, "bone": 240.0, "relics": 4}, {"gold": 900.0, "bone": 360.0, "relics": 6}],
-    "requires": {"tier": "town", "blueprint": "", "building": ""},
+    "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {"tend": 2},
-    "effects": {}
+    "effects": {"vat_slots": 2}
   },
   "ossuary_tower": {
     "cost": {"gold": 450.0, "bone": 150.0, "relics": 3},
@@ -162,7 +163,7 @@
     "level_costs": [{"gold": 900.0, "bone": 300.0, "relics": 6}, {"gold": 1350.0, "bone": 450.0, "relics": 9}],
     "requires": {"tier": "town", "blueprint": "ossuary_tower", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"craft_slots": 1}
   },
   "guildhall": {
     "cost": {"gold": 350.0, "bone": 120.0, "relics": 2},
@@ -184,7 +185,7 @@
     "level_costs": [],
     "requires": {"tier": "town", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"hint_precision": 1}
   },
   "walls": {
     "cost": {"gold": 400.0, "bone": 120.0, "relics": 2},
@@ -193,9 +194,9 @@
     "lot_size": 3,
     "max_level": 1,
     "level_costs": [],
-    "requires": {"tier": "town", "blueprint": "", "building": ""},
+    "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {"living_cap": 30.0}
+    "effects": {"living_cap": 30.0, "morale": 0.05}
   },
   "plaza": {
     "cost": {"gold": 350.0, "bone": 150.0, "relics": 2},
@@ -206,7 +207,7 @@
     "level_costs": [],
     "requires": {"tier": "town", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"morale": 0.08}
   },
   "statue": {
     "cost": {"gold": 400.0, "bone": 150.0, "relics": 3},
@@ -217,7 +218,7 @@
     "level_costs": [],
     "requires": {"tier": "town", "blueprint": "", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"morale": 0.05, "death_shock_mult": 0.5}
   },
   "reliquary": {
     "cost": {"gold": 600.0, "bone": 250.0, "relics": 4},
@@ -226,8 +227,8 @@
     "lot_size": 3,
     "max_level": 1,
     "level_costs": [],
-    "requires": {"tier": "city", "blueprint": "reliquary", "building": ""},
+    "requires": {"tier": "town", "blueprint": "reliquary", "building": ""},
     "jobs": {},
-    "effects": {}
+    "effects": {"relic_cap": 6, "essence_cap": 30}
   }
 }

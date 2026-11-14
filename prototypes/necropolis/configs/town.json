@@ -1,16 +1,4 @@
 {
-  "costs": {
-    "slab_gold_per_current": 25.0,
-    "vat_gold": 30.0,
-    "vat_materials": 8.0,
-    "sim_station_gold": 80.0,
-    "sim_station_materials": 40.0,
-    "simulacrum_materials": 30.0,
-    "forge_materials_per_next_level": 12.0
-  },
-  "simulacrum": { "charges": 300.0, "rate": 3.0 },
-  "forge_quality_bonus": 0.25,
-  "spend_grace": 5.0,
   "lots": [
     { "id": "lot-01", "size": 2, "pos": [0.083, 0.125] },
     { "id": "lot-02", "size": 2, "pos": [0.250, 0.125] },
@@ -38,70 +26,278 @@
     { "id": "lot-24", "size": 3, "pos": [0.917, 0.875] }
   ],
 
-  "copy": {
-    "flavor": "The factory. It never sleeps.",
-    "live_caption": "(live totals tick in the realm)",
-    "effects": {
-      "trade": "+0.03 gold, +0.03 materials /s each · fuels simulacra",
-      "forge": "hands for the forge — enables quality work",
-      "jobs": "+0.06 gold /s each",
-      "gather": "hauls corpses home · travel time scales with distance",
-      "slab": "burns bodies to boost minting"
+  "view": {
+    "hud_h": 72,
+    "dock_w": 560,
+    "refresh_s": 0.25,
+    "tab_h": 44,
+    "ref_px": [1600, 900],
+    "lot_unit_px": 80,
+    "lot_h_px": 88,
+    "lot_gap_px": 16,
+    "lot_pos": {
+      "lot-01": [0.5, 0.4952], "lot-02": [0.4135, 0.3164], "lot-03": [0.5865, 0.3164], "lot-04": [0.5, 0.6763],
+      "lot-05": [0.3173, 0.4952], "lot-06": [0.6827, 0.4952], "lot-07": [0.3673, 0.6763], "lot-08": [0.6327, 0.6763],
+      "lot-09": [0.4519, 0.1546], "lot-10": [0.5481, 0.1546], "lot-11": [0.8365, 0.1546], "lot-12": [0.8365, 0.3164],
+      "lot-13": [0.3173, 0.1546], "lot-14": [0.6827, 0.1546], "lot-15": [0.4135, 0.8454], "lot-16": [0.5865, 0.8454],
+      "lot-17": [0.1442, 0.3164], "lot-18": [0.1442, 0.4952], "lot-19": [0.8365, 0.4952], "lot-20": [0.1442, 0.6763],
+      "lot-21": [0.8365, 0.6763], "lot-22": [0.2712, 0.6763], "lot-23": [0.2019, 0.8454], "lot-24": [0.7981, 0.8454]
     },
-    "task_names": {
-      "trade": "Trade",
-      "forge": "Forge",
-      "jobs": "Jobs",
-      "gather": "Gather bodies",
-      "slab": "Slab crew"
+    "street_nodes": {
+      "gate": [0.025, 0.0338], "w1": [0.2163, 0.2355], "w12": [0.2163, 0.3164], "w2": [0.2163, 0.4058],
+      "w23": [0.2163, 0.4952], "w3": [0.2163, 0.5857], "w34": [0.2163, 0.6763], "w4": [0.2163, 0.7609],
+      "e1": [0.7837, 0.2355], "e12": [0.7837, 0.3164], "e2": [0.7837, 0.4058], "e23": [0.7837, 0.4952],
+      "e3": [0.7837, 0.5857], "e34": [0.7837, 0.6763], "e4": [0.7837, 0.7609], "n1": [0.3558, 0.2355],
+      "n2": [0.5, 0.2355], "n3": [0.6442, 0.2355], "plaza_nw": [0.3942, 0.4058], "plaza_ne": [0.6058, 0.4058],
+      "plaza_w": [0.3942, 0.4952], "plaza_e": [0.6058, 0.4952], "plaza_sw": [0.3942, 0.5857], "plaza": [0.5, 0.5857],
+      "plaza_se": [0.6058, 0.5857], "s1": [0.4135, 0.7609], "s2": [0.5865, 0.7609]
     },
-    "blurbs": {
-      "slab": "mints more undead every second",
-      "vat": "a spare body. If Relish dies, she wakes here.",
-      "sim_station": "unlocks the crafting of simulacra",
-      "simulacrum": "a copy of Relish. She raises the dead where you plant her, then burns out.",
-      "forge": "+0.25 undead quality — they get harder for Vei to digest"
+    "street_edges": [
+      ["gate", "w1"], ["w1", "n1"], ["n1", "n2"], ["n2", "n3"], ["n3", "e1"], ["w1", "w12"],
+      ["w12", "w2"], ["w2", "w23"], ["w23", "w3"], ["w3", "w34"], ["w34", "w4"], ["e1", "e12"],
+      ["e12", "e2"], ["e2", "e23"], ["e23", "e3"], ["e3", "e34"], ["e34", "e4"], ["w2", "plaza_nw"],
+      ["plaza_nw", "plaza_ne"], ["plaza_ne", "e2"], ["plaza_nw", "plaza_w"], ["plaza_w", "plaza_sw"], ["plaza_ne", "plaza_e"], ["plaza_e", "plaza_se"],
+      ["w3", "plaza_sw"], ["plaza_sw", "plaza"], ["plaza", "plaza_se"], ["plaza_se", "e3"], ["w4", "s1"], ["s1", "s2"],
+      ["s2", "e4"]
+    ],
+    "tier_walls": {
+      "village": [
+        [0.1109, 0.1007], [0.1233, 0.0821], [0.9346, 0.0821], [0.9346, 0.9179], [0.0654, 0.9179], [0.0654, 0.1688],
+        [0.0923, 0.1284]
+      ],
+      "town": [
+        [0.0844, 0.0727], [0.0974, 0.0531], [0.5189, 0.0531], [0.5189, 0.0423], [0.5362, 0.0423], [0.5362, 0.0531],
+        [0.9471, 0.0531], [0.9471, 0.0399], [0.9683, 0.0399], [0.9683, 0.0664], [0.9577, 0.0664], [0.9577, 0.4891],
+        [0.9663, 0.4891], [0.9663, 0.5109], [0.9577, 0.5109], [0.9577, 0.9336], [0.9683, 0.9336], [0.9683, 0.9601],
+        [0.9471, 0.9601], [0.9471, 0.9469], [0.5087, 0.9469], [0.5087, 0.9577], [0.4913, 0.9577], [0.4913, 0.9469],
+        [0.0529, 0.9469], [0.0529, 0.9601], [0.0317, 0.9601], [0.0317, 0.9336], [0.0423, 0.9336], [0.0423, 0.5521],
+        [0.0337, 0.5521], [0.0337, 0.5304], [0.0423, 0.5304], [0.0423, 0.1357], [0.0658, 0.1005]
+      ],
+      "city": [
+        [0.0593, 0.0463], [0.0725, 0.0266], [0.5107, 0.0266], [0.5257, 0.0121], [0.5407, 0.0266], [0.9626, 0.0266],
+        [0.9913, 0.0109], [0.9788, 0.047], [0.9788, 0.4812], [0.9904, 0.5], [0.9788, 0.5188], [0.9788, 0.953],
+        [0.9913, 0.9891], [0.9626, 0.9734], [0.515, 0.9734], [0.5, 0.9879], [0.485, 0.9734], [0.0374, 0.9734],
+        [0.0087, 0.9891], [0.0212, 0.953], [0.0212, 0.5573], [0.0096, 0.5384], [0.0212, 0.5196], [0.0212, 0.1035],
+        [0.0408, 0.0741]
+      ]
+    },
+    "glow_ref": 8.0,
+    "glow_always": 0.35,
+    "glow_dim": 0.15,
+    "pip_order": ["mint", "gold", "bodies", "bone", "q", "burn"],
+    "pip_unit": {"mint": 1.0, "gold": 0.1, "bodies": 0.2, "bone": 0.1, "q": 0.01, "burn": 0.1},
+    "pip_ink": {"mint": "undead", "q": "undead", "gold": "living", "bodies": "dead", "bone": "dead", "burn": "dead"},
+    "pip_max": 8,
+    "standin_job_output": {"pit": "mint", "haul": "bodies", "stall": "gold", "mill": "bone", "forge": "q", "tend": "q"},
+    "blueprint_line": {"key": "town", "alpha": 1.0},
+    "idle_line": {"key": "text_dim", "alpha": 0.75},
+    "relish_away_ink": "town",
+    "floor_tint": "town",
+    "floor_reach_px": 44.0,
+    "lot_pulse_gain": 0.4,
+    "bed": {"key": "graticule", "alpha": 1.0, "width_px": 12.0},
+    "bed_line": {"key": "contour", "alpha": 1.0, "width_px": 1.0},
+    "junction_px": 2.0,
+    "flow_ref": 1.0,
+    "flow_glow": 0.9,
+    "chevron_px": 5.0,
+    "chevron_w_mul": 0.8,
+    "blueprint_dash_px": 6.0,
+    "blueprint_w_px": 1.0,
+    "locked_dot": {"key": "contour", "alpha": 1.0, "step_px": 10.0, "size_px": 1.5},
+    "sil_w_px": [1.3, 2.0],
+    "sil_glow": [0.12, 1.0],
+    "sil_core_mix": 0.6,
+    "dim_w_px": 1.1,
+    "band_px": 16.0,
+    "pip_px": 5.0,
+    "pip_gap_px": 3.0,
+    "pip_glow": 0.6,
+    "pip_w_px": 1.4,
+    "slot_tick_px": [3.0, 9.0],
+    "slot_open_w_px": 1.0,
+    "group_gap_px": 8.0,
+    "progress_ticks": 10,
+    "progress_tick_w_px": [2.0, 1.0],
+    "reveal_rate": 0.5,
+    "head": {"core_px": 2.5, "ring_mul": 1.6, "ring_w_px": 1.0, "glow": 1.0},
+    "warn": {"size_px": 14.0, "line_px": 1.4, "glow": 0.6, "bang_px": 1.6, "dot_px": 1.1},
+    "slab_rings_px": [8.0, 16.0, 24.0],
+    "slab_ring_w_px": 1.2,
+    "slab_ring_alpha": 0.7,
+    "slab_ring_reach_px": 70.0,
+    "label_px": 14,
+    "wall_w_px": 1.6,
+    "wall_glow": 0.55,
+    "tierup_beats": 3,
+    "tierup_flash": 1.0,
+    "tierup_head": {"len_px": 48.0, "gain": 2.2, "w_mul": 2.0, "ring_mul": 2.5, "ring_w_px": 1.0, "dot_mul": 1.5, "glow": 1.0},
+    "demo_tierup": {"tier": "village", "delay_s": 1.0},
+    "max_undead_agents": 120,
+    "max_living_agents": 64,
+    "spawn_per_s": 2.0,
+    "steps_per_beat": 4,
+    "step_duty": 0.4,
+    "step_px": 8.0,
+    "undead_dwell_steps": 6,
+    "haul_away_steps": 24,
+    "idle_dwell_steps": [4, 16],
+    "idle_ring_px": [10.0, 28.0],
+    "lane_px": 3.0,
+    "front_gap_px": 7.0,
+    "post_spread": 0.8,
+    "stall_shuffle_px": 2.5,
+    "hammer_deg": 40.0,
+    "living_speed_px": [7.0, 10.0],
+    "living_dwell_s": [3.0, 8.0],
+    "living_sway_px": 1.5,
+    "living_sway_stride_px": 16.0,
+    "trade_arc_s": 1.0,
+    "trade_reach_px": 140.0,
+    "max_trade_arcs": 6,
+    "cart_town_frac": 0.3,
+    "cart_pip_mass": 4.0,
+    "relish_light_r": 180.0,
+    "relish_brighten": 0.15,
+    "flow_smooth_s": 2.5,
+    "foreman_strokes": 4,
+    "standin_sales_per_stall": 0.12,
+    "standin_sales_per_living": 0.05,
+    "gate_reasons": ["needs_tier", "needs_blueprint", "needs_building"],
+    "protected": ["crypt"],
+    "queue_max": 8,
+    "cap_buildings": {"gold": "guildhall", "bone": "ossuary_tower"},
+    "demolish_confirm_s": 3.0,
+    "placement_dim": 0.3,
+    "hit_min_px": 44.0,
+    "cap_bar": {"w_px": 120.0, "h_px": 6.0, "ink": {"gold": "living", "bone": "dead"}},
+    "shortage_fix": {"gold": "market", "bone": "bone_mill", "relics": ""},
+    "shortage_text": {
+      "build": "build a {label}", "staff": "staff the {label}", "relics": "dungeon loot",
+      "unit_relics_one": "relic", "unit_relics": "relics",
+      "tier_progress": " ({have}/{need} buildings, missing: {missing})",
+      "eta": "needs {n} more {unit}, about {eta} at {rate}",
+      "stuck": "{unit} isn't flowing: {fix}",
+      "eta_s": "{n} s", "eta_min": "{n} min", "eta_h": "{n} h", "eta_min_max_s": 5400.0, "eta_s_max_s": 90.0
+    },
+    "benefit": {
+      "rate_effects": {
+        "attract": {"unit": "migrants", "sign": 1.0}
+      },
+      "plain_effects": {
+        "living_cap": "+{n} housing", "stance_slots": "+{n} stance slot", "big_undead_cap": "+{n} big undead cap",
+        "pits": "+{n} raising pit"
+      },
+      "job_text": "{n} {job} jobs",
+      "now": "now",
+      "upgrade_now": "Upgrade gives"
+    },
+    "card": {"w_px": 420.0, "max_h_px": 600.0, "gap_px": 14.0, "edge_px": 8.0, "row_gap_px": 6.0},
+    "hover": {"w_px": 1.0, "alpha": 0.8, "grow_px": 3.0},
+    "suggest": {"w_px": 1.6, "dash_px": 7.0, "alpha": [0.35, 1.0], "tag_prefix": "suggested: ", "x_px": 5.0, "tag_pad_px": 5.0},
+    "ghost": {
+      "alpha": 0.4, "dash_px": 5.0, "w_px": 1.2, "ring_px": 11.0, "ring_w_px": 1.5, "number_px": 14,
+      "hold_px": 4.0, "strike_px": 1.8, "plus_px": 14, "tag_pad_px": 5.0
+    },
+    "flash": {"w_px": 2.0, "grow_px": 18.0, "alpha": 0.9, "text": "construction started"},
+    "reasons": {
+      "_unknown": "can't do that right now",
+      "unknown_building": "no such building",
+      "unknown_lot": "no such lot",
+      "lot_locked": "that lot isn't open at this tier",
+      "lot_taken": "that lot is taken",
+      "lot_too_small": "that lot is too small (needs size {size})",
+      "empty_lot": "nothing is built there",
+      "under_construction": "still under construction",
+      "needs_tier": "needs {tier} tier{progress}",
+      "needs_blueprint": "needs the {label} blueprint: dungeon loot",
+      "needs_building": "needs a {building} first",
+      "no_lot": "no free lot fits (size {size})",
+      "no_gold": "needs {n} {unit}: {fix}",
+      "no_bone": "needs {n} {unit}: {fix}",
+      "no_relics": "needs {n} {unit}: {fix}",
+      "max_level": "already at its top level",
+      "protected": "the Crypt can't be demolished",
+      "not_building": "nothing is under construction there",
+      "queue_full": "the queue is full",
+      "cost_exceeds_cap": "that cost is over the store cap",
+      "unknown_index": "no such queue entry",
+      "bad_order": "that order isn't valid"
+    },
+    "states": {
+      "constructing": "under construction, {pct}% done",
+      "active": "working",
+      "unpaid": "idle: upkeep unpaid",
+      "idle": "idle: no staff"
+    },
+    "needs": {
+      "order": ["tithe", "front", "warden", "gold", "bodies", "housing", "morale"],
+      "bodies_frac": 0.3,
+      "morale_below": 0.5,
+      "serves": {
+        "tithe": ["front", "warden"], "front": ["front"], "warden": ["warden"], "gold": ["gold"],
+        "bodies": ["bodies"], "housing": ["housing"], "morale": ["morale"]
+      },
+      "chips": {
+        "tithe": "tithe wave on {fort}",
+        "tithe_unknown": "tithe wave coming",
+        "front": "the {front} front is short ({have} of {need})",
+        "warden_at": "for the warden at {fort}: big undead and quality",
+        "warden_to": "for the warden heading to {fort}: big undead and quality",
+        "gold": "gold is falling",
+        "bodies": "bodies are low ({have} of {cap})",
+        "housing": "no room for more living",
+        "morale": "morale is low"
+      }
+    },
+    "queue_text": {
+      "next": "next: building now",
+      "waiting_funds": "saving: {why}",
+      "skipped_gate": "skipped: {why}",
+      "queued": "queued",
+      "cap_refusal": "{cost} is over the {store} cap of {cap}: build {label} first",
+      "cap_refusal_none": "{cost} is over the {store} cap of {cap}"
+    },
+    "agent": {
+      "undead_len_px": 12.0, "undead_w_px": 2.0, "undead_glow": 0.6, "core_px": 2.5, "flash_mul": 2.4, "carry_px": 3.0,
+      "living_len_px": 8.0, "living_bend": 0.35, "living_w_px": 1.8, "living_ring_px": 3.0, "living_glow": 0.6,
+      "big_px": 10.0, "big_w_px": 1.6, "big_gap": 0.22, "big_glow": 0.8,
+      "cart_pip_px": 3.0, "cart_pip_gap_px": 1.5, "cart_cols": 3, "cart_w_px": 1.4, "tow_px": 5.0,
+      "arc_w_px": 1.4, "arc_glow": 0.8, "arc_bulge": 0.35, "arc_grow": 0.3, "arc_fade": 0.4, "arc_chevron_px": 4.0,
+      "relish_r_px": 8.0, "relish_core_px": 3.0, "relish_bob_px": 2.0, "relish_w_px": 1.6, "relish_glow": 1.0
     }
   },
-
-  "yard": {
-    "walk_speed": 44.0,
-    "walk_jitter": 14.0,
-    "work_min_s": 0.8,
-    "work_max_s": 2.0,
-    "idle_wander_px": 56.0,
-    "reach_px": 3.0,
-    "worker_r": 4.0,
-    "living_count": 3,
-    "living_walk_speed": 22.0,
-    "living_r": 3.5,
-    "convoy_speed": 34.0,
-    "vat_pod_r": 11.0,
-    "vat_pod_spacing": 30.0,
-    "ground_specks": 70,
-    "stations": {
-      "slab":   { "pos": [0.47, 0.44], "r": 46.0, "label": "The Slab",           "color": "#7a6b96" },
-      "forge":  { "pos": [0.72, 0.22], "r": 30.0, "label": "Forge",              "color": "#6f8fb0" },
-      "jobs":   { "pos": [0.25, 0.19], "r": 27.0, "label": "Job Board",          "color": "#b0a06f" },
-      "trade":  { "pos": [0.80, 0.58], "r": 30.0, "label": "Trading Post",       "color": "#7ab08f" },
-      "gather": { "pos": [0.15, 0.55], "r": 27.0, "label": "Gather Camp",        "color": "#9a8b73" },
-      "vats":   { "pos": [0.33, 0.80], "r": 11.0, "label": "Clone Vats",         "color": "#5f8f7a" },
-      "sim":    { "pos": [0.66, 0.78], "r": 26.0, "label": "Simulacrum Station", "color": "#C04CFF" }
+  "slab": {
+    "anatomy": {
+      "skeleton":  {"muscle": 1, "nerve": 2, "presence": 0, "anima": 0},
+      "zombie":    {"muscle": 2, "nerve": 0, "presence": 0, "anima": 0},
+      "hulk":      {"muscle": 3, "nerve": 1, "presence": 0, "anima": 0},
+      "siren":     {"muscle": 0, "nerve": 1, "presence": 3, "anima": 0},
+      "lich":      {"muscle": 0, "nerve": 3, "presence": 0, "anima": 1},
+      "wraith":    {"muscle": 0, "nerve": 1, "presence": 2, "anima": 1},
+      "revenant":  {"muscle": 2, "nerve": 0, "presence": 1, "anima": 2}
     },
-    "supply_points": {
-      "trade":  [0.90, 0.68],
-      "forge":  [0.58, 0.30],
-      "jobs":   [0.11, 0.30],
-      "gather": [0.09, 0.66],
-      "slab":   [0.34, 0.54]
+    "nouns": {"skeleton": "Skeleton", "zombie": "Zombie", "hulk": "Hulk", "siren": "Siren",
+      "lich": "Lich", "wraith": "Wraith", "revenant": "Revenant"},
+    "group_stats": {"muscle": ["power", "beef"], "nerve": ["wits", "speed"],
+      "presence": ["presence"], "anima": ["*"]},
+    "stat_adjectives": {"power": "Brutal", "beef": "Hulking", "wits": "Clever",
+      "presence": "Looming", "speed": "Fleet"},
+    "hollow_adjective": "Hollow",
+    "blend_threshold": 0.6,
+    "blend_connector": "-",
+    "roles": {
+      "brawler":    {"label": "Brawler",    "good_for": "breaking the raw front and a warden's armour"},
+      "bulwark":    {"label": "Bulwark",    "good_for": "holding the carvers front through warden slams"},
+      "stalker":    {"label": "Stalker",    "good_for": "outwitting the giants and flanking a Shieldwall"},
+      "herald":     {"label": "Herald",     "good_for": "turning the swarm, and morale as a foreman"},
+      "skirmisher": {"label": "Skirmisher", "good_for": "foreman throughput and a dungeon's pace"},
+      "hollow":     {"label": "Hollow",     "good_for": "nothing yet: slot a remnant"}
     },
-    "exit_point": [0.03, 0.78],
-    "roads": [
-      ["slab", "forge"],
-      ["slab", "jobs"],
-      ["slab", "trade"],
-      ["slab", "gather"],
-      ["slab", "sim"]
-    ]
+    "role_by_stat": {"power": "brawler", "beef": "bulwark", "wits": "stalker",
+      "presence": "herald", "speed": "skirmisher"},
+    "stat_fronts": {"power": "raw", "beef": "carvers", "wits": "giants", "presence": "swarm", "speed": ""},
+    "min_remnants": 1,
+    "raise_hold_s": 1.1
   }
 }

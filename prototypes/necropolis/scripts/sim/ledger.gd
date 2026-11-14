@@ -1,0 +1,123 @@
+extends RefCounted
+## The mass ledger (MECHANICS §2.1, STATE-API §4.7), preloaded as `GameState.Ledger`. It has no
+## class_name: the dungeon's inner class `RaidLogic.Ledger` would hide a global `Ledger` (a parse
+## error in raid_logic.gd). `sources` and `sinks` are mass totals since the new game, booked by
+## GameState where mass enters or leaves the world; `held` is never stored: it is summed from the
+## live state on demand. Invariant, at every substep boundary and at any substep length:
+## Σheld + Σsinks == Σsources (error() is the relative miss).
+##
+## Sources:
+##   mint      the raising pits' production (the only true flow in)
+##   debug     net mass the debug commands added: grants of bodies, workers (× worker.mass) and
+##             backlog, and cmd_debug_set_state's forts. A removal books a negative amount.
+##   opening   not a flow: the mass on the board when the count began. A new game's start (the forts'
+##             garrisons, opening workers and bodies); for a save written before the ledger, the mass
+##             it held at load plus its saved `dungeon` sink.
+## Sinks:
+##   cleared        k_clear: garrisons clear corpses off the board
+##   rot_loss       rotted workers' mass that does not come back as bodies (1 − worker.body_return)
+##   rot_overflow   rot return lost to the body cap
+##   haul_overflow  a convoy's load lost to the body cap
+##   burned         pit burn
+##   milled         milled bodies (bone is not mass)
+##   vei_fight      the backlog a lost Vei fight destroys
+##   dungeon        what a raid writeback lost
+##   pool_overflow  Vei's pool overflow; always 0 (her take is limited to the pool's headroom)
+##   store_overflow store caps (IDLE §6); 0 until E2b
+## Held: every pool of mass, see held().
+## Internal transfers book nothing: the valve split, WORK into workers, muster into WAR, haul pickups,
+## combat, drain, Vei's conversion (dead and undead to living) and shipping, surges, the redirect,
+## simulacra and the raid writeback's kills, flip and chaff.
+
+const SOURCES := ["mint", "debug", "opening"]
+const SINKS := ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon", "pool_overflow",
+	"rot_overflow", "haul_overflow", "store_overflow"]
+const HELD := ["fort_living", "fort_undead", "corpses", "backlog", "vei_dead", "living_pool", "bodies",
+	"workers", "convoys", "work_pending"]
+
+var sources := {}
+var sinks := {}
+
+
+func _init() -> void:
+	reset(0.0)
+
+
+## A new count: every total 0 but `opening`.
+func reset(opening: float) -> void:
+	sources = {}
+	for k in SOURCES:
+		sources[k] = 0.0
+	sinks = {}
+	for k in SINKS:
+		sinks[k] = 0.0
+	sources["opening"] = opening
+
+
+func source(key: String, mass: float) -> void:
+	assert(sources.has(key), "Ledger: unknown source %s" % key)
+	sources[key] = float(sources[key]) + mass
+
+
+func sink(key: String, mass: float) -> void:
+	assert(sinks.has(key), "Ledger: unknown sink %s" % key)
+	sinks[key] = float(sinks[key]) + mass
+
+
+## Every pool of mass, now. Forts' living, undead and dead (corpses); Vei's undead queue (backlog),
+## dead queue and living pool; Covington's bodies, workers (× worker.mass) and the loads of convoys
+## on their way home; the WORK the valve sent that TownSim takes next substep.
+static func held(realm: RealmSim, town: TownSim, work_pending: float, worker_mass: float) -> Dictionary:
+	var living := 0.0
+	var undead := 0.0
+	var dead := 0.0
+	for f in realm.forts:
+		living += float(f["living"])
+		undead += float(f["undead"])
+		dead += float(f["dead"])
+	var convoys := 0.0
+	for c in town.haul["convoys"]:
+		convoys += float(c["load"])
+	return {
+		"fort_living": living, "fort_undead": undead, "corpses": dead,
+		"backlog": float(realm.vei["undead_queue"]), "vei_dead": float(realm.vei["dead_queue"]),
+		"living_pool": float(realm.vei["living_pool"]),
+		"bodies": town.bodies, "workers": town.workers * worker_mass, "convoys": convoys,
+		"work_pending": work_pending,
+	}
+
+
+static func total(d: Dictionary) -> float:
+	var s := 0.0
+	for k in d:
+		s += float(d[k])
+	return s
+
+
+## The relative miss of a ledger() dictionary: |Σheld + Σsinks − Σsources| / max(1, |Σsources|).
+static func error(l: Dictionary) -> float:
+	var src := total(l["sources"])
+	return absf(total(l["held"]) + total(l["sinks"]) - src) / maxf(1.0, absf(src))
+
+
+## The save's `ledger` block (STATE-API §9.1).
+func to_dict() -> Dictionary:
+	return {"sources": sources.duplicate(), "sinks": sinks.duplicate()}
+
+
+## Restores the totals from a save's `ledger` block. A block with `sources.opening` was written by
+## this ledger: every total is read back (a missing key reads 0). One without it predates the ledger
+## (E1 and E2a saves, the fixtures), where only `sinks.dungeon` was real: that sink is kept and
+## `opening` is what the save holds now, so the count balances from the load on.
+func from_dict(d: Dictionary, held_now: Dictionary) -> void:
+	var src: Dictionary = d.get("sources", {})
+	var snk: Dictionary = d.get("sinks", {})
+	reset(0.0)
+	if src.has("opening"):
+		for k in SOURCES:
+			sources[k] = float(src.get(k, 0.0))
+		for k in SINKS:
+			sinks[k] = float(snk.get(k, 0.0))
+	else:
+		sinks["dungeon"] = float(snk.get("dungeon", 0.0))
+		sources["opening"] = total(held_now) + float(sinks["dungeon"])

@@ -1,6 +1,6 @@
 {
 	"acc": 0.0,
-	"api_version": 1,
+	"api_version": 3,
 	"applied_runs": [],
 	"backups": {
 		"clones_ready": 0,
@@ -23,47 +23,18 @@
 			"burned": 0.0,
 			"cleared": 0.0,
 			"dungeon": 0.0,
+			"haul_overflow": 0.0,
 			"milled": 0.0,
 			"pool_overflow": 0.0,
 			"rot_loss": 0.0,
+			"rot_overflow": 0.0,
+			"store_overflow": 0.0,
 			"vei_fight": 0.0
 		},
 		"sources": {
 			"debug": 0.0,
-			"mint": 0.0
-		}
-	},
-	"legacy": {
-		"army": {
-			"elite": 0,
-			"soldier": 0
-		},
-		"assignments": {
-			"forge": 0,
-			"gather": 0,
-			"jobs": 0,
-			"slab": 0,
-			"trade": 0
-		},
-		"gather": {
-			"eta": 0.0,
-			"load": 0.0,
-			"phase": "idle",
-			"target": ""
-		},
-		"idle_undead": 6,
-		"res": {
-			"bodies": 0.0,
-			"gold": 30.0,
-			"materials": 12.0,
-			"townsfolk": 10.0
-		},
-		"town": {
-			"forge_level": 0,
-			"sim_stations": 0,
-			"slabs": 1,
-			"trade_level": 0,
-			"vats": 0
+			"mint": 0.0,
+			"opening": 3163.5
 		}
 	},
 	"next_run_id": 1,
@@ -71,7 +42,7 @@
 	"party": [],
 	"readout": {
 		"diff_ema": 0.0,
-		"q_raise_ema": 0.0
+		"q_raise_ema": 50.0
 	},
 	"realm": {
 		"cleared_total": 0.0,
@@ -252,7 +223,13 @@
 		],
 		"raised_by_sims": 0.0,
 		"simulacra": [],
-		"tithe": {},
+		"tithe": {
+			"next_id": 1,
+			"next_s": 0.0,
+			"started": false,
+			"warning": {},
+			"wave": {}
+		},
 		"vei": {
 			"dead_queue": 0.0,
 			"living_pool": 0.0,
@@ -289,7 +266,58 @@
 	},
 	"t": 0.0,
 	"town": {
+		"bodies": 40.0,
+		"bone": 30.0,
+		"buildings": [
+			{
+				"build_level": 1,
+				"building_id": "crypt",
+				"level": 1,
+				"lot_id": "lot-01",
+				"progress": 1.0,
+				"staff_cap": -1,
+				"state": "active",
+				"unpaid_s": 0.0
+			},
+			{
+				"build_level": 1,
+				"building_id": "raising_pit",
+				"level": 1,
+				"lot_id": "lot-02",
+				"progress": 1.0,
+				"staff_cap": -1,
+				"state": "active",
+				"unpaid_s": 0.0
+			},
+			{
+				"build_level": 1,
+				"building_id": "charnel_house",
+				"level": 1,
+				"lot_id": "lot-03",
+				"progress": 1.0,
+				"staff_cap": -1,
+				"state": "active",
+				"unpaid_s": 0.0
+			},
+			{
+				"build_level": 1,
+				"building_id": "market",
+				"level": 1,
+				"lot_id": "lot-04",
+				"progress": 1.0,
+				"staff_cap": -1,
+				"state": "active",
+				"unpaid_s": 0.0
+			}
+		],
+		"forge": {
+			"level": 0,
+			"progress": 0.0
+		},
+		"gold": 80.0,
 		"haul": {
+			"convoys": [],
+			"current": "",
 			"target": "auto"
 		},
 		"ladder": [
@@ -301,32 +329,53 @@
 			"forge",
 			"tend"
 		],
-		"lots": [
-			{
-				"building_id": "crypt",
-				"level": 1,
-				"lot_id": "lot-01"
+		"living": 10.0,
+		"morale": 0.6,
+		"pending": [],
+		"rates": {
+			"bodies": {
+				"haul": 0.0,
+				"in": 0.0,
+				"mill": 0.0,
+				"out": 0.0,
+				"overflow": 0.0,
+				"pit": 0.0,
+				"rot": 0.0
 			},
-			{
-				"building_id": "raising_pit",
-				"level": 1,
-				"lot_id": "lot-02"
+			"bone": {
+				"in": 0.0,
+				"out": 0.0
 			},
-			{
-				"building_id": "charnel_house",
-				"level": 1,
-				"lot_id": "lot-03"
+			"build": 0.0,
+			"feed": 0.0,
+			"forge": 0.0,
+			"gold": {
+				"in": 0.0,
+				"out": 0.0
 			},
-			{
-				"building_id": "market",
-				"level": 1,
-				"lot_id": "lot-04"
+			"haul_trip": 0.0,
+			"living": {
+				"in": 0.0,
+				"out": 0.0
+			},
+			"tend": 0.0,
+			"trade_rate": 0.0,
+			"workers": {
+				"in": 0.0,
+				"lifetime_s": 0.0,
+				"muster": 0.0,
+				"out": 0.0,
+				"rot": 0.0,
+				"slots": 0.0,
+				"steady": 0.0
 			}
-		],
-		"staff_caps": {},
-		"tier": "hamlet"
+		},
+		"shock": 0.0,
+		"tier": "hamlet",
+		"work_pending": 0.0,
+		"workers": 12.0
 	},
-	"v": 1,
+	"v": 2,
 	"valve": {
 		"current": {
 			"flood": 0.15,
