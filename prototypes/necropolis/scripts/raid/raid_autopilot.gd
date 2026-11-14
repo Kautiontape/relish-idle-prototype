@@ -14,7 +14,7 @@ extends RefCounted
 ##
 ## Policy, every `think_frames` physics frames (scene time only; the bot never reads the wall clock):
 ##   route   BFS the room graph to the warden room (held fort: the deepest room, then out an exit).
-##   advance hold back while living enemies are near or in the current/next room; kite from the
+##   advance hold back while living enemies are near, or hostile in the current/next room; kite from the
 ##           nearest enemy and let the undead fight; else walk the path through the wall gaps.
 ##   collect walk to loose motes and corpse piles when no enemy is near.
 ##   raise   when the trance is ready and enough motes are near, draw a 44-point circle whose jitter
@@ -764,10 +764,12 @@ func _decide(pos: Vector2) -> Vector2:
 	if tgt != null:
 		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
 		return _aim_at(pos, tgt)
-	# hold while living remain in this room or the next
+	# hold while hostile living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
 	for e in living:
+		if not e._aggro:
+			continue   # only a fight holds her: a calm foe a room on, out of the army's reach, held the spawn ~20 s (D-d/E 3c)
 		var er := RaidLogic.room_of(_raid.layout, e.global_position)
 		if er >= 0 and (er == _cur_room or er == nxt) \
 				and not (_det_state == "taken" and er == int(_det["room"]) and er != _cur_room):
