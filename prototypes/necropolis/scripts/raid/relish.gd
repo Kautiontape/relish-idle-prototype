@@ -140,7 +140,7 @@ func _draw_hit_cue() -> void:
 	var z: float = maxf(0.05, raid.cam.zoom.x) if raid.cam != null else 1.0
 	var fs := roundi(float(ConfigDb.data.get("raid", {}).get("wardens", {}).get("label_px", 15)) / z)
 	var text := ""
-	var col := Color()
+	var col := Palette.c("danger")
 	if _struck_t < hold and _struck_t <= _soaked_t:   # the most recent blow's cue
 		var pts := PackedVector2Array()
 		for k in 17:
