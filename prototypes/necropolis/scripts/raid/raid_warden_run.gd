@@ -143,15 +143,15 @@ func breaks_pack(u: RaidUnit) -> bool:
 
 
 ## The pack unit nearest `u` while a pack stands and `u` breaks it (its target), else null. At the
-## Shieldwall (D-d/E 3c) pinning outranks the hunt: while a bash tell shows, and for a wits big holding
-## its post at the wall's back (RaidShieldwall.posted), the target is the wall (its flank role, where it
-## strikes the pack units that come to it: RaidUnit._pack_in_reach); the hunt goes to the pack breakers
-## not posted there.
+## Shieldwall (D-d/E 3c) pinning outranks the hunt: a wits big holding its post at the wall's back
+## (RaidShieldwall.posted) keeps the wall as its target (its flank role, where it strikes the pack units
+## that come to it: RaidUnit._pack_in_reach); the hunt goes to the pack breakers not posted there. (No
+## clause for a bash tell: the wall holds its bash while its pack stands, so no tell shows then.)
 func pack_target(u: RaidUnit):
 	if not breaks_pack(u):
 		return null
 	if warden is RaidShieldwall and warden.pack_alive() > 0 \
-			and ((warden as RaidShieldwall).planted or (warden as RaidShieldwall).posted(u)):
+			and (warden as RaidShieldwall).posted(u):
 		return warden
 	var best = null
 	var bd := INF

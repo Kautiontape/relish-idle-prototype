@@ -451,7 +451,7 @@ func run() -> int:
 	var us_src := _func_body("res://scripts/raid/raid_unit.gd", "func scatter(")
 	t.ok(us_src.contains("raid.enemies.erase(self)") and not us_src.contains("on_unit_died"), "a scattered unit leaves the enemies without a kill")
 	var pt_src := _func_body("res://scripts/raid/raid_warden_run.gd", "func pack_target(")
-	t.ok(pt_src.contains(".planted or (warden as RaidShieldwall).posted(u)") and pt_src.contains("return warden"), "at the Shieldwall a posted wits big (and every pack breaker through a tell) keeps the wall (D-d/E 3c)")
+	t.ok(pt_src.contains("(warden as RaidShieldwall).posted(u)") and pt_src.contains("return warden") and not pt_src.contains(".planted"), "at the Shieldwall a posted wits big keeps the wall (D-d/E 3c; no tell clause: the wall holds its bash while its pack stands)")
 	return t.failures
 
 
