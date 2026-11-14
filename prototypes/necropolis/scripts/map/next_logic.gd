@@ -3,10 +3,12 @@ extends RefCounted
 ## Pure logic for the objective strip's one next action (no autoloads, so headless tests compile
 ## it) and for which forts are worth a raid. The strip picks one line by priority from the views:
 ##   1. fall    a held fort about to fall (the smallest fall_s under next_fall_warn_s);
-##   2. raid    a raid ready (raid_ready), as the away panel's ready line {text, kind, target};
-##   3. queue   the build queue empty (only when view_town carries `queue`);
-##   4. vei     Vei can be faced (view_vei.can_begin, or odds >= next_vei_odds);
-##   5. default the standing objective.
+##   2. raid    a refilled raid (raid_ready "refilled"), as the away panel's ready line {text, kind, target};
+##   3. vei     Vei can be begun (view_vei.can_begin): beats the first-clear asks;
+##   4. raid    a first-clear raid on the frontier (raid_ready "first_clear");
+##   5. queue   the build queue empty (only when view_town carries `queue`);
+##   6. vei     Vei's odds >= next_vei_odds without can_begin;
+##   7. default the standing objective.
 ## The opening's ask (set_opening_ask) beats them all; a won game shows the victory line. Clicks
 ## resolve through AwayLogic.action, the same resolver as the away panel's lines.
 ## Tuning and words: configs/map_view.json "next".
@@ -29,16 +31,37 @@ static func cfg() -> Dictionary:
 
 # --- raid-worthiness ------------------------------------------------------------------
 
-## Why a fort's raid is ready: "first_clear" while its first clear (a guaranteed blueprint) is
-## unspent; "refilled" once it has been cleared and its yield is back to raid_ready_yield or more;
-## else "". "Cleared" is `first_clear` false, so a retake (which resets the clear count) still
-## counts as cleared.
-static func raid_ready(f: Dictionary, c := {}) -> String:
+## The frontier tier: the lowest tier among the forts that still have their first clear, so
+## progression runs tier 1, then tier 2, and so on. 0 when every fort has been cleared.
+static func frontier_tier(forts: Array) -> int:
+	var best := 0
+	for f in forts:
+		if bool(f.get("first_clear", false)):
+			var t := int(f.get("tier", 1))
+			if best == 0 or t < best:
+				best = t
+	return best
+
+
+## Why a fort's raid is ready, or "". The one rule every caller shares (the ring marker, the
+## strip, the away panel's ready line):
+##   "refilled"    cleared before (`first_clear` false and clears_since_retaken > 0) and its
+##                 yield is back to raid_ready_yield or more;
+##   "first_clear" its first clear (a guaranteed blueprint) is unspent AND it is the first
+##                 dungeon or on the frontier tier (frontier_tier of `forts`);
+##   ""            anything else (held and overrun forts follow the same rule).
+static func raid_ready(f: Dictionary, forts: Array, c := {}) -> String:
 	if c.is_empty():
 		c = cfg()
+	return _why(f, frontier_tier(forts), c)
+
+
+static func _why(f: Dictionary, frontier: int, c: Dictionary) -> String:
 	if bool(f.get("first_clear", false)):
-		return FIRST_CLEAR
-	if float(f.get("yield_mult", 0.0)) >= float(c["raid_ready_yield"]):
+		if bool(f.get("first_dungeon", false)) or int(f.get("tier", 1)) == frontier:
+			return FIRST_CLEAR
+		return ""
+	if int(f.get("clears_since_retaken", 0)) > 0 and float(f.get("yield_mult", 0.0)) >= float(c["raid_ready_yield"]):
 		return REFILLED
 	return ""
 
@@ -48,9 +71,10 @@ static func raid_ready(f: Dictionary, c := {}) -> String:
 static func ready_forts(forts: Array, c := {}) -> Array:
 	if c.is_empty():
 		c = cfg()
+	var frontier := frontier_tier(forts)
 	var keyed: Array = []
 	for i in forts.size():
-		var why := raid_ready(forts[i], c)
+		var why := _why(forts[i], frontier, c)
 		if why != "":
 			keyed.append([0 if why == REFILLED else 1, 0 if bool(forts[i].get("first_dungeon", false)) else 1, i, why])
 	keyed.sort_custom(func(a, b): return a[0] < b[0] or (a[0] == b[0] and (a[1] < b[1] or (a[1] == b[1] and a[2] < b[2]))))
@@ -93,21 +117,36 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 		return _pick(FALL, str(fall["fort"]["id"]), str(c["fall_fmt"]) % [str(fall["fort"].get("name", "")),
 			IdleLogic.fmt_fall(float(fall["fall_s"]))], fort_ids)
 	var ready := ready_forts(inp.get("forts", []), c)
+	var refilled := ready.filter(func(r): return r["why"] == REFILLED)
+	if not refilled.is_empty():
+		return _raid(refilled, prev, c, fort_ids)
+	if bool(inp.get("vei", {}).get("can_begin", false)):
+		return _vei(inp, c, fort_ids)
 	if not ready.is_empty():
-		var pick: Dictionary = ready[0]
-		if str(prev.get("rule", "")) == RAID:
-			for r in ready:
-				if str(r["fort"]["id"]) == str(prev.get("target", "")):
-					pick = r
-		var line := ready_line(pick["fort"], str(pick["why"]), c)
-		return _pick(RAID, str(line["target"]), str(line["text"]), fort_ids)
+		return _raid(ready, prev, c, fort_ids)
 	var queue = inp.get("queue", null)
 	if queue is Array and (queue as Array).is_empty():
 		return _pick(QUEUE, "queue", str(c["queue_text"]), fort_ids)
 	var odds := float(inp.get("readout", {}).get("odds", 0.0))
-	if bool(inp.get("vei", {}).get("can_begin", false)) or odds >= float(c["next_vei_odds"]):
-		return _pick(VEI, "vei", str(c["vei_fmt"]) % roundi(clampf(odds, 0.0, 1.0) * 100.0), fort_ids)
+	if odds >= float(c["next_vei_odds"]):
+		return _vei(inp, c, fort_ids)
 	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
+
+
+## The raid line for the first of `list` (or `prev`'s target while it is still in the list).
+static func _raid(list: Array, prev: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:
+	var pick: Dictionary = list[0]
+	if str(prev.get("rule", "")) == RAID:
+		for r in list:
+			if str(r["fort"]["id"]) == str(prev.get("target", "")):
+				pick = r
+	var line := ready_line(pick["fort"], str(pick["why"]), c)
+	return _pick(RAID, str(line["target"]), str(line["text"]), fort_ids)
+
+
+static func _vei(inp: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:
+	var odds := float(inp.get("readout", {}).get("odds", 0.0))
+	return _pick(VEI, "vei", str(c["vei_fmt"]) % roundi(clampf(odds, 0.0, 1.0) * 100.0), fort_ids)
 
 
 static func _pick(rule: String, target: String, text: String, fort_ids: Array) -> Dictionary:

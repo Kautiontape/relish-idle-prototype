@@ -822,7 +822,8 @@
     "chip_line_px": 14.0,
     "chip_rate_gap_px": 6.0,
     "chip_min_zoom": 0.55,
-    "chip_pad_y_px": 2.0
+    "chip_pad_y_px": 2.0,
+    "chip_token_pad_px": 4.0
   },
   "demo_away": {
     "rev": 1,

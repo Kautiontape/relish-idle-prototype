@@ -27,6 +27,7 @@ func run() -> int:
 	_projected(t)
 	_chip(t)
 	_anchoring(t)
+	_clear_of_token(t)
 	_raid(t)
 	_next(t)
 	_targets(t)
@@ -168,29 +169,121 @@ func _anchoring(t: TestUtil) -> void:
 		t.ok(r0.position.y > p0.y + MapLogic.fort_radius(int(m.forts[0]["tier"])) and is_equal_approx(r0.get_center().x, p0.x), "zoom %.2f: the chip hangs centred under the name" % z)
 
 
+func _with(f: Dictionary, extra: Dictionary) -> Dictionary:
+	var d := f.duplicate()
+	d.merge(extra, true)
+	return d
+
+
+## Tier 1 (two forts and the first dungeon) and two tier 2 forts, all uncleared, in world order.
+func _chain() -> Array:
+	return [{"id": "t1a", "tier": 1, "first_clear": true, "yield_mult": 1.0, "clears_since_retaken": 0},
+		{"id": "t1b", "tier": 1, "first_clear": true, "yield_mult": 1.0, "clears_since_retaken": 0},
+		{"id": "sluice", "tier": 1, "first_clear": true, "first_dungeon": true, "yield_mult": 1.0, "clears_since_retaken": 0},
+		{"id": "t2a", "tier": 2, "first_clear": true, "yield_mult": 1.0, "clears_since_retaken": 0},
+		{"id": "t3a", "tier": 3, "first_clear": true, "yield_mult": 1.0, "clears_since_retaken": 0}]
+
+
+## Relish's token over a chip: it drops below the token, or steps aside where that lands nearer another fort.
+func _clear_of_token(t: TestUtil) -> void:
+	t.suite("map_next-token")
+	var z := 0.7
+	var p := Vector2(500, 500)
+	var r := MapLogic.fort_radius(1)
+	var base := IdleLogic.chip_rect(p, r, z, false, 180.0)
+	var tr := float(NodeLogic.relish_radii(z)["halo"]) + 6.0 / z
+	var none: Array = []
+	t.ok(IdleLogic.chip_place(p, r, z, false, 180.0, p + Vector2(0, -300), tr, none) == base, "a token far from the chip leaves it where it is")
+	var tok := base.get_center()
+	var moved := IdleLogic.chip_place(p, r, z, false, 180.0, tok, tr, none)
+	var pad := float(IdleLogic.cfg()["chip_token_pad_px"]) / z
+	var trect := Rect2(tok - Vector2(tr + pad, tr + pad), Vector2(tr + pad, tr + pad) * 2.0)
+	t.ok(not moved.intersects(trect), "a token on the chip: the chip is clear of it")
+	t.ok(moved.position.y >= tok.y + tr and is_equal_approx(moved.position.x, base.position.x) and moved.size == base.size, "it drops past the token, same x and size")
+	# a neighbour just below the chip: the drop would land nearer it, so the chip steps aside on its own row
+	var near := [Vector2(p.x, p.y + 280.0)]
+	var side := IdleLogic.chip_place(p, r, z, false, 180.0, tok, tr, near)
+	t.ok(not side.intersects(trect) and is_equal_approx(side.position.y, base.position.y), "nearer another fort below: it steps aside instead, same row")
+	t.ok(IdleLogic.chip_place(p, r, z, false, 180.0, tok + Vector2(-20, 0), tr, near).position.x > tok.x - 20.0, "a token left of centre: the chip steps to its right")
+	t.ok(IdleLogic.chip_place(p, r, z, false, 180.0, tok + Vector2(20, 0), tr, near).end.x < tok.x + 20.0, "a token right of centre: the chip steps to its left")
+	# the real day-1 map: every fort's moved chip, with the token on it, is clear and nearer its own fort
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var bad: Array = []
+	for f in m.forts:
+		var fp := MapModel.to_vec(f["pos"])
+		var fr := MapLogic.fort_radius(int(f["tier"]))
+		var oth: Array = []
+		for g in m.forts:
+			if g["id"] != f["id"]:
+				oth.append(MapModel.to_vec(g["pos"]))
+		var b := IdleLogic.chip_rect(fp, fr, z, false, 180.0)
+		var q := IdleLogic.chip_place(fp, fr, z, false, 180.0, fp + Vector2(0.0, fr + 40.0), tr, oth)
+		var own := q.get_center().distance_to(fp)
+		for o in oth:
+			if q.get_center().distance_to(o) <= own:
+				bad.append(str(f["id"]))
+				break
+	t.ok(bad.is_empty(), "no fort's displaced chip is nearer another fort %s" % str(bad))
+
+
 # --- raid-worthiness --------------------------------------------------------------------------
 
 func _raid(t: TestUtil) -> void:
 	t.suite("map_next-raid")
 	var y := float(NextLogic.cfg()["raid_ready_yield"])
 	t.ok(y > 0.0 and y <= 1.0, "raid_ready_yield is a yield fraction")
-	t.ok(NextLogic.raid_ready({"first_clear": true, "yield_mult": 0.1}) == "first_clear", "an unspent first clear is ready")
-	t.ok(NextLogic.raid_ready({"first_clear": false, "yield_mult": y}) == "refilled", "a cleared fort back to raid_ready_yield is refilled")
-	t.ok(NextLogic.raid_ready({"first_clear": false, "yield_mult": y - 0.01}) == "", "under it, not ready")
-	t.ok(NextLogic.raid_ready({"first_clear": false, "yield_mult": 1.0, "clears_since_retaken": 0}) == "refilled", "a retake resets the clear count; a cleared fort still counts")
-	var forts := [{"id": "a", "name": "A", "first_clear": true}, {"id": "b", "name": "B", "first_clear": true, "first_dungeon": true},
-		{"id": "c", "name": "C", "first_clear": false, "yield_mult": 1.0}, {"id": "d", "name": "D", "first_clear": false, "yield_mult": 0.2}]
+	var cleared := {"first_clear": false, "clears_since_retaken": 2, "tier": 2}
+	t.ok(NextLogic.raid_ready(_with(cleared, {"yield_mult": y}), []) == "refilled", "a cleared fort back to raid_ready_yield is refilled")
+	t.ok(NextLogic.raid_ready(_with(cleared, {"yield_mult": y - 0.01}), []) == "", "decayed under it: not ready")
+	t.ok(NextLogic.raid_ready(_with(cleared, {"yield_mult": 1.0, "clears_since_retaken": 0}), []) == "", "no clear since the retake: nothing to refill")
+	t.ok(NextLogic.raid_ready({"first_clear": true, "tier": 1, "yield_mult": 1.0}, [{"first_clear": true, "tier": 1}]) == "first_clear", "a frontier first clear is ready")
+	# the frontier: the lowest tier that still has a first clear
+	var chain := _chain()
+	t.ok(NextLogic.frontier_tier(chain) == 1, "tier 1 first")
+	var ready := func(forts: Array) -> Array: return forts.filter(func(f): return NextLogic.raid_ready(f, forts) != "").map(func(f): return f["id"])
+	t.ok(ready.call(chain) == ["t1a", "t1b", "sluice"], "day-1 shape: only tier 1 and the first dungeon (%s)" % str(ready.call(chain)))
+	t.ok(not NextLogic.raid_ready(chain[3], chain) in ["first_clear", "refilled"], "a tier 2 first clear waits")
+	for f in chain:
+		if int(f["tier"]) == 1:
+			f["first_clear"] = false
+			f["clears_since_retaken"] = 1
+			f["yield_mult"] = 0.3
+	t.ok(NextLogic.frontier_tier(chain) == 2, "all of tier 1 cleared: the frontier is tier 2")
+	t.ok(ready.call(chain) == ["t2a"], "tier 2 is marked and decayed tier 1 forts are not (%s)" % str(ready.call(chain)))
+	chain[0]["yield_mult"] = 1.0
+	t.ok(ready.call(chain) == ["t1a", "t2a"] and NextLogic.raid_ready(chain[0], chain) == "refilled", "a recovered yield marks a cleared fort refilled")
+	chain[0]["held"] = true
+	chain[1]["held"] = true
+	chain[1]["margin"] = "will_fall"
+	chain[1]["yield_mult"] = 1.0
+	t.ok(ready.call(chain) == ["t1a", "t1b", "t2a"], "held and overrun forts follow the same rule (%s)" % str(ready.call(chain)))
+	var forts := [{"id": "a", "name": "A", "tier": 1, "first_clear": true}, {"id": "b", "name": "B", "tier": 2, "first_clear": true, "first_dungeon": true},
+		{"id": "c", "name": "C", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}, {"id": "d", "name": "D", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 0.2}]
 	var order: Array = NextLogic.ready_forts(forts).map(func(r): return r["fort"]["id"])
 	t.ok(order == ["c", "b", "a"], "refilled first, then the first dungeon, then world order (%s)" % str(order))
 	t.ok(NextLogic.ready_line(forts[2], "refilled") == {"text": "C refilled: raid it", "kind": "raid", "target": "c"}, "a refilled ready line, in view_away's shape")
 	t.ok(NextLogic.ready_line(forts[1], "first_clear")["text"] == "B: first clear holds a blueprint", "a first-clear ready line")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var marked: Array = m.forts.filter(func(f): return NextLogic.raid_ready(f, m.forts) != "")
+	var uncleared: Array = m.forts.filter(func(f): return bool(f["first_clear"]))
+	t.ok(not marked.is_empty() and marked.size() < m.forts.size(), "day1: not every fort is marked (%d of %d)" % [marked.size(), m.forts.size()])
+	t.ok(marked.all(func(f): return int(f["tier"]) == NextLogic.frontier_tier(m.forts) or bool(f.get("first_dungeon", false))), "day1: only the frontier tier and the first dungeon")
+	t.ok(uncleared.filter(func(f): return int(f["tier"]) == NextLogic.frontier_tier(m.forts)).all(func(f): return marked.has(f)), "day1: every frontier-tier first clear is marked")
 	var n := NodeLogic.ncfg()
 	t.ok(str(n["raid_word"]) != "" and float(n["raid_pip_px"]) >= 6.0, "the marker carries a word and a shape")
-	var sig0 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0, "first_clear": false, "yield_mult": 0.2}, {})
-	var sig1 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0, "first_clear": false, "yield_mult": 1.0}, {})
+	var sig0 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0}, {}, "", "")
+	var sig1 := NodeLogic.fort_static_sig({"tier": 1, "cap": 80.0}, {}, "", "refilled")
 	t.ok(sig0 != sig1, "becoming raid-ready redraws the fort's ring")
 	var ring := FileAccess.get_file_as_string("res://scripts/map/map_fort_ring.gd")
-	t.ok(ring.contains("NextLogic.raid_ready(") and ring.contains("raid_word"), "the ring layer draws the marker and its word")
+	t.ok(ring.contains("NextLogic.raid_ready(f, ctx.forts)") and ring.contains("raid_word"), "the ring layer draws the marker and its word")
 
 
 # --- the next action ----------------------------------------------------------------------
@@ -227,13 +320,21 @@ func _next(t: TestUtil) -> void:
 	var tick := NextLogic.choose(_inp({"forts": forts, "clocks": {"vespers": {"fall_s": 1800.0}}}), f1)
 	t.ok(tick["target"] == "vespers" and tick["text"].contains("~30 min"), "same pick: the coarse clock updates in place")
 	# 2. a raid ready
-	var ash := {"id": "ashgate", "name": "Ashgate", "first_clear": false, "yield_mult": 1.0}
+	var ash := {"id": "ashgate", "name": "Ashgate", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}
 	var r2 := NextLogic.choose(_inp({"forts": [ash]}))
 	t.ok(r2["rule"] == "raid" and r2["text"] == "Ashgate refilled: raid it" and r2["action"] == {"kind": "fort", "id": "ashgate"}, "a refilled raid")
 	var sluice := {"id": "old-sluice", "name": "Old Sluice", "first_clear": true, "first_dungeon": true}
 	t.ok(NextLogic.choose(_inp({"forts": [sluice]}))["text"] == "Old Sluice: first clear holds a blueprint", "a first clear")
-	var two := [{"id": "a", "name": "A", "first_clear": false, "yield_mult": 1.0}, {"id": "b", "name": "B", "first_clear": false, "yield_mult": 1.0}]
+	var two := [{"id": "a", "name": "A", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}, {"id": "b", "name": "B", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}]
 	t.ok(NextLogic.choose(_inp({"forts": two}), {"rule": "raid", "target": "b"})["target"] == "b", "a kept raid target holds while it is still ready")
+	# Vei beats first-clear asks, not a refilled raid or a fall; odds alone keep their old place
+	var first := _inp({"forts": [sluice], "vei": {"can_begin": true}, "readout": {"odds": 0.7}})
+	t.ok(NextLogic.choose(first)["rule"] == "vei", "can_begin: Vei over a first-clear ask")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "vei": {"can_begin": false}, "readout": {"odds": 0.7}}))["rule"] == "raid", "odds alone: the first-clear ask keeps its place over Vei")
+	t.ok(NextLogic.choose(_inp({"queue": [], "vei": {"can_begin": false}, "readout": {"odds": 0.7}}))["rule"] == "queue", "odds alone: the queue keeps its place over Vei")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice, ash], "vei": {"can_begin": true}, "readout": {"odds": 0.7}}))["rule"] == "raid", "a refilled raid beats Vei")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice, vespers], "clocks": {"vespers": {"fall_s": 600.0}}, "vei": {"can_begin": true}}))["rule"] == "fall", "a falling fort beats Vei")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "queue": [], "vei": {"can_begin": true}}))["rule"] == "vei", "can_begin: Vei over an empty queue too")
 	# 3. the queue
 	t.ok(NextLogic.choose(_inp({"queue": []}))["rule"] == "queue", "an empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [{"building_id": "pit"}]}))["rule"] != "queue", "a queued build: not this rule")
@@ -248,9 +349,14 @@ func _next(t: TestUtil) -> void:
 	var all := _inp({"forts": [vespers, ash], "clocks": {"vespers": {"fall_s": 600.0}}, "queue": [], "vei": {"can_begin": true}})
 	t.ok(NextLogic.choose(all)["rule"] == "fall", "fall beats everything")
 	all["clocks"] = {}
-	t.ok(NextLogic.choose(all)["rule"] == "raid", "then a raid")
+	t.ok(NextLogic.choose(all)["rule"] == "raid", "then a refilled raid")
+	all["forts"] = [sluice]
+	t.ok(NextLogic.choose(all)["rule"] == "vei", "then Vei over a first-clear ask")
 	all["forts"] = []
-	t.ok(NextLogic.choose(all)["rule"] == "queue", "then the queue")
+	t.ok(NextLogic.choose(all)["rule"] == "vei", "can_begin Vei is still above the queue")
+	all["vei"] = {"can_begin": false}
+	all["readout"] = {"odds": 0.7}
+	t.ok(NextLogic.choose(all)["rule"] == "queue", "then the queue, over Vei's odds alone")
 	all["queue"] = null
 	t.ok(NextLogic.choose(all)["rule"] == "vei", "then Vei")
 	# the opening's override

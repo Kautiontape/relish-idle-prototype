@@ -29,7 +29,7 @@ func _draw_static() -> void:
 ## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
-	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f)), ctx.selected_id == fort_id, ctx.lit.has(fort_id)]
+	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), NextLogic.raid_ready(f, ctx.forts)), ctx.selected_id == fort_id, ctx.lit.has(fort_id)]
 
 
 func _state(f: Dictionary) -> String:
@@ -110,7 +110,7 @@ func _static_fort(f: Dictionary) -> void:
 	if float(f.get("simulacrum_charges", 0.0)) > 0.0:
 		diamond(p + Vector2.from_angle(deg_to_rad(float(n["sim_angle_deg"]))) * r, maxf(float(n["sim_size_px"]), ctx.px(float(n["sim_min_screen_px"]))), Palette.c("relish"))
 
-	if NextLogic.raid_ready(f) != "":
+	if NextLogic.raid_ready(f, ctx.forts) != "":
 		_raid_marker(p, r, n)
 
 	if ctx.selected_id == f["id"]:

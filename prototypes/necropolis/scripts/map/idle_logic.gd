@@ -113,6 +113,7 @@ static func garrison_rate(f: Dictionary, split_war: float, held_count: int) -> f
 
 ## Seconds until a garrison of `g` is gone at `rate`: g / -rate while the rate is negative, else
 ## -1.0 (holding).
+# TODO(api-request #13): view_fort.fall_s (this stand-in goes when the view carries it)
 static func fall_after(g: float, rate: float) -> float:
 	if rate >= 0.0:
 		return -1.0
@@ -167,6 +168,7 @@ static func projected_clocks(forts: Array, committed: Dictionary, war_now: float
 
 
 ## The projection's fall_s for `id`, or null.
+# TODO(api-request #13): view_projection fall_s, in either shape (this unwrapping goes with the stand-in)
 static func _real_fall(real: Dictionary, id: String):
 	if real.get("fall_s", null) is Dictionary and real["fall_s"].has(id):
 		return real["fall_s"][id]
@@ -231,6 +233,55 @@ static func chip_rect(p: Vector2, r: float, zoom: float, second_line: bool, widt
 	var z := maxf(zoom, 0.001)
 	var top := p.y + r + float(NodeLogic.ncfg()["label_off_px"]) + chip_top_px(second_line) / z
 	return Rect2(p.x - width_px * 0.5 / z, top, width_px / z, chip_height_px() / z)
+
+
+## Where the chip plate really goes, in world px: `chip_rect`, moved clear of Relish's drawn
+## token when they would intersect. The token's rect is `token` +- `token_r` (her halo radius plus
+## its capped glow, in world px) padded by chip_token_pad_px screen px. The chip drops to just
+## under the token (same x); where that lands nearer another fort in `others` (their centres)
+## than its own fort `p`, it slides sideways instead (the token's nearer side, then the other), same y. A chip
+## already clear is returned unmoved. Where neither lands nearer its own fort, the one that is
+## less wrong (the larger margin) wins. `others` excludes the fort itself.
+static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, width_px: float, token: Vector2, token_r: float, others: Array) -> Rect2:
+	var base := chip_rect(p, r, zoom, second_line, width_px)
+	var pad := float(cfg()["chip_token_pad_px"]) / maxf(zoom, 0.001)
+	var tr := token_r + pad
+	var tok := Rect2(token - Vector2(tr, tr), Vector2(tr, tr) * 2.0)
+	if not base.intersects(tok):
+		return base
+	var down := Rect2(Vector2(base.position.x, tok.end.y), base.size)
+	if _nearest_own(down, p, others):
+		return down
+	# the side step, on the plate's own row: the token's nearer side first, then the other
+	var right := Rect2(Vector2(tok.end.x, base.position.y), base.size)
+	var left := Rect2(Vector2(tok.position.x - base.size.x, base.position.y), base.size)
+	var sides := [right, left] if token.x < base.get_center().x else [left, right]
+	var best := down
+	for cand in sides:
+		if _nearest_own(cand, p, others):
+			return cand
+	for cand in sides:
+		if _margin(cand, p, others) > _margin(best, p, others):
+			best = cand
+	return best
+
+
+## How much nearer its own fort `p` the rect's centre is than the nearest of `others` (negative: nearer another).
+static func _margin(rect: Rect2, p: Vector2, others: Array) -> float:
+	var own := rect.get_center().distance_to(p)
+	var best := INF
+	for o in others:
+		best = minf(best, rect.get_center().distance_to(o) - own)
+	return best
+
+
+## Whether `rect`'s centre is nearer `p` (its own fort) than every point in `others`.
+static func _nearest_own(rect: Rect2, p: Vector2, others: Array) -> bool:
+	var own := rect.get_center().distance_to(p)
+	for o in others:
+		if rect.get_center().distance_to(o) <= own:
+			return false
+	return true
 
 
 ## The committed margins: the view's per-fort field where it has one, else the stand-in at the

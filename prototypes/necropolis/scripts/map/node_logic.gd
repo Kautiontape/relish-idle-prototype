@@ -177,15 +177,16 @@ static func state_alpha(w: float) -> float:
 ## What a fort's static rings draw, quantized to static_sig_steps of a turn so sub-pixel drift (a
 ## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
 ## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name, the
-## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker.
+## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker
+## (`raid`: NextLogic.raid_ready's answer for the fort).
 ## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
-static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "") -> Array:
+static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid := "") -> Array:
 	var steps := _n("static_sig_steps")
 	var fr := arc_fracs(f)
 	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
 		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
 		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state), has_core(state),
-		NextLogic.raid_ready(f) != ""]
+		raid != ""]
 
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
