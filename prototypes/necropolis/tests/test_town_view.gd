@@ -100,6 +100,7 @@ func run() -> int:
 	_td1_wall_line(day1, mid)
 	_td1_names(mid)
 	_td1_placeholders(day1, mid, pre)
+	_td2(day1, mid)
 	_queue_eta(day1)
 	_stance_trade(mid)
 	_full_staffing_label()
@@ -3382,20 +3383,31 @@ func _hud_idle(day1: Dictionary) -> void:
 ## The workers cell's "→ steady" says why the town keeps fewer than its raw steady state.
 func _kept_reason(mid: Dictionary) -> void:
 	var h: Dictionary = vcfg["hud"]
-	var town: Dictionary = mid["town"]
 	var cap := float(cfg["economy"]["worker"]["idle_cap"])
-	var kept := HudModel.kept(town, mid["hud"])
+	# the stand-in path: the view has no steady_kept (economy before E2b-1), so TownStandins gives the reason
+	var town: Dictionary = (mid["town"] as Dictionary).duplicate(true)
+	(town["workers"] as Dictionary).erase("steady_kept")
+	(town["workers"] as Dictionary).erase("muster_steady")
+	var hud: Dictionary = (mid["hud"] as Dictionary).duplicate(true)
+	hud.erase("workers_steady_kept")
+	var kept := HudModel.kept(town, hud)
 	var in_slots := 0.0
 	for j in town["jobs"]:
 		in_slots += float(j["staffed"])
-	var r := HudModel.kept_reason(town, mid["hud"], float(town["workers"]["steady"]), kept, cap, h)
+	var r := HudModel.kept_reason(town, hud, float(town["workers"]["steady"]), kept, cap, h)
 	t.ok(kept < float(town["workers"]["steady"]) and r == "kept: %d slots + %d idle cap" % [roundi(in_slots), roundi(cap)],
-		"kept reason: midgame keeps %d of steady %.1f: '%s'" % [roundi(kept), float(town["workers"]["steady"]), r])
-	t.ok(HudModel.kept_reason(town, mid["hud"], kept, kept, cap, h) == "", "kept reason: none when kept is the steady state")
-	t.ok(TownStandins.kept_inputs(town, mid["hud"], cap) == {"slots": roundi(in_slots), "cap": roundi(cap)}, "kept reason: its inputs are the stand-in's (TownStandins)")
+		"kept reason (stand-in path): keeps %d of steady %.1f: '%s'" % [roundi(kept), float(town["workers"]["steady"]), r])
+	t.ok(HudModel.kept_reason(town, hud, kept, kept, cap, h) == "", "kept reason: none when kept is the steady state")
+	t.ok(TownStandins.kept_inputs(town, hud, cap) == {"slots": roundi(in_slots), "cap": roundi(cap)}, "kept reason (stand-in path): its inputs are the stand-in's (TownStandins)")
+	# the real path: the view carries steady_kept (and muster_steady), so the stand-in switches itself off
 	var real: Dictionary = town.duplicate(true)
 	real["workers"]["steady_kept"] = kept
-	t.ok(HudModel.kept_reason(real, mid["hud"], float(town["workers"]["steady"]), kept, cap, h) == "", "kept reason: the view's own kept value (api-request #12) switches the stand-in reason off")
+	real["workers"]["muster_steady"] = 1.2
+	real["workers"]["muster"] = 0.0
+	t.ok(TownStandins.kept_inputs(real, hud, cap).is_empty(), "kept reason (real path): the stand-in's inputs are off once the view has steady_kept")
+	t.ok(HudModel.kept(real, hud) == kept, "kept reason (real path): the view's own kept value is what the HUD reads")
+	t.ok(HudModel.kept_reason(real, hud, float(town["workers"]["steady"]), kept, cap, h) == "", "kept reason (real path): the view's own kept value (api-request #12) switches the stand-in reason off")
+	t.ok(HudModel.surplus_rate(real, float(town["workers"]["steady"]), kept, h) >= 1.2 - 1e-6, "kept reason (real path): muster_steady is the surplus to WAR")
 
 
 ## The ladder preview: hands per job for a move, from the staffing projection (the stand-in until
@@ -3711,8 +3723,8 @@ func _backups(day1: Dictionary, pre: Dictionary) -> void:
 	var idle_now: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"])
 	var idle_on: Dictionary = TownStandins.project(idle_views, idle_order, cfg["buildings"], {0: true})
 	var idle_diff := TownBehaviour.staffing_diff(idle_now["jobs"], idle_on["jobs"])
-	t.ok(idle_diff.is_empty() and BackupsModel.staffing_cost_text(idle_diff, vcfg["job_labels"], tx) == "staffing takes no hand from a job",
-		"backups: with 10 idle hands an unstaffed vat takes no hand from a job (%s)" % str(idle_diff))
+	t.ok(idle_diff.is_empty() and BackupsModel.staffing_cost_text(idle_diff, vcfg["job_labels"], tx, false, 10.0) == "10 idle hands: staffing costs nothing today",
+		"backups: with 10 idle hands an unstaffed vat takes no hand from a job, and says so (%s)" % str(idle_diff))
 	t.near(float(idle_now["idle"]), 10.0, 0.001, "backups: idle is the hands left over, not counted twice (now %s)" % str(idle_now["idle"]))
 	t.near(float(idle_on["idle"]), 9.0, 0.001, "backups: staffing a vat from idle leaves 9 (%s)" % str(idle_on["idle"]))
 	# the stand-in with nothing taken is unchanged
@@ -5294,3 +5306,89 @@ func _scan_tags(x: Variant, file: String, path: String, re: RegEx, out: PackedSt
 			_scan_tags(x[i], file, path + "/" + str(i), re, out)
 	elif x is String and re.search(x) != null:
 		out.append("%s%s = '%s'" % [file.get_file(), path, x])
+
+
+## T-d2: the backups headline, the honest vat line, one Off per stance, the slab's stats in town words, text size and contrast.
+func _td2(day1: Dictionary, mid: Dictionary) -> void:
+	t.suite("town-td2")
+	var tx: Dictionary = vcfg["backups"]
+	var slab: Dictionary = cfg["town"]["slab"]
+	var labels: Dictionary = vcfg["job_labels"]
+	# 1. backups: the loss is the large first line, the comfort line its subtitle
+	t.ok(int(tx.get("loses_px", 0)) >= 20 and int(tx.get("outcome_px", 99)) < int(tx.get("loses_px", 0)) and int(tx.get("outcome_px", 0)) >= 12,
+		"backups: the loss line is the large one (loses_px %s), the outcome its subtitle (outcome_px %s)" % [tx.get("loses_px"), tx.get("outcome_px")])
+	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "place": "party", "stats": {}}]
+	var line := BackupsModel.loses_line(["party", "unbanked_loot"], party, {}, {}, vcfg["crypt"], tx, slab)
+	t.ok(line == "She would lose: the party: Old Gristle, loot since the last checkpoint.", "backups: the headline names the party and the loot (%s)" % line)
+	t.ok(BackupsModel.loses_line([], [], {}, {}, vcfg["crypt"], tx, slab) == "She would lose: nothing else.", "backups: nothing to lose still reads as a line")
+	# 2. vats: with idle hands, staffing costs nothing and says so
+	var idle10 := BackupsModel.staffing_cost_text([], labels, tx, false, 10.7)
+	t.ok(idle10 == "10 idle hands: staffing costs nothing today", "vat: idle hands round down, 10.7 -> 10 (%s)" % idle10)
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, true, 10.7) == idle10, "vat: unstaffing says the same truth (%s)" % BackupsModel.staffing_cost_text([], labels, tx, true, 10.7))
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 1.9) == "1 idle hand: staffing costs nothing today", "vat: one idle hand is singular")
+	t.ok(BackupsModel.staffing_cost_text([], labels, tx, false, 0.9) == "staffing takes no hand from a job", "vat: under one whole idle hand keeps the old line")
+	t.ok(BackupsModel.staffing_cost_text([{"id": "stall", "delta": -1.0}], labels, tx, false, 10.0) == "staffing takes 1 hand from Stall", "vat: a hand that does move is still named")
+	var idle_town := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}], "buildings": [], "workers": {"idle": 10.4}, "ladder": ["pit"]}
+	var idle_views := {"town": idle_town, "backups": {"vats": [{"slot": 0, "staffed": false}, {"slot": 1, "staffed": true}]}}
+	var proj := func(order: Array, extra := {}) -> Array: return TownStandins.project(idle_views, order, cfg["buildings"], extra)["jobs"]
+	var costs := BackupsModel.staffing_costs(idle_views, proj, labels, tx)
+	t.ok(costs.size() == 2 and costs[0] == idle10 and String(costs[1]).begins_with("10 idle hands"), "vat: the panel's lines carry the idle count (%s)" % str(costs))
+	idle_town["workers"]["idle"] = 11.2
+	t.ok(BackupsModel.vats_sig(idle_views, BackupsModel.staffing_costs(idle_views, proj, labels, tx)) != BackupsModel.vats_sig(idle_views, costs), "vat: the idle count is in the vats signature through the line")
+	# 3. stances: the toggle says On/Off, the chips never repeat it
+	var stx: Dictionary = vcfg["behaviour"]
+	t.ok(TownBehaviour.stance_chips({"on": false}, stx).is_empty() and TownBehaviour.stance_chips({"on": true}, stx).is_empty(), "stance: no 'off' or 'on' chip beside the toggle")
+	t.ok(TownBehaviour.stance_chips({"on": true, "suspended": true, "active": true}, stx) == ["suspended", "active"], "stance: suspended and active still show")
+	# 4. slab stats in town words
+	var jargon := ["foreman pace", "carters", "the carvers front", "the giants front", "the swarm front", "the raw front", "foreman throughput"]
+	var sh: Dictionary = slab.get("stat_helps", {})
+	for st in SlabLogic.STATS:
+		var h := String(sh.get(st, ""))
+		t.ok(h != "", "slab: %s has a town-words line (%s)" % [st, h])
+		for j in jargon:
+			t.ok(not h.contains(j), "slab: %s line has no '%s'" % [st, j])
+		t.ok(CryptLogic.stat_helps(st, slab, vcfg["crypt"]) == h, "slab: the crypt panel reads slab.stat_helps for %s" % st)
+	var bvw := TestUtil.load_json("res://configs/buildings_view.json")
+	t.ok(String(sh["beef"]).contains(String(bvw["charnel_house"]["label"])) and String(sh["beef"]).contains(String(bvw["raising_pit"]["label"])), "slab: beef points at the Charnel House and the Raising Pit (%s)" % sh["beef"])
+	for r in slab["roles"]:
+		for j in jargon:
+			t.ok(not String(slab["roles"][r]["good_for"]).contains(j), "slab: role %s line has no '%s'" % [r, j])
+	# 5. text size and contrast: configured sizes at 12 px or more, the text colours at 4.5:1 on the ground (3:1 for lines)
+	var sizes := {"legend": vcfg["legend"]["px"], "hud.split": vcfg["hud"]["split_px"], "hud.name": vcfg["hud"]["name_px"], "hud.stock": vcfg["hud"]["stock_px"],
+		"hud.next": vcfg["hud"]["next_px"], "badge": vcfg["badge"]["px"], "status": vcfg["status"]["px"], "pick": vcfg["pick"]["px"], "ring_order": vcfg["ring_order"]["px"],
+		"upgrade_mark": vcfg["upgrade_mark"]["px"], "walkout badge": vcfg["walkout"]["badge_px"], "crypt small": vcfg["crypt"]["small_px"],
+		"crypt text": vcfg["crypt"]["text_px"], "preview caption": vcfg["crypt"]["preview"]["caption_px"], "pip count": vcfg["pip_count_px"],
+		"backups subtitle": tx["outcome_px"], "backups ladder header": tx["ladder_header_px"], "backups title": tx["title_px"]}
+	for k in sizes:
+		t.ok(float(sizes[k]) >= 12.0, "text size: %s is %s px (>= 12)" % [k, sizes[k]])
+	var ground := Palette.c("ground")
+	for key in ["text", "text_dim", "danger", "select", "relish", "undead", "living"]:
+		var cr := _wcag(Palette.c(key), ground)
+		t.ok(cr >= 4.5, "contrast: %s on ground is %.2f:1 (>= 4.5)" % [key, cr])
+	var on_btn := _wcag(Palette.c("text_dim"), Palette.c("ring_track"))
+	t.ok(on_btn >= 4.5, "contrast: text_dim on a button face is %.2f:1 (>= 4.5)" % on_btn)
+	var on_hover := _wcag(Palette.c("text_dim"), Palette.c("graticule"))
+	t.ok(on_hover >= 4.5, "contrast: text_dim on a hovered button is %.2f:1 (>= 4.5)" % on_hover)
+	var il: Dictionary = vcfg["idle_line"]
+	var line_cr := _wcag(_over(Palette.c(String(il["key"])), float(il["alpha"]), ground), ground)
+	t.ok(line_cr >= 3.0, "contrast: the unstaffed outline is %.2f:1 on ground (>= 3 for a line)" % line_cr)
+	# a walk seeded from the entry itself names the slab's name, never "Big u9"
+	var e9 := {"uid": "u9", "name": "Big u9", "kind": "hulk", "stats": {"beef": 3.0}, "place": "town:lot-1"}
+	var tr := TownSetPiece.transitions({"u9": "crypt"}, [e9], true, slab)
+	t.ok(tr["starts"].size() == 1 and String(tr["starts"][0]["name"]) == SlabLogic.display_name(e9, slab) and not String(tr["starts"][0]["name"]).begins_with("Big u"),
+		"walk seed: the slab's name (%s)" % str(tr["starts"]))
+
+
+static func _lum(c: Color) -> float:
+	var f := func(x: float) -> float: return x / 12.92 if x <= 0.03928 else pow((x + 0.055) / 1.055, 2.4)
+	return 0.2126 * f.call(c.r) + 0.7152 * f.call(c.g) + 0.0722 * f.call(c.b)
+
+
+static func _wcag(a: Color, b: Color) -> float:
+	var la := _lum(a)
+	var lb := _lum(b)
+	return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+
+
+static func _over(c: Color, alpha: float, bg: Color) -> Color:
+	return Color(c.r * alpha + bg.r * (1.0 - alpha), c.g * alpha + bg.g * (1.0 - alpha), c.b * alpha + bg.b * (1.0 - alpha))

@@ -82,6 +82,18 @@ static func party_text(party: Array, lot_labels: Dictionary, fort_names: Diction
 	return String(tx.get("party_names", "{label}: {names}")).format({"label": label, "names": ", ".join(names)})
 
 
+## The loss as one headline: "She would lose: the party: Old Gristle, loot since the last checkpoint." `loses` =
+## death.loses, `party` = view_party().party; the rest as in party_text.
+static func loses_line(loses: Array, party: Array, lot_labels: Dictionary, fort_names: Dictionary, crypt_texts: Dictionary, tx: Dictionary, slab: Dictionary = {}) -> String:
+	var items: Array = []
+	for id in loses:
+		if String(id) == "party":
+			items.append(party_text(party, lot_labels, fort_names, crypt_texts, tx, slab))
+		else:
+			items.append(loses_text(String(id), tx))
+	return "%s: %s." % [String(tx.get("loses_header", "")), ", ".join(items) if not items.is_empty() else String(tx.get("loses_none", ""))]
+
+
 static func vat_state_text(vat: Dictionary, tx: Dictionary) -> String:
 	var s: Dictionary = tx.get("vat_state", {})
 	if bool(vat.get("ready", false)):
@@ -132,8 +144,10 @@ static func pips_text(n: int, tx: Dictionary) -> String:
 
 
 ## "staffing takes 1 hand from Pit" from a TownBehaviour.staffing_diff (the jobs that lose hands), for a vat
-## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is.
-static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false) -> String:
+## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is. When no
+## job hand moves and `idle` (workers.idle, -1 = unknown) holds a whole idle hand, the line says why: "10 idle
+## hands: staffing costs nothing today" (the idle count rounded down).
+static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false, idle := -1.0) -> String:
 	var moved: Array = []
 	for d in diff:
 		var n := roundi(float(d["delta"]) * (1.0 if staffed else -1.0))
@@ -142,6 +156,9 @@ static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, 
 	moved.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1])
 	var pre := "unstaff_gain" if staffed else "staff_cost"
 	if moved.is_empty():
+		var n := floori(idle)
+		if n >= 1:
+			return String(tx.get("staff_idle", "")).format({"n": n, "hands": tx.get("hand" if n == 1 else "hands", "hands")})
 		return String(tx.get(pre + "_none", ""))
 	var items: Array = []
 	for l in moved:
@@ -214,10 +231,11 @@ static func staffing_costs(views: Dictionary, project: Callable, labels: Diction
 	if not project.is_valid():
 		return out
 	var order: Array = TownBehaviour.effective(views.get("town", {}))
+	var idle := float(views.get("town", {}).get("workers", {}).get("idle", -1.0))
 	for v in views.get("backups", {}).get("vats", []):
 		var staffed := bool(v.get("staffed", false))
 		var diff := TownBehaviour.staffing_diff(project.call(order), project.call(order, {int(v.get("slot", 0)): not staffed}))
-		out.append(staffing_cost_text(diff, labels, tx, staffed))
+		out.append(staffing_cost_text(diff, labels, tx, staffed, idle))
 	return out
 
 

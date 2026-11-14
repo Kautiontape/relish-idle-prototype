@@ -115,7 +115,7 @@ static func badge_alpha(walking: bool, since_arrival_s: float, fade_s: float, re
 ## {starts: [{uid, name, lot_id, from_lot}], prev: the places now}. `from_lot` is the building he was
 ## at ("" when he came from the crypt, a fort or the party, or is new), so a foreman moved between
 ## buildings walks from his old one.
-static func transitions(prev: Dictionary, entries: Array, seeded: bool) -> Dictionary:
+static func transitions(prev: Dictionary, entries: Array, seeded: bool, slab := {}) -> Dictionary:
 	var starts: Array = []
 	var now := {}
 	for e in entries:
@@ -124,6 +124,6 @@ static func transitions(prev: Dictionary, entries: Array, seeded: bool) -> Dicti
 		now[uid] = place
 		if seeded and place.begins_with("town:") and String(prev.get(uid, "")) != place:
 			var was := String(prev.get(uid, ""))
-			starts.append({"uid": uid, "name": String(e.get("name", "")), "lot_id": place.trim_prefix("town:"),
+			starts.append({"uid": uid, "name": SlabLogic.display_name(e, slab) if not slab.is_empty() else String(e.get("name", "")), "lot_id": place.trim_prefix("town:"),
 				"from_lot": was.trim_prefix("town:") if was.begins_with("town:") else ""})
 	return {"starts": starts, "prev": now}

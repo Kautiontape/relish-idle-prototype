@@ -584,7 +584,7 @@ func _foreman_spot(fr: Dictionary) -> Vector2:
 func _read_walks(entries: Array) -> void:
 	if not _places_seeded and _fronts.is_empty():
 		return  # nothing laid out yet: look again at the next sync
-	var res := TownSetPiece.transitions(_prev_places, entries, _places_seeded)
+	var res := TownSetPiece.transitions(_prev_places, entries, _places_seeded, _slab)
 	_prev_places = res["prev"]
 	_places_seeded = true
 	for st in res["starts"]:

@@ -286,16 +286,10 @@ static func stat_rows(stats: Dictionary, dominant: String, cfg: Dictionary, text
 	return out
 
 
-## What a stat helps: "the raw front · a warden's armour" (slab.stat_fronts + view.crypt.stat_uses).
-static func stat_helps(stat: String, cfg: Dictionary, texts: Dictionary) -> String:
-	var parts: Array = []
-	var front := String(cfg.get("stat_fronts", {}).get(stat, ""))
-	if front != "":
-		parts.append(String(texts.get("front", "{front}")).format({"front": front}))
-	var uses := String(texts.get("stat_uses", {}).get(stat, ""))
-	if uses != "":
-		parts.append(uses)
-	return String(texts.get("sep", " · ")).join(parts)
+## What a stat helps, in the town's own words and buildings: slab.stat_helps (town.json). `texts` is kept for the
+## caller's signature.
+static func stat_helps(stat: String, cfg: Dictionary, _texts: Dictionary) -> String:
+	return String(cfg.get("stat_helps", {}).get(stat, ""))
 
 
 ## A stat as an upright number: whole when it is whole ("6"), else one decimal ("3.5").

@@ -167,6 +167,16 @@ static func stance_job(id: String, town: Dictionary, vcfg: Dictionary) -> String
 	return ""
 
 
+## The chips beside a stance's toggle: "suspended" and "active" only (the toggle itself already says On / Off).
+static func stance_chips(s: Dictionary, tx: Dictionary) -> Array:
+	var chips: Array = []
+	if bool(s.get("suspended", false)):
+		chips.append(String(tx.get("chip_suspended", "suspended")))
+	if bool(s.get("active", false)):
+		chips.append(String(tx.get("chip_active", "active")))
+	return chips
+
+
 ## Whether the stances are live (E3): any stance carries a non-empty `projected`, the same signal the
 ## Stances tab's "projected rates arrive with E3" line uses.
 static func stances_live(views: Dictionary) -> bool:
