@@ -558,7 +558,7 @@ func _time_split_tests(t: TestUtil) -> void:
 	t.ok(not RaidLogic.foe_engaged(me, -1, Vector2(900, 100), -1, true, 260.0), "two doorway bands are not one room")
 	t.ok(RaidLogic.foe_engaged(me, -1, Vector2(200, 100), -1, true, 260.0), "in a doorway band the radius still counts")
 	# the split only reads the run: no rng draw, no goal, no routing state
-	for head in ["func _split_tick(", "func _engaged(", "func _route_px("]:
+	for head in ["func _split_tick(", "func _engaged(", "func _route_px(", "func _watch_army(", "func _army_at("]:
 		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
 		t.ok(body != "" and not body.contains("_rng") and not body.contains("rng_combat") and not body.contains("move_target")
 			and not body.contains("_cur_room") and not body.contains("_hold_t") and not body.contains("_stick"),

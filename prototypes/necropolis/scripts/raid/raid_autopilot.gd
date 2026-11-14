@@ -47,7 +47,8 @@ extends RefCounted
 ## Measuring fields (read only, never fed back): `split` (scene seconds per RaidLogic.time_class bucket),
 ## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
-## miss chance and delay, the warden tells seen and answered). See NOTES-RAID "Run length and risk calibration".
+## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
+## stood) and `army_at_death_minus5`. See NOTES-RAID "Run length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -107,6 +108,8 @@ var _walk_travel_px := 0.0      # of it: in travel ticks
 var _rooms_entered := 0         # room changes (_track_room): decision points for the human factor
 var _frames0 := [0, 0]          # the process and physics frame counters at start()
 var _living_start := 0          # living on the field when the run starts
+var _army_zero_t := -1.0        # first scene time no undead stood (-1: never)
+var _army_log: Array = []       # [t, undead standing] every half second (the death fields)
 var _pack := {}                 # the warden's pack counts (a warden with a pack only), read like _shield / _pyre
 var _det := {}                  # the guarded detour's site (RaidLogic.detour_site); {} on a fort without one
 var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
@@ -237,9 +240,28 @@ func _split_tick(delta: float) -> void:
 	var tr: RaidTrance = _raid.trance
 	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
 	_split[k] = float(_split[k]) + delta
+	_watch_army()
 	_walk_px += moved
 	if k == "travel":
 		_walk_travel_px += moved
+
+
+## The death fields: the first tick no undead stood, and a half-second log of how many did.
+func _watch_army() -> void:
+	var n := _allies_alive()
+	if n == 0 and _army_zero_t < 0.0:
+		_army_zero_t = _sim_t
+	if _army_log.is_empty() or _sim_t - float(_army_log[_army_log.size() - 1][0]) >= 0.5:
+		_army_log.append([_sim_t, n])
+
+
+## Undead standing `back` scene seconds before `t` (the last half-second sample at or before it; -1 before any).
+func _army_at(t: float, back: float) -> int:
+	var out := -1
+	for e in _army_log:
+		if float(e[0]) <= t - back + 1e-6:
+			out = int(e[1])
+	return out
 
 
 ## The split's "engaged": the warden from its wake while it lives (standing off a slam or waiting out a
@@ -390,6 +412,9 @@ func on_finish(result: Dictionary) -> void:
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
 	out["killed_by"] = (src if src != "" else "wound") if died else ""
+	out["death_t"] = snappedf(_sim_t, 0.01) if died else -1.0
+	out["army_zero_t"] = snappedf(_army_zero_t, 0.01)
+	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
