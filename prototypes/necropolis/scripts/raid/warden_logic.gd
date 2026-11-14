@@ -460,6 +460,17 @@ static func shove_point(facing: float, from: Vector2, at: Vector2, shove_px: flo
 	return at + dir * shove_px
 
 
+## D-d/E Step 4.1, the rush's reach: the bash's `base` plus `rush_px`, but never beyond `frac` of the
+## warden room's half-size (`room_half`, its shorter side), so a small room keeps a ring she can stand in
+## (pale-bastion's room is 543 px across: a 260 px rush covered nearly all of it). Never below the bash's
+## own reach; `frac` 0 means no cap.
+static func rush_reach(base: float, rush_px: float, room_half: float, frac: float) -> float:
+	var r := base + rush_px
+	if frac > 0.0:
+		r = minf(r, room_half * frac)
+	return maxf(base, r)
+
+
 ## A big undead takes the flank role when its wits meet the weak point's threshold.
 ## D-d/E 3b, the Shieldwall's rush: a wits flanker pins it when it stands within `max_d` of the wall and
 ## off the shield's front (outside ±`half_deg` of the facing). `pts` are the wits big undead's positions.

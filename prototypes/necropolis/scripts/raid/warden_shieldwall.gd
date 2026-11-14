@@ -238,7 +238,8 @@ func _begin_tell(at: Dictionary) -> void:
 	rushing = not _pinned()
 	if rushing:
 		rushes += 1
-		at["reach_px"] = _base_reach + float(at.get("rush_px", 0.0))
+		at["reach_px"] = WardenLogic.rush_reach(_base_reach, float(at.get("rush_px", 0.0)),
+			minf(_room.size.x, _room.size.y) * 0.5, float(at.get("rush_room_frac", 0.0)))
 	else:
 		pins += 1
 

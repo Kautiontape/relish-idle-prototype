@@ -344,6 +344,13 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var stand := float(sat["reach_px"]) + 13.0 + float(cfg["autopilot"]["wall_margin_px"]) + float(cfg["autopilot"]["wall_stand_px"])
 	t.ok(float(sat["reach_px"]) + float(sat["rush_px"]) + 13.0 >= stand and 80.0 + float(sat["rush_half_deg"]) >= float(cfg["autopilot"]["wall_side_deg"]),
 		"a rush reaches a conduit waiting at its side stand (%d px, %d deg off its facing)" % [stand, float(cfg["autopilot"]["wall_side_deg"])])
+	# Step 4.1: the rush never covers a small room (pale-bastion's is 543 px across)
+	var rf := float(sat["rush_room_frac"])
+	var full := float(sat["reach_px"]) + float(sat["rush_px"])
+	t.near(WardenLogic.rush_reach(float(sat["reach_px"]), float(sat["rush_px"]), 339.0, rf), full, 1e-9, "in the-stair's room (678 px) the rush keeps its full reach")
+	var small := WardenLogic.rush_reach(float(sat["reach_px"]), float(sat["rush_px"]), 271.5, rf)
+	t.ok(small < full and small <= 271.5 * rf + 1e-6 and small < stand, "in pale-bastion's (543 px) it stops at %d px, short of her side stand (%d px)" % [small, stand])
+	t.ok(WardenLogic.rush_reach(140.0, 120.0, 100.0, rf) == 140.0 and WardenLogic.rush_reach(140.0, 120.0, 100.0, 0.0) == 260.0, "never below the bash's own reach; frac 0 is no cap")
 	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
 	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:
