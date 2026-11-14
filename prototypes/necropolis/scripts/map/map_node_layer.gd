@@ -63,6 +63,27 @@ func diamond(p: Vector2, s: float, col: Color) -> void:
 	draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s), p + Vector2(s, 0), p + Vector2(0, s), p + Vector2(-s, 0)]), col)
 
 
+# --- the shared unit glyphs (GlyphLogic), world px -----------------------------------------
+
+## An undead worker centred at `p` heading `dir`: a straight undead stroke (LineGlow in undead
+## green, halo capped at `cap`) with a solid undead_core dot at its head, as the lanes draw it.
+func worker_glyph(p: Vector2, dir: Vector2, glow: float, cap: float) -> void:
+	var s := GlyphLogic.shape(GlyphLogic.UNDEAD)
+	var head := p + dir * float(s["len"]) * 0.5
+	glow_poly(PackedVector2Array([p - dir * float(s["len"]) * 0.5, head]), Palette.c("undead"), float(s["width"]), glow, cap)
+	draw_circle(head, float(s["head_r"]), Palette.c("undead_core"))
+
+
+## A big undead at `p`: `strokes` nested undead diamond outlines (the outermost `half` from centre
+## to tip) and an undead_core dot.
+func big_glyph(p: Vector2, half: float, strokes: int) -> void:
+	var g := GlyphLogic.gcfg()
+	for h in GlyphLogic.nest_halves(half, strokes):
+		glow_poly(PackedVector2Array([p + Vector2(0, -h), p + Vector2(h, 0), p + Vector2(0, h), p + Vector2(-h, 0), p + Vector2(0, -h)]),
+			Palette.c("undead"), float(g["big_width_px"]), float(g["big_glow"]), float(g["big_halo_max_px"]))
+	draw_circle(p, float(g["big_core_r_px"]), Palette.c("undead_core"))
+
+
 # --- text -----------------------------------------------------------------------------
 
 ## A label anchored at world `anchor` (see draw_label), on this layer at the camera's zoom.

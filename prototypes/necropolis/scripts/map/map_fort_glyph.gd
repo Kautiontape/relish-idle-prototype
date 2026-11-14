@@ -14,6 +14,8 @@ extends MapNodeLayer
 ## Two instances: the beating one (`beating`) draws the glowing shapes, and MapNodes sets its
 ## modulate alpha on the forts' beat (NodeLogic.state_alpha); the still one, above it, draws the
 ## emptied rings (the dead never pulse) and the badges (cut clear of the beating shapes).
+## While the flip set piece re-inks a fort's ring (ctx.reink) its glyph keeps the pre-flip state,
+## and changes once the ring is done.
 
 var beating := false
 
@@ -21,7 +23,7 @@ var beating := false
 func _draw_static() -> void:
 	var n := NodeLogic.ncfg()
 	for f in ctx.forts:
-		var st := NodeLogic.fort_state(f, ctx.model.margin_of(str(f["id"])))
+		var st := _state_of(f)
 		var p := MapModel.to_vec(f["pos"])
 		var h := NodeLogic.state_glyph_half(ctx.zoom)
 		if beating:
@@ -39,10 +41,18 @@ func _draw_static() -> void:
 func static_sig():
 	var out: Array = []
 	for f in ctx.forts:
-		out.append(NodeLogic.fort_state(f, ctx.model.margin_of(str(f["id"]))))
+		out.append(_state_of(f))
 		if not beating:
 			out.append(NodeLogic.tithe_badge(f))
 	return out
+
+
+## The fort's state, or its pre-flip one while its ring re-inks.
+func _state_of(f: Dictionary) -> String:
+	var rk: Dictionary = ctx.reink.get(str(f["id"]), {})
+	if not rk.is_empty():
+		return str(rk["from"])
+	return NodeLogic.fort_state(f, ctx.model.margin_of(str(f["id"])))
 
 
 func _shape(st: String, p: Vector2, h: float, n: Dictionary) -> void:

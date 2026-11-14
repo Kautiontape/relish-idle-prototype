@@ -4,6 +4,8 @@ extends PanelContainer
 ## shared MapModel's views. Its actions (MOVE / CANCEL / DESCEND / HAUL, the Vei card's BEGIN) are
 ## built by RelishLogic and sent as commands; a dive (DESCEND, a confirmed BEGIN) leaves through
 ## `dive(node_id)`, which world_map turns into the router's `finished({v: 2, teleport_to})`.
+## Vei's odds summary is pinned with the actions, beside BEGIN, out of the card's scroll. A card
+## taller than its room scrolls, and its bottom edge fades into the panel while more lies below.
 
 signal dive(node_id: String)
 signal toast(msg: String)
@@ -12,6 +14,8 @@ var model: MapModel
 var selected_id := ""
 
 var _scroll: ScrollContainer
+var _scroll_box: Control  # holds the scroll and the fade over its bottom edge
+var _fade: Control
 var _card: MapCardView
 var _actions: VBoxContainer
 var _act_sig := ""
@@ -39,10 +43,21 @@ func _ready() -> void:
 	vb.add_theme_constant_override("separation", int(cfg["sidebar_vsep_px"]))
 	add_child(vb)
 	# The card scrolls if it overflows; the actions stay pinned below it, always reachable.
+	_scroll_box = Control.new()
+	_scroll_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(_scroll_box)
 	_scroll = ScrollContainer.new()
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(_scroll)
+	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scroll_box.add_child(_scroll)
+	_fade = Control.new()
+	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fade.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_fade.offset_top = -float(cfg["sidebar_fade_px"])
+	_fade.draw.connect(_draw_fade)
+	_scroll_box.add_child(_fade)
+	_scroll.get_v_scroll_bar().value_changed.connect(func(_v: float) -> void: _update_fade())
+	_scroll.get_v_scroll_bar().changed.connect(_update_fade)
 	_card = MapCardView.new()
 	_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_card.assign_front.connect(_assign_front)
@@ -75,10 +90,13 @@ func refresh() -> void:
 		return
 	if selected_id == MapModel.VEI:
 		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names, model.readout()))
-		_flush_actions(RelishLogic.vei_actions(model.vei, model.relish))
+		var acts := RelishLogic.vei_actions(model.vei, model.relish)
+		var at := acts.find_custom(func(i): return str(i["act"]) == "begin")
+		acts.insert(maxi(at, 0), {"kind": "line", "text": CardLogic.pinned_odds(model.readout()), "act": "", "enabled": true})
+		_flush_actions(acts)
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
-		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names))
+		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names, ConfigDb.data.get("loot", {})))
 		_flush_actions(RelishLogic.fort_actions(f, model.relish, model.haul, model.names))
 	elif not model.village(selected_id).is_empty():
 		_card.show_card(CardBlocksLogic.village_card(model.village(selected_id), ""))
@@ -95,7 +113,27 @@ func _fit_scroll() -> void:
 	var cfg := MapLogic.cfg()
 	var chrome := 2.0 * float(cfg["sidebar_margin_px"]) + 2.0 * float(cfg["sidebar_vsep_px"]) + _sep.get_combined_minimum_size().y
 	var room := get_viewport_rect().size.y - offset_top - float(cfg["sidebar_bottom_px"]) - chrome - _actions.get_combined_minimum_size().y
-	_scroll.custom_minimum_size.y = clampf(_card.get_combined_minimum_size().y, 0.0, maxf(room, 0.0))
+	_scroll_box.custom_minimum_size.y = clampf(_card.get_combined_minimum_size().y, 0.0, maxf(room, 0.0))
+	_update_fade()
+
+
+## The fade shows while the card runs past the bottom of its room.
+func _update_fade() -> void:
+	var bar := _scroll.get_v_scroll_bar()
+	_fade.visible = bar.max_value - bar.page > 0.5 and bar.value < bar.max_value - bar.page - 0.5
+	_fade.queue_redraw()
+
+
+## A gradient from clear to the panel's own colour over the scroll's bottom edge.
+func _draw_fade() -> void:
+	var cfg := MapLogic.cfg()
+	var solid := Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]))
+	solid.a = float(cfg["sidebar_bg_alpha"])
+	var clear := solid
+	clear.a = 0.0
+	var sz := _fade.size
+	_fade.draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0.0), sz, Vector2(0.0, sz.y)]),
+		PackedColorArray([clear, clear, solid, solid]))
 
 
 func _world_desc(key: String) -> String:

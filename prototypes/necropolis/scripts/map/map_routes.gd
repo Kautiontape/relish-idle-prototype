@@ -9,11 +9,18 @@ extends Node2D
 ## it went quiet or loud. Quiet (LaneStyle.quiet_ids): with a fort selected, every lane off it and
 ## off Relish's fort; with none, each kind's lanes past glow_cap_per_kind (Relish's fort's lanes
 ## stay loud); re-applied on a selection too.
+## Near zoom: the shader turns each war / flood / work / living lane's dashes into unit glyphs
+## (GlyphLogic); the routes only set each lane's glyph shape once and the crossfade weight when
+## the zoom moves it.
+## Victory (set_victory, from MapSetpieces): every lane takes the undead hue at
+## SetpieceLogic.victory_u, lanes leaving Vei are rebuilt reversed so every one runs toward her,
+## and at "stop" every dash, gutter and cart freezes where it stands (their clock holds).
 ## Styling and tables: scripts/map/lane_style_logic.gd. Tuning: configs/map_view.json.
 
 const SHADER := preload("res://shaders/map_lane.gdshader")
 const CARTS_SCRIPT := preload("res://scripts/map/map_carts.gd")
 const COL_PARAMS: Array[StringName] = [&"col0", &"col1", &"col2", &"col3"]
+const GCOL_PARAMS: Array[StringName] = [&"gcol0", &"gcol1", &"gcol2", &"gcol3"]
 
 var model: MapModel
 ## GDScript ms the routes spent last frame (offsets, any refresh, the cart overlay's draw).
@@ -50,6 +57,8 @@ class Ribbon:
 	var quiet := false  # lit, but out of focus or past the glow cap: the core alone, narrower
 	var u := -2.0
 	var u_host := -2.0
+	var vic := false  # styled for victory (undead hue, never quiet)
+	var reversed := false  # built from `to` back to `from` (victory: a lane leaving Vei runs toward her)
 	var lit := false  # gutter: its fort stands in Relish's light (dead_lit instead of dead)
 	var speed := 0.0
 	var period := 1.0
@@ -75,11 +84,14 @@ var _chev := false
 var _snap := false
 var _eps := 0.0
 var _tier := ""
+var _glyph_w := 0.0  # GlyphLogic.near_weight at the camera's zoom, as last set on the lanes
 var _cam: Camera2D
 var _log_max := 0.0
 var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ring) the lanes were last trimmed to
 var _reported := false
 var _report_ms := -1.0  # Pulse's clock when the --lanes-report table prints
+var _victory := ""  # "" | SetpieceLogic.RUN | SetpieceLogic.STOP
+var _hold_ms := -1.0  # victory's stop: the clock every offset is taken at from then on (-1: live)
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
 var _bench := false
@@ -138,15 +150,34 @@ func _process(_delta: float) -> void:
 			_sync_ms_sum += ms
 			_sync_ms_max = maxf(_sync_ms_max, ms)
 	_sync_chevrons()
-	var now := Pulse.now_ms()
-	if lanes_report and not _reported and _report_ms >= 0.0 and now >= _report_ms:
+	if lanes_report and not _reported and _report_ms >= 0.0 and Pulse.now_ms() >= _report_ms:
 		_reported = true
 		_print_report()
+	var now := _clock()
 	var rm: bool = Pulse.reduced_motion
 	for r: Ribbon in _moving:
 		r.mat.set_shader_parameter(&"offset", LaneStyle.phase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, rm))
 	_carts.tick(_tier != "far")
 	_last_us = Time.get_ticks_usec() - t0
+
+
+## Pulse's clock for the dashes: live, or held where victory's stop froze them.
+func _clock() -> float:
+	return _hold_ms if _hold_ms >= 0.0 else Pulse.now_ms()
+
+
+## Victory (MapSetpieces): RUN lights every lane in the undead hue, running toward Vei; STOP also
+## freezes every dash, gutter and cart at this instant; "" goes back to the views' styling. A
+## change of styling restyles every lane on the next frame's sync.
+func set_victory(phase: String) -> void:
+	if phase == _victory:
+		return
+	var restyle := (_victory != "") != (phase != "")
+	_victory = phase
+	_hold_ms = Pulse.now_ms() if phase == SetpieceLogic.STOP else -1.0
+	_carts.hold_ms = _hold_ms
+	if restyle:
+		_rev = -2
 
 
 ## The frame before's total (process + the cart draw), as the readout and a bench sample.
@@ -344,7 +375,8 @@ func _lane(row: Dictionary) -> Ribbon:
 	var radius := 0.0
 	if a == b:
 		radius = LaneStyle.ring_radius(row, int(model.fort(row["from"]).get("tier", 1)))
-	if not r.built or a != r.a or b != r.b or radius != r.radius:
+	var rev := _victory != "" and str(row["from"]) == MapModel.VEI and a != b
+	if not r.built or a != r.a or b != r.b or radius != r.radius or rev != r.reversed:
 		var t0 := Time.get_ticks_usec()
 		r.built = true
 		r.a = a
@@ -358,7 +390,11 @@ func _lane(row: Dictionary) -> Ribbon:
 		else:
 			var c := MapLogic.lane_curve_for(row, a, b, 0.0)
 			pts = MapLogic.sample_quad(c["a"], c["c"], c["b"], int(MapLogic.cfg()["ribbon_samples"]))
+			if rev:
+				pts.reverse()  # the same curve, walked from the fort back to Vei
+		r.reversed = rev
 		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]), true, row)
+		_glyph_shape(r)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
@@ -408,11 +444,24 @@ func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, r
 	r.mat.set_shader_parameter(&"chev_snap", 1.0 if _snap else 0.0)
 
 
+## A lane's near-zoom glyph (GlyphLogic.kind_for its kind): its shape, set once per build, and the
+## crossfade weight it starts at. Its glyph_kind is set when it lights (_apply_lane: 0 while
+## phantom); gutters keep 0 (dead matter has no unit glyph).
+func _glyph_shape(r: Ribbon) -> void:
+	var sh := GlyphLogic.shape(GlyphLogic.kind_for(str(r.style["kind"])))
+	r.mat.set_shader_parameter(&"glyph_len", sh["len"])
+	r.mat.set_shader_parameter(&"glyph_sag", sh["sag"])
+	r.mat.set_shader_parameter(&"head_r", sh["head_r"])
+	r.mat.set_shader_parameter(&"head_w", sh["head_w"])
+	r.mat.set_shader_parameter(&"glyph_mix", _glyph_w)
+
+
 ## The arc length a ribbon does not draw at each end (a self-loop ring is untouched).
 func _trim(r: Ribbon) -> void:
 	var t := {"start": 0.0, "end": 0.0}
 	if not r.ring:
-		t = NodeLogic.trim_lengths(_outer(str(r.row["from"])), _outer(str(r.row["to"])), r.length)
+		var ends := [str(r.row["to"]), str(r.row["from"])] if r.reversed else [str(r.row["from"]), str(r.row["to"])]
+		t = NodeLogic.trim_lengths(_outer(ends[0]), _outer(ends[1]), r.length)
 	r.trim = Vector2(t["start"], t["end"])
 	r.mat.set_shader_parameter(&"trim_start", r.trim.x)
 	r.mat.set_shader_parameter(&"trim_end", r.trim.y)
@@ -428,6 +477,11 @@ func _retrim_vei() -> void:
 	for r: Ribbon in _lanes.values() + _gutters.values():
 		if r.built and (str(r.row["from"]) == MapModel.VEI or str(r.row["to"]) == MapModel.VEI):
 			_trim(r)
+
+
+## Where a lane stops at node `id` (the set pieces' bands stop there too).
+func node_trim_radius(id: String) -> float:
+	return _outer(id)
 
 
 ## Where lanes stop at a node: its outermost drawn radius (NodeLogic.outer_radius); at Vei that
@@ -449,31 +503,55 @@ func _note_build(t0: int) -> void:
 
 
 func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool, quiet := false) -> void:
+	var vic := _victory != ""
+	if vic:  # every lane lights, loud, at victory's floor
+		u = SetpieceLogic.victory_u(u)
+		quiet = false
 	var mode := LaneStyle.lane_mode(u, hosts_live_dead)
 	if mode == "off":
 		_hide(r)
 		return
 	quiet = quiet and mode == "lit"
-	if mode == r.mode and quiet == r.quiet and (mode == "phantom" or absf(u - r.u) <= _eps):
+	if mode == r.mode and quiet == r.quiet and vic == r.vic and (mode == "phantom" or absf(u - r.u) <= _eps):
 		return
 	r.mode = mode
 	r.quiet = quiet
 	r.u = u
+	r.vic = vic
+	var style := _victory_style(r.style) if vic else r.style
 	_updates += 1
 	var layers: Array
 	if mode == "phantom":
 		layers = LaneStyle.phantom_layers(r.style)
 		_set_motion(r, {"period": 1.0, "dash": 1.0, "speed": 0.0})
 		r.mat.set_shader_parameter(&"chev_col", Palette.c("void", 0.0))
+		r.mat.set_shader_parameter(&"glyph_kind", 0.0)
 	else:
-		var ch := _channels(u, str(r.style["hue_key"]))
-		layers = LaneStyle.lit_layers(ch, r.style, quiet)
-		_set_motion(r, LaneStyle.motion(ch, r.style, r.length if r.ring else 0.0))
-		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style, quiet))
+		var ch := _channels(u, str(style["hue_key"]))
+		layers = LaneStyle.lit_layers(ch, style, quiet)
+		_set_motion(r, LaneStyle.motion(ch, style, r.length if r.ring else 0.0))
+		var core := LaneStyle.core_color(ch, style, quiet)
+		r.mat.set_shader_parameter(&"chev_col", core)
+		# the glyph: the lane's stack at the glyph's stroke width in the lane colour, its head in the core colour
+		var glyph := GlyphLogic.kind_for(str(r.style["kind"]))
+		var gp := LaneStyle.pack(LaneStyle.glyph_layers(ch, style, quiet, float(GlyphLogic.shape(glyph)["width"])))
+		r.mat.set_shader_parameter(&"glyph_kind", GlyphLogic.shader_kind(glyph))
+		r.mat.set_shader_parameter(&"gwidths", gp["widths"])
+		for i in LaneStyle.MAX_LAYERS:
+			r.mat.set_shader_parameter(GCOL_PARAMS[i], gp["colors"][i])
+		r.mat.set_shader_parameter(&"glyph_core", core)
 	_set_layers(r, layers)
 	if mode == "lit" and str(r.row["kind"]) == "haul":
 		_set_carts(r)
 	r.node.visible = true
+
+
+## A lane's style in victory: the undead hue and its pale core; its own dash rhythm and width.
+func _victory_style(style: Dictionary) -> Dictionary:
+	var s := style.duplicate()
+	s["hue_key"] = "undead"
+	s["core"] = Palette.c("undead_core")
+	return s
 
 
 func _apply_gutter(r: Ribbon, u_dead: float, u_host: float) -> void:
@@ -512,7 +590,7 @@ func _set_layers(r: Ribbon, layers: Array) -> void:
 
 ## A motion change keeps the phase: the offset shown now becomes the new anchor on Pulse's clock.
 func _set_motion(r: Ribbon, m: Dictionary) -> void:
-	var now := Pulse.now_ms()
+	var now := _clock()
 	r.anchor_off = LaneStyle.rebase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, m["period"])
 	r.anchor_ms = now
 	r.speed = m["speed"]
@@ -526,7 +604,7 @@ func _set_motion(r: Ribbon, m: Dictionary) -> void:
 ## u_epsilon gate as the dashes), anchored so the lead cart keeps its place.
 func _set_carts(r: Ribbon) -> void:
 	var c := LaneStyle.carts(float(r.row["rate"]), r.speed, r.length)
-	var now := Pulse.now_ms()
+	var now := _clock()
 	r.cart_off = LaneStyle.cart_anchor(r.cart_off, r.cart_ms, now, r.cart_speed, r.cart_spacing, c["spacing"], r.length)
 	r.cart_ms = now
 	r.cart_speed = r.speed
@@ -540,6 +618,7 @@ func _track(r: Ribbon) -> Dictionary:
 
 
 # --- chevrons: reduced motion, or mid zoom and nearer; snapped into the gaps while frozen ---
+# --- and the near crossfade: the lanes' glyph weight, set only when the zoom changed it ---
 
 func _sync_chevrons() -> void:
 	if _cam == null or not is_instance_valid(_cam):
@@ -549,6 +628,11 @@ func _sync_chevrons() -> void:
 		tier = (_cam as MapCamera).tier
 	elif _cam != null:
 		tier = MapLogic.zoom_tier(_cam.zoom.x, _tier)
+	var gw := GlyphLogic.near_weight(_cam.zoom.x) if _cam != null else 0.0
+	if gw != _glyph_w:
+		_glyph_w = gw
+		for r: Ribbon in _lanes.values():
+			r.mat.set_shader_parameter(&"glyph_mix", gw)
 	var on := LaneStyle.chevrons_on(Pulse.reduced_motion, tier)
 	var snap: bool = Pulse.reduced_motion
 	_tier = tier

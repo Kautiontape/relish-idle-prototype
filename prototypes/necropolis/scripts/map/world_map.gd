@@ -1,6 +1,7 @@
 extends Control
-## The Realm view: the scene root. Builds the world (ground, routes, nodes, camera) and the UI
-## layer (HUD, sidebar), owns the shared MapModel, and exits only via finished(result).
+## The Realm view: the scene root. Builds the world (ground, routes, nodes, the set pieces' layer,
+## camera) and the UI layer (HUD, sidebar), owns the shared MapModel and the set pieces
+## (MapSetpieces), and exits only via finished(result).
 ## Reads views through the model and sends commands through GameState; nothing else.
 
 signal finished(result: Dictionary)
@@ -16,16 +17,24 @@ var valve: MapValve
 var chip: MapRelishChip
 var sidebar: MapSidebar
 var away: MapAway
+var setpieces: MapSetpieces
+var setpiece_layer: MapSetpieceLayer
+var opening: MapOpening
+var tithe_explain: MapTitheExplain
+var seen: MapSeen
 
 var selected_id := ""
 var _hover := ""
 var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
+var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
+var _ui_layer: CanvasLayer
 
 
-func setup(_seed_data: Dictionary) -> void:
+func setup(args: Dictionary) -> void:
 	_setup_called = true
+	_arrive_from = str(args.get("arrive_from", ""))
 
 
 func demo_seed() -> Dictionary:
@@ -41,6 +50,8 @@ func _ready() -> void:
 	model.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
 	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
 	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
+	model.realm_cfg = ConfigDb.data.get("realm", {})
+	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
 	model.refresh(true)
 	_build_world()
@@ -49,7 +60,13 @@ func _ready() -> void:
 	if not is_inside_tree():
 		return
 	hud.start()
-	cam.fit(get_viewport_rect().size, hud.top_inset())
+	opening.refresh()
+	_fit()
+	var ease_s := _begin_arrival()
+	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
+		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live.bind(_arrive_from))
+	else:
+		setpieces.go_live(_arrive_from)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
@@ -91,8 +108,15 @@ func _build_world() -> void:
 	callouts_view = MapCallouts.new()
 	callouts_view.name = "Callouts"
 	callouts_view.model = model
-	callouts_view.cam = cam
+	callouts_view.nodes = nodes_view
+	callouts_view.cam = cam  # the card (the sidebar) is set in _build_ui
 	world.add_child(callouts_view)
+	setpiece_layer = MapSetpieceLayer.new()  # the set pieces' bands, rings and callouts, over the nodes and lane callouts
+	setpiece_layer.name = "Setpieces"
+	setpiece_layer.ctx = nodes_view.ctx
+	setpiece_layer.pulse = true
+	world.add_child(setpiece_layer)
+	nodes_view.timed_layers.append(setpiece_layer)  # its drawing counts in NODES_MS
 	cam.clicked.connect(_on_clicked)
 	world.add_child(cam)
 	cam.make_current()
@@ -100,6 +124,7 @@ func _build_world() -> void:
 
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
+	_ui_layer = layer
 	add_child(layer)
 	hud = MapHud.new()
 	hud.model = model
@@ -120,13 +145,39 @@ func _build_ui() -> void:
 	sidebar.dive.connect(_dive)
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
+	callouts_view.card = sidebar  # the callouts keep off the open card
+	hud.next_chosen.connect(_act_on)
+	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	opening = MapOpening.new()
+	opening.model = model
+	opening.hud = hud
+	opening.valve = valve
+	opening.nodes = nodes_view
+	opening.seen = seen
+	layer.add_child(opening)
+	tithe_explain = MapTitheExplain.new()
+	tithe_explain.model = model
+	tithe_explain.cam = cam
+	tithe_explain.hud = hud
+	tithe_explain.seen = seen
+	tithe_explain.toast.connect(hud.show_toast)
+	layer.add_child(tithe_explain)
+	Game.game_event.connect(tithe_explain.on_event)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
-	away.fort_chosen.connect(_on_away_fort)
-	away.dive.connect(_dive)
+	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	setpieces = MapSetpieces.new()
+	setpieces.name = "Setpieces"
+	setpieces.model = model
+	setpieces.nodes = nodes_view
+	setpieces.routes = routes_view
+	setpieces.hud = hud
+	setpieces.valve = valve
+	setpieces.layer = setpiece_layer
+	add_child(setpieces)
 
 
 ## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar
@@ -145,7 +196,39 @@ func _input(e: InputEvent) -> void:
 func _refit() -> void:
 	MapLogic.configure(ConfigDb.data.get("map_view", {}))  # the deferred re-fit runs before MapNodes re-reads F6's tuning
 	if cam != null and not cam.user_moved:
-		cam.fit(get_viewport_rect().size, hud.top_inset())
+		_fit()
+
+
+## The default fit: below the top bar, every fort and Vei clear of the valve panel, the objective
+## strip and Relish's chip.
+func _fit() -> void:
+	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), chip.get_global_rect()])
+
+
+## The return from a town, dungeon or boss: the camera starts zoomed on `_arrive_from` and eases
+## out to the fit. Under reduced motion the router's crossfade is all there is. Returns the ease's
+## seconds (0: none).
+func _begin_arrival() -> float:
+	if _arrive_from == "" or Pulse.reduced_motion or not model.has_node(_arrive_from):
+		return 0.0
+	var tl := TransitionLogic.timeline(TransitionLogic.cfg(), TransitionLogic.OUT, false, MapTransition.slow())
+	cam.begin_arrive(model.node_pos(_arrive_from), tl["zoom_s"])
+	return float(tl["zoom_s"])
+
+
+## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
+## into the node and the HUD, valve, chip, sidebar and callouts fade out over the same time. The
+## signal fires when the zoom ends.
+func dive_to(node_id: String, duration_s: float) -> Signal:
+	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
+		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
+	cam.begin_dive(t["zoom"], t["centre"], duration_s)
+	var fade := create_tween().set_parallel()
+	for c in _ui_layer.get_children():
+		if c is CanvasItem:
+			fade.tween_property(c, "modulate:a", 0.0, duration_s)
+	fade.tween_property(callouts_view, "modulate:a", 0.0, duration_s)
+	return cam.move_done
 
 
 ## Covington is a door: one click enters the town, with no card. Everything else selects.
@@ -156,10 +239,17 @@ func _on_clicked(id: String) -> void:
 		_select(id)
 
 
-## An away-report line named a fort: open its card and bring it to the middle.
-func _on_away_fort(id: String) -> void:
-	_select(id)
-	cam.centre_on(model.node_pos(id))
+## A clicked line (the objective strip, an away-report line) does its AwayLogic action: a fort
+## opens its card and comes to the middle, a dive enters Covington, Vei is selected.
+func _act_on(a: Dictionary) -> void:
+	match str(a.get("kind", "none")):
+		"fort":
+			_select(str(a["id"]))
+			cam.centre_on(model.node_pos(str(a["id"])))
+		"dive":
+			_dive(str(a["to"]))
+		"vei":
+			_select(MapModel.VEI)
 
 
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
@@ -276,6 +366,8 @@ func _update_hover() -> void:
 
 
 func _exit_tree() -> void:
+	if tithe_explain != null and Game.game_event.is_connected(tithe_explain.on_event):
+		Game.game_event.disconnect(tithe_explain.on_event)
 	if away != null and Game.game_event.is_connected(away.on_event):
 		Game.game_event.disconnect(away.on_event)
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
@@ -293,3 +385,5 @@ func _process(delta: float) -> void:
 	hud.refresh()
 	valve.refresh()
 	sidebar.refresh()
+	opening.refresh()
+	tithe_explain.refresh()

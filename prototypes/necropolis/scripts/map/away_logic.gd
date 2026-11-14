@@ -55,18 +55,43 @@ static func duration_text(away_s: float) -> String:
 
 
 ## What a click on a line with this `target` does: {kind: "fort", id}, {kind: "dive", to}
-## (the slab and the queue live in Covington) or {kind: "none"}.
+## (the slab and the queue live in Covington), {kind: "vei"} (select her) or {kind: "none"}.
+## The away panel's lines and the objective strip both resolve their clicks here.
 static func action(target: String, fort_ids: Array) -> Dictionary:
 	if fort_ids.has(target):
 		return {"kind": "fort", "id": target}
 	if target == "slab" or target == "queue":
 		return {"kind": "dive", "to": "covington"}
+	if target == "vei":
+		return {"kind": "vei"}
 	return {"kind": "none"}
+
+
+## The losses' count, first in their section: "2 forts lost · 1 village lost" (forts from
+## `retaken` lines, villages from `village_lost`), or "" when neither was lost.
+static func losses_count(losses: Array) -> String:
+	var c := cfg()
+	var forts := 0
+	var villages := 0
+	for row in losses:
+		match str(row.get("kind", "")):
+			"retaken":
+				forts += 1
+			"village_lost":
+				villages += 1
+	var parts: Array = []
+	if forts > 0:
+		parts.append(str(c["fort_lost_fmt" if forts == 1 else "forts_lost_fmt"]) % forts)
+	if villages > 0:
+		parts.append(str(c["village_lost_fmt" if villages == 1 else "villages_lost_fmt"]) % villages)
+	return str(c["count_sep"]).join(parts)
 
 
 ## The report as panel text: {away: "Away 9 h 12 m", capped: "capped at 7 days" or "", sections:
 ## [{key, title, lines: [{text, spans, action}]}]}. Sections run gains, ready, losses; gains and
-## ready are left out when empty, losses always show ("Nothing lost." when there are none).
+## ready are left out when empty, losses always show ("Nothing lost." when there are none) and lead
+## with their count ("2 forts lost"). Ready and loss lines carry their target's action (a lost
+## fort is clickable like a ready one); gains lines and the count do nothing.
 static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
 	var c := cfg()
 	var out := {
@@ -76,9 +101,12 @@ static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
 	}
 	for key in ["gains", "ready", "losses"]:
 		var lines: Array = []
+		var count := losses_count(rep.get(key, [])) if key == "losses" else ""
+		if count != "":
+			lines.append({"text": count, "spans": spans(count), "action": {"kind": "none"}})
 		for row in rep.get(key, []):
 			var text := str(row.get("text", ""))
-			lines.append({"text": text, "spans": spans(text), "action": action(str(row.get("target", "")), fort_ids) if key == "ready" else {"kind": "none"}})
+			lines.append({"text": text, "spans": spans(text), "action": action(str(row.get("target", "")), fort_ids) if key != "gains" else {"kind": "none"}})
 		if key == "losses" and lines.is_empty():
 			var none := str(c.get("nothing_lost", ""))
 			lines.append({"text": none, "spans": spans(none), "action": {"kind": "none"}})

@@ -81,10 +81,16 @@ static func speed_text(hud: Dictionary) -> String:
 	return "" if is_equal_approx(ts, 1.0) else "×%d" % roundi(ts)
 
 
-## The objective strip: the standing objective, or the victory line once won.
+## The standing objective, or the victory line once won (NextLogic's default and won lines).
 static func objective_text(hud: Dictionary) -> String:
 	var cfg := MapLogic.cfg()
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
+
+
+## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
+## screen - viewport / 2 + camera position x zoom.
+static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:
+	return Rect2(r.position - viewport * 0.5 + cam_pos * zoom, r.size)
 
 
 # --- lane "why" callouts --------------------------------------------------------
@@ -100,6 +106,10 @@ static func callout_parts(row: Dictionary, names: Dictionary) -> Dictionary:
 	var why := str(row.get("why", ""))
 	if why == "":
 		return {}
+	if bool(row.get("group", false)):
+		return {"head": "%s ×%d %s %s %s " % [str(row.get("kind", "")).to_upper(), int(row["count"]), DOT, why, DOT],
+			"rate": MapLogic.fmt_rate(float(row.get("rate", 0.0))),
+			"tail": " " + str(MapLogic.cfg()["callouts"]["collapse_total_text"])}
 	return {"head": "%s %s %s " % [str(row.get("kind", "")).to_upper(), ARROW, node_name(str(row.get("to", "")), names)],
 		"rate": MapLogic.fmt_rate(float(row.get("rate", 0.0))), "tail": " %s %s" % [DOT, why]}
 
@@ -117,6 +127,37 @@ static func callout_rows(lanes: Array) -> Array:
 			keyed.append([absf(float(lanes[i].get("rate", 0.0))), i])
 	keyed.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
 	return keyed.map(func(k): return lanes[k[1]])
+
+
+## callout_rows with same-cause lanes folded: `collapse_min` or more lanes that share a kind, a
+## why and a source node become ONE row {group: true, id, kind, from, to: "", why, rate (their sum),
+## count}, anchored at that common source (Covington for the valve or staging, Vei for a tithe);
+## fewer stay individual. Loudest first again, by the folded rate. `collapse_min` <= 0: no folding.
+static func callout_items(lanes: Array, collapse_min: int) -> Array:
+	var rows := callout_rows(lanes)
+	if collapse_min <= 0:
+		return rows
+	var groups := {}  # kind|why|from -> {rows, rate}
+	for r in rows:
+		var key := "%s|%s|%s" % [r.get("kind", ""), r.get("why", ""), r.get("from", "")]
+		if not groups.has(key):
+			groups[key] = {"rows": [], "rate": 0.0}
+		groups[key]["rows"].append(r)
+		groups[key]["rate"] += float(r.get("rate", 0.0))
+	var keyed: Array = []
+	var seen := {}
+	for i in rows.size():
+		var r: Dictionary = rows[i]
+		var key := "%s|%s|%s" % [r.get("kind", ""), r.get("why", ""), r.get("from", "")]
+		var g: Dictionary = groups[key]
+		if (g["rows"] as Array).size() < collapse_min:
+			keyed.append([absf(float(r.get("rate", 0.0))), i, r])
+		elif not seen.has(key):
+			seen[key] = true
+			keyed.append([absf(float(g["rate"])), i, {"group": true, "id": "group:" + key, "kind": r["kind"], "from": r["from"], "to": "",
+				"why": r["why"], "rate": g["rate"], "count": (g["rows"] as Array).size()}])
+	keyed.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	return keyed.map(func(k): return k[2])
 
 
 ## Four plate rects of `size` around `anchor`, in preference order: up-right, down-right,
@@ -137,9 +178,9 @@ static func leader_end(plate: Rect2, anchor: Vector2) -> Vector2:
 
 ## Greedy placement. `options[i]` is callout i's candidate rects in preference order. Callouts
 ## are taken in order: each takes its first candidate that stays `gap` clear of every plate
-## placed so far, and is skipped (-1) when none does or `max_count` plates are already down.
-## Returns the chosen candidate index per callout.
-static func place(options: Array, max_count: int, gap: float) -> Array[int]:
+## placed so far and of every `occupied` rect (the open card), and is skipped (-1) when none does
+## or `max_count` plates are already down. Returns the chosen candidate index per callout.
+static func place(options: Array, max_count: int, gap: float, occupied: Array = []) -> Array[int]:
 	var picks: Array[int] = []
 	var placed: Array[Rect2] = []
 	for cands in options:
@@ -147,6 +188,8 @@ static func place(options: Array, max_count: int, gap: float) -> Array[int]:
 		if placed.size() < max_count:
 			for k in cands.size():
 				var r: Rect2 = cands[k]
+				if occupied.any(func(o: Rect2): return r.grow(gap).intersects(o)):
+					continue
 				if not placed.any(func(p: Rect2): return r.grow(gap).intersects(p)):
 					pick = k
 					break
