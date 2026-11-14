@@ -22,10 +22,13 @@ var _hover := ""
 var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
+var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
+var _ui_layer: CanvasLayer
 
 
-func setup(_seed_data: Dictionary) -> void:
+func setup(args: Dictionary) -> void:
 	_setup_called = true
+	_arrive_from = str(args.get("arrive_from", ""))
 
 
 func demo_seed() -> Dictionary:
@@ -52,6 +55,7 @@ func _ready() -> void:
 		return
 	hud.start()
 	_fit()
+	_begin_arrival()
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
@@ -102,6 +106,7 @@ func _build_world() -> void:
 
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
+	_ui_layer = layer
 	add_child(layer)
 	hud = MapHud.new()
 	hud.model = model
@@ -155,6 +160,30 @@ func _refit() -> void:
 ## strip and Relish's chip.
 func _fit() -> void:
 	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), chip.get_global_rect()])
+
+
+## The return from a town, dungeon or boss: the camera starts zoomed on `_arrive_from` and eases
+## out to the fit. Under reduced motion the router's crossfade is all there is.
+func _begin_arrival() -> void:
+	if _arrive_from == "" or Pulse.reduced_motion or not model.has_node(_arrive_from):
+		return
+	var tl := TransitionLogic.timeline(TransitionLogic.cfg(), TransitionLogic.OUT, false, MapTransition.slow())
+	cam.begin_arrive(model.node_pos(_arrive_from), tl["zoom_s"])
+
+
+## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
+## into the node and the HUD, valve, chip, sidebar and callouts fade out over the same time. The
+## signal fires when the zoom ends.
+func dive_to(node_id: String, duration_s: float) -> Signal:
+	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
+		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
+	cam.begin_dive(t["zoom"], t["centre"], duration_s)
+	var fade := create_tween().set_parallel()
+	for c in _ui_layer.get_children():
+		if c is CanvasItem:
+			fade.tween_property(c, "modulate:a", 0.0, duration_s)
+	fade.tween_property(callouts_view, "modulate:a", 0.0, duration_s)
+	return cam.move_done
 
 
 ## Covington is a door: one click enters the town, with no card. Everything else selects.

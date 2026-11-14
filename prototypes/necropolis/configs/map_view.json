@@ -910,5 +910,16 @@
   "fit_shrink_tries": 8,
   "fit_bottom_px": 6.0,
   "fit_label_half_px": 60.0,
-  "sidebar_fade_px": 28.0
+  "sidebar_fade_px": 28.0,
+  "transition": {
+    "dive_zoom_mult": 3.0,
+    "dive_zoom_ms": 380,
+    "dive_fade_ms": 180,
+    "arrive_zoom_ms": 420,
+    "reduced_fade_ms": 150,
+    "max_total_ms": 600,
+    "ease_power": 3.0,
+    "layer": 100,
+    "settle_frames": 2
+  }
 }
