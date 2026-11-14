@@ -17,7 +17,7 @@ extends CanvasLayer
 ##                         a mode may add +reduced, +grey and/or +bare (routes and
 ##                         nodes hidden, for contrast captures), e.g. flow+reduced
 ##   --bench-warm=N        frames to wait first (e.g. at --speed=60 to reach late game)
-##   --bench-speed=X       sim speed to switch to after warm-up (default 1)
+##   --bench-speed=X       sim speed to switch to after warm-up (default 1; 0 < X <= 100)
 ##   --bench-shot=/abs/prefix  save <prefix>-<mode>.png at the end of each mode
 ## Prints one "BENCH ..." line per mode, then quits.
 
@@ -34,7 +34,7 @@ var _bmodes: Array = []
 var _bframes := 0
 var _bt0 := 0
 var _bsamples := {}
-var _warm_sim_s := 0.0
+var _warm_t0 := -1.0  # sim clock (view_hud t) when the warm-up began
 var _bare := false
 
 
@@ -43,8 +43,8 @@ func _ready() -> void:
 	_hist.resize(240)
 	var plate := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.02, 0.024, 0.04, 0.86)
-	sb.border_color = Color("2a2a30")
+	sb.bg_color = Palette.c("ground", 0.86)
+	sb.border_color = Palette.c("ring_track")
 	sb.set_border_width_all(1)
 	sb.set_content_margin_all(8)
 	plate.add_theme_stylebox_override("panel", sb)
@@ -55,7 +55,7 @@ func _ready() -> void:
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label = Label.new()
 	label.add_theme_font_size_override("font_size", 12)
-	label.add_theme_color_override("font_color", Color("e8e8ec"))
+	label.add_theme_color_override("font_color", Palette.c("text"))
 	plate.add_child(label)
 	add_child(plate)
 	var root_rid := get_viewport().get_viewport_rid()
@@ -128,12 +128,17 @@ func _run_bench(ms: float) -> void:
 	match _bstate:
 		"warm":
 			_bframes -= 1
-			_warm_sim_s += get_process_delta_time() * Game.time_scale
+			var t_now := float(Game.state.view_hud()["t"])
+			if _warm_t0 < 0.0:
+				_warm_t0 = t_now
 			if _bframes <= 0:
-				print("BENCH_WARM frames=%s sim_s=%.0f (%.2f sim-hours) odds=%.2f massed=%.0f" % [
-					_bench.get("bench-warm", "120"), _warm_sim_s, _warm_sim_s / 3600.0,
-					Game.realm.readout()["odds"], Game.realm.readout()["massed"]])
-				Game.time_scale = float(_bench.get("bench-speed", "1"))
+				var sim_s := t_now - _warm_t0
+				var vei := Game.state.view_vei()
+				print("BENCH_WARM frames=%s sim_s=%.0f (%.2f sim-hours) odds=%.2f backlog=%.0f" % [
+					_bench.get("bench-warm", "120"), sim_s, sim_s / 3600.0, vei["odds"], vei["backlog"]])
+				var sent := Game.state.cmd_debug_set_state({"time_scale": float(_bench.get("bench-speed", "1"))})
+				if not sent["ok"]:
+					push_warning("bench-speed refused: %s" % sent["reason"])
 				_next_mode()
 		"settle":
 			_bframes -= 1
@@ -198,4 +203,4 @@ func _report() -> void:
 		mean.call("mcpu"), mean.call("mgpu"), mean.call("tcpu"), mean.call("tgpu"),
 		mean.call("gcpu"), gc.max() if not gc.is_empty() else 0.0, view.detail(), int(vs.x), int(vs.y), str(DisplayServer.window_get_size()),
 		"off" if DisplayServer.window_get_vsync_mode() == DisplayServer.VSYNC_DISABLED else "on",
-		str(Game.time_scale)])
+		str(Game.state.view_hud()["time_scale"])])
