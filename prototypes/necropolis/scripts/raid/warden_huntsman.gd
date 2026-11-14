@@ -8,6 +8,10 @@ extends RaidWarden
 ## While Relish is outside its room it hunts her undead instead (the nearest in or entering the room,
 ## WardenLogic.hunt_target): same tell, same lunge, no catches, units on the path take the hit. So
 ## hiding outside costs units, and she is not safe forever.
+## Silhouette: a `vei` arrowhead on a short lance shaft, pointing along its aim (the tip turns
+## `danger` while a lunge is locked or dashing). Stunned, it wobbles and its outline breaks. The pips
+## its stun window takes are marked on the break meter (`mark_weak`), and `stun_lit0` is the meter at
+## the window's start, so the HUD can flash exactly the pips that window took.
 
 var catches := 0
 var stun_left := 0.0           # scene seconds of stun remaining
@@ -26,7 +30,12 @@ var _lunge_flash := 0.0
 var _hunting_undead := false   # this frame's target is an undead, not Relish
 var _lock_undead := false      # the locked lunge is aimed at an undead: it cannot catch
 var _route: RaidRoute = null   # stalk steering (the goal is leash-clamped, so it is a direct line today)
-var _hud_key := -1             # catches, hunting-undead and stunned as the HUD line was last set from
+var hunting_undead := false    # the HUD's "hunting your dead" (a read-only mirror of _hunting_undead)
+var stun_lit0 := -1            # meter pips lit when the current stun window opened (-1 before any)
+
+var _arrow := PackedVector2Array()   # the arrowhead outline, local, pointing +x
+var _tipv := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
+var _xf := PackedVector2Array()      # scratch for the rotated outline
 
 
 func _on_wake() -> void:
@@ -49,7 +58,15 @@ func is_stunned() -> bool:
 
 
 func take_hit(amount: float) -> void:
-	super.take_hit(WardenLogic.stun_damage(spec, amount, is_stunned()))
+	var stunned := is_stunned()
+	var lit0 := meter_lit()
+	super.take_hit(WardenLogic.stun_damage(spec, amount, stunned))
+	if stunned:
+		mark_weak(lit0, meter_lit())   # the weak point's bonus damage, on the meter
+
+
+func in_weak_window() -> bool:
+	return is_stunned()
 
 
 func _on_phase_change(old: int, new: int) -> void:
@@ -82,7 +99,6 @@ func _hunt() -> Dictionary:
 
 func _step(delta: float) -> void:
 	_lunge_flash = maxf(0.0, _lunge_flash - delta * 3.0)
-	_update_hud()
 	if _dashing:
 		_advance_dash(delta)
 	if stun_left > 0.0:
@@ -95,6 +111,7 @@ func _step(delta: float) -> void:
 	var at: Dictionary = spec.get("attack", {})
 	var tgt := _hunt()
 	_hunting_undead = tgt["kind"] == "undead"
+	hunting_undead = _hunting_undead
 	# tell: lock the target point at Relish's position while she is in the room, else at an undead
 	if not _locked and b >= _next_attack - tell and tgt["kind"] != "none":
 		var late := b > _next_attack - tell + 0.1
@@ -207,6 +224,8 @@ func _begin_lunge() -> void:
 		print("RAID_WARDEN lunge n=%d %s%s catches=%d phase=%d undead_hit=%d frame=%d" % [_lunges, outcome, " (hunting undead)" if undead_hunt else "", catches, phase, done.size(), Engine.get_process_frames()])
 	if _dash_left <= 0.5:
 		_dashing = false
+	if outcome == "intercepted":
+		stun_lit0 = meter_lit()   # the window opens: the HUD flashes the pips it takes from here
 
 
 func _advance_dash(delta: float) -> void:
@@ -220,47 +239,58 @@ func _advance_dash(delta: float) -> void:
 		_dashing = false
 
 
-## The HUD line, set only when what it says changes (it is asked every physics frame).
-func _update_hud() -> void:
-	var key := catches * 4 + (2 if _hunting_undead else 0) + (1 if is_stunned() else 0)
-	if raid.hud != null and key != _hud_key:
-		_hud_key = key
-		raid.hud.set_warden_line("CAUGHT %d%s%s" % [catches, "   HUNTING YOUR DEAD" if _hunting_undead else "",
-			"   INTERCEPTED" if is_stunned() else ""],
-			"undead" if is_stunned() else "danger")
-
-
-func _exit_tree() -> void:
-	if raid != null and is_instance_valid(raid) and raid.hud != null:
-		raid.hud.set_warden_line("", "danger")
-
-
 # ------------------------------------------------------------------- draw ---
-func _draw() -> void:
-	if not awake or not is_stunned():
-		super._draw()
-	else:
-		# stunned: the rings wobble (still under reduced motion) and break
+func _build_arrow() -> void:
+	var r := radius
+	_arrow = PackedVector2Array([Vector2(1.7 * r, 0), Vector2(-0.5 * r, -0.85 * r), Vector2(-0.05 * r, 0),
+		Vector2(-0.5 * r, 0.85 * r), Vector2(1.7 * r, 0)])
+	_xf.resize(_arrow.size())
+
+
+func _meter_y() -> float:
+	return radius * 1.75 + float(wcfg().get("meter_gap_px", 16.0)) * 0.5
+
+
+## The arrowhead and lance along the aim; dormant it is dim and unlit.
+func _draw_glyph(col: Color) -> void:
+	if _arrow.is_empty():
+		_build_arrow()
+	var dir := _aim.normalized() if _aim.length() > 0.01 else Vector2.RIGHT
+	var rot := dir.angle()
+	var wob := Vector2.ZERO
+	var stunned := awake and is_stunned()
+	if stunned and not Pulse.reduced_motion:
 		var w := float(spec.get("attack", {}).get("stun_wobble_px", 3.5))
-		var s := 0.0 if Pulse.reduced_motion else sin(_breath_t * 38.0)
-		draw_set_transform(Vector2(s * w, cos(_breath_t * 31.0) * w * (0.0 if Pulse.reduced_motion else 1.0)), s * 0.06, Vector2.ONE * (1.0 + 0.03 * s))
-		super._draw()
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		var n := rings_left()
-		for i in n:
-			var r := _ring_r(i)
-			for k in 3:
-				var a0 := TAU * (k / 3.0) + 0.5 * i
-				draw_arc(Vector2.ZERO, r, a0, a0 + 0.22, 6, Palette.c("ground", 0.95), 4.0)
-	if awake:
-		# the spear: a short heading stroke towards its target
-		var dir := _aim.normalized() if _aim.length() > 0.01 else Vector2.RIGHT
-		var col := Palette.c("danger") if (_locked or _dashing) else Palette.c("living")
-		var base := dir * radius * 1.05
-		var tip := dir * radius * 1.75
-		LineGlow.polyline(self, PackedVector2Array([base, tip]), col, 3.0, 0.6)
-		draw_line(tip, tip - dir.rotated(0.5) * 9.0, col, 3.0)
-		draw_line(tip, tip - dir.rotated(-0.5) * 9.0, col, 3.0)
+		wob = Vector2(sin(_breath_t * 38.0), cos(_breath_t * 31.0)) * w
+		rot += sin(_breath_t * 38.0) * 0.08
+	for i in _arrow.size():
+		_xf[i] = _arrow[i].rotated(rot) + wob
+	var r := radius
+	var back := Vector2(-1.5 * r, 0).rotated(rot) + wob
+	var notch := Vector2(-0.05 * r, 0).rotated(rot) + wob
+	if not awake:
+		draw_polyline(_xf, col, 2.0)
+		draw_line(notch, back, col, 2.0)
+		return
+	LineGlow.polyline(self, _xf, col, 2.8, 0.7, Palette.c("text", 0.9))
+	draw_line(notch, back, col, 2.4)
+	# fletching at the lance's butt
+	draw_line(back, back + Vector2(-0.28 * r, 0.3 * r).rotated(rot), col, 2.0)
+	draw_line(back, back + Vector2(-0.28 * r, -0.3 * r).rotated(rot), col, 2.0)
+	# the tip goes `danger` while a lunge is locked or dashing
+	if _locked or _dashing:
+		for k in range(1, 4, 2):
+			_tipv[0] = _xf[0]
+			_tipv[1] = _xf[k].lerp(_xf[0], 0.55)
+			LineGlow.polyline(self, _tipv, Palette.c("danger"), 2.8, 0.6)
+	if stunned:
+		# stunned: the outline breaks (three gaps along its edges)
+		for k in 3:
+			var a := _xf[k]
+			var b := _xf[k + 1]
+			var m := a.lerp(b, 0.5)
+			var d := (b - a).normalized() * 6.0
+			draw_line(m - d, m + d, Palette.c("ground", 0.95), 5.0)
 
 
 func _draw_telegraph(ci: CanvasItem) -> void:
@@ -277,5 +307,7 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		var to2 := _dash_to - global_position
 		ci.draw_line(Vector2.ZERO, to2, Palette.c("danger", 0.7 * _lunge_flash), 6.0)
 	if is_stunned():
-		var font := ThemeDB.fallback_font
-		ci.draw_string(font, Vector2(-60, -radius * 1.8 - 22.0), "INTERCEPTED", HORIZONTAL_ALIGNMENT_CENTER, 120.0, 16, Palette.c("undead"))
+		# the weak point working, in the world (>= label_px on screen at any zoom)
+		var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
+		ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 5.0, -radius * 1.8 - fs * 1.4), "INTERCEPTED",
+			HORIZONTAL_ALIGNMENT_CENTER, fs * 10.0, fs, Palette.c("undead"))

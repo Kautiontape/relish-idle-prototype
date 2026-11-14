@@ -4,7 +4,8 @@ extends CanvasLayer
 ## essence as pips with their integers beside them), trance meter, hint line, the
 ## always-visible retreat button (top-right) + its confirmation dialog. The boss (Vei's final test)
 ## has no retreat: no button and no dialog; its BossBlock (top centre) shows the fronts, the horde,
-## the break's beat pips and the backups left.
+## the break's beat pips and the backups left. A dungeon's awake warden gets the WardenBlock (top
+## centre): its break meter and whether the counterplay is working.
 
 var raid: Node = null
 
@@ -18,7 +19,8 @@ var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
-var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
+var _warden_block: Control = null   # dungeon only: the awake warden's break meter
+var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
 var _boss_block: Control = null
@@ -37,8 +39,6 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_stats.setup(boss_mode)
 	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_stats)
-	_warden_line = _mk_label(box, 20, Palette.c("danger"))
-	_warden_line.visible = false
 
 	_banner = _mk_label(self, 20, Palette.c("relish"))
 	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -70,6 +70,20 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_meter.offset_top = -46.0
 	_meter.offset_right = 208.0
 	_meter.offset_bottom = -16.0
+
+	if not boss_mode:
+		_warden_block = WardenBlock.new()
+		_warden_block.raid = p_raid
+		_warden_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_warden_block.visible = false
+		add_child(_warden_block)
+		_warden_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_warden_block.anchor_left = 0.5
+		_warden_block.anchor_right = 0.5
+		_warden_block.offset_left = -340.0
+		_warden_block.offset_right = 340.0
+		_warden_block.offset_top = 10.0
+		_warden_block.offset_bottom = 72.0
 
 	if not boss_mode:   # there is no retreat from the Vei fight
 		_exit_btn = ExitButton.new()
@@ -108,6 +122,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.offset_top = 10.0
 		_boss_block.offset_bottom = 104.0
 		_banner.offset_top = 112.0
+	_banner_top = _banner.offset_top
 
 
 func _mk_label(parent: Node, size: int, color: Color) -> Label:
@@ -124,6 +139,11 @@ func _process(_delta: float) -> void:
 	if raid == null:
 		return
 	refresh()
+	if _warden_block != null:
+		# the banner steps down under the warden's block while it shows
+		var top := _banner_top + (14.0 if _warden_block.visible else 0.0)
+		if _banner.offset_top != top:
+			_banner.offset_top = top
 	if _banner_t >= 0.0:
 		_banner_t -= _delta
 		if _banner_t < 0.0:
@@ -209,15 +229,6 @@ func flash(color: Color) -> void:
 	_flash.color = c
 	_flash.visible = true
 	_flash_t = 0.0
-
-
-## The warden's status line under the counters; empty text hides it.
-func set_warden_line(text: String, color_key := "danger") -> void:
-	if _warden_line == null:
-		return
-	_warden_line.visible = text != ""
-	_warden_line.text = text
-	_warden_line.add_theme_color_override("font_color", Palette.c(color_key))
 
 
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).
@@ -424,6 +435,136 @@ class TranceMeter:
 			_segmented(r, tr.cooldown_frac(), tr.cooldown_total, Palette.c("danger", 0.5))
 		draw_string(ThemeDB.fallback_font, Vector2(0, 8), word,
 			HORIZONTAL_ALIGNMENT_LEFT, 190, 14, col)
+
+
+## The awake warden's break meter (top centre; hidden while it sleeps and once it falls). Row 1:
+## its name, the strength left as pips (`vei`, VISUAL-LANGUAGE law 9) with the phase notches where
+## its phases are hp gates, "n/N", and the counterplay's running count: the Bellringer's
+## "MUFFLED x n of m" (lit `undead` once it has worked, "braced" while a brace is up), the Huntsman's
+## "INTERCEPTED x n · took k" (k pips taken inside stun windows). Pips a stun window took stay as
+## `undead` rings with a slash; the open window's pips flash (steady under reduced motion).
+## Row 2: the Bellringer's phase and its weak point; the Huntsman's CAUGHT track (danger diamonds,
+## notched where catches change its phase) and whether it is hunting your dead. Redrawn only when
+## what it shows changes (or every frame while a stun window flashes).
+class WardenBlock:
+	extends Control
+	var raid: Node = null
+	var _key := -1
+	var _key2 := -1
+	var _t := 0.0
+
+	func _warden() -> RaidWarden:
+		if raid == null or raid.warden_run == null:
+			return null
+		var w = raid.warden_run.warden
+		if w == null or not is_instance_valid(w) or not w.alive or not w.awake:
+			return null
+		return w
+
+	func _process(d: float) -> void:
+		var w := _warden()
+		var show: bool = w != null and not raid._ended
+		if show != visible:
+			visible = show
+			_key = -1
+		if not show:
+			return
+		_t += d / maxf(0.05, Engine.time_scale)
+		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
+		var k2 := 0
+		var flashing := false
+		if w is RaidBellringer:
+			var bw := w as RaidBellringer
+			k2 = mini(bw.slams_muffled, 1023) | (mini(bw.slams, 1023) << 10) | (int(bw.muffled) << 20)
+		elif w is RaidHuntsman:
+			var hw := w as RaidHuntsman
+			flashing = hw.is_stunned()
+			k2 = mini(hw.intercepts, 1023) | (mini(hw.catches, 1023) << 10) | (int(flashing) << 20) | (int(hw.hunting_undead) << 21)
+		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
+			_key = k
+			_key2 = k2
+			queue_redraw()
+
+	func _text(x: float, y: float, text: String, px: int, key := "text") -> float:
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Palette.c(key))
+		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+	func _notch(x: float, y: float) -> void:
+		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
+	func _draw() -> void:
+		var w := _warden()
+		if w == null:
+			return
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		var x0 := 12.0
+		var px0 := 150.0
+		var y := 26.0
+		_text(x0, y, str(w.spec.get("name", "")).to_upper(), 13, "text_dim")
+		# row 1: the strength left, notched at the phase boundaries
+		var lit := w.meter_lit()
+		var hw: RaidHuntsman = w as RaidHuntsman
+		var win_lo := lit
+		var win_hi := -1
+		if hw != null and hw.is_stunned() and hw.stun_lit0 > lit:
+			win_hi = hw.stun_lit0
+		var blink := 1.0 if Pulse.reduced_motion else 0.55 + 0.45 * sin(_t * 14.0)
+		var x := px0 + 6.0
+		var r := 6.0
+		for i in w.meter_n:
+			if w.meter_notch.has(i):
+				_notch(x - 3.5, y + 1.0)
+				x += 9.0
+			var p := Vector2(x, y - 5.0)
+			if i < lit:
+				draw_circle(p, r, Palette.c("vei"))
+			elif i >= win_lo and i < win_hi:
+				# the open stun window took this pip: it flashes
+				draw_circle(p, r, Palette.c("undead", blink))
+			elif w.weak_marks[i] != 0:
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
+				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
+			else:
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.6), 1.3)
+			x += 16.0
+		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
+		y += 26.0
+		if w is RaidBellringer:
+			var bw := w as RaidBellringer
+			var n := bw.slams_muffled
+			var x2 := _text(x + 14.0, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
+			if bw.muffled:
+				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x3 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+		elif hw != null:
+			var n2 := hw.intercepts
+			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken)
+			var x4 := _text(x + 14.0, y - 26.0, tag, 15, "undead" if n2 > 0 else "text_dim")
+			if win_hi > 0:
+				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
+			# row 2: the hunt, notched where catches change its phase
+			_text(x0, y, "CAUGHT", 13, "text_dim")
+			var notches := WardenLogic.catch_notches(w.spec)
+			var slots := maxi(WardenLogic.catch_slots(w.spec), hw.catches)
+			var cx := px0 + 6.0
+			for i in slots:
+				if notches.has(i):
+					_notch(cx - 3.5, y + 1.0)
+					cx += 9.0
+				var q := Vector2(cx, y - 5.0)
+				var pts := PackedVector2Array([q + Vector2(0, -6), q + Vector2(6, 0), q + Vector2(0, 6), q + Vector2(-6, 0), q + Vector2(0, -6)])
+				if i < hw.catches:
+					draw_colored_polygon(pts, Palette.c("danger"))
+				else:
+					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+				cx += 16.0
+			var x5 := _text(cx + 2.0, y, str(hw.catches), 15, "danger" if hw.catches > 0 else "text")
+			x5 = _text(x5 + 12.0, y, "phase %d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 13, "text_dim")
+			if hw.hunting_undead:
+				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
 
 
 class ExitButton:

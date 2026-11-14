@@ -3,6 +3,9 @@ extends RaidWarden
 ## The Bellringer: stationary. A ring slam on the tempo, telegraphed for tell_beats as a tightening
 ## danger ring plus a faint preview of the slam's full reach. Beef soaks the slam; a beefy big
 ## undead braced at the bell muffles it. Three phases by hp, each ring faster.
+## Silhouette: a heavy bell outline in `vei`, one rib per phase left (a rib falls away at each
+## phase), and a clapper line that swings through the tell and strikes the lip on the slam (under
+## reduced motion it holds at the struck angle for the whole tell).
 
 var muffled := false           # the slam in flight (or the next one) is muffled
 var _next_attack := 0.0        # beat of the next slam
@@ -13,6 +16,16 @@ var _slam_prev_r := 0.0
 var _slam_muffled := false
 var _slams := 0
 var slams_muffled := 0         # slams rung while a beefy big braced the bell (autopilot telemetry)
+var slams := 0                 # slams rung, for the HUD's "MUFFLED x n of m" (a read-only mirror of _slams)
+
+var _bell := PackedVector2Array()   # the outline, built once from the radius
+var _ribs: Array[PackedVector2Array] = []   # rib i spans the bell at height RIB_Y[i]
+var _clap := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
+
+const BELL_L := [Vector2(0.0, -0.84), Vector2(-0.22, -0.83), Vector2(-0.36, -0.77), Vector2(-0.44, -0.64),
+	Vector2(-0.48, -0.44), Vector2(-0.51, -0.18), Vector2(-0.56, 0.10), Vector2(-0.66, 0.34),
+	Vector2(-0.82, 0.52), Vector2(-0.95, 0.60), Vector2(-0.95, 0.70)]
+const RIB_Y := [-0.10, 0.18, 0.42]   # one rib per phase left: the lowest falls away first
 
 
 func _on_wake() -> void:
@@ -61,6 +74,7 @@ func _step(_delta: float) -> void:
 		_slam_prev_r = 0.0
 		_slam_muffled = muffled
 		_slams += 1
+		slams = _slams
 		RaidSound.play("muffle" if muffled else "slam")
 		if muffled:
 			slams_muffled += 1
@@ -88,6 +102,91 @@ func _apply_slam(r_prev: float, r_now: float, band: float) -> void:
 	if rel != null and is_instance_valid(rel) and rel.alive \
 			and WardenLogic.slam_crosses(rel.global_position.distance_to(global_position), r_prev, r_now, band):
 		rel.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, _slam_muffled))
+
+
+# ------------------------------------------------------------------- draw ---
+func _build_bell() -> void:
+	var left := PackedVector2Array()
+	for v in BELL_L:
+		left.append((v as Vector2) * radius)
+	_bell.clear()
+	for v in left:
+		_bell.append(v)
+	for i in range(left.size() - 1, -1, -1):
+		_bell.append(Vector2(-left[i].x, left[i].y))
+	_ribs.clear()
+	for y in RIB_Y:
+		var hw := _half_width(float(y)) * radius - 3.0
+		_ribs.append(PackedVector2Array([Vector2(-hw, float(y) * radius), Vector2(hw, float(y) * radius)]))
+
+
+## The bell's half-width (in radii) at height y (in radii), from the left profile.
+func _half_width(y: float) -> float:
+	for i in BELL_L.size() - 1:
+		var a: Vector2 = BELL_L[i]
+		var b: Vector2 = BELL_L[i + 1]
+		if y >= a.y and y <= b.y:
+			return -lerpf(a.x, b.x, (y - a.y) / maxf(0.0001, b.y - a.y))
+	return 0.5
+
+
+func _meter_y() -> float:
+	return radius * 0.70 + float(wcfg().get("meter_gap_px", 16.0))
+
+
+## The clapper's swing in radians: still at rest, swinging wider through the tell, struck against
+## the lip just after the slam (alternate sides). Reduced motion: held at the struck angle.
+func _clapper_angle() -> float:
+	if not awake:
+		return 0.0
+	var at: Dictionary = spec.get("attack", {})
+	var tell := float(at.get("tell_beats", 1.0))
+	var b := beat()
+	var side := 1.0 if _slams % 2 == 0 else -1.0
+	var struck := float(wcfg().get("clapper_strike_rad", 0.5))
+	if _slam_beat >= 0.0 and b - _slam_beat < float(wcfg().get("clapper_hold_beats", 0.25)):
+		return -side * struck   # the slam that just rang struck the other side
+	if _slam_beat < 0.0 and WardenLogic.is_tell(b, _next_attack, tell):
+		if Pulse.reduced_motion:
+			return side * struck
+		var f := clampf((b - (_next_attack - tell)) / maxf(0.01, tell), 0.0, 1.0)
+		return side * struck * (0.3 + 0.7 * f) * sin(_breath_t * float(wcfg().get("clapper_swing_rad_s", 14.0)))
+	return 0.0
+
+
+func _draw_glyph(col: Color) -> void:
+	if _bell.is_empty():
+		_build_bell()
+	var dim := not awake
+	var core := Palette.c("text", 0.9)
+	if dim:
+		draw_polyline(_bell, col, 2.0)
+	else:
+		LineGlow.polyline(self, _bell, col, 2.8, 0.7, core)
+	# the canon: the loop the bell hangs from
+	draw_arc(Vector2(0, -0.97 * radius), 0.13 * radius, 0.0, TAU, 16, col, 2.0)
+	# ribs: one per phase left
+	var n := rings_left()
+	var rib_col := col
+	rib_col.a *= 0.8
+	for i in mini(n, _ribs.size()):
+		draw_polyline(_ribs[i], rib_col, 2.0)
+	if drop_t >= 0.0 and n < _ribs.size():
+		# the rib that just fell away drops and fades
+		var f := drop_t / maxf(0.05, float(wcfg().get("phase_flash_s", 0.6)))
+		var gone: PackedVector2Array = _ribs[n]
+		var off := Vector2(0, 14.0 * f)
+		draw_line(gone[0] + off, gone[1] + off, Palette.c("vei", 0.8 * (1.0 - f)), 2.0)
+	# the clapper: a line from the crown with a ball, swinging on the tell
+	var piv := Vector2(0, -0.66 * radius)
+	var tip := piv + Vector2(0, 1.12 * radius).rotated(_clapper_angle())
+	_clap[0] = piv
+	_clap[1] = tip
+	if dim:
+		draw_polyline(_clap, col, 2.0)
+	else:
+		LineGlow.polyline(self, _clap, col, 2.4, 0.5)
+	draw_circle(tip, 0.10 * radius, col)
 
 
 func _draw_telegraph(ci: CanvasItem) -> void:
