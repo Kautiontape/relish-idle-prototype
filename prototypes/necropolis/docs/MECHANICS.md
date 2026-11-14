@@ -245,9 +245,9 @@ Names, to avoid confusion:
   1. the tithe clock (§3.4: a wave's start, at its exact time inside the step);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
      fort's room over the step: `cap` less the fort's load at the step's end without her living
-     (`L + D` now less the corpses raised, plus what U's path leaves with the step's WAR and raises
-     arriving, under the drain and the garrison's pull), less a surge there, never below 0
-     (§3.4). The surge takes all it wants, past the shipping share, the space and the cap. Both
+     (`L + D` now less the corpses cleared and raised, plus what U's path leaves with the step's
+     WAR and raises arriving, under the drain and the garrison's pull), less a surge there, never
+     below 0 (§3.4). The surge takes all it wants, past the shipping share, the space and the cap. Both
      draw on her pool now plus what she can convert this step before her headroom (from her
      queues as they stand after FLOOD), surge first. A long step ships what the short ones would,
      and her pool never leaves [0, cap];
@@ -353,13 +353,15 @@ at E2b.
   pro rata.
   - **The room over the step** is `cap` less the fort's load at the step's end without her
     living, less a surge arriving there, never below 0. The load is `L + D` now (kills only move
-    living to corpses), less the corpses raised (bounded by the corpses now), plus what U's own
-    path (§3.1 step 5) leaves at the step's end with this step's WAR and raises arriving, under
-    the drain and the garrison's pull `k_destroy · L̄ / q`. The undead the garrison destroys leave
-    for Vei, or stay as corpses at a redirect fort. Clearing isn't counted (it only frees room).
+    living to corpses), plus what U's own path (§3.1 step 5) leaves at the step's end with this
+    step's WAR and raises arriving, under the drain and the garrison's pull `k_destroy · L̄ / q`,
+    less the corpses that leave: the clearing `k_clear · L̄ · dt` and the raises (bounded by the
+    corpses now), together at most the corpses there (those now, the kills of the living's path
+    and, at a redirect fort, what the garrison destroys). The undead the garrison destroys leave
+    for Vei, or stay as corpses at a redirect fort.
   - `L̄` is the living's mean over the step with nothing shipped in, solved as fort combat solves
-    it (a predictor and two corrections). Her living only add to the pull, so the real load is at
-    most this one.
+    it (a predictor and two corrections). Her living only add to the pull and to the clearing, so
+    the real load is at most this one.
   - WAR's dispatch reads the living arriving (§3.2), so shipping is planned on the load before
     WAR (the pull read from the living now), then each share is cut to the room the step's WAR
     leaves. What that cuts stays in her pool. A fort with no living already takes only the WAR
@@ -371,6 +373,12 @@ at E2b.
   - History (E2b T3.0s): the room used to be `cap − L − U · e^(−r_drain · dt) − D`, which left out
     WAR, the raises and the surge (Greywall reached 90.3 of 90 in play). A room with WAR but not
     the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s over 1 h).
+    Until E2b T4.C the clearing was left out ("it only frees room"), so a fort whose room came
+    from its own clearing took one step's clearing less at every step. At 15 s that cut Ashgate's
+    shipping from 0.206 to 0.038/s for the step after it came back under its cap
+    (midgame_2flips, t 510 s). Its living fell 2.6 below the 0.125 s run's, and its slow decline
+    (fewer living, a weaker pull, more undead, more kills) grew that into a fall about 10 min
+    early: midgame's corpses were 217% off at 15 s over 12 h, and 41% with the clearing counted.
 - the fort pulls WAR as staging (§3.2);
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.

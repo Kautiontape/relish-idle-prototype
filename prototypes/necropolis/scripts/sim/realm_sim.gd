@@ -452,31 +452,42 @@ func step(dt: float, inputs: Dictionary) -> void:
 
 
 ## A fort's load at the step's end without Vei's living (step 2's room): its living and corpses
-## now (kills move living to corpses), less the corpses raised (`raise_in` mass/s), plus its
-## undead's path over the step with `w_in` mass/s of WAR and the raises arriving, under the drain
-## and the garrison's pull k_destroy · L̄ / q. What the garrison destroys leaves for Vei, or stays
-## as corpses where `keep`; clearing isn't counted (it only frees room). L̄ is the living's mean
-## with nothing shipped in: `passes` 1 reads it as the living now (the predictor), 4 alternates the
-## two paths as fort_step does (a predictor and two corrections, then U's path). Shipping only adds
-## living, so the real pull is at least that and the real load at most this (at a `keep` fort, up
-## to the drain that pull's extra kills skip). The march-back isn't subtracted: with nothing shipped
-## in it only runs from living above the cap, and it never takes them below it, so such a fort has
-## no room either way. Overwrites the paths' scratch.
+## now (kills move living to corpses), plus its undead's path over the step with `w_in` mass/s of
+## WAR and the raises (`raise_in` mass/s) arriving, under the drain and the garrison's pull
+## k_destroy · L̄ / q, less the corpses that leave: the clearing k_clear · L̄ · dt and the raises,
+## together at most the corpses there (those now, the kills of the living's path and, where
+## `keep`, what the garrison destroys, which otherwise leaves for Vei). L̄ is the living's mean with
+## nothing shipped in: `passes` 1 reads the pull from the living now (the predictor), 4 alternates
+## the two paths as fort_step does (a predictor and two corrections, then U's path). Shipping only
+## adds living, so the real pull and clearing are at least these and the real load at most this
+## (at a `keep` fort, up to the drain that pull's extra kills skip). The march-back isn't
+## subtracted: with nothing shipped in it only runs from living above the cap, and it never takes
+## them below it, so such a fort has no room either way. Overwrites the paths' scratch.
+## E2b T4.C: the clearing used to be left out ("it only frees room"), so a fort whose room came
+## from its clearing took one step's clearing less at every step; at 15 s that cut Ashgate's
+## shipping from 0.206 to 0.038/s for a step (midgame_2flips, t 510 s), the seed of its early fall.
 func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q: float, passes: int) -> float:
 	var k_kill := float(t.get("k_kill", 0.018))
 	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
+	var k_clear := float(t.get("k_clear", 0.0))
 	var r := float(t.get("r_drain", 0.06))
 	var cap := float(f["cap"])
 	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
 	var u0 := maxf(0.0, float(f["undead"]))
+	var d0 := maxf(0.0, float(f["dead"]))
 	var lm := l0
 	for p in passes:
 		_u_path(dt, u0, w_in + raise_in, k_dq * lm, r)
 		if p < passes - 1:
 			_l_path(dt, l0, 0.0, k_kill * _um, cap, tau)
 			lm = _lm
-	return l0 + maxf(0.0, float(f["dead"])) - raise_in * dt + _ue + (_ud if keep else 0.0)
+	var ud := _ud if keep else 0.0
+	if passes <= 1:
+		_l_path(dt, l0, 0.0, k_kill * _um, cap, tau)  # the clearing reads the living's mean
+	var dead := d0 + maxf(0.0, l0 - _le - _lb) + ud
+	var gone := minf(dead, (k_clear * _lm + raise_in) * dt)
+	return l0 + d0 + _ue + ud - gone
 
 
 ## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
