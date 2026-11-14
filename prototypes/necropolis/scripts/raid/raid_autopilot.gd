@@ -24,7 +24,11 @@ extends RefCounted
 ##           more than `slam_safe_beats` away (WardenLogic.slam_window_open), and get out before it;
 ##           otherwise wait `bell_stage_px` outside the slam (so the army stays in reach of the bell).
 ##           Huntsman: fight inside its room (it hunts the undead when she hides), sidestep lunge
-##           tells with probability `dodge`. Then the chest.
+##           tells with probability `dodge`.
+##           Shieldwall: keep out of its bash arc (the front arc within its reach, plus `wall_margin_*`),
+##           wait on its side (`wall_side_deg` off its facing, `wall_stand_px` beyond the bash) so the
+##           raises there walk in from the side, going round the wall the short way as it turns; fetch
+##           only motes and pickups outside the arc. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
 
@@ -62,6 +66,9 @@ var _bail := 0.0               # retreat to an exit once hp is at or below this 
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
 var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two rooms
 var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
+var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
+var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 / -1; 0 before the first pick)
+var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think (it is freed on death)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -135,6 +142,10 @@ func physics_tick(delta: float) -> void:
 			_attacks = ww._lunges
 			_attacks_wp = ww.intercepts
 			_catches = ww.catches
+		elif ww is RaidShieldwall:
+			_attacks = ww.bashes
+			_attacks_wp = ww.flanks
+			_shield = ww.telemetry()
 	_track_room(pos)
 	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
@@ -205,6 +216,8 @@ func on_finish(result: Dictionary) -> void:
 		"party_lost": result.get("party_lost", []),
 		"relish_hp_end": snappedf(_raid.relish.hp if _raid.relish != null and is_instance_valid(_raid.relish) else 0.0, 0.1),
 		"allies_end": _allies_alive()}
+	if _archetype == "shieldwall":   # its own counts (the other wardens' lines keep their shape)
+		out["shield"] = _shield
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -412,6 +425,7 @@ func _living() -> Array:
 
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
+	_avoid_arc = {}
 	var hold_px := _c("hold_px", 200.0)
 	var kite_px := _c("kite_px", 240.0)
 	if _hold_t >= _c("stall_s", 30.0):
@@ -623,6 +637,9 @@ func _still_target(o, living: Array) -> bool:
 func _spot_ok(p: Vector2, living: Array, clear: float, avoid: Vector2, avoid_r: float) -> bool:
 	if avoid != Vector2.INF and p.distance_to(avoid) < avoid_r:
 		return false
+	if not _avoid_arc.is_empty() and WardenLogic.bash_hits(float(_avoid_arc["facing"]), _avoid_arc["from"], p,
+			float(_avoid_arc["half"]), float(_avoid_arc["reach"]), 0.0):
+		return false
 	for e in living:
 		if p.distance_to(e.global_position) < clear:
 			return false
@@ -653,6 +670,8 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 		return _back_step(pos, ne.global_position)
 	if _archetype == "bellringer":
 		return _vs_bell(pos, w as RaidBellringer, living, safe_px)
+	if _archetype == "shieldwall":
+		return _vs_wall(pos, w as RaidShieldwall, living)
 	var wr_rect := Rect2()
 	if _archetype == "huntsman" and int(_raid.layout.get("warden_room", -1)) >= 0:
 		wr_rect = (_rooms()[int(_raid.layout["warden_room"])] as Rect2)   # stay in its room: it hunts the undead if she hides
@@ -769,6 +788,54 @@ func _bell_target(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float
 			bd = d
 			best = p
 	return best
+
+
+## The Shieldwall fight: out of the bash arc (its front within reach, with `wall_margin_px` and
+## `wall_margin_deg` to spare), fetch what lies outside the arc in its room, else wait on its side:
+## `wall_side_deg` off its facing, `wall_stand_px` beyond the arc, so a raise there walks in from the
+## side. The side is the nearer one, kept until the other is `wall_switch_deg` nearer.
+func _vs_wall(pos: Vector2, w: RaidShieldwall, living: Array) -> Vector2:
+	var wp := w.global_position
+	var at: Dictionary = w.spec.get("attack", {})
+	var reach: float = float(at.get("reach_px", 140.0)) + float(_raid.relish.radius) + _c("wall_margin_px", 30.0)
+	var half := w.front_half_deg() + _c("wall_margin_deg", 15.0)
+	_avoid_arc = {"from": wp, "facing": w.facing, "half": half, "reach": reach}
+	var wr := int(_raid.layout.get("warden_room", -1))
+	var room: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
+	if WardenLogic.bash_hits(w.facing, wp, pos, half, reach, 0.0):
+		_why = "wall-out"
+		return _wall_stand(pos, w, reach, room)
+	var loot = _collect_target(pos, living, Vector2.INF, 0.0, room)
+	if loot != null:
+		_why = "wall-loot"
+		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, Vector2.INF, 0.0, room)
+	if pk != null:
+		_why = "wall-pickup"
+		return _to_point(pos, pk)
+	_why = "wall-side"
+	return _wall_stand(pos, w, reach, room)
+
+
+## The point on the Shieldwall's side to head for: round the wall the short way (WardenLogic.flank_step
+## on a circle `wall_stand_px` beyond the bash) toward `wall_side_deg` off its facing, kept in its room.
+func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2) -> Vector2:
+	var wp := w.global_position
+	var side := deg_to_rad(_c("wall_side_deg", 110.0))
+	var cur := (pos - wp).angle()
+	var off_p := absf(WardenLogic.angle_diff(cur, w.facing + side))
+	var off_m := absf(WardenLogic.angle_diff(cur, w.facing - side))
+	var sw := deg_to_rad(_c("wall_switch_deg", 20.0))
+	if _wall_side == 0.0:
+		_wall_side = 1.0 if off_p <= off_m else -1.0
+	elif _wall_side > 0.0 and off_m + sw < off_p:
+		_wall_side = -1.0
+	elif _wall_side < 0.0 and off_p + sw < off_m:
+		_wall_side = 1.0
+	var p := WardenLogic.flank_step(wp, pos, w.facing + side * _wall_side, reach + _c("wall_stand_px", 40.0), _c("wall_step_deg", 45.0))
+	if room.size != Vector2.ZERO:
+		p = WardenLogic.leash_clamp(room, p, float(_raid.relish.radius) + 8.0)
+	return _to_point(pos, p)
 
 
 ## Where to wait out the warden: the farthest of the previous room's centre and this room's far
