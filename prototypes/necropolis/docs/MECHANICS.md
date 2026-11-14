@@ -699,7 +699,7 @@ upgrade refunds in full and changes nothing else.
 
 - **Relish never attacks.** HP is `relish.hp`.
 - **Lethal hits follow the sacrifice chain:** nearest chaff, then a soldier, then a big undead in the
-  party, then Relish.
+  party, then Relish. The chain soaks everything except a warden's tell-attacks, which strike her directly.
 - Your undead fight on their own.
 - Essence lives `essence.lifetime_s` (12, longer than the cooldown).
 - **RTS-drift guard:** the scene logs move clicks against raises. A ratio above 8:1 is a design smell,

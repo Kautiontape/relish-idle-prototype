@@ -45,7 +45,7 @@ at Vei's gates than she can digest, and the queue clogs. Then she can be faced.
 
    All three look like the same performance piece.
 4. **Relish is the conduit.** She never attacks. Her army is her weapon, her shield and her health
-   bar. Where she stands is the decision that matters most, because she can only be in one place.
+   bar, except against a warden's tell, which only the counter answers. Where she stands is the decision that matters most, because she can only be in one place.
 5. **Preparation beats reflexes.** Death is real and costs time, loot and momentum. Backups buy it
    off, and you build them before you need them.
 6. **Every control points at the current need.** Lists sort by what the next warden or front needs.
