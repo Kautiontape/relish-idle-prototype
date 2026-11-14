@@ -178,7 +178,7 @@ static func state_alpha(w: float) -> float:
 ## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
 ## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name, the
 ## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker
-## (`raid`: NextLogic.raid_ready's answer for the fort).
+## (`raid`: MapModel.raid_why for the fort, its why in the model's raid set or "").
 ## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
 static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid := "") -> Array:
 	var steps := _n("static_sig_steps")

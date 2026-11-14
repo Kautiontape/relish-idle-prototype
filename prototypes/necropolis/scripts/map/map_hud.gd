@@ -5,8 +5,9 @@ extends Control
 ## banner (shown by the victory set piece, MapSetpieces, once every lane stops) and the debug
 ## speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
-## The objective strip is one next action (NextLogic.choose: a fort about to fall, a raid ready,
-## the queue empty, Vei faceable, else the standing objective), a button at least 44 px tall on
+## The objective strip is one next action (NextLogic.choose, in strict order: a fort about to
+## fall, a ready raid from the model's raid set, Vei in reach, else the plan: the queue empty or
+## the standing objective), a button at least 44 px tall on
 ## its plate: a click emits next_chosen with the line's AwayLogic action. Its text changes only
 ## when the pick changes (or its coarse clock ticks). The opening pushes its asks through
 ## set_opening_ask, which beats every rule until cleared with "".
@@ -292,8 +293,8 @@ func _wrap_cells() -> void:
 ## The strip's pick from the model's views (its committed clocks, not a dragged valve's), kept to
 ## the last pick while it still holds.
 func _refresh_next() -> void:
-	var inp := {"forts": model.forts, "clocks": model.clocks, "queue": model.town_queue, "vei": model.vei,
-		"readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+	var inp := {"forts": model.forts, "clocks": model.clocks, "raids": model.raids, "queue": model.town_queue,
+		"vei": model.vei, "readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
 	_next = NextLogic.choose(inp, _next)
 	var act := str(_next["action"].get("kind", "none")) != "none"
 	var text := str(_next["text"]) + (("   " + str(NextLogic.cfg()["hint"])) if act else "")

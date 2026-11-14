@@ -34,9 +34,11 @@ var clocks := {}  # held fort id -> {rate, fall_s}: the committed fall clocks (s
 var supports := {}  # the committed "WAR supports N of M": {n, m}
 var projection := {}  # the dragged valve's IdleLogic.projection while the valve is being dragged, else {}
 var margin_sig := ""  # the margins and clocks now shown (projected or committed): the nodes redraw when it changes
+var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ranked and capped; the ring's tag and the strip's raid rule
 
 var _villages_by_id := {}
 var _last_read_s := -1.0e9
+var _raid_why := {}  # fort id -> why, for raids (its keys are the last set's ids: raid_set's memory)
 
 
 func _init(game_state: GameState) -> void:
@@ -92,8 +94,34 @@ func refresh(force := false) -> bool:
 	margins = IdleLogic.committed_margins(forts, hud)
 	clocks = IdleLogic.committed_clocks(forts, hud)
 	supports = IdleLogic.committed_supports(hud, forts)
+	_refresh_raids()
 	_update_margin_sig()
 	return true
+
+
+## The raid set (NextLogic.raid_set) from these views, after the demo overlay: ranked from
+## Relish's node, with the last set as its memory.
+func _refresh_raids() -> void:
+	var positions := {}
+	for f in forts:
+		positions[str(f["id"])] = node_pos(str(f["id"]))
+	raids = NextLogic.raid_set(forts, _raid_why.keys(), _raid_from(), positions)
+	_raid_why.clear()
+	for r in raids:
+		_raid_why[str(r["fort"]["id"])] = str(r["why"])
+
+
+## Where the raid set measures distance from: Relish's `at`, else her travel `target`, else Covington.
+func _raid_from() -> Vector2:
+	for id in [str(relish.get("at", "")), str(relish.get("target", ""))]:
+		if id != "" and has_node(id):
+			return node_pos(id)
+	return node_pos(COVINGTON)
+
+
+## Why a fort is in the raid set ("refilled" or "first_clear"), or "" when it is not.
+func raid_why(id: String) -> String:
+	return str(_raid_why.get(id, ""))
 
 
 ## Publishes the dragged valve's projection: the fort chips and "N of M" read it until cleared.
