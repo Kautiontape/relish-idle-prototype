@@ -22,6 +22,12 @@ static func synth_api_ok(has_play: bool, arg_count: int) -> bool:
 	return has_play and arg_count >= 1 and arg_count <= 2
 
 
+## Whether a Synth may render now: it exists and is in the tree (its _ready, which loads its
+## config, has run only then).
+static func can_warm(has_synth: bool, in_tree: bool) -> bool:
+	return has_synth and in_tree
+
+
 ## The chime's params: score clamped to 0..100.
 static func chime_params(score: int) -> Dictionary:
 	return {"score": clampi(score, 0, 100)}

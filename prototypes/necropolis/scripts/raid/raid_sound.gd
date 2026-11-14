@@ -43,7 +43,8 @@ static func attach(parent: Node) -> void:
 
 
 static func warm(kinds: Array) -> void:
-	if _synth != null and is_instance_valid(_synth):
+	var live := _synth != null and is_instance_valid(_synth)
+	if RaidSoundLogic.can_warm(live, live and _synth.is_inside_tree()):
 		_synth.call("warm", kinds.filter(func(k): return RaidSoundLogic.playable(str(k), _known)))
 
 
