@@ -1,14 +1,16 @@
 extends Sprite2D
 ## The map ground. Three modes, switchable live with F7 so they can be compared
 ## in the same state (configs/ground.json "mode", or --ground=flow|old|off):
-##   flow: a GPU flow field of thousands of advected streaks driven by
-##         Game.field (scripts/map/flow_ground.gd). The flow-spike ground.
-##   old:  the original renderer. Game.field baked to a 128×90 texture on the
+##   flow: a GPU flow field of thousands of advected streaks driven by the
+##         sim's influence field (view_field; scripts/map/flow_ground.gd).
+##   old:  the original renderer. The field baked to a 128×90 texture on the
 ##         CPU at ~6 Hz, drawn through shaders/map_field.gdshader.
 ##   off:  no ground, to show what the ground itself costs.
 ## Reduced motion is the one game-wide flag, Pulse.reduced_motion (F8, or
 ## -- --reduced-motion); the ground polls it and follows. The tempo is Pulse's.
 ## Debug keys: F5 vsync, F6 reload configs, F7 cycle mode, F9 greyscale check.
+## The frame-time readout (ground_meter.gd) shows only in debug sessions with
+## ground.json "readout" on (IDLE I9: debug tools stay out of release).
 ## CLI: --ground=, --vsync=off, --streaks=N, --greyscale, --ground-only (hide
 ## routes and nodes, for contrast measurement), --zoom=Z and --focus=x,y (set
 ## the map camera after it fits, for captures), --pan-test=S (sweep the camera
@@ -20,15 +22,6 @@ const METER_SCRIPT := preload("res://scripts/map/ground_meter.gd")
 const OLD_SHADER := preload("res://shaders/map_field.gdshader")
 const GREY_SHADER := preload("res://shaders/greyscale_check.gdshader")
 const MODES := ["flow", "old", "off"]
-
-# old ground palette (unchanged from the original view)
-const GREEN_BASE := Color("103a28")
-const GREEN_HOT := Color("39ff9e")
-const GREEN_CORE := Color("c9ffe8")
-const ORANGE_BASE := Color("3a1608")
-const ORANGE_HOT := Color("ff6a2b")
-const ORANGE_CORE := Color("ffd6b0")
-const FRONT := Color("ff2d55")
 
 var mode := "flow"
 
@@ -45,6 +38,7 @@ var _cpu_ms := 0.0
 var _reduced_applied := false
 var _pan_test := 0.0
 var _pan_dir := 1.0
+var _old_cols := {}  # the old ground's palette: the canon hues, bases darkened (old_base_darken)
 
 
 func _ready() -> void:
@@ -80,7 +74,14 @@ func _ready() -> void:
 	_meter = METER_SCRIPT.new()
 	_meter.view = self
 	add_child(_meter)
-	_meter.visible = bool(_cfg.get("readout", true))
+	_sync_meter()
+	var dk := float(_cfg.get("old_base_darken", 0.77))
+	_old_cols = {
+		"green_base": Palette.c("undead").darkened(dk), "green_hot": Palette.c("undead"),
+		"green_core": Palette.c("undead_core"), "orange_base": Palette.c("living").darkened(dk),
+		"orange_hot": Palette.c("living"), "orange_core": Palette.c("living_core"),
+		"front": Palette.c("danger"), "clear": Palette.c("void", 0.0),
+	}
 	_grey = CanvasLayer.new()
 	_grey.layer = 100
 	var rect := ColorRect.new()
@@ -111,6 +112,14 @@ func _set_camera_after_fit(zoom: float, focus: Vector2) -> void:
 		cam.position = focus
 
 
+func _sync_meter() -> void:
+	_meter.visible = Game.state.debug_enabled and bool(_cfg.get("readout", false))
+
+
+func _field() -> InfluenceField:
+	return Game.state.view_field()["field"]
+
+
 ## Analysis captures: hide routes and nodes so only ground pixels remain.
 ## Called deferred from _ready because world_map adds them after this node.
 func set_bare(on: bool) -> void:
@@ -125,7 +134,7 @@ func set_mode(m: String) -> void:
 		remove_child(_flow)
 		_flow.free()
 		_flow = null
-	var f: InfluenceField = Game.field
+	var f := _field()
 	match mode:
 		"flow":
 			if _flow == null:
@@ -176,7 +185,7 @@ func detail() -> String:
 			return "%d/%d streaks · trail %dx%d HDR, follows camera · zoom %.2f" % [_flow.active_streaks(),
 				_flow.streak_count(), _flow.trail_size.x, _flow.trail_size.y, _flow.zoom]
 		"old":
-			return "%dx%d CPU texture @6 Hz" % [Game.field.w, Game.field.h]
+			return "%dx%d CPU texture @6 Hz" % [_field().w, _field().h]
 	return "no ground"
 
 
@@ -211,6 +220,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_F6:
 			ConfigDb.reload()
 			_cfg = ConfigDb.data.get("ground", {})
+			_sync_meter()
 			if _flow != null:
 				var want: int = _streak_override if _streak_override > 0 else int(_cfg.get("streaks", 9000))
 				var want_size := Vector2i((get_viewport().get_visible_rect().size
@@ -250,7 +260,7 @@ func _pan_step(delta: float) -> void:
 	var cam := get_viewport().get_camera_2d()
 	if cam == null:
 		return
-	var ws: Vector2 = Game.field.world_size
+	var ws: Vector2 = _field().world_size
 	cam.position.x += _pan_dir * _pan_test * delta / cam.zoom.x
 	if cam.position.x > ws.x * 0.8:
 		_pan_dir = -1.0
@@ -258,31 +268,32 @@ func _pan_step(delta: float) -> void:
 		_pan_dir = 1.0
 
 
-## The original ground, kept verbatim for comparison.
+## The original ground, kept for comparison (its colours now from Palette).
 func _bake_old() -> void:
-	var f: InfluenceField = Game.field
+	var f := _field()
+	var c: Dictionary = _old_cols
 	var bytes := PackedByteArray()
 	bytes.resize(f.w * f.h * 4)
 	for i in f.w * f.h:
 		var g := f.green[i]
 		var o := f.orange[i]
 		var e := f.entrench[i]
-		var col := Color(0, 0, 0, 0)
+		var col: Color = c["clear"]
 		if g > 0.03 or o > 0.03:
 			if g >= o:
 				var heat := clampf(g * 0.75, 0.0, 1.0)
-				col = GREEN_BASE.lerp(GREEN_HOT, heat)
+				col = c["green_base"].lerp(c["green_hot"], heat)
 				if e > 0.2:
-					col = col.lerp(GREEN_CORE, clampf(e * 0.28, 0.0, 0.5))
+					col = col.lerp(c["green_core"], clampf(e * 0.28, 0.0, 0.5))
 				col.a = clampf(g * 0.55, 0.0, 0.8)
 			else:
 				var heat2 := clampf(o * 0.75, 0.0, 1.0)
-				col = ORANGE_BASE.lerp(ORANGE_HOT, heat2)
+				col = c["orange_base"].lerp(c["orange_hot"], heat2)
 				if e < -0.2:
-					col = col.lerp(ORANGE_CORE, clampf(-e * 0.28, 0.0, 0.5))
+					col = col.lerp(c["orange_core"], clampf(-e * 0.28, 0.0, 0.5))
 				col.a = clampf(o * 0.55, 0.0, 0.8)
 			if minf(g, o) > 0.1:
-				col = col.lerp(FRONT, 0.3)
+				col = col.lerp(c["front"], 0.3)
 				col.a = maxf(col.a, 0.45)
 		var j := i * 4
 		bytes[j] = int(col.r * 255.0)
