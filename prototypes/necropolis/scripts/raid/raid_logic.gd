@@ -419,7 +419,7 @@ static func rooms_phrase(seen: int, total: int) -> String:
 	return "%d of %d rooms seen" % [clampi(seen, 0, maxi(0, total)), maxi(0, total)]
 
 
-## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "lunge", "bash", "fire", "living", or ""
+## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "lunge", "bash", "fire", "hound", "living", or ""
 ## when nothing named it, e.g. a dev kill), `warden_name` the warden's spec name ("The Bellringer").
 static func death_cause(src: String, warden_name: String) -> String:
 	var who := warden_name if warden_name != "" else "The warden"
@@ -432,6 +432,8 @@ static func death_cause(src: String, warden_name: String) -> String:
 			return "%s's bash" % who
 		"fire":
 			return "%s's fire" % who
+		"hound":
+			return "%s's hounds" % who
 		"living":
 			return "the living"
 	return "a wound"

@@ -372,6 +372,11 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _pyre_stand(", "the bot's Pyre-priest stand point"],
 			["res://scripts/raid/raid_autopilot.gd", "func _burn_fetch(", "the bot's mote out of the fire"],
 			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"],
+			["res://scripts/raid/warden.gd", "func _pack_step(", "RaidWarden._pack_step (the horn and the pack)"],
+			["res://scripts/raid/warden.gd", "func _loose_pack(", "RaidWarden._loose_pack"],
+			["res://scripts/raid/warden.gd", "func take_hit(", "RaidWarden.take_hit (the pack's ward)"],
+			["res://scripts/raid/warden_huntsman.gd", "func _step(", "RaidHuntsman._step (no lunge while its pack runs)"],
+			["res://scripts/raid/raid.gd", "func on_unit_died(", "RaidRaid.on_unit_died (a pack drops nothing)"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],

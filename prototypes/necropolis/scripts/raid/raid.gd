@@ -371,10 +371,12 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
 		ledger_v2.on_kill(u.mass)
-		# kills drop essence at the corpse, carrying the enemy's mass
-		_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
+		if not u.warden_pack:   # a warden's own pack drops nothing (WardenLogic.pack_spec)
+			# kills drop essence at the corpse, carrying the enemy's mass
+			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
-		_roll_ding(u.global_position)
+		if not u.warden_pack:
+			_roll_ding(u.global_position)
 		held_clear.on_enemy_died()
 	else:
 		allies.erase(u)

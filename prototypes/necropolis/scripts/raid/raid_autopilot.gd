@@ -106,6 +106,8 @@ var _walk_px := 0.0             # how far Relish walked in all
 var _walk_travel_px := 0.0      # of it: in travel ticks
 var _rooms_entered := 0         # room changes (_track_room): decision points for the human factor
 var _frames0 := [0, 0]          # the process and physics frame counters at start()
+var _living_start := 0          # living on the field when the run starts
+var _pack := {}                 # the warden's pack counts (a warden with a pack only), read like _shield / _pyre
 
 
 func _init(p_raid: Node2D) -> void:
@@ -143,6 +145,9 @@ func start() -> void:
 	var w = _raid.warden_run.warden
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
 	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
+	_living_start = _raid.enemies.size()
+	if w != null and is_instance_valid(w) and w.spec.has("pack"):
+		_pack = w.pack_telemetry()
 	_pin_clock()
 
 
@@ -197,6 +202,8 @@ func physics_tick(delta: float) -> void:
 			_attacks = ww.burns
 			_attacks_wp = ww.snuffs
 			_pyre = ww.telemetry()
+		if not _pack.is_empty():
+			_pack = ww.pack_telemetry()
 	_track_room(pos)
 	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
@@ -304,6 +311,8 @@ func _read_final(w) -> void:
 		_shield = w.telemetry()
 	elif w is RaidPyrePriest:
 		_pyre = w.telemetry()
+	if not _pack.is_empty():
+		_pack = w.pack_telemetry()
 
 
 ## The run ended (RaidEndings.finish): print the line once and quit.
@@ -362,6 +371,9 @@ func on_finish(result: Dictionary) -> void:
 	out["walk_travel_px"] = roundi(_walk_travel_px)
 	out["route_px"] = roundi(_route_px())
 	out["rooms_entered"] = _rooms_entered
+	out["living_start"] = _living_start
+	if not _pack.is_empty():
+		out["pack"] = _pack
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
 	out["killed_by"] = (src if src != "" else "wound") if died else ""

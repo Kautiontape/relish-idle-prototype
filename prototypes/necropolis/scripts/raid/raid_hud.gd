@@ -652,7 +652,8 @@ class WardenBlock:
 	var _key := -1
 	var _key2 := -1
 	var _t := 0.0
-	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) makes the block taller
+	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) and a pack's row make the block taller
+	var _key3 := -1
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -671,7 +672,7 @@ class WardenBlock:
 		if not show:
 			return
 		_t += d / maxf(0.05, Engine.time_scale)
-		var eh := 20.0 if w is RaidHuntsman else 0.0
+		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + 62.0 + eh
@@ -692,9 +693,11 @@ class WardenBlock:
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			k2 = mini(pp.snuffs, 63) | (mini(pp.living(), 63) << 6) | (mini(pp.essence_burned, 0xFFFF) << 12)
-		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
+		var k3 := mini(w.pack_alive(), 255) | (int(w.horn_beat >= 0.0) << 8) | (mini(w.horns, 63) << 9)
+		if k != _key or k2 != _key2 or k3 != _key3 or (flashing and not Pulse.reduced_motion):
 			_key = k
 			_key2 = k2
+			_key3 = k3
 			queue_redraw()
 
 	func _text(x: float, y: float, text: String, px: int, key := "text") -> float:
@@ -704,6 +707,19 @@ class WardenBlock:
 
 	func _notch(x: float, y: float) -> void:
 		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
+	## A warden with a pack: HORN while it sounds, "HOUNDS n of m · it takes ×0.25" while they run, else
+	## what the pack is (WardenLogic.pack_teach).
+	func _pack_row(w: RaidWarden, x0: float, y: float) -> void:
+		var pk: Dictionary = w.spec.get("pack", {})
+		if pk.is_empty():
+			return
+		if w.horn_beat >= 0.0:
+			_text(x0, y, "HORN · %d %s coming" % [w.horn_pts.size(), str(pk.get("name", "pack"))], 13, "danger")
+		elif w.pack_alive() > 0:
+			_text(x0, y, WardenLogic.pack_label(pk, w.pack_alive(), int(pk.get("size", 0))), 13, "vei")
+		else:
+			_text(x0, y, WardenLogic.pack_teach(pk), 13, "text_dim")
 
 	func _draw() -> void:
 		var w := _warden()
@@ -813,6 +829,7 @@ class WardenBlock:
 			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
 			if pp.essence_burned > 0:
 				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
+		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint

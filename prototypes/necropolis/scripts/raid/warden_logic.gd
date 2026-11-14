@@ -37,10 +37,88 @@ static func spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	for k in attack.keys():
 		if str(k).begins_with("dmg_"):
 			attack[k] = float(attack[k]) * dmg_mult
-	return {"archetype": arche, "name": str(a.get("name", arche)), "tier": tier, "hp": hp,
+	var out := {"archetype": arche, "name": str(a.get("name", arche)), "tier": tier, "hp": hp,
 		"radius": float(a.get("radius", 30.0)), "tells": a.get("tells", []).duplicate(),
 		"weak_point": a.get("weak_point", {}), "phases": phases, "attack": attack,
 		"first_dungeon": first}
+	var pk := pack_spec(a.get("pack", {}), tier, first)
+	if not pk.is_empty():
+		out["pack"] = pk   # no key at all below its tier or in the first dungeon: those specs stay as they were
+	return out
+
+
+# -------------------------------------------------------------------- pack ---
+## D-d/E Step 3, a warden's pack (`archetypes.<id>.pack`, the Huntsman's hounds): from `min_tier` up and
+## never in the first dungeon, at each hp gate in `at_hp_frac` it sounds a horn (`horn_beats` ahead, on
+## the beat) and calls `size_by_tier` of its own living (`kind`) into its room's far side from Relish.
+## While any of them stands it takes `ward_mult` of every hit and holds its own attack (one threat at a
+## time). Its pack drops nothing: no mass, no motes, no dings (like the acolytes; a pack that fed the
+## raises would shorten the fight it is there to lengthen). {} when it has none here.
+static func pack_spec(pk: Dictionary, tier: int, first: bool) -> Dictionary:
+	if pk.is_empty() or first or tier < int(pk.get("min_tier", 99)):
+		return {}
+	var out := pk.duplicate(true)
+	out.erase("_doc")
+	out["size"] = int((pk.get("size_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
+	return out
+
+
+## True when the hp gate after the `horns` already sounded is reached (hp_frac at or below it).
+static func pack_due(pk: Dictionary, hp_frac: float, horns: int) -> bool:
+	var gates: Array = pk.get("at_hp_frac", [])
+	return int(pk.get("size", 0)) > 0 and horns < gates.size() and hp_frac <= float(gates[horns])
+
+
+## The share of a hit the warden takes while `alive` of its pack stand (1.0 with none, or no pack).
+static func pack_ward(pk: Dictionary, alive: int) -> float:
+	return float(pk.get("ward_mult", 1.0)) if alive > 0 and not pk.is_empty() else 1.0
+
+
+## Where the pack comes in: `n` points on the far side of `room` from `away` (Relish), split between
+## the two inset corners farthest from her, each corner's run `spread` px apart toward the room's centre. No rng.
+static func pack_spots(room: Rect2, away: Vector2, n: int, inset: float, spread: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if n <= 0:
+		return out
+	var r := room.grow(-minf(inset, minf(room.size.x, room.size.y) * 0.4))
+	var cs: Array[Vector2] = [r.position, Vector2(r.end.x, r.position.y), Vector2(r.position.x, r.end.y), r.end]
+	cs.sort_custom(func(p: Vector2, q: Vector2) -> bool:
+		var dp := p.distance_to(away)
+		var dq := q.distance_to(away)
+		if absf(dp - dq) > 0.001:
+			return dp > dq
+		return p.x < q.x or (p.x == q.x and p.y < q.y))
+	for i in n:
+		var c: Vector2 = cs[i % 2]
+		var k := i / 2
+		var p := c + (r.get_center() - c).normalized() * spread * float(k)
+		out.append(Vector2(clampf(p.x, r.position.x, r.end.x), clampf(p.y, r.position.y, r.end.y)))
+	return out
+
+
+## The HUD's pack row before and between packs, from the spec: "at 2/3 and 1/3 of its strength it calls
+## 5 hounds · it is warded while they run" ("" with no pack).
+static func pack_teach(pk: Dictionary) -> String:
+	if pk.is_empty():
+		return ""
+	var gates: PackedStringArray = []
+	for g in pk.get("at_hp_frac", []):
+		gates.append(_frac_word(float(g)))
+	return "at %s of its strength it calls %d %s · it is warded while they run" % [" and ".join(gates), int(pk.get("size", 0)), str(pk.get("name", "pack"))]
+
+
+static func _frac_word(f: float) -> String:
+	for q in [[2, 3], [1, 3], [1, 2], [3, 4], [1, 4]]:
+		if absf(f - float(q[0]) / float(q[1])) < 0.02:
+			return "%d/%d" % q
+	return "%d%%" % roundi(f * 100.0)
+
+
+## The HUD's pack row: "HOUNDS 3 of 5 · it takes ×0.25" while they run, "" otherwise.
+static func pack_label(pk: Dictionary, alive: int, n: int) -> String:
+	if pk.is_empty() or alive <= 0:
+		return ""
+	return "%s %d of %d · it takes ×%s" % [str(pk.get("name", "PACK")).to_upper(), alive, n, str(snappedf(float(pk.get("ward_mult", 1.0)), 0.01))]
 
 
 # ------------------------------------------------------------------- beats ---
@@ -674,6 +752,10 @@ static func meter_bands(sp: Dictionary) -> Array[float]:
 	if hp_phased:
 		for i in phases.size() - 1:
 			out.append(clampf(float(phases[i]["until_hp_frac"]), 0.0, 1.0))
+	elif sp.has("pack"):
+		# a warden phased otherwise (the Huntsman, by catches) is notched where its horn sounds
+		for g in (sp["pack"] as Dictionary).get("at_hp_frac", []):
+			out.append(clampf(float(g), 0.0, 1.0))
 	out.append(0.0)
 	return out
 

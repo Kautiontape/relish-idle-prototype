@@ -24,6 +24,7 @@ var power := 0.0             # party only: the entry's power stat (the Pyre-prie
 var slots := 1               # party: nested diamonds (filled slots)
 var home_room := Rect2()
 var alive := true
+var warden_pack := false      # a warden's own living (the Huntsman's hounds): massless, drops nothing
 
 var _guard := {}             # bodyguard post this frame ({} when not guarding)
 var _flank := {}             # flank post this frame ({} when not flanking)
@@ -177,7 +178,7 @@ func _physics_process(delta: float) -> void:
 			_strike_t = cadence
 			_lunge = 1.0
 			if _target is RaidRelish:
-				_target.take_hit(dmg, "living")
+				_target.take_hit(dmg, "hound" if warden_pack else "living")
 			elif _target is RaidWarden or _target is RaidAcolyte:
 				_target.hit_from(dmg, self)   # the Shieldwall reads where the blow came from; an acolyte who struck it
 			else:

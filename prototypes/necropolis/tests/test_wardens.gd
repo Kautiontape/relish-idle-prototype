@@ -267,7 +267,50 @@ func run() -> int:
 	_meter_tests(t, cfg)
 	_shield_tests(t, cfg)
 	_pyre_tests(t, cfg)
+	_pack_tests(t, cfg)
 	return t.failures
+
+
+## D-d/E Step 3: a warden's pack (WardenLogic.pack_*; the Huntsman's hounds).
+func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("warden_pack")
+	var h1 := WardenLogic.spec({"id": "ashgate", "tier": 1}, cfg)
+	var h2 := WardenLogic.spec({"id": "chime-fort", "tier": 2}, cfg)
+	var h3 := WardenLogic.spec({"id": "hollow-redoubt", "tier": 3}, cfg)
+	var hf := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)
+	t.ok(not h1.has("pack") and not hf.has("pack"), "no pack key at tier 1 or in the first dungeon: those specs are as they were")
+	var pk: Dictionary = h2["pack"]
+	t.ok(int(pk["size"]) == int(cfg["wardens"]["archetypes"]["huntsman"]["pack"]["size_by_tier"]["2"]) and int(h3["pack"]["size"]) > int(pk["size"]),
+		"the pack grows with the tier (%d at t2, %d at t3)" % [int(pk["size"]), int(h3["pack"]["size"])])
+	t.ok(not pk.has("_doc"), "the spec's pack carries no _doc")
+	for a in ["bellringer", "shieldwall", "pyre_priest"]:
+		var o := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a}, cfg)
+		t.ok(o.has("pack") == (cfg["wardens"]["archetypes"][a] as Dictionary).has("pack"), "%s: a pack only where its config has one" % a)
+	t.ok(not WardenLogic.pack_due(pk, 0.7, 0) and WardenLogic.pack_due(pk, 0.66, 0), "the first horn at its first gate (0.66), not above")
+	t.ok(not WardenLogic.pack_due(pk, 0.5, 1) and WardenLogic.pack_due(pk, 0.33, 1), "the second at the next gate")
+	t.ok(not WardenLogic.pack_due(pk, 0.0, 2), "no third horn")
+	t.ok(not WardenLogic.pack_due({}, 0.1, 0), "no pack: never")
+	t.near(WardenLogic.pack_ward(pk, 3), float(pk["ward_mult"]), 1e-9, "warded while any of the pack stands")
+	t.ok(WardenLogic.pack_ward(pk, 0) == 1.0 and WardenLogic.pack_ward({}, 5) == 1.0, "exactly 1.0 with none standing or no pack")
+	var room := Rect2(100, 100, 600, 400)
+	var me := Vector2(150, 150)
+	var pts := WardenLogic.pack_spots(room, me, 5, 50.0, 28.0)
+	var inside := pts.size() == 5
+	var far := true
+	for q in pts:
+		inside = inside and room.grow(-49.9).has_point(q)
+		far = far and q.distance_to(me) > room.get_center().distance_to(me)
+	t.ok(inside, "every hound comes in inside the room, clear of its walls: %s" % str(pts))
+	t.ok(far, "on the far side from Relish")
+	t.ok(pts[0] == Vector2(650, 450) and (pts[1] == Vector2(650, 150) or pts[1] == Vector2(150, 450)), "the first two at the two corners farthest from her")
+	t.ok(str(WardenLogic.pack_spots(room, me, 5, 50.0, 28.0)) == str(pts), "the same each time (no rng)")
+	var hb := WardenLogic.meter_bands(h2)
+	t.ok(hb.size() == 4 and is_equal_approx(hb[1], 0.66) and is_equal_approx(hb[2], 0.33), "its meter is notched where the horn sounds: %s" % str(hb))
+	t.ok(WardenLogic.pack_label(pk, 3, 5) == "HOUNDS 3 of 5 · it takes ×0.25", "the HUD row while they run: " + WardenLogic.pack_label(pk, 3, 5))
+	t.ok(WardenLogic.pack_label(pk, 0, 5) == "", "and nothing once they are down")
+	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
+	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
+
 
 
 func _pyre_tests(t: TestUtil, cfg: Dictionary) -> void:
@@ -652,7 +695,7 @@ func _meter_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("break_meter")
 	var total := int(cfg["wardens"].get("meter_pips", 12))
 	var bell := WardenLogic.spec({"id": "old-sluice", "tier": 2}, cfg)
-	var hunt := WardenLogic.spec({"id": "ashgate", "tier": 2}, cfg)
+	var hunt := WardenLogic.spec({"id": "ashgate", "tier": 1}, cfg)   # tier 1: no pack, so no horn notches
 	var bb := WardenLogic.meter_bands(bell)
 	t.ok(bb.size() == 4 and is_equal_approx(bb[0], 1.0) and is_equal_approx(bb[1], 0.66) and is_equal_approx(bb[2], 0.33) and bb[3] == 0.0,
 		"the Bellringer's bands are its phase hp gates: %s" % str(bb))

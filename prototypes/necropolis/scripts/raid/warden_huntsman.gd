@@ -76,6 +76,15 @@ func _on_phase_change(old: int, new: int) -> void:
 		_next_attack = minf(_next_attack, maxf(beat() + tell, _last_attack + WardenLogic.period_beats(spec, new)))
 
 
+## The horn drops a lunge tell that was showing; when the hounds are down it waits a full tell first.
+func _on_horn() -> void:
+	_locked = false
+
+
+func _on_pack_down() -> void:
+	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()))
+
+
 func _tell() -> float:
 	return float(spec.get("attack", {}).get("tell_beats", 1.0))
 
@@ -101,10 +110,11 @@ func _step(delta: float) -> void:
 	_lunge_flash = maxf(0.0, _lunge_flash - delta * 3.0)
 	if _dashing:
 		_advance_dash(delta)
+	var held := _pack_step(delta)   # its horn sounds or its hounds run: no lunge (one threat at a time)
 	if stun_left > 0.0:
 		stun_left = maxf(0.0, stun_left - delta)
 		return
-	if _dashing:
+	if _dashing or held:
 		return
 	var b := beat()
 	var tell := _tell()

@@ -35,6 +35,16 @@ var meter_notch: Array[int] = []
 var weak_marks := PackedByteArray()   # 1 on each pip a weak-point window took (index 0 = the first pip)
 var weak_taken := 0            # pips taken inside weak-point windows, summed over the fight
 
+# its pack (spec.pack, WardenLogic.pack_*; the Huntsman's hounds): none unless the spec has one
+var horns := 0                 # horns sounded (packs called)
+var pack: Array = []           # the current pack's units (pruned as they fall)
+var pack_called := 0           # pack units called in all
+var pack_down := 0             # of them, fallen
+var pack_s := 0.0              # scene seconds a horn sounded or a pack stood
+var horn_beat := -1.0          # the beat the pack comes in on while a horn sounds; -1: none
+var horn_pts: Array[Vector2] = []   # where it comes in (drawn through the horn)
+var pack_down_t := 99.0        # scene seconds since the last pack fell (draw: the labelled result)
+
 
 ## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
 func configure(p_raid: Node2D, p_spec: Dictionary) -> void:
@@ -145,7 +155,7 @@ func hit_from(amount: float, _attacker: Node2D) -> void:
 func take_hit(amount: float) -> void:
 	if not alive or not awake:
 		return
-	hp -= amount
+	hp -= amount * WardenLogic.pack_ward(spec.get("pack", {}), pack_alive())
 	flash = 1.0
 	if hp <= 0.0:
 		hp = 0.0
@@ -190,6 +200,120 @@ func _on_phase_change(_old: int, new: int) -> void:
 ## Per awake physics frame, after the clock and phase update.
 func _step(_delta: float) -> void:
 	pass
+
+
+## Its pack's units still standing.
+func pack_alive() -> int:
+	var n := 0
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			n += 1
+	return n
+
+
+## One pack tick, for a subclass to call at the top of `_step` (WardenLogic.pack_*): at an hp gate it
+## sounds a horn and, on the beat, calls its pack into the far side of its room from Relish. True while
+## the horn sounds or any of the pack stands: the warden holds its own attack (one threat at a time).
+func _pack_step(delta: float) -> bool:
+	var pk: Dictionary = spec.get("pack", {})
+	if pk.is_empty():
+		return false
+	var before := pack.size()
+	var standing: Array = []
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			standing.append(u)
+	pack_down += before - standing.size()
+	pack = standing
+	if before > 0 and pack.is_empty():
+		pack_down_t = 0.0
+		_on_pack_down()
+		if raid._standalone:
+			print("RAID_WARDEN pack down n=%d frame=%d" % [horns, Engine.get_process_frames()])
+	if horn_beat < 0.0 and pack.is_empty() and WardenLogic.pack_due(pk, hp / maxf(1.0, max_hp), horns):
+		horns += 1
+		horn_beat = ceilf(beat() + float(pk.get("horn_beats", 1.0)))
+		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+		var rel: RaidRelish = raid.relish
+		var away: Vector2 = rel.global_position if rel != null and is_instance_valid(rel) else global_position
+		horn_pts = WardenLogic.pack_spots(room, away, int(pk.get("size", 0)), float(pk.get("spot_inset_px", 50.0)),
+			float(pk.get("spot_spread_px", 28.0)))
+		RaidSound.play("tell")
+		_on_horn()
+		if raid._standalone:
+			print("RAID_WARDEN horn n=%d hp=%.0f/%.0f frame=%d" % [horns, hp, max_hp, Engine.get_process_frames()])
+	if horn_beat >= 0.0:
+		pack_s += delta
+		if beat() >= horn_beat:
+			horn_beat = -1.0
+			_loose_pack(pk)
+		return true
+	if not pack.is_empty():
+		pack_s += delta
+		return true
+	pack_down_t += delta
+	return false
+
+
+## On the horn's beat: the pack comes in where the horn showed. Its own living: hostile at once, at home
+## in its room, massless, and they drop nothing (raid.on_unit_died reads `warden_pack`).
+func _loose_pack(pk: Dictionary) -> void:
+	var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+	for p in horn_pts:
+		var u: RaidUnit = raid.spawn_unit("enemy", str(pk.get("kind", "runner")), raid.resolve_walls(p, 10.0), true)
+		u.mass = 0.0
+		u.home_room = room
+		u.warden_pack = true
+		u._aggro = true
+		pack.append(u)
+		pack_called += 1
+	if raid._standalone:
+		print("RAID_WARDEN pack n=%d hounds=%d frame=%d" % [horns, horn_pts.size(), Engine.get_process_frames()])
+
+
+## The horn just sounded / the pack just fell (a subclass hook: the Huntsman drops a pending lunge and
+## waits a tell before the next).
+func _on_horn() -> void:
+	pass
+
+
+func _on_pack_down() -> void:
+	pass
+
+
+## The pack's counts, for the measuring bot (AUTOPILOT_RESULT `pack`).
+func pack_telemetry() -> Dictionary:
+	return {"horns": horns, "called": pack_called, "down": pack_down, "pack_s": snappedf(pack_s, 0.01)}
+
+
+## Its pack in the world (tell -> counter -> labelled result): while the horn sounds, a `danger` ring at
+## each point the pack comes in (closing on the beat; steady under reduced motion) and HORN over it;
+## while the pack stands, "<NAME> · WARDED" over it; for `wardens.pack_label_s` after the last falls,
+## "<NAME> DOWN" in `undead`. Sizes in screen px (divided by the zoom).
+func _draw_pack(ci: CanvasItem) -> void:
+	var pk: Dictionary = spec.get("pack", {})
+	if pk.is_empty():
+		return
+	var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
+	var top := Vector2(0, -radius * 2.0 - fs * 1.6)
+	var nm := str(pk.get("name", "pack")).to_upper()
+	if horn_beat >= 0.0:
+		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (horn_beat - beat()) / maxf(0.01, float(pk.get("horn_beats", 1.0))), 0.0, 1.0)
+		for p in horn_pts:
+			var at: Vector2 = p - global_position
+			LineGlow.ring(ci, at, (30.0 - 14.0 * f) / zoom(), Palette.c("danger", 0.55 + 0.4 * f), 2.6 / zoom(), 0.6)
+		_pack_word(ci, top, "HORN · %d %s" % [horn_pts.size(), str(pk.get("name", "pack"))], fs, Palette.c("danger"))
+	elif pack_alive() > 0:
+		_pack_word(ci, top, nm + " · WARDED", fs, Palette.c("vei"))
+	elif pack_down_t < float(wcfg().get("pack_label_s", 1.2)):
+		_pack_word(ci, top, nm + " DOWN", fs, Palette.c("undead"))
+
+
+func _pack_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) -> void:
+	var font := ThemeDB.fallback_font
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	ci.draw_rect(Rect2(p + Vector2(-tw * 0.5 - 4.0, -float(px) * 0.75), Vector2(tw + 8.0, float(px) * 1.25)), Palette.c("ground", 0.7))
+	ci.draw_string(font, p + Vector2(-tw * 0.5, float(px) * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, col)
 
 
 ## Subclass telegraph drawing, on the z 37 child (centred on the warden).
@@ -289,4 +413,5 @@ class Telegraph:
 
 	func _draw() -> void:
 		if warden != null and is_instance_valid(warden) and warden.alive and warden.awake:
+			warden._draw_pack(self)
 			warden._draw_telegraph(self)

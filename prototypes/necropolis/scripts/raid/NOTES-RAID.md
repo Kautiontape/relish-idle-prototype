@@ -403,3 +403,36 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
   - The two t1 deaths are new against the pilot's one. ashgate seed 3: she walked round a corner into four living after loot, kept walking for the 0.45 s delay (8 hp), kited into the Huntsman's room, woke it and was cornered there. greywall seed 3 died at 17 s before any wake; it also dies with no delay (at 40 s, as in the pilot).
   - **Human factor at this head:** 1.18-1.67 (t2-t4 pooled, median per run; t3 1.14-1.48, with few raises at the Pyre-priest). Human estimate: t2 2.0-2.9 min, t3 2.3-3.1, t4 2.4-3.2, P1 2.0-2.9.
   - **The run-length window:** the check at each step is the median per-run human estimate per tier: low at least 180 s, high at most 360 s. In bot seconds at today's factors that is about 151-211 s at t2, 158-243 s at t3 and 154-224 s at t4 (pooled 153-216 s). Today all three tiers sit 30-50 s under its floor.
+
+## Run length, Step 3 (D-d/E): the levers
+The window: at t2-t4 the median per-run human estimate (bot-to-human factor above) must be at least 180 s at its low end and at most 360 s at its high end. No archetype at tier may be more than about 30% off its tier's median. Travel and idle shares may not rise above the seeds 1-6 baseline at 5b70259 (seeds 1-6, outliers out: t2 5.3 / 5.1 %, t3 10.5 / 7.5 %, t4 16.0 / 6.5 %; medians 101 / 115 / 117 s; human estimate 119-171 / 132-170 / 136-187 s; P1 100 s, 119-172 s). Tier 1 and the first dungeon stay as they are. The calibration log is the run's `reports/dungeon/calibration-dd-log.txt`.
+
+- **More living on the approach: measured and dropped.**
+  - The probe: 2 groups of 4 living at t2-t4, laid past each gap of the path within aggro range, sharing the seed's living mass. The patch is kept as `reports/dungeon/calibration-dd-approach-groups.patch`.
+  - Runs got shorter, not longer (t2-t4 medians 106 / 121 / 131 → 94 / 85 / 96 s). The wake came 2-7 s later, but the warden fight fell 16-38 s.
+  - The mechanism: every living death drops a mote, and every mote is part of a raise. A fight before the wake therefore grows the army, which then shortens the warden fight. The same 8 living taken out of the fort's count gave no lengthening either.
+  - The finding gives the rule for the levers below: **a warden's own pack drops nothing.**
+- **The Huntsman's hunt** (`archetypes.huntsman.pack`, `WardenLogic.pack_*`, `RaidWarden._pack_step`; the mechanic is in the base warden so another warden can take a pack by config).
+  - **Tell.** At each hp gate in `at_hp_frac` (0.66, 0.33), from `min_tier` 2 (never tier 1 or the first dungeon: their spec has no `pack` key, so their lines are unchanged), it sounds a horn `horn_beats` (1) ahead, on the beat.
+    - World: HORN · n hounds over it, and a `danger` ring closing on each entry point. Under reduced motion the ring is steady at its final size.
+    - HUD: a pack row saying "HORN · n hounds coming". RAID_WARDEN prints `horn`, `pack` and `pack down` with `frame=`.
+  - **The pack.** `size_by_tier` hounds (5 at t2, 6 at t3, 7 at t4: provisional, see the calibration) come in at the two inset corners of its room farthest from Relish (`pack_spots`; no rng).
+    - Hounds are `enemies.hound` (30 hp, 4 dmg, 150 px/s): hostile at once and massless.
+    - They count in LIVING. They drop no motes and no dings (`RaidUnit.warden_pack`, `raid.on_unit_died`).
+  - **Ward and hold.** While any hound runs:
+    - The Huntsman takes `ward_mult` 0.25 of every hit (`WardenLogic.pack_ward`, in `RaidWarden.take_hit`). A stun's ×2.5 multiplies with it, giving ×0.625.
+    - It does not lunge (one threat at a time: a pending lunge tell is dropped at the horn). After the last hound falls it waits a full tell before the next lunge.
+    - A warden without a pack takes exactly ×1.0, so the other wardens' lines are byte-identical.
+  - **The counter** is the speed weak point's bodyguard role, which already exists: a fast big undead posted by Relish strikes whatever comes into reach, so the hounds that rush her meet it first. Without fast bigs they reach her, which is the Step 4 arm's mechanism. The army's raises also answer the horn: the entry points show a beat ahead.
+  - **Labelled result.**
+    - While the hounds run: HOUNDS · WARDED over it, and HUD "HOUNDS n of m · it takes ×0.25".
+    - After the last falls: HOUNDS DOWN in `undead` for `wardens.pack_label_s` 1.2 s.
+    - Between packs the row teaches: "at 2/3 and 1/3 of its strength it calls n hounds · it is warded while they run".
+    - Its break meter, a flat row before, is now notched at the gates (`WardenLogic.meter_bands`).
+    - The death card names "The Huntsman's hounds" (`last_hit_src` "hound").
+  - **The bot** does not answer the horn: the hounds are living, and it kites them with its reaction delay as it does any living. AUTOPILOT_RESULT gains `pack` {horns, called, down, pack_s} on lines whose warden has a pack, and `living_start` on every line.
+  - **Probe** (seeds 1-6 at chime-fort t2 and hollow-redoubt t3).
+    - Each pack stands about 17-20 s (`pack_s` 34-40 per fight), and the fights ran 33-50 s longer (chime-fort 56-78 → 90-128 s; hollow-redoubt 74-85 → 116-153 s in the runs she survived).
+    - Hounds killed Relish in 3 of 12 runs. That is a Step 4 risk to tune, not tuned here.
+    - Every other warden's line, and tier 1 and the first dungeon, are byte-identical without the new keys.
+  - **Shot:** `de-huntsman-hounds.png` (chime-fort t2, seed 1, frame 2830). It shows the first pack just loosed, HOUNDS · WARDED over the Huntsman inside its army, the HUD row "HOUNDS 5 of 5 · it takes ×0.25", and the meter notched at 2/3 and 1/3.
