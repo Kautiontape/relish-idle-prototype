@@ -17,7 +17,9 @@ const COL_PARAMS: Array[StringName] = [&"col0", &"col1", &"col2", &"col3"]
 var model: MapModel
 ## GDScript ms the routes spent last frame (offsets, any refresh, the cart overlay's draw).
 var routes_ms := 0.0
-## Debug only (world_map sets it for --lanes-report): print the live lanes' u and hue once, at boot.
+## Debug only (world_map sets it for --lanes-report): print the live lanes' u and hue once at boot,
+## lanes_report_wait_s after the first refresh (a fixture's valve lanes appear after the first
+## sim substeps).
 var lanes_report := false
 ## The fort whose card is open (world_map sets it): with Relish's fort, the lanes in focus.
 var selected_id := "":
@@ -76,6 +78,7 @@ var _cam: Camera2D
 var _log_max := 0.0
 var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ring) the lanes were last trimmed to
 var _reported := false
+var _report_ms := -1.0  # Pulse's clock when the --lanes-report table prints
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
 var _bench := false
@@ -135,6 +138,9 @@ func _process(_delta: float) -> void:
 			_sync_ms_max = maxf(_sync_ms_max, ms)
 	_sync_chevrons()
 	var now := Pulse.now_ms()
+	if lanes_report and not _reported and _report_ms >= 0.0 and now >= _report_ms:
+		_reported = true
+		_print_report()
 	var rm: bool = Pulse.reduced_motion
 	for r: Ribbon in _moving:
 		r.mat.set_shader_parameter(&"offset", LaneStyle.phase_offset(r.anchor_off, r.anchor_ms, now, r.speed, r.period, rm))
@@ -246,19 +252,20 @@ func _sync() -> void:
 		if not seen.has(id):
 			_hide(_gutters[id])
 	_carts.set_tracks(tracks)
-	if lanes_report and not _reported:
-		_reported = true
-		_print_report()
+	if lanes_report and _report_ms < 0.0:
+		_report_ms = Pulse.now_ms() + float(MapLogic.cfg()["lanes_report_wait_s"]) * 1000.0
 
 
-## --lanes-report: one line per lit lane, sorted by id: its rate, u, the u its hue comes from
-## (LaneStyle.hue_u) and the hue that gives.
+## --lanes-report: one line per live lane and dead gutter, sorted by id: its rate, u, the u its
+## hue comes from (LaneStyle.hue_u) and the hue that gives (a gutter is matte: no hue).
 func _print_report() -> void:
 	var lines: Array = []
-	for r: Ribbon in _lanes.values():
+	for r: Ribbon in _lanes.values() + _gutters.values():
 		if r.mode == "lit":
 			var key := str(r.style["hue_key"])
-			lines.append(LaneStyle.report_line(r.row, key, r.u, LaneStyle.hue_u(r.u), float(_channels(r.u, key)["hue"])))
+			var matte := bool(r.style["matte"])
+			lines.append(LaneStyle.report_line(r.row, key, r.u, r.u if matte else LaneStyle.hue_u(r.u),
+				-1.0 if matte else float(_channels(r.u, key)["hue"])))
 	lines.sort()
 	print(LaneStyle.report_header(_log_max, float(MapLogic.cfg()["hue_u_floor"])))
 	for l in lines:

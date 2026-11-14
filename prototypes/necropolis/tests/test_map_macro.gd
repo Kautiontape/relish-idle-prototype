@@ -270,29 +270,45 @@ func _hue_floor(t: TestUtil) -> void:
 	t.ok(Color(c, 1.0).is_equal_approx(Color(want, 1.0)), "the halo colour is the floored channel's (hue and its lightness)")
 
 
-## The median lit lane of the three fixtures (view_lanes plus the model's ship_in stand-ins) sits
-## near u = 0.5 at rate_log_max.
+## rate_log_max against the real lanes (E2a): every live lane of the three fixtures (gutters too)
+## after 2 sim seconds, as --lanes-report prints them. They average u = 0.5; few clamp at 1, so
+## the ranking survives; and the map warms as the game goes on.
 func _retune(t: TestUtil) -> void:
 	t.suite("map_macro-retune")
 	var log_max := float(MapLogic.cfg()["rate_log_max"])
-	var rates: Array = []
+	var all: Array = []
+	var means := {}
 	for fx in ["day1", "midgame_2flips", "pre_vei"]:
 		var s := GameState.new(TestUtil.configs())
 		s.debug_enabled = true
 		s.cmd_debug_load_fixture(fx)
+		for i in 4:
+			s.tick(0.5)
 		var m := MapModel.new(s)
 		m.refresh(true)
+		var sum := 0.0
+		var n := 0
 		for r in m.lanes:
-			if p.rate_to_u(float(r["rate"]), log_max) >= 0.0:
-				rates.append(float(r["rate"]))
-	rates.sort()
-	t.ok(rates.size() >= 10, "the fixtures light %d lanes" % rates.size())
-	if rates.is_empty():
+			var u: float = p.rate_to_u(float(r["rate"]), log_max)
+			if u >= 0.0:
+				all.append(u)
+				sum += u
+				n += 1
+		means[fx] = sum / maxf(n, 1.0)
+	t.ok(all.size() >= 60, "the fixtures light %d lanes" % all.size())
+	if all.is_empty():
 		return
-	var mid: float = rates[rates.size() / 2] if rates.size() % 2 == 1 else (rates[rates.size() / 2 - 1] + rates[rates.size() / 2]) * 0.5
-	var u: float = p.rate_to_u(mid, log_max)
-	t.ok(u >= 0.4 and u <= 0.6, "the median lit lane (%.2f/s) sits near u = 0.5 at rate_log_max %.2f (u = %.2f)" % [mid, log_max, u])
-	t.ok(p.rate_to_u(rates[0], log_max) < p.rate_to_u(rates[rates.size() - 1], log_max), "the slowest and the fastest still differ in u")
+	var mean := 0.0
+	var clamped := 0
+	for u in all:
+		mean += u
+		if u >= 1.0:
+			clamped += 1
+	mean /= all.size()
+	t.ok(mean >= 0.45 and mean <= 0.55, "the lanes average u = %.2f at rate_log_max %.1f (0.45..0.55)" % [mean, log_max])
+	t.ok(clamped * 4 <= all.size(), "no more than a quarter clamp at u = 1, so the rate ranking survives (%d of %d)" % [clamped, all.size()])
+	t.ok(means["day1"] < means["midgame_2flips"] and means["midgame_2flips"] < means["pre_vei"],
+		"the map warms as the game goes on: mean u day1 %.2f < midgame %.2f < pre_vei %.2f" % [means["day1"], means["midgame_2flips"], means["pre_vei"]])
 
 
 # --- 12d: Relish and the labels -----------------------------------------------------

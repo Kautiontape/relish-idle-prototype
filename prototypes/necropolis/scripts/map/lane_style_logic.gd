@@ -235,9 +235,10 @@ static func report_header(log_max: float, floor_u: float) -> String:
 		log_max, floor_u, "id", "kind", "key", "rate", "u", "hue_u", "hue"]
 
 
+## `hue` < 0 (a matte dead gutter) prints "matte".
 static func report_line(row: Dictionary, hue_key: String, u: float, u_hue: float, hue: float) -> String:
-	return "%-34s %-9s %-8s %8.3f %6.3f %6.3f %7.1f" % [str(row["id"]), str(row["kind"]), hue_key,
-		float(row["rate"]), u, u_hue, hue]
+	return "%-34s %-9s %-8s %8.3f %6.3f %6.3f %7s" % [str(row["id"]), str(row["kind"]), hue_key,
+		float(row["rate"]), u, u_hue, "matte" if hue < 0.0 else "%.1f" % hue]
 
 
 ## A lit lane's alpha: Pulse's alpha floored at lane_alpha_floor, times alpha_mult, capped at 1.
