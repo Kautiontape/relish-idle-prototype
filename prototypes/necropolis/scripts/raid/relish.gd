@@ -132,14 +132,16 @@ func catch_marks() -> int:
 ## The hit cue (D-d/E Step 4b), for `relish.hit_cue_s` after a blow. A blow that reached her hp (a warden's
 ## tell-attack, or anything once no undead stands): a jagged burst round her, sharp spikes on a dark
 ## under-stroke, and STRUCK −N, in `danger`. A blow an undead took in her place: a smooth closed ring and
-## SOAKED, in `undead`. Shape and words read in greyscale; nothing moves, so reduced motion shows the same.
+## SOAKED, in `undead`. The most recent blow's cue shows. Shape and words read in greyscale; nothing moves,
+## so reduced motion shows the same. (A blow that is not lethal always reaches her hp: the chain soaks only
+## a lethal one, and never a warden's tell-attack.)
 func _draw_hit_cue() -> void:
 	var hold := float(ConfigDb.data.get("raid", {}).get("relish", {}).get("hit_cue_s", 1.2))
 	var z: float = maxf(0.05, raid.cam.zoom.x) if raid.cam != null else 1.0
 	var fs := roundi(float(ConfigDb.data.get("raid", {}).get("wardens", {}).get("label_px", 15)) / z)
 	var text := ""
 	var col := Color()
-	if _struck_t < hold:
+	if _struck_t < hold and _struck_t <= _soaked_t:   # the most recent blow's cue
 		var pts := PackedVector2Array()
 		for k in 17:
 			pts.append(Vector2.RIGHT.rotated(TAU * k / 16.0) * (radius + (17.0 if k % 2 == 0 else 7.0)))
