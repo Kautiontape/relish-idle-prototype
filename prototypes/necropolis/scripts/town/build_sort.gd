@@ -286,6 +286,19 @@ static func lot_refusal(lot: Dictionary, row: Dictionary) -> String:
 	return "lot_taken"
 
 
+## The suggestion tag's dismiss hit box: at least 44 px square, starting at the x's cell and
+## growing outward (right, and away from the lot: up when the tag sits `above` it, else down), so
+## it covers the x and never the tag's text.
+static func dismiss_box(cell: Rect2, plate: Rect2, above: bool) -> Rect2:
+	var s := Vector2(maxf(44.0, cell.size.x), maxf(44.0, plate.size.y))
+	return Rect2(Vector2(cell.position.x, plate.end.y - s.y if above else plate.position.y), s)
+
+
+## How far dismiss_box reaches past the tag's right end, for an x cell `cell_w` wide.
+static func dismiss_room(cell_w: float) -> float:
+	return maxf(44.0 - cell_w, 0.0)
+
+
 static func label_of(building_id: String, bview: Dictionary) -> String:
 	return String(bview.get(building_id, {}).get("label", building_id.capitalize()))
 

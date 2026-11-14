@@ -4,18 +4,29 @@ extends Control
 ## layers, bottom to top:
 ##   DriftFloor   the ground's slow current along the streets toward the crypt plaza (law 1);
 ##   beds         faint street beds (static);
-##   lots         one lot node per lot (static: redraws only on change, pulsed via `self_modulate`
-##                above 1 from Pulse.wave at the lot's street distance from the slab, law 5; never
-##                below 1, so a core line never drops under its 3:1 contrast; within Relish's light
-##                it is lifted by 1 + her brighten, TownAgents.lot_brighten);
-##   flow         per frame: street flows (the agents' live streams) and the slab's rings (TownFlow);
+##   lots         one lot node per lot, drawn by its look (town_lot.gd; static: redraws only on
+##                change). Empty lots and the looks the model marks `pulse` (staffed, constructing,
+##                the crypt with Relish home) are pulsed via `self_modulate` above 1 from Pulse.wave
+##                at the lot's street distance from the slab, law 5; never below 1, so a core line
+##                never drops under its 3:1 contrast; the rest hold steady. Within Relish's light a
+##                lot is lifted by 1 + her brighten, TownAgents.lot_brighten;
+##   flow         per frame: street flows (the agents' live streams), the slab's rings (TownFlow)
+##                and, under reduced motion, each street's ring number out from the crypt;
 ##   agents       per frame: undead workers, the living, trade arcs, carts, foremen, Relish
 ##                (TownAgents steps them, town_agents_layer.gd draws them);
 ##   walls        tier walls and the tier-up set piece (TownWalls);
-##   overlay      labels: the crypt always, any other building on hover;
-##   build layer  hover outline, the day-1 suggestion, the queue's numbered ghosts, the "construction
-##                started" flash (town_build_layer.gd, its own node);
-##   card         the lot card (town_card.gd), a Control child kept inside this rect.
+##   overlay      labels: the crypt always, any other building on hover; the count badges under
+##                staffable buildings ("12 working · 3 short") and the crypt ("5 idle", and
+##                "Relish away: slab idle" while she is away);
+##   build layer  hover outline and the hovered building's status tag, the day-1 suggestion, the
+##                queue's numbered ghosts, the "construction started" flash (town_build_layer.gd);
+##   tags         per frame while awake: the output-change floats and the picked agent's ring and
+##                tag (town_tags.gd);
+##   card         the lot card (town_card.gd), a Control child kept inside this rect; its inspector
+##                form opens with the building's status line.
+## Agents: a left click within view.agent_hit_px of an agent picks it (before any lot; not while
+## placing a building, when a click is for its lot); a click elsewhere, a right click or Escape
+## clears the pick.
 ## Contract: bind(views) on each fetch, on_game_event(ev) from the shell, signal command_issued.
 ## Build tab hooks: set_placement(building_id, lots) outlines the valid lots in `select` and dims the
 ## rest; set_selected_lot(id) dashes the inspected lot; clicks emit lot_clicked(lot_id) (hit boxes
@@ -33,6 +44,7 @@ const WallsScript := preload("res://scripts/town/town_walls.gd")
 const AgentsScript := preload("res://scripts/town/town_agents_layer.gd")
 const BuildLayerScript := preload("res://scripts/town/town_build_layer.gd")
 const CardScript := preload("res://scripts/town/town_card.gd")
+const TagsScript := preload("res://scripts/town/town_tags.gd")
 
 var model: TownModel
 var agents: TownAgents
@@ -60,6 +72,7 @@ var card: CardScript
 var _card_lot := ""
 var _sug := {}  # {building_id, label, lots} from the Build tab
 var _queue_raw: Array = []  # BuildSort.ghosts() of the queue
+var _tags: TagsScript
 
 
 func _ready() -> void:
@@ -97,6 +110,12 @@ func _ready() -> void:
 	_build.model = model
 	_build.vcfg = _v
 	add_child(_build)
+	_tags = TagsScript.new()
+	_tags.name = "Tags"
+	_tags.model = model
+	_tags.agents = agents
+	_tags.vcfg = _v
+	add_child(_tags)
 	card = CardScript.new()
 	card.name = "Card"
 	card.setup(_v, db.get("buildings_view", {}), db.get("buildings", {}))
@@ -148,11 +167,24 @@ func _gui_input(event: InputEvent) -> void:
 				suggestion_dismissed.emit()
 				accept_event()
 				return
-			lot_clicked.emit(model.lot_at(b.position, float(_v.get("hit_min_px", 0.0))))
+			# placing a building, a click is for its lot; else an agent within its radius wins
+			var a: TownAgents.Agent = null if _place_id != "" else agents.agent_at(b.position, float(_v.get("agent_hit_px", 0.0)))
+			_tags.set_pick(a)
 			accept_event()
+			if a == null:  # an agent hit wins only inside its radius; else the lot (or open ground)
+				lot_clicked.emit(model.lot_at(b.position, float(_v.get("hit_min_px", 0.0))))
 		elif b.button_index == MOUSE_BUTTON_RIGHT:
+			_tags.set_pick(null)
 			right_clicked.emit()
 			accept_event()
+
+
+## Escape clears a picked agent first (before the Build tab's Escape closes the card).
+func _input(event: InputEvent) -> void:
+	var k := event as InputEventKey
+	if k != null and k.pressed and k.keycode == KEY_ESCAPE and _tags != null and _tags.pick != null:
+		_tags.set_pick(null)
+		get_viewport().set_input_as_handled()
 
 
 ## Placement mode for the Build tab: `lots` (lot ids) are outlined in `select`, every other lot is
@@ -217,8 +249,16 @@ func flash_lot(lot_id: String) -> void:
 ## Shows the (already filled) lot card beside `lot_id`.
 func open_card(lot_id: String) -> void:
 	_card_lot = lot_id
+	_card_status()
 	card.open()
 	_place_card()
+
+
+## The card's inspector form opens with the building's status line (the model's, as on hover).
+func _card_status() -> void:
+	if card == null or model == null or _card_lot == "":
+		return
+	card.set_status(model.lot(_card_lot).get("building", {}).get("status_parts", []))
 
 
 func close_card() -> void:
@@ -261,6 +301,8 @@ func _refresh() -> void:
 	var relayout := size != _laid
 	model.update(views, Rect2(Vector2.ZERO, size))
 	agents.sync(model, views)
+	if not model.floats.is_empty():
+		_tags.add_floats(model.floats)
 	if relayout:
 		_laid = size
 		while _lots.size() < model.lots.size():
@@ -281,6 +323,12 @@ func _refresh() -> void:
 	_walls.sync_model(relayout)
 	_apply_suggestion()
 	_apply_queue()
+	var st := {}
+	for l in model.lots:
+		if not (l["building"] as Dictionary).is_empty():
+			st[l["id"]] = l["building"]["status_parts"]
+	_build.set_statuses(st)
+	_card_status()
 	_place_card()
 	_overlay.queue_redraw()
 	_apply_dim()
@@ -294,8 +342,9 @@ func _process(delta: float) -> void:
 	_agents.queue_redraw()
 	for n in _lots:
 		# Relish's light lifts the lot by her brighten. Keep view.relish_brighten small: modulate above 1
-		# clips the matter colours' saturated channels (a big lift turns living orange amber).
-		var k: float = (1.0 + _pulse_gain * Pulse.wave(n.hops, model.depth)) * (1.0 + n.brighten)
+		# clips the matter colours' saturated channels (a big lift turns living orange amber). Steady
+		# looks (calm, unstaffed, unpaid, the crypt with Relish away) don't pulse.
+		var k: float = (1.0 + (_pulse_gain * Pulse.wave(n.hops, model.depth) if n.pulses else 0.0)) * (1.0 + n.brighten)
 		n.self_modulate = Color(k, k, k)
 
 
@@ -366,8 +415,36 @@ func _draw_labels() -> void:
 		if b.is_empty():
 			continue
 		var hovered: bool = l["id"] == _hover
-		if hovered or String(b["building_id"]) == "crypt":
+		if hovered or String(b["building_id"]) == TownModel.HEART:
 			_label(l["rect"], String(b["label"]), "text" if hovered else "text_dim")
+		_badges(b)
+
+
+## Under the building (below its pip row): the count badge, then the crypt's "Relish away" line.
+## Small upright text on a ground plate (like the labels) so street lines and agents behind it
+## never cut the letters. A badge with open slots draws in `text`, a full one in `text_dim`.
+func _badges(b: Dictionary) -> void:
+	var lines: Array = []
+	if String(b.get("badge", "")) != "":
+		lines.append([String(b["badge"]), "text" if int(b.get("short", 0)) > 0 else "text_dim"])
+	if String(b.get("away", "")) != "":
+		lines.append([String(b["away"]), "text_dim"])
+	if lines.is_empty():
+		return
+	var bc: Dictionary = _v.get("badge", {})
+	var font := ThemeDB.fallback_font
+	var fs := maxi(int(bc.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	var gap := float(bc.get("gap_px", 2.0))
+	var pad := float(bc.get("pad_px", 3.0))
+	var r: Rect2 = b["rect"]
+	var y := r.end.y + gap
+	for ln in lines:
+		var sz := font.get_string_size(String(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		var x := clampf(r.get_center().x - sz.x * 0.5, pad + 2.0, maxf(size.x - sz.x - pad - 2.0, pad + 2.0))
+		_overlay.draw_rect(Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), Palette.c("ground"))
+		_overlay.draw_string(font, Vector2(x, y + font.get_ascent(fs)), String(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+			Palette.c(String(ln[1])))
+		y += sz.y
 
 
 ## `text` centred above `r` on a ground plate so lines behind it never cut through the letters.

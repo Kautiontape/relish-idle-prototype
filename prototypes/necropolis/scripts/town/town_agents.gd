@@ -9,8 +9,11 @@ extends RefCounted
 ##   for a in ag.undead: a.pos, a.dir, a.carry, a.tilt, a.flash, a.hidden ...
 ##
 ## - **Counts follow the stream.** Undead per job = the job's `staffed` (view_town().jobs), idle =
-##   `workers.idle`, living = `living`. Above view.max_undead_agents / max_living_agents each kind
-##   is sampled by k = ceil(total / max) (`undead_scale`, `living_scale`: 1 stroke = k).
+##   `workers.idle`, living = `living`. Both kinds share one budget, view.max_agents strokes, and
+##   the undead (the product) come first: they keep one stroke per worker up to the budget less
+##   what the living's floor reserves (min(living, view.min_living_agents)); the living take what
+##   is left, never less than that floor. A kind over its share is sampled by k = ceil(total /
+##   share) (`undead_scale`, `living_scale`: 1 stroke = k), so the living are thinned first.
 ## - **Entry, then growth.** The first sync (and any relayout) places the current population along
 ##   its loops at once: the town already exists when you walk in. After that every change in
 ##   counts is gradual: at most view.spawn_per_s agents a second per kind are added or removed,
@@ -171,6 +174,81 @@ func lit(p: Vector2) -> bool:
 	return relish_home and p.distance_to(relish_pos) <= _num("relish_light_r") * scale
 
 
+## The visible agent nearest `p` within `radius` px (never less than 22: a 44 px target), undead
+## or living; null if none. Hidden (out of town) and gone agents can't be picked.
+func agent_at(p: Vector2, radius: float) -> Agent:
+	var r := maxf(radius, 22.0)
+	var best: Agent = null
+	var best_d := r
+	for arr in [undead, living]:
+		for a in arr:
+			if a.hidden or a.gone:
+				continue
+			var d: float = a.pos.distance_to(p)
+			if d <= best_d:
+				best_d = d
+				best = a
+	return best
+
+
+## Whether `a` is still walking in town (one of this population, not gone).
+func alive(a: Agent) -> bool:
+	return a != null and not a.gone and (undead.has(a) or living.has(a))
+
+
+## What agent `a` is doing, in words (templates: view.agent_status): "hauler: carrying bodies to
+## the Charnel House", "idle at the crypt", "buyer: going to the Market", "buyer: at the Market".
+## The undead by job and the stop they walk to; the living by the stop of their round (home,
+## market, inn: resident, buyer, guest), "at" while they dwell there.
+func describe(a: Agent) -> String:
+	var s: Dictionary = _v.get("agent_status", {})
+	if not a.undead:
+		if a.leaving:
+			return String(s.get("leaving_living", ""))
+		var n := a.stops.size()
+		if n == 0:
+			return ""
+		var roles: Array = s.get("living_roles", [])
+		var dwelling := _clock < a.wait
+		var i := (a.stop - 1 + n) % n if dwelling else a.stop % n
+		var role := String(roles[i]) if i < roles.size() else ""
+		var vars := {"role": role, "place": _place_name(String(a.stops[i]))}
+		if dwelling:
+			return BuildSort.fmt(String(s.get("at", "")), vars)
+		return BuildSort.fmt(String(s.get("home" if i == 0 else "going", "")), vars)
+	if a.job == "idle":
+		return String(s.get("idle", ""))
+	var role := String((s.get("roles", {}) as Dictionary).get(a.job, a.job))
+	if a.leaving:
+		return BuildSort.fmt(String(s.get("leaving", "")), {"role": role})
+	if a.hidden:
+		return BuildSort.fmt(String(s.get("out", "")), {"role": role})
+	if a.stops.is_empty():
+		return String(s.get("idle", ""))  # no building for its job: it idles at the crypt
+	var key := String(a.stops[a.stop % a.stops.size()])
+	var vars := {"role": role, "place": _place_name(key)}
+	if a.holding:
+		return BuildSort.fmt(String(s.get("working", "")), vars)
+	if key == "away":
+		return BuildSort.fmt(String(s.get("heading_out", "")), vars)
+	if LOOPS.has(a.job) and a.stops.size() > 1:
+		# a hauler walking back to the charnel house, or a pit or mill worker walking from it, carries
+		var to_src := key == "lot:" + _charnel
+		if to_src == (a.job == "haul"):
+			vars["what"] = String((s.get("carry", {}) as Dictionary).get(a.job, ""))
+			return BuildSort.fmt(String(s.get("carrying", "")), vars)
+	return BuildSort.fmt(String(s.get("going", "")), vars)
+
+
+## A stop key as a place name: a lot's building label, or view.agent_status.places.
+func _place_name(key: String) -> String:
+	if key.begins_with("lot:"):
+		var l := _model.lot(key.trim_prefix("lot:")) if _model != null else {}
+		if not l.is_empty() and not (l["building"] as Dictionary).is_empty():
+			return String(l["building"]["label"])
+	return String((_v.get("agent_status", {}).get("places", {}) as Dictionary).get(key, key))
+
+
 ## The gait position (in steps) at `beats` Pulse beats: whole steps, plus the share of the
 ## current step's duty window walked. Flat outside the duty windows.
 static func gait_at(beats: float, steps_per_beat: int, duty: float) -> float:
@@ -274,17 +352,22 @@ func _read_targets(town: Dictionary) -> void:
 		total += s
 	var idle := maxf(float(town.get("workers", {}).get("idle", 0.0)), 0.0)
 	total += idle
-	undead_scale = _scale_for(total, _num("max_undead_agents"))
+	var people := maxf(float(town.get("living", 0.0)), 0.0)
+	var budget := _num("max_agents")
+	var floor_l := minf(_num("min_living_agents"), ceilf(people - 1e-9))  # only what the living need
+	undead_scale = _scale_for(total, maxf(budget - floor_l, 1.0))
 	targets = {}
 	var orphan := 0.0
+	var used := 0
 	for j in staffed:
 		if (_sites.get(j, []) as Array).is_empty():
 			orphan += staffed[j]  # no building for the job: its workers idle at the crypt
 		else:
 			targets[j] = roundi(staffed[j] / float(undead_scale))
+			used += int(targets[j])
 	targets["idle"] = roundi((idle + orphan) / float(undead_scale))
-	var people := maxf(float(town.get("living", 0.0)), 0.0)
-	living_scale = _scale_for(people, _num("max_living_agents"))
+	used += int(targets["idle"])
+	living_scale = _scale_for(people, maxf(budget - float(used), floor_l))
 	living_target = roundi(people / float(living_scale))
 
 

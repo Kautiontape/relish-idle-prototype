@@ -53,13 +53,13 @@ static func staffing_glow(b: Dictionary) -> float:
 
 
 # STANDIN(E2): pips = round(staffed), in the matter of the building's first job, while outputs
-# are stubbed. Returns {pips: int, pip_key: String}.
+# are stubbed. Returns {pips: int (capped at pip_max), pip_key: String, count: int (uncapped)}.
 static func staffing_pips(b: Dictionary, jobs: Dictionary, vcfg: Dictionary) -> Dictionary:
 	if jobs.is_empty() or int(b.get("slots", 0)) <= 0:
-		return {"pips": 0, "pip_key": ""}
+		return {"pips": 0, "pip_key": "", "count": 0}
 	var out_key := String(vcfg.get("standin_job_output", {}).get(String(jobs.keys()[0]), ""))
-	var pips := clampi(roundi(float(b.get("staffed", 0.0))), 0, int(vcfg.get("pip_max", 0)))
-	return {"pips": pips, "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, ""))}
+	var n := maxi(roundi(float(b.get("staffed", 0.0))), 0)
+	return {"pips": mini(n, int(vcfg.get("pip_max", 0))), "pip_key": String(vcfg.get("pip_ink", {}).get(out_key, "")), "count": n}
 
 
 # STANDIN(E2): display only; real trade_rate arrives with E2a. view_town's trade_rate is 0 while

@@ -96,6 +96,18 @@ func run() -> int:
 	_build_lot_refusal()
 	_lot_hit(day1)
 	_view_keys()
+	_budget(day1)
+	_looks(day1, mid, demo)
+	_badges(day1, mid, demo)
+	_pip_groups(day1, demo)
+	_rate_units([day1, mid, pre, demo])
+	_status_lines(day1, mid, demo)
+	_agent_status(demo)
+	_agent_pick(day1)
+	_floats(day1, demo)
+	_ring_order(day1)
+	_dismiss_box()
+	_legible_contrast()
 	return t.failures
 
 
@@ -411,7 +423,12 @@ func _dim(day1: Dictionary) -> void:
 	m.update(_patched(day1, "lot-04", {"state": "idle"}), VIEW_RECT)
 	t.ok(m.lot("lot-04")["building"]["glow"] == 0.0, "idle is dark")
 	m.update(day1, VIEW_RECT)
-	t.near(m.lot("lot-01")["building"]["glow"], float(vcfg["glow_always"]), 0.0001, "the crypt is always lit at glow_always")
+	t.near(m.lot("lot-01")["building"]["glow"], float(vcfg["glow_always"]), 0.0001, "Relish home: the crypt is lit at glow_always")
+	var away: Dictionary = day1.duplicate(true)
+	away["town"]["relish_home"] = false
+	m.update(away, VIEW_RECT)
+	t.near(m.lot("lot-01")["building"]["glow"], float(vcfg["glow_always"]), 0.0001,
+		"Relish away: the crypt stays lit at glow_always, never drawn like an unbuilt or idle lot")
 
 
 # -------------------------------------------------------------------- demo ----
@@ -672,19 +689,22 @@ func _agent_counts(day1: Dictionary, demo: Dictionary, pre: Dictionary) -> void:
 	var total := float(dtown["workers"]["idle"])
 	for j in dtown["jobs"]:
 		total += float(j["staffed"])
-	var k := ceili(total / float(vcfg["max_undead_agents"]))
+	var ucap := int(vcfg["max_agents"]) - mini(int(vcfg["min_living_agents"]), ceili(float(dtown["living"])))
+	var k := ceili(total / float(ucap))
 	a = _agents(big)[1]
-	t.ok(k > 1 and a.undead_scale == k, "crowd: %d workers over max_undead_agents %d: 1 stroke = %d (got %d)"
-		% [total, vcfg["max_undead_agents"], k, a.undead_scale])
+	t.ok(k > 1 and a.undead_scale == k, "crowd: %d workers over the undead share %d of max_agents: 1 stroke = %d (got %d)"
+		% [total, ucap, k, a.undead_scale])
 	t.ok(_counts_match(a, dtown, k), "crowd: every job and the idle sampled by k")
-	t.ok(a.undead.size() <= int(vcfg["max_undead_agents"]) + dtown["jobs"].size(), "crowd: the strokes stay at the cap (%d)" % a.undead.size())
+	t.ok(a.undead.size() <= ucap + dtown["jobs"].size(), "crowd: the strokes stay at the cap (%d)" % a.undead.size())
 	a = _agents(demo)[1]
 	t.ok(a.undead_scale == 1 and _counts_match(a, demo["town"]) and a.count("idle") == 8,
 		"demo: every job building staffed, 8 idle at the crypt, under the cap (1 stroke = 1)")
-	var lk := ceili(float(pre["town"]["living"]) / float(vcfg["max_living_agents"]))
 	a = _agents(pre)[1]
-	t.ok(lk > 1 and a.living_scale == lk and a.living_count() == roundi(float(pre["town"]["living"]) / float(lk)),
-		"pre_vei: %.0f living over max_living_agents: 1 stroke = %d, %d strokes" % [pre["town"]["living"], lk, a.living_count()])
+	var pre_n := roundi(float(pre["town"]["living"]))
+	var pre_u := _undead_want(pre["town"])
+	t.ok(pre_u + pre_n <= int(vcfg["max_agents"]) and a.undead_scale == 1 and _counts_match(a, pre["town"])
+		and a.living_scale == 1 and a.living_count() == pre_n,
+		"pre_vei: %d workers and %d living fit the shared budget of %d: 1 stroke each" % [pre_u, pre_n, vcfg["max_agents"]])
 
 
 func _agent_growth(day1: Dictionary) -> void:
@@ -1260,7 +1280,9 @@ func _view_keys() -> void:
 		"group_gap_px", "progress_ticks", "progress_tick_w_px", "reveal_rate", "head", "warn", "slab_rings_px",
 		"slab_ring_w_px", "slab_ring_alpha", "slab_ring_reach_px", "label_px", "wall_w_px", "wall_glow", "tierup_beats",
 		"tierup_head", "tierup_flash", "demo_tierup", "slot_open_w_px", "pip_w_px", "chevron_w_mul",
-		"max_undead_agents", "max_living_agents", "spawn_per_s", "steps_per_beat", "step_duty", "step_px",
+		"max_agents", "min_living_agents", "agent_hit_px", "pip_group", "pip_group_gap_px", "pip_count_px",
+		"slab_ring_away_alpha", "badge", "rate_units", "status", "agent_status", "pick", "float", "ring_order",
+		"spawn_per_s", "steps_per_beat", "step_duty", "step_px",
 		"undead_dwell_steps", "haul_away_steps", "idle_dwell_steps", "idle_ring_px", "lane_px", "front_gap_px",
 		"post_spread", "stall_shuffle_px", "hammer_deg", "living_speed_px", "living_dwell_s", "living_sway_px",
 		"living_sway_stride_px", "trade_arc_s", "trade_reach_px", "max_trade_arcs", "cart_town_frac", "cart_pip_mass",
@@ -1280,6 +1302,14 @@ func _view_keys() -> void:
 		"suggest": ["w_px", "dash_px", "alpha", "tag_prefix", "x_px", "tag_pad_px"],
 		"ghost": ["alpha", "dash_px", "w_px", "ring_px", "ring_w_px", "number_px", "hold_px", "strike_px", "plus_px", "tag_pad_px"],
 		"flash": ["w_px", "grow_px", "alpha", "text"],
+		"badge": ["px", "gap_px", "pad_px", "working", "short", "sep", "idle"],
+		"status": ["building", "unpaid", "unpaid_none", "idle", "idle_ladder", "idle_capped", "idle_off", "short_one", "short",
+			"working", "working_none", "calm", "calm_none", "heart_home", "heart_away", "sep", "px", "pad_px", "gap_px"],
+		"agent_status": ["roles", "carry", "living_roles", "idle", "carrying", "going", "working", "heading_out", "out", "home",
+			"at", "leaving", "leaving_living", "places"],
+		"pick": ["ring_px", "w_px", "gap_px", "pad_px", "px"],
+		"float": ["eps", "rise_px", "px", "pip_px", "outline_px"],
+		"ring_order": ["px", "offset_px"],
 		"shortage_text": ["eta", "stuck", "eta_s", "eta_min", "eta_h", "eta_min_max_s", "eta_s_max_s"]}
 	var missing: Array = []
 	for k in keys:
@@ -1868,3 +1898,514 @@ func _lot_hit(day1: Dictionary) -> void:
 		if a.get_center().distance_to(b.get_center()) < 44.0 and not a.has_point(mid) and not b.has_point(mid):
 			var got: String = tiny.lot_at(a.get_center().lerp(b.get_center(), 0.4), 44.0)
 			t.ok(got == "lot-01", "hit: between two close lots the nearer centre wins")
+
+
+# ------------------------------------------------------- legibility (2c) ----
+## `views` with the idle workers and the living set.
+func _crowd(views: Dictionary, idle: float, living: float) -> Dictionary:
+	var v: Dictionary = views.duplicate(true)
+	v["town"]["workers"]["idle"] = idle
+	v["town"]["living"] = living
+	return v
+
+
+## Workers in `town`'s jobs, rounded as the sampler rounds them.
+func _staffed(town: Dictionary) -> int:
+	var n := 0
+	for j in town["jobs"]:
+		n += roundi(float(j["staffed"]))
+	return n
+
+
+func _budget(day1: Dictionary) -> void:
+	var cap := int(vcfg["max_agents"])
+	var fl := int(vcfg["min_living_agents"])
+	var staffed := _staffed(day1["town"])
+	t.ok(cap >= 100 and fl >= 1 and fl < cap, "budget: max_agents %d with a living floor of %d" % [cap, fl])
+	# the undead keep one stroke per worker right up to their share (the budget less the living floor)
+	var v := _crowd(day1, float(cap - fl - staffed), 100.0)
+	var a: TownAgents = _agents(v)[1]
+	t.ok(a.undead_scale == 1 and _counts_match(a, v["town"]) and a.undead.size() == cap - fl,
+		"budget: %d workers, one stroke each (%d)" % [cap - fl, a.undead.size()])
+	t.ok(a.living_scale == ceili(100.0 / fl) and a.living_count() == roundi(100.0 / a.living_scale) and a.living_count() <= fl,
+		"budget: 100 living get what's left, their floor of %d (1 stroke = %d, %d strokes)" % [fl, a.living_scale, a.living_count()])
+	t.ok(a.undead.size() + a.living_count() <= cap, "budget: all strokes stay within max_agents (%d)" % (a.undead.size() + a.living_count()))
+	# the living are thinned first: 60 workers keep 60 strokes, 200 living share what is left
+	v = _crowd(day1, float(60 - staffed), 200.0)
+	a = _agents(v)[1]
+	var left := cap - 60
+	t.ok(a.undead_scale == 1 and _counts_match(a, v["town"]) and a.undead.size() == 60, "budget: 60 workers, 60 strokes")
+	t.ok(a.living_scale == ceili(200.0 / left) and a.living_count() == roundi(200.0 / a.living_scale) and a.living_count() <= left,
+		"budget: 200 living thinned into the %d strokes left (1 stroke = %d)" % [left, a.living_scale])
+	# far past the budget the undead are sampled too, and the living keep their floor
+	v = _crowd(day1, 1000.0, 300.0)
+	a = _agents(v)[1]
+	var und := a.undead.size()
+	var total := 1000 + staffed
+	t.ok(a.undead_scale == ceili(float(total) / float(cap - fl)) and und <= cap - fl + v["town"]["jobs"].size(),
+		"budget: %d workers sampled into the undead share (%d strokes, 1 stroke = %d)" % [total, und, a.undead_scale])
+	t.ok(a.living_scale == ceili(300.0 / maxf(cap - und, fl)) and a.living_count() >= fl and und + a.living_count() <= cap,
+		"budget: the living take what is left, at least their floor (%d strokes, 1 stroke = %d)" % [a.living_count(), a.living_scale])
+	# no living: the undead may use the whole budget; a few living reserve only what they need
+	v = _crowd(day1, float(cap - staffed), 0.0)
+	a = _agents(v)[1]
+	t.ok(a.undead_scale == 1 and a.undead.size() == cap and a.living_count() == 0, "budget: no living, the undead use all %d strokes" % cap)
+	v = _crowd(day1, float(cap - 3 - staffed), 3.0)
+	a = _agents(v)[1]
+	t.ok(a.undead_scale == 1 and a.undead.size() == cap - 3 and a.living_count() == 3,
+		"budget: 3 living reserve 3 strokes, not the whole floor (%d undead, %d living)" % [a.undead.size(), a.living_count()])
+	# the real fixtures fit: one stroke each
+	a = _agents(day1)[1]
+	t.ok(a.undead_scale == 1 and a.living_scale == 1, "budget: day1 fits the budget, 1 stroke = 1")
+
+
+func _looks(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
+	var cases := [
+		["crypt", "active", 0, 0.0, "heart"],
+		["crypt", "constructing", 0, 0.0, "constructing"],
+		["market", "active", 2, 2.0, "staffed"],
+		["market", "active", 2, 1.0, "staffed"],
+		["market", "active", 2, 0.5, "staffed"],  # any staff works (the ticks and badge count whole hands)
+		["market", "active", 2, 0.0, "unstaffed"],
+		["bone_mill", "idle", 2, 0.0, "unstaffed"],
+		["house", "idle", 0, 0.0, "unstaffed"],
+		["guildhall", "unpaid", 0, 0.0, "unpaid"],
+		["market", "unpaid", 2, 1.0, "unpaid"],
+		["house", "active", 0, 0.0, "calm"],
+		["walls", "active", 0, 0.0, "calm"],
+		["house", "constructing", 0, 0.0, "constructing"],
+		["market", "constructing", 0, 0.0, "constructing"],
+	]
+	for c in cases:
+		var has_jobs := not (cfg["buildings"][c[0]]["jobs"] as Dictionary).is_empty()
+		var got := TownModel.look_of(String(c[0]), String(c[1]), int(c[2]), has_jobs, float(c[3]))
+		t.ok(got == c[4] and got in TownModel.LOOKS, "look: %s %s, %d slots, %.1f staffed reads %s (got %s)" % [c[0], c[1], c[2], c[3], c[4], got])
+	var m := _model()
+	m.update(demo, VIEW_RECT)
+	var seen := {}
+	var pulse_ok := true
+	var blue_ok := true
+	for l in m.lots:
+		var b: Dictionary = l["building"]
+		if b.is_empty():
+			continue
+		seen[b["look"]] = true
+		var want: bool = b["look"] in ["staffed", "constructing", "heart"]  # the demo has Relish home
+		pulse_ok = pulse_ok and b["pulse"] == want
+		if b["ink"] == "town":
+			blue_ok = blue_ok and (cfg["buildings"][b["building_id"]]["jobs"] as Dictionary).is_empty()
+	t.ok(seen.size() == TownModel.LOOKS.size(), "look: the demo shows all %d looks: %s" % [TownModel.LOOKS.size(), str(seen.keys())])
+	t.ok(pulse_ok, "look: only staffed, constructing and the crypt with Relish home pulse")
+	t.ok(blue_ok, "look: town blue is only on buildings that need no staff")
+	t.ok(m.lot("lot-18")["building"]["look"] == "unstaffed" and m.lot("lot-14")["building"]["look"] == "unpaid"
+		and m.lot("lot-09")["building"]["look"] == "calm" and m.lot("lot-04")["building"]["look"] == "staffed",
+		"look: the demo's idle mill, unpaid guildhall, calm house and staffed market")
+	t.ok(not mid["town"]["relish_home"], "midgame_2flips: Relish is away")
+	m.update(mid, VIEW_RECT)
+	var crypt: Dictionary = m.lot("lot-01")["building"]
+	t.ok(crypt["look"] == "heart" and crypt["ink"] == "undead" and not crypt["pulse"] and crypt["away"] == String(vcfg["status"]["heart_away"])
+		and crypt["reveal"] == 1.0 and crypt["glow"] > 0.0,
+		"look: Relish away, the crypt stays whole and lit in undead ink, holds still and says so")
+	m.update(day1, VIEW_RECT)
+	crypt = m.lot("lot-01")["building"]
+	t.ok(day1["town"]["relish_home"] and crypt["look"] == "heart" and crypt["ink"] == "relish" and crypt["pulse"] and crypt["away"] == "",
+		"look: Relish home, the crypt is violet and pulses")
+
+
+func _badges(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
+	t.ok(TownModel.badge_text(12, 15, vcfg) == "12 working · 3 short", "badge: 12 of 15 reads '12 working · 3 short'")
+	t.ok(TownModel.badge_text(3, 3, vcfg) == "3 working", "badge: full reads '3 working'")
+	t.ok(TownModel.badge_text(0, 3, vcfg) == "0 working · 3 short", "badge: empty reads '0 working · 3 short'")
+	t.ok(TownModel.badge_text(4, 3, vcfg) == "4 working", "badge: never a negative shortfall")
+	t.ok(TownModel.working_of(2.7) == 2 and TownModel.working_of(3.0) == 3 and TownModel.working_of(2.9999999) == 3,
+		"badge: working is the floor of staffed, like the slot ticks")
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	var all_ok := true
+	var n := 0
+	for b in day1["town"]["buildings"]:
+		var e: Dictionary = m.lot(String(b["lot_id"]))["building"]
+		if int(b["slots"]) > 0:
+			n += 1
+			var w := TownModel.working_of(float(b["staffed"]))
+			all_ok = all_ok and e["badge"] == TownModel.badge_text(w, int(b["slots"]), vcfg) and e["working"] == w \
+				and e["short"] == int(b["slots"]) - w
+	t.ok(all_ok and n >= 3, "badge: each of day1's %d job buildings counts its staffed and open slots" % n)
+	var idle := TownModel.working_of(float(day1["town"]["workers"]["idle"]))
+	t.ok(m.lot("lot-01")["building"]["badge"] == "%d idle" % idle, "badge: the crypt counts the idle (day1: %d)" % idle)
+	m.update(_patched(day1, "lot-04", {"staffed": 1.0}), VIEW_RECT)
+	t.ok(m.lot("lot-04")["building"]["badge"] == "1 working · 1 short" and m.lot("lot-04")["building"]["short"] == 1,
+		"badge: a market missing a hand reads '1 working · 1 short'")
+	m.update(demo, VIEW_RECT)
+	t.ok(m.lot("lot-01")["building"]["badge"] == "8 idle", "badge: the demo's crypt reads '8 idle'")
+	t.ok(m.lot("lot-18")["building"]["badge"] == "0 working · 2 short", "badge: the idle bone mill shows its wasted slots")
+	var none := true
+	for l in m.lots:
+		var b: Dictionary = l["building"]
+		if not b.is_empty() and b["look"] in ["calm", "constructing", "unpaid"]:
+			none = none and b["badge"] == ""
+	t.ok(none, "badge: no badge on buildings that need no staff, nor under construction, nor unpaid")
+	m.update(mid, VIEW_RECT)
+	var mid_idle := TownModel.working_of(float(mid["town"]["workers"]["idle"]))
+	t.ok(m.lot("lot-01")["building"]["badge"] == "%d idle" % mid_idle, "badge: the idle count (%d) stays when Relish is away" % mid_idle)
+
+
+func _pip_groups(day1: Dictionary, demo: Dictionary) -> void:
+	t.ok(int(vcfg["pip_group"]) == 5, "pips: tally groups of 5")
+	var o := TownModel.row_offsets(7, 5.0, 3.0, 4.0, 5)
+	t.ok(o == PackedFloat32Array([0, 8, 16, 24, 32, 44, 52]), "pips: a gap after every 5th: %s" % str(o))
+	t.near(TownModel.row_width(7, 5.0, 3.0, 4.0, 5), 57.0, 0.001, "pips: 7 pips span 57 px")
+	t.ok(TownModel.row_offsets(5, 5.0, 3.0, 4.0, 5) == PackedFloat32Array([0, 8, 16, 24, 32]), "pips: no gap after the last")
+	var ten := TownModel.row_offsets(10, 5.0, 3.0, 4.0, 5)
+	t.ok(ten.size() == 10 and is_equal_approx(ten[5] - ten[4], 12.0) and is_equal_approx(ten[9] - ten[8], 8.0), "pips: 10 is two groups")
+	t.ok(TownModel.row_offsets(0, 5.0, 3.0, 4.0, 5).is_empty() and TownModel.row_width(0, 5.0, 3.0, 4.0, 5) == 0.0, "pips: none is empty")
+	t.ok(TownModel.count_label(6, 5) == "6" and TownModel.count_label(5, 5) == "" and TownModel.count_label(0, 5) == "",
+		"pips: the integer shows beside a row of more than 5")
+	var m := _model()
+	m.update(_patched(demo, "lot-05", {"output": {"mint": 23.0, "burn": 0.6}}), VIEW_RECT)
+	var pit: Dictionary = m.lot("lot-05")["building"]
+	t.ok(pit["pips"] == int(vcfg["pip_max"]) and pit["pip_count"] == 23, "pips: capped at pip_max, the true count (23) kept beside")
+	m.update(day1, VIEW_RECT)
+	var mk: Dictionary = m.lot("lot-04")["building"]
+	var want := floori(float(day1["town"]["buildings"][3]["output"]["gold"]) / float(vcfg["pip_unit"]["gold"]) + 1e-6)
+	t.ok(day1["town"]["buildings"][3]["building_id"] == "market" and mk["pips"] == want and mk["pip_count"] == want,
+		"pips: day1's market output is %d pips, the count the same" % want)
+	var stub := _model()
+	stub.update(_stub(day1), VIEW_RECT)
+	var ch: Dictionary = stub.lot("lot-03")["building"]
+	t.ok(stub.staffing_standin and ch["pips"] == roundi(ch["staffed"]) and ch["pip_count"] == ch["pips"], "pips: the stand-in keeps the count too")
+
+
+func _rate_units(views: Array) -> void:
+	var keys := {}
+	for v in views:
+		for b in v["town"]["buildings"]:
+			for k in b["output"]:
+				keys[k] = true
+	for k in keys:
+		var u: Dictionary = vcfg["rate_units"].get(k, {})
+		t.ok(String(u.get("unit", "")) != "" and absf(float(u.get("sign", 0.0))) == 1.0 and Palette.has(String(u.get("ink", ""))),
+			"rate units: output %s has a unit, a sign and a matter ink" % k)
+	t.ok(keys.size() >= 6, "rate units: the fixtures and the demo report %d output keys: %s" % [keys.size(), str(keys.keys())])
+	t.ok(vcfg["rate_units"]["gold"]["ink"] == "living" and vcfg["rate_units"]["mint"]["ink"] == "undead"
+		and vcfg["rate_units"]["bodies"]["ink"] == "dead" and vcfg["rate_units"]["bone"]["ink"] == "dead",
+		"rate units: gold is living, mint undead, bodies and bone dead")
+
+
+func _status(b: Dictionary, look: String, town: Dictionary) -> String:
+	return TownModel.status_text(TownModel.status_of(b, look, town, cfg["buildings"], cfg["buildings_view"], vcfg))
+
+
+func _status_lines(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
+	t.ok(TownModel.rate_text("gold", 0.3, vcfg) == "+0.30 gold/s", "status: a rate reads '+0.30 gold/s'")
+	t.ok(TownModel.rate_text("gold", -0.03, vcfg) == "−0.03 gold/s", "status: a cost reads '−0.03 gold/s' (true minus)")
+	t.ok(TownModel.rate_text("burn", 0.6, vcfg) == "−0.60 bodies/s", "status: burn reads as bodies spent")
+	t.ok(TownModel.rate_text("q", 0.04, vcfg) == "+0.04 quality/s", "status: q reads as quality")
+	var town := {"relish_home": true, "ladder_effective": ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
+		"jobs": [{"id": "haul", "slots": 3, "staffed": 3.0}, {"id": "pit", "slots": 2, "staffed": 0.0},
+			{"id": "stall", "slots": 2, "staffed": 0.0}, {"id": "mill", "slots": 2, "staffed": 0.0}],
+		"workers": {"idle": 0.0}}
+	var mk := {"building_id": "market", "state": "active", "progress": 1.0, "slots": 2, "staffed": 0.0, "staff_cap": -1,
+		"output": {}, "upkeep": {"gold": 0.03, "bone": 0.0}}
+	t.ok(_status(mk, "unstaffed", town) == "idle: no staff (Haul is above it on the ladder)", "status: idle, Haul takes the hands first")
+	var t2: Dictionary = town.duplicate(true)
+	t2["jobs"][1]["staffed"] = 2.0
+	t.ok(_status(mk, "unstaffed", t2) == "idle: no staff (Pit is above it on the ladder)", "status: the nearest staffed job above is named")
+	t2["workers"]["idle"] = 4.0
+	t.ok(_status(mk, "unstaffed", t2) == "idle: no staff", "status: with idle hands at the crypt it isn't the ladder")
+	var t3: Dictionary = town.duplicate(true)
+	t3["ladder_effective"] = ["build", "haul", "pit", "mill"]
+	t.ok(_status(mk, "unstaffed", t3) == "idle: Stall is off the ladder", "status: a job off the ladder says so")
+	var capped: Dictionary = mk.duplicate(true)
+	capped["staff_cap"] = 0
+	capped["state"] = "idle"
+	t.ok(_status(capped, "unstaffed", town) == "idle: its staff cap is 0", "status: a staff cap of 0 says so")
+	var up := {"building_id": "house", "state": "constructing", "progress": 0.45, "slots": 0, "staffed": 0.0, "upkeep": {"gold": 0.01}}
+	t.ok(_status(up, "constructing", town) == "building: 45%", "status: 'building: 45%'")
+	var unpaid: Dictionary = mk.duplicate(true)
+	unpaid["state"] = "unpaid"
+	t.ok(_status(unpaid, "unpaid", town) == "unpaid: −0.03 gold/s upkeep", "status: 'unpaid: −0.03 gold/s upkeep'")
+	t.ok(TownModel.status_of(unpaid, "unpaid", town, cfg["buildings"], cfg["buildings_view"], vcfg)
+		== [["unpaid: ", false], ["−0.03 gold/s", true], [" upkeep", false]], "status: the rate is the oblique part, the words upright")
+	unpaid["upkeep"] = {"gold": 0.03, "bone": 0.01}
+	t.ok(_status(unpaid, "unpaid", town) == "unpaid: −0.03 gold/s, −0.01 bone/s upkeep", "status: both upkeeps")
+	unpaid["upkeep"] = {"gold": 0.0, "bone": 0.0}
+	t.ok(_status(unpaid, "unpaid", town) == "unpaid", "status: unpaid with no upkeep listed")
+	var short: Dictionary = mk.duplicate(true)
+	short["slots"] = 3
+	short["staffed"] = 1.0
+	short["output"] = {"gold": 0.1}
+	t.ok(_status(short, "staffed", town) == "short 2 hands", "status: 'short 2 hands'")
+	short["slots"] = 2
+	t.ok(_status(short, "staffed", town) == "short 1 hand", "status: 'short 1 hand'")
+	short["slots"] = 3
+	short["staffed"] = 2.7
+	t.ok(_status(short, "staffed", town) == "short 1 hand", "status: 2.7 of 3 is short a hand (floor, as the ticks)")
+	short["slots"] = 2
+	short["staffed"] = 0.4
+	t.ok(TownModel.look_of("market", "active", 2, true, 0.4) == "staffed" and _status(short, "staffed", town) == "short 2 hands"
+		and TownModel.badge_text(TownModel.working_of(0.4), 2, vcfg) == "0 working · 2 short",
+		"status: a fraction of a hand works, short 2 whole hands, as its badge says")
+	var full: Dictionary = mk.duplicate(true)
+	full["staffed"] = 2.0
+	full["output"] = {"gold": 0.3}
+	t.ok(_status(full, "staffed", town) == "working: +0.30 gold/s", "status: 'working: +0.30 gold/s'")
+	t.ok(TownModel.status_of(full, "staffed", town, cfg["buildings"], cfg["buildings_view"], vcfg)
+		== [["working: ", false], ["+0.30 gold/s", true]], "status: working's rates are oblique")
+	full["output"] = {}
+	t.ok(_status(full, "staffed", town) == "working", "status: working with no output")
+	full["output"] = {"gold": 0.0}
+	t.ok(_status(full, "staffed", town) == "working", "status: a zero rate is left out")
+	var pit := {"building_id": "raising_pit", "state": "active", "progress": 1.0, "slots": 2, "staffed": 2.0, "upkeep": {},
+		"output": {"burn": 0.6, "mint": 6.0}}
+	t.ok(_status(pit, "staffed", town) == "working: +6.00 mint/s, −0.60 bodies/s", "status: the pit mints and burns (main output first)")
+	var house := {"building_id": "house", "state": "active", "progress": 1.0, "slots": 0, "staffed": 0.0, "upkeep": {}, "output": {}}
+	t.ok(_status(house, "calm", town) == "no staff needed: +8 living cap"
+		and _status(house, "calm", town) == "no staff needed: " + String(cfg["buildings_view"]["house"]["benefit"]),
+		"status: 'no staff needed: +8 living cap' (the building's benefit line)")
+	var crypt := {"building_id": "crypt", "state": "active", "progress": 1.0, "slots": 0, "staffed": 0.0, "upkeep": {}, "output": {}}
+	t.ok(_status(crypt, "heart", town) == String(vcfg["status"]["heart_home"]), "status: the crypt with Relish home")
+	var away: Dictionary = town.duplicate(true)
+	away["relish_home"] = false
+	t.ok(_status(crypt, "heart", away) == "Relish away: slab idle", "status: 'Relish away: slab idle'")
+	# the model fills every entry from the live views
+	var m := _model()
+	for pair in [["day1", day1], ["midgame_2flips", mid]]:
+		var v: Dictionary = pair[1]
+		m.update(v, VIEW_RECT)
+		var same := true
+		for b in v["town"]["buildings"]:
+			var e: Dictionary = m.lot(String(b["lot_id"]))["building"]
+			same = same and e["status"] != "" and e["status"] == _status(b, String(e["look"]), v["town"]) \
+				and e["status"] == TownModel.status_text(e["status_parts"])
+		t.ok(same, "status: every %s building's line is status_of() its view entry" % pair[0])
+	m.update(day1, VIEW_RECT)
+	var b4: Dictionary = day1["town"]["buildings"][3]
+	t.ok(b4["building_id"] == "market" and int(b4["slots"]) == TownModel.working_of(float(b4["staffed"]))
+		and m.lot("lot-04")["building"]["status"] == "working: " + TownModel.rate_text("gold", float(b4["output"]["gold"]), vcfg),
+		"status: day1's full market works at its live rate: '%s'" % m.lot("lot-04")["building"]["status"])
+	m.update(demo, VIEW_RECT)
+	var all := true
+	for l in m.lots:
+		if not l["building"].is_empty():
+			all = all and String(l["building"]["status"]) != ""
+	t.ok(all, "status: every demo building has a line")
+	var gh_up := float(cfg["buildings"]["guildhall"]["upkeep"]["gold"])
+	t.ok(m.lot("lot-14")["building"]["status"] == "unpaid: %s upkeep" % TownModel.rate_text("gold", -gh_up, vcfg),
+		"status: the demo's unpaid guildhall: '%s'" % m.lot("lot-14")["building"]["status"])
+	t.ok(m.lot("lot-04")["building"]["status"] == "working: +0.60 gold/s", "status: the demo's market")
+	t.ok(m.lot("lot-18")["building"]["status"] == "idle: its staff cap is 0", "status: the demo's idle mill")
+	t.ok(m.lot("lot-21")["building"]["status"] == "building: 20%", "status: the demo's statue going up")
+
+
+func _agent_status(demo: Dictionary) -> void:
+	var pair := _agents(demo)
+	var a: TownAgents = pair[1]
+	var by_job := {}
+	for u in a.undead:
+		if not by_job.has(u.job):
+			by_job[u.job] = u
+	t.ok(by_job.has("haul") and by_job.has("pit") and by_job.has("stall") and by_job.has("idle"), "agent text: the demo has haulers, pit workers, stalls and idle")
+	var h: TownAgents.Agent = by_job["haul"]
+	h.hidden = false
+	h.holding = false
+	h.stop = 0
+	t.ok(String(h.stops[0]) == "lot:lot-03", "agent text: a hauler's first stop is the charnel house")
+	t.ok(a.describe(h) == "hauler: carrying bodies to the Charnel House", "agent text: '%s'" % a.describe(h))
+	h.stop = 1
+	t.ok(a.describe(h) == "hauler: heading out to the forts", "agent text: '%s'" % a.describe(h))
+	h.hidden = true
+	t.ok(a.describe(h) == "hauler: out at the forts", "agent text: '%s'" % a.describe(h))
+	h.hidden = false
+	h.leaving = true
+	t.ok(a.describe(h) == "hauler: going back to the crypt", "agent text: '%s'" % a.describe(h))
+	h.leaving = false
+	var p: TownAgents.Agent = by_job["pit"]
+	p.holding = false
+	p.hidden = false
+	p.stop = 1
+	t.ok(a.describe(p) == "pit worker: carrying a body to the Raising Pit", "agent text: '%s'" % a.describe(p))
+	p.stop = 0
+	t.ok(a.describe(p) == "pit worker: going to the Charnel House", "agent text: '%s'" % a.describe(p))
+	var s: TownAgents.Agent = by_job["stall"]
+	s.holding = true
+	t.ok(a.describe(s) == "stall keeper: working at the Market", "agent text: '%s'" % a.describe(s))
+	s.holding = false
+	t.ok(a.describe(s) == "stall keeper: going to the Market", "agent text: '%s'" % a.describe(s))
+	t.ok(a.describe(by_job["idle"]) == "idle at the crypt", "agent text: 'idle at the crypt'")
+	var roles: Dictionary = vcfg["agent_status"]["roles"]
+	var every := true
+	for u in a.undead:
+		var d := a.describe(u)
+		every = every and (d == "idle at the crypt" if u.job == "idle" else d.begins_with(String(roles[u.job]) + ": "))
+	t.ok(every, "agent text: every worker reads as its job's role")
+	var l: TownAgents.Agent = a.living[0]
+	l.leaving = false
+	l.wait = -1.0
+	var mk := -1
+	for i in l.stops.size():
+		if String(l.stops[i]) == "lot:lot-04":
+			mk = i
+	t.ok(mk == 1, "agent text: a townsperson's second stop is the market")
+	l.stop = 1
+	t.ok(a.describe(l) == "buyer: going to the Market", "agent text: '%s'" % a.describe(l))
+	l.stop = 0
+	t.ok(a.describe(l) == "resident: going home", "agent text: '%s'" % a.describe(l))
+	l.stop = 2
+	t.ok(a.describe(l) == "guest: going to the Inn", "agent text: '%s'" % a.describe(l))
+	l.wait = 1e9
+	t.ok(a.describe(l) == "buyer: at the Market", "agent text: dwelling, '%s'" % a.describe(l))
+	l.leaving = true
+	t.ok(a.describe(l) == "leaving town by the gate", "agent text: '%s'" % a.describe(l))
+
+
+func _agent_pick(day1: Dictionary) -> void:
+	var a: TownAgents = _agents(day1)[1]
+	t.ok(float(vcfg["agent_hit_px"]) >= 22.0, "pick: the agent hit radius is at least 22 px (a 44 px target)")
+	var u: TownAgents.Agent = a.undead[0]
+	for x in a.undead + a.living:
+		x.hidden = true
+	u.hidden = false
+	t.ok(a.agent_at(u.pos + Vector2(21, 0), 22.0) == u, "pick: a click 21 px off hits the agent")
+	t.ok(a.agent_at(u.pos + Vector2(23, 0), 22.0) == null, "pick: 23 px off misses")
+	t.ok(a.agent_at(u.pos + Vector2(21, 0), 4.0) == u, "pick: the radius never drops under 22 px")
+	t.ok(a.agent_at(u.pos + Vector2(30, 0), 40.0) == u, "pick: a bigger configured radius reaches further")
+	var w: TownAgents.Agent = a.undead[1]
+	w.hidden = false
+	w.pos = u.pos + Vector2(10, 0)
+	t.ok(a.agent_at(u.pos + Vector2(8, 0), 22.0) == w, "pick: the nearest agent wins")
+	w.hidden = true
+	var liv: TownAgents.Agent = a.living[0]
+	liv.hidden = false
+	liv.pos = u.pos + Vector2(0, 200)
+	t.ok(a.agent_at(liv.pos, 22.0) == liv, "pick: the living can be picked too")
+	u.hidden = true
+	t.ok(a.agent_at(u.pos, 22.0) == null, "pick: a hidden agent (out at the forts) can't be picked")
+	u.hidden = false
+	u.gone = true
+	t.ok(a.agent_at(u.pos, 22.0) == null and not a.alive(u), "pick: a gone agent can't be picked and isn't alive")
+	t.ok(a.alive(liv) and not a.alive(TownAgents.Agent.new()) and not a.alive(null), "pick: alive() is membership, not just the flag")
+
+
+func _floats(day1: Dictionary, demo: Dictionary) -> void:
+	var m := _model()
+	m.update(demo, VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: entering the scene floats nothing")
+	m.update(demo, VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: equal outputs float nothing")
+	var gold := _out(demo, "lot-04", "gold")
+	var up := _patched(demo, "lot-04", {"output": {"gold": gold + 0.3}})
+	m.update(up, VIEW_RECT)
+	t.ok(m.floats.size() == 1, "float: one output change, one float (%d)" % m.floats.size())
+	if m.floats.size() == 1:
+		var f: Dictionary = m.floats[0]
+		t.ok(f["lot_id"] == "lot-04" and f["text"] == "+0.30 gold/s" and f["ink"] == "living" and f["text_key"] == "living",
+			"float: the market floats '+0.30 gold/s' in gold's living orange: %s" % str(f))
+	m.update(up, VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: fires once, not again on the same value")
+	m.update(demo, VIEW_RECT)
+	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "−0.30 gold/s", "float: a drop floats '−0.30 gold/s'")
+	m.update(_patched(demo, "lot-04", {"output": {"gold": gold + float(vcfg["float"]["eps"]) * 0.5}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "float: a change under float.eps floats nothing")
+	m.update(demo, VIEW_RECT)
+	var mint := _out(demo, "lot-05", "mint")
+	var burn := _out(demo, "lot-05", "burn")
+	m.update(_patched(demo, "lot-05", {"output": {"mint": mint, "burn": burn + 0.6}}), VIEW_RECT)
+	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "−0.60 bodies/s" and m.floats[0]["ink"] == "dead"
+		and m.floats[0]["text_key"] == "text", "float: more burn floats bodies spent, its text in `text` (dead is too dark for text)")
+	m.update(_patched(demo, "lot-05", {"output": {"mint": mint + 2.0, "burn": burn + 1.0}}), VIEW_RECT)
+	t.ok(m.floats.size() == 1 and m.floats[0]["text"] == "+2.00 mint/s", "float: one per building, its main output first")
+	# live day1: a market hand lost, the upkeep unpaid, a new building, a swapped one
+	var s := _model()
+	s.update(day1, VIEW_RECT)
+	t.ok(s.floats.is_empty(), "float: day1 entry floats nothing")
+	var g1 := _out(day1, "lot-04", "gold")
+	var half := _patched(day1, "lot-04", {"staffed": 1.0, "output": {"gold": g1 * 0.5}})
+	s.update(half, VIEW_RECT)
+	t.ok(s.floats.size() == 1 and s.floats[0]["lot_id"] == "lot-04" and s.floats[0]["text"] == TownModel.rate_text("gold", -g1 * 0.5, vcfg),
+		"float: a market losing a hand floats its lost gold (%s)" % (s.floats[0]["text"] if s.floats.size() == 1 else "none"))
+	s.update(_patched(half, "lot-04", {"state": "unpaid", "staffed": 0.0, "output": {}}), VIEW_RECT)
+	t.ok(s.floats.size() == 1 and s.floats[0]["text"] == TownModel.rate_text("gold", -g1 * 0.5, vcfg), "float: going unpaid floats the output lost")
+	var added: Dictionary = half.duplicate(true)
+	added["town"]["buildings"].append({"lot_id": "lot-05", "building_id": "market", "level": 1, "state": "active", "progress": 1.0,
+		"slots": 2, "staffed": 2.0, "staff_cap": -1, "foreman": "", "output": {"gold": 0.3}, "upkeep": {"gold": 0.03, "bone": 0.0}})
+	s.update(added, VIEW_RECT)
+	var only_old := true
+	for f in s.floats:
+		only_old = only_old and f["lot_id"] != "lot-05"
+	t.ok(only_old, "float: a building first seen floats nothing")
+	s.update(_patched(added, "lot-05", {"building_id": "bone_mill", "output": {"bone": 0.2}}), VIEW_RECT)
+	t.ok(s.floats.is_empty(), "float: a different building on a lot floats nothing")
+
+
+## A building output on `lot_id` in `views` (0 if absent).
+func _out(views: Dictionary, lot_id: String, key: String) -> float:
+	for b in views["town"]["buildings"]:
+		if b["lot_id"] == lot_id:
+			return float(b["output"].get(key, 0.0))
+	return 0.0
+
+
+func _ring_order(day1: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	t.ok(m.street_order.size() == m.streets.size(), "ring order: one number per street")
+	var plaza_ok := true
+	var chain_ok := true
+	var top := 0
+	for i in m.streets.size():
+		var s: Dictionary = m.streets[i]
+		var n: int = m.street_order[i]
+		top = maxi(top, n)
+		if s["a"] == "plaza" or s["b"] == "plaza":
+			plaza_ok = plaza_ok and n == 1
+		elif n <= 1:
+			chain_ok = false
+		else:
+			var linked := false
+			for j in m.streets.size():
+				var o: Dictionary = m.streets[j]
+				var shares: bool = o["a"] in [s["a"], s["b"]] or o["b"] in [s["a"], s["b"]]
+				linked = linked or (j != i and shares and m.street_order[j] == n - 1)
+			chain_ok = chain_ok and linked
+	t.ok(plaza_ok, "ring order: the streets at the crypt's plaza are 1")
+	t.ok(chain_ok, "ring order: every other street touches one a ring nearer the crypt")
+	var gate := m.edge_index("gate", "w1")
+	t.ok(gate >= 0 and top >= 4 and m.street_order[gate] >= top - 1,
+		"ring order: the gate road is out at the edge (ring %d of %d)" % [m.street_order[gate] if gate >= 0 else -1, top])
+
+
+func _dismiss_box() -> void:
+	var plate := Rect2(100, 50, 160, 24)
+	var xw := 20.0
+	var cell := Rect2(plate.end.x - xw, plate.position.y, xw, plate.size.y)
+	var text := Rect2(plate.position, Vector2(plate.size.x - xw, plate.size.y))
+	for above in [true, false]:
+		var box := BuildSort.dismiss_box(cell, plate, above)
+		t.ok(box.size.x >= 44.0 and box.size.y >= 44.0, "dismiss: the hit box is at least 44 px (%s)" % str(box))
+		t.ok(box.has_point(cell.get_center()), "dismiss: the hit box covers the x")
+		t.ok(not box.intersects(text), "dismiss: the hit box never covers the tag text (above=%s)" % above)
+		t.ok(box.end.y <= plate.end.y + 0.01 if above else box.position.y >= plate.position.y - 0.01,
+			"dismiss: the hit box grows away from the lot (above=%s)" % above)
+	t.near(BuildSort.dismiss_room(xw), 24.0, 0.001, "dismiss: the tag keeps 24 px free on its right for the box")
+
+
+func _legible_contrast() -> void:
+	var ground := Palette.c("ground")
+	for k in ["text", "text_dim"]:
+		t.ok(TownModel.contrast(Palette.c(k), ground) >= 4.5, "legible: %s text (badges, tags, ring numbers, away label) reads at 4.5:1" % k)
+	for k in ["undead", "living"]:
+		t.ok(TownModel.float_text_key(k) == k and TownModel.contrast(Palette.c(k), ground) >= 4.5, "legible: a %s float is in its matter colour" % k)
+	t.ok(TownModel.float_text_key("dead") == "text" and TownModel.contrast(Palette.c("dead"), ground) < 4.5,
+		"legible: a dead float's text falls back to `text` (dead is %.2f:1)" % TownModel.contrast(Palette.c("dead"), ground))
+	var g: Dictionary = vcfg["agent"]
+	t.ok(TownModel.contrast(Palette.c("living"), ground) >= 3.0, "legible: the living stroke reads at 3:1")
+	t.ok(float(g["undead_glow"]) > float(g["living_glow"]) and float(g["core_px"]) >= 3.0,
+		"legible: the undead glyph outshines the living (halo %.2f vs %.2f, core %.1f px)" % [g["undead_glow"], g["living_glow"], g["core_px"]])
+	for k in [["badge", "px"], ["status", "px"], ["pick", "px"], ["float", "px"], ["ring_order", "px"]]:
+		t.ok(int(vcfg[k[0]][k[1]]) >= 12, "legible: %s text is at least 12 px" % k[0])
+	t.ok(int(vcfg["badge"]["px"]) <= 13 and int(vcfg["pip_count_px"]) >= 12, "legible: the badge is small (12-13 px); pip counts at least 12 px")
+	t.ok(float(vcfg["warn"]["size_px"]) >= 16.0, "legible: the unpaid tick is at least 16 px")
+	var away := float(vcfg["slab_ring_away_alpha"])
+	t.ok(away < float(vcfg["slab_ring_alpha"]) and TownModel.contrast(Palette.c("undead", away), ground) >= 3.0,
+		"legible: the slab rings breathe fainter while Relish is away, still a 3:1 line (%.2f:1)" % TownModel.contrast(Palette.c("undead", away), ground))
