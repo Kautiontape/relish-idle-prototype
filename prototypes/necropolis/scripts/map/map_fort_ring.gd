@@ -1,16 +1,46 @@
 class_name MapFortRing
 extends MapNodeLayer
-## The fortresses. Static layer: capacity hairline, tier notches, the dark track with the living /
-## undead / dead arcs, the countable pips, the held re-ink and countdown, the simulacrum, the
-## selection ring and the labels. Pulse layer: the controller core (on the fort's beat, hop 1),
-## the tithe countdown ring and the first-dungeon tempo ring.
+## The fortresses. Static layer, one per fort (`fort_id`, so a refresh redraws only the forts whose
+## drawing changed: static_sig): the held core, capacity hairline, tier notches, the dark track
+## with the living / undead / dead arcs, the countable pips, the held re-ink and countdown, the
+## simulacrum, the raid marker, the selection ring and the labels. Ownership reads by weight, so it
+## survives greyscale: forts your undead hold (held or overrun) draw the outer ring
+## NodeLogic.ring_weight heavy and fill their core (NodeLogic.has_core); hers keep the hairline
+## and an open core. A fort
+## whose raid is ready (NextLogic.raid_ready) carries a ▲ loot pip in `select` on its ring and, at
+## mid and near zoom, the word "raid": a shape and a word, never colour alone. While the flip set
+## piece re-inks a fort (ctx.reink), its outer ring is drawn as segments turning from living
+## orange (hairline) to undead green (held weight) from 12 o'clock, and the fort draws as its old
+## state until it is done. Pulse layer (every fort): the tithe countdown ring and the
+## first-dungeon tempo ring, on the forts' beat (hop 1). The state glyphs: MapFortGlyph.
 ## Radii from the fort's edge r: arcs r-4, pips r-12, hairline r, notches r..r+4, held r+7.5,
 ## tithe r+12.5, selection r+19, the REDIRECT lane ring r+24 (routes).
 
 
+## The fort a static layer draws (MapNodes gives each fort its own).
+var fort_id := ""
+
+
 func _draw_static() -> void:
-	for f in ctx.forts:
+	var f: Dictionary = ctx.model.fort(fort_id)
+	if not f.is_empty():
 		_static_fort(f)
+
+
+## What this fort's rings draw (NodeLogic.fort_static_sig), its selection and Relish's light. With
+## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
+func static_sig():
+	var f: Dictionary = ctx.model.fort(fort_id)
+	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), NextLogic.raid_ready(f, ctx.forts)), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
+		ctx.reink.get(fort_id, {})]
+
+
+## The state the fort draws as: its live one, or the pre-flip one while its ring re-inks.
+func _state(f: Dictionary) -> String:
+	var rk: Dictionary = ctx.reink.get(str(f.get("id", "")), {})
+	if not rk.is_empty():
+		return str(rk["from"])
+	return NodeLogic.fort_state(f, ctx.model.margin_of(str(f.get("id", ""))))
 
 
 func _static_fort(f: Dictionary) -> void:
@@ -22,10 +52,15 @@ func _static_fort(f: Dictionary) -> void:
 	var dead_col := Palette.c("dead_lit" if lit else "dead")
 	var hw := ctx.hair_w()
 	var seg := LineGlow.segments(r, TAU)
-
-	# the dark track and the arcs: living, undead, dead from 12 o'clock; the rest stays dark
+	var state := _state(f)
 	var ra := r - float(n["arc_inset_px"])
 	var aw := float(n["arc_width_px"])
+
+	# your fort's filled core: undead at held_core_alpha up to the track (pips and glyph on top)
+	if NodeLogic.has_core(state):
+		draw_circle(p, ra - aw * 0.5 - float(n["held_core_inset_px"]), Palette.c("undead", float(n["held_core_alpha"])))
+
+	# the dark track and the arcs: living, undead, dead from 12 o'clock; the rest stays dark
 	draw_arc(p, ra, 0.0, TAU, seg, Palette.c("ring_track"), aw)
 	var fr := NodeLogic.arc_fracs(f)
 	var a0 := -PI * 0.5
@@ -64,9 +99,14 @@ func _static_fort(f: Dictionary) -> void:
 	if ticks.size() > 0:
 		draw_multiline(ticks, Palette.c(str(n["hairline_key"]), float(n["hairline_alpha"])), maxf(float(n["notch_width_px"]), hw))
 
-	# the outer hairline: capacity. Held: re-inked undead green, with the grace countdown outside it.
-	if bool(f.get("held", false)):
-		glow_ring(p, r, Palette.c("undead"), hw, 1.0, float(n["arc_halo_max_px"]))
+	# the outer ring: capacity, ring_weight heavy where your undead hold the fort. Held: re-inked
+	# undead green, with the grace countdown outside it.
+	var ow := hw * NodeLogic.ring_weight(state)
+	var rk: Dictionary = ctx.reink.get(fort_id, {})
+	if not rk.is_empty():
+		_reink(p, r, rk, hw, n)
+	elif bool(f.get("held", false)):
+		glow_ring(p, r, Palette.c("undead"), ow, 1.0, float(n["arc_halo_max_px"]))
 		var rh := r + float(n["held_off_px"])
 		var hs := LineGlow.segments(rh, TAU)
 		draw_arc(p, rh, 0.0, TAU, hs, Palette.c("undead", float(n["held_track_alpha"])), hw)
@@ -75,10 +115,13 @@ func _static_fort(f: Dictionary) -> void:
 			glow_arc(p, rh, -PI * 0.5, -PI * 0.5 + TAU * left, Palette.c("undead"), maxf(float(n["held_width_px"]), hw),
 				float(n["held_glow"]), float(n["tithe_halo_max_px"]))
 	else:
-		draw_arc(p, r, 0.0, TAU, seg, Palette.c(str(n["hairline_key"]), float(n["hairline_alpha"])), hw)
+		draw_arc(p, r, 0.0, TAU, seg, Palette.c(str(n["hairline_key"]), float(n["hairline_alpha"])), ow)
 
 	if float(f.get("simulacrum_charges", 0.0)) > 0.0:
 		diamond(p + Vector2.from_angle(deg_to_rad(float(n["sim_angle_deg"]))) * r, maxf(float(n["sim_size_px"]), ctx.px(float(n["sim_min_screen_px"]))), Palette.c("relish"))
+
+	if NextLogic.raid_ready(f, ctx.forts) != "":
+		_raid_marker(p, r, n)
 
 	if ctx.selected_id == f["id"]:
 		draw_arc(p, r + float(n["select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
@@ -91,6 +134,38 @@ func _static_fort(f: Dictionary) -> void:
 			text(at, str(n["label_first_dungeon"]), size, Palette.c("relish"), ALIGN_CENTER, size + float(n["label_line_px"]))
 
 
+## The flip's re-ink: `total` segments of the outer ring from 12 o'clock clockwise, the first
+## `switched` re-inked in undead green at the held weight, the rest still living orange (hairline).
+func _reink(p: Vector2, r: float, rk: Dictionary, hw: float, n: Dictionary) -> void:
+	var total := int(rk["total"])
+	var switched := int(rk["switched"])
+	var cap := float(n["arc_halo_max_px"])
+	for i in total:
+		var a := SetpieceLogic.segment_arc(i, total)
+		if i < switched:
+			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * float(n["held_ring_weight"]), 1.0, cap)
+		else:
+			glow_arc(p, r, a.x, a.y, Palette.c("living"), hw, 1.0, cap)
+
+
+## The raid marker: a ▲ in `select` on a ground backing (raid_pip_px screen px), on the ring at
+## raid_angle_deg (9 o'clock: clear of the tithe countdown, the siege, the simulacrum and Relish),
+## and the word outward of it at mid and near zoom.
+func _raid_marker(p: Vector2, r: float, n: Dictionary) -> void:
+	var dir := Vector2.from_angle(deg_to_rad(float(n["raid_angle_deg"])))
+	var c := p + dir * r
+	var b := ctx.px(float(n["raid_pip_px"]))
+	var back := b + ctx.px(float(n["raid_pip_back_px"])) * 2.0
+	for k in [[back, Palette.c("ground")], [b, Palette.c("select")]]:
+		var hs: float = float(k[0]) * 0.5
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0.0, -hs), c + Vector2(hs, hs), c + Vector2(-hs, hs)]), k[1])
+	if ctx.tier != "far":  # the word outward of the pip, on the side it points to
+		var size := int(MapLogic.cfg()["font_label"])
+		var out := back * 0.5 + ctx.px(float(n["raid_word_gap_px"]))
+		text(c + Vector2(signf(dir.x) * out if absf(dir.x) > 0.01 else out, 0.0), str(n["raid_word"]), size, Palette.c("select"),
+			ALIGN_RIGHT if dir.x < -0.01 else ALIGN_LEFT, size * float(n["text_mid_ratio"]), true)
+
+
 func _draw_pulse() -> void:
 	var n := NodeLogic.ncfg()
 	var hw := ctx.hair_w()
@@ -100,7 +175,6 @@ func _draw_pulse() -> void:
 		var ph: float = Pulse.phase(hops)
 		var p := MapModel.to_vec(f["pos"])
 		var r := MapLogic.fort_radius(int(f["tier"]))
-		_core(p, NodeLogic.controller(f), w, n)
 		var mode := NodeLogic.tithe_mode(f)
 		if mode != "":
 			_tithe(f, p, r + float(n["tithe_off_px"]), mode, w, hw, n)
@@ -108,20 +182,6 @@ func _draw_pulse() -> void:
 			var rr := r + float(n["first_reach_px"]) * ph
 			glow_ring(p, rr, Palette.c("relish", pow(1.0 - ph, 2.0) * float(n["first_alpha"])),
 				maxf(float(n["first_width_px"]), hw), 1.0, float(n["first_halo_max_px"]))
-
-
-## The centre mark by who dominates, with a shape per controller: a diamond for the undead, a
-## square for the living, a matte round dot for neither (the dead never pulse).
-func _core(p: Vector2, who: String, w: float, n: Dictionary) -> void:
-	var s := maxf(float(n["core_size_px"]), ctx.px(float(n["core_min_screen_px"])))
-	var a := float(n["core_alpha_base"]) + float(n["core_alpha_wave"]) * w
-	if who == "undead":
-		diamond(p, s, Palette.c("undead", a))
-	elif who == "living":
-		var h := s * float(n["core_square_ratio"])
-		draw_rect(Rect2(p - Vector2(h, h), Vector2(h, h) * 2.0), Palette.c("living", a), true)
-	else:
-		draw_circle(p, s * float(n["core_dot_ratio"]), Palette.c("dead"))
 
 
 ## The tithe warning: an orange ring whose sweep is the time left, pulsing on the fort's beat,
@@ -133,7 +193,7 @@ func _tithe(f: Dictionary, p: Vector2, ra: float, mode: String, w: float, hw: fl
 	var at := p + Vector2(ra + ctx.px(float(n["tithe_text_gap_px"])), 0.0)
 	if mode == "wave":
 		glow_ring(p, ra, Palette.c("danger", float(n["wave_ring_min"]) + (1.0 - float(n["wave_ring_min"])) * w), tw, 1.0, cap)
-		text(at, "WAVE", size, Palette.c("danger"), ALIGN_LEFT, size * float(n["text_mid_ratio"]), false, true)
+		text(at, "WAVE", size, Palette.c("danger"), ALIGN_LEFT, size * float(n["text_mid_ratio"]))
 		return
 	var a := float(n["tithe_pulse_min"]) + (1.0 - float(n["tithe_pulse_min"])) * w
 	var eta := float(f["tithe"].get("eta_s", -1.0))
@@ -141,4 +201,4 @@ func _tithe(f: Dictionary, p: Vector2, ra: float, mode: String, w: float, hw: fl
 	var frac := NodeLogic.tithe_fraction(eta)
 	if frac > 0.0:
 		glow_arc(p, ra, -PI * 0.5, -PI * 0.5 + TAU * frac, Palette.c("living", a), tw, 1.0, cap, Palette.c("living_core", a))
-	text(at, NodeLogic.fmt_eta(eta), size, Palette.c("living"), ALIGN_LEFT, size * float(n["text_mid_ratio"]), true, true)
+	text(at, NodeLogic.fmt_eta(eta), size, Palette.c("living"), ALIGN_LEFT, size * float(n["text_mid_ratio"]), true)

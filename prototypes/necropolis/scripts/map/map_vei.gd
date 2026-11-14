@@ -41,15 +41,23 @@ func _draw_static() -> void:
 	# the reading: odds as an integer percent, the differential's sign, and the drain time
 	var x0 := vp.x + r_out + float(n["odds_gap_px"])
 	var line := float(n["odds_line_px"])
-	var odds := "%s %s" % [NodeLogic.fmt_odds(float(ctx.vei.get("odds", 0.0))), MapLogic.sign_glyph(int(ctx.vei.get("sign", 0)))]
+	var odds := "%s %s" % [NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0))), MapLogic.sign_glyph(int(ctx.readout.get("sign", 0)))]
 	text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
 	text(Vector2(x0, vp.y), odds, int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
-	text(Vector2(x0, vp.y), NodeLogic.drain_line(float(ctx.vei.get("backlog", 0.0)), float(ctx.vei.get("drain_s", -1.0))), int(n["font_odds_sub"]),
+	text(Vector2(x0, vp.y), NodeLogic.drain_line(float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0))), int(n["font_odds_sub"]),
 		Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
 	text(Vector2(vp.x - r_out - float(n["odds_gap_px"]), vp.y), "VEI'S DOMAIN", size,
 		Palette.c("vei", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_RIGHT, size * float(n["text_mid_ratio"]))
 	if ctx.selected_id == "vei":
 		draw_arc(vp, r_out + float(n["vei_select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
+
+
+## The backlog stack, the reading's text and the selection: all that changes between zooms.
+func static_sig():
+	var r := ctx.readout
+	return [NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0))), ctx.vei_radius,
+		NodeLogic.fmt_odds(float(r.get("odds", 0.0))), int(r.get("sign", 0)),
+		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei"]
 
 
 ## (Re)creates and redraws the digestion rings when the structure's radius, her position or the

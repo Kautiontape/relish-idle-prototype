@@ -184,3 +184,48 @@ them in `buildings.json`.
 - **Rate normalisation** (`view.rate_log_max`, 25/s on the map today) saturates at the new flow
   sizes, so it moves into config.
 - **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.
+
+## 7. Town growth over days (proposed direction, 2026-11-14, pending a trial run)
+Town's G2 run (day1, 4 h, following "suggested", no raids; `runs/.../reports/town/g2-log.tsv`) stalls:
+the workforce sits at slots + `idle_cap` = 19 from minute 4 to hour 4, gold binds first (one Market,
+net +0.06/s after upkeep), all 17 Village lots fill with wells and houses by 1:00, and 2,228 bone has
+no sink. The whole relic-free build tree costs about 4,600 gold and 1,680 bone, about 20× too shallow
+for IDLE §8's "growth continues 2–3 days without raids". Full analysis: `reports/pacing-spine.md`.
+The realm has headroom to spare (test_pacing), so **the town and the relic supply are the throttle**.
+
+Direction (manager's decision, reversible; numbers are E4's):
+- **Bone buys the dead's buildings, gold the living's.** Raising pit, charnel, mill, stables,
+  graveyard, embalmer and forge cost mostly bone. Market, house, well, bakery and inn cost gold.
+  Gives bone a sink and stops gold binding the undead economy. *To trial first.*
+- **A deep level ladder instead of more lots.** Levels 4–8 for the job buildings and houses, about
+  1.6× per level, bone-heavy, relic-free to L5. Upgrading in place is the compounding that survives
+  lot caps. The suggestion prefers an upgrade over filling a new lot. *To trial first.*
+- **Pits get first call on bodies;** the mill takes only the surplus. This stops the 30% mint swing
+  (12.8 ↔ 8.98/s) caused by the mill eating the pit's feed. *Adopted.*
+- **A visible no-raid plateau.** Without relics the town reaches full Village and every relic-free
+  level (about 2–3 days of growth), then shows "needs relics: raid a fort". *Adopted* (town's 4c row).
+- **Held back until the trial is measured:** a second gold source (rent from the living; it risks
+  making gold the next bone), bone from worker rot, and bone-bought outskirts lots.
+- **Coupling:** every town fix keeps more workers in slots, so less musters to WAR. Town and realm
+  pacing are measured together, by E3's profiles (`sessions`, `sessions_open`, `continuous`,
+  `pure_idle`, `town_only`, `away_risk`; metrics in `reports/pacing-spine.md` §4).
+
+**Trial G3 (2026-11-14, `reports/town/g3-trial.md`; config overrides, 4 h on day1, no raids):**
+- Bone-priced dead's buildings **deadlock** if the bone mill, the only bone source, is bone-priced too
+  (day1 has 30 bone). With the mill's first level kept at gold (A2/B2), growth is real: slots go
+  9 → 32–37 and mint 12.8 → 32/s by 4 h, 67–90% of bone income is spent, and after the lots fill at
+  about 1:06, upgrades carry the growth.
+- **Gold binds next.** Net gold is +0.04/s from 1:30 (one Market against 17 buildings of upkeep), every
+  upgrade reads no_gold at 4 h, and B's deep ladder barely starts (two L4s).
+- **Lots go to amenities.** 7 wells, 3 houses and a bakery take the lots that Walls and the Chapel need,
+  so no tier-up happens in any run.
+- `idle` sits at `idle_cap` (10) whenever inflow outruns slots, by design (the surplus musters). The
+  spine's "idle ≤ 3" metric is wrong; measure slot growth and the muster rate instead.
+
+Updated direction:
+- **Each resource's producer is bought with the other resource.** The bone mill costs gold, and the
+  Market costs bone. Every other dead's building costs mostly bone, every other living building gold.
+- **Relic costs never fall with level.** G3's rule put L4–L5 at 0 relics after L3's 2–6; that's wrong.
+- **The suggestion keeps lots for the next tier's gate buildings,** and the no-need fallback never
+  takes them.
+- Still held back: rent as a second gold source, pending trial G4.

@@ -1,261 +1,246 @@
 class_name RaidVei
 extends Node2D
-## Vei: large white-gold figure at the far north end. Kit (all knobs in
-## configs/raid.json "boss"): melee smite, RADIANT PULSE (telegraphed ring that
-## deletes crowds), REVIVE (recycles corpses/essence into living guards),
-## passive heal when no undead is in contact.
+## Vei in her final test (MECHANICS 6, VISUAL-LANGUAGE 2c): the largest glyph on the field, cream
+## and gold rings at her court. She has no hp and is not a target: she breaks when Relish's raise
+## rate holds above her ferry rate (vei_boss.gd, VeiFronts). The palette has no gold key, so the
+## gold is `vei` at full weight on alternate rings with a `text` core, the cream `vei` at a lighter
+## weight between them.
+##
+## Her weaves hunt Relish on the tempo (phase 2): `weave_step(beat)` each physics frame. A weave is
+## laid tell_beats ahead as a `danger` thread from her across where Relish stands (the tell, on a
+## z 37 child above the trance dim; `boss.danger_targeted()` while Relish is on it) and lands on the
+## beat: Relish on the thread takes `weaves.dmg` (relish.take_hit, through the sacrifice chain). The
+## first weave is a set piece: a longer tell, the thread drawing itself out from her, a flare and a
+## banner (boss.on_first_weave). On victory her rings unravel stroke by stroke (`unravel_f`); on a
+## loss she brightens as the lanes drain into her (`feed_f`). Numbers: vei.json court, weaves.
 
-var boss: Node = null
-var hp := 2000.0
-var max_hp := 2000.0
-var radius := 46.0
-var alive := true
+var boss: Node2D = null
+var radius := 72.0
+var rings := 4
+var strokes := 8
+var alive := true            # she is never killed; kept for duck-typed readers
+var unravel_f := -1.0        # >= 0: 0..1 of her strokes gone (the victory set piece)
+var feed_f := -1.0           # >= 0: 0..1 of the lanes drained into her (a loss)
+
+# weaves
+var weaves_on := false
+var next_beat := 0.0         # the beat the next weave lands on
+var tell_on := false
+var tell_from := Vector2.ZERO   # world points of the laid thread
+var tell_to := Vector2.ZERO
+var tell_start := 0.0        # beat the tell was laid
+var tell_len := 1.0          # this tell's length in beats
+var first_done := false      # the first weave has landed
+var hold_tell := false       # DEV (--boss-hold-tell): the first tell holds and never lands
+var weaves := 0              # weaves landed
+var hits := 0                # weaves that caught Relish
+var cur_beat := 0.0
 
 var _t := 0.0
-var _flash := 0.0
-var _smite_t := 2.0
-var _pulse_t := 5.0
-var _windup := -1.0          # >= 0 while telegraphing the pulse
-var _revive_cd := 4.0
-var _channel := -1.0         # >= 0 while channeling revive
-var _channel_targets: Array = []
-var _channel_mass := 0.0
+var _flare := 0.0
+var _land_t := -1.0          # >= 0: seconds into the landing flash
+var _land_a := Vector2.ZERO
+var _land_b := Vector2.ZERO
+var _land_hit := false
+var _tg: Telegraph = null
 
 
-func bcfg() -> Dictionary:
-	return ConfigDb.data.get("raid", {}).get("boss", {})
+func wcfg() -> Dictionary:
+	return ConfigDb.data.get("vei", {}).get("weaves", {})
 
 
-## The pulse windup telegraph lives in its own node above the trance dim
-## (z 37, under Relish at 38) so the danger ring stays readable in trance.
-class Telegraph:
-	extends Node2D
-	var vei_ref: RaidVei = null
-
-	func _process(_d: float) -> void:
-		queue_redraw()
-
-	func _draw() -> void:
-		var v := vei_ref
-		if v == null or v._windup < 0.0:
-			return
-		var wind_f := v._windup / maxf(0.05, float(v.bcfg().get("pulse_windup_s", 1.2)))
-		var r: float = float(v.bcfg().get("pulse_radius_px", 340.0))
-		LineGlow.ring(self, Vector2.ZERO, r, Palette.c("danger", 0.4 + 0.5 * wind_f), 3.0, 0.6)
-		LineGlow.ring(self, Vector2.ZERO, r * wind_f, Palette.c("vei", 0.8), 2.0, 0.6)
-
-
-func configure(p_boss: Node, odds: float) -> void:
+func configure(p_boss: Node2D, cfg: Dictionary) -> void:
 	boss = p_boss
-	var b := bcfg()
-	radius = float(b.get("radius", 46.0))
-	max_hp = float(b.get("hp_base", 1400.0)) \
-		+ float(b.get("hp_per_missing_odds", 3200.0)) * maxf(0.0, float(b.get("odds_pivot", 0.8)) - odds)
-	hp = max_hp
-	_pulse_t = _pulse_cadence()
+	var c: Dictionary = cfg.get("court", {})
+	radius = float(c.get("radius_px", 72.0))
+	rings = maxi(1, int(c.get("rings", 4)))
+	strokes = maxi(1, int(c.get("strokes", 8)))
 	z_index = 34
-	var tg := Telegraph.new()
-	tg.vei_ref = self
-	tg.z_as_relative = false
-	tg.z_index = 37
-	add_child(tg)
+	_tg = Telegraph.new()
+	_tg.vei = self
+	_tg.z_as_relative = false
+	_tg.z_index = 37   # above the trance dim (36), under Relish (38)
+	add_child(_tg)
 
 
-func _pulse_cadence() -> float:
-	var b := bcfg()
-	# quickens as her HP drops
-	return lerpf(float(b.get("pulse_cadence_low_s", 3.2)), float(b.get("pulse_cadence_full_s", 9.0)),
-		clampf(hp / maxf(1.0, max_hp), 0.0, 1.0))
+## Phase 2 begins: the first weave lands on `first_beat`.
+func start_weaves(first_beat: float) -> void:
+	weaves_on = true
+	next_beat = first_beat
 
 
-func take_hit(amount: float) -> void:
-	if not alive:
+func stop_weaves() -> void:
+	weaves_on = false
+	tell_on = false
+
+
+func flare() -> void:
+	_flare = 1.0
+
+
+func _relish_ok() -> bool:
+	var r = boss.relish
+	return r != null and is_instance_valid(r) and r.alive
+
+
+func _reach() -> float:
+	return float(wcfg().get("width_px", 64.0)) * 0.5 + (boss.relish.radius if _relish_ok() else 0.0)
+
+
+## Per physics frame in phase 2 (scene time: it slows with the trance), `beat` on the boss's clock.
+func weave_step(beat: float) -> void:
+	cur_beat = beat
+	if not weaves_on or not _relish_ok():
 		return
-	hp -= amount
-	_flash = 1.0
-	if hp <= 0.0:
-		hp = 0.0
-		alive = false
-		boss.on_vei_died()
-	queue_redraw()
-
-
-func _physics_process(delta: float) -> void:
-	if boss == null or boss._ended or not alive:
+	var w := wcfg()
+	var tb := float(w.get("first_tell_beats" if not first_done else "tell_beats", 1.0))
+	if not tell_on and beat >= next_beat - tb:
+		_lay(beat, tb)
+	if not tell_on:
 		return
+	if BossLogic.weave_hits(tell_from, tell_to, boss.relish.global_position, _reach()):
+		boss.danger_targeted()
+	if beat >= next_beat and not (hold_tell and not first_done):
+		_land(w)
+
+
+func _lay(beat: float, tb: float) -> void:
+	tell_on = true
+	tell_start = beat
+	tell_len = tb
+	tell_from = global_position
+	var lay: Dictionary = boss.layout
+	tell_to = BossLogic.ray_to_bounds(global_position, boss.relish.global_position, lay["size"], float(lay["wall_t"]))
+	if not first_done:
+		_flare = 1.0
+		boss.on_first_weave()
+
+
+func _land(w: Dictionary) -> void:
+	tell_on = false
+	weaves += 1
+	_land_a = tell_from
+	_land_b = tell_to
+	_land_t = 0.0
+	_land_hit = _relish_ok() and BossLogic.weave_hits(tell_from, tell_to, boss.relish.global_position, _reach())
+	next_beat += float(w.get("period_beats", 4.0))
+	first_done = true
+	_flare = maxf(_flare, 0.5)
+	if _land_hit:
+		hits += 1
+		boss.relish.take_hit(float(w.get("dmg", 12.0)))
+
+
+func _process(delta: float) -> void:
+	var real := delta / maxf(0.05, Engine.time_scale)
 	_t += delta
-	_flash = maxf(0.0, _flash - delta * 3.0)
-	var b := bcfg()
-
-	# --- melee smite ---
-	_smite_t -= delta
-	if _smite_t <= 0.0:
-		var range_px: float = float(b.get("smite_range_px", 92.0))
-		var struck := 0
-		for a in boss.allies.duplicate():
-			if struck >= int(b.get("smite_targets", 4)):
-				break
-			if is_instance_valid(a) and a.alive \
-					and a.global_position.distance_to(global_position) <= range_px + radius:
-				a.take_hit(float(b.get("smite_dmg", 16.0)))
-				struck += 1
-		var rel = boss.relish
-		if rel != null and is_instance_valid(rel) and rel.alive \
-				and rel.global_position.distance_to(global_position) <= range_px + radius:
-			rel.take_hit(float(b.get("smite_dmg_relish", 12.0)))
-			struck += 1
-		if struck > 0:
-			_smite_t = float(b.get("smite_cadence_s", 1.1))
-			RaidFx.ring(boss.fx_root, global_position, Palette.c("vei", 0.7),
-				range_px + radius, 0.25, 2.0)
-		else:
-			_smite_t = 0.15  # nothing in reach — check again soon
-
-	# --- radiant pulse ---
-	if _windup >= 0.0:
-		_windup += delta
-		if _windup >= float(b.get("pulse_windup_s", 1.2)):
-			_windup = -1.0
-			_do_pulse(b)
-	elif _channel < 0.0:
-		_pulse_t -= delta
-		if _pulse_t <= 0.0:
-			_windup = 0.0
-
-	# --- revive: she recycles the dead ---
-	if _channel >= 0.0:
-		_channel += delta
-		if _channel >= float(b.get("revive_channel_s", 2.0)):
-			_channel = -1.0
-			_do_revive(b)
-	else:
-		_revive_cd -= delta
-		if _revive_cd <= 0.0 and _windup < 0.0:
-			_try_start_revive(b)
-
-	# --- passive: heals while no undead is in melee contact ---
-	var contact := radius + float(b.get("heal_contact_pad_px", 42.0))
-	var touched := false
-	for a in boss.allies:
-		if is_instance_valid(a) and a.alive and a.global_position.distance_to(global_position) <= contact:
-			touched = true
-			break
-	if not touched:
-		hp = minf(max_hp, hp + float(b.get("heal_per_s", 6.0)) * delta)
-
+	_flare = maxf(0.0, _flare - real * 1.4)
+	if _land_t >= 0.0:
+		_land_t += real
+		if _land_t >= float(wcfg().get("flash_s", 0.35)):
+			_land_t = -1.0
 	queue_redraw()
 
 
-func _do_pulse(b: Dictionary) -> void:
-	var r: float = float(b.get("pulse_radius_px", 340.0))
-	RaidFx.ring(boss.fx_root, global_position, Palette.c("vei"), r, 0.5, 6.0)
-	RaidFx.ring(boss.fx_root, global_position, Palette.c("text", 0.9), r * 0.7, 0.35, 3.0)
-	for a in boss.allies.duplicate():
-		if not is_instance_valid(a) or not a.alive:
-			continue
-		if a.global_position.distance_to(global_position) > r:
-			continue
-		if a.kind == "chaff":
-			a.die()  # she deletes crowds
-		elif a.kind == "elite":
-			a.take_hit(float(b.get("pulse_dmg_elite", 30.0)))
-		else:
-			a.take_hit(float(b.get("pulse_dmg_soldier", 18.0)))
-	var rel = boss.relish
-	if rel != null and is_instance_valid(rel) and rel.alive \
-			and rel.global_position.distance_to(global_position) <= r:
-		rel.take_hit(float(b.get("pulse_dmg_relish", 10.0)))
-	_pulse_t = _pulse_cadence()
-
-
-func _try_start_revive(b: Dictionary) -> void:
-	var r: float = float(b.get("revive_radius_px", 400.0))
-	var targets: Array = []
-	var mass := 0.0
-	for e in get_tree().get_nodes_in_group("raid_essence"):
-		if is_instance_valid(e) and not e.absorbing \
-				and e.global_position.distance_to(global_position) <= r:
-			targets.append(e)
-			mass += e.mass
-	for p in get_tree().get_nodes_in_group("raid_piles"):
-		if is_instance_valid(p) and p.global_position.distance_to(global_position) <= r:
-			targets.append(p)
-			mass += p.mass
-	var guards := 0
-	for e in boss.enemies:
-		if is_instance_valid(e) and e.alive and e.kind == "guard":
-			guards += 1
-	if mass >= float(b.get("revive_min_mass", 24.0)) and guards < int(b.get("revive_guard_cap", 18)):
-		_channel = 0.0
-		_channel_targets = targets
-		_channel_mass = mass
-
-
-func _do_revive(b: Dictionary) -> void:
-	var mass := 0.0
-	for t in _channel_targets:
-		if not is_instance_valid(t):
-			continue
-		if t is RaidEssence:
-			if not t.absorbing:
-				mass += t.mass
-				t.queue_free()
-		elif t is RaidPile:
-			mass += t.mass
-			t.consume()
-	_channel_targets = []
-	var guards := 0
-	for e in boss.enemies:
-		if is_instance_valid(e) and e.alive and e.kind == "guard":
-			guards += 1
-	var n := clampi(int(mass / float(b.get("revive_mass_per_guard", 10.0))),
-		1, maxi(1, int(b.get("revive_guard_cap", 18)) - guards))
-	for i in n:
-		var ang := PI * 0.5 + randf_range(-1.1, 1.1)  # fan out on her south side
-		var pos := global_position + Vector2(radius + 40.0 + randf() * 70.0, 0).rotated(ang)
-		var u = boss.spawn_unit("enemy", "guard", boss.resolve_walls(pos, 10.0), true)
-		u.mass = float(b.get("guard", {}).get("mass", 10.0))
-	RaidFx.ring(boss.fx_root, global_position, Palette.c("living"), 120.0, 0.5, 3.0)
-	_revive_cd = float(b.get("revive_cooldown_s", 7.0))
+# ------------------------------------------------------------------- draw ---
+## Ring i (0 innermost) radius.
+func ring_r(i: int) -> float:
+	return radius * (0.42 + 0.58 * float(i + 1) / float(rings))
 
 
 func _draw() -> void:
-	var b := bcfg()
-	var vei := Palette.c("vei")
+	var t0 := BossDev.pt()
+	_draw_vei()
+	BossDev.pa("vei", t0)
+
+
+func _draw_vei() -> void:
 	var reduced: bool = Pulse.reduced_motion
-	# revive channel: gathering ring
-	if _channel >= 0.0 and alive:
-		var ch_f := _channel / maxf(0.05, float(b.get("revive_channel_s", 2.0)))
-		var rr: float = float(b.get("revive_radius_px", 400.0))
-		LineGlow.ring(self, Vector2.ZERO, rr * (1.0 - ch_f * 0.7),
-			Palette.c("living", 0.35 + 0.3 * ch_f), 2.5, 0.6)
-	# halo + rays: imposing cream and gold (rays hold still under reduced motion)
-	if not alive:
-		# dead matter never emits: a matte ring, no halo, no rays
-		LineGlow.matte_ring(self, Vector2.ZERO, radius + 9.0, Palette.c("dead"), 2.5)
-		_draw_body(Palette.c("dead"))
-		return
-	LineGlow.ring(self, Vector2.ZERO, radius * 1.7, vei, 1.5, 0.5)
-	var spin := 0.0 if reduced else _t * 0.25
-	var ray := Palette.c("vei", 0.55)
-	for i in 12:
-		var ang := TAU * i / 12.0 + spin
-		var bob := 0.0 if reduced else 6.0 * sin(_t * 2.0 + i)
-		var a0 := Vector2(radius + 10.0, 0).rotated(ang)
-		var a1 := Vector2(radius + 30.0 + bob, 0).rotated(ang)
-		draw_line(a0, a1, ray, 2.5)
-	LineGlow.ring(self, Vector2.ZERO, radius + 9.0, vei, 2.5, 0.8)
-	var body := vei
-	if _flash > 0.0:
-		body = body.lerp(Palette.c("danger"), minf(0.7, _flash))
-	_draw_body(body)
+	var vei := Palette.c("vei")
+	var core := Palette.c("text")
+	var total := rings * strokes
+	var gone := 0
+	if unravel_f >= 0.0:
+		gone = clampi(floori(total * unravel_f + 0.0001), 0, total)
+	var beat := Pulse.wave()
+	var bright := 1.0 + 0.25 * _flare
+	if feed_f >= 0.0:
+		bright += 0.4 * feed_f
+	if gone < total:
+		LineGlow.ring(self, Vector2.ZERO, radius * 1.7, Palette.c("vei", clampf(0.35 * bright, 0.0, 1.0)), 1.5, 0.4)
+	# rings from the outside in; strokes leave outermost ring first, one by one
+	var k := 0
+	for ri in range(rings - 1, -1, -1):
+		var r := ring_r(ri) * (1.0 + 0.03 * beat)
+		var gold := (rings - 1 - ri) % 2 == 0
+		var span := TAU / strokes
+		var gap := span * 0.16
+		var dirn := 1.0 if ri % 2 == 0 else -1.0
+		var spin := 0.0 if reduced else _t * 0.12 * dirn
+		for si in strokes:
+			if k < gone:
+				k += 1
+				continue
+			k += 1
+			var a0 := span * si + spin + gap * 0.5
+			var col := vei if gold else Palette.c("vei", 0.62)
+			col.a = clampf(col.a * bright, 0.0, 1.0)
+			# gold rings glow; the cream rings between them are single bright strokes (no halo stack)
+			LineGlow.arc(self, Vector2.ZERO, r, a0, a0 + span - gap, col, 3.0 if gold else 2.0, 0.6 if gold else 0.0,
+				core if gold else col)
+	if gone < total:
+		draw_circle(Vector2.ZERO, radius * 0.2, Palette.c("vei", clampf(0.9 * bright, 0.0, 1.0)))
+		draw_circle(Vector2.ZERO, radius * 0.09, Palette.c("text", 0.95))
+	if _flare > 0.0 and not reduced:
+		LineGlow.ring(self, Vector2.ZERO, radius * (1.2 + 0.8 * (1.0 - _flare)), Palette.c("vei", 0.7 * _flare), 2.5, 0.6)
 
 
-func _draw_body(body: Color) -> void:
-	draw_circle(Vector2.ZERO, radius, body)
-	var core := Palette.c("text", 0.85) if alive else Palette.c("dead").lightened(0.2)
-	draw_circle(Vector2.ZERO, radius * 0.62, core)
-	# a stern face slit
-	var slit := Palette.c("ground", 0.8)
-	draw_line(Vector2(-10, -6), Vector2(-4, -6), slit, 2.5)
-	draw_line(Vector2(4, -6), Vector2(10, -6), slit, 2.5)
+## The weave telegraph (z 37, above the trance dim): the laid thread while it tells, and the
+## landing flash.
+class Telegraph:
+	extends Node2D
+	var vei: RaidVei = null
+	var _shown := false
+
+	## Redraw only while a tell or a landing flash shows (and once more to clear it).
+	func _process(_d: float) -> void:
+		var on := vei != null and (vei.tell_on or vei._land_t >= 0.0)
+		if on or _shown:
+			queue_redraw()
+		_shown = on
+
+	func _draw() -> void:
+		var t0 := BossDev.pt()
+		_draw_tell()
+		BossDev.pa("tele", t0)
+
+	func _draw_tell() -> void:
+		if vei == null:
+			return
+		var w := vei.wcfg()
+		var half := float(w.get("width_px", 64.0)) * 0.5
+		if vei.tell_on:
+			var f := clampf((vei.cur_beat - vei.tell_start) / maxf(0.05, vei.tell_len), 0.0, 1.0)
+			var a := to_local(vei.tell_from)
+			var b := to_local(vei.tell_to)
+			var reach := 1.0
+			if not vei.first_done and not Pulse.reduced_motion:
+				reach = clampf(f * 2.0, 0.08, 1.0)   # the first weave draws itself out from her
+			var e := a.lerp(b, reach)
+			var dir := (b - a).normalized()
+			var side := dir.orthogonal() * half
+			var edge := Palette.c("danger", 0.35 + 0.35 * f)
+			draw_line(a + side, e + side, edge, 1.5)
+			draw_line(a - side, e - side, edge, 1.5)
+			LineGlow.polyline(self, PackedVector2Array([a, e]), Palette.c("danger", 0.55 + 0.45 * f), 2.0 + 2.0 * f, 0.7)
+			# beat ticks along the thread: one per beat of tell left, so its timing counts down
+			var left := ceili(maxf(0.0, vei.tell_len - (vei.cur_beat - vei.tell_start)) - 0.001)
+			for i in left:
+				var p := a.lerp(e, 0.25 + 0.12 * i)
+				draw_line(p + side * 0.5, p - side * 0.5, Palette.c("danger", 0.9), 2.0)
+		if vei._land_t >= 0.0:
+			var g := clampf(vei._land_t / maxf(0.05, float(w.get("flash_s", 0.35))), 0.0, 1.0)
+			var a2 := to_local(vei._land_a)
+			var b2 := to_local(vei._land_b)
+			LineGlow.polyline(self, PackedVector2Array([a2, b2]), Palette.c("vei", 1.0 - g), half * 0.6, 0.8,
+				Palette.c("danger", 1.0 - g))

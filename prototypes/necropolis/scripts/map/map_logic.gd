@@ -2,9 +2,9 @@ class_name MapLogic
 extends RefCounted
 ## Pure map logic (no autoloads, so headless tests can compile it): the single source of lane
 ## geometry (routes and the ground's lane moat both call it), the type law's text formatters,
-## zoom tiers, contrast, and the lane adapter / demo lanes that stand in until economy's E2
-## fills view_lanes. Tuning lives in configs/map_view.json; the u -> width numbers it needs
-## come from configs/pulse.json.
+## zoom tiers, contrast, the view_lanes adapter, and the demo lanes that --lanes=demo shots
+## draw. Tuning lives in configs/map_view.json; the u -> width numbers it needs come from
+## configs/pulse.json.
 
 const VIEW_FILE := "res://configs/map_view.json"
 const PULSE_FILE := "res://configs/pulse.json"
@@ -160,6 +160,101 @@ static func sign_glyph(sign: int) -> String:
 	return "holding"
 
 
+# --- camera fit ------------------------------------------------------------------
+
+## The default fit: the zoom and the camera centre that frame `content` (world px) inside the
+## viewport below `inset_top` screen px (the HUD plates), scaled by fit_margin. The content's
+## centre lands in the middle of the free area, so the content fits inside it.
+static func fit_view(content: Rect2, viewport: Vector2, inset_top: float) -> Dictionary:
+	var free_h := viewport.y - inset_top
+	if content.size.x < 1.0 or content.size.y < 1.0 or viewport.x < 1.0 or free_h < 1.0:
+		return {}
+	var z := minf(viewport.x / content.size.x, free_h / content.size.y) * _num("fit_margin")
+	var centre := content.get_center() - Vector2(0.0, inset_top * 0.5 / z)
+	return {"zoom": z, "centre": centre}
+
+
+## An item's footprint on screen at a camera (`zoom`, `centre`). A fort: its ring stack (`r`, world
+## px, about world `pos`) and the text hanging under it, `text_px` screen px from `below` world px
+## under the centre, `half_px` screen px either side: {pos, r, below, text_px, half_px}. Anything
+## else drawn in world px only (Vei's stack and reading): {world: Rect2}.
+static func item_rect(it: Dictionary, zoom: float, centre: Vector2, viewport: Vector2) -> Rect2:
+	if it.has("world"):
+		var w: Rect2 = it["world"]
+		return Rect2((w.position - centre) * zoom + viewport * 0.5, w.size * zoom)
+	var c: Vector2 = ((it["pos"] as Vector2) - centre) * zoom + viewport * 0.5
+	var r := float(it["r"]) * zoom
+	var half := maxf(r, float(it["half_px"]))
+	var bottom := maxf(r, float(it["below"]) * zoom + float(it["text_px"]))
+	return Rect2(c.x - half, c.y - r, half * 2.0, r + bottom)
+
+
+## The default fit kept clear of the screen's panels. fit_view's answer below `inset_top` (the top
+## bar), unless an item (item_rect: every fort with its labels, Vei's stack) overlaps an
+## `obstacles` rect (screen px: the valve panel, the objective strip, Relish's chip) or leaves the
+## free area (below `inset_top`, fit_bottom_px above the bottom edge). Then a bounded search: at
+## each zoom, shifts across the content's slack on screen (fit_shift_steps per axis, the nearest
+## first), then the zoom times fit_shrink_step, at most fit_shrink_tries times and never under the
+## mid tier's floor (zoom_far_below + zoom_hysteresis). The first clear camera wins; when none is,
+## the one with the fewest items in the way. Returns {zoom, centre} ({} for degenerate input).
+static func fit_view_clear(content: Rect2, viewport: Vector2, inset_top: float, items: Array, obstacles: Array) -> Dictionary:
+	var base := fit_view(content, viewport, inset_top)
+	if base.is_empty():
+		return base
+	var floor_z := _num("zoom_far_below") + _num("zoom_hysteresis")
+	var z: float = base["zoom"]
+	var best := base
+	var best_bad := _in_way(items, obstacles, z, base["centre"], viewport, inset_top)
+	for k in int(_num("fit_shrink_tries")) + 1:
+		if k > 0:
+			z *= _num("fit_shrink_step")
+			if z < floor_z:
+				break
+		var cb := content.get_center() - Vector2(0.0, inset_top * 0.5 / z)
+		var cr := Rect2((content.position - cb) * z + viewport * 0.5, content.size * z)
+		for s in _shifts(cr, viewport, inset_top):
+			var centre: Vector2 = cb - (s as Vector2) / z
+			var bad := _in_way(items, obstacles, z, centre, viewport, inset_top)
+			if bad == 0:
+				return {"zoom": z, "centre": centre}
+			if bad < best_bad:
+				best_bad = bad
+				best = {"zoom": z, "centre": centre}
+	return best
+
+
+## Screen shifts that keep the content rect `cr` on screen below `inset_top`, nearest first.
+static func _shifts(cr: Rect2, viewport: Vector2, inset_top: float) -> Array:
+	var n := maxi(int(_num("fit_shift_steps")), 1)
+	var xs := _span(-maxf(cr.position.x, 0.0), maxf(viewport.x - cr.end.x, 0.0), n)
+	var ys := _span(-maxf(cr.position.y - inset_top, 0.0), maxf(viewport.y - cr.end.y, 0.0), n)
+	var out: Array = []
+	for x in xs:
+		for y in ys:
+			out.append(Vector2(x, y))
+	out.sort_custom(func(a: Vector2, b: Vector2): return a.length_squared() < b.length_squared())
+	return out
+
+
+## `n` + 1 evenly spaced values from lo to hi, and 0.
+static func _span(lo: float, hi: float, n: int) -> Array:
+	var out: Array = [0.0]
+	for i in n + 1:
+		out.append(lerpf(lo, hi, float(i) / n))
+	return out
+
+
+## How many items are off the free area or under an obstacle at this camera.
+static func _in_way(items: Array, obstacles: Array, z: float, centre: Vector2, viewport: Vector2, inset_top: float) -> int:
+	var free := Rect2(0.0, inset_top, viewport.x, viewport.y - inset_top - _num("fit_bottom_px"))
+	var n := 0
+	for it in items:
+		var r := item_rect(it, z, centre, viewport)
+		if not free.encloses(r) or obstacles.any(func(o: Rect2): return r.intersects(o)):
+			n += 1
+	return n
+
+
 # --- zoom tiers ------------------------------------------------------------------
 
 ## The `--map-clicks=x,y;x,y` list as screen-px points; malformed pairs are skipped.
@@ -169,6 +264,28 @@ static func parse_clicks(spec: String) -> Array[Vector2]:
 		var xy := pair.strip_edges().split(",", false)
 		if xy.size() == 2 and xy[0].strip_edges().is_valid_float() and xy[1].strip_edges().is_valid_float():
 			out.append(Vector2(float(xy[0]), float(xy[1])))
+	return out
+
+
+## The whole `--map-clicks` script as steps: "x,y" is a click, "x,y>x,y" a drag, "wN" a wait of N
+## frames. Malformed items are skipped. [{kind: "click", pos}, {kind: "drag", from, to}, {kind: "wait", frames}]
+static func parse_steps(spec: String) -> Array:
+	var out: Array = []
+	for item in spec.split(";", false):
+		var it := item.strip_edges()
+		if it.length() > 1 and it[0] == "w" and it.substr(1).is_valid_int():
+			out.append({"kind": "wait", "frames": int(it.substr(1))})
+		elif it.contains(">"):
+			var ends := it.split(">", false)
+			if ends.size() == 2:
+				var a := parse_clicks(ends[0])
+				var b := parse_clicks(ends[1])
+				if a.size() == 1 and b.size() == 1:
+					out.append({"kind": "drag", "from": a[0], "to": b[0]})
+		else:
+			var pts := parse_clicks(it)
+			if pts.size() == 1:
+				out.append({"kind": "click", "pos": pts[0]})
 	return out
 
 
@@ -197,6 +314,11 @@ static func _lin(c: float) -> float:
 	return c / 12.92 if c <= 0.04045 else pow((c + 0.055) / 1.055, 2.4)
 
 
+## WCAG relative luminance of `c`.
+static func luminance(c: Color) -> float:
+	return _luminance(c)
+
+
 static func _luminance(c: Color) -> float:
 	return 0.2126 * _lin(c.r) + 0.7152 * _lin(c.g) + 0.0722 * _lin(c.b)
 
@@ -222,29 +344,12 @@ static func _copy_row(r: Dictionary) -> Dictionary:
 		"rate": float(r["rate"]), "bias": float(r.get("bias", 1.0)), "why": str(r.get("why", ""))}
 
 
-## view_lanes().lanes plus E1 stand-ins, in the STATE-API 5.3 row shape. A stand-in is added
-## only for an id the view does not carry; dead, fort -> vei flood, haul, redirect and work
-## stay whatever the view says (0 until economy's E2).
-# TODO(api E2): drop the stand-ins when view_lanes carries living rows and the FLOOD rate.
-static func lanes_from_views(view_lanes_rows: Array, forts: Array, hud: Dictionary) -> Array:
+## view_lanes().lanes as copies in the STATE-API 5.3 row shape (bias and why defaulted when a
+## row lacks them). Every kind is live since E2a, so nothing is invented.
+static func lanes_from_views(view_lanes_rows: Array) -> Array:
 	var out: Array = []
-	var by_id := {}
 	for r in view_lanes_rows:
-		var row := _copy_row(r)
-		by_id[row["id"]] = row
-		out.append(row)
-	for f in forts:
-		var row := _lane_row("living", "vei", str(f["id"]), float(f.get("ship_in", 0.0)))
-		if not by_id.has(row["id"]):
-			by_id[row["id"]] = row
-			out.append(row)
-	var flood := float(hud.get("split", {}).get("flood", 0.0))
-	var fid := "flood:covington:vei"
-	if by_id.has(fid):
-		if by_id[fid]["rate"] == 0.0 and flood > 0.0:
-			by_id[fid]["rate"] = flood
-	else:
-		out.append(_lane_row("flood", "covington", "vei", flood))
+		out.append(_copy_row(r))
 	return out
 
 

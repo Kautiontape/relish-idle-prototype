@@ -10,6 +10,7 @@ var zoom := 1.0
 var tier := "mid"
 var forts: Array = []
 var vei := {}
+var readout := {}  # MapModel.readout(): odds, sign, drain_s, backlog
 var vei_pos := Vector2.ZERO
 var vei_radius := 0.0
 var cov_pos := Vector2.ZERO
@@ -20,6 +21,12 @@ var lit := {}  # fort id -> true: inside Relish's light
 var flip := {}  # realm.json "flip"
 var r_vei := 0.0  # realm.json R_vei
 var now_s := 0.0  # Pulse's clock, seconds
+# The set pieces' hooks (MapSetpieces writes them, the layers read them):
+var valve_shares := {}  # Covington's stem shares: the committed valve, or a swing's tween ({}: the view's valve_target)
+var valve_bright := 0.0  # 0..1: how much brighter the stems draw (the swing's beat)
+var valve_cue := 0.0  # 0..1: the opening's pulse on Covington's valve glyph (MapOpening); the stems brighten like the swing's
+var reink := {}  # fort id -> {switched, total, from}: its ring re-inking; the glyph keeps `from` till done
+var chip_fx := {}  # fort id -> the chip's line two: {text, key, squash} or {live, squash} (SetpieceLogic.garrison)
 
 
 ## One screen pixel in world px.

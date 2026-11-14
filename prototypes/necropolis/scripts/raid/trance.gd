@@ -15,6 +15,7 @@ var cooldown_left := 0.0
 var cooldown_total := 1.0
 var hold_left := 0.0
 var trace := PackedVector2Array()
+var free_next := false   # the antechamber's last chance: the next completed raise starts no cooldown
 
 var _trace_line: Line2D = null
 var _tracing := false
@@ -117,11 +118,28 @@ func _cancel() -> void:
 	cooldown_left = cooldown_total
 
 
-func _complete() -> void:
+func _complete(raised := true) -> void:
 	_end_trance()
 	state = State.COOLDOWN
 	cooldown_total = float(_cfg().get("cooldown_s", 6.0))
 	cooldown_left = cooldown_total
+	if free_next and raised:
+		# honoured exactly once: the cooldown is already spent, so READY (or re-entry if held) next frame
+		free_next = false
+		cooldown_left = 0.0
+
+
+## Dev autopilot (RaidAutopilot): what `_finish_trace` does after a drawn circle, without the trance
+## having been entered: the normal cooldown whether or not anything rose (and `free_next` honoured).
+func bot_raise_cooldown(raised := true) -> void:
+	_complete(raised)
+
+
+## The antechamber's last chance: ready now, and the next completed raise starts no cooldown.
+func grant_free() -> void:
+	free_next = true
+	if state == State.COOLDOWN or state == State.LOCKOUT:
+		cooldown_left = 0.0
 
 
 func _end_trance() -> void:
@@ -142,9 +160,10 @@ func _finish_trace() -> void:
 		return
 	var g := CircleScorer.grade(trace)
 	raid.show_trace_feedback(g, trace.duplicate())  # the player must see WHY 73 was 73
+	var before: int = raid.raises
 	if g["valid"]:
 		raid.perform_raise(g)
-	_complete()
+	_complete(raid.raises > before)
 
 
 func _make_trace_line() -> void:

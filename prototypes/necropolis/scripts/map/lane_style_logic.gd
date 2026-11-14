@@ -9,6 +9,7 @@ extends RefCounted
 ##     spill / cut / lip / rim (06-three-flow-geometry c5, the spill kept off the host's core),
 ##     the phantom bank;
 ##   - the on-screen stroke rules the shader applies (drawn_stroke, spill_clip), as pure mirrors;
+##   - lane focus and the glow cap (which lit lanes go quiet), and the hue floor;
 ##   - dash motion per kind, ring dash quantisation, haul cart spacing and pips.
 ## Ribbon sides: UV.y = +1 is MapLogic's +perp side, (-dir.y, dir.x), the right of travel on
 ## screen. Lanes bow and gutters shift to -perp, so a gutter's host lies on its +UV.y side.
@@ -212,6 +213,34 @@ static func _layer(width: float, color: Color, offset := 0.0, dashed := true, ha
 	return {"width": width, "color": color, "offset": offset, "dashed": dashed, "hairline": hairline}
 
 
+## The u a lit lane takes its HUE from: max(u, hue_u_floor), so undead stays green and living
+## orange at low rates (VISUAL-LANGUAGE law 4). An off lane (u < 0) stays off.
+static func hue_u(u: float) -> float:
+	return u if u < 0.0 else maxf(u, _num("hue_u_floor"))
+
+
+## A lit lane's channels: `ch` (Pulse.channels at the real u) with the hue and colour of `ch_hue`
+## (Pulse.channels at hue_u(u)) and the real alpha put back. Width, speed, period, dash and alpha
+## keep the real u, so the rate ranking survives; the colour's lightness follows the floored u.
+static func with_hue(ch: Dictionary, ch_hue: Dictionary) -> Dictionary:
+	var out := ch.duplicate()
+	out["hue"] = ch_hue["hue"]
+	out["color"] = Color(ch_hue["color"], float(ch["alpha"]))
+	return out
+
+
+## The --lanes-report table (debug only): a header naming the tuning, then one line per live lane.
+static func report_header(log_max: float, floor_u: float) -> String:
+	return "LANES_REPORT rate_log_max=%.2f hue_u_floor=%.2f\n%-34s %-9s %-8s %8s %6s %6s %7s" % [
+		log_max, floor_u, "id", "kind", "key", "rate", "u", "hue_u", "hue"]
+
+
+## `hue` < 0 (a matte dead gutter) prints "matte".
+static func report_line(row: Dictionary, hue_key: String, u: float, u_hue: float, hue: float) -> String:
+	return "%-34s %-9s %-8s %8.3f %6.3f %6.3f %7s" % [str(row["id"]), str(row["kind"]), hue_key,
+		float(row["rate"]), u, u_hue, "matte" if hue < 0.0 else "%.1f" % hue]
+
+
 ## A lit lane's alpha: Pulse's alpha floored at lane_alpha_floor, times alpha_mult, capped at 1.
 static func lane_alpha(ch: Dictionary, style: Dictionary) -> float:
 	return minf(maxf(float(ch["alpha"]), _num("lane_alpha_floor")) * float(style["alpha_mult"]), 1.0)
@@ -226,9 +255,18 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 ## alpha, so the hue carries the halos and the core is the pale core at that alpha. Dashed. The
 ## core is a hairline (never under a screen pixel, never faded by coverage). Halos wider than
 ## halo_max_px are pulled in toward the core (capped_halo); the core keeps its width.
-static func lit_layers(ch: Dictionary, style: Dictionary) -> Array:
+## `quiet` (off the selection, or past the per-kind glow cap): no halos, one dashed hairline
+## quiet_width_mult as wide in the lane's own (floored-hue) colour, so undead stays green and
+## living orange, at max(its floored alpha, quiet_alpha_floor), so it reads 3:1 without paling its colour.
+## `width` >= 0 replaces the core width (a near-zoom unit glyph's stroke: GlyphLogic.shape), with
+## the same colours, halo profile, cap and quiet rule.
+static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false, width := -1.0) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
-	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
+	var lw := lane_width(ch, style) if width < 0.0 else width
+	if quiet:
+		col.a = maxf(col.a, _num("quiet_alpha_floor"))
+		return [_layer(lw * _num("quiet_width_mult"), col, 0.0, true, true)]
+	var stack := LineGlow.layers(col, lw, float(style["glow"]), style["core"])
 	var n := stack.size()
 	var core_w: float = stack[n - 1][0]
 	var outer: float = stack[0][0]
@@ -239,6 +277,15 @@ static func lit_layers(ch: Dictionary, style: Dictionary) -> Array:
 			w = capped_halo(w, core_w, outer)
 		out.append(_layer(w, stack[i][1], 0.0, true, i == n - 1))
 	return out
+
+
+## A near-zoom unit glyph's stroke (GlyphLogic): the lane's stack (colour, alpha, halo profile and
+## cap, the quiet rule) at the glyph's own core `width`, every stroke in the lane colour: the pale
+## core colour is the glyph's head alone (core_color), so the head reads against its body.
+static func glyph_layers(ch: Dictionary, style: Dictionary, quiet: bool, width: float) -> Array:
+	var s := style.duplicate()
+	s["core"] = LineGlow.NO_CORE
+	return lit_layers(ch, s, quiet, width)
 
 
 ## A halo `w` wide in a stack whose core is `core_w` and outermost halo `outer`: unchanged while
@@ -261,9 +308,9 @@ static func drawn_stroke(width: float, alpha: float, world_per_px: float, hairli
 	return {"width_px": 1.0, "alpha": alpha if hairline else alpha * wpx}
 
 
-## The colour the shader draws a lit lane's core in (the innermost stroke).
-static func core_color(ch: Dictionary, style: Dictionary) -> Color:
-	var layers := lit_layers(ch, style)
+## The colour the shader draws a lit lane's core in (the innermost stroke), loud or quiet.
+static func core_color(ch: Dictionary, style: Dictionary, quiet := false) -> Color:
+	var layers := lit_layers(ch, style, quiet)
 	return layers[layers.size() - 1]["color"]
 
 
@@ -328,6 +375,105 @@ static func pack(layers: Array) -> Dictionary:
 	return {"widths": w, "offsets": o, "dashed": d, "hairline": h, "colors": cols}
 
 
+# --- focus and the glow cap -----------------------------------------------------------
+
+## The selected fort (its card is open), as [id], or [] when the selection is not a fort
+## (Covington, Vei and villages never focus). `forts` is any dictionary keyed by fort id.
+static func selection_focus(selected_id: String, forts: Dictionary) -> Array:
+	return [selected_id] if forts.has(selected_id) else []
+
+
+## The fort Relish stands at (at_fort, in_dungeon: `at`) or travels to (travelling: `target`),
+## as [id], or [] when that is not a fort.
+static func relish_focus(relish: Dictionary, forts: Dictionary) -> Array:
+	var state := str(relish.get("state", ""))
+	var hers := ""
+	if state == "at_fort" or state == "in_dungeon":
+		hers = str(relish.get("at", ""))
+	elif state == "travelling":
+		hers = str(relish.get("target", ""))
+	return [hers] if forts.has(hers) else []
+
+
+## True when the lane starts or ends at a fort in focus.
+static func focus(row: Dictionary, focus_ids: Array) -> bool:
+	return focus_ids.has(str(row["from"])) or focus_ids.has(str(row["to"]))
+
+
+## The lit lanes that go quiet, {id: true}. Relish's fort's lanes (`relish`) are always loud.
+## With a fort selected (`selected`), its lanes are loud too and every other lane is quiet,
+## whatever its rate. With none, each kind's `cap_per_kind` highest-rate lanes are loud as well
+## (ties by id, so the choice holds between refreshes) and the rest quiet; cap_per_kind <= 0 is
+## no cap. `memo` is the cap's loud set from the last call (read, then rewritten in place):
+## a quiet lane displaces a loud one only when its rate exceeds the weakest loud lane's by
+## `hysteresis` (a fraction), so two near-equal lanes at the boundary don't swap every substep.
+static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_kind: int, memo := {}, hysteresis := 0.0) -> Dictionary:
+	if selected.is_empty() and cap_per_kind <= 0:
+		return {}
+	var loud := {}
+	for r in lit_rows:
+		if focus(r, relish) or focus(r, selected):
+			loud[str(r["id"])] = true
+	if selected.is_empty():
+		var prev := memo.duplicate()
+		memo.clear()
+		var by_kind := {}
+		for r in lit_rows:
+			var k := str(r["kind"])
+			if not by_kind.has(k):
+				by_kind[k] = []
+			by_kind[k].append(r)
+		for k in by_kind:
+			for id in _cap_loud(by_kind[k], cap_per_kind, prev, hysteresis):
+				loud[id] = true
+				memo[id] = true
+	var out := {}
+	for r in lit_rows:
+		if not loud.has(str(r["id"])):
+			out[str(r["id"])] = true
+	return out
+
+
+## One kind's loud-by-cap ids: last call's (`prev`) still-lit ones, topped up from the fastest,
+## then any quiet lane that beats the weakest loud one by the hysteresis takes its place.
+static func _cap_loud(rows: Array, cap: int, prev: Dictionary, hysteresis: float) -> Array:
+	var ranked := rows.duplicate()
+	ranked.sort_custom(_faster)
+	var chosen: Array = []
+	for r in ranked:
+		if chosen.size() < cap and prev.has(str(r["id"])):
+			chosen.append(r)
+	for r in ranked:
+		if chosen.size() < cap and not chosen.has(r):
+			chosen.append(r)
+	while chosen.size() < ranked.size() and not chosen.is_empty():
+		var weakest: Dictionary = chosen[0]
+		for r in chosen:
+			if _faster(weakest, r):
+				weakest = r
+		var challenger: Dictionary = {}
+		for r in ranked:
+			if not chosen.has(r):
+				challenger = r
+				break
+		var w := float(weakest["rate"])
+		if float(challenger["rate"]) <= w + absf(w) * hysteresis:
+			break
+		chosen.erase(weakest)
+		chosen.append(challenger)
+	var out: Array = []
+	for r in chosen:
+		out.append(str(r["id"]))
+	return out
+
+
+## Rate descending, ties by id.
+static func _faster(a: Dictionary, b: Dictionary) -> bool:
+	var ra := float(a["rate"])
+	var rb := float(b["rate"])
+	return ra > rb or (ra == rb and str(a["id"]) < str(b["id"]))
+
+
 # --- chevrons -------------------------------------------------------------------------
 
 ## Static chevrons show direction (06 chevrons()): on under reduced motion, and at mid zoom
@@ -349,14 +495,20 @@ static func gutter_chevron_color(ch: Dictionary, lit := false) -> Color:
 
 # --- extents --------------------------------------------------------------------------
 
-## Half the ribbon a lit lane of this style needs: its widest (capped) halo at u = 1, or a
-## chevron's half span, plus ribbon_margin_px for the antialiased edge.
+## Half the ribbon a lit lane of this style needs: its widest (capped) halo at u = 1, a
+## chevron's half span, or its near-zoom glyph's reach across the lane (GlyphLogic.lateral_reach
+## with the glyph's own capped halo), plus ribbon_margin_px for the antialiased edge.
 static func lit_half_extent(style: Dictionary) -> float:
 	var w := MapLogic.lane_half_width(1.0) * 2.0 * float(style["width_mult"])
-	var outer: float = LineGlow.layers(Palette.c("void"), w, maxf(float(style["glow"]), 1.0))[0][0]
+	var glow := maxf(float(style["glow"]), 1.0)
+	var outer: float = LineGlow.layers(Palette.c("void"), w, glow)[0][0]
 	outer = capped_halo(outer, w, outer)
 	var size := _num("chevron_size_px")
-	return maxf(outer * 0.5, size * 0.8 + chevron_stroke(size)) + _num("ribbon_margin_px")
+	var glyph := GlyphLogic.kind_for(str(style.get("kind", "")))
+	var gw := float(GlyphLogic.shape(glyph)["width"])
+	var g_outer: float = LineGlow.layers(Palette.c("void"), gw, glow)[0][0] if gw > 0.0 else 0.0
+	var reach := GlyphLogic.lateral_reach(glyph, capped_halo(g_outer, gw, g_outer) * 0.5)
+	return maxf(maxf(outer * 0.5, reach), size * 0.8 + chevron_stroke(size)) + _num("ribbon_margin_px")
 
 
 ## Half the ribbon the gutter needs: the widest spill (u_dead = 1) or a chevron, plus margin.

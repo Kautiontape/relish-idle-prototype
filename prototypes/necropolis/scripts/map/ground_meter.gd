@@ -19,6 +19,13 @@ extends CanvasLayer
 ##   --bench-warm=N        frames to wait first (e.g. at --speed=60 to reach late game)
 ##   --bench-speed=X       sim speed to switch to after warm-up (default 1; 0 < X <= 100)
 ##   --bench-shot=/abs/prefix  save <prefix>-<mode>.png at the end of each mode
+##                         (a repeated mode gets -2, -3, ... so its shots don't overwrite)
+##   --bench-settle=N      frames each mode settles before measuring (default 90)
+##   --bench-act=...       when the second mode starts (so the first mode's shot is "before"):
+##                         valve:WORK,WAR,FLOOD  cmd_set_valve (a real command, harness session)
+##                         skip:S                cmd_debug_skip_time(S) (e.g. into a tithe wave)
+##                         event:TYPE:FORT       a synthetic game event, sent to the flow ground
+##                                               only (e.g. event:fort_flipped:greywall)
 ## Prints one "BENCH ..." line per mode, then quits.
 
 var view: Node            # map_field_view.gd
@@ -36,6 +43,8 @@ var _bt0 := 0
 var _bsamples := {}
 var _warm_t0 := -1.0  # sim clock (view_hud t) when the warm-up began
 var _bare := false
+var _bmode_i := 0
+var _shots := {}
 
 
 func _ready() -> void:
@@ -160,8 +169,10 @@ func _run_bench(ms: float) -> void:
 			if Time.get_ticks_msec() - _bt0 >= int(float(_bench["bench-seconds"]) * 1000.0):
 				_report()
 				if _bench.has("bench-shot"):
-					var p := "%s-%s%s%s%s.png" % [_bench["bench-shot"], view.mode, "-reduced" if Pulse.reduced_motion else "",
+					var stem := "%s-%s%s%s%s" % [_bench["bench-shot"], view.mode, "-reduced" if Pulse.reduced_motion else "",
 					"-grey" if view.is_grey() else "", "-bare" if _bare else ""]
+					_shots[stem] = int(_shots.get(stem, 0)) + 1
+					var p := stem + ("" if _shots[stem] == 1 else "-%d" % _shots[stem]) + ".png"
 					get_viewport().get_texture().get_image().save_png(p)
 					print("BENCH_SHOT ", p)
 				_next_mode()
@@ -180,8 +191,28 @@ func _next_mode() -> void:
 	view.set_bare(parts.has("bare"))
 	_bare = parts.has("bare")
 	view.set_mode(parts[0])
+	_bmode_i += 1
+	if _bmode_i == 2 and _bench.has("bench-act"):
+		_bench_act(str(_bench["bench-act"]))
 	_bstate = "settle"
-	_bframes = 90
+	_bframes = int(_bench.get("bench-settle", "90"))
+
+
+func _bench_act(act: String) -> void:
+	var p := act.split(":")
+	match p[0]:
+		"valve":
+			var v := p[1].split(",") if p.size() > 1 else PackedStringArray()
+			if v.size() == 3:
+				print("BENCH_ACT valve ", Game.state.cmd_set_valve(float(v[0]), float(v[1]), float(v[2])))
+		"skip":
+			if p.size() > 1:
+				print("BENCH_ACT skip ", Game.state.cmd_debug_skip_time(float(p[1])))
+		"event":
+			if p.size() > 2 and view.flow() != null:
+				var ev := {"t": float(Game.state.view_hud()["t"]), "type": p[1], "fort_id": p[2]}
+				view.flow().on_game_event(ev)
+				print("BENCH_ACT event ", ev)
 
 
 func _report() -> void:

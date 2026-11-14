@@ -6,7 +6,6 @@ extends RefCounted
 const PULSE := preload("res://autoload/pulse.gd")
 const LINT := preload("res://tests/test_lint.gd")
 const MAP_DIR := "res://scripts/map"
-const GROUND_FILES := ["map_field_view.gd", "flow_ground.gd", "ground_meter.gd"]
 const LANE_KEYS := ["id", "from", "to", "kind", "rate", "bias", "why"]
 
 
@@ -116,15 +115,15 @@ func _format(t: TestUtil) -> void:
 
 func _zoom(t: TestUtil) -> void:
 	t.suite("map_logic-zoom")
-	t.ok(MapLogic.zoom_tier(0.3, "") == "far" and MapLogic.zoom_tier(0.59, "") == "far", "far below 0.6")
-	t.ok(MapLogic.zoom_tier(0.61, "") == "mid" and MapLogic.zoom_tier(1.6, "") == "mid", "mid between")
+	t.ok(MapLogic.zoom_tier(0.3, "") == "far" and MapLogic.zoom_tier(0.49, "") == "far", "far below 0.5")
+	t.ok(MapLogic.zoom_tier(0.51, "") == "mid" and MapLogic.zoom_tier(1.6, "") == "mid", "mid between")
 	t.ok(MapLogic.zoom_tier(1.61, "") == "near" and MapLogic.zoom_tier(3.0, "") == "near", "near above 1.6")
-	t.ok(MapLogic.zoom_tier(0.61, "mid") == "mid", "0.61 stays mid from mid")
-	t.ok(MapLogic.zoom_tier(0.61, "far") == "far", "0.61 stays far from far")
-	t.ok(MapLogic.zoom_tier(0.649, "far") == "far", "far holds until 0.6 + hysteresis")
-	t.ok(MapLogic.zoom_tier(0.66, "far") == "mid", "far leaves past 0.65")
-	t.ok(MapLogic.zoom_tier(0.57, "mid") == "mid", "mid holds down to 0.6 - hysteresis")
-	t.ok(MapLogic.zoom_tier(0.54, "mid") == "far", "mid leaves below 0.55")
+	t.ok(MapLogic.zoom_tier(0.51, "mid") == "mid", "0.51 stays mid from mid")
+	t.ok(MapLogic.zoom_tier(0.51, "far") == "far", "0.51 stays far from far")
+	t.ok(MapLogic.zoom_tier(0.549, "far") == "far", "far holds until 0.5 + hysteresis")
+	t.ok(MapLogic.zoom_tier(0.56, "far") == "mid", "far leaves past 0.55")
+	t.ok(MapLogic.zoom_tier(0.47, "mid") == "mid", "mid holds down to 0.5 - hysteresis")
+	t.ok(MapLogic.zoom_tier(0.44, "mid") == "far", "mid leaves below 0.45")
 	t.ok(MapLogic.zoom_tier(1.64, "mid") == "mid" and MapLogic.zoom_tier(1.66, "mid") == "near", "mid leaves for near past 1.65")
 	t.ok(MapLogic.zoom_tier(1.58, "near") == "near" and MapLogic.zoom_tier(1.54, "near") == "mid", "near holds down to 1.55")
 	t.ok(MapLogic.zoom_tier(3.0, "far") == "near", "a jump skips the middle tier")
@@ -174,48 +173,23 @@ func _row_ok(r: Dictionary) -> bool:
 		and r["id"] == "%s:%s:%s" % [r["kind"], r["from"], r["to"]]
 
 
-func _forts() -> Array:
-	return [{"id": "ashgate", "ship_in": 0.3}, {"id": "old-sluice", "ship_in": 0.0}, {"id": "greywall", "ship_in": 1.2}]
-
-
 func _adapter(t: TestUtil) -> void:
 	t.suite("map_logic-adapter")
 	var view := [
 		{"id": "war:covington:ashgate", "from": "covington", "to": "ashgate", "kind": "war", "rate": 1.5, "bias": 3.0, "why": "Relish here"},
-		{"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": ""},
+		{"id": "war:covington:vei", "from": "covington", "to": "vei", "kind": "war", "rate": 0.4},
+		{"id": "flood:covington:vei", "from": "covington", "to": "vei", "kind": "flood", "rate": 0.0, "bias": 1.0, "why": "valve"},
 	]
-	var hud := {"split": {"work": 1.0, "war": 2.0, "flood": 1.92}}
-	var out := MapLogic.lanes_from_views(view, _forts(), hud)
-	var by := {}
-	for r in out:
-		by[r["id"]] = r
-	t.ok(out.size() == by.size(), "ids are unique")
-	t.ok(by["war:covington:ashgate"]["rate"] == 1.5 and by["war:covington:ashgate"]["bias"] == 3.0 and by["war:covington:ashgate"]["why"] == "Relish here", "view rows pass through")
-	t.ok(by.has("living:vei:ashgate") and by.has("living:vei:old-sluice") and by.has("living:vei:greywall"), "a living row per fort")
-	t.near(by["living:vei:greywall"]["rate"], 1.2, 1e-6, "living rate is the fort's ship_in")
-	t.ok(by["living:vei:ashgate"]["from"] == "vei" and by["living:vei:ashgate"]["to"] == "ashgate", "living runs vei -> fort")
-	t.near(by["flood:covington:vei"]["rate"], 1.92, 1e-6, "a 0 cov->vei flood takes the split rate")
-	t.ok(out.size() == 2 + 3, "nothing else is invented (%d rows)" % out.size())
+	var out := MapLogic.lanes_from_views(view)
+	t.ok(out.size() == view.size(), "one row per view row, nothing invented (%d rows)" % out.size())
+	t.ok(out[0]["rate"] == 1.5 and out[0]["bias"] == 3.0 and out[0]["why"] == "Relish here", "view rows pass through, why included")
+	t.ok(out[1]["bias"] == 1.0 and out[1]["why"] == "" and out[1]["to"] == "vei", "a row without bias or why gets the defaults; WAR may end at Vei")
+	t.near(out[2]["rate"], 0.0, 1e-6, "a 0 rate is kept as the view says (no split stand-in)")
+	t.ok(not out.any(func(r): return str(r["kind"]) == "living"), "no living rows are invented from ship_in")
 	t.ok(out.all(func(r): return _row_ok(r)), "every row has the lane shape")
-	view[1]["rate"] = 4.0
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	t.near(out[1]["rate"], 4.0, 1e-6, "a nonzero view flood rate is kept")
-	hud["split"]["flood"] = 0.0
-	view[1]["rate"] = 0.0
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	t.near(out[1]["rate"], 0.0, 1e-6, "no split flood leaves the 0 alone")
-	# an E2 view that already carries a living row: no stand-in for it
-	view.append({"id": "living:vei:ashgate", "from": "vei", "to": "ashgate", "kind": "living", "rate": 9.0, "bias": 1.0, "why": ""})
-	out = MapLogic.lanes_from_views(view, _forts(), hud)
-	var count := 0
-	for r in out:
-		if r["id"] == "living:vei:ashgate":
-			count += 1
-			t.near(r["rate"], 9.0, 1e-6, "the view's living rate wins over ship_in")
-	t.ok(count == 1, "the stand-in is not duplicated")
-	t.ok(out.size() == 2 + 1 + 2, "the other two forts still get stand-ins")
-	var none := MapLogic.lanes_from_views([], [], {})
-	t.ok(none.size() == 1 and none[0]["id"] == "flood:covington:vei", "empty inputs give just the flood lane")
+	out[0]["rate"] = 9.0
+	t.near(float(view[0]["rate"]), 1.5, 1e-6, "rows are copies: the view is untouched")
+	t.ok(MapLogic.lanes_from_views([]).is_empty(), "an empty view gives no lanes")
 
 
 func _demo(t: TestUtil) -> void:
@@ -269,9 +243,11 @@ func _lint(t: TestUtil) -> void:
 	lit.compile("Color\\s*\\(\\s*[\"\\d]")
 	var legacy := RegEx.new()
 	legacy.compile("Game\\.(realm|field|towns|res|army|town|assignments|idle_undead|gather|quality|raiding_fort_id|time_scale|won|green_towns|stats|relish_respawned|victory|defeat_boss)\\b")
+	var fields := RegEx.new()  # RealmSim's legacy rate fields, as words (war_drain_frac is not r_drain)
+	fields.compile("\\b(r_drain|r_dead_out|r_shipped)\\b")
 	var files := 0
 	for f in DirAccess.get_files_at(MAP_DIR):
-		if not f.ends_with(".gd") or GROUND_FILES.has(f):
+		if not f.ends_with(".gd"):
 			continue
 		files += 1
 		var n := 0
@@ -280,8 +256,8 @@ func _lint(t: TestUtil) -> void:
 			var code: String = LINT.strip_comment(line)
 			if lit.search(code) != null or code.contains("Color.html(") or code.contains("Color8("):
 				t.ok(false, "%s:%d colour literal: %s" % [f, n, line.strip_edges()])
-			if legacy.search(code) != null or code.contains("realm.readout") or code.contains("r_drain") \
-					or code.contains("r_dead_out") or code.contains("r_shipped") or code.contains("Game.realm"):
+			if legacy.search(code) != null or code.contains("realm.readout") or fields.search(code) != null \
+					or code.contains("Game.realm"):
 				t.ok(false, "%s:%d legacy access: %s" % [f, n, line.strip_edges()])
 	t.ok(files >= 5, "linted %d map scripts" % files)
 	if t.failures == 0:
@@ -289,4 +265,5 @@ func _lint(t: TestUtil) -> void:
 	# detector self-check
 	t.ok(lit.search("Color(\"39ff9e\")") != null and lit.search("Color(0.1, 0.2, 0.3)") != null, "detector flags literals")
 	t.ok(lit.search("Color(col, 0.5)") == null, "detector ignores re-alpha of a variable")
+	t.ok(fields.search("realm.r_drain") != null and fields.search("x.r_shipped") != null and fields.search("c[\"war_drain_frac\"]") == null, "the legacy-field detector matches whole words")
 	t.ok(legacy.search("Game.town[\"x\"]") != null and legacy.search("Game.state.view_hud()") == null, "legacy detector")

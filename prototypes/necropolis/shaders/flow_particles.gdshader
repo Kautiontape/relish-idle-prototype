@@ -18,6 +18,20 @@ shader_type particles;
 //     living ground, so the draught can't pile violet seams along a vortex rim;
 //   - streaks thin out in a narrow moat beside each live lane (moat_*), except
 //     near the lane's ends, where held ground round a node keeps its streaks.
+// What the game does to the current (phase B, GroundForces; render-only, the
+// sim never sees it):
+//   - the routes push it: each lane adds its tangent, by its rate, out to
+//     route_reach_px beyond its edge, and calms the churn there (route_*);
+//   - Vei's backlog is a slow clot at her gates, sized by the odds, tightening
+//     while her queue grows and unwinding while it drains (vortex_*);
+//   - the current bends toward Relish (relish_*), with a clear eye where map
+//     draws her;
+//   - a tithe surge is an orange line that runs from Vei to its fort (surge_*);
+//     a flip inks the ground round the fort green, its front sweeping out; a
+//     retake orange, its front closing in (ink_*).
+// Reduced motion (comet = 1): nothing advects. Each head stands still and draws
+// a comet, its tail laid back along the flow (flow_streak.gdshader's gradient,
+// dashed on living ground), into a trail buffer cleared every frame.
 render_mode disable_velocity, disable_force;
 
 uniform sampler2D field_g : filter_linear, repeat_disable;
@@ -89,6 +103,45 @@ uniform float moat_px = 10.0;      // moat beyond the lane's edge, screen px
 uniform float moat_strength = 0.0; // 0 = off; 1 = the moat's core is empty
 uniform vec2 moat_end = vec2(25.0, 70.0);  // world px from a lane's ends: no moat -> full moat
                                            // (held ground round a node keeps its streaks)
+// Phase B: GroundForces (configs/ground.json "forces").
+uniform float route_push = 0.0;       // 0 = off; dir += sum of lane tangent x weight x falloff
+uniform float route_reach_px = 60.0;  // world px beyond a lane's half width the push reaches
+uniform float route_speed = 0.0;      // speed-up along a pushed lane
+uniform float route_calm = 0.0;       // churn removed along a pushed lane (laminar flow)
+uniform vec4 vortex = vec4(0.0);      // strength 0..1, outer radius, spin -1/0/+1, inner radius
+uniform float vortex_push = 0.0;
+uniform float vortex_spiral = 0.35;   // inward (spin +1) or outward (-1) share of the swirl
+uniform float vortex_slow = 0.5;      // speed in the clot
+uniform float vortex_dense = 1.0;     // extra spawns in the clot
+uniform float vortex_ink = 0.5;       // undead green mixed into the clot
+uniform float vortex_turbulence = 0.0;
+uniform float vortex_hold = 0.0;      // share of the route push the clot holds back (the queue)
+uniform vec4 relish = vec4(0.0);      // x, y, strength, radius
+uniform float relish_push = 0.0;
+uniform float relish_swirl = 0.5;     // radians off straight-in, so she is no plain sink
+uniform float relish_eye_px = 18.0;   // world px round her with no streaks (map draws her)
+const int MAX_SURGES = 3;             // GroundForces.MAX_SURGES
+uniform vec4 surge_ac[MAX_SURGES];    // start.xy (Vei), control.xy
+uniform vec4 surge_b[MAX_SURGES];     // end.xy (the fort), head 0..1+tail, strength
+uniform int surge_count = 0;
+uniform float surge_tail = 0.25;      // share of the curve behind the head that glows
+uniform float surge_reach_px = 40.0;
+uniform float surge_push = 0.0;
+uniform float surge_speed = 0.0;
+uniform float surge_ink = 0.8;
+uniform float surge_recruit = 0.0;    // share of streaks per second respawned at a running head
+uniform vec2 surge_life_s = vec2(0.5, 1.0);   // a recruit's life: it lights the head, then goes
+const int MAX_INKS = 3;               // GroundForces.MAX_INKS
+uniform vec4 ink[MAX_INKS];           // x, y, front radius, strength (+ green, - orange)
+uniform int ink_count = 0;
+uniform float ink_band_px = 36.0;
+uniform float ink_push = 0.0;
+uniform float ink_hold = 0.5;         // wash inside the front
+uniform float ink_recruit = 0.0;      // share of streaks per second respawned on a running front
+uniform float comet = 0.0;            // 1 = reduced motion: frozen comets
+uniform float comet_px = 30.0;        // comet length, screen px
+uniform float comet_gain = 1.0;
+uniform vec2 fade_s = vec2(0.35, 0.6);   // fade in after spawn, out before respawn
 uniform float alpha_empty = 0.2;
 uniform float alpha_land = 0.95;
 uniform float alpha_front = 0.95;
@@ -144,39 +197,145 @@ vec2 spawn_pos(uint s) {
 	return spawn_rect.xy + vec2(hash1(s), hash1(s ^ 0x9e3779b9u)) * spawn_rect.zw;
 }
 
-float seg_dist(vec2 p, vec2 a, vec2 b) {
+// x = distance from p to the segment a-b, y = where along it the nearest point is (0..1)
+vec2 seg_near(vec2 p, vec2 a, vec2 b) {
 	vec2 ab = b - a;
 	float f = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
-	return distance(p, a + ab * f);
+	return vec2(distance(p, a + ab * f), f);
 }
 
-// 1 on a lane, 0 beyond its moat (smooth). Bounding-box reject first.
-float moat_at(vec2 p) {
+bool off_box(vec2 p, vec2 a, vec2 b, vec2 c, float reach) {
+	vec2 lo = min(min(a, b), c) - reach;
+	vec2 hi = max(max(a, b), c) + reach;
+	return p.x < lo.x || p.y < lo.y || p.x > hi.x || p.y > hi.y;
+}
+
+// The lanes at p, in one pass: returns the moat (1 on a lane, 0 beyond its
+// moat, smooth); `pv` gets the route push, each lane's tangent times its weight
+// (lane_bw.w) and a falloff out to route_reach_px. Bounding-box reject first.
+float lanes_at(vec2 p, out vec2 pv) {
 	float m = 0.0;
+	pv = vec2(0.0);
 	float mw = moat_px * px_world;
 	for (int i = 0; i < lane_count; i++) {
 		vec2 a = lane_ac[i].xy;
 		vec2 c = lane_ac[i].zw;
 		vec2 b = lane_bw[i].xy;
 		float hw = lane_bw[i].z;
-		float reach = hw + mw;
-		vec2 lo = min(min(a, b), c) - reach;
-		vec2 hi = max(max(a, b), c) + reach;
-		if (p.x < lo.x || p.y < lo.y || p.x > hi.x || p.y > hi.y) {
+		float wt = lane_bw[i].w;
+		float reach_m = moat_strength > 0.0 ? hw + mw : 0.0;
+		float reach_p = (wt > 0.0 && route_push > 0.0) ? hw + route_reach_px : 0.0;
+		float reach = max(reach_m, reach_p);
+		if (reach <= 0.0 || off_box(p, a, b, c, reach)) {
 			continue;
 		}
 		float d = 1e9;
+		vec2 tg = b - a;
 		vec2 prev = a;
 		for (int k = 1; k <= 10; k++) {
 			float s = float(k) / 10.0;
 			vec2 q = mix(mix(a, c, s), mix(c, b, s), s);
-			d = min(d, seg_dist(p, prev, q));
+			float sd = seg_near(p, prev, q).x;
+			if (sd < d) {
+				d = sd;
+				tg = q - prev;
+			}
 			prev = q;
 		}
-		float ends = smoothstep(moat_end.x, moat_end.y, min(distance(p, a), distance(p, b)));
-		m = max(m, ends * (1.0 - smoothstep(hw, reach, d)));
+		if (reach_m > 0.0) {
+			float ends = smoothstep(moat_end.x, moat_end.y, min(distance(p, a), distance(p, b)));
+			m = max(m, ends * (1.0 - smoothstep(hw, reach_m, d)));
+		}
+		if (reach_p > 0.0) {
+			float f = 1.0 - smoothstep(hw * 0.5, reach_p, d);
+			pv += normalize(tg) * wt * f * f;
+		}
 	}
 	return m;
+}
+
+float moat_at(vec2 p) {
+	vec2 unused;
+	return lanes_at(p, unused);
+}
+
+// Vei's clot: 1 in the band at her gates, 0 inside her inner radius and past
+// the outer one (both grow with the backlog: GroundForces.vortex).
+float vortex_band(vec2 p) {
+	if (vortex.x <= 0.0) {
+		return 0.0;
+	}
+	float d = distance(p, vei_pos);
+	return smoothstep(vortex.w * 0.7, vortex.w, d) * (1.0 - smoothstep(vortex.y * 0.7, vortex.y, d));
+}
+
+// A point in surge (idx % surge_count)'s glowing window, for a recruited streak:
+// somewhere in the tail behind the head, scattered across the surge's reach.
+// False when that surge is too faint or its window has left the curve.
+bool surge_point(uint idx, out vec2 q) {
+	q = vec2(0.0);
+	int i = int(idx % uint(max(surge_count, 1)));
+	vec2 a = surge_ac[i].xy;
+	vec2 c = surge_ac[i].zw;
+	vec2 b = surge_b[i].xy;
+	float s = surge_b[i].z - surge_tail * 0.6 * hash1(idx * 0x2545f491u + 5u);
+	if (hash1(idx * 0x68e31da4u + 9u) > surge_b[i].w || s < 0.0 || s > 1.0) {
+		return false;
+	}
+	vec2 tg = 2.0 * (1.0 - s) * (c - a) + 2.0 * s * (b - c);
+	float tl = length(tg);
+	vec2 n = tl > 1e-5 ? vec2(-tg.y, tg.x) / tl : vec2(0.0);
+	q = mix(mix(a, c, s), mix(c, b, s), s) + n * (hash1(idx * 0x1b873593u + 13u) - 0.5) * surge_reach_px;
+	return true;
+}
+
+// A point on ink (idx % ink_count)'s front, for a recruited streak. False when
+// that ink is too faint.
+bool ink_point(uint idx, out vec2 q) {
+	int i = int(idx % uint(max(ink_count, 1)));
+	float ang = hash1(idx * 0x2545f491u + 7u) * 6.2831853;
+	float r = ink[i].z + (hash1(idx * 0x1b873593u + 17u) - 0.5) * ink_band_px;
+	q = ink[i].xy + vec2(cos(ang), sin(ang)) * max(r, 0.0);
+	return hash1(idx * 0x68e31da4u + 19u) <= abs(ink[i].w);
+}
+
+// The strongest surge head at p; `tg` gets its direction of travel there.
+float surge_at(vec2 p, out vec2 tg) {
+	float e = 0.0;
+	tg = vec2(0.0);
+	for (int i = 0; i < surge_count; i++) {
+		float st = surge_b[i].w;
+		vec2 a = surge_ac[i].xy;
+		vec2 c = surge_ac[i].zw;
+		vec2 b = surge_b[i].xy;
+		if (st <= 0.0 || off_box(p, a, b, c, surge_reach_px)) {
+			continue;
+		}
+		float d = 1e9;
+		float along = 0.0;
+		vec2 dir = b - a;
+		vec2 prev = a;
+		for (int k = 1; k <= 12; k++) {
+			float s = float(k) / 12.0;
+			vec2 q = mix(mix(a, c, s), mix(c, b, s), s);
+			vec2 n = seg_near(p, prev, q);
+			if (n.x < d) {
+				d = n.x;
+				along = (float(k - 1) + n.y) / 12.0;
+				dir = q - prev;
+			}
+			prev = q;
+		}
+		float head = surge_b[i].z;
+		// full over the front 60% of the window and half the reach, so the head is a solid packet
+		float on = smoothstep(head - surge_tail, head - surge_tail * 0.6, along) * (1.0 - smoothstep(head, head + 0.03, along));
+		float ei = on * (1.0 - smoothstep(surge_reach_px * 0.5, surge_reach_px, d)) * st;
+		if (ei > e) {
+			e = ei;
+			tg = normalize(dir);
+		}
+	}
+	return e;
 }
 
 bool outside(vec2 p, vec4 r) {
@@ -210,6 +369,7 @@ vec4 pick_spawn(uint s) {
 		}
 		float lnd = land_at(sp);
 		float keep_here = mix(spawn_empty_weight, spawn_land_weight, lnd);
+		keep_here *= 1.0 + vortex_dense * vortex_band(sp) * vortex.x;
 		if (moat_strength > 0.0 && lane_count > 0) {
 			keep_here *= 1.0 - moat_strength * moat_at(sp);
 		}
@@ -238,6 +398,10 @@ void start() {
 
 void process() {
 	vec2 p = TRANSFORM[3].xy;
+	if (comet > 0.5) {
+		// a comet's quad is centred half its length behind the head (TRANSFORM[0] = dir x length)
+		p += TRANSFORM[0].xy * 0.5;
+	}
 	// Parked: beyond the active share (zoomed in, fewer, longer streaks). Marked
 	// dead so it respawns in view the moment it is active again.
 	bool parked = hash1(INDEX * 0x2c1b3c6du + 11u) > active;
@@ -262,7 +426,32 @@ void process() {
 				seam = seam || (here.r + here.g + here.b) / 3.0 > clump_limit;
 			}
 		}
-		if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
+		// a running surge recruits streaks to its head, so it has a current to carry
+		// (and an ink to its front)
+		vec2 rp;
+		uint rseed = INDEX * 0x9e3779b1u ^ uint(frame_seed) * 0x85ebca6bu;
+		float rr = hash1(rseed) / max(DELTA, 1e-6);
+		bool recruit = false;
+		if (surge_count > 0 && rr < surge_recruit) {
+			recruit = surge_point(rseed, rp);
+		} else if (ink_count > 0 && rr >= surge_recruit && rr < surge_recruit + ink_recruit) {
+			recruit = ink_point(rseed, rp);
+		}
+		recruit = recruit && !outside(rp, keep_rect);
+		if (recruit) {
+			CUSTOM.w += 1.0;
+			TRANSFORM = mat4(1.0);
+			TRANSFORM[3].xy = rp;
+			TRANSFORM[0] = vec4(0.0);
+			TRANSFORM[1] = vec4(0.0);
+			CUSTOM.x = 0.0;
+			// moving: a short life, so it lights the head and goes instead of leaving a wake;
+			// a still comet keeps a comet's life
+			CUSTOM.y = comet > 0.5 ? life_of(seed_of(INDEX, CUSTOM.w))
+				: mix(surge_life_s.x, surge_life_s.y, hash1(rseed + 31u));
+			CUSTOM.z = 0.0;
+			COLOR = vec4(0.0);
+		} else if (CUSTOM.x > abs(CUSTOM.y) || regrown || seam || outside(p, keep_rect)
 				|| p.x < 0.0 || p.y < 0.0 || p.x > world_size.x || p.y > world_size.y) {
 			CUSTOM.w += 1.0;
 			uint s = seed_of(INDEX, CUSTOM.w);
@@ -327,6 +516,53 @@ void process() {
 			vec2 dir = stream * und + orbit * orbit_strength * liv + to_vei * draught_empty * (1.0 - land);
 			float turb = mix(turbulence_empty, turbulence_land, land) + turbulence * front;
 			turb *= 1.0 - settle;
+
+			// what the game does to it (GroundForces)
+			vec2 pv;
+			float moat = (lane_count > 0) ? lanes_at(p, pv) : 0.0;
+			float vb = vortex_band(p) * vortex.x;
+			// at her gates the lanes' matter queues in the clot instead of running straight in
+			pv *= 1.0 - vortex_hold * vb;
+			float pushed = min(1.0, length(pv));
+			dir += pv * route_push;
+			turb *= 1.0 - route_calm * pushed;
+			if (vb > 0.0) {
+				vec2 rv = p - vei_pos;
+				float rl = max(length(rv), 1e-3);
+				vec2 tang = vec2(-rv.y, rv.x) / rl;
+				dir += (tang - rv / rl * vortex.z * vortex_spiral) * vb * vortex_push;
+				turb += vortex_turbulence * vb;
+			}
+			float eye = 1.0;
+			if (relish.z > 0.0) {
+				vec2 rr = relish.xy - p;
+				float rd = max(length(rr), 1e-3);
+				vec2 inw = rr / rd;
+				float f = (1.0 - smoothstep(relish.w * 0.3, relish.w, rd)) * smoothstep(0.0, relish_eye_px * 2.0, rd);
+				dir += (inw * cos(relish_swirl) + vec2(-inw.y, inw.x) * sin(relish_swirl)) * f * relish.z * relish_push;
+				eye = smoothstep(relish_eye_px * 0.5, relish_eye_px, rd);
+			}
+			vec2 stg;
+			float se = surge_count > 0 ? surge_at(p, stg) : 0.0;
+			dir += stg * se * surge_push;
+			turb *= 1.0 - se;
+			float ink_front = 0.0;
+			float ink_in = 0.0;
+			float ink_side = 1.0;
+			for (int i = 0; i < ink_count; i++) {
+				float st = abs(ink[i].w);
+				vec2 rv = p - ink[i].xy;
+				float d = max(length(rv), 1e-3);
+				float fr = (1.0 - smoothstep(0.0, ink_band_px, abs(d - ink[i].z))) * st;
+				float inside = (1.0 - smoothstep(ink[i].z - ink_band_px, ink[i].z, d)) * st * ink_hold;
+				if (max(fr, inside) > max(ink_front, ink_in)) {
+					ink_side = sign(ink[i].w);
+				}
+				ink_front = max(ink_front, fr);
+				ink_in = max(ink_in, inside);
+				dir += rv / d * fr * ink_push * sign(ink[i].w);   // a flip pushes out, a retake pulls in
+			}
+
 			dir += curl(p) * turb;
 			float dl = length(dir);
 			dir = dl > 1e-5 ? dir / dl : to_vei;
@@ -339,8 +575,9 @@ void process() {
 
 			float spd = speed * mix(speed_empty, 1.0, land) * mix(1.0, speed_settled, settle)
 				* mix(1.0, speed_living, liv)
-				* (1.0 + front_boost * front) * tempo;
-			vec2 np = p + dir * spd * DELTA;
+				* (1.0 + front_boost * front) * tempo
+				* (1.0 + route_speed * pushed) * mix(1.0, vortex_slow, vb) * (1.0 + surge_speed * se);
+			vec2 np = comet > 0.5 ? p : p + dir * spd * DELTA;
 			vec2 d = np - p;
 			float len = length(d);
 			vec2 sd = len > 1e-6 ? d / len : dir;
@@ -354,30 +591,52 @@ void process() {
 			col = mix(col, core.rgb, core_mix * settle * commit);
 			float a = mix(alpha_empty, alpha_land, land);
 			a = max(a, alpha_front * front);
-			// living: dash rhythm by distance travelled (a non-hue channel)
-			CUSTOM.z += len;
+			// the clot is undead massing at her gates; a surge is living on its way; an ink is a fort
+			// changing hands
+			col = mix(col, col_green.rgb, vortex_ink * vb);
+			col = mix(col, col_orange.rgb, surge_ink * se);
+			vec3 ink_col = ink_side > 0.0 ? col_green.rgb : col_orange.rgb;
+			col = mix(col, ink_col, min(1.0, ink_in + ink_front));
+			a = max(a, alpha_land * max(se, ink_front));
 			float living = liv * (1.0 - front);
-			float on = step(fract(CUSTOM.z / dash_px + hash1(INDEX + 3u)), dash_duty);
-			a *= mix(1.0, on, living);
+			if (comet > 0.5) {
+				// the dash is drawn along the comet (flow_streak.gdshader reads CUSTOM.z)
+				CUSTOM.z = living;
+				a *= comet_gain;
+			} else {
+				// living: dash rhythm by distance travelled (a non-hue channel)
+				CUSTOM.z += len;
+				float on = step(fract(CUSTOM.z / dash_px + hash1(INDEX + 3u)), dash_duty);
+				a *= mix(1.0, on, living);
+			}
 			// fade in after spawn, out before respawn
 			float lf = abs(CUSTOM.y);
-		a *= smoothstep(0.0, 0.35, CUSTOM.x) * (1.0 - smoothstep(lf - 0.6, lf, CUSTOM.x));
-		// figure over ground: streaks thin out beside the lanes
-		if (moat_strength > 0.0 && lane_count > 0) {
-			a *= 1.0 - moat_strength * moat_at(np);
-		}
-		// an empty-born streak fades as it nears the seam line, instead of piling up there
-		if (CUSTOM.y < 0.0) {
-			a *= 1.0 - smoothstep(seam_land * 0.3, seam_land, liv);
-		}
+			a *= smoothstep(0.0, fade_s.x, CUSTOM.x) * (1.0 - smoothstep(lf - fade_s.y, lf, CUSTOM.x));
+			// figure over ground: streaks thin out beside the lanes, and round Relish
+			if (moat_strength > 0.0) {
+				a *= 1.0 - moat_strength * moat * (1.0 - se);   // a surge runs over its lane
+			}
+			a *= eye;
+			// an empty-born streak fades as it nears the seam line, instead of piling up there
+			if (CUSTOM.y < 0.0) {
+				a *= 1.0 - smoothstep(seam_land * 0.3, seam_land, liv);
+			}
 			COLOR = vec4(col, a);
 
-			// segment p -> np, drawn as a quad of length 2*len centred on np.
-			// Successive quads tile the path, so deposit per unit path is
-			// independent of frame rate.
-			TRANSFORM[0] = vec4(sd * max(len * 2.0, 1e-4), 0.0, 0.0);
-			TRANSFORM[1] = vec4(vec2(-sd.y, sd.x) * streak_width_px * px_world, 0.0, 0.0);
-			TRANSFORM[3].xy = np;
+			if (comet > 0.5) {
+				// a still comet: head at p, tail laid back along the flow
+				float cl = comet_px * px_world;
+				TRANSFORM[0] = vec4(dir * cl, 0.0, 0.0);
+				TRANSFORM[1] = vec4(vec2(-dir.y, dir.x) * streak_width_px * px_world, 0.0, 0.0);
+				TRANSFORM[3].xy = p - dir * cl * 0.5;
+			} else {
+				// segment p -> np, drawn as a quad of length 2*len centred on np.
+				// Successive quads tile the path, so deposit per unit path is
+				// independent of frame rate.
+				TRANSFORM[0] = vec4(sd * max(len * 2.0, 1e-4), 0.0, 0.0);
+				TRANSFORM[1] = vec4(vec2(-sd.y, sd.x) * streak_width_px * px_world, 0.0, 0.0);
+				TRANSFORM[3].xy = np;
+			}
 		}
 	}
 }

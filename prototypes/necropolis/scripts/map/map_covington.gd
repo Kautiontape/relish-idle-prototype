@@ -1,8 +1,9 @@
 class_name MapCovington
 extends MapNodeLayer
 ## Covington, the tempo's source (hop 0). Static layer: the undead diamond glyph, its label, the
-## valve glyph (three stems whose widths are the WORK / WAR / FLOOD shares) and the selection
-## ring. Pulse layer: the source pulse rings and the core, on Pulse's phase and wave at hop 0.
+## valve glyph (three stems whose widths are the committed WORK / WAR / FLOOD shares: the valve
+## target, which the valve swing set piece tweens over a beat, brightening the stems) and the
+## selection ring. The opening's cue (ctx.valve_cue) brightens the stems on the beat. Pulse layer: the source pulse rings and the core, on Pulse's phase and wave at hop 0.
 
 
 func _draw_static() -> void:
@@ -18,17 +19,31 @@ func _draw_static() -> void:
 			Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
+## The valve's stem widths and brightness and the selection: all that changes between zooms.
+func static_sig():
+	return [NodeLogic.valve_widths(_shares()), ctx.valve_bright, ctx.valve_cue, ctx.selected_id == "covington"]
+
+
+## The stems' shares: the set piece's (the committed valve, or its swing), else the view's target.
+func _shares() -> Dictionary:
+	if not ctx.valve_shares.is_empty():
+		return ctx.valve_shares
+	return ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))
+
+
 ## The valve: WAR toward the forts' centroid, FLOOD toward Vei, WORK a hook curling back home.
 ## Each stem is `valve_glyph_max_w x share` wide (never under a hairline); a share of 0 draws nothing.
 ## The four labels are placed by NodeLogic.valve_label_layout so none overlap.
 func _valve(cp: Vector2, hw: float, n: Dictionary) -> void:
-	var widths := NodeLogic.valve_widths(ctx.model.hud.get("valve", {}))
+	var widths := NodeLogic.valve_widths(_shares())
 	var dirs := NodeLogic.valve_dirs(cp, NodeLogic.fort_centroid(ctx.forts), ctx.vei_pos)
 	var inner := float(n["valve_in_px"])
 	var tip := inner + float(n["valve_len_px"])
-	var col := Palette.c("undead")
+	var sp := SetpieceLogic.cfg()
+	var bright := maxf(ctx.valve_bright, ctx.valve_cue)
+	var col := Palette.c("undead").lightened(float(sp["valve_lighten"]) * bright)
 	var cap := float(n["valve_halo_max_px"])
-	var glow := float(n["valve_glow"])
+	var glow := float(n["valve_glow"]) + float(sp["valve_glow_boost"]) * bright
 	for k in ["war", "flood"]:
 		if widths[k] > 0.0:
 			var d: Vector2 = dirs[k]

@@ -14,6 +14,8 @@ var move_target := Vector2.ZERO
 var _iframes := 0.0
 var _flash := 0.0
 var _t := 0.0
+var _route: RaidRoute = null   # click-to-move goes through doorways
+var _route_goal := Vector2.INF
 
 
 func configure(p_raid: Node) -> void:
@@ -24,6 +26,7 @@ func configure(p_raid: Node) -> void:
 	speed = float(r.get("speed", 240.0))
 	radius = float(r.get("radius", 13.0))
 	move_target = position
+	_route = RaidRoute.new(ConfigDb.data.get("raid", {}).get("combat", {}))
 	z_index = 38  # above the trance dim (36): she stays at full strength
 
 
@@ -35,7 +38,15 @@ func _physics_process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 3.0)
 	var d := move_target - global_position
 	if d.length() > 6.0:
-		var step := d.normalized() * minf(speed * delta, d.length())
+		var aim := d
+		if _route != null and not raid.layout.is_empty():
+			if move_target != _route_goal:
+				_route_goal = move_target
+				_route.reset()
+			aim = _route.steer(raid.layout, global_position, move_target, radius, delta) - global_position
+			if aim.length() < 1.0:
+				aim = d
+		var step := aim.normalized() * minf(speed * delta, d.length())
 		var start := global_position
 		var got: Vector2 = raid.resolve_walls(start + step, radius)
 		if (got - start).length() < step.length() * 0.3:
@@ -54,13 +65,14 @@ func take_hit(amount: float) -> void:
 		return
 	if hp - amount <= 0.0 and raid.has_allies():
 		# THE CONDUIT RULE: the nearest allied undead dies in her place.
-		raid.sacrifice_nearest_ally()
+		raid.sacrifice_nearest_ally()   # pings the danger edge
 		_iframes = float(ConfigDb.data.get("raid", {}).get("relish", {}).get("iframes_s", 0.5))
 		_flash = 1.0
 		queue_redraw()
 		return
 	hp -= amount
 	_flash = 1.0
+	raid.danger_hit()
 	if hp <= 0.0:
 		if raid.try_phylactery():
 			queue_redraw()
@@ -111,10 +123,7 @@ func _draw() -> void:
 	if _iframes > 0.0:
 		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Palette.c("danger", 0.6), 2.0)
 	if hp < max_hp:
-		var w := 30.0
-		var y := -radius - 12.0
-		draw_rect(Rect2(-w * 0.5, y, w, 4.0), Palette.c("ground", 0.8))
-		draw_rect(Rect2(-w * 0.5, y, w * clampf(hp / max_hp, 0.0, 1.0), 4.0), violet)
+		_draw_hp_arc(violet)
 	# trance focus / cooldown arc around her
 	if raid != null and raid.trance != null:
 		var tr = raid.trance
@@ -123,6 +132,35 @@ func _draw() -> void:
 			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5, -PI * 0.5 + TAU * f,
 				violet, 3.0, 0.5, Palette.c("text"))
 		elif tr.state == RaidTrance.State.COOLDOWN or tr.state == RaidTrance.State.LOCKOUT:
-			var f2: float = 1.0 - tr.cooldown_frac()
-			LineGlow.arc(self, Vector2.ZERO, radius + 11.0, -PI * 0.5,
-				-PI * 0.5 + TAU * maxf(0.02, f2), Palette.c("cooldown"), 2.5, 0.5)
+			# segmented (one per second of cooldown) so it reads by shape, not hue alone
+			var segs := maxi(1, roundi(tr.cooldown_total))
+			var left: float = tr.cooldown_frac() * segs
+			var step := TAU / segs
+			var gap := minf(0.2, step * 0.3)
+			for i in segs:
+				var fill := clampf(left - i, 0.0, 1.0)
+				if fill > 0.0:
+					var a0 := -PI * 0.5 + step * i + gap * 0.5
+					LineGlow.arc(self, Vector2.ZERO, radius + 11.0, a0, a0 + (step - gap) * fill,
+						Palette.c("cooldown"), 2.5, 0.5)
+
+
+## The HP arc: a ring of segments (one per `hp_seg_hp` hp, so the damage is countable) that
+## drains clockwise from the top as she is hurt; `relish`, turning `danger` at or below
+## `hp_low_frac`. Empty segments stay as faint tracks.
+func _draw_hp_arc(violet: Color) -> void:
+	var c: Dictionary = ConfigDb.data.get("raid", {}).get("danger", {})
+	var r := radius + float(c.get("hp_arc_gap_px", 18.0))
+	var width := float(c.get("hp_arc_width", 3.0))
+	var segs := clampi(ceili(max_hp / maxf(0.1, float(c.get("hp_seg_hp", 5.0)))), 1, 12)
+	var frac := clampf(hp / max_hp, 0.0, 1.0)
+	var col := Palette.c("danger") if frac <= float(c.get("hp_low_frac", 0.34)) else violet
+	var step := TAU / segs
+	var gap := minf(0.16, step * 0.3)
+	for i in segs:
+		var a0 := -PI * 0.5 + step * i + gap * 0.5
+		var a1 := -PI * 0.5 + step * (i + 1) - gap * 0.5
+		var fill := clampf(frac * segs - i, 0.0, 1.0)
+		draw_arc(Vector2.ZERO, r, a0, a1, 8, Palette.c("relish", 0.18), width)
+		if fill > 0.0:
+			LineGlow.arc(self, Vector2.ZERO, r, a0, a0 + (a1 - a0) * fill, col, width, 0.5)
