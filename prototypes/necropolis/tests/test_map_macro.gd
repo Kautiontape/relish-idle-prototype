@@ -432,7 +432,7 @@ func _plates(t: TestUtil) -> void:
 		var r := MapLogic.contrast_ratio(Palette.c(IdleLogic.color_key(m)), chip_under)
 		t.ok(r >= 4.5, "the %s chip on its plate over %s: %.2f:1 (>= 4.5)" % [m, bright_key, r])
 	var sizes := [int(cfg["font_label"]), int(n["font_tithe"]), int(n["font_odds"]), int(n["font_odds_sub"]),
-		int(cfg["idle"]["chip_font"]), int(cfg["idle"]["garrison_font"])]
+		int(cfg["idle"]["chip_font"]), int(GlyphLogic.gcfg()["garrison_font"])]
 	t.ok(sizes.all(func(s): return s >= 12), "every node label is at least 12 px on screen (%s)" % str(sizes))
 
 

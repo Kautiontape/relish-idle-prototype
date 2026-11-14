@@ -20,6 +20,8 @@ func run() -> int:
 	_pitch(t, c)
 	_volume(t, c)
 	_cache(t, c)
+	_cache_config(t, c)
+	_cache_holds(t)
 	_pcm(t)
 	_dungeon_kinds(t, c)
 	_prefs(t, c)
@@ -118,6 +120,62 @@ func _cache(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SynthLogic.cache_key("chime", {"score": 40.0}) != SynthLogic.cache_key("chime", {"score": 40.0 + step}), "a score step apart is another chime")
 	t.ok(SynthLogic.cache_key("chime", {}) == "chime:0", "no score is score 0")
 	t.ok(SynthLogic.score_bucket(-5.0, step) == 0 and SynthLogic.score_bucket(120.0, step) == 100, "buckets clamp to 0..100")
+
+
+## The render cache is cleared when its last holder lets go (no "ObjectDB instances leaked at exit"),
+## and survives while another holder (the router, or a second scene's Synth) keeps it.
+func _cache_holds(t: TestUtil) -> void:
+	Synth.clear_cache()
+	Synth._holds = 0
+	Synth._cache["probe"] = AudioStreamWAV.new()
+	Synth.retain()  # the router's session hold
+	Synth.retain()  # a scene's Synth
+	Synth.release()  # that scene's Synth is freed in a swap
+	t.ok(Synth._cache.has("probe"), "the cache survives a scene swap while the router holds it")
+	Synth.release()  # quit: the router lets go
+	t.ok(Synth._cache.is_empty() and Synth._holds == 0, "the last release clears the cache")
+	Synth.release()  # an unmatched release (a Synth freed before _ready) is harmless
+	t.ok(Synth._holds == 0, "holds never go negative")
+	# a real Synth: it takes a hold when it readies and releases it when freed
+	# (suites run in the runner's _init, before any tree exists, so _ready is called directly)
+	var s := Synth.new()
+	s._ready()  # retain
+	t.ok(Synth._holds == 1, "a live Synth holds the cache")
+	Synth._cache["probe"] = AudioStreamWAV.new()
+	s.free()  # PREDELETE: release, and it was the last holder
+	t.ok(Synth._holds == 0 and Synth._cache.is_empty(), "freeing the last live Synth clears the cache")
+	var s2 := Synth.new()
+	Synth.retain()  # someone else (the router) holds it
+	s2.free()  # never readied: it took no hold, so it releases none
+	t.ok(Synth._holds == 1, "a Synth freed before _ready releases nothing")
+	Synth.release()
+
+
+func _cache_config(t: TestUtil, c: Dictionary) -> void:
+	var cfg := c.duplicate(true)
+	Synth.sync_cache(cfg)
+	var s := Synth.new()
+	s._cfg = cfg
+	var a: AudioStreamWAV = s._stream("pulse", {})
+	t.ok(s._stream("pulse", {}) == a, "an unchanged config reuses the cached render")
+	t.ok(not Synth.sync_cache(cfg.duplicate(true)), "an equal config does not clear the cache")
+	t.ok(s._stream("pulse", {}) == a, "the cache survives an equal-config sync")
+	var cfg2 := cfg.duplicate(true)
+	cfg2["kinds"]["pulse"]["len_s"] = float(cfg["kinds"]["pulse"]["len_s"]) * 2.0
+	t.ok(Synth.sync_cache(cfg2), "a changed config clears the cache")
+	s._cfg = cfg2
+	var b: AudioStreamWAV = s._stream("pulse", {})
+	t.ok(b != a and b.data.size() > a.data.size(), "rendering after a retune gives the new length (%d > %d bytes)" % [b.data.size(), a.data.size()])
+	Synth.sync_cache(c)  # leave the cache for the shipped config
+	s.free()
+	# The debug trace is printed before the mute return, so a muted harness session still logs.
+	var src := FileAccess.get_file_as_string("res://scripts/fx/synth.gd")
+	var body := src.substr(src.find("func play("))
+	var pr := body.find("print(\"SYNTH play \"")
+	var mu := body.find("if muted:")
+	t.ok(pr > 0 and mu > pr, "play prints the SYNTH trace before the mute return")
+	t.ok(body.contains("(muted)"), "a muted play is marked in the trace")
+	t.ok(not body.substr(0, mu).contains("if is_muted()"), "play no longer returns on is_muted before the trace")
 
 
 func _pcm(t: TestUtil) -> void:
@@ -275,7 +333,24 @@ func _prefs(t: TestUtil, c: Dictionary) -> void:
 	AudioPrefs.set_master_db(-30.0)
 	t.ok(AudioServer.is_bus_mute(bus) and AudioServer.get_bus_volume_db(bus) == -30.0, "a harness session still applies to the bus")
 	t.ok(FileAccess.get_file_as_string(tmp) == before and FileAccess.get_modified_time(tmp) == mtime_before, "a harness session does not write the file")
+	# a harness session starts muted whatever the saved preference says, and writes nothing
+	var cf_unmuted := ConfigFile.new()
+	cf_unmuted.set_value("audio", "muted", false)
+	cf_unmuted.set_value("audio", "master_db", -6.0)
+	cf_unmuted.save(tmp)
+	var saved_text := FileAccess.get_file_as_string(tmp)
+	var saved_mtime := FileAccess.get_modified_time(tmp)
+	AudioServer.set_bus_mute(bus, false)
+	AudioPrefs.apply()  # still the harness Game from above
+	t.ok(AudioPrefs.muted() and AudioServer.is_bus_mute(bus), "a harness session starts with the Master bus muted, even when the saved preference is unmuted")
+	t.ok(FileAccess.get_file_as_string(tmp) == saved_text and FileAccess.get_modified_time(tmp) == saved_mtime, "starting muted in a harness session writes nothing")
 	game.free()
+	AudioPrefs.game_node = null
+	# a normal player launch keeps the saved (unmuted) preference
+	var player := _fake_game(true)
+	AudioPrefs.apply()
+	t.ok(not AudioPrefs.muted() and not AudioServer.is_bus_mute(bus), "a player launch keeps the saved unmuted preference")
+	player.free()
 	AudioPrefs.game_node = null
 	var game2 := _fake_game(true)
 	t.ok(AudioPrefs.can_save(), "autosave_enabled true may save")

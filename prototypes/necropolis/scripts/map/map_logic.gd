@@ -174,6 +174,87 @@ static func fit_view(content: Rect2, viewport: Vector2, inset_top: float) -> Dic
 	return {"zoom": z, "centre": centre}
 
 
+## An item's footprint on screen at a camera (`zoom`, `centre`). A fort: its ring stack (`r`, world
+## px, about world `pos`) and the text hanging under it, `text_px` screen px from `below` world px
+## under the centre, `half_px` screen px either side: {pos, r, below, text_px, half_px}. Anything
+## else drawn in world px only (Vei's stack and reading): {world: Rect2}.
+static func item_rect(it: Dictionary, zoom: float, centre: Vector2, viewport: Vector2) -> Rect2:
+	if it.has("world"):
+		var w: Rect2 = it["world"]
+		return Rect2((w.position - centre) * zoom + viewport * 0.5, w.size * zoom)
+	var c: Vector2 = ((it["pos"] as Vector2) - centre) * zoom + viewport * 0.5
+	var r := float(it["r"]) * zoom
+	var half := maxf(r, float(it["half_px"]))
+	var bottom := maxf(r, float(it["below"]) * zoom + float(it["text_px"]))
+	return Rect2(c.x - half, c.y - r, half * 2.0, r + bottom)
+
+
+## The default fit kept clear of the screen's panels. fit_view's answer below `inset_top` (the top
+## bar), unless an item (item_rect: every fort with its labels, Vei's stack) overlaps an
+## `obstacles` rect (screen px: the valve panel, the objective strip, Relish's chip) or leaves the
+## free area (below `inset_top`, fit_bottom_px above the bottom edge). Then a bounded search: at
+## each zoom, shifts across the content's slack on screen (fit_shift_steps per axis, the nearest
+## first), then the zoom times fit_shrink_step, at most fit_shrink_tries times and never under the
+## mid tier's floor (zoom_far_below + zoom_hysteresis). The first clear camera wins; when none is,
+## the one with the fewest items in the way. Returns {zoom, centre} ({} for degenerate input).
+static func fit_view_clear(content: Rect2, viewport: Vector2, inset_top: float, items: Array, obstacles: Array) -> Dictionary:
+	var base := fit_view(content, viewport, inset_top)
+	if base.is_empty():
+		return base
+	var floor_z := _num("zoom_far_below") + _num("zoom_hysteresis")
+	var z: float = base["zoom"]
+	var best := base
+	var best_bad := _in_way(items, obstacles, z, base["centre"], viewport, inset_top)
+	for k in int(_num("fit_shrink_tries")) + 1:
+		if k > 0:
+			z *= _num("fit_shrink_step")
+			if z < floor_z:
+				break
+		var cb := content.get_center() - Vector2(0.0, inset_top * 0.5 / z)
+		var cr := Rect2((content.position - cb) * z + viewport * 0.5, content.size * z)
+		for s in _shifts(cr, viewport, inset_top):
+			var centre: Vector2 = cb - (s as Vector2) / z
+			var bad := _in_way(items, obstacles, z, centre, viewport, inset_top)
+			if bad == 0:
+				return {"zoom": z, "centre": centre}
+			if bad < best_bad:
+				best_bad = bad
+				best = {"zoom": z, "centre": centre}
+	return best
+
+
+## Screen shifts that keep the content rect `cr` on screen below `inset_top`, nearest first.
+static func _shifts(cr: Rect2, viewport: Vector2, inset_top: float) -> Array:
+	var n := maxi(int(_num("fit_shift_steps")), 1)
+	var xs := _span(-maxf(cr.position.x, 0.0), maxf(viewport.x - cr.end.x, 0.0), n)
+	var ys := _span(-maxf(cr.position.y - inset_top, 0.0), maxf(viewport.y - cr.end.y, 0.0), n)
+	var out: Array = []
+	for x in xs:
+		for y in ys:
+			out.append(Vector2(x, y))
+	out.sort_custom(func(a: Vector2, b: Vector2): return a.length_squared() < b.length_squared())
+	return out
+
+
+## `n` + 1 evenly spaced values from lo to hi, and 0.
+static func _span(lo: float, hi: float, n: int) -> Array:
+	var out: Array = [0.0]
+	for i in n + 1:
+		out.append(lerpf(lo, hi, float(i) / n))
+	return out
+
+
+## How many items are off the free area or under an obstacle at this camera.
+static func _in_way(items: Array, obstacles: Array, z: float, centre: Vector2, viewport: Vector2, inset_top: float) -> int:
+	var free := Rect2(0.0, inset_top, viewport.x, viewport.y - inset_top - _num("fit_bottom_px"))
+	var n := 0
+	for it in items:
+		var r := item_rect(it, z, centre, viewport)
+		if not free.encloses(r) or obstacles.any(func(o: Rect2): return r.intersects(o)):
+			n += 1
+	return n
+
+
 # --- zoom tiers ------------------------------------------------------------------
 
 ## The `--map-clicks=x,y;x,y` list as screen-px points; malformed pairs are skipped.

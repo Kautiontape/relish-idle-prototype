@@ -214,7 +214,8 @@ func _away(t: TestUtil) -> void:
 		empty_keys.append(s["key"])
 	t.ok(empty_keys == ["losses"], "empty gains and ready are left out; losses always show")
 	t.ok(capped["sections"][0]["lines"][0]["text"] == "Nothing lost.", "no losses reads Nothing lost.")
-	t.ok(b["sections"][2]["lines"].size() == 3 and b["sections"][2]["lines"][0]["text"] != "Nothing lost.", "losses are listed when there are some")
+	var lost: Array = b["sections"][2]["lines"]
+	t.ok(lost.size() == (rep["losses"] as Array).size() + 1 and lost[0]["text"] == AwayLogic.losses_count(rep["losses"]) and lost[1]["text"] != "Nothing lost.", "losses are listed, led by their count")
 
 
 func _spans(t: TestUtil) -> void:
@@ -247,7 +248,7 @@ func _demo(t: TestUtil) -> void:
 			seen[p["margins"][id]] = true
 	t.ok(seen.has("safe") and seen.has("thin") and seen.has("will_fall"), "the demo held forts show all three margins across a drag")
 	var c: Dictionary = IdleLogic.cfg()
-	t.ok(int(c["chip_font"]) >= 12 and int(c["garrison_font"]) >= 12, "chip and garrison text are at least 12 px")
+	t.ok(int(c["chip_font"]) >= 12, "the chip's text (garrison, rate, word, clock) is at least 12 px")
 	t.ok(float(AwayLogic.cfg()["line_min_h_px"]) >= 44.0 and float(AwayLogic.cfg()["dismiss_w_px"]) >= 44.0, "away targets are at least 44 px")
 
 
