@@ -69,6 +69,7 @@ func run() -> int:
 	_room_cache()
 	_vat_rule()
 	_pit_priority()
+	_store_caps()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -1146,3 +1147,72 @@ func _pit_priority() -> void:
 	t.near(float(o2["burned"]), want_pit * 10.0, 1e-9, "plenty of bodies: the pits burn their want")
 	t.near(float(o2["milled"]), want_mill * 10.0, 1e-9, "and the mills mill theirs")
 	t.suite("town_sim")
+
+
+# ------------------------------------------------------------ store caps ----
+## A TownSim at the opening with its stalls fully staffed for a while and no migrants: trade and upkeep
+## are constant, so gold climbs at one rate; with a level-1 Bone Mill on lot-05 and bodies to spare the
+## mills' bone climbs at one rate too. No forts, so no convoy.
+func _capped_town(gold: float, bone: float) -> TownSim:
+	var ts := TownSim.new()
+	ts.setup(TestUtil.configs())
+	ts.new_game()
+	ts.place_building("lot-05", "bone_mill", 1)
+	ts.workers = 19.0  # every slot (9) and the idle pool (10)
+	ts.bodies = 150.0
+	ts.gold = gold
+	ts.bone = bone
+	ts.restaff()
+	return ts
+
+
+## Steps `ts` for `total` seconds in steps of `dt`: [gold overflow, bone overflow] summed.
+func _run_capped(ts: TownSim, total: float, dt: float) -> Array:
+	var over := [0.0, 0.0]
+	for i in int(round(total / dt)):
+		var o := ts.step(dt, {"work_mass": 0.0, "relish_home": false})
+		over[0] += float(o["gold_overflow"])
+		over[1] += float(o["bone_overflow"])
+	return over
+
+
+## IDLE §6: gold and bone are capped (economy.json gold.cap, bone.cap, plus the Market's gold_cap and the
+## Bone Mill's bone_cap per level). Only what comes in is clipped, to max(cap, the store before the step
+## less its upkeep): over a fill a 10 s step ends with the stock and the overflow of twenty 0.5 s steps
+## (constant rates), a store over its cap keeps its excess and upkeep draws it down, all its income
+## overflowing, and gold's floor of 0 and upkeep are unchanged.
+func _store_caps() -> void:
+	t.suite("town_sim-store-caps")
+	var cfg := TestUtil.configs()
+	var probe := _capped_town(0.0, 0.0)
+	var gcap := probe.gold_cap()
+	var bcap := probe.bone_cap()
+	t.ok(gcap == float(cfg["economy"]["gold"]["cap"]) + float(cfg["buildings"]["market"]["effects"]["gold_cap"])
+		and bcap == float(cfg["economy"]["bone"]["cap"]) + float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"]),
+		"the caps: the base plus a level-1 Market's and Bone Mill's per-level shares (gold %.0f, bone %.0f)" % [gcap, bcap])
+	for c in [["a fill", gcap - 1.0, bcap - 1.0], ["from over the cap", gcap + 0.5, bcap + 0.5], ["far over", gcap + 50.0, bcap + 50.0]]:
+		var a := _capped_town(c[1], c[2])
+		var b := _capped_town(c[1], c[2])
+		var oa := _run_capped(a, 10.0, 0.5)
+		var ob := _run_capped(b, 10.0, 10.0)
+		t.ok(absf(a.gold - b.gold) < 1e-9 and absf(oa[0] - ob[0]) < 1e-9 and absf(a.bone - b.bone) < 1e-9 and absf(oa[1] - ob[1]) < 1e-9,
+			"%s: 20 × 0.5 s and 1 × 10 s agree: gold %.9f / %.9f (overflow %.9f / %.9f), bone %.9f / %.9f (overflow %.9f / %.9f)" % [
+			c[0], a.gold, b.gold, oa[0], ob[0], a.bone, b.bone, oa[1], ob[1]])
+		var g_in := float(a.rates["gold"]["trade"])
+		var g_out := float(a.rates["gold"]["out"])
+		t.ok(g_in > g_out and g_out > 0.0 and float(a.rates["bone"]["mill"]) > 0.0, "%s: trade %.3f/s over upkeep %.3f/s, the mill %.3f bone/s (constant rates)" % [
+			c[0], g_in, g_out, a.rates["bone"]["mill"]])
+		var g_want := maxf(gcap, float(c[1]) - g_out * 10.0)
+		t.ok(absf(b.gold - g_want) < 1e-9 and absf(ob[0] - (float(c[1]) + (g_in - g_out) * 10.0 - g_want)) < 1e-9,
+			"%s: gold ends at max(cap, start − upkeep) = %.3f and the rest of the income overflows" % [c[0], g_want])
+	# the over-cap store keeps its excess: all income overflows while upkeep draws it down
+	var x := _capped_town(gcap + 50.0, bcap + 50.0)
+	var g0 := x.gold
+	var o := x.step(0.5, {"work_mass": 0.0, "relish_home": false})
+	t.ok(absf(float(o["gold_overflow"]) - float(x.rates["gold"]["trade"]) * 0.5) < 1e-9 and x.gold < g0 and x.gold > gcap
+		and absf(float(x.rates["gold"]["in"])) < 1e-9, "over the cap: every coin in overflows (in 0), upkeep draws the excess down")
+	# below the cap nothing changes: no overflow, in is the trade
+	var u := _capped_town(10.0, 10.0)
+	var ou := u.step(0.5, {"work_mass": 0.0, "relish_home": false})
+	t.ok(float(ou["gold_overflow"]) == 0.0 and float(ou["bone_overflow"]) == 0.0 and u.rates["gold"]["in"] == u.rates["gold"]["trade"],
+		"under the cap: no overflow, gold.in is the trade")

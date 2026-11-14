@@ -222,6 +222,12 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	for v in m["villages"]:
 		if not ["player", "vei", "none"].has(v["owner"]):
 			return "village owner"
+	var tally: Variant = m["ledger"].get("stores", {})  # the currency tally (E2b-2 T3.2): optional, typed when present
+	if not (tally is Dictionary):
+		return "ledger stores"
+	for k in tally:
+		if not fits(tally[k], {"overflow": _F}):
+			return "ledger stores"
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
 	if town_why != "":
 		return town_why

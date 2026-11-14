@@ -669,6 +669,12 @@ func _fixtures() -> void:
 			for k in ["held", "grace_s", "zero_s", "yield_c", "yield_t"]:
 				bf.erase(k)
 		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0; its yield at 1" % name)
+		# E2b-2 T3.2 writes the ledger's currency tally (`stores`); the fixtures predate it, so it loads 0
+		var no_tally: bool = not (file["ledger"] as Dictionary).has("stores")
+		t.ok(no_tally and back["ledger"]["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}},
+			"%s: the fixture has no currency tally; it loads 0" % name)
+		if no_tally:
+			(back["ledger"] as Dictionary).erase("stores")
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])

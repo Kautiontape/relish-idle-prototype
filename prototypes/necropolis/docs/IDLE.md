@@ -263,13 +263,16 @@ same profile with the game closed.
   and the queue spends them into buildings that raise those rates.
 
 ## 6. Store caps
-- Gold and bone get caps (`gold.cap`, `bone.cap`), raised by buildings that economy picks in
-  `buildings.json`. The bodies store is already capped. A cap only clips the top: gold's floor of 0
-  and upkeep are unchanged.
-- **Size the first caps so the default income takes at least about 8 h to fill,** which covers a
-  night away.
-- **Overflow is a ledger sink** (`store_overflow`), so the soak test stays exact. The report shows how
-  much was wasted.
+- Gold and bone have caps (`gold.cap` 6 500, `bone.cap` 200; E2b-2 T3.2), raised by the buildings
+  economy picked in `buildings.json`: the **Market** (+3 250 gold per level) and the **Bone Mill** (+100
+  bone per level), both hamlet buildings with three levels, so a cap can be raised from the first
+  session. The bodies store is capped too. A cap only clips the top: gold's floor of 0 and upkeep are
+  unchanged.
+- **The first caps take at least about 8 h of the default income to fill,** which covers a night away
+  (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
+- **Overflow is a ledger sink**, so the soak test stays exact. Gold and bone are not mass, so it is the
+  currency tally `ledger().stores` beside the mass ledger (`sinks.store_overflow` stays 0). The report
+  shows how much was wasted (T3.3).
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on

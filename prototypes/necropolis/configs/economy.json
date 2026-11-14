@@ -20,6 +20,8 @@
   },
   "worker": { "lifetime_s": 480.0, "mass": 40.0, "body_return": 0.25, "idle_rot_mult": 0.5, "idle_cap": 10.0 },
   "body_store": { "cap": 200.0 },
+  "gold": { "cap": 6500.0 },
+  "bone": { "cap": 200.0 },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
   "stance": { "base_slots": 2 },
   "job": {

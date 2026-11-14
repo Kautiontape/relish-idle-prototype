@@ -57,6 +57,11 @@ from `BALANCE.md` §0.
   - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
     the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
     (§9.1);
+  - (T3.2) **the gold and bone caps** (IDLE §6; MECHANICS §4.3): `view_hud().rates[i].cap` for `gold` and
+    `bone` is the live cap (it was −1.0); `view_town().gold_cap` and `.bone_cap` (§5.9); `ledger().stores`,
+    the currency tally of what the caps clipped, saved with the ledger (§4.7, §9.1); `sinks.store_overflow`
+    stays and is always 0. `view_rates` `gold.in` and `bone.in` are now net of what overflowed (§5.2): a
+    meaning change, not a shape change;
   - (T3.2) `margin_cause` `"fall"` on a `thin` margin: a held fort that falls beyond the horizon and that
     one full wave wouldn't break reads `thin` / `"fall"`, no longer `thin` / `"wave"` (§5.5; MECHANICS
     §3.5): a meaning change, not a shape change;
@@ -826,10 +831,16 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 ```
 
 ### 4.7 `ledger() -> Dictionary` · E2 (for tests; live from E2a T2.5)
-- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary}`, each `String → float` mass.
-  `sources` and `sinks` are totals since the new game, booked where mass enters or leaves the world
-  (`scripts/sim/ledger.gd`, preloaded as `GameState.Ledger`); `held` is summed from the live state
-  at the call. A fresh copy, like a view.
+- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary, stores: Dictionary}`. `sources`,
+  `sinks` and `held` are each `String → float` mass. `sources` and `sinks` are totals since the new game,
+  booked where mass enters or leaves the world (`scripts/sim/ledger.gd`, preloaded as
+  `GameState.Ledger`); `held` is summed from the live state at the call. A fresh copy, like a view.
+- `stores` (v6, E2b-2 T3.2) is the currency tally beside the mass, outside the invariant (gold and bone
+  are not mass): `{gold: {overflow: float}, bone: {overflow: float}}`, the income each store's cap
+  clipped since the new game (MECHANICS §4.3; IDLE §6's "overflow is a ledger sink"). Saved with the
+  ledger (§9.1); a save without it loads 0. The currency soak checks `gold_end = gold_start + Σtrade −
+  Σupkeep − Σspent − stores.gold.overflow` (and bone with the mill) within 1e-9. T3.3's away report reads
+  it for "store overflow" among the losses.
 - **Invariant:** `Σheld + Σsinks == Σsources` within 1e-6 relative (`|miss| / max(1, Σsources)`) at
   every substep boundary and at any `sim.substep_s` (catch-up, IDLE §4). Measured misses are about
   1e-14.
@@ -848,7 +859,7 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `pool_overflow` | what the march-back took past Vei's pool cap (`vei_pool_cap`): living above a fort's cap march back at `(L − cap) / tithe.march_back_s`, and whatever would take her pool past the cap books here; she then converts into the headroom left. Not always 0 since the march-back (v4: the meaning changed, not the shape) |
 | | `rot_overflow` (+3) | rot return lost to the body cap (MECHANICS §4.1) |
 | | `haul_overflow` (+3) | a landing convoy's load lost to the body cap |
-| | `store_overflow` (+3) | 0 until the store caps (E2b T3.2) |
+| | `store_overflow` (+3) | always 0: the store caps (E2b-2 T3.2) clip gold and bone, which are not mass; their overflow is `stores` (above) |
 | `held` | `fort_living`, `fort_undead`, `corpses` | Σ forts' `living`, `undead`, `dead` |
 | | `backlog`, `vei_dead`, `living_pool` | Vei's undead queue, dead queue and living pool |
 | | `bodies` | Covington's body store |
@@ -906,8 +917,8 @@ Every field is live from E2a:
  rates: [{id: "mint", rate: 12.8, stock: -1.0, cap: -1.0, unit: "mass/s"},
          {id: "workers", rate: 0.103, stock: 12.0, cap: -1.0, unit: "workers/s"},
          {id: "bodies", rate: -0.35, stock: 40.0, cap: 200.0, unit: "mass/s"},
-         {id: "gold", rate: 0.22, stock: 80.0, cap: -1.0, unit: "gold/s"},
-         {id: "bone", rate: 0.0, stock: 30.0, cap: -1.0, unit: "bone/s"},
+         {id: "gold", rate: 0.21, stock: 80.0, cap: 9750.0, unit: "gold/s"},
+         {id: "bone", rate: 0.0, stock: 30.0, cap: 200.0, unit: "bone/s"},
          {id: "living", rate: 0.012, stock: 10.0, cap: 16.0, unit: "living/s"}],
  split: {work: 5.12, war: 5.76, flood: 1.92},
  valve: {work: 0.4, war: 0.45, flood: 0.15}, valve_target: {work: 0.4, war: 0.45, flood: 0.15},
@@ -942,8 +953,8 @@ each of `GameState.RATE_IDS`.
 | `work`, `war`, `flood` | mass/s | `mint · valve` share (WAR also gets muster × `worker.mass`) | delivered (= in) | 0 |
 | `workers` | workers/s | `work / worker.mass` | rot + muster | in − out |
 | `bodies` | mass/s | haul + rot return | pit burn + mill | in − out |
-| `gold` | gold/s | trade | upkeep | in − out |
-| `bone` | bone/s | mill | upkeep | in − out |
+| `gold` | gold/s | trade, less what overflowed the gold cap (v6) | upkeep | in − out |
+| `bone` | bone/s | mill, less what overflowed the bone cap (v6) | upkeep | in − out |
 | `living` | living/s | migrants | departures | in − out |
 | `corpses` | mass/s | Σ forts: your kills + redirected garrison kills | haul + Relish's and the simulacra's raises + `k_clear` (shipping to Vei never lands here; see above) | in − out |
 | `backlog` | mass/s | FLOOD + fort drain + WAR that fell through to Vei | Vei's digestion | the raw `diff` |
@@ -1175,6 +1186,7 @@ until the first substep.
 | `migrants`, `departures` | float | living/s |
 | `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `dread`, `shock`. |
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
+| `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
 | `haul` | Dictionary | `{target: String ("auto" or a fort id), current: String, convoys: Array[{from: String, to: String, phase: "out"\|"back", t: float, load: float}]}`. `t` is trip progress 0..1; `load` is mass. |
 | `relish_home` | bool | the slab works |
@@ -1752,7 +1764,7 @@ take the router's legacy path (§2.3).
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |
 | `readout` | Dictionary | the `diff` EMA, the `q_raise` EMA |
-| `ledger` | Dictionary | sources and sinks so far |
+| `ledger` | Dictionary | sources and sinks so far, and the currency tally `stores` (v6) |
 | `won` | bool | |
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
@@ -1798,7 +1810,9 @@ take the router's legacy path (§2.3).
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
   mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
   save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50).
-- `ledger`: `{sources, sinks}` as `ledger()` shows them (§4.7), every key. A block with
+- `ledger`: `{sources, sinks, stores}` as `ledger()` shows them (§4.7), every key. `stores` (v6, E2b-2
+  T3.2) is optional on load and typed when present (`{store: {overflow: float}}`); a save without it reads
+  0 overflow. A block with
   `sources.opening` is read back key by key (a missing key reads 0). One without it (a save from before
   `api_version` 3: E1, E2a, older fixtures) keeps only `sinks.dungeon`, and `opening` becomes what the
   save holds at load plus that sink, so the count balances from the load on.

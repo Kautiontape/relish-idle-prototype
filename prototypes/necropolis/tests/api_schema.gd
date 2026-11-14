@@ -201,6 +201,8 @@ const VIEWS := {
 		"living": F, "living_cap": F, "migrants": F, "departures": F,
 		"morale": {"value": F, "target": F, "factors": [{"id": S, "delta": F}]},
 		"gold": F, "bone": F, "bodies": F, "bodies_cap": F, "trade_rate": F,
+		# api_version 6 (E2b-2 T3.2, IDLE §6): the gold and bone caps
+		"gold_cap": F, "bone_cap": F,
 		"haul": {"target": S, "current": S,
 			"convoys": [{"from": S, "to": S, "phase": S, "t": F, "load": F}]},
 		"relish_home": B,
@@ -288,6 +290,8 @@ const LEDGER := {
 		"pool_overflow": F, "rot_overflow": F, "haul_overflow": F, "store_overflow": F},
 	"held": {"fort_living": F, "fort_undead": F, "corpses": F, "backlog": F, "vei_dead": F,
 		"living_pool": F, "bodies": F, "workers": F, "convoys": F, "work_pending": F},
+	# api_version 6 (E2b-2 T3.2): the currency tally beside the mass, what the gold and bone caps clipped
+	"stores": {"gold": {"overflow": F}, "bone": {"overflow": F}},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
 ## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will
@@ -301,7 +305,7 @@ const SAVE := {
 	"valve": {"target": VALVE, "current": VALVE},
 	"realm": D, "villages": [{"id": S, "owner": S}], "town": D, "stances": D, "inventory": D,
 	"big_undead": [D], "party": [S], "backups": D, "readout": {"diff_ema": F, "q_raise_ema": F},
-	"ledger": {"sources": {"*": F}, "sinks": {"*": F}},
+	"ledger": {"sources": {"*": F}, "sinks": {"*": F}, "stores": {"gold": {"overflow": F}, "bone": {"overflow": F}}},
 	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I},
 	"cleared_forts": [S], "first_dungeon": S,
 }

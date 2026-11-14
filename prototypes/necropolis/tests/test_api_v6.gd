@@ -28,6 +28,7 @@ func run() -> int:
 	_grace_view()
 	_counter_garrison()
 	_yield()
+	_store_caps()
 	return t.failures
 
 
@@ -521,3 +522,31 @@ func _yield() -> void:
 	for i in int(float(r._cfg()["hold"]["break_s"]) / r.substep_s()) + 2:
 		r.tick(r.substep_s())
 	t.ok(not g["held"] and r.view_fort("greywall")["yield_mult"] == 1.0, "a retake resets it to 1")
+
+
+## The gold and bone caps (E2b-2 T3.2, IDLE §6; STATE-API §5.1, §5.9, §4.7): view_hud's gold and bone `cap`
+## is live (it was −1.0) and equals view_town's gold_cap and bone_cap: the base plus the Market's and the
+## Bone Mill's per-level share. A demolished Market drops it. ledger().stores is the tally, 0 at a new game.
+func _store_caps() -> void:
+	t.suite("api-v6-store-caps")
+	var cfg := TestUtil.configs()
+	var s := _mk()
+	var per_g := float(cfg["buildings"]["market"]["effects"]["gold_cap"])
+	var per_b := float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"])
+	var base_g := float(cfg["economy"]["gold"]["cap"])
+	var base_b := float(cfg["economy"]["bone"]["cap"])
+	var caps := {}
+	for e in s.view_hud()["rates"]:
+		caps[e["id"]] = e["cap"]
+	var vt := s.view_town()
+	t.ok(caps["gold"] == base_g + per_g and vt["gold_cap"] == caps["gold"] and caps["bone"] == base_b and vt["bone_cap"] == caps["bone"],
+		"a new game: gold cap %.0f (base + a level-1 Market), bone cap %.0f (base), in view_hud and view_town" % [caps["gold"], caps["bone"]])
+	t.ok(s.ledger()["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}}, "ledger().stores is 0 at a new game")
+	s.town_sim.place_building("lot-05", "bone_mill", 2)
+	t.ok(s.view_town()["bone_cap"] == base_b + 2.0 * per_b, "a level-2 Bone Mill adds two shares: %.0f" % s.view_town()["bone_cap"])
+	t.ok(s.cmd_demolish("lot-04")["ok"] and s.view_town()["gold_cap"] == base_g, "the Market demolished: the gold cap is the base again")
+	var m := _fixture("midgame_2flips")
+	t.ok(m.view_town()["bone"] > m.view_town()["bone_cap"], "midgame_2flips: its bone (%.1f) is over the cap (%.0f); it keeps the excess" % [m.view_town()["bone"], m.view_town()["bone_cap"]])
+	var b0 := m.town_sim.bone
+	m.tick(m.substep_s())
+	t.ok(m.town_sim.bone <= b0 and absf(m.view_rates()["rates"]["bone"]["in"]) < 1e-9, "and earns no bone while over it (in 0)")

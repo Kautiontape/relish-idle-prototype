@@ -75,6 +75,7 @@ func run() -> int:
 	_save_load()
 	_pre_ledger()
 	soak(SOAK_S, 11)
+	_currency_soak()
 	return t.failures
 
 
@@ -322,6 +323,76 @@ func _negatives(s: GameState, bad: Array) -> void:
 	for k in stocks:
 		if not is_finite(stocks[k]) or stocks[k] < 0.0:
 			bad.append("%s: %s = %f" % [at, k, stocks[k]])
+
+
+# ------------------------------------------------------ the currency tally ----
+## IDLE §6 / STATE-API §4.7: gold and bone are not mass, so their caps' overflow is the currency tally
+## `ledger().stores` beside the mass ledger. Over a run where both caps bind (a level-1 Bone Mill fed from a
+## full body store, both stocks just under their caps, spending mid-way), each store closes exactly:
+## gold_end = gold_start + Σtrade − Σupkeep − Σspent − stores.gold.overflow, and bone the same with the
+## mill. Σtrade is the stalls' sales (view_town.trade_rate × market.price × dt), Σmill the milled mass
+## (sinks.milled × job.mill.rate), Σupkeep view_rates' `out` × dt, each summed per step at a fixed dt; at
+## 0.5 s and at 10 s steps. The overflow is saved with the ledger; a save without it loads 0.
+func _currency_soak() -> void:
+	t.suite("ledger-stores")
+	var price := float(_base["economy"]["market"]["price"])
+	var mill_rate := float(_base["economy"]["job"]["mill"]["rate"])
+	for sub in [0.0, 10.0]:
+		var s := _mk(3, sub)
+		var dt := s.substep_s()
+		t.ok(s.ledger()["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}}, "dt %.1f: a new game's tally is 0" % dt)
+		s.town_sim.place_building("lot-05", "bone_mill", 1)
+		s.cmd_set_job_priority(["mill", "stall", "build", "pit", "haul", "forge", "tend"])
+		s.cmd_debug_grant({"workers": 10.0, "bodies": 300.0})
+		s.town_sim.gold = s.town_sim.gold_cap() - 20.0
+		s.town_sim.bone = s.town_sim.bone_cap() - 15.0
+		var g0 := s.town_sim.gold
+		var b0 := s.town_sim.bone
+		var milled0 := float(s.ledger()["sinks"]["milled"])
+		var trade := 0.0
+		var g_up := 0.0
+		var b_up := 0.0
+		var spent_g := 0.0
+		var spent_b := 0.0
+		var n := int(1200.0 / dt)
+		for i in n:
+			if i == n / 2:
+				var c := s.cmd_build("well", "lot-06")
+				t.ok(c["ok"], "dt %.1f: a well is bought mid-run (setup)" % dt)
+				spent_g += float(c.get("cost", {}).get("gold", 0.0))
+				spent_b += float(c.get("cost", {}).get("bone", 0.0))
+				s.cmd_debug_grant({"bodies": 300.0})
+			s.tick(dt)
+			var r: Dictionary = s.view_rates()["rates"]
+			trade += float(s.view_town()["trade_rate"]) * price * dt
+			g_up += float(r["gold"]["out"]) * dt
+			b_up += float(r["bone"]["out"]) * dt
+		var st: Dictionary = s.ledger()["stores"]
+		var mill := (float(s.ledger()["sinks"]["milled"]) - milled0) * mill_rate
+		var og := float(st["gold"]["overflow"])
+		var ob := float(st["bone"]["overflow"])
+		var g_want := g0 + trade - g_up - spent_g - og
+		var b_want := b0 + mill - b_up - spent_b - ob
+		t.ok(og > 1.0 and ob > 1.0, "dt %.1f: both caps bind (gold overflow %.3f, bone %.3f)" % [dt, og, ob])
+		t.ok(absf(s.town_sim.gold - g_want) <= 1e-9 * maxf(1.0, absf(g_want)),
+			"dt %.1f: gold %.6f = start + Σtrade − Σupkeep − Σspent − overflow (%.6f)" % [dt, s.town_sim.gold, g_want])
+		t.ok(absf(s.town_sim.bone - b_want) <= 1e-9 * maxf(1.0, absf(b_want)),
+			"dt %.1f: bone %.6f = start + Σmill − Σupkeep − Σspent − overflow (%.6f)" % [dt, s.town_sim.bone, b_want])
+		t.ok(s.town_sim.gold <= s.town_sim.gold_cap() + 1e-9 and s.town_sim.bone <= s.town_sim.bone_cap() + 1e-9, "dt %.1f: both end at or under their caps" % dt)
+		t.ok(_snk(s, "store_overflow") == 0.0 and _err(s) < TIGHT, "dt %.1f: sinks.store_overflow stays 0 and the mass ledger balances" % dt)
+		if sub > 0.0:
+			continue
+		var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+		var canon: Dictionary = SaveIO.canon(st.duplicate(true))
+		t.ok(d["ledger"]["stores"] == canon, "the save's ledger block carries the tally (at the 15 digits a save keeps)")
+		var back := GameState.new(_cfgs())
+		t.ok(back.from_dict(d)["ok"] and back.ledger()["stores"] == canon, "and a load restores it")
+		(d["ledger"] as Dictionary).erase("stores")
+		var old := GameState.new(_cfgs())
+		t.ok(old.from_dict(d)["ok"] and old.ledger()["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}},
+			"a save without it loads 0")
+		d["ledger"]["stores"] = {"gold": {"overflow": "x"}}
+		t.ok(GameState.new(_cfgs()).from_dict(d) == {"ok": false, "reason": "corrupt"}, "a tally of the wrong type is corrupt")
 
 
 # --------------------------------------------------------------- persistence ----

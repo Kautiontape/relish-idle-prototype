@@ -130,6 +130,8 @@ E2a added is here with its value.
 | `job.build.rate`, `job.build.slots` | 0.5 work per worker-second, 3 per construction site | a House (60 work) in 40 s, the Reliquary (400) in about 4.5 min; an upgrade takes `build_work · target level` |
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
 | `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
+| `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250 |
+| `bone.cap`, bone mill `effects.bone_cap` | 200, + 100 per Bone Mill level (+50% of the base) | 300, 400, 500 at Bone Mill levels 1–3; a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
 | E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
@@ -164,6 +166,30 @@ shut until then so nothing small is put on them first, and a size-1 building may
 (a lot too small is the only size refusal), so the player can still block lot-23 with a house:
 demolish it. Town needs 12 buildings, which Village's 17 lots hold; City needs 20 of Town's 22.
 
+**Store caps** (E2b-2 T3.2; IDLE §6). Two constraints, and only these. *8 h fill:* the base cap is at
+least 8 h of a new game's settled net income, rounded up. *Nothing stuck:* the cap with its cap
+building at level 3 (2.5 × the base, at +50% per level) covers the largest single cost of that store in
+`buildings.json`, so every build can be queued once the cap building is maxed. The rates are measured:
+`cmd_new_game(1)`, no actions, 1 h at 0.5 s, the mean net rate over the last 10 min (the fixtures the
+same way, from their load).
+- **Gold:** a new game settles at +0.210 gold/s (trade 0.30, upkeep 0.09): 8 h is 6 048, so the base is
+  **6 500**. The largest gold cost is the Ossuary Tower's level 3 (1 350), far under even the base, so no
+  gold cost exceeds a gold cap and `cost_exceeds_cap` is never about gold with these numbers.
+- **Bone:** a new game has no Bone Mill, so its net bone is 0 and the 8 h rule asks nothing. The largest
+  bone cost is the Ossuary Tower's level 3 (450): 450 / 2.5 = 180, so the base is **200** (500 at Bone
+  Mill level 3). The costs above the base bone cap, so `cost_exceeds_cap` is reachable: Chapel of Vats
+  level 2 (240) and 3 (360), Embalmer level 3 (240), Reliquary (250), Ossuary Tower level 2 (300) and 3
+  (450). A level-1 mill (300) leaves the Chapel's level 3 and the Ossuary's level 3; level 2 (400) the
+  Ossuary's level 3; level 3 none.
+- **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 9 (the Ossuary's
+  level 3), so no relic cost exceeds it.
+
+| start | gold: cap, stock, net/s, fill | bone: cap, stock, net/s, fill |
+|---|---|---|
+| a new game (Market 1, no mill) | 9 750, 80, +0.210, 12.8 h (the base alone: 8.6 h) | 200, 30, 0, never (no mill) |
+| `midgame_2flips` (Market 1, Bone Mill 1) | 9 750, 656, +0.160, 15.8 h | 300, 328.5 (over the cap: it keeps the excess and earns nothing until under), 0 (the pits take every body), never |
+| `pre_vei` (Market 2, Bone Mill 1) | 13 000, 3 616, −0.470 (falling), never | 300, 459.6 (over the cap), +0.107 uncapped (the mill's share of a body surplus), earns nothing until spent under 300 |
+
 **Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
 them in `buildings.json`.
 
@@ -186,7 +212,8 @@ them in `buildings.json`.
   `raise_rate` or let the redirect add the haul bonus.
 - **FLOOD as a no-brainer** once `q` is high. The tithe waves and WORK's diminishing returns must keep
   the split moving; the static-schedule ablation checks it.
-- **Gold:** the living cap and upkeep tiers must hold the stock rule.
+- **Gold:** the living cap and upkeep tiers must hold the stock rule. The store caps (above) bound gold
+  and bone from E2b-2; pre_vei's gold falls (−0.47/s) and its bone sits over its cap.
 - **Rate normalisation** (`view.rate_log_max`, 25/s on the map today) saturates at the new flow
   sizes, so it moves into config.
 - **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.

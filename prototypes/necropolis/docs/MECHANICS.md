@@ -177,8 +177,8 @@ values**.
 | war, flood | mass/s | stream | valve | forts / Vei's queue | per lane |
 | corpses at forts | mass | pool (RealmSim `dead`) | your kills, the redirect | haul, Relish's raise, shipping to Vei, `k_clear` | pips |
 | bodies | mass | capped store (`body_store.cap`) | haul, worker rot × `worker.body_return`, dungeon hauls | pit burn, mill | net /s and a bar |
-| gold | gold | stream, floor 0 | market trade | upkeep, build costs | net /s |
-| bone | bone | stream, floor 0 | mill | build costs, some upkeep | net /s |
+| gold | gold | capped store (`gold.cap`, raised by the Market), floor 0 | market trade | upkeep, build costs; what the cap clips (`ledger().stores`) | net /s and a bar |
+| bone | bone | capped store (`bone.cap`, raised by the Bone Mill), floor 0 | mill | build costs, some upkeep; what the cap clips | net /s and a bar |
 | relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons only | buildings, forge levels, phylactery, upgrades | count |
 | blueprints | set | unlocks | dungeons only (first clear guaranteed) | unlock building types | set |
 | essence | motes (int) | capped stock (`essence.cap`) | dungeons (carried out) | phylactery charges, simulacra | count |
@@ -198,7 +198,9 @@ net mass debug commands added or removed. The sinks (`ledger()` keys, STATE-API 
 - `vei_fight` (a lost Vei fight) and `dungeon` (the raid writeback's loss);
 - `pool_overflow`: living marching back from above a fort's cap (§3.4) that land past Vei's pool
   cap. Her own take is limited to the pool's headroom, so only the march-back books here;
-- `store_overflow`, 0 until E2b's store caps (IDLE §6).
+- `store_overflow`, always 0: the store caps (IDLE §6, E2b-2 T3.2) clip gold and bone, which are not
+  mass. Their overflow is a currency tally beside the ledger, `ledger().stores` `{gold: {overflow},
+  bone: {overflow}}` (§4.3), saved with it; the currency soak (`test_ledger`) closes on it.
 
 Everything else is an internal transfer: Vei turning dead and undead into living, her shipping and
 surges, the march-back into her pool, the valve, muster, haul pickups, the redirect and simulacra.
@@ -817,7 +819,21 @@ mass; bodies, rot return, WORK and muster are mass.
       net of upkeep, it reached neither until 7 847 s and 7 853 s. The pits and WAR came back about
       45 s early, and three forts Vei had refilled with living fell instead of holding. Vei's dead
       were 31.9% off at 10 s over 12 h; now 0.50%.
-  - Stocks never go negative and there is no debt. Gold and bone have no caps yet (IDLE §6 is E2b).
+  - Stocks never go negative and there is no debt.
+- **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
+  bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
+  effects, so unpaid or mid-upgrade levels count). The body store's rule (§4.1): after the step's income
+  and upkeep are netted, only what came in is clipped, to `max(cap, S0 − upkeep)`, where `S0` is the
+  store before the step. A store over its cap (a demolished Market or Bone Mill, an old save, a debug
+  grant, which isn't clamped) keeps its excess and earns nothing until it is back under, while upkeep and
+  spending draw it down. Gold's floor of 0 and upkeep are unchanged. At constant rates the clip is exact
+  inside the step (one 10 s step ends with the stock and the overflow of twenty 0.5 s steps;
+  `test_town_sim`). The overflow goes to the currency tally `ledger().stores` (§2.1), and TownSim's
+  `rates.gold`/`rates.bone` carry it as `overflow`, with `in` net of it (the body store's convention), so
+  `view_rates` and the HUD read the store's real net rate: 0 at a full store. The sizing is BALANCE §5.
+  - Known edge: the unpaid-resume solver (Upkeep, above) reads the stocks' paths without the cap, so it
+    could resume a building a few seconds early at a long step if a cap sat below the 30 s of upkeep a
+    resume needs. No cap is anywhere near that (BALANCE §5).
 
 ### 4.4 Buildings
 `configs/buildings.json` (economy) holds:
@@ -856,10 +872,10 @@ upgrade refunds in full and changes nothing else.
 | Crypt | holds the slab; idle rest; big-undead cap +1 per level above 1 | start |
 | Raising Pit | +`P_per_pit` mint; pit job | start (1) |
 | Charnel House | haul job; body store cap + | start |
-| Market | stall jobs (gold) | start (small) |
+| Market | stall jobs (gold); + gold cap (`gold_cap` per level) | start (small) |
 | House | + `living_cap` | Hamlet |
 | Well, Bakery | + morale, + living cap | Hamlet |
-| Bone Mill | mill job | Hamlet |
+| Bone Mill | mill job; + bone cap (`bone_cap` per level) | Hamlet |
 | Inn | + migration, + morale, + living cap | Village |
 | Forge | forge job; levels need relics | Village |
 | Graveyard | + body store cap; + worker lifetime | Village |

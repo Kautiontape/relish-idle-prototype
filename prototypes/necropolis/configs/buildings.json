@@ -42,7 +42,7 @@
     "level_costs": [{"gold": 80.0, "bone": 30.0, "relics": 0}, {"gold": 160.0, "bone": 60.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"stall": 2},
-    "effects": {}
+    "effects": {"gold_cap": 3250.0}
   },
   "house": {
     "cost": {"gold": 40.0, "bone": 10.0, "relics": 0},
@@ -86,7 +86,7 @@
     "level_costs": [{"gold": 120.0, "bone": 40.0, "relics": 0}, {"gold": 180.0, "bone": 60.0, "relics": 0}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"mill": 2},
-    "effects": {}
+    "effects": {"bone_cap": 100.0}
   },
   "inn": {
     "cost": {"gold": 150.0, "bone": 50.0, "relics": 0},

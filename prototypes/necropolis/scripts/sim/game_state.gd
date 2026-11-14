@@ -992,10 +992,12 @@ func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 
 
 # ------------------------------------------------------------ §4.7 ledger ----
-## {sources, sinks, held}: mass totals since the new game, and every pool of mass now (Ledger).
-## Σheld + Σsinks == Σsources at every substep boundary (MECHANICS §2.1).
+## {sources, sinks, held, stores}: mass totals since the new game, every pool of mass now (Ledger), and
+## the currency tally of what the gold and bone caps clipped (not mass). Σheld + Σsinks == Σsources at
+## every substep boundary (MECHANICS §2.1).
 func ledger() -> Dictionary:
-	return {"sources": _ledger.sources.duplicate(), "sinks": _ledger.sinks.duplicate(), "held": _held()}
+	return {"sources": _ledger.sources.duplicate(), "sinks": _ledger.sinks.duplicate(), "held": _held(),
+		"stores": _ledger.stores_copy()}
 
 
 func _held() -> Dictionary:
@@ -1468,6 +1470,9 @@ func _core_step(dt: float) -> Array:
 	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
 		_ledger.sink(k, float(town[k]))
 	_ledger.sink("cleared", cleared)
+	# the currency tally beside the mass (not mass; IDLE §6): what the gold and bone caps clipped
+	_ledger.overflow("gold", float(town["gold_overflow"]))
+	_ledger.overflow("bone", float(town["bone_overflow"]))
 	_ledger.sink("pool_overflow", realm.pool_overflow)  # the march-back past Vei's pool cap (MECHANICS §3.4)
 	_note_realm_flows(dt, cleared)
 	# §3 step 8: the readouts

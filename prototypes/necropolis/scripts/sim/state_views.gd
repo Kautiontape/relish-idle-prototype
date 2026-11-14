@@ -32,7 +32,7 @@ static func hud(gs: GameState) -> Dictionary:
 	var ro := gs._vei_readout()
 	var ts := gs.town_sim
 	var stock := {"mint": -1.0, "workers": ts.workers, "bodies": ts.bodies, "gold": ts.gold, "bone": ts.bone, "living": ts.living}
-	var cap := {"bodies": ts.body_cap(), "living": ts.living_cap()}
+	var cap := {"bodies": ts.body_cap(), "gold": ts.gold_cap(), "bone": ts.bone_cap(), "living": ts.living_cap()}
 	var io := gs._rate_io()
 	var rates: Array = []
 	for id in GameState.HUD_RATE_IDS:
@@ -277,6 +277,7 @@ static func town(gs: GameState) -> Dictionary:
 		"migrants": float(r["living"]["in"]), "departures": float(r["living"]["out"]),
 		"morale": {"value": ts.morale, "target": ts.morale_target(), "factors": ts.morale_factors()},
 		"gold": ts.gold, "bone": ts.bone, "bodies": ts.bodies, "bodies_cap": ts.body_cap(), "trade_rate": float(r["trade_rate"]),
+		"gold_cap": ts.gold_cap(), "bone_cap": ts.bone_cap(),
 		"haul": {"target": gs.haul_target, "current": str(ts.haul["current"]), "convoys": convoys(gs)},
 		"relish_home": gs.relish["state"] == "home",
 	}

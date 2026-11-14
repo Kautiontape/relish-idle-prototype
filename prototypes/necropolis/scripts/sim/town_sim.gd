@@ -28,6 +28,8 @@ extends RefCounted
 ##   haul_overflow: float   haul deliveries lost to the body cap (mass; a ledger sink)
 ##   rot_loss: float        rotted mass that never returns as bodies, (1 − body_return) (a ledger sink)
 ##   burned, milled: float  bodies the pits burned and the mills milled (mass; ledger sinks)
+##   gold_overflow, bone_overflow: float  income the gold and bone caps clipped (IDLE §6; not mass:
+##                          GameState tallies them in the ledger's `stores`)
 ##   events: Array          {type, ...} without `t` (GameState stamps it): building_started,
 ##                          building_done, building_unpaid
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
@@ -46,6 +48,7 @@ const REQUIRED := [
 	"economy.opening.living", "economy.opening.living_cap", "economy.opening.buildings",
 	"economy.worker.mass", "economy.worker.lifetime_s", "economy.worker.body_return",
 	"economy.worker.idle_rot_mult", "economy.worker.idle_cap", "economy.body_store.cap",
+	"economy.gold.cap", "economy.bone.cap",
 	"economy.morale.base", "economy.morale.ease_per_s", "economy.morale.dread_ratio", "economy.morale.dread_k",
 	"economy.morale.leave_below", "economy.morale.shock_s",
 	"economy.job.default_ladder", "economy.job.haul.speed", "economy.job.haul.carry", "economy.job.haul.auto_min_dead",
@@ -69,6 +72,8 @@ var _idle_rot := 0.0
 var _idle_cap := 0.0
 var _home_rot := 0.0
 var _body_cap := 0.0
+var _gold_cap := 0.0
+var _bone_cap := 0.0
 var _living_cap := 0.0
 var _haul_speed := 0.0
 var _carry := 0.0
@@ -98,8 +103,8 @@ var _shock_s := 0.0
 # ---- state (to_dict / from_dict) ----
 var workers := 0.0  # workers
 var bodies := 0.0  # mass, ≤ body_cap()
-var gold := 0.0
-var bone := 0.0
+var gold := 0.0  # ≤ gold_cap(), except an excess kept from before the cap dropped
+var bone := 0.0  # ≤ bone_cap(), likewise
 var living := 0.0  # people, ≤ living_cap()
 var morale := 0.0  # 0..1
 var shock := 0.0  # the decaying death shock, subtracted from the morale target
@@ -158,6 +163,8 @@ func setup(cfgs: Dictionary) -> void:
 	_home_rot = maxf(EPS, _num(cfgs, "realm.relish.home_rot_mult"))
 	_haul_mult = _num(cfgs, "realm.flip.haul_mult")
 	_body_cap = _num(cfgs, "economy.body_store.cap")
+	_gold_cap = _num(cfgs, "economy.gold.cap")
+	_bone_cap = _num(cfgs, "economy.bone.cap")
 	_haul_speed = _num(cfgs, "economy.job.haul.speed")
 	_carry = _num(cfgs, "economy.job.haul.carry")
 	_auto_min = _num(cfgs, "economy.job.haul.auto_min_dead")
@@ -430,7 +437,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var events: Array = _pending
 	_pending = []
 	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "relics_spent": 0,
-		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0, "events": events}
+		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0,
+		"gold_overflow": 0.0, "bone_overflow": 0.0, "events": events}
 	if not is_finite(dt) or dt <= 0.0:
 		out["rates"] = rates.duplicate(true)
 		return out
@@ -471,6 +479,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 3. haul (§4.2): the convoy, as many legs as the step holds. Its departures and pickups see the
 	# store's projected level (rot in, pits and mills out, the loads landed so far); loads land whole
 	var b0 := bodies
+	var g0 := gold  # the gold and bone stores before the step (step 9's cap clip)
+	var bn0 := bone
 	var haul_in := _haul(dt, inp, _job("haul"), cap, out, b0, (rot_mass - want) / dt)
 
 	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
@@ -587,6 +597,18 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 9. upkeep: resume after the hold when the stocks cover it (on their paths over the step), idle
 	# the cheapest when short
 	var paid := _upkeep(dt, events, gold_in, bone_in)
+	# the gold and bone caps (IDLE §6): the body store's rule (step 4). Income and upkeep are netted
+	# first, and only what came in is clipped, to max(cap, the store before the step less its upkeep):
+	# a store already over its cap (a demolished cap building, an old save) keeps its excess, earns
+	# nothing until it is back under, and upkeep (and spending) draw it down. Gold's floor of 0 and
+	# upkeep are unchanged. At constant rates the clip is exact inside the step: one 10 s step ends with
+	# the stock and the overflow of twenty 0.5 s steps.
+	var g_over := store_overflow(g0, gold, float(paid["gold"]), gold_cap())
+	var b_over := store_overflow(bn0, bone, float(paid["bone"]), bone_cap())
+	gold -= g_over
+	bone -= b_over
+	out["gold_overflow"] = g_over
+	out["bone_overflow"] = b_over
 
 	# 10. rates for the views; the staffing and the states at the step's end (views and saves read
 	# them; the next step's _restaff() finds them current and has nothing to redo)
@@ -597,14 +619,24 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 			"muster": float(wf["muster"]) / dt, "steady": r * life, "lifetime_s": life, "slots": used_slots},
 		"bodies": {"in": (rot_in + haul_in) / dt, "out": (burned + milled) / dt, "rot": rot_in / dt, "haul": haul_in / dt,
 			"pit": burned / dt, "mill": milled / dt, "overflow": (float(out["rot_overflow"]) + float(out["haul_overflow"])) / dt},
-		"gold": {"in": gold_in / dt, "out": float(paid["gold"]) / dt},
-		"bone": {"in": bone_in / dt, "out": float(paid["bone"]) / dt},
+		"gold": {"in": (gold_in - g_over) / dt, "out": float(paid["gold"]) / dt, "overflow": g_over / dt,
+			"trade": gold_in / dt},
+		"bone": {"in": (bone_in - b_over) / dt, "out": float(paid["bone"]) / dt, "overflow": b_over / dt,
+			"mill": bone_in / dt},
 		"living": {"in": living_in / dt, "out": living_out / dt},
 		"trade_rate": sales, "haul_trip": float(rates.get("haul_trip", 0.0)) if _haul_trip < 0.0 else _haul_trip,
 		"forge": forge_work / dt, "build": build_work / dt, "tend": tend, "feed": float(out["feed"]),
 	}
 	out["rates"] = rates.duplicate(true)
 	return out
+
+
+## What a capped store (gold, bone) loses to its cap over a step (IDLE §6, MECHANICS §4.3): `s0` before
+## the step, `end` after its income and upkeep, `out` the upkeep it paid. Only what came in is clipped,
+## to max(cap, s0 − out): an excess the store held before the step persists and the upkeep draws it
+## down. The body store's rule (step 4). Returns the overflow, ≥ 0 and never more than the income.
+static func store_overflow(s0: float, end: float, out: float, cap: float) -> float:
+	return maxf(0.0, end - maxf(cap, s0 - out))
 
 
 ## The workforce's exact update over `dt` (MECHANICS §4.1, IDLE §4), in workers.
@@ -1139,6 +1171,17 @@ func body_cap() -> float:
 	return _body_cap + _sum_built("body_cap")
 
 
+## economy.json gold.cap plus the buildings' `gold_cap` effects (the Market, per level; IDLE §6). A
+## capacity effect: unpaid or mid-upgrade levels count.
+func gold_cap() -> float:
+	return _gold_cap + _sum_built("gold_cap")
+
+
+## economy.json bone.cap plus the buildings' `bone_cap` effects (the Bone Mill, per level).
+func bone_cap() -> float:
+	return _bone_cap + _sum_built("bone_cap")
+
+
 ## Working pits now: the mint's `pits` before a step has run (step() reports the same count).
 func pits() -> int:
 	return int(_sum_working("pits"))
@@ -1303,7 +1346,7 @@ static func _zero_rates() -> Dictionary:
 	return {
 		"workers": {"in": 0.0, "out": 0.0, "rot": 0.0, "muster": 0.0, "steady": 0.0, "lifetime_s": 0.0, "slots": 0.0},
 		"bodies": {"in": 0.0, "out": 0.0, "rot": 0.0, "haul": 0.0, "pit": 0.0, "mill": 0.0, "overflow": 0.0},
-		"gold": {"in": 0.0, "out": 0.0},
+		"gold": {"in": 0.0, "out": 0.0},  # a step adds overflow and trade (mill for bone); read them with get()
 		"bone": {"in": 0.0, "out": 0.0},
 		"living": {"in": 0.0, "out": 0.0},
 		"trade_rate": 0.0, "haul_trip": 0.0, "forge": 0.0, "build": 0.0, "tend": 0.0, "feed": 0.0,
