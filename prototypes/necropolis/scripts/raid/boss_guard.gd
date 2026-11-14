@@ -6,8 +6,11 @@ extends RaidUnit
 ## fights an undead only when one is within `block_px` (it is in the way). So the undead that stand
 ## round her are her shield, and the sacrifice chain is what a guard that reaches her costs.
 ## A backup's revive shockwave (`knock`) throws a guard back and it loses her for a moment.
+## With `life_left` > 0 the guard falls back to the line when it runs out (vei.json guards.life_s):
+## guards then never outnumber rate x life, so a dip in her army can't snowball into a pile-up.
 
 var block_px := 70.0
+var life_left := 0.0           # seconds until it falls back to the line (0: it stays until killed)
 var _knock := Vector2.ZERO     # px/s while thrown back
 var _knock_left := 0.0
 
@@ -24,6 +27,11 @@ func knock(from: Vector2, dist: float, secs: float, recover_s: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if life_left > 0.0 and raid != null and not raid._ended and alive:
+		life_left -= delta
+		if life_left <= 0.0:
+			raid.recall_guard(self)
+			return
 	if _knock_left > 0.0 and raid != null and not raid._ended and alive:
 		_knock_left -= delta
 		global_position = raid.resolve_walls(global_position + _knock * delta, radius)

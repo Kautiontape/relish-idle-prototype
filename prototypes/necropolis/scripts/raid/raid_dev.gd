@@ -7,6 +7,7 @@ extends RefCounted
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
+## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
 ## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
@@ -130,6 +131,8 @@ func start() -> void:
 			by_tier[k] = float(cli_value("--raid-ding-chance="))
 	if _stress > 0 and not _raid.is_boss():
 		_spawn_stress(_stress)
+	if cli_flag("--raid-loot-sample") and not _raid.is_boss():
+		_spawn_loot_sample()
 	var motes := int(cli_value("--raid-motes=")) if cli_value("--raid-motes=") != "" else 0
 	if motes > 0 and not _raid.is_boss():
 		_spawn_dev_motes(motes)
@@ -203,6 +206,23 @@ func _autodie_hit() -> void:
 		if is_instance_valid(a) and a.alive:
 			a.die(true)
 	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0)
+
+
+## --raid-loot-sample: one pickup of each RaidLoot.FLOOR_KINDS kind, in a row 120 px above Relish.
+func _spawn_loot_sample() -> void:
+	var bps: Array = ConfigDb.data.get("loot", {}).get("first_clear_blueprint_by_tier", {}).get("1", [""])
+	var items := {"relic": {}, "remnant": {"aspect": "beef", "rarity": "common", "magnitude": 1},
+		"husk": {"kind": str(ConfigDb.data.get("loot", {}).get("first_dungeon_husk", "skeleton"))},
+		"blueprint": {"id": str(bps[0]) if not bps.is_empty() else ""}}
+	var i := 0
+	for k in RaidLoot.FLOOR_KINDS:
+		var pk := RaidPickup.new()
+		pk.raid = _raid
+		pk.kind = k
+		pk.remnant = items[k]
+		pk.position = _raid.resolve_walls(_raid.relish.position + Vector2(-105.0 + 70.0 * i, -120.0), 10.0)
+		_raid.units_root.add_child(pk)
+		i += 1
 
 
 ## N fresh motes (mass 1) around Relish.

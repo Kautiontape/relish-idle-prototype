@@ -135,6 +135,12 @@ func bot_raise_cooldown(raised := true) -> void:
 	_complete(raised)
 
 
+## Ready now: a cooldown or lockout is spent at once, nothing else changes (the boss's revive).
+func ready_now() -> void:
+	if state == State.COOLDOWN or state == State.LOCKOUT:
+		cooldown_left = 0.0
+
+
 ## The antechamber's last chance: ready now, and the next completed raise starts no cooldown.
 func grant_free() -> void:
 	free_next = true
@@ -162,6 +168,7 @@ func _finish_trace() -> void:
 	raid.show_trace_feedback(g, trace.duplicate())  # the player must see WHY 73 was 73
 	var before: int = raid.raises
 	if g["valid"]:
+		RaidSound.play("chime", RaidSoundLogic.chime_params(int(g["score"])))
 		raid.perform_raise(g)
 	_complete(raid.raises > before)
 

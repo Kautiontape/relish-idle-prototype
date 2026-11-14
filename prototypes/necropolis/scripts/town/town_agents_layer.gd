@@ -164,7 +164,8 @@ func _draw_foremen(g: Dictionary, k: float) -> void:
 		if agents.is_walking(String(f["lot_id"])):
 			continue  # on its way: the walker draws it
 		_diamond(f["pos"], int(f["strokes"]), g, k)
-		_badge(f["pos"], String(f.get("name", "")), agents.badge_alpha(String(f["lot_id"])), h)
+		if f.get("badge", false):  # only a foreman placed at a building wears its name
+			_badge(f["pos"], String(f.get("name", "")), agents.badge_alpha(String(f["lot_id"])), h, f.get("n", Vector2.ZERO))
 	var wk: Dictionary = vcfg.get("walkout", {})
 	var segs := maxi(int(wk.get("trail_segs", 1)), 1)
 	for w in agents.walkers:
@@ -197,7 +198,7 @@ func _diamond(c: Vector2, strokes: int, g: Dictionary, k: float) -> void:
 
 
 ## The foreman's name on a ground plate beside its diamond (>= 12 px), faded by `alpha`.
-func _badge(c: Vector2, text: String, alpha: float, h: float) -> void:
+func _badge(c: Vector2, text: String, alpha: float, h: float, n := Vector2.ZERO) -> void:
 	if text == "" or alpha <= 0.0:
 		return
 	var wk: Dictionary = vcfg.get("walkout", {})
@@ -211,7 +212,7 @@ func _badge(c: Vector2, text: String, alpha: float, h: float) -> void:
 	if x + sz.x + pad > host.x - edge:  # no room on the right: on its left
 		x = c.x - h - float(wk.get("badge_gap_px", 6.0)) - sz.x
 	x = clampf(x, pad + edge, maxf(host.x - sz.x - pad - edge, pad + edge))
-	var y := clampf(c.y - sz.y * 0.5, edge, maxf(host.y - sz.y - edge, edge))
+	var y := clampf(c.y - sz.y * 0.5 + TownSetPiece.badge_offset(n, h, sz.y, float(wk.get("badge_gap_px", 6.0)) * 0.5).y, edge, maxf(host.y - sz.y - edge, edge))
 	draw_rect(Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), Palette.c("ground", alpha))
 	draw_string(font, Vector2(x, y + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("text", alpha))
 

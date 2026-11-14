@@ -11,6 +11,8 @@ extends RefCounted
 ##                                                    first_clear, chest_husk, yield_mult}
 ##   held_clear(rng, tier, yield_mult, cfg)           a held fort's counter-garrison reward
 ##   hint(table_id, first_dungeon, cfg)               the short "loot_hint" phrase
+##   floor_glyph(kind, lit) -> {shape, key, matte}    how a loot kind lies on the dungeon floor
+##   pickup_loot(kind, item) -> loot                  what collecting a floor pickup of `kind` adds
 ##   card_line(fort, cfg) -> String                   ONE line for the map's fort card, from a
 ##       view_fort entry (reads tier, warden.archetype, first_clear, first_dungeon, yield_mult,
 ##       held). Shows what the fort holds now and how much has recovered, e.g.
@@ -19,6 +21,7 @@ extends RefCounted
 ##       Signature is stable; the map unit calls it.
 
 const ASPECTS: Array[String] = ["power", "beef", "wits", "presence", "speed"]
+const FLOOR_KINDS: Array[String] = ["relic", "remnant", "husk", "blueprint"]
 const RARITIES: Array[String] = ["common", "uncommon", "rare", "legendary"]
 
 
@@ -141,6 +144,36 @@ static func held_clear(rng: RandomNumberGenerator, tier: int, yield_mult: float,
 		(out["remnants"] as Array).append(_remnant(rng, tier, "", cfg))
 	out["essence"] = scaled_count(rng, float(_range(rng, h.get("essence_motes", [0, 0]))), yield_mult)
 	return out
+
+
+# ------------------------------------------------------------------ floor ----
+## How a loot kind lies on the dungeon floor (each kind its own small line glyph, so the four tell
+## apart by shape): {shape, key, matte}. A husk and a remnant are dead matter (big undead are raised
+## from them): matte `dead`, and `dead_lit` while Relish's light is on them (`lit`). A relic and a
+## blueprint are Vei's treasure: they glow `vei`. Unknown kinds lie as a remnant. Every pickup also
+## sits in a faint `vei` loot ring (the scene draws it), so loot never reads as a corpse pile.
+static func floor_glyph(kind: String, lit: bool) -> Dictionary:
+	match kind:
+		"relic":
+			return {"shape": "gem", "key": "vei", "matte": false}
+		"blueprint":
+			return {"shape": "scroll", "key": "vei", "matte": false}
+		"husk":
+			return {"shape": "husk", "key": "dead_lit" if lit else "dead", "matte": true}
+	return {"shape": "shard", "key": "dead_lit" if lit else "dead", "matte": true}
+
+
+## What collecting a floor pickup adds to found_loot (the loot shape, for RaidLogic.merge_loot). `item`
+## is the remnant {aspect, rarity, magnitude}, the husk {kind} or the blueprint {id}; a relic needs none.
+static func pickup_loot(kind: String, item: Dictionary) -> Dictionary:
+	match kind:
+		"relic":
+			return {"relics": 1}
+		"husk":
+			return {"husks": [item.duplicate(true)]}
+		"blueprint":
+			return {"blueprints": [str(item.get("id", ""))]}
+	return {"remnants": [item.duplicate(true)]}
 
 
 # ------------------------------------------------------------------- text ----

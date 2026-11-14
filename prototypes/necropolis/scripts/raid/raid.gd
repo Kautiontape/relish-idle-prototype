@@ -7,7 +7,6 @@ signal finished(result: Dictionary)
 
 var seed_data := {}
 var layout := {}
-var ledger: RaidLogic.Ledger = null          # legacy (boss only)
 var ledger_v2: RaidLogic.LedgerV2 = null     # dungeon (non-boss)
 var rng_combat := RandomNumberGenerator.new()
 var rng_loot := RandomNumberGenerator.new()  # every loot roll (RaidLoot); seeded from the run seed
@@ -27,8 +26,6 @@ var allies: Array = []
 var ally_engage_px := 620.0
 var trance_active := false
 var first_raise_done := false
-var backlog_left := 0.0          # boss only
-var army_lost := {"soldier": 0, "elite": 0}
 var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
 var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
@@ -72,6 +69,11 @@ func rcfg() -> Dictionary:
 	return ConfigDb.data.get("raid", {})
 
 
+## The Synth kinds to render ahead of use (raid.json `sound.warm`; VeiBoss reads vei.json's).
+func sound_warm() -> Array:
+	return Array(rcfg().get("sound", {}).get("warm", RaidSound.WARM_KINDS))
+
+
 func lcfg() -> Dictionary:
 	return ConfigDb.data.get("loot", {})
 
@@ -90,7 +92,7 @@ func controller_key() -> String:
 	return "town" if held and not is_boss() else "vei"
 
 
-## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
+## Standalone setup args (VeiBoss overrides this: its demo seed is vei.json `demo`).
 ## A dev `--raid-fixture=<fixture>,<fort_id>` goes through commands only.
 func demo_seed() -> Dictionary:
 	var sd := RaidDev.fixture_seed()
@@ -104,13 +106,10 @@ func _ready() -> void:
 		_build()
 
 
-## Router args `{mode: "dungeon", fort_id, run_id, seed_rev}` (legacy keys ignored).
-## The legacy boss args (`boss: true`) are used as the seed as before.
+## Router args `{mode: "dungeon", fort_id, run_id, seed_rev}` (legacy keys ignored). VeiBoss
+## overrides this with its own seed.
 func setup(args: Dictionary) -> void:
-	if bool(args.get("boss", false)):
-		seed_data = args.duplicate(true)
-	else:
-		seed_data = _resolve_seed(args)
+	seed_data = _resolve_seed(args)
 	_setup_called = true
 	if is_inside_tree() and not _built:
 		_build()
@@ -170,11 +169,7 @@ func _build() -> void:
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
 	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
-	if boss:
-		rng_combat.randomize()
-		rng_loot.randomize()
-		ledger = RaidLogic.Ledger.new(float(seed_data.get("dead", 0.0)), float(seed_data.get("cap", 100.0)))
-	else:
+	if not boss:   # (VeiBoss seeds its own rngs from its seed in _build_extra and keeps no ledger)
 		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
 		rng_combat.seed = base ^ 0x6C0AB47
 		rng_loot.seed = base ^ 0x10075EED
@@ -190,6 +185,7 @@ func _build() -> void:
 	add_child(units_root)
 	fx_root = Node2D.new()
 	add_child(fx_root)
+	RaidSound.attach(self, sound_warm())
 
 	# --- Relish just inside the southernmost door ---
 	relish = RaidRelish.new()
@@ -336,10 +332,7 @@ func spawn_unit(faction: String, kind: String, pos: Vector2, grown := false) -> 
 	var cfg := rcfg()
 	var stats: Dictionary = {}
 	if faction == "enemy":
-		if kind == "guard":
-			stats = cfg.get("boss", {}).get("guard", {})
-		else:
-			stats = cfg.get("enemies", {}).get(kind, {})
+		stats = cfg.get("enemies", {}).get(kind, {})
 	else:
 		stats = cfg.get("undead", {}).get(kind, {})
 	var u := RaidUnit.new()
@@ -373,45 +366,25 @@ func spawn_ally_v2(role: String, tier: String, mult: float, mass: float, uid: St
 	return u
 
 
+## The dungeon's deaths only: VeiBoss overrides this whole function with the boss's own rules.
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
-		if is_boss():
-			ledger.on_kill(u.mass)
-		else:
-			ledger_v2.on_kill(u.mass)
+		ledger_v2.on_kill(u.mass)
 		# kills drop essence at the corpse, carrying the enemy's mass
-		if is_boss():
-			spawn_orb(u.global_position, u.mass, Vector2(rng_combat.randf_range(30, 70), 0).rotated(rng_combat.randf() * TAU))
-		else:
-			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
+		_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
-		if not is_boss():
-			_roll_ding(u.global_position)
-			held_clear.on_enemy_died()
+		_roll_ding(u.global_position)
+		held_clear.on_enemy_died()
 	else:
 		allies.erase(u)
-		if is_boss():
-			if u.ledger_mass:
-				ledger.on_chaff_death(u.mass)
-			if u.kind == "soldier":
-				army_lost["soldier"] += 1
-			elif u.kind == "elite":
-				army_lost["elite"] += 1
-		else:
-			if u.role == "party":
-				party_died.append(u.uid)
-			# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
-			var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
-			_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
+		if u.role == "party":
+			party_died.append(u.uid)
+		# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
+		var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
+		_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
 		if not sacrificed:
 			RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
-		_on_ally_died(u)
-
-
-## Boss hook (corpse remnants for Vei's revive).
-func _on_ally_died(_u: RaidUnit) -> void:
-	pass
 
 
 func has_allies() -> bool:
@@ -422,7 +395,7 @@ func has_allies() -> bool:
 
 
 ## THE SACRIFICE CHAIN (MECHANICS 5.0): a lethal hit on Relish consumes the nearest ally of the
-## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest.
+## lowest available rank (chaff, soldier, elite, big undead), in the dungeon and in Vei's fight alike.
 func sacrifice_nearest_ally() -> void:
 	var pool: Array = []
 	var cands: Array = []
@@ -430,7 +403,7 @@ func sacrifice_nearest_ally() -> void:
 		if not is_instance_valid(a) or not a.alive:
 			continue
 		pool.append(a)
-		cands.append({"rank": 0 if is_boss() else RaidLogic.ally_rank(a.role, a.tier),
+		cands.append({"rank": RaidLogic.ally_rank(a.role, a.tier),
 			"dist": a.global_position.distance_to(relish.global_position)})
 	var k := RaidLogic.sacrifice_pick(cands)
 	if k < 0:
@@ -515,12 +488,13 @@ func _roll_ding(pos: Vector2) -> void:
 	units_root.add_child(pk)
 
 
-## Relish reached a pickup: its remnant joins found_loot, with the ding fx and "+1".
+## Relish reached a pickup: its item joins found_loot (RaidLoot.pickup_loot by kind; a ding's
+## remnant today), with the ding fx and "+1".
 func collect_pickup(pk: RaidPickup) -> void:
 	if _ended or not pk.is_in_group("raid_pickups"):
 		return
 	pk.remove_from_group("raid_pickups")   # queue_free is deferred; the count must drop now
-	found_loot = RaidLogic.merge_loot(found_loot, {"remnants": [pk.remnant]})
+	found_loot = RaidLogic.merge_loot(found_loot, RaidLoot.pickup_loot(pk.kind, pk.remnant))
 	RaidFx.ding(fx_root, pk.global_position, lcfg().get("ding", {}).get("fx", {}))
 	pk.queue_free()
 
@@ -555,11 +529,6 @@ func resolve_walls(p: Vector2, r: float) -> Vector2:
 
 
 # ------------------------------------------------------------- essence -------
-func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
-	if mass > 0.001:
-		spawn_mote(pos, mass, false, pop_vel)
-
-
 ## One mote with explicit mass/recycled (mass 0 allowed: massless undead return no mass).
 func spawn_mote(pos: Vector2, mass: float, recycled: bool, pop_vel := Vector2.ZERO) -> void:
 	var o := RaidEssence.new()

@@ -569,8 +569,9 @@ func _read_foremen(model: TownModel, views: Dictionary) -> void:
 		if fr.is_empty():
 			continue
 		var e: Dictionary = by_uid.get(String(b["foreman"]), {})
-		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]),
-			"name": String(e.get("name", "")), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
+		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]), "n": fr["n"],
+			"badge": TownSetPiece.badge_shown(String(e.get("place", "")), String(l["id"]), String(b.get("building_id", ""))),
+			"name": SlabLogic.display_name(e, _slab), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
 	if views.has("big_undead"):
 		_read_walks(entries)
 
@@ -584,7 +585,7 @@ func _foreman_spot(fr: Dictionary) -> Vector2:
 func _read_walks(entries: Array) -> void:
 	if not _places_seeded and _fronts.is_empty():
 		return  # nothing laid out yet: look again at the next sync
-	var res := TownSetPiece.transitions(_prev_places, entries, _places_seeded)
+	var res := TownSetPiece.transitions(_prev_places, entries, _places_seeded, _slab)
 	_prev_places = res["prev"]
 	_places_seeded = true
 	for st in res["starts"]:
@@ -607,7 +608,7 @@ func _read_walks(entries: Array) -> void:
 			if String(w["uid"]) == String(st["uid"]):
 				_walks.erase(w)
 				break
-		_walks.append({"uid": String(st["uid"]), "name": String(st["name"]), "lot_id": lot_id, "path": path,
+		_walks.append({"uid": String(st["uid"]), "name": SlabLogic.display_name(e, _slab) if not e.is_empty() else String(st["name"]), "lot_id": lot_id, "path": path,
 			"len": TownSetPiece.poly_len(path), "d": 0.0, "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
 	_pose_walkers()
 

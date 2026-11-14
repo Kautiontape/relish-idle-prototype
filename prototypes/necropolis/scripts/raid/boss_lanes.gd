@@ -36,6 +36,16 @@ var _break_t: Array = [-1.0, -1.0, -1.0, -1.0]
 var _flash: Array = [0.0, 0.0, 0.0, 0.0]
 var _runners: Array = []       # [{p: Vector2, lane: int}]
 var _labels: Labels = null
+# per-frame draw buffers, reused (resized, written by index): no allocation per lane per frame
+var _strokes := PackedVector2Array()
+var _heads := PackedVector2Array()
+var _mb := PackedVector2Array()
+var _mr := PackedVector2Array()
+var _segs := PackedVector2Array()
+var _ticks := PackedVector2Array()
+var _shapes: Array = []        # per lane: [bow, ring] glyph shapes (PackedVector2Array), built once
+var _ch_cache := {}            # Pulse.channels by u (they depend on u alone)
+var _flow_layers: Array = []   # LineGlow layers for this frame's flow dashes
 
 
 func setup(p_boss: Node2D, p_lanes: Array, p_cfg: Dictionary) -> void:
@@ -124,10 +134,22 @@ func _contact(i: int) -> float:
 
 
 # ------------------------------------------------------------------- draw ---
+## Pulse.channels for the lanes' flow (cached by u: they depend on u alone).
+func _channels() -> Dictionary:
+	var u := 0.85 if win_f >= 0.0 else 0.6
+	if not _ch_cache.has(u):
+		_ch_cache[u] = Pulse.channels(u, Palette.hue("undead"))
+	return _ch_cache[u]
+
+
 func _draw() -> void:
 	var t0 := BossDev.pt()
 	var reduced: bool = Pulse.reduced_motion
 	var dim := 1.0 - 0.8 * maxf(lose_f, 0.0)
+	var ch := _channels()
+	var fcol: Color = ch["color"]
+	fcol.a *= dim
+	_flow_layers = LineGlow.layers(fcol, float(ch["width"]), 0.6, Palette.c("undead_core", fcol.a))   # once a frame
 	for i in lanes.size():
 		_draw_lane(i, reduced, dim)
 	for p in anchors:
@@ -170,20 +192,23 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 		s0 = s_end * lose_f   # the streams drain into Vei from the back
 		count = roundi(count * (1.0 - lose_f))
 	var march := 0.0 if reduced else _clock * float(lc().get("march_px_s", 38.0)) * (1.0 + 3.0 * maxf(lose_f, 0.0))
-	var ss := BossLogic.stream_s(count, s_end - s0, len_px, march)
-	var step_px := (s_end - s0) * len_px / float(maxi(1, count))
-	var base := floori(march / maxf(step_px, 0.001))
-	var strokes := PackedVector2Array()
-	var heads := PackedVector2Array()
-	for k in ss.size():
-		var g := k - base
-		var lat := sin(float(g) * 2.39 + float(i) * 1.7) * band * 0.5
-		var p := BossLogic.point_at(lane, s0 + ss[k]) + perp * lat
-		strokes.append(p - dir * glyph_r)
-		strokes.append(p + dir * glyph_r)
-		heads.append(p + dir * (glyph_r * 0.7 + 1.0))
-		heads.append(p + dir * (glyph_r * 1.3 + 1.0))
-	_undead_batch(strokes, heads, glyph_r, dim * (0.75 + 0.25 * fl))
+	# BossLogic.stream_s's positions, inline into the reused buffers
+	var span := (s_end - s0) * len_px
+	if count > 0 and span > 0.0:
+		var step_px := span / float(count)
+		var off := fposmod(march, step_px)
+		var base := floori(march / maxf(step_px, 0.001))
+		_strokes.resize(count * 2)
+		_heads.resize(count * 2)
+		for k in count:
+			var g := k - base
+			var lat := sin(float(g) * 2.39 + float(i) * 1.7) * band * 0.5
+			var p := a.lerp(b, s0 + (off + step_px * k) / len_px) + perp * lat
+			_strokes[k * 2] = p - dir * glyph_r
+			_strokes[k * 2 + 1] = p + dir * glyph_r
+			_heads[k * 2] = p + dir * (glyph_r * 0.7 + 1.0)
+			_heads[k * 2 + 1] = p + dir * (glyph_r * 1.3 + 1.0)
+		_undead_batch(_strokes, _heads, glyph_r, dim * (0.75 + 0.25 * fl))
 	# the party's big undead lead the stream
 	if party_shown and phase == 1:
 		var n := int(party_count[i]) if i < party_count.size() else 0
@@ -195,7 +220,7 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 	var break_s := float(lc().get("break_s", 0.8))
 	if not cleared or (bt >= 0.0 and bt < break_s):
 		var kf := clampf(bt / break_s, 0.0, 1.0) if bt >= 0.0 else 0.0
-		_guard_line(lane, s_c, dir, perp, int(BossLogic.guard_rows(float(f.get("need", 1.0)), cfg)), kf, dim, reduced)
+		_guard_line(i, lane, s_c, dir, perp, int(BossLogic.guard_rows(float(f.get("need", 1.0)), cfg)), kf, dim, reduced)
 	# Vei's rings behind the line, at her court end
 	var vcol := Palette.c("vei", (0.35 if cleared else 0.85) * dim)
 	LineGlow.ring(self, b, 15.0, vcol, 2.0, 0.4)
@@ -205,25 +230,25 @@ func _draw_lane(i: int, reduced: bool, dim: float) -> void:
 ## The lane runs green toward Vei: undead dashes at a mid rate (VISUAL-LANGUAGE law 3). Their
 ## offset is the lane's own clock, so the victory freeze stops them.
 func _flow(a: Vector2, b: Vector2, len_px: float, dir: Vector2, dim: float, reduced: bool) -> void:
-	var u := 0.85 if win_f >= 0.0 else 0.6
-	var ch := Pulse.channels(u, Palette.hue("undead"))
+	var ch := _channels()
 	var period := float(ch["period"])
 	var dash := float(ch["dash"])
 	var off := 0.0 if reduced else fposmod(_clock * float(ch["speed"]), period)
-	var col: Color = ch["color"]
-	col.a *= dim
-	var segs := PackedVector2Array()
+	var n := 0
 	var d := -period + off
+	_segs.resize(maxi(2, (ceili(len_px / period) + 2) * 2))
 	while d < len_px:
 		var d0 := maxf(0.0, d)
 		var d1 := minf(len_px, d + dash)
 		if d1 > d0:
-			segs.append(a + dir * d0)
-			segs.append(a + dir * d1)
+			_segs[n] = a + dir * d0
+			_segs[n + 1] = a + dir * d1
+			n += 2
 		d += period
-	if not segs.is_empty():
-		for l in LineGlow.layers(col, float(ch["width"]), 0.6, Palette.c("undead_core", col.a)):
-			draw_multiline(segs, l[1], l[0])
+	if n > 0:
+		_segs.resize(n)
+		for l in _flow_layers:
+			draw_multiline(_segs, l[1], l[0])
 	if reduced:
 		_chevrons(a, b, len_px, dir, dim)
 
@@ -240,7 +265,7 @@ func _chevrons(a: Vector2, _b: Vector2, len_px: float, dir: Vector2, dim: float)
 		d += 110.0
 
 
-func _guard_line(lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows: int,
+func _guard_line(li: int, lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows: int,
 		kf: float, dim: float, reduced: bool) -> void:
 	var across := maxi(1, int(lc().get("guards_across", 5)))
 	var row_px := float(lc().get("row_px", 16.0))
@@ -252,13 +277,15 @@ func _guard_line(lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows
 		return
 	# one living glyph's shape (a bow arc and a hollow ring head, facing back down the lane),
 	# translated per guard into two batched multilines
-	var face := -dir
-	var bow_c := -face * (r * 0.55)
-	var a0 := face.angle() - 1.2
-	var bow := _arc_pts(bow_c, r * 1.1, a0, a0 + 2.4, 8)
-	var ring := _arc_pts(bow_c + face * r * 1.1, r * 0.45, 0.0, TAU, 10)
-	var mb := PackedVector2Array()
-	var mr := PackedVector2Array()
+	var shape := _shape(li, dir, r)
+	var bow: PackedVector2Array = shape[0]
+	var ring: PackedVector2Array = shape[1]
+	var nb := (bow.size() - 1) * 2
+	var nr := (ring.size() - 1) * 2
+	_mb.resize(rows * across * nb)
+	_mr.resize(rows * across * nr)
+	var ib := 0
+	var ir := 0
 	for row in rows:
 		for c in across:
 			var lat := (float(c) - (across - 1) * 0.5) * band / maxf(1.0, across - 1)
@@ -269,13 +296,28 @@ func _guard_line(lane: Dictionary, s_c: float, dir: Vector2, perp: Vector2, rows
 				var push := 0.0 if reduced else kf * (30.0 + 12.0 * row)
 				p += perp * sgn * push + dir * push * 0.5
 			for j in bow.size() - 1:
-				mb.append(p + bow[j])
-				mb.append(p + bow[j + 1])
+				_mb[ib] = p + bow[j]
+				_mb[ib + 1] = p + bow[j + 1]
+				ib += 2
 			for j in ring.size() - 1:
-				mr.append(p + ring[j])
-				mr.append(p + ring[j + 1])
-	draw_multiline(mb, Palette.c("living", alpha), maxf(2.4, r * 0.26))
-	draw_multiline(mr, Palette.c("living_core", alpha), 1.6)
+				_mr[ir] = p + ring[j]
+				_mr[ir + 1] = p + ring[j + 1]
+				ir += 2
+	draw_multiline(_mb, Palette.c("living", alpha), maxf(2.4, r * 0.26))
+	draw_multiline(_mr, Palette.c("living_core", alpha), 1.6)
+
+
+## Lane li's guard glyph shape (a bow arc and a hollow ring head, facing back down the lane),
+## built once: [bow, ring].
+func _shape(li: int, dir: Vector2, r: float) -> Array:
+	while _shapes.size() <= li:
+		_shapes.append([])
+	if (_shapes[li] as Array).is_empty():
+		var face := -dir
+		var bow_c := -face * (r * 0.55)
+		var a0 := face.angle() - 1.2
+		_shapes[li] = [_arc_pts(bow_c, r * 1.1, a0, a0 + 2.4, 8), _arc_pts(bow_c + face * r * 1.1, r * 0.45, 0.0, TAU, 10)]
+	return _shapes[li]
 
 
 ## Points along an arc (count segments), for batching one glyph shape many times.
@@ -305,10 +347,10 @@ func _undead(p: Vector2, dir: Vector2, r: float, alpha: float) -> void:
 	draw_circle(p + dir * (r + 1.0), r * 0.3, Palette.c("undead_core", clampf(alpha, 0.0, 1.0)))
 
 
-## A big undead: nested diamonds (two) with a core dot, breathing on the Pulse.
+## A big undead: nested diamonds (two) with a core dot, breathing on the boss's beat (beat_wave).
 func _big(p: Vector2, r: float, dim: float) -> void:
 	var col := Palette.c("undead", dim)
-	var k := 1.0 + 0.06 * Pulse.wave()
+	var k: float = 1.0 + 0.06 * (boss.beat_wave() if boss != null else Pulse.wave())
 	for j in 2:
 		var rr := r * k * (1.0 - 0.3 * j)
 		var pts := PackedVector2Array([p + Vector2(0, -rr), p + Vector2(rr, 0), p + Vector2(0, rr), p + Vector2(-rr, 0), p + Vector2(0, -rr)])
@@ -324,18 +366,19 @@ func _big(p: Vector2, r: float, dim: float) -> void:
 func _draw_anchor(p: Vector2, reduced: bool) -> void:
 	var ac: Dictionary = cfg.get("anchors", {})
 	var r := float(ac.get("radius_px", 58.0))
-	var w := Pulse.wave()
+	var w: float = boss.beat_wave() if boss != null else Pulse.wave()   # the boss's beat, not the Pulse
 	var dim := 1.0 - 0.8 * maxf(lose_f, 0.0)
 	LineGlow.ring(self, p, r, Palette.c("relish", (0.45 + 0.3 * w) * dim), 2.0, 0.5)
 	LineGlow.matte_ring(self, p, r * 0.55, Palette.c("dead", 0.9 * dim), 2.0)
-	var spin := 0.0 if reduced else Pulse.phase() * TAU / 3.0
-	var ticks := PackedVector2Array()
+	var bp: float = boss.beat_phase() if boss != null else Pulse.phase()
+	var spin := 0.0 if reduced else bp * TAU / 3.0
+	_ticks.resize(6)
 	for k in 3:
 		var ang := TAU * k / 3.0 + spin - PI * 0.5
 		var d := Vector2.RIGHT.rotated(ang)
-		ticks.append(p + d * (r + 4.0))
-		ticks.append(p + d * (r + 14.0))
-	draw_multiline(ticks, Palette.c("relish", 0.8 * dim), 2.0)
+		_ticks[k * 2] = p + d * (r + 4.0)
+		_ticks[k * 2 + 1] = p + d * (r + 14.0)
+	draw_multiline(_ticks, Palette.c("relish", 0.8 * dim), 2.0)
 
 
 ## The lane labels: front, have / need as integers, and a status word. On screen at label_px
@@ -343,19 +386,31 @@ func _draw_anchor(p: Vector2, reduced: bool) -> void:
 class Labels:
 	extends Node2D
 	var lanes_node: BossLanes = null
-	var _sig := ""
+	var _key := PackedInt32Array()   # what the labels show, as ints (lane_text's inputs, rounded as drawn)
+	var _next := PackedInt32Array()
 
-	## Redraw only when what the labels say changes: the signature is the exact strings and status
-	## colours drawn, plus the zoom and the loss dim.
+	## Redraw only when what the labels say changes. The key holds every number lane_text draws, as
+	## drawn (floor have, ceil need, ceil short, the status branch), plus the zoom and the loss dim:
+	## compared as ints each frame, no strings built.
 	func _process(_d: float) -> void:
 		var ln := lanes_node
 		if ln == null or ln.boss == null or ln.boss.cam == null:
 			return
-		var sig := "%.3f|%.2f" % [ln.boss.cam.zoom.x, maxf(ln.lose_f, 0.0)]
-		for i in ln.lanes.size():
-			sig += "|" + "/".join(lane_text(i))
-		if sig != _sig:
-			_sig = sig
+		var n := ln.lanes.size()
+		_next.resize(2 + n * 4)
+		_next[0] = roundi(ln.boss.cam.zoom.x * 1000.0)
+		_next[1] = roundi(maxf(ln.lose_f, 0.0) * 100.0)
+		for i in n:
+			var f := ln._front(i)
+			var have := float(f.get("have", 0.0))
+			var need := float(f.get("need", 0.0))
+			var branch := 3 if bool(f.get("cleared", false)) else (2 if ln.phase >= 2 else (1 if have >= need else 0))
+			_next[2 + i * 4] = floori(have + 0.0001)
+			_next[3 + i * 4] = ceili(need - 0.0001)
+			_next[4 + i * 4] = ceili(need - have - 0.0001)
+			_next[5 + i * 4] = branch
+		if _next != _key:
+			_key = _next.duplicate()
 			queue_redraw()
 
 	## Lane i's label: [front name, "have X / need Y", status, status palette key].

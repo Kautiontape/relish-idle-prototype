@@ -1,7 +1,7 @@
 class_name RaidRaise
 extends RefCounted
 ## Circle -> undead: a released, scored circle consumes the enclosed essence and raises one
-## undead per mote (MECHANICS 5.3); the boss keeps the legacy mass-ledger raise. RefCounted: the
+## undead per mote (MECHANICS 5.3); the boss raises through VeiBoss.perform_raise. RefCounted: the
 ## raid calls `perform` / `show_feedback` from the trance and owns the scene state it touches.
 
 var _raid: Node2D
@@ -33,9 +33,6 @@ func perform(g: Dictionary) -> void:
 			picked.append(e)
 	if picked.is_empty():
 		return
-	if _raid.is_boss():
-		_perform_legacy(score, picked)
-		return
 	var motes: Array = []
 	for e in picked:
 		motes.append({"mass": e.mass, "recycled": e.recycled})
@@ -48,6 +45,7 @@ func perform(g: Dictionary) -> void:
 		return
 	_raid.ledger_v2.on_raise(score, float(spec["fresh_mass"]), count)
 	_raid.first_raise_done = true
+	RaidSound.play("raise")
 	_raid.raises += 1
 	var tier := str(spec["tier"])
 	if _last_feedback != null and is_instance_valid(_last_feedback):
@@ -58,22 +56,6 @@ func perform(g: Dictionary) -> void:
 	var masses: Array = spec["unit_masses"]
 	_spawn_ring(count, func(i: int, pos: Vector2) -> void:
 		_raid.spawn_ally_v2("raised", tier, mult, float(masses[i]), "", stats, pos, true))
-
-
-func _perform_legacy(score: int, picked: Array) -> void:
-	var total_mass := 0.0
-	for e in picked:
-		total_mass += e.mass
-		e.absorb()
-	var spec: Dictionary = _raid.ledger.on_raise(score, total_mass, picked.size(), _raid.rcfg())
-	if int(spec["count"]) <= 0:
-		return
-	_raid.first_raise_done = true
-	_spawn_ring(int(spec["count"]), func(_i: int, pos: Vector2) -> void:
-		var u: RaidUnit = _raid.spawn_unit("ally", str(spec["kind"]), pos, true)
-		if str(spec["kind"]) == "chaff":
-			u.ledger_mass = true
-			u.mass = float(spec["unit_mass"]))
 
 
 ## Place `count` raised units on a jittered ring around Relish (`spawn` gets the index and the

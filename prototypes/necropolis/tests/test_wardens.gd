@@ -263,6 +263,7 @@ func run() -> int:
 
 	_hunt_tests(t)
 	_window_tests(t, tempo_s)
+	_meter_tests(t, cfg)
 	return t.failures
 
 
@@ -297,3 +298,54 @@ func _window_tests(t: TestUtil, tempo_s: float) -> void:
 	var far_closed := WardenLogic.slam_window_open(3.0, 800.0, 240.0, tempo_s, 1.5)
 	t.ok(near_open and not far_closed, "the walk out is subtracted from the time left")
 	t.ok(WardenLogic.slam_window_open(2.0, 100.0, 240.0, tempo_s, 0.0), "zero margin reduces to the walk out alone")
+
+
+func _meter_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("break_meter")
+	var total := int(cfg["wardens"].get("meter_pips", 12))
+	var bell := WardenLogic.spec({"id": "old-sluice", "tier": 2}, cfg)
+	var hunt := WardenLogic.spec({"id": "ashgate", "tier": 2}, cfg)
+	var bb := WardenLogic.meter_bands(bell)
+	t.ok(bb.size() == 4 and is_equal_approx(bb[0], 1.0) and is_equal_approx(bb[1], 0.66) and is_equal_approx(bb[2], 0.33) and bb[3] == 0.0,
+		"the Bellringer's bands are its phase hp gates: %s" % str(bb))
+	var bp := WardenLogic.meter_per_band(bb, total)
+	t.ok(bp * 3 == total, "%d pips share evenly over three phases (%d each)" % [total, bp])
+	t.ok(WardenLogic.meter_notches(bb, bp) == [bp, bp * 2], "notches sit between the phase segments")
+	t.ok(WardenLogic.meter_lit(bb, bp, 1.0) == total, "full hp lights every pip")
+	t.ok(WardenLogic.meter_lit(bb, bp, 0.0) == 0, "no hp lights none")
+	t.ok(WardenLogic.meter_lit(bb, bp, 0.001) == 1, "a sliver of hp keeps one pip")
+	t.ok(WardenLogic.meter_lit(bb, bp, 0.999) == total, "a scratch takes no pip")
+	# the notch is crossed on exactly the hit that changes the phase
+	var agree := true
+	var mono := true
+	var prev := total + 1
+	for k in range(1000, -1, -1):
+		var f := k / 1000.0
+		var lit := WardenLogic.meter_lit(bb, bp, f)
+		var ph := WardenLogic.bellringer_phase(bell, f)
+		var by_meter := 0 if lit > bp * 2 else (1 if lit > bp else 2)
+		agree = agree and (by_meter == ph or lit == 0)
+		mono = mono and lit <= prev
+		prev = lit
+	t.ok(agree, "every hp from 1 to 0: the meter's segment is bellringer_phase")
+	t.ok(mono, "the meter never relights as hp falls")
+	t.ok(WardenLogic.meter_lit(bb, bp, 0.6601) == bp * 2 + 1 and WardenLogic.meter_lit(bb, bp, 0.66) == bp * 2,
+		"0.66 is the notch: one pip above it at 0.6601, on it at 0.66")
+	var hb := WardenLogic.meter_bands(hunt)
+	t.ok(hb.size() == 2, "the Huntsman (phased by catches) gets one flat band")
+	var hp := WardenLogic.meter_per_band(hb, total)
+	t.ok(hp == total and WardenLogic.meter_notches(hb, hp).is_empty(), "no notches on its strength")
+	t.ok(WardenLogic.meter_lit(hb, hp, 0.5) == total / 2 and WardenLogic.meter_lit(hb, hp, 0.51) == total / 2 + 1, "flat meter is the ceiling of hp x pips")
+	t.ok(WardenLogic.catch_notches(hunt) == [2, 4], "the Huntsman's notches are on its catches (2, 4)")
+	t.ok(WardenLogic.catch_slots(hunt) == 6, "the CAUGHT track shows the open last phase (6 slots)")
+	t.ok(WardenLogic.catch_notches(bell).is_empty() and WardenLogic.catch_slots(bell) == 0, "the Bellringer has no CAUGHT track")
+	var agree2 := true
+	for c in 9:
+		var nb := 0
+		for n in WardenLogic.catch_notches(hunt):
+			if c >= n:
+				nb += 1
+		agree2 = agree2 and nb == WardenLogic.huntsman_phase(hunt, c)
+	t.ok(agree2, "catches past n notches = huntsman_phase, for 0..8 catches")
+	var first := WardenLogic.spec({"id": "old-sluice", "tier": 1, "first_dungeon": true}, cfg)
+	t.ok(WardenLogic.meter_bands(first) == bb, "the first dungeon's Bellringer has the same bands")

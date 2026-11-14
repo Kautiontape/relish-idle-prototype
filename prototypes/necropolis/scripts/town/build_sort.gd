@@ -26,8 +26,11 @@ static func hud_rate(hud: Dictionary, id: String) -> Dictionary:
 
 ## Stocks the build checks read: {gold, bone, relics}, the net rates the time estimates divide by
 ## (`rates`: {gold, bone} from view_hud), each building's `max_level` from view_catalog, and the
-## big undead's names by uid (a foreman is shown by name).
-static func stocks(views: Dictionary) -> Dictionary:
+## big undead's names by uid (a foreman is shown by name; with the slab config `slab` a creature still
+## carrying the mint default name shows the slab's own name, SlabLogic.display_name), `relics` the relics
+## held (held_relics) and `relic_blocked` the next tier's gate buildings the relics held can't pay for
+## ({building id: true}, from gate_marks).
+static func stocks(views: Dictionary, slab: Dictionary = {}) -> Dictionary:
 	var town: Dictionary = views.get("town", {})
 	var hud: Dictionary = views.get("hud", {})
 	var count := {}
@@ -40,12 +43,83 @@ static func stocks(views: Dictionary) -> Dictionary:
 		max_level[bid] = int(r.get("max_level", 1))
 	var names := {}
 	for u in views.get("big_undead", {}).get("big_undead", []):
-		names[String(u.get("uid", ""))] = String(u.get("name", ""))
+		names[String(u.get("uid", ""))] = SlabLogic.display_name(u, slab) if not slab.is_empty() else String(u.get("name", ""))
+	var blocked := {}
+	for m in gate_marks(views):
+		if not bool(m["ok"]):
+			blocked[String(m["id"])] = true
 	return {"gold": float(town.get("gold", 0.0)), "bone": float(town.get("bone", 0.0)),
-		"relics": float(hud.get("relics", 0)), "count": count, "placeable": placeable,
+		"relics": float(held_relics(views)), "relic_blocked": blocked, "count": count, "placeable": placeable,
 		"max_level": max_level, "foreman_names": names,
 		"rates": {"gold": float(hud_rate(hud, "gold").get("rate", 0.0)), "bone": float(hud_rate(hud, "bone").get("rate", 0.0))},
 		"next_tier": town.get("next_tier", {})}
+
+
+## The relics held: view_inventory().relics (view_hud's copy only when the inventory isn't there).
+static func held_relics(views: Dictionary) -> int:
+	var inv: Dictionary = views.get("inventory", {})
+	if inv.has("relics"):
+		return int(inv["relics"])
+	return int(views.get("hud", {}).get("relics", 0))
+
+
+## The relic budget over the next tier's gate buildings: the buildings `view_town().next_tier.missing` still
+## asks for (not yet placed, built or under construction), in that order, each with its catalog relic cost.
+## The relics held are spent building by building, a building the remainder can't pay for is skipped
+## (`ok` false) and the remainder goes on to the next. [{id, cost, ok}]; a free building is always ok.
+static func gate_marks(views: Dictionary, have := -1) -> Array:
+	if have < 0:
+		have = held_relics(views)
+	var cat := {}
+	for r in views.get("catalog", {}).get("buildings", []):
+		cat[String(r.get("building_id", ""))] = r
+	var placed := {}
+	for b in views.get("town", {}).get("buildings", []):
+		placed[String(b.get("building_id", ""))] = true
+	var out: Array = []
+	var left := have
+	var seen := {}
+	for m in views.get("town", {}).get("next_tier", {}).get("missing", []):
+		var bid := String(m)
+		if placed.has(bid) or seen.has(bid):
+			continue
+		seen[bid] = true
+		var cost := _relics(cat.get(bid, {}))
+		var ok := cost <= left
+		if ok:
+			left -= cost
+		out.append({"id": bid, "cost": cost, "ok": ok})
+	return out
+
+
+## The relic wall of the next tier: when the missing gate buildings' relic costs summed are over the relics
+## held, {ids: the missing buildings that cost relics, need: their costs summed, have: relics held,
+## marks: gate_marks}; {} when the relics pay for all of them (or none costs any).
+static func relic_wall(views: Dictionary) -> Dictionary:
+	var have := held_relics(views)
+	var marks := gate_marks(views, have)
+	var ids: Array = []
+	var need := 0
+	for m in marks:
+		if int(m["cost"]) > 0:
+			ids.append(String(m["id"]))
+			need += int(m["cost"])
+	if need <= have:
+		return {}
+	return {"ids": ids, "need": need, "have": have, "marks": marks}
+
+
+## True when the relics can't pay for `row` (a catalog row, or an upgrade's, with `cost`): the sim says
+## no_relics, its relic cost is over the relics held, or it is a next-tier gate building the budget (gate_marks,
+## in `st.relic_blocked`) has run out for. Upgrades are checked on their own cost only.
+static func relic_blocked(row: Dictionary, st: Dictionary) -> bool:
+	if String(row.get("reason", "")) == "no_relics":
+		return true
+	if not st.has("relics"):
+		return false
+	if float((row.get("cost", {}) as Dictionary).get("relics", 0.0)) > float(st["relics"]) + 0.0001:
+		return true
+	return not bool(row.get("upgrade", false)) and (st.get("relic_blocked", {}) as Dictionary).has(String(row.get("building_id", "")))
 
 
 # ------------------------------------------------------------------ needs ----
@@ -256,6 +330,16 @@ static func fitting(items: Array, lot_size: int) -> Array:
 ## that isn't flowing, or a longer wait, falls back to the plain rule.
 static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}, upgrades: Array = [], reserved: Dictionary = {}) -> Dictionary:
 	var items := candidates(items_in, upgrades, reserved)
+	# never a dead end on relics: the best relic-free pick leads; only when nothing relic-free is left does
+	# the suggestion become the relic wall (the blocked pick itself, as before)
+	var free := items.filter(func(it): return not relic_blocked(it["row"], st))
+	var best := _suggest_from(free, bview, st, vcfg)
+	if best.is_empty() and free.size() < items.size():
+		best = _suggest_from(items, bview, st, vcfg)
+	return best
+
+
+static func _suggest_from(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
 	if not st.is_empty() and not vcfg.is_empty():
 		var saving := _save_for(items, bview, st, vcfg)
 		if not saving.is_empty():
@@ -767,28 +851,24 @@ static func row_reason(row: Dictionary, st: Dictionary, bview: Dictionary, vcfg:
 	return why
 
 
-## What relics are holding back: the next tier's missing buildings (not yet placed) when their summed
+## What relics are holding back: the next tier's missing buildings (not yet placed; relic_wall) when their summed
 ## relic cost is over the relics held, and the tab's top need-serving row (the first of `items`, from
-## sort_rows, that serves a need and isn't tier-gated) when its own relic cost is. {ids: Array[String], need: int (summed relic cost), have: int, text: String
-## (view.relic_gate)}; {} when relics block neither.
+## sort_rows, that serves a need and isn't tier-gated) when its own relic cost is. {ids: Array[String], need: int
+## (summed relic cost), have: int, text: String (view.relic_gate), parts: [{id, cost, ok}] in the order the
+## text lists them}: the text names each building with its own relic cost and a mark when the relics held pay
+## for it (gate_marks' budget); {} when relics block neither.
 static func relic_gate(views: Dictionary, items: Array, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Dictionary:
-	var cat := {}
-	for r in views.get("catalog", {}).get("buildings", []):
-		cat[String(r.get("building_id", ""))] = r
-	var placed := {}
-	for b in views.get("town", {}).get("buildings", []):
-		placed[String(b.get("building_id", ""))] = true
 	var have := int(st.get("relics", 0.0))
+	var wall := relic_wall(views)
 	var ids: Array = []
+	var parts: Array = []
 	var need := 0
-	for m in views.get("town", {}).get("next_tier", {}).get("missing", []):
-		var n := _relics(cat.get(String(m), {}))
-		if not placed.has(String(m)) and n > 0 and not ids.has(String(m)):
-			ids.append(String(m))
-			need += n
-	if need <= have:
-		ids.clear()
-		need = 0
+	if not wall.is_empty():
+		for m in wall["marks"]:
+			if int(m["cost"]) > 0:
+				ids.append(String(m["id"]))
+				parts.append(m)
+				need += int(m["cost"])
 	var top: Dictionary = {}  # the first row of the tab that serves a need and isn't tier-gated
 	for it in items:
 		if String(it["need"]) != "" and int(it.get("cls", CLS_BUILDABLE)) != CLS_GATED:
@@ -799,15 +879,16 @@ static func relic_gate(views: Dictionary, items: Array, st: Dictionary, bview: D
 		var tn := _relics(top["row"])
 		if tn > have and not ids.has(tid):
 			ids.append(tid)
+			parts.append({"id": tid, "cost": tn, "ok": false})
 			need += tn
 	if ids.is_empty():
 		return {}
 	var rg: Dictionary = vcfg.get("relic_gate", {})
-	var tt: Dictionary = vcfg.get("shortage_text", {})
-	var labels: Array = ids.map(func(i): return label_of(String(i), bview))
-	return {"ids": ids, "need": need, "have": have, "text": fmt(String(rg.get("text", "")), {
-		"list": String(rg.get("join", " and ")).join(labels), "verb": String(rg.get("one" if ids.size() == 1 else "many", "")),
-		"n": need, "unit": String(tt.get("unit_relics_one" if need == 1 else "unit_relics", "relics")), "have": have})}
+	var labels: Array = parts.map(func(m):
+		return fmt(String(rg.get("item_ok" if bool(m["ok"]) else "item", "")),
+			{"label": label_of(String(m["id"]), bview), "n": int(m["cost"]), "mark": String(rg.get("mark_ok", ""))}))
+	return {"ids": ids, "need": need, "have": have, "parts": parts, "text": fmt(String(rg.get("text", "")), {
+		"list": String(rg.get("join", " · ")).join(labels), "have": have})}
 
 
 static func _relics(row: Dictionary) -> int:

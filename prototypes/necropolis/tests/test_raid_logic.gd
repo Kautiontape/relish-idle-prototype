@@ -347,6 +347,7 @@ func run() -> int:
 	_routing_tests(t, cfg)
 	_close_exit_tests(t)
 	_warden_reach_tests(t, cfg)
+	_vis_tests(t, cfg)
 	return t.failures
 
 
@@ -1350,3 +1351,70 @@ func _warden_reach_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"in the warden room: in reach")
 	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r) and not RaidLogic.warden_in_reach(lay2, inside, wc2, 30.0, r),
 		"the reach still bounds it")
+
+
+## The D-b review's readability helpers (pure; the scene only draws what they return).
+func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_exposed")
+	var d: Dictionary = cfg.get("danger", {})
+	var lo := float(d.get("exposed_min", 0.2))
+	var hi := float(d.get("exposed_max", 1.0))
+	t.ok(RaidLogic.exposed_level(1, 0.1, cfg) == 0.0, "a phylactery left: no danger rim at any hp")
+	t.near(RaidLogic.exposed_level(0, 1.0, cfg), lo, 0.0001, "none left at full hp: the faint rim")
+	t.near(RaidLogic.exposed_level(0, 0.0, cfg), hi, 0.0001, "none left at no hp: the strong rim")
+	t.ok(lo < 0.35 and hi > lo, "the full-hp rim is faint, and it strengthens (%.2f to %.2f)" % [lo, hi])
+	t.ok(RaidLogic.exposed_level(0, 0.5, cfg) > RaidLogic.exposed_level(0, 0.9, cfg), "it rises as hp falls")
+	t.ok(RaidLogic.exposed_level(0, 2.0, cfg) == lo and RaidLogic.exposed_level(0, -1.0, cfg) == hi, "hp_frac is clamped")
+	t.ok(RaidLogic.phylactery_word(1) == "" and RaidLogic.phylactery_word(3) == "", "a charge left: no word")
+	var w := RaidLogic.phylactery_word(0)
+	t.ok(w.contains("NO REVIVE") and not w.contains("KILLS"), "none left: NO REVIVE, never NEXT HIT KILLS (%s)" % w)
+	t.suite("raid_loot_line")
+	t.ok(RaidLogic.loot_line(RaidLogic.loot_counts({})) == "", "nothing found: an empty line (the HUD says none)")
+	var lc := RaidLogic.loot_counts({"relics": 1, "remnants": [{}, {}], "essence": 5})
+	t.ok(RaidLogic.loot_line(lc) == "relics 1 · remnants 2 · essence 5", "only the non-zero kinds, in order: " + RaidLogic.loot_line(lc))
+	t.ok(RaidLogic.loot_line({"husks": 1, "blueprints": 0}) == "husks 1", "a zero kind never shows")
+	t.suite("raid_push_line")
+	t.ok(RaidLogic.compass(Vector2(-10, 0)) == "W" and RaidLogic.compass(Vector2(0, -5)) == "N"
+		and RaidLogic.compass(Vector2(3, 3)) == "SE" and RaidLogic.compass(Vector2(-4, -4)) == "NW", "compass: y grows down")
+	t.ok(RaidLogic.compass(Vector2.ZERO) == "", "compass of nothing is empty")
+	var one := {"relics": 0, "remnants": 1, "husks": 0, "blueprints": 0, "essence": 0}
+	t.ok(RaidLogic.push_line(6, "W", 0, one) == "LIVING 6 left · exit W · 1 remnant at risk", RaidLogic.push_line(6, "W", 0, one))
+	var more := {"relics": 2, "remnants": 0, "husks": 1, "blueprints": 0, "essence": 5}
+	t.ok(RaidLogic.push_line(0, "SE", 2, more) == "LIVING 0 left · exit SE, 2 rooms · 2 relics + 1 husk + 5 essence at risk",
+		RaidLogic.push_line(0, "SE", 2, more))
+	t.ok(RaidLogic.push_line(3, "", 1, {}, true) == "LIVING 3 left · AT EXIT · nothing at risk", "at an exit, nothing found")
+	t.ok(RaidLogic.push_line(3, "", -1, one) == "LIVING 3 left · 1 remnant at risk", "no exit found: the clause is dropped, never AT EXIT")
+	t.ok(RaidLogic.push_line(2, "E", 3, one, true).contains("AT EXIT") and not RaidLogic.push_line(2, "E", 3, one, true).contains("exit E"),
+		"at an exit wins over the word")
+	var five := {"relics": 1, "remnants": 2, "husks": 0, "blueprints": 0, "essence": 1}
+	t.ok(RaidLogic.push_line(0, "E", 0, five).ends_with("1 relic + 2 remnants + 1 essence at risk"), "essence is in the at-risk phrase")
+	t.suite("raid_bankable")
+	var cmax := int(cfg.get("essence", {}).get("carry_max", 12))
+	t.ok(RaidLogic.bankable(10, 0, cfg) == mini(10, cmax), "10 loose, empty hands: 10")
+	t.ok(RaidLogic.bankable(10, cmax - 3, cfg) == 3, "10 loose, 3 slots left: 3")
+	t.ok(RaidLogic.bankable(10, cmax, cfg) == 0 and RaidLogic.bankable(-2, 0, cfg) == 0, "full hands or nothing loose: 0")
+	t.suite("raid_spread_angle")
+	var none := PackedFloat32Array()
+	t.near(RaidLogic.spread_angle(1.0, none, 0.75), 1.0, 0.0001, "an empty ring keeps the wanted angle")
+	var one_a := PackedFloat32Array([1.0])
+	var a2 := RaidLogic.spread_angle(1.1, one_a, 0.75)
+	t.ok(absf(angle_difference(a2, 1.0)) >= 0.7499, "a mark from the same side steps clear of the first (%.2f)" % a2)
+	var many := PackedFloat32Array()
+	for k in 6:
+		many.append(RaidLogic.spread_angle(0.5, many, 0.75))
+	var apart := true
+	for i in many.size():
+		for j in range(i + 1, many.size()):
+			apart = apart and absf(angle_difference(many[i], many[j])) >= 0.7499
+	t.ok(apart, "six catches from one side stay at least sep apart: %s" % str(many))
+	t.ok(RaidLogic.spread_angle(2.5, PackedFloat32Array([0.0]), 0.75) == wrapf(2.5, -PI, PI), "far from every mark: unchanged")
+	t.suite("raid_exposed_tint")
+	t.near(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 1.0, cfg), cfg), 0.0, 0.0001, "full hp: the words stay text_dim")
+	t.near(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.0, cfg), cfg), 1.0, 0.0001, "no hp: the words are danger")
+	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
+	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
+	t.suite("raid_beat_lines")
+	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 essence to bank", "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
+	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
+	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")

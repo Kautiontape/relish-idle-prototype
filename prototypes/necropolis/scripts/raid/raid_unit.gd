@@ -20,8 +20,6 @@ var uid := ""                # party only
 var beef := 0.0              # party only: the entry's beef stat (the Bellringer's weak point)
 var speed_stat := 0.0        # party only: the entry's speed stat (the Huntsman's weak point)
 var slots := 1               # party: nested diamonds (filled slots)
-var ledger_mass := false     # true only for chaff raised this raid
-var from_army := false       # boss: brought army (loss accounting)
 var home_room := Rect2()
 var alive := true
 

@@ -163,6 +163,45 @@ static func reconcile(b: Dictionary, inventory: Dictionary) -> Dictionary:
 
 ## The name rule (STATE-API bad_name): 1..24 characters after strip_edges.
 ## -> {ok, name (stripped), reason ("" or "bad_name")}
+## {uid: name to show} for big undead entries: SlabLogic.display_name (the slab's name while an entry still
+## carries the mint default "Big u7", its own name otherwise). The one place the roster, the Foreman chooser
+## and the place words read names from.
+static func display_names(entries: Array, slab: Dictionary) -> Dictionary:
+	var out := {}
+	for e in entries:
+		out[String(e.get("uid", ""))] = SlabLogic.display_name(e, slab)
+	return out
+
+
+## The debug raise's name for the creature it grants: the name the slab gave (what the player kept for the husk
+## and remnants on it), else the slab's name for the granted `entry` itself.
+static func raise_name(slab_name: String, entry: Dictionary, slab: Dictionary) -> String:
+	return slab_name if slab_name != "" else SlabLogic.display_name(entry, slab)
+
+
+## Whether the raise is still a preview (nothing is spent, no big undead rises): town.json slab.raise_wired is
+## false (STANDIN(E3): the sim has no view fact that says so before the first raise) and no raise has yet
+## returned a creature (`seen_live`, see raise_returned_creature), which switches the note off for good.
+static func raise_is_preview(cfg: Dictionary, seen_live: bool) -> bool:
+	return not bool(cfg.get("raise_wired", false)) and not seen_live
+
+
+## A raise result that really made a big undead: ok and a non-empty uid (the stub returns uid "").
+static func raise_returned_creature(r: Dictionary) -> bool:
+	return bool(r.get("ok", false)) and String(r.get("big_undead", {}).get("uid", "")) != ""
+
+
+## A timed line's seconds left after `dt` (never below 0).
+static func line_left(left: float, dt: float) -> float:
+	return maxf(left - dt, 0.0)
+
+
+## The note a placed big undead's line carries: "coming: a foreman boosts its building in a later build" for a
+## foreman place (town:<lot>), "" for any other place.
+static func place_note(place: String, texts: Dictionary) -> String:
+	return String(texts.get("foreman_coming", "")) if place.begins_with("town:") else ""
+
+
 static func check_name(name: String) -> Dictionary:
 	var nm := name.strip_edges()
 	var ok := not nm.is_empty() and nm.length() <= NAME_MAX
@@ -247,16 +286,10 @@ static func stat_rows(stats: Dictionary, dominant: String, cfg: Dictionary, text
 	return out
 
 
-## What a stat helps: "the raw front · a warden's armour" (slab.stat_fronts + view.crypt.stat_uses).
-static func stat_helps(stat: String, cfg: Dictionary, texts: Dictionary) -> String:
-	var parts: Array = []
-	var front := String(cfg.get("stat_fronts", {}).get(stat, ""))
-	if front != "":
-		parts.append(String(texts.get("front", "{front}")).format({"front": front}))
-	var uses := String(texts.get("stat_uses", {}).get(stat, ""))
-	if uses != "":
-		parts.append(uses)
-	return String(texts.get("sep", " · ")).join(parts)
+## What a stat helps, in the town's own words and buildings: slab.stat_helps (town.json). `texts` is kept for the
+## caller's signature.
+static func stat_helps(stat: String, cfg: Dictionary, _texts: Dictionary) -> String:
+	return String(cfg.get("stat_helps", {}).get(stat, ""))
 
 
 ## A stat as an upright number: whole when it is whole ("6"), else one decimal ("3.5").

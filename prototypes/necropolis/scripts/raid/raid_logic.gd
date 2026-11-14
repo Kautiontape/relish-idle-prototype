@@ -40,7 +40,7 @@ static func score_class(score: int, cfg: Dictionary) -> String:
 	return "chaff"
 
 
-## What a scored circle raises from N orbs of total mass M.
+## What a scored circle raises from N orbs of total mass M. Test-only (Ledger.on_raise, see there).
 ## Big sloppy circle = many weak idiots; small perfect circle = few strong ones.
 static func raise_spec(score: int, total_mass: float, orb_count: int, cfg: Dictionary) -> Dictionary:
 	if orb_count <= 0:
@@ -363,6 +363,110 @@ static func revives_left(revived: int, seed: Dictionary) -> int:
 	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
+## A BANKED / UNBANKED line from loot_counts / unbanked: the non-zero kinds only ("relics 1 ·
+## remnants 2 · essence 5"); "" when every kind is zero (the HUD shows one dim word then).
+static func loot_line(c: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	for k in ["relics", "remnants", "husks", "blueprints", "essence"]:
+		if int(c.get(k, 0)) > 0:
+			parts.append("%s %d" % [k, int(c[k])])
+	return " · ".join(parts)
+
+
+## The 8-way compass word for a direction on the dungeon floor (y grows down, so N is up the screen):
+## "N", "NE", "E", "SE", "S", "SW", "W", "NW"; "" for a zero vector.
+static func compass(v: Vector2) -> String:
+	if v.length() < 0.001:
+		return ""
+	var words := ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
+	var i := int(posmod(roundi(v.angle() / (PI / 4.0)), 8))
+	return words[i]
+
+
+## What a death would lose, as a phrase: "1 remnant + 5 essence at risk", "nothing at risk".
+static func risk_phrase(c: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	for k in ["relics", "remnants", "husks", "blueprints"]:
+		var n := int(c.get(k, 0))
+		if n > 0:
+			parts.append("%d %s" % [n, k if n > 1 else k.trim_suffix("s")])
+	if int(c.get("essence", 0)) > 0:
+		parts.append("%d essence" % int(c["essence"]))
+	return "nothing at risk" if parts.is_empty() else " + ".join(parts) + " at risk"
+
+
+## The push-or-retreat line (D-b review MF-5): "LIVING 6 left · exit W, 2 rooms · 1 remnant at risk".
+## `at_exit`: Relish stands at an exit ("AT EXIT"). Otherwise `exit_word` is the compass word of the
+## way to the nearest exit (the first step of its route, so never through a wall), "" when there is
+## none (the clause is dropped); `hops` the rooms between her room and the exit's (0 this room, -1
+## unknown: a doorway band).
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false) -> String:
+	var parts: PackedStringArray = ["LIVING %d left" % maxi(0, living)]
+	if at_exit:
+		parts.append("AT EXIT")
+	elif exit_word != "":
+		parts.append("exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops)))
+	parts.append(risk_phrase(at_risk))
+	return " · ".join(parts)
+
+
+## How much loose essence can still be banked: what lies loose, capped by the carry room left.
+static func bankable(loose: int, carried: int, cfg: Dictionary) -> int:
+	return mini(maxi(0, loose), carry_room(carried, cfg))
+
+
+## An angle for a new mark on a ring that already has marks at `taken`: `want` when nothing lies
+## within `sep` of it, else the first of want + sep, want + 2 sep, ... that is clear (want itself
+## when the ring is full). Keeps marks countable when they keep coming from the same side.
+static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> float:
+	var steps := maxi(1, ceili(TAU / maxf(0.01, sep)))
+	for k in steps:
+		var a := want + sep * k
+		var clear := true
+		for t in taken:
+			if absf(angle_difference(a, t)) < sep - 0.0001:
+				clear = false
+				break
+		if clear:
+			return wrapf(a, -PI, PI)
+	return wrapf(want, -PI, PI)
+
+
+## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
+static func last_chance_banner(lit: int) -> String:
+	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d essence to bank" % lit)
+
+
+## The held-fort clear's effect on the map (D-b review SF-5): the counter-garrison mass this run
+## killed comes off the fort's living.
+static func held_map_effect(killed_mass: float) -> String:
+	return "on the map: counter-garrison −%d" % roundi(maxf(0.0, killed_mass))
+
+
+## How exposed Relish is, 0..1, for her halo's danger rim. 0 while a phylactery charge is left.
+## With none, a faint `danger.exposed_min` at full hp rising to `exposed_max` as her hp falls: a hit
+## still has to get through the sacrifice chain and her hp first, so this is a rim, never an alarm
+## (day 1 starts with no charges, and a steady strong halo would be noise).
+static func exposed_level(phyl_left: int, hp_frac: float, cfg: Dictionary) -> float:
+	if phyl_left > 0:
+		return 0.0
+	var d: Dictionary = cfg.get("danger", {})
+	return lerpf(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), 1.0 - clampf(hp_frac, 0.0, 1.0))
+
+
+## How far an exposed_level sits from the faint full-hp rim (0) to the strong no-hp one (1): the
+## PHYLACT. words lean from text_dim to danger by it, as the halo does.
+static func exposed_tint(level: float, cfg: Dictionary) -> float:
+	var d: Dictionary = cfg.get("danger", {})
+	return clampf(inverse_lerp(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), level), 0.0, 1.0)
+
+
+## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true
+## whatever her hp: the chain and her hp still stand between her and it).
+static func phylactery_word(phyl_left: int) -> String:
+	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+
+
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
 ## 1 soldier, 2 elite, 3 big undead (party).
 static func ally_rank(role: String, tier: String) -> int:
@@ -525,7 +629,9 @@ static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictiona
 
 
 # -------------------------------------------------------------- the ledger ---
-## Tracks how in-scene events map onto the abstract map-mass result dict.
+## TEST-ONLY v1 result builder: no scene uses it any more (the dungeon is LedgerV2, the boss has its
+## own result). Kept because tests/test_results.gd (from_v1) builds its v1 fixture with it; delete it
+## with that fixture. Tracks how in-scene events map onto the abstract map-mass result dict.
 ## Conservation invariant: everything reported as raised (chaff out + good mass
 ## + garrison) can never exceed initial dead + mass of living killed. Chaff that
 ## is re-killed inside the raid drops out of the pool (its corpse stays at the

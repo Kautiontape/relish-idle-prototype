@@ -42,6 +42,11 @@ var ferry_beat := 0.0           # F per beat on the break's scale
 var uncleared := 0
 var brk := {}                   # VeiFronts break state
 var streak_max := 0
+var lapses := 0                 # beats that lapsed with a streak to lose (the meter's running count)
+var lapse_lost := 0             # break pips those lapses cost in all
+var lapse_lo := -1              # the last lapse took pips lapse_lo..lapse_hi-1 (flashed while _lapse_t > 0)
+var lapse_hi := -1
+var _lapse_t := 0.0             # real seconds the last lapse still shows
 var beat_raised := 0.0          # raised value this beat
 var t2 := 0.0                   # the break's scene clock (beat 0 on a tempo boundary)
 var anchors: Array = []
@@ -53,6 +58,7 @@ var phase1_s := -1.0            # how long the fronts took (-1: the break never 
 var stress := false             # DEV --boss-stress (BossDev)
 
 var _mote_acc: Array = [0.0, 0.0, 0.0, 0.0]
+var _p1_acc := 0.0              # scene seconds since phase 1 last stepped
 var _anchor_acc := 0.0
 var _anchor_next := 0
 var _guard_acc := 0.0
@@ -68,6 +74,11 @@ var _bot: BossAutopilot = null
 
 func vcfg() -> Dictionary:
 	return ConfigDb.data.get("vei", {})
+
+
+## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.
+func sound_warm() -> Array:
+	return Array(vcfg().get("sound", {}).get("warm", []))
 
 
 ## raid.json with vei.json `arena.layout` merged over its layout (built once): the base build then
@@ -104,6 +115,24 @@ func in_break() -> bool:
 	return phase == Phase.BREAK
 
 
+## The boss's own beat (phase 2: the clock weaves land and pips fill on, which slows with the trance;
+## otherwise the Pulse). Its visuals (Vei's rings, the anchor ticks) read these so they stay on it.
+func beat_phase() -> float:
+	if Pulse.reduced_motion:
+		return Pulse.reduced_phase
+	if phase == Phase.BREAK:
+		return fposmod(BossLogic.beat_of(t2, tempo_s()), 1.0)
+	return Pulse.phase()
+
+
+func beat_wave() -> float:
+	if Pulse.reduced_motion:
+		return Pulse.reduced_wave
+	if phase == Phase.BREAK:
+		return exp(-beat_phase() * Pulse.wave_decay)
+	return Pulse.wave()
+
+
 func tempo_s() -> float:
 	return Pulse.tempo_ms / 1000.0
 
@@ -124,6 +153,8 @@ func setup(args: Dictionary) -> void:
 ## The open run's seed (view_boss_seed), else the demo. Only `run_id` of the args is looked at.
 func _boss_seed(args: Dictionary) -> Dictionary:
 	var standalone := is_inside_tree() and get_tree().current_scene == self
+	if standalone:
+		BossDev.apply_cfg_overrides(vcfg())
 	var sd: Dictionary = Game.state.view_boss_seed()
 	if sd.is_empty():
 		if not standalone:
@@ -242,6 +273,7 @@ func _post_physics(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	super._process(delta)
+	_lapse_t = maxf(0.0, _lapse_t - delta / maxf(0.05, Engine.time_scale))
 	if _bdev != null:
 		_bdev.tick()
 	if _seq_kind != "":
@@ -249,17 +281,26 @@ func _process(delta: float) -> void:
 
 
 # --- phase 1: the fronts ---
+## The fronts advance at phase1.step_s (VeiFronts.phase1_step is pure and builds new state; it is
+## linear in dt, so stepping it at 10 Hz is the same fight with fewer allocations per tick).
 func _step_fronts(delta: float) -> void:
 	var vc := vcfg()
-	var before: Array = []
-	for f in p1["fronts"]:
-		before.append(bool(f["cleared"]))
-	p1 = VeiFronts.phase1_step(p1, delta, vc)
-	for i in (p1["fronts"] as Array).size():
-		if bool(p1["fronts"][i]["cleared"]) and not bool(before[i]):
-			_on_front_cleared(i)
-	lanes_node.fronts = p1["fronts"]
 	_front_motes(delta, vc)
+	_p1_acc += delta
+	if _p1_acc < float(vc.get("phase1", {}).get("step_s", 0.1)):
+		return
+	var before := 0
+	var fs: Array = p1["fronts"]
+	for i in fs.size():
+		if bool(fs[i]["cleared"]):
+			before |= 1 << i
+	p1 = VeiFronts.phase1_step(p1, _p1_acc, vc)
+	_p1_acc = 0.0
+	fs = p1["fronts"]
+	for i in fs.size():
+		if bool(fs[i]["cleared"]) and (before & (1 << i)) == 0:
+			_on_front_cleared(i)
+	lanes_node.fronts = fs
 	match VeiFronts.phase1_outcome(p1, vc):
 		"phase2":
 			_begin_break()
@@ -362,7 +403,16 @@ func _step_break(delta: float) -> void:
 	horde = BossLogic.horde_step(horde, ferry, delta)
 	lanes_node.horde_frac = horde / horde0 if horde0 > 0.0 else 0.0
 	for k in BossLogic.beats_crossed(b0, b1):
+		var before := int(brk.get("streak", 0))
 		brk = VeiFronts.break_beat(brk, beat_raised, ferry_beat, vc)
+		if int(brk["streak"]) > before:
+			RaidSound.play("streak", {"step": int(brk["streak"])})
+		elif int(brk["streak"]) < before:
+			lapses += 1
+			lapse_lost += before - int(brk["streak"])
+			lapse_lo = int(brk["streak"])
+			lapse_hi = before
+			_lapse_t = float(vc.get("meter", {}).get("lapse_flash_s", 1.2))
 		beat_raised = 0.0
 		streak_max = maxi(streak_max, int(brk["streak"]))
 		if VeiFronts.broken(brk, vc):
@@ -426,6 +476,7 @@ func spawn_guard() -> RaidUnit:
 	units_root.add_child(u)
 	u.configure(self, "enemy", "guard", vc.get("guards", {}).get("unit", {}))
 	u.block_px = float(vc.get("guards", {}).get("block_px", 70.0))
+	u.life_left = float(vc.get("guards", {}).get("life_s", 0.0))
 	var size: Vector2 = layout["size"]
 	var wt: float = layout["wall_t"]
 	u.home_room = Rect2(Vector2(wt, wt), size - Vector2(wt, wt) * 2.0)
@@ -461,6 +512,7 @@ func perform_raise(g: Dictionary) -> void:
 		mults.append(mult)
 	raises += 1
 	first_raise_done = true
+	RaidSound.play("raise")
 	var fb := raiser._last_feedback
 	if fb != null and is_instance_valid(fb):
 		fb.raised_n = n
@@ -503,6 +555,16 @@ func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
 		spawn_ally_v2("raised", tier, mult, 0.0, "", stats, resolve_walls(pos, 10.0), true)
 	if k > 0:
 		RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
+
+
+## A guard's time is up (BossGuard.life_left): it falls back to her line. Not a kill, so no mote.
+func recall_guard(u: RaidUnit) -> void:
+	if not u.alive:
+		return
+	u.alive = false
+	enemies.erase(u)
+	RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.45), 24.0, 0.35, 1.5)
+	u.queue_free()
 
 
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
@@ -550,11 +612,14 @@ func try_phylactery() -> bool:
 	var bc: Dictionary = vcfg().get("backups", {})
 	relish.revive(relish.max_hp * float(bc.get("revive_hp_frac", 0.6)), float(bc.get("iframes_s", 2.0)))
 	# the backup-crack set piece: a violet ring holds, then cracks; a cracked ring stays on her
-	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), float(bc.get("crack_radius_px", 110.0)),
-		float(bc.get("crack_s", 1.2)))
-	RaidFx.ring(fx_root, relish.global_position, Palette.c("text", 0.8), 40.0, 0.5, 2.5)
+	# the loudest moment on screen: a wide violet crack, a white one inside it, a white flare ring
+	var cr := float(bc.get("crack_radius_px", 190.0))
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), cr, float(bc.get("crack_s", 1.2)))
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("text"), cr * 0.55, float(bc.get("crack_s", 1.2)) * 0.8)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("text"), cr * 1.3, 0.6, 5.0)
 	_revive_shove(bc)
-	trance.grant_free()   # the circle is hers again at once: a backup is a real second chance
+	if bool(bc.get("ready_trance", true)):
+		trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
 	hud.flash(Palette.c("relish"))
 	var left := backups_left()
 	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,
@@ -566,7 +631,8 @@ func try_phylactery() -> bool:
 
 ## The revive shockwave: guards within backups.shove_px are thrown back to it and lose her for
 ## shove_recover_s, so a revive among guards gives her a fair moment instead of a second death.
-## (The revive also readies her trance, try_phylactery: she can raise a new ward at once.)
+## (Under vei.json `backups.ready_trance` the revive also readies her trance, try_phylactery: she can
+## raise a new ward at once; the shipped config has it off.)
 func _revive_shove(bc: Dictionary) -> void:
 	var rp := relish.global_position
 	var px := float(bc.get("shove_px", 360.0))
@@ -644,6 +710,7 @@ func _win() -> void:
 		return
 	end_reason = "broken"
 	_end_common()
+	RaidSound.play("unravel")
 	hud.show_banner("VEI BREAKS · the game is beaten", 3.5, "vei")
 	vei.unravel_f = 0.0
 	_seq_kind = "win"
@@ -750,4 +817,6 @@ func hud_info() -> Dictionary:
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
 		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,
-		"over": phase == Phase.OVER, "won": end_reason == "broken"}
+		"over": phase == Phase.OVER, "won": end_reason == "broken",
+		"lapses": lapses, "lapse_lost": lapse_lost, "lapse_lo": lapse_lo, "lapse_hi": lapse_hi, "lapse_on": _lapse_t > 0.0,
+		"notch": int(vc.get("meter", {}).get("notch_every", 5))}
