@@ -767,11 +767,11 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
   | value | deaths | bad outcomes | median s | `army_zero_s` share | warden blows on her (soaked) |
   |---|---|---|---|---|---|
-  | x1 | 0 | 1 | 139 | 0.6% | lunge 10, fire 2, rush 1, slam 1 (2) |
-  | relish x2 | 0 | 0 | 150 | 0.6% | 17 (11) |
+  | x1 | 0 | 1 | 139 | 0.6% | 14: lunge 10, fire 2, rush 1, slam 1 (3) |
+  | relish x2 | 0 | 0 | 150 | 0.6% | 17 (10) |
   | relish x4 | 0 | 1 | 139 | 0.6% | 14 (14: every one lethal, every one soaked) |
   | attack x1.5 | 1 (rush) | 7 | 159 | 9.1% | 9 (0) |
-  | attack x2.5 | 1 (rush) | 9 | 186 | 10.8% | 16 (13) |
+  | attack x2.5 | 1 (rush) | 9 | 186 | 10.8% | 15 (13) |
 
   - The bot answers 82% of tells and stands outside the arcs, so warden blows reach her about once in two runs. Each lethal one costs one undead.
   - Raising the damage to the army instead (attack) wipes armies (`army_zero_s` 0.6% -> 9-11%). The wipes become 600 s grinds of re-raising (Bellringer 3, Shieldwall 2) and retreats, not deaths.
