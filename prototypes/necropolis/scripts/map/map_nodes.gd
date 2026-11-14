@@ -5,7 +5,8 @@ extends Node2D
 ## state glyphs, and a pulse layer per kind plus Relish. A static layer redraws on a model refresh
 ## only when its static_sig changed, and always when the zoom, tier, selection, reduced motion or
 ## config changed; pulse layers redraw every frame (once per refresh under reduced motion). The
-## glyphs' beat is their layer's modulate, so it costs no redraw. This node draws the villages and
+## glyphs' beat (and the siege's, near zoom: MapSiege) is their layer's modulate, so it costs no
+## redraw; Relish's party (MapParty) is a pulse layer under her token. This node draws the villages and
 ## turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
 ## Pure logic: node_logic.gd. Tuning: configs/map_view.json "nodes".
 
@@ -27,6 +28,7 @@ var _fort_box: Node2D  # the per-fort static ring layers, in world order
 var _fort_ids: Array = []
 var _glyph_beat: MapFortGlyph
 var _glyph_still: MapFortGlyph
+var _siege: MapSiege
 var _sigs := {}  # static layer -> its static_sig at its last redraw
 var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
@@ -75,9 +77,11 @@ func _ready() -> void:
 	_glyph_beat.name = "MapFortGlyphBeat"
 	_glyph_still = _layer(MapFortGlyph, false)
 	_glyph_still.name = "MapFortGlyphStill"
+	_siege = _layer(MapSiege, false)
 	_forts_p = _layer(MapFortRing, true)
 	_cov_p = _layer(MapCovington, true)
 	_vei_p = _layer(MapVei, true)
+	_layer(MapParty, true)
 	_relish = _layer(MapRelish, true)
 	_bench = Array(OS.get_cmdline_user_args()).any(func(a): return str(a).begins_with("--bench-seconds"))
 
@@ -160,6 +164,7 @@ func _process(_delta: float) -> void:
 			l.queue_redraw()
 	if not _fort_ids.is_empty():
 		_glyph_beat.modulate.a = NodeLogic.state_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
+		_siege.modulate.a = GlyphLogic.siege_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
 	_dirty = false
 	_last_us = Time.get_ticks_usec() - t0  # lint-ok: bench timing
 

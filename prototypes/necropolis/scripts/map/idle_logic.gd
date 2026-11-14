@@ -73,6 +73,21 @@ static func garrison(f: Dictionary) -> float:
 	return float(f["garrison"]) if f.has("garrison") else float(f.get("undead", 0.0))
 
 
+## The garrison as the chip counts it, and as many worker glyphs as the fort draws at near zoom:
+## garrison / garrison_unit_mass, rounded half away from zero (fmt_mass's rounding), never negative.
+static func garrison_units(f: Dictionary, c := {}) -> int:
+	if c.is_empty():
+		c = cfg()
+	return maxi(roundi(garrison(f) / maxf(float(c.get("garrison_unit_mass", 1.0)), 0.001)), 0)
+
+
+## The garrison chip's text: garrison_fmt with garrison_units (thousands separated).
+static func garrison_text(f: Dictionary, c := {}) -> String:
+	if c.is_empty():
+		c = cfg()
+	return str(c["garrison_fmt"]) % MapLogic.fmt_mass(garrison_units(f, c))
+
+
 ## The committed margins: the view's per-fort field where it has one, else the stand-in at the
 ## committed WAR split.
 static func committed_margins(forts: Array, hud: Dictionary, c := {}) -> Dictionary:

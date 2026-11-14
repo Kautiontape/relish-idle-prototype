@@ -9,11 +9,15 @@ extends Node2D
 ## it went quiet or loud. Quiet (LaneStyle.quiet_ids): with a fort selected, every lane off it and
 ## off Relish's fort; with none, each kind's lanes past glow_cap_per_kind (Relish's fort's lanes
 ## stay loud); re-applied on a selection too.
+## Near zoom: the shader turns each war / flood / work / living lane's dashes into unit glyphs
+## (GlyphLogic); the routes only set each lane's glyph shape once and the crossfade weight when
+## the zoom moves it.
 ## Styling and tables: scripts/map/lane_style_logic.gd. Tuning: configs/map_view.json.
 
 const SHADER := preload("res://shaders/map_lane.gdshader")
 const CARTS_SCRIPT := preload("res://scripts/map/map_carts.gd")
 const COL_PARAMS: Array[StringName] = [&"col0", &"col1", &"col2", &"col3"]
+const GCOL_PARAMS: Array[StringName] = [&"gcol0", &"gcol1", &"gcol2", &"gcol3"]
 
 var model: MapModel
 ## GDScript ms the routes spent last frame (offsets, any refresh, the cart overlay's draw).
@@ -75,6 +79,7 @@ var _chev := false
 var _snap := false
 var _eps := 0.0
 var _tier := ""
+var _glyph_w := 0.0  # GlyphLogic.near_weight at the camera's zoom, as last set on the lanes
 var _cam: Camera2D
 var _log_max := 0.0
 var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ring) the lanes were last trimmed to
@@ -359,6 +364,7 @@ func _lane(row: Dictionary) -> Ribbon:
 			var c := MapLogic.lane_curve_for(row, a, b, 0.0)
 			pts = MapLogic.sample_quad(c["a"], c["c"], c["b"], int(MapLogic.cfg()["ribbon_samples"]))
 		_build(r, pts, LaneStyle.lit_half_extent(r.style), float(MapLogic.cfg()["chevron_size_px"]), true, row)
+		_glyph_shape(r)
 		r.mode = "stale"
 		_note_build(t0)
 	return r
@@ -406,6 +412,18 @@ func _build(r: Ribbon, pts: PackedVector2Array, half: float, chev_size: float, r
 	r.mat.set_shader_parameter(&"chev_width", LaneStyle.chevron_stroke(chev_size))
 	r.mat.set_shader_parameter(&"chev_on", 1.0 if _chev else 0.0)
 	r.mat.set_shader_parameter(&"chev_snap", 1.0 if _snap else 0.0)
+
+
+## A lane's near-zoom glyph (GlyphLogic.kind_for its kind): its shape, set once per build, and the
+## crossfade weight it starts at. Its glyph_kind is set when it lights (_apply_lane: 0 while
+## phantom); gutters keep 0 (dead matter has no unit glyph).
+func _glyph_shape(r: Ribbon) -> void:
+	var sh := GlyphLogic.shape(GlyphLogic.kind_for(str(r.style["kind"])))
+	r.mat.set_shader_parameter(&"glyph_len", sh["len"])
+	r.mat.set_shader_parameter(&"glyph_sag", sh["sag"])
+	r.mat.set_shader_parameter(&"head_r", sh["head_r"])
+	r.mat.set_shader_parameter(&"head_w", sh["head_w"])
+	r.mat.set_shader_parameter(&"glyph_mix", _glyph_w)
 
 
 ## The arc length a ribbon does not draw at each end (a self-loop ring is untouched).
@@ -465,11 +483,21 @@ func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool, quiet := false) -> 
 		layers = LaneStyle.phantom_layers(r.style)
 		_set_motion(r, {"period": 1.0, "dash": 1.0, "speed": 0.0})
 		r.mat.set_shader_parameter(&"chev_col", Palette.c("void", 0.0))
+		r.mat.set_shader_parameter(&"glyph_kind", 0.0)
 	else:
 		var ch := _channels(u, str(r.style["hue_key"]))
 		layers = LaneStyle.lit_layers(ch, r.style, quiet)
 		_set_motion(r, LaneStyle.motion(ch, r.style, r.length if r.ring else 0.0))
-		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style, quiet))
+		var core := LaneStyle.core_color(ch, r.style, quiet)
+		r.mat.set_shader_parameter(&"chev_col", core)
+		# the glyph: the lane's stack at the glyph's stroke width in the lane colour, its head in the core colour
+		var glyph := GlyphLogic.kind_for(str(r.style["kind"]))
+		var gp := LaneStyle.pack(LaneStyle.glyph_layers(ch, r.style, quiet, float(GlyphLogic.shape(glyph)["width"])))
+		r.mat.set_shader_parameter(&"glyph_kind", GlyphLogic.shader_kind(glyph))
+		r.mat.set_shader_parameter(&"gwidths", gp["widths"])
+		for i in LaneStyle.MAX_LAYERS:
+			r.mat.set_shader_parameter(GCOL_PARAMS[i], gp["colors"][i])
+		r.mat.set_shader_parameter(&"glyph_core", core)
 	_set_layers(r, layers)
 	if mode == "lit" and str(r.row["kind"]) == "haul":
 		_set_carts(r)
@@ -540,6 +568,7 @@ func _track(r: Ribbon) -> Dictionary:
 
 
 # --- chevrons: reduced motion, or mid zoom and nearer; snapped into the gaps while frozen ---
+# --- and the near crossfade: the lanes' glyph weight, set only when the zoom changed it ---
 
 func _sync_chevrons() -> void:
 	if _cam == null or not is_instance_valid(_cam):
@@ -549,6 +578,11 @@ func _sync_chevrons() -> void:
 		tier = (_cam as MapCamera).tier
 	elif _cam != null:
 		tier = MapLogic.zoom_tier(_cam.zoom.x, _tier)
+	var gw := GlyphLogic.near_weight(_cam.zoom.x) if _cam != null else 0.0
+	if gw != _glyph_w:
+		_glyph_w = gw
+		for r: Ribbon in _lanes.values():
+			r.mat.set_shader_parameter(&"glyph_mix", gw)
 	var on := LaneStyle.chevrons_on(Pulse.reduced_motion, tier)
 	var snap: bool = Pulse.reduced_motion
 	_tier = tier

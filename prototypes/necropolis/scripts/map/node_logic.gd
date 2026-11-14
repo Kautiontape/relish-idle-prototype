@@ -613,6 +613,34 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 		hud["odds"] = float(vd["odds"])
 
 
+## Overlays a siege and Relish's party (in place) so one near-zoom shot shows the big undead on
+## the map: demo_nodes.siege's units placed at its fort (fort.siege, and their entries in `units`
+## and `names`), and demo_nodes.party as view_party().party. Entries are view_big_undead-shaped.
+# TODO(api E2): debug stand-in
+static func demo_army(forts: Array, party: Dictionary, units: Dictionary, names: Dictionary) -> void:
+	var d: Dictionary = MapLogic.cfg().get("demo_nodes", {})
+	var sg: Dictionary = d.get("siege", {})
+	for f in forts:
+		if str(f["id"]) == str(sg.get("fort", "")):
+			var uids: Array = []
+			for e in sg.get("units", []):
+				var entry: Dictionary = (e as Dictionary).duplicate()
+				entry["place"] = "fort:%s" % f["id"]
+				uids.append(str(entry["uid"]))
+				units[str(entry["uid"])] = entry
+				names[str(entry["uid"])] = str(entry["name"])
+			f["siege"] = uids
+	if d.has("party"):
+		var members: Array = []
+		for e in d["party"]:
+			var entry: Dictionary = (e as Dictionary).duplicate()
+			entry["place"] = "party"
+			members.append(entry)
+			units[str(entry["uid"])] = entry
+			names[str(entry["uid"])] = str(entry["name"])
+		party["party"] = members
+
+
 ## A trail of `n` wake points behind `pos` along `heading`, newest last, spread over the
 ## wake's life (for the demo, where she stands still).
 # TODO(api E2): debug stand-in
