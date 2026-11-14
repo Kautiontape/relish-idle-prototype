@@ -507,14 +507,14 @@
           "label": "a beefy big undead braced at the bell muffles its slams"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter. Sizes and ward_mult are Step 3's again." ,
           "name": "ringers",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
-          "size_by_tier": {"1": 0, "2": 5, "3": 8, "4": 8},
+          "size_by_tier": {"1": 0, "2": 4, "3": 6, "4": 8},
           "kind": "ringer",
           "horn_beats": 1.0,
-          "ward_mult": 0.1,
+          "ward_mult": 0.25,
           "spot_inset_px": 50.0,
           "spot_spread_px": 28.0
         },
@@ -553,14 +553,14 @@
           "label": "a fast big undead in its path intercepts the lunge"
         },
         "pack": {
-          "_doc": "D-d/E Step 3, the hunt (WardenLogic.pack_*, RaidWarden._pack_step): from min_tier up (never in the first dungeon) at each hp gate in at_hp_frac it sounds a horn horn_beats ahead (on the beat; the entry points show) and calls size_by_tier of its hounds (enemies.<kind>) into its room's far side from Relish (the two inset corners farthest from her, spot_inset_px from the walls, spot_spread_px apart). While any hound runs it takes ward_mult of every hit (a stun's x2.5 multiplies with it) and does not lunge (one threat at a time); a full tell after the last falls it lunges again. Hounds are its own living: hostile at once, massless, and they drop no motes and no dings (a pack that fed the raises would shorten the fight it lengthens). 3b: a pack goes for her undead, not for Relish (it costs time and the army; her risk stays in the warden's own attacks), and a big undead whose stat meets the warden's weak point (here speed) kills a pack unit in one blow (INTERCEPTED) and goes for the nearest while a pack stands; its bodyguards strike the hounds that come in reach. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter.",
+          "_doc": "D-d/E Step 3, the hunt (WardenLogic.pack_*, RaidWarden._pack_step): from min_tier up (never in the first dungeon) at each hp gate in at_hp_frac it sounds a horn horn_beats ahead (on the beat; the entry points show) and calls size_by_tier of its hounds (enemies.<kind>) into its room's far side from Relish (the two inset corners farthest from her, spot_inset_px from the walls, spot_spread_px apart). While any hound runs it takes ward_mult of every hit (a stun's x2.5 multiplies with it) and does not lunge (one threat at a time); a full tell after the last falls it lunges again. Hounds are its own living: hostile at once, massless, and they drop no motes and no dings (a pack that fed the raises would shorten the fight it lengthens). 3b: a pack goes for her undead, not for Relish (it costs time and the army; her risk stays in the warden's own attacks), and a big undead whose stat meets the warden's weak point (here speed) kills a pack unit in one blow (INTERCEPTED) and goes for the nearest while a pack stands; its bodyguards strike the hounds that come in reach. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter. Sizes and ward_mult are Step 3's again.",
           "name": "hounds",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
-          "size_by_tier": {"1": 0, "2": 10, "3": 10, "4": 10},
+          "size_by_tier": {"1": 0, "2": 8, "3": 8, "4": 8},
           "kind": "hound",
           "horn_beats": 1.0,
-          "ward_mult": 0.1,
+          "ward_mult": 0.25,
           "spot_inset_px": 50.0,
           "spot_spread_px": 28.0
         },
@@ -603,14 +603,14 @@
           "label": "a wits big undead fights it from behind"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter. Sizes and ward_mult are Step 3's again." ,
           "name": "bearers",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
-          "size_by_tier": {"1": 0, "2": 8, "3": 11, "4": 12},
+          "size_by_tier": {"1": 0, "2": 6, "3": 9, "4": 10},
           "kind": "bearer",
           "horn_beats": 1.0,
-          "ward_mult": 0.1,
+          "ward_mult": 0.25,
           "spot_inset_px": 50.0,
           "spot_spread_px": 28.0
         },
@@ -652,14 +652,14 @@
           "label": "a power big undead snuffs an acolyte in one blow"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. One gate, on its phase-3 notch (its acolytes already ward the start of the fight); the ward multiplies with the acolytes'. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish, and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. One gate, on its phase-3 notch (its acolytes already ward the start of the fight); the ward multiplies with the acolytes'. 3c: a pack never goes for Relish: the moment no undead stands (or none stands as its horn sounds) it breaks and leaves the fight, dropping nothing (THE PACK BREAKS · WARD DOWN over the warden for pack_label_s, and the banner), its ward drops and the warden fights her alone with its own attacks, each answered by its counter. Sizes and ward_mult are Step 3's again." ,
           "name": "zealots",
           "min_tier": 2,
           "at_hp_frac": [0.4],
-          "size_by_tier": {"1": 0, "2": 8, "3": 8, "4": 14},
+          "size_by_tier": {"1": 0, "2": 6, "3": 6, "4": 12},
           "kind": "zealot",
           "horn_beats": 1.0,
-          "ward_mult": 0.1,
+          "ward_mult": 0.25,
           "spot_inset_px": 50.0,
           "spot_spread_px": 28.0
         },
