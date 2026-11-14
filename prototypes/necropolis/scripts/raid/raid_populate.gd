@@ -28,7 +28,9 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 			u.mass = mpe
 			u.home_room = layout["rooms"][s["room"]]
 		for i in guard.size():
-			_raid.detour_guard.append(_raid.enemies[_raid.enemies.size() - guard.size() + i])
+			var g: RaidUnit = _raid.enemies[_raid.enemies.size() - guard.size() + i]
+			g.sentry = true   # it holds its post (raid.json detour)
+			_raid.detour_guard.append(g)
 	_place_cache(tier)
 	# garrison: exactly the seed's units, each carrying garrison_mass_div of ledger mass
 	var gn := int(sd.get("garrison_units", 0))

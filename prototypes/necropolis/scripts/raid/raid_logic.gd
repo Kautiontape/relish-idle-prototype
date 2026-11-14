@@ -813,10 +813,19 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
 
 
-## The measuring bot's detour rule (raid.json autopilot detour_*): take the cache when her hp is at least
-## `detour_hp_frac` of its most and her army is at least `detour_army_mult` times the guard still standing.
-static func detour_take(hp_frac: float, allies: int, guard: int, ap: Dictionary) -> bool:
-	return hp_frac >= float(ap.get("detour_hp_frac", 0.6)) and float(allies) >= float(ap.get("detour_army_mult", 2.0)) * float(guard)
+## The measuring bot's detour rule (raid.json autopilot detour_*; NOTES-RAID "the detour rule"): take the
+## cache when her hp fraction is at least `detour_hp_frac` (`detour_hp_frac_revive` with a revive left) and
+## her army is at least `detour_army_mult` times the guard she can see.
+static func detour_take(hp_frac: float, revives: int, allies: int, guard: int, ap: Dictionary) -> bool:
+	var need := float(ap.get("detour_hp_frac_revive", 0.4)) if revives > 0 else float(ap.get("detour_hp_frac", 0.6))
+	return hp_frac >= need and float(allies) >= float(ap.get("detour_army_mult", 1.5)) * float(guard)
+
+
+## On the way in: turn back when her hp fraction is below `detour_retreat_hp_frac` (`..._revive` with a
+## revive left) or her army is below `detour_retreat_army_mult` times the guard still standing.
+static func detour_retreat(hp_frac: float, revives: int, allies: int, guard: int, ap: Dictionary) -> bool:
+	var floor_hp := float(ap.get("detour_retreat_hp_frac_revive", 0.3)) if revives > 0 else float(ap.get("detour_retreat_hp_frac", 0.5))
+	return hp_frac < floor_hp or float(allies) < float(ap.get("detour_retreat_army_mult", 1.0)) * float(guard)
 
 
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:

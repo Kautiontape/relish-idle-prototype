@@ -380,6 +380,13 @@ func run() -> int:
 			["res://scripts/raid/raid_populate.gd", "func populate(", "RaidPopulate.populate (the detour's guard)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _detour_decide(", "the bot's detour rule"],
 			["res://scripts/raid/raid_autopilot.gd", "func _detour_tick(", "the bot's detour progress"],
+			["res://scripts/raid/raid_autopilot.gd", "func _real_gaps(", "the bot's real openings"],
+			["res://scripts/raid/raid_autopilot.gd", "func _goal_room(", "the bot's goal room"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_guard(", "the bot's guard count"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_cache_left(", "the bot's cache count"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_guard_seen(", "the bot's guard in view"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_foe_on_her(", "the bot's foe check"],
+			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack picks Relish only once no undead stands)"],
 			["res://scripts/raid/raid_warden_run.gd", "func breaks_pack(", "RaidWardenRun.breaks_pack"],
@@ -480,10 +487,16 @@ func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var held := RaidLogic.gen_layout("vespers", 2, false, cfg, {"held": true})
 	t.ok(RaidLogic.detour_site(held, 2, cfg).is_empty(), "none in a held fort")
 	var ap: Dictionary = cfg["autopilot"]
-	t.ok(RaidLogic.detour_take(0.8, 10, 5, ap), "healthy, with twice the guard: she takes it")
-	t.ok(not RaidLogic.detour_take(0.5, 10, 5, ap), "below detour_hp_frac: she leaves it")
-	t.ok(not RaidLogic.detour_take(0.9, 9, 5, ap), "an army under twice the guard: she leaves it")
-	t.ok(RaidLogic.detour_take(0.6, 0, 0, ap), "a guard already down is no fight: healthy is enough")
+	t.ok(RaidLogic.detour_take(0.8, 0, 8, 5, ap), "healthy, with an army 1.5x the guard she sees: she takes it")
+	t.ok(not RaidLogic.detour_take(0.5, 0, 10, 5, ap), "below detour_hp_frac: she leaves it")
+	t.ok(RaidLogic.detour_take(0.45, 1, 10, 5, ap), "a revive left lowers the hp she needs (detour_hp_frac_revive)")
+	t.ok(not RaidLogic.detour_take(0.9, 0, 7, 5, ap), "an army under 1.5x the guard: she leaves it")
+	t.ok(RaidLogic.detour_take(0.6, 0, 0, 0, ap), "a guard already down is no fight: healthy is enough")
+	t.ok(not RaidLogic.detour_retreat(0.7, 0, 6, 5, ap), "on the way in, healthy and not outnumbered: on she goes")
+	t.ok(RaidLogic.detour_retreat(0.45, 0, 10, 2, ap), "below detour_retreat_hp_frac: she turns back")
+	t.ok(not RaidLogic.detour_retreat(0.45, 1, 10, 2, ap), "with a revive left she holds on lower")
+	t.ok(RaidLogic.detour_retreat(0.9, 0, 3, 4, ap), "outnumbered by the guard: she turns back")
+	t.ok(float(ap["detour_retreat_hp_frac"]) < float(ap["detour_hp_frac"]), "she turns back above the hp she would not start at, below the one she starts at")
 
 
 ## The bot's reaction rule (raid.json autopilot react_*, RaidLogic.react_at; RaidAutopilot._answers).

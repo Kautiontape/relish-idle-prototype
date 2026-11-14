@@ -385,7 +385,7 @@ func on_finish(result: Dictionary) -> void:
 		var st := _det_state
 		out["detour"] = {"room": int(_det["room"]), "guard": _raid.detour_guard.size(), "offered": st != "",
 			"taken": st in ["taken", "done", "abandoned"], "done": st == "done", "abandoned": st == "abandoned",
-			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01),
+			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01), "died": _raid.relish == null or not _raid.relish.alive,
 			"cache_left": _det_cache_left(), "cache": _raid.detour_cache.size()}
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
@@ -757,35 +757,56 @@ func _kite_due() -> bool:
 	return _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
 
 
-## The guarded detour's rule (RaidLogic.detour_take; raid.json autopilot detour_*), applied once, at the
-## first think she stands in the antechamber before the wake (the approach is behind her): take the
-## cache when her hp is at least detour_hp_frac of its most and her army at least detour_army_mult times
-## the guard still standing.
-func _detour_decide() -> void:
+## The guarded detour's rule (D-d/E 3b; RaidLogic.detour_take / detour_retreat; raid.json autopilot
+## detour_*; NOTES-RAID "the detour rule"): decided once, before the wake, at the first think the guard is
+## in view (a standing guard within detour_view_px; with its guard down, the cache) while no living foe is
+## on her in her room; then reassessed every think on the way in.
+func _detour_decide(seen: int) -> void:
 	var rel: RaidRelish = _raid.relish
 	var hpf: float = rel.hp / maxf(1.0, rel.max_hp)
 	var army := _allies_alive()
-	var guard := _det_guard()
-	_det_at = {"t": snappedf(_sim_t, 0.01), "hp_frac": snappedf(hpf, 0.01), "army": army, "guard": guard}
-	_det_state = "taken" if RaidLogic.detour_take(hpf, army, guard, _cfg) else "declined"
-	print("AUTOPILOT_DETOUR %s hp=%.2f army=%d guard=%d frame=%d" % [_det_state, hpf, army, guard, Engine.get_process_frames()])
+	var rev: int = _raid.phylactery_left()
+	_det_at = {"t": snappedf(_sim_t, 0.01), "hp_frac": snappedf(hpf, 0.01), "army": army, "guard": seen, "revives": rev}
+	_det_state = "taken" if RaidLogic.detour_take(hpf, rev, army, seen, _cfg) else "declined"
+	print("AUTOPILOT_DETOUR %s hp=%.2f army=%d guard=%d frame=%d" % [_det_state, hpf, army, seen, Engine.get_process_frames()])
 
 
-## Each think: the decision, at her first think in the antechamber before the wake; while a detour is
-## taken, done once the cache is hers, abandoned below detour_abandon_hp_frac.
+## Each think: the decision (see _detour_decide); while a detour is taken, done once the cache is hers,
+## abandoned when RaidLogic.detour_retreat says turn back.
 func _detour_tick() -> void:
-	if _det_state == "" and not _det.is_empty() and _cur_room >= 0 and _cur_room == int(_raid.layout.get("ante_room", -1)):
+	var rel: RaidRelish = _raid.relish
+	if _det_state == "" and not _det.is_empty():
 		var w = _raid.warden_run.warden
 		if w == null or not is_instance_valid(w) or not w.awake:
-			_detour_decide()
+			var seen := _det_guard_seen(rel.global_position)
+			var cache_seen := _det_guard() == 0 and _det_cache_left() > 0 \
+				and rel.global_position.distance_to(_det["pos"]) <= _c("detour_view_px", 480.0)
+			if (seen > 0 or cache_seen) and not _det_foe_on_her(rel.global_position):
+				_detour_decide(seen)
 	if _det_state != "taken":
 		return
-	var rel: RaidRelish = _raid.relish
 	if _det_cache_left() == 0:
 		_det_state = "done"
 		_det_done_s = _sim_t
-	elif rel.hp < _c("detour_abandon_hp_frac", 0.3) * rel.max_hp:
+	elif RaidLogic.detour_retreat(rel.hp / maxf(1.0, rel.max_hp), _raid.phylactery_left(), _allies_alive(), _det_guard(), _cfg):
 		_det_state = "abandoned"
+
+
+## Standing guards within detour_view_px of her.
+func _det_guard_seen(pos: Vector2) -> int:
+	var n := 0
+	for e in _raid.detour_guard:
+		if is_instance_valid(e) and e.alive and pos.distance_to(e.global_position) <= _c("detour_view_px", 480.0):
+			n += 1
+	return n
+
+
+## A living foe that is not the detour's guard, in her room and within kite_px of her.
+func _det_foe_on_her(pos: Vector2) -> bool:
+	for e in _living():
+		if not e.sentry and _shares_room(e.global_position) and pos.distance_to(e.global_position) < _c("kite_px", 240.0):
+			return true
+	return false
 
 
 func _det_guard() -> int:

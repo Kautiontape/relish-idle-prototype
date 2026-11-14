@@ -25,6 +25,7 @@ var slots := 1               # party: nested diamonds (filled slots)
 var home_room := Rect2()
 var alive := true
 var warden_pack := false      # a warden's own living (the Huntsman's hounds): massless, drops nothing
+var sentry := false           # the detour's guard: holds its room (home_room), never follows out of it
 
 var _guard := {}             # bodyguard post this frame ({} when not guarding)
 var _flank := {}             # flank post this frame ({} when not flanking)
@@ -228,6 +229,9 @@ func _pick_target(cfg: Dictionary) -> void:
 
 
 func _pick_enemy_target(cfg: Dictionary) -> void:
+	if sentry:
+		_pick_sentry_target()
+		return
 	# enemy: aggro within range of Relish or any undead, then stay hostile
 	var best = null
 	var best_d := INF
@@ -247,6 +251,27 @@ func _pick_enemy_target(cfg: Dictionary) -> void:
 			and LayoutLogic.route_dist(raid.layout, global_position, best.global_position, radius) <= float(cfg.get("aggro_px", 260.0)):
 		_aggro = true   # walking distance, not through-the-wall distance
 	_target = best if _aggro else null
+
+
+## The detour's guard (D-d/E 3b): it turns on the nearest of Relish and her undead inside its own room
+## and never follows anyone out of it, so the fight happens at the cache and leaving the room ends it.
+func _pick_sentry_target() -> void:
+	var room := home_room.grow(8.0)
+	var best = null
+	var best_d := INF
+	var rel = raid.relish
+	if rel != null and is_instance_valid(rel) and rel.alive and room.has_point(rel.global_position):
+		best = rel
+		best_d = global_position.distance_to(rel.global_position)
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive and room.has_point(a.global_position):
+			var d: float = global_position.distance_to(a.global_position)
+			if d < best_d:
+				best = a
+				best_d = d
+	if best != null:
+		_aggro = true
+	_target = best
 
 
 func _wander(delta: float, cfg: Dictionary) -> Vector2:
