@@ -76,8 +76,9 @@ func take_hit(amount: float, src := "") -> void:
 		last_hit_src = src   # what struck last (the death card names it); a soaked hit counts too
 	var key := src if src != "" else "wound"
 	hits[key] = int(hits.get(key, 0)) + 1
-	if hp - amount <= 0.0 and raid.has_allies():
-		# THE CONDUIT RULE: the nearest allied undead dies in her place.
+	if hp - amount <= 0.0 and raid.has_allies() and RaidLogic.chain_soaks(src):
+		# THE CONDUIT RULE: the nearest allied undead dies in her place (not for a warden's tell-attack:
+		# RaidLogic.chain_soaks, D-d/E Step 4b).
 		soaked[key] = int(soaked.get(key, 0)) + 1
 		raid.sacrifice_nearest_ally()   # pings the danger edge
 		_iframes = float(ConfigDb.data.get("raid", {}).get("relish", {}).get("iframes_s", 0.5))

@@ -322,6 +322,15 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.death_line("fire", "The Pyre-priest") == "The Pyre-priest's fire · missed: the marked ground", "every warden attack's tell")
 	t.ok(RaidLogic.death_line("hound", "The Huntsman") == "The Huntsman's hounds" and RaidLogic.death_line("living", "") == "the living"
 		and RaidLogic.death_line("", "x") == "a wound", "no tell, no missed: (a pack, the living, a wound)")
+	# Step 4b (option A): a warden's tell-attacks strike her directly; the chain soaks everything else
+	var bypass := true
+	for src in ["slam", "lunge", "bash", "rush", "fire"]:
+		bypass = bypass and not RaidLogic.chain_soaks(src)
+	t.ok(bypass, "the chain never soaks a warden's tell-attack (slam, lunge, bash, rush, fire)")
+	t.ok(RaidLogic.chain_soaks("living") and RaidLogic.chain_soaks("pack") and RaidLogic.chain_soaks("hound") and RaidLogic.chain_soaks(""),
+		"it still soaks the living, packs, hounds and any unnamed blow (Vei's weaves)")
+	var rel_src := FileAccess.get_file_as_string("res://scripts/raid/relish.gd")
+	t.ok(rel_src.contains("raid.has_allies() and RaidLogic.chain_soaks(src)"), "Relish.take_hit asks RaidLogic.chain_soaks, the one place the rule lives")
 	# 3c: a pack never turns on Relish: with no undead standing it breaks (standing or still being called)
 	t.ok(WardenLogic.pack_breaks(3, false, false) and WardenLogic.pack_breaks(0, true, false), "no undead stands: a standing pack, or one its horn calls, breaks")
 	t.ok(not WardenLogic.pack_breaks(3, false, true) and not WardenLogic.pack_breaks(0, true, true), "undead stand: it stays")
