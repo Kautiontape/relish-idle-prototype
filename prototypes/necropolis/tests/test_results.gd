@@ -16,6 +16,11 @@ func _fort(s: GameState, id: String) -> Dictionary:
 	return s.realm.fort_by_id(id)
 
 
+## The raid writeback's loss so far: ledger().sinks.dungeon.
+func _sink(s: GameState) -> float:
+	return float(s.ledger()["sinks"]["dungeon"])
+
+
 func _set_fort(s: GameState, id: String, living: float, dead: float, undead: float) -> void:
 	var f := _fort(s, id)
 	f["living"] = living
@@ -72,8 +77,8 @@ func _snap(s: GameState) -> Dictionary:
 		"applied": s.applied_runs.duplicate(), "run": s.run.duplicate(true),
 		"forts": s.realm.forts.duplicate(true), "vei": s.realm.vei.duplicate(), "relics": s.relics,
 		"essence": s.essence, "bps": s.blueprints.duplicate(), "bu": s.big_undead.duplicate(true),
-		"party": s.party_uids.duplicate(), "army": s.army.duplicate(), "vats": s.town["vats"],
-		"relish": s.relish.duplicate(true), "sink": s._dungeon_sink, "husks": s.husks.duplicate(true),
+		"party": s.party_uids.duplicate(), "clones": s.clones_ready, "town": s.town_sim.to_dict(),
+		"relish": s.relish.duplicate(true), "sink": _sink(s), "husks": s.husks.duplicate(true),
 		"remnants": s.remnants.duplicate(true), "stats": s.stats.duplicate(), "won": s.won,
 		"cleared": s.cleared_forts.duplicate(), "first": s.first_dungeon_id,
 	}
@@ -398,12 +403,12 @@ func _reasons() -> void:
 	_refused(s, "boss", _boss_res(bsd, {"relish_deaths": 1, "backups_spent": {"phylactery": 1, "clones": 0}}), "bad_backups", "a phylactery with no charges")
 	_refused(s, "boss", _boss_res(bsd, {"relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 1}}), "bad_backups", "a clone with none ready")
 	s.cmd_abort_dungeon()
-	s.town["vats"] = 1
+	s.clones_ready = 1
 	bsd = _begin_boss(s)
-	t.ok(bsd["clones_ready"] == 1, "a legacy vat is a ready clone in the seed")
+	t.ok(bsd["clones_ready"] == 1, "the ready clone is in the seed")
 	_refused(s, "boss", _boss_res(bsd, {"relish_deaths": 2, "backups_spent": {"phylactery": 0, "clones": 2}}), "bad_backups", "more clones than ready")
 	var ok := s.apply_result("boss", _boss_res(bsd, {"relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 1}}))
-	t.ok(ok["ok"] and s.town["vats"] == 0, "one clone spent: ok, the legacy vat is used up")
+	t.ok(ok["ok"] and s.clones_ready == 0, "one clone spent: ok, the stock is used up")
 
 
 # ------------------------------------------------------------ raid writeback ----
@@ -421,7 +426,7 @@ func _raid_writeback() -> void:
 	t.ok(s.rev == rv + 1, "a success bumps rev once")
 	t.ok(s.run.is_empty() and s.applied_runs == [sd["run_id"]], "the run closes and is recorded")
 	t.ok(s.view_relish()["state"] == "at_fort" and s.view_relish()["at"] == "old-sluice", "Relish is at the fort again")
-	t.ok(s.realm.raiding == false, "the realm no longer sees a raid")
+	t.ok(s.raiding_fort_id() == "", "no raid is open any more")
 	var before := _snap(s)
 	var again := s.apply_result("raid", r)
 	t.ok(again == {"ok": false, "reason": "duplicate_run", "errors": [], "minted": []} and _snap(s) == before, "a repeat is duplicate_run and changes nothing")
@@ -457,7 +462,7 @@ func _raid_writeback() -> void:
 	t.near(f["living"], 0.0, 1e-9, "kills are clamped at the live living mass")
 	t.near(f["dead"], 0.0, 1e-9, "raised mass is clamped at the live dead mass")
 	t.near(s.realm.vei["undead_queue"] - q0, 8.0, 1e-9, "chaff goes to Vei's queue")
-	t.near(s._dungeon_sink, 15.0 + 20.0 - 20.0 - 8.0, 1e-9, "sink = in + R' - out")
+	t.near(_sink(s), 15.0 + 20.0 - 20.0 - 8.0, 1e-9, "sink = in + R' - out")
 	t.near(s.ledger()["sinks"]["dungeon"], 7.0, 1e-9, "ledger().sinks.dungeon shows it")
 	# step 4: the bound
 	s = _mk()
@@ -468,7 +473,7 @@ func _raid_writeback() -> void:
 	# out 80 > in 20 + R' 10 = 30: both scaled by 30/80
 	t.near(s.realm.vei["undead_queue"] - q0, 15.0, 1e-9, "step 4: chaff scaled to fit")
 	t.near(_fort(s, "old-sluice")["undead"], 25.0 + 15.0 - 20.0, 1e-9, "step 4: garrison scaled; the net delta is applied")
-	t.near(s._dungeon_sink, 0.0, 1e-9, "everything that fit is accounted for: no sink")
+	t.near(_sink(s), 0.0, 1e-9, "everything that fit is accounted for: no sink")
 	# step 5: the undead clamp at the live fort
 	s = _mk()
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
@@ -476,14 +481,14 @@ func _raid_writeback() -> void:
 	_set_fort(s, "old-sluice", 60.0, 30.0, 4.0)  # the fort lost its undead meanwhile
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 0.0}))
 	t.near(_fort(s, "old-sluice")["undead"], 0.0, 1e-9, "step 5: undead never goes negative")
-	t.near(s._dungeon_sink, 4.0, 1e-9, "the 4 undead that were left are what the dungeon ate (net of the clamp, never negative)")
+	t.near(_sink(s), 4.0, 1e-9, "the 4 undead that were left are what the dungeon ate (net of the clamp, never negative)")
 	# a loss of garrison goes to the sink
 	s = _mk()
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
 	sd = _begin(s)
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 5.0}))
 	t.near(_fort(s, "old-sluice")["undead"], 10.0, 1e-9, "garrison that fell: undead 25 - 20 + 5")
-	t.near(s._dungeon_sink, 15.0, 1e-9, "and the 15 that fell are the dungeon sink")
+	t.near(_sink(s), 15.0, 1e-9, "and the 15 that fell are the dungeon sink")
 
 	# the flip, loot, caps, uids
 	s = _mk()
@@ -525,7 +530,7 @@ func _raid_writeback() -> void:
 	t.ok(s.first_dungeon_id == "" and s.cleared_forts.has("old-sluice"), "first_clear and first_dungeon are spent")
 	# 60 living -> k 20 -> living 40 -> flipped: dead = 30 + 20 + 40 = 90; R = 12 <= 90
 	t.near(f["dead"], 90.0 - 12.0, 1e-9, "dead: kills, the flip, then the raised mass comes off")
-	t.ok(s.army == {"soldier": 3, "elite": 1}, "step 12: score 60-89 -> soldiers, >= 90 -> elites, by count")
+	t.ok(s.legacy_stores()["army"] == {"soldier": 0, "elite": 0}, "no legacy army: E1's step 12 is gone")
 	var uids: Array = out["minted"]
 	var seen := {}
 	for h in s.husks:
@@ -574,15 +579,15 @@ func _raid_writeback() -> void:
 
 func _raid_death() -> void:
 	t.suite("results-raid-death")
+	var shock := float(TestUtil.configs()["economy"]["morale"]["death_shock"])
 	for vats in [0, 1]:
 		var s := _mk()
-		s.town["vats"] = vats
+		s.clones_ready = vats
 		s.cmd_debug_grant({"big_undead": 2})
 		var bus: Array = s.view_big_undead()["big_undead"]
 		var u1: String = bus[0]["uid"]
 		var u2: String = bus[1]["uid"]
 		s.cmd_set_party([u1, u2])
-		s.army = {"soldier": 10, "elite": 10}
 		_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
 		var sd := _begin(s)
 		s.drain_events()
@@ -597,13 +602,10 @@ func _raid_death() -> void:
 		t.ok(s.relics == 2 and s.essence == 7 and s.husks.size() == 1, "the banked loot is kept on a death")
 		t.ok(s.big_undead.is_empty() and s.party_uids == [], "the whole party is lost (A8); no stale uid in the party list")
 		t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington" and s.run.is_empty(), "she respawns home at once")
-		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0 and not _fort(s, "old-sluice").has("held_s"), "a death does not flip")
-		t.ok(s.town["vats"] == 0, "the legacy vat is spent or was absent")
-		if vats == 1:
-			t.ok(s.army == {"soldier": 12, "elite": 10}, "a clone: the army stays (+2 soldiers from step 12)")
-		else:
-			t.ok(s.army == {"soldier": int(12 * 0.6), "elite": int(10 * 0.7)}, "unmade: the army scatters, after step 12 added")
-		t.ok(s.stats["deaths"] == 1 and s.stats["raids"] == 1, "legacy stats")
+		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a death does not flip")
+		t.ok(s.clones_ready == 0, "the clone is spent or was absent")
+		t.ok(s.town_sim.shock == (0.0 if vats == 1 else shock), "a clone: no morale shock; unmade: morale.death_shock (%f)" % s.town_sim.shock)
+		t.ok(s.stats["deaths"] == 1 and s.stats["raids"] == 1, "stats count the raid and the death")
 
 
 # ------------------------------------------------------------ boss writeback ----
@@ -615,7 +617,6 @@ func _boss_writeback() -> void:
 	var u1: String = bus[0]["uid"]
 	var u2: String = bus[1]["uid"]
 	s.cmd_set_party([u1, u2])
-	s.army = {"soldier": 10, "elite": 10}
 	var sd := _begin_boss(s)
 	s.drain_events()
 	var rv := s.rev
@@ -628,13 +629,11 @@ func _boss_writeback() -> void:
 	t.ok(s.won == true and s.realm.vei["undead_queue"] == q0, "won = true; backlog_spent is not subtracted")
 	t.ok(s.view_relish()["state"] == "at_vei" and s.run.is_empty(), "she stays at Vei")
 	t.ok(s.party_uids == [u2] and s.view_big_undead()["big_undead"].size() == 1, "party_lost removed on a win; the rest live")
-	t.ok(s.army == {"soldier": 10, "elite": 10}, "no army change on a win")
-	# a loss keeps 35 %, the whole party dies, the army shrinks
+	# a loss keeps 35 % and the whole party dies
 	s = _mk()
 	s.cmd_debug_grant({"big_undead": 2, "backlog": 1000.0})
 	bus = s.view_big_undead()["big_undead"]
 	s.cmd_set_party([bus[0]["uid"], bus[1]["uid"]])
-	s.army = {"soldier": 10, "elite": 10}
 	sd = _begin_boss(s)
 	s.drain_events()
 	q0 = s.realm.vei["undead_queue"]
@@ -642,7 +641,6 @@ func _boss_writeback() -> void:
 	t.ok(out["ok"], "a loss without a death")
 	t.near(s.realm.vei["undead_queue"], q0 * 0.35, 1e-9, "the loss keeps 35 % of the backlog (vei.json)")
 	t.ok(s.won == false and s.big_undead.is_empty() and s.party_uids == [], "the whole party dies on a loss")
-	t.ok(s.army == {"soldier": 3, "elite": 4}, "legacy army x0.3 / x0.4")
 	evs = s.drain_events()
 	t.ok(_types(evs) == ["vei_result"] and evs[0]["won"] == false and evs[0]["relish_deaths"] == 0 and absf(evs[0]["backlog_after"] - q0 * 0.35) < 1e-9,
 		"vei_result carries backlog_after")
@@ -655,29 +653,29 @@ func _boss_writeback() -> void:
 	s.apply_result("boss", _boss_res(sd, {"won": false}))
 	t.near(s.realm.vei["undead_queue"], 500.0, 1e-9, "vei.json loss_backlog_keep is read")
 	# a final death
+	var shock := float(TestUtil.configs()["economy"]["morale"]["death_shock"])
 	for vats in [0, 1]:
 		s = _mk()
-		s.town["vats"] = vats
+		s.clones_ready = vats
 		s.cmd_debug_grant({"backlog": 1000.0, "big_undead": 1})
 		s.cmd_set_party([s.view_big_undead()["big_undead"][0]["uid"]])
-		s.army = {"soldier": 10, "elite": 10}
 		sd = _begin_boss(s)
 		s.drain_events()
 		out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1}))
 		evs = s.drain_events()
 		t.ok(out["ok"] and _types(evs) == ["vei_result", "relish_died", "relish_respawned"], "final death: vei_result first (%s)" % str(_types(evs)))
 		t.ok(evs[1]["outcome"] == ("clone" if vats == 1 else "unmade") and evs[1]["at"] == "vei" and evs[1]["in_place"] == false
-			and evs[1]["run_id"] == sd["run_id"] and evs[0]["relish_deaths"] == 1, "the legacy vat rule: %s" % str(evs[1]))
+			and evs[1]["run_id"] == sd["run_id"] and evs[0]["relish_deaths"] == 1, "the clone rule: %s" % str(evs[1]))
 		t.ok(s.view_relish()["state"] == "home" and s.big_undead.is_empty() and s.run.is_empty(), "respawned home at once, party gone")
-		t.ok(s.army == ({"soldier": 3, "elite": 4} if vats == 1 else {"soldier": 1, "elite": 2}), "army x0.3/x0.4, then the scatter when unmade")
-	# a spent clone is not a death event at E1
+		t.ok(s.clones_ready == 0 and s.town_sim.shock == (0.0 if vats == 1 else shock), "the clone spent, or the morale shock when unmade")
+	# a spent clone is not a death event until E3
 	s = _mk()
-	s.town["vats"] = 2
+	s.clones_ready = 2
 	sd = _begin_boss(s)
 	s.drain_events()
 	out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 1}}))
-	t.ok(out["ok"] and s.town["vats"] == 1 and _types(s.drain_events()) == ["vei_result"] and s.view_relish()["state"] == "at_vei",
-		"a loss with a clone spent: one vat used, she carries on at Vei (in-place events are E3)")
+	t.ok(out["ok"] and s.clones_ready == 1 and _types(s.drain_events()) == ["vei_result"] and s.view_relish()["state"] == "at_vei",
+		"a loss with a clone spent: one clone used, she carries on at Vei (in-place events are E3)")
 
 
 ## I2 (the writeback creates no mass) and phylactery charges are spent (§8.3).
@@ -688,14 +686,14 @@ func _mass_and_charges() -> void:
 	t.near(sd["garrison_in_mass"], 20.0, 1e-9, "garrison_in is 20")
 	_set_fort(s, "old-sluice", 60.0, 30.0, 15.0)  # the fort was drained during the run
 	var f := _fort(s, "old-sluice")
-	var total0: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	var total0: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + _sink(s)
 	var q0: float = s.realm.vei["undead_queue"]
 	s.apply_result("raid", _raid_res(sd, {"garrison_mass": 0.0, "chaff_mass": 20.0}))
 	f = _fort(s, "old-sluice")
 	t.near(f["undead"], 0.0, 1e-9, "drained fort: undead clamped at 0")
 	t.near(s.realm.vei["undead_queue"] - q0, 15.0, 1e-9, "Vei gains exactly what the fort lost")
-	t.near(s._dungeon_sink, 0.0, 1e-9, "no sink")
-	var total1: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + s._dungeon_sink
+	t.near(_sink(s), 0.0, 1e-9, "no sink")
+	var total1: float = f["living"] + f["dead"] + f["undead"] + s.realm.vei["undead_queue"] + _sink(s)
 	t.near(total1, total0, 1e-9, "fort + Vei + sink is conserved")
 	var v := GameState.new(TestUtil.configs())
 	v.debug_enabled = true
@@ -712,7 +710,8 @@ func _mass_and_charges() -> void:
 
 
 # ---------------------------------------- the pre-E1 writeback, kept here as the oracle ----
-## The removed GameState.apply_raid_result, verbatim, run against `s` with no run open.
+## The removed GameState.apply_raid_result, run against `s` with no run open: verbatim but for its
+## legacy army (retired at E2a) and the death, which is today's rule.
 func _legacy_raid(s: GameState, r: Dictionary) -> void:
 	var f := s.realm.fort_by_id(str(r.get("fort_id", "")))
 	if f.is_empty():
@@ -726,28 +725,24 @@ func _legacy_raid(s: GameState, r: Dictionary) -> void:
 	s.realm.vei["undead_queue"] += chaff
 	var good_mass: float = minf(f["dead"], float(r.get("good_mass", 0.0)))
 	f["dead"] -= good_mass
-	s.army["soldier"] += int(r.get("raised_soldiers", 0))
-	s.army["elite"] += int(r.get("raised_elites", 0))
 	var garrison: float = minf(f["dead"], float(r.get("garrison_mass", 0.0)))
 	f["dead"] -= garrison
 	f["undead"] += garrison
 	s.stats["raised_total"] += chaff + good_mass + garrison
 	if bool(r.get("relish_died", false)):
-		s._legacy_death(-1)
+		s._death(-1)
 
 
-## The removed GameState.apply_boss_result, verbatim.
+## The removed GameState.apply_boss_result, verbatim but for its legacy army and today's death.
 func _legacy_boss(s: GameState, r: Dictionary) -> void:
 	if bool(r.get("won", false)):
 		s.won = true
 		s._emit(_legacy_vei(s, true, 0))
 		return
 	s.realm.vei["undead_queue"] *= 0.35
-	s.army["soldier"] = int(s.army["soldier"] * 0.3)
-	s.army["elite"] = int(s.army["elite"] * 0.4)
 	var died := bool(r.get("relish_died", true))
 	if died:
-		s._legacy_death(-1)
+		s._death(-1)
 	s._emit(_legacy_vei(s, false, 1 if died else 0))
 
 
@@ -760,7 +755,6 @@ func _legacy_vei(s: GameState, did_win: bool, deaths: int) -> Dictionary:
 func _legacy_state(seed_val: int) -> GameState:
 	var s := _mk(seed_val)
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
-	s.army = {"soldier": 4, "elite": 2}
 	return s
 
 
@@ -786,35 +780,35 @@ func _parity() -> void:
 		t.near(fb["dead"], fa["dead"], 1e-9, "%s: fort dead equals the legacy writeback" % tag)
 		t.near(fb["living"], fa["living"], 1e-9, "%s: fort living equals" % tag)
 		t.near(b.realm.vei["undead_queue"], a.realm.vei["undead_queue"], 1e-9, "%s: vei.undead_queue equals" % tag)
-		t.ok(b.army == a.army, "%s: legacy army equals (%s vs %s)" % [tag, str(b.army), str(a.army)])
 		# the one deliberate change: good_mass stays at the fort as undead
 		t.near(fb["undead"], fa["undead"] + v1["good_mass"], 1e-9, "%s: undead = legacy + good_mass (the deliberate change)" % tag)
-		t.near(b._dungeon_sink, 0.0, 1e-9, "%s: nothing is lost to the dungeon sink" % tag)
-		t.ok(b.stats["deaths"] == a.stats["deaths"] and b.town["vats"] == a.town["vats"], "%s: deaths and vats equal" % tag)
+		t.near(_sink(b), 0.0, 1e-9, "%s: nothing is lost to the dungeon sink" % tag)
+		t.ok(b.stats["deaths"] == a.stats["deaths"] and b.clones_ready == a.clones_ready and b.town_sim.shock == a.town_sim.shock,
+			"%s: deaths, clones and the morale shock equal" % tag)
 		t.ok(b.view_relish()["state"] == a.view_relish()["state"] or not died, "%s: relish state" % tag)
 		if died:
 			t.ok(_types(b.drain_events()) == ["loot_banked", "relish_died", "relish_respawned"] and _types(a.drain_events()) == ["relish_died", "relish_respawned"],
 				"%s: the v2 path adds loot_banked and keeps the legacy death events" % tag)
-	# a legacy vat
+	# a ready clone
 	var a2 := _legacy_state(4)
-	a2.town["vats"] = 1
+	a2.clones_ready = 1
 	a2.legacy_teleport_relish("old-sluice")
 	var vd := v1.duplicate()
 	vd["relish_died"] = true
 	_legacy_raid(a2, vd)
 	var b2 := _legacy_state(4)
-	b2.town["vats"] = 1
+	b2.clones_ready = 1
 	var sd2 := _begin(b2)
 	b2.apply_result("raid", Results.from_v1("raid", vd, sd2))
-	t.ok(b2.town["vats"] == a2.town["vats"] and b2.army == a2.army, "raid death with a vat: vats and army equal")
+	t.ok(b2.clones_ready == a2.clones_ready and a2.clones_ready == 0, "raid death with a clone: both spend it")
 	# boss
 	for case in [{"won": true, "relish_died": true}, {"won": false, "relish_died": true}, {"won": false, "relish_died": false}]:
 		for vats in [0, 1]:
 			var a3 := _legacy_state(5)
-			a3.town["vats"] = vats
+			a3.clones_ready = vats
 			a3.cmd_debug_grant({"backlog": 2000.0})
 			var b3 := _legacy_state(5)
-			b3.town["vats"] = vats
+			b3.clones_ready = vats
 			b3.cmd_debug_grant({"backlog": 2000.0})
 			a3.legacy_teleport_relish("vei")
 			_legacy_boss(a3, case)
@@ -825,7 +819,7 @@ func _parity() -> void:
 			var lbl := "boss %s vats %d" % [str(case), vats]
 			t.ok(o3["ok"], "%s: applies" % lbl)
 			t.near(b3.realm.vei["undead_queue"], a3.realm.vei["undead_queue"], 1e-9, "%s: backlog equals" % lbl)
-			t.ok(b3.army == a3.army and b3.won == a3.won and b3.town["vats"] == a3.town["vats"], "%s: army, won and vats equal" % lbl)
+			t.ok(b3.won == a3.won and b3.clones_ready == a3.clones_ready, "%s: won and clones equal" % lbl)
 			t.ok(b3.view_relish()["state"] == a3.view_relish()["state"] or not (case["relish_died"] and not case["won"]), "%s: she is home after a death" % lbl)
 			var ea := a3.drain_events().filter(func(e): return e["type"] == "vei_result")
 			var eb := b3.drain_events().filter(func(e): return e["type"] == "vei_result")
@@ -856,9 +850,9 @@ func _misc() -> void:
 	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
 	var sd3 := _begin(s)
 	s.apply_result("raid", _raid_res(sd3, {"garrison_mass": 0.0}))
-	t.ok(s._dungeon_sink == 20.0, "garrison lost is sunk")
+	t.ok(_sink(s) == 20.0, "garrison lost is sunk")
 	s.cmd_new_game(3)
-	t.ok(s.ledger()["sinks"]["dungeon"] == 0.0 and not _fort(s, "old-sluice").has("held_s"), "a new game resets the sink and the forts")
+	t.ok(s.ledger()["sinks"]["dungeon"] == 0.0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a new game resets the sink and the forts")
 	# the caller's dictionary is never changed
 	s = _mk()
 	var sd4 := _begin(s)
