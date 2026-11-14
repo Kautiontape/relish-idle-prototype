@@ -58,7 +58,7 @@ func _preview_route(rel: Dictionary, id: String) -> void:
 		for l in NodeLogic.capped_layers(col, w, float(c["route_glow"]), ctx.px(float(c["route_halo_max_px"]))):
 			draw_polyline(PackedVector2Array([seg[0], seg[1]]), l[1], l[0])
 	var eta := RelishLogic.eta_s(MapModel.to_vec(rel["pos"]).distance_to(to), _travel_speed())
-	text((from + to) * 0.5, RelishLogic.fmt_eta(eta), int(c["route_label_px"]), col, ALIGN_CENTER, float(c["route_label_px"]) * 0.5, false, true)
+	text((from + to) * 0.5, RelishLogic.fmt_eta(eta), int(c["route_label_px"]), col, ALIGN_CENTER, float(c["route_label_px"]) * 0.5)
 
 
 func _travel_route(rel: Dictionary) -> void:
@@ -70,4 +70,4 @@ func _travel_route(rel: Dictionary) -> void:
 	var col := Palette.c("relish")
 	LineGlow.polyline(self, PackedVector2Array([ctx.relish_pos, to]), col, maxf(ctx.px(float(c["route_travel_width_px"])), ctx.hair_w()), 0.0)
 	text(to - Vector2(0.0, ctx.px(float(c["route_label_up_px"]))), RelishLogic.fmt_eta(float(rel.get("eta_s", 0.0))),
-		int(c["route_label_px"]), col, ALIGN_CENTER, 0.0, false, true)
+		int(c["route_label_px"]), col, ALIGN_CENTER, 0.0)

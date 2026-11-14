@@ -269,10 +269,5 @@ func _draw() -> void:
 
 
 func _village_label(at: Vector2, s: String, size: int) -> void:
-	var sc := 1.0 / maxf(ctx.zoom, 0.001)
-	var font := ThemeDB.fallback_font
-	draw_set_transform(at, 0.0, Vector2(sc, sc))
-	var w := font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	draw_string(font, Vector2(-w * 0.5, size), s, HORIZONTAL_ALIGNMENT_LEFT, -1, size,
-		Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	MapNodeLayer.draw_label(self, ctx.zoom, at, s, size, Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])),
+		MapNodeLayer.ALIGN_CENTER, size)

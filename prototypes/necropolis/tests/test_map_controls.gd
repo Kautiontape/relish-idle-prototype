@@ -410,7 +410,7 @@ func _sources(t: TestUtil) -> void:
 			all += FileAccess.get_file_as_string(p)
 	t.ok(not all.contains("cmd_set_time_scale") and not all.contains("cmd_pause"), "no map control calls cmd_set_time_scale or cmd_pause")
 	var hud := FileAccess.get_file_as_string("%s/map_hud.gd" % MAP_DIR)
-	t.ok(hud.contains("_speed_row.visible = model.state.debug_enabled") and hud.contains("cmd_debug_set_state"), "the speed row is debug-only and goes through cmd_debug_set_state")
+	t.ok(hud.contains("if not HudLogic.speed_row_shown(model.state):") and hud.contains("cmd_debug_set_state"), "the speed row is built only in a debug session and goes through cmd_debug_set_state")
 	t.ok(not all.contains("TELEPORT\""), "no TELEPORT button")
 	# the new scripts keep the visual law
 	var banned := RegEx.new()

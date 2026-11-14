@@ -1,12 +1,18 @@
 class_name NodeLogic
 extends RefCounted
 ## Pure logic for the map's nodes (no autoloads, so headless tests compile it): pip counts and
-## arc fractions, tier notches, the held and tithe countdowns, the backlog ring stack, the valve
-## glyph's widths and directions, Relish's interpolation, wake and light, and the --nodes=demo
-## stand-ins. Pulse-derived values come in as arguments. Tuning: configs/map_view.json "nodes".
+## arc fractions, tier notches, each fort's state glyph and tithe badge, the held and tithe
+## countdowns, the backlog ring stack, the valve glyph's widths and directions, Relish's
+## interpolation, size, wake and light, the label plate, and the --nodes=demo stand-ins.
+## Pulse-derived values come in as arguments. Tuning: configs/map_view.json "nodes".
 
 const COVINGTON := "covington"
 const MATTERS := ["living", "undead", "dead"]
+## A fort's state glyph when it is not held (held forts show their margin: IdleLogic's safe / thin
+## / will_fall).
+const HERS := "hers"
+const CONTESTED := "contested"
+const EMPTIED := "emptied"
 
 
 static func ncfg() -> Dictionary:
@@ -112,6 +118,42 @@ static func controller(f: Dictionary) -> String:
 	if l > 0.0:
 		return "living"
 	return "dead"
+
+
+## The one glanceable state a fort shows (its centre glyph). Held: its margin, `margin` (the
+## model's margin_of, so it always agrees with the chip): safe, thin or will_fall; "" or anything
+## else counts as safe, IdleLogic's committed fallback. Not held, a side is present at
+## state_present_frac of capacity or more (the mass that rounds to one pip):
+##   contested  your undead present, and at least contested_frac of the living, or both sides
+##              at contested_floor_frac of capacity or more;
+##   hers       otherwise, when the living are present;
+##   emptied    neither side present (the dead remain, or nothing does).
+## Held beats contested; contested beats hers.
+static func fort_state(f: Dictionary, margin: String) -> String:
+	if bool(f.get("held", false)):
+		return margin if margin == IdleLogic.THIN or margin == IdleLogic.WILL_FALL else IdleLogic.SAFE
+	var cap := maxf(float(f.get("cap", 0.0)), 0.0)
+	var u := float(f.get("undead", 0.0))
+	var l := float(f.get("living", 0.0))
+	var present := _n("state_present_frac") * cap
+	var und_here := cap > 0.0 and u >= present and u > 0.0
+	var liv_here := cap > 0.0 and l >= present and l > 0.0
+	var floor_m := _n("contested_floor_frac") * cap
+	if und_here and (u >= _n("contested_frac") * l or (u >= floor_m and l >= floor_m)):
+		return CONTESTED
+	if liv_here:
+		return HERS
+	return EMPTIED
+
+
+## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
+static func tithe_badge(f: Dictionary) -> bool:
+	return tithe_mode(f) != ""
+
+
+## Half the state glyph's extent in world px at `zoom`: state_glyph_px on screen at every zoom.
+static func state_glyph_half(zoom: float) -> float:
+	return _n("state_glyph_px") * 0.5 / maxf(zoom, 0.001)
 
 
 ## How long a flip holds: hold_s x (1 + tier_mult x tier) (realm.json "flip").
@@ -442,6 +484,16 @@ static func wake_alphas(buf: Array, now_s: float, frozen: bool) -> PackedFloat32
 	return out
 
 
+## Relish's token radii in world px at `zoom`, {core, halo, wide}: the core and halo never under
+## relish_min_core_px / relish_min_halo_px screen px (radii), the wide faint beat ring
+## relish_wide_mult x the halo.
+static func relish_radii(zoom: float) -> Dictionary:
+	var z := maxf(zoom, 0.001)
+	var halo := maxf(_n("relish_halo_r_px"), _n("relish_min_halo_px") / z)
+	return {"core": maxf(_n("relish_core_r_px"), _n("relish_min_core_px") / z), "halo": halo,
+		"wide": halo * _n("relish_wide_mult")}
+
+
 ## Ids of the forts within `radius` of Relish: their dead turn dead_lit.
 static func lit_fort_ids(forts: Array, relish_pos: Vector2, radius: float) -> Array:
 	var out: Array = []
@@ -449,6 +501,13 @@ static func lit_fort_ids(forts: Array, relish_pos: Vector2, radius: float) -> Ar
 		if MapModel.to_vec(f["pos"]).distance_to(relish_pos) <= radius:
 			out.append(f["id"])
 	return out
+
+
+# --- labels ---------------------------------------------------------------------------------
+
+## The plate behind every node label: the ground at label_plate_alpha.
+static func label_plate_color() -> Color:
+	return Palette.c("ground", _n("label_plate_alpha"))
 
 
 # --- villages ------------------------------------------------------------------------------

@@ -9,6 +9,12 @@ const ARROW := "→"
 const DOT := "·"
 
 
+## The debug speed row exists only in a debug session (IDLE I9): `state` is the GameState, or
+## anything with debug_enabled.
+static func speed_row_shown(state) -> bool:
+	return state != null and bool(state.get("debug_enabled"))
+
+
 ## One item per view_hud rate row, in the view's order (HUD_RATE_IDS):
 ## {id, label, rate_text, stock_text, capped, cap_mark}. The signed net rate comes first on
 ## screen; stock_text is "" for a stock of -1 (mint) and "40/200" when the stream has a cap.

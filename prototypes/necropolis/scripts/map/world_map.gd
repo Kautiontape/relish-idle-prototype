@@ -73,6 +73,7 @@ func _build_world() -> void:
 	world.add_child(field)
 	routes_view = MapRoutes.new()
 	routes_view.model = model
+	routes_view.lanes_report = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes-report")
 	world.add_child(routes_view)
 	nodes_view = MapNodes.new()
 	nodes_view.model = model
@@ -248,6 +249,7 @@ func _select(id: String) -> void:
 		id = ""  # Covington has no card: it is a door
 	selected_id = id
 	nodes_view.selected_id = id
+	routes_view.selected_id = id
 	sidebar.select(id)
 
 

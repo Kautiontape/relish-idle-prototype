@@ -9,6 +9,7 @@ extends RefCounted
 ##     spill / cut / lip / rim (06-three-flow-geometry c5, the spill kept off the host's core),
 ##     the phantom bank;
 ##   - the on-screen stroke rules the shader applies (drawn_stroke, spill_clip), as pure mirrors;
+##   - lane focus and the glow cap (which lit lanes go quiet), and the hue floor;
 ##   - dash motion per kind, ring dash quantisation, haul cart spacing and pips.
 ## Ribbon sides: UV.y = +1 is MapLogic's +perp side, (-dir.y, dir.x), the right of travel on
 ## screen. Lanes bow and gutters shift to -perp, so a gutter's host lies on its +UV.y side.
@@ -212,6 +213,33 @@ static func _layer(width: float, color: Color, offset := 0.0, dashed := true, ha
 	return {"width": width, "color": color, "offset": offset, "dashed": dashed, "hairline": hairline}
 
 
+## The u a lit lane takes its HUE from: max(u, hue_u_floor), so undead stays green and living
+## orange at low rates (VISUAL-LANGUAGE law 4). An off lane (u < 0) stays off.
+static func hue_u(u: float) -> float:
+	return u if u < 0.0 else maxf(u, _num("hue_u_floor"))
+
+
+## A lit lane's channels: `ch` (Pulse.channels at the real u) with the hue and colour of `ch_hue`
+## (Pulse.channels at hue_u(u)) and the real alpha put back. Width, speed, period, dash and alpha
+## keep the real u, so the rate ranking survives; the colour's lightness follows the floored u.
+static func with_hue(ch: Dictionary, ch_hue: Dictionary) -> Dictionary:
+	var out := ch.duplicate()
+	out["hue"] = ch_hue["hue"]
+	out["color"] = Color(ch_hue["color"], float(ch["alpha"]))
+	return out
+
+
+## The --lanes-report table (debug only): a header naming the tuning, then one line per live lane.
+static func report_header(log_max: float, floor_u: float) -> String:
+	return "LANES_REPORT rate_log_max=%.2f hue_u_floor=%.2f\n%-34s %-9s %-8s %8s %6s %6s %7s" % [
+		log_max, floor_u, "id", "kind", "key", "rate", "u", "hue_u", "hue"]
+
+
+static func report_line(row: Dictionary, hue_key: String, u: float, u_hue: float, hue: float) -> String:
+	return "%-34s %-9s %-8s %8.3f %6.3f %6.3f %7.1f" % [str(row["id"]), str(row["kind"]), hue_key,
+		float(row["rate"]), u, u_hue, hue]
+
+
 ## A lit lane's alpha: Pulse's alpha floored at lane_alpha_floor, times alpha_mult, capped at 1.
 static func lane_alpha(ch: Dictionary, style: Dictionary) -> float:
 	return minf(maxf(float(ch["alpha"]), _num("lane_alpha_floor")) * float(style["alpha_mult"]), 1.0)
@@ -226,9 +254,12 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 ## alpha, so the hue carries the halos and the core is the pale core at that alpha. Dashed. The
 ## core is a hairline (never under a screen pixel, never faded by coverage). Halos wider than
 ## halo_max_px are pulled in toward the core (capped_halo); the core keeps its width.
-static func lit_layers(ch: Dictionary, style: Dictionary) -> Array:
+## `quiet` (out of focus, or past the glow cap): glow 0, so the core alone, quiet_width_mult as
+## wide, at the same floored alpha (so it still reads 3:1).
+static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
-	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
+	var width := lane_width(ch, style) * (_num("quiet_width_mult") if quiet else 1.0)
+	var stack := LineGlow.layers(col, width, 0.0 if quiet else float(style["glow"]), style["core"])
 	var n := stack.size()
 	var core_w: float = stack[n - 1][0]
 	var outer: float = stack[0][0]
@@ -326,6 +357,53 @@ static func pack(layers: Array) -> Dictionary:
 		else:
 			cols.append(Palette.c("void", 0.0))
 	return {"widths": w, "offsets": o, "dashed": d, "hairline": h, "colors": cols}
+
+
+# --- focus and the glow cap -----------------------------------------------------------
+
+## The forts in focus: the selected fort (its card is open) and the fort Relish stands at
+## (at_fort, in_dungeon: `at`) or travels to (travelling: `target`). Only forts focus: Covington,
+## Vei and villages never do. `forts` is any dictionary keyed by fort id.
+static func focus_ids(selected_id: String, relish: Dictionary, forts: Dictionary) -> Array:
+	var out: Array = []
+	if forts.has(selected_id):
+		out.append(selected_id)
+	var state := str(relish.get("state", ""))
+	var hers := ""
+	if state == "at_fort" or state == "in_dungeon":
+		hers = str(relish.get("at", ""))
+	elif state == "travelling":
+		hers = str(relish.get("target", ""))
+	if forts.has(hers) and not out.has(hers):
+		out.append(hers)
+	return out
+
+
+## True when the lane starts or ends at a fort in focus.
+static func focus(row: Dictionary, focus_ids: Array) -> bool:
+	return focus_ids.has(str(row["from"])) or focus_ids.has(str(row["to"]))
+
+
+## The lit lanes that go quiet, {id: true}. With a focus: every lane not in focus, whatever its
+## rate. With none: past `cap` lit lanes, all but the `cap` highest-rate ones (ties by id, so the
+## choice holds between refreshes). cap <= 0 is no cap.
+static func quiet_ids(lit_rows: Array, focus_ids: Array, cap: int) -> Dictionary:
+	var out := {}
+	if not focus_ids.is_empty():
+		for r in lit_rows:
+			if not focus(r, focus_ids):
+				out[str(r["id"])] = true
+		return out
+	if cap <= 0 or lit_rows.size() <= cap:
+		return out
+	var ranked := lit_rows.duplicate()
+	ranked.sort_custom(func(a, b):
+		var ra := float(a["rate"])
+		var rb := float(b["rate"])
+		return ra > rb or (ra == rb and str(a["id"]) < str(b["id"])))
+	for i in range(cap, ranked.size()):
+		out[str(ranked[i]["id"])] = true
+	return out
 
 
 # --- chevrons -------------------------------------------------------------------------

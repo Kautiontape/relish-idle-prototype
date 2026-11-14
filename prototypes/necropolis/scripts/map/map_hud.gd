@@ -129,12 +129,13 @@ func _label(font_size: int, color_key: String) -> Label:
 	return l
 
 
-## Debug controls are first-class, but only exist in debug sessions.
+## Debug controls are first-class, but only exist in debug sessions: elsewhere no row is built.
 func _build_speed_row(cfg: Dictionary) -> void:
+	if not HudLogic.speed_row_shown(model.state):
+		return
 	_speed_row = HBoxContainer.new()
 	_speed_row.position = Vector2(float(cfg["topbar_pos_px"][0]), float(cfg["speed_row_y_px"]))
 	_speed_row.add_theme_constant_override("separation", 6)
-	_speed_row.visible = model.state.debug_enabled
 	add_child(_speed_row)
 	var lab := Label.new()
 	lab.text = "SPEED"

@@ -5,7 +5,9 @@ extends Node2D
 ## MeshInstance2D per lane, its mesh built once along MapLogic's curve, its look in uniforms.
 ## Lit lanes first, then every dead gutter (so the cut bites into the halos), then the carts.
 ## Per frame: one dash-offset uniform per visible lane. On a model rev: each lane's channels,
-## with uniforms touched only when u moved by u_epsilon or the lane turned on, off or phantom.
+## with uniforms touched only when u moved by u_epsilon, the lane turned on, off or phantom, or
+## it went quiet or loud. Quiet (LaneStyle.quiet_ids): off the forts in focus (the selected one,
+## Relish's), or past glow_cap lit lanes with nothing in focus; re-applied on a selection too.
 ## Styling and tables: scripts/map/lane_style_logic.gd. Tuning: configs/map_view.json.
 
 const SHADER := preload("res://shaders/map_lane.gdshader")
@@ -15,6 +17,13 @@ const COL_PARAMS: Array[StringName] = [&"col0", &"col1", &"col2", &"col3"]
 var model: MapModel
 ## GDScript ms the routes spent last frame (offsets, any refresh, the cart overlay's draw).
 var routes_ms := 0.0
+## Debug only (world_map sets it for --lanes-report): print the live lanes' u and hue once, at boot.
+var lanes_report := false
+## The fort whose card is open (world_map sets it): with Relish's fort, the lanes in focus.
+var selected_id := "":
+	set(v):
+		selected_id = v
+		_refocus()
 
 
 ## One lane's (or one gutter's) ribbon node and the state its uniforms were last set from.
@@ -35,6 +44,7 @@ class Ribbon:
 	var trim := Vector2.ZERO  # arc length not drawn at the start and end (inside the nodes)
 	var ring := false
 	var mode := "off"
+	var quiet := false  # lit, but out of focus or past the glow cap: the core alone, narrower
 	var u := -2.0
 	var u_host := -2.0
 	var lit := false  # gutter: its fort stands in Relish's light (dead_lit instead of dead)
@@ -65,6 +75,7 @@ var _tier := ""
 var _cam: Camera2D
 var _log_max := 0.0
 var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ring) the lanes were last trimmed to
+var _reported := false
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
 var _bench := false
@@ -201,12 +212,19 @@ func _sync() -> void:
 	_moving.clear()
 	var tracks: Array = []
 	var seen := {}
+	var drawn: Array = []
+	var lit: Array = []
 	for r in rows:
 		if r["kind"] == "dead" or not model.has_node(r["from"]) or not model.has_node(r["to"]):
 			continue
+		drawn.append(r)
+		if _u(r) >= 0.0:
+			lit.append(r)
+	var quiet := LaneStyle.quiet_ids(lit, _focus_ids(), int(MapLogic.cfg()["glow_cap"]))
+	for r in drawn:
 		seen[r["id"]] = true
 		var lane := _lane(r)
-		_apply_lane(lane, _u(r), dead_on_host.has(r["id"]))
+		_apply_lane(lane, _u(r), dead_on_host.has(r["id"]), quiet.has(r["id"]))
 		if lane.mode == "lit":
 			_moving.append(lane)
 			if r["kind"] == "haul":
@@ -228,6 +246,47 @@ func _sync() -> void:
 		if not seen.has(id):
 			_hide(_gutters[id])
 	_carts.set_tracks(tracks)
+	if lanes_report and not _reported:
+		_reported = true
+		_print_report()
+
+
+## --lanes-report: one line per lit lane, sorted by id: its rate, u, the u its hue comes from
+## (LaneStyle.hue_u) and the hue that gives.
+func _print_report() -> void:
+	var lines: Array = []
+	for r: Ribbon in _lanes.values():
+		if r.mode == "lit":
+			var key := str(r.style["hue_key"])
+			lines.append(LaneStyle.report_line(r.row, key, r.u, LaneStyle.hue_u(r.u), float(_channels(r.u, key)["hue"])))
+	lines.sort()
+	print(LaneStyle.report_header(_log_max, float(MapLogic.cfg()["hue_u_floor"])))
+	for l in lines:
+		print(l)
+
+
+## A lit lane's channels: Pulse's at the real u, with the hue taken at LaneStyle.hue_u(u).
+func _channels(u: float, hue_key: String) -> Dictionary:
+	var hue := Palette.hue(hue_key)
+	return LaneStyle.with_hue(Pulse.channels(u, hue), Pulse.channels(LaneStyle.hue_u(u), hue))
+
+
+func _focus_ids() -> Array:
+	return LaneStyle.focus_ids(selected_id, model.relish, model.forts_by_id)
+
+
+## A selection changed the focus: re-apply only the lit lanes whose quiet flag flipped.
+func _refocus() -> void:
+	if model == null or _rev < 0:
+		return
+	var lit: Array = []
+	for r: Ribbon in _lanes.values():
+		if r.mode == "lit":
+			lit.append(r.row)
+	var quiet := LaneStyle.quiet_ids(lit, _focus_ids(), int(MapLogic.cfg()["glow_cap"]))
+	for r: Ribbon in _lanes.values():
+		if r.mode == "lit" and quiet.has(r.row["id"]) != r.quiet:
+			_apply_lane(r, r.u, false, quiet.has(r.row["id"]))
 
 
 ## The forts whose dead lane's gutter reads dead_lit (still matte) instead of dead: the nodes
@@ -376,14 +435,16 @@ func _note_build(t0: int) -> void:
 	_built_this_frame = true
 
 
-func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool) -> void:
+func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool, quiet := false) -> void:
 	var mode := LaneStyle.lane_mode(u, hosts_live_dead)
 	if mode == "off":
 		_hide(r)
 		return
-	if mode == r.mode and (mode == "phantom" or absf(u - r.u) <= _eps):
+	quiet = quiet and mode == "lit"
+	if mode == r.mode and quiet == r.quiet and (mode == "phantom" or absf(u - r.u) <= _eps):
 		return
 	r.mode = mode
+	r.quiet = quiet
 	r.u = u
 	_updates += 1
 	var layers: Array
@@ -392,8 +453,8 @@ func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool) -> void:
 		_set_motion(r, {"period": 1.0, "dash": 1.0, "speed": 0.0})
 		r.mat.set_shader_parameter(&"chev_col", Palette.c("void", 0.0))
 	else:
-		var ch: Dictionary = Pulse.channels(u, Palette.hue(r.style["hue_key"]))
-		layers = LaneStyle.lit_layers(ch, r.style)
+		var ch := _channels(u, str(r.style["hue_key"]))
+		layers = LaneStyle.lit_layers(ch, r.style, quiet)
 		_set_motion(r, LaneStyle.motion(ch, r.style, r.length if r.ring else 0.0))
 		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style))
 	_set_layers(r, layers)
