@@ -125,7 +125,13 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 **Budget.** 12 h in under 2 s and 7 days in under 10 s, on jenova, with a progress screen when it
 takes over 1 s.
 - **E2 benchmarks one substep first.** If 12 h takes over 2 s, raise `idle.catchup_dt_max_s` before
-  touching the design. It is stable up to about τ_min / 4, about 120 s for workers.
+  touching the design.
+- **Stability is set by the realm, not the workers.** RealmSim's drain is forward Euler, and its
+  fastest timescale is 1/r_drain ≈ 16.7 s, so pools go negative above that dt. Fort kills and clears
+  also scale with dt. Inside a long catch-up step, RealmSim must either be sub-stepped below
+  `idle.realm_dt_max_s` (≤ 4 s) or integrated exactly, while TownSim's exact first-order updates take
+  the long step. (Found in economy's E2a quality review; this replaces v2's "stable to about 120 s",
+  which held only for the workforce.)
 - A thread is the fallback.
 
 **Determinism.**
