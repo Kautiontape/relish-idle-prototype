@@ -635,7 +635,7 @@ func perform_raise(g: Dictionary) -> void:
 
 # --------------------------------------------------------------- endings -----
 ## A window close mid-run ends it now (IDLE I5 stand-in, RaidEndings.close_request): a dungeon as a
-## retreat paying the last checkpoint (a death beat stays a death), the boss as a loss keeping the
+## retreat paying the last checkpoint (a death or victory beat already playing stands), the boss as a loss keeping the
 ## backups spent (or the win, once Vei broke). The signal runs synchronously: the router applies the
 ## result before the quit completes.
 func _notification(what: int) -> void:

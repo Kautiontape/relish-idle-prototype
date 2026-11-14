@@ -1175,10 +1175,16 @@ func _push_out(lay: Dictionary, p: Vector2, r: float) -> Vector2:
 	return p
 
 
-## A window close mid-run (IDLE I5): a retreat, but Relish's death beat stays a death.
+## A window close mid-run (IDLE I5): a retreat, but an ending beat already playing stands: Relish's
+## death beat stays a death, the warden's victory beat stays the win.
 func _close_exit_tests(t: TestUtil) -> void:
 	t.suite("raid_close_exit")
-	t.ok(RaidLogic.close_exit(false, false) == "retreated", "a close mid-run is a retreat")
-	t.ok(RaidLogic.close_exit(true, true) == "relish_died", "a close during the death beat stays a death")
-	t.ok(RaidLogic.close_exit(true, false) == "retreated", "a close during another ending beat keeps the retreat")
-	t.ok(RaidLogic.close_exit(false, true) == "retreated", "dying without the run ended is not a death beat")
+	t.ok(RaidLogic.close_exit(false, "") == "retreated", "a close mid-run is a retreat")
+	t.ok(RaidLogic.close_exit(true, "relish_died") == "relish_died", "a close during the death beat stays a death")
+	# the victory beat: on_chest_opened ends the run with warden_beaten pending
+	t.ok(RaidLogic.close_exit(true, "warden_beaten") == "warden_beaten", "a close during the victory beat stays the win")
+	t.ok(RaidLogic.close_exit(true, "") == "retreated", "ended with no beat pending is a retreat")
+	t.ok(RaidLogic.close_exit(false, "relish_died") == "retreated" and RaidLogic.close_exit(false, "warden_beaten") == "retreated",
+		"a pending exit without the run ended is not an ending beat")
+	t.ok(RaidLogic.close_exit(true, "retreated") == "retreated" and RaidLogic.close_exit(true, "bogus") == "retreated",
+		"only a death or a win is kept")

@@ -114,12 +114,14 @@ func on_warden_died(w: RaidWarden) -> void:
 
 ## Relish opened the chest: merge its loot into what was found, then the victory beat, then the
 ## run ends warden_beaten (loot is everything found plus the carried essence, as for a retreat).
+## The win is pending from here: a window close inside the beat finishes it as the win.
 func on_chest_opened(c: RaidChest) -> void:
 	var e: RaidEndings = _raid.endings
 	if e.ended:
 		return
 	_raid.found_loot = RaidLogic.merge_loot(_raid.found_loot, _raid.chest_loot())
 	e.ended = true
+	e.pending_exit = "warden_beaten"
 	_raid.trance.force_end()
 	var wc: Dictionary = _raid.rcfg().get("wardens", {})
 	RaidFx.ring(_raid.fx_root, c.global_position, Palette.c("vei"), 120.0, 0.9, 5.0)
