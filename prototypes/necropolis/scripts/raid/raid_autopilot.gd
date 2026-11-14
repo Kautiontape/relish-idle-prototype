@@ -28,7 +28,13 @@ extends RefCounted
 ##           Shieldwall: keep out of its bash arc (the front arc within its reach, plus `wall_margin_*`),
 ##           wait on its side (`wall_side_deg` off its facing, `wall_stand_px` beyond the bash) so the
 ##           raises there walk in from the side, going round the wall the short way as it turns; fetch
-##           only motes and pickups outside the arc. Then the chest.
+##           only motes and pickups outside the arc.
+##           Pyre-priest: step off a lit burn area that covers her (with chance `burn_step_off` per
+##           tell: a decent player, not a perfect one), first carrying a mote out of a lit area when
+##           the trip in and out fits before the beat; fetch what lies outside the fire; while
+##           acolytes live wait `pyre_stand_px` beyond the nearest one and hold a raise until within
+##           `pyre_raise_px` of one (unless the carry is full), so the raised undead go for it; once
+##           it is exposed wait `pyre_exposed_px` from it. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
 
@@ -69,6 +75,11 @@ var _stick = null               # the mote, pile or pickup being walked to (kept
 var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
 var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 / -1; 0 before the first pick)
 var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think (it is freed on death)
+var _avoid_burn := {}           # the Pyre-priest's lit burn areas this think ({areas, r}; {} for every other fight): spots in them are not safe
+var _pyre := {}                 # the Pyre-priest's counts, read off it each think (it is freed on death)
+var _burn_tell := -1.0          # the burn tell the step-off roll was made for
+var _stepping := true           # this tell is stepped off (rolled once per tell)
+var _min_hp := INF              # Relish's lowest hp so far (the pyre dict reports it)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -121,6 +132,9 @@ func physics_tick(delta: float) -> void:
 		return
 	_sim_t += delta
 	_pin_clock()
+	var rel_hp: RaidRelish = _raid.relish
+	if rel_hp != null and is_instance_valid(rel_hp):
+		_min_hp = minf(_min_hp, rel_hp.hp)
 	_frame += 1
 	if _frame % maxi(1, int(_c("think_frames", 3.0))) != 0:
 		return
@@ -146,6 +160,10 @@ func physics_tick(delta: float) -> void:
 			_attacks = ww.bashes
 			_attacks_wp = ww.flanks
 			_shield = ww.telemetry()
+		elif ww is RaidPyrePriest:
+			_attacks = ww.burns
+			_attacks_wp = ww.snuffs
+			_pyre = ww.telemetry()
 	_track_room(pos)
 	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
@@ -218,6 +236,10 @@ func on_finish(result: Dictionary) -> void:
 		"allies_end": _allies_alive()}
 	if _archetype == "shieldwall":   # its own counts (the other wardens' lines keep their shape)
 		out["shield"] = _shield
+	if _archetype == "pyre_priest":
+		var py := _pyre.duplicate()
+		py["relish_min_hp"] = snappedf(_min_hp if _min_hp < INF else -1.0, 0.1)
+		out["pyre"] = py
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -426,6 +448,7 @@ func _living() -> Array:
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
 	_avoid_arc = {}
+	_avoid_burn = {}
 	var hold_px := _c("hold_px", 200.0)
 	var kite_px := _c("kite_px", 240.0)
 	if _hold_t >= _c("stall_s", 30.0):
@@ -640,6 +663,8 @@ func _spot_ok(p: Vector2, living: Array, clear: float, avoid: Vector2, avoid_r: 
 	if not _avoid_arc.is_empty() and WardenLogic.bash_hits(float(_avoid_arc["facing"]), _avoid_arc["from"], p,
 			float(_avoid_arc["half"]), float(_avoid_arc["reach"]), 0.0):
 		return false
+	if not _avoid_burn.is_empty() and WardenLogic.in_burn(p, _avoid_burn["areas"], float(_avoid_burn["r"]), 0.0):
+		return false
 	for e in living:
 		if p.distance_to(e.global_position) < clear:
 			return false
@@ -665,6 +690,8 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 		var dodge_to = _dodge_step(pos, h)
 		if dodge_to != null:
 			return dodge_to
+	if _archetype == "pyre_priest":
+		return _vs_pyre(pos, w as RaidPyrePriest, living, ne, nd)
 	# other living first
 	if ne != null and nd < kite_px:
 		return _back_step(pos, ne.global_position)
@@ -838,6 +865,111 @@ func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2) -> 
 	return _to_point(pos, p)
 
 
+## The Pyre-priest fight. While a tell shows: carry a mote out of a lit area when the trip in and out
+## fits before the beat (`burn_safe_beats` to spare), else step off the lit area that covers her
+## (rolled once per tell with `burn_step_off`). Then the living, then what lies outside the fire in
+## its room, then her stand (_pyre_stand).
+func _vs_pyre(pos: Vector2, pp: RaidPyrePriest, living: Array, ne, nd: float) -> Vector2:
+	var wr := int(_raid.layout.get("warden_room", -1))
+	var room: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
+	var rel: RaidRelish = _raid.relish
+	var clear: float = rel.radius + _c("burn_clear_px", 16.0)
+	if pp.lit:
+		_avoid_burn = {"areas": pp.areas, "r": pp.area_r + _c("burn_clear_px", 16.0)}
+		if pp._tell_for != _burn_tell:
+			_burn_tell = pp._tell_for
+			_stepping = _rng.randf() < _c("burn_step_off", 0.8)
+		var grab = _burn_fetch(pos, pp, living, room, clear)
+		if grab != null:
+			_why = "pyre-grab"
+			return _to_point(pos, grab)
+		if _stepping and WardenLogic.in_burn(pos, pp.areas, pp.area_r, clear):
+			_why = "pyre-off"
+			return _to_point(pos, WardenLogic.burn_exit(pos, pp.areas, pp.area_r, clear, room, rel.radius + 8.0))
+	if ne != null and nd < _c("kite_px", 240.0):
+		return _back_step(pos, ne.global_position)
+	var loot = _collect_target(pos, living, Vector2.INF, 0.0, room)
+	if loot != null:
+		_why = "pyre-loot"
+		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, Vector2.INF, 0.0, room)
+	if pk != null:
+		_why = "pyre-pickup"
+		return _to_point(pos, pk)
+	_why = "pyre-stand"
+	return _to_point(pos, _pyre_stand(pos, pp, room, clear))
+
+
+## Where she waits: `pyre_stand_px` beyond the living acolyte nearest her (seen from the priest), so a
+## raise there walks into it; once it is exposed, `pyre_exposed_px` from the priest on her side.
+## Kept in its room, and off a lit area while she is stepping off this tell.
+func _pyre_stand(pos: Vector2, pp: RaidPyrePriest, room: Rect2, clear: float) -> Vector2:
+	var wp := pp.global_position
+	var rr: float = _raid.relish.radius + 8.0
+	var a := pp.nearest_acolyte(pos)
+	var p: Vector2
+	if a != null:
+		var d := a.global_position - wp
+		p = a.global_position + (d.normalized() if d.length() > 1.0 else Vector2.UP) * _c("pyre_stand_px", 60.0)
+	else:
+		var d2 := pos - wp
+		p = wp + (d2.normalized() if d2.length() > 1.0 else Vector2.DOWN) * _c("pyre_exposed_px", 170.0)
+	if room.size != Vector2.ZERO:
+		p = WardenLogic.leash_clamp(room, p, rr)
+	if pp.lit and _stepping:
+		p = WardenLogic.burn_exit(p, pp.areas, pp.area_r, clear, room, rr)
+	return p
+
+
+## A loose mote inside a lit burn area that she can gather and still be out before the beat: the trip
+## to it (less the gather radius) plus the way out of the deepest area covering it must fit in the
+## beats left with `burn_safe_beats` to spare (WardenLogic.slam_window_open). The nearest such mote, or
+## null (no carry room, or none worth it).
+func _burn_fetch(pos: Vector2, pp: RaidPyrePriest, living: Array, room: Rect2, clear: float):
+	if _raid.carry_room() <= 0:
+		return null
+	var speed: float = _raid.relish.speed
+	var gather := float(_raid.rcfg().get("essence", {}).get("gather_radius_px", 28.0))
+	var left := pp.beats_to_burn()
+	var fclear := _c("foe_clear_px", 170.0)
+	var best = null
+	var bd := INF
+	for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
+		if not is_instance_valid(o) or o.absorbing or o.carried:
+			continue
+		var p: Vector2 = o.global_position
+		if not _in(room, p):
+			continue
+		var depth := 0.0
+		for c in pp.areas:
+			depth = maxf(depth, pp.area_r + clear - p.distance_to(c))
+		if depth <= 0.0:
+			continue   # outside the fire: the ordinary collection takes it
+		var trip := maxf(0.0, pos.distance_to(p) - gather)
+		if trip >= bd:
+			continue
+		var near_foe := false
+		for e in living:
+			near_foe = near_foe or p.distance_to(e.global_position) < fclear
+		if near_foe:
+			continue
+		if WardenLogic.slam_window_open(left, trip + depth, speed, pp.tempo_s(), _c("burn_safe_beats", 0.35)):
+			bd = trip
+			best = p
+	return best
+
+
+## Hold a raise (the Pyre-priest, while acolytes live): she is farther than `pyre_raise_px` from every
+## living acolyte and her carry still has room, so the raise waits until the raised undead would
+## walk into one.
+func _pyre_hold(pos: Vector2) -> bool:
+	var w = _raid.warden_run.warden
+	if w == null or not is_instance_valid(w) or not (w is RaidPyrePriest) or not w.alive or not w.awake:
+		return false
+	var a: RaidAcolyte = (w as RaidPyrePriest).nearest_acolyte(pos)
+	return a != null and _raid.carry_room() > 0 and pos.distance_to(a.global_position) > _c("pyre_raise_px", 120.0)
+
+
 ## Where to wait out the warden: the farthest of the previous room's centre and this room's far
 ## corner from it (outside the slam when the geometry allows, otherwise as far as it goes).
 func _warden_retreat(pos: Vector2, w: RaidWarden, safe_px: float) -> Vector2:
@@ -902,6 +1034,8 @@ func _motes_near(pos: Vector2, reach: float) -> Array[Vector2]:
 func _try_raise(pos: Vector2) -> void:
 	var tr: RaidTrance = _raid.trance
 	if tr == null or not tr.enabled or tr.state != RaidTrance.State.READY:
+		return
+	if _archetype == "pyre_priest" and _pyre_hold(pos):
 		return
 	var ring := RaidLogic.ghost_ring(_motes_near(pos, 1.0e9), pos, _c("raise_reach_px", 300.0), _c("raise_pad_px", 14.0))
 	if not bool(ring["ok"]) or int(ring["count"]) < int(_c("min_motes", 3.0)):

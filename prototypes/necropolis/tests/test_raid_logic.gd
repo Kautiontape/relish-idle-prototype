@@ -359,7 +359,19 @@ func run() -> int:
 			["res://scripts/raid/warden_shieldwall.gd", "func hit_from(", "RaidShieldwall.hit_from (the glance/flank rule)"],
 			["res://scripts/raid/raid_warden_run.gd", "func flank_for(", "RaidWardenRun.flank_for (the flank role)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _vs_wall(", "the bot's Shieldwall fight"],
-			["res://scripts/raid/raid_autopilot.gd", "func _wall_stand(", "the bot's Shieldwall stand point"]]:
+			["res://scripts/raid/raid_autopilot.gd", "func _wall_stand(", "the bot's Shieldwall stand point"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _step(", "RaidPyrePriest._step (the burn clock)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _mark_areas(", "RaidPyrePriest._mark_areas (where the fire lands)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _ignite(", "RaidPyrePriest._ignite"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func take_hit(", "RaidPyrePriest.take_hit (the ward)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func acolyte_hit(", "RaidPyrePriest.acolyte_hit (the snuff)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func target_near(", "RaidPyrePriest.target_near"],
+			["res://scripts/raid/warden_acolyte.gd", "func hit_from(", "RaidAcolyte.hit_from"],
+			["res://scripts/raid/raid_warden_run.gd", "func snuff_for(", "RaidWardenRun.snuff_for (the acolyte-hunting role)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_pyre(", "the bot's Pyre-priest fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pyre_stand(", "the bot's Pyre-priest stand point"],
+			["res://scripts/raid/raid_autopilot.gd", "func _burn_fetch(", "the bot's mote out of the fire"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"]]:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
@@ -426,6 +438,10 @@ func _profile_tests(t: TestUtil, cfg: Dictionary) -> void:
 		if f["id"] == "hollow-redoubt":
 			hr = f
 	t.ok(RaidLogic.profile_seed(hr, 3, cfg)["warden"]["archetype"] == "huntsman", "hollow-redoubt fields a huntsman")
+	for f in world["forts"]:
+		if f["id"] == "mourners-gate":
+			var mg := RaidLogic.profile_seed(f, 3, cfg)
+			t.ok(mg["warden"]["archetype"] == "pyre_priest" and mg["loot_table_id"] == "t3.pyre_priest", "mourners-gate fields the Pyre-priest (t3.pyre_priest)")
 	t.ok((RaidLogic.profile_seed(fort, 9, cfg)["party"] as Array).size() == (ap["party_profiles"]["4"]["party"] as Array).size(), "a party tier above 4 clamps to 4")
 	var p1 := RaidLogic.profile_seed(fort, 1, cfg)
 	var p4 := RaidLogic.profile_seed(fort, 4, cfg)
@@ -1417,7 +1433,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not RaidLogic.push_line(15, "NW", 1, {}).contains("rooms seen"), "no room total (boss, held): no shape clause")
 	t.ok(RaidLogic.death_cause("slam", "The Bellringer") == "The Bellringer's slam" and RaidLogic.death_cause("lunge", "The Huntsman") == "The Huntsman's lunge"
 		and RaidLogic.death_cause("living", "") == "the living" and RaidLogic.death_cause("", "x") == "a wound"
-		and RaidLogic.death_cause("slam", "") == "The warden's slam" and RaidLogic.death_cause("bash", "The Shieldwall") == "The Shieldwall's bash",
+		and RaidLogic.death_cause("slam", "") == "The warden's slam" and RaidLogic.death_cause("bash", "The Shieldwall") == "The Shieldwall's bash"
+		and RaidLogic.death_cause("fire", "The Pyre-priest") == "The Pyre-priest's fire",
 		"the death cause words")
 	t.ok(RaidLogic.death_lost_line({"relics": 1, "essence": 4}, 2) == "relics 1 · essence 4 · 2 big undead", "lost: unbanked loot and the party")
 	t.ok(RaidLogic.death_lost_line({}, 0) == "nothing", "nothing lost")
