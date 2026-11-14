@@ -124,6 +124,8 @@ func setup(args: Dictionary) -> void:
 ## The open run's seed (view_boss_seed), else the demo. Only `run_id` of the args is looked at.
 func _boss_seed(args: Dictionary) -> Dictionary:
 	var standalone := is_inside_tree() and get_tree().current_scene == self
+	if standalone:
+		BossDev.apply_cfg_overrides(vcfg())
 	var sd: Dictionary = Game.state.view_boss_seed()
 	if sd.is_empty():
 		if not standalone:

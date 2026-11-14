@@ -21,6 +21,8 @@ extends RefCounted
 ##                            spawns per second; one BOSS_PROF line (pair it with --raid-perf)
 ##   --boss-hide=a,b,...      hide layers to find their cost by elimination: units, motes, vei,
 ##                            lanes, hud, arena, fx, swarm
+##   --boss-cfg=k.k=v;k.k=v   override vei.json numbers for this run only (sensitivity sweeps), e.g.
+##                            --boss-cfg=guards.rate_per_uncleared=0.95;guards.unit.hp=38
 ## A RefCounted: the boss calls start() once built, tick() from _process and physics_tick() from
 ## its physics step.
 
@@ -65,6 +67,28 @@ static func cli_value(prefix: String) -> String:
 
 static func cli_flag(flag: String) -> bool:
 	return flag in OS.get_cmdline_user_args()
+
+
+## --boss-cfg: set dotted vei.json paths to numbers in ConfigDb's copy (this process only), before
+## the scene reads any of it. Unknown paths are created; each is printed.
+static func apply_cfg_overrides(vei: Dictionary) -> void:
+	var spec := cli_value("--boss-cfg=")
+	if spec == "":
+		return
+	for pair in spec.split(";", false):
+		var kv := pair.split("=")
+		if kv.size() != 2:
+			print("BOSS_CFG refused: ", pair)
+			continue
+		var keys := kv[0].strip_edges().split(".")
+		var d: Dictionary = vei
+		for i in keys.size() - 1:
+			if typeof(d.get(keys[i])) != TYPE_DICTIONARY:
+				d[keys[i]] = {}
+			d = d[keys[i]]
+		var v := float(kv[1])
+		d[keys[keys.size() - 1]] = v
+		print("BOSS_CFG %s=%s" % [kv[0], str(v)])
 
 
 ## The demo seed's overrides: --boss-seed, --boss-backups.
