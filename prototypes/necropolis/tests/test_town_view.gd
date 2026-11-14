@@ -137,6 +137,12 @@ func run() -> int:
 	_behaviour_config()
 	_behaviour_commands()
 	_backups(day1, pre)
+	_sound_math()
+	_sound_cfg()
+	_morph_math()
+	_walk_math()
+	_walkout(mid)
+	_foreman_float(mid)
 	return t.failures
 
 
@@ -1397,7 +1403,7 @@ func _view_keys() -> void:
 		"sil_glow", "sil_core_mix", "dim_w_px", "band_px", "pip_px", "pip_gap_px", "pip_glow", "slot_tick_px",
 		"group_gap_px", "progress_ticks", "upgrade_mark", "progress_tick_w_px", "reveal_rate", "head", "warn", "slab_rings_px",
 		"slab_ring_w_px", "slab_ring_alpha", "slab_ring_reach_px", "label_px", "wall_w_px", "wall_glow", "tierup_beats",
-		"tierup_head", "tierup_flash", "demo_tierup", "slot_open_w_px", "pip_w_px", "chevron_w_mul",
+		"tierup_head", "tierup_flash", "demo_tierup", "walkout", "raise_echo", "demo_raise", "slot_open_w_px", "pip_w_px", "chevron_w_mul",
 		"max_agents", "min_living_agents", "living_ratio_max", "legend", "trade_arc_min_h_px", "agent_hit_px", "pip_group", "pip_group_gap_px", "pip_count_px",
 		"slab_ring_away_alpha", "badge", "rate_units", "status", "agent_status", "pick", "float", "ring_order",
 		"spawn_per_s", "steps_per_beat", "step_duty", "step_px",
@@ -3848,3 +3854,386 @@ func _upgrade_first(day1: Dictionary) -> void:
 	pick = BuildSort.autoplay_pick(v, cfg)
 	t.ok(not pick.has("upgrade") and pick["building_id"] == "well", "upgrade first (e): a new build has no upgrade flag (%s)" % str(pick))
 	t.ok(BuildSort.autoplay_why(_up_world(day1, 1, "active"), cfg).find("upgrade") >= 0, "upgrade first: the autoplay log line names the upgrade")
+
+
+# ------------------------------------------------------- sound and set pieces ----
+## A render of `spec` as one voice at 22050 Hz, whole, as an array of samples.
+func _voice_samples(spec: Dictionary, rate := 22050.0) -> PackedFloat32Array:
+	var v := TownSound.voice(spec)
+	var total := int(ceil((float(spec.get("delay", 0.0)) + float(spec["dur"]) + 0.05) * rate))
+	return TownSound.render(v, total, rate)
+
+
+## Upward zero crossings per second over samples [a, b).
+func _zc_hz(s: PackedFloat32Array, a: int, b: int, rate: float) -> float:
+	var n := 0
+	for i in range(maxi(a, 1), b):
+		if s[i - 1] < 0.0 and s[i] >= 0.0:
+			n += 1
+	return float(n) / (float(b - a) / rate)
+
+
+func _sound_math() -> void:
+	t.suite("town-sound")
+	# the envelope: attack up, hold, release down, nothing outside the voice
+	t.near(TownSound.env(0.0, 1.0, 0.1, 0.2), 0.0, 1e-6, "env: starts at 0")
+	t.near(TownSound.env(0.05, 1.0, 0.1, 0.2), 0.5, 1e-6, "env: half-way up the attack is 0.5")
+	t.near(TownSound.env(0.5, 1.0, 0.1, 0.2), 1.0, 1e-6, "env: holds at 1")
+	t.near(TownSound.env(0.9, 1.0, 0.1, 0.2), 0.5, 1e-6, "env: half-way down the release is 0.5")
+	t.near(TownSound.env(1.0, 1.0, 0.1, 0.2), 0.0, 1e-6, "env: ends at 0")
+	t.ok(TownSound.env(-0.1, 1.0, 0.1, 0.2) == 0.0 and TownSound.env(1.5, 1.0, 0.1, 0.2) == 0.0, "env: silent outside [0, dur]")
+	t.near(TownSound.env(0.3, 1.0, 0.0, 0.0), 1.0, 1e-6, "env: no attack or release is a plain gate")
+	# the sweep: phase is the integral of frequency (a sin(2 pi f(t) t) would double the sweep)
+	var f0 := 110.0
+	var f1 := 880.0
+	var dur := 1.0
+	t.near(TownSound.sweep_freq(0.0, f0, f1), f0, 1e-6, "sweep: starts at f0")
+	t.near(TownSound.sweep_freq(1.0, f0, f1), f1, 1e-6, "sweep: ends at f1")
+	t.near(TownSound.sweep_freq(0.5, f0, f1), sqrt(f0 * f1), 1e-3, "sweep: exponential, the middle is the geometric mean")
+	t.near(TownSound.sweep_phase(0.0, dur, f0, f1), 0.0, 1e-9, "sweep phase: zero at the start")
+	var ok := true
+	for tt in [0.1, 0.4, 0.8, 0.99]:
+		var h := 1e-5
+		var d := (TownSound.sweep_phase(tt + h, dur, f0, f1) - TownSound.sweep_phase(tt - h, dur, f0, f1)) / (2.0 * h) / TAU
+		ok = ok and absf(d - TownSound.sweep_freq(tt / dur, f0, f1)) < 0.5
+	t.ok(ok, "sweep phase: its derivative is the instantaneous frequency (the integral, not f(t)*t)")
+	t.near(TownSound.sweep_phase(0.5, dur, 200.0, 200.0), TAU * 100.0, 1e-6, "sweep phase: f0 == f1 is a steady tone")
+	# the generated samples
+	var raw := {"wave": "sine", "f0": 100.0, "f1": 800.0, "dur": 1.0, "attack": 0.0, "release": 0.0, "gain": 1.0, "grit": 0.0}
+	var smp := _voice_samples(raw)
+	var hz_a := _zc_hz(smp, 2205, 4410, 22050.0)
+	var hz_b := _zc_hz(smp, 17640, 19845, 22050.0)
+	t.ok(hz_a > 100.0 and hz_a < 220.0, "render: the sweep starts low (%.0f Hz in the first 0.1-0.2 s)" % hz_a)
+	t.ok(hz_b > 500.0 and hz_b < 820.0, "render: and ends near f1 (%.0f Hz at 0.8-0.9 s)" % hz_b)
+	t.ok(smp.size() > 0 and absf(smp[smp.size() - 1]) < 1e-6, "render: ends in silence")
+	var peak := 0.0
+	var finite := true
+	for x in smp:
+		peak = maxf(peak, absf(x))
+		finite = finite and is_finite(x)
+	t.ok(finite and peak > 0.5 and peak <= 1.0 + 1e-6, "render: finite, filled, and no louder than its gain (%.2f)" % peak)
+	var again := _voice_samples(raw)
+	t.ok(again == smp, "render: the same voice renders the same samples")
+	# chunked rendering equals whole rendering (the synth fills the buffer a few frames at a time)
+	var v := TownSound.voice(raw)
+	var chunked := PackedFloat32Array()
+	var total := smp.size()
+	while chunked.size() < total:
+		chunked.append_array(TownSound.render(v, mini(317, total - chunked.size()), 22050.0))
+	var same := chunked.size() == total
+	for i in mini(chunked.size(), total):
+		same = same and absf(chunked[i] - smp[i]) < 1e-5
+	t.ok(same, "render: chunk by chunk is the same as in one go")
+	t.ok(bool(v["done"]) or TownSound.render(v, 4, 22050.0).size() == 4, "render: a voice past its end keeps answering with silence")
+	# grit: noise on top of the tone, seeded, bounded
+	var gritty := raw.duplicate()
+	gritty["grit"] = 0.6
+	var gs := _voice_samples(gritty)
+	var diff := 0.0
+	for i in mini(gs.size(), smp.size()):
+		diff += absf(gs[i] - smp[i])
+	t.ok(diff > 1.0, "render: grit changes the samples")
+	var gpeak := 0.0
+	for x in gs:
+		gpeak = maxf(gpeak, absf(x))
+	t.ok(gpeak <= 1.0 + 1e-6, "render: gritty samples stay within gain")
+	var ns := 0.0
+	var nmax := 0.0
+	for i in 2000:
+		var x := TownSound.noise(i, 7)
+		ns += x
+		nmax = maxf(nmax, absf(x))
+	t.ok(nmax <= 1.0 and absf(ns / 2000.0) < 0.1, "noise: bounded and centred")
+	t.ok(TownSound.noise(5, 1) == TownSound.noise(5, 1) and TownSound.noise(5, 1) != TownSound.noise(5, 2), "noise: deterministic per index and seed")
+	# a delayed voice is silent until its delay passes
+	var dl := raw.duplicate()
+	dl["delay"] = 0.2
+	var ds := _voice_samples(dl)
+	var lead := 0.0
+	for i in int(0.19 * 22050.0):
+		lead = maxf(lead, absf(ds[i]))
+	t.ok(lead == 0.0 and ds.size() > int(0.3 * 22050.0), "render: a delayed voice stays silent for its delay")
+	# the rate limiter: sparse whatever the arc rate
+	var last := -1.0
+	var fired := 0
+	for i in 600:  # 30 arcs a second for 20 s
+		var now := float(i) / 30.0
+		if TownSound.allow(now, last, 1.5):
+			last = now
+			fired += 1
+	t.ok(fired == 14 or fired == 13, "limiter: 30 arcs/s for 20 s at a 1.5 s gap sounds %d blips, not 600" % fired)
+	t.ok(TownSound.allow(0.0, -1.0, 1.5), "limiter: the first blip always sounds")
+	t.ok(not TownSound.allow(1.49, 0.0, 1.5) and TownSound.allow(1.5, 0.0, 1.5), "limiter: exactly a gap apart passes, closer does not")
+	t.ok(TownSound.allow(0.1, 0.0, 0.0), "limiter: a zero gap lets everything through")
+	# the beat
+	t.ok(TownSound.beat_index(0.0, 1714.0) == 0 and TownSound.beat_index(1713.0, 1714.0) == 0 and TownSound.beat_index(1714.0, 1714.0) == 1,
+		"beat: the index steps once per tempo")
+	t.ok(TownSound.beat_index(100.0, 0.0) == 0, "beat: a zero tempo never divides")
+	# the voice pool steals its oldest when full
+	var pool: Array = []
+	for i in 4:
+		TownSound.add_voice(pool, {"id": i, "done": false}, 3)
+	t.ok(pool.size() == 3 and pool[0]["id"] == 1 and pool[2]["id"] == 3, "pool: capped, the oldest voice is stolen")
+	var mixed := TownSound.mix([TownSound.voice(raw), TownSound.voice(raw)], 1000, 22050.0)
+	var mmax := 0.0
+	for x in mixed:
+		mmax = maxf(mmax, absf(x))
+	t.ok(mmax <= 1.0, "mix: two full-gain voices still clip no louder than 1")
+
+
+func _sound_cfg() -> void:
+	var s: Dictionary = cfg["town"].get("sound", {})
+	t.ok(not s.is_empty(), "town.json has a sound block")
+	t.ok(bool(s.get("mute", false)) == true, "sound.mute defaults to true: nothing is heard until Shawn asks")
+	var missing: Array = []
+	for k in ["mute", "volume_db", "mix_rate", "voices", "trade_min_gap_s", "beat_gain", "buffer_s", "tier_up", "raise_grow",
+			"raise_done", "trade_blip", "beat"]:
+		if not s.has(k):
+			missing.append(k)
+	t.ok(missing.is_empty(), "sound block has every key the synth reads: missing %s" % str(missing))
+	var bad: Array = []
+	for k in ["tier_up", "raise_grow", "raise_done", "trade_blip", "beat"]:
+		var specs: Array = s.get(k, []) if s.get(k) is Array else [s.get(k, {})]
+		if specs.is_empty():
+			bad.append(k)
+		for sp in specs:
+			for f in ["wave", "f0", "f1", "dur", "attack", "release", "gain", "grit"]:
+				if not (sp as Dictionary).has(f):
+					bad.append("%s.%s" % [k, f])
+			if float((sp as Dictionary).get("gain", 2.0)) > 1.0 or float((sp as Dictionary).get("dur", 0.0)) <= 0.0:
+				bad.append("%s range" % k)
+	t.ok(bad.is_empty(), "every voice spec is complete, gain <= 1, dur > 0: %s" % str(bad))
+	t.ok(float(s.get("trade_min_gap_s", 0.0)) >= 1.0, "trade blips are at least a second apart")
+	t.ok(float(s.get("beat_gain", 1.0)) <= 0.1, "the beat pulse is very quiet")
+	t.ok(float(s.get("volume_db", 0.0)) <= 0.0, "the volume setting never boosts above 0 dB")
+	var grow: Variant = s.get("raise_grow")
+	var gd: Dictionary = (grow as Dictionary) if grow is Dictionary else {}
+	t.ok(float(gd.get("f1", 0.0)) > float(gd.get("f0", 1.0)) and float(gd.get("dur", 0.0)) >= 0.8 and float(gd.get("dur", 9.0)) <= 1.5,
+		"raise_grow is a rising sweep of about a second")
+	for k in ["walkout", "raise_echo"]:
+		t.ok(vcfg.has(k), "view.%s exists" % k)
+	var w: Dictionary = vcfg.get("walkout", {})
+	var miss: Array = []
+	for k in ["speed_mul", "trail_px", "trail_segs", "trail_w_px", "trail_alpha", "badge_px", "badge_pad_px", "badge_gap_px", "badge_fade_s"]:
+		if not w.has(k):
+			miss.append(k)
+	t.ok(miss.is_empty() and int(w.get("badge_px", 0)) >= 12, "view.walkout has its keys, badge text >= 12 px: %s" % str(miss))
+	var pv: Dictionary = vcfg.get("crypt", {}).get("preview", {})
+	t.ok(int(pv.get("morph_pts", 0)) >= 8, "preview.morph_pts: points per stroke in the ring-to-outline morph")
+
+
+func _morph_math() -> void:
+	t.suite("town-morph")
+	var line := PackedVector2Array([Vector2(0, 0), Vector2(10, 0), Vector2(10, 10)])
+	var r := TownSetPiece.resample(line, 5)
+	t.ok(r.size() == 5 and r[0] == Vector2(0, 0) and r[4] == Vector2(10, 10), "resample: n points, both ends kept")
+	t.near(r[2].distance_to(Vector2(10, 0)), 0.0, 1e-4, "resample: even spacing along the length (the corner is the middle of 20 px)")
+	t.ok(TownSetPiece.resample(PackedVector2Array([Vector2(3, 3)]), 4).size() == 4, "resample: a lone point repeats")
+	t.ok(TownSetPiece.resample(PackedVector2Array(), 4).size() == 0, "resample: nothing in, nothing out")
+	var strokes: Array = [
+		PackedVector2Array([Vector2(0, 0), Vector2(30, 0)]),
+		PackedVector2Array([Vector2(30, 0), Vector2(30, 10), Vector2(0, 10)]),
+	]
+	var c := Vector2(100, 100)
+	var rad := 50.0
+	var arcs := TownSetPiece.morph(c, rad, strokes, 0.0, 12)
+	t.ok(arcs.size() == 2, "morph: one arc per outline stroke")
+	var all_on_ring := true
+	for a in arcs:
+		for p in a:
+			all_on_ring = all_on_ring and absf(p.distance_to(c) - rad) < 1e-3
+	t.ok(all_on_ring, "morph k=0: every point is on the ring")
+	t.near(arcs[0][arcs[0].size() - 1].distance_to(arcs[1][0]), 0.0, 1e-3, "morph k=0: arc 0 ends where arc 1 starts (no gap in the ring)")
+	t.near(arcs[1][arcs[1].size() - 1].distance_to(arcs[0][0]), 0.0, 1e-3, "morph k=0: and arc 1 closes back on arc 0 (a whole ring)")
+	var len0 := TownSetPiece.poly_len(arcs[0])
+	var len1 := TownSetPiece.poly_len(arcs[1])
+	t.ok(len1 > len0 * 1.2, "morph: an arc's length follows its stroke's length (30 vs 40 px: %.0f vs %.0f)" % [len0, len1])
+	var fin := TownSetPiece.morph(c, rad, strokes, 1.0, 12)
+	var landed := true
+	for j in 2:
+		var want := TownSetPiece.resample(strokes[j], 12)
+		for i in 12:
+			landed = landed and fin[j][i].distance_to(want[i]) < 1e-3
+	t.ok(landed, "morph k=1: ring point i is on outline point i of its stroke (the ring is the creature)")
+	var mid := TownSetPiece.morph(c, rad, strokes, 0.5, 12)
+	var want_mid: Vector2 = (arcs[0][3] + fin[0][3]) * 0.5
+	t.near(mid[0][3].distance_to(want_mid), 0.0, 1e-3, "morph k=0.5: half-way between ring and outline")
+	var empty := TownSetPiece.morph(c, rad, [], 0.5, 12)
+	t.ok(empty.size() == 1 and empty[0].size() > 3, "morph: no outline, one plain ring")
+	t.ok(TownSetPiece.ease_in(0.0) == 0.0 and TownSetPiece.ease_in(1.0) == 1.0 and TownSetPiece.ease_in(0.5) < 0.5, "ease: gathers speed, ends at 1")
+
+
+func _walk_math() -> void:
+	t.suite("town-walk")
+	var p := PackedVector2Array([Vector2(0, 0), Vector2(100, 0), Vector2(100, 50)])
+	t.near(TownSetPiece.poly_len(p), 150.0, 1e-6, "walk: path length")
+	t.ok(TownSetPiece.point_at(p, 0.0) == Vector2(0, 0) and TownSetPiece.point_at(p, 100.0) == Vector2(100, 0), "walk: point at distance")
+	t.ok(TownSetPiece.point_at(p, 125.0) == Vector2(100, 25) and TownSetPiece.point_at(p, 999.0) == Vector2(100, 50), "walk: clamped to the end")
+	var tr := TownSetPiece.trail(p, 125.0, 50.0)
+	t.ok(tr.size() == 3 and tr[0] == Vector2(75, 0) and tr[1] == Vector2(100, 0) and tr[2] == Vector2(100, 25), "walk: the trail is the 50 px behind the head, corner kept")
+	var tr0 := TownSetPiece.trail(p, 10.0, 50.0)
+	t.ok(tr0[0] == Vector2(0, 0) and tr0[tr0.size() - 1] == Vector2(10, 0), "walk: near the start the trail is as long as the walk so far")
+	t.near(TownSetPiece.advance(0.0, 0.0, 0.0, 8.0, 3.0, 150.0), 0.0, 1e-9, "walk: no gait, no progress")
+	t.near(TownSetPiece.advance(10.0, 4.0, 6.0, 8.0, 3.0, 150.0), 10.0 + 2.0 * 8.0 * 3.0, 1e-6, "walk: gait steps x step_px x speed_mul (lockstep)")
+	t.near(TownSetPiece.advance(140.0, 0.0, 9.0, 8.0, 3.0, 150.0), 150.0, 1e-9, "walk: stops at the end")
+	t.near(TownSetPiece.advance(10.0, 6.0, 4.0, 8.0, 3.0, 150.0), 10.0, 1e-9, "walk: the gait never runs backwards")
+	t.near(TownSetPiece.badge_alpha(true, 99.0, 0.5, false), 0.0, 1e-9, "badge: none while it walks")
+	t.near(TownSetPiece.badge_alpha(false, 0.0, 0.5, false), 0.0, 1e-9, "badge: starts clear on arrival")
+	t.near(TownSetPiece.badge_alpha(false, 0.25, 0.5, false), 0.5, 1e-9, "badge: fades in over badge_fade_s")
+	t.near(TownSetPiece.badge_alpha(false, 5.0, 0.5, false), 1.0, 1e-9, "badge: then holds")
+	t.near(TownSetPiece.badge_alpha(false, 0.0, 0.5, true), 1.0, 1e-9, "badge, reduced motion: whole at once")
+	t.near(TownSetPiece.badge_alpha(true, 0.0, 0.5, true), 0.0, 1e-9, "badge, reduced motion: still not before it arrives")
+	# which big undead start a walk: a place that changes to town:<lot>, never the baseline
+	var e := func(uid: String, place: String) -> Dictionary: return {"uid": uid, "name": "N" + uid, "place": place}
+	var first := TownSetPiece.transitions({}, [e.call("a", "town:lot-1"), e.call("b", "crypt")], false)
+	t.ok(first["starts"].is_empty() and first["prev"] == {"a": "town:lot-1", "b": "crypt"}, "transitions: the first look seeds silently (a loaded save does not walk)")
+	var same := TownSetPiece.transitions(first["prev"], [e.call("a", "town:lot-1"), e.call("b", "crypt")], true)
+	t.ok(same["starts"].is_empty(), "transitions: no change, no walk")
+	var moved := TownSetPiece.transitions(first["prev"], [e.call("a", "town:lot-1"), e.call("b", "town:lot-2")], true)
+	t.ok(moved["starts"].size() == 1 and moved["starts"][0] == {"uid": "b", "name": "Nb", "lot_id": "lot-2"}, "transitions: crypt -> town:lot-2 starts b's walk to lot-2")
+	var hop := TownSetPiece.transitions(moved["prev"], [e.call("a", "town:lot-3"), e.call("b", "town:lot-2")], true)
+	t.ok(hop["starts"].size() == 1 and hop["starts"][0]["uid"] == "a" and hop["starts"][0]["lot_id"] == "lot-3", "transitions: a foreman re-placed at another building walks to it")
+	var out := TownSetPiece.transitions(moved["prev"], [e.call("a", "crypt"), e.call("b", "fort:x")], true)
+	t.ok(out["starts"].is_empty(), "transitions: back to the crypt or off to a fort is no walk to a building")
+	var born := TownSetPiece.transitions(same["prev"], [e.call("a", "town:lot-1"), e.call("b", "crypt"), e.call("c", "town:lot-4")], true)
+	t.ok(born["starts"].size() == 1 and born["starts"][0]["uid"] == "c", "transitions: a new big undead placed on a building walks (the raise's walk-out)")
+	var born_crypt := TownSetPiece.transitions(same["prev"], [e.call("a", "town:lot-1"), e.call("b", "crypt"), e.call("c", "crypt")], true)
+	t.ok(born_crypt["starts"].is_empty() and born_crypt["prev"].has("c"), "transitions: a new one that stays in the crypt waits there")
+
+
+## The foreman of lot `lot` is `uid` in these views (the view's own entry and building change together).
+func _foreman_views(mid: Dictionary, uid: String, lot: String, from_lot := "") -> Dictionary:
+	var v: Dictionary = mid.duplicate(true)
+	for b in v["town"]["buildings"]:
+		if b["lot_id"] == lot:
+			b["foreman"] = uid
+		if from_lot != "" and b["lot_id"] == from_lot:
+			b["foreman"] = ""
+	for e in v["big_undead"]["big_undead"]:
+		if e["uid"] == uid:
+			e["place"] = "town:" + lot if lot != "" else "crypt"
+	return v
+
+
+func _walkout(mid: Dictionary) -> void:
+	t.suite("town-walkout")
+	var pair := _agents(mid)
+	var m: TownModel = pair[0]
+	var a: TownAgents = pair[1]
+	t.ok(a.walkers.is_empty() and a.foremen.size() == 1, "walkout: entering the scene with a foreman in place does not walk him")
+	t.ok(a.foremen[0]["name"] != "" and a.foremen[0]["uid"] == "u8", "walkout: a foreman at rest carries his uid and name for the badge")
+	_run(a, 1.0)
+	t.ok(a.walkers.is_empty(), "walkout: nothing walks by itself")
+	# u7 (in the crypt) is placed at a building with no foreman
+	var lot := ""
+	for l in m.lots:
+		var b: Dictionary = l["building"]
+		if not b.is_empty() and String(b["foreman"]) == "" and String(b["building_id"]) != "crypt" and bool(l["unlocked"]):
+			lot = String(l["id"])
+			break
+	t.ok(lot != "", "walkout: a building without a foreman exists in midgame (%s)" % lot)
+	var placed := _foreman_views(mid, "u7", lot)
+	_resync(m, a, placed)
+	t.ok(a.walkers.size() == 1 and a.walkers[0]["uid"] == "u7" and a.walkers[0]["lot_id"] == lot, "walkout: the place change starts a walk to that building")
+	t.ok(a.is_walking(lot) and not a.is_walking("lot-04"), "walkout: that lot is walking, the others are not")
+	t.ok(a.walkers.size() == 1 and (a.walkers[0]["strokes"] as int) >= 1, "walkout: the walker is the foreman diamond (strokes %s)" % str(a.walkers[0]["strokes"]))
+	var crypt_rect: Rect2 = Rect2()
+	for l in m.lots:
+		if String(l["building"].get("building_id", "")) == "crypt":
+			crypt_rect = l["building"]["rect"]
+	t.ok(crypt_rect.grow(40.0).has_point(a.walkers[0]["pos"]), "walkout: it starts at the crypt")
+	var start_pos: Vector2 = a.walkers[0]["pos"]
+	# the badge is not up while it walks
+	t.ok(a.badge_alpha(lot) == 0.0, "walkout: no badge before it arrives")
+	# lockstep: it moves only on the gait's steps, never between them
+	var clock := 0.0
+	var moves := 0
+	var last: Vector2 = start_pos
+	var frames := 0
+	var still_between := true
+	var dt := 1.0 / 60.0
+	var guard := 0
+	while a.is_walking(lot) and guard < 60 * 120:
+		guard += 1
+		clock += dt
+		a.step(dt, fposmod(clock / tempo_s, 1.0), false)
+		if a.walkers.is_empty():
+			break
+		var p: Vector2 = a.walkers[0]["pos"]
+		if p != last:
+			moves += 1
+			last = p
+		frames += 1
+	t.ok(not a.is_walking(lot) and guard < 60 * 120, "walkout: it arrives (in %.1f s)" % clock)
+	t.ok(moves > 0 and moves < frames, "walkout: it steps with the gait: moved on %d of %d frames" % [moves, frames])
+	var spot := Vector2.ZERO
+	for f in a.foremen:
+		if f["lot_id"] == lot:
+			spot = f["pos"]
+	t.ok(spot != Vector2.ZERO and (m.lot(lot)["rect"] as Rect2).grow(48.0).has_point(spot), "walkout: once there the foreman stands at the building")
+	t.ok(a.badge_alpha(lot) < 1.0, "walkout: the badge is still fading in the instant it arrives")
+	_run(a, 2.0, clock)
+	t.near(a.badge_alpha(lot), 1.0, 1e-6, "walkout: and is whole after badge_fade_s")
+	# a second foreman moving to a taken-up lot
+	var again := _foreman_views(placed, "u7", "lot-04", lot)
+	for b in again["town"]["buildings"]:
+		if b["lot_id"] == "lot-04":
+			b["foreman"] = "u7"
+	for e in again["big_undead"]["big_undead"]:
+		if e["uid"] == "u8":
+			e["place"] = "crypt"
+	_resync(m, a, again)
+	t.ok(a.is_walking("lot-04") and not a.is_walking(lot), "walkout: a foreman re-placed at another building walks to it")
+	# reduced motion: it arrives at once, badge whole
+	var pair2 := _agents(mid)
+	var m2: TownModel = pair2[0]
+	var a2: TownAgents = pair2[1]
+	_resync(m2, a2, placed)
+	t.ok(a2.is_walking(lot), "walkout (reduced): the walk is registered")
+	a2.step(1.0 / 60.0, 0.5, true)
+	t.ok(not a2.is_walking(lot), "walkout (reduced): it is there on the first frame")
+	t.near(a2.badge_alpha(lot), 1.0, 1e-6, "walkout (reduced): with its badge whole")
+	# the trail follows the head along the street path
+	var pair3 := _agents(mid)
+	var m3: TownModel = pair3[0]
+	var a3: TownAgents = pair3[1]
+	_resync(m3, a3, placed)
+	_run(a3, 3.0)
+	if a3.walkers.size() == 1:
+		var w: Dictionary = a3.walkers[0]
+		var tr: PackedVector2Array = w["trail"]
+		t.ok(tr.size() >= 2 and tr[tr.size() - 1].distance_to(w["pos"]) < 1e-3, "walkout: the trail ends at the walker")
+		t.ok(TownSetPiece.poly_len(tr) <= float(vcfg["walkout"]["trail_px"]) * m3.scale + 1e-3, "walkout: and is no longer than view.walkout.trail_px")
+	else:
+		t.ok(true, "walkout: arrived within 3 s (no trail to check)")
+
+
+func _foreman_float(mid: Dictionary) -> void:
+	t.suite("town-foreman-float")
+	var m := _model()
+	m.update(mid, VIEW_RECT)
+	var lot := ""
+	var key := ""
+	for b in mid["town"]["buildings"]:
+		if String(b.get("foreman", "")) == "" and not (b.get("output", {}) as Dictionary).is_empty():
+			lot = String(b["lot_id"])
+			key = String((b["output"] as Dictionary).keys()[0])
+			break
+	t.ok(lot != "", "foreman float: a producing building without a foreman exists (%s)" % lot)
+	if lot == "":
+		return
+	# a foreman placed and the output moves with it: the cause is the foreman, so it floats
+	var with_f := _patched(mid, lot, {"foreman": "u7", "output": {key: _out(mid, lot, key) + 0.25}})
+	m.update(with_f, VIEW_RECT)
+	t.ok(m.floats.size() == 1 and m.floats[0]["lot_id"] == lot and m.floats[0]["text"].begins_with("+0.25"),
+		"foreman float: a foreman placed with +0.25 output floats it: %s" % str(m.floats))
+	m.update(with_f, VIEW_RECT)
+	t.ok(m.floats.is_empty(), "foreman float: once")
+	# the output moves with the same staffing, level, state and foreman: haul-style swing, no float
+	m.update(_patched(mid, lot, {"foreman": "u7", "output": {key: _out(mid, lot, key) + 0.9}}), VIEW_RECT)
+	t.ok(m.floats.is_empty(), "foreman float: an output swing with no cause still floats nothing")
+	# a foreman change with no output change floats nothing (E2 has no foreman effect yet)
+	var m2 := _model()
+	m2.update(mid, VIEW_RECT)
+	m2.update(_patched(mid, lot, {"foreman": "u7"}), VIEW_RECT)
+	t.ok(m2.floats.is_empty(), "foreman float: a foreman placed with no output change floats nothing")

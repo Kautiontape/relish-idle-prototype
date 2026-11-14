@@ -4,7 +4,9 @@ extends Node2D
 ##   undead worker  a straight `undead` stroke along its heading, a solid `undead_core` dot at its
 ##                  head (a builder's stroke tilts on the beat, a forge worker's dot flashes);
 ##   living         a short curved `living` stroke with a hollow ring head;
-##   foreman        an `undead` diamond twice the size, one stroke per filled remnant slot, a core dot;
+##   foreman        an `undead` diamond twice the size, one stroke per filled remnant slot, a core dot,
+##                  its name on a plate beside it; a newly placed one walks from the crypt in lockstep
+##                  with a fading trail (TownAgents.walkers) and its name appears on arrival;
 ##   cart           an open `undead` U-box pulled by an undead worker, carrying matte `dead` pips;
 ##   trade arc      a hop from the living buyer to the undead seller (at least view.trade_arc_min_h_px
 ##                  high, bowing up the screen), `living` fading to `undead`, with a chevron at the
@@ -158,19 +160,59 @@ func _draw_living(g: Dictionary, k: float) -> void:
 ## A diamond of `strokes` equal strokes around its perimeter, small gaps between, a core dot.
 func _draw_foremen(g: Dictionary, k: float) -> void:
 	var h := _f(g, "big_px") * k
-	var gap := _f(g, "big_gap")
 	for f in agents.foremen:
-		var c: Vector2 = f["pos"]
-		var corners: Array[Vector2] = [c + Vector2(0, -h), c + Vector2(h, 0), c + Vector2(0, h), c + Vector2(-h, 0)]
-		var n := maxi(int(f["strokes"]), 1)
-		var side: float = corners[0].distance_to(corners[1])
-		var per: float = side * 4.0 / float(n)
-		for i in n:
-			var s0: float = per * (float(i) + gap * 0.5)
-			var s1: float = per * (float(i + 1) - gap * 0.5)
-			LineGlow.polyline(self, _perimeter(corners, side, s0, s1), Palette.c("undead"), _f(g, "big_w_px"),
-				_f(g, "big_glow"), Palette.c("undead_core"))
-		draw_circle(c, _f(g, "core_px") * k * 0.6, Palette.c("undead_core"))
+		if agents.is_walking(String(f["lot_id"])):
+			continue  # on its way: the walker draws it
+		_diamond(f["pos"], int(f["strokes"]), g, k)
+		_badge(f["pos"], String(f.get("name", "")), agents.badge_alpha(String(f["lot_id"])), h)
+	var wk: Dictionary = vcfg.get("walkout", {})
+	var segs := maxi(int(wk.get("trail_segs", 1)), 1)
+	for w in agents.walkers:
+		var tr: PackedVector2Array = w["trail"]
+		if tr.size() >= 2:
+			# the trail fades behind it: oldest piece faintest
+			var pts := TownSetPiece.resample(tr, segs + 1)
+			for i in segs:
+				var a := float(wk.get("trail_alpha", 1.0)) * float(i + 1) / float(segs)
+				LineGlow.polyline(self, PackedVector2Array([pts[i], pts[i + 1]]), Palette.c("undead", a),
+					float(wk.get("trail_w_px", 1.0)), _f(g, "big_glow") * a)
+		_diamond(w["pos"], int(w["strokes"]), g, k)
+
+
+## The foreman glyph (the approved diamond): an `undead` diamond, one stroke per filled remnant slot,
+## a core dot.
+func _diamond(c: Vector2, strokes: int, g: Dictionary, k: float) -> void:
+	var h := _f(g, "big_px") * k
+	var gap := _f(g, "big_gap")
+	var corners: Array[Vector2] = [c + Vector2(0, -h), c + Vector2(h, 0), c + Vector2(0, h), c + Vector2(-h, 0)]
+	var n := maxi(strokes, 1)
+	var side: float = corners[0].distance_to(corners[1])
+	var per: float = side * 4.0 / float(n)
+	for i in n:
+		var s0: float = per * (float(i) + gap * 0.5)
+		var s1: float = per * (float(i + 1) - gap * 0.5)
+		LineGlow.polyline(self, _perimeter(corners, side, s0, s1), Palette.c("undead"), _f(g, "big_w_px"),
+			_f(g, "big_glow"), Palette.c("undead_core"))
+	draw_circle(c, _f(g, "core_px") * k * 0.6, Palette.c("undead_core"))
+
+
+## The foreman's name on a ground plate beside its diamond (>= 12 px), faded by `alpha`.
+func _badge(c: Vector2, text: String, alpha: float, h: float) -> void:
+	if text == "" or alpha <= 0.0:
+		return
+	var wk: Dictionary = vcfg.get("walkout", {})
+	var font := ThemeDB.fallback_font
+	var fs := maxi(int(wk.get("badge_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	var pad := float(wk.get("badge_pad_px", 3.0))
+	var sz := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	var host: Vector2 = (get_parent() as Control).size if get_parent() is Control else Vector2(1e6, 1e6)
+	var x := c.x + h + float(wk.get("badge_gap_px", 6.0))
+	if x + sz.x + pad > host.x - 2.0:  # no room on the right: on its left
+		x = c.x - h - float(wk.get("badge_gap_px", 6.0)) - sz.x
+	x = clampf(x, pad + 2.0, maxf(host.x - sz.x - pad - 2.0, pad + 2.0))
+	var y := clampf(c.y - sz.y * 0.5, 2.0, maxf(host.y - sz.y - 2.0, 2.0))
+	draw_rect(Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), Palette.c("ground", alpha))
+	draw_string(font, Vector2(x, y + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("text", alpha))
 
 
 ## The stretch [s0, s1] (px from the first corner) of a closed square-ish perimeter.

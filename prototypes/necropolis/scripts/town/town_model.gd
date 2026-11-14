@@ -22,7 +22,7 @@ const LOOKS := ["staffed", "unstaffed", "unpaid", "calm", "constructing", "heart
 var lots: Array = []
 ## The output changes of the last update(), one per building whose output moved by more than
 ## view.float.eps since the update before *and* that had a player-visible cause in the same step:
-## its staffed count (rounded), level or state changed (a ladder move, a build, staffing). Output
+## its staffed count (rounded), level, state or foreman changed (a ladder move, a build, staffing, a foreman placed). Output
 ## swings without one (haul trips averaging out) don't float. {lot_id, key, delta, text (signed,
 ## "+0.30 gold/s"), ink (the matter's Palette key), text_key (ink, or `text` where the ink is too
 ## dark for text)}. A building first seen, or a different building on a lot, seeds silently.
@@ -710,7 +710,7 @@ static func _idle_reason(b: Dictionary, town: Dictionary, bcfg: Dictionary, sc: 
 
 
 ## Compares lot `lot_id`'s building with the last update's. If a cause changed (its staffed count
-## rounded, its level or its state), records one float for the first output key (display order)
+## rounded, its level, its state or its foreman), records one float for the first output key (display order)
 ## that moved by more than view.float.eps. A building first seen, or a different building on the
 ## lot, seeds silently; an emptied lot forgets.
 func _check_float(lot_id: String, b: Dictionary) -> void:
@@ -720,7 +720,8 @@ func _check_float(lot_id: String, b: Dictionary) -> void:
 	var bid := String(b.get("building_id", ""))
 	var out: Dictionary = b.get("output", {})
 	var prev: Dictionary = _prev_out.get(lot_id, {})
-	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", ""))]
+	# the cause: its staffed count (rounded), level, state, or a foreman placed or changed on it
+	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", "")), String(b.get("foreman", ""))]
 	_prev_out[lot_id] = {"building_id": bid, "output": out.duplicate(), "cause": cause}
 	if prev.is_empty() or String(prev["building_id"]) != bid or prev["cause"] == cause:
 		return

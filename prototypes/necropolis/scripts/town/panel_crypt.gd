@@ -16,6 +16,12 @@ extends VBoxContainer
 ## panel says the raise lands with E2/E3.
 
 signal command_issued
+## Sound and set-piece hooks for the shell (TownSynth, the town view's slab echo): the hold began, was let
+## go early, the raise was kept (the collapse starts), the rings landed on the creature's outline.
+signal hold_started
+signal hold_stopped
+signal raise_started
+signal raise_landed
 
 const PreviewScript := preload("res://scripts/town/creature_preview.gd")
 
@@ -34,6 +40,7 @@ var _hold_by_key := false
 var _formed := false
 var _formed_sig := ""
 var _raising := false
+var _auto_t := -1.0  # debug --town-raise: seconds until it starts; -1 = off
 var _raised_name := ""
 var _raised_ev: Dictionary = {}  # the verdict the set piece shows (the board may empty under it)
 var _preset: Dictionary = {}  # debug --town-slab: {husk, remnants}, applied on the first bind that has them
@@ -120,6 +127,7 @@ func _build_slab(col: VBoxContainer) -> void:
 	_preview.setup(_t, _slab)
 	_preview.rune_clicked.connect(_on_rune)
 	_preview.raise_finished.connect(_on_raise_finished)
+	_preview.collapsed.connect(raise_landed.emit)
 	_slab_box.add_child(_preview)
 
 	_name = TownUI.label("", _px("name_px"))
@@ -232,6 +240,26 @@ func bind(views: Dictionary) -> void:
 ## the inventory has them.
 func debug_preset(husk_uid: String, remnant_uids: Array) -> void:
 	_preset = {"husk": husk_uid, "remnants": remnant_uids}
+
+
+## Debug `--town-raise`: after `delay_s` it holds the raise on the slab and keeps the suggested name, the
+## real path (_hold_press, _on_suggest), so the set piece can be screenshotted. Needs a creature on the slab
+## (`--town-slab`); waits until there is one.
+func debug_autoraise(delay_s: float) -> void:
+	_auto_t = maxf(delay_s, 0.0)
+
+
+func _auto_raise(delta: float) -> void:
+	if _auto_t > 0.0:
+		_auto_t = maxf(_auto_t - delta, 0.0)  # stays at 0 while it waits for a creature to hold
+		return
+	if not is_visible_in_tree():
+		return
+	if _formed and _prompt.visible:
+		_auto_t = -1.0
+		_on_suggest()
+	elif not _holding and not _formed and not _raising and _block == "" and String(_board.get("husk", "")) != "":
+		_hold_press(false)
 
 
 func _apply_preset(inv: Dictionary) -> void:
@@ -411,6 +439,7 @@ func _hold_press(by_key: bool) -> void:
 	_held_s = 0.0
 	_say(_status, "")
 	_refresh_slab()
+	hold_started.emit()
 
 
 func _hold_release(by_key: bool) -> void:
@@ -422,6 +451,8 @@ func _hold_release(by_key: bool) -> void:
 
 
 func _cancel_hold() -> void:
+	if _holding:
+		hold_stopped.emit()
 	_holding = false
 	_held_s = 0.0
 	_preview.hold = 0.0
@@ -429,6 +460,8 @@ func _cancel_hold() -> void:
 
 
 func _process(delta: float) -> void:
+	if _auto_t >= 0.0:
+		_auto_raise(delta)
 	if not _holding:
 		return
 	if not is_visible_in_tree():  # the tab was switched mid-hold: its release can't reach us
@@ -506,6 +539,7 @@ func _on_keep() -> void:
 	_raised_ev = _ev.duplicate(true)
 	_preview.play_raise()
 	_refresh_slab()
+	raise_started.emit()
 
 
 func _on_raise_finished() -> void:

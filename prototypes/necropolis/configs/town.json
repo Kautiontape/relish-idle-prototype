@@ -26,6 +26,27 @@
     { "id": "lot-24", "size": 3, "pos": [0.917, 0.875] }
   ],
 
+  "sound": {
+    "_doc": "Town sound (TownSynth). mute defaults to true: nothing is heard until Shawn asks; M toggles it in a session. Every voice: wave, f0 -> f1 Hz (exponential sweep), dur/attack/release s, gain 0..1, grit 0..1 (noise mixed in), delay s. beat_gain scales the beat voice's gain.",
+    "mute": true,
+    "volume_db": -8.0,
+    "mix_rate": 22050,
+    "buffer_s": 0.25,
+    "voices": 8,
+    "trade_min_gap_s": 1.5,
+    "beat_gain": 0.04,
+    "tier_up": [
+      {"wave": "sine", "f0": 196.0, "f1": 196.0, "dur": 1.3, "attack": 0.02, "release": 0.9, "gain": 0.3, "grit": 0.0, "delay": 0.0},
+      {"wave": "sine", "f0": 294.0, "f1": 294.0, "dur": 1.3, "attack": 0.02, "release": 0.9, "gain": 0.3, "grit": 0.0, "delay": 0.25},
+      {"wave": "sine", "f0": 392.0, "f1": 392.0, "dur": 1.5, "attack": 0.02, "release": 1.1, "gain": 0.3, "grit": 0.0, "delay": 0.5},
+      {"wave": "square", "f0": 98.0, "f1": 98.0, "dur": 2.4, "attack": 0.1, "release": 1.6, "gain": 0.12, "grit": 0.0, "delay": 0.0}
+    ],
+    "raise_grow": {"wave": "saw", "f0": 70.0, "f1": 520.0, "dur": 1.1, "attack": 0.08, "release": 0.25, "gain": 0.5, "grit": 0.35},
+    "raise_done": {"wave": "sine", "f0": 120.0, "f1": 45.0, "dur": 0.5, "attack": 0.003, "release": 0.35, "gain": 0.8, "grit": 0.05},
+    "trade_blip": {"wave": "sine", "f0": 1320.0, "f1": 1760.0, "dur": 0.08, "attack": 0.004, "release": 0.05, "gain": 0.25, "grit": 0.0},
+    "beat": {"wave": "sine", "f0": 55.0, "f1": 48.0, "dur": 0.22, "attack": 0.01, "release": 0.15, "gain": 1.0, "grit": 0.0}
+  },
+
   "view": {
     "hud_h": 96,
     "dock_w": 560,
@@ -146,6 +167,10 @@
     "tierup_flash": 1.0,
     "tierup_head": {"len_px": 48.0, "gain": 2.2, "w_mul": 2.0, "ring_mul": 2.5, "ring_w_px": 1.0, "dot_mul": 1.5, "glow": 1.0},
     "demo_tierup": {"tier": "village", "delay_s": 1.0},
+    "walkout": {"speed_mul": 3.0, "trail_px": 90.0, "trail_segs": 6, "trail_w_px": 1.6, "trail_alpha": 0.7,
+      "badge_px": 12, "badge_pad_px": 3.0, "badge_gap_px": 8.0, "badge_fade_s": 0.8},
+    "raise_echo": {"beats": 1.0, "shrink": 0.7, "flash_alpha": 1.0},
+    "demo_raise": {"delay_s": 1.5, "name": "Gravel", "place_delay_s": 1.0},
     "max_agents": 160,
     "min_living_agents": 8,
     "living_ratio_max": 0.6,
@@ -563,7 +588,7 @@
         "rune_group_deg": {"muscle": 200.0, "presence": 156.0, "nerve": -24.0, "anima": 30.0},
         "rune_w_px": 1.4, "rune_glow": 0.8, "rune_dashes": 10, "hover_w_px": 1.2, "hover_pad_px": 4.0,
         "caption_px": 12, "caption_gap_px": 6.0, "number_px": 14, "label_px": 14,
-        "collapse_min_beats": 0.5, "flash_s": 0.6, "flash_w_mul": 2.2
+        "collapse_min_beats": 0.5, "flash_s": 0.6, "flash_w_mul": 2.2, "morph_pts": 20
       }
     }
   },

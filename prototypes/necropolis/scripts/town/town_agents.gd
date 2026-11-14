@@ -91,8 +91,14 @@ var living: Array[Agent] = []
 var arcs: Array = []
 ## Carts on the in-town leg: {pos, dir, pips: int, lit: bool}.
 var carts: Array = []
-## Foremen (big undead at a building): {lot_id, pos, strokes: int}.
+## Foremen (big undead at a building): {lot_id, pos, strokes: int, uid, name}. One whose walk-out
+## is under way (is_walking) is drawn by `walkers` until it arrives.
 var foremen: Array = []
+## Named big undead walking from the crypt to the building they were just placed at, in lockstep
+## with the workers: {uid, name, lot_id, pos, trail: PackedVector2Array, strokes}. A place change to
+## `town:<lot>` in view_big_undead starts one (TownSetPiece.transitions); reduced motion: it is
+## there on the first step.
+var walkers: Array = []
 var undead_scale := 1
 var living_scale := 1
 ## Target agents per job ("idle" included) and for the living, after sampling.
@@ -146,6 +152,11 @@ var _flashes: Array = []  # [{jobs: {job: true}, start: beat}]
 var _seen: Dictionary = {}  # stance id -> the fired beat id already handled (event or view)
 var _await: Dictionary = {}  # stance id -> syncs left to find the buildings a thrift firing idled
 var _prev_idle: Dictionary = {}  # lot id -> was the building idle in the last sync
+var _walks: Array = []  # {uid, name, lot_id, path, len, d, strokes}: the walk-outs under way
+var _prev_places := {}  # big undead uid -> place at the last sync (walks start on a change)
+var _places_seeded := false
+var _arrived := {}  # lot id -> _clock when its walker arrived (the badge fades in from there)
+var _reduced_now := false
 
 
 func _init(view_cfg: Dictionary = {}, buildings_cfg: Dictionary = {}, economy_cfg: Dictionary = {},
@@ -367,6 +378,8 @@ func sync(model: TownModel, views: Dictionary) -> void:
 		undead.clear()
 		living.clear()
 		arcs.clear()
+		_walks.clear()
+		walkers = []
 		_seeded = false
 		_street_len = PackedFloat32Array()
 		for s in model.streets:
@@ -545,9 +558,9 @@ func _read_carts(town: Dictionary) -> void:
 func _read_foremen(model: TownModel, views: Dictionary) -> void:
 	foremen = []
 	var by_uid := {}
-	for e in views.get("big_undead", {}).get("big_undead", []):
+	var entries: Array = views.get("big_undead", {}).get("big_undead", [])
+	for e in entries:
 		by_uid[String(e.get("uid", ""))] = e
-	var big := _agent_px("big_px")
 	for l in model.lots:
 		var b: Dictionary = l["building"]
 		if b.is_empty() or String(b.get("foreman", "")) == "":
@@ -555,9 +568,86 @@ func _read_foremen(model: TownModel, views: Dictionary) -> void:
 		var fr: Dictionary = _fronts.get(String(l["id"]), {})
 		if fr.is_empty():
 			continue
-		var p: Vector2 = fr["c"] + fr["n"] * big * 1.5
-		foremen.append({"lot_id": String(l["id"]), "pos": p,
-			"strokes": TownStandins.foreman_strokes(by_uid.get(String(b["foreman"]), {}), _v, _slab)})
+		var e: Dictionary = by_uid.get(String(b["foreman"]), {})
+		foremen.append({"lot_id": String(l["id"]), "pos": _foreman_spot(fr), "uid": String(b["foreman"]),
+			"name": String(e.get("name", "")), "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
+	if views.has("big_undead"):
+		_read_walks(entries)
+
+
+## Where a building's foreman stands: out on its front, a step and a half of the diamond from the wall.
+func _foreman_spot(fr: Dictionary) -> Vector2:
+	return fr["c"] + fr["n"] * _agent_px("big_px") * 1.5
+
+
+## New walk-outs from the big undead whose place became a building (the first look only records).
+func _read_walks(entries: Array) -> void:
+	if not _places_seeded and _fronts.is_empty():
+		return  # nothing laid out yet: look again at the next sync
+	var res := TownSetPiece.transitions(_prev_places, entries, _places_seeded)
+	_prev_places = res["prev"]
+	_places_seeded = true
+	for st in res["starts"]:
+		var lot_id := String(st["lot_id"])
+		var fr: Dictionary = _fronts.get(lot_id, {})
+		if fr.is_empty() or _crypt == "" or not _fronts.has(_crypt):
+			continue
+		var from := _place("crypt", 0.0)
+		var spot := _foreman_spot(fr)
+		var path := PackedVector2Array([from["pos"]])
+		path.append_array(_leg_points(String(from.get("node", "")), {"node": String(fr["node"]), "pos": spot}))
+		var e := {}
+		for x in entries:
+			if String(x.get("uid", "")) == String(st["uid"]):
+				e = x
+		for w in _walks:
+			if String(w["uid"]) == String(st["uid"]):
+				_walks.erase(w)
+				break
+		_walks.append({"uid": String(st["uid"]), "name": String(st["name"]), "lot_id": lot_id, "path": path,
+			"len": TownSetPiece.poly_len(path), "d": 0.0, "strokes": TownStandins.foreman_strokes(e, _v, _slab)})
+	_pose_walkers()
+
+
+## Whether a walk-out is on its way to lot `lot_id`.
+func is_walking(lot_id: String) -> bool:
+	for w in _walks:
+		if String(w["lot_id"]) == lot_id:
+			return true
+	return false
+
+
+## The name badge's opacity on lot `lot_id`'s foreman: 0 while he walks, up over view.walkout.badge_fade_s
+## after he arrives; a foreman who was already there is whole.
+func badge_alpha(lot_id: String) -> float:
+	var fade := float(_v.get("walkout", {}).get("badge_fade_s", 0.0))
+	if not _arrived.has(lot_id):
+		return 0.0 if is_walking(lot_id) else 1.0
+	return TownSetPiece.badge_alpha(is_walking(lot_id), _clock - float(_arrived[lot_id]), fade, _reduced_now)
+
+
+func _walk_step(g0: float, g1: float, reduced: bool) -> void:
+	if _walks.is_empty():
+		return
+	var mul := float(_v.get("walkout", {}).get("speed_mul", 1.0))
+	var i := _walks.size() - 1
+	while i >= 0:
+		var w: Dictionary = _walks[i]
+		w["d"] = float(w["len"]) if reduced else TownSetPiece.advance(float(w["d"]), g0, g1, _px("step_px"), mul, float(w["len"]))
+		if float(w["d"]) >= float(w["len"]) - 1e-6:
+			_arrived[String(w["lot_id"])] = _clock
+			_walks.remove_at(i)
+		i -= 1
+	_pose_walkers()
+
+
+func _pose_walkers() -> void:
+	walkers = []
+	var trail_len := float(_v.get("walkout", {}).get("trail_px", 0.0)) * scale
+	for w in _walks:
+		walkers.append({"uid": w["uid"], "name": w["name"], "lot_id": w["lot_id"], "strokes": w["strokes"],
+			"pos": TownSetPiece.point_at(w["path"], float(w["d"])),
+			"trail": TownSetPiece.trail(w["path"], float(w["d"]), trail_len)})
 
 
 func _read_relish(model: TownModel, town: Dictionary) -> void:
@@ -1028,6 +1118,8 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		_was_reduced = false
 	var g1 := _gait
 	_clock += dt
+	_reduced_now = reduced_motion
+	_walk_step(g0, g1, reduced_motion)
 	for a in undead:
 		if a.reroute:
 			a.reroute = false

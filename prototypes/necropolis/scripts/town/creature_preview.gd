@@ -18,6 +18,8 @@ extends Control
 
 signal rune_clicked(index: int)
 signal raise_finished
+## The rings have landed on the creature's outline (the collapse is over; the bright outline starts).
+signal collapsed
 
 var pv: Dictionary = {}     # town.json view.crypt.preview
 var slab: Dictionary = {}   # town.json slab
@@ -30,6 +32,7 @@ var hold := 0.0             # hold-to-raise progress, 0..1
 var formed := false         # held to the end: whole, waiting for its name
 
 var _raise_t := -1.0        # seconds into the set piece; -1 = none
+var _landed := false        # collapsed already emitted for this raise
 var _collapse := 0.0
 var _flash := 0.0
 var _snap: Dictionary = {}  # {kind, ev}: the creature the set piece draws
@@ -64,11 +67,15 @@ func play_raise() -> void:
 		float(pv.get("collapse_min_beats", 0.0)))
 	_flash = float(pv.get("flash_s", 0.0))
 	_raise_t = 0.0
+	_landed = false
 
 
 func _process(delta: float) -> void:
 	if _raise_t >= 0.0:
 		_raise_t += delta
+		if not _landed and _raise_t >= _collapse:
+			_landed = true
+			collapsed.emit()
 		if _raise_t >= _collapse + _flash:
 			_raise_t = -1.0
 			_snap = {}
@@ -94,7 +101,7 @@ func _draw() -> void:
 	var k := String(_snap.get("kind", kind)) if raising() else kind
 	var e: Dictionary = _snap.get("ev", ev) if raising() else ev
 	var body := _body_px(e) if k != "" else _f("body_px")
-	_draw_rings(c, body * 0.5)
+	_draw_rings(c, body * 0.5, _strokes_px(c, k, body) if raising() and k != "" else [])
 	_pts = []
 	if not awake:
 		return
@@ -108,19 +115,34 @@ func _draw() -> void:
 		_text_centered(c, String(texts.get("empty_slab", "")), int(_f("label_px")), "text_dim")
 
 
+## The creature's silhouette strokes as screen polylines, for a body `body` px wide centred on `c`.
+func _strokes_px(c: Vector2, k: String, body: float) -> Array:
+	var rect := Rect2(c - Vector2(body, body) * 0.5, Vector2(body, body))
+	var out: Array = []
+	for pl in slab.get("silhouettes", {}).get(k, {}).get("strokes", []):
+		var pts := PackedVector2Array()
+		for p in pl:
+			pts.append(rect.position + Vector2(float(p[0]), float(p[1])) * body)
+		out.append(pts)
+	return out
+
+
 ## The slab's rings: breathing on the beat, a ring riding out (or in, while held); collapsing into
-## the creature's outline during the set piece.
-func _draw_rings(c: Vector2, body_r: float) -> void:
+## the creature's outline during the set piece: each ring's points travel onto the silhouette's
+## resampled stroke points (ring point i -> outline point i, eased), so the rings become the creature.
+func _draw_rings(c: Vector2, body_r: float, strokes: Array) -> void:
 	var rings: Array = pv.get("rings_px", [])
 	var w := _f("ring_w_px")
 	if raising():
 		var k := 1.0 if _collapse <= 0.0 else clampf(_raise_t / _collapse, 0.0, 1.0)
 		if k >= 1.0:
 			return  # gone into the creature until the set piece ends
-		var fall := k * k  # they gather speed as they fall in
+		var fall := TownSetPiece.ease_in(k)  # they gather speed as they fall in
 		for r0 in rings:
-			LineGlow.ring(self, c, lerpf(float(r0), body_r, fall), Palette.c("undead", lerpf(_f("ring_alpha"), 1.0, k)),
-				w * lerpf(1.0, _f("flash_w_mul"), k), 1.0)
+			var col := Palette.c("undead", lerpf(_f("ring_alpha"), 1.0, k))
+			var rw := w * lerpf(1.0, _f("flash_w_mul"), k)
+			for arc in TownSetPiece.morph(c, lerpf(float(r0), body_r, fall), strokes, fall, int(_f("morph_pts"))):
+				LineGlow.polyline(self, arc, col, rw, 1.0)
 		return
 	var alpha := _f("ring_asleep_alpha")
 	if awake:
