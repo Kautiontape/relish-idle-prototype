@@ -5,12 +5,13 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
-## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|living> (who the autodie hit names on the death card),
+## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|bash|living> (who the autodie hit names on the death card),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
 ## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
-## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles).
+## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
+##   with --raid-party-wits=<n> every party big undead's wits set to n (the Shieldwall's weak point with and without).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -92,6 +93,10 @@ static func profile_seed(cfg: Dictionary) -> Dictionary:
 	for f in ConfigDb.data.get("world", {}).get("forts", []):
 		if str(f.get("id", "")) == fid:
 			var sd := RaidLogic.profile_seed(f, int(tier_s), cfg)
+			var wits := cli_value("--raid-party-wits=")
+			if wits != "":
+				for e in sd["party"]:   # the Shieldwall's with/without arms: only the party's wits move
+					e["stats"]["wits"] = float(wits)
 			print("RAID_DEV profile seed fort=%s tier=%d party_tier=%d living=%.1f dead=%.1f garrison_units=%d party=%d warden=%s" % [
 				fid, int(sd["fort"]["tier"]), int(tier_s), float(sd["living"]), float(sd["dead"]),
 				int(sd["garrison_units"]), (sd["party"] as Array).size(), str(sd["warden"]["archetype"])])
@@ -217,7 +222,7 @@ func _autodie_hit() -> void:
 	for a in _raid.allies.duplicate():
 		if is_instance_valid(a) and a.alive:
 			a.die(true)
-	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0, cli_value("--raid-autodie-src="))   # src: slam | lunge | living (the death card)
+	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0, cli_value("--raid-autodie-src="))   # src: slam | lunge | bash | living (the death card)
 
 
 ## --raid-loot-sample: one pickup of each RaidLoot.FLOOR_KINDS kind, in a row 120 px above Relish.

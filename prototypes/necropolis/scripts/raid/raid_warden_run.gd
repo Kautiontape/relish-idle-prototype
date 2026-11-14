@@ -36,6 +36,8 @@ func build() -> void:
 			node = RaidHuntsman.new()
 		"bellringer":
 			node = RaidBellringer.new()
+		"shieldwall":
+			node = RaidShieldwall.new()
 		_:
 			node = RaidWarden.new()   # an archetype with no attack yet is the inert base glyph
 	node.position = (rooms[int(_raid.layout["warden_room"])] as Rect2).get_center()
@@ -79,6 +81,29 @@ func guard_for(u: RaidUnit) -> Dictionary:
 	return {"point": WardenLogic.guard_point(rel.global_position, warden.global_position,
 		float(at.get("guard_px", 46.0)), maxi(0, guards.find(u)), guards.size(), float(at.get("guard_spread_px", 18.0))),
 		"relish": rel.global_position}
+
+
+## Flank post for a party big undead fighting an awake Shieldwall: {point, front, warden} when `u` is
+## a big undead whose wits meet the weak point (WardenLogic.is_flanker) and whose target is the wall,
+## else {}. `point` is where it walks next (round the orbit toward its post behind the wall: the
+## flankers spread `flank_spread_deg` apart), `front` whether it stands on the shield's side now (it
+## holds its blow there).
+func flank_for(u: RaidUnit) -> Dictionary:
+	if warden == null or u.kind != "big" or u._target != warden or not is_instance_valid(warden) \
+			or not (warden is RaidShieldwall) or not warden.alive or not warden.awake:
+		return {}
+	var sw := warden as RaidShieldwall
+	if not WardenLogic.is_flanker(sw.spec, u.wits):
+		return {}
+	var flankers: Array = []
+	for a in _raid.allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and a._target == sw and WardenLogic.is_flanker(sw.spec, a.wits):
+			flankers.append(a)
+	var wp: Dictionary = sw.spec.get("weak_point", {})
+	var ang := WardenLogic.flank_angle(sw.facing, maxi(0, flankers.find(u)), flankers.size(), float(wp.get("flank_spread_deg", 34.0)))
+	var orbit: float = sw.radius + u.radius + float(wp.get("flank_gap_px", 3.0))
+	return {"point": WardenLogic.flank_step(sw.global_position, u.global_position, ang, orbit, float(wp.get("flank_step_deg", 40.0))),
+		"front": sw.is_front(u.global_position), "warden": sw}
 
 
 ## The awake warden when it is within `reach` of walking from pos for an undead of `radius` (an enemy

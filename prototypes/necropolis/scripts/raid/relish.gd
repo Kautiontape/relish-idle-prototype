@@ -12,7 +12,7 @@ var max_hp := 30.0
 var speed := 240.0
 var radius := 13.0
 var alive := true
-var last_hit_src := ""   # what struck her last: "slam", "lunge" or "living" (the death card; never read by the sim)
+var last_hit_src := ""   # what struck her last: "slam", "lunge", "bash" or "living" (the death card; never read by the sim)
 
 var move_target := Vector2.ZERO
 var _iframes := 0.0
