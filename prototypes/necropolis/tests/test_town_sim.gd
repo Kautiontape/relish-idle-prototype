@@ -66,6 +66,7 @@ func run() -> int:
 	_upkeep()
 	_round_trip()
 	_handles()
+	_room_cache()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -246,6 +247,7 @@ func _ladder() -> void:
 	s = _sim()
 	s.workers = 5.0
 	s.buildings["lot-03"]["staff_cap"] = 1
+	s.restaff()  # an edit of `buildings` outside TownSim's own calls: rebuild the rooms
 	s.step(0.5, _inp())
 	t.ok(is_equal_approx(_staffed(s, "haul"), 1.0) and is_equal_approx(_staffed(s, "pit"), 2.0),
 		"a staff cap of 1 on the charnel house: haul 1, pit 2, the rest flows down")
@@ -266,6 +268,7 @@ func _ladder() -> void:
 	t.ok(int(s.staffing["jobs"]["stall"]["slots"]) == 4, "a level-2 market has 2 × 2 stall slots")
 	s.buildings["lot-04"]["state"] = "unpaid"
 	s.buildings["lot-04"]["unpaid_s"] = 1.0e6
+	s.restaff()
 	s.step(0.5, _inp())
 	t.ok(int(s.staffing["jobs"]["stall"]["slots"]) == 0, "an unpaid market offers no slots")
 
@@ -780,7 +783,7 @@ func _soak() -> void:
 		if rng.randf() < 0.01:
 			var lot: String = lots[rng.randi() % lots.size()]
 			if s.buildings.has(lot):
-				s.buildings[lot]["staff_cap"] = rng.randi_range(-1, 3)
+				s.set_staff_cap(lot, rng.randi_range(-1, 3))
 		if rng.randf() < 0.005:
 			s.gold = 0.0
 		if rng.randf() < 0.005:
@@ -833,3 +836,145 @@ func _soak() -> void:
 			break
 	t.ok(bad.is_empty(), "4 h of random inputs (%d steps): no NaN, no negatives, every cap held, mass conserved %s" % [steps, bad])
 	t.ok(int(s.forge["level"]) >= 0 and s.haul is Dictionary, "the soak ends in a sane state")
+
+# ------------------------------------------------------------ the room cache ----
+## staffing and _by_lot as the pure allocation gives them now, from scratch.
+func _fresh_alloc(s: TownSim) -> Dictionary:
+	return TownSim.staff_allocate(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.workers, [])
+
+
+const SUM_KEYS := ["pits", "body_cap", "living_cap", "lifetime_bonus", "haul_speed_mult", "attract"]
+
+
+## The rooms and the effect sums from scratch (no cache): what a dirty mark must make TownSim redo.
+func _rooms_now(s: TownSim) -> Dictionary:
+	_prime(s)  # fill the caches first, so a missing mark after this would serve a stale sum
+	var sums := {}
+	for k in SUM_KEYS:
+		var w := 0.0
+		var b := 0.0
+		for lot_id in s._lots:
+			if s.buildings.has(lot_id):
+				b += s._eff(s.buildings[lot_id], k)
+				if TownSim._works_b(s.buildings[lot_id]):
+					w += s._eff(s.buildings[lot_id], k)
+		sums[k] = [w, b]
+	return {"rooms": TownSim.staff_rooms(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, []),
+		"sums": sums}
+
+
+## The cached staffing and effect sums are the ones from scratch, and the event changed the rooms or
+## the sums (so a missing dirty mark would show).
+## Reads every effect sum once, so each cached key exists before the next event.
+func _prime(s: TownSim) -> void:
+	for k in SUM_KEYS:
+		s._sum_working(k)
+		s._sum_built(k)
+
+
+func _cache_ok(s: TownSim, before: Dictionary, what: String) -> void:
+	var f := _fresh_alloc(s)
+	var now := _rooms_now(s)
+	t.ok(now != before, "%s changes the rooms or the effect sums (the case can catch a missing mark)" % what)
+	t.ok(s.staffing == f["staffing"] and s._by_lot == f["by_lot"],
+		"%s: the staffing is the allocation from scratch on the new rooms: %s vs %s" % [what, str(s.staffing), str(f["staffing"])])
+	var cached := {}
+	for k in SUM_KEYS:
+		cached[k] = [s._sum_working(k), s._sum_built(k)]
+	t.ok(cached == now["sums"], "%s: the effect sums are the ones from scratch: %s vs %s" % [what, str(cached), str(now["sums"])])
+
+
+func _room_cache() -> void:
+	t.suite("town_sim-room-cache")
+	# every place the rooms can change marks them dirty
+	var s := _sim()
+	s.workers = 4.0
+	s.restaff()
+	var r0 := _rooms_now(s)
+	s.set_ladder(["stall", "pit", "haul", "build", "mill", "forge", "tend"])
+	_cache_ok(s, r0, "set_ladder")
+	r0 = _rooms_now(s)
+	s.set_staff_cap("lot-04", 1)
+	_cache_ok(s, r0, "set_staff_cap")
+	r0 = _rooms_now(s)
+	s.place_building("lot-05", "bone_mill", 1)
+	_cache_ok(s, r0, "place_building")
+	r0 = _rooms_now(s)
+	s.place_building("lot-07", "graveyard", 1)
+	_cache_ok(s, r0, "place_building (effects only)")
+	r0 = _rooms_now(s)
+	s.demolish("lot-05")
+	_cache_ok(s, r0, "demolish")
+	r0 = _rooms_now(s)
+	s.demolish("lot-07")
+	_cache_ok(s, r0, "demolish (effects only)")
+	r0 = _rooms_now(s)
+	s.start_construction("lot-06", "market", 1)
+	_cache_ok(s, r0, "start_construction")
+	r0 = _rooms_now(s)
+	s.cancel_construction("lot-06")
+	_cache_ok(s, r0, "cancel_construction")
+	# a build finishing inside a step
+	s.start_construction("lot-06", "market", 1)
+	s.workers = 9.0
+	s.restaff()
+	var done := false
+	for i in 400:
+		r0 = _rooms_now(s)
+		var evs: Array = s.step(0.5, _inp({"work_mass": _hold_work(s, 9.0, 0.5)}))["events"]
+		for e in evs:
+			done = done or e["type"] == "building_done"
+		if done:
+			break
+	t.ok(done, "the market finishes")
+	_cache_ok(s, r0, "a build finishing")
+	# an upkeep switch: nobody sells (no stall on the ladder), no gold, the cheapest goes unpaid (a
+	# building with slots, so its rooms go); then it resumes
+	var u := _sim()
+	u.set_ladder(["pit", "haul"])
+	u.gold = 0.0
+	u.restaff()
+	r0 = _rooms_now(u)
+	var went := false
+	for i in 50:
+		r0 = _rooms_now(u)
+		for e in u.step(0.5, _inp())["events"]:
+			went = went or (e["type"] == "building_unpaid" and e["unpaid"])
+		if went:
+			break
+	t.ok(went, "a building goes unpaid")
+	_cache_ok(u, r0, "an upkeep switch (unpaid)")
+	u.gold = 1000.0
+	var back := false
+	for i in 400:
+		r0 = _rooms_now(u)
+		for e in u.step(0.5, _inp())["events"]:
+			back = back or (e["type"] == "building_unpaid" and not e["unpaid"])
+		if back:
+			break
+	t.ok(back, "and resumes")
+	_cache_ok(u, r0, "an upkeep switch (resumed)")
+	# a load: another layout's dict into this instance
+	var a := _sim()
+	var b := _rich()
+	r0 = _rooms_now(a)
+	a.from_dict(b.to_dict())
+	_cache_ok(a, r0, "a load")
+	# with no building or order changing, a step fills once (at its end, for the moved workforce) and
+	# never rebuilds the rooms; with the workforce settled too it has nothing to redo
+	var q := _sim()
+	q.workers = 6.0
+	q.restaff()
+	var n0 := q._n_rooms
+	var f0 := q._n_fills
+	for i in 100:
+		q.step(10.0, _inp({"work_mass": _hold_work(q, 9.0, 10.0)}))
+	t.ok(q._n_rooms == n0, "100 steps build the rooms 0 times (%d)" % (q._n_rooms - n0))
+	t.ok(q._n_fills - f0 == 100, "and fill them once per step, at its end, as the workforce moves (%d fills)" % (q._n_fills - f0))
+	var w0 := q.workers
+	q.workers = 6.0
+	q.restaff()
+	f0 = q._n_fills
+	for i in 10:
+		q.step(10.0, _inp({"work_mass": _hold_work(q, 6.0, 10.0)}))
+	t.ok(q.workers == 6.0 and q._n_fills == f0 and w0 > 6.0, "a settled workforce (6.0 all staffed, held): no fill at all (%d)" % (q._n_fills - f0))

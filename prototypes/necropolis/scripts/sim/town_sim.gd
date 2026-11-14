@@ -108,7 +108,11 @@ var shock := 0.0  # the decaying death shock, subtracted from the morale target
 ## first build; `build_level` is the level a construction completes to. `progress` is 0..1 while
 ## constructing, else 1. `staff_cap` -1 = none. `unpaid_s` is the unpaid hold left.
 var buildings := {}
-var ladder: Array = []  # job order, top first
+## The job order, top first. Assigning it marks the rooms dirty (_mark_rooms).
+var ladder: Array = []:
+	set(v):
+		ladder = v
+		_mark_rooms()
 ## The convoy: `current` is the fort it works ("" when home); at most one entry in `convoys`,
 ## {fort, phase: out|back, t: 0..1 leg progress, trip_s: one leg, load: mass, crew: haulers}.
 var haul := {"current": "", "convoys": []}
@@ -120,6 +124,20 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 ## idle: float, slots: float (staffable after staff caps)}
 var staffing := {}
 var _by_lot := {}  # lot_id -> {job: staffed}
+## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
+## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
+## calls _mark_rooms(). Filling them with the workers each step is cheap (E2b T4.P).
+var _rooms := {}
+var _rooms_dirty := true
+## The workforce the last _restaff() filled and marked the states with; NAN once anything since may
+## differ. _restaff() with clean rooms and this workforce has nothing to redo.
+var _staffed_w := NAN
+## _sum_working() and _sum_built() per effect key, cached like the rooms: they read only the
+## buildings' states and levels, so _mark_rooms() clears them.
+var _sums_w := {}
+var _sums_b := {}
+var _n_rooms := 0  # staff_rooms() builds, for tests (not saved)
+var _n_fills := 0  # staff_fill() runs from _staff(), for tests (not saved)
 var _pending: Array = []  # events from commands, returned by the next step()
 var _haul_trip := -1.0  # this step's landed trip, load / round trip (mass/s); -1 when none landed
 
@@ -177,11 +195,17 @@ func setup(cfgs: Dictionary) -> void:
 	for id in bcfg:
 		var b := _d(bcfg[id])
 		var up := _d(b.get("upkeep"))
+		var jobs := _d(b.get("jobs"))
+		var has_jobs := false
+		for j in jobs:
+			has_jobs = has_jobs or int(jobs[j]) > 0
 		_defs[str(id)] = {
-			"jobs": _d(b.get("jobs")), "effects": _d(b.get("effects")),
+			"jobs": jobs, "effects": _d(b.get("effects")),
 			"upkeep_gold": float(up.get("gold", 0.0)), "upkeep_bone": float(up.get("bone", 0.0)),
 			"build_work": float(b.get("build_work", 0.0)), "max_level": int(b.get("max_level", 0)),
+			"has_jobs": has_jobs,
 		}
+	_mark_rooms()
 
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
@@ -218,6 +242,7 @@ func new_game() -> void:
 	living = float(_start["living"])
 	shock = 0.0
 	buildings = {}
+	_mark_rooms()
 	var start: Dictionary = _start["buildings"]
 	for lot_id in start:
 		place_building(str(lot_id), str(start[lot_id]), 1)
@@ -238,6 +263,7 @@ func place_building(lot_id: String, building_id: String, level: int) -> bool:
 	var cap := int(buildings.get(lot_id, {}).get("staff_cap", -1))
 	buildings[lot_id] = {"building_id": building_id, "level": level, "state": "active", "progress": 1.0,
 		"staff_cap": cap, "unpaid_s": 0.0, "build_level": level}
+	_mark_rooms()
 	_restaff()
 	return true
 
@@ -272,6 +298,7 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 		b["unpaid_s"] = 0.0
 		b["build_level"] = level
 	_pending.append({"type": "building_started", "lot_id": lot_id, "building_id": building_id, "level": level})
+	_mark_rooms()
 	_restaff()
 	return {"ok": true, "reason": ""}
 
@@ -294,6 +321,7 @@ func cancel_construction(lot_id: String) -> Dictionary:
 	else:
 		buildings.erase(lot_id)
 	_drop_pending(lot_id)
+	_mark_rooms()
 	_restaff()
 	return out
 
@@ -310,6 +338,7 @@ func demolish(lot_id: String) -> Dictionary:
 		return {"ok": false, "reason": "constructing"}
 	buildings.erase(lot_id)
 	_drop_pending(lot_id)
+	_mark_rooms()
 	_restaff()
 	return {"ok": true, "reason": ""}
 
@@ -326,9 +355,10 @@ func built_effect(key: String) -> float:
 
 ## The player's job order, top first (a permutation of JOBS; GameState checks it), then a restaff.
 func set_ladder(order: Array) -> void:
-	ladder = []
+	var o: Array = []
 	for j in order:
-		ladder.append(str(j))
+		o.append(str(j))
+	ladder = o  # marks the rooms dirty
 	_restaff()
 
 
@@ -337,12 +367,15 @@ func set_staff_cap(lot_id: String, cap: int) -> bool:
 	if not buildings.has(lot_id):
 		return false
 	buildings[lot_id]["staff_cap"] = cap
+	_mark_rooms()
 	_restaff()
 	return true
 
 
-## Refills the job slots after GameState changed a stock directly (a debug grant of workers).
+## Refills the job slots from scratch after a stock or a building was changed directly (a debug
+## grant of workers; tests that edit `buildings`): the rooms are rebuilt too.
 func restaff() -> void:
+	_mark_rooms()
 	_restaff()
 
 
@@ -474,6 +507,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 			b["level"] = int(b["build_level"])
 			b["state"] = "active"
 			b["progress"] = 1.0
+			_mark_rooms()
 			events.append({"type": "building_done", "lot_id": lot_id, "building_id": b["building_id"], "level": int(b["level"])})
 
 	# 7. the living (§4.3): exact first-order update, then the housing cap
@@ -503,7 +537,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# the cheapest when short
 	var paid := _upkeep(dt, events, gold_in, bone_in)
 
-	# 10. rates for the views
+	# 10. rates for the views; the staffing and the states at the step's end (views and saves read
+	# them; the next step's _restaff() finds them current and has nothing to redo)
 	var tend := _job("tend")
 	_restaff()
 	rates = {
@@ -760,6 +795,7 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 		bn += (in_b - due_b) * (when - at)
 		at = when
 		bd["state"] = "active"
+		_mark_rooms()
 		due_g += ug
 		due_b += ub
 		secs[lot_id] = maxf(0.0, dt - when)
@@ -790,6 +826,7 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 		var pb: Dictionary = buildings[pick]
 		pb["state"] = "unpaid"
 		pb["unpaid_s"] = _hold_s
+		_mark_rooms()
 		var paid_s := float(secs.get(pick, dt))
 		owe_g -= float(_defs[pb["building_id"]]["upkeep_gold"]) * paid_s
 		owe_b -= float(_defs[pb["building_id"]]["upkeep_bone"]) * paid_s
@@ -888,9 +925,23 @@ static func staff_fill(r: Dictionary, w: float) -> Dictionary:
 ## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
 ## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` and `_by_lot` only.
 func _staff() -> void:
-	var a := staff_allocate(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, workers, [])
+	if _rooms_dirty:
+		_rooms = staff_rooms(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, [])
+		_rooms_dirty = false
+		_n_rooms += 1
+	var a := staff_fill(_rooms, workers)
+	_n_fills += 1
 	staffing = a["staffing"]
 	_by_lot = a["by_lot"]
+	_staffed_w = NAN
+
+
+## The rooms changed (or may have): the next _staff() rebuilds them and the next _restaff() refills.
+func _mark_rooms() -> void:
+	_rooms_dirty = true
+	_staffed_w = NAN
+	_sums_w.clear()
+	_sums_b.clear()
 
 
 ## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
@@ -905,18 +956,21 @@ func project_staffing(order: Array, _vat_override: Dictionary) -> Dictionary:
 
 
 ## `_staff()`, then marks working buildings that have job slots `active` (someone staffed) or
-## `idle` (nobody). A load never calls this, so a saved state comes back as it was saved.
+## `idle` (nobody). A load never calls this, so a saved state comes back as it was saved. With the
+## rooms clean and the workforce the last call filled, the staffing and the states are already what
+## this would give (a fill is pure in the two), so it returns at once: a step's first call after the
+## last step's closing one (E2b T4.P; the step used to fill twice).
 func _restaff() -> void:
+	if not _rooms_dirty and workers == _staffed_w:
+		return
 	_staff()
 	var lots: Dictionary = staffing["lots"]
 	for lot_id in buildings:
 		var b: Dictionary = buildings[lot_id]
 		if not WORKING.has(b["state"]):
 			continue
-		var has_jobs := false
-		for j in _defs[b["building_id"]]["jobs"]:
-			has_jobs = has_jobs or int(_defs[b["building_id"]]["jobs"][j]) > 0
-		b["state"] = "active" if not has_jobs or float(lots.get(lot_id, 0.0)) > 0.0 else "idle"
+		b["state"] = "active" if not bool(_defs[b["building_id"]]["has_jobs"]) or float(lots.get(lot_id, 0.0)) > 0.0 else "idle"
+	_staffed_w = workers
 
 
 ## A building at work: built and paid, or built and mid-upgrade (it keeps working at its old level
@@ -961,21 +1015,27 @@ func _eff(b: Dictionary, key: String) -> float:
 
 
 func _sum_working(key: String) -> float:
+	if _sums_w.has(key):
+		return _sums_w[key]
 	var s := 0.0
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if not b.is_empty() and _works(b):
 			s += _eff(b, key)
+	_sums_w[key] = s
 	return s
 
 
 ## Capacity effects count for every built level, unpaid or mid-upgrade too, so an unpaid spell
 ## never destroys stock.
 func _sum_built(key: String) -> float:
+	if _sums_b.has(key):
+		return _sums_b[key]
 	var s := 0.0
 	for lot_id in _lots:
 		if buildings.has(lot_id):
 			s += _eff(buildings[lot_id], key)
+	_sums_b[key] = s
 	return s
 
 
@@ -1105,6 +1165,7 @@ func from_dict(d: Dictionary) -> void:
 	morale = float(d.get("morale", _morale_base))
 	shock = float(d.get("shock", 0.0))
 	buildings = {}
+	_mark_rooms()
 	for e in d.get("buildings", []):
 		var lot_id := str(e.get("lot_id", ""))
 		var bid := str(e.get("building_id", ""))
