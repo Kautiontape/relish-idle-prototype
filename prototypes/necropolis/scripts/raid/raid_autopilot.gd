@@ -72,9 +72,10 @@ var _tells := 0                 # warden tells seen / answered (the react dict)
 var _tells_ok := 0
 var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
 var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
-var _tally_hits0 := 0           # tell-attack blows on her when it was first seen
 var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
 var _tally_pinned := false      # the Shieldwall's tell was pinned
+var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
+var _hits_seen := 0
 var _wall_pre := {}             # the Shieldwall as it stood before its tell (a missed tell is planned against this)
 var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
 var _threat_last := -1.0        # scene time one was last within kite_px
@@ -260,6 +261,12 @@ func _split_tick(delta: float) -> void:
 	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
 	_split[k] = float(_split[k]) + delta
 	_watch_army(delta)
+	var th := _tell_hits()
+	if th > _hits_seen:
+		_hits_seen = th
+		var tw = _raid.warden_run.warden
+		if tw != null and is_instance_valid(tw):
+			_hit_beats.append(tw.beat())
 	_walk_px += moved
 	if k == "travel":
 		_walk_travel_px += moved
@@ -840,7 +847,6 @@ func _answers(kind: String, beat: float) -> bool:
 		if _tell_ok:
 			_tells_ok += 1
 		_tally_open = true
-		_tally_hits0 = _tell_hits()
 		_tally_ctr0 = _counter_count()
 		var ww = _raid.warden_run.warden
 		_tally_pinned = ww != null and is_instance_valid(ww) and ww is RaidShieldwall and ww.pinned_tell
@@ -854,7 +860,11 @@ func _tally_close() -> void:
 	if not _tally_open:
 		return
 	_tally_open = false
-	var struck := _tell_hits() > _tally_hits0
+	# struck: a tell-attack blow on her from its tell's start (tell_beats before its beat) to a beat after it
+	var tb := float(_tell_id.get_slice(":", 1))
+	var struck := false
+	for hb in _hit_beats:
+		struck = struck or (float(hb) >= tb - 1.5 and float(hb) < tb + 1.0)
 	var countered := _tally_pinned or _counter_count() > _tally_ctr0
 	_tally["tells"] += 1
 	if _tell_ok:
