@@ -190,6 +190,9 @@
       "radius": 15.0
     }
   },
+  "tier_mix_by_fort": {
+    "_doc": "D-d/E Step 4b: a fort listed here rolls its living's kinds from its own mix instead of tier_mix (RaidLogic.roll_enemy_kind; the same rng draws, so only the kinds change). For a fort whose composition, not its warden, makes the fight a grind."
+  },
   "tier_mix": {
     "1": {
       "spearman": 1.0

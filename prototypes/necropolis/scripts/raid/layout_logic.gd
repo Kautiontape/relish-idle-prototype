@@ -1068,7 +1068,7 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 				rng.randf_range(inner.position.y, inner.end.y))
 			if pos.distance_to(spawn) > 320.0:
 				break
-		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg), "pos": pos, "room": ri})
+		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg, fort_id), "pos": pos, "room": ri})
 	return out
 
 
@@ -1135,7 +1135,7 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 			pos = c
 			if not _in_walls(layout, c, 14.0):
 				break
-		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg), "pos": pos, "room": room})
+		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg, fort_id), "pos": pos, "room": room})
 	return out
 
 

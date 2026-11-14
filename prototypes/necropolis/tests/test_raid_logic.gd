@@ -463,6 +463,19 @@ func run() -> int:
 ## D-d/E 3c, the bot's hold and unstick watch: RaidLogic.hold_blocks / unstick_step.
 func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_bot_rules")
+	# Step 4b: a fort in tier_mix_by_fort rolls from its own mix, the same rng draws
+	var mc: Dictionary = cfg.duplicate(true)
+	mc["tier_mix_by_fort"] = {"x-fort": {"runner": 1.0}}
+	var r1 := RandomNumberGenerator.new()
+	r1.seed = 7
+	var r2 := RandomNumberGenerator.new()
+	r2.seed = 7
+	var own := true
+	for i in 30:
+		own = own and RaidLogic.roll_enemy_kind(r1, 4, mc, "x-fort") == "runner"
+		RaidLogic.roll_enemy_kind(r2, 4, mc, "other")
+	t.ok(own and r1.randi() == r2.randi(), "a listed fort rolls from its own mix, on the same rng draws as any other")
+	t.ok(RaidLogic.roll_enemy_kind(r1, 1, mc) == "spearman", "an unlisted fort rolls from tier_mix")
 	t.ok(RaidLogic.hold_blocks(true, 4, 3, 4, -1) and RaidLogic.hold_blocks(true, 3, 3, 4, -1), "a hostile foe in her room or the next holds her")
 	t.ok(not RaidLogic.hold_blocks(false, 4, 3, 4, -1) and not RaidLogic.hold_blocks(false, 3, 3, 4, -1), "a calm one does not (it held the-stair's spawn 20 s for nothing)")
 	t.ok(not RaidLogic.hold_blocks(true, 6, 3, 4, -1) and not RaidLogic.hold_blocks(true, -1, 3, 4, -1), "nor a hostile foe elsewhere or between rooms")

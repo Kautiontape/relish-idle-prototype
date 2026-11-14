@@ -714,8 +714,11 @@ static func tier_kinds(tier: int, cfg: Dictionary) -> Array:
 	return mix.keys()
 
 
-static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictionary) -> String:
-	var mix: Dictionary = cfg.get("tier_mix", {}).get(str(clampi(tier, 1, 4)), {"spearman": 1.0})
+## `fort_id` with an entry in `tier_mix_by_fort` (D-d/E Step 4b) rolls from that fort's own mix instead.
+static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictionary, fort_id := "") -> String:
+	var byf: Dictionary = cfg.get("tier_mix_by_fort", {})
+	var mix: Dictionary = byf[fort_id] if fort_id != "" and fort_id != "_doc" and byf.has(fort_id) \
+		else cfg.get("tier_mix", {}).get(str(clampi(tier, 1, 4)), {"spearman": 1.0})
 	var total := 0.0
 	for k in mix:
 		total += float(mix[k])
