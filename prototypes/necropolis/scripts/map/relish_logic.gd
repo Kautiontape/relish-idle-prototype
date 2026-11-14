@@ -13,9 +13,11 @@ static func _c() -> Dictionary:
 	return MapLogic.cfg().get("controls", {})
 
 
-## "m:ss" from seconds (rounded; negative reads 0:00).
+## "m:ss" from seconds, rounded UP so a countdown never reads 0:00 before it ends (a trip with
+## 0.4 s left reads 0:01); negative reads 0:00. eta_ceil_eps_s absorbs float noise, so 60.0000001
+## still reads 1:00.
 static func fmt_eta(s: float) -> String:
-	var n := maxi(roundi(s), 0)
+	var n := maxi(ceili(s - float(_c().get("eta_ceil_eps_s", 0.0))), 0)
 	return "%d:%02d" % [n / 60, n % 60]
 
 

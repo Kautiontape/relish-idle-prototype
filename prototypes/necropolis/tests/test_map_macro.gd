@@ -1,8 +1,9 @@
 extends RefCounted
 ## Tests for the macro-readability pass (task 12): the fort state glyph rule (NodeLogic.fort_state
-## and the tithe badge), lane focus and the glow cap (LaneStyle.focus_ids / focus / quiet_ids and
-## the quiet stroke stack), the lane hue floor and the rate_log_max retune, Relish's minimum
-## screen size, the label plates' contrast, the --lanes-report line and the debug speed row gate.
+## and the tithe badge), lane focus and the per-kind glow cap (LaneStyle.selection_focus /
+## relish_focus / focus / quiet_ids and the quiet stroke), the lane hue floor and the
+## rate_log_max retune, Relish's minimum screen size and travel ETA, the label plates' contrast,
+## the --lanes-report line and the debug speed row gate.
 
 const PULSE := preload("res://autoload/pulse.gd")
 const HUD_FILE := "res://scripts/map/map_hud.gd"
@@ -25,6 +26,7 @@ func run() -> int:
 	_states(t)
 	_states_fixtures(t)
 	_glyph_size(t)
+	_static_sig(t)
 	_focus(t)
 	_glow_cap(t)
 	_quiet(t)
@@ -33,6 +35,7 @@ func run() -> int:
 	_relish(t)
 	_plates(t)
 	_report(t)
+	_eta(t)
 	_speed_row(t)
 	p.free()
 	return t.failures
@@ -61,7 +64,12 @@ func _states(t: TestUtil) -> void:
 	t.ok(NodeLogic.fort_state(_fort(40.0, 40.0 * ratio + 1.0, 0.0), "") == NodeLogic.CONTESTED, "undead >= contested_frac of the living: contested")
 	var floor_m := float(n["contested_floor_frac"]) * 160.0
 	t.ok(NodeLogic.fort_state(_fort(150.0, floor_m + 0.5, 0.0), "") == NodeLogic.CONTESTED, "both sides above the floor: contested")
-	t.ok(NodeLogic.fort_state(_fort(0.0, 30.0, 40.0), "") == NodeLogic.CONTESTED, "undead there and no living, not yet held: contested")
+	t.ok(NodeLogic.fort_state(_fort(0.0, 30.0, 40.0), "") == NodeLogic.OVERRUN, "undead there and no living, not flipped: overrun")
+	var present := float(n["state_present_frac"]) * 160.0
+	t.ok(NodeLogic.fort_state(_fort(present * 0.9, 120.0, 0.0), "") == NodeLogic.OVERRUN, "living under state_present_frac of cap count as absent: overrun")
+	t.ok(NodeLogic.fort_state(_fort(present * 1.1, 120.0, 0.0), "") == NodeLogic.CONTESTED, "living just present: contested (both sides), not overrun")
+	t.ok(NodeLogic.fort_state(_fort(0.0, present * 0.9, 50.0), "") == NodeLogic.EMPTIED, "undead under the presence floor and no living: emptied, not overrun")
+	t.ok(NodeLogic.fort_state(_fort(0.0, 120.0, 0.0, 160.0, {"held": true}), IdleLogic.SAFE) == IdleLogic.SAFE, "held beats overrun")
 	t.ok(NodeLogic.fort_state(_fort(1.9, 0.9, 74.2, 80.0), "") == NodeLogic.EMPTIED, "neither side present (under state_present_frac of cap), dead remain: emptied")
 	t.ok(NodeLogic.fort_state(_fort(0.0, 0.0, 0.0), "") == NodeLogic.EMPTIED, "nothing at all: emptied")
 	t.ok(NodeLogic.fort_state(_fort(0.0, 0.0, 0.0, 0.0), "") == NodeLogic.EMPTIED, "no capacity: emptied, no division by zero")
@@ -75,9 +83,9 @@ func _states(t: TestUtil) -> void:
 	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "bogus") == IdleLogic.SAFE, "held with an unknown margin: safe")
 	t.ok(NodeLogic.fort_state(_fort(140.0, 0.0, 0.0), IdleLogic.WILL_FALL) == NodeLogic.HERS, "a margin on a fort that is not held is ignored")
 	var all := {}
-	for s in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED, IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
+	for s in [NodeLogic.HERS, NodeLogic.OVERRUN, NodeLogic.CONTESTED, NodeLogic.EMPTIED, IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
 		all[s] = true
-	t.ok(all.size() == 6, "six distinct states")
+	t.ok(all.size() == 7, "seven distinct states")
 	# the tithe badge: any base state
 	var warn := {"tithe": {"targeted": true, "eta_s": 80.0, "wave_active": false}}
 	var wave := {"tithe": {"targeted": true, "eta_s": 0.0, "wave_active": true}}
@@ -102,7 +110,7 @@ func _states_fixtures(t: TestUtil) -> void:
 	var ash := m.fort("ashgate")
 	t.ok(bool(ash["held"]) and NodeLogic.fort_state(ash, m.margin_of("ashgate")) == m.margin_of("ashgate"), "midgame Ashgate is held: its glyph is its margin (%s)" % m.margin_of("ashgate"))
 	t.ok(NodeLogic.tithe_badge(ash), "and the real tithe on it carries the badge")
-	t.ok(NodeLogic.fort_state(m.fort("greywall"), m.margin_of("greywall")) == NodeLogic.CONTESTED, "midgame Greywall (22 undead, no living, not held) is contested")
+	t.ok(NodeLogic.fort_state(m.fort("greywall"), m.margin_of("greywall")) == NodeLogic.OVERRUN, "midgame Greywall (22 undead, no living, not held) is overrun")
 	t.ok(NodeLogic.fort_state(m.fort("vespers"), m.margin_of("vespers")) == NodeLogic.HERS, "midgame Vespers (living only) is hers")
 	var d := MapModel.new(s)
 	d.nodes_demo = true
@@ -117,7 +125,7 @@ func _states_fixtures(t: TestUtil) -> void:
 		if bool(f["held"]) and st != d.margin_of(id):
 			agree = false
 	t.ok(agree and not d.margins.is_empty(), "every held fort's glyph state is its chip's margin (model.margin_of)")
-	t.ok(seen.size() == 6, "midgame with --nodes=demo shows all six states (%s)" % ",".join(seen.keys()))
+	t.ok(seen.size() == 7, "midgame with --nodes=demo shows all seven states (%s)" % ",".join(seen.keys()))
 	var dn: Dictionary = MapLogic.cfg()["demo_nodes"]
 	t.ok(NodeLogic.tithe_badge(d.fort(dn["tithe"]["fort"])) and NodeLogic.tithe_badge(d.fort(dn["wave"]["fort"])), "the demo's tithe and wave forts carry the badge")
 
@@ -141,57 +149,85 @@ func _glyph_size(t: TestUtil) -> void:
 	t.ok(reach < pip_in, "at zoom 0.61 no glyph reaches a tier-1 fort's pips (%.1f < %.1f world px)" % [reach, pip_in])
 
 
+## The nodes' redraw economy: a fort's static rings redraw only when what they draw changed, and
+## the glyphs' beat is their layer's modulate (no per-frame redraw).
+func _static_sig(t: TestUtil) -> void:
+	t.suite("map_macro-static-sig")
+	var flip := {"hold_s": 300.0, "tier_mult": 0.5}
+	var base := _fort(100.0, 40.0, 10.0, 160.0)
+	var sig := NodeLogic.fort_static_sig(base, flip)
+	var steps := float(NodeLogic.ncfg()["static_sig_steps"])
+	t.ok(steps >= 256.0, "arcs and the held sweep are quantized finer than a screen pixel (1/%d of a turn)" % int(steps))
+	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 0.2, 40.0, 10.0, 160.0), flip) == sig, "a drift under one step (a fraction of a body) does not redraw")
+	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 3.0, 40.0, 10.0, 160.0), flip) != sig, "a few steps of matter redraw")
+	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 60.0, 10.0, 160.0), flip) != sig, "a new pip redraws")
+	var held := _fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0})
+	var hs := NodeLogic.fort_static_sig(held, flip)
+	t.ok(hs != NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0), flip), "held redraws")
+	var grace := NodeLogic.grace_total(flip, 2)
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 0.2}), flip) == hs, "the countdown under a step does not")
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 3.0}), flip) != hs, "a few steps of countdown do")
+	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 40.0, 10.0, 160.0, {"simulacrum_charges": 3.0}), flip) != sig, "a simulacrum redraws")
+	t.near(NodeLogic.state_alpha(0.0), float(NodeLogic.ncfg()["state_alpha_base"]), 1e-6, "the glyph beat's trough is state_alpha_base")
+	t.ok(NodeLogic.state_alpha(1.0) <= 1.0 and NodeLogic.state_alpha(1.0) > NodeLogic.state_alpha(0.0), "and its crest at most 1")
+	var nodes := FileAccess.get_file_as_string("res://scripts/map/map_nodes.gd")
+	t.ok(nodes.contains("var sig = l.static_sig()") and nodes.contains("_sigs[l] != sig"), "MapNodes redraws a static layer only when its static_sig changed")
+	t.ok(nodes.contains("_glyph_beat.modulate.a = NodeLogic.state_alpha(Pulse.wave(model.hops_of("), "the glyphs beat through their layer's modulate, on Pulse at the forts' hop")
+	var glyph := FileAccess.get_file_as_string("res://scripts/map/map_fort_glyph.gd")
+	t.ok(glyph.contains("func static_sig()") and not glyph.contains("Pulse."), "the glyph layer reads no clock: it redraws on a state change only")
+
+
 # --- 12b: lane focus and the glow cap ---------------------------------------------
 
 func _focus(t: TestUtil) -> void:
 	t.suite("map_macro-focus")
 	var forts := {"ashgate": {}, "greywall": {}}
-	var home := {"state": "home", "at": "covington", "target": ""}
-	t.ok(LaneStyle.focus_ids("", home, forts).is_empty(), "nothing selected, Relish home: no focus")
-	t.ok(LaneStyle.focus_ids("", {}, forts).is_empty(), "no Relish entry: no focus")
-	t.ok(LaneStyle.focus_ids("ashgate", home, forts) == ["ashgate"], "a selected fort is in focus")
-	t.ok(LaneStyle.focus_ids("vei", home, forts).is_empty() and LaneStyle.focus_ids("lorn", home, forts).is_empty(), "selecting Vei or a village gives no focus")
-	var at := {"state": "at_fort", "at": "greywall", "target": ""}
-	t.ok(LaneStyle.focus_ids("", at, forts) == ["greywall"], "Relish standing at a fort puts it in focus")
-	t.ok(LaneStyle.focus_ids("", {"state": "in_dungeon", "at": "greywall", "target": ""}, forts) == ["greywall"], "and while she is in its dungeon")
-	t.ok(LaneStyle.focus_ids("", {"state": "travelling", "at": "covington", "target": "greywall"}, forts) == ["greywall"], "travelling: her target fort, not where she left")
-	t.ok(LaneStyle.focus_ids("", {"state": "travelling", "at": "greywall", "target": "covington"}, forts).is_empty(), "travelling home: no focus")
-	t.ok(LaneStyle.focus_ids("", {"state": "travelling", "at": "greywall", "target": "vei"}, forts).is_empty(), "travelling to Vei: no focus")
-	t.ok(LaneStyle.focus_ids("", {"state": "at_vei", "at": "vei", "target": ""}, forts).is_empty(), "at Vei: no focus")
-	t.ok(LaneStyle.focus_ids("", {"state": "dead", "at": "greywall", "target": ""}, forts).is_empty(), "dead: no focus")
-	var both := LaneStyle.focus_ids("ashgate", at, forts)
-	t.ok(both.size() == 2 and both.has("ashgate") and both.has("greywall"), "the selected fort and Relish's fort together")
-	t.ok(LaneStyle.focus_ids("greywall", at, forts) == ["greywall"], "the same fort once")
+	t.ok(LaneStyle.selection_focus("ashgate", forts) == ["ashgate"], "a selected fort is the selection focus")
+	t.ok(LaneStyle.selection_focus("", forts).is_empty() and LaneStyle.selection_focus("vei", forts).is_empty() and LaneStyle.selection_focus("lorn", forts).is_empty(),
+		"nothing, Vei or a village selected: no selection focus")
+	t.ok(LaneStyle.relish_focus({"state": "home", "at": "covington", "target": ""}, forts).is_empty() and LaneStyle.relish_focus({}, forts).is_empty(), "Relish home, or no entry: no fort")
+	t.ok(LaneStyle.relish_focus({"state": "at_fort", "at": "greywall", "target": ""}, forts) == ["greywall"], "standing at a fort: that fort")
+	t.ok(LaneStyle.relish_focus({"state": "in_dungeon", "at": "greywall", "target": ""}, forts) == ["greywall"], "in its dungeon: that fort")
+	t.ok(LaneStyle.relish_focus({"state": "travelling", "at": "covington", "target": "greywall"}, forts) == ["greywall"], "travelling: her target fort, not where she left")
+	t.ok(LaneStyle.relish_focus({"state": "travelling", "at": "greywall", "target": "covington"}, forts).is_empty()
+		and LaneStyle.relish_focus({"state": "travelling", "at": "greywall", "target": "vei"}, forts).is_empty(), "travelling home or to Vei: no fort")
+	t.ok(LaneStyle.relish_focus({"state": "at_vei", "at": "vei", "target": ""}, forts).is_empty() and LaneStyle.relish_focus({"state": "dead", "at": "greywall", "target": ""}, forts).is_empty(),
+		"at Vei, or dead: no fort")
 	var ids := ["ashgate"]
-	t.ok(LaneStyle.focus(_row("war", "covington", "ashgate"), ids), "a lane ending at the fort is in focus")
-	t.ok(LaneStyle.focus(_row("flood", "ashgate", "vei"), ids) and LaneStyle.focus(_row("haul", "ashgate", "covington"), ids), "lanes starting there are in focus")
+	t.ok(LaneStyle.focus(_row("war", "covington", "ashgate"), ids), "a lane ending at the fort touches it")
+	t.ok(LaneStyle.focus(_row("flood", "ashgate", "vei"), ids) and LaneStyle.focus(_row("haul", "ashgate", "covington"), ids), "lanes starting there do")
 	t.ok(LaneStyle.focus(_row("living", "vei", "ashgate"), ids) and LaneStyle.focus(_row("redirect", "ashgate", "ashgate"), ids), "living in, and its REDIRECT ring")
-	t.ok(not LaneStyle.focus(_row("war", "covington", "greywall"), ids), "another fort's lane is not")
+	t.ok(not LaneStyle.focus(_row("war", "covington", "greywall"), ids), "another fort's lane does not")
 	t.ok(not LaneStyle.focus(_row("work", "covington", "covington"), ids) and not LaneStyle.focus(_row("flood", "covington", "vei"), ids), "nor WORK, nor the direct FLOOD")
-	t.ok(not LaneStyle.focus(_row("war", "covington", "ashgate"), []), "with no focus ids no lane is in focus")
+	t.ok(not LaneStyle.focus(_row("war", "covington", "ashgate"), []), "no ids, no lane")
+	# a selection quiets every other lane; Relish's fort stays loud with it
 	var lit := [_row("war", "covington", "ashgate", 0.2), _row("war", "covington", "greywall", 5.0), _row("living", "vei", "ashgate", 0.1),
-		_row("flood", "covington", "vei", 9.0), _row("work", "covington", "covington", 1.0)]
-	var q := LaneStyle.quiet_ids(lit, ["ashgate"], 1)
-	t.ok(q.size() == 3 and q.has("war:covington:greywall") and q.has("flood:covington:vei") and q.has("work:covington:covington"),
-		"with a focus every lane off it goes quiet, whatever its rate (%s)" % ",".join(q.keys()))
-	t.ok(not q.has("war:covington:ashgate") and not q.has("living:vei:ashgate"), "the focus fort's lanes keep their glow, slow or not")
-	t.ok(LaneStyle.quiet_ids(lit, [], 12).is_empty(), "no focus and no more than glow_cap lit: nothing is quiet")
+		_row("flood", "covington", "vei", 9.0), _row("work", "covington", "covington", 1.0), _row("living", "vei", "greywall", 0.3)]
+	var q := LaneStyle.quiet_ids(lit, ["ashgate"], [], 4)
+	t.ok(q.size() == 4 and q.has("war:covington:greywall") and q.has("flood:covington:vei") and q.has("work:covington:covington") and q.has("living:vei:greywall"),
+		"a selected fort quiets every lane off it, whatever its rate (%s)" % ",".join(q.keys()))
+	t.ok(not q.has("war:covington:ashgate") and not q.has("living:vei:ashgate"), "its own lanes stay loud, slow or not")
+	var qr := LaneStyle.quiet_ids(lit, ["ashgate"], ["greywall"], 4)
+	t.ok(qr.size() == 2 and qr.has("flood:covington:vei") and qr.has("work:covington:covington"), "with a selection, Relish's fort's lanes are loud as well")
+	t.ok(LaneStyle.quiet_ids(lit, [], ["greywall"], 4).is_empty(), "Relish alone quiets nothing: under the cap every lane is loud")
+	t.ok(LaneStyle.quiet_ids(lit, [], [], 0).is_empty(), "no selection and no cap: nothing is quiet")
 
 
 func _glow_cap(t: TestUtil) -> void:
 	t.suite("map_macro-glow-cap")
 	var lit := [_row("war", "covington", "a", 0.5), _row("war", "covington", "b", 3.0), _row("war", "covington", "c", 1.0),
-		_row("living", "vei", "a", 3.0), _row("flood", "covington", "vei", 0.1), _row("work", "covington", "covington", 2.0)]
-	var q := LaneStyle.quiet_ids(lit, [], 3)
-	t.ok(q.size() == 3, "past the cap only glow_cap lanes keep their halos (%d quiet of %d)" % [q.size(), lit.size()])
-	t.ok(not q.has("war:covington:b") and not q.has("living:vei:a") and not q.has("work:covington:covington"), "the highest-rate lanes keep them")
-	t.ok(q.has("war:covington:a") and q.has("war:covington:c") and q.has("flood:covington:vei"), "the slowest go quiet")
+		_row("living", "vei", "a", 0.05), _row("living", "vei", "b", 0.2), _row("living", "vei", "c", 0.1), _row("haul", "a", "covington", 0.07)]
+	var q := LaneStyle.quiet_ids(lit, [], [], 2)
+	t.ok(q.size() == 2 and q.has("war:covington:a") and q.has("living:vei:a"), "past the cap, each kind's slowest go quiet (%s)" % ",".join(q.keys()))
+	t.ok(not q.has("living:vei:b") and not q.has("living:vei:c") and not q.has("haul:a:covington"),
+		"the cap is per kind: living's top two stay loud beside far faster WAR, and a lone haul too")
+	var qr := LaneStyle.quiet_ids(lit, [], ["a"], 2)
+	t.ok(qr.is_empty(), "Relish's fort's lanes stay loud on top of the cap")
 	var tie := [_row("war", "covington", "b", 1.0), _row("war", "covington", "a", 1.0), _row("war", "covington", "c", 1.0)]
-	var qt := LaneStyle.quiet_ids(tie, [], 2)
+	var qt := LaneStyle.quiet_ids(tie, [], [], 2)
 	t.ok(qt.size() == 1 and qt.has("war:covington:c"), "ties break by id, so the choice is stable between refreshes")
-	t.ok(LaneStyle.quiet_ids(lit, [], 6).is_empty() and LaneStyle.quiet_ids(lit, [], 0).is_empty(), "at the cap, or with no cap, nothing is quiet")
-	t.ok(LaneStyle.quiet_ids(lit, ["a"], 100).size() == 4, "a focus wins over the cap: the four lanes off fort a go quiet")
-	t.ok(int(MapLogic.cfg()["glow_cap"]) >= 1, "glow_cap is set")
+	t.ok(LaneStyle.quiet_ids(lit, [], [], 3).is_empty(), "at the cap nothing is quiet")
+	t.ok(int(MapLogic.cfg()["glow_cap_per_kind"]) >= 1 and not MapLogic.cfg().has("glow_cap"), "glow_cap_per_kind replaces the global glow_cap")
 
 
 func _quiet(t: TestUtil) -> void:
@@ -199,21 +235,30 @@ func _quiet(t: TestUtil) -> void:
 	var ground := Palette.c("ground")
 	var mult := float(MapLogic.cfg()["quiet_width_mult"])
 	t.ok(mult > 0.0 and mult <= 1.0, "quiet_width_mult narrows a lane, never widens it")
-	for key in ["war", "living", "redirect"]:
-		var row := _row(key, "covington", "ashgate") if key != "living" else _row("living", "vei", "ashgate")
-		if key == "redirect":
-			row = _row("redirect", "ashgate", "ashgate")
-		var style := LaneStyle.style_for(row)
+	var rows := {"war": _row("war", "covington", "ashgate"), "flood": _row("flood", "ashgate", "vei"), "direct flood": _row("flood", "covington", "vei"),
+		"work": _row("work", "covington", "covington"), "haul": _row("haul", "ashgate", "covington"), "living": _row("living", "vei", "ashgate"),
+		"redirect": _row("redirect", "ashgate", "ashgate")}
+	for key in rows:
+		var style := LaneStyle.style_for(rows[key])
 		for u in [0.0, 0.5, 1.0]:
-			var ch: Dictionary = p.channels(u, Palette.hue(style["hue_key"]))
+			var hue := Palette.hue(style["hue_key"])
+			var ch := LaneStyle.with_hue(p.channels(u, hue), p.channels(LaneStyle.hue_u(u), hue))
 			var loud := LaneStyle.lit_layers(ch, style)
 			var quiet := LaneStyle.lit_layers(ch, style, true)
-			t.ok(quiet.size() == 1 and loud.size() > 1, "%s u=%.1f: quiet is the core alone, no halos" % [key, u])
-			t.ok(bool(quiet[0]["hairline"]) and bool(quiet[0]["dashed"]), "%s u=%.1f: the quiet core is a dashed hairline" % [key, u])
+			t.ok(quiet.size() == 1 and loud.size() > 1, "%s u=%.1f: quiet is one stroke, no halos" % [key, u])
+			t.ok(bool(quiet[0]["hairline"]) and bool(quiet[0]["dashed"]), "%s u=%.1f: a dashed hairline" % [key, u])
 			t.near(float(quiet[0]["width"]), LaneStyle.lane_width(ch, style) * mult, 1e-6, "%s u=%.1f: width x quiet_width_mult" % [key, u])
-			t.ok((quiet[0]["color"] as Color).is_equal_approx(loud[loud.size() - 1]["color"]), "%s u=%.1f: the same core colour at the same floored alpha" % [key, u])
-			var cr := MapLogic.contrast_ratio(quiet[0]["color"], ground)
-			t.ok(cr >= 3.0, "%s u=%.1f: a quiet core still reads 3:1 over ground (%.2f)" % [key, u, cr])
+			var qc: Color = quiet[0]["color"]
+			var want := Color(ch["color"], LaneStyle.lane_alpha(ch, style)).lightened(float(style["quiet_lighten"]))
+			t.ok(qc.is_equal_approx(want), "%s u=%.1f: the lane's own floored-hue colour (lightened by quiet_lighten), at the floored alpha" % [key, u])
+			t.ok(LaneStyle.core_color(ch, style, true).is_equal_approx(qc), "%s u=%.1f: its chevrons take the same colour" % [key, u])
+			var cr := MapLogic.contrast_ratio(qc, ground)
+			t.ok(cr >= 3.0, "%s u=%.1f: a quiet hairline reads 3:1 over ground (%.2f)" % [key, u, cr])
+		# identity: the quiet core keeps its flow's hue family
+		var hue0 := Palette.hue(style["hue_key"])
+		var c0: Color = LaneStyle.lit_layers(LaneStyle.with_hue(p.channels(0.0, hue0), p.channels(LaneStyle.hue_u(0.0), hue0)), style, true)[0]["color"]
+		var hd := absf(wrapf(c0.h * 360.0 - hue0, -180.0, 180.0))
+		t.ok(hd <= 20.0, "%s: a quiet lane at u=0 keeps its flow's hue (%.0f deg vs %.0f)" % [key, c0.h * 360.0, hue0])
 
 
 # --- 12c: the hue floor and the retune --------------------------------------------
@@ -274,13 +319,12 @@ func _hue_floor(t: TestUtil) -> void:
 
 
 ## rate_log_max against the real lanes (E2a): every live lane of the three fixtures (gutters too)
-## after 2 sim seconds, as --lanes-report prints them. They average u = 0.5; few clamp at 1, so
-## the ranking survives; and the map warms as the game goes on.
+## after 2 sim seconds, as --lanes-report prints them. At most a tenth of pre_vei's lanes clamp at
+## u = 1, so the ranking survives late; the map warms as the game goes on.
 func _retune(t: TestUtil) -> void:
 	t.suite("map_macro-retune")
 	var log_max := float(MapLogic.cfg()["rate_log_max"])
-	var all: Array = []
-	var means := {}
+	var stats := {}
 	for fx in ["day1", "midgame_2flips", "pre_vei"]:
 		var s := GameState.new(TestUtil.configs())
 		s.debug_enabled = true
@@ -291,27 +335,22 @@ func _retune(t: TestUtil) -> void:
 		m.refresh(true)
 		var sum := 0.0
 		var n := 0
+		var clamped := 0
 		for r in m.lanes:
 			var u: float = p.rate_to_u(float(r["rate"]), log_max)
 			if u >= 0.0:
-				all.append(u)
 				sum += u
 				n += 1
-		means[fx] = sum / maxf(n, 1.0)
-	t.ok(all.size() >= 60, "the fixtures light %d lanes" % all.size())
-	if all.is_empty():
-		return
-	var mean := 0.0
-	var clamped := 0
-	for u in all:
-		mean += u
-		if u >= 1.0:
-			clamped += 1
-	mean /= all.size()
-	t.ok(mean >= 0.45 and mean <= 0.55, "the lanes average u = %.2f at rate_log_max %.1f (0.45..0.55)" % [mean, log_max])
-	t.ok(clamped * 4 <= all.size(), "no more than a quarter clamp at u = 1, so the rate ranking survives (%d of %d)" % [clamped, all.size()])
-	t.ok(means["day1"] < means["midgame_2flips"] and means["midgame_2flips"] < means["pre_vei"],
-		"the map warms as the game goes on: mean u day1 %.2f < midgame %.2f < pre_vei %.2f" % [means["day1"], means["midgame_2flips"], means["pre_vei"]])
+				if u >= 1.0:
+					clamped += 1
+		stats[fx] = {"mean": sum / maxf(n, 1.0), "n": n, "clamped": clamped}
+	var pv: Dictionary = stats["pre_vei"]
+	t.ok(int(pv["n"]) >= 20, "pre_vei lights %d lanes" % int(pv["n"]))
+	t.ok(int(pv["clamped"]) * 10 <= int(pv["n"]), "at most a tenth of pre_vei's lanes clamp at u = 1 (%d of %d) at rate_log_max %.1f" % [int(pv["clamped"]), int(pv["n"]), log_max])
+	var d: Dictionary = stats["day1"]
+	var mg: Dictionary = stats["midgame_2flips"]
+	t.ok(float(d["mean"]) < float(mg["mean"]) and float(mg["mean"]) < float(pv["mean"]),
+		"the map warms as the game goes on: mean u day1 %.2f < midgame %.2f < pre_vei %.2f" % [float(d["mean"]), float(mg["mean"]), float(pv["mean"])])
 
 
 # --- 12d: Relish and the labels -----------------------------------------------------
@@ -377,6 +416,16 @@ func _report(t: TestUtil) -> void:
 	for part in ["war:covington:vespers", "war", "undead", "1.418", "0.272", "0.500", "163.8"]:
 		t.ok(line.contains(part), "the report line carries %s: %s" % [part, line])
 	t.ok(LaneStyle.report_header(25.0, 0.0).contains("25.00"), "the header names rate_log_max")
+
+
+func _eta(t: TestUtil) -> void:
+	t.suite("map_macro-eta")
+	t.ok(RelishLogic.fmt_eta(0.439) == "0:01" and RelishLogic.fmt_eta(0.939) == "0:01", "a trip with under a second left reads 0:01, never 0:00")
+	t.ok(RelishLogic.fmt_eta(1.2) == "0:02" and RelishLogic.fmt_eta(59.5) == "1:00", "it rounds up")
+	t.ok(RelishLogic.fmt_eta(60.0) == "1:00" and RelishLogic.fmt_eta(60.0000001) == "1:00" and RelishLogic.fmt_eta(4.0) == "0:04", "whole seconds stay whole (float noise absorbed)")
+	t.ok(RelishLogic.fmt_eta(0.0) == "0:00" and RelishLogic.fmt_eta(-1.0) == "0:00", "arrived, or the API's none: 0:00")
+	var travelling := {"state": "travelling", "at": "covington", "target": "greywall", "eta_s": 0.439}
+	t.ok(RelishLogic.chip_text(travelling, {"greywall": "Greywall"}).ends_with("0:01"), "the chip reads 0:01 in her last half-second, not 0:00")
 
 
 func _speed_row(t: TestUtil) -> void:

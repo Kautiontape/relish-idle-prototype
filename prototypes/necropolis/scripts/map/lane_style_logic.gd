@@ -142,6 +142,7 @@ static func host_id(row: Dictionary) -> String:
 ##   width_mult   commit_width_mult on committed flows (from Covington, not a loop), times
 ##                flood_hot_mult on the direct cov -> vei FLOOD
 ##   alpha_mult   flood_hot_mult on the direct FLOOD, else 1
+##   quiet_lighten  how far a quiet lane's core is lightened toward white so it still reads 3:1
 ##   matte, loop, commit, direct, host_id
 static func style_for(row: Dictionary) -> Dictionary:
 	var kind := str(row["kind"])
@@ -167,6 +168,7 @@ static func style_for(row: Dictionary) -> Dictionary:
 		"glow": glow, "duty": float(k.get("duty", -1.0)), "period_mult": float(k.get("period_mult", 1.0)),
 		"width_mult": width_mult, "alpha_mult": alpha_mult, "matte": matte, "loop": loop,
 		"commit": commit, "direct": direct, "host_id": host_id(row),
+		"quiet_lighten": float(k.get("quiet_lighten", 0.0)),
 	}
 
 
@@ -255,12 +257,14 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 ## alpha, so the hue carries the halos and the core is the pale core at that alpha. Dashed. The
 ## core is a hairline (never under a screen pixel, never faded by coverage). Halos wider than
 ## halo_max_px are pulled in toward the core (capped_halo); the core keeps its width.
-## `quiet` (out of focus, or past the glow cap): glow 0, so the core alone, quiet_width_mult as
-## wide, at the same floored alpha (so it still reads 3:1).
+## `quiet` (off the selection, or past the per-kind glow cap): no halos, one dashed hairline
+## quiet_width_mult as wide in the lane's own (floored-hue) colour, so undead stays green and
+## living orange, at the floored alpha, lightened by the kind's quiet_lighten so it reads 3:1.
 static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
-	var width := lane_width(ch, style) * (_num("quiet_width_mult") if quiet else 1.0)
-	var stack := LineGlow.layers(col, width, 0.0 if quiet else float(style["glow"]), style["core"])
+	if quiet:
+		return [_layer(lane_width(ch, style) * _num("quiet_width_mult"), col.lightened(float(style["quiet_lighten"])), 0.0, true, true)]
+	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
 	var n := stack.size()
 	var core_w: float = stack[n - 1][0]
 	var outer: float = stack[0][0]
@@ -293,9 +297,9 @@ static func drawn_stroke(width: float, alpha: float, world_per_px: float, hairli
 	return {"width_px": 1.0, "alpha": alpha if hairline else alpha * wpx}
 
 
-## The colour the shader draws a lit lane's core in (the innermost stroke).
-static func core_color(ch: Dictionary, style: Dictionary) -> Color:
-	var layers := lit_layers(ch, style)
+## The colour the shader draws a lit lane's core in (the innermost stroke), loud or quiet.
+static func core_color(ch: Dictionary, style: Dictionary, quiet := false) -> Color:
+	var layers := lit_layers(ch, style, quiet)
 	return layers[layers.size() - 1]["color"]
 
 
@@ -362,22 +366,22 @@ static func pack(layers: Array) -> Dictionary:
 
 # --- focus and the glow cap -----------------------------------------------------------
 
-## The forts in focus: the selected fort (its card is open) and the fort Relish stands at
-## (at_fort, in_dungeon: `at`) or travels to (travelling: `target`). Only forts focus: Covington,
-## Vei and villages never do. `forts` is any dictionary keyed by fort id.
-static func focus_ids(selected_id: String, relish: Dictionary, forts: Dictionary) -> Array:
-	var out: Array = []
-	if forts.has(selected_id):
-		out.append(selected_id)
+## The selected fort (its card is open), as [id], or [] when the selection is not a fort
+## (Covington, Vei and villages never focus). `forts` is any dictionary keyed by fort id.
+static func selection_focus(selected_id: String, forts: Dictionary) -> Array:
+	return [selected_id] if forts.has(selected_id) else []
+
+
+## The fort Relish stands at (at_fort, in_dungeon: `at`) or travels to (travelling: `target`),
+## as [id], or [] when that is not a fort.
+static func relish_focus(relish: Dictionary, forts: Dictionary) -> Array:
 	var state := str(relish.get("state", ""))
 	var hers := ""
 	if state == "at_fort" or state == "in_dungeon":
 		hers = str(relish.get("at", ""))
 	elif state == "travelling":
 		hers = str(relish.get("target", ""))
-	if forts.has(hers) and not out.has(hers):
-		out.append(hers)
-	return out
+	return [hers] if forts.has(hers) else []
 
 
 ## True when the lane starts or ends at a fort in focus.
@@ -385,25 +389,37 @@ static func focus(row: Dictionary, focus_ids: Array) -> bool:
 	return focus_ids.has(str(row["from"])) or focus_ids.has(str(row["to"]))
 
 
-## The lit lanes that go quiet, {id: true}. With a focus: every lane not in focus, whatever its
-## rate. With none: past `cap` lit lanes, all but the `cap` highest-rate ones (ties by id, so the
-## choice holds between refreshes). cap <= 0 is no cap.
-static func quiet_ids(lit_rows: Array, focus_ids: Array, cap: int) -> Dictionary:
-	var out := {}
-	if not focus_ids.is_empty():
+## The lit lanes that go quiet, {id: true}. Relish's fort's lanes (`relish`) are always loud.
+## With a fort selected (`selected`), its lanes are loud too and every other lane is quiet,
+## whatever its rate. With none, each kind's `cap_per_kind` highest-rate lanes are loud as well
+## (ties by id, so the choice holds between refreshes) and the rest quiet; cap_per_kind <= 0 is
+## no cap.
+static func quiet_ids(lit_rows: Array, selected: Array, relish: Array, cap_per_kind: int) -> Dictionary:
+	if selected.is_empty() and cap_per_kind <= 0:
+		return {}
+	var loud := {}
+	for r in lit_rows:
+		if focus(r, relish) or focus(r, selected):
+			loud[str(r["id"])] = true
+	if selected.is_empty():
+		var by_kind := {}
 		for r in lit_rows:
-			if not focus(r, focus_ids):
-				out[str(r["id"])] = true
-		return out
-	if cap <= 0 or lit_rows.size() <= cap:
-		return out
-	var ranked := lit_rows.duplicate()
-	ranked.sort_custom(func(a, b):
-		var ra := float(a["rate"])
-		var rb := float(b["rate"])
-		return ra > rb or (ra == rb and str(a["id"]) < str(b["id"])))
-	for i in range(cap, ranked.size()):
-		out[str(ranked[i]["id"])] = true
+			var k := str(r["kind"])
+			if not by_kind.has(k):
+				by_kind[k] = []
+			by_kind[k].append(r)
+		for k in by_kind:
+			var ranked: Array = by_kind[k]
+			ranked.sort_custom(func(a, b):
+				var ra := float(a["rate"])
+				var rb := float(b["rate"])
+				return ra > rb or (ra == rb and str(a["id"]) < str(b["id"])))
+			for i in mini(cap_per_kind, ranked.size()):
+				loud[str(ranked[i]["id"])] = true
+	var out := {}
+	for r in lit_rows:
+		if not loud.has(str(r["id"])):
+			out[str(r["id"])] = true
 	return out
 
 

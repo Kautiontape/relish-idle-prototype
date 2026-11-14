@@ -52,6 +52,14 @@ func _draw_static() -> void:
 		draw_arc(vp, r_out + float(n["vei_select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
+## The backlog stack, the reading's text and the selection: all that changes between zooms.
+func static_sig():
+	var r := ctx.readout
+	return [NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0))), ctx.vei_radius,
+		NodeLogic.fmt_odds(float(r.get("odds", 0.0))), int(r.get("sign", 0)),
+		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei"]
+
+
 ## (Re)creates and redraws the digestion rings when the structure's radius, her position or the
 ## hairline moved. Called by MapNodes on a model refresh or a camera change, never from _draw.
 func sync_rings() -> void:

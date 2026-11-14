@@ -16,6 +16,15 @@ func _draw_static() -> void:
 			_held_fort(f, c)
 
 
+## Each held fort's garrison text and margin (the chips' only inputs besides the zoom).
+func static_sig():
+	var out: Array = []
+	for f in ctx.forts:
+		if bool(f.get("held", false)):
+			out.append([str(f["id"]), MapLogic.fmt_mass(IdleLogic.garrison(f)), ctx.model.margin_of(str(f["id"]))])
+	return out
+
+
 func _held_fort(f: Dictionary, c: Dictionary) -> void:
 	var p := MapModel.to_vec(f["pos"])
 	var r := MapLogic.fort_radius(int(f["tier"]))

@@ -31,6 +31,12 @@ func _draw_static() -> void:
 	pass
 
 
+## A static layer's inputs: MapNodes redraws it on a model refresh only when this changed (a zoom,
+## tier, selection, reduced-motion or config change redraws every layer anyway). null: always.
+func static_sig():
+	return null
+
+
 func _draw_pulse() -> void:
 	pass
 

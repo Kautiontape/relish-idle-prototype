@@ -8,7 +8,7 @@
   "ring_samples": 64,
   "ribbon_margin_px": 2.0,
   "u_epsilon": 0.01,
-  "rate_log_max": 3.0,
+  "rate_log_max": 10.0,
   "hue_u_floor": 0.5,
   "lanes_report_wait_s": 2.0,
   "lane_alpha_floor": 0.4,
@@ -18,7 +18,7 @@
   "flood_direct_glow": 1.0,
   "halo_max_px": 14.0,
   "quiet_width_mult": 0.6,
-  "glow_cap": 12,
+  "glow_cap_per_kind": 4,
   "lane_kinds": {
     "war": {
       "hue": "undead",
@@ -49,14 +49,16 @@
       "hue": "living",
       "core": "living_core",
       "glow": 1.0,
-      "duty": 0.26
+      "duty": 0.26,
+      "quiet_lighten": 0.8
     },
     "redirect": {
       "hue": "relish",
       "core": "relish",
       "core_lighten": 0.8,
       "glow": 1.0,
-      "duty": 0.5
+      "duty": 0.5,
+      "quiet_lighten": 0.82
     },
     "dead": {
       "hue": "dead",
@@ -304,6 +306,7 @@
     "valve_label_tries": 40,
     "wake_jump_px": 150.0,
     "zoom_redraw_eps": 0.002,
+    "static_sig_steps": 512,
     "label_plate_alpha": 0.9,
     "label_plate_radius_px": 3.0,
     "relish_min_core_px": 8.0,
@@ -387,6 +390,12 @@
     ],
     "mint_rate": 3.0,
     "matter": [
+      {
+        "fort": "sable-hold",
+        "living": 0.0,
+        "undead": 150.0,
+        "dead": 40.0
+      },
       {
         "fort": "hollow-redoubt",
         "living": 200.0,
@@ -522,7 +531,8 @@
     "ui_button_margin_px": 6,
     "ui_button_border_alpha": 0.9,
     "ui_button_lighten_mult": 2.0,
-    "ui_hover_lighten_mult": 2.0
+    "ui_hover_lighten_mult": 2.0,
+    "eta_ceil_eps_s": 0.001
   },
   "map_drag_steps": 10,
   "hint_left_px": 214,

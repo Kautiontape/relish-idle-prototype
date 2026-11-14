@@ -11,6 +11,7 @@ const MATTERS := ["living", "undead", "dead"]
 ## A fort's state glyph when it is not held (held forts show their margin: IdleLogic's safe / thin
 ## / will_fall).
 const HERS := "hers"
+const OVERRUN := "overrun"
 const CONTESTED := "contested"
 const EMPTIED := "emptied"
 
@@ -124,11 +125,12 @@ static func controller(f: Dictionary) -> String:
 ## model's margin_of, so it always agrees with the chip): safe, thin or will_fall; "" or anything
 ## else counts as safe, IdleLogic's committed fallback. Not held, a side is present at
 ## state_present_frac of capacity or more (the mass that rounds to one pip):
-##   contested  your undead present, and at least contested_frac of the living, or both sides
-##              at contested_floor_frac of capacity or more;
+##   overrun    your undead present and the living not: yours inside, not flipped;
+##   contested  both sides present, and the undead at least contested_frac of the living, or
+##              both at contested_floor_frac of capacity or more;
 ##   hers       otherwise, when the living are present;
 ##   emptied    neither side present (the dead remain, or nothing does).
-## Held beats contested; contested beats hers.
+## Held beats everything; overrun and contested never overlap; contested beats hers.
 static func fort_state(f: Dictionary, margin: String) -> String:
 	if bool(f.get("held", false)):
 		return margin if margin == IdleLogic.THIN or margin == IdleLogic.WILL_FALL else IdleLogic.SAFE
@@ -139,11 +141,31 @@ static func fort_state(f: Dictionary, margin: String) -> String:
 	var und_here := cap > 0.0 and u >= present and u > 0.0
 	var liv_here := cap > 0.0 and l >= present and l > 0.0
 	var floor_m := _n("contested_floor_frac") * cap
+	if und_here and not liv_here:
+		return OVERRUN
 	if und_here and (u >= _n("contested_frac") * l or (u >= floor_m and l >= floor_m)):
 		return CONTESTED
 	if liv_here:
 		return HERS
 	return EMPTIED
+
+
+## The state glyph's alpha on the forts' beat (`w`: Pulse.wave at their hop). MapNodes sets it as
+## the beating glyph layer's modulate, so the beat costs no redraw.
+static func state_alpha(w: float) -> float:
+	return _n("state_alpha_base") + _n("state_alpha_wave") * w
+
+
+## What a fort's static rings draw, quantized to static_sig_steps of a turn so sub-pixel drift (a
+## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
+## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name.
+## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
+static func fort_static_sig(f: Dictionary, flip: Dictionary) -> Array:
+	var steps := _n("static_sig_steps")
+	var fr := arc_fracs(f)
+	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
+		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
+		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", ""))]
 
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
@@ -524,8 +546,8 @@ static func village_edge_key(owner: String) -> String:
 # --- --nodes=demo stand-ins -----------------------------------------------------------------
 
 ## Overlays stand-in values on the model's fort, vei and relish entries (in place) so one
-## screenshot shows what E2 will: held forts at each margin, a tithe warning, a live wave, a
-## contested and an emptied fort (whatever the fixture holds), the first-dungeon pulse, a
+## screenshot shows what E2 will: held forts at each margin, a tithe warning, a live wave, an
+## overrun, a contested and an emptied fort (whatever the fixture holds), the first-dungeon pulse, a
 ## simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json "demo_nodes".
 ## Relish stands still (speed 0) so her place holds between refreshes.
 # TODO(api E2): debug stand-in
@@ -544,7 +566,7 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 			f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
 			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
 			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
-	for mt in d.get("matter", []):  # fort state glyphs: a contested and an emptied fort
+	for mt in d.get("matter", []):  # fort state glyphs: an overrun, a contested and an emptied fort
 		if by_id.has(mt.get("fort", "")):
 			var mf: Dictionary = by_id[mt["fort"]]
 			for k in MATTERS:

@@ -1,10 +1,12 @@
 class_name MapNodes
 extends Node2D
 ## Draws every node on the realm from the shared MapModel and owns the layers that do it: a
-## static layer and a pulse layer per kind (forts, Covington, Vei) plus Relish. Static layers
-## redraw only when the model refreshed, the zoom or tier changed, or the selection moved; pulse
-## layers redraw every frame (once per refresh under reduced motion). This node draws the villages
-## and turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
+## static layer per fort and per other kind (Covington, Vei, the held forts' chips), the forts'
+## state glyphs, and a pulse layer per kind plus Relish. A static layer redraws on a model refresh
+## only when its static_sig changed, and always when the zoom, tier, selection, reduced motion or
+## config changed; pulse layers redraw every frame (once per refresh under reduced motion). The
+## glyphs' beat is their layer's modulate, so it costs no redraw. This node draws the villages and
+## turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
 ## Pure logic: node_logic.gd. Tuning: configs/map_view.json "nodes".
 
 var model: MapModel
@@ -20,7 +22,12 @@ var nodes_ms := 0.0
 
 var ctx := MapNodeCtx.new()
 
-var _forts_s: MapFortRing
+var _fort_box: Node2D  # the per-fort static ring layers, in world order
+var _fort_ids: Array = []
+var _glyph_beat: MapFortGlyph
+var _glyph_still: MapFortGlyph
+var _sigs := {}  # static layer -> its static_sig at its last redraw
+var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
 var _cov_s: MapCovington
 var _cov_p: MapCovington
@@ -55,10 +62,18 @@ func _ready() -> void:
 	var realm_cfg: Dictionary = ConfigDb.data.get("realm", {})
 	ctx.flip = realm_cfg.get("flip", {})
 	ctx.r_vei = float(realm_cfg.get("R_vei", 0.0))
-	_forts_s = _layer(MapFortRing, false)
+	_fort_box = Node2D.new()
+	_fort_box.name = "FortStatics"
+	add_child(_fort_box)
+	_sync_fort_layers()
 	_layer(MapFortIdle, false)
 	_cov_s = _layer(MapCovington, false)
 	_vei_s = _layer(MapVei, false)
+	_glyph_beat = _layer(MapFortGlyph, false)
+	_glyph_beat.beating = true
+	_glyph_beat.name = "MapFortGlyphBeat"
+	_glyph_still = _layer(MapFortGlyph, false)
+	_glyph_still.name = "MapFortGlyphStill"
 	_forts_p = _layer(MapFortRing, true)
 	_cov_p = _layer(MapCovington, true)
 	_vei_p = _layer(MapVei, true)
@@ -66,14 +81,31 @@ func _ready() -> void:
 	_bench = Array(OS.get_cmdline_user_args()).any(func(a): return str(a).begins_with("--bench-seconds"))
 
 
-func _layer(script: GDScript, is_pulse: bool) -> MapNodeLayer:
+func _layer(script: GDScript, is_pulse: bool, parent: Node = null) -> MapNodeLayer:
 	var l: MapNodeLayer = script.new()
 	l.ctx = ctx
 	l.pulse = is_pulse
 	l.name = "%s%s" % [script.get_global_name(), "Pulse" if is_pulse else "Static"]
-	add_child(l)
+	(self if parent == null else parent).add_child(l)
 	(_pulses if is_pulse else _statics).append(l)
 	return l
+
+
+## One static ring layer per fort, rebuilt only when the model's fort set changed (a new world).
+func _sync_fort_layers() -> void:
+	var ids: Array = model.forts.map(func(f): return str(f["id"]))
+	if ids == _fort_ids:
+		return
+	for l in _fort_box.get_children():
+		_statics.erase(l)
+		_sigs.erase(l)
+		_fort_box.remove_child(l)
+		l.queue_free()
+	_fort_ids = ids
+	for id in ids:
+		var l: MapFortRing = _layer(MapFortRing, false, _fort_box)
+		l.fort_id = id
+		l.name = "MapFortRingStatic_%s" % id
 
 
 func _exit_tree() -> void:
@@ -113,12 +145,20 @@ func _process(_delta: float) -> void:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
 	if refreshed or _dirty:
 		_vei_s.sync_rings()
-		for l in _statics:
-			l.queue_redraw()
-		queue_redraw()
+		for l: MapNodeLayer in _statics:
+			var sig = l.static_sig()
+			if _dirty or sig == null or not _sigs.has(l) or _sigs[l] != sig:
+				_sigs[l] = sig
+				l.queue_redraw()
+		var vs: Array = model.villages.map(func(v): return str(v["owner"]))
+		if _dirty or vs != _vsig:
+			_vsig = vs
+			queue_redraw()
 	if not rm or refreshed or _dirty:
 		for l in _pulses:
 			l.queue_redraw()
+	if not _fort_ids.is_empty():
+		_glyph_beat.modulate.a = NodeLogic.state_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
 	_dirty = false
 	_last_us = Time.get_ticks_usec() - t0  # lint-ok: bench timing
 
@@ -174,6 +214,7 @@ func _sync_camera() -> void:
 ## light and tell the routes, and restart the extrapolation clock when she moved.
 func _on_refresh() -> void:
 	_rev = model.rev
+	_sync_fort_layers()
 	ctx.forts = model.forts
 	ctx.vei = model.vei
 	ctx.readout = model.readout()

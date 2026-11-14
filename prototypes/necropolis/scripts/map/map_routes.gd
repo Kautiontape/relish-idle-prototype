@@ -6,8 +6,9 @@ extends Node2D
 ## Lit lanes first, then every dead gutter (so the cut bites into the halos), then the carts.
 ## Per frame: one dash-offset uniform per visible lane. On a model rev: each lane's channels,
 ## with uniforms touched only when u moved by u_epsilon, the lane turned on, off or phantom, or
-## it went quiet or loud. Quiet (LaneStyle.quiet_ids): off the forts in focus (the selected one,
-## Relish's), or past glow_cap lit lanes with nothing in focus; re-applied on a selection too.
+## it went quiet or loud. Quiet (LaneStyle.quiet_ids): with a fort selected, every lane off it and
+## off Relish's fort; with none, each kind's lanes past glow_cap_per_kind (Relish's fort's lanes
+## stay loud); re-applied on a selection too.
 ## Styling and tables: scripts/map/lane_style_logic.gd. Tuning: configs/map_view.json.
 
 const SHADER := preload("res://shaders/map_lane.gdshader")
@@ -21,7 +22,7 @@ var routes_ms := 0.0
 ## lanes_report_wait_s after the first refresh (a fixture's valve lanes appear after the first
 ## sim substeps).
 var lanes_report := false
-## The fort whose card is open (world_map sets it): with Relish's fort, the lanes in focus.
+## The fort whose card is open (world_map sets it): only a selection quiets every other lane.
 var selected_id := "":
 	set(v):
 		selected_id = v
@@ -226,7 +227,7 @@ func _sync() -> void:
 		drawn.append(r)
 		if _u(r) >= 0.0:
 			lit.append(r)
-	var quiet := LaneStyle.quiet_ids(lit, _focus_ids(), int(MapLogic.cfg()["glow_cap"]))
+	var quiet := _quiet_ids(lit)
 	for r in drawn:
 		seen[r["id"]] = true
 		var lane := _lane(r)
@@ -278,8 +279,9 @@ func _channels(u: float, hue_key: String) -> Dictionary:
 	return LaneStyle.with_hue(Pulse.channels(u, hue), Pulse.channels(LaneStyle.hue_u(u), hue))
 
 
-func _focus_ids() -> Array:
-	return LaneStyle.focus_ids(selected_id, model.relish, model.forts_by_id)
+func _quiet_ids(lit_rows: Array) -> Dictionary:
+	return LaneStyle.quiet_ids(lit_rows, LaneStyle.selection_focus(selected_id, model.forts_by_id),
+		LaneStyle.relish_focus(model.relish, model.forts_by_id), int(MapLogic.cfg()["glow_cap_per_kind"]))
 
 
 ## A selection changed the focus: re-apply only the lit lanes whose quiet flag flipped.
@@ -290,7 +292,7 @@ func _refocus() -> void:
 	for r: Ribbon in _lanes.values():
 		if r.mode == "lit":
 			lit.append(r.row)
-	var quiet := LaneStyle.quiet_ids(lit, _focus_ids(), int(MapLogic.cfg()["glow_cap"]))
+	var quiet := _quiet_ids(lit)
 	for r: Ribbon in _lanes.values():
 		if r.mode == "lit" and quiet.has(r.row["id"]) != r.quiet:
 			_apply_lane(r, r.u, false, quiet.has(r.row["id"]))
@@ -463,7 +465,7 @@ func _apply_lane(r: Ribbon, u: float, hosts_live_dead: bool, quiet := false) -> 
 		var ch := _channels(u, str(r.style["hue_key"]))
 		layers = LaneStyle.lit_layers(ch, r.style, quiet)
 		_set_motion(r, LaneStyle.motion(ch, r.style, r.length if r.ring else 0.0))
-		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style))
+		r.mat.set_shader_parameter(&"chev_col", LaneStyle.core_color(ch, r.style, quiet))
 	_set_layers(r, layers)
 	if mode == "lit" and str(r.row["kind"]) == "haul":
 		_set_carts(r)
