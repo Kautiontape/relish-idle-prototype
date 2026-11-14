@@ -203,6 +203,20 @@ takes over 1 s.
     At `ea2ce47`, best of 3 at a load average of about 2.5: pre_vei 640 µs, midgame_2flips 420 µs
     and fresh 380 µs per core step (2-4% above `46710b0` in the same session's 1 h runs); at
     `55c281f`, at a load average of about 1.5, the worst start is 610-620 µs.
+  - At `40d62c0` (E2b-2 T4.P), measured in one session with `6396edd`, best of 3 at a load average
+    of about 2 on 12 cores: a core step at 10 s costs 248 µs on midgame_2flips, 298 µs on pre_vei
+    and 242 µs on fresh (412, 621 and 383 µs at `6396edd`). The profile at `6396edd` had TownSim at
+    48-64% of the step (no longer two thirds to three quarters), its two `_restaff` calls alone at
+    25-37%. T4.P caches the staffing rooms and the buildings' effect sums (`TownSim._mark_rooms`), drops
+    the step's redundant fill, and skips the shipping loads a bound shows can't cut a give
+    (`RealmSim._load_cuts`), all bit-identical. TownSim is now 31-42% and RealmSim 44-53%.
+  - 12 h at 10 s, measured from the three starts (4 320 core steps, best of 3): 1.09 s
+    (midgame_2flips), 1.25 s (pre_vei) and 1.05 s (fresh) of core steps, plus 0.81 s for 150 field
+    ticks (5.4 ms each, about 40% of the total): 1.9-2.1 s in all (2.5-3.3 s at `6396edd`). That is
+    about the 2 s budget, and within the manager's 4 s behind a progress screen.
+  - 7 days at 10 s (60 480 steps), projected from those µs per step with 150 field ticks: 15.5-18.2
+    s (24-35 s at `6396edd`), so about 1.8 times the 10 s budget. Scaling the field's ticks with the
+    length (14 × 150 for 7 days) would add 11 s more. T3.3 decides.
 - A thread is the fallback.
 
 **Determinism.**
