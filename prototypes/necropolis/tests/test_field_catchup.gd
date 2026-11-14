@@ -207,4 +207,49 @@ func run() -> int:
 	t.ok(dv2 <= 0.03 and moved > 0.2, "after a fort flips, four 200 s steps land within 0.03 of 4000 live ticks at the villages (%.4f; the flip moved them %.3f)" % [dv2, moved])
 	t.ok(FieldScenario.owners(s.doms(lv2), float(cfg["town_threshold"])) == FieldScenario.owners(s.doms(cu2), float(cfg["town_threshold"])),
 		"... and every village has the live owner")
+
+	# entrench far from any live or inject cell decays as the live tick decays it
+	for dt in [5.0, 300.0]:
+		var fe := InfluenceField.new()
+		fe.setup(s.field_cfg(cfg), s.world_size())
+		var far := 25 * fe.w + 35
+		fe.entrench[far] = 0.3
+		fe._head = [fe.green.duplicate(), fe.orange.duplicate(), fe.entrench.duplicate()]
+		var le := _clone(fe)
+		var src := Vector2(3.5 * FieldScenario.CELL, 3.5 * FieldScenario.CELL)
+		for k in int(round(dt / PERIOD)):
+			le.inject(src, false, 0.9, 3)
+			le.tick(PERIOD)
+		le.flush()
+		fe.inject(src, false, 0.9, 3)
+		fe.catchup_step(dt)
+		t.ok(absf(fe.entrench[far] - le.entrench[far]) <= 1e-5 and absf(le.green[far] - le.orange[far]) <= float(cfg["catchup_eps"]),
+			"dt %.0f s: entrench on an empty cell far from the fronts decays as live (%.5f, live %.5f)" % [dt, fe.entrench[far], le.entrench[far]])
+
+	# the readout resets on every path; no NaN at dt = INF, nor with entrench_rate 0
+	var fr := _clone(base)
+	s.inject(fr, 0.0, PERIOD)
+	fr.catchup_step(300.0)
+	var solved := fr.last_catchup_cells
+	fr.catchup_step(0.0)
+	var noop := fr.last_catchup_cells
+	fr.catchup_step(300.0)
+	s.inject(fr, 0.0, PERIOD)
+	fr.catchup_step(1.0)  # 5 whole live ticks, no solve
+	t.ok(solved > 0 and noop == 0 and fr.last_catchup_cells == 0, "last_catchup_cells resets on the no-op and the exact-ticks paths")
+	var cz := s.field_cfg(cfg)
+	cz["entrench_rate"] = 0.0
+	var bad_inf: Array = []
+	for c2 in [s.field_cfg(cfg), cz]:
+		var fi := InfluenceField.new()
+		fi.setup(c2, s.world_size())
+		fi.green = base.green.duplicate()
+		fi.orange = base.orange.duplicate()
+		fi.entrench = base.entrench.duplicate()
+		fi._head = [base.green.duplicate(), base.orange.duplicate(), base.entrench.duplicate()]
+		s.inject(fi, 0.0, PERIOD)
+		fi.catchup_step(INF)
+		if not _sane(fi):
+			bad_inf.append(c2["entrench_rate"])
+	t.ok(bad_inf.is_empty(), "dt = INF stays finite, also with entrench_rate 0 (bad: %s)" % str(bad_inf))
 	return t.failures
