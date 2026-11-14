@@ -754,3 +754,37 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - **Two forts now grind once their bigs fall:** pale-bastion (+84% at t3, against a wall its raised soldiers glance off) and sable-hold (+161%). A Relish-damage lever adds exposure in proportion to fight length, so expect its deaths to pile onto these two.
   - Not tested at pale-bastion: the checkpoint-room cache and the t3 party against the t4 party. The room geometry explained the rush hits.
   - t1 and P1 lines equal the bot-fixed ones. Vei is identical. Parity is 5 of 5.
+
+## Step 4 (D-d/E), the lever probe and the conduit rule
+- **`relish_hits` / `relish_soaked`** (3a36410): blows that reached her by source, and of them the lethal ones an undead took. They are counted on Relish and never read by the sim; 18 c4 lines and Vei are identical.
+- **The conduit rule** (relish.gd `take_hit`; raid.gd `sacrifice_nearest_ally`; raid_logic.gd `ally_rank` / `sacrifice_pick`):
+  - **When.** A blow that would take her hp to 0 or below, while any undead stands anywhere in the dungeon. There is no reach.
+  - **Who dies.** One undead in her place: the lowest rank first (chaff, then soldier, then elite, then a party big), the nearest within that rank.
+  - **The cost.** She takes no damage and gets `relish.iframes_s` (0.5 s) of grace. There is no cap and no cooldown.
+  - **Design.** MECHANICS §5.0: "Lethal hits follow the sacrifice chain: nearest chaff, then a soldier, then a big undead in the party, then Relish". §7: "Before she dies, the sacrifice chain soaks lethal hits". GAMEPLAY pillar 4: "Her army is her weapon, her shield and her health bar". No reach or cap is designed either.
+- **The lever candidates** (42b8427, at 1.0): `wardens.relish_dmg_mult` and `wardens.attack_dmg_mult`, from `lever_min_tier` 2, never the first dungeon.
+- **Probe** (c4 code; the same 30 runs per value: t2-t4, seeds 1-10 a tier, forts in rotation):
+
+  | value | deaths | bad outcomes | median s | `army_zero_s` share | warden blows on her (soaked) |
+  |---|---|---|---|---|---|
+  | x1 | 0 | 1 | 139 | 0.6% | lunge 10, fire 2, rush 1, slam 1 (2) |
+  | relish x2 | 0 | 0 | 150 | 0.6% | 17 (11) |
+  | relish x4 | 0 | 1 | 139 | 0.6% | 14 (14: every one lethal, every one soaked) |
+  | attack x1.5 | 1 (rush) | 7 | 159 | 9.1% | 9 (0) |
+  | attack x2.5 | 1 (rush) | 9 | 186 | 10.8% | 16 (13) |
+
+  - The bot answers 82% of tells and stands outside the arcs, so warden blows reach her about once in two runs. Each lethal one costs one undead.
+  - Raising the damage to the army instead (attack) wipes armies (`army_zero_s` 0.6% -> 9-11%). The wipes become 600 s grinds of re-raising (Bellringer 3, Shieldwall 2) and retreats, not deaths.
+  - Mini arms at attack x2.5 (10 seeds an arm), bad outcomes with / without the counter:
+    - hollow-redoubt 3 / 6 (deaths 0 / 2; lunge blows on her 12 / 28);
+    - mourners-gate 0 / 0 (fire 4 / 17).
+  - **Verdict: no warden-damage lever reaches 10-15% deaths at tier while the conduit rule stands.** Deaths need the conduit changed (a reach, a cost, or a cap), which is the manager's call.
+- **4.1 round 2, the two grinding forts (probes only, nothing committed):**
+  - **pale-bastion s2 trace.** One big died to a brute in room 1 before the wake (11 s), the other to the bearers. Then bashes and rushes killed 659 raised undead over 461 s, while she raised 69 times.
+  - **Can the flankers reach the wall's back?** Yes. Seed 1 pinned 16 of 16 tells while they lived; the 10% pin rate across seeds is dead flankers, not the room. The room was not grown.
+  - **sable-hold** has a brute in its spawn room (542 px from the spawn); the-stair and whitecross have none. The near-spawn living per fort is in the scratch dump.
+  - **Probes, seeds 1-6:**
+    - fewer brutes (tier_mix t3 0.3 -> 0.2, t4 0.45 -> 0.3): sable-hold 339 -> 228 s, pale-bastion 335 -> 208 s;
+    - party `hp_base` 30 -> 50: sable-hold 206 s, pale-bastion 318 s.
+    - Neither reaches about 30% of its tier median (t4 130, t3 172); bigs are still lost.
+  - **The shared mechanism:** the warden's area attack (slam, bash, rush) churns re-raised soldiers once the bigs are gone.
