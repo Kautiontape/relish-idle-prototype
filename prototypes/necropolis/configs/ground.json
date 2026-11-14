@@ -1,5 +1,5 @@
 {
-  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Figure over ground: streak_width_px is on-screen width at any zoom; spawn_empty_weight sets how sparse the empty-ground current is (each streak legible, alpha_empty) and spawn_land_weight thins held ground the same way; seam_land stops empty-ground streaks piling up on living rims, clump_limit stops them piling into sinks (reads last frame's trail); moat_* thins streaks beside the drawn lanes, on map's own lane curves and widths (GroundMoat). readout shows the frame-time meter in debug sessions only. Reduced motion: the streaks crawl at reduced_speed with long trails (reduced_keep_per_s) and calmer eddies (reduced_turbulence), so a still frame shows the flow's direction. old_base_darken darkens the old renderer's base colours from the palette hues. density_exp keeps on-screen ink constant across zoom. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
+  "_doc": "Map ground tuning. mode: flow | old | off. Ported from realm-snapshot aesthetics/04-flow-field-synthwave.html. Tempo, clock and reduced motion come from Pulse (configs/pulse.json). Figure over ground: streak_width_px is on-screen width at any zoom; spawn_empty_weight sets how sparse the empty-ground current is (each streak legible, alpha_empty) and spawn_land_weight thins held ground the same way; seam_land stops empty-ground streaks piling up on living rims, clump_limit stops them piling into sinks (reads last frame's trail); moat_* thins streaks beside the drawn lanes, on map's own lane curves and widths (GroundMoat). readout shows the frame-time meter in debug sessions only. Reduced motion: frozen comets (comet) with calmer eddies (reduced_turbulence), so a still frame shows the flow's direction. forces: what the routes, Vei's backlog, Relish and tithe waves and flips do to the current. fade_s: a streak's fade in after spawn and out before respawn. old_base_darken darkens the old renderer's base colours from the palette hues. density_exp keeps on-screen ink constant across zoom. Debug keys on the map: F5 vsync, F6 reload this file, F7 cycle mode, F8 reduced motion (Pulse, game-wide), F9 greyscale check.",
   "mode": "flow",
   "readout": false,
   "old_base_darken": 0.77,
@@ -60,11 +60,33 @@
     "violet": "9660ff"
   },
 
-  "reduced_speed": 0.1,
-  "reduced_keep_per_s": 0.9,
+  "fade_s": [0.35, 0.6],
+
   "reduced_turbulence": 0.35,
-  "reduced_noise_evolve": 0.0,
-  "reduced_life_scale": 3.0,
+  "comet": {
+    "_doc": "Reduced motion: nothing advects; each head is a still comet laid back along the flow, redrawn every frame (the trail buffer keeps nothing). length_px on screen; power = head-to-tail falloff; dashes along a living comet (the non-hue channel); gain lifts a lone comet to the moving trails' brightness; long lives with slow fades, so nothing blinks.",
+    "length_px": 40.0,
+    "gain": 1.0,
+    "power": 1.6,
+    "dashes": 3.0,
+    "life_s": [12.0, 30.0],
+    "fade_s": [1.5, 1.5]
+  },
+
+  "forces": {
+    "_doc": "What the game does to the current (GroundForces, render-only; the sim never sees it). Radii and reaches in world px. route: each lane adds its tangent x kinds[kind] x Pulse u out to reach_px beyond its edge (dead 0: dead stays matte), speeds the streaks there (speed) and calms their churn (calm). vortex: Vei's backlog as a slow clot at her gates, strength = odds / full_odds, the band from inner_px out to radius_px (grows with the strength); spins, spiralling inward while her queue grows (sign +1) and outward while it drains; slow = speed in the clot, dense = extra spawns, ink = undead green mixed in, hold = share of the lanes' push the clot holds back (the queue swirls instead of running straight in). relish: the current bends toward her, states[state] x tide_mult while her tide applies, out to radius_px, swirl radians off straight-in, no streaks within eye_px (map draws her). surge: a tithe warning (warning_strength, every warning_every_s) or a running wave (full, every wave_every_s) sends an orange surge from Vei to its fort along the living lane's curve over seconds; tail = share of the curve that glows behind the head; recruit = share of the streaks per second respawned in that glow (scaled by the surge's strength), so the surge has a current to carry over the sparse ground; they live life_s, so they light the head and go (reduced motion: reduced_recruit, at a comet's life). ink: a flip inks the ground round the fort green, its front easing out to radius_px over seconds and pushing the streaks out; a retake orange, its front closing in on the fort and pulling them in; band_px wide, hold = the wash inside it; recruit = share of the streaks per second respawned on the front (as for a surge). event_stale_s: events older than this (sim seconds) start nothing, so a catch-up burst does not.",
+    "route": {"push": 4.0, "reach_px": 100.0, "speed": 0.0, "calm": 0.6,
+      "kinds": {"war": 1.0, "flood": 1.0, "living": 1.0, "haul": 0.6, "dead": 0.0}},
+    "vortex": {"full_odds": 0.8, "min_strength": 0.02, "inner_px": 140.0, "radius_px": [220.0, 520.0],
+      "push": 3.0, "spiral": 0.35, "slow": 0.7, "dense": 6.0, "ink": 0.85, "turbulence": 0.3, "hold": 0.85},
+    "relish": {"states": {"travelling": 0.7, "at_fort": 0.6, "in_dungeon": 0.6, "at_vei": 0.4, "in_boss": 0.4,
+      "home": 0.0, "dead": 0.0}, "tide_mult": 1.6, "radius_px": 260.0, "push": 1.2, "swirl": 1.1, "eye_px": 18.0},
+    "surge": {"seconds": 2.4, "tail": 0.25, "fade": 0.3, "reach_px": 40.0, "push": 2.5, "speed": 1.2, "ink": 0.85, "recruit": 0.15, "life_s": [0.5, 1.0], "reduced_recruit": 0.02,
+      "warning_strength": 0.35, "warning_every_s": 8.0, "wave_every_s": 3.0},
+    "ink": {"seconds": 5.0, "radius_px": 200.0, "band_px": 36.0, "push": 1.2, "hold": 0.85, "recruit": 0.1,
+      "reduced_recruit": 0.05},
+    "event_stale_s": 10.0
+  },
 
   "drift_floor": {
     "_doc": "DriftFloor (scripts/fx/drift_floor.gd), the shared town/dungeon floor. density = streaks per 100x100 px; speed = px/s at drift strength 1; the exhale surges speed and length on Pulse's beat; tint = a Palette key (never dead); the head is lifted to head_contrast against the ground (faint by sparsity, never below the 3:1 line floor at the head).",
