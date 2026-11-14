@@ -637,10 +637,14 @@ class TranceMeter:
 ## "INTERCEPTED x n · took k" (k pips taken inside stun windows). Pips a stun window took stay as
 ## `undead` rings with a slash; the open window's pips flash (steady under reduced motion).
 ## The Shieldwall's "FLANKED x n of m · took k" (hits from off its shield, of all the hits it took; k
-## pips taken by them), the weak point's words until the first flank.
+## pips taken by them), the weak point's words until the first flank. The Pyre-priest's "SNUFFED x n ·
+## took k" (acolytes a power big killed in one blow; k their pips), the weak point's words until the
+## first snuff; its meter's right-hand pips are its acolytes.
 ## Row 2: the Bellringer's phase and its weak point; the Huntsman's CAUGHT track (danger diamonds,
 ## notched where catches change its phase) and whether it is hunting your dead; the Shieldwall's
-## phase and its shield (WardenLogic.shield_label: arc, multipliers, turn rate, bash period). Redrawn
+## phase and its shield (WardenLogic.shield_label: arc, multipliers, turn rate, bash period); the
+## Pyre-priest's phase, its acolytes left, its fire (WardenLogic.pyre_label: the ward, fires per beat
+## and how many at Relish) and the essence it has burned (hidden at 0). Redrawn
 ## only when what it shows changes (or every frame while a stun window flashes).
 class WardenBlock:
 	extends Control
@@ -685,6 +689,9 @@ class WardenBlock:
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			k2 = (sw.flanks & 0xFFFFF) | ((sw.hits & 0xFFFFF) << 20)
+		elif w is RaidPyrePriest:
+			var pp := w as RaidPyrePriest
+			k2 = mini(pp.snuffs, 63) | (mini(pp.living(), 63) << 6) | (mini(pp.essence_burned, 0xFFFF) << 12)
 		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
 			_key = k
 			_key2 = k2
@@ -791,6 +798,21 @@ class WardenBlock:
 			_text(x0, y, "PHASE", 13, "text_dim")
 			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase), 13, "text_dim")
+		elif w is RaidPyrePriest:
+			var pp := w as RaidPyrePriest
+			var x8 := x + 14.0
+			if pp.snuffs > 0:
+				_text(x8, y - 26.0, "SNUFFED ×%d" % pp.snuffs + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken), 15, "undead")
+			else:   # no snuff yet: teach the counter in words instead of a zero
+				_text(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x9 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			var lv := pp.living()
+			if lv > 0:
+				x9 = _text(x9 + 12.0, y, "ACOLYTES %d/%d" % [lv, pp.acolytes.size()], 13, "vei")
+			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
+			if pp.essence_burned > 0:
+				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
