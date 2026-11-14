@@ -342,6 +342,7 @@ func run() -> int:
 	_checkpoint_tests(t, cfg)
 	_writeback_tests(t, cfg)
 	_wall_tests(t, cfg)
+	_routing_tests(t, cfg)
 	return t.failures
 
 
@@ -704,3 +705,213 @@ func _unbanked_tests(t: TestUtil) -> void:
 	var b := RaidLogic.loot_counts(banked)
 	t.ok(int(b["relics"]) == 1 and int(b["husks"]) == 1 and int(b["remnants"]) == 1 and int(b["essence"]) == 3 and int(b["total"]) == 6, "loot_counts reads a banked snapshot")
 	t.ok(int(RaidLogic.loot_counts({})["total"]) == 0, "loot_counts of nothing is zero")
+
+
+# ----------------------------------------------------------- room-graph routing ----
+func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_routing")
+	var cc: Dictionary = cfg["combat"]
+	var pad := float(cc["route_door_pad_px"])
+	# line_clear on a hand-made layout: one wall rect at x 100..130, y 0..200
+	var toy := {"inner_walls": [Rect2(100, 0, 30, 200)]}
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(50, 100), Vector2(200, 100), 0.0), "line_clear: a segment through a wall is blocked")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(50, 100), Vector2(90, 100), 0.0), "line_clear: stopping short is clear")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(50, 250), Vector2(200, 250), 0.0), "line_clear: passing below the wall is clear")
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(50, 210), Vector2(200, 210), 15.0), "line_clear: radius inflates the wall")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(90, 10), Vector2(90, 190), 6.0), "line_clear: running along a wall face outside the radius is clear")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(85, 10), Vector2(85, 190), 15.5), "line_clear: a unit parked on the grown edge slides clear")
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(115, 10), Vector2(115, 190), 0.0), "line_clear: a vertical segment inside the wall is blocked")
+	t.ok(LayoutLogic.line_clear({}, Vector2.ZERO, Vector2(9, 9), 5.0), "line_clear: no walls is always clear")
+
+	var world := TestUtil.load_json("res://configs/world.json")
+	var forts: Array = world["forts"]
+	var layouts := 0
+	var bad_tables := 0
+	var bad_walks := 0
+	var bad_hops := 0
+	var bad_loops := 0
+	var first_bad := {"tables": "", "hops": "", "walls": "", "loops": ""}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var radius := 12.0
+	var cases: Array = []
+	for f in forts:
+		for tier in [1, 2, 3, 4]:
+			for held in [false, true]:
+				cases.append({"label": "%s t%d%s" % [f["id"], tier, " held" if held else ""],
+					"lay": RaidLogic.gen_layout(str(f["id"]), tier, false, cfg, {"held": held})})
+	cases.append({"label": "boss", "lay": RaidLogic.gen_layout("vei", 5, true, cfg)})
+	for c in cases:
+		var lay: Dictionary = c["lay"]
+		var label: String = c["label"]
+		layouts += 1
+		var rooms: Array = lay["rooms"]
+		var adj: Array = lay["portal_adj"]
+		var nxt: Array = lay["next_room"]
+		var portals: Dictionary = lay["portals"]
+		var n := rooms.size()
+		# tables: portals for every adjacent pair, both orders alike; next_room follows shortest paths
+		var tables_ok := true
+		for a in n:
+			for b in adj[a]:
+				var pa: Array = portals.get("%d:%d" % [a, b], [])
+				var pb: Array = portals.get("%d:%d" % [b, a], [])
+				tables_ok = tables_ok and not pa.is_empty() and pa == pb
+				for pt in pa:
+					# a gap centre sits on both rooms' boundary and is open (not inside any wall)
+					tables_ok = tables_ok and not _pt_in_walls(lay, pt)
+			for b in n:
+				var at := a
+				var hops := 0
+				while at != b and hops <= n:
+					at = int((nxt[at] as Array)[b])
+					if at < 0:
+						break
+					hops += 1
+				if a == b:
+					tables_ok = tables_ok and int((nxt[a] as Array)[b]) == -1
+				else:
+					tables_ok = tables_ok and at == b and hops == int((lay["room_hops"][a] as Array)[b])
+		if not tables_ok:
+			bad_tables += 1
+			if first_bad["tables"] == "":
+				first_bad["tables"] = label
+		# walks: every ordered room pair, from a random inner point and from a corner, plus gap bands
+		var starts: Array = []   # [from, to_room]
+		for i in n:
+			var rc: Rect2 = rooms[i]
+			var inner := rc.grow(-(radius + 2.0))
+			var corners := [inner.position, inner.end, Vector2(inner.position.x, inner.end.y), Vector2(inner.end.x, inner.position.y)]
+			for j in n:
+				if i == j:
+					continue
+				var from: Vector2 = corners[rng.randi() % 4] if (i + j) % 2 == 0 else \
+					Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
+				starts.append([from, j])
+		for g in lay["gaps"]:
+			for j in n:
+				starts.append([(g as Rect2).get_center(), j])
+		for st in starts:
+			var rc2: Rect2 = rooms[st[1]]
+			var inner2 := rc2.grow(-(radius + 2.0))
+			var to := Vector2(rng.randf_range(inner2.position.x, inner2.end.x), rng.randf_range(inner2.position.y, inner2.end.y))
+			var w := _walk(lay, st[0], to, radius, 24.0, 3 * n + 4, pad)
+			if not bool(w["reached"]):
+				bad_hops += 1
+				if first_bad["hops"] == "":
+					first_bad["hops"] = "%s %s -> room %d: %s" % [label, st[0], st[1], w["why"]]
+			if bool(w["crossed"]):
+				bad_walks += 1
+				if first_bad["walls"] == "":
+					first_bad["walls"] = "%s %s -> %s" % [label, st[0], to]
+			if bool(w["looped"]):
+				bad_loops += 1
+				if first_bad["loops"] == "":
+					first_bad["loops"] = "%s %s -> %s" % [label, st[0], to]
+	print("RAID_ROUTING layouts=%d bad_tables=%d bad_hops=%d bad_walks=%d bad_loops=%d %s" % [layouts, bad_tables, bad_hops, bad_walks, bad_loops, str(first_bad)])
+	t.ok(layouts == forts.size() * 8 + 1, "routing: every fort x tier 1-4 x held/unheld, plus the boss arena (%d)" % layouts)
+	t.ok(bad_tables == 0, "routing: portals + next_room tables are consistent (%s)" % first_bad["tables"])
+	t.ok(bad_hops == 0, "routing: waypoint-following reaches the target room within 3*rooms+4 hops (%s)" % first_bad["hops"])
+	t.ok(bad_walks == 0, "routing: waypoint-following never passes through an inner wall (%s)" % first_bad["walls"])
+	t.ok(bad_loops == 0, "routing: waypoint-following never revisits a waypoint (%s)" % first_bad["loops"])
+
+	# the specific shapes: same room and clear lines go straight; an unreachable target falls back
+	var lay0 := RaidLogic.gen_layout("vespers", 3, false, cfg)
+	var r0: Array = lay0["rooms"]
+	var p0: Vector2 = (r0[0] as Rect2).get_center()
+	var q0: Vector2 = (r0[0] as Rect2).get_center() + Vector2(20, 10)
+	t.ok(LayoutLogic.waypoint(lay0, p0, q0, 12.0) == q0, "waypoint: same room is direct")
+	var far_room := -1
+	for i in r0.size():
+		if i != 0 and not LayoutLogic.line_clear(lay0, p0, (r0[i] as Rect2).get_center(), 12.0):
+			far_room = i
+			break
+	if far_room >= 0:
+		var tq: Vector2 = (r0[far_room] as Rect2).get_center()
+		var wp := LayoutLogic.waypoint(lay0, p0, tq, 12.0)
+		t.ok(wp != tq and LayoutLogic.line_clear(lay0, p0, wp, 12.0), "waypoint: a blocked line routes to a doorstep reachable in a straight line")
+	var no_route := lay0.duplicate()
+	no_route.erase("next_room")
+	t.ok(LayoutLogic.waypoint(no_route, p0, Vector2(9999, 9999), 12.0) == Vector2(9999, 9999), "waypoint: no table falls back to the target")
+	var lay_cut := lay0.duplicate()
+	lay_cut["next_room"] = [[-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1]]
+	if far_room >= 0:
+		var tq2: Vector2 = (r0[far_room] as Rect2).get_center()
+		t.ok(LayoutLogic.waypoint(lay_cut, p0, tq2, 12.0) == tq2, "waypoint: unreachable falls back to the target")
+		t.ok(LayoutLogic.route_dist(lay0, p0, tq2) >= p0.distance_to(tq2), "route_dist is never shorter than the straight line")
+		t.ok(LayoutLogic.route_dist(lay_cut, p0, tq2) == INF, "route_dist: unreachable is INF")
+
+
+func _pt_in_walls(lay: Dictionary, p: Vector2) -> bool:
+	for w in lay["inner_walls"]:
+		if (w as Rect2).has_point(p):
+			return true
+	return false
+
+
+## Follow waypoint() in straight `step` moves (re-asking every step: the worst case for jitter).
+## reached = in the target's room within `max_hops` distinct waypoints; crossed = a move ran through
+## an inner wall (sampled every ~4 px against the raw wall rect, which is 30 px thick: a body that
+## grazes a face is the wall-slide's job, a waypoint that aims through the wall is not); looped = a waypoint
+## came back after the walker moved on. Each move is followed by the arena's wall push-out, as in play.
+func _walk(lay: Dictionary, from: Vector2, to: Vector2, radius: float, step: float, max_hops: int,
+		pad: float) -> Dictionary:
+	var pos := from
+	var target_room := LayoutLogic.room_of(lay, to)
+	var seen: Array = []
+	var last := Vector2.INF
+	var out := {"reached": false, "crossed": false, "looped": false, "why": ""}
+	for i in 1200:
+		if LayoutLogic.room_of(lay, pos) == target_room:
+			out["reached"] = true
+			return out
+		var wp := LayoutLogic.waypoint(lay, pos, to, radius, pad)
+		if wp != last:
+			if seen.has(wp):
+				out["looped"] = true
+			seen.append(wp)
+			last = wp
+			if seen.size() > max_hops:
+				out["why"] = "more than %d waypoints" % max_hops
+				return out
+		var d := wp - pos
+		if d.length() < 0.5:
+			out["why"] = "stalled on its waypoint at %s" % pos
+			return out
+		var nxt := pos + d.normalized() * minf(step, d.length())
+		var n := int(ceil(pos.distance_to(nxt) / 4.0))
+		for k in range(1, n + 1):
+			var sp := pos.lerp(nxt, float(k) / float(n))
+			for wr in lay["inner_walls"]:
+				if (wr as Rect2).has_point(sp):
+					out["crossed"] = true
+		pos = _push_out(lay, nxt, radius)
+	out["why"] = "ran out of steps at %s" % pos
+	return out
+
+
+## The arena's resolve_walls (raid_arena.gd), for the walker: the perimeter clamp and the push-out of inner walls.
+func _push_out(lay: Dictionary, p: Vector2, r: float) -> Vector2:
+	var size: Vector2 = lay["size"]
+	var t: float = lay["wall_t"]
+	p.x = clampf(p.x, t + r, size.x - t - r)
+	p.y = clampf(p.y, t + r, size.y - t - r)
+	for pass_i in 2:
+		for wrect in lay["inner_walls"]:
+			var g: Rect2 = (wrect as Rect2).grow(r)
+			if not g.has_point(p):
+				continue
+			var left := p.x - g.position.x
+			var right := g.end.x - p.x
+			var top := p.y - g.position.y
+			var bottom := g.end.y - p.y
+			var m := minf(minf(left, right), minf(top, bottom))
+			if m == left:
+				p.x = g.position.x
+			elif m == right:
+				p.x = g.end.x
+			elif m == top:
+				p.y = g.position.y
+			else:
+				p.y = g.end.y
+	return p

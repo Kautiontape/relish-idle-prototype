@@ -24,12 +24,14 @@ var _aim := Vector2.RIGHT      # heading drawn as the spear
 var _lunge_flash := 0.0
 var _hunting_undead := false   # this frame's target is an undead, not Relish
 var _lock_undead := false      # the locked lunge is aimed at an undead: it cannot catch
+var _route: RaidRoute = null   # stalk steering (the goal is leash-clamped, so it is a direct line today)
 
 
 func _on_wake() -> void:
 	var rooms: Array = raid.layout["rooms"]
 	_room = rooms[int(raid.layout["warden_room"])]
 	_next_attack = WardenLogic.period_beats(spec, phase)
+	_route = RaidRoute.new(ConfigDb.data.get("raid", {}).get("combat", {}))
 
 
 func is_stationary() -> bool:
@@ -118,6 +120,10 @@ func _stalk(delta: float, stop_px: float, tgt: Dictionary) -> void:
 	if to_goal.length() <= wait:
 		return
 	var dir := to_goal.normalized()
+	if _route != null:
+		var steer := _route.steer(raid.layout, global_position, goal, radius, delta) - global_position
+		if steer.length() > 1.0:
+			dir = steer.normalized()
 	_aim = dir
 	var want := global_position + dir * _speed_now() * delta
 	var got: Vector2 = raid.resolve_walls(want, radius)

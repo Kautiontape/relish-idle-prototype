@@ -467,8 +467,12 @@ func nearest_enemy_of(pos: Vector2):
 			continue
 		var d: float = pos.distance_to(e.global_position)
 		if d < bd:
-			bd = d
-			best = e
+			# the leash is walking distance: a foe behind a wall counts at the cost of the doorway
+			# (route_dist is never shorter than the straight line, so the check above prunes safely)
+			d = LayoutLogic.route_dist(layout, pos, e.global_position)
+			if d < bd:
+				bd = d
+				best = e
 	var w = warden_run.target_in(pos, bd)   # the warden is a target but not an `enemies` entry
 	if w != null:
 		best = w

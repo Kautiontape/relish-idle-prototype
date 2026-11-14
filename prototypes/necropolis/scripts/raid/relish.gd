@@ -14,6 +14,8 @@ var move_target := Vector2.ZERO
 var _iframes := 0.0
 var _flash := 0.0
 var _t := 0.0
+var _route: RaidRoute = null   # click-to-move goes through doorways
+var _route_goal := Vector2.INF
 
 
 func configure(p_raid: Node) -> void:
@@ -24,6 +26,7 @@ func configure(p_raid: Node) -> void:
 	speed = float(r.get("speed", 240.0))
 	radius = float(r.get("radius", 13.0))
 	move_target = position
+	_route = RaidRoute.new(ConfigDb.data.get("raid", {}).get("combat", {}))
 	z_index = 38  # above the trance dim (36): she stays at full strength
 
 
@@ -35,7 +38,15 @@ func _physics_process(delta: float) -> void:
 	_flash = maxf(0.0, _flash - delta * 3.0)
 	var d := move_target - global_position
 	if d.length() > 6.0:
-		var step := d.normalized() * minf(speed * delta, d.length())
+		var aim := d
+		if _route != null and not raid.layout.is_empty():
+			if move_target != _route_goal:
+				_route_goal = move_target
+				_route.reset()
+			aim = _route.steer(raid.layout, global_position, move_target, radius, delta) - global_position
+			if aim.length() < 1.0:
+				aim = d
+		var step := aim.normalized() * minf(speed * delta, d.length())
 		var start := global_position
 		var got: Vector2 = raid.resolve_walls(start + step, radius)
 		if (got - start).length() < step.length() * 0.3:

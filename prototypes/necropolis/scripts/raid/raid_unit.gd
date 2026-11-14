@@ -35,6 +35,8 @@ var _flash := 0.0
 var _lunge := 0.0
 var _facing := Vector2.RIGHT
 var _grow := 0.0
+var _route: RaidRoute = null  # waypoint cache (room-graph routing)
+var _think_t := 0.0           # target re-pick timer, staggered per unit
 
 
 func configure(p_raid: Node, p_faction: String, p_kind: String, stats: Dictionary) -> void:
@@ -50,6 +52,16 @@ func configure(p_raid: Node, p_faction: String, p_kind: String, stats: Dictionar
 	z_index = 30 if p_faction == "enemy" else 32
 	_strike_t = raid.rng_combat.randf() * cadence
 	_wander_pt = position
+	var ccfg: Dictionary = ConfigDb.data.get("raid", {}).get("combat", {})
+	_route = RaidRoute.new(ccfg)
+	_think_t = _route.stagger()
+
+
+## Where to steer to reach `goal`: through the doorway when a wall is in the way, else the goal.
+func _steer_to(goal: Vector2, delta: float) -> Vector2:
+	if _route == null or raid.layout.is_empty():
+		return goal
+	return _route.steer(raid.layout, global_position, goal, radius, delta)
 
 
 func grow_in() -> void:
@@ -71,7 +83,13 @@ func _physics_process(delta: float) -> void:
 	_strike_t -= delta
 
 	var cfg: Dictionary = ConfigDb.data.get("raid", {}).get("combat", {})
-	_pick_target(cfg)
+	_think_t -= delta
+	if _target != null and (not is_instance_valid(_target) or not _target.alive):
+		_target = null
+		_think_t = 0.0   # a kill re-picks at once
+	if _think_t <= 0.0:
+		_think_t = float(cfg.get("route_repath_s", 0.25))
+		_pick_target(cfg)
 
 	var move := Vector2.ZERO
 	_guard = raid.warden_run.guard_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null else {}
@@ -98,13 +116,19 @@ func _physics_process(delta: float) -> void:
 				foe.take_hit(dmg)
 		var tg := gp - global_position
 		if tg.length() > 6.0:
-			move = tg.normalized() * minf(speed * 1.3, tg.length() / maxf(delta, 0.001))
-			_facing = tg.normalized()
+			var gs := _steer_to(gp, delta) - global_position
+			if gs.length() < 1.0:
+				gs = tg
+			move = gs.normalized() * minf(speed * 1.3, tg.length() / maxf(delta, 0.001))
+			_facing = gs.normalized()
 	elif _target != null and is_instance_valid(_target) and _target.alive:
 		var to_t: Vector2 = _target.global_position - global_position
 		var reach: float = radius + _target.radius + float(cfg.get("strike_reach_pad", 7.0))
 		_facing = to_t.normalized() if to_t.length() > 1.0 else _facing
 		if to_t.length() > reach:
+			var ts := _steer_to(_target.global_position, delta) - global_position
+			if ts.length() > 1.0:
+				_facing = ts.normalized()
 			move = _facing * speed
 		elif _strike_t <= 0.0:
 			_strike_t = cadence
@@ -118,8 +142,10 @@ func _physics_process(delta: float) -> void:
 		if rel != null and is_instance_valid(rel) and rel.alive:
 			var d: Vector2 = rel.global_position - global_position
 			if d.length() > float(cfg.get("ally_follow_px", 150.0)):
-				move = d.normalized() * speed * 0.8
-				_facing = d.normalized()
+				var fs := _steer_to(rel.global_position, delta) - global_position
+				var fdir := fs.normalized() if fs.length() > 1.0 else d.normalized()
+				move = fdir * speed * 0.8
+				_facing = fdir
 
 	move += raid.separation_push(self) * float(cfg.get("separation_push", 110.0))
 	_slide_move(move, delta)
@@ -145,8 +171,9 @@ func _pick_target(cfg: Dictionary) -> void:
 		if d < best_d:
 			best = na
 			best_d = d
-	if not _aggro and best_d <= float(cfg.get("aggro_px", 260.0)):
-		_aggro = true
+	if not _aggro and best_d <= float(cfg.get("aggro_px", 260.0)) and best != null \
+			and LayoutLogic.route_dist(raid.layout, global_position, best.global_position) <= float(cfg.get("aggro_px", 260.0)):
+		_aggro = true   # walking distance, not through-the-wall distance
 	_target = best if _aggro else null
 
 
