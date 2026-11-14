@@ -6,6 +6,7 @@ extends RefCounted
 ## Headless, no autoloads.
 
 var t: TestUtil
+var _dir := "user://test_saves_api_v6_%d" % OS.get_process_id()
 
 
 func _mk(seed_val := 1) -> GameState:
@@ -32,6 +33,9 @@ func run() -> int:
 	_construction_time()
 	_projected()
 	_projected_frame()
+	_projection_frame_pure()
+	_projection_reset()
+	_projection_lot_bound()
 	return t.failures
 
 
@@ -812,6 +816,10 @@ func _projected_frame() -> void:
 		s.tick(light)
 		s.tick(step))
 	t.ok(did == 0, "an uncapped tick, with or without a substep, refreshes nothing (did %d)" % did)
+	var phase := float(tc["projection_phase"])
+	did = _units(s, func(): _light(s, 0))
+	t.ok(did == 0 and s._acc >= phase * step and s._acc < step,
+		"and one ending late in the interval (at %.2f of a substep), the catalog wanted and every row stale: did %d" % [s._acc / step, did])
 	# wanted: view_town doesn't count; with no view_catalog read in the last projection_refresh_s, nothing
 	var w := _load_js(js, false)
 	did = _units(w, func():
@@ -854,7 +862,6 @@ func _projected_frame() -> void:
 	did = _units(s, func(): s.tick(step, cap))
 	t.ok(did == 0, "with every row stale, a frame that ran a substep refreshes nothing (did %d)" % did)
 	# the phase: a frame without a substep early in the interval refreshes nothing, one late in it a unit
-	var phase := float(tc["projection_phase"])
 	did = _units(s, func(): s.tick(step * phase * 0.5, cap))
 	t.ok(did == 0 and s._acc < phase * step, "early in the interval (the accumulator at %.2f of a substep, under %.2f) a light frame refreshes nothing (did %d)" % [
 		s._acc / step, phase, did])
@@ -879,17 +886,23 @@ func _projected_frame() -> void:
 	full = _full_now(s)
 	var rule := true
 	var kept := 0
+	var replaced := 0
 	for part in 2:
 		for i in (after[part] as Array).size():
 			var a: Dictionary = after[part][i]
 			var b: Dictionary = held_before[part][i]
 			if a == b:
-				kept += 1
-			elif _within_tol([b], [full[part][i]], tol) or a != full[part][i]:
-				rule = false  # replaced although within tol, or replaced by something other than the fresh value
+				kept += 0 if a.is_empty() else 1  # a {} row (constructing, at max_level) isn't refreshed at all
+			else:
+				replaced += 1
+				if _within_tol([b], [full[part][i]], tol) or a != full[part][i]:
+					rule = false  # replaced although within tol, or replaced by something other than the fresh value
+	var counted := int(s._proj_cache.get("rows_replaced", 0)) - r0
 	t.ok(rule and _within_tol(after[0], full[0], tol) and _within_tol(after[1], full[1], tol),
 		"after a window each row is its old value (within tol of the fresh one) or the fresh value (%d kept, %d replaced, %d units)" % [
-			kept, int(s._proj_cache.get("rows_replaced", 0)) - r0, did])
+			kept, replaced, did])
+	t.ok(kept > 0 and replaced > 0 and counted == replaced,
+		"both happen: %d rows drifted less than the tolerance and were kept, %d moved past it (the count says %d)" % [kept, replaced, counted])
 	# the starve rule: substep frames in a row refresh nothing until the starve_frames-th lets one row through
 	s.cmd_set_valve(0.3, 0.55, 0.15)  # the valve target is in the signature: every row is stale
 	var counts: Array = []
@@ -901,6 +914,133 @@ func _projected_frame() -> void:
 	t.ok(first.all(func(x): return x == 0) and int(counts[starve - 1]) == 2 and int(counts[starve]) == 0,
 		"%d substep frames refresh nothing, the %d-th the baseline and one row, then the count restarts: %s" % [
 			starve - 1, starve, str(counts)])
+
+
+## Frame work changes nothing but the projections' own cache: two states from one save run the same light
+## frames (past the phase), a structure change, more light frames and substep frames past the starve count,
+## one reading view_catalog() before each frame (so the frame refresh runs) and one never (so it doesn't).
+## Their rev, save, TownSim and events match after.
+func _projection_frame_pure() -> void:
+	t.suite("api-v6-projection-frame-pure")
+	var js := JSON.stringify(_fixture("pre_vei").to_dict())
+	var starve := int(TestUtil.configs()["economy"]["town"]["projection_starve_frames"])
+	var seq := func(s: GameState, wanted: bool) -> void:
+		var cap := s.max_substeps_per_frame()
+		for i in 50:
+			if wanted:
+				s.view_catalog()
+			_light(s, cap)
+		s.cmd_debug_grant({"gold": 5000.0, "bone": 400.0, "relics": 6})
+		for lot_id in s.town_sim.buildings:
+			if s.cmd_upgrade(lot_id)["ok"]:
+				break
+		for i in 50:
+			if wanted:
+				s.view_catalog()
+			_light(s, cap)
+		for i in starve + 2:
+			if wanted:
+				s.view_catalog()
+			s._acc = 0.0
+			s.tick(s.substep_s(), cap)
+	var a := _load_js(js, false)
+	var b := _load_js(js, false)
+	a.drain_events()
+	b.drain_events()
+	var da := _units(a, func(): seq.call(a, true))
+	var db := _units(b, func(): seq.call(b, false))
+	t.ok(da > 2 and db == 0, "(setup) the frame refresh ran on one (%d units) and not the other (%d)" % [da, db])
+	t.ok(a.rev == b.rev, "rev is the same (%d, %d)" % [a.rev, b.rev])
+	t.ok(a.to_dict() == b.to_dict(), "the save is the same")
+	t.ok(a.town_sim.to_dict() == b.town_sim.to_dict(), "TownSim's own state is the same")
+	var ea := a.drain_events()
+	t.ok(ea == b.drain_events() and ea.size() > 0, "and so are the events (%d)" % ea.size())
+
+
+## A full refresh of both views at `s` (the budget lifted for the calls), leaving the rows and the baseline
+## in the cache and the shipped budget back in place.
+func _fill(s: GameState) -> void:
+	var per: Variant = s._cfgs["economy"]["town"]["projection_rows_per_call"]
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = 1000
+	s.view_catalog()
+	s.view_town()
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = per
+
+
+func _all_empty(s: GameState) -> bool:
+	return (_proj_of(s.view_catalog()) + _proj_of(s.view_town())).all(func(p): return (p as Dictionary).is_empty())
+
+
+## A new game, a load and a fixture load each empty the projection cache, so another state's rows never
+## show: every row reads {} until the frame refresh reaches it.
+func _projection_reset() -> void:
+	t.suite("api-v6-projection-reset")
+	var js := JSON.stringify(_fixture("pre_vei").to_dict())
+	for how in ["cmd_new_game", "cmd_load", "cmd_debug_load_fixture"]:
+		var s := _load_js(js, false)
+		s.save_dir = _dir
+		var saved: bool = s.cmd_save("proj")["ok"] if how == "cmd_load" else true
+		_fill(s)
+		var c := s._proj_cache
+		t.ok(saved and (c.get("catalog", {}) as Dictionary).size() > 0 and (c.get("upgrades", {}) as Dictionary).size() > 0
+			and c.has("base") and not _all_empty(s), "%s: (setup) the cache holds rows and a baseline" % how)
+		var ok := false
+		match how:
+			"cmd_new_game":
+				ok = s.cmd_new_game(7)["ok"]
+			"cmd_load":
+				ok = s.cmd_load("proj")["ok"]
+			"cmd_debug_load_fixture":
+				ok = s.cmd_debug_load_fixture("midgame_2flips")["ok"]
+		t.ok(ok and s._proj_cache.is_empty(), "%s: the cache is empty after (%s)" % [how, str(s._proj_cache.keys())])
+		t.ok(_all_empty(s), "%s: every row reads {}" % how)
+	var d := DirAccess.open(_dir)
+	if d != null:
+		for f in d.get_files():
+			d.remove(f)
+		DirAccess.remove_absolute(_dir)
+	t.ok(not DirAccess.dir_exists_absolute(_dir), "the test save directory is gone")
+
+
+## A cached upgrades row belongs to the lot's building and level it was computed for: after a finished
+## upgrade (a new level) or a demolish and rebuild (another building) on a lot, that lot's row reads {}
+## until it is refreshed, while the other lots keep their values.
+func _projection_lot_bound() -> void:
+	t.suite("api-v6-projection-lot-bound")
+	var s := _load_js(JSON.stringify(_fixture("pre_vei").to_dict()), false)
+	_fill(s)
+	var before := {}
+	for r in s.view_town()["buildings"]:
+		if not (r["upgrade_projected"] as Dictionary).is_empty():
+			before[r["lot_id"]] = r
+	var up := ""
+	var swap := ""
+	var other := ""
+	for lot_id in before:
+		var r: Dictionary = before[lot_id]
+		if up == "" and int(r["level"]) == 1:
+			up = lot_id
+		elif swap == "" and r["building_id"] != "house":
+			swap = lot_id
+		elif other == "":
+			other = lot_id
+	t.ok(up != "" and swap != "" and other != "", "(setup) lots: %s levels up, %s is rebuilt as a house, %s is untouched" % [up, swap, other])
+	s.town_sim.place_building(up, str(before[up]["building_id"]), 2)  # the upgrade finished
+	s.town_sim.place_building(swap, "house", 1)  # demolished and rebuilt
+	var after := {}
+	for r in s.view_town()["buildings"]:
+		after[r["lot_id"]] = r["upgrade_projected"]
+	t.ok((after[up] as Dictionary).is_empty(), "%s, now level 2, doesn't show the projection made for its level 1: {}" % up)
+	t.ok((after[swap] as Dictionary).is_empty(), "%s, a house now, doesn't show the %s's projection: {}" % [swap, before[swap]["building_id"]])
+	t.ok(after[other] == before[other]["upgrade_projected"], "%s keeps its last value until its turn" % other)
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = 1000
+	var fresh := s.view_town()
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = 0
+	var got := {}
+	for r in fresh["buildings"]:
+		got[r["lot_id"]] = r["upgrade_projected"]
+	t.ok(not (got[up] as Dictionary).is_empty() and not (got[swap] as Dictionary).is_empty(),
+		"once refreshed both lots show their own projections again")
 
 
 ## Every view's output and the save, for purity checks.

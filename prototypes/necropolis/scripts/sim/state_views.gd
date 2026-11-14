@@ -527,10 +527,12 @@ const HYPOTHETICAL_LOT := "lot-hypothetical"
 ## A row costs about one TownSim step (pre_vei: 21 catalog rows and 20 lots, about 20 ms for all), so the
 ## rows are cached and refreshed off the view calls: the views only read (a row not yet computed reads
 ## {}), and GameState._advance refreshes at most economy.json town.projection_rows_per_frame of them on a
-## frame that ran no substep, late in the substep interval (projection_frame below). A row is stale once the structure changes
-## (TownSim.structure_rev: a building's arrival or removal, level, state or staff cap, the ladder, the
-## vats; the tier, the valve target or Relish's being home) or once town.projection_refresh_s (5 s) of sim
-## time has passed since it was computed; a stale row keeps its last value until its turn.
+## frame that ran no substep, late in the substep interval (projection_frame below). A row is stale once
+## the structure changes (TownSim.structure_rev: a building's arrival or removal, level, state or staff
+## cap, the ladder, the vats; the tier, the valve target or Relish's being home) or once
+## town.projection_refresh_s (5 s) of sim time has passed since it was computed; a stale row keeps its last
+## value until its turn, except that an upgrades row reads {} once its lot holds another building or level
+## than the one it was computed for (a demolish and rebuild, a finished upgrade).
 ## town.projection_rows_per_call > 0 (a test override; the shipped value is 0) lets a call refresh that
 ## many of its own part's rows too, exactly, so a large value computes the view in full.
 static func projections(gs: GameState, part: String) -> Dictionary:
@@ -542,8 +544,19 @@ static func projections(gs: GameState, part: String) -> Dictionary:
 	var rows: Dictionary = _proj_part(gs, part)
 	var out := {}
 	for k in _proj_keys(gs, part):
-		out[k[0]] = rows[k[0]]["value"] if k[1] and rows.has(k[0]) else {}
+		var r: Dictionary = rows.get(k[0], {})
+		out[k[0]] = r["value"] if k[1] and not r.is_empty() and r["for"] == _proj_for(gs, part, k[0]) else {}
 	return out
+
+
+## What a row is computed for: an upgrades row, the lot's [building_id, level] (another building or level
+## on the lot makes it read {} until it is refreshed); a catalog row, its building at level 1 (keyed by
+## building id, so it can't belong to another building).
+static func _proj_for(gs: GameState, part: String, key: String) -> Array:
+	if part == "catalog":
+		return [key, 1]
+	var bl: Dictionary = gs.town_sim.buildings.get(key, {})
+	return [str(bl.get("building_id", "")), int(bl.get("level", 0))]
 
 
 ## The frame refresh, called by GameState._advance on the frame path (a substep cap) after the loop, with
@@ -623,11 +636,12 @@ static func _proj_refresh(gs: GameState, parts: Array, budget: int, tol: bool) -
 		var rows := _proj_part(gs, s[0])
 		var v := _proj_row(gs, s[0], s[1], base)
 		var old: Dictionary = rows.get(s[1], {})
-		if tol and not old.is_empty() and not _proj_moved(gs, old["value"], v):
+		var made_for := _proj_for(gs, s[0], s[1])
+		if tol and not old.is_empty() and old["for"] == made_for and not _proj_moved(gs, old["value"], v):
 			v = old["value"]
 		else:
 			gs._proj_cache["rows_replaced"] = int(gs._proj_cache.get("rows_replaced", 0)) + 1
-		rows[s[1]] = {"value": v, "t": gs.t, "sig": sig}
+		rows[s[1]] = {"value": v, "t": gs.t, "sig": sig, "for": made_for}
 		used += 1
 	return used
 
@@ -637,7 +651,7 @@ static func _proj_state(gs: GameState) -> Array:
 	return [gs.rev, gs.t, gs.town_sim.structure_rev]
 
 
-## A part's cached rows {key: {value, t, sig}}, made empty on first use.
+## A part's cached rows {key: {value, t, sig, for}}, made empty on first use.
 static func _proj_part(gs: GameState, part: String) -> Dictionary:
 	if not gs._proj_cache.has(part):
 		gs._proj_cache[part] = {}

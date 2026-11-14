@@ -31,8 +31,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 ## once in setup(); the rest are read live at each use (_req_f), since tests change some of them after
 ## setup.
 const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay",
-	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call",
-	"economy.town.projection_rows_per_frame", "economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
+	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
+	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
 	"realm.relish.tide_bias", "economy.queue.max_len"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
@@ -139,7 +139,7 @@ var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0
 var _realm_flows := {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for tests
 ## The build benefit projections (StateViews.projections, refreshed by StateViews.projection_frame): per
-## part {key: {value, t, sig}}, the shared baseline {state, ...}, wanted_t (view_catalog's last read),
+## part {key: {value, t, sig, for}}, the shared baseline {state, ...}, wanted_t (view_catalog's last read),
 ## starve (substep frames in a row), and rows_computed / rows_replaced counts (for tests and benches);
 ## session only, never saved, emptied by a new game and a load.
 var _proj_cache := {}

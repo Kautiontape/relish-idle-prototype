@@ -1277,7 +1277,7 @@ Each `buildings` entry:
 | `upkeep` | Dictionary | `{gold: float, bone: float}` per second |
 | `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
-| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh |
+| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
@@ -1382,11 +1382,14 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
   or staff cap, the ladder, the vats), the tier, the valve target or Relish's being home has changed
   since it was computed (a structure change makes every row stale at once), or once
   `town.projection_refresh_s` (5 s) of sim has passed since. A stale row keeps its last value until its
-  turn.
+  turn, with one exception: each cached `upgrade_projected` row stores the lot's `{building_id, level}`
+  it was computed for, and reads `{}` once the lot holds another (after a demolish and rebuild, or a
+  finished upgrade), so a card never shows another building's or level's projection. A catalog row is
+  keyed by its building id, so it can't belong to another building.
 - **Order.** Fixed: the baseline, then the catalog's stale rows in `buildings.json` order, then the
   lots' in lot order.
 - **Tolerance.** A refreshed row's value is replaced only when some rate moved by more than
-  `town.projection_tol` (`rel` × |old| + `abs`: 1% and an absolute floor of 0.005/s, half the 0.01 the
+  `town.projection_tol` (`rel` × abs(old) + `abs`: 1% and an absolute floor of 0.005/s, half the 0.01 the
   build card shows). `BuildSort.row_sig` hashes the whole row, so without it every card whose floats
   drifted would re-render each window. A shown value is within that tolerance of the fresh one; the
   call override is exact.
