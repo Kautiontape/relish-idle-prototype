@@ -63,8 +63,10 @@ func reconcile(now_t: float, new_game_s: float) -> void:
 		for key in _cfg.get_section_keys(SECTION):
 			var at := float(_cfg.get_value(TIMES, key, -1.0))
 			if at < 0.0 or at > now_t:
-				_cfg.erase_section_key(SECTION, key)
-				_cfg.erase_section_key(TIMES, key)
+				if _cfg.has_section_key(SECTION, key):
+					_cfg.erase_section_key(SECTION, key)
+				if _cfg.has_section_key(TIMES, key):  # a flag from before seen_at has no key (often no section) here
+					_cfg.erase_section_key(TIMES, key)
 				changed = true
 	if changed:
 		_cfg.save(_path)
