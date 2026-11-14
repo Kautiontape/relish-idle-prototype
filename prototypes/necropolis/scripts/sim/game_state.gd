@@ -516,6 +516,26 @@ func _clear_tolerance(sd: Dictionary) -> float:
 	return 0.5 * living / float(maxi(1, n))
 
 
+## A fort's loot yield now (MECHANICS §5.3, IDLE §3): `yield_c` (just after its last clear that paid
+## loot) relaxing linearly back to 1 over loot.recover_s from `yield_t`: 1 − (1 − c) · max(0, 1 −
+## (t − yield_t) / recover_s). Exactly 1 from recover_s on, from any depth; a function of the sim time,
+## so a catch-up refills it with no step work.
+func _yield_mult(f: Dictionary) -> float:
+	var c := clampf(float(f.get("yield_c", 1.0)), 0.0, 1.0)
+	if c >= 1.0:
+		return 1.0
+	var rec := float(_cfgs.get("loot", {}).get("recover_s", 28800.0))
+	var left := 1.0 - (t - float(f.get("yield_t", 0.0))) / rec if rec > 0.0 else 0.0
+	return 1.0 - (1.0 - c) * clampf(left, 0.0, 1.0)
+
+
+## A clear that paid loot (a flip, a counter-garrison clear): the yield drops to yield_mult(now) ×
+## loot.reclear_decay, from now.
+func _spend_yield(f: Dictionary) -> void:
+	f["yield_c"] = _yield_mult(f) * float(_cfgs.get("loot", {}).get("reclear_decay", 0.5))
+	f["yield_t"] = t
+
+
 ## raid.json mass.garrison_mass_div, which the seed carries so Results.from_v1 needs no config.
 func _garrison_div() -> float:
 	return float(_sec("raid", "mass").get("garrison_mass_div", 10.0))

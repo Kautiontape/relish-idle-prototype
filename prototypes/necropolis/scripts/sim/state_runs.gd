@@ -40,7 +40,7 @@ static func dungeon_seed(gs: GameState, fort_id: String, run_id: int, seed_rev: 
 		"fort": {
 			"id": fort_id, "name": str(f["name"]), "tier": tier, "cap": float(f["cap"]),
 			"first_clear": not gs.cleared_forts.has(fort_id), "first_dungeon": first,
-			"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
+			"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": gs._yield_mult(f),
 		},
 		"living": float(f["living"]), "dead": float(f["dead"]), "undead": float(f["undead"]),
 		"garrison_units": g[0], "garrison_in_mass": g[1], "garrison_mass_div": gs._garrison_div(),
@@ -239,6 +239,7 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 		gs.realm.start_tithe()  # the first flip starts Vei's tithe cycle (a running one is left alone)
 		f["flipped_count"] = int(f.get("flipped_count", 0)) + 1
 		f["clears_since_retaken"] = int(f.get("clears_since_retaken", 0)) + 1
+		gs._spend_yield(f)  # the flip paid loot: the next raid's yield halves and recovers (§5.3)
 		flip_ev = {"type": "fort_flipped", "fort_id": fort_id, "run_id": run_id, "hold_s": hold_s}
 	# 3. raised mass comes out of the dead
 	var raised_total := 0.0
@@ -308,6 +309,7 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	if not flip_ev.is_empty():
 		gs._emit(flip_ev)
 	if cg_cleared:
+		gs._spend_yield(f)  # the clear paid loot (held_clear's roll)
 		gs._emit({"type": "counter_garrison_cleared", "fort_id": fort_id, "killed_mass": k})
 	# 10. death: the whole party is lost (A8), then the death rule; 11. otherwise she stays
 	if died:

@@ -176,7 +176,9 @@ var _disp_lim: Array[float] = []
 ##   r_surge       the tithe surge's part of r_shipped
 ## The hold (saved): held (flipped and not yet retaken), grace_s (grace left; contested at 0) and
 ## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_s is
-## deprecated: a copy of grace_s kept for old readers, not saved.
+## deprecated: a copy of grace_s kept for old readers, not saved. The loot yield (saved; GameState reads
+## it, MECHANICS §5.3): yield_c, the yield just after the last clear that paid loot, and yield_t, the
+## sim time of that clear; a retake resets yield_c to 1.
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
 	_k_kill = _tf("k_kill")
@@ -212,7 +214,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 			"pos": _vec(f.get("pos", [0, 0])), "tier": int(f.get("tier", 1)), "cap": cap,
 			"living": float(f.get("living", cap * start_frac)),
 			"dead": float(f.get("dead", 0.0)), "undead": float(f.get("undead", 0.0)),
-			"held": false, "grace_s": 0.0, "zero_s": 0.0, "held_s": 0.0,
+			"held": false, "grace_s": 0.0, "zero_s": 0.0, "held_s": 0.0, "yield_c": 1.0, "yield_t": 0.0,
 			"r_in": 0.0, "r_drain": 0.0, "r_shipped": 0.0, "r_dead_out": 0.0, "r_raised": 0.0,
 			"r_staged": 0.0, "r_redirected": 0.0, "r_kills": 0.0, "r_surge": 0.0,
 		})
@@ -1003,6 +1005,7 @@ func _retaken(f: Dictionary, cause: String, at: float) -> void:
 	f["held_s"] = 0.0
 	f["zero_s"] = 0.0
 	f["clears_since_retaken"] = 0
+	f["yield_c"] = 1.0
 	var alive: Array = []
 	for sm in simulacra:
 		if str(sm.get("fort_id", "")) != str(f["id"]):

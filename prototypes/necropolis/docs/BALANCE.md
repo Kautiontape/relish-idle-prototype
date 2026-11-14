@@ -143,7 +143,7 @@ E2a added is here with its value.
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
 | `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
 | `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
-| `loot.reclear_decay` | 0.5 | |
+| `loot.reclear_decay`, `loot.recover_s` | 0.5, 28800 s | each clear that pays loot (a flip, a counter-garrison clear) multiplies a fort's loot yield by 0.5; the yield climbs back linearly to 1 over 8 h from its last clear (a retake resets it to 1). MECHANICS §5.3 |
 | `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
 | `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
 

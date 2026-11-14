@@ -54,6 +54,9 @@ from `BALANCE.md` §0.
     same math at another valve, pure;
   - the event `counter_garrison_cleared {fort_id, killed_mass}` (§6, §8.3, api-request #10): a held
     fort's raid cleared its counter-garrison;
+  - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
+    the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
+    (§9.1);
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1020,7 +1023,8 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 ### 5.5 `view_fort(id: String)` · E1
 The masses, positions, `relish_here` and `can_descend` are live from E1; held, flip and tithe from
 E2a. `siege` lists the big undead placed there (the siege's effect is E3). The warden, threat, loot
-hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) until their E2 specs.
+hint are still the E1 stubs (`bellringer`, `risk: "low"`) until their E2 specs; the hold's readouts
+(`garrison` to `grace_s_left`) and `yield_mult` are live from v6.
 
 | key | type | meaning |
 |---|---|---|
@@ -1042,7 +1046,7 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
 | `clears_since_retaken` | int | |
-| `yield_mult` | float | `loot.reclear_decay ^ clears_since_retaken` |
+| `yield_mult` | float | the loot yield now, 0..1 (v6, live; MECHANICS §5.3): `loot.reclear_decay` per clear that paid loot (a flip, a counter-garrison clear), climbing back linearly to exactly 1 over `loot.recover_s` from the last clear; 1 after a retake. The dungeon seed's `fort.yield_mult` is the same value at issue |
 | `warden` | Dictionary | `{archetype: String, tells: Array[String]}`: one tell, or every tell with a Watchtower |
 | `loot_hint` | String | display text |
 | `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
@@ -1763,6 +1767,9 @@ take the router's legacy path (§2.3).
   instead, read only on load: `held_s > 0` loads held with `grace_s = held_s` and `zero_s = 0`; a
   fort with neither key loads unheld. The fixtures carry `held_s` and load this way (midgame_2flips:
   Ashgate and Old Sluice held, 374.5 s of grace each).
+- `realm.forts[]`'s loot yield (v6, MECHANICS §5.3): `yield_c: float` (the yield just after the
+  fort's last clear that paid loot) and `yield_t: float` (the sim time of that clear). Optional on
+  load: a save without them loads `yield_c` 1, the yield it showed.
 - `realm.tithe` (E2a, RealmSim's countdowns): `{started: bool, next_s: float (to the next wave),
   next_id: int, warning: {} | {wave_id: int, fort_id, eta_s, surge}, wave: {} | {wave_id: int,
   fort_id, s_left, duration_s, mult, delivered}}`. Loading the E1 placeholder `{warning: {wave_id,

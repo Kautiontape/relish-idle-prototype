@@ -63,7 +63,7 @@ const SAVE_SPEC := {
 const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
 ## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
-const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F}
+const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
 const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
@@ -457,6 +457,7 @@ static func dump(gs: GameState) -> Dictionary:
 		forts.append({
 			"id": f["id"], "living": f["living"], "undead": f["undead"], "dead": f["dead"],
 			"held": RealmSim.is_held(f), "grace_s": float(f.get("grace_s", 0.0)), "zero_s": float(f.get("zero_s", 0.0)),
+			"yield_c": float(f.get("yield_c", 1.0)), "yield_t": float(f.get("yield_t", 0.0)),
 			"flipped_count": int(f.get("flipped_count", 0)),
 			"clears_since_retaken": int(f.get("clears_since_retaken", 0)),
 			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
@@ -570,6 +571,9 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 			f["grace_s"] = hs
 			f["zero_s"] = 0.0
 		f["held_s"] = f["grace_s"]
+		# the loot yield (api_version 6): a save without it read 1.0, so it loads at 1
+		f["yield_c"] = clampf(float(e.get("yield_c", 1.0)), 0.0, 1.0)
+		f["yield_t"] = float(e.get("yield_t", 0.0))
 		f["flipped_count"] = int(e["flipped_count"])
 		f["clears_since_retaken"] = int(e["clears_since_retaken"])
 		flipped = flipped or f["flipped_count"] > 0

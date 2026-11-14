@@ -580,7 +580,7 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
   counter-garrison, and the contest decides (the retake above).
-- **A retake** resets the fort's `clears_since_retaken` to 0, so its yield refreshes (§5.3).
+- **A retake** resets the fort's `clears_since_retaken` to 0 and its loot yield to 1 (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
@@ -641,14 +641,17 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     τ·k_kill·k_destroy / (q·r))`), no corpses; one wave of `surge_mult · S_vei` living/s × the
     counters (`relish_mult` where Relish stands, less the siege's block, as the sim's own siege
     input reads it) for `surge_s` on top of her reship, with Relish's raise where she redirects;
-    the zero clock as the sim runs it. Broken when it reaches `break_s`; survived once the wave is
-    over and her living can no longer pin the garrison (with them gone and the garrison above
-    `S / k_kill`, or, in the stalemate, back under the pile).
+    the zero clock as the sim runs it, a probe step ending at the break's moment as `step()`
+    splits there. Broken when the clock reaches `break_s`; survived once the wave is over and her
+    living can no longer pin the garrison: where it kills her reship as it lands, once it does
+    (`k_kill · U ≥ S`) and has stopped shrinking (`A ≥ r_drain · U + k_destroy · L / q`), since from
+    then her living only fall and the garrison only grows; in the stalemate, once her living are back
+    under the pile.
   - **Which forts a wave can reach** isn't computable inside the horizon: the target is the
     contested fort with the most undead at each warning, and the waves themselves move those
     undead. So every contested fort is judged against one full wave (the cheapest honest version
-    the run's manager allowed). With `period_s` 420 many waves fall in 8 h, so a fort a full wave would
-    break is never "safe".
+    the run's manager allowed). With `period_s` 420 many waves fall in 8 h, so a fort a full wave
+    would break is never "safe".
   - The probe's edges are the 10 s column of §3.4's table (Ashgate 1.040, Greywall 1.086, Vespers
     1.407, Whitecross 3.029; with Relish there 0.547, 0.581, 0.838, 2.216). Against live play at 0.5 s
     that is conservative (it calls thin what holds) except with Relish at Greywall (0.581 against
@@ -977,8 +980,15 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   - remnants ding off kills;
   - the warden's chest;
   - a blueprint guaranteed on the first clear;
-  - **re-clear yield × `loot.reclear_decay`^(clears since last retaken)**. A fort that Vei retakes
-    and re-garrisons refreshes its yield (vision review M8).
+  - **re-clear yield × `yield_mult`**, which recovers with real time (IDLE §3; E2b-2 T3.1): each
+    clear that pays loot (a flip, a counter-garrison clear) sets `yield_c = yield_mult(now) ·
+    loot.reclear_decay` and `yield_t = now`, and `yield_mult = 1 − (1 − yield_c) · max(0, 1 − (t −
+    yield_t) / loot.recover_s)`. So one clear halves it, two back to back quarter it
+    (`reclear_decay`²), and it is back to exactly 1 `recover_s` (8 h) after the last clear, from any
+    depth. It is a function of the sim time, so a catch-up refills it with no step work; the dungeon
+    seed and `view_fort` read it live. A retake resets `yield_c` to 1, so a fort Vei retakes refreshes
+    its yield (vision review M8). Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
+    it showed.
 - **Exits:**
   - **warden beaten:** loot banked, fort flips;
   - **retreat** at an exit: loot banked, no flip;

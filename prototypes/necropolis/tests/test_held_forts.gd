@@ -4,7 +4,8 @@ extends RefCounted
 ## clock, the hold rule) are test_realm_sim's.
 ##
 ## The convergence check runs midgame_2flips with its WAR cut (valve 0.5 / 0 / 0.5): both held forts
-## end their 374.5 s of grace with no support, her reship lands, the garrisons go to 0 and both are
+## end their 374.5 s of grace with too little support (TownSim's muster is all the WAR), her reship
+## lands, the garrisons go to 0 and both are
 ## broken inside the hour. Core steps only, field frozen (tests/slow/convergence.gd's harness), at 0.5
 ## and 10 s:
 ## - the grace ends at its time at 10 s as at 0.5 s: the reship each fort has had by 380 s (the first

@@ -663,10 +663,12 @@ func _fixtures() -> void:
 			var bf: Dictionary = back["realm"]["forts"][i]
 			var hs := float(file["realm"]["forts"][i]["held_s"])
 			hold_ok = hold_ok and bf["held"] == (hs > 0.0) and bf["grace_s"] == hs and bf["zero_s"] == 0.0
+			# and the loot yield (v6): a fixture has none, so every fort loads at 1
+			hold_ok = hold_ok and bf["yield_c"] == 1.0 and bf["yield_t"] == 0.0
 			bf["held_s"] = bf["grace_s"]
-			for k in ["held", "grace_s", "zero_s"]:
+			for k in ["held", "grace_s", "zero_s", "yield_c", "yield_t"]:
 				bf.erase(k)
-		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0" % name)
+		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0; its yield at 1" % name)
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])
@@ -796,7 +798,7 @@ func _hold_saves() -> void:
 		f.erase("held_s")
 	var z := _mk(2)
 	t.ok(z.from_dict(none)["ok"] and z.view_realm()["held_count"] == 0, "a fort with no hold keys at all loads unheld")
-	for bad in [["held", "yes"], ["grace_s", "x"], ["zero_s", true], ["held_s", "1"]]:
+	for bad in [["held", "yes"], ["grace_s", "x"], ["zero_s", true], ["held_s", "1"], ["yield_c", "x"], ["yield_t", false]]:
 		var c: Dictionary = d.duplicate(true)
 		c["realm"]["forts"][0][bad[0]] = bad[1]
 		t.ok(_mk(2).from_dict(c)["reason"] == "corrupt", "a fort's %s of the wrong type is corrupt" % bad[0])

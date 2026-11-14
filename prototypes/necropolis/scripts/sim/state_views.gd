@@ -159,7 +159,7 @@ static func fort_entry(gs: GameState, f: Dictionary, w_in: float) -> Dictionary:
 		"grace_s_left": maxf(0.0, float(f.get("grace_s", 0.0))) if held else 0.0,
 		"flipped_count": int(f.get("flipped_count", 0)),
 		"first_clear": not gs.cleared_forts.has(id), "first_dungeon": gs._is_first_dungeon(id),
-		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
+		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": gs._yield_mult(f),
 		"warden": {"archetype": archetype, "tells": (GameState._WARDEN_TELLS.get(archetype, []) as Array).duplicate()},
 		"loot_hint": gs._loot_hint(id),
 		"threat": {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0},

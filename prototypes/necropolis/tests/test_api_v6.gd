@@ -2,7 +2,8 @@ extends RefCounted
 ## STATE-API v6 additions (economy E2b-2 T3.1 onward; later E2b-2 tasks add to v6): the held forts'
 ## contest (fort_retaken's cause "broken", big_undead_returned, the save's hold keys) and their
 ## readouts (garrison, garrison_rate, fall_s, margin, margin_cause, grace_s_left, war_supports and
-## view_projection; api-requests #7, #13); counter_garrison_cleared (#10). Headless, no autoloads.
+## view_projection; api-requests #7, #13); counter_garrison_cleared (#10); the live loot yield.
+## Headless, no autoloads.
 
 var t: TestUtil
 
@@ -25,6 +26,7 @@ func run() -> int:
 	_chip_predicts()
 	_grace_view()
 	_counter_garrison()
+	_yield()
 	return t.failures
 
 
@@ -420,3 +422,60 @@ func _counter_garrison() -> void:
 	sd = s.cmd_begin_dungeon("greywall")["seed"]
 	t.ok(Results.validate("raid_seed", sd) == [] and sd["living"] == 52.0 and sd["garrison_units"] == 2 and s.view_fort("greywall")["held"],
 		"a contested fort's seed validates, with its living (52) and its garrison (2 units of 20 mass)")
+
+
+# ------------------------------------------------- §4 the loot yield recovers ----
+## view_fort.yield_mult (and the seed's) is live (MECHANICS §5.3): loot.reclear_decay^clears relaxing
+## linearly back to 1 over loot.recover_s. One paying clear halves it, two back to back quarter it; it
+## recovers linearly to exactly 1 at recover_s from any depth; a save keeps it; a retake resets it; a
+## save from before v6 reads 1.
+func _yield() -> void:
+	t.suite("api-v6-yield")
+	var loot: Dictionary = TestUtil.configs()["loot"]
+	var decay := float(loot["reclear_decay"])
+	var rec := float(loot["recover_s"])
+	var s := _mk()
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var b := s.cmd_begin_dungeon("old-sluice")
+	t.ok(b["seed"]["fort"]["yield_mult"] == 1.0 and s.view_fort("old-sluice")["yield_mult"] == 1.0, "a fresh fort's yield is 1")
+	t.ok(s.apply_result("raid", _raid_res(b["seed"], 0.0, {"warden_beaten": true, "retreated": false}))["ok"], "the flip (a clear that pays loot)")
+	var f := s.realm.fort_by_id("old-sluice")
+	t.ok(s.view_fort("old-sluice")["yield_mult"] == decay and f["yield_c"] == decay and f["yield_t"] == s.t, "one clear: yield_mult × reclear_decay = %.2f" % decay)
+	# a counter-garrison clear right after: quartered (the run starts at the same moment)
+	var b2 := s.cmd_begin_dungeon("old-sluice")
+	t.ok(b2["seed"]["fort"]["yield_mult"] == decay, "the next raid's seed carries the live yield")
+	s.apply_result("raid", _raid_res(b2["seed"], float(b2["seed"]["living"])))
+	t.near(float(s.view_fort("old-sluice")["yield_mult"]), decay * decay, 1e-12, "two back to back: reclear_decay² = %.2f" % (decay * decay))
+	var t0 := s.t
+	var c0: float = f["yield_c"]
+	# linear recovery: checked at quarter points by moving the clock (the yield is a function of time)
+	for k in [0.25, 0.5, 0.75]:
+		s.t = t0 + k * rec
+		t.near(float(s.view_fort("old-sluice")["yield_mult"]), 1.0 - (1.0 - c0) * (1.0 - k), 1e-12, "at %.0f%% of recover_s: %.4f" % [k * 100.0, 1.0 - (1.0 - c0) * (1.0 - k)])
+	s.t = t0 + rec
+	t.ok(s.view_fort("old-sluice")["yield_mult"] == 1.0, "exactly 1 at recover_s")
+	s.t = t0 + 2.0 * rec
+	t.ok(s.view_fort("old-sluice")["yield_mult"] == 1.0, "and after")
+	s.t = t0 + 0.5 * rec
+	var mid := float(s.view_fort("old-sluice")["yield_mult"])
+	# a save round trip keeps it
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var n := _mk(2)
+	t.ok(n.from_dict(d)["ok"] and absf(float(n.view_fort("old-sluice")["yield_mult"]) - mid) < 1e-12, "a save keeps it (%.4f)" % mid)
+	# a save from before v6 (no yield keys) reads 1
+	for e in d["realm"]["forts"]:
+		e.erase("yield_c")
+		e.erase("yield_t")
+	var o := _mk(2)
+	t.ok(o.from_dict(d)["ok"] and o.view_fort("old-sluice")["yield_mult"] == 1.0, "an older save reads 1")
+	# a retake resets it
+	var r := _mk()
+	r.cmd_debug_set_state({"valve": {"work": 0.0, "war": 0.0, "flood": 1.0}, "forts": {"greywall": {"living": 60.0, "undead": 0.0}}})
+	var g := r.realm.fort_by_id("greywall")
+	r.realm.hold("greywall", 0.0)
+	g["yield_c"] = 0.25
+	g["yield_t"] = r.t
+	t.ok(float(r.view_fort("greywall")["yield_mult"]) < 1.0, "a held fort with a spent yield (setup)")
+	for i in int(float(r._cfg()["hold"]["break_s"]) / r.substep_s()) + 2:
+		r.tick(r.substep_s())
+	t.ok(not g["held"] and r.view_fort("greywall")["yield_mult"] == 1.0, "a retake resets it to 1")
