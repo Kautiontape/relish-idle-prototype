@@ -278,9 +278,9 @@ static func payoff_line(p: Dictionary, sign_eps: float) -> String:
 	return vei + str(c["payoff_sep"]) + second
 
 
-## What the drag gives up, as [{kind, text}]: "work" for a fall in WORK ("workers +5.1/s →
+## What the drag gives up, as [{kind, text}]: "work" for a fall in WORK ("workers +5.1 →
 ## +1.5/s"), "war" for WAR ("WAR +9.7/s → +2.0/s"), then, when WAR fell and a fort is held,
-## "supports" ("WAR supports 1 of 2"). A stream counts when its dragged split rate is lower than at
+## "supports" ("supports 1 of 2", it follows the WAR part). A stream counts when its dragged split rate is lower than at
 ## the current valve (`base_split`) by more than `sign_eps`.
 static func payoff_cost_parts(proj: Dictionary, base_split: Dictionary, sign_eps: float) -> Array:
 	var c := _c()
@@ -291,7 +291,7 @@ static func payoff_cost_parts(proj: Dictionary, base_split: Dictionary, sign_eps
 		var was := float(base_split.get(pair[0], 0.0))
 		var now := float(split.get(pair[0], 0.0))
 		if now < was - sign_eps:
-			out.append({"kind": pair[0], "text": str(c[pair[1]]) % [MapLogic.fmt_rate(was), MapLogic.fmt_rate(now)]})
+			out.append({"kind": pair[0], "text": str(c[pair[1]]) % [MapLogic.fmt_rate(was, ""), MapLogic.fmt_rate(now)]})
 			war_fell = war_fell or pair[0] == "war"
 	var sup: Dictionary = proj.get("war_supports", {})
 	if war_fell and int(sup.get("m", 0)) > 0:
@@ -326,6 +326,17 @@ static func payoff_rows(widths: Array, kinds: Array, sep_w: float, max_w: float)
 		keep = keep.filter(func(i): return kinds[i] != kind)
 	for i in widths.size():
 		out.append(0 if i == 0 else (1 if keep.has(i) else -1))
+	return out
+
+
+## A payoff part as runs, AwayLogic.spans' with one change: in "+5.1 → +1.5/s" the left number is the
+## same rate as the right one, so it takes the rate face too (a signed number, then →, then a rate).
+static func payoff_spans(text: String) -> Array:
+	var out: Array = AwayLogic.spans(text)
+	for i in range(out.size() - 2):
+		if out[i]["kind"] == "mass" and str(out[i]["text"]).split(" ")[-1][0] in ["+", MapLogic.MINUS] \
+				and out[i + 1]["kind"] == "label" and str(out[i + 1]["text"]).begins_with("→") and out[i + 2]["kind"] == "rate":
+			out[i]["kind"] = "rate"
 	return out
 
 

@@ -240,7 +240,7 @@ func _payoff_rows(parts: Array) -> void:
 		_spans_into(box, str(part["text"]))
 		boxes.append(box)
 		kinds.append(str(part["kind"]))
-		widths.append(box.get_combined_minimum_size().x)
+		widths.append(_row_w(box))
 	var sep_probe := _sep_label(sep_text)
 	var sep_w := sep_probe.get_minimum_size().x
 	sep_probe.free()
@@ -258,6 +258,15 @@ func _payoff_rows(parts: Array) -> void:
 		used[r] += 1
 
 
+## A row of labels' width: their minimum widths plus the gaps between them (a container off the tree
+## can hand back a stale combined size).
+func _row_w(box: HBoxContainer) -> float:
+	var w := 0.0
+	for ch in box.get_children():
+		w += (ch as Control).get_minimum_size().x
+	return w + float(maxi(box.get_child_count() - 1, 0) * box.get_theme_constant("separation"))
+
+
 func _sep_label(text: String) -> Label:
 	var l := Label.new()
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -271,7 +280,7 @@ func _spans_into(row: HBoxContainer, text: String) -> void:
 	for ch in row.get_children():
 		row.remove_child(ch)
 		ch.queue_free()
-	for sp in AwayLogic.spans(text):
+	for sp in ValveLogic.payoff_spans(text):
 		var l := Label.new()
 		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		l.text = str(sp["text"])
