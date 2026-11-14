@@ -73,7 +73,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `cmd_set_haul_target(fort_id | "auto")`.
 - **Town:**
   - `cmd_build(building_id, lot_id)`, `cmd_upgrade(lot_id)`, `cmd_demolish(lot_id)`,
-    `cmd_cancel_build(lot_id)`;
+    `cmd_cancel_build(lot_id)`; the build queue `cmd_queue_build(building_id, lot_id)`, `cmd_unqueue(index)`,
+    `cmd_reorder_queue(order)` (E2b-2, §4.4);
   - `cmd_set_job_priority(order:Array)`, `cmd_set_stance(stance_id, on:bool)`;
   - `cmd_raise_big_undead(husk_uid, remnant_uids, name)`, validated with SlabLogic's math;
   - `cmd_rename_big_undead(uid, name)`, `cmd_place_big_undead(uid, place)`, where place is
@@ -110,7 +111,7 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 
 **Events:** `drain_events() -> [{t, type, ...}]`. Types:
 - `relish_died{outcome}`, `relish_respawned`;
-- `building_started`, `building_done`, `building_unpaid`, `tier_up`;
+- `building_started`, `building_done`, `building_unpaid`, `tier_up`, `queue_started` (E2b-2);
 - `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
 - `stance_fired`, `loot_banked`, `vei_result`;
 - `autosaved`, `save_failed`.
@@ -151,7 +152,8 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 2. the valve slew and split. The mint reads the working pits now and the feed of the step before
    (both dimensionless), so the mint lags TownSim by one step, which is accepted (E2b: this
    replaces WORK arriving one substep late, a mass re-divided by the next step's dt);
-3. TownSim, on this step's WORK as rate × dt, in the same step;
+3. TownSim, on this step's WORK as rate × dt, in the same step; then the tiers rise and the build queue
+   is processed (§4.4);
 4. Relish's travel and state (GameState);
 5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.
    Holds and the tithe state are RealmSim's own state (§3.1), not inputs;
@@ -864,6 +866,66 @@ the town has two size-3 lots, so lot-23 opens at Village and lot-24 at Town.
 **Upgrades.** A building mid-upgrade works at its old level (slots, output, upkeep, effects, caps)
 until the new level completes; the construction adds `job.build.slots` build slots. A cancelled
 upgrade refunds in full and changes nothing else.
+
+**The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
+ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, at most `queue.max_len` (8), saved.
+Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
+`cmd_queue_build` and the core step's processing all run, so a status always says what the next
+processing does.
+- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full`,
+  `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
+  `lot_taken` (a building stands or is under construction there), `lot_too_small`; for an upgrade
+  `empty_lot` (nothing stands or is queued there) and `max_level`; and `cost_exceeds_cap` (a gold, bone or
+  relic cost above that store's cap now; it names the store, the building that raises its cap, the first
+  in `buildings.json` with that `*_cap` effect, and `cap_level`, the lowest level of that building whose
+  cap covers the price: 1 when it isn't built yet, −1 when no level does). Affordability never refuses:
+  it holds the queue.
+- **What it accepts as a gate** (the run's manager, 2026-11-14: IDLE §5 over api-request #3's wording,
+  since growth while away is Shawn's ask): `needs_tier`, `needs_blueprint`, `needs_building`,
+  `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
+  (`under_construction`) or an unpaid building (`unpaid`). A gated entry shows `skipped_gate` with that
+  reason and is re-checked every step.
+- **The level an entry builds:** 1 for a new build. An upgrade builds one level above what its lot will
+  have once every entry ahead of it for that lot, and the construction under way there, are done: two
+  queued upgrades of a level-1 lot build 2, then 3. The level is recomputed from the order on every walk,
+  so a reorder moves it; its cost is `construction_cost` at that level and its `work` `build_work ·
+  level`. An upgrade's building is the one on its lot when it was queued, or the first new build queued
+  there.
+- **The walk**, in queue order, on a copy of the stocks and lots:
+  - an entry blocked by a gate is `skipped_gate`, stays in place, and the walk goes on;
+  - the first entry that isn't gated is the head. When gold and bone cover it, it is `next`: the copy pays
+    its cost and takes its lot as its start will, and the walk goes on to the next head. Otherwise it is
+    `waiting_funds` (`no_gold`, `no_bone`) and every later entry that isn't gated is `queued`.
+  - So several affordable entries can start in one step, in order, and build at once on the build job.
+- **The manager's four rules for gated entries:**
+  1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate
+     clears, the entry starts at its own position: it never jumps an earlier entry that waits for funds.
+  2. **A gated entry holds nothing.** It reserves no gold, bone or relics and claims no lot. If another
+     entry or the player's `cmd_build` takes its lot first, it turns `skipped_gate` with `lot_taken`, and
+     stays for the player to see and unqueue; it is never dropped silently. Two queued builds on one lot:
+     whichever starts first takes it. An upgrade behind an entry for its lot that hasn't started shows that
+     entry's gate (or `queued` when it has none).
+  3. **The away report says when a gated entry started and why.** Each entry keeps `waited_on`, the last
+     reason that kept it from starting (`""` if it never waited): a gate, or `no_gold`/`no_bone`. It is set
+     when the entry is queued (from that first walk) and by each step's processing, never by a view, and a
+     plain `queued` (behind a head) leaves it alone. `queue_started` carries it.
+  4. **A relics-blocked entry reads as the plateau's ask:** its reason is exactly `no_relics`, the key
+     `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`.
+- **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
+  rises this step opens its entries this step and this step's income counts: one walk, then each `next`
+  entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the
+  queue and emits `queue_started {building_id, lot_id, level, upgrade, waited_on}` at the step's `t`. Every
+  entry that stays and was skipped or waited on funds keeps that reason as `waited_on`.
+- **At any dt** the queue starts entries at step boundaries, so a start is up to one step late at a long
+  step (the funds or the tier arrive inside it). Measured over 12 h of `midgame_2flips` (core steps, the
+  field frozen) with a full queue of 8 (two house and well upgrades, an inn, a graveyard, stables, and
+  the pit's, the market's and the mill's level 2; T3.2): the five entries affordable at once start 9.5 s
+  later at 10 s (one step); the pit's and the market's upgrades, which waited on gold, 223.5 s later
+  each (mean 70.6 s over the 7 starts). The 10 s run's gold ran 2.2 behind from the first constructions
+  on, since a construction ends on a step boundary and its builders (top of the ladder) keep the stalls
+  short a little longer, and with the new upkeep the town saved about 0.01 gold/s, so 2.2 gold took
+  about 220 s. End of run: gold 9 261 against 9 330 (−0.74%), bone 29.2 against 28.5, the same levels
+  everywhere; the mill's level 2 waits on bone in both. With no queue the two gold paths are identical.
 
 **Every building has a numeric benefit** (vision review S7):
 

@@ -562,7 +562,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 			continue
 		var w := _build_rate * float(_by_lot.get(lot_id, {}).get("build", 0.0)) * dt
 		build_work += w
-		var need := float(_defs[b["building_id"]]["build_work"]) * int(b["build_level"])
+		var need := construction_work(b["building_id"], int(b["build_level"]))
 		b["progress"] = 1.0 if need <= 0.0 else float(b["progress"]) + w / need
 		if float(b["progress"]) >= 1.0 - EPS:
 			b["level"] = int(b["build_level"])
@@ -1180,6 +1180,20 @@ func gold_cap() -> float:
 ## economy.json bone.cap plus the buildings' `bone_cap` effects (the Bone Mill, per level).
 func bone_cap() -> float:
 	return _bone_cap + _sum_built("bone_cap")
+
+
+## The build work a construction of `building_id` heading to `level` needs in all (step 6: build_work ·
+## target level); 0 for an unknown building. The queue's `work` (STATE-API §5.9) reads it.
+func construction_work(building_id: String, level: int) -> float:
+	return float(_defs.get(building_id, {}).get("build_work", 0.0)) * level
+
+
+## A building's numeric effect `key` at `level` (_eff_b's rule: a number per level, an Array a per-level
+## table; 0 at level 0). The queue's cap_level reads the cap effects through it.
+func effect_at(building_id: String, key: String, level: int) -> float:
+	if not _defs.has(building_id):
+		return 0.0
+	return _eff_b({"building_id": building_id, "level": level}, key, _defs)
 
 
 ## Working pits now: the mint's `pits` before a step has run (step() reports the same count).

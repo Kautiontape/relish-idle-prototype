@@ -65,6 +65,9 @@ const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
 const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
+## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
+## and `waited_on` within it too (both typed when present).
+const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
 const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
 	"staff_caps": {"*": _I}, "haul": {"target": _S}}
@@ -228,6 +231,12 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	for k in tally:
 		if not fits(tally[k], {"overflow": _F}):
 			return "ledger stores"
+	if m.has("queue"):
+		if not (m["queue"] is Array):
+			return "queue"
+		for e in m["queue"]:
+			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)):
+				return "queue"
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
 	if town_why != "":
 		return town_why
@@ -516,6 +525,8 @@ static func dump(gs: GameState) -> Dictionary:
 		"ledger": gs._ledger.to_dict(),
 		"won": gs.won, "stats": gs.stats.duplicate(),
 		"cleared_forts": gs.cleared_forts.keys(), "first_dungeon": gs.first_dungeon_id,
+		"queue": gs.build_queue.map(func(e): return {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
+			"upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}),
 	}
 	(d["cleared_forts"] as Array).sort()
 	return SaveIO.canon(d)
@@ -661,6 +672,19 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	for id in m["cleared_forts"]:
 		gs.cleared_forts[str(id)] = true
 	gs.first_dungeon_id = str(m["first_dungeon"])
+	# the build queue (E2b-2 T3.2): optional; an entry naming a building or lot today's config lacks is
+	# dropped with a warning, and so is any past queue.max_len
+	gs.build_queue = []
+	for e in m.get("queue", []):
+		var bid := str(e["building_id"])
+		var lot_id := str(e["lot_id"])
+		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
+			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
+		elif gs.build_queue.size() >= BuildRules.queue_max(gs):
+			push_warning("SaveIO: dropped a queued %s on %s: past queue.max_len" % [bid, lot_id])
+		else:
+			gs.build_queue.append({"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]),
+				"waited_on": str(e.get("waited_on", ""))})
 	# session state: nothing of the old session survives a load
 	gs.run = {}
 	gs._field_acc = 0.0

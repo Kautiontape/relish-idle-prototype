@@ -675,6 +675,10 @@ func _fixtures() -> void:
 			"%s: the fixture has no currency tally; it loads 0" % name)
 		if no_tally:
 			(back["ledger"] as Dictionary).erase("stores")
+		# and the build queue (T3.2): an optional top-level key the fixtures predate; it loads empty
+		t.ok(not file.has("queue") and back["queue"] == [], "%s: the fixture has no build queue; it loads empty" % name)
+		if not file.has("queue"):
+			back.erase("queue")
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])

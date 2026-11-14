@@ -29,6 +29,11 @@ const DOC_CONSTANTS := {
 const E1_EMPTY := {
 	"view_stances.stances[].projected": "stance projections are E3",
 }
+## Arrays the fixtures can't fill because they predate them (make_fixtures.gd isn't rerun; T3.2). The
+## exercise still fills them (_check_coverage), and the fixture check asserts they are still empty there.
+const FIXTURE_EMPTY := {
+	"view_town.queue": "the build queue (T3.2) is newer than the fixtures",
+}
 
 var t: TestUtil
 var _dir := "user://test_saves_contract_%d" % OS.get_process_id()
@@ -208,6 +213,7 @@ func _schema_self_check() -> void:
 		{"t": 4712.5, "type": "fort_flipped", "fort_id": "old-sluice", "run_id": 1, "hold_s": 375.0},
 		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "broken"},
 		{"t": 1.0, "type": "big_undead_returned", "uid": "u4", "fort_id": "old-sluice"},
+		{"t": 192.5, "type": "queue_started", "building_id": "market", "lot_id": "lot-13", "level": 1, "upgrade": false, "waited_on": "needs_tier"},
 		{"t": 4712.5, "type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 31.4},
 		{"t": 5100.0, "type": "tithe_warning", "wave_id": 2, "fort_id": "old-sluice", "eta_s": 150.0, "surge": 24.0},
 		{"t": 1.0, "type": "tithe_wave", "wave_id": 2, "fort_id": "old-sluice", "surge": 12.0, "duration_s": 40.0, "relish_here": true, "siege_block": 0.6},
@@ -223,7 +229,7 @@ func _schema_self_check() -> void:
 		ApiSchema.check(ev, ApiSchema.EVENTS[ev["type"]], "example." + ev["type"], errs)
 		t.ok(errs.is_empty(), "§6 example %s passes its schema%s" % [ev["type"], "" if errs.is_empty() else ": " + str(errs)])
 		types[ev["type"]] = true
-	t.ok(types.size() == 17 and ApiSchema.EVENTS.size() == 17, "all 17 §6 event types have a schema and an example")
+	t.ok(types.size() == 18 and ApiSchema.EVENTS.size() == 18, "all 18 §6 event types have a schema and an example")
 	var raid := {"v": 2, "run_id": 1, "seed_rev": 512, "fort_id": "old-sluice", "warden_beaten": true,
 		"retreated": false, "relish_died": false, "revived_in_place": 0, "killed_living_mass": 30.0,
 		"raised": [{"score": 75, "count": 2, "mass": 8.0}], "chaff_mass": 4.0, "garrison_mass": 6.0,
@@ -301,6 +307,17 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_cancel_build", ["lot-05"], true)
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
+	# the build queue (T3.2): an upgrade of the market under construction waits (under_construction) and
+	# stays queued for the views below; a well starts on the next substep
+	_cmd(s, "cmd_queue_build", ["", "lot-04"], true)
+	_cmd(s, "cmd_queue_build", ["well", "lot-06"], true)
+	_cmd(s, "cmd_queue_build", ["nope", "lot-06"], false)
+	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap
+	_cmd(s, "cmd_reorder_queue", [[1, 0]], true)
+	_cmd(s, "cmd_reorder_queue", [[0]], false)
+	_cmd(s, "cmd_queue_build", ["house", "lot-07"], true)
+	_cmd(s, "cmd_unqueue", [2], true)
+	_cmd(s, "cmd_unqueue", [5], false)
 	_cmd(s, "cmd_set_job_priority", [["haul", "build", "pit", "stall", "mill", "forge", "tend"]], true)
 	_cmd(s, "cmd_set_job_priority", [["haul"]], false)
 	_cmd(s, "cmd_set_staff_cap", ["lot-03", 2], true)
@@ -412,7 +429,7 @@ func _exercise(s: GameState) -> void:
 		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 0}})], true)
 	evs = _event_list(s)
 	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died", "relish_respawned"], "a raid death emits relish_died and relish_respawned")
-	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped"]:
+	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped", "queue_started"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death
 	_persistence(s)
@@ -558,8 +575,10 @@ func _fixtures() -> void:
 		ApiSchema.containers(ApiSchema.VIEWS[name], name, paths)
 	var never: Array = []
 	for p in paths:
-		if not fixed.has(p) and not E1_EMPTY.has(p):
+		if not fixed.has(p) and not E1_EMPTY.has(p) and not FIXTURE_EMPTY.has(p):
 			never.append(p)
 	t.ok(never.is_empty(), "across the fixtures every array a view exposes is non-empty (never: %s)" % str(never))
+	for p in FIXTURE_EMPTY:
+		t.ok(paths.has(p) and not fixed.has(p), "%s is empty in every fixture (else drop it from FIXTURE_EMPTY)" % p)
 	for p in E1_EMPTY:
 		t.ok(not fixed.has(p), "%s is still empty in every fixture (else drop it from E1_EMPTY)" % p)

@@ -278,6 +278,7 @@ static func town(gs: GameState) -> Dictionary:
 		"morale": {"value": ts.morale, "target": ts.morale_target(), "factors": ts.morale_factors()},
 		"gold": ts.gold, "bone": ts.bone, "bodies": ts.bodies, "bodies_cap": ts.body_cap(), "trade_rate": float(r["trade_rate"]),
 		"gold_cap": ts.gold_cap(), "bone_cap": ts.bone_cap(),
+		"queue": BuildRules.queue_rows(gs), "queue_max": BuildRules.queue_max(gs),
 		"haul": {"target": gs.haul_target, "current": str(ts.haul["current"]), "convoys": convoys(gs)},
 		"relish_home": gs.relish["state"] == "home",
 	}

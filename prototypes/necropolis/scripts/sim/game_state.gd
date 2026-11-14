@@ -87,6 +87,9 @@ var _ledger := Ledger.new()
 # --- settings GameState keeps (TownSim holds the job ladder and the staff caps) ---
 var haul_target := "auto"  # cmd_set_haul_target: "auto" or a fort id, TownSim's step input
 var stances_on: Array = []  # stance ids switched on, oldest first; the newest are suspended first
+## The build queue (IDLE §5, STATE-API §4.3; BuildRules.queue_walk): [{building_id, lot_id, upgrade: bool,
+## waited_on: String}] in order, at most economy.json queue.max_len. Saved (an optional `queue` key).
+var build_queue: Array = []
 var vats_staffed: Array = []  # bool per vat slot
 ## view_backups' stub stock (E3 grows clones in vats): ready clones. A death spends one (§8.3 step
 ## 10, the E1-safe rule); the vat slots are these clones until E3.
@@ -243,6 +246,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_stance_hold = {}
 	blueprints = []
 	haul_target = "auto"
+	build_queue = []
 	stances_on = []
 	vats_staffed = []
 	town_sim.set_vats(vats_staffed)  # (new_game cleared them too)
@@ -713,6 +717,24 @@ func cmd_demolish(lot_id: String) -> Dictionary:
 ## cap). A cancelled first build frees the lot; a cancelled upgrade keeps the old level.
 func cmd_cancel_build(lot_id: String) -> Dictionary:
 	return BuildRules.cancel_build(self, lot_id)
+
+
+## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
+## or queued for `lot_id`. Refuses only what waiting can't make valid; gates time or play can clear are
+## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build).
+func cmd_queue_build(building_id: String, lot_id: String) -> Dictionary:
+	return BuildRules.queue_build(self, building_id, lot_id)
+
+
+## §4.3: removes queue entry `index` (unknown_index).
+func cmd_unqueue(index: int) -> Dictionary:
+	return BuildRules.unqueue(self, index)
+
+
+## §4.3: `order[k]` is the old index that moves to position k, a permutation of the current indices
+## (bad_order).
+func cmd_reorder_queue(order: Array) -> Dictionary:
+	return BuildRules.reorder_queue(self, order)
 
 
 ## The ladder, a permutation of JOB_IDS, top first: TownSim's workers fill job slots in this order.
@@ -1445,6 +1467,9 @@ func _core_step(dt: float) -> Array:
 	for ev in town["events"]:
 		_emit_town(ev)
 	BuildRules.rise_tiers(self)
+	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
+	# opens its entries this step and this step's income counts
+	BuildRules.process_queue(self)
 	# TownSim's muster joins this step's WAR
 	var muster := float(town["muster_mass"]) / dt
 	_split = {"mint": mint, "work": work, "war": mint * valve["war"] + muster,

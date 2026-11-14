@@ -131,6 +131,7 @@ E2a added is here with its value.
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
 | `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
 | `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250 |
+| `queue.max_len` | 8 | the build queue's length (IDLE §5, E2b-2 T3.2), the town's stand-in's 8 |
 | `bone.cap`, bone mill `effects.bone_cap` | 200, + 100 per Bone Mill level (+50% of the base) | 300, 400, 500 at Bone Mill levels 1–3; a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
@@ -181,6 +182,13 @@ same way, from their load).
   level 2 (240) and 3 (360), Embalmer level 3 (240), Reliquary (250), Ossuary Tower level 2 (300) and 3
   (450). A level-1 mill (300) leaves the Chapel's level 3 and the Ossuary's level 3; level 2 (400) the
   Ossuary's level 3; level 3 none.
+- **Nothing stuck, checked** (the run's manager, for E4): every building and level in `buildings.json`,
+  priced with `BuildRules.construction_cost`, against the highest cap the player can reach for each
+  resource with one cap building at its top level: gold 6 500 + 3 × 3 250 = 16 250, bone 200 + 3 × 100 =
+  500, relics 12 + 6 (the Reliquary, level 1) = 18. The top prices are the Ossuary Tower's level 3 in
+  all three (1 350 gold, 450 bone, 9 relics), so **no price is above its highest reachable cap: the list
+  is empty**, and `cmd_queue_build`'s `cap_level` is never −1 with the shipped numbers. (A second Market
+  or Bone Mill raises a cap further; the check counts one.)
 - **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 9 (the Ossuary's
   level 3), so no relic cost exceeds it.
 

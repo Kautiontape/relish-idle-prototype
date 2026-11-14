@@ -80,6 +80,10 @@ const COMMANDS := {
 	"cmd_upgrade": {"level": I, "cost": COST},
 	"cmd_demolish": {},
 	"cmd_cancel_build": {"refund": COST},
+	# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
+	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I},
+	"cmd_unqueue": {},
+	"cmd_reorder_queue": {},
 	"cmd_set_job_priority": {"order": [S]},
 	"cmd_set_staff_cap": {"cap": I},
 	"cmd_set_stance": {"slots": I, "used": I},
@@ -118,6 +122,10 @@ const REASONS := {
 		"no_gold", "no_bone", "no_relics"],
 	"cmd_demolish": ["unknown_lot", "empty_lot", "under_construction", "protected"],
 	"cmd_cancel_build": ["unknown_lot", "not_building"],
+	"cmd_queue_build": ["queue_full", "unknown_building", "unknown_lot", "unique", "lot_taken", "lot_too_small",
+		"empty_lot", "max_level", "cost_exceeds_cap"],
+	"cmd_unqueue": ["unknown_index"],
+	"cmd_reorder_queue": ["bad_order"],
 	"cmd_set_job_priority": ["unknown_job", "duplicate_job", "missing_job"],
 	"cmd_set_staff_cap": ["unknown_lot", "empty_lot", "no_jobs", "bad_cap"],
 	"cmd_set_stance": ["unknown_stance", "no_slot"],
@@ -159,6 +167,11 @@ const FORT := {
 const TOWN_BUILDING := {
 	"lot_id": S, "building_id": S, "level": I, "state": S, "progress": F, "slots": I, "staffed": F,
 	"staff_cap": I, "foreman": S, "output": {"*": F}, "upkeep": UPKEEP,
+}
+## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
+const QUEUE_ENTRY := {
+	"building_id": S, "lot_id": S, "upgrade": B, "level": I, "cost": COST, "work": F, "status": S, "reason": S,
+	"waited_on": S,
 }
 const CATALOG_BUILDING := {
 	"building_id": S, "cost": COST, "upkeep": UPKEEP, "build_work": F, "lot_size": I, "max_level": I,
@@ -203,6 +216,8 @@ const VIEWS := {
 		"gold": F, "bone": F, "bodies": F, "bodies_cap": F, "trade_rate": F,
 		# api_version 6 (E2b-2 T3.2, IDLE §6): the gold and bone caps
 		"gold_cap": F, "bone_cap": F,
+		# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
+		"queue": [QUEUE_ENTRY], "queue_max": I,
 		"haul": {"target": S, "current": S,
 			"convoys": [{"from": S, "to": S, "phase": S, "t": F, "load": F}]},
 		"relish_home": B,
@@ -272,6 +287,8 @@ const EVENTS := {
 	"big_undead_returned": {"uid": S, "fort_id": S},
 	# api_version 6 (E2b-2 T3.1, api-request #10): a held fort's raid cleared its counter-garrison
 	"counter_garrison_cleared": {"fort_id": S, "killed_mass": F},
+	# api_version 6 (E2b-2 T3.2, api-request #3): a queued build started; waited_on is what held it last
+	"queue_started": {"building_id": S, "lot_id": S, "level": I, "upgrade": B, "waited_on": S},
 	"tithe_warning": {"wave_id": I, "fort_id": S, "eta_s": F, "surge": F},
 	"tithe_wave": {"wave_id": I, "fort_id": S, "surge": F, "duration_s": F, "relish_here": B, "siege_block": F},
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},
@@ -308,6 +325,8 @@ const SAVE := {
 	"ledger": {"sources": {"*": F}, "sinks": {"*": F}, "stores": {"gold": {"overflow": F}, "bone": {"overflow": F}}},
 	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I},
 	"cleared_forts": [S], "first_dungeon": S,
+	# api_version 6 (E2b-2 T3.2): the build queue; optional on load (an older save loads it empty)
+	"queue": [{"building_id": S, "lot_id": S, "upgrade": B, "waited_on": S}],
 }
 ## Methods on GameState besides the commands and views (§1.5).
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",

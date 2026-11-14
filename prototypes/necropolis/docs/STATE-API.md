@@ -57,6 +57,11 @@ from `BALANCE.md` §0.
   - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
     the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
     (§9.1);
+  - (T3.2) **the build queue** (IDLE §5, api-request #3; MECHANICS §4.4): `cmd_queue_build`, `cmd_unqueue`,
+    `cmd_reorder_queue` (§4.3), `view_town().queue` and `.queue_max` (§5.9), the event `queue_started`
+    (§6) and the save's optional `queue` key (§9.1). Gate-blocked entries are accepted as `skipped_gate`
+    (the run's manager, 2026-11-14), not refused as #3 first worded it. A `cost_exceeds_cap` refusal names
+    what to build first: `store`, `cap_building` and `cap_level` (the run's manager);
   - (T3.2) **the gold and bone caps** (IDLE §6; MECHANICS §4.3): `view_hud().rates[i].cap` for `gold` and
     `bone` is the live cap (it was −1.0); `view_town().gold_cap` and `.bone_cap` (§5.9); `ledger().stores`,
     the currency tally of what the caps clipped, saved with the ledger (§4.7, §9.1); `sinks.store_overflow`
@@ -359,7 +364,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      before (TownSim's `rates.feed`). Split it into WORK, WAR and FLOOD.
   3. **TownSim.** Workforce, on this step's WORK (`work · dt`, in the same step: E2b replaced WORK
      arriving one substep late). Also jobs, haul, mill, pit burn, living, gold, bone, morale,
-     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR.
+     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR. Then the
+     tiers rise and the build queue is processed (v6; MECHANICS §4.4): its `next` entries start, in order,
+     and emit `queue_started`.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
   5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate, siege_block})`.**
      Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
@@ -558,6 +565,47 @@ Game.state.cmd_demolish("lot-03")  # -> {ok: true, reason: ""}
     still working.
 ```gdscript
 Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold: 40.0, bone: 10.0, relics: 0}}
+```
+
+**`cmd_queue_build(building_id: String, lot_id: String)` · E2b-2 (api_version 6, api-request #3; IDLE §5)**
+- **Args:** a building id and a lot; `building_id == ""` queues an upgrade of the building on `lot_id`
+  (built or under construction), or of the first new build queued for it.
+- **Extras:** `index: int` (the entry's position; −1 on a refusal), `cap_building: String`, `store:
+  String` and `cap_level: int`. With `cost_exceeds_cap`: `store` is the store whose cap the cost is over
+  (`gold`, `bone` or `relics`), `cap_building` the building whose `*_cap` effect raises it (the first in
+  `buildings.json`), and `cap_level` the lowest level of that building whose cap covers the price: the
+  cap now with its highest-level copy raised to that level, or with one built at it (so `1` when it isn't
+  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`.
+- **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
+  8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
+  `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
+  `lot_too_small`; for an upgrade `empty_lot` (nothing stands or is queued there) and `max_level` (the
+  level it would build, below, is past `max_level`); `cost_exceeds_cap` (its gold, bone or relic cost is
+  above that store's cap now).
+- **Accepted as gates** (the run's manager, 2026-11-14: IDLE §5 over this request's first wording; the
+  town adapts its UI in Phase I): `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, a
+  relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
+  `skipped_gate` with that reason and starts when the gate clears. Affordability (gold, bone) never
+  refuses: it holds the queue.
+- **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
+  the queue (§3, step 3; MECHANICS §4.4).
+```gdscript
+Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1}
+Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: true, reason: "", index: 1, ...}
+Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1}
+```
+
+**`cmd_unqueue(index: int)` · E2b-2 (v6, #3)**
+- **Reasons:** `unknown_index` (not 0..size − 1). **Effect:** removes the entry; `rev` + 1.
+
+**`cmd_reorder_queue(order: Array)` · E2b-2 (v6, #3)**
+- **Args:** `order[k]` is the old index that moves to position k: a permutation of the current indices
+  (ints, or floats that are whole numbers).
+- **Reasons:** `bad_order` (not such a permutation). **Effect:** reorders; levels and costs are recomputed
+  from the new order on the next walk; `rev` + 1.
+```gdscript
+Game.state.cmd_reorder_queue([1, 0])  # -> {ok: true, reason: ""}
+Game.state.cmd_unqueue(3)             # -> {ok: false, reason: "unknown_index"}
 ```
 
 **`cmd_set_job_priority(order: Array)` · E1/E2**
@@ -1186,10 +1234,28 @@ until the first substep.
 | `migrants`, `departures` | float | living/s |
 | `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `dread`, `shock`. |
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
+| `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
+| `queue_max` | int | `economy.json` `queue.max_len` (8) |
 | `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
 | `haul` | Dictionary | `{target: String ("auto" or a fort id), current: String, convoys: Array[{from: String, to: String, phase: "out"\|"back", t: float, load: float}]}`. `t` is trip progress 0..1; `load` is mass. |
 | `relish_home` | bool | the slab works |
+
+Each `queue` entry (v6). Every field but `waited_on` is derived from today's state by the walk the core
+step's processing runs (MECHANICS §4.4), so a status says what the next processing does. The next step
+adds income and may raise the tier before the queue runs, so a `waiting_funds` head a little short can start
+in it: that is correct, not a mismatch.
+
+| key | type | meaning |
+|---|---|---|
+| `building_id`, `lot_id` | String | for an upgrade, the building on (or queued for) its lot |
+| `upgrade` | bool | |
+| `level` | int | the level it builds: 1 for a new build; for an upgrade one above what its lot will have once every entry ahead of it for that lot, and the construction under way there, are done (two queued upgrades of a level-1 lot: 2, then 3; a reorder recomputes it) |
+| `cost` | Dictionary | `{gold: float, bone: float, relics: int}`: the construction's cost at `level` (`cost`, or `level_costs[level − 2]`) |
+| `work` | float | the build work its construction needs: `build_work · level` (TownSim's step 6) |
+| `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
+| `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (exactly `view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
+| `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing (a view never changes it; a plain `queued` leaves it). Saved. `queue_started.waited_on` carries it (§6) |
 
 Each `buildings` entry:
 
@@ -1480,6 +1546,7 @@ Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evalua
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
+| `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started at 3:12, when the tier rose": `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began, the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
@@ -1769,6 +1836,7 @@ take the router's legacy path (§2.3).
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, or past `queue.max_len`, is dropped with a warning |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,

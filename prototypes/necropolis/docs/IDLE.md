@@ -251,14 +251,17 @@ same profile with the game closed.
 
 ## 5. The build queue
 - An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), up
-  to `queue.max_len`. Builds take their `build_work` through the build job, as today.
-- **Processing:**
+  to `queue.max_len` (8; E2b-2 T3.2, MECHANICS §4.4). Builds take their `build_work` through the build
+  job, as before.
+- **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
-  - A head blocked by an **unmet gate** (blueprint, tier, relics) is flagged and **skipped**, because
-    time can't resolve it.
+  - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
+    `skipped_gate` and **skipped**: it holds nothing and starts at its own place once play or time
+    clears the gate (the run's manager, 2026-11-14: such entries are accepted, not refused).
   - A head blocked only by **affordability** holds the queue, which saves toward it.
 - `cmd_queue_build` rejects with `cost_exceeds_cap` when a cost is above the current store cap, and
-  suggests the building that raises that cap.
+  names the building that raises that cap (the Market for gold, the Bone Mill for bone, the Reliquary
+  for relics).
 - The queue is how growth **compounds** while you're away. Streams level off at their steady states,
   and the queue spends them into buildings that raise those rates.
 
