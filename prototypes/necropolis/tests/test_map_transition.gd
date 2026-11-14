@@ -78,6 +78,7 @@ func _router_source(t: TestUtil) -> void:
 	t.ok(apply.contains("apply_result(") and not apply.contains("await"), "main.gd applies the result synchronously")
 	t.ok(apply.find("apply_result(") < apply.find("_open_map("), "the result applies before the map opens")
 	t.ok(src.contains("router_done"), "main.gd keeps the one-emit-per-scene guard")
+	t.ok(_body(src, "func _ready(").contains("Synth.retain()") and src.contains("Synth.release()"), "the router holds the sound cache for the session and releases it at quit")
 	t.ok(swap.contains("_held_events = []") and swap.find("_held_events = []") < swap.find("_run_transition"), "_swap resets _held_events before a new swap starts holding")
 	var run := _body(src, "func _run_transition(")
 	var ab := run.substr(run.find("if gen != _gen:"), 260)
