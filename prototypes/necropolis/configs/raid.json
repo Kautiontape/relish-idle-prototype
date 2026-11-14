@@ -289,10 +289,10 @@
     "held_rooms_delta": 1
   },
   "detour": {
-    "_doc": "D-d/E Step 3, the guarded detour (LayoutLogic.detour_site / detour_guard, RaidPopulate): from min_tier up (never the first dungeon or a held fort) a cache lies in a side room off the path from the spawn to the warden room, bordering a path room (a normal room before a checkpoint, where loot would bank), cache_door_px in from the gap they share, and guard_by_tier of the fort's own living (the tier's mix, within guard_spread_px of it) stand on it: they come out of the fort's count, so the run has the same bodies, mass and motes, only placed. What it holds is loot.json cache. Fetching it is a push: the army has to win the guard's fight in a room off the way. The guard holds its post (RaidUnit.sentry, 3b): it turns only on what comes into its room and never follows out of it, so the fight happens at the cache and walking out ends it.",
+    "_doc": "D-d/E Step 3, the guarded detour (LayoutLogic.detour_site / detour_guard, RaidPopulate): from min_tier up (never the first dungeon or a held fort) a cache lies in a side room off the path from the spawn to the warden room, bordering a path room (a normal room before a checkpoint, where loot would bank), cache_door_px in from the gap they share, and guard_by_tier of the fort's own living (the tier's mix, within guard_spread_px of it) stand on it: they come out of the fort's count, so the run has the same bodies, mass and motes, only placed. What it holds is loot.json cache. Fetching it is a push: the army has to win the guard's fight in a room off the way. The guard holds its post (RaidUnit.sentry, 3b): it turns only on what comes into its room and never follows out of it, so the fight happens at the cache and walking out ends it. 3c: the cache lies at the guard's post just inside the door (cache_door_px; LayoutLogic keeps it 40 px off the walls), so she takes it inside the guard fight, stepping through the door, rather than walking in to it after the fight.",
     "min_tier": 2,
     "guard_by_tier": {"1": 0, "2": 4, "3": 5, "4": 6},
-    "cache_door_px": 130.0,
+    "cache_door_px": 45.0,
     "guard_spread_px": 50.0
   },
   "floor": {

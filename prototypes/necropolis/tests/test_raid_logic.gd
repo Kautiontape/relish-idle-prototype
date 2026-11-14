@@ -482,7 +482,7 @@ func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 		if path.has(r) or not path.has(int(site["from_room"])) or int(site["from_room"]) == int(lay["warden_room"]) \
 				or not (lay["adj"][r] as Array).has(int(site["from_room"])):
 			bad += " %s: room %d from %d" % [fid, r, int(site["from_room"])]
-		if not (lay["rooms"][r] as Rect2).has_point(site["pos"]) or (site["pos"] as Vector2).distance_to(site["gap"]) > float(dc["cache_door_px"]) + 1.0:
+		if not (lay["rooms"][r] as Rect2).has_point(site["pos"]) or (site["pos"] as Vector2).distance_to(site["gap"]) > float(dc["cache_door_px"]) + 40.0:
 			bad += " %s: cache at %s" % [fid, str(site["pos"])]
 		if str(lay["roles"][r]) == "normal":
 			normal += 1
@@ -493,7 +493,7 @@ func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 				bad += " %s: guard at %s" % [fid, str(m["pos"])]
 		if str(RaidLogic.detour_guard(fid, lay, tier, cfg)) != str(guard):
 			bad += " %s: guard not deterministic" % fid
-	t.ok(bad == "", "every tier 2-4 fort has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap, with its guard in that room, the same each build (%s)" % bad)
+	t.ok(bad == "", "every tier 2-4 fort has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap (plus the 40 px it is kept off the walls), with its guard in that room, the same each build (%s)" % bad)
 	t.ok(sites == 9, "all nine tier 2-4 forts have one (%d)" % sites)
 	t.ok(normal >= 7, "a normal room is preferred to a checkpoint (%d of 9; at lantern-keep and pale-bastion only a checkpoint opens onto the path)" % normal)
 	var first := RaidLogic.gen_layout("vespers", 2, false, cfg, {"first_dungeon": true})
