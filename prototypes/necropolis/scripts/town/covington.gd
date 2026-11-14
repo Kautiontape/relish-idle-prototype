@@ -390,6 +390,12 @@ func _fetch_views() -> Dictionary:
 	}
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
+	# the same lot hops the autoplayer breaks ties with, and the one suggestion the Build tab and the HUD show,
+	# computed once per fetch for every panel (the town view's own model binds after the HUD, so it can't lend them)
+	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
+		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
+	views["lot_hops"] = BuildSort.lot_maps(views, cfgs)["hops"]
+	views["tab"] = BuildSort.tab_suggestion(views, cfgs["buildings_view"], cfgs["buildings"], cfgs["town"].get("view", {}))
 	return views
 
 

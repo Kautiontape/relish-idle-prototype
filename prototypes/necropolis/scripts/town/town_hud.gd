@@ -34,6 +34,7 @@ var _vcfg: Dictionary = {}
 var _bview: Dictionary = {}
 var _bcfg: Dictionary = {}
 var _idle_cap := 0.0
+var _tab := {}  # this bind's BuildSort.tab_suggestion: the idle line and the bottleneck read the same needs and sort
 var _cells := {}  # stream id -> {net, name, split, stock, bar}
 var _tier: Label
 var _next: Label
@@ -170,6 +171,9 @@ func set_return_enabled(on: bool) -> void:
 
 
 func bind(views: Dictionary) -> void:
+	_tab = views.get("tab", {})  # the shell's BuildSort.tab_suggestion, computed once per fetch for every panel
+	if _tab.is_empty():
+		_tab = BuildSort.tab_suggestion(views, _bview, _bcfg, _vcfg)
 	var town: Dictionary = views.get("town", {})
 	var hud: Dictionary = views.get("hud", {})
 	var rates: Dictionary = views.get("rates", {}).get("rates", {})
@@ -178,7 +182,7 @@ func bind(views: Dictionary) -> void:
 	_bind_morale(town)
 	_tier.text = String(town.get("tier", "")).capitalize()
 	_next.text = HudModel.next_tier_line(String(town.get("tier", "")), town.get("next_tier", {}), _hcfg, _bview)
-	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg)
+	var stuck := HudModel.bottleneck(views, _vcfg, _bview, _bcfg, _tab)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
 	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream
 
@@ -205,7 +209,7 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 			"  (%s)" % why if why != "" else ""]
 		c["stock"].tooltip_text = c["stock"].text
 		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
-		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg)
+		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab)
 		(c["war_row"] as Control).visible = war > 0.0 or not idle.is_empty()
 		(c["war_rate"] as Label).visible = war > 0.0
 		(c["war_word"] as Label).visible = war > 0.0

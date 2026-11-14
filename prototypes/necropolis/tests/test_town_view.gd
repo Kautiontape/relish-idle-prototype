@@ -111,6 +111,12 @@ func run() -> int:
 	_deep_levels(day1)
 	_upgrade_first(day1)
 	_gate_lots(day1)
+	_fix3a_serves(day1, mid)
+	_fix3a_work()
+	_fix3a_hud(day1)
+	_fix3a_upgrades(day1)
+	_fix3a_lots(day1)
+	_fix3a_reserve(day1)
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
@@ -1647,7 +1653,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS, "view.reasons.%s is a documented reason id" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
@@ -3802,11 +3808,13 @@ func _up_world(day1: Dictionary, level: int, state: String, gold := 1000.0, bone
 	return v
 
 
-func _up_suggest(v: Dictionary) -> Dictionary:
-	var nd := BuildSort.needs(v, {}, vcfg, cfg["buildings_view"], cfg["buildings"])
-	var items := BuildSort.sort_rows(v["catalog"]["buildings"], nd, cfg["buildings_view"], vcfg)
-	var ups := BuildSort.upgrade_items(v, nd, cfg["buildings_view"], cfg["buildings"], vcfg)
-	return BuildSort.suggest(items, cfg["buildings_view"], BuildSort.stocks(v), vcfg, ups)
+func _up_suggest(v: Dictionary, bc: Dictionary = {}, bv: Dictionary = {}) -> Dictionary:
+	var bcfg: Dictionary = cfg["buildings"] if bc.is_empty() else bc
+	var bview: Dictionary = cfg["buildings_view"] if bv.is_empty() else bv
+	var nd := BuildSort.needs(v, {}, vcfg, bview, bcfg)
+	var items := BuildSort.sort_rows(v["catalog"]["buildings"], nd, bview, vcfg)
+	var ups := BuildSort.upgrade_items(v, nd, bview, bcfg, vcfg)
+	return BuildSort.suggest(items, bview, BuildSort.stocks(v), vcfg, ups)
 
 
 func _upgrade_first(day1: Dictionary) -> void:
@@ -3833,7 +3841,7 @@ func _upgrade_first(day1: Dictionary) -> void:
 	t.ok(not s.has("upgrade") and s["building_id"] == "well" and s["lots"] == [v["_lot_new"]], "upgrade first (b): X at max_level -> the new build (%s)" % str(s))
 	# deeper max_level from the catalog makes the same house a candidate again
 	v = _up_world(day1, 3, "active", 1000.0, 1000.0, 8)
-	t.ok(bool(_up_suggest(v).get("upgrade", false)), "upgrade first: max_level 8 from the catalog keeps a level-3 house a candidate")
+	t.ok(bool(_up_suggest(v, _deep_cfg("house", 8)).get("upgrade", false)), "upgrade first: max_level 8 from the catalog, with real level_costs, keeps a level-3 house a candidate")
 	# (c) constructing or unpaid -> the new build
 	for st_name in ["constructing", "unpaid"]:
 		v = _up_world(day1, 1, st_name)
@@ -3938,14 +3946,281 @@ func _gate_lots(day1: Dictionary) -> void:
 	v6["town"]["next_tier"] = {}
 	t.ok(BuildSort.reserved_lots(v6, bc).is_empty(), "gate lots: an empty next_tier (top tier) reserves nothing")
 	v6 = _gate_world(day1, ["walls", "well"], ["walls"])
-	t.ok(BuildSort.reserved_lots(v6, bc) == {"lot-A": "well"} or BuildSort.reserved_lots(v6, bc).keys() == ["lot-B"],
-		"gate lots: a gate under construction reserves nothing, the other still does (%s)" % str(BuildSort.reserved_lots(v6, bc)))
+	t.ok(BuildSort.reserved_lots(v6, bc) == {"lot-B": "well"},
+		"gate lots: a gate under construction reserves nothing; the size-1 well still keeps the smallest free lot, lot-B (%s)" % str(BuildSort.reserved_lots(v6, bc)))
 	t.ok(not BuildSort.reserved_lots(v6, bc).values().has("walls"), "gate lots: the constructing walls keeps no lot")
 	v6 = _gate_world(day1, ["walls", "well"], ["walls", "well"])
 	t.ok(BuildSort.reserved_lots(v6, bc).is_empty(), "gate lots: every gate placed reserves nothing")
 	# the lot card note
 	t.ok(BuildSort.reserved_note("lot-A", rs, bview, vcfg) == "" and BuildSort.reserved_note("lot-A", {"lot-A": "walls"}, bview, vcfg) == "kept for %s (next tier)" % BuildSort.label_of("walls", bview),
 		"gate lots: the empty lot card names the gate the lot is kept for")
+
+
+# ------------------------------------------- Fix 3a: suggestion, build panel, HUD ----
+func _row_of(v: Dictionary, bid: String) -> Dictionary:
+	for r in v["catalog"]["buildings"]:
+		if r["building_id"] == bid:
+			return r
+	return {}
+
+
+## Item 1: an upgrade serves what one more level adds (buildings_view `upgrade_serves`), not what the
+## building was built for.
+func _fix3a_serves(day1: Dictionary, mid: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	# the audit, from the data: a level adds `jobs × level` and numeric `effects × level` (array effects are
+	# per-level tables); only a building whose levels add neither needs its own `upgrade_serves`
+	for bid in bc:
+		var d: Dictionary = bc[bid]
+		if int(d.get("max_level", 1)) <= 1:
+			continue
+		var levelled: bool = not (d.get("jobs", {}) as Dictionary).is_empty() or not (d.get("effects", {}) as Dictionary).is_empty()
+		t.ok(bv[bid].has("upgrade_serves") == not levelled,
+			"upgrade serves: %s %s (jobs/effects per level: %s)" % [bid, "inherits its serves" if levelled else "has its own upgrade_serves", str(levelled)])
+	t.ok(bv["crypt"]["upgrade_serves"] == [] and bc["crypt"]["jobs"].is_empty() and bc["crypt"]["effects"].is_empty(),
+		"upgrade serves: the Crypt's levels serve no need (+1 big-undead cap)")
+	var plain: Dictionary = bv.duplicate(true)
+	plain["crypt"].erase("upgrade_serves")
+	t.ok(BuildSort.upgrade_serves("crypt", plain) == ["front", "warden", "building:crypt"], "upgrade serves: absent upgrade_serves inherits serves (%s)" % str(BuildSort.upgrade_serves("crypt", plain)))
+	t.ok(BuildSort.upgrade_serves("house", bv) == ["housing", "building:house"], "upgrade serves: a building without upgrade_serves inherits (house)")
+	t.ok(BuildSort.upgrade_serves("crypt", bv) == ["building:crypt"], "upgrade serves: [] serves nothing but its own building tag")
+	var own: Dictionary = bv.duplicate(true)
+	own["house"]["upgrade_serves"] = ["morale"]
+	t.ok(BuildSort.upgrade_serves("house", own) == ["morale", "building:house"], "upgrade serves: upgrade_serves replaces serves for the upgrade")
+	# midgame_2flips: the tithe need is live and the Crypt's L2 is affordable: it must not be a candidate
+	var nd := BuildSort.needs(mid, mid["fort_names"], vcfg, bv, bc)
+	t.ok("tithe" in _need_ids_of(nd), "upgrade serves: midgame_2flips has the tithe need live (%s)" % str(_need_ids_of(nd)))
+	var ups := BuildSort.upgrade_items(mid, nd, bv, bc, vcfg)
+	var crypt_ups := ups.filter(func(u): return u["row"]["building_id"] == "crypt")
+	t.ok(crypt_ups.is_empty(), "upgrade serves: midgame_2flips offers no Crypt upgrade (%s)" % str(ups.map(func(u): return u["row"]["building_id"])))
+	var old := BuildSort.upgrade_items(mid, BuildSort.needs(mid, mid["fort_names"], vcfg, plain, bc), plain, bc, vcfg).filter(func(u): return u["row"]["building_id"] == "crypt")
+	t.ok(not old.is_empty() and old[0]["cls"] == BuildSort.CLS_NEED_BUILDABLE, "upgrade serves: (without upgrade_serves the Crypt L2 was the affordable need candidate)")
+	var sug: Dictionary = BuildSort.tab_suggestion(mid, bv, bc, vcfg)["sug"]
+	t.ok(not (bool(sug.get("upgrade", false)) and sug.get("building_id", "") == "crypt"), "upgrade serves: midgame_2flips' suggestion is not a Crypt upgrade (%s)" % str(sug))
+	# a job building's upgrade still serves idle hands
+	var v := _up_world(day1, 1, "active")
+	for b in v["town"]["buildings"]:
+		if b["lot_id"] == v["_lot_h"]:
+			b["building_id"] = "market"
+			b["slots"] = 2
+	for l in v["town"]["lots"]:
+		if l["id"] == v["_lot_h"]:
+			l["building_id"] = "market"
+	v["town"]["living"] = 0.0
+	v["town"]["workers"]["idle"] = 6.0
+	v["town"]["next_tier"] = {}  # no tier need ahead of idle_hands
+	var jn := BuildSort.needs(v, {}, vcfg, bv, bc)
+	var jups := BuildSort.upgrade_items(v, jn, bv, bc, vcfg)
+	t.ok(_need_ids_of(jn) == ["idle_hands"] and jups.size() == 1 and jups[0]["row"]["building_id"] == "market" and jups[0]["need"] == "idle_hands",
+		"upgrade serves: a built Market's upgrade serves idle_hands (%s)" % str(jups.map(func(u): return [u["row"]["building_id"], u["need"]])))
+	var js := _up_suggest(v)
+	t.ok(bool(js.get("upgrade", false)) and js["building_id"] == "market" and js["level"] == 2, "upgrade serves: ... and leads the suggestion (%s)" % str(js))
+
+
+## Item 2: one marked helper for the build work of a site; the view's own numbers win.
+func _fix3a_work() -> void:
+	var row := {"building_id": "house", "build_work": 60.0}
+	var w := BuildSort.site_work(row, 1)
+	t.ok(is_equal_approx(w["total"], 60.0) and is_equal_approx(w["left"], 60.0), "site work: the stand-in is build_work × target level (L1: 60)")
+	t.ok(is_equal_approx(BuildSort.site_work(row, 3)["total"], 180.0), "site work: ... L3: 180")
+	var constructing := {"state": "constructing", "progress": 0.25}
+	w = BuildSort.site_work(row, 2, constructing)
+	t.ok(is_equal_approx(w["total"], 120.0) and is_equal_approx(w["left"], 90.0), "site work: stand-in left = total × (1 − progress)")
+	var rw := row.duplicate()
+	rw["work"] = 45.0
+	t.ok(is_equal_approx(BuildSort.site_work(rw, 1)["total"], 45.0), "site work: a catalog row's `work` wins for a new build")
+	t.ok(is_equal_approx(BuildSort.site_work(rw, 2)["total"], 120.0), "site work: ... but is no upgrade's work")
+	t.ok(is_equal_approx(BuildSort.site_work(row, 2, {"state": "active", "upgrade_work": 77.0})["total"], 77.0), "site work: the built entry's `upgrade_work` wins for an upgrade")
+	var lf := {"state": "constructing", "progress": 0.25, "work_left": 12.0}
+	t.ok(is_equal_approx(BuildSort.site_work(row, 1, lf)["left"], 12.0), "site work: a constructing entry's `work_left` wins")
+	var cat := {"house": rw}
+	var e := {"building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1}
+	t.ok(is_equal_approx(BuildSort.entry_work(e, cat, {}), 45.0), "site work: entry_work takes the catalog `work`")
+	t.ok(is_equal_approx(BuildSort.entry_work(e, cat, {"buildings": [{"lot_id": "lot-05", "building_id": "house", "state": "constructing", "level": 0, "progress": 0.5, "work_left": 7.0}]}), 7.0),
+		"site work: entry_work takes `work_left` while the lot is constructing it")
+	var up := {"building_id": "house", "lot_id": "lot-05", "upgrade": true, "level": 2}
+	t.ok(is_equal_approx(BuildSort.entry_work(up, cat, {"buildings": [{"lot_id": "lot-05", "building_id": "house", "state": "active", "level": 1, "upgrade_work": 99.0}]}), 99.0),
+		"site work: entry_work takes the built entry's `upgrade_work` for an upgrade")
+	# the throughput reads the view's work counter when both samples have it
+	var at := func(tt: float, progress: float, left: float) -> Dictionary:
+		return {"hud": {"t": tt}, "catalog": {"buildings": [{"building_id": "house", "build_work": 60.0}]},
+			"town": {"buildings": [{"lot_id": "lot-05", "building_id": "house", "level": 0, "state": "constructing", "progress": progress, "work_left": left}]}}
+	var tp := BuildSort.Throughput.new(10.0)
+	tp.observe(at.call(10.0, 0.2, 50.0))
+	tp.observe(at.call(20.0, 0.3, 30.0))
+	t.ok(is_equal_approx(tp.rate, 2.0), "site work: the throughput is Δwork_left ÷ Δt when the view has it (%.3f, not the stand-in's 0.6)" % tp.rate)
+
+
+## Item 3 and 6: the HUD's idle line reads the Build tab's suggestion, handed over once.
+func _fix3a_hud(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	var mk := func(rows: Array, gold: float, missing: Array = []) -> Dictionary:
+		return {"town": {"workers": {"idle": 10.0, "muster": 0.1}, "gold": gold, "bone": 1000.0, "jobs": [], "lots": [],
+			"next_tier": {"tier": "village", "have": 1, "need": 2, "missing": missing} if not missing.is_empty() else {},
+			"buildings": [{"lot_id": "lot-07", "building_id": "market", "level": 1, "state": "active", "progress": 1.0, "slots": 2, "staffed": 2.0}]},
+			"hud": {"rates": [{"id": "gold", "rate": 0.2}, {"id": "bone", "rate": 0.2}], "relics": 0}, "catalog": {"buildings": rows}, "fort_names": {}}
+	var rows := [_row("house", true, "", ["lot-05"]), _row("market", false, "no_gold", ["lot-08"])]
+	var p: Array = HudModel.idle_parts(mk.call(rows, 1000.0), vcfg, bv, bc)
+	t.ok(HudModel.parts_text(p) == "10 idle: upgrade the Market to L2 (+%d jobs) or let them muster" % BuildSort.job_slots("market", bc) and p.size() == 1,
+		"hud idle: the best use is a job upgrade, the Build tab's suggestion (%s)" % HudModel.parts_text(p))
+	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(rows, 10.0), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to WAR",
+		"hud idle: an upgrade that can't be paid for is no job building affordable")
+	# a suggestion with no jobs (the tier's House) leaves the line on the first buildable job item
+	var jrows := [_row("house", true, "", ["lot-05"]), _row("charnel_house", true, "", ["lot-06"]), _row("market", false, "no_gold", ["lot-08"])]
+	var tier: Dictionary = mk.call(jrows, 10.0, ["house"])
+	t.ok(BuildSort.tab_suggestion(tier, bv, bc, vcfg)["sug"]["building_id"] == "house", "hud idle: (the tier's House is the suggestion)")
+	t.ok(HudModel.parts_text(HudModel.idle_parts(tier, vcfg, bv, bc)).begins_with("10 idle: build a Charnel House ("), "hud idle: a non-job suggestion falls to the first buildable job item")
+	# the line reads the tab it is given, no second needs + sort
+	var v: Dictionary = mk.call(rows, 1000.0)
+	var tab := BuildSort.tab_suggestion(v, bv, bc, vcfg)
+	tab["sug"] = {"building_id": "charnel_house", "label": "Charnel House", "lots": ["lot-06"]}
+	t.ok(HudModel.parts_text(HudModel.idle_parts(v, vcfg, bv, bc, tab)).begins_with("10 idle: build a Charnel House ("), "hud idle: the line reads the given tab")
+	var stuck_rows := [_row("house", false, "no_gold", ["lot-05"])]
+	var sv: Dictionary = mk.call(stuck_rows, 1000.0)
+	sv["hud"]["rates"] = [{"id": "gold", "rate": 0.0}, {"id": "bone", "rate": 0.2}]
+	var real_stuck := HudModel.bottleneck(sv, vcfg, bv, bc)
+	t.ok(not real_stuck.is_empty() and HudModel.bottleneck(sv, vcfg, bv, bc, BuildSort.tab_suggestion(sv, bv, bc, vcfg)) == real_stuck,
+		"hud bottleneck: reads the given tab's sorted rows, the same result as computing its own (%s)" % str(real_stuck))
+
+
+## Items 4 and 9, and the G3 test gaps.
+func _fix3a_upgrades(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	# 9: the chip names no lot
+	var s := _up_suggest(_up_world(day1, 1, "active"))
+	t.ok(s["chip"] == "suggested: upgrade to L2" and not String(s["chip"]).contains("lot-"), "chip: reads 'suggested: upgrade to L2', no raw lot id (%s)" % s["chip"])
+	# 4: past the cost table is not upgradable
+	var st := {"gold": 1e6, "bone": 1e6, "relics": 9.0, "max_level": {"house": 8}}
+	var house := {"lot_id": "lot-05", "building_id": "house", "level": 3, "state": "active", "progress": 1.0, "slots": 0,
+		"staffed": 0.0, "foreman": "", "upkeep": {"gold": 0.0, "bone": 0.0}}
+	var i := BuildSort.inspect(house, st, bc, bv, vcfg)
+	t.ok(i["upgrade"]["reason"] == "no_cost" and not i["upgrade"]["enabled"] and not i["upgrade"]["can_queue"] and i["upgrade"]["cost"].is_empty(),
+		"no cost: past level_costs the upgrade is refused, not free (%s)" % str(i["upgrade"]))
+	t.ok(BuildSort.reason_text("no_cost", {"level": i["upgrade"]["level"]}, st, bv, vcfg) == "no cost set for L4", "no cost: the reason reads 'no cost set for L4'")
+	var v := _up_world(day1, 3, "active", 1000.0, 1000.0, 8)
+	t.ok(BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, bc), bv, bc, vcfg).is_empty(), "no cost: past the table is no upgrade candidate")
+	t.ok(not _up_suggest(v).has("upgrade"), "no cost: ... and no free upgrade suggestion")
+	# 8a: an upgrade never outranks a higher-ranked need's new build
+	v = _up_world(day1, 1, "active")
+	_set_rate(v, "gold", -0.05)  # the gold need ranks above housing
+	var mrow := _row_of(v, "market")
+	mrow["can_build"] = true
+	mrow["reason"] = ""
+	mrow["lots"] = [v["_lot_new"]]
+	mrow["cost"] = {"gold": 5.0, "bone": 1.0, "relics": 0}
+	var nd := BuildSort.needs(v, {}, vcfg, bv, bc)
+	s = _up_suggest(v)
+	t.ok(_need_ids_of(nd).find("gold") >= 0 and _need_ids_of(nd).find("gold") < _need_ids_of(nd).find("housing"), "up gaps: the gold need ranks above housing (%s)" % str(_need_ids_of(nd)))
+	t.ok(not s.has("upgrade") and s["building_id"] == "market", "up gaps: the buildable house upgrade (housing) does not outrank the Market (gold) (%s)" % str(s))
+	# 8b: short of bone -> CLS_NEED_SHORT
+	v = _up_world(day1, 1, "active", 1000.0, 5.0)
+	var ups := BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, bc), bv, bc, vcfg)
+	t.ok(ups.size() == 1 and ups[0]["cls"] == BuildSort.CLS_NEED_SHORT and ups[0]["row"]["reason"] == "no_bone" and not ups[0]["row"]["can_build"],
+		"up gaps: an upgrade short of bone is CLS_NEED_SHORT with no_bone")
+	# 8c: short of relics -> CLS_NEED_SHORT and never a save-for target
+	var rc: Dictionary = bc.duplicate(true)
+	rc["house"]["level_costs"][0]["relics"] = 1
+	v = _up_world(day1, 1, "active")
+	v["hud"]["relics"] = 0
+	ups = BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, rc), bv, rc, vcfg)
+	t.ok(ups.size() == 1 and ups[0]["cls"] == BuildSort.CLS_NEED_SHORT and ups[0]["row"]["reason"] == "no_relics", "up gaps: an upgrade short of relics is CLS_NEED_SHORT with no_relics")
+	s = _up_suggest(v, rc)
+	t.ok(not s.has("save") and not s.has("upgrade"), "up gaps: ... and the suggestion is the buildable new row, not a save (%s)" % str(s))
+	for r in v["catalog"]["buildings"]:
+		r["can_build"] = false
+		r["reason"] = "needs_tier"
+	s = _up_suggest(v, rc)
+	t.ok(s.is_empty(), "up gaps: with nothing else buildable a relic-short upgrade is never saved for (%s)" % str(s))
+	# 8d: a gold-short upgrade is the save-for target, labelled as an upgrade
+	v = _up_world(day1, 1, "active", 20.0, 1000.0)
+	for r in v["catalog"]["buildings"]:
+		r["can_build"] = false
+		r["reason"] = "needs_tier"
+	s = _up_suggest(v)
+	t.ok(bool(s.get("save", false)) and bool(s.get("upgrade", false)) and s["building_id"] == "house" and s["lots"] == [v["_lot_h"]] and String(s["label"]).begins_with("save for upgrade House to L2 (~"),
+		"up gaps: a short upgrade is saved for, 'save for upgrade House to L2 (~...)' (%s)" % str(s))
+	t.ok(BuildSort.autoplay_pick(v, cfg).is_empty(), "up gaps: the autoplayer waits for it")
+
+
+## Items 5 and 7 (the lot a Queue click takes, a lot of unknown size).
+func _fix3a_lots(day1: Dictionary) -> void:
+	t.ok(BuildSort.nearest_lot(["lot-x", "lot-09"], {}, {"lot-09": 1}) == "lot-09", "nearest lot: a lot with no known size sorts last, not first")
+	t.ok(BuildSort.nearest_lot(["lot-x", "lot-y"], {"lot-x": 4.0, "lot-y": 2.0}, {"lot-09": 1}) == "lot-y", "nearest lot: two unknown sizes fall back to the hops")
+	t.ok(BuildSort.nearest_lot(["lot-x", "lot-y"], {}, {}) == "lot-x", "nearest lot: no sizes at all keeps the first")
+	var row := {"building_id": "house", "lots": ["lot-09", "lot-23", "lot-05"]}
+	var sizes := {"lot-09": 1, "lot-23": 3, "lot-05": 1}
+	var hops := {"lot-09": 3.0, "lot-23": 1.0, "lot-05": 2.0}
+	t.ok(BuildSort.queue_lot(row, {}, {}, hops, sizes) == "lot-05", "queue lot: the smallest free lot, then the nearest (not lots[0], not the 3-lot)")
+	t.ok(BuildSort.queue_lot(row, {"lot-05": true}, {}, hops, sizes) == "lot-09", "queue lot: a lot already queued is skipped")
+	t.ok(BuildSort.queue_lot(row, {}, {"lot-05": "walls"}, hops, sizes) == "lot-09", "queue lot: another building's reserved lot is left alone")
+	var wrow := {"building_id": "walls", "lots": ["lot-05", "lot-23"]}
+	t.ok(BuildSort.queue_lot(wrow, {}, {"lot-23": "walls"}, hops, {"lot-05": 3, "lot-23": 3}) == "lot-23", "queue lot: the gate building takes its own reserved lot (nearest of equals)")
+	t.ok(BuildSort.queue_lot(row, {}, {"lot-05": "walls", "lot-09": "well", "lot-23": "inn"}, hops, sizes) == "lot-05", "queue lot: with every lot reserved the button still works (the smallest, nearest)")
+	t.ok(BuildSort.queue_lot(row, {"lot-05": true, "lot-09": true, "lot-23": true}, {}, hops, sizes) == "", "queue lot: no free lot gives none")
+	t.ok(BuildSort.queue_lot({"building_id": "house", "lots": ["lot-zz", "lot-09"]}, {}, {}, {}, sizes) == "lot-09", "queue lot: a lot of unknown size goes last")
+	t.ok(BuildSort.lot_sizes(day1).size() == day1["town"]["lots"].size() and BuildSort.lot_sizes(day1)["lot-02"] == int(day1["town"]["lots"][1]["size"]), "queue lot: lot_sizes reads view_town's lots")
+
+
+## Items 10 and 11: the panel and the autoplayer keep the same lots; `_save_for` and `_variety_save` respect them.
+func _fix3a_reserve(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	# the shell's `lot_hops` break ties between equal lots, as the autoplayer's do
+	var w := _gate_world(_need_views(day1), ["well"])
+	t.ok(BuildSort.tab_suggestion(w, bv, bc, vcfg)["reserved"] == {"lot-B": "well"}, "same lots: without hops the first listed of equal lots is kept")
+	w["lot_hops"] = {"lot-B": 5.0, "lot-C": 1.0}
+	t.ok(BuildSort.tab_suggestion(w, bv, bc, vcfg)["reserved"] == {"lot-C": "well"}, "same lots: views.lot_hops breaks the tie, the nearer lot is kept")
+	# the real town: the panel's reservation (hops from the shell) is the autoplayer's
+	var v: Dictionary = day1.duplicate(true)
+	v["town"]["next_tier"] = {"tier": "village", "have": 1, "need": 2, "missing": ["well"]}
+	var maps := BuildSort.lot_maps(v, cfg)
+	v["lot_hops"] = maps["hops"]
+	var panel: Dictionary = BuildSort.tab_suggestion(v, bv, bc, vcfg)["reserved"]
+	t.ok(panel.size() == 1 and panel.values() == ["well"], "same lots: the real town reserves a lot for the missing Well (%s)" % str(panel))
+	var line: Array = []
+	for l in panel:
+		line.append("%s:%s" % [l, panel[l]])
+	t.ok(BuildSort.autoplay_why(v, cfg).find("reserved=" + ",".join(line)) >= 0, "same lots: the autoplayer reserves exactly the panel's lots (%s | %s)" % [str(panel), BuildSort.autoplay_why(v, cfg)])
+	t.ok(BuildSort.reserved_lots(v, bc, maps["hops"]) == panel, "same lots: reserved_lots with the shared hops is the panel's")
+	t.ok(BuildSort.tab_suggestion(v, bv, bc, vcfg)["sug"] == BuildSort.tab_suggestion(v, bv, bc, vcfg, maps["hops"])["sug"], "same lots: ... and so is the suggestion")
+	# _save_for: a need row whose only lot is kept for the gate is not saved for
+	var base := _need_views(day1)
+	var sv := _gate_world(base, ["walls"])
+	_set_rate(sv, "gold", 0.5)
+	_set_rate(sv, "bone", 0.5)
+	sv["town"]["gold"] = 5.0
+	sv["town"]["morale"] = {"value": 0.1, "target": 0.8, "factors": []}
+	var inn := _row("inn", false, "no_gold", ["lot-A"])
+	inn["lot_size"] = 1
+	var house := _row("house", true, "", ["lot-B", "lot-C", "lot-D"])
+	sv["catalog"] = {"buildings": [inn, house]}
+	var nd := BuildSort.needs(sv, {}, vcfg, bv, bc)
+	var items := BuildSort.sort_rows(sv["catalog"]["buildings"], nd, bv, vcfg)
+	var st := BuildSort.stocks(sv)
+	var free := BuildSort.suggest(items, bv, st, vcfg)
+	t.ok("morale" in _need_ids_of(nd) and bool(free.get("save", false)) and free["building_id"] == "inn", "reserve: (without the reservation the Inn is saved for: %s)" % str(free))
+	var tab := BuildSort.tab_suggestion(sv, bv, bc, vcfg)
+	t.ok(tab["reserved"] == {"lot-A": "walls"}, "reserve: the Walls keep lot-A (%s)" % str(tab["reserved"]))
+	t.ok(not tab["sug"].has("save") and tab["sug"]["building_id"] == "house" and tab["sug"]["lots"] == ["lot-B", "lot-C", "lot-D"],
+		"reserve: _save_for skips a need row whose only lot is reserved; the suggestion falls to the House (%s)" % str(tab["sug"]))
+	# _variety_save: an unbuilt type whose only lot is reserved is not saved for
+	var vv := _gate_world(base, ["walls"])
+	_set_rate(vv, "gold", 0.5)
+	_set_rate(vv, "bone", 0.5)
+	vv["town"]["gold"] = 5.0
+	var market := _row("market", false, "no_gold", ["lot-A"])
+	market["lot_size"] = 1
+	var h2 := _row("house", true, "", ["lot-B", "lot-C", "lot-D"])
+	h2["count"] = 2
+	vv["catalog"] = {"buildings": [market, h2]}
+	items = BuildSort.sort_rows(vv["catalog"]["buildings"], BuildSort.needs(vv, {}, vcfg, bv, bc), bv, vcfg)
+	free = BuildSort.suggest(items, bv, BuildSort.stocks(vv), vcfg)
+	t.ok(bool(free.get("save", false)) and free["building_id"] == "market", "reserve: (without the reservation the third House gives way to saving for the Market: %s)" % str(free))
+	tab = BuildSort.tab_suggestion(vv, bv, bc, vcfg)
+	t.ok(not tab["sug"].has("save") and tab["sug"]["building_id"] == "house", "reserve: _variety_save skips a type whose only lot is reserved (%s)" % str(tab["sug"]))
 
 
 # ------------------------------------------------------- sound and set pieces ----

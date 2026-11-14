@@ -92,31 +92,49 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 
 
 ## The workers cell's idle line while idle hands are a need (BuildSort.idle_need), as parts
-## [[text, oblique]]: "10 idle: build a Charnel House (+3 jobs) or let them muster", naming the top
-## buildable row of the mission sort that has job slots, its gain the catalog row's `projected` rates
-## (api-request #9, oblique, "now") or else its job count; "10 idle: no job building affordable;
-## mustering to WAR" (or "waiting at the crypt" while nobody musters) when none can be built. [] when
-## the idle hands are no need.
-static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary) -> Array:
+## [[text, oblique]], built from the same suggestion the Build tab shows (`tab` = BuildSort.tab_suggestion,
+## computed here when not given): when the suggestion is a job building (new, or one more level of one), the
+## line names it: "10 idle: build a Charnel House (+3 jobs) or let them muster" / "10 idle: upgrade the
+## Market to L2 (+2 jobs) or let them muster". When it isn't (a save-for target, a building with no jobs), the
+## first buildable job item of the same list (upgrades merged, the next tier's lots kept free) is named
+## instead. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
+## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
+## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
+## be paid for. [] when the idle hands are no need.
+static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {}) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var need := BuildSort.idle_need(views, vcfg.get("needs", {}), bcfg)
 	if need.is_empty():
 		return []
 	var n := roundi(float(need["idle"]))
-	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview, bcfg)
-	for it in BuildSort.sort_rows(views.get("catalog", {}).get("buildings", []), needs, bview, vcfg):
-		var row: Dictionary = it["row"]
+	if tab.is_empty():
+		tab = BuildSort.tab_suggestion(views, bview, bcfg, vcfg)
+	var best: Dictionary = {}
+	var sug: Dictionary = tab["sug"]
+	if not sug.is_empty() and not bool(sug.get("save", false)) and BuildSort.job_slots(String(sug.get("building_id", "")), bcfg) > 0:
+		best = {"row": {"building_id": sug["building_id"], "upgrade": bool(sug.get("upgrade", false)), "level": int(sug.get("level", 1))}}
+		for it in tab["items"]:  # its catalog row, for `projected`
+			if String(it["row"].get("building_id", "")) == String(sug["building_id"]) and not bool(sug.get("upgrade", false)):
+				best["row"] = it["row"]
+				break
+	else:
+		for it in BuildSort.candidates(tab["items"], tab["ups"], tab["reserved"]):
+			var row: Dictionary = it["row"]
+			if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty() and BuildSort.job_slots(String(row.get("building_id", "")), bcfg) > 0:
+				best = it
+				break
+	if not best.is_empty():
+		var row: Dictionary = best["row"]
 		var bid := String(row.get("building_id", ""))
-		if not bool(row.get("can_build", false)) or BuildSort.job_slots(bid, bcfg) <= 0:
-			continue
 		var gain: Array = []
-		if row.get("projected") is Dictionary:
+		if not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
 			var rt := BuildSort.rate_texts(row["projected"], vcfg)
 			if not rt.is_empty():
 				gain = [[", ".join(rt), true]]
 		if gain.is_empty():
 			gain = [[BuildSort.fmt(_t(hcfg, "idle_jobs"), {"n": BuildSort.job_slots(bid, bcfg)}), false]]
-		return fill_parts(_t(hcfg, "idle_build"), {"n": str(n), "label": BuildSort.label_of(bid, bview), "gain": gain})
+		return fill_parts(_t(hcfg, "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"),
+			{"n": str(n), "label": BuildSort.label_of(bid, bview), "level": int(row.get("level", 0)), "gain": gain})
 	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
 	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]
 
@@ -312,13 +330,14 @@ static func short_slots(town: Dictionary) -> int:
 ## `shortage_fix` producer named); (2) any other fixed stream with no flowing producer; (3) workers
 ## short of slots. [] when nothing is stuck. `views.fort_names` feeds the mission sort; `bcfg`
 ## (buildings.json) lets idle hands rank the job buildings.
-static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary = {}) -> Array:
+static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary = {}, tab: Dictionary = {}) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var fixes: Dictionary = vcfg.get("shortage_fix", {})
 	var out: Array = []
 	var seen := {}
-	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview, bcfg)
-	for it in BuildSort.sort_rows(views.get("catalog", {}).get("buildings", []), needs, bview, vcfg):
+	if tab.is_empty():
+		tab = BuildSort.tab_suggestion(views, bview, bcfg, vcfg)
+	for it in tab["items"]:
 		var row: Dictionary = it["row"]
 		var reason := String(row.get("reason", ""))
 		if bool(row.get("can_build", false)) or not reason in ["no_gold", "no_bone"]:

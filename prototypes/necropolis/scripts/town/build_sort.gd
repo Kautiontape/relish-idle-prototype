@@ -255,7 +255,7 @@ static func fitting(items: Array, lot_size: int) -> Array:
 ## <Label> (~70 s)" with `save: true` and `eta_s`, instead of a lower-ranked buildable one. A stream
 ## that isn't flowing, or a longer wait, falls back to the plain rule.
 static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}, upgrades: Array = [], reserved: Dictionary = {}) -> Dictionary:
-	var items := _with_upgrades(_without_reserved(items_in, reserved), upgrades)
+	var items := candidates(items_in, upgrades, reserved)
 	if not st.is_empty() and not vcfg.is_empty():
 		var saving := _save_for(items, bview, st, vcfg)
 		if not saving.is_empty():
@@ -281,6 +281,27 @@ static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcf
 	if bool(best.get("upgrade", false)):
 		return _upgrade_suggestion(best, bview, vcfg, {"building_id": bid, "lots": (brow["lots"] as Array).duplicate()})
 	return {"building_id": bid, "label": label_of(bid, bview), "lots": (brow["lots"] as Array).duplicate()}
+
+
+## The list `suggest` walks: `items` (sort_rows) with the upgrade candidates merged in and the lots reserved
+## for the next tier's gate buildings taken out of every other building's lots.
+static func candidates(items: Array, upgrades: Array, reserved: Dictionary) -> Array:
+	return _with_upgrades(_without_reserved(items, reserved), upgrades)
+
+
+## What the Build tab and the HUD's idle line both show, computed once from `views` (the shell does it once
+## per fetch and passes it on as `views.tab`; callers without it call this): {needs, items (sort_rows),
+## ups (upgrade_items), stocks, reserved (reserved_lots), sug (suggest, with the upgrades and the
+## reservation)}. The street hops that break ties between equal lots are `hops`, else `views.lot_hops`
+## (the autoplayer passes the same map, so the tab and the autoplayer keep the same lots).
+static func tab_suggestion(views: Dictionary, bview: Dictionary, bcfg: Dictionary, vcfg: Dictionary, hops: Dictionary = {}) -> Dictionary:
+	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, bcfg)
+	var items := sort_rows(views.get("catalog", {}).get("buildings", []), nd, bview, vcfg)
+	var ups := upgrade_items(views, nd, bview, bcfg, vcfg)
+	var st := stocks(views)
+	var reserved := reserved_lots(views, bcfg, hops if not hops.is_empty() else views.get("lot_hops", {}))
+	return {"needs": nd, "items": items, "ups": ups, "stocks": st, "reserved": reserved,
+		"sug": suggest(items, bview, st, vcfg, ups, reserved)}
 
 
 ## `items` with the lots reserved for another building (`reserved` = reserved_lots: {lot id: building id})
@@ -391,8 +412,20 @@ static func _upgrade_suggestion(it: Dictionary, bview: Dictionary, vcfg: Diction
 	return sug
 
 
-## Upgrade candidates for the suggestion: a built building that serves a live need (the same `serves`
-## match as sort_rows) and can go one level deeper: not constructing, not unpaid, below the catalog's
+## What one more level of `bid` serves, for matching live needs: buildings_view `upgrade_serves` when the
+## building has it (a level can add something other than what the building was built for: the Crypt's
+## levels add big-undead cap, which no need asks for), else its `serves`; plus its own `building:<id>` tag,
+## which is how a job building's extra level serves idle hands. buildings.json levels: `jobs` and numeric
+## `effects` scale by level, array effects are per-level tables (see configs/buildings_view.json).
+static func upgrade_serves(bid: String, bview: Dictionary) -> Array:
+	var v: Dictionary = bview.get(bid, {})
+	var serves: Array = (v.get("upgrade_serves", v.get("serves", [])) as Array).duplicate()
+	serves.append("building:" + bid)
+	return serves
+
+
+## Upgrade candidates for the suggestion: a built building whose next level serves a live need (the same
+## match as sort_rows, on `upgrade_serves`) and can go one level deeper: not constructing, not unpaid, below the catalog's
 ## max_level. Cost and reason come from `inspect`, the inspector's. Items shaped like sort_rows' with
 ## `upgrade: true`, `lot_id`, `level` (the one it goes to); `row` is {building_id, cost, can_build,
 ## reason, lots: [its lot], lot_size, count, upgrade, level}. Same classes as a new build: affordable ->
@@ -410,8 +443,7 @@ static func upgrade_items(views: Dictionary, needs_in: Array, bview: Dictionary,
 		var why := String(up["reason"])
 		if not up["visible"] or not why in ["", "no_gold", "no_bone", "no_relics"]:
 			continue
-		var serves: Array = (bview.get(bid, {}).get("serves", []) as Array).duplicate()
-		serves.append("building:" + bid)
+		var serves := upgrade_serves(bid, bview)
 		var nd := {}
 		var rank := 0
 		for ni in needs_in.size():
@@ -523,14 +555,15 @@ static func _variety_save(items: Array, bview: Dictionary, st: Dictionary, vcfg:
 
 ## The lot of `lots` to suggest: with `sizes` ({lot id: size}) the smallest free lot first (a house
 ## must not take the 3-lot that Walls need), then the nearest the crypt: smallest `hops[lot_id]`
-## (street distance), the first listed on a tie or when unknown. "" for none.
+## (street distance), the first listed on a tie or when unknown. A lot missing from `sizes` counts as
+## the biggest (sorts last) once `sizes` is given. "" for none.
 static func nearest_lot(lots: Array, hops: Dictionary, sizes: Dictionary = {}) -> String:
 	var best := ""
 	var best_h := INF
 	var best_s := INF
 	for l in lots:
 		var h := float(hops.get(String(l), INF))
-		var sz := float(sizes.get(String(l), 0.0))
+		var sz := float(sizes.get(String(l), INF))  # a lot of unknown size sorts last
 		if best == "" or sz < best_s or (sz == best_s and h < best_h):
 			best = String(l)
 			best_h = h
@@ -546,13 +579,8 @@ static func nearest_lot(lots: Array, hops: Dictionary, sizes: Dictionary = {}) -
 static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var bview: Dictionary = cfgs.get("buildings_view", {})
-	var rows: Array = views.get("catalog", {}).get("buildings", [])
-	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
-	var items := sort_rows(rows, nd, bview, vcfg)
-	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
-	var maps := _lot_maps(views, cfgs)
-	var reserved := reserved_lots(views, cfgs.get("buildings", {}), maps["hops"])
-	var sug := suggest(items, bview, stocks(views), vcfg, ups, reserved)
+	var maps := lot_maps(views, cfgs)
+	var sug: Dictionary = tab_suggestion(views, bview, cfgs.get("buildings", {}), vcfg, maps["hops"])["sug"]
 	if sug.is_empty() or bool(sug.get("save", false)):
 		return {}
 	if bool(sug.get("upgrade", false)):  # upgrade the building on its own lot
@@ -563,8 +591,9 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	return {"building_id": sug["building_id"], "lot_id": lot_id}
 
 
-## {hops, sizes}: {lot id: street distance from the crypt} and {lot id: size}, from the town model.
-static func _lot_maps(views: Dictionary, cfgs: Dictionary) -> Dictionary:
+## {hops, sizes}: {lot id: street distance from the crypt} and {lot id: size}, from the town model at the
+## reference size (view.ref_px). The shell puts `hops` into the views as `lot_hops`.
+static func lot_maps(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var ref: Array = vcfg.get("ref_px", [1600, 900])
 	var model := TownModel.new(cfgs.get("town", {}), cfgs.get("buildings_view", {}), cfgs.get("buildings", {}), cfgs.get("economy", {}))
@@ -585,7 +614,7 @@ static func autoplay_why(views: Dictionary, cfgs: Dictionary) -> String:
 	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
 	var items := sort_rows(views.get("catalog", {}).get("buildings", []), nd, bview, vcfg)
 	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
-	var rsv := reservation(views, cfgs.get("buildings", {}), _lot_maps(views, cfgs)["hops"])
+	var rsv := reservation(views, cfgs.get("buildings", {}), lot_maps(views, cfgs)["hops"])
 	var sug := suggest(items, bview, stocks(views), vcfg, ups, rsv["lots"])
 	var kept := ""
 	if not (rsv["lots"] as Dictionary).is_empty() or not (rsv["unfit"] as Array).is_empty():
@@ -617,6 +646,26 @@ static func can_queue(row: Dictionary, vcfg: Dictionary) -> bool:
 	return not is_gated(row, vcfg) and not (row.get("lots", []) as Array).is_empty()
 
 
+## {lot id: size} from view_town's lots (a lot the view doesn't list is absent: nearest_lot sorts it last).
+static func lot_sizes(views: Dictionary) -> Dictionary:
+	var out := {}
+	for l in views.get("town", {}).get("lots", []):
+		out[String(l.get("id", ""))] = int(l.get("size", 1))
+	return out
+
+
+## The lot a catalog row's Queue button takes: of the row's lots not already `taken` (a set {lot id: true}),
+## the smallest and then the nearest the crypt (`nearest_lot`, as the suggestion does). The lots kept for
+## the next tier's gate buildings (`reserved`) are left alone unless the row is that gate building or no
+## other lot is free: Place still accepts a reserved lot, so Queue is never disabled by the reservation
+## alone. "" when the row has no free lot.
+static func queue_lot(row: Dictionary, taken: Dictionary, reserved: Dictionary, hops: Dictionary, sizes: Dictionary) -> String:
+	var bid := String(row.get("building_id", ""))
+	var free: Array = (row.get("lots", []) as Array).filter(func(l): return not taken.has(String(l)))
+	var open: Array = free.filter(func(l): return not reserved.has(String(l)) or String(reserved[String(l)]) == bid)
+	return nearest_lot(open if not open.is_empty() else free, hops, sizes)
+
+
 # ---------------------------------------------------------------- reasons ----
 ## Human text for a reason id (STATE-API 4.3 families). `row` is the catalog row (or any dict
 ## with `cost`, `requires`, `lot_size`, `building_id`); `st` is `stocks(views)`; `bview` gives
@@ -633,6 +682,7 @@ static func reason_text(reason: String, row: Dictionary, st: Dictionary, bview: 
 		"label": label_of(bp if bp != "" else String(row.get("building_id", "")), bview),
 		"building": label_of(String(req.get("building", "")), bview),
 		"size": int(row.get("lot_size", 1)),
+		"level": int(row.get("level", 0)),
 		"n": 0,
 	}
 	var key := reason.trim_prefix("no_")
@@ -814,7 +864,8 @@ static func shortfall_reason(cost: Dictionary, st: Dictionary) -> String:
 
 
 # ------------------------------------------------------------- inspector ----
-## `buildings.json` level_costs entry for upgrading from `level` ({} at the top or level < 1).
+## `buildings.json` level_costs entry for upgrading from `level` ({} at the top, level < 1, or past the table:
+## `inspect` calls that last one "no_cost", not free).
 static func upgrade_cost(bdef: Dictionary, level: int, max_level := -1) -> Dictionary:
 	var lc: Array = bdef.get("level_costs", [])
 	var top := max_level if max_level > 0 else int(bdef.get("max_level", 1))
@@ -843,6 +894,8 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 		up_reason = "unpaid"
 	elif level >= max_level:
 		up_reason = "max_level"
+	elif up_cost.is_empty():
+		up_reason = "no_cost"  # past level_costs: there is no price to pay, which is not "free"
 	else:
 		up_reason = shortfall_reason(up_cost, st)
 	var refund: Dictionary = {}
@@ -862,7 +915,7 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 		"upgrade_projected": entry.get("upgrade_projected", {}),  # TODO(api-request #9): view_town buildings[i].upgrade_projected
 		"upgrade": {
 			"visible": max_level > 1, "enabled": up_reason == "", "reason": up_reason,
-			"cost": up_cost, "level": level + 1, "can_queue": not constructing and level >= 1 and level < max_level,
+			"cost": up_cost, "level": level + 1, "can_queue": not constructing and level >= 1 and level < max_level and not up_cost.is_empty(),
 		},
 		"cancel": {"visible": constructing, "refund": refund},
 		"demolish_visible": not bid in vcfg.get("protected", []),
@@ -996,17 +1049,39 @@ static func ghosts(entries: Array, catalog: Dictionary, st: Dictionary, bview: D
 
 
 # ------------------------------------------------------------------- ETAs ----
-## The work a queue entry still needs: the catalog's `build_work` × the level it builds (MECHANICS §4,
-## the build job: construction is `build_work · target level`), less what is done when its lot is
-## already constructing that building.
+## The build work of one site, as {total, left}, for building up to `level` (the target level: 1 for a new
+## build, current + 1 for an upgrade). `row` is the building's catalog row, `site` the view_town buildings
+## entry on that lot ({} when the lot is empty).
+## TODO(api-request #17): the sim should say how much work a site needs and has left. The view's own
+## numbers win when they are there: `row.work` (a new build's work), `site.upgrade_work` (the next level's
+## work, on the built entry), and `site.work_left` while the site is constructing (`left`). Until then the
+## stand-in is MECHANICS §4's build job, `build_work · target level`, with `left` = total × (1 − progress).
+## `eta_s` is seconds, not work: it is not used here (the queue's ETA lines divide work by the measured
+## throughput).
+static func site_work(row: Dictionary, level: int, site: Dictionary = {}) -> Dictionary:
+	var target := maxi(level, 1)
+	var total := float(row.get("build_work", 0.0)) * target  # STANDIN: MECHANICS §4, build_work · target level
+	if target == 1 and row.has("work"):
+		total = float(row["work"])
+	elif target > 1 and site.has("upgrade_work"):
+		total = float(site["upgrade_work"])
+	var left := total
+	if String(site.get("state", "")) == "constructing":
+		left = float(site["work_left"]) if site.has("work_left") else total * clampf(1.0 - float(site.get("progress", 0.0)), 0.0, 1.0)
+	return {"total": total, "left": maxf(left, 0.0)}
+
+
+## The work a queue entry still needs (site_work, for the entry's target level, on the building at its lot
+## when that is this building): what is left while the lot is constructing it, else the whole of it.
 static func entry_work(e: Dictionary, catalog: Dictionary, town: Dictionary) -> float:
 	var bid := String(e.get("building_id", ""))
-	var work := float((catalog.get(bid, {}) as Dictionary).get("build_work", 0.0)) * maxi(int(e.get("level", 1)), 1)
+	var site := {}
 	for b in town.get("buildings", []):
-		if String(b.get("lot_id", "")) == String(e.get("lot_id", "")) and String(b.get("building_id", "")) == bid \
-				and String(b.get("state", "")) == "constructing":
-			return work * clampf(1.0 - float(b.get("progress", 0.0)), 0.0, 1.0)
-	return work
+		if String(b.get("lot_id", "")) == String(e.get("lot_id", "")) and String(b.get("building_id", "")) == bid:
+			site = b
+			break
+	var w := site_work(catalog.get(bid, {}), int(e.get("level", 1)), site)
+	return float(w["left"] if String(site.get("state", "")) == "constructing" else w["total"])
 
 
 ## Each queue entry's ETA text, in order (texts in view.queue_text). The start: "starts now" for the
@@ -1066,7 +1141,7 @@ class Throughput:
 	extends RefCounted
 	var rate := -1.0
 	var smooth_s := 10.0
-	var _last := {}  # lot_id -> {building_id, level, progress}
+	var _last := {}  # lot_id -> {building_id, level, progress, left, total, has_left}
 	var _t := -1.0
 
 	func _init(smooth_s_ := 10.0) -> void:
@@ -1074,9 +1149,9 @@ class Throughput:
 
 	func observe(views: Dictionary) -> void:
 		var t := float(views.get("hud", {}).get("t", -1.0))
-		var work := {}
+		var rows := {}
 		for r in views.get("catalog", {}).get("buildings", []):
-			work[String(r.get("building_id", ""))] = float(r.get("build_work", 0.0))
+			rows[String(r.get("building_id", ""))] = r
 		var now := {}
 		var done := 0.0
 		var seen := false
@@ -1084,11 +1159,16 @@ class Throughput:
 			if String(b.get("state", "")) != "constructing":
 				continue
 			var lot := String(b.get("lot_id", ""))
-			var e := {"building_id": String(b.get("building_id", "")), "level": int(b.get("level", 0)), "progress": float(b.get("progress", 0.0))}
+			var sw := BuildSort.site_work(rows.get(String(b.get("building_id", "")), {}), int(b.get("level", 0)) + 1, b)  # TODO(api-request #17)
+			var e := {"building_id": String(b.get("building_id", "")), "level": int(b.get("level", 0)), "progress": float(b.get("progress", 0.0)),
+				"left": float(sw["left"]), "total": float(sw["total"]), "has_left": b.has("work_left")}
 			now[lot] = e
 			var was: Dictionary = _last.get(lot, {})
 			if not was.is_empty() and was["building_id"] == e["building_id"] and was["level"] == e["level"] and e["progress"] >= was["progress"]:
-				done += (e["progress"] - was["progress"]) * float(work.get(e["building_id"], 0.0)) * float(e["level"] + 1)
+				if bool(e["has_left"]) and bool(was["has_left"]):
+					done += maxf(float(was["left"]) - float(e["left"]), 0.0)  # the view's own work counter
+				else:
+					done += (e["progress"] - was["progress"]) * float(e["total"])
 				seen = true
 		var dt := t - _t
 		if now.is_empty():

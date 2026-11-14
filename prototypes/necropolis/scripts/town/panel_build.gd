@@ -60,6 +60,8 @@ var _card: Control  # the lot card (town_card.gd), a child of the town view
 var _card_lot := ""
 var _card_mode := ""  # "catalog" (an empty lot) | "inspect" (a built lot)
 var _insp_card := {}  # the card's own inspector widgets
+var _hops := {}  # view `lot_hops`: {lot id: street hops from the crypt}, the autoplayer's tie-break
+var _sizes := {}  # {lot id: size} from view_town
 var _reserved := {}  # BuildSort.reserved_lots(): {lot id: gate building} kept free for the next tier
 var _sug_data := {}  # BuildSort.suggest(): the top buildable row
 var _sug_off := false  # the player dismissed the suggestion (kept for the scene's lifetime)
@@ -195,16 +197,19 @@ func bind(views: Dictionary) -> void:
 		_shape = shape
 		_rebuild_rows(rows)
 	_empty.visible = rows.is_empty()
-	var names: Dictionary = views.get("fort_names", {})
-	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview, _bcfg), _bview, _vcfg)
+	var tab: Dictionary = views.get("tab", {})  # the shell's, once per fetch (the HUD reads the same one)
+	if tab.is_empty():
+		tab = BuildSort.tab_suggestion(views, _bview, _bcfg, _vcfg)
+	var sorted: Array = tab["items"]
 	_sorted = sorted
+	_hops = views.get("lot_hops", {})
+	_sizes = BuildSort.lot_sizes(views)
 	_tp.observe(views)
 	var gate := BuildSort.relic_gate(views, sorted, _st, _bview, _vcfg)
 	_pin.visible = not gate.is_empty()
 	_pin_label.text = String(gate.get("text", ""))
-	var ups := BuildSort.upgrade_items(views, BuildSort.needs(views, names, _vcfg, _bview, _bcfg), _bview, _bcfg, _vcfg)
-	_reserved = BuildSort.reserved_lots(views, _bcfg)
-	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg, ups, _reserved)
+	_reserved = tab["reserved"]
+	_sug_data = tab["sug"]
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
 	var listed := {}
 	for i in sorted.size():
@@ -605,7 +610,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
 	var why := ""
 	if u["visible"] and not u["enabled"]:
-		why = _reason(String(u["reason"]), {"cost": u["cost"]})
+		why = _reason(String(u["reason"]), {"cost": u["cost"], "level": u["level"]})
 	w["why"].visible = why != ""
 	w["why"].text = why
 	var c: Dictionary = i["cancel"]
@@ -788,11 +793,13 @@ func _build_queue_section() -> void:
 	_root.add_child(_q_box)
 
 
+## The lot the row's Queue button takes: the suggestion's rule (BuildSort.queue_lot: smallest free lot, then the
+## nearest the crypt, the next tier's reserved lots last).
 func _free_lot(row: Dictionary) -> String:
-	for l in row.get("lots", []):
-		if not _queued_lot(String(l)):
-			return String(l)
-	return ""
+	var taken := {}
+	for e in _queue_entries():
+		taken[String(e["lot_id"])] = true
+	return BuildSort.queue_lot(row, taken, _reserved, _hops, _sizes)
 
 
 func _queued_lot(lot_id: String) -> bool:
