@@ -758,7 +758,8 @@ func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
 ## forts' undead didn't converge: 56% between 0.25 and 0.5 s). With WAR to spare that is what the
 ## rules do in continuous time: the moment living appear the WAR pours in, the room closes and
 ## they die, so the fort stays at 0 living and full, its kills taking Vei's living. A fort WAR
-## doesn't fill (too little WAR) keeps her living, as before.
+## doesn't fill (too little WAR) keeps her living, as before; whether it fills is judged on the give
+## cut to the kills (below).
 func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], surge_fort: int,
 		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:
 	var n := forts.size()
@@ -782,8 +783,12 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 	var rates := _water(war, weights, limits)
 	# a filled fort whose undead can't kill what Vei ships in takes only what they kill: K, from U's
 	# path under the least inflow any smaller give leaves it (with no living there is no pull), so
-	# the give, cut to K, is killed whole. Its fill then rises; the second water-filling re-splits
-	# (raising one limit only lowers the others' shares, so no new fort fills)
+	# the give, cut to K, is killed whole. Its fill then rises and the second water-filling re-splits.
+	# Raising a limit only lowers the others' shares, so no fort fills that didn't, but one can stop
+	# filling: this fort, when its share lies between its old limit and its new one, or another whose
+	# share fell. That fort isn't _filled: it takes her give into the room its WAR leaves (the load
+	# cut) and gathers living, as one with too little WAR does. Over 12 h from the three starts at 0.5,
+	# 10 and 15 s it happened once (another fort, pre_vei at 15 s), and that fort ended with no living
 	_fill_cap = []
 	_fill_cap.resize(n)
 	_fill_cap.fill(INF)

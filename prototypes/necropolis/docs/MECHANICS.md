@@ -314,6 +314,11 @@ Names, to avoid confusion:
     rules: the moment living appear WAR pours in, the room closes and they die, so the fort stays
     full with 0 living, its kills taking her living. A fort WAR doesn't fill (too little WAR)
     still takes her living into its room, so with no WAR such a fort fills with living again.
+    Whether WAR fills it is judged with her give cut to the kills: the cut raises its fill, WAR is
+    split again, and a fort whose share then falls short of its fill takes her living into the
+    room its WAR leaves and gathers living, as one with too little WAR does. That can be this fort
+    or one whose share fell. Over 12 h from the three starts at 0.5, 10 and 15 s it happened once
+    (pre_vei at 15 s, a fort whose share fell), and that fort ended the step with no living.
     E2b T4.C measured why: in pre_vei with no haulers every fort fills with corpses within 20 min.
     Vei's shipping into the drain's room (`r_drain · U`) then outran the few undead's kills
     (`k_kill · U`, and `r_drain` > `k_kill`), so a fort with 0.04 living took all 32.7/s of WAR
