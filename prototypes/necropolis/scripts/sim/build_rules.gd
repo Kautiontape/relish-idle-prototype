@@ -325,6 +325,7 @@ static func catalog_rows(gs: GameState) -> Dictionary:
 			"build_work": float(def.get("build_work", 0.0)), "lot_size": int(def.get("lot_size", 1)),
 			"max_level": int(def.get("max_level", 1)), "count": count_built(gs, bid), "requires": req,
 			"can_build": why == "", "reason": why, "lots": lots,
+			"work": gs.town_sim.construction_work(str(bid), 1),  # v6 (T3.2, api-request #17): a new build's work
 		})
 		if req["blueprint"] != "" and not bps.has(req["blueprint"]):
 			bps.append(req["blueprint"])

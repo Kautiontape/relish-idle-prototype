@@ -560,7 +560,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if b.is_empty() or b["state"] != "constructing":
 			continue
-		var w := _build_rate * float(_by_lot.get(lot_id, {}).get("build", 0.0)) * dt
+		var w := build_speed(lot_id) * dt
 		build_work += w
 		var need := construction_work(b["building_id"], int(b["build_level"]))
 		b["progress"] = 1.0 if need <= 0.0 else float(b["progress"]) + w / need
@@ -1194,6 +1194,24 @@ func effect_at(building_id: String, key: String, level: int) -> float:
 	if not _defs.has(building_id):
 		return 0.0
 	return _eff_b({"building_id": building_id, "level": level}, key, _defs)
+
+
+## The work per second the builders staffed on a lot do now: job.build.rate × its build staffing as the
+## last restaff left it (step 6 advances a construction by this × dt). 0 with no builders.
+func build_speed(lot_id: String) -> float:
+	return _build_rate * float(_by_lot.get(lot_id, {}).get("build", 0.0))
+
+
+## A construction's work as view_town shows it (STATE-API §5.9, api-request #17): {left, eta_s}. `left` is
+## the build work still to do, construction_work · (1 − progress), the numbers step 6 uses; `eta_s` is
+## left / build_speed, −1.0 with no builders. {0.0, −1.0} on a lot that isn't constructing.
+func construction_left(lot_id: String) -> Dictionary:
+	var b: Dictionary = buildings.get(lot_id, {})
+	if b.is_empty() or b["state"] != "constructing":
+		return {"left": 0.0, "eta_s": -1.0}
+	var left := maxf(0.0, construction_work(b["building_id"], int(b["build_level"])) * (1.0 - float(b["progress"])))
+	var speed := build_speed(lot_id)
+	return {"left": left, "eta_s": left / speed if speed > 0.0 else -1.0}
 
 
 ## Working pits now: the mint's `pits` before a step has run (step() reports the same count).

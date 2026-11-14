@@ -255,11 +255,16 @@ static func town(gs: GameState) -> Dictionary:
 	for lot_id in BuildRules.built_lots(gs):
 		var b: Dictionary = ts.buildings[lot_id]
 		var bid: String = b["building_id"]
+		var cl := ts.construction_left(lot_id)
+		var top := int(BuildRules.buildings_cfg(gs).get(bid, {}).get("max_level", 1))
 		buildings.append({
 			"lot_id": lot_id, "building_id": bid, "level": int(b["level"]),
 			"state": str(b["state"]), "progress": float(b["progress"]), "slots": ts.lot_slots(lot_id),
 			"staffed": float(staffed.get(lot_id, 0.0)), "staff_cap": int(b["staff_cap"]),
 			"foreman": gs._foreman_of(lot_id), "output": ts.lot_output(lot_id, p_per_pit, haul_rate), "upkeep": BuildRules.upkeep_of(gs, bid),
+			# v6 (E2b-2 T3.2, api-request #17): construction time, TownSim's own numbers
+			"work_left": float(cl["left"]), "eta_s": float(cl["eta_s"]),
+			"upgrade_work": ts.construction_work(bid, int(b["level"]) + 1) if int(b["level"]) < top else 0.0,
 		})
 	var effective := ts.effective_ladder(ts.ladder)
 	var jobs := job_rows(effective, ts.staffing.get("jobs", {}))

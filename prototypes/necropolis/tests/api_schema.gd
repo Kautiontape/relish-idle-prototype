@@ -167,6 +167,8 @@ const FORT := {
 const TOWN_BUILDING := {
 	"lot_id": S, "building_id": S, "level": I, "state": S, "progress": F, "slots": I, "staffed": F,
 	"staff_cap": I, "foreman": S, "output": {"*": F}, "upkeep": UPKEEP,
+	# api_version 6 (E2b-2 T3.2, api-request #17): construction time
+	"work_left": F, "eta_s": F, "upgrade_work": F,
 }
 ## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
 const QUEUE_ENTRY := {
@@ -177,6 +179,8 @@ const CATALOG_BUILDING := {
 	"building_id": S, "cost": COST, "upkeep": UPKEEP, "build_work": F, "lot_size": I, "max_level": I,
 	"count": I, "requires": {"tier": S, "blueprint": S, "building": S}, "can_build": B, "reason": S,
 	"lots": [S],
+	# api_version 6 (E2b-2 T3.2, api-request #17): a new build's work
+	"work": F,
 }
 
 ## Views without `rev` (every view carries `rev: int` except the two seed views, §7).

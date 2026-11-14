@@ -29,6 +29,7 @@ func run() -> int:
 	_counter_garrison()
 	_yield()
 	_store_caps()
+	_construction_time()
 	return t.failures
 
 
@@ -550,3 +551,65 @@ func _store_caps() -> void:
 	var b0 := m.town_sim.bone
 	m.tick(m.substep_s())
 	t.ok(m.town_sim.bone <= b0 and absf(m.view_rates()["rates"]["bone"]["in"]) < 1e-9, "and earns no bone while over it (in 0)")
+
+
+## Construction time (E2b-2 T3.2, api-request #17; STATE-API §5.9, §5.10): view_town's work_left (build work
+## still to do) and eta_s (work_left over the lot's build rate now; −1.0 with no builders) while
+## constructing, 0.0 and −1.0 otherwise; upgrade_work on every building (the next level's work, 0.0 at
+## max_level); the catalog's work (a new build's). The numbers TownSim's step 6 uses.
+func _construction_time() -> void:
+	t.suite("api-v6-construction")
+	var cfg := TestUtil.configs()
+	var rate := float(cfg["economy"]["job"]["build"]["rate"])
+	var s := _mk()
+	s.cmd_debug_grant({"gold": 500.0, "bone": 100.0})
+	t.ok(s.cmd_build("house", "lot-05")["ok"], "a house is started (setup)")
+	s.tick(s.substep_s())
+	var b := _bld(s, "lot-05")
+	var work := float(cfg["buildings"]["house"]["build_work"])
+	var crew := float(s.town_sim._by_lot["lot-05"]["build"])
+	t.ok(b["state"] == "constructing" and crew > 0.0 and absf(float(b["work_left"]) - work * (1.0 - float(b["progress"]))) < 1e-9,
+		"work_left = build_work × level × (1 − progress) = %.3f" % b["work_left"])
+	t.ok(absf(float(b["eta_s"]) - float(b["work_left"]) / (rate * crew)) < 1e-9,
+		"eta_s = work_left / (job.build.rate × %.1f builders) = %.2f s" % [crew, b["eta_s"]])
+	var t0 := s.t
+	var eta := float(b["eta_s"])
+	var left := float(b["work_left"])
+	s.tick(s.substep_s())
+	t.ok(absf(left - float(_bld(s, "lot-05")["work_left"]) - rate * crew * s.substep_s()) < 1e-9,
+		"work_left falls by the step's work (rate × builders × dt)")
+	var done := -1.0
+	s.drain_events()
+	for i in 400:
+		for e in s.drain_events():
+			if e["type"] == "building_done" and e["lot_id"] == "lot-05" and done < 0.0:
+				done = float(e["t"])
+		if done >= 0.0:
+			break
+		s.tick(s.substep_s())
+	t.ok(done > t0 and absf((done - t0) - eta) <= s.substep_s() + 1e-9,
+		"it finishes %.2f s after the view; eta_s said %.2f s (within a step)" % [done - t0, eta])
+	b = _bld(s, "lot-05")
+	t.ok(b["state"] != "constructing" and b["work_left"] == 0.0 and b["eta_s"] == -1.0 and b["upgrade_work"] == work * 2.0,
+		"finished: work_left 0.0, eta_s −1.0, upgrade_work = build_work × 2")
+	# no builders: eta_s −1.0
+	t.ok(s.cmd_upgrade("lot-05")["ok"], "an upgrade (setup)")
+	s.town_sim.workers = 0.0
+	s.town_sim.restaff()
+	b = _bld(s, "lot-05")
+	t.ok(b["state"] == "constructing" and b["eta_s"] == -1.0 and b["work_left"] == work * 2.0 and b["upgrade_work"] == work * 2.0,
+		"no builders: eta_s −1.0; work_left the level's whole work; upgrade_work the construction's own (level + 1)")
+	# max level: upgrade_work 0.0; the catalog's work is a new build's
+	s.town_sim.place_building("lot-06", "house", 3)
+	t.ok(_bld(s, "lot-06")["upgrade_work"] == 0.0, "at max_level upgrade_work is 0.0")
+	var all_ok := true
+	for r in s.view_catalog()["buildings"]:
+		all_ok = all_ok and r["work"] == float(cfg["buildings"][r["building_id"]]["build_work"])
+	t.ok(all_ok, "every catalog row's work is its build_work × 1")
+
+
+func _bld(s: GameState, lot_id: String) -> Dictionary:
+	for b in s.view_town()["buildings"]:
+		if b["lot_id"] == lot_id:
+			return b
+	return {}

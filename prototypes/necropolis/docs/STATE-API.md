@@ -57,6 +57,8 @@ from `BALANCE.md` §0.
   - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
     the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
     (§9.1);
+  - (T3.2) **construction time** (api-request #17): `view_town().buildings[i]` gains `work_left`, `eta_s`
+    and `upgrade_work`, and `view_catalog().buildings[i]` gains `work` (§5.9, §5.10), TownSim's own numbers;
   - (T3.2) **the build queue** (IDLE §5, api-request #3; MECHANICS §4.4): `cmd_queue_build`, `cmd_unqueue`,
     `cmd_reorder_queue` (§4.3), `view_town().queue` and `.queue_max` (§5.9), the event `queue_started`
     (§6) and the save's optional `queue` key (§9.1). Gate-blocked entries are accepted as `skipped_gate`
@@ -1271,6 +1273,9 @@ Each `buildings` entry:
 | `foreman` | String | big-undead uid, or `""` |
 | `output` | Dictionary | `String → float` per second, e.g. `{gold: 0.3}`, `{mint: 6.0, burn: 0.6}` |
 | `upkeep` | Dictionary | `{gold: float, bone: float}` per second |
+| `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
+| `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
+| `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
  lots: [{id: "lot-01", size: 2, unlocked: true, building_id: "crypt"}, {id: "lot-05", size: 1, unlocked: true, building_id: ""}, ...24],
@@ -1314,6 +1319,7 @@ Each `buildings` entry:
 | `can_build` | bool | |
 | `reason` | String | the first failing reason among `unique`, `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot` (no free unlocked lot fits), `no_gold`, `no_bone`, `no_relics` |
 | `lots` | Array[String] | free unlocked lots it fits |
+| `work` | float | v6 (E2b-2 T3.2, api-request #17): the build work a new build needs, `build_work · 1` |
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,

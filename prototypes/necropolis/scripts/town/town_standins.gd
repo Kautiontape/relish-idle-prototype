@@ -377,6 +377,9 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 			"progress": float(st[1]), "slots": slots, "staffed": float(slots) if active else 0.0,
 			"staff_cap": 0 if st[0] == "idle" else -1, "foreman": "", "output": output,
 			"upkeep": {"gold": float(up.get("gold", 0.0)), "bone": float(up.get("bone", 0.0))},
+			"work_left": float(def.get("build_work", 0.0)) * (lvl + 1) * (1.0 - float(st[1])) if st[0] == "constructing" else 0.0,
+			"upgrade_work": float(def.get("build_work", 0.0)) * (lvl + 1) if lvl < int(def.get("max_level", 1)) else 0.0,
+			"eta_s": -1.0,
 		})
 	var jobs_out: Array = []
 	for j in town.get("ladder_effective", []):
