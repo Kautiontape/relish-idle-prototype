@@ -2,7 +2,9 @@ class_name RaidHud
 extends CanvasLayer
 ## Raid HUD: fort name/tier, a compact glanceable stat block (the WARD chain and the carried
 ## essence as pips with their integers beside them), trance meter, hint line, the
-## always-visible teleport-home button (top-right) + its confirmation dialog.
+## always-visible retreat button (top-right) + its confirmation dialog. The boss (Vei's final test)
+## has no retreat: no button and no dialog; its BossBlock (top centre) shows the fronts, the horde,
+## the break's beat pips and the backups left.
 
 var raid: Node = null
 
@@ -10,16 +12,15 @@ var _title: Label
 var _stats: StatBlock
 var _hint: Label
 var _meter: Control
-var _exit_btn: Control
-var _dialog: ConfirmationDialog
+var _exit_btn: Control = null       # dungeon only
+var _dialog: ConfirmationDialog = null
 var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
 var _warden_line: Label = null   # the awake warden's status ("CAUGHT 2")
 # boss extras
-var _vei_bar: Control = null
-var _backlog: Label = null
+var _boss_block: Control = null
 
 
 func build(p_raid: Node, boss_mode: bool) -> void:
@@ -69,27 +70,23 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_meter.offset_right = 208.0
 	_meter.offset_bottom = -16.0
 
-	_exit_btn = ExitButton.new()
-	_exit_btn.hud = self
-	add_child(_exit_btn)
-	_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_exit_btn.anchor_left = 1.0
-	_exit_btn.offset_left = -168.0
-	_exit_btn.offset_top = 14.0
-	_exit_btn.offset_right = -18.0
-	_exit_btn.offset_bottom = 60.0
+	if not boss_mode:   # there is no retreat from the Vei fight
+		_exit_btn = ExitButton.new()
+		_exit_btn.hud = self
+		add_child(_exit_btn)
+		_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		_exit_btn.anchor_left = 1.0
+		_exit_btn.offset_left = -168.0
+		_exit_btn.offset_top = 14.0
+		_exit_btn.offset_right = -18.0
+		_exit_btn.offset_bottom = 60.0
 
-	_dialog = ConfirmationDialog.new()
-	if boss_mode:
-		_dialog.title = "Teleport"
-		_dialog.dialog_text = "Are you sure you wish to Teleport home?"
-		_dialog.get_ok_button().text = "Teleport"
-	else:
+		_dialog = ConfirmationDialog.new()
 		_dialog.title = "Retreat"
 		_dialog.dialog_text = "Retreat through this exit? Your loot is banked and the fort does not flip."
 		_dialog.get_ok_button().text = "Retreat"
-	_dialog.confirmed.connect(func() -> void: raid.try_retreat())
-	add_child(_dialog)
+		_dialog.confirmed.connect(func() -> void: raid.try_retreat())
+		add_child(_dialog)
 
 	_flash = ColorRect.new()
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -98,25 +95,18 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 
 	if boss_mode:
-		_vei_bar = VeiBar.new()
-		_vei_bar.raid = p_raid
-		_vei_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(_vei_bar)
-		_vei_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		_vei_bar.anchor_left = 0.5
-		_vei_bar.anchor_right = 0.5
-		_vei_bar.offset_left = -240.0
-		_vei_bar.offset_right = 240.0
-		_vei_bar.offset_top = 12.0
-		_vei_bar.offset_bottom = 54.0
-		_backlog = _mk_label(self, 16, Palette.c("undead"))
-		_backlog.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		_backlog.anchor_left = 0.5
-		_backlog.anchor_right = 0.5
-		_backlog.offset_left = -240.0
-		_backlog.offset_right = 240.0
-		_backlog.offset_top = 56.0
-		_backlog.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_boss_block = BossBlock.new()
+		_boss_block.raid = p_raid
+		_boss_block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_boss_block)
+		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_boss_block.anchor_left = 0.5
+		_boss_block.anchor_right = 0.5
+		_boss_block.offset_left = -250.0
+		_boss_block.offset_right = 250.0
+		_boss_block.offset_top = 10.0
+		_boss_block.offset_bottom = 104.0
+		_banner.offset_top = 112.0
 
 
 func _mk_label(parent: Node, size: int, color: Color) -> Label:
@@ -150,10 +140,27 @@ func _process(_delta: float) -> void:
 
 
 func refresh() -> void:
-	_title.text = "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
+	_title.text = raid.fort_name().to_upper() if raid.is_boss() else "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
 	var st := _stats
 	st.living = raid.enemies.size()
 	var motes: int = raid.get_tree().get_nodes_in_group("raid_essence").size()
+	if raid.is_boss():
+		# the boss keeps no ledger: the WARD (her sacrifice chain) and the raised that stand
+		st.loose = motes
+		var raised := 0
+		var party := 0
+		for a in raid.allies:
+			if is_instance_valid(a) and a.alive:
+				if a.role == "party":
+					party += 1
+				else:
+					raised += 1
+		st.raised_text = "%d raised · %d big undead" % [raised, party]
+		var info: Dictionary = raid.hud_info()
+		_hint.text = str(info["hint"])
+		_hint.visible = _hint.text != ""
+		st.queue_redraw()
+		return
 	if raid.ledger_v2 != null:
 		var cc: int = raid.carried_count()
 		st.carried = cc
@@ -166,10 +173,6 @@ func refresh() -> void:
 		st.ward[3] = int(w["big"])
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
-	else:
-		st.loose = motes
-		var lg = raid.ledger
-		st.raised_text = "%.0f chaff · %d soldier · %d elite" % [lg.chaff_pool, lg.soldiers, lg.elites]
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
@@ -185,8 +188,6 @@ func refresh() -> void:
 			_hint.visible = true
 		else:
 			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
-	if _backlog != null:
-		_backlog.text = "BACKLOG  %.0f    LOST  s%d e%d" % [raid.backlog_left, raid.army_lost["soldier"], raid.army_lost["elite"]]
 	st.queue_redraw()
 
 
@@ -230,13 +231,13 @@ func show_checkpoint(loot: Dictionary) -> void:
 	_banner_t = float(raid.rcfg().get("checkpoint", {}).get("banner_s", 2.5))
 
 
-## Retreat is live only at an exit (always for the boss's teleport).
+## Retreat is live only at an exit (never in the boss: there is no retreat from Vei).
 func exit_enabled() -> bool:
 	return raid != null and raid.can_retreat()
 
 
 func open_exit_dialog() -> void:
-	if raid._ended or not exit_enabled():
+	if _dialog == null or raid._ended or not exit_enabled():
 		return
 	_dialog.popup_centered()
 
@@ -439,7 +440,6 @@ class ExitButton:
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
 		var on := hud.exit_enabled()
-		var boss: bool = hud.raid != null and hud.raid.is_boss()
 		var border := Palette.c("relish", (1.0 if _hover else 0.55) if on else 0.2)
 		var vei := Palette.c("vei")
 		draw_rect(r, Palette.c("ground", 0.92))
@@ -459,26 +459,123 @@ class ExitButton:
 			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), "reach an exit",
 				HORIZONTAL_ALIGNMENT_LEFT, 96, 13, Palette.c("text_dim", 0.8))
 			return
-		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "TELEPORT" if boss else "RETREAT",
+		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "RETREAT",
 			HORIZONTAL_ALIGNMENT_LEFT, 100, 15, Palette.c("vei", 1.0 if _hover else 0.8))
 
 
-class VeiBar:
+## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
+## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
+## signed oblique rate, then the BREAK streak as break_beats pips that fill on the beat and visibly
+## reset, with which side is winning. Always: BACKUPS left as pips (a phylactery diamond, a clone
+## dot) and one cracked violet ring per backup spent. Drawn from raid.hud_info() each frame.
+class BossBlock:
 	extends Control
 	var raid: Node = null
+	var _prev_streak := 0
+	var _reset_t := 0.0          # seconds of the "streak lost" flash left
+	static var _oblique: FontVariation = null
 
-	func _process(_d: float) -> void:
+	static func oblique() -> FontVariation:
+		if _oblique == null:
+			_oblique = FontVariation.new()
+			_oblique.base_font = ThemeDB.fallback_font
+			_oblique.variation_transform = Transform2D(Vector2(1, 0), Vector2(tan(deg_to_rad(9.0)), 1), Vector2.ZERO)
+		return _oblique
+
+	static func thousands(n: int) -> String:
+		var t := str(absi(n))
+		var out := ""
+		while t.length() > 3:
+			out = "," + t.substr(t.length() - 3) + out
+			t = t.substr(0, t.length() - 3)
+		return ("-" if n < 0 else "") + t + out
+
+	func _process(d: float) -> void:
+		_reset_t = maxf(0.0, _reset_t - d / maxf(0.05, Engine.time_scale))
 		queue_redraw()
 
+	func _label(x: float, y: float, text: String) -> float:
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+
+	func _text(x: float, y: float, text: String, px: int, key := "text", font: Font = null) -> float:
+		var f: Font = font if font != null else ThemeDB.fallback_font
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Palette.c(key))
+		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+	func _pip(p: Vector2, r: float, col: Color, filled: bool, diamond: bool) -> void:
+		if diamond:
+			var pts := PackedVector2Array([p + Vector2(0, -r), p + Vector2(r, 0), p + Vector2(0, r), p + Vector2(-r, 0), p + Vector2(0, -r)])
+			if filled:
+				draw_colored_polygon(pts, col)
+			else:
+				draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+		elif filled:
+			draw_circle(p, r, col)
+		else:
+			draw_arc(p, r - 0.6, 0.0, TAU, 12, Palette.c("text_dim", 0.6), 1.3)
+
+	func _cracked(p: Vector2, r: float, i: int) -> void:
+		for j in 3:
+			var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
+			draw_arc(p, r, a0, a0 + TAU / 3.0 - 0.55, 8, Palette.c("relish", 0.9), 1.6)
+
 	func _draw() -> void:
-		if raid == null or raid.vei == null or not is_instance_valid(raid.vei):
+		if raid == null or not raid.has_method("hud_info"):
 			return
-		var frac: float = clampf(raid.vei.hp / maxf(1.0, raid.vei.max_hp), 0.0, 1.0)
-		var r := Rect2(0, 18, size.x, 14)
-		var vei := Palette.c("vei")
-		draw_rect(r.grow(2.0), Palette.c("ground", 0.8))
-		draw_rect(Rect2(r.position, Vector2(r.size.x * frac, r.size.y)), vei)
-		draw_string(ThemeDB.fallback_font, Vector2(0, 12), "VEI",
-			HORIZONTAL_ALIGNMENT_LEFT, 200, 15, vei)
-		draw_string(ThemeDB.fallback_font, Vector2(size.x - 90, 12), "%.0f" % raid.vei.hp,
-			HORIZONTAL_ALIGNMENT_RIGHT, 90, 15, vei)
+		var info: Dictionary = raid.hud_info()
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		var x0 := 12.0
+		var col2 := 108.0
+		var y := 26.0
+		if not bool(info["break_began"]):
+			var x := _label(x0, y, "FRONTS")
+			x = _text(col2, y, "%d/4" % int(info["met"]), 20)
+			x = _text(x + 8.0, y, "· need %d" % int(info["required"]), 15)
+			var tx := size.x - 150.0
+			_label(tx, y, "TIME")
+			_text(tx + 44.0, y, "%d / %d s" % [floori(float(info["t"])), roundi(float(info["max_t"]))], 15)
+			y += 28.0
+			_label(x0, y, "BROKEN")
+			for i in 4:
+				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
+			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
+		else:
+			_label(x0, y, "HORDE")
+			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
+			_text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
+			_text(size.x - 150.0, y, "ferried by Vei", 13, "text_dim")
+			y += 28.0
+			_label(x0, y, "BREAK")
+			var n := int(info["break_beats"])
+			var st := int(info["streak"])
+			if st < _prev_streak and _prev_streak > 0:
+				_reset_t = 0.6
+			_prev_streak = st
+			var pcol := Palette.c("danger") if _reset_t > 0.0 else Palette.c("vei")
+			for i in n:
+				_pip(Vector2(col2 + 8.0 + 18.0 * i, y - 5.0), 6.0, pcol, i < st, false)
+			var x3 := _text(col2 + 8.0 + 18.0 * n + 4.0, y, "%d/%d" % [st, n], 15)
+			if _reset_t > 0.0:
+				_text(x3 + 12.0, y, "streak lost", 13, "danger")
+			elif bool(info["winning"]):
+				_text(x3 + 12.0, y, "raise > ferry", 13, "undead")
+			else:
+				_text(x3 + 12.0, y, "raise < ferry", 13, "living")
+		y += 28.0
+		_label(x0, y, "BACKUPS")
+		var px := col2 + 8.0
+		for i in int(info["phyl_left"]):
+			_pip(Vector2(px, y - 5.0), 6.5, Palette.c("relish"), true, true)
+			px += 18.0
+		for i in int(info["clones_left"]):
+			_pip(Vector2(px, y - 5.0), 6.0, Palette.c("relish"), true, false)
+			px += 18.0
+		var spent := int(info["spent_phyl"]) + int(info["spent_clones"])
+		for i in spent:
+			_cracked(Vector2(px, y - 5.0), 6.5, i)
+			px += 18.0
+		var left := int(info["phyl_left"]) + int(info["clones_left"])
+		_text(px + 4.0, y, "%d left%s" % [left, "" if spent == 0 else " · %d cracked" % spent], 15,
+			"text" if left > 0 else "danger")

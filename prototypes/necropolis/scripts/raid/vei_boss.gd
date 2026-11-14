@@ -1,133 +1,707 @@
 extends "res://scripts/raid/raid.gd"
-## The BOSS scene: assault on Vei herself. Reuses the raid machinery; the
-## backlog is the horde — chaff stream in from the south doors while it lasts.
+## Vei's final test (MECHANICS 6, GAMEPLAY 3d, VISUAL-LANGUAGE 2c): the game's last beat. It reuses
+## the raid machinery (Relish, the trance and its scoring, the units, the arena, the HUD) and fights
+## on fronts, then the break. The rules are VeiFronts'; BossLogic places and counts; BossLanes draws
+## the fronts; RaidVei is Vei and her weaves.
+##   fronts (phase 1)  four lanes (giants, swarm, carvers, raw) run from the south to Vei's court.
+##                     Each front's stream marches into her guard line (VeiFronts.phase1_step). A
+##                     raise adds raise_have_per_mult * sum(stat_mults) to the lane nearest the
+##                     circle (phase1_add_raise). fronts_required cleared -> the break;
+##                     phase1_max_s -> lost.
+##   the break         the horde H (the seed's backlog) is ferried away at F
+##   (phase 2)         (VeiFronts.ferry_rate). Motes fall at the anchors at a rate tied to F; Relish
+##                     raises there, and every tempo beat feeds VeiFronts.break_beat(raised value
+##                     that beat, F per beat). break_beats in a row -> victory; H at 0 -> lost.
+##                     Uncleared lanes send guards (they hunt Relish and the undead); raised undead
+##                     fight; Vei's weaves hunt Relish on the beat (vei.gd).
+##   backups           a Relish death spends VeiFronts.next_backup (a phylactery, then a clone): she
+##                     revives in place under a cracked violet ring that stays. None left: the final
+##                     death, lost (relish_deaths = spent + 1).
+## Setup: `{mode: "boss", run_id, seed_rev, ...}` (STATE-API 2.3; the router's merged legacy keys are
+## ignored) reads Game.state.view_boss_seed() (7.2); a standalone run uses vei.json `demo`. The
+## result is VeiFronts.boss_result (8.2), emitted exactly once after the closing set piece;
+## standalone runs print `BOSS_RESULT {json}`. There is no retreat from this fight.
+## Dev flags: boss_dev.gd; the bot: boss_autopilot.gd.
 
-var backlog_spent := 0.0
-var _stream_acc := 0.0
-var _remnants: Array = []
+enum Phase { FRONTS, BREAK, OVER }
+
+var phase: int = Phase.FRONTS
+var fronts: Array = []          # the seed's fronts with have/need, FRONT_IDS order
+var p1 := {}                    # VeiFronts phase-1 state
+var fronts_cleared: Array = []  # ids cleared in phase 1 (the result's)
+var lanes: Array = []           # BossLogic.lanes
+var lanes_node: BossLanes = null
+var party_lane := {}            # uid -> lane index (the front VeiFronts counts it on)
+var party_units := {}           # uid -> RaidUnit (the break)
+var party_lost: Array = []      # party uids whose units died in the scene
+var horde := 0.0                # H, the horde left
+var horde0 := 0.0
+var ferry := 0.0                # F, mass/s
+var ferry_beat := 0.0           # F per beat on the break's scale
+var uncleared := 0
+var brk := {}                   # VeiFronts break state
+var streak_max := 0
+var beat_raised := 0.0          # raised value this beat
+var t2 := 0.0                   # the break's scene clock (beat 0 on a tempo boundary)
+var anchors: Array = []
+var spent := {"phylactery": 0, "clones": 0}
+var deaths := 0
+var end_reason := ""
+var fight_t := 0.0              # scene seconds of fighting
+var phase1_s := -1.0            # how long the fronts took (-1: the break never began)
+var stress := false             # DEV --boss-stress (BossDev)
+
+var _mote_acc: Array = [0.0, 0.0, 0.0, 0.0]
+var _anchor_acc := 0.0
+var _anchor_next := 0
+var _guard_acc := 0.0
+var _p1_raises := 0
+var _p2_raises := 0
+var _seq_kind := ""             # "win" | "lose" while the closing set piece plays
+var _seq_t := 0.0
+var _emitted := false
+var _rcfg_cache := {}
+var _bdev: BossDev = null
+var _bot: BossAutopilot = null
 
 
+func vcfg() -> Dictionary:
+	return ConfigDb.data.get("vei", {})
+
+
+## raid.json with vei.json `arena.layout` merged over its layout (built once): the base build then
+## lays out the open boss arena (no partitions across the lanes).
+func rcfg() -> Dictionary:
+	if _rcfg_cache.is_empty():
+		var c: Dictionary = (ConfigDb.data.get("raid", {}) as Dictionary).duplicate(true)
+		var lay: Dictionary = c.get("layout", {})
+		var over: Dictionary = vcfg().get("arena", {}).get("layout", {})
+		for k in over:
+			lay[k] = over[k]
+		c["layout"] = lay
+		_rcfg_cache = c
+	return _rcfg_cache
+
+
+func is_boss() -> bool:
+	return true
+
+
+func fort_name() -> String:
+	return "Vei · the final test"
+
+
+func fort_tier() -> int:
+	return 5
+
+
+func is_over() -> bool:
+	return phase == Phase.OVER
+
+
+func in_break() -> bool:
+	return phase == Phase.BREAK
+
+
+func tempo_s() -> float:
+	return Pulse.tempo_ms / 1000.0
+
+
+## Standalone: the demo seed (setup reads it from vei.json).
 func demo_seed() -> Dictionary:
-	return {"fort_id": "vei", "name": "Vei's Domain", "tier": 5,
-		"cap": 800.0, "living": 500.0, "undead": 0.0, "dead": 60.0,
-		"boss": true, "quality": 2.1, "backlog": 9421.0,
-		"army": {"soldier": 41, "elite": 9}, "vei_capacity": 50.0, "odds": 0.61}
+	return {"mode": "boss"}
+
+
+# ------------------------------------------------------------------- setup ---
+func setup(args: Dictionary) -> void:
+	seed_data = _boss_seed(args)
+	_setup_called = true
+	if is_inside_tree() and not _built:
+		_build()
+
+
+## The open run's seed (view_boss_seed), else the demo. Only `run_id` of the args is looked at.
+func _boss_seed(args: Dictionary) -> Dictionary:
+	var standalone := is_inside_tree() and get_tree().current_scene == self
+	var sd: Dictionary = Game.state.view_boss_seed()
+	if sd.is_empty():
+		if not standalone:
+			push_warning("necropolis: boss has no open run; using the demo seed")
+		sd = BossLogic.demo_seed(vcfg())
+		_from_run = false
+		if standalone:
+			BossDev.apply_seed_overrides(sd)
+	else:
+		_from_run = true
+		if args.has("run_id") and int(args["run_id"]) != int(sd.get("run_id", -1)):
+			push_warning("necropolis: boss args run_id %s is not the open run %s" % [str(args["run_id"]), str(sd.get("run_id"))])
+	for e in Results.validate("boss_seed", sd):
+		push_error("necropolis: boss seed invalid: " + e)
+	sd["fort_id"] = "vei"   # the arena's layout seed for gen_layout; not part of the seed contract
+	sd["tier"] = 5
+	return sd
+
+
+## The seed's fronts with have/need, in FRONT_IDS order.
+func _fronts_for(sd: Dictionary, vc: Dictionary) -> Array:
+	if BossLogic.seed_fronts_empty(sd):
+		# TODO(E3): seed fronts. Economy's boss seed carries have/need 0 until E3, so the scene
+		# computes them from the seed's party, backlog, pool and q.
+		return VeiFronts.have_need(VeiFronts.info_from_boss_seed(sd), vc)
+	var out: Array = []
+	for id in VeiFronts.FRONT_IDS:
+		var f := {"id": id, "need": 0.0, "have": 0.0, "assigned": []}
+		for g in sd.get("fronts", []):
+			if typeof(g) == TYPE_DICTIONARY and str(g.get("id", "")) == id:
+				f = (g as Dictionary).duplicate(true)
+		out.append(f)
+	return out
 
 
 func _build_extra() -> void:
-	var b: Dictionary = rcfg().get("boss", {})
-	ally_engage_px = 5000.0  # the horde marches the full arena to reach her
-	backlog_left = float(seed_data.get("backlog", 0.0))
-	var arena_size: Vector2 = layout["size"]
-
-	# Vei at the far north end
+	var vc := vcfg()
+	rng_combat.seed = BossLogic.rng_int(str(seed_data.get("rng_seed", "1"))) ^ 0x7E1B055
+	rng_loot.seed = rng_combat.seed ^ 0x10075EED
+	relish.hp = float(seed_data.get("relish_hp", relish.hp))
+	relish.max_hp = relish.hp
+	ally_engage_px = float(vc.get("raised", {}).get("engage_px", 900.0))
+	_fit_camera(vc)
+	var size: Vector2 = layout["size"]
+	var wt: float = layout["wall_t"]
 	vei = RaidVei.new()
-	vei.position = Vector2(arena_size.x * 0.5, float(layout["wall_t"]) + 210.0)
+	vei.position = Vector2(size.x * 0.5, wt + float(vc.get("court", {}).get("y_px", 200.0)))
 	units_root.add_child(vei)
-	vei.configure(self, float(seed_data.get("odds", 0.5)))
+	vei.configure(self, vc)
 
-	# her honor guard (living, orange-gold)
-	var guard_mass: float = float(b.get("guard", {}).get("mass", 10.0))
-	for i in int(b.get("initial_guards", 8)):
-		var ang := PI * 0.5 + (float(i) / maxf(1.0, float(b.get("initial_guards", 8)) - 1.0) - 0.5) * 1.8
-		var pos: Vector2 = vei.position + Vector2(vei.radius + 70.0 + (i % 2) * 40.0, 0).rotated(ang)
-		var g := spawn_unit("enemy", "guard", resolve_walls(pos, 10.0))
-		g.mass = guard_mass
+	fronts = _fronts_for(seed_data, vc)
+	if _standalone:
+		fronts = BossDev.apply_fronts(fronts, vc)
+	p1 = VeiFronts.phase1_start(fronts)
+	party_lane = BossLogic.party_lanes(seed_data, vc)
+	lanes = BossLogic.lanes(size, wt, vei.position, vc)
+	lanes_node = BossLanes.new()
+	add_child(lanes_node)
+	lanes_node.setup(self, lanes, vc)
+	lanes_node.fronts = p1["fronts"]
+	var pc: Array = [0, 0, 0, 0]
+	for uid in party_lane:
+		pc[int(party_lane[uid])] += 1
+	lanes_node.party_count = pc
 
-	# the brought army spawns around Relish
-	var army: Dictionary = seed_data.get("army", {})
-	_spawn_army("soldier", int(army.get("soldier", 0)))
-	_spawn_army("elite", int(army.get("elite", 0)))
+	var marks := BossLanes.BackupMarks.new()
+	marks.boss = self
+	marks.z_index = 1   # relative: just above Relish
+	relish.add_child(marks)
+
+	hud.show_banner("VEI'S COURT · break %d of the 4 fronts" % VeiFronts.required(vc), 3.2, "vei")
+	if _standalone:
+		var met := 0
+		for f in fronts:
+			if float(f["have"]) >= float(f["need"]):
+				met += 1
+		print("BOSS_START from_run=%s fronts_met=%d/%d required=%d backlog=%.0f pool=%.0f q=%.2f backups=%d+%d hp=%.0f" % [
+			str(_from_run), met, fronts.size(), VeiFronts.required(vc), float(seed_data.get("backlog", 0.0)),
+			float(seed_data.get("living_pool", 0.0)), float(seed_data.get("digest_q", 0.0)),
+			int(seed_data.get("phylactery_charges", 0)), int(seed_data.get("clones_ready", 0)), relish.hp])
+		_bdev = BossDev.new(self)
+		if BossAutopilot.enabled():
+			_bot = BossAutopilot.new(self)
+			_bot.start()
+		_bdev.start()
 
 
-func _spawn_army(kind: String, count: int) -> void:
-	for i in count:
-		var ang := randf() * TAU
-		var dist := 46.0 + randf() * 130.0
-		var pos: Vector2 = relish.position + Vector2(dist, 0).rotated(ang)
-		spawn_unit("ally", kind, resolve_walls(pos, 10.0))
+## The whole arena on screen: the lanes, her court and the anchors all read at once.
+func _fit_camera(vc: Dictionary) -> void:
+	var ac: Dictionary = vc.get("arena", {})
+	var size: Vector2 = layout["size"]
+	var view := get_viewport_rect().size
+	var m := float(ac.get("margin_px", 40.0))
+	var z := minf(view.x / (size.x + 2.0 * m), view.y / (size.y + 2.0 * m))
+	cam.zoom = Vector2.ONE * clampf(z, float(ac.get("zoom_min", 0.6)), float(ac.get("zoom_max", 1.0)))
+	_cam_follow()
+	cam.reset_smoothing()
 
 
+# ----------------------------------------------------------------- runtime ---
 func _post_physics(delta: float) -> void:
-	# THE BACKLOG IS THE HORDE: chaff stream in from the south doors while it lasts
-	if backlog_left <= 0.0 or _ended:
+	if phase == Phase.OVER:
 		return
-	var b: Dictionary = rcfg().get("boss", {})
-	var alive_chaff := 0
+	fight_t += delta
+	if _bdev != null:
+		_bdev.physics_tick(delta)
+	if _bot != null:
+		_bot.physics_tick(delta)
+	if phase == Phase.FRONTS:
+		_step_fronts(delta)
+	elif phase == Phase.BREAK:
+		_step_break(delta)
+
+
+func _process(delta: float) -> void:
+	super._process(delta)
+	if _bdev != null:
+		_bdev.tick()
+	if _seq_kind != "":
+		_step_sequence(delta)
+
+
+# --- phase 1: the fronts ---
+func _step_fronts(delta: float) -> void:
+	var vc := vcfg()
+	var before: Array = []
+	for f in p1["fronts"]:
+		before.append(bool(f["cleared"]))
+	p1 = VeiFronts.phase1_step(p1, delta, vc)
+	for i in (p1["fronts"] as Array).size():
+		if bool(p1["fronts"][i]["cleared"]) and not bool(before[i]):
+			_on_front_cleared(i)
+	lanes_node.fronts = p1["fronts"]
+	_front_motes(delta, vc)
+	match VeiFronts.phase1_outcome(p1, vc):
+		"phase2":
+			_begin_break()
+		"lost":
+			_lose("fronts_held")
+
+
+func _on_front_cleared(i: int) -> void:
+	lanes_node.on_cleared(i)
+	RaidFx.ring(fx_root, lanes[i]["b"], Palette.c("undead"), 70.0, 0.6, 3.0)
+	var n := VeiFronts.fronts_met(p1["fronts"])
+	hud.show_banner("%s BREAK THROUGH · %d of %d" % [String(lanes[i]["id"]).to_upper(), n, VeiFronts.required(vcfg())],
+		2.0, "undead")
+	if _standalone:
+		print("BOSS_FRONT cleared=%s t=%.1f" % [lanes[i]["id"], float(p1["t"])])
+
+
+## The fallen along each contested lane's front drop fresh motes (mass 0).
+func _front_motes(delta: float, vc: Dictionary) -> void:
+	var pc: Dictionary = vc.get("phase1", {})
+	var rate := float(pc.get("mote_rate", 0.25))
+	var spread := float(pc.get("mote_spread_px", 46.0))
+	for i in lanes.size():
+		var f: Dictionary = p1["fronts"][i]
+		if bool(f["cleared"]):
+			continue
+		var r := BossLogic.accrue(float(_mote_acc[i]), rate, delta)
+		_mote_acc[i] = r["acc"]
+		for k in int(r["n"]):
+			var head := BossLogic.point_at(lanes[i], BossLogic.contact_s(float(f["progress"]), vc))
+			_mote(head + Vector2(rng_combat.randf_range(-spread, spread), rng_combat.randf_range(-spread, spread) * 0.6))
+
+
+func _mote(p: Vector2) -> void:
+	spawn_mote(resolve_walls(p, 6.0), 0.0, false,
+		Vector2(rng_combat.randf_range(20.0, 50.0), 0.0).rotated(rng_combat.randf() * TAU))
+
+
+# --- phase 2: the break ---
+func _begin_break() -> void:
+	if phase != Phase.FRONTS:
+		return
+	var vc := vcfg()
+	phase = Phase.BREAK
+	phase1_s = fight_t
+	fronts_cleared = []
+	for f in p1["fronts"]:
+		if bool(f["cleared"]):
+			fronts_cleared.append(String(f["id"]))
+	uncleared = VeiFronts.FRONT_IDS.size() - fronts_cleared.size()
+	ferry = VeiFronts.ferry_rate({"living_pool": float(seed_data.get("living_pool", 0.0)),
+		"digest_q": float(seed_data.get("digest_q", 1.0))}, uncleared, vc)
+	horde0 = maxf(0.0, float(seed_data.get("backlog", 0.0)))
+	horde = horde0
+	ferry_beat = BossLogic.ferry_per_beat(ferry, tempo_s(), vc)
+	brk = VeiFronts.break_start()
+	t2 = BossLogic.align_t(Pulse.phase(), tempo_s())
+	anchors = BossLogic.anchors(lanes, vc)
+	lanes_node.phase = 2
+	lanes_node.anchors = anchors
+	lanes_node.party_shown = false
+	_spawn_party(vc)
+	vei.start_weaves(float(vc.get("weaves", {}).get("first_beat", 3.0)))
+	vei.flare()
+	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), vei.radius * 3.0, 0.8, 4.0)
+	hud.show_banner("THE BREAK · raise at the anchors faster than she ferries", 3.5, "vei")
+	if _bdev != null:
+		_bdev.on_break()
+	if _standalone:
+		print("BOSS_BREAK t=%.1f cleared=%s uncleared=%d ferry=%.2f ferry_per_beat=%.3f horde=%.0f" % [
+			fight_t, str(fronts_cleared), uncleared, ferry, ferry_beat, horde])
+
+
+## The party's big undead step out of the streams they led, as units that fight.
+func _spawn_party(vc: Dictionary) -> void:
+	for e in seed_data.get("party", []):
+		var uid := str(e.get("uid", ""))
+		var li := int(party_lane.get(uid, -1))
+		var pos: Vector2 = relish.position + Vector2(120.0, 0.0).rotated(rng_combat.randf() * TAU)
+		if li >= 0:
+			var lane: Dictionary = lanes[li]
+			var s := 1.0 if bool(p1["fronts"][li]["cleared"]) else BossLogic.contact_s(float(p1["fronts"][li]["progress"]), vc)
+			pos = BossLogic.point_at(lane, s) - BossLogic.lane_dir(lane) * 40.0 \
+				+ BossLogic.lane_dir(lane).orthogonal() * rng_combat.randf_range(-30.0, 30.0)
+		var st: Dictionary = e.get("stats", {})
+		var u := spawn_ally_v2("party", "big", 1.0, 0.0, uid, RaidLogic.big_undead_stats(st, rcfg()),
+			resolve_walls(pos, 20.0), false, "big")
+		u.beef = float(st.get("beef", 0.0))
+		u.speed_stat = float(st.get("speed", 0.0))
+		u.slots = maxi(1, int(e.get("filled_slots", 1)))
+		party_units[uid] = u
+
+
+func _step_break(delta: float) -> void:
+	var vc := vcfg()
+	var ts := tempo_s()
+	var b0 := BossLogic.beat_of(t2, ts)
+	t2 += delta
+	var b1 := BossLogic.beat_of(t2, ts)
+	horde = BossLogic.horde_step(horde, ferry, delta)
+	lanes_node.horde_frac = horde / horde0 if horde0 > 0.0 else 0.0
+	for k in BossLogic.beats_crossed(b0, b1):
+		brk = VeiFronts.break_beat(brk, beat_raised, ferry_beat, vc)
+		beat_raised = 0.0
+		streak_max = maxi(streak_max, int(brk["streak"]))
+		if VeiFronts.broken(brk, vc):
+			_win()
+			return
+	_anchor_motes(delta, vc)
+	_spawn_guards(delta, vc)
+	if stress and _bdev != null:
+		_bdev.stress_tick()
+	vei.weave_step(b1)
+	if phase == Phase.BREAK and horde <= 0.0:
+		_lose("horde_ferried")
+
+
+## Where the ferried fall: motes at the anchors, round robin, at a rate tied to F.
+func _anchor_motes(delta: float, vc: Dictionary) -> void:
+	if anchors.is_empty():
+		return
+	var r := BossLogic.accrue(_anchor_acc, BossLogic.anchor_mote_rate(ferry, vc), delta)
+	_anchor_acc = r["acc"]
+	var spread := float(vc.get("anchors", {}).get("spread_px", 42.0))
+	for k in int(r["n"]):
+		var p: Vector2 = anchors[_anchor_next % anchors.size()]
+		_anchor_next += 1
+		_mote(p + Vector2(rng_combat.randf_range(0.0, spread), 0.0).rotated(rng_combat.randf() * TAU))
+
+
+func guards_alive() -> int:
+	var n := 0
+	for e in enemies:
+		if is_instance_valid(e) and e.alive:
+			n += 1
+	return n
+
+
+func _spawn_guards(delta: float, vc: Dictionary) -> void:
+	var r := BossLogic.guard_spawn(_guard_acc, delta, uncleared, guards_alive(), vc)
+	_guard_acc = r["acc"]
+	for k in int(r["n"]):
+		spawn_guard()
+
+
+## One living guard out of an uncleared lane's guard line; it hunts Relish and the undead in its way
+## at once (BossGuard). Built here, not via spawn_unit (which reads raid.json's legacy boss block):
+## stats from vei.json.
+func spawn_guard() -> RaidUnit:
+	var open: Array = []
+	for i in lanes.size():
+		if not bool(p1["fronts"][i]["cleared"]):
+			open.append(i)
+	if open.is_empty():
+		return null
+	var vc := vcfg()
+	var li: int = open[rng_combat.randi_range(0, open.size() - 1)]
+	var lane: Dictionary = lanes[li]
+	var dir := BossLogic.lane_dir(lane)
+	var p := BossLogic.point_at(lane, BossLogic.contact_s(float(p1["fronts"][li]["progress"]), vc)) \
+		+ dir * rng_combat.randf_range(10.0, 50.0) + dir.orthogonal() * rng_combat.randf_range(-26.0, 26.0)
+	var u := BossGuard.new()
+	u.position = resolve_walls(p, 10.0)
+	units_root.add_child(u)
+	u.configure(self, "enemy", "guard", vc.get("guards", {}).get("unit", {}))
+	u.block_px = float(vc.get("guards", {}).get("block_px", 70.0))
+	var size: Vector2 = layout["size"]
+	var wt: float = layout["wall_t"]
+	u.home_room = Rect2(Vector2(wt, wt), size - Vector2(wt, wt) * 2.0)
+	u._aggro = true
+	u.grow_in()
+	enemies.append(u)
+	return u
+
+
+# ------------------------------------------------------------------- raise ---
+## A released, scored circle (the trance's, or the bot's). One undead per enclosed mote at
+## stat_mult(score). Phase 1: the lane nearest the circle gains the have, and the raised run into
+## its stream. Phase 2: the value counts toward this beat's raise rate, and the raised fight.
+func perform_raise(g: Dictionary) -> void:
+	if phase == Phase.OVER or _ended:
+		return
+	var center: Vector2 = g["center"]
+	var radius: float = g["radius"]
+	var picked: Array = []
+	for e in get_tree().get_nodes_in_group("raid_essence"):
+		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
+			picked.append(e)
+	if picked.is_empty():
+		return
+	for e in picked:
+		e.absorb()
+	var score := int(g["score"])
+	var n := picked.size()
+	var mult := RaidLogic.stat_mult(score, ConfigDb.data.get("circle", {}))
+	var tier := RaidLogic.score_class(score, rcfg())
+	var mults: Array = []
+	for i in n:
+		mults.append(mult)
+	raises += 1
+	first_raise_done = true
+	var fb := raiser._last_feedback
+	if fb != null and is_instance_valid(fb):
+		fb.raised_n = n
+		fb.raised_tier = tier
+	var vc := vcfg()
+	if phase == Phase.FRONTS:
+		var li := BossLogic.nearest_lane(center, lanes)
+		var before := float(p1["fronts"][li]["have"])
+		p1 = VeiFronts.phase1_add_raise(p1, String(lanes[li]["id"]), mults, vc)
+		lanes_node.fronts = p1["fronts"]
+		lanes_node.add_runners(li, n, relish.global_position, rng_combat)
+		lanes_node.flash(li)
+		_p1_raises += 1
+		RaidFx.ring(fx_root, relish.global_position, Palette.c("undead"), 78.0, 0.5, 3.0)
+		if _standalone:
+			print("BOSS_RAISE fronts lane=%s n=%d score=%d have %.1f -> %.1f" % [lanes[li]["id"], n, score,
+				before, float(p1["fronts"][li]["have"])])
+	else:
+		var v := VeiFronts.raise_value(mults, vc)
+		beat_raised += v
+		_spawn_raised(n, tier, mult, vc)
+		_p2_raises += 1
+		if _standalone:
+			print("BOSS_RAISE break n=%d score=%d value=%.2f ferry_per_beat=%.3f streak=%d" % [n, score, v, ferry_beat,
+				int(brk.get("streak", 0))])
+
+
+func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
+	var alive := 0
 	for a in allies:
-		if is_instance_valid(a) and a.alive and a.kind == "chaff":
-			alive_chaff += 1
-	if alive_chaff >= int(b.get("max_chaff_alive", 130)):
-		return  # arena is saturated; the backlog waits at the doors
-	var rate: float = float(b.get("stream_rate_base", 2.0)) \
-		+ backlog_left / float(b.get("stream_backlog_div", 1500.0))
-	_stream_acc += rate * delta
-	while _stream_acc >= 1.0 and backlog_left > 0.0:
-		_stream_acc -= 1.0
-		_spawn_stream_chaff(b)
+		if is_instance_valid(a) and a.alive and a.role == "raised":
+			alive += 1
+	var k := mini(n, maxi(0, int(vc.get("raised", {}).get("unit_cap", 40)) - alive))
+	var stats := RaidLogic.undead_stats(mult, tier, rcfg())
+	var ring_px := float(rcfg().get("raise", {}).get("spawn_ring_px", 52.0))
+	var rp := relish.global_position
+	for i in k:
+		var ang := TAU * i / float(maxi(1, k)) + rng_combat.randf() * 0.8
+		var pos := rp + Vector2(ring_px + rng_combat.randf_range(-10.0, 26.0), 0.0).rotated(ang)
+		spawn_ally_v2("raised", tier, mult, 0.0, "", stats, resolve_walls(pos, 10.0), true)
+	RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
 
 
-func _spawn_stream_chaff(b: Dictionary) -> void:
-	var south_doors: Array = []
-	for d in layout["doors"]:
-		if d["side"] == "s":
-			south_doors.append(d)
-	if south_doors.is_empty():
-		south_doors = layout["doors"]
-	var door: Dictionary = south_doors[randi_range(0, south_doors.size() - 1)]
-	var pos: Vector2 = door["inner"] + Vector2(randf_range(-55, 55), randf_range(-16, 4))
-	spawn_unit("ally", "chaff", resolve_walls(pos, 8.0), true)
-	var drain := minf(float(b.get("stream_mass_per_spawn", 8.0)), backlog_left)
-	backlog_left -= drain
-	backlog_spent += drain
-
-
-## Allies see Vei as a target too.
-func nearest_enemy_of(pos: Vector2):
-	var best = super.nearest_enemy_of(pos)
-	if vei != null and is_instance_valid(vei) and vei.alive:
-		var dv: float = pos.distance_to(vei.global_position)
-		if best == null or dv < pos.distance_to(best.global_position):
-			if dv < ally_engage_px:
-				return vei
-	return best
-
-
-## Dead undead leave grey remnants — the matter Vei's REVIVE recycles.
-func _on_ally_died(u: RaidUnit) -> void:
-	var b: Dictionary = rcfg().get("boss", {})
-	_remnants = _remnants.filter(func(r) -> bool: return is_instance_valid(r))
-	if _remnants.size() >= int(b.get("remnant_cap", 40)):
+func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
+	if u.faction == "enemy":
+		enemies.erase(u)
+		for i in int(vcfg().get("guards", {}).get("motes_on_death", 1)):
+			_mote(u.global_position)
+		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
 		return
-	var pile := RaidPile.new()
-	pile.raid = self
-	pile.small = true
-	pile.mass = float(b.get("remnant_mass", 3.0))
-	pile.position = u.global_position
-	units_root.add_child(pile)
-	_remnants.append(pile)
+	allies.erase(u)
+	if u.role == "party" and u.uid != "" and not party_lost.has(u.uid):
+		party_lost.append(u.uid)
+		party_units.erase(u.uid)
+	if not sacrificed:
+		RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
 
 
-func on_vei_died() -> void:
-	if _ended:
+# ----------------------------------------------------------------- backups ---
+func backups_spent_total() -> int:
+	return int(spent["phylactery"]) + int(spent["clones"])
+
+
+func backups_left() -> int:
+	return BossLogic.backups_left(spent, int(seed_data.get("phylactery_charges", 0)), int(seed_data.get("clones_ready", 0)))
+
+
+func phylactery_left() -> int:
+	return maxi(0, int(seed_data.get("phylactery_charges", 0)) - int(spent["phylactery"]))
+
+
+func clones_left() -> int:
+	return maxi(0, int(seed_data.get("clones_ready", 0)) - int(spent["clones"]))
+
+
+## Relish's hp reached 0 (relish.gd): spend the next backup and revive her in place.
+func try_phylactery() -> bool:
+	if phase == Phase.OVER or _ended:
+		return false
+	var kind := VeiFronts.next_backup(spent, int(seed_data.get("phylactery_charges", 0)), int(seed_data.get("clones_ready", 0)))
+	if kind == "":
+		return false
+	var key := "phylactery" if kind == "phylactery" else "clones"
+	spent[key] = int(spent[key]) + 1
+	deaths += 1
+	var bc: Dictionary = vcfg().get("backups", {})
+	relish.revive(relish.max_hp * float(bc.get("revive_hp_frac", 0.6)), float(bc.get("iframes_s", 2.0)))
+	# the backup-crack set piece: a violet ring holds, then cracks; a cracked ring stays on her
+	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), float(bc.get("crack_radius_px", 110.0)),
+		float(bc.get("crack_s", 1.2)))
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("text", 0.8), 40.0, 0.5, 2.5)
+	hud.flash(Palette.c("relish"))
+	var left := backups_left()
+	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,
+		"" if left == 1 else "s"], float(bc.get("banner_s", 2.2)), "relish" if left > 0 else "danger")
+	if _standalone:
+		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f" % [kind, deaths, left, fight_t])
+	return true
+
+
+## No backup left: the final death (relish_deaths = spent + 1).
+func on_relish_died() -> void:
+	if phase == Phase.OVER:
 		return
-	_ended = true
-	trance.force_end()
-	hud.flash(Palette.c("vei"))
-	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), 700.0, 1.1, 8.0)
-	RaidFx.ring(fx_root, vei.global_position, Palette.c("text", 0.9), 400.0, 0.8, 5.0)
-	get_tree().create_timer(1.2).timeout.connect(func() -> void: _finish(_boss_result(true, false)))
+	deaths += 1
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
+	_lose("relish_unmade")
+
+
+## There is no retreat from the Vei fight.
+func can_retreat() -> bool:
+	return false
+
+
+func try_retreat() -> void:
+	pass
+
+
+func confirm_exit() -> void:
+	pass
+
+
+func exit_hint_ready() -> bool:
+	return false
 
 
 func _exit_result() -> Dictionary:
-	return _boss_result(false, false)
+	return _result(false)
 
 
 func _death_result() -> Dictionary:
-	return _boss_result(false, true)
+	return _result(false)
 
 
-func _boss_result(won: bool, died: bool) -> Dictionary:
-	return {"fort_id": str(seed_data.get("fort_id", "vei")), "won": won,
-		"relish_died": died, "backlog_spent": backlog_spent,
-		"army_lost": army_lost.duplicate()}
+# ----------------------------------------------------------------- endings ---
+func on_first_weave() -> void:
+	hud.show_banner("VEI WEAVES · step off the thread", 2.6, "danger")
+	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), vei.radius * 4.0, 0.9, 4.0)
+	RaidFx.ring(fx_root, vei.global_position, Palette.c("danger", 0.8), vei.radius * 2.4, 0.7, 3.0)
+	if _standalone:
+		print("BOSS_WEAVE first t=%.1f" % fight_t)
+
+
+func _win() -> void:
+	if phase == Phase.OVER:
+		return
+	end_reason = "broken"
+	_end_common()
+	hud.show_banner("VEI BREAKS · the game is beaten", 3.5, "vei")
+	vei.unravel_f = 0.0
+	_seq_kind = "win"
+	_seq_t = 0.0
+
+
+func _lose(reason: String) -> void:
+	if phase == Phase.OVER:
+		return
+	end_reason = reason
+	_end_common()
+	var text := {"fronts_held": "HER FRONTS HOLD", "horde_ferried": "THE HORDE IS FERRIED",
+		"relish_unmade": "RELISH IS UNMADE"}
+	hud.show_banner(str(text.get(reason, "THE FIGHT IS LOST")), 3.0, "danger")
+	lanes_node.lose_f = 0.0
+	vei.feed_f = 0.0
+	_seq_kind = "lose"
+	_seq_t = 0.0
+
+
+func _end_common() -> void:
+	phase = Phase.OVER
+	_ended = true
+	trance.force_end()
+	Engine.time_scale = 1.0
+	vei.stop_weaves()
+	if _standalone:
+		print("BOSS_END reason=%s t=%.1f streak_max=%d deaths=%d horde=%.0f" % [end_reason, fight_t, streak_max, deaths, horde])
+
+
+## The closing set pieces on real time (the base physics step stops once the run has ended).
+## Victory: her rings unravel stroke by stroke, then every lane runs green toward her and stops.
+## Loss: the lanes drain into her and dim. Reduced motion: shorter and stepped, palette only.
+func _step_sequence(delta: float) -> void:
+	_seq_t += delta / maxf(0.05, Engine.time_scale)
+	var ec: Dictionary = vcfg().get("end", {})
+	var reduced: bool = Pulse.reduced_motion
+	var k := float(ec.get("rm_scale", 0.6)) if reduced else 1.0
+	if _seq_kind == "win":
+		var un := float(ec.get("unravel_s", 1.3)) * k
+		var gr := float(ec.get("green_s", 0.8)) * k
+		var f := clampf(_seq_t / maxf(un, 0.01), 0.0, 1.0)
+		vei.unravel_f = floorf(f * 4.0) / 4.0 if reduced else f
+		if _seq_t >= un:
+			if lanes_node.win_f < 0.0:
+				lanes_node.win_f = 0.0
+				for i in lanes.size():
+					lanes_node.on_cleared(i)
+			lanes_node.win_f = clampf((_seq_t - un) / maxf(gr, 0.01), 0.0, 1.0)
+			if lanes_node.win_f >= 1.0:
+				lanes_node.frozen = true   # every lane green toward her, and the lines stop
+		if _seq_t >= un + gr + float(ec.get("hold_s", 0.7)) * k:
+			_emit(true)
+	else:
+		var dr := float(ec.get("drain_s", 1.4)) * k
+		var f2 := clampf(_seq_t / maxf(dr, 0.01), 0.0, 1.0)
+		lanes_node.lose_f = floorf(f2 * 3.0) / 3.0 if reduced else f2
+		vei.feed_f = lanes_node.lose_f
+		if _seq_t >= dr + float(ec.get("lose_hold_s", 0.5)) * k:
+			_emit(false)
+
+
+func _result(won: bool) -> Dictionary:
+	return VeiFronts.boss_result(seed_data, won, fronts_cleared, deaths, spent, party_lost,
+		BossLogic.backlog_spent(horde0, horde))
+
+
+func _emit(won: bool) -> void:
+	if _emitted:
+		return
+	_emitted = true
+	_seq_kind = ""
+	var r := _result(won)
+	for e in Results.validate("boss", r):
+		push_error("necropolis: boss result invalid: " + e)
+	if _standalone:
+		print("BOSS_RESULT ", JSON.stringify(r))
+	endings.finish(r)
+	if _bot != null:
+		_bot.on_finish(r)
+
+
+# --------------------------------------------------------------------- HUD ---
+## What the boss HUD block shows, read each frame (raid_hud.gd BossBlock).
+func hud_info() -> Dictionary:
+	var vc := vcfg()
+	var met := VeiFronts.fronts_met(p1.get("fronts", [])) if phase == Phase.FRONTS else fronts_cleared.size()
+	var hint := ""
+	if not _ended:
+		if phase == Phase.FRONTS and _p1_raises == 0:
+			hint = "HOLD SPACE — CIRCLE THE ESSENCE BY A LANE · it joins that front"
+		elif phase == Phase.BREAK and _p2_raises == 0:
+			hint = "RAISE AT THE ANCHORS · outpace her ferry"
+	return {"phase": phase, "break_began": phase1_s >= 0.0, "met": met, "required": VeiFronts.required(vc),
+		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
+		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
+		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
+		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint}

@@ -88,9 +88,10 @@ func exit_hint_ready() -> bool:
 	return exit_idx >= 0 and not ended and (left_spawn_exit or _raid.first_raise_done)
 
 
-## Retreat is open only at an exit (the boss arena keeps its teleport).
+## Retreat is open only at an exit. There is no retreat from the Vei fight (the boss scene also
+## overrides this).
 func can_retreat() -> bool:
-	return _raid.is_boss() or exit_idx >= 0
+	return not _raid.is_boss() and exit_idx >= 0
 
 
 ## The HUD's confirmed RETREAT: re-checks the exit, since Relish may have drifted off.
