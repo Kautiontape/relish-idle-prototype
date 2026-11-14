@@ -82,6 +82,7 @@
     "line_dim_to": 0.4
   },
   "essence": {
+    "_doc": "Essence motes and Relish's carried cluster. carry_orbit_px is the ring the carried motes sit on and COUNT on (12 clock slots, RaidLogic.carry_slot_angle); the drawing rocks the cluster by a sine at carry_spin_rad_s but never further than carry_swing_px from the counted slot, so a mote drawn inside a ring edge counts inside it. Reduced motion draws no swing. Draw only: no sim code reads it.",
     "lifetime_s": 12.0,
     "drift_radius_px": 120.0,
     "drift_speed_px": 46.0,
@@ -95,7 +96,8 @@
     "gather_radius_px": 28.0,
     "carry_max": 12,
     "carry_orbit_px": 24.0,
-    "carry_spin_rad_s": 0.8
+    "carry_spin_rad_s": 0.8,
+    "carry_swing_px": 3.0
   },
   "telemetry": {
     "drift_ratio": 8

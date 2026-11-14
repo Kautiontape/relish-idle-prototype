@@ -561,10 +561,11 @@ func carry_angle(slot: int) -> float:
 
 
 ## Where a carried slot is DRAWN: its counted angle plus the cluster's shared spin (zero under
-## reduced motion). Draw only: nothing that scores, aims or collides may read it.
+## reduced motion), at most carry_swing_px from the counted slot. Draw only: nothing that scores, aims or collides may read it.
 func carry_draw_angle(slot: int) -> float:
 	var e: Dictionary = rcfg().get("essence", {})
-	return carry_angle(slot) + RaidLogic.carry_draw_spin(_carry_t, float(e.get("carry_spin_rad_s", 0.8)), Pulse.reduced_motion)
+	var swing := RaidLogic.carry_swing_rad(float(e.get("carry_swing_px", 3.0)), float(e.get("carry_orbit_px", 24.0)))
+	return carry_angle(slot) + RaidLogic.carry_draw_spin(_carry_t, float(e.get("carry_spin_rad_s", 0.8)), swing, Pulse.reduced_motion)
 
 
 ## How far a carried mote is drawn from its counted spot (draw only).

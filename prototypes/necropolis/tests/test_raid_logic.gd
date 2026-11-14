@@ -340,8 +340,14 @@ func run() -> int:
 	# reduced motion changes only what is drawn: where a carried mote COUNTS has no spin or Pulse in it
 	t.near(RaidLogic.carry_slot_angle(0, 12), -PI * 0.5, 1e-9, "carry slot 0 sits at 12 o'clock")
 	t.near(RaidLogic.carry_slot_angle(3, 12), 0.0, 1e-9, "carry slot 3 of 12 sits at 3 o'clock")
-	t.ok(RaidLogic.carry_draw_spin(7.5, 0.8, true) == 0.0 and absf(RaidLogic.carry_draw_spin(7.5, 0.8, false) - 6.0) < 1e-9,
-		"the carry spin is drawn only: zero under reduced motion, t * rate otherwise")
+	var swing_rad := RaidLogic.carry_swing_rad(3.0, 24.0)
+	t.near(swing_rad, 0.125, 1e-9, "a 3 px swing on a 24 px orbit is 0.125 rad")
+	t.ok(RaidLogic.carry_draw_spin(7.5, 0.8, swing_rad, true) == 0.0, "the carry swing is zero under reduced motion")
+	var worst := 0.0
+	for k in 400:
+		var sw := RaidLogic.carry_draw_spin(k * 0.05, 0.8, swing_rad, false)
+		worst = maxf(worst, 24.0 * 2.0 * sin(absf(sw) * 0.5))
+	t.ok(worst <= 3.0 + 1e-9 and worst > 2.5, "a drawn carried mote never strays more than the swing knob (3 px) from its counted slot (%.2f)" % worst)
 	for guarded in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle (the counted slot angle)"],
 			["res://scripts/raid/warden.gd", "func wake(", "Warden.wake (the beat alignment)"],
 			["res://scripts/raid/vei_boss.gd", "func _begin_break(", "VeiBoss._begin_break (the break start alignment)"],
@@ -350,6 +356,17 @@ func run() -> int:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
+	# the drawn swing is for the eye only: sim code never reads it
+	for sim in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle"],
+			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
+			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"]]:
+		var sbody := _func_body(str(sim[0]), str(sim[1]))
+		t.ok(sbody != "" and not sbody.contains("carry_draw_angle") and not sbody.contains("carry_draw_offset"),
+			"%s never calls carry_draw_angle / carry_draw_offset" % sim[2])
+	var raise_src := FileAccess.get_file_as_string("res://scripts/raid/raid_raise.gd")
+	t.ok(raise_src != "" and not raise_src.contains("carry_draw_"), "raid_raise.gd (enclosure) never reads the drawn carry swing")
+	var bot_src := FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd")
+	t.ok(bot_src != "" and not bot_src.contains("carry_draw_"), "the raid bot never reads the drawn carry swing")
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
 	_checkpoint_tests(t, cfg)

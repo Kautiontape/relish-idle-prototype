@@ -532,10 +532,16 @@ static func carry_slot_angle(slot: int, slots: int) -> float:
 	return -PI * 0.5 + TAU * slot / float(maxi(1, slots))
 
 
-## The spin the cluster is DRAWN turning through at sim time `t` (0 under reduced motion). Draw
-## only: nothing that scores, aims or collides may read it.
-static func carry_draw_spin(t: float, rad_s: float, reduced: bool) -> float:
-	return 0.0 if reduced else t * rad_s
+## The swing the cluster is DRAWN rocking through at sim time `t`: a sine of at most `swing_rad`
+## either way (0 under reduced motion), so a drawn mote stays within ~orbit * swing_rad px of the
+## slot it counts at. Draw only: nothing that scores, aims or collides may read it.
+static func carry_draw_spin(t: float, rad_s: float, swing_rad: float, reduced: bool) -> float:
+	return 0.0 if reduced else sin(t * rad_s) * swing_rad
+
+
+## The most a drawn carried mote can be from where it counts, in px (the knob the swing is made from).
+static func carry_swing_rad(swing_px: float, orbit_px: float) -> float:
+	return swing_px / maxf(1.0, orbit_px)
 
 
 ## Raid result v2 builder (STATE-API 8.1). Pure bookkeeping, no scene state.
