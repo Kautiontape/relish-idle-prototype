@@ -299,5 +299,61 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
   3. **travel**: nothing engaged and Relish moved more than `SPLIT_MOVE_PX` (1 px) this tick (she walks 4 px a tick): walking the route, collecting motes and piles with no foe engaged, fetching pickups, walking to the chest after the kill.
   4. **idle**: none of these: standing with nothing engaged (holding back while calm living stand in the next room, waiting on the cooldown, the stall before the bot gives up).
   So the levers Step 3 may use (more fights, warden phases, guarded loot) land in fight; corridor length lands in travel and waits in idle.
-- **Lockstep** (the determinism gate). In every normal run `physics_frames` is `frames_drawn` + 1 (the line prints from a process callback after that frame's physics step; 4 of 4 seed-1 lines). A run is **in lockstep** when `physics_frames - frames_drawn` is 0 or 1; any other value means process frames and physics ticks fell out of step (mote drift, corpse piles and the trance cooldown advance in `_process`), and the run is excluded from every table and listed as an outlier.
+- **Lockstep** (the determinism gate). In every normal run `physics_frames` is `frames_drawn` + 1 (the line prints from a process callback after that frame's physics step; the 4 seed-1 lines and all 42 pilot runs). A run is **in lockstep** when `physics_frames - frames_drawn` is 0 or 1; any other value means process frames and physics ticks fell out of step (mote drift, corpse piles and the trance cooldown advance in `_process`), and the run is excluded from every table and listed as an outlier.
 - **Byte identity** (f77f8a9 vs f77f8a9 + these fields, seed 1, score 70, each from a `git archive` snapshot): `--raid-fixture=day1,old-sluice`, `--raid-profile=3 --raid-fort=hollow-redoubt`, `pale-bastion`, `mourners-gate`: AUTOPILOT_RESULT identical once the new keys are dropped (text and parsed), and every `RAID_WARDEN` (with its `frame=`), `RAID_RESULT` and `RAID_TELEMETRY` line identical. `tests/parity_check.sh` identical.
+- **Pilot** ("pilot, pre-fix, f77f8a9 + instrumentation": a `git archive` of 9b6442d, score 70, seeds 1-3, every fort at its tier with its tier's party profile, plus the first dungeon by `--raid-fixture=day1,old-sluice`; 39 runs and 3 re-runs, rows in the run's `reports/dungeon/calibration-dd-pilot.tsv`, runner `calibration-dd-run.py`). All 42 in lockstep. Three runs ran past 2x their fort's median: old-sluice (party 1) seed 1 at 272 s, mourners-gate seed 1 at 261 s, chime-fort seed 2 at 220 s; each re-run gave a byte-identical line, so they are the sim's own spread, not the machine. They are kept out of the table (with them: t1 106, t2 128, t3 113 s). Medians in scene seconds; shares pooled over the runs:
+
+  | row | runs | median s [min-max] | travel / fight / trance / idle % | beaten | died | raises |
+  |---|---|---|---|---|---|---|
+  | P1 first dungeon | 3 | 115 [106-120] | 3 / 89 / 0 / 8 | 3 | 0 | 18 |
+  | t1 | 8 | 106 [40-133] | 4 / 93 / 0 / 3 | 7 | 1 (greywall seed 3, the living, 40 s, before the wake) | 16 |
+  | t2 | 8 | 124 [54-216] | 5 / 91 / 0 / 4 | 8 | 0 | 17 |
+  | t3 | 8 | 104 [78-165] | 9 / 83 / 0 / 7 | 8 | 0 | 11 |
+  | t4 | 9 | 126 [79-282] | 12 / 83 / 0 / 5 | 9 | 0 | 14 |
+  | Bellringer (t1-t4) | 11 | 155 [110-282] | 5 / 92 / 0 / 3 | 11 | 0 | 20 |
+  | Huntsman (t1-t3) | 11 | 89 [40-130] | 7 / 86 / 0 / 7 | 10 | 1 | 11 |
+  | Shieldwall (t3-t4) | 6 | 134 [78-165] | 13 / 80 / 0 / 8 | 6 | 0 | 17 |
+  | Pyre-priest (t3-t4) | 5 | 113 [79-130] | 11 / 86 / 0 / 3 | 5 | 0 | 7 |
+
+  Fight is most of every run because the bot waits for its army in rooms with hostile living, and the warden fight counts whole. The deep tiers travel more (t4 12%: bigger layouts). Wall clock 11.7 s per run (median; 5.6-21.9), 10x scene speed, three at once with the machine's 1-min load at 1.7-3.7 on 12 cores.
+- **The bot's reaction model, as it is** (f77f8a9; read, not changed). The bot thinks every `think_frames` 3 physics frames (50 ms) and reads the warden's state, not the screen. Relish walks 240 px/s. Every tell lasts `tell_beats` 1 beat (1.714 s, `pulse.json tempo_ms`).
+
+  | threat | what it reads | when it reacts | margin | not answered | depends on score |
+  |---|---|---|---|---|---|
+  | Bellringer slam | the beat clock (`_next_attack`, `beat()`): beats until the next tell | before the tell. It goes in for motes only when the trip in and back out fits before the tell with `slam_safe_beats` 1 beat to spare (`WardenLogic.slam_window_open`); otherwise it stays outside | 302 px from the bell (reach 260 + half the band + `bell_margin_px` 24), waiting `bell_stage_px` 20 beyond | never | no |
+  | Huntsman lunge | `_locked` (the tell) and `_lock_pt` | the next think, 50 ms or less | 49 px off the line (22 + 13 + 14) plus `dodge_step_px` 60: 0.2 s of walking | `dodge` 0.5: half the tells, rolled once per tell | no |
+  | Shieldwall bash | the facing and the arc every think, tell or not | always: it never stands in the arc | the arc grown by `wall_margin_deg` 15 and `wall_margin_px` 30 (183 px) | never | no |
+  | Pyre-priest fire | `lit` and the areas (fixed for the tell) | the next think | `burn_clear_px` 16 beyond the area's edge (up to 134 px from its centre, 0.56 s) | 1 - `burn_step_off` = 0.2, rolled once per tell | no |
+  | the living | every living foe in her room, every think | the next think | kites at `kite_px` 240 (110 after `stall_s` 20 s held in one room) and holds at `hold_px` 200. It ignores a foe behind a wall and outruns them all (spearman 95, runner 175, brute 70 px/s) | never | no |
+
+  The score is read in one place: `_trace_for` searches the trace jitter until the grade lands within `score_tol` 5 of it. So it sets the raise's class and count and nothing about dodging. Two of the four wardens have no delay and no miss at all, and the Bellringer's reaction is effectively negative: the bot leaves before the tell starts. That is why the bash struck Relish once in 80 runs.
+- **Proposed score tie** (not built; for the next dispatch). One rule for every warden tell: per tell, a **miss** chance `m` (the tell is not answered: she keeps doing what she was doing) and a **reaction delay** `d` (an answered tell is acted on `d` after it starts), both set by the target score:
+
+  | score | m (tells missed) | d (s) | answered |
+  |---|---|---|---|
+  | 50 | 0.30 | 0.60 | 0.70 |
+  | 70 | 0.18 | 0.45 | 0.82 |
+  | 90 | 0.08 | 0.30 | 0.92 |
+
+  Between those points both are linear in the score.
+  - Basis for `d`: a choice reaction to a visual cue is about 0.35-0.5 s in the lab (Hick-Hyman, two to four choices), plus 0.1-0.2 s for a cue at the edge of the screen and a mouse move. Against a 1.714 s tell, 0.45 s still leaves 1.26 s, or 300 px of walking. That covers the lunge (49 px), any fire (134 px) and the Shieldwall's arc. So `d` rarely decides a hit, and misses are about attention, not speed.
+  - Basis for `m`: a lapse of about 0.05 (a tell at the edge of the screen while she watches the army or the motes), plus the share of fight time a player's eyes are on the circle. From the pilot that share is 0.09-0.23: raises after the wake times (0.35 x a 1.5-2.5 s trace + 0.3-0.7 s of aiming) over the fight's scene seconds. Assume about 0.7 of the tells that start during a trace go unanswered, because the slow-mo leaves time only for a short step after it. That gives 0.11-0.21. 0.18 sits in the upper half, next to the 0.2 the Pyre-priest's step-off already uses, so that fight barely moves. A score-50 player draws longer and redraws more (0.30); a score-90 player is quick on both (0.08).
+  - What it changes against today, per warden:
+    - Bellringer: it keeps counting beats to go in (a player can count four beats), but with `slam_safe_beats` cut to about 0.25 beat, so the tell can find her inside. The exit becomes the tell's answer, with `m` and `d`.
+    - Shieldwall: it avoids the arc only while a bash tell shows (`m` and `d`), so between tells it may stand in front. It keeps the side stand as where it prefers to wait.
+    - Huntsman: `dodge` goes from 0.5 to 1 - `m` = 0.82, and the step starts `d` after the lock. At score 70 this fight gets easier for the bot. The 0.5 had no stated basis.
+    - Pyre-priest: `burn_step_off` goes from 0.8 to 0.82, and the step starts `d` after the tell.
+    - The living: the kite starts `d` after a foe comes within `kite_px`, with no miss chance (it is not a one-beat tell).
+  - The context runs ("0.6 and 1.0 of its score-70 value") then answer 0.49 and 0.82 of the tells.
+- **Bot-to-human factor, first draft** (real seconds added to the bot's scene seconds; outside the trance scene time is real time). Measured from the pilot:
+  - Raises per run: 18 (P1), 16 (t1), 17 (t2), 11 (t3), 14 (t4). In the fights, a raise every 7-9 scene seconds after the wake, near the 6 s cooldown: the bot raises the moment the trance is ready.
+  - The bot's trace time per raise is 0. It never opens the trance: `bot_raise_cooldown` raises in one think, and the cooldown starts at once.
+  - Its walk in travel ticks is 0.85-2.3x `route_px` (median per tier: P1 0.85, t2 1.28, t3 1.67, t4 2.31). That walk includes the mote and pickup trips and the walk to the chest. Its whole walk is 1.7-18x the route (kiting, dodging, the warden fight).
+  - `rooms_entered` 5-41 (median per tier), inflated by kiting back and forth through a doorway. The layouts have at least 2 + tier rooms. Tells per fight minute: 7-13.
+
+  The model: human = bot scene seconds + raises x `c` + travel seconds x `r` + (2 + tier) rooms x `h`.
+  - `c` per raise, 1.0-3.5 s. A comfortable ring traced in 1.5-2.5 s of real time, inside the trance (`time_scale` 0.35, focus 4 s real), and the cooldown starts only when the trance closes. Since the fights raise about as often as the cooldown allows, the trace adds almost in full. Low: 1.5 s x (1 - 0.35), the scene still runs at 0.35 during it. High: 2.5 s, plus 0.5 s aiming before the trance, plus 0.5 s starting late after READY.
+  - `r`, 0.10-0.30: click-to-move detours and hesitation on the travel seconds.
+  - `h`, 1-3 s per room on first entry: looking, choosing to push or wait, where to stand.
+  - Not in it: retried circles (the 1 s lockout and a redraw; part of the high end), and the warden fight's own hesitation (the reaction model above covers its risk, not its time).
+  - Factor (t2-t4 pooled, median per run): **1.18-1.60**. Human estimate per tier (median per run): P1 137-188 s (2.3-3.1 min), t1 2.1-2.9 min, t2 2.4-3.3 min, t3 2.0-2.5 min, t4 2.5-3.3 min. So at f77f8a9 tiers 2-4 land below or at the bottom of the 3-6 min target.
