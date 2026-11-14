@@ -144,7 +144,8 @@ takes over 1 s.
   - The forts' pools and the body store didn't converge at any dt: 0.25 s already differs from
     0.5 s by up to 19%. The cause is not yet measured. The candidates are the dispatch rules'
     edges, the convoy's choice of fort, and the tithe surge's overfill (unbounded then; E2b
-    T3.0s bounds it, MECHANICS §3.4).
+    T3.0s bounded it, and T3.0m marches the living above a fort's cap back to Vei, MECHANICS
+    §3.4).
   - pre_vei's gold-floor upkeep cycle doesn't converge either: 2.5% at 2 s.
   - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
     (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s

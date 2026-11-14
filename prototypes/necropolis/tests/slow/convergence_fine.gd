@@ -4,9 +4,10 @@ extends RefCounted
 ## clips, field frozen. Then each metric's ratio err(0.5) / err(0.25). Against a 0.125 s reference
 ## a first-order integrator gives (0.5 − 0.125) / (0.25 − 0.125) = 3, a second-order one
 ## (0.5² − 0.125²) / (0.25² − 0.125²) = 5; a ratio near 1 is an error that doesn't shrink with dt (a
-## discontinuity). Only the ledger and the stocks' signs are asserted. Long: 0.125 s is 345 600 core
-## steps per start. Also prints midgame_2flips' peak living per fort (the surge bound's regression:
-## convergence.gd's check() asserts every fort stays within it). Run with
+## discontinuity). Only convergence.gd's check() is asserted: the ledger, the stocks' signs and the
+## march-back's regression (no fort's living past cap + one wave's mass, and none above cap · 1.01
+## at the end unless a wave ran there within 7τ). Long: 0.125 s is 345 600 core steps per start.
+## Also prints midgame_2flips' peak living per fort. Run with
 ## tests/run.sh --slow --only=convergence_fine.
 
 const DTS := [0.125, 0.25, 0.5]

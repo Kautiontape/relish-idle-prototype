@@ -1331,6 +1331,7 @@ func _core_step(dt: float) -> Array:
 	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
 		_ledger.sink(k, float(town[k]))
 	_ledger.sink("cleared", cleared)
+	_ledger.sink("pool_overflow", realm.pool_overflow)  # the march-back past Vei's pool cap (MECHANICS §3.4)
 	_note_realm_flows(dt, cleared)
 	# §3 step 8: the readouts
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)

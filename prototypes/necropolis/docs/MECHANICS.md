@@ -193,14 +193,14 @@ net mass debug commands added or removed. The sinks (`ledger()` keys, STATE-API 
 - `burned` (pit burn) and `milled`;
 - `rot_overflow` and `haul_overflow`: rot return and haul loads lost to the body cap;
 - `vei_fight` (a lost Vei fight) and `dungeon` (the raid writeback's loss);
-- `pool_overflow`, Vei's pool overflow, which is clamped so it is always 0. Her take is limited to
-  the pool's headroom;
+- `pool_overflow`: living marching back from above a fort's cap (§3.4) that land past Vei's pool
+  cap. Her own take is limited to the pool's headroom, so only the march-back books here;
 - `store_overflow`, 0 until E2b's store caps (IDLE §6).
 
 Everything else is an internal transfer: Vei turning dead and undead into living, her shipping and
-surges, the valve, muster, haul pickups, the redirect and simulacra. `held` is every pool of mass,
-summed live: the forts' living, undead and corpses, Vei's three queues, bodies, workers × `worker.mass`,
-convoy loads and the WORK in flight to TownSim. `scripts/sim/ledger.gd` books it (§1.3 step 7).
+surges, the march-back into her pool, the valve, muster, haul pickups, the redirect and simulacra.
+`held` is every pool of mass, summed live: the forts' living, undead and corpses, Vei's three
+queues, bodies, workers × `worker.mass`, convoy loads and the WORK in flight to TownSim. `scripts/sim/ledger.gd` books it (§1.3 step 7).
 
 `GameState.ledger()` returns `{sources, sinks, held}`, and `Σheld + Σsinks == Σsources` holds within
 1e-6 relative at every substep and at any `sim.substep_s` (misses measure about 1e-14). The soak
@@ -241,15 +241,21 @@ Names, to avoid confusion:
 - **Within a step** (E2b T3.0: exact at any `dt`, so catch-up's long steps match live play):
   1. the tithe clock (§3.4: a wave's start);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
-     fort's room over the step: `cap − L − U · e^(−r_drain · dt) − D`, its space now plus what the
-     drain frees. Both draw on her pool now plus what she can convert this step before her
-     headroom (from her queues as they stand after FLOOD), surge first. A long step ships what the
-     short ones would, and her pool never leaves [0, cap];
+     fort's room over the step: `cap` less the fort's load at the step's end without her living
+     (`L + D` now less the corpses raised, plus what U's path leaves with the step's WAR and raises
+     arriving, under the drain and the garrison's pull), less a surge there, never below 0
+     (§3.4). The surge takes all it wants, past the shipping share, the space and the cap. Both
+     draw on her pool now plus what she can convert this step before her headroom (from her
+     queues as they stand after FLOOD), surge first. A long step ships what the short ones would,
+     and her pool never leaves [0, cap];
   3. WAR dispatch (§3.2), also a rate;
   4. FLOOD into the queue;
   5. **fort combat off each fort's path.** U is held at its mean over the step, so living's path
-     `dL/dt = S − k_kill · Ū` is linear. S is shipping plus the surge. If living reaches 0 at
-     `t* = L0 / (k_kill · Ū − S)` it stays there, and from then on the kills equal the inflow. U's
+     `dL/dt = S − k_kill · Ū − max(0, L − cap) / τ` is linear at or below the cap and exponential
+     above it, where the excess marches back to Vei (§3.4, τ = `tithe.march_back_s`). S is
+     shipping plus the surge. If living reaches 0 at `t* = L0 / (k_kill · Ū − S)` it stays there,
+     and from then on the kills equal the inflow. The kills are the inflow less ΔL less what
+     marched back. U's
      own path, `dU/dt = W + raises − r_drain · U − k_destroy · L̄ / q`, is exact, including the
      moment U reaches 0. After that, every arriving undead is destroyed at once. Ū and L̄ come from
      alternating the two paths: a predictor from L0, then two corrections. The garrison's kills
@@ -258,9 +264,11 @@ Names, to avoid confusion:
      redirect raises (Relish's, then the simulacra's) are a rate inside the step, bounded by the
      corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`: the seconds into
      the step when living or undead reached 0 (0 when they started there), −1 when they did not.
-     These are natural event boundaries for catch-up; nothing reads them yet;
-  6. Vei's conversion. Her take is clamped to her pool's headroom (§2.1), which **counts this
-     step's shipping**, so at her cap a long step converts what it ships;
+     These are natural event boundaries for catch-up; nothing reads them yet. The living that
+     marched back land in her pool, after this step's shipping;
+  6. Vei's conversion. What the march-back took past her pool's cap is lost (`pool_overflow`,
+     §2.1). Her take is clamped to her pool's headroom, which **counts this step's shipping** and
+     the march-back, so at her cap a long step converts what it ships less what marched back;
   7. the wave books what it delivered and ends after `surge_s`; then the next wave's warning, its
      target read from this step's dispatch (§3.4);
   8. the hold countdown. A hold that runs out this step still counted as held for all of it, and a
@@ -354,8 +362,9 @@ at E2b.
     leaves. What that cuts stays in her pool. A fort with no living already takes only the WAR
     that leaves room for its shipping.
   - So shipping never takes a fort past its cap, at any dt (tested to 60 s with no clearing); WAR
-    and the surge can. At a redirect fort the bound is loose by the drain the extra pull's kills
-    skip (not seen in the tests). E2b T3.0s: the room used to be `cap − L − U · e^(−r_drain · dt)
+    and the surge can. A fort with living above its cap has no room (the march-back never takes
+    them below it), so the load leaves the march-back out. At a redirect fort the bound is loose
+    by the drain the extra pull's kills skip (not seen in the tests). E2b T3.0s: the room used to be `cap − L − U · e^(−r_drain · dt)
     − D`, which left out WAR, the raises and the surge (Greywall reached 90.3 of 90 in play), and
     a room with WAR but not the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s
     over 1 h).
@@ -376,38 +385,68 @@ at E2b.
   first fort.
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
-  shipping share and the fort's space. It fills the fort past its cap but only to
-  `cap · (1 + tithe.overfill)`: each step it delivers at most
-  `max(0, cap · (1 + tithe.overfill) − load − W)`. The load and this step's WAR are counted as for
-  shipping's room (above), so the bound is a continuous function of the state. What it refuses
-  stays in her pool: not shipped, not lost. Her normal shipping comes after it in the step and
-  still respects space, so a fort the surge took past its cap gets none.
-  - **Measured (E2b T3.0s):** the room is fixed at the step's start, so corpses cleared during a
-    wave's last step are never refilled, and a fort with no undead keeps those living for good
-    (Old Sluice ends a wave with 187.6 living at 0.5 s, 173.4 at 15 s). Over 1 h from
-    midgame_2flips the backlog's error against a 0.125 s run is first order in dt: 0.04% at 0.5 s,
-    0.73% at 5 s, 2.7% at 15 s.
+  shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
+  still respects the room, so a fort the surge took past its cap gets none.
+- **The march-back** (E2b T3.0m, which replaces T3.0s's bound `cap · (1 + tithe.overfill)`): at
+  every fort, living above the fort's cap march back to Vei's pool at `(L − cap) / τ`, with
+  τ = `tithe.march_back_s`.
+  - **In the step** (§3.1 step 5), living follow `dL/dt = c − max(0, L − cap) / τ` with
+    `c = S − k_kill · Ū`. At or below the cap the path is linear: it rises through the cap at
+    `(cap − L) / c` or reaches 0 at `L / −c`. Above it the excess `x = L − cap` relaxes toward
+    `c · τ` as `x(t) = c·τ + (x0 − c·τ) · e^(−t/τ)`, so it settles at `cap + τ · c` when `c > 0`,
+    and when `c < 0` it falls back to the cap at `τ · ln(1 + x0 / (−c · τ))`. `∫L dt` and the
+    marched mass `∫x dt / τ` are closed forms. The kills are the rest (inflow − ΔL − marched), so
+    mass is exact, and the path is exact at any dt.
+  - **Where the mass goes:** the marched living land in her pool after the step's shipping and
+    before her conversion. Her conversion then fills only the headroom they leave, and what lands
+    above her pool's cap is lost to `pool_overflow` (§2.1). At a full pool the march-back first
+    replaces what she would have converted to cover the step's shipping, and only the rest
+    overflows. Landing after shipping means a long step can't ship or surge this step's march-back
+    before the next step. That matters only when her pool runs dry during a wave, which re-surges it
+    one step late. Measured over a wave into Ashgate and 7τ of its tail (`realm_sim`), her pool,
+    overflow and conversion at 5 s and 15 s agree with 0.5 s within 0.27% and 0.84% of the marched
+    mass with her pool full, and within 0.95% and 1.48% with conversion at 5/s (the wave empties
+    her pool). Her pool ends full at every dt.
   - **Why** (E2b T3.0s): living leave a fort only by being killed (`k_kill · U`), and the target
     rule keeps picking the fort with the most WAR. 12 h with no input from midgame_2flips put about
-    75 000 living into Greywall (cap 90), an unbounded stock that fed Vei as a WAR grinder.
-  - **The value, 2.0** (living may reach 3 × cap). Statically (no drain, staging or combat in the
-    wave; a held fort with no living or corpses and a garrison `U`), a wave of `w` mass delivers
-    `min(w, (1 + o) · cap − U)`, so the hold is lost iff `U < min(w, (1 + o) · cap / 2)`:
-    - **A garrison at the fort's full cap** (`U = cap`) gets `min(w, o · cap)`, more than `cap`
-      whenever `o > 1` and `w > cap`. At 2.0 a full wave (960) delivers 160 at Ashgate (cap 80),
-      640 at Pale Bastion (320) and 960 at Whitecross (520): the hold is lost at every fort, as
-      E2a's rule intends. At 1.0 the wave would deliver exactly `cap`, and a full garrison would
-      tie and keep its hold.
-    - **With Relish there** (a 480 wave) a full garrison gets `min(480, 2 · cap)`. That is more
-      than `cap` at every fort below 480, so it keeps the hold only at Whitecross (520), and The
-      Stair (480) ties. That is the same as with no bound (480 against `cap`).
-    - **What the bound changes:** without counters, a garrison of `1.5 · cap` now outlasts a full
-      wave at every fort (`1.5 · 520 = 780 < 960`); it took 960 before. Ashgate holds with 120.
-      The counters change the outcome only where the smaller wave is below `1.5 · cap`: Relish's
-      (480) at The Stair, Whitecross and Sable Hold (cap 460 to 520), a siege's (384) at caps
-      above 256.
-    - In play the garrison drains during the 40 s wave (with no staging, `e^(−0.06 · 40) ≈ 0.09`
-      of it is left at the end), so holds are lost more easily than this.
+    75 000 living into Greywall (cap 90), an unbounded stock that fed Vei as a WAR grinder. T3.0s
+    bounded the surge at `cap · (1 + 2.0)` with a room fixed at the step's start. Corpses cleared
+    during a wave's last step were never refilled, so the bound lagged at long dt (midgame's Vei
+    and Covington stocks 2.6% off at 15 s over 1 h). Living above the cap stayed forever at a fort
+    with no undead (Ashgate 239 after 12 h), and a garrison of `1.5 · cap` outlasted a full wave.
+    The march-back has none of these: it is exact inside the step, it empties the excess, and the
+    surge delivers all of itself again.
+  - **The value, 60 s.** A full wave is `W = surge_mult · S_vei · surge_s = 960` mass at
+    `c = 24` living/s for `T = 40` s.
+    - **Peak.** Into a fort at its cap with no kills, a wave leaves `x(T) = c·τ · (1 − e^(−T/τ))`
+      above the cap: 607 at τ = 40, 701 at 60 and 816 at 120. The excess then decays as
+      `e^(−t/τ)`, so 7τ later `e^(−7) < 1e-3` of it is left.
+    - **Waves don't stack past one wave's mass** if the cycle's peak,
+      `c·τ · (1 − e^(−T/τ)) / (1 − e^(−P/τ))`, stays below W. P is the period: 420 s at odds 0,
+      down to 210 s at odds 1. At P = 210 the peak is 722 at τ = 60, 858 at 90 and 988 at 120, so
+      `cap + W` bounds every fort's living only for τ up to about 110. At τ = 60 the excess left
+      when the next wave starts is `e^(−380/60) = 0.2%` at odds 0 and `e^(−170/60) = 6%` at P = 210.
+    - **The hold** (E2a's rule compares the living the wave delivered with your undead there when
+      it ends). The march-back doesn't change what the wave delivers: 960, or 480 with Relish
+      there, 384 with a siege, 192 with both. So statically, a garrison at its fort's full cap
+      (`U = cap ≤ 520`) loses to a full wave at every fort, Relish saves it only at Whitecross
+      (520 > 480), and The Stair (480) ties. That holds at any τ.
+    - **Live** (`realm_sim`'s `_march_holds`: combat, drain and march-back on, 0.5 s). A held fort
+      starts with `U = cap` and no living or corpses, and every other fort is full of corpses, so
+      all the WAR stages there.
+      - With no WAR its garrison drains and is destroyed before the wave ends: Greywall ends with
+        0 undead and Whitecross with 0, or 0 and 90 with Relish there. So the hold is lost with or
+        without Relish.
+      - With WAR staged there the counters decide. At 30 mass/s the full wave still takes the hold
+        (the garrison ends at 424 at Greywall and 465 at Whitecross, against 960). Relish saves it
+        (509 and 557, against 480), and so does a siege (453 and 501, against 384). At 20 mass/s
+        nothing saves it.
+      - From τ = 40 to 120 the garrison's end moves by at most 8 (Greywall) and 0 (Whitecross),
+        at 0 to 40 mass/s of WAR. Staging, the drain and the counters set the hold; τ doesn't.
+    - So τ = 60 (1.5 · `surge_s`): the excess outlasts the wave (it peaks at 73% of W), it is
+      nearly gone before the next wave, and `cap + W` bounds the living at the shortest period.
+      `tests/slow/convergence.gd` asserts that bound over 12 h, and that no fort ends above
+      `cap · 1.01` unless a wave ran there within 7τ.
 - **Counters** (applied every step of the wave; the event reports them at its start):
   - Relish standing there (at the fort or in its dungeon) multiplies the surge by `tithe.relish_mult` (0.5: halves it);
   - a big undead placed there as siege cancels `tithe.siege_block` of it. Siege is E3: RealmSim

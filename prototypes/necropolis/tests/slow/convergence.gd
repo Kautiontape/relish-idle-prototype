@@ -46,9 +46,9 @@ const TOL := 0.005
 const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead", "fort_dead", "workers",
 	"bodies", "gold", "bone", "living"]
 ## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies
-## didn't converge in T3.0's measurement; the cause is not yet measured, and the candidates are the
-## dispatch rules' edges, the convoy's choice of fort and the tithe surge's overfill, unbounded then
-## and bounded since T3.0s; tests/slow/convergence_fine.gd measures convergence as dt → 0).
+## didn't converge in T3.0's measurement; the candidates were the dispatch rules' edges, the convoy's
+## choice of fort and the tithe surge's overfill, unbounded then, bounded in T3.0s and marched back
+## since T3.0m; tests/slow/convergence_fine.gd measures convergence as dt → 0).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",
@@ -200,16 +200,21 @@ static func next_event_s(s: GameState) -> float:
 
 
 ## Runs `seconds` of core steps of at most `dt` from `s`, sampling every SAMPLE_S. Returns
-## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled, peak}: `coupled`
-## is the mean number of forts per step in the coupled regime (living and undead both above 0 at the
-## step's end, or one of them reaching 0 inside the step); `peak` is {fort_id: [the most living it
-## held at any step's end, its cap, its surge bound cap · (1 + tithe.overfill)]} (MECHANICS §3.4).
+## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled, peak, end_over}:
+## `coupled` is the mean number of forts per step in the coupled regime (living and undead both
+## above 0 at the step's end, or one of them reaching 0 inside the step); `peak` is {fort_id: [the
+## most living it held at any step's end, its cap, its bound cap + one wave's mass]} and `end_over`
+## the forts holding living above cap · 1.01 at the run's end with no wave there running or ended
+## within 7τ (MECHANICS §3.4: what a wave leaves above the cap marches back with time constant τ).
 func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 	var samples: Array = [sample(s)]
-	var o := float(s.realm.t.get("tithe", {}).get("overfill", 2.0))
+	var tc: Dictionary = s.realm.t.get("tithe", {})
+	var wave_mass := float(tc.get("surge_mult", 3.0)) * float(s.realm.t.get("S_vei", 8.0)) * float(tc.get("surge_s", 40.0))
+	var tau := float(tc.get("march_back_s", 60.0))
 	var peak := {}
+	var waved := {}  # fort_id -> the last time a wave ran there
 	for f in s.realm.forts:
-		peak[f["id"]] = [float(f["living"]), float(f["cap"]), float(f["cap"]) * (1.0 + o)]
+		peak[f["id"]] = [float(f["living"]), float(f["cap"]), float(f["cap"]) + wave_mass]
 	var neg: Array = []
 	var steps := 0
 	var worst_l := 0.0
@@ -226,9 +231,13 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			var e := next_event_s(s)
 			if e > 1e-6 and e < h:
 				h = e
+		var wv0: Dictionary = s.realm.tithe.get("wave", {})
 		var u0 := Time.get_ticks_usec()
 		s._core_step(h)
 		chunk_t += Time.get_ticks_usec() - u0
+		for wv in [wv0, s.realm.tithe.get("wave", {})]:
+			if not (wv as Dictionary).is_empty():
+				waved[wv["fort_id"]] = s.t
 		chunk_steps += 1
 		steps += 1
 		for f in s.realm.forts:
@@ -247,8 +256,12 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			chunk_steps = 0
 			next_sample += SAMPLE_S
 	chunk_us.sort()
+	var end_over: Array = []
+	for f in s.realm.forts:
+		if float(f["living"]) > float(f["cap"]) * 1.01 and float(waved.get(f["id"], -INF)) < s.t - 7.0 * tau:
+			end_over.append("%s %.2f × cap" % [f["id"], float(f["living"]) / float(f["cap"])])
 	return {"samples": samples, "steps": steps, "us_per_step": chunk_us[int(chunk_us.size() / 2.0)], "neg": neg,
-		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps)), "peak": peak}
+		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps)), "peak": peak, "end_over": end_over}
 
 
 func _negatives(s: GameState, bad: Array) -> void:
@@ -292,7 +305,7 @@ func measure(starts: Array, hours: float, dts: Array, clip: bool, edit := Callab
 					e = maxf(e, absf(x - y) / maxf(absf(y), floor_m))
 				err[m] = e
 			per[dt] = {"err": err, "steps": r["steps"], "us_per_step": r["us_per_step"], "coupled": r["coupled"],
-				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"]}
+				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"], "end_over": r["end_over"]}
 		out[st] = per
 	return out
 
@@ -390,22 +403,31 @@ func table(res: Dictionary, hours: float, note := "") -> String:
 	return "\n".join(PackedStringArray(lines))
 
 
-## Balanced, finite, non-negative at every sample of every run, and no fort's living ever past its
-## surge bound (E2b T3.0s: from midgame_2flips, 12 h with no input once took Greywall to about 850 ×
-## its cap).
+## Balanced, finite, non-negative at every sample of every run; no fort's living ever more than one
+## wave's mass past its cap, and none above cap · 1.01 at the end unless a wave ran there within 7τ
+## (E2b T3.0s: from midgame_2flips, 12 h with no input once took Greywall to about 850 × its cap;
+## T3.0m marches the excess back, MECHANICS §3.4).
 func check(res: Dictionary) -> void:
 	for st in res:
 		for dt in res[st]:
 			var r: Dictionary = res[st][dt]
-			t.ok(peaks_over(r["peak"]).is_empty(), "%s at %s s: every fort's living stays within cap · (1 + tithe.overfill)%s" % [
-				st, str(dt), "" if peaks_over(r["peak"]).is_empty() else ": " + ", ".join(PackedStringArray(peaks_over(r["peak"])))])
+			bound_ok(r, "%s at %s s" % [st, str(dt)])
 			t.ok(float(r["ledger_err"]) < 1e-6, "%s at %s s: the ledger balances (worst %s)" % [st, str(dt),
 				String.num_scientific(float(r["ledger_err"]))])
 			t.ok((r["neg"] as Array).is_empty(), "%s at %s s: no negative or non-finite stock%s" % [st, str(dt),
 				"" if (r["neg"] as Array).is_empty() else ": " + str(r["neg"])])
 
 
-## The forts of a run_one `peak` whose living went past their surge bound, as "id peak/bound".
+## The march-back's two assertions on a run_one or measure() result (see check()).
+func bound_ok(r: Dictionary, what: String) -> void:
+	var over := peaks_over(r["peak"])
+	t.ok(over.is_empty(), "%s: no fort's living ever passes cap + one wave's mass%s" % [what,
+		"" if over.is_empty() else ": " + ", ".join(PackedStringArray(over))])
+	t.ok((r["end_over"] as Array).is_empty(), "%s: at the end no fort holds living above cap · 1.01 but within 7τ of a wave%s" % [what,
+		"" if (r["end_over"] as Array).is_empty() else ": " + ", ".join(PackedStringArray(r["end_over"]))])
+
+
+## The forts of a run_one `peak` whose living went past their bound, as "id peak/bound".
 static func peaks_over(peak: Dictionary) -> Array:
 	var out: Array = []
 	for id in peak:
@@ -420,7 +442,7 @@ static func peak_table(res: Dictionary, start: String) -> String:
 	var per: Dictionary = res[start]
 	var dts: Array = per.keys()
 	var ids: Array = (per[dts[0]]["peak"] as Dictionary).keys()
-	var lines: Array = ["  [convergence] %s: each fort's peak living / cap (its surge bound is 1 + tithe.overfill)" % start,
+	var lines: Array = ["  [convergence] %s: each fort's peak living / cap (its bound: 1 + one wave's mass / cap)" % start,
 		"  | dt s | " + " | ".join(PackedStringArray(ids)) + " |", "  |" + "---|".repeat(ids.size() + 1)]
 	for dt in dts:
 		var cells: Array = []

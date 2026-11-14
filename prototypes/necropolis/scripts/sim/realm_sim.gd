@@ -18,8 +18,9 @@ extends RefCounted
 ##   - redirect: at the redirect fort (Relish) and at every simulacrum's fort, garrison kills stay
 ##     as corpses and corpses are raised into that fort's undead (MECHANICS §3.3, §3.6).
 ##   - tithe waves: from the first flip (start_tithe()), Vei warns, then surges living into one
-##     fort, filling it at most to cap · (1 + tithe.overfill); a wave that overwhelms a held fort's
-##     garrison ends its hold (MECHANICS §3.4).
+##     fort, past its cap; a wave that overwhelms a held fort's garrison ends its hold (MECHANICS §3.4).
+##   - march-back: at every fort, living above the fort's cap march back to Vei's pool at
+##     (L − cap) / tithe.march_back_s; what lands above her pool's cap is lost (pool_overflow).
 ##
 ## `step(dt, inputs)` is pure on its inputs (MECHANICS §3.1): the mint, `q` and Relish's position
 ## come in `inputs`; `t` holds only realm.json tunables. Inputs (a missing key means 0, "" or {}):
@@ -58,6 +59,10 @@ var war_route := "forts"
 var r_flood := 0.0  # mass/s of FLOOD last step
 var r_war_to_vei := 0.0  # mass/s of WAR that fell through to Vei last step
 var digest_q := 1.0  # the q of the last step; readout() uses it
+## Living that marched back to her pool last step from above their forts' caps, mass/s (MECHANICS §3.4).
+var r_marched := 0.0
+## The mass that landed above her pool's cap last step and was lost: the ledger's pool_overflow.
+var pool_overflow := 0.0
 ## Undead Vei actually took from her queue last step, per second (the readout's digestion).
 var r_digested_undead := 0.0
 ## The most undead she could have taken last step, per second: her rate at `q` after the dead
@@ -84,7 +89,9 @@ var _destroyed := 0.0
 var _drained := 0.0
 var _cleared := 0.0
 var _raised := 0.0
-# the paths' scratch: undead end, mean, destroyed, drained, out time; living end, mean, out time
+var _marched := 0.0
+# the paths' scratch: undead end, mean, destroyed, drained, out time; living end, mean, out time,
+# marched back; the excess over cap's end and integral (_above)
 var _ue := 0.0
 var _um := 0.0
 var _ud := 0.0
@@ -93,6 +100,9 @@ var _ut := -1.0
 var _le := 0.0
 var _lm := 0.0
 var _lt := -1.0
+var _lb := 0.0
+var _bx := 0.0
+var _bi := 0.0
 
 
 ## Fort dict rates, all mass/s over the last step:
@@ -299,13 +309,13 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# included) into its room over the step: cap less its load at the step's end without Vei's
 	# living (_load: what its undead's path over the step leaves, with this step's WAR and raises
 	# arriving), less the surge. Never below 0. A held fort's share and the unused part of a full
-	# fort's share are lost, not redistributed. The surge goes first, past the shipping share and
-	# the space, but into the same room above cap · (1 + tithe.overfill) only. Both
+	# fort's share are lost, not redistributed. The surge goes first, all it wants, past the
+	# shipping share, the space and the cap (the living above the cap march back in step 5). Both
 	# are drawn from her pool now plus her conversion this step (M, before her headroom), so a long
 	# step ships what the short ones would; conversion then refills the pool (step 7). WAR's
 	# dispatch (step 3) reads the living arriving, so shipping is planned on the load before WAR
 	# (`load`, the garrison's pull read from the living now), then each give is cut to the room this
-	# step's WAR leaves (the surge's room too); what that cuts stays in her pool.
+	# step's WAR leaves; what that cuts stays in her pool.
 	var load: Array[float] = []
 	var raise_in: Array[float] = []
 	for i in forts.size():
@@ -321,14 +331,12 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var avail: float = vei["living_pool"] + float(_plan["made"])
 	var surge_fort := -1
 	var surge_amt := 0.0
-	var surge_cap := 0.0  # the surge fort's bound: cap · (1 + tithe.overfill)
 	if not surge.is_empty():
 		for i in forts.size():
 			if forts[i]["id"] == surge["fort_id"]:
 				surge_fort = i
 		if surge_fort >= 0:
-			surge_cap = float(forts[surge_fort]["cap"]) * (1.0 + float(_tcfg().get("overfill", 2.0)))
-			surge_amt = minf(minf(avail, float(surge["want"])), maxf(0.0, surge_cap - load[surge_fort]))
+			surge_amt = minf(avail, float(surge["want"]))
 			avail -= surge_amt
 	var gives: Array[float] = []
 	var want := 0.0
@@ -354,10 +362,6 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# and the garrison's pull solved as fort_step solves it, without her living (which only adds to
 	# the pull). A fort with no living already took at most the WAR that leaves its give room
 	# (_fill_rate).
-	if surge_fort >= 0:
-		var sf: Dictionary = forts[surge_fort]
-		surge_amt = minf(surge_amt, maxf(0.0, surge_cap
-			- _load(sf, dt, war_in[surge_fort], raise_in[surge_fort], raise_at.has(sf["id"]), q, 4)))
 	var given := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]
@@ -376,9 +380,10 @@ func step(dt: float, inputs: Dictionary) -> void:
 	cov["r_out"] = war + flood
 
 	# ---- 5. Fort combat over the step, off each fort's path (MECHANICS §3.1), with the raises
-	# (raise_at, above) ----
+	# (raise_at, above) and the march-back of living above each fort's cap ----
 	var dead_to_vei := 0.0
 	var drained := 0.0
+	var marched := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var keep: bool = raise_at.has(f["id"])
@@ -386,6 +391,7 @@ func step(dt: float, inputs: Dictionary) -> void:
 		f["r_kills"] = _kills * inv
 		f["r_drain"] = _drained * inv
 		drained += _drained
+		marched += _marched
 		cleared_total += _cleared
 		if keep:
 			f["r_redirected"] = _destroyed * inv
@@ -410,6 +416,10 @@ func step(dt: float, inputs: Dictionary) -> void:
 	vei["r_in_dead"] = dead_to_vei * inv
 	vei["undead_queue"] += drained
 	vei["r_in_undead"] = drained * inv + r_flood + r_war_to_vei
+	# the marched-back living land in her pool after this step's shipping and before her conversion,
+	# which then fills only the headroom they leave; what lands above her cap is lost (step 7)
+	vei["living_pool"] += marched
+	r_marched = marched * inv
 	# ---- 6. Spent simulacra crumble
 	var alive: Array = []
 	for sm in simulacra:
@@ -417,8 +427,9 @@ func step(dt: float, inputs: Dictionary) -> void:
 			alive.append(sm)
 	simulacra = alive
 
-	# ---- 7. Vei converts, at most her pool's headroom (which this step's shipping freed); dead
-	# costs 1, undead q
+	# ---- 7. The march-back past her pool's cap is lost (pool_overflow); then Vei converts, at most
+	# her pool's headroom (which this step's shipping freed and the march-back took); dead costs 1,
+	# undead q
 	_convert(dt, inv, q)
 
 	# ---- 8. The wave delivered its surge; it ends after surge_s. The next wave's warning -----
@@ -445,34 +456,40 @@ func step(dt: float, inputs: Dictionary) -> void:
 ## with nothing shipped in: `passes` 1 reads it as the living now (the predictor), 4 alternates the
 ## two paths as fort_step does (a predictor and two corrections, then U's path). Shipping only adds
 ## living, so the real pull is at least that and the real load at most this (at a `keep` fort, up
-## to the drain that pull's extra kills skip). Overwrites the paths' scratch.
+## to the drain that pull's extra kills skip). The march-back isn't subtracted: with nothing shipped
+## in it only runs from living above the cap, and it never takes them below it, so such a fort has
+## no room either way. Overwrites the paths' scratch.
 func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q: float, passes: int) -> float:
 	var k_kill := float(t.get("k_kill", 0.018))
 	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
 	var r := float(t.get("r_drain", 0.06))
+	var cap := float(f["cap"])
+	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
 	var u0 := maxf(0.0, float(f["undead"]))
 	var lm := l0
 	for p in passes:
 		_u_path(dt, u0, w_in + raise_in, k_dq * lm, r)
 		if p < passes - 1:
-			_l_path(dt, l0, 0.0, k_kill * _um)
+			_l_path(dt, l0, 0.0, k_kill * _um, cap, tau)
 			lm = _lm
 	return l0 + maxf(0.0, float(f["dead"])) - raise_in * dt + _ue + (_ud if keep else 0.0)
 
 
 ## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
 ## Updates `f`'s living, undead and dead, its t_living_out and t_undead_out, and sets _kills,
-## _destroyed, _drained, _cleared and _raised (mass this step):
-## - living gets `s_in` mass/s (Vei's shipping and a surge) and loses k_kill · U to the undead;
+## _destroyed, _drained, _cleared, _raised and _marched (mass this step):
+## - living gets `s_in` mass/s (Vei's shipping and a surge) and loses k_kill · U to the undead and,
+##   above the fort's cap, (L − cap) / tithe.march_back_s marching back to Vei (_marched);
 ## - undead get `w_in` mass/s (WAR) plus the raises, and lose r_drain · U to the drain and
 ##   k_destroy · L / q to the garrison;
 ## - corpses get the kills (and, where `keep`, the garrison's kills too), lose k_clear · ∫L to
 ##   clearing and the raises (`raise_want` mass/s, as far as the corpses cover them).
 ## Each pool stops at 0: living pinned at 0 has every arrival killed at once, undead pinned at 0
 ## have every arrival destroyed at once.
-## - U is held at its mean over the step for the kills, so living's path is linear: it reaches 0 at
-##   t* = L0 / (k_kill · Ū − s_in) and stays there (kills then equal the inflow).
+## - U is held at its mean over the step for the kills, so living's path is linear below the cap
+##   (it reaches 0 at t* = L0 / (k_kill · Ū − s_in) and stays there; kills then equal the inflow)
+##   and exponential above it (_l_path).
 ## - U's own path is exact for its linear ODE under the garrison's mean pull k_destroy · L̄ / q,
 ##   including the moment it reaches 0. Ū and L̄ come from alternating the two paths (a predictor
 ##   from L0, then two corrections).
@@ -483,20 +500,25 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
 	var k_clear := float(t.get("k_clear", 0.0))
 	var r := float(t.get("r_drain", 0.06))
+	var cap := float(f["cap"])
+	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
 	var u0 := maxf(0.0, float(f["undead"]))
 	var d0 := maxf(0.0, float(f["dead"]))
 	var raise_r := raise_want
 	_u_path(dt, u0, w_in + raise_r, k_dq * l0, r)
-	_l_path(dt, l0, s_in, k_kill * _um)
+	_l_path(dt, l0, s_in, k_kill * _um, cap, tau)
 	for _pass in 2:
 		_u_path(dt, u0, w_in + raise_r, k_dq * _lm, r)
-		_l_path(dt, l0, s_in, k_kill * _um)
+		_l_path(dt, l0, s_in, k_kill * _um, cap, tau)
 		if raise_want > 0.0:
-			var d1 := d0 + maxf(0.0, l0 + s_in * dt - _le) + (_ud if keep else 0.0)
+			var d1 := d0 + maxf(0.0, l0 + s_in * dt - _le - _lb) + (_ud if keep else 0.0)
 			raise_r = minf(raise_want, maxf(0.0, d1 - minf(d1, k_clear * _lm * dt)) / dt)
 	_u_path(dt, u0, w_in + raise_r, k_dq * _lm, r)
-	var kills := maxf(0.0, l0 + s_in * dt - _le)
+	# what left the living: marched back (the path's own, at most all that left) and the kills (the
+	# rest), so living + kills + marched is exactly what was there plus what arrived
+	var marched := minf(_lb, maxf(0.0, l0 + s_in * dt - _le))
+	var kills := maxf(0.0, l0 + s_in * dt - _le - marched)
 	var dead := d0 + kills + (_ud if keep else 0.0)
 	var cleared := minf(dead, k_clear * _lm * dt)
 	var raised := raise_r * dt
@@ -533,21 +555,91 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 	_drained = _ug
 	_cleared = cleared
 	_raised = raised
+	_marched = marched
 
 
-## Living over a step: L' = s_in − kill (kill = k_kill · Ū, constant), stopping at 0. Sets _le (end),
-## _lm (mean) and _lt (when it reached 0, −1 if it did not).
-func _l_path(dt: float, l0: float, s_in: float, kill: float) -> void:
+## tithe.march_back_s, the march-back's time constant τ (MECHANICS §3.4); kept above 0.
+func _march_s() -> float:
+	return maxf(1e-6, float(_tcfg().get("march_back_s", 60.0)))
+
+
+## Living over a step (MECHANICS §3.1 step 5, §3.4): L' = c − max(0, L − cap) / tau with
+## c = s_in − kill (kill = k_kill · Ū, constant), stopping at 0. At or below the cap the path is
+## linear: it reaches 0 at L / −c or rises through the cap at (cap − L) / c. Above it the excess
+## x = L − cap relaxes toward c · tau with time constant tau, falling back to the cap at
+## tau · ln(1 + x / (−c · tau)) when c < 0 (_above). Sets _le (end), _lm (mean), _lb (the mass that
+## marched back, ∫x dt / tau) and _lt (when it reached 0, −1 if it did not).
+func _l_path(dt: float, l0: float, s_in: float, kill: float, cap: float, tau: float) -> void:
 	var c := s_in - kill
-	if c >= 0.0 or l0 + c * dt > 0.0:
-		_le = maxf(0.0, l0 + c * dt)
-		_lm = l0 + 0.5 * c * dt
-		_lt = -1.0
+	_lb = 0.0
+	if l0 <= cap and not (c > 0.0 and l0 + c * dt > cap):
+		# never above the cap: the linear path alone
+		if c >= 0.0 or l0 + c * dt > 0.0:
+			_le = maxf(0.0, l0 + c * dt)
+			_lm = l0 + 0.5 * c * dt
+			_lt = -1.0
+			return
+		var ts := l0 / -c  # ≤ dt
+		_le = 0.0
+		_lm = 0.5 * l0 * ts / dt
+		_lt = ts
 		return
-	var ts := l0 / -c  # ≤ dt
-	_le = 0.0
-	_lm = 0.5 * l0 * ts / dt
-	_lt = ts
+	_lt = -1.0
+	var l := l0
+	var used := 0.0  # seconds of the step done
+	var area := 0.0  # ∫L over them
+	if l > cap:
+		used = _above(dt, l - cap, c, tau)
+		area = cap * used + _bi
+		_lb = _bi / tau
+		l = cap + _bx
+	if used < dt:
+		var rem := dt - used
+		if c > 0.0 and l + c * rem > cap:
+			# rises through the cap, then the excess grows toward c · tau
+			var tu := maxf(0.0, (cap - l) / c)
+			area += l * tu + 0.5 * c * tu * tu
+			var tb := _above(rem - tu, 0.0, c, tau)
+			area += cap * tb + _bi
+			_lb += _bi / tau
+			l = cap + _bx
+		elif c >= 0.0 or l + c * rem > 0.0:
+			area += l * rem + 0.5 * c * rem * rem
+			l = maxf(0.0, l + c * rem)
+		else:
+			var ts := l / -c  # ≤ rem
+			area += 0.5 * l * ts
+			_lt = used + ts
+			l = 0.0
+	_le = l
+	_lm = area / dt
+
+
+## The excess over the cap, x' = c − x / tau from x0 ≥ 0 for at most `span` seconds:
+## x = c·tau + (x0 − c·tau) · e^(−t/tau). Returns how long x stays above 0 (`span`, or when c < 0 the
+## moment tau · ln(1 + x0 / (−c·tau)) it falls back to 0 if that is sooner) and sets _bx (x then, 0
+## if it fell back) and _bi (∫x over it). With u = t / tau: ∫x = tau · (c·tau · (u − g) + x0 · g),
+## g = 1 − e^(−u); both small-u forms are series, so a short step loses no digits.
+func _above(span: float, x0: float, c: float, tau: float) -> float:
+	var xs := c * tau
+	var tb := span
+	if xs < 0.0:
+		var z := x0 / -xs
+		var td := tau * (z * (1.0 - z * (0.5 - z / 3.0)) if z < 1e-4 else log(1.0 + z))
+		if td < span:
+			tb = td
+	var u := tb / tau
+	var g := 0.0  # 1 − e^(−u)
+	var h := 0.0  # u − g
+	if u < 1e-3:
+		g = u * (1.0 - u * (0.5 - u * (1.0 / 6.0 - u / 24.0)))
+		h = u * u * (0.5 - u * (1.0 / 6.0 - u * (1.0 / 24.0 - u / 120.0)))
+	else:
+		g = 1.0 - exp(-u)
+		h = u - g
+	_bi = maxf(0.0, tau * (xs * h + x0 * g))
+	_bx = maxf(0.0, x0 * (1.0 - g) + xs * g) if tb >= span else 0.0
+	return tb
 
 
 ## Undead over a step: U' = w_in − pull − r · U while U > 0 (pull = the garrison's k_destroy · L̄ / q);
@@ -712,13 +804,18 @@ func _make(dt: float, q: float, headroom: float, apply: bool) -> Dictionary:
 	return {"made": made, "took_u": took_u, "took_d": took_d, "cap_u": maxf(0.0, cap_u)}
 
 
-## Step 7. Vei converts into her pool, at most its headroom now (this step's shipping already left
-## it). Records r_converted, r_digested_undead and r_cap_undead. Shipping drew on step 2's plan
+## Step 7. What the march-back (step 5's end) took past her pool's cap is lost: pool_overflow, the
+## ledger's sink. Then Vei converts into her pool, at most its headroom now (this step's shipping
+## freed it, the march-back took it). Records r_converted, r_digested_undead and r_cap_undead.
+## Shipping drew on step 2's plan
 ## (`_plan`), which is still in her queues (they only grew since), so she can always cover it; a
 ## policy that would now pick less mass (undead first at q > 1) takes that plan instead, scaled to
 ## the headroom.
 func _convert(dt: float, inv: float, q: float) -> void:
-	var headroom: float = float(t.get("vei_pool_cap", 600.0)) - vei["living_pool"]
+	var pool_cap := float(t.get("vei_pool_cap", 600.0))
+	pool_overflow = maxf(0.0, vei["living_pool"] - pool_cap)  # the march-back that found no room
+	vei["living_pool"] -= pool_overflow
+	var headroom: float = pool_cap - vei["living_pool"]
 	var m := _make(dt, q, headroom, false)
 	if vei["living_pool"] + float(m["made"]) < 0.0 and float(_plan.get("made", 0.0)) > float(m["made"]):
 		var sc: float = minf(1.0, headroom / float(_plan["made"]))
