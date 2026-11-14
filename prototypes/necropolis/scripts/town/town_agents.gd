@@ -434,14 +434,15 @@ func _read_sites(model: TownModel) -> void:
 		var id := String(l["id"])
 		var bid := String(b["building_id"])
 		_fronts[id] = _front(l)
-		var built := String(b["state"]) != "constructing"
+		var constructing := String(b["state"]) == "constructing"
 		if bid == "crypt":
 			_crypt = id
-		if not built:
+		if constructing:
 			if not _sites.has("build"):
 				_sites["build"] = []
 			_sites["build"].append(id)
-			continue
+			if not bool(b.get("upgrading", false)):
+				continue  # a new build works only once finished; an upgrade keeps working at its old level
 		match bid:
 			"charnel_house":
 				if _charnel == "":

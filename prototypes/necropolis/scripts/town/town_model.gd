@@ -461,12 +461,15 @@ func _entry(b: Dictionary, lot: Dictionary, town: Dictionary) -> Dictionary:
 	var staffed := float(b.get("staffed", 0.0))
 	var jobs: Dictionary = _bcfg.get(bid, {}).get("jobs", {})
 	var pip := _pips(b, jobs)
-	var look := look_of(bid, state, slots, not jobs.is_empty(), staffed)
+	var upgrading := is_upgrading(b)
+	# an upgrade keeps working at its old level (STATE-API 4.3): look and glow as an active building
+	var look := look_of(bid, "active" if upgrading else state, slots, not jobs.is_empty(), staffed)
 	var working := working_of(staffed)
+	var wanted := wanted_slots(b)
 	var home := bool(town.get("relish_home", false))
 	var badge := ""
 	if look in ["staffed", "unstaffed"] and slots > 0:
-		badge = badge_text(working, slots, _v)
+		badge = badge_text(working, wanted, _v)
 	elif look == "heart":
 		badge = BuildSort.fmt(String(_v.get("badge", {}).get("idle", "")),
 			{"n": working_of(float(town.get("workers", {}).get("idle", 0.0)))})
@@ -474,16 +477,23 @@ func _entry(b: Dictionary, lot: Dictionary, town: Dictionary) -> Dictionary:
 	return {
 		"lot_id": String(b.get("lot_id", "")), "building_id": bid,
 		"label": String(meta.get("label", bid.capitalize())), "ink": _ink(meta, town),
-		"state": state, "progress": progress, "reveal": progress if state == "constructing" else 1.0,
-		"glow": _glow(b, state, String(meta.get("light_by", "always")), town),
+		"state": state, "progress": progress, "reveal": progress if state == "constructing" and not upgrading else 1.0,
+		"upgrading": upgrading, "level": int(b.get("level", 0)),
+		"glow": _glow(b, "active" if upgrading else state, String(meta.get("light_by", "always")), town),
 		"pips": int(pip["pips"]), "pip_key": String(pip["pip_key"]), "pip_count": int(pip["count"]),
 		"slots": slots, "staffed": staffed, "unpaid": state == "unpaid",
 		"foreman": String(b.get("foreman", "")), "rect": _footprint(bid, lot),
 		"look": look, "pulse": look in ["staffed", "constructing"] or (look == "heart" and home),
-		"working": working, "short": maxi(slots - working, 0) if look in ["staffed", "unstaffed"] else 0,
+		"working": working, "short": maxi(wanted - working, 0) if look in ["staffed", "unstaffed"] else 0,
 		"badge": badge, "status_parts": parts, "status": status_text(parts),
 		"away": String(_v.get("status", {}).get("heart_away", "")) if look == "heart" and not home else "",
 	}
+
+
+## A building mid-upgrade: constructing at level >= 1 (it keeps working at its old level; a new
+## build is level 0 and works only once finished).
+static func is_upgrading(b: Dictionary) -> bool:
+	return String(b.get("state", "")) == "constructing" and int(b.get("level", 0)) >= 1
 
 
 ## How the canvas draws a building, by shape as well as colour:
@@ -505,6 +515,13 @@ static func look_of(building_id: String, state: String, slots: int, has_jobs: bo
 	if has_jobs or slots > 0:
 		return "staffed" if state == "active" and staffed > 1e-6 else "unstaffed"
 	return "calm" if state == "active" else "unstaffed"
+
+
+## The hands a building wants: its slots, or its staff cap when that is lower (a cap is not a shortage).
+static func wanted_slots(b: Dictionary) -> int:
+	var slots := int(b.get("slots", 0))
+	var cap := int(b.get("staff_cap", -1))
+	return mini(slots, cap) if cap >= 0 else slots
 
 
 ## Whole hands at work: the floor of `staffed` (the slot ticks', the badge's and the status's count).
@@ -585,9 +602,30 @@ static func output_keys(output: Dictionary, vcfg: Dictionary) -> Array:
 ## heart's "Relish away: slab idle". Templates: view.status. `b` is a view_town buildings entry,
 ## `look` its look_of(), `town` the view_town dict. Rates come from `output` (zero rates left out).
 static func status_of(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
+	var parts := _status_parts(b, look, town, bcfg, bview, vcfg)
+	if not is_upgrading(b) or look == "constructing":
+		return parts
+	# An upgrade keeps working: "upgrading 40%: +0.30 gold/s" (its rates, led by the progress), or
+	# the other state's words after the lead ("upgrading 40%: short 1 hand").
+	var sc: Dictionary = vcfg.get("status", {})
+	var pct := roundi(float(b.get("progress", 0.0)) * 100.0)
+	var slots := wanted_slots(b)
+	if look == "staffed" and slots <= working_of(float(b.get("staffed", 0.0))):
+		var out: Dictionary = b.get("output", {})
+		var rates: Array = []
+		for k in output_keys(out, vcfg):
+			if absf(float(out[k])) > 1e-6:
+				rates.append(rate_text(k, float(out[k]), vcfg))
+		if rates.is_empty():
+			return [[BuildSort.fmt(String(sc.get("upgrading_none", "")), {"pct": pct}), false]]
+		return _with_rates(BuildSort.fmt(String(sc.get("upgrading", "")), {"pct": pct}), rates, String(sc.get("sep", ", ")))
+	return [[BuildSort.fmt(String(sc.get("upgrading_lead", "")), {"pct": pct}), false]] + parts
+
+
+static func _status_parts(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
 	var sc: Dictionary = vcfg.get("status", {})
 	var bid := String(b.get("building_id", ""))
-	var slots := int(b.get("slots", 0))
+	var slots := wanted_slots(b)
 	var working := working_of(float(b.get("staffed", 0.0)))
 	match look:
 		"constructing":

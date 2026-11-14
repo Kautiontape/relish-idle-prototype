@@ -57,7 +57,12 @@ static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, b
 	for id in ncfg.get("order", []):
 		if String(id) == "tier":
 			var nt: Dictionary = views.get("town", {}).get("next_tier", {})
+			var placed := {}  # `missing` lists buildings under construction too: those are already asked for
+			for pb in views.get("town", {}).get("buildings", []):
+				placed[String(pb.get("building_id", ""))] = true
 			for m in nt.get("missing", []):
+				if placed.has(String(m)):
+					continue
 				out.append({"id": "tier", "chip": fmt(String((ncfg.get("chips", {}) as Dictionary).get("tier", "")),
 					{"tier": String(nt.get("tier", "")).capitalize(), "label": label_of(String(m), bview)}), "serves": ["building:" + String(m)]})
 			continue

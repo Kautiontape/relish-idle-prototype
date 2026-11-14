@@ -61,7 +61,7 @@ func set_lot(l: Dictionary, force := false) -> void:
 	_target = float(b.get("reveal", 1.0))
 	# A building first seen (scene entry, or a different one) shows its progress as it stands; a
 	# progress drop (an upgrade restarting) jumps; growth eases at view.reveal_rate.
-	if prev_bid != String(b.get("building_id", "")) or _target < _shown or b.get("state", "") != "constructing":
+	if prev_bid != String(b.get("building_id", "")) or _target < _shown or b.get("state", "") != "constructing" or b.get("upgrading", false):
 		_shown = _target
 	set_process(not is_equal_approx(_shown, _target))
 	queue_redraw()
@@ -179,6 +179,8 @@ func _draw_building(b: Dictionary) -> void:
 				LineGlow.polyline(self, pl, ink, w, halo, core)
 			if String(b.get("look", "")) == "staffed":
 				_rows(fr, b)
+	if bool(b.get("upgrading", false)):  # it keeps working: the progress ticks ride the top edge
+		_progress_ticks(fr, ink, float(b["progress"]), fr.position.y)
 
 
 ## The drawing head of a construction: a tiny hot core with a full-glow ring.
@@ -194,12 +196,12 @@ func _head(p: Vector2, ink_key: String) -> void:
 
 ## Construction progress: view.progress_ticks ticks across the band; done ticks are full-height
 ## ink strokes, the rest short thin ones (shape, not only colour).
-func _progress_ticks(fr: Rect2, ink: Color, progress: float) -> void:
+func _progress_ticks(fr: Rect2, ink: Color, progress: float, at_y := INF) -> void:
 	var n := int(vcfg.get("progress_ticks", 0))
 	if n <= 0:
 		return
 	var th := float((vcfg.get("slot_tick_px", [2.0, 8.0]) as Array)[1]) * model.scale
-	var y := _band_y(fr)
+	var y := _band_y(fr) if at_y == INF else at_y
 	var tw: Array = vcfg.get("progress_tick_w_px", [1.0, 1.0])
 	var step := fr.size.x / float(n + 1)
 	var done := floori(progress * n + 1e-6)
@@ -243,7 +245,18 @@ func _rows(fr: Rect2, b: Dictionary) -> void:
 ## Dead pips (matte squares) and the pip count, in the unpulsed child.
 func _draw_matte() -> void:
 	var b: Dictionary = lot.get("building", {})
-	if b.is_empty() or not String(b.get("look", "")) in ["staffed", "unstaffed"]:
+	if b.is_empty():
+		return
+	if bool(b.get("upgrading", false)):  # the level mark: "+1", upright
+		var spec: Dictionary = vcfg.get("upgrade_mark", {})
+		var font := ThemeDB.fallback_font
+		var fs := maxi(int(spec.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+		var txt := String(spec.get("text", ""))
+		var fr: Rect2 = b["rect"]
+		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		_matte.draw_string(font, Vector2(fr.end.x - w, fr.position.y + font.get_ascent(fs)), txt,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(String(spec.get("key", "text"))))
+	if not String(b.get("look", "")) in ["staffed", "unstaffed"]:
 		return
 	for m in _row_marks(b["rect"], b):
 		match m[0]:

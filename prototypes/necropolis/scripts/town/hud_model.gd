@@ -61,32 +61,22 @@ static func steady_arrow(total: float, steady: float, hcfg: Dictionary) -> Strin
 	return String(g.get("flat", ""))
 
 
-## The workforce the town actually keeps: min(slots_total + idle_cap, steady). Idle beyond the cap is
-## mustered to WAR, so `steady` overstates it. The view's `workers.steady_kept` (or view_hud's
-## `workers_steady_kept`) is used when present.
-## TODO(api-request #12): drop the stand-in once the views carry steady_kept (E2b).
-static func kept(town: Dictionary, hud: Dictionary, idle_cap: float) -> float:
-	var w: Dictionary = town.get("workers", {})
-	if w.has("steady_kept"):
-		return float(w["steady_kept"])
-	if hud.has("workers_steady_kept"):
-		return float(hud["workers_steady_kept"])
-	var slots := 0.0
-	for j in town.get("jobs", []):
-		slots += float(j.get("slots", 0))
-	return minf(slots + idle_cap, float(w.get("steady", 0.0)))
+## The workforce the town keeps (the workers cell's "→ steady N"): the view's value when it carries
+## one, else TownStandins.steady_kept (the stand-in).
+static func kept(town: Dictionary, hud: Dictionary) -> float:
+	return TownStandins.steady_kept(town, hud)
 
 
-## The surplus streaming to WAR (/s): the live muster, else `muster_steady`, when steady exceeds kept
-## by more than the arrow's tolerance; 0 hides it.
+## The surplus streaming to WAR (/s): the live muster whenever it runs; else `muster_steady` (only if
+## the view has it) when steady exceeds kept by more than the arrow's tolerance; 0 hides it.
 static func surplus_rate(town: Dictionary, steady: float, kept_n: float, hcfg: Dictionary) -> float:
-	if steady - kept_n <= maxf(float(hcfg.get("tol_min", 0.5)), absf(steady) * float(hcfg.get("tol_frac", 0.02))):
-		return 0.0
 	var w: Dictionary = town.get("workers", {})
 	var m := float(w.get("muster", 0.0))
 	if m > 0.0:
 		return m
-	return maxf(float(w.get("muster_steady", 0.0)), 0.0)
+	if steady - kept_n <= maxf(float(hcfg.get("tol_min", 0.5)), absf(steady) * float(hcfg.get("tol_frac", 0.02))):
+		return 0.0
+	return maxf(float(w.get("muster_steady", 0.0)), 0.0) if w.has("muster_steady") else 0.0
 
 
 ## "+0.07/s" (the oblique part); the upright "→ WAR" is `text.war`.
@@ -205,6 +195,13 @@ static func stuck_line(id: String, fix: String, views: Dictionary, hcfg: Diction
 	if p["done"] > 0:
 		if net < 0.0 and not is_flat(net, hcfg):
 			return BuildSort.fmt(String(tx.get("upkeep", "")), vars)
+		var staffed := 0.0
+		for b in views.get("town", {}).get("buildings", []):
+			if String(b.get("building_id", "")) == fix:
+				staffed += float(b.get("staffed", 0.0))
+		if staffed > 0.0:  # it has hands but nothing to work on: name the input it lacks
+			vars["input"] = String((hcfg.get("producer_input", {}) as Dictionary).get(fix, ""))
+			return BuildSort.fmt(String(tx.get("starved", "")), vars)
 		return BuildSort.fmt(String(tx.get("unstaffed", "")), vars)
 	if p["building"] > 0:
 		return BuildSort.fmt(String(tx.get("building", "")), vars)
@@ -218,7 +215,11 @@ static func short_slots(town: Dictionary) -> int:
 	var short := 0.0
 	for j in town.get("jobs", []):
 		short += maxf(float(j.get("slots", 0)) - float(j.get("staffed", 0.0)), 0.0)
-	return int(floor(short + 0.0001))
+	for b in town.get("buildings", []):  # a staff cap is not a shortage: only min(slots, cap) hands are wanted
+		var cap := int(b.get("staff_cap", -1))
+		if cap >= 0 and int(b.get("slots", 0)) > cap:
+			short -= float(int(b.get("slots", 0)) - cap)
+	return maxi(int(floor(short + 0.0001)), 0)
 
 
 ## What is stuck, one string per line item, most wanted first: (1) the first resource-short row of
@@ -238,10 +239,10 @@ static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -
 			continue
 		var id := reason.trim_prefix("no_")
 		var line := stuck_line(id, String(fixes.get(id, "")), views, hcfg, bview)
-		if line != "":
+		if line != "":  # an empty line (that stream flows) must not hide a second stuck one
 			out.append(line)
 			seen[id] = true
-		break
+			break
 	for id in ["gold", "bone"]:
 		if seen.has(id):
 			continue

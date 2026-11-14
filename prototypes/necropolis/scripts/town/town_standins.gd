@@ -28,6 +28,19 @@ const DEMO_OUTPUT := {
 	"haul": {"bodies": 1.2}, "stall": {"gold": 0.6}, "mill": {"bone": 0.4},
 	"forge": {"q": 0.04}, "tend": {"q": 0.02}, "pit": {"mint": 3.0, "burn": 0.6},
 }
+## STANDIN: the workforce the town keeps (the HUD's "→ steady N"). The view's `workers.steady_kept`
+## (or view_hud's `workers_steady_kept`) wins when present; until then the whole workforce while the
+## sim is mustering (idle beyond the cap leaves for WAR), else `workers.steady`.
+## TODO(api-request #12): drop once the views carry steady_kept (E2b).
+static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
+	var w: Dictionary = town.get("workers", {})
+	if w.has("steady_kept"):
+		return float(w["steady_kept"])
+	if hud.has("workers_steady_kept"):
+		return float(hud["workers_steady_kept"])
+	return float(w.get("total", 0.0)) if float(w.get("muster", 0.0)) > 0.0 else float(w.get("steady", 0.0))
+
+
 const DEMO_FORTS := ["old-sluice", "greywall", "ashgate"]
 const DEMO_IDLE := 8.0
 const DEMO_LIVING := 64.0

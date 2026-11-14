@@ -67,6 +67,7 @@ func _ready() -> void:
 	foot.add_theme_constant_override("separation", 10)
 	rows.add_child(foot)
 	_stuck = _clip(TownUI.label("", 13, "text"))
+	_stuck.mouse_filter = Control.MOUSE_FILTER_STOP  # Labels ignore the mouse by default: the tooltip needs it
 	foot.add_child(_stuck)
 	_next = TownUI.label("", 13, "text_dim")
 	_next.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -164,6 +165,7 @@ func bind(views: Dictionary) -> void:
 	_next.text = HudModel.next_tier_line(String(town.get("tier", "")), town.get("next_tier", {}), _hcfg, _bview)
 	var stuck := HudModel.bottleneck(views, _vcfg, _bview)
 	_stuck.text = String(_hcfg.get("text", {}).get("stuck_sep", " · ")).join(stuck)
+	_stuck.tooltip_text = "\n".join(stuck)  # the line is clipped; the tooltip carries every stuck stream
 
 
 func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, flow: Dictionary) -> void:
@@ -182,7 +184,7 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		split = HudModel.split_text(parts, _hcfg)
 		var total := float(w.get("total", 0.0))
 		var steady := float(w.get("steady", 0.0))
-		var kept := HudModel.kept(town, hud, float(ConfigDb.v("economy", "worker", {}).get("idle_cap", 0.0)))
+		var kept := HudModel.kept(town, hud)
 		c["stock"].text = "%d  %s %s" % [roundi(total), HudModel.steady_text(kept, _hcfg), HudModel.steady_arrow(total, kept, _hcfg)]
 		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
 		(c["war_row"] as Control).visible = war > 0.0
