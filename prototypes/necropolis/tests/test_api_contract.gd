@@ -48,7 +48,7 @@ func run() -> int:
 	t = TestUtil.new()
 	t.suite("api-contract")
 	_schema_self_check()
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	_check_constants(s)
@@ -61,6 +61,14 @@ func run() -> int:
 
 
 # ------------------------------------------------------------------- helpers ----
+## The shipped configs with town.projection_rows_per_call lifted, so a view refreshes all its build-benefit
+## rows in one call: the copy checks call each view twice, and the spread refresh (T3.2) would otherwise
+## refresh more rows the second time.
+func _cfgs() -> Dictionary:
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	return c
+
 func _cmd(s: GameState, name: String, args: Array, want_ok: bool) -> Dictionary:
 	var rv := s.rev
 	var r: Variant = s.callv(name, args)
@@ -552,7 +560,7 @@ func _fixtures() -> void:
 	var base := _filled
 	_filled = {}
 	for name in GameState.FIXTURES:
-		var s := GameState.new(TestUtil.configs())
+		var s := GameState.new(_cfgs())
 		s.debug_enabled = true
 		s.save_dir = _dir
 		_cmd(s, "cmd_debug_load_fixture", [name], true)

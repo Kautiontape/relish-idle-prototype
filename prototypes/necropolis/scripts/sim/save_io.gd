@@ -694,6 +694,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.realm.digest_q = gs.digest_q()
 	gs._split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
 	gs._realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
+	gs._proj_cache = {}  # the build benefit's rows belong to the state they were computed at
 	gs._realm_inputs = {}
 	gs._reset_lanes()
 	gs._prewarm_field()

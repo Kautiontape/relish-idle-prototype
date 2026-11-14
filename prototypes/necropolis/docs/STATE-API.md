@@ -1277,7 +1277,7 @@ Each `buildings` entry:
 | `upkeep` | Dictionary | `{gold: float, bone: float}` per second |
 | `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
-| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing |
+| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
@@ -1347,19 +1347,79 @@ substep's rates; that one would carry a substep of drift):
 
 Checked against the sim (`test_api_v6`): a pit, a house, a market and a Bone Mill upgrade at
 `midgame_2flips` give, within 1e-9, the change in `view_rates` when the building is really finished in a
-copy (`place_building`) and one substep runs. Pure: nothing changes, `rev` stays, no event. **Cost and caching** (T3.2, best of 3 on 12 cores at a load of about 5; no time is asserted). Each row is
-a TownSim clone (24 µs), its `place_building` restaff (150 µs) and one step (250 µs): about 0.45 ms. At
-`pre_vei` (21 catalog rows, 20 built lots) an uncached `view_catalog()` plus `view_town()` costs 20.4 ms,
-against 1.8 ms for the two views without projections (they cost that before T3.2's §4 too), so the brief's
-2 ms can't be met with a light clone. The projections are therefore cached on the town's structure:
-each part (catalog, upgrades) is recomputed, with its own baseline, when `TownSim.structure_rev` (a
-building's arrival or removal, level, state or staff cap, the ladder, the vats), the tier, the valve
-target or Relish's being home changes, or once the sim time has moved `economy.json`
-`town.projection_refresh_s` (5 s) since it was computed. A repeated call costs what the views cost
-without projections (1.8 ms at `pre_vei`, 1.3 ms at `midgame_2flips`, the lookup itself a few µs), and
-`projected` may lag the stocks and the workforce by up to 5 s of sim. A recompute is a hitch of about
-20 ms at `pre_vei` (10 ms at `midgame_2flips`) every 5 s of sim; slicing the rows over frames would
-spread it.
+copy (`place_building`) and one substep runs. Pure: nothing changes, `rev` stays, no event.
+
+**Cost and caching** (T3.2; timings on 12 cores at a load of about 5 to 7, other Godot processes running;
+no time is asserted). Each row is a TownSim clone (24 µs), its `place_building` restaff (150 µs) and one
+step (250 µs): 0.45 to 0.55 ms at `pre_vei`. The baseline the rows diff against (today's TownSim cloned and
+stepped from the same inputs) costs about the same. Every row at once at `pre_vei` (21 catalog rows, 20
+built lots) is about 20 ms. The town fetches its views on the substep frames, the heaviest ones (Covington
+fetches when `rev` moves), so the rows are cached and refreshed on the frames in between, late in each
+substep interval, the influence field's `advance()` pattern (§3 step 9):
+- **The views only read.** `view_catalog()` and `view_town()` return the cached rows and compute nothing.
+  A row not yet computed reads `{}`: after a new game or a load (both empty the cache) and for a new lot.
+  `economy.json` `town.projection_rows_per_call` (shipped 0) is a test override. Above 0 a call refreshes
+  up to that many of its own part's rows, exactly; the exactness, purity, persist and contract tests set
+  1000, so a call computes in full.
+- **Frame work.** `GameState._advance` does it after the substep loop, on the frame path only (a capped
+  `tick(dt, max_substeps)`, as `Game` calls it each frame), only when that call ran no substep, and only
+  once the substep accumulator holds at least `town.projection_phase` (0.5) × `substep_s()`. Scenes
+  refetch when `rev` moves, so their own work (the fetch, then the binds of what they fetched) bunches up
+  in the frames just after a substep; background work belongs in the later part of the interval. It
+  refreshes at most `town.projection_rows_per_frame` (1) units, the baseline counting as one; the
+  baseline is recomputed only when the state has moved since it was made (a new `rev`, `t` or
+  `TownSim.structure_rev`). `tick(dt)` with no cap (tests, harnesses) never does it, a paused sim doesn't,
+  and T3.3b's catch-up must not.
+- **Only while the catalog is wanted:** a `view_catalog()` read within the last
+  `town.projection_refresh_s` of sim (the call notes its `t` in the session-only cache; nothing saved or
+  shown changes). `view_town()` doesn't count, so the map (which reads `view_town()` but no projection)
+  and the raids pay nothing. Covington reads `view_catalog()` on every fetch whatever the tab, so in
+  practice the rows refresh while the town scene is open.
+- **Fast-forward.** When every frame substeps, nothing would refresh. So after
+  `town.projection_starve_frames` (30) substep frames in a row, one row goes through on the next, with
+  the baseline it needs (2 units, about 1.1 ms at `pre_vei`), whatever the phase.
+- **Stale.** A row is stale when `TownSim.structure_rev` (a building's arrival or removal, level, state
+  or staff cap, the ladder, the vats), the tier, the valve target or Relish's being home has changed
+  since it was computed (a structure change makes every row stale at once), or once
+  `town.projection_refresh_s` (5 s) of sim has passed since. A stale row keeps its last value until its
+  turn.
+- **Order.** Fixed: the baseline, then the catalog's stale rows in `buildings.json` order, then the
+  lots' in lot order.
+- **Tolerance.** A refreshed row's value is replaced only when some rate moved by more than
+  `town.projection_tol` (`rel` × |old| + `abs`: 1% and an absolute floor of 0.005/s, half the 0.01 the
+  build card shows). `BuildSort.row_sig` hashes the whole row, so without it every card whose floats
+  drifted would re-render each window. A shown value is within that tolerance of the fresh one; the
+  call override is exact.
+- **Lag bound.** After a change every row shows its new value within about (rows + one baseline per
+  substep) late light frames. At `pre_vei` at 60 fps each substep interval has 15 frames past the phase,
+  the first of them paying the baseline, so 41 rows take about 3 substeps (1.5 s at 1x), plus up to `projection_refresh_s` for drift with no structure change
+  (and a held row's tolerance). At fast-forward it is one row per `projection_starve_frames` frames. The
+  build card is display-only; nothing in the sim reads a projection.
+- **What the town shows.** `BuildSort` treats a `projected` that is a Dictionary as present
+  (`BuildSort.benefit`, `HudModel`), so `{}` replaces the stand-in's static numbers with no benefit lines
+  until the first refresh: about 1.5 s live after a load, a new game or a new lot, and always in a test
+  that neither overrides the budget nor runs capped frames.
+- **Measured** (the town scene at `pre_vei`, `--town-tab=build`, uncapped, headless with its per-frame
+  sleep off, 20 s of sim spanning four refresh windows and an upgrade, interleaved with 3d39deb, §3 with
+  no projections). The machine was shared, so only runs with no other Godot process at their start and
+  end count as clean. Clean runs: 3d39deb (2) median 405–468 µs, p99 1.13–1.29 ms, max 7.5–9.0 ms,
+  0–1 frames over 8 ms; this design (3) median 419–439 µs, p99 1.13–1.19 ms, max 6.7–8.5 ms, 0–1
+  frames over 8 ms. Over all 26 and 22 runs, contended ones included, 23 and 14 frames went over 8 ms;
+  one of them (9.3 ms, in a contended run) had a refresh unit on it. No unit ran on a substep frame.
+  Before this, with §4 computing in the views (3c71a45): max 27.7–28.8 ms and 5–6 frames over 8 ms, the
+  20 ms refresh each window and after the upgrade.
+- **What the refresh doesn't cause** (pre-existing and town-side): the town's bind frame after a
+  construction starts (the light frame after the construction-start substep), already 6.9–9.0 ms on
+  3d39deb, is the frame over 8 ms in both trees; and the rare pairs of frames of about 12 ms around
+  t+17–18 s, which also occur with every projection off.
+- **Tests** (`test_api_v6`, `api-v6-projected-frame`): the views compute nothing; an uncapped tick
+  refreshes nothing; with no recent `view_catalog()` read (or only `view_town()`) nothing refreshes; a
+  light frame refreshes at most `projection_rows_per_frame` units; with every row stale a substep frame
+  refreshes none; a light frame early in the interval refreshes nothing and one past the phase a unit;
+  after a structure change enough light frames match a fresh full compute within
+  `projection_tol`; after a window each row is its old value (within tolerance of the fresh one) or the
+  fresh value; and the starve rule lets the baseline and one row through on the 30th substep frame.
+
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,

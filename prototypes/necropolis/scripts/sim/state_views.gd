@@ -522,27 +522,163 @@ const HYPOTHETICAL_LOT := "lot-hypothetical"
 ## flood are Δmint × the valve that step splits with (the current valve slewed one substep toward its
 ## target); backlog is Δflood plus the change in the WAR that falls through to Vei at that WAR
 ## (RealmSim.war_at, the split view_projection reads); corpses 0.0. Pure: the clones are thrown away.
-## `part` is "catalog" ({building_id: projection}) or "upgrades" ({lot_id: projection, {} at max_level or
-## while constructing}).
-## Cached on the town's structure, since a part costs about one TownSim step per row (pre_vei: 21 catalog
-## rows, 20 lots, about 20 ms in all): each part is recomputed, with its own baseline, when the structure
-## changes (TownSim.structure_rev: a building's arrival or removal, level, state or staff cap, the ladder,
-## the vats), the tier, the valve target or Relish's being home changes, or when the sim time has moved
-## economy.json town.projection_refresh_s (5 s) since it was computed (a load or new game moves the
-## structure too). In between it lags the stocks and the workforce by up to that much.
+## `part` is "catalog" ({building_id: projection}, view_catalog's) or "upgrades" ({lot_id: projection},
+## view_town's; {} at max_level or while constructing).
+## A row costs about one TownSim step (pre_vei: 21 catalog rows and 20 lots, about 20 ms for all), so the
+## rows are cached and refreshed off the view calls: the views only read (a row not yet computed reads
+## {}), and GameState._advance refreshes at most economy.json town.projection_rows_per_frame of them on a
+## frame that ran no substep, late in the substep interval (projection_frame below). A row is stale once the structure changes
+## (TownSim.structure_rev: a building's arrival or removal, level, state or staff cap, the ladder, the
+## vats; the tier, the valve target or Relish's being home) or once town.projection_refresh_s (5 s) of sim
+## time has passed since it was computed; a stale row keeps its last value until its turn.
+## town.projection_rows_per_call > 0 (a test override; the shipped value is 0) lets a call refresh that
+## many of its own part's rows too, exactly, so a large value computes the view in full.
 static func projections(gs: GameState, part: String) -> Dictionary:
+	if part == "catalog":
+		gs._proj_cache["wanted_t"] = gs.t  # the frame refresh runs only while the catalog is being read
+	var per_call := int(gs._req_f("economy.town.projection_rows_per_call"))
+	if per_call > 0:
+		_proj_refresh(gs, [part], maxi(2, per_call), false)  # the baseline and at least one row
+	var rows: Dictionary = _proj_part(gs, part)
+	var out := {}
+	for k in _proj_keys(gs, part):
+		out[k[0]] = rows[k[0]]["value"] if k[1] and rows.has(k[0]) else {}
+	return out
+
+
+## The frame refresh, called by GameState._advance on the frame path (a substep cap) after the loop, with
+## `substeps` the substeps that call ran. It works only while the catalog is wanted (view_catalog() read
+## within the last projection_refresh_s of sim; view_town() doesn't count, so the map and the raids pay
+## nothing), and only on a frame that ran no substep with the substep accumulator holding at least
+## town.projection_phase of a substep: there it refreshes at most town.projection_rows_per_frame units.
+## Scenes refetch when rev moves, so their work bunches up in the frames just after a substep; background
+## work belongs in the later part of the interval. When every frame substeps (fast-forward), one row goes
+## through after town.projection_starve_frames such frames in a row (with the baseline it needs), whatever
+## the phase. Returns the units computed.
+static func projection_frame(gs: GameState, substeps: int) -> int:
+	var since := gs.t - float(gs._proj_cache.get("wanted_t", -INF))
+	if not (since >= 0.0 and since < gs._req_f("economy.town.projection_refresh_s")):
+		gs._proj_cache["starve"] = 0
+		return 0
+	var budget := int(gs._req_f("economy.town.projection_rows_per_frame"))
+	if substeps > 0:
+		var starve := int(gs._proj_cache.get("starve", 0)) + 1
+		gs._proj_cache["starve"] = starve
+		if starve < int(gs._req_f("economy.town.projection_starve_frames")):
+			return 0
+		budget = 2 if (gs._proj_cache.get("base", {}) as Dictionary).get("state", []) != _proj_state(gs) else 1
+	gs._proj_cache["starve"] = 0
+	if substeps == 0 and gs._acc < gs._req_f("economy.town.projection_phase") * gs.substep_s():
+		return 0  # early in the interval: the scenes' own work is here
+	return _proj_refresh(gs, ["catalog", "upgrades"], budget, true)
+
+
+## Refreshes at most `budget` stale units of `parts`, in a fixed order: the baseline first (recomputed only
+## when the state has moved since it was made; it counts as one), then the stale rows of each part in view
+## order (the catalog in buildings.json order, then the lots in lot order). With `tol` (the frame path) a
+## refreshed row keeps its old value unless some rate moved past town.projection_tol, so the floats don't
+## churn the town's row signatures every window; without it (a call's override) the value is exact.
+## Drops the rows of lots that are gone. Returns the units computed. A scan of both parts that finds
+## nothing stale leaves `fresh` [sig, the time the oldest row ages out, the scan's t]: until the sig moves or
+## the time leaves that span no row can be stale, so the frames in between skip the scan (about 60 µs at
+## pre_vei).
+static func _proj_refresh(gs: GameState, parts: Array, budget: int, tol: bool) -> int:
 	var sig := [gs.town_sim.structure_rev, gs.town_tier, gs.valve_target.duplicate(), gs.relish["state"] == "home"]
-	var c: Dictionary = gs._proj_cache.get(part, {})
-	var age := gs.t - float(c.get("t", INF))
-	if c.get("sig", []) != sig or not (age >= 0.0 and age < gs._req_f("economy.town.projection_refresh_s")):
-		var b := _proj_base(gs)
-		c = {"sig": sig, "t": gs.t, "value": _proj_catalog(gs, b) if part == "catalog" else _proj_upgrades(gs, b)}
-		gs._proj_cache[part] = c
-	return c["value"]
+	var fresh: Array = gs._proj_cache.get("fresh", [])
+	if not fresh.is_empty() and fresh[0] == sig and gs.t < float(fresh[1]) and gs.t >= float(fresh[2]):
+		return 0
+	var refresh := gs._req_f("economy.town.projection_refresh_s")
+	var stale: Array = []
+	var oldest := INF
+	for part in parts:
+		var rows := _proj_part(gs, part)
+		var live := {}
+		for k in _proj_keys(gs, part):
+			live[k[0]] = true
+			if k[1]:
+				var r: Dictionary = rows.get(k[0], {})
+				var age := gs.t - float(r.get("t", INF))
+				if r.is_empty() or r["sig"] != sig or not (age >= 0.0 and age < refresh):
+					stale.append([part, k[0]])
+				else:
+					oldest = minf(oldest, float(r["t"]))
+		for key in rows.keys():
+			if not live.has(key):
+				rows.erase(key)
+	if stale.is_empty() and parts.size() == 2:
+		gs._proj_cache["fresh"] = [sig, oldest + refresh, gs.t]
+	if stale.is_empty() or budget <= 0:
+		return 0
+	var used := 0
+	var state := _proj_state(gs)
+	var base: Dictionary = gs._proj_cache.get("base", {})
+	if base.get("state", []) != state:
+		base = _proj_base(gs)
+		base["state"] = state
+		gs._proj_cache["base"] = base
+		used += 1
+	for s in stale:
+		if used >= budget:
+			break
+		var rows := _proj_part(gs, s[0])
+		var v := _proj_row(gs, s[0], s[1], base)
+		var old: Dictionary = rows.get(s[1], {})
+		if tol and not old.is_empty() and not _proj_moved(gs, old["value"], v):
+			v = old["value"]
+		else:
+			gs._proj_cache["rows_replaced"] = int(gs._proj_cache.get("rows_replaced", 0)) + 1
+		rows[s[1]] = {"value": v, "t": gs.t, "sig": sig}
+		used += 1
+	return used
 
 
-## The baseline both parts diff against: the next step's inputs and valve, and today's TownSim stepped once.
+## The state a baseline belongs to: a new rev, t or structure needs a new one.
+static func _proj_state(gs: GameState) -> Array:
+	return [gs.rev, gs.t, gs.town_sim.structure_rev]
+
+
+## A part's cached rows {key: {value, t, sig}}, made empty on first use.
+static func _proj_part(gs: GameState, part: String) -> Dictionary:
+	if not gs._proj_cache.has(part):
+		gs._proj_cache[part] = {}
+	return gs._proj_cache[part]
+
+
+## Whether a fresh projection `v` differs from the cached `old` by more than town.projection_tol: some
+## rate moved by more than rel × |old| + abs (or the rate ids differ).
+static func _proj_moved(gs: GameState, old: Dictionary, v: Dictionary) -> bool:
+	if old.size() != v.size():
+		return true
+	var rel := gs._req_f("economy.town.projection_tol.rel")
+	var floor_abs := gs._req_f("economy.town.projection_tol.abs")
+	for id in v:
+		if not old.has(id):
+			return true
+		var o := float(old[id])
+		if absf(float(v[id]) - o) > rel * absf(o) + floor_abs:
+			return true
+	return false
+
+
+## A part's rows in view order, as [key, projected]: the catalog's building ids in buildings.json order
+## (every one projected); the built lots in lot order, projected unless constructing or at max_level.
+static func _proj_keys(gs: GameState, part: String) -> Array:
+	var out: Array = []
+	if part == "catalog":
+		for bid in BuildRules.buildings_cfg(gs):
+			out.append([str(bid), true])
+		return out
+	for lot_id in BuildRules.built_lots(gs):
+		var bl: Dictionary = gs.town_sim.buildings[lot_id]
+		var top := int(BuildRules.buildings_cfg(gs).get(bl["building_id"], {}).get("max_level", 1))
+		out.append([str(lot_id), bl["state"] != "constructing" and int(bl["level"]) < top])
+	return out
+
+
+## The baseline the rows diff against: the next step's inputs and valve, and today's TownSim stepped once.
+## Shared by both parts at one state; counts as a row in a call's budget.
 static func _proj_base(gs: GameState) -> Dictionary:
+	gs._proj_cache["rows_computed"] = int(gs._proj_cache.get("rows_computed", 0)) + 1
 	var dt := gs.substep_s()
 	var b := {"dt": dt, "valve": gs._slewed_valve(dt), "feed": float(gs.town_sim.rates.get("feed", 0.0)),
 		"inputs": gs._town_inputs(0.0)}
@@ -587,36 +723,22 @@ static func _proj_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionar
 	return out
 
 
-## Each catalog row's projection, by building id: finished at level 1 on its first free lot (the row's
-## `lots[0]`), or, when none fits, on HYPOTHETICAL_LOT.
-static func _proj_catalog(gs: GameState, b: Dictionary) -> Dictionary:
-	var out := {}
-	var cfg := BuildRules.buildings_cfg(gs)
-	for bid in cfg:
-		var lots := BuildRules.free_lots(gs, int(cfg[bid].get("lot_size", 1)))
-		var ts := gs.town_sim.clone()
+## One row's projection against the baseline `b` (computed at the same state). A catalog row (`key` a
+## building id): finished at level 1 on its first free lot (the catalog row's `lots[0]`), or, when none
+## fits, on HYPOTHETICAL_LOT. An upgrades row (`key` a lot id): the lot's building one level up.
+static func _proj_row(gs: GameState, part: String, key: String, b: Dictionary) -> Dictionary:
+	gs._proj_cache["rows_computed"] = int(gs._proj_cache.get("rows_computed", 0)) + 1
+	var ts := gs.town_sim.clone()
+	if part == "catalog":
+		var lots := BuildRules.free_lots(gs, int(BuildRules.buildings_cfg(gs)[key].get("lot_size", 1)))
 		var lot_id: String = HYPOTHETICAL_LOT
 		if lots.is_empty():
 			ts._lots = ts._lots.duplicate()
 			ts._lots.append(HYPOTHETICAL_LOT)
 		else:
 			lot_id = str(lots[0])
-		ts.place_building(lot_id, str(bid), 1)
-		out[str(bid)] = _proj_diff(gs, _proj_step(gs, ts, b), b)
-	return out
-
-
-## Each built lot's next level, by lot id ({} at max_level or while constructing).
-static func _proj_upgrades(gs: GameState, b: Dictionary) -> Dictionary:
-	var out := {}
-	for lot_id in BuildRules.built_lots(gs):
-		var bl: Dictionary = gs.town_sim.buildings[lot_id]
-		var bid: String = bl["building_id"]
-		var top := int(BuildRules.buildings_cfg(gs).get(bid, {}).get("max_level", 1))
-		if bl["state"] == "constructing" or int(bl["level"]) >= top:
-			out[lot_id] = {}
-			continue
-		var ts := gs.town_sim.clone()
-		ts.place_building(lot_id, bid, int(bl["level"]) + 1)
-		out[lot_id] = _proj_diff(gs, _proj_step(gs, ts, b), b)
-	return out
+		ts.place_building(lot_id, key, 1)
+	else:
+		var bl: Dictionary = gs.town_sim.buildings[key]
+		ts.place_building(key, str(bl["building_id"]), int(bl["level"]) + 1)
+	return _proj_diff(gs, _proj_step(gs, ts, b), b)

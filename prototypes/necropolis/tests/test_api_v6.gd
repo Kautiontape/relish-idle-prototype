@@ -31,6 +31,7 @@ func run() -> int:
 	_store_caps()
 	_construction_time()
 	_projected()
+	_projected_frame()
 	return t.failures
 
 
@@ -126,6 +127,7 @@ func _projection_now() -> void:
 func _projection_pure() -> void:
 	t.suite("api-v6-projection-pure")
 	var s := _fixture("midgame_2flips")
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = 1000  # view_town's build benefit refreshes in one call
 	s.tick(s.substep_s())
 	var rv := s.rev
 	var views := {}
@@ -724,11 +726,181 @@ static func _proj_of(v: Dictionary) -> Array:
 	return (v["buildings"] as Array).map(func(r): return r.get("projected", r.get("upgrade_projected", {})))
 
 
-func _load_js(js: String) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+## A GameState loaded from `js`. `full` (the exactness and purity checks) overrides
+## town.projection_rows_per_call in its configs so a view refreshes every stale row at once.
+func _load_js(js: String, full := true) -> GameState:
+	var c := TestUtil.configs()
+	if full:
+		c["economy"]["town"]["projection_rows_per_call"] = 1000
+	var s := GameState.new(c)
 	s.debug_enabled = true
 	s.from_dict(JSON.parse_string(js))
 	return s
+
+
+## A full refresh at `s`'s state right now (town.projection_rows_per_call lifted for one call of each view),
+## for comparing what the frame refresh shows against. Restores the configs and the cache after.
+func _full_now(s: GameState) -> Array:
+	var keep: Dictionary = s._proj_cache.duplicate(true)
+	var per: Variant = s._cfgs["economy"]["town"]["projection_rows_per_call"]
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = 1000
+	s._proj_cache.clear()
+	var out := [_proj_of(s.view_catalog()), _proj_of(s.view_town())]
+	s._cfgs["economy"]["town"]["projection_rows_per_call"] = per
+	s._proj_cache.clear()
+	s._proj_cache.merge(keep)
+	return out
+
+
+## The units (rows and baselines) the frame refresh computed during `f`.
+func _units(s: GameState, f: Callable) -> int:
+	var n0 := int(s._proj_cache.get("rows_computed", 0))
+	f.call()
+	return int(s._proj_cache.get("rows_computed", 0)) - n0
+
+
+## Whether every row of `got` is within town.projection_tol of `want` (rel × |got| + abs, the rule a held
+## row was kept by), row by row and rate by rate. Empty rows must match exactly.
+func _within_tol(got: Array, want: Array, tol: Dictionary) -> bool:
+	if got.size() != want.size():
+		return false
+	for i in got.size():
+		var g: Dictionary = got[i]
+		var w: Dictionary = want[i]
+		if g.keys() != w.keys():
+			return false
+		for id in w:
+			if absf(float(g[id]) - float(w[id])) > float(tol["rel"]) * absf(float(g[id])) + float(tol["abs"]) + 1e-12:
+				return false
+	return true
+
+
+## One frame-path tick (capped) that runs no substep and ends late in the substep interval, where the frame
+## refresh works: the accumulator ends at least town.projection_phase of a substep full.
+func _light(s: GameState, cap: int) -> void:
+	var step := s.substep_s()
+	var late := float(s._cfgs["economy"]["town"]["projection_phase"]) * step
+	s.tick(maxf(step * 1e-5, late - s._acc + step * 1e-5), cap)
+
+
+## The frame refresh (T3.2, STATE-API §5.10) at the shipped config: the views only read; GameState._advance
+## refreshes at most town.projection_rows_per_frame units (the baseline counting as one) on a capped tick
+## that ran no substep and ends late in the substep interval (town.projection_phase), only while
+## view_catalog() was read within projection_refresh_s; substep frames
+## refresh nothing until town.projection_starve_frames of them in a row let one row through; a refreshed
+## row keeps its old value unless a rate moved past town.projection_tol; and after a structure change
+## enough light frames converge on a fresh full compute.
+func _projected_frame() -> void:
+	t.suite("api-v6-projected-frame")
+	var tc: Dictionary = TestUtil.configs()["economy"]["town"]
+	var per := int(tc["projection_rows_per_frame"])
+	var starve := int(tc["projection_starve_frames"])
+	var tol: Dictionary = tc["projection_tol"]
+	var js := JSON.stringify(_fixture("pre_vei").to_dict())
+	var s := _load_js(js, false)
+	var cap := s.max_substeps_per_frame()
+	var step := s.substep_s()
+	var light := step / 1000.0  # a frame's dt that runs no substep
+	# the views only read
+	var did := _units(s, func():
+		s.view_catalog()
+		s.view_town())
+	t.ok(did == 0 and _proj_of(s.view_catalog()).all(func(p): return (p as Dictionary).is_empty()),
+		"after a load the views compute nothing and every row reads {} (did %d)" % did)
+	# tick(dt) with no cap (tests, harnesses) never refreshes
+	did = _units(s, func():
+		s.tick(light)
+		s.tick(step))
+	t.ok(did == 0, "an uncapped tick, with or without a substep, refreshes nothing (did %d)" % did)
+	# wanted: view_town doesn't count; with no view_catalog read in the last projection_refresh_s, nothing
+	var w := _load_js(js, false)
+	did = _units(w, func():
+		for i in 5:
+			w.view_town()
+			_light(w, cap))
+	t.ok(did == 0, "with no view_catalog() read, light frames refresh nothing (view_town doesn't count; did %d)" % did)
+	w.view_catalog()
+	w.tick(float(tc["projection_refresh_s"]) + step)  # uncapped: the window passes with no read
+	did = _units(w, func(): _light(w, cap))
+	t.ok(did == 0, "a view_catalog() read older than projection_refresh_s of sim wants nothing (did %d)" % did)
+	w.view_catalog()
+	did = _units(w, func(): _light(w, cap))
+	t.ok(did > 0, "a fresh read wants the rows again (did %d)" % did)
+	# bounded: each light frame refreshes at most rows_per_frame units until nothing is stale
+	s.view_catalog()
+	var n_cat: int = s.view_catalog()["buildings"].size()
+	var n_lot: int = s.town_sim.buildings.size()
+	var worst := 0
+	var frames := 0
+	for i in n_cat + n_lot + 4:
+		var d := _units(s, func(): _light(s, cap))
+		worst = maxi(worst, d)
+		frames += 1
+	t.ok(worst > 0 and worst <= per, "a light frame refreshes at most %d units (the most: %d, over %d frames)" % [per, worst, frames])
+	var full := _full_now(s)
+	t.ok(_proj_of(s.view_catalog()) == full[0] and _proj_of(s.view_town()) == full[1],
+		"after %d light frames at one state both views equal a full refresh (first values, so exact)" % frames)
+	# a structure change makes every row stale; a substep frame still refreshes none of them (before the
+	# starve rule's count), and enough light frames converge on a fresh full compute
+	s.cmd_debug_grant({"gold": 5000.0, "bone": 400.0, "relics": 6})
+	var up := ""
+	for lot_id in s.town_sim.buildings:
+		if s.cmd_upgrade(lot_id)["ok"]:
+			up = lot_id
+			break
+	t.ok(up != "", "an upgrade starts on %s: the structure moved (setup)" % up)
+	s.view_catalog()
+	s._acc = 0.0
+	did = _units(s, func(): s.tick(step, cap))
+	t.ok(did == 0, "with every row stale, a frame that ran a substep refreshes nothing (did %d)" % did)
+	# the phase: a frame without a substep early in the interval refreshes nothing, one late in it a unit
+	var phase := float(tc["projection_phase"])
+	did = _units(s, func(): s.tick(step * phase * 0.5, cap))
+	t.ok(did == 0 and s._acc < phase * step, "early in the interval (the accumulator at %.2f of a substep, under %.2f) a light frame refreshes nothing (did %d)" % [
+		s._acc / step, phase, did])
+	did = _units(s, func(): _light(s, cap))
+	t.ok(did == 1 and s._acc >= phase * step and s._acc < step, "late in it (at %.2f) one refreshes a unit (did %d)" % [s._acc / step, did])
+	did = _units(s, func():
+		for i in n_cat + n_lot + 2:
+			_light(s, cap))
+	full = _full_now(s)
+	t.ok(did <= (n_cat + n_lot + 2) * per and _within_tol(_proj_of(s.view_catalog()), full[0], tol)
+		and _within_tol(_proj_of(s.view_town()), full[1], tol),
+		"after the structure change %d light frames give a full refresh's values within projection_tol (%d units)" % [n_cat + n_lot + 2, did])
+	# churn: once the refresh window passes, a refreshed row keeps its value unless a rate moved past tol
+	var held_before := [_proj_of(s.view_catalog()), _proj_of(s.view_town())]
+	s.tick(float(tc["projection_refresh_s"]) + step)  # uncapped: the window passes, every row ages out
+	s.view_catalog()
+	var r0 := int(s._proj_cache.get("rows_replaced", 0))
+	did = _units(s, func():
+		for i in n_cat + n_lot + 2:
+			_light(s, cap))
+	var after := [_proj_of(s.view_catalog()), _proj_of(s.view_town())]
+	full = _full_now(s)
+	var rule := true
+	var kept := 0
+	for part in 2:
+		for i in (after[part] as Array).size():
+			var a: Dictionary = after[part][i]
+			var b: Dictionary = held_before[part][i]
+			if a == b:
+				kept += 1
+			elif _within_tol([b], [full[part][i]], tol) or a != full[part][i]:
+				rule = false  # replaced although within tol, or replaced by something other than the fresh value
+	t.ok(rule and _within_tol(after[0], full[0], tol) and _within_tol(after[1], full[1], tol),
+		"after a window each row is its old value (within tol of the fresh one) or the fresh value (%d kept, %d replaced, %d units)" % [
+			kept, int(s._proj_cache.get("rows_replaced", 0)) - r0, did])
+	# the starve rule: substep frames in a row refresh nothing until the starve_frames-th lets one row through
+	s.cmd_set_valve(0.3, 0.55, 0.15)  # the valve target is in the signature: every row is stale
+	var counts: Array = []
+	for i in starve + 1:
+		s.view_catalog()  # the town fetches on every rev move, so the catalog stays wanted
+		s._acc = 0.0
+		counts.append(_units(s, func(): s.tick(step, cap)))
+	var first := counts.slice(0, starve - 1)
+	t.ok(first.all(func(x): return x == 0) and int(counts[starve - 1]) == 2 and int(counts[starve]) == 0,
+		"%d substep frames refresh nothing, the %d-th the baseline and one row, then the count restarts: %s" % [
+			starve - 1, starve, str(counts)])
 
 
 ## Every view's output and the save, for purity checks.

@@ -11,8 +11,13 @@ const BUILDING_IDS := ["crypt", "raising_pit", "charnel_house", "market", "house
 var t: TestUtil
 
 
+## town.projection_rows_per_call is lifted so view_town and view_catalog refresh all their build-benefit
+## rows in one call: _stubs compares two snapshots, and the spread refresh (T3.2) would refresh more rows the
+## second time.
 func _mk() -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	var s := GameState.new(c)
 	s.cmd_new_game(1)
 	s.debug_enabled = true
 	return s

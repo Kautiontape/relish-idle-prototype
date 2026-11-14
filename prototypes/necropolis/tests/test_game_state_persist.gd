@@ -8,8 +8,17 @@ var t: TestUtil
 var _dir := "user://test_saves_%d" % OS.get_process_id()
 
 
+## The shipped configs with town.projection_rows_per_call lifted, so a view refreshes all its build-benefit
+## rows in one call: the round trip compares a live state's views with a loaded one's, and under the spread
+## refresh (T3.2) the live state would have refreshed more rows than the fresh load.
+func _cfgs() -> Dictionary:
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	return c
+
+
 func _mk(seed_val := 1) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	s.cmd_new_game(seed_val)
@@ -209,7 +218,7 @@ func _round_trip() -> void:
 	var text := JSON.stringify(d)
 	var parsed: Variant = JSON.parse_string(text)
 	t.ok(parsed is Dictionary, "to_dict survives JSON.stringify and parse_string")
-	var b := GameState.new(TestUtil.configs())
+	var b := GameState.new(_cfgs())
 	b.save_dir = _dir
 	var r := b.from_dict(parsed)
 	t.ok(r == {"ok": true, "reason": ""}, "from_dict into a second state is ok: %s" % str(r))
@@ -218,7 +227,7 @@ func _round_trip() -> void:
 	_diff(d, db, 0.0, "d", why)
 	t.ok(db == d, "to_dict after the JSON round trip is equal, types included %s" % str(why))
 	t.ok(JSON.stringify(db) == text, "and so is its JSON text")
-	var c := GameState.new(TestUtil.configs())
+	var c := GameState.new(_cfgs())
 	c.from_dict(JSON.parse_string(text))
 	t.ok(_views(b) == _views(c), "two loads of one file show identical views")
 	var diffs: Array = []
@@ -243,7 +252,7 @@ func _round_trip() -> void:
 		"the pending building_started comes out of the loaded state's first substep, with upgrade")
 	# the generator state survives: the same next number from a loaded copy
 	var fresh := _rich()
-	var e := GameState.new(TestUtil.configs())
+	var e := GameState.new(_cfgs())
 	e.from_dict(JSON.parse_string(JSON.stringify(fresh.to_dict())))
 	t.ok(e.rng.randi() == fresh.rng.randi(), "a loaded state draws the same random numbers")
 
@@ -308,7 +317,7 @@ func _in_place_and_ints() -> void:
 	# a hand-edited file whose counter is behind its own items cannot mint a duplicate uid
 	var dd := o.to_dict()
 	dd["next_uid"] = 1
-	var p := GameState.new(TestUtil.configs())
+	var p := GameState.new(_cfgs())
 	p.from_dict(JSON.parse_string(JSON.stringify(dd)))
 	p.debug_enabled = true
 	var mint: Array = p.cmd_debug_grant({"husks": 1})["applied"]["minted"]
@@ -321,7 +330,7 @@ func _in_place_and_ints() -> void:
 	q.tick(13.3)
 	var qd := q.to_dict()
 	var qp: Dictionary = JSON.parse_string(JSON.stringify(qd))
-	var q2 := GameState.new(TestUtil.configs())
+	var q2 := GameState.new(_cfgs())
 	q2.from_dict(qp)
 	var qw: Array = []
 	_diff(qd, q2.to_dict(), 0.0, "d", qw)
@@ -347,7 +356,7 @@ func _open_runs() -> void:
 	t.ok(r["ok"] and s.rev == rv + 1 and s.run["run_id"] == b["run_id"], "cmd_save during a run succeeds and leaves the run alone")
 	t.ok(s.cmd_load("run") == {"ok": false, "reason": "busy"}, "cmd_load is busy during a run")
 	s.cmd_abort_dungeon()
-	var n := GameState.new(TestUtil.configs())
+	var n := GameState.new(_cfgs())
 	n.save_dir = _dir
 	n.debug_enabled = true
 	t.ok(n.cmd_load("run")["ok"], "the run file loads")
@@ -364,7 +373,7 @@ func _open_runs() -> void:
 	for st in ["in_dungeon", "in_boss"]:
 		var bad := _rich().to_dict()
 		bad["relish"]["state"] = st
-		var f := GameState.new(TestUtil.configs())
+		var f := GameState.new(_cfgs())
 		t.ok(f.from_dict(bad) == {"ok": false, "reason": "corrupt"}, "a saved relish.state %s is corrupt" % st)
 
 
@@ -419,7 +428,7 @@ func _bad_files() -> void:
 		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version"}, "%s is bad_version" % slot)
 	t.ok(s.cmd_load("Bad Slot") == {"ok": false, "reason": "bad_slot"}, "a bad slot name is bad_slot")
 	t.ok(s.rev == rv and s.to_dict() == before, "a refused load leaves rev and the state alone")
-	var f := GameState.new(TestUtil.configs())
+	var f := GameState.new(_cfgs())
 	t.ok(f.from_dict({}) == {"ok": false, "reason": "corrupt"}, "an empty dict is corrupt")
 	t.ok(f.from_dict({"v": 1}) == {"ok": false, "reason": "corrupt"}, "v alone is corrupt")
 	t.ok(f.from_dict({"v": 99}) == {"ok": false, "reason": "bad_version"}, "v above SAVE_VERSION is bad_version")
@@ -430,22 +439,22 @@ func _bad_files() -> void:
 	t.ok(f.from_dict(bt) == {"ok": false, "reason": "corrupt"}, "a tithe naming an unknown fort is corrupt")
 	# town.pending entries and town.rates shapes the later code reads (a crash otherwise)
 	var rich := _rich().to_dict()
-	t.ok(rich["town"]["pending"].size() == 1 and GameState.new(TestUtil.configs()).from_dict(rich.duplicate(true))["ok"], "the rich save, with a pending event, loads")
+	t.ok(rich["town"]["pending"].size() == 1 and GameState.new(_cfgs()).from_dict(rich.duplicate(true))["ok"], "the rich save, with a pending event, loads")
 	var pend_bad := [[{"level": 1}], [{"type": 3}], [{"type": "building_started", "lot_id": "lot-06", "building_id": "well"}],
 		[{"type": "building_started", "lot_id": "lot-06", "building_id": "well", "level": "x"}], [{"type": "tier_up", "level": "x"}]]
 	for pb in pend_bad:
 		var bp := rich.duplicate(true)
 		bp["town"]["pending"] = pb
-		t.ok(GameState.new(TestUtil.configs()).from_dict(bp) == {"ok": false, "reason": "corrupt"}, "town.pending %s is corrupt" % str(pb))
+		t.ok(GameState.new(_cfgs()).from_dict(bp) == {"ok": false, "reason": "corrupt"}, "town.pending %s is corrupt" % str(pb))
 	var rates_bad := [{"workers": 3.0}, {"workers": {"in": 1.0}}, {"workers": {"in": "a", "out": 1.0}}, {"bodies": {"out": 1.0}},
 		{"gold": []}, {"haul_trip": {}}, {"living": {"in": 1.0, "out": null}}]
 	for rb in rates_bad:
 		var br := rich.duplicate(true)
 		br["town"]["rates"] = rb
-		t.ok(GameState.new(TestUtil.configs()).from_dict(br) == {"ok": false, "reason": "corrupt"}, "town.rates %s is corrupt" % str(rb))
+		t.ok(GameState.new(_cfgs()).from_dict(br) == {"ok": false, "reason": "corrupt"}, "town.rates %s is corrupt" % str(rb))
 	var rok := rich.duplicate(true)
 	rok["town"]["rates"] = {}
-	t.ok(GameState.new(TestUtil.configs()).from_dict(rok)["ok"], "an empty rates block still loads (TownSim keeps its zeros)")
+	t.ok(GameState.new(_cfgs()).from_dict(rok)["ok"], "an empty rates block still loads (TownSim keeps its zeros)")
 
 
 # --------------------------------------------------------- saves and listing ----
@@ -532,7 +541,7 @@ func _saves_and_list() -> void:
 	t.ok(errs.is_empty() and s.rev == rv, "list_saves matches its schema and does not bump rev %s" % str(errs))
 	t.ok(list.map(func(e): return e["slot"]) == ["aaa", "new", "zzz", "mid", "old"], "newest first, ties by slot, corrupt and .tmp omitted: %s" % str(list.map(func(e): return e["slot"])))
 	t.ok(list[0]["saved_at"] == 300 and list[0]["summary"] == "sum aaa" and list[4]["saved_at"] == 100, "saved_at and summary come from the file")
-	var empty := GameState.new(TestUtil.configs())
+	var empty := GameState.new(_cfgs())
 	empty.save_dir = _dir + "/nothing-here"
 	t.ok(empty.list_saves() == [], "a missing directory lists nothing")
 
@@ -572,7 +581,7 @@ func _determinism() -> void:
 	a.tick(10.0)
 	t.ok(a.to_dict()["t"] == d.to_dict()["t"] and a.to_dict()["realm"] == d.to_dict()["realm"], "a save changes nothing about what the sim does next")
 	# a loaded copy plays on exactly like the original (the field is the one allowed drift, A6)
-	var e := GameState.new(TestUtil.configs())
+	var e := GameState.new(_cfgs())
 	e.save_dir = _dir
 	e.cmd_load("det")
 	e.tick(10.0)
@@ -606,7 +615,7 @@ func _gaps() -> void:
 	t.ok(os_["held"] == true and os_["grace_s"] > 0.0 and os_["zero_s"] == 0.0 and not os_.has("held_s") and os_["flipped_count"] == 1
 		and os_["clears_since_retaken"] == 1, "the hold (held, grace_s, zero_s; no held_s), flipped_count and clears_since_retaken are saved")
 	t.ok(d["cleared_forts"].has("old-sluice") and d["first_dungeon"] == "", "the cleared forts and the first dungeon are saved")
-	var n := GameState.new(TestUtil.configs())
+	var n := GameState.new(_cfgs())
 	n.save_dir = _dir
 	n.debug_enabled = true
 	n.from_dict(JSON.parse_string(JSON.stringify(d)))
@@ -626,7 +635,7 @@ func _gaps() -> void:
 	t.ok(dp["realm"]["tithe"] == p.realm.tithe and dp["realm"]["tithe"]["warning"]["fort_id"] == "ashgate"
 		and dp["backups"]["phylactery_charges"] == 1 and dp["readout"]["diff_ema"] == -0.25
 		and dp["stances"]["hold"] == {"harvest": 12.5}, "the tithe, the readout and the placeholders are saved")
-	var q := GameState.new(TestUtil.configs())
+	var q := GameState.new(_cfgs())
 	q.from_dict(JSON.parse_string(JSON.stringify(dp)))
 	t.ok(q.to_dict() == dp, "and come back")
 	t.ok(q.autosave_s() == 30.0, "economy.json sim.autosave_s is 30")
@@ -638,7 +647,7 @@ func _gaps() -> void:
 
 # ------------------------------------------------------------------ fixtures ----
 func _load_fixture(name: String) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	var r := s.cmd_debug_load_fixture(name)

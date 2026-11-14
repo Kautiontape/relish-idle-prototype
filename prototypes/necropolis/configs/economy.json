@@ -39,6 +39,11 @@
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
     "projection_refresh_s": 5.0,
+    "projection_rows_per_call": 0,
+    "projection_rows_per_frame": 1,
+    "projection_phase": 0.5,
+    "projection_starve_frames": 30,
+    "projection_tol": { "rel": 0.01, "abs": 0.005 },
     "migrant_rate": 0.012,
     "leave_rate": 0.004,
     "tiers": {
