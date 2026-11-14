@@ -3,11 +3,11 @@ extends RefCounted
 ## 1 h with no input from the three start states, the core step at 0.5 s (reference) and at 15 s,
 ## field frozen. The ledger balances and nothing goes negative at either dt, and Vei's stocks and
 ## Covington's smooth ones (convergence.gd KEY) stay within IDLE's 2% at 15 s. The fort pools and
-## bodies are printed, not asserted. Since E2b T4.C they converge as dt → 0 on midgame_2flips and
-## pre_vei (tests/slow/convergence_fine.gd; IDLE §4); fresh's carry about one convoy load at any dt
-## (whole loads off forts its pick keeps near-tied), and at 15 s midgame_2flips' and pre_vei's
-## corpses are still tens of percent off (the convoy at long steps; midgame's Ashgate falls a few
-## minutes early).
+## bodies are printed, not asserted. Since E2b T4.C they converge as dt → 0 on midgame_2flips, and
+## on pre_vei until its gold floor (tests/slow/convergence_fine.gd; IDLE §4). fresh's, and pre_vei's
+## after the floor, carry about one convoy load at any dt (whole loads off forts its pick keeps
+## near-tied). At 15 s midgame_2flips' and pre_vei's corpses are still tens of percent off (the
+## convoy at long steps; midgame's Ashgate falls a few minutes early).
 ## Then the march-back's regression: 12 h from midgame_2flips at 15 s, no fort's living past cap +
 ## one wave's mass, and none above cap · 1.01 at the end unless a wave ran there within 7τ.
 
