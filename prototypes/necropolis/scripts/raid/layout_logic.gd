@@ -20,20 +20,39 @@ extends RefCounted
 static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionary, opts: Dictionary = {}) -> Dictionary:
 	var lay: Dictionary = cfg.get("layout", {})
 	var held := bool(opts.get("held", false)) and not is_boss
+	var first := bool(opts.get("first_dungeon", false)) and not is_boss and not held
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(fort_id)
+	var fit_r := float(cfg.get("party", {}).get("radius", 20.0))   # the army's biggest body must reach every room
 	var last := {}
+	var reach := {}   # the first grid-reachable candidate, if none fits a party big undead
 	for attempt in 8:
 		var cand := _gen_once(rng, tier, is_boss, lay, held)
 		if cand.is_empty():
 			continue   # role assignment failed; the rng has moved on
 		last = cand
 		if layout_reachable(cand, float(lay.get("grid_cell", 32.0))):
-			return cand
+			if fits_all_rooms(cand, fit_r):
+				return _with_first(cand, first, lay)
+			if reach.is_empty():
+				reach = cand
+	if not reach.is_empty():
+		return _with_first(reach, first, lay)
 	if last.is_empty():
 		# every attempt failed to place a warden room: fall back to a held-style layout
 		last = _gen_once(rng, tier, is_boss, lay, true)
-	return last
+		return last
+	return _with_first(last, first, lay)
+
+
+## First-dungeon bookkeeping only: the flag and the pile radius ride on the layout, geometry and the
+## generator's rng are untouched (populate_piles places the pile).
+static func _with_first(layout: Dictionary, first: bool, lay: Dictionary) -> Dictionary:
+	if first and int(layout.get("warden_room", -1)) >= 0:
+		layout["first_dungeon"] = true
+		layout["first_pile_px"] = float(lay.get("first_pile_px", 220.0))
+		layout["first_pile_min_px"] = float(lay.get("first_pile_min_px", 120.0))
+	return layout
 
 
 static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay: Dictionary, held: bool = false) -> Dictionary:
@@ -128,6 +147,7 @@ static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay:
 		layout["hops"] = room_hops(layout["adj"], room_of(layout, spawn))
 	elif not _assign_roles(layout, tier, held, lay):
 		return {}
+	add_routing(layout, float(lay.get("route_min_gap_px", 28.0)), float(lay.get("route_fit_pad_px", 4.0)))
 	return layout
 
 
@@ -141,6 +161,509 @@ static func _gap_rooms(layout: Dictionary, g: Rect2) -> Array[int]:
 		if grown.intersects(rooms[i] as Rect2):
 			out.append(i)
 	return out
+
+
+# ----------------------------------------------------------------- routing ---
+## Room-graph routing tables, built once the roles have sealed their gaps (so every portal is a
+## real opening). Adds layout["portals"] ("a:b" -> gap centres joining rooms a and b, both
+## orders), layout["next_room"] (next_room[a][b] = neighbour of a on a shortest path to b, -1 if
+## none or a == b), layout["room_hops"] (hop counts, -1 unreachable) and layout["portal_adj"].
+## Slits narrower than `min_gap_px` are not portals (unless dropping them would cut a room off).
+## A gap is probed across its wall to find which rooms it really joins: a gap at a T-junction can
+## open onto two rooms on one side (room_adjacency, which is looser, would call those two rooms
+## neighbours too), and then it yields one portal per pair, centred on the stretch that serves it.
+## Each portal keeps its width (the stretch both rooms face), and the tables come per mover size:
+## a mover of radius r uses only portals at least 2r + `fit_pad_px` wide (`_size_class`). Also
+## adds, indexed by room pair a * n + b: layout["portal_pts"] (gap centres, as in portals) and
+## layout["portal_ws"] (their widths); and per size class: layout["route_w"] (the class's narrowest
+## portal, ascending; class 0 is every portal and uses next_room / room_hops), layout["route_next"]
+## and layout["route_hops"] (the class's tables, null for class 0), and layout["route_fit_pad"].
+static func add_routing(layout: Dictionary, min_gap_px := 28.0, fit_pad_px := 4.0) -> void:
+	var rooms: Array = layout["rooms"]
+	var n: int = rooms.size()
+	var half := float(layout.get("wall_t", 30.0)) * 0.5 + 4.0
+	var found: Array = []   # [room a, room b, centre, width]
+	for g in layout.get("gaps", []):
+		var gr: Rect2 = g
+		var vertical := gr.size.x < gr.size.y   # a vertical wall is crossed along x
+		var c := gr.get_center()
+		var lo := (gr.position.y if vertical else gr.position.x) + 2.0
+		var hi := (gr.end.y if vertical else gr.end.x) - 2.0
+		var spans := {}   # "a:b" -> [lo, hi] along the gap where a (low side) meets b (high side)
+		var at := lo
+		while at <= hi:
+			var pa := Vector2(c.x - half, at) if vertical else Vector2(at, c.y - half)
+			var pb := Vector2(c.x + half, at) if vertical else Vector2(at, c.y + half)
+			var ra := room_of(layout, pa)
+			var rb := room_of(layout, pb)
+			if ra >= 0 and rb >= 0 and ra != rb:
+				var key := "%d:%d" % [ra, rb]
+				if not spans.has(key):
+					spans[key] = [at, at]
+				(spans[key] as Array)[1] = at
+			at += 6.0
+		for key in spans:
+			var sp: Array = spans[key]
+			var mid: float = (float(sp[0]) + float(sp[1])) * 0.5
+			var ab: PackedStringArray = key.split(":")
+			var ia := int(ab[0])
+			var ib := int(ab[1])
+			found.append([ia, ib, Vector2(c.x, mid) if vertical else Vector2(mid, c.y),
+				_span_width(gr, vertical, rooms[ia], rooms[ib])])
+	_open_edges(layout, found)
+	# A T-junction can leave a slit too narrow for a unit; drop those unless that cuts the graph.
+	var adj_all := _portal_adj(n, found, 0.0)
+	var adj := _portal_adj(n, found, min_gap_px)
+	var all_hops := room_hops(adj_all, 0)
+	var hops_now := room_hops(adj, 0)
+	var min_w := min_gap_px
+	var cut := false
+	for i in n:
+		cut = cut or ((all_hops[i] >= 0) != (hops_now[i] >= 0))
+	if cut:
+		adj = adj_all
+		min_w = 0.0
+	var portals := {}
+	var pts_by_pair: Array = []
+	var ws_by_pair: Array = []
+	for i in n * n:
+		pts_by_pair.append([])
+		ws_by_pair.append([])
+	var widths: Array[float] = []   # the distinct widths of the kept portals
+	for f in found:
+		if float(f[3]) < min_w:
+			continue
+		for k in ["%d:%d" % [f[0], f[1]], "%d:%d" % [f[1], f[0]]]:
+			if not portals.has(k):
+				portals[k] = []
+			(portals[k] as Array).append(f[2])
+		for pair in [int(f[0]) * n + int(f[1]), int(f[1]) * n + int(f[0])]:
+			(pts_by_pair[pair] as Array).append(f[2])
+			(ws_by_pair[pair] as Array).append(float(f[3]))
+		if not widths.has(float(f[3])):
+			widths.append(float(f[3]))
+	widths.sort()
+	for l in adj:
+		(l as Array).sort()
+	layout["portal_adj"] = adj
+	var base := _route_tables(adj, n)
+	layout["portals"] = portals
+	layout["next_room"] = base[0]
+	layout["room_hops"] = base[1]
+	layout["portal_pts"] = pts_by_pair
+	layout["portal_ws"] = ws_by_pair
+	# size classes: class 0 is every kept portal (the tables above); class k keeps those >= widths[k]
+	var route_w := PackedFloat64Array([widths[0] if not widths.is_empty() else 0.0])
+	var route_next: Array = [null]
+	var route_hops: Array = [null]
+	for k in range(1, widths.size()):
+		var t := _route_tables(_portal_adj(n, found, widths[k]), n)
+		route_w.append(widths[k])
+		route_next.append(t[0])
+		route_hops.append(t[1])
+	layout["route_w"] = route_w
+	layout["route_next"] = route_next
+	layout["route_hops"] = route_hops
+	layout["route_fit_pad"] = fit_pad_px
+
+
+## The opening a gap gives between rooms `ra` and `rb` on either side of its wall: the stretch of
+## the gap both rooms face, along the wall. Rooms are rects, so this is exact (a T-junction's side
+## room faces only part of the gap).
+static func _span_width(gr: Rect2, vertical: bool, ra: Rect2, rb: Rect2) -> float:
+	if vertical:
+		return maxf(0.0, minf(gr.end.y, minf(ra.end.y, rb.end.y)) - maxf(gr.position.y, maxf(ra.position.y, rb.position.y)))
+	return maxf(0.0, minf(gr.end.x, minf(ra.end.x, rb.end.x)) - maxf(gr.position.x, maxf(ra.position.x, rb.position.x)))
+
+
+## [next_room, room_hops] over an adjacency: next_room[a][b] is a's neighbour on a shortest path to
+## b (-1 if none or a == b), room_hops[a][b] the hop count (-1 unreachable).
+static func _route_tables(adj: Array, n: int) -> Array:
+	var next_room: Array = []
+	var hops_all: Array = []
+	for a in n:
+		var row: Array[int] = []
+		row.resize(n)
+		row.fill(-1)
+		next_room.append(row)
+		hops_all.append(room_hops(adj, a))
+	# BFS outward from each target b: a node's BFS parent is its next hop toward b
+	for b in n:
+		var seen: Array[bool] = []
+		seen.resize(n)
+		seen.fill(false)
+		seen[b] = true
+		var queue: Array[int] = [b]
+		var qi := 0
+		while qi < queue.size():
+			var c: int = queue[qi]
+			qi += 1
+			for nb in adj[c]:
+				if not seen[nb]:
+					seen[nb] = true
+					(next_room[nb] as Array)[b] = c
+					queue.append(nb)
+	return [next_room, hops_all]
+
+
+## The size class of a mover of `radius`: the first class whose portals are all at least
+## 2 x radius + route_fit_pad wide (0, every portal, for most movers), or -1 when no portal is.
+static func _size_class(layout: Dictionary, radius: float) -> int:
+	if not layout.has("route_w"):
+		return 0
+	var ws: PackedFloat64Array = layout["route_w"]
+	var need := 2.0 * radius + float(layout.get("route_fit_pad", 0.0))
+	for k in ws.size():
+		if ws[k] >= need:
+			return k
+	return -1
+
+
+## The class to route a mover of `radius` from `from_pos` to `to_pos` by: its size class, or the base
+## tables (0) when no portal fits it or its class has no way between the two (a squeeze beats a stand).
+static func _route_class(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius: float) -> int:
+	var k := _size_class(layout, radius)
+	if k <= 0:
+		return 0
+	var pr := _route_pair(layout, from_pos, to_pos, k)
+	if pr.x != pr.y and int((_hops_tab(layout, k)[pr.x] as Array)[pr.y]) < 0:
+		return 0
+	return k
+
+
+static func _next_tab(layout: Dictionary, k: int) -> Array:
+	return layout["next_room"] if k <= 0 else layout["route_next"][k]
+
+
+static func _hops_tab(layout: Dictionary, k: int) -> Array:
+	return layout["room_hops"] if k <= 0 else layout["route_hops"][k]
+
+
+## The narrowest portal class k may use (0 for the base class: every portal).
+static func _class_w(layout: Dictionary, k: int) -> float:
+	return 0.0 if k <= 0 else float((layout["route_w"] as PackedFloat64Array)[k])
+
+
+## True when a mover of `radius` can walk from the spawn room to every room through portals it fits.
+static func fits_all_rooms(layout: Dictionary, radius: float) -> bool:
+	var n: int = (layout["rooms"] as Array).size()
+	var start := room_of(layout, layout["spawn"])
+	if n <= 1 or start < 0 or not layout.has("next_room"):
+		return true
+	var k := _size_class(layout, radius)
+	if k < 0:
+		return false
+	for h in (_hops_tab(layout, k)[start] as Array):
+		if int(h) < 0:
+			return false
+	return true
+
+
+## True when the segment p->q, inflated by `radius`, crosses no inner wall. The perimeter clamp is
+## separate. A slab test per rect; the rect is grown by radius minus a hair so a unit that
+## resolve_walls parked exactly on a wall face still reads as clear when moving along it.
+static func line_clear(layout: Dictionary, p: Vector2, q: Vector2, radius: float) -> bool:
+	var g := maxf(0.0, radius - 0.5)
+	for w in layout.get("inner_walls", []):
+		if _seg_hits_rect(p, q, (w as Rect2).grow(g)):
+			return false
+	return true
+
+
+static func _seg_hits_rect(p: Vector2, q: Vector2, r: Rect2) -> bool:
+	var t0 := 0.0
+	var t1 := 1.0
+	var d := q - p
+	if absf(d.x) < 1e-9:
+		if p.x <= r.position.x or p.x >= r.end.x:
+			return false
+	else:
+		var inv := 1.0 / d.x
+		var ta := (r.position.x - p.x) * inv
+		var tb := (r.end.x - p.x) * inv
+		t0 = maxf(t0, minf(ta, tb))
+		t1 = minf(t1, maxf(ta, tb))
+		if t0 >= t1:
+			return false
+	if absf(d.y) < 1e-9:
+		if p.y <= r.position.y or p.y >= r.end.y:
+			return false
+	else:
+		var inv2 := 1.0 / d.y
+		var tc := (r.position.y - p.y) * inv2
+		var td := (r.end.y - p.y) * inv2
+		t0 = maxf(t0, minf(tc, td))
+		t1 = minf(t1, maxf(tc, td))
+		if t0 >= t1:
+			return false
+	return true
+
+
+## Rooms a point belongs to for routing: its room, else (a wall band / gap) every room within a
+## wall thickness, else the nearest room.
+static func _route_rooms(layout: Dictionary, p: Vector2) -> Array[int]:
+	var out: Array[int] = []
+	var r := room_of(layout, p)
+	if r >= 0:
+		out.append(r)
+		return out
+	var rooms: Array = layout["rooms"]
+	var pad := float(layout.get("wall_t", 30.0)) + 2.0
+	var best := -1
+	var bd := INF
+	for i in rooms.size():
+		var rc: Rect2 = rooms[i]
+		if rc.grow(pad).has_point(p):
+			out.append(i)
+		var cl := Vector2(clampf(p.x, rc.position.x, rc.end.x), clampf(p.y, rc.position.y, rc.end.y))
+		var dd := cl.distance_squared_to(p)
+		if dd < bd:
+			bd = dd
+			best = i
+	if out.is_empty() and best >= 0:
+		out.append(best)
+	return out
+
+
+## The (from_room, to_room) pair to route between: the shortest hop pair (in size class `k`'s
+## tables) when either point sits in a band.
+static func _route_pair(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, k := 0) -> Vector2i:
+	var fa := _route_rooms(layout, from_pos)
+	var ta := _route_rooms(layout, to_pos)
+	var hops: Array = _hops_tab(layout, k)
+	var best := Vector2i(fa[0], ta[0])
+	var bh := 1 << 20
+	for a in fa:
+		for b in ta:
+			var h: int = 0 if a == b else int((hops[a] as Array)[b])
+			if h < 0:
+				continue
+			if h < bh:
+				bh = h
+				best = Vector2i(a, b)
+	return best
+
+
+## The gap centre of the portal a->b at least `min_w` wide nearest to p ((INF, INF) if none).
+static func _nearest_portal(layout: Dictionary, a: int, b: int, p: Vector2, min_w := 0.0) -> Vector2:
+	var best := Vector2(INF, INF)
+	var bd := INF
+	var pair := a * (layout["rooms"] as Array).size() + b
+	var pts: Array = layout["portal_pts"][pair]
+	var ws: Array = layout["portal_ws"][pair]
+	for i in pts.size():
+		if float(ws[i]) < min_w:
+			continue
+		var d := p.distance_squared_to(pts[i])
+		if d < bd:
+			bd = d
+			best = pts[i]
+	return best
+
+
+## Rooms that touch with no wall band between them (the boss arena's open audience chamber meets
+## the rooms below it): each free stretch of the shared edge becomes portals, one per ~360 px.
+static func _open_edges(layout: Dictionary, found: Array) -> void:
+	var rooms: Array = layout["rooms"]
+	var walls: Array = layout.get("inner_walls", [])
+	for a in rooms.size():
+		for b in range(a + 1, rooms.size()):
+			var ra: Rect2 = rooms[a]
+			var rb: Rect2 = rooms[b]
+			for horizontal in [true, false]:   # true: a shared horizontal edge (rooms stacked)
+				var edge := 0.0
+				var lo := 0.0
+				var hi := 0.0
+				var touching := false
+				if horizontal:
+					for pair in [[ra, rb], [rb, ra]]:
+						if absf((pair[0] as Rect2).end.y - (pair[1] as Rect2).position.y) < 1.5:
+							touching = true
+							edge = (pair[0] as Rect2).end.y
+					lo = maxf(ra.position.x, rb.position.x)
+					hi = minf(ra.end.x, rb.end.x)
+				else:
+					for pair in [[ra, rb], [rb, ra]]:
+						if absf((pair[0] as Rect2).end.x - (pair[1] as Rect2).position.x) < 1.5:
+							touching = true
+							edge = (pair[0] as Rect2).end.x
+					lo = maxf(ra.position.y, rb.position.y)
+					hi = minf(ra.end.y, rb.end.y)
+				if not touching or hi - lo < 1.0:
+					continue
+				# free stretches of [lo, hi] along the edge, minus the walls that cross it
+				var blocked: Array = []
+				for w in walls:
+					var wr: Rect2 = w
+					if horizontal and wr.position.y <= edge + 1.0 and wr.end.y >= edge - 1.0:
+						blocked.append([wr.position.x, wr.end.x])
+					elif not horizontal and wr.position.x <= edge + 1.0 and wr.end.x >= edge - 1.0:
+						blocked.append([wr.position.y, wr.end.y])
+				blocked.sort_custom(func(x: Array, y: Array) -> bool: return x[0] < y[0])
+				var cur := lo
+				var stretches: Array = []
+				for bl in blocked:
+					if bl[0] > cur:
+						stretches.append([cur, minf(float(bl[0]), hi)])
+					cur = maxf(cur, float(bl[1]))
+				if cur < hi:
+					stretches.append([cur, hi])
+				for st in stretches:
+					var w0: float = st[1] - st[0]
+					if w0 < 1.0:
+						continue
+					var chunks := maxi(1, ceili(w0 / 360.0))
+					for k in chunks:
+						var mid: float = st[0] + w0 * (float(k) + 0.5) / float(chunks)
+						found.append([a, b, Vector2(mid, edge) if horizontal else Vector2(edge, mid), w0 / float(chunks)])
+
+
+static func _portal_adj(n: int, found: Array, min_w: float) -> Array:
+	var adj: Array = []
+	for i in n:
+		var e: Array[int] = []
+		adj.append(e)
+	for f in found:
+		if float(f[3]) < min_w:
+			continue
+		if not (adj[f[0]] as Array).has(f[1]):
+			(adj[f[0]] as Array).append(f[1])
+		if not (adj[f[1]] as Array).has(f[0]):
+			(adj[f[1]] as Array).append(f[0])
+	for l in adj:
+		(l as Array).sort()
+	return adj
+
+
+## A doorstep inside room `rc` for a gap point `c` lying in the wall band: pulled `inset` in from the
+## wall face across the wall; the coordinate along the wall stays where the gap is (it is already inside
+## the room's span), so a narrow T-junction stretch is not nudged into a jamb.
+static func _into_room(rc: Rect2, c: Vector2, inset: float) -> Vector2:
+	var out := c
+	var ix := minf(inset, rc.size.x * 0.4)
+	var iy := minf(inset, rc.size.y * 0.4)
+	if c.x <= rc.position.x + 0.5 or c.x >= rc.end.x - 0.5:
+		out.x = clampf(c.x, rc.position.x + ix, rc.end.x - ix)
+	if c.y <= rc.position.y + 0.5 or c.y >= rc.end.y - 0.5:
+		out.y = clampf(c.y, rc.position.y + iy, rc.end.y - iy)
+	return out
+
+
+## The point to steer at to get from `from_pos` toward `to_pos` (a unit of `radius`).
+## Direct when both are in one room or the line is clear. Otherwise through the nearest gap on the
+## BFS path of the portals this mover fits (`_route_class`): the doorstep inside the current room (the gap centre pulled `radius + door_pad` off the
+## wall face so the approach cannot clip a jamb), then, once a straight line through the gap is clear
+## (or the mover is on the doorstep), the far-side doorstep in the next room. A point in a wall band routes from the
+## touching room that is fewest hops from the target. A target in a band of the mover's own room that a
+## jamb hides goes via its doorstep. Unreachable -> `to_pos`.
+static func waypoint(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius: float,
+		door_pad := 14.0) -> Vector2:
+	if not layout.has("next_room"):
+		return to_pos
+	var rf := room_of(layout, from_pos)
+	if rf >= 0 and rf == room_of(layout, to_pos):
+		return to_pos
+	if line_clear(layout, from_pos, to_pos, radius):
+		return to_pos
+	var rooms: Array = layout["rooms"]
+	var inset := radius + door_pad
+	var k := _route_class(layout, from_pos, to_pos, radius)
+	var min_w := _class_w(layout, k)
+	if rf < 0:
+		# in a wall band (a doorway): step straight out into the touching room that is fewest hops from
+		# the target and whose way out is clear, then route from inside it
+		var hops: Array = _hops_tab(layout, k)
+		var n := rooms.size()
+		var targets := _route_rooms(layout, to_pos)
+		var best := Vector2(INF, INF)
+		var bh := 1 << 20
+		var bd := INF
+		var cands := _route_rooms(layout, from_pos)
+		for o in cands:
+			var pts: Array[Vector2] = [_into_room(rooms[o], from_pos, inset)]
+			for o2 in cands:
+				if o2 != o:
+					var pp: Array = layout["portal_pts"][o2 * n + o]
+					var pw: Array = layout["portal_ws"][o2 * n + o]
+					for i in pp.size():
+						if float(pw[i]) >= min_w:
+							pts.append(_into_room(rooms[o], pp[i], inset))
+			var h := 1 << 20
+			for tr in targets:
+				var hh: int = 0 if o == tr else int((hops[o] as Array)[tr])
+				if hh >= 0:
+					h = mini(h, hh)
+			for out_pt in pts:
+				if not line_clear(layout, from_pos, out_pt, radius):
+					continue
+				var d := from_pos.distance_squared_to(out_pt)
+				if h < bh or (h == bh and d < bd):
+					bh = h
+					bd = d
+					best = out_pt
+		if best.x != INF:
+			return best
+	var pair := _route_pair(layout, from_pos, to_pos, k)
+	var a := pair.x
+	var b := pair.y
+	if a == b:
+		if rf >= 0 and room_of(layout, to_pos) < 0:
+			# the target sits in a doorway band of this room behind a jamb (the line is blocked): the
+			# doorstep in front of it first, then straight in
+			var step := _into_room(rooms[a], to_pos, inset)
+			if from_pos.distance_to(step) > 3.0:
+				return step
+		return to_pos
+	var nxt: int = int((_next_tab(layout, k)[a] as Array)[b])
+	if nxt < 0:
+		return to_pos
+	var c := _nearest_portal(layout, a, nxt, from_pos, min_w)
+	if c.x == INF:
+		return to_pos
+	var far := _into_room(rooms[nxt], c, inset)
+	if line_clear(layout, from_pos, far, radius):
+		return far
+	var near := _into_room(rooms[a], c, inset)
+	if from_pos.distance_to(near) <= 3.0:
+		return far   # on the doorstep: step through even if a jamb still grazes the line
+	return near
+
+
+## Cheap route length estimate from a to b for a mover of `radius` (through the portals it fits, as
+## `waypoint` routes it): straight when they share a room (or either sits in a band), else through
+## the nearest gap into the next room. No wall tests; a lower-bound-ish figure for leashes ("is this
+## foe within N px of walking").
+static func route_dist(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius := 0.0) -> float:
+	var d := from_pos.distance_to(to_pos)
+	if not layout.has("next_room"):
+		return d
+	var rf := room_of(layout, from_pos)
+	var rt := room_of(layout, to_pos)
+	if rf < 0 or rt < 0 or rf == rt:
+		return d
+	var k := maxi(0, _size_class(layout, radius))
+	if k > 0 and int((_hops_tab(layout, k)[rf] as Array)[rt]) < 0:
+		k = 0   # no way this wide: as waypoint, the base tables
+	var nxt: int = int((_next_tab(layout, k)[rf] as Array)[rt])
+	if nxt < 0:
+		return INF
+	var c := _nearest_portal(layout, rf, nxt, from_pos, _class_w(layout, k))
+	if c.x == INF:
+		return d
+	var hops: int = int((_hops_tab(layout, k)[rf] as Array)[rt])
+	var rooms: Array = layout["rooms"]
+	var via := from_pos.distance_to(c) + c.distance_to(to_pos)
+	if hops > 1:
+		# the rest of the way: room-centre to room-centre hops, a coarse bound
+		via = from_pos.distance_to(c) + c.distance_to((rooms[nxt] as Rect2).get_center()) \
+			+ (rooms[nxt] as Rect2).get_center().distance_to(to_pos)
+	return maxf(d, via)
+
+
+## True when `to_pos` is within `reach` px of walking from `from_pos` for a mover of `radius`
+## (route_dist; the straight line prunes first, since route_dist is never shorter).
+static func walk_within(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, reach: float, radius := 0.0) -> bool:
+	return from_pos.distance_to(to_pos) < reach and route_dist(layout, from_pos, to_pos, radius) < reach
 
 
 ## adj[i] = sorted neighbour room indices (rooms sharing a wall gap).
@@ -549,18 +1072,59 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return out
 
 
-## Corpse piles scattered anywhere open.
+## Corpse piles scattered anywhere open. With an antechamber, the first pile is the last chance
+## pile and sits inside the antechamber's inner rect.
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(fort_id) * 17 + 977
 	var rooms: Array = layout["rooms"]
+	var ante := int(layout.get("ante_room", -1))
 	var out: Array = []
 	for i in count:
-		var room: Rect2 = rooms[rng.randi_range(0, rooms.size() - 1)]
+		var room: Rect2 = rooms[ante] if (i == 0 and ante >= 0 and ante < rooms.size()) \
+			else rooms[rng.randi_range(0, rooms.size() - 1)]
 		var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
 		out.append(Vector2(rng.randf_range(inner.position.x, inner.end.x),
 			rng.randf_range(inner.position.y, inner.end.y)))
+	if bool(layout.get("first_dungeon", false)) and count >= 2:
+		out[1] = first_pile(fort_id, layout)   # the antechamber pile (0) stays; this one is by the spawn
 	return out
+
+
+## The first dungeon's near-spawn pile: inside the spawn room's inner rect, `first_pile_min_px` to
+## `first_pile_px` from the spawn (outside the stir radius, inside Relish's light, so it shows lit
+## and she walks into it), clear of walls. Its own deterministic rng.
+static func first_pile(fort_id: String, layout: Dictionary) -> Vector2:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(fort_id) * 29 + 4001
+	var spawn: Vector2 = layout["spawn"]
+	var rooms: Array = layout["rooms"]
+	var room: Rect2 = rooms[maxi(0, room_of(layout, spawn))]
+	var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
+	var lo := float(layout.get("first_pile_min_px", 120.0))
+	var hi := float(layout.get("first_pile_px", 220.0))
+	for attempt in 48:
+		var p := spawn + Vector2(rng.randf_range(lo, hi), 0).rotated(rng.randf() * TAU)
+		if inner.has_point(p) and not _in_walls(layout, p, 20.0):
+			return p
+	# crowded: walk the heading that stays in the room the longest (northwards first)
+	var best := spawn
+	var bd := -1.0
+	for k in 32:
+		var dir := Vector2(0, -1).rotated(TAU * float(k) / 32.0)
+		for d in [hi * 0.8, hi * 0.6, lo * 1.1]:
+			var p2: Vector2 = spawn + dir * d
+			if inner.has_point(p2) and not _in_walls(layout, p2, 20.0) and d > bd:
+				bd = d
+				best = p2
+	return best
+
+
+static func _in_walls(layout: Dictionary, p: Vector2, pad: float) -> bool:
+	for w in layout.get("walls", []):
+		if (w as Rect2).grow(pad).has_point(p):
+			return true
+	return false
 
 
 ## Index into layout.doors of the exit whose inner point is within `radius` of p, nearest first; -1 if none.

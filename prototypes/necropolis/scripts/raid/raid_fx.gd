@@ -147,3 +147,46 @@ static func soul_link(parent: Node, from_pos: Vector2, to_pos: Vector2) -> void:
 	s.position = from_pos
 	s.to_point = to_pos
 	parent.add_child(s)
+
+
+## A remnant ding: a small vei spark ring and a tiny "+1" in text that rises and fades
+## (reduced motion: no rise, it just fades in place).
+class Ding:
+	extends Node2D
+	var ring_px := 22.0
+	var ring_s := 0.35
+	var text_s := 0.8
+	var rise_px := 26.0
+	var _t := 0.0
+
+	func _ready() -> void:
+		z_index = 73
+
+	func _process(delta: float) -> void:
+		_t += delta / maxf(0.05, Engine.time_scale)
+		if _t >= maxf(ring_s, text_s):
+			queue_free()
+			return
+		queue_redraw()
+
+	func _draw() -> void:
+		if _t < ring_s:
+			var f := _t / ring_s
+			var col := Palette.c("vei")
+			col.a = 1.0 - f
+			LineGlow.ring(self, Vector2.ZERO, maxf(2.0, ring_px * (0.6 if Pulse.reduced_motion else f)), col, 2.0, 0.5)
+		var g := _t / text_s
+		var rise := 0.0 if Pulse.reduced_motion else rise_px * g
+		var tc := Palette.c("text")
+		tc.a = clampf(1.0 - g, 0.0, 1.0)
+		draw_string(ThemeDB.fallback_font, Vector2(-8.0, -10.0 - rise), "+1", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tc)
+
+
+static func ding(parent: Node, pos: Vector2, fx_cfg := {}) -> void:
+	var d := Ding.new()
+	d.position = pos
+	d.ring_px = float(fx_cfg.get("ring_px", 22.0))
+	d.ring_s = float(fx_cfg.get("ring_s", 0.35))
+	d.text_s = float(fx_cfg.get("text_s", 0.8))
+	d.rise_px = float(fx_cfg.get("rise_px", 26.0))
+	parent.add_child(d)

@@ -3,8 +3,10 @@ extends PanelContainer
 ## buildings that fit it, mission-sorted (BuildSort), each a row with cost counts (the short part
 ## marked), the benefit as signed oblique rates (labelled "now" once the catalog has `projected`),
 ## the reason in words with a time estimate, and Build / Queue. For a built lot the panel's
-## inspector widgets are parked in `insp_host`. The Build tab owns the data and the commands; the
-## town view owns where the card sits. Rows are built once per building and updated in place.
+## inspector widgets are parked in `insp_host`, under the building's one-line status (set_status,
+## from the town view's model: words upright, rates oblique). The Build tab owns the data and the
+## commands; the town view owns where the card sits and the status. Rows are built once per
+## building and updated in place.
 ## Logic is BuildSort; text and tuning are configs/town.json `view`.
 
 signal build_pressed(building_id: String, lot_id: String)
@@ -24,6 +26,8 @@ var _body: VBoxContainer
 var _rows_box: VBoxContainer
 var _rows := {}
 var _hover := ""
+var _status: RichTextLabel
+var _status_parts: Array = []
 
 
 func setup(vcfg_: Dictionary, bview_: Dictionary, bcfg_: Dictionary) -> void:
@@ -62,6 +66,15 @@ func setup(vcfg_: Dictionary, bview_: Dictionary, bcfg_: Dictionary) -> void:
 	insp_host = VBoxContainer.new()
 	insp_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body.add_child(insp_host)
+	_status = RichTextLabel.new()  # the inspector form's first line
+	_status.fit_content = true
+	_status.scroll_active = false
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status.add_theme_font_size_override("normal_font_size", 16)
+	_status.add_theme_color_override("default_color", Palette.c("text"))
+	insp_host.add_child(_status)
 	_body.minimum_size_changed.connect(_fit.call_deferred)
 	visible = false
 	set_process(false)
@@ -130,6 +143,23 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 	for bid in _rows:
 		if not shown.has(bid):
 			_rows[bid]["node"].visible = false
+
+
+## The building's status line, first in the inspector form: parts [[text, oblique]]
+## (TownModel.status_of). Rebuilt only when it changed.
+func set_status(parts: Array) -> void:
+	if parts == _status_parts:
+		return
+	_status_parts = parts.duplicate(true)
+	_status.clear()
+	for p in parts:
+		if p[1]:
+			_status.push_font(TownUI.oblique_font(), 16)
+			_status.add_text(String(p[0]))
+			_status.pop()
+		else:
+			_status.add_text(String(p[0]))
+	_status.visible = not parts.is_empty()
 
 
 ## The inspector form: the panel's inspector widgets are in `insp_host`.
@@ -215,9 +245,12 @@ func _update_row(w: Dictionary, it: Dictionary, lot_id: String, st: Dictionary, 
 	w["chip"].text = "Needed now: " + String(it["chip"])
 	var cost: Dictionary = row.get("cost", {})
 	var parts := BuildSort.cost_parts(cost, st)
+	var shown: Array = [0, 1, 2] if int(cost.get("relics", 0)) > 0 else [0, 1]
 	for k in 3:
-		w["costs"][k].visible = k < 2 or int(cost.get("relics", 0)) > 0
-		w["costs"][k].text = String(parts[k]["text"]) + ("  ·  " if k == 0 or (k == 1 and int(cost.get("relics", 0)) > 0) else "")
+		var at := shown.find(k)
+		w["costs"][k].visible = at >= 0
+		# separators sit between the shown parts only: never a trailing "·"
+		w["costs"][k].text = String(parts[k]["text"]) + ("  ·  " if at >= 0 and at < shown.size() - 1 else "")
 		w["costs"][k].add_theme_color_override("font_color", Palette.c("danger" if parts[k]["short"] else "text"))
 	var ben := BuildSort.benefit(bid, row, bcfg, bview, vcfg)
 	for k in 3:

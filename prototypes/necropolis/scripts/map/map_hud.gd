@@ -2,10 +2,17 @@ class_name MapHud
 extends Control
 ## The map's overlay: the rates-first top bar (every stream's signed net rate, then its stock,
 ## then odds / sign / drain), the objective strip, the bottom hint, the toast, the victory
-## banner and the debug speed row. Reads the shared MapModel; reacts to Game.game_event. Text
+## banner (shown by the victory set piece, MapSetpieces, once every lane stops) and the debug
+## speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
+## The objective strip is one next action (NextLogic.choose: a fort about to fall, a raid ready,
+## the queue empty, Vei faceable, else the standing objective), a button at least 44 px tall on
+## its plate: a click emits next_chosen with the line's AwayLogic action. Its text changes only
+## when the pick changes (or its coarse clock ticks). The opening pushes its asks through
+## set_opening_ask, which beats every rule until cleared with "".
 
 signal inset_changed(inset: float)  # the plates' bottom edge moved (the bar wrapped or its text changed)
+signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.action's {kind, ...}
 
 var model: MapModel
 
@@ -19,7 +26,9 @@ var _odds: Label
 var _sign: Label
 var _drain: Label
 var _speed_tag: Label
-var _objective: Label
+var _objective: Button
+var _next := {}  # the strip's pick (NextLogic.choose): kept between refreshes so it does not flicker
+var _opening := {}  # set_opening_ask's {text, target}
 var _hint: Label
 var chip: Control  # the Relish chip: the toast sits under it (set by world_map)
 var _toast: Label
@@ -44,9 +53,10 @@ func _ready() -> void:
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar.add_theme_constant_override("separation", int(cfg["topbar_row_gap_px"]))
 	add_child(_bar)
-	_objective = Label.new()
-	_objective.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	MapType.style_label(_objective, "text_dim", int(cfg["objective_size_px"]))
+	_objective = Button.new()
+	_objective.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
+	_objective.pressed.connect(func(): next_chosen.emit(_next.get("action", {"kind": "none"})))
 	add_child(_objective)
 	_hint = _label(int(cfg["font_hint"]), "text_dim")
 	MapType.style_label(_hint)
@@ -63,6 +73,8 @@ func _ready() -> void:
 	_victory = _label(int(cfg["font_victory"]), "undead")
 	_anchor_box(_victory, 0.5, 0.5, -float(cfg["victory_width_px"]) * 0.5, float(cfg["victory_width_px"]) * 0.5, -float(cfg["victory_up_px"]))
 	_victory.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# on the toast's plate: victory lights every lane green right under it
+	_victory.add_theme_stylebox_override("normal", MapUi.plate_box(float(cfg["controls"]["toast_plate_alpha"]), int(cfg["controls"]["toast_pad_px"])))
 	_victory.visible = false
 	_build_speed_row(cfg)
 	Game.game_event.connect(_on_event)
@@ -106,6 +118,7 @@ func _relayout() -> void:
 	_bar_plate.position = Vector2.ZERO
 	_bar_plate.size = Vector2(_bar.position.x + right + pad, bar_bottom + pad)
 	_objective.position = Vector2(_bar.position.x, _bar_plate.size.y)
+	_objective.size = _objective.get_combined_minimum_size()
 	var osz := _objective.get_combined_minimum_size()
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
@@ -115,10 +128,23 @@ func _relayout() -> void:
 		inset_changed.emit(inset)
 
 
-## Screen px the HUD plates cover from the top: the camera frames the map below this.
+## Screen px the HUD plates cover from the top (the bar and the strip): the Relish chip and the
+## toast sit below this.
 func top_inset() -> float:
 	_relayout()
 	return _obj_plate.position.y + _obj_plate.size.y
+
+
+## Screen px the top bar's plate covers: the camera frames the map below this.
+func bar_bottom() -> float:
+	_relayout()
+	return _bar_plate.size.y
+
+
+## The objective strip's plate (screen px): the default fit keeps the forts and Vei off it.
+func strip_rect() -> Rect2:
+	_relayout()
+	return Rect2(_obj_plate.position, _obj_plate.size)
 
 
 func _label(font_size: int, color_key: String) -> Label:
@@ -158,8 +184,6 @@ func _set_speed(spd: float) -> void:
 
 ## Call once the model has its first read.
 func start() -> void:
-	if model.hud.get("won", false):
-		_on_victory()
 	refresh(true)
 	# the labels' sizes settle after their first layout: wrap and place the plates once more, so
 	# panels that sit under them (the Relish chip) do not jump at the first UI tick
@@ -236,7 +260,7 @@ func refresh(force := false) -> void:
 	_sign.add_theme_color_override("font_color", Palette.c(_sign_key(int(st["sign"]))))
 	_drain.text = st["drain_text"]
 	_speed_tag.text = HudLogic.speed_text(hud)
-	_objective.text = HudLogic.objective_text(hud)
+	_refresh_next()
 	_wrap_cells()
 	_relayout()
 	_relayout.call_deferred()
@@ -263,6 +287,38 @@ func _wrap_cells() -> void:
 		_bar.add_child(row)
 		for i in r:
 			row.add_child(_cells[i])
+
+
+## The strip's pick from the model's views (its committed clocks, not a dragged valve's), kept to
+## the last pick while it still holds.
+func _refresh_next() -> void:
+	var inp := {"forts": model.forts, "clocks": model.clocks, "queue": model.town_queue, "vei": model.vei,
+		"readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+	_next = NextLogic.choose(inp, _next)
+	var act := str(_next["action"].get("kind", "none")) != "none"
+	var text := str(_next["text"]) + (("   " + str(NextLogic.cfg()["hint"])) if act else "")
+	if _objective.text != text:
+		_objective.text = text
+	# an opening ask with nothing to click (the valve) stays enabled: a disabled button would dim it
+	_objective.disabled = not act and str(_next["rule"]) != NextLogic.OPENING
+	_objective.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if act else Control.CURSOR_ARROW
+	if str(_next["rule"]) != NextLogic.OPENING:
+		set_opening_pulse(0.0)
+
+
+## The opening's first-30-seconds ask (task 10): `text` on the strip, clicking acts on `target`
+## (a fort id, "vei", "queue" or "slab", as the away panel's lines), over every rule. "" clears it.
+func set_opening_ask(text: String, target: String) -> void:
+	_opening = {"text": text, "target": target}
+	_refresh_next()
+	_relayout()
+
+
+## The opening's pulse on the strip's plate while an ask is up: its colour leans toward undead by
+## `level` x opening.plate_tint (1 held steady under reduced motion, the beat's wave otherwise).
+func set_opening_pulse(level: float) -> void:
+	var c := MapHud.plate_color()
+	_obj_plate.color = c.lerp(Palette.c("undead", c.a), float(OpeningLogic.cfg()["plate_tint"]) * level) if level > 0.0 else c
 
 
 ## Backlog growing is good (undead), shrinking is danger; holding is neutral. The glyph is the
@@ -308,12 +364,11 @@ func _on_event(ev: Dictionary) -> void:
 			else:
 				show_toast("No vat waited. The army scattered while her body re-knit.")
 		"vei_result":
-			if ev.get("won", false):
-				_on_victory()
-			else:
+			if not ev.get("won", false):  # a win is the victory set piece's (MapSetpieces)
 				show_toast("She threw the horde back. The factory must grow.")
 
 
-func _on_victory() -> void:
+## The victory line: the victory set piece shows it when every lane in the realm has stopped.
+func show_victory() -> void:
 	_victory.text = "VEI HAS DROWNED IN THE DEAD\nThe realm is quiet. The factory hums on."
 	_victory.visible = true

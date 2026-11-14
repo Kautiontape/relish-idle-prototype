@@ -2,13 +2,13 @@ class_name MapAway
 extends Control
 ## The "While you were away" panel (IDLE section 7), centred over the map: how long, then gains,
 ## ready now (each line a button: a fort id selects it and centres the camera, the slab and the
-## queue dive into Covington) and losses ("Nothing lost." when there are none), then DISMISS.
+## queue dive into Covington) and losses, led by their count ("2 forts lost"; "Nothing lost." when
+## there are none), a lost fort a button like a ready line, then DISMISS.
 ## Opens when the report is shown (view_away; --away=demo stand-in) and on the away_report event.
 ## Text: AwayLogic. Look: configs/map_view.json "idle".away. Nothing moves, so reduced motion
 ## needs no special case.
 
-signal fort_chosen(fort_id: String)
-signal dive(node_id: String)
+signal acted(action: Dictionary)  # a line was clicked: AwayLogic.action's {kind, ...}
 
 static var _closed_rev := -1  # the report revision closed this session (the stand-in's dismiss)
 
@@ -86,7 +86,7 @@ func _open(rep: Dictionary) -> void:
 		_body.add_child(_spacer(int(c["section_sep_px"])))
 		_body.add_child(_label(str(sec["title"]), "text_dim"))
 		for line in sec["lines"]:
-			_body.add_child(_ready_row(line) if sec["key"] == "ready" and line["action"]["kind"] != "none" else _line_row(line["spans"]))
+			_body.add_child(_ready_row(line) if sec["key"] != "gains" and line["action"]["kind"] != "none" else _line_row(line["spans"]))
 	_body.add_child(_spacer(int(c["section_sep_px"])))
 	var b := Button.new()
 	b.text = str(c["dismiss"])
@@ -134,7 +134,7 @@ func _line_row(spans: Array) -> HBoxContainer:
 	return row
 
 
-## A ready line: a button-like row at least line_min_h_px tall, with its action.
+## A ready line or a lost fort: a button-like row at least line_min_h_px tall, with its action.
 func _ready_row(line: Dictionary) -> Button:
 	var c := AwayLogic.cfg()
 	var b := Button.new()
@@ -160,10 +160,7 @@ func _ready_row(line: Dictionary) -> Button:
 func _act(a: Dictionary) -> void:
 	AwayLogic.dismiss(model.state)  # a report is kept until dismissed: acting on a line dismisses it
 	_close()
-	if a["kind"] == "fort":
-		fort_chosen.emit(str(a["id"]))
-	elif a["kind"] == "dive":
-		dive.emit(str(a["to"]))
+	acted.emit(a)
 
 
 func _dismiss() -> void:

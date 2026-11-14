@@ -258,12 +258,15 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 ## `quiet` (off the selection, or past the per-kind glow cap): no halos, one dashed hairline
 ## quiet_width_mult as wide in the lane's own (floored-hue) colour, so undead stays green and
 ## living orange, at max(its floored alpha, quiet_alpha_floor), so it reads 3:1 without paling its colour.
-static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false) -> Array:
+## `width` >= 0 replaces the core width (a near-zoom unit glyph's stroke: GlyphLogic.shape), with
+## the same colours, halo profile, cap and quiet rule.
+static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false, width := -1.0) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
+	var lw := lane_width(ch, style) if width < 0.0 else width
 	if quiet:
 		col.a = maxf(col.a, _num("quiet_alpha_floor"))
-		return [_layer(lane_width(ch, style) * _num("quiet_width_mult"), col, 0.0, true, true)]
-	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
+		return [_layer(lw * _num("quiet_width_mult"), col, 0.0, true, true)]
+	var stack := LineGlow.layers(col, lw, float(style["glow"]), style["core"])
 	var n := stack.size()
 	var core_w: float = stack[n - 1][0]
 	var outer: float = stack[0][0]
@@ -274,6 +277,15 @@ static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false) -> Arr
 			w = capped_halo(w, core_w, outer)
 		out.append(_layer(w, stack[i][1], 0.0, true, i == n - 1))
 	return out
+
+
+## A near-zoom unit glyph's stroke (GlyphLogic): the lane's stack (colour, alpha, halo profile and
+## cap, the quiet rule) at the glyph's own core `width`, every stroke in the lane colour: the pale
+## core colour is the glyph's head alone (core_color), so the head reads against its body.
+static func glyph_layers(ch: Dictionary, style: Dictionary, quiet: bool, width: float) -> Array:
+	var s := style.duplicate()
+	s["core"] = LineGlow.NO_CORE
+	return lit_layers(ch, s, quiet, width)
 
 
 ## A halo `w` wide in a stack whose core is `core_w` and outermost halo `outer`: unchanged while
@@ -483,14 +495,20 @@ static func gutter_chevron_color(ch: Dictionary, lit := false) -> Color:
 
 # --- extents --------------------------------------------------------------------------
 
-## Half the ribbon a lit lane of this style needs: its widest (capped) halo at u = 1, or a
-## chevron's half span, plus ribbon_margin_px for the antialiased edge.
+## Half the ribbon a lit lane of this style needs: its widest (capped) halo at u = 1, a
+## chevron's half span, or its near-zoom glyph's reach across the lane (GlyphLogic.lateral_reach
+## with the glyph's own capped halo), plus ribbon_margin_px for the antialiased edge.
 static func lit_half_extent(style: Dictionary) -> float:
 	var w := MapLogic.lane_half_width(1.0) * 2.0 * float(style["width_mult"])
-	var outer: float = LineGlow.layers(Palette.c("void"), w, maxf(float(style["glow"]), 1.0))[0][0]
+	var glow := maxf(float(style["glow"]), 1.0)
+	var outer: float = LineGlow.layers(Palette.c("void"), w, glow)[0][0]
 	outer = capped_halo(outer, w, outer)
 	var size := _num("chevron_size_px")
-	return maxf(outer * 0.5, size * 0.8 + chevron_stroke(size)) + _num("ribbon_margin_px")
+	var glyph := GlyphLogic.kind_for(str(style.get("kind", "")))
+	var gw := float(GlyphLogic.shape(glyph)["width"])
+	var g_outer: float = LineGlow.layers(Palette.c("void"), gw, glow)[0][0] if gw > 0.0 else 0.0
+	var reach := GlyphLogic.lateral_reach(glyph, capped_halo(g_outer, gw, g_outer) * 0.5)
+	return maxf(maxf(outer * 0.5, reach), size * 0.8 + chevron_stroke(size)) + _num("ribbon_margin_px")
 
 
 ## Half the ribbon the gutter needs: the widest spill (u_dead = 1) or a chevron, plus margin.

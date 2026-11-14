@@ -11,10 +11,25 @@ extends RefCounted
 ## Positions in configs are normalised to the town view rect. Sizes (lot unit, height, gap) are
 ## pixels at the reference 1600x900 window and scale with min(rect / reference view).
 
+## The building whose lot is the town's heart (the slab, the tempo source, the idle workers).
+const HEART := "crypt"
+## A building's look (look_of): how the canvas draws it, by shape as well as colour.
+const LOOKS := ["staffed", "unstaffed", "unpaid", "calm", "constructing", "heart"]
+
 ## Per lot, in config order: {id, size, rect: Rect2, unlocked, door: String, door_pos: Vector2,
 ## hops: float (the door's street distance from the plaza, px), building: {} or a display entry
 ## (see _entry)}.
 var lots: Array = []
+## The output changes of the last update(), one per building whose output moved by more than
+## view.float.eps since the update before *and* that had a player-visible cause in the same step:
+## its staffed count (rounded), level or state changed (a ladder move, a build, staffing). Output
+## swings without one (haul trips averaging out) don't float. {lot_id, key, delta, text (signed,
+## "+0.30 gold/s"), ink (the matter's Palette key), text_key (ink, or `text` where the ink is too
+## dark for text)}. A building first seen, or a different building on a lot, seeds silently.
+var floats: Array = []
+## Per street (same index): its ring from the crypt, 1 for the streets of the plaza block round it,
+## counted in street hops (the still equivalent of the wave under reduced motion).
+var street_order := PackedInt32Array()
 ## Per street edge: {a, b, from: Vector2, to: Vector2, near: Vector2, far: Vector2, length: float}.
 ## `near`/`far` orient the edge away from the plaza (near is the end closer along the streets).
 ## The streams they carry are the agents' (TownAgents.edge_rates, same index).
@@ -45,6 +60,7 @@ var _paths: Dictionary = {}  # "a|b" -> PackedVector2Array
 var _routes: Dictionary = {}  # "a|b" -> PackedStringArray
 var _edge_of: Dictionary = {}  # "a|b" (both orders) -> index into streets
 var _laid_out := false
+var _prev_out: Dictionary = {}  # lot id -> {building_id, output, cause}: the last update's, for floats
 
 
 func _init(town_cfg: Dictionary = {}, buildings_view: Dictionary = {}, buildings_cfg: Dictionary = {},
@@ -90,9 +106,11 @@ func update(views: Dictionary, r: Rect2) -> void:
 	for b in built:
 		by_lot[String(b.get("lot_id", ""))] = b
 	staffing_standin = TownStandins.outputs_stubbed(built)
+	floats = []
 	for lot in lots:
 		lot["unlocked"] = bool(view_lots.get(lot["id"], {}).get("unlocked", false))
 		lot["building"] = _entry(by_lot[lot["id"]], lot, town) if by_lot.has(lot["id"]) else {}
+		_check_float(String(lot["id"]), by_lot.get(lot["id"], {}))
 
 
 func lot(id: String) -> Dictionary:
@@ -315,6 +333,7 @@ func _layout(r: Rect2) -> void:
 			streets.append({"a": a, "b": b, "from": nodes[a], "to": nodes[b],
 				"near": nodes[a] if a_near else nodes[b], "far": nodes[b] if a_near else nodes[a],
 				"length": nodes[a].distance_to(nodes[b])})
+	street_order = _ring_order()
 	var unit := float(_v.get("lot_unit_px", 0)) * scale
 	var h := float(_v.get("lot_h_px", 0)) * scale
 	var pos: Dictionary = _v.get("lot_pos", {})
@@ -340,6 +359,30 @@ func _nearest(p: Vector2) -> String:
 			best_d = d
 			best = id
 	return best
+
+
+## Per street: 1 + the street hops from the crypt's plaza (every `plaza*` node, so the whole block
+## round the crypt is ring 1) to its nearer end, breadth first. A street the plaza can't reach
+## gets 0.
+func _ring_order() -> PackedInt32Array:
+	var hop := {}
+	var q: Array = []
+	for id in nodes:
+		if String(id).begins_with("plaza"):
+			hop[id] = 0
+			q.append(id)
+	while not q.is_empty():
+		var u: String = q.pop_front()
+		for n in _adj.get(u, []):
+			if not hop.has(n) and nodes.has(n):
+				hop[n] = int(hop[u]) + 1
+				q.append(n)
+	var out := PackedInt32Array()
+	for s in streets:
+		var ha := int(hop.get(s["a"], -1))
+		var hb := int(hop.get(s["b"], -1))
+		out.append(0 if ha < 0 and hb < 0 else mini(ha if ha >= 0 else hb, hb if hb >= 0 else ha) + 1)
+	return out
 
 
 ## Street distance (px) from `src` to every node it reaches (Dijkstra).
@@ -404,7 +447,11 @@ func _route(a: String, b: String) -> Array:
 
 
 # --------------------------------------------------------------- buildings ----
-## Display entry for one view_town building on `lot`.
+## Display entry for one view_town building on `lot`. Beyond the view's fields: `look` (look_of),
+## `pulse` (whether the slab's wave pulses it: staffed, constructing, the heart with Relish home),
+## `working` / `short` (whole hands at work / open slots), `badge` ("12 working · 3 short" on a
+## staffable building, "5 idle" on the heart, else ""), `pip_count` (the uncapped pip count),
+## `status` and `status_parts` (status_of), `away` (the heart's "Relish away" label, else "").
 func _entry(b: Dictionary, lot: Dictionary, town: Dictionary) -> Dictionary:
 	var bid := String(b.get("building_id", ""))
 	var meta: Dictionary = _bview.get(bid, {})
@@ -414,15 +461,280 @@ func _entry(b: Dictionary, lot: Dictionary, town: Dictionary) -> Dictionary:
 	var staffed := float(b.get("staffed", 0.0))
 	var jobs: Dictionary = _bcfg.get(bid, {}).get("jobs", {})
 	var pip := _pips(b, jobs)
+	var upgrading := is_upgrading(b)
+	# an upgrade keeps working at its old level (STATE-API 4.3): look and glow as an active building
+	var look := look_of(bid, "active" if upgrading else state, slots, not jobs.is_empty(), staffed)
+	var working := working_of(staffed)
+	var wanted := wanted_slots(b)
+	var home := bool(town.get("relish_home", false))
+	var badge := ""
+	if look in ["staffed", "unstaffed"] and slots > 0:
+		badge = badge_text(working, wanted, _v)
+	elif look == "heart":
+		badge = BuildSort.fmt(String(_v.get("badge", {}).get("idle", "")),
+			{"n": working_of(float(town.get("workers", {}).get("idle", 0.0)))})
+	var parts := status_of(b, look, town, _bcfg, _bview, _v)
 	return {
 		"lot_id": String(b.get("lot_id", "")), "building_id": bid,
 		"label": String(meta.get("label", bid.capitalize())), "ink": _ink(meta, town),
-		"state": state, "progress": progress, "reveal": progress if state == "constructing" else 1.0,
-		"glow": _glow(b, state, String(meta.get("light_by", "always")), town),
-		"pips": int(pip["pips"]), "pip_key": String(pip["pip_key"]),
+		"state": state, "progress": progress, "reveal": progress if state == "constructing" and not upgrading else 1.0,
+		"upgrading": upgrading, "level": int(b.get("level", 0)),
+		"glow": _glow(b, "active" if upgrading else state, String(meta.get("light_by", "always")), town),
+		"pips": int(pip["pips"]), "pip_key": String(pip["pip_key"]), "pip_count": int(pip["count"]),
 		"slots": slots, "staffed": staffed, "unpaid": state == "unpaid",
 		"foreman": String(b.get("foreman", "")), "rect": _footprint(bid, lot),
+		"look": look, "pulse": look in ["staffed", "constructing"] or (look == "heart" and home),
+		"working": working, "short": maxi(wanted - working, 0) if look in ["staffed", "unstaffed"] else 0,
+		"badge": badge, "status_parts": parts, "status": status_text(parts),
+		"away": String(_v.get("status", {}).get("heart_away", "")) if look == "heart" and not home else "",
 	}
+
+
+## A building mid-upgrade: constructing at level >= 1 (it keeps working at its old level; a new
+## build is level 0 and works only once finished).
+static func is_upgrading(b: Dictionary) -> bool:
+	return String(b.get("state", "")) == "constructing" and int(b.get("level", 0)) >= 1
+
+
+## How the canvas draws a building, by shape as well as colour:
+##   constructing  being built or upgraded (the reveal and progress ticks);
+##   unpaid        idled by unpaid upkeep (dim outline, a warning tick);
+##   heart         the crypt (Relish's violet and pulsing while she is home, undead ink away);
+##   staffed       a job building with any staff, active (its ink, glow, pips; the slot ticks and the
+##                 badge count whole hands, so a fraction of a hand reads "0 working · 2 short");
+##   unstaffed     a job building with no staff (dim outline, a hollow slot row), or any idled one;
+##   calm          a building that needs no staff, active (its ink, steady: no pulse, row or badge).
+static func look_of(building_id: String, state: String, slots: int, has_jobs: bool, staffed: float) -> String:
+	match state:
+		"constructing":
+			return "constructing"
+		"unpaid":
+			return "unpaid"
+	if building_id == HEART:
+		return "heart"
+	if has_jobs or slots > 0:
+		return "staffed" if state == "active" and staffed > 1e-6 else "unstaffed"
+	return "calm" if state == "active" else "unstaffed"
+
+
+## The hands a building wants: its slots, or its staff cap when that is lower (a cap is not a shortage).
+static func wanted_slots(b: Dictionary) -> int:
+	var slots := int(b.get("slots", 0))
+	var cap := int(b.get("staff_cap", -1))
+	return mini(slots, cap) if cap >= 0 else slots
+
+
+## Whole hands at work: the floor of `staffed` (the slot ticks', the badge's and the status's count).
+static func working_of(staffed: float) -> int:
+	return maxi(floori(staffed + 1e-6), 0)
+
+
+## "12 working · 3 short" (the short part only when slots exceed the working hands).
+static func badge_text(working: int, slots: int, vcfg: Dictionary) -> String:
+	var bc: Dictionary = vcfg.get("badge", {})
+	var out := BuildSort.fmt(String(bc.get("working", "")), {"n": working})
+	if slots > working:
+		out += String(bc.get("sep", "")) + BuildSort.fmt(String(bc.get("short", "")), {"n": slots - working})
+	return out
+
+
+## Left offsets of `n` marks `size` wide, `gap` apart, with an extra `group_gap` after every
+## `group`th mark (a tally: groups of 5 read as counts, not as a bar).
+static func row_offsets(n: int, size: float, gap: float, group_gap: float, group: int) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	var x := 0.0
+	for i in n:
+		if i > 0:
+			x += size + gap + (group_gap if group > 0 and i % group == 0 else 0.0)
+		out.append(x)
+	return out
+
+
+## The span of row_offsets(n, ...) from the first mark's left edge to the last one's right edge.
+static func row_width(n: int, size: float, gap: float, group_gap: float, group: int) -> float:
+	if n <= 0:
+		return 0.0
+	var o := row_offsets(n, size, gap, group_gap, group)
+	return o[n - 1] + size
+
+
+## The integer shown beside a pip row: the count when it is more than one group, else "".
+static func count_label(n: int, group: int) -> String:
+	return str(n) if n > group else ""
+
+
+## A signed per-second rate of output `key` in its unit: "+0.30 gold/s", "−0.60 bodies/s" (burn
+## spends bodies). view.rate_units: {key: {unit, sign, ink}}; an unknown key reads as itself.
+static func rate_text(key: String, x: float, vcfg: Dictionary) -> String:
+	var u: Dictionary = (vcfg.get("rate_units", {}) as Dictionary).get(key, {})
+	var v := x * float(u.get("sign", 1.0))
+	return "%s%.2f %s/s" % ["−" if v < 0.0 else "+", absf(v), String(u.get("unit", key))]
+
+
+## The matter Palette key of output `key` (view.rate_units ink), "text" if unknown.
+static func rate_ink(key: String, vcfg: Dictionary) -> String:
+	return String((vcfg.get("rate_units", {}) as Dictionary).get(key, {}).get("ink", "text"))
+
+
+## The key a rate's text is drawn in: its matter ink, except dead matter (matte, too dark for
+## text at 4.5:1), which falls back to `text` beside a matte pip.
+static func float_text_key(ink: String) -> String:
+	return "text" if ink == "dead" or ink == "dead_lit" or ink == "text" else ink
+
+
+## `output`'s keys in display order: view.pip_order first, then the rest sorted.
+static func output_keys(output: Dictionary, vcfg: Dictionary) -> Array:
+	var out: Array = []
+	for k in vcfg.get("pip_order", []):
+		if output.has(k):
+			out.append(String(k))
+	var rest: Array = []
+	for k in output:
+		if not String(k) in out:
+			rest.append(String(k))
+	rest.sort()
+	return out + rest
+
+
+## The building's one-line status as parts [[text, oblique: bool]] (rates oblique, words upright):
+## "building: 45%", "unpaid: −0.03 gold/s upkeep", "idle: no staff (Haul is above it on the
+## ladder)", "short 2 hands", "working: +0.30 gold/s", "no staff needed: +8 living cap", and the
+## heart's "Relish away: slab idle". Templates: view.status. `b` is a view_town buildings entry,
+## `look` its look_of(), `town` the view_town dict. Rates come from `output` (zero rates left out).
+static func status_of(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
+	var parts := _status_parts(b, look, town, bcfg, bview, vcfg)
+	if not is_upgrading(b) or look == "constructing":
+		return parts
+	# An upgrade keeps working: "upgrading 40%: +0.30 gold/s" (its rates, led by the progress), or
+	# the other state's words after the lead ("upgrading 40%: short 1 hand").
+	var sc: Dictionary = vcfg.get("status", {})
+	var pct := roundi(float(b.get("progress", 0.0)) * 100.0)
+	var slots := wanted_slots(b)
+	if look == "staffed" and slots <= working_of(float(b.get("staffed", 0.0))):
+		var out: Dictionary = b.get("output", {})
+		var rates: Array = []
+		for k in output_keys(out, vcfg):
+			if absf(float(out[k])) > 1e-6:
+				rates.append(rate_text(k, float(out[k]), vcfg))
+		if rates.is_empty():
+			return [[BuildSort.fmt(String(sc.get("upgrading_none", "")), {"pct": pct}), false]]
+		return _with_rates(BuildSort.fmt(String(sc.get("upgrading", "")), {"pct": pct}), rates, String(sc.get("sep", ", ")))
+	return [[BuildSort.fmt(String(sc.get("upgrading_lead", "")), {"pct": pct}), false]] + parts
+
+
+static func _status_parts(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
+	var sc: Dictionary = vcfg.get("status", {})
+	var bid := String(b.get("building_id", ""))
+	var slots := wanted_slots(b)
+	var working := working_of(float(b.get("staffed", 0.0)))
+	match look:
+		"constructing":
+			return [[BuildSort.fmt(String(sc.get("building", "")), {"pct": roundi(float(b.get("progress", 0.0)) * 100.0)}), false]]
+		"unpaid":
+			var up: Dictionary = b.get("upkeep", {})
+			var rates: Array = []
+			for k in ["gold", "bone"]:
+				if float(up.get(k, 0.0)) > 1e-6:
+					rates.append(rate_text(k, -float(up[k]), vcfg))
+			if rates.is_empty():
+				return [[String(sc.get("unpaid_none", "")), false]]
+			return _with_rates(String(sc.get("unpaid", "")), rates, String(sc.get("sep", ", ")))
+		"heart":
+			return [[String(sc.get("heart_home" if bool(town.get("relish_home", false)) else "heart_away", "")), false]]
+		"calm":
+			var ben := String(bview.get(bid, {}).get("benefit", ""))
+			if ben == "":
+				return [[String(sc.get("calm_none", "")), false]]
+			return [[BuildSort.fmt(String(sc.get("calm", "")), {"benefit": ben}), false]]
+		"unstaffed":
+			return [[_idle_reason(b, town, bcfg, sc), false]]
+	if slots > working:
+		var n := slots - working
+		return [[String(sc.get("short_one", "")) if n == 1 else BuildSort.fmt(String(sc.get("short", "")), {"n": n}), false]]
+	var out: Dictionary = b.get("output", {})
+	var rates: Array = []
+	for k in output_keys(out, vcfg):
+		if absf(float(out[k])) > 1e-6:
+			rates.append(rate_text(k, float(out[k]), vcfg))
+	if rates.is_empty():
+		return [[String(sc.get("working_none", "")), false]]
+	return _with_rates(String(sc.get("working", "")), rates, String(sc.get("sep", ", ")))
+
+
+## The parts joined into one string.
+static func status_text(parts: Array) -> String:
+	var s := ""
+	for p in parts:
+		s += String(p[0])
+	return s
+
+
+## `tpl` split around "{rates}": the words upright, the rates (joined by `sep`) oblique.
+static func _with_rates(tpl: String, rates: Array, sep: String) -> Array:
+	var i := tpl.find("{rates}")
+	if i < 0:
+		return [[tpl, false]]
+	var out: Array = []
+	if i > 0:
+		out.append([tpl.substr(0, i), false])
+	out.append([sep.join(rates), true])
+	var tail := tpl.substr(i + "{rates}".length())
+	if tail != "":
+		out.append([tail, false])
+	return out
+
+
+## Why a staffable building has no hand: its staff cap is 0; its job is off the ladder; or the
+## nearest staffed job above it on the ladder takes the hands (no idle hand left at the crypt).
+static func _idle_reason(b: Dictionary, town: Dictionary, bcfg: Dictionary, sc: Dictionary) -> String:
+	if int(b.get("staff_cap", -1)) == 0:
+		return String(sc.get("idle_capped", ""))
+	var jobs: Dictionary = bcfg.get(String(b.get("building_id", "")), {}).get("jobs", {})
+	if jobs.is_empty():
+		return String(sc.get("idle", ""))
+	var job := String(jobs.keys()[0])
+	var ladder: Array = town.get("ladder_effective", [])
+	var at := ladder.find(job)
+	if at < 0:
+		return BuildSort.fmt(String(sc.get("idle_off", "")), {"job": job.capitalize()})
+	if working_of(float(town.get("workers", {}).get("idle", 0.0))) > 0:
+		return String(sc.get("idle", ""))
+	var staffed := {}
+	for j in town.get("jobs", []):
+		staffed[String(j.get("id", ""))] = float(staffed.get(String(j.get("id", "")), 0.0)) + float(j.get("staffed", 0.0))
+	for i in range(at - 1, -1, -1):
+		if float(staffed.get(String(ladder[i]), 0.0)) > 1e-6:
+			return BuildSort.fmt(String(sc.get("idle_ladder", "")), {"job": String(ladder[i]).capitalize()})
+	return String(sc.get("idle", ""))
+
+
+## Compares lot `lot_id`'s building with the last update's. If a cause changed (its staffed count
+## rounded, its level or its state), records one float for the first output key (display order)
+## that moved by more than view.float.eps. A building first seen, or a different building on the
+## lot, seeds silently; an emptied lot forgets.
+func _check_float(lot_id: String, b: Dictionary) -> void:
+	if b.is_empty():
+		_prev_out.erase(lot_id)
+		return
+	var bid := String(b.get("building_id", ""))
+	var out: Dictionary = b.get("output", {})
+	var prev: Dictionary = _prev_out.get(lot_id, {})
+	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", ""))]
+	_prev_out[lot_id] = {"building_id": bid, "output": out.duplicate(), "cause": cause}
+	if prev.is_empty() or String(prev["building_id"]) != bid or prev["cause"] == cause:
+		return
+	var eps := float(_v.get("float", {}).get("eps", 0.0))
+	var keys := output_keys(out, _v)
+	for k in output_keys(prev["output"], _v):
+		if not k in keys:
+			keys.append(k)
+	for k in keys:
+		var d := float(out.get(k, 0.0)) - float((prev["output"] as Dictionary).get(k, 0.0))
+		if absf(d) > eps:
+			var ink := rate_ink(k, _v)
+			floats.append({"lot_id": lot_id, "key": k, "delta": d, "text": rate_text(k, d, _v), "ink": ink,
+				"text_key": float_text_key(ink)})
+			return
 
 
 ## The building's ink key. Relish's violet only while she is home (the slab works); away, a
@@ -466,8 +778,9 @@ func _glow(b: Dictionary, state: String, light_by: String, town: Dictionary) -> 
 	return 0.0
 
 
-## {pips, pip_key}: the main output (first of view.pip_order with a positive rate) over its pip unit,
-## floored and capped at pip_max.
+## {pips, pip_key, count}: the main output (first of view.pip_order with a positive rate) over its
+## pip unit, floored; `pips` is capped at pip_max (what the row draws), `count` is not (the integer
+## shown beside a long row).
 func _pips(b: Dictionary, jobs: Dictionary) -> Dictionary:
 	if staffing_standin:
 		return TownStandins.staffing_pips(b, jobs, _v)
@@ -477,6 +790,6 @@ func _pips(b: Dictionary, jobs: Dictionary) -> Dictionary:
 		if rate <= 0.0:
 			continue
 		var unit := float(_v.get("pip_unit", {}).get(k, 0.0))
-		var pips := floori(rate / unit + 1e-6) if unit > 0.0 else 0
-		return {"pips": clampi(pips, 0, int(_v.get("pip_max", 0))), "pip_key": String(_v.get("pip_ink", {}).get(k, ""))}
-	return {"pips": 0, "pip_key": ""}
+		var pips := maxi(floori(rate / unit + 1e-6), 0) if unit > 0.0 else 0
+		return {"pips": mini(pips, int(_v.get("pip_max", 0))), "pip_key": String(_v.get("pip_ink", {}).get(k, "")), "count": pips}
+	return {"pips": 0, "pip_key": "", "count": 0}

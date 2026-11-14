@@ -12,6 +12,8 @@ var tracks: Array = []
 var draw_ms := 0.0
 
 var _shown := false
+## Victory's stop (map_routes): the clock the trains are drawn at from then on (-1: live).
+var hold_ms := -1.0
 
 
 func set_tracks(t: Array) -> void:
@@ -26,7 +28,7 @@ func tick(show: bool) -> void:
 		_shown = on
 		visible = on
 		queue_redraw()
-	elif on and not Pulse.reduced_motion:
+	elif on and not Pulse.reduced_motion and hold_ms < 0.0:
 		queue_redraw()
 
 
@@ -46,7 +48,7 @@ func _draw() -> void:
 	var pip := float(c["pip_px"])
 	var step := pip + float(c["pip_gap_px"])
 	var pip_y := hh - stroke - pip * 0.5
-	var now := Pulse.now_ms()
+	var now := hold_ms if hold_ms >= 0.0 else Pulse.now_ms()
 	var rm: bool = Pulse.reduced_motion
 	for tr in tracks:
 		var base := LaneStyle.phase_offset(tr["anchor_off"], tr["anchor_ms"], now, tr["speed"], tr["spacing"], rm)

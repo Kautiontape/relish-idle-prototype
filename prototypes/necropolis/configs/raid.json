@@ -14,6 +14,50 @@
     "sigil_radius_px": 14.0,
     "dim_alpha": 0.3
   },
+  "danger": {
+    "hp_arc_gap_px": 20.0,
+    "hp_arc_width": 3.0,
+    "hp_seg_hp": 5.0,
+    "hp_low_frac": 0.34,
+    "edge_width_px": 5.0,
+    "edge_inset_px": 5.0,
+    "edge_alpha": 0.85,
+    "edge_pulse_s": 0.7,
+    "edge_static_hold_s": 1.2,
+    "edge_target_alpha": 0.4,
+    "edge_static_alpha": 0.5,
+    "target_hold_s": 0.2
+  },
+  "swarm": {
+    "min_count": 12,
+    "cell_px": 160.0,
+    "refresh_s": 0.25,
+    "font_px": 16,
+    "ring_pad_px": 36.0,
+    "ring_alpha": 0.2,
+    "ring_width": 1.5,
+    "max_clusters": 8
+  },
+  "hud": {
+    "pip_row_max": 24,
+    "pip_px": 8.0,
+    "label_px": 13,
+    "value_px": 15
+  },
+  "trace_notch": {
+    "len_px": 9.0,
+    "width_px": 3.0
+  },
+  "held": {
+    "clear_victory_s": 2.5,
+    "empty_clear_s": 1.0,
+    "banner_s": 3.5,
+    "ring_px": 720.0,
+    "ring_s": 1.1,
+    "wall_flash_s": 1.4,
+    "wall_flash_intensity": 1.7,
+    "mote_ring_px": 46.0
+  },
   "checkpoint": {
     "banner_s": 2.5
   },
@@ -39,6 +83,7 @@
     "stir_orbs_max": 4,
     "pop_speed_px": 85.0,
     "per_living": 1,
+    "per_warden": 6,
     "per_undead": 1,
     "gather_radius_px": 28.0,
     "carry_max": 12,
@@ -67,7 +112,9 @@
     "wander_repick_min_s": 2.0,
     "wander_repick_max_s": 5.0,
     "strike_reach_pad": 7.0,
-    "ally_follow_px": 150.0
+    "ally_follow_px": 150.0,
+    "route_repath_s": 0.25,
+    "route_door_pad_px": 14.0
   },
   "enemies": {
     "spearman": {
@@ -85,9 +132,9 @@
       "radius": 8.0
     },
     "brute": {
-      "hp": 36.0,
-      "dmg": 7.0,
-      "speed": 55.0,
+      "hp": 70.0,
+      "dmg": 10.0,
+      "speed": 70.0,
       "cadence_s": 1.5,
       "radius": 15.0
     }
@@ -101,14 +148,14 @@
       "runner": 0.28
     },
     "3": {
-      "spearman": 0.52,
-      "runner": 0.26,
-      "brute": 0.22
+      "spearman": 0.45,
+      "runner": 0.25,
+      "brute": 0.3
     },
     "4": {
-      "spearman": 0.44,
-      "runner": 0.3,
-      "brute": 0.26
+      "spearman": 0.3,
+      "runner": 0.25,
+      "brute": 0.45
     }
   },
   "undead": {
@@ -154,6 +201,8 @@
     "spawn_ring_px": 52.0
   },
   "layout": {
+    "route_min_gap_px": 28.0,
+    "route_fit_pad_px": 4.0,
     "tier_w": {
       "1": 1100,
       "2": 1450,
@@ -171,7 +220,14 @@
     "boss_doors": 7,
     "boss_rooms": 4,
     "wall_thickness": 30.0,
-    "wall_glow_px": 26.0,
+    "wall_stroke_px": 3.0,
+    "wall_halo_px": 9.0,
+    "wall_intensity": 0.7,
+    "boss_wall_stroke_px": 6.0,
+    "boss_wall_intensity": 0.9,
+    "first_pile_px": 220.0,
+    "first_pile_min_px": 120.0,
+    "first_pile_look_mass": 6.0,
     "door_width": 150.0,
     "inner_gap_width": 165.0,
     "min_room_px": 300.0,
@@ -179,7 +235,7 @@
     "grid_step_px": 128.0,
     "wall_drift_speed": 0.05,
     "wall_wavelength_px": 1100.0,
-    "boss_wall_heat": 0.35,
+    "boss_wall_heat": 0.6,
     "checkpoints_by_tier": {"1": 1, "2": 1, "3": 2, "4": 2},
     "held_rooms_delta": 1
   },
@@ -247,7 +303,7 @@
     "stat_mult": 1.0
   },
   "starter": {
-    "stat_mult": 1.0
+    "stat_mult": 1.5
   },
   "demo": {
     "fort_id": "vespers",
@@ -287,6 +343,171 @@
         "wits": 2.0,
         "presence": 3.0,
         "speed": 2.5
+      }
+    }
+  },
+  "ghost_ring": {
+    "reach_px": 300.0,
+    "pad_px": 14.0,
+    "dashes": 28,
+    "dash_fill": 0.55,
+    "spin_rad_s": 0.25,
+    "alpha": 0.55,
+    "width_px": 3.0,
+    "label_px": 16,
+    "label": "trace around the glow"
+  },
+  "autopilot": {
+    "think_frames": 3,
+    "max_s": 600.0,
+    "hold_px": 200.0,
+    "kite_px": 240.0,
+    "kite_committed_px": 110.0,
+    "collect_px": 320.0,
+    "pile_px": 900.0,
+    "foe_clear_px": 90.0,
+    "retreat_step_px": 90.0,
+    "arrive_px": 30.0,
+    "stall_s": 20.0,
+    "idle_s": 60.0,
+    "bail_hp_frac": 0.0,
+    "min_motes": 3,
+    "raise_reach_px": 300.0,
+    "raise_pad_px": 14.0,
+    "trace_points": 44,
+    "trace_tries": 8,
+    "trace_amp_max": 0.6,
+    "score_tol": 5,
+    "dodge": 0.5,
+    "dodge_step_px": 60.0,
+    "bell_margin_px": 24.0,
+    "bell_enter_margin_s": 1.5,
+    "bell_stage_px": 20.0,
+    "slam_safe_beats": 1.0,
+    "slam_reach_px": 600.0,
+    "slam_stand_frac": 0.5,
+    "slam_cluster_frac": 0.4,
+    "pickup_px": 900.0,
+    "pickup_foe_clear_px": 90.0,
+    "profile_living_frac": 0.85,
+    "profile_dead_frac": 0.1,
+    "party_profiles": {
+      "_doc": "BALANCE 3's standard 'party of tier T' (DEV: --raid-profile=<T> --raid-fort=<fort_id>, RaidLogic.profile_seed): what the risk targets and the dungeon stand-ins assume the player brings to a fort. garrison_units are the player's undead already at the fort's walls (chaff at garrison.stat_mult); starter_units are the first dungeon's only (0 here); party is one big undead per entry, stats as the slab rolls them (the pre_vei fixture's four bigs run power 3.4-8.8, beef 1.7-5.5, speed 3.7-7.6). Each tier adds a big and grows the stats; tier 2's big just meets both weak points (beef 6 braces the Bellringer, speed 4 intercepts the Huntsman). The fort holds living = cap * profile_living_frac (the start's realm start_living_frac) and dead = cap * profile_dead_frac; no phylactery charge. Fixed before calibration: tune the dungeon to the party, not the party to the targets.",
+      "1": {"garrison_units": 6, "starter_units": 0, "party": []},
+      "2": {"garrison_units": 6, "starter_units": 0, "party": [
+        {"stats": {"power": 5.0, "beef": 6.0, "wits": 3.0, "presence": 3.0, "speed": 4.0}}
+      ]},
+      "3": {"garrison_units": 8, "starter_units": 0, "party": [
+        {"stats": {"power": 6.0, "beef": 7.0, "wits": 4.0, "presence": 4.0, "speed": 4.0}},
+        {"stats": {"power": 6.5, "beef": 4.0, "wits": 4.0, "presence": 4.0, "speed": 6.0}}
+      ]},
+      "4": {"garrison_units": 12, "starter_units": 0, "party": [
+        {"stats": {"power": 7.0, "beef": 8.0, "wits": 5.0, "presence": 5.0, "speed": 4.5}},
+        {"stats": {"power": 7.5, "beef": 5.0, "wits": 5.0, "presence": 5.0, "speed": 7.0}},
+        {"stats": {"power": 8.0, "beef": 6.5, "wits": 5.0, "presence": 5.0, "speed": 5.5}}
+      ]}
+    }
+  },
+  "wardens": {
+    "chest_open_px": 44.0,
+    "victory_s": 1.5,
+    "muffle_pad_px": 14.0,
+    "phase_flash_s": 0.6,
+    "wake_banner_s": 3.5,
+    "last_chance_banner_s": 3.5,
+    "ignite_s": 0.8,
+    "glyph_ring_step": 0.2,
+    "tell_ring_start": 2.6,
+    "tell_preview_alpha": 0.16,
+    "chest_half_px": 13.0,
+    "by_fort": {
+      "ashgate": "huntsman",
+      "old-sluice": "bellringer",
+      "greywall": "huntsman",
+      "vespers": "bellringer",
+      "chime-fort": "huntsman",
+      "lantern-keep": "bellringer",
+      "hollow-redoubt": "huntsman",
+      "pale-bastion": "bellringer",
+      "mourners-gate": "huntsman",
+      "the-stair": "bellringer",
+      "whitecross": "huntsman",
+      "sable-hold": "bellringer"
+    },
+    "first_dungeon": {
+      "period_mult": 1.5,
+      "dmg_mult": 0.6,
+      "hp_mult": 1.0
+    },
+    "archetypes": {
+      "bellringer": {
+        "name": "The Bellringer",
+        "tells": [
+          "slams ring out on the beat, and beef soaks them",
+          "rings faster at each third of its health"
+        ],
+        "weak_point": {
+          "stat": "beef",
+          "threshold": 6,
+          "effect": "muffle",
+          "dmg_mult": 0.35,
+          "label": "a beefy big undead braced at the bell muffles its slams"
+        },
+        "hp_base": 2800.0,
+        "hp_per_tier": 1250.0,
+        "radius": 52.0,
+        "phases": [
+          {"until_hp_frac": 0.66, "period_beats": 4},
+          {"until_hp_frac": 0.33, "period_beats": 3},
+          {"until_hp_frac": 0.0, "period_beats": 2}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "ring_beats": 0.6,
+          "radius_px": 260.0,
+          "band_px": 36.0,
+          "dmg_unit": 11.0,
+          "dmg_relish": 12.0,
+          "soak_per_beef": 0.06,
+          "min_soak": 0.3
+        }
+      },
+      "huntsman": {
+        "name": "The Huntsman",
+        "tells": [
+          "stalks Relish and lunges on the beat",
+          "speed interceptors and the sacrifice chain counter it"
+        ],
+        "weak_point": {
+          "stat": "speed",
+          "threshold": 4,
+          "effect": "intercept",
+          "intercept_px": 40.0,
+          "stun_beats": 3,
+          "stun_dmg_mult": 2.5,
+          "label": "a fast big undead in its path intercepts the lunge"
+        },
+        "hp_base": 3400.0,
+        "hp_per_tier": 500.0,
+        "radius": 30.0,
+        "phases": [
+          {"until_catches": 2, "period_beats": 4, "speed": 140.0},
+          {"until_catches": 4, "period_beats": 3, "speed": 165.0},
+          {"until_catches": -1, "period_beats": 2, "speed": 190.0}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "range_px": 320.0,
+          "speed_px_s": 900.0,
+          "hit_radius_px": 22.0,
+          "stalk_stop_px": 150.0,
+          "hunt_margin_px": 40.0,
+          "guard_px": 46.0,
+          "guard_spread_px": 18.0,
+          "stun_wobble_px": 3.5,
+          "dmg_relish": 12.0,
+          "dmg_unit": 8.0
+        }
       }
     }
   }

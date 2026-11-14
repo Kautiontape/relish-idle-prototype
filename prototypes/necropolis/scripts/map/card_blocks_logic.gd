@@ -53,8 +53,9 @@ static func card_sig(card: Dictionary) -> String:
 
 
 ## The fort card, top to bottom: chips, warden, loot, threat in advance, matter.
-## `backups` is view_backups(), `names` maps big-undead uids to names.
-static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary) -> Dictionary:
+## `backups` is view_backups(), `names` maps big-undead uids to names, `loot_cfg` is configs/loot.json
+## (for the dungeon's loot line).
+static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary, loot_cfg: Dictionary) -> Dictionary:
 	var c := _c()
 	var blocks: Array = []
 	var chips := CardLogic.status_chips(fort, names)
@@ -68,7 +69,7 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 		blocks.append(_para("tell%d" % i, lead + str(lines[i])))
 	if str(fort.get("loot_hint", "")) != "":
 		blocks.append(_para("hint", str(c.get("hint_fmt", "%s")) % str(fort["loot_hint"])))
-	blocks.append(_para("loot", CardLogic.loot_card_line(fort)))
+	blocks.append(_para("loot", CardLogic.loot_card_line(fort, loot_cfg)))
 	if CardLogic.first_clear_line(fort) != "":
 		blocks.append(_para("first_clear", CardLogic.first_clear_line(fort), "select"))
 	var threat: Dictionary = fort.get("threat", {})

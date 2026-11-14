@@ -9,8 +9,13 @@ extends RefCounted
 ##   for a in ag.undead: a.pos, a.dir, a.carry, a.tilt, a.flash, a.hidden ...
 ##
 ## - **Counts follow the stream.** Undead per job = the job's `staffed` (view_town().jobs), idle =
-##   `workers.idle`, living = `living`. Above view.max_undead_agents / max_living_agents each kind
-##   is sampled by k = ceil(total / max) (`undead_scale`, `living_scale`: 1 stroke = k).
+##   `workers.idle`, living = `living`. Both kinds share one budget, view.max_agents strokes, and
+##   the undead (the product) come first: they keep one stroke per worker up to the budget less
+##   what the living's floor reserves (min(living, view.min_living_agents)); the living take what
+##   is left, never less than that floor, and never more than max(min_living_agents,
+##   floor(view.living_ratio_max x undead strokes)), so the undead stay the visible majority. A
+##   kind over its share is sampled by k = ceil(total / share) (`undead_scale`, `living_scale`:
+##   1 stroke = k), so the living are thinned first; legend() says so on screen.
 ## - **Entry, then growth.** The first sync (and any relayout) places the current population along
 ##   its loops at once: the town already exists when you walk in. After that every change in
 ##   counts is gradual: at most view.spawn_per_s agents a second per kind are added or removed,
@@ -53,6 +58,8 @@ class Agent:
 	## Beat actions, 0 unless on the beat: a builder's hammer tilt (radians), a forge flash (0..1).
 	var tilt := 0.0
 	var flash := 0.0
+	## True while a stance flash covers this agent's job (set by step(); see flash()).
+	var stance_flash := false
 	## Hold post, and the unit along the building front (the stall shuffle's axis).
 	var base := Vector2.ZERO
 	var side := Vector2.ZERO
@@ -134,6 +141,11 @@ var _bud_l := 0.0
 var _trade_acc := 0.0
 var _rates_warm := false
 var _was_reduced := false
+var _fbeat := -1.0  # Pulse beats for the stance flashes; unlike _beats it also runs under reduced motion
+var _flashes: Array = []  # [{jobs: {job: true}, start: beat}]
+var _seen: Dictionary = {}  # stance id -> the fired beat id already handled (event or view)
+var _await: Dictionary = {}  # stance id -> syncs left to find the buildings a thrift firing idled
+var _prev_idle: Dictionary = {}  # lot id -> was the building idle in the last sync
 
 
 func _init(view_cfg: Dictionary = {}, buildings_cfg: Dictionary = {}, economy_cfg: Dictionary = {},
@@ -166,9 +178,167 @@ func living_count() -> int:
 	return n
 
 
+## The stance-flash clock in Pulse beats (0 before the first step).
+func beat() -> float:
+	return maxf(_fbeat, 0.0)
+
+
+## Schedule a one-beat flash for every agent whose job is in `job_ids` ("idle" included): it
+## starts at the NEXT beat after `now_beat` and lasts one beat.
+func flash(job_ids: Array, now_beat: float) -> void:
+	if job_ids.is_empty():
+		return
+	var jobs := {}
+	for j in job_ids:
+		jobs[String(j)] = true
+	_flashes.append({"jobs": jobs, "start": floorf(now_beat) + 1.0})
+
+
+## True while a scheduled flash covers `a`'s job at `beat_now`: from its start beat for one beat.
+func is_flashing(a: Agent, beat_now: float) -> bool:
+	if not a.undead or a.leaving:
+		return false
+	for f in _flashes:
+		if beat_now >= float(f["start"]) and beat_now < float(f["start"]) + 1.0 and (f["jobs"] as Dictionary).has(a.job):
+			return true
+	return false
+
+
+## A stance fired (a `stance_fired` event or a changed `fired_beat_id`). Each firing counts once
+## (`beat_id` dedupes the two paths). Flashes the stance's jobs (view.stance_jobs) on the next
+## beat; returns them. Thrift's jobs are the ones whose buildings turn idle, found by sync().
+func fire_stance(stance_id: String, beat_id: int) -> Array:
+	if _seen.get(stance_id, -2) == beat_id:
+		return []
+	_seen[stance_id] = beat_id
+	var spec = (_v.get("stance_jobs", {}) as Dictionary).get(stance_id, [])
+	if spec is String:
+		_await[stance_id] = 3
+		return []
+	flash(spec, beat())
+	return spec
+
+
 ## True where Relish's light falls (she is home and `p` is within view.relish_light_r).
 func lit(p: Vector2) -> bool:
 	return relish_home and p.distance_to(relish_pos) <= _num("relish_light_r") * scale
+
+
+## The visible agent nearest `p` within `radius` px (never less than 22: a 44 px target), undead
+## or living; null if none. Hidden (out of town) and gone agents can't be picked.
+func agent_at(p: Vector2, radius: float) -> Agent:
+	var r := maxf(radius, 22.0)
+	var best: Agent = null
+	var best_d := r
+	for arr in [undead, living]:
+		for a in arr:
+			if a.hidden or a.gone:
+				continue
+			var d: float = a.pos.distance_to(p)
+			if d <= best_d:
+				best_d = d
+				best = a
+	return best
+
+
+## The scale legend for the town view's corner: "1 green stroke = k undead" and "1 orange stroke =
+## k living", each only while its k > 1 (view.legend).
+static func legend_lines(u_scale: int, l_scale: int, vcfg: Dictionary) -> Array:
+	var lc: Dictionary = vcfg.get("legend", {})
+	var out: Array = []
+	if u_scale > 1:
+		out.append(BuildSort.fmt(String(lc.get("undead", "")), {"k": u_scale}))
+	if l_scale > 1:
+		out.append(BuildSort.fmt(String(lc.get("living", "")), {"k": l_scale}))
+	return out
+
+
+## legend_lines() at the current scales.
+func legend() -> Array:
+	return legend_lines(undead_scale, living_scale, _v)
+
+
+## A trade arc's control point: the quadratic from buyer `a` to seller `b` bows to the side by
+## `bulge` x their distance, but never so little that its hop (the curve's height over the chord,
+## half the control's offset) is under `min_h` px, so a buyer at the stall still reads as a toss.
+## It bows up the screen (the side whose normal points up).
+static func arc_ctrl(a: Vector2, b: Vector2, bulge: float, min_h: float) -> Vector2:
+	var d := b - a
+	var n := Vector2(-d.y, d.x).normalized() if d.length() > 1e-6 else Vector2.UP
+	if n.y > 0.0:
+		n = -n
+	return (a + b) * 0.5 + n * maxf(bulge * d.length(), 2.0 * min_h)
+
+
+## The point at `u` (0 buyer .. 1 seller) along the quadratic a -> ctrl -> b.
+static func arc_point(a: Vector2, ctrl: Vector2, b: Vector2, u: float) -> Vector2:
+	return a.lerp(ctrl, u).lerp(ctrl.lerp(b, u), u)
+
+
+## Where an arc's mote is (0 buyer .. 1 seller): it runs the arc's life; reduced motion holds it at
+## the midpoint.
+static func mote_u(age: float, life: float, reduced: bool) -> float:
+	if reduced:
+		return 0.5
+	return clampf(age / maxf(life, 1e-3), 0.0, 1.0)
+
+
+## Whether `a` is still walking in town (one of this population, not gone).
+func alive(a: Agent) -> bool:
+	return a != null and not a.gone and (undead.has(a) or living.has(a))
+
+
+## What agent `a` is doing, in words (templates: view.agent_status): "hauler: carrying bodies to
+## the Charnel House", "idle at the crypt", "buyer: going to the Market", "buyer: at the Market".
+## The undead by job and the stop they walk to; the living by the stop of their round (home,
+## market, inn: resident, buyer, guest), "at" while they dwell there.
+func describe(a: Agent) -> String:
+	var s: Dictionary = _v.get("agent_status", {})
+	if not a.undead:
+		if a.leaving:
+			return String(s.get("leaving_living", ""))
+		var n := a.stops.size()
+		if n == 0:
+			return ""
+		var roles: Array = s.get("living_roles", [])
+		var dwelling := _clock < a.wait
+		var i := (a.stop - 1 + n) % n if dwelling else a.stop % n
+		var role := String(roles[i]) if i < roles.size() else ""
+		var vars := {"role": role, "place": _place_name(String(a.stops[i]))}
+		if dwelling:
+			return BuildSort.fmt(String(s.get("at", "")), vars)
+		return BuildSort.fmt(String(s.get("home" if i == 0 else "going", "")), vars)
+	if a.job == "idle":
+		return String(s.get("idle", ""))
+	var role := String((s.get("roles", {}) as Dictionary).get(a.job, a.job))
+	if a.leaving:
+		return BuildSort.fmt(String(s.get("leaving", "")), {"role": role})
+	if a.hidden:
+		return BuildSort.fmt(String(s.get("out", "")), {"role": role})
+	if a.stops.is_empty():
+		return String(s.get("idle", ""))  # no building for its job: it idles at the crypt
+	var key := String(a.stops[a.stop % a.stops.size()])
+	var vars := {"role": role, "place": _place_name(key)}
+	if a.holding:
+		return BuildSort.fmt(String(s.get("working", "")), vars)
+	if key == "away":
+		return BuildSort.fmt(String(s.get("heading_out", "")), vars)
+	if LOOPS.has(a.job) and a.stops.size() > 1:
+		# a hauler walking back to the charnel house, or a pit or mill worker walking from it, carries
+		var to_src := key == "lot:" + _charnel
+		if to_src == (a.job == "haul"):
+			vars["what"] = String((s.get("carry", {}) as Dictionary).get(a.job, ""))
+			return BuildSort.fmt(String(s.get("carrying", "")), vars)
+	return BuildSort.fmt(String(s.get("going", "")), vars)
+
+
+## A stop key as a place name: a lot's building label, or view.agent_status.places.
+func _place_name(key: String) -> String:
+	if key.begins_with("lot:"):
+		var l := _model.lot(key.trim_prefix("lot:")) if _model != null else {}
+		if not l.is_empty() and not (l["building"] as Dictionary).is_empty():
+			return String(l["building"]["label"])
+	return String((_v.get("agent_status", {}).get("places", {}) as Dictionary).get(key, key))
 
 
 ## The gait position (in steps) at `beats` Pulse beats: whole steps, plus the share of the
@@ -211,6 +381,7 @@ func sync(model: TownModel, views: Dictionary) -> void:
 	_read_carts(town)
 	_read_foremen(model, views)
 	_read_relish(model, town)
+	_read_stances(views, town)
 	for a in undead:
 		var old_site := a.site
 		_refresh_stops(a)
@@ -222,6 +393,30 @@ func sync(model: TownModel, views: Dictionary) -> void:
 	if not _seeded and views.has("town"):  # an empty first fetch must not spend the entry seed
 		_seeded = true
 		_seed()
+
+
+## Stances that fired since the last sync (a changed `fired_beat_id`; the first sync is the
+## baseline), and thrift's flash once the buildings it idled show up.
+func _read_stances(views: Dictionary, town: Dictionary) -> void:
+	var idled: Array = TownBehaviour.idled_jobs(_prev_idle, town.get("buildings", []), _job_of_building)
+	for s in views.get("stances", {}).get("stances", []):
+		var id := String(s.get("id", ""))
+		var fb := int(s.get("fired_beat_id", -1))
+		if not _seen.has(id):
+			_seen[id] = fb
+		elif fb >= 0 and fb != int(_seen[id]):
+			fire_stance(id, fb)
+	for id in _await.keys():
+		if not idled.is_empty():
+			flash(idled, beat())
+			_await.erase(id)
+		else:
+			_await[id] = int(_await[id]) - 1
+			if int(_await[id]) <= 0:
+				_await.erase(id)
+	_prev_idle = {}
+	for b in town.get("buildings", []):
+		_prev_idle[String(b.get("lot_id", ""))] = String(b.get("state", "")) == "idle"
 
 
 func _read_sites(model: TownModel) -> void:
@@ -239,14 +434,15 @@ func _read_sites(model: TownModel) -> void:
 		var id := String(l["id"])
 		var bid := String(b["building_id"])
 		_fronts[id] = _front(l)
-		var built := String(b["state"]) != "constructing"
+		var constructing := String(b["state"]) == "constructing"
 		if bid == "crypt":
 			_crypt = id
-		if not built:
+		if constructing:
 			if not _sites.has("build"):
 				_sites["build"] = []
 			_sites["build"].append(id)
-			continue
+			if not bool(b.get("upgrading", false)):
+				continue  # a new build works only once finished; an upgrade keeps working at its old level
 		match bid:
 			"charnel_house":
 				if _charnel == "":
@@ -274,17 +470,23 @@ func _read_targets(town: Dictionary) -> void:
 		total += s
 	var idle := maxf(float(town.get("workers", {}).get("idle", 0.0)), 0.0)
 	total += idle
-	undead_scale = _scale_for(total, _num("max_undead_agents"))
+	var people := maxf(float(town.get("living", 0.0)), 0.0)
+	var budget := _num("max_agents")
+	var floor_l := minf(_num("min_living_agents"), ceilf(people - 1e-9))  # only what the living need
+	undead_scale = _scale_for(total, maxf(budget - floor_l, 1.0))
 	targets = {}
 	var orphan := 0.0
+	var used := 0
 	for j in staffed:
 		if (_sites.get(j, []) as Array).is_empty():
 			orphan += staffed[j]  # no building for the job: its workers idle at the crypt
 		else:
 			targets[j] = roundi(staffed[j] / float(undead_scale))
+			used += int(targets[j])
 	targets["idle"] = roundi((idle + orphan) / float(undead_scale))
-	var people := maxf(float(town.get("living", 0.0)), 0.0)
-	living_scale = _scale_for(people, _num("max_living_agents"))
+	used += int(targets["idle"])
+	var ratio := maxf(_num("min_living_agents"), floorf(_num("living_ratio_max") * float(used)))
+	living_scale = _scale_for(people, minf(maxf(budget - float(used), floor_l), ratio))
 	living_target = roundi(people / float(living_scale))
 
 
@@ -812,6 +1014,10 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 	var duty := _num("step_duty")
 	var g0 := _gait
 	if reduced_motion:
+		_fbeat = maxf(_fbeat, 0.0) + (dt / _tempo_s if _tempo_s > 0.0 else 0.0)
+	else:
+		_fbeat = beat_phase if _fbeat < 0.0 else _fbeat + fposmod(beat_phase - fposmod(_fbeat, 1.0), 1.0)
+	if reduced_motion:
 		_was_reduced = true
 	else:
 		var first := _beats < 0.0
@@ -837,6 +1043,7 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		for a in undead:
 			a.tilt = 0.0
 			a.flash = 0.0
+	_stance_flashes()
 	_trade(dt)
 	for c in carts.size():
 		if reduced_motion or g1 > g0:
@@ -846,6 +1053,17 @@ func step(dt: float, beat_phase: float, reduced_motion: bool) -> void:
 		carts[c]["lit"] = lit(carts[c]["pos"])
 	_rates(dt)
 	_sweep()
+
+
+## Flag the flashing agents for the renderer and drop flashes that are over.
+func _stance_flashes() -> void:
+	var i := _flashes.size() - 1
+	while i >= 0:
+		if _fbeat >= float(_flashes[i]["start"]) + 1.0:
+			_flashes.remove_at(i)
+		i -= 1
+	for a in undead:
+		a.stance_flash = not _flashes.is_empty() and is_flashing(a, _fbeat)
 
 
 func _step_undead(a: Agent, g0: float, g1: float, step: float, spb: int) -> void:

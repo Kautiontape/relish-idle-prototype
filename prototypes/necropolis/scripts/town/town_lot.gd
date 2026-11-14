@@ -1,9 +1,18 @@
 extends Node2D
 ## One lot of the town view's static layer (VISUAL-LANGUAGE §2b): a locked dot grid, an empty
-## lot's dashed blueprint, or its building's neon silhouette with the output pip row and the slot
-## ticks. Redraws only when its display entry changes; the view pulses it via `self_modulate`
-## (from Pulse.wave at `hops`), and a construction reveal animates here, per frame on this lot only.
-## Dead output pips draw in an unpulsed child (`_matte`): dead matter never brightens on the beat.
+## lot's dashed blueprint, or its building's neon silhouette drawn by its look (TownModel.look_of),
+## so its state reads by shape, not by blue alone:
+##   staffed       its ink with glow, the slot ticks (filled = working, hollow = open) and pips;
+##   unstaffed     a dim outline and the hollow slot ticks ("0/3": the wasted slots);
+##   unpaid        a dim outline and a danger warning tick in the band (clear of the label above);
+##   calm          its ink, steady (the view doesn't pulse it), no row;
+##   heart         the crypt: its ink (violet home, undead away), lit, no row;
+##   constructing  the reveal with its drawing head and the progress ticks.
+## Slot ticks and pips are tallies: a gap after every view.pip_group, pips capped at pip_max, the
+## count beside a row longer than a group. Redraws only when its display entry changes; the view
+## pulses it via `self_modulate` (from Pulse.wave at `hops`) while `pulses`, and a construction
+## reveal animates here, per frame on this lot only. Dead output pips and the counts draw in an
+## unpulsed child (`_matte`): dead matter never brightens on the beat, text never pulses.
 ## Draws in the town view's coordinates. Colours from Palette, glows from LineGlow, numbers from
 ## configs/town.json `view`.
 
@@ -15,6 +24,8 @@ var lot: Dictionary = {}
 var hops := 0.0
 ## Relish's light on this lot (0 = none): the view multiplies its pulse by 1 + brighten.
 var brighten := 0.0
+## Whether the slab's wave pulses this lot: empty lots and the entries the model marks `pulse`.
+var pulses := true
 
 var _snap: Variant = null
 var _shown := 0.0  # the construction reveal on screen; eases toward the entry's reveal
@@ -31,11 +42,18 @@ func _ready() -> void:
 
 
 ## Adopt `l` (the model's lot dict). Redraws only if it differs from the last one (or `force`).
+## The status line isn't drawn here, so a status-only change doesn't redraw the lot.
 func set_lot(l: Dictionary, force := false) -> void:
 	lot = l
 	hops = float(l.get("hops", 0.0))
 	var b: Dictionary = l.get("building", {})
-	var snap := [l.get("rect", Rect2()), l.get("unlocked", false), b]
+	pulses = b.is_empty() or bool(b.get("pulse", true))
+	var drawn: Dictionary = b
+	if b.has("status"):
+		drawn = b.duplicate()
+		drawn.erase("status")
+		drawn.erase("status_parts")
+	var snap := [l.get("rect", Rect2()), l.get("unlocked", false), drawn]
 	if not force and _snap != null and snap == _snap:
 		return
 	var prev_bid := String(_snap[2].get("building_id", "")) if _snap != null else "<first>"
@@ -43,7 +61,7 @@ func set_lot(l: Dictionary, force := false) -> void:
 	_target = float(b.get("reveal", 1.0))
 	# A building first seen (scene entry, or a different one) shows its progress as it stands; a
 	# progress drop (an upgrade restarting) jumps; growth eases at view.reveal_rate.
-	if prev_bid != String(b.get("building_id", "")) or _target < _shown or b.get("state", "") != "constructing":
+	if prev_bid != String(b.get("building_id", "")) or _target < _shown or b.get("state", "") != "constructing" or b.get("upgrading", false):
 		_shown = _target
 	set_process(not is_equal_approx(_shown, _target))
 	queue_redraw()
@@ -131,7 +149,7 @@ func _draw_building(b: Dictionary) -> void:
 	var ink := Palette.c(ink_key)
 	var dim_w := float(vcfg.get("dim_w_px", 1.0))
 	var dim_glow := float(vcfg.get("glow_dim", 0.0))
-	match String(b["state"]):
+	match String(b.get("look", "")):
 		"constructing":
 			var pls := model.strokes(bid, sil, _shown)
 			for pl in pls:
@@ -140,16 +158,16 @@ func _draw_building(b: Dictionary) -> void:
 				var last: PackedVector2Array = pls[pls.size() - 1]
 				_head(last[last.size() - 1], ink_key)
 			_progress_ticks(fr, ink, float(b["progress"]))
-		"idle":
+		"unstaffed", "unpaid":
 			var spec: Dictionary = vcfg.get("idle_line", {})
 			var col := Palette.c(String(spec.get("key", "text_dim")), float(spec.get("alpha", 1.0)))
 			for pl in model.strokes(bid, sil, 1.0):
 				LineGlow.polyline(self, pl, col, dim_w, dim_glow)
-		"unpaid":
-			for pl in model.strokes(bid, sil, 1.0):
-				LineGlow.polyline(self, pl, ink, dim_w, dim_glow)
-			_warning(Vector2(sil.end.x, sil.position.y))
-		_:
+			if String(b["look"]) == "unpaid":
+				_warning(Vector2(fr.get_center().x, _band_y(fr)))
+			else:
+				_rows(fr, b)
+		_:  # staffed, calm, heart
 			var g := clampf(float(b["glow"]), 0.0, 1.0)
 			var wr: Array = vcfg.get("sil_w_px", [1.0, 1.0])
 			var gr: Array = vcfg.get("sil_glow", [0.0, 1.0])
@@ -159,7 +177,10 @@ func _draw_building(b: Dictionary) -> void:
 			var core := ink.lerp(Palette.c(ck), g * float(vcfg.get("sil_core_mix", 0.0))) if ck != "" else ink
 			for pl in model.strokes(bid, sil, 1.0):
 				LineGlow.polyline(self, pl, ink, w, halo, core)
-			_rows(fr, b)
+			if String(b.get("look", "")) == "staffed":
+				_rows(fr, b)
+	if bool(b.get("upgrading", false)):  # it keeps working: the progress ticks ride the top edge
+		_progress_ticks(fr, ink, float(b["progress"]), fr.position.y)
 
 
 ## The drawing head of a construction: a tiny hot core with a full-glow ring.
@@ -175,12 +196,12 @@ func _head(p: Vector2, ink_key: String) -> void:
 
 ## Construction progress: view.progress_ticks ticks across the band; done ticks are full-height
 ## ink strokes, the rest short thin ones (shape, not only colour).
-func _progress_ticks(fr: Rect2, ink: Color, progress: float) -> void:
+func _progress_ticks(fr: Rect2, ink: Color, progress: float, at_y := INF) -> void:
 	var n := int(vcfg.get("progress_ticks", 0))
 	if n <= 0:
 		return
 	var th := float((vcfg.get("slot_tick_px", [2.0, 8.0]) as Array)[1]) * model.scale
-	var y := _band_y(fr)
+	var y := _band_y(fr) if at_y == INF else at_y
 	var tw: Array = vcfg.get("progress_tick_w_px", [1.0, 1.0])
 	var step := fr.size.x / float(n + 1)
 	var done := floori(progress * n + 1e-6)
@@ -192,13 +213,16 @@ func _progress_ticks(fr: Rect2, ink: Color, progress: float) -> void:
 			draw_line(Vector2(x, y - th * 0.2), Vector2(x, y + th * 0.2), ink, float(tw[1]))
 
 
-## Unpaid: a danger triangle with a bang, drawn as lines, at the silhouette's top-right corner.
-func _warning(corner: Vector2) -> void:
+## Unpaid: a danger triangle with a bang, drawn as lines, centred on `c` (the band under the
+## silhouette, where the pip row would be: clear of the label above the lot). At least
+## view.warn.size_px tall whatever the view's scale.
+func _warning(c: Vector2) -> void:
 	var spec: Dictionary = vcfg.get("warn", {})
-	var s := float(spec.get("size_px", 12.0)) * model.scale
+	var base := float(spec.get("size_px", 16.0))
+	var s := maxf(base * model.scale, base)
 	var col := Palette.c("danger")
-	var top := corner + Vector2(-s * 0.5, -s * 0.15)
-	var tri := PackedVector2Array([top, top + Vector2(s * 0.5, s * 0.9), top + Vector2(-s * 0.5, s * 0.9), top])
+	var top := c + Vector2(0.0, -s * 0.5)
+	var tri := PackedVector2Array([top, top + Vector2(s * 0.55, s * 0.95), top + Vector2(-s * 0.55, s * 0.95), top])
 	LineGlow.polyline(self, tri, col, float(spec.get("line_px", 1.0)), float(spec.get("glow", 0.0)))
 	draw_line(top + Vector2(0, s * 0.3), top + Vector2(0, s * 0.6), col, float(spec.get("bang_px", 1.0)))
 	draw_circle(top + Vector2(0, s * 0.75), float(spec.get("dot_px", 1.0)), col)
@@ -218,22 +242,41 @@ func _rows(fr: Rect2, b: Dictionary) -> void:
 				_pip(m[1], m[2].x, String(m[3]))
 
 
-## Dead pips: matte squares in the unpulsed child.
+## Dead pips (matte squares) and the pip count, in the unpulsed child.
 func _draw_matte() -> void:
 	var b: Dictionary = lot.get("building", {})
-	if b.is_empty() or String(b.get("state", "")) != "active":
+	if b.is_empty():
+		return
+	if bool(b.get("upgrading", false)):  # the level mark: "+1", upright
+		var spec: Dictionary = vcfg.get("upgrade_mark", {})
+		var font := ThemeDB.fallback_font
+		var fs := maxi(int(spec.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+		var txt := String(spec.get("text", ""))
+		var fr: Rect2 = b["rect"]
+		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		_matte.draw_string(font, Vector2(fr.end.x - w, fr.position.y + font.get_ascent(fs)), txt,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(String(spec.get("key", "text"))))
+	if not String(b.get("look", "")) in ["staffed", "unstaffed"]:
 		return
 	for m in _row_marks(b["rect"], b):
-		if m[0] == "dead":
-			_matte.draw_rect(Rect2(m[1] - m[2] * 0.5, m[2]), Palette.c(String(m[3])))
+		match m[0]:
+			"dead":
+				_matte.draw_rect(Rect2(m[1] - m[2] * 0.5, m[2]), Palette.c(String(m[3])))
+			"count":
+				var font := ThemeDB.fallback_font
+				var fs := maxi(int(vcfg.get("pip_count_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+				var base := Vector2(m[1].x, m[1].y + (font.get_ascent(fs) - font.get_descent(fs)) * 0.5)
+				_matte.draw_string(font, base, String(m[3]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("text_dim"))
 
 
 ## The band's marks, left to right, centred: [kind, centre, size, pip key]. kind is "staffed",
-## "open" (slot ticks), "pip" (a glowing pip) or "dead" (a matte pip).
+## "open" (slot ticks), "pip" (a glowing pip), "dead" (a matte pip) or "count" (the integer beside
+## a long pip row: [kind, left-middle point, size, text]). Ticks and pips are tallies with a gap
+## after every view.pip_group.
 func _row_marks(fr: Rect2, b: Dictionary) -> Array:
 	var out: Array = []
 	var slots := int(b.get("slots", 0))
-	var staffed := floori(float(b.get("staffed", 0.0)) + 1e-6)
+	var staffed := TownModel.working_of(float(b.get("staffed", 0.0)))
 	var pip_key := String(b.get("pip_key", ""))
 	var pips := int(b.get("pips", 0)) if pip_key != "" else 0
 	if slots <= 0 and pips <= 0:
@@ -243,18 +286,28 @@ func _row_marks(fr: Rect2, b: Dictionary) -> Array:
 	var ts := Vector2(float(tick[0]), float(tick[1])) * k
 	var pw := float(vcfg.get("pip_px", 4.0)) * k
 	var gap := float(vcfg.get("pip_gap_px", 3.0)) * k
+	var tally := int(vcfg.get("pip_group", 0))
+	var tg := float(vcfg.get("pip_group_gap_px", 0.0)) * k
 	var group := float(vcfg.get("group_gap_px", 6.0)) * k if slots > 0 and pips > 0 else 0.0
-	var total := slots * (ts.x + gap) + group + pips * (pw + gap) - gap
-	var x := fr.get_center().x - total * 0.5
+	var count := TownModel.count_label(int(b.get("pip_count", pips)), tally) if pips > 0 else ""
+	var cw := 0.0
+	if count != "":
+		var fs := maxi(int(vcfg.get("pip_count_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+		cw = gap * 2.0 + ThemeDB.fallback_font.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var sw := TownModel.row_width(slots, ts.x, gap, tg, tally)
+	var pwid := TownModel.row_width(pips, pw, gap, tg, tally)
+	var x := fr.get_center().x - (sw + group + pwid + cw) * 0.5
 	var y := _band_y(fr)
+	var so := TownModel.row_offsets(slots, ts.x, gap, tg, tally)
 	for i in slots:
-		out.append(["staffed" if i < staffed else "open", Vector2(x + ts.x * 0.5, y), ts, ""])
-		x += ts.x + gap
-	x += group
+		out.append(["staffed" if i < staffed else "open", Vector2(x + so[i] + ts.x * 0.5, y), ts, ""])
+	x += sw + group
 	var dead := pip_key == "dead" or pip_key == "dead_lit"
+	var po := TownModel.row_offsets(pips, pw, gap, tg, tally)
 	for i in pips:
-		out.append(["dead" if dead else "pip", Vector2(x + pw * 0.5, y), Vector2(pw, pw), pip_key])
-		x += pw + gap
+		out.append(["dead" if dead else "pip", Vector2(x + po[i] + pw * 0.5, y), Vector2(pw, pw), pip_key])
+	if count != "":
+		out.append(["count", Vector2(x + pwid + gap * 2.0, y), Vector2.ZERO, count])
 	return out
 
 
