@@ -31,8 +31,7 @@ func run() -> int:
 	var bcfg := TestUtil.load_json("res://configs/buildings.json")
 
 	t.suite("loot_config")
-	t.near(float(cfg["reclear_decay"]), 0.5, 0.0, "reclear_decay is 0.5")
-	t.near(float(cfg["recover_s"]), 28800.0, 0.0, "recover_s is 28800")
+	# reclear_decay / recover_s feed the economy's yield_mult (STATE-API view_fort); the dungeon reads only yield_mult (loot_yield)
 	t.ok(TestUtil.configs().has("loot"), "ConfigDb-style load picks up loot.json by filename")
 	t.ok(RaidLoot.ASPECTS == GameState.STATS and RaidLoot.RARITIES == GameState.RARITIES, "aspect and rarity lists match GameState")
 	var bp_ok := true

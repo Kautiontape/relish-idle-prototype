@@ -63,11 +63,21 @@ func run() -> int:
 	var fd_hp := float(fdm["hp_mult"])
 	var fd_per := float(fdm["period_mult"])
 	var fd_dmg := float(fdm["dmg_mult"])
-	t.ok(fd_per >= 1.0 and fd_dmg <= 1.0, "the first dungeon's warden is slower and softer (period x%s, damage x%s)" % [fd_per, fd_dmg])
+	t.ok(fd_per > 1.0 and fd_dmg < 1.0, "the first dungeon's warden is slower and softer (period x%s, damage x%s)" % [fd_per, fd_dmg])
 	for a in ["bellringer", "huntsman"]:
 		var n := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a}, cfg)
 		var f := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a, "first_dungeon": true}, cfg)
 		t.ok(f["first_dungeon"] == true and n["first_dungeon"] == false, "%s: first_dungeon flag is carried" % a)
+		# the behaviour, against the normal warden: every phase attacks less often, every hit lands softer
+		var slower := true
+		for i in n["phases"].size():
+			slower = slower and WardenLogic.period_beats(f, i) > WardenLogic.period_beats(n, i)
+		t.ok(slower, "%s: the first dungeon's warden attacks less often in every phase" % a)
+		var softer := true
+		for k in n["attack"].keys():
+			if str(k).begins_with("dmg_") and float(n["attack"][k]) > 0.0:
+				softer = softer and float(f["attack"][k]) < float(n["attack"][k])
+		t.ok(softer, "%s: the first dungeon's warden hits softer (every dmg_ key)" % a)
 		t.near(float(f["hp"]), float(n["hp"]) * fd_hp, 0.001, "%s: first dungeon hp x hp_mult" % a)
 		var per_ok := true
 		for i in n["phases"].size():
@@ -106,7 +116,8 @@ func run() -> int:
 	t.near(WardenLogic.period_beats(bell, 9), 2.0, 0.0001, "period_beats clamps the phase")
 	t.near(WardenLogic.period_beats(hunt, 1), 3.0, 0.0001, "huntsman phase 1 period")
 	var bf := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "bellringer", "first_dungeon": true}, cfg)
-	t.near(WardenLogic.period_beats(bf, 0), 4.0 * fd_per, 0.0001, "first dungeon: slow slams (4 beats x period_mult)")
+	t.ok(WardenLogic.period_beats(bf, 0) > WardenLogic.period_beats(bell, 0),
+		"first dungeon: slow slams (%.2f beats, the normal bellringer's 4.0)" % WardenLogic.period_beats(bf, 0))
 
 	t.suite("warden_slam")
 	var rpx := float(archs["bellringer"]["attack"]["radius_px"])
