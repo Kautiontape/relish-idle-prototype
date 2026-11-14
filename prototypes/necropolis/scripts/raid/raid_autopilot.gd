@@ -48,7 +48,8 @@ extends RefCounted
 ## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
 ## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
-## stood) and `army_at_death_minus5`. See NOTES-RAID "Run length and risk calibration".
+## stood), `army_at_death_minus5` and `unstick` (the unstick watch: aims pulled inside a room, targets given
+## up). See NOTES-RAID "Run length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -93,6 +94,13 @@ var _bail := 0.0               # retreat to an exit once hp is at or below this 
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
 var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two rooms
 var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
+var _aim_obj = null             # the unstick watch (D-d/E 3c; _aim_at): the sticky target last walked to,
+var _aim_d := INF               # its closest walking distance so far,
+var _aim_t := 0.0               # when it last closed by unstick_px,
+var _aim_last := -1.0           # the last think it was walked to,
+var _aim_in := false            # and whether she now aims at the spot inside its room instead
+var _unreachable := {}          # instance ids of targets she could not close on (skipped from then on)
+var _aimed_in := 0              # times the watch pulled her aim inside the room (the result's `unstick`)
 var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
 var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 / -1; 0 before the first pick)
 var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think, once more as it dies and at the finish
@@ -415,6 +423,7 @@ func on_finish(result: Dictionary) -> void:
 	out["death_t"] = snappedf(_sim_t, 0.01) if died else -1.0
 	out["army_zero_t"] = snappedf(_army_zero_t, 0.01)
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
+	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
@@ -569,6 +578,39 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 	return _room_center(nxt)
 
 
+## Walk to the sticky target `o` (a mote, pile or pickup), watching that she closes on it (D-d/E 3c):
+## a pickup lying against a wall left her pinned on the wall's corner for 99 s (hollow-redoubt seed 6:
+## Relish's slide makes no progress when the straight line runs along a wall face). Not closing by
+## unstick_px of walking distance in unstick_s, she aims at the same spot pulled unstick_inset_px (plus
+## her radius) inside its room, as a player re-clicks a reachable spot; still not closing after another
+## unstick_s, she gives it up. Changes nothing while she closes on it.
+func _aim_at(pos: Vector2, o) -> Vector2:
+	var p: Vector2 = o.global_position
+	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
+	if o != _aim_obj:
+		_aim_obj = o
+		_aim_in = false
+		_aim_d = d
+		_aim_t = _sim_t
+	elif _sim_t - _aim_last > _c("think_frames", 3.0) / 60.0 + 1e-6 or d < _aim_d - _c("unstick_px", 8.0):
+		_aim_d = d   # (a think spent on something else restarts the clock)
+		_aim_t = _sim_t
+	elif _sim_t - _aim_t >= _c("unstick_s", 1.5) - 1e-6:
+		if _aim_in:
+			_unreachable[o.get_instance_id()] = true
+		else:
+			_aimed_in += 1
+		_aim_in = true
+		_aim_t = _sim_t
+	_aim_last = _sim_t
+	if _aim_in:
+		var r := RaidLogic.room_of(_raid.layout, p)
+		if r >= 0:
+			var rr := (_raid.layout["rooms"][r] as Rect2).grow(-(_raid.relish.radius + _c("unstick_inset_px", 8.0)))
+			p = Vector2(clampf(p.x, rr.position.x, rr.end.x), clampf(p.y, rr.position.y, rr.end.y))
+	return _to_point(pos, p)
+
+
 ## Walk to a point through the room graph (a straight line would stick on a wall).
 func _to_point(pos: Vector2, p: Vector2) -> Vector2:
 	var r := RaidLogic.room_of(_raid.layout, p)
@@ -680,7 +722,7 @@ func _decide(pos: Vector2) -> Vector2:
 		_stick = pk0
 		if pk0 != null:
 			_why = "pickup"
-			return _to_point(pos, pk0.global_position)
+			return _aim_at(pos, pk0)
 		return _to_point(pos, run.chest.global_position)
 
 	var ne = null
@@ -721,7 +763,7 @@ func _decide(pos: Vector2) -> Vector2:
 	_stick = tgt
 	if tgt != null:
 		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
-		return _to_point(pos, tgt.global_position)
+		return _aim_at(pos, tgt)
 	# hold while living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
@@ -889,7 +931,7 @@ func _collect_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, av
 	var best = null
 	var bd := _c("collect_px", 320.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
-		if not is_instance_valid(o) or o.absorbing or o.carried:
+		if not is_instance_valid(o) or o.absorbing or o.carried or _unreachable.has(o.get_instance_id()):
 			continue
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
@@ -900,7 +942,7 @@ func _collect_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, av
 		return best
 	bd = _c("pile_px", 900.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_piles"):
-		if not is_instance_valid(o) or o._stirred or o._shrink >= 0.0:
+		if not is_instance_valid(o) or o._stirred or o._shrink >= 0.0 or _unreachable.has(o.get_instance_id()):
 			continue
 		var p2: Vector2 = o.global_position
 		var d2 := pos.distance_to(p2)
@@ -929,7 +971,7 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 	var bd := _c("pickup_px", 900.0)
 	var clear := _c("pickup_foe_clear_px", 90.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
-		if not is_instance_valid(o):
+		if not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 			continue
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
@@ -943,7 +985,7 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 ## absorbing nor carried, a pile not yet stirred, with carry room; or a pickup on the floor) and no
 ## living foe stands by it.
 func _still_target(o, living: Array) -> bool:
-	if o == null or not is_instance_valid(o):
+	if o == null or not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 		return false
 	if o.is_in_group("raid_pickups"):
 		return _spot_ok(o.global_position, living, _c("pickup_foe_clear_px", 90.0), Vector2.INF, 0.0)

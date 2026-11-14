@@ -386,6 +386,7 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _det_cache_left(", "the bot's cache count"],
 			["res://scripts/raid/raid_autopilot.gd", "func _det_guard_seen(", "the bot's guard in view"],
 			["res://scripts/raid/raid_autopilot.gd", "func _det_foe_on_her(", "the bot's foe check"],
+			["res://scripts/raid/raid_autopilot.gd", "func _aim_at(", "the bot's unstick watch"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack picks Relish only once no undead stands)"],
