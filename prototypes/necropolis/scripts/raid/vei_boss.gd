@@ -76,6 +76,11 @@ func vcfg() -> Dictionary:
 	return ConfigDb.data.get("vei", {})
 
 
+## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.
+func sound_warm() -> Array:
+	return Array(vcfg().get("sound", {}).get("warm", []))
+
+
 ## raid.json with vei.json `arena.layout` merged over its layout (built once): the base build then
 ## lays out the open boss arena (no partitions across the lanes).
 func rcfg() -> Dictionary:
@@ -626,7 +631,8 @@ func try_phylactery() -> bool:
 
 ## The revive shockwave: guards within backups.shove_px are thrown back to it and lose her for
 ## shove_recover_s, so a revive among guards gives her a fair moment instead of a second death.
-## (The revive also readies her trance, try_phylactery: she can raise a new ward at once.)
+## (Under vei.json `backups.ready_trance` the revive also readies her trance, try_phylactery: she can
+## raise a new ward at once; the shipped config has it off.)
 func _revive_shove(bc: Dictionary) -> void:
 	var rp := relish.global_position
 	var px := float(bc.get("shove_px", 360.0))

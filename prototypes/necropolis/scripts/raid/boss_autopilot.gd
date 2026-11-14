@@ -257,4 +257,4 @@ func on_finish(result: Dictionary) -> void:
 		"weaves": v.weaves if v != null else 0, "weave_hits": v.hits if v != null else 0, "dodges": _dodges,
 		"party_lost": result.get("party_lost", []), "backlog_spent": snappedf(float(result.get("backlog_spent", 0.0)), 0.1)}
 	print("BOSS_AUTOPLAY ", JSON.stringify(out))
-	_boss.get_tree().quit()
+	RaidQuit.finish(_boss.get_tree())

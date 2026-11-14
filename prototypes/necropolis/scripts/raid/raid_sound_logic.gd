@@ -36,3 +36,35 @@ static func chime_params(score: int) -> Dictionary:
 ## The `--raid-sound-log` line.
 static func log_line(kind: String, params: Dictionary) -> String:
 	return "RAID_SOUND %s %s" % [kind, JSON.stringify(params)]
+
+
+## The plan to warm: one {"kind", "params"} per distinct render of `kinds`, in order, deduped. A chime
+## is every score bucket (kinds.chime.score_step, default 5, over 0..100); a streak is every step
+## bucket (kinds.streak.step_max 20 and step_bucket 1 by default); any other kind renders once with
+## no params. The buckets mirror SynthLogic.score_bucket / step_bucket, so each entry is a distinct
+## cache key of the Synth. `synth_cfg` is the Synth's config (configs/synth.json; empty = defaults).
+static func warm_plan(kinds: Array, synth_cfg: Dictionary) -> Array:
+	var kc: Dictionary = synth_cfg.get("kinds", {})
+	var out := []
+	var seen := {}
+	for kv in kinds:
+		var kind := str(kv)
+		var params := []
+		if kind == "chime":
+			var s := maxf(float(kc.get("chime", {}).get("score_step", 5.0)), 1.0)
+			for score in 101:
+				params.append({"score": roundi(roundf(float(score) / s) * s)})
+		elif kind == "streak":
+			var k: Dictionary = kc.get("streak", {})
+			var top := float(k.get("step_max", 20))
+			var b := maxf(float(k.get("step_bucket", 1)), 1.0)
+			for step in int(top) + 1:
+				params.append({"step": roundi(roundf(clampf(float(step), 0.0, top) / b) * b)})
+		else:
+			params.append({})
+		for p in params:
+			var key := "%s:%s" % [kind, JSON.stringify(p)]
+			if not seen.has(key):
+				seen[key] = true
+				out.append({"kind": kind, "params": p})
+	return out

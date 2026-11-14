@@ -69,6 +69,11 @@ func rcfg() -> Dictionary:
 	return ConfigDb.data.get("raid", {})
 
 
+## The Synth kinds to render ahead of use (raid.json `sound.warm`; VeiBoss reads vei.json's).
+func sound_warm() -> Array:
+	return Array(rcfg().get("sound", {}).get("warm", RaidSound.WARM_KINDS))
+
+
 func lcfg() -> Dictionary:
 	return ConfigDb.data.get("loot", {})
 
@@ -180,7 +185,7 @@ func _build() -> void:
 	add_child(units_root)
 	fx_root = Node2D.new()
 	add_child(fx_root)
-	RaidSound.attach(self)
+	RaidSound.attach(self, sound_warm())
 
 	# --- Relish just inside the southernmost door ---
 	relish = RaidRelish.new()
