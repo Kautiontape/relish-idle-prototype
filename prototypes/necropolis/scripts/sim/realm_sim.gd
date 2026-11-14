@@ -18,7 +18,8 @@ extends RefCounted
 ##   - redirect: at the redirect fort (Relish) and at every simulacrum's fort, garrison kills stay
 ##     as corpses and corpses are raised into that fort's undead (MECHANICS §3.3, §3.6).
 ##   - tithe waves: from the first flip (start_tithe()), Vei warns, then surges living into one
-##     fort; a wave that overwhelms a held fort's garrison ends its hold (MECHANICS §3.4).
+##     fort, filling it at most to cap · (1 + tithe.overfill); a wave that overwhelms a held fort's
+##     garrison ends its hold (MECHANICS §3.4).
 ##
 ## `step(dt, inputs)` is pure on its inputs (MECHANICS §3.1): the mint, `q` and Relish's position
 ## come in `inputs`; `t` holds only realm.json tunables. Inputs (a missing key means 0, "" or {}):
@@ -298,12 +299,13 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# included) into its room over the step: cap less its load at the step's end without Vei's
 	# living (_load: what its undead's path over the step leaves, with this step's WAR and raises
 	# arriving), less the surge. Never below 0. A held fort's share and the unused part of a full
-	# fort's share are lost, not redistributed. The surge goes first, past shipping and space. Both
+	# fort's share are lost, not redistributed. The surge goes first, past the shipping share and
+	# the space, but into the same room above cap · (1 + tithe.overfill) only. Both
 	# are drawn from her pool now plus her conversion this step (M, before her headroom), so a long
 	# step ships what the short ones would; conversion then refills the pool (step 7). WAR's
 	# dispatch (step 3) reads the living arriving, so shipping is planned on the load before WAR
 	# (`load`, the garrison's pull read from the living now), then each give is cut to the room this
-	# step's WAR leaves; what that cuts stays in her pool.
+	# step's WAR leaves (the surge's room too); what that cuts stays in her pool.
 	var load: Array[float] = []
 	var raise_in: Array[float] = []
 	for i in forts.size():
@@ -319,12 +321,14 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var avail: float = vei["living_pool"] + float(_plan["made"])
 	var surge_fort := -1
 	var surge_amt := 0.0
+	var surge_cap := 0.0  # the surge fort's bound: cap · (1 + tithe.overfill)
 	if not surge.is_empty():
 		for i in forts.size():
 			if forts[i]["id"] == surge["fort_id"]:
 				surge_fort = i
 		if surge_fort >= 0:
-			surge_amt = minf(avail, float(surge["want"]))
+			surge_cap = float(forts[surge_fort]["cap"]) * (1.0 + float(_tcfg().get("overfill", 2.0)))
+			surge_amt = minf(minf(avail, float(surge["want"])), maxf(0.0, surge_cap - load[surge_fort]))
 			avail -= surge_amt
 	var gives: Array[float] = []
 	var want := 0.0
@@ -350,6 +354,10 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# and the garrison's pull solved as fort_step solves it, without her living (which only adds to
 	# the pull). A fort with no living already took at most the WAR that leaves its give room
 	# (_fill_rate).
+	if surge_fort >= 0:
+		var sf: Dictionary = forts[surge_fort]
+		surge_amt = minf(surge_amt, maxf(0.0, surge_cap
+			- _load(sf, dt, war_in[surge_fort], raise_in[surge_fort], raise_at.has(sf["id"]), q, 4)))
 	var given := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]

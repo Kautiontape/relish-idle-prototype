@@ -5,7 +5,8 @@ extends RefCounted
 ## Covington's smooth ones (convergence.gd KEY) stay within IDLE's 2% at 15 s. The fort pools and
 ## bodies are printed, not asserted: they didn't converge in T3.0's measurement, and the cause is
 ## not yet measured (the candidates: the dispatch rules' edges, the convoy's choice of fort, the
-## tithe surge's unbounded overfill; see the slow suite's attribution run).
+## tithe surge's overfill, unbounded then and bounded since T3.0s; see the slow suite's
+## attribution run).
 
 const DTS := [0.5, 15.0]
 const KEY_TOL := 0.02

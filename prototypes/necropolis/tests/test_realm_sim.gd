@@ -210,6 +210,7 @@ func run() -> int:
 	# --- E2b: the step is exact at any dt -------------------------------------------
 	_long_steps(t)
 	_room(t)
+	_overfill(t)
 
 	# --- FLOOD goes straight to the queue -------------------------------------
 	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "r_drain": 0.0})
@@ -447,11 +448,12 @@ func _tithe(t: TestUtil) -> void:
 	t.near(sim.tithe["next_s"], period * (1.0 - float(tc["backlog_scale"]) * 0.5), 1e-9, "period · (1 − backlog_scale · odds)")
 	t.near(sim.tithe_period(), 315.0, 1e-9, "315 s at odds 0.5 (420 at odds 0)")
 
-	# the surge: size, Relish halves it, a siege blocks its share; it ignores share and space
+	# the surge: size, Relish halves it, a siege blocks its share; it ignores the share and the space
+	# (up to cap · (1 + overfill): Whitecross, full of living, has room for a whole wave above its cap)
 	for c in [["plain", {}, 1.0, false, 0.0], ["Relish", {"tide_fort": "@"}, 0.5, true, 0.0],
 			["siege", {"siege_block": {"@": 0.6}}, 0.4, false, 0.6], ["both", {"tide_fort": "@", "siege_block": {"@": 0.6}}, 0.2, true, 0.6]]:
 		sim = _tsim()
-		var tgt: Dictionary = sim.forts[2]
+		var tgt: Dictionary = sim.forts[10]
 		tgt["living"] = tgt["cap"]  # no space: the surge goes in anyway
 		var inp := {}
 		for key in c[1]:
@@ -491,25 +493,38 @@ func _tithe(t: TestUtil) -> void:
 	t.ok(sim.vei["living_pool"] == 0.0 and hf["r_shipped"] == hf["r_surge"], "the pool empties into the held fort; r_shipped carries the surge")
 	t.near(sim.total_matter(), before, 1e-9, "the surge moves mass, it makes none")
 
-	# the hold: kept when the garrison outlasts the wave, lost (with the event) when overwhelmed
-	for c in [["outlasts", 2000.0, {}, true], ["overwhelmed", 100.0, {}, false], ["Relish saves it", 600.0, {"tide_fort": "@"}, true],
-			["no Relish", 600.0, {}, false]]:
+	# the hold: kept when the garrison outlasts what the wave delivers, lost (with the event) when
+	# overwhelmed. The wave delivers min(the wave, cap · (1 + overfill) − U) into a fort with no living
+	# or corpses (no combat or drain here), so a garrison at the fort's full cap loses to a full wave
+	# at every fort (2 · cap > cap); with Relish there (a 480 wave) it keeps the hold only where
+	# cap > 480 (MECHANICS §3.4)
+	var o := float(tc["overfill"])
+	for c in [["outlasts", 10, 1000.0, {}, true], ["overwhelmed", 10, 100.0, {}, false],
+			["Relish saves it", 10, 600.0, {"tide_fort": "@"}, true], ["no Relish", 10, 600.0, {}, false],
+			["Greywall full garrison", 2, -1.0, {}, false], ["Greywall full garrison, Relish", 2, -1.0, {"tide_fort": "@"}, false],
+			["Whitecross full garrison", 10, -1.0, {}, false], ["Whitecross full garrison, Relish", 10, -1.0, {"tide_fort": "@"}, true]]:
 		sim = _tsim()
-		hf = sim.forts[2]
+		hf = sim.forts[c[1]]
 		hf["clears_since_retaken"] = 2
 		sim.hold(hf["id"], 1e6)
-		hf["undead"] = c[1]
-		var inp: Dictionary = {"tide_fort": hf["id"]} if c[2].has("tide_fort") else {}
+		hf["living"] = 0.0
+		hf["dead"] = 0.0
+		hf["undead"] = c[2] if c[2] >= 0.0 else hf["cap"]
+		var garrison: float = hf["undead"]
+		var expect_in: float = minf(base * surge_s * (0.5 if c[3].has("tide_fort") else 1.0), hf["cap"] * (1.0 + o) - garrison)
+		var inp: Dictionary = {"tide_fort": hf["id"]} if c[3].has("tide_fort") else {}
 		sim.start_tithe()
 		sim.tithe["next_s"] = 1.0
 		sim.drain_events()
 		var got: Array = []
+		var delivered := 0.0
 		for i in 200:
 			sim.step(0.5, inp)
+			delivered += float(hf["r_surge"]) * 0.5
 			got.append_array(sim.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
-		t.ok(hf["held"] == c[3] and got.size() == (0 if c[3] else 1),
-			"%s: garrison %.0f vs %.0f delivered: held %s" % [c[0], c[1], base * surge_s * (0.5 if c[2].has("tide_fort") else 1.0), c[3]])
-		if not c[3]:
+		t.ok(hf["held"] == c[4] and got.size() == (0 if c[4] else 1) and absf(delivered - expect_in) < 1e-6,
+			"%s: garrison %.0f vs %.0f delivered (min(wave, %.0f · %.0f − U)): held %s" % [c[0], garrison, delivered, hf["cap"], 1.0 + o, c[4]])
+		if not c[4]:
 			t.ok(got[0] == {"type": "fort_retaken", "fort_id": hf["id"], "cause": "tithe_wave"} and hf["clears_since_retaken"] == 0
 				and hf["held_s"] == 0.0, "%s: fort_retaken{tithe_wave}; the yield refreshes" % c[0])
 	# one retake per step: a wave that ends a hold in the step it would also expire
@@ -696,10 +711,86 @@ func _room(t: TestUtil) -> void:
 			"contested, no clearing, dt %.1f: a fort that took shipping ends at most at its cap (worst %+.6f, %d forts shipped)" % [dt, worst, shipped])
 
 
+## E2b T3.0s (MECHANICS §3.4): a surge fills its fort at most to cap · (1 + tithe.overfill), at any
+## dt; what the bound refuses stays in Vei's pool, and mass is exact. No WAR anywhere, so every wave
+## goes to the first fort in world order (Ashgate), which has no undead: nothing kills its living.
+func _overfill(t: TestUtil) -> void:
+	var tc: Dictionary = TestUtil.configs()["realm"]["tithe"]
+	var o := float(tc["overfill"])
+	var full: float = float(tc["surge_mult"]) * 8.0 * float(tc["surge_s"])
+	for dt in [0.5, 5.0, 30.0]:
+		var sim := _mk({})
+		sim.vei["living_pool"] = 600.0
+		sim.vei["dead_queue"] = 1e5
+		sim.start_tithe()
+		var tgt: Dictionary = sim.forts[0]
+		var bound: float = tgt["cap"] * (1.0 + o)
+		var before := sim.total_matter()
+		var peak := 0.0
+		var waves := 0
+		var elsewhere := 0
+		var delivered := 0.0
+		for guard in 20000:
+			var h: float = dt  # clipped at the wave's start and end, as catch-up clips
+			if (sim.tithe["wave"] as Dictionary).is_empty():
+				h = minf(dt, maxf(1e-3, float(sim.tithe["next_s"])))
+			else:
+				h = minf(dt, float(sim.tithe["wave"]["s_left"]))
+			sim.step(h, {})
+			for ev in sim.drain_events():
+				if ev["type"] == "tithe_wave":
+					waves += 1
+					elsewhere += 0 if ev["fort_id"] == tgt["id"] else 1
+			delivered += float(tgt["r_surge"]) * h
+			peak = maxf(peak, tgt["living"] + tgt["undead"] + tgt["dead"])
+			if waves >= 4 and (sim.tithe["wave"] as Dictionary).is_empty():
+				break
+		t.ok(waves == 4 and elsewhere == 0 and tgt["undead"] == 0.0 and peak <= bound * (1.0 + 1e-12) and peak > tgt["cap"],
+			"dt %.1f: 4 waves into a fort with no undead fill it to %.3f, at most cap · (1 + overfill) = %.0f" % [dt, peak, bound])
+		t.ok(delivered < 4.0 * full and delivered > 0.0, "dt %.1f: the bound refused %.0f of the %.0f they wanted" % [dt, 4.0 * full - delivered, 4.0 * full])
+		t.near(sim.total_matter(), before, 1e-9 * before, "dt %.1f: mass is exact" % dt)
+	# what the bound refuses stays in her pool: one step at the wave's start, Ashgate 10 under the
+	# bound, no conversion; against the same step with the bound lifted
+	var lifted := tc.duplicate()
+	lifted["overfill"] = 1e9
+	var pools: Array = []
+	for cfg in [tc, lifted]:
+		var sim := _mk({"R_vei": 0.0, "tithe": cfg})
+		var tgt: Dictionary = sim.forts[0]
+		tgt["living"] = tgt["cap"] * (1.0 + o) - 10.0
+		sim.vei["living_pool"] = 500.0
+		sim.start_tithe()
+		sim.tithe["next_s"] = 0.5
+		sim.step(0.5, {})
+		pools.append([float(sim.vei["living_pool"]), float(tgt["r_surge"]) * 0.5, float(sim.vei["r_shipped"]) * 0.5])
+	t.near(pools[0][1], 10.0, 1e-9, "the surge delivers the 10 below the bound (of 12 wanted)")
+	t.near(pools[1][1], 12.0, 1e-9, "lifted, it delivers all 12")
+	t.near(pools[0][0] - pools[1][0], 2.0, 1e-9, "the 2 it refused stay in her pool")
+	t.near(pools[0][0], 500.0 - pools[0][2], 1e-9, "her pool loses exactly what she shipped")
+	# the bound counts this step's WAR: a held target staging WAR (no garrison kills here, so all of
+	# it stays but the drain) takes that much less of the surge
+	var hs := _mk({"R_vei": 0.0, "k_destroy": 0.0})
+	var hf: Dictionary = hs.forts[0]
+	hs.hold(hf["id"], 1e6)
+	hf["living"] = hf["cap"] * (1.0 + o) - 10.0
+	hf["undead"] = 0.0
+	hs.vei["living_pool"] = 500.0
+	hs.start_tithe()
+	hs.tithe["next_s"] = 0.5
+	hs.step(0.5, {"war": 10.0})
+	var staged: float = float(hf["r_in"]) * (1.0 - exp(-0.06 * 0.5)) / 0.06  # what stays of it at the step's end
+	t.ok(hf["r_in"] > 0.0 and absf(float(hf["r_surge"]) * 0.5 - (10.0 - staged)) < 1e-9,
+		"staging WAR (%.2f/s, %.3f left at the step's end) takes its room from the surge (%.3f of 10)" % [hf["r_in"], staged, float(hf["r_surge"]) * 0.5])
+	t.ok(hf["living"] + hf["undead"] + hf["dead"] <= hf["cap"] * (1.0 + o) + 1e-9, "and the fort ends within cap · (1 + overfill)")
+
+
 ## The living one full-strength wave delivers at steps of `dt`, clipped at its start and end, and
-## whether her pool stayed within [0, cap] throughout.
+## whether her pool stayed within [0, cap] throughout. The overfill bound is lifted (it has its own
+## test, _overfill): this is her pool and conversion at long steps.
 func _wave_delivered(dt: float) -> float:
-	var ts := _mk({"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "r_drain": 0.0})
+	var tc: Dictionary = (TestUtil.configs()["realm"]["tithe"] as Dictionary).duplicate()
+	tc["overfill"] = 1e9
+	var ts := _mk({"k_kill": 0.0, "k_destroy": 0.0, "k_clear": 0.0, "r_drain": 0.0, "tithe": tc})
 	ts.vei["living_pool"] = 600.0
 	ts.vei["dead_queue"] = 1e5
 	ts.start_tithe()

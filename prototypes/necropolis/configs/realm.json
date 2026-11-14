@@ -14,7 +14,7 @@
   "veiPolicy": "cheap",
   "relish": {"travel_speed": 220.0, "tide_bias": 3.0, "raise_rate": 4.0, "home_rot_mult": 0.7, "home_stance_bonus": 1},
   "valve": {"slew_per_s": 0.10},
-  "tithe": {"period_s": 420.0, "backlog_scale": 0.5, "warning_s": 150.0, "surge_s": 40.0, "surge_mult": 3.0, "siege_block": 0.6, "relish_mult": 0.5},
+  "tithe": {"period_s": 420.0, "backlog_scale": 0.5, "warning_s": 150.0, "surge_s": 40.0, "surge_mult": 3.0, "siege_block": 0.6, "relish_mult": 0.5, "overfill": 2.0},
   "readout": {"ema_s": 120.0, "sign_eps": 0.05},
   "q": {"q0": 1.2, "q_forge": 0.1, "q_raise_max": 0.6, "raise_half_mass": 200.0, "q_max": 4.0},
   "K": 12000.0,

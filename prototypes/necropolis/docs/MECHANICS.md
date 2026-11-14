@@ -376,8 +376,38 @@ at E2b.
   first fort.
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
-  shipping share and the fort's space, so it may overfill the fort; her normal shipping, which
-  comes after it in the step, still respects space.
+  shipping share and the fort's space. It fills the fort past its cap but only to
+  `cap · (1 + tithe.overfill)`: each step it delivers at most
+  `max(0, cap · (1 + tithe.overfill) − load − W)`. The load and this step's WAR are counted as for
+  shipping's room (above), so the bound is a continuous function of the state. What it refuses
+  stays in her pool: not shipped, not lost. Her normal shipping comes after it in the step and
+  still respects space, so a fort the surge took past its cap gets none.
+  - **Measured (E2b T3.0s):** the room is fixed at the step's start, so corpses cleared during a
+    wave's last step are never refilled, and a fort with no undead keeps those living for good
+    (Old Sluice ends a wave with 187.6 living at 0.5 s, 173.4 at 15 s). Over 1 h from
+    midgame_2flips the backlog's error against a 0.125 s run is first order in dt: 0.04% at 0.5 s,
+    0.73% at 5 s, 2.7% at 15 s.
+  - **Why** (E2b T3.0s): living leave a fort only by being killed (`k_kill · U`), and the target
+    rule keeps picking the fort with the most WAR. 12 h with no input from midgame_2flips put about
+    75 000 living into Greywall (cap 90), an unbounded stock that fed Vei as a WAR grinder.
+  - **The value, 2.0** (living may reach 3 × cap). Statically (no drain, staging or combat in the
+    wave; a held fort with no living or corpses and a garrison `U`), a wave of `w` mass delivers
+    `min(w, (1 + o) · cap − U)`, so the hold is lost iff `U < min(w, (1 + o) · cap / 2)`:
+    - **A garrison at the fort's full cap** (`U = cap`) gets `min(w, o · cap)`, more than `cap`
+      whenever `o > 1` and `w > cap`. At 2.0 a full wave (960) delivers 160 at Ashgate (cap 80),
+      640 at Pale Bastion (320) and 960 at Whitecross (520): the hold is lost at every fort, as
+      E2a's rule intends. At 1.0 the wave would deliver exactly `cap`, and a full garrison would
+      tie and keep its hold.
+    - **With Relish there** (a 480 wave) a full garrison gets `min(480, 2 · cap)`. That is more
+      than `cap` at every fort below 480, so it keeps the hold only at Whitecross (520), and The
+      Stair (480) ties. That is the same as with no bound (480 against `cap`).
+    - **What the bound changes:** without counters, a garrison of `1.5 · cap` now outlasts a full
+      wave at every fort (`1.5 · 520 = 780 < 960`); it took 960 before. Ashgate holds with 120.
+      The counters change the outcome only where the smaller wave is below `1.5 · cap`: Relish's
+      (480) at The Stair, Whitecross and Sable Hold (cap 460 to 520), a siege's (384) at caps
+      above 256.
+    - In play the garrison drains during the 40 s wave (with no staging, `e^(−0.06 · 40) ≈ 0.09`
+      of it is left at the end), so holds are lost more easily than this.
 - **Counters** (applied every step of the wave; the event reports them at its start):
   - Relish standing there (at the fort or in its dungeon) multiplies the surge by `tithe.relish_mult` (0.5: halves it);
   - a big undead placed there as siege cancels `tithe.siege_block` of it. Siege is E3: RealmSim

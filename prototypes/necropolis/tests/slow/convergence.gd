@@ -47,7 +47,8 @@ const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead
 	"bodies", "gold", "bone", "living"]
 ## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies
 ## didn't converge in T3.0's measurement; the cause is not yet measured, and the candidates are the
-## dispatch rules' edges, the convoy's choice of fort and the tithe surge's unbounded overfill).
+## dispatch rules' edges, the convoy's choice of fort and the tithe surge's overfill, unbounded then
+## and bounded since T3.0s; tests/slow/convergence_fine.gd measures convergence as dt → 0).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",
@@ -356,9 +357,9 @@ static func _pct(x: float) -> String:
 
 func table(res: Dictionary, hours: float, note := "") -> String:
 	var lines: Array = []
-	lines.append("  [convergence] %.0f h, no input, core steps only, field frozen; %s; max relative error vs dt 0.5 s" % [
-		hours, note if note != "" else "steps clipped at the events IDLE §4 lists (see the header)"])
 	var st0: String = res.keys()[0]
+	lines.append("  [convergence] %.0f h, no input, core steps only, field frozen; %s; max relative error vs dt %s s" % [
+		hours, note if note != "" else "steps clipped at the events IDLE §4 lists (see the header)", str(res[st0].keys()[0])])
 	var fl: Dictionary = res[st0][res[st0].keys()[0]]["floors"]
 	lines.append("  floors (|ref| below them is judged against them): bodies = body cap, vei pool = %.0f, fort pools = 1%% of Σcap = %.1f, the rest 1%% of their peak" % [
 		float(fl["vei_pool"]), float(fl["fort_living"])])
