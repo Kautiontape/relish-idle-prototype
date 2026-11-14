@@ -429,7 +429,30 @@ func _raid_model(t: TestUtil) -> void:
 	var inp := {"forts": m.forts, "clocks": m.clocks, "queue": m.town_queue, "vei": m.vei, "readout": m.readout(),
 		"won": bool(m.hud.get("won", false)), "opening": {}, "raids": m.raids}
 	var pick := NextLogic.choose(inp)
-	t.ok(pick["rule"] == "fall" or (pick["rule"] == "raid" and pick["target"] == set_ids[0]), "the strip's raid is the set's first entry (%s: %s)" % [pick["rule"], pick["text"]])
+	var whys := {}
+	for r in m.raids:
+		whys[str(r["fort"]["id"])] = str(r["why"])
+	var first_of_kind := ""
+	for r in m.raids:
+		if pick["rule"] == "raid" and str(r["why"]) == str(whys.get(pick["target"], "")):
+			first_of_kind = str(r["fort"]["id"])
+			break
+	t.ok(pick["rule"] != "raid" or (whys.has(pick["target"]) and pick["target"] == first_of_kind),
+		"a strip raid is the set's first entry of its kind (%s: %s)" % [pick["rule"], pick["text"]])
+	# from_pos: her travel target while travelling (she is heading there), else where she stands, else Covington
+	var dest := str(m.relish.get("target", ""))
+	t.ok(str(m.relish.get("state", "")) == "travelling" and dest != "" and m._raid_from() == m.node_pos(dest),
+		"the demo's travelling Relish measures from her target (%s)" % dest)
+	var saved := m.relish
+	m.relish = {"state": "at_fort", "at": "ashgate", "target": ""}
+	t.ok(m._raid_from() == m.node_pos("ashgate"), "standing at a fort: from that fort")
+	m.relish = {"state": "travelling", "at": "covington", "target": "greywall"}
+	t.ok(m._raid_from() == m.node_pos("greywall"), "travelling: from her target, not the node she left")
+	m.relish = {"state": "travelling", "at": "ashgate", "target": "no-such-node"}
+	t.ok(m._raid_from() == m.node_pos("ashgate"), "an unknown target: from where she last stood")
+	m.relish = {"state": "home", "at": "", "target": "greywall"}
+	t.ok(m._raid_from() == m.node_pos("covington"), "not travelling and nowhere known: Covington (a stale target is ignored)")
+	m.relish = saved
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	var rn := hud_src.substr(hud_src.find("func _refresh_next("), 600)
 	t.ok(rn.contains("\"raids\": model.raids"), "the HUD hands the strip the model's set")
@@ -462,7 +485,11 @@ func _raid_model(t: TestUtil) -> void:
 		var inp2 := {"forts": m2.forts, "clocks": m2.clocks, "queue": m2.town_queue, "vei": m2.vei, "readout": m2.readout(),
 			"won": bool(m2.hud.get("won", false)), "opening": {}, "raids": m2.raids}
 		var p1 := NextLogic.choose(inp2)
-		lines.append(str(NextLogic.choose(inp2, p1)["text"]))
+		var p2 := NextLogic.choose(inp2, p1)
+		lines.append(str(p2["text"]))
+		if i == 0:
+			t.ok(p1["rule"] == "vei" and p2["rule"] == "vei" and str(p2["text"]).begins_with("Vei can be faced: your odds"),
+				"pre_vei, at Vei's gates: the Vei line, not a first-clear ask (%s)" % p2["text"])
 	t.ok(lines[0] == lines[1], "pre_vei twice: the same strip line (%s)" % lines[0])
 
 
@@ -547,27 +574,37 @@ func _order(t: TestUtil) -> void:
 	var can := {"can_begin": true}
 	var pair := [vespers, chime]
 	# each step down
-	t.ok(NextLogic.choose(_inp({"forts": [vespers, ash], "clocks": {"vespers": {"fall_s": 600.0}}, "vei": can, "queue": []}))["rule"] == "fall", "fall beats a ready raid")
-	t.ok(NextLogic.choose(_inp({"forts": [ash], "vei": can, "readout": {"odds": 0.7}}))["rule"] == "raid", "a ready raid beats Vei can_begin")
-	# reverses T13 ("can_begin: Vei over a first-clear ask"): the manager's strict order puts every ready raid over Vei
-	t.ok(NextLogic.choose(_inp({"forts": [sluice], "vei": can, "readout": {"odds": 0.7}}))["rule"] == "raid", "a ready first clear now beats Vei can_begin")
+	t.ok(NextLogic.choose(_inp({"forts": [vespers, ash], "clocks": {"vespers": {"fall_s": 600.0}}, "vei": can, "queue": []}))["rule"] == "fall", "fall beats a refilled raid")
+	var refilled_vs_vei := NextLogic.choose(_inp({"forts": [ash, sluice], "vei": can, "readout": {"odds": 0.7}}))
+	t.ok(refilled_vs_vei["rule"] == "raid" and refilled_vs_vei["target"] == "ashgate", "a refilled raid beats Vei can_begin")
+	# the blueprint ask (any first clear, the first dungeon's too) sits under Vei: at her gates the strip says Vei
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "vei": can, "readout": {"odds": 0.7}}))["rule"] == "vei", "Vei can_begin beats a first-clear ask")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "readout": {"odds": 0.7}}))["rule"] == "vei", "Vei's odds alone beat a first-clear ask too")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "queue": []}))["rule"] == "raid", "a first-clear ask beats the plan")
 	t.ok(NextLogic.choose(_inp({"queue": [], "vei": can}))["rule"] == "vei", "Vei in reach (can_begin) beats the plan's empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [], "readout": {"odds": 0.7}}))["rule"] == "vei", "Vei in reach (odds alone) beats the plan too")
 	t.ok(NextLogic.choose(_inp({"forts": [vespers, sluice], "clocks": {"vespers": {"fall_s": 600.0}}, "vei": can}))["rule"] == "fall", "a falling fort beats Vei")
+	# the strip takes each raid rule's first entry of its kind from the one set, kept while still of that kind
+	var both := NextLogic.raid_set([sluice, ash], [], Vector2.ZERO, {})
+	t.ok(both.size() == 2 and NextLogic.choose(_inp({"forts": [sluice, ash], "raids": both}), {"rule": "raid", "target": "old-sluice"})["target"] == "ashgate",
+		"a kept first-clear target does not hold the refilled rule")
+	var fc := [{"id": "x", "name": "X", "tier": 1, "first_clear": true}, {"id": "y", "name": "Y", "tier": 1, "first_clear": true}]
+	t.ok(NextLogic.choose(_inp({"forts": fc}), {"rule": "raid", "target": "y"})["target"] == "y", "the blueprint ask keeps its previous target while it is still a first clear")
+	t.ok(NextLogic.choose(_inp({"forts": fc}))["target"] == "x", "else the set's first first clear")
 	# the whole ladder, one rule removed at a time
-	var all := _inp({"forts": [vespers, ash], "clocks": {"vespers": {"fall_s": 600.0}}, "queue": [], "vei": can, "readout": {"odds": 0.7}})
+	var all := _inp({"forts": [vespers, ash, sluice], "clocks": {"vespers": {"fall_s": 600.0}}, "queue": [], "vei": can, "readout": {"odds": 0.7}})
 	t.ok(NextLogic.choose(all)["rule"] == "fall", "fall first")
 	all["clocks"] = {}
-	t.ok(NextLogic.choose(all)["rule"] == "raid" and NextLogic.choose(all)["target"] == "ashgate", "then the ready raid")
+	t.ok(NextLogic.choose(all)["rule"] == "raid" and NextLogic.choose(all)["target"] == "ashgate", "then the refilled raid")
 	all["forts"] = [sluice]
 	all["raids"] = NextLogic.raid_set([sluice], [], Vector2.ZERO, {})
-	t.ok(NextLogic.choose(all)["rule"] == "raid", "a first clear is a ready raid too")
-	all["forts"] = []
-	all["raids"] = []
-	t.ok(NextLogic.choose(all)["rule"] == "vei", "then Vei in reach")
+	t.ok(NextLogic.choose(all)["rule"] == "vei", "then Vei in reach, over the first-clear ask")
 	all["vei"] = {"can_begin": false}
 	t.ok(NextLogic.choose(all)["rule"] == "vei", "odds alone still in reach")
 	all["readout"] = {"odds": 0.1}
+	t.ok(NextLogic.choose(all)["rule"] == "raid" and NextLogic.choose(all)["target"] == "old-sluice", "then the first-clear ask (the blueprint)")
+	all["forts"] = []
+	all["raids"] = []
 	t.ok(NextLogic.choose(all)["rule"] == "queue", "then the plan: the empty queue")
 	all["queue"] = null
 	t.ok(NextLogic.choose(all)["rule"] == "default", "then the standing objective")
@@ -582,6 +619,13 @@ func _order(t: TestUtil) -> void:
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.58}}))["rule"] != "vei", "nor with no previous pick")
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.54}}), was_vei)["rule"] != "vei", "0.54: leaves")
 	t.ok(NextLogic.choose(_inp({"vei": can, "readout": {"odds": 0.3}}), was_vei)["rule"] == "vei", "while can_begin holds it stays at any odds")
+	# against the blueprint ask: the band decides which of the two the strip keeps
+	var ask := {"rule": "raid", "target": "old-sluice"}
+	var at58 := _inp({"forts": [sluice], "readout": {"odds": 0.58}})
+	t.ok(NextLogic.choose(at58, ask)["rule"] == "raid", "0.58 after a first-clear RAID pick: Vei does not enter, the ask stays")
+	t.ok(NextLogic.choose(at58, was_vei)["rule"] == "vei", "0.58 after a VEI pick: Vei stays over the ask")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice], "readout": {"odds": 0.54}}), was_vei)["target"] == "old-sluice", "0.54: Vei leaves and the ask returns")
+	t.ok(NextLogic.choose(_inp({"forts": [ash], "readout": {"odds": 0.58}}), was_vei)["rule"] == "raid", "a refilled raid still beats a kept Vei")
 	# fall's hysteresis: enter under next_fall_warn_s, a kept fort stays to warn x next_fall_exit_mult
 	var mult := float(c["next_fall_exit_mult"])
 	t.ok(mult > 1.0, "next_fall_exit_mult widens the band")

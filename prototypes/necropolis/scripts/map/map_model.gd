@@ -111,9 +111,13 @@ func _refresh_raids() -> void:
 		_raid_why[str(r["fort"]["id"])] = str(r["why"])
 
 
-## Where the raid set measures distance from: Relish's `at`, else her travel `target`, else Covington.
+## Where the raid set measures distance from: her `target` while travelling (she is heading there),
+## else the node she is `at`, else Covington.
 func _raid_from() -> Vector2:
-	for id in [str(relish.get("at", "")), str(relish.get("target", ""))]:
+	var ids := [str(relish.get("at", ""))]
+	if str(relish.get("state", "")) == "travelling":
+		ids.push_front(str(relish.get("target", "")))
+	for id in ids:
 		if id != "" and has_node(id):
 			return node_pos(id)
 	return node_pos(COVINGTON)

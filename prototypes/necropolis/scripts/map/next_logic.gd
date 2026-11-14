@@ -6,11 +6,13 @@ extends RefCounted
 ##   won      a won game shows the victory line;
 ##   fall     a held fort about to fall: the smallest fall_s under next_fall_warn_s (a kept fort
 ##            stays under next_fall_warn_s x next_fall_exit_mult; switch_ratio decides a rival);
-##   raid     a ready raid: the first of the model's raid set (raid_set, handed in as inp.raids),
-##            or the previous pick's target while it is still in the set, as the away panel's
-##            ready line {text, kind, target};
+##   raid     a refilled raid, a refill that pays off now: the first "refilled" entry of the model's
+##            raid set (raid_set, handed in as inp.raids), or the previous pick's target while it
+##            is still a refilled entry, as the away panel's ready line {text, kind, target};
 ##   vei      Vei in reach: view_vei.can_begin, or odds >= next_vei_odds (after a VEI pick it stays
 ##            while can_begin holds or odds >= next_vei_odds_exit);
+##   raid     the blueprint ask: the first "first_clear" entry of the same set (the first dungeon's
+##            included), or the previous pick's target while it is still a first-clear entry;
 ##   plan     the build queue empty (queue, only when view_town carries `queue`), else the
 ##            standing objective (default).
 ## Clicks resolve through AwayLogic.action, the same resolver as the away panel's lines.
@@ -138,17 +140,22 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 		return _pick(FALL, str(fall["fort"]["id"]), str(c["fall_fmt"]) % [str(fall["fort"].get("name", "")),
 			IdleLogic.fmt_fall(float(fall["fall_s"]))], fort_ids)
 	var raids: Array = inp.get("raids", [])
-	if not raids.is_empty():
-		return _raid(raids, prev, c, fort_ids)
+	var refilled := raids.filter(func(r): return str(r["why"]) == REFILLED)
+	if not refilled.is_empty():
+		return _raid(refilled, prev, c, fort_ids)
 	if _vei_in_reach(inp, prev, c):
 		return _vei(inp, c, fort_ids)
+	var firsts := raids.filter(func(r): return str(r["why"]) == FIRST_CLEAR)
+	if not firsts.is_empty():
+		return _raid(firsts, prev, c, fort_ids)
 	var queue = inp.get("queue", null)
 	if queue is Array and (queue as Array).is_empty():
 		return _pick(QUEUE, "queue", str(c["queue_text"]), fort_ids)
 	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
 
 
-## The raid line for the first of `list` (or `prev`'s target while it is still in the list).
+## The raid line for the first of `list` (one kind of raid_set's entries), or `prev`'s target
+## while it is still in the list.
 static func _raid(list: Array, prev: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:
 	var pick: Dictionary = list[0]
 	if str(prev.get("rule", "")) == RAID:

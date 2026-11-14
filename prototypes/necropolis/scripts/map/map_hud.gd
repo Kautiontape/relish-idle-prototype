@@ -6,8 +6,8 @@ extends Control
 ## speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
 ## The objective strip is one next action (NextLogic.choose, in strict order: a fort about to
-## fall, a ready raid from the model's raid set, Vei in reach, else the plan: the queue empty or
-## the standing objective), a button at least 44 px tall on
+## fall, a refilled raid from the model's raid set, Vei in reach, a first-clear raid from the same
+## set, else the plan: the queue empty or the standing objective), a button at least 44 px tall on
 ## its plate: a click emits next_chosen with the line's AwayLogic action. Its text changes only
 ## when the pick changes (or its coarse clock ticks). The opening pushes its asks through
 ## set_opening_ask, which beats every rule until cleared with "".
