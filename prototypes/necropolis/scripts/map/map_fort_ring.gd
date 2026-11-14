@@ -8,9 +8,11 @@ extends MapNodeLayer
 ## NodeLogic.ring_weight heavy and fill their core (NodeLogic.has_core); hers keep the hairline
 ## and an open core. A fort
 ## whose raid is ready (NextLogic.raid_ready) carries a ▲ loot pip in `select` on its ring and, at
-## mid and near zoom, the word "raid": a shape and a word, never colour alone. Pulse layer (every
-## fort): the tithe countdown ring and the first-dungeon tempo ring, on the forts' beat (hop 1).
-## The state glyphs: MapFortGlyph.
+## mid and near zoom, the word "raid": a shape and a word, never colour alone. While the flip set
+## piece re-inks a fort (ctx.reink), its outer ring is drawn as segments turning from living
+## orange (hairline) to undead green (held weight) from 12 o'clock, and the fort draws as its old
+## state until it is done. Pulse layer (every fort): the tithe countdown ring and the
+## first-dungeon tempo ring, on the forts' beat (hop 1). The state glyphs: MapFortGlyph.
 ## Radii from the fort's edge r: arcs r-4, pips r-12, hairline r, notches r..r+4, held r+7.5,
 ## tithe r+12.5, selection r+19, the REDIRECT lane ring r+24 (routes).
 
@@ -29,10 +31,15 @@ func _draw_static() -> void:
 ## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
-	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), NextLogic.raid_ready(f, ctx.forts)), ctx.selected_id == fort_id, ctx.lit.has(fort_id)]
+	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), NextLogic.raid_ready(f, ctx.forts)), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
+		ctx.reink.get(fort_id, {})]
 
 
+## The state the fort draws as: its live one, or the pre-flip one while its ring re-inks.
 func _state(f: Dictionary) -> String:
+	var rk: Dictionary = ctx.reink.get(str(f.get("id", "")), {})
+	if not rk.is_empty():
+		return str(rk["from"])
 	return NodeLogic.fort_state(f, ctx.model.margin_of(str(f.get("id", ""))))
 
 
@@ -95,7 +102,10 @@ func _static_fort(f: Dictionary) -> void:
 	# the outer ring: capacity, ring_weight heavy where your undead hold the fort. Held: re-inked
 	# undead green, with the grace countdown outside it.
 	var ow := hw * NodeLogic.ring_weight(state)
-	if bool(f.get("held", false)):
+	var rk: Dictionary = ctx.reink.get(fort_id, {})
+	if not rk.is_empty():
+		_reink(p, r, rk, hw, n)
+	elif bool(f.get("held", false)):
 		glow_ring(p, r, Palette.c("undead"), ow, 1.0, float(n["arc_halo_max_px"]))
 		var rh := r + float(n["held_off_px"])
 		var hs := LineGlow.segments(rh, TAU)
@@ -122,6 +132,20 @@ func _static_fort(f: Dictionary) -> void:
 		text(at, str(f["name"]), size, Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		if NodeLogic.first_dungeon_pulse(f) and ctx.tier != "far":
 			text(at, str(n["label_first_dungeon"]), size, Palette.c("relish"), ALIGN_CENTER, size + float(n["label_line_px"]))
+
+
+## The flip's re-ink: `total` segments of the outer ring from 12 o'clock clockwise, the first
+## `switched` re-inked in undead green at the held weight, the rest still living orange (hairline).
+func _reink(p: Vector2, r: float, rk: Dictionary, hw: float, n: Dictionary) -> void:
+	var total := int(rk["total"])
+	var switched := int(rk["switched"])
+	var cap := float(n["arc_halo_max_px"])
+	for i in total:
+		var a := SetpieceLogic.segment_arc(i, total)
+		if i < switched:
+			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * float(n["held_ring_weight"]), 1.0, cap)
+		else:
+			glow_arc(p, r, a.x, a.y, Palette.c("living"), hw, 1.0, cap)
 
 
 ## The raid marker: a ▲ in `select` on a ground backing (raid_pip_px screen px), on the ring at

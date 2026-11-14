@@ -2,7 +2,8 @@ class_name MapHud
 extends Control
 ## The map's overlay: the rates-first top bar (every stream's signed net rate, then its stock,
 ## then odds / sign / drain), the objective strip, the bottom hint, the toast, the victory
-## banner and the debug speed row. Reads the shared MapModel; reacts to Game.game_event. Text
+## banner (shown by the victory set piece, MapSetpieces, once every lane stops) and the debug
+## speed row. Reads the shared MapModel; reacts to Game.game_event. Text
 ## comes from HudLogic and is set only when the model has a new rev; fonts from MapType.
 ## The objective strip is one next action (NextLogic.choose: a fort about to fall, a raid ready,
 ## the queue empty, Vei faceable, else the standing objective), a button at least 44 px tall on
@@ -72,6 +73,8 @@ func _ready() -> void:
 	_victory = _label(int(cfg["font_victory"]), "undead")
 	_anchor_box(_victory, 0.5, 0.5, -float(cfg["victory_width_px"]) * 0.5, float(cfg["victory_width_px"]) * 0.5, -float(cfg["victory_up_px"]))
 	_victory.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# on the toast's plate: victory lights every lane green right under it
+	_victory.add_theme_stylebox_override("normal", MapUi.plate_box(float(cfg["controls"]["toast_plate_alpha"]), int(cfg["controls"]["toast_pad_px"])))
 	_victory.visible = false
 	_build_speed_row(cfg)
 	Game.game_event.connect(_on_event)
@@ -181,8 +184,6 @@ func _set_speed(spd: float) -> void:
 
 ## Call once the model has its first read.
 func start() -> void:
-	if model.hud.get("won", false):
-		_on_victory()
 	refresh(true)
 	# the labels' sizes settle after their first layout: wrap and place the plates once more, so
 	# panels that sit under them (the Relish chip) do not jump at the first UI tick
@@ -353,12 +354,11 @@ func _on_event(ev: Dictionary) -> void:
 			else:
 				show_toast("No vat waited. The army scattered while her body re-knit.")
 		"vei_result":
-			if ev.get("won", false):
-				_on_victory()
-			else:
+			if not ev.get("won", false):  # a win is the victory set piece's (MapSetpieces)
 				show_toast("She threw the horde back. The factory must grow.")
 
 
-func _on_victory() -> void:
+## The victory line: the victory set piece shows it when every lane in the realm has stopped.
+func show_victory() -> void:
 	_victory.text = "VEI HAS DROWNED IN THE DEAD\nThe realm is quiet. The factory hums on."
 	_victory.visible = true

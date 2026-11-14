@@ -11,10 +11,20 @@ const BOSS := "res://scenes/boss/VeiBoss.tscn"
 
 var current: Node = null
 var _gen := 0  # one per swap: a transition from an older swap stops when it sees a newer one
+var _held_events: Array = []  # game events drained while the swapped-in scene was not mounted yet
 
 
 func _ready() -> void:
+	Game.game_event.connect(_on_game_event)
 	_open_map()
+
+
+## A result's events (loot_banked, fort_flipped) drain a frame or two after apply_result, often
+## while the new scene waits for the dive's snapshot and is not in the tree to hear them: hold
+## them for it (_mount hands them over).
+func _on_game_event(ev: Dictionary) -> void:
+	if current != null and not current.is_inside_tree():
+		_held_events.append(ev)
 
 
 ## `arrive_from` is the node whose scene was just left: the map starts zoomed in on it.
@@ -112,6 +122,10 @@ func _mount(node: Node, args: Dictionary) -> void:
 	add_child(node)
 	if node.has_method("setup"):
 		node.setup(args)
+	var held := _held_events
+	_held_events = []
+	if node.has_method("take_events") and not held.is_empty():
+		node.take_events(held)
 
 
 func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:

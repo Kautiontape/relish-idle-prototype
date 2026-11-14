@@ -8,6 +8,8 @@ extends Node2D
 ## glyphs' beat (and the siege's, near zoom: MapSiege) is their layer's modulate, so it costs no
 ## redraw; Relish's party (MapParty) is a pulse layer under her token. This node draws the villages and
 ## turns Vei's digestion rings. Tempo comes from Pulse (Covington 0 hops, forts 1, Vei 2).
+## The set pieces (MapSetpieces) animate static layers between refreshes through the context's
+## hooks and the redraw_* calls below.
 ## Pure logic: node_logic.gd. Tuning: configs/map_view.json "nodes".
 
 var model: MapModel
@@ -29,6 +31,7 @@ var _fort_ids: Array = []
 var _glyph_beat: MapFortGlyph
 var _glyph_still: MapFortGlyph
 var _siege: MapSiege
+var _idle: MapFortIdle
 var _sigs := {}  # static layer -> its static_sig at its last redraw
 var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
@@ -69,7 +72,7 @@ func _ready() -> void:
 	_fort_box.name = "FortStatics"
 	add_child(_fort_box)
 	_sync_fort_layers()
-	_layer(MapFortIdle, false)
+	_idle = _layer(MapFortIdle, false)
 	_cov_s = _layer(MapCovington, false)
 	_vei_s = _layer(MapVei, false)
 	_glyph_beat = _layer(MapFortGlyph, false)
@@ -111,6 +114,26 @@ func _sync_fort_layers() -> void:
 		var l: MapFortRing = _layer(MapFortRing, false, _fort_box)
 		l.fort_id = id
 		l.name = "MapFortRingStatic_%s" % id
+
+
+## A set piece changed a hook: redraw one fort's ring, the state glyphs, the chips or Covington now.
+func redraw_fort(id: String) -> void:
+	for l in _fort_box.get_children():
+		if (l as MapFortRing).fort_id == id:
+			l.queue_redraw()
+
+
+func redraw_glyphs() -> void:
+	_glyph_beat.queue_redraw()
+	_glyph_still.queue_redraw()
+
+
+func redraw_chips() -> void:
+	_idle.queue_redraw()
+
+
+func redraw_covington() -> void:
+	_cov_s.queue_redraw()
 
 
 func _exit_tree() -> void:

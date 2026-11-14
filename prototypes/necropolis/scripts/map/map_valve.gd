@@ -13,6 +13,9 @@ extends Control
 ## release. Math and text: valve_logic.gd.
 
 signal toast(msg: String)
+## The player committed a new target (a drag's release or a corner snap, accepted): the valve
+## swing set piece re-proportions Covington's stems to it.
+signal committed(valve: Dictionary)
 
 var model: MapModel
 
@@ -278,23 +281,32 @@ func _drag_to(pos: Vector2, released: bool) -> void:
 	var now := Time.get_ticks_msec() / 1000.0  # lint-ok: send throttle, not animation
 	if ValveLogic.should_send(now, _last_sent, float(MapLogic.cfg()["valve_send_hz"]), released):
 		_last_sent = now
-		_send()
+		if _send() and released:
+			committed.emit(_override.duplicate())
 
 
 func _snap(key: String) -> void:
 	_override = ValveLogic.snap(key)
 	refresh()
 	queue_redraw()
-	_send()
+	if _send():
+		committed.emit(_override.duplicate())
 
 
-func _send() -> void:
+## While the handle is held: the set pieces keep Covington's stems on the last committed valve.
+func is_dragging() -> bool:
+	return _dragging
+
+
+## Sends the shown valve; false (and a toast) when GameState refuses it.
+func _send() -> bool:
 	var v := _override
 	var r := model.state.cmd_set_valve(v["work"], v["war"], v["flood"])
 	if not r["ok"]:
 		_override = {}
 		toast.emit(RelishLogic.reason_text(str(r["reason"])))
 		refresh()
+	return bool(r["ok"])
 
 
 # --- drawing ----------------------------------------------------------------------

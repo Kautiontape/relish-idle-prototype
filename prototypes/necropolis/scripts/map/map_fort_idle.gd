@@ -12,6 +12,9 @@ extends MapNodeLayer
 ## GlyphLogic's slots between the state glyph and the pips, the overflow past
 ## glyphs.garrison_glyph_max as "+N". Static: a lost unit drops one glyph on the next refresh.
 ## Placement: IdleLogic.chip_top_px / chip_height_px. Tuning: configs/map_view.json "idle", "glyphs".
+## Set pieces: a fort whose ring is re-inking (ctx.reink) gets its chip when the ring is done; the
+## garrison cleared (ctx.chip_fx) replaces line two with her counter-garrison draining to 0 (or the
+## cleared word), then flips it (squashed to nothing and open again) to the live margin word.
 
 
 func _draw_static() -> void:
@@ -19,7 +22,7 @@ func _draw_static() -> void:
 		return
 	var c := IdleLogic.cfg()
 	for f in ctx.forts:
-		if not bool(f.get("held", false)):
+		if not bool(f.get("held", false)) or ctx.reink.has(str(f["id"])):
 			continue
 		if ctx.tier == "near":
 			_garrison(f, MapModel.to_vec(f["pos"]))
@@ -35,7 +38,7 @@ func static_sig():
 			var ck := ctx.model.clock_of(str(f["id"]))
 			var shift := _chip_shift(f, IdleLogic.cfg()) * ctx.zoom if IdleLogic.chip_shown(ctx.tier, ctx.zoom) else Vector2.ZERO
 			out.append([str(f["id"]), IdleLogic.garrison_units(f), IdleLogic.chip_parts(f, str(ck["margin"]), ck), NodeLogic.first_dungeon_pulse(f),
-				Vector2(roundf(shift.x), roundf(shift.y))])
+				Vector2(roundf(shift.x), roundf(shift.y)), ctx.reink.has(str(f["id"])), ctx.chip_fx.get(str(f["id"]), {})])
 	return out
 
 
@@ -80,6 +83,11 @@ func _chip_width(f: Dictionary, ck: Dictionary, c: Dictionary) -> float:
 ## The chip's text parts and their widths in screen px: {parts, tail, w1 (line one), ww (the word), w (plate)}.
 func _chip_metrics(f: Dictionary, ck: Dictionary, c: Dictionary) -> Dictionary:
 	var parts := IdleLogic.chip_parts(f, str(ck["margin"]), ck, c)
+	var fx: Dictionary = ctx.chip_fx.get(str(f["id"]), {})
+	if fx.has("text"):  # the garrison cleared: line two is her counter (or the cleared word), no tail
+		parts["word"] = str(fx["text"])
+		parts["key"] = str(fx["key"])
+		parts["fall"] = ""
 	var size := int(c["chip_font"])
 	var pad := float(c["chip_pad_px"])
 	var gap := float(c["chip_rate_gap_px"])
@@ -124,7 +132,12 @@ func _chip(f: Dictionary, c: Dictionary) -> void:
 	draw_string(mass, Vector2(x, y1), parts["count"], HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c("text"))
 	draw_string(rate, Vector2(x + w1 - rate.get_string_size(parts["rate"], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x, y1), parts["rate"],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c("text"))
-	draw_string(bold, Vector2(x, y2), parts["word"], HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
-	if tail != "":
-		draw_string(label, Vector2(x + ww, y2), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c("text"))
+	# line two, squashed about its middle while the garrison set piece flips it
+	var sq := clampf(float(ctx.chip_fx.get(str(f["id"]), {}).get("squash", 1.0)), 0.0, 1.0)
+	var mid := y2 - size * float(NodeLogic.ncfg()["text_mid_ratio"])
+	draw_set_transform(anchor + Vector2(0.0, mid * sc * (1.0 - sq)), 0.0, Vector2(sc, sc * sq))
+	if sq > 0.0:
+		draw_string(bold, Vector2(x, y2), parts["word"], HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+		if tail != "":
+			draw_string(label, Vector2(x + ww, y2), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c("text"))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

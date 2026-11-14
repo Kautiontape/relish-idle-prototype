@@ -1,6 +1,7 @@
 extends Control
-## The Realm view: the scene root. Builds the world (ground, routes, nodes, camera) and the UI
-## layer (HUD, sidebar), owns the shared MapModel, and exits only via finished(result).
+## The Realm view: the scene root. Builds the world (ground, routes, nodes, the set pieces' layer,
+## camera) and the UI layer (HUD, sidebar), owns the shared MapModel and the set pieces
+## (MapSetpieces), and exits only via finished(result).
 ## Reads views through the model and sends commands through GameState; nothing else.
 
 signal finished(result: Dictionary)
@@ -16,6 +17,8 @@ var valve: MapValve
 var chip: MapRelishChip
 var sidebar: MapSidebar
 var away: MapAway
+var setpieces: MapSetpieces
+var setpiece_layer: MapSetpieceLayer
 
 var selected_id := ""
 var _hover := ""
@@ -55,7 +58,11 @@ func _ready() -> void:
 		return
 	hud.start()
 	_fit()
-	_begin_arrival()
+	var ease_s := _begin_arrival()
+	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
+		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live.bind(_arrive_from))
+	else:
+		setpieces.go_live(_arrive_from)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
@@ -99,6 +106,12 @@ func _build_world() -> void:
 	callouts_view.model = model
 	callouts_view.cam = cam  # the card (the sidebar) is set in _build_ui
 	world.add_child(callouts_view)
+	setpiece_layer = MapSetpieceLayer.new()  # the set pieces' bands, rings and callouts, over the nodes and lane callouts
+	setpiece_layer.name = "Setpieces"
+	setpiece_layer.ctx = nodes_view.ctx
+	setpiece_layer.pulse = true
+	world.add_child(setpiece_layer)
+	nodes_view.timed_layers.append(setpiece_layer)  # its drawing counts in NODES_MS
 	cam.clicked.connect(_on_clicked)
 	world.add_child(cam)
 	cam.make_current()
@@ -135,6 +148,15 @@ func _build_ui() -> void:
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	setpieces = MapSetpieces.new()
+	setpieces.name = "Setpieces"
+	setpieces.model = model
+	setpieces.nodes = nodes_view
+	setpieces.routes = routes_view
+	setpieces.hud = hud
+	setpieces.valve = valve
+	setpieces.layer = setpiece_layer
+	add_child(setpieces)
 
 
 ## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar
@@ -163,12 +185,20 @@ func _fit() -> void:
 
 
 ## The return from a town, dungeon or boss: the camera starts zoomed on `_arrive_from` and eases
-## out to the fit. Under reduced motion the router's crossfade is all there is.
-func _begin_arrival() -> void:
+## out to the fit. Under reduced motion the router's crossfade is all there is. Returns the ease's
+## seconds (0: none).
+func _begin_arrival() -> float:
 	if _arrive_from == "" or Pulse.reduced_motion or not model.has_node(_arrive_from):
-		return
+		return 0.0
 	var tl := TransitionLogic.timeline(TransitionLogic.cfg(), TransitionLogic.OUT, false, MapTransition.slow())
 	cam.begin_arrive(model.node_pos(_arrive_from), tl["zoom_s"])
+	return float(tl["zoom_s"])
+
+
+## The router's hand-over: game events drained while this map was mounting (a raid's loot_banked
+## and fort_flipped), for the set pieces.
+func take_events(evs: Array) -> void:
+	setpieces.take_events(evs)
 
 
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
