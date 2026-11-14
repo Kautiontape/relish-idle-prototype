@@ -5,9 +5,10 @@ extends Node2D
 ## enters its room, then it wakes and runs a beat clock on SCENE time (it slows with the trance).
 ## Undead target it like an enemy (global_position, radius, take_hit, alive) but it is not in
 ## `raid.enemies`: no LIVING count, no ledger mass. On death it drops `essence.per_warden` mass-0
-## motes and the chest. Subclasses (Bellringer, Huntsman, Shieldwall) add the attack and the silhouette: they
+## motes and the chest. Subclasses (Bellringer, Huntsman, Shieldwall, Pyre-priest) add the attack and the silhouette: they
 ## override `_step`, `_phase_now`, `_draw_glyph`, `_draw_telegraph` and may hook `_on_wake` (the
-## Shieldwall also `hit_from`, the undead strike that says where it came from).
+## Shieldwall also `hit_from`, the undead strike that says where it came from; the Pyre-priest
+## `take_hit` for its ward and `meter_lit` for its acolytes' pips).
 ## The break meter (WardenLogic.meter_*): the strength left as pips, phase notches where the phases
 ## are hp gates, and `weak_marks` on the pips a weak-point window took. The HUD's WardenBlock is the
 ## meter's full read; a small pip row under the glyph echoes it in the world.

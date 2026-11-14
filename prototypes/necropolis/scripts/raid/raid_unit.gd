@@ -20,12 +20,14 @@ var uid := ""                # party only
 var beef := 0.0              # party only: the entry's beef stat (the Bellringer's weak point)
 var speed_stat := 0.0        # party only: the entry's speed stat (the Huntsman's weak point)
 var wits := 0.0              # party only: the entry's wits stat (the Shieldwall's weak point)
+var power := 0.0             # party only: the entry's power stat (the Pyre-priest's weak point)
 var slots := 1               # party: nested diamonds (filled slots)
 var home_room := Rect2()
 var alive := true
 
 var _guard := {}             # bodyguard post this frame ({} when not guarding)
 var _flank := {}             # flank post this frame ({} when not flanking)
+var _snuff := {}             # acolyte-hunting post this frame ({} when not hunting)
 var _target = null           # duck-typed: global_position / radius / take_hit / alive
 var _aggro := false
 var _strike_t := 0.0
@@ -94,6 +96,8 @@ func _physics_process(delta: float) -> void:
 	var move := Vector2.ZERO
 	_guard = raid.warden_run.guard_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null else {}
 	_flank = raid.warden_run.flank_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null and _guard.is_empty() else {}
+	_snuff = raid.warden_run.snuff_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null \
+		and _guard.is_empty() and _flank.is_empty() else {}
 	if not _guard.is_empty():
 		# bodyguard (fast big undead vs an awake Huntsman): strike what is in reach, never chase
 		var gp: Vector2 = _guard["point"]
@@ -144,6 +148,22 @@ func _physics_process(delta: float) -> void:
 				fs2 = tf
 			move = fs2.normalized() * minf(speed, tf.length() / maxf(delta, 0.001))
 			_facing = fs2.normalized()
+	elif not _snuff.is_empty():
+		# acolyte-hunting role (a power big undead vs an awake Pyre-priest): the nearest living acolyte,
+		# snuffed in one blow (RaidAcolyte.hit_from), before the priest
+		var ac: Node2D = _snuff["acolyte"]
+		var ta: Vector2 = ac.global_position - global_position
+		var rch2: float = radius + float(ac.radius) + float(cfg.get("strike_reach_pad", 7.0))
+		_facing = ta.normalized() if ta.length() > 1.0 else _facing
+		if ta.length() > rch2:
+			var sa := _steer_to(ac.global_position, delta) - global_position
+			if sa.length() > 1.0:
+				_facing = sa.normalized()
+			move = _facing * speed
+		elif _strike_t <= 0.0:
+			_strike_t = cadence
+			_lunge = 1.0
+			ac.hit_from(dmg, self)
 	elif _target != null and is_instance_valid(_target) and _target.alive:
 		var to_t: Vector2 = _target.global_position - global_position
 		var reach: float = radius + _target.radius + float(cfg.get("strike_reach_pad", 7.0))
@@ -158,8 +178,8 @@ func _physics_process(delta: float) -> void:
 			_lunge = 1.0
 			if _target is RaidRelish:
 				_target.take_hit(dmg, "living")
-			elif _target is RaidWarden:
-				_target.hit_from(dmg, self)   # the Shieldwall reads where the blow came from
+			elif _target is RaidWarden or _target is RaidAcolyte:
+				_target.hit_from(dmg, self)   # the Shieldwall reads where the blow came from; an acolyte who struck it
 			else:
 				_target.take_hit(dmg)
 	elif faction == "enemy":

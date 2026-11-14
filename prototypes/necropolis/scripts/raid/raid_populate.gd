@@ -54,4 +54,5 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 		u.beef = float((e.get("stats", {}) as Dictionary).get("beef", 0.0))
 		u.speed_stat = float((e.get("stats", {}) as Dictionary).get("speed", 0.0))
 		u.wits = float((e.get("stats", {}) as Dictionary).get("wits", 0.0))
+		u.power = float((e.get("stats", {}) as Dictionary).get("power", 0.0))
 		u.slots = maxi(1, int(e.get("filled_slots", 1)))

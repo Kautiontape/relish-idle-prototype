@@ -38,6 +38,8 @@ func build() -> void:
 			node = RaidBellringer.new()
 		"shieldwall":
 			node = RaidShieldwall.new()
+		"pyre_priest":
+			node = RaidPyrePriest.new()
 		_:
 			node = RaidWarden.new()   # an archetype with no attack yet is the inert base glyph
 	node.position = (rooms[int(_raid.layout["warden_room"])] as Rect2).get_center()
@@ -106,11 +108,30 @@ func flank_for(u: RaidUnit) -> Dictionary:
 		"front": sw.is_front(u.global_position), "warden": sw}
 
 
+## Acolyte-hunting post for a party big undead fighting an awake Pyre-priest: {acolyte} (the living
+## acolyte nearest it) when `u` is a big undead whose power meets the weak point (WardenLogic.is_snuffer)
+## and whose target is the priest or one of its acolytes, while any acolyte lives; else {}.
+func snuff_for(u: RaidUnit) -> Dictionary:
+	if warden == null or u.kind != "big" or not is_instance_valid(warden) or not (warden is RaidPyrePriest) \
+			or not warden.alive or not warden.awake:
+		return {}
+	var pp := warden as RaidPyrePriest
+	if u._target == null or not is_instance_valid(u._target) or not (u._target == pp or u._target is RaidAcolyte):
+		return {}
+	if not WardenLogic.is_snuffer(pp.spec, u.power):
+		return {}
+	var a := pp.nearest_acolyte(u.global_position)
+	return {} if a == null else {"acolyte": a}
+
+
 ## The awake warden when it is within `reach` of walking from pos for an undead of `radius` (an enemy
-## for the undead, on the same walking leash as the enemies), else null.
+## for the undead, on the same walking leash as the enemies), else null. A Pyre-priest offers the
+## nearest of itself and its living acolytes (RaidPyrePriest.target_near).
 func target_in(pos: Vector2, reach: float, radius := 0.0):
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake:
 		return null
+	if warden is RaidPyrePriest:
+		return (warden as RaidPyrePriest).target_near(pos, reach, radius)
 	return warden if RaidLogic.warden_in_reach(_raid.layout, pos, warden.global_position, reach, radius) else null
 
 
