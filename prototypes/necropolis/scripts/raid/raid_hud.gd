@@ -174,7 +174,7 @@ func _process(_delta: float) -> void:
 	refresh()
 	if _warden_block != null:
 		# the banner steps down under the warden's block while it shows
-		var top := _banner_top + (14.0 if _warden_block.visible else 0.0)
+		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -246,10 +246,8 @@ func refresh() -> void:
 		st.phyl = raid.phylactery_left()
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		if st.phyl_word != "":
-			# the words lean from text_dim to danger with her hp, as the halo does (day 1 starts with none)
-			var rel: RaidRelish = raid.relish
-			var lvl := RaidLogic.exposed_level(st.phyl, rel.hp / maxf(1.0, rel.max_hp), raid.rcfg()) if rel != null else 1.0
-			st.phyl_tone = Palette.c("text_dim").lerp(Palette.c("danger"), RaidLogic.exposed_tint(lvl, raid.rcfg()))
+			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
+			st.phyl_tone = Palette.c("danger")
 		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
 		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
 		var carried: int = raid.carried_count()
@@ -264,6 +262,7 @@ func refresh() -> void:
 			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
+			st.set_key(floor_n > 0)
 			_push_t = 1.0   # the push line's "at risk" follows UNBANKED on the same frame
 		_push_t += _delta_real()
 		if _push != null and _push_t >= 0.25:
@@ -312,7 +311,8 @@ func _update_push() -> void:
 		var rt := int(doors[best].get("room", -1))
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
-	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit))
+	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit,
+		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size()))
 
 
 ## Width the push line may use without running under the warden's block (narrow windows wrap it).
@@ -432,7 +432,7 @@ class StatBlock:
 	var raised_text := ""
 	var phyl := 0
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
-	var phyl_tone: Color = Palette.c("text_dim")   # text_dim at full hp, danger as it falls (exposed_tint)
+	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
@@ -444,6 +444,8 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
+	var plate_alpha := 0.86
+	var show_key := false
 
 	func setup(p_boss: bool) -> void:
 		boss = p_boss
@@ -452,8 +454,39 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
+		plate_alpha = float(c.get("plate_alpha", 0.86))
 		var rows := 3.0 if boss else 12.0   # living, essence, raised | + 4 ward rows, phylactery, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
+
+	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
+	func set_key(on: bool) -> void:
+		if on == show_key:
+			return
+		show_key = on
+		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if on else 0.0)) * _row + 8.0)
+
+	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
+	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
+		var s := 5.0
+		match shape:
+			"gem":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -s * 1.2), p + Vector2(s, -s * 0.25), p + Vector2(0, s * 1.2), p + Vector2(-s, -s * 0.25), p + Vector2(0, -s * 1.2)]), col, 1.5)
+			"scroll":
+				draw_polyline(PackedVector2Array([p + Vector2(-s, -s * 0.8), p + Vector2(s * 0.55, -s * 0.8), p + Vector2(s, -s * 0.35), p + Vector2(s, s * 0.8), p + Vector2(-s, s * 0.8), p + Vector2(-s, -s * 0.8)]), col, 1.3)
+			"husk":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -s * 1.2), p + Vector2(s * 0.75, -s * 0.6), p + Vector2(s * 0.75, s * 0.6), p + Vector2(0, s * 1.2), p + Vector2(-s * 0.75, s * 0.6), p + Vector2(-s * 0.75, -s * 0.6), p + Vector2(0, -s * 1.2)]), col, 1.5)
+			_:
+				draw_polyline(PackedVector2Array([p + Vector2(-s * 0.55, s), p + Vector2(-s * 0.1, -s * 1.25), p + Vector2(s * 0.55, s * 0.2), p + Vector2(-s * 0.55, s)]), col, 1.5)
+
+	func _draw_key(y: float) -> void:
+		var f := ThemeDB.fallback_font
+		var x := 6.0
+		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
+			var g := RaidLoot.floor_glyph(str(k[0]), false)
+			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
+			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+		draw_string(f, Vector2(6.0, y + _row), "grey ×9 = a corpse pile (the bodies in it): walk close, it gives essence", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
@@ -484,7 +517,8 @@ class StatBlock:
 		return x + step * n
 
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		# the plate sits near-opaque so a world glyph under the block never crosses its text
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", plate_alpha))
 		var y := _row - 5.0
 		var und := Palette.c("undead")
 		_label(y, "LIVING")
@@ -504,7 +538,8 @@ class StatBlock:
 				var r := _pip * (0.5 + 0.12 * i)
 				var shown := mini(n, _row_max)
 				var x := _pips(_col, y - 5.0, shown, shown, und, r, i == 3)
-				_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
+				if n > 0:   # a zero rank is an empty row (the label stays: it teaches the chain's order)
+					_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
 				y += _row
 			_label(y, "ESSENCE")
 			var ex := _pips(_col, y - 5.0, carry_max, carried, Palette.c("essence"), _pip * 0.5)
@@ -544,6 +579,8 @@ class StatBlock:
 				var nx := _value(px2 + 6.0, y, note, tone if risk else Palette.c("vei"))
 				if floor_n > 0:
 					floor_end = Vector2(nx + 4.0, y - 5.0)
+			if show_key:
+				_draw_key(y + _row)
 
 
 class TranceMeter:
@@ -605,6 +642,7 @@ class WardenBlock:
 	var _key := -1
 	var _key2 := -1
 	var _t := 0.0
+	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) makes the block taller
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -623,6 +661,11 @@ class WardenBlock:
 		if not show:
 			return
 		_t += d / maxf(0.05, Engine.time_scale)
+		var eh := 20.0 if w is RaidHuntsman else 0.0
+		if eh != extra_h:
+			extra_h = eh
+			offset_bottom = offset_top + 62.0 + eh
+			_key = -1
 		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
 		var k2 := 0
 		var flashing := false
@@ -687,7 +730,9 @@ class WardenBlock:
 		if w is RaidBellringer:
 			var bw := w as RaidBellringer
 			var n := bw.slams_muffled
-			var x2 := _text(x + 14.0, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
+			var x2 := x + 14.0
+			if bw.slams > 0:   # no slam yet: no "×0 of 0" (the PHASE row below already says what muffles it)
+				x2 = _text(x2, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
 			if bw.muffled:
 				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
 			_text(x0, y, "PHASE", 13, "text_dim")
@@ -696,7 +741,11 @@ class WardenBlock:
 		elif hw != null:
 			var n2 := hw.intercepts
 			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken)
-			var x4 := _text(x + 14.0, y - 26.0, tag, 15, "undead" if n2 > 0 else "text_dim")
+			var x4 := x + 14.0
+			if n2 > 0:
+				x4 = _text(x4, y - 26.0, tag, 15, "undead")
+			else:   # no intercept yet: teach the counter in words instead of a zero
+				x4 = _text(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 			if win_hi > 0:
 				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
 			# row 2: the hunt, notched where catches change its phase
@@ -715,10 +764,14 @@ class WardenBlock:
 				else:
 					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
 				cx += 16.0
-			var x5 := _text(cx + 2.0, y, str(hw.catches), 15, "danger" if hw.catches > 0 else "text")
+			var x5 := cx + 2.0
+			if hw.catches > 0:
+				x5 = _text(x5, y, str(hw.catches), 15, "danger")
 			x5 = _text(x5 + 12.0, y, "phase %d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 13, "text_dim")
 			if hw.hunting_undead:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
+			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
+			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec), 13, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint

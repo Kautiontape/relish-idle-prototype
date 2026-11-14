@@ -131,7 +131,10 @@ func _physics_process(delta: float) -> void:
 		elif _strike_t <= 0.0:
 			_strike_t = cadence
 			_lunge = 1.0
-			_target.take_hit(dmg)
+			if _target is RaidRelish:
+				_target.take_hit(dmg, "living")
+			else:
+				_target.take_hit(dmg)
 	elif faction == "enemy":
 		move = _wander(delta, cfg)
 	else:

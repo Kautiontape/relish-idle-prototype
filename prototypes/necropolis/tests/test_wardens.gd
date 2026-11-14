@@ -338,6 +338,11 @@ func _meter_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(hp == total and WardenLogic.meter_notches(hb, hp).is_empty(), "no notches on its strength")
 	t.ok(WardenLogic.meter_lit(hb, hp, 0.5) == total / 2 and WardenLogic.meter_lit(hb, hp, 0.51) == total / 2 + 1, "flat meter is the ceiling of hp x pips")
 	t.ok(WardenLogic.catch_notches(hunt) == [2, 4], "the Huntsman's notches are on its catches (2, 4)")
+	var cl := WardenLogic.catch_label(hunt)
+	t.ok(cl.contains("costs Relish 12 hp") and cl.contains("at 2 and 4 catches"), "the CAUGHT label states the cost and the thresholds from the spec: " + cl)
+	var hunt_first := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman", "first_dungeon": true}, cfg)
+	t.ok(WardenLogic.catch_label(hunt_first).contains("costs Relish 7 hp"), "the first dungeon's softer catch is the label's number (7)")
+	t.ok(WardenLogic.catch_label(bell) == "", "the Bellringer has no catch label")
 	t.ok(WardenLogic.catch_slots(hunt) == 6, "the CAUGHT track shows the open last phase (6 slots)")
 	t.ok(WardenLogic.catch_notches(bell).is_empty() and WardenLogic.catch_slots(bell) == 0, "the Bellringer has no CAUGHT track")
 	var agree2 := true

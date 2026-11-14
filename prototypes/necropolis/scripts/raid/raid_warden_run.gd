@@ -7,6 +7,7 @@ extends RefCounted
 var warden: RaidWarden = null
 var chest: RaidChest = null
 var last_chance_done := false
+var warden_name := ""   # the spec's name, kept after the warden dies (the death card names it)
 
 var _raid: Node2D
 var _room := -2
@@ -40,6 +41,7 @@ func build() -> void:
 	node.position = (rooms[int(_raid.layout["warden_room"])] as Rect2).get_center()
 	_raid.units_root.add_child(node)
 	node.configure(_raid, w)
+	warden_name = str(w.get("name", ""))
 	warden = node
 
 

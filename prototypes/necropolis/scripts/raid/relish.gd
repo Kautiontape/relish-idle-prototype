@@ -12,6 +12,7 @@ var max_hp := 30.0
 var speed := 240.0
 var radius := 13.0
 var alive := true
+var last_hit_src := ""   # what struck her last: "slam", "lunge" or "living" (the death card; never read by the sim)
 
 var move_target := Vector2.ZERO
 var _iframes := 0.0
@@ -66,9 +67,11 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
-func take_hit(amount: float) -> void:
+func take_hit(amount: float, src := "") -> void:
 	if not alive or _iframes > 0.0:
 		return
+	if src != "":
+		last_hit_src = src   # what struck last (the death card names it); a soaked hit counts too
 	if hp - amount <= 0.0 and raid.has_allies():
 		# THE CONDUIT RULE: the nearest allied undead dies in her place.
 		raid.sacrifice_nearest_ally()   # pings the danger edge

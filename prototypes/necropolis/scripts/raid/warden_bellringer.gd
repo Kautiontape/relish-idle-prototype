@@ -124,7 +124,7 @@ func _apply_slam(r_prev: float, r_now: float, band: float) -> void:
 	var rel: RaidRelish = raid.relish
 	if rel != null and is_instance_valid(rel) and rel.alive \
 			and WardenLogic.slam_crosses(rel.global_position.distance_to(global_position), r_prev, r_now, band):
-		rel.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, _slam_muffled))
+		rel.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, _slam_muffled), "slam")
 
 
 # ------------------------------------------------------------------- draw ---

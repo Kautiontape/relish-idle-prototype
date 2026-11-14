@@ -19,7 +19,7 @@
     "warm": ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept"]
   },
   "danger": {
-    "_doc": "Relish's danger read-outs (hp arc, screen-edge pulse, target mark). exposed_min and exposed_max: with no phylactery charge left, how exposed she reads (RaidLogic.exposed_level) runs from exposed_min at full hp to exposed_max at none; it drives the danger rim of her halo and the lean of the PHYLACT. words.",
+    "_doc": "Relish's danger read-outs (hp arc, screen-edge pulse, target mark). exposed_min and exposed_max: with no phylactery charge left, how exposed she reads (RaidLogic.exposed_level) runs from exposed_min at full hp to exposed_max at none; it drives the danger rim of her halo (dashes leaning to danger: at 0.6 already clearly red at full hp, since no revive is a state, not a mood). The PHYLACT. words are always danger with no charge left.",
     "hp_arc_gap_px": 20.0,
     "hp_arc_width": 3.0,
     "hp_seg_hp": 5.0,
@@ -32,7 +32,7 @@
     "edge_target_alpha": 0.4,
     "edge_static_alpha": 0.5,
     "target_hold_s": 0.2,
-    "exposed_min": 0.22,
+    "exposed_min": 0.6,
     "exposed_max": 1.0
   },
   "swarm": {
@@ -46,6 +46,8 @@
     "max_clusters": 8
   },
   "hud": {
+    "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text.",
+    "plate_alpha": 0.86,
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,
@@ -67,6 +69,12 @@
   },
   "checkpoint": {
     "banner_s": 2.5
+  },
+  "death": {
+    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion).",
+    "card_s": 4.5,
+    "skip_after_s": 0.8,
+    "fade_s": 0.3
   },
   "revive": {
     "crack_s": 1.1,

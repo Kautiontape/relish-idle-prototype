@@ -1392,7 +1392,7 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_level(1, 0.1, cfg) == 0.0, "a phylactery left: no danger rim at any hp")
 	t.near(RaidLogic.exposed_level(0, 1.0, cfg), lo, 0.0001, "none left at full hp: the faint rim")
 	t.near(RaidLogic.exposed_level(0, 0.0, cfg), hi, 0.0001, "none left at no hp: the strong rim")
-	t.ok(lo < 0.35 and hi > lo, "the full-hp rim is faint, and it strengthens (%.2f to %.2f)" % [lo, hi])
+	t.ok(lo >= 0.5 and hi > lo, "no revive reads clearly at full hp (a state, not a mood: >= 0.5) and still strengthens (%.2f to %.2f)" % [lo, hi])
 	t.ok(RaidLogic.exposed_level(0, 0.5, cfg) > RaidLogic.exposed_level(0, 0.9, cfg), "it rises as hp falls")
 	t.ok(RaidLogic.exposed_level(0, 2.0, cfg) == lo and RaidLogic.exposed_level(0, -1.0, cfg) == hi, "hp_frac is clamped")
 	t.ok(RaidLogic.phylactery_word(1) == "" and RaidLogic.phylactery_word(3) == "", "a charge left: no word")
@@ -1403,6 +1403,24 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lc := RaidLogic.loot_counts({"relics": 1, "remnants": [{}, {}], "essence": 5})
 	t.ok(RaidLogic.loot_line(lc) == "relics 1 · remnants 2 · essence 5", "only the non-zero kinds, in order: " + RaidLogic.loot_line(lc))
 	t.ok(RaidLogic.loot_line({"husks": 1, "blueprints": 0}) == "husks 1", "a zero kind never shows")
+	t.suite("raid_death_card_and_room_shape")
+	t.ok(RaidLogic.rooms_phrase(3, 7) == "3 of 7 rooms seen" and RaidLogic.rooms_phrase(9, 7) == "7 of 7 rooms seen", "rooms seen of the layout's rooms, clamped")
+	t.ok(RaidLogic.push_line(15, "NW", 1, {}, false, 3, 7) == "3 of 7 rooms seen · LIVING 15 left · exit NW, next room · nothing at risk",
+		RaidLogic.push_line(15, "NW", 1, {}, false, 3, 7))
+	t.ok(not RaidLogic.push_line(15, "NW", 1, {}).contains("rooms seen"), "no room total (boss, held): no shape clause")
+	t.ok(RaidLogic.death_cause("slam", "The Bellringer") == "The Bellringer's slam" and RaidLogic.death_cause("lunge", "The Huntsman") == "The Huntsman's lunge"
+		and RaidLogic.death_cause("living", "") == "the living" and RaidLogic.death_cause("", "x") == "a wound"
+		and RaidLogic.death_cause("slam", "") == "The warden's slam", "the death cause words")
+	t.ok(RaidLogic.death_lost_line({"relics": 1, "essence": 4}, 2) == "relics 1 · essence 4 · 2 big undead", "lost: unbanked loot and the party")
+	t.ok(RaidLogic.death_lost_line({}, 0) == "nothing", "nothing lost")
+	var rows := RaidLogic.death_card_rows("the living", {"remnants": 1}, {"essence": 3}, 1)
+	t.ok(rows.size() == 3 and rows[0]["text"] == "the living" and rows[1]["text"] == "remnants 1" and rows[2]["text"] == "essence 3 · 1 big undead",
+		"the death card's three rows: killed by, banked, lost")
+	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
+		"a bare death says nothing banked, nothing lost (dim)")
+	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",
+		"the last-chance banner names the loose essence, never 'to bank' (banked and carried are other figures)")
+	t.ok(cfg["death"]["card_s"] > cfg["death"]["skip_after_s"], "the death card holds longer than its skip delay")
 	t.suite("raid_push_line")
 	t.ok(RaidLogic.compass(Vector2(-10, 0)) == "W" and RaidLogic.compass(Vector2(0, -5)) == "N"
 		and RaidLogic.compass(Vector2(3, 3)) == "SE" and RaidLogic.compass(Vector2(-4, -4)) == "NW", "compass: y grows down")
@@ -1444,7 +1462,7 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
-	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 essence to bank", "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 loose essence to gather", "last chance names the loose essence")
 	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")

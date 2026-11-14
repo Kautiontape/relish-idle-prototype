@@ -215,7 +215,7 @@ func _begin_lunge() -> void:
 				and WardenLogic.lunge_hits(from, to, rel.global_position, hit_r + rel.radius):
 			outcome = "caught"
 			catches += 1
-			rel.take_hit(float(at.get("dmg_relish", 12.0)))
+			rel.take_hit(float(at.get("dmg_relish", 12.0)), "lunge")
 	_dash_to = to
 	_dash_left = from.distance_to(to)
 	_dashing = true

@@ -5,6 +5,7 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|living> (who the autodie hit names on the death card),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
@@ -123,6 +124,17 @@ func start() -> void:
 	if RaidAutopilot.enabled() and not _raid.is_boss():
 		_ap = RaidAutopilot.new(_raid)
 		_ap.start()
+	if cli_flag("--raid-greyscale"):   # the whole screen in greyscale (shaders/greyscale_check.gdshader), for the warden-fight check
+		var cl := CanvasLayer.new()
+		cl.layer = 100
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var gm := ShaderMaterial.new()
+		gm.shader = load("res://shaders/greyscale_check.gdshader")
+		rect.material = gm
+		cl.add_child(rect)
+		_raid.add_child(cl)
 	if cli_flag("--raid-trance-hold") and not _raid.is_boss():
 		_raid.trance._button_down()   # open the trance and keep it open (the ghost-ring shot)
 	if cli_value("--raid-ding-chance=") != "":
@@ -205,7 +217,7 @@ func _autodie_hit() -> void:
 	for a in _raid.allies.duplicate():
 		if is_instance_valid(a) and a.alive:
 			a.die(true)
-	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0)
+	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0, cli_value("--raid-autodie-src="))   # src: slam | lunge | living (the death card)
 
 
 ## --raid-loot-sample: one pickup of each RaidLoot.FLOOR_KINDS kind, in a row 120 px above Relish.

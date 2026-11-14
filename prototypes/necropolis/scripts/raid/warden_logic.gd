@@ -301,6 +301,21 @@ static func catch_notches(sp: Dictionary) -> Array[int]:
 	return out
 
 
+## What a Huntsman catch costs and where it bites, for the CAUGHT track's label: Relish loses
+## `dmg_relish` hp per catch (spec.attack, already scaled for the first dungeon; a lethal catch is
+## taken by an ally in her place) and the phases turn faster at each notch. "" for a warden with no
+## catch notches.
+static func catch_label(sp: Dictionary) -> String:
+	var n := catch_notches(sp)
+	if n.is_empty():
+		return ""
+	var dmg := roundi(float((sp.get("attack", {}) as Dictionary).get("dmg_relish", 0.0)))
+	var at := ""
+	for i in n.size():
+		at += ("" if i == 0 else (" and " if i == n.size() - 1 else ", ")) + str(n[i])
+	return "each catch costs Relish %d hp (an ally takes a killing one) · it hunts faster at %s catches" % [dmg, at]
+
+
 ## Slots on the CAUGHT track: the last notch plus two, so the open-ended last phase shows too.
 static func catch_slots(sp: Dictionary) -> int:
 	var n := catch_notches(sp)

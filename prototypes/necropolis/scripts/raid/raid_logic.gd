@@ -400,14 +400,61 @@ static func risk_phrase(c: Dictionary) -> String:
 ## way to the nearest exit (the first step of its route, so never through a wall), "" when there is
 ## none (the clause is dropped); `hops` the rooms between her room and the exit's (0 this room, -1
 ## unknown: a doorway band).
-static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false) -> String:
-	var parts: PackedStringArray = ["LIVING %d left" % maxi(0, living)]
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false, rooms_seen := 0, rooms_total := 0) -> String:
+	var parts: PackedStringArray = []
+	if rooms_total > 0:
+		parts.append(rooms_phrase(rooms_seen, rooms_total))
+	parts.append("LIVING %d left" % maxi(0, living))
 	if at_exit:
 		parts.append("AT EXIT")
 	elif exit_word != "":
 		parts.append("exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops)))
 	parts.append(risk_phrase(at_risk))
 	return " · ".join(parts)
+
+
+## The run's shape: "3 of 7 rooms seen" (rooms Relish has stood in, of the layout's rooms). Seen, not
+## cleared: a room can be crossed with the living still in it. Never below 1 once she is in one.
+static func rooms_phrase(seen: int, total: int) -> String:
+	return "%d of %d rooms seen" % [clampi(seen, 0, maxi(0, total)), maxi(0, total)]
+
+
+## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "lunge", "living", or ""
+## when nothing named it, e.g. a dev kill), `warden_name` the warden's spec name ("The Bellringer").
+static func death_cause(src: String, warden_name: String) -> String:
+	var who := warden_name if warden_name != "" else "The warden"
+	match src:
+		"slam":
+			return "%s's slam" % who
+		"lunge":
+			return "%s's lunge" % who
+		"living":
+			return "the living"
+	return "a wound"
+
+
+## What she loses with the party: the unbanked loot ("relics 1 · essence 4") and the big undead of the
+## party (a death costs the whole party; the garrison and raised survive). "nothing" when neither.
+static func death_lost_line(unbanked: Dictionary, party_n: int) -> String:
+	var parts: PackedStringArray = []
+	var l := loot_line(unbanked)
+	if l != "":
+		parts.append(l)
+	if party_n > 0:
+		parts.append("%d big undead" % party_n)
+	return "nothing" if parts.is_empty() else " · ".join(parts)
+
+
+## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, what the last
+## checkpoint banked, what is lost.
+static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int) -> Array:
+	var bl := loot_line(banked_counts)
+	var lost := death_lost_line(unbanked, party_n)
+	return [
+		{"label": "KILLED BY", "text": cause, "key": "danger"},
+		{"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"},
+		{"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"},
+	]
 
 
 ## How much loose essence can still be banked: what lies loose, capped by the carry room left.
@@ -434,7 +481,7 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d essence to bank" % lit)
+	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence to gather" % lit)
 
 
 ## The held-fort clear's effect on the map (D-b review SF-5): the counter-garrison mass this run
