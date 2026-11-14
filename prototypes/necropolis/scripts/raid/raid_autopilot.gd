@@ -75,6 +75,7 @@ var _tally_open := false        # a tell is being tallied (measuring only: the r
 var _tally_hits0 := 0           # tell-attack blows on her when it was first seen
 var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
 var _tally_pinned := false      # the Shieldwall's tell was pinned
+var _wall_pre := {}             # the Shieldwall as it stood before its tell (a missed tell is planned against this)
 var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
 var _threat_last := -1.0        # scene time one was last within kite_px
 var _bell_goal = null           # the Bellringer fight's last point inside the slam she was making for
@@ -1156,7 +1157,9 @@ func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) ->
 	var beats := _bell_beats_to_tell(b)
 	var inside := pos.distance_to(wp) < safe_px
 	var leave := b._slam_beat >= 0.0
-	if not leave and beats <= 0.0:
+	if leave and _tell_id == "slam:%.4f" % b._slam_beat and not _tell_ok:
+		leave = false   # a missed slam: she does not react to it until it has struck (fixed after the freeze, Step 4b)
+	if not leave and beats <= 0.0 and b._slam_beat < 0.0:
 		leave = _answers("slam", b._next_attack)
 	if leave:
 		_bell_goal = null
@@ -1271,15 +1274,27 @@ func _bell_target(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float
 func _vs_wall(pos: Vector2, w: RaidShieldwall, living: Array) -> Vector2:
 	var wp := w.global_position
 	var at: Dictionary = w.spec.get("attack", {})
-	var reach: float = float(at.get("reach_px", 140.0)) + float(_raid.relish.radius) + _c("wall_margin_px", 30.0)
-	var half := w.front_half_deg() + _c("wall_margin_deg", 15.0)
+	var answered := false
+	var missed := false
+	if w.planted:
+		answered = _answers("bash", w._next_attack)
+		missed = not _tell_ok
+	else:
+		_wall_pre = {"facing": w.facing, "half": w.front_half_deg(), "reach": float(at.get("reach_px", 140.0))}
+	# a missed tell is planned against the wall as it stood before the tell: none of the tell's facing,
+	# arc or reach (fixed after the freeze, Step 4b: the stand read them and dodged a tell it had missed)
+	var use_pre := missed and not _wall_pre.is_empty()
+	var facing: float = float(_wall_pre["facing"]) if use_pre else w.facing
+	var reach: float = (float(_wall_pre["reach"]) if use_pre else float(at.get("reach_px", 140.0))) \
+		+ float(_raid.relish.radius) + _c("wall_margin_px", 30.0)
+	var half: float = (float(_wall_pre["half"]) if use_pre else w.front_half_deg()) + _c("wall_margin_deg", 15.0)
 	var wr := int(_raid.layout.get("warden_room", -1))
 	var room: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
-	if w.planted and _answers("bash", w._next_attack):
-		_avoid_arc = {"from": wp, "facing": w.facing, "half": half, "reach": reach}
-		if WardenLogic.bash_hits(w.facing, wp, pos, half, reach, 0.0):
+	if answered:
+		_avoid_arc = {"from": wp, "facing": facing, "half": half, "reach": reach}
+		if WardenLogic.bash_hits(facing, wp, pos, half, reach, 0.0):
 			_why = "wall-out"
-			return _wall_stand(pos, w, reach, room)
+			return _wall_stand(pos, w, reach, room, facing)
 	var loot = _collect_target(pos, living, Vector2.INF, 0.0, room)
 	if loot != null:
 		_why = "wall-loot"
@@ -1289,17 +1304,17 @@ func _vs_wall(pos: Vector2, w: RaidShieldwall, living: Array) -> Vector2:
 		_why = "wall-pickup"
 		return _to_point(pos, pk)
 	_why = "wall-side"
-	return _wall_stand(pos, w, reach, room)
+	return _wall_stand(pos, w, reach, room, facing)
 
 
 ## The point on the Shieldwall's side to head for: round the wall the short way (WardenLogic.flank_step
 ## on a circle `wall_stand_px` beyond the bash) toward `wall_side_deg` off its facing, kept in its room.
-func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2) -> Vector2:
+func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2, facing: float) -> Vector2:
 	var wp := w.global_position
 	var side := deg_to_rad(_c("wall_side_deg", 110.0))
 	var cur := (pos - wp).angle()
-	var off_p := absf(WardenLogic.angle_diff(cur, w.facing + side))
-	var off_m := absf(WardenLogic.angle_diff(cur, w.facing - side))
+	var off_p := absf(WardenLogic.angle_diff(cur, facing + side))
+	var off_m := absf(WardenLogic.angle_diff(cur, facing - side))
 	var sw := deg_to_rad(_c("wall_switch_deg", 20.0))
 	if _wall_side == 0.0:
 		_wall_side = 1.0 if off_p <= off_m else -1.0
@@ -1307,7 +1322,7 @@ func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2) -> 
 		_wall_side = -1.0
 	elif _wall_side < 0.0 and off_p + sw < off_m:
 		_wall_side = 1.0
-	var p := WardenLogic.flank_step(wp, pos, w.facing + side * _wall_side, reach + _c("wall_stand_px", 40.0), _c("wall_step_deg", 45.0))
+	var p := WardenLogic.flank_step(wp, pos, facing + side * _wall_side, reach + _c("wall_stand_px", 40.0), _c("wall_step_deg", 45.0))
 	if room.size != Vector2.ZERO:
 		p = WardenLogic.leash_clamp(room, p, float(_raid.relish.radius) + 8.0)
 	return _to_point(pos, p)
