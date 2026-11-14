@@ -36,6 +36,7 @@ var _sig := ""
 var _proj := {}  # the last projection (IdleLogic), reused while the valve hasn't moved
 var _proj_key := ""
 var _last_proj_s := -1.0
+var _pointer := 0.0  # the opening's pulse on the triangle's edge, 0..1 (set_pointer)
 
 
 func _ready() -> void:
@@ -293,6 +294,21 @@ func _snap(key: String) -> void:
 		committed.emit(_override.duplicate())
 
 
+## Where the opening's pointer ends, in screen px (this panel sits in a CanvasLayer): the FLOOD
+## corner, the triangle's point nearest the map. The line reaches it over the empty strip of the
+## plate under the rows, so it crosses no text.
+func pointer_end() -> Vector2:
+	return get_global_rect().position + _origin + (ValveLogic.corners(_side)["flood"] as Vector2)
+
+
+## The opening's pulse on the triangle's edge (0: none). Redraws only when the level moved.
+func set_pointer(level: float) -> void:
+	if is_equal_approx(level, _pointer):
+		return
+	_pointer = level
+	queue_redraw()
+
+
 ## While the handle is held: the set pieces keep Covington's stems on the last committed valve.
 func is_dragging() -> bool:
 	return _dragging
@@ -317,7 +333,11 @@ func _draw() -> void:
 	draw_style_box(MapUi.plate_box(float(c["valve_plate_alpha"]), 0), Rect2(Vector2.ZERO, size))
 	var pts := ValveLogic.corners(_side)
 	var tri := PackedVector2Array([_origin + pts["work"], _origin + pts["war"], _origin + pts["flood"], _origin + pts["work"]])
-	for l in NodeLogic.capped_layers(Palette.c("undead"), float(c["valve_edge_w_px"]), float(c["valve_edge_glow"]), float(c["valve_edge_halo_max_px"])):
+	var oc: Dictionary = cfg["opening"]
+	var edge := Palette.c("undead").lightened(float(oc["edge_lighten"]) * _pointer)
+	var edge_w := float(c["valve_edge_w_px"]) + float(oc["edge_width_boost_px"]) * _pointer
+	var edge_glow := float(c["valve_edge_glow"]) + float(oc["edge_glow_boost"]) * _pointer
+	for l in NodeLogic.capped_layers(edge, edge_w, edge_glow, float(c["valve_edge_halo_max_px"])):
 		draw_polyline(tri, l[1], l[0])
 	var hp := _origin + ValveLogic.point_of(shown_target(), _side)
 	var cur := ValveLogic.now_ring_pos(_origin + ValveLogic.point_of(model.hud.get("valve", shown_target()), _side), hp)

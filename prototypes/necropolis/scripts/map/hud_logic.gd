@@ -106,6 +106,10 @@ static func callout_parts(row: Dictionary, names: Dictionary) -> Dictionary:
 	var why := str(row.get("why", ""))
 	if why == "":
 		return {}
+	if bool(row.get("group", false)):
+		return {"head": "%s ×%d %s %s %s " % [str(row.get("kind", "")).to_upper(), int(row["count"]), DOT, why, DOT],
+			"rate": MapLogic.fmt_rate(float(row.get("rate", 0.0))),
+			"tail": " " + str(MapLogic.cfg()["callouts"]["collapse_total_text"])}
 	return {"head": "%s %s %s " % [str(row.get("kind", "")).to_upper(), ARROW, node_name(str(row.get("to", "")), names)],
 		"rate": MapLogic.fmt_rate(float(row.get("rate", 0.0))), "tail": " %s %s" % [DOT, why]}
 
@@ -123,6 +127,37 @@ static func callout_rows(lanes: Array) -> Array:
 			keyed.append([absf(float(lanes[i].get("rate", 0.0))), i])
 	keyed.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
 	return keyed.map(func(k): return lanes[k[1]])
+
+
+## callout_rows with same-cause lanes folded: `collapse_min` or more lanes that share a kind, a
+## why and a source node become ONE row {group: true, id, kind, from, to: "", why, rate (their sum),
+## count}, anchored at that common source (Covington for the valve or staging, Vei for a tithe);
+## fewer stay individual. Loudest first again, by the folded rate. `collapse_min` <= 0: no folding.
+static func callout_items(lanes: Array, collapse_min: int) -> Array:
+	var rows := callout_rows(lanes)
+	if collapse_min <= 0:
+		return rows
+	var groups := {}  # kind|why|from -> {rows, rate}
+	for r in rows:
+		var key := "%s|%s|%s" % [r.get("kind", ""), r.get("why", ""), r.get("from", "")]
+		if not groups.has(key):
+			groups[key] = {"rows": [], "rate": 0.0}
+		groups[key]["rows"].append(r)
+		groups[key]["rate"] += float(r.get("rate", 0.0))
+	var keyed: Array = []
+	var seen := {}
+	for i in rows.size():
+		var r: Dictionary = rows[i]
+		var key := "%s|%s|%s" % [r.get("kind", ""), r.get("why", ""), r.get("from", "")]
+		var g: Dictionary = groups[key]
+		if (g["rows"] as Array).size() < collapse_min:
+			keyed.append([absf(float(r.get("rate", 0.0))), i, r])
+		elif not seen.has(key):
+			seen[key] = true
+			keyed.append([absf(float(g["rate"])), i, {"group": true, "id": "group:" + key, "kind": r["kind"], "from": r["from"], "to": "",
+				"why": r["why"], "rate": g["rate"], "count": (g["rows"] as Array).size()}])
+	keyed.sort_custom(func(a, b): return a[0] > b[0] or (a[0] == b[0] and a[1] < b[1]))
+	return keyed.map(func(k): return k[2])
 
 
 ## Four plate rects of `size` around `anchor`, in preference order: up-right, down-right,

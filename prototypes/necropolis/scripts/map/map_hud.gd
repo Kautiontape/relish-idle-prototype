@@ -299,8 +299,11 @@ func _refresh_next() -> void:
 	var text := str(_next["text"]) + (("   " + str(NextLogic.cfg()["hint"])) if act else "")
 	if _objective.text != text:
 		_objective.text = text
-	_objective.disabled = not act
+	# an opening ask with nothing to click (the valve) stays enabled: a disabled button would dim it
+	_objective.disabled = not act and str(_next["rule"]) != NextLogic.OPENING
 	_objective.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if act else Control.CURSOR_ARROW
+	if str(_next["rule"]) != NextLogic.OPENING:
+		set_opening_pulse(0.0)
 
 
 ## The opening's first-30-seconds ask (task 10): `text` on the strip, clicking acts on `target`
@@ -309,6 +312,13 @@ func set_opening_ask(text: String, target: String) -> void:
 	_opening = {"text": text, "target": target}
 	_refresh_next()
 	_relayout()
+
+
+## The opening's pulse on the strip's plate while an ask is up: its colour leans toward undead by
+## `level` x opening.plate_tint (1 held steady under reduced motion, the beat's wave otherwise).
+func set_opening_pulse(level: float) -> void:
+	var c := MapHud.plate_color()
+	_obj_plate.color = c.lerp(Palette.c("undead", c.a), float(OpeningLogic.cfg()["plate_tint"]) * level) if level > 0.0 else c
 
 
 ## Backlog growing is good (undead), shrinking is danger; holding is neutral. The glyph is the

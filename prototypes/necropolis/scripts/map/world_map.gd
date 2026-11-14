@@ -19,6 +19,9 @@ var sidebar: MapSidebar
 var away: MapAway
 var setpieces: MapSetpieces
 var setpiece_layer: MapSetpieceLayer
+var opening: MapOpening
+var tithe_explain: MapTitheExplain
+var seen: MapSeen
 
 var selected_id := ""
 var _hover := ""
@@ -57,6 +60,7 @@ func _ready() -> void:
 	if not is_inside_tree():
 		return
 	hud.start()
+	opening.refresh()
 	_fit()
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
@@ -142,6 +146,22 @@ func _build_ui() -> void:
 	layer.add_child(sidebar)
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
+	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	opening = MapOpening.new()
+	opening.model = model
+	opening.hud = hud
+	opening.valve = valve
+	opening.nodes = nodes_view
+	opening.seen = seen
+	layer.add_child(opening)
+	tithe_explain = MapTitheExplain.new()
+	tithe_explain.model = model
+	tithe_explain.cam = cam
+	tithe_explain.hud = hud
+	tithe_explain.seen = seen
+	tithe_explain.toast.connect(hud.show_toast)
+	layer.add_child(tithe_explain)
+	Game.game_event.connect(tithe_explain.on_event)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
@@ -199,6 +219,8 @@ func _begin_arrival() -> float:
 ## and fort_flipped), for the set pieces.
 func take_events(evs: Array) -> void:
 	setpieces.take_events(evs)
+	for ev in evs:
+		tithe_explain.on_event(ev)
 
 
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
@@ -351,6 +373,8 @@ func _update_hover() -> void:
 
 
 func _exit_tree() -> void:
+	if tithe_explain != null and Game.game_event.is_connected(tithe_explain.on_event):
+		Game.game_event.disconnect(tithe_explain.on_event)
 	if away != null and Game.game_event.is_connected(away.on_event):
 		Game.game_event.disconnect(away.on_event)
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
@@ -368,3 +392,5 @@ func _process(delta: float) -> void:
 	hud.refresh()
 	valve.refresh()
 	sidebar.refresh()
+	opening.refresh()
+	tithe_explain.refresh()

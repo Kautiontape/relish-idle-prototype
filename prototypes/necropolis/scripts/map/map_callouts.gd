@@ -5,7 +5,9 @@ extends Node2D
 ## screen pixels: the node is scaled by 1/zoom, so text is the same size at every zoom. The
 ## layout (text, plate rects, greedy placement) is rebuilt only when the model's rev, the zoom
 ## tier or the zoom changes, never per frame; while the card is open, also when it moves or the
-## camera pans (the card is fixed on screen, so a pan moves it over the world). A callout never
+## camera pans (the card is fixed on screen, so a pan moves it over the world). Lanes that share a
+## kind, a cause and a source fold into one callout at that source ("WAR ×9 · valve · +2.6/s
+## total", HudLogic.callout_items). A callout never
 ## takes a place under the open card or over a held fort's chip. Text and placement:
 ## scripts/map/hud_logic.gd.
 
@@ -85,8 +87,8 @@ func _layout(z: float) -> void:
 	var off: Array = cfg["offset_px"]
 	var names := _names()
 	var rows: Array = []
-	for r in HudLogic.callout_rows(model.lanes):
-		if model.has_node(str(r["from"])) and model.has_node(str(r["to"])):
+	for r in HudLogic.callout_items(model.lanes, int(cfg["collapse_min"])):
+		if model.has_node(str(r["from"])) and (bool(r.get("group", false)) or model.has_node(str(r["to"]))):
 			rows.append(r)
 	var items: Array = []
 	var options: Array = []
@@ -99,7 +101,7 @@ func _layout(z: float) -> void:
 		var tw := lf.get_string_size(p["tail"], HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
 		var text_h := maxf(lf.get_height(size_px), rf.get_height(size_px))
 		var size := Vector2(hw + rw + tw + pad * 2.0, text_h + pad * 2.0)
-		var anchor := _mid(r) * z
+		var anchor := (model.node_pos(str(r["from"])) if bool(r.get("group", false)) else _mid(r)) * z
 		items.append({"parts": p, "anchor": anchor, "hw": hw, "rw": rw, "text_h": text_h})
 		options.append(HudLogic.candidate_rects(anchor, size, Vector2(float(off[0]), float(off[1]))))
 	var picks := HudLogic.place(options, int(cfg["max_count"]), float(cfg["gap_px"]), _occupied(z))
