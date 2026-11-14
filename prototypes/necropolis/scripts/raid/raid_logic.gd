@@ -181,6 +181,51 @@ static func clamp_banked_essence(banked: Dictionary, carried: int) -> Dictionary
 	return out
 
 
+## Item counts of a loot-shaped dictionary (relics, remnants, husks, blueprints) plus essence:
+## `items` is the four without essence, `total` is all five. `{}` counts as zeros.
+static func loot_counts(loot: Dictionary) -> Dictionary:
+	var out := {"relics": int(loot.get("relics", 0)), "remnants": (loot.get("remnants", []) as Array).size(),
+		"husks": (loot.get("husks", []) as Array).size(), "blueprints": (loot.get("blueprints", []) as Array).size(),
+		"essence": int(loot.get("essence", 0))}
+	out["items"] = int(out["relics"]) + int(out["remnants"]) + int(out["husks"]) + int(out["blueprints"])
+	out["total"] = int(out["items"]) + int(out["essence"])
+	return out
+
+
+## What a death would lose right now (MECHANICS 7): found loot plus the carried essence, minus the
+## last checkpoint snapshot (`banked`, {} before the first), as counts. Never negative.
+static func unbanked(found: Dictionary, carried: int, banked: Dictionary) -> Dictionary:
+	var f := loot_counts(found)
+	var b := loot_counts(banked)
+	var out := {}
+	for k in ["relics", "remnants", "husks", "blueprints"]:
+		out[k] = maxi(0, int(f[k]) - int(b[k]))
+	out["essence"] = maxi(0, carried - int(b["essence"]))
+	out["items"] = int(out["relics"]) + int(out["remnants"]) + int(out["husks"]) + int(out["blueprints"])
+	out["total"] = int(out["items"]) + int(out["essence"])
+	return out
+
+
+## The first-dungeon ghost ring (and the autopilot's raise circle): the centroid of the motes within
+## `reach_px` of Relish, and the radius to the farthest of them plus `pad_px`. {ok, center, radius,
+## count}; ok is false with no mote in reach.
+static func ghost_ring(mote_positions: Array, relish_pos: Vector2, reach_px: float, pad_px: float) -> Dictionary:
+	var near: Array[Vector2] = []
+	for p in mote_positions:
+		if (p as Vector2).distance_to(relish_pos) <= reach_px:
+			near.append(p)
+	if near.is_empty():
+		return {"ok": false, "center": relish_pos, "radius": 0.0, "count": 0}
+	var c := Vector2.ZERO
+	for p in near:
+		c += p
+	c /= float(near.size())
+	var rad := 0.0
+	for p in near:
+		rad = maxf(rad, p.distance_to(c))
+	return {"ok": true, "center": c, "radius": rad + pad_px, "count": near.size()}
+
+
 ## True when a phylactery charge is left to spend in this dungeon (MECHANICS 7).
 static func can_revive(revived: int, seed: Dictionary) -> bool:
 	return revives_left(revived, seed) > 0

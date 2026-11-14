@@ -20,6 +20,7 @@ extends RefCounted
 static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionary, opts: Dictionary = {}) -> Dictionary:
 	var lay: Dictionary = cfg.get("layout", {})
 	var held := bool(opts.get("held", false)) and not is_boss
+	var first := bool(opts.get("first_dungeon", false)) and not is_boss and not held
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(fort_id)
 	var last := {}
@@ -29,11 +30,22 @@ static func gen_layout(fort_id: String, tier: int, is_boss: bool, cfg: Dictionar
 			continue   # role assignment failed; the rng has moved on
 		last = cand
 		if layout_reachable(cand, float(lay.get("grid_cell", 32.0))):
-			return cand
+			return _with_first(cand, first, lay)
 	if last.is_empty():
 		# every attempt failed to place a warden room: fall back to a held-style layout
 		last = _gen_once(rng, tier, is_boss, lay, true)
-	return last
+		return last
+	return _with_first(last, first, lay)
+
+
+## First-dungeon bookkeeping only: the flag and the pile radius ride on the layout, geometry and the
+## generator's rng are untouched (populate_piles places the pile).
+static func _with_first(layout: Dictionary, first: bool, lay: Dictionary) -> Dictionary:
+	if first and int(layout.get("warden_room", -1)) >= 0:
+		layout["first_dungeon"] = true
+		layout["first_pile_px"] = float(lay.get("first_pile_px", 220.0))
+		layout["first_pile_min_px"] = float(lay.get("first_pile_min_px", 120.0))
+	return layout
 
 
 static func _gen_once(rng: RandomNumberGenerator, tier: int, is_boss: bool, lay: Dictionary, held: bool = false) -> Dictionary:
@@ -563,7 +575,45 @@ static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> A
 		var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
 		out.append(Vector2(rng.randf_range(inner.position.x, inner.end.x),
 			rng.randf_range(inner.position.y, inner.end.y)))
+	if bool(layout.get("first_dungeon", false)) and count >= 2:
+		out[1] = first_pile(fort_id, layout)   # the antechamber pile (0) stays; this one is by the spawn
 	return out
+
+
+## The first dungeon's near-spawn pile: inside the spawn room's inner rect, `first_pile_min_px` to
+## `first_pile_px` from the spawn (outside the stir radius, inside Relish's light, so it shows lit
+## and she walks into it), clear of walls. Its own deterministic rng.
+static func first_pile(fort_id: String, layout: Dictionary) -> Vector2:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(fort_id) * 29 + 4001
+	var spawn: Vector2 = layout["spawn"]
+	var rooms: Array = layout["rooms"]
+	var room: Rect2 = rooms[maxi(0, room_of(layout, spawn))]
+	var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
+	var lo := float(layout.get("first_pile_min_px", 120.0))
+	var hi := float(layout.get("first_pile_px", 220.0))
+	for attempt in 48:
+		var p := spawn + Vector2(rng.randf_range(lo, hi), 0).rotated(rng.randf() * TAU)
+		if inner.has_point(p) and not _in_walls(layout, p, 20.0):
+			return p
+	# crowded: walk the heading that stays in the room the longest (northwards first)
+	var best := spawn
+	var bd := -1.0
+	for k in 32:
+		var dir := Vector2(0, -1).rotated(TAU * float(k) / 32.0)
+		for d in [hi * 0.8, hi * 0.6, lo * 1.1]:
+			var p2: Vector2 = spawn + dir * d
+			if inner.has_point(p2) and not _in_walls(layout, p2, 20.0) and d > bd:
+				bd = d
+				best = p2
+	return best
+
+
+static func _in_walls(layout: Dictionary, p: Vector2, pad: float) -> bool:
+	for w in layout.get("walls", []):
+		if (w as Rect2).grow(pad).has_point(p):
+			return true
+	return false
 
 
 ## Index into layout.doors of the exit whose inner point is within `radius` of p, nearest first; -1 if none.

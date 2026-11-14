@@ -5,6 +5,9 @@ extends RaidWarden
 ## dashes there. A speedy big undead on the path intercepts it (the dash stops at it, the unit takes
 ## a hit, the Huntsman is stunned and takes extra damage). Otherwise a lunge that reaches Relish is
 ## a "catch" (counted even when a sacrifice soaks the hit); catches advance its phases.
+## While Relish is outside its room it hunts her undead instead (the nearest in or entering the room,
+## WardenLogic.hunt_target): same tell, same lunge, no catches, units on the path take the hit. So
+## hiding outside costs units, and she is not safe forever.
 
 var catches := 0
 var stun_left := 0.0           # scene seconds of stun remaining
@@ -19,6 +22,8 @@ var _dash_left := 0.0
 var _lunges := 0
 var _aim := Vector2.RIGHT      # heading drawn as the spear
 var _lunge_flash := 0.0
+var _hunting_undead := false   # this frame's target is an undead, not Relish
+var _lock_undead := false      # the locked lunge is aimed at an undead: it cannot catch
 
 
 func _on_wake() -> void:
@@ -59,9 +64,16 @@ func _speed_now() -> float:
 	return float((phs[clampi(phase, 0, phs.size() - 1)] as Dictionary).get("speed", 140.0))
 
 
-func _relish_in_room() -> bool:
+## Who it hunts now: Relish in the room, else the nearest undead in or entering it, else nobody.
+func _hunt() -> Dictionary:
+	var units: Array = []
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive:
+			units.append(a.global_position)
 	var rel: RaidRelish = raid.relish
-	return rel != null and is_instance_valid(rel) and rel.alive and _room.has_point(rel.global_position)
+	var rel_ok := rel != null and is_instance_valid(rel) and rel.alive
+	return WardenLogic.hunt_target(_room, rel.global_position if rel_ok else Vector2.INF, rel_ok, units,
+		global_position, float(spec.get("attack", {}).get("hunt_margin_px", 40.0)))
 
 
 func _step(delta: float) -> void:
@@ -77,10 +89,13 @@ func _step(delta: float) -> void:
 	var b := beat()
 	var tell := _tell()
 	var at: Dictionary = spec.get("attack", {})
-	# tell: lock the target point at Relish's position (only while she is in the room)
-	if not _locked and b >= _next_attack - tell and _relish_in_room():
+	var tgt := _hunt()
+	_hunting_undead = tgt["kind"] == "undead"
+	# tell: lock the target point at Relish's position while she is in the room, else at an undead
+	if not _locked and b >= _next_attack - tell and tgt["kind"] != "none":
 		var late := b > _next_attack - tell + 0.1
-		_lock_pt = WardenLogic.lunge_target(global_position, raid.relish.global_position, float(at.get("range_px", 320.0)))
+		_lock_pt = WardenLogic.lunge_target(global_position, tgt["pos"], float(at.get("range_px", 320.0)))
+		_lock_undead = _hunting_undead
 		_locked = true
 		if late:
 			_next_attack = ceilf(b + tell)   # stay on the tempo: snap to a whole beat
@@ -93,14 +108,13 @@ func _step(delta: float) -> void:
 		if b >= _next_attack:
 			_begin_lunge()
 		return   # planted while the tell shows
-	_stalk(delta, float(at.get("stalk_stop_px", 150.0)))
+	_stalk(delta, float(at.get("stalk_stop_px", 150.0)), tgt)
 
 
-func _stalk(delta: float, stop_px: float) -> void:
-	var goal := WardenLogic.leash_target(_room, raid.relish.global_position if raid.relish != null else _room.get_center())
+func _stalk(delta: float, stop_px: float, tgt: Dictionary) -> void:
+	var goal := _room.get_center() if tgt["kind"] == "none" else WardenLogic.leash_clamp(_room, tgt["pos"], radius)
 	var to_goal := goal - global_position
-	var inside := _relish_in_room()
-	var wait := stop_px if inside else 6.0
+	var wait := 6.0 if tgt["kind"] == "none" else stop_px
 	if to_goal.length() <= wait:
 		return
 	var dir := to_goal.normalized()
@@ -131,9 +145,11 @@ func _begin_lunge() -> void:
 	var at: Dictionary = spec.get("attack", {})
 	var from := global_position
 	var to := _wall_clipped(from, WardenLogic.leash_clamp(_room, _lock_pt, radius))
+	var undead_hunt := _lock_undead   # aimed at an undead: no catches
 	_last_attack = _next_attack
 	_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)
 	_locked = false
+	_lock_undead = false
 	_lunges += 1
 	_lunge_flash = 1.0
 	# the weak point: fast big undead near the path
@@ -165,7 +181,7 @@ func _begin_lunge() -> void:
 		if WardenLogic.lunge_hits(from, to, a.global_position, hit_r + a.radius):
 			done[a] = true
 			a.take_hit(dmg_u)
-	if hit_i < 0:
+	if hit_i < 0 and not undead_hunt:
 		var rel: RaidRelish = raid.relish
 		if rel != null and is_instance_valid(rel) and rel.alive \
 				and WardenLogic.lunge_hits(from, to, rel.global_position, hit_r + rel.radius):
@@ -177,7 +193,7 @@ func _begin_lunge() -> void:
 	_dashing = true
 	_aim = to - from
 	if raid._standalone:
-		print("RAID_WARDEN lunge n=%d %s catches=%d phase=%d undead_hit=%d frame=%d" % [_lunges, outcome, catches, phase, done.size(), Engine.get_process_frames()])
+		print("RAID_WARDEN lunge n=%d %s%s catches=%d phase=%d undead_hit=%d frame=%d" % [_lunges, outcome, " (hunting undead)" if undead_hunt else "", catches, phase, done.size(), Engine.get_process_frames()])
 	if _dash_left <= 0.5:
 		_dashing = false
 
@@ -195,7 +211,8 @@ func _advance_dash(delta: float) -> void:
 
 func _update_hud() -> void:
 	if raid.hud != null:
-		raid.hud.set_warden_line("CAUGHT %d%s" % [catches, "   INTERCEPTED" if is_stunned() else ""],
+		raid.hud.set_warden_line("CAUGHT %d%s%s" % [catches, "   HUNTING YOUR DEAD" if _hunting_undead else "",
+			"   INTERCEPTED" if is_stunned() else ""],
 			"undead" if is_stunned() else "danger")
 
 

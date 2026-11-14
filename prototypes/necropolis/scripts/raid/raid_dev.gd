@@ -4,7 +4,7 @@ extends RefCounted
 ##   godot --path . res://scenes/raid/Raid.tscn -- --new-game --raid-fixture=day1,old-sluice
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
-## --raid-motes=N, --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits).
@@ -99,6 +99,8 @@ func start() -> void:
 	if RaidAutopilot.enabled() and not _raid.is_boss():
 		_ap = RaidAutopilot.new(_raid)
 		_ap.start()
+	if cli_flag("--raid-trance-hold") and not _raid.is_boss():
+		_raid.trance._button_down()   # open the trance and keep it open (the ghost-ring shot)
 	if cli_value("--raid-ding-chance=") != "":
 		var by_tier: Dictionary = ConfigDb.data["loot"]["ding"]["chance_by_tier"]
 		for k in by_tier.keys():

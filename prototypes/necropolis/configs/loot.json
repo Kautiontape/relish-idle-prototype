@@ -11,6 +11,7 @@
     },
     "fx": {"ring_px": 22.0, "ring_s": 0.35, "text_s": 0.8, "rise_px": 26.0}
   },
+  "pickup": {"radius_px": 40.0, "size_px": 9.0, "z": 16},
   "magnitude_by_rarity": {
     "common": [1, 2],
     "uncommon": [2, 3],

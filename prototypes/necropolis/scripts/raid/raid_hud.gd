@@ -173,9 +173,13 @@ func refresh() -> void:
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
-		var f: Dictionary = raid.found_loot
-		st.loot_text = "relics %d · remnants %d · husks %d · blueprints %d" % [int(f.get("relics", 0)),
-			(f.get("remnants", []) as Array).size(), (f.get("husks", []) as Array).size(), (f.get("blueprints", []) as Array).size()]
+		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now
+		var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
+		var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, raid.carried_count(), raid.endings.banked)
+		st.banked_text = _loot_line(bk)
+		st.unbanked_text = _loot_line(ub)
+		st.unbanked_n = int(ub["total"])
+		st.floor_n = raid.pickups_left()
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true
@@ -184,6 +188,11 @@ func refresh() -> void:
 	if _backlog != null:
 		_backlog.text = "BACKLOG  %.0f    LOST  s%d e%d" % [raid.backlog_left, raid.army_lost["soldier"], raid.army_lost["elite"]]
 	st.queue_redraw()
+
+
+func _loot_line(c: Dictionary) -> String:
+	return "relics %d · remnants %d · husks %d · blueprints %d · essence %d" % [int(c["relics"]), int(c["remnants"]),
+		int(c["husks"]), int(c["blueprints"]), int(c["essence"])]
 
 
 func flash(color: Color) -> void:
@@ -265,13 +274,16 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
-	var loot_text := ""
+	var banked_text := ""
+	var unbanked_text := ""
+	var unbanked_n := 0      # items + essence a death would lose now
+	var floor_n := 0         # pickups still on the floor
 	var _row := 20.0
 	var _lab := 13
 	var _val := 15
 	var _pip := 7.0
 	var _row_max := 24
-	var _col := 76.0
+	var _col := 92.0
 
 	func setup(p_boss: bool) -> void:
 		boss = p_boss
@@ -280,15 +292,16 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
-		var rows := 3.0 if boss else 10.0   # living, essence, raised | + 4 ward rows, phylactery, loot
+		var rows := 3.0 if boss else 12.0   # living, essence, raised | + 4 ward rows, phylactery, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
 
-	func _value(x: float, y: float, text: String) -> float:
+	func _value(x: float, y: float, text: String, col: Variant = null) -> float:
 		var f := ThemeDB.fallback_font
-		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, Palette.c("text"))
+		var tone: Color = Palette.c("text") if col == null else col
+		draw_string(f, Vector2(x, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, tone)
 		return x + f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, _val).x
 
 	## `n` pips left to right from x, `filled` of them solid; returns the x after the row.
@@ -347,8 +360,18 @@ class StatBlock:
 			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
 			_value(px + 4.0, y, str(phyl))
 			y += _row
-			_label(y, "LOOT")
-			_value(_col, y, loot_text)
+			_label(y, "BANKED")
+			_value(_col, y, banked_text)
+			y += _row
+			var risk := unbanked_n > 0
+			var tone := Palette.c("danger") if risk else Palette.c("text_dim")
+			_label(y, "UNBANKED")
+			_value(_col, y, unbanked_text, tone)
+			y += _row
+			# the stakes: one pip per unbanked thing (capped), then what it means
+			var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
+			var note := "lost if you die" + ("" if floor_n <= 0 else " · %d on the floor" % floor_n)
+			_value(px2 + 6.0, y, note, tone)
 
 
 class TranceMeter:

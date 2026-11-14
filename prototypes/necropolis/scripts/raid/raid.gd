@@ -147,6 +147,11 @@ func fort_name() -> String:
 	return str(seed_data.get("fort", {}).get("name", seed_data.get("name", "?")))
 
 
+## The player's first dungeon (seed.fort.first_dungeon): taught in-world (ghost ring, a pile by the spawn).
+func is_first_dungeon() -> bool:
+	return not is_boss() and bool(seed_data.get("fort", {}).get("first_dungeon", false))
+
+
 func fort_tier() -> int:
 	return int(seed_data.get("fort", {}).get("tier", seed_data.get("tier", 1)))
 
@@ -159,7 +164,7 @@ func _build() -> void:
 	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
-	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held})
+	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
 	if boss:
 		rng_combat.randomize()
 		rng_loot.randomize()
@@ -199,6 +204,14 @@ func _build() -> void:
 			pile.mass = dead / pc
 			pile.position = p
 			units_root.add_child(pile)
+	elif bool(layout.get("first_dungeon", false)) and not is_boss():
+		# the first dungeon has no dead to speak of; one massless pile by the spawn still teaches the circle
+		var fp := RaidPile.new()
+		fp.raid = self
+		fp.mass = 0.0
+		fp.look_mass = float(cfg.get("layout", {}).get("first_pile_look_mass", 6.0))
+		fp.position = LayoutLogic.first_pile(fort_id, layout)
+		units_root.add_child(fp)
 
 	if not is_boss():
 		RaidPopulate.new(self).populate(cfg, fort_id, tier)
@@ -229,6 +242,10 @@ func _build() -> void:
 	hud = RaidHud.new()
 	add_child(hud)
 	hud.build(self, is_boss())
+	if is_first_dungeon() and not held:
+		var gr := RaidGhostRing.new()
+		gr.raid = self
+		add_child(gr)
 
 	if not boss:
 		relish.hp = float(seed_data.get("relish_hp", relish.hp))
@@ -470,15 +487,34 @@ func chest_loot() -> Dictionary:
 	return RaidLoot.chest(rng_loot, info, owned, lcfg())
 
 
-## A living kill may ding a remnant: it joins found_loot and a small spark rises at the corpse.
+## A living kill may ding a remnant: it drops as a pickup at the corpse (it joins found_loot only
+## when Relish walks over it; whatever is left on the floor at the end is lost).
 func _roll_ding(pos: Vector2) -> void:
 	var fort: Dictionary = seed_data.get("fort", {})
 	var rem := RaidLoot.ding(rng_loot, fort_tier(), str(seed_data.get("warden", {}).get("archetype", "")),
 		float(fort.get("yield_mult", 1.0)), lcfg())
 	if rem.is_empty():
 		return
-	found_loot = RaidLogic.merge_loot(found_loot, {"remnants": [rem]})
-	RaidFx.ding(fx_root, pos, lcfg().get("ding", {}).get("fx", {}))
+	var pk := RaidPickup.new()
+	pk.raid = self
+	pk.remnant = rem
+	pk.position = resolve_walls(pos, 6.0)
+	units_root.add_child(pk)
+
+
+## Relish reached a pickup: its remnant joins found_loot, with the ding fx and "+1".
+func collect_pickup(pk: RaidPickup) -> void:
+	if _ended or not pk.is_in_group("raid_pickups"):
+		return
+	pk.remove_from_group("raid_pickups")   # queue_free is deferred; the count must drop now
+	found_loot = RaidLogic.merge_loot(found_loot, {"remnants": [pk.remnant]})
+	RaidFx.ding(fx_root, pk.global_position, lcfg().get("ding", {}).get("fx", {}))
+	pk.queue_free()
+
+
+## Pickups still lying on the floor (lost if the run ends now).
+func pickups_left() -> int:
+	return get_tree().get_nodes_in_group("raid_pickups").size()
 
 
 func nearest_ally_of(pos: Vector2):

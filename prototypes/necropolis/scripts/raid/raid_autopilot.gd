@@ -19,7 +19,11 @@ extends RefCounted
 ##   collect walk to loose motes and corpse piles when no enemy is near.
 ##   raise   when the trance is ready and enough motes are near, draw a 44-point circle whose jitter
 ##           is binary-searched to land within a few points of the target score.
-##   warden  keep out of it (outside the slam; sidestep lunge tells with probability `dodge`), then the chest.
+##   pickup  walk to remnants lying on the floor when no foe is near (before the chest ends the run).
+##   warden  Bellringer: stay out of the slam, but go in for motes (and raise) while the next tell is
+##           more than `slam_safe_beats` away (WardenLogic.slam_window_open), and get out before it.
+##           Huntsman: fight inside its room (it hunts the undead when she hides), sidestep lunge
+##           tells with probability `dodge`. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
 
@@ -35,6 +39,7 @@ var _frame := 0
 var _timed_out := false
 var _done := false
 var _scores: Array = []         # score of every successful raise
+var _first_raise_s := -1.0      # scene time of the first successful raise (-1: none)
 var _cur_room := -1
 var _prev_room := -1
 var _hold_t := 0.0              # continuous seconds spent holding back in the current room
@@ -163,11 +168,14 @@ func on_finish(result: Dictionary) -> void:
 		avg += float(s)
 	if not _scores.is_empty():
 		avg /= float(_scores.size())
+	var lost := _unbanked_lost(result)
 	var out := {"fort": str(fort.get("id", "")), "tier": _raid.fort_tier(), "archetype": _archetype,
 		"held": _raid.held, "first_dungeon": bool(fort.get("first_dungeon", false)),
 		"target_score": _target, "seed": _seed, "exit": exit,
 		"duration_s": snappedf(_sim_t, 0.01), "revives": _raid.endings.revived,
 		"raises": _raid.raises, "avg_score": snappedf(avg, 0.1), "raised_count": raised,
+		"first_raise_s": snappedf(_first_raise_s, 0.01), "warden_hp_frac_end": snappedf(_warden_hp_frac(), 0.001),
+		"pickups_left": _raid.pickups_left(), "unbanked_lost": int(lost["items"]), "unbanked_lost_essence": int(lost["essence"]),
 		"killed_living_mass": snappedf(float(result.get("killed_living_mass", 0.0)), 0.01),
 		"loot": {"relics": int(loot.get("relics", 0)), "blueprints": (loot.get("blueprints", []) as Array).size(),
 			"husks": (loot.get("husks", []) as Array).size(), "remnants": (loot.get("remnants", []) as Array).size(),
@@ -175,6 +183,24 @@ func on_finish(result: Dictionary) -> void:
 		"party_lost": result.get("party_lost", [])}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	_raid.get_tree().quit()
+
+
+## Scene end: the warden's hp fraction (0 once killed, 1 while it never woke, -1 with no warden: a
+## held fort).
+func _warden_hp_frac() -> float:
+	var w = _raid.warden_run.warden
+	if w != null and is_instance_valid(w):
+		return clampf(w.hp / maxf(1.0, w.max_hp), 0.0, 1.0)
+	return 0.0 if _archetype != "" else -1.0
+
+
+## What the run lost that was found or carried and not banked: found_loot (and carried essence) minus
+## what the result actually paid out. Zero for a retreat or a beaten warden (they bank everything);
+## positive for a death or a timeout away from an exit (both pay the last checkpoint's loot).
+func _unbanked_lost(result: Dictionary) -> Dictionary:
+	var paid: Dictionary = RaidLogic.loot_counts(result.get("loot", {}))
+	var had: Dictionary = RaidLogic.loot_counts(RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()))
+	return {"items": maxi(0, int(had["items"]) - int(paid["items"])), "essence": maxi(0, int(had["essence"]) - int(paid["essence"]))}
 
 
 ## Past max_s: retreat if Relish stands at an exit (the retreat banks everything found plus the
@@ -338,6 +364,12 @@ func _back_step(pos: Vector2, from: Vector2, stay_in: Rect2 = Rect2()) -> Vector
 
 
 # ------------------------------------------------------------------- policy ---
+## True when `p` is in the room the bot is in (or in a doorway band, which belongs to no room).
+func _shares_room(p: Vector2) -> bool:
+	var r := RaidLogic.room_of(_raid.layout, p)
+	return r < 0 or _cur_room < 0 or r == _cur_room
+
+
 func _living() -> Array:
 	var out: Array = []
 	for e in _raid.enemies:
@@ -350,6 +382,11 @@ func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
 	var hold_px := _c("hold_px", 200.0)
 	var kite_px := _c("kite_px", 240.0)
+	if _hold_t >= _c("stall_s", 30.0):
+		# the army has had its time and the way on is still shut: commit, so a lone foe on the edge of
+		# kite range cannot hold the bot at the boundary (kite, advance, kite...)
+		kite_px = _c("kite_committed_px", 110.0)
+		hold_px = minf(hold_px, kite_px)
 	var run: RaidWardenRun = _raid.warden_run
 
 	if _giving_up:
@@ -360,15 +397,22 @@ func _decide(pos: Vector2) -> Vector2:
 			and (run.chest == null or not is_instance_valid(run.chest)):
 		return _head_for_exit(pos)
 
-	# the chest: walk to it
-	if run.chest != null and is_instance_valid(run.chest):
-		return _to_point(pos, run.chest.global_position)
-
 	var living := _living()
 	_foes = living
+
+	# the chest: walk to it (opening it ends the run: sweep up what lies on the floor first)
+	if run.chest != null and is_instance_valid(run.chest):
+		var pk0 = _pickup_target(pos, living)
+		if pk0 != null:
+			_why = "pickup"
+			return _to_point(pos, pk0)
+		return _to_point(pos, run.chest.global_position)
+
 	var ne = null
 	var nd := INF
 	for e in living:
+		if not _shares_room(e.global_position):
+			continue   # a foe behind a wall is no threat yet (kiting from it made the bot dither at the wall)
 		var d: float = pos.distance_to(e.global_position)
 		if d < nd:
 			nd = d
@@ -395,6 +439,10 @@ func _decide(pos: Vector2) -> Vector2:
 	if loot != null:
 		_why = "loot"
 		return _to_point(pos, loot)
+	var pick = _pickup_target(pos, living)
+	if pick != null:
+		_why = "pickup"
+		return _to_point(pos, pick)
 	# hold while living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
@@ -447,7 +495,7 @@ func _head_for_exit(pos: Vector2) -> Vector2:
 ## The nearest loose mote within collect_px, else the nearest unstirred corpse pile within
 ## pile_px (stirring a pile turns it into motes), when the carried cluster has room. Spots within
 ## `foe_clear_px` of a living enemy, and inside the warden's danger circle (`avoid`, `avoid_r`), are skipped.
-func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0):
+func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
 	if _raid.carry_room() <= 0:
 		return null
 	var clear := _c("foe_clear_px", 170.0)
@@ -458,7 +506,7 @@ func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, 
 			continue
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
-		if d < bd and _spot_ok(p, living, clear, avoid, avoid_r):
+		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):
 			bd = d
 			best = p
 	if best != null:
@@ -469,9 +517,32 @@ func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, 
 			continue
 		var p2: Vector2 = o.global_position
 		var d2 := pos.distance_to(p2)
-		if d2 < bd and _spot_ok(p2, living, clear, avoid, avoid_r):
+		if d2 < bd and _in(in_room, p2) and _spot_ok(p2, living, clear, avoid, avoid_r):
 			bd = d2
 			best = p2
+	return best
+
+
+## A rect with no size means "anywhere".
+func _in(room: Rect2, p: Vector2) -> bool:
+	return room.size == Vector2.ZERO or room.has_point(p)
+
+
+## The nearest remnant on the floor within `pickup_px` that is safe to fetch (no living foe within
+## `pickup_foe_clear_px`, outside the warden's danger circle `avoid`/`avoid_r`, inside `in_room` when
+## given). Pickups need no carry room.
+func _pickup_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
+	var best = null
+	var bd := _c("pickup_px", 900.0)
+	var clear := _c("pickup_foe_clear_px", 90.0)
+	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
+		if not is_instance_valid(o):
+			continue
+		var p: Vector2 = o.global_position
+		var d := pos.distance_to(p)
+		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):
+			bd = d
+			best = p
 	return best
 
 
@@ -504,6 +575,11 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 	# other living first
 	if ne != null and nd < kite_px:
 		return _back_step(pos, ne.global_position)
+	if _archetype == "bellringer":
+		return _vs_bell(pos, w as RaidBellringer, living, safe_px)
+	var wr_rect := Rect2()
+	if _archetype == "huntsman" and int(_raid.layout.get("warden_room", -1)) >= 0:
+		wr_rect = (_rooms()[int(_raid.layout["warden_room"])] as Rect2)   # stay in its room: it hunts the undead if she hides
 	if pos.distance_to(wp) < safe_px:
 		if _archetype == "huntsman":
 			# it only hunts inside its room: Relish stays in there too (kiting, and dodging its tells)
@@ -512,13 +588,106 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 			return _back_step(pos, wp, (_rooms()[wr] as Rect2).grow(-float(_raid.relish.radius) - 6.0))
 		return _warden_retreat(pos, w, safe_px)
 	# outside the danger: collect what is safe to reach
-	var avoid_r := safe_px
-	if _archetype == "bellringer" and _bell_window_open(w, pos):
-		avoid_r = 0.0   # the next slam is a while off: dash in and out for motes
-	var loot = _collect_target(pos, living, wp, avoid_r)
+	var loot = _collect_target(pos, living, wp, safe_px, wr_rect)
 	if loot != null:
 		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, wp, safe_px, wr_rect)
+	if pk != null:
+		return _to_point(pos, pk)
 	return pos
+
+
+## The Bellringer fight: raise through it. While the next tell is more than `slam_safe_beats` away
+## (counting the walk out), go in for motes the dying undead drop (the raise circle needs them) and
+## fetch pickups; otherwise keep outside the slam. Beats come from the warden's own clock.
+func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) -> Vector2:
+	var wp := b.global_position
+	var beats := _bell_beats_to_tell(b)
+	var inside := pos.distance_to(wp) < safe_px
+	if beats > 0.0:
+		var t = _bell_target(pos, b, living, safe_px, beats)
+		if t != null:
+			_why = "bell-in"
+			return _to_point(pos, t)
+	if inside:
+		_why = "bell-out"
+		return _warden_retreat(pos, b, safe_px)
+	var loot = _collect_target(pos, living, wp, safe_px)
+	if loot != null:
+		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, wp, safe_px)
+	if pk != null:
+		return _to_point(pos, pk)
+	return pos
+
+
+## Beats until the next slam's tell begins (negative while a slam is in flight or its tell shows).
+func _bell_beats_to_tell(b: RaidBellringer) -> float:
+	if b._slam_beat >= 0.0:
+		return -1.0
+	var tell := float(b.spec.get("attack", {}).get("tell_beats", 1.0))
+	return (b._next_attack - tell) - b.beat()
+
+
+## Where to stand to raise (else fetch a pickup) inside the slam and still be out before the tell. The
+## raise reaches `raise_reach_px`, so Relish need not reach the motes: she stops `slam_stand_frac` of
+## that from a cluster (`slam_cluster_frac` wide, at least `min_motes`) once the trance will be ready.
+## The trip there plus the walk back out of the slam must fit in `beats` less `slam_safe_beats`.
+func _bell_target(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float, beats: float):
+	var wp := b.global_position
+	var speed: float = _raid.relish.speed
+	var tempo: float = b.tempo_s()
+	var margin := _c("slam_safe_beats", 1.0)
+	var reach := _c("raise_reach_px", 300.0)
+	var stand := reach * _c("slam_stand_frac", 0.5)
+	var cluster := reach * _c("slam_cluster_frac", 0.4)
+	var clear := _c("foe_clear_px", 170.0)
+	var tr: RaidTrance = _raid.trance
+	var ready_in := 0.0
+	if tr.state == RaidTrance.State.COOLDOWN or tr.state == RaidTrance.State.LOCKOUT:
+		ready_in = tr.cooldown_left
+	elif tr.state == RaidTrance.State.ACTIVE or not tr.enabled:
+		ready_in = 1.0e9
+	var best = null
+	var bd := _c("slam_reach_px", 600.0)
+	if _raid.carry_room() > 0 and ready_in < 1.0e8:
+		var free: Array[Vector2] = []
+		for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
+			if is_instance_valid(o) and not o.absorbing and not o.carried \
+					and _spot_ok(o.global_position, living, clear, Vector2.INF, 0.0):
+				free.append(o.global_position)
+		for m in free:
+			if pos.distance_to(m) >= bd:
+				continue
+			var ring := RaidLogic.ghost_ring(free, m, cluster, 0.0)
+			if int(ring["count"]) < int(_c("min_motes", 3.0)):
+				continue
+			var c: Vector2 = ring["center"]
+			var from_c := pos - c
+			var stand_pt := pos if from_c.length() <= reach * 0.9 \
+				else c + from_c.normalized() * stand
+			var trip := pos.distance_to(stand_pt)
+			if ready_in > trip / maxf(1.0, speed):
+				continue   # the trance will not be ready by the time she is there
+			var out_px := trip + maxf(0.0, safe_px - stand_pt.distance_to(wp))
+			if trip < bd and WardenLogic.slam_window_open(beats, out_px, speed, tempo, margin):
+				bd = trip
+				best = stand_pt
+	if best != null:
+		return best
+	bd = _c("slam_reach_px", 600.0)
+	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
+		if not is_instance_valid(o):
+			continue
+		var p: Vector2 = o.global_position
+		var d := pos.distance_to(p)
+		if d >= bd or not _spot_ok(p, living, _c("pickup_foe_clear_px", 90.0), Vector2.INF, 0.0):
+			continue
+		var out_px2 := d + maxf(0.0, safe_px - p.distance_to(wp))
+		if WardenLogic.slam_window_open(beats, out_px2, speed, tempo, margin):
+			bd = d
+			best = p
+	return best
 
 
 ## Where to wait out the warden: the farthest of the previous room's centre and this room's far
@@ -542,17 +711,6 @@ func _warden_retreat(pos: Vector2, w: RaidWarden, safe_px: float) -> Vector2:
 			bd = score
 			best = c
 	return _toward_room(pos, RaidLogic.room_of(_raid.layout, best) if RaidLogic.room_of(_raid.layout, best) >= 0 else _cur_room, best)
-
-
-## The Bellringer's slam is not in flight and the next tell is far enough off to go in and come out.
-func _bell_window_open(w: RaidWarden, pos: Vector2) -> bool:
-	var b: RaidBellringer = w as RaidBellringer
-	if b == null or b._slam_beat >= 0.0:
-		return false
-	var tell := float(b.spec.get("attack", {}).get("tell_beats", 1.0))
-	var left_s := (b._next_attack - tell - b.beat()) * b.tempo_s()
-	var trip_s := 2.0 * pos.distance_to(b.global_position) / maxf(1.0, _raid.relish.speed)
-	return left_s > trip_s + _c("bell_enter_margin_s", 1.5)
 
 
 ## A Huntsman lunge tell is showing: with probability `dodge` (rolled once per tell, seeded) step
@@ -597,18 +755,10 @@ func _try_raise(pos: Vector2) -> void:
 	var tr: RaidTrance = _raid.trance
 	if tr == null or not tr.enabled or tr.state != RaidTrance.State.READY:
 		return
-	var pts := _motes_near(pos, _c("raise_reach_px", 300.0))
-	if pts.size() < int(_c("min_motes", 3.0)):
+	var ring := RaidLogic.ghost_ring(_motes_near(pos, 1.0e9), pos, _c("raise_reach_px", 300.0), _c("raise_pad_px", 14.0))
+	if not bool(ring["ok"]) or int(ring["count"]) < int(_c("min_motes", 3.0)):
 		return
-	var c := Vector2.ZERO
-	for p in pts:
-		c += p
-	c /= float(pts.size())
-	var rad := 0.0
-	for p in pts:
-		rad = maxf(rad, p.distance_to(c))
-	rad += _c("raise_pad_px", 14.0)
-	var trace := _trace_for(c, rad)
+	var trace := _trace_for(ring["center"], ring["radius"])
 	var g := CircleScorer.grade(trace)
 	_raid.show_trace_feedback(g, trace.duplicate())
 	var before: int = _raid.raises
@@ -618,6 +768,8 @@ func _try_raise(pos: Vector2) -> void:
 	tr.bot_raise_cooldown(raised)
 	if raised:
 		_scores.append(int(g["score"]))
+		if _first_raise_s < 0.0:
+			_first_raise_s = _sim_t
 
 
 ## 44 points round the circle with seeded radial jitter; the jitter amplitude is binary-searched

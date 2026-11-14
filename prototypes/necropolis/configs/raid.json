@@ -211,6 +211,9 @@
     "wall_intensity": 0.7,
     "boss_wall_stroke_px": 6.0,
     "boss_wall_intensity": 0.9,
+    "first_pile_px": 220.0,
+    "first_pile_min_px": 120.0,
+    "first_pile_look_mass": 6.0,
     "door_width": 150.0,
     "inner_gap_width": 165.0,
     "min_room_px": 300.0,
@@ -329,11 +332,23 @@
       }
     }
   },
+  "ghost_ring": {
+    "reach_px": 300.0,
+    "pad_px": 14.0,
+    "dashes": 28,
+    "dash_fill": 0.55,
+    "spin_rad_s": 0.25,
+    "alpha": 0.55,
+    "width_px": 3.0,
+    "label_px": 16,
+    "label": "trace around the glow"
+  },
   "autopilot": {
     "think_frames": 3,
     "max_s": 600.0,
     "hold_px": 200.0,
     "kite_px": 240.0,
+    "kite_committed_px": 110.0,
     "collect_px": 320.0,
     "pile_px": 900.0,
     "foe_clear_px": 90.0,
@@ -352,7 +367,13 @@
     "dodge": 0.5,
     "dodge_step_px": 60.0,
     "bell_margin_px": 24.0,
-    "bell_enter_margin_s": 1.5
+    "bell_enter_margin_s": 1.5,
+    "slam_safe_beats": 1.0,
+    "slam_reach_px": 600.0,
+    "slam_stand_frac": 0.5,
+    "slam_cluster_frac": 0.4,
+    "pickup_px": 900.0,
+    "pickup_foe_clear_px": 90.0
   },
   "wardens": {
     "chest_open_px": 44.0,
@@ -447,6 +468,7 @@
           "speed_px_s": 900.0,
           "hit_radius_px": 22.0,
           "stalk_stop_px": 150.0,
+          "hunt_margin_px": 40.0,
           "guard_px": 46.0,
           "guard_spread_px": 18.0,
           "stun_wobble_px": 3.5,

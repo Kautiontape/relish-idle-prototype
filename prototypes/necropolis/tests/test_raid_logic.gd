@@ -150,6 +150,9 @@ func run() -> int:
 		"boss arena is the biggest layout")
 
 	_role_tests(t, cfg, cell)
+	_first_pile_tests(t, cfg)
+	_ghost_ring_tests(t)
+	_unbanked_tests(t)
 
 	# --- population sanity ---------------------------------------------------
 	t.suite("raid_population")
@@ -600,3 +603,104 @@ func _wall_tests(t: TestUtil, cfg: Dictionary) -> void:
 			roles_ok = roles_ok and lay["roles"][ar] == "antechamber"
 	t.ok(seen > 0, "some layouts put the antechamber on a checkpoint (%d of 200)" % seen)
 	t.ok(roles_ok, "an antechamber that is also a checkpoint keeps the role \"antechamber\"")
+
+
+func _first_pile_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_first_pile")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var px := float(cfg["layout"].get("first_pile_px", 0.0))
+	var stir := float(cfg["essence"].get("stir_radius_px", 90.0))
+	t.ok(px >= 150.0 and px <= 260.0, "layout.first_pile_px is about 220 (%f)" % px)
+	var n := 0
+	var near_ok := true
+	var room_ok := true
+	var wall_ok := true
+	var ante_ok := true
+	var same_ok := true
+	var det_ok := true
+	var off_ok := true
+	var count_ok := true
+	for f in world["forts"]:
+		var id := str(f["id"])
+		var plain := RaidLogic.gen_layout(id, 1, false, cfg)
+		var lay := RaidLogic.gen_layout(id, 1, false, cfg, {"first_dungeon": true})
+		var spawn: Vector2 = lay["spawn"]
+		same_ok = same_ok and lay["spawn"] == plain["spawn"] and lay["rooms"] == plain["rooms"] and lay["walls"] == plain["walls"]
+		var piles := RaidLogic.populate_piles(id, lay, 4)
+		var base := RaidLogic.populate_piles(id, plain, 4)
+		off_ok = off_ok and base.size() == 4 and not (plain.has("first_dungeon") and bool(plain["first_dungeon"]))
+		count_ok = count_ok and piles.size() == 4
+		det_ok = det_ok and piles == RaidLogic.populate_piles(id, lay, 4)
+		var sroom := RaidLogic.room_of(lay, spawn)
+		var found := 0
+		for p in piles:
+			var d: float = (p as Vector2).distance_to(spawn)
+			if d <= px + 0.01 and d > stir and RaidLogic.room_of(lay, p) == sroom:
+				found += 1
+				for w in lay["walls"]:
+					wall_ok = wall_ok and not (w as Rect2).has_point(p)
+		near_ok = near_ok and found >= 1
+		var ar := int(lay["ante_room"])
+		if ar >= 0:
+			var room: Rect2 = (lay["rooms"] as Array)[ar]
+			var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
+			ante_ok = ante_ok and inner.grow(0.001).has_point(piles[0])
+		n += 1
+		# without the flag the base placement is unchanged by a flagged call elsewhere
+		room_ok = room_ok and RaidLogic.populate_piles(id, plain, 4) == base
+	t.ok(n == 12, "all 12 forts checked at tier 1 (%d)" % n)
+	t.ok(near_ok, "first dungeon: a pile in the spawn room within first_pile_px of spawn, outside the stir radius")
+	t.ok(wall_ok, "the near-spawn pile is never inside a wall")
+	t.ok(ante_ok, "the antechamber pile is kept")
+	t.ok(same_ok, "the flag changes no layout geometry")
+	t.ok(det_ok and room_ok, "pile placement stays deterministic")
+	t.ok(off_ok, "without the flag there is no first pile bookkeeping")
+	t.ok(count_ok, "the near-spawn pile replaces one pile (count unchanged)")
+	var held := RaidLogic.gen_layout("ashgate", 1, false, cfg, {"held": true, "first_dungeon": true})
+	t.ok(RaidLogic.populate_piles("ashgate", held, 3).size() == 3, "held layout ignores the first-dungeon flag")
+
+
+func _ghost_ring_tests(t: TestUtil) -> void:
+	t.suite("raid_ghost_ring")
+	var rel := Vector2(100, 100)
+	var g := RaidLogic.ghost_ring([], rel, 300.0, 14.0)
+	t.ok(not bool(g["ok"]), "no motes: not ok")
+	g = RaidLogic.ghost_ring([Vector2(900, 900)], rel, 300.0, 14.0)
+	t.ok(not bool(g["ok"]), "all motes out of reach: not ok")
+	g = RaidLogic.ghost_ring([Vector2(150, 100)], rel, 300.0, 14.0)
+	t.ok(bool(g["ok"]) and (g["center"] as Vector2).is_equal_approx(Vector2(150, 100)), "one mote: centred on it")
+	t.near(float(g["radius"]), 14.0, 0.001, "one mote: the radius is the pad")
+	var pts: Array = [Vector2(100, 100), Vector2(200, 100), Vector2(150, 200), Vector2(1000, 1000)]
+	g = RaidLogic.ghost_ring(pts, rel, 300.0, 10.0)
+	var c := (Vector2(100, 100) + Vector2(200, 100) + Vector2(150, 200)) / 3.0
+	t.ok((g["center"] as Vector2).is_equal_approx(c), "centroid of the motes within reach only")
+	var far := maxf(maxf(c.distance_to(Vector2(100, 100)), c.distance_to(Vector2(200, 100))), c.distance_to(Vector2(150, 200)))
+	t.near(float(g["radius"]), far + 10.0, 0.001, "radius = farthest in-reach mote + pad")
+	t.ok(int(g["count"]) == 3, "count of the motes inside the ring")
+	var edge := RaidLogic.ghost_ring([Vector2(400, 100)], rel, 300.0, 5.0)
+	t.ok(bool(edge["ok"]), "a mote exactly at reach counts")
+	var typed: Array[Vector2] = [Vector2(120, 100)]
+	t.ok(bool(RaidLogic.ghost_ring(typed, rel, 300.0, 5.0)["ok"]), "accepts a typed array")
+
+
+func _unbanked_tests(t: TestUtil) -> void:
+	t.suite("raid_unbanked")
+	var banked := {"relics": 1, "blueprints": [], "husks": [{"kind": "skeleton"}], "remnants": [{"aspect": "power"}], "essence": 3}
+	var found := {"relics": 3, "blueprints": ["embalmer"], "husks": [{"kind": "skeleton"}], "remnants": [{"a": 1}, {"a": 2}, {"a": 3}]}
+	var u := RaidLogic.unbanked(found, 5, banked)
+	t.ok(int(u["relics"]) == 2 and int(u["remnants"]) == 2 and int(u["husks"]) == 0 and int(u["blueprints"]) == 1, "item counts are found minus banked")
+	t.ok(int(u["essence"]) == 2, "essence = carried - banked essence")
+	t.ok(int(u["items"]) == 5 and int(u["total"]) == 7, "items excludes essence, total includes it")
+	var z := RaidLogic.unbanked(found, 0, banked)
+	t.ok(int(z["essence"]) == 0, "essence never goes negative")
+	var all := RaidLogic.unbanked(found, 4, {})
+	t.ok(int(all["relics"]) == 3 and int(all["remnants"]) == 3 and int(all["essence"]) == 4, "an empty banked snapshot counts as zeros")
+	var none := RaidLogic.unbanked({}, 0, {})
+	t.ok(int(none["total"]) == 0, "nothing found: nothing unbanked")
+	var even := RaidLogic.unbanked({"relics": 1, "remnants": [{"a": 1}]}, 2, {"relics": 1, "remnants": [{"a": 1}], "essence": 2})
+	t.ok(int(even["total"]) == 0, "a checkpoint with nothing since leaves nothing at stake")
+	var over := RaidLogic.unbanked({"relics": 0}, 0, {"relics": 4, "essence": 9})
+	t.ok(int(over["total"]) == 0, "banked above found clamps to zero")
+	var b := RaidLogic.loot_counts(banked)
+	t.ok(int(b["relics"]) == 1 and int(b["husks"]) == 1 and int(b["remnants"]) == 1 and int(b["essence"]) == 3 and int(b["total"]) == 6, "loot_counts reads a banked snapshot")
+	t.ok(int(RaidLogic.loot_counts({})["total"]) == 0, "loot_counts of nothing is zero")

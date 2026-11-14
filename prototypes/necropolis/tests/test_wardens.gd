@@ -231,4 +231,40 @@ func run() -> int:
 	t.ok(rest_ok, "pile placement stays deterministic")
 	t.ok(plain_ok, "a held layout (no antechamber) still places every pile")
 	t.ok(LayoutLogic.populate_piles("x", LayoutLogic.gen_layout("x", 2, false, cfg), 0).is_empty(), "zero piles stays empty")
+
+	_hunt_tests(t)
+	_window_tests(t, tempo_s)
 	return t.failures
+
+
+func _hunt_tests(t: TestUtil) -> void:
+	t.suite("huntsman_hunt_target")
+	var room := Rect2(100, 100, 400, 300)
+	var units: Array = [Vector2(300, 200), Vector2(450, 350), Vector2(900, 900)]
+	var h := WardenLogic.hunt_target(room, Vector2(300, 300), true, units, Vector2(200, 200), 40.0)
+	t.ok(h["kind"] == "relish" and (h["pos"] as Vector2) == Vector2(300, 300), "Relish in the room: it hunts her")
+	h = WardenLogic.hunt_target(room, Vector2(900, 100), true, units, Vector2(200, 200), 40.0)
+	t.ok(h["kind"] == "undead" and int(h["index"]) == 0 and (h["pos"] as Vector2) == Vector2(300, 200), "Relish out: the nearest undead in the room")
+	h = WardenLogic.hunt_target(room, Vector2(900, 100), true, units, Vector2(440, 340), 40.0)
+	t.ok(h["kind"] == "undead" and int(h["index"]) == 1, "nearest to the Huntsman, not to Relish")
+	h = WardenLogic.hunt_target(room, Vector2(900, 100), true, [Vector2(520, 250)], Vector2(300, 250), 40.0)
+	t.ok(h["kind"] == "undead", "an undead entering through the doorway band is a target")
+	h = WardenLogic.hunt_target(room, Vector2(900, 100), true, [Vector2(560, 250)], Vector2(300, 250), 40.0)
+	t.ok(h["kind"] == "none", "an undead beyond the margin is not")
+	h = WardenLogic.hunt_target(room, Vector2(900, 100), true, [], Vector2(300, 250), 40.0)
+	t.ok(h["kind"] == "none" and int(h["index"]) == -1, "nobody to hunt: none")
+	h = WardenLogic.hunt_target(room, Vector2(300, 300), false, [Vector2(300, 200)], Vector2(200, 200), 40.0)
+	t.ok(h["kind"] == "undead", "a dead Relish is not hunted")
+	h = WardenLogic.hunt_target(room, Vector2(520, 250), true, units, Vector2(200, 200), 40.0)
+	t.ok(h["kind"] == "undead", "Relish in the doorway band (outside the room proper) is not hunted")
+
+
+func _window_tests(t: TestUtil, tempo_s: float) -> void:
+	t.suite("slam_window")
+	t.ok(WardenLogic.slam_window_open(5.0, 0.0, 240.0, tempo_s, 1.5), "a far-off slam with no walk to leave: open")
+	t.ok(not WardenLogic.slam_window_open(1.0, 0.0, 240.0, tempo_s, 1.5), "inside the safe margin: closed")
+	t.ok(not WardenLogic.slam_window_open(-1.0, 0.0, 240.0, tempo_s, 1.5), "a slam in flight (negative beats): closed")
+	var near_open := WardenLogic.slam_window_open(3.0, 0.0, 240.0, tempo_s, 1.5)
+	var far_closed := WardenLogic.slam_window_open(3.0, 800.0, 240.0, tempo_s, 1.5)
+	t.ok(near_open and not far_closed, "the walk out is subtracted from the time left")
+	t.ok(WardenLogic.slam_window_open(2.0, 100.0, 240.0, tempo_s, 0.0), "zero margin reduces to the walk out alone")

@@ -198,3 +198,38 @@ static func guard_point(relish_pos: Vector2, threat_pos: Vector2, guard_px: floa
 	var dir := d.normalized() if d.length() > 0.001 else Vector2.RIGHT
 	var side := (float(index) - float(count - 1) * 0.5) * 2.0 * spread_px if count > 1 else 0.0
 	return relish_pos + dir * guard_px + dir.orthogonal() * side
+
+
+# ------------------------------------------------------------ hunting undead ---
+## Who the Huntsman hunts: Relish while she stands in its room, else (hiding costs units) the undead
+## nearest to `from` inside the room grown by `margin` (so one entering through a doorway counts).
+## `units` are Vector2 positions. Returns {kind: "relish" | "undead" | "none", index, pos}; index is
+## into `units` (-1 for Relish or none).
+static func hunt_target(room: Rect2, relish_pos: Vector2, relish_alive: bool, units: Array, from: Vector2,
+		margin: float) -> Dictionary:
+	if relish_alive and room.has_point(relish_pos):
+		return {"kind": "relish", "index": -1, "pos": relish_pos}
+	var reach := room.grow(margin)
+	var best := -1
+	var bd := INF
+	for i in units.size():
+		var p: Vector2 = units[i]
+		if not reach.has_point(p):
+			continue
+		var d := from.distance_to(p)
+		if d < bd:
+			bd = d
+			best = i
+	if best < 0:
+		return {"kind": "none", "index": -1, "pos": Vector2.ZERO}
+	return {"kind": "undead", "index": best, "pos": units[best]}
+
+
+# ---------------------------------------------------------- slam window (bot) ---
+## True when a player can stay inside the Bellringer's slam reach and still be out before the next
+## tell: the beats until the tell starts (negative while a slam is in flight), less the walk out
+## (`exit_px` at `speed_px_s`, in beats), must exceed `safe_beats`.
+static func slam_window_open(beats_to_tell: float, exit_px: float, speed_px_s: float, tempo_s: float,
+		safe_beats: float) -> bool:
+	var exit_beats := maxf(0.0, exit_px) / maxf(1.0, speed_px_s) / maxf(0.001, tempo_s)
+	return beats_to_tell - exit_beats > safe_beats
