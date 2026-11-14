@@ -36,13 +36,15 @@ func run() -> int:
 		t.ok(cfg.has(k), "has key %s" % k)
 		var direct = JSON.parse_string(FileAccess.get_file_as_string("res://configs/%s.json" % k))
 		t.ok(cfg.get(k) == direct, "%s equals the file parsed directly" % k)
-	var needed := {"realm": ["field", "relish"], "economy": ["sim", "opening"], "backups": ["phylactery", "vats", "backups"], "buildings": ["crypt"],
+	var needed := {"realm": ["field", "relish", "vei_pool_cap", "field_src_per_pit"], "economy": ["sim", "opening"], "backups": ["phylactery", "vats", "backups"], "buildings": ["crypt"],
 		"vei": ["fronts_required", "break_beats", "loss_backlog_keep"], "town": ["lots"], "raid": ["relish"],
 		"world": ["size", "vei", "forts"], "pulse": ["tempo_ms"]}
 	for fname in needed:
 		t.ok(cfg.get(fname, null) is Dictionary and not cfg[fname].is_empty(), "config %s exists and is non-empty" % fname)
 		for key in needed[fname]:
 			t.ok(cfg.get(fname, {}).has(key), "config %s has key %s" % [fname, key])
+	t.ok(cfg["economy"]["sim"].has("prewarm_ticks") and cfg["economy"]["sim"].has("prewarm_dt"), "economy.sim.prewarm_ticks and prewarm_dt present")
+	t.ok(not cfg["realm"].has("migrant_rate_per_town") and not cfg["realm"].has("gather_speed"), "the unread realm.json keys are gone")
 	t.ok(cfg["realm"]["field"].has("slice_budget_cells"), "realm.field.slice_budget_cells present")
 	# TownSim reads only these paths, with no numeric fallbacks, so each must be in the configs
 	var missing: Array = []

@@ -402,7 +402,7 @@ func _convert(dt: float, inv: float, q: float) -> void:
 	var made := 0.0
 	var took_u := 0.0
 	var cap_u := 0.0
-	var headroom: float = maxf(0.0, float(t.get("vei_pool_cap", 1e18)) - vei["living_pool"])
+	var headroom: float = maxf(0.0, float(t.get("vei_pool_cap", 600.0)) - vei["living_pool"])
 	if headroom > 0.0:
 		var cap_units: float = float(t.get("R_vei", 50.0)) * dt
 		var policy: String = str(t.get("veiPolicy", "cheap"))
@@ -557,7 +557,7 @@ func readout() -> Dictionary:
 	var cap_undead: float = r_cap_undead
 	if cap_undead < 0.0:
 		cap_undead = float(t.get("R_vei", 50.0)) / q
-		if vei["living_pool"] >= float(t.get("vei_pool_cap", 1e18)):
+		if vei["living_pool"] >= float(t.get("vei_pool_cap", 600.0)):
 			cap_undead = 0.0
 	var massed: float = vei["undead_queue"]
 	return {

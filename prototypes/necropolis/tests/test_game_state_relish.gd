@@ -177,4 +177,38 @@ func run() -> int:
 	s.cmd_move_relish("old-sluice")
 	s.cmd_pause(true)
 	t.ok(s.tick(5.0) == 0 and s.view_relish()["state"] == "travelling", "no travel while paused")
+
+	# --- arrival at ~0 remaining: a journey with at most ARRIVE_EPS px left is over ---
+	s = _mk()
+	s.cmd_move_relish("old-sluice")
+	var tp: Array = s._node_xy("old-sluice")
+	s.relish["pos"] = [tp[0] - GameState.ARRIVE_EPS * 0.5, tp[1]]
+	t.ok(s.view_relish()["state"] == "travelling" and s.view_relish()["eta_s"] >= 0.0, "a sliver left: still travelling before the step")
+	s.tick(0.5)
+	v = s.view_relish()
+	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["pos"] == tp and v["eta_s"] == -1.0,
+		"a sliver left arrives on the next substep")
+	s.cmd_move_relish("covington")
+	s.relish["pos"] = [COV.x, COV.y]  # exactly on the target
+	s.tick(0.5)
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington", "zero left arrives on the next substep")
+	# a save whose Relish is travelling at ~0 left loads settled (normalised on load)
+	s.cmd_move_relish("old-sluice")
+	var d := s.to_dict()
+	d["relish"]["pos"] = [tp[0], tp[1] + 0.003]
+	var ld := GameState.new(TestUtil.configs())
+	t.ok(ld.from_dict(d)["ok"], "the save loads")
+	v = ld.view_relish()
+	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["eta_s"] == -1.0, "a save at ~0 left loads settled, not stuck")
+	# the fixtures: every one loads settled or genuinely travelling, and a journey ends within eta_s + one substep
+	for name in GameState.FIXTURES:
+		var fx := _mk()
+		t.ok(fx.cmd_debug_load_fixture(name)["ok"], "fixture %s loads" % name)
+		v = fx.view_relish()
+		if v["state"] != "travelling":
+			t.ok(v["target"] == "", "fixture %s: Relish is settled (%s)" % [name, v["state"]])
+			continue
+		t.ok(v["eta_s"] > GameState.ARRIVE_EPS / 220.0, "fixture %s: genuinely travelling (eta %.3f s)" % [name, v["eta_s"]])
+		fx.tick(float(v["eta_s"]) + fx.substep_s() + 1e-6)
+		t.ok(fx.view_relish()["state"] != "travelling", "fixture %s: she arrives within eta_s + one substep" % name)
 	return t.failures

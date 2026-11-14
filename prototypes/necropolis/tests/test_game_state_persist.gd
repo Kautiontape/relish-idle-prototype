@@ -419,6 +419,24 @@ func _bad_files() -> void:
 	var bt := before.duplicate(true)
 	bt["realm"]["tithe"]["warning"] = {"wave_id": 1, "fort_id": "nowhere", "eta_s": 1.0, "surge": 1.0}
 	t.ok(f.from_dict(bt) == {"ok": false, "reason": "corrupt"}, "a tithe naming an unknown fort is corrupt")
+	# town.pending entries and town.rates shapes the later code reads (a crash otherwise)
+	var rich := _rich().to_dict()
+	t.ok(rich["town"]["pending"].size() == 1 and GameState.new(TestUtil.configs()).from_dict(rich.duplicate(true))["ok"], "the rich save, with a pending event, loads")
+	var pend_bad := [[{"level": 1}], [{"type": 3}], [{"type": "building_started", "lot_id": "lot-06", "building_id": "well"}],
+		[{"type": "building_started", "lot_id": "lot-06", "building_id": "well", "level": "x"}], [{"type": "tier_up", "level": "x"}]]
+	for pb in pend_bad:
+		var bp := rich.duplicate(true)
+		bp["town"]["pending"] = pb
+		t.ok(GameState.new(TestUtil.configs()).from_dict(bp) == {"ok": false, "reason": "corrupt"}, "town.pending %s is corrupt" % str(pb))
+	var rates_bad := [{"workers": 3.0}, {"workers": {"in": 1.0}}, {"workers": {"in": "a", "out": 1.0}}, {"bodies": {"out": 1.0}},
+		{"gold": []}, {"haul_trip": {}}, {"living": {"in": 1.0, "out": null}}]
+	for rb in rates_bad:
+		var br := rich.duplicate(true)
+		br["town"]["rates"] = rb
+		t.ok(GameState.new(TestUtil.configs()).from_dict(br) == {"ok": false, "reason": "corrupt"}, "town.rates %s is corrupt" % str(rb))
+	var rok := rich.duplicate(true)
+	rok["town"]["rates"] = {}
+	t.ok(GameState.new(TestUtil.configs()).from_dict(rok)["ok"], "an empty rates block still loads (TownSim keeps its zeros)")
 
 
 # --------------------------------------------------------- saves and listing ----

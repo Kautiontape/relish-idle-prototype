@@ -8,6 +8,7 @@ extends RefCounted
 
 const API_VERSION := 3
 const SAVE_VERSION := 2
+const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
 const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
@@ -243,9 +244,11 @@ func _build_realm_field_towns() -> void:
 ## Pre-warms the field so the map doesn't start blank, then publishes any in-flight slice.
 ## A load reuses it (T1.5).
 func _prewarm_field() -> void:
-	for i in 90:
-		_inject_sources(0.2)
-		field.tick(0.2)
+	var pw: Dictionary = _sec("economy", "sim")
+	var pw_dt := float(pw.get("prewarm_dt", 0.2))
+	for i in int(pw.get("prewarm_ticks", 90)):
+		_inject_sources(pw_dt)
+		field.tick(pw_dt)
 	field.flush()
 
 
@@ -370,6 +373,14 @@ func _place_relish(node_id: String) -> void:
 	relish["respawn_with_clone"] = false
 
 
+## Arrival: snaps to the node and settles. A journey with at most ARRIVE_EPS px left is over.
+func _arrive(tgt: String) -> void:
+	relish["pos"] = _node_xy(tgt)
+	relish["state"] = _state_at_node(tgt)
+	relish["at"] = tgt
+	relish["target"] = ""
+
+
 ## Substep step 4 (§3): straight-line travel and arrival.
 func _step_relish_travel(dt: float) -> void:
 	if relish["state"] != "travelling":
@@ -377,11 +388,8 @@ func _step_relish_travel(dt: float) -> void:
 	var tgt: String = relish["target"]
 	var dist := _dist_to(tgt)
 	var step := travel_speed() * dt
-	if step >= dist - 1e-9:
-		relish["pos"] = _node_xy(tgt)
-		relish["state"] = _state_at_node(tgt)
-		relish["at"] = tgt
-		relish["target"] = ""
+	if step >= dist - ARRIVE_EPS:
+		_arrive(tgt)
 		return
 	_face(tgt)
 	var p: Array = relish["pos"]
@@ -2232,7 +2240,7 @@ func _inject_sources(dt: float) -> void:
 	var fcfg: Dictionary = _cfg().get("field", {})
 	var src_main: float = float(fcfg.get("src_main", 3.0))
 	var src_fort: float = float(fcfg.get("src_fort", 1.1))
-	field.inject(realm.cov_pos, true, src_main * (1.0 + 0.15 * town_sim.pits()) * dt, 2)
+	field.inject(realm.cov_pos, true, src_main * (1.0 + float(_cfg().get("field_src_per_pit", 0.15)) * town_sim.pits()) * dt, 2)
 	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, float(_cfg().get("vei_pool_cap", 600.0)))
 	field.inject(realm.vei_pos, false, src_main * vei_str * dt, 3)
 	for f in realm.forts:
@@ -2434,7 +2442,12 @@ func _writeback_raid(r: Dictionary) -> Array:
 		raised_total += float(e["mass"])
 	var raised_in := minf(raised_total, float(f["dead"]))
 	f["dead"] -= raised_in
-	_raise_ema(r["raised"])  # q's circle EMA, by the masses the circles reported
+	# q's circle EMA, by the mass actually raised from the fort's dead (each mass scaled by R'/R)
+	var raised_scale := raised_in / raised_total if raised_total > 0.0 else 0.0
+	var raised_clamped: Array = []
+	for e in r["raised"]:
+		raised_clamped.append({"score": e["score"], "mass": float(e["mass"]) * raised_scale})
+	_raise_ema(raised_clamped)
 	# 4. what leaves cannot exceed what went in plus what was raised
 	var garrison_out := float(r["garrison_mass"])
 	var chaff := float(r["chaff_mass"])
@@ -2660,6 +2673,8 @@ func _apply_save(m: Dictionary) -> void:
 		"pos": [float(rl["pos"][0]), float(rl["pos"][1])], "heading": float(rl["heading"]),
 		"dead_s_left": float(rl["dead_s_left"]), "respawn_with_clone": bool(rl["respawn_with_clone"]),
 	}
+	if relish["state"] == "travelling" and _dist_to(relish["target"]) <= ARRIVE_EPS:
+		_arrive(relish["target"])  # a save taken at ~0 px left loads settled, not stuck
 	valve_target = _valve_of(m["valve"]["target"])
 	valve = _valve_of(m["valve"]["current"])
 	var rm: Dictionary = m["realm"]

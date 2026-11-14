@@ -10,6 +10,7 @@
   "R_vei": 50.0,
   "S_vei": 8.0,
   "vei_pool_cap": 600.0,
+  "field_src_per_pit": 0.15,
   "veiPolicy": "cheap",
   "relish": {"travel_speed": 220.0, "tide_bias": 3.0, "raise_rate": 4.0, "home_rot_mult": 0.7, "home_stance_bonus": 1},
   "valve": {"slew_per_s": 0.10},
@@ -18,9 +19,6 @@
   "q": {"q0": 1.2, "q_forge": 0.1, "q_raise_max": 0.6, "raise_half_mass": 200.0, "q_max": 4.0},
   "K": 12000.0,
   "start_living_frac": 0.85,
-
-  "migrant_rate_per_town": 0.012,
-  "gather_speed": 140.0,
 
   "field": {
     "max_ticks_per_step": 2,

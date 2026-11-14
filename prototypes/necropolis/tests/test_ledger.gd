@@ -224,16 +224,49 @@ func _runs() -> void:
 
 # ------------------------------------------------------------ any substep ----
 ## Catch-up (IDLE §4) will step at long dt: the count must not depend on the substep length.
+## NOTE: at 30 s and 120 s the realm's forward-Euler drain overshoots and pools go NEGATIVE (a known
+## E2b item: catch-up will sub-step RealmSim), so those dt check the ledger only. At dt <= 8 s
+## nothing may go negative or non-finite either.
 func _any_dt() -> void:
 	for dt in [0.1, 2.0, 8.0, 30.0, 120.0]:
 		var s := GameState.new(_cfgs(dt))
 		s.debug_enabled = true
 		s.cmd_debug_load_fixture("midgame_2flips")
 		var worst := 0.0
+		var neg: Array = []
 		for i in 150:
 			s.tick(dt)
 			worst = maxf(worst, _err(s))
+			if dt <= 8.0:
+				_negatives(s, neg)
 		t.ok(worst < TIGHT, "substep %.1f s: balanced at every substep for %d sim-s (worst %s)" % [dt, int(150 * dt), _e(worst)])
+		if dt <= 8.0:
+			t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
+
+
+## _soak_check's no-negatives and finiteness checks, on their own.
+func _negatives(s: GameState, bad: Array) -> void:
+	if bad.size() > 20:
+		return
+	var at := "t %.1f" % s.t
+	var l := s.ledger()
+	for sec in ["sources", "sinks", "held"]:
+		for k in l[sec]:
+			var v := float(l[sec][k])
+			if not is_finite(v):
+				bad.append("%s: %s.%s not finite" % [at, sec, k])
+			elif v < 0.0 and not (sec == "sources" and k == "debug"):
+				bad.append("%s: %s.%s = %f < 0" % [at, sec, k, v])
+	for f in s.realm.forts:
+		for k in ["living", "undead", "dead"]:
+			if not is_finite(float(f[k])) or float(f[k]) < 0.0:
+				bad.append("%s: %s.%s = %f" % [at, f["id"], k, float(f[k])])
+	var ts := s.town_sim
+	var stocks := {"gold": ts.gold, "bone": ts.bone, "living": ts.living, "morale": ts.morale, "relics": float(s.relics),
+		"essence": float(s.essence)}
+	for k in stocks:
+		if not is_finite(stocks[k]) or stocks[k] < 0.0:
+			bad.append("%s: %s = %f" % [at, k, stocks[k]])
 
 
 # --------------------------------------------------------------- persistence ----

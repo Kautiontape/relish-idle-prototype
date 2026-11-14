@@ -263,8 +263,14 @@ func _legacy_realm_keys() -> void:
 
 # ------------------------------------------------------------- helpers (E2a) ----
 ## Relish raids `fort` (teleported there); `raised` are the result's buckets. Returns apply_result's.
-func _raid(s: GameState, fort: String, raised: Array, beaten := false) -> Dictionary:
+## `dead` < 0 tops the fort's dead up to what the buckets raise (so the EMA is unclamped); >= 0 sets it.
+func _raid(s: GameState, fort: String, raised: Array, beaten := false, dead := -1.0) -> Dictionary:
 	s.legacy_teleport_relish(fort)
+	var want := 0.0
+	for e in raised:
+		want += float(e["mass"])
+	var fd: Dictionary = s.realm.fort_by_id(fort)
+	fd["dead"] = maxf(float(fd["dead"]), want) if dead < 0.0 else dead
 	var b := s.cmd_begin_dungeon(fort)
 	var r := Results.from_v1("raid", {"fort_id": fort}, b["seed"])
 	r["raised"] = raised
@@ -400,6 +406,20 @@ func _q() -> void:
 	_raid(ba, "ashgate", [{"score": 10, "count": 1, "mass": 200.0}, {"score": 90, "count": 1, "mass": 200.0}])
 	t.near(ab._readout["q_raise_ema"], 40.0, 1e-9, "buckets apply in order (50 → 70 → 40)")
 	t.near(ba._readout["q_raise_ema"], 60.0, 1e-9, "the other order ends elsewhere (50 → 30 → 60)")
+
+	# the EMA is fed the clamped masses (STATE-API §8.3 step 3): each scaled by R'/R
+	var cl := _mk()
+	t.ok(_raid(cl, "ashgate", [{"score": 90, "count": 10, "mass": 1000.0}], false, 10.0)["ok"], "a result reporting 1000 mass at a fort with 10 dead applies")
+	t.near(cl._readout["q_raise_ema"], 50.0 + (1.0 - pow(0.5, 10.0 / float(qc["raise_half_mass"]))) * 40.0, 1e-9, "the EMA moves as if 10 mass were raised, not 1000")
+	var cl2 := _mk()
+	_raid(cl2, "ashgate", [{"score": 90, "count": 1, "mass": 300.0}, {"score": 10, "count": 1, "mass": 100.0}], false, 200.0)
+	var ema2 := 50.0  # R = 400, R' = 200: the masses become 150 and 50
+	ema2 += (1.0 - pow(0.5, 150.0 / float(qc["raise_half_mass"]))) * (90.0 - ema2)
+	ema2 += (1.0 - pow(0.5, 50.0 / float(qc["raise_half_mass"]))) * (10.0 - ema2)
+	t.near(cl2._readout["q_raise_ema"], ema2, 1e-9, "every bucket's mass is scaled by R'/R (200/400), in apply order")
+	var cl3 := _mk()
+	_raid(cl3, "ashgate", [{"score": 90, "count": 1, "mass": 50.0}], false, 0.0)
+	t.ok(cl3._readout["q_raise_ema"] == 50.0, "a fort with no dead raises nothing: the EMA does not move")
 
 	# it never decays: 12 h of ticking with no raids (a coarse 10 s substep in this copy)
 	var idle := _mk(10.0)

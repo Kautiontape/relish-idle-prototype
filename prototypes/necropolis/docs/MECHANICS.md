@@ -206,7 +206,7 @@ and debug grants, and asserts it after every tick.
 - **Its half-life is in mass raised, not in seconds** (`q.raise_half_mass`, which replaces
   `q.raise_ema_s`). It moves only when a raid result is applied: for each `raised` bucket
   `{score, mass}`, in apply order, `α = 1 − 0.5^(mass / q.raise_half_mass)` and
-  `ema_score += α · (score − ema_score)`. The masses are the ones the circles report. Why: IDLE I2
+  `ema_score += α · (score − ema_score)`. The masses are the ones actually raised: the result's masses scaled by R'/R (R' = what the fort's dead could cover, STATE-API §8.3 step 3), so a result reporting 1000 mass at a fort with 10 dead moves the EMA as if about 10 were raised. Why: IDLE I2
   says what active play earned never decays while you're away, and a time-based EMA would decay
   with every idle hour. This one holds while no circles arrive.
 - `forge_level` is TownSim's forge level (the forge job, §4.2); `Σ foreman_q` is 0 until E3. The save

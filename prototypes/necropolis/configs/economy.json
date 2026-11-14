@@ -2,7 +2,9 @@
   "sim": {
     "substep_s": 0.5,
     "max_substeps_per_frame": 16,
-    "autosave_s": 30
+    "autosave_s": 30,
+    "prewarm_ticks": 90,
+    "prewarm_dt": 0.2
   },
   "opening": {
     "starter_party": 8,

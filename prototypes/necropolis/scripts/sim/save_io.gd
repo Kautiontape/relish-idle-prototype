@@ -280,6 +280,40 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	for k in _TOWN_OPTIONAL:
 		if tn.has(k) and not fits(tn[k], _TOWN_OPTIONAL[k]):
 			return "town " + k
+	var pr := _pending_problem(tn.get("pending", []))
+	if pr != "":
+		return pr
+	if tn.has("rates"):
+		return _rates_problem(tn["rates"])
+	return ""
+
+
+## What GameState._emit_town reads of each saved pending event: `type`, and for a building_started
+## its `level` (TownSim.from_dict ints it), lot and building.
+static func _pending_problem(pending: Array) -> String:
+	for e in pending:
+		if not fits(e.get("type"), _S):
+			return "town pending"
+		if e["type"] == "building_started" and not (fits(e.get("lot_id"), _S) and fits(e.get("building_id"), _S) and fits(e.get("level"), _I)):
+			return "town pending"
+		if e.has("level") and not fits(e["level"], _F):
+			return "town pending"
+	return ""
+
+
+## The `rates` shapes GameState._rate_io, _haul_rate and _workers_steady read. Missing keys are
+## fine (TownSim.from_dict keeps its zeros); a present one must have the shape.
+const _RATES_SHAPE := {
+	"workers": {"in": _F, "out": _F}, "bodies": {"rot": _F, "out": _F},
+	"gold": {"in": _F, "out": _F}, "bone": {"in": _F, "out": _F}, "living": {"in": _F, "out": _F},
+	"haul_trip": _F,
+}
+
+
+static func _rates_problem(rates: Dictionary) -> String:
+	for k in _RATES_SHAPE:
+		if rates.has(k) and not fits(rates[k], _RATES_SHAPE[k]):
+			return "town rates"
 	return ""
 
 
