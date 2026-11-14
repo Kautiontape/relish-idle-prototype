@@ -56,6 +56,10 @@ func run() -> int:
 		t.ok(keys.size() == RaidSoundLogic.warm_plan(["chime", "streak"], live).size(), "every planned render is a distinct Synth cache key")
 		t.ok(keys.size() == 42, "the live config plans 21 chime + 21 streak renders")
 
+	var sp := RaidSoundLogic.split_plan(plan)
+	t.ok((sp["plain"] as Array).size() == 2 and (sp["param"] as Array).size() == 42, "split: 2 plain renders (unravel, raise), 42 param renders")
+	t.ok(sp["plain"][0]["kind"] == "unravel" and sp["param"][0]["kind"] == "chime", "split keeps plan order")
+
 	t.suite("raid_sound")
 	RaidSound.play("absorb")
 	RaidSound.play("chime", RaidSoundLogic.chime_params(80))

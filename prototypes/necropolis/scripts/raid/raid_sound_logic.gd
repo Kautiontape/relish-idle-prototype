@@ -68,3 +68,16 @@ static func warm_plan(kinds: Array, synth_cfg: Dictionary) -> Array:
 				seen[key] = true
 				out.append({"kind": kind, "params": p})
 	return out
+
+
+## Splits a warm plan into the renders to do at once (plain kinds, no params) and those to trickle one
+## per frame (chime buckets, streak steps): {"plain": [...], "param": [...]}, each in plan order.
+static func split_plan(plan: Array) -> Dictionary:
+	var plain := []
+	var param := []
+	for it in plan:
+		if (it["params"] as Dictionary).is_empty():
+			plain.append(it)
+		else:
+			param.append(it)
+	return {"plain": plain, "param": param}

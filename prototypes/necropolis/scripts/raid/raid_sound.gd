@@ -1,7 +1,7 @@
 class_name RaidSound
 extends RefCounted
-## The raid's sound adapter. Scene code calls only `RaidSound.play(kind, params)` and
-## `RaidSound.warm(kinds)`; the shared synthesiser (scripts/fx/synth.gd, map's) does the work and
+## The raid's sound adapter. Scene code calls only `RaidSound.play(kind, params)`; the
+## scene passes its warm list to `attach`; the shared synthesiser (scripts/fx/synth.gd, map's) does the work and
 ## owns mute, volume and the Master bus. Synth is loaded by path so this parses without it: when it
 ## is absent, or the kind is not one it knows, every call is a no-op. The raid scene calls
 ## `attach` at build; no autoload. `--raid-sound-log` prints "RAID_SOUND <kind> <params>" per call.
@@ -65,7 +65,13 @@ static func _begin_warm(kinds: Array) -> void:
 		var logic := load(SYNTH_LOGIC_PATH) as Script
 		if logic != null and logic.has_method("cfg"):
 			cfg = logic.call("cfg")
-	_queue = RaidSoundLogic.warm_plan(kinds.filter(func(k): return RaidSoundLogic.playable(str(k), _known)), cfg)
+	var plan := RaidSoundLogic.warm_plan(kinds.filter(func(k): return RaidSoundLogic.playable(str(k), _known)), cfg)
+	var split := RaidSoundLogic.split_plan(plan)
+	# The plain kinds render now, in the build's own burst before the first frame (unravel alone is
+	# ~130 ms); only the many small param renders (chime buckets, streak steps) trickle.
+	for it in split["plain"]:
+		_synth.call("_stream", it["kind"], it["params"])
+	_queue = split["param"]
 	if not _queue.is_empty():
 		var t := Ticker.new()
 		t.name = "WarmTicker"
@@ -106,6 +112,7 @@ class Ticker:
 			queue_free()
 
 
+## Renders plain kinds now through the Synth's own `warm` (kept for the tests; the scenes warm through `attach`).
 static func warm(kinds: Array) -> void:
 	var live := _synth != null and is_instance_valid(_synth)
 	if RaidSoundLogic.can_warm(live, live and _synth.is_inside_tree()):
