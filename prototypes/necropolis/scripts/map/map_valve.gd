@@ -186,8 +186,12 @@ func _gui_input(e: InputEvent) -> void:
 			accept_event()
 		elif not e.pressed and _dragging:
 			_dragging = false
+			# Released: the committed values from the views take over. Clear the drag's projection
+			# and the cache before the final refresh, so the panel's N of M is read from the
+			# committed source and not cached from the drag.
+			model.clear_projection()
+			_proj_key = ""
 			_drag_to(e.position, true)
-			model.clear_projection()  # released: the committed values from the views take over
 			accept_event()
 	elif e is InputEventMouseMotion and _dragging:
 		_drag_to(e.position, false)
