@@ -191,7 +191,9 @@
     }
   },
   "tier_mix_by_fort": {
-    "_doc": "D-d/E Step 4b: a fort listed here rolls its living's kinds from its own mix instead of tier_mix (RaidLogic.roll_enemy_kind; the same rng draws, so only the kinds change). For a fort whose composition, not its warden, makes the fight a grind."
+    "_doc": "D-d/E Step 4b: a fort listed here rolls its living's kinds from its own mix instead of tier_mix (RaidLogic.roll_enemy_kind; the same rng draws, so only the kinds change). For a fort whose composition, not its warden, makes the fight a grind. sable-hold (t4 Bellringer) and pale-bastion (t3 Shieldwall) lost their party bigs to brutes before the wake (sable-hold has one in its spawn room), and the warden's area attack then churned every re-raise for 300+ s; with fewer brutes the bigs mostly hold (seeds 1-6: 339 -> 157 s and 335 -> 151 s, D-d/E Step 4b).",
+    "sable-hold": {"spearman": 0.55, "runner": 0.3, "brute": 0.15},
+    "pale-bastion": {"spearman": 0.6, "runner": 0.3, "brute": 0.1}
   },
   "tier_mix": {
     "1": {
