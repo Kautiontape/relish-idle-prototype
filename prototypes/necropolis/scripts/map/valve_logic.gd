@@ -182,9 +182,121 @@ static func rows(proj: Dictionary, valve: Dictionary) -> Array:
 	return out
 
 
-## "workers → 61" under WORK.
-static func workers_text(proj: Dictionary) -> String:
-	return str(_c().get("valve_workers_fmt", "%s")) % MapLogic.fmt_mass(float(proj["workers_steady"]))
+## The workforce the town actually settles at: the view's workers_steady_kept when it has one (not
+## while dragging: that is the committed valve's), else min(slots + idle_cap, steady), the idle
+## beyond the cap mustering to WAR (MECHANICS 4.1). `slots` sums view_town().jobs' slots;
+## `idle_cap` is economy.json worker.idle_cap.
+# TODO(api-request #12): view_hud.workers_steady_kept
+static func workers_kept(steady: float, hud: Dictionary, slots: int, idle_cap: float, dragging := false) -> float:
+	if hud.has("workers_steady_kept") and not dragging:
+		return float(hud["workers_steady_kept"])
+	return minf(float(slots) + idle_cap, steady)
+
+
+## "workers → 61" under WORK (`kept` from workers_kept).
+static func workers_text(kept: float) -> String:
+	return str(_c().get("valve_workers_fmt", "%s")) % MapLogic.fmt_mass(kept)
+
+
+# --- WAR overflow ------------------------------------------------------------------
+
+## WAR that overflows to Vei once every WAR target is capped (mass/s): while dragging, the
+## projection's split.war_overflow when it has one; else view_hud.war_overflow; else the
+## war:covington:vei lane's rate (that lane exists only while the overflow is > 0); else 0.
+# TODO(api E2b): view_hud.war_overflow, view_projection(valve).split.war_overflow
+static func war_overflow(hud: Dictionary, lanes: Array, proj: Dictionary, dragging: bool) -> float:
+	if dragging and proj.get("split", {}).has("war_overflow"):
+		return float(proj["split"]["war_overflow"])
+	if hud.has("war_overflow"):
+		return float(hud["war_overflow"])
+	for r in lanes:
+		if str(r.get("kind", "")) == "war" and str(r.get("from", "")) == "covington" and str(r.get("to", "")) == "vei":
+			return float(r.get("rate", 0.0))
+	return 0.0
+
+
+## The WAR row's overflow line, {rate: "+3.1/s", text: "overflows to Vei"}, or {} with none.
+static func overflow_parts(overflow: float) -> Dictionary:
+	if overflow <= 0.0:
+		return {}
+	return {"rate": MapLogic.fmt_rate(overflow), "text": str(_c().get("valve_overflow_text", ""))}
+
+
+# --- the payoff ---------------------------------------------------------------------
+
+## Vei's differential (mass/s) at a dragged valve: view_projection(valve).backlog_diff when the
+## projection has it; else the stand-in diff_ema + Δflood + Δwar x war_drain_frac, the deltas
+## measured between this projection's split and the same projection at the current valve
+## (`base_split`), so a drag back onto the current valve changes nothing.
+# TODO(api-request #7): view_projection(valve).backlog_diff
+static func diff_at(diff_ema: float, proj: Dictionary, base_split: Dictionary, war_drain_frac: float) -> float:
+	if proj.has("backlog_diff"):
+		return float(proj["backlog_diff"])
+	var split: Dictionary = proj.get("split", {})
+	return diff_ema + (float(split.get("flood", 0.0)) - float(base_split.get("flood", 0.0))) \
+		+ (float(split.get("war", 0.0)) - float(base_split.get("war", 0.0))) * war_drain_frac
+
+
+## Drain time at a differential: backlog / -diff while it shrinks, else -1.0 (holding, "∞").
+static func drain_at(backlog: float, diff: float) -> float:
+	return backlog / -diff if diff < 0.0 else -1.0
+
+
+## Odds after `window_s` at a differential: b / (b + K) with b = max(backlog + diff x window, 0).
+static func odds_at(backlog: float, diff: float, window_s: float, k: float) -> float:
+	var b := maxf(backlog + diff * window_s, 0.0)
+	return b / (b + k) if b + k > 0.0 else 0.0
+
+
+## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
+## same formulas; `now` is the current differential (diff_ema), `then` diff_at's.
+static func payoff(vei: Dictionary, proj: Dictionary, base_split: Dictionary, k: float) -> Dictionary:
+	var c := _c()
+	var backlog := float(vei.get("backlog", 0.0))
+	var window := float(c["drain_window_s"])
+	var out := {}
+	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(float(vei.get("diff_ema", 0.0)), proj, base_split, float(c["war_drain_frac"]))}
+	for side in diffs:
+		var d: float = diffs[side]
+		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k)}
+	return out
+
+
+## The payoff as one line: "Vei ▲ +2.1/s → ▲ +4.0/s" then "drain ∞ → 8m 40s" when either side
+## drains, else "odds in 10 min 61% → 64%". `sign_eps` is realm.json readout.sign_eps.
+static func payoff_line(p: Dictionary, sign_eps: float) -> String:
+	var c := _c()
+	var now: Dictionary = p["now"]
+	var then: Dictionary = p["then"]
+	var vei := str(c["payoff_vei_fmt"]) % [_sign_of(float(now["diff"]), sign_eps), MapLogic.fmt_rate(float(now["diff"])),
+		_sign_of(float(then["diff"]), sign_eps), MapLogic.fmt_rate(float(then["diff"]))]
+	var second := ""
+	if float(now["drain_s"]) >= 0.0 or float(then["drain_s"]) >= 0.0:
+		second = str(c["payoff_drain_fmt"]) % [MapLogic.fmt_drain(float(now["drain_s"])), MapLogic.fmt_drain(float(then["drain_s"]))]
+	else:
+		second = str(c["payoff_odds_fmt"]) % [str(c["payoff_window_text"]), roundi(float(now["odds"]) * 100.0), roundi(float(then["odds"]) * 100.0)]
+	return vei + str(c["payoff_sep"]) + second
+
+
+static func _sign_of(diff: float, eps: float) -> String:
+	return MapLogic.sign_glyph(1 if diff > eps else (-1 if diff < -eps else 0))
+
+
+## Whether the payoff shows: while dragging, and for payoff_hold_s after the release
+## (`since_release_s` < 0: never released this session).
+static func payoff_shown(dragging: bool, since_release_s: float) -> bool:
+	return dragging or (since_release_s >= 0.0 and since_release_s < float(_c()["payoff_hold_s"]))
+
+
+# --- the "now" ring -----------------------------------------------------------------
+
+## Where the hollow "now" ring is drawn: at `cur`, or now_offset_px up-right of the target when
+## the two are closer than that, so a zero slew is still visible.
+static func now_ring_pos(cur: Vector2, target: Vector2) -> Vector2:
+	var off := float(_c()["now_offset_px"])
+	if cur.distance_to(target) < off:
+		return target + Vector2(1.0, -1.0).normalized() * off
+	return cur
 
 
 ## "WAR supports 0 of 3 held forts", or "" when no fort is held.

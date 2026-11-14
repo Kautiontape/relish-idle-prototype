@@ -122,7 +122,7 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(rows.map(func(r): return r["pct_text"]) == ["40%", "40%", "20%"], "shares are integer percentages")
 	t.ok(rows.map(func(r): return r["rate_text"]) == ["+2.0/s", "+2.0/s", "+1.0/s"], "rates are signed with /s")
 	t.ok(rows[0]["feed_text"] == "→ workforce" and rows[1]["feed_text"] == "→ the forts" and rows[2]["feed_text"] == "→ Vei's gates", "each stream says what it feeds")
-	t.ok(ValveLogic.workers_text(pr) == "workers → 61", "workers → 61")
+	t.ok(ValveLogic.workers_text(float(pr["workers_steady"])) == "workers → 61", "workers → 61")
 	t.ok(ValveLogic.supports_text(pr) == "WAR supports 0 of 2 held forts", "the supports line shows when forts are held")
 	t.ok(ValveLogic.supports_text(ValveLogic.project(hud, hud["valve"], 0)) == "", "and is hidden when none is held")
 

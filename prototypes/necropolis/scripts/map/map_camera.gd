@@ -21,10 +21,11 @@ func _process(_delta: float) -> void:
 	tier = MapLogic.zoom_tier(zoom.x, tier)
 
 
-## The default fit: frame the map's content below `inset_top` px of HUD. Boot and F6 only; once
-## the player has panned or zoomed (user_moved) the caller does not re-fit.
-func fit(viewport_size: Vector2, inset_top := 0.0) -> void:
-	var v := MapLogic.fit_view(model.content_rect(), viewport_size, inset_top)
+## The default fit: frame the map's content below `inset_top` px of HUD, every fort's footprint
+## and Vei clear of the `obstacles` (screen rects of the panels: MapLogic.fit_view_clear). Boot and
+## F6 only; once the player has panned or zoomed (user_moved) the caller does not re-fit.
+func fit(viewport_size: Vector2, inset_top := 0.0, obstacles: Array = []) -> void:
+	var v := MapLogic.fit_view_clear(model.content_rect(), viewport_size, inset_top, model.fit_items(), obstacles)
 	if v.is_empty():
 		return
 	zoom = Vector2(v["zoom"], v["zoom"])

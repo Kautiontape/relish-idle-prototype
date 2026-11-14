@@ -135,7 +135,7 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 	var keys := _table("chip_keys")
 	var out: Array = []
 	if bool(fort.get("held", false)):
-		out.append({"text": str(ch.get("held_fmt", "%s")) % fmt_clock(float(fort.get("held_s_left", 0.0))), "key": keys.get("held", "text")})
+		out.append(held_chip(fort))
 	var tithe: Dictionary = fort.get("tithe", {})
 	if bool(tithe.get("wave_active", false)):
 		out.append({"text": str(ch.get("tithe_now", "")), "key": keys.get("tithe", "text")})
@@ -160,6 +160,18 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 	if bool(fort.get("first_dungeon", false)):
 		out.append({"text": str(ch.get("first_dungeon", "")), "key": keys.get("first_dungeon", "text")})
 	return out
+
+
+## The held chip. While view_fort has `margin` (api-request #7, the two pools) a hold no longer
+## lapses on a timer, so it reads the garrison and its margin, "garrison 64 · SAFE", in the
+## margin's colour; until then, the grace countdown "HELD · 6:14 left".
+static func held_chip(fort: Dictionary) -> Dictionary:
+	var m := str(fort.get("margin", ""))
+	if fort.has("margin") and m != "":
+		return {"text": str(_c().get("held_margin_fmt", "%s %s")) % [MapLogic.fmt_mass(IdleLogic.garrison_units(fort)), IdleLogic.word(m)],
+			"key": IdleLogic.color_key(m)}
+	return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort.get("held_s_left", 0.0))),
+		"key": _table("chip_keys").get("held", "text")}
 
 
 # --- Vei -----------------------------------------------------------------------------------
@@ -210,6 +222,15 @@ static func confirm_text(readout: Dictionary) -> String:
 	return str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
 		"%s %s" % [st["sign_text"], sign_word(sign)] if sign != 0 else sign_word(0),
 		st["drain_text"]]
+
+
+## The odds summary pinned beside BEGIN (out of the card's scroll): "Your odds 61% ▲ gaining ·
+## drains in ∞", from MapModel.readout() as the top bar reads it.
+static func pinned_odds(readout: Dictionary) -> String:
+	var st := HudLogic.status(readout)
+	var sign := int(st["sign"])
+	return str(_c().get("vei_pinned_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
+		"%s %s" % [st["sign_text"], sign_word(sign)] if sign != 0 else sign_word(0), st["drain_text"]]
 
 
 # --- villages ------------------------------------------------------------------------------

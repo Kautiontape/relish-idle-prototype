@@ -41,6 +41,8 @@ func _ready() -> void:
 	model.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
 	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
 	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
+	model.realm_cfg = ConfigDb.data.get("realm", {})
+	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
 	model.refresh(true)
 	_build_world()
@@ -49,7 +51,7 @@ func _ready() -> void:
 	if not is_inside_tree():
 		return
 	hud.start()
-	cam.fit(get_viewport_rect().size, hud.top_inset())
+	_fit()
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
@@ -91,7 +93,7 @@ func _build_world() -> void:
 	callouts_view = MapCallouts.new()
 	callouts_view.name = "Callouts"
 	callouts_view.model = model
-	callouts_view.cam = cam
+	callouts_view.cam = cam  # the card (the sidebar) is set in _build_ui
 	world.add_child(callouts_view)
 	cam.clicked.connect(_on_clicked)
 	world.add_child(cam)
@@ -120,11 +122,12 @@ func _build_ui() -> void:
 	sidebar.dive.connect(_dive)
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
+	callouts_view.card = sidebar  # the callouts keep off the open card
+	hud.next_chosen.connect(_act_on)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
-	away.fort_chosen.connect(_on_away_fort)
-	away.dive.connect(_dive)
+	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
 
@@ -145,7 +148,13 @@ func _input(e: InputEvent) -> void:
 func _refit() -> void:
 	MapLogic.configure(ConfigDb.data.get("map_view", {}))  # the deferred re-fit runs before MapNodes re-reads F6's tuning
 	if cam != null and not cam.user_moved:
-		cam.fit(get_viewport_rect().size, hud.top_inset())
+		_fit()
+
+
+## The default fit: below the top bar, every fort and Vei clear of the valve panel, the objective
+## strip and Relish's chip.
+func _fit() -> void:
+	cam.fit(get_viewport_rect().size, hud.bar_bottom(), [valve.get_global_rect(), hud.strip_rect(), chip.get_global_rect()])
 
 
 ## Covington is a door: one click enters the town, with no card. Everything else selects.
@@ -156,10 +165,17 @@ func _on_clicked(id: String) -> void:
 		_select(id)
 
 
-## An away-report line named a fort: open its card and bring it to the middle.
-func _on_away_fort(id: String) -> void:
-	_select(id)
-	cam.centre_on(model.node_pos(id))
+## A clicked line (the objective strip, an away-report line) does its AwayLogic action: a fort
+## opens its card and comes to the middle, a dive enters Covington, Vei is selected.
+func _act_on(a: Dictionary) -> void:
+	match str(a.get("kind", "none")):
+		"fort":
+			_select(str(a["id"]))
+			cam.centre_on(model.node_pos(str(a["id"])))
+		"dive":
+			_dive(str(a["to"]))
+		"vei":
+			_select(MapModel.VEI)
 
 
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss

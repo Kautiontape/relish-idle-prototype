@@ -243,6 +243,8 @@ func _lint(t: TestUtil) -> void:
 	lit.compile("Color\\s*\\(\\s*[\"\\d]")
 	var legacy := RegEx.new()
 	legacy.compile("Game\\.(realm|field|towns|res|army|town|assignments|idle_undead|gather|quality|raiding_fort_id|time_scale|won|green_towns|stats|relish_respawned|victory|defeat_boss)\\b")
+	var fields := RegEx.new()  # RealmSim's legacy rate fields, as words (war_drain_frac is not r_drain)
+	fields.compile("\\b(r_drain|r_dead_out|r_shipped)\\b")
 	var files := 0
 	for f in DirAccess.get_files_at(MAP_DIR):
 		if not f.ends_with(".gd"):
@@ -254,8 +256,8 @@ func _lint(t: TestUtil) -> void:
 			var code: String = LINT.strip_comment(line)
 			if lit.search(code) != null or code.contains("Color.html(") or code.contains("Color8("):
 				t.ok(false, "%s:%d colour literal: %s" % [f, n, line.strip_edges()])
-			if legacy.search(code) != null or code.contains("realm.readout") or code.contains("r_drain") \
-					or code.contains("r_dead_out") or code.contains("r_shipped") or code.contains("Game.realm"):
+			if legacy.search(code) != null or code.contains("realm.readout") or fields.search(code) != null \
+					or code.contains("Game.realm"):
 				t.ok(false, "%s:%d legacy access: %s" % [f, n, line.strip_edges()])
 	t.ok(files >= 5, "linted %d map scripts" % files)
 	if t.failures == 0:
@@ -263,4 +265,5 @@ func _lint(t: TestUtil) -> void:
 	# detector self-check
 	t.ok(lit.search("Color(\"39ff9e\")") != null and lit.search("Color(0.1, 0.2, 0.3)") != null, "detector flags literals")
 	t.ok(lit.search("Color(col, 0.5)") == null, "detector ignores re-alpha of a variable")
+	t.ok(fields.search("realm.r_drain") != null and fields.search("x.r_shipped") != null and fields.search("c[\"war_drain_frac\"]") == null, "the legacy-field detector matches whole words")
 	t.ok(legacy.search("Game.town[\"x\"]") != null and legacy.search("Game.state.view_hud()") == null, "legacy detector")

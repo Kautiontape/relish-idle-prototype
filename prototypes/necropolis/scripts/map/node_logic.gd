@@ -150,6 +150,24 @@ static func fort_state(f: Dictionary, margin: String) -> String:
 	return EMPTIED
 
 
+## Ownership by weight, so it survives greyscale: forts your undead hold, held (any margin) or
+## overrun (your garrison inside, not yet flipped), draw the outer ring held_ring_weight times the
+## hairline. Hers, contested and emptied keep the hairline (1).
+static func ring_weight(state: String) -> float:
+	return _n("held_ring_weight") if yours(state) else 1.0
+
+
+## The same forts fill their inner core; hers, contested and emptied stay open. (Held and overrun
+## still differ: the held re-ink and countdown ring, and the diamond against the square.)
+static func has_core(state: String) -> bool:
+	return yours(state)
+
+
+## Your undead hold the fort: held at any margin, or overrun.
+static func yours(state: String) -> bool:
+	return state in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, OVERRUN]
+
+
 ## The state glyph's alpha on the forts' beat (`w`: Pulse.wave at their hop). MapNodes sets it as
 ## the beating glyph layer's modulate, so the beat costs no redraw.
 static func state_alpha(w: float) -> float:
@@ -158,14 +176,16 @@ static func state_alpha(w: float) -> float:
 
 ## What a fort's static rings draw, quantized to static_sig_steps of a turn so sub-pixel drift (a
 ## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
-## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name.
+## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name, the
+## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker.
 ## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
-static func fort_static_sig(f: Dictionary, flip: Dictionary) -> Array:
+static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "") -> Array:
 	var steps := _n("static_sig_steps")
 	var fr := arc_fracs(f)
 	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
 		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
-		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", ""))]
+		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state), has_core(state),
+		NextLogic.raid_ready(f) != ""]
 
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
@@ -549,9 +569,10 @@ static func village_edge_key(owner: String) -> String:
 ## screenshot shows what E2 will: held forts at each margin, a tithe warning, a live wave, an
 ## overrun, a contested and an emptied fort (whatever the fixture holds), the first-dungeon pulse, a
 ## simulacrum, Relish mid-travel and a full backlog stack. Values: map_view.json "demo_nodes".
-## Relish stands still (speed 0) so her place holds between refreshes.
+## Relish stands still (speed 0) so her place holds between refreshes; her ETA is the rest of the
+## way at `travel_speed` (realm.json relish.travel_speed), so stills never read 0:00.
 # TODO(api E2): debug stand-in
-static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary) -> void:
+static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish: Dictionary, cov_pos: Vector2, flip: Dictionary, travel_speed := 0.0) -> void:
 	var d: Dictionary = MapLogic.cfg().get("demo_nodes", {})
 	var by_id := {}
 	for f in forts:
@@ -604,6 +625,7 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 		relish["pos"] = [p.x, p.y]
 		relish["heading"] = cov_pos.angle_to_point(to)
 		relish["speed"] = 0.0
+		relish["eta_s"] = RelishLogic.eta_s(p.distance_to(to), travel_speed)  # the rest of the way at her real pace
 	var vd: Dictionary = d.get("vei", {})
 	if not vd.is_empty():
 		vei["backlog"] = float(vd["backlog"])

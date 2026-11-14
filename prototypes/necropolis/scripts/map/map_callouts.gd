@@ -4,14 +4,19 @@ extends Node2D
 ## midpoint of each lane that carries a `why`, joined to the lane by a 1 px leader. Drawn in
 ## screen pixels: the node is scaled by 1/zoom, so text is the same size at every zoom. The
 ## layout (text, plate rects, greedy placement) is rebuilt only when the model's rev, the zoom
-## tier or the zoom changes, never per frame. Text and placement: scripts/map/hud_logic.gd.
+## tier or the zoom changes, never per frame; while the card is open, also when it moves or the
+## camera pans (the card is fixed on screen, so a pan moves it over the world). A callout never
+## takes a place under the open card or over a held fort's chip. Text and placement:
+## scripts/map/hud_logic.gd.
 
 var model: MapModel
 var cam: MapCamera
+var card: Control  # the sidebar: its rect is occupied while it is visible
 
 var _rev := -2
 var _tier := ""
 var _zoom := -1.0
+var _card_key: Array = []
 var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
 
 
@@ -20,14 +25,39 @@ func _process(_delta: float) -> void:
 		return
 	var z := cam.zoom.x
 	var eps: float = MapLogic.cfg()["callouts"]["zoom_eps"]
-	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps:
+	var ck := _card_rect_key()
+	if model.rev == _rev and cam.tier == _tier and absf(z - _zoom) <= eps and ck == _card_key:
 		return
+	_card_key = ck
 	_rev = model.rev
 	_tier = cam.tier
 	_zoom = z
 	scale = Vector2.ONE / z
 	_layout(z)
 	queue_redraw()
+
+
+## What the card's occupancy depends on: [] while it is closed, else its screen rect and the
+## camera's position.
+func _card_rect_key() -> Array:
+	if card == null or not card.is_visible_in_tree():
+		return []
+	return [card.get_global_rect(), cam.position]
+
+
+## What a callout must not cover, in this layer's frame (world x zoom): the open card, and every
+## held fort's chip while chips show (its clock must stay readable).
+func _occupied(z: float) -> Array:
+	var out: Array = []
+	if not _card_key.is_empty():
+		out.append(HudLogic.screen_to_zoomed(_card_key[0], cam.position, z, get_viewport_rect().size))
+	if IdleLogic.chip_shown(_tier, z):
+		var w := 2.0 * float(MapLogic.cfg()["fit_label_half_px"])
+		for f in model.forts:
+			if bool(f.get("held", false)):
+				var r := IdleLogic.chip_rect(MapModel.to_vec(f["pos"]), MapLogic.fort_radius(int(f["tier"])), z, NodeLogic.first_dungeon_pulse(f), w)
+				out.append(Rect2(r.position * z, r.size * z))
+	return out
 
 
 func _names() -> Dictionary:
@@ -72,7 +102,7 @@ func _layout(z: float) -> void:
 		var anchor := _mid(r) * z
 		items.append({"parts": p, "anchor": anchor, "hw": hw, "rw": rw, "text_h": text_h})
 		options.append(HudLogic.candidate_rects(anchor, size, Vector2(float(off[0]), float(off[1]))))
-	var picks := HudLogic.place(options, int(cfg["max_count"]), float(cfg["gap_px"]))
+	var picks := HudLogic.place(options, int(cfg["max_count"]), float(cfg["gap_px"]), _occupied(z))
 	for i in items.size():
 		if picks[i] < 0:
 			continue

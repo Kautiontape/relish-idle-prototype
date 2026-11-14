@@ -185,13 +185,12 @@ func _siege(t: TestUtil) -> void:
 	var worst := INF
 	for tier in [1, 2, 3, 4]:
 		var redirect_out := MapLogic.fort_radius(tier) + float(c["redirect_ring_pad_px"]) + float(c["halo_max_px"]) * 0.5
-		var idle_x := fort.x - (MapLogic.fort_radius(tier) + float(c["idle"]["off_px"]))
 		for n in [1, 2, 3]:
 			var at := GlyphLogic.siege_layout(fort, tier, n)
 			ok_ring = ok_ring and at.size() == n
 			for i in at.size():
 				ok_ring = ok_ring and at[i].distance_to(fort) - ext >= redirect_out
-				ok_ring = ok_ring and at[i].x - ext > idle_x and at[i].y < fort.y  # right of the chips, above the name
+				ok_ring = ok_ring and at[i].y < fort.y  # above the centre: clear of the name and the chip under it
 				for j in range(i + 1, at.size()):
 					ok_apart = ok_apart and at[i].distance_to(at[j]) >= ext * 2.0
 				for z in _near_zooms():

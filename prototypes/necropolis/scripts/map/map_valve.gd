@@ -3,9 +3,14 @@ extends Control
 ## The Covington valve panel (bottom-left): a big triangle whose corners are WORK, WAR and FLOOD.
 ## The handle's barycentric coordinates are the split. Drag it (or click inside the triangle)
 ## to set the target; click a corner label to snap to 100% of it. The solid handle is the target
-## (view_hud.valve_target), the hollow ring the current, slewing split (view_hud.valve). Beside it,
-## a row per stream: share, projected rate (mint x share), what it feeds. Commands go out
-## throttled (valve_send_hz) while dragging and once on release. Math and text: valve_logic.gd.
+## (view_hud.valve_target), the hollow ring the current, slewing split (view_hud.valve), set
+## now_offset_px off the dot when the two coincide so a zero slew still shows. Beside it, a row per
+## stream: share, projected rate (mint x share), what it feeds; under WORK the workforce the town
+## settles at (capped: min(slots + idle_cap, steady)); on WAR's feed line the WAR that overflows to
+## Vei once every target is capped. Under it all, while dragging and for payoff_hold_s after the
+## release, the payoff line: Vei's differential now → at the dragged valve, and the drain or the
+## odds after drain_window_s. Commands go out throttled (valve_send_hz) while dragging and once on
+## release. Math and text: valve_logic.gd.
 
 signal toast(msg: String)
 
@@ -20,6 +25,10 @@ var _override := {}  # the valve the player set, held until the model echoes it
 var _rows := {}  # key -> {name, pct, rate, feed}
 var _workers: Label
 var _supports: Label
+var _over_rate: Label  # on WAR's feed line: "+3.1/s"
+var _over_text: Label  # "overflows to Vei"
+var _payoff: HBoxContainer  # the payoff line's spans, the panel's last row
+var _since_release := -1.0  # seconds since the last drag's release (-1: none yet); the payoff's hold
 var _sig := ""
 var _proj := {}  # the last projection (IdleLogic), reused while the valve hasn't moved
 var _proj_key := ""
@@ -41,10 +50,15 @@ func _ready() -> void:
 	var rows_x := _origin.x + _side + inner
 	var rows_w := float(c["valve_rows_w_px"])
 	var w := rows_x + rows_w + inner
-	var h := _origin.y + tri_h + cgap + float(btn[1]) + inner
-	_place(cfg, w, h)
 	_corner_buttons(btn, cgap, tri_h)
-	_build_rows(c, rows_x, inner)
+	var col := _build_rows(c, rows_x, inner)
+	# the payoff line spans the panel under the triangle's buttons and the rows, its height reserved
+	# so the panel never jumps when it shows
+	var top := maxf(_origin.y + tri_h + cgap + float(btn[1]), inner + col.get_combined_minimum_size().y) + inner
+	_payoff = _hbox(self, int(c["valve_payoff_sep_px"]))
+	_payoff.position = Vector2(inner, top)
+	var line_h := MapType.rate_font().get_height(MapType.size_of("size_rate"))
+	_place(cfg, w, top + line_h + inner)
 	refresh(true)
 
 
@@ -80,7 +94,7 @@ func _corner_buttons(btn: Array, cgap: float, tri_h: float) -> void:
 		add_child(b)
 
 
-func _build_rows(c: Dictionary, x: float, inner: float) -> void:
+func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
 	var col := VBoxContainer.new()
 	col.position = Vector2(x, inner)
 	col.size = Vector2(float(c["valve_rows_w_px"]), 0.0)
@@ -106,13 +120,29 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> void:
 		for key in ["pct", "rate"]:
 			(parts[key] as Label).mouse_filter = Control.MOUSE_FILTER_IGNORE
 			top.add_child(parts[key])
-		parts["feed"] = _label(box, "text_dim")
+		var feed_row := _hbox(box, int(c["valve_row_hsep_px"]))
+		parts["feed"] = _label(feed_row, "text_dim")
 		_rows[k] = parts
 		if k == "work":
 			_workers = _label(box, "text")
+		elif k == "war":
+			_over_rate = Label.new()
+			_over_rate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			MapType.style_rate(_over_rate, "text", MapType.size_of("size_label"))
+			feed_row.add_child(_over_rate)
+			_over_text = _label(feed_row, "text_dim")
 	_supports = _label(col, "text")
 	var legend := _label(col, "text_dim")
 	legend.text = str(c["valve_legend"])
+	return col
+
+
+func _hbox(parent: Node, sep: int) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_theme_constant_override("separation", sep)
+	parent.add_child(h)
+	return h
 
 
 func _label(parent: Node, color_key: String) -> Label:
@@ -141,8 +171,10 @@ func refresh(force := false) -> void:
 	var proj := _projection(shown)
 	if _dragging:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
-	var sig := "%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"])]
-	var cur_sig := str(model.hud.get("valve", {}))
+	var payoff := _payoff_line(proj)
+	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, model.lanes, proj, _dragging))
+	var sig := "%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over)]
+	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
 	if not force and sig + cur_sig == _sig:
 		return
 	_sig = sig + cur_sig
@@ -153,11 +185,50 @@ func refresh(force := false) -> void:
 		(parts["pct"] as Label).text = r["pct_text"]
 		(parts["rate"] as Label).text = r["rate_text"]
 		(parts["feed"] as Label).text = r["feed_text"]
-	_workers.text = ValveLogic.workers_text(proj)
+	_workers.text = ValveLogic.workers_text(ValveLogic.workers_kept(float(proj["workers_steady"]), model.hud, model.job_slots, model.idle_cap, _dragging))
+	_over_rate.text = str(over.get("rate", ""))
+	_over_text.text = str(over.get("text", ""))
 	var sup := ValveLogic.supports_text(proj)
 	_supports.text = sup
 	_supports.visible = sup != ""
+	_spans_into(_payoff, payoff)
 	queue_redraw()
+
+
+## The payoff line while it shows (ValveLogic.payoff_shown), else "": Vei's differential now and
+## at the valve shown, the "now" side at the current valve through the same projection.
+func _payoff_line(proj: Dictionary) -> String:
+	if not ValveLogic.payoff_shown(_dragging, _since_release):
+		return ""
+	var base := IdleLogic.split_at(model.state, model.hud, model.hud.get("valve", {}), IdleLogic.held_forts(model.forts).size())
+	var p := ValveLogic.payoff(model.vei, proj, base, float(model.realm_cfg.get("K", 0.0)))
+	return ValveLogic.payoff_line(p, float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0)))
+
+
+## The payoff line as runs: its rates in the rate face (AwayLogic.spans), the rest as labels.
+func _spans_into(row: HBoxContainer, text: String) -> void:
+	for ch in row.get_children():
+		row.remove_child(ch)
+		ch.queue_free()
+	for sp in AwayLogic.spans(text):
+		var l := Label.new()
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		l.text = str(sp["text"])
+		if str(sp["kind"]) == "rate":
+			MapType.style_rate(l)
+		else:
+			MapType.style_label(l, "text")
+		row.add_child(l)
+
+
+## The payoff's hold after a release runs on the frame clock; it hides once payoff_hold_s is up.
+func _process(delta: float) -> void:
+	if _since_release < 0.0 or _dragging:
+		return
+	var was := ValveLogic.payoff_shown(false, _since_release)
+	_since_release += delta
+	if was and not ValveLogic.payoff_shown(false, _since_release):
+		refresh(true)
 
 
 ## The projection of the valve shown: one per distinct valve and model rev, and while dragging at
@@ -181,11 +252,13 @@ func _gui_input(e: InputEvent) -> void:
 	if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
 		if e.pressed and _grab.has_point(e.position):
 			_dragging = true
+			_since_release = -1.0
 			_last_sent = -1.0
 			_drag_to(e.position, false)
 			accept_event()
 		elif not e.pressed and _dragging:
 			_dragging = false
+			_since_release = 0.0  # the payoff holds for payoff_hold_s
 			# Released: the committed values from the views take over. Clear the drag's projection
 			# and the cache before the final refresh, so the panel's N of M is read from the
 			# committed source and not cached from the drag.
@@ -234,8 +307,8 @@ func _draw() -> void:
 	var tri := PackedVector2Array([_origin + pts["work"], _origin + pts["war"], _origin + pts["flood"], _origin + pts["work"]])
 	for l in NodeLogic.capped_layers(Palette.c("undead"), float(c["valve_edge_w_px"]), float(c["valve_edge_glow"]), float(c["valve_edge_halo_max_px"])):
 		draw_polyline(tri, l[1], l[0])
-	var cur := _origin + ValveLogic.point_of(model.hud.get("valve", shown_target()), _side)
-	LineGlow.ring(self, cur, float(c["valve_ghost_r_px"]), Palette.c("undead"), float(c["valve_ghost_w_px"]), float(c["valve_edge_glow"]))
 	var hp := _origin + ValveLogic.point_of(shown_target(), _side)
+	var cur := ValveLogic.now_ring_pos(_origin + ValveLogic.point_of(model.hud.get("valve", shown_target()), _side), hp)
+	LineGlow.ring(self, cur, float(c["valve_ghost_r_px"]), Palette.c("undead"), float(c["valve_ghost_w_px"]), float(c["valve_edge_glow"]))
 	LineGlow.ring(self, hp, float(c["valve_handle_r_px"]), Palette.c("undead"), float(c["valve_ghost_w_px"]), float(c["valve_edge_glow"]))
 	draw_circle(hp, float(c["valve_handle_r_px"]), Palette.c("undead_core"))

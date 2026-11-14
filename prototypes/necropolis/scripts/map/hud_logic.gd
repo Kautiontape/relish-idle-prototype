@@ -81,10 +81,16 @@ static func speed_text(hud: Dictionary) -> String:
 	return "" if is_equal_approx(ts, 1.0) else "×%d" % roundi(ts)
 
 
-## The objective strip: the standing objective, or the victory line once won.
+## The standing objective, or the victory line once won (NextLogic's default and won lines).
 static func objective_text(hud: Dictionary) -> String:
 	var cfg := MapLogic.cfg()
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
+
+
+## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
+## screen - viewport / 2 + camera position x zoom.
+static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:
+	return Rect2(r.position - viewport * 0.5 + cam_pos * zoom, r.size)
 
 
 # --- lane "why" callouts --------------------------------------------------------
@@ -137,9 +143,9 @@ static func leader_end(plate: Rect2, anchor: Vector2) -> Vector2:
 
 ## Greedy placement. `options[i]` is callout i's candidate rects in preference order. Callouts
 ## are taken in order: each takes its first candidate that stays `gap` clear of every plate
-## placed so far, and is skipped (-1) when none does or `max_count` plates are already down.
-## Returns the chosen candidate index per callout.
-static func place(options: Array, max_count: int, gap: float) -> Array[int]:
+## placed so far and of every `occupied` rect (the open card), and is skipped (-1) when none does
+## or `max_count` plates are already down. Returns the chosen candidate index per callout.
+static func place(options: Array, max_count: int, gap: float, occupied: Array = []) -> Array[int]:
 	var picks: Array[int] = []
 	var placed: Array[Rect2] = []
 	for cands in options:
@@ -147,6 +153,8 @@ static func place(options: Array, max_count: int, gap: float) -> Array[int]:
 		if placed.size() < max_count:
 			for k in cands.size():
 				var r: Rect2 = cands[k]
+				if occupied.any(func(o: Rect2): return r.grow(gap).intersects(o)):
+					continue
 				if not placed.any(func(p: Rect2): return r.grow(gap).intersects(p)):
 					pick = k
 					break

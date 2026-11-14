@@ -37,12 +37,12 @@ func _warden(t: TestUtil) -> void:
 
 func _loot(t: TestUtil) -> void:
 	var cfg: Dictionary = MapLogic.cfg()["cards"]["loot"]
-	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 0}, cfg) == "Loot: full", "full loot")
+	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 0}, cfg) == "Loot: full (fresh)", "full loot")
 	t.ok(CardLogic.loot_line({"yield_mult": 0.64, "clears_since_retaken": 2}, cfg) == "Loot: 64% (recovering)", "decayed loot shows the percentage")
-	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 3}, cfg) == "Loot: full", "full yield reads full whatever the clear count")
-	t.ok(CardLogic.loot_line({}, cfg) == "Loot: full", "a missing entry reads full")
+	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 3}, cfg) == "Loot: full (fresh)", "full yield reads full whatever the clear count")
+	t.ok(CardLogic.loot_line({}, cfg) == "Loot: full (fresh)", "a missing entry reads full")
 	t.ok(CardLogic.loot_card_line({"yield_mult": 0.5, "clears_since_retaken": 1}) == "Loot: 50% (recovering)", "the card's one call site")
-	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "FIRST CLEAR · guaranteed blueprint", "first clear line")
+	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first clear: guaranteed blueprint", "first clear line")
 	t.ok(CardLogic.first_clear_line({"first_clear": false}) == "", "no first clear, no line")
 
 
