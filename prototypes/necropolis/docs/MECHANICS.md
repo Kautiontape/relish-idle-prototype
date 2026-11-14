@@ -200,12 +200,15 @@ net mass debug commands added or removed. The sinks (`ledger()` keys, STATE-API 
 Everything else is an internal transfer: Vei turning dead and undead into living, her shipping and
 surges, the march-back into her pool, the valve, muster, haul pickups, the redirect and simulacra.
 `held` is every pool of mass, summed live: the forts' living, undead and corpses, Vei's three
-queues, bodies, workers × `worker.mass`, convoy loads and the WORK in flight to TownSim. `scripts/sim/ledger.gd` books it (§1.3 step 7).
+queues, bodies, workers × `worker.mass`, convoy loads and the WORK in flight to TownSim.
+`scripts/sim/ledger.gd` books it (§1.3 step 7).
 
 `GameState.ledger()` returns `{sources, sinks, held}`, and `Σheld + Σsinks == Σsources` holds within
 1e-6 relative at every substep and at any `sim.substep_s` (misses measure about 1e-14). The soak
 (§10) runs 1 h with random valves, Relish's moves, raids and flips, a lost Vei fight, musters, builds
-and debug grants, and asserts it after every tick.
+and debug grants, and asserts it after every tick. It ends with two forced phases, a march-back into
+a full pool and a full body store with every building unstaffed, and asserts that each books its
+own overflow sink (`pool_overflow`, `rot_overflow`).
 
 ### 2.2 Digest quality `q`
 `q = clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise, 1, q_max)` (`realm.json` `q.*`).
@@ -364,10 +367,10 @@ at E2b.
   - So shipping never takes a fort past its cap, at any dt (tested to 60 s with no clearing); WAR
     and the surge can. A fort with living above its cap has no room (the march-back never takes
     them below it), so the load leaves the march-back out. At a redirect fort the bound is loose
-    by the drain the extra pull's kills skip (not seen in the tests). E2b T3.0s: the room used to be `cap − L − U · e^(−r_drain · dt)
-    − D`, which left out WAR, the raises and the surge (Greywall reached 90.3 of 90 in play), and
-    a room with WAR but not the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s
-    over 1 h).
+    by the drain the extra pull's kills skip (not seen in the tests).
+  - History (E2b T3.0s): the room used to be `cap − L − U · e^(−r_drain · dt) − D`, which left out
+    WAR, the raises and the surge (Greywall reached 90.3 of 90 in play). A room with WAR but not
+    the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s over 1 h).
 - the fort pulls WAR as staging (§3.2);
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.

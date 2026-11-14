@@ -143,7 +143,12 @@ takes over 1 s.
     stocks and Covington's smooth ones stay within 0.4% up to dt 5 s (midgame_2flips 0.38%,
     fresh 0.33%). At 10 s and 15 s they reach 1.3% and 2.4% on midgame_2flips (bone the worst;
     the backlog 0.94% and 1.66%, against 3.05% and 4.47% at `3992014` under T3.0s's bound), and
-    1.6% and 0.9% on fresh.
+    1.6% and 0.9% on fresh. The 12 h table (worst Vei+Covington stock at 5, 10, 15 and 30 s;
+    0.5 s reference): midgame_2flips 0.38%, 1.28%, 2.43%, 6.33%; fresh 0.33%, 1.56%, 0.91%,
+    1.17%; pre_vei 7.37%, 27.3%, 27.8%, 56.5% (pre-march-back, see below).
+  - So 12 h at 15 s on midgame_2flips (2.4%, bone) is above the 2% `idle.catchup_tol`. Only the 1 h
+    gate (`tests/test_convergence_1h.gd`, 1.333% at 15 s) enforces 2%; at 12 h the largest dt
+    inside it is 10 s (1.28%).
   - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s) midgame_2flips' backlog is
     first order: 0.012% at 0.25 s, 0.036% at 0.5 s. Over 1 h its backlog's error is 0.012%,
     0.036%, 0.062%, 0.13%, 0.28%, 0.88% and 1.37% at 0.25, 0.5, 1, 2, 5, 10 and 15 s (2.66% at
@@ -160,8 +165,9 @@ takes over 1 s.
   - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
     (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
     with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
-    adaptive, not fixed: with `idle.catchup_max_steps` set so that 12 h steps at 5 s, 7 days steps
-    at about 70 s. In a profile before T3.0, most of the step (two thirds to three quarters) was
+    adaptive, not fixed (the `dt` formula under Method). With `idle.catchup_max_steps` set so
+    that 12 h steps at 5 s, 7 days steps at about 70 s: that figure is derived (604 800 s /
+    `idle.catchup_max_steps`, 8 640 steps), not measured. In a profile before T3.0, most of the step (two thirds to three quarters) was
     TownSim, which runs `_restaff` twice per step: by that profile, that is the cost lever.
 - A thread is the fallback.
 

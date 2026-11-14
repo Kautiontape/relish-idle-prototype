@@ -437,15 +437,54 @@ func soak(sim_s: float, seed_val: int) -> void:
 				"building_done": st["done"] += 1
 				"relish_died": st["deaths"] += 1
 		_soak_check(s, st, bad, idle_cap, pool_cap)
-	# then a full body store with every building unstaffed (nothing burns or mills it), so rot's return
-	# overflows and rot_overflow books whatever the random phase did (it reached the cap by chance)
+	# Two forced phases, each asserted on its own delta (the random phase may or may not have reached
+	# these sinks, and the cumulative totals would hide that):
+	#  1. march-back: Vei's pool is full and a free fort holds living far above its cap, so the living
+	#     marching back land above her pool's cap and pool_overflow books (MECHANICS §3.4). Both
+	#     edits are booked as debug sources, as the debug commands do (set_state clamps living to
+	#     the cap, so it cannot make this state).
+	#  2. full store: every building unstaffed (nothing burns or mills bodies) and the body store
+	#     full, so rot's return overflows and rot_overflow books.
+	# Covered elsewhere (deterministic tests above): haul_overflow, in _overflow(), the convoy that
+	# lands on a full store. store_overflow is not live: nothing books it (GameState.step books the
+	# town's five sinks and the realm's cleared and pool_overflow only), so it is left out of the list.
+	if not s.run.is_empty():
+		s.cmd_abort_dungeon()
+	var fort_id := ""
+	for f in s.realm.forts:
+		if not RealmSim.is_held(f):
+			fort_id = str(f["id"])
+			break
+	if fort_id == "":
+		bad.append("no free fort for the march-back phase")
+	else:
+		var f: Dictionary = s.realm.fort_by_id(fort_id)
+		var pool_add := pool_cap - float(s.realm.vei["living_pool"])
+		var fort_add := float(f["cap"]) * 10.0
+		s.realm.vei["living_pool"] = pool_cap
+		f["living"] = float(f["living"]) + fort_add
+		s._ledger.source("debug", pool_add + fort_add)
+		var before: Dictionary = s.ledger()["sinks"].duplicate()
+		# the realm steps at SOAK_FIELD_HZ, so run past two of its periods: it steps at least once
+		var t_end := s.t + 2.0 / SOAK_FIELD_HZ
+		while s.t < t_end:
+			st["substeps"] += s.tick(dt)
+			s.drain_events()
+			_soak_check(s, st, bad, idle_cap, pool_cap)
+		st["phase_march"] = float(s.ledger()["sinks"]["pool_overflow"]) - float(before["pool_overflow"])
+		t.ok(st["phase_march"] > 0.0, "soak march-back phase: pool_overflow booked %.2f" % st["phase_march"])
 	for lot in s.town_sim.buildings:
 		s.cmd_set_staff_cap(lot, 0)
 	s.cmd_debug_grant({"bodies": 1000.0})
+	var before2: Dictionary = s.ledger()["sinks"].duplicate()
 	for i in 40:
 		st["substeps"] += s.tick(dt)
 		s.drain_events()
 		_soak_check(s, st, bad, idle_cap, pool_cap)
+	st["phase_rot"] = float(s.ledger()["sinks"]["rot_overflow"]) - float(before2["rot_overflow"])
+	t.ok(st["phase_rot"] > 0.0, "soak full-store phase: rot_overflow booked %.3f" % st["phase_rot"])
+	print("  [soak] forced phases: march-back pool_overflow +%.3f, full store rot_overflow +%.4f" % [
+		float(st.get("phase_march", -1.0)), st["phase_rot"]])
 	var wall := Time.get_ticks_msec() - wall0
 	var l := s.ledger()
 	print("  [soak] %d sim-s, %d substeps, %d checks, worst relative error %s, wall %d ms" % [
@@ -461,9 +500,9 @@ func soak(sim_s: float, seed_val: int) -> void:
 	t.ok(st["flips"] > 0 and st["raids"] >= 3 and st["boss_losses"] > 0 and st["muster"] > 0.0 and st["done"] > 0,
 		"soak exercised flips, raids, a lost fight, muster and builds")
 	var used := true
-	for k in ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon", "rot_overflow"]:
+	for k in ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon", "pool_overflow", "rot_overflow"]:
 		used = used and float(l["sinks"][k]) > 0.0
-	t.ok(used and l["sources"]["debug"] != 0.0, "every live sink booked mass, and so did debug")
+	t.ok(used and l["sources"]["debug"] != 0.0, "every sink the soak drives booked mass, and so did debug")
 	if sim_s >= 3600.0:
 		t.ok(st["waves"] > 0, "a full hour sees a tithe wave")
 
