@@ -564,7 +564,8 @@ mass; bodies, rot return, WORK and muster are mass.
   the three always balance.
 
 ### 4.2 Jobs (rates per staffed worker; keys in `economy.json`)
-- **Slots.** A working building offers its `buildings.json` `jobs` × its level. A lot under
+- **Slots.** A working building offers its `buildings.json` `jobs` × its level (a Chapel of Vats its
+  tend slots only for its staffed vats, §7). A lot under
   construction offers `job.build.slots` build slots; a first build offers nothing else, and an
   upgrade keeps its old level's slots too (its building keeps working).
   An unpaid building offers none. Staffing is fractional.
@@ -581,7 +582,7 @@ mass; bodies, rot return, WORK and muster are mass.
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
 | pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share. `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
-| tend | chapel of vats | grows clones (§7); E2 only counts the tenders |
+| tend | chapel of vats | one slot per vat, open only while that vat is staffed (§7; E2b-2): `jobs.tend` × level slots for `vat_slots` × level vats, the same count. Grows clones (§7, E3); until then only the tenders count |
 | build | construction | `job.build.rate` work per worker-second against `build_work · target level`. A `build_work` of 0 completes at once. |
 | foreman | (big undead only) | multiplies a building's output by `foreman.mult` + speed·`foreman.speed_k` |
 
@@ -861,6 +862,20 @@ The Watchtower turns the bands into exact percentages and lists every tell.
 
 **Clones** grow at `vats.grow_per_s` per **staffed** vat, from 0 to 1, one clone per vat.
 `view_backups` always shows what a death would cost right now.
+
+**A staffed vat takes a hand** (E2b-2, the run's manager). A Chapel of Vats offers one tend slot per
+vat (`jobs.tend` × level tend slots for `effects.vat_slots` × level vats, the same count), and a
+vat's slot is open only while that vat is staffed (`cmd_staff_vat`). The job ladder fills the open
+tend slots like any other (§4.5). Staffing a vat opens its slot, which takes the hand the ladder
+gives it: an idle worker if there is one, else the lowest room staffed below it. Unstaffing it
+closes the slot and the hand goes back to the ladder's next room, or idles. The vats are numbered
+as `view_backups` numbers them: in lot order over every built Chapel (unpaid or mid-upgrade too, at
+its built level), then by vat within it. An unpaid Chapel keeps its numbers but offers no slot.
+Clone growth isn't tied to the tenders yet (E3).
+- **Measured:** a save with a Chapel and no staffed vat loses its tenders to the ladder. pre_vei
+  (two unstaffed vats, 35 workers on 25 slots, the idle pool at its cap of 10) has 2 tenders fewer:
+  they go idle, which puts the idle pool 2 over its cap, so its first step musters 2 workers (80
+  mass) to WAR, and it settles at 33. midgame_2flips has no Chapel: nothing moves.
 
 ## 8. Contracts in short (full fields in STATE-API.md)
 ```

@@ -67,6 +67,7 @@ func run() -> int:
 	_round_trip()
 	_handles()
 	_room_cache()
+	_vat_rule()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -840,7 +841,7 @@ func _soak() -> void:
 # ------------------------------------------------------------ the room cache ----
 ## staffing and _by_lot as the pure allocation gives them now, from scratch.
 func _fresh_alloc(s: TownSim) -> Dictionary:
-	return TownSim.staff_allocate(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.workers, [])
+	return TownSim.staff_allocate(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.workers, s.vats_on())
 
 
 const SUM_KEYS := ["pits", "body_cap", "living_cap", "lifetime_bonus", "haul_speed_mult", "attract"]
@@ -859,7 +860,7 @@ func _rooms_now(s: TownSim) -> Dictionary:
 				if TownSim._works_b(s.buildings[lot_id]):
 					w += s._eff(s.buildings[lot_id], k)
 		sums[k] = [w, b]
-	return {"rooms": TownSim.staff_rooms(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, []),
+	return {"rooms": TownSim.staff_rooms(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.vats_on()),
 		"sums": sums}
 
 
@@ -978,3 +979,80 @@ func _room_cache() -> void:
 	for i in 10:
 		q.step(10.0, _inp({"work_mass": _hold_work(q, 6.0, 10.0)}))
 	t.ok(q.workers == 6.0 and q._n_fills == f0 and w0 > 6.0, "a settled workforce (6.0 all staffed, held): no fill at all (%d)" % (q._n_fills - f0))
+
+
+# ------------------------------------------------------------ the vat rule ----
+func _tend(s: TownSim) -> Dictionary:
+	return s.staffing["jobs"].get("tend", {"slots": 0, "staffed": 0.0})
+
+
+## MECHANICS §7 (E2b-2): a Chapel of Vats offers one tend slot per vat, open only while that vat is
+## staffed; the ladder fills the open ones like any other.
+func _vat_rule() -> void:
+	t.suite("town_sim-vats")
+	var s := _sim()
+	s.place_building("lot-13", "chapel_of_vats", 1)
+	s.set_ladder(["tend", "stall", "pit", "haul", "build", "mill", "forge"])
+	s.workers = 2.0
+	s.restaff()
+	t.ok(int(_tend(s)["slots"]) == 0 and _staffed(s, "tend") == 0.0 and s.lot_slots("lot-13") == 0 and not s.staffing["lots"].has("lot-13"),
+		"vats unstaffed: the Chapel offers no tend room (slots %d)" % int(_tend(s)["slots"]))
+	t.ok(_staffed(s, "stall") == 2.0, "the two hands staff the market below it")
+	s.set_vats([true])
+	t.ok(int(_tend(s)["slots"]) == 1 and s.lot_slots("lot-13") == 1, "one vat staffed: one tend room")
+	t.ok(_staffed(s, "tend") == 1.0 and _staffed(s, "stall") == 1.0 and float(s.staffing["idle"]) == 0.0,
+		"staffing it moves exactly one hand, from the ladder's next room (the stall) to the vat's")
+	s.set_vats([true, true])
+	t.ok(int(_tend(s)["slots"]) == 2 and _staffed(s, "tend") == 2.0 and _staffed(s, "stall") == 0.0, "both vats: two tend rooms, both hands")
+	s.set_vats([false, true])
+	t.ok(_staffed(s, "tend") == 1.0 and _staffed(s, "stall") == 1.0, "unstaffing one gives its hand back to the stall")
+	s.set_vats([])
+	t.ok(_staffed(s, "tend") == 0.0 and _staffed(s, "stall") == 2.0 and int(_tend(s)["slots"]) == 0, "none staffed: no tend room again")
+	# at the bottom of the ladder with spare hands, a vat takes an idle one
+	s.set_ladder(["build", "haul", "pit", "stall", "mill", "forge", "tend"])
+	s.workers = 9.0
+	s.restaff()
+	var idle0 := float(s.staffing["idle"])
+	s.set_vats([true])
+	t.ok(_staffed(s, "tend") == 1.0 and absf(float(s.staffing["idle"]) - (idle0 - 1.0)) < 1e-12 and _staffed(s, "stall") == 2.0,
+		"with idle hands the vat takes one of them (idle %.1f -> %.1f), nobody else moves" % [idle0, float(s.staffing["idle"])])
+	s.set_vats([false, false, false])
+	t.ok(s.vats_on() == [], "trailing unstaffed vats are dropped: [false, false, false] is none")
+	# an unpaid Chapel offers no tend room, staffed vats or not; a level-2 Chapel has 4 vats and 4 rooms
+	s.set_vats([true, true])
+	s.buildings["lot-13"]["state"] = "unpaid"
+	s.restaff()
+	t.ok(int(_tend(s)["slots"]) == 0 and _staffed(s, "tend") == 0.0, "an unpaid Chapel: no tend room")
+	s.place_building("lot-13", "chapel_of_vats", 2)
+	s.set_vats([false, false, false, true])
+	t.ok(int(_tend(s)["slots"]) == 1 and _staffed(s, "tend") == 1.0, "level 2: vat 3 staffed opens one of its 4 rooms")
+	# two Chapels: vats in lot order, then by vat
+	var two := _sim()
+	two.place_building("lot-13", "chapel_of_vats", 1)
+	two.place_building("lot-14", "chapel_of_vats", 1)
+	two.workers = 20.0
+	two.set_vats([false, false, true])
+	t.ok(float(two._by_lot.get("lot-14", {}).get("tend", 0.0)) == 1.0 and float(two._by_lot.get("lot-13", {}).get("tend", 0.0)) == 0.0,
+		"two Chapels: vat 2 is lot-14's first (lot order, then by vat)")
+	t.ok(TownSim.tend_open(two._lots, two.buildings, two._defs, [true, false, true, true]) == {"lot-13": 1, "lot-14": 2}, "tend_open counts each Chapel's staffed vats")
+	# the projection's override opens and closes the same rooms, and changes nothing
+	var p := two.project_staffing(two.ladder, {0: true, 2: false, 9: true, 1.5: true})
+	t.ok(float(p["by_lot"].get("lot-13", {}).get("tend", 0.0)) == 1.0 and float(p["by_lot"].get("lot-14", {}).get("tend", 0.0)) == 0.0,
+		"the override: vat 0 on, vat 2 off; slot 9 (no such vat) and 1.5 ignored")
+	t.ok(two.vats_on() == [false, false, true] and float(two._by_lot["lot-14"]["tend"]) == 1.0, "and the projection changed nothing")
+	# a vat toggle marks the rooms dirty, like every other change to them
+	var r0 := _rooms_now(two)
+	two.set_vats([true])
+	_cache_ok(two, r0, "a vat toggle")
+	# the vats survive TownSim's own load only through set_vats (GameState's job): from_dict clears them
+	var c := _sim()
+	c.from_dict(two.to_dict())
+	t.ok(c.vats_on() == [] and _staffed(c, "tend") == 0.0, "from_dict leaves the vats to GameState: none until set_vats")
+	var states := {}
+	for lot in c.buildings:
+		states[lot] = c.buildings[lot]["state"]
+	c.set_vats([true], true)
+	var same := true
+	for lot in c.buildings:
+		same = same and c.buildings[lot]["state"] == states[lot]
+	t.ok(_staffed(c, "tend") == 1.0 and same, "set_vats on a load refills the rooms and keeps the saved states")

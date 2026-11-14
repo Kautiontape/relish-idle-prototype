@@ -33,8 +33,10 @@ from `BALANCE.md` §0.
 
   `api_version` 5 (E2b-2; later E2b-2 tasks add to this entry) added:
   - `view_staffing_projection(order, vats = {})` (§5.16, api-request #16): TownSim's own staffing
-    allocation run with another job order. Its `vats` override has no effect yet (E2b-2 T4.P's vat
-    rule makes it real).
+    allocation run with another job order and, optionally, other vats staffed;
+  - the vat rule (`cmd_staff_vat`, §4.3; MECHANICS §7): a staffed vat takes a hand, since a Chapel's
+    tend slot is open only while its vat is staffed. So `view_town` shows a Chapel's tend `slots`
+    only for its staffed vats: a meaning change, not a shape change.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -622,7 +624,14 @@ Game.state.cmd_deploy_simulacrum("vespers")  # -> {ok: true, reason: "", charges
 - **Args:** `slot` is 0..`vat_slots - 1`.
 - **Extras:** `staffed: bool`.
 - **Reasons:** `unknown_slot`.
-- A clone grows only while its vat is staffed.
+- A clone grows only while its vat is staffed (E3).
+- **Effect (E2b-2, api_version 5): a staffed vat takes a hand** (MECHANICS §7). A Chapel of Vats
+  offers one tend slot per vat, open only while that vat is staffed. `true` opens the vat's slot at
+  once and the ladder fills it like any other room (an idle worker if there is one, else the lowest
+  room staffed below it gives its hand); `false` closes it and gives the hand back to the ladder's
+  next room, or to the idle pool. Vats are numbered as `view_backups.vats`: in lot order over every
+  built Chapel, then by vat within it. `view_town().jobs` and the Chapel's `slots` count only the
+  open tend slots. `view_staffing_projection(order, {slot: on})` (§5.16) shows the move first.
 ```gdscript
 Game.state.cmd_staff_vat(0, true)  # -> {ok: true, reason: "", staffed: true}
 ```
@@ -1137,7 +1146,7 @@ Each `buildings` entry:
 | `level` | int | 0 while the first build is under way |
 | `state` | String | `"constructing"` (building or upgrading), `"active"`, `"unpaid"` (idled by unpaid upkeep), or `"idle"` (no staff, or a stance idles it) |
 | `progress` | float | 0..1 while constructing, else 1.0 |
-| `slots` | int | |
+| `slots` | int | the job slots it offers now (a Chapel of Vats: its tend slots for its staffed vats only, `cmd_staff_vat`) |
 | `staffed` | float | |
 | `staff_cap` | int | `-1` = none |
 | `foreman` | String | big-undead uid, or `""` |
@@ -1325,7 +1334,12 @@ from the sim's rule.
 - **Args:** `order`, a permutation of `JOB_IDS`, top first (`cmd_set_job_priority`'s argument);
   `vats` (optional), `{slot: bool}` with int slots: each listed vat counts as staffed (`true`) or not
   (`false`) instead of its `view_backups` state; slots it doesn't list keep theirs, and a slot with no
-  vat is ignored. **Until E2b-2 T4.P's vat rule, `vats` is accepted and has no effect.**
+  vat (or one that isn't a whole number) is ignored.
+- **What `vats` opens and closes:** the vat rule (`cmd_staff_vat`, §4.3; MECHANICS §7). A vat counted
+  as staffed opens its Chapel's tend slot, and the ladder fills it like any other room in `order`; one
+  counted as unstaffed closes it, and its hand goes to the next room or idles. So
+  `view_staffing_projection(order, {slot: on})` equals `view_town()` after `cmd_staff_vat(slot, on)`
+  for each listed slot, and the town reads from it which job loses or gains the hand.
 - **Pure:** nothing changes, `rev` stays, and no event is queued. Like every view it is a fresh deep
   copy carrying `rev`.
 - **Refusals:** an `order` that `cmd_set_job_priority` would refuse gives its reason (`unknown_job`,
@@ -1348,6 +1362,9 @@ Game.state.view_staffing_projection(["build", "haul", "pit", "mill", "stall", "f
 #     {id: "mill", slots: 2, staffed: 2.0}, {id: "stall", slots: 2, staffed: 0.4}],
 #     buildings: [{lot_id: "lot-01", staffed: 0.0}, {lot_id: "lot-02", staffed: 2.0}, {lot_id: "lot-03", staffed: 3.0},
 #                 {lot_id: "lot-04", staffed: 0.4}, {lot_id: "lot-07", staffed: 2.0}], idle: 0.0, reason: ""}
+Game.state.view_staffing_projection(["tend", "stall", "pit", "haul", "build", "mill", "forge"], {0: true})
+# -> {rev: 812, jobs: [{id: "tend", slots: 1, staffed: 1.0}, {id: "stall", slots: 4, staffed: 2.0}, ...], ...}
+#    (vat 0 staffed: its tend slot opens and takes a hand from the stall)
 Game.state.view_staffing_projection(["haul", "pit"])
 # -> {rev: 812, jobs: [], buildings: [], idle: 0.0, reason: "missing_job"}
 ```

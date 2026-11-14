@@ -214,6 +214,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	haul_target = "auto"
 	stances_on = []
 	vats_staffed = []
+	town_sim.set_vats(vats_staffed)  # (new_game cleared them too)
 	town_tier = "hamlet"
 	relish = {
 		"state": "home", "at": "covington", "target": "",
@@ -856,13 +857,16 @@ func _vat_entry(i: int) -> Dictionary:
 	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0 if ready else 0.0, "ready": ready}
 
 
-## E1/E3: stores the staffing (clones grow only while staffed from E3).
+## E1/E3 (the hand E2b-2): stores the staffing, and a staffed vat takes a hand: its tend slot opens
+## and the ladder fills it like any other; unstaffing it closes the slot and gives the hand back
+## (MECHANICS §7). Clones grow only while staffed from E3.
 func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 	if slot < 0 or slot >= _vat_slots():
 		return {"ok": false, "reason": "unknown_slot", "staffed": false}
 	while vats_staffed.size() <= slot:
 		vats_staffed.append(false)
 	vats_staffed[slot] = on
+	town_sim.set_vats(vats_staffed)
 	rev += 1
 	return {"ok": true, "reason": "", "staffed": on}
 
@@ -1531,6 +1535,9 @@ func from_dict(d: Dictionary) -> Dictionary:
 	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
+	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
+	# states kept)
+	town_sim.set_vats(vats_staffed, true)
 	return {"ok": true, "reason": ""}
 
 

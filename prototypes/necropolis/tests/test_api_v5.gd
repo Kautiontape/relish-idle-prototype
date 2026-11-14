@@ -148,14 +148,41 @@ func _refusals() -> void:
 	t.ok(sn["reason"] == "" and sn["jobs"][0]["id"] is String, "StringName ids are accepted, as the command accepts them")
 
 
-## Until the vat rule, `vats` is accepted and changes nothing.
+## pre_vei with the tend job above the stall and three workers, the vats as `staffed` (cmd_staff_vat).
+func _vat_game(staffed: Dictionary) -> GameState:
+	var s := _fixture("pre_vei")
+	s.cmd_set_job_priority(["tend", "stall", "pit", "haul", "build", "mill", "forge"])
+	t.ok(s.cmd_debug_grant({"workers": 3.0 - s.town_sim.workers})["ok"], "three workers")
+	for slot in staffed:
+		t.ok(s.cmd_staff_vat(slot, staffed[slot])["ok"], "vat %d staffed: %s" % [slot, str(staffed[slot])])
+	return s
+
+
+## `vats` opens and closes the tend slots cmd_staff_vat would: the projection with an override is what
+## view_town shows after those cmd_staff_vat calls on a twin. A hand moves between the tend slot and
+## the stall below it.
 func _vat_override() -> void:
 	t.suite("api-v5-projection-vats")
-	var s := _fixture("pre_vei")
+	var s := _vat_game({})
 	var order := s.town_sim.ladder
 	var base := s.view_staffing_projection(order)
-	for v in [{0: true}, {0: false, 1: false}, {0: true, 1: true}, {9: true}]:
-		t.ok(s.view_staffing_projection(order, v) == base, "vats %s: no effect yet" % str(v))
+	t.ok(_proj_rows(base) == _town_rows(s) and base["jobs"][0]["id"] == "stall", "no vat staffed: no tend slot, the stall first")
+	var rv := s.rev
+	for v in [{0: true}, {1: true}, {0: true, 1: true}, {0: false}, {9: true}]:
+		var p := s.view_staffing_projection(order, v)
+		var c := _vat_game({})
+		for slot in v:
+			if slot < 2:
+				c.cmd_staff_vat(slot, v[slot])
+		t.ok(_proj_rows(p) == _town_rows(c), "vats %s: the projection is view_town after cmd_staff_vat on a twin: %s vs %s" % [
+			str(v), str(_proj_rows(p)), str(_town_rows(c))])
+	var one := s.view_staffing_projection(order, {0: true})
+	t.ok(one["jobs"][0] == {"id": "tend", "slots": 1, "staffed": 1.0} and one["jobs"][1]["staffed"] == base["jobs"][0]["staffed"] - 1.0,
+		"one vat staffed: the tend slot takes one hand from the stall")
+	t.ok(s.rev == rv and _town_rows(s)["jobs"] == base["jobs"] and not s.vats_staffed.has(true) and s.town_sim.vats_on() == [], "the overrides changed nothing")
+	var on := _vat_game({0: true})
+	var off := on.view_staffing_projection(order, {0: false})
+	t.ok(_proj_rows(off) == _proj_rows(base), "a staffed vat overridden off gives its hand back, as unstaffing it would")
 
 
 func _cleanup() -> void:

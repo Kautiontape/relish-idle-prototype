@@ -136,6 +136,9 @@ var _staffed_w := NAN
 ## buildings' states and levels, so _mark_rooms() clears them.
 var _sums_w := {}
 var _sums_b := {}
+## The vats staffed, per vat slot (GameState's vats_staffed, which it saves; set_vats), trailing
+## falses dropped. A vat slot's tend room is open only while its vat is staffed (MECHANICS §7).
+var _vats: Array[bool] = []
 var _n_rooms := 0  # staff_rooms() builds, for tests (not saved)
 var _n_fills := 0  # staff_fill() runs from _staff(), for tests (not saved)
 var _pending: Array = []  # events from commands, returned by the next step()
@@ -242,6 +245,7 @@ func new_game() -> void:
 	living = float(_start["living"])
 	shock = 0.0
 	buildings = {}
+	_vats = []
 	_mark_rooms()
 	var start: Dictionary = _start["buildings"]
 	for lot_id in start:
@@ -370,6 +374,37 @@ func set_staff_cap(lot_id: String, cap: int) -> bool:
 	_mark_rooms()
 	_restaff()
 	return true
+
+
+## Which vats are staffed (bool per vat slot; GameState's vats_staffed): each staffed vat opens its
+## Chapel's tend slot (MECHANICS §7). A change marks the rooms dirty and restaffs at once; `on_load`
+## refills without marking the states (a load restores them as saved). Nothing changes when the
+## staffed set is the same.
+func set_vats(staffed: Array, on_load := false) -> void:
+	var v := _vat_list(staffed)
+	if v == _vats:
+		return
+	_vats = v
+	_mark_rooms()
+	if on_load:
+		_staff()
+	else:
+		_restaff()
+
+
+## `staffed` as a vat list: bool per slot, trailing falses dropped (so [true] and [true, false] agree).
+static func _vat_list(staffed: Array) -> Array[bool]:
+	var v: Array[bool] = []
+	for x in staffed:
+		v.append(bool(x))
+	while not v.is_empty() and not v[v.size() - 1]:
+		v.pop_back()
+	return v
+
+
+## The vats as set_vats() keeps them, for the allocation and tests.
+func vats_on() -> Array[bool]:
+	return _vats.duplicate()
 
 
 ## Refills the job slots from scratch after a stock or a building was changed directly (a debug
@@ -868,11 +903,13 @@ static func staff_allocate(order: Array, lots: Array, buildings_in: Dictionary, 
 ## ladder; an id outside JOBS or one already seen is skipped), lots in `lots` order: each lot offers
 ## a job its slots (_slots_b), cut to what its staff cap leaves after the jobs above it.
 ## `buildings_in` is lot_id -> {building_id, state, level, staff_cap}, `defs` the building defs,
-## `build_slots` job.build.slots. `_vats` (staffed, per vat slot) is accepted for the vat rule and
-## has no effect yet. Returns {rooms: [[lot_id, job, room]] in fill order, jobs: {job: slots} in
-## order, slots: Σ room (the staffable workers)}.
+## `build_slots` job.build.slots. `vats` (staffed, per vat slot) opens the tend slots: one per vat,
+## open only while that vat is staffed (MECHANICS §7, tend_open). Returns {rooms: [[lot_id, job,
+## room]] in fill order, jobs: {job: slots} in order, slots: Σ room (the staffable workers),
+## tend: {lot_id: open tend slots}}.
 static func staff_rooms(order: Array, lots: Array, buildings_in: Dictionary, defs: Dictionary, build_slots: int,
-		_vats: Array) -> Dictionary:
+		vats: Array) -> Dictionary:
+	var tend := tend_open(lots, buildings_in, defs, vats)
 	var used := {}
 	var rooms: Array = []  # [lot_id, job, room] in fill order
 	var jobs := {}
@@ -886,6 +923,8 @@ static func staff_rooms(order: Array, lots: Array, buildings_in: Dictionary, def
 			if b.is_empty():
 				continue
 			var k := _slots_b(b, job, defs, build_slots)
+			if job == "tend":
+				k = mini(k, int(tend.get(lot_id, 0)))
 			if k <= 0:
 				continue
 			n += k
@@ -896,7 +935,32 @@ static func staff_rooms(order: Array, lots: Array, buildings_in: Dictionary, def
 			rooms.append([lot_id, job, room])
 			total += room
 		jobs[job] = n
-	return {"rooms": rooms, "jobs": jobs, "slots": total}
+	return {"rooms": rooms, "jobs": jobs, "slots": total, "tend": tend}
+
+
+## The vat rule (MECHANICS §7; the run's manager, E2b-2): a Chapel of Vats offers one tend slot per
+## vat (jobs.tend × level = vat_slots × level), open only while that vat is staffed. Vats are numbered
+## as view_backups numbers them: every built building's `vat_slots` at its level (unpaid and
+## mid-upgrade too, so an unpaid Chapel keeps its numbers), in lot order, then by vat within the lot.
+## Returns {lot_id: staffed vats there}, which caps the lot's tend slots (an unpaid Chapel, or a first
+## build, still offers none).
+static func tend_open(lots: Array, buildings_in: Dictionary, defs: Dictionary, vats: Array) -> Dictionary:
+	var out := {}
+	var at := 0
+	for lot_id in lots:
+		var b: Dictionary = buildings_in.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var n := int(_eff_b(b, "vat_slots", defs))
+		if n <= 0:
+			continue
+		var on := 0
+		for i in range(at, at + n):
+			if i < vats.size() and bool(vats[i]):
+				on += 1
+		out[lot_id] = on
+		at += n
+	return out
 
 
 ## Fills staff_rooms()' rooms top-down with `w` workers. Returns {staffing, by_lot}: what `staffing`
@@ -926,7 +990,7 @@ static func staff_fill(r: Dictionary, w: float) -> Dictionary:
 ## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` and `_by_lot` only.
 func _staff() -> void:
 	if _rooms_dirty:
-		_rooms = staff_rooms(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, [])
+		_rooms = staff_rooms(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, _vats)
 		_rooms_dirty = false
 		_n_rooms += 1
 	var a := staff_fill(_rooms, workers)
@@ -946,13 +1010,25 @@ func _mark_rooms() -> void:
 
 ## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
 ## effective_ladder, as `_staff()` applies them) on today's workforce, buildings and staff caps. Pure:
-## changes nothing. `_vat_override` ({slot: bool}) overrides the staffed vats; it has no effect until
-## the vat rule. Returns staff_fill()'s {staffing, by_lot}.
-func project_staffing(order: Array, _vat_override: Dictionary) -> Dictionary:
+## changes nothing. `vat_override` ({slot: bool}, int slots) stands in for the staffed vats at the
+## slots it lists, opening and closing their tend slots as cmd_staff_vat would; a slot that isn't a
+## whole number from 0 to the vats there are is ignored. Returns staff_fill()'s {staffing, by_lot}.
+func project_staffing(order: Array, vat_override: Dictionary) -> Dictionary:
 	var o: Array = []
 	for j in order:
 		o.append(str(j))
-	return staff_allocate(effective_ladder(o), _lots, buildings, _defs, _build_slots, workers, [])
+	var v: Array = _vats.duplicate()
+	var n := int(_sum_built("vat_slots"))
+	for k in vat_override:
+		if not (k is int or (k is float and is_finite(k) and float(k) == floorf(k))):
+			continue
+		var slot := int(k)
+		if slot < 0 or slot >= n:
+			continue
+		while v.size() <= slot:
+			v.append(false)
+		v[slot] = bool(vat_override[k])
+	return staff_allocate(effective_ladder(o), _lots, buildings, _defs, _build_slots, workers, v)
 
 
 ## `_staff()`, then marks working buildings that have job slots `active` (someone staffed) or
@@ -1005,8 +1081,12 @@ func _job(job: String) -> float:
 ## A building's numeric effect at its level: a number is per level (× level); an Array is a
 ## per-level table (index level − 1). 0 before the first build completes.
 func _eff(b: Dictionary, key: String) -> float:
+	return _eff_b(b, key, _defs)
+
+
+static func _eff_b(b: Dictionary, key: String, defs: Dictionary) -> float:
 	var lv := int(b["level"])
-	var v: Variant = _defs[b["building_id"]]["effects"].get(key, null)
+	var v: Variant = defs[b["building_id"]]["effects"].get(key, null)
 	if v == null or lv <= 0:
 		return 0.0
 	if v is Array:
@@ -1048,13 +1128,16 @@ func pits() -> int:
 	return int(_sum_working("pits"))
 
 
-## The job slots a lot offers now (build slots while constructing, none while unpaid); 0 when empty.
+## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
+## slots only for its staffed vats); 0 when empty.
 func lot_slots(lot_id: String) -> int:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var n := 0
 	if not b.is_empty():
+		var tend := tend_open(_lots, buildings, _defs, _vats)
 		for job in JOBS:
-			n += _slots(b, job)
+			var k := _slots(b, job)
+			n += mini(k, int(tend.get(lot_id, 0))) if job == "tend" else k
 	return n
 
 
@@ -1165,6 +1248,7 @@ func from_dict(d: Dictionary) -> void:
 	morale = float(d.get("morale", _morale_base))
 	shock = float(d.get("shock", 0.0))
 	buildings = {}
+	_vats = []  # GameState sets the loaded vats right after (set_vats(..., true))
 	_mark_rooms()
 	for e in d.get("buildings", []):
 		var lot_id := str(e.get("lot_id", ""))

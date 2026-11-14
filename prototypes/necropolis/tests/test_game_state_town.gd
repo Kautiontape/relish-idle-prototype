@@ -60,6 +60,7 @@ func run() -> int:
 	_legacy()
 	_migrate()
 	_fixtures()
+	_vat_hands()
 	return t.failures
 
 
@@ -438,3 +439,47 @@ func _fixtures() -> void:
 		var ts := s.town_sim
 		t.ok(ts.gold >= 0.0 and ts.bone >= 0.0 and ts.bodies >= 0.0 and ts.workers >= 0.0 and ts.living >= 0.0 and s._split["mint"] > 0.0,
 			"%s: 10 s on, it runs (mint %.2f)" % [name, s._split["mint"]])
+
+
+# ------------------------------------------------------------ the vat rule ----
+func _tend_of(s: GameState) -> Dictionary:
+	for j in s.view_town()["jobs"]:
+		if j["id"] == "tend":
+			return j
+	return {"id": "tend", "slots": 0, "staffed": 0.0}
+
+
+## MECHANICS §7 (E2b-2): a staffed vat takes a hand. cmd_staff_vat opens its tend slot at once and
+## the ladder fills it; unstaffing gives the hand back. A save keeps the vats and a load reopens
+## their slots; a new game clears them.
+func _vat_hands() -> void:
+	t.suite("game_state_town-vats")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("pre_vei")["ok"], "pre_vei loads")
+	t.ok(int(_tend_of(s)["slots"]) == 0 and float(_tend_of(s)["staffed"]) == 0.0 and s.view_backups()["vats"].size() == 2,
+		"pre_vei: a Chapel with two unstaffed vats offers no tend slot")
+	s.cmd_set_job_priority(["tend", "stall", "pit", "haul", "build", "mill", "forge"])
+	t.ok(s.cmd_debug_grant({"workers": 3.0 - s.town_sim.workers})["ok"], "three workers")
+	var stall0 := _staffed_job(s, "stall")
+	var rv := s.rev
+	t.ok(s.cmd_staff_vat(0, true)["ok"] and s.rev == rv + 1, "staff vat 0")
+	t.ok(int(_tend_of(s)["slots"]) == 1 and float(_tend_of(s)["staffed"]) == 1.0 and _staffed_job(s, "stall") == stall0 - 1.0,
+		"its tend slot opens at once and takes the hand the stall below it had (stall %.1f -> %.1f)" % [stall0, _staffed_job(s, "stall")])
+	var d := s.to_dict()
+	var n := GameState.new(TestUtil.configs())
+	n.debug_enabled = true
+	t.ok(n.from_dict(d)["ok"] and float(_tend_of(n)["staffed"]) == 1.0 and n.view_backups()["vats"][0]["staffed"],
+		"a save keeps the vat and a load reopens its slot")
+	t.ok(s.cmd_staff_vat(0, false)["ok"] and int(_tend_of(s)["slots"]) == 0 and _staffed_job(s, "stall") == stall0,
+		"unstaffing it closes the slot and gives the hand back")
+	s.cmd_staff_vat(1, true)
+	s.cmd_new_game(3)
+	t.ok(s.town_sim.vats_on() == [] and s.vats_staffed == [], "a new game clears the vats in TownSim too")
+
+
+func _staffed_job(s: GameState, job: String) -> float:
+	for j in s.view_town()["jobs"]:
+		if j["id"] == job:
+			return float(j["staffed"])
+	return 0.0
