@@ -411,7 +411,10 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var inflow := rot_mass + haul_in
 	var taken := minf(want, b0 + inflow)
 	var end := b0 + inflow - taken
-	var over := maxf(0.0, end - cap)
+	# only what comes in is clipped: an excess the store held before the step (a demolished house
+	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
+	# the pits have drawn the stock this step, whichever is higher
+	var over := maxf(0.0, end - maxf(cap, b0 - taken))
 	bodies = maxf(0.0, end - over)
 	var rot_over := minf(over, over * rot_mass / inflow) if inflow > 0.0 else 0.0
 	var haul_over := maxf(0.0, over - rot_over)
@@ -633,13 +636,14 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 	var taken := {}
 	var delivered := 0.0
 	var left := dt
-	var lvl := clampf(b0, 0.0, cap)  # the projected store at `at_lvl` seconds into the step
+	var hi := maxf(cap, b0)  # an over-cap store keeps its excess (step 4); it is the projection's ceiling
+	var lvl := clampf(b0, 0.0, hi)  # the projected store at `at_lvl` seconds into the step
 	var at_lvl := 0.0
 	for _i in MAX_LEGS:
 		if left <= 0.0:
 			break
 		if convoys.is_empty():
-			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, cap) >= cap - EPS or speed <= 0.0:
+			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) >= cap - EPS or speed <= 0.0:
 				break
 			var fid := _haul_pick(forts, target, taken)
 			if fid == "":
@@ -658,7 +662,7 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 			var f: Dictionary = by_id.get(c["fort"], {})
 			var avail := maxf(0.0, float(f.get("dead", 0.0)) - float(taken.get(c["fort"], 0.0)))
 			var mult := _haul_mult if bool(f.get("held", false)) else 1.0
-			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, cap)
+			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, hi)
 			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - level))
 			taken[c["fort"]] = float(taken.get(c["fort"], 0.0)) + load
 			c["load"] = load
@@ -666,7 +670,7 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 			c["t"] = 0.0
 		else:
 			delivered += float(c["load"])
-			lvl = minf(cap, clampf(lvl + net * (dt - left - at_lvl), 0.0, cap) + float(c["load"]))
+			lvl = minf(hi, clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) + float(c["load"]))
 			at_lvl = dt - left
 			_haul_trip = float(c["load"]) / (2.0 * float(c["trip_s"]))
 			convoys.clear()

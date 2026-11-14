@@ -513,7 +513,7 @@ mass; bodies, rot return, WORK and muster are mass.
   is reported as `rot_overflow`, a ledger sink.
 - **The store over a step** (E2b T3.0): rot return and convoy landings come in, and what the pits
   and mills want goes out. The two are netted before the cap clips: out = min(want, B0 + in), and
-  only what is left above the cap overflows, split between `rot_overflow` and `haul_overflow` by
+  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
   loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so

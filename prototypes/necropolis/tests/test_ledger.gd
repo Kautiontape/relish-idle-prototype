@@ -67,6 +67,7 @@ func run() -> int:
 	_keys()
 	_flows()
 	_overflow()
+	_demolish_over_cap()
 	_debug()
 	_runs()
 	_any_dt()
@@ -162,6 +163,28 @@ func _overflow() -> void:
 	t.ok(_snk(s, "haul_overflow") > h0, "haul_overflow: the load that found the store full (%.2f)" % (_snk(s, "haul_overflow") - h0))
 	t.ok(_snk(s, "rot_overflow") > r0, "rot_overflow: rot return over the cap (%.3f)" % (_snk(s, "rot_overflow") - r0))
 	t.ok(_err(s) < TIGHT, "balanced with both overflows")
+
+
+## I1: demolishing a body-cap building under a full store loses nothing but what comes in.
+func _demolish_over_cap() -> void:
+	var s := _mk()
+	t.ok(s.town_sim.place_building("lot-06", "graveyard", 1), "a graveyard stands on lot-06")
+	var cap := s.town_sim.body_cap()
+	s.cmd_debug_grant({"bodies": cap})
+	t.ok(s.town_sim.bodies == cap, "the store is full")
+	t.ok(s.cmd_demolish("lot-06")["ok"], "the graveyard is demolished")
+	var cap1 := s.town_sim.body_cap()
+	t.ok(cap1 < cap and s.town_sim.bodies > cap1, "the store now stands over its cap (%.1f > %.1f)" % [s.town_sim.bodies, cap1])
+	var b0 := s.town_sim.bodies
+	var ov0 := _snk(s, "rot_overflow") + _snk(s, "haul_overflow")
+	var drain0 := _snk(s, "burned") + _snk(s, "milled")
+	var w0 := s.town_sim.workers
+	s.tick(s.substep_s())
+	var ov := _snk(s, "rot_overflow") + _snk(s, "haul_overflow") - ov0
+	var drain := _snk(s, "burned") + _snk(s, "milled") - drain0
+	t.ok(ov < 1.0 and b0 - s.town_sim.bodies <= drain + ov + 1e-9 and b0 - s.town_sim.bodies >= drain - 1e-9,
+		"no body is lost beyond the step's inflow: overflow %.4f, drain %.4f, store %.2f -> %.2f" % [ov, drain, b0, s.town_sim.bodies])
+	t.ok(_err(s) < TIGHT, "and the ledger balances")
 
 
 # ------------------------------------------------------------------ debug ----
