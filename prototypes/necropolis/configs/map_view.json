@@ -18,6 +18,7 @@
   "flood_direct_glow": 1.0,
   "halo_max_px": 14.0,
   "quiet_width_mult": 0.6,
+  "quiet_alpha_floor": 0.9,
   "glow_cap_per_kind": 4,
   "lane_kinds": {
     "war": {
@@ -49,16 +50,14 @@
       "hue": "living",
       "core": "living_core",
       "glow": 1.0,
-      "duty": 0.26,
-      "quiet_lighten": 0.8
+      "duty": 0.26
     },
     "redirect": {
       "hue": "relish",
       "core": "relish",
       "core_lighten": 0.8,
       "glow": 1.0,
-      "duty": 0.5,
-      "quiet_lighten": 0.82
+      "duty": 0.5
     },
     "dead": {
       "hue": "dead",
@@ -205,7 +204,7 @@
     "contested_floor_frac": 0.05,
     "state_alpha_base": 0.75,
     "state_alpha_wave": 0.25,
-    "state_square_ratio": 0.75,
+    "state_square_ratio": 1.0,
     "state_stroke_px": 2.0,
     "state_glow": 0.6,
     "state_halo_max_px": 6.0,

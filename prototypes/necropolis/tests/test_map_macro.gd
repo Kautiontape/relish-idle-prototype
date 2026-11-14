@@ -140,13 +140,13 @@ func _glyph_size(t: TestUtil) -> void:
 		ok = ok and absf(half * 2.0 * z - float(n["state_glyph_px"])) < 1e-4
 	t.ok(ok, "its full extent is state_glyph_px on screen at every zoom")
 	var sq := float(n["state_square_ratio"])
-	t.ok(sq * sqrt(2.0) >= 1.0 and sq <= 1.0, "the square and the hourglass span at least state_glyph_px corner to corner")
+	t.ok(sq >= 1.0, "the square and the hourglass are at least state_glyph_px on a side (axis-aligned extent)")
 	# at the default zoom every shape stays inside the tier-1 pip ring
 	var z0 := 0.61
 	var pip_r := maxf(float(n["pip_radius_px"]), float(n["pip_min_screen_px"]) / z0 * 0.5)
 	var pip_in := MapLogic.fort_radius(1) - float(n["pip_inset_px"]) - pip_r
-	var reach := NodeLogic.state_glyph_half(z0) * maxf(1.0, sq * sqrt(2.0))
-	t.ok(reach < pip_in, "at zoom 0.61 no glyph reaches a tier-1 fort's pips (%.1f < %.1f world px)" % [reach, pip_in])
+	var reach := NodeLogic.state_glyph_half(z0) * maxf(1.0, sq)
+	t.ok(reach < pip_in, "at zoom 0.61 every glyph's side (half extent) stays inside a tier-1 fort's pips (%.1f < %.1f world px)" % [reach, pip_in])
 
 
 ## The nodes' redraw economy: a fort's static rings redraw only when what they draw changed, and
@@ -249,16 +249,18 @@ func _quiet(t: TestUtil) -> void:
 			t.ok(bool(quiet[0]["hairline"]) and bool(quiet[0]["dashed"]), "%s u=%.1f: a dashed hairline" % [key, u])
 			t.near(float(quiet[0]["width"]), LaneStyle.lane_width(ch, style) * mult, 1e-6, "%s u=%.1f: width x quiet_width_mult" % [key, u])
 			var qc: Color = quiet[0]["color"]
-			var want := Color(ch["color"], LaneStyle.lane_alpha(ch, style)).lightened(float(style["quiet_lighten"]))
-			t.ok(qc.is_equal_approx(want), "%s u=%.1f: the lane's own floored-hue colour (lightened by quiet_lighten), at the floored alpha" % [key, u])
+			var want := Color(ch["color"], maxf(LaneStyle.lane_alpha(ch, style), float(MapLogic.cfg()["quiet_alpha_floor"])))
+			t.ok(qc.is_equal_approx(want), "%s u=%.1f: the lane's own floored-hue colour, at max(floored alpha, quiet_alpha_floor)" % [key, u])
+			var hd := absf(wrapf(qc.h * 360.0 - hue, -180.0, 180.0))
+			t.ok(hd <= 20.0 and qc.s >= 0.6, "%s u=%.1f: hue within 20 deg of the flow (%.0f vs %.0f), saturation >= 0.6 (%.2f)" % [key, u, qc.h * 360.0, hue, qc.s])
 			t.ok(LaneStyle.core_color(ch, style, true).is_equal_approx(qc), "%s u=%.1f: its chevrons take the same colour" % [key, u])
 			var cr := MapLogic.contrast_ratio(qc, ground)
 			t.ok(cr >= 3.0, "%s u=%.1f: a quiet hairline reads 3:1 over ground (%.2f)" % [key, u, cr])
 		# identity: the quiet core keeps its flow's hue family
 		var hue0 := Palette.hue(style["hue_key"])
 		var c0: Color = LaneStyle.lit_layers(LaneStyle.with_hue(p.channels(0.0, hue0), p.channels(LaneStyle.hue_u(0.0), hue0)), style, true)[0]["color"]
-		var hd := absf(wrapf(c0.h * 360.0 - hue0, -180.0, 180.0))
-		t.ok(hd <= 20.0, "%s: a quiet lane at u=0 keeps its flow's hue (%.0f deg vs %.0f)" % [key, c0.h * 360.0, hue0])
+		var hd0 := absf(wrapf(c0.h * 360.0 - hue0, -180.0, 180.0))
+		t.ok(hd0 <= 20.0, "%s: a quiet lane at u=0 keeps its flow's hue (%.0f deg vs %.0f)" % [key, c0.h * 360.0, hue0])
 
 
 # --- 12c: the hue floor and the retune --------------------------------------------

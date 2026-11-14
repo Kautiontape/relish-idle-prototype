@@ -2,7 +2,7 @@ class_name MapFortGlyph
 extends MapNodeLayer
 ## Every fort's one glanceable state (NodeLogic.fort_state) at its centre, drawn once per change,
 ## never per frame. At least state_glyph_px across its widest axis on screen at any zoom (the
-## diamond tip to tip, the square and hourglass corner to corner, the ring's outer edge), a
+## diamond tip to tip, the square and hourglass side to side, the ring's outer edge), a
 ## distinct SHAPE per state so greyscale still tells them apart; colour is second:
 ##   hers       a solid living square;
 ##   overrun    a hollow undead square (her fort, your garrison inside, not flipped);

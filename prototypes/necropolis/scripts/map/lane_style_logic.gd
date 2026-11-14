@@ -142,7 +142,6 @@ static func host_id(row: Dictionary) -> String:
 ##   width_mult   commit_width_mult on committed flows (from Covington, not a loop), times
 ##                flood_hot_mult on the direct cov -> vei FLOOD
 ##   alpha_mult   flood_hot_mult on the direct FLOOD, else 1
-##   quiet_lighten  how far a quiet lane's core is lightened toward white so it still reads 3:1
 ##   matte, loop, commit, direct, host_id
 static func style_for(row: Dictionary) -> Dictionary:
 	var kind := str(row["kind"])
@@ -168,7 +167,6 @@ static func style_for(row: Dictionary) -> Dictionary:
 		"glow": glow, "duty": float(k.get("duty", -1.0)), "period_mult": float(k.get("period_mult", 1.0)),
 		"width_mult": width_mult, "alpha_mult": alpha_mult, "matte": matte, "loop": loop,
 		"commit": commit, "direct": direct, "host_id": host_id(row),
-		"quiet_lighten": float(k.get("quiet_lighten", 0.0)),
 	}
 
 
@@ -259,11 +257,12 @@ static func lane_width(ch: Dictionary, style: Dictionary) -> float:
 ## halo_max_px are pulled in toward the core (capped_halo); the core keeps its width.
 ## `quiet` (off the selection, or past the per-kind glow cap): no halos, one dashed hairline
 ## quiet_width_mult as wide in the lane's own (floored-hue) colour, so undead stays green and
-## living orange, at the floored alpha, lightened by the kind's quiet_lighten so it reads 3:1.
+## living orange, at max(its floored alpha, quiet_alpha_floor), so it reads 3:1 without paling its colour.
 static func lit_layers(ch: Dictionary, style: Dictionary, quiet := false) -> Array:
 	var col := Color(ch["color"], lane_alpha(ch, style))
 	if quiet:
-		return [_layer(lane_width(ch, style) * _num("quiet_width_mult"), col.lightened(float(style["quiet_lighten"])), 0.0, true, true)]
+		col.a = maxf(col.a, _num("quiet_alpha_floor"))
+		return [_layer(lane_width(ch, style) * _num("quiet_width_mult"), col, 0.0, true, true)]
 	var stack := LineGlow.layers(col, lane_width(ch, style), float(style["glow"]), style["core"])
 	var n := stack.size()
 	var core_w: float = stack[n - 1][0]
