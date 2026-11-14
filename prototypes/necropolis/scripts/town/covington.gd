@@ -197,7 +197,7 @@ func _fetch() -> void:
 	_since_fetch = 0.0
 	_dirty = false
 	var views := {
-		"town": s.view_town(), "hud": s.view_hud(), "catalog": s.view_catalog(),
+		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
 		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
 		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,

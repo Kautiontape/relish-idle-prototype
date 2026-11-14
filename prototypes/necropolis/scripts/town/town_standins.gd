@@ -33,6 +33,18 @@ const DEMO_IDLE := 8.0
 const DEMO_LIVING := 64.0
 const DEMO_LIVING_CAP := 80.0
 const DEMO_TRADE := 2.0
+## The demo's flows {id: [in, out]} per second (workers rising toward their steady count), so the HUD shows signed rates.
+const DEMO_FLOWS := {
+	"workers": [0.30, 0.12], "living": [0.05, 0.02], "gold": [2.0, 0.65],
+	"bone": [0.40, 0.55], "bodies": [1.60, 1.30],
+}
+const DEMO_STEADY := 120.0
+const DEMO_ROT := 0.12
+const DEMO_BODIES_CAP := 400.0
+const DEMO_CAPS := {"gold": 600.0, "bone": 300.0}
+const DEMO_MORALE := {"value": 0.64, "target": 0.72, "factors": [
+	{"id": "base", "delta": 0.60}, {"id": "amenity:well", "delta": 0.03}, {"id": "dread", "delta": -0.12},
+	{"id": "shock", "delta": -0.05}, {"id": "amenity:chapel_of_vats", "delta": 0.10}]}
 
 
 # STANDIN(E2): view_town's `output` is {} for every building at E1. While that holds, glow and
@@ -293,9 +305,28 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 	town["relish_home"] = true
 	v["town"] = town
 	for r in v.get("hud", {}).get("rates", []):
-		if r.get("id", "") == "workers":
+		var rid := String(r.get("id", ""))
+		if rid == "workers":
 			r["stock"] = staffed_total + DEMO_IDLE
-		elif r.get("id", "") == "living":
+		elif rid == "living":
 			r["stock"] = DEMO_LIVING
 			r["cap"] = DEMO_LIVING_CAP
+		if DEMO_FLOWS.has(rid):
+			r["rate"] = float(DEMO_FLOWS[rid][0]) - float(DEMO_FLOWS[rid][1])
+			if DEMO_CAPS.has(rid):
+				r["cap"] = float(DEMO_CAPS[rid])
+			elif rid == "bodies":
+				r["cap"] = DEMO_BODIES_CAP
+	town["bodies_cap"] = DEMO_BODIES_CAP
+	workers["steady"] = DEMO_STEADY
+	workers["in"] = float(DEMO_FLOWS["workers"][0])
+	workers["rot"] = DEMO_ROT
+	town["migrants"] = float(DEMO_FLOWS["living"][0])
+	town["departures"] = float(DEMO_FLOWS["living"][1])
+	town["morale"] = DEMO_MORALE.duplicate(true)
+	var rr: Dictionary = {}
+	for id in DEMO_FLOWS:
+		var f: Array = DEMO_FLOWS[id]
+		rr[id] = {"in": float(f[0]), "out": float(f[1]), "net": float(f[0]) - float(f[1]), "unit": "%s/s" % id}
+	v["rates"] = {"rev": int(v.get("hud", {}).get("rev", 0)), "rates": rr}
 	return v

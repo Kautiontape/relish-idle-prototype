@@ -3,7 +3,7 @@ extends RefCounted
 ## glow, pips, the demo city and the agents (counts, lockstep gait, trade arcs, carts, Relish).
 ## Views come from the fixtures the way the Covington shell fetches them.
 
-const VIEW_RECT := Rect2(0, 72, 1040, 828)  # the town view at 1600x900: HUD 72 on top, dock 560 right
+const VIEW_RECT := Rect2(0, 96, 1040, 804)  # the town view at 1600x900: HUD 96 on top, dock 560 right
 const NEEDS := ["gold", "bone", "bodies", "mint", "morale", "housing", "quality", "backups", "stances",
 	"tithe", "front", "warden", "relics"]
 const INKS := ["undead", "living", "town", "relish"]
@@ -26,7 +26,7 @@ func _views(fixture: String) -> Dictionary:
 	var r: Dictionary = s.cmd_debug_load_fixture(fixture)
 	t.ok(r["ok"], "fixture %s loads" % fixture)
 	return {
-		"town": s.view_town(), "hud": s.view_hud(), "catalog": s.view_catalog(),
+		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "fort_names": {}, "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
 		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
 		"relish": s.view_relish(), "vei": s.view_vei(),
@@ -93,6 +93,7 @@ func run() -> int:
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
+	_hud(day1, mid, pre, demo)
 	_build_lot_refusal()
 	_lot_hit(day1)
 	_view_keys()
@@ -2773,3 +2774,82 @@ func _behaviour_commands() -> void:
 		if st["id"] == "harvest":
 			on = bool(st["on"])
 	t.ok(on, "commands: it shows in view_stances().stances[].on")
+
+
+# ------------------------------------------------------------------ the HUD ----
+func _hud(day1: Dictionary, mid: Dictionary, pre: Dictionary, demo: Dictionary) -> void:
+	var h: Dictionary = vcfg["hud"]
+	var bview: Dictionary = cfg["buildings_view"]
+	t.ok(HudModel.net_text(0.42, h) == "+0.42/s" and HudModel.net_text(-0.1, h) == "\u22120.10/s",
+		"hud: a net rate is signed with `/s` and a true minus")
+	t.ok(HudModel.net_text(0.0, h) == "\u00b10.00/s" and HudModel.net_text(0.004, h) == "\u00b10.00/s" and HudModel.net_text(-0.004, h) == "\u00b10.00/s",
+		"hud: a flat rate (inside the dead band) reads \u00b10.00/s")
+	t.ok(HudModel.split_text([["in", 0.3], ["out", -0.14]], h) == "in +0.30 \u00b7 out \u22120.14 /s" and HudModel.split_text([["in", 0.0]], h) == "in \u00b10.00 /s",
+		"hud: the split is signed, one `/s` for both parts, flat parts read \u00b10.00")
+	t.ok(HudModel.net_text(0.5, h, "min") == "+0.50/min", "hud: the unit replaces `s`")
+	t.ok(HudModel.glyph(0.3, h) == "\u25b2" and HudModel.glyph(-0.3, h) == "\u25bc" and HudModel.glyph(0.0, h) == h["glyph"]["flat"],
+		"hud: ▲ for a gain, ▼ for a loss, a flat shape at zero (the sign is a shape, not colour)")
+	t.ok(HudModel.steady_dir(40.0, 100.0, h) == 1 and HudModel.steady_dir(140.0, 100.0, h) == -1 and HudModel.steady_dir(100.5, 100.0, h) == 0,
+		"hud: the steady arrow rises below the steady count, falls above it, holds inside the tolerance")
+	t.ok(HudModel.steady_arrow(40.0, 100.0, h) == h["glyph"]["up"] and HudModel.steady_arrow(140.0, 100.0, h) == h["glyph"]["down"]
+		and HudModel.steady_arrow(100.0, 100.0, h) == h["glyph"]["flat"], "hud: the arrow glyph follows the direction")
+	t.ok(HudModel.steady_text(61.4, h) == "\u2192 steady 61", "hud: the steady text is an upright integer")
+	t.ok(HudModel.fmt_dur(45.0, h) == "45 s" and HudModel.fmt_dur(300.0, h) == "5 min" and HudModel.fmt_dur(21600.0, h) == "6 h"
+		and HudModel.fmt_dur(259200.0, h) == "3 d", "hud: durations pick s, min, h or d")
+	t.ok(HudModel.store_text(50.0, 200.0, 150.0 / 21600.0, h) == "full in 6 h", "hud: full in (cap - stock) / net")
+	t.ok(HudModel.store_text(200.0, 200.0, 1.0, h) == h["text"]["full"] and HudModel.store_text(500.0, 200.0, -1.0, h) == h["text"]["full"],
+		"hud: at or over the cap reads overflowing")
+	t.ok(HudModel.store_text(50.0, -1.0, 1.0, h) == h["text"]["no_cap"], "hud: cap -1 reads no cap")
+	t.ok(HudModel.store_text(50.0, 200.0, 0.0, h) == "" and HudModel.store_text(50.0, 200.0, -0.3, h) == "",
+		"hud: a store that is not filling says nothing")
+	var m: Dictionary = {"value": 0.6, "target": 0.7, "factors": [
+		{"id": "amenity:well", "delta": 0.03}, {"id": "shock", "delta": -0.05}, {"id": "base", "delta": 0.6},
+		{"id": "dread", "delta": -0.12}, {"id": "amenity:house", "delta": 0.0}]}
+	t.ok(HudModel.factor_line(m, h, bview) == "base +0.60 \u00b7 dread \u22120.12 \u00b7 shock \u22120.05 \u00b7 well +0.03",
+		"hud: the factor line orders base, dread, shock, amenities; signed; zero factors dropped (got `%s`)" % HudModel.factor_line(m, h, bview))
+	t.ok(HudModel.factor_line({"factors": []}, h, bview) == "", "hud: no factors, no line")
+	var nxt := {"tier": "village", "have": 4, "need": 6, "missing": ["house"]}
+	t.ok(HudModel.next_tier_line("hamlet", nxt, h, bview) == "next: Village \u2014 4/6 buildings, missing: House",
+		"hud: the next-tier line names the missing building (got `%s`)" % HudModel.next_tier_line("hamlet", nxt, h, bview))
+	nxt["missing"] = []
+	t.ok(HudModel.next_tier_line("hamlet", nxt, h, bview) == "next: Village \u2014 4/6 buildings", "hud: empty `missing` leaves the clause out")
+	t.ok(HudModel.next_tier_line("city", {"tier": "", "have": 30, "need": 0, "missing": []}, h, bview) == "City", "hud: at City the line is just the tier")
+	# the bottleneck rule, over hand-built views
+	var rows := [{"building_id": "house", "can_build": false, "reason": "no_bone", "cost": {}, "count": 0, "lot_size": 1, "max_level": 1, "requires": {}}]
+	var v := {"town": {"buildings": [], "jobs": [], "workers": {"idle": 3.0}},
+		"hud": {"rates": [{"id": "gold", "rate": 0.4}, {"id": "bone", "rate": 0.0}]},
+		"catalog": {"buildings": rows}, "fort_names": {}}
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["bone: \u00b10.00/s, no Bone Mill"], "hud: flat bone with the next building short of bone and no mill: `%s`" % [HudModel.bottleneck(v, vcfg, bview)])
+	v["hud"]["rates"][1]["rate"] = 0.2
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == [], "hud: bone is flowing, nothing is stuck")
+	v["hud"]["rates"][1]["rate"] = -0.05
+	v["town"]["buildings"] = [{"building_id": "bone_mill", "level": 1, "state": "active"}]
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["bone: \u22120.05/s, upkeep beats milling"], "hud: a built mill that loses to upkeep says so")
+	v["hud"]["rates"][1]["rate"] = 0.0
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["bone: \u00b10.00/s, Bone Mill has no staff"], "hud: a built mill at zero has no staff")
+	v["town"]["buildings"] = [{"building_id": "bone_mill", "level": 0, "state": "constructing"}]
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["bone: \u00b10.00/s, Bone Mill still building"], "hud: a mill under construction is still building")
+	v["town"]["buildings"] = []
+	v["catalog"]["buildings"][0]["reason"] = "no_gold"
+	v["hud"]["rates"][0]["rate"] = -0.05
+	v["hud"]["rates"][1]["rate"] = 0.3
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["gold: \u22120.05/s, no Market"], "hud: gold short and falling names the market")
+	v["catalog"]["buildings"][0]["can_build"] = true
+	v["catalog"]["buildings"][0]["reason"] = ""
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["gold: \u22120.05/s, no Market"], "hud: a stream with no producer is named even when nothing is short")
+	v["hud"]["rates"][0]["rate"] = 0.4
+	v["town"]["jobs"] = [{"id": "x", "slots": 5, "staffed": 2.0}, {"id": "y", "slots": 2, "staffed": 2.0}]
+	v["town"]["workers"]["idle"] = 0.0
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == ["workers: 3 short of slots"], "hud: unstaffed slots with no idle worker read `workers: N short of slots`")
+	v["town"]["workers"]["idle"] = 4.0
+	t.ok(HudModel.bottleneck(v, vcfg, bview) == [], "hud: idle workers mean slots are not the problem")
+	for pair in [["day1", day1], ["midgame_2flips", mid], ["pre_vei", pre], ["demo", demo]]:
+		var lines: Array = HudModel.bottleneck(pair[1], vcfg, bview)
+		t.ok(lines is Array and lines.size() <= 3, "hud: %s bottleneck lines (%s)" % [pair[0], lines])
+	for k in ["hud_h"]:
+		t.ok(float(vcfg[k]) <= 96.0 and float(vcfg[k]) >= 72.0, "hud: the strip is %d px (72..96)" % int(vcfg[k]))
+	for k in ["net_px", "split_px", "stock_px", "name_px"]:
+		t.ok(int(h[k]) >= 12, "hud: %s text is at least 12 px" % k)
+	var d: Dictionary = demo["town"]
+	t.ok(float(demo["hud"]["rates"][3]["rate"]) > 0.0 and demo.has("rates") and float(d["workers"]["steady"]) > float(d["workers"]["total"]),
+		"hud: the demo carries signed rates, a steady state above the count and morale factors")

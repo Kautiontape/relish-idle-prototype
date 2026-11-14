@@ -27,7 +27,7 @@
   ],
 
   "view": {
-    "hud_h": 72,
+    "hud_h": 96,
     "dock_w": 560,
     "refresh_s": 0.25,
     "tab_h": 44,
@@ -179,6 +179,35 @@
     "placement_dim": 0.3,
     "hit_min_px": 44.0,
     "cap_bar": {"w_px": 120.0, "h_px": 6.0, "ink": {"gold": "living", "bone": "dead"}},
+    "hud": {
+      "rate_eps": 0.005,
+      "net_px": 24, "split_px": 12, "stock_px": 13, "name_px": 13,
+      "tol_frac": 0.02, "tol_min": 0.5,
+      "streams": ["workers", "living", "gold", "bone", "bodies"],
+      "ink": {"workers": "undead", "living": "living", "gold": "living", "bone": "dead", "bodies": "dead"},
+      "caps_bar": ["gold", "bone", "bodies"],
+      "glyph": {"up": "▲", "down": "▼", "flat": "■"},
+      "cell_w_px": 140.0, "morale_w_px": 340.0, "morale_stretch": 2.8, "cell_stretch": {"workers": 1.4}, "tier_w_px": 100.0, "return_w_px": 170.0,
+      "morale_bar": {"w_px": 120.0, "h_px": 8.0},
+      "text": {
+        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
+        "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap",
+        "dur_s": "{n} s", "dur_min": "{n} min", "dur_h": "{n} h", "dur_d": "{n} d",
+        "dur_min_from_s": 90.0, "dur_h_from_s": 5400.0, "dur_d_from_s": 172800.0,
+        "next_tier": "next: {tier} — {have}/{need} buildings{missing}",
+        "next_missing": ", missing: {list}", "at_city": "{tier}",
+        "morale": "morale", "morale_target": "target {v}", "factor_sep": " · ",
+        "base": "base", "dread": "dread", "shock": "shock",
+        "no_producer": "{id}: {rate}, no {label}",
+        "building": "{id}: {rate}, {label} still building",
+        "unstaffed": "{id}: {rate}, {label} has no staff",
+        "upkeep": "{id}: {rate}, upkeep beats {source}",
+        "short_slots": "workers: {n} short of slots",
+        "source": {"gold": "trade", "bone": "milling"},
+        "stuck_sep": "   ·   "
+      },
+      "morale_order": ["base", "dread", "shock", "amenity"]
+    },
     "shortage_fix": {"gold": "market", "bone": "bone_mill", "relics": ""},
     "shortage_text": {
       "build": "build a {label}", "staff": "staff the {label}", "relics": "dungeon loot",
