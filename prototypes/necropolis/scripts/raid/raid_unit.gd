@@ -156,7 +156,7 @@ func _pick_target(cfg: Dictionary) -> void:
 	if _target != null and (not is_instance_valid(_target) or not _target.alive):
 		_target = null
 	if faction == "ally":
-		_target = raid.nearest_enemy_of(global_position)
+		_target = raid.nearest_enemy_of(global_position, radius)
 		return
 	# enemy: aggro within range of Relish or any undead, then stay hostile
 	var best = null
@@ -172,7 +172,7 @@ func _pick_target(cfg: Dictionary) -> void:
 			best = na
 			best_d = d
 	if not _aggro and best_d <= float(cfg.get("aggro_px", 260.0)) and best != null \
-			and LayoutLogic.route_dist(raid.layout, global_position, best.global_position) <= float(cfg.get("aggro_px", 260.0)):
+			and LayoutLogic.route_dist(raid.layout, global_position, best.global_position, radius) <= float(cfg.get("aggro_px", 260.0)):
 		_aggro = true   # walking distance, not through-the-wall distance
 	_target = best if _aggro else null
 

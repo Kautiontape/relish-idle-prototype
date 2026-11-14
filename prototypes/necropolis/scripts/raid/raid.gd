@@ -466,7 +466,9 @@ func ward_counts() -> Dictionary:
 	return out
 
 
-func nearest_enemy_of(pos: Vector2):
+## The enemy an undead of `radius` at `pos` should fight: the nearest by walking distance within
+## ally_engage_px (the warden counts too), else null.
+func nearest_enemy_of(pos: Vector2, radius := 0.0):
 	var best = null
 	var bd := ally_engage_px
 	for e in enemies:
@@ -476,7 +478,7 @@ func nearest_enemy_of(pos: Vector2):
 		if d < bd:
 			# the leash is walking distance: a foe behind a wall counts at the cost of the doorway
 			# (route_dist is never shorter than the straight line, so the check above prunes safely)
-			d = LayoutLogic.route_dist(layout, pos, e.global_position)
+			d = LayoutLogic.route_dist(layout, pos, e.global_position, radius)
 			if d < bd:
 				bd = d
 				best = e

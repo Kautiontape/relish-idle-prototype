@@ -910,13 +910,16 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var first_bad := {"tables": "", "hops": "", "walls": "", "loops": ""}
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	var radius := 12.0
+	# every mover size walks: chaff (8), Relish (13), a brute (15), a party big undead (20)
+	var radii: Array[float] = [8.0, 13.0, 15.0, 20.0]
+	var walks_by_r := {}
 	var cases: Array = []
 	for f in forts:
 		for tier in [1, 2, 3, 4]:
 			for held in [false, true]:
+				# the unheld layout is generated as the first dungeon (its flags ride on the same geometry)
 				cases.append({"label": "%s t%d%s" % [f["id"], tier, " held" if held else ""],
-					"lay": RaidLogic.gen_layout(str(f["id"]), tier, false, cfg, {"held": held})})
+					"lay": RaidLogic.gen_layout(str(f["id"]), tier, false, cfg, {"held": held, "first_dungeon": not held})})
 	cases.append({"label": "boss", "lay": RaidLogic.gen_layout("vei", 5, true, cfg)})
 	for c in cases:
 		var lay: Dictionary = c["lay"]
@@ -953,39 +956,81 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 			bad_tables += 1
 			if first_bad["tables"] == "":
 				first_bad["tables"] = label
-		# walks: every ordered room pair, from a random inner point and from a corner, plus gap bands
-		var starts: Array = []   # [from, to_room]
-		for i in n:
-			var rc: Rect2 = rooms[i]
-			var inner := rc.grow(-(radius + 2.0))
-			var corners := [inner.position, inner.end, Vector2(inner.position.x, inner.end.y), Vector2(inner.end.x, inner.position.y)]
-			for j in n:
-				if i == j:
-					continue
-				var from: Vector2 = corners[rng.randi() % 4] if (i + j) % 2 == 0 else \
-					Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
-				starts.append([from, j])
-		for g in lay["gaps"]:
-			for j in n:
-				starts.append([(g as Rect2).get_center(), j])
-		for st in starts:
-			var rc2: Rect2 = rooms[st[1]]
-			var inner2 := rc2.grow(-(radius + 2.0))
-			var to := Vector2(rng.randf_range(inner2.position.x, inner2.end.x), rng.randf_range(inner2.position.y, inner2.end.y))
-			var w := _walk(lay, st[0], to, radius, 24.0, 3 * n + 4, pad)
-			if not bool(w["reached"]):
-				bad_hops += 1
-				if first_bad["hops"] == "":
-					first_bad["hops"] = "%s %s -> room %d: %s" % [label, st[0], st[1], w["why"]]
-			if bool(w["crossed"]):
-				bad_walks += 1
-				if first_bad["walls"] == "":
-					first_bad["walls"] = "%s %s -> %s" % [label, st[0], to]
-			if bool(w["looped"]):
-				bad_loops += 1
-				if first_bad["loops"] == "":
-					first_bad["loops"] = "%s %s -> %s" % [label, st[0], to]
-	print("RAID_ROUTING layouts=%d bad_tables=%d bad_hops=%d bad_walks=%d bad_loops=%d %s" % [layouts, bad_tables, bad_hops, bad_walks, bad_loops, str(first_bad)])
+		# walks, per mover size: every ordered room pair, from a random inner point and from a corner,
+		# plus gap bands
+		for radius in radii:
+			var starts: Array = []   # [from, to_room]
+			for i in n:
+				var rc: Rect2 = rooms[i]
+				var inner := rc.grow(-(radius + 2.0))
+				var corners := [inner.position, inner.end, Vector2(inner.position.x, inner.end.y), Vector2(inner.end.x, inner.position.y)]
+				for j in n:
+					if i == j:
+						continue
+					var from: Vector2 = corners[rng.randi() % 4] if (i + j) % 2 == 0 else \
+						Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
+					starts.append([from, j])
+			for g in lay["gaps"]:
+				for j in n:
+					# where a body this size can stand: a jamb pushes it off the raw gap centre, as the arena does
+					starts.append([_push_out(lay, (g as Rect2).get_center(), radius), j])
+			for st in starts:
+				var rc2: Rect2 = rooms[st[1]]
+				var inner2 := rc2.grow(-(radius + 2.0))
+				var to := Vector2(rng.randf_range(inner2.position.x, inner2.end.x), rng.randf_range(inner2.position.y, inner2.end.y))
+				var w := _walk(lay, st[0], to, radius, 24.0, 3 * n + 4, pad)
+				walks_by_r[radius] = int(walks_by_r.get(radius, 0)) + 1
+				if not bool(w["reached"]):
+					bad_hops += 1
+					if first_bad["hops"] == "":
+						first_bad["hops"] = "%s r=%s %s -> room %d: %s" % [label, radius, st[0], st[1], w["why"]]
+				if bool(w["crossed"]):
+					bad_walks += 1
+					if first_bad["walls"] == "":
+						first_bad["walls"] = "%s r=%s %s -> %s" % [label, radius, st[0], to]
+				if bool(w["looped"]):
+					bad_loops += 1
+					if first_bad["loops"] == "":
+						first_bad["loops"] = "%s r=%s %s -> %s" % [label, radius, st[0], to]
+	print("RAID_ROUTING layouts=%d walks_by_r=%s bad_tables=%d bad_hops=%d bad_walks=%d bad_loops=%d %s" % [layouts, str(walks_by_r), bad_tables, bad_hops, bad_walks, bad_loops, str(first_bad)])
+	t.ok(walks_by_r.size() == radii.size(), "routing: every mover size walks (%s)" % str(walks_by_r))
+	# the army's biggest body (a party big undead) reaches every room through portals it fits
+	var party_r := float(cfg["party"]["radius"])
+	var unfit: Array = []
+	for c in cases:
+		if not LayoutLogic.fits_all_rooms(c["lay"], party_r):
+			unfit.append(c["label"])
+	t.ok(unfit.is_empty(), "routing: a party big undead (r=%s) can reach every room in every layout (%s)" % [party_r, str(unfit)])
+
+	# portal widths: a T-junction's side stretch is as wide as the stretch both rooms face, and a mover
+	# routes only through the portals it fits (2r + layout.route_fit_pad_px). ashgate t2 has a ~31 px one.
+	var ag := RaidLogic.gen_layout("ashgate", 2, false, cfg, {"held": false})
+	var agn: int = (ag["rooms"] as Array).size()
+	var narrow := {"w": INF}
+	for pr in agn * agn:
+		for i in (ag["portal_ws"][pr] as Array).size():
+			if float(ag["portal_ws"][pr][i]) < float(narrow["w"]):
+				narrow = {"a": pr / agn, "b": pr % agn, "w": float(ag["portal_ws"][pr][i]), "pt": ag["portal_pts"][pr][i]}
+	var fit_pad := float(cfg["layout"]["route_fit_pad_px"])
+	var na: int = narrow.get("a", -1)
+	var nb: int = narrow.get("b", -1)
+	t.ok(na >= 0 and float(narrow["w"]) >= 2.0 * 13.0 + fit_pad and float(narrow["w"]) < 2.0 * 15.0 + fit_pad
+		and int(ag["room_hops"][na][nb]) == 1,
+		"fixture: ashgate t2's narrowest portal (%s) is a one-hop way that fits Relish (13), not a brute (15)" % str(narrow))
+	if na >= 0:
+		var pa: Vector2 = (ag["rooms"][na] as Rect2).get_center()
+		var pb: Vector2 = (ag["rooms"][nb] as Rect2).get_center()
+		var slit: Vector2 = narrow["pt"]
+		var wp8 := LayoutLogic.waypoint(ag, pa, pb, 8.0, pad)
+		var wp13 := LayoutLogic.waypoint(ag, pa, pb, 13.0, pad)
+		var wp20 := LayoutLogic.waypoint(ag, pa, pb, 20.0, pad)
+		t.ok(wp8.distance_to(slit) < 60.0 and wp13.distance_to(slit) < 60.0,
+			"small movers and Relish still take the narrow way (r=8 %s, r=13 %s, slit %s)" % [wp8, wp13, slit])
+		t.ok(wp20.distance_to(slit) > 150.0, "a party big undead goes the long way round (r=20 %s)" % wp20)
+		var d13 := LayoutLogic.route_dist(ag, pa, pb, 13.0)
+		var d20 := LayoutLogic.route_dist(ag, pa, pb, 20.0)
+		t.ok(d20 > d13 + 100.0 and d13 == LayoutLogic.route_dist(ag, pa, pb),
+			"route_dist follows the mover's size (r=13 %.0f = the base table, r=20 %.0f)" % [d13, d20])
 	t.ok(layouts == forts.size() * 8 + 1, "routing: every fort x tier 1-4 x held/unheld, plus the boss arena (%d)" % layouts)
 	t.ok(bad_tables == 0, "routing: portals + next_room tables are consistent (%s)" % first_bad["tables"])
 	t.ok(bad_hops == 0, "routing: waypoint-following reaches the target room within 3*rooms+4 hops (%s)" % first_bad["hops"])

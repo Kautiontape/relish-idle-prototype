@@ -203,6 +203,7 @@
   },
   "layout": {
     "route_min_gap_px": 28.0,
+    "route_fit_pad_px": 4.0,
     "tier_w": {
       "1": 1100,
       "2": 1450,
