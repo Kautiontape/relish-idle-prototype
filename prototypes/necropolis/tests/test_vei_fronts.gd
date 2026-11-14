@@ -205,9 +205,18 @@ func run() -> int:
 	t.ok(int(b["streak"]) == need_beats - 1 and not VeiFronts.broken(b, cfg), "one beat short is not broken")
 	var bb := VeiFronts.break_beat(b, 10.0, 1.0, cfg)
 	t.ok(VeiFronts.broken(bb, cfg), "broken at exactly break_beats")
-	var bad := VeiFronts.break_beat(b, 0.0, 100.0, cfg)
-	t.ok(int(bad["streak"]) == 0 and not VeiFronts.broken(bad, cfg), "one bad beat resets the streak")
-	t.ok(int(VeiFronts.break_beat(bad, 10.0, 1.0, cfg)["streak"]) == 1, "streak restarts from 1")
+	var reset_cfg := cfg.duplicate(true)
+	reset_cfg.erase("lapse_cost")   # the default rule: a lapse resets the streak
+	var bad := VeiFronts.break_beat(b, 0.0, 100.0, reset_cfg)
+	t.ok(int(bad["streak"]) == 0 and not VeiFronts.broken(bad, reset_cfg), "no lapse_cost: one bad beat resets the streak")
+	t.ok(int(VeiFronts.break_beat(bad, 10.0, 1.0, reset_cfg)["streak"]) == 1, "streak restarts from 1")
+	t.ok(int(VeiFronts.break_beat(b, 0.0, 100.0, {"lapse_cost": -1})["streak"]) == 0, "lapse_cost -1 is the reset")
+	var lc := {"lapse_cost": 4, "break_beats": 20}
+	var s10 := {"ema": 5.0, "streak": 10, "beats": 10}
+	t.ok(int(VeiFronts.break_beat(s10, 0.0, 100.0, lc)["streak"]) == 6, "lapse_cost 4: a lapse costs 4 beats of the streak")
+	t.ok(int(VeiFronts.break_beat({"ema": 5.0, "streak": 3, "beats": 3}, 0.0, 100.0, lc)["streak"]) == 0, "a lapse never goes below 0")
+	t.ok(int(VeiFronts.break_beat(s10, 10.0, 1.0, lc)["streak"]) == 11, "a good beat still adds one")
+	t.ok(int(VeiFronts.break_beat(s10, 0.0, 100.0, {"lapse_cost": 0})["streak"]) == 10, "lapse_cost 0: a lapse only pauses the streak")
 	var eq := VeiFronts.break_beat(VeiFronts.break_start(), 0.0, 0.0, cfg)
 	t.ok(int(eq["streak"]) == 0, "ema equal to ferry is not enough (strictly greater)")
 	t.ok(VeiFronts.broken({"ema": 1.0, "streak": 8, "beats": 8}, {}), "broken defaults break_beats to 8")

@@ -473,13 +473,15 @@ class ExitButton:
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
 ## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
 ## signed oblique rate, then the BREAK streak as break_beats pips that fill on the beat and visibly
-## reset, with which side is winning. Always: BACKUPS left as pips (a phylactery diamond, a clone
+## drop on a lapse ("lapse -N"; past 10 beats the pips are smaller and grouped in fives, so they stay
+## countable), with which side is winning. Always: BACKUPS left as pips (a phylactery diamond, a clone
 ## dot) and one cracked violet ring per backup spent. Drawn from raid.hud_info() each frame.
 class BossBlock:
 	extends Control
 	var raid: Node = null
 	var _prev_streak := 0
-	var _reset_t := 0.0          # seconds of the "streak lost" flash left
+	var _reset_t := 0.0          # seconds of the lapse flash left
+	var _lost := 0               # beats the last lapse cost
 	static var _oblique: FontVariation = null
 
 	static func oblique() -> FontVariation:
@@ -559,17 +561,24 @@ class BossBlock:
 			var st := int(info["streak"])
 			if st < _prev_streak and _prev_streak > 0:
 				_reset_t = 0.6
+				_lost = _prev_streak - st
 			_prev_streak = st
 			var pcol := Palette.c("danger") if _reset_t > 0.0 else Palette.c("vei")
+			var compact := n > 10
+			var pr := 4.5 if compact else 6.0
+			var step := 11.0 if compact else 18.0
+			var px0 := col2 + 8.0
 			for i in n:
-				_pip(Vector2(col2 + 8.0 + 18.0 * i, y - 5.0), 6.0, pcol, i < st, false)
-			var x3 := _text(col2 + 8.0 + 18.0 * n + 4.0, y, "%d/%d" % [st, n], 15)
+				var gx := px0 + step * i + (5.0 * floorf(i / 5.0) if compact else 0.0)
+				_pip(Vector2(gx, y - 5.0), pr, pcol, i < st, false)
+			var pend := px0 + step * n + (5.0 * floorf((n - 1) / 5.0) if compact else 0.0)
+			var x3 := _text(pend + 4.0, y, "%d/%d" % [st, n], 15)
 			if bool(info["won"]):
 				_text(x3 + 12.0, y, "SHE BREAKS", 15, "vei")
 			elif bool(info["over"]):
 				_text(x3 + 12.0, y, "the fight is lost", 13, "danger")
 			elif _reset_t > 0.0:
-				_text(x3 + 12.0, y, "streak lost", 13, "danger")
+				_text(x3 + 12.0, y, "lapse −%d" % _lost, 13, "danger")
 			elif bool(info["winning"]):
 				_text(x3 + 12.0, y, "raise > ferry", 13, "undead")
 			else:

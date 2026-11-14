@@ -45,7 +45,8 @@ extends RefCounted
 ## break_start() -> {ema: 0.0, streak: 0, beats: 0}
 ## break_beat(state, raised_value_this_beat, ferry_per_beat, cfg) -> state
 ##   ema += alpha * (raised - ema), alpha = 1 - e^(-1 / raise_ema_beats); then streak + 1 if
-##   ema > ferry_per_beat (strictly), else 0. beats += 1.
+##   ema > ferry_per_beat (strictly), else a lapse: back to 0, or, when cfg.lapse_cost >= 0, down
+##   by lapse_cost beats (never below 0). lapse_cost defaults to -1 (the reset). beats += 1.
 ## broken(state, cfg) -> bool         streak >= break_beats.
 ##
 ## --- Backups and result ----------------------------------------------------------------
@@ -238,7 +239,10 @@ static func break_beat(state: Dictionary, raised_value_this_beat: float, ferry_p
 		cfg: Dictionary) -> Dictionary:
 	var alpha := 1.0 - exp(-1.0 / maxf(_f(cfg, "raise_ema_beats", 4.0), 0.0001))
 	var ema := float(state["ema"]) + alpha * (raised_value_this_beat - float(state["ema"]))
-	var streak := int(state["streak"]) + 1 if ema > ferry_per_beat else 0
+	var streak := int(state["streak"]) + 1
+	if ema <= ferry_per_beat:
+		var lapse := int(_f(cfg, "lapse_cost", -1.0))
+		streak = 0 if lapse < 0 else maxi(0, int(state["streak"]) - lapse)
 	return {"ema": ema, "streak": streak, "beats": int(state["beats"]) + 1}
 
 
