@@ -48,6 +48,13 @@ static func beat_of(t_s: float, tempo_s: float) -> float:
 	return t_s / maxf(tempo_s, 0.001)
 
 
+## Where in the Pulse beat `now_ms` falls (0..1), for the sim: the wake aligns the warden's beat
+## clock to it. Not Pulse.phase(), which reduced motion pins to a steady value (that would make the
+## boss fight differ with the accessibility setting).
+static func wake_phase(now_ms: float, tempo_ms: float) -> float:
+	return fposmod(now_ms / maxf(tempo_ms, 1.0), 1.0)
+
+
 ## True while the telegraph shows: attack_beat - tell_beats <= beat < attack_beat.
 static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 	return beat >= attack_beat - tell_beats and beat < attack_beat

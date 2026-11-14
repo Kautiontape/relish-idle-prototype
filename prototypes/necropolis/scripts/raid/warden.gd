@@ -100,7 +100,7 @@ func wake() -> void:
 	if awake or not alive:
 		return
 	awake = true
-	t = -(1.0 - Pulse.phase()) * tempo_s()
+	t = -(1.0 - WardenLogic.wake_phase(Pulse.now_ms(), Pulse.tempo_ms)) * tempo_s()
 	var tells: Array = spec.get("tells", [])
 	var first := str(tells[0]) if not tells.is_empty() else ""
 	if raid.hud != null:

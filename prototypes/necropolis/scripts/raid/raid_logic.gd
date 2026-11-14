@@ -526,6 +526,18 @@ static func carry_room(carried: int, cfg: Dictionary) -> int:
 	return maxi(0, int(cfg.get("essence", {}).get("carry_max", 12)) - carried)
 
 
+## The angle of a carried-cluster slot around Relish: the position that COUNTS (enclosure, the bot's
+## aim, the absorb streak). It reads no animation state, so reduced motion cannot change a raid.
+static func carry_slot_angle(slot: int, slots: int) -> float:
+	return -PI * 0.5 + TAU * slot / float(maxi(1, slots))
+
+
+## The spin the cluster is DRAWN turning through at sim time `t` (0 under reduced motion). Draw
+## only: nothing that scores, aims or collides may read it.
+static func carry_draw_spin(t: float, rad_s: float, reduced: bool) -> float:
+	return 0.0 if reduced else t * rad_s
+
+
 ## Raid result v2 builder (STATE-API 8.1). Pure bookkeeping, no scene state.
 class LedgerV2:
 	extends RefCounted

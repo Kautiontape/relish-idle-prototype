@@ -158,7 +158,7 @@ func _draw() -> void:
 			used[c.carry_slot] = true
 		for i in int(e.get("carry_max", 12)):
 			if not used.has(i):
-				var dir := Vector2.RIGHT.rotated(raid.carry_angle(i))
+				var dir := Vector2.RIGHT.rotated(raid.carry_draw_angle(i))
 				var orbit := float(e.get("carry_orbit_px", 24.0))
 				draw_line(dir * (orbit - 2.0), dir * (orbit + 2.0), Palette.c("essence", 0.28), 1.5)
 	if raid != null and not raid.is_boss() and raid.revived > 0:

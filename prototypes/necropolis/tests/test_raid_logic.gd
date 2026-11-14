@@ -337,6 +337,18 @@ func run() -> int:
 	t.ok(RaidLogic.split_mass(5.0, 0).size() == 1, "n < 1 is treated as 1")
 	t.ok(RaidLogic.carry_room(0, cfg) == 12 and RaidLogic.carry_room(11, cfg) == 1
 		and RaidLogic.carry_room(12, cfg) == 0 and RaidLogic.carry_room(20, cfg) == 0, "carry_room against carry_max 12")
+	# reduced motion changes only what is drawn: where a carried mote COUNTS has no spin or Pulse in it
+	t.near(RaidLogic.carry_slot_angle(0, 12), -PI * 0.5, 1e-9, "carry slot 0 sits at 12 o'clock")
+	t.near(RaidLogic.carry_slot_angle(3, 12), 0.0, 1e-9, "carry slot 3 of 12 sits at 3 o'clock")
+	t.ok(RaidLogic.carry_draw_spin(7.5, 0.8, true) == 0.0 and absf(RaidLogic.carry_draw_spin(7.5, 0.8, false) - 6.0) < 1e-9,
+		"the carry spin is drawn only: zero under reduced motion, t * rate otherwise")
+	for guarded in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle (the counted slot angle)"],
+			["res://scripts/raid/warden.gd", "func wake(", "Warden.wake (the beat alignment)"],
+			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
+			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"]]:
+		var body := _func_body(str(guarded[0]), str(guarded[1]))
+		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
+			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
 	_checkpoint_tests(t, cfg)
@@ -1418,3 +1430,21 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")
+
+
+## The text of the func starting at `head` in a script file, up to the next top-level func or "## " doc line.
+func _func_body(path: String, head: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var src := f.get_as_text()
+	var i := src.find(head)
+	if i < 0:
+		return ""
+	var j := src.find("\nfunc ", i + 1)
+	var k := src.find("\n##", i + 1)
+	var end := src.length()
+	for x in [j, k]:
+		if x >= 0:
+			end = mini(end, x)
+	return src.substr(i, end - i)

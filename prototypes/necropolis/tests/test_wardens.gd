@@ -97,6 +97,7 @@ func run() -> int:
 	t.suite("warden_beats")
 	t.near(WardenLogic.beat_of(tempo_s * 2.5, tempo_s), 2.5, 0.0001, "beat_of counts tempos")
 	t.near(WardenLogic.beat_of(0.0, tempo_s), 0.0, 0.0001, "beat_of starts at 0")
+	t.near(WardenLogic.wake_phase(tempo_s * 1000.0 * 3.25, tempo_s * 1000.0), 0.25, 0.0001, "wake_phase is the position in the Pulse beat")
 	t.ok(not WardenLogic.is_tell(3.99, 5.0, 1.0), "no tell before the window")
 	t.ok(WardenLogic.is_tell(4.0, 5.0, 1.0), "tell starts at attack_beat - tell_beats")
 	t.ok(WardenLogic.is_tell(4.99, 5.0, 1.0), "tell holds up to the attack")

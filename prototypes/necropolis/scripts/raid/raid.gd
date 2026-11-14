@@ -553,12 +553,24 @@ func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
 
 
 # --- carried cluster ---
-## Angle of a clock slot; one shared spin so every mote and tick turns together.
+## Angle of a clock slot: where the mote COUNTS (enclosure, bot aim, absorb). No spin in it, so it
+## is the same with and without reduced motion; the spin is only drawn (carry_draw_offset).
 func carry_angle(slot: int) -> float:
 	var e: Dictionary = rcfg().get("essence", {})
-	var slots := maxi(1, int(e.get("carry_max", 12)))
-	var spin := 0.0 if Pulse.reduced_motion else _carry_t * float(e.get("carry_spin_rad_s", 0.8))
-	return -PI * 0.5 + TAU * slot / float(slots) + spin
+	return RaidLogic.carry_slot_angle(slot, int(e.get("carry_max", 12)))
+
+
+## Where a carried slot is DRAWN: its counted angle plus the cluster's shared spin (zero under
+## reduced motion). Draw only: nothing that scores, aims or collides may read it.
+func carry_draw_angle(slot: int) -> float:
+	var e: Dictionary = rcfg().get("essence", {})
+	return carry_angle(slot) + RaidLogic.carry_draw_spin(_carry_t, float(e.get("carry_spin_rad_s", 0.8)), Pulse.reduced_motion)
+
+
+## How far a carried mote is drawn from its counted spot (draw only).
+func carry_draw_offset(slot: int) -> Vector2:
+	var r := float(rcfg().get("essence", {}).get("carry_orbit_px", 24.0))
+	return Vector2(r, 0).rotated(carry_draw_angle(slot)) - Vector2(r, 0).rotated(carry_angle(slot))
 
 
 func carried_count() -> int:
