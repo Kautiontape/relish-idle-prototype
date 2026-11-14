@@ -84,9 +84,20 @@ func meter_lit() -> int:
 	return WardenLogic.meter_lit(meter_bands, meter_per, hp / maxf(1.0, max_hp))
 
 
+## Whether pip `i` is lit now. The meters are one prefix band (the strength left); the Pyre-priest's
+## overrides it (its hp pips and its acolytes' pips are two bands). Both meter draws go through this.
+func pip_lit(i: int) -> bool:
+	return i < meter_lit()
+
+
 ## Mark the pips between `lit_after` and `lit_before` as taken by a weak-point window.
 func mark_weak(lit_before: int, lit_after: int) -> void:
-	for i in range(maxi(0, lit_after), mini(lit_before, meter_n)):
+	mark_weak_range(lit_after, lit_before)
+
+
+## Mark pips `[lo, hi)` as taken by a weak-point window.
+func mark_weak_range(lo: int, hi: int) -> void:
+	for i in range(maxi(0, lo), mini(hi, meter_n)):
 		if weak_marks[i] == 0:
 			weak_marks[i] = 1
 			weak_taken += 1
@@ -252,14 +263,13 @@ func _draw_meter_row() -> void:
 	var w := step * float(meter_n - 1) + gap * float(meter_notch.size())
 	var x := -w * 0.5
 	var y := _meter_y() + pr
-	var lit := meter_lit()
 	for i in meter_n:
 		if meter_notch.has(i):
 			var nx := x - step * 0.5 + gap * 0.5
 			draw_line(Vector2(nx, y - pr * 2.0), Vector2(nx, y + pr * 2.0), Palette.c("vei", 0.85), 1.6 / z)
 			x += gap
 		var p := Vector2(x, y)
-		if i < lit:
+		if pip_lit(i):
 			draw_circle(p, pr, Palette.c("vei"))
 		elif weak_marks[i] != 0:
 			draw_arc(p, pr, 0.0, TAU, 10, Palette.c("undead"), 1.4 / z)

@@ -107,6 +107,10 @@ func meter_lit() -> int:
 	return WardenLogic.pyre_meter_lit(_meter, living(), hp / maxf(1.0, max_hp))
 
 
+func pip_lit(i: int) -> bool:
+	return WardenLogic.pyre_pip_lit(_meter, i, living(), hp / maxf(1.0, max_hp))
+
+
 func _tell() -> float:
 	return float(spec.get("attack", {}).get("tell_beats", 1.0))
 
@@ -170,7 +174,7 @@ func acolyte_hit(a: RaidAcolyte, amount: float, attacker: Node2D) -> void:
 
 
 func _acolyte_falls(a: RaidAcolyte, snuffed: bool) -> void:
-	var lit0 := meter_lit()
+	var living0 := living()
 	a.alive = false
 	a.snuffed = snuffed
 	a.hp = 0.0
@@ -179,7 +183,8 @@ func _acolyte_falls(a: RaidAcolyte, snuffed: bool) -> void:
 	flash = 1.0
 	if snuffed:
 		snuffs += 1
-		mark_weak(lit0, meter_lit())   # the snuff took these pips
+		var pips := WardenLogic.pyre_snuff_pips(_meter, living0, living())
+		mark_weak_range(pips.x, pips.y)   # the snuff took these acolyte pips
 		RaidSound.play("snuff")
 		_label(a.global_position + Vector2(0, -a.radius * 2.2), "SNUFFED", "undead")
 		RaidFx.ring(raid.fx_root, a.global_position, Palette.c("undead"), 40.0, 0.45, 3.0)

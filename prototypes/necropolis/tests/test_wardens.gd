@@ -414,6 +414,48 @@ func _pyre_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(mono, "exposed, the meter never relights as hp falls")
 	t.ok(agree, "the hp notch is crossed on the hit that makes phase 3")
 
+	# per-pip lit: hp pips are a prefix of [0, hp_pips), acolyte pips a prefix of [hp_pips, n)
+	var hp_pips := int(m3["hp_pips"])
+	var part_ok := true
+	var part_hp := 0
+	for i in hp_pips:
+		part_ok = part_ok and (WardenLogic.pyre_pip_lit(m3, i, 3, 0.8) == (i < WardenLogic.meter_lit(m3["hp_bands"], int(m3["hp_per"]), 0.8)))
+		part_hp += 1 if WardenLogic.pyre_pip_lit(m3, i, 3, 0.8) else 0
+	for i in range(hp_pips, total):
+		part_ok = part_ok and WardenLogic.pyre_pip_lit(m3, i, 3, 0.8)
+	t.ok(part_ok and part_hp < hp_pips and part_hp > 0, "partial hp, three acolytes alive: every acolyte pip stays lit, only hp pips go dark (%d of %d hp pips)" % [part_hp, hp_pips])
+	var after2 := true
+	for i in range(hp_pips, total):
+		after2 = after2 and (WardenLogic.pyre_pip_lit(m3, i, 2, 0.8) == (i - hp_pips < 2 * ppa))
+	t.ok(after2, "two acolytes living: the right-hand band is dark, the others lit")
+	var sn := WardenLogic.pyre_snuff_pips(m3, 3, 2)
+	t.ok(sn == Vector2i(hp_pips + 2 * ppa, hp_pips + 3 * ppa), "a snuff of the last of three marks the right-most acolyte band: %s" % str(sn))
+	var sn2 := WardenLogic.pyre_snuff_pips(m3, 2, 1)
+	t.ok(sn2 == Vector2i(hp_pips + ppa, hp_pips + 2 * ppa) and sn2.y <= total and sn2.x >= hp_pips, "the next snuff marks the band before it, never an hp pip")
+	var ph_ok := true
+	for kk in range(1000, -1, -1):
+		var f2 := kk / 1000.0
+		var lit_hp := 0
+		for i in hp_pips:
+			lit_hp += 1 if WardenLogic.pyre_pip_lit(m3, i, 0, f2) else 0
+		var by_hp := 1 if lit_hp > int(m3["hp_per"]) else 2
+		ph_ok = ph_ok and (by_hp == WardenLogic.pyre_phase(sp3, 0, f2) or lit_hp == 0)
+	t.ok(ph_ok, "past the phase-3 notch the hp pips left are within the last band, whatever the acolytes")
+	var pre_ok := true
+	for kk in range(1000, -1, -1):
+		var f3 := kk / 1000.0
+		for lv in 4:
+			var seen_dark := false
+			for i in total:
+				var on := WardenLogic.pyre_pip_lit(m3, i, lv, f3)
+				if i == hp_pips:
+					seen_dark = false
+				if on and seen_dark:
+					pre_ok = false
+				if not on:
+					seen_dark = true
+	t.ok(pre_ok, "each band is a prefix: no lit pip after a dark one within its own band")
+
 	t.suite("pyre_step_off")
 	var room := Rect2(0, 0, 600, 600)
 	var ar := [Vector2(300, 300)]
@@ -428,6 +470,26 @@ func _pyre_tests(t: TestUtil, cfg: Dictionary) -> void:
 
 
 func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("shieldwall_plant")
+	var swept := true
+	var turned_in_tell := false
+	var started := false
+	for k in range(0, 1001):
+		var bb := 3.0 + float(k) * 0.01   # one beat before the tell, through the bash beat (5.0), and 5 more
+		var turns := WardenLogic.shield_turns(bb, 5.0, 1.0)
+		if bb >= 4.0 and bb <= 5.5:
+			swept = swept and not turns
+		turned_in_tell = turned_in_tell or (turns and WardenLogic.is_tell(bb, 5.0, 1.0))
+		started = started or (turns and bb < 4.0)
+	t.ok(swept and not turned_in_tell, "no turn from the first tell frame through the bash frame: the bash lands on the lit arc")
+	t.ok(started, "it still turns before the tell")
+	t.ok(not WardenLogic.shield_turns(5.0, 5.0, 1.0) and WardenLogic.shield_turns(3.99, 5.0, 1.0), "the frame at the attack beat is planted too")
+	var sw_src := FileAccess.get_file_as_string("res://scripts/raid/warden_shieldwall.gd")
+	var step_i := sw_src.find("func _step(")
+	var step_body := sw_src.substr(step_i, sw_src.find("\nfunc ", step_i + 1) - step_i)
+	t.ok(step_body.contains("if WardenLogic.shield_turns(") and step_body.find("turn_step(") < step_body.find("_bash(ph, at)"),
+		"_step turns only under shield_turns, before the bash call")
+
 	t.suite("shieldwall_config")
 	var archs: Dictionary = cfg["wardens"]["archetypes"]
 	var a: Dictionary = archs["shieldwall"]

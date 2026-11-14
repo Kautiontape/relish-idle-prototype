@@ -729,7 +729,7 @@ class WardenBlock:
 				_notch(x - 3.5, y + 1.0)
 				x += 9.0
 			var p := Vector2(x, y - 5.0)
-			if i < lit:
+			if w.pip_lit(i):
 				draw_circle(p, r, Palette.c("vei"))
 			elif i >= win_lo and i < win_hi:
 				# the open stun window took this pip: it flashes, slashed (shape as well as colour)

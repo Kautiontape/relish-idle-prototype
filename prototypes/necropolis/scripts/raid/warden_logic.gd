@@ -61,6 +61,12 @@ static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 	return beat >= attack_beat - tell_beats and beat < attack_beat
 
 
+## Whether the Shieldwall may turn at `beat`: not through its tell, and not on the bash frame itself
+## (beat >= attack_beat), so the bash lands where the lit arc showed.
+static func shield_turns(beat: float, attack_beat: float, tell_beats: float) -> bool:
+	return beat < attack_beat and not is_tell(beat, attack_beat, tell_beats)
+
+
 # ------------------------------------------------------------------ phases ---
 ## Phase index of an hp-phased warden (the Bellringer, the Shieldwall): the first phase whose
 ## until_hp_frac is below hp_frac, else the last.
@@ -573,6 +579,25 @@ static func pyre_meter(sp: Dictionary, total: int, per: int) -> Dictionary:
 ## each living acolyte.
 static func pyre_meter_lit(m: Dictionary, living: int, hp_frac: float) -> int:
 	return meter_lit(m["hp_bands"], int(m["hp_per"]), hp_frac) + clampi(living, 0, int(m["aco"])) * int(m["per"])
+
+
+## Whether pip `i` of the Pyre-priest's meter is lit. The hp pips `[0, hp_pips)` light as a prefix
+## of its hp share; the acolytes' pips `[hp_pips, n)` as a prefix of `living` bands of `per`. So hp
+## lost through the ward never darkens an acolyte's pip.
+static func pyre_pip_lit(m: Dictionary, i: int, living: int, hp_frac: float) -> bool:
+	var hp_pips := int(m["hp_pips"])
+	if i < hp_pips:
+		return i < meter_lit(m["hp_bands"], int(m["hp_per"]), hp_frac)
+	return i - hp_pips < clampi(living, 0, int(m["aco"])) * int(m["per"])
+
+
+## The pips a snuff takes: acolytes' pips `[lo, hi)` going from `before` living to `after`
+## (the right-hand bands, past the hp pips).
+static func pyre_snuff_pips(m: Dictionary, before: int, after: int) -> Vector2i:
+	var hp_pips := int(m["hp_pips"])
+	var per := int(m["per"])
+	var aco := int(m["aco"])
+	return Vector2i(hp_pips + clampi(after, 0, aco) * per, hp_pips + clampi(before, 0, aco) * per)
 
 
 ## The HUD's pyre line from the spec: "warded ×0.2 · 3 fires every 4 beats, 2 at Relish" while

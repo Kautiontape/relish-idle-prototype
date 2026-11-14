@@ -149,7 +149,8 @@ func _step(delta: float) -> void:
 	if _goal_t <= 0.0:
 		_goal_t = float(at.get("face_repick_s", 0.15))
 		_goal = _pick_goal(float(ph["front_half_deg"]), float(at.get("face_reach_px", 240.0)))
-	if not planted:
+	# planted through the tell and on the bash frame itself: the lit arc is where the bash lands
+	if WardenLogic.shield_turns(b, _next_attack, tell):
 		facing = WardenLogic.turn_step(facing, _goal, float(ph["turn_deg_s"]), delta)
 	if planted:
 		if _tell_for != _next_attack:
