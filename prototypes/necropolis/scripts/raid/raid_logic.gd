@@ -363,6 +363,16 @@ static func revives_left(revived: int, seed: Dictionary) -> int:
 	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
+## A BANKED / UNBANKED line from loot_counts / unbanked: the non-zero kinds only ("relics 1 ·
+## remnants 2 · essence 5"); "" when every kind is zero (the HUD shows one dim word then).
+static func loot_line(c: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	for k in ["relics", "remnants", "husks", "blueprints", "essence"]:
+		if int(c.get(k, 0)) > 0:
+			parts.append("%s %d" % [k, int(c[k])])
+	return " · ".join(parts)
+
+
 ## How exposed Relish is, 0..1, for her halo's danger rim. 0 while a phylactery charge is left.
 ## With none, a faint `danger.exposed_min` at full hp rising to `exposed_max` as her hp falls: a hit
 ## still has to get through the sacrifice chain and her hp first, so this is a rim, never an alarm

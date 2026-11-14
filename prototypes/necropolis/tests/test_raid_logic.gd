@@ -1368,3 +1368,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.phylactery_word(1) == "" and RaidLogic.phylactery_word(3) == "", "a charge left: no word")
 	var w := RaidLogic.phylactery_word(0)
 	t.ok(w.contains("NO REVIVE") and not w.contains("KILLS"), "none left: NO REVIVE, never NEXT HIT KILLS (%s)" % w)
+	t.suite("raid_loot_line")
+	t.ok(RaidLogic.loot_line(RaidLogic.loot_counts({})) == "", "nothing found: an empty line (the HUD says none)")
+	var lc := RaidLogic.loot_counts({"relics": 1, "remnants": [{}, {}], "essence": 5})
+	t.ok(RaidLogic.loot_line(lc) == "relics 1 · remnants 2 · essence 5", "only the non-zero kinds, in order: " + RaidLogic.loot_line(lc))
+	t.ok(RaidLogic.loot_line({"husks": 1, "blueprints": 0}) == "husks 1", "a zero kind never shows")

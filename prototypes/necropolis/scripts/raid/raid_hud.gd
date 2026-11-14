@@ -20,6 +20,7 @@ var _flash_t := -1.0
 var _banner: Label
 var _banner_t := -1.0
 var _warden_block: Control = null   # dungeon only: the awake warden's break meter
+var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
 var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
@@ -91,7 +92,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		add_child(_exit_btn)
 		_exit_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		_exit_btn.anchor_left = 1.0
-		_exit_btn.offset_left = -168.0
+		_exit_btn.offset_left = -196.0
 		_exit_btn.offset_top = 14.0
 		_exit_btn.offset_right = -18.0
 		_exit_btn.offset_bottom = 60.0
@@ -108,6 +109,11 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_flash.visible = false
 	add_child(_flash)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	if not boss_mode:
+		_pointers = Pointers.new()
+		_pointers.hud = self
+		add_child(_pointers)
 
 	if boss_mode:
 		_boss_block = BossBlock.new()
@@ -207,8 +213,8 @@ func refresh() -> void:
 			_loot_key = [raid.endings.banked, raid.found_loot, carried, floor_n]
 			var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
 			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
-			st.banked_text = _loot_line(bk)
-			st.unbanked_text = _loot_line(ub)
+			st.banked_text = RaidLogic.loot_line(bk)
+			st.unbanked_text = RaidLogic.loot_line(ub)
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
 		if raid.exit_hint_ready():
@@ -219,9 +225,12 @@ func refresh() -> void:
 	st.queue_redraw()
 
 
-func _loot_line(c: Dictionary) -> String:
-	return "relics %d · remnants %d · husks %d · blueprints %d · essence %d" % [int(c["relics"]), int(c["remnants"]),
-		int(c["husks"]), int(c["blueprints"]), int(c["essence"])]
+## Screen point at the end of the "N on the floor" note (the loot pointer starts there), or INF
+## when nothing lies on the floor.
+func floor_anchor() -> Vector2:
+	if _stats == null or _stats.floor_n <= 0 or _stats.floor_end == Vector2.INF:
+		return Vector2.INF
+	return _stats.global_position + _stats.floor_end
 
 
 func flash(color: Color) -> void:
@@ -299,6 +308,7 @@ class StatBlock:
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
 	var floor_n := 0         # pickups still on the floor
+	var floor_end := Vector2.INF   # local end of the "N on the floor" note (the loot pointer's start)
 	var _row := 20.0
 	var _lab := 13
 	var _val := 15
@@ -388,18 +398,23 @@ class StatBlock:
 				if cut >= 0:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
+			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")
-			_value(_col, y, banked_text)
+			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
 			y += _row
 			var risk := unbanked_n > 0
 			var tone := Palette.c("danger") if risk else Palette.c("text_dim")
 			_label(y, "UNBANKED")
-			_value(_col, y, unbanked_text, tone)
+			_value(_col, y, unbanked_text if unbanked_text != "" else "none", tone)
 			y += _row
 			# the stakes: one pip per unbanked thing (capped), then what it means
-			var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
-			var note := "lost if you die" + ("" if floor_n <= 0 else " · %d on the floor" % floor_n)
-			_value(px2 + 6.0, y, note, tone)
+			floor_end = Vector2.INF
+			if risk or floor_n > 0:
+				var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
+				var note := ("lost if you die" if risk else "") + ("" if floor_n <= 0 else (" · " if risk else "") + "%d on the floor" % floor_n)
+				var nx := _value(px2 + 6.0, y, note, tone if risk else Palette.c("vei"))
+				if floor_n > 0:
+					floor_end = Vector2(nx + 4.0, y - 5.0)
 
 
 class TranceMeter:
@@ -576,6 +591,75 @@ class WardenBlock:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
 
 
+## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
+## dashed `vei` line from the HUD's "N on the floor" to the nearest pickup, ringed, while it is on
+## screen; an edge chevron marked LOOT pointing at it while it is off screen. The nearest pickup is
+## re-picked 4 times a second; only the projection runs per frame.
+class Pointers:
+	extends Node2D
+	var hud: RaidHud = null
+	var _t := 1.0
+	var _loot: Node2D = null
+	var _chev := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
+
+	func _process(d: float) -> void:
+		var raid = hud.raid if hud != null else null
+		var on: bool = raid != null and not raid._ended and raid.relish != null
+		if on != visible:
+			visible = on
+		if not on:
+			return
+		_t += d / maxf(0.05, Engine.time_scale)
+		if _t >= 0.25:
+			_t = 0.0
+			_loot = _nearest(raid, "raid_pickups")
+		queue_redraw()
+
+	func _nearest(raid: Node, group: String) -> Node2D:
+		var best: Node2D = null
+		var bd := INF
+		var rp: Vector2 = raid.relish.global_position
+		for o in raid.get_tree().get_nodes_in_group(group):
+			var d: float = (o as Node2D).global_position.distance_to(rp)
+			if d < bd:
+				bd = d
+				best = o
+		return best
+
+	## A chevron on the screen's inset edge where the line from its centre to `sp` leaves it.
+	func _edge(sp: Vector2, view: Vector2, col: Color, word: String) -> void:
+		var c := view * 0.5
+		var dir := (sp - c).normalized()
+		var m := 34.0
+		var tx := INF if absf(dir.x) < 0.0001 else ((view.x - m) - c.x) / absf(dir.x)
+		var ty := INF if absf(dir.y) < 0.0001 else ((view.y - m) - c.y) / absf(dir.y)
+		var p := c + dir * minf(tx, ty)
+		_chev[0] = p + dir * 12.0
+		_chev[1] = p - dir * 6.0 + dir.orthogonal() * 10.0
+		_chev[2] = p - dir * 6.0 - dir.orthogonal() * 10.0
+		draw_colored_polygon(_chev, Palette.c("ground", 0.8))
+		draw_polyline(_chev, col, 2.0)
+		draw_line(_chev[2], _chev[0], col, 2.0)
+		var f := ThemeDB.fallback_font
+		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
+		draw_string(f, lp, word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+	func _draw() -> void:
+		var raid = hud.raid
+		if raid == null or _loot == null or not is_instance_valid(_loot) or not _loot.is_in_group("raid_pickups"):
+			return
+		var view := get_viewport_rect().size
+		var sp: Vector2 = raid.get_viewport().get_canvas_transform() * _loot.global_position
+		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(sp):
+			var from := hud.floor_anchor()
+			if from != Vector2.INF:
+				draw_dashed_line(from, sp, Palette.c("vei", 0.45), 1.5, 7.0)
+			draw_arc(sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
+		else:
+			_edge(sp, view, Palette.c("vei"), "LOOT")
+
+
 class ExitButton:
 	extends Control
 	var hud: RaidHud = null
@@ -616,8 +700,11 @@ class ExitButton:
 			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), "reach an exit",
 				HORIZONTAL_ALIGNMENT_LEFT, 96, 13, Palette.c("text_dim", 0.8))
 			return
-		draw_string(ThemeDB.fallback_font, Vector2(56, size.y * 0.5 + 6), "RETREAT",
-			HORIZONTAL_ALIGNMENT_LEFT, 100, 15, Palette.c("vei", 1.0 if _hover else 0.8))
+		draw_string(ThemeDB.fallback_font, Vector2(56, 21), "RETREAT",
+			HORIZONTAL_ALIGNMENT_LEFT, 120, 15, Palette.c("vei", 1.0 if _hover else 0.8))
+		# what it does, always beside the button at an exit (the hint line may be teaching the circle)
+		draw_string(ThemeDB.fallback_font, Vector2(56, 38), "banks your loot",
+			HORIZONTAL_ALIGNMENT_LEFT, 130, 13, Palette.c("text", 0.85))
 
 
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled

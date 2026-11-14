@@ -488,12 +488,13 @@ func _roll_ding(pos: Vector2) -> void:
 	units_root.add_child(pk)
 
 
-## Relish reached a pickup: its remnant joins found_loot, with the ding fx and "+1".
+## Relish reached a pickup: its item joins found_loot (RaidLoot.pickup_loot by kind; a ding's
+## remnant today), with the ding fx and "+1".
 func collect_pickup(pk: RaidPickup) -> void:
 	if _ended or not pk.is_in_group("raid_pickups"):
 		return
 	pk.remove_from_group("raid_pickups")   # queue_free is deferred; the count must drop now
-	found_loot = RaidLogic.merge_loot(found_loot, {"remnants": [pk.remnant]})
+	found_loot = RaidLogic.merge_loot(found_loot, RaidLoot.pickup_loot(pk.kind, pk.remnant))
 	RaidFx.ding(fx_root, pk.global_position, lcfg().get("ding", {}).get("fx", {}))
 	pk.queue_free()
 
