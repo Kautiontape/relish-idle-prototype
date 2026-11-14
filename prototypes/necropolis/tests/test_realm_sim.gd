@@ -212,6 +212,9 @@ func run() -> int:
 	_long_steps(t)
 	_room(t)
 	_march_back(t)
+	_room_clearing(t)
+	_fill_raises(t)
+	_fill_kills(t)
 
 	# --- FLOOD goes straight to the queue -------------------------------------
 	sim = _mk({"S_vei": 0.0, "R_vei": 0.0, "r_drain": 0.0})
@@ -1003,3 +1006,121 @@ func _wave_delivered(dt: float) -> float:
 		if started and (ts.tithe["wave"] as Dictionary).is_empty():
 			break
 	return got
+
+
+## A sim whose fort 0 (Ashgate, cap 80) is the only fort that can take anything: every other fort
+## is `others` ("full": living at the cap, nothing else; "corpses": full of corpses, no undead, so
+## no room and no target), and Vei has a full pool and a deep dead queue.
+func _alone(over: Dictionary, others: String) -> RealmSim:
+	var sim := _mk(over)
+	for i in range(1, sim.forts.size()):
+		var g: Dictionary = sim.forts[i]
+		g["living"] = g["cap"] if others == "full" else 0.0
+		g["undead"] = 0.0
+		g["dead"] = 0.0 if others == "full" else g["cap"]
+	sim.vei["living_pool"] = 600.0
+	sim.vei["dead_queue"] = 1e5
+	return sim
+
+
+## E2b T4.C (MECHANICS §3.4): the room counts the clearing. Ashgate is a hair under its cap with a
+## garrison, undead that neither drain nor get pulled (only kills move them), and no WAR: its only
+## room is the corpses its clearing takes, which here is every kill (the corpses run short of
+## k_clear · L). 120 steps of 0.125 s ship it her share each step; one 15 s step must ship the same
+## (it shipped the 0.1 of room it started with when the clearing was left out), and end at or below
+## its cap.
+func _room_clearing(t: TestUtil) -> void:
+	var shipped := {}
+	var load_end := {}
+	for dt in [0.125, 15.0]:
+		var sim := _alone({"r_drain": 0.0, "k_destroy": 0.0}, "full")
+		var f: Dictionary = sim.forts[0]
+		f["living"] = 67.4
+		f["undead"] = 12.5
+		f["dead"] = 0.0
+		var got := 0.0
+		for i in int(round(15.0 / dt)):
+			sim.step(dt, {"war": 0.0, "digest_q": 1.2})
+			got += float(f["r_shipped"]) * dt
+		shipped[dt] = got
+		load_end[dt] = float(f["living"]) + float(f["undead"]) + float(f["dead"])
+	var share: float = 8.0 * 15.0 * 80.0 / 3110.0
+	t.ok(absf(shipped[15.0] - shipped[0.125]) <= 1e-3 * shipped[0.125] and shipped[0.125] > 0.9 * share,
+		"the room counts the clearing: one 15 s step ships what 120 of 0.125 s do, within 0.1%% (%.6f, %.6f; her share %.3f)" % [
+		shipped[15.0], shipped[0.125], share])
+	t.ok(load_end[15.0] <= 80.0 + 1e-9 and load_end[0.125] <= 80.0 + 1e-9,
+		"and Ashgate ends at or below its cap (%.6f at 15 s, %.6f at 0.125 s)" % [load_end[15.0], load_end[0.125]])
+
+
+## E2b T4.C (MECHANICS §3.2, M1): a full fort with no living where Relish raises takes the WAR that
+## fills it with the raises counted: the corpses there, then what Vei ships in and her living
+## killed on arrival leave. Ashgate starts as in pre_vei (no living, 70.95 undead, 9.05 corpses),
+## WAR to spare (what it can't take falls through to Vei). At 15 s and at 0.5 s it ends every step
+## at exactly its cap, and in its steady state takes the same WAR at both (at 15 s it ended 1.05
+## short and took 4.53/s where 0.5 s took 4.59 while the raises were left out).
+func _fill_raises(t: TestUtil) -> void:
+	var war := {}
+	for dt in [0.5, 15.0]:
+		var sim := _alone({}, "corpses")
+		var f: Dictionary = sim.forts[0]
+		f["living"] = 0.0
+		f["undead"] = 70.95
+		f["dead"] = 9.05
+		var worst := 0.0
+		for i in int(round(600.0 / dt)):
+			sim.step(dt, {"war": 20.0, "digest_q": 1.2, "redirect_fort": "ashgate", "redirect_rate": 4.0})
+			worst = maxf(worst, absf(float(f["living"]) + float(f["undead"]) + float(f["dead"]) - 80.0))
+		war[dt] = float(f["r_in"])
+		t.ok(worst <= 1e-9 * 80.0 and float(f["r_raised"]) > 0.0 and float(f["r_shipped"]) > 0.0,
+			"Relish raising at a full fort with no living, dt %.1f: it ends every step at its cap (worst %s off; raising %.3f/s of what Vei ships)" % [
+			dt, String.num_scientific(worst), float(f["r_raised"])])
+	t.ok(_rel(war[15.0], war[0.5]) <= 1e-9,
+		"and it takes the same WAR at 15 s as at 0.5 s (%.9f, %.9f mass/s)" % [war[15.0], war[0.5]])
+
+
+## E2b T4.C (MECHANICS §3.2): a fort full of corpses, with no living and a few undead, that WAR
+## fills (WAR to spare) takes from Vei only what its undead kill. Her drain-room shipping
+## (r_drain · U, cut to her share) is more than they kill (k_kill · U); what she would have shipped
+## stayed as a sliver of living, and the next step that fort took all the WAR. With her conversion
+## off, the cut stays in her pool: it drops by what she shipped, no more. At 0.25, 0.5 and 2 s:
+## living ends every step at 0, shipping is the kills, mass is exact. With too little WAR to fill it
+## she still ships into its room, more than its undead kill, so living gather there.
+func _fill_kills(t: TestUtil) -> void:
+	for dt in [0.25, 0.5, 2.0]:
+		var sim := _alone({"R_vei": 0.0}, "corpses")
+		var f: Dictionary = sim.forts[0]
+		f["living"] = 0.0
+		f["undead"] = 3.6
+		f["dead"] = 76.4
+		var before := sim.total_matter()
+		var added := 0.0
+		var worst_l := 0.0
+		var worst_k := 0.0
+		var worst_pool := 0.0
+		var cut := 0.0
+		var share: float = 8.0 * 80.0 / 3110.0
+		for i in int(round(120.0 / dt)):
+			var pool0 := float(sim.vei["living_pool"])
+			sim.step(dt, {"war": 30.0, "digest_q": 1.2})
+			added += 30.0 * dt
+			worst_l = maxf(worst_l, float(f["living"]))
+			worst_k = maxf(worst_k, _rel(float(f["r_shipped"]), float(f["r_kills"])))
+			worst_pool = maxf(worst_pool, absf(pool0 - float(sim.vei["living_pool"]) - float(sim.vei["r_shipped"]) * dt))
+			cut += (share - float(f["r_shipped"])) * dt
+		t.ok(worst_l <= 1e-12 and worst_k <= 1e-9 and float(f["r_shipped"]) > 0.0,
+			"dt %.2f: a corpse-full fort WAR fills ends every step with no living (worst %s), Vei shipping it its kills (worst %s off)" % [
+			dt, String.num_scientific(worst_l), String.num_scientific(worst_k)])
+		t.ok(cut > 1.0 and worst_pool <= 1e-9,
+			"dt %.2f: what she didn't ship stays in her pool (%.2f of her share over 120 s; worst %s off)" % [dt, cut,
+			String.num_scientific(worst_pool)])
+		t.near(sim.total_matter(), before + added - sim.cleared_total - sim.pool_overflow, 1e-9 * (before + added),
+			"dt %.2f: mass is exact" % dt)
+	var sim := _alone({"R_vei": 0.0}, "corpses")
+	var f: Dictionary = sim.forts[0]
+	f["living"] = 0.0
+	f["undead"] = 3.6
+	f["dead"] = 76.4
+	sim.step(2.0, {"war": 0.002, "digest_q": 1.2})
+	t.ok(float(f["living"]) > 0.0 and float(f["r_shipped"]) > 1.5 * float(f["r_kills"]) and float(f["r_in"]) > 0.0,
+		"with too little WAR to fill it she still ships into its room (%.4f/s against kills of %.4f/s), so living gather (%.4f)" % [
+		float(f["r_shipped"]), float(f["r_kills"]), float(f["living"])])
