@@ -27,7 +27,8 @@ shader_type particles;
 //   - the current bends toward Relish (relish_*), with a clear eye where map
 //     draws her;
 //   - a tithe surge is an orange line that runs from Vei to its fort (surge_*);
-//     a flip inks the ground round the fort green, a retake orange (ink_*).
+//     a flip inks the ground round the fort green, its front sweeping out; a
+//     retake orange, its front closing in (ink_*).
 // Reduced motion (comet = 1): nothing advects. Each head stands still and draws
 // a comet, its tail laid back along the flow (flow_streak.gdshader's gradient,
 // dashed on living ground), into a trail buffer cleared every frame.
@@ -559,7 +560,7 @@ void process() {
 				}
 				ink_front = max(ink_front, fr);
 				ink_in = max(ink_in, inside);
-				dir += rv / d * fr * ink_push;
+				dir += rv / d * fr * ink_push * sign(ink[i].w);   // a flip pushes out, a retake pulls in
 			}
 
 			dir += curl(p) * turb;

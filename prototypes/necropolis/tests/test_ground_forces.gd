@@ -116,7 +116,9 @@ func run() -> int:
 	t.ok(_same(Vector2(flip.x, flip.y), pos["greywall"]) and flip.w > 0.0 and back.w < 0.0, "a flip inks green (+), a retake orange (-)")
 	var ink_r := float(fc["ink"]["radius_px"])
 	var ink_s := float(fc["ink"]["seconds"])
-	t.ok(flip.z > 0.0 and flip.z < ink_r and ik.ink_array(ink_s * 0.6, false)["ink"][0].z > flip.z, "the front eases outward")
+	t.ok(flip.z > 0.0 and flip.z < ink_r and ik.ink_array(ink_s * 0.6, false)["ink"][0].z > flip.z, "a flip's front eases outward")
+	t.ok(back.z < ink_r and ik.ink_array(ink_s * 0.6, false)["ink"][1].z < back.z,
+		"a retake's front closes in on the fort: they differ by motion, not only hue")
 	t.ok(is_equal_approx(ik.ink_array(0.5, true)["ink"][0].z, ink_r), "reduced motion: the front stands at full radius")
 	ik.update(ink_s + 0.1, {}, pos)
 	t.ok(ik.ink_array(ink_s + 0.1, false)["count"] == 0, "a finished ink is dropped")

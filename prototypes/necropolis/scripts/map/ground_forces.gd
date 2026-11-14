@@ -146,8 +146,10 @@ func surge_arrays(now: float, reduced: bool) -> Dictionary:
 
 
 ## The inks as the shader's array: (x, y, front radius world px, signed strength: + green, - orange).
-## The front eases out to ink.radius_px; strength fades over the sweep. Under reduced motion the
-## front stands at full radius and only the strength rises and falls.
+## A flip's front eases out to ink.radius_px, a retake's eases in from it to the fort, and the
+## shader pushes the streaks with the front (out, or in), so the two differ by motion and by the way
+## the streaks point, not only by hue. Strength fades over the sweep. Under reduced motion the front
+## stands at full radius and only the strength rises and falls; the comets on it still point out or in.
 func ink_array(now: float, reduced: bool) -> Dictionary:
 	var out := PackedVector4Array()
 	out.resize(MAX_INKS)
@@ -157,7 +159,9 @@ func ink_array(now: float, reduced: bool) -> Dictionary:
 		if s["kind"] != "ink":
 			continue
 		var k := clampf((now - float(s["t0"])) / maxf(1e-3, float(s["dur"])), 0.0, 1.0)
-		var front := r if reduced else r * (1.0 - pow(1.0 - minf(1.0, k * 2.0), 3.0))
+		var ease := 1.0 - pow(1.0 - minf(1.0, k * 2.0), 3.0)
+		# a flip's front sweeps out from the fort, a retake's closes in on it (not only the hue)
+		var front := r if reduced else (r * ease if float(s["side"]) > 0.0 else r * (1.0 - ease))
 		var env := sin(k * PI) if reduced else 1.0 - k
 		out[i] = Vector4(s["pos"].x, s["pos"].y, front, float(s["side"]) * env)
 		i += 1
