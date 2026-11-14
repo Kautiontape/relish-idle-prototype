@@ -371,7 +371,19 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _vs_pyre(", "the bot's Pyre-priest fight"],
 			["res://scripts/raid/raid_autopilot.gd", "func _pyre_stand(", "the bot's Pyre-priest stand point"],
 			["res://scripts/raid/raid_autopilot.gd", "func _burn_fetch(", "the bot's mote out of the fire"],
-			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"]]:
+			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"],
+			# the callees the guards above call, and the branches that run in the units' own tick
+			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _area_of(", "RaidPyrePriest._area_of"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func nearest_acolyte(", "RaidPyrePriest.nearest_acolyte"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func living(", "RaidPyrePriest.living"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _on_wake(", "RaidPyrePriest._on_wake"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _on_phase_change(", "RaidPyrePriest._on_phase_change"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _update_flankers(", "RaidShieldwall._update_flankers"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _on_wake(", "RaidShieldwall._on_wake"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _on_phase_change(", "RaidShieldwall._on_phase_change"],
+			["res://scripts/raid/raid_unit.gd", "func _physics_process(", "RaidUnit._physics_process (the flank and snuff branches)"]]:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])

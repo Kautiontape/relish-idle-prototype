@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reduced-motion parity: the raid bot (old-sluice day1 fixture, hollow-redoubt tier-3 profile) and the
+# Reduced-motion parity: the raid bot (old-sluice day1 fixture; the tier-3 profiles at hollow-redoubt, pale-bastion, mourners-gate) and the
 # boss bot, seed 1, run headless with and without --reduced-motion; the result lines must be identical.
 # Usage: tests/parity_check.sh   (exit 0 = identical, 1 = a difference, 2 = a run printed no result)
 set -uo pipefail
@@ -34,6 +34,10 @@ check "raid old-sluice day1" res://scenes/raid/Raid.tscn '^(AUTOPILOT_RESULT|RAI
 	--new-game --raid-fixture=day1,old-sluice --raid-autopilot=70 --raid-autopilot-seed=1
 check "raid hollow-redoubt tier 3" res://scenes/raid/Raid.tscn '^(AUTOPILOT_RESULT|RAID_RESULT)' \
 	--new-game --raid-profile=3 --raid-fort=hollow-redoubt --raid-autopilot=70 --raid-autopilot-seed=1
+check "raid pale-bastion tier 3 (Shieldwall)" res://scenes/raid/Raid.tscn '^(AUTOPILOT_RESULT|RAID_RESULT)' \
+	--new-game --raid-profile=3 --raid-fort=pale-bastion --raid-autopilot=70 --raid-autopilot-seed=1
+check "raid mourners-gate tier 3 (Pyre-priest)" res://scenes/raid/Raid.tscn '^(AUTOPILOT_RESULT|RAID_RESULT)' \
+	--new-game --raid-profile=3 --raid-fort=mourners-gate --raid-autopilot=70 --raid-autopilot-seed=1
 check "boss seed 1" res://scenes/boss/VeiBoss.tscn '^(BOSS_RESULT|BOSS_AUTOPLAY)' \
 	--boss-autoplay=70 --boss-seed=1
 exit $fail
