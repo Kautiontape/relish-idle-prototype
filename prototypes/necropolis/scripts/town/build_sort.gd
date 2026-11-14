@@ -51,19 +51,21 @@ static func stocks(views: Dictionary) -> Dictionary:
 # ------------------------------------------------------------------ needs ----
 ## The live needs, in `view.needs.order`: [{id, chip, serves: Array[String]}]. `fort_names` is
 ## {fort id: name} (view_realm), used for chips and to tell a fort from Covington or Vei.
-static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary) -> Array:
+static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, bview: Dictionary = {}) -> Array:
 	var ncfg: Dictionary = vcfg.get("needs", {})
 	var out: Array = []
 	for id in ncfg.get("order", []):
-		var chip := _chip(String(id), views, fort_names, ncfg)
+		var chip := _chip(String(id), views, fort_names, ncfg, vcfg, bview)
 		if chip != "":
 			out.append({"id": String(id), "chip": chip, "serves": (ncfg.get("serves", {}) as Dictionary).get(id, [])})
 	return out
 
 
-static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictionary) -> String:
+static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictionary, vcfg: Dictionary = {}, bview: Dictionary = {}) -> String:
 	var chips: Dictionary = ncfg.get("chips", {})
 	var town: Dictionary = views.get("town", {})
+	if id.begins_with("starved_"):
+		return _starved_chip(id.trim_prefix("starved_"), views, ncfg, vcfg, bview)
 	match id:
 		"tithe":
 			var tithe: Dictionary = views.get("vei", {}).get("tithe", {})
@@ -103,6 +105,36 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 			if m.has("value") and float(m["value"]) < float(ncfg.get("morale_below", 0.0)):
 				return String(chips.get("morale", ""))
 			return ""
+	return ""
+
+
+## A starved stream (`resource` = a `shortage_fix` key): its net rate is <= 0 and its producer is not
+## built, or (the stock is under the cheapest catalog cost in it and) the producer has no staff. A
+## producer still under construction is no need (it is already on its way). "" when not starved.
+static func _starved_chip(resource: String, views: Dictionary, ncfg: Dictionary, vcfg: Dictionary, bview: Dictionary) -> String:
+	var producer := String((vcfg.get("shortage_fix", {}) as Dictionary).get(resource, ""))
+	var rate := hud_rate(views.get("hud", {}), resource)
+	if producer == "" or rate.is_empty() or float(rate.get("rate", 0.0)) > 0.0:
+		return ""
+	var chips: Dictionary = ncfg.get("chips", {})
+	var vars := {"resource": resource, "label": label_of(producer, bview)}
+	var staffed := 0.0
+	var present := false
+	for b in views.get("town", {}).get("buildings", []):
+		if String(b.get("building_id", "")) == producer:
+			if String(b.get("state", "")) == "constructing":
+				return ""
+			present = true
+			staffed += float(b.get("staffed", 0.0))
+	if not present:
+		return fmt(String(chips.get("starved_none", "")), vars)
+	var cheapest := INF
+	for r in views.get("catalog", {}).get("buildings", []):
+		var c := float((r.get("cost", {}) as Dictionary).get(resource, 0.0))
+		if c > 0.0:
+			cheapest = minf(cheapest, c)
+	if staffed <= 0.0 and float(views.get("town", {}).get(resource, 0.0)) < cheapest:
+		return fmt(String(chips.get("starved_staff", "")), vars)
 	return ""
 
 
@@ -197,7 +229,7 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var bview: Dictionary = cfgs.get("buildings_view", {})
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
-	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg), bview, vcfg)
+	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview), bview, vcfg)
 	var sug := suggest(items, bview)
 	if sug.is_empty():
 		return {}

@@ -347,11 +347,12 @@
       "idle": "idle: no staff"
     },
     "needs": {
-      "order": ["tithe", "front", "warden", "gold", "bodies", "housing", "morale"],
+      "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "gold", "bodies", "housing", "morale"],
       "bodies_frac": 0.3,
       "morale_below": 0.5,
       "serves": {
         "tithe": ["front", "warden"], "front": ["front"], "warden": ["warden"], "gold": ["gold"],
+        "starved_bone": ["bone"], "starved_gold": ["gold"],
         "bodies": ["bodies"], "housing": ["housing"], "morale": ["morale"]
       },
       "chips": {
@@ -361,6 +362,8 @@
         "warden_at": "for the warden at {fort}: big undead and quality",
         "warden_to": "for the warden heading to {fort}: big undead and quality",
         "gold": "gold is falling",
+        "starved_none": "{resource} isn't flowing: no {label}",
+        "starved_staff": "{resource} isn't flowing: {label} has no staff",
         "bodies": "bodies are low ({have} of {cap})",
         "housing": "no room for more living",
         "morale": "morale is low"

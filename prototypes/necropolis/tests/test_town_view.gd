@@ -82,6 +82,7 @@ func run() -> int:
 	_foremen(mid)
 	_edge_rates(day1, demo)
 	_build_needs(day1)
+	_starved(day1)
 	_build_sort(day1)
 	_build_reasons(day1)
 	_build_queue(day1)
@@ -1367,7 +1368,7 @@ func _need_views(day1: Dictionary) -> Dictionary:
 	v["relish"]["target"] = ""
 	v["relish"]["at"] = "covington"
 	for r in v["hud"]["rates"]:
-		if r["id"] == "gold":
+		if r["id"] == "gold" or r["id"] == "bone":
 			r["rate"] = 0.1
 	v["town"]["bodies"] = 100.0
 	v["town"]["bodies_cap"] = 200.0
@@ -1379,7 +1380,7 @@ func _need_views(day1: Dictionary) -> Dictionary:
 
 func _need_ids(v: Dictionary) -> Array:
 	var ids: Array = []
-	for n in BuildSort.needs(v, FORTS, vcfg):
+	for n in BuildSort.needs(v, FORTS, vcfg, cfg["buildings_view"]):
 		ids.append(n["id"])
 	return ids
 
@@ -2884,3 +2885,74 @@ func _autoplay(day1: Dictionary, mid: Dictionary) -> void:
 			r["can_build"] = false
 	views["catalog"] = {"buildings": rows}
 	t.ok(BuildSort.autoplay_pick(views, cfg).is_empty(), "autoplay: a built unique building is never picked")
+
+
+func _set_rate(v: Dictionary, id: String, rate: float) -> void:
+	for r in v["hud"]["rates"]:
+		if r["id"] == id:
+			r["rate"] = rate
+
+
+func _drop_building(v: Dictionary, bid: String) -> void:
+	v["town"]["buildings"] = (v["town"]["buildings"] as Array).filter(func(b): return b["building_id"] != bid)
+
+
+## A starved stream is a live need: bone (no mill) and gold (market unstaffed) rank their producer first.
+func _starved(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var v: Dictionary = day1.duplicate(true)
+	_set_rate(v, "bone", 0.0)
+	_set_rate(v, "gold", 0.2)
+	var ids: Array = []
+	for n in BuildSort.needs(v, {}, vcfg, bv):
+		ids.append(n["id"])
+	t.ok("starved_bone" in ids and not ("starved_gold" in ids), "starved: flat bone with no Bone Mill is a need, positive gold is not (%s)" % str(ids))
+	t.ok(BuildSort.needs(v, {}, vcfg, bv)[ids.find("starved_bone")]["chip"] == "bone isn't flowing: no Bone Mill", "starved: the chip names the missing producer")
+	var items: Array = BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv), bv, vcfg)
+	t.ok(items[0]["row"]["building_id"] == "bone_mill", "starved: the Bone Mill ranks first (%s)" % items[0]["row"]["building_id"])
+	t.ok(BuildSort.suggest(items, bv)["building_id"] == "bone_mill", "starved: day1 suggests the Bone Mill")
+	t.ok(BuildSort.autoplay_pick(v, cfg)["building_id"] == "bone_mill", "starved: the autoplayer builds the Bone Mill first")
+	# a mill under construction is no need (no second mill is queued)
+	v["town"]["buildings"].append({"lot_id": "lot-09", "building_id": "bone_mill", "state": "constructing", "staffed": 0.0})
+	ids = []
+	for n in BuildSort.needs(v, {}, vcfg, bv):
+		ids.append(n["id"])
+	t.ok(not ("starved_bone" in ids), "starved: a mill under construction is not a need")
+	# built but unstaffed, stock under the cheapest bone cost: it has no staff
+	v["town"]["buildings"][-1]["state"] = "active"
+	v["town"]["bone"] = 0.0
+	var n: Array = _starved_needs(v)
+	t.ok(n.size() > 0 and n[0]["chip"] == "bone isn't flowing: Bone Mill has no staff", "starved: an unstaffed mill with no bone to buy with")
+	# the stock covers the cheapest bone cost: not starved yet
+	v["town"]["bone"] = 1000.0
+	t.ok(_starved_ids(v).is_empty(), "starved: stock above the cheapest cost is no need")
+	# staffed: bone stops being a need
+	v["town"]["bone"] = 0.0
+	v["town"]["buildings"][-1]["staffed"] = 2.0
+	t.ok(_starved_ids(v).is_empty(), "starved: a built, staffed mill ends the need")
+	# gold behaves the same way
+	_set_rate(v, "bone", 0.1)
+	_set_rate(v, "gold", 0.0)
+	var g: Dictionary = day1.duplicate(true)
+	_set_rate(g, "bone", 0.1)
+	_set_rate(g, "gold", 0.0)
+	g["town"]["gold"] = 0.0
+	for b in g["town"]["buildings"]:
+		b["staffed"] = 0.0 if b["building_id"] == "market" else b["staffed"]
+	var gn: Array = _starved_needs(g)
+	t.ok(gn.size() == 1 and gn[0]["id"] == "starved_gold" and gn[0]["chip"] == "gold isn't flowing: Market has no staff", "starved: an unstaffed market with no gold")
+	for b in g["town"]["buildings"]:
+		if b["building_id"] == "market":
+			b["staffed"] = 2.0
+	t.ok(_starved_ids(g).is_empty(), "starved: a staffed market ends the gold need")
+	_drop_building(g, "market")
+	gn = _starved_needs(g)
+	t.ok(gn.size() == 1 and gn[0]["chip"] == "gold isn't flowing: no Market", "starved: no market at all")
+
+
+func _starved_needs(v: Dictionary) -> Array:
+	return BuildSort.needs(v, {}, vcfg, cfg["buildings_view"]).filter(func(n): return String(n["id"]).begins_with("starved_"))
+
+
+func _starved_ids(v: Dictionary) -> Array:
+	return _starved_needs(v).map(func(n): return n["id"])

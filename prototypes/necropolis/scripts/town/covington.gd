@@ -133,9 +133,9 @@ func _grow() -> void:
 		_grown_s += chunk
 		if log_chunks:
 			var town: Dictionary = Game.state.view_town()
-			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f living=%.1f/%.0f" % [_grown_s, town["tier"],
+			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f idle=%.1f muster=%.3f living=%.1f/%.0f" % [_grown_s, town["tier"],
 				(town["buildings"] as Array).size(), _grow_log.size(), town["workers"]["total"], town["workers"]["steady"],
-				town["living"], town["living_cap"]])
+				town["workers"]["idle"], town["workers"]["muster"], town["living"], town["living_cap"]])
 	if log_chunks:
 		var tw: Dictionary = Game.state.view_town()
 		var rates := []

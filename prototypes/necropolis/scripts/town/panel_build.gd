@@ -165,7 +165,7 @@ func bind(views: Dictionary) -> void:
 		_rebuild_rows(rows)
 	_empty.visible = rows.is_empty()
 	var names: Dictionary = views.get("fort_names", {})
-	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg), _bview, _vcfg)
+	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview), _bview, _vcfg)
 	_sorted = sorted
 	_sug_data = BuildSort.suggest(sorted, _bview)
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))

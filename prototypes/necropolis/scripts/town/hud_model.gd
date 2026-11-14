@@ -197,7 +197,7 @@ static func bottleneck(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -
 	var fixes: Dictionary = vcfg.get("shortage_fix", {})
 	var out: Array = []
 	var seen := {}
-	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg)
+	var needs := BuildSort.needs(views, views.get("fort_names", {}), vcfg, bview)
 	for it in BuildSort.sort_rows(views.get("catalog", {}).get("buildings", []), needs, bview, vcfg):
 		var row: Dictionary = it["row"]
 		var reason := String(row.get("reason", ""))
