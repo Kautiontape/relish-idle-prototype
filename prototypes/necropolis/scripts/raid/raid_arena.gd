@@ -25,6 +25,10 @@ var _marks: ExitMarks = null
 var _drift := 0.0           # wall colour drift position, in cycles
 var _drift_speed := 0.05
 var _diag := 1000.0
+var _flash_t := 0.0         # seconds of wall flash left (the held clear's set piece)
+var _flash_dur := 1.0
+var _flash_col: Color = Palette.c("text")
+var _flash_boost := 1.5
 
 
 ## The overlay that dims the line layers while the trance is active.
@@ -171,6 +175,25 @@ func set_banked(rooms: Dictionary) -> void:
 		_marks.banked = rooms.duplicate()
 
 
+## The walls flash toward `key`'s palette colour and fade back over `secs` (reduced motion: a steady
+## hold, then off, no fade).
+func flash_walls(key: String, secs: float, boost: float) -> void:
+	_flash_col = Palette.c(key)
+	_flash_dur = maxf(0.05, secs)
+	_flash_t = _flash_dur
+	_flash_boost = boost
+
+
+func _flash_step(delta: float) -> void:
+	if _flash_t <= 0.0:
+		return
+	_flash_t = maxf(0.0, _flash_t - delta / maxf(0.05, Engine.time_scale))
+	var f := _flash_t / _flash_dur
+	var k := (1.0 if f > 0.0 else 0.0) if Pulse.reduced_motion else f * f
+	for seg in _walls:
+		seg.set_flash(k, _flash_col, _flash_boost)
+
+
 func set_trance_dim(on: bool) -> void:
 	if _dim != null:
 		_dim.visible = on
@@ -189,6 +212,7 @@ func _process(delta: float) -> void:
 		_floor.set_source(_floor.to_local(rp))
 	for seg in _walls:
 		seg.set_beat(beat, rp, _drift, steady)
+	_flash_step(delta)
 
 
 ## Drift field: unit vector toward the nearest door's inner point, strength 1

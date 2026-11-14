@@ -108,6 +108,21 @@ func confirm_exit() -> void:
 	finish(_raid._exit_result())
 
 
+# ------------------------------------------------------------------- close ---
+## "No run survives a close" (IDLE I5), the scene's stand-in until economy's cmd_run_checkpoint lands
+## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends as a retreat paying
+## the last checkpoint snapshot (what was found since is lost, the same bound as a death), with the
+## phylactery revives spent. Only a router-launched dungeon run does this (not standalone, not the
+## boss); it must emit before the quit save, see raid.gd `_notification`. True when it emitted.
+func close_request() -> bool:
+	if finished or _raid.is_boss() or _raid._standalone or not _raid._from_run or not _raid._built:
+		return false
+	ended = true
+	_raid.trance.force_end()
+	finish(build_result("retreated", true))
+	return true
+
+
 # ------------------------------------------------------------------- revive ---
 ## A lethal hit with allies gone: spend a phylactery if one is left. True = Relish lives.
 func try_phylactery() -> bool:
@@ -146,13 +161,16 @@ func on_relish_died() -> void:
 
 # ------------------------------------------------------------------- result ---
 ## Raid result v2 from the ledger and every living ally.
-func build_result(exit: String) -> Dictionary:
+## `closing`: a window close, not a retreat the player chose: the loot is the last checkpoint snapshot.
+func build_result(exit: String, closing := false) -> Dictionary:
 	var survivors: Array = []
 	for a in _raid.allies:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
 	# retreat banks everything found plus the carried motes; a death keeps the last checkpoint only
 	var loot := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count()) if exit in ["retreated", "warden_beaten"] else banked.duplicate(true)
+	if closing:
+		loot = RaidLogic.close_loot(banked)
 	if loot.is_empty():
 		loot = RaidLogic.empty_loot()
 	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, _raid.party_died, revived, loot, _raid.rcfg())

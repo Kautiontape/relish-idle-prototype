@@ -341,6 +341,7 @@ func run() -> int:
 
 	_checkpoint_tests(t, cfg)
 	_writeback_tests(t, cfg)
+	_held_clear_tests(t, cfg)
 	_wall_tests(t, cfg)
 	_routing_tests(t, cfg)
 	return t.failures
@@ -547,6 +548,102 @@ func _writeback_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not out["ok"] and out["reason"] == "bad_revives" and s.rev == rev and not s.run.is_empty(),
 		"revived_in_place 1 with 0 charges is bad_revives and changes nothing (%s)" % str(out["reason"]))
 	t.ok(not RaidLogic.can_revive(0, sd3), "the scene's can_revive agrees: no charge, no revive")
+
+
+## The idle rules (IDLE.md I3, I5): the held-fort raid's clear, and "no run survives a close".
+func _held_clear_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_held_clear")
+	var h: Dictionary = cfg.get("held", {})
+	t.ok(float(h.get("clear_victory_s", 0.0)) >= 1.0 and float(h.get("banner_s", 0.0)) > 0.0, "raid.json held keys: clear_victory_s, banner_s")
+	# the predicate: held, not the boss, no living left, not already started
+	t.ok(RaidLogic.held_clear_due(true, false, 0, false), "held, nothing living left, not started: the clear is due")
+	t.ok(not RaidLogic.held_clear_due(true, false, 1, false), "one living left: not due")
+	t.ok(not RaidLogic.held_clear_due(false, false, 0, false), "a fort that is not held never clears this way")
+	t.ok(not RaidLogic.held_clear_due(true, true, 0, false), "the boss arena never clears this way")
+	t.ok(not RaidLogic.held_clear_due(true, false, 0, true), "once started it never fires twice")
+	t.ok(RaidLogic.held_banner("Old Sluice") == "COUNTER-GARRISON CLEARED · Old Sluice holds", "banner text: " + RaidLogic.held_banner("Old Sluice"))
+	t.ok(RaidLogic.held_banner("") == "COUNTER-GARRISON CLEARED", "no name, no 'holds'")
+	t.ok(RaidLogic.held_motes({"essence": 3}) == 3 and RaidLogic.held_motes({}) == 0 and RaidLogic.held_motes({"essence": -2}) == 0, "held_motes is the bonus count, never negative")
+
+	# merging the held-clear roll: items join found_loot, the essence bonus is spawned, not merged
+	var lcfg := TestUtil.load_json("res://configs/loot.json")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var hc := RaidLoot.held_clear(rng, 2, 1.0, lcfg)
+	var found := {"relics": 1, "remnants": [{"aspect": "power", "rarity": "common", "magnitude": 1}]}
+	var merged := RaidLogic.merge_loot(found, hc)
+	t.ok(int(merged["relics"]) == 1 + int(hc["relics"]) and (merged["remnants"] as Array).size() == 1 + (hc["remnants"] as Array).size(),
+		"held_clear items merge into found_loot")
+	t.ok(not merged.has("essence") or int(merged["essence"]) == 0, "the held_clear essence is not merged (the motes carry it)")
+
+	t.ok(RaidLogic.held_payoff(hc) == "+%d relics · +%d remnants · +%d essence" % [int(hc["relics"]), (hc["remnants"] as Array).size(), int(hc["essence"])],
+		"payoff line counts the roll: " + RaidLogic.held_payoff(hc))
+
+	# the result of a held clear validates: retreated, loot = found + held items + carried bonus motes
+	var seed_d := RaidLogic.demo_seed(cfg)
+	var carried := int(hc["essence"]) + 2
+	var loot := RaidLogic.loot_snapshot(merged, carried)
+	for ex in ["retreated", "relish_died"]:
+		var lg := RaidLogic.LedgerV2.new(seed_d, cfg)
+		lg.on_kill(float(seed_d.get("living", 20.0)))
+		lg.on_raise(70, 3.0, 2)
+		var surv: Array = [{"role": "garrison", "tier": "chaff", "mass": float(seed_d.get("garrison_in_mass", 0.0))},
+			{"role": "raised", "tier": "chaff", "mass": 3.0}, {"role": "starter", "tier": "chaff", "mass": 0.0}]
+		var r := lg.build_result(seed_d, ex, surv, [], 0, loot if ex == "retreated" else RaidLogic.close_loot({}), cfg)
+		t.ok(Results.validate("raid", r) == [], "held clear (%s) validates: %s" % [ex, str(Results.validate("raid", r))])
+		if ex == "retreated":
+			t.ok(r["retreated"] and not r["relish_died"] and not r["warden_beaten"] and int(r["loot"]["essence"]) == carried
+				and int(r["loot"]["relics"]) == int(merged["relics"]), "held clear pays the found loot and the carried essence")
+
+	# I5, the close stand-in: loot is the last checkpoint snapshot, not what was found since
+	t.suite("raid_close_loot")
+	var banked := RaidLogic.loot_snapshot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1}]}, 2)
+	var later := RaidLogic.merge_loot(banked, {"relics": 3, "husks": [{"kind": "skeleton"}]})
+	var snap_now := RaidLogic.loot_snapshot(later, 7)
+	var cl := RaidLogic.close_loot(banked)
+	t.ok(cl == banked, "close loot equals the banked snapshot")
+	t.ok(cl != snap_now and int(cl["relics"]) == 1 and int(cl["essence"]) == 2 and (cl["husks"] as Array).is_empty(),
+		"loot found since the checkpoint is lost, even when more was found")
+	(cl["remnants"] as Array).append({"aspect": "wits", "rarity": "rare", "magnitude": 2})
+	cl["relics"] = 99
+	t.ok((banked["remnants"] as Array).size() == 1 and int(banked["relics"]) == 1, "close loot is a deep copy")
+	t.ok(RaidLogic.close_loot({}) == RaidLogic.empty_loot(), "no checkpoint yet: close loot is the empty loot shape")
+
+	# the writeback, on the real state (day1 fixture)
+	t.suite("raid_close_writeback")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("day1")["ok"], "day1 loads")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var o1 := s.cmd_begin_dungeon("old-sluice")
+	t.ok(o1["ok"], "begin_dungeon")
+	var sd: Dictionary = o1["seed"]
+	var f0 := s.view_fort("old-sluice")
+	# (a) a held-style retreat: every living killed clears the counter-garrison
+	var lg2 := RaidLogic.LedgerV2.new(sd, cfg)
+	lg2.on_kill(float(f0["living"]))
+	var hl := RaidLogic.loot_snapshot(RaidLogic.merge_loot({}, hc), int(hc["essence"]))
+	var rh := lg2.build_result(sd, "retreated", [{"role": "garrison", "tier": "chaff", "mass": float(sd["garrison_in_mass"])}], [], 0, hl, cfg)
+	t.ok(Results.validate("raid", rh) == [], "held-style retreat validates: " + str(Results.validate("raid", rh)))
+	var out := s.apply_result("raid", rh)
+	t.ok(out["ok"], "held-style retreat applies (%s)" % str(out))
+	var f1 := s.view_fort("old-sluice")
+	t.ok(float(f1["living"]) < 1e-6, "the fort's living drops to about 0 (%.4f -> %.4f)" % [float(f0["living"]), float(f1["living"])])
+	t.ok(s.run.is_empty() and s.view_relish()["state"] == "at_fort", "run closed, Relish at the fort")
+	# (b) a close-style retreat: the snapshot loot, applies ok
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var o2 := s.cmd_begin_dungeon("old-sluice")
+	t.ok(o2["ok"], "begin_dungeon again (%s)" % str(o2["reason"]))
+	var sd2: Dictionary = o2["seed"]
+	var lg3 := RaidLogic.LedgerV2.new(sd2, cfg)
+	lg3.on_kill(minf(3.0, float(s.view_fort("old-sluice")["living"])))
+	var ess_before := s.essence
+	var rc := lg3.build_result(sd2, "retreated", [{"role": "starter", "tier": "chaff", "mass": 0.0}], [], 0, RaidLogic.close_loot(banked), cfg)
+	t.ok(Results.validate("raid", rc) == [] and rc["retreated"] and not rc["relish_died"] and int(rc["loot"]["essence"]) == 2,
+		"close-style retreat validates and carries the snapshot essence")
+	out = s.apply_result("raid", rc)
+	t.ok(out["ok"], "close-style retreat applies (%s)" % str(out))
+	t.ok(s.run.is_empty() and s.view_relish()["state"] == "at_fort" and s.essence == ess_before + 2, "run closed, the snapshot's 2 essence banked")
 
 
 func _wall_tests(t: TestUtil, cfg: Dictionary) -> void:

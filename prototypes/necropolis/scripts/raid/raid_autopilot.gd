@@ -118,7 +118,8 @@ func physics_tick(delta: float) -> void:
 		return
 	var pos := rel.global_position
 	_track_room(pos)
-	_try_raise(pos)
+	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
+		_try_raise(pos)
 	_watch_progress()
 	var goal := _decide(pos)
 	rel.move_target = goal
@@ -177,6 +178,7 @@ func on_finish(result: Dictionary) -> void:
 		"first_raise_s": snappedf(_first_raise_s, 0.01), "warden_hp_frac_end": snappedf(_warden_hp_frac(), 0.001),
 		"pickups_left": _raid.pickups_left(), "unbanked_lost": int(lost["items"]), "unbanked_lost_essence": int(lost["essence"]),
 		"killed_living_mass": snappedf(float(result.get("killed_living_mass", 0.0)), 0.01),
+		"seed_living": snappedf(float(_raid.seed_data.get("living", 0.0)), 0.01), "held_cleared": _raid.held_clear.started,
 		"loot": {"relics": int(loot.get("relics", 0)), "blueprints": (loot.get("blueprints", []) as Array).size(),
 			"husks": (loot.get("husks", []) as Array).size(), "remnants": (loot.get("remnants", []) as Array).size(),
 			"essence": int(loot.get("essence", 0))},
@@ -388,6 +390,11 @@ func _decide(pos: Vector2) -> Vector2:
 		kite_px = _c("kite_committed_px", 110.0)
 		hold_px = minf(hold_px, kite_px)
 	var run: RaidWardenRun = _raid.warden_run
+
+	# a held fort's counter-garrison is cleared: stand and gather the bonus motes, the run ends itself
+	if _raid.held_clear.started:
+		_why = "cleared"
+		return pos
 
 	if _giving_up:
 		return _head_for_exit(pos)

@@ -40,6 +40,7 @@ var arena: RaidArena = null
 var endings: RaidEndings = null
 var raiser: RaidRaise = null
 var warden_run: RaidWardenRun = null
+var held_clear: RaidHeldClear = null   # the held fort's counter-garrison clear (held dungeon only)
 var _setup_called := false
 var _built := false
 var _standalone := false
@@ -64,6 +65,7 @@ func _init() -> void:
 	endings = RaidEndings.new(self)
 	raiser = RaidRaise.new(self)
 	warden_run = RaidWardenRun.new(self)
+	held_clear = RaidHeldClear.new(self)
 
 
 func rcfg() -> Dictionary:
@@ -382,6 +384,7 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
 		if not is_boss():
 			_roll_ding(u.global_position)
+			held_clear.on_enemy_died()
 	else:
 		allies.erase(u)
 		if is_boss():
@@ -627,6 +630,14 @@ func perform_raise(g: Dictionary) -> void:
 
 
 # --------------------------------------------------------------- endings -----
+## A window close mid-run ends it as a retreat paying the last checkpoint (IDLE I5 stand-in).
+## The signal runs synchronously: the router applies the result before the quit completes.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and endings != null:
+		endings.close_request()
+
+
+
 ## Thin forwards to RaidEndings for what other files call. The result hooks stay here so the boss
 ## scene can override them.
 func confirm_exit() -> void:

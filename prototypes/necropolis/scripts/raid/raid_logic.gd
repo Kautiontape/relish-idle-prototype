@@ -171,6 +171,37 @@ static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
 	return out
 
 
+## What a close, a load or a crash pays (IDLE I5): the last checkpoint snapshot, as a deep copy in
+## the full loot shape. Whatever was found since is lost, the same bound as a death.
+static func close_loot(banked: Dictionary) -> Dictionary:
+	var out := empty_loot()
+	for k in out:
+		if banked.has(k):
+			out[k] = banked[k].duplicate(true) if (banked[k] is Array or banked[k] is Dictionary) else banked[k]
+	return out
+
+
+## A held fort's counter-garrison is cleared when its last living enemy falls (IDLE I3).
+## `living_left` counts the living still alive; `started` is true once the clear has fired.
+static func held_clear_due(held: bool, boss: bool, living_left: int, started: bool) -> bool:
+	return held and not boss and living_left <= 0 and not started
+
+
+static func held_banner(fort_name: String) -> String:
+	return "COUNTER-GARRISON CLEARED" if fort_name == "" else "COUNTER-GARRISON CLEARED · %s holds" % fort_name
+
+
+## The banner's second line: what the clear paid (the essence bonus counts as the motes that spawn).
+static func held_payoff(loot: Dictionary) -> String:
+	var c := loot_counts(loot)
+	return "+%d relics · +%d remnants · +%d essence" % [int(c["relics"]), int(c["remnants"]), int(c["essence"])]
+
+
+## The held_clear roll's essence bonus: how many fresh mass-0 motes the scene spawns.
+static func held_motes(loot: Dictionary) -> int:
+	return maxi(0, int(loot.get("essence", 0)))
+
+
 ## The checkpoint snapshot with its essence capped at what is still carried: motes circled into
 ## undead after the checkpoint are spent, so a death must not pay them out. A copy; an empty
 ## snapshot stays empty.

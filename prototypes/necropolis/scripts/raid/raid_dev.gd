@@ -4,7 +4,7 @@ extends RefCounted
 ##   godot --path . res://scenes/raid/Raid.tscn -- --new-game --raid-fixture=day1,old-sluice
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N, --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
-## --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits).

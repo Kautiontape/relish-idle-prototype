@@ -183,6 +183,12 @@ func run() -> int:
 	heldf["held"] = true
 	var hl := RaidLoot.card_line(heldf, cfg)
 	t.ok(hl.begins_with("held") and "essence 2–4" in hl and hl.ends_with("yield 100%"), "held line: " + hl)
+	var held_part := heldf.duplicate(true)
+	held_part["yield_mult"] = 0.4
+	var hp_line := RaidLoot.card_line(held_part, cfg)
+	t.ok(hp_line.begins_with("held · counter-garrison:") and "relics 0–1" in hp_line and "remnants 1" in hp_line and hp_line.ends_with("yield 40%"),
+		"held card shows the counter-garrison reward even while refilling: " + hp_line)
+	t.ok(not ("loot:" in hl) and not ("blueprint" in hl), "held card carries no warden chest lines: " + hl)
 	var plainf := fort.duplicate(true)
 	plainf["warden"]["archetype"] = ""
 	t.ok("remnants · yield" in RaidLoot.card_line(plainf, cfg), "no single lean shows plain remnants")

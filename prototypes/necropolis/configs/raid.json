@@ -48,6 +48,15 @@
     "len_px": 9.0,
     "width_px": 3.0
   },
+  "held": {
+    "clear_victory_s": 2.5,
+    "banner_s": 3.5,
+    "ring_px": 720.0,
+    "ring_s": 1.1,
+    "wall_flash_s": 1.4,
+    "wall_flash_intensity": 1.7,
+    "mote_ring_px": 46.0
+  },
   "checkpoint": {
     "banner_s": 2.5
   },

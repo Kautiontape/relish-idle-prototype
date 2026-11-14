@@ -13,6 +13,8 @@ var stroke_half := 1.5
 var halo := 9.0
 
 var _mat: ShaderMaterial = null
+var _base_a: Color = Palette.c("text")
+var _base_i := 0.7
 
 
 ## `look`: color_a / color_b (Colors), heat, wavelength, arena_diag, stroke_half, halo_px,
@@ -40,7 +42,15 @@ func setup(rect: Rect2, look: Dictionary) -> void:
 	_mat.set_shader_parameter("world_off", position.x if horizontal else position.y)
 	for k in look:
 		_mat.set_shader_parameter(k, look[k])
+	_base_a = look.get("color_a", _base_a)
+	_base_i = float(look.get("intensity", _base_i))
 	material = _mat
+
+
+## A one-off flash toward `col`: k 0 is the normal look, 1 is fully flashed (brighter, `boost`).
+func set_flash(k: float, col: Color, boost: float) -> void:
+	_mat.set_shader_parameter("color_a", _base_a.lerp(col, k))
+	_mat.set_shader_parameter("intensity", lerpf(_base_i, boost, k))
 
 
 ## Per frame: the beat at the source, Relish's position, the colour drift
