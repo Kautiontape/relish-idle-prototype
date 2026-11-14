@@ -236,11 +236,11 @@ func _pick_enemy_target(cfg: Dictionary) -> void:
 	var best = null
 	var best_d := INF
 	var rel = raid.relish
-	# a warden's pack goes for her undead, not for Relish (D-d/E 3b: it costs time and the army; her risk
-	# stays in the warden's own counter-gated attacks)
+	# a warden's pack goes for her undead, never for Relish (D-d/E 3b/3c: it costs time and the army; her
+	# risk stays in the warden's own counter-gated attacks; with no undead standing it breaks, RaidWarden._scatter_pack)
 	var na = raid.nearest_ally_of(global_position)
-	if rel != null and is_instance_valid(rel) and rel.alive and (not warden_pack or na == null):
-		best = rel   # (with no undead left standing, the pack turns on her: a wiped army must not stall the fight)
+	if rel != null and is_instance_valid(rel) and rel.alive and not warden_pack:
+		best = rel
 		best_d = global_position.distance_to(rel.global_position)
 	if na != null:
 		var d: float = global_position.distance_to(na.global_position)
@@ -312,6 +312,17 @@ func take_hit(amount: float) -> void:
 	if hp <= 0.0:
 		die()
 	queue_redraw()
+
+
+## A warden's pack unit leaves the fight (D-d/E 3c: no undead stands, RaidWarden._scatter_pack): gone
+## from the enemies, no kill and nothing dropped.
+func scatter() -> void:
+	if not alive:
+		return
+	alive = false
+	if raid != null:
+		raid.enemies.erase(self)
+	queue_free()
 
 
 func die(sacrificed := false) -> void:

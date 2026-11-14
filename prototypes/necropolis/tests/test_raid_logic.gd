@@ -374,6 +374,8 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"],
 			["res://scripts/raid/warden.gd", "func _pack_step(", "RaidWarden._pack_step (the horn and the pack)"],
 			["res://scripts/raid/warden.gd", "func _loose_pack(", "RaidWarden._loose_pack"],
+			["res://scripts/raid/warden.gd", "func _scatter_pack(", "RaidWarden._scatter_pack (the pack breaks)"],
+			["res://scripts/raid/raid_unit.gd", "func scatter(", "RaidUnit.scatter"],
 			["res://scripts/raid/warden.gd", "func take_hit(", "RaidWarden.take_hit (the pack's ward)"],
 			["res://scripts/raid/warden_huntsman.gd", "func _step(", "RaidHuntsman._step (no lunge while its pack runs)"],
 			["res://scripts/raid/raid.gd", "func on_unit_died(", "RaidRaid.on_unit_died (a pack drops nothing)"],
@@ -389,7 +391,7 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _aim_at(", "the bot's unstick watch"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
-			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack picks Relish only once no undead stands)"],
+			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],
 			["res://scripts/raid/raid_warden_run.gd", "func breaks_pack(", "RaidWardenRun.breaks_pack"],
 			["res://scripts/raid/raid_warden_run.gd", "func pack_target(", "RaidWardenRun.pack_target"],
 			["res://scripts/raid/warden.gd", "func on_pack_broken(", "RaidWarden.on_pack_broken"],
@@ -438,7 +440,14 @@ func run() -> int:
 	_react_tests(t, cfg)
 	_detour_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
-	t.ok(pick.contains("(not warden_pack or na == null)"), "a warden's pack takes Relish as its target only once no undead stands (D-d/E 3b)")
+	t.ok(pick.contains("rel.alive and not warden_pack:") and not pick.contains("na == null"), "a warden's pack never takes Relish as its target (D-d/E 3c)")
+	var step_src := _func_body("res://scripts/raid/warden.gd", "func _pack_step(")
+	t.ok(step_src.contains("WardenLogic.pack_breaks(pack.size(), horn_beat >= 0.0, raid.has_allies())") and step_src.contains("_scatter_pack()"),
+		"with no undead standing the pack breaks (RaidWarden._pack_step -> _scatter_pack)")
+	var sc_src := _func_body("res://scripts/raid/warden.gd", "func _scatter_pack(")
+	t.ok(sc_src.contains("u.scatter()") and not sc_src.contains(".die(") and sc_src.contains("THE PACK BREAKS"), "it leaves, not dies (no drops, no kill), with its banner")
+	var us_src := _func_body("res://scripts/raid/raid_unit.gd", "func scatter(")
+	t.ok(us_src.contains("raid.enemies.erase(self)") and not us_src.contains("on_unit_died"), "a scattered unit leaves the enemies without a kill")
 	return t.failures
 
 

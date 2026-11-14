@@ -45,6 +45,9 @@ var horn_beat := -1.0          # the beat the pack comes in on while a horn soun
 var horn_pts: Array[Vector2] = []   # where it comes in (drawn through the horn)
 var pack_down_t := 99.0        # scene seconds since the last pack fell (draw: the labelled result)
 var pack_broken := 0           # pack units its counter killed in one blow (MUFFLED / INTERCEPTED / FLANKED / SNUFFED)
+var pack_scatters := 0         # packs that broke and left because no undead stood (D-d/E 3c)
+var pack_scattered := 0        # their units (gone, not killed: no drops)
+var pack_scatter_t := 99.0     # scene seconds since the last pack broke (draw: THE PACK BREAKS · WARD DOWN)
 var _pack_words: Array = []    # draw only: [{pos, t}] where a pack unit fell to the counter
 
 
@@ -236,6 +239,8 @@ func _pack_step(delta: float) -> bool:
 		_on_pack_down()
 		if raid._standalone:
 			print("RAID_WARDEN pack down n=%d frame=%d" % [horns, Engine.get_process_frames()])
+	if WardenLogic.pack_breaks(pack.size(), horn_beat >= 0.0, raid.has_allies()):
+		_scatter_pack()
 	if horn_beat < 0.0 and pack.is_empty() and WardenLogic.pack_due(pk, hp / maxf(1.0, max_hp), horns):
 		horns += 1
 		horn_beat = ceilf(beat() + float(pk.get("horn_beats", 1.0)))
@@ -258,6 +263,7 @@ func _pack_step(delta: float) -> bool:
 		pack_s += delta
 		return true
 	pack_down_t += delta
+	pack_scatter_t += delta
 	return false
 
 
@@ -275,6 +281,31 @@ func _loose_pack(pk: Dictionary) -> void:
 		pack_called += 1
 	if raid._standalone:
 		print("RAID_WARDEN pack n=%d hounds=%d frame=%d" % [horns, horn_pts.size(), Engine.get_process_frames()])
+
+
+## No undead stands (D-d/E 3c): the pack never turns on Relish, it breaks. Its units leave the fight (gone,
+## not killed: nothing drops, no kill is counted), a horn still sounding calls no one, the ward drops and the
+## warden fights her alone with its own attacks; the result shows over it (THE PACK BREAKS · WARD DOWN)
+## and on the banner.
+func _scatter_pack() -> void:
+	var n := 0
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			RaidFx.ring(raid.fx_root, u.global_position, Palette.c("text_dim", 0.6), 22.0, 0.4, 2.0)
+			u.scatter()
+			n += 1
+	pack = []
+	horn_beat = -1.0
+	horn_pts.clear()
+	pack_scatters += 1
+	pack_scattered += n
+	pack_scatter_t = 0.0
+	pack_down_t = 99.0   # (the breaking, not NAME DOWN, is the labelled result)
+	_on_pack_down()
+	if raid.hud != null:
+		raid.hud.show_banner("THE PACK BREAKS — ward down", float(wcfg().get("pack_label_s", 1.2)) * 2.0, "undead")
+	if raid._standalone:
+		print("RAID_WARDEN pack scattered n=%d units=%d frame=%d" % [horns, n, Engine.get_process_frames()])
 
 
 ## The horn just sounded / the pack just fell (a subclass hook: the Huntsman drops a pending lunge and
@@ -297,12 +328,14 @@ func on_pack_broken(at: Vector2) -> void:
 
 ## The pack's counts, for the measuring bot (AUTOPILOT_RESULT `pack`).
 func pack_telemetry() -> Dictionary:
-	return {"horns": horns, "called": pack_called, "down": pack_down, "broken": pack_broken, "pack_s": snappedf(pack_s, 0.01)}
+	return {"horns": horns, "called": pack_called, "down": pack_down, "broken": pack_broken, "pack_s": snappedf(pack_s, 0.01),
+		"scatters": pack_scatters, "scattered": pack_scattered}
 
 
 ## Its pack in the world (tell -> counter -> labelled result): while the horn sounds, a `danger` ring at
 ## each point the pack comes in (closing on the beat; steady under reduced motion) and HORN over it;
-## while the pack stands, "<NAME> · WARDED" over it; for `wardens.pack_label_s` after the last falls,
+## while the pack stands, "<NAME> · WARDED" over it; for twice `wardens.pack_label_s` after it breaks (no
+## undead stood), THE PACK BREAKS · WARD DOWN; for `wardens.pack_label_s` after the last falls,
 ## "<NAME> DOWN" in `undead`. Sizes in screen px (divided by the zoom).
 func _draw_pack(ci: CanvasItem) -> void:
 	var pk: Dictionary = spec.get("pack", {})
@@ -323,7 +356,9 @@ func _draw_pack(ci: CanvasItem) -> void:
 		_pack_word(ci, top, "HORN · %d %s" % [horn_pts.size(), str(pk.get("name", "pack"))], fs, Palette.c("danger"))
 	elif pack_alive() > 0:
 		_pack_word(ci, top, nm + " · WARDED", fs, Palette.c("vei"))
-	elif pack_down_t < float(wcfg().get("pack_label_s", 1.2)):
+	elif pack_scatter_t < hold * 2.0:
+		_pack_word(ci, top, "THE PACK BREAKS · WARD DOWN", fs, Palette.c("undead"))
+	elif pack_down_t < hold:
 		_pack_word(ci, top, nm + " DOWN", fs, Palette.c("undead"))
 
 

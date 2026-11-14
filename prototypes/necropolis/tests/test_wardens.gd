@@ -314,6 +314,10 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
 	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
 	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
+	# 3c: a pack never turns on Relish: with no undead standing it breaks (standing or still being called)
+	t.ok(WardenLogic.pack_breaks(3, false, false) and WardenLogic.pack_breaks(0, true, false), "no undead stands: a standing pack, or one its horn calls, breaks")
+	t.ok(not WardenLogic.pack_breaks(3, false, true) and not WardenLogic.pack_breaks(0, true, true), "undead stand: it stays")
+	t.ok(not WardenLogic.pack_breaks(0, false, false), "no pack: nothing to break")
 	# 3b: each pack answers to its warden's own counter stat, in one blow, with the weak point's verb
 	for row in [["bellringer", "MUFFLED"], ["huntsman", "INTERCEPTED"], ["shieldwall", "FLANKED"], ["pyre_priest", "SNUFFED"]]:
 		var sp := WardenLogic.spec({"id": "x", "tier": 3, "archetype": row[0]}, cfg)

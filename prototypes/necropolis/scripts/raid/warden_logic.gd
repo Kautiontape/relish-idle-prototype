@@ -98,6 +98,12 @@ static func pack_spots(room: Rect2, away: Vector2, n: int, inset: float, spread:
 	return out
 
 
+## D-d/E 3c: a pack never turns on Relish. With no undead standing, a pack that stands or is being called
+## (its horn sounding) breaks: it leaves the fight and the ward drops.
+static func pack_breaks(standing: int, horn_up: bool, undead_standing: bool) -> bool:
+	return (standing > 0 or horn_up) and not undead_standing
+
+
 ## The pack's counter (D-d/E Step 3b): a big undead whose stat meets the warden's own weak point (beef,
 ## speed, wits or power, `weak_point.stat` >= `threshold`) kills a pack unit in one blow, and while a pack
 ## stands it goes for the nearest of them. False with no pack.
