@@ -11,12 +11,6 @@ signal relish_respawned(with_vat: bool)
 signal victory
 signal defeat_boss
 
-## Documentation only since the safe-by-default boot rule (STATE-API 2.1): the dev args we know of.
-## It is no longer the rule; any user arg outside BootRule.PLAYER_ARGS makes a harness session, so
-## other units' debug flags (--valve=, --lanes, --bench-*, ...) are safe without being listed here.
-const DEV_ARGS: Array[String] = ["--shot", "--new-game", "--fixture", "--teleport", "--scene",
-		"--select", "--speed", "--cheat", "--finish-raid", "--trace", "--clicks"]
-
 ## Created once, never replaced.
 var state := GameState.new()
 var _autosave_acc := 0.0  # real seconds since the last autosave
@@ -35,7 +29,7 @@ func _ready() -> void:
 ## Boot rule (STATE-API 2.1): a harness arg disables autosave for the session and starts a
 ## fresh or fixture game; a normal launch resumes the autosave, else starts a new game.
 func _boot() -> void:
-	var harness := BootRule.is_harness_args(OS.get_cmdline_user_args())
+	var harness := BootRule.is_harness(OS.get_cmdline_user_args(), OS.get_cmdline_args(), DisplayServer.get_name() == "headless")
 	var fixture := ""
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--fixture="):

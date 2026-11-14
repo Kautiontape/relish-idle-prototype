@@ -567,11 +567,11 @@ func _raid_writeback() -> void:
 	t.ok(sd["fort"]["first_clear"] == true, "old-sluice was never cleared")
 	s.apply_result("raid", _raid_res(sd))
 	t.ok(s.view_fort("old-sluice")["first_clear"] == true and s.first_dungeon_id == "old-sluice", "a retreat leaves first_clear and first_dungeon")
+	t.ok(s.view_fort("old-sluice")["flipped_count"] == 0, "a retreat does not flip")
 	s = _mk()
 	sd = _begin(s, "old-sluice")
 	s.apply_result("raid", _raid_res(sd, {"warden_beaten": true, "retreated": false}))
 	t.ok(s.view_fort("old-sluice")["first_clear"] == false and s.first_dungeon_id == "", "a win clears first_clear and first_dungeon")
-	t.ok(s.view_fort("ashgate")["flipped_count"] == 0, "a retreat does not flip")
 	# the flip hold comes from realm.json
 	s = _mk()
 	s._cfgs["realm"]["flip"] = {"hold_s": 100.0, "tier_mult": 1.0, "haul_mult": 1.5}

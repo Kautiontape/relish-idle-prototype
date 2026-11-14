@@ -68,6 +68,7 @@ func run() -> int:
 	_flows()
 	_overflow()
 	_demolish_over_cap()
+	_zero_step()
 	_debug()
 	_runs()
 	_any_dt()
@@ -185,6 +186,40 @@ func _demolish_over_cap() -> void:
 	t.ok(ov < 1.0 and b0 - s.town_sim.bodies <= drain + ov + 1e-9 and b0 - s.town_sim.bodies >= drain - 1e-9,
 		"no body is lost beyond the step's inflow: overflow %.4f, drain %.4f, store %.2f -> %.2f" % [ov, drain, b0, s.town_sim.bodies])
 	t.ok(_err(s) < TIGHT, "and the ledger balances")
+
+
+## M2: a zero-length or non-finite core step books nothing (a catch-up runner clips steps to events).
+func _zero_step() -> void:
+	var s := _mk()
+	var f: Dictionary = {}
+	for x in s.realm.forts:
+		if not RealmSim.is_held(x):
+			f = x
+			break
+	var pool_cap := float(_cfgs()["realm"]["vei_pool_cap"])
+	var pool_add := pool_cap - float(s.realm.vei["living_pool"])
+	s.realm.vei["living_pool"] = pool_cap
+	var fort_add := float(f["cap"]) * 10.0
+	f["living"] = float(f["living"]) + fort_add
+	s._ledger.source("debug", pool_add + fort_add)
+	s._core_step(s.substep_s())
+	t.ok(s.realm.pool_overflow > 0.0 and _snk(s, "pool_overflow") > 0.0, "a normal step booked pool_overflow (%.3f)" % _snk(s, "pool_overflow"))
+	for bad_dt in [0.0, -1.0, NAN, INF]:
+		var before := s.ledger()
+		var t0 := s.t
+		s._core_step(bad_dt)
+		var after := s.ledger()
+		t.ok(after["sinks"] == before["sinks"] and after["sources"] == before["sources"] and s.t == t0 and _err(s) < TIGHT,
+			"_core_step(%s) books nothing and the ledger balances" % bad_dt)
+		var nan_free := true
+		for id in s.view_rates():
+			for v in s.view_rates()[id]:
+				nan_free = nan_free and is_finite(float(v))
+		for k in s._split:
+			nan_free = nan_free and is_finite(float(s._split[k]))
+		t.ok(nan_free, "no NaN in view_rates or _split after _core_step(%s)" % bad_dt)
+	s.realm.step(0.0, {})
+	t.ok(s.realm.pool_overflow == 0.0, "RealmSim.step(0) clears pool_overflow")
 
 
 # ------------------------------------------------------------------ debug ----

@@ -1286,6 +1286,11 @@ func _tick(dt: float) -> void:
 ## realm events (already emitted), for the presentation step's lane callouts. Never touches the
 ## influence field: village owners (TownSim's held_villages) are read as they stand.
 func _core_step(dt: float) -> Array:
+	# a zero-length or non-finite step (a catch-up runner clipping to events) books nothing: the
+	# realm's step returns early and would leave last step's pool_overflow to be booked twice, and
+	# the muster rate divides by dt
+	if not (dt > 0.0) or not is_finite(dt):
+		return []
 	t += dt
 	var cfg: Dictionary = _cfg()
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the

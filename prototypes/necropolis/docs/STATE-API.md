@@ -22,8 +22,10 @@ from `BALANCE.md` §0.
     workforce the town settles at, §5.1, §5.9);
   - `view_hud.war_overflow` and `view_hud.game_id` (§5.1); the save gains an optional `game_id` key (§9.1, `SAVE_VERSION` stays 2);
   - the `risk_pct` range documented for `view_fort.threat` (§5.5);
-  - a boot rule that is safe by default (§2.1): any user arg outside `PLAYER_ARGS` is a harness
-    session;
+  - a boot rule that is safe by default (§2.1): any user arg outside `PLAYER_ARGS`, a dev flag or
+    `--write-movie` in the engine args, or a headless display server is a harness session;
+  - the `sinks.store_overflow` wording changed to "0 until the store caps (E2b T3.2)" (§4.7), and an
+    over-cap body store keeps its excess (MECHANICS §4.1): a meaning change, not a shape change;
   - the raid writeback now spends `first_clear` and `first_dungeon` only on a win (§8.3, api-request
     #15), and `pool_overflow` is no longer always 0 since the march-back (§4.7): a meaning change,
     not a shape change;
@@ -144,20 +146,29 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
   `state.debug_enabled = OS.is_debug_build()` (before any boot load, since fixtures need it), then
   the boot rule over `OS.get_cmdline_user_args()`:
-  - **Harness/test session:** **any user arg that is not a player flag.** `PLAYER_ARGS` (today only
-    `--reduced-motion`; an arg matches as `--flag` or `--flag=value`) are the only args that leave
-    a normal session. Anything else, including every unit's debug flags (`--valve=`, `--lanes`,
-    `--bench-*`, ...), makes a harness session, so a flag nobody registered can never load,
-    mutate and autosave over the shared `auto.json`. `BootRule.is_harness_args(args)`
-    (`scripts/sim/boot_rule.gd`, which holds `PLAYER_ARGS`) is the pure static decision. `DEV_ARGS` (`--shot=`, `--new-game`, `--fixture=<name>`, `--teleport=`,
-    `--scene=`, `--select=`, `--speed=`, `--cheat=`, `--finish-raid`, `--trace=`, `--clicks=`) stays
-    as documentation of the known dev args and is no longer the rule.
+  - **Harness/test session:** `BootRule.is_harness(user_args, engine_args, headless)`
+    (`scripts/sim/boot_rule.gd`, which holds `PLAYER_ARGS` and `DEV_ARGS`) is the pure static
+    decision, called with `OS.get_cmdline_user_args()`, `OS.get_cmdline_args()` and
+    `DisplayServer.get_name() == "headless"`. It is true when any of these holds:
+    1. any user arg (after `--`) is not a player flag. `PLAYER_ARGS` (today only `--reduced-motion`;
+       an arg matches as `--flag` or `--flag=value`) are the only user args that leave a normal
+       session, so every unit's debug flags (`--valve=`, `--lanes`, `--bench-*`, ...) make a harness
+       session without being registered;
+    2. any engine arg (before `--`, where a flag given without the separator lands) is a `DEV_ARGS`
+       entry (`--shot=`, `--new-game`, `--fixture=<name>`, `--teleport=`, `--scene=`, `--select=`,
+       `--speed=`, `--cheat=`, `--finish-raid`, `--trace=`, `--clicks=`; `--flag` or `--flag=value`),
+       or is `--write-movie`;
+    3. the display server is headless.
+    So an unregistered flag can't autosave over the shared `auto.json` only when it comes after
+    `--`; one given without `--` is caught only if it is in `DEV_ARGS`.
+    `BootRule.is_harness_args(user_args)` is rule 1 alone. The test runner is headless but runs under
+    `--script`, where the Game autoload does not boot, so no test depends on a headless player session.
     `autosave_enabled = false` for the whole session (`autosave()` returns
     `{ok: false, reason: "disabled"}` without writing, and the 30 s timer does nothing), so the
     player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for
     `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
     otherwise `cmd_new_game(randi())`.
-  - **Normal launch** (no args, or only `PLAYER_ARGS`): `cmd_load("auto")`; if that is not `ok` (no file, or
+  - **Normal launch** (a windowed launch with no args, or only `PLAYER_ARGS`): `cmd_load("auto")`; if that is not `ok` (no file, or
     corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
     newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
     and a warning is printed, so the newer save is never overwritten.
@@ -795,7 +806,7 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `pool_overflow` | what the march-back took past Vei's pool cap (`vei_pool_cap`): living above a fort's cap march back at `(L − cap) / tithe.march_back_s`, and whatever would take her pool past the cap books here; she then converts into the headroom left. Not always 0 since the march-back (v4: the meaning changed, not the shape) |
 | | `rot_overflow` (+3) | rot return lost to the body cap (MECHANICS §4.1) |
 | | `haul_overflow` (+3) | a landing convoy's load lost to the body cap |
-| | `store_overflow` (+3) | 0 until the store caps (E2b T3.2; IDLE §6) |
+| | `store_overflow` (+3) | 0 until the store caps (E2b T3.2) |
 | `held` | `fort_living`, `fort_undead`, `corpses` | Σ forts' `living`, `undead`, `dead` |
 | | `backlog`, `vei_dead`, `living_pool` | Vei's undead queue, dead queue and living pool |
 | | `bodies` | Covington's body store |
@@ -826,7 +837,7 @@ Every field is live from E2a:
   ignores the idle cap, so it reads far above the town (88 on day 1 while the town sits at 17-19);
   `workers_steady_kept` is where the workforce actually settles (see `view_town.workers`, §5.9);
 - `war_overflow` is the WAR that fell through to Vei because every WAR target was capped (MECHANICS
-  §3.2). It is the `war: covington→vei` lane's rate in `view_lanes` (§5.3).
+  §3.2). It is the `war:covington:vei` lane's rate in `view_lanes` (§5.3).
 
 | key | type | meaning |
 |---|---|---|

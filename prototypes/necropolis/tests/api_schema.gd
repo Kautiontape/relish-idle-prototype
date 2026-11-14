@@ -277,8 +277,10 @@ const LEDGER := {
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
 ## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will
 ## change are opaque (D); the rest are typed.
+## `game_id` is optional on load (a save without it gets its seed's id, §9.1) but to_dict always writes it,
+## so this schema, which checks to_dict's output, requires it.
 const SAVE := {
-	"v": I, "api_version": I, "seed": S, "rng": S, "t": F, "acc": F, "next_run_id": I, "next_uid": I,
+	"v": I, "api_version": I, "game_id": S, "seed": S, "rng": S, "t": F, "acc": F, "next_run_id": I, "next_uid": I,
 	"applied_runs": [I],
 	"relish": {"state": S, "at": S, "target": S, "pos": POS, "heading": F, "dead_s_left": F, "respawn_with_clone": B},
 	"valve": {"target": VALVE, "current": VALVE},

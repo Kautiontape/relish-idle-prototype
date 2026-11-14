@@ -271,6 +271,7 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var redirect_fort: String = str(inputs.get("redirect_fort", ""))
 	var redirect_rate: float = maxf(0.0, float(inputs.get("redirect_rate", 0.0)))
 	var siege: Variant = inputs.get("siege_block", {})
+	pool_overflow = 0.0  # per step: a step that does nothing leaves nothing to book
 	if not (dt > 0.0) or not is_finite(dt):
 		return
 	var inv: float = 1.0 / dt

@@ -36,6 +36,19 @@ func _harness() -> void:
 	t.ok(GameScript.is_harness_args(PackedStringArray(["--reduced-motion", "--lanes"])), "a player flag does not hide a debug one")
 	t.ok(GameScript.is_harness_args(PackedStringArray(["--new-game"])), "the known dev args still are")
 	t.ok(GameScript.is_harness_args(PackedStringArray(["--reduced-motionx"])), "a prefix match without = is not the player flag")
+	# M3: the full decision also reads the engine args (a flag given without --) and the display server
+	var none := PackedStringArray([])
+	for case in [[[], [], false], [["--reduced-motion"], [], false], [["--reduced-motion=1"], [], false]]:
+		t.ok(not GameScript.is_harness(PackedStringArray(case[0]), PackedStringArray(case[1]), case[2]), "is_harness: a player launch stays a player session: %s" % [case])
+	for case in [[["--foo"], [], false], [["--valve=0.2,0.5,0.3"], [], false], [["--reduced-motion", "--lanes"], [], false],
+			[["--new-game"], [], false], [["--reduced-motionx"], [], false]]:
+		t.ok(GameScript.is_harness(PackedStringArray(case[0]), PackedStringArray(case[1]), case[2]), "is_harness: the old cases still hold: %s" % [case])
+	t.ok(GameScript.is_harness(none, PackedStringArray(["--fixture=day1"]), false), "engine args [--fixture=day1] (no --) is a harness session")
+	t.ok(GameScript.is_harness(none, PackedStringArray(["--new-game"]), false), "engine args [--new-game] is a harness session")
+	t.ok(not GameScript.is_harness(none, PackedStringArray(["--path", "."]), false), "engine args [--path .] is not")
+	t.ok(not GameScript.is_harness(none, PackedStringArray(["--fixturex"]), false), "a DEV_ARGS prefix without = is not a match")
+	t.ok(GameScript.is_harness(none, PackedStringArray(["--write-movie", "x.avi"]), false), "engine args [--write-movie x.avi] is a harness session")
+	t.ok(GameScript.is_harness(none, none, true), "a headless display server with no args is a harness session")
 
 
 ## workforce_steady equals workforce() run long, in every regime: w, and the muster rate over the last stretch.
@@ -146,6 +159,14 @@ func _game_id() -> void:
 	t.ok(a.view_hud()["game_id"] == ida, "ticking leaves it")
 	var d := a.to_dict()
 	t.ok(d["game_id"] == ida, "the save carries it")
+	var errs := []
+	ApiSchema.check(d, ApiSchema.SAVE, "to_dict", errs)
+	t.ok(errs.is_empty() and d["game_id"] is String, "a fresh save validates against the SAVE schema, game_id a String: %s" % [errs])
+	var bare: Dictionary = d.duplicate(true)
+	bare.erase("game_id")
+	errs = []
+	ApiSchema.check(bare, ApiSchema.SAVE, "to_dict", errs)
+	t.ok(errs.size() == 1 and "game_id" in str(errs[0]), "the schema names a missing game_id (to_dict always writes it): %s" % [errs])
 	var n := GameState.new(TestUtil.configs())
 	n.debug_enabled = true
 	n.cmd_new_game(99)
