@@ -347,10 +347,10 @@ func _undead(p: Vector2, dir: Vector2, r: float, alpha: float) -> void:
 	draw_circle(p + dir * (r + 1.0), r * 0.3, Palette.c("undead_core", clampf(alpha, 0.0, 1.0)))
 
 
-## A big undead: nested diamonds (two) with a core dot, breathing on the Pulse.
+## A big undead: nested diamonds (two) with a core dot, breathing on the boss's beat (beat_wave).
 func _big(p: Vector2, r: float, dim: float) -> void:
 	var col := Palette.c("undead", dim)
-	var k := 1.0 + 0.06 * Pulse.wave()
+	var k: float = 1.0 + 0.06 * (boss.beat_wave() if boss != null else Pulse.wave())
 	for j in 2:
 		var rr := r * k * (1.0 - 0.3 * j)
 		var pts := PackedVector2Array([p + Vector2(0, -rr), p + Vector2(rr, 0), p + Vector2(0, rr), p + Vector2(-rr, 0), p + Vector2(0, -rr)])
