@@ -86,6 +86,8 @@ func run() -> int:
 	_kept(day1)
 	_tier_need(day1)
 	_save_for(day1)
+	_variety()
+	_variety_save()
 	_build_sort(day1)
 	_build_reasons(day1)
 	_build_queue(day1)
@@ -3044,3 +3046,49 @@ func _kept(day1: Dictionary) -> void:
 	town["workers"].erase("muster_steady")
 	t.ok(HudModel.surplus_rate(town, 87.8, 60.0, h) == 0.0, "surplus: hidden when no muster rate is known")
 	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and h["text"]["war"] == "\u2192 WAR", "surplus: signed rate, upright '→ WAR'")
+
+
+func _vrow(id: String, count: int, gold := 10.0) -> Dictionary:
+	var r := _row(id, true, "", ["lot-05"])
+	r["count"] = count
+	r["cost"]["gold"] = gold
+	return r
+
+
+## With no live need served, the suggestion prefers types the town lacks, producers before amenities.
+func _variety() -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var pick := func(rows: Array) -> String:
+		return String(BuildSort.suggest(BuildSort.sort_rows(rows, [], bv, vcfg), bv).get("building_id", ""))
+	t.ok(pick.call([_vrow("well", 2), _vrow("bakery", 0), _vrow("market", 0, 80.0)]) == "market",
+		"variety: wells at 2, a bakery and a market at 0: the producer wins")
+	t.ok(pick.call([_vrow("well", 2), _vrow("bakery", 1), _vrow("market", 1, 80.0), _vrow("bone_mill", 2)]) == "market",
+		"variety: every type built: the producer with the lowest count wins")
+	t.ok(pick.call([_vrow("well", 2), _vrow("market", 3), _vrow("bakery", 1)]) == "bakery",
+		"variety: a lower-count amenity beats a higher-count producer")
+	t.ok(pick.call([_vrow("well", 0, 30.0), _vrow("statue", 0, 20.0)]) == "statue", "variety: equal count and kind: the cheaper first")
+	t.ok(pick.call([_vrow("well", 0), _vrow("bakery", 0)]) == "well", "variety: a full tie keeps catalog order")
+	t.ok(pick.call([_vrow("well", 2), _vrow("house", 2), _vrow("bakery", 0)]) == "bakery", "variety: never a third well or house while a type is at 0")
+	var needs: Array = [{"id": "morale", "chip": "x", "serves": ["morale"]}]
+	t.ok(String(BuildSort.suggest(BuildSort.sort_rows([_vrow("well", 5), _vrow("market", 0)], needs, bv, vcfg), bv)["building_id"]) == "well",
+		"variety: a row serving a live need still leads")
+
+
+## The fallback never repeats a morale/housing-only building a third time while the town lacks a type
+## it could save for; with nothing flowing it still falls back to the repeat.
+func _variety_save() -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var rows: Array = [_vrow("well", 2, 30.0), _row("bakery", false, "no_gold", ["lot-05"]), _row("market", false, "no_gold", ["lot-05"])]
+	rows[1]["cost"]["gold"] = 70.0
+	rows[2]["cost"]["gold"] = 80.0
+	var st := {"gold": 60.0, "bone": 100.0, "relics": 0.0, "rates": {"gold": 0.2, "bone": 0.1}}
+	var items: Array = BuildSort.sort_rows(rows, [], bv, vcfg)
+	var sug: Dictionary = BuildSort.suggest(items, bv, st, vcfg)
+	t.ok(sug.get("building_id", "") == "market" and sug.get("save", false), "variety: a third well is not suggested: save for the unbuilt producer (%s)" % str(sug))
+	st["rates"]["gold"] = 0.0
+	sug = BuildSort.suggest(items, bv, st, vcfg)
+	t.ok(sug.get("building_id", "") == "well" and not sug.has("save"), "variety: gold not flowing falls back to the well")
+	rows[0]["count"] = 1
+	st["rates"]["gold"] = 0.2
+	sug = BuildSort.suggest(BuildSort.sort_rows(rows, [], bv, vcfg), bv, st, vcfg)
+	t.ok(sug.get("building_id", "") == "well", "variety: a second well is still fine (%s)" % str(sug))

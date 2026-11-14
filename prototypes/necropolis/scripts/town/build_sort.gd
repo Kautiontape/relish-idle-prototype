@@ -220,12 +220,49 @@ static func suggest(items: Array, bview: Dictionary, st: Dictionary = {}, vcfg: 
 		var saving := _save_for(items, bview, st, vcfg)
 		if not saving.is_empty():
 			return saving
+	var best: Dictionary = {}
 	for it in items:
 		var row: Dictionary = it["row"]
-		if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty():
-			var bid := String(row.get("building_id", ""))
-			return {"building_id": bid, "label": label_of(bid, bview), "lots": (row["lots"] as Array).duplicate()}
-	return {}
+		if not (bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty()):
+			continue
+		if String(it["need"]) != "":
+			best = it  # a row serving a live need leads, as ever
+			break
+		if best.is_empty() or _variety_less(it, best, bview):
+			best = it  # no need served: variety (see _variety_less)
+	if not best.is_empty() and String(best["need"]) == "" and _third_amenity(best["row"], bview) and not st.is_empty() and not vcfg.is_empty():
+		var vs := _variety_save(items, bview, st, vcfg)
+		if not vs.is_empty():
+			return vs
+	if best.is_empty():
+		return {}
+	var brow: Dictionary = best["row"]
+	var bid := String(brow.get("building_id", ""))
+	return {"building_id": bid, "label": label_of(bid, bview), "lots": (brow["lots"] as Array).duplicate()}
+
+
+const PRODUCES := ["gold", "bone", "bodies", "mint"]
+
+
+## Fallback order among buildable rows serving no live need: fewest built first, then producers (a
+## `serves` tag in PRODUCES) before amenities, then the cheaper, then catalog order.
+static func _variety_less(a: Dictionary, b: Dictionary, bview: Dictionary) -> bool:
+	var ka := _variety_key(a, bview)
+	var kb := _variety_key(b, bview)
+	for i in ka.size():
+		if ka[i] != kb[i]:
+			return ka[i] < kb[i]
+	return false
+
+
+static func _variety_key(it: Dictionary, bview: Dictionary) -> Array:
+	var row: Dictionary = it["row"]
+	var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+	var producer := false
+	for s in serves:
+		producer = producer or s in PRODUCES
+	var cost: Dictionary = row.get("cost", {})
+	return [int(row.get("count", 0)), 0 if producer else 1, float(cost.get("gold", 0.0)) + float(cost.get("bone", 0.0)), int(it["idx"])]
 
 
 static func _save_for(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
@@ -238,23 +275,54 @@ static func _save_for(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dic
 		if bool(row.get("can_build", false)) or not String(row.get("reason", "")) in ["no_gold", "no_bone"] \
 				or (row.get("lots", []) as Array).is_empty():
 			return {}
-		var cost: Dictionary = row.get("cost", {})
-		if float(cost.get("relics", 0.0)) > float(st.get("relics", 0.0)):
+		return _saving(row, bview, st, vcfg)
+	return {}
+
+
+## Time to afford `row` from the stocks and net rates, within view.suggest_wait_s: the suggestion
+## {building_id, lots, save, eta_s, label}, or {} (a stream not flowing, relics short, or too long).
+static func _saving(row: Dictionary, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var cost: Dictionary = row.get("cost", {})
+	if float(cost.get("relics", 0.0)) > float(st.get("relics", 0.0)):
+		return {}
+	var eta := 0.0
+	for k in ["gold", "bone"]:
+		var n := float(cost.get(k, 0.0)) - float(st.get(k, 0.0))
+		if n <= 0.0:
+			continue
+		var rate := float((st.get("rates", {}) as Dictionary).get(k, 0.0))
+		if rate <= 0.0:
 			return {}
-		var eta := 0.0
-		for k in ["gold", "bone"]:
-			var n := float(cost.get(k, 0.0)) - float(st.get(k, 0.0))
-			if n <= 0.0:
-				continue
-			var rate := float((st.get("rates", {}) as Dictionary).get(k, 0.0))
-			if rate <= 0.0:
-				return {}
-			eta = maxf(eta, n / rate)
-		if eta > float(vcfg.get("suggest_wait_s", 0.0)):
-			return {}
-		var bid := String(row.get("building_id", ""))
-		return {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta,
-			"label": fmt(String(vcfg.get("suggest_save_text", "")), {"label": label_of(bid, bview), "eta": fmt_eta(eta, vcfg)})}
+		eta = maxf(eta, n / rate)
+	if eta > float(vcfg.get("suggest_wait_s", 0.0)):
+		return {}
+	var bid := String(row.get("building_id", ""))
+	return {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta,
+		"label": fmt(String(vcfg.get("suggest_save_text", "")), {"label": label_of(bid, bview), "eta": fmt_eta(eta, vcfg)})}
+
+
+## True for a repeat (count >= 2) of a building that serves only morale or housing.
+static func _third_amenity(row: Dictionary, bview: Dictionary) -> bool:
+	if int(row.get("count", 0)) < 2:
+		return false
+	var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+	for s in serves:
+		if not s in ["morale", "housing"]:
+			return false
+	return true
+
+
+## An unbuilt type blocked only by funds that is affordable within the wait ({} if none): the
+## fallback saves for it instead of repeating an amenity.
+static func _variety_save(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var cands: Array = items.filter(func(it): return int(it["row"].get("count", 0)) == 0 and String(it["need"]) == "" \
+		and not bool(it["row"].get("can_build", false)) and String(it["row"].get("reason", "")) in ["no_gold", "no_bone"] \
+		and not (it["row"].get("lots", []) as Array).is_empty())
+	cands.sort_custom(func(a, b): return _variety_less(a, b, bview))
+	for it in cands:
+		var s := _saving(it["row"], bview, st, vcfg)
+		if not s.is_empty():
+			return s
 	return {}
 
 
