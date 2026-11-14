@@ -44,6 +44,8 @@ var pack_s := 0.0              # scene seconds a horn sounded or a pack stood
 var horn_beat := -1.0          # the beat the pack comes in on while a horn sounds; -1: none
 var horn_pts: Array[Vector2] = []   # where it comes in (drawn through the horn)
 var pack_down_t := 99.0        # scene seconds since the last pack fell (draw: the labelled result)
+var pack_broken := 0           # pack units its counter killed in one blow (MUFFLED / INTERCEPTED / FLANKED / SNUFFED)
+var _pack_words: Array = []    # draw only: [{pos, t}] where a pack unit fell to the counter
 
 
 ## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
@@ -167,6 +169,10 @@ func _physics_process(delta: float) -> void:
 	if raid == null or raid._ended or not alive:
 		return
 	_breath_t += delta
+	for i in range(_pack_words.size() - 1, -1, -1):   # draw-only clock (reads nothing back)
+		_pack_words[i]["t"] = float(_pack_words[i]["t"]) + delta
+		if float(_pack_words[i]["t"]) >= float(wcfg().get("pack_label_s", 1.2)):
+			_pack_words.remove_at(i)
 	flash = maxf(0.0, flash - delta * 4.0)
 	if drop_t >= 0.0:
 		drop_t += delta
@@ -281,9 +287,17 @@ func _on_pack_down() -> void:
 	pass
 
 
+## A pack unit fell to the counter in one blow (RaidUnit._hit_enemy): counted, and its verb shown there.
+func on_pack_broken(at: Vector2) -> void:
+	pack_broken += 1
+	_pack_words.append({"pos": at, "t": 0.0})
+	if raid._standalone:
+		print("RAID_WARDEN pack broken n=%d %s frame=%d" % [pack_broken, WardenLogic.pack_verb(spec), Engine.get_process_frames()])
+
+
 ## The pack's counts, for the measuring bot (AUTOPILOT_RESULT `pack`).
 func pack_telemetry() -> Dictionary:
-	return {"horns": horns, "called": pack_called, "down": pack_down, "pack_s": snappedf(pack_s, 0.01)}
+	return {"horns": horns, "called": pack_called, "down": pack_down, "broken": pack_broken, "pack_s": snappedf(pack_s, 0.01)}
 
 
 ## Its pack in the world (tell -> counter -> labelled result): while the horn sounds, a `danger` ring at
@@ -297,6 +311,10 @@ func _draw_pack(ci: CanvasItem) -> void:
 	var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
 	var top := Vector2(0, -radius * 2.0 - fs * 1.6)
 	var nm := str(pk.get("name", "pack")).to_upper()
+	var hold := float(wcfg().get("pack_label_s", 1.2))
+	for w in _pack_words:
+		if float(w["t"]) < hold:
+			_pack_word(ci, (w["pos"] as Vector2) - global_position, WardenLogic.pack_verb(spec), fs, Palette.c("undead"))
 	if horn_beat >= 0.0:
 		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (horn_beat - beat()) / maxf(0.01, float(pk.get("horn_beats", 1.0))), 0.0, 1.0)
 		for p in horn_pts:

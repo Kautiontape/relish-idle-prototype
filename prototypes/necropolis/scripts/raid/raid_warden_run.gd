@@ -124,6 +124,39 @@ func snuff_for(u: RaidUnit) -> Dictionary:
 	return {} if a == null else {"acolyte": a}
 
 
+## The pack's counter (WardenLogic.pack_breaker): `u` is a big undead whose stat meets the awake warden's
+## weak point, and the warden has a pack.
+func breaks_pack(u: RaidUnit) -> bool:
+	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake or u.kind != "big":
+		return false
+	var v := 0.0
+	match str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")):
+		"beef":
+			v = u.beef
+		"speed":
+			v = u.speed_stat
+		"wits":
+			v = u.wits
+		"power":
+			v = u.power
+	return WardenLogic.pack_breaker(warden.spec, v)
+
+
+## The pack unit nearest `u` while a pack stands and `u` breaks it (its target), else null.
+func pack_target(u: RaidUnit):
+	if not breaks_pack(u):
+		return null
+	var best = null
+	var bd := INF
+	for e in warden.pack:
+		if is_instance_valid(e) and e.alive:
+			var d: float = u.global_position.distance_to(e.global_position)
+			if d < bd:
+				bd = d
+				best = e
+	return best
+
+
 ## The awake warden when it is within `reach` of walking from pos for an undead of `radius` (an enemy
 ## for the undead, on the same walking leash as the enemies), else null. A Pyre-priest offers the
 ## nearest of itself and its living acolytes (RaidPyrePriest.target_near).

@@ -693,7 +693,7 @@ class WardenBlock:
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			k2 = mini(pp.snuffs, 63) | (mini(pp.living(), 63) << 6) | (mini(pp.essence_burned, 0xFFFF) << 12)
-		var k3 := mini(w.pack_alive(), 255) | (int(w.horn_beat >= 0.0) << 8) | (mini(w.horns, 63) << 9)
+		var k3 := mini(w.pack_alive(), 255) | (int(w.horn_beat >= 0.0) << 8) | (mini(w.horns, 63) << 9) | (mini(w.pack_broken, 1023) << 15)
 		if k != _key or k2 != _key2 or k3 != _key3 or (flashing and not Pulse.reduced_motion):
 			_key = k
 			_key2 = k2
@@ -707,6 +707,12 @@ class WardenBlock:
 
 	func _notch(x: float, y: float) -> void:
 		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
+	## The counter row's pack count: " · +n hounds" once its counter has killed any of its pack in one blow.
+	func _pack_tag(w: RaidWarden) -> String:
+		if w.pack_broken <= 0:
+			return ""
+		return " · +%d %s" % [w.pack_broken, str((w.spec.get("pack", {}) as Dictionary).get("name", "pack"))]
 
 	## A warden with a pack: HORN while it sounds, "HOUNDS n of m · it takes ×0.25" while they run, else
 	## what the pack is (WardenLogic.pack_teach).
@@ -764,7 +770,7 @@ class WardenBlock:
 			var n := bw.slams_muffled
 			var x2 := x + 14.0
 			if bw.slams > 0:   # no slam yet: no "×0 of 0" (the PHASE row below already says what muffles it)
-				x2 = _text(x2, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
+				x2 = _text(x2, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams] + _pack_tag(w), 15, "undead" if n > 0 or w.pack_broken > 0 else "text_dim")
 			if bw.muffled:
 				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
 			_text(x0, y, "PHASE", 13, "text_dim")
@@ -772,9 +778,9 @@ class WardenBlock:
 			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 		elif hw != null:
 			var n2 := hw.intercepts
-			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken)
+			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w)
 			var x4 := x + 14.0
-			if n2 > 0:
+			if n2 > 0 or w.pack_broken > 0:
 				x4 = _text(x4, y - 26.0, tag, 15, "undead")
 			else:   # no intercept yet: teach the counter in words instead of a zero
 				x4 = _text(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
@@ -807,8 +813,8 @@ class WardenBlock:
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0
-			if sw.flanks > 0:
-				_text(x6, y - 26.0, "FLANKED ×%d of %d" % [sw.flanks, sw.hits] + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken), 15, "undead")
+			if sw.flanks > 0 or w.pack_broken > 0:
+				_text(x6, y - 26.0, "FLANKED ×%d of %d" % [sw.flanks, sw.hits] + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
 			else:   # no flank yet: teach the counter in words instead of a zero
 				_text(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 			_text(x0, y, "PHASE", 13, "text_dim")
@@ -817,8 +823,8 @@ class WardenBlock:
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0
-			if pp.snuffs > 0:
-				_text(x8, y - 26.0, "SNUFFED ×%d" % pp.snuffs + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken), 15, "undead")
+			if pp.snuffs > 0 or w.pack_broken > 0:
+				_text(x8, y - 26.0, "SNUFFED ×%d" % pp.snuffs + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
 			else:   # no snuff yet: teach the counter in words instead of a zero
 				_text(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 			_text(x0, y, "PHASE", 13, "text_dim")

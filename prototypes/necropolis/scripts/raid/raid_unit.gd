@@ -122,7 +122,7 @@ func _physics_process(delta: float) -> void:
 				if foe is RaidWarden:
 					foe.hit_from(dmg, self)
 				else:
-					foe.take_hit(dmg)
+					_hit_enemy(foe)
 		var tg := gp - global_position
 		if tg.length() > 6.0:
 			var gs := _steer_to(gp, delta) - global_position
@@ -181,6 +181,8 @@ func _physics_process(delta: float) -> void:
 				_target.take_hit(dmg, ("hound" if kind == "hound" else "pack") if warden_pack else "living")
 			elif _target is RaidWarden or _target is RaidAcolyte:
 				_target.hit_from(dmg, self)   # the Shieldwall reads where the blow came from; an acolyte who struck it
+			elif faction == "ally":
+				_hit_enemy(_target)
 			else:
 				_target.take_hit(dmg)
 	elif faction == "enemy":
@@ -201,12 +203,24 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
+## An undead's blow on a living foe: a warden's pack unit dies in one blow to a big undead that meets the
+## warden's weak point (RaidWardenRun.breaks_pack; the warden counts and labels it); else `dmg`.
+func _hit_enemy(foe) -> void:
+	if foe is RaidUnit and foe.warden_pack and raid.warden_run != null and raid.warden_run.breaks_pack(self):
+		raid.warden_run.warden.on_pack_broken(foe.global_position)
+		foe.take_hit(foe.hp + dmg)
+	else:
+		foe.take_hit(dmg)
+
+
 func _pick_target(cfg: Dictionary) -> void:
 	var was = _target
 	if _target != null and (not is_instance_valid(_target) or not _target.alive):
 		_target = null
 	if faction == "ally":
-		_target = raid.nearest_enemy_of(global_position, radius)
+		# a big undead that breaks the warden's pack goes for it while it stands (RaidWardenRun.pack_target)
+		var pt = raid.warden_run.pack_target(self) if raid.warden_run != null else null
+		_target = pt if pt != null else raid.nearest_enemy_of(global_position, radius)
 	else:
 		_pick_enemy_target(cfg)
 	if _target != was and _route != null:
@@ -218,10 +232,12 @@ func _pick_enemy_target(cfg: Dictionary) -> void:
 	var best = null
 	var best_d := INF
 	var rel = raid.relish
-	if rel != null and is_instance_valid(rel) and rel.alive:
-		best = rel
-		best_d = global_position.distance_to(rel.global_position)
+	# a warden's pack goes for her undead, not for Relish (D-d/E 3b: it costs time and the army; her risk
+	# stays in the warden's own counter-gated attacks)
 	var na = raid.nearest_ally_of(global_position)
+	if rel != null and is_instance_valid(rel) and rel.alive and (not warden_pack or na == null):
+		best = rel   # (with no undead left standing, the pack turns on her: a wiped army must not stall the fight)
+		best_d = global_position.distance_to(rel.global_position)
 	if na != null:
 		var d: float = global_position.distance_to(na.global_position)
 		if d < best_d:

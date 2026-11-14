@@ -286,9 +286,12 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	for a in ["bellringer", "shieldwall", "pyre_priest"]:
 		var o := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a}, cfg)
 		t.ok(o.has("pack") == (cfg["wardens"]["archetypes"][a] as Dictionary).has("pack"), "%s: a pack only where its config has one" % a)
-	t.ok(not WardenLogic.pack_due(pk, 0.7, 0) and WardenLogic.pack_due(pk, 0.66, 0), "the first horn at its first gate (0.66), not above")
-	t.ok(not WardenLogic.pack_due(pk, 0.5, 1) and WardenLogic.pack_due(pk, 0.33, 1), "the second at the next gate")
-	t.ok(not WardenLogic.pack_due(pk, 0.0, 2), "no third horn")
+	var gates: Array = pk["at_hp_frac"]
+	var gate_ok := true
+	for gi in gates.size():
+		gate_ok = gate_ok and not WardenLogic.pack_due(pk, float(gates[gi]) + 0.001, gi) and WardenLogic.pack_due(pk, float(gates[gi]), gi)
+	t.ok(gate_ok, "each horn sounds at its own gate (%s), not above it" % str(gates))
+	t.ok(not WardenLogic.pack_due(pk, 0.0, gates.size()), "no horn after the last gate")
 	t.ok(not WardenLogic.pack_due({}, 0.1, 0), "no pack: never")
 	t.near(WardenLogic.pack_ward(pk, 3), float(pk["ward_mult"]), 1e-9, "warded while any of the pack stands")
 	t.ok(WardenLogic.pack_ward(pk, 0) == 1.0 and WardenLogic.pack_ward({}, 5) == 1.0, "exactly 1.0 with none standing or no pack")
@@ -305,16 +308,34 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(pts[0] == Vector2(650, 450) and (pts[1] == Vector2(650, 150) or pts[1] == Vector2(150, 450)), "the first two at the two corners farthest from her")
 	t.ok(str(WardenLogic.pack_spots(room, me, 5, 50.0, 28.0)) == str(pts), "the same each time (no rng)")
 	var hb := WardenLogic.meter_bands(h2)
-	t.ok(hb.size() == 4 and is_equal_approx(hb[1], 0.66) and is_equal_approx(hb[2], 0.33), "its meter is notched where the horn sounds: %s" % str(hb))
-	t.ok(WardenLogic.pack_label(pk, 3, 5) == "HOUNDS 3 of 5 · it takes ×0.25", "the HUD row while they run: " + WardenLogic.pack_label(pk, 3, 5))
+	t.ok(hb.size() == gates.size() + 2 and is_equal_approx(hb[1], float(gates[0])), "its meter is notched where the horn sounds: %s" % str(hb))
+	t.ok(WardenLogic.pack_label(pk, 3, 5) == "HOUNDS 3 of 5 · it takes ×%s" % str(snappedf(float(pk["ward_mult"]), 0.01)), "the HUD row while they run: " + WardenLogic.pack_label(pk, 3, 5))
 	t.ok(WardenLogic.pack_label(pk, 0, 5) == "", "and nothing once they are down")
 	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
 	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
 	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
+	# 3b: each pack answers to its warden's own counter stat, in one blow, with the weak point's verb
+	for row in [["bellringer", "MUFFLED"], ["huntsman", "INTERCEPTED"], ["shieldwall", "FLANKED"], ["pyre_priest", "SNUFFED"]]:
+		var sp := WardenLogic.spec({"id": "x", "tier": 3, "archetype": row[0]}, cfg)
+		var th := float(sp["weak_point"]["threshold"])
+		t.ok(WardenLogic.pack_breaker(sp, th) and not WardenLogic.pack_breaker(sp, th - 0.5), "%s: a big at its weak point's threshold breaks a pack unit, one under does not" % row[0])
+		t.ok(WardenLogic.pack_verb(sp) == row[1], "%s: the one-blow kill reads %s" % [row[0], row[1]])
+		t.ok(WardenLogic.pack_teach(sp["pack"]).contains("%s %s kills one in a blow" % [str(sp["weak_point"]["stat"]), str(snappedf(th, 0.1))]), "%s: the teach row names its counter" % row[0])
+	t.ok(not WardenLogic.pack_breaker(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, cfg), 99.0), "no pack (tier 1): nothing to break")
+	# 3b: the Shieldwall's rush is pinned by a wits flanker at its back
+	var wpos := Vector2(500, 500)
+	t.ok(WardenLogic.shield_pinned(0.0, wpos, 80.0, [Vector2(430, 500)], 90.0), "a flanker posted behind it pins it")
+	t.ok(not WardenLogic.shield_pinned(0.0, wpos, 80.0, [Vector2(570, 500)], 90.0), "one on the shield's side does not")
+	t.ok(not WardenLogic.shield_pinned(0.0, wpos, 80.0, [Vector2(300, 500)], 90.0), "nor one too far off")
+	t.ok(not WardenLogic.shield_pinned(0.0, wpos, 80.0, [], 90.0), "no flanker: unpinned")
+	var sat: Dictionary = cfg["wardens"]["archetypes"]["shieldwall"]["attack"]
+	var stand := float(sat["reach_px"]) + 13.0 + float(cfg["autopilot"]["wall_margin_px"]) + float(cfg["autopilot"]["wall_stand_px"])
+	t.ok(float(sat["reach_px"]) + float(sat["rush_px"]) + 13.0 >= stand and 80.0 + float(sat["rush_half_deg"]) >= float(cfg["autopilot"]["wall_side_deg"]),
+		"a rush reaches a conduit waiting at its side stand (%d px, %d deg off its facing)" % [stand, float(cfg["autopilot"]["wall_side_deg"])])
 	for a2 in ["bellringer", "shieldwall"]:
 		var w2 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a2}, cfg)
 		var w1 := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a2}, cfg)
-		t.ok(w2.has("pack") and WardenLogic.meter_bands(w2) == WardenLogic.meter_bands(w1), "%s: its pack's gates sit on its phase notches (the meter is unchanged)" % a2)
+		t.ok(w2.has("pack") and WardenLogic.meter_bands(w2) == WardenLogic.meter_bands(w1), "%s: an hp-phased warden's meter keeps its phase notches with a pack" % a2)
 
 
 

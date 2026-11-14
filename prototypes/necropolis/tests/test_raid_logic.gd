@@ -380,6 +380,15 @@ func run() -> int:
 			["res://scripts/raid/raid_populate.gd", "func populate(", "RaidPopulate.populate (the detour's guard)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _detour_decide(", "the bot's detour rule"],
 			["res://scripts/raid/raid_autopilot.gd", "func _detour_tick(", "the bot's detour progress"],
+			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
+			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack picks Relish only once no undead stands)"],
+			["res://scripts/raid/raid_warden_run.gd", "func breaks_pack(", "RaidWardenRun.breaks_pack"],
+			["res://scripts/raid/raid_warden_run.gd", "func pack_target(", "RaidWardenRun.pack_target"],
+			["res://scripts/raid/warden.gd", "func on_pack_broken(", "RaidWarden.on_pack_broken"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _begin_tell(", "RaidShieldwall._begin_tell (the rush)"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _end_rush(", "RaidShieldwall._end_rush"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _pinned(", "RaidShieldwall._pinned"],
+			["res://scripts/raid/warden_shieldwall.gd", "func front_half_deg(", "RaidShieldwall.front_half_deg (the rush's arc)"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -420,6 +429,8 @@ func run() -> int:
 	_time_split_tests(t)
 	_react_tests(t, cfg)
 	_detour_tests(t, cfg)
+	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
+	t.ok(pick.contains("(not warden_pack or na == null)"), "a warden's pack takes Relish as its target only once no undead stands (D-d/E 3b)")
 	return t.failures
 
 

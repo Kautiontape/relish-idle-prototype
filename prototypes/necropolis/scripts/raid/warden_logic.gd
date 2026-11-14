@@ -43,6 +43,8 @@ static func spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 		"first_dungeon": first}
 	var pk := pack_spec(a.get("pack", {}), tier, first)
 	if not pk.is_empty():
+		pk["weak"] = {"stat": str((a.get("weak_point", {}) as Dictionary).get("stat", "")),
+			"threshold": float((a.get("weak_point", {}) as Dictionary).get("threshold", 0.0))}
 		out["pack"] = pk   # no key at all below its tier or in the first dungeon: those specs stay as they were
 	return out
 
@@ -96,6 +98,30 @@ static func pack_spots(room: Rect2, away: Vector2, n: int, inset: float, spread:
 	return out
 
 
+## The pack's counter (D-d/E Step 3b): a big undead whose stat meets the warden's own weak point (beef,
+## speed, wits or power, `weak_point.stat` >= `threshold`) kills a pack unit in one blow, and while a pack
+## stands it goes for the nearest of them. False with no pack.
+static func pack_breaker(sp: Dictionary, stat_value: float) -> bool:
+	if not sp.has("pack"):
+		return false
+	return stat_value >= float((sp.get("weak_point", {}) as Dictionary).get("threshold", 1.0e9))
+
+
+## The verb a pack unit's one-blow death shows, the warden's own weak point's: MUFFLED, INTERCEPTED,
+## FLANKED or SNUFFED.
+static func pack_verb(sp: Dictionary) -> String:
+	match str((sp.get("weak_point", {}) as Dictionary).get("effect", "")):
+		"muffle":
+			return "MUFFLED"
+		"intercept":
+			return "INTERCEPTED"
+		"flank":
+			return "FLANKED"
+		"snuff":
+			return "SNUFFED"
+	return "BROKEN"
+
+
 ## The HUD's pack row before and between packs, from the spec: "at 2/3 and 1/3 of its strength it calls
 ## 5 hounds · it is warded while they run" ("" with no pack).
 static func pack_teach(pk: Dictionary) -> String:
@@ -104,7 +130,14 @@ static func pack_teach(pk: Dictionary) -> String:
 	var gates: PackedStringArray = []
 	for g in pk.get("at_hp_frac", []):
 		gates.append(_frac_word(float(g)))
-	return "at %s of its strength it calls %d %s · it is warded while they run" % [" and ".join(gates), int(pk.get("size", 0)), str(pk.get("name", "pack"))]
+	var wp: Dictionary = sp_weak(pk)
+	var tail := "" if wp.is_empty() else " · %s %s kills one in a blow" % [str(wp.get("stat", "")), str(snappedf(float(wp.get("threshold", 0.0)), 0.1))]
+	return "at %s of its strength it calls %d %s · it is warded while they run%s" % [" and ".join(gates), int(pk.get("size", 0)), str(pk.get("name", "pack")), tail]
+
+
+## The weak point a pack spec carries for its teach row (WardenLogic.spec copies it in as `weak`).
+static func sp_weak(pk: Dictionary) -> Dictionary:
+	return pk.get("weak", {})
 
 
 static func _frac_word(f: float) -> String:
@@ -422,6 +455,15 @@ static func shove_point(facing: float, from: Vector2, at: Vector2, shove_px: flo
 
 
 ## A big undead takes the flank role when its wits meet the weak point's threshold.
+## D-d/E 3b, the Shieldwall's rush: a wits flanker pins it when it stands within `max_d` of the wall and
+## off the shield's front (outside ±`half_deg` of the facing). `pts` are the wits big undead's positions.
+static func shield_pinned(facing: float, wp: Vector2, half_deg: float, pts: Array, max_d: float) -> bool:
+	for p in pts:
+		if (p as Vector2).distance_to(wp) <= max_d and not in_front(facing, wp, p, half_deg):
+			return true
+	return false
+
+
 static func is_flanker(sp: Dictionary, wits: float) -> bool:
 	var wp: Dictionary = sp.get("weak_point", {})
 	return str(wp.get("effect", "")) == "flank" and wits >= float(wp.get("threshold", 1.0e9))

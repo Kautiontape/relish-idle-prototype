@@ -500,7 +500,7 @@
           "label": "a beefy big undead braced at the bell muffles its slams"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. The gates sit on its phase notches." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish (once no undead stands it turns on her, so a wiped army cannot stall the fight), and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches." ,
           "name": "ringers",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
@@ -546,7 +546,7 @@
           "label": "a fast big undead in its path intercepts the lunge"
         },
         "pack": {
-          "_doc": "D-d/E Step 3, the hunt (WardenLogic.pack_*, RaidWarden._pack_step): from min_tier up (never in the first dungeon) at each hp gate in at_hp_frac it sounds a horn horn_beats ahead (on the beat; the entry points show) and calls size_by_tier of its hounds (enemies.<kind>) into its room's far side from Relish (the two inset corners farthest from her, spot_inset_px from the walls, spot_spread_px apart). While any hound runs it takes ward_mult of every hit (a stun's x2.5 multiplies with it) and does not lunge (one threat at a time); a full tell after the last falls it lunges again. Hounds are its own living: hostile at once, massless, and they drop no motes and no dings (a pack that fed the raises would shorten the fight it lengthens). The counter is the speed weak point's bodyguards: a fast big undead posted by Relish strikes what comes in reach, so the hounds that rush her meet it first.",
+          "_doc": "D-d/E Step 3, the hunt (WardenLogic.pack_*, RaidWarden._pack_step): from min_tier up (never in the first dungeon) at each hp gate in at_hp_frac it sounds a horn horn_beats ahead (on the beat; the entry points show) and calls size_by_tier of its hounds (enemies.<kind>) into its room's far side from Relish (the two inset corners farthest from her, spot_inset_px from the walls, spot_spread_px apart). While any hound runs it takes ward_mult of every hit (a stun's x2.5 multiplies with it) and does not lunge (one threat at a time); a full tell after the last falls it lunges again. Hounds are its own living: hostile at once, massless, and they drop no motes and no dings (a pack that fed the raises would shorten the fight it lengthens). 3b: a pack goes for her undead, not for Relish (it costs time and the army; her risk stays in the warden's own attacks; once no undead stands it turns on her, so a wiped army cannot stall the fight), and a big undead whose stat meets the warden's weak point (here speed) kills a pack unit in one blow (INTERCEPTED) and goes for the nearest while a pack stands; its bodyguards strike the hounds that come in reach.",
           "name": "hounds",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
@@ -580,7 +580,7 @@
         }
       },
       "shieldwall": {
-        "_doc": "The Shieldwall (warden_shieldwall.gd, WardenLogic.shield_*): stationary at its room's centre, it turns at turn_deg_s toward the densest crowd of undead within attack.face_reach_px (the flank-role undead left out; Relish when none is in reach; re-picked every face_repick_s), planted while a tell shows. A hit from inside its front arc (±front_half_deg of the facing, from the attacker's position) glances at attack.front_mult; from outside it lands (FLANKED; those pips are marked as the weak point's): in full from the side, at back_mult from inside the back arc (±back_half_deg round its back). Every period_beats it bashes its front arc, telegraphed tell_beats ahead (the arc lit): undead in it within reach_px take dmg_unit and are shoved shove_px away, Relish takes dmg_relish. Phases at hp thirds turn faster, widen the arc and bash sooner. Weak point: a big undead with wits >= threshold fighting it takes the flank role, walking round the orbit (its radius + the unit's + flank_gap_px, flank_step_deg at a time) to a post behind it (flankers spread flank_spread_deg apart), and strikes only off the shield.",
+        "_doc": "The Shieldwall (warden_shieldwall.gd, WardenLogic.shield_*): stationary at its room's centre, it turns at turn_deg_s toward the densest crowd of undead within attack.face_reach_px (the flank-role undead left out; Relish when none is in reach; re-picked every face_repick_s), planted while a tell shows. A hit from inside its front arc (±front_half_deg of the facing, from the attacker's position) glances at attack.front_mult; from outside it lands (FLANKED; those pips are marked as the weak point's): in full from the side, at back_mult from inside the back arc (±back_half_deg round its back). Every period_beats it bashes its front arc, telegraphed tell_beats ahead (the arc lit): undead in it within reach_px take dmg_unit and are shoved shove_px away, Relish takes dmg_relish. Phases at hp thirds turn faster, widen the arc and bash sooner. Weak point: a big undead with wits >= threshold fighting it takes the flank role, walking round the orbit (its radius + the unit's + flank_gap_px, flank_step_deg at a time) to a post behind it (flankers spread flank_spread_deg apart), and strikes only off the shield. The rush (D-d/E 3b): as each bash tell starts, unless a wits flanker stands at its back (within its orbit + pin_px, off the shield: PINNED), the bash is a rush: its arc is rush_half_deg wider and rush_px longer for that tell and bash (RUSH over the lit arc), long enough to reach a conduit waiting at its side. Wits pin it; without them its bash is a threat to Relish as well as the army.",
         "name": "The Shieldwall",
         "tells": [
           "its shield turns to your biggest crowd; blows on it glance",
@@ -596,7 +596,7 @@
           "label": "a wits big undead fights it from behind"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. The gates sit on its phase notches." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish (once no undead stands it turns on her, so a wiped army cannot stall the fight), and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. The gates sit on its phase notches." ,
           "name": "bearers",
           "min_tier": 2,
           "at_hp_frac": [0.66, 0.33],
@@ -625,7 +625,10 @@
           "face_reach_px": 240.0,
           "face_repick_s": 0.15,
           "dmg_relish": 12.0,
-          "dmg_unit": 10.0
+          "dmg_unit": 10.0,
+          "rush_px": 120.0,
+          "rush_half_deg": 40.0,
+          "pin_px": 30.0
         }
       },
       "pyre_priest": {
@@ -642,7 +645,7 @@
           "label": "a power big undead snuffs an acolyte in one blow"
         },
         "pack": {
-          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. One gate, on its phase-3 notch (its acolytes already ward the start of the fight); the ward multiplies with the acolytes'." ,
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. 3b: a pack goes for her undead, not for Relish (once no undead stands it turns on her, so a wiped army cannot stall the fight), and a big undead whose stat meets the warden's own weak point kills a pack unit in one blow (with the weak point's verb: MUFFLED, FLANKED, SNUFFED) and goes for the nearest while a pack stands; the army grinds the rest. One gate, on its phase-3 notch (its acolytes already ward the start of the fight); the ward multiplies with the acolytes'." ,
           "name": "zealots",
           "min_tier": 2,
           "at_hp_frac": [0.4],
