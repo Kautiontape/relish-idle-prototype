@@ -15,6 +15,9 @@ var alive := true
 var last_hit_src := ""   # what struck her last: "slam", "lunge", "bash", "rush", "fire", "hound", "pack" or "living" (the death card; never read by the sim)
 var hits := {}           # measuring only (the bot's relish_hits; never read by the sim): blows that reached her, by source
 var soaked := {}         # of them, the lethal ones an undead took in her place (the conduit rule)
+var _struck_t := 99.0    # draw only: seconds since a blow that reached her hp (STRUCK cue)
+var _struck_amt := 0.0
+var _soaked_t := 99.0    # draw only: seconds since an undead died in her place (SOAKED cue)
 
 var move_target := Vector2.ZERO
 var _iframes := 0.0
@@ -43,6 +46,8 @@ func _physics_process(delta: float) -> void:
 	if raid == null or raid._ended or not alive:
 		return
 	_t += delta
+	_struck_t += delta   # draw-only clocks (the sim never reads them)
+	_soaked_t += delta
 	_iframes = maxf(0.0, _iframes - delta)
 	_flash = maxf(0.0, _flash - delta * 3.0)
 	var d := move_target - global_position
@@ -80,6 +85,7 @@ func take_hit(amount: float, src := "") -> void:
 		# THE CONDUIT RULE: the nearest allied undead dies in her place (not for a warden's tell-attack:
 		# RaidLogic.chain_soaks, D-d/E Step 4b).
 		soaked[key] = int(soaked.get(key, 0)) + 1
+		_soaked_t = 0.0
 		raid.sacrifice_nearest_ally()   # pings the danger edge
 		_iframes = float(ConfigDb.data.get("raid", {}).get("relish", {}).get("iframes_s", 0.5))
 		_flash = 1.0
@@ -87,6 +93,8 @@ func take_hit(amount: float, src := "") -> void:
 		return
 	hp -= amount
 	_flash = 1.0
+	_struck_t = 0.0
+	_struck_amt = amount
 	raid.danger_hit()
 	if hp <= 0.0:
 		if raid.try_phylactery():
@@ -119,6 +127,38 @@ func mark_catch(from_angle: float) -> void:
 
 func catch_marks() -> int:
 	return _cracks.size()
+
+
+## The hit cue (D-d/E Step 4b), for `relish.hit_cue_s` after a blow. A blow that reached her hp (a warden's
+## tell-attack, or anything once no undead stands): a jagged burst round her, sharp spikes on a dark
+## under-stroke, and STRUCK −N, in `danger`. A blow an undead took in her place: a smooth closed ring and
+## SOAKED, in `undead`. Shape and words read in greyscale; nothing moves, so reduced motion shows the same.
+func _draw_hit_cue() -> void:
+	var hold := float(ConfigDb.data.get("raid", {}).get("relish", {}).get("hit_cue_s", 1.2))
+	var z: float = maxf(0.05, raid.cam.zoom.x) if raid.cam != null else 1.0
+	var fs := roundi(float(ConfigDb.data.get("raid", {}).get("wardens", {}).get("label_px", 15)) / z)
+	var text := ""
+	var col := Color()
+	if _struck_t < hold:
+		var pts := PackedVector2Array()
+		for k in 17:
+			pts.append(Vector2.RIGHT.rotated(TAU * k / 16.0) * (radius + (17.0 if k % 2 == 0 else 7.0)))
+		draw_polyline(pts, Palette.c("ground", 0.95), 6.0)
+		draw_polyline(pts, Palette.c("danger"), 2.5)
+		text = "STRUCK −%d" % roundi(_struck_amt)
+		col = Palette.c("danger")
+	elif _soaked_t < hold:
+		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Palette.c("ground", 0.95), 6.0)
+		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Palette.c("undead"), 2.5)
+		text = "SOAKED"
+		col = Palette.c("undead")
+	if text == "":
+		return
+	var font := ThemeDB.fallback_font
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var p := Vector2(-tw * 0.5, -radius - 22.0 - float(fs) * 0.6)
+	draw_rect(Rect2(p + Vector2(-4.0, -float(fs) * 0.9), Vector2(tw + 8.0, float(fs) * 1.25)), Palette.c("ground", 0.75))
+	draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 
 ## Phylactery revive: back to `new_hp` with i-frames.
@@ -180,6 +220,8 @@ func _draw() -> void:
 				draw_arc(Vector2.ZERO, rr, a0, a0 + TAU / 3.0 - 0.55, 10, Palette.c("relish", 0.8), 1.5)
 	if _iframes > 0.0:
 		draw_arc(Vector2.ZERO, radius + 8.0, 0, TAU, 24, Palette.c("danger", 0.6), 2.0)
+	if raid != null and not raid.is_boss():
+		_draw_hit_cue()
 	if hp < max_hp:
 		_draw_hp_arc(violet)
 	# trance focus / cooldown arc around her

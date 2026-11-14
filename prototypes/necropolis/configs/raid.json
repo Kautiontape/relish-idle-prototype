@@ -3,7 +3,9 @@
     "hp": 30.0,
     "speed": 240.0,
     "radius": 13.0,
+    "_doc": "Relish. hit_cue_s (D-d/E Step 4b): how long the hit cue holds after a blow: STRUCK -N with a jagged burst when it reached her hp (a warden's tell-attack, or anything once no undead stands), SOAKED with a smooth ring when an undead died in her place.",
     "iframes_s": 0.5,
+    "hit_cue_s": 1.2,
     "revive_iframes_s": 1.5,
     "light_radius_px": 220.0
   },
