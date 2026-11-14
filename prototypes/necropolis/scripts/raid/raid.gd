@@ -87,7 +87,7 @@ func controller_key() -> String:
 	return "town" if held and not is_boss() else "vei"
 
 
-## Standalone setup args (VeiBoss overrides this with its legacy boss seed).
+## Standalone setup args (VeiBoss overrides this: its demo seed is vei.json `demo`).
 ## A dev `--raid-fixture=<fixture>,<fort_id>` goes through commands only.
 func demo_seed() -> Dictionary:
 	var sd := RaidDev.fixture_seed()
@@ -164,10 +164,7 @@ func _build() -> void:
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
 	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
-	if boss:
-		rng_combat.randomize()
-		rng_loot.randomize()
-	else:
+	if not boss:   # (VeiBoss seeds its own rngs from its seed in _build_extra and keeps no ledger)
 		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
 		rng_combat.seed = base ^ 0x6C0AB47
 		rng_loot.seed = base ^ 0x10075EED
@@ -393,9 +390,7 @@ func has_allies() -> bool:
 
 
 ## THE SACRIFICE CHAIN (MECHANICS 5.0): a lethal hit on Relish consumes the nearest ally of the
-## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest: every
-## ally is rank 0 there, so the nearest one goes whatever it is. A live boss rule (VeiBoss is_boss()
-## is true), not legacy: Vei's balance was calibrated with it.
+## lowest available rank (chaff, soldier, elite, big undead), in the dungeon and in Vei's fight alike.
 func sacrifice_nearest_ally() -> void:
 	var pool: Array = []
 	var cands: Array = []
@@ -403,7 +398,7 @@ func sacrifice_nearest_ally() -> void:
 		if not is_instance_valid(a) or not a.alive:
 			continue
 		pool.append(a)
-		cands.append({"rank": 0 if is_boss() else RaidLogic.ally_rank(a.role, a.tier),
+		cands.append({"rank": RaidLogic.ally_rank(a.role, a.tier),
 			"dist": a.global_position.distance_to(relish.global_position)})
 	var k := RaidLogic.sacrifice_pick(cands)
 	if k < 0:

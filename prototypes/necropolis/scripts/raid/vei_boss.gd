@@ -552,29 +552,6 @@ func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
 		RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
 
 
-## THE SACRIFICE CHAIN (MECHANICS 5.0), as the dungeon has it: a lethal hit on Relish spends the
-## lowest-ranked ally first (chaff, soldier, elite, then the party's big undead), the nearest within
-## a rank (RaidLogic.ally_rank / sacrifice_pick). Overrides raid.gd's old boss branch (plain nearest),
-## which spent a named big undead before the chaff beside it.
-func sacrifice_nearest_ally() -> void:
-	var pool: Array = []
-	var cands: Array = []
-	for a in allies:
-		if not is_instance_valid(a) or not a.alive:
-			continue
-		pool.append(a)
-		cands.append({"rank": RaidLogic.ally_rank(a.role, a.tier), "dist": a.global_position.distance_to(relish.global_position)})
-	var k := RaidLogic.sacrifice_pick(cands)
-	if k < 0:
-		return
-	var best: RaidUnit = pool[k]
-	danger_hit()
-	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
-	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
-	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
-	best.die(true)
-
-
 ## A guard's time is up (BossGuard.life_left): it falls back to her line. Not a kill, so no mote.
 func recall_guard(u: RaidUnit) -> void:
 	if not u.alive:

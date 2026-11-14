@@ -85,14 +85,6 @@ func stir() -> void:
 	_shrink = 0.0
 
 
-## Consumed whole by Vei's revive (no orbs — she takes the matter directly).
-func consume() -> void:
-	_stirred = true
-	_set_lit(false)  # Vei takes it; no light of Relish's on it
-	remove_from_group("raid_piles")
-	_shrink = 0.0
-
-
 func _draw() -> void:
 	# Dead is matte: flat fills only, never a glow stroke.
 	var base := Palette.c("dead_lit" if _lit else "dead")
