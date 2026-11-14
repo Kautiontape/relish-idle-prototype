@@ -107,6 +107,8 @@ func _views(s: GameState) -> Dictionary:
 		if name == "view_fort":
 			for f in s.realm.forts:
 				out["view_fort:" + f["id"]] = s.view_fort(f["id"])
+		elif name == "view_staffing_projection":
+			out[name] = s.view_staffing_projection(s.town_sim.ladder)
 		else:
 			out[name] = s.call(name)
 	for k in out:

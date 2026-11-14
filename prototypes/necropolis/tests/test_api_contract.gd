@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 4,
+	"API_VERSION": 5,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -123,6 +123,8 @@ func _all_views(s: GameState) -> void:
 		elif name == "view_boss_seed":
 			if not s.view_boss_seed().is_empty():
 				_view(s, name)
+		elif name == "view_staffing_projection":
+			_view(s, name, [s.town_sim.effective_ladder(s.town_sim.ladder)])
 		else:
 			_view(s, name)
 	var l := s.ledger()

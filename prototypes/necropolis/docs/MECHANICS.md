@@ -99,7 +99,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - **Relish:** `view_relish()`: state, pos, target, heading, `dead_s_left`, phylactery charges,
   clones ready, `can_descend` and the reason.
 - **Town:** `view_town()`, `view_catalog()` (each building with cost, `can_build` and the reason),
-  `view_stances()`, `view_backups()` (including "what a death would cost right now").
+  `view_stances()`, `view_backups()` (including "what a death would cost right now"),
+  `view_staffing_projection(order, vats)` (the staffing another job order would give; E2b-2).
 - **Inventory:** `view_inventory()` (uids for everything), `view_big_undead()`, `view_party()`.
 - **Vei:** `view_vei()`: backlog, diff, sign, drain_s, odds, fronts `[{id, need, have}]`, the next
   tithe wave's ETA and target.
@@ -245,9 +246,9 @@ Names, to avoid confusion:
   1. the tithe clock (§3.4: a wave's start, at its exact time inside the step);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
      fort's room over the step: `cap` less the fort's load at the step's end without her living
-     (`L + D` now less the corpses raised, plus what U's path leaves with the step's WAR and raises
-     arriving, under the drain and the garrison's pull), less a surge there, never below 0
-     (§3.4). The surge takes all it wants, past the shipping share, the space and the cap. Both
+     (`L + D` now less the corpses cleared and raised, plus what U's path leaves with the step's
+     WAR and raises arriving, under the drain and the garrison's pull), less a surge there, never
+     below 0 (§3.4). A fort WAR fills with no living takes only what its undead kill (§3.2). The surge takes all it wants, past the shipping share, the space and the cap. Both
      draw on her pool now plus what she can convert this step before her headroom (from her
      queues as they stand after FLOOD), surge first. A long step ships what the short ones would,
      and her pool never leaves [0, cap];
@@ -294,12 +295,36 @@ Names, to avoid confusion:
   filled with living) counts once.
 - **A full fort with no living** (no living now, not held, not surged) takes at most the WAR that
   fills it by the step's end. Its undead drain while WAR arrives, so the rate is the one that brings
-  U to `cap − D − what Vei ships in`. The WAR it can't take is split over the other targets by
-  weight, and goes to `vei.undead_queue` (counted as fall-through) when every target is full. E2b
-  T3.0 added this: such a fort used to flicker in and out of the targets as its drain opened room,
-  and how far it flickered depended on the step. This rule is the continuous version of that
-  flicker. Living arriving counts for the same reason: Vei's living killed on arrival leaves a fort
-  at 0 living at the end of every step.
+  U to `cap` less its corpses at the step's end: `D` plus what Vei ships in (killed on arrival, it
+  ends as corpses) less what Relish and the simulacra raise there into U, as far as those corpses
+  cover their rate. The WAR it can't take is split over the other targets by weight, and goes to
+  `vei.undead_queue` (counted as fall-through) when every target is full. E2b T3.0 added this:
+  such a fort used to flicker in and out of the targets as its drain opened room, and how far it
+  flickered depended on the step. This rule is the continuous version of that flicker. Living
+  arriving counts for the same reason: Vei's living killed on arrival leaves a fort at 0 living at
+  the end of every step.
+  - **The raises count** (E2b T4.C). They used to be left out, so at a fort where Relish raises
+    the step ended short of the cap by `ρ · (dt − (1 − e^(−r_drain · dt)) / r_drain)` at a raise
+    rate ρ, and that WAR went to other forts. With Relish at pre_vei's Ashgate (full, no living,
+    raising the 0.21/s Vei ships in) it held 78.95 of 80 at 15 s and 80.00 at 0.5 s (now 80.00
+    at both, with the same WAR); at her full 4/s it is 20 per step at 15 s.
+  - **Vei ships it only what its undead kill** while WAR fills it (it takes its whole fill), and
+    WAR fills the room the rest would have taken. The rest stays in her pool. More would leave a
+    sliver of living at the step's end, and a fort with living takes its whole weight's share of
+    WAR, with no limit, for the whole next step. That is the continuous-time outcome of these
+    rules: the moment living appear WAR pours in, the room closes and they die, so the fort stays
+    full with 0 living, its kills taking her living. A fort WAR doesn't fill (too little WAR)
+    still takes her living into its room, so with no WAR such a fort fills with living again.
+    Whether WAR fills it is judged with her give cut to the kills: the cut raises its fill, WAR is
+    split again, and a fort whose share then falls short of its fill takes her living into the
+    room its WAR leaves and gathers living, as one with too little WAR does. That can be this fort
+    or one whose share fell. Over 12 h from the three starts at 0.5, 10 and 15 s it happened once
+    (pre_vei at 15 s, a fort whose share fell), and that fort ended the step with no living.
+    E2b T4.C measured why: in pre_vei with no haulers every fort fills with corpses within 20 min.
+    Vei's shipping into the drain's room (`r_drain · U`) then outran the few undead's kills
+    (`k_kill · U`, and `r_drain` > `k_kill`), so a fort with 0.04 living took all 32.7/s of WAR
+    for a step, and then another fort did. Each burst grew with dt, and the forts' undead differed
+    by 56% between 0.25 s and 0.5 s over 2 h. Now they differ by 0.08%.
 - **Staging:** a held fort always pulls WAR as staging, at its weight, alongside the forts with
   living (§3.4). There the undead drain to Vei, so a held fort becomes a forward pump. WAR staging is
   split across the held forts, so holding more forts thins every garrison (IDLE §3).
@@ -353,13 +378,15 @@ at E2b.
   pro rata.
   - **The room over the step** is `cap` less the fort's load at the step's end without her
     living, less a surge arriving there, never below 0. The load is `L + D` now (kills only move
-    living to corpses), less the corpses raised (bounded by the corpses now), plus what U's own
-    path (§3.1 step 5) leaves at the step's end with this step's WAR and raises arriving, under
-    the drain and the garrison's pull `k_destroy · L̄ / q`. The undead the garrison destroys leave
-    for Vei, or stay as corpses at a redirect fort. Clearing isn't counted (it only frees room).
+    living to corpses), plus what U's own path (§3.1 step 5) leaves at the step's end with this
+    step's WAR and raises arriving, under the drain and the garrison's pull `k_destroy · L̄ / q`,
+    less the corpses that leave: the clearing `k_clear · L̄ · dt` and the raises (bounded by the
+    corpses now), together at most the corpses there (those now, the kills of the living's path
+    and, at a redirect fort, what the garrison destroys). The undead the garrison destroys leave
+    for Vei, or stay as corpses at a redirect fort.
   - `L̄` is the living's mean over the step with nothing shipped in, solved as fort combat solves
-    it (a predictor and two corrections). Her living only add to the pull, so the real load is at
-    most this one.
+    it (a predictor and two corrections). Her living only add to the pull and to the clearing, so
+    the real load is at most this one.
   - WAR's dispatch reads the living arriving (§3.2), so shipping is planned on the load before
     WAR (the pull read from the living now), then each share is cut to the room the step's WAR
     leaves. What that cuts stays in her pool. A fort with no living already takes only the WAR
@@ -371,6 +398,12 @@ at E2b.
   - History (E2b T3.0s): the room used to be `cap − L − U · e^(−r_drain · dt) − D`, which left out
     WAR, the raises and the surge (Greywall reached 90.3 of 90 in play). A room with WAR but not
     the pull under-shipped long steps (fresh's Vei stocks 3% off at 15 s over 1 h).
+    Until E2b T4.C the clearing was left out ("it only frees room"), so a fort whose room came
+    from its own clearing took one step's clearing less at every step. At 15 s that cut Ashgate's
+    shipping from 0.206 to 0.038/s for the step after it came back under its cap
+    (midgame_2flips, t 510 s). Its living fell 2.6 below the 0.125 s run's, and its slow decline
+    (fewer living, a weaker pull, more undead, more kills) grew that into a fall about 10 min
+    early: midgame's corpses were 217% off at 15 s over 12 h, and 41% with the clearing counted.
 - the fort pulls WAR as staging (§3.2);
 - haulers there get `flip.haul_mult`;
 - it injects necrosis.
@@ -512,7 +545,13 @@ mass; bodies, rot return, WORK and muster are mass.
 - Rot returns `rot · worker.mass · worker.body_return` mass of bodies. What the body cap can't hold
   is reported as `rot_overflow`, a ledger sink.
 - **The store over a step** (E2b T3.0): rot return and convoy landings come in, and what the pits
-  and mills want goes out. The two are netted before the cap clips: out = min(want, B0 + in), and
+  and mills want goes out: out = min(want, B0 + in). The pits have first call on it (E2b-2): while
+  the store holds bodies both draw their full want, and the step's shortfall falls on the time it
+  stands empty, τ = (want − out) / (want/s − rot return/s), when only the rot return comes in (a
+  landing refills it at once). In τ the rot return goes to the pits first and the mills get what
+  exceeds the pits' want. So burned = want_pit/s · (dt − τ) + min(want_pit/s, rot/s) · τ and the
+  mills the rest of out; with the store empty all step that is min(want_pit, in), the surplus to
+  the mills. The two are netted before the cap clips, and
   only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
@@ -531,7 +570,8 @@ mass; bodies, rot return, WORK and muster are mass.
   the three always balance.
 
 ### 4.2 Jobs (rates per staffed worker; keys in `economy.json`)
-- **Slots.** A working building offers its `buildings.json` `jobs` × its level. A lot under
+- **Slots.** A working building offers its `buildings.json` `jobs` × its level (a Chapel of Vats its
+  tend slots only for its staffed vats, §7). A lot under
   construction offers `job.build.slots` build slots; a first build offers nothing else, and an
   upgrade keeps its old level's slots too (its building keeps working).
   An unpaid building offers none. Staffing is fractional.
@@ -544,16 +584,31 @@ mass; bodies, rot return, WORK and muster are mass.
 | job | building | effect |
 |---|---|---|
 | haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
-| mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass |
+| mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
-| pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share. `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
-| tend | chapel of vats | grows clones (§7); E2 only counts the tenders |
+| pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share, with first call on the bodies (below). `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
+| tend | chapel of vats | one slot per vat, open only while that vat is staffed (§7; E2b-2): `jobs.tend` × level slots for `vat_slots` × level vats, the same count. Grows clones (§7, E3); until then only the tenders count |
 | build | construction | `job.build.rate` work per worker-second against `build_work · target level`. A `build_work` of 0 completes at once. |
 | foreman | (big undead only) | multiplies a building's output by `foreman.mult` + speed·`foreman.speed_k` |
 
-- **Pits and mills share the bodies** in proportion to what each wants when there aren't enough, so
-  feed falls smoothly and never toggles.
+- **The pits have first call on the bodies; the mills take only the surplus** (E2b-2, the run's
+  manager). While the store holds bodies both draw their want; while it stands empty the rot
+  return goes to the pits first, and the mills get what exceeds the pits' want (§4.1 has the step's
+  τ). They used to share short bodies in proportion to what each wanted, so the mills ate the pits'
+  feed and the mint swung with the mills' want (12.8 to 8.98 mass/s in play). Feed is still
+  continuous in the supply, so it never toggles. The total taken is unchanged, so the store's path
+  and the convoy's view of it are too.
+  - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
+    depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
+    the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the
+    proportional split, 0.11% with τ). With τ one 10 s step splits as twenty 0.5 s steps do.
+  - Measured over 12 h at 10 s with no input, against the proportional split: midgame_2flips is
+    short of bodies every step (rot return and the convoy bring in less than its pit wants), so
+    its feed rises from 0.30 to 0.49 and its mint from 9.42 to 10.35 mass/s, while its mills get
+    almost nothing (100 bodies milled in 12 h instead of 5 117; bone +50 instead of +2 558).
+    pre_vei is short in 57.5% of the steps: its mean mint is 25.92 against 25.90 mass/s, its mills
+    1 656 bodies against 1 837. fresh is never short.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt
@@ -583,10 +638,24 @@ mass; bodies, rot return, WORK and muster are mass.
     so never the crypt. A building that earns that stock (stalls for gold, mills for bone) is never
     picked, because idling the only earner would lock the town out of ever paying again. What is
     still owed is paid down to 0.
+    - A building that resumed inside the step (Resume, below) is billed only for the seconds it was
+      paid, from its resume to the step's end. If the same step's cascade then idles it, the
+      cascade takes exactly that off the bill, so it pays nothing for the step and the buildings
+      still paying are billed their own upkeep and no more (since `72dfd81`).
   - An unpaid building gives no slots and no output.
   - **Resume.** It stays unpaid for at least `upkeep.unpaid_hold_s`. It resumes (`unpaid: false`)
-    once the stock covers the paying upkeep plus its own for `max(unpaid_hold_s, dt)`, so it doesn't
-    chatter.
+    at the first moment its stocks cover the paying upkeep plus its own for
+    `max(unpaid_hold_s, dt)`, so it doesn't chatter. Inside a step that moment is solved on the
+    stocks' paths: each starts at what it held before the step's income, which comes in at a
+    constant rate, and pays the working buildings' upkeep as it goes. Buildings resume in the order
+    of their moments, ties in lot order. Each raises the upkeep the next must cover, and each pays
+    its own from its moment on.
+    - E2b T4.C: they used to be checked at the step's end, in lot order, on the stocks before the
+      step's upkeep was paid. From pre_vei's gold floor a 10 s step resumed the raising pit
+      (lot-02) at 7 804 s. The gold had crossed the house's (lot-05) lower threshold first, and,
+      net of upkeep, it reached neither until 7 847 s and 7 853 s. The pits and WAR came back about
+      45 s early, and three forts Vei had refilled with living fell instead of holding. Vei's dead
+      were 31.9% off at 10 s over 12 h; now 0.50%.
   - Stocks never go negative and there is no debt. Gold and bone have no caps yet (IDLE §6 is E2b).
 
 ### 4.4 Buildings
@@ -647,6 +716,11 @@ upgrade refunds in full and changes nothing else.
 - **The job ladder:** an ordered list of jobs. Workers fill slots top-down. The player drags to
   reorder (`cmd_set_job_priority`), and can cap a building's staffing. That is "how the undead are
   behaving on auto".
+- **One allocation** (E2b-2 T4.P): the fill is a pure function of the effective ladder (the ladder
+  after stances), each lot's building, state, level and staff cap, the building defs and the
+  workforce (`TownSim.staff_allocate`). Every restaff runs it, and so does
+  `view_staffing_projection` (STATE-API §5.16) with another order, so a preview never drifts from
+  the staffing it previews.
 - **Stances:** named, pre-written behaviours the player toggles. Slots: `stance.base_slots` (2), plus
   the Guildhall, plus 1 while Relish is home. Each shows its projected effect on net rates before you
   toggle it. None touches the valve (one controller per dial).
@@ -809,6 +883,20 @@ The Watchtower turns the bands into exact percentages and lists every tell.
 
 **Clones** grow at `vats.grow_per_s` per **staffed** vat, from 0 to 1, one clone per vat.
 `view_backups` always shows what a death would cost right now.
+
+**A staffed vat takes a hand** (E2b-2, the run's manager). A Chapel of Vats offers one tend slot per
+vat (`jobs.tend` × level tend slots for `effects.vat_slots` × level vats, the same count), and a
+vat's slot is open only while that vat is staffed (`cmd_staff_vat`). The job ladder fills the open
+tend slots like any other (§4.5). Staffing a vat opens its slot, which takes the hand the ladder
+gives it: an idle worker if there is one, else the lowest room staffed below it. Unstaffing it
+closes the slot and the hand goes back to the ladder's next room, or idles. The vats are numbered
+as `view_backups` numbers them: in lot order over every built Chapel (unpaid or mid-upgrade too, at
+its built level), then by vat within it. An unpaid Chapel keeps its numbers but offers no slot.
+Clone growth isn't tied to the tenders yet (E3).
+- **Measured:** a save with a Chapel and no staffed vat loses its tenders to the ladder. pre_vei
+  (two unstaffed vats, 35 workers on 25 slots, the idle pool at its cap of 10) has 2 tenders fewer:
+  they go idle, which puts the idle pool 2 over its cap, so its first step musters 2 workers (80
+  mass) to WAR, and it settles at 33. midgame_2flips has no Chapel: nothing moves.
 
 ## 8. Contracts in short (full fields in STATE-API.md)
 ```

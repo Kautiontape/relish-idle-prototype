@@ -238,6 +238,10 @@ const VIEWS := {
 	},
 	"view_dungeon_seed": RAID_SEED,
 	"view_boss_seed": BOSS_SEED,
+	# api_version 5 (E2b T4.P, api-request #16): takes `order` (and optionally `vats`); `reason` is "" or
+	# the cmd_set_job_priority refusal its `order` would get
+	"view_staffing_projection": {"jobs": [{"id": S, "slots": I, "staffed": F}], "buildings": [{"lot_id": S, "staffed": F}],
+		"idle": F, "reason": S},
 }
 ## Views that take an id argument (and return {} for an unknown one).
 const VIEW_ARGS := {"view_fort": 1, "view_dungeon_seed": 1}

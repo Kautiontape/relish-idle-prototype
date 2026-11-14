@@ -829,14 +829,14 @@ func _workers(t: TestUtil) -> void:
 	t.ok(ValveLogic.workers_kept(335.0, {"workers_steady_kept": 31.0}, 25, 10.0, true) == 35.0, "while dragging, the projected steady is capped")
 	var cfgs := TestUtil.configs()
 	var cap := float(cfgs["economy"]["worker"]["idle_cap"])
-	for fx in [["pre_vei", 35.0], ["midgame_2flips", 19.0]]:
+	for fx in [["pre_vei", 33.0, "; its vats are unstaffed, so their tend slots are closed"], ["midgame_2flips", 19.0, ""]]:
 		var s := GameState.new(cfgs)
 		s.debug_enabled = true
 		s.cmd_debug_load_fixture(fx[0])
 		var m := MapModel.new(s)
 		m.refresh(true)
 		var kept := ValveLogic.workers_kept(float(m.hud["workers_steady"]), m.hud, m.job_slots, cap)
-		t.near(kept, float(fx[1]), 1e-6, "%s: workers → %d, the town's real total (steady reads %d)" % [fx[0], roundi(kept), roundi(float(m.hud["workers_steady"]))])
+		t.near(kept, float(fx[1]), 1e-6, "%s: workers → %d, the town's real total (steady reads %d%s)" % [fx[0], roundi(kept), roundi(float(m.hud["workers_steady"])), fx[2]])
 
 
 # --- the fit and the callouts ------------------------------------------------------------------

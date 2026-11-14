@@ -108,7 +108,11 @@ var shock := 0.0  # the decaying death shock, subtracted from the morale target
 ## first build; `build_level` is the level a construction completes to. `progress` is 0..1 while
 ## constructing, else 1. `staff_cap` -1 = none. `unpaid_s` is the unpaid hold left.
 var buildings := {}
-var ladder: Array = []  # job order, top first
+## The job order, top first. Assigning it marks the rooms dirty (_mark_rooms).
+var ladder: Array = []:
+	set(v):
+		ladder = v
+		_mark_rooms()
 ## The convoy: `current` is the fort it works ("" when home); at most one entry in `convoys`,
 ## {fort, phase: out|back, t: 0..1 leg progress, trip_s: one leg, load: mass, crew: haulers}.
 var haul := {"current": "", "convoys": []}
@@ -120,6 +124,23 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 ## idle: float, slots: float (staffable after staff caps)}
 var staffing := {}
 var _by_lot := {}  # lot_id -> {job: staffed}
+## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
+## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
+## calls _mark_rooms(). Filling them with the workers each step is cheap (E2b T4.P).
+var _rooms := {}
+var _rooms_dirty := true
+## The workforce the last _restaff() filled and marked the states with; NAN once anything since may
+## differ. _restaff() with clean rooms and this workforce has nothing to redo.
+var _staffed_w := NAN
+## _sum_working() and _sum_built() per effect key, cached like the rooms: they read only the
+## buildings' states and levels, so _mark_rooms() clears them.
+var _sums_w := {}
+var _sums_b := {}
+## The vats staffed, per vat slot (GameState's vats_staffed, which it saves; set_vats), trailing
+## falses dropped. A vat slot's tend room is open only while its vat is staffed (MECHANICS §7).
+var _vats: Array[bool] = []
+var _n_rooms := 0  # staff_rooms() builds, for tests (not saved)
+var _n_fills := 0  # staff_fill() runs from _staff(), for tests (not saved)
 var _pending: Array = []  # events from commands, returned by the next step()
 var _haul_trip := -1.0  # this step's landed trip, load / round trip (mass/s); -1 when none landed
 
@@ -177,11 +198,17 @@ func setup(cfgs: Dictionary) -> void:
 	for id in bcfg:
 		var b := _d(bcfg[id])
 		var up := _d(b.get("upkeep"))
+		var jobs := _d(b.get("jobs"))
+		var has_jobs := false
+		for j in jobs:
+			has_jobs = has_jobs or int(jobs[j]) > 0
 		_defs[str(id)] = {
-			"jobs": _d(b.get("jobs")), "effects": _d(b.get("effects")),
+			"jobs": jobs, "effects": _d(b.get("effects")),
 			"upkeep_gold": float(up.get("gold", 0.0)), "upkeep_bone": float(up.get("bone", 0.0)),
 			"build_work": float(b.get("build_work", 0.0)), "max_level": int(b.get("max_level", 0)),
+			"has_jobs": has_jobs,
 		}
+	_mark_rooms()
 
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
@@ -218,6 +245,8 @@ func new_game() -> void:
 	living = float(_start["living"])
 	shock = 0.0
 	buildings = {}
+	_vats = []
+	_mark_rooms()
 	var start: Dictionary = _start["buildings"]
 	for lot_id in start:
 		place_building(str(lot_id), str(start[lot_id]), 1)
@@ -238,6 +267,7 @@ func place_building(lot_id: String, building_id: String, level: int) -> bool:
 	var cap := int(buildings.get(lot_id, {}).get("staff_cap", -1))
 	buildings[lot_id] = {"building_id": building_id, "level": level, "state": "active", "progress": 1.0,
 		"staff_cap": cap, "unpaid_s": 0.0, "build_level": level}
+	_mark_rooms()
 	_restaff()
 	return true
 
@@ -272,6 +302,7 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 		b["unpaid_s"] = 0.0
 		b["build_level"] = level
 	_pending.append({"type": "building_started", "lot_id": lot_id, "building_id": building_id, "level": level})
+	_mark_rooms()
 	_restaff()
 	return {"ok": true, "reason": ""}
 
@@ -294,6 +325,7 @@ func cancel_construction(lot_id: String) -> Dictionary:
 	else:
 		buildings.erase(lot_id)
 	_drop_pending(lot_id)
+	_mark_rooms()
 	_restaff()
 	return out
 
@@ -310,6 +342,7 @@ func demolish(lot_id: String) -> Dictionary:
 		return {"ok": false, "reason": "constructing"}
 	buildings.erase(lot_id)
 	_drop_pending(lot_id)
+	_mark_rooms()
 	_restaff()
 	return {"ok": true, "reason": ""}
 
@@ -326,9 +359,10 @@ func built_effect(key: String) -> float:
 
 ## The player's job order, top first (a permutation of JOBS; GameState checks it), then a restaff.
 func set_ladder(order: Array) -> void:
-	ladder = []
+	var o: Array = []
 	for j in order:
-		ladder.append(str(j))
+		o.append(str(j))
+	ladder = o  # marks the rooms dirty
 	_restaff()
 
 
@@ -337,12 +371,46 @@ func set_staff_cap(lot_id: String, cap: int) -> bool:
 	if not buildings.has(lot_id):
 		return false
 	buildings[lot_id]["staff_cap"] = cap
+	_mark_rooms()
 	_restaff()
 	return true
 
 
-## Refills the job slots after GameState changed a stock directly (a debug grant of workers).
+## Which vats are staffed (bool per vat slot; GameState's vats_staffed): each staffed vat opens its
+## Chapel's tend slot (MECHANICS §7). A change marks the rooms dirty and restaffs at once; `on_load`
+## refills without marking the states (a load restores them as saved). Nothing changes when the
+## staffed set is the same.
+func set_vats(staffed: Array, on_load := false) -> void:
+	var v := _vat_list(staffed)
+	if v == _vats:
+		return
+	_vats = v
+	_mark_rooms()
+	if on_load:
+		_staff()
+	else:
+		_restaff()
+
+
+## `staffed` as a vat list: bool per slot, trailing falses dropped (so [true] and [true, false] agree).
+static func _vat_list(staffed: Array) -> Array[bool]:
+	var v: Array[bool] = []
+	for x in staffed:
+		v.append(bool(x))
+	while not v.is_empty() and not v[v.size() - 1]:
+		v.pop_back()
+	return v
+
+
+## The vats as set_vats() keeps them, for the allocation and tests.
+func vats_on() -> Array[bool]:
+	return _vats.duplicate()
+
+
+## Refills the job slots from scratch after a stock or a building was changed directly (a debug
+## grant of workers; tests that edit `buildings`): the rooms are rebuilt too.
 func restaff() -> void:
+	_mark_rooms()
 	_restaff()
 
 
@@ -382,7 +450,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["rot_loss"] = rotted - rot_mass
 	out["muster_mass"] = float(wf["muster"]) * _mass
 
-	# 2. what the pits and the mills want this step (they share the bodies in proportion, step 4)
+	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4)
 	var pits := 0
 	var pit_can := 0.0  # mass/s the staffed pits can burn
 	for lot_id in _lots:
@@ -408,9 +476,27 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
 	# the cap clips (MECHANICS §4.1), so a long step near the cap books no phantom overflow. What
 	# overflows is split between rot and haul by their shares of the inflow.
+	# The pits have first call on the bodies and the mills take only the surplus (E2b-2). While the
+	# store holds bodies both draw their full want; the step's shortfall falls on the time it stands
+	# empty, tau = shortfall / (want − rot return) per second, when only the rot return comes in
+	# (a landing refills it at once), and that goes to the pits first. So the split doesn't depend
+	# on dt: one 10 s step splits as twenty 0.5 s steps do. Pits-first on the whole step's supply,
+	# min(want_pit, B0 + in), did (pre_vei's bone 44.8% off at 15 s over 1 h, a load landing inside
+	# a long step fed the pits only). The total taken is min(want, B0 + in) as before, so the
+	# store's path and _haul's projection of it are unchanged.
 	var inflow := rot_mass + haul_in
 	var taken := minf(want, b0 + inflow)
 	var end := b0 + inflow - taken
+	var burned := want_pit
+	var shortfall := want - taken
+	if shortfall > 0.0:
+		var r_in := rot_mass / dt  # mass/s while the store stands empty
+		var w := want / dt
+		var tau := minf(dt, shortfall / (w - r_in)) if w > r_in else dt
+		var wp := want_pit / dt
+		burned = wp * (dt - tau) + minf(wp, r_in) * tau
+	burned = clampf(burned, 0.0, taken)
+	var milled := taken - burned
 	# only what comes in is clipped: an excess the store held before the step (a demolished house
 	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
 	# the pits have drawn the stock this step, whichever is higher
@@ -422,8 +508,6 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["haul_overflow"] = haul_over
 	var rot_in := rot_mass - rot_over
 	haul_in -= haul_over
-	var burned := taken * want_pit / want if want > 0.0 else 0.0
-	var milled := taken - burned
 	out["burned"] = burned
 	out["milled"] = milled
 	var bone_in := milled * _mill_rate
@@ -474,6 +558,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 			b["level"] = int(b["build_level"])
 			b["state"] = "active"
 			b["progress"] = 1.0
+			_mark_rooms()
 			events.append({"type": "building_done", "lot_id": lot_id, "building_id": b["building_id"], "level": int(b["level"])})
 
 	# 7. the living (§4.3): exact first-order update, then the housing cap
@@ -499,10 +584,12 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	shock = shock * exp(-dt / _shock_s) if _shock_s > 0.0 else 0.0
 	morale = clampf(move_toward(morale, morale_target(), _ease * dt), 0.0, 1.0)
 
-	# 9. upkeep: resume after the hold when the stock covers it, idle the cheapest when short
-	var paid := _upkeep(dt, events)
+	# 9. upkeep: resume after the hold when the stocks cover it (on their paths over the step), idle
+	# the cheapest when short
+	var paid := _upkeep(dt, events, gold_in, bone_in)
 
-	# 10. rates for the views
+	# 10. rates for the views; the staffing and the states at the step's end (views and saves read
+	# them; the next step's _restaff() finds them current and has nothing to redo)
 	var tend := _job("tend")
 	_restaff()
 	rates = {
@@ -701,14 +788,24 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
 	return best
 
 
-## Upkeep (§4.3). Unpaid buildings whose hold is over resume (lot order) when the stock covers
-## the paying upkeep plus theirs for max(unpaid_hold_s, dt). Then, while a stock can't cover this
-## step's upkeep, the cheapest paying building by its upkeep in that stock (ties in lot order)
-## goes unpaid, except a building that earns that stock (stalls for gold, mills for bone): idling
-## it could never pay the bill back. What is still owed is paid down to 0; there is no debt.
-func _upkeep(dt: float, events: Array) -> Dictionary:
+## Upkeep (§4.3), on the stocks' paths over the step: each starts at what it held before this
+## step's income (`gold_in`, `bone_in`), which comes in at a constant rate, and pays the working
+## buildings' upkeep as it goes. An unpaid building whose hold is over resumes at the first moment
+## its stocks cover the paying upkeep plus its own for max(unpaid_hold_s, dt). The moments are
+## solved on those paths; buildings resume in their order (ties in lot order), each raising the
+## upkeep the next must cover, and a resumed building pays from its moment on. Then, while a stock
+## can't cover the step's upkeep, the cheapest paying building by its upkeep in that stock (ties in
+## lot order) goes unpaid, except a building that earns that stock (stalls for gold, mills for
+## bone): idling it could never pay the bill back. What is still owed is paid down to 0; there is
+## no debt. E2b T4.C: resumes used to be checked at the step's end, in lot order, on the stocks
+## before the step's upkeep: a 10 s step from pre_vei resumed its raising pit (lot-02) at 7 804 s,
+## ahead of the house (lot-05) whose lower threshold the gold crossed first, and about 45 s before
+## the gold, net of upkeep, reached either (7 847 s, 7 853 s).
+func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictionary:
 	var due_g := 0.0
 	var due_b := 0.0
+	var secs := {}  # lot_id -> the seconds of this step its upkeep is paid for
+	var cands: Array = []  # [lot_id, seconds into the step its hold is over], in lot order
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if b.is_empty():
@@ -716,22 +813,50 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 		if _works(b):
 			due_g += float(_defs[b["building_id"]]["upkeep_gold"])
 			due_b += float(_defs[b["building_id"]]["upkeep_bone"])
+			secs[lot_id] = dt
 		elif b["state"] == "unpaid":
-			b["unpaid_s"] = maxf(0.0, float(b["unpaid_s"]) - dt)
+			var left := float(b["unpaid_s"])
+			b["unpaid_s"] = maxf(0.0, left - dt)
+			if float(b["unpaid_s"]) <= 0.0:
+				cands.append([lot_id, maxf(0.0, left)])
 	var span := maxf(_hold_s, dt)
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or b["state"] != "unpaid" or float(b["unpaid_s"]) > 0.0:
-			continue
-		var ug := float(_defs[b["building_id"]]["upkeep_gold"])
-		var ub := float(_defs[b["building_id"]]["upkeep_bone"])
-		if gold >= (due_g + ug) * span and bone >= (due_b + ub) * span:
-			b["state"] = "active"
-			due_g += ug
-			due_b += ub
-			events.append({"type": "building_unpaid", "lot_id": lot_id, "building_id": b["building_id"], "unpaid": false})
-	var owe_g := due_g * dt
-	var owe_b := due_b * dt
+	var at := 0.0  # how far into the step the paths are solved
+	var g := gold - gold_in  # the stocks at `at`
+	var bn := bone - bone_in
+	var in_g := gold_in / dt
+	var in_b := bone_in / dt
+	while not cands.is_empty():
+		var pick := -1
+		var when := INF
+		for k in cands.size():
+			var d: Dictionary = _defs[buildings[cands[k][0]]["building_id"]]
+			var tg := _covers(g, in_g - due_g, (due_g + float(d["upkeep_gold"])) * span, at)
+			var tb := _covers(bn, in_b - due_b, (due_b + float(d["upkeep_bone"])) * span, at)
+			var lo := maxf(maxf(at, float(cands[k][1])), maxf(float(tg[0]), float(tb[0])))
+			if lo <= minf(dt, minf(float(tg[1]), float(tb[1]))) + EPS and lo < when:
+				when = lo
+				pick = k
+		if pick < 0:
+			break
+		var lot_id: String = cands[pick][0]
+		var bd: Dictionary = buildings[lot_id]
+		var ug := float(_defs[bd["building_id"]]["upkeep_gold"])
+		var ub := float(_defs[bd["building_id"]]["upkeep_bone"])
+		g += (in_g - due_g) * (when - at)
+		bn += (in_b - due_b) * (when - at)
+		at = when
+		bd["state"] = "active"
+		_mark_rooms()
+		due_g += ug
+		due_b += ub
+		secs[lot_id] = maxf(0.0, dt - when)
+		cands.remove_at(pick)
+		events.append({"type": "building_unpaid", "lot_id": lot_id, "building_id": bd["building_id"], "unpaid": false})
+	var owe_g := 0.0
+	var owe_b := 0.0
+	for lot_id in secs:
+		owe_g += float(_defs[buildings[lot_id]["building_id"]]["upkeep_gold"]) * float(secs[lot_id])
+		owe_b += float(_defs[buildings[lot_id]["building_id"]]["upkeep_bone"]) * float(secs[lot_id])
 	while gold < owe_g - EPS or bone < owe_b - EPS:
 		var short := "gold" if gold < owe_g - EPS else "bone"
 		var key := "upkeep_" + short
@@ -752,8 +877,11 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 		var pb: Dictionary = buildings[pick]
 		pb["state"] = "unpaid"
 		pb["unpaid_s"] = _hold_s
-		owe_g -= float(_defs[pb["building_id"]]["upkeep_gold"]) * dt
-		owe_b -= float(_defs[pb["building_id"]]["upkeep_bone"]) * dt
+		_mark_rooms()
+		var paid_s := float(secs.get(pick, dt))
+		owe_g -= float(_defs[pb["building_id"]]["upkeep_gold"]) * paid_s
+		owe_b -= float(_defs[pb["building_id"]]["upkeep_bone"]) * paid_s
+		secs.erase(pick)
 		events.append({"type": "building_unpaid", "lot_id": pick, "building_id": pb["building_id"], "unpaid": true})
 	var pg := clampf(owe_g, 0.0, gold)
 	var pbn := clampf(owe_b, 0.0, bone)
@@ -762,24 +890,57 @@ func _upkeep(dt: float, events: Array) -> Dictionary:
 	return {"gold": pg, "bone": pbn}
 
 
+## When a stock at `v` (`at` seconds into the step), changing at `rate`, is at least `need`:
+## [from, until] in seconds into the step, either end ±INF; from > until when never.
+static func _covers(v: float, rate: float, need: float, at: float) -> Array:
+	if v >= need:
+		return [-INF, at + (v - need) / -rate] if rate < 0.0 else [-INF, INF]
+	if rate > 0.0:
+		return [at + (need - v) / rate, INF]
+	return [INF, -INF]
+
+
 # --------------------------------------------------------- the job ladder ----
-## Workers fill job slots top-down in ladder order, buildings in lot order, each lot up to its
-## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
-## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` only.
-func _staff() -> void:
+## The order the workers fill the jobs in: `order` after stances (MECHANICS §4.5). Stances are E3;
+## until then it is `order` itself. `_staff()`, view_town's `ladder_effective` and the staffing
+## projection (STATE-API §5.16) all read it, so they apply the stances the same way.
+func effective_ladder(order: Array) -> Array:
+	return order.duplicate()
+
+
+## The staffing allocation (MECHANICS §4.5), pure on its inputs: staff_rooms() then staff_fill().
+## `_staff()` and the projection (project_staffing) both run it; nothing else fills rooms.
+static func staff_allocate(order: Array, lots: Array, buildings_in: Dictionary, defs: Dictionary, build_slots: int,
+		w: float, vats: Array) -> Dictionary:
+	return staff_fill(staff_rooms(order, lots, buildings_in, defs, build_slots, vats), w)
+
+
+## The allocation's rooms, which don't depend on the workforce. Jobs in `order` (the effective
+## ladder; an id outside JOBS or one already seen is skipped), lots in `lots` order: each lot offers
+## a job its slots (_slots_b), cut to what its staff cap leaves after the jobs above it.
+## `buildings_in` is lot_id -> {building_id, state, level, staff_cap}, `defs` the building defs,
+## `build_slots` job.build.slots. `vats` (staffed, per vat slot) opens the tend slots: one per vat,
+## open only while that vat is staffed (MECHANICS §7, tend_open). Returns {rooms: [[lot_id, job,
+## room]] in fill order, jobs: {job: slots} in order, slots: Σ room (the staffable workers),
+## tend: {lot_id: open tend slots}}.
+static func staff_rooms(order: Array, lots: Array, buildings_in: Dictionary, defs: Dictionary, build_slots: int,
+		vats: Array) -> Dictionary:
+	var tend := tend_open(lots, buildings_in, defs, vats)
 	var used := {}
 	var rooms: Array = []  # [lot_id, job, room] in fill order
 	var jobs := {}
 	var total := 0.0
-	for job in ladder:
+	for job in order:
 		if not JOBS.has(job) or jobs.has(job):
 			continue
 		var n := 0
-		for lot_id in _lots:
-			var b: Dictionary = buildings.get(lot_id, {})
+		for lot_id in lots:
+			var b: Dictionary = buildings_in.get(lot_id, {})
 			if b.is_empty():
 				continue
-			var k := _slots(b, job)
+			var k := _slots_b(b, job, defs, build_slots)
+			if job == "tend":
+				k = mini(k, int(tend.get(lot_id, 0)))
 			if k <= 0:
 				continue
 			n += k
@@ -789,48 +950,143 @@ func _staff() -> void:
 			used[lot_id] = float(used.get(lot_id, 0.0)) + room
 			rooms.append([lot_id, job, room])
 			total += room
-		jobs[job] = {"slots": n, "staffed": 0.0}
-	var left := maxf(0.0, workers)
+		jobs[job] = n
+	return {"rooms": rooms, "jobs": jobs, "slots": total, "tend": tend}
+
+
+## The vat rule (MECHANICS §7; the run's manager, E2b-2): a Chapel of Vats offers one tend slot per
+## vat (jobs.tend × level = vat_slots × level), open only while that vat is staffed. Vats are numbered
+## as view_backups numbers them: every built building's `vat_slots` at its level (unpaid and
+## mid-upgrade too, so an unpaid Chapel keeps its numbers), in lot order, then by vat within the lot.
+## Returns {lot_id: staffed vats there}, which caps the lot's tend slots (an unpaid Chapel, or a first
+## build, still offers none).
+static func tend_open(lots: Array, buildings_in: Dictionary, defs: Dictionary, vats: Array) -> Dictionary:
+	var out := {}
+	var at := 0
+	for lot_id in lots:
+		var b: Dictionary = buildings_in.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var n := int(_eff_b(b, "vat_slots", defs))
+		if n <= 0:
+			continue
+		var on := 0
+		for i in range(at, at + n):
+			if i < vats.size() and bool(vats[i]):
+				on += 1
+		out[lot_id] = on
+		at += n
+	return out
+
+
+## Fills staff_rooms()' rooms top-down with `w` workers. Returns {staffing, by_lot}: what `staffing`
+## ({jobs: {job: {slots, staffed}} in order, lots: {lot_id: staffed}, idle, slots}) and `_by_lot`
+## (lot_id -> {job: staffed}) hold.
+static func staff_fill(r: Dictionary, w: float) -> Dictionary:
+	var jobs := {}
+	var slots: Dictionary = r["jobs"]
+	for job in slots:
+		jobs[job] = {"slots": slots[job], "staffed": 0.0}
+	var left := maxf(0.0, w)
 	var lots := {}
-	_by_lot = {}
-	for e in rooms:
+	var by_lot := {}
+	for e in r["rooms"]:
 		var take := minf(float(e[2]), left)
 		left -= take
 		jobs[e[1]]["staffed"] = float(jobs[e[1]]["staffed"]) + take
 		lots[e[0]] = float(lots.get(e[0], 0.0)) + take
-		if not _by_lot.has(e[0]):
-			_by_lot[e[0]] = {}
-		_by_lot[e[0]][e[1]] = float(_by_lot[e[0]].get(e[1], 0.0)) + take
-	staffing = {"jobs": jobs, "lots": lots, "idle": left, "slots": total}
+		if not by_lot.has(e[0]):
+			by_lot[e[0]] = {}
+		by_lot[e[0]][e[1]] = float(by_lot[e[0]].get(e[1], 0.0)) + take
+	return {"staffing": {"jobs": jobs, "lots": lots, "idle": left, "slots": r["slots"]}, "by_lot": by_lot}
+
+
+## Workers fill job slots top-down in ladder order (effective_ladder), buildings in lot order, each lot up to its
+## staff cap. A working building offers jobs × level slots (one mid-upgrade too, at its old level); a constructing lot offers
+## job.build.slots build slots; unpaid buildings offer none. Rebuilds `staffing` and `_by_lot` only.
+func _staff() -> void:
+	if _rooms_dirty:
+		_rooms = staff_rooms(effective_ladder(ladder), _lots, buildings, _defs, _build_slots, _vats)
+		_rooms_dirty = false
+		_n_rooms += 1
+	var a := staff_fill(_rooms, workers)
+	_n_fills += 1
+	staffing = a["staffing"]
+	_by_lot = a["by_lot"]
+	_staffed_w = NAN
+
+
+## The rooms changed (or may have): the next _staff() rebuilds them and the next _restaff() refills.
+func _mark_rooms() -> void:
+	_rooms_dirty = true
+	_staffed_w = NAN
+	_sums_w.clear()
+	_sums_b.clear()
+
+
+## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
+## effective_ladder, as `_staff()` applies them) on today's workforce, buildings and staff caps. Pure:
+## changes nothing. `vat_override` ({slot: bool}, int slots) stands in for the staffed vats at the
+## slots it lists, opening and closing their tend slots as cmd_staff_vat would; a slot that isn't a
+## whole number from 0 to the vats there are is ignored. Returns staff_fill()'s {staffing, by_lot}.
+func project_staffing(order: Array, vat_override: Dictionary) -> Dictionary:
+	var o: Array = []
+	for j in order:
+		o.append(str(j))
+	var v: Array = _vats.duplicate()
+	var n := int(_sum_built("vat_slots"))
+	for k in vat_override:
+		if not (k is int or (k is float and is_finite(k) and float(k) == floorf(k))):
+			continue
+		var slot := int(k)
+		if slot < 0 or slot >= n:
+			continue
+		while v.size() <= slot:
+			v.append(false)
+		v[slot] = bool(vat_override[k])
+	return staff_allocate(effective_ladder(o), _lots, buildings, _defs, _build_slots, workers, v)
 
 
 ## `_staff()`, then marks working buildings that have job slots `active` (someone staffed) or
-## `idle` (nobody). A load never calls this, so a saved state comes back as it was saved.
+## `idle` (nobody). A load never calls this, so a saved state comes back as it was saved. With the
+## rooms clean and the workforce the last call filled, the staffing and the states are already what
+## this would give (a fill is pure in the two), so it returns at once: a step's first call after the
+## last step's closing one (E2b T4.P; the step used to fill twice).
 func _restaff() -> void:
+	if not _rooms_dirty and workers == _staffed_w:
+		return
 	_staff()
 	var lots: Dictionary = staffing["lots"]
 	for lot_id in buildings:
 		var b: Dictionary = buildings[lot_id]
 		if not WORKING.has(b["state"]):
 			continue
-		var has_jobs := false
-		for j in _defs[b["building_id"]]["jobs"]:
-			has_jobs = has_jobs or int(_defs[b["building_id"]]["jobs"][j]) > 0
-		b["state"] = "active" if not has_jobs or float(lots.get(lot_id, 0.0)) > 0.0 else "idle"
+		b["state"] = "active" if not bool(_defs[b["building_id"]]["has_jobs"]) or float(lots.get(lot_id, 0.0)) > 0.0 else "idle"
+	_staffed_w = workers
 
 
 ## A building at work: built and paid, or built and mid-upgrade (it keeps working at its old level
 ## until the upgrade completes; a first build, level 0, never works).
 func _works(b: Dictionary) -> bool:
+	return _works_b(b)
+
+
+static func _works_b(b: Dictionary) -> bool:
 	return WORKING.has(b["state"]) or (b["state"] == "constructing" and int(b["level"]) >= 1)
 
 
 func _slots(b: Dictionary, job: String) -> int:
+	return _slots_b(b, job, _defs, _build_slots)
+
+
+## The slots a building offers a job (MECHANICS §4.2): its def's jobs × level while it works,
+## job.build.slots build slots while it is constructing, none while unpaid.
+static func _slots_b(b: Dictionary, job: String, defs: Dictionary, build_slots: int) -> int:
 	if job == "build":
-		return _build_slots if b["state"] == "constructing" else 0
-	if not _works(b):
+		return build_slots if b["state"] == "constructing" else 0
+	if not _works_b(b):
 		return 0
-	return int(_defs[b["building_id"]]["jobs"].get(job, 0)) * int(b["level"])
+	return int(defs[b["building_id"]]["jobs"].get(job, 0)) * int(b["level"])
 
 
 func _job(job: String) -> float:
@@ -841,8 +1097,12 @@ func _job(job: String) -> float:
 ## A building's numeric effect at its level: a number is per level (× level); an Array is a
 ## per-level table (index level − 1). 0 before the first build completes.
 func _eff(b: Dictionary, key: String) -> float:
+	return _eff_b(b, key, _defs)
+
+
+static func _eff_b(b: Dictionary, key: String, defs: Dictionary) -> float:
 	var lv := int(b["level"])
-	var v: Variant = _defs[b["building_id"]]["effects"].get(key, null)
+	var v: Variant = defs[b["building_id"]]["effects"].get(key, null)
 	if v == null or lv <= 0:
 		return 0.0
 	if v is Array:
@@ -851,21 +1111,27 @@ func _eff(b: Dictionary, key: String) -> float:
 
 
 func _sum_working(key: String) -> float:
+	if _sums_w.has(key):
+		return _sums_w[key]
 	var s := 0.0
 	for lot_id in _lots:
 		var b: Dictionary = buildings.get(lot_id, {})
 		if not b.is_empty() and _works(b):
 			s += _eff(b, key)
+	_sums_w[key] = s
 	return s
 
 
 ## Capacity effects count for every built level, unpaid or mid-upgrade too, so an unpaid spell
 ## never destroys stock.
 func _sum_built(key: String) -> float:
+	if _sums_b.has(key):
+		return _sums_b[key]
 	var s := 0.0
 	for lot_id in _lots:
 		if buildings.has(lot_id):
 			s += _eff(buildings[lot_id], key)
+	_sums_b[key] = s
 	return s
 
 
@@ -878,13 +1144,16 @@ func pits() -> int:
 	return int(_sum_working("pits"))
 
 
-## The job slots a lot offers now (build slots while constructing, none while unpaid); 0 when empty.
+## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
+## slots only for its staffed vats); 0 when empty.
 func lot_slots(lot_id: String) -> int:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var n := 0
 	if not b.is_empty():
+		var tend := tend_open(_lots, buildings, _defs, _vats)
 		for job in JOBS:
-			n += _slots(b, job)
+			var k := _slots(b, job)
+			n += mini(k, int(tend.get(lot_id, 0))) if job == "tend" else k
 	return n
 
 
@@ -995,6 +1264,8 @@ func from_dict(d: Dictionary) -> void:
 	morale = float(d.get("morale", _morale_base))
 	shock = float(d.get("shock", 0.0))
 	buildings = {}
+	_vats = []  # GameState sets the loaded vats right after (set_vats(..., true))
+	_mark_rooms()
 	for e in d.get("buildings", []):
 		var lot_id := str(e.get("lot_id", ""))
 		var bid := str(e.get("building_id", ""))

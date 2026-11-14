@@ -35,7 +35,37 @@ extends RefCounted
 ##   redirect_rate: float  mass/s she raises there, bounded by the fort's dead
 ##   siege_block: Dictionary  fort_id -> fraction 0..1 of a tithe surge a siege cancels there (E3)
 
+## Every realm.json key RealmSim reads, as "key" or "section.key" paths. setup() reads them once into
+## the members below (no defaults in the code: the numbers live in the config alone), and
+## tests/test_game_state_configs.gd asserts each one is present. `t` keeps the whole config for
+## readers outside (tests); nothing changes it after setup().
+const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei", "vei_pool_cap", "K", "covFalloff",
+	"veiPolicy", "start_living_frac", "tithe.period_s", "tithe.backlog_scale", "tithe.warning_s", "tithe.surge_s",
+	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s"]
+
 var t := {}
+# ---- tunables, read once in setup() from REQUIRED (E2b T4.P: they were read per fort per step) ----
+var _k_kill := 0.0
+var _k_destroy := 0.0
+var _k_clear := 0.0
+var _r_drain := 0.0
+var _R_vei := 0.0
+var _S_vei := 0.0
+var _pool_cap := 0.0
+var _K := 0.0
+var _falloff := 0.0
+var _policy := ""
+var _period_s := 0.0
+var _backlog_scale := 0.0
+var _warning_s := 0.0
+var _surge_s := 0.0
+var _surge_mult_t := 0.0
+var _relish_mult := 0.0
+var _march := 0.0  # tithe.march_back_s, kept above 0
+## _load calls a step made and skipped (a bound showed the room it computes can't cut the give), for
+## tests (not saved).
+var _n_load := 0
+var _n_load_skipped := 0
 var forts: Array = []
 ## Kept for the save shape: `undead` is always 0 (WAR leaves in the step it arrives); `r_out` is the
 ## mass/s Covington sent into the realm last step (WAR + FLOOD).
@@ -105,6 +135,13 @@ var _lt := -1.0
 var _lb := 0.0
 var _bx := 0.0
 var _bi := 0.0
+# the dispatch's scratch (step 3, read at step 2's end): per fort, WAR filled it (_filled) and the
+# most Vei ships it then (_fill_cap, mass this step); the water-filling's targets at their limit and
+# the WAR it left over
+var _filled: Array[bool] = []
+var _fill_cap: Array[float] = []
+var _capped: Array[bool] = []
+var _water_left := 0.0
 
 
 ## Fort dict rates, all mass/s over the last step:
@@ -117,6 +154,24 @@ var _bi := 0.0
 ## Plus held_s (seconds of hold left) and held (held_s > 0).
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
+	_k_kill = _tf("k_kill")
+	_k_destroy = _tf("k_destroy")
+	_k_clear = _tf("k_clear")
+	_r_drain = _tf("r_drain")
+	_R_vei = _tf("R_vei")
+	_S_vei = _tf("S_vei")
+	_pool_cap = _tf("vei_pool_cap")
+	_K = _tf("K")
+	_falloff = _tf("covFalloff")
+	_policy = str(_tv("veiPolicy"))
+	_period_s = _tf("tithe.period_s")
+	_backlog_scale = _tf("tithe.backlog_scale")
+	_warning_s = _tf("tithe.warning_s")
+	_surge_s = _tf("tithe.surge_s")
+	_surge_mult_t = _tf("tithe.surge_mult")
+	_relish_mult = _tf("tithe.relish_mult")
+	_march = maxf(1e-6, _tf("tithe.march_back_s"))
+	var start_frac := _tf("start_living_frac")
 	cov_pos = _vec(world.get("covington", {}).get("pos", [1780, 1270]))
 	vei_pos = _vec(world.get("vei", {}).get("pos", [1024, 130]))
 	forts = []
@@ -125,13 +180,30 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 		forts.append({
 			"id": f.get("id", ""), "name": f.get("name", "?"), "desc": f.get("desc", ""),
 			"pos": _vec(f.get("pos", [0, 0])), "tier": int(f.get("tier", 1)), "cap": cap,
-			"living": float(f.get("living", cap * float(t.get("start_living_frac", 0.85)))),
+			"living": float(f.get("living", cap * start_frac)),
 			"dead": float(f.get("dead", 0.0)), "undead": float(f.get("undead", 0.0)),
 			"held_s": 0.0, "held": false,
 			"r_in": 0.0, "r_drain": 0.0, "r_shipped": 0.0, "r_dead_out": 0.0, "r_raised": 0.0,
 			"r_staged": 0.0, "r_redirected": 0.0, "r_kills": 0.0, "r_surge": 0.0,
 		})
 	tithe = _tithe_idle()
+
+
+## The tunable at a REQUIRED path in `t`. A missing one is reported loudly and reads as null.
+func _tv(path: String) -> Variant:
+	assert(REQUIRED.has(path), "RealmSim reads %s; add it to REQUIRED" % path)
+	var v: Variant = t
+	for k in path.split("."):
+		if not (v is Dictionary and (v as Dictionary).has(k)):
+			push_error("RealmSim: realm.json %s is missing" % path)
+			return null
+		v = v[k]
+	return v
+
+
+func _tf(path: String) -> float:
+	var v: Variant = _tv(path)
+	return float(v) if v is float or v is int else 0.0
 
 
 static func _vec(a) -> Vector2:
@@ -184,18 +256,12 @@ func drain_events() -> Array:
 ## Vei's odds now: backlog / (backlog + K).
 func odds() -> float:
 	var b: float = vei["undead_queue"]
-	return b / (b + float(t.get("K", 12000.0)))
-
-
-func _tcfg() -> Dictionary:
-	var d: Variant = t.get("tithe", {})
-	return d if d is Dictionary else {}
+	return b / (b + _K)
 
 
 ## The tithe interval when it is scheduled: period_s · (1 − backlog_scale · odds), never below 0.
 func tithe_period() -> float:
-	var tc := _tcfg()
-	return float(tc.get("period_s", 420.0)) * maxf(0.0, 1.0 - float(tc.get("backlog_scale", 0.5)) * odds())
+	return _period_s * maxf(0.0, 1.0 - _backlog_scale * odds())
 
 
 static func _tithe_idle() -> Dictionary:
@@ -258,7 +324,7 @@ func _tithe_entry(e: Variant, floats: Array) -> Dictionary:
 ## WAR's dispatch weight for a fort: 1/(dist/100)^covFalloff, times the tide at the tide fort.
 func _war_weight(f: Dictionary, tide_fort: String, tide_bias: float) -> float:
 	var d := maxf(1e-3, cov_pos.distance_to(f["pos"]) / 100.0)
-	var w := 1.0 / pow(d, float(t.get("covFalloff", 1.0)))
+	var w := 1.0 / pow(d, _falloff)
 	return w * tide_bias if f["id"] == tide_fort else w
 
 
@@ -319,16 +385,14 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# dispatch (step 3) reads the living arriving, so shipping is planned on the load before WAR
 	# (`load`, the garrison's pull read from the living now), then each give is cut to the room this
 	# step's WAR leaves; what that cuts stays in her pool.
-	var load: Array[float] = []
 	var raise_in: Array[float] = []
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		raise_in.append(minf(want_r[i], float(f["dead"]) * inv))  # the raises, as far as the corpses now cover them
-		load.append(_load(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), q, 1))
 	var sum_cap := 0.0
 	for f in forts:
 		sum_cap += float(f["cap"])
-	var per_cap: float = float(t.get("S_vei", 8.0)) * dt / sum_cap if sum_cap > 0.0 else 0.0
+	var per_cap: float = _S_vei * dt / sum_cap if sum_cap > 0.0 else 0.0
 	vei["undead_queue"] += flood * dt  # FLOOD (step 4) counts toward what she can make
 	_plan = _make(dt, q, INF, false)
 	var avail: float = vei["living_pool"] + float(_plan["made"])
@@ -347,8 +411,13 @@ func step(dt: float, inputs: Dictionary) -> void:
 		var f: Dictionary = forts[i]
 		var g := 0.0
 		if not held.has(f["id"]):
-			var room: float = maxf(0.0, f["cap"] - load[i] - (surge_amt if i == surge_fort else 0.0))
-			g = minf(room, per_cap * float(f["cap"]))
+			# the load (the 1-pass _load) is read only where the room could be under the share (_load_cuts);
+			# a held fort's is never needed
+			var share: float = per_cap * float(f["cap"])
+			var s_i: float = surge_amt if i == surge_fort else 0.0
+			g = share
+			if _load_cuts(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), s_i, share):
+				g = minf(maxf(0.0, f["cap"] - _load(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), q, 1) - s_i), share)
 		gives.append(g)
 		want += g
 	var scale: float = minf(1.0, avail / want) if want > 0.0 else 0.0
@@ -360,16 +429,19 @@ func step(dt: float, inputs: Dictionary) -> void:
 
 	# ---- 3. WAR dispatch (a rate over the step): forts with living, or living arriving, and every
 	# held fort; else Vei
-	var war_in := _dispatch(war, dt, held, arriving, surge_fort, tide_fort, tide_bias)
+	var war_in := _dispatch(war, dt, held, arriving, surge_fort, tide_fort, tide_bias, want_r)
 	# (step 2's end) this step's WAR takes its room: each give is cut to cap less the load with WAR
 	# and the garrison's pull solved as fort_step solves it, without her living (which only adds to
-	# the pull). A fort with no living already took at most the WAR that leaves its give room
-	# (_fill_rate).
+	# the pull). A fort WAR filled (no living, at its fill rate: _filled) took exactly the WAR that
+	# leaves room for its give, so the load doesn't cut its give (it leaves out the raise of the
+	# living Vei ships in, which the fill counts); only what its undead kill does (_fill_cap).
 	var given := 0.0
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		var s_i: float = surge_amt if i == surge_fort else 0.0
-		if gives[i] > 0.0:
+		if gives[i] > 0.0 and _filled[i]:
+			gives[i] = minf(gives[i], _fill_cap[i])
+		elif gives[i] > 0.0 and _load_cuts(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), s_i, gives[i]):
 			gives[i] = minf(gives[i], maxf(0.0, f["cap"] - _load(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), q, 4) - s_i))
 		arriving[i] = gives[i] + s_i
 		f["r_surge"] = s_i * inv
@@ -452,31 +524,66 @@ func step(dt: float, inputs: Dictionary) -> void:
 
 
 ## A fort's load at the step's end without Vei's living (step 2's room): its living and corpses
-## now (kills move living to corpses), less the corpses raised (`raise_in` mass/s), plus its
-## undead's path over the step with `w_in` mass/s of WAR and the raises arriving, under the drain
-## and the garrison's pull k_destroy · L̄ / q. What the garrison destroys leaves for Vei, or stays
-## as corpses where `keep`; clearing isn't counted (it only frees room). L̄ is the living's mean
-## with nothing shipped in: `passes` 1 reads it as the living now (the predictor), 4 alternates the
-## two paths as fort_step does (a predictor and two corrections, then U's path). Shipping only adds
-## living, so the real pull is at least that and the real load at most this (at a `keep` fort, up
-## to the drain that pull's extra kills skip). The march-back isn't subtracted: with nothing shipped
-## in it only runs from living above the cap, and it never takes them below it, so such a fort has
-## no room either way. Overwrites the paths' scratch.
+## now (kills move living to corpses), plus its undead's path over the step with `w_in` mass/s of
+## WAR and the raises (`raise_in` mass/s) arriving, under the drain and the garrison's pull
+## k_destroy · L̄ / q, less the corpses that leave: the clearing k_clear · L̄ · dt and the raises,
+## together at most the corpses there (those now, the kills of the living's path and, where
+## `keep`, what the garrison destroys, which otherwise leaves for Vei). L̄ is the living's mean with
+## nothing shipped in: `passes` 1 reads the pull from the living now (the predictor), 4 alternates
+## the two paths as fort_step does (a predictor and two corrections, then U's path). Shipping only
+## adds living, so the real pull and clearing are at least these and the real load at most this
+## (at a `keep` fort, up to the drain that pull's extra kills skip). The march-back isn't
+## subtracted: with nothing shipped in it only runs from living above the cap, and it never takes
+## them below it, so such a fort has no room either way. Overwrites the paths' scratch.
+## E2b T4.C: the clearing used to be left out ("it only frees room"), so a fort whose room came
+## from its clearing took one step's clearing less at every step; at 15 s that cut Ashgate's
+## shipping from 0.206 to 0.038/s for a step (midgame_2flips, t 510 s), the seed of its early fall.
 func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q: float, passes: int) -> float:
-	var k_kill := float(t.get("k_kill", 0.018))
-	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
-	var r := float(t.get("r_drain", 0.06))
+	_n_load += 1
+	var k_kill := _k_kill
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_clear := _k_clear
+	var r := _r_drain
 	var cap := float(f["cap"])
 	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
 	var u0 := maxf(0.0, float(f["undead"]))
+	var d0 := maxf(0.0, float(f["dead"]))
 	var lm := l0
 	for p in passes:
 		_u_path(dt, u0, w_in + raise_in, k_dq * lm, r)
 		if p < passes - 1:
 			_l_path(dt, l0, 0.0, k_kill * _um, cap, tau)
 			lm = _lm
-	return l0 + maxf(0.0, float(f["dead"])) - raise_in * dt + _ue + (_ud if keep else 0.0)
+	var ud := _ud if keep else 0.0
+	if passes <= 1:
+		_l_path(dt, l0, 0.0, k_kill * _um, cap, tau)  # the clearing reads the living's mean
+	var dead := d0 + maxf(0.0, l0 - _le - _lb) + ud
+	var gone := minf(dead, (k_clear * _lm + raise_in) * dt)
+	return l0 + d0 + _ue + ud - gone
+
+
+## Whether _load(f, dt, w_in, raise_in, keep, ·, ·) could leave a room under `give` (cap − load − s_i
+## < give). False when a cheap upper bound on the load already leaves `give` room: the caller then
+## skips _load and keeps `give`, bit for bit (min(give, a room ≥ give) is `give`). The bound leaves
+## out what only lowers the load: the garrison's pull (it only lowers U's path, which without it is
+## U0 · e^(−r·dt) + (inflow / r)(1 − e^(−r·dt))) and the corpses that leave; where `keep`, what the
+## garrison destroys stays as corpses, so U's end plus that is at most U0 + inflow · dt. A relative
+## margin of 1e-9 covers the paths' rounding. E2b T4.P (M4).
+func _load_cuts(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, s_i: float, give: float) -> bool:
+	var l0 := maxf(0.0, float(f["living"]))
+	var u0 := maxf(0.0, float(f["undead"]))
+	var d0 := maxf(0.0, float(f["dead"]))
+	var a := w_in + raise_in
+	var u_hi := u0 + a * dt
+	if _r_drain * dt > 1e-9 and not keep:
+		var e := exp(-_r_drain * dt)
+		u_hi = u0 * e + (a / _r_drain) * (1.0 - e)
+	var hi := (l0 + d0 + u_hi) * (1.0 + 1e-9) + 1e-9
+	if float(f["cap"]) - hi - s_i >= give:
+		_n_load_skipped += 1
+		return false
+	return true
 
 
 ## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
@@ -499,10 +606,10 @@ func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q
 ## t_living_out / t_undead_out: seconds into the step when that pool reached 0 (0 when it started
 ## there), −1 when it did not. Natural event boundaries (IDLE §4); read by nothing yet.
 func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
-	var k_kill := float(t.get("k_kill", 0.018))
-	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
-	var k_clear := float(t.get("k_clear", 0.0))
-	var r := float(t.get("r_drain", 0.06))
+	var k_kill := _k_kill
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_clear := _k_clear
+	var r := _r_drain
 	var cap := float(f["cap"])
 	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
@@ -563,7 +670,7 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 
 ## tithe.march_back_s, the march-back's time constant τ (MECHANICS §3.4); kept above 0.
 func _march_s() -> float:
-	return maxf(1e-6, float(_tcfg().get("march_back_s", 60.0)))
+	return _march
 
 
 ## Living over a step (MECHANICS §3.1 step 5, §3.4): L' = c − max(0, L − cap) / tau with
@@ -687,28 +794,60 @@ func _retaken(f: Dictionary, cause: String) -> void:
 	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause})
 
 
-## The WAR rate (mass/s) that brings a fort without living to full by the step's end: undead drain
-## while they arrive, so U_end = U0 · e^(−r·dt) + (w / r)(1 − e^(−r·dt)) is set to cap − D − what
-## Vei ships in (killed on arrival, it ends as corpses). Never below 0.
-func _fill_rate(f: Dictionary, dt: float, shipped: float) -> float:
-	var r := float(t.get("r_drain", 0.06))
-	var target: float = float(f["cap"]) - float(f["dead"]) - shipped
+## The raises at a fort without living over a step, mass/s: `want` (Relish's and the simulacra's,
+## raise_at) as far as its corpses cover it, those now plus `shipped` (Vei's living, killed on
+## arrival). 0 where nobody raises.
+static func _raise_rate(f: Dictionary, dt: float, want: float, shipped: float) -> float:
+	if not (want > 0.0):
+		return 0.0
+	return minf(want, (maxf(0.0, float(f["dead"])) + shipped) / dt)
+
+
+## What flows into the undead of a fort without living (WAR plus the raises `rho`, mass/s) to bring
+## it to full by the step's end, before the floor at 0: undead drain while they arrive, so
+## U_end = U0 · e^(−r·dt) + (inflow / r)(1 − e^(−r·dt)) is set to cap − the corpses at the end,
+## D − rho · dt + what Vei ships in (killed on arrival, it ends as corpses).
+func _fill_inflow(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
+	var r := _r_drain
+	var target: float = float(f["cap"]) - (float(f["dead"]) - rho * dt) - shipped
 	if r * dt <= 1e-9:
-		return maxf(0.0, target - float(f["undead"])) / dt
+		return (target - float(f["undead"])) / dt
 	var e := exp(-r * dt)
-	return maxf(0.0, r * (target - float(f["undead"]) * e) / (1.0 - e))
+	return r * (target - float(f["undead"]) * e) / (1.0 - e)
+
+
+## The WAR rate (mass/s) that brings a fort without living to full by the step's end, with `rho`
+## mass/s raised into its undead (_fill_inflow less the raises). Never below 0. E2b T4.C (M1): the
+## raises used to be left out, so at a fort where Relish raises the step ended short of the cap by
+## rho · (dt − (1 − e^(−r·dt)) / r) and that WAR went elsewhere (1.05 of Ashgate's 80 at 15 s with
+## Relish there in pre_vei, 0.002 at 0.5 s; 20 at 15 s with rho at her 4/s).
+func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
+	return maxf(0.0, _fill_inflow(f, dt, shipped, rho) - rho)
 
 
 ## Step 3. `war` is WAR mass/s this step. The forts with living (or living arriving this step: Vei's
 ## shipping or a surge) and every held fort (as staging) take it by weight, a fort counted once
 ## however many reasons it has. A fort whose only living is Vei's shipping (no living now, no
-## surge, not held) takes at most what fills it by the step's end (_fill_rate): WAR it can't
-## take goes to the other targets by weight, and to Vei's undead queue when every target is full
-## or there is none. That is the continuous version of a full fort flickering in and out of the
-## targets as its drain opens room, so the split doesn't depend on the step. Sets each fort's
-## r_in (staging included) and r_staged, r_war_to_vei and war_route; returns each fort's WAR rate.
+## surge, not held) takes at most what fills it by the step's end (_fill_rate, with the raises
+## `want_r` there): WAR it can't take goes to the other targets by weight, and to Vei's undead
+## queue when every target is full or there is none. That is the continuous version of a full fort
+## flickering in and out of the targets as its drain opens room, so the split doesn't depend on the
+## step. Sets each fort's r_in (staging included) and r_staged, r_war_to_vei and war_route, and
+## _filled and _fill_cap (step 2's end reads them); returns each fort's WAR rate.
+##
+## A fort WAR fills (it takes its fill rate) takes from Vei only the living its undead kill over
+## the step (_fill_cap), and WAR fills the room the rest would have taken. More would leave it a
+## sliver of living, and a fort with living takes its whole weight's share with no limit, so the
+## next step would pour that share into it (E2b T4.C: pre_vei with no haulers, every fort full of
+## corpses, Vei's drain-room shipping outran the few undead's kills, since r_drain > k_kill, and a
+## fort with 0.04 living took all 32.7/s of WAR for a whole step, a burst that scaled with dt; the
+## forts' undead didn't converge: 56% between 0.25 and 0.5 s). With WAR to spare that is what the
+## rules do in continuous time: the moment living appear the WAR pours in, the room closes and
+## they die, so the fort stays at 0 living and full, its kills taking Vei's living. A fort WAR
+## doesn't fill (too little WAR) keeps her living, as before; whether it fills is judged on the give
+## cut to the kills (below).
 func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], surge_fort: int,
-		tide_fort: String, tide_bias: float) -> Array[float]:
+		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:
 	var n := forts.size()
 	var weights: Array[float] = []
 	var limits: Array[float] = []
@@ -720,16 +859,66 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 		var w := _war_weight(f, tide_fort, tide_bias) if live or held.has(f["id"]) else 0.0
 		var lim := INF
 		if w > 0.0 and not held.has(f["id"]) and not (f["living"] > 0.0) and i != surge_fort:
-			lim = _fill_rate(f, dt, arriving[i])
+			lim = _fill_rate(f, dt, arriving[i], _raise_rate(f, dt, want_r[i], arriving[i]))
 		any_target = any_target or w > 0.0
 		any_living = any_living or (live and w > 0.0)
 		weights.append(w)
 		limits.append(lim)
 		f["r_in"] = 0.0
 		f["r_staged"] = 0.0
+	var rates := _water(war, weights, limits)
+	# a filled fort whose undead can't kill what Vei ships in takes only what they kill: K, from U's
+	# path under the least inflow any smaller give leaves it (with no living there is no pull), so
+	# the give, cut to K, is killed whole. Its fill then rises and the second water-filling re-splits.
+	# Raising a limit only lowers the others' shares, so no fort fills that didn't, but one can stop
+	# filling: this fort, when its share lies between its old limit and its new one, or another whose
+	# share fell. That fort isn't _filled: it takes her give into the room its WAR leaves (the load
+	# cut) and gathers living, as one with too little WAR does. Over 12 h from the three starts at 0.5,
+	# 10 and 15 s it happened once (another fort, pre_vei at 15 s), and that fort ended with no living
+	_fill_cap = []
+	_fill_cap.resize(n)
+	_fill_cap.fill(INF)
+	var k_kill := _k_kill
+	var r := _r_drain
+	var slid := false
+	for i in n:
+		if not (limits[i] < INF and _capped[i] and arriving[i] > 0.0):
+			continue
+		var f: Dictionary = forts[i]
+		var s0: float = arriving[i]
+		var least := maxf(_raise_rate(f, dt, want_r[i], 0.0), _fill_inflow(f, dt, s0, _raise_rate(f, dt, want_r[i], s0)))
+		_u_path(dt, maxf(0.0, float(f["undead"])), maxf(0.0, least), 0.0, r)
+		var kill := k_kill * _um * dt * (1.0 - 1e-9)
+		if kill < s0:
+			_fill_cap[i] = kill
+			limits[i] = _fill_rate(f, dt, kill, _raise_rate(f, dt, want_r[i], kill))
+			slid = true
+	if slid:
+		rates = _water(war, weights, limits)
+	_filled = []
+	_filled.resize(n)
+	for i in n:
+		_filled[i] = limits[i] < INF and _capped[i]
+	var left := _water_left
+	for i in n:
+		forts[i]["r_in"] = rates[i]
+		if held.has(forts[i]["id"]):
+			forts[i]["r_staged"] = rates[i]
+	war_route = ("forts" if any_living else "staged") if any_target else "vei"
+	vei["undead_queue"] += left * dt
+	r_war_to_vei = left
+	return rates
+
+
+## Water-filling: each target (weight > 0) takes its weight's share of `war` mass/s, at most its
+## limit; what a target over its limit can't take is re-split by weight over the rest. Returns the
+## rates; sets _capped (the target took its limit) and _water_left (what no target took).
+func _water(war: float, weights: Array[float], limits: Array[float]) -> Array[float]:
+	var n := weights.size()
 	var rates: Array[float] = []
 	rates.resize(n)
-	# water-filling: a target over its limit takes its limit; the rest re-split by weight
+	_capped = []
+	_capped.resize(n)
 	var left := war
 	var open := weights.duplicate()
 	for _pass in n + 1:
@@ -745,6 +934,7 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 				rates[i] += take
 				left -= take
 				open[i] = 0.0
+				_capped[i] = true
 				capped = true
 		if capped:
 			continue
@@ -752,14 +942,7 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 			if open[i] > 0.0:
 				rates[i] += left * open[i] / total
 		left = 0.0
-	left = maxf(0.0, left)
-	for i in n:
-		forts[i]["r_in"] = rates[i]
-		if held.has(forts[i]["id"]):
-			forts[i]["r_staged"] = rates[i]
-	war_route = ("forts" if any_living else "staged") if any_target else "vei"
-	vei["undead_queue"] += left * dt
-	r_war_to_vei = left
+	_water_left = maxf(0.0, left)
 	return rates
 
 
@@ -774,8 +957,8 @@ func _make(dt: float, q: float, headroom: float, apply: bool) -> Dictionary:
 	var uq: float = vei["undead_queue"]
 	var dq: float = vei["dead_queue"]
 	if headroom > 0.0:
-		var cap_units: float = float(t.get("R_vei", 50.0)) * dt
-		var policy: String = str(t.get("veiPolicy", "cheap"))
+		var cap_units: float = _R_vei * dt
+		var policy: String = _policy
 		if policy == "proportional":
 			var tot_q: float = uq * q + dq
 			var frac: float = uq * q / tot_q if tot_q > 0.0 else 1.0
@@ -815,7 +998,7 @@ func _make(dt: float, q: float, headroom: float, apply: bool) -> Dictionary:
 ## policy that would now pick less mass (undead first at q > 1) takes that plan instead, scaled to
 ## the headroom.
 func _convert(dt: float, inv: float, q: float) -> void:
-	var pool_cap := float(t.get("vei_pool_cap", 600.0))
+	var pool_cap := _pool_cap
 	pool_overflow = maxf(0.0, vei["living_pool"] - pool_cap)  # the march-back that found no room
 	vei["living_pool"] -= pool_overflow
 	var headroom: float = pool_cap - vei["living_pool"]
@@ -845,7 +1028,6 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 	if not bool(tithe.get("started", false)):
 		_wave_run = dt  # (a saved wave with the clock stopped counts down as before)
 		return {}
-	var tc := _tcfg()
 	tithe["next_s"] = float(tithe["next_s"]) - dt
 	var w: Dictionary = tithe["warning"]
 	if w.is_empty() and tithe["next_s"] <= 0.0:
@@ -859,13 +1041,13 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 				_end_wave()  # only when a period is shorter than a wave
 			var fid: String = w["fort_id"]
 			var block := _siege_at(siege, fid)
-			var duration := float(tc.get("surge_s", 40.0))
+			var duration := _surge_s
 			var mult := _surge_mult(fid, relish_fort, block)
 			tithe["wave"] = {"wave_id": w["wave_id"], "fort_id": fid, "s_left": duration, "duration_s": duration,
 				"mult": mult, "delivered": 0.0}
 			tithe["warning"] = {}
 			events.append({"type": "tithe_wave", "wave_id": w["wave_id"], "fort_id": fid,
-				"surge": mult * float(t.get("S_vei", 8.0)), "duration_s": duration,
+				"surge": mult * _S_vei, "duration_s": duration,
 				"relish_here": relish_fort == fid, "siege_block": block})
 		tithe["next_s"] = float(tithe["next_s"]) + tithe_period()
 	var wv: Dictionary = tithe["wave"]
@@ -876,7 +1058,7 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 		return {}
 	var mult := _surge_mult(wv["fort_id"], relish_fort, _siege_at(siege, wv["fort_id"]))
 	wv["mult"] = mult
-	return {"fort_id": wv["fort_id"], "want": mult * float(t.get("S_vei", 8.0)) * _wave_run}
+	return {"fort_id": wv["fort_id"], "want": mult * _S_vei * _wave_run}
 
 
 ## The warning, once the clock is within `warning_s` of the wave: the target (_tithe_target, which
@@ -884,13 +1066,12 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 func _tithe_warn() -> void:
 	if not bool(tithe.get("started", false)) or not (tithe["warning"] as Dictionary).is_empty():
 		return
-	var tc := _tcfg()
-	if float(tithe["next_s"]) > float(tc.get("warning_s", 150.0)):
+	if float(tithe["next_s"]) > _warning_s:
 		return
 	var target := _tithe_target()
 	if target == "":
 		return
-	var base: float = float(tc.get("surge_mult", 3.0)) * float(t.get("S_vei", 8.0))
+	var base: float = _surge_mult_t * _S_vei
 	var w := {"wave_id": int(tithe["next_id"]), "fort_id": target, "eta_s": maxf(0.0, tithe["next_s"]), "surge": base}
 	tithe["warning"] = w
 	tithe["next_id"] = int(tithe["next_id"]) + 1
@@ -917,8 +1098,8 @@ static func _siege_at(siege: Dictionary, fort_id: String) -> float:
 
 ## surge_mult × the counters: × tithe.relish_mult (halved) where Relish stands, less the siege's share.
 func _surge_mult(fort_id: String, relish_fort: String, block: float) -> float:
-	var m := float(_tcfg().get("surge_mult", 3.0)) * (1.0 - block)
-	return m * float(_tcfg().get("relish_mult", 0.5)) if relish_fort == fort_id else m
+	var m := _surge_mult_t * (1.0 - block)
+	return m * _relish_mult if relish_fort == fort_id else m
 
 
 ## The wave ends: a held fort it overwhelmed (delivered > the undead there now) is retaken.
@@ -953,8 +1134,8 @@ func readout() -> Dictionary:
 	var inflow: float = vei["r_in_undead"]
 	var cap_undead: float = r_cap_undead
 	if cap_undead < 0.0:
-		cap_undead = float(t.get("R_vei", 50.0)) / q
-		if vei["living_pool"] >= float(t.get("vei_pool_cap", 600.0)):
+		cap_undead = _R_vei / q
+		if vei["living_pool"] >= _pool_cap:
 			cap_undead = 0.0
 	var massed: float = vei["undead_queue"]
 	return {

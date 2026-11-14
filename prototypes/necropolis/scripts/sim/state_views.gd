@@ -249,17 +249,13 @@ static func town(gs: GameState) -> Dictionary:
 			"staffed": float(staffed.get(lot_id, 0.0)), "staff_cap": int(b["staff_cap"]),
 			"foreman": gs._foreman_of(lot_id), "output": ts.lot_output(lot_id, p_per_pit, haul_rate), "upkeep": BuildRules.upkeep_of(gs, bid),
 		})
-	var jobs: Array = []
-	var by_job: Dictionary = ts.staffing.get("jobs", {})
-	for job in ts.ladder:
-		var js: Dictionary = by_job.get(job, {})
-		if int(js.get("slots", 0)) > 0:
-			jobs.append({"id": str(job), "slots": int(js["slots"]), "staffed": float(js["staffed"])})
+	var effective := ts.effective_ladder(ts.ladder)
+	var jobs := job_rows(effective, ts.staffing.get("jobs", {}))
 	var r: Dictionary = ts.rates
 	var w: Dictionary = r["workers"]
 	return {
 		"rev": gs.rev, "tier": gs.town_tier, "next_tier": BuildRules.next_tier(gs), "lots": lots, "buildings": buildings,
-		"ladder": ts.ladder.duplicate(), "ladder_effective": ts.ladder.duplicate(), "jobs": jobs,
+		"ladder": ts.ladder.duplicate(), "ladder_effective": effective, "jobs": jobs,
 		"workers": {
 			"total": ts.workers, "idle": float(ts.staffing.get("idle", 0.0)), "in": float(w["in"]), "rot": float(w["rot"]),
 			"muster": float(w["muster"]), "steady": gs._workers_steady(),
@@ -272,6 +268,40 @@ static func town(gs: GameState) -> Dictionary:
 		"haul": {"target": gs.haul_target, "current": str(ts.haul["current"]), "convoys": convoys(gs)},
 		"relish_home": gs.relish["state"] == "home",
 	}
+
+
+## view_town's and the projection's `jobs`: the jobs with slots, in `order` (an effective ladder), from
+## a staffing's {job: {slots, staffed}}.
+static func job_rows(order: Array, by_job: Dictionary) -> Array:
+	var jobs: Array = []
+	for job in order:
+		var js: Dictionary = by_job.get(job, {})
+		if int(js.get("slots", 0)) > 0:
+			jobs.append({"id": str(job), "slots": int(js["slots"]), "staffed": float(js["staffed"])})
+	return jobs
+
+
+## §5.16 · E2b (api_version 5, api-request #16): TownSim's staffing allocation (TownSim.staff_allocate,
+## the one `_restaff` runs) on today's workforce, buildings and staff caps, with the job order replaced
+## by `order` and `vats` overriding the staffed vats. Pure: nothing changes and `rev` stays. `jobs` lists
+## the jobs with slots in the effective order of `order`, as view_town lists them in ladder_effective
+## order; `buildings` every built lot (BuildRules.built_lots, view_town's order). An `order`
+## cmd_set_job_priority would refuse returns its reason, with empty jobs and buildings and idle 0.0.
+static func staffing_projection(gs: GameState, order: Array, vats: Dictionary) -> Dictionary:
+	var why := gs._job_order_reason(order)
+	if why != "":
+		return {"rev": gs.rev, "jobs": [], "buildings": [], "idle": 0.0, "reason": why}
+	var ts := gs.town_sim
+	var o: Array = []
+	for j in order:
+		o.append(str(j))
+	var st: Dictionary = ts.project_staffing(o, vats)["staffing"]
+	var lots: Dictionary = st["lots"]
+	var buildings: Array = []
+	for lot_id in BuildRules.built_lots(gs):
+		buildings.append({"lot_id": str(lot_id), "staffed": float(lots.get(lot_id, 0.0))})
+	return {"rev": gs.rev, "jobs": job_rows(ts.effective_ladder(o), st["jobs"]), "buildings": buildings,
+		"idle": float(st["idle"]), "reason": ""}
 
 
 ## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating.

@@ -66,6 +66,9 @@ func run() -> int:
 	_upkeep()
 	_round_trip()
 	_handles()
+	_room_cache()
+	_vat_rule()
+	_pit_priority()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -246,6 +249,7 @@ func _ladder() -> void:
 	s = _sim()
 	s.workers = 5.0
 	s.buildings["lot-03"]["staff_cap"] = 1
+	s.restaff()  # an edit of `buildings` outside TownSim's own calls: rebuild the rooms
 	s.step(0.5, _inp())
 	t.ok(is_equal_approx(_staffed(s, "haul"), 1.0) and is_equal_approx(_staffed(s, "pit"), 2.0),
 		"a staff cap of 1 on the charnel house: haul 1, pit 2, the rest flows down")
@@ -266,6 +270,7 @@ func _ladder() -> void:
 	t.ok(int(s.staffing["jobs"]["stall"]["slots"]) == 4, "a level-2 market has 2 × 2 stall slots")
 	s.buildings["lot-04"]["state"] = "unpaid"
 	s.buildings["lot-04"]["unpaid_s"] = 1.0e6
+	s.restaff()
 	s.step(0.5, _inp())
 	t.ok(int(s.staffing["jobs"]["stall"]["slots"]) == 0, "an unpaid market offers no slots")
 
@@ -430,16 +435,22 @@ func _mill_stall_pit() -> void:
 	s.bodies = 100.0
 	o = s.step(0.5, _inp())
 	t.near(float(o["feed"]), 0.5, 1e-9, "a half-staffed pit burns half: feed 0.5 (wanted counts every pit)")
-	# pit and mill share short bodies in proportion to demand
+	# short bodies: both draw their want while the 0.1 lasts, then the store stands empty for tau and
+	# the rot return goes to the pits first (E2b-2: they used to share in proportion to demand,
+	# 0.3 : 0.2 here, so the pits got 60% of it)
 	s = _sim()
 	s.place_building("lot-05", "bone_mill", 1)
 	s.ladder = ["pit", "mill"]
 	s.workers = 4.0
-	s.bodies = 0.0
 	s.bodies = 0.1  # wanted this step: pit 0.6 · 0.5 = 0.3, mill 0.4 · 0.5 = 0.2 → 0.5
 	o = s.step(0.5, _inp({"work_mass": 0.0}))
-	var share := float(o["rates"]["bodies"]["pit"]) / maxf(1e-12, float(o["rates"]["bodies"]["pit"]) + float(o["rates"]["bodies"]["mill"]))
-	t.near(share, 0.6, 0.01, "short bodies split pit:mill in proportion to demand (0.3 : 0.2)")
+	var r_in := float(o["rates"]["bodies"]["rot"])
+	var supply := 0.1 + r_in * 0.5
+	var tau := (0.5 - supply) / (1.0 - r_in)
+	var pits_got := 0.6 * (0.5 - tau) + minf(0.6, r_in) * tau
+	t.near(float(o["burned"]), pits_got, 1e-12, "short bodies: the pits burn their want until the store empties, then the rot return (%.4f)" % pits_got)
+	t.near(float(o["milled"]), supply - pits_got, 1e-12, "the mills get the rest: their want while it lasted (%.4f)" % (supply - pits_got))
+	t.ok(float(o["burned"]) / supply > 0.6 + 0.05, "the pits get more than the old proportional 60%% (%.1f%%)" % (100.0 * float(o["burned"]) / supply))
 
 
 # ------------------------------------------------------------------- forge ----
@@ -616,6 +627,41 @@ func _upkeep() -> void:
 			last[e["lot_id"]] = tnow
 	t.ok(n >= 2 and gaps_ok, "a marginal economy idles and resumes with no chatter (%d events, each ≥ unpaid_hold_s apart)" % n)
 	t.ok(not neg, "stocks never went negative")
+	# E2b T4.C: inside a step, buildings resume in the order their stocks reach each threshold, on the
+	# stocks' paths net of upkeep (they were checked at the step's end, in lot order, on the gold
+	# before the step's upkeep). The raising pit (lot-02) and a house (lot-05, cheaper, so a lower
+	# threshold, later in lot order) are unpaid with their holds over; the market sells against the
+	# charnel house's and its own upkeep. One 20 s step from 0 gold crosses both thresholds: the house
+	# resumes first, then the pit, and each pays its upkeep from its own moment.
+	s = _sim()
+	s.place_building("lot-05", "house", 1)
+	for lot in ["lot-02", "lot-05"]:
+		s.buildings[lot]["state"] = "unpaid"
+		s.buildings[lot]["unpaid_s"] = 0.0
+	s.ladder = ["stall"]
+	s.workers = 2.0
+	s.living = 10.0
+	s.gold = 0.0
+	s.restaff()
+	var bdefs: Dictionary = _base["buildings"]
+	var u_pit := float(bdefs["raising_pit"]["upkeep"]["gold"])
+	var u_house := float(bdefs["house"]["upkeep"]["gold"])
+	var due0 := float(bdefs["charnel_house"]["upkeep"]["gold"]) + float(bdefs["market"]["upkeep"]["gold"])
+	var sales := minf(_staffed(s, "stall") * float(_eco("stall")["rate"]), s.living * float(_eco("market")["shop_rate"])) \
+		* float(_eco("market")["price"])
+	var span := maxf(hold, 20.0)
+	var t1 := (due0 + u_house) * span / (sales - due0)  # the house's moment
+	var t2 := t1 + ((due0 + u_house + u_pit) * span - (sales - due0) * t1) / (sales - due0 - u_house)  # the pit's
+	o = s.step(20.0, _inp({"work_mass": _hold_work(s, 2.0, 20.0)}))
+	var order: Array = []
+	for e in o["events"]:
+		if e["type"] == "building_unpaid" and not bool(e["unpaid"]):
+			order.append(e["lot_id"])
+	t.ok(t1 > 0.0 and t1 < t2 and t2 < 20.0 and order == ["lot-05", "lot-02"],
+		"in one 20 s step the house (lower threshold, later in lot order) resumes before the pit: %s (moments %.2f s, %.2f s)" % [
+		str(order), t1, t2])
+	t.near(s.gold, sales * 20.0 - (due0 * 20.0 + u_house * (20.0 - t1) + u_pit * (20.0 - t2)), 1e-9,
+		"each pays its upkeep from its own moment (the gold at the step's end)")
 
 
 # -------------------------------------------------------------- round trip ----
@@ -745,7 +791,7 @@ func _soak() -> void:
 		if rng.randf() < 0.01:
 			var lot: String = lots[rng.randi() % lots.size()]
 			if s.buildings.has(lot):
-				s.buildings[lot]["staff_cap"] = rng.randi_range(-1, 3)
+				s.set_staff_cap(lot, rng.randi_range(-1, 3))
 		if rng.randf() < 0.005:
 			s.gold = 0.0
 		if rng.randf() < 0.005:
@@ -798,3 +844,305 @@ func _soak() -> void:
 			break
 	t.ok(bad.is_empty(), "4 h of random inputs (%d steps): no NaN, no negatives, every cap held, mass conserved %s" % [steps, bad])
 	t.ok(int(s.forge["level"]) >= 0 and s.haul is Dictionary, "the soak ends in a sane state")
+
+# ------------------------------------------------------------ the room cache ----
+## staffing and _by_lot as the pure allocation gives them now, from scratch.
+func _fresh_alloc(s: TownSim) -> Dictionary:
+	return TownSim.staff_allocate(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.workers, s.vats_on())
+
+
+const SUM_KEYS := ["pits", "body_cap", "living_cap", "lifetime_bonus", "haul_speed_mult", "attract"]
+
+
+## The rooms and the effect sums from scratch (no cache): what a dirty mark must make TownSim redo.
+func _rooms_now(s: TownSim) -> Dictionary:
+	_prime(s)  # fill the caches first, so a missing mark after this would serve a stale sum
+	var sums := {}
+	for k in SUM_KEYS:
+		var w := 0.0
+		var b := 0.0
+		for lot_id in s._lots:
+			if s.buildings.has(lot_id):
+				b += s._eff(s.buildings[lot_id], k)
+				if TownSim._works_b(s.buildings[lot_id]):
+					w += s._eff(s.buildings[lot_id], k)
+		sums[k] = [w, b]
+	return {"rooms": TownSim.staff_rooms(s.effective_ladder(s.ladder), s._lots, s.buildings, s._defs, s._build_slots, s.vats_on()),
+		"sums": sums}
+
+
+## The cached staffing and effect sums are the ones from scratch, and the event changed the rooms or
+## the sums (so a missing dirty mark would show).
+## Reads every effect sum once, so each cached key exists before the next event.
+func _prime(s: TownSim) -> void:
+	for k in SUM_KEYS:
+		s._sum_working(k)
+		s._sum_built(k)
+
+
+func _cache_ok(s: TownSim, before: Dictionary, what: String) -> void:
+	var f := _fresh_alloc(s)
+	var now := _rooms_now(s)
+	t.ok(now != before, "%s changes the rooms or the effect sums (the case can catch a missing mark)" % what)
+	t.ok(s.staffing == f["staffing"] and s._by_lot == f["by_lot"],
+		"%s: the staffing is the allocation from scratch on the new rooms: %s vs %s" % [what, str(s.staffing), str(f["staffing"])])
+	var cached := {}
+	for k in SUM_KEYS:
+		cached[k] = [s._sum_working(k), s._sum_built(k)]
+	t.ok(cached == now["sums"], "%s: the effect sums are the ones from scratch: %s vs %s" % [what, str(cached), str(now["sums"])])
+
+
+func _room_cache() -> void:
+	t.suite("town_sim-room-cache")
+	# every place the rooms can change marks them dirty
+	var s := _sim()
+	s.workers = 4.0
+	s.restaff()
+	var r0 := _rooms_now(s)
+	s.set_ladder(["stall", "pit", "haul", "build", "mill", "forge", "tend"])
+	_cache_ok(s, r0, "set_ladder")
+	r0 = _rooms_now(s)
+	s.set_staff_cap("lot-04", 1)
+	_cache_ok(s, r0, "set_staff_cap")
+	r0 = _rooms_now(s)
+	s.place_building("lot-05", "bone_mill", 1)
+	_cache_ok(s, r0, "place_building")
+	r0 = _rooms_now(s)
+	s.place_building("lot-07", "graveyard", 1)
+	_cache_ok(s, r0, "place_building (effects only)")
+	r0 = _rooms_now(s)
+	s.demolish("lot-05")
+	_cache_ok(s, r0, "demolish")
+	r0 = _rooms_now(s)
+	s.demolish("lot-07")
+	_cache_ok(s, r0, "demolish (effects only)")
+	r0 = _rooms_now(s)
+	s.start_construction("lot-06", "market", 1)
+	_cache_ok(s, r0, "start_construction")
+	r0 = _rooms_now(s)
+	s.cancel_construction("lot-06")
+	_cache_ok(s, r0, "cancel_construction")
+	# a build finishing inside a step
+	s.start_construction("lot-06", "market", 1)
+	s.workers = 9.0
+	s.restaff()
+	var done := false
+	for i in 400:
+		r0 = _rooms_now(s)
+		var evs: Array = s.step(0.5, _inp({"work_mass": _hold_work(s, 9.0, 0.5)}))["events"]
+		for e in evs:
+			done = done or e["type"] == "building_done"
+		if done:
+			break
+	t.ok(done, "the market finishes")
+	_cache_ok(s, r0, "a build finishing")
+	# an upkeep switch: nobody sells (no stall on the ladder), no gold, the cheapest goes unpaid (a
+	# building with slots, so its rooms go); then it resumes
+	var u := _sim()
+	u.set_ladder(["pit", "haul"])
+	u.gold = 0.0
+	u.restaff()
+	r0 = _rooms_now(u)
+	var went := false
+	for i in 50:
+		r0 = _rooms_now(u)
+		for e in u.step(0.5, _inp())["events"]:
+			went = went or (e["type"] == "building_unpaid" and e["unpaid"])
+		if went:
+			break
+	t.ok(went, "a building goes unpaid")
+	_cache_ok(u, r0, "an upkeep switch (unpaid)")
+	u.gold = 1000.0
+	var back := false
+	for i in 400:
+		r0 = _rooms_now(u)
+		for e in u.step(0.5, _inp())["events"]:
+			back = back or (e["type"] == "building_unpaid" and not e["unpaid"])
+		if back:
+			break
+	t.ok(back, "and resumes")
+	_cache_ok(u, r0, "an upkeep switch (resumed)")
+	# a load: another layout's dict into this instance
+	var a := _sim()
+	var b := _rich()
+	r0 = _rooms_now(a)
+	a.from_dict(b.to_dict())
+	_cache_ok(a, r0, "a load")
+	# with no building or order changing, a step fills once (at its end, for the moved workforce) and
+	# never rebuilds the rooms; with the workforce settled too it has nothing to redo
+	var q := _sim()
+	q.workers = 6.0
+	q.restaff()
+	var n0 := q._n_rooms
+	var f0 := q._n_fills
+	for i in 100:
+		q.step(10.0, _inp({"work_mass": _hold_work(q, 9.0, 10.0)}))
+	t.ok(q._n_rooms == n0, "100 steps build the rooms 0 times (%d)" % (q._n_rooms - n0))
+	t.ok(q._n_fills - f0 == 100, "and fill them once per step, at its end, as the workforce moves (%d fills)" % (q._n_fills - f0))
+	var w0 := q.workers
+	q.workers = 6.0
+	q.restaff()
+	f0 = q._n_fills
+	for i in 10:
+		q.step(10.0, _inp({"work_mass": _hold_work(q, 6.0, 10.0)}))
+	t.ok(q.workers == 6.0 and q._n_fills == f0 and w0 > 6.0, "a settled workforce (6.0 all staffed, held): no fill at all (%d)" % (q._n_fills - f0))
+	t.suite("town_sim")
+
+
+# ------------------------------------------------------------ the vat rule ----
+func _tend(s: TownSim) -> Dictionary:
+	return s.staffing["jobs"].get("tend", {"slots": 0, "staffed": 0.0})
+
+
+## MECHANICS §7 (E2b-2): a Chapel of Vats offers one tend slot per vat, open only while that vat is
+## staffed; the ladder fills the open ones like any other.
+func _vat_rule() -> void:
+	t.suite("town_sim-vats")
+	var s := _sim()
+	s.place_building("lot-13", "chapel_of_vats", 1)
+	s.set_ladder(["tend", "stall", "pit", "haul", "build", "mill", "forge"])
+	s.workers = 2.0
+	s.restaff()
+	t.ok(int(_tend(s)["slots"]) == 0 and _staffed(s, "tend") == 0.0 and s.lot_slots("lot-13") == 0 and not s.staffing["lots"].has("lot-13"),
+		"vats unstaffed: the Chapel offers no tend room (slots %d)" % int(_tend(s)["slots"]))
+	t.ok(_staffed(s, "stall") == 2.0, "the two hands staff the market below it")
+	s.set_vats([true])
+	t.ok(int(_tend(s)["slots"]) == 1 and s.lot_slots("lot-13") == 1, "one vat staffed: one tend room")
+	t.ok(_staffed(s, "tend") == 1.0 and _staffed(s, "stall") == 1.0 and float(s.staffing["idle"]) == 0.0,
+		"staffing it moves exactly one hand, from the ladder's next room (the stall) to the vat's")
+	s.set_vats([true, true])
+	t.ok(int(_tend(s)["slots"]) == 2 and _staffed(s, "tend") == 2.0 and _staffed(s, "stall") == 0.0, "both vats: two tend rooms, both hands")
+	s.set_vats([false, true])
+	t.ok(_staffed(s, "tend") == 1.0 and _staffed(s, "stall") == 1.0, "unstaffing one gives its hand back to the stall")
+	s.set_vats([])
+	t.ok(_staffed(s, "tend") == 0.0 and _staffed(s, "stall") == 2.0 and int(_tend(s)["slots"]) == 0, "none staffed: no tend room again")
+	# at the bottom of the ladder with spare hands, a vat takes an idle one
+	s.set_ladder(["build", "haul", "pit", "stall", "mill", "forge", "tend"])
+	s.workers = 9.0
+	s.restaff()
+	var idle0 := float(s.staffing["idle"])
+	s.set_vats([true])
+	t.ok(_staffed(s, "tend") == 1.0 and absf(float(s.staffing["idle"]) - (idle0 - 1.0)) < 1e-12 and _staffed(s, "stall") == 2.0,
+		"with idle hands the vat takes one of them (idle %.1f -> %.1f), nobody else moves" % [idle0, float(s.staffing["idle"])])
+	s.set_vats([false, false, false])
+	t.ok(s.vats_on() == [], "trailing unstaffed vats are dropped: [false, false, false] is none")
+	# an unpaid Chapel offers no tend room, staffed vats or not; a level-2 Chapel has 4 vats and 4 rooms
+	s.set_vats([true, true])
+	s.buildings["lot-13"]["state"] = "unpaid"
+	s.restaff()
+	t.ok(int(_tend(s)["slots"]) == 0 and _staffed(s, "tend") == 0.0, "an unpaid Chapel: no tend room")
+	s.place_building("lot-13", "chapel_of_vats", 2)
+	s.set_vats([false, false, false, true])
+	t.ok(int(_tend(s)["slots"]) == 1 and _staffed(s, "tend") == 1.0, "level 2: vat 3 staffed opens one of its 4 rooms")
+	# two Chapels: vats in lot order, then by vat
+	var two := _sim()
+	two.place_building("lot-13", "chapel_of_vats", 1)
+	two.place_building("lot-14", "chapel_of_vats", 1)
+	two.workers = 20.0
+	two.set_vats([false, false, true])
+	t.ok(float(two._by_lot.get("lot-14", {}).get("tend", 0.0)) == 1.0 and float(two._by_lot.get("lot-13", {}).get("tend", 0.0)) == 0.0,
+		"two Chapels: vat 2 is lot-14's first (lot order, then by vat)")
+	t.ok(TownSim.tend_open(two._lots, two.buildings, two._defs, [true, false, true, true]) == {"lot-13": 1, "lot-14": 2}, "tend_open counts each Chapel's staffed vats")
+	# the projection's override opens and closes the same rooms, and changes nothing
+	var p := two.project_staffing(two.ladder, {0: true, 2: false, 9: true, 1.5: true})
+	t.ok(float(p["by_lot"].get("lot-13", {}).get("tend", 0.0)) == 1.0 and float(p["by_lot"].get("lot-14", {}).get("tend", 0.0)) == 0.0,
+		"the override: vat 0 on, vat 2 off; slot 9 (no such vat) and 1.5 ignored")
+	t.ok(two.vats_on() == [false, false, true] and float(two._by_lot["lot-14"]["tend"]) == 1.0, "and the projection changed nothing")
+	# a vat toggle marks the rooms dirty, like every other change to them
+	var r0 := _rooms_now(two)
+	two.set_vats([true])
+	_cache_ok(two, r0, "a vat toggle")
+	# the vats survive TownSim's own load only through set_vats (GameState's job): from_dict clears them
+	var c := _sim()
+	c.from_dict(two.to_dict())
+	t.ok(c.vats_on() == [] and _staffed(c, "tend") == 0.0, "from_dict leaves the vats to GameState: none until set_vats")
+	var states := {}
+	for lot in c.buildings:
+		states[lot] = c.buildings[lot]["state"]
+	c.set_vats([true], true)
+	var same := true
+	for lot in c.buildings:
+		same = same and c.buildings[lot]["state"] == states[lot]
+	t.ok(_staffed(c, "tend") == 1.0 and same, "set_vats on a load refills the rooms and keeps the saved states")
+	t.suite("town_sim")
+
+
+# ------------------------------------------------------------ pit priority ----
+## E2b-2 (MECHANICS §4.1, §4.2): the pits have first call on the bodies and the mills take only the
+## surplus. A raising pit (both pit slots staffed) and a bone mill (both millers), no convoy, the
+## store empty, a constant rot return: every worker rots at 1/L (idle_rot_mult 1, no idle cap), so a
+## held workforce returns the same bodies each second.
+func _pit_priority() -> void:
+	t.suite("town_sim-pit-priority")
+	var wk: Dictionary = _eco("worker")
+	var per_worker := float(wk["mass"]) * float(wk["body_return"]) / float(wk["lifetime_s"])  # bodies/s one worker returns
+	var want_pit := float(_eco("pit")["burn_per_s"])  # one level-1 pit, fully staffed
+	var want_mill := float(_eco("job")["mill"]["mass_per_s"]) * 2.0
+	for dt in [0.5, 10.0]:
+		for c in [["between", want_pit + 0.5 * want_mill], ["below the pits'", 0.5 * want_pit]]:
+			var supply: float = c[1]
+			var s := _sim({"economy.worker.idle_rot_mult": 1.0, "economy.worker.idle_cap": 1000.0})
+			s.place_building("lot-05", "bone_mill", 1)
+			s.set_ladder(["pit", "mill"])
+			s.workers = supply / per_worker
+			s.bodies = 0.0
+			s.gold = 1e6  # nobody sells: enough for 1 000 s of upkeep, so no building goes unpaid
+			s.bone = 1e6
+			s.restaff()
+			var burn_lo := INF
+			var burn_hi := -INF
+			var worst := 0.0
+			var mass_err := 0.0
+			for i in 100:
+				var b0: float = s.bodies
+				var o: Dictionary = s.step(dt, _inp({"work_mass": _hold_work(s, s.workers, dt)}))
+				var burn: float = float(o["burned"]) / dt
+				burn_lo = minf(burn_lo, burn)
+				burn_hi = maxf(burn_hi, burn)
+				var in_rate: float = float(o["rates"]["bodies"]["in"])
+				worst = maxf(worst, absf(burn - minf(want_pit, in_rate)) + absf(float(o["milled"]) / dt - maxf(0.0, in_rate - want_pit)))
+				mass_err = maxf(mass_err, absf(s.bodies - b0 - (in_rate * dt - float(o["burned"]) - float(o["milled"]))))
+			t.ok(burn_hi - burn_lo <= 1e-9 * want_pit and absf(burn_lo - minf(want_pit, supply)) <= 1e-6 * want_pit,
+				"supply %s want at %s s: the pits burn the same every step over 100 steps (%.9f..%.9f), min(want_pit, supply) = %.9f" % [
+				c[0], str(dt), burn_lo, burn_hi, minf(want_pit, supply)])
+			t.ok(worst <= 1e-9, "supply %s want at %s s: burned = min(want_pit, in), the mills only the surplus, every step (worst %s)" % [
+				c[0], str(dt), String.num_scientific(worst)])
+			t.ok(mass_err <= 1e-12 and s.bodies <= 1e-12, "supply %s want at %s s: the store stays empty and balances (worst %s)" % [
+				c[0], str(dt), String.num_scientific(mass_err)])
+	# one 10 s step splits as twenty of 0.5 s: a load in the store at the start, a rot return below the
+	# pits' want. Both draw while the load lasts, then the pits take the rot return. (Pits-first on the
+	# whole step's supply would give the mills nothing in the 10 s step: load + rot · 10 < want_pit · 10;
+	# the old proportional split would give them their share of it all.)
+	var totals := {}
+	for dt in [10.0, 0.5]:
+		var q := _sim({"economy.worker.idle_rot_mult": 1.0, "economy.worker.idle_cap": 1000.0})
+		q.place_building("lot-05", "bone_mill", 1)
+		q.set_ladder(["pit", "mill"])
+		q.workers = 0.5 * want_pit / per_worker
+		q.bodies = 0.2 * want_pit * 10.0 + 0.0
+		q.gold = 1e6
+		q.restaff()
+		var b := 0.0
+		var m := 0.0
+		for i in int(round(10.0 / dt)):
+			var o3 := q.step(dt, _inp({"work_mass": _hold_work(q, q.workers, dt)}))
+			b += float(o3["burned"])
+			m += float(o3["milled"])
+		totals[dt] = [b, m]
+	var load := 0.2 * want_pit * 10.0
+	var rr := 0.5 * want_pit
+	var t_empty := load / (want_pit + want_mill - rr)
+	t.ok(absf(float(totals[10.0][0]) - float(totals[0.5][0])) <= 1e-9 and absf(float(totals[10.0][1]) - float(totals[0.5][1])) <= 1e-9,
+		"one 10 s step burns and mills what twenty 0.5 s steps do (%.9f, %.9f vs %.9f, %.9f)" % [totals[10.0][0], totals[10.0][1], totals[0.5][0], totals[0.5][1]])
+	t.near(float(totals[10.0][1]), want_mill * t_empty, 1e-9, "the mills get their want while the load lasts (%.3f s), no more" % t_empty)
+	# plenty of bodies: both get their want
+	var p := _sim()
+	p.place_building("lot-05", "bone_mill", 1)
+	p.set_ladder(["pit", "mill"])
+	p.workers = 4.0
+	p.bodies = 150.0
+	p.restaff()
+	var o2 := p.step(10.0, _inp())
+	t.near(float(o2["burned"]), want_pit * 10.0, 1e-9, "plenty of bodies: the pits burn their want")
+	t.near(float(o2["milled"]), want_mill * 10.0, 1e-9, "and the mills mill theirs")
+	t.suite("town_sim")
