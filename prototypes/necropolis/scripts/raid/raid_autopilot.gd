@@ -65,6 +65,7 @@ var _tell_side := 1.0           # rolled with it: the sidestep's side when nothi
 var _tells := 0                 # warden tells seen / answered (the react dict)
 var _tells_ok := 0
 var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
+var _threat_last := -1.0        # scene time one was last within kite_px
 var _bell_goal = null           # the Bellringer fight's last point inside the slam she was making for
 
 var _sim_t := 0.0               # scene seconds the run has lasted (physics steps only)
@@ -693,12 +694,14 @@ func _answers(kind: String, beat: float) -> bool:
 
 
 ## The living have no one-beat tell, so no miss: the kite starts `_delay` after a living foe in her room
-## first comes within kite_px, and stays on while one is there.
+## first comes within kite_px, and stays on while one is there. A foe that steps out of kite_px and back
+## within `_delay` is the same threat (she has seen it: no fresh delay at the kite's edge).
 func _watch_threat(ne, nd: float) -> void:
 	if ne != null and nd < _c("kite_px", 240.0):
 		if _threat_t < 0.0:
 			_threat_t = _sim_t
-	else:
+		_threat_last = _sim_t
+	elif _threat_t >= 0.0 and _sim_t - _threat_last > _delay + 1e-6:
 		_threat_t = -1.0
 
 

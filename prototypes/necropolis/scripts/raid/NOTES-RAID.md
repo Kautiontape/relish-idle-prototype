@@ -355,16 +355,16 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
     - **Shieldwall:** the bash arc (with `wall_margin_*`) is kept clear only while she answers a bash tell. Between tells she fetches what lies in its room, the arc included, and otherwise waits at the side stand as before.
     - **Huntsman:** the sidestep happens on an answered lunge tell, `_delay` after the lock. Its side when nothing else decides is rolled with the tell.
     - **Pyre-priest:** the step-off, the mote carried out of a lit area and the keep-out of lit areas happen only on an answered fire tell, `_delay` after it lights.
-    - **The living:** no miss (no one-beat tell). The kite starts `_delay` after a living foe in her room first comes within `kite_px` (`_watch_threat`, `_kite_due`); until then her old goal stands (`kite-wait`).
+    - **The living:** no miss (no one-beat tell). The kite starts `_delay` after a living foe in her room first comes within `kite_px` (`_watch_threat`, `_kite_due`); until then her old goal stands (`kite-wait`). A foe that steps out of `kite_px` and back within `_delay` is the same threat, so there is no fresh delay at the kite's edge. The first build re-armed there: at greywall t1 seed 3 it re-armed 12 times in 21 s.
   - **Measuring:** AUTOPILOT_RESULT gains `react` {`miss`, `delay_s`, `tells` seen, `answered`}. DEV `--raid-autopilot-answer-mult=<x>` scales the answered chance, for the context runs at 0.6 and 1.0; it replaces `--raid-autopilot-dodge`. The boss bot (`boss_autopilot.gd`, `vei.json autopilot.dodge`) is untouched.
-  - **The seed-1 lines move** (548098e, then with the rule; score 70; scene s; raises; Relish's hp at the end; allies at the end; warden tells answered of seen):
+  - **The seed-1 lines move** (548098e, then with the rule as it now stands; score 70; scene s; raises; Relish's hp at the end; allies at the end; warden tells answered of seen):
 
     | run | before | after | why |
     |---|---|---|---|
-    | old-sluice day1 (Bellringer) | 105.5 s, 17 raises, hp 30, 17 allies | 105.1 s, 18 raises, hp 30, 20 allies; 12 of 13 tells | she now stays inside working until she answers each tell, so raises and positions shift. The one miss struck nothing |
-    | hollow-redoubt t3 (Huntsman) | 82.2 s, 10 raises, hp 26, 27 allies | 73.3 s, 8 raises, hp 30, 36 allies; 3 of 4 | 0.82 of the lunges answered against 0.5 before, and its trace draws no longer interleave with dodge rolls |
+    | old-sluice day1 (Bellringer) | 105.5 s, 17 raises, hp 30, 17 allies | 98.1 s, 17 raises, hp 30, 23 allies; 11 of 12 tells | she now stays inside working until she answers each tell, so raises and positions shift. The one miss struck nothing |
+    | hollow-redoubt t3 (Huntsman) | 82.2 s, 10 raises, hp 26, 27 allies | 74.5 s, 9 raises, hp 30, 32 allies; 3 of 4 | 0.82 of the lunges answered against 0.5 before, and its trace draws no longer interleave with dodge rolls |
     | pale-bastion t3 (Shieldwall) | 77.7 s, 12 raises, hp 30, 12 allies | 85.8 s, 12 raises, hp 30, 25 allies; 13 of 14 | she no longer keeps out of the arc between bashes, so she stands and fetches elsewhere. No bash struck her |
-    | mourners-gate t3 (Pyre-priest) | 261.3 s, 10 raises, hp 30, 13 allies | 108.4 s, 9 raises, hp 30, 24 allies; 1 of 2 | the fire keep-out, the step-off and the mote grab happen only on answered tells, and the trace draws no longer interleave. This seed's 261 s outlier is gone |
+    | mourners-gate t3 (Pyre-priest) | 261.3 s, 10 raises, hp 30, 13 allies | 151.8 s, 11 raises, hp 30, 19 allies; 4 of 5 | the fire keep-out, the step-off and the mote grab happen only on answered tells, and the trace draws no longer interleave. This seed's 261 s outlier is gone |
 
     `tests/parity_check.sh` gives identical results (all five checks).
 - **Bot-to-human factor, first draft** (real seconds added to the bot's scene seconds; outside the trance scene time is real time). Measured from the pilot:

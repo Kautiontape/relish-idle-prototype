@@ -440,6 +440,8 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var answers := _func_body("res://scripts/raid/raid_autopilot.gd", "func _answers(")
 	t.ok(answers.contains("_rng_react.randf()") and not answers.contains("_rng.randf()"), "_answers rolls from the reaction stream")
 	t.ok(not _func_body("res://scripts/raid/raid_autopilot.gd", "func _trace_for(").contains("_rng_react"), "the trace jitter never draws from it")
+	var watch := _func_body("res://scripts/raid/raid_autopilot.gd", "func _watch_threat(")
+	t.ok(watch.contains("_threat_last") and watch.contains("_delay"), "the kite's delay re-arms only after the foe has been out of kite range for the delay")
 	for head in ["func _vs_bell(", "func _vs_wall(", "func _vs_pyre(", "func _dodge_step(", "func _vs_warden(", "func _decide("]:
 		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
 		t.ok(body != "" and not body.contains("randf") and not body.contains("randi"),
