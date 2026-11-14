@@ -114,6 +114,7 @@ uniform float vortex_slow = 0.5;      // speed in the clot
 uniform float vortex_dense = 1.0;     // extra spawns in the clot
 uniform float vortex_ink = 0.5;       // undead green mixed into the clot
 uniform float vortex_turbulence = 0.0;
+uniform float vortex_hold = 0.0;      // share of the route push the clot holds back (the queue)
 uniform vec4 relish = vec4(0.0);      // x, y, strength, radius
 uniform float relish_push = 0.0;
 uniform float relish_swirl = 0.5;     // radians off straight-in, so she is no plain sink
@@ -459,10 +460,12 @@ void process() {
 			// what the game does to it (GroundForces)
 			vec2 pv;
 			float moat = (lane_count > 0) ? lanes_at(p, pv) : 0.0;
+			float vb = vortex_band(p) * vortex.x;
+			// at her gates the lanes' matter queues in the clot instead of running straight in
+			pv *= 1.0 - vortex_hold * vb;
 			float pushed = min(1.0, length(pv));
 			dir += pv * route_push;
 			turb *= 1.0 - route_calm * pushed;
-			float vb = vortex_band(p) * vortex.x;
 			if (vb > 0.0) {
 				vec2 rv = p - vei_pos;
 				float rl = max(length(rv), 1e-3);

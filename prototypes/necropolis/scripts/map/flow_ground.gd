@@ -238,7 +238,7 @@ func apply_config(cfg: Dictionary) -> void:
 	var fc: Dictionary = _forces.cfg
 	var sub := func(k: String) -> Dictionary: return fc.get(k, {})
 	for pair in [["route", ["push", "reach_px", "speed", "calm"]],
-			["vortex", ["push", "spiral", "slow", "dense", "ink", "turbulence"]],
+			["vortex", ["push", "spiral", "slow", "dense", "ink", "turbulence", "hold"]],
 			["relish", ["push", "swirl", "eye_px"]],
 			["surge", ["tail", "reach_px", "push", "speed", "ink"]],
 			["ink", ["band_px", "push", "hold"]]]:
