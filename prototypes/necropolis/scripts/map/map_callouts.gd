@@ -13,6 +13,7 @@ extends Node2D
 
 var model: MapModel
 var cam: MapCamera
+var nodes: MapNodes  # the drawn chips' places (a chip can step clear of Relish's token)
 var card: Control  # the sidebar: its rect is occupied while it is visible
 
 var _rev := -2
@@ -53,11 +54,10 @@ func _occupied(z: float) -> Array:
 	var out: Array = []
 	if not _card_key.is_empty():
 		out.append(HudLogic.screen_to_zoomed(_card_key[0], cam.position, z, get_viewport_rect().size))
-	if IdleLogic.chip_shown(_tier, z):
-		var w := 2.0 * float(MapLogic.cfg()["fit_label_half_px"])
+	if nodes != null and IdleLogic.chip_shown(_tier, z):
 		for f in model.forts:
 			if bool(f.get("held", false)):
-				var r := IdleLogic.chip_rect(MapModel.to_vec(f["pos"]), MapLogic.fort_radius(int(f["tier"])), z, NodeLogic.first_dungeon_pulse(f), w)
+				var r := nodes.chip_world_rect(f)  # where it is drawn, shift included
 				out.append(Rect2(r.position * z, r.size * z))
 	return out
 

@@ -36,14 +36,13 @@ func _warden(t: TestUtil) -> void:
 
 
 func _loot(t: TestUtil) -> void:
-	var cfg: Dictionary = MapLogic.cfg()["cards"]["loot"]
-	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 0}, cfg) == "Loot: full (fresh)", "full loot")
-	t.ok(CardLogic.loot_line({"yield_mult": 0.64, "clears_since_retaken": 2}, cfg) == "Loot: 64% (recovering)", "decayed loot shows the percentage")
-	t.ok(CardLogic.loot_line({"yield_mult": 1.0, "clears_since_retaken": 3}, cfg) == "Loot: full (fresh)", "full yield reads full whatever the clear count")
-	t.ok(CardLogic.loot_line({}, cfg) == "Loot: full (fresh)", "a missing entry reads full")
-	t.ok(CardLogic.loot_card_line({"yield_mult": 0.5, "clears_since_retaken": 1}) == "Loot: 50% (recovering)", "the card's one call site")
-	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first clear: guaranteed blueprint", "first clear line")
-	t.ok(CardLogic.first_clear_line({"first_clear": false}) == "", "no first clear, no line")
+	var loot := TestUtil.load_json("res://configs/loot.json")
+	for f in [{"yield_mult": 1.0, "clears_since_retaken": 0}, {"yield_mult": 0.64, "clears_since_retaken": 2}, {"tier": 2, "first_clear": true},
+			{"held": true, "yield_mult": 0.5}, {}]:
+		var want: String = RaidLoot.card_line(f, loot)
+		t.ok(want != "" and CardLogic.loot_card_line(f, loot) == want, "the card's loot line is RaidLoot.card_line's: " + want)
+	t.ok(CardLogic.loot_card_line({"yield_mult": 0.64}, loot).contains("64%"), "a decayed yield shows its percentage")
+	t.ok(not MapLogic.cfg()["cards"]["loot"].has("full_text"), "the stand-in's text is gone from map_view.json")
 
 
 func _threat(t: TestUtil) -> void:
@@ -141,7 +140,7 @@ func _fort_entry() -> Dictionary:
 
 func _blocks(t: TestUtil) -> void:
 	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party", "unbanked_loot", "morale"]}}
-	var card := CardBlocksLogic.fort_card(_fort_entry(), "a drowned water-works", back, {})
+	var card := CardBlocksLogic.fort_card(_fort_entry(), "a drowned water-works", back, {}, _loot_cfg())
 	t.ok(card["title"] == "Old Sluice" and card["sub"] == "FORTRESS · TIER 1 · CAPACITY 80", "fort title and subtitle: " + str(card["sub"]))
 	var ids: Array = card["blocks"].map(func(b): return b["id"])
 	for want in ["warden", "tell1", "hint", "loot", "first_clear", "versus", "risk", "death0", "death1", "living", "undead", "dead", "space", "war_in", "ship_in", "chips"]:
@@ -156,21 +155,21 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by_id["death0"]["text"].begins_with("If she dies now: ") and by_id["death1"]["text"].begins_with("loses: "), "the death cost is in words")
 	var wide := _fort_entry()
 	wide["warden"] = {"archetype": "huntsman", "tells": ["a", "b"]}
-	var wb: Array = CardBlocksLogic.fort_card(wide, "", back, {})["blocks"].filter(func(b): return str(b["id"]).begins_with("tell"))
+	var wb: Array = CardBlocksLogic.fort_card(wide, "", back, {}, _loot_cfg())["blocks"].filter(func(b): return str(b["id"]).begins_with("tell"))
 	t.ok(wb.size() == 2 and wb[0]["text"] == "TELLS: a" and wb[1]["text"] == "· b", "several tells, one line each")
 	var stub := _fort_entry()
 	stub["threat"] = {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0}
 	stub["loot_hint"] = ""
 	stub["first_dungeon"] = false
 	stub["first_clear"] = false
-	var sc := CardBlocksLogic.fort_card(stub, "", back, {})
+	var sc := CardBlocksLogic.fort_card(stub, "", back, {}, _loot_cfg())
 	var vs: Dictionary = sc["blocks"].filter(func(b): return b["kind"] == "versus")[0]
 	t.ok(not vs["known"] and str(vs["text"]).contains("—"), "the E1 stub renders as an unknown comparison")
 	t.ok(not (sc["blocks"] as Array).any(func(b): return b["id"] == "hint" or b["id"] == "chips"), "no hint row and no chips when there are none")
 	t.ok(CardBlocksLogic.card_sig(card) != CardBlocksLogic.card_sig(sc), "a different structure has a different signature")
 	var c2 := _fort_entry()
 	c2["living"] = 12.0
-	t.ok(CardBlocksLogic.card_sig(CardBlocksLogic.fort_card(c2, "a drowned water-works", back, {})) == CardBlocksLogic.card_sig(card), "a changed number keeps the signature")
+	t.ok(CardBlocksLogic.card_sig(CardBlocksLogic.fort_card(c2, "a drowned water-works", back, {}, _loot_cfg())) == CardBlocksLogic.card_sig(card), "a changed number keeps the signature")
 
 	var vei := {"backlog": 18450.0, "odds": 0.61, "sign": 1, "diff_ema": 6.1, "drain_s": -1.0, "fronts_met": 1, "fronts_required": 3,
 		"fronts": [{"id": "giants", "need": 24.0, "have": 26.5, "cleared": true, "assigned": ["u1"]}]}
@@ -230,7 +229,7 @@ func _real(t: TestUtil) -> void:
 	t.ok(not m.backups.is_empty() and m.backups.has("death") and m.party.has("party"), "the model caches backups and the party")
 	var back := m.backups
 	for f in m.forts:
-		var card := CardBlocksLogic.fort_card(f, "", back, m.unit_names)
+		var card := CardBlocksLogic.fort_card(f, "", back, m.unit_names, _loot_cfg())
 		var empty := false
 		for b in card["blocks"]:
 			for k in ["text", "value", "label"]:
@@ -300,3 +299,7 @@ func _assigned_to(s: GameState, front_id: String) -> Array:
 		if f["id"] == front_id:
 			return f["assigned"]
 	return []
+
+
+func _loot_cfg() -> Dictionary:
+	return TestUtil.load_json("res://configs/loot.json")

@@ -50,6 +50,7 @@ func _forfeit_open_run() -> void:
 func _swap(path: String, args: Dictionary, dive_to := "") -> void:
 	Engine.time_scale = 1.0
 	_gen += 1
+	_held_events = []  # events an abandoned swap held are not this scene's
 	var old := current
 	current = null
 	if old != null and not (dive_to != "" or args.has("arrive_from")):
@@ -102,6 +103,8 @@ func _run_transition(old: Node, node: Node, args: Dictionary, dive_to: String, g
 		old.queue_free()
 	if gen != _gen:
 		tr.queue_free()
+		if is_instance_valid(node) and node != current and not node.is_inside_tree():
+			node.queue_free()  # the abandoned swap's scene was never mounted
 		return
 	_mount.call_deferred(node, args)
 	if not shot:

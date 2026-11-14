@@ -47,6 +47,7 @@ var _slow := 1.0
 var _debug_kind := ""
 var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
+var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _won := false  # victory has played (or is playing): once per map
 
 
@@ -218,8 +219,9 @@ func _valve_tick() -> void:
 			ctx.valve_bright = 0.0
 		nodes.redraw_covington()
 		return
-	if valve.is_dragging():
-		return
+	if valve.is_dragging() or model.rev == _valve_rev:
+		return  # idle: nothing to read until the model re-reads the game
+	_valve_rev = model.rev
 	var target := _target()
 	if SetpieceLogic.valve_moved(target, _committed):
 		_committed = target

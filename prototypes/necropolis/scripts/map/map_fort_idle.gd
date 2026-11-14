@@ -42,6 +42,16 @@ func static_sig():
 	return out
 
 
+## Where fort `f`'s chip is drawn, in world px: its place under the name, moved clear of Relish's
+## token. The callouts keep clear of this rect (MapCallouts._occupied).
+func chip_world_rect(f: Dictionary) -> Rect2:
+	var c := IdleLogic.cfg()
+	var p := MapModel.to_vec(f["pos"])
+	var w := _chip_width(f, ctx.model.clock_of(str(f["id"])), c)
+	var base := IdleLogic.chip_rect(p, MapLogic.fort_radius(int(f["tier"])), ctx.zoom, NodeLogic.first_dungeon_pulse(f), w)
+	return Rect2(base.position + _chip_shift(f, c), base.size)
+
+
 ## How far the chip moves off its place under the name to clear Relish's token, in world px
 ## (IdleLogic.chip_place); ZERO when she is not near it.
 func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:

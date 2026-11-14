@@ -228,6 +228,16 @@ func _clear_of_token(t: TestUtil) -> void:
 				bad.append(str(f["id"]))
 				break
 	t.ok(bad.is_empty(), "no fort's displaced chip is nearer another fort %s" % str(bad))
+	# the callouts keep clear of the chip where it is DRAWN: the shifted rect, not the unshifted one
+	var shifted_rect := Rect2(base.position + (moved.position - base.position), base.size)
+	t.ok(shifted_rect == moved and shifted_rect != base, "a shifted chip's drawn rect is not its unshifted place")
+	var co := FileAccess.get_file_as_string("res://scripts/map/map_callouts.gd")
+	var occ := co.substr(co.find("func _occupied("), 700)
+	t.ok(occ.contains("nodes.chip_world_rect(") and not occ.contains("IdleLogic.chip_rect("), "the callouts' occupied rects are the drawn chips'")
+	var fi := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
+	var cw := fi.substr(fi.find("func chip_world_rect("), 500)
+	t.ok(cw.contains("_chip_shift(f, c)") and fi.substr(fi.find("func _chip(")).contains("+ _chip_shift(f, c)"),
+		"the occupied rect and the drawn chip add the same _chip_shift (IdleLogic.chip_place)")
 
 
 # --- raid-worthiness --------------------------------------------------------------------------
@@ -586,8 +596,8 @@ func _cards(t: TestUtil) -> void:
 	t.ok(hc["text"] == "garrison 64 · SAFE" and hc["key"] == "undead", "with fort.margin: the garrison and the margin (%s)" % hc["text"])
 	f["margin"] = "will_fall"
 	t.ok(CardLogic.held_chip(f)["key"] == "danger", "in the margin's colour")
-	var loot: Dictionary = MapLogic.cfg()["cards"]["loot"]
-	t.ok(CardLogic.loot_line({"yield_mult": 1.0}, loot) == "Loot: full (fresh)", "full loot says fresh")
+	var loot := TestUtil.load_json("res://configs/loot.json")
+	t.ok(CardLogic.loot_card_line({"yield_mult": 1.0}, loot) == RaidLoot.card_line({"yield_mult": 1.0}, loot), "the loot line is the dungeon's")
 	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first clear: guaranteed blueprint", "the first clear's reward")
 	var pin := CardLogic.pinned_odds({"odds": 0.61, "sign": 1, "drain_s": -1.0, "backlog": 18000.0})
 	t.ok(pin == "Your odds 61% ▲ gaining · drains in ∞", "the pinned odds (%s)" % pin)

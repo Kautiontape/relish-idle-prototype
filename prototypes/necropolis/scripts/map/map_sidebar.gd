@@ -96,7 +96,7 @@ func refresh() -> void:
 		_flush_actions(acts)
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
-		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names))
+		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names, ConfigDb.data.get("loot", {})))
 		_flush_actions(RelishLogic.fort_actions(f, model.relish, model.haul, model.names))
 	elif not model.village(selected_id).is_empty():
 		_card.show_card(CardBlocksLogic.village_card(model.village(selected_id), ""))

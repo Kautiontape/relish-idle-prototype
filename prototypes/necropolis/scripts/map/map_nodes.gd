@@ -62,6 +62,11 @@ var _samples := {}
 var _frames := 0
 
 
+## Where a held fort's chip is drawn, in world px (shifted clear of Relish's token).
+func chip_world_rect(f: Dictionary) -> Rect2:
+	return _idle.chip_world_rect(f)
+
+
 func _ready() -> void:
 	ctx.model = model
 	ctx.selected_id = selected_id

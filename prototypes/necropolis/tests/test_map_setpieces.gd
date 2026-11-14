@@ -230,6 +230,9 @@ func _debug(t: TestUtil, c: Dictionary) -> void:
 ## The set-piece scripts animate on Pulse (no sin(), no Time.get_ticks, no literal tempo or hops,
 ## no colour literals); the controller hears events only through Game.game_event.
 func _sources(t: TestUtil) -> void:
+	var sp := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var vt := sp.substr(sp.find("func _valve_tick("), sp.find("# --- the flip") - sp.find("func _valve_tick("))
+	t.ok(vt.contains("model.rev == _valve_rev") and vt.find("model.rev == _valve_rev") < vt.find("_target()"), "idle valve ticks do nothing until the model rev changes")
 	var banned := RegEx.new()
 	banned.compile("\\bsin\\(|Time\\.get_ticks|1\\.714|\\b1714\\b|Pulse\\.wave\\([0-9]|Pulse\\.phase\\([0-9]|Color\\s*\\(\\s*[\"\\d]")
 	var lines := 0

@@ -108,6 +108,7 @@ func _build_world() -> void:
 	callouts_view = MapCallouts.new()
 	callouts_view.name = "Callouts"
 	callouts_view.model = model
+	callouts_view.nodes = nodes_view
 	callouts_view.cam = cam  # the card (the sidebar) is set in _build_ui
 	world.add_child(callouts_view)
 	setpiece_layer = MapSetpieceLayer.new()  # the set pieces' bands, rings and callouts, over the nodes and lane callouts

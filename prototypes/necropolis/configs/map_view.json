@@ -637,9 +637,6 @@
     "tell_label": "TELL",
     "tells_label": "TELLS",
     "loot": {
-      "full_text": "Loot: full (fresh)",
-      "decayed_fmt": "Loot: %d%% (recovering)",
-      "full_eps": 0.005,
       "first_clear_text": "first clear: guaranteed blueprint"
     },
     "threat_head": "THREAT IN ADVANCE",

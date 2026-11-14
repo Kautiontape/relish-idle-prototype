@@ -51,19 +51,10 @@ static func tell_label(warden: Dictionary) -> String:
 
 # --- loot --------------------------------------------------------------------------
 
-## The recovered-loot line from `yield_mult` (1.0 = full) and `clears_since_retaken`: "Loot: full"
-## or "Loot: 64% (recovering)". Same signature as the dungeon unit's RaidLoot.card_line.
-# TODO(dungeon): RaidLoot.card_line
-static func loot_line(fort: Dictionary, loot_cfg: Dictionary) -> String:
-	var mult := float(fort.get("yield_mult", 1.0))
-	if mult >= 1.0 - float(loot_cfg.get("full_eps", 0.0)):
-		return str(loot_cfg.get("full_text", ""))
-	return str(loot_cfg.get("decayed_fmt", "%d")) % roundi(clampf(mult, 0.0, 1.0) * 100.0)
-
-
-## The one call site the card uses, so the swap to RaidLoot.card_line is one line.
-static func loot_card_line(fort: Dictionary) -> String:
-	return loot_line(fort, _table("loot"))  # TODO(dungeon): RaidLoot.card_line(fort, _table("loot"))
+## The fort card's loot line: the dungeon unit's RaidLoot.card_line, so the card and the dungeon read
+## from one source. `loot_cfg` is configs/loot.json (this file names no autoload, so the caller passes it).
+static func loot_card_line(fort: Dictionary, loot_cfg: Dictionary) -> String:
+	return RaidLoot.card_line(fort, loot_cfg)
 
 
 ## "FIRST CLEAR · guaranteed blueprint" while the fort's first clear is unspent, else "".

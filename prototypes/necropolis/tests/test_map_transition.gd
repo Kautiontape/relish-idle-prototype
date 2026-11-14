@@ -78,6 +78,10 @@ func _router_source(t: TestUtil) -> void:
 	t.ok(apply.contains("apply_result(") and not apply.contains("await"), "main.gd applies the result synchronously")
 	t.ok(apply.find("apply_result(") < apply.find("_open_map("), "the result applies before the map opens")
 	t.ok(src.contains("router_done"), "main.gd keeps the one-emit-per-scene guard")
+	t.ok(swap.contains("_held_events = []") and swap.find("_held_events = []") < swap.find("_run_transition"), "_swap resets _held_events before a new swap starts holding")
+	var run := _body(src, "func _run_transition(")
+	var ab := run.substr(run.find("if gen != _gen:"), 260)
+	t.ok(ab.contains("node.queue_free()") and ab.contains("node != current") and ab.find("node.queue_free()") < ab.find("return"), "an abandoned transition frees its unmounted node")
 
 
 func _body(src: String, head: String) -> String:
