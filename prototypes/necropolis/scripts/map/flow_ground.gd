@@ -8,6 +8,13 @@ extends Node
 ## (shaders/flow_composite.gdshader). Streaks thin out beside the routes (the
 ## moat, GroundMoat), on map's own lane curves.
 ##
+## What the game does to the current (GroundForces, render-only): the routes push
+## it by their rates (view_lanes), Vei's backlog spins a clot at her gates
+## (view_vei), it bends toward Relish (view_relish), and tithe surges and flips
+## sweep it (view_vei().tithe and Game.game_event). Under reduced motion nothing
+## advects: each head is a still comet laid along the flow, and the trail buffer
+## holds only this frame.
+##
 ## The trail buffer follows the camera at screen resolution, so near zoom
 ## stays crisp (the spike's world-space buffer went soft past the fit zoom):
 ##   - trail viewport (HDR): first a full-rect pass draws last frame's trail,
@@ -64,6 +71,9 @@ var _forts: Array = []   # view_realm().forts, for map's demo lanes
 var _demo_lanes := false # --lanes=demo: the routes draw map's demo lanes, so the moat follows them
 var _moat_cache := {}    # GroundMoat's per-lane cache (cleared when the positions change)
 var _warned_lanes := false
+var _forces: GroundForces
+var _smat: ShaderMaterial
+var _relish_moving := false
 
 
 func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
@@ -72,6 +82,7 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	var f := _field()
 	_world_size = f.world_size
 	_demo_lanes = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--lanes=demo")
+	_forces = GroundForces.new(cfg.get("forces", {}))
 	_refresh_nodes()
 	trail_size = _trail_size_for()
 
@@ -131,9 +142,9 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	white.fill(Color.WHITE)
 	_parts.texture = ImageTexture.create_from_image(white)
 	_parts.process_material = _pmat
-	var smat := ShaderMaterial.new()
-	smat.shader = STREAK_SHADER
-	_parts.material = smat
+	_smat = ShaderMaterial.new()
+	_smat.shader = STREAK_SHADER
+	_parts.material = _smat
 
 	# show it: under the whole map (layer -1), 1 buffer px per screen px
 	_layer = CanvasLayer.new()
@@ -157,13 +168,23 @@ func setup(cfg: Dictionary, reduced_motion: bool, streak_override := 0) -> void:
 	_vp.add_child(_parts)
 	upload_field()
 	upload_lanes()
+	upload_forces()
 	get_viewport().size_changed.connect(_resize)
 	RenderingServer.frame_pre_draw.connect(_sync_camera)
+	Game.game_event.connect(on_game_event)
 
 
 func _exit_tree() -> void:
 	if RenderingServer.frame_pre_draw.is_connected(_sync_camera):
 		RenderingServer.frame_pre_draw.disconnect(_sync_camera)
+	if Game.game_event.is_connected(on_game_event):
+		Game.game_event.disconnect(on_game_event)
+
+
+## A game event (Game.game_event; the bench sends synthetic ones here directly): flips, retakes and
+## tithe warnings or waves start their sweeps.
+func on_game_event(ev: Dictionary) -> void:
+	_forces.on_event(ev, _t, float(Game.state.view_hud()["t"]), _pos)
 
 
 func texture() -> Texture2D:
@@ -213,14 +234,42 @@ func apply_config(cfg: Dictionary) -> void:
 		if cols.has(k):
 			_pmat.set_shader_parameter("col_" + k, Color(str(cols[k])))
 	_comp_mat.set_shader_parameter("gain", float(cfg.get("composite_gain", 2.4)))
+	_forces.cfg = cfg.get("forces", {})
+	var fc: Dictionary = _forces.cfg
+	var sub := func(k: String) -> Dictionary: return fc.get(k, {})
+	for pair in [["route", ["push", "reach_px", "speed", "calm"]],
+			["vortex", ["push", "spiral", "slow", "dense", "ink", "turbulence", "hold"]],
+			["relish", ["push", "swirl", "eye_px"]],
+			["surge", ["tail", "reach_px", "push", "speed", "ink", "recruit"]],
+			["ink", ["band_px", "push", "hold", "recruit"]]]:
+		var c: Dictionary = sub.call(pair[0])
+		for k in pair[1]:
+			if c.has(k):
+				_pmat.set_shader_parameter("%s_%s" % [pair[0], k], float(c[k]))
+	_pmat.set_shader_parameter("surge_life_s", _v2(fc.get("surge", {}).get("life_s", [0.5, 1.0])))
+	var cm: Dictionary = cfg.get("comet", {})
+	_pmat.set_shader_parameter("comet", 1.0 if reduced else 0.0)
+	_smat.set_shader_parameter("comet", 1.0 if reduced else 0.0)
+	_pmat.set_shader_parameter("fade_s", _v2(cfg.get("fade_s", [0.35, 0.6])))
+	for k in ["power", "dashes"]:
+		if cm.has(k):
+			_smat.set_shader_parameter("comet_" + k, float(cm[k]))
+	_smat.set_shader_parameter("dash_duty", float(cfg.get("dash_duty", 0.5)))
 	if reduced:
-		# slow drift: same field, same colours and dashes, no exhale, frozen churn
-		_pmat.set_shader_parameter("speed", float(cfg.get("speed", 64.0)) * float(cfg.get("reduced_speed", 0.1)))
+		# frozen comets: nothing advects, no exhale, no evolving churn; each head draws a still comet
+		# laid back along the flow, into a trail buffer cleared every frame (_process)
 		_pmat.set_shader_parameter("tempo_amp", 0.0)
-		_pmat.set_shader_parameter("noise_evolve", float(cfg.get("reduced_noise_evolve", 0.0)))
-		# longer lives so heads don't blink in and out while crawling
-		_pmat.set_shader_parameter("life_s", _v2(cfg.get("life_s", [2.5, 6.5])) * float(cfg.get("reduced_life_scale", 3.0)))
-		# calmer eddies: the long, slow trails lie along the flow, so a still frame shows direction
+		_pmat.set_shader_parameter("noise_evolve", 0.0)
+		_pmat.set_shader_parameter("comet_px", float(cm.get("length_px", 30.0)))
+		_pmat.set_shader_parameter("comet_gain", float(cm.get("gain", 1.0)))
+		_pmat.set_shader_parameter("life_s", _v2(cm.get("life_s", [12.0, 30.0])))
+		_pmat.set_shader_parameter("fade_s", _v2(cm.get("fade_s", [1.5, 1.5])))
+		# a surge stands as one line brightening toward its fort instead of running, and it and an
+		# ink recruit fewer streaks, since a comet they recruit stays for a comet's life
+		_pmat.set_shader_parameter("surge_tail", 1.0)
+		_pmat.set_shader_parameter("surge_recruit", float(fc.get("surge", {}).get("reduced_recruit", 0.0)))
+		_pmat.set_shader_parameter("ink_recruit", float(fc.get("ink", {}).get("reduced_recruit", 0.0)))
+		# calmer eddies, so the comets lie along the flow and a still frame shows direction
 		var calm := float(cfg.get("reduced_turbulence", 1.0))
 		for k in ["turbulence", "turbulence_empty", "turbulence_land"]:
 			if cfg.has(k):
@@ -232,13 +281,17 @@ func _process(delta: float) -> void:
 	_t += delta
 	_pmat.set_shader_parameter("t", _t)          # noise evolution only
 	_pmat.set_shader_parameter("beat", Pulse.phase(0.0))
-	var keep_s: float = float(_cfg.get("reduced_keep_per_s" if reduced else "trail_keep_per_s", 0.03))
-	_keep = pow(clampf(keep_s, 0.0, 1.0), delta)
+	# reduced motion: the comets are redrawn every frame, so nothing carries over
+	_keep = 0.0 if reduced else pow(clampf(float(_cfg.get("trail_keep_per_s", 0.03)), 0.0, 1.0), delta)
 	_field_acc += delta
 	if _field_acc >= 1.0 / maxf(0.1, float(_cfg.get("field_hz", 6.0))):
 		_field_acc = 0.0
 		upload_field()
 		upload_lanes()
+		upload_forces()
+	elif _relish_moving:
+		_upload_relish()   # she travels: follow her every frame
+	_upload_sweeps()
 	last_cpu_ms = (Time.get_ticks_usec() - t0) / 1000.0
 
 
@@ -374,10 +427,34 @@ func upload_lanes() -> void:
 	for i in n:
 		var l: Dictionary = ls[i]
 		ac[i] = Vector4(l["a"].x, l["a"].y, l["c"].x, l["c"].y)
-		bw[i] = Vector4(l["b"].x, l["b"].y, l["half_width"], l["u"])
+		bw[i] = Vector4(l["b"].x, l["b"].y, l["half_width"], _forces.lane_weight(l["kind"], l["u"]))
 	_pmat.set_shader_parameter("lane_ac", ac)
 	_pmat.set_shader_parameter("lane_bw", bw)
 	_pmat.set_shader_parameter("lane_count", n)
+
+
+## Vei's clot, Relish's pull and the tithe state (GroundForces), at field_hz.
+func upload_forces() -> void:
+	var vei := Game.state.view_vei()
+	_pmat.set_shader_parameter("vortex", _forces.vortex(vei))
+	_forces.update(_t, vei.get("tithe", {}), _pos)
+	_upload_relish()
+
+
+func _upload_relish() -> void:
+	var rel := Game.state.view_relish()
+	_relish_moving = str(rel.get("state", "")) == "travelling"
+	_pmat.set_shader_parameter("relish", _forces.relish(rel))
+
+
+func _upload_sweeps() -> void:
+	var su: Dictionary = _forces.surge_arrays(_t, reduced)
+	_pmat.set_shader_parameter("surge_ac", su["ac"])
+	_pmat.set_shader_parameter("surge_b", su["b"])
+	_pmat.set_shader_parameter("surge_count", su["count"])
+	var ik: Dictionary = _forces.ink_array(_t, reduced)
+	_pmat.set_shader_parameter("ink", ik["ink"])
+	_pmat.set_shader_parameter("ink_count", ik["count"])
 
 
 func _layer_image(arr: PackedFloat32Array, w: int, h: int) -> Image:
