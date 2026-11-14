@@ -33,7 +33,8 @@ extends RefCounted
 ##           tell: a decent player, not a perfect one), first carrying a mote out of a lit area when
 ##           the trip in and out fits before the beat; fetch what lies outside the fire; while
 ##           acolytes live wait `pyre_stand_px` beyond the nearest one and hold a raise until within
-##           `pyre_raise_px` of one (unless the carry is full), so the raised undead go for it; once
+##           `pyre_raise_px` of one (unless the carry is full, she is out of its room or a living foe
+##           is within `kite_px`), so the raised undead go for it; once
 ##           it is exposed wait `pyre_exposed_px` from it. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
@@ -238,7 +239,10 @@ func on_finish(result: Dictionary) -> void:
 		out["shield"] = _shield
 	if _archetype == "pyre_priest":
 		var py := _pyre.duplicate()
-		py["relish_min_hp"] = snappedf(_min_hp if _min_hp < INF else -1.0, 0.1)
+		var low := _min_hp
+		if _raid.relish != null and is_instance_valid(_raid.relish):
+			low = minf(low, _raid.relish.hp)   # the killing blow lands after the last tick
+		py["relish_min_hp"] = snappedf(maxf(0.0, low) if low < INF else -1.0, 0.1)
 		out["pyre"] = py
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
@@ -959,13 +963,20 @@ func _burn_fetch(pos: Vector2, pp: RaidPyrePriest, living: Array, room: Rect2, c
 	return best
 
 
-## Hold a raise (the Pyre-priest, while acolytes live): she is farther than `pyre_raise_px` from every
-## living acolyte and her carry still has room, so the raise waits until the raised undead would
-## walk into one.
+## Hold a raise (the Pyre-priest, while acolytes live): she is in its room with no living foe within
+## `kite_px`, farther than `pyre_raise_px` from every living acolyte, and her carry still has room, so
+## the raise waits until the raised undead would walk into one. Out of its room or under threat she
+## raises where she is.
 func _pyre_hold(pos: Vector2) -> bool:
 	var w = _raid.warden_run.warden
 	if w == null or not is_instance_valid(w) or not (w is RaidPyrePriest) or not w.alive or not w.awake:
 		return false
+	var wr := int(_raid.layout.get("warden_room", -1))
+	if wr < 0 or RaidLogic.room_of(_raid.layout, pos) != wr:
+		return false
+	for e in _living():
+		if pos.distance_to(e.global_position) < _c("kite_px", 240.0):
+			return false
 	var a: RaidAcolyte = (w as RaidPyrePriest).nearest_acolyte(pos)
 	return a != null and _raid.carry_room() > 0 and pos.distance_to(a.global_position) > _c("pyre_raise_px", 120.0)
 
