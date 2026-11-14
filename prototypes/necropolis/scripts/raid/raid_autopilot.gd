@@ -21,7 +21,8 @@ extends RefCounted
 ##           is binary-searched to land within a few points of the target score.
 ##   pickup  walk to remnants lying on the floor when no foe is near (before the chest ends the run).
 ##   warden  Bellringer: stay out of the slam, but go in for motes (and raise) while the next tell is
-##           more than `slam_safe_beats` away (WardenLogic.slam_window_open), and get out before it.
+##           more than `slam_safe_beats` away (WardenLogic.slam_window_open), and get out before it;
+##           otherwise wait `bell_stage_px` outside the slam (so the army stays in reach of the bell).
 ##           Huntsman: fight inside its room (it hunts the undead when she hides), sidestep lunge
 ##           tells with probability `dodge`. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
@@ -55,6 +56,7 @@ var _foes: Array = []          # living enemies this think (for the retreat's he
 var _bail := 0.0               # retreat to an exit once hp is at or below this fraction (0 = never)
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
 var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two rooms
+var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -419,10 +421,12 @@ func _decide(pos: Vector2) -> Vector2:
 
 	# the chest: walk to it (opening it ends the run: sweep up what lies on the floor first)
 	if run.chest != null and is_instance_valid(run.chest):
-		var pk0 = _pickup_target(pos, living)
+		var keep: bool = _still_target(_stick, living) and _stick.is_in_group("raid_pickups")
+		var pk0 = _stick if keep else _pickup_node(pos, living)
+		_stick = pk0
 		if pk0 != null:
 			_why = "pickup"
-			return _to_point(pos, pk0)
+			return _to_point(pos, pk0.global_position)
 		return _to_point(pos, run.chest.global_position)
 
 	var ne = null
@@ -451,15 +455,17 @@ func _decide(pos: Vector2) -> Vector2:
 	if near_enemy:
 		_why = "near"
 		return pos
-	# loose motes and piles
-	var loot = _collect_target(pos, living)
-	if loot != null:
-		_why = "loot"
-		return _to_point(pos, loot)
-	var pick = _pickup_target(pos, living)
-	if pick != null:
-		_why = "pickup"
-		return _to_point(pos, pick)
+	# loose motes and piles, then pickups: the one chosen is kept until it is gone or unsafe (re-picking
+	# the nearest each think flip-flopped at a range edge: a pile just past pile_px, a pickup the other way)
+	var tgt = _stick if _still_target(_stick, living) else null
+	if tgt == null:
+		tgt = _collect_node(pos, living)
+	if tgt == null:
+		tgt = _pickup_node(pos, living)
+	_stick = tgt
+	if tgt != null:
+		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
+		return _to_point(pos, tgt.global_position)
 	# hold while living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
@@ -513,6 +519,12 @@ func _head_for_exit(pos: Vector2) -> Vector2:
 ## pile_px (stirring a pile turns it into motes), when the carried cluster has room. Spots within
 ## `foe_clear_px` of a living enemy, and inside the warden's danger circle (`avoid`, `avoid_r`), are skipped.
 func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
+	var o = _collect_node(pos, living, avoid, avoid_r, in_room)
+	return o.global_position if o != null else null
+
+
+## `_collect_target`'s node (the mote or pile itself), or null.
+func _collect_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
 	if _raid.carry_room() <= 0:
 		return null
 	var clear := _c("foe_clear_px", 170.0)
@@ -525,7 +537,7 @@ func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, 
 		var d := pos.distance_to(p)
 		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):
 			bd = d
-			best = p
+			best = o
 	if best != null:
 		return best
 	bd = _c("pile_px", 900.0)
@@ -536,7 +548,7 @@ func _collect_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, 
 		var d2 := pos.distance_to(p2)
 		if d2 < bd and _in(in_room, p2) and _spot_ok(p2, living, clear, avoid, avoid_r):
 			bd = d2
-			best = p2
+			best = o
 	return best
 
 
@@ -549,6 +561,12 @@ func _in(room: Rect2, p: Vector2) -> bool:
 ## `pickup_foe_clear_px`, outside the warden's danger circle `avoid`/`avoid_r`, inside `in_room` when
 ## given). Pickups need no carry room.
 func _pickup_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
+	var o = _pickup_node(pos, living, avoid, avoid_r, in_room)
+	return o.global_position if o != null else null
+
+
+## `_pickup_target`'s node, or null.
+func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avoid_r := 0.0, in_room := Rect2()):
 	var best = null
 	var bd := _c("pickup_px", 900.0)
 	var clear := _c("pickup_foe_clear_px", 90.0)
@@ -559,8 +577,29 @@ func _pickup_target(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, a
 		var d := pos.distance_to(p)
 		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):
 			bd = d
-			best = p
+			best = o
 	return best
+
+
+## The sticky target is still worth walking to: it exists, is still collectable (a mote neither
+## absorbing nor carried, a pile not yet stirred, with carry room; or a pickup on the floor) and no
+## living foe stands by it.
+func _still_target(o, living: Array) -> bool:
+	if o == null or not is_instance_valid(o):
+		return false
+	if o.is_in_group("raid_pickups"):
+		return _spot_ok(o.global_position, living, _c("pickup_foe_clear_px", 90.0), Vector2.INF, 0.0)
+	if _raid.carry_room() <= 0:
+		return false
+	if o.is_in_group("raid_essence"):
+		if o.absorbing or o.carried:
+			return false
+	elif o.is_in_group("raid_piles"):
+		if o._stirred or o._shrink >= 0.0:
+			return false
+	else:
+		return false
+	return _spot_ok(o.global_position, living, _c("foe_clear_px", 170.0), Vector2.INF, 0.0)
 
 
 func _spot_ok(p: Vector2, living: Array, clear: float, avoid: Vector2, avoid_r: float) -> bool:
@@ -635,6 +674,11 @@ func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) ->
 	var pk = _pickup_target(pos, living, wp, safe_px)
 	if pk != null:
 		return _to_point(pos, pk)
+	# wait just outside the slam, close enough that the army (which follows her) engages the bell: a
+	# far corner left it idle out of the undead's engage leash, and the run stalled out
+	if pos.distance_to(wp) > safe_px + _c("bell_stage_px", 120.0):
+		_why = "bell-stage"
+		return _to_point(pos, wp)
 	return pos
 
 

@@ -874,6 +874,18 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 		st_b.append(RaidRoute.new(cc).stagger())
 	t.ok(st_a == st_b, "RaidRoute.reset_seq replays the stagger sequence: %s vs %s" % [str(st_a), str(st_b)])
 	t.ok(st_a[0] != st_a[1], "consecutive movers are staggered apart")
+	# a target in a doorway band of the mover's own room, hidden behind a jamb, routes via its doorstep
+	# (hollow-redoubt t3: Relish at the corner of the room-0 jamb, the room 0 -> 4 gap centre past it)
+	var hr := LayoutLogic.gen_layout("hollow-redoubt", 3, false, cfg, {"held": false, "first_dungeon": false})
+	var jam_from := Vector2(1230, 730)
+	var jam_to := Vector2(1451, 714)
+	var jr := LayoutLogic.room_of(hr, jam_from)
+	t.ok(jr >= 0 and LayoutLogic.room_of(hr, jam_to) < 0 and not LayoutLogic.line_clear(hr, jam_from, jam_to, 13.0),
+		"fixture: the mover is in a room, the target in a band, a jamb between")
+	var jw := LayoutLogic.waypoint(hr, jam_from, jam_to, 13.0, float(cc["route_door_pad_px"]))
+	t.ok(jw != jam_to and (hr["rooms"][jr] as Rect2).has_point(jw) and LayoutLogic.line_clear(hr, jw, jam_to, 13.0),
+		"a band target behind a jamb routes to the doorstep in the mover's room, clear of the jamb: %s" % str(jw))
+	t.ok(LayoutLogic.waypoint(hr, jw, jam_to, 13.0, float(cc["route_door_pad_px"])) == jam_to, "from the doorstep it goes straight in")
 	var pad := float(cc["route_door_pad_px"])
 	# line_clear on a hand-made layout: one wall rect at x 100..130, y 0..200
 	var toy := {"inner_walls": [Rect2(100, 0, 30, 200)]}

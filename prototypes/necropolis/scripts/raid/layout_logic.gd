@@ -436,7 +436,8 @@ static func _into_room(rc: Rect2, c: Vector2, inset: float) -> Vector2:
 ## BFS path: the doorstep inside the current room (the gap centre pulled `radius + door_pad` off the
 ## wall face so the approach cannot clip a jamb), then, once a straight line through the gap is clear
 ## (or the mover is on the doorstep), the far-side doorstep in the next room. A point in a wall band routes from the
-## touching room that is fewest hops from the target. Unreachable -> `to_pos`.
+## touching room that is fewest hops from the target. A target in a band of the mover's own room that a
+## jamb hides goes via its doorstep. Unreachable -> `to_pos`.
 static func waypoint(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius: float,
 		door_pad := 14.0) -> Vector2:
 	if not layout.has("next_room"):
@@ -482,6 +483,12 @@ static func waypoint(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, rad
 	var a := pair.x
 	var b := pair.y
 	if a == b:
+		if rf >= 0 and room_of(layout, to_pos) < 0:
+			# the target sits in a doorway band of this room behind a jamb (the line is blocked): the
+			# doorstep in front of it first, then straight in
+			var step := _into_room(rooms[a], to_pos, inset)
+			if from_pos.distance_to(step) > 3.0:
+				return step
 		return to_pos
 	var nxt: int = int(((layout["next_room"] as Array)[a] as Array)[b])
 	if nxt < 0:

@@ -382,6 +382,7 @@
     "dodge_step_px": 60.0,
     "bell_margin_px": 24.0,
     "bell_enter_margin_s": 1.5,
+    "bell_stage_px": 120.0,
     "slam_safe_beats": 1.0,
     "slam_reach_px": 600.0,
     "slam_stand_frac": 0.5,
