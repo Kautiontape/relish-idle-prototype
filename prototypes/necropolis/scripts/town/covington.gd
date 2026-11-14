@@ -119,6 +119,9 @@ func _grow() -> void:
 		return
 	var cfg: Dictionary = ConfigDb.v("town", "view", {})
 	var chunk := maxf(float(cfg.get("grow_chunk_s", 60.0)), 1.0)
+	var chunk_arg := _debug_arg("town-grow-chunk")  # a longer step for a long run
+	if chunk_arg.is_valid_float():
+		chunk = maxf(float(chunk_arg), 1.0)
 	var target := float(raw)
 	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}

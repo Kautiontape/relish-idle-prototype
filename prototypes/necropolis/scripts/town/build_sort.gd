@@ -55,6 +55,12 @@ static func needs(views: Dictionary, fort_names: Dictionary, vcfg: Dictionary, b
 	var ncfg: Dictionary = vcfg.get("needs", {})
 	var out: Array = []
 	for id in ncfg.get("order", []):
+		if String(id) == "tier":
+			var nt: Dictionary = views.get("town", {}).get("next_tier", {})
+			for m in nt.get("missing", []):
+				out.append({"id": "tier", "chip": fmt(String((ncfg.get("chips", {}) as Dictionary).get("tier", "")),
+					{"tier": String(nt.get("tier", "")).capitalize(), "label": label_of(String(m), bview)}), "serves": ["building:" + String(m)]})
+			continue
 		var chip := _chip(String(id), views, fort_names, ncfg, vcfg, bview)
 		if chip != "":
 			out.append({"id": String(id), "chip": chip, "serves": (ncfg.get("serves", {}) as Dictionary).get(id, [])})
@@ -166,14 +172,18 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 		var row: Dictionary = rows[i]
 		if is_hidden(row, bview):
 			continue
-		var serves: Array = bview.get(String(row.get("building_id", "")), {}).get("serves", [])
+		var serves: Array = (bview.get(String(row.get("building_id", "")), {}).get("serves", []) as Array).duplicate()
+		serves.append("building:" + String(row.get("building_id", "")))
 		var need_id := ""
 		var chip := ""
-		for n in needs_in:
+		var rank := 0
+		for ni in needs_in.size():
+			var n: Dictionary = needs_in[ni]
 			for s in n["serves"]:
 				if s in serves:
 					need_id = n["id"]
 					chip = n["chip"]
+					rank = ni
 					break
 			if need_id != "":
 				break
@@ -184,10 +194,12 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 			cls = CLS_NEED_SHORT if need_id != "" else CLS_SHORT
 		elif need_id != "":
 			cls = CLS_NEED_BUILDABLE
-		items.append({"row": row, "idx": i, "need": need_id, "chip": chip, "cls": cls})
+		items.append({"row": row, "idx": i, "need": need_id, "chip": chip, "cls": cls, "rank": rank})
 	items.sort_custom(func(a, b):
 		if a["cls"] != b["cls"]:
 			return a["cls"] < b["cls"]
+		if a["rank"] != b["rank"] and a["need"] != "" and b["need"] != "":
+			return a["rank"] < b["rank"]  # the more important need's row first
 		return a["idx"] < b["idx"])
 	return items
 
@@ -198,13 +210,51 @@ static func fitting(items: Array, lot_size: int) -> Array:
 
 
 ## The day-1 suggestion: the first buildable item with a free lot, as {building_id, label, lots};
-## {} when nothing is buildable.
-static func suggest(items: Array, bview: Dictionary) -> Dictionary:
+## {} when nothing is buildable. With `st` (stocks(views)) and `vcfg` it saves for a needed build:
+## when the top-ranked row serving a live need is blocked only by funds and the time to afford it
+## (shortage / net rate) is within view.suggest_wait_s, the suggestion is that row, labelled "save for
+## <Label> (~70 s)" with `save: true` and `eta_s`, instead of a lower-ranked buildable one. A stream
+## that isn't flowing, or a longer wait, falls back to the plain rule.
+static func suggest(items: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}) -> Dictionary:
+	if not st.is_empty() and not vcfg.is_empty():
+		var saving := _save_for(items, bview, st, vcfg)
+		if not saving.is_empty():
+			return saving
 	for it in items:
 		var row: Dictionary = it["row"]
 		if bool(row.get("can_build", false)) and not (row.get("lots", []) as Array).is_empty():
 			var bid := String(row.get("building_id", ""))
 			return {"building_id": bid, "label": label_of(bid, bview), "lots": (row["lots"] as Array).duplicate()}
+	return {}
+
+
+static func _save_for(items: Array, bview: Dictionary, st: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var top: Dictionary = {}  # the row serving the most important live need
+	for it in items:
+		if String(it["need"]) != "" and (top.is_empty() or int(it["rank"]) < int(top["rank"])):
+			top = it
+	for it in [top] if not top.is_empty() else []:
+		var row: Dictionary = it["row"]
+		if bool(row.get("can_build", false)) or not String(row.get("reason", "")) in ["no_gold", "no_bone"] \
+				or (row.get("lots", []) as Array).is_empty():
+			return {}
+		var cost: Dictionary = row.get("cost", {})
+		if float(cost.get("relics", 0.0)) > float(st.get("relics", 0.0)):
+			return {}
+		var eta := 0.0
+		for k in ["gold", "bone"]:
+			var n := float(cost.get(k, 0.0)) - float(st.get(k, 0.0))
+			if n <= 0.0:
+				continue
+			var rate := float((st.get("rates", {}) as Dictionary).get(k, 0.0))
+			if rate <= 0.0:
+				return {}
+			eta = maxf(eta, n / rate)
+		if eta > float(vcfg.get("suggest_wait_s", 0.0)):
+			return {}
+		var bid := String(row.get("building_id", ""))
+		return {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta,
+			"label": fmt(String(vcfg.get("suggest_save_text", "")), {"label": label_of(bid, bview), "eta": fmt_eta(eta, vcfg)})}
 	return {}
 
 
@@ -230,8 +280,8 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var bview: Dictionary = cfgs.get("buildings_view", {})
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
 	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview), bview, vcfg)
-	var sug := suggest(items, bview)
-	if sug.is_empty():
+	var sug := suggest(items, bview, stocks(views), vcfg)
+	if sug.is_empty() or bool(sug.get("save", false)):
 		return {}
 	var ref: Array = vcfg.get("ref_px", [1600, 900])
 	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))

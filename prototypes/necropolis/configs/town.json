@@ -31,6 +31,8 @@
     "dock_w": 560,
     "refresh_s": 0.25,
     "grow_chunk_s": 60,
+    "suggest_wait_s": 180,
+    "suggest_save_text": "save for {label} (~{eta})",
     "grow_text": "AUTOPLAY +{h}:{mm} sim, real TownSim (debug): built {n}",
     "zoom_text": "ZOOM ×{scale} (debug)",
     "tab_h": 44,
@@ -193,7 +195,7 @@
       "cell_w_px": 140.0, "morale_w_px": 340.0, "morale_stretch": 2.8, "cell_stretch": {"workers": 1.4}, "tier_w_px": 100.0, "return_w_px": 170.0,
       "morale_bar": {"w_px": 120.0, "h_px": 8.0},
       "text": {
-        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
+        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}", "war": "→ WAR",
         "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap",
         "dur_s": "{n} s", "dur_min": "{n} min", "dur_h": "{n} h", "dur_d": "{n} d",
         "dur_min_from_s": 90.0, "dur_h_from_s": 5400.0, "dur_d_from_s": 172800.0,
@@ -347,12 +349,12 @@
       "idle": "idle: no staff"
     },
     "needs": {
-      "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "gold", "bodies", "housing", "morale"],
+      "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "tier", "gold", "bodies", "housing", "morale"],
       "bodies_frac": 0.3,
       "morale_below": 0.5,
       "serves": {
         "tithe": ["front", "warden"], "front": ["front"], "warden": ["warden"], "gold": ["gold"],
-        "starved_bone": ["bone"], "starved_gold": ["gold"],
+        "starved_bone": ["bone"], "starved_gold": ["gold"], "tier": [],
         "bodies": ["bodies"], "housing": ["housing"], "morale": ["morale"]
       },
       "chips": {
@@ -362,6 +364,7 @@
         "warden_at": "for the warden at {fort}: big undead and quality",
         "warden_to": "for the warden heading to {fort}: big undead and quality",
         "gold": "gold is falling",
+        "tier": "next tier: {tier} needs a {label}",
         "starved_none": "{resource} isn't flowing: no {label}",
         "starved_staff": "{resource} isn't flowing: {label} has no staff",
         "bodies": "bodies are low ({have} of {cap})",

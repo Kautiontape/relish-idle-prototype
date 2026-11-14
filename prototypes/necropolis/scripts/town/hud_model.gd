@@ -61,6 +61,39 @@ static func steady_arrow(total: float, steady: float, hcfg: Dictionary) -> Strin
 	return String(g.get("flat", ""))
 
 
+## The workforce the town actually keeps: min(slots_total + idle_cap, steady). Idle beyond the cap is
+## mustered to WAR, so `steady` overstates it. The view's `workers.steady_kept` (or view_hud's
+## `workers_steady_kept`) is used when present.
+## TODO(api-request #12): drop the stand-in once the views carry steady_kept (E2b).
+static func kept(town: Dictionary, hud: Dictionary, idle_cap: float) -> float:
+	var w: Dictionary = town.get("workers", {})
+	if w.has("steady_kept"):
+		return float(w["steady_kept"])
+	if hud.has("workers_steady_kept"):
+		return float(hud["workers_steady_kept"])
+	var slots := 0.0
+	for j in town.get("jobs", []):
+		slots += float(j.get("slots", 0))
+	return minf(slots + idle_cap, float(w.get("steady", 0.0)))
+
+
+## The surplus streaming to WAR (/s): the live muster, else `muster_steady`, when steady exceeds kept
+## by more than the arrow's tolerance; 0 hides it.
+static func surplus_rate(town: Dictionary, steady: float, kept_n: float, hcfg: Dictionary) -> float:
+	if steady - kept_n <= maxf(float(hcfg.get("tol_min", 0.5)), absf(steady) * float(hcfg.get("tol_frac", 0.02))):
+		return 0.0
+	var w: Dictionary = town.get("workers", {})
+	var m := float(w.get("muster", 0.0))
+	if m > 0.0:
+		return m
+	return maxf(float(w.get("muster_steady", 0.0)), 0.0)
+
+
+## "+0.07/s" (the oblique part); the upright "→ WAR" is `text.war`.
+static func war_text(rate: float, hcfg: Dictionary) -> String:
+	return net_text(rate, hcfg)
+
+
 static func steady_text(steady: float, hcfg: Dictionary) -> String:
 	return BuildSort.fmt(_t(hcfg, "steady"), {"n": roundi(steady)})
 

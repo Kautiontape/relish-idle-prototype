@@ -83,6 +83,9 @@ func run() -> int:
 	_edge_rates(day1, demo)
 	_build_needs(day1)
 	_starved(day1)
+	_kept(day1)
+	_tier_need(day1)
+	_save_for(day1)
 	_build_sort(day1)
 	_build_reasons(day1)
 	_build_queue(day1)
@@ -1367,6 +1370,7 @@ func _need_views(day1: Dictionary) -> Dictionary:
 	v["relish"]["state"] = "idle"
 	v["relish"]["target"] = ""
 	v["relish"]["at"] = "covington"
+	v["town"]["next_tier"] = {}
 	for r in v["hud"]["rates"]:
 		if r["id"] == "gold" or r["id"] == "bone":
 			r["rate"] = 0.1
@@ -2956,3 +2960,87 @@ func _starved_needs(v: Dictionary) -> Array:
 
 func _starved_ids(v: Dictionary) -> Array:
 	return _starved_needs(v).map(func(n): return n["id"])
+
+
+## Hamlet with House missing for Village: gold 35 (house costs 40) so only cheaper rows are buildable.
+func _hamlet(day1: Dictionary, gold: float, gold_rate: float) -> Dictionary:
+	var v: Dictionary = day1.duplicate(true)
+	_set_rate(v, "bone", 0.1)
+	_set_rate(v, "gold", gold_rate)
+	v["town"]["gold"] = gold
+	v["town"]["bone"] = 100.0
+	v["town"]["next_tier"] = {"tier": "village", "have": 6, "need": 6, "missing": ["house"]}
+	for r in v["catalog"]["buildings"]:
+		var c: Dictionary = r["cost"]
+		var ok: bool = float(c.get("gold", 0.0)) <= gold and float(c.get("bone", 0.0)) <= 100.0 and String(r["reason"]) in ["", "no_gold", "no_bone"]
+		if String(r["reason"]) in ["", "no_gold", "no_bone"]:
+			r["can_build"] = ok
+			r["reason"] = "" if ok else "no_gold"
+		if r["building_id"] in ["house", "well"]:
+			r["lots"] = ["lot-05", "lot-06", "lot-07"]
+	return v
+
+
+func _tier_need(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var v := _hamlet(day1, 100.0, 0.15)
+	var n: Array = BuildSort.needs(v, {}, vcfg, bv).filter(func(x): return String(x["id"]).begins_with("tier"))
+	t.ok(n.size() == 1 and n[0]["chip"] == "next tier: Village needs a House" and n[0]["serves"] == ["building:house"], "tier need: the missing House, named by tier and label (%s)" % str(n))
+	var items: Array = BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv), bv, vcfg)
+	t.ok(items[0]["row"]["building_id"] == "house" and items[0]["chip"] == "next tier: Village needs a House", "tier need: the House ranks first")
+	v["town"]["next_tier"]["missing"] = ["walls", "chapel_of_vats"]
+	t.ok(BuildSort.needs(v, {}, vcfg, bv).filter(func(x): return String(x["id"]).begins_with("tier")).size() == 2, "tier need: one need per missing building")
+	v["town"]["next_tier"] = {}
+	t.ok(BuildSort.needs(v, {}, vcfg, bv).filter(func(x): return String(x["id"]).begins_with("tier")).is_empty(), "tier need: none when nothing is missing")
+	var ids: Array = (vcfg["needs"]["order"] as Array)
+	t.ok(ids.find("tier") > ids.find("starved_gold") and ids.find("tier") < ids.find("gold"), "tier need: after the starved streams, before gold")
+
+
+func _save_for(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var v := _hamlet(day1, 35.0, 0.15)
+	var items: Array = BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv), bv, vcfg)
+	var sug: Dictionary = BuildSort.suggest(items, bv, BuildSort.stocks(v), vcfg)
+	t.ok(sug.get("building_id", "") == "house" and String(sug.get("label", "")).begins_with("save for House (~") and sug.get("save", false),
+		"save: 35 gold at +0.15/s with House missing suggests saving for it (%s)" % str(sug))
+	t.ok(BuildSort.autoplay_pick(v, cfg).is_empty(), "save: the autoplayer waits")
+	var slow := _hamlet(day1, 35.0, 0.0)
+	items = BuildSort.sort_rows(slow["catalog"]["buildings"], BuildSort.needs(slow, {}, vcfg, bv), bv, vcfg)
+	sug = BuildSort.suggest(items, bv, BuildSort.stocks(slow), vcfg)
+	t.ok(sug.get("building_id", "") != "house" and not sug.has("save"), "save: gold not flowing falls back to today's rule (%s)" % str(sug.get("building_id", "")))
+	t.ok(not BuildSort.autoplay_pick(slow, cfg).is_empty(), "save: ... and the autoplayer builds something")
+	var far := _hamlet(day1, 1.0, 0.15)  # 39 gold short at 0.15/s is over the wait
+	t.ok(BuildSort.autoplay_pick(far, cfg).get("building_id", "") != "house" and not BuildSort.suggest(
+		BuildSort.sort_rows(far["catalog"]["buildings"], BuildSort.needs(far, {}, vcfg, bv), bv, vcfg), bv, BuildSort.stocks(far), vcfg).has("save"),
+		"save: an estimate over suggest_wait_s falls back")
+	var rich := _hamlet(day1, 100.0, 0.15)
+	var pick: Dictionary = BuildSort.autoplay_pick(rich, cfg)
+	t.ok(pick.get("building_id", "") == "house", "save: once the House is affordable the autoplayer builds it (%s)" % str(pick))
+
+
+## The workers cell shows what the town keeps: min(slots + idle_cap, steady), or the real field.
+func _kept(day1: Dictionary) -> void:
+	var h: Dictionary = vcfg["hud"]
+	var town: Dictionary = {"jobs": [{"id": "a", "slots": 30, "staffed": 20.0}, {"id": "b", "slots": 20, "staffed": 10.0}],
+		"workers": {"total": 40.0, "steady": 87.8, "muster": 0.0}}
+	var hud: Dictionary = {}
+	t.ok(is_equal_approx(HudModel.kept(town, hud, 10.0), 60.0), "kept: slots 50 + idle_cap 10 under a steady of 87.8 is 60")
+	town["workers"]["steady"] = 45.0
+	t.ok(is_equal_approx(HudModel.kept(town, hud, 10.0), 45.0), "kept: a steady under slots + cap is itself")
+	town["workers"]["steady"] = 87.8
+	town["workers"]["steady_kept"] = 55.0
+	t.ok(is_equal_approx(HudModel.kept(town, hud, 10.0), 55.0), "kept: the view's workers.steady_kept wins")
+	town["workers"].erase("steady_kept")
+	hud["workers_steady_kept"] = 52.0
+	t.ok(is_equal_approx(HudModel.kept(town, hud, 10.0), 52.0), "kept: view_hud's workers_steady_kept is used too")
+	t.ok(HudModel.steady_arrow(60.0, 60.0, h) == h["glyph"]["flat"] and HudModel.steady_arrow(60.0, 87.8, h) == h["glyph"]["up"],
+		"kept: the arrow compares against kept (flat at 60 of 60, where steady 87.8 would say up)")
+	town["workers"]["muster"] = 0.069
+	t.ok(is_equal_approx(HudModel.surplus_rate(town, 87.8, 60.0, h), 0.069), "surplus: shown when steady > kept, from the live muster")
+	town["workers"]["muster"] = 0.0
+	town["workers"]["muster_steady"] = 0.11
+	t.ok(is_equal_approx(HudModel.surplus_rate(town, 87.8, 60.0, h), 0.11), "surplus: muster_steady when no live muster")
+	t.ok(HudModel.surplus_rate(town, 60.0, 60.0, h) == 0.0, "surplus: hidden when steady does not exceed kept")
+	town["workers"].erase("muster_steady")
+	t.ok(HudModel.surplus_rate(town, 87.8, 60.0, h) == 0.0, "surplus: hidden when no muster rate is known")
+	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and h["text"]["war"] == "\u2192 WAR", "surplus: signed rate, upright '→ WAR'")

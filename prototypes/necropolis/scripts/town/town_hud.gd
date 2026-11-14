@@ -97,6 +97,16 @@ func _make_cell(id: String) -> Control:
 	col.add_child(head)
 	var split := _clip(TownUI.rate_label("", int(_hcfg.get("split_px", 12)), "text_dim"))
 	col.add_child(split)
+	var war_row: HBoxContainer = null
+	var war_rate: Label = null
+	if id == "workers":  # the surplus past what the town keeps: "+0.07/s → WAR"
+		war_row = HBoxContainer.new()
+		war_row.add_theme_constant_override("separation", 4)
+		war_rate = TownUI.rate_label("", int(_hcfg.get("split_px", 12)), "text_dim")
+		war_row.add_child(war_rate)
+		war_row.add_child(TownUI.label(String((_hcfg.get("text", {}) as Dictionary).get("war", "")), int(_hcfg.get("split_px", 12)), "text_dim"))
+		war_row.visible = false
+		col.add_child(war_row)
 	var stock := _clip(TownUI.label("", int(_hcfg.get("stock_px", 13)), "text"))
 	col.add_child(stock)
 	var bar := CapBar.new()
@@ -106,7 +116,7 @@ func _make_cell(id: String) -> Control:
 	bar.custom_minimum_size = Vector2(float(bc.get("w_px", 120.0)), float(bc.get("h_px", 6.0)))
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	col.add_child(bar)
-	_cells[id] = {"net": net, "split": split, "stock": stock, "bar": bar}
+	_cells[id] = {"net": net, "split": split, "stock": stock, "bar": bar, "war_row": war_row, "war_rate": war_rate}
 	return col
 
 
@@ -171,8 +181,12 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 			parts.append(["muster", -float(w["muster"])])
 		split = HudModel.split_text(parts, _hcfg)
 		var total := float(w.get("total", 0.0))
-		c["stock"].text = "%d  %s %s" % [roundi(total), HudModel.steady_text(float(w.get("steady", 0.0)), _hcfg),
-			HudModel.steady_arrow(total, float(w.get("steady", 0.0)), _hcfg)]
+		var steady := float(w.get("steady", 0.0))
+		var kept := HudModel.kept(town, hud, float(ConfigDb.v("economy", "worker", {}).get("idle_cap", 0.0)))
+		c["stock"].text = "%d  %s %s" % [roundi(total), HudModel.steady_text(kept, _hcfg), HudModel.steady_arrow(total, kept, _hcfg)]
+		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
+		(c["war_row"] as Control).visible = war > 0.0
+		(c["war_rate"] as Label).text = HudModel.war_text(war, _hcfg)
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
 		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]
