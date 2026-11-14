@@ -15,6 +15,7 @@ var _held_events: Array = []  # game events drained while the swapped-in scene w
 
 
 func _ready() -> void:
+	AudioPrefs.apply()  # the saved mute and volume hold even in a scene with no Synth
 	Game.game_event.connect(_on_game_event)
 	_open_map()
 
