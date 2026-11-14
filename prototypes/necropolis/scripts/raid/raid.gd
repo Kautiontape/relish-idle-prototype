@@ -7,7 +7,6 @@ signal finished(result: Dictionary)
 
 var seed_data := {}
 var layout := {}
-var ledger: RaidLogic.Ledger = null          # legacy (boss only)
 var ledger_v2: RaidLogic.LedgerV2 = null     # dungeon (non-boss)
 var rng_combat := RandomNumberGenerator.new()
 var rng_loot := RandomNumberGenerator.new()  # every loot roll (RaidLoot); seeded from the run seed
@@ -27,8 +26,6 @@ var allies: Array = []
 var ally_engage_px := 620.0
 var trance_active := false
 var first_raise_done := false
-var backlog_left := 0.0          # boss only
-var army_lost := {"soldier": 0, "elite": 0}
 var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
 var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
@@ -104,13 +101,10 @@ func _ready() -> void:
 		_build()
 
 
-## Router args `{mode: "dungeon", fort_id, run_id, seed_rev}` (legacy keys ignored).
-## The legacy boss args (`boss: true`) are used as the seed as before.
+## Router args `{mode: "dungeon", fort_id, run_id, seed_rev}` (legacy keys ignored). VeiBoss
+## overrides this with its own seed.
 func setup(args: Dictionary) -> void:
-	if bool(args.get("boss", false)):
-		seed_data = args.duplicate(true)
-	else:
-		seed_data = _resolve_seed(args)
+	seed_data = _resolve_seed(args)
 	_setup_called = true
 	if is_inside_tree() and not _built:
 		_build()
@@ -173,7 +167,6 @@ func _build() -> void:
 	if boss:
 		rng_combat.randomize()
 		rng_loot.randomize()
-		ledger = RaidLogic.Ledger.new(float(seed_data.get("dead", 0.0)), float(seed_data.get("cap", 100.0)))
 	else:
 		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
 		rng_combat.seed = base ^ 0x6C0AB47
@@ -336,10 +329,7 @@ func spawn_unit(faction: String, kind: String, pos: Vector2, grown := false) -> 
 	var cfg := rcfg()
 	var stats: Dictionary = {}
 	if faction == "enemy":
-		if kind == "guard":
-			stats = cfg.get("boss", {}).get("guard", {})
-		else:
-			stats = cfg.get("enemies", {}).get(kind, {})
+		stats = cfg.get("enemies", {}).get(kind, {})
 	else:
 		stats = cfg.get("undead", {}).get(kind, {})
 	var u := RaidUnit.new()
@@ -373,45 +363,25 @@ func spawn_ally_v2(role: String, tier: String, mult: float, mass: float, uid: St
 	return u
 
 
+## The dungeon's deaths only: VeiBoss overrides this whole function with the boss's own rules.
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
-		if is_boss():
-			ledger.on_kill(u.mass)
-		else:
-			ledger_v2.on_kill(u.mass)
+		ledger_v2.on_kill(u.mass)
 		# kills drop essence at the corpse, carrying the enemy's mass
-		if is_boss():
-			spawn_orb(u.global_position, u.mass, Vector2(rng_combat.randf_range(30, 70), 0).rotated(rng_combat.randf() * TAU))
-		else:
-			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
+		_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
-		if not is_boss():
-			_roll_ding(u.global_position)
-			held_clear.on_enemy_died()
+		_roll_ding(u.global_position)
+		held_clear.on_enemy_died()
 	else:
 		allies.erase(u)
-		if is_boss():
-			if u.ledger_mass:
-				ledger.on_chaff_death(u.mass)
-			if u.kind == "soldier":
-				army_lost["soldier"] += 1
-			elif u.kind == "elite":
-				army_lost["elite"] += 1
-		else:
-			if u.role == "party":
-				party_died.append(u.uid)
-			# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
-			var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
-			_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
+		if u.role == "party":
+			party_died.append(u.uid)
+		# a fallen undead returns its mass to the field; massless ones drop mass-0 motes
+		var m: float = u.mass if u.role in ["raised", "garrison"] else 0.0
+		_drop_motes(u.global_position, m, int(rcfg().get("essence", {}).get("per_undead", 1)), true)
 		if not sacrificed:
 			RaidFx.ring(fx_root, u.global_position, Palette.c("undead", 0.4), 20.0, 0.25, 2.0)
-		_on_ally_died(u)
-
-
-## Boss hook (corpse remnants for Vei's revive).
-func _on_ally_died(_u: RaidUnit) -> void:
-	pass
 
 
 func has_allies() -> bool:
@@ -422,7 +392,9 @@ func has_allies() -> bool:
 
 
 ## THE SACRIFICE CHAIN (MECHANICS 5.0): a lethal hit on Relish consumes the nearest ally of the
-## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest.
+## lowest available rank (chaff, soldier, elite, big undead). The boss keeps plain nearest: every
+## ally is rank 0 there, so the nearest one goes whatever it is. A live boss rule (VeiBoss is_boss()
+## is true), not legacy: Vei's balance was calibrated with it.
 func sacrifice_nearest_ally() -> void:
 	var pool: Array = []
 	var cands: Array = []
@@ -555,11 +527,6 @@ func resolve_walls(p: Vector2, r: float) -> Vector2:
 
 
 # ------------------------------------------------------------- essence -------
-func spawn_orb(pos: Vector2, mass: float, pop_vel := Vector2.ZERO) -> void:
-	if mass > 0.001:
-		spawn_mote(pos, mass, false, pop_vel)
-
-
 ## One mote with explicit mass/recycled (mass 0 allowed: massless undead return no mass).
 func spawn_mote(pos: Vector2, mass: float, recycled: bool, pop_vel := Vector2.ZERO) -> void:
 	var o := RaidEssence.new()

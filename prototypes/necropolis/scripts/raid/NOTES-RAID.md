@@ -11,7 +11,7 @@ Worker report for `scenes/raid/Raid.tscn` and `scenes/boss/VeiBoss.tscn`.
 | `scripts/raid/raid.gd` | Scene orchestrator: contract (setup/demo_seed/finished), arena build, camera, input routing, spatial grid, wall collision, raise resolution, endings |
 | `scripts/raid/vei_boss.gd` | Extends raid.gd: Vei's final test, fronts then the break (see "Vei's final test (task 9b)") |
 | `scripts/raid/boss_logic.gd`, `boss_lanes.gd`, `boss_guard.gd`, `boss_dev.gd`, `boss_autopilot.gd` | The boss's pure maths (`BossLogic`), the fronts on the field, her guards, the dev flags and the bot (task 9b) |
-| `scripts/raid/raid_logic.gd` | PURE logic (`RaidLogic`): mass mappings, score→tier, `Ledger` inner class, seeded layout generator, flood-fill reachability, population. No autoloads — everything takes a cfg dict |
+| `scripts/raid/raid_logic.gd` | PURE logic (`RaidLogic`): mass mappings, score→tier, the test-only v1 `Ledger` inner class and `raise_spec`, `LedgerV2`, seeded layout generator, flood-fill reachability, population. No autoloads — everything takes a cfg dict |
 | `scripts/raid/circle_scorer.gd` | VERBATIM copy of raid-and-raise's `circle_scorer.gd` (Kåsa fit + sealing + grade + multiplier) |
 | `scripts/raid/trance.gd` | Trance port: hold SPACE/RMB → time_scale 0.35, focus drains in real time (4s), 6s cooldown on summon, 1s lockout on empty release, LEFT-drag trace |
 | `scripts/raid/trace_feedback.gd` | Feedback port: fitted ring over the actual trace + "SCORE — WORD" (~1.1 real s), bands incl. 98+ rainbow PERFECT |
@@ -19,7 +19,7 @@ Worker report for `scenes/raid/Raid.tscn` and `scenes/boss/VeiBoss.tscn`.
 | `scripts/raid/raid_unit.gd` | The one combat unit (enemy + undead kinds): wander/aggro/chase/melee cadence, separation, wall slide, grow-in, hp bars |
 | `scripts/raid/vei.gd` | Vei (task 9b): her cream and gold ring glyph and her weaves (a beat-timed `danger` thread that hunts Relish) |
 | `scripts/raid/essence_orb.gd` | Glowing green orb: ~12s world-time life, drift toward Relish ≤120px, absorb streak |
-| `scripts/raid/corpse_pile.gd` | Grey MATTE pile; stirs into 2-4 orbs when Relish comes ≤90px; `small=true` variant = boss remnants |
+| `scripts/raid/corpse_pile.gd` | Grey MATTE pile; stirs into 2-4 orbs when Relish comes ≤90px |
 | `scripts/raid/wall_segment.gd` | One wall segment; feeds the shader per-segment uniforms (length, world offset for hue continuity) |
 | `scripts/raid/raid_hud.gd` | CanvasLayer HUD: fort/tier, counters, trance meter, hint, RETREAT button + ConfirmationDialog (dungeon only), the boss block (fronts, horde, break pips, backups), standalone result panel |
 | `scripts/raid/raid_fx.gd` | One-shot fx: expanding rings, click ping, red soul-link line |
@@ -30,7 +30,7 @@ Worker report for `scenes/raid/Raid.tscn` and `scenes/boss/VeiBoss.tscn`.
 
 ## Ledger → result dict
 
-`RaidLogic.Ledger` is the single accounting authority (`raid.gd` owns one instance).
+**Historical (v1).** `RaidLogic.Ledger` (with `raise_spec`) no longer runs in any scene: the dungeon accounts with `LedgerV2` and the boss builds its own result. It stays only as the v1 result fixture of `tests/test_results.gd` (from_v1) and `tests/test_raid_logic.gd`, and goes with them. The spawn mapping below still holds; the kill, raise and exit-split bullets describe that v1 class.
 
 - **Spawn mapping** (exact spec formulas, knobs in `raid.json: mass`):
   `enemy_count = clampi(round(living/cap*26), 5, 34)`, `mass_per_enemy = living/enemy_count`;
@@ -61,7 +61,7 @@ Boss result: the v2 boss result (STATE-API 8.2) from `VeiFronts.boss_result`, bu
 - `raise`: soldier ≥60, elite ≥90, orb divisors 3/4, spawn ring.
 - `layout`: per-tier sizes (t1 1100×800 … t4 2200×1500, boss 2600×1800), wall thickness/glow, door width 150, inner gap 165, min room 300, flood-fill cell 32, floor grid step.
 - `camera`: zoom clamp + view pad + smoothing.
-- `boss` (LEGACY, task 9b: only raid.gd's `spawn_unit` guard branch still reads it, and the boss no longer calls it; the boss's knobs are in `configs/vei.json`): hp formula knobs (`hp_base 1400 + hp_per_missing_odds 3200 * max(0, 0.8 - odds)`), smite (range 92 / dmg 14 / 8 targets / 1.1s), pulse (radius 340, windup 1.2, cadence 5.5→3s as hp drops, dmg: chaff instant, soldier 18, elite 30, relish 10), revive (radius 400, channel 2s, cooldown 6, min mass 16, mass/guard 10, guard cap 24), guard statline, heal 10/s when uncontacted, stream (`2 + backlog/1500`/s, 8 mass/spawn, alive-chaff cap 90), remnants (mass, cap 40).
+- `boss`: GONE. The raid.json `boss` block (hp, smite, pulse, revive, guard, heal, stream, remnant knobs) was removed with its only reader, `spawn_unit`'s guard branch; the boss's knobs are `configs/vei.json`. `layout.boss_*` stays (the arena reads it).
 - Circle scoring knobs live in `configs/circle.json` (verbatim; owned by the scorer).
 
 ## Deviations from the spec (all flagged)
@@ -148,11 +148,12 @@ Batches ran from a snapshot of the commit (another agent was editing the worktre
   A fast big intercepts and stuns it for 3 beats at ×2.5 damage, so the tier-4 party (3 fast bigs)
   stuns it far more often than a tier-2 party (one). A drawn-out fight costs the bigs, then the
   catches start. Its hp (3400 + 500/tier) keeps the fight to about 40–110 s.
-- **What the fight telemetry shows** (`reports/dungeon/standins-measured.json` `fight_telemetry`, re-run at
-  ab7b93a, raw lines beside it). At tier a braced bell muffles 75% of slams (636/846) and fast bigs intercept
-  58% of lunges (152/263). In P3 that falls to 2% and 8%, because the tier-2 big dies on the tier-4 approach.
-  P1 has no big (0 of 315 slams muffled) and wins on 15.5 raises per fight. Deaths at tier: 1 before the wake
-  and 2 after; P3: 1 before and 9 after. Warden hp left at t3 falls with score: 0.14 / 0.05 / 0.00 at 50 / 70 / 90.
+- **What the fight telemetry shows** (`reports/dungeon/standins-measured.json` `fight_telemetry`, re-measured
+  at c9f958a; raw lines in `reports/dungeon/acceptance-raw-c9f958a.tsv`). At tier (t2-t4, 30 runs per archetype)
+  a braced bell muffles 64% of slams and fast bigs intercept 66% of lunges. In P3 that falls to 2% and 19%,
+  because the tier-2 big dies on the tier-4 approach. P1 has no big (no weak point) and wins on 15.4 raises
+  per fight after the wake. No death at tier; P3: 9 of 20, all after the wake. Warden hp left at t3 by score
+  50 / 70 / 90: 0.101 / 0.006 / 0.006.
 - **Tiers separate on the living**, not the count (every profile fort fields round(0.85 × 26) = 22).
   A heavier brute (70 hp, 10 dmg, speed 70) is 30% / 45% of the t3 / t4 mix. A tier-2 party loses its
   big there and dies (P3). Spearman and runner stay at their old lines, which P1, t1 and t2 share.
@@ -162,24 +163,19 @@ Batches ran from a snapshot of the commit (another agent was editing the worktre
   bails, raises only in a safe slam window, kites at 240 px, and dodges half the lunge tells. It
   walks into the warden room as soon as the way is clear, so at whitecross the Huntsman can wake
   with living still in other rooms.
-- **Acceptance** (score 70 unless noted; P2 is 10 seeds at each of the tier's two forts; the
-  medians in brackets are per archetype):
+- **Acceptance** (score 70, c9f958a; P2 is seeds 1-10 at each of the tier's two forts; medians in seconds;
+  raw lines in `reports/dungeon/acceptance-raw-c9f958a.tsv`, the numbers in `standins-measured.json`
+  `acceptance_70`, `first_dungeon`, `two_tiers_above`):
 
-  | row | runs | died | beaten | median s (bell / hunt) | target | holds |
-  |---|---|---|---|---|---|---|
-  | P1 first dungeon | 20 | 0 | 20 | 123 | died ≤ 1, beaten ≥ 15, first raise ≤ 30 s (max 3.6), 90–240 s | yes |
-  | P2 t2 | 20 | 0 | 20 | 123 (134 / 61) | died < 10%, beaten ≥ 50%, 120–360 s | yes |
-  | P2 t3 | 20 | 1 (on the approach) | 19 | 115 (162 / 79) | same | duration short |
-  | P2 t4 | 20 | 2 (whitecross) | 18 | 142 (162 / 96) | same | deaths at 10% |
-  | P3 t2 party at t4 | 20 | 10 (50%) | 7 | 245 | died > 40% | yes |
-  | t3 @50 / @70 / @90 | 20 each | 2 / 1 / 1 | 13 / 19 / 19 | fight 137 / 106 / 93 s | deaths fall, beaten rises | yes |
+  | row | runs | died | beaten | median s |
+  |---|---|---|---|---|
+  | P1 first dungeon | 60 | 0 (upper bound 4.9%) | 60 | 118 |
+  | P2 t2 | 20 | 0 | 20 | 138 |
+  | P2 t3 | 20 | 0 | 19 | 108 |
+  | P2 t4 | 20 | 0 | 20 | 126 |
+  | P3 t2 party at t4 | 20 | 9 (45%) | 8 | 201 |
 
-- **What blocks the two misses.** Each tier's median sits between two clusters: Bellringer runs
-  near 135–160 s, Huntsman runs near 60–95 s. A longer Huntsman would lift t3 but costs deaths at t4.
-  Whitecross went 0/5 at 1300 hp, 2–3/5 at 3800–6200, and 2/10 at 5400 once the doorway stall was fixed.
-  There the bot walks into the warden room while living remain in side rooms (seed 9: 18 still up
-  at the wake), so the fight runs long and the bigs die. The next step is a bot change, not a number:
-  clear the side rooms before waking the warden, then re-measure.
+  The old doorway-stall and side-room misses (deaths at whitecross, a short t3) no longer show at this commit.
 
 
 ## Vei's final test (task 9b)
@@ -191,4 +187,4 @@ Batches ran from a snapshot of the commit (another agent was editing the worktre
 - **`raised.unit_cap` 20 is a perf cap.** Raises past it still count toward the break (their value feeds `break_beat`) but add no fighters. It also bounds her ward (the sacrifice chain), so it doubles as a gameplay limit; calibrate them together.
 - **The horde-drained loss exists but is out of reach at demo numbers.** H is the seed's backlog (~18k) and Vei ferries it at F (~3.4/s at pool 380, q 2.6, one uncleared front), so draining takes about 90 minutes. In practice the break is a race against deaths. A Vei-calibration item; left as is.
 - **fronts_cleared** in the result is the list frozen when the break begins, or, for a fight that ends in phase 1 (timeout, final death, close), what phase 1 had cleared (`BossLogic.fight_result`).
-- **Legacy still in shared files** (waiting on the controller): raid.gd's `ledger` and its boss `_build` branch, the boss branches of `on_unit_died`, `spawn_unit`'s guard branch (the only reader of `raid.json boss`), the `args.boss` setup branch, `backlog_left`/`army_lost`/`_on_ally_died`; `raid_raise.gd _perform_legacy`; `RaidLogic.Ledger`/`raise_spec` and their tests.
+- **Legacy removed from the shared files**: raid.gd's `ledger` and the boss `_build` branch that built it, the boss branches of `on_unit_died` (VeiBoss overrides it whole), `spawn_unit`'s guard branch, the `args.boss` setup branch, `backlog_left`/`army_lost`/`_on_ally_died`/`spawn_orb`, `RaidUnit.ledger_mass`/`from_army`, and `raid_raise.gd _perform_legacy`. Kept: `sacrifice_nearest_ally`'s boss rank-0 rule (live: the boss sacrifices the plain nearest ally; Vei's balance was set with it), and `RaidLogic.Ledger`/`raise_spec` as test-only fixtures (`test_results.gd` builds a v1 result with them).

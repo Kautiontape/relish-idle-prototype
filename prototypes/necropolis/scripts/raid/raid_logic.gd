@@ -40,7 +40,7 @@ static func score_class(score: int, cfg: Dictionary) -> String:
 	return "chaff"
 
 
-## What a scored circle raises from N orbs of total mass M.
+## What a scored circle raises from N orbs of total mass M. Test-only (Ledger.on_raise, see there).
 ## Big sloppy circle = many weak idiots; small perfect circle = few strong ones.
 static func raise_spec(score: int, total_mass: float, orb_count: int, cfg: Dictionary) -> Dictionary:
 	if orb_count <= 0:
@@ -525,7 +525,9 @@ static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictiona
 
 
 # -------------------------------------------------------------- the ledger ---
-## Tracks how in-scene events map onto the abstract map-mass result dict.
+## TEST-ONLY v1 result builder: no scene uses it any more (the dungeon is LedgerV2, the boss has its
+## own result). Kept because tests/test_results.gd (from_v1) builds its v1 fixture with it; delete it
+## with that fixture. Tracks how in-scene events map onto the abstract map-mass result dict.
 ## Conservation invariant: everything reported as raised (chaff out + good mass
 ## + garrison) can never exceed initial dead + mass of living killed. Chaff that
 ## is re-killed inside the raid drops out of the pool (its corpse stays at the

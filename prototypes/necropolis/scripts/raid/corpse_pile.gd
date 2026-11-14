@@ -6,7 +6,6 @@ extends Node2D
 var raid: Node = null
 var mass := 4.0
 var look_mass := -1.0       # >= 0: size the lumps as if the pile held this (the massless first pile)
-var small := false          # boss remnants: dead undead, drawn smaller
 
 var _stirred := false
 var _shrink := -1.0
@@ -20,8 +19,6 @@ func _ready() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(position.x * 13.0 + position.y * 7.0) + 11
 	var base := clampf(9.0 + (mass if look_mass < 0.0 else look_mass) * 0.7, 9.0, 26.0)
-	if small:
-		base = clampf(5.0 + mass * 0.4, 5.0, 9.0)
 	var n := rng.randi_range(3, 5)
 	for i in n:
 		_lumps.append({
@@ -74,7 +71,7 @@ func stir() -> void:
 		n = maxi(1, n)
 		for i in n:
 			var ang: float = raid.rng_combat.randf() * TAU
-			# spawn_mote, not spawn_orb: the first dungeon's pile is massless (it mints no mass) and still stirs
+			# the first dungeon's pile is massless (it mints no mass) and still stirs
 			raid.spawn_mote(global_position + Vector2(raid.rng_combat.randf_range(4, 16), 0).rotated(ang),
 				mass / n, false, Vector2(float(e.get("pop_speed_px", 85.0)), 0).rotated(ang))
 	_shrink = 0.0
