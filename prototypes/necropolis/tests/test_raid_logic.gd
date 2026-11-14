@@ -887,6 +887,7 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(jw != jam_to and (hr["rooms"][jr] as Rect2).has_point(jw) and LayoutLogic.line_clear(hr, jw, jam_to, 13.0),
 		"a band target behind a jamb routes to the doorstep in the mover's room, clear of the jamb: %s" % str(jw))
 	t.ok(LayoutLogic.waypoint(hr, jw, jam_to, 13.0, float(cc["route_door_pad_px"])) == jam_to, "from the doorstep it goes straight in")
+	_waypoint_jamb_tests(t, cfg, hr)
 	var pad := float(cc["route_door_pad_px"])
 	# line_clear on a hand-made layout: one wall rect at x 100..130, y 0..200
 	var toy := {"inner_walls": [Rect2(100, 0, 30, 200)]}
@@ -1016,6 +1017,87 @@ func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 		t.ok(LayoutLogic.waypoint(lay_cut, p0, tq2, 12.0) == tq2, "waypoint: unreachable falls back to the target")
 		t.ok(LayoutLogic.route_dist(lay0, p0, tq2) >= p0.distance_to(tq2), "route_dist is never shorter than the straight line")
 		t.ok(LayoutLogic.route_dist(lay_cut, p0, tq2) == INF, "route_dist: unreachable is INF")
+
+
+## The doorstep rule (LayoutLogic.waypoint: a target in a doorway band of the mover's own room, hidden
+## by a jamb) for every mover size, undead (chaff, soldier, elite), living (runner, spearman, brute), a
+## big undead and Relish, on hollow-redoubt t3's room 0 -> 4 gap. Then a mover jostled 4-12 px off the
+## doorstep with its line to the target still blocked: walking the waypoints it must close on the
+## target, never bouncing between the doorstep and the target.
+func _waypoint_jamb_tests(t: TestUtil, cfg: Dictionary, hr: Dictionary) -> void:
+	var pad := float(cfg["combat"]["route_door_pad_px"])
+	var gap := Rect2()
+	var jamb := Rect2()
+	for g in hr["gaps"]:
+		if (g as Rect2).has_point(Vector2(1451, 714)):
+			gap = g
+	for w in hr["inner_walls"]:
+		if (w as Rect2).has_point(Vector2(1300, 714)):
+			jamb = w
+	t.ok(gap.size != Vector2.ZERO and jamb.size != Vector2.ZERO and is_equal_approx(jamb.end.x, gap.position.x),
+		"fixture: the room 0 -> 4 gap and the jamb left of it")
+	var room0 := LayoutLogic.room_of(hr, Vector2(1300, 900))
+	var radii := {"chaff": float(cfg["undead"]["radius_by_tier"]["chaff"]), "soldier": float(cfg["undead"]["radius_by_tier"]["soldier"]),
+		"elite": float(cfg["undead"]["radius_by_tier"]["elite"]), "runner": float(cfg["enemies"]["runner"]["radius"]),
+		"spearman": float(cfg["enemies"]["spearman"]["radius"]), "brute": float(cfg["enemies"]["brute"]["radius"]),
+		"big": float(cfg["party"]["radius"]), "relish": float(cfg["relish"]["radius"])}
+	var bad_corner := ""
+	var bad_walk := ""
+	var walks := 0
+	for nm in radii:
+		var r: float = radii[nm]
+		# 1. pressed into the jamb's corner, the gap centre past it: the doorstep, then straight in
+		var from := Vector2(jamb.position.x - r - 0.5, jamb.end.y + 1.0)
+		var to := gap.get_center()
+		var wp := LayoutLogic.waypoint(hr, from, to, r, pad)
+		var ok := LayoutLogic.room_of(hr, from) == room0 and not LayoutLogic.line_clear(hr, from, to, r) \
+			and wp != to and (hr["rooms"][room0] as Rect2).has_point(wp) and LayoutLogic.line_clear(hr, wp, to, r) \
+			and LayoutLogic.waypoint(hr, wp, to, r, pad) == to
+		if not ok and bad_corner == "":
+			bad_corner = "%s r=%s wp=%s" % [nm, r, wp]
+		# 2. the target hugging the jamb (as close as this mover can stand), the mover jostled off the doorstep
+		var tgt := Vector2(jamb.end.x + r + 2.0, gap.get_center().y)
+		var door := LayoutLogic.waypoint(hr, Vector2(jamb.position.x - r - 0.5, jamb.end.y + 1.0), tgt, r, pad)
+		for off in [Vector2(-4, 0), Vector2(-8, 0), Vector2(-12, 0), Vector2(-6, -6), Vector2(-8, 4), Vector2(-12, 8)]:
+			var start: Vector2 = door + off
+			if LayoutLogic.line_clear(hr, start, tgt, r):
+				continue   # only the blocked case is asked about
+			walks += 1
+			var w := _jostle_walk(hr, start, tgt, door, r, pad)
+			if not w["ok"] and bad_walk == "":
+				bad_walk = "%s r=%s off=%s: %s" % [nm, r, off, w["why"]]
+	t.ok(bad_corner == "", "every mover size pressed into the jamb routes via the doorstep, then straight in (%s)" % bad_corner)
+	t.ok(walks >= radii.size(), "the jostle cases have the line blocked (%d of them)" % walks)
+	t.ok(bad_walk == "", "jostled 4-12 px off the doorstep, every size closes on the target without bouncing (%s)" % bad_walk)
+
+
+## Walk `start` toward `tgt` through the waypoints, 2 px a call, wall-pushed as the arena does. ok when
+## it gets within 2 px, with the waypoint switching from the doorstep to the target at most once and
+## never back, and never ending a call farther from the target than its start plus the doorstep detour.
+func _jostle_walk(lay: Dictionary, start: Vector2, tgt: Vector2, door: Vector2, r: float, pad: float) -> Dictionary:
+	var pos := start
+	var kinds: Array[String] = []
+	var bound := start.distance_to(door) + door.distance_to(tgt) + 0.5
+	for i in 400:
+		if pos.distance_to(tgt) <= 2.0:
+			var switches := 0
+			for k in range(1, kinds.size()):
+				if kinds[k] != kinds[k - 1]:
+					switches += 1
+			if switches > 1:
+				return {"ok": false, "why": "bounced (%d switches)" % switches}
+			return {"ok": true, "why": ""}
+		var wp := LayoutLogic.waypoint(lay, pos, tgt, r, pad)
+		var kind := "target" if wp == tgt else ("door" if wp.distance_to(door) < 0.5 else "other")
+		if kinds.is_empty() or kinds[kinds.size() - 1] != kind:
+			kinds.append(kind)
+		if kind == "other":
+			return {"ok": false, "why": "waypoint %s is neither the doorstep nor the target" % wp}
+		var d := wp - pos
+		pos = _push_out(lay, pos + d.normalized() * minf(2.0, d.length()), r)
+		if pos.distance_to(tgt) > bound:
+			return {"ok": false, "why": "lost ground at %s" % pos}
+	return {"ok": false, "why": "stuck at %s after %s" % [pos, str(kinds)]}
 
 
 func _pt_in_walls(lay: Dictionary, p: Vector2) -> bool:

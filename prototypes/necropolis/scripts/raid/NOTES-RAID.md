@@ -148,6 +148,11 @@ Batches ran from a snapshot of the commit (another agent was editing the worktre
   A fast big intercepts and stuns it for 3 beats at ×2.5 damage, so the tier-4 party (3 fast bigs)
   stuns it far more often than a tier-2 party (one). A drawn-out fight costs the bigs, then the
   catches start. Its hp (3400 + 500/tier) keeps the fight to about 40–110 s.
+- **What the fight telemetry shows** (`reports/dungeon/standins-measured.json` `fight_telemetry`, re-run at
+  ab7b93a, raw lines beside it). At tier a braced bell muffles 75% of slams (636/846) and fast bigs intercept
+  58% of lunges (152/263). In P3 that falls to 2% and 8%, because the tier-2 big dies on the tier-4 approach.
+  P1 has no big (0 of 315 slams muffled) and wins on 15.5 raises per fight. Deaths at tier: 1 before the wake
+  and 2 after; P3: 1 before and 9 after. Warden hp left at t3 falls with score: 0.14 / 0.05 / 0.00 at 50 / 70 / 90.
 - **Tiers separate on the living**, not the count (every profile fort fields round(0.85 × 26) = 22).
   A heavier brute (70 hp, 10 dmg, speed 70) is 30% / 45% of the t3 / t4 mix. A tier-2 party loses its
   big there and dies (P3). Spearman and runner stay at their old lines, which P1, t1 and t2 share.
