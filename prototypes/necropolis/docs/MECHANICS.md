@@ -545,7 +545,13 @@ mass; bodies, rot return, WORK and muster are mass.
 - Rot returns `rot · worker.mass · worker.body_return` mass of bodies. What the body cap can't hold
   is reported as `rot_overflow`, a ledger sink.
 - **The store over a step** (E2b T3.0): rot return and convoy landings come in, and what the pits
-  and mills want goes out. The two are netted before the cap clips: out = min(want, B0 + in), and
+  and mills want goes out: out = min(want, B0 + in). The pits have first call on it (E2b-2): while
+  the store holds bodies both draw their full want, and the step's shortfall falls on the time it
+  stands empty, τ = (want − out) / (want/s − rot return/s), when only the rot return comes in (a
+  landing refills it at once). In τ the rot return goes to the pits first and the mills get what
+  exceeds the pits' want. So burned = want_pit/s · (dt − τ) + min(want_pit/s, rot/s) · τ and the
+  mills the rest of out; with the store empty all step that is min(want_pit, in), the surplus to
+  the mills. The two are netted before the cap clips, and
   only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
@@ -578,16 +584,31 @@ mass; bodies, rot return, WORK and muster are mass.
 | job | building | effect |
 |---|---|---|
 | haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
-| mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass |
+| mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
-| pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share. `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
+| pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share, with first call on the bodies (below). `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
 | tend | chapel of vats | one slot per vat, open only while that vat is staffed (§7; E2b-2): `jobs.tend` × level slots for `vat_slots` × level vats, the same count. Grows clones (§7, E3); until then only the tenders count |
 | build | construction | `job.build.rate` work per worker-second against `build_work · target level`. A `build_work` of 0 completes at once. |
 | foreman | (big undead only) | multiplies a building's output by `foreman.mult` + speed·`foreman.speed_k` |
 
-- **Pits and mills share the bodies** in proportion to what each wants when there aren't enough, so
-  feed falls smoothly and never toggles.
+- **The pits have first call on the bodies; the mills take only the surplus** (E2b-2, the run's
+  manager). While the store holds bodies both draw their want; while it stands empty the rot
+  return goes to the pits first, and the mills get what exceeds the pits' want (§4.1 has the step's
+  τ). They used to share short bodies in proportion to what each wanted, so the mills ate the pits'
+  feed and the mint swung with the mills' want (12.8 to 8.98 mass/s in play). Feed is still
+  continuous in the supply, so it never toggles. The total taken is unchanged, so the store's path
+  and the convoy's view of it are too.
+  - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
+    depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
+    the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the
+    proportional split, 0.11% with τ). With τ one 10 s step splits as twenty 0.5 s steps do.
+  - Measured over 12 h at 10 s with no input, against the proportional split: midgame_2flips is
+    short of bodies every step (rot return and the convoy bring in less than its pit wants), so
+    its feed rises from 0.30 to 0.49 and its mint from 9.42 to 10.35 mass/s, while its mills get
+    almost nothing (100 bodies milled in 12 h instead of 5 117; bone +50 instead of +2 558).
+    pre_vei is short in 57.5% of the steps: its mean mint is 25.92 against 25.90 mass/s, its mills
+    1 656 bodies against 1 837. fresh is never short.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt

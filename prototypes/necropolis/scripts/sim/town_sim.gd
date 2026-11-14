@@ -450,7 +450,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["rot_loss"] = rotted - rot_mass
 	out["muster_mass"] = float(wf["muster"]) * _mass
 
-	# 2. what the pits and the mills want this step (they share the bodies in proportion, step 4)
+	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4)
 	var pits := 0
 	var pit_can := 0.0  # mass/s the staffed pits can burn
 	for lot_id in _lots:
@@ -476,9 +476,27 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
 	# the cap clips (MECHANICS §4.1), so a long step near the cap books no phantom overflow. What
 	# overflows is split between rot and haul by their shares of the inflow.
+	# The pits have first call on the bodies and the mills take only the surplus (E2b-2). While the
+	# store holds bodies both draw their full want; the step's shortfall falls on the time it stands
+	# empty, tau = shortfall / (want − rot return) per second, when only the rot return comes in
+	# (a landing refills it at once), and that goes to the pits first. So the split doesn't depend
+	# on dt: one 10 s step splits as twenty 0.5 s steps do. Pits-first on the whole step's supply,
+	# min(want_pit, B0 + in), did (pre_vei's bone 44.8% off at 15 s over 1 h, a load landing inside
+	# a long step fed the pits only). The total taken is min(want, B0 + in) as before, so the
+	# store's path and _haul's projection of it are unchanged.
 	var inflow := rot_mass + haul_in
 	var taken := minf(want, b0 + inflow)
 	var end := b0 + inflow - taken
+	var burned := want_pit
+	var shortfall := want - taken
+	if shortfall > 0.0:
+		var r_in := rot_mass / dt  # mass/s while the store stands empty
+		var w := want / dt
+		var tau := minf(dt, shortfall / (w - r_in)) if w > r_in else dt
+		var wp := want_pit / dt
+		burned = wp * (dt - tau) + minf(wp, r_in) * tau
+	burned = clampf(burned, 0.0, taken)
+	var milled := taken - burned
 	# only what comes in is clipped: an excess the store held before the step (a demolished house
 	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
 	# the pits have drawn the stock this step, whichever is higher
@@ -490,8 +508,6 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["haul_overflow"] = haul_over
 	var rot_in := rot_mass - rot_over
 	haul_in -= haul_over
-	var burned := taken * want_pit / want if want > 0.0 else 0.0
-	var milled := taken - burned
 	out["burned"] = burned
 	out["milled"] = milled
 	var bone_in := milled * _mill_rate

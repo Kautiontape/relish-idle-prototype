@@ -68,6 +68,7 @@ func run() -> int:
 	_handles()
 	_room_cache()
 	_vat_rule()
+	_pit_priority()
 	_soak()
 	print("  [town_sim] suite ran in %d ms" % (Time.get_ticks_msec() - t0))
 	return t.failures
@@ -434,16 +435,22 @@ func _mill_stall_pit() -> void:
 	s.bodies = 100.0
 	o = s.step(0.5, _inp())
 	t.near(float(o["feed"]), 0.5, 1e-9, "a half-staffed pit burns half: feed 0.5 (wanted counts every pit)")
-	# pit and mill share short bodies in proportion to demand
+	# short bodies: both draw their want while the 0.1 lasts, then the store stands empty for tau and
+	# the rot return goes to the pits first (E2b-2: they used to share in proportion to demand,
+	# 0.3 : 0.2 here, so the pits got 60% of it)
 	s = _sim()
 	s.place_building("lot-05", "bone_mill", 1)
 	s.ladder = ["pit", "mill"]
 	s.workers = 4.0
-	s.bodies = 0.0
 	s.bodies = 0.1  # wanted this step: pit 0.6 · 0.5 = 0.3, mill 0.4 · 0.5 = 0.2 → 0.5
 	o = s.step(0.5, _inp({"work_mass": 0.0}))
-	var share := float(o["rates"]["bodies"]["pit"]) / maxf(1e-12, float(o["rates"]["bodies"]["pit"]) + float(o["rates"]["bodies"]["mill"]))
-	t.near(share, 0.6, 0.01, "short bodies split pit:mill in proportion to demand (0.3 : 0.2)")
+	var r_in := float(o["rates"]["bodies"]["rot"])
+	var supply := 0.1 + r_in * 0.5
+	var tau := (0.5 - supply) / (1.0 - r_in)
+	var pits_got := 0.6 * (0.5 - tau) + minf(0.6, r_in) * tau
+	t.near(float(o["burned"]), pits_got, 1e-12, "short bodies: the pits burn their want until the store empties, then the rot return (%.4f)" % pits_got)
+	t.near(float(o["milled"]), supply - pits_got, 1e-12, "the mills get the rest: their want while it lasted (%.4f)" % (supply - pits_got))
+	t.ok(float(o["burned"]) / supply > 0.6 + 0.05, "the pits get more than the old proportional 60%% (%.1f%%)" % (100.0 * float(o["burned"]) / supply))
 
 
 # ------------------------------------------------------------------- forge ----
@@ -979,6 +986,7 @@ func _room_cache() -> void:
 	for i in 10:
 		q.step(10.0, _inp({"work_mass": _hold_work(q, 6.0, 10.0)}))
 	t.ok(q.workers == 6.0 and q._n_fills == f0 and w0 > 6.0, "a settled workforce (6.0 all staffed, held): no fill at all (%d)" % (q._n_fills - f0))
+	t.suite("town_sim")
 
 
 # ------------------------------------------------------------ the vat rule ----
@@ -1056,3 +1064,85 @@ func _vat_rule() -> void:
 	for lot in c.buildings:
 		same = same and c.buildings[lot]["state"] == states[lot]
 	t.ok(_staffed(c, "tend") == 1.0 and same, "set_vats on a load refills the rooms and keeps the saved states")
+	t.suite("town_sim")
+
+
+# ------------------------------------------------------------ pit priority ----
+## E2b-2 (MECHANICS §4.1, §4.2): the pits have first call on the bodies and the mills take only the
+## surplus. A raising pit (both pit slots staffed) and a bone mill (both millers), no convoy, the
+## store empty, a constant rot return: every worker rots at 1/L (idle_rot_mult 1, no idle cap), so a
+## held workforce returns the same bodies each second.
+func _pit_priority() -> void:
+	t.suite("town_sim-pit-priority")
+	var wk: Dictionary = _eco("worker")
+	var per_worker := float(wk["mass"]) * float(wk["body_return"]) / float(wk["lifetime_s"])  # bodies/s one worker returns
+	var want_pit := float(_eco("pit")["burn_per_s"])  # one level-1 pit, fully staffed
+	var want_mill := float(_eco("job")["mill"]["mass_per_s"]) * 2.0
+	for dt in [0.5, 10.0]:
+		for c in [["between", want_pit + 0.5 * want_mill], ["below the pits'", 0.5 * want_pit]]:
+			var supply: float = c[1]
+			var s := _sim({"economy.worker.idle_rot_mult": 1.0, "economy.worker.idle_cap": 1000.0})
+			s.place_building("lot-05", "bone_mill", 1)
+			s.set_ladder(["pit", "mill"])
+			s.workers = supply / per_worker
+			s.bodies = 0.0
+			s.gold = 1e6  # nobody sells: enough for 1 000 s of upkeep, so no building goes unpaid
+			s.bone = 1e6
+			s.restaff()
+			var burn_lo := INF
+			var burn_hi := -INF
+			var worst := 0.0
+			var mass_err := 0.0
+			for i in 100:
+				var b0: float = s.bodies
+				var o: Dictionary = s.step(dt, _inp({"work_mass": _hold_work(s, s.workers, dt)}))
+				var burn: float = float(o["burned"]) / dt
+				burn_lo = minf(burn_lo, burn)
+				burn_hi = maxf(burn_hi, burn)
+				var in_rate: float = float(o["rates"]["bodies"]["in"])
+				worst = maxf(worst, absf(burn - minf(want_pit, in_rate)) + absf(float(o["milled"]) / dt - maxf(0.0, in_rate - want_pit)))
+				mass_err = maxf(mass_err, absf(s.bodies - b0 - (in_rate * dt - float(o["burned"]) - float(o["milled"]))))
+			t.ok(burn_hi - burn_lo <= 1e-9 * want_pit and absf(burn_lo - minf(want_pit, supply)) <= 1e-6 * want_pit,
+				"supply %s want at %s s: the pits burn the same every step over 100 steps (%.9f..%.9f), min(want_pit, supply) = %.9f" % [
+				c[0], str(dt), burn_lo, burn_hi, minf(want_pit, supply)])
+			t.ok(worst <= 1e-9, "supply %s want at %s s: burned = min(want_pit, in), the mills only the surplus, every step (worst %s)" % [
+				c[0], str(dt), String.num_scientific(worst)])
+			t.ok(mass_err <= 1e-12 and s.bodies <= 1e-12, "supply %s want at %s s: the store stays empty and balances (worst %s)" % [
+				c[0], str(dt), String.num_scientific(mass_err)])
+	# one 10 s step splits as twenty of 0.5 s: a load in the store at the start, a rot return below the
+	# pits' want. Both draw while the load lasts, then the pits take the rot return. (Pits-first on the
+	# whole step's supply would give the mills nothing in the 10 s step: load + rot · 10 < want_pit · 10;
+	# the old proportional split would give them their share of it all.)
+	var totals := {}
+	for dt in [10.0, 0.5]:
+		var q := _sim({"economy.worker.idle_rot_mult": 1.0, "economy.worker.idle_cap": 1000.0})
+		q.place_building("lot-05", "bone_mill", 1)
+		q.set_ladder(["pit", "mill"])
+		q.workers = 0.5 * want_pit / per_worker
+		q.bodies = 0.2 * want_pit * 10.0 + 0.0
+		q.gold = 1e6
+		q.restaff()
+		var b := 0.0
+		var m := 0.0
+		for i in int(round(10.0 / dt)):
+			var o3 := q.step(dt, _inp({"work_mass": _hold_work(q, q.workers, dt)}))
+			b += float(o3["burned"])
+			m += float(o3["milled"])
+		totals[dt] = [b, m]
+	var load := 0.2 * want_pit * 10.0
+	var rr := 0.5 * want_pit
+	var t_empty := load / (want_pit + want_mill - rr)
+	t.ok(absf(float(totals[10.0][0]) - float(totals[0.5][0])) <= 1e-9 and absf(float(totals[10.0][1]) - float(totals[0.5][1])) <= 1e-9,
+		"one 10 s step burns and mills what twenty 0.5 s steps do (%.9f, %.9f vs %.9f, %.9f)" % [totals[10.0][0], totals[10.0][1], totals[0.5][0], totals[0.5][1]])
+	t.near(float(totals[10.0][1]), want_mill * t_empty, 1e-9, "the mills get their want while the load lasts (%.3f s), no more" % t_empty)
+	# plenty of bodies: both get their want
+	var p := _sim()
+	p.place_building("lot-05", "bone_mill", 1)
+	p.set_ladder(["pit", "mill"])
+	p.workers = 4.0
+	p.bodies = 150.0
+	p.restaff()
+	var o2 := p.step(10.0, _inp())
+	t.near(float(o2["burned"]), want_pit * 10.0, 1e-9, "plenty of bodies: the pits burn their want")
+	t.near(float(o2["milled"]), want_mill * 10.0, 1e-9, "and the mills mill theirs")
+	t.suite("town_sim")
