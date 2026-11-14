@@ -23,6 +23,11 @@ extends RefCounted
 ##   event timing (a hold's end and Relish's arrival land up to one dt late; since T3.0m a wave's
 ##   start and end are exact inside a step, spread over it), not the integrator. A garrison
 ##   reaching 0 is not clipped: the fort step solves it inside the step.
+## - Outcomes (E2b T4.C, outcome_table()): beside the stocks, what a catch-up must get right: the
+##   flips, retakes and tithe waves (fort and time), the buildings finished and the upkeep's
+##   unpaid/resumed switches (lot and time), the tier, and at the end which forts are held and
+##   which hold living. Each against the reference: "=" when the same come in the same order, with
+##   the worst time difference.
 ## - Cost: a run's µs per core step is its median 10-min chunk. The cost table and the projections
 ##   use the best of RUNS separate 1 h runs per start and dt (timing()), with the load average read
 ##   beside each; the error table's µs column is the accuracy run's own (one run, loaded). Wall clock
@@ -65,6 +70,7 @@ func run() -> int:
 	print("  [convergence] load average: %s" % _loadavg())
 	var res := measure(STARTS, HOURS, DTS, true)
 	print(table(res, HOURS))
+	print(outcome_table(res, HOURS))
 	var unclipped := measure(STARTS, HOURS, [0.5, 15.0, 30.0], false)
 	print(table(unclipped, HOURS, "no event clipping (hold ends and Relish's arrival land up to one dt late; a wave starts and ends at its time, spread over its steps)"))
 	check(res)
@@ -201,7 +207,8 @@ static func next_event_s(s: GameState) -> float:
 
 
 ## Runs `seconds` of core steps of at most `dt` from `s`, sampling every SAMPLE_S. Returns
-## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled, peak, end_over}:
+## {samples, steps, us_per_step (median over the chunks), neg, ledger_err, coupled, peak, end_over,
+## outcome (_outcome)}:
 ## `coupled` is the mean number of forts per step in the coupled regime (living and undead both
 ## above 0 at the step's end, or one of them reaching 0 inside the step); `peak` is {fort_id: [the
 ## most living it held at any step's end, its cap, its bound cap + one wave's mass]} and `end_over`
@@ -224,6 +231,8 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 	var chunk_t := 0
 	var coupled := 0
 	var t0 := s.t
+	var outcome := _outcome()
+	s.drain_events()
 	var next_sample := SAMPLE_S
 	while next_sample <= seconds + 1e-6:
 		var done := s.t - t0
@@ -249,7 +258,7 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			pk[0] = maxf(float(pk[0]), float(f["living"]))
 		if s.t - t0 >= next_sample - 1e-6:
 			samples.append(sample(s))
-			s.drain_events()
+			_note(s.drain_events(), outcome, t0)
 			worst_l = maxf(worst_l, GameState.Ledger.error(s.ledger()))
 			_negatives(s, neg)
 			chunk_us.append(float(chunk_t) / float(chunk_steps))
@@ -257,12 +266,89 @@ func run_one(s: GameState, dt: float, seconds: float, clip: bool) -> Dictionary:
 			chunk_steps = 0
 			next_sample += SAMPLE_S
 	chunk_us.sort()
+	_note(s.drain_events(), outcome, t0)
+	for f in s.realm.forts:
+		if RealmSim.is_held(f):
+			outcome["held"].append(str(f["id"]))
+		if float(f["living"]) > 1.0:
+			outcome["garrisoned"].append(str(f["id"]))
+	outcome["tier"] = s.town_tier
 	var end_over: Array = []
 	for f in s.realm.forts:
 		if float(f["living"]) > float(f["cap"]) * 1.01 and float(waved.get(f["id"], -INF)) < s.t - 7.0 * tau:
 			end_over.append("%s %.2f × cap" % [f["id"], float(f["living"]) / float(f["cap"])])
 	return {"samples": samples, "steps": steps, "us_per_step": chunk_us[int(chunk_us.size() / 2.0)], "neg": neg,
-		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps)), "peak": peak, "end_over": end_over}
+		"ledger_err": worst_l, "coupled": float(coupled) / maxf(1.0, float(steps)), "peak": peak, "end_over": end_over,
+		"outcome": outcome}
+
+
+## A run's outcomes: each event list holds [what, t − t0] in order; the rest is read at the end.
+static func _outcome() -> Dictionary:
+	return {"flips": [], "retaken": [], "waves": [], "builds": [], "unpaid": [], "tiers": [], "held": [],
+		"garrisoned": [], "tier": ""}
+
+
+static func _note(evs: Array, o: Dictionary, t0: float) -> void:
+	for e in evs:
+		var t := float(e.get("t", 0.0)) - t0
+		match str(e.get("type", "")):
+			"fort_flipped":
+				o["flips"].append([str(e["fort_id"]), t])
+			"fort_retaken":
+				o["retaken"].append(["%s (%s)" % [e["fort_id"], e["cause"]], t])
+			"tithe_wave":
+				o["waves"].append([str(e["fort_id"]), t])
+			"building_done":
+				o["builds"].append(["%s %s L%d" % [e["lot_id"], e["building_id"], int(e["level"])], t])
+			"building_unpaid":
+				o["unpaid"].append(["%s %s" % [e["lot_id"], "off" if bool(e["unpaid"]) else "on"], t])
+			"tier_up":
+				o["tiers"].append([str(e["tier"]), t])
+
+
+## An event list against the reference's: "n =" with the worst time difference when the same
+## things come in the same order, else both counts and the first that differs.
+static func _cmp_events(a: Array, ref: Array) -> String:
+	var n := mini(a.size(), ref.size())
+	var worst_t := 0.0
+	for i in n:
+		if a[i][0] != ref[i][0]:
+			return "%d vs %d: #%d %s at %.0f s, ref %s at %.0f s" % [a.size(), ref.size(), i + 1, a[i][0], a[i][1], ref[i][0], ref[i][1]]
+		worst_t = maxf(worst_t, absf(float(a[i][1]) - float(ref[i][1])))
+	if a.size() != ref.size():
+		var longer: Array = a if a.size() > ref.size() else ref
+		return "%d vs %d: #%d %s at %.0f s only %s" % [a.size(), ref.size(), n + 1, longer[n][0], longer[n][1],
+			"here" if a.size() > ref.size() else "in the ref"]
+	return "%d =" % n if n == 0 else "%d = (±%.1f s)" % [n, worst_t]
+
+
+static func _cmp_set(a: Array, ref: Array) -> String:
+	if a == ref:
+		return "%d =" % a.size()
+	return "%s vs ref %s" % [",".join(PackedStringArray(a)), ",".join(PackedStringArray(ref))]
+
+
+## The outcomes of measure()'s runs against each start's reference (dts[0]): see the header.
+static func outcome_table(res: Dictionary, hours: float) -> String:
+	var st0: String = res.keys()[0]
+	var lines: Array = ["  [convergence] %.0f h outcomes vs dt %s s: event lists \"n =\" when the same come in the same order (worst time difference), forts at the end \"n =\" when the same" % [
+		hours, str(res[st0].keys()[0])],
+		"  | start | dt s | flips | retaken | waves | builds done | unpaid / resumed | tier ups | held at end | holding living at end | tier |",
+		"  |---|---|---|---|---|---|---|---|---|---|---|"]
+	for st in res:
+		var per: Dictionary = res[st]
+		var dts: Array = per.keys()
+		var ref: Dictionary = per[dts[0]]["outcome"]
+		for dt in dts:
+			var o: Dictionary = per[dt]["outcome"]
+			var cells: Array = []
+			for k in ["flips", "retaken", "waves", "builds", "unpaid", "tiers"]:
+				cells.append(_cmp_events(o[k], ref[k]) if dt != dts[0] else "%d" % (o[k] as Array).size())
+			for k in ["held", "garrisoned"]:
+				cells.append(_cmp_set(o[k], ref[k]) if dt != dts[0] else "%d" % (o[k] as Array).size())
+			cells.append(str(o["tier"]) if dt == dts[0] or o["tier"] == ref["tier"] else "%s vs ref %s" % [o["tier"], ref["tier"]])
+			lines.append("  | %s | %s | %s |" % [st, str(dt), " | ".join(PackedStringArray(cells))])
+	return "\n".join(PackedStringArray(lines))
 
 
 func _negatives(s: GameState, bad: Array) -> void:
@@ -306,7 +392,8 @@ func measure(starts: Array, hours: float, dts: Array, clip: bool, edit := Callab
 					e = maxf(e, absf(x - y) / maxf(absf(y), floor_m))
 				err[m] = e
 			per[dt] = {"err": err, "steps": r["steps"], "us_per_step": r["us_per_step"], "coupled": r["coupled"],
-				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"], "end_over": r["end_over"]}
+				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"], "end_over": r["end_over"],
+				"outcome": r["outcome"]}
 		out[st] = per
 	return out
 
@@ -465,7 +552,8 @@ func attribution() -> String:
 				s.cmd_set_staff_cap(lot, 0)
 	var a := measure(["pre_vei"], 2.0, [0.5, 0.25, 2.0, 15.0, 30.0], true, no_haul)
 	var b := measure(["pre_vei"], 2.0, [0.5, 0.25, 2.0, 15.0, 30.0], true)
-	return table(b, 2.0, "attribution: pre_vei with its convoy") + "\n" + table(a, 2.0, "attribution: pre_vei with no haulers")
+	return table(b, 2.0, "attribution: pre_vei with its convoy") + "\n" + table(a, 2.0, "attribution: pre_vei with no haulers") \
+		+ "\n" + outcome_table(b, 2.0) + "\n" + outcome_table(a, 2.0)
 
 
 ## The criterion as the brief states it (every metric ≲ TOL at every start) and, as secondary
