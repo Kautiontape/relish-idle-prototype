@@ -146,8 +146,9 @@ takes over 1 s.
   - pre_vei's gold-floor upkeep cycle doesn't converge either: 2.5% at 2 s.
   - Cost, best of 3 at a load average of about 4 on 12 cores, worst start (pre_vei): about 550 µs
     per core step. 12 h at 5 s takes 5.5 s and 7 days 67 s with 150 field ticks, so this budget is
-    not met at any accurate dt. About 75% of the step is TownSim, which runs `_restaff` twice per
-    step: that is the cost lever.
+    not met at any accurate dt. Most of the step is TownSim (two thirds to three quarters in a
+    profile taken before T3.0's realm changes), which runs `_restaff` twice per step: that is the
+    cost lever.
 - A thread is the fallback.
 
 **Determinism.**
