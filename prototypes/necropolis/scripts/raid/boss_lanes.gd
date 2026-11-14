@@ -403,7 +403,7 @@ class BackupMarks:
 		var n: int = boss.backups_spent_total()
 		var bc: Dictionary = boss.vcfg().get("backups", {})
 		for i in n:
-			var rr: float = float(bc.get("mark_radius_px", 21.0)) + float(bc.get("mark_step_px", 5.0)) * i
+			var rr: float = float(bc.get("mark_radius_px", 40.0)) + float(bc.get("mark_step_px", 6.0)) * i
 			for j in 3:   # three shards with two gaps and a break: reads as cracked
 				var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
-				draw_arc(Vector2.ZERO, rr, a0, a0 + TAU / 3.0 - 0.55, 10, Palette.c("relish", 0.85), 1.8)
+				LineGlow.arc(self, Vector2.ZERO, rr, a0, a0 + TAU / 3.0 - 0.55, Palette.c("relish", 0.95), 2.2, 0.4)
