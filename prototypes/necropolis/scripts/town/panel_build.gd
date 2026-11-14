@@ -6,12 +6,26 @@ extends ScrollContainer
 ## inspector and the queue's rows are built once and updated in place on every bind (the shell
 ## binds about 4x a second), so hover, focus and held buttons survive.
 ## Logic is pure in BuildSort / TownStandins.BuildQueue; text and tuning live in town.json `view`.
+## The same data also drives the lot card in the town view (attach_card): an empty lot's card lists
+## what fits it, a built lot's card reuses this tab's inspector widgets and commands. The panel also
+## feeds the view its hover outline, the day-1 suggestion, the queue's ghosts and the build flash.
 
 signal command_issued
 ## Ask the town view to outline `lots` for `building_id` (and dim the rest); "" ends placement.
 signal placement_changed(building_id: String, lots: Array)
 ## The inspected lot ("" = none), for the town view's dashed outline.
 signal lot_selected(lot_id: String)
+## The lot card opens beside `lot_id` / closes (the card's content is filled here).
+signal card_opened(lot_id: String)
+signal card_closed
+## The lots a hovered catalog row (panel or card) fits; [] for none.
+signal hover_lots(lots: Array)
+## The day-1 suggestion for the canvas: {building_id, label, lots}, {} when hidden.
+signal suggestion_changed(sug: Dictionary)
+## The stand-in queue as BuildSort.ghosts(), for the canvas.
+signal queue_changed(ghosts: Array)
+## cmd_build / cmd_upgrade returned ok on this lot: the canvas flashes it on the next beat.
+signal build_started(lot_id: String)
 
 var _views := {}
 var _vcfg: Dictionary = {}
@@ -37,6 +51,21 @@ var _focus := ""
 var _selected_lot := ""
 var _armed_s := 0.0  # > 0 while Demolish waits for its confirming click
 
+var _sorted: Array = []  # BuildSort.sort_rows() of the current catalog
+var _card: Control  # the lot card (town_card.gd), a child of the town view
+var _card_lot := ""
+var _card_mode := ""  # "catalog" (an empty lot) | "inspect" (a built lot)
+var _insp_card := {}  # the card's own inspector widgets
+var _sug_data := {}  # BuildSort.suggest(): the top buildable row
+var _sug_off := false  # the player dismissed the suggestion (kept for the scene's lifetime)
+var _sug_bid := ""  # the suggested building while the suggestion is live
+var _last_sug := {}
+var _hover_bid := ""
+var _card_hover := ""
+var _last_hover: Array = []
+var _last_ghosts: Array = []
+var _seed := ""  # --town-queue=house:lot-05,... (debug): queue entries seeded on the first bind
+
 var _insp := {}
 var _q: TownStandins.BuildQueue  # TODO(api-request #3): swap for view_town().queue + the queue commands
 var _q_title: Label
@@ -58,6 +87,10 @@ func _ready() -> void:
 	_style_focus = TownUI.panel_box()
 	_style_focus.border_color = Palette.c("select")
 	_style_focus.set_border_width_all(2)
+	if Game.state.debug_enabled:
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--town-queue="):
+				_seed = arg.trim_prefix("--town-queue=")
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_root = VBoxContainer.new()
 	_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -76,6 +109,17 @@ func _ready() -> void:
 	_root.add_child(_empty)
 	_build_queue_section()
 	visibility_changed.connect(func(): if not is_visible_in_tree(): cancel_placement())
+
+
+## The lot card the town view hosts: this tab fills it and handles its buttons.
+func attach_card(card: Control) -> void:
+	_card = card
+	_insp_card = _make_inspector(_style_row)
+	card.insp_host.add_child(_insp_card["node"])
+	card.build_pressed.connect(_on_card_build)
+	card.queue_pressed.connect(_on_card_queue)
+	card.close_pressed.connect(dismiss)
+	card.hover_building.connect(func(bid: String): _card_hover = bid; _emit_hover())
 
 
 func _wrap(text: String, size := 14, key := "text") -> Label:
@@ -112,6 +156,7 @@ func bind(views: Dictionary) -> void:
 	_st = BuildSort.stocks(views)
 	_ctx = BuildSort.queue_context(views, _bcfg, _vcfg)
 	if TownStandins.queue_is_standin(views.get("town", {})):
+		_seed_queue()
 		_q.evaluate(_ctx)
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
 	var shape := ",".join(rows.map(func(r): return String(r.get("building_id", ""))))
@@ -121,14 +166,40 @@ func bind(views: Dictionary) -> void:
 	_empty.visible = rows.is_empty()
 	var names: Dictionary = views.get("fort_names", {})
 	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg), _bview, _vcfg)
+	_sorted = sorted
+	_sug_data = BuildSort.suggest(sorted, _bview)
+	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
+	var listed := {}
 	for i in sorted.size():
-		var w: Dictionary = _rows[String(sorted[i]["row"]["building_id"])]
+		var bid := String(sorted[i]["row"]["building_id"])
+		var w: Dictionary = _rows[bid]
+		listed[bid] = true
+		w["node"].visible = true
 		if w["node"].get_index() != i:
 			_rows_box.move_child(w["node"], i)
 		_update_row(sorted[i], w)
+	for bid in _rows:
+		if not listed.has(bid):  # a built unique building is never offered again
+			_rows[bid]["node"].visible = false
 	_check_placement()
 	_update_inspector()
 	_update_queue()
+	_update_card()
+	_push_suggestion()
+
+
+## Debug `--town-queue=house:lot-05,inn:lot-06`: puts these into the stand-in queue once, bypassing the
+## gate check so a gated and a funds-blocked entry can show on the canvas.
+func _seed_queue() -> void:
+	if _seed == "":
+		return
+	for pair in _seed.split(","):
+		var bl := pair.split(":")
+		var row := _row_of(bl[0])
+		if bl.size() == 2 and not row.is_empty():
+			_q.entries.append({"building_id": bl[0], "lot_id": bl[1], "upgrade": false, "level": 1,
+				"cost": (row.get("cost", {}) as Dictionary).duplicate(), "status": "queued", "reason": ""})
+	_seed = ""
 
 
 func on_game_event(_ev: Dictionary) -> void:
@@ -191,8 +262,13 @@ func _make_row(bid: String) -> Dictionary:
 		var l := TownUI.label("", 14)
 		cost_row.add_child(l)
 		costs.append(l)
+	var tags := HBoxContainer.new()
+	tags.add_theme_constant_override("separation", 10)
+	v.add_child(tags)
+	var sug := TownUI.label("suggested", 14, "select")
+	tags.add_child(sug)
 	var chip := _wrap("", 14, "select")
-	v.add_child(chip)
+	tags.add_child(chip)
 	var rbox := HBoxContainer.new()
 	v.add_child(rbox)
 	var reason := _wrap("", 14, "text_dim")
@@ -201,7 +277,7 @@ func _make_row(bid: String) -> Dictionary:
 	link.pressed.connect(func(): _focus_building(String(link.get_meta("target", ""))))
 	rbox.add_child(link)
 	return {"node": pc, "name": nm, "count": count, "queue": queue, "place": place, "benefit": benefit,
-		"costs": costs, "chip": chip, "reason": reason, "link": link}
+		"costs": costs, "chip": chip, "sug": sug, "reason": reason, "link": link}
 
 
 func _update_row(it: Dictionary, w: Dictionary) -> void:
@@ -209,7 +285,8 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	var bid := String(row.get("building_id", ""))
 	var can := bool(row.get("can_build", false))
 	w["name"].text = _label(bid)
-	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == 2 else "text"))
+	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
+	w["sug"].visible = bid == _sug_bid
 	w["count"].text = "built %d" % int(row.get("count", 0))
 	w["benefit"].text = String(_bview.get(bid, {}).get("benefit", ""))
 	var parts := BuildSort.cost_parts(row.get("cost", {}), _st)
@@ -225,7 +302,7 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	var why := String(row.get("reason", ""))
 	w["reason"].get_parent().visible = not can
 	w["reason"].text = _reason(why, row) if not can else ""
-	w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == 2 else "text_dim"))
+	w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
 	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
 	w["link"].visible = target != ""
 	w["link"].set_meta("target", target)
@@ -238,11 +315,11 @@ func _toggle_place(bid: String) -> void:
 	if _placing == bid:
 		cancel_placement()
 		return
+	_close_card()
 	_placing = bid
 	_placing_lots = []
 	_check_placement()
-	_say("Esc, right-click or Stop cancels.")
-	_update_banner()
+	_update_banner()  # the banner says how to leave placement; no second hint in the status line
 
 
 ## Ends placement (Escape, right-click, Stop, leaving the tab).
@@ -255,11 +332,12 @@ func cancel_placement() -> void:
 	_update_banner()
 	for bid in _rows:
 		_rows[bid]["place"].text = "Place"
+	_push_suggestion()
 
 
 func _update_banner() -> void:
 	_banner.visible = _placing != ""
-	_banner_label.text = "Placing %s: click a lit lot in town." % _label(_placing) if _placing != "" else ""
+	_banner_label.text = "Placing %s: click a lit lot in town. Esc, right-click or Cancel stops." % _label(_placing) if _placing != "" else ""
 
 
 ## Keeps the town view's lit lots in step with the catalog; a building that can't be placed any
@@ -282,9 +360,20 @@ func _check_placement() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
-	if _placing != "" and k != null and k.pressed and k.keycode == KEY_ESCAPE and is_visible_in_tree():
-		cancel_placement()
+	if k == null or not k.pressed or k.keycode != KEY_ESCAPE:
+		return
+	if (_placing != "" and is_visible_in_tree()) or _card_lot != "":
+		dismiss()
 		get_viewport().set_input_as_handled()
+
+
+## Escape or a right-click: ends placement, else closes the lot card (and its selection).
+func dismiss() -> void:
+	if _placing != "":
+		cancel_placement()
+	elif _card_lot != "" or _selected_lot != "":
+		_select_lot("")
+		_close_card()
 
 
 ## The town view reports a click: a lit lot places the building, a built lot is inspected.
@@ -297,11 +386,21 @@ func on_lot_clicked(lot_id: String) -> void:
 			var bid := _placing
 			var r: Dictionary = Game.state.cmd_build(bid, lot_id)
 			_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+			if bool(r.get("ok", false)):
+				build_started.emit(lot_id)
 			cancel_placement()
 		else:
 			_say("%s: %s." % [lot_id, _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
 		return
-	_select_lot(lot_id if _entry_at(lot_id) != {} else "")
+	if lot_id != "" and _entry_at(lot_id) != {}:  # a built or constructing lot: the inspector, in the card too
+		_open_card(lot_id, "inspect")
+		_select_lot(lot_id)
+	elif lot_id != "" and bool(_town_lot(lot_id).get("unlocked", false)):  # an empty open lot: what fits it
+		_select_lot("")
+		_open_card(lot_id, "catalog")
+	else:
+		_select_lot("")
+		_close_card()
 
 
 func _town_lot(lot_id: String) -> Dictionary:
@@ -337,8 +436,14 @@ func _focus_building(bid: String) -> void:
 
 # ------------------------------------------------------------- inspector ----
 func _build_inspector() -> void:
+	_insp = _make_inspector(_style_focus)
+	_root.add_child(_insp["node"])
+
+
+## The inspector's widgets (one set in this tab, one in the lot card), wired to the same handlers.
+func _make_inspector(style: StyleBox) -> Dictionary:
 	var pc := PanelContainer.new()
-	pc.add_theme_stylebox_override("panel", _style_focus)
+	pc.add_theme_stylebox_override("panel", style)
 	var v := VBoxContainer.new()
 	pc.add_child(v)
 	var w := {"node": pc}
@@ -366,6 +471,10 @@ func _build_inspector() -> void:
 	r1.add_child(w["upgrade"])
 	r1.add_child(w["queue_up"])
 	v.add_child(r1)
+	w["proj"] = TownUI.rate_label("", 14, "text")  # TODO(api-request #9): upgrade_projected, labelled "now"
+	w["proj"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	w["proj"].custom_minimum_size = Vector2(40, 0)
+	v.add_child(w["proj"])
 	w["why"] = _wrap("", 14, "text_dim")
 	v.add_child(w["why"])
 	var r2 := HBoxContainer.new()
@@ -382,29 +491,38 @@ func _build_inspector() -> void:
 	r2.add_child(w["close"])
 	v.add_child(r2)
 	pc.visible = false
-	_root.add_child(pc)
-	_insp = w
+	return w
 
 
 func _select_lot(lot_id: String) -> void:
 	if lot_id != _selected_lot:
 		_armed_s = 0.0
-		set_process(false)
 	_selected_lot = lot_id
 	lot_selected.emit(lot_id)
+	if lot_id == "" and _card_mode == "inspect":
+		_close_card()
 	_update_inspector()
+	_push_suggestion()
 
 
 func _update_inspector() -> void:
-	var w := _insp
 	var entry := _entry_at(_selected_lot) if _selected_lot != "" else {}
 	if entry.is_empty():
 		if _selected_lot != "":
 			_selected_lot = ""
 			lot_selected.emit("")
-		w["node"].visible = false
+			if _card_mode == "inspect":
+				_close_card()
+		_insp["node"].visible = false
 		return
 	var i := BuildSort.inspect(entry, _st, _bcfg, _bview, _vcfg)
+	_fill_inspector(_insp, i)
+	if _card_mode == "inspect" and _card_lot == _selected_lot and not _insp_card.is_empty():
+		_fill_inspector(_insp_card, i)
+		_card.show_inspector("Lot %s" % _selected_lot)
+
+
+func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["node"].visible = true
 	w["title"].text = "%s  (%s)" % [i["label"], _selected_lot]
 	w["flavour"].text = i["flavour"]
@@ -421,6 +539,9 @@ func _update_inspector() -> void:
 	w["upgrade"].text = "Upgrade to Lv %d: %s" % [u["level"], _cost_text(u["cost"])] if not (u["cost"] as Dictionary).is_empty() else "Upgrade"
 	w["queue_up"].visible = u["visible"]
 	w["queue_up"].disabled = not u["can_queue"] or _q.entries.size() >= _q.max_len or _queued_lot(_selected_lot)
+	var proj: Array = BuildSort.rate_texts(i["upgrade_projected"], _vcfg) if i["upgrade_projected"] is Dictionary else []
+	w["proj"].visible = u["visible"] and u["enabled"] and not proj.is_empty()
+	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
 	var why := ""
 	if u["visible"] and not u["enabled"]:
 		why = _reason(String(u["reason"]), {"cost": u["cost"]})
@@ -445,6 +566,8 @@ func _cost_text(cost: Dictionary, marks := true) -> String:
 func _on_upgrade() -> void:
 	var r: Dictionary = Game.state.cmd_upgrade(_selected_lot)
 	_report(r, "Upgrading %s." % _selected_lot, {})
+	if bool(r.get("ok", false)):
+		build_started.emit(_selected_lot)
 
 
 func _on_cancel_build() -> void:
@@ -455,11 +578,9 @@ func _on_cancel_build() -> void:
 func _on_demolish() -> void:
 	if _armed_s <= 0.0:
 		_armed_s = float(_vcfg.get("demolish_confirm_s", 3.0))
-		set_process(true)
 		_update_inspector()
 		return
 	_armed_s = 0.0
-	set_process(false)
 	var lot := _selected_lot
 	var r: Dictionary = Game.state.cmd_demolish(lot)
 	_report(r, "Demolished %s." % lot, {})
@@ -469,9 +590,109 @@ func _on_demolish() -> void:
 func _process(delta: float) -> void:
 	if _armed_s > 0.0:
 		_armed_s = maxf(_armed_s - delta, 0.0)
-		if _armed_s == 0.0:
-			set_process(false)
 		_update_inspector()
+	_poll_hover()
+
+
+## The catalog row under the pointer (a Control's mouse_entered/exited misfire over its buttons, so
+## this reads the pointer against the row rects while the tab is showing).
+func _poll_hover() -> void:
+	var bid := ""
+	if is_visible_in_tree():
+		var mp := get_global_mouse_position()
+		if get_global_rect().has_point(mp):
+			for id in _rows:
+				var n: Control = _rows[id]["node"]
+				if n.visible and n.get_global_rect().has_point(mp):
+					bid = id
+					break
+	if bid != _hover_bid:
+		_hover_bid = bid
+		_emit_hover()
+
+
+func _emit_hover() -> void:
+	var bid := _card_hover if _card_hover != "" else _hover_bid
+	var lots: Array = (_row_of(bid).get("lots", []) as Array).duplicate() if bid != "" else []
+	if lots != _last_hover:
+		_last_hover = lots
+		hover_lots.emit(lots)
+
+
+# ------------------------------------------------------------------ card ----
+func _open_card(lot_id: String, mode: String) -> void:
+	if _card == null:
+		return
+	_card_lot = lot_id
+	_card_mode = mode
+	_card.open()
+	card_opened.emit(lot_id)
+	_update_card()
+	_update_inspector()
+	_push_suggestion()
+
+
+func _close_card() -> void:
+	if _card_lot == "" and _card_mode == "":
+		return
+	_card_lot = ""
+	_card_mode = ""
+	_card_hover = ""
+	if _card != null:
+		_card.close()
+	card_closed.emit()
+	_emit_hover()
+	_push_suggestion()
+
+
+## Keeps an open empty-lot card in step with the catalog (rows, costs, reasons with their estimates).
+func _update_card() -> void:
+	if _card == null or _card_lot == "" or _card_mode != "catalog":
+		return
+	var lot := _town_lot(_card_lot)
+	if lot.is_empty() or not bool(lot.get("unlocked", false)):
+		_close_card()
+		return
+	if _entry_at(_card_lot) != {}:  # something is being built here now: the lot's inspector takes over
+		_select_lot(_card_lot)
+		_open_card(_card_lot, "inspect")
+		return
+	var items := BuildSort.fitting(_sorted, int(lot.get("size", 1)))
+	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_bid,
+		_q.entries.size() < _q.max_len and not _queued_lot(_card_lot))
+
+
+func _on_card_build(bid: String, lot_id: String) -> void:
+	var row := _row_of(bid)
+	var r: Dictionary = Game.state.cmd_build(bid, lot_id)
+	_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+	if bool(r.get("ok", false)):
+		build_started.emit(lot_id)
+		dismiss()
+
+
+func _on_card_queue(bid: String, lot_id: String) -> void:
+	var row := _row_of(bid)
+	if _add_queue({"building_id": bid, "lot_id": lot_id, "upgrade": false, "level": 1, "cost": row.get("cost", {})}, row):
+		dismiss()
+
+
+## The suggestion shows on the canvas only while nothing else is going on: no placement, no
+## selection, no open card, and not dismissed.
+func _push_suggestion() -> void:
+	var live: bool = not _sug_off and _placing == "" and _selected_lot == "" and _card_lot == "" and not _sug_data.is_empty()
+	var sug: Dictionary = _sug_data if live else {}
+	if sug != _last_sug:
+		_last_sug = sug.duplicate(true)
+		suggestion_changed.emit(sug)
+
+
+## The view's x on the suggestion tag.
+func on_suggestion_dismissed() -> void:
+	_sug_off = true
+	_sug_bid = ""
+	_push_suggestion()
+	bind(_views)
 
 
 # ----------------------------------------------------------------- queue ----
@@ -521,7 +742,7 @@ func _on_queue_upgrade() -> void:
 		"cost": i["upgrade"]["cost"]}, {"cost": i["upgrade"]["cost"]})
 
 
-func _add_queue(e: Dictionary, row: Dictionary) -> void:
+func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	var r := _q.add(e, _ctx)
 	if r["ok"]:
 		_cap_box.visible = false
@@ -531,6 +752,7 @@ func _add_queue(e: Dictionary, row: Dictionary) -> void:
 	else:
 		_say("Not queued: %s." % _reason(String(r["reason"]), row))
 	_update_queue()
+	return bool(r["ok"])
 
 
 ## "<cost> is over the <gold> cap: build <label> first", with a button that selects that building.
@@ -565,7 +787,7 @@ func _update_queue() -> void:
 		var e: Dictionary = entries[i]
 		var what := ("Upgrade %s to Lv %d" % [_label(e["building_id"]), e["level"]]) if e["upgrade"] else _label(e["building_id"])
 		var status := String(e["status"])
-		var why := BuildSort.reason_text(String(e["reason"]), {"cost": e["cost"]}, _st, _bview, _vcfg) if e["reason"] != "" else ""
+		var why := BuildSort.entry_reason(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
 		var glyph: String = {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
 		var title := "%d. %s on %s" % [i + 1, what, e["lot_id"]]
 		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" else title
@@ -574,6 +796,10 @@ func _update_queue() -> void:
 			{"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")))
 		w["up"].disabled = i == 0
 		w["down"].disabled = i == entries.size() - 1
+	var ghosts := BuildSort.ghosts(entries, _ctx.get("catalog", {}), _st, _bview, _vcfg)
+	if ghosts != _last_ghosts:  # the canvas draws these same entries, same numbers
+		_last_ghosts = ghosts
+		queue_changed.emit(ghosts)
 
 
 func _make_q_row(index: int) -> Dictionary:

@@ -175,8 +175,32 @@
     "shortage_text": {
       "build": "build a {label}", "staff": "staff the {label}", "relics": "dungeon loot",
       "unit_relics_one": "relic", "unit_relics": "relics",
-      "tier_progress": " ({have}/{need} buildings, missing: {missing})"
+      "tier_progress": " ({have}/{need} buildings, missing: {missing})",
+      "eta": "needs {n} more {unit}, about {eta} at {rate}",
+      "stuck": "{unit} isn't flowing: {fix}",
+      "eta_s": "{n} s", "eta_min": "{n} min", "eta_h": "{n} h", "eta_min_max_s": 5400.0, "eta_s_max_s": 90.0
     },
+    "benefit": {
+      "rate_effects": {
+        "mint": {"unit": "mint", "sign": 1.0},
+        "burn": {"unit": "bodies", "sign": -1.0},
+        "attract": {"unit": "migrants", "sign": 1.0}
+      },
+      "plain_effects": {
+        "living_cap": "+{n} housing", "stance_slots": "+{n} stance slot", "big_undead_cap": "+{n} big undead cap"
+      },
+      "job_text": "{n} {job} jobs",
+      "now": "now",
+      "upgrade_now": "Upgrade gives"
+    },
+    "card": {"w_px": 420.0, "max_h_px": 600.0, "gap_px": 14.0, "edge_px": 8.0, "row_gap_px": 6.0},
+    "hover": {"w_px": 1.0, "alpha": 0.8, "grow_px": 3.0},
+    "suggest": {"w_px": 1.6, "dash_px": 7.0, "alpha": [0.35, 1.0], "tag_prefix": "suggested: ", "x_px": 5.0, "tag_pad_px": 5.0},
+    "ghost": {
+      "alpha": 0.4, "dash_px": 5.0, "w_px": 1.2, "ring_px": 11.0, "ring_w_px": 1.5, "number_px": 14,
+      "hold_px": 4.0, "strike_px": 1.8, "plus_px": 14, "tag_pad_px": 5.0
+    },
+    "flash": {"w_px": 2.0, "grow_px": 18.0, "alpha": 0.9, "text": "construction started"},
     "reasons": {
       "_unknown": "can't do that right now",
       "unknown_building": "no such building",
@@ -219,9 +243,9 @@
         "tithe": "tithe wave on {fort}",
         "tithe_unknown": "tithe wave coming",
         "front": "the {front} front is short ({have} of {need})",
-        "warden_at": "Relish is at {fort}",
-        "warden_to": "Relish is heading to {fort}",
-        "gold": "gold is draining",
+        "warden_at": "for the warden at {fort}: big undead and quality",
+        "warden_to": "for the warden heading to {fort}: big undead and quality",
+        "gold": "gold is falling",
         "bodies": "bodies are low ({have} of {cap})",
         "housing": "no room for more living",
         "morale": "morale is low"

@@ -139,7 +139,16 @@ func _build_ui() -> void:
 	build.placement_changed.connect(_view.set_placement)
 	build.lot_selected.connect(_view.set_selected_lot)
 	_view.lot_clicked.connect(build.on_lot_clicked)
-	_view.right_clicked.connect(build.cancel_placement)
+	_view.right_clicked.connect(build.dismiss)
+	# In-scene building: the lot card, the hover outline, the day-1 suggestion, queue ghosts, the build flash.
+	build.attach_card(_view.card)
+	build.card_opened.connect(_view.open_card)
+	build.card_closed.connect(_view.close_card)
+	build.hover_lots.connect(_view.set_hover_lots)
+	build.suggestion_changed.connect(_view.set_suggestion)
+	build.queue_changed.connect(_view.set_queue)
+	build.build_started.connect(_view.flash_lot)
+	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_select_tab(_debug_tab())
 	if _demo != "":
 		var tag := TownUI.label("SYNTHETIC DEMO TOWN (debug)" if _demo == "full" else "SYNTHETIC TIER-UP EVENT (debug)",

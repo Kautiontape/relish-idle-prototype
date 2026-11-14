@@ -3,7 +3,7 @@
     "label": "Crypt",
     "flavour": "Covington's oldest address. The slab inside has seen more births than the midwife.",
     "benefit": "holds the slab; +1 big-undead cap per level",
-    "ink": "relish", "light_by": "always", "serves": ["front", "warden"],
+    "ink": "relish", "light_by": "always", "serves": ["front", "warden"], "unique": true,
     "strokes": [
       [[0.138, 0.568], [0.138, 1.0], [0.863, 1.0], [0.863, 0.568]],
       [[0.062, 0.568], [0.938, 0.568]],

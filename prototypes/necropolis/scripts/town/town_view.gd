@@ -12,20 +12,27 @@ extends Control
 ##   agents       per frame: undead workers, the living, trade arcs, carts, foremen, Relish
 ##                (TownAgents steps them, town_agents_layer.gd draws them);
 ##   walls        tier walls and the tier-up set piece (TownWalls);
-##   overlay      labels: the crypt always, any other building on hover.
+##   overlay      labels: the crypt always, any other building on hover;
+##   build layer  hover outline, the day-1 suggestion, the queue's numbered ghosts, the "construction
+##                started" flash (town_build_layer.gd, its own node);
+##   card         the lot card (town_card.gd), a Control child kept inside this rect.
 ## Contract: bind(views) on each fetch, on_game_event(ev) from the shell, signal command_issued.
 ## Build tab hooks: set_placement(building_id, lots) outlines the valid lots in `select` and dims the
 ## rest; set_selected_lot(id) dashes the inspected lot; clicks emit lot_clicked(lot_id) (hit boxes
-## at least view.hit_min_px wide, "" for open ground) and right_clicked.
+## at least view.hit_min_px wide, "" for open ground) and right_clicked. The Build tab also drives
+## set_hover_lots / set_suggestion / set_queue / flash_lot and opens the lot card (open_card / close_card).
 
 signal command_issued
 signal lot_clicked(lot_id: String)
 signal right_clicked
+signal suggestion_dismissed
 
 const LotScript := preload("res://scripts/town/town_lot.gd")
 const FlowScript := preload("res://scripts/town/town_flow.gd")
 const WallsScript := preload("res://scripts/town/town_walls.gd")
 const AgentsScript := preload("res://scripts/town/town_agents_layer.gd")
+const BuildLayerScript := preload("res://scripts/town/town_build_layer.gd")
+const CardScript := preload("res://scripts/town/town_card.gd")
 
 var model: TownModel
 var agents: TownAgents
@@ -47,6 +54,12 @@ var _pick: Node2D
 var _place_id := ""
 var _place_lots: Array = []
 var _selected := ""
+var _build: BuildLayerScript
+## The lot card (a child of this view); the Build tab fills it, this view places it.
+var card: CardScript
+var _card_lot := ""
+var _sug := {}  # {building_id, label, lots} from the Build tab
+var _queue_raw: Array = []  # BuildSort.ghosts() of the queue
 
 
 func _ready() -> void:
@@ -79,6 +92,16 @@ func _ready() -> void:
 	add_child(_walls)
 	_overlay = _layer("Labels", _draw_labels)
 	_pick = _layer("Pick", _draw_pick)
+	_build = BuildLayerScript.new()
+	_build.name = "BuildLayer"
+	_build.model = model
+	_build.vcfg = _v
+	add_child(_build)
+	card = CardScript.new()
+	card.name = "Card"
+	card.setup(_v, db.get("buildings_view", {}), db.get("buildings", {}))
+	card.resized.connect(_place_card)
+	add_child(card)
 	_refresh()
 
 
@@ -107,15 +130,24 @@ func _notification(what: int) -> void:
 			_refresh()
 		NOTIFICATION_MOUSE_EXIT:
 			_set_hover("")
+			if _build != null:
+				_build.set_hover("")
 
 
 func _gui_input(event: InputEvent) -> void:
 	var m := event as InputEventMouse
 	if m != null:
 		_set_hover(_building_at(m.position))
+		if model != null:
+			var over := model.lot_at(m.position, float(_v.get("hit_min_px", 0.0)))
+			_build.set_hover(over if over != "" and bool(model.lot(over)["unlocked"]) else "")
 	var b := event as InputEventMouseButton
 	if b != null and b.pressed and model != null:
 		if b.button_index == MOUSE_BUTTON_LEFT:
+			if _build.dismiss_rect().has_point(b.position):
+				suggestion_dismissed.emit()
+				accept_event()
+				return
 			lot_clicked.emit(model.lot_at(b.position, float(_v.get("hit_min_px", 0.0))))
 			accept_event()
 		elif b.button_index == MOUSE_BUTTON_RIGHT:
@@ -138,6 +170,80 @@ func set_selected_lot(lot_id: String) -> void:
 	_selected = lot_id
 	if _pick != null:
 		_pick.queue_redraw()
+
+
+## The lots a hovered catalog row fits, outlined thin in `select` (empty ends it).
+func set_hover_lots(lots: Array) -> void:
+	if _build != null:
+		_build.set_row_lots(lots)
+
+
+## The Build tab's top buildable row ({} or an empty building id for none): its lot nearest the crypt
+## gets the suggestion outline and tag. `sug` = {building_id, label, lots}.
+func set_suggestion(sug: Dictionary) -> void:
+	_sug = sug
+	_apply_suggestion()
+
+
+func _apply_suggestion() -> void:
+	if _build == null or model == null:
+		return
+	if _sug.is_empty():
+		_build.set_suggestion("", "")
+		return
+	var hops := {}
+	for l in model.lots:
+		hops[l["id"]] = l["hops"]
+	_build.set_suggestion(BuildSort.nearest_lot(_sug.get("lots", []), hops), String(_sug.get("label", "")))
+
+
+## The stand-in queue as BuildSort.ghosts(): numbered ghosts on their lots.
+func set_queue(ghosts: Array) -> void:
+	_queue_raw = ghosts
+	_apply_queue()
+
+
+func _apply_queue() -> void:
+	if _build != null and model != null:
+		_build.set_ghosts(model.ghost_layout(_queue_raw))
+
+
+## The "construction started" flash on a lot, from the next beat.
+func flash_lot(lot_id: String) -> void:
+	if _build != null:
+		_build.flash(lot_id)
+
+
+## Shows the (already filled) lot card beside `lot_id`.
+func open_card(lot_id: String) -> void:
+	_card_lot = lot_id
+	card.open()
+	_place_card()
+
+
+func close_card() -> void:
+	_card_lot = ""
+	card.close()
+
+
+## Beside the lot (right of it, else left), top-aligned and kept inside this view.
+func _place_card() -> void:
+	if card == null or _card_lot == "" or model == null:
+		return
+	var l := model.lot(_card_lot)
+	if l.is_empty():
+		return
+	var cfg: Dictionary = _v.get("card", {})
+	var gap := float(cfg.get("gap_px", 12.0))
+	var edge := float(cfg.get("edge_px", 8.0))
+	var r: Rect2 = l["rect"]
+	var cs := card.size
+	var x := r.end.x + gap
+	if x + cs.x > size.x - edge:
+		x = r.position.x - gap - cs.x
+	x = clampf(x, edge, maxf(size.x - cs.x - edge, edge))
+	var y := clampf(r.position.y, edge, maxf(size.y - cs.y - edge, edge))
+	card.position = Vector2(x, y)
 
 
 func _apply_dim() -> void:
@@ -173,6 +279,9 @@ func _refresh() -> void:
 	elif _floor != null and _flow.slab_rect.size.x > 0.0 and _floor.source != _flow.slab_rect.get_center():
 		_floor.set_source(_flow.slab_rect.get_center())  # the crypt arrived after the first layout
 	_walls.sync_model(relayout)
+	_apply_suggestion()
+	_apply_queue()
+	_place_card()
 	_overlay.queue_redraw()
 	_apply_dim()
 	_pick.queue_redraw()
