@@ -23,6 +23,7 @@ extends Node
 ## Game by path, so a headless test can load this script.
 
 static var _cache := {}  # SynthLogic.cache_key -> AudioStreamWAV, shared by every scene's Synth
+static var _cache_sig := 0  # hash of the config the cache was rendered under (a retune clears it)
 static var _prefs_applied := false  # AudioPrefs.apply() runs once per session
 
 var _cfg := {}
@@ -39,6 +40,7 @@ func _ready() -> void:
 	if live is Dictionary and not (live as Dictionary).is_empty():
 		SynthLogic.configure(live)
 	_cfg = SynthLogic.cfg()
+	sync_cache(_cfg)
 	if not _prefs_applied:
 		_prefs_applied = true
 		AudioPrefs.apply()
@@ -52,6 +54,18 @@ func _ready() -> void:
 		add_child(p)
 		_players.append(p)
 		_started_ms.append(0)
+
+
+## Drops every cached render when `cfg` differs from the config the cache was built under, so a
+## retune (an F6 reload through ConfigDb) takes effect without a restart. Returns whether it cleared.
+static func sync_cache(cfg: Dictionary) -> bool:
+	var sig := cfg.hash()
+	if sig == _cache_sig:
+		return false
+	var had := not _cache.is_empty()
+	_cache.clear()
+	_cache_sig = sig
+	return had
 
 
 ## Whether sound is off: the saved preference (AudioPrefs).
@@ -77,19 +91,24 @@ func warm(kinds: Array) -> void:
 
 ## Plays `kind` (SynthLogic.KINDS; a chime takes params.score 0..100). Muted: nothing plays.
 func play(kind: String, params := {}) -> void:
-	if is_muted() or _players.is_empty():
+	if _players.is_empty():
 		return
 	if not SynthLogic.KINDS.has(kind):
 		push_error("Synth: unknown kind '%s'. Known: %s" % [kind, ", ".join(SynthLogic.KINDS)])
+		return
+	var muted := is_muted()
+	# The debug trace comes before the mute return: a harness session starts muted and still logs
+	# which sounds fired.
+	if _debug and (not Array(_cfg.get("log_once", [])).has(kind) or not _logged.has(kind)):
+		_logged[kind] = true
+		print("SYNTH play ", kind, " (muted)" if muted else "")
+	if muted:
 		return
 	var p := _voice()
 	p.stream = _stream(kind, params)
 	p.volume_db = SynthLogic.volume_db(0.0, float(SynthLogic.kind_cfg(kind, _cfg)["gain_db"]), false, _cfg)
 	p.play()
 	_started_ms[_players.find(p)] = Time.get_ticks_msec()
-	if _debug and (not Array(_cfg.get("log_once", [])).has(kind) or not _logged.has(kind)):
-		_logged[kind] = true
-		print("SYNTH play ", kind)
 
 
 func _stream(kind: String, params: Dictionary) -> AudioStreamWAV:

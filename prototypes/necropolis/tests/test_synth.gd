@@ -20,6 +20,7 @@ func run() -> int:
 	_pitch(t, c)
 	_volume(t, c)
 	_cache(t, c)
+	_cache_config(t, c)
 	_pcm(t)
 	_dungeon_kinds(t, c)
 	_prefs(t, c)
@@ -118,6 +119,33 @@ func _cache(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SynthLogic.cache_key("chime", {"score": 40.0}) != SynthLogic.cache_key("chime", {"score": 40.0 + step}), "a score step apart is another chime")
 	t.ok(SynthLogic.cache_key("chime", {}) == "chime:0", "no score is score 0")
 	t.ok(SynthLogic.score_bucket(-5.0, step) == 0 and SynthLogic.score_bucket(120.0, step) == 100, "buckets clamp to 0..100")
+
+
+func _cache_config(t: TestUtil, c: Dictionary) -> void:
+	var cfg := c.duplicate(true)
+	Synth.sync_cache(cfg)
+	var s := Synth.new()
+	s._cfg = cfg
+	var a: AudioStreamWAV = s._stream("pulse", {})
+	t.ok(s._stream("pulse", {}) == a, "an unchanged config reuses the cached render")
+	t.ok(not Synth.sync_cache(cfg.duplicate(true)), "an equal config does not clear the cache")
+	t.ok(s._stream("pulse", {}) == a, "the cache survives an equal-config sync")
+	var cfg2 := cfg.duplicate(true)
+	cfg2["kinds"]["pulse"]["len_s"] = float(cfg["kinds"]["pulse"]["len_s"]) * 2.0
+	t.ok(Synth.sync_cache(cfg2), "a changed config clears the cache")
+	s._cfg = cfg2
+	var b: AudioStreamWAV = s._stream("pulse", {})
+	t.ok(b != a and b.data.size() > a.data.size(), "rendering after a retune gives the new length (%d > %d bytes)" % [b.data.size(), a.data.size()])
+	Synth.sync_cache(c)  # leave the cache for the shipped config
+	s.free()
+	# The debug trace is printed before the mute return, so a muted harness session still logs.
+	var src := FileAccess.get_file_as_string("res://scripts/fx/synth.gd")
+	var body := src.substr(src.find("func play("))
+	var pr := body.find("print(\"SYNTH play \"")
+	var mu := body.find("if muted:")
+	t.ok(pr > 0 and mu > pr, "play prints the SYNTH trace before the mute return")
+	t.ok(body.contains("(muted)"), "a muted play is marked in the trace")
+	t.ok(not body.substr(0, mu).contains("if is_muted()"), "play no longer returns on is_muted before the trace")
 
 
 func _pcm(t: TestUtil) -> void:
