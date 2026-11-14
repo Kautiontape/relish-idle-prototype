@@ -346,6 +346,7 @@ func run() -> int:
 	_wall_tests(t, cfg)
 	_routing_tests(t, cfg)
 	_close_exit_tests(t)
+	_warden_reach_tests(t, cfg)
 	return t.failures
 
 
@@ -1233,3 +1234,44 @@ func _close_exit_tests(t: TestUtil) -> void:
 		"a pending exit without the run ended is not an ending beat")
 	t.ok(RaidLogic.close_exit(true, "retreated") == "retreated" and RaidLogic.close_exit(true, "bogus") == "retreated",
 		"only a death or a win is kept")
+
+
+## The undead's warden pick is walking distance (LayoutLogic.walk_within, as the enemy leash): an undead
+## in a room that shares only a sealed wall with the warden room, within ally_engage_px of the warden in
+## a straight line but farther than that on foot, does not drop its fight to walk the long way round.
+func _warden_reach_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_warden_reach")
+	var reach := 620.0   # raid.gd ally_engage_px
+	var r := float(cfg["undead"]["radius_by_tier"]["soldier"])
+	var world := TestUtil.load_json("res://configs/world.json")
+	var fx := {}
+	for f in world["forts"]:
+		var lay := RaidLogic.gen_layout(str(f["id"]), int(f["tier"]), false, cfg, {"held": false})
+		var w := int(lay.get("warden_room", -1))
+		if w < 0:
+			continue
+		var rooms: Array = lay["rooms"]
+		var n := rooms.size()
+		var wc: Vector2 = (rooms[w] as Rect2).get_center()
+		for i in n:
+			if i == w or not (lay["portal_pts"][i * n + w] as Array).is_empty():
+				continue   # the warden room itself, or a room with a doorway into it
+			# the point of room i nearest the warden, a body's width in from its walls
+			var inner := (rooms[i] as Rect2).grow(-(r + 2.0))
+			var p := Vector2(clampf(wc.x, inner.position.x, inner.end.x), clampf(wc.y, inner.position.y, inner.end.y))
+			if p.distance_to(wc) < reach and LayoutLogic.route_dist(lay, p, wc, r) > reach:
+				fx = {"label": "%s t%d room %d" % [f["id"], f["tier"], i], "lay": lay, "p": p, "wc": wc, "w": w}
+				break
+		if not fx.is_empty():
+			break
+	t.ok(not fx.is_empty(), "fixture: a room behind a sealed wall from the warden, in straight reach but not on foot (%s)" % fx.get("label", "none"))
+	if fx.is_empty():
+		return
+	var lay2: Dictionary = fx["lay"]
+	var p2: Vector2 = fx["p"]
+	var wc2: Vector2 = fx["wc"]
+	t.ok(not LayoutLogic.walk_within(lay2, p2, wc2, reach, r),
+		"behind a sealed wall: not in reach (straight %.0f, on foot %.0f)" % [p2.distance_to(wc2), LayoutLogic.route_dist(lay2, p2, wc2, r)])
+	var inside := wc2 + Vector2(40, 0)
+	t.ok(LayoutLogic.walk_within(lay2, inside, wc2, reach, r), "in the warden room: in reach")
+	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r), "the reach still bounds it")

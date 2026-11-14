@@ -79,11 +79,12 @@ func guard_for(u: RaidUnit) -> Dictionary:
 		"relish": rel.global_position}
 
 
-## The nearest awake warden within `reach` of pos (an enemy for the undead), else null.
-func target_in(pos: Vector2, reach: float):
+## The awake warden when it is within `reach` of walking from pos for an undead of `radius` (an enemy
+## for the undead, on the same walking leash as the enemies), else null.
+func target_in(pos: Vector2, reach: float, radius := 0.0):
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake:
 		return null
-	return warden if pos.distance_to(warden.global_position) < reach else null
+	return warden if LayoutLogic.walk_within(_raid.layout, pos, warden.global_position, reach, radius) else null
 
 
 ## The antechamber's last chance (MECHANICS 5.3): trance ready now, the next completed raise

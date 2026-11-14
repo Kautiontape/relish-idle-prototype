@@ -660,6 +660,12 @@ static func route_dist(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, r
 	return maxf(d, via)
 
 
+## True when `to_pos` is within `reach` px of walking from `from_pos` for a mover of `radius`
+## (route_dist; the straight line prunes first, since route_dist is never shorter).
+static func walk_within(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, reach: float, radius := 0.0) -> bool:
+	return from_pos.distance_to(to_pos) < reach and route_dist(layout, from_pos, to_pos, radius) < reach
+
+
 ## adj[i] = sorted neighbour room indices (rooms sharing a wall gap).
 static func room_adjacency(layout: Dictionary) -> Array:
 	var n: int = (layout["rooms"] as Array).size()

@@ -482,7 +482,7 @@ func nearest_enemy_of(pos: Vector2, radius := 0.0):
 			if d < bd:
 				bd = d
 				best = e
-	var w = warden_run.target_in(pos, bd)   # the warden is a target but not an `enemies` entry
+	var w = warden_run.target_in(pos, bd, radius)   # the warden is a target but not an `enemies` entry
 	if w != null:
 		best = w
 	return best
