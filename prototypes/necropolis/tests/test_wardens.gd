@@ -314,6 +314,14 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
 	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
 	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
+	# 3c: the death card names the attack and the tell she missed
+	t.ok(RaidLogic.death_line("slam", "The Bellringer") == "The Bellringer's slam · missed: the swing", "the card names the missed tell: " + RaidLogic.death_line("slam", "The Bellringer"))
+	t.ok(RaidLogic.death_line("lunge", "The Huntsman") == "The Huntsman's lunge · missed: the line"
+		and RaidLogic.death_line("rush", "The Shieldwall") == "The Shieldwall's rush · missed: the lit arc"
+		and RaidLogic.death_line("bash", "The Shieldwall") == "The Shieldwall's bash · missed: the lit arc"
+		and RaidLogic.death_line("fire", "The Pyre-priest") == "The Pyre-priest's fire · missed: the marked ground", "every warden attack's tell")
+	t.ok(RaidLogic.death_line("hound", "The Huntsman") == "The Huntsman's hounds" and RaidLogic.death_line("living", "") == "the living"
+		and RaidLogic.death_line("", "x") == "a wound", "no tell, no missed: (a pack, the living, a wound)")
 	# 3c: a pack never turns on Relish: with no undead standing it breaks (standing or still being called)
 	t.ok(WardenLogic.pack_breaks(3, false, false) and WardenLogic.pack_breaks(0, true, false), "no undead stands: a standing pack, or one its horn calls, breaks")
 	t.ok(not WardenLogic.pack_breaks(3, false, true) and not WardenLogic.pack_breaks(0, true, true), "undead stand: it stays")

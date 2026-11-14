@@ -430,6 +430,8 @@ static func death_cause(src: String, warden_name: String) -> String:
 			return "%s's lunge" % who
 		"bash":
 			return "%s's bash" % who
+		"rush":
+			return "%s's rush" % who
 		"fire":
 			return "%s's fire" % who
 		"hound":
@@ -439,6 +441,30 @@ static func death_cause(src: String, warden_name: String) -> String:
 		"living":
 			return "the living"
 	return "a wound"
+
+
+## The tell the killing attack showed, for the death card (D-d/E 3c: "missed: the swing"): the
+## Bellringer's clapper swing, the Huntsman's locked line, the Shieldwall's lit arc (bash or rush), the
+## Pyre-priest's marked ground. "" for a source with no one-beat tell (a pack, the living, a wound).
+static func death_tell(src: String) -> String:
+	match src:
+		"slam":
+			return "the swing"
+		"lunge":
+			return "the line"
+		"bash", "rush":
+			return "the lit arc"
+		"fire":
+			return "the marked ground"
+	return ""
+
+
+## The death card's KILLED BY text: the cause, then the tell she missed when the attack had one
+## ("The Bellringer's slam · missed: the swing").
+static func death_line(src: String, warden_name: String) -> String:
+	var tell := death_tell(src)
+	var cause := death_cause(src, warden_name)
+	return cause if tell == "" else "%s · missed: %s" % [cause, tell]
 
 
 ## What she loses with the party: the unbanked loot ("relics 1 · essence 4") and the big undead of the

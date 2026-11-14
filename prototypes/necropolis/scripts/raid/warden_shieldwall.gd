@@ -276,7 +276,7 @@ func _bash(ph: Dictionary, at: Dictionary) -> void:
 		bash_relish += 1
 		if rushing:
 			rush_relish += 1
-		rel.take_hit(float(at.get("dmg_relish", 12.0)), "bash")
+		rel.take_hit(float(at.get("dmg_relish", 12.0)), "rush" if rushing else "bash")
 	if raid._standalone:
 		print("RAID_WARDEN bash n=%d units=%d relish=%s rush=%s phase=%d facing=%.0f flanks=%d glances=%d frame=%d" % [bashes, struck,
 			str(hit_rel), str(rushing), phase, rad_to_deg(facing), flanks, glances, Engine.get_process_frames()])
