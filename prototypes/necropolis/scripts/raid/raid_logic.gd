@@ -187,6 +187,15 @@ static func held_clear_due(held: bool, boss: bool, living_left: int, started: bo
 	return held and not boss and living_left <= 0 and not started
 
 
+## A held fort with no living at all when the raid builds has no last kill to trigger the clear:
+## it clears `held.empty_clear_s` after the build instead. That delay, or -1 when it does not apply
+## (not held, the boss, or living spawned).
+static func held_empty_clear_s(held: bool, boss: bool, living_spawned: int, cfg: Dictionary) -> float:
+	if not held_clear_due(held, boss, living_spawned, false):
+		return -1.0
+	return maxf(0.0, float(cfg.get("held", {}).get("empty_clear_s", 1.0)))
+
+
 static func held_banner(fort_name: String) -> String:
 	return "COUNTER-GARRISON CLEARED" if fort_name == "" else "COUNTER-GARRISON CLEARED · %s holds" % fort_name
 

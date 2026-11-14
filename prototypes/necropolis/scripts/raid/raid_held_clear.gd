@@ -5,7 +5,8 @@ extends RefCounted
 ## arrives as fresh mass-0 motes around Relish, and after `held.clear_victory_s` (long enough for them to
 ## gather) the run ends as a retreat. `killed_living_mass` is all the living killed, so the writeback clears
 ## the fort's living. Relish dying inside the window still ends `relish_died`; `endings.ended` guards a
-## double end (a manual retreat inside the window wins, with the loot already in found_loot).
+## double end (a manual retreat inside the window wins, with the loot already in found_loot). A held
+## fort with no living at the build clears `held.empty_clear_s` later (`on_built`).
 
 var started := false      # the clear has fired (no run may fire it twice)
 var loot := {}            # the held_clear roll (items merged into found_loot; essence spawned as motes)
@@ -19,6 +20,21 @@ func _init(p_raid: Node2D) -> void:
 
 func _c(key: String, def: float) -> float:
 	return float(_raid.rcfg().get("held", {}).get(key, def))
+
+
+## Called once the scene is built: a held fort with no living at all clears after
+## `held.empty_clear_s` (there is no last kill to trigger it).
+func on_built() -> void:
+	var left := 0
+	for e in _raid.enemies:
+		if is_instance_valid(e) and e.alive:
+			left += 1
+	var wait := RaidLogic.held_empty_clear_s(_raid.held, _raid.is_boss(), left, _raid.rcfg())
+	if wait < 0.0:
+		return
+	_raid.get_tree().create_timer(wait, true, false, true).timeout.connect(func() -> void:
+		if is_instance_valid(_raid) and not _raid.endings.ended and not started:
+			_start())
 
 
 ## Called by the raid after each enemy dies (dungeon only).

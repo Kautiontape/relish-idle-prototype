@@ -5,7 +5,7 @@ extends RefCounted
 ## answer is cached and recomputed every `route_repath_s` (staggered per mover by `phase`), when the
 ## mover leaves the room it was routed from, or when it gets within `route_arrive_px` of it.
 
-static var _seq := 0
+static var _seq := 0   # movers made since the last reset_seq (the stagger is a function of it)
 
 var _wp := Vector2.ZERO
 var _direct := true
@@ -22,6 +22,12 @@ func _init(cfg: Dictionary = {}) -> void:
 	_pad = float(cfg.get("route_door_pad_px", 14.0))
 	_seq += 1
 	_t = fmod(float(_seq) * 0.6180339887, 1.0) * _repath   # golden-ratio stagger, deterministic
+
+
+## Restart the stagger sequence. The raid calls it when it builds, before it makes any mover, so
+## two same-seed raids in one process stagger (and so play) the same.
+static func reset_seq() -> void:
+	_seq = 0
 
 
 ## The point to move toward this frame.

@@ -561,6 +561,14 @@ func _held_clear_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not RaidLogic.held_clear_due(false, false, 0, false), "a fort that is not held never clears this way")
 	t.ok(not RaidLogic.held_clear_due(true, true, 0, false), "the boss arena never clears this way")
 	t.ok(not RaidLogic.held_clear_due(true, false, 0, true), "once started it never fires twice")
+	# a held fort with no living at the build has no last kill: it clears after held.empty_clear_s
+	var ecs := float(h.get("empty_clear_s", -1.0))
+	t.ok(ecs > 0.0 and ecs < float(h.get("clear_victory_s", 0.0)), "raid.json held.empty_clear_s is a short positive delay: %s" % ecs)
+	t.near(RaidLogic.held_empty_clear_s(true, false, 0, cfg), ecs, 1e-6, "held, no living spawned: clears after empty_clear_s")
+	t.ok(RaidLogic.held_empty_clear_s(true, false, 3, cfg) < 0.0, "held with living: the last kill clears it, not the timer")
+	t.ok(RaidLogic.held_empty_clear_s(false, false, 0, cfg) < 0.0, "not held: no empty clear")
+	t.ok(RaidLogic.held_empty_clear_s(true, true, 0, cfg) < 0.0, "the boss arena: no empty clear")
+	t.near(RaidLogic.held_empty_clear_s(true, false, 0, {}), 1.0, 1e-6, "a config without the key falls back to 1 s")
 	t.ok(RaidLogic.held_banner("Old Sluice") == "COUNTER-GARRISON CLEARED · Old Sluice holds", "banner text: " + RaidLogic.held_banner("Old Sluice"))
 	t.ok(RaidLogic.held_banner("") == "COUNTER-GARRISON CLEARED", "no name, no 'holds'")
 	t.ok(RaidLogic.held_motes({"essence": 3}) == 3 and RaidLogic.held_motes({}) == 0 and RaidLogic.held_motes({"essence": -2}) == 0, "held_motes is the bonus count, never negative")
@@ -808,6 +816,19 @@ func _unbanked_tests(t: TestUtil) -> void:
 func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_routing")
 	var cc: Dictionary = cfg["combat"]
+	# the per-mover stagger is a sequence: reset_seq (the raid calls it at build) replays it, so two
+	# same-seed raids in one process stagger alike
+	RaidRoute.reset_seq()
+	var st_a: Array[float] = []
+	for i in 7:
+		st_a.append(RaidRoute.new(cc).stagger())
+	RaidRoute.new(cc)   # a stray mover between raids
+	RaidRoute.reset_seq()
+	var st_b: Array[float] = []
+	for i in 7:
+		st_b.append(RaidRoute.new(cc).stagger())
+	t.ok(st_a == st_b, "RaidRoute.reset_seq replays the stagger sequence: %s vs %s" % [str(st_a), str(st_b)])
+	t.ok(st_a[0] != st_a[1], "consecutive movers are staggered apart")
 	var pad := float(cc["route_door_pad_px"])
 	# line_clear on a hand-made layout: one wall rect at x 100..130, y 0..200
 	var toy := {"inner_walls": [Rect2(100, 0, 30, 200)]}

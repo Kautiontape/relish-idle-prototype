@@ -160,6 +160,7 @@ func fort_tier() -> int:
 
 func _build() -> void:
 	_built = true
+	RaidRoute.reset_seq()   # the per-mover stagger restarts each raid (same seed, same run)
 	_standalone = get_tree().current_scene == self
 	var cfg := rcfg()
 	var boss := is_boss()
@@ -255,6 +256,7 @@ func _build() -> void:
 	_build_extra()
 	if not boss:
 		endings.start()
+		held_clear.on_built()
 	if _standalone:
 		_dev = RaidDev.new(self)
 		_dev.start()

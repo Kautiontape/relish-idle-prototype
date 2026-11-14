@@ -50,6 +50,7 @@
   },
   "held": {
     "clear_victory_s": 2.5,
+    "empty_clear_s": 1.0,
     "banner_s": 3.5,
     "ring_px": 720.0,
     "ring_s": 1.1,
