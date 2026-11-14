@@ -616,6 +616,10 @@ mass; bodies, rot return, WORK and muster are mass.
     so never the crypt. A building that earns that stock (stalls for gold, mills for bone) is never
     picked, because idling the only earner would lock the town out of ever paying again. What is
     still owed is paid down to 0.
+    - A building that resumed inside the step (Resume, below) is billed only for the seconds it was
+      paid, from its resume to the step's end. If the same step's cascade then idles it, the
+      cascade takes exactly that off the bill, so it pays nothing for the step and the buildings
+      still paying are billed their own upkeep and no more (since `72dfd81`).
   - An unpaid building gives no slots and no output.
   - **Resume.** It stays unpaid for at least `upkeep.unpaid_hold_s`. It resumes (`unpaid: false`)
     at the first moment its stocks cover the paying upkeep plus its own for

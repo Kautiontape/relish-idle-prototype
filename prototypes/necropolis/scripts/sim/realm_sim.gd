@@ -35,7 +35,37 @@ extends RefCounted
 ##   redirect_rate: float  mass/s she raises there, bounded by the fort's dead
 ##   siege_block: Dictionary  fort_id -> fraction 0..1 of a tithe surge a siege cancels there (E3)
 
+## Every realm.json key RealmSim reads, as "key" or "section.key" paths. setup() reads them once into
+## the members below (no defaults in the code: the numbers live in the config alone), and
+## tests/test_game_state_configs.gd asserts each one is present. `t` keeps the whole config for
+## readers outside (tests); nothing changes it after setup().
+const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei", "vei_pool_cap", "K", "covFalloff",
+	"veiPolicy", "start_living_frac", "tithe.period_s", "tithe.backlog_scale", "tithe.warning_s", "tithe.surge_s",
+	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s"]
+
 var t := {}
+# ---- tunables, read once in setup() from REQUIRED (E2b T4.P: they were read per fort per step) ----
+var _k_kill := 0.0
+var _k_destroy := 0.0
+var _k_clear := 0.0
+var _r_drain := 0.0
+var _R_vei := 0.0
+var _S_vei := 0.0
+var _pool_cap := 0.0
+var _K := 0.0
+var _falloff := 0.0
+var _policy := ""
+var _period_s := 0.0
+var _backlog_scale := 0.0
+var _warning_s := 0.0
+var _surge_s := 0.0
+var _surge_mult_t := 0.0
+var _relish_mult := 0.0
+var _march := 0.0  # tithe.march_back_s, kept above 0
+## _load calls a step made and skipped (a bound showed the room it computes can't cut the give), for
+## tests (not saved).
+var _n_load := 0
+var _n_load_skipped := 0
 var forts: Array = []
 ## Kept for the save shape: `undead` is always 0 (WAR leaves in the step it arrives); `r_out` is the
 ## mass/s Covington sent into the realm last step (WAR + FLOOD).
@@ -124,6 +154,24 @@ var _water_left := 0.0
 ## Plus held_s (seconds of hold left) and held (held_s > 0).
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
+	_k_kill = _tf("k_kill")
+	_k_destroy = _tf("k_destroy")
+	_k_clear = _tf("k_clear")
+	_r_drain = _tf("r_drain")
+	_R_vei = _tf("R_vei")
+	_S_vei = _tf("S_vei")
+	_pool_cap = _tf("vei_pool_cap")
+	_K = _tf("K")
+	_falloff = _tf("covFalloff")
+	_policy = str(_tv("veiPolicy"))
+	_period_s = _tf("tithe.period_s")
+	_backlog_scale = _tf("tithe.backlog_scale")
+	_warning_s = _tf("tithe.warning_s")
+	_surge_s = _tf("tithe.surge_s")
+	_surge_mult_t = _tf("tithe.surge_mult")
+	_relish_mult = _tf("tithe.relish_mult")
+	_march = maxf(1e-6, _tf("tithe.march_back_s"))
+	var start_frac := _tf("start_living_frac")
 	cov_pos = _vec(world.get("covington", {}).get("pos", [1780, 1270]))
 	vei_pos = _vec(world.get("vei", {}).get("pos", [1024, 130]))
 	forts = []
@@ -132,13 +180,30 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 		forts.append({
 			"id": f.get("id", ""), "name": f.get("name", "?"), "desc": f.get("desc", ""),
 			"pos": _vec(f.get("pos", [0, 0])), "tier": int(f.get("tier", 1)), "cap": cap,
-			"living": float(f.get("living", cap * float(t.get("start_living_frac", 0.85)))),
+			"living": float(f.get("living", cap * start_frac)),
 			"dead": float(f.get("dead", 0.0)), "undead": float(f.get("undead", 0.0)),
 			"held_s": 0.0, "held": false,
 			"r_in": 0.0, "r_drain": 0.0, "r_shipped": 0.0, "r_dead_out": 0.0, "r_raised": 0.0,
 			"r_staged": 0.0, "r_redirected": 0.0, "r_kills": 0.0, "r_surge": 0.0,
 		})
 	tithe = _tithe_idle()
+
+
+## The tunable at a REQUIRED path in `t`. A missing one is reported loudly and reads as null.
+func _tv(path: String) -> Variant:
+	assert(REQUIRED.has(path), "RealmSim reads %s; add it to REQUIRED" % path)
+	var v: Variant = t
+	for k in path.split("."):
+		if not (v is Dictionary and (v as Dictionary).has(k)):
+			push_error("RealmSim: realm.json %s is missing" % path)
+			return null
+		v = v[k]
+	return v
+
+
+func _tf(path: String) -> float:
+	var v: Variant = _tv(path)
+	return float(v) if v is float or v is int else 0.0
 
 
 static func _vec(a) -> Vector2:
@@ -191,18 +256,12 @@ func drain_events() -> Array:
 ## Vei's odds now: backlog / (backlog + K).
 func odds() -> float:
 	var b: float = vei["undead_queue"]
-	return b / (b + float(t.get("K", 12000.0)))
-
-
-func _tcfg() -> Dictionary:
-	var d: Variant = t.get("tithe", {})
-	return d if d is Dictionary else {}
+	return b / (b + _K)
 
 
 ## The tithe interval when it is scheduled: period_s · (1 − backlog_scale · odds), never below 0.
 func tithe_period() -> float:
-	var tc := _tcfg()
-	return float(tc.get("period_s", 420.0)) * maxf(0.0, 1.0 - float(tc.get("backlog_scale", 0.5)) * odds())
+	return _period_s * maxf(0.0, 1.0 - _backlog_scale * odds())
 
 
 static func _tithe_idle() -> Dictionary:
@@ -265,7 +324,7 @@ func _tithe_entry(e: Variant, floats: Array) -> Dictionary:
 ## WAR's dispatch weight for a fort: 1/(dist/100)^covFalloff, times the tide at the tide fort.
 func _war_weight(f: Dictionary, tide_fort: String, tide_bias: float) -> float:
 	var d := maxf(1e-3, cov_pos.distance_to(f["pos"]) / 100.0)
-	var w := 1.0 / pow(d, float(t.get("covFalloff", 1.0)))
+	var w := 1.0 / pow(d, _falloff)
 	return w * tide_bias if f["id"] == tide_fort else w
 
 
@@ -326,16 +385,14 @@ func step(dt: float, inputs: Dictionary) -> void:
 	# dispatch (step 3) reads the living arriving, so shipping is planned on the load before WAR
 	# (`load`, the garrison's pull read from the living now), then each give is cut to the room this
 	# step's WAR leaves; what that cuts stays in her pool.
-	var load: Array[float] = []
 	var raise_in: Array[float] = []
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		raise_in.append(minf(want_r[i], float(f["dead"]) * inv))  # the raises, as far as the corpses now cover them
-		load.append(_load(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), q, 1))
 	var sum_cap := 0.0
 	for f in forts:
 		sum_cap += float(f["cap"])
-	var per_cap: float = float(t.get("S_vei", 8.0)) * dt / sum_cap if sum_cap > 0.0 else 0.0
+	var per_cap: float = _S_vei * dt / sum_cap if sum_cap > 0.0 else 0.0
 	vei["undead_queue"] += flood * dt  # FLOOD (step 4) counts toward what she can make
 	_plan = _make(dt, q, INF, false)
 	var avail: float = vei["living_pool"] + float(_plan["made"])
@@ -354,8 +411,13 @@ func step(dt: float, inputs: Dictionary) -> void:
 		var f: Dictionary = forts[i]
 		var g := 0.0
 		if not held.has(f["id"]):
-			var room: float = maxf(0.0, f["cap"] - load[i] - (surge_amt if i == surge_fort else 0.0))
-			g = minf(room, per_cap * float(f["cap"]))
+			# the load (the 1-pass _load) is read only where the room could be under the share (_load_cuts);
+			# a held fort's is never needed
+			var share: float = per_cap * float(f["cap"])
+			var s_i: float = surge_amt if i == surge_fort else 0.0
+			g = share
+			if _load_cuts(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), s_i, share):
+				g = minf(maxf(0.0, f["cap"] - _load(f, dt, 0.0, raise_in[i], raise_at.has(f["id"]), q, 1) - s_i), share)
 		gives.append(g)
 		want += g
 	var scale: float = minf(1.0, avail / want) if want > 0.0 else 0.0
@@ -379,7 +441,7 @@ func step(dt: float, inputs: Dictionary) -> void:
 		var s_i: float = surge_amt if i == surge_fort else 0.0
 		if gives[i] > 0.0 and _filled[i]:
 			gives[i] = minf(gives[i], _fill_cap[i])
-		elif gives[i] > 0.0:
+		elif gives[i] > 0.0 and _load_cuts(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), s_i, gives[i]):
 			gives[i] = minf(gives[i], maxf(0.0, f["cap"] - _load(f, dt, war_in[i], raise_in[i], raise_at.has(f["id"]), q, 4) - s_i))
 		arriving[i] = gives[i] + s_i
 		f["r_surge"] = s_i * inv
@@ -477,10 +539,11 @@ func step(dt: float, inputs: Dictionary) -> void:
 ## from its clearing took one step's clearing less at every step; at 15 s that cut Ashgate's
 ## shipping from 0.206 to 0.038/s for a step (midgame_2flips, t 510 s), the seed of its early fall.
 func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q: float, passes: int) -> float:
-	var k_kill := float(t.get("k_kill", 0.018))
-	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
-	var k_clear := float(t.get("k_clear", 0.0))
-	var r := float(t.get("r_drain", 0.06))
+	_n_load += 1
+	var k_kill := _k_kill
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_clear := _k_clear
+	var r := _r_drain
 	var cap := float(f["cap"])
 	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
@@ -498,6 +561,29 @@ func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q
 	var dead := d0 + maxf(0.0, l0 - _le - _lb) + ud
 	var gone := minf(dead, (k_clear * _lm + raise_in) * dt)
 	return l0 + d0 + _ue + ud - gone
+
+
+## Whether _load(f, dt, w_in, raise_in, keep, ·, ·) could leave a room under `give` (cap − load − s_i
+## < give). False when a cheap upper bound on the load already leaves `give` room: the caller then
+## skips _load and keeps `give`, bit for bit (min(give, a room ≥ give) is `give`). The bound leaves
+## out what only lowers the load: the garrison's pull (it only lowers U's path, which without it is
+## U0 · e^(−r·dt) + (inflow / r)(1 − e^(−r·dt))) and the corpses that leave; where `keep`, what the
+## garrison destroys stays as corpses, so U's end plus that is at most U0 + inflow · dt. A relative
+## margin of 1e-9 covers the paths' rounding. E2b T4.P (M4).
+func _load_cuts(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, s_i: float, give: float) -> bool:
+	var l0 := maxf(0.0, float(f["living"]))
+	var u0 := maxf(0.0, float(f["undead"]))
+	var d0 := maxf(0.0, float(f["dead"]))
+	var a := w_in + raise_in
+	var u_hi := u0 + a * dt
+	if _r_drain * dt > 1e-9 and not keep:
+		var e := exp(-_r_drain * dt)
+		u_hi = u0 * e + (a / _r_drain) * (1.0 - e)
+	var hi := (l0 + d0 + u_hi) * (1.0 + 1e-9) + 1e-9
+	if float(f["cap"]) - hi - s_i >= give:
+		_n_load_skipped += 1
+		return false
+	return true
 
 
 ## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
@@ -520,10 +606,10 @@ func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q
 ## t_living_out / t_undead_out: seconds into the step when that pool reached 0 (0 when it started
 ## there), −1 when it did not. Natural event boundaries (IDLE §4); read by nothing yet.
 func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
-	var k_kill := float(t.get("k_kill", 0.018))
-	var k_dq := float(t.get("k_destroy", 0.006)) / maxf(1.0, q)
-	var k_clear := float(t.get("k_clear", 0.0))
-	var r := float(t.get("r_drain", 0.06))
+	var k_kill := _k_kill
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_clear := _k_clear
+	var r := _r_drain
 	var cap := float(f["cap"])
 	var tau := _march_s()
 	var l0 := maxf(0.0, float(f["living"]))
@@ -584,7 +670,7 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 
 ## tithe.march_back_s, the march-back's time constant τ (MECHANICS §3.4); kept above 0.
 func _march_s() -> float:
-	return maxf(1e-6, float(_tcfg().get("march_back_s", 60.0)))
+	return _march
 
 
 ## Living over a step (MECHANICS §3.1 step 5, §3.4): L' = c − max(0, L − cap) / tau with
@@ -722,7 +808,7 @@ static func _raise_rate(f: Dictionary, dt: float, want: float, shipped: float) -
 ## U_end = U0 · e^(−r·dt) + (inflow / r)(1 − e^(−r·dt)) is set to cap − the corpses at the end,
 ## D − rho · dt + what Vei ships in (killed on arrival, it ends as corpses).
 func _fill_inflow(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
-	var r := float(t.get("r_drain", 0.06))
+	var r := _r_drain
 	var target: float = float(f["cap"]) - (float(f["dead"]) - rho * dt) - shipped
 	if r * dt <= 1e-9:
 		return (target - float(f["undead"])) / dt
@@ -792,8 +878,8 @@ func _dispatch(war: float, dt: float, held: Dictionary, arriving: Array[float], 
 	_fill_cap = []
 	_fill_cap.resize(n)
 	_fill_cap.fill(INF)
-	var k_kill := float(t.get("k_kill", 0.018))
-	var r := float(t.get("r_drain", 0.06))
+	var k_kill := _k_kill
+	var r := _r_drain
 	var slid := false
 	for i in n:
 		if not (limits[i] < INF and _capped[i] and arriving[i] > 0.0):
@@ -871,8 +957,8 @@ func _make(dt: float, q: float, headroom: float, apply: bool) -> Dictionary:
 	var uq: float = vei["undead_queue"]
 	var dq: float = vei["dead_queue"]
 	if headroom > 0.0:
-		var cap_units: float = float(t.get("R_vei", 50.0)) * dt
-		var policy: String = str(t.get("veiPolicy", "cheap"))
+		var cap_units: float = _R_vei * dt
+		var policy: String = _policy
 		if policy == "proportional":
 			var tot_q: float = uq * q + dq
 			var frac: float = uq * q / tot_q if tot_q > 0.0 else 1.0
@@ -912,7 +998,7 @@ func _make(dt: float, q: float, headroom: float, apply: bool) -> Dictionary:
 ## policy that would now pick less mass (undead first at q > 1) takes that plan instead, scaled to
 ## the headroom.
 func _convert(dt: float, inv: float, q: float) -> void:
-	var pool_cap := float(t.get("vei_pool_cap", 600.0))
+	var pool_cap := _pool_cap
 	pool_overflow = maxf(0.0, vei["living_pool"] - pool_cap)  # the march-back that found no room
 	vei["living_pool"] -= pool_overflow
 	var headroom: float = pool_cap - vei["living_pool"]
@@ -942,7 +1028,6 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 	if not bool(tithe.get("started", false)):
 		_wave_run = dt  # (a saved wave with the clock stopped counts down as before)
 		return {}
-	var tc := _tcfg()
 	tithe["next_s"] = float(tithe["next_s"]) - dt
 	var w: Dictionary = tithe["warning"]
 	if w.is_empty() and tithe["next_s"] <= 0.0:
@@ -956,13 +1041,13 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 				_end_wave()  # only when a period is shorter than a wave
 			var fid: String = w["fort_id"]
 			var block := _siege_at(siege, fid)
-			var duration := float(tc.get("surge_s", 40.0))
+			var duration := _surge_s
 			var mult := _surge_mult(fid, relish_fort, block)
 			tithe["wave"] = {"wave_id": w["wave_id"], "fort_id": fid, "s_left": duration, "duration_s": duration,
 				"mult": mult, "delivered": 0.0}
 			tithe["warning"] = {}
 			events.append({"type": "tithe_wave", "wave_id": w["wave_id"], "fort_id": fid,
-				"surge": mult * float(t.get("S_vei", 8.0)), "duration_s": duration,
+				"surge": mult * _S_vei, "duration_s": duration,
 				"relish_here": relish_fort == fid, "siege_block": block})
 		tithe["next_s"] = float(tithe["next_s"]) + tithe_period()
 	var wv: Dictionary = tithe["wave"]
@@ -973,7 +1058,7 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 		return {}
 	var mult := _surge_mult(wv["fort_id"], relish_fort, _siege_at(siege, wv["fort_id"]))
 	wv["mult"] = mult
-	return {"fort_id": wv["fort_id"], "want": mult * float(t.get("S_vei", 8.0)) * _wave_run}
+	return {"fort_id": wv["fort_id"], "want": mult * _S_vei * _wave_run}
 
 
 ## The warning, once the clock is within `warning_s` of the wave: the target (_tithe_target, which
@@ -981,13 +1066,12 @@ func _tithe_clock(dt: float, relish_fort: String, siege: Dictionary) -> Dictiona
 func _tithe_warn() -> void:
 	if not bool(tithe.get("started", false)) or not (tithe["warning"] as Dictionary).is_empty():
 		return
-	var tc := _tcfg()
-	if float(tithe["next_s"]) > float(tc.get("warning_s", 150.0)):
+	if float(tithe["next_s"]) > _warning_s:
 		return
 	var target := _tithe_target()
 	if target == "":
 		return
-	var base: float = float(tc.get("surge_mult", 3.0)) * float(t.get("S_vei", 8.0))
+	var base: float = _surge_mult_t * _S_vei
 	var w := {"wave_id": int(tithe["next_id"]), "fort_id": target, "eta_s": maxf(0.0, tithe["next_s"]), "surge": base}
 	tithe["warning"] = w
 	tithe["next_id"] = int(tithe["next_id"]) + 1
@@ -1014,8 +1098,8 @@ static func _siege_at(siege: Dictionary, fort_id: String) -> float:
 
 ## surge_mult × the counters: × tithe.relish_mult (halved) where Relish stands, less the siege's share.
 func _surge_mult(fort_id: String, relish_fort: String, block: float) -> float:
-	var m := float(_tcfg().get("surge_mult", 3.0)) * (1.0 - block)
-	return m * float(_tcfg().get("relish_mult", 0.5)) if relish_fort == fort_id else m
+	var m := _surge_mult_t * (1.0 - block)
+	return m * _relish_mult if relish_fort == fort_id else m
 
 
 ## The wave ends: a held fort it overwhelmed (delivered > the undead there now) is retaken.
@@ -1050,8 +1134,8 @@ func readout() -> Dictionary:
 	var inflow: float = vei["r_in_undead"]
 	var cap_undead: float = r_cap_undead
 	if cap_undead < 0.0:
-		cap_undead = float(t.get("R_vei", 50.0)) / q
-		if vei["living_pool"] >= float(t.get("vei_pool_cap", 600.0)):
+		cap_undead = _R_vei / q
+		if vei["living_pool"] >= _pool_cap:
 			cap_undead = 0.0
 	var massed: float = vei["undead_queue"]
 	return {
