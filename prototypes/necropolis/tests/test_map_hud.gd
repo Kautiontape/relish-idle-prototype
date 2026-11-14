@@ -15,6 +15,8 @@ func run() -> int:
 	_callout_text(t)
 	_callout_rows(t)
 	_placement(t)
+	_drag_cap(t)
+	_rects_key(t)
 	_one_source(t)
 	_fit(t)
 	_wrap(t)
@@ -169,6 +171,48 @@ func _callout_rows(t: TestUtil) -> void:
 	var ids: Array = out.map(func(r): return r["id"])
 	t.ok(ids == ["c", "d", "a", "e"], "only rows with a why, loudest first, ties in input order (%s)" % str(ids))
 	t.ok(HudLogic.callout_rows([]).is_empty(), "no rows, none")
+
+
+func _drag_cap(t: TestUtil) -> void:
+	t.suite("map_hud-drag-cap")
+	var cfg: Dictionary = MapLogic.cfg()["callouts"]
+	t.ok(HudLogic.callout_cap(false) == int(cfg["max_count"]) and int(cfg["max_count"]) == 8, "off a drag, max_count")
+	t.ok(HudLogic.callout_cap(true) == 4 and int(cfg["drag_max_count"]) == 4, "during a drag, drag_max_count (4)")
+	var lanes: Array = []
+	for i in 7:
+		lanes.append({"id": "l%d" % i, "from": "a%d" % i, "to": "b%d" % i, "kind": "war", "rate": float(i) - 3.0, "why": "valve%d" % i})
+	var items := HudLogic.callout_items(lanes, 3)
+	var size := Vector2(60, 20)
+	var opts: Array = []
+	for i in items.size():
+		opts.append(HudLogic.candidate_rects(Vector2(300.0 * i, 100.0), size, Vector2(16, 26)))
+	var picks := HudLogic.place(opts, HudLogic.callout_cap(true), 4.0)
+	var placed := []
+	for i in picks.size():
+		if picks[i] >= 0:
+			placed.append(str(items[i]["id"]))
+	t.ok(placed.size() == 4, "seven callouts fit but a drag shows four (%d)" % placed.size())
+	t.ok(placed == ["l0", "l6", "l1", "l5"], "the four with the largest |rate|: %s" % str(placed))
+	var open_picks := HudLogic.place(opts, HudLogic.callout_cap(false), 4.0)
+	t.ok(open_picks.filter(func(k): return k >= 0).size() == 7, "off a drag all seven place")
+	var folded := HudLogic.callout_items([
+		{"id": "x1", "from": "covington", "to": "a", "kind": "war", "rate": 1.0, "why": "valve"},
+		{"id": "x2", "from": "covington", "to": "b", "kind": "war", "rate": 1.0, "why": "valve"},
+		{"id": "x3", "from": "covington", "to": "c", "kind": "war", "rate": 1.0, "why": "valve"},
+		{"id": "y", "from": "a", "to": "b", "kind": "flood", "rate": 0.5, "why": "tithe"}], 3)
+	t.ok(folded.size() == 2 and bool(folded[0].get("group", false)), "collapsing still folds inside the cap")
+
+
+func _rects_key(t: TestUtil) -> void:
+	t.suite("map_hud-rects-key")
+	var a := [Rect2(10, 20, 40, 12), Rect2(100, 100, 40, 12)]
+	var b := [Rect2(10, 20, 40, 12), Rect2(100, 100, 40, 12)]
+	t.ok(HudLogic.rects_key(a) == HudLogic.rects_key(b), "the same chip rects give the same key")
+	var moved := [Rect2(10, 20, 40, 12), Rect2(100, 118, 40, 12)]
+	t.ok(HudLogic.rects_key(a) != HudLogic.rects_key(moved), "a chip that moved gives a new key (a re-place)")
+	var sub := [Rect2(10.2, 20.1, 40, 12), Rect2(100.3, 100.0, 40, 12)]
+	t.ok(HudLogic.rects_key(a) == HudLogic.rects_key(sub), "a sub-pixel drift does not re-place")
+	t.ok(HudLogic.rects_key([]) == [], "no chips, an empty key")
 
 
 func _placement(t: TestUtil) -> void:

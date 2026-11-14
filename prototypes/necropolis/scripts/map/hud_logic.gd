@@ -176,6 +176,19 @@ static func leader_end(plate: Rect2, anchor: Vector2) -> Vector2:
 	return Vector2(clampf(anchor.x, plate.position.x, plate.end.x), clampf(anchor.y, plate.position.y, plate.end.y))
 
 
+## How many callouts show: callouts.max_count, or callouts.drag_max_count while the valve is dragged
+## (the loudest few, so the map stays readable under the handle).
+static func callout_cap(dragging: bool) -> int:
+	var c: Dictionary = MapLogic.cfg()["callouts"]
+	return int(c["drag_max_count"]) if dragging else int(c["max_count"])
+
+
+## The chip rects the callouts keep clear of, whole px, as a layout key: a chip that moves (Relish
+## stepping on or off a fort) changes it, so the callouts re-place.
+static func rects_key(rects: Array) -> Array:
+	return rects.map(func(r: Rect2): return [roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)])
+
+
 ## Greedy placement. `options[i]` is callout i's candidate rects in preference order. Callouts
 ## are taken in order: each takes its first candidate that stays `gap` clear of every plate
 ## placed so far and of every `occupied` rect (the open card), and is skipped (-1) when none does

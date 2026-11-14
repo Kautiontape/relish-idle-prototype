@@ -292,7 +292,7 @@ func _apply_skip_arg() -> void:
 
 ## Debug only: `--map-clicks=` replays a script in screen px once the camera fit has settled,
 ## through the real input path (Shot's own --clicks fire before the fit): `x,y` a click,
-## `x,y>x,y` a drag, `wN` waits N frames; steps are separated by `;`.
+## `x,y>x,y` a drag (`x,y>>x,y` keeps the button down at its end), `wN` waits N frames; steps are separated by `;`.
 func _replay_clicks() -> void:
 	if not Game.state.debug_enabled:
 		return
@@ -325,7 +325,8 @@ func _replay_clicks() -> void:
 					_inject_motion(p, p - prev)
 					prev = p
 					await _frames(1)
-				_inject_click(to, false)
+				if not bool(st.get("hold", false)):
+					_inject_click(to, false)
 				await _frames(gap)
 
 

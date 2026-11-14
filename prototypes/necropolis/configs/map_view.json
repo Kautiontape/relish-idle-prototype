@@ -512,6 +512,7 @@
   "sidebar_row_gap_px": 6,
   "callouts": {
     "max_count": 8,
+    "drag_max_count": 4,
     "size_px": 13,
     "pad_px": 5.0,
     "offset_px": [
@@ -616,10 +617,14 @@
     "now_offset_px": 2.0,
     "payoff_vei_fmt": "Vei %s %s → %s %s",
     "payoff_drain_fmt": "drain %s → %s",
+    "payoff_work_fmt": "workers %s → %s",
+    "payoff_war_fmt": "WAR %s → %s",
+    "payoff_supports_fmt": "WAR supports %d of %d",
     "payoff_odds_fmt": "odds in %s %d%% → %d%%",
     "payoff_window_text": "10 min",
     "valve_overflow_text": "overflows to Vei",
     "valve_payoff_sep_px": 4,
+    "valve_payoff_row_gap_px": 2,
     "payoff_sep": " · "
   },
   "map_drag_steps": 10,

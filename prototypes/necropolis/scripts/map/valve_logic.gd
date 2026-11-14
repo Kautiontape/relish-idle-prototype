@@ -278,6 +278,42 @@ static func payoff_line(p: Dictionary, sign_eps: float) -> String:
 	return vei + str(c["payoff_sep"]) + second
 
 
+## What the drag gives up, one part per stream whose dragged split rate is lower than at the current
+## valve (`base_split`) by more than `sign_eps`: "workers +5.1/s → +1.5/s" (WORK), "WAR +9.7/s →
+## +2.0/s" (WAR), then, when WAR fell and a fort is held, "WAR supports 1 of 2". Empty when the drag
+## only raises WORK and WAR.
+static func payoff_costs(proj: Dictionary, base_split: Dictionary, sign_eps: float) -> Array:
+	var c := _c()
+	var split: Dictionary = proj.get("split", {})
+	var out: Array = []
+	var war_fell := false
+	for pair in [["work", "payoff_work_fmt"], ["war", "payoff_war_fmt"]]:
+		var was := float(base_split.get(pair[0], 0.0))
+		var now := float(split.get(pair[0], 0.0))
+		if now < was - sign_eps:
+			out.append(str(c[pair[1]]) % [MapLogic.fmt_rate(was), MapLogic.fmt_rate(now)])
+			war_fell = war_fell or pair[0] == "war"
+	var sup: Dictionary = proj.get("war_supports", {})
+	if war_fell and int(sup.get("m", 0)) > 0:
+		out.append(str(c["payoff_supports_fmt"]) % [int(sup.get("n", 0)), int(sup.get("m", 0))])
+	return out
+
+
+## Which payoff row each part goes on (0 or 1). `widths` are the parts' widths, the first being the
+## differential and the odds or drain; `sep_w` the separator's; `max_w` the panel's inner width. All
+## on row 0 when they fit, else the first part stays and the costs wrap whole onto row 1, at the
+## separator before the first cost: a part is never broken.
+static func payoff_rows(widths: Array, sep_w: float, max_w: float) -> Array:
+	var out: Array = []
+	var total := 0.0
+	for i in widths.size():
+		total += float(widths[i]) + (sep_w if i > 0 else 0.0)
+	var fits := total <= max_w + EPS
+	for i in widths.size():
+		out.append(0 if (fits or i == 0) else 1)
+	return out
+
+
 static func _sign_of(diff: float, eps: float) -> String:
 	return MapLogic.sign_glyph(1 if diff > eps else (-1 if diff < -eps else 0))
 
