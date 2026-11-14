@@ -15,10 +15,19 @@ var realm := {}
 var relish := {}
 var vei := {}
 var hud := {}
+var haul := {}  # view_town().haul: {target, current, convoys}
+var backups := {}  # view_backups(): death is what a death costs now
+var party := {}  # view_party()
+var unit_names := {}  # big-undead uid -> name (view_big_undead)
+var names := {}  # node id -> display name (Covington, Vei, every fort)
 var villages: Array = []
 var lanes: Array = []
 var forts: Array = []
 var forts_by_id := {}
+var margins := {}  # held fort id -> "safe" | "thin" | "will_fall": the views' (stand-in: IdleLogic)
+var supports := {}  # the committed "WAR supports N of M": {n, m}
+var projection := {}  # the dragged valve's IdleLogic.projection while the valve is being dragged, else {}
+var margin_sig := ""  # the margins now shown (projected or committed): the nodes redraw when it changes
 
 var _villages_by_id := {}
 var _last_read_s := -1.0e9
@@ -43,21 +52,72 @@ func refresh(force := false) -> bool:
 	relish = state.view_relish()
 	vei = state.view_vei()
 	hud = state.view_hud()
+	haul = state.view_town().get("haul", {})
+	backups = state.view_backups()
+	party = state.view_party()
+	unit_names.clear()
+	for b in state.view_big_undead().get("big_undead", []):
+		unit_names[str(b["uid"])] = str(b["name"])
 	villages = state.view_villages().get("villages", [])
 	forts = realm.get("forts", [])
 	forts_by_id.clear()
+	names = {COVINGTON: "Covington", VEI: "Vei"}
 	for f in forts:
 		forts_by_id[f["id"]] = f
+		names[str(f["id"])] = str(f["name"])
 	_villages_by_id.clear()
 	for v in villages:
 		_villages_by_id[v["id"]] = v
 	if nodes_demo:
-		NodeLogic.demo_overlay(forts, vei, relish, node_pos(COVINGTON), flip_cfg)  # TODO(api E2): debug stand-in
+		NodeLogic.demo_overlay(forts, vei, hud, relish, node_pos(COVINGTON), flip_cfg)  # TODO(api E2): debug stand-in
 	if demo:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
-		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []), forts, hud)
+		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []))
+	margins = IdleLogic.committed_margins(forts, hud)
+	supports = IdleLogic.committed_supports(hud, forts)
+	_update_margin_sig()
 	return true
+
+
+## Publishes the dragged valve's projection: the fort chips and "N of M" read it until cleared.
+func set_projection(p: Dictionary) -> void:
+	projection = p
+	_update_margin_sig()
+
+
+func clear_projection() -> void:
+	if projection.is_empty():
+		return
+	projection = {}
+	_update_margin_sig()
+
+
+## The margin a held fort shows: the projection's while one is set, else the committed one.
+func margin_of(id: String) -> String:
+	if projection.has("margins") and projection["margins"].has(id):
+		return str(projection["margins"][id])
+	return str(margins.get(id, ""))
+
+
+## The "WAR supports N of M" now shown: the projection's while one is set, else the committed.
+func supports_now() -> Dictionary:
+	return projection["war_supports"] if projection.has("war_supports") else supports
+
+
+func _update_margin_sig() -> void:
+	var parts: Array = []
+	for f in forts:
+		if bool(f.get("held", false)):
+			parts.append("%s:%s" % [f["id"], margin_of(str(f["id"]))])
+	margin_sig = ",".join(parts)
+
+
+## Whether they are winning: the one reading the top bar and Vei's node both draw. Odds, sign and
+## drain_s come from view_hud, the backlog from view_vei; the demo overlay writes the same two.
+func readout() -> Dictionary:
+	return {"odds": float(hud.get("odds", 0.0)), "sign": int(hud.get("sign", 0)),
+		"drain_s": float(hud.get("drain_s", -1.0)), "backlog": float(vei.get("backlog", 0.0))}
 
 
 static func to_vec(a) -> Vector2:
@@ -102,6 +162,34 @@ func fort(id: String) -> Dictionary:
 
 func village(id: String) -> Dictionary:
 	return _villages_by_id.get(id, {})
+
+
+## The bounding box of everything drawn at a node (world px): every fort with its ring stack, Covington,
+## the villages, and Vei with her whole backlog stack and her odds reading, each grown by
+## fit_pad_px, with fit_label_px more below for the name under it. The camera's default fit frames this.
+func content_rect() -> Rect2:
+	var cfg := MapLogic.cfg()
+	var pad := float(cfg["fit_pad_px"])
+	var below := float(cfg["fit_label_px"])
+	var box := Rect2()
+	var first := true
+	var items: Array = []
+	for f in forts:
+		items.append([to_vec(f["pos"]), NodeLogic.outer_radius("fort", int(f["tier"]), 0.0)])
+	items.append([node_pos(COVINGTON), NodeLogic.outer_radius("covington", 0, 0.0)])
+	for v in villages:
+		items.append([to_vec(v["pos"]), float(NodeLogic.ncfg()["village_size_px"])])
+	for it in items:
+		var r := float(it[1]) + pad
+		var rect := Rect2(it[0] - Vector2(r, r), Vector2(r * 2.0, r * 2.0 + below))
+		box = rect if first else box.merge(rect)
+		first = false
+	if realm.has("vei"):
+		var r := NodeLogic.outer_radius("vei", 0, float(realm["vei"].get("radius", 0.0)), float(vei.get("backlog", 0.0))) + pad
+		var read := float(cfg["fit_vei_reading_px"])
+		var rect := Rect2(node_pos(VEI) - Vector2(r + read, r), Vector2((r + read) * 2.0, r * 2.0))
+		box = rect if first else box.merge(rect)
+	return box
 
 
 func world_size() -> Vector2:

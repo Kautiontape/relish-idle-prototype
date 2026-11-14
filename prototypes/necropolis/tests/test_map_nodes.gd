@@ -368,7 +368,7 @@ func _demo(t: TestUtil) -> void:
 	t.ok(m.relish["state"] == "travelling" and m.relish["target"] == d["relish"]["target"] and float(m.relish["speed"]) == 0.0, "Relish travelling toward the demo target")
 	var b := NodeLogic.backlog_rings(float(m.vei["backlog"]))
 	t.ok(b["rings"] == int(NodeLogic.ncfg()["backlog_ring_max"]) and b["overflow"] > 0, "the backlog fills the ring stack and overflows")
-	t.ok(m.vei["sign"] == 1 and m.vei["drain_s"] > 0.0, "an up arrow and a finite drain time")
+	t.ok(m.readout()["sign"] == 1 and m.readout()["drain_s"] > 0.0, "an up arrow and a finite drain time")
 	var plain := MapModel.new(s)
 	plain.refresh(true)
 	t.ok(not plain.fort(d["held"]["fort"])["held"] and plain.vei["backlog"] != m.vei["backlog"], "without the flag the views are untouched")

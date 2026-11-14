@@ -2,8 +2,10 @@ class_name MapRelish
 extends MapNodeLayer
 ## Relish's token, halo and wake: a pulse-only layer (she moves). The token sits at ctx.relish_pos
 ## (MapNodes interpolates it between the model's 0.5 s hops); the wake is the fading violet trail
-## in ctx.wake. In a dungeon or the boss fight she carries an "inside" mark; dead she is a hollow
-## matte token.
+## in ctx.wake. The core and halo hold a minimum screen size at every zoom, and a wider faint ring
+## pulses on her own beat (steady under reduced motion), so she is findable at the default zoom
+## (NodeLogic.relish_radii). In a dungeon or the boss fight she carries an "inside" mark; dead she
+## is a hollow matte token.
 
 
 func _draw_pulse() -> void:
@@ -15,14 +17,17 @@ func _draw_pulse() -> void:
 	var rp := ctx.relish_pos
 	var w: float = Pulse.wave(ctx.model.hops_of(str(ctx.relish.get("at", "covington"))))
 	_wake(rp, hw, n, state == "travelling")
-	var hr := maxf(float(n["relish_halo_r_px"]), ctx.px(float(n["relish_min_screen_px"])))
-	var cr := maxf(float(n["relish_core_r_px"]), ctx.px(float(n["relish_core_min_screen_px"])))
+	var rad := NodeLogic.relish_radii(ctx.zoom)
+	var hr: float = rad["halo"]
+	var cr: float = rad["core"]
 	if state == "dead":
 		LineGlow.matte_ring(self, rp, hr, Palette.c("dead"), maxf(float(n["relish_width_px"]), hw))
-		var x := float(n["relish_dead_x_px"])
+		var x := maxf(float(n["relish_dead_x_px"]), cr)
 		LineGlow.matte_polyline(self, PackedVector2Array([rp + Vector2(-x, -x), rp + Vector2(x, x)]), Palette.c("dead"), hw)
 		LineGlow.matte_polyline(self, PackedVector2Array([rp + Vector2(x, -x), rp + Vector2(-x, x)]), Palette.c("dead"), hw)
 		return
+	glow_ring(rp, rad["wide"], Palette.c("relish", float(n["relish_wide_alpha"]) * w), maxf(ctx.px(float(n["relish_wide_width_px"])), hw),
+		1.0, ctx.px(float(n["relish_wide_halo_max_px"])))
 	glow_ring(rp, hr + float(MapLogic.cfg()["relish_bob_px"]) * w, Palette.c("relish", float(n["relish_alpha_base"]) + float(n["relish_alpha_wave"]) * w),
 		maxf(float(n["relish_width_px"]), hw), 1.0, float(n["relish_halo_max_px"]))
 	draw_circle(rp, cr, Palette.c("relish"))
