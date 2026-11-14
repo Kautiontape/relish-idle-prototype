@@ -50,7 +50,8 @@ func run() -> int:
 	t.ok(WardenLogic.spec({"id": "ashgate", "tier": 1}, cfg)["archetype"] == "huntsman", "ashgate is a huntsman")
 	t.ok(WardenLogic.spec({"id": "nowhere", "tier": 1}, cfg)["archetype"] == "bellringer", "unknown fort defaults to bellringer")
 	t.ok(WardenLogic.spec({"id": "vespers", "tier": 2, "archetype": "huntsman"}, cfg)["archetype"] == "huntsman", "an explicit archetype wins")
-	t.near(float(s1["hp"]), 300.0 + 2 * 200.0, 0.001, "bellringer hp at tier 2")
+	var ab: Dictionary = archs["bellringer"]
+	t.near(float(s1["hp"]), float(ab["hp_base"]) + 2 * float(ab["hp_per_tier"]), 0.001, "bellringer hp at tier 2 = hp_base + 2 x hp_per_tier")
 	s1["phases"][0]["period_beats"] = 99.0
 	s1["attack"]["dmg_unit"] = 99.0
 	s1["tells"].append("x")
@@ -58,24 +59,29 @@ func run() -> int:
 	var s3 := WardenLogic.spec(fort, cfg)
 	t.ok(s3 == s2 and s3["phases"][0]["period_beats"] == 4.0, "mutating a spec never touches the config or the next spec")
 	t.ok(float(WardenLogic.spec({"id": "x", "tier": 3}, cfg)["hp"]) > float(WardenLogic.spec({"id": "x", "tier": 1}, cfg)["hp"]), "hp rises with tier")
+	var fdm: Dictionary = cfg["wardens"]["first_dungeon"]
+	var fd_hp := float(fdm["hp_mult"])
+	var fd_per := float(fdm["period_mult"])
+	var fd_dmg := float(fdm["dmg_mult"])
+	t.ok(fd_per >= 1.0 and fd_dmg <= 1.0, "the first dungeon's warden is slower and softer (period x%s, damage x%s)" % [fd_per, fd_dmg])
 	for a in ["bellringer", "huntsman"]:
 		var n := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a}, cfg)
 		var f := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a, "first_dungeon": true}, cfg)
 		t.ok(f["first_dungeon"] == true and n["first_dungeon"] == false, "%s: first_dungeon flag is carried" % a)
-		t.near(float(f["hp"]), float(n["hp"]) * 0.8, 0.001, "%s: first dungeon hp x0.8" % a)
+		t.near(float(f["hp"]), float(n["hp"]) * fd_hp, 0.001, "%s: first dungeon hp x hp_mult" % a)
 		var per_ok := true
 		for i in n["phases"].size():
-			per_ok = per_ok and absf(float(f["phases"][i]["period_beats"]) - float(n["phases"][i]["period_beats"]) * 1.5) < 0.0001
-		t.ok(per_ok, "%s: first dungeon periods x1.5" % a)
+			per_ok = per_ok and absf(float(f["phases"][i]["period_beats"]) - float(n["phases"][i]["period_beats"]) * fd_per) < 0.0001
+		t.ok(per_ok, "%s: first dungeon periods x period_mult" % a)
 		var dmg_ok := true
 		var any_dmg := false
 		for k in n["attack"].keys():
 			if str(k).begins_with("dmg_"):
 				any_dmg = true
-				dmg_ok = dmg_ok and absf(float(f["attack"][k]) - float(n["attack"][k]) * 0.6) < 0.0001
+				dmg_ok = dmg_ok and absf(float(f["attack"][k]) - float(n["attack"][k]) * fd_dmg) < 0.0001
 			else:
 				dmg_ok = dmg_ok and f["attack"][k] == n["attack"][k]
-		t.ok(any_dmg and dmg_ok, "%s: first dungeon damage x0.6, other attack params untouched" % a)
+		t.ok(any_dmg and dmg_ok, "%s: first dungeon damage x dmg_mult, other attack params untouched" % a)
 	t.ok(RaidLogic.warden_spec(fort, cfg) == WardenLogic.spec(fort, cfg), "RaidLogic.warden_spec delegates to WardenLogic.spec")
 
 	t.suite("warden_beats")
@@ -100,16 +106,18 @@ func run() -> int:
 	t.near(WardenLogic.period_beats(bell, 9), 2.0, 0.0001, "period_beats clamps the phase")
 	t.near(WardenLogic.period_beats(hunt, 1), 3.0, 0.0001, "huntsman phase 1 period")
 	var bf := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "bellringer", "first_dungeon": true}, cfg)
-	t.near(WardenLogic.period_beats(bf, 0), 6.0, 0.0001, "first dungeon: slow slams (4 -> 6 beats)")
+	t.near(WardenLogic.period_beats(bf, 0), 4.0 * fd_per, 0.0001, "first dungeon: slow slams (4 beats x period_mult)")
 
 	t.suite("warden_slam")
+	var rpx := float(archs["bellringer"]["attack"]["radius_px"])
+	var rbt := float(archs["bellringer"]["attack"]["ring_beats"])
 	t.near(WardenLogic.slam_radius(bell, 0.0), 0.0, 0.0001, "ring starts at 0")
-	t.near(WardenLogic.slam_radius(bell, 0.3), 180.0, 0.001, "ring is half grown at half ring_beats")
-	t.near(WardenLogic.slam_radius(bell, 0.59), 360.0 * 0.59 / 0.6, 0.001, "ring grows linearly")
-	t.near(WardenLogic.slam_radius(bell, 0.6), -1.0, 0.0001, "ring is done at ring_beats")
+	t.near(WardenLogic.slam_radius(bell, rbt * 0.5), rpx * 0.5, 0.001, "ring is half grown at half ring_beats")
+	t.near(WardenLogic.slam_radius(bell, rbt * 0.98), rpx * 0.98, 0.001, "ring grows linearly")
+	t.near(WardenLogic.slam_radius(bell, rbt), -1.0, 0.0001, "ring is done at ring_beats")
 	t.near(WardenLogic.slam_radius(bell, 5.0), -1.0, 0.0001, "ring stays done")
-	var band := 36.0
-	var targets := [50.0, 200.0, 359.0]
+	var band := float(archs["bellringer"]["attack"]["band_px"])
+	var targets := [50.0, rpx * 0.55, rpx - 1.0]
 	var hits := [0, 0, 0]
 	var prev := 0.0
 	for fr in range(1, 400):
@@ -125,17 +133,25 @@ func run() -> int:
 	t.ok(not WardenLogic.slam_crosses(100.0, 120.0, 120.0, band), "a stalled ring hits nothing")
 	t.ok(WardenLogic.slam_crosses(10.0, 0.0, 5.0, band), "a target inside the first frame's band is hit")
 	t.ok(not WardenLogic.slam_crosses(200.0, 100.0, 150.0, band), "a target beyond the band is not hit")
-	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, false), 6.0, 0.0001, "unit damage")
-	t.near(WardenLogic.slam_damage(bell, "relish", 0.0, false), 9.0, 0.0001, "relish damage")
-	t.near(WardenLogic.slam_damage(bell, "big", 0.0, false), 6.0, 0.0001, "big with no beef takes full damage")
-	t.near(WardenLogic.slam_damage(bell, "big", 5.0, false), 6.0 * 0.7, 0.0001, "5 beef soaks 30%")
-	t.near(WardenLogic.slam_damage(bell, "big", 100.0, false), 6.0 * 0.3, 0.0001, "soak floors at min_soak")
-	t.near(WardenLogic.slam_damage(bell, "unit", 99.0, false), 6.0, 0.0001, "beef never soaks small units")
-	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, true), 6.0 * 0.35, 0.0001, "muffled unit damage x0.35")
-	t.near(WardenLogic.slam_damage(bell, "big", 5.0, true), 6.0 * 0.7 * 0.35, 0.0001, "muffle stacks with soak")
-	t.near(WardenLogic.slam_damage(bf, "relish", 0.0, false), 9.0 * 0.6, 0.0001, "first dungeon relish damage x0.6")
-	t.ok(WardenLogic.is_muffled(bell, [{"beef": 6.0}]), "beef at the threshold muffles")
-	t.ok(not WardenLogic.is_muffled(bell, [{"beef": 5.9}]), "beef under the threshold does not")
+	var bat: Dictionary = ab["attack"]
+	var du := float(bat["dmg_unit"])
+	var dr := float(bat["dmg_relish"])
+	var spb := float(bat["soak_per_beef"])
+	var msk := float(bat["min_soak"])
+	var mfl := float(ab["weak_point"]["dmg_mult"])
+	var bth := float(ab["weak_point"]["threshold"])
+	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, false), du, 0.0001, "unit damage is dmg_unit")
+	t.near(WardenLogic.slam_damage(bell, "relish", 0.0, false), dr, 0.0001, "relish damage is dmg_relish")
+	t.near(WardenLogic.slam_damage(bell, "big", 0.0, false), du, 0.0001, "big with no beef takes full damage")
+	t.near(WardenLogic.slam_damage(bell, "big", 5.0, false), du * (1.0 - 5.0 * spb), 0.0001, "5 beef soaks 5 x soak_per_beef")
+	t.near(WardenLogic.slam_damage(bell, "big", 100.0, false), du * msk, 0.0001, "soak floors at min_soak")
+	t.near(WardenLogic.slam_damage(bell, "unit", 99.0, false), du, 0.0001, "beef never soaks small units")
+	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, true), du * mfl, 0.0001, "muffled unit damage x the weak point's dmg_mult")
+	t.near(WardenLogic.slam_damage(bell, "big", 5.0, true), du * (1.0 - 5.0 * spb) * mfl, 0.0001, "muffle stacks with soak")
+	t.near(WardenLogic.slam_damage(bf, "relish", 0.0, false), dr * fd_dmg, 0.0001, "first dungeon relish damage x dmg_mult")
+	t.ok(mfl < 1.0 and du * mfl < du, "a muffled slam is softer")
+	t.ok(WardenLogic.is_muffled(bell, [{"beef": bth}]), "beef at the threshold muffles")
+	t.ok(not WardenLogic.is_muffled(bell, [{"beef": bth - 0.1}]), "beef under the threshold does not")
 	t.ok(WardenLogic.is_muffled(bell, [{"beef": 1.0}, {"beef": 8.0}]), "any contact over the threshold muffles")
 	t.ok(not WardenLogic.is_muffled(bell, []), "no contacts, no muffle")
 
@@ -176,7 +192,9 @@ func run() -> int:
 	t.ok(absf((gpa.y + gpb.y) * 0.5 - 100.0) < 0.001, "the spread is centred on the line")
 	t.ok(WardenLogic.guard_point(Vector2(5, 5), Vector2(5, 5), 46.0, 0, 1, 18.0).is_equal_approx(Vector2(51, 5)), "no threat direction falls back to a fixed side")
 	t.near(WardenLogic.stun_damage(hunt, 10.0, false), 10.0, 0.0001, "an unstunned Huntsman takes full damage")
-	t.near(WardenLogic.stun_damage(hunt, 10.0, true), 15.0, 0.0001, "a stunned Huntsman takes x1.5")
+	var sdm := float(archs["huntsman"]["weak_point"]["stun_dmg_mult"])
+	t.ok(sdm > 1.0, "a stunned Huntsman takes extra damage (x%s)" % sdm)
+	t.near(WardenLogic.stun_damage(hunt, 10.0, true), 10.0 * sdm, 0.0001, "a stunned Huntsman takes x stun_dmg_mult")
 	t.near(WardenLogic.stun_damage(bell, 10.0, true), 10.0, 0.0001, "a spec with no stun_dmg_mult is unchanged")
 	t.ok(float(archs["bellringer"]["radius"]) >= 50.0 and float(archs["huntsman"]["radius"]) >= 28.0, "wardens read as large glyphs")
 	t.ok(float(archs["huntsman"]["attack"]["tell_beats"]) < float(archs["huntsman"]["phases"][2]["period_beats"]), "the lunge tell fits inside the fastest period")

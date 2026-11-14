@@ -130,3 +130,47 @@ world (890, 790); the camera is pinned at (725, 681.6) for the whole walk, zoom 
 
 - **Held-fort clear** (`raid_held_clear.gd`, config `raid.json held`): when the last living enemy of a held (non-boss) raid dies, `RaidLoot.held_clear` is rolled and merged into `found_loot`, the banner `COUNTER-GARRISON CLEARED · <fort> holds` (+ a payoff line) shows in `undead_core`, a town-blue ring sweeps out from Relish and the walls flash toward `town` (reduced motion: no fade), the essence bonus spawns as mass-0 motes round Relish, and after `held.clear_victory_s` the run ends as `retreated` through `endings.confirm_exit` (any earlier end wins: `endings.ended` guards a double). A held fort with no living at the start has no last kill, so it clears `held.empty_clear_s` (1.0 s) after the build (`RaidHeldClear.on_built`, `RaidLogic.held_empty_clear_s`). Dev: `--raid-held --raid-autopilot=70 [--raid-held-shot=<png>]`.
 - **Close = retreat** (`RaidEndings.close_request`, `raid.gd _notification`): a router-launched dungeon run that gets `NOTIFICATION_WM_CLOSE_REQUEST` emits `retreated` paying `RaidLogic.close_loot(banked)` (the last checkpoint; found-since is lost). The router applies it inside the same notification (`main.gd _on_finished` -> `_apply` -> `_open_map` -> `Game.autosave()`), so the quit save already has the run closed. TODO(api-request #4): replaced by economy's load-time retreat. Not covered: a kill/crash/`SceneTree.quit()` (no close request).
+
+## Balance calibration (task 8b-2)
+
+Measured with the headless autopilot against BALANCE 3. The party is the standard "party of tier T"
+(`--raid-profile=<T> --raid-fort=<fort_id>`, `raid.json autopilot.party_profiles`, fixed before calibrating).
+Each tier is measured at its two forts (one Bellringer, one Huntsman). P1 is the day1 fixture at Old Sluice.
+Batches ran from a snapshot of the commit (another agent was editing the worktree).
+
+- **The Bellringer is a re-raise fight.** An unmuffled slam (`dmg_unit` 11) kills score-50 chaff
+  (10 hp) and leaves 70 and 90 nearly dead. A muffled slam (×0.35, a beef-6+ big braced at the bell) spares them for
+  three or four slams. The ring reaches 260 px, so Relish re-raises the fallen from just outside it
+  (the bot waits `bell_stage_px` 20 beyond it), and the warden's hp (2800 + 1250/tier) is sized so that
+  takes about 100 s. Without the brace (P1 has no big, a P3 party has lost its big) the army melts every slam.
+- **The Huntsman is a race the weak point wins.** Lunges hurt the undead on the dash (`dmg_unit` 8).
+  A fast big intercepts and stuns it for 3 beats at ×2.5 damage, so the tier-4 party (3 fast bigs)
+  stuns it far more often than a tier-2 party (one). A drawn-out fight costs the bigs, then the
+  catches start. Its hp (3400 + 500/tier) keeps the fight to about 40–110 s.
+- **Tiers separate on the living**, not the count (every profile fort fields round(0.85 × 26) = 22).
+  A heavier brute (70 hp, 10 dmg, speed 70) is 30% / 45% of the t3 / t4 mix. A tier-2 party loses its
+  big there and dies (P3). Spearman and runner stay at their old lines, which P1, t1 and t2 share.
+- **The first dungeon** keeps the full t1 hp (`first_dungeon.hp_mult` 1.0) but slow (×1.5) and soft
+  (×0.6) slams, and 8 starters at `starter.stat_mult` 1.5.
+- **Bot limits** (it is the instrument, not a player): it never uses the trance's slow-mo, never
+  bails, raises only in a safe slam window, kites at 240 px, and dodges half the lunge tells. It
+  walks into the warden room as soon as the way is clear, so at whitecross the Huntsman can wake
+  with living still in other rooms.
+- **Acceptance** (score 70 unless noted; P2 is 10 seeds at each of the tier's two forts; the
+  medians in brackets are per archetype):
+
+  | row | runs | died | beaten | median s (bell / hunt) | target | holds |
+  |---|---|---|---|---|---|---|
+  | P1 first dungeon | 20 | 0 | 20 | 123 | died ≤ 1, beaten ≥ 15, first raise ≤ 30 s (max 3.6), 90–240 s | yes |
+  | P2 t2 | 20 | 0 | 20 | 123 (134 / 61) | died < 10%, beaten ≥ 50%, 120–360 s | yes |
+  | P2 t3 | 20 | 1 (on the approach) | 19 | 115 (162 / 79) | same | duration short |
+  | P2 t4 | 20 | 2 (whitecross) | 18 | 142 (162 / 96) | same | deaths at 10% |
+  | P3 t2 party at t4 | 20 | 10 (50%) | 7 | 245 | died > 40% | yes |
+  | t3 @50 / @70 / @90 | 20 each | 2 / 1 / 1 | 13 / 19 / 19 | fight 137 / 106 / 93 s | deaths fall, beaten rises | yes |
+
+- **What blocks the two misses.** Each tier's median sits between two clusters: Bellringer runs
+  near 135–160 s, Huntsman runs near 60–95 s. A longer Huntsman would lift t3 but costs deaths at t4.
+  Whitecross went 0/5 at 1300 hp, 2–3/5 at 3800–6200, and 2/10 at 5400 once the doorway stall was fixed.
+  There the bot walks into the warden room while living remain in side rooms (seed 9: 18 still up
+  at the wake), so the fight runs long and the bigs die. The next step is a bot change, not a number:
+  clear the side rooms before waking the warden, then re-measure.

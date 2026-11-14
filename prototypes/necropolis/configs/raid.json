@@ -133,9 +133,9 @@
       "radius": 8.0
     },
     "brute": {
-      "hp": 36.0,
-      "dmg": 7.0,
-      "speed": 55.0,
+      "hp": 70.0,
+      "dmg": 10.0,
+      "speed": 70.0,
       "cadence_s": 1.5,
       "radius": 15.0
     }
@@ -149,14 +149,14 @@
       "runner": 0.28
     },
     "3": {
-      "spearman": 0.52,
-      "runner": 0.26,
-      "brute": 0.22
+      "spearman": 0.45,
+      "runner": 0.25,
+      "brute": 0.3
     },
     "4": {
-      "spearman": 0.44,
-      "runner": 0.3,
-      "brute": 0.26
+      "spearman": 0.3,
+      "runner": 0.25,
+      "brute": 0.45
     }
   },
   "undead": {
@@ -303,7 +303,7 @@
     "stat_mult": 1.0
   },
   "starter": {
-    "stat_mult": 1.0
+    "stat_mult": 1.5
   },
   "demo": {
     "fort_id": "vespers",
@@ -382,7 +382,7 @@
     "dodge_step_px": 60.0,
     "bell_margin_px": 24.0,
     "bell_enter_margin_s": 1.5,
-    "bell_stage_px": 120.0,
+    "bell_stage_px": 20.0,
     "slam_safe_beats": 1.0,
     "slam_reach_px": 600.0,
     "slam_stand_frac": 0.5,
@@ -437,7 +437,7 @@
     "first_dungeon": {
       "period_mult": 1.5,
       "dmg_mult": 0.6,
-      "hp_mult": 0.8
+      "hp_mult": 1.0
     },
     "archetypes": {
       "bellringer": {
@@ -453,8 +453,8 @@
           "dmg_mult": 0.35,
           "label": "a beefy big undead braced at the bell muffles its slams"
         },
-        "hp_base": 300.0,
-        "hp_per_tier": 200.0,
+        "hp_base": 2800.0,
+        "hp_per_tier": 1250.0,
         "radius": 52.0,
         "phases": [
           {"until_hp_frac": 0.66, "period_beats": 4},
@@ -464,10 +464,10 @@
         "attack": {
           "tell_beats": 1,
           "ring_beats": 0.6,
-          "radius_px": 360.0,
+          "radius_px": 260.0,
           "band_px": 36.0,
-          "dmg_unit": 6.0,
-          "dmg_relish": 9.0,
+          "dmg_unit": 11.0,
+          "dmg_relish": 12.0,
           "soak_per_beef": 0.06,
           "min_soak": 0.3
         }
@@ -483,12 +483,12 @@
           "threshold": 4,
           "effect": "intercept",
           "intercept_px": 40.0,
-          "stun_beats": 2,
-          "stun_dmg_mult": 1.5,
+          "stun_beats": 3,
+          "stun_dmg_mult": 2.5,
           "label": "a fast big undead in its path intercepts the lunge"
         },
-        "hp_base": 220.0,
-        "hp_per_tier": 150.0,
+        "hp_base": 3400.0,
+        "hp_per_tier": 500.0,
         "radius": 30.0,
         "phases": [
           {"until_catches": 2, "period_beats": 4, "speed": 140.0},
