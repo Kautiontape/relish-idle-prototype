@@ -1,0 +1,399 @@
+{
+	"acc": 0.0,
+	"api_version": 1,
+	"applied_runs": [],
+	"backups": {
+		"clones_ready": 0,
+		"phylactery_charges": 0,
+		"vats": []
+	},
+	"big_undead": [],
+	"cleared_forts": [],
+	"first_dungeon": "old-sluice",
+	"inventory": {
+		"blueprints": [],
+		"essence": 0,
+		"husks": [],
+		"relics": 0,
+		"remnants": [],
+		"simulacra_ready": 0
+	},
+	"ledger": {
+		"sinks": {
+			"burned": 0.0,
+			"cleared": 0.0,
+			"dungeon": 0.0,
+			"milled": 0.0,
+			"pool_overflow": 0.0,
+			"rot_loss": 0.0,
+			"vei_fight": 0.0
+		},
+		"sources": {
+			"debug": 0.0,
+			"mint": 0.0
+		}
+	},
+	"legacy": {
+		"army": {
+			"elite": 0,
+			"soldier": 0
+		},
+		"assignments": {
+			"forge": 0,
+			"gather": 0,
+			"jobs": 0,
+			"slab": 0,
+			"trade": 0
+		},
+		"gather": {
+			"eta": 0.0,
+			"load": 0.0,
+			"phase": "idle",
+			"target": ""
+		},
+		"idle_undead": 6,
+		"res": {
+			"bodies": 0.0,
+			"gold": 30.0,
+			"materials": 12.0,
+			"townsfolk": 10.0
+		},
+		"town": {
+			"forge_level": 0,
+			"sim_stations": 0,
+			"slabs": 1,
+			"trade_level": 0,
+			"vats": 0
+		}
+	},
+	"next_run_id": 1,
+	"next_uid": 1,
+	"party": [],
+	"readout": {
+		"diff_ema": 0.0,
+		"q_raise_ema": 50.0
+	},
+	"realm": {
+		"cleared_total": 0.0,
+		"cov": {
+			"r_out": 0.0,
+			"undead": 0.0
+		},
+		"elapsed": 0.0,
+		"forts": [
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "ashgate",
+				"living": 68.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "old-sluice",
+				"living": 68.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "greywall",
+				"living": 76.5,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "vespers",
+				"living": 136.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "chime-fort",
+				"living": 127.5,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "lantern-keep",
+				"living": 144.5,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "hollow-redoubt",
+				"living": 255.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "pale-bastion",
+				"living": 272.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "mourners-gate",
+				"living": 255.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "the-stair",
+				"living": 408.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "whitecross",
+				"living": 442.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			},
+			{
+				"clears_since_retaken": 0,
+				"dead": 0.0,
+				"flipped_count": 0,
+				"held_s": 0.0,
+				"id": "sable-hold",
+				"living": 391.0,
+				"r_dead_out": 0.0,
+				"r_drain": 0.0,
+				"r_in": 0.0,
+				"r_raised": 0.0,
+				"r_shipped": 0.0,
+				"undead": 0.0
+			}
+		],
+		"raised_by_sims": 0.0,
+		"simulacra": [],
+		"tithe": {
+			"next_id": 1,
+			"next_s": 0.0,
+			"started": false,
+			"warning": {},
+			"wave": {}
+		},
+		"vei": {
+			"dead_queue": 0.0,
+			"living_pool": 0.0,
+			"r_converted": 0.0,
+			"r_in_dead": 0.0,
+			"r_in_undead": 0.0,
+			"r_shipped": 0.0,
+			"undead_queue": 0.0
+		}
+	},
+	"relish": {
+		"at": "covington",
+		"dead_s_left": 0.0,
+		"heading": 0.0,
+		"pos": [
+			1780.0,
+			1270.0
+		],
+		"respawn_with_clone": false,
+		"state": "home",
+		"target": ""
+	},
+	"rng": "-1966449618399012673",
+	"seed": "1",
+	"stances": {
+		"hold": {},
+		"on": []
+	},
+	"stats": {
+		"deaths": 0,
+		"raids": 0,
+		"raised_total": 0.0,
+		"sims_built": 0
+	},
+	"t": 0.0,
+	"town": {
+		"haul": {
+			"target": "auto"
+		},
+		"ladder": [
+			"build",
+			"haul",
+			"pit",
+			"stall",
+			"mill",
+			"forge",
+			"tend"
+		],
+		"lots": [
+			{
+				"building_id": "crypt",
+				"level": 1,
+				"lot_id": "lot-01"
+			},
+			{
+				"building_id": "raising_pit",
+				"level": 1,
+				"lot_id": "lot-02"
+			},
+			{
+				"building_id": "charnel_house",
+				"level": 1,
+				"lot_id": "lot-03"
+			},
+			{
+				"building_id": "market",
+				"level": 1,
+				"lot_id": "lot-04"
+			}
+		],
+		"staff_caps": {},
+		"tier": "hamlet"
+	},
+	"v": 1,
+	"valve": {
+		"current": {
+			"flood": 0.15,
+			"war": 0.45,
+			"work": 0.4
+		},
+		"target": {
+			"flood": 0.15,
+			"war": 0.45,
+			"work": 0.4
+		}
+	},
+	"villages": [
+		{
+			"id": "bellwether",
+			"owner": "none"
+		},
+		{
+			"id": "tarnish",
+			"owner": "none"
+		},
+		{
+			"id": "quiet-mill",
+			"owner": "none"
+		},
+		{
+			"id": "saltcreek",
+			"owner": "none"
+		},
+		{
+			"id": "moth-hollow",
+			"owner": "none"
+		},
+		{
+			"id": "wickfield",
+			"owner": "none"
+		},
+		{
+			"id": "lorn",
+			"owner": "none"
+		},
+		{
+			"id": "ashmoor",
+			"owner": "none"
+		},
+		{
+			"id": "pewter",
+			"owner": "none"
+		},
+		{
+			"id": "briar-end",
+			"owner": "none"
+		},
+		{
+			"id": "cobb",
+			"owner": "none"
+		},
+		{
+			"id": "muted-vale",
+			"owner": "none"
+		}
+	],
+	"won": false
+}
