@@ -76,6 +76,7 @@ func absorb() -> void:
 	if carried and raid != null:
 		raid.carry_release(self)
 	absorbing = true
+	RaidSound.play("absorb")
 	remove_from_group("raid_essence")
 	_absorb_speed = 90.0
 

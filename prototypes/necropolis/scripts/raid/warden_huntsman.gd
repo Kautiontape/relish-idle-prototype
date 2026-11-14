@@ -101,6 +101,7 @@ func _step(delta: float) -> void:
 		_lock_pt = WardenLogic.lunge_target(global_position, tgt["pos"], float(at.get("range_px", 320.0)))
 		_lock_undead = _hunting_undead
 		_locked = true
+		RaidSound.play("tell")
 		if late:
 			_next_attack = ceilf(b + tell)   # stay on the tempo: snap to a whole beat
 	if _locked:
@@ -181,6 +182,7 @@ func _begin_lunge() -> void:
 		_next_attack = maxf(_next_attack, ceilf(beat() + float(spec.get("weak_point", {}).get("stun_beats", 2.0)) + _tell()))
 		outcome = "intercepted"
 		intercepts += 1
+		RaidSound.play("intercept")
 		RaidFx.ring(raid.fx_root, to, Palette.c("undead"), 70.0, 0.5, 3.5)
 		RaidFx.ring(raid.fx_root, to, Palette.c("text", 0.8), 36.0, 0.35, 2.5)
 	# undead touched along the dash take dmg_unit, once each

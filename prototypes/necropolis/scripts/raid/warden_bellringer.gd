@@ -6,6 +6,7 @@ extends RaidWarden
 
 var muffled := false           # the slam in flight (or the next one) is muffled
 var _next_attack := 0.0        # beat of the next slam
+var _tell_for := -1.0          # the _next_attack beat whose tell has sounded
 var _last_attack := 0.0        # beat of the last slam (0 = waking)
 var _slam_beat := -1.0         # beat the live slam started, -1 when none
 var _slam_prev_r := 0.0
@@ -51,12 +52,16 @@ func _step(_delta: float) -> void:
 			and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))) \
 			and rel0.global_position.distance_to(global_position) <= float(at.get("radius_px", 360.0)):
 		raid.danger_targeted()   # her edge warns while the slam tell reaches her
+	if _slam_beat < 0.0 and _tell_for != _next_attack and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))):
+		_tell_for = _next_attack
+		RaidSound.play("tell")   # once per tell
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack
 		_slam_prev_r = 0.0
 		_slam_muffled = muffled
 		_slams += 1
+		RaidSound.play("muffle" if muffled else "slam")
 		if muffled:
 			slams_muffled += 1
 		_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)

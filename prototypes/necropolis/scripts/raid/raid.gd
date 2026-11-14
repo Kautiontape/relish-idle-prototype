@@ -183,6 +183,7 @@ func _build() -> void:
 	add_child(units_root)
 	fx_root = Node2D.new()
 	add_child(fx_root)
+	RaidSound.attach(self)
 
 	# --- Relish just inside the southernmost door ---
 	relish = RaidRelish.new()

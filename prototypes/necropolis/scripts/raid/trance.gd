@@ -160,6 +160,7 @@ func _finish_trace() -> void:
 		return
 	var g := CircleScorer.grade(trace)
 	raid.show_trace_feedback(g, trace.duplicate())  # the player must see WHY 73 was 73
+	RaidSound.play("chime", RaidSoundLogic.chime_params(int(g["score"])))
 	var before: int = raid.raises
 	if g["valid"]:
 		raid.perform_raise(g)

@@ -45,6 +45,7 @@ func perform(g: Dictionary) -> void:
 		return
 	_raid.ledger_v2.on_raise(score, float(spec["fresh_mass"]), count)
 	_raid.first_raise_done = true
+	RaidSound.play("raise")
 	_raid.raises += 1
 	var tier := str(spec["tier"])
 	if _last_feedback != null and is_instance_valid(_last_feedback):
