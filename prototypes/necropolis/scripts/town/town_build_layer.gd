@@ -17,6 +17,8 @@ var ghosts: Array = []
 ## Lot id -> its building's status parts ([[text, oblique]], TownModel.status_of) for the hover tag.
 var statuses: Dictionary = {}
 
+## The suggestion's breathing outline: its own node, so only it redraws per frame.
+var _breath: Node2D
 var _sug_lot := ""
 var _sug_label := ""
 var _flashes: Array = []  # {lot, t}: t < 0 waits for the next beat
@@ -56,6 +58,8 @@ func set_suggestion(lot_id: String, label: String) -> void:
 		_sug_label = label
 		_wake()
 		queue_redraw()
+		if _breath != null:
+			_breath.queue_redraw()
 
 
 func suggested_lot() -> String:
@@ -73,7 +77,18 @@ func _wake() -> void:
 
 
 func _ready() -> void:
+	_breath = Node2D.new()
+	_breath.name = "Breath"
+	_breath.draw.connect(_draw_breath)
+	add_child(_breath)
 	set_process(false)
+
+
+## The lots moved (a relayout): everything redraws once.
+func relayout() -> void:
+	queue_redraw()
+	if _breath != null:
+		_breath.queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -87,9 +102,13 @@ func _process(delta: float) -> void:
 				f["t"] = 0.0
 		else:
 			f["t"] += delta
+	var flashing := _flashes.size()
 	_flashes = _flashes.filter(func(f): return f["t"] < beat_s)
 	_wake()
-	queue_redraw()
+	if flashing > 0 or _flashes.size() != flashing:  # a flash is pending or live (or just ended): the layer redraws
+		queue_redraw()
+	if _sug_lot != "" and not Pulse.reduced_motion:  # the breath is the only per-frame suggestion drawing
+		_breath.queue_redraw()
 
 
 ## The suggestion's dismiss hit box (at least 44 px square, grown outward from the x so it never
@@ -165,13 +184,6 @@ func _draw_suggestion() -> void:
 	if lay.is_empty():
 		return
 	var s: Dictionary = vcfg.get("suggest", {})
-	var a: Array = s.get("alpha", [1.0, 1.0])
-	var k := Pulse.wave(0.0, 1.0)
-	var col := Palette.c("select", lerpf(float(a[0]), float(a[1]), k))
-	var r := _lot_rect(_sug_lot, float(vcfg.get("hover", {}).get("grow_px", 0.0)) + 2.0)
-	var c := _outline(r)
-	for i in 4:
-		draw_dashed_line(c[i], c[i + 1], col, float(s.get("w_px", 1.0)), float(s.get("dash_px", 6.0)))
 	var plate: Rect2 = lay["plate"]
 	draw_rect(plate, Palette.c("ground"))
 	draw_polyline(_outline(plate), Palette.c("select", 0.8), 1.0)
@@ -183,6 +195,18 @@ func _draw_suggestion() -> void:
 	var xr := float(s.get("x_px", 5.0))
 	draw_line(xc + Vector2(-xr, -xr), xc + Vector2(xr, xr), Palette.c("text"), 1.5)
 	draw_line(xc + Vector2(-xr, xr), xc + Vector2(xr, -xr), Palette.c("text"), 1.5)
+
+
+## The suggestion's dashed outline, breathing on the slab's wave (the child node's draw).
+func _draw_breath() -> void:
+	if _sug_lot == "" or model == null or model.lot(_sug_lot).is_empty():
+		return
+	var s: Dictionary = vcfg.get("suggest", {})
+	var a: Array = s.get("alpha", [1.0, 1.0])
+	var col := Palette.c("select", lerpf(float(a[0]), float(a[1]), Pulse.wave(0.0, 1.0)))
+	var c := _outline(_lot_rect(_sug_lot, float(vcfg.get("hover", {}).get("grow_px", 0.0)) + 2.0))
+	for i in 4:
+		_breath.draw_dashed_line(c[i], c[i + 1], col, float(s.get("w_px", 1.0)), float(s.get("dash_px", 6.0)))
 
 
 # ----------------------------------------------------------------- ghosts ----

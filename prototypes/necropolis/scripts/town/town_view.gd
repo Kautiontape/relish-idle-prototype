@@ -355,6 +355,8 @@ func _refresh() -> void:
 	_walls.sync_model(relayout)
 	_apply_suggestion()
 	_apply_queue()
+	if relayout:
+		_build.relayout()
 	var st := {}
 	for l in model.lots:
 		if not (l["building"] as Dictionary).is_empty():

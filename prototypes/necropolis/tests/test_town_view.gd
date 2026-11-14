@@ -1569,6 +1569,22 @@ func _build_sort(day1: Dictionary) -> void:
 	got = ids.call(items)
 	t.ok(got == ["house", "well", "forge", "market", "bakery", "inn"], "build sort: several live needs (%s)" % str(got))
 	t.ok(items[3]["chip"] == "gold is draining" and items[0]["chip"] == "no room", "build sort: each row's chip names the need it serves")
+	# gated rows: those serving a need rank by need, the rest after them by catalog order, whatever the input order
+	var gated := [_row("raising_pit", false, "needs_tier"), _row("house", false, "needs_tier"), _row("forge", false, "needs_tier"), _row("market", false, "needs_tier")]
+	var consistent := true
+	for rot in gated.size():
+		var rows_in: Array = gated.slice(rot) + gated.slice(0, rot)
+		var g: Array = ids.call(BuildSort.sort_rows(rows_in, two, bv, vcfg))
+		var rest: Array = rows_in.map(func(r): return r["building_id"]).filter(func(i): return i != "market" and i != "house")
+		consistent = consistent and g == ["market", "house"] + rest
+		var tot := BuildSort.sort_rows(rows_in, two, bv, vcfg)
+		for i in range(1, tot.size()):  # (cls, rank, idx) is a total order: the sorted list never steps backwards
+			var a: Dictionary = tot[i - 1]
+			var b: Dictionary = tot[i]
+			var ra: int = a["rank"] if String(a["need"]) != "" else two.size()
+			var rb: int = b["rank"] if String(b["need"]) != "" else two.size()
+			consistent = consistent and (ra < rb or (ra == rb and a["idx"] < b["idx"]))
+	t.ok(consistent, "build sort: a mixed gated set sorts by (class, need rank, catalog order), whichever way it arrives")
 	t.ok(items[1]["chip"] == "no room", "build sort: a row serving two listed needs takes the first listed need that it serves")
 	# Funds-blocked and serving beats funds-blocked and not serving, whatever the catalog order.
 	var fb: Array = ids.call(BuildSort.sort_rows([_row("market", false, "no_gold"), _row("bakery", false, "no_gold")],
@@ -1598,7 +1614,7 @@ func _build_sort(day1: Dictionary) -> void:
 
 const ALL_REASONS := ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small", "empty_lot",
 	"under_construction", "needs_tier", "needs_blueprint", "needs_building", "no_lot", "no_gold", "no_bone", "no_relics",
-	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order"]
+	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order", "unpaid", "unique"]
 
 
 func _build_reasons(day1: Dictionary) -> void:
@@ -1675,6 +1691,12 @@ func _statuses(q: TownStandins.BuildQueue) -> Array:
 func _build_queue(day1: Dictionary) -> void:
 	t.ok(TownStandins.queue_is_standin(day1["town"]), "queue: a town view without `queue` uses the stand-in")
 	t.ok(not TownStandins.queue_is_standin({"queue": []}), "queue: a real `queue` key switches the stand-in off")
+	var local: Array = [{"building_id": "house", "lot_id": "lot-05"}]
+	t.ok(TownStandins.queue_entries(day1["town"], local) == local, "queue: without a `queue` key the local entries are shown")
+	var real_q: Array = [{"building_id": "inn", "lot_id": "lot-06"}]
+	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
+		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")
+	t.ok(String(vcfg["queue_text"].get("no_commands", "")) == "queue commands arrive with E2b", "queue: the add path says commands arrive with E2b once the view has a queue")
 	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
 	var ctx := _qctx()
 	var r := q.add(_entry("house", "lot-05"), ctx)
@@ -1777,6 +1799,12 @@ func _build_inspect(day1: Dictionary, mid: Dictionary) -> void:
 	t.ok(i["upgrade"]["reason"] == "under_construction" and i["cancel"]["visible"] and i["state_text"] == "under construction, 40% done",
 		"inspect: constructing blocks upgrade and offers cancel")
 	t.ok(i["cancel"]["refund"] == bcfg["house"]["level_costs"][1], "inspect: cancelling an upgrade refunds the upgrade's cost")
+	house["state"] = "unpaid"  # cmd_upgrade refuses an idled building
+	house["level"] = 1
+	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
+	t.ok(not i["upgrade"]["enabled"] and i["upgrade"]["reason"] == "unpaid" and not i["cancel"]["visible"],
+		"inspect: an unpaid building cannot be upgraded (cmd_upgrade refuses it)")
+	house["state"] = "constructing"
 	house["level"] = 0
 	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
 	t.ok(i["cancel"]["refund"] == bcfg["house"]["cost"], "inspect: cancelling a first build refunds the build cost")
@@ -1861,6 +1889,10 @@ func _build_eta(day1: Dictionary) -> void:
 
 
 func _build_benefit() -> void:
+	for bid in cfg["buildings_view"]:  # the static line is words only: numbers come live from BuildSort.benefit
+		var line := String(cfg["buildings_view"][bid].get("benefit", ""))
+		var digits := RegEx.create_from_string("[0-9]")
+		t.ok(digits.search(line) == null, "benefit: %s's static line has no frozen sim number (%s)" % [bid, line])
 	var bv: Dictionary = cfg["buildings_view"]
 	var bc: Dictionary = cfg["buildings"]
 	var pit := BuildSort.benefit("raising_pit", {}, bc, bv, vcfg)
@@ -2305,9 +2337,8 @@ func _status_lines(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
 		"output": {"burn": 0.6, "mint": 6.0}}
 	t.ok(_status(pit, "staffed", town) == "working: +6.00 mint/s, −0.60 bodies/s", "status: the pit mints and burns (main output first)")
 	var house := {"building_id": "house", "state": "active", "progress": 1.0, "slots": 0, "staffed": 0.0, "upkeep": {}, "output": {}}
-	t.ok(_status(house, "calm", town) == "no staff needed: +8 living cap"
-		and _status(house, "calm", town) == "no staff needed: " + String(cfg["buildings_view"]["house"]["benefit"]),
-		"status: 'no staff needed: +8 living cap' (the building's benefit line)")
+	t.ok(_status(house, "calm", town) == "no staff needed: " + String(cfg["buildings_view"]["house"]["benefit"]),
+		"status: 'no staff needed: <the building's benefit words>'")
 	var crypt := {"building_id": "crypt", "state": "active", "progress": 1.0, "slots": 0, "staffed": 0.0, "upkeep": {}, "output": {}}
 	t.ok(_status(crypt, "heart", town) == String(vcfg["status"]["heart_home"]), "status: the crypt with Relish home")
 	var away: Dictionary = town.duplicate(true)

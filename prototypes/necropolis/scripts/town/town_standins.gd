@@ -130,6 +130,11 @@ static func queue_is_standin(town: Dictionary) -> bool:
 	return not town.has("queue")
 
 
+## The entries to show: the view's `queue` once it exists (even empty), else the stand-in's `local` ones.
+static func queue_entries(town: Dictionary, local: Array) -> Array:
+	return local if queue_is_standin(town) else town["queue"]
+
+
 ## The local queue. `ctx` (BuildSort.queue_context): {gold, bone, relics, gold_cap, bone_cap (-1 =
 ## none), catalog: {building_id: row}, built: {lot_id: {building_id, level, max_level, state}},
 ## gates: Array[String]}. IDLE 5: processed in order; a head blocked by a gate that time can't

@@ -181,7 +181,7 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 		serves.append("building:" + String(row.get("building_id", "")))
 		var need_id := ""
 		var chip := ""
-		var rank := 0
+		var rank := needs_in.size()  # no need: after every row that serves one
 		for ni in needs_in.size():
 			var n: Dictionary = needs_in[ni]
 			for s in n["serves"]:
@@ -203,8 +203,8 @@ static func sort_rows(rows: Array, needs_in: Array, bview: Dictionary, vcfg: Dic
 	items.sort_custom(func(a, b):
 		if a["cls"] != b["cls"]:
 			return a["cls"] < b["cls"]
-		if a["rank"] != b["rank"] and a["need"] != "" and b["need"] != "":
-			return a["rank"] < b["rank"]  # the more important need's row first
+		if a["rank"] != b["rank"]:
+			return a["rank"] < b["rank"]  # the more important need's row first, no-need rows last
 		return a["idx"] < b["idx"])
 	return items
 
@@ -527,6 +527,8 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	var up_reason := ""
 	if constructing:
 		up_reason = "under_construction"
+	elif state == "unpaid":
+		up_reason = "unpaid"
 	elif level >= max_level:
 		up_reason = "max_level"
 	else:

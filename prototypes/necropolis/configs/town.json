@@ -338,6 +338,8 @@
       "no_bone": "needs {n} {unit}: {fix}",
       "no_relics": "needs {n} {unit}: {fix}",
       "max_level": "already at its top level",
+      "unpaid": "idled by unpaid upkeep: pay it first",
+      "unique": "only one can be built",
       "protected": "the Crypt can't be demolished",
       "not_building": "nothing is under construction there",
       "queue_full": "the queue is full",
@@ -381,7 +383,8 @@
       "skipped_gate": "skipped: {why}",
       "queued": "queued",
       "cap_refusal": "{cost} is over the {store} cap of {cap}: build {label} first",
-      "cap_refusal_none": "{cost} is over the {store} cap of {cap}"
+      "cap_refusal_none": "{cost} is over the {store} cap of {cap}",
+      "no_commands": "queue commands arrive with E2b"
     },
     "agent": {
       "undead_len_px": 12.0, "undead_w_px": 2.0, "undead_glow": 0.85, "core_px": 3.2, "flash_mul": 2.4, "carry_px": 3.0,

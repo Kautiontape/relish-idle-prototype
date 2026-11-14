@@ -41,6 +41,7 @@ func setup(job_id: String, tick_px: Array) -> void:
 	handle.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	handle.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	handle.tooltip_text = "Drag to reorder"
+	handle.mouse_filter = Control.MOUSE_FILTER_PASS  # a Label ignores the mouse by default: PASS shows the cursor and tooltip, and the drag still reaches the row
 	row.add_child(handle)
 	var names := VBoxContainer.new()
 	names.add_theme_constant_override("separation", 0)
