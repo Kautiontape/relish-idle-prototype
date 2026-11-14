@@ -95,7 +95,9 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `view_rates()`: `{id: {in, out, net}}` over a fixed exported id list;
   - `view_lanes()`: `[{from, to, kind: war|flood|work|dead|living|haul|redirect, rate, bias,
     why}]`, where `why` is a short change callout such as "Relish left" or "tithe wave" (vision S1);
-  - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`.
+  - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`;
+  - `view_projection(valve)`: the held forts' margins, "WAR supports N of M", the split and the
+    payoff at another valve, pure (E2b-2, §3.5).
 - **Relish:** `view_relish()`: state, pos, target, heading, `dead_s_left`, phylactery charges,
   clones ready, `can_descend` and the reason.
 - **Town:** `view_town()`, `view_catalog()` (each building with cost, `can_build` and the reason),
@@ -598,6 +600,80 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   undead she could have taken last step: her rate at `q` after the dead she took first, and her
   pool's headroom, so a nearly full pool limits it too.
 
+**The held forts' readouts** (E2b-2 T3.1, api-requests #7 and #13; `RealmSim.readout_of`, read by
+`view_fort`, `view_realm().forts[]`, `view_hud.war_supports` and `view_projection`). For a held fort
+with `W` mass/s of WAR at the valve (the last dispatch's split of the valve's WAR: its weights,
+Relish's tide and the full forts' limits as they stand), her reship `S` (above, at the odds now) and
+`q` now:
+- **The support** `A = W + ρ`, where `ρ = min(relish.raise_rate, S)` while Relish redirects there:
+  at a supported fort her reship, killed on landing, is all the corpses there are to raise.
+- **`garrison_rate = A − min(r_drain · S / k_kill, k_destroy · (cap + τ · S) / q)`**, mass/s. Both
+  terms are fort_step's: the first is the drain (`r_drain · U`) of the smallest garrison that kills her
+  reship as it lands (`k_kill · U = S`, with no living there); the second is the pull
+  (`k_destroy · L / q`) of her living at their most with no garrison (`L = cap + τ · S`, the
+  march-back's level). The fort holds without waves exactly when the support covers one of them
+  (≥ 0): it either keeps her living at 0, or stands, small, under a full pile of them (the
+  stalemate, which binds first when `q` is above about 1.5 at odds 0). Below both her living gather
+  and their pull pins the garrison at 0.
+  - **Why not the controller's dG/dt at today's garrison, with her living at the level the reship
+    sustains** (the reading proposed for T3.1, set aside for this reason): the garrison's kills,
+    `k_kill · U`, don't depend on her living, so her reship either dies on landing (level 0) or
+    piles up to the cap; there is no level between to read. And `dG/dt` at today's garrison carries
+    `−r_drain · G`, negative for any garrison above the level its WAR holds: a full garrison at a
+    well-supplied fort would read falling, `war_supports` would count it unsupported, and "will
+    fall" would mislabel forts that hold. This rate's sign is the outcome; it reads neither today's
+    garrison nor today's (possibly surged) living, so it doesn't flicker through a wave.
+- **`fall_s` = grace left + `G / −garrison_rate` + `hold.break_s`** while the rate is < 0, else −1
+  (never INF). A straight line: it ignores U's decay toward its level and her living's climb, which
+  accelerates as the garrison shrinks. Measured against RealmSim at 10 s from a contested Ashgate with
+  every other fort full of corpses (`test_api_v6`'s chip cases): with 0.2 mass/s of WAR (garrison
+  3.3) `fall_s` is 143 s and the fort falls at 722 s (her living climb at only `S − k_kill · G` =
+  0.043/s at first, and must pile to `q · W / k_destroy` = 40 before they pin it); with no WAR and
+  43.9 undead `fall_s` is 248 s and it falls at 209 s (the drain empties U faster than the line). So
+  the clock is a hint of minutes against hours, not a timer.
+- **`margin`**: `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else
+  `thin` (cause `wave`) when it falls beyond the horizon (her living gather and a wave meets a
+  weakening garrison), or when **one full wave breaks it**; else `safe`.
+  - "A full wave would break it" is RealmSim's own fort_step run on a scratch copy of the fort at
+    `hold.probe_dt_s` (10 s) for at most `hold.probe_s` (600 s): the garrison at the least of today's
+    and the level its support holds (`A / r_drain`, or the stalemate's), her living at the level her
+    reship keeps there (none, or the stalemate's pile `(cap + τ·S − τ·k_kill·A / r) / (1 −
+    τ·k_kill·k_destroy / (q·r))`), no corpses; one wave of `surge_mult · S_vei` living/s × the
+    counters (`relish_mult` where Relish stands, less the siege's block, as the sim's own siege
+    input reads it) for `surge_s` on top of her reship, with Relish's raise where she redirects;
+    the zero clock as the sim runs it. Broken when it reaches `break_s`; survived once the wave is
+    over and her living can no longer pin the garrison (with them gone and the garrison above
+    `S / k_kill`, or, in the stalemate, back under the pile).
+  - **Which forts a wave can reach** isn't computable inside the horizon: the target is the
+    contested fort with the most undead at each warning, and the waves themselves move those
+    undead. So every contested fort is judged against one full wave (the cheapest honest version
+    the run's manager allowed). With `period_s` 420 many waves fall in 8 h, so a fort a full wave would
+    break is never "safe".
+  - The probe's edges are the 10 s column of §3.4's table (Ashgate 1.040, Greywall 1.086, Vespers
+    1.407, Whitecross 3.029; with Relish there 0.547, 0.581, 0.838, 2.216). Against live play at 0.5 s
+    that is conservative (it calls thin what holds) except with Relish at Greywall (0.581 against
+    0.583) and Whitecross (2.216 against 2.242): within 1.2% of the WAR below those edges the chip
+    reads safe where a 0.5 s run breaks.
+- **What the chip can't see:** a margin reads today's flows. midgame_2flips as loaded: Old Sluice
+  reads safe (1.258 mass/s of WAR); 30 s in Relish reaches Greywall, her tide pulls its WAR to 0.761
+  and it reads thin; the next wave there (1 177 s) breaks it (retaken at 1 316 s, at 0.5 and 10 s
+  alike). Ashgate reads safe at 1.119 (q 1.31 and odds 0.26 put its edge at 0.956), and its first
+  wave pins its garrison at 0 for about 90 s of the 120. As her odds climb over the hours the waves
+  come faster and her reship grows, which no reading of today's flows foresees: at 10 s Ashgate
+  falls at 5.4 h, at 0.5 s it stands at 12 h in a stalemate (4 undead against 164 of her living,
+  178 waves in).
+  One full wave is the judge, as ruled; a train of waves at her period would see more (and cost
+  about 4 cycles of the probe per fort; T3.1's report proposes it).
+- **During grace** every readout is the post-grace one (the reship it will face; `fall_s` adds the
+  grace left), and `grace_s_left` > 0 says so.
+- **`war_supports`** `{n, m}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0. More WAR never
+  supports fewer (water-filling is monotone in the WAR it splits).
+- **Cost**, best of 3 runs of 200 calls at a load average of about 3 on 12 cores (no time is
+  asserted): `view_projection` 163 µs on midgame_2flips (2 held), 22 µs on pre_vei (none held), 83
+  µs on pre_vei with 2 contested and 174 µs with 5, against the manager's ~1 ms per drag frame;
+  `view_realm` 295 µs on midgame_2flips. The probe runs per held fort per call (about 30 µs);
+  `war_supports` reads only the rate.
+
 ### 3.6 Simulacra (kept, defined)
 - Crafted at the Ossuary from essence and a relic.
 - `cmd_deploy_simulacrum(fort_id)` plants one. It performs **Relish's redirect** at that fort at
@@ -1019,8 +1095,10 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   no target at all it falls through to Vei (`game_state_macro`, `realm_sim`).
 - **Relish:** travel, retarget and cancel; tide; redirect; nothing applies while dead; the order
   contract (`game_state_relish`, `game_state_macro`).
-- **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
-  wave, counters, the E2a hold loss (`game_state_macro`, `realm_sim`).
+- **Flips and tithe:** grace and the contest (her reship, the zero clock, the break, the hold rule
+  both ways), shipping-share loss, the clock from the first flip, warning, target, wave, counters
+  (`game_state_macro`, `realm_sim`, `held_forts`); the held forts' readouts and `view_projection`
+  (`api_v6`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
   muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate

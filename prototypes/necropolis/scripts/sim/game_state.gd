@@ -1101,6 +1101,59 @@ func view_realm() -> Dictionary:
 	return StateViews.realm(self)
 
 
+## §5.17 · E2b-2 (api_version 6, api-requests #7 c, #13): the held forts' readouts, the split and the
+## payoff at another valve, without changing anything (StateViews.projection).
+func view_projection(valve: Dictionary) -> Dictionary:
+	return StateViews.projection(self, valve)
+
+
+## The WAR the current valve sends each fort, mass/s, in world order: the last dispatch's split of
+## this substep's WAR (RealmSim.war_at), so view_projection at the current valve reads the same; before
+## the first substep after a load, the saved r_in.
+func _fort_wars() -> Array:
+	if realm._disp_w.size() == realm.forts.size():
+		return realm.war_at(float(_split["war"]))[0]
+	var out: Array = []
+	for f in realm.forts:
+		out.append(float(f["r_in"]))
+	return out
+
+
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
+## gets (MECHANICS §3.5; RealmSim.readout_of).
+func _fort_readout(f: Dictionary, w_in: float) -> Dictionary:
+	var fx := _relish_effects()
+	var id: String = f["id"]
+	var siege: Variant = _realm_inputs.get("siege_block", {})
+	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, float(_cfg().get("relish", {}).get("raise_rate", 4.0)),
+		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q())
+
+
+## _fort_readout's garrison_rate alone (war_supports).
+func _fort_rate(f: Dictionary, w_in: float) -> float:
+	var fx := _relish_effects()
+	return realm.garrison_rate_of(f, w_in, fx["redirect_fort"] == str(f["id"]), float(_cfg().get("relish", {}).get("raise_rate", 4.0)), digest_q())
+
+
+## view_projection's valve: `v` normalised as cmd_set_valve normalises it; the current valve for one
+## it would refuse (not three finite numbers ≥ 0 with a positive sum) or one within 1e-12 of it.
+func _projection_valve(v: Dictionary) -> Dictionary:
+	var x: Array = []
+	for k in ["work", "war", "flood"]:
+		var e: Variant = v.get(k)
+		if not (e is float or e is int) or not is_finite(float(e)) or float(e) < 0.0:
+			return valve.duplicate()
+		x.append(float(e))
+	var m := maxf(x[0], maxf(x[1], x[2]))
+	if not (m > 0.0):
+		return valve.duplicate()
+	var n := _normalised(x[0] / m, x[1] / m, x[2] / m)
+	for k in n:
+		if absf(float(n[k]) - float(valve[k])) > 1e-12:
+			return n
+	return valve.duplicate()
+
+
 ## The fort Relish stands at (at_fort, or in its dungeon), or "".
 func _standing_fort() -> String:
 	var st: String = relish["state"]

@@ -125,6 +125,8 @@ func _all_views(s: GameState) -> void:
 				_view(s, name)
 		elif name == "view_staffing_projection":
 			_view(s, name, [s.town_sim.effective_ladder(s.town_sim.ladder)])
+		elif name == "view_projection":
+			_view(s, name, [s.valve.duplicate()])
 		else:
 			_view(s, name)
 	var l := s.ledger()

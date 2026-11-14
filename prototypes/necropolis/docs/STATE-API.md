@@ -48,7 +48,13 @@ from `BALANCE.md` §0.
     back to the crypt (IDLE I6);
   - the save's `realm.forts[]` hold keys `held`, `grace_s` and `zero_s` (§9.1). `held_s` is read
     from older saves only (as the grace left) and no longer written;
-  - `view_fort.held_s_left` reads the grace left: a held fort is no longer on a timer (§5.5).
+  - **the held forts' readouts** (api-requests #7 a–c, #13; MECHANICS §3.5): on `view_fort` and
+    `view_realm().forts[]`, `garrison`, `garrison_rate`, `fall_s`, `margin`, `margin_cause` and
+    `grace_s_left` (§5.5); `view_hud.war_supports` (§5.1); and `view_projection(valve)` (§5.17), the
+    same math at another valve, pure;
+  - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
+    timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
+    to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -866,6 +872,8 @@ Every field is live from E2a:
   `workers_steady_kept` is where the workforce actually settles (see `view_town.workers`, §5.9);
 - `war_overflow` is the WAR that fell through to Vei because every WAR target was capped (MECHANICS
   §3.2). It is the `war:covington:vei` lane's rate in `view_lanes` (§5.3).
+- `war_supports` (v6, api-request #7 b): "WAR supports N of M held forts". `m` is the held forts,
+  `n` those whose `garrison_rate` (§5.5) is ≥ 0 at the current valve.
 
 | key | type | meaning |
 |---|---|---|
@@ -879,6 +887,7 @@ Every field is live from E2a:
 | `workers_steady_kept` | float | workers: the workforce TownSim's ODE settles at for the current inflow, lifetime, idle rot, staffable slots and idle cap; same as `view_town.workers.steady_kept` (v4) |
 | `game_id` | String | a stable identity for one game: fresh per new game, kept across its saves and loads (api-request #18). Derived from the seed, never from the rng: `"%08x" % (seed & 0xffffffff)`, 8 hex digits (`SaveIO.game_id_for`). Two games with the same seed share an id (only tests and fixtures do that). Fixtures carry none and compute it at load. |
 | `war_overflow` | float | mass/s: the last substep's WAR that fell through to Vei (`view_lanes` `war:covington:vei`); 0 while a WAR target has room (v4) |
+| `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
@@ -894,7 +903,8 @@ Every field is live from E2a:
          {id: "living", rate: 0.012, stock: 10.0, cap: 16.0, unit: "living/s"}],
  split: {work: 5.12, war: 5.76, flood: 1.92},
  valve: {work: 0.4, war: 0.45, flood: 0.15}, valve_target: {work: 0.4, war: 0.45, flood: 0.15},
- workers_steady: 61.4, workers_steady_kept: 18.2, war_overflow: 0.0, relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
+ workers_steady: 61.4, workers_steady_kept: 18.2, war_overflow: 0.0, war_supports: {n: 0, m: 0},
+ relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
  sign: 0, drain_s: -1.0, odds: 0.0, won: false}
 ```
 
@@ -1000,6 +1010,9 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 {rev: 3, size: [2048.0, 1440.0], covington: {pos: [1780.0, 1270.0]},
  vei: {pos: [1024.0, 130.0], radius: 150.0, living_pool: 412.0, pool_cap: 600.0, backlog: 0.0},
  forts: [{id: "ashgate", ...}, ...12], held_count: 0, digest_q: 1.2}
+# a held fort's entry (midgame_2flips at load: 374.5 s of grace, then contested; post-grace readouts)
+{id: "ashgate", ..., held: true, held_s_left: 0.0, grace_s_left: 374.5, garrison: 23.4,
+ garrison_rate: 1.463, fall_s: -1.0, margin: "safe", margin_cause: "", ...}
 ```
 
 ### 5.5 `view_fort(id: String)` · E1
@@ -1016,7 +1029,13 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 | `living`, `undead`, `dead`, `space` | float | mass; `space = max(0, cap − living − undead − dead)` |
 | `war_in`, `ship_in` | float | mass/s: WAR arriving (staging included); Vei's living arriving (tithe surges included) |
 | `held` | bool | flipped and not yet retaken (in grace or contested; MECHANICS §3.4) |
-| `held_s_left` | float | the grace left, 0 when contested or not held (v6: no timer ends a hold any more) |
+| `held_s_left` | float | **deprecated (v6), always 0.0**: no timer ends a hold any more. The grace is `grace_s_left` |
+| `grace_s_left` | float | seconds of grace left, 0 when contested or not held (v6). While it is > 0, `margin`, `margin_cause`, `fall_s` and `garrison_rate` are the post-grace ones: what the fort will face once its grace ends, so the map can show "grace 3:40, then thin" |
+| `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
+| `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held |
+| `fall_s` | float | seconds until it is retaken at that rate (v6, api-request #13): `grace_s_left` + `garrison / −garrison_rate` + `hold.break_s` while the rate is < 0; −1.0 while it isn't falling or isn't held. Never INF. A straight-line estimate (MECHANICS §3.5) |
+| `margin` | String | v6 (api-request #7 a): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when it falls beyond the horizon or one full tithe wave would break it; else `"safe"` (it survives the next 8 h, a full wave included); `""` when not held |
+| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock), `"wave"` for `thin` (a full wave would break it), `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
@@ -1034,7 +1053,8 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 ```gdscript
 {rev: 3, id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, pos: [1420.0, 1305.0],
  living: 61.2, undead: 6.4, dead: 3.1, space: 9.3, war_in: 0.48, ship_in: 0.3,
- held: false, held_s_left: 0.0, flipped_count: 0, first_clear: true, first_dungeon: true,
+ held: false, held_s_left: 0.0, grace_s_left: 0.0, garrison: 0.0, garrison_rate: 0.0, fall_s: -1.0,
+ margin: "", margin_cause: "", flipped_count: 0, first_clear: true, first_dungeon: true,
  clears_since_retaken: 0, yield_mult: 1.0,
  warden: {archetype: "bellringer", tells: ["rings slam on the beat"]}, loot_hint: "a husk and a blueprint",
  threat: {party_strength: 8.0, garrison_strength: 6.1, risk: "low", risk_pct: -1.0},
@@ -1379,6 +1399,46 @@ Game.state.view_staffing_projection(["tend", "stall", "pit", "haul", "build", "m
 #    (vat 0 staffed: its tend slot opens and takes a hand from the stall)
 Game.state.view_staffing_projection(["haul", "pit"])
 # -> {rev: 812, jobs: [], buildings: [], idle: 0.0, reason: "missing_job"}
+```
+
+### 5.17 `view_projection(valve: Dictionary)` · E2b-2 (api_version 6, api-requests #7 c, #13)
+The held forts' readouts (§5.5), "WAR supports N of M" (§5.1), the split and the payoff at another
+valve, for the live valve drag. The same math as the live views, at a hypothetical valve target.
+- **Args:** `valve`, `{work, war, flood}`, normalised as `cmd_set_valve` normalises it. It refuses
+  nothing: one `cmd_set_valve` would refuse (a missing or non-number key, a negative or non-finite
+  share, all zeroes) is the current valve (`view_hud.valve`), and so is one within 1e-12 of it on every
+  share.
+- **Pure:** nothing changes, `rev` stays, no event is queued; every view and the save dump read the
+  same before and after. Like every view it is a fresh deep copy carrying `rev`.
+- **At the current valve every field equals the live views':** `split` is `view_hud.split` (and
+  `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
+  is `view_hud.war_supports`, each `margins` entry is that fort's `view_fort` `margin`, `margin_cause`,
+  `fall_s` and `garrison_rate`, and `backlog_diff` is `view_vei.diff_ema`.
+- **Before the first substep after a load** the split is 0 (it is session-only, §5.1, §9.1), so the
+  projection reads no WAR anywhere: every held fort falling. The live views read the saved `r_in`
+  until then. The map knows (it waits for the streams).
+
+| key | type | meaning |
+|---|---|---|
+| `valve` | Dictionary | `{work, war, flood}`: the valve evaluated (normalised; the current one for an invalid input) |
+| `split` | Dictionary | `{work, war, flood, war_overflow}` mass/s: this substep's mint × the valve, WAR plus TownSim's muster as it is now; `war_overflow` the WAR that falls through to Vei at that WAR (every target at its limit), as `view_hud.war_overflow` reads it |
+| `workers_steady` | float | workers: `view_town.workers.steady` × the WORK share against the current one (TownSim's steady workforce is `WORK / worker.mass × lifetime`, linear in WORK); `mint × work / worker.mass × lifetime` when the current WORK share is 0. The map's stand-in scaled the same way |
+| `backlog_diff` | float | mass/s: the sustained differential (`view_vei.diff_ema`) moved by the change in FLOOD, in the WAR that falls through to Vei, and in the WAR to each fort whose garrison isn't pinned at 0 (in steady state the extra drains on to her queue, since the garrison's pull doesn't grow with it). The map's stand-in added Δflood + Δwar × a fixed fraction; this is that, from the sim's own split |
+| `war_supports` | Dictionary | `{n: int, m: int}`, as `view_hud.war_supports`, at the valve's WAR |
+| `margins` | Dictionary | `{fort_id: {margin: String, margin_cause: String, fall_s: float, garrison_rate: float}}`, one per held fort, as `view_fort` computes them at the valve's WAR to that fort (each fort's WAR is the last dispatch's split of the valve's WAR: its weights, Relish's tide and the full forts' limits as they stand) |
+```gdscript
+Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15})   # midgame_2flips a substep in: its valve
+# -> {rev: 2, valve: {work: 0.4, war: 0.45, flood: 0.15},
+#     split: {work: 5.12, war: 9.71, flood: 1.92, war_overflow: 0.0}, workers_steady: 61.44, backlog_diff: 4.36,
+#     war_supports: {n: 2, m: 2},
+#     margins: {"ashgate": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 1.463},
+#               "old-sluice": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 0.872}}}
+Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # only TownSim's muster (3.95/s) is WAR
+# -> {..., split: {work: 10.24, war: 3.95, flood: 2.56, war_overflow: 0.0}, workers_steady: 122.88, backlog_diff: 0.84,
+#     war_supports: {n: 2, m: 2},
+#     margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.367},
+#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.126}}}
+Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evaluated at the current valve
 ```
 
 ## 6. Events

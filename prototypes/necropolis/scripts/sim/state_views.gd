@@ -43,7 +43,7 @@ static func hud(gs: GameState) -> Dictionary:
 		"split": {"work": float(gs._split["work"]), "war": float(gs._split["war"]), "flood": float(gs._split["flood"])},
 		"valve": gs.valve.duplicate(), "valve_target": gs.valve_target.duplicate(),
 		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
-		"war_overflow": float(gs.realm.r_war_to_vei),
+		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
@@ -109,8 +109,10 @@ static func why_of(gs: GameState, lane_id: String) -> String:
 static func realm(gs: GameState) -> Dictionary:
 	var forts: Array = []
 	var held := 0
-	for f in gs.realm.forts:
-		forts.append(fort_entry(gs, f))
+	var wars := gs._fort_wars()
+	for i in gs.realm.forts.size():
+		var f: Dictionary = gs.realm.forts[i]
+		forts.append(fort_entry(gs, f, wars[i]))
 		if RealmSim.is_held(f):
 			held += 1
 	return {
@@ -135,19 +137,26 @@ static func simulacrum_charges(gs: GameState, fort_id: String) -> float:
 
 
 ## A fort in the view_fort shape, without `rev`. Live: masses, positions, war_in (WAR arriving,
-## staging included), ship_in (tithe surges included), held, held_s_left, relish_here, tide,
-## redirect, siege, tithe, can_descend. Threat and warden are still stubs.
-static func fort_entry(gs: GameState, f: Dictionary) -> Dictionary:
+## staging included), ship_in (tithe surges included), held, the hold's readouts (garrison,
+## garrison_rate, fall_s, margin, margin_cause, grace_s_left; MECHANICS §3.5, at the WAR the current
+## valve sends it: `w_in`, gs._fort_wars()), relish_here, tide, redirect, siege, tithe, can_descend.
+## held_s_left is deprecated (0.0). Threat and warden are still stubs.
+static func fort_entry(gs: GameState, f: Dictionary, w_in: float) -> Dictionary:
 	var id: String = f["id"]
 	var why := gs._descend_reason(id)
 	var fx := gs._relish_effects()
 	var archetype := gs._warden_archetype(id)
+	var ro := gs._fort_readout(f, w_in)
+	var held := RealmSim.is_held(f)
 	return {
 		"id": id, "name": str(f["name"]), "tier": int(f["tier"]), "cap": float(f["cap"]),
 		"pos": GameState._xy(f["pos"]),
 		"living": float(f["living"]), "undead": float(f["undead"]), "dead": float(f["dead"]),
 		"space": float(gs.realm.space(f)), "war_in": float(f["r_in"]), "ship_in": float(f["r_shipped"]),
-		"held": RealmSim.is_held(f), "held_s_left": float(f.get("held_s", 0.0)),
+		"held": held, "held_s_left": 0.0,
+		"garrison": float(f["undead"]) if held else 0.0, "garrison_rate": float(ro["garrison_rate"]),
+		"fall_s": float(ro["fall_s"]), "margin": str(ro["margin"]), "margin_cause": str(ro["margin_cause"]),
+		"grace_s_left": maxf(0.0, float(f.get("grace_s", 0.0))) if held else 0.0,
 		"flipped_count": int(f.get("flipped_count", 0)),
 		"first_clear": not gs.cleared_forts.has(id), "first_dungeon": gs._is_first_dungeon(id),
 		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": 1.0,
@@ -194,8 +203,11 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 	var f := gs.realm.fort_by_id(id)
 	if f.is_empty():
 		return {}
+	var i := 0
+	while gs.realm.forts[i]["id"] != id:
+		i += 1
 	var out := {"rev": gs.rev}
-	out.merge(fort_entry(gs, f))
+	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i])))
 	return out
 
 
@@ -302,6 +314,60 @@ static func staffing_projection(gs: GameState, order: Array, vats: Dictionary) -
 		buildings.append({"lot_id": str(lot_id), "staffed": float(lots.get(lot_id, 0.0))})
 	return {"rev": gs.rev, "jobs": job_rows(ts.effective_ladder(o), st["jobs"]), "buildings": buildings,
 		"idle": float(st["idle"]), "reason": ""}
+
+
+## view_hud.war_supports and view_projection's: {n: held forts whose garrison_rate ≥ 0 at `wars` (each
+## fort's WAR, mass/s), m: held forts}.
+static func war_supports(gs: GameState, wars: Array) -> Dictionary:
+	var n := 0
+	var m := 0
+	for i in gs.realm.forts.size():
+		var f: Dictionary = gs.realm.forts[i]
+		if RealmSim.is_held(f):
+			m += 1
+			if gs._fort_rate(f, float(wars[i])) >= 0.0:
+				n += 1
+	return {"n": n, "m": m}
+
+
+## §5.17 · E2b-2 (api_version 6, api-requests #7 c, #13): the readouts at another valve, pure. The
+## valve is normalised as cmd_set_valve normalises it; one it would refuse, or one within 1e-12 of
+## the current valve, is the current valve. At it: the split is this substep's mint × the valve (WAR
+## plus TownSim's muster as it is now), split.war_overflow the WAR that falls through to Vei, each
+## fort's WAR the last dispatch's split of that WAR (RealmSim.war_at), workers_steady TownSim's
+## steady workforce scaled by the WORK share (the steady state is linear in WORK), backlog_diff the
+## sustained differential (view_vei.diff_ema) moved by the FLOOD, the fall-through and the WAR to the
+## forts whose garrison isn't pinned at 0 (it drains on to her queue) against today's, and the held
+## forts' margins and war_supports as view_fort and view_hud compute them. At the current valve every
+## field equals the live views'.
+static func projection(gs: GameState, valve_in: Dictionary) -> Dictionary:
+	var v := gs._projection_valve(valve_in)
+	var mint := float(gs._split["mint"])
+	var war: float = mint * v["war"] + float(gs._split["muster"])
+	var split := {"work": mint * v["work"], "war": war, "flood": mint * v["flood"]}
+	var wa: Array = gs.realm.war_at(war)
+	var wars: Array = wa[0]
+	split["war_overflow"] = float(wa[1])
+	var cur_work := float(gs.valve["work"])
+	var steady := 0.0
+	if cur_work > 0.0:
+		steady = gs._workers_steady() * (float(v["work"]) / cur_work)
+	else:
+		steady = mint * float(v["work"]) / gs.worker_mass() * gs.town_sim.lifetime_s(gs.relish["state"] == "home")
+	var now_wars := gs._fort_wars()
+	var diff := float(gs._readout["diff_ema"]) + (float(split["flood"]) - float(gs._split["flood"])) \
+		+ (float(wa[1]) - float(gs.realm.r_war_to_vei))
+	var margins := {}
+	for i in gs.realm.forts.size():
+		var f: Dictionary = gs.realm.forts[i]
+		if float(f["undead"]) > 0.0:
+			diff += float(wars[i]) - float(now_wars[i])
+		if RealmSim.is_held(f):
+			var ro := gs._fort_readout(f, float(wars[i]))
+			margins[str(f["id"])] = {"margin": str(ro["margin"]), "margin_cause": str(ro["margin_cause"]),
+				"fall_s": float(ro["fall_s"]), "garrison_rate": float(ro["garrison_rate"])}
+	return {"rev": gs.rev, "valve": v.duplicate(), "split": split, "workers_steady": steady, "backlog_diff": diff,
+		"war_supports": war_supports(gs, wars), "margins": margins}
 
 
 ## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating.

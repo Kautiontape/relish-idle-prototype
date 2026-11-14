@@ -153,6 +153,8 @@ const FORT := {
 	"relish_here": B, "tide": B, "redirect": B, "simulacrum_charges": F, "siege": [S],
 	"tithe": {"targeted": B, "eta_s": F, "wave_active": B},
 	"can_descend": B, "reason": S,
+	# api_version 6 (E2b-2 T3.1, api-requests #7 a, #13): the held fort's readouts and its grace
+	"garrison": F, "garrison_rate": F, "fall_s": F, "margin": S, "margin_cause": S, "grace_s_left": F,
 }
 const TOWN_BUILDING := {
 	"lot_id": S, "building_id": S, "level": I, "state": S, "progress": F, "slots": I, "staffed": F,
@@ -170,6 +172,7 @@ const VIEWS := {
 		"game_id": S, "t": F, "time_scale": F, "paused": B,
 		"rates": [{"id": S, "rate": F, "stock": F, "cap": F, "unit": S}],
 		"split": VALVE, "valve": VALVE, "valve_target": VALVE, "workers_steady": F, "workers_steady_kept": F, "war_overflow": F,
+		"war_supports": {"n": I, "m": I},
 		"relics": I, "relics_cap": I, "essence": I, "essence_cap": I,
 		"sign": I, "drain_s": F, "odds": F, "won": B,
 	},
@@ -242,6 +245,10 @@ const VIEWS := {
 	# the cmd_set_job_priority refusal its `order` would get
 	"view_staffing_projection": {"jobs": [{"id": S, "slots": I, "staffed": F}], "buildings": [{"lot_id": S, "staffed": F}],
 		"idle": F, "reason": S},
+	# api_version 6 (E2b-2 T3.1, api-requests #7 c, #13): takes `valve`
+	"view_projection": {"valve": VALVE, "split": {"work": F, "war": F, "flood": F, "war_overflow": F}, "workers_steady": F,
+		"backlog_diff": F, "war_supports": {"n": I, "m": I},
+		"margins": {"*": {"margin": S, "margin_cause": S, "fall_s": F, "garrison_rate": F}}},
 }
 ## Views that take an id argument (and return {} for an unknown one).
 const VIEW_ARGS := {"view_fort": 1, "view_dungeon_seed": 1}

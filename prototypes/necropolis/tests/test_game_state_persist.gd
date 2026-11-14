@@ -102,7 +102,8 @@ func _slot_path(slot: String) -> String:
 func _views(s: GameState) -> Dictionary:
 	var out := {}
 	for name in ApiSchema.VIEWS:
-		if name == "view_field" or name == "view_dungeon_seed" or name == "view_boss_seed":
+		# view_projection is the readouts at another valve off the session-only split (STATE-API §5.17)
+		if name == "view_field" or name == "view_dungeon_seed" or name == "view_boss_seed" or name == "view_projection":
 			continue
 		if name == "view_fort":
 			for f in s.realm.forts:
