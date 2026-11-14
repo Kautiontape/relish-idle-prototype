@@ -458,3 +458,16 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
   - The fix: it now uses only the gaps within half a gap's width of one of the layout's portals for the pair. It keeps every gap when the layout has none.
   - This is a pathing bug, not a reaction knob. Tier 1 and the first dungeon are byte-identical with it.
 - **Shot:** `de-detour.png` (chime-fort t2, seed 1, frame 640). It shows the guarded CACHE in the side room with its four living, the loot pointer running to it, and Relish's army on its way across after she took it at frame 317 (hp 1.0, army 9 against a guard of 4).
+- **Packs on the other wardens** (the same `RaidWarden._pack_step`, config only plus a hold in each `_step`).
+  - **The packs:**
+    - The Bellringer's ringers (`enemies.ringer`) at 2/3 and 1/3.
+    - The Shieldwall's bearers (`enemies.bearer`: 40 hp, 110 px/s) at 2/3 and 1/3. On both of these the gates sit on the phase notches, so the meter is unchanged.
+    - The Pyre-priest's zealots (`enemies.zealot`) at its phase-3 notch, since its acolytes already ward the start of its fight. The zealots' ward multiplies with the acolytes'.
+  - **Hold.** While a pack runs, each warden holds its own attack: no slam, bash or fire tell until a beat after the last of the pack falls.
+  - **Counter.** These packs have no stat counter: the counter is the army, raised where the horn shows a beat ahead. That matters for Step 4's counter rule, which these packs do not touch.
+  - **Death card:** "The Bellringer's pack" (`last_hit_src` "pack").
+  - **Probe** (seeds 1-3, provisional sizes 5 / 6 / 7, with the hunt and the detour).
+    - Medians: t2 183, t3 127, t4 139 s. Human estimate: t2 216-304, t3 152-214, t4 165-219 s.
+    - Packs stand 12-48 s a fight.
+    - Deaths: 1 / 2 / 2 of 9 per tier (packs 3, hounds 1, the living 1).
+    - Tier 1 and the first dungeon are byte-identical.

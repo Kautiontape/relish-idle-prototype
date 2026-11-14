@@ -178,7 +178,7 @@ func _physics_process(delta: float) -> void:
 			_strike_t = cadence
 			_lunge = 1.0
 			if _target is RaidRelish:
-				_target.take_hit(dmg, "hound" if warden_pack else "living")
+				_target.take_hit(dmg, ("hound" if kind == "hound" else "pack") if warden_pack else "living")
 			elif _target is RaidWarden or _target is RaidAcolyte:
 				_target.hit_from(dmg, self)   # the Shieldwall reads where the blow came from; an acolyte who struck it
 			else:

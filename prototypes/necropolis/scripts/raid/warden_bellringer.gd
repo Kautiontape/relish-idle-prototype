@@ -62,7 +62,9 @@ func _contacts() -> Array:
 	return out
 
 
-func _step(_delta: float) -> void:
+func _step(delta: float) -> void:
+	if _pack_step(delta):   # its pack runs: no tell until a beat after the last falls (one threat at a time)
+		_next_attack = maxf(_next_attack, ceilf(beat()) + float(spec.get("attack", {}).get("tell_beats", 1.0)) + 1.0)
 	muffled = WardenLogic.is_muffled(spec, _contacts())
 	var b := beat()
 	var at: Dictionary = spec.get("attack", {})

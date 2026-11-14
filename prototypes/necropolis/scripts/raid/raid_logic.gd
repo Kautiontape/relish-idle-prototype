@@ -434,6 +434,8 @@ static func death_cause(src: String, warden_name: String) -> String:
 			return "%s's fire" % who
 		"hound":
 			return "%s's hounds" % who
+		"pack":
+			return "%s's pack" % who
 		"living":
 			return "the living"
 	return "a wound"

@@ -156,6 +156,30 @@
       "cadence_s": 0.8,
       "radius": 9.0
     },
+    "ringer": {
+      "_doc": "The Bellringer's ringers (wardens.archetypes.bellringer.pack): its own living, called at its hp gates; massless, they drop nothing.",
+      "hp": 30.0,
+      "dmg": 4.0,
+      "speed": 140.0,
+      "cadence_s": 0.8,
+      "radius": 9.0
+    },
+    "bearer": {
+      "_doc": "The Shieldwall's shield-bearers (wardens.archetypes.shieldwall.pack): its own living, slower and sturdier; massless, they drop nothing.",
+      "hp": 40.0,
+      "dmg": 4.0,
+      "speed": 110.0,
+      "cadence_s": 0.9,
+      "radius": 10.0
+    },
+    "zealot": {
+      "_doc": "The Pyre-priest's zealots (wardens.archetypes.pyre_priest.pack): its own living, called at its phase-3 gate; massless, they drop nothing.",
+      "hp": 30.0,
+      "dmg": 4.0,
+      "speed": 150.0,
+      "cadence_s": 0.8,
+      "radius": 9.0
+    },
     "brute": {
       "hp": 70.0,
       "dmg": 10.0,
@@ -475,6 +499,18 @@
           "dmg_mult": 0.35,
           "label": "a beefy big undead braced at the bell muffles its slams"
         },
+        "pack": {
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. The gates sit on its phase notches." ,
+          "name": "ringers",
+          "min_tier": 2,
+          "at_hp_frac": [0.66, 0.33],
+          "size_by_tier": {"1": 0, "2": 5, "3": 6, "4": 7},
+          "kind": "ringer",
+          "horn_beats": 1.0,
+          "ward_mult": 0.25,
+          "spot_inset_px": 50.0,
+          "spot_spread_px": 28.0
+        },
         "hp_base": 2800.0,
         "hp_per_tier": 1250.0,
         "radius": 52.0,
@@ -559,6 +595,18 @@
           "flank_step_deg": 40.0,
           "label": "a wits big undead fights it from behind"
         },
+        "pack": {
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. The gates sit on its phase notches." ,
+          "name": "bearers",
+          "min_tier": 2,
+          "at_hp_frac": [0.66, 0.33],
+          "size_by_tier": {"1": 0, "2": 5, "3": 6, "4": 7},
+          "kind": "bearer",
+          "horn_beats": 1.0,
+          "ward_mult": 0.25,
+          "spot_inset_px": 50.0,
+          "spot_spread_px": 28.0
+        },
         "hp_base": 1500.0,
         "hp_per_tier": 1250.0,
         "radius": 44.0,
@@ -592,6 +640,18 @@
           "threshold": 6,
           "effect": "snuff",
           "label": "a power big undead snuffs an acolyte in one blow"
+        },
+        "pack": {
+          "_doc": "D-d/E Step 3: the same pack as the Huntsman's hunt (see its pack _doc and WardenLogic.pack_*): from min_tier up, at each gate in at_hp_frac a horn horn_beats ahead calls size_by_tier of its own living (enemies.<kind>) into its room's far side from Relish; while any stands it takes ward_mult of every hit and holds its own attack; they drop nothing. Its counter is the army: the horn shows a beat ahead where they come in, so raise there. One gate, on its phase-3 notch (its acolytes already ward the start of the fight); the ward multiplies with the acolytes'." ,
+          "name": "zealots",
+          "min_tier": 2,
+          "at_hp_frac": [0.4],
+          "size_by_tier": {"1": 0, "2": 6, "3": 6, "4": 7},
+          "kind": "zealot",
+          "horn_beats": 1.0,
+          "ward_mult": 0.25,
+          "spot_inset_px": 50.0,
+          "spot_spread_px": 28.0
         },
         "hp_base": 1500.0,
         "hp_per_tier": 1000.0,

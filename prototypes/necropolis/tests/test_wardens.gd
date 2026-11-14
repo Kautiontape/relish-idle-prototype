@@ -310,6 +310,11 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(WardenLogic.pack_label(pk, 0, 5) == "", "and nothing once they are down")
 	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
 	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
+	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
+	for a2 in ["bellringer", "shieldwall"]:
+		var w2 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": a2}, cfg)
+		var w1 := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a2}, cfg)
+		t.ok(w2.has("pack") and WardenLogic.meter_bands(w2) == WardenLogic.meter_bands(w1), "%s: its pack's gates sit on its phase notches (the meter is unchanged)" % a2)
 
 
 
