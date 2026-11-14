@@ -100,6 +100,47 @@ static func demo_seed(cfg: Dictionary) -> Dictionary:
 	}
 
 
+## BALANCE 3's standard "party of tier T" against a world.json fort (DEV: the autopilot's P2/P3
+## profiles; GameState seeds real runs). `fort` is the world.json entry {id, name, tier, cap}. The
+## fort holds living = cap * autopilot.profile_living_frac and dead = cap * profile_dead_frac, its
+## warden is wardens.by_fort's, the first_* flags are false, and there is no phylactery charge.
+## The party comes from autopilot.party_profiles[party_tier] (clamped to 1..4):
+## {garrison_units, starter_units, party: [{stats, name?, kind?, role?}]}. Validates as raid_seed.
+static func profile_seed(fort: Dictionary, party_tier: int, cfg: Dictionary) -> Dictionary:
+	var ap: Dictionary = cfg.get("autopilot", {})
+	var profs: Dictionary = ap.get("party_profiles", {})
+	var prof: Dictionary = profs.get(str(clampi(party_tier, 1, 4)), {})
+	var div := float(cfg.get("mass", {}).get("garrison_mass_div", 10.0))
+	var units := clampi(int(prof.get("garrison_units", 0)), 0, int(cfg.get("mass", {}).get("garrison_max", 12)))
+	var tier := clampi(int(fort.get("tier", 1)), 1, 4)
+	var cap := float(fort.get("cap", 100.0))
+	var fid := str(fort.get("id", ""))
+	var arche := str(cfg.get("wardens", {}).get("by_fort", {}).get(fid, WardenLogic.DEFAULT_ARCHETYPE))
+	var party: Array = []
+	var entries: Array = prof.get("party", [])
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		var st: Dictionary = e.get("stats", {})
+		party.append({"uid": "p%d" % (i + 1), "name": str(e.get("name", "Profile big %d" % (i + 1))),
+			"kind": str(e.get("kind", "hulk")), "role": str(e.get("role", "brute")),
+			"stats": {"power": float(st.get("power", 0.0)), "beef": float(st.get("beef", 0.0)),
+				"wits": float(st.get("wits", 0.0)), "presence": float(st.get("presence", 0.0)),
+				"speed": float(st.get("speed", 0.0))}})
+	return {
+		"v": 2, "kind": "raid", "run_id": 0, "seed_rev": 0, "rng_seed": "1",
+		"fort": {"id": fid, "name": str(fort.get("name", fid)), "tier": tier, "cap": cap,
+			"first_clear": false, "first_dungeon": false, "clears_since_retaken": 0, "yield_mult": 1.0},
+		"living": cap * float(ap.get("profile_living_frac", 0.85)), "dead": cap * float(ap.get("profile_dead_frac", 0.0)),
+		"undead": float(units) * div,
+		"garrison_units": units, "garrison_in_mass": float(units) * div, "garrison_mass_div": div,
+		"starter_units": maxi(0, int(prof.get("starter_units", 0))), "party": party,
+		"digest_q": 1.0, "phylactery_charges": 0, "phylactery_max_per_dungeon": 1, "clones_ready": 0,
+		"warden": {"archetype": arche, "tier": tier}, "warden_spec": {},
+		"loot_table_id": "t%d.%s" % [tier, arche], "loot_hint": "", "chest_husk": false, "watchtower": false,
+		"relish_hp": float(cfg.get("relish", {}).get("hp", 30.0)),
+	}
+
+
 ## Pure twin of CircleScorer.multiplier (circle.json keys).
 static func stat_mult(score: int, circle_cfg: Dictionary) -> float:
 	return float(circle_cfg.get("multiplier_base", 0.5)) \
@@ -142,6 +183,24 @@ static func empty_loot() -> Dictionary:
 	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
 
 
+## `found` with `add` (the loot shape) merged in: relics add, arrays append, essence is skipped
+## (it is the carried cluster, counted when the loot is banked). A new dictionary; inputs unchanged.
+static func merge_loot(found: Dictionary, add: Dictionary) -> Dictionary:
+	var out := found.duplicate(true)
+	for k in add:
+		if k == "essence":
+			continue
+		if add[k] is Array:
+			var cur: Array = out.get(k, [])
+			cur.append_array((add[k] as Array).duplicate(true))
+			out[k] = cur
+		elif k == "relics":
+			out[k] = int(out.get(k, 0)) + int(add[k])
+		else:
+			out[k] = add[k]
+	return out
+
+
 ## A deep copy of `found` (loot shape minus essence) in the full loot shape, with essence set to
 ## what Relish carries now: the checkpoint's banked loot (MECHANICS 7).
 static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
@@ -153,6 +212,92 @@ static func loot_snapshot(found: Dictionary, carried: int) -> Dictionary:
 	return out
 
 
+## What a close, a load or a crash pays (IDLE I5): the last checkpoint snapshot, as a deep copy in
+## the full loot shape. Whatever was found since is lost, the same bound as a death.
+static func close_loot(banked: Dictionary) -> Dictionary:
+	var out := empty_loot()
+	for k in out:
+		if banked.has(k):
+			out[k] = banked[k].duplicate(true) if (banked[k] is Array or banked[k] is Dictionary) else banked[k]
+	return out
+
+
+## How a window close mid-run ends a dungeon (IDLE I5: no run survives a close): as a retreat,
+## unless an ending beat is already playing (`ended`, with `pending_exit` the exit it will emit):
+## Relish's death beat (`relish_died`) or the warden's victory beat (`warden_beaten`). That ending
+## happened while she was present, so it stands; a close can't turn a death or a win into a retreat.
+static func close_exit(ended: bool, pending_exit: String) -> String:
+	return pending_exit if ended and pending_exit in ["relish_died", "warden_beaten"] else "retreated"
+
+
+## The exit an ending beat leaves pending when it starts: `chest_opened` (the warden's victory beat)
+## -> warden_beaten, `relish_died` (her death beat) -> relish_died; "" for anything else.
+static func pending_on(event: String) -> String:
+	match event:
+		"chest_opened":
+			return "warden_beaten"
+		"relish_died":
+			return "relish_died"
+	return ""
+
+
+## How a window close finishes a dungeon run (RaidEndings.close_request): {exit (close_exit), closing}.
+## `closing` (the result pays only the last checkpoint snapshot, RaidLogic.result_loot) is true for the
+## retreat a close stands in for; an ending beat already playing finishes as that beat would have.
+static func close_plan(ended: bool, pending_exit: String) -> Dictionary:
+	var exit := close_exit(ended, pending_exit)
+	return {"exit": exit, "closing": exit == "retreated"}
+
+
+## The loot a raid result carries (RaidEndings.build_result): a retreat or a win banks everything found
+## plus the carried motes, a death keeps the last checkpoint snapshot (`banked`), and a close
+## (`closing`) pays that snapshot whatever the exit. Always the full loot shape; inputs unchanged.
+static func result_loot(exit: String, closing: bool, found: Dictionary, carried: int, banked: Dictionary) -> Dictionary:
+	var loot := loot_snapshot(found, carried) if exit in ["retreated", "warden_beaten"] else banked.duplicate(true)
+	if closing:
+		loot = close_loot(banked)
+	if loot.is_empty():
+		loot = empty_loot()
+	return loot
+
+
+## The warden is a target for an undead of `radius` at `pos` when it is within `reach` px of walking
+## (LayoutLogic.walk_within: the same walking leash as the enemies; a straight line through a sealed
+## wall does not count). RaidWardenRun.target_in delegates here.
+static func warden_in_reach(layout: Dictionary, pos: Vector2, warden_pos: Vector2, reach: float, radius: float) -> bool:
+	return LayoutLogic.walk_within(layout, pos, warden_pos, reach, radius)
+
+
+## A held fort's counter-garrison is cleared when its last living enemy falls (IDLE I3).
+## `living_left` counts the living still alive; `started` is true once the clear has fired.
+static func held_clear_due(held: bool, boss: bool, living_left: int, started: bool) -> bool:
+	return held and not boss and living_left <= 0 and not started
+
+
+## A held fort with no living at all when the raid builds has no last kill to trigger the clear:
+## it clears `held.empty_clear_s` after the build instead. That delay, or -1 when it does not apply
+## (not held, the boss, or living spawned).
+static func held_empty_clear_s(held: bool, boss: bool, living_spawned: int, cfg: Dictionary) -> float:
+	if not held_clear_due(held, boss, living_spawned, false):
+		return -1.0
+	return maxf(0.0, float(cfg.get("held", {}).get("empty_clear_s", 1.0)))
+
+
+static func held_banner(fort_name: String) -> String:
+	return "COUNTER-GARRISON CLEARED" if fort_name == "" else "COUNTER-GARRISON CLEARED · %s holds" % fort_name
+
+
+## The banner's second line: what the clear paid (the essence bonus counts as the motes that spawn).
+static func held_payoff(loot: Dictionary) -> String:
+	var c := loot_counts(loot)
+	return "+%d relics · +%d remnants · +%d essence" % [int(c["relics"]), int(c["remnants"]), int(c["essence"])]
+
+
+## The held_clear roll's essence bonus: how many fresh mass-0 motes the scene spawns.
+static func held_motes(loot: Dictionary) -> int:
+	return maxi(0, int(loot.get("essence", 0)))
+
+
 ## The checkpoint snapshot with its essence capped at what is still carried: motes circled into
 ## undead after the checkpoint are spent, so a death must not pay them out. A copy; an empty
 ## snapshot stays empty.
@@ -161,6 +306,51 @@ static func clamp_banked_essence(banked: Dictionary, carried: int) -> Dictionary
 	if out.has("essence"):
 		out["essence"] = mini(int(out["essence"]), maxi(0, carried))
 	return out
+
+
+## Item counts of a loot-shaped dictionary (relics, remnants, husks, blueprints) plus essence:
+## `items` is the four without essence, `total` is all five. `{}` counts as zeros.
+static func loot_counts(loot: Dictionary) -> Dictionary:
+	var out := {"relics": int(loot.get("relics", 0)), "remnants": (loot.get("remnants", []) as Array).size(),
+		"husks": (loot.get("husks", []) as Array).size(), "blueprints": (loot.get("blueprints", []) as Array).size(),
+		"essence": int(loot.get("essence", 0))}
+	out["items"] = int(out["relics"]) + int(out["remnants"]) + int(out["husks"]) + int(out["blueprints"])
+	out["total"] = int(out["items"]) + int(out["essence"])
+	return out
+
+
+## What a death would lose right now (MECHANICS 7): found loot plus the carried essence, minus the
+## last checkpoint snapshot (`banked`, {} before the first), as counts. Never negative.
+static func unbanked(found: Dictionary, carried: int, banked: Dictionary) -> Dictionary:
+	var f := loot_counts(found)
+	var b := loot_counts(banked)
+	var out := {}
+	for k in ["relics", "remnants", "husks", "blueprints"]:
+		out[k] = maxi(0, int(f[k]) - int(b[k]))
+	out["essence"] = maxi(0, carried - int(b["essence"]))
+	out["items"] = int(out["relics"]) + int(out["remnants"]) + int(out["husks"]) + int(out["blueprints"])
+	out["total"] = int(out["items"]) + int(out["essence"])
+	return out
+
+
+## The first-dungeon ghost ring (and the autopilot's raise circle): the centroid of the motes within
+## `reach_px` of Relish, and the radius to the farthest of them plus `pad_px`. {ok, center, radius,
+## count}; ok is false with no mote in reach.
+static func ghost_ring(mote_positions: Array, relish_pos: Vector2, reach_px: float, pad_px: float) -> Dictionary:
+	var near: Array[Vector2] = []
+	for p in mote_positions:
+		if (p as Vector2).distance_to(relish_pos) <= reach_px:
+			near.append(p)
+	if near.is_empty():
+		return {"ok": false, "center": relish_pos, "radius": 0.0, "count": 0}
+	var c := Vector2.ZERO
+	for p in near:
+		c += p
+	c /= float(near.size())
+	var rad := 0.0
+	for p in near:
+		rad = maxf(rad, p.distance_to(c))
+	return {"ok": true, "center": c, "radius": rad + pad_px, "count": near.size()}
 
 
 ## True when a phylactery charge is left to spend in this dungeon (MECHANICS 7).
@@ -453,3 +643,8 @@ static func wall_touches_room(wall: Rect2, room: Rect2) -> bool:
 
 static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) -> bool:
 	return LayoutLogic.checkpoint_entered(layout, prev_room, room)
+
+
+## Warden spec for a fort {id, tier, archetype?, first_dungeon?} (see WardenLogic.spec).
+static func warden_spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
+	return WardenLogic.spec(fort, cfg)

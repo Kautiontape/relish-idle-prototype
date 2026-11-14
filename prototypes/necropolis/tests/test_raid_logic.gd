@@ -150,6 +150,9 @@ func run() -> int:
 		"boss arena is the biggest layout")
 
 	_role_tests(t, cfg, cell)
+	_first_pile_tests(t, cfg)
+	_ghost_ring_tests(t)
+	_unbanked_tests(t)
 
 	# --- population sanity ---------------------------------------------------
 	t.suite("raid_population")
@@ -338,8 +341,57 @@ func run() -> int:
 
 	_checkpoint_tests(t, cfg)
 	_writeback_tests(t, cfg)
+	_held_clear_tests(t, cfg)
+	_profile_tests(t, cfg)
 	_wall_tests(t, cfg)
+	_routing_tests(t, cfg)
+	_close_exit_tests(t)
+	_warden_reach_tests(t, cfg)
 	return t.failures
+
+
+## RaidLogic.profile_seed: BALANCE 3's standard party of tier T at a world.json fort.
+func _profile_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_profile_seed")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var ap: Dictionary = cfg["autopilot"]
+	var div := float(cfg["mass"]["garrison_mass_div"])
+	var bad := 0
+	var first_bad := ""
+	for f in world["forts"]:
+		for pt in [1, 2, 3, 4]:
+			var sd := RaidLogic.profile_seed(f, pt, cfg)
+			var errs := Results.validate("raid_seed", sd)
+			if not errs.is_empty():
+				bad += 1
+				first_bad = "%s t%d %s" % [f["id"], pt, str(errs)]
+	t.ok(bad == 0, "every world.json fort x party tier 1-4 validates as raid_seed (%s)" % first_bad)
+	var fort: Dictionary = {}
+	for f in world["forts"]:
+		if f["id"] == "pale-bastion":
+			fort = f
+	var sd3 := RaidLogic.profile_seed(fort, 3, cfg)
+	var prof: Dictionary = ap["party_profiles"]["3"]
+	t.ok(sd3["fort"]["id"] == "pale-bastion" and sd3["fort"]["name"] == "Pale Bastion" and typeof(sd3["fort"]["tier"]) == TYPE_INT
+		and int(sd3["fort"]["tier"]) == 3 and is_equal_approx(float(sd3["fort"]["cap"]), 320.0), "fort id, name, tier (an int) and cap come from world.json")
+	t.near(float(sd3["living"]), 320.0 * float(ap["profile_living_frac"]), 1e-6, "living = cap x profile_living_frac")
+	t.near(float(sd3["dead"]), 320.0 * float(ap["profile_dead_frac"]), 1e-6, "dead = cap x profile_dead_frac")
+	t.ok(int(sd3["garrison_units"]) == int(prof["garrison_units"]) and is_equal_approx(float(sd3["garrison_in_mass"]), int(prof["garrison_units"]) * div)
+		and is_equal_approx(float(sd3["undead"]), float(sd3["garrison_in_mass"])), "garrison_in_mass = units x div, and undead matches")
+	t.ok((sd3["party"] as Array).size() == (prof["party"] as Array).size() and int(sd3["starter_units"]) == int(prof["starter_units"]), "party and starters from party_profiles[3]")
+	t.near(float(sd3["party"][0]["stats"]["beef"]), float(prof["party"][0]["stats"]["beef"]), 1e-6, "party stats are the profile's")
+	t.ok(not sd3["fort"]["first_clear"] and not sd3["fort"]["first_dungeon"] and int(sd3["phylactery_charges"]) == 0
+		and is_equal_approx(float(sd3["fort"]["yield_mult"]), 1.0), "first_* false, yield_mult 1, no phylactery charge")
+	t.ok(sd3["warden"]["archetype"] == "bellringer" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.bellringer", "warden from wardens.by_fort")
+	var hr := {}
+	for f in world["forts"]:
+		if f["id"] == "hollow-redoubt":
+			hr = f
+	t.ok(RaidLogic.profile_seed(hr, 3, cfg)["warden"]["archetype"] == "huntsman", "hollow-redoubt fields a huntsman")
+	t.ok((RaidLogic.profile_seed(fort, 9, cfg)["party"] as Array).size() == (ap["party_profiles"]["4"]["party"] as Array).size(), "a party tier above 4 clamps to 4")
+	var p1 := RaidLogic.profile_seed(fort, 1, cfg)
+	var p4 := RaidLogic.profile_seed(fort, 4, cfg)
+	t.ok((p1["party"] as Array).size() < (p4["party"] as Array).size() and int(p1["garrison_units"]) <= int(p4["garrison_units"]), "a higher tier brings more")
 
 
 func _checkpoint_tests(t: TestUtil, cfg: Dictionary) -> void:
@@ -545,6 +597,110 @@ func _writeback_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not RaidLogic.can_revive(0, sd3), "the scene's can_revive agrees: no charge, no revive")
 
 
+## The idle rules (IDLE.md I3, I5): the held-fort raid's clear, and "no run survives a close".
+func _held_clear_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_held_clear")
+	var h: Dictionary = cfg.get("held", {})
+	t.ok(float(h.get("clear_victory_s", 0.0)) >= 1.0 and float(h.get("banner_s", 0.0)) > 0.0, "raid.json held keys: clear_victory_s, banner_s")
+	# the predicate: held, not the boss, no living left, not already started
+	t.ok(RaidLogic.held_clear_due(true, false, 0, false), "held, nothing living left, not started: the clear is due")
+	t.ok(not RaidLogic.held_clear_due(true, false, 1, false), "one living left: not due")
+	t.ok(not RaidLogic.held_clear_due(false, false, 0, false), "a fort that is not held never clears this way")
+	t.ok(not RaidLogic.held_clear_due(true, true, 0, false), "the boss arena never clears this way")
+	t.ok(not RaidLogic.held_clear_due(true, false, 0, true), "once started it never fires twice")
+	# a held fort with no living at the build has no last kill: it clears after held.empty_clear_s
+	var ecs := float(h.get("empty_clear_s", -1.0))
+	t.ok(ecs > 0.0 and ecs < float(h.get("clear_victory_s", 0.0)), "raid.json held.empty_clear_s is a short positive delay: %s" % ecs)
+	t.near(RaidLogic.held_empty_clear_s(true, false, 0, cfg), ecs, 1e-6, "held, no living spawned: clears after empty_clear_s")
+	t.ok(RaidLogic.held_empty_clear_s(true, false, 3, cfg) < 0.0, "held with living: the last kill clears it, not the timer")
+	t.ok(RaidLogic.held_empty_clear_s(false, false, 0, cfg) < 0.0, "not held: no empty clear")
+	t.ok(RaidLogic.held_empty_clear_s(true, true, 0, cfg) < 0.0, "the boss arena: no empty clear")
+	t.near(RaidLogic.held_empty_clear_s(true, false, 0, {}), 1.0, 1e-6, "a config without the key falls back to 1 s")
+	t.ok(RaidLogic.held_banner("Old Sluice") == "COUNTER-GARRISON CLEARED · Old Sluice holds", "banner text: " + RaidLogic.held_banner("Old Sluice"))
+	t.ok(RaidLogic.held_banner("") == "COUNTER-GARRISON CLEARED", "no name, no 'holds'")
+	t.ok(RaidLogic.held_motes({"essence": 3}) == 3 and RaidLogic.held_motes({}) == 0 and RaidLogic.held_motes({"essence": -2}) == 0, "held_motes is the bonus count, never negative")
+
+	# merging the held-clear roll: items join found_loot, the essence bonus is spawned, not merged
+	var lcfg := TestUtil.load_json("res://configs/loot.json")
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var hc := RaidLoot.held_clear(rng, 2, 1.0, lcfg)
+	var found := {"relics": 1, "remnants": [{"aspect": "power", "rarity": "common", "magnitude": 1}]}
+	var merged := RaidLogic.merge_loot(found, hc)
+	t.ok(int(merged["relics"]) == 1 + int(hc["relics"]) and (merged["remnants"] as Array).size() == 1 + (hc["remnants"] as Array).size(),
+		"held_clear items merge into found_loot")
+	t.ok(not merged.has("essence") or int(merged["essence"]) == 0, "the held_clear essence is not merged (the motes carry it)")
+
+	t.ok(RaidLogic.held_payoff(hc) == "+%d relics · +%d remnants · +%d essence" % [int(hc["relics"]), (hc["remnants"] as Array).size(), int(hc["essence"])],
+		"payoff line counts the roll: " + RaidLogic.held_payoff(hc))
+
+	# the result of a held clear validates: retreated, loot = found + held items + carried bonus motes
+	var seed_d := RaidLogic.demo_seed(cfg)
+	var carried := int(hc["essence"]) + 2
+	var loot := RaidLogic.loot_snapshot(merged, carried)
+	for ex in ["retreated", "relish_died"]:
+		var lg := RaidLogic.LedgerV2.new(seed_d, cfg)
+		lg.on_kill(float(seed_d.get("living", 20.0)))
+		lg.on_raise(70, 3.0, 2)
+		var surv: Array = [{"role": "garrison", "tier": "chaff", "mass": float(seed_d.get("garrison_in_mass", 0.0))},
+			{"role": "raised", "tier": "chaff", "mass": 3.0}, {"role": "starter", "tier": "chaff", "mass": 0.0}]
+		var r := lg.build_result(seed_d, ex, surv, [], 0, loot if ex == "retreated" else RaidLogic.close_loot({}), cfg)
+		t.ok(Results.validate("raid", r) == [], "held clear (%s) validates: %s" % [ex, str(Results.validate("raid", r))])
+		if ex == "retreated":
+			t.ok(r["retreated"] and not r["relish_died"] and not r["warden_beaten"] and int(r["loot"]["essence"]) == carried
+				and int(r["loot"]["relics"]) == int(merged["relics"]), "held clear pays the found loot and the carried essence")
+
+	# I5, the close stand-in: loot is the last checkpoint snapshot, not what was found since
+	t.suite("raid_close_loot")
+	var banked := RaidLogic.loot_snapshot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1}]}, 2)
+	var later := RaidLogic.merge_loot(banked, {"relics": 3, "husks": [{"kind": "skeleton"}]})
+	var snap_now := RaidLogic.loot_snapshot(later, 7)
+	var cl := RaidLogic.close_loot(banked)
+	t.ok(cl == banked, "close loot equals the banked snapshot")
+	t.ok(cl != snap_now and int(cl["relics"]) == 1 and int(cl["essence"]) == 2 and (cl["husks"] as Array).is_empty(),
+		"loot found since the checkpoint is lost, even when more was found")
+	(cl["remnants"] as Array).append({"aspect": "wits", "rarity": "rare", "magnitude": 2})
+	cl["relics"] = 99
+	t.ok((banked["remnants"] as Array).size() == 1 and int(banked["relics"]) == 1, "close loot is a deep copy")
+	t.ok(RaidLogic.close_loot({}) == RaidLogic.empty_loot(), "no checkpoint yet: close loot is the empty loot shape")
+
+	# the writeback, on the real state (day1 fixture)
+	t.suite("raid_close_writeback")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("day1")["ok"], "day1 loads")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var o1 := s.cmd_begin_dungeon("old-sluice")
+	t.ok(o1["ok"], "begin_dungeon")
+	var sd: Dictionary = o1["seed"]
+	var f0 := s.view_fort("old-sluice")
+	# (a) a held-style retreat: every living killed clears the counter-garrison
+	var lg2 := RaidLogic.LedgerV2.new(sd, cfg)
+	lg2.on_kill(float(f0["living"]))
+	var hl := RaidLogic.loot_snapshot(RaidLogic.merge_loot({}, hc), int(hc["essence"]))
+	var rh := lg2.build_result(sd, "retreated", [{"role": "garrison", "tier": "chaff", "mass": float(sd["garrison_in_mass"])}], [], 0, hl, cfg)
+	t.ok(Results.validate("raid", rh) == [], "held-style retreat validates: " + str(Results.validate("raid", rh)))
+	var out := s.apply_result("raid", rh)
+	t.ok(out["ok"], "held-style retreat applies (%s)" % str(out))
+	var f1 := s.view_fort("old-sluice")
+	t.ok(float(f1["living"]) < 1e-6, "the fort's living drops to about 0 (%.4f -> %.4f)" % [float(f0["living"]), float(f1["living"])])
+	t.ok(s.run.is_empty() and s.view_relish()["state"] == "at_fort", "run closed, Relish at the fort")
+	# (b) a close-style retreat: the snapshot loot, applies ok
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var o2 := s.cmd_begin_dungeon("old-sluice")
+	t.ok(o2["ok"], "begin_dungeon again (%s)" % str(o2["reason"]))
+	var sd2: Dictionary = o2["seed"]
+	var lg3 := RaidLogic.LedgerV2.new(sd2, cfg)
+	lg3.on_kill(minf(3.0, float(s.view_fort("old-sluice")["living"])))
+	var ess_before := s.essence
+	var rc := lg3.build_result(sd2, "retreated", [{"role": "starter", "tier": "chaff", "mass": 0.0}], [], 0, RaidLogic.close_loot(banked), cfg)
+	t.ok(Results.validate("raid", rc) == [] and rc["retreated"] and not rc["relish_died"] and int(rc["loot"]["essence"]) == 2,
+		"close-style retreat validates and carries the snapshot essence")
+	out = s.apply_result("raid", rc)
+	t.ok(out["ok"], "close-style retreat applies (%s)" % str(out))
+	t.ok(s.run.is_empty() and s.view_relish()["state"] == "at_fort" and s.essence == ess_before + 2, "run closed, the snapshot's 2 essence banked")
+
+
 func _wall_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_walls")
 	var flush := LayoutLogic.merge_walls([Rect2(0, 100, 150, 30), Rect2(150, 100, 80, 30)])
@@ -600,3 +756,597 @@ func _wall_tests(t: TestUtil, cfg: Dictionary) -> void:
 			roles_ok = roles_ok and lay["roles"][ar] == "antechamber"
 	t.ok(seen > 0, "some layouts put the antechamber on a checkpoint (%d of 200)" % seen)
 	t.ok(roles_ok, "an antechamber that is also a checkpoint keeps the role \"antechamber\"")
+
+
+func _first_pile_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_first_pile")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var px := float(cfg["layout"].get("first_pile_px", 0.0))
+	var stir := float(cfg["essence"].get("stir_radius_px", 90.0))
+	t.ok(px >= 150.0 and px <= 260.0, "layout.first_pile_px is about 220 (%f)" % px)
+	var n := 0
+	var near_ok := true
+	var room_ok := true
+	var wall_ok := true
+	var ante_ok := true
+	var same_ok := true
+	var det_ok := true
+	var off_ok := true
+	var count_ok := true
+	for f in world["forts"]:
+		var id := str(f["id"])
+		var plain := RaidLogic.gen_layout(id, 1, false, cfg)
+		var lay := RaidLogic.gen_layout(id, 1, false, cfg, {"first_dungeon": true})
+		var spawn: Vector2 = lay["spawn"]
+		same_ok = same_ok and lay["spawn"] == plain["spawn"] and lay["rooms"] == plain["rooms"] and lay["walls"] == plain["walls"]
+		var piles := RaidLogic.populate_piles(id, lay, 4)
+		var base := RaidLogic.populate_piles(id, plain, 4)
+		off_ok = off_ok and base.size() == 4 and not (plain.has("first_dungeon") and bool(plain["first_dungeon"]))
+		count_ok = count_ok and piles.size() == 4
+		det_ok = det_ok and piles == RaidLogic.populate_piles(id, lay, 4)
+		var sroom := RaidLogic.room_of(lay, spawn)
+		var found := 0
+		for p in piles:
+			var d: float = (p as Vector2).distance_to(spawn)
+			if d <= px + 0.01 and d > stir and RaidLogic.room_of(lay, p) == sroom:
+				found += 1
+				for w in lay["walls"]:
+					wall_ok = wall_ok and not (w as Rect2).has_point(p)
+		near_ok = near_ok and found >= 1
+		var ar := int(lay["ante_room"])
+		if ar >= 0:
+			var room: Rect2 = (lay["rooms"] as Array)[ar]
+			var inner := room.grow(-60.0) if room.size.x > 180.0 and room.size.y > 180.0 else room.grow(-24.0)
+			ante_ok = ante_ok and inner.grow(0.001).has_point(piles[0])
+		n += 1
+		# without the flag the base placement is unchanged by a flagged call elsewhere
+		room_ok = room_ok and RaidLogic.populate_piles(id, plain, 4) == base
+	t.ok(n == 12, "all 12 forts checked at tier 1 (%d)" % n)
+	t.ok(near_ok, "first dungeon: a pile in the spawn room within first_pile_px of spawn, outside the stir radius")
+	t.ok(wall_ok, "the near-spawn pile is never inside a wall")
+	t.ok(ante_ok, "the antechamber pile is kept")
+	t.ok(same_ok, "the flag changes no layout geometry")
+	t.ok(det_ok and room_ok, "pile placement stays deterministic")
+	t.ok(off_ok, "without the flag there is no first pile bookkeeping")
+	t.ok(count_ok, "the near-spawn pile replaces one pile (count unchanged)")
+	var held := RaidLogic.gen_layout("ashgate", 1, false, cfg, {"held": true, "first_dungeon": true})
+	t.ok(RaidLogic.populate_piles("ashgate", held, 3).size() == 3, "held layout ignores the first-dungeon flag")
+
+
+func _ghost_ring_tests(t: TestUtil) -> void:
+	t.suite("raid_ghost_ring")
+	var rel := Vector2(100, 100)
+	var g := RaidLogic.ghost_ring([], rel, 300.0, 14.0)
+	t.ok(not bool(g["ok"]), "no motes: not ok")
+	g = RaidLogic.ghost_ring([Vector2(900, 900)], rel, 300.0, 14.0)
+	t.ok(not bool(g["ok"]), "all motes out of reach: not ok")
+	g = RaidLogic.ghost_ring([Vector2(150, 100)], rel, 300.0, 14.0)
+	t.ok(bool(g["ok"]) and (g["center"] as Vector2).is_equal_approx(Vector2(150, 100)), "one mote: centred on it")
+	t.near(float(g["radius"]), 14.0, 0.001, "one mote: the radius is the pad")
+	var pts: Array = [Vector2(100, 100), Vector2(200, 100), Vector2(150, 200), Vector2(1000, 1000)]
+	g = RaidLogic.ghost_ring(pts, rel, 300.0, 10.0)
+	var c := (Vector2(100, 100) + Vector2(200, 100) + Vector2(150, 200)) / 3.0
+	t.ok((g["center"] as Vector2).is_equal_approx(c), "centroid of the motes within reach only")
+	var far := maxf(maxf(c.distance_to(Vector2(100, 100)), c.distance_to(Vector2(200, 100))), c.distance_to(Vector2(150, 200)))
+	t.near(float(g["radius"]), far + 10.0, 0.001, "radius = farthest in-reach mote + pad")
+	t.ok(int(g["count"]) == 3, "count of the motes inside the ring")
+	var edge := RaidLogic.ghost_ring([Vector2(400, 100)], rel, 300.0, 5.0)
+	t.ok(bool(edge["ok"]), "a mote exactly at reach counts")
+	var typed: Array[Vector2] = [Vector2(120, 100)]
+	t.ok(bool(RaidLogic.ghost_ring(typed, rel, 300.0, 5.0)["ok"]), "accepts a typed array")
+
+
+func _unbanked_tests(t: TestUtil) -> void:
+	t.suite("raid_unbanked")
+	var banked := {"relics": 1, "blueprints": [], "husks": [{"kind": "skeleton"}], "remnants": [{"aspect": "power"}], "essence": 3}
+	var found := {"relics": 3, "blueprints": ["embalmer"], "husks": [{"kind": "skeleton"}], "remnants": [{"a": 1}, {"a": 2}, {"a": 3}]}
+	var u := RaidLogic.unbanked(found, 5, banked)
+	t.ok(int(u["relics"]) == 2 and int(u["remnants"]) == 2 and int(u["husks"]) == 0 and int(u["blueprints"]) == 1, "item counts are found minus banked")
+	t.ok(int(u["essence"]) == 2, "essence = carried - banked essence")
+	t.ok(int(u["items"]) == 5 and int(u["total"]) == 7, "items excludes essence, total includes it")
+	var z := RaidLogic.unbanked(found, 0, banked)
+	t.ok(int(z["essence"]) == 0, "essence never goes negative")
+	var all := RaidLogic.unbanked(found, 4, {})
+	t.ok(int(all["relics"]) == 3 and int(all["remnants"]) == 3 and int(all["essence"]) == 4, "an empty banked snapshot counts as zeros")
+	var none := RaidLogic.unbanked({}, 0, {})
+	t.ok(int(none["total"]) == 0, "nothing found: nothing unbanked")
+	var even := RaidLogic.unbanked({"relics": 1, "remnants": [{"a": 1}]}, 2, {"relics": 1, "remnants": [{"a": 1}], "essence": 2})
+	t.ok(int(even["total"]) == 0, "a checkpoint with nothing since leaves nothing at stake")
+	var over := RaidLogic.unbanked({"relics": 0}, 0, {"relics": 4, "essence": 9})
+	t.ok(int(over["total"]) == 0, "banked above found clamps to zero")
+	var b := RaidLogic.loot_counts(banked)
+	t.ok(int(b["relics"]) == 1 and int(b["husks"]) == 1 and int(b["remnants"]) == 1 and int(b["essence"]) == 3 and int(b["total"]) == 6, "loot_counts reads a banked snapshot")
+	t.ok(int(RaidLogic.loot_counts({})["total"]) == 0, "loot_counts of nothing is zero")
+
+
+# ----------------------------------------------------------- room-graph routing ----
+func _routing_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_routing")
+	var cc: Dictionary = cfg["combat"]
+	# the per-mover stagger is a sequence: reset_seq (the raid calls it at build) replays it, so two
+	# same-seed raids in one process stagger alike
+	RaidRoute.reset_seq()
+	var st_a: Array[float] = []
+	for i in 7:
+		st_a.append(RaidRoute.new(cc).stagger())
+	RaidRoute.new(cc)   # a stray mover between raids
+	RaidRoute.reset_seq()
+	var st_b: Array[float] = []
+	for i in 7:
+		st_b.append(RaidRoute.new(cc).stagger())
+	t.ok(st_a == st_b, "RaidRoute.reset_seq replays the stagger sequence: %s vs %s" % [str(st_a), str(st_b)])
+	t.ok(st_a[0] != st_a[1], "consecutive movers are staggered apart")
+	# a target in a doorway band of the mover's own room, hidden behind a jamb, routes via its doorstep
+	# (hollow-redoubt t3: Relish at the corner of the room-0 jamb, the room 0 -> 4 gap centre past it)
+	var hr := LayoutLogic.gen_layout("hollow-redoubt", 3, false, cfg, {"held": false, "first_dungeon": false})
+	var jam_from := Vector2(1230, 730)
+	var jam_to := Vector2(1451, 714)
+	var jr := LayoutLogic.room_of(hr, jam_from)
+	t.ok(jr >= 0 and LayoutLogic.room_of(hr, jam_to) < 0 and not LayoutLogic.line_clear(hr, jam_from, jam_to, 13.0),
+		"fixture: the mover is in a room, the target in a band, a jamb between")
+	var jw := LayoutLogic.waypoint(hr, jam_from, jam_to, 13.0, float(cc["route_door_pad_px"]))
+	t.ok(jw != jam_to and (hr["rooms"][jr] as Rect2).has_point(jw) and LayoutLogic.line_clear(hr, jw, jam_to, 13.0),
+		"a band target behind a jamb routes to the doorstep in the mover's room, clear of the jamb: %s" % str(jw))
+	t.ok(LayoutLogic.waypoint(hr, jw, jam_to, 13.0, float(cc["route_door_pad_px"])) == jam_to, "from the doorstep it goes straight in")
+	_waypoint_jamb_tests(t, cfg, hr)
+	var pad := float(cc["route_door_pad_px"])
+	# line_clear on a hand-made layout: one wall rect at x 100..130, y 0..200
+	var toy := {"inner_walls": [Rect2(100, 0, 30, 200)]}
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(50, 100), Vector2(200, 100), 0.0), "line_clear: a segment through a wall is blocked")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(50, 100), Vector2(90, 100), 0.0), "line_clear: stopping short is clear")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(50, 250), Vector2(200, 250), 0.0), "line_clear: passing below the wall is clear")
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(50, 210), Vector2(200, 210), 15.0), "line_clear: radius inflates the wall")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(90, 10), Vector2(90, 190), 6.0), "line_clear: running along a wall face outside the radius is clear")
+	t.ok(LayoutLogic.line_clear(toy, Vector2(85, 10), Vector2(85, 190), 15.5), "line_clear: a unit parked on the grown edge slides clear")
+	t.ok(not LayoutLogic.line_clear(toy, Vector2(115, 10), Vector2(115, 190), 0.0), "line_clear: a vertical segment inside the wall is blocked")
+	t.ok(LayoutLogic.line_clear({}, Vector2.ZERO, Vector2(9, 9), 5.0), "line_clear: no walls is always clear")
+
+	var world := TestUtil.load_json("res://configs/world.json")
+	var forts: Array = world["forts"]
+	var layouts := 0
+	var bad_tables := 0
+	var bad_walks := 0
+	var bad_hops := 0
+	var bad_loops := 0
+	var first_bad := {"tables": "", "hops": "", "walls": "", "loops": ""}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	# every mover size walks: chaff (8), Relish (13), a brute (15), a party big undead (20)
+	var radii: Array[float] = [8.0, 13.0, 15.0, 20.0]
+	var walks_by_r := {}
+	var cases: Array = []
+	for f in forts:
+		for tier in [1, 2, 3, 4]:
+			for held in [false, true]:
+				# the unheld layout is generated as the first dungeon (its flags ride on the same geometry)
+				cases.append({"label": "%s t%d%s" % [f["id"], tier, " held" if held else ""],
+					"lay": RaidLogic.gen_layout(str(f["id"]), tier, false, cfg, {"held": held, "first_dungeon": not held})})
+	cases.append({"label": "boss", "lay": RaidLogic.gen_layout("vei", 5, true, cfg)})
+	for c in cases:
+		var lay: Dictionary = c["lay"]
+		var label: String = c["label"]
+		layouts += 1
+		var rooms: Array = lay["rooms"]
+		var adj: Array = lay["portal_adj"]
+		var nxt: Array = lay["next_room"]
+		var portals: Dictionary = lay["portals"]
+		var n := rooms.size()
+		# tables: portals for every adjacent pair, both orders alike; next_room follows shortest paths
+		var tables_ok := true
+		for a in n:
+			for b in adj[a]:
+				var pa: Array = portals.get("%d:%d" % [a, b], [])
+				var pb: Array = portals.get("%d:%d" % [b, a], [])
+				tables_ok = tables_ok and not pa.is_empty() and pa == pb
+				for pt in pa:
+					# a gap centre sits on both rooms' boundary and is open (not inside any wall)
+					tables_ok = tables_ok and not _pt_in_walls(lay, pt)
+			for b in n:
+				var at := a
+				var hops := 0
+				while at != b and hops <= n:
+					at = int((nxt[at] as Array)[b])
+					if at < 0:
+						break
+					hops += 1
+				if a == b:
+					tables_ok = tables_ok and int((nxt[a] as Array)[b]) == -1
+				else:
+					tables_ok = tables_ok and at == b and hops == int((lay["room_hops"][a] as Array)[b])
+		if not tables_ok:
+			bad_tables += 1
+			if first_bad["tables"] == "":
+				first_bad["tables"] = label
+		# walks, per mover size: every ordered room pair, from a random inner point and from a corner,
+		# plus gap bands
+		for radius in radii:
+			var starts: Array = []   # [from, to_room]
+			for i in n:
+				var rc: Rect2 = rooms[i]
+				var inner := rc.grow(-(radius + 2.0))
+				var corners := [inner.position, inner.end, Vector2(inner.position.x, inner.end.y), Vector2(inner.end.x, inner.position.y)]
+				for j in n:
+					if i == j:
+						continue
+					var from: Vector2 = corners[rng.randi() % 4] if (i + j) % 2 == 0 else \
+						Vector2(rng.randf_range(inner.position.x, inner.end.x), rng.randf_range(inner.position.y, inner.end.y))
+					starts.append([from, j])
+			for g in lay["gaps"]:
+				for j in n:
+					# where a body this size can stand: a jamb pushes it off the raw gap centre, as the arena does
+					starts.append([_push_out(lay, (g as Rect2).get_center(), radius), j])
+			for st in starts:
+				var rc2: Rect2 = rooms[st[1]]
+				var inner2 := rc2.grow(-(radius + 2.0))
+				var to := Vector2(rng.randf_range(inner2.position.x, inner2.end.x), rng.randf_range(inner2.position.y, inner2.end.y))
+				var w := _walk(lay, st[0], to, radius, 24.0, 3 * n + 4, pad)
+				walks_by_r[radius] = int(walks_by_r.get(radius, 0)) + 1
+				if not bool(w["reached"]):
+					bad_hops += 1
+					if first_bad["hops"] == "":
+						first_bad["hops"] = "%s r=%s %s -> room %d: %s" % [label, radius, st[0], st[1], w["why"]]
+				if bool(w["crossed"]):
+					bad_walks += 1
+					if first_bad["walls"] == "":
+						first_bad["walls"] = "%s r=%s %s -> %s" % [label, radius, st[0], to]
+				if bool(w["looped"]):
+					bad_loops += 1
+					if first_bad["loops"] == "":
+						first_bad["loops"] = "%s r=%s %s -> %s" % [label, radius, st[0], to]
+	print("RAID_ROUTING layouts=%d walks_by_r=%s bad_tables=%d bad_hops=%d bad_walks=%d bad_loops=%d %s" % [layouts, str(walks_by_r), bad_tables, bad_hops, bad_walks, bad_loops, str(first_bad)])
+	t.ok(walks_by_r.size() == radii.size(), "routing: every mover size walks (%s)" % str(walks_by_r))
+	# the army's biggest body (a party big undead) reaches every room through portals it fits
+	var party_r := float(cfg["party"]["radius"])
+	var unfit: Array = []
+	for c in cases:
+		if not LayoutLogic.fits_all_rooms(c["lay"], party_r):
+			unfit.append(c["label"])
+	t.ok(unfit.is_empty(), "routing: a party big undead (r=%s) can reach every room in every layout (%s)" % [party_r, str(unfit)])
+
+	# portal widths: a T-junction's side stretch is as wide as the stretch both rooms face, and a mover
+	# routes only through the portals it fits (2r + layout.route_fit_pad_px). ashgate t2 has a ~31 px one.
+	var ag := RaidLogic.gen_layout("ashgate", 2, false, cfg, {"held": false})
+	var agn: int = (ag["rooms"] as Array).size()
+	var narrow := {"w": INF}
+	for pr in agn * agn:
+		for i in (ag["portal_ws"][pr] as Array).size():
+			if float(ag["portal_ws"][pr][i]) < float(narrow["w"]):
+				narrow = {"a": pr / agn, "b": pr % agn, "w": float(ag["portal_ws"][pr][i]), "pt": ag["portal_pts"][pr][i]}
+	var fit_pad := float(cfg["layout"]["route_fit_pad_px"])
+	var na: int = narrow.get("a", -1)
+	var nb: int = narrow.get("b", -1)
+	t.ok(na >= 0 and float(narrow["w"]) >= 2.0 * 13.0 + fit_pad and float(narrow["w"]) < 2.0 * 15.0 + fit_pad
+		and int(ag["room_hops"][na][nb]) == 1,
+		"fixture: ashgate t2's narrowest portal (%s) is a one-hop way that fits Relish (13), not a brute (15)" % str(narrow))
+	if na >= 0:
+		var pa: Vector2 = (ag["rooms"][na] as Rect2).get_center()
+		var pb: Vector2 = (ag["rooms"][nb] as Rect2).get_center()
+		var slit: Vector2 = narrow["pt"]
+		var wp8 := LayoutLogic.waypoint(ag, pa, pb, 8.0, pad)
+		var wp13 := LayoutLogic.waypoint(ag, pa, pb, 13.0, pad)
+		var wp20 := LayoutLogic.waypoint(ag, pa, pb, 20.0, pad)
+		t.ok(wp8.distance_to(slit) < 60.0 and wp13.distance_to(slit) < 60.0,
+			"small movers and Relish still take the narrow way (r=8 %s, r=13 %s, slit %s)" % [wp8, wp13, slit])
+		t.ok(wp20.distance_to(slit) > 150.0, "a party big undead goes the long way round (r=20 %s)" % wp20)
+		var d13 := LayoutLogic.route_dist(ag, pa, pb, 13.0)
+		var d20 := LayoutLogic.route_dist(ag, pa, pb, 20.0)
+		t.ok(d20 > d13 + 100.0 and d13 == LayoutLogic.route_dist(ag, pa, pb),
+			"route_dist follows the mover's size (r=13 %.0f = the base table, r=20 %.0f)" % [d13, d20])
+
+	# the per-mover cache (RaidRoute.steer, as units and Relish move): walking on its cached answers, each
+	# size gets from every room to every other at a slow and a fast pace, on the narrow-gap layout, a
+	# held layout, the T-junction layout and the boss arena
+	var steer_bad := ""
+	var steer_walks := 0
+	var srng := RandomNumberGenerator.new()
+	srng.seed = 77
+	var steer_lays := [{"label": "ashgate t2", "lay": ag}, {"label": "old-sluice t4", "lay": RaidLogic.gen_layout("old-sluice", 4, false, cfg)},
+		{"label": "vespers t2 held", "lay": RaidLogic.gen_layout("vespers", 2, false, cfg, {"held": true})},
+		{"label": "boss", "lay": RaidLogic.gen_layout("vei", 5, true, cfg)}]
+	for sl in steer_lays:
+		var slay: Dictionary = sl["lay"]
+		var srooms: Array = slay["rooms"]
+		for radius in radii:
+			for speed in [90.0, 240.0]:
+				for i in srooms.size():
+					for j in srooms.size():
+						if i == j:
+							continue
+						var a_in := (srooms[i] as Rect2).grow(-(radius + 2.0))
+						var b_in := (srooms[j] as Rect2).grow(-(radius + 2.0))
+						var from := Vector2(srng.randf_range(a_in.position.x, a_in.end.x), srng.randf_range(a_in.position.y, a_in.end.y))
+						var to := Vector2(srng.randf_range(b_in.position.x, b_in.end.x), srng.randf_range(b_in.position.y, b_in.end.y))
+						steer_walks += 1
+						var why := _steer_walk(slay, from, to, radius, speed, cc)
+						if why != "" and steer_bad == "":
+							steer_bad = "%s r=%s v=%s %s -> %s: %s" % [sl["label"], radius, speed, from, to, why]
+	t.ok(steer_bad == "", "routing: walking on RaidRoute.steer's cached answers, every size reaches every room (%d walks; %s)" % [steer_walks, steer_bad])
+	t.ok(layouts == forts.size() * 8 + 1, "routing: every fort x tier 1-4 x held/unheld, plus the boss arena (%d)" % layouts)
+	t.ok(bad_tables == 0, "routing: portals + next_room tables are consistent (%s)" % first_bad["tables"])
+	t.ok(bad_hops == 0, "routing: waypoint-following reaches the target room within 3*rooms+4 hops (%s)" % first_bad["hops"])
+	t.ok(bad_walks == 0, "routing: waypoint-following never passes through an inner wall (%s)" % first_bad["walls"])
+	t.ok(bad_loops == 0, "routing: waypoint-following never revisits a waypoint (%s)" % first_bad["loops"])
+
+	# the specific shapes: same room and clear lines go straight; an unreachable target falls back
+	var lay0 := RaidLogic.gen_layout("vespers", 3, false, cfg)
+	var r0: Array = lay0["rooms"]
+	var p0: Vector2 = (r0[0] as Rect2).get_center()
+	var q0: Vector2 = (r0[0] as Rect2).get_center() + Vector2(20, 10)
+	t.ok(LayoutLogic.waypoint(lay0, p0, q0, 12.0) == q0, "waypoint: same room is direct")
+	var far_room := -1
+	for i in r0.size():
+		if i != 0 and not LayoutLogic.line_clear(lay0, p0, (r0[i] as Rect2).get_center(), 12.0):
+			far_room = i
+			break
+	if far_room >= 0:
+		var tq: Vector2 = (r0[far_room] as Rect2).get_center()
+		var wp := LayoutLogic.waypoint(lay0, p0, tq, 12.0)
+		t.ok(wp != tq and LayoutLogic.line_clear(lay0, p0, wp, 12.0), "waypoint: a blocked line routes to a doorstep reachable in a straight line")
+	var no_route := lay0.duplicate()
+	no_route.erase("next_room")
+	t.ok(LayoutLogic.waypoint(no_route, p0, Vector2(9999, 9999), 12.0) == Vector2(9999, 9999), "waypoint: no table falls back to the target")
+	var lay_cut := lay0.duplicate()
+	lay_cut["next_room"] = [[-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1], [-1, -1, -1, -1, -1, -1]]
+	if far_room >= 0:
+		var tq2: Vector2 = (r0[far_room] as Rect2).get_center()
+		t.ok(LayoutLogic.waypoint(lay_cut, p0, tq2, 12.0) == tq2, "waypoint: unreachable falls back to the target")
+		t.ok(LayoutLogic.route_dist(lay0, p0, tq2) >= p0.distance_to(tq2), "route_dist is never shorter than the straight line")
+		t.ok(LayoutLogic.route_dist(lay_cut, p0, tq2) == INF, "route_dist: unreachable is INF")
+
+
+## The doorstep rule (LayoutLogic.waypoint: a target in a doorway band of the mover's own room, hidden
+## by a jamb) for every mover size, undead (chaff, soldier, elite), living (runner, spearman, brute), a
+## big undead and Relish, on hollow-redoubt t3's room 0 -> 4 gap. Then a mover jostled 4-12 px off the
+## doorstep with its line to the target still blocked: walking the waypoints it must close on the
+## target, never bouncing between the doorstep and the target.
+func _waypoint_jamb_tests(t: TestUtil, cfg: Dictionary, hr: Dictionary) -> void:
+	var pad := float(cfg["combat"]["route_door_pad_px"])
+	var gap := Rect2()
+	var jamb := Rect2()
+	for g in hr["gaps"]:
+		if (g as Rect2).has_point(Vector2(1451, 714)):
+			gap = g
+	for w in hr["inner_walls"]:
+		if (w as Rect2).has_point(Vector2(1300, 714)):
+			jamb = w
+	t.ok(gap.size != Vector2.ZERO and jamb.size != Vector2.ZERO and is_equal_approx(jamb.end.x, gap.position.x),
+		"fixture: the room 0 -> 4 gap and the jamb left of it")
+	var room0 := LayoutLogic.room_of(hr, Vector2(1300, 900))
+	var radii := {"chaff": float(cfg["undead"]["radius_by_tier"]["chaff"]), "soldier": float(cfg["undead"]["radius_by_tier"]["soldier"]),
+		"elite": float(cfg["undead"]["radius_by_tier"]["elite"]), "runner": float(cfg["enemies"]["runner"]["radius"]),
+		"spearman": float(cfg["enemies"]["spearman"]["radius"]), "brute": float(cfg["enemies"]["brute"]["radius"]),
+		"big": float(cfg["party"]["radius"]), "relish": float(cfg["relish"]["radius"])}
+	var bad_corner := ""
+	var bad_walk := ""
+	var walks := 0
+	for nm in radii:
+		var r: float = radii[nm]
+		# 1. pressed into the jamb's corner, the gap centre past it: the doorstep, then straight in
+		var from := Vector2(jamb.position.x - r - 0.5, jamb.end.y + 1.0)
+		var to := gap.get_center()
+		var wp := LayoutLogic.waypoint(hr, from, to, r, pad)
+		var ok := LayoutLogic.room_of(hr, from) == room0 and not LayoutLogic.line_clear(hr, from, to, r) \
+			and wp != to and (hr["rooms"][room0] as Rect2).has_point(wp) and LayoutLogic.line_clear(hr, wp, to, r) \
+			and LayoutLogic.waypoint(hr, wp, to, r, pad) == to
+		if not ok and bad_corner == "":
+			bad_corner = "%s r=%s wp=%s" % [nm, r, wp]
+		# 2. the target hugging the jamb (as close as this mover can stand), the mover jostled off the doorstep
+		var tgt := Vector2(jamb.end.x + r + 2.0, gap.get_center().y)
+		var door := LayoutLogic.waypoint(hr, Vector2(jamb.position.x - r - 0.5, jamb.end.y + 1.0), tgt, r, pad)
+		for off in [Vector2(-4, 0), Vector2(-8, 0), Vector2(-12, 0), Vector2(-6, -6), Vector2(-8, 4), Vector2(-12, 8)]:
+			var start: Vector2 = door + off
+			if LayoutLogic.line_clear(hr, start, tgt, r):
+				continue   # only the blocked case is asked about
+			walks += 1
+			var w := _jostle_walk(hr, start, tgt, door, r, pad)
+			if not w["ok"] and bad_walk == "":
+				bad_walk = "%s r=%s off=%s: %s" % [nm, r, off, w["why"]]
+	t.ok(bad_corner == "", "every mover size pressed into the jamb routes via the doorstep, then straight in (%s)" % bad_corner)
+	t.ok(walks >= radii.size(), "the jostle cases have the line blocked (%d of them)" % walks)
+	t.ok(bad_walk == "", "jostled 4-12 px off the doorstep, every size closes on the target without bouncing (%s)" % bad_walk)
+
+
+## Walk `start` toward `tgt` through the waypoints, 2 px a call, wall-pushed as the arena does. ok when
+## it gets within 2 px, with the waypoint switching from the doorstep to the target at most once and
+## never back, and never ending a call farther from the target than its start plus the doorstep detour.
+func _jostle_walk(lay: Dictionary, start: Vector2, tgt: Vector2, door: Vector2, r: float, pad: float) -> Dictionary:
+	var pos := start
+	var kinds: Array[String] = []
+	var bound := start.distance_to(door) + door.distance_to(tgt) + 0.5
+	for i in 400:
+		if pos.distance_to(tgt) <= 2.0:
+			var switches := 0
+			for k in range(1, kinds.size()):
+				if kinds[k] != kinds[k - 1]:
+					switches += 1
+			if switches > 1:
+				return {"ok": false, "why": "bounced (%d switches)" % switches}
+			return {"ok": true, "why": ""}
+		var wp := LayoutLogic.waypoint(lay, pos, tgt, r, pad)
+		var kind := "target" if wp == tgt else ("door" if wp.distance_to(door) < 0.5 else "other")
+		if kinds.is_empty() or kinds[kinds.size() - 1] != kind:
+			kinds.append(kind)
+		if kind == "other":
+			return {"ok": false, "why": "waypoint %s is neither the doorstep nor the target" % wp}
+		var d := wp - pos
+		pos = _push_out(lay, pos + d.normalized() * minf(2.0, d.length()), r)
+		if pos.distance_to(tgt) > bound:
+			return {"ok": false, "why": "lost ground at %s" % pos}
+	return {"ok": false, "why": "stuck at %s after %s" % [pos, str(kinds)]}
+
+
+func _pt_in_walls(lay: Dictionary, p: Vector2) -> bool:
+	for w in lay["inner_walls"]:
+		if (w as Rect2).has_point(p):
+			return true
+	return false
+
+
+## Follow waypoint() in straight `step` moves (re-asking every step: the worst case for jitter).
+## reached = in the target's room within `max_hops` distinct waypoints; crossed = a move ran through
+## an inner wall (sampled every ~4 px against the raw wall rect, which is 30 px thick: a body that
+## grazes a face is the wall-slide's job, a waypoint that aims through the wall is not); looped = a waypoint
+## came back after the walker moved on. Each move is followed by the arena's wall push-out, as in play.
+func _walk(lay: Dictionary, from: Vector2, to: Vector2, radius: float, step: float, max_hops: int,
+		pad: float) -> Dictionary:
+	var pos := from
+	var target_room := LayoutLogic.room_of(lay, to)
+	var seen: Array = []
+	var last := Vector2.INF
+	var out := {"reached": false, "crossed": false, "looped": false, "why": ""}
+	for i in 1200:
+		if LayoutLogic.room_of(lay, pos) == target_room:
+			out["reached"] = true
+			return out
+		var wp := LayoutLogic.waypoint(lay, pos, to, radius, pad)
+		if wp != last:
+			if seen.has(wp):
+				out["looped"] = true
+			seen.append(wp)
+			last = wp
+			if seen.size() > max_hops:
+				out["why"] = "more than %d waypoints" % max_hops
+				return out
+		var d := wp - pos
+		if d.length() < 0.5:
+			out["why"] = "stalled on its waypoint at %s" % pos
+			return out
+		var nxt := pos + d.normalized() * minf(step, d.length())
+		var n := int(ceil(pos.distance_to(nxt) / 4.0))
+		for k in range(1, n + 1):
+			var sp := pos.lerp(nxt, float(k) / float(n))
+			for wr in lay["inner_walls"]:
+				if (wr as Rect2).has_point(sp):
+					out["crossed"] = true
+		pos = _push_out(lay, nxt, radius)
+	out["why"] = "ran out of steps at %s" % pos
+	return out
+
+
+## Walk `from` toward `to` as a unit does: each 1/60 s tick ask a RaidRoute (its cache, not waypoint
+## directly), move `speed` px/s toward its answer, then the arena's wall push-out. "" when it reaches
+## the target's room within 40 s of game time, else why not.
+func _steer_walk(lay: Dictionary, from: Vector2, to: Vector2, radius: float, speed: float, cc: Dictionary) -> String:
+	var rt := RaidRoute.new(cc)
+	var target_room := LayoutLogic.room_of(lay, to)
+	var dt := 1.0 / 60.0
+	var pos := from
+	for i in 2400:
+		if LayoutLogic.room_of(lay, pos) == target_room:
+			return ""
+		var aim := rt.steer(lay, pos, to, radius, dt) - pos
+		if aim.length() < 0.5:
+			aim = to - pos
+		pos = _push_out(lay, pos + aim.normalized() * minf(speed * dt, aim.length()), radius)
+	return "stuck at %s" % pos
+
+
+## The arena's resolve_walls (raid_arena.gd), for the walker: the perimeter clamp and the push-out of inner walls.
+func _push_out(lay: Dictionary, p: Vector2, r: float) -> Vector2:
+	var size: Vector2 = lay["size"]
+	var t: float = lay["wall_t"]
+	p.x = clampf(p.x, t + r, size.x - t - r)
+	p.y = clampf(p.y, t + r, size.y - t - r)
+	for pass_i in 2:
+		for wrect in lay["inner_walls"]:
+			var g: Rect2 = (wrect as Rect2).grow(r)
+			if not g.has_point(p):
+				continue
+			var left := p.x - g.position.x
+			var right := g.end.x - p.x
+			var top := p.y - g.position.y
+			var bottom := g.end.y - p.y
+			var m := minf(minf(left, right), minf(top, bottom))
+			if m == left:
+				p.x = g.position.x
+			elif m == right:
+				p.x = g.end.x
+			elif m == top:
+				p.y = g.position.y
+			else:
+				p.y = g.end.y
+	return p
+
+
+## A window close mid-run (IDLE I5): a retreat, but an ending beat already playing stands: Relish's
+## death beat stays a death, the warden's victory beat stays the win.
+func _close_exit_tests(t: TestUtil) -> void:
+	t.suite("raid_close_exit")
+	t.ok(RaidLogic.close_exit(false, "") == "retreated", "a close mid-run is a retreat")
+	t.ok(RaidLogic.close_exit(true, "relish_died") == "relish_died", "a close during the death beat stays a death")
+	# the victory beat: on_chest_opened ends the run with warden_beaten pending
+	t.ok(RaidLogic.close_exit(true, "warden_beaten") == "warden_beaten", "a close during the victory beat stays the win")
+	t.ok(RaidLogic.close_exit(true, "") == "retreated", "ended with no beat pending is a retreat")
+	t.ok(RaidLogic.close_exit(false, "relish_died") == "retreated" and RaidLogic.close_exit(false, "warden_beaten") == "retreated",
+		"a pending exit without the run ended is not an ending beat")
+	t.ok(RaidLogic.close_exit(true, "retreated") == "retreated" and RaidLogic.close_exit(true, "bogus") == "retreated",
+		"only a death or a win is kept")
+	# the path the scene takes (each beat sets pending_exit from pending_on; close_request finishes with
+	# close_plan and build_result's result_loot): a close in each beat pays what that beat would have
+	t.ok(RaidLogic.pending_on("chest_opened") == "warden_beaten" and RaidLogic.pending_on("relish_died") == "relish_died"
+		and RaidLogic.pending_on("") == "", "pending_on: the victory beat leaves the win pending, the death beat the death")
+	var banked := RaidLogic.loot_snapshot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1}]}, 2)
+	var chest := {"relics": 2, "blueprints": ["embalmer"], "husks": [{"kind": "skeleton"}], "remnants": [], "essence": 0}
+	var found := RaidLogic.merge_loot({"relics": 1, "remnants": [{"aspect": "beef", "rarity": "common", "magnitude": 1},
+		{"aspect": "speed", "rarity": "rare", "magnitude": 2}]}, chest)   # a ding since the checkpoint, then the chest
+	var win := RaidLogic.close_plan(true, RaidLogic.pending_on("chest_opened"))
+	var win_loot := RaidLogic.result_loot(win["exit"], win["closing"], found, 5, banked)
+	t.ok(win == {"exit": "warden_beaten", "closing": false}, "close in the victory beat: finishes warden_beaten, not as a close (%s)" % str(win))
+	t.ok(win_loot == RaidLogic.result_loot("warden_beaten", false, found, 5, banked), "close in the victory beat pays what the beat's timer pays")
+	t.ok(win_loot["blueprints"] == ["embalmer"] and win_loot["husks"] == [{"kind": "skeleton"}] and int(win_loot["relics"]) == 3
+		and (win_loot["remnants"] as Array).size() == 2 and int(win_loot["essence"]) == 5,
+		"close in the victory beat: the chest's blueprint and husk, every find since the checkpoint, the carried motes (%s)" % str(win_loot))
+	var died := RaidLogic.close_plan(true, RaidLogic.pending_on("relish_died"))
+	t.ok(died == {"exit": "relish_died", "closing": false} and RaidLogic.result_loot(died["exit"], died["closing"], found, 5, banked) == banked,
+		"close in the death beat: relish_died with the checkpoint snapshot (%s)" % str(died))
+	var mid := RaidLogic.close_plan(false, "")
+	var mid_loot := RaidLogic.result_loot(mid["exit"], mid["closing"], found, 5, banked)
+	t.ok(mid == {"exit": "retreated", "closing": true} and mid_loot == banked and (mid_loot["blueprints"] as Array).is_empty(),
+		"close mid-run: a retreat paying the checkpoint snapshot, nothing found since (%s)" % str(mid_loot))
+	t.ok(RaidLogic.result_loot("retreated", false, {}, 0, {}) == RaidLogic.empty_loot(), "result_loot of nothing is the empty loot shape")
+
+
+## The undead's warden pick is walking distance (LayoutLogic.walk_within, as the enemy leash): an undead
+## in a room that shares only a sealed wall with the warden room, within ally_engage_px of the warden in
+## a straight line but farther than that on foot, does not drop its fight to walk the long way round.
+func _warden_reach_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_warden_reach")
+	var reach := 620.0   # raid.gd ally_engage_px
+	var r := float(cfg["undead"]["radius_by_tier"]["soldier"])
+	var world := TestUtil.load_json("res://configs/world.json")
+	var fx := {}
+	for f in world["forts"]:
+		var lay := RaidLogic.gen_layout(str(f["id"]), int(f["tier"]), false, cfg, {"held": false})
+		var w := int(lay.get("warden_room", -1))
+		if w < 0:
+			continue
+		var rooms: Array = lay["rooms"]
+		var n := rooms.size()
+		var wc: Vector2 = (rooms[w] as Rect2).get_center()
+		for i in n:
+			if i == w or not (lay["portal_pts"][i * n + w] as Array).is_empty():
+				continue   # the warden room itself, or a room with a doorway into it
+			# the point of room i nearest the warden, a body's width in from its walls
+			var inner := (rooms[i] as Rect2).grow(-(r + 2.0))
+			var p := Vector2(clampf(wc.x, inner.position.x, inner.end.x), clampf(wc.y, inner.position.y, inner.end.y))
+			if p.distance_to(wc) < reach and LayoutLogic.route_dist(lay, p, wc, r) > reach:
+				fx = {"label": "%s t%d room %d" % [f["id"], f["tier"], i], "lay": lay, "p": p, "wc": wc, "w": w}
+				break
+		if not fx.is_empty():
+			break
+	t.ok(not fx.is_empty(), "fixture: a room behind a sealed wall from the warden, in straight reach but not on foot (%s)" % fx.get("label", "none"))
+	if fx.is_empty():
+		return
+	var lay2: Dictionary = fx["lay"]
+	var p2: Vector2 = fx["p"]
+	var wc2: Vector2 = fx["wc"]
+	t.ok(not LayoutLogic.walk_within(lay2, p2, wc2, reach, r),
+		"behind a sealed wall: not in reach (straight %.0f, on foot %.0f)" % [p2.distance_to(wc2), LayoutLogic.route_dist(lay2, p2, wc2, r)])
+	# RaidWardenRun.target_in is this one call: the undead's warden pick
+	t.ok(p2.distance_to(wc2) < reach and not RaidLogic.warden_in_reach(lay2, p2, wc2, reach, r),
+		"the warden pick: behind a sealed wall, in straight reach (%.0f) but not on foot, is no target" % p2.distance_to(wc2))
+	var inside := wc2 + Vector2(40, 0)
+	t.ok(LayoutLogic.walk_within(lay2, inside, wc2, reach, r) and RaidLogic.warden_in_reach(lay2, inside, wc2, reach, r),
+		"in the warden room: in reach")
+	t.ok(not LayoutLogic.walk_within(lay2, inside, wc2, 30.0, r) and not RaidLogic.warden_in_reach(lay2, inside, wc2, 30.0, r),
+		"the reach still bounds it")
