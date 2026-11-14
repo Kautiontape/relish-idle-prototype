@@ -4224,102 +4224,8 @@ func _fix3a_reserve(day1: Dictionary) -> void:
 
 
 # ------------------------------------------------------- sound and set pieces ----
-## A render of `spec` as one voice at 22050 Hz, whole, as an array of samples.
-func _voice_samples(spec: Dictionary, rate := 22050.0) -> PackedFloat32Array:
-	var v := TownSound.voice(spec)
-	var total := int(ceil((float(spec.get("delay", 0.0)) + float(spec["dur"]) + 0.05) * rate))
-	return TownSound.render(v, total, rate)
-
-
-## Upward zero crossings per second over samples [a, b).
-func _zc_hz(s: PackedFloat32Array, a: int, b: int, rate: float) -> float:
-	var n := 0
-	for i in range(maxi(a, 1), b):
-		if s[i - 1] < 0.0 and s[i] >= 0.0:
-			n += 1
-	return float(n) / (float(b - a) / rate)
-
-
 func _sound_math() -> void:
 	t.suite("town-sound")
-	# the envelope: attack up, hold, release down, nothing outside the voice
-	t.near(TownSound.env(0.0, 1.0, 0.1, 0.2), 0.0, 1e-6, "env: starts at 0")
-	t.near(TownSound.env(0.05, 1.0, 0.1, 0.2), 0.5, 1e-6, "env: half-way up the attack is 0.5")
-	t.near(TownSound.env(0.5, 1.0, 0.1, 0.2), 1.0, 1e-6, "env: holds at 1")
-	t.near(TownSound.env(0.9, 1.0, 0.1, 0.2), 0.5, 1e-6, "env: half-way down the release is 0.5")
-	t.near(TownSound.env(1.0, 1.0, 0.1, 0.2), 0.0, 1e-6, "env: ends at 0")
-	t.ok(TownSound.env(-0.1, 1.0, 0.1, 0.2) == 0.0 and TownSound.env(1.5, 1.0, 0.1, 0.2) == 0.0, "env: silent outside [0, dur]")
-	t.near(TownSound.env(0.3, 1.0, 0.0, 0.0), 1.0, 1e-6, "env: no attack or release is a plain gate")
-	# the sweep: phase is the integral of frequency (a sin(2 pi f(t) t) would double the sweep)
-	var f0 := 110.0
-	var f1 := 880.0
-	var dur := 1.0
-	t.near(TownSound.sweep_freq(0.0, f0, f1), f0, 1e-6, "sweep: starts at f0")
-	t.near(TownSound.sweep_freq(1.0, f0, f1), f1, 1e-6, "sweep: ends at f1")
-	t.near(TownSound.sweep_freq(0.5, f0, f1), sqrt(f0 * f1), 1e-3, "sweep: exponential, the middle is the geometric mean")
-	t.near(TownSound.sweep_phase(0.0, dur, f0, f1), 0.0, 1e-9, "sweep phase: zero at the start")
-	var ok := true
-	for tt in [0.1, 0.4, 0.8, 0.99]:
-		var h := 1e-5
-		var d := (TownSound.sweep_phase(tt + h, dur, f0, f1) - TownSound.sweep_phase(tt - h, dur, f0, f1)) / (2.0 * h) / TAU
-		ok = ok and absf(d - TownSound.sweep_freq(tt / dur, f0, f1)) < 0.5
-	t.ok(ok, "sweep phase: its derivative is the instantaneous frequency (the integral, not f(t)*t)")
-	t.near(TownSound.sweep_phase(0.5, dur, 200.0, 200.0), TAU * 100.0, 1e-6, "sweep phase: f0 == f1 is a steady tone")
-	# the generated samples
-	var raw := {"wave": "sine", "f0": 100.0, "f1": 800.0, "dur": 1.0, "attack": 0.0, "release": 0.0, "gain": 1.0, "grit": 0.0}
-	var smp := _voice_samples(raw)
-	var hz_a := _zc_hz(smp, 2205, 4410, 22050.0)
-	var hz_b := _zc_hz(smp, 17640, 19845, 22050.0)
-	t.ok(hz_a > 100.0 and hz_a < 220.0, "render: the sweep starts low (%.0f Hz in the first 0.1-0.2 s)" % hz_a)
-	t.ok(hz_b > 500.0 and hz_b < 820.0, "render: and ends near f1 (%.0f Hz at 0.8-0.9 s)" % hz_b)
-	t.ok(smp.size() > 0 and absf(smp[smp.size() - 1]) < 1e-6, "render: ends in silence")
-	var peak := 0.0
-	var finite := true
-	for x in smp:
-		peak = maxf(peak, absf(x))
-		finite = finite and is_finite(x)
-	t.ok(finite and peak > 0.5 and peak <= 1.0 + 1e-6, "render: finite, filled, and no louder than its gain (%.2f)" % peak)
-	var again := _voice_samples(raw)
-	t.ok(again == smp, "render: the same voice renders the same samples")
-	# chunked rendering equals whole rendering (the synth fills the buffer a few frames at a time)
-	var v := TownSound.voice(raw)
-	var chunked := PackedFloat32Array()
-	var total := smp.size()
-	while chunked.size() < total:
-		chunked.append_array(TownSound.render(v, mini(317, total - chunked.size()), 22050.0))
-	var same := chunked.size() == total
-	for i in mini(chunked.size(), total):
-		same = same and absf(chunked[i] - smp[i]) < 1e-5
-	t.ok(same, "render: chunk by chunk is the same as in one go")
-	t.ok(bool(v["done"]) or TownSound.render(v, 4, 22050.0).size() == 4, "render: a voice past its end keeps answering with silence")
-	# grit: noise on top of the tone, seeded, bounded
-	var gritty := raw.duplicate()
-	gritty["grit"] = 0.6
-	var gs := _voice_samples(gritty)
-	var diff := 0.0
-	for i in mini(gs.size(), smp.size()):
-		diff += absf(gs[i] - smp[i])
-	t.ok(diff > 1.0, "render: grit changes the samples")
-	var gpeak := 0.0
-	for x in gs:
-		gpeak = maxf(gpeak, absf(x))
-	t.ok(gpeak <= 1.0 + 1e-6, "render: gritty samples stay within gain")
-	var ns := 0.0
-	var nmax := 0.0
-	for i in 2000:
-		var x := TownSound.noise(i, 7)
-		ns += x
-		nmax = maxf(nmax, absf(x))
-	t.ok(nmax <= 1.0 and absf(ns / 2000.0) < 0.1, "noise: bounded and centred")
-	t.ok(TownSound.noise(5, 1) == TownSound.noise(5, 1) and TownSound.noise(5, 1) != TownSound.noise(5, 2), "noise: deterministic per index and seed")
-	# a delayed voice is silent until its delay passes
-	var dl := raw.duplicate()
-	dl["delay"] = 0.2
-	var ds := _voice_samples(dl)
-	var lead := 0.0
-	for i in int(0.19 * 22050.0):
-		lead = maxf(lead, absf(ds[i]))
-	t.ok(lead == 0.0 and ds.size() > int(0.3 * 22050.0), "render: a delayed voice stays silent for its delay")
 	# the rate limiter: sparse whatever the arc rate
 	var last := -1.0
 	var fired := 0
@@ -4336,47 +4242,30 @@ func _sound_math() -> void:
 	t.ok(TownSound.beat_index(0.0, 1714.0) == 0 and TownSound.beat_index(1713.0, 1714.0) == 0 and TownSound.beat_index(1714.0, 1714.0) == 1,
 		"beat: the index steps once per tempo")
 	t.ok(TownSound.beat_index(100.0, 0.0) == 0, "beat: a zero tempo never divides")
-	# the voice pool steals its oldest when full
-	var pool: Array = []
-	for i in 4:
-		TownSound.add_voice(pool, {"id": i, "done": false}, 3)
-	t.ok(pool.size() == 3 and pool[0]["id"] == 1 and pool[2]["id"] == 3, "pool: capped, the oldest voice is stolen")
-	var mixed := TownSound.mix([TownSound.voice(raw), TownSound.voice(raw)], 1000, 22050.0)
-	var mmax := 0.0
-	for x in mixed:
-		mmax = maxf(mmax, absf(x))
-	t.ok(mmax <= 1.0, "mix: two full-gain voices still clip no louder than 1")
+	# event -> kind
+	var s: Dictionary = cfg["town"].get("sound", {})
+	t.ok(TownSound.kind_for(s, "tier_up") == "horn" and TownSound.kind_for(s, "nope") == "", "kind_for: the configured kind, \"\" for an unmapped event")
+	t.ok(TownSound.kind_for({}, "tier_up") == "", "kind_for: no sound block, no kind")
 
 
 func _sound_cfg() -> void:
 	var s: Dictionary = cfg["town"].get("sound", {})
 	t.ok(not s.is_empty(), "town.json has a sound block")
-	t.ok(bool(s.get("mute", false)) == true, "sound.mute defaults to true: nothing is heard until Shawn asks")
+	t.ok(not s.has("mute") and not s.has("volume_db"), "sound has no mute or volume of its own: the Synth owns them (AudioPrefs, M)")
+	var kinds: Dictionary = s.get("kinds", {})
 	var missing: Array = []
-	for k in ["mute", "volume_db", "mix_rate", "voices", "trade_min_gap_s", "beat_gain", "buffer_s", "tier_up", "raise_grow",
-			"raise_done", "trade_blip", "beat"]:
-		if not s.has(k):
-			missing.append(k)
-	t.ok(missing.is_empty(), "sound block has every key the synth reads: missing %s" % str(missing))
+	for e in ["tier_up", "raise_hold", "raise_grow", "raise_done", "trade_blip", "beat"]:
+		if not kinds.has(e):
+			missing.append(e)
+	t.ok(missing.is_empty(), "sound.kinds maps every town event: missing %s" % str(missing))
 	var bad: Array = []
-	for k in ["tier_up", "raise_grow", "raise_done", "trade_blip", "beat"]:
-		var specs: Array = s.get(k, []) if s.get(k) is Array else [s.get(k, {})]
-		if specs.is_empty():
-			bad.append(k)
-		for sp in specs:
-			for f in ["wave", "f0", "f1", "dur", "attack", "release", "gain", "grit"]:
-				if not (sp as Dictionary).has(f):
-					bad.append("%s.%s" % [k, f])
-			if float((sp as Dictionary).get("gain", 2.0)) > 1.0 or float((sp as Dictionary).get("dur", 0.0)) <= 0.0:
-				bad.append("%s range" % k)
-	t.ok(bad.is_empty(), "every voice spec is complete, gain <= 1, dur > 0: %s" % str(bad))
+	var synth_cfg: Dictionary = TestUtil.load_json("res://configs/synth.json")
+	for e in kinds:
+		if not SynthLogic.KINDS.has(kinds[e]) or not (synth_cfg["kinds"] as Dictionary).has(kinds[e]):
+			bad.append("%s -> %s" % [e, kinds[e]])
+	t.ok(bad.is_empty(), "every mapped kind is one the shared Synth renders: %s" % str(bad))
 	t.ok(float(s.get("trade_min_gap_s", 0.0)) >= 1.0, "trade blips are at least a second apart")
-	t.ok(float(s.get("beat_gain", 1.0)) <= 0.1, "the beat pulse is very quiet")
-	t.ok(float(s.get("volume_db", 0.0)) <= 0.0, "the volume setting never boosts above 0 dB")
-	var grow: Variant = s.get("raise_grow")
-	var gd: Dictionary = (grow as Dictionary) if grow is Dictionary else {}
-	t.ok(float(gd.get("f1", 0.0)) > float(gd.get("f0", 1.0)) and float(gd.get("dur", 0.0)) >= 0.8 and float(gd.get("dur", 9.0)) <= 1.5,
-		"raise_grow is a rising sweep of about a second")
+	t.ok(float(synth_cfg["kinds"][kinds.get("beat", "pulse")]["gain_db"]) <= -20.0, "the beat's kind is very quiet (gain_db <= -20)")
 	for k in ["walkout", "raise_echo"]:
 		t.ok(vcfg.has(k), "view.%s exists" % k)
 	var w: Dictionary = vcfg.get("walkout", {})

@@ -27,24 +27,9 @@
   ],
 
   "sound": {
-    "_doc": "Town sound (TownSynth). mute defaults to true: nothing is heard until Shawn asks; M toggles it in a session. Every voice: wave, f0 -> f1 Hz (exponential sweep), dur/attack/release s, gain 0..1, grit 0..1 (noise mixed in), delay s. beat_gain scales the beat voice's gain.",
-    "mute": true,
-    "volume_db": -8.0,
-    "mix_rate": 22050,
-    "buffer_s": 0.25,
-    "voices": 8,
+    "_doc": "Town sound through the shared Synth (scripts/fx/synth.gd). kinds maps a town event to a Synth kind (configs/synth.json): tier_up = the walls start drawing; raise_hold = the crypt hold began (the absorb, it cannot be cut on release); raise_grow = the hold completed and the rings start to bend onto the outline; raise_done = the collapse landed; trade_blip = a sale's arc (at most one per trade_min_gap_s); beat = each Pulse beat (skipped while muted). Mute and volume are the Synth's (AudioPrefs, M).",
     "trade_min_gap_s": 1.5,
-    "beat_gain": 0.04,
-    "tier_up": [
-      {"wave": "sine", "f0": 196.0, "f1": 196.0, "dur": 1.3, "attack": 0.02, "release": 0.9, "gain": 0.3, "grit": 0.0, "delay": 0.0},
-      {"wave": "sine", "f0": 294.0, "f1": 294.0, "dur": 1.3, "attack": 0.02, "release": 0.9, "gain": 0.3, "grit": 0.0, "delay": 0.25},
-      {"wave": "sine", "f0": 392.0, "f1": 392.0, "dur": 1.5, "attack": 0.02, "release": 1.1, "gain": 0.3, "grit": 0.0, "delay": 0.5},
-      {"wave": "square", "f0": 98.0, "f1": 98.0, "dur": 2.4, "attack": 0.1, "release": 1.6, "gain": 0.12, "grit": 0.0, "delay": 0.0}
-    ],
-    "raise_grow": {"wave": "saw", "f0": 70.0, "f1": 520.0, "dur": 1.1, "attack": 0.08, "release": 0.25, "gain": 0.5, "grit": 0.35},
-    "raise_done": {"wave": "sine", "f0": 120.0, "f1": 45.0, "dur": 0.5, "attack": 0.003, "release": 0.35, "gain": 0.8, "grit": 0.05},
-    "trade_blip": {"wave": "sine", "f0": 1320.0, "f1": 1760.0, "dur": 0.08, "attack": 0.004, "release": 0.05, "gain": 0.25, "grit": 0.0},
-    "beat": {"wave": "sine", "f0": 55.0, "f1": 48.0, "dur": 0.22, "attack": 0.01, "release": 0.15, "gain": 1.0, "grit": 0.0}
+    "kinds": {"tier_up": "horn", "raise_hold": "absorb", "raise_grow": "raise", "raise_done": "slam", "trade_blip": "tell", "beat": "pulse"}
   },
 
   "view": {

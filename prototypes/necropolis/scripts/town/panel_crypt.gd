@@ -16,7 +16,7 @@ extends VBoxContainer
 ## panel says the raise lands with E2/E3.
 
 signal command_issued
-## Sound and set-piece hooks for the shell (TownSynth, the town view's slab echo): the hold began, was let
+## Sound and set-piece hooks for the shell (the Synth kinds, the town view's slab echo): the hold began, was let
 ## go early, the raise was kept (the collapse starts), the rings landed on the creature's outline.
 signal hold_started
 signal hold_stopped

@@ -36,17 +36,17 @@ var _fort_names := {}  # fort id -> name, read once from view_realm (the Build t
 ## before the first bind an autoplayer builds what the Build tab suggests, on the real TownSim, and
 ## skips sim time in view.grow_chunk_s steps until the target passes. `--town-grow-log` prints a line
 ## per chunk. `--town-zoom=<cx>,<cy>,<scale>` scales the town view's content about a point.
-## Sound (TownSynth, a stand-in for the map unit's fx synth): created here, muted by town.json
-## `sound.mute` (true) until M is pressed. Fed by the town view's sfx signal, the crypt tab's raise
-## signals, the tier_up event and Pulse's beat.
-var _synth: TownSynth
+## Sound: one shared Synth child (scripts/fx/synth.gd), which owns mute and volume (AudioPrefs; M;
+## harness sessions start muted). town.json `sound.kinds` maps each town event to a Synth kind. Fed by
+## the town view's sfx signal, the crypt tab's raise signals and Pulse's beat.
+var _synth: Synth
 var _beat_i := -1
+var _last_trade := -1.0  # seconds of the last trade blip that sounded (the limiter)
 ## Debug-only set-piece drivers (debug builds only): `--town-raise[=<lot>]` auto-holds and keeps the
 ## raise on the crypt tab (needs `--town-tab=crypt --town-slab=...`); once the rings have landed it
 ## stands in for the E3 raise (which mints nothing yet) by granting one big undead and placing it at
 ## <lot> with the real cmd_place_big_undead, so the walk-out is driven by the real view change.
 ## `--town-place=<uid>:<lot>` places an existing big undead the same way, after demo_raise.place_delay_s.
-## `--town-sound-check` runs the synth's Dummy-driver self-test and prints what each voice pushed.
 var _raise_lot := ""
 var _log_set := false  # prints frame numbers of the set-piece beats
 var _frame := 0
@@ -241,10 +241,14 @@ func _build_ui() -> void:
 	var cfg: Dictionary = ConfigDb.v("town", "view", {})
 	_refresh_s = float(cfg.get("refresh_s", 0.25))
 	_read_demo_flag()
-	_synth = TownSynth.new()
+	_synth = Synth.new()
 	_synth.name = "Synth"
 	add_child(_synth)
-	_synth.setup(ConfigDb.v("town", "sound", {}))
+	var kinds: Array = []
+	for k in (ConfigDb.v("town", "sound", {}).get("kinds", {}) as Dictionary).values():
+		if not kinds.has(k):
+			kinds.append(k)
+	_synth.warm(kinds)
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.add_theme_constant_override("separation", 0)
@@ -310,8 +314,7 @@ func _build_ui() -> void:
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_view.sfx.connect(_on_sfx)
 	var crypt: Control = _panels[4]
-	crypt.hold_started.connect(_synth.raise_grow)
-	crypt.hold_stopped.connect(_synth.raise_grow_stop)
+	crypt.hold_started.connect(_play.bind("raise_hold"))
 	crypt.raise_started.connect(_on_raise_started)
 	crypt.raise_landed.connect(_on_raise_landed)
 	_select_tab(_debug_tab())
@@ -360,11 +363,14 @@ func _process(delta: float) -> void:
 	if _log_set and _view.agents != null and _view.agents.walkers.size() != _walkers_n:
 		_walkers_n = _view.agents.walkers.size()
 		print("TOWNSET walkers=%d frame=%d" % [_walkers_n, _frame])
-	var bi := TownSound.beat_index(Pulse.now_ms(), Pulse.tempo_ms)  # by clock: it steps under reduced motion too
-	if bi != _beat_i:
-		if _beat_i >= 0:
-			_synth.beat()
-		_beat_i = bi
+	if _synth.is_muted():
+		_beat_i = -1  # no beat is computed while muted, and none sounds on the unmute frame
+	else:
+		var bi := TownSound.beat_index(Pulse.now_ms(), Pulse.tempo_ms)  # by clock: it steps under reduced motion too
+		if bi != _beat_i:
+			if _beat_i >= 0:
+				_play("beat")
+			_beat_i = bi
 	_since_fetch += delta
 	if _dirty or (Game.state.rev != _last_rev and _since_fetch >= _refresh_s):
 		_fetch()
@@ -413,33 +419,33 @@ func _on_game_event(ev: Dictionary) -> void:
 			n.on_game_event(ev)
 
 
-## M toggles the sound (it starts muted), unless a text field has the keys.
-func _input(event: InputEvent) -> void:
-	var k := event as InputEventKey
-	if k == null or not k.pressed or k.echo or k.keycode != KEY_M or not _setup_done:
-		return
-	if get_viewport().gui_get_focus_owner() is LineEdit:
-		return
-	var off := _synth.toggle_mute()
-	print("Covington: sound ", "off" if off else "on", " (M)")
+## Plays the Synth kind town.json `sound.kinds` gives `event` (nothing when it has none).
+func _play(event: String) -> void:
+	var kind := TownSound.kind_for(ConfigDb.v("town", "sound", {}), event)
+	if kind != "":
+		_synth.play(kind)
 
 
 func _on_sfx(id: String) -> void:
 	match id:
 		"tier_up":
-			_synth.tier_up()
+			_play("tier_up")
 		"trade":
-			_synth.trade_blip()
+			var now := float(Time.get_ticks_msec()) * 0.001
+			if TownSound.allow(now, _last_trade, float(ConfigDb.v("town", "sound", {}).get("trade_min_gap_s", 0.0))):
+				_last_trade = now
+				_play("trade_blip")
 
 
 func _on_raise_started() -> void:
 	_view.echo_raise()
+	_play("raise_grow")
 	if _log_set:
 		print("TOWNSET raise_started frame=%d" % _frame)
 
 
 func _on_raise_landed() -> void:
-	_synth.raise_done()
+	_play("raise_done")
 	if _log_set:
 		print("TOWNSET raise_landed frame=%d" % _frame)
 	if _raise_lot != "":
@@ -468,8 +474,6 @@ func _debug_set_pieces() -> void:
 			if parts.size() == 2:
 				get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(
 					_debug_place.bind(parts[0], parts[1]))
-		elif a == "--town-sound-check":
-			_sound_check.call_deferred()
 
 
 ## A building with no foreman, other than the crypt, for the demo raise's walk-out.
@@ -502,12 +506,6 @@ func _debug_place(uid: String, lot: String) -> void:
 	_dirty = true
 	if _log_set:
 		print("TOWNSET place %s -> %s ok=%s %s frame=%d" % [uid, lot, str(r.get("ok", false)), str(r.get("reason", "")), _frame])
-
-
-## `--town-sound-check`: the synth's self-test (Dummy audio driver only), printed.
-func _sound_check() -> void:
-	var r: Dictionary = await _synth.selftest(3.0)
-	print("SOUNDCHECK ", JSON.stringify(r))
 
 
 func _on_return() -> void:
