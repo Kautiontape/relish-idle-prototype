@@ -48,8 +48,9 @@ extends RefCounted
 ## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
 ## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
 ## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
-## stood), `army_at_death_minus5` and `unstick` (the unstick watch: aims pulled inside a room, targets given
-## up). See NOTES-RAID "Run length and risk calibration".
+## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing)
+## and `unstick` (the unstick watch: aims pulled inside a room, targets given up). See NOTES-RAID "Run
+## length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
@@ -117,6 +118,7 @@ var _rooms_entered := 0         # room changes (_track_room): decision points fo
 var _frames0 := [0, 0]          # the process and physics frame counters at start()
 var _living_start := 0          # living on the field when the run starts
 var _army_zero_t := -1.0        # first scene time no undead stood (-1: never)
+var _army_zero_s := 0.0         # scene seconds with no undead standing, after the warden woke
 var _army_log: Array = []       # [t, undead standing] every half second (the death fields)
 var _pack := {}                 # the warden's pack counts (a warden with a pack only), read like _shield / _pyre
 var _det := {}                  # the guarded detour's site (RaidLogic.detour_site); {} on a fort without one
@@ -248,15 +250,17 @@ func _split_tick(delta: float) -> void:
 	var tr: RaidTrance = _raid.trance
 	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
 	_split[k] = float(_split[k]) + delta
-	_watch_army()
+	_watch_army(delta)
 	_walk_px += moved
 	if k == "travel":
 		_walk_travel_px += moved
 
 
 ## The death fields: the first tick no undead stood, and a half-second log of how many did.
-func _watch_army() -> void:
+func _watch_army(delta: float) -> void:
 	var n := _allies_alive()
+	if n == 0 and _wake_s >= 0.0:
+		_army_zero_s += delta
 	if n == 0 and _army_zero_t < 0.0:
 		_army_zero_t = _sim_t
 	if _army_log.is_empty() or _sim_t - float(_army_log[_army_log.size() - 1][0]) >= 0.5:
@@ -422,6 +426,7 @@ func on_finish(result: Dictionary) -> void:
 	out["killed_by"] = (src if src != "" else "wound") if died else ""
 	out["death_t"] = snappedf(_sim_t, 0.01) if died else -1.0
 	out["army_zero_t"] = snappedf(_army_zero_t, 0.01)
+	out["army_zero_s"] = snappedf(_army_zero_s, 0.01)
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
