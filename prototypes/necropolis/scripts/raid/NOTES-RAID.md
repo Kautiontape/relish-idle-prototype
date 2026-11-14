@@ -380,24 +380,26 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
   - `k`, 0-0.4 s per warden tell (`warden_attacks`): the pause or step a player makes on a tell that the bot makes in its own scene time anyway (low 0), or the beat a player loses re-aiming after it (high).
   - Not in it: retried circles (the 1 s lockout and a redraw; part of the high end), and the warden fight's own hesitation (the reaction model above covers its risk, not its time).
   - Factor (t2-t4 pooled, median per run): **1.18-1.65**. Human estimate per tier (median per run): P1 137-194 s (2.3-3.2 min), t1 2.1-3.0 min, t2 2.4-3.4 min, t3 2.0-2.6 min, t4 2.5-3.4 min. Per warden at tier: Bellringer 3.1-4.3, Shieldwall 2.6-3.7, Pyre-priest 2.1-2.5, Huntsman 1.6-2.3 min. So at f77f8a9 tiers 2-4 land below or at the bottom of the 3-6 min target, and only the Bellringer's forts reach it.
-- **Baseline** (iter `base`: a `git archive` of 4a89a8d, i.e. the review fixes at 548098e plus the reaction rule; the pilot's set: score 70, seeds 1-3, every fort at its tier with its tier's party, plus the first dungeon by `--raid-fixture=day1,old-sluice`; rows in the run's `reports/dungeon/calibration-dd-raw.tsv`). **This is today's split**: Steps 3-4 may not raise a tier's travel or idle share above it.
-  - All 41 runs are in lockstep. Two outliers, each re-run byte-identical, are kept out: vespers seed 2 (287 s) and chime-fort seed 2 (236 s).
-  - 0.80 of the warden tells were answered (281 of 351 at t2-t4). There were no deaths at t2-t4, but Relish ended four runs at 1-5 hp.
+- **Baseline** (iter `base`: a `git archive` of 5b70259, i.e. the review fixes at 548098e plus the reaction rule as frozen; the pilot's set: score 70, seeds 1-3, every fort at its tier with its tier's party, plus the first dungeon by `--raid-fixture=day1,old-sluice`; rows in the run's `reports/dungeon/calibration-dd-raw.tsv`; the rows of a first baseline at 4a89a8d, before the kite fix, are kept there as `base-4a89a8d`). **This is today's split**: Steps 3-4 may not raise a tier's travel or idle share above it.
+  - All 41 runs are in lockstep. Two outliers, each re-run byte-identical, are kept out: chime-fort seed 2 (282 s) and sable-hold seed 2 (338 s).
+  - 0.80 of the warden tells were answered (264 of 328 at t2-t4). There were no deaths at t2-t4, but Relish ended runs at 3-14 hp.
   - Medians in scene seconds; "walk in fight" is the median `walk_px - walk_travel_px`; the pilot's value is in brackets:
 
   | row | runs | median s | travel / fight / trance / idle % | walk in fight px | beaten | died (killed by) |
   |---|---|---|---|---|---|---|
-  | P1 first dungeon | 3 | 90 (115) | 3 / 87 / 0 / 10 (3 / 89 / 0 / 8) | 4100 (948) | 3 | 0 |
-  | t1 | 9 | 112 (106) | 3 / 93 / 0 / 4 (4 / 93 / 0 / 3) | 4128 | 7 | 2 (living, at 12 s and 21 s) |
-  | t2 | 7 | 104 (124) | 5 / 90 / 0 / 5 (5 / 91 / 0 / 4) | 5748 (2988) | 7 | 0 |
-  | t3 | 9 | 105 (104) | 9 / 82 / 0 / 9 (9 / 83 / 0 / 7) | 6920 (9506) | 9 | 0 |
-  | t4 | 9 | 149 (126) | 11 / 85 / 0 / 4 (12 / 83 / 0 / 5) | 10955 (8944) | 9 | 0 |
-  | Bellringer at tier | 8 | 126 (156) | 5 / 93 / 0 / 2 | 6415 | 8 | 0 |
-  | Huntsman at tier | 5 | 78 (82) | 13 / 68 / 0 / 19 | 6844 | 5 | 0 |
-  | Shieldwall at tier | 6 | 111 (134) | 11 / 81 / 0 / 8 | 12758 | 6 | 0 |
-  | Pyre-priest at tier | 6 | 110 (113) | 10 / 88 / 0 / 2 | 6684 | 6 | 0 |
+  | P1 first dungeon | 3 | 98 (115) | 3 / 88 / 0 / 9 (3 / 89 / 0 / 8) | 4100 (948) | 3 | 0 |
+  | t1 | 9 | 103 (106) | 3 / 93 / 0 / 3 (4 / 93 / 0 / 3) | 3968 | 7 | 2 (living, at 12 s and 17 s) |
+  | t2 | 8 | 103 (124) | 4 / 91 / 0 / 5 (5 / 91 / 0 / 4) | 5710 (2988) | 8 | 0 |
+  | t3 | 9 | 121 (104) | 9 / 82 / 0 / 9 (9 / 83 / 0 / 7) | 10812 (9506) | 9 | 0 |
+  | t4 | 8 | 125 (126) | 15 / 80 / 0 / 5 (12 / 83 / 0 / 5) | 9524 (8944) | 8 | 0 |
+  | Bellringer at tier | 8 | 124 (156) | 4 / 94 / 0 / 2 | 5942 | 8 | 0 |
+  | Huntsman at tier | 5 | 78 (82) | 10 / 71 / 0 / 18 | 8802 | 5 | 0 |
+  | Shieldwall at tier | 6 | 110 (134) | 14 / 77 / 0 / 8 | 12316 | 6 | 0 |
+  | Pyre-priest at tier | 6 | 119 (113) | 12 / 86 / 0 / 2 | 5644 | 6 | 0 |
 
-  - Against the tier median: the Huntsman is -36% at t2 and -25% at t3, and the Shieldwall -26% at t4; every other archetype is within 18%.
-  - Time before the wake is 19-27 s per tier; the warden fight (wake to end) is 84 / 71 / 117 s at t2 / t3 / t4. The Huntsman's is 46 s at t2 and 38 s at t3.
-  - **Human factor at this head:** 1.19-1.70 (t2-t4 pooled, median per run; it was 1.18-1.65). Human estimate: t2 2.1-3.0 min, t3 2.1-2.6, t4 2.9-3.9, P1 1.8-2.7.
-  - **The run-length window in bot seconds** (the low end at least 3 min, the high end at most 6 min): 180 / 1.19 = 151 s to 360 / 1.70 = 212 s. Per tier: t2 151-211, t3 150-217, t4 153-214. Today t2 and t3 sit about 45 s under it and t4 at its floor.
+  - Against the tier median the t2 Huntsman (chime-fort, 2 runs) is -35%; every other archetype at its tier is within 17%.
+  - At n = 3 per fort these medians are noisy: the same set at 4a89a8d gave the t3 Huntsman 79 s and t4 149 s, against 137 s and 125 s here. The Step 3 checks should use seeds 1-6 per fort.
+  - Time before the wake is 19-25 s per tier; the warden fight (wake to end) is 84 / 83 / 106 s at t2 / t3 / t4.
+  - The two t1 deaths are new against the pilot's one. ashgate seed 3: she walked round a corner into four living after loot, kept walking for the 0.45 s delay (8 hp), kited into the Huntsman's room, woke it and was cornered there. greywall seed 3 died at 17 s before any wake; it also dies with no delay (at 40 s, as in the pilot).
+  - **Human factor at this head:** 1.18-1.67 (t2-t4 pooled, median per run; t3 1.14-1.48, with few raises at the Pyre-priest). Human estimate: t2 2.0-2.9 min, t3 2.3-3.1, t4 2.4-3.2, P1 2.0-2.9.
+  - **The run-length window:** the check at each step is the median per-run human estimate per tier: low at least 180 s, high at most 360 s. In bot seconds at today's factors that is about 151-211 s at t2, 158-243 s at t3 and 154-224 s at t4 (pooled 153-216 s). Today all three tiers sit 30-50 s under its floor.
