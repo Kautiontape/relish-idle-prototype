@@ -147,7 +147,7 @@ func _effects() -> void:
 	var plain := _ratio(home)
 
 	var s := _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var fx: Dictionary = s.view_relish()["effects"]
 	t.ok(fx == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "at a fort: tide and redirect there (%s)" % str(fx))
 	s.tick(s.substep_s())
@@ -179,20 +179,20 @@ func _effects() -> void:
 	s.cmd_move_relish("ashgate")
 	_inputs_none(s, "travelling")
 	t.ok(s.view_relish()["state"] == "travelling", "(still travelling)")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.relish["state"] = "dead"
 	_inputs_none(s, "dead")
 	s.relish["state"] = "at_fort"
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	_inputs_none(s, "at Vei")
-	s.legacy_teleport_relish("covington")
+	s.cmd_debug_set_state({"relish_at": "covington"})
 	_inputs_none(s, "home")
 
 	# home's one live effect: relish.home_stance_bonus extra stance slots
 	s._cfgs["realm"]["relish"]["home_stance_bonus"] = 2
 	var base := int(s._cfgs["economy"]["stance"]["base_slots"])
 	t.ok(s._stance_slots() == base + 2, "home: base + relish.home_stance_bonus stance slots")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	t.ok(s._stance_slots() == base, "away: base slots")
 
 
@@ -224,7 +224,7 @@ func _order() -> void:
 # ------------------------------------------------------------------- the flip ----
 func _flip() -> void:
 	var s := _mk()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var r := Results.from_v1("raid", {"fort_id": "old-sluice"}, b["seed"])
 	r["warden_beaten"] = true
@@ -265,7 +265,7 @@ func _legacy_realm_keys() -> void:
 ## Relish raids `fort` (teleported there); `raised` are the result's buckets. Returns apply_result's.
 ## `dead` < 0 tops the fort's dead up to what the buckets raise (so the EMA is unclamped); >= 0 sets it.
 func _raid(s: GameState, fort: String, raised: Array, beaten := false, dead := -1.0) -> Dictionary:
-	s.legacy_teleport_relish(fort)
+	s.cmd_debug_set_state({"relish_at": fort})
 	var want := 0.0
 	for e in raised:
 		want += float(e["mass"])
@@ -387,10 +387,10 @@ func _q() -> void:
 	t.ok(s.raid_seed("ashgate")["quality"] == q and s.boss_seed()["quality"] == q and s.town_snapshot() == {},
 		"the legacy seeds carry it (no elite term); the legacy town snapshot is {}")
 	t.ok(s.town_sim.forge["level"] == 2, "forge_level is TownSim's")
-	s.legacy_teleport_relish("ashgate")
+	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	t.ok(s.cmd_begin_dungeon("ashgate")["seed"]["digest_q"] == q, "the dungeon seed carries it")
 	s.cmd_abort_dungeon()
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	t.ok(s.cmd_begin_boss()["seed"]["digest_q"] == q, "the boss seed carries it")
 	s.cmd_abort_dungeon()
 
@@ -427,7 +427,7 @@ func _q() -> void:
 	# it never decays: 12 h of ticking with no raids (a coarse 10 s substep in this copy)
 	var idle := _mk(10.0)
 	_raid(idle, "ashgate", [{"score": 95, "count": 4, "mass": 300.0}], true)
-	idle.legacy_teleport_relish("covington")
+	idle.cmd_debug_set_state({"relish_at": "covington"})
 	var ema0: float = idle._readout["q_raise_ema"]
 	var q0 := idle.digest_q()
 	idle.tick(12.0 * 3600.0)
@@ -526,7 +526,7 @@ func _lanes() -> void:
 	t.ok(_lane(s, "war:covington:ashgate")["why"] == "" and s.rev == rv + 1, "the same target again is no cause")
 	# Relish here, Relish left
 	s.cmd_debug_set_state({"forts": {"greywall": {"dead": 30.0}}})
-	s.legacy_teleport_relish("greywall")
+	s.cmd_debug_set_state({"relish_at": "greywall"})
 	s.tick(s.substep_s())
 	var war := _lane(s, "war:covington:greywall")
 	t.ok(war["why"] == "Relish here" and war["bias"] == 3.0, "her arrival: 'Relish here' on the war lane, bias tide_bias")
@@ -536,7 +536,7 @@ func _lanes() -> void:
 	t.ok(dl["why"] == "Relish here" and dl["rate"] == 0.0, "the dead lane drops to 0 but stays while its callout lives")
 	s.tick(_WHY_S())
 	t.ok(_lane(s, "dead:greywall:vei").is_empty() and _lane(s, "war:covington:greywall")["why"] == "", "10 s on: the empty dead lane is omitted, callouts gone")
-	s.legacy_teleport_relish("covington")
+	s.cmd_debug_set_state({"relish_at": "covington"})
 	s.tick(s.substep_s())
 	t.ok(_lane(s, "war:covington:greywall")["why"] == "Relish left" and _lane(s, "war:covington:greywall")["bias"] == 1.0
 		and _lane(s, "redirect:greywall:greywall")["why"] == "Relish left", "she leaves: 'Relish left', bias back to 1")

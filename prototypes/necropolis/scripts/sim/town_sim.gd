@@ -587,6 +587,30 @@ static func workforce(w0: float, r: float, dt: float, life: float, m: float, slo
 	return {"w": w, "rot": maxf(0.0, r * dt - (w - start) - muster), "muster": muster}
 
 
+## Where `workforce()` settles at a constant inflow `r` workers/s (lifetime `life`, idle rot multiplier
+## `m`, `slots` staffable, `idle_cap`), with exactly its regimes. Returns {kept, muster}: the settled
+## workforce, and the workers/s mustered to WAR there (0 unless the idle pool is pinned at its cap).
+static func workforce_steady(r: float, life: float, m: float, slots: float, idle_cap: float) -> Dictionary:
+	var s := maxf(0.0, slots)
+	var c := maxf(0.0, idle_cap)
+	var L := maxf(EPS, life)
+	var rl := r * L
+	if rl <= s:
+		return {"kept": rl, "muster": 0.0}
+	if m > 0.0:
+		var ss_b := s + (rl - s) / m
+		if ss_b <= s + c:
+			return {"kept": ss_b, "muster": 0.0}
+		return {"kept": s + c, "muster": maxf(0.0, r - (s + m * c) / L)}
+	return {"kept": s + c, "muster": maxf(0.0, r - s / L)}
+
+
+## workforce_steady() at the live inputs: this substep's inflow, the lifetime now, the staffable slots.
+func steady_kept(relish_home: bool) -> Dictionary:
+	return workforce_steady(float(rates["workers"]["in"]), lifetime_s(relish_home), _idle_rot,
+			float(staffing.get("slots", 0.0)), _idle_cap)
+
+
 ## The convoy. A leg takes distance / (job.haul.speed · stables) seconds. It leaves when haulers
 ## are staffed, the store is under the cap and there is a target (auto: the fort with the most
 ## dead above job.haul.auto_min_dead). The crew is fixed at departure. At arrival it picks up

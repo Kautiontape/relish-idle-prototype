@@ -70,6 +70,12 @@ const _V1_LEGACY := {
 }
 
 
+## The game's stable identity (view_hud.game_id): the low 32 bits of the seed as 8 hex digits. Pure in the
+## seed, never drawn from the game's rng. Two games with the same seed share it.
+static func game_id_for(seed_str: String) -> String:
+	return "%08x" % (seed_str.to_int() & 0xffffffff)
+
+
 ## True if `v` fits `spec` (see SAVE_SPEC).
 static func fits(v: Variant, spec: Variant) -> bool:
 	if typeof(spec) == TYPE_INT:
@@ -471,7 +477,7 @@ static func dump(gs: GameState) -> Dictionary:
 		var ve := gs._vat_entry(i)
 		vats.append({"slot": i, "staffed": ve["staffed"], "grow": ve["grow"]})
 	var d := {
-		"v": GameState.SAVE_VERSION, "api_version": GameState.API_VERSION, "seed": gs.rng_seed, "rng": str(gs.rng.state),
+		"v": GameState.SAVE_VERSION, "api_version": GameState.API_VERSION, "seed": gs.rng_seed, "game_id": gs.game_id, "rng": str(gs.rng.state),
 		"t": gs.t, "acc": gs._acc, "next_run_id": gs.next_run_id, "next_uid": gs.next_uid,
 		"applied_runs": gs.applied_runs.duplicate(),
 		"relish": rl,
@@ -509,6 +515,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs._build_realm_field_towns()
 	gs.rng_seed = m["seed"]
 	gs.game_seed = gs.rng_seed.to_int()
+	# optional (additive at API v4): a save without it gets the id its seed gives
+	gs.game_id = str(m["game_id"]) if m.get("game_id") is String and m["game_id"] != "" else game_id_for(gs.rng_seed)
 	gs.rng.seed = gs.game_seed  # first: setting the seed resets the state
 	gs.rng.state = (m["rng"] as String).to_int()
 	gs.t = float(m["t"])

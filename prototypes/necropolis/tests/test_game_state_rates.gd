@@ -34,7 +34,7 @@ func _busy() -> GameState:
 	s.cmd_debug_grant({"gold": 500.0, "bone": 200.0})
 	s.cmd_build("bone_mill", "lot-05")
 	s.cmd_debug_set_state({"forts": {"old-sluice": {"undead": 30.0, "dead": 40.0}, "ashgate": {"dead": 60.0}}})
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.cmd_debug_skip_time(120.0)
 	return s
 

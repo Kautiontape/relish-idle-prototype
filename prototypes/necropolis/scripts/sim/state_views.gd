@@ -39,10 +39,11 @@ static func hud(gs: GameState) -> Dictionary:
 		var rate := float(io[id][0]) if id == "mint" else float(io[id][0]) - float(io[id][1])
 		rates.append({"id": id, "rate": rate, "stock": float(stock[id]), "cap": float(cap.get(id, -1.0)), "unit": GameState._RATE_UNITS[id]})
 	return {
-		"rev": gs.rev, "t": float(gs.t), "time_scale": float(gs.time_scale), "paused": gs.paused, "rates": rates,
+		"rev": gs.rev, "game_id": gs.game_id, "t": float(gs.t), "time_scale": float(gs.time_scale), "paused": gs.paused, "rates": rates,
 		"split": {"work": float(gs._split["work"]), "war": float(gs._split["war"]), "flood": float(gs._split["flood"])},
 		"valve": gs.valve.duplicate(), "valve_target": gs.valve_target.duplicate(),
-		"workers_steady": gs._workers_steady(),
+		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
+		"war_overflow": float(gs.realm.r_war_to_vei),
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
@@ -261,7 +262,8 @@ static func town(gs: GameState) -> Dictionary:
 		"ladder": ts.ladder.duplicate(), "ladder_effective": ts.ladder.duplicate(), "jobs": jobs,
 		"workers": {
 			"total": ts.workers, "idle": float(ts.staffing.get("idle", 0.0)), "in": float(w["in"]), "rot": float(w["rot"]),
-			"muster": float(w["muster"]), "steady": gs._workers_steady(), "lifetime_s": ts.lifetime_s(gs.relish["state"] == "home"),
+			"muster": float(w["muster"]), "steady": gs._workers_steady(),
+			"steady_kept": float(gs._workers_steady_kept()["kept"]), "muster_steady": float(gs._workers_steady_kept()["muster"]), "lifetime_s": ts.lifetime_s(gs.relish["state"] == "home"),
 		},
 		"living": ts.living, "living_cap": ts.living_cap(),
 		"migrants": float(r["living"]["in"]), "departures": float(r["living"]["out"]),

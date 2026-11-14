@@ -22,7 +22,7 @@ func run() -> int:
 	t.suite("game-state-runs")
 
 	# --- constants and construction ---
-	t.ok(GameState.API_VERSION == 3 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
+	t.ok(GameState.API_VERSION == 4 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
 	t.ok(GameState.DEBUG_GRANT_KEYS.size() == 11 and GameState.DEBUG_STATE_KEYS.size() == 7, "debug key lists")
 	var bare := GameState.new()
 	t.ok(bare._cfgs.is_empty(), "_init() with no configs leaves it unset")
@@ -51,7 +51,7 @@ func run() -> int:
 	s.cmd_pause(true)
 	s.cmd_set_time_scale(4)
 	t.ok(s.t > 0.0 and s.time_scale == 4.0, "t advances, time scale set")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var uid_before := s.next_uid
 	s.cmd_debug_grant({"husks": 2})
@@ -79,11 +79,11 @@ func run() -> int:
 		t.ok(s.tick(bad) == 0, "tick(%s) returns 0" % str(bad))
 	t.ok(s.tick(1.0) == 2, "tick resumes after unpause")
 	var ev := s.drain_events()
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	s.cmd_begin_dungeon("old-sluice")
 	t.ok(s.cmd_set_time_scale(2)["reason"] == "in_dungeon", "time scale refused in a dungeon")
 	s.cmd_abort_dungeon()
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	s.cmd_begin_boss()
 	t.ok(s.cmd_set_time_scale(2)["reason"] == "in_boss", "time scale refused in the boss")
 	s.cmd_abort_dungeon()
@@ -95,7 +95,7 @@ func run() -> int:
 	fail["reason"] = "not_at_fort"
 	rv = s.rev
 	t.ok(s.cmd_begin_dungeon("old-sluice") == fail and s.rev == rv, "not_at_fort from home, rev untouched")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	t.ok(s.cmd_begin_dungeon("ashgate")["reason"] == "not_at_fort", "not_at_fort at another fort")
 	s.relish["state"] = "dead"
 	t.ok(s.cmd_begin_dungeon("old-sluice")["reason"] == "dead", "dead")
@@ -156,10 +156,10 @@ func run() -> int:
 	t.ok(b2["seed"]["rng_seed"] != sd["rng_seed"], "rng_seed differs per run")
 	s.cmd_abort_dungeon()
 	var other := _mk()
-	other.legacy_teleport_relish("old-sluice")
+	other.cmd_debug_set_state({"relish_at": "old-sluice"})
 	t.ok(other.cmd_begin_dungeon("old-sluice")["seed"]["rng_seed"] == sd["rng_seed"], "same game seed + run id: same rng_seed")
 	# another fort: not the first dungeon
-	s.legacy_teleport_relish("ashgate")
+	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	var b3 := s.cmd_begin_dungeon("ashgate")
 	t.ok(b3["seed"]["starter_units"] == 0 and b3["seed"]["fort"]["first_dungeon"] == false and b3["seed"]["chest_husk"] == false,
 		"no starter party elsewhere")
@@ -170,7 +170,7 @@ func run() -> int:
 	b3 = s.cmd_begin_dungeon("ashgate")
 	t.ok(b3["seed"]["garrison_units"] == 8, "garrison_units follows the (cap-clamped) undead")
 	s.cmd_abort_dungeon()
-	s.legacy_teleport_relish("whitecross")
+	s.cmd_debug_set_state({"relish_at": "whitecross"})
 	s.cmd_debug_set_state({"forts": {"whitecross": {"undead": 1.0e9}}})
 	b3 = s.cmd_begin_dungeon("whitecross")
 	t.ok(b3["seed"]["garrison_units"] == 12 and b3["seed"]["garrison_in_mass"] == 120.0, "garrison_units clamps at garrison_max")
@@ -180,13 +180,13 @@ func run() -> int:
 	s = _mk()
 	fail = {"ok": false, "reason": "not_at_vei", "seed": {}, "run_id": -1, "seed_rev": -1}
 	t.ok(s.cmd_begin_boss() == fail, "boss needs at_vei")
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	t.ok(s.cmd_begin_boss()["reason"] == "not_at_vei", "not at Vei from a fort")
 	s.relish["state"] = "dead"
 	t.ok(s.cmd_begin_boss()["reason"] == "dead", "boss: dead")
 	s.relish["state"] = "home"
 	s.cmd_debug_grant({"backlog": 6000.0})
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	s.cmd_set_time_scale(4)
 	var bb := s.cmd_begin_boss()
 	t.ok(bb["ok"] and bb["run_id"] == 1 and s.view_relish()["state"] == "in_boss" and s.view_relish()["run_kind"] == "boss", "boss begins")
@@ -342,7 +342,7 @@ func run() -> int:
 	s.cmd_debug_set_state({"forts": {"ashgate": {"living": 5.0, "undead": 1.0e9, "dead": 2.0}}})
 	var af := s.realm.fort_by_id("ashgate")
 	t.ok(af["living"] == 5.0 and af["dead"] == 2.0 and af["undead"] == af["cap"], "fort masses set, clamped to the cap")
-	s.legacy_teleport_relish("ashgate")
+	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	s.cmd_begin_dungeon("ashgate")
 	rv = s.rev
 	r = s.cmd_debug_set_state({"relish_at": "covington", "paused": true})

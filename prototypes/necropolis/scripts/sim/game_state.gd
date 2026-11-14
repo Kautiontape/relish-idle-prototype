@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 3
+const API_VERSION := 4
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -49,6 +49,7 @@ var save_dir := "user://saves"  # saves (§9); tests point it at a temp dir
 var fixture_dir := "res://tests/fixtures"  # cmd_debug_load_fixture reads <fixture_dir>/<name>.json
 var rng := RandomNumberGenerator.new()
 var rng_seed := ""  # String: 64-bit seeds do not survive JSON numbers
+var game_id := ""  # view_hud.game_id: SaveIO.game_id_for(rng_seed), stored in the save (never drawn from rng)
 var rev := 0  # +1 per substep and per successful command
 
 # --- Relish (owned here; RealmSim sees only her effects, as step inputs: _relish_effects) ---
@@ -58,8 +59,8 @@ var run := {}  # {} or {run_id, kind: "raid"|"boss", fort_id, seed_rev, seed}
 var next_run_id := 1
 var next_uid := 1  # one counter for h<n>, r<n>, u<n>
 var game_seed := 0
-var first_dungeon_id := ""  # "" once a raid result has cleared it (T1.4)
-var cleared_forts := {}  # fort_id -> true once its first clear is spent (T1.4)
+var first_dungeon_id := ""  # "" once a won raid result has cleared it (T1.4)
+var cleared_forts := {}  # fort_id -> true once a win has spent its first clear (T1.4)
 # --- stocks and inventories (views §5.12) ---
 var relics := 0
 var essence := 0
@@ -174,6 +175,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	rng.seed = seed
 	rng_seed = str(seed)
 	game_seed = seed
+	game_id = SaveIO.game_id_for(rng_seed)
 	var opening: Dictionary = _sec("economy", "opening")
 	_build_realm_field_towns()
 	town_sim.new_game()  # BALANCE §0: the start buildings on their lots, the stocks, the default ladder
@@ -353,16 +355,6 @@ func cmd_cancel_travel() -> Dictionary:
 		_begin_travel(relish["at"])
 	rev += 1
 	return {"ok": true, "reason": "", "eta_s": maxf(0.0, _eta())}
-
-
-## NOT contract (§2.2): puts her, alive, at a node at once. For the legacy TELEPORT.
-func legacy_teleport_relish(node_id: String) -> Dictionary:
-	var why := _move_refusal(node_id)
-	if why != "":
-		return {"ok": false, "reason": why}
-	_place_relish(node_id)
-	rev += 1
-	return {"ok": true, "reason": ""}
 
 
 func _place_relish(node_id: String) -> void:
@@ -993,6 +985,12 @@ func _haul_rate() -> float:
 ## TownSim's steady-state workforce: this substep's worker inflow × the lifetime now (§4.1).
 func _workers_steady() -> float:
 	return float(town_sim.rates["workers"]["in"]) * town_sim.lifetime_s(relish["state"] == "home")
+
+
+## TownSim's settled workforce and the WAR muster rate there (workers/s), at the live inflow,
+## lifetime, idle rot, staffable slots and idle cap. `steady` ignores the idle cap; this does not.
+func _workers_steady_kept() -> Dictionary:
+	return town_sim.steady_kept(relish["state"] == "home")
 
 
 ## §5.1 · E2. Live: t, the time controls, relics and essence with their caps, won, the readout

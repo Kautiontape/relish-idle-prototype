@@ -284,8 +284,11 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 		gs.remnants.append({"uid": uid, "aspect": str(m["aspect"]), "rarity": str(m["rarity"]),
 			"magnitude": int(m["magnitude"])})
 		minted.append(uid)
-	gs.cleared_forts[fort_id] = true
-	gs.first_dungeon_id = ""
+	# The first-run flags are spent only by a win: a death or a retreat keeps the starter husk and
+	# the guaranteed blueprint for the next first run (api-request #15).
+	if bool(r["warden_beaten"]):
+		gs.cleared_forts[fort_id] = true
+		gs.first_dungeon_id = ""
 	# 9. the dead party members go; each in-place revive spends a phylactery charge
 	gs._phylactery_charges = maxi(0, gs._phylactery_charges - int(r["revived_in_place"]))
 	for uid in r["party_lost"]:

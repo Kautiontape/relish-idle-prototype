@@ -1,15 +1,19 @@
 extends Node
+
 ## Thin shell over GameState (scripts/sim/game_state.gd): feeds it real time,
 ## and turns its drained events into signals. Ticks regardless of which scene is
 ## active; this is an idle game, the realm never sleeps.
+
+const BootRule := preload("res://scripts/sim/boot_rule.gd")
 
 signal game_event(ev: Dictionary)
 signal relish_respawned(with_vat: bool)
 signal victory
 signal defeat_boss
 
-## Any of these CLI user args makes the session a harness/test session (STATE-API 2.1).
-## --reduced-motion is a player accessibility flag and is deliberately not listed.
+## Documentation only since the safe-by-default boot rule (STATE-API 2.1): the dev args we know of.
+## It is no longer the rule; any user arg outside BootRule.PLAYER_ARGS makes a harness session, so
+## other units' debug flags (--valve=, --lanes, --bench-*, ...) are safe without being listed here.
 const DEV_ARGS: Array[String] = ["--shot", "--new-game", "--fixture", "--teleport", "--scene",
 		"--select", "--speed", "--cheat", "--finish-raid", "--trace", "--clicks"]
 
@@ -31,12 +35,9 @@ func _ready() -> void:
 ## Boot rule (STATE-API 2.1): a harness arg disables autosave for the session and starts a
 ## fresh or fixture game; a normal launch resumes the autosave, else starts a new game.
 func _boot() -> void:
-	var harness := false
+	var harness := BootRule.is_harness_args(OS.get_cmdline_user_args())
 	var fixture := ""
 	for arg in OS.get_cmdline_user_args():
-		for pre in DEV_ARGS:
-			if arg == pre or arg.begins_with(pre + "="):
-				harness = true
 		if arg.begins_with("--fixture="):
 			fixture = arg.trim_prefix("--fixture=")
 	autosave_enabled = not harness

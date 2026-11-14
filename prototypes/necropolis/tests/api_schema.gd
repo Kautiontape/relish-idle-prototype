@@ -167,9 +167,9 @@ const CATALOG_BUILDING := {
 ## Views without `rev` (every view carries `rev: int` except the two seed views, §7).
 const VIEWS := {
 	"view_hud": {
-		"t": F, "time_scale": F, "paused": B,
+		"game_id": S, "t": F, "time_scale": F, "paused": B,
 		"rates": [{"id": S, "rate": F, "stock": F, "cap": F, "unit": S}],
-		"split": VALVE, "valve": VALVE, "valve_target": VALVE, "workers_steady": F,
+		"split": VALVE, "valve": VALVE, "valve_target": VALVE, "workers_steady": F, "workers_steady_kept": F, "war_overflow": F,
 		"relics": I, "relics_cap": I, "essence": I, "essence_cap": I,
 		"sign": I, "drain_s": F, "odds": F, "won": B,
 	},
@@ -194,7 +194,7 @@ const VIEWS := {
 		"lots": [{"id": S, "size": I, "unlocked": B, "building_id": S}],
 		"buildings": [TOWN_BUILDING], "ladder": [S], "ladder_effective": [S],
 		"jobs": [{"id": S, "slots": I, "staffed": F}],
-		"workers": {"total": F, "idle": F, "in": F, "rot": F, "muster": F, "steady": F, "lifetime_s": F},
+		"workers": {"total": F, "idle": F, "in": F, "rot": F, "muster": F, "steady": F, "steady_kept": F, "muster_steady": F, "lifetime_s": F},
 		"living": F, "living_cap": F, "migrants": F, "departures": F,
 		"morale": {"value": F, "target": F, "factors": [{"id": S, "delta": F}]},
 		"gold": F, "bone": F, "bodies": F, "bodies_cap": F, "trade_rate": F,
@@ -290,7 +290,7 @@ const SAVE := {
 }
 ## Methods on GameState besides the commands and views (§1.5).
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",
-	"migrate", "list_saves", "ledger", "legacy_teleport_relish"]
+	"migrate", "list_saves", "ledger"]
 const MEMBER_VARS := ["debug_enabled", "save_dir", "rev"]
 ## Contract names not implemented yet (none after T1.5). The contract test fails if a listed name
 ## exists, so the list cannot go stale.

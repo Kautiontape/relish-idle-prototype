@@ -10,16 +10,24 @@ func _mk(seed_val := 1) -> GameState:
 	return s
 
 
+## Puts her at a node with the debug command, which these suites' release-mode states refuse.
+func _place(s: GameState, node: String) -> void:
+	var was := s.debug_enabled
+	s.debug_enabled = true
+	s.cmd_debug_set_state({"relish_at": node})
+	s.debug_enabled = was
+
+
 ## Drives a boss run through the run API: Relish to Vei, begin, a v1 result converted, applied.
 func _run_boss(s: GameState, v1: Dictionary) -> void:
-	s.legacy_teleport_relish("vei")
+	_place(s, "vei")
 	var b := s.cmd_begin_boss()
 	s.apply_result("boss", Results.from_v1("boss", v1, b["seed"]))
 
 
 ## Same for a raid at old-sluice; returns the run id.
 func _run_raid(s: GameState, v1: Dictionary) -> int:
-	s.legacy_teleport_relish("old-sluice")
+	_place(s, "old-sluice")
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var d := v1.duplicate()
 	d["fort_id"] = "old-sluice"

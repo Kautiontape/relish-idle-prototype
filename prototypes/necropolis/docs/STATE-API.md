@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 3)
+# Necropolis: GameState API (api_version 4)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -17,6 +17,17 @@ from `BALANCE.md` §0.
   `api_version` 3 (E2a T2.5) added the `unique` reason to `cmd_build` and `view_catalog` (§4.3,
   §5.10), and the ledger keys `sources.opening`, `sinks.rot_overflow`, `sinks.haul_overflow`,
   `sinks.store_overflow` and `held.work_pending` (§4.7).
+  `api_version` 4 (E2b T3.S) added:
+  - `view_town.workers.steady_kept` and `.muster_steady`, and `view_hud.workers_steady_kept` (the
+    workforce the town settles at, §5.1, §5.9);
+  - `view_hud.war_overflow` and `view_hud.game_id` (§5.1); the save gains an optional `game_id` key (§9.1, `SAVE_VERSION` stays 2);
+  - the `risk_pct` range documented for `view_fort.threat` (§5.5);
+  - a boot rule that is safe by default (§2.1): any user arg outside `PLAYER_ARGS` is a harness
+    session;
+  - the raid writeback now spends `first_clear` and `first_dungeon` only on a win (§8.3, api-request
+    #15), and `pool_overflow` is no longer always 0 since the march-back (§4.7): a meaning change,
+    not a shape change;
+  - **removed:** the non-contract legacy teleport helper on `GameState` (§2.2).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -71,7 +82,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 3
+const API_VERSION := 4
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -115,7 +126,6 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
-| `legacy_teleport_relish(node_id: String) -> Dictionary` | **Not contract**; §2.2. |
 | `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
@@ -134,15 +144,20 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
   `state.debug_enabled = OS.is_debug_build()` (before any boot load, since fixtures need it), then
   the boot rule over `OS.get_cmdline_user_args()`:
-  - **Harness/test session:** any dev argument is present: `--shot=`, `--new-game`, `--fixture=<name>`,
-    `--teleport=`, `--scene=`, `--select=`, `--speed=`, `--cheat=`, `--finish-raid`, `--trace=`,
-    `--clicks=` (the `DEV_ARGS` const; `--reduced-motion` is a player flag and is not one).
+  - **Harness/test session:** **any user arg that is not a player flag.** `PLAYER_ARGS` (today only
+    `--reduced-motion`; an arg matches as `--flag` or `--flag=value`) are the only args that leave
+    a normal session. Anything else, including every unit's debug flags (`--valve=`, `--lanes`,
+    `--bench-*`, ...), makes a harness session, so a flag nobody registered can never load,
+    mutate and autosave over the shared `auto.json`. `BootRule.is_harness_args(args)`
+    (`scripts/sim/boot_rule.gd`, which holds `PLAYER_ARGS`) is the pure static decision. `DEV_ARGS` (`--shot=`, `--new-game`, `--fixture=<name>`, `--teleport=`,
+    `--scene=`, `--select=`, `--speed=`, `--cheat=`, `--finish-raid`, `--trace=`, `--clicks=`) stays
+    as documentation of the known dev args and is no longer the rule.
     `autosave_enabled = false` for the whole session (`autosave()` returns
     `{ok: false, reason: "disabled"}` without writing, and the 30 s timer does nothing), so the
     player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for
     `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
     otherwise `cmd_new_game(randi())`.
-  - **Normal launch** (none of those args): `cmd_load("auto")`; if that is not `ok` (no file, or
+  - **Normal launch** (no args, or only `PLAYER_ARGS`): `cmd_load("auto")`; if that is not `ok` (no file, or
     corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
     newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
     and a warning is printed, so the newer save is never overwritten.
@@ -217,11 +232,9 @@ drops the call` and goes when the map unit drops its call):
 **Removed at E2a:** `scripts/sim/legacy_economy.gd` (`LegacyEconomy`) and `GameState`'s `legacy`, `res`,
 `army`, `town`, `assignments`, `idle_undead` and `gather` members. TownSim is the town.
 
-**`GameState.legacy_teleport_relish(node_id: String) -> {ok, reason}`** is not contract:
-- It puts Relish, alive, at the node at once, with state `home`, `at_fort` or `at_vei`.
-- It refuses with the same reasons as `cmd_move_relish` and bumps `rev`.
-- The router uses it only for today's map TELEPORT button (a legacy map result without `v`). It is
-  removed when the map unit ships the travel UX.
+**The legacy teleport helper was deleted at API v4.** The map's TELEPORT button was its last
+scene caller. Tests and tools that need her at a node use `cmd_debug_set_state({relish_at: id})`
+(§4.6), which refuses with `busy` while a run is open.
 
 ### 2.3 Router and scene contract (`scripts/main.gd`; economy through E1, then map)
 Every scene implements:
@@ -252,8 +265,9 @@ signal finished(result: Dictionary)
       `view_vei().reason`).
     - a fort id: call `cmd_begin_dungeon(id)`. On `ok`, open the dungeon; otherwise the map.
     - an unknown id: open the map.
-  - A map or town result **without `v`** (legacy): first `legacy_teleport_relish(id)` for a map
-    result, or `Game.apply_town_result(r)` for a town result, then the flow above.
+  - A map or town result is always v2 and the router never moves Relish for it (there is no legacy
+    branch; the old teleport helper was deleted at API v4). It reads `teleport_to` and runs the
+    flow above.
   - A dungeon or boss result:
     - without `v`, convert it with `Results.from_v1(kind, r, seed)` (§8.5);
     - then call `apply_result(kind, r)`;
@@ -778,10 +792,10 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `burned`, `milled` | pit burn and milling (bone is not mass) |
 | | `vei_fight` | a lost Vei fight: `(1 − loss_backlog_keep)` of the backlog (§8.3) |
 | | `dungeon` | the raid writeback's loss (§8.3 step 7) |
-| | `pool_overflow` | always 0: Vei converts at most her pool's headroom |
+| | `pool_overflow` | what the march-back took past Vei's pool cap (`vei_pool_cap`): living above a fort's cap march back at `(L − cap) / tithe.march_back_s`, and whatever would take her pool past the cap books here; she then converts into the headroom left. Not always 0 since the march-back (v4: the meaning changed, not the shape) |
 | | `rot_overflow` (+3) | rot return lost to the body cap (MECHANICS §4.1) |
 | | `haul_overflow` (+3) | a landing convoy's load lost to the body cap |
-| | `store_overflow` (+3) | 0 until E2b's store caps (IDLE §6) |
+| | `store_overflow` (+3) | 0 until the store caps (E2b T3.2; IDLE §6) |
 | `held` | `fort_living`, `fort_undead`, `corpses` | Σ forts' `living`, `undead`, `dead` |
 | | `backlog`, `vei_dead`, `living_pool` | Vei's undead queue, dead queue and living pool |
 | | `bodies` | Covington's body store |
@@ -808,7 +822,11 @@ Every field is live from E2a:
   and `mint` `in`;
 - the `workers`, `bodies`, `gold`, `bone` and `living` entries are TownSim's: the same stocks and
   caps `view_town` shows, and the net rates of `view_rates` (bodies count the haul trip-averaged);
-- `workers_steady` is TownSim's last inflow × the lifetime now, as `view_town.workers.steady`.
+- `workers_steady` is TownSim's last inflow × the lifetime now, as `view_town.workers.steady`. It
+  ignores the idle cap, so it reads far above the town (88 on day 1 while the town sits at 17-19);
+  `workers_steady_kept` is where the workforce actually settles (see `view_town.workers`, §5.9);
+- `war_overflow` is the WAR that fell through to Vei because every WAR target was capped (MECHANICS
+  §3.2). It is the `war: covington→vei` lane's rate in `view_lanes` (§5.3).
 
 | key | type | meaning |
 |---|---|---|
@@ -818,14 +836,17 @@ Every field is live from E2a:
 | `rates` | Array[Dictionary] | one per `HUD_RATE_IDS`, in order: `{id: String, rate: float, stock: float, cap: float, unit: String}`. `rate` is the signed net per sim-second; for `mint` it is production (≥ 0). `stock` is `-1.0` for mint; `cap` is `-1.0` when uncapped. |
 | `split` | Dictionary | `{work, war, flood}`: mass/s now, after the slew; `war` includes muster (`muster_mass / dt`) |
 | `valve`, `valve_target` | Dictionary | `{work, war, flood}` fractions summing to 1 |
-| `workers_steady` | float | workers: `(work / worker.mass) · lifetime` |
+| `workers_steady` | float | workers: `(work / worker.mass) · lifetime`; no cap |
+| `workers_steady_kept` | float | workers: the workforce TownSim's ODE settles at for the current inflow, lifetime, idle rot, staffable slots and idle cap; same as `view_town.workers.steady_kept` (v4) |
+| `game_id` | String | a stable identity for one game: fresh per new game, kept across its saves and loads (api-request #18). Derived from the seed, never from the rng: `"%08x" % (seed & 0xffffffff)`, 8 hex digits (`SaveIO.game_id_for`). Two games with the same seed share an id (only tests and fixtures do that). Fixtures carry none and compute it at load. |
+| `war_overflow` | float | mass/s: the last substep's WAR that fell through to Vei (`view_lanes` `war:covington:vei`); 0 while a WAR target has room (v4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
 | `odds` | float | `backlog / (backlog + K)`, 0..1 |
 | `won` | bool | |
 ```gdscript
-{rev: 3, t: 1.0, time_scale: 1.0, paused: false,
+{rev: 3, game_id: "0000002a", t: 1.0, time_scale: 1.0, paused: false,
  rates: [{id: "mint", rate: 12.8, stock: -1.0, cap: -1.0, unit: "mass/s"},
          {id: "workers", rate: 0.103, stock: 12.0, cap: -1.0, unit: "workers/s"},
          {id: "bodies", rate: -0.35, stock: 40.0, cap: 200.0, unit: "mass/s"},
@@ -834,7 +855,7 @@ Every field is live from E2a:
          {id: "living", rate: 0.012, stock: 10.0, cap: 16.0, unit: "living/s"}],
  split: {work: 5.12, war: 5.76, flood: 1.92},
  valve: {work: 0.4, war: 0.45, flood: 0.15}, valve_target: {work: 0.4, war: 0.45, flood: 0.15},
- workers_steady: 61.4, relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
+ workers_steady: 61.4, workers_steady_kept: 18.2, war_overflow: 0.0, relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
  sign: 0, drain_s: -1.0, odds: 0.0, won: false}
 ```
 
@@ -964,7 +985,7 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 | `yield_mult` | float | `loot.reclear_decay ^ clears_since_retaken` |
 | `warden` | Dictionary | `{archetype: String, tells: Array[String]}`: one tell, or every tell with a Watchtower |
 | `loot_hint` | String | display text |
-| `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is `-1.0` without a Watchtower |
+| `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here; 0 when none |
 | `siege` | Array[String] | big-undead uids placed here |
@@ -1059,7 +1080,13 @@ lots come from `town.json` and are unlocked by the tier, and
 until the first substep.
 - `workers.lifetime_s` is the lifetime now (`worker.lifetime_s · (1 + Σ lifetime_bonus)`, ÷
   `relish.home_rot_mult` while Relish is home: 685.7 at a new game); `workers.steady` is the last
-  inflow × that lifetime.
+  inflow × that lifetime, with no cap (v4 keeps it as it is).
+- `workers.steady_kept` (v4) is the workforce TownSim's exact workforce ODE settles at, at the
+  current inflow `r`, lifetime `L`, idle rot multiplier `m`, staffable slots `S` and idle cap `C`
+  (`TownSim.workforce_steady`; the inputs `steady` uses): `r·L` when `r·L ≤ S`; else `S + (r·L −
+  S)/m` when that is within `S + C`; else `S + C` (the idle pool pinned at its cap). With `m = 0`
+  and `r·L > S` it is `S + C`. `workers.muster_steady` is the workers/s mustered to WAR there:
+  `0` unless pinned, then `r − (S + m·C)/L` (`r − S/L` at `m = 0`).
 - `buildings[].output` (per second, at the current staffing; `{}` while constructing or unpaid, and
   for a building with none): a pit `{mint: P_per_pit · pits, burn: pit.burn_per_s · pits · its
   staffed share}`; stalls `{gold}` (their share of the town's sales × price); millers `{bone}`;
@@ -1075,7 +1102,7 @@ until the first substep.
 | `ladder` | Array[String] | the player's job order |
 | `ladder_effective` | Array[String] | the order after stances |
 | `jobs` | Array[Dictionary] | in `ladder_effective` order: `{id: String, slots: int, staffed: float}` |
-| `workers` | Dictionary | `{total: float, idle: float, in: float, rot: float, muster: float, steady: float, lifetime_s: float}`: workers, workers/s, sim seconds |
+| `workers` | Dictionary | `{total: float, idle: float, in: float, rot: float, muster: float, steady: float, steady_kept: float, muster_steady: float, lifetime_s: float}`: workers, workers/s, sim seconds |
 | `living`, `living_cap` | float | people |
 | `migrants`, `departures` | float | living/s |
 | `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `dread`, `shock`. |
@@ -1106,7 +1133,7 @@ Each `buildings` entry:
  ladder: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
  ladder_effective: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
  jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0}, {id: "stall", slots: 2, staffed: 2.0}, ...],
- workers: {total: 12.0, idle: 5.0, in: 0.128, rot: 0.025, muster: 0.0, steady: 61.4, lifetime_s: 480.0},
+ workers: {total: 12.0, idle: 5.0, in: 0.128, rot: 0.025, muster: 0.0, steady: 61.4, steady_kept: 18.2, muster_steady: 0.05, lifetime_s: 480.0},
  living: 10.0, living_cap: 16.0, migrants: 0.012, departures: 0.0,
  morale: {value: 0.6, target: 0.6, factors: [{id: "base", delta: 0.6}]},
  gold: 80.0, bone: 30.0, bodies: 40.0, bodies_cap: 200.0, trade_rate: 0.3,
@@ -1384,7 +1411,7 @@ Unknown extra keys are ignored.
 | `v` | int | 2 |
 | `run_id`, `seed_rev` | int | echoed from the seed |
 | `fort_id` | String | the seed's fort |
-| `warden_beaten`, `retreated`, `relish_died` | bool | **exactly one** is true: the exit |
+| `warden_beaten`, `retreated`, `relish_died` | bool | **exactly one** is true: the exit. **Window close** (IDLE I5): a close during the warden's victory beat (warden beaten, chest open) emits `warden_beaten` with its flip, because the win happened while the player was there; a close during the death beat stays `relish_died`; a mid-run close is a `retreated`. |
 | `revived_in_place` | int | ≥ 0: phylactery revives used in the run |
 | `killed_living_mass` | float | ≥ 0 |
 | `raised` | Array[Dictionary] | every raise this run, grouped: `{score: int (0..100), count: int (≥ 0), mass: float (≥ 0)}` |
@@ -1435,7 +1462,9 @@ order, each clamped. The sim has kept running during the run.
    - blueprints are added to the set;
    - each husk and remnant gets a minted uid.
 
-   `fort.first_clear` and the run-wide `first_dungeon` flag clear after any raid result.
+   `fort.first_clear` and the run-wide `first_dungeon` flag clear only when `warden_beaten` is true
+   (api-request #15). A death or a retreat leaves both set, so the next first run still gets the
+   starter husk and the guaranteed blueprint.
 9. `party_lost` big undead are removed. `phylactery_charges −= revived_in_place` (clamped at 0), with one
    `relish_died{outcome: "phylactery", in_place: true}` per revive (E3).
 10. If `relish_died` (E3, MECHANICS §7):
@@ -1548,6 +1577,7 @@ take the router's legacy path (§2.3).
 | `v` | int | `SAVE_VERSION` (1 at E1, 2 from E2a) |
 | `api_version` | int | `API_VERSION` when written (diagnostic only; never rejected) |
 | `seed` | String | the game seed |
+| `game_id` | String | optional, additive at API v4: `view_hud.game_id`. A save without it (v1, or v2 from before v4) gets it computed from its `seed` at load. |
 | `rng` | String | RNG state |
 | `t` | float | sim seconds (keeps event `t` monotonic across a load) |
 | `acc` | float | the tick accumulator's remainder |
@@ -1567,8 +1597,8 @@ take the router's legacy path (§2.3).
 | `ledger` | Dictionary | sources and sinks so far |
 | `won` | bool | |
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
-| `cleared_forts` | Array[String] | forts whose first clear is spent (sorted) |
-| `first_dungeon` | String | the first dungeon's id until a raid result clears it, then `""` |
+| `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
+| `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,

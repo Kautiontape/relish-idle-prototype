@@ -518,7 +518,7 @@ mass; bodies, rot return, WORK and muster are mass.
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
   loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so
   a long step's later legs don't see corpses made inside it (a known gap at long steps).
-- `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count.
+- `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count. That figure ignores the idle cap; `steady_kept` is where the workforce actually settles with it (STATE-API §5.9).
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
   - Idle beyond `worker.idle_cap` are mustered to WAR at once (`n · worker.mass` mass), so WORK is

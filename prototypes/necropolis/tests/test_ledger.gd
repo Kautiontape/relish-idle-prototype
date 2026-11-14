@@ -195,7 +195,7 @@ func _debug() -> void:
 func _runs() -> void:
 	var s := _mk()
 	s.cmd_debug_set_state({"forts": {"old-sluice": {"undead": 20.0, "dead": 30.0}}})
-	s.legacy_teleport_relish("old-sluice")
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
 	var b := s.cmd_begin_dungeon("old-sluice")
 	var sd: Dictionary = b["seed"]
 	s.tick(5.0)  # the realm keeps running during the run
@@ -211,7 +211,7 @@ func _runs() -> void:
 	t.ok(_err(s) < TIGHT, "balanced after the writeback")
 	# a lost Vei fight: (1 − loss_backlog_keep) of the backlog
 	s.cmd_debug_grant({"backlog": 1000.0})
-	s.legacy_teleport_relish("vei")
+	s.cmd_debug_set_state({"relish_at": "vei"})
 	var bb := s.cmd_begin_boss()
 	var q0: float = s.realm.vei["undead_queue"]
 	var res := {"v": 2, "run_id": bb["run_id"], "seed_rev": bb["seed_rev"], "won": false, "fronts_cleared": [],

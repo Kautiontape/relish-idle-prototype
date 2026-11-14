@@ -639,7 +639,14 @@ func _fixtures() -> void:
 		var file: Variant = JSON.parse_string(text)
 		t.ok(file is Dictionary and file["v"] == GameState.SAVE_VERSION, "%s.json is a save at the current v" % name)
 		var s := _load_fixture(name)
-		t.ok(JSON.stringify(s.to_dict(), "\t") + "\n" == text, "%s: load then to_dict gives the file back (placeholders survive)" % name)
+		# the fixtures predate game_id (api-request #18) and keep the api_version they were written at: a
+		# load computes the id from the seed, and to_dict stamps today's api_version
+		var back := s.to_dict()
+		t.ok(back.get("game_id") == SaveIO.game_id_for(str(file["seed"])), "%s: the id a load computes is its seed's" % name)
+		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
+		back.erase("game_id")
+		back["api_version"] = int(file["api_version"])
+		t.ok(JSON.stringify(back, "\t") + "\n" == text, "%s: load then to_dict gives the file back (placeholders survive)" % name)
 		t.ok(s.rev > 0 and s.drain_events().is_empty() and s.run.is_empty(), "%s: events cleared, no run" % name)
 	var day1 := _load_fixture("day1")
 	var fresh := _mk(1)
