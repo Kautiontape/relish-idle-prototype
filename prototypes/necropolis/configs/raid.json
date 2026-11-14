@@ -16,7 +16,7 @@
   },
   "sound": {
     "_doc": "The raid scene's sound warm-up (RaidSound.attach): these Synth kinds are rendered ahead of use, one render per frame from the scene's start, so no first play renders on a gameplay frame. A chime warms every score bucket and a streak every step (RaidSoundLogic.warm_plan).",
-    "warm": ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept"]
+    "warm": ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept", "clang", "flank"]
   },
   "danger": {
     "_doc": "Relish's danger read-outs (hp arc, screen-edge pulse, target mark). exposed_min and exposed_max: with no phylactery charge left, how exposed she reads (RaidLogic.exposed_level) runs from exposed_min at full hp to exposed_max at none; it drives the danger rim of her halo (dashes leaning to danger: at 0.6 already clearly red at full hp, since no revive is a state, not a mood). The PHYLACT. words are always danger with no charge left.",
@@ -363,6 +363,13 @@
     "slam_reach_px": 600.0,
     "slam_stand_frac": 0.5,
     "slam_cluster_frac": 0.4,
+    "_doc": "The Shieldwall fight (raid_autopilot.gd _vs_wall; the other keys are documented in its header): Relish keeps out of the bash arc grown by wall_margin_px of reach and wall_margin_deg each side, and waits wall_side_deg off its facing, wall_stand_px beyond that reach, walking round wall_step_deg at a time; she keeps her side until the other is wall_switch_deg nearer.",
+    "wall_margin_px": 30.0,
+    "wall_margin_deg": 15.0,
+    "wall_side_deg": 110.0,
+    "wall_stand_px": 40.0,
+    "wall_step_deg": 45.0,
+    "wall_switch_deg": 20.0,
     "pickup_px": 900.0,
     "pickup_foe_clear_px": 90.0,
     "profile_living_frac": 0.85,
@@ -385,7 +392,7 @@
     }
   },
   "wardens": {
-    "_doc": "The wardens (Bellringer, Huntsman) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell.",
+    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit.",
     "chest_open_px": 44.0,
     "victory_s": 1.5,
     "muffle_pad_px": 14.0,
@@ -405,6 +412,7 @@
     "clapper_strike_rad": 0.5,
     "clapper_hold_beats": 0.25,
     "clapper_swing_rad_s": 14.0,
+    "shield_label_s": 0.8,
     "by_fort": {
       "ashgate": "huntsman",
       "old-sluice": "bellringer",
@@ -413,9 +421,9 @@
       "chime-fort": "huntsman",
       "lantern-keep": "bellringer",
       "hollow-redoubt": "huntsman",
-      "pale-bastion": "bellringer",
+      "pale-bastion": "shieldwall",
       "mourners-gate": "huntsman",
-      "the-stair": "bellringer",
+      "the-stair": "shieldwall",
       "whitecross": "huntsman",
       "sable-hold": "bellringer"
     },
@@ -492,6 +500,43 @@
           "stun_wobble_px": 3.5,
           "dmg_relish": 12.0,
           "dmg_unit": 8.0
+        }
+      },
+      "shieldwall": {
+        "_doc": "The Shieldwall (warden_shieldwall.gd, WardenLogic.shield_*): stationary at its room's centre, it turns at turn_deg_s toward the densest crowd of undead within attack.face_reach_px (the flank-role undead left out; Relish when none is in reach; re-picked every face_repick_s), planted while a tell shows. A hit from inside its front arc (±front_half_deg of the facing, from the attacker's position) glances at attack.front_mult; from outside it lands (FLANKED; those pips are marked as the weak point's): in full from the side, at back_mult from inside the back arc (±back_half_deg round its back). Every period_beats it bashes its front arc, telegraphed tell_beats ahead (the arc lit): undead in it within reach_px take dmg_unit and are shoved shove_px away, Relish takes dmg_relish. Phases at hp thirds turn faster, widen the arc and bash sooner. Weak point: a big undead with wits >= threshold fighting it takes the flank role, walking round the orbit (its radius + the unit's + flank_gap_px, flank_step_deg at a time) to a post behind it (flankers spread flank_spread_deg apart), and strikes only off the shield.",
+        "name": "The Shieldwall",
+        "tells": [
+          "its shield turns to your biggest crowd; blows on it glance",
+          "it bashes the lit arc on the beat; wits flank it from behind"
+        ],
+        "weak_point": {
+          "stat": "wits",
+          "threshold": 4,
+          "effect": "flank",
+          "flank_gap_px": 3.0,
+          "flank_spread_deg": 34.0,
+          "flank_step_deg": 40.0,
+          "label": "a wits big undead fights it from behind"
+        },
+        "hp_base": 1500.0,
+        "hp_per_tier": 1250.0,
+        "radius": 44.0,
+        "phases": [
+          {"until_hp_frac": 0.66, "period_beats": 4, "turn_deg_s": 40.0, "front_half_deg": 80.0},
+          {"until_hp_frac": 0.33, "period_beats": 3, "turn_deg_s": 55.0, "front_half_deg": 90.0},
+          {"until_hp_frac": 0.0, "period_beats": 2, "turn_deg_s": 70.0, "front_half_deg": 100.0}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "reach_px": 140.0,
+          "shove_px": 50.0,
+          "front_mult": 0.1,
+          "back_mult": 2.5,
+          "back_half_deg": 45.0,
+          "face_reach_px": 240.0,
+          "face_repick_s": 0.15,
+          "dmg_relish": 12.0,
+          "dmg_unit": 10.0
         }
       }
     }

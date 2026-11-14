@@ -21,6 +21,7 @@
   "aspect_weights_by_archetype": {
     "bellringer": {"power": 3, "beef": 4, "wits": 1, "presence": 1, "speed": 1},
     "huntsman": {"power": 1, "beef": 1, "wits": 3, "presence": 1, "speed": 4},
+    "shieldwall": {"power": 1, "beef": 3, "wits": 4, "presence": 1, "speed": 1},
     "default": {"power": 1, "beef": 1, "wits": 1, "presence": 1, "speed": 1}
   },
   "chest_by_tier": {
@@ -50,6 +51,8 @@
     "t3.huntsman": "rich relics and sharp remnants",
     "t4.bellringer": "a hoard of relics and remnants",
     "t4.huntsman": "a hoard of relics and remnants",
+    "t3.shieldwall": "rich relics and cunning remnants",
+    "t4.shieldwall": "a hoard of relics and remnants",
     "first_dungeon_hint": "a husk and a blueprint"
   },
   "card": {
