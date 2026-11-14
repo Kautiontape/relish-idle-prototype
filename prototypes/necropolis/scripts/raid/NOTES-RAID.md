@@ -788,3 +788,39 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - party `hp_base` 30 -> 50: sable-hold 206 s, pale-bastion 318 s.
     - Neither reaches about 30% of its tier median (t4 130, t3 172); bigs are still lost.
   - **The shared mechanism:** the warden's area attack (slam, bash, rush) churns re-raised soldiers once the bigs are gone.
+
+## Step 4b (D-d/E): the manager's option A
+- **Tell-attacks bypass the chain** (`RaidLogic.chain_soaks`, `TELL_ATTACKS`; Relish.take_hit). The Bellringer's slam, the Huntsman's lunge, the Shieldwall's bash and rush, and the Pyre-priest's fire strike her directly. The chain still soaks the living, packs, hounds and Vei's weaves.
+- **The counter is the soak:**
+  - Bellringer: a MUFFLED slam no longer reaches her (`WardenLogic.slam_damage`; it took ×0.35 before). Answered: she is out of the ring as it crosses.
+  - Huntsman: an INTERCEPTED lunge never reaches her (`_begin_lunge`, `hit_i < 0`). Answered: she is off the locked line.
+  - Shieldwall: a bash whose tell a wits flanker pinned never strikes her (`pinned_tell`, `WardenLogic.bash_strikes_relish`). Answered: she is out of the lit arc.
+  - Pyre-priest: a burn she has stepped off misses her, and each acolyte killed takes one of her fires away (`WardenLogic.burn_count`). Both as built.
+- **The hit cue** (`Relish._draw_hit_cue`, `relish.hit_cue_s` 1.2): the most recent blow shows.
+  - A blow that reached her hp: a jagged burst and STRUCK −N, in `danger`.
+  - A blow an undead took: a smooth ring and SOAKED, in `undead`.
+  - It is static, so it reads the same in greyscale and under reduced motion.
+- **The docs** (f50277b) change only MECHANICS §5.0's chain line and GAMEPLAY pillar 4, as the manager authorized.
+- **The grind forts.** `tier_mix_by_fort` lowers the brutes at sable-hold (0.45 -> 0.15) and pale-bastion (0.3 -> 0.1). Their bigs had died to brutes before the wake.
+  - Seeds 1-6: sable-hold 339 -> 157 s (+26% of the t4 median, 125), pale-bastion 335 -> 151 s (-1% of t3's 153), with 0 deaths. No other fort moves.
+- **The lever** (`wardens.relish_dmg_mult`, from tier 2). The single tell-hit as a share of her 30 hp is the same at every tier, because dmg_relish has no tier term:
+
+  | relish_dmg_mult | slam, lunge, bash, rush (12) | fire (8) |
+  |---|---|---|
+  | 1.5 | 60% | 40% |
+  | 1.9 | 76% | 51% |
+  | 2.3 | 92% | 61% |
+
+  - One hit kills from full hp at 2.5 (fire at 3.75).
+- **Probe on the final code** (30 runs each, t2-t4, seeds 1-10, forts in rotation):
+
+  | relish_dmg_mult | deaths | killed by |
+  |---|---|---|
+  | 1.5 | 3 | lunge 3 |
+  | 1.9 | 3 | lunge 3 |
+  | 2.3 | 4 | lunge 3, fire 1 |
+
+  - Bad outcomes equal the deaths. 1.5 and 1.9 give identical outcomes.
+  - Tell blows on her: about 8 lunges and 2 fires per 30 runs, all unsoaked. Slams and bashes almost never land: the bot answers them, and muffles and pins spare her.
+  - **The curve is a staircase.** Two 12-hp blows kill from full hp from 1.25 up, two fires from 1.875 up, and one blow at 2.5.
+  - Deaths sit at the Huntsman (3 of 7 runs at every value).
