@@ -108,7 +108,14 @@ func wake() -> void:
 			float(wcfg().get("wake_banner_s", 3.5)), "danger")
 	RaidFx.ring(raid.fx_root, global_position, Palette.c("danger", 0.8), radius * 3.0, 0.7, 3.0)
 	if raid._standalone:
-		print("RAID_WARDEN wake name=%s hp=%.0f" % [str(spec.get("name", "")), max_hp])
+		# dev telemetry: how many living are still up (in all, and in this room) when it wakes
+		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+		var near := 0
+		for e in raid.enemies:
+			if is_instance_valid(e) and e.alive and room.has_point(e.global_position):
+				near += 1
+		print("RAID_WARDEN wake name=%s hp=%.0f living=%d living_in_room=%d frame=%d" % [str(spec.get("name", "")), max_hp,
+			raid.enemies.size(), near, Engine.get_process_frames()])
 	_on_wake()
 
 

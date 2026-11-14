@@ -373,6 +373,49 @@ static func loot_line(c: Dictionary) -> String:
 	return " · ".join(parts)
 
 
+## The 8-way compass word for a direction on the dungeon floor (y grows down, so N is up the screen):
+## "N", "NE", "E", "SE", "S", "SW", "W", "NW"; "" for a zero vector.
+static func compass(v: Vector2) -> String:
+	if v.length() < 0.001:
+		return ""
+	var words := ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]
+	var i := int(posmod(roundi(v.angle() / (PI / 4.0)), 8))
+	return words[i]
+
+
+## What a death would lose, as a phrase: "1 remnant + 5 essence at risk", "nothing at risk".
+static func risk_phrase(c: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	for k in ["relics", "remnants", "husks", "blueprints"]:
+		var n := int(c.get(k, 0))
+		if n > 0:
+			parts.append("%d %s" % [n, k if n > 1 else k.trim_suffix("s")])
+	if int(c.get("essence", 0)) > 0:
+		parts.append("%d essence" % int(c["essence"]))
+	return "nothing at risk" if parts.is_empty() else " + ".join(parts) + " at risk"
+
+
+## The push-or-retreat line (D-b review MF-5): "LIVING 6 left · exit W, 2 rooms · 1 remnant at risk".
+## `exit_word` is the nearest exit's compass word, "" when Relish stands at one ("AT EXIT"); `hops` the
+## rooms between her room and the exit's (0 this room, -1 unknown: a doorway band).
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary) -> String:
+	var ex := "AT EXIT"
+	if exit_word != "":
+		ex = "exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops))
+	return "LIVING %d left · %s · %s" % [maxi(0, living), ex, risk_phrase(at_risk)]
+
+
+## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
+static func last_chance_banner(lit: int) -> String:
+	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d essence to bank" % lit)
+
+
+## The held-fort clear's effect on the map (D-b review SF-5): the counter-garrison mass this run
+## killed comes off the fort's living.
+static func held_map_effect(killed_mass: float) -> String:
+	return "on the map: counter-garrison −%d" % roundi(maxf(0.0, killed_mass))
+
+
 ## How exposed Relish is, 0..1, for her halo's danger rim. 0 while a phylactery charge is left.
 ## With none, a faint `danger.exposed_min` at full hp rising to `exposed_max` as her hp falls: a hit
 ## still has to get through the sacrifice chain and her hp first, so this is a rim, never an alarm

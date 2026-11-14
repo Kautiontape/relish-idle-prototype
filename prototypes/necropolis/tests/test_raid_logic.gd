@@ -1373,3 +1373,19 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lc := RaidLogic.loot_counts({"relics": 1, "remnants": [{}, {}], "essence": 5})
 	t.ok(RaidLogic.loot_line(lc) == "relics 1 · remnants 2 · essence 5", "only the non-zero kinds, in order: " + RaidLogic.loot_line(lc))
 	t.ok(RaidLogic.loot_line({"husks": 1, "blueprints": 0}) == "husks 1", "a zero kind never shows")
+	t.suite("raid_push_line")
+	t.ok(RaidLogic.compass(Vector2(-10, 0)) == "W" and RaidLogic.compass(Vector2(0, -5)) == "N"
+		and RaidLogic.compass(Vector2(3, 3)) == "SE" and RaidLogic.compass(Vector2(-4, -4)) == "NW", "compass: y grows down")
+	t.ok(RaidLogic.compass(Vector2.ZERO) == "", "compass of nothing is empty")
+	var one := {"relics": 0, "remnants": 1, "husks": 0, "blueprints": 0, "essence": 0}
+	t.ok(RaidLogic.push_line(6, "W", 0, one) == "LIVING 6 left · exit W · 1 remnant at risk", RaidLogic.push_line(6, "W", 0, one))
+	var more := {"relics": 2, "remnants": 0, "husks": 1, "blueprints": 0, "essence": 5}
+	t.ok(RaidLogic.push_line(0, "SE", 2, more) == "LIVING 0 left · exit SE, 2 rooms · 2 relics + 1 husk + 5 essence at risk",
+		RaidLogic.push_line(0, "SE", 2, more))
+	t.ok(RaidLogic.push_line(3, "", 1, {}) == "LIVING 3 left · AT EXIT · nothing at risk", "at an exit, nothing found")
+	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
+	t.suite("raid_beat_lines")
+	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 essence to bank", "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
+	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
+	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")

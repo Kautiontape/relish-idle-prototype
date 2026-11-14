@@ -99,7 +99,7 @@ func last_chance() -> void:
 		if is_instance_valid(o) and not o.absorbing and not o.carried and rect.has_point(o.global_position):
 			o.ignite(float(wc.get("ignite_s", 0.8)))
 			lit += 1
-	_raid.hud.show_banner("LAST CHANCE · a free trance", float(wc.get("last_chance_banner_s", 3.5)), "essence")
+	_raid.hud.show_banner(RaidLogic.last_chance_banner(lit), float(wc.get("last_chance_banner_s", 3.5)), "essence")
 	if _raid._standalone:
 		print("RAID_WARDEN last_chance lit=%d" % lit)
 

@@ -21,6 +21,10 @@ var _banner: Label
 var _banner_t := -1.0
 var _warden_block: Control = null   # dungeon only: the awake warden's break meter
 var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
+var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
+var _push_t := 1.0
+var _risk := {}                     # the UNBANKED counts, for the push line
+var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 # boss extras
@@ -96,6 +100,16 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_exit_btn.offset_top = 14.0
 		_exit_btn.offset_right = -18.0
 		_exit_btn.offset_bottom = 60.0
+
+		_push = PushLine.new()
+		_push.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_push)
+		_push.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		_push.anchor_left = 1.0
+		_push.offset_left = -760.0
+		_push.offset_right = -18.0
+		_push.offset_top = 64.0
+		_push.offset_bottom = 88.0
 
 		_dialog = ConfirmationDialog.new()
 		_dialog.title = "Retreat"
@@ -215,14 +229,53 @@ func refresh() -> void:
 			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
 			st.banked_text = RaidLogic.loot_line(bk)
 			st.unbanked_text = RaidLogic.loot_line(ub)
+			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
+		_push_t += _delta_real()
+		if _push != null and _push_t >= 0.25:
+			_push_t = 0.0
+			_update_push()
 		if raid.exit_hint_ready():
 			_hint.text = "AT EXIT · RETREAT banks your loot"
 			_hint.visible = true
 		else:
 			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
 	st.queue_redraw()
+
+
+func _delta_real() -> float:
+	return get_process_delta_time() / maxf(0.05, Engine.time_scale)
+
+
+## The push-or-retreat line, 4 times a second: the living left, the nearest exit (by walking
+## distance; its compass word and how many rooms away) and what a death would lose now. Its text is
+## set only when it changes.
+func _update_push() -> void:
+	var lay: Dictionary = raid.layout
+	var rel: RaidRelish = raid.relish
+	if rel == null or lay.is_empty():
+		return
+	var doors: Array = lay.get("doors", [])
+	var best := -1
+	var bd := INF
+	for i in doors.size():
+		if not bool(doors[i].get("exit", false)):
+			continue
+		var d := LayoutLogic.route_dist(lay, rel.global_position, doors[i]["inner"], rel.radius)
+		if d < bd:
+			bd = d
+			best = i
+	exit_pos = Vector2.INF if best < 0 else (doors[best]["inner"] as Vector2)
+	var word := ""
+	var hops := -1
+	if best >= 0 and raid.endings.exit_idx < 0:
+		word = RaidLogic.compass(exit_pos - rel.global_position)
+		var rf := RaidLogic.room_of(lay, rel.global_position)
+		var rt := int(doors[best].get("room", -1))
+		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
+			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
+	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk))
 
 
 ## Screen point at the end of the "N on the floor" note (the loot pointer starts there), or INF
@@ -593,8 +646,9 @@ class WardenBlock:
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
 ## dashed `vei` line from the HUD's "N on the floor" to the nearest pickup, ringed, while it is on
-## screen; an edge chevron marked LOOT pointing at it while it is off screen. The nearest pickup is
-## re-picked 4 times a second; only the projection runs per frame.
+## screen; an edge chevron marked LOOT pointing at it while it is off screen. The exit pointer: an
+## edge chevron marked EXIT (`relish`, the exits' lip colour) toward the nearest exit while it is off
+## screen. The nearest pickup and exit are re-picked 4 times a second; only the projection runs per frame.
 class Pointers:
 	extends Node2D
 	var hud: RaidHud = null
@@ -647,10 +701,17 @@ class Pointers:
 
 	func _draw() -> void:
 		var raid = hud.raid
-		if raid == null or _loot == null or not is_instance_valid(_loot) or not _loot.is_in_group("raid_pickups"):
+		if raid == null:
 			return
 		var view := get_viewport_rect().size
-		var sp: Vector2 = raid.get_viewport().get_canvas_transform() * _loot.global_position
+		var xf: Transform2D = raid.get_viewport().get_canvas_transform()
+		if hud.exit_pos != Vector2.INF:
+			var ep: Vector2 = xf * hud.exit_pos
+			if not Rect2(Vector2.ZERO, view).grow(-30.0).has_point(ep):
+				_edge(ep, view, Palette.c("relish"), "EXIT")
+		if _loot == null or not is_instance_valid(_loot) or not _loot.is_in_group("raid_pickups"):
+			return
+		var sp: Vector2 = xf * _loot.global_position
 		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(sp):
 			var from := hud.floor_anchor()
 			if from != Vector2.INF:
@@ -658,6 +719,27 @@ class Pointers:
 			draw_arc(sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
 		else:
 			_edge(sp, view, Palette.c("vei"), "LOOT")
+
+
+## The push-or-retreat line, right-aligned on a dark backing (walls run under the HUD); redrawn only
+## when its text changes.
+class PushLine:
+	extends Control
+	var text := ""
+
+	func set_text(t: String) -> void:
+		if t != text:
+			text = t
+			queue_redraw()
+
+	func _draw() -> void:
+		if text == "":
+			return
+		var f := ThemeDB.fallback_font
+		var w := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var x := size.x - w
+		draw_rect(Rect2(Vector2(x - 8.0, 0.0), Vector2(w + 8.0, size.y)), Palette.c("ground", 0.72))
+		draw_string(f, Vector2(x - 2.0, 17.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 
 class ExitButton:
