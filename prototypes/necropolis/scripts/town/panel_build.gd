@@ -579,7 +579,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["node"].visible = true
 	w["title"].text = "%s  (%s)" % [i["label"], _selected_lot]
 	w["flavour"].text = i["flavour"]
-	w["level"].text = "Level %d of %d" % [i["level"], i["max_level"]]
+	w["level"].text = String(i["level_text"])
 	w["state"].text = "State: " + String(i["state_text"])
 	w["staffing"].text = "Staffing: " + String(i["staffing"])
 	var fm := String(i["foreman"])

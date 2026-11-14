@@ -673,6 +673,7 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	return {
 		"building_id": bid, "label": label_of(bid, bview), "flavour": String(bview.get(bid, {}).get("flavour", "")),
 		"level": level, "max_level": max_level, "state": state,
+		"level_text": fmt(String(vcfg.get("level_text", "")), {"level": level, "max": max_level}),
 		"state_text": fmt(tpl, {"pct": int(round(float(entry.get("progress", 0.0)) * 100.0))}),
 		"staffing": ("staffed %.1f of %d" % [float(entry.get("staffed", 0.0)), slots]) if slots > 0 else "no jobs here",
 		"foreman": ("foreman " + fm) if fm != "" else "no foreman",

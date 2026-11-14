@@ -108,6 +108,7 @@ func run() -> int:
 	_build_benefit()
 	_build_suggest(day1)
 	_autoplay(day1, mid)
+	_deep_levels(day1)
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
@@ -3683,3 +3684,65 @@ func _strokes_len(pls: Array) -> float:
 		for i in range(1, p.size()):
 			n += p[i - 1].distance_to(p[i])
 	return n
+
+
+# ----------------------------------------------------------------- G3: deep levels ----
+## A copy of buildings.json where `bid` has `top` levels (level_costs to L2..Ltop, each 1.6x the last).
+func _deep_cfg(bid: String, top: int) -> Dictionary:
+	var b: Dictionary = (cfg["buildings"] as Dictionary).duplicate(true)
+	var lc: Array = b[bid]["level_costs"]
+	while lc.size() < top - 1:
+		var last: Dictionary = lc[lc.size() - 1]
+		lc.append({"gold": float(last["gold"]) * 1.6, "bone": float(last["bone"]) * 1.6, "relics": 0})
+	b[bid]["max_level"] = top
+	return b
+
+
+func _deep_levels(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var deep := _deep_cfg("house", 8)
+	var st := {"gold": 100000.0, "bone": 100000.0, "relics": 9.0, "max_level": {"house": 8}}
+	var house := {"lot_id": "lot-05", "building_id": "house", "level": 5, "state": "active", "progress": 1.0, "slots": 0,
+		"staffed": 0.0, "foreman": "", "upkeep": {"gold": 0.0, "bone": 0.0}}
+	var i: Dictionary = BuildSort.inspect(house, st, deep, bv, vcfg)
+	t.ok(i["max_level"] == 8 and i["level_text"] == "Level 5 of 8", "deep: the card/inspector reads 'Level 5 of 8' (%s)" % i["level_text"])
+	t.ok(i["upgrade"]["enabled"] and i["upgrade"]["level"] == 6 and i["upgrade"]["cost"] == deep["house"]["level_costs"][4],
+		"deep: 5 -> 6 costs level_costs[4]")
+	for lv in range(1, 8):
+		house["level"] = lv
+		i = BuildSort.inspect(house, st, deep, bv, vcfg)
+		t.ok(i["upgrade"]["enabled"] and i["upgrade"]["level"] == lv + 1 and i["upgrade"]["cost"] == deep["house"]["level_costs"][lv - 1],
+			"deep: upgrade enabled from %d to %d with its own cost" % [lv, lv + 1])
+	house["level"] = 8
+	i = BuildSort.inspect(house, st, deep, bv, vcfg)
+	t.ok(not i["upgrade"]["enabled"] and i["upgrade"]["reason"] == "max_level" and i["upgrade"]["cost"].is_empty() and i["level_text"] == "Level 8 of 8",
+		"deep: at 8 the upgrade is refused with max_level")
+	t.ok(vcfg["reasons"]["max_level"] == "already at its top level", "deep: max_level reads 'already at its top level'")
+	t.ok(BuildSort.upgrade_cost(deep["house"], 8, 8).is_empty() and BuildSort.upgrade_cost(deep["house"], 7, 8) == deep["house"]["level_costs"][6],
+		"deep: the per-level cost table at level 8 is empty, at 7 its last entry")
+	t.ok(BuildSort.upgrade_cost(deep["house"], 9, 8).is_empty(), "deep: a level past the table never indexes out of range")
+	# the catalog's max_level wins over buildings.json (which says 3)
+	house["level"] = 5
+	i = BuildSort.inspect(house, st, cfg["buildings"], bv, vcfg)
+	t.ok(i["max_level"] == 8, "deep: max_level comes from view_catalog's stocks, not buildings.json")
+	# a lot's output pips stay countable at 8 (the cap) with the integer beside them
+	var po := TownModel.row_offsets(8, 5.0, 3.0, 4.0, 5)
+	t.ok(po.size() == 8 and TownModel.count_label(8, 5) == "8", "deep: 8 pips are 8 marks in groups of 5 with the integer beside")
+	t.ok(vcfg["pip_max"] >= 8, "deep: the pip cap holds 8")
+	# the demo city and the stand-in queue take the top level from the config, whatever it is
+	var dc := _deep_cfg("raising_pit", 8)
+	var demo := TownStandins.demo_views(day1, dc, cfg["town"])
+	var pit_ok := false
+	for b in demo["town"]["buildings"]:
+		if b["building_id"] == "raising_pit" and b["state"] == "active":
+			pit_ok = pit_ok or (int(b["level"]) == 8 and int(b["slots"]) == int(dc["raising_pit"]["jobs"]["pit"]) * 8)
+	t.ok(pit_ok, "deep: the demo city's job buildings stand at their top level (8)")
+	var qc := {"gold": 1e6, "bone": 1e6, "relics": 9.0, "gold_cap": -1.0, "bone_cap": -1.0, "catalog": {"house": _row("house", true, "", [])},
+		"built": {"lot-05": {"building_id": "house", "level": 7, "max_level": 8, "state": "active"}}, "gates": vcfg["gate_reasons"]}
+	var q := TownStandins.BuildQueue.new(8, vcfg["cap_buildings"])
+	var r: Dictionary = q.add({"building_id": "house", "lot_id": "lot-05", "upgrade": true, "level": 8, "cost": {"gold": 1.0, "bone": 1.0, "relics": 0}}, qc)
+	t.ok(bool(r["ok"]), "deep: the queue takes an upgrade 7 -> 8")
+	qc["built"]["lot-05"]["level"] = 8
+	q.evaluate(qc)
+	t.ok(q.entries[0]["status"] == "skipped_gate" and q.entries[0]["reason"] == "max_level", "deep: the queue skips an upgrade at 8 as max_level")
+
