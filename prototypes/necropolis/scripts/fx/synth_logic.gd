@@ -9,12 +9,15 @@ extends RefCounted
 ## shatter (a backup cracking), flip (a short bright re-ink), and the dungeon's: tell (a low bronze
 ## knell, the warning), slam (a heavy boom with a bell tail), muffle (the same boom choked: no
 ## tail), intercept (a metal clang and a buzzing stun), streak (a rising tick, params.step 0..20),
-## unravel (a long falling glassy shimmer). Bronze is inharmonic bell partials; glassy is high pure
+## unravel (a long falling glassy shimmer), and the wardens': clang (a hit glances off the
+## Shieldwall: a dull low metal thud), flank (a hit lands from the side: a brighter crack, params.heavy
+## makes it lower and longer), ignite (a breathy whoosh that darkens into a crackle: essence burning
+## away) and snuff (a hiss choked off short). Bronze is inharmonic bell partials; glassy is high pure
 ## ones. Tuning: configs/synth.json.
 
 const CONFIG_FILE := "res://configs/synth.json"
 const KINDS := ["pulse", "absorb", "raise", "chime", "whoosh", "horn", "shatter", "flip",
-	"tell", "slam", "muffle", "intercept", "streak", "unravel"]
+	"tell", "slam", "muffle", "intercept", "streak", "unravel", "clang", "flank", "ignite", "snuff"]
 
 static var _cfg := {}
 
@@ -63,6 +66,8 @@ static func cache_key(kind: String, params := {}, c := {}) -> String:
 		return "chime:%d" % score_bucket(float(params.get("score", 0.0)), float(kind_cfg(kind, c)["score_step"]))
 	if kind == "streak":
 		return "streak:%d" % step_bucket(float(params.get("step", 0.0)), kind_cfg(kind, c))
+	if kind == "flank":
+		return "flank:%d" % (1 if bool(params.get("heavy", false)) else 0)
 	return kind
 
 
@@ -145,7 +150,9 @@ static func render(kind: String, params := {}, sample_rate := 0, c := {}) -> Pac
 	var k := kind_cfg(kind, c)
 	if k.is_empty():
 		return PackedFloat32Array()
-	var n := maxi(int(float(k["len_s"]) * sr), 1)
+	var heavy := kind == "flank" and bool(params.get("heavy", false))
+	var len_s := float(k["heavy_len_s"]) if heavy and k.has("heavy_len_s") else float(k["len_s"])
+	var n := maxi(int(len_s * sr), 1)
 	var buf := PackedFloat32Array()
 	buf.resize(n)
 	match kind:
@@ -171,6 +178,12 @@ static func render(kind: String, params := {}, sample_rate := 0, c := {}) -> Pac
 			_streak(buf, params, k, sr, c)
 		"unravel":
 			_unravel(buf, k, sr, c)
+		"clang", "flank":
+			_strike(buf, k, sr, heavy)
+		"ignite":
+			_ignite(buf, k, sr)
+		"snuff":
+			_snuff(buf, k, sr)
 		_:
 			return PackedFloat32Array()
 	return _normalise(buf, float(c["peak"]))
@@ -414,6 +427,85 @@ static func _unravel(buf: PackedFloat32Array, k: Dictionary, sr: int, c: Diction
 			var shim := 1.0 - float(k["shimmer_depth"]) * (0.5 + 0.5 * sin(TAU * float(k["shimmer_hz"]) * t + h * 1.7))
 			s += float(p[1]) * sin(TAU * phs[h]) * shim * exp(-float(p[2]) * t)
 		buf[i] = s * _env(i, n, att, float(k["decay_pow"]))
+
+
+## clang and flank: a struck metal plate. Inharmonic partials of fundamental f (heavy: heavy_f, with
+## every decay scaled by heavy_decay_scale, so a big hit is lower and rings longer) and a noise click
+## through a one-pole lowpass at click_cut_hz: low for the clang's dull thud, high for the flank's
+## bright crack.
+static func _strike(buf: PackedFloat32Array, k: Dictionary, sr: int, heavy: bool) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(k["seed"])
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var f := float(k["heavy_f"]) if heavy and k.has("heavy_f") else float(k["f"])
+	var ds := float(k.get("heavy_decay_scale", 1.0)) if heavy else 1.0
+	var parts: Array = k["partials"]
+	var a := 1.0 - exp(-TAU * float(k["click_cut_hz"]) / sr)
+	var y := 0.0
+	for i in buf.size():
+		var t := float(i) / sr
+		var s := 0.0
+		for p in parts:
+			s += float(p[1]) * sin(TAU * f * float(p[0]) * t) * exp(-float(p[2]) * ds * t)
+		y += a * (rng.randf() * 2.0 - 1.0 - y)
+		s += y * float(k["click_mix"]) * exp(-float(k["click_decay"]) * ds * t)
+		buf[i] = s * minf(float(i) / att, 1.0)
+	_fade_out(buf, float(k["release_s"]), sr)
+
+
+## ignite: breath. Seeded noise through two one-pole lowpasses whose cutoff falls from cut0 to cut1
+## (x^cut_pow of the way), under a quick swell and a long decay, so it darkens as it goes; from
+## pop_from (0..1 of the length) seeded crackle pops (a lowpassed noise grain, decaying at
+## pop_decay per s, about pop_rate a second) ride a fading bed. Reads as loss: nothing rises.
+static func _ignite(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
+	var n := buf.size()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(k["seed"])
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var c0 := float(k["cut0"])
+	var c1 := float(k["cut1"])
+	var pa := 1.0 - exp(-TAU * float(k["pop_cut_hz"]) / sr)
+	var y1 := 0.0
+	var y2 := 0.0
+	var yp := 0.0
+	var pop := 0.0
+	for i in n:
+		var x := float(i) / n
+		var a := 1.0 - exp(-TAU * c0 * pow(c1 / c0, pow(x, float(k["cut_pow"]))) / sr)
+		y1 += a * (rng.randf() * 2.0 - 1.0 - y1)
+		y2 += a * (y1 - y2)
+		var e := minf(float(i) / att, 1.0) * pow(1.0 - x, float(k["decay_pow"]))
+		if x >= float(k["pop_from"]) and rng.randf() < float(k["pop_rate"]) / sr:
+			pop = 0.4 + 0.6 * rng.randf()
+		pop *= exp(-float(k["pop_decay"]) / sr)
+		yp += pa * (rng.randf() * 2.0 - 1.0 - yp)
+		buf[i] = y2 * e + yp * pop * float(k["pop_mix"]) * (1.0 - x)
+	_fade_out(buf, 0.02, sr)
+
+
+## snuff: a short bright hiss (noise minus its lowpass at hp_hz, then lowpassed again with the
+## cutoff closing from cut0 to cut1) that is full at once and decays a little, then is cut off at
+## cut_s over fade_s: the inverse of ignite's swell.
+static func _snuff(buf: PackedFloat32Array, k: Dictionary, sr: int) -> void:
+	var n := buf.size()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(k["seed"])
+	var att := maxi(int(float(k["attack_s"]) * sr), 1)
+	var cut_n := int(float(k["cut_s"]) * sr)
+	var fade_n := maxi(int(float(k["fade_s"]) * sr), 1)
+	var ha := 1.0 - exp(-TAU * float(k["hp_hz"]) / sr)
+	var c0 := float(k["cut0"])
+	var c1 := float(k["cut1"])
+	var yh := 0.0
+	var yl := 0.0
+	for i in n:
+		var t := float(i) / sr
+		var x := float(i) / maxf(cut_n, 1)
+		var w := rng.randf() * 2.0 - 1.0
+		yh += ha * (w - yh)
+		yl += (1.0 - exp(-TAU * c0 * pow(c1 / c0, clampf(x, 0.0, 1.0)) / sr)) * (w - yh - yl)
+		var gate := 1.0 if i < cut_n else maxf(1.0 - float(i - cut_n) / fade_n, 0.0)
+		buf[i] = yl * minf(float(i) / att, 1.0) * exp(-float(k["decay"]) * t) * gate
 
 
 ## Scales to `peak` (a silent buffer stays silent); a NaN sample becomes 0.

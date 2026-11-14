@@ -116,10 +116,17 @@ func set_muted(on: bool) -> void:
 
 
 ## Renders `kinds` into the cache now (a scene's first frames are heavy anyway), so their first
-## play costs nothing. Already cached kinds are skipped.
+## play costs nothing. Already cached kinds are skipped. An entry is a kind name (rendered with no
+## params, as ever) or {"kind": String, "params": Dictionary}, which renders that one bucket of a
+## param kind: {"kind": "flank", "params": {"heavy": true}}, {"kind": "chime", "params": {"score": 85}}.
+## It lands in the cache under SynthLogic.cache_key(kind, params).
 func warm(kinds: Array) -> void:
 	for k in kinds:
-		_stream(str(k), {})
+		if k is Dictionary:
+			var p = k.get("params", {})
+			_stream(str(k.get("kind", "")), p if p is Dictionary else {})
+		else:
+			_stream(str(k), {})
 
 
 ## Plays `kind` (SynthLogic.KINDS; a chime takes params.score 0..100). Muted: nothing plays.

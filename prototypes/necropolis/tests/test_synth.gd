@@ -24,6 +24,7 @@ func run() -> int:
 	_cache_holds(t)
 	_pcm(t)
 	_dungeon_kinds(t, c)
+	_warden_kinds(t, c)
 	_prefs(t, c)
 	return t.failures
 
@@ -245,6 +246,78 @@ func _dungeon_kinds(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SynthLogic.peak(ic.slice(SR / 100, ic.size())) <= pk, "intercept's attack is its peak")
 	# the buzz: energy continues after the clang has rung down.
 	t.ok(_energy(ic, int(0.2 * SR), int(0.3 * SR)) > 0.0005 * _energy(ic, 0, SR / 20), "intercept buzzes after the clang")
+
+
+## A crude brightness: sign changes per sample over [from, to).
+func _zcr(buf: PackedFloat32Array, from: int, to: int) -> float:
+	return float(SynthLogic.zero_crossings(buf, from, to)) / maxf(to - from, 1)
+
+
+func _warden_kinds(t: TestUtil, c: Dictionary) -> void:
+	var ks: Dictionary = c["kinds"]
+	for kind in ["clang", "flank", "ignite", "snuff"]:
+		t.ok(SynthLogic.KINDS.has(kind), "%s is a kind" % kind)
+		var a := SynthLogic.render(kind, {}, SR)
+		t.ok(a.size() == int(float(ks[kind]["len_s"]) * SR) and a.size() > 0, "%s renders its length" % kind)
+		t.ok(SynthLogic.peak(a) > 0.5, "%s is not silent" % kind)
+		t.ok(SynthLogic.render(kind, {}, SR) == a, "%s renders the same twice" % kind)
+		t.ok(float(ks[kind]["len_s"]) <= 0.65, "%s stays short (%.2f s)" % [kind, float(ks[kind]["len_s"])])
+		t.ok(SynthLogic.cache_key(kind, {}) == (kind + ":0" if kind == "flank" else kind), "%s has the expected cache key" % kind)
+	# clang: under the mix and dull
+	t.ok(float(ks["clang"]["gain_db"]) < float(ks["tell"]["gain_db"]) and float(ks["clang"]["gain_db"]) < float(ks["slam"]["gain_db"]), "clang sits below tell and slam")
+	var cl := SynthLogic.render("clang", {}, SR)
+	var fl := SynthLogic.render("flank", {}, SR)
+	var fh := SynthLogic.render("flank", {"heavy": true}, SR)
+	t.ok(_zcr(cl, 0, SR / 10) < _zcr(fl, 0, SR / 10) * 0.7, "clang is duller than flank (%.3f vs %.3f crossings per sample)" % [_zcr(cl, 0, SR / 10), _zcr(fl, 0, SR / 10)])
+	# flank: heavy is a different, lower, longer sound with its own cache key
+	t.ok(fh != fl, "flank's heavy param changes the render")
+	t.ok(fh.size() > fl.size(), "a heavy flank is longer (%d > %d samples)" % [fh.size(), fl.size()])
+	t.ok(fh.size() == int(float(ks["flank"]["heavy_len_s"]) * SR), "a heavy flank renders heavy_len_s")
+	t.ok(_zcr(fh, 0, SR / 10) < _zcr(fl, 0, SR / 10), "a heavy flank is lower (%.3f < %.3f crossings per sample)" % [_zcr(fh, 0, SR / 10), _zcr(fl, 0, SR / 10)])
+	t.ok(absf(fh[fh.size() - 1]) < 0.05 * SynthLogic.peak(fh), "a heavy flank ends near silence")
+	t.ok(SynthLogic.render("flank", {"heavy": false}, SR) == fl and SynthLogic.render("flank", {"score": 40}, SR) == fl, "a light flank is the no-param flank")
+	t.ok(SynthLogic.cache_key("flank", {"heavy": true}) == "flank:1" and SynthLogic.cache_key("flank", {"heavy": false}) == "flank:0", "flank keys on heavy")
+	t.ok(SynthLogic.cache_key("flank", {"heavy": true}) != SynthLogic.cache_key("flank", {}), "heavy and light flank are two cache entries")
+	t.ok(SynthLogic.cache_key("clang", {"heavy": true}) == "clang", "clang has no param buckets")
+	# ignite: a darkening whoosh with a crackle tail, about 0.6 s
+	var ig := SynthLogic.render("ignite", {}, SR)
+	t.ok(absf(float(ig.size()) / SR - 0.6) < 0.1, "ignite is about 0.6 s (%.2f)" % (float(ig.size()) / SR))
+	var th := _thirds(ig)
+	t.ok(th.x > th.y * 1.2, "ignite darkens: more crossings early than late (%.3f vs %.3f)" % [th.x, th.y])
+	t.ok(_energy(ig, ig.size() * 2 / 3, ig.size()) > 0.0005 * _energy(ig, 0, ig.size() / 3), "ignite has a tail")
+	var ic2 := ks.duplicate(true)
+	ic2["ignite"]["pop_mix"] = 0.0
+	t.ok(SynthLogic.render("ignite", {}, SR, {"sample_rate": c["sample_rate"], "peak": c["peak"], "kinds": ic2}) != ig, "the crackle is part of ignite")
+	# snuff: cut off, the inverse of ignite
+	var sn := SynthLogic.render("snuff", {}, SR)
+	var cut := int(float(ks["snuff"]["cut_s"]) * SR) + int(float(ks["snuff"]["fade_s"]) * SR)
+	t.ok(SynthLogic.peak(sn.slice(0, sn.size() / 2)) > 0.95 * SynthLogic.peak(sn), "snuff is full in its first half")
+	t.ok(SynthLogic.peak(sn.slice(cut, sn.size())) < 0.01, "snuff is silent after its cut")
+	var sn_early := SynthLogic.peak(sn.slice(0, int(0.02 * SR)))
+	var ig_early := SynthLogic.peak(ig.slice(0, int(0.02 * SR)))
+	t.ok(sn_early > 2.0 * ig_early, "snuff is full at once where ignite swells in (%.2f vs %.2f)" % [sn_early, ig_early])
+	t.ok(float(ks["snuff"]["len_s"]) < float(ks["ignite"]["len_s"]) * 0.5, "snuff is much shorter than ignite")
+	# every new kind plays on the Synth's own path (render -> pcm -> cache) through the public warm
+	var s := Synth.new()
+	s._cfg = c
+	Synth.sync_cache(c)
+	s.warm(["clang", "ignite", "snuff", {"kind": "flank", "params": {"heavy": true}}, {"kind": "flank"}])
+	for key in ["clang", "ignite", "snuff", "flank:1", "flank:0"]:
+		t.ok(Synth._cache.has(key), "warm cached %s" % key)
+	t.ok((Synth._cache["flank:1"] as AudioStreamWAV).data.size() > (Synth._cache["flank:0"] as AudioStreamWAV).data.size(), "the cached heavy flank is the longer render")
+	Synth.sync_cache(c)
+	Synth.clear_cache()
+	s.free()
+	# the original kinds still render exactly as before: a fingerprint of 12 plain kinds, every chime
+	# bucket and every streak step (hashed from the PCM they play)
+	var all := PackedByteArray()
+	for k in ["pulse", "absorb", "raise", "whoosh", "horn", "shatter", "flip", "tell", "slam", "muffle", "intercept", "unravel"]:
+		all.append_array(SynthLogic.to_pcm16(SynthLogic.render(k, {}, SR)))
+	for sc in range(0, 101, 5):
+		all.append_array(SynthLogic.to_pcm16(SynthLogic.render("chime", {"score": sc}, SR)))
+	for st in 21:
+		all.append_array(SynthLogic.to_pcm16(SynthLogic.render("streak", {"step": st}, SR)))
+	t.ok(Marshalls.raw_to_base64(all).md5_text() == "815ba01d3c6d7394d5fedcb83b9a7273", "the original 14 kinds render bit-identically to before the warden kinds")
 
 
 func _fake_game(autosave: bool) -> Node:

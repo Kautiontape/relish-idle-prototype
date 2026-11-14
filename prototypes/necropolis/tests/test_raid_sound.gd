@@ -29,6 +29,9 @@ func run() -> int:
 
 	t.suite("raid_sound warm plan")
 	var scfg := {"kinds": {"chime": {"score_step": 5}, "streak": {"step_max": 20, "step_bucket": 1}}}
+	var fl := RaidSoundLogic.warm_plan(["flank"], scfg)
+	t.ok(fl.size() == 2 and fl[0]["params"] == {"heavy": false} and fl[1]["params"] == {"heavy": true}, "a flank is its two buckets, light then heavy")
+	t.ok((RaidSoundLogic.split_plan(fl)["param"] as Array).size() == 2, "flank buckets trickle with the param renders")
 	var plan := RaidSoundLogic.warm_plan(["unravel", "chime", "streak", "unravel", "raise"], scfg)
 	var names := {}
 	for it in plan:
@@ -51,10 +54,10 @@ func run() -> int:
 		var sl := load(RaidSound.SYNTH_LOGIC_PATH) as Script
 		var live: Dictionary = sl.call("cfg")
 		var keys := {}
-		for it in RaidSoundLogic.warm_plan(["chime", "streak"], live):
+		for it in RaidSoundLogic.warm_plan(["chime", "streak", "flank"], live):
 			keys[sl.call("cache_key", it["kind"], it["params"], live)] = true
-		t.ok(keys.size() == RaidSoundLogic.warm_plan(["chime", "streak"], live).size(), "every planned render is a distinct Synth cache key")
-		t.ok(keys.size() == 42, "the live config plans 21 chime + 21 streak renders")
+		t.ok(keys.size() == RaidSoundLogic.warm_plan(["chime", "streak", "flank"], live).size(), "every planned render is a distinct Synth cache key")
+		t.ok(keys.size() == 44, "the live config plans 21 chime + 21 streak + 2 flank renders")
 
 	var sp := RaidSoundLogic.split_plan(plan)
 	t.ok((sp["plain"] as Array).size() == 2 and (sp["param"] as Array).size() == 42, "split: 2 plain renders (unravel, raise), 42 param renders")
@@ -74,9 +77,18 @@ func run() -> int:
 	if ResourceLoader.exists(RaidSound.SYNTH_PATH):
 		t.ok(RaidSound._synth != null, "attach creates the Synth when its script exists")
 		t.ok(RaidSound._known.has("unravel"), "attach reads the Synth's kind list (unravel is one)")
+		# The public warm: a string entry renders with no params, a dict entry renders that bucket.
 		var sy := (load(RaidSound.SYNTH_PATH) as Script).new() as Node
-		t.ok(sy.has_method("_stream") and sy.get_method_argument_count("_stream") == 2,
-			"Synth._stream(kind, params) exists: the trickle warm calls it (rename it and RaidSound's warm stops)")
+		var sl2 := load(RaidSound.SYNTH_LOGIC_PATH) as Script
+		var cfg: Dictionary = sl2.call("cfg")
+		sy.set("_cfg", cfg)
+		Synth.clear_cache()
+		sy.call("warm", ["whoosh", {"kind": "flank", "params": {"heavy": true}}, {"kind": "chime", "params": {"score": 85}}])
+		t.ok(Synth._cache.has("whoosh"), "warm still takes a plain kind name")
+		t.ok(Synth._cache.has(sl2.call("cache_key", "flank", {"heavy": true}, cfg)) and not Synth._cache.has(sl2.call("cache_key", "flank", {"heavy": false}, cfg)),
+			"warm takes {kind, params}: the heavy flank lands under its cache key, the light one is not rendered")
+		t.ok(Synth._cache.has(sl2.call("cache_key", "chime", {"score": 85}, cfg)), "warm takes a chime bucket")
+		Synth.clear_cache()
 		sy.free()
 	holder.free()
 
