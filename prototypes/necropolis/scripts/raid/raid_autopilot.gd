@@ -41,6 +41,11 @@ var _timed_out := false
 var _done := false
 var _scores: Array = []         # score of every successful raise
 var _first_raise_s := -1.0      # scene time of the first successful raise (-1: none)
+var _wake_s := -1.0             # scene time the warden woke (-1: it never did)
+var _raises_wake := 0           # successful raises after the warden woke (circles during the fight)
+var _attacks := 0               # the warden's slams or lunges so far (read off it each think)
+var _attacks_wp := 0            # of them: muffled slams, or intercepted lunges (the weak point)
+var _catches := 0               # Huntsman catches of Relish
 var _cur_room := -1
 var _prev_room := -1
 var _hold_t := 0.0              # continuous seconds spent holding back in the current room
@@ -119,6 +124,17 @@ func physics_tick(delta: float) -> void:
 		_time_out()
 		return
 	var pos := rel.global_position
+	var ww = _raid.warden_run.warden
+	if ww != null and is_instance_valid(ww):
+		if _wake_s < 0.0 and ww.awake:
+			_wake_s = _sim_t
+		if ww is RaidBellringer:
+			_attacks = ww._slams
+			_attacks_wp = ww.slams_muffled
+		elif ww is RaidHuntsman:
+			_attacks = ww._lunges
+			_attacks_wp = ww.intercepts
+			_catches = ww.catches
 	_track_room(pos)
 	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
@@ -178,6 +194,8 @@ func on_finish(result: Dictionary) -> void:
 		"duration_s": snappedf(_sim_t, 0.01), "revives": _raid.endings.revived,
 		"raises": _raid.raises, "avg_score": snappedf(avg, 0.1), "raised_count": raised,
 		"first_raise_s": snappedf(_first_raise_s, 0.01), "warden_hp_frac_end": snappedf(_warden_hp_frac(), 0.001),
+		"warden_wake_s": snappedf(_wake_s, 0.01), "raises_after_wake": _raises_wake,
+		"warden_attacks": _attacks, "warden_attacks_weak_point": _attacks_wp, "catches": _catches,
 		"pickups_left": _raid.pickups_left(), "unbanked_lost": int(lost["items"]), "unbanked_lost_essence": int(lost["essence"]),
 		"killed_living_mass": snappedf(float(result.get("killed_living_mass", 0.0)), 0.01),
 		"seed_living": snappedf(float(_raid.seed_data.get("living", 0.0)), 0.01), "held_cleared": _raid.held_clear.started,
@@ -622,8 +640,10 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 	elif _archetype == "huntsman":
 		var h: RaidHuntsman = w as RaidHuntsman
 		var hr := int(_raid.layout.get("warden_room", -1))
-		if _cur_room != hr and hr >= 0:
-			# it only hunts inside its room: go back in and fight it there (kiting, dodging its tells)
+		if hr >= 0 and RaidLogic.room_of(_raid.layout, pos) != hr:
+			# it only hunts inside its room: go back in and fight it there (kiting, dodging its tells). The
+			# live room, not _cur_room: standing in the doorway band kept the stale room, so the bot idled
+			# at the door while the Huntsman, seeing her outside, lunged through the army instead
 			return _toward_room(pos, hr, _room_center(hr))
 		var dodge_to = _dodge_step(pos, h)
 		if dodge_to != null:
@@ -829,6 +849,8 @@ func _try_raise(pos: Vector2) -> void:
 	tr.bot_raise_cooldown(raised)
 	if raised:
 		_scores.append(int(g["score"]))
+		if _wake_s >= 0.0:
+			_raises_wake += 1
 		if _first_raise_s < 0.0:
 			_first_raise_s = _sim_t
 

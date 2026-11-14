@@ -20,6 +20,7 @@ var _dash_to := Vector2.ZERO
 var _dashing := false
 var _dash_left := 0.0
 var _lunges := 0
+var intercepts := 0            # lunges a fast big undead stopped (autopilot telemetry)
 var _aim := Vector2.RIGHT      # heading drawn as the spear
 var _lunge_flash := 0.0
 var _hunting_undead := false   # this frame's target is an undead, not Relish
@@ -178,6 +179,7 @@ func _begin_lunge() -> void:
 		stun_left = float(spec.get("weak_point", {}).get("stun_beats", 2.0)) * tempo_s()
 		_next_attack = maxf(_next_attack, ceilf(beat() + float(spec.get("weak_point", {}).get("stun_beats", 2.0)) + _tell()))
 		outcome = "intercepted"
+		intercepts += 1
 		RaidFx.ring(raid.fx_root, to, Palette.c("undead"), 70.0, 0.5, 3.5)
 		RaidFx.ring(raid.fx_root, to, Palette.c("text", 0.8), 36.0, 0.35, 2.5)
 	# undead touched along the dash take dmg_unit, once each

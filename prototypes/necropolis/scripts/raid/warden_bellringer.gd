@@ -11,6 +11,7 @@ var _slam_beat := -1.0         # beat the live slam started, -1 when none
 var _slam_prev_r := 0.0
 var _slam_muffled := false
 var _slams := 0
+var slams_muffled := 0         # slams rung while a beefy big braced the bell (autopilot telemetry)
 
 
 func _on_wake() -> void:
@@ -56,6 +57,8 @@ func _step(_delta: float) -> void:
 		_slam_prev_r = 0.0
 		_slam_muffled = muffled
 		_slams += 1
+		if muffled:
+			slams_muffled += 1
 		_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)
 		if raid._standalone:
 			print("RAID_WARDEN slam n=%d muffled=%s phase=%d bigs_at_bell=%d frame=%d" % [_slams, str(_slam_muffled), phase, _contacts().size(), Engine.get_process_frames()])
