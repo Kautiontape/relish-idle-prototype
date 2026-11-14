@@ -139,29 +139,52 @@ takes over 1 s.
 
   Nothing goes negative at any dt (tested to 120 s). `tests/slow/convergence.gd` measures 12 h with
   no input against a 0.5 s run, with steps clipped at the events listed under Method:
-  - Measured at `985c158` (E2b T3.0m: the march-back and exact wave times, MECHANICS §3.4). Vei's
-    stocks and Covington's smooth ones stay within 0.4% up to dt 5 s (midgame_2flips 0.38%,
-    fresh 0.33%). At 10 s and 15 s they reach 1.3% and 2.4% on midgame_2flips (bone the worst;
-    the backlog 0.94% and 1.66%, against 3.05% and 4.47% at `3992014` under T3.0s's bound), and
-    1.6% and 0.9% on fresh. The 12 h table (worst Vei+Covington stock at 5, 10, 15 and 30 s;
-    0.5 s reference): midgame_2flips 0.38%, 1.28%, 2.43%, 6.33%; fresh 0.33%, 1.56%, 0.91%,
-    1.17%; pre_vei 7.37%, 27.3%, 27.8%, 56.5% (pre-march-back, see below).
-  - So 12 h at 15 s on midgame_2flips (2.4%, bone) is above the 2% `idle.catchup_tol`. Only the 1 h
-    gate (`tests/test_convergence_1h.gd`, 1.333% at 15 s) enforces 2%; at 12 h the largest dt
-    inside it is 10 s (1.28%).
-  - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s) midgame_2flips' backlog is
-    first order: 0.012% at 0.25 s, 0.036% at 0.5 s. Over 1 h its backlog's error is 0.012%,
-    0.036%, 0.062%, 0.13%, 0.28%, 0.88% and 1.37% at 0.25, 0.5, 1, 2, 5, 10 and 15 s (2.66% at
-    15 s under the bound, 0.46% before it).
-  - The forts' pools and the body store don't converge: 0.25 s already differs from 0.5 s by up
-    to 19% (pre_vei's corpses). The candidates are the dispatch rules' edges and the convoy's
-    choice of fort. midgame_2flips' corpses got worse with the march-back (19% at 5 s, 217% at
-    15 s, against 3% and 27% before): Ashgate now ends a wave near its cap instead of far above
-    it, and then fills with corpses about 10 min earlier at 15 s than at 0.125 s. The cause is
-    not yet measured.
-  - pre_vei is unchanged by T3.0m (no wave reaches it in 12 h with no input). Its gold-floor
-    upkeep cycle doesn't converge: 2.5% at 2 s, 7.4% at 5 s. At 10 s its backlog is 6.4% off and
-    Vei's dead 27%.
+  - Measured at `ea2ce47` (E2b T4.C: the clearing counts in Vei's shipping room, the raises in a
+    full fort's WAR fill, and a fort WAR fills with no living takes only the living its undead
+    kill; MECHANICS §3.2, §3.4). The 12 h table (worst Vei+Covington stock at 5, 10, 15 and 30 s;
+    0.5 s reference): midgame_2flips 0.38%, 1.28%, 2.45%, 6.30% (bone the worst; the backlog
+    0.24%, 0.77%, 1.40%, 3.65%); fresh 0.61%, 0.34%, 0.22%, 0.61%; pre_vei 7.37%, 31.9%, 32.5%,
+    56.8% (its upkeep cycle, below). At `985c158`: midgame_2flips 0.38%, 1.28%, 2.43%, 6.33%;
+    fresh 0.33%, 1.56%, 0.91%, 1.17%; pre_vei 7.37%, 27.3%, 27.8%, 56.5%.
+  - So at 10 s (the planned `idle.catchup_dt_max_s`) fresh's smooth stocks are within 0.34% and
+    midgame_2flips' within 1.28% (bone, unchanged by T4.C); pre_vei's are not. 12 h at 15 s on
+    midgame_2flips (2.45%, bone) is above the 2% `idle.catchup_tol`. The 1 h gate
+    (`tests/test_convergence_1h.gd`, 2% at 15 s) reads 0.80% (midgame_2flips), 0.48% (pre_vei)
+    and 0.14% (fresh) at 15 s, against 1.33%, 0.35% and 0.74% at `46710b0`.
+  - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s, err(0.5) / err(0.25)):
+    midgame_2flips is first order on every stock and every fort pool, 2.1 to 2.8 (its corpses
+    0.25% and 0.67%, its undead 0.06% and 0.17%; its undead were 1.48 at `985c158`). pre_vei is
+    unchanged: 1.9 to 7.0 (its corpses 13.5% and 25.1%, from the upkeep cycle). fresh's backlog is
+    3.5 (0.15% and 0.54%), its fort pools 1.5 to 1.6 and its bodies 0.75 (1.2% and 0.9% of the
+    cap). Outcomes (flips, retakes, waves, builds, the upkeep's switches, the tier, the forts held
+    and holding living at the end) match 0.125 s at 0.25 and 0.5 s at every start, and 0.5 s up
+    to 30 s on midgame_2flips and fresh.
+  - fresh's residual is the convoy. Its store sits at the body cap 99.4% of the time, so every
+    load is the headroom, about 2 of 200. A load lands whole and comes off one fort, the argmax
+    over Ashgate, Old Sluice and Greywall, which the convoy itself keeps within about a load of
+    each other. The pick reads their corpses as they stood at the step's start, up to one step
+    stale. The runs' convoys leave at the same moments, but the first pick differs at 390 s
+    between 0.5 s and 0.125 s, and at 687 s between 0.25 s and 0.125 s: there Greywall led Old
+    Sluice by 0.0002 at 0.125 s and trailed it by 0.03 at 0.25 s (Ashgate's corpses agreed to
+    1e-11). 8 to 11% of departures have the top two within 0.1, what one 0.5 s step's corpses add.
+    From then on the sampled store and corpses differ by about one load at any dt. Those forts
+    are full of corpses with few undead, and WAR keeps their undead at the cap less their corpses,
+    so their undead differ by that load too. A pick that read each fort's corpses at its own moment
+    (projected from the last step's rate) would remove the staleness. It changes how the convoy
+    chooses (MECHANICS §4.2) and needs a corpse rate that survives a save, so it is left for a
+    decision.
+  - midgame_2flips' corpses: Ashgate, back near its cap after a wave, used to fill with corpses
+    about 10 min earlier at 15 s than at 0.125 s (217% at 15 s). The seed was the room leaving out
+    the clearing (MECHANICS §3.4): one 15 s step at t 510 s shipped it 0.038/s instead of 0.206/s,
+    and its slow decline grew that. Now 27.9% at 15 s, 11.7% at 10 s, 0.42% at 5 s.
+  - pre_vei's gold-floor upkeep cycle: at about 7 700 s its gold reaches 0 and every building that
+    doesn't earn gold goes unpaid at once. They resume one at a time in lot order as gold comes
+    back, each checked at a step's end. At 10 s and above, one step's gold lets lot-02's raising
+    pit resume first (7 810 s at 10 s, ahead of lot-05's house, which resumes first at 7 845 s at
+    0.5 s), so the pits and WAR come back sooner. Vespers, Chime-fort and Lantern-keep, which Vei's
+    living refilled while WAR was near 0, then fall instead of holding: Vei's dead 31.9% off at
+    10 s, the corpses 2 179%. A resume is a stock crossing a threshold, like a floor, so catch-up
+    would have to clip at it (not done: this is the town's upkeep, not the realm's step).
   - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
     (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
     with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
@@ -169,6 +192,8 @@ takes over 1 s.
     that 12 h steps at 5 s, 7 days steps at about 70 s: that figure is derived (604 800 s /
     `idle.catchup_max_steps`, 8 640 steps), not measured. In a profile before T3.0, most of the step (two thirds to three quarters) was
     TownSim, which runs `_restaff` twice per step: by that profile, that is the cost lever.
+    At `ea2ce47`, best of 3 at a load average of about 2.5: pre_vei 640 µs, midgame_2flips 420 µs
+    and fresh 380 µs per core step (2-4% above `46710b0` in the same session's 1 h runs).
 - A thread is the fallback.
 
 **Determinism.**

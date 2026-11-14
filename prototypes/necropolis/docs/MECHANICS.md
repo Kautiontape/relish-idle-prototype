@@ -305,8 +305,8 @@ Names, to avoid confusion:
   - **The raises count** (E2b T4.C). They used to be left out, so at a fort where Relish raises
     the step ended short of the cap by `ρ · (dt − (1 − e^(−r_drain · dt)) / r_drain)` at a raise
     rate ρ, and that WAR went to other forts. With Relish at pre_vei's Ashgate (full, no living,
-    raising the 0.21/s Vei ships in) it held 78.95 of 80 at 15 s and 80.00 at 0.5 s; at her
-    full 4/s it is 20 per step at 15 s.
+    raising the 0.21/s Vei ships in) it held 78.95 of 80 at 15 s and 80.00 at 0.5 s (now 80.00
+    at both, with the same WAR); at her full 4/s it is 20 per step at 15 s.
   - **Vei ships it only what its undead kill** while WAR fills it (it takes its whole fill), and
     WAR fills the room the rest would have taken. The rest stays in her pool. More would leave a
     sliver of living at the step's end, and a fort with living takes its whole weight's share of
