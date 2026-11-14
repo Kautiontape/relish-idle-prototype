@@ -824,3 +824,29 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - Tell blows on her: about 8 lunges and 2 fires per 30 runs, all unsoaked. Slams and bashes almost never land: the bot answers them, and muffles and pins spare her.
   - **The curve is a staircase.** Two 12-hp blows kill from full hp from 1.25 up, two fires from 1.875 up, and one blow at 2.5.
   - Deaths sit at the Huntsman (3 of 7 runs at every value).
+
+### Step 4b review: corrections and the reach of a missed tell
+- **Corrections to the Step 4b notes above:**
+  - sable-hold and pale-bastion are now their tiers' soft-living forts: brutes 0.15 and 0.1, against the tier's 0.45 and 0.3.
+  - Against c5, the proper base for this build, sable-hold went 278 -> 157 s, not 339 -> 157 s.
+  - The grind fix was tuned and measured on the same seeds, 1-6.
+- **The bypass is gated** like the lever (`WardenLogic.lever_on`, `RaidWardenRun.tell_bypass`; 49964d2). At tier 1 and in the first dungeon the chain soaks a tell-attack as before. t1 and P1 over seeds 1-6 are identical to the c4 code (24 of 24).
+- **`tell_tally`** (measuring only) counts each tell the bot sees: answered or missed, then for a missed one, countered or struck.
+- **The reach of a missed, uncountered tell** (c6, x1, seeds 1-6):
+
+  | warden | reach | answered tells struck |
+  |---|---|---|
+  | Bellringer | 0% of 65 | 0 |
+  | Shieldwall | 6% of 32 | 0 |
+  | Huntsman | 53% of 19 | 0 |
+  | Pyre-priest | 30% of 10 | 0 |
+
+- **Why the Bellringer and the Shieldwall miss: the bot's default plan already dodges them.**
+  - Bellringer (raid_autopilot.gd `_vs_bell`, `_bell_target`): she goes in only when the trip fits before the next tell (by the beat clock, `slam_safe_beats`), and stands outside `radius_px` otherwise. At the tell she is outside whether or not she answers.
+  - Shieldwall (`_vs_wall`, `_wall_stand`): answered and missed both head for the side stand. It is computed from the facing and `attack.reach_px` of the moment, and the rush writes into both, so a missed rush is dodged by default. Only a loot or pickup detour keeps her in the arc.
+- **No game-side change fixes this for the frozen bot.**
+  - A toll at her stand, a bigger slam or an aimed rush is either read by that default plan (and dodged again), or not readable, in which case answered tells land too.
+  - So nothing was built. The two options need a call:
+    - (a) a bot change: a missed tell plans with the geometry from before the tell until its strike, as "missed" means;
+    - (b) accept that the Bellringer and the Shieldwall carry no tell risk for this bot.
+- **The lever probe** (relish_dmg_mult 1.35 and 1.7; rotated 30 runs each): identical outcomes, 3 deaths of 30, all Huntsman lunges. The steps are unchanged: two 12-dmg blows kill from 1.25, two fires from 1.875, one blow from 2.5.
