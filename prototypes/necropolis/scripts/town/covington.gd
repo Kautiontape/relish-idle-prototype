@@ -128,7 +128,9 @@ func _grow() -> void:
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
 	var log_chunks := "--town-grow-log" in args
 	while _grown_s < target:
-		var pick := BuildSort.autoplay_pick(_fetch_views(), cfgs)
+		var vws := _fetch_views()
+		var why := BuildSort.autoplay_why(vws, cfgs) if log_chunks else ""
+		var pick := BuildSort.autoplay_pick(vws, cfgs)
 		if not pick.is_empty():
 			var r: Dictionary = Game.state.cmd_build(pick["building_id"], pick["lot_id"])
 			if bool(r.get("ok", false)):
@@ -137,6 +139,14 @@ func _grow() -> void:
 		_grown_s += chunk
 		if log_chunks:
 			var town: Dictionary = Game.state.view_town()
+			var counts := {}
+			for b in town["buildings"]:
+				counts[b["building_id"]] = int(counts.get(b["building_id"], 0)) + 1
+			var rr := []
+			for r in Game.state.view_hud().get("rates", []):
+				rr.append("%s=%+.3f" % [r["id"], float(r["rate"])])
+			print("GROW2 t=%d pick=%s | %s | bld=%s | rates %s | gold=%.0f bone=%.0f bodies=%.0f" % [_grown_s,
+				str(pick.get("building_id", "-")), why, JSON.stringify(counts), " ".join(rr), town["gold"], town["bone"], town["bodies"]])
 			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f idle=%.1f muster=%.3f living=%.1f/%.0f" % [_grown_s, town["tier"],
 				(town["buildings"] as Array).size(), _grow_log.size(), town["workers"]["total"], town["workers"]["steady"],
 				town["workers"]["idle"], town["workers"]["muster"], town["living"], town["living_cap"]])

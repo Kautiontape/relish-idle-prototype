@@ -365,16 +365,20 @@ static func _variety_save(items: Array, bview: Dictionary, st: Dictionary, vcfg:
 	return {}
 
 
-## The lot of `lots` nearest the crypt: smallest `hops[lot_id]` (street distance), the first listed
-## on a tie or when unknown. "" for none.
-static func nearest_lot(lots: Array, hops: Dictionary) -> String:
+## The lot of `lots` to suggest: with `sizes` ({lot id: size}) the smallest free lot first (a house
+## must not take the 3-lot that Walls need), then the nearest the crypt: smallest `hops[lot_id]`
+## (street distance), the first listed on a tie or when unknown. "" for none.
+static func nearest_lot(lots: Array, hops: Dictionary, sizes: Dictionary = {}) -> String:
 	var best := ""
 	var best_h := INF
+	var best_s := INF
 	for l in lots:
 		var h := float(hops.get(String(l), INF))
-		if best == "" or h < best_h:
+		var sz := float(sizes.get(String(l), 0.0))
+		if best == "" or sz < best_s or (sz == best_s and h < best_h):
 			best = String(l)
 			best_h = h
+			best_s = sz
 	return best
 
 
@@ -394,12 +398,37 @@ static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))
 	model.update(views, Rect2(0, 0, float(ref[0]), float(ref[1])))
 	var hops := {}
+	var sizes := {}
 	for l in model.lots:
 		hops[String(l["id"])] = l["hops"]
-	var lot_id := nearest_lot(sug["lots"], hops)
+		sizes[String(l["id"])] = l["size"]
+	var lot_id := nearest_lot(sug["lots"], hops, sizes)
 	if lot_id == "":
 		return {}
 	return {"building_id": sug["building_id"], "lot_id": lot_id}
+
+
+## Debug (the autoplay log): why the suggestion is what it is, as one line:
+## `<building>[ save eta=..s] need=<id or none> top_need=<top live need ids>`.
+static func autoplay_why(views: Dictionary, cfgs: Dictionary) -> String:
+	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
+	var bview: Dictionary = cfgs.get("buildings_view", {})
+	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
+	var items := sort_rows(views.get("catalog", {}).get("buildings", []), nd, bview, vcfg)
+	var sug := suggest(items, bview, stocks(views), vcfg)
+	if sug.is_empty():
+		var blocked := []
+		for it in items:
+			if String(it["need"]) != "":
+				var r: Dictionary = it["row"]
+				blocked.append("%s:%s%s" % [r.get("building_id", ""), r.get("reason", "ok") if not bool(r.get("can_build", false)) else "buildable", "(nolot)" if (r.get("lots", []) as Array).is_empty() else ""])
+		return "none needs=%s blocked=%s" % [",".join(nd.map(func(n): return String(n["id"]))), ",".join(blocked)]
+	var need := "none"
+	for it in items:
+		if String(it["row"].get("building_id", "")) == String(sug["building_id"]):
+			need = String(it["need"]) if String(it["need"]) != "" else "none"
+	return "%s%s need=%s needs=%s" % [sug["building_id"], (" SAVE eta=%d" % int(sug.get("eta_s", 0))) if bool(sug.get("save", false)) else "",
+		need, ",".join(nd.map(func(n): return String(n["id"])))]
 
 
 ## A row can be queued: not gated and it has a lot to take.

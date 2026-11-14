@@ -256,9 +256,11 @@ func _apply_suggestion() -> void:
 		_build.set_suggestion("", "")
 		return
 	var hops := {}
+	var sizes := {}
 	for l in model.lots:
 		hops[l["id"]] = l["hops"]
-	_build.set_suggestion(BuildSort.nearest_lot(_sug.get("lots", []), hops), String(_sug.get("label", "")))
+		sizes[l["id"]] = l["size"]
+	_build.set_suggestion(BuildSort.nearest_lot(_sug.get("lots", []), hops, sizes), String(_sug.get("label", "")))
 
 
 ## The stand-in queue as BuildSort.ghosts(): numbered ghosts on their lots.

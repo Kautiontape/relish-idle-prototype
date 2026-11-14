@@ -1945,6 +1945,10 @@ func _build_suggest(day1: Dictionary) -> void:
 	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {"lot-09": 3.0, "lot-05": 1.0}) == "lot-05", "suggest: the lot nearest the crypt")
 	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {"lot-09": 2.0, "lot-05": 2.0}) == "lot-09", "suggest: ties keep the first listed lot")
 	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {}) == "lot-09" and BuildSort.nearest_lot([], {}) == "", "suggest: unknown distances keep the first; none gives \"\"")
+	t.ok(BuildSort.nearest_lot(["lot-23", "lot-09"], {"lot-23": 1.0, "lot-09": 5.0}, {"lot-23": 3, "lot-09": 1}) == "lot-09",
+		"suggest: the smallest free lot first, so a 1-lot building leaves the 3-lot for Walls")
+	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {"lot-09": 3.0, "lot-05": 1.0}, {"lot-09": 1, "lot-05": 1}) == "lot-05",
+		"suggest: equal sizes fall back to the nearest")
 	var m := _model()
 	m.update(day1, VIEW_RECT)
 	var hops := {}
