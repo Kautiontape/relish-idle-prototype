@@ -22,6 +22,8 @@ extends RefCounted
 ## accrue(acc, rate, dt) -> {acc, n}    whole events from a rate.
 ## guard_spawn(acc, dt, uncleared, alive, cfg) -> {acc, n}    guards to spawn now (cap-bounded).
 ## anchor_mote_rate(ferry, cfg)    motes/s at the anchors: the faster she ferries, the more essence.
+## guard_ceiling(uncleared, cfg)    the most guards that can stand at once: guards.cap, or, when they
+##   fall back after guards.life_s (> 0), rate_per_uncleared * uncleared * life_s if that is lower.
 ## ray_to_bounds(origin, through, size, wall_t)    a weave's far end: the ray from `origin` through
 ##   `through`, clipped to the arena's inner rect.
 ## weave_hits(a, b, p, reach), is_tell(beat, at, tell_beats)
@@ -215,6 +217,15 @@ static func guard_spawn(acc: float, dt: float, uncleared: int, alive: int, cfg: 
 	if n >= room:
 		a = minf(a, 1.0)   # at the cap the lanes wait; they don't bank a flood
 	return {"acc": a, "n": n}
+
+
+static func guard_ceiling(uncleared: int, cfg: Dictionary) -> float:
+	var gc := _sec(cfg, "guards")
+	var cap := _f(gc, "cap", 12.0)
+	var life := _f(gc, "life_s", 0.0)
+	if life <= 0.0:
+		return cap
+	return minf(cap, _f(gc, "rate_per_uncleared", 0.3) * maxf(float(uncleared), 0.0) * life)
 
 
 static func anchor_mote_rate(ferry: float, cfg: Dictionary) -> float:

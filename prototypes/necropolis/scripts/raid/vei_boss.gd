@@ -431,6 +431,7 @@ func spawn_guard() -> RaidUnit:
 	units_root.add_child(u)
 	u.configure(self, "enemy", "guard", vc.get("guards", {}).get("unit", {}))
 	u.block_px = float(vc.get("guards", {}).get("block_px", 70.0))
+	u.life_left = float(vc.get("guards", {}).get("life_s", 0.0))
 	var size: Vector2 = layout["size"]
 	var wt: float = layout["wall_t"]
 	u.home_room = Rect2(Vector2(wt, wt), size - Vector2(wt, wt) * 2.0)
@@ -509,6 +510,16 @@ func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
 		spawn_ally_v2("raised", tier, mult, 0.0, "", stats, resolve_walls(pos, 10.0), true)
 	if k > 0:
 		RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
+
+
+## A guard's time is up (BossGuard.life_left): it falls back to her line. Not a kill, so no mote.
+func recall_guard(u: RaidUnit) -> void:
+	if not u.alive:
+		return
+	u.alive = false
+	enemies.erase(u)
+	RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.45), 24.0, 0.35, 1.5)
+	u.queue_free()
 
 
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:

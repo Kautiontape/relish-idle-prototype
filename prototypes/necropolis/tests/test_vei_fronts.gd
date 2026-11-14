@@ -405,6 +405,15 @@ func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(int(gc["n"]) == 1, "spawns stop at the cap")
 	t.ok(float(gc["acc"]) <= 1.0, "at the cap the lanes don't bank a flood")
 	t.ok(int(BossLogic.guard_spawn(0.5, 1000.0, 1, cap, cfg)["n"]) == 0, "full: none")
+	t.near(BossLogic.guard_ceiling(1, {"guards": {"cap": 12, "rate_per_uncleared": 1.0}}), 12.0, 0.0,
+		"guards that never fall back: the ceiling is the cap (today's default)")
+	t.near(BossLogic.guard_ceiling(1, {"guards": {"cap": 12, "rate_per_uncleared": 1.0, "life_s": 5.0}}), 5.0, 0.0001,
+		"guards that fall back after life_s: rate x life")
+	t.near(BossLogic.guard_ceiling(2, {"guards": {"cap": 6, "rate_per_uncleared": 1.0, "life_s": 5.0}}), 6.0, 0.0,
+		"the cap still bounds it")
+	t.ok(BossLogic.guard_ceiling(1, {"guards": {"cap": 12, "rate_per_uncleared": 1.05, "life_s": 5.0}})
+		> BossLogic.guard_ceiling(1, {"guards": {"cap": 12, "rate_per_uncleared": 0.95, "life_s": 5.0}}),
+		"with a life, the ceiling moves with the rate (no flat cap to pile up against)")
 
 	# --- weaves --------------------------------------------------------------
 	t.suite("boss_weaves")
