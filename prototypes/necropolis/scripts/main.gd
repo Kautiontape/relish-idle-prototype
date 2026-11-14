@@ -13,11 +13,13 @@ var current: Node = null
 var _gen := 0  # one per swap: a transition from an older swap stops when it sees a newer one
 var _closing := false  # the window is closing: swaps mount directly, with no transition
 var _held_events: Array = []  # game events drained while the swapped-in scene was not mounted yet
+var _holding_sounds := false  # this router took a hold on Synth's render cache in _ready
 
 
 func _ready() -> void:
 	AudioPrefs.apply()  # the saved mute and volume hold even in a scene with no Synth
 	Synth.retain()  # hold the shared sound cache across scene swaps; released when the router goes
+	_holding_sounds = true
 	Game.game_event.connect(_on_game_event)
 	_open_map()
 
@@ -27,8 +29,11 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		_closing = true
-	elif what == NOTIFICATION_PREDELETE:
-		Synth.release()  # at quit: the last hold clears the cache (no ObjectDB leak warning)
+	elif what == NOTIFICATION_PREDELETE and _holding_sounds:
+		# At quit. The router's PREDELETE fires before its children are freed, so the scene's Synth
+		# is usually the last holder; whichever lets go last clears the cache (no ObjectDB leak).
+		_holding_sounds = false
+		Synth.release()
 
 
 ## A result's events (loot_banked, fort_flipped) drain a frame or two after apply_result, often
