@@ -5,12 +5,14 @@ extends VBoxContainer
 ## and held buttons survive the shell's ~4 Hz refetch. After a reorder or cap change the rows whose
 ## staffing changed flash for one Pulse beat on the bind that shows it. Before a move, hovering a
 ## drop position (or an arrow) previews the hands it would move ("Mill +2 hands, Pit −2") from
-## TownSim's own allocation (view_staffing_projection) or, until that exists, the marked stand-in.
+## TownSim's own allocation (through the shell's one projection helper) or, until that exists, the marked stand-in.
 
 signal command_issued
 
 const RowScript := preload("res://scripts/town/job_row.gd")
 
+## The shell's cached staffing projection: project.call(order, extra := {}) -> the jobs array.
+var project: Callable
 var _vcfg: Dictionary = {}
 var _bcfg: Dictionary = {}
 var _bview: Dictionary = {}
@@ -161,12 +163,9 @@ func _move_note(job: String, m: Dictionary) -> String:
 
 
 # ---- the move preview ----
-## TownSim's allocation for `order`: view_staffing_projection when GameState has it, else the
-## display-only stand-in. TODO(api-request #16): the stand-in goes once the view exists.
+## The allocation for `order`, from the shell's one cached helper (set at setup, Covington.project_staffing).
 func _project(order: Array) -> Array:
-	if Game.state.has_method("view_staffing_projection"):  # called by name: GameState doesn't declare it yet
-		return (Game.state.call("view_staffing_projection", order) as Dictionary).get("jobs", [])
-	return TownStandins.staffing_projection(_views, order, _bcfg)["jobs"]
+	return project.call(order) if project.is_valid() else []
 
 
 func _on_hover_drop(job: String, target: String, lower: bool) -> void:
@@ -265,7 +264,7 @@ func _make_cap_row(lot: String, bid: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	_caps_box.add_child(row)
-	var nm := TownUI.label("%s  (%s)" % [BuildSort.label_of(bid, _bview), lot.trim_prefix("lot-")], 14)
+	var nm := TownUI.label("%s  (%s)" % [BuildSort.label_of(bid, _bview), TownModel.lot_name(lot, _vcfg)], 14)
 	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nm.clip_text = true
 	nm.custom_minimum_size = Vector2(0, TownUI.MIN_TARGET)

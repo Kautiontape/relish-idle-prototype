@@ -10,9 +10,10 @@ signal show_building(building_id: String)
 
 const FigureScript := preload("res://scripts/town/backups_figure.gd")
 
+## The shell's cached staffing projection: project.call(order, extra := {}) -> the jobs array.
+var project: Callable
 var _tx: Dictionary = {}
 var _vcfg: Dictionary = {}
-var _bcfg: Dictionary = {}
 var _views: Dictionary = {}
 var _body: VBoxContainer
 var _status: Label
@@ -23,7 +24,7 @@ var _steps: Array = []  # [{id, box, label}]
 var _loses: Label
 # vats
 var _clones: Label
-var _upkeep: Label
+var _upkeep: RichTextLabel
 var _vat_box: VBoxContainer
 var _vats: Dictionary = {}  # slot -> {node, fig, title, state, cost, toggle}
 var _vat_sig := ""
@@ -41,7 +42,6 @@ var _craft_sig := ""
 func _ready() -> void:
 	_vcfg = ConfigDb.v("town", "view", {})
 	_tx = _vcfg.get("backups", {})
-	_bcfg = ConfigDb.data.get("buildings", {})
 	add_theme_constant_override("separation", 6)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -110,8 +110,7 @@ func _fill_death(bk: Dictionary) -> void:
 		l.text = "%s %s%s" % [_t("ladder_mark") if now else _t("ladder_off"), String(_tx.get("ladder", {}).get(s["id"], s["id"])),
 			"\n(%s)" % _t("ladder_now") if now else ""]
 		l.add_theme_color_override("font_color", Palette.c("text" if now else "text_dim"))
-		var sb := TownUI.button_box("active" if now else "normal")
-		s["box"].add_theme_stylebox_override("panel", sb)
+		s["box"].add_theme_stylebox_override("panel", TownUI.button_box_cached("active" if now else "normal"))
 	var town: Dictionary = _views.get("town", {})
 	var lots := CryptLogic.lot_labels(town.get("buildings", []), _labels())
 	var items: Array = []
@@ -136,7 +135,7 @@ func _build_vats() -> void:
 	_body.add_child(_wrap(_t("vats_header"), 16, "text_dim"))
 	_clones = _wrap("", 18)
 	_body.add_child(_clones)
-	_upkeep = TownUI.label("", 14, "text_dim")
+	_upkeep = TownUI.parts_label(14, "text_dim", true)  # the signed rate is oblique like every other rate
 	_body.add_child(_upkeep)
 	_vat_box = VBoxContainer.new()
 	_vat_box.add_theme_constant_override("separation", 6)
@@ -181,16 +180,9 @@ func _fill_vats(bk: Dictionary) -> void:
 	_clones.text = String(_tx.get("clones_ready", "")).format({"n": int(bk.get("clones_ready", 0))})
 	_no_vats.visible = vats.is_empty()
 	var up := BackupsModel.chapel_upkeep(_views.get("town", {}).get("buildings", []), _t("chapel"))
-	var up_text := ""
-	if not up.is_empty():
-		var parts: Array = []
-		for store in up:
-			if float(up[store]) > 0.0:
-				parts.append(String(_tx.get("upkeep", "")).format({"label": String(_labels().get(_t("chapel"), "Chapel")),
-					"rate": TownUI.fmt_rate(-float(up[store])), "store": store}))
-		up_text = ", ".join(parts)
-	_upkeep.text = up_text
-	_upkeep.visible = up_text != "" and not vats.is_empty()
+	var up_parts := BackupsModel.upkeep_parts(up, String(_labels().get(_t("chapel"), "Chapel")), _tx)
+	TownUI.set_parts(_upkeep, up_parts)
+	_upkeep.visible = not up_parts.is_empty() and not vats.is_empty()
 	var sig := ",".join(vats.map(func(v): return str(int(v.get("slot", 0)))))
 	if sig != _vat_sig:
 		_vat_sig = sig
@@ -209,23 +201,18 @@ func _fill_vats(bk: Dictionary) -> void:
 		(w["title"] as Label).text = String(_tx.get("vat_title", "")).format({"n": slot + 1}) \
 			+ ("" if ready else "  " + String(_tx.get("vat_grow", "")).format({"pct": roundi(grow * 100.0)}))
 		(w["state"] as Label).text = BackupsModel.vat_state_text(v, _tx)
-		(w["cost"] as Label).text = _staff_cost(order, slot)
+		(w["cost"] as Label).text = _staff_cost(order, slot, staffed)
 		(w["toggle"] as Button).text = _t("staff_off" if staffed else "staff_on")
 		(w["fig"] as Control).set_state(1.0 if ready else grow, ready)
 
 
-## "staffing takes 1 hand from Tend": TownSim's own projection when it exists, else the stand-in.
-## TODO(api-request #16): the stand-in goes once view_staffing_projection exists.
-func _staff_cost(order: Array, slot: int) -> String:
-	var before: Array
-	var after: Array
-	if Game.state.has_method("view_staffing_projection"):  # called by name: GameState doesn't declare it yet
-		before = (Game.state.call("view_staffing_projection", order) as Dictionary).get("jobs", [])
-		after = (Game.state.call("view_staffing_projection", order, {slot: true}) as Dictionary).get("jobs", [])
-	else:
-		before = TownStandins.staffing_projection(_views, order, _bcfg)["jobs"]
-		after = TownStandins.staffing_projection(_views, order, _bcfg, 1)["jobs"]
-	return BackupsModel.staffing_cost_text(TownBehaviour.staffing_diff(before, after), _vcfg.get("job_labels", {}), _tx)
+## What toggling the vat does to the jobs, from the shell's one projection helper (now vs the slot flipped):
+## "staffing takes 1 hand from Tend" for an unstaffed vat, "unstaffing frees 1 hand for Tend" for a staffed one.
+func _staff_cost(order: Array, slot: int, staffed: bool) -> String:
+	if not project.is_valid():
+		return ""
+	var diff := TownBehaviour.staffing_diff(project.call(order), project.call(order, {slot: not staffed}))
+	return BackupsModel.staffing_cost_text(diff, _vcfg.get("job_labels", {}), _tx, staffed)
 
 
 func _on_toggle(slot: int) -> void:

@@ -11,10 +11,13 @@ signal command_issued
 var _vcfg: Dictionary = {}
 var _bcfg: Dictionary = {}
 var _views: Dictionary = {}
+## The shell's cached staffing projection: project.call(order, extra := {}) -> the jobs array.
+var project: Callable
 var _base := 2
 var _slots_label: Label
 var _break_label: Label
 var _note_label: Label
+var _none_label: Label  # the one "projected rates arrive with E3" line while no stance has a projection
 var _status: Label
 var _list: VBoxContainer
 var _rows: Dictionary = {}  # stance id -> {toggle, chips, hold, proj, none, id}
@@ -31,14 +34,20 @@ func _ready() -> void:
 	add_child(_break_label)
 	_note_label = _wrap("", 14, "select")
 	add_child(_note_label)
+	_none_label = _wrap(_t("no_projection"), 12, "text_dim")
+	add_child(_none_label)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
+	var pad := MarginContainer.new()  # bottom padding: the last row clears the scroll edge when scrolled to the end
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_bottom", int(_vcfg.get("scroll_pad_px", 16)))
+	scroll.add_child(pad)
 	_list = VBoxContainer.new()
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list.add_theme_constant_override("separation", 6)
-	scroll.add_child(_list)
+	pad.add_child(_list)
 	_status = _wrap("", 14, "select")
 	add_child(_status)
 
@@ -79,6 +88,7 @@ func bind(views: Dictionary) -> void:
 	_note_label.text = " ".join(note)
 	_note_label.visible = not note.is_empty()
 	var units: Dictionary = _vcfg.get("rate_units", {})
+	_none_label.visible = not TownBehaviour.stances_live(views)
 	_views = views
 	var town: Dictionary = views.get("town", {})
 	var ladder := TownBehaviour.effective(town)
@@ -93,12 +103,9 @@ func bind(views: Dictionary) -> void:
 		TownUI.set_parts(_rows[id]["trade"], TownBehaviour.stance_trade(id, views, before, after, _vcfg))
 
 
-## TownSim's allocation for `order`: view_staffing_projection when GameState has it, else the
-## display-only stand-in. TODO(api-request #16): the stand-in goes once the view exists.
+## The allocation for `order`, from the shell's one cached helper (set at setup, Covington.project_staffing).
 func _project(order: Array) -> Array:
-	if Game.state.has_method("view_staffing_projection"):  # called by name: GameState doesn't declare it yet
-		return (Game.state.call("view_staffing_projection", order) as Dictionary).get("jobs", [])
-	return TownStandins.staffing_projection(_views, order, _bcfg)["jobs"]
+	return project.call(order) if project.is_valid() else []
 
 
 func _make_row(id: String) -> void:
@@ -141,7 +148,7 @@ func _update_row(r: Dictionary, s: Dictionary, units: Dictionary) -> void:
 	var toggle: Button = r["toggle"]
 	toggle.set_pressed_no_signal(on)
 	toggle.text = "On" if on else "Off"
-	toggle.add_theme_stylebox_override("normal", TownUI.button_box("active" if on else "normal"))
+	toggle.add_theme_stylebox_override("normal", TownUI.button_box_cached("active" if on else "normal"))
 	var chips: Array = [_t("chip_on") if on else _t("chip_off")]
 	if bool(s.get("suspended", false)):
 		chips.append(_t("chip_suspended"))
@@ -155,7 +162,7 @@ func _update_row(r: Dictionary, s: Dictionary, units: Dictionary) -> void:
 	var proj: Label = r["proj"]
 	var none: Label = r["none"]
 	var empty: bool = (s.get("projected", {}) as Dictionary).is_empty()
-	none.visible = empty
+	none.visible = empty and TownBehaviour.stances_live(_views)  # while none is live, the one line above says it
 	proj.visible = not empty
 	if not empty:
 		var lead := _t("projected_off") if on else _t("projected_on")

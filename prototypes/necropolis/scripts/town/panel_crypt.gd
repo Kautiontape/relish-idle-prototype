@@ -33,6 +33,7 @@ var _board := CryptLogic.board()
 var _rems: Dictionary = {}
 var _ev: Dictionary = {}
 var _home := false
+var _vcfg_view: Dictionary = {}  # town.json view (lot_name's format)
 var _block := ""
 var _held_s := 0.0
 var _holding := false
@@ -72,7 +73,8 @@ var _rows: Dictionary = {}  # uid -> row nodes
 
 
 func _ready() -> void:
-	_t = ConfigDb.v("town", "view", {}).get("crypt", {})
+	_vcfg_view = ConfigDb.v("town", "view", {})
+	_t = _vcfg_view.get("crypt", {})
 	_slab = ConfigDb.data.get("town", {}).get("slab", {})
 	_bv = ConfigDb.data.get("buildings_view", {})
 	add_theme_constant_override("separation", 6)
@@ -360,14 +362,14 @@ func _refresh_slab() -> void:
 
 	for uid in _husk_btns:
 		var on: bool = uid == String(_board.get("husk", ""))
-		(_husk_btns[uid] as Button).add_theme_stylebox_override("normal", TownUI.button_box("active" if on else "normal"))
+		(_husk_btns[uid] as Button).add_theme_stylebox_override("normal", TownUI.button_box_cached("active" if on else "normal"))
 	for uid in _rem_cells:
 		var cell: Dictionary = _rem_cells[uid]
 		var on_slab: bool = uid in _board.get("order", [])
 		var why := CryptLogic.refusal(_board, uid, _rems, _slab)
 		var b: Button = cell["btn"]
 		b.disabled = (why != "" and not on_slab) or _raising
-		b.add_theme_stylebox_override("normal", TownUI.button_box("active" if on_slab else "normal"))
+		b.add_theme_stylebox_override("normal", TownUI.button_box_cached("active" if on_slab else "normal"))
 		(cell["why"] as Label).text = CryptLogic.refusal_text(_board, uid, _rems, _slab, _t) if has_husk else ""
 
 	var count := int(_views.get("big_undead", {}).get("count", 0))
@@ -445,9 +447,14 @@ func _hold_press(by_key: bool) -> void:
 func _hold_release(by_key: bool) -> void:
 	if _holding and by_key == _hold_by_key:
 		_cancel_hold()
-	elif _formed and not _holding:
-		_name_edit.grab_focus.call_deferred()  # the hold's own key and click are done; now type a name
-		_name_edit.select_all.call_deferred()
+	elif _formed and not _holding and CryptLogic.name_focus_now(by_key, "key_up"):
+		_focus_name()  # a Space hold: its key is up, now type a name
+
+
+## The name field takes the keys (deferred: the hold's own click or key event is finished first).
+func _focus_name() -> void:
+	_name_edit.grab_focus.call_deferred()
+	_name_edit.select_all.call_deferred()
 
 
 func _cancel_hold() -> void:
@@ -479,6 +486,8 @@ func _process(delta: float) -> void:
 		_say(_prompt_why, "")
 		_prompt.visible = true
 		_refresh_slab()
+		if CryptLogic.name_focus_now(_hold_by_key, "formed"):
+			_focus_name()  # a mouse hold: the button is disabled by now and never sends button_up
 
 
 ## Space on this tab holds the raise (not while a name field has focus). Space is always the
@@ -658,7 +667,7 @@ func _update_row(row: Dictionary, e: Dictionary) -> void:
 		"siege": place.begins_with("fort:")}
 	for k in active:
 		var b: Button = row[k]
-		b.add_theme_stylebox_override("normal", TownUI.button_box("active" if active[k] or row["mode"] == k else "normal"))
+		b.add_theme_stylebox_override("normal", TownUI.button_box_cached("active" if active[k] or row["mode"] == k else "normal"))
 	if row["mode"] != "":
 		_fill_options(row)
 
@@ -712,7 +721,7 @@ func _fill_options(row: Dictionary) -> void:
 			var fm := String(l["foreman"])
 			var taken := fm != "" and fm != uid
 			var text := _tx("taken").format({"label": l["label"], "name": names.get(fm, fm)}) if taken else \
-				_tx("lot_option").format({"label": l["label"], "lot": l["lot_id"]})
+				_tx("lot_option").format({"label": l["label"], "lot": TownModel.lot_name(String(l["lot_id"]), _vcfg_view)})
 			opts.append([text, "town:" + String(l["lot_id"]), taken, fm == uid and fm != ""])
 	else:
 		for f in CryptLogic.siege_forts(_views.get("forts", [])):

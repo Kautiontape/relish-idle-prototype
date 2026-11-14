@@ -167,14 +167,26 @@ static func stance_job(id: String, town: Dictionary, vcfg: Dictionary) -> String
 	return ""
 
 
+## Whether the stances are live (E3): any stance carries a non-empty `projected`, the same signal the
+## Stances tab's "projected rates arrive with E3" line uses.
+static func stances_live(views: Dictionary) -> bool:
+	for s in views.get("stances", {}).get("stances", []):
+		if not (s.get("projected", {}) as Dictionary).is_empty():
+			return true
+	return false
+
+
 ## A stance's trade in the town's numbers, as parts [[text, oblique]]: its live condition read from
 ## the views and what it would move, e.g. "Now: bodies 2 / 200 (fires under 60) → it would fire; Haul
 ## to the top: no hands move". `before`/`after` are the staffing projections of today's ladder and of
-## the ladder with the stance's job on top ([] for a stance that doesn't reorder). STANDIN(E3): the
-## thresholds are view.stance_trade's display copies of MECHANICS §4.5 until stances are live.
+## the ladder with the stance's job on top ([] for a stance that doesn't reorder).
+## STANDIN(E3): until the stances are live (`stances_live`) the verdict is computed from the thresholds
+## the needs already use (view.needs.bodies_frac, view.needs.morale_below); once live it is the stance's
+## own `active` (STATE-API §5.11), so the row can never contradict the chip.
 static func stance_trade(id: String, views: Dictionary, before: Array, after: Array, vcfg: Dictionary) -> Array:
 	var tx: Dictionary = vcfg.get("behaviour", {})
 	var spec: Dictionary = (vcfg.get("stance_trade", {}) as Dictionary).get(id, {})
+	var needs: Dictionary = vcfg.get("needs", {})
 	var town: Dictionary = views.get("town", {})
 	var w: Dictionary = town.get("workers", {})
 	var now: Variant = ""
@@ -185,13 +197,13 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 			now = String(tx.get("now_relish_away" if fires else "now_relish_home", ""))
 		"bodies_under":
 			var cap := float(town.get("bodies_cap", 0.0))
-			var limit := float(spec.get("frac", 0.0)) * cap
+			var limit := float(needs.get("bodies_frac", 0.0)) * cap
 			fires = cap > 0.0 and float(town.get("bodies", 0.0)) < limit
 			now = BuildSort.fmt(String(tx.get("now_bodies", "")), {"have": int(float(town.get("bodies", 0.0))), "cap": roundi(cap), "limit": roundi(limit)})
 		"morale_under":
 			var v := float(town.get("morale", {}).get("value", 0.0))
-			fires = v < float(spec.get("below", 0.0))
-			now = BuildSort.fmt(String(tx.get("now_morale", "")), {"v": "%.2f" % v, "limit": "%.2f" % float(spec.get("below", 0.0))})
+			fires = v < float(needs.get("morale_below", 0.0))
+			now = BuildSort.fmt(String(tx.get("now_morale", "")), {"v": "%.2f" % v, "limit": "%.2f" % float(needs.get("morale_below", 0.0))})
 		"gold_under_upkeep":
 			var g: Dictionary = views.get("rates", {}).get("rates", {}).get("gold", {})
 			fires = float(g.get("in", 0.0)) < float(g.get("out", 0.0))
@@ -200,6 +212,11 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 		"idle":
 			fires = roundi(float(w.get("idle", 0.0))) >= 1
 			now = BuildSort.fmt(String(tx.get("now_idle", "")), {"n": roundi(float(w.get("idle", 0.0)))})
+	if stances_live(views):
+		fires = false
+		for s in views.get("stances", {}).get("stances", []):
+			if String(s.get("id", "")) == id:
+				fires = bool(s.get("active", false))
 	var move := ""
 	var job := stance_job(id, town, vcfg)
 	if job != "":

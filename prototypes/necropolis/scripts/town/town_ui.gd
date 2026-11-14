@@ -7,6 +7,7 @@ const MIN_TEXT := 12
 const MIN_TARGET := 44.0
 const SLANT_DEG := 9.0
 
+static var _boxes := {}  # state -> the shared button_box (built once)
 static var _oblique: FontVariation = null
 static var _bold: FontVariation = null
 
@@ -40,6 +41,13 @@ static func button_box(state := "normal") -> StyleBoxFlat:
 		"disabled":
 			sb.bg_color = Palette.c("ground")
 	return sb
+
+
+## A button state's box, built once and shared (for the states a bind() reapplies every refetch).
+static func button_box_cached(state := "normal") -> StyleBoxFlat:
+	if not _boxes.has(state):
+		_boxes[state] = button_box(state)
+	return _boxes[state]
 
 
 static func label(text: String, size := 14, key := "text") -> Label:

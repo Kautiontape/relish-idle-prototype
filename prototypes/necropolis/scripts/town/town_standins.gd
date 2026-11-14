@@ -46,9 +46,11 @@ static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
 # and Stances tabs call that whenever it exists, so this switches itself off). Today's assigned hands
 # (Σ jobs.staffed) fill the job slots top-down in `order`; a building's staff cap trims its job's room
 # (`bcfg` = buildings.json names the building's job; a site under construction keeps its room).
-# `taken` = hands a staffed vat slot takes (the backups panel's "staffing takes 1 hand from <job>"):
-# they come off the hands being filled, so the bottom of `order` loses them first. Only the stand-in
-# says so: TownSim's view_staffing_projection(order, {slot: true}) answers it for real.
+# `taken` = hands a vat slot takes off the hands being filled (the backups panel's "staffing takes 1
+# hand from <job>"): the bottom of `order` loses them first. It is signed: a negative `taken` gives
+# hands back (a staffed vat already holds its hand in today's jobs, so unstaffing it frees one, and the
+# first job in `order` with room takes it). Only the stand-in says so: TownSim's
+# view_staffing_projection(order, {slot: on}) answers it for real, and `project` below maps one to the other.
 # TODO(api-request #16): this param goes with the stand-in.
 # Returns {jobs: [{id, slots, staffed}] in `order`, idle}.
 static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionary = {}, taken := 0) -> Dictionary:
@@ -71,7 +73,7 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 			continue
 		var job := String(jobs.keys()[0])
 		room[job] = maxf(float(room[job]) - float(maxi(int(b.get("slots", 0)) - cap, 0)), 0.0)
-	var left := maxf(hands - float(taken), 0.0)
+	var left := maxf(hands - float(taken), 0.0)  # a negative `taken` adds hands
 	var out: Array = []
 	for id in order:
 		if not slots.has(String(id)):
@@ -80,6 +82,26 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 		left -= take
 		out.append({"id": String(id), "slots": int(slots[String(id)]), "staffed": take})
 	return {"jobs": out, "idle": float(town.get("workers", {}).get("idle", 0.0)) + left}
+
+
+## The stand-in answer to view_staffing_projection(order, extra): `extra` is {slot: on}, the vat slots
+## asked to be staffed (true) or not (false). Today's jobs already hold the hands of the vats that are
+## staffed (`views.backups.vats`), so only a change costs or frees a hand: a slot asked on that is off
+## takes one, a slot asked off that is on gives one back. Returns {jobs, idle} like staffing_projection.
+## TODO(api-request #16): goes with staffing_projection once the view exists.
+static func project(views: Dictionary, order: Array, bcfg: Dictionary = {}, extra: Dictionary = {}) -> Dictionary:
+	var staffed := {}
+	for v in views.get("backups", {}).get("vats", []):
+		staffed[int(v.get("slot", 0))] = bool(v.get("staffed", false))
+	var taken := 0
+	for slot in extra:
+		var now := bool(staffed.get(int(slot), false))
+		var want := bool(extra[slot])
+		if want and not now:
+			taken += 1
+		elif now and not want:
+			taken -= 1
+	return staffing_projection(views, order, bcfg, taken)
 
 
 ## STANDIN: the inputs of steady_kept's reason (the HUD's "kept: 9 slots + 10 idle cap"): {slots:

@@ -150,6 +150,11 @@ func run() -> int:
 	_walk_math()
 	_walkout(mid)
 	_foreman_float(mid)
+	_fix3b_vats()
+	_fix3b_stances(mid)
+	_fix3b_cache()
+	_fix3b_small(mid)
+	_fix3b_lot_names()
 	return t.failures
 
 
@@ -3410,11 +3415,18 @@ func _ladder_preview(day1: Dictionary) -> void:
 		"preview: one hand is singular, gains before losses")
 	t.ok(TownBehaviour.diff_text([{"id": "mill", "delta": 0.3}, {"id": "pit", "delta": -0.3}], labels, tx["hand"], tx["hands"]) == "",
 		"preview: less than half a hand reads as no change")
-	# the real view (api-request #16) has the same jobs shape: the diff reads it the same way
-	var api := {"rev": 9, "jobs": [{"id": "mill", "slots": 2, "staffed": 2.0}, {"id": "haul", "slots": 3, "staffed": 3.0},
-		{"id": "pit", "slots": 2, "staffed": 2.0}, {"id": "stall", "slots": 2, "staffed": 0.0}], "buildings": [], "idle": 0.0}
-	t.ok(TownBehaviour.staffing_diff(now["jobs"], api["jobs"]) == TownBehaviour.staffing_diff(now["jobs"], after["jobs"]),
-		"preview: a view_staffing_projection result diffs exactly like the stand-in")
+	# the stand-in's behaviour, input to output: three jobs full (haul 3, pit 2, stall 2) and mill empty, 7 hands
+	var by_id := func(jobs: Array, id: String) -> float:
+		for j in jobs:
+			if j["id"] == id:
+				return float(j["staffed"])
+		return -1.0
+	t.ok(by_id.call(now["jobs"], "haul") == 3.0 and by_id.call(now["jobs"], "pit") == 2.0 and by_id.call(now["jobs"], "stall") == 2.0
+		and by_id.call(now["jobs"], "mill") == 0.0, "preview: today's order keeps haul 3, pit 2, stall 2, mill 0")
+	t.ok(by_id.call(after["jobs"], "mill") == 2.0 and by_id.call(after["jobs"], "stall") == 0.0 and by_id.call(after["jobs"], "haul") == 3.0
+		and by_id.call(after["jobs"], "pit") == 2.0, "preview: mill on top gets 2 hands, the bottom (stall) pays them, 7 hands in all")
+	t.ok(after["jobs"].map(func(j): return j["id"]) == TownBehaviour.to_top(ladder, "mill").filter(func(id): return id in ["haul", "pit", "stall", "mill"]),
+		"preview: the answer lists the jobs in the order asked")
 	# staff caps: a capped market keeps its one hand wherever Stall sits
 	var capped := {"jobs": [{"id": "haul", "slots": 3, "staffed": 3.0}, {"id": "pit", "slots": 2, "staffed": 2.0},
 		{"id": "stall", "slots": 2, "staffed": 1.0}, {"id": "mill", "slots": 2, "staffed": 1.0}],
@@ -3661,24 +3673,23 @@ func _backups(day1: Dictionary, pre: Dictionary) -> void:
 	t.ok(BackupsModel.craft_reason_text("needs_building", tx) == "needs the Ossuary Tower" and BackupsModel.craft_reason_text("no_essence", tx) == "not enough essence"
 		and BackupsModel.craft_reason_text("no_relics", tx) == "not enough relics", "backups: craft reasons in words")
 	t.ok(BackupsModel.pips_text(0, tx) == "none" and BackupsModel.pips_text(3, tx) == "◆◆◆" and BackupsModel.pips_text(11, tx) == "◆◆◆◆◆◆◆◆ +3", "backups: charges are countable pips")
-	# staffing a vat takes one hand off the bottom of the order (the stand-in, until #16)
+	# staffing a vat takes one hand off the bottom of the order (the stand-in, until #16): a view with assigned hands
+	var vtown := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}, {"id": "stall", "slots": 2, "staffed": 1.0}, {"id": "mill", "slots": 2, "staffed": 0.0}],
+		"buildings": [], "workers": {"idle": 0.0}}
+	var vorder: Array = ["pit", "stall", "mill"]
+	var vviews := {"town": vtown, "backups": {"vats": [{"slot": 0, "staffed": false}]}}
+	var before: Array = TownStandins.staffing_projection(vviews, vorder, cfg["buildings"])["jobs"]
+	var after: Array = TownStandins.staffing_projection(vviews, vorder, cfg["buildings"], 1)["jobs"]
+	var diff := TownBehaviour.staffing_diff(before, after)
+	t.ok(diff.size() == 1 and absf(float(diff[0]["delta"]) + 1.0) < 0.001 and String(diff[0]["id"]) == "stall",
+		"backups: one vat takes exactly one hand, from the bottom staffed job (%s)" % str(diff))
+	var line := BackupsModel.staffing_cost_text(diff, vcfg["job_labels"], tx)
+	t.ok(line == "staffing takes 1 hand from Stall", "backups: staffing cost line (%s)" % line)
 	var views: Dictionary = pre
 	var order: Array = TownBehaviour.effective(views["town"])
-	var before: Array = TownStandins.staffing_projection(views, order, cfg["buildings"])["jobs"]
-	var after: Array = TownStandins.staffing_projection(views, order, cfg["buildings"], 1)["jobs"]
-	var diff := TownBehaviour.staffing_diff(before, after)
-	var hands := 0.0
-	for j in before:
-		hands += float(j["staffed"])
-	t.ok(hands < 0.5 or (diff.size() == 1 and absf(float(diff[0]["delta"]) + 1.0) < 0.001), "backups: one vat takes exactly one hand (%s)" % str(diff))
-	if hands >= 0.5:
-		var bottom := ""
-		for j in before:
-			if float(j["staffed"]) > 0.0:
-				bottom = String(j["id"])
-		t.ok(String(diff[0]["id"]) == bottom, "backups: the hand comes from the bottom staffed job (%s vs %s)" % [diff[0]["id"], bottom])
-		var line := BackupsModel.staffing_cost_text(diff, vcfg["job_labels"], tx)
-		t.ok(line == "staffing takes 1 hand from %s" % vcfg["job_labels"][bottom], "backups: staffing cost line (%s)" % line)
+	var nohands := {"town": {"jobs": [{"id": "pit", "slots": 2, "staffed": 0.0}], "buildings": [], "workers": {"idle": 0.0}}}
+	t.ok(TownBehaviour.staffing_diff(TownStandins.staffing_projection(nohands, ["pit"], cfg["buildings"])["jobs"],
+		TownStandins.staffing_projection(nohands, ["pit"], cfg["buildings"], 1)["jobs"]).is_empty(), "backups: a vat with no hands to take from takes none")
 	t.ok(BackupsModel.staffing_cost_text([], vcfg["job_labels"], tx) == "staffing takes no hand from a job", "backups: no hand moves, said so")
 	# the stand-in with nothing taken is unchanged
 	t.ok(TownStandins.staffing_projection(views, order, cfg["buildings"], 0) == TownStandins.staffing_projection(views, order, cfg["buildings"]), "backups: taking 0 hands changes nothing")
@@ -4346,9 +4357,10 @@ func _walk_math() -> void:
 	var same := TownSetPiece.transitions(first["prev"], [e.call("a", "town:lot-1"), e.call("b", "crypt")], true)
 	t.ok(same["starts"].is_empty(), "transitions: no change, no walk")
 	var moved := TownSetPiece.transitions(first["prev"], [e.call("a", "town:lot-1"), e.call("b", "town:lot-2")], true)
-	t.ok(moved["starts"].size() == 1 and moved["starts"][0] == {"uid": "b", "name": "Nb", "lot_id": "lot-2"}, "transitions: crypt -> town:lot-2 starts b's walk to lot-2")
+	t.ok(moved["starts"].size() == 1 and moved["starts"][0] == {"uid": "b", "name": "Nb", "lot_id": "lot-2", "from_lot": ""}, "transitions: crypt -> town:lot-2 starts b's walk to lot-2")
 	var hop := TownSetPiece.transitions(moved["prev"], [e.call("a", "town:lot-3"), e.call("b", "town:lot-2")], true)
-	t.ok(hop["starts"].size() == 1 and hop["starts"][0]["uid"] == "a" and hop["starts"][0]["lot_id"] == "lot-3", "transitions: a foreman re-placed at another building walks to it")
+	t.ok(hop["starts"].size() == 1 and hop["starts"][0]["uid"] == "a" and hop["starts"][0]["lot_id"] == "lot-3"
+		and hop["starts"][0]["from_lot"] == "lot-1", "transitions: a foreman re-placed at another building walks to it, from the building he was at")
 	var out := TownSetPiece.transitions(moved["prev"], [e.call("a", "crypt"), e.call("b", "fort:x")], true)
 	t.ok(out["starts"].is_empty(), "transitions: back to the crypt or off to a fort is no walk to a building")
 	var born := TownSetPiece.transitions(same["prev"], [e.call("a", "town:lot-1"), e.call("b", "crypt"), e.call("c", "town:lot-4")], true)
@@ -4440,6 +4452,7 @@ func _walkout(mid: Dictionary) -> void:
 			e["place"] = "crypt"
 	_resync(m, a, again)
 	t.ok(a.is_walking("lot-04") and not a.is_walking(lot), "walkout: a foreman re-placed at another building walks to it")
+	var moved_from: Vector2 = a.walkers[0]["pos"] if a.walkers.size() == 1 else Vector2(-1, -1)
 	# reduced motion: it arrives at once, badge whole
 	var pair2 := _agents(mid)
 	var m2: TownModel = pair2[0]
@@ -4454,14 +4467,16 @@ func _walkout(mid: Dictionary) -> void:
 	var m3: TownModel = pair3[0]
 	var a3: TownAgents = pair3[1]
 	_resync(m3, a3, placed)
-	_run(a3, 3.0)
+	_run(a3, 1.0)  # fixed steps, no wall clock: the walk (several seconds long) is still under way
+	t.ok(a3.walkers.size() == 1, "walkout: still walking after 1 s of fixed steps (the trail assertions below always run)")
 	if a3.walkers.size() == 1:
 		var w: Dictionary = a3.walkers[0]
 		var tr: PackedVector2Array = w["trail"]
 		t.ok(tr.size() >= 2 and tr[tr.size() - 1].distance_to(w["pos"]) < 1e-3, "walkout: the trail ends at the walker")
 		t.ok(TownSetPiece.poly_len(tr) <= float(vcfg["walkout"]["trail_px"]) * m3.scale + 1e-3, "walkout: and is no longer than view.walkout.trail_px")
-	else:
-		t.ok(true, "walkout: arrived within 3 s (no trail to check)")
+	# a foreman moved between buildings walks from where he stood, not from the crypt
+	t.ok(spot != Vector2.ZERO and spot.distance_to(moved_from) < 1e-3 and moved_from.distance_to(crypt_rect.get_center()) > 20.0,
+		"walkout: a foreman moved to another building starts at his old building's foreman spot (%s vs %s), not the crypt" % [str(spot), str(moved_from)])
 
 
 func _foreman_float(mid: Dictionary) -> void:
@@ -4493,3 +4508,173 @@ func _foreman_float(mid: Dictionary) -> void:
 	m2.update(mid, VIEW_RECT)
 	m2.update(_patched(mid, lot, {"foreman": "u7"}), VIEW_RECT)
 	t.ok(m2.floats.is_empty(), "foreman float: a foreman placed with no output change floats nothing")
+
+
+# ------------------------------------------------------------ fix 3b ----
+func _read_src(path: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	return f.get_as_text() if f != null else ""
+
+
+## Item 1: a staffed vat names what unstaffing frees; an unstaffed one what staffing takes.
+func _fix3b_vats() -> void:
+	t.suite("town-fix3b-vats")
+	var tx: Dictionary = vcfg["backups"]
+	var labels: Dictionary = vcfg["job_labels"]
+	var bc: Dictionary = cfg["buildings"]
+	var town := {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}, {"id": "stall", "slots": 2, "staffed": 1.0}, {"id": "mill", "slots": 2, "staffed": 0.0}],
+		"buildings": [], "workers": {"idle": 0.0}}
+	var order: Array = ["pit", "stall", "mill"]
+	var off := {"town": town, "backups": {"vats": [{"slot": 0, "staffed": false}]}}
+	var on := {"town": town, "backups": {"vats": [{"slot": 0, "staffed": true}]}}
+	# unstaffed: the slot on takes a hand off the bottom of the order
+	var d_on := TownBehaviour.staffing_diff(TownStandins.project(off, order, bc)["jobs"], TownStandins.project(off, order, bc, {0: true})["jobs"])
+	var line := BackupsModel.staffing_cost_text(d_on, labels, tx, false)
+	t.ok(line == "staffing takes 1 hand from Stall", "vat: an unstaffed vat says what staffing takes (%s)" % line)
+	# staffed: it already holds its hand, so the slot off gives one back to the top of the order
+	var d_off := TownBehaviour.staffing_diff(TownStandins.project(on, order, bc)["jobs"], TownStandins.project(on, order, bc, {0: false})["jobs"])
+	line = BackupsModel.staffing_cost_text(d_off, labels, tx, true)
+	t.ok(d_off.size() == 1 and d_off[0]["id"] == "stall" and absf(float(d_off[0]["delta"]) - 1.0) < 1e-6, "vat: unstaffing frees exactly one hand, for the first job with room (%s)" % str(d_off))
+	t.ok(line == "unstaffing frees 1 hand for Stall", "vat: a staffed vat says what unstaffing frees (%s)" % line)
+	t.ok(not line.begins_with("staffing takes"), "vat: a staffed vat never says staffing takes a hand")
+	# the slot already in the asked state changes nothing, either way round
+	t.ok(TownStandins.project(on, order, bc, {0: true}) == TownStandins.project(on, order, bc), "vat: asking a staffed vat to be staffed moves nothing")
+	t.ok(TownStandins.project(off, order, bc, {0: false}) == TownStandins.project(off, order, bc), "vat: asking an unstaffed vat to be unstaffed moves nothing")
+	# no job has room for the freed hand: said so
+	var full := {"town": {"jobs": [{"id": "pit", "slots": 2, "staffed": 2.0}], "buildings": [], "workers": {"idle": 0.0}},
+		"backups": {"vats": [{"slot": 0, "staffed": true}]}}
+	var d_none := TownBehaviour.staffing_diff(TownStandins.project(full, ["pit"], bc)["jobs"], TownStandins.project(full, ["pit"], bc, {0: false})["jobs"])
+	t.ok(BackupsModel.staffing_cost_text(d_none, labels, tx, true) == "unstaffing frees no hand for a job", "vat: a freed hand with no room says so")
+	for k in ["unstaff_gain", "unstaff_gain_item", "unstaff_gain_none"]:
+		t.ok(tx.has(k), "town.json view.backups.%s exists" % k)
+	# the Chapel's upkeep: a signed rate, oblique, in parts
+	var parts := BackupsModel.upkeep_parts({"gold": 0.5, "bone": 0.0}, "Chapel", tx)
+	t.ok(HudModel.parts_text(parts) == "Chapel upkeep −0.50/s gold", "upkeep: the line reads as before (%s)" % HudModel.parts_text(parts))
+	var obl: Array = parts.filter(func(p): return p[1]).map(func(p): return p[0])
+	t.ok(obl == ["−0.50/s"], "upkeep: only the signed rate is oblique (%s)" % str(obl))
+	t.ok(BackupsModel.upkeep_parts({"gold": 0.0, "bone": 0.0}, "Chapel", tx).is_empty(), "upkeep: nothing to pay, no parts")
+	var both := BackupsModel.upkeep_parts({"gold": 0.5, "bone": 0.25}, "Chapel", tx)
+	t.ok(both.filter(func(p): return p[1]).size() == 2, "upkeep: each store's rate is oblique (%s)" % HudModel.parts_text(both))
+
+
+## Item 2: the stance row's fire/hold verdict comes from `active` once stances are live.
+func _fix3b_stances(mid: Dictionary) -> void:
+	t.suite("town-fix3b-stances")
+	var bc: Dictionary = cfg["buildings"]
+	var town: Dictionary = mid["town"]
+	var lad := TownBehaviour.effective(town)
+	var before: Array = TownStandins.staffing_projection(mid, lad, bc)["jobs"]
+	var after: Array = TownStandins.staffing_projection(mid, TownBehaviour.to_top(lad, "haul"), bc)["jobs"]
+	var st: Dictionary = vcfg["stance_trade"]
+	t.ok(not (st["harvest"] as Dictionary).has("frac") and not (st["hearth"] as Dictionary).has("below"), "stance trade: no second threshold set in view.stance_trade")
+	t.ok(not TownBehaviour.stances_live(mid), "stance trade: the fixtures' stances are stubs (projected is empty)")
+	var cap := float(town["bodies_cap"])
+	var need_frac := float(vcfg["needs"]["bodies_frac"])
+	var h := HudModel.parts_text(TownBehaviour.stance_trade("harvest", mid, before, after, vcfg))
+	t.ok(h.contains("fires under %d" % roundi(need_frac * cap)), "stance trade: stub stances use the needs' bodies threshold (%s)" % h)
+	t.ok(h.contains("→ it would fire") == (float(town["bodies"]) < need_frac * cap), "stance trade: and its verdict (%s)" % h)
+	var v2: Dictionary = mid.duplicate(true)
+	var vc: Dictionary = vcfg.duplicate(true)
+	vc["needs"]["bodies_frac"] = 0.0001
+	h = HudModel.parts_text(TownBehaviour.stance_trade("harvest", v2, before, after, vc))
+	t.ok(h.contains("→ it wouldn't fire"), "stance trade: changing the needs' threshold changes the stand-in verdict (%s)" % h)
+	vc["needs"]["morale_below"] = 99.0
+	t.ok(HudModel.parts_text(TownBehaviour.stance_trade("hearth", v2, before, [], vc)).contains("→ it would fire"), "stance trade: hearth follows needs.morale_below")
+	# live: any stance has a projection; then `active` decides, whatever the thresholds say
+	var live: Dictionary = mid.duplicate(true)
+	for s in live["stances"]["stances"]:
+		s["projected"] = {"bodies": 0.1}
+		s["active"] = String(s["id"]) == "hearth"
+	t.ok(TownBehaviour.stances_live(live), "stance trade: one non-empty projection makes the stances live")
+	h = HudModel.parts_text(TownBehaviour.stance_trade("harvest", live, before, after, vcfg))
+	t.ok(h.contains("→ it wouldn't fire"), "stance trade: live and inactive, Harvest holds even though bodies are under the threshold (%s)" % h)
+	live["town"]["bodies"] = cap  # the threshold says hold; active says fire
+	for s in live["stances"]["stances"]:
+		s["active"] = String(s["id"]) == "harvest"
+	h = HudModel.parts_text(TownBehaviour.stance_trade("harvest", live, before, after, vcfg))
+	t.ok(h.contains("→ it would fire"), "stance trade: live and active, Harvest fires even with bodies full (%s)" % h)
+	h = HudModel.parts_text(TownBehaviour.stance_trade("hearth", live, before, [], vcfg))
+	t.ok(h.contains("→ it wouldn't fire"), "stance trade: live, a stance that is not active holds (%s)" % h)
+
+
+## Items 3 and 15: one rev-keyed cache for staffing projections and the lot hops.
+func _fix3b_cache() -> void:
+	t.suite("town-fix3b-cache")
+	var c := RevCache.new()
+	var calls := [0]
+	var make := func() -> Variant:
+		calls[0] += 1
+		return calls[0]
+	t.ok(c.fetch(1, ["a", {"x": true}], make) == 1 and c.fetch(1, ["a", {"x": true}], make) == 1 and calls[0] == 1, "cache: the same rev and key makes it once")
+	t.ok(c.fetch(1, ["b", {}], make) == 2 and calls[0] == 2, "cache: a different key (order or extra) makes it again")
+	t.ok(c.fetch(1, ["a", {"x": false}], make) == 3, "cache: a different extra is a different key")
+	t.ok(c.fetch(2, ["a", {"x": true}], make) == 4 and c.fetch(2, ["a", {"x": true}], make) == 4, "cache: a new rev starts over")
+	t.ok(c.fetch(1, ["a", {"x": true}], make) == 5, "cache: and going back to an older rev is a miss, not a stale hit")
+	# the three panels never ask GameState for a projection; the shell owns the one helper
+	for p in ["panel_backups", "panel_stances", "panel_jobs"]:
+		var src := _read_src("res://scripts/town/%s.gd" % p)
+		t.ok(src != "" and not src.contains("view_staffing_projection") and not src.contains("TownStandins.staffing_projection"),
+			"%s: no projection of its own (the shell's project_staffing, handed in as a Callable)" % p)
+	var shell := _read_src("res://scripts/town/covington.gd")
+	t.ok(shell.contains("func project_staffing(order: Array, extra := {})") and shell.count("view_staffing_projection") == 2,
+		"covington: owns project_staffing (the view call, once with and once without extra)")
+	t.ok(shell.contains("RevCache"), "covington: caches the projections and the lot hops by rev")
+
+
+## Items 5-14 that are pure.
+func _fix3b_small(mid: Dictionary) -> void:
+	t.suite("town-fix3b-small")
+	# #11: slot ticks are capped like the pips, with the count beside
+	var pm := int(vcfg["pip_max"])
+	var k := TownModel.slot_ticks(3, 2, pm)
+	t.ok(k["shown"] == 3 and k["working"] == 2 and k["count"] == "", "ticks: a short row draws every slot and no count (%s)" % str(k))
+	k = TownModel.slot_ticks(16, 12, pm)
+	t.ok(k["shown"] == pm and k["working"] == pm and k["count"] == "12/16", "ticks: 16 slots draw pip_max ticks with '12/16' beside (%s)" % str(k))
+	k = TownModel.slot_ticks(16, 4, pm)
+	t.ok(k["shown"] == pm and k["working"] == 4 and k["count"] == "4/16", "ticks: the filled ticks never exceed the hands working (%s)" % str(k))
+	k = TownModel.slot_ticks(pm, 3, pm)
+	t.ok(k["shown"] == pm and k["count"] == "", "ticks: exactly pip_max slots is not capped (%s)" % str(k))
+	# #13 is in test_walkout; #14: styleboxes are built once
+	t.ok(TownUI.button_box_cached("normal") == TownUI.button_box_cached("normal") and TownUI.button_box_cached("active") != TownUI.button_box_cached("normal"),
+		"stylebox: a button state's box is built once and shared")
+	# #16: a muted synth computes no beat; the unmute frame doesn't fire a stale one
+	var tempo := 1714.0
+	var r := TownSound.beat_step(true, 3, 9999.0, tempo)
+	t.ok(r["i"] == -1 and not r["fire"], "beat: muted computes nothing and forgets the last beat")
+	r = TownSound.beat_step(false, -1, 5000.0, tempo)
+	t.ok(not r["fire"] and r["i"] == 2, "beat: the first unmuted frame only records the beat index")
+	r = TownSound.beat_step(false, 2, 3500.0, tempo)
+	t.ok(not r["fire"] and r["i"] == 2, "beat: inside the same beat nothing fires")
+	r = TownSound.beat_step(false, 2, 1.0 * tempo * 3.0 + 1.0, tempo)
+	t.ok(r["fire"] and r["i"] == 3, "beat: a new beat fires once")
+	# #18: the name field takes focus when the raise forms, for a mouse hold at once, for Space once the key is up
+	t.ok(CryptLogic.name_focus_now(false, "formed") and not CryptLogic.name_focus_now(true, "formed"), "name focus: a mouse hold focuses the field when the hold completes, a Space hold waits")
+	t.ok(CryptLogic.name_focus_now(true, "key_up") and not CryptLogic.name_focus_now(false, "key_up"), "name focus: a Space hold focuses it on the key's release")
+	# #12: literals live in town.json
+	t.ok(vcfg["walkout"].has("badge_edge_px"), "view.walkout.badge_edge_px exists")
+	t.ok(not _read_src("res://scripts/town/town_agents_layer.gd").contains("host.x - 2.0"), "badge: the edge margin is config, not a literal")
+	t.ok(vcfg.has("lot_name"), "view.lot_name exists")
+
+
+## Item 14: no raw lot id in player-facing text.
+func _fix3b_lot_names() -> void:
+	t.suite("town-fix3b-lots")
+	t.ok(TownModel.lot_name("lot-05", vcfg) == "lot 5" and TownModel.lot_name("lot-12", vcfg) == "lot 12", "lot name: '%s', '%s'" % [TownModel.lot_name("lot-05", vcfg), TownModel.lot_name("lot-12", vcfg)])
+	t.ok(TownModel.lot_name("", vcfg) == "" and TownModel.lot_name("lot-x", vcfg) == "lot x", "lot name: empty stays empty, an odd id is still words (%s)" % TownModel.lot_name("lot-x", vcfg))
+	var leaks: Array = []
+	var shape := RegEx.create_from_string("^lot [1-9][0-9]*$")
+	for l in cfg["town"]["lots"]:
+		var n := TownModel.lot_name(String(l["id"]), vcfg)
+		if shape.search(n) == null:
+			leaks.append(n)
+	t.ok(leaks.is_empty() and TownModel.lot_name("lot-24", vcfg) == "lot 24", "lot name: no id leaks in any of the %d lots (%s)" % [cfg["town"]["lots"].size(), str(leaks)])
+	t.ok(not String(vcfg.get("lot_name", "")).contains("lot-"), "lot name: the format string has no id")
+	# the panels' player-facing formats use it
+	for p in ["panel_build", "panel_crypt", "panel_jobs"]:
+		var src := _read_src("res://scripts/town/%s.gd" % p)
+		t.ok(src != "" and src.contains("lot_name("), "%s: names lots through TownModel.lot_name" % p)
+	var pb := _read_src("res://scripts/town/panel_build.gd")
+	for bad in ["on %s.\" % [_label(bid), lot_id]", "% [lot_id, _reason", "\"Lot %s\"", "\"Upgrading %s.\" % _selected_lot", "\"Demolished %s.\" % lot", "\"Queued %s on %s.\" % [_label(e[\"building_id\"]), e[\"lot_id\"]]"]:
+		t.ok(not pb.contains(bad), "panel_build: no raw id in `%s`" % bad)
+	t.ok(not _read_src("res://scripts/town/panel_jobs.gd").contains("trim_prefix(\"lot-\")"), "panel_jobs: no '(05)'")
+	t.ok(String(vcfg["crypt"].get("lot_option", "")) != "" and not String(vcfg["crypt"].get("lot_option", "")).contains("{lot_id}"), "crypt: the foreman option takes a lot name")

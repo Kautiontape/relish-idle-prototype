@@ -42,11 +42,18 @@ var _fort_names := {}  # fort id -> name, read once from view_realm (the Build t
 var _synth: Synth
 var _beat_i := -1
 var _last_trade := -1.0  # seconds of the last trade blip that sounded (the limiter)
+## The staffing projections the Jobs, Stances and Backups tabs show, made once per rev (project_staffing),
+## and the lot hops (once per town rev); `_last_views` is what the panels were last bound to.
+var _staff_cache := RevCache.new()
+var _hops_cache := RevCache.new()
+var _last_views := {}
 ## Debug-only set-piece drivers (debug builds only): `--town-raise[=<lot>]` auto-holds and keeps the
 ## raise on the crypt tab (needs `--town-tab=crypt --town-slab=...`); once the rings have landed it
 ## stands in for the E3 raise (which mints nothing yet) by granting one big undead and placing it at
 ## <lot> with the real cmd_place_big_undead, so the walk-out is driven by the real view change.
 ## `--town-place=<uid>:<lot>` places an existing big undead the same way, after demo_raise.place_delay_s.
+## `--town-staff-vat=<slot>[,<slot>]` staffs those clone vats (the real cmd_staff_vat) right after setup's
+## first fetch; the rev change shows it on the next one (a debug driver for the Backups tab's screenshot).
 var _raise_lot := ""
 var _log_set := false  # prints frame numbers of the set-piece beats
 var _frame := 0
@@ -118,6 +125,16 @@ func _debug_arg(name: String) -> String:
 		if arg.begins_with("--%s=" % name):
 			return arg.trim_prefix("--%s=" % name)
 	return ""
+
+
+## Whether a debug arg is given, with or without a value (`--name` or `--name=value`); debug builds only.
+func _debug_has(name: String) -> bool:
+	if not Game.state.debug_enabled:
+		return false
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--" + name or arg.begins_with("--%s=" % name):
+			return true
+	return false
 
 
 ## `--town-grow=<sim_seconds>`: plays the town the way the suggestion tells a new player to (the top
@@ -317,6 +334,9 @@ func _build_ui() -> void:
 	crypt.hold_started.connect(_play.bind("raise_hold"))
 	crypt.raise_started.connect(_on_raise_started)
 	crypt.raise_landed.connect(_on_raise_landed)
+	for p in _panels:  # the one staffing-projection helper, handed in (a panel never asks GameState for it)
+		if "project" in p:
+			p.project = project_staffing
 	_select_tab(_debug_tab())
 	if _demo != "":
 		var tag := TownUI.label("SYNTHETIC DEMO TOWN (debug)" if _demo == "full" else "SYNTHETIC TIER-UP EVENT (debug)",
@@ -363,14 +383,11 @@ func _process(delta: float) -> void:
 	if _log_set and _view.agents != null and _view.agents.walkers.size() != _walkers_n:
 		_walkers_n = _view.agents.walkers.size()
 		print("TOWNSET walkers=%d frame=%d" % [_walkers_n, _frame])
-	if _synth.is_muted():
-		_beat_i = -1  # no beat is computed while muted, and none sounds on the unmute frame
-	else:
-		var bi := TownSound.beat_index(Pulse.now_ms(), Pulse.tempo_ms)  # by clock: it steps under reduced motion too
-		if bi != _beat_i:
-			if _beat_i >= 0:
-				_play("beat")
-			_beat_i = bi
+	# a muted synth computes no beat; by clock otherwise, so it steps under reduced motion too
+	var beat := TownSound.beat_step(_synth.is_muted(), _beat_i, Pulse.now_ms(), Pulse.tempo_ms)
+	_beat_i = int(beat["i"])
+	if bool(beat["fire"]):
+		_play("beat")
 	_since_fetch += delta
 	if _dirty or (Game.state.rev != _last_rev and _since_fetch >= _refresh_s):
 		_fetch()
@@ -382,8 +399,21 @@ func _fetch() -> void:
 	_dirty = false
 	var views := _fetch_views()
 	_tier = String(views["town"].get("tier", ""))
+	_last_views = views
 	for n in _bound:
 		n.bind(views)
+
+
+## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: the projection
+## view when GameState has it (api-request #16), else the display-only stand-in. Made once per (rev,
+## order, extra); the tabs get this as a Callable and never call GameState for it.
+func project_staffing(order: Array, extra := {}) -> Array:
+	return _staff_cache.fetch(Game.state.rev, [order, extra], func() -> Variant:
+		var s = Game.state
+		if s.has_method("view_staffing_projection"):  # by name: GameState doesn't declare it yet
+			var args: Array = [order] if extra.is_empty() else [order, extra]
+			return (s.callv("view_staffing_projection", args) as Dictionary).get("jobs", [])
+		return TownStandins.project(_last_views, order, ConfigDb.data.get("buildings", {}), extra)["jobs"]) as Array
 
 
 func _fetch_views() -> Dictionary:
@@ -400,7 +430,8 @@ func _fetch_views() -> Dictionary:
 	# computed once per fetch for every panel (the town view's own model binds after the HUD, so it can't lend them)
 	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
-	views["lot_hops"] = BuildSort.lot_maps(views, cfgs)["hops"]
+	views["lot_hops"] = _hops_cache.fetch(int(views["town"].get("rev", -1)), "hops", func() -> Variant:
+		return BuildSort.lot_maps(views, cfgs)["hops"])
 	views["tab"] = BuildSort.tab_suggestion(views, cfgs["buildings_view"], cfgs["buildings"], cfgs["town"].get("view", {}))
 	return views
 
@@ -459,21 +490,21 @@ func _on_raise_landed() -> void:
 func _debug_set_pieces() -> void:
 	if not Game.state.debug_enabled:
 		return
-	var args := OS.get_cmdline_user_args()
 	var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_raise", {})
-	for a in args:
-		if a == "--town-raise" or a.begins_with("--town-raise="):
-			_log_set = true
-			_raise_lot = a.trim_prefix("--town-raise=") if a.begins_with("--town-raise=") else _free_lot()
-			for p in _panels:
-				if p.has_method("debug_autoraise"):
-					p.debug_autoraise(float(spec.get("delay_s", 0.0)))
-		elif a.begins_with("--town-place="):
-			_log_set = true
-			var parts := a.trim_prefix("--town-place=").split(":")
-			if parts.size() == 2:
-				get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(
-					_debug_place.bind(parts[0], parts[1]))
+	for slot in _debug_arg("town-staff-vat").split(",", false):
+		if slot.is_valid_int():
+			Game.state.cmd_staff_vat(int(slot), true)
+	if _debug_has("town-raise"):
+		_log_set = true
+		var lot := _debug_arg("town-raise")
+		_raise_lot = lot if lot != "" else _free_lot()
+		for p in _panels:
+			if p.has_method("debug_autoraise"):
+				p.debug_autoraise(float(spec.get("delay_s", 0.0)))
+	var place := _debug_arg("town-place").split(":")
+	if place.size() == 2:
+		_log_set = true
+		get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(_debug_place.bind(place[0], place[1]))
 
 
 ## A building with no foreman, other than the crypt, for the demo raise's walk-out.

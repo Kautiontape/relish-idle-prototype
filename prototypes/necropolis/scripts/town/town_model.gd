@@ -558,6 +558,23 @@ static func row_width(n: int, size: float, gap: float, group_gap: float, group: 
 	return o[n - 1] + size
 
 
+## "lot 5" for "lot-05": the lot as a player reads it. `vcfg.lot_name` is the format ({n} = the lot's
+## number, no leading zeros). An id with no number reads as its tail ("lot x"); "" stays "".
+static func lot_name(lot_id: String, vcfg: Dictionary) -> String:
+	if lot_id == "":
+		return ""
+	var tail := lot_id.get_slice("-", lot_id.get_slice_count("-") - 1)
+	var n := str(int(tail)) if tail.is_valid_int() else tail
+	return String(vcfg.get("lot_name", "lot {n}")).format({"n": n})
+
+
+## The slot ticks a building row draws: {shown, working, count}. Like the pips they stop at `pip_max`
+## (a deep ladder has 16+ slots); beside a capped row the whole count reads "12/16" (working / slots).
+static func slot_ticks(slots: int, working: int, pip_max: int) -> Dictionary:
+	var shown := mini(slots, pip_max)
+	return {"shown": shown, "working": mini(working, shown), "count": "%d/%d" % [working, slots] if slots > pip_max else ""}
+
+
 ## The integer shown beside a pip row: the count when it is more than one group, else "".
 static func count_label(n: int, group: int) -> String:
 	return str(n) if n > group else ""

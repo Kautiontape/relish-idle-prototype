@@ -27,9 +27,9 @@
   ],
 
   "sound": {
-    "_doc": "Town sound through the shared Synth (scripts/fx/synth.gd). kinds maps a town event to a Synth kind (configs/synth.json): tier_up = the walls start drawing; raise_hold = the crypt hold began (the absorb, it cannot be cut on release); raise_grow = the hold completed and the rings start to bend onto the outline; raise_done = the collapse landed; trade_blip = a sale's arc (at most one per trade_min_gap_s); beat = each Pulse beat (skipped while muted). Mute and volume are the Synth's (AudioPrefs, M).",
+    "_doc": "Town sound through the shared Synth (scripts/fx/synth.gd). kinds maps a town event to a Synth kind (configs/synth.json): tier_up = the walls start drawing; raise_hold = the crypt hold began (the absorb, it cannot be cut on release); raise_grow = Keep was pressed and the rings start to bend onto the outline (the collapse starts); raise_done = the collapse landed; trade_blip = a sale's arc, the short high soft streak (at most one per trade_min_gap_s); beat = each Pulse beat (skipped while muted). Mute and volume are the Synth's (AudioPrefs, M).",
     "trade_min_gap_s": 1.5,
-    "kinds": {"tier_up": "horn", "raise_hold": "absorb", "raise_grow": "raise", "raise_done": "slam", "trade_blip": "tell", "beat": "pulse"}
+    "kinds": {"tier_up": "horn", "raise_hold": "absorb", "raise_grow": "raise", "raise_done": "slam", "trade_blip": "streak", "beat": "pulse"}
   },
 
   "view": {
@@ -112,6 +112,8 @@
     "relish_away_ink": "undead",
     "floor_tint": "town",
     "floor_reach_px": 44.0,
+    "lot_name": "lot {n}",
+    "scroll_pad_px": 16,
     "lot_pulse_gain": 0.4,
     "bed": {"key": "graticule", "alpha": 1.0, "width_px": 12.0},
     "bed_line": {"key": "contour", "alpha": 1.0, "width_px": 1.0},
@@ -154,7 +156,7 @@
     "tierup_head": {"len_px": 48.0, "gain": 2.2, "w_mul": 2.0, "ring_mul": 2.5, "ring_w_px": 1.0, "dot_mul": 1.5, "glow": 1.0},
     "demo_tierup": {"tier": "village", "delay_s": 1.0},
     "walkout": {"speed_mul": 3.0, "trail_px": 90.0, "trail_segs": 6, "trail_w_px": 1.6, "trail_alpha": 0.7,
-      "badge_px": 12, "badge_pad_px": 3.0, "badge_gap_px": 8.0, "badge_fade_s": 0.8},
+      "badge_px": 12, "badge_pad_px": 3.0, "badge_gap_px": 8.0, "badge_edge_px": 2.0, "badge_fade_s": 0.8},
     "raise_echo": {"beats": 1.0, "shrink": 0.7, "flash_alpha": 1.0},
     "demo_raise": {"delay_s": 1.5, "name": "Gravel", "place_delay_s": 1.0},
     "max_agents": 160,
@@ -314,8 +316,8 @@
     },
     "stance_jobs": {"vigil": ["tend"], "harvest": ["haul"], "thrift": "idled", "muster": ["idle"], "hearth": ["stall"]},
     "stance_trade": {
-      "vigil": {"when": "relish_away"}, "harvest": {"when": "bodies_under", "frac": 0.3}, "thrift": {"when": "gold_under_upkeep"},
-      "muster": {"when": "idle"}, "hearth": {"when": "morale_under", "below": 0.5}
+      "vigil": {"when": "relish_away"}, "harvest": {"when": "bodies_under"}, "thrift": {"when": "gold_under_upkeep"},
+      "muster": {"when": "idle"}, "hearth": {"when": "morale_under"}
     },
     "behaviour": {
       "summary": "{total} workers, {idle} idle",
@@ -476,6 +478,8 @@
       "staff_on": "Staff it", "staff_off": "Unstaff it",
       "staff_cost": "staffing takes {what}", "staff_cost_none": "staffing takes no hand from a job",
       "staff_cost_item": "{n} {hand} from {job}", "hand": "hand", "hands": "hands",
+      "unstaff_gain": "unstaffing frees {what}", "unstaff_gain_none": "unstaffing frees no hand for a job",
+      "unstaff_gain_item": "{n} {hand} for {job}",
       "upkeep": "{label} upkeep {rate} {store}",
       "no_vats": "No vats yet: build a Chapel of Vats (Town tier)",
       "no_vats_btn": "Show the Chapel of Vats", "chapel": "chapel_of_vats",

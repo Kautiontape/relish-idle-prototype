@@ -113,21 +113,37 @@ static func pips_text(n: int, tx: Dictionary) -> String:
 	return out
 
 
-## "staffing takes 1 hand from Pit" from a TownBehaviour.staffing_diff (the jobs that lose hands).
-static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary) -> String:
-	var lost: Array = []
+## "staffing takes 1 hand from Pit" from a TownBehaviour.staffing_diff (the jobs that lose hands), for a vat
+## that is not staffed; "unstaffing frees 1 hand for Pit" (the jobs that gain them) for one that is.
+static func staffing_cost_text(diff: Array, labels: Dictionary, tx: Dictionary, staffed := false) -> String:
+	var moved: Array = []
 	for d in diff:
-		var n := roundi(-float(d["delta"]))
+		var n := roundi(float(d["delta"]) * (1.0 if staffed else -1.0))
 		if n > 0:
-			lost.append([String(d["id"]), n])
-	lost.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1])
-	if lost.is_empty():
-		return String(tx.get("staff_cost_none", ""))
+			moved.append([String(d["id"]), n])
+	moved.sort_custom(func(a: Array, b: Array) -> bool: return a[1] > b[1])
+	var pre := "unstaff_gain" if staffed else "staff_cost"
+	if moved.is_empty():
+		return String(tx.get(pre + "_none", ""))
 	var items: Array = []
-	for l in lost:
-		items.append(String(tx.get("staff_cost_item", "{n} {hand} from {job}")).format({"n": l[1],
+	for l in moved:
+		items.append(String(tx.get(pre + "_item", "{n} {hand} from {job}")).format({"n": l[1],
 			"hand": tx.get("hand" if l[1] == 1 else "hands", "hands"), "job": String(labels.get(l[0], String(l[0]).capitalize()))}))
-	return String(tx.get("staff_cost", "staffing takes {what}")).format({"what": ", ".join(items)})
+	return String(tx.get(pre, "")).format({"what": ", ".join(items)})
+
+
+## The Chapel's upkeep line as parts [[text, oblique]]: "Chapel upkeep −0.50/s gold", the signed rate
+## slanted like every other rate. Several stores are joined with ", "; [] when nothing is paid.
+static func upkeep_parts(up: Dictionary, label: String, tx: Dictionary) -> Array:
+	var out: Array = []
+	for store in up:
+		if float(up[store]) <= 0.0:
+			continue
+		if not out.is_empty():
+			out.append([", ", false])
+		out.append_array(HudModel.fill_parts(String(tx.get("upkeep", "")), {"label": label,
+			"rate": [[TownUI.fmt_rate(-float(up[store])), true]], "store": str(store)}))
+	return out
 
 
 ## The Chapel's upkeep {gold, bone} from view_town().buildings (the first active or building one of

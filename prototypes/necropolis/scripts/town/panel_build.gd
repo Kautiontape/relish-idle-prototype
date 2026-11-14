@@ -260,6 +260,11 @@ func _label(bid: String) -> String:
 	return BuildSort.label_of(bid, _bview)
 
 
+## "lot 5" for "lot-05": the player never reads a raw lot id.
+func _lot_name(lot_id: String) -> String:
+	return TownModel.lot_name(lot_id, _vcfg)
+
+
 func _reason(reason: String, row: Dictionary) -> String:
 	return BuildSort.reason_text(reason, row, _st, _bview, _vcfg)
 
@@ -442,12 +447,12 @@ func on_lot_clicked(lot_id: String) -> void:
 		elif lot_id in row.get("lots", []):
 			var bid := _placing
 			var r: Dictionary = Game.state.cmd_build(bid, lot_id)
-			_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+			_report(r, "Building %s on %s." % [_label(bid), _lot_name(lot_id)], row)
 			if bool(r.get("ok", false)):
 				build_started.emit(lot_id)
 			cancel_placement()
 		else:
-			_say("%s: %s." % [lot_id, _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
+			_say("%s: %s." % [_lot_name(lot_id), _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
 		return
 	if lot_id != "" and _entry_at(lot_id) != {}:  # a built or constructing lot: the inspector, in the card too
 		_open_card(lot_id, "inspect")
@@ -584,12 +589,12 @@ func _update_inspector() -> void:
 	_fill_inspector(_insp, i)
 	if _card_mode == "inspect" and _card_lot == _selected_lot and not _insp_card.is_empty():
 		_fill_inspector(_insp_card, i)
-		_card.show_inspector("Lot %s" % _selected_lot)
+		_card.show_inspector(_lot_name(_selected_lot).capitalize())
 
 
 func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["node"].visible = true
-	w["title"].text = "%s  (%s)" % [i["label"], _selected_lot]
+	w["title"].text = "%s  (%s)" % [i["label"], _lot_name(_selected_lot)]
 	w["flavour"].text = i["flavour"]
 	w["level"].text = String(i["level_text"])
 	w["state"].text = "State: " + String(i["state_text"])
@@ -631,14 +636,14 @@ func _cost_text(cost: Dictionary, marks := true) -> String:
 
 func _on_upgrade() -> void:
 	var r: Dictionary = Game.state.cmd_upgrade(_selected_lot)
-	_report(r, "Upgrading %s." % _selected_lot, {})
+	_report(r, "Upgrading %s." % _lot_name(_selected_lot), {})
 	if bool(r.get("ok", false)):
 		build_started.emit(_selected_lot)
 
 
 func _on_cancel_build() -> void:
 	var r: Dictionary = Game.state.cmd_cancel_build(_selected_lot)
-	_report(r, "Cancelled the build on %s." % _selected_lot, {})
+	_report(r, "Cancelled the build on %s." % _lot_name(_selected_lot), {})
 
 
 func _on_demolish() -> void:
@@ -649,7 +654,7 @@ func _on_demolish() -> void:
 	_armed_s = 0.0
 	var lot := _selected_lot
 	var r: Dictionary = Game.state.cmd_demolish(lot)
-	_report(r, "Demolished %s." % lot, {})
+	_report(r, "Demolished %s." % _lot_name(lot), {})
 	_update_inspector()
 
 
@@ -735,7 +740,7 @@ func _update_card() -> void:
 func _on_card_build(bid: String, lot_id: String) -> void:
 	var row := _row_of(bid)
 	var r: Dictionary = Game.state.cmd_build(bid, lot_id)
-	_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+	_report(r, "Building %s on %s." % [_label(bid), _lot_name(lot_id)], row)
 	if bool(r.get("ok", false)):
 		build_started.emit(lot_id)
 		dismiss()
@@ -829,7 +834,7 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	var r := _q.add(e, _ctx)
 	if r["ok"]:
 		_cap_box.visible = false
-		_say("Queued %s on %s." % [_label(e["building_id"]), e["lot_id"]])
+		_say("Queued %s on %s." % [_label(e["building_id"]), _lot_name(String(e["lot_id"]))])
 	elif r["reason"] == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:
@@ -877,7 +882,7 @@ func _update_queue() -> void:
 		var status := String(e["status"])
 		var why := BuildSort.entry_reason(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
 		var glyph: String = {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
-		var title := "%d. %s on %s" % [i + 1, what, e["lot_id"]]
+		var title := "%d. %s on %s" % [i + 1, what, _lot_name(String(e["lot_id"]))]
 		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" else title
 		w["detail"].text = "%s %s" % [glyph, BuildSort.fmt(String(tt.get(status, "")), {"why": why})]
 		w["detail"].add_theme_color_override("font_color", Palette.c(

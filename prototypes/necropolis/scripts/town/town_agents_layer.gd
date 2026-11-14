@@ -206,11 +206,12 @@ func _badge(c: Vector2, text: String, alpha: float, h: float) -> void:
 	var pad := float(wk.get("badge_pad_px", 3.0))
 	var sz := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 	var host: Vector2 = (get_parent() as Control).size if get_parent() is Control else Vector2(1e6, 1e6)
+	var edge := float(wk.get("badge_edge_px", 2.0))
 	var x := c.x + h + float(wk.get("badge_gap_px", 6.0))
-	if x + sz.x + pad > host.x - 2.0:  # no room on the right: on its left
+	if x + sz.x + pad > host.x - edge:  # no room on the right: on its left
 		x = c.x - h - float(wk.get("badge_gap_px", 6.0)) - sz.x
-	x = clampf(x, pad + 2.0, maxf(host.x - sz.x - pad - 2.0, pad + 2.0))
-	var y := clampf(c.y - sz.y * 0.5, 2.0, maxf(host.y - sz.y - 2.0, 2.0))
+	x = clampf(x, pad + edge, maxf(host.x - sz.x - pad - edge, pad + edge))
+	var y := clampf(c.y - sz.y * 0.5, edge, maxf(host.y - sz.y - edge, edge))
 	draw_rect(Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), Palette.c("ground", alpha))
 	draw_string(font, Vector2(x, y + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("text", alpha))
 

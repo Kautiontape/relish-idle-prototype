@@ -593,6 +593,9 @@ func _read_walks(entries: Array) -> void:
 		if fr.is_empty() or _crypt == "" or not _fronts.has(_crypt):
 			continue
 		var from := _place("crypt", 0.0)
+		var fr_from: Dictionary = _fronts.get(String(st.get("from_lot", "")), {})
+		if not fr_from.is_empty():  # moved between buildings: he walks from where he stood
+			from = {"pos": _foreman_spot(fr_from), "node": String(fr_from["node"])}
 		var spot := _foreman_spot(fr)
 		var path := PackedVector2Array([from["pos"]])
 		path.append_array(_leg_points(String(from.get("node", "")), {"node": String(fr["node"]), "pos": spot}))

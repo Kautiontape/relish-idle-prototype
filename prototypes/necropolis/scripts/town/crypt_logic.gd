@@ -312,6 +312,14 @@ static func lot_labels(buildings: Array, labels: Dictionary) -> Dictionary:
 	return out
 
 
+## Whether the raise's name field takes focus at `phase`: "formed" (the hold completed) or "key_up" (a
+## Space hold's key was released). A mouse hold focuses it at once (its button is disabled the moment the
+## hold completes, so button_up never comes); a Space hold waits for the key to be up, or the held key's
+## repeats would type spaces into the name.
+static func name_focus_now(by_key: bool, phase: String) -> bool:
+	return (phase == "formed" and not by_key) or (phase == "key_up" and by_key)
+
+
 ## The hold clock: seconds held so far. It grows while held, stops at `hold_s`, and a release
 ## resets it. progress = held_s / hold_s; the raise completes only when held_s reaches hold_s.
 static func hold_step(held_s: float, held: bool, dt: float, hold_s: float) -> float:
