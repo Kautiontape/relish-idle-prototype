@@ -1,8 +1,8 @@
 class_name WardenLogic
 extends RefCounted
 ## Pure warden logic (MECHANICS 5.3, GAMEPLAY 3c): the spec built from raid.json `wardens`, beat
-## maths, phase gates, slam ring, lunge hit and shield arc helpers. No scene-tree or autoload
-## dependencies.
+## maths, phase gates, slam ring, lunge hit, shield arc and pyre (acolytes, ward, burn areas)
+## helpers. No scene-tree or autoload dependencies.
 ## Beats run on SCENE time (it slows with the trance's time scale), so callers pass elapsed scene
 ## seconds and the tempo length (pulse.json tempo_ms / 1000); nothing here reads the wall clock.
 
@@ -374,6 +374,253 @@ static func shield_label(sp: Dictionary, phase: int) -> String:
 
 static func _num(v: float) -> String:
 	return str(int(v)) if is_equal_approx(v, roundf(v)) else str(snappedf(v, 0.01))
+
+
+# ------------------------------------------------------------- pyre-priest ---
+## The Pyre-priest's acolytes at its tier: attack.acolytes_base + acolytes_per_tier x tier, never
+## below 0.
+static func acolyte_count(sp: Dictionary) -> int:
+	var at: Dictionary = sp.get("attack", {})
+	return maxi(0, roundi(float(at.get("acolytes_base", 0.0)) + float(at.get("acolytes_per_tier", 1.0)) * float(sp.get("tier", 1))))
+
+
+## Where the acolytes stand: `n` posts `ring_px` from the priest at `center`, on the side away from
+## `entry` (where the swarm comes in), spread evenly over `arc_deg` centred on that bearing (one post
+## sits straight behind). The caller keeps them inside the room.
+static func acolyte_posts(center: Vector2, entry: Vector2, n: int, ring_px: float, arc_deg: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var away := center - entry
+	var base := away.angle() if away.length_squared() > 0.0001 else -PI * 0.5
+	for i in n:
+		var off := 0.0 if n <= 1 else (float(i) / float(n - 1) - 0.5) * deg_to_rad(arc_deg)
+		out.append(center + Vector2(ring_px, 0).rotated(base + off))
+	return out
+
+
+## Damage multiplier on the priest: attack.ward_mult while any acolyte lives (it is warded), else 1.
+static func ward_mult(sp: Dictionary, living: int) -> float:
+	return float((sp.get("attack", {}) as Dictionary).get("ward_mult", 1.0)) if living > 0 else 1.0
+
+
+## A big undead snuffs an acolyte in one blow (and takes the acolyte-hunting role) when its power
+## meets the weak point's threshold.
+static func is_snuffer(sp: Dictionary, power: float) -> bool:
+	var wp: Dictionary = sp.get("weak_point", {})
+	return str(wp.get("effect", "")) == "snuff" and power >= float(wp.get("threshold", 1.0e9))
+
+
+## The index of the point nearest `from` (a tie goes to the lower index); -1 for none.
+static func nearest_index(from: Vector2, pts: Array) -> int:
+	var best := -1
+	var bd := INF
+	for i in pts.size():
+		var d := from.distance_to(pts[i] as Vector2)
+		if d < bd - 0.000001:
+			bd = d
+			best = i
+	return best
+
+
+## The Pyre-priest's phase: 0 while any acolyte lives (whatever its hp); once the last falls, the
+## first later phase whose until_hp_frac is below hp_frac, else the last. A priest whose hp crossed a
+## later gate while still warded steps straight to that phase when it is exposed.
+static func pyre_phase(sp: Dictionary, living: int, hp_frac: float) -> int:
+	var phases: Array = sp.get("phases", [])
+	if living > 0 or phases.size() <= 1:
+		return 0
+	for i in range(1, phases.size()):
+		if hp_frac > float(phases[i].get("until_hp_frac", 0.0)):
+			return i
+	return phases.size() - 1
+
+
+## The phase's knobs (index clamped): {period_beats, burn_radius_px, areas}.
+static func pyre_phase_knobs(sp: Dictionary, phase: int) -> Dictionary:
+	var phases: Array = sp.get("phases", [])
+	var ph: Dictionary = {} if phases.is_empty() else phases[clampi(phase, 0, phases.size() - 1)]
+	return {"period_beats": float(ph.get("period_beats", 4.0)), "burn_radius_px": float(ph.get("burn_radius_px", 80.0)),
+		"areas": int(ph.get("areas", 1))}
+
+
+## Burn areas per beat: the phase's own (`areas`) plus attack.areas_per_acolyte for each living
+## acolyte beyond the first, so each acolyte that falls takes a fire away.
+static func burn_count(sp: Dictionary, phase: int, living: int) -> int:
+	var per := int((sp.get("attack", {}) as Dictionary).get("areas_per_acolyte", 1))
+	return maxi(0, int(pyre_phase_knobs(sp, phase)["areas"]) + per * maxi(0, living - 1))
+
+
+## How many of a beat's areas the acolytes aim at Relish (while she is in reach): the areas they
+## add (burn_count less the phase's own), at most attack.relish_areas_max.
+static func burn_aim_relish(sp: Dictionary, phase: int, living: int) -> int:
+	var extra := burn_count(sp, phase, living) - int(pyre_phase_knobs(sp, phase)["areas"])
+	return clampi(extra, 0, maxi(0, int((sp.get("attack", {}) as Dictionary).get("relish_areas_max", 99))))
+
+
+## Greedy burn centres: up to `n` picks from `cands` (Vector2) weighted by `weights`. Each pick is
+## the candidate whose circle of `radius` covers the most weight not yet covered (a tie goes to the
+## candidate nearest `from`, then the lower index); what it covers is then spent. Stops early when
+## nothing is left to cover. Deterministic for a given order.
+static func burn_pick(cands: Array, weights: Array, radius: float, from: Vector2, n: int) -> Array[Vector2]:
+	var w: Array[float] = []
+	for x in weights:
+		w.append(float(x))
+	var out: Array[Vector2] = []
+	var r2 := radius * radius + 0.0001
+	for k in n:
+		var best := -1
+		var best_s := 0.0
+		var best_d := INF
+		for i in cands.size():
+			var ci: Vector2 = cands[i]
+			var s := 0.0
+			for j in cands.size():
+				if w[j] > 0.0 and ci.distance_squared_to(cands[j] as Vector2) <= r2:
+					s += w[j]
+			if s <= 0.0:
+				continue
+			var d := from.distance_to(ci)
+			if s > best_s + 0.000001 or (absf(s - best_s) <= 0.000001 and d < best_d - 0.000001):
+				best = i
+				best_s = s
+				best_d = d
+		if best < 0:
+			break
+		var c: Vector2 = cands[best]
+		out.append(c)
+		for j in cands.size():
+			if c.distance_squared_to(cands[j] as Vector2) <= r2:
+				w[j] = 0.0
+	return out
+
+
+## Where the acolytes' `n` areas land on Relish at `rel`: the first on her, each other one
+## `spread_px` from her, spaced evenly round her starting from the bearing away from the priest at
+## `from`. Stepping off means leaving all of them.
+static func relish_spots(rel: Vector2, from: Vector2, n: int, spread_px: float) -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	if n <= 0:
+		return out
+	out.append(rel)
+	var away := rel - from
+	var dir := away.normalized() if away.length_squared() > 0.0001 else Vector2.RIGHT
+	for k in range(1, n):
+		out.append(rel + dir.rotated(TAU * float(k - 1) / float(n - 1)) * spread_px)
+	return out
+
+
+## One burn beat's area centres, deterministic. `field`: {motes: Array (Vector2: loose essence on the
+## floor), piles: Array (Vector2: unstirred corpse piles), relish: Vector2 (Vector2.INF when she is
+## out of reach)}, each already filtered to the priest's room and reach. The acolytes' areas
+## (burn_aim_relish) go on Relish while she is in reach; every other area goes on the densest essence
+## or corpses (a pile weighs attack.pile_weight motes). Fewer areas when nothing is left to burn.
+static func burn_plan(sp: Dictionary, phase: int, living: int, from: Vector2, field: Dictionary) -> Array[Vector2]:
+	var at: Dictionary = sp.get("attack", {})
+	var n := burn_count(sp, phase, living)
+	var r := float(pyre_phase_knobs(sp, phase)["burn_radius_px"])
+	var rel: Vector2 = field.get("relish", Vector2.INF)
+	var n_rel := burn_aim_relish(sp, phase, living) if rel != Vector2.INF else 0
+	var cands: Array = []
+	var weights: Array = []
+	for m in field.get("motes", []):
+		cands.append(m)
+		weights.append(1.0)
+	for p in field.get("piles", []):
+		cands.append(p)
+		weights.append(float(at.get("pile_weight", 2.0)))
+	var out := burn_pick(cands, weights, r, from, n - n_rel)
+	out.append_array(relish_spots(rel, from, n_rel, float(at.get("relish_spread_px", 60.0))))
+	return out
+
+
+## True when a target of radius `r` at `p` touches any burn area (centres `areas`, radius `burn_r`).
+static func in_burn(p: Vector2, areas: Array, burn_r: float, r: float) -> bool:
+	for c in areas:
+		if p.distance_to(c as Vector2) <= burn_r + r:
+			return true
+	return false
+
+
+## A corpse pile's mass after a burn: it loses `frac` of it, and burns away (0) below `min_mass`.
+static func pile_after_burn(mass: float, frac: float, min_mass: float) -> float:
+	var m := maxf(0.0, mass) * (1.0 - clampf(frac, 0.0, 1.0))
+	return 0.0 if m < min_mass else m
+
+
+## The Pyre-priest's break meter: `total` pips, `per` for each acolyte (the right-hand band: the
+## first to go, one band per acolyte), the rest for its hp split at the last phase's gate (phases[1]
+## until_hp_frac). {hp_bands, hp_per, hp_pips, aco, per, n, notches}: notches between the two hp
+## bands and between the hp and the acolytes' pips.
+static func pyre_meter(sp: Dictionary, total: int, per: int) -> Dictionary:
+	var aco := acolyte_count(sp)
+	var p := maxi(1, per)
+	var phases: Array = sp.get("phases", [])
+	var bands: Array[float] = [1.0]
+	if phases.size() >= 3:
+		bands.append(clampf(float(phases[1].get("until_hp_frac", 0.0)), 0.0, 1.0))
+	bands.append(0.0)
+	var hp_bands := bands.size() - 1
+	var hp_per := maxi(1, floori(float(maxi(hp_bands, total - aco * p)) / float(hp_bands)))
+	var hp_pips := hp_per * hp_bands
+	var notches: Array[int] = []
+	for j in range(1, hp_bands):
+		notches.append(hp_per * j)
+	if aco > 0:
+		notches.append(hp_pips)
+	return {"hp_bands": bands, "hp_per": hp_per, "hp_pips": hp_pips, "aco": aco, "per": p, "n": hp_pips + aco * p, "notches": notches}
+
+
+## Lit pips on the Pyre-priest's meter: its hp's share (meter_lit over the hp bands) plus `per` for
+## each living acolyte.
+static func pyre_meter_lit(m: Dictionary, living: int, hp_frac: float) -> int:
+	return meter_lit(m["hp_bands"], int(m["hp_per"]), hp_frac) + clampi(living, 0, int(m["aco"])) * int(m["per"])
+
+
+## The HUD's pyre line from the spec: "warded ×0.2 · 3 fires every 4 beats, 2 at Relish" while
+## acolytes live, "exposed · 1 fire every 3 beats" once they are gone.
+static func pyre_label(sp: Dictionary, phase: int, living: int) -> String:
+	var k := pyre_phase_knobs(sp, phase)
+	var n := burn_count(sp, phase, living)
+	var fires := "%d fire%s every %s beats" % [n, "" if n == 1 else "s", _num(float(k["period_beats"]))]
+	if living <= 0:
+		return "exposed · " + fires
+	var at_rel := burn_aim_relish(sp, phase, living)
+	return "warded ×%s · %s%s" % [_num(ward_mult(sp, living)), fires, "" if at_rel <= 0 else ", %d at Relish" % at_rel]
+
+
+## Where Relish steps to leave the lit burn areas: the nearest point that is `clear` px (her radius
+## and a margin) outside every area and inside `room` grown in by `margin`. Tried: straight out from
+## the centre of each area that covers her, and 16 headings round her at one and two areas' width.
+## `pos` itself when no area covers her; when no candidate is clear, the one inside the fewest
+## areas (then the nearest).
+static func burn_exit(pos: Vector2, areas: Array, burn_r: float, clear: float, room: Rect2, margin: float) -> Vector2:
+	if not in_burn(pos, areas, burn_r, clear):
+		return pos
+	var inner := room.grow(-margin) if room.size != Vector2.ZERO else Rect2()
+	var cands: Array[Vector2] = []
+	for c in areas:
+		var d: Vector2 = pos - (c as Vector2)
+		var dir := d.normalized() if d.length_squared() > 0.0001 else Vector2.RIGHT
+		cands.append((c as Vector2) + dir * (burn_r + clear + 1.0))
+	for s in [1.0, 2.0]:
+		for k in 16:
+			cands.append(pos + Vector2((burn_r + clear) * s, 0).rotated(TAU * float(k) / 16.0))
+	var best := pos
+	var best_in := 1 << 30
+	var best_d := INF
+	for p in cands:
+		var q := p
+		if inner.size.x > 0.0 and inner.size.y > 0.0:
+			q = Vector2(clampf(p.x, inner.position.x, inner.end.x), clampf(p.y, inner.position.y, inner.end.y))
+		var n_in := 0
+		for c in areas:
+			if q.distance_to(c as Vector2) <= burn_r + clear:
+				n_in += 1
+		var d2 := pos.distance_to(q)
+		if n_in < best_in or (n_in == best_in and d2 < best_d - 0.000001):
+			best = q
+			best_in = n_in
+			best_d = d2
+	return best
 
 
 # ---------------------------------------------------------- slam window (bot) ---

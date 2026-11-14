@@ -201,6 +201,12 @@ func run() -> int:
 		for ar in ["bellringer", "huntsman"]:
 			all_tables = all_tables and RaidLoot.hint("t%d.%s" % [tier, ar], false, cfg) != ""
 	t.ok(all_tables, "every tier and archetype has a hint")
+	t.ok(RaidLoot.hint("t3.pyre_priest", false, cfg) != "" and RaidLoot.hint("t4.pyre_priest", false, cfg) != "", "the Pyre-priest's forts (t3, t4) have hints")
+	var pw: Dictionary = cfg["aspect_weights_by_archetype"]["pyre_priest"]
+	var lead := true
+	for k in pw.keys():
+		lead = lead and (k == "power" or int(pw[k]) < int(pw["power"]))
+	t.ok(lead, "the Pyre-priest's loot leans power (its weak point)")
 	t.suite("loot_floor_glyph")
 	var shapes := {}
 	for k in RaidLoot.FLOOR_KINDS:

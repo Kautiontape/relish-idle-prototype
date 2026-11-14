@@ -31,8 +31,8 @@ func run() -> int:
 	t.ok(vals_ok, "every by_fort value is a known archetype")
 	t.ok(by_fort.size() == 12, "by_fort has exactly 12 entries")
 	t.ok(by_fort["old-sluice"] == "bellringer", "old-sluice is the bellringer")
-	t.ok(seen.has("bellringer") and seen.has("huntsman") and seen.has("shieldwall"), "all three archetypes appear")
-	for a in ["bellringer", "huntsman", "shieldwall"]:
+	t.ok(seen.has("bellringer") and seen.has("huntsman") and seen.has("shieldwall") and seen.has("pyre_priest"), "all four archetypes appear")
+	for a in ["bellringer", "huntsman", "shieldwall", "pyre_priest"]:
 		var d: Dictionary = archs[a]
 		var has_all := true
 		for key in ["name", "tells", "weak_point", "hp_base", "hp_per_tier", "radius", "phases", "attack"]:
@@ -64,7 +64,7 @@ func run() -> int:
 	var fd_per := float(fdm["period_mult"])
 	var fd_dmg := float(fdm["dmg_mult"])
 	t.ok(fd_per > 1.0 and fd_dmg < 1.0, "the first dungeon's warden is slower and softer (period x%s, damage x%s)" % [fd_per, fd_dmg])
-	for a in ["bellringer", "huntsman", "shieldwall"]:
+	for a in ["bellringer", "huntsman", "shieldwall", "pyre_priest"]:
 		var n := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a}, cfg)
 		var f := WardenLogic.spec({"id": "x", "tier": 1, "archetype": a, "first_dungeon": true}, cfg)
 		t.ok(f["first_dungeon"] == true and n["first_dungeon"] == false, "%s: first_dungeon flag is carried" % a)
@@ -266,7 +266,165 @@ func run() -> int:
 	_window_tests(t, tempo_s)
 	_meter_tests(t, cfg)
 	_shield_tests(t, cfg)
+	_pyre_tests(t, cfg)
 	return t.failures
+
+
+func _pyre_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("pyre_config")
+	var archs: Dictionary = cfg["wardens"]["archetypes"]
+	var a: Dictionary = archs["pyre_priest"]
+	var at: Dictionary = a["attack"]
+	var by_fort: Dictionary = cfg["wardens"]["by_fort"]
+	t.ok(by_fort["mourners-gate"] == "pyre_priest" and by_fort["whitecross"] == "pyre_priest", "mourners-gate (t3) and whitecross (t4) are the Pyre-priest")
+	t.ok(str(a.get("_doc", "")) != "" and str(a["name"]) == "The Pyre-priest", "the Pyre-priest is documented and named")
+	var wp: Dictionary = a["weak_point"]
+	t.ok(wp["stat"] == "power" and wp["effect"] == "snuff", "its weak point is power, effect snuff")
+	for tier in ["3", "4"]:
+		var meets := false
+		for e in cfg["autopilot"]["party_profiles"][tier]["party"]:
+			meets = meets or float(e["stats"]["power"]) >= float(wp["threshold"])
+		t.ok(meets, "a standard tier-%s party big meets the power threshold (%s)" % [tier, str(wp["threshold"])])
+	var ph: Array = a["phases"]
+	t.ok(ph.size() == 3 and (ph[0] as Dictionary).has("until_acolytes") and (ph[1] as Dictionary).has("until_hp_frac"), "phase 1 holds while acolytes live, phase 3 at an hp gate")
+	var hotter := true
+	for i in range(1, ph.size()):
+		hotter = hotter and float(ph[i]["period_beats"]) < float(ph[i - 1]["period_beats"]) and float(ph[i]["burn_radius_px"]) > float(ph[i - 1]["burn_radius_px"])
+	t.ok(hotter, "each phase burns sooner and wider")
+	t.ok(float(at["tell_beats"]) < float(ph[ph.size() - 1]["period_beats"]), "the burn tell fits inside the fastest period")
+	t.ok(float(at["ward_mult"]) > 0.0 and float(at["ward_mult"]) < 0.5, "the ward is a small multiplier (%s)" % str(at["ward_mult"]))
+	var dmg_keys := []
+	for k in at.keys():
+		if str(k).begins_with("dmg_"):
+			dmg_keys.append(str(k))
+	dmg_keys.sort()
+	t.ok(dmg_keys == ["dmg_relish", "dmg_unit"], "only damage is named dmg_ (the first dungeon scales those): %s" % str(dmg_keys))
+	var warm: Array = cfg["sound"]["warm"]
+	t.ok(warm.has("ignite") and warm.has("snuff") and warm.has("tell"), "ignite and snuff are warmed")
+	var sp3 := WardenLogic.spec({"id": "mourners-gate", "tier": 3}, cfg)
+	var sp4 := WardenLogic.spec({"id": "whitecross", "tier": 4}, cfg)
+	t.ok(sp3["archetype"] == "pyre_priest" and sp4["archetype"] == "pyre_priest", "both forts field it")
+	t.near(float(sp3["hp"]), float(a["hp_base"]) + 3.0 * float(a["hp_per_tier"]), 0.001, "pyre-priest hp at tier 3")
+	var spf := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "pyre_priest", "first_dungeon": true}, cfg)
+	var sp1 := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "pyre_priest"}, cfg)
+	t.ok(WardenLogic.period_beats(spf, 0) > WardenLogic.period_beats(sp1, 0) and float(spf["attack"]["dmg_relish"]) < float(sp1["attack"]["dmg_relish"])
+		and float(spf["attack"]["ward_mult"]) == float(sp1["attack"]["ward_mult"]), "a first-dungeon Pyre-priest burns slower and softer; its ward is the same")
+
+	t.suite("pyre_acolytes")
+	t.ok(WardenLogic.acolyte_count(sp3) == 3 and WardenLogic.acolyte_count(sp4) == 4 and WardenLogic.acolyte_count(sp1) == 1,
+		"acolytes_base + acolytes_per_tier x tier: 1 / 3 / 4 at tiers 1 / 3 / 4")
+	t.ok(WardenLogic.acolyte_count({"tier": 2, "attack": {"acolytes_base": -5, "acolytes_per_tier": 1}}) == 0, "never fewer than none")
+	var c := Vector2(500, 400)
+	var posts := WardenLogic.acolyte_posts(c, Vector2(500, 700), 3, 160.0, 110.0)
+	var ring_ok := true
+	for p in posts:
+		ring_ok = ring_ok and absf(p.distance_to(c) - 160.0) < 0.001 and p.y < c.y
+	t.ok(posts.size() == 3 and ring_ok, "three posts on the ring, all on the far side from the way in (it comes from below)")
+	t.ok(posts[1].is_equal_approx(Vector2(500, 240)), "the middle post stands straight behind")
+	t.near(absf(WardenLogic.angle_diff((posts[0] - c).angle(), (posts[2] - c).angle())), deg_to_rad(110.0), 0.0001, "the posts spread over acolyte_arc_deg")
+	t.ok(WardenLogic.acolyte_posts(c, Vector2(100, 400), 1, 100.0, 90.0)[0].is_equal_approx(Vector2(600, 400)), "a lone acolyte stands straight behind")
+	t.ok(WardenLogic.acolyte_posts(c, c, 0, 100.0, 90.0).is_empty(), "no acolytes, no posts")
+	t.near(WardenLogic.ward_mult(sp3, 3), float(at["ward_mult"]), 0.000001, "warded while acolytes live")
+	t.near(WardenLogic.ward_mult(sp3, 1), float(at["ward_mult"]), 0.000001, "one acolyte still wards it")
+	t.near(WardenLogic.ward_mult(sp3, 0), 1.0, 0.000001, "exposed once they are gone")
+	var th := float(wp["threshold"])
+	t.ok(WardenLogic.is_snuffer(sp3, th) and not WardenLogic.is_snuffer(sp3, th - 0.1), "power at the threshold snuffs, under it does not")
+	t.ok(not WardenLogic.is_snuffer(WardenLogic.spec({"id": "old-sluice", "tier": 2}, cfg), 99.0), "no other warden is snuffed")
+	t.ok(WardenLogic.nearest_index(Vector2.ZERO, [Vector2(50, 0), Vector2(0, 20), Vector2(-20, 0)]) == 1, "the nearest acolyte")
+	t.ok(WardenLogic.nearest_index(Vector2.ZERO, [Vector2(30, 0), Vector2(0, 30)]) == 0, "a tie goes to the lower index")
+	t.ok(WardenLogic.nearest_index(Vector2.ZERO, []) == -1, "none: -1")
+
+	t.suite("pyre_phase")
+	t.ok(WardenLogic.pyre_phase(sp3, 3, 1.0) == 0 and WardenLogic.pyre_phase(sp3, 1, 0.1) == 0, "phase 1 while any acolyte lives, whatever its hp")
+	t.ok(WardenLogic.pyre_phase(sp3, 0, 1.0) == 1 and WardenLogic.pyre_phase(sp3, 0, 0.41) == 1, "exposed: phase 2 above the gate")
+	t.ok(WardenLogic.pyre_phase(sp3, 0, 0.4) == 2 and WardenLogic.pyre_phase(sp3, 0, 0.0) == 2, "phase 3 at the hp gate")
+	t.ok(WardenLogic.pyre_phase(sp3, 0, 0.2) == 2, "hp past the gate while warded: straight to phase 3 when exposed")
+	var k0 := WardenLogic.pyre_phase_knobs(sp3, 0)
+	t.ok(float(k0["period_beats"]) == float(ph[0]["period_beats"]) and float(k0["burn_radius_px"]) == float(ph[0]["burn_radius_px"]) and int(k0["areas"]) == 1,
+		"the phase's knobs")
+	t.ok(WardenLogic.pyre_phase_knobs(sp3, 9) == WardenLogic.pyre_phase_knobs(sp3, 2), "pyre_phase_knobs clamps the phase")
+
+	t.suite("pyre_burn_count")
+	var per := int(at["areas_per_acolyte"])
+	t.ok(WardenLogic.burn_count(sp3, 0, 3) == 1 + 2 * per, "three acolytes: its own fire and one more for each beyond the first")
+	t.ok(WardenLogic.burn_count(sp3, 0, 2) == 1 + per and WardenLogic.burn_count(sp3, 0, 1) == 1, "each acolyte that falls takes a fire away")
+	t.ok(WardenLogic.burn_count(sp3, 1, 0) == 1, "exposed: its own fire only")
+	t.ok(WardenLogic.burn_aim_relish(sp3, 0, 3) == mini(2 * per, int(at["relish_areas_max"])) and WardenLogic.burn_aim_relish(sp3, 0, 1) == 0
+		and WardenLogic.burn_aim_relish(sp3, 1, 0) == 0, "the acolytes' fires aim at Relish; the priest's own never does")
+	var capped := sp4.duplicate(true)
+	capped["attack"]["relish_areas_max"] = 1
+	t.ok(WardenLogic.burn_aim_relish(capped, 0, 4) == 1 and WardenLogic.burn_count(capped, 0, 4) == 4, "relish_areas_max caps the fires on her (the rest go on essence)")
+	t.ok(WardenLogic.pyre_label(sp3, 0, 3).contains("warded ×%s" % str(at["ward_mult"])) and WardenLogic.pyre_label(sp3, 0, 3).contains("3 fires every 4 beats")
+		and WardenLogic.pyre_label(sp3, 0, 3).contains("2 at Relish"), "the HUD's pyre line while warded: " + WardenLogic.pyre_label(sp3, 0, 3))
+	t.ok(WardenLogic.pyre_label(sp3, 1, 0) == "exposed · 1 fire every 3 beats", "and once exposed: " + WardenLogic.pyre_label(sp3, 1, 0))
+
+	t.suite("pyre_burn_pick")
+	var cands := [Vector2(0, 0), Vector2(10, 0), Vector2(20, 0), Vector2(300, 0), Vector2(305, 0)]
+	var w1 := [1.0, 1.0, 1.0, 1.0, 1.0]
+	var pk := WardenLogic.burn_pick(cands, w1, 15.0, Vector2(400, 0), 1)
+	t.ok(pk.size() == 1 and pk[0] == Vector2(10, 0), "the densest cluster wins (three covered from its middle mote)")
+	var pk2 := WardenLogic.burn_pick(cands, w1, 15.0, Vector2(400, 0), 3)
+	t.ok(pk2.size() == 2 and pk2[1] == Vector2(305, 0), "the next pick covers what is left; nothing left, no third")
+	var pkw := WardenLogic.burn_pick(cands, [1.0, 1.0, 1.0, 2.0, 2.0], 15.0, Vector2(400, 0), 1)
+	t.ok(pkw[0] == Vector2(305, 0), "weight counts: two piles at 2 outweigh three motes (tie broken toward the priest)")
+	var tie := WardenLogic.burn_pick([Vector2(0, 0), Vector2(200, 0)], [1.0, 1.0], 30.0, Vector2(190, 0), 1)
+	t.ok(tie[0] == Vector2(200, 0), "a tie goes to the candidate nearest the priest")
+	t.ok(WardenLogic.burn_pick([], [], 30.0, Vector2.ZERO, 2).is_empty(), "nothing to burn: no area")
+	t.ok(WardenLogic.burn_pick(cands, w1, 30.0, Vector2(400, 0), 2) == WardenLogic.burn_pick(cands, w1, 30.0, Vector2(400, 0), 2), "burn_pick is deterministic")
+	var rs := WardenLogic.relish_spots(Vector2(100, 0), Vector2.ZERO, 3, 60.0)
+	t.ok(rs.size() == 3 and rs[0] == Vector2(100, 0) and rs[1].is_equal_approx(Vector2(160, 0)) and rs[2].is_equal_approx(Vector2(40, 0)),
+		"on her, then spread round her from the bearing away from the priest: %s" % str(rs))
+	t.ok(WardenLogic.relish_spots(Vector2(100, 0), Vector2.ZERO, 0, 60.0).is_empty(), "none asked, none placed")
+	var field := {"motes": [Vector2(200, 0), Vector2(210, 0)], "piles": [], "relish": Vector2(0, 300)}
+	var plan := WardenLogic.burn_plan(sp3, 0, 3, Vector2.ZERO, field)
+	t.ok(plan.size() == 3 and plan[0] == Vector2(200, 0) and plan[1] == Vector2(0, 300), "warded, three acolytes: one on the essence, two on Relish: %s" % str(plan))
+	field["relish"] = Vector2.INF
+	var plan2 := WardenLogic.burn_plan(sp3, 0, 3, Vector2.ZERO, field)
+	t.ok(plan2.size() == 1, "Relish out of reach: the fire goes on what burns (one cluster, so one area)")
+	var plan3 := WardenLogic.burn_plan(sp3, 1, 0, Vector2.ZERO, {"motes": [], "piles": [Vector2(5, 5)], "relish": Vector2(0, 300)})
+	t.ok(plan3.size() == 1 and plan3[0] == Vector2(5, 5), "exposed: its own fire on a corpse pile, none on her")
+	t.ok(WardenLogic.burn_plan(sp3, 1, 0, Vector2.ZERO, {"motes": [], "piles": [], "relish": Vector2(0, 300)}).is_empty(), "nothing to burn and no acolytes: no fire")
+	t.ok(WardenLogic.in_burn(Vector2(80, 0), [Vector2.ZERO], 72.0, 8.0) and not WardenLogic.in_burn(Vector2(81, 0), [Vector2.ZERO], 72.0, 8.0),
+		"a target touching the circle is inside it (its radius counts)")
+	t.ok(not WardenLogic.in_burn(Vector2.ZERO, [], 72.0, 8.0), "no areas, no fire")
+	t.near(WardenLogic.pile_after_burn(6.0, 0.5, 0.5), 3.0, 0.000001, "a pile loses pile_burn_frac of its mass")
+	t.near(WardenLogic.pile_after_burn(0.8, 0.5, 0.5), 0.0, 0.000001, "and burns away under pile_min_mass")
+
+	t.suite("pyre_meter")
+	var total := int(cfg["wardens"]["meter_pips"])
+	var ppa := int(cfg["wardens"]["pyre_pips_per_acolyte"])
+	var m3 := WardenLogic.pyre_meter(sp3, total, ppa)
+	t.ok(int(m3["n"]) == total and int(m3["hp_pips"]) == total - 3 * ppa and m3["notches"] == [int(m3["hp_per"]), int(m3["hp_pips"])],
+		"tier 3: %d pips, its hp's %d notched at the gate, then %d per acolyte: %s" % [total, int(m3["hp_pips"]), ppa, str(m3["notches"])])
+	var m4 := WardenLogic.pyre_meter(sp4, total, ppa)
+	t.ok(int(m4["n"]) == total and int(m4["hp_pips"]) == total - 4 * ppa, "tier 4: four acolytes' bands, the rest its hp")
+	t.ok(WardenLogic.pyre_meter_lit(m3, 3, 1.0) == total and WardenLogic.pyre_meter_lit(m3, 0, 0.0) == 0, "full and empty")
+	t.ok(WardenLogic.pyre_meter_lit(m3, 2, 1.0) == total - ppa, "an acolyte's fall drops its band")
+	t.ok(WardenLogic.pyre_meter_lit(m3, 0, 1.0) == int(m3["hp_pips"]), "all fallen: its hp's pips left (the notch)")
+	var mono := true
+	var agree := true
+	var prev := total + 1
+	for kk in range(1000, -1, -1):
+		var f := kk / 1000.0
+		var lit := WardenLogic.pyre_meter_lit(m3, 0, f)
+		mono = mono and lit <= prev
+		prev = lit
+		var by_meter := 1 if lit > int(m3["hp_per"]) else 2
+		agree = agree and (by_meter == WardenLogic.pyre_phase(sp3, 0, f) or lit == 0)
+	t.ok(mono, "exposed, the meter never relights as hp falls")
+	t.ok(agree, "the hp notch is crossed on the hit that makes phase 3")
+
+	t.suite("pyre_step_off")
+	var room := Rect2(0, 0, 600, 600)
+	var ar := [Vector2(300, 300)]
+	t.ok(WardenLogic.burn_exit(Vector2(100, 100), ar, 72.0, 29.0, room, 21.0) == Vector2(100, 100), "outside the fire: stay")
+	var ex := WardenLogic.burn_exit(Vector2(320, 300), ar, 72.0, 29.0, room, 21.0)
+	t.ok(not WardenLogic.in_burn(ex, ar, 72.0, 29.0) and ex.x > 300.0 and absf(ex.y - 300.0) < 1.0, "inside: straight out the near side (%s)" % str(ex))
+	var three := WardenLogic.relish_spots(Vector2(300, 300), Vector2(300, 100), 3, 60.0)
+	var ex3 := WardenLogic.burn_exit(Vector2(300, 300), three, 72.0, 29.0, room, 21.0)
+	t.ok(not WardenLogic.in_burn(ex3, three, 72.0, 29.0) and room.grow(-21.0).has_point(ex3), "three fires round her: a point clear of all of them, in the room (%s)" % str(ex3))
+	var wall := WardenLogic.burn_exit(Vector2(30, 300), [Vector2(30, 300)], 72.0, 29.0, room, 21.0)
+	t.ok(wall.x >= 21.0 and not WardenLogic.in_burn(wall, [Vector2(30, 300)], 72.0, 29.0), "against a wall it steps off along the room, not through it")
 
 
 func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
@@ -275,8 +433,7 @@ func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var a: Dictionary = archs["shieldwall"]
 	var by_fort: Dictionary = cfg["wardens"]["by_fort"]
 	t.ok(by_fort["pale-bastion"] == "shieldwall" and by_fort["the-stair"] == "shieldwall", "pale-bastion (t3) and the-stair (t4) are the Shieldwall")
-	t.ok(by_fort["hollow-redoubt"] == "huntsman" and by_fort["mourners-gate"] == "huntsman" and by_fort["whitecross"] == "huntsman"
-		and by_fort["sable-hold"] == "bellringer", "the other tier 3-4 forts keep their wardens")
+	t.ok(by_fort["hollow-redoubt"] == "huntsman" and by_fort["sable-hold"] == "bellringer", "the other tier 3-4 forts keep their wardens")
 	t.ok(str(a.get("_doc", "")) != "" and str(a["name"]) == "The Shieldwall", "the Shieldwall is documented and named")
 	var wp: Dictionary = a["weak_point"]
 	t.ok(wp["stat"] == "wits" and wp["effect"] == "flank", "its weak point is wits, effect flank")

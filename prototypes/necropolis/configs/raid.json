@@ -16,7 +16,7 @@
   },
   "sound": {
     "_doc": "The raid scene's sound warm-up (RaidSound.attach): these Synth kinds are rendered ahead of use, one render per frame from the scene's start, so no first play renders on a gameplay frame. A chime warms every score bucket and a streak every step (RaidSoundLogic.warm_plan).",
-    "warm": ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept", "clang", "flank"]
+    "warm": ["absorb", "raise", "chime", "shatter", "tell", "slam", "muffle", "intercept", "clang", "flank", "ignite", "snuff"]
   },
   "danger": {
     "_doc": "Relish's danger read-outs (hp arc, screen-edge pulse, target mark). exposed_min and exposed_max: with no phylactery charge left, how exposed she reads (RaidLogic.exposed_level) runs from exposed_min at full hp to exposed_max at none; it drives the danger rim of her halo (dashes leaning to danger: at 0.6 already clearly red at full hp, since no revive is a state, not a mood). The PHYLACT. words are always danger with no charge left.",
@@ -363,13 +363,19 @@
     "slam_reach_px": 600.0,
     "slam_stand_frac": 0.5,
     "slam_cluster_frac": 0.4,
-    "_doc": "The Shieldwall fight (raid_autopilot.gd _vs_wall; the other keys are documented in its header): Relish keeps out of the bash arc grown by wall_margin_px of reach and wall_margin_deg each side, and waits wall_side_deg off its facing, wall_stand_px beyond that reach, walking round wall_step_deg at a time; she keeps her side until the other is wall_switch_deg nearer.",
+    "_doc": "The Shieldwall fight (raid_autopilot.gd _vs_wall; the other keys are documented in its header): Relish keeps out of the bash arc grown by wall_margin_px of reach and wall_margin_deg each side, and waits wall_side_deg off its facing, wall_stand_px beyond that reach, walking round wall_step_deg at a time; she keeps her side until the other is wall_switch_deg nearer. The Pyre-priest fight (_vs_pyre): she steps off a lit burn area that covers her (to burn_clear_px beyond its edge) with chance burn_step_off per tell (rolled once per tell; a decent player, not a perfect one, as dodge is for the Huntsman), first fetching a mote inside a lit area when the trip in and out fits before the beat with burn_safe_beats to spare; while acolytes live she waits pyre_stand_px beyond the nearest one (from the priest) and holds a raise until she is within pyre_raise_px of one (unless her carry is full), so the raised undead reach it; once it is exposed she waits pyre_exposed_px from it.",
     "wall_margin_px": 30.0,
     "wall_margin_deg": 15.0,
     "wall_side_deg": 110.0,
     "wall_stand_px": 40.0,
     "wall_step_deg": 45.0,
     "wall_switch_deg": 20.0,
+    "burn_step_off": 0.8,
+    "burn_clear_px": 16.0,
+    "burn_safe_beats": 0.35,
+    "pyre_stand_px": 60.0,
+    "pyre_raise_px": 120.0,
+    "pyre_exposed_px": 170.0,
     "pickup_px": 900.0,
     "pickup_foe_clear_px": 90.0,
     "profile_living_frac": 0.85,
@@ -392,7 +398,7 @@
     }
   },
   "wardens": {
-    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it).",
+    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds.",
     "chest_open_px": 44.0,
     "victory_s": 1.5,
     "muffle_pad_px": 14.0,
@@ -414,6 +420,8 @@
     "clapper_swing_rad_s": 14.0,
     "shield_label_s": 0.8,
     "shield_label_out_px": 56.0,
+    "pyre_pips_per_acolyte": 2,
+    "pyre_label_s": 0.9,
     "by_fort": {
       "ashgate": "huntsman",
       "old-sluice": "bellringer",
@@ -423,9 +431,9 @@
       "lantern-keep": "bellringer",
       "hollow-redoubt": "huntsman",
       "pale-bastion": "shieldwall",
-      "mourners-gate": "huntsman",
+      "mourners-gate": "pyre_priest",
       "the-stair": "shieldwall",
-      "whitecross": "huntsman",
+      "whitecross": "pyre_priest",
       "sable-hold": "bellringer"
     },
     "first_dungeon": {
@@ -538,6 +546,47 @@
           "face_repick_s": 0.15,
           "dmg_relish": 12.0,
           "dmg_unit": 10.0
+        }
+      },
+      "pyre_priest": {
+        "_doc": "The Pyre-priest (warden_pyre_priest.gd, warden_acolyte.gd, WardenLogic.pyre_* / burn_* / acolyte_*): stationary at its room's centre, with acolytes_base + acolytes_per_tier x tier acolytes (acolyte_hp, acolyte_radius_px) posted acolyte_ring_px behind it from the way in, spread over acolyte_arc_deg. While any acolyte lives it is warded: it takes ward_mult of every hit (phase 1, whatever its hp). Every period_beats it lights burn areas (burn_radius_px) tell_beats ahead and burns them on the beat: the phase's own `areas` on the densest essence or corpses within reach_px in its room (a pile weighs pile_weight motes; with nothing to burn, no area), plus areas_per_acolyte for each living acolyte beyond the first, aimed at Relish while she is in its room and reach (at most relish_areas_max: one on her, the others relish_spread_px round her). On the beat every loose mote inside is destroyed (BURNED -N; carried motes are safe), a corpse pile inside loses pile_burn_frac of its mass (burned away under pile_min_mass), undead inside take dmg_unit and Relish dmg_relish (each once per beat). Phase 2 when the last acolyte falls (exposed: no ward, sooner and wider fires), phase 3 at until_hp_frac. Weak point: a big undead with power >= threshold kills an acolyte in one blow (SNUFFED) and takes the acolyte-hunting role (it goes for the nearest living acolyte while it fights the priest). What the missing counter costs (the risk knobs): ward_mult and acolyte_hp (how long the fight drags without power), areas_per_acolyte, relish_areas_max, relish_spread_px and dmg_relish (the fire on Relish while acolytes live), dmg_unit and pile_burn_frac (the army and the essence it denies); the bot's autopilot.burn_step_off is how often a player steps off.",
+        "name": "The Pyre-priest",
+        "tells": [
+          "it burns the essence and corpses on the floor on the beat; step off the fire",
+          "its acolytes ward it and aim more fire at you; power snuffs them in one blow"
+        ],
+        "weak_point": {
+          "stat": "power",
+          "threshold": 6,
+          "effect": "snuff",
+          "label": "a power big undead snuffs an acolyte in one blow"
+        },
+        "hp_base": 1500.0,
+        "hp_per_tier": 1000.0,
+        "radius": 36.0,
+        "phases": [
+          {"until_acolytes": 0, "period_beats": 4, "burn_radius_px": 72.0, "areas": 1},
+          {"until_hp_frac": 0.4, "period_beats": 3, "burn_radius_px": 90.0, "areas": 1},
+          {"until_hp_frac": 0.0, "period_beats": 2, "burn_radius_px": 105.0, "areas": 1}
+        ],
+        "attack": {
+          "tell_beats": 1,
+          "reach_px": 520.0,
+          "acolytes_base": 0,
+          "acolytes_per_tier": 1,
+          "acolyte_hp": 150.0,
+          "acolyte_radius_px": 12.0,
+          "acolyte_ring_px": 160.0,
+          "acolyte_arc_deg": 110.0,
+          "ward_mult": 0.2,
+          "areas_per_acolyte": 1,
+          "relish_areas_max": 3,
+          "relish_spread_px": 60.0,
+          "pile_burn_frac": 0.5,
+          "pile_min_mass": 0.5,
+          "pile_weight": 2.0,
+          "dmg_unit": 6.0,
+          "dmg_relish": 8.0
         }
       }
     }

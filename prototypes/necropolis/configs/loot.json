@@ -22,6 +22,7 @@
     "bellringer": {"power": 3, "beef": 4, "wits": 1, "presence": 1, "speed": 1},
     "huntsman": {"power": 1, "beef": 1, "wits": 3, "presence": 1, "speed": 4},
     "shieldwall": {"power": 1, "beef": 3, "wits": 4, "presence": 1, "speed": 1},
+    "pyre_priest": {"power": 4, "beef": 1, "wits": 1, "presence": 1, "speed": 3},
     "default": {"power": 1, "beef": 1, "wits": 1, "presence": 1, "speed": 1}
   },
   "chest_by_tier": {
@@ -53,6 +54,8 @@
     "t4.huntsman": "a hoard of relics and remnants",
     "t3.shieldwall": "rich relics and cunning remnants",
     "t4.shieldwall": "a hoard of relics and remnants",
+    "t3.pyre_priest": "rich relics and mighty remnants",
+    "t4.pyre_priest": "a hoard of relics and remnants",
     "first_dungeon_hint": "a husk and a blueprint"
   },
   "card": {
