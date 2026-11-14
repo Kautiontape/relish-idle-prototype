@@ -75,13 +75,12 @@ func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
 ## The garrison counted out: GlyphLogic.garrison_fill of the chip's units over the fort's slots.
 func _garrison(f: Dictionary, p: Vector2) -> void:
 	var g := GlyphLogic.gcfg()
-	var slots := GlyphLogic.garrison_slots(p, int(f["tier"]), ctx.zoom)
-	var fill := GlyphLogic.garrison_fill(IdleLogic.garrison_units(f), slots.size())
-	for i in int(fill["shown"]):
-		worker_glyph(slots[i]["pos"], slots[i]["dir"], float(g["garrison_glow"]), float(g["garrison_halo_max_px"]))
-	if int(fill["plus"]) > 0:
+	var plan := GlyphLogic.garrison_plan(p, int(f["tier"]), ctx.zoom, IdleLogic.garrison_units(f))
+	for gl in plan["glyphs"]:
+		worker_glyph(gl["pos"], gl["dir"], float(g["garrison_glow"]), float(g["garrison_halo_max_px"]), float(plan["scale"]))
+	if int(plan["plus"]) > 0:
 		var size := int(g["garrison_font"])
-		text(slots[int(fill["shown"])]["pos"], str(g["garrison_plus_fmt"]) % int(fill["plus"]), size, Palette.c("undead"), ALIGN_CENTER,
+		text(plan["plus_pos"], str(g["garrison_plus_fmt"]) % int(plan["plus"]), size, Palette.c("undead"), ALIGN_CENTER,
 			size * float(NodeLogic.ncfg()["text_mid_ratio"]), true)
 
 

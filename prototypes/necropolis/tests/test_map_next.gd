@@ -718,6 +718,13 @@ func _weight(t: TestUtil) -> void:
 	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
 		t.ok(NodeLogic.ring_weight(st) == 1.0 and not NodeLogic.has_core(st), "%s keeps the thin ring and no core" % st)
 	var ring := FileAccess.get_file_as_string("res://scripts/map/map_fort_ring.gd")
+	var far_mult := float(NodeLogic.ncfg()["held_far_mult"])
+	t.ok(far_mult >= 2.0, "the far-zoom multiplier is at least 2x")
+	for st in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, NodeLogic.OVERRUN]:
+		t.ok(is_equal_approx(NodeLogic.ring_weight(st, "far"), NodeLogic.ring_weight(st) * far_mult), "held (%s) ring is %.1fx heavier again at the far tier" % [st, far_mult])
+		t.ok(NodeLogic.ring_weight(st, "mid") == NodeLogic.ring_weight(st) and NodeLogic.ring_weight(st, "near") == NodeLogic.ring_weight(st), "held (%s) ring is unchanged at mid and near" % st)
+	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
+		t.ok(NodeLogic.ring_weight(st, "far") == 1.0, "%s ring stays a hairline at the far tier" % st)
 	t.ok(ring.contains("NodeLogic.ring_weight(") and ring.contains("NodeLogic.has_core("), "the ring layer draws with these")
 
 
@@ -935,5 +942,13 @@ func _demo_eta(t: TestUtil) -> void:
 	var to := m.node_pos(str(m.relish["target"]))
 	var eta := float(m.relish["eta_s"])
 	t.ok(str(m.relish["state"]) == "travelling" and eta > 0.0, "the demo's travelling Relish has a real ETA (%.2f s)" % eta)
-	t.near(eta, MapModel.to_vec(m.relish["pos"]).distance_to(to) / speed, 1e-3, "the rest of the way at her travel speed")
+	t.near(eta, float(MapLogic.cfg()["demo_nodes"]["relish"]["eta_s"]), 1e-6, "the demo's configured ETA (demo_nodes.relish.eta_s)")
+	var without: Dictionary = MapLogic.cfg()["demo_nodes"]["relish"].duplicate()
+	without.erase("eta_s")
+	var rel := m.relish.duplicate()
+	var saved: Dictionary = MapLogic.cfg()["demo_nodes"]["relish"]
+	MapLogic.cfg()["demo_nodes"]["relish"] = without
+	NodeLogic.demo_overlay(m.forts, m.vei, m.hud, rel, m.node_pos("covington"), m.realm_cfg.get("flip", {}), speed)
+	MapLogic.cfg()["demo_nodes"]["relish"] = saved
+	t.near(float(rel["eta_s"]), MapModel.to_vec(rel["pos"]).distance_to(to) / speed, 1e-3, "without eta_s, the rest of the way at her travel speed")
 	t.ok(RelishLogic.fmt_eta(eta) != "0:00", "so stills never read 0:00")

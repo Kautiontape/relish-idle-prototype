@@ -101,7 +101,7 @@ func _static_fort(f: Dictionary) -> void:
 
 	# the outer ring: capacity, ring_weight heavy where your undead hold the fort. Held: re-inked
 	# undead green, with the grace countdown outside it.
-	var ow := hw * NodeLogic.ring_weight(state)
+	var ow := hw * NodeLogic.ring_weight(state, ctx.tier)
 	var rk: Dictionary = ctx.reink.get(fort_id, {})
 	if not rk.is_empty():
 		_reink(p, r, rk, hw, n)
@@ -129,7 +129,7 @@ func _static_fort(f: Dictionary) -> void:
 	if NodeLogic.fort_label_shown(ctx.tier, tier):
 		var at := p + Vector2(0.0, r + float(n["label_off_px"]))
 		var size := int(MapLogic.cfg()["font_label"])
-		text(at, str(f["name"]), size, Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
+		text(at, str(f["name"]), size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		if NodeLogic.first_dungeon_pulse(f) and ctx.tier != "far":
 			text(at, str(n["label_first_dungeon"]), size, Palette.c("relish"), ALIGN_CENTER, size + float(n["label_line_px"]))
 
@@ -143,7 +143,7 @@ func _reink(p: Vector2, r: float, rk: Dictionary, hw: float, n: Dictionary) -> v
 	for i in total:
 		var a := SetpieceLogic.segment_arc(i, total)
 		if i < switched:
-			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * float(n["held_ring_weight"]), 1.0, cap)
+			glow_arc(p, r, a.x, a.y, Palette.c("undead"), hw * NodeLogic.ring_weight(IdleLogic.SAFE, ctx.tier), 1.0, cap)
 		else:
 			glow_arc(p, r, a.x, a.y, Palette.c("living"), hw, 1.0, cap)
 

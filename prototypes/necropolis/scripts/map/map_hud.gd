@@ -232,7 +232,7 @@ func _build_bar(items: Array) -> void:
 	_cells.append(status)
 	var odds_name := _bar_label(status)
 	MapType.style_label(odds_name)
-	odds_name.text = "ODDS"
+	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	_sign = _bar_label(status)

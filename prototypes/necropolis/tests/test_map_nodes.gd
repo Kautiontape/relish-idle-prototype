@@ -366,6 +366,7 @@ func _demo(t: TestUtil) -> void:
 	t.ok(NodeLogic.first_dungeon_pulse(m.fort(d["first_dungeon"])), "the first-dungeon pulse on Old Sluice")
 	t.ok(float(m.fort(d["simulacrum"]["fort"])["simulacrum_charges"]) > 0.0, "a simulacrum")
 	t.ok(m.relish["state"] == "travelling" and m.relish["target"] == d["relish"]["target"] and float(m.relish["speed"]) == 0.0, "Relish travelling toward the demo target")
+	t.ok(d["relish"].has("eta_s") and is_equal_approx(float(m.relish["eta_s"]), float(d["relish"]["eta_s"])) and float(m.relish["eta_s"]) > 1.0, "the demo's Relish carries a real ETA (%s s)" % m.relish["eta_s"])
 	var b := NodeLogic.backlog_rings(float(m.vei["backlog"]))
 	t.ok(b["rings"] == int(NodeLogic.ncfg()["backlog_ring_max"]) and b["overflow"] > 0, "the backlog fills the ring stack and overflows")
 	t.ok(m.readout()["sign"] == 1 and m.readout()["drain_s"] > 0.0, "an up arrow and a finite drain time")
@@ -405,6 +406,11 @@ func _contrast(t: TestUtil) -> void:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 3.0, "%s pips read 3:1" % k)
 	var lab := Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	t.ok(MapLogic.contrast_ratio(lab, ground) >= 4.5, "fort labels read 4.5:1 (%.2f)" % MapLogic.contrast_ratio(lab, ground))
+	t.ok(NodeLogic.fort_label_key("far") == "text" and NodeLogic.fort_label_key("mid") == "text_dim" and NodeLogic.fort_label_key("near") == "text_dim", "fort names are full text at the far tier, dim at mid and near")
+	for tier in ["far", "mid", "near"]:
+		var tl := Palette.c(NodeLogic.fort_label_key(tier), float(MapLogic.cfg()["node_label_dim_alpha"]))
+		t.ok(MapLogic.contrast_ratio(tl, ground) >= 4.5, "fort names read 4.5:1 at the %s tier (%.2f)" % [tier, MapLogic.contrast_ratio(tl, ground)])
+	t.ok(float(MapLogic.cfg()["node_label_dim_alpha"]) == 1.0 and MapLogic.contrast_ratio(Palette.c("text"), ground) >= MapLogic.contrast_ratio(Palette.c("text_dim"), ground), "the far name is at least as bright as the dim one")
 	for k in ["undead", "living", "relish", "danger", "text"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 4.5, "%s text reads 4.5:1" % k)
 	t.ok(int(MapLogic.cfg()["font_label"]) >= 12 and int(n["font_tithe"]) >= 12 and int(n["font_odds_sub"]) >= 12 and int(n["font_odds"]) >= 12, "no text under 12 px")

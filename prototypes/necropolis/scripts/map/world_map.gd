@@ -62,10 +62,14 @@ func _ready() -> void:
 	model.refresh(true)
 	_build_world()
 	_build_ui()
-	await get_tree().process_frame
+	await get_tree().process_frame  # the router's setup(args) has run by now
 	if not is_inside_tree():
 		return
+	var return_layer := _router_layer()  # the router holds it opaque over this frame and the next
+	if return_layer != null:
+		_set_hud_alpha(0.0)
 	hud.start()
+	_hold_hud_for_return(return_layer)
 	opening.refresh()
 	tithe_explain.open_pending()
 	_fit()
@@ -226,18 +230,54 @@ func _begin_arrival() -> float:
 
 
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
-## into the node and the HUD, valve, chip, sidebar and callouts fade out over the same time. The
-## signal fires when the zoom ends.
+## into the node and the whole HUD (top bar, strip, chip, sidebar, valve, callouts, toasts, away
+## panel, tithe card) fades out over hud_fade_s inside that time, so the router's snapshot (taken
+## once the signal fires) has none of it. The signal fires when the zoom ends.
 func dive_to(node_id: String, duration_s: float) -> Signal:
 	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
 		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
 	cam.begin_dive(t["zoom"], t["centre"], duration_s)
-	var fade := create_tween().set_parallel()
+	_fade_hud(TransitionLogic.IN, TransitionLogic.hud_fade_len(TransitionLogic.cfg(), MapTransition.slow(), duration_s))
+	return cam.move_done
+
+
+## The router's Transition layer if one is up over this scene (a return from a town, dungeon or
+## boss); null otherwise. It frees itself when its snapshot has faded out.
+func _router_layer() -> MapTransition:
+	if _arrive_from == "" or get_parent() == null:
+		return null
+	var tr := get_parent().get_node_or_null("Transition")
+	return tr as MapTransition if tr is MapTransition and not tr.is_queued_for_deletion() else null
+
+
+## The return: the HUD stays out until the router's snapshot fade is over (its layer leaves the
+## tree), then fades in over hud_fade_s (at once under reduced motion).
+func _hold_hud_for_return(layer: MapTransition) -> void:
+	if layer == null:
+		return
+	if is_instance_valid(layer) and layer.is_inside_tree():
+		await layer.tree_exited
+	if is_inside_tree():
+		_fade_hud(TransitionLogic.OUT, float(TransitionLogic.cfg()["hud_fade_s"]) * MapTransition.slow())
+
+
+## Drives the HUD's alpha along TransitionLogic.hud_alpha over `seconds` (kind IN: out, OUT: in).
+func _fade_hud(kind: String, seconds: float) -> void:
+	var c := TransitionLogic.cfg()
+	var reduced: bool = Pulse.reduced_motion
+	var slow := MapTransition.slow()
+	if reduced or seconds <= 0.0:
+		_set_hud_alpha(TransitionLogic.hud_alpha(c, kind, reduced, slow, seconds))
+		return
+	create_tween().tween_method(func(t: float) -> void: _set_hud_alpha(TransitionLogic.hud_alpha(c, kind, false, slow, t)), 0.0, seconds, seconds)
+
+
+## The HUD's alpha: every UI layer child and the callouts.
+func _set_hud_alpha(a: float) -> void:
 	for c in _ui_layer.get_children():
 		if c is CanvasItem:
-			fade.tween_property(c, "modulate:a", 0.0, duration_s)
-	fade.tween_property(callouts_view, "modulate:a", 0.0, duration_s)
-	return cam.move_done
+			c.modulate.a = a
+	callouts_view.modulate.a = a
 
 
 ## Covington is a door: one click enters the town, with no card. Everything else selects.

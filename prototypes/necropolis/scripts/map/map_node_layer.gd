@@ -67,11 +67,11 @@ func diamond(p: Vector2, s: float, col: Color) -> void:
 
 ## An undead worker centred at `p` heading `dir`: a straight undead stroke (LineGlow in undead
 ## green, halo capped at `cap`) with a solid undead_core dot at its head, as the lanes draw it.
-func worker_glyph(p: Vector2, dir: Vector2, glow: float, cap: float) -> void:
+func worker_glyph(p: Vector2, dir: Vector2, glow: float, cap: float, scale := 1.0) -> void:
 	var s := GlyphLogic.shape(GlyphLogic.UNDEAD)
-	var head := p + dir * float(s["len"]) * 0.5
-	glow_poly(PackedVector2Array([p - dir * float(s["len"]) * 0.5, head]), Palette.c("undead"), float(s["width"]), glow, cap)
-	draw_circle(head, float(s["head_r"]), Palette.c("undead_core"))
+	var head := p + dir * float(s["len"]) * 0.5 * scale
+	glow_poly(PackedVector2Array([p - dir * float(s["len"]) * 0.5 * scale, head]), Palette.c("undead"), float(s["width"]) * scale, glow, cap * scale)
+	draw_circle(head, float(s["head_r"]) * scale, Palette.c("undead_core"))
 
 
 ## A big undead at `p`: `strokes` nested undead diamond outlines (the outermost `half` from centre

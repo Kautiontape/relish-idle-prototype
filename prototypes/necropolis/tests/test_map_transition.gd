@@ -12,6 +12,7 @@ func run() -> int:
 	_ease(t, c)
 	_targets(t, c)
 	_slow(t)
+	_hud(t, c)
 	_router_source(t)
 	return t.failures
 
@@ -63,6 +64,34 @@ func _slow(t: TestUtil) -> void:
 	t.ok(TransitionLogic.slow_factor(["--transition-slow=0"], true) == 1.0, "a zero factor is ignored")
 	t.ok(TransitionLogic.slow_factor(["--transition-slow=abc"], true) == 1.0, "a bad factor is ignored")
 	t.ok(TransitionLogic.slow_factor(["--transition-slow=2.5"], true) == 2.5, "a fractional factor works")
+
+
+func _hud(t: TestUtil, c: Dictionary) -> void:
+	var f := float(c["hud_fade_s"])
+	var zoom_s := float(c["dive_zoom_ms"]) * 0.001
+	t.ok(f > 0.0 and f < zoom_s, "the HUD fade (%.2f s) sits inside the dive's zoom (%.2f s)" % [f, zoom_s])
+	var IN := TransitionLogic.IN
+	var OUT := TransitionLogic.OUT
+	t.ok(TransitionLogic.hud_alpha(c, IN, false, 1.0, 0.0) == 1.0, "dive: the HUD starts fully on")
+	t.near(TransitionLogic.hud_alpha(c, IN, false, 1.0, f * 0.5), 0.5, 1e-6, "dive: half-way through the fade, half alpha")
+	t.ok(TransitionLogic.hud_alpha(c, IN, false, 1.0, f) == 0.0 and TransitionLogic.hud_alpha(c, IN, false, 1.0, zoom_s) == 0.0, "dive: gone by the fade's end and stays gone")
+	t.ok(TransitionLogic.hud_alpha(c, IN, true, 1.0, 0.0) == 0.0, "dive, reduced motion: hidden at once")
+	t.near(TransitionLogic.hud_alpha(c, IN, false, 8.0, f * 8.0 * 0.5), 0.5, 1e-6, "dive: --transition-slow stretches the fade")
+	t.ok(TransitionLogic.hud_alpha(c, OUT, false, 1.0, -0.01) == 0.0 and TransitionLogic.hud_alpha(c, OUT, false, 1.0, -5.0) == 0.0, "return: hidden until the snapshot's fade has ended")
+	t.ok(TransitionLogic.hud_alpha(c, OUT, false, 1.0, 0.0) == 0.0, "return: starts at 0 when the fade ends")
+	t.near(TransitionLogic.hud_alpha(c, OUT, false, 1.0, f * 0.5), 0.5, 1e-6, "return: half-way, half alpha")
+	t.ok(TransitionLogic.hud_alpha(c, OUT, false, 1.0, f) == 1.0 and TransitionLogic.hud_alpha(c, OUT, false, 1.0, 10.0) == 1.0, "return: fully on after the fade-in")
+	t.ok(TransitionLogic.hud_alpha(c, OUT, true, 1.0, -0.01) == 0.0 and TransitionLogic.hud_alpha(c, OUT, true, 1.0, 0.0) == 1.0, "return, reduced motion: hidden through the crossfade, on at once after")
+	var prev := 0.0
+	var mono := true
+	for i in 21:
+		var a := TransitionLogic.hud_alpha(c, OUT, false, 1.0, f * i / 20.0)
+		mono = mono and a >= prev
+		prev = a
+	t.ok(mono, "return: alpha never falls while fading in")
+	t.ok(TransitionLogic.hud_fade_len(c, 1.0, zoom_s) == f and TransitionLogic.hud_fade_len(c, 1.0, 0.05) == 0.05 and TransitionLogic.hud_fade_len(c, 8.0, zoom_s * 8.0) == f * 8.0, "the dive's fade never outlasts its zoom")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("TransitionLogic.hud_alpha(") and wm.contains("tree_exited"), "the map drives its HUD from the curve and waits for the router's layer to leave")
 
 
 ## Source checks on the router: the result apply and the autosave stay synchronous in _swap/_apply

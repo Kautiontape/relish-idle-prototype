@@ -153,8 +153,17 @@ static func fort_state(f: Dictionary, margin: String) -> String:
 ## Ownership by weight, so it survives greyscale: forts your undead hold, held (any margin) or
 ## overrun (your garrison inside, not yet flipped), draw the outer ring held_ring_weight times the
 ## hairline. Hers, contested and emptied keep the hairline (1).
-static func ring_weight(state: String) -> float:
-	return _n("held_ring_weight") if yours(state) else 1.0
+## At the far zoom tier it is held_far_mult heavier again, so ownership reads in greyscale at a glance.
+static func ring_weight(state: String, zoom_tier := "") -> float:
+	if not yours(state):
+		return 1.0
+	return _n("held_ring_weight") * (_n("held_far_mult") if zoom_tier == "far" else 1.0)
+
+
+## The palette key a fort's name is drawn in: full text at the far tier (so Whitecross and Sable
+## Hold read when the map is small), text_dim at mid and near.
+static func fort_label_key(zoom_tier: String) -> String:
+	return "text" if zoom_tier == "far" else "text_dim"
 
 
 ## The same forts fill their inner core; hers, contested and emptied stay open. (Held and overrun
@@ -626,7 +635,7 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 		relish["pos"] = [p.x, p.y]
 		relish["heading"] = cov_pos.angle_to_point(to)
 		relish["speed"] = 0.0
-		relish["eta_s"] = RelishLogic.eta_s(p.distance_to(to), travel_speed)  # the rest of the way at her real pace
+		relish["eta_s"] = float(rd["eta_s"]) if rd.has("eta_s") else RelishLogic.eta_s(p.distance_to(to), travel_speed)  # demo_nodes.relish.eta_s, else the rest of the way at her real pace
 	var vd: Dictionary = d.get("vei", {})
 	if not vd.is_empty():
 		vei["backlog"] = float(vd["backlog"])
