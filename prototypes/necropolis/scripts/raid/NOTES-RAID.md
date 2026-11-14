@@ -495,3 +495,14 @@ The window: at t2-t4 the median per-run human estimate (bot-to-human factor abov
     - Offered in every run (54 of 54).
     - Taken in 41: t2 7 of 18, t3 16, t4 18. The t2 army at the antechamber (about 7-9) is under twice a guard of 4.
     - The cache was won in 25; she abandoned 10 below 0.3 hp.
+  - **Survivors only**, which is where length lands once Step 4 brings deaths to 10-15%:
+    - t3 153 s, human estimate 182-241 s.
+    - t4 151 s, human estimate 177-243 s: 98% of the floor.
+    - t2 is unchanged (no deaths): 134 s, human estimate 157-219 s, so its shortfall and the Bellringer's +36% there are real.
+  - **Step 4 facts.**
+    - Deaths are dominated by the packs: t4 7 of 8, t3 6 of 6 (hounds 4, zealots 2).
+    - At t4 the detour is a trap. It is taken 18 of 18, because the decision falls at 4-24 s with the starting army. She won it 4 times and abandoned it 9; 7 of the abandoned runs and all 8 deaths followed a taken detour.
+    - The decision is in the second room, so the take rate follows the garrison against the guard by fort (t2 7 of 18, t3 16, t4 18) more than the run's state. A later decision point would make it a real choice.
+    - The Shieldwall's bash still never struck Relish (`shield.bash_relish` 0 in 12 of 12). The bearers have no wits counter, so they give the no-wits arm no mechanism of its own.
+    - Pack units draw as ordinary living glyphs; only the WARDED label and the HUD row mark them as the warden's.
+  - **Bot changes made after the freeze** (none to the reaction rule; tier 1 and the first dungeon lines stay byte-identical with them): the routing through real openings (`_real_gaps`), and the detour rule's three knobs.
