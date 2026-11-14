@@ -61,6 +61,9 @@ var _c_slo := PackedInt32Array()  # per row, the span of the cells marked 1 in _
 var _c_shi := PackedInt32Array()
 ## Cells catchup_step's last call updated, summed over its sweeps (tests and readouts only).
 var last_catchup_cells := 0
+## catchup_step's ticks per call are capped here (1e15 ticks is about 6e6 years): long past every
+## mode's relaxation, it keeps the tick counts finite (dt = INF) and their int casts in range.
+const MAX_TICKS := 1e15
 
 
 func setup(cfg_in: Dictionary, world_size_in: Vector2) -> void:
@@ -68,6 +71,8 @@ func setup(cfg_in: Dictionary, world_size_in: Vector2) -> void:
 	w = int(cfg.get("w", 128))
 	h = int(cfg.get("h", 90))
 	_lag = maxi(1, int(cfg.get("lag_ticks", 2)))
+	if float(cfg.get("decay", 0.012)) <= 0.0 and float(cfg.get("diffuse", 0.16)) <= 0.0:
+		push_error("field: decay and diffuse are both 0; catchup_step's local solve divides by their sum")
 	world_size = world_size_in
 	green.resize(w * h)
 	orange.resize(w * h)
@@ -173,7 +178,8 @@ func tick(dt: float) -> void:
 ## sweep carries a change two cells, a live tick one):
 ## - field.catchup_sweeps base sweeps over each row's live span (cells beyond field.catchup_eps, plus
 ##   the inject cells; rows +-1, dilated 2). Each cell update also takes the entrench layer's exact
-##   closed form for n / catchup_sweeps ticks at the target's dom.
+##   closed form for n / catchup_sweeps ticks at the target's dom. Cells no base sweep reaches are
+##   within eps of zero: their entrench takes live's decay toward 0 for the n ticks.
 ## - then up to field.catchup_extra_sweeps extra sweeps over only the cells the previous sweep moved
 ##   by more than field.catchup_extra_tol (a front still moving after a fort flips). An extra sweep
 ##   pushes entrench toward the dominant side only, never decays it, and pushes by none of the base
@@ -184,10 +190,11 @@ func tick(dt: float) -> void:
 ## them. Assumes the shipped contest (contest * 5 / tick_hz >= 1) and inject amounts >= 0. Tests:
 ## test_field_catchup.gd; cost and owner agreement with live ticks: tests/slow/field_catchup_bench.gd.
 func catchup_step(dt: float) -> void:
+	last_catchup_cells = 0
 	if not (dt > 0.0):
 		return
 	var period := 1.0 / float(cfg.get("tick_hz", 5.0))
-	var n := dt / period
+	var n := minf(dt / period, MAX_TICKS)
 	var whole := int(floor(n + 1e-9))
 	if whole < 1 or n > float(cfg.get("catchup_exact_ticks", 8)):
 		_solve(dt)
@@ -233,7 +240,7 @@ func _solve(dt: float) -> void:
 	var src := _c_src
 	var period := 1.0 / float(cfg.get("tick_hz", 5.0))
 	var k5 := period * 5.0
-	var n := dt / period
+	var n := minf(dt / period, MAX_TICKS)
 	var d := float(cfg.get("diffuse", 0.16)) * k5
 	var kk := clampf(1.0 - float(cfg.get("decay", 0.012)) * k5, 1e-6, 1.0)
 	var con := float(cfg.get("contest", 1.35)) * k5
@@ -307,6 +314,12 @@ func _solve(dt: float) -> void:
 	var mhi := PackedInt32Array()
 	mlo.resize(h)
 	mhi.resize(h)
+	var ba := PackedInt32Array()  # per row, the base sweeps' reach
+	var bb := PackedInt32Array()
+	ba.resize(h)
+	bb.resize(h)
+	ba.fill(w)
+	bb.fill(-1)
 	var done := 0
 	for s in sweeps + extra:
 		var base := s < sweeps
@@ -328,6 +341,9 @@ func _solve(dt: float) -> void:
 				rows += 1
 				ua[y] = mini(ua[y], a)
 				ub[y] = maxi(ub[y], b)
+				if base:
+					ba[y] = mini(ba[y], a)
+					bb[y] = maxi(bb[y], b)
 			ra[y] = a
 			rb[y] = b
 		if rows == 0:
@@ -492,6 +508,21 @@ func _solve(dt: float) -> void:
 					mlo[y] = mvlo
 				if mvhi > mhi[y]:
 					mhi[y] = mvhi
+	# the cells no base sweep reached sit within eps of zero, where the live tick lerps entrench
+	# toward 0 every tick: they take n ticks of that (left alone, an old front's entrench would outlive
+	# the front for the whole catch-up and speed the next one)
+	var edn := pow(1.0 - ed, n)
+	for y in h:
+		var row := y * w
+		var a := ba[y]
+		var b := bb[y]
+		for x in (range(0, w) if b < 0 else range(0, a)):
+			if e[row + x] != 0.0:
+				e[row + x] *= edn
+		if b >= 0:
+			for x in range(b + 1, w):
+				if e[row + x] != 0.0:
+					e[row + x] *= edn
 	# only cells inside some sweep's range moved; the rest keep the base (both colours as they were)
 	var ng := bg.duplicate()
 	var no := bo.duplicate()
