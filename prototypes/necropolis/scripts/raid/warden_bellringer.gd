@@ -6,6 +6,10 @@ extends RaidWarden
 ## Silhouette: a heavy bell outline in `vei`, one rib per phase left (a rib falls away at each
 ## phase), and a clapper line that swings through the tell and strikes the lip on the slam (under
 ## reduced motion it holds at the struck angle for the whole tell).
+## The weak point, shown as it happens: while a beefy big is braced at the bell an `undead` ring
+## hugs it with the word BRACED; through the tell (and a muffled slam) a line links each bracing big
+## to the bell, so the cause is on screen; a muffled slam's ring goes out dim and dashed with the
+## word MUFFLED riding it, as the Huntsman's INTERCEPTED does.
 
 var muffled := false           # the slam in flight (or the next one) is muffled
 var _next_attack := 0.0        # beat of the next slam
@@ -21,6 +25,8 @@ var slams := 0                 # slams rung, for the HUD's "MUFFLED x n of m" (a
 var _bell := PackedVector2Array()   # the outline, built once from the radius
 var _ribs: Array[PackedVector2Array] = []   # rib i spans the bell at height RIB_Y[i]
 var _clap := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
+var _braced: Array[Node2D] = []   # the big undead bracing the bell now (drawn as links; visual only)
+var _link := PackedVector2Array([Vector2.ZERO, Vector2.ZERO])
 
 const BELL_L := [Vector2(0.0, -0.84), Vector2(-0.22, -0.83), Vector2(-0.36, -0.77), Vector2(-0.44, -0.64),
 	Vector2(-0.48, -0.44), Vector2(-0.51, -0.18), Vector2(-0.56, 0.10), Vector2(-0.66, 0.34),
@@ -88,6 +94,23 @@ func _step(_delta: float) -> void:
 		else:
 			_apply_slam(_slam_prev_r, r, float(at.get("band_px", 36.0)))
 			_slam_prev_r = r
+	_update_braced(b, at)   # visual only, and last
+
+
+## Who is bracing the bell (the bigs the muffle counts: beef at the threshold, within the pad), kept
+## for the links while a tell shows or a muffled slam is out. Reads the allies; changes nothing.
+func _update_braced(b: float, at: Dictionary) -> void:
+	_braced.clear()
+	var showing := (_slam_beat < 0.0 and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0)))) \
+		or (_slam_beat >= 0.0 and _slam_muffled)
+	if not showing or not muffled:
+		return
+	var pad := float(wcfg().get("muffle_pad_px", 14.0))
+	var th := float((spec.get("weak_point", {}) as Dictionary).get("threshold", 1.0e9))
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and float(a.beef) >= th \
+				and a.global_position.distance_to(global_position) <= a.radius + radius + pad:
+			_braced.append(a)
 
 
 func _apply_slam(r_prev: float, r_now: float, band: float) -> void:
@@ -207,16 +230,33 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		var r := WardenLogic.slam_radius(spec, b - _slam_beat)
 		if r > 0.0:
 			var fade := 1.0 - r / maxf(1.0, reach) * 0.5
-			ci.draw_arc(Vector2.ZERO, r, 0.0, TAU, 96, Palette.c("danger", 0.12 * fade), band)
+			var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
 			if _slam_muffled:
-				# thinner and dashed: the bell is smothered
+				# muffled: the ring goes out dim, thin and dashed, and says so as it travels
+				ci.draw_arc(Vector2.ZERO, r, 0.0, TAU, 96, Palette.c("danger", 0.05 * fade), band)
 				var n := 28
 				for k in n:
 					var a0 := TAU * k / float(n)
-					LineGlow.arc(ci, Vector2.ZERO, r, a0, a0 + TAU / float(n) * 0.5, Palette.c("danger", 0.7 * fade), 2.0, 0.3)
+					ci.draw_arc(Vector2.ZERO, r, a0, a0 + TAU / float(n) * 0.5, 4, Palette.c("danger", 0.4 * fade), 1.5)
+				ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 4.0, -r - fs * 0.35), "MUFFLED",
+					HORIZONTAL_ALIGNMENT_CENTER, fs * 8.0, fs, Palette.c("undead", minf(1.0, 0.4 + fade)))
 			else:
+				ci.draw_arc(Vector2.ZERO, r, 0.0, TAU, 96, Palette.c("danger", 0.12 * fade), band)
 				LineGlow.ring(ci, Vector2.ZERO, r, Palette.c("danger", fade), 5.0, 0.8)
+	# the cause: each bracing big ringed, and a line from it into the bell, through the tell and a
+	# muffled slam (they stand in the swarm at the bell, so the ring is what picks them out)
+	for a in _braced:
+		if not is_instance_valid(a):
+			continue
+		var to := a.global_position - global_position
+		_link[0] = to.normalized() * radius * 0.45
+		_link[1] = to
+		LineGlow.polyline(ci, _link, Palette.c("undead"), 3.0, 0.8)
+		LineGlow.ring(ci, to, float(a.radius) + 6.0, Palette.c("undead"), 2.4, 0.8)
 	if muffled:
-		var font := ThemeDB.fallback_font
-		ci.draw_string(font, Vector2(-40, -radius * 1.6 - 22.0), "MUFFLED", HORIZONTAL_ALIGNMENT_CENTER, 80.0, 16, Palette.c("undead"))
+		# the brace itself (a state, not the event): an undead ring hugging the bell
 		ci.draw_arc(Vector2.ZERO, radius + 6.0, 0.0, TAU, 32, Palette.c("undead", 0.6), 2.0)
+		if not (_slam_beat >= 0.0 and _slam_muffled):
+			var fs2 := roundi(float(wcfg().get("label_px", 15)) / zoom())
+			ci.draw_string(ThemeDB.fallback_font, Vector2(-fs2 * 4.0, -radius * 1.25 - fs2 * 0.6), "BRACED",
+				HORIZONTAL_ALIGNMENT_CENTER, fs2 * 8.0, fs2, Palette.c("undead"))
