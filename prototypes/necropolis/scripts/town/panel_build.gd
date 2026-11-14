@@ -9,6 +9,8 @@ extends ScrollContainer
 ## The same data also drives the lot card in the town view (attach_card): an empty lot's card lists
 ## what fits it, a built lot's card reuses this tab's inspector widgets and commands. The panel also
 ## feeds the view its hover outline, the day-1 suggestion, the queue's ghosts and the build flash.
+## When relics hold the tier back, a row pinned at the top says so, with a To the realm button (the
+## shell's own exit). Under the catalog the Queue lists each entry with its status and an ETA.
 
 signal command_issued
 ## Ask the town view to outline `lots` for `building_id` (and dim the rest); "" ends placement.
@@ -26,6 +28,8 @@ signal suggestion_changed(sug: Dictionary)
 signal queue_changed(ghosts: Array)
 ## cmd_build / cmd_upgrade returned ok on this lot: the canvas flashes it on the next beat.
 signal build_started(lot_id: String)
+## The relic pin's To the realm: the shell leaves through its one exit (finished, once).
+signal to_realm
 
 var _views := {}
 var _vcfg: Dictionary = {}
@@ -56,6 +60,9 @@ var _card: Control  # the lot card (town_card.gd), a child of the town view
 var _card_lot := ""
 var _card_mode := ""  # "catalog" (an empty lot) | "inspect" (a built lot)
 var _insp_card := {}  # the card's own inspector widgets
+var _hops := {}  # view `lot_hops`: {lot id: street hops from the crypt}, the autoplayer's tie-break
+var _sizes := {}  # {lot id: size} from view_town
+var _reserved := {}  # BuildSort.reserved_lots(): {lot id: gate building} kept free for the next tier
 var _sug_data := {}  # BuildSort.suggest(): the top buildable row
 var _sug_off := false  # the player dismissed the suggestion (kept for the scene's lifetime)
 var _sug_bid := ""  # the suggested building while the suggestion is live
@@ -76,6 +83,10 @@ var _cap_box: HBoxContainer
 var _cap_label: Label
 var _cap_btn: Button
 var _cap_building := ""
+var _tp: BuildSort.Throughput  # the build throughput, measured from the views between binds
+var _pin: PanelContainer
+var _pin_label: Label
+var _scroll_q_s := 0.0  # debug --town-queue: seconds the tab keeps the Queue (its last section) in view
 
 
 func _ready() -> void:
@@ -83,6 +94,7 @@ func _ready() -> void:
 	_bview = ConfigDb.data.get("buildings_view", {})
 	_bcfg = ConfigDb.data.get("buildings", {})
 	_q = TownStandins.BuildQueue.new(int(_vcfg.get("queue_max", 8)), _vcfg.get("cap_buildings", {}))
+	_tp = BuildSort.Throughput.new(float(_vcfg.get("queue_text", {}).get("throughput_smooth_s", 10.0)))
 	_style_row = TownUI.panel_box()
 	_style_focus = TownUI.panel_box()
 	_style_focus.border_color = Palette.c("select")
@@ -96,6 +108,7 @@ func _ready() -> void:
 	_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_root.add_theme_constant_override("separation", 6)
 	add_child(_root)
+	_build_pin()
 	_status = _wrap("", 14, "text")
 	_root.add_child(_status)
 	_build_banner()
@@ -136,6 +149,26 @@ func _btn(text: String, w := 76.0) -> Button:
 	return b
 
 
+## The relic pin: "Gated by relics: ... Relics come from dungeons." and To the realm (>= 44 px).
+func _build_pin() -> void:
+	_pin = PanelContainer.new()
+	var sb := TownUI.panel_box()
+	sb.border_color = Palette.c("select")
+	sb.set_border_width_all(2)
+	_pin.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	_pin.add_child(row)
+	_pin_label = _wrap("", 14, "text")
+	row.add_child(_pin_label)
+	var go := _btn(String(_vcfg.get("relic_gate", {}).get("button", "")), 130.0)
+	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	go.pressed.connect(func(): to_realm.emit())
+	row.add_child(go)
+	_pin.visible = false
+	_root.add_child(_pin)
+
+
 func _build_banner() -> void:
 	_banner = PanelContainer.new()
 	_banner.add_theme_stylebox_override("panel", _style_focus)
@@ -164,23 +197,33 @@ func bind(views: Dictionary) -> void:
 		_shape = shape
 		_rebuild_rows(rows)
 	_empty.visible = rows.is_empty()
-	var names: Dictionary = views.get("fort_names", {})
-	var sorted := BuildSort.sort_rows(rows, BuildSort.needs(views, names, _vcfg, _bview), _bview, _vcfg)
+	var tab: Dictionary = views.get("tab", {})  # the shell's, once per fetch (the HUD reads the same one)
+	if tab.is_empty():
+		tab = BuildSort.tab_suggestion(views, _bview, _bcfg, _vcfg)
+	var sorted: Array = tab["items"]
 	_sorted = sorted
-	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg)
+	_hops = views.get("lot_hops", {})
+	_sizes = BuildSort.lot_sizes(views)
+	_tp.observe(views)
+	var gate := BuildSort.relic_gate(views, sorted, _st, _bview, _vcfg)
+	_pin.visible = not gate.is_empty()
+	_pin_label.text = String(gate.get("text", ""))
+	_reserved = tab["reserved"]
+	_sug_data = tab["sug"]
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
-	var listed := {}
-	for i in sorted.size():
-		var bid := String(sorted[i]["row"]["building_id"])
-		var w: Dictionary = _rows[bid]
-		listed[bid] = true
-		w["node"].visible = true
-		if w["node"].get_index() != i:
-			_rows_box.move_child(w["node"], i)
-		_update_row(sorted[i], w)
-	for bid in _rows:
-		if not listed.has(bid):  # a built unique building is never offered again
-			_rows[bid]["node"].visible = false
+	if is_visible_in_tree():  # the rows are for the eye: a hidden tab's catch up in the bind its show makes
+		var listed := {}
+		for i in sorted.size():
+			var bid := String(sorted[i]["row"]["building_id"])
+			var w: Dictionary = _rows[bid]
+			listed[bid] = true
+			w["node"].visible = true
+			if w["node"].get_index() != i:
+				_rows_box.move_child(w["node"], i)
+			_update_row(sorted[i], w)
+		for bid in _rows:
+			if not listed.has(bid):  # a built unique building is never offered again
+				_rows[bid]["node"].visible = false
 	_check_placement()
 	_update_inspector()
 	_update_queue()
@@ -200,6 +243,7 @@ func _seed_queue() -> void:
 			_q.entries.append({"building_id": bl[0], "lot_id": bl[1], "upgrade": false, "level": 1,
 				"cost": (row.get("cost", {}) as Dictionary).duplicate(), "status": "queued", "reason": ""})
 	_seed = ""
+	_scroll_q_s = 4.0  # the shot shows the Queue section, whatever the status line does meanwhile
 
 
 func on_game_event(_ev: Dictionary) -> void:
@@ -215,6 +259,11 @@ func _row_of(bid: String) -> Dictionary:
 
 func _label(bid: String) -> String:
 	return BuildSort.label_of(bid, _bview)
+
+
+## "lot 5" for "lot-05": the player never reads a raw lot id.
+func _lot_name(lot_id: String) -> String:
+	return TownModel.lot_name(lot_id, _vcfg)
 
 
 func _reason(reason: String, row: Dictionary) -> String:
@@ -288,39 +337,53 @@ func _make_row(bid: String) -> Dictionary:
 		"costs": costs, "chip": chip, "sug": sug, "reason": reason, "link": link}
 
 
+## One catalog row's nodes, in place. Two parts: what only a change of the row, the sort, the suggestion, the
+## placement, the focus or the queue can alter (made only when `BuildSort.row_sig` differs from the last
+## bind's), and what the stocks move every refresh (the cost texts, with their "short" colour set only when it
+## flips, and the refusal text), which costs a string per cost and per blocked row.
 func _update_row(it: Dictionary, w: Dictionary) -> void:
 	var row: Dictionary = it["row"]
 	var bid := String(row.get("building_id", ""))
 	var can := bool(row.get("can_build", false))
-	w["name"].text = _label(bid)
-	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
-	w["sug"].visible = bid == _sug_bid
-	w["count"].text = "built %d" % int(row.get("count", 0))
-	var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
-	for k in 3:
-		w["rates"][k].visible = k < ben["rates"].size()
-		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
-	w["plain"].text = "  ".join(ben["plain"])
-	w["plain"].visible = not ben["plain"].is_empty()
+	var why := String(row.get("reason", ""))
+	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
+	var sug := bid == _sug_bid
+	var queue_off: bool = BuildSort.can_queue(row, _vcfg) and (_queue_full() or _free_lot(row) == "")
+	var sig := BuildSort.row_sig(it, [sug, String(_sug_data.get("chip", "suggested")) if sug and bool(_sug_data.get("upgrade", false)) else "",
+		_placing == bid, _focus == bid, queue_off, target])
+	if sig != int(w.get("sig", 0)):
+		w["sig"] = sig
+		w["name"].text = _label(bid)
+		w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
+		w["sug"].visible = sug
+		w["sug"].text = String(_sug_data.get("chip", "suggested")) if bool(_sug_data.get("upgrade", false)) else "suggested"
+		w["count"].text = "built %d" % int(row.get("count", 0))
+		var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
+		for k in 3:
+			w["rates"][k].visible = k < ben["rates"].size()
+			w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
+		w["plain"].text = "  ".join(ben["plain"])
+		w["plain"].visible = not ben["plain"].is_empty()
+		w["chip"].visible = it["chip"] != ""
+		w["chip"].text = "Needed now: " + String(it["chip"])
+		w["place"].visible = can
+		w["place"].text = "Stop" if _placing == bid else "Place"
+		w["queue"].visible = BuildSort.can_queue(row, _vcfg)
+		w["queue"].disabled = queue_off
+		w["reason"].get_parent().visible = not can
+		w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
+		w["link"].visible = target != ""
+		w["link"].set_meta("target", target)
+		w["link"].text = "Show " + _label(target) if target != "" else ""
+		w["node"].add_theme_stylebox_override("panel", _style_focus if _focus == bid else _style_row)
 	var parts := BuildSort.cost_parts(row.get("cost", {}), _st)
+	var shorts: Array = w.get("shorts", [])
 	for k in 3:
 		w["costs"][k].text = String(parts[k]["text"]) + ("  ·  " if k < 2 else "")
-		w["costs"][k].add_theme_color_override("font_color", Palette.c("danger" if parts[k]["short"] else "text"))
-	w["chip"].visible = it["chip"] != ""
-	w["chip"].text = "Needed now: " + String(it["chip"])
-	w["place"].visible = can
-	w["place"].text = "Stop" if _placing == bid else "Place"
-	w["queue"].visible = BuildSort.can_queue(row, _vcfg)
-	w["queue"].disabled = _queue_full() or _free_lot(row) == ""
-	var why := String(row.get("reason", ""))
-	w["reason"].get_parent().visible = not can
-	w["reason"].text = _reason(why, row) if not can else ""
-	w["reason"].add_theme_color_override("font_color", Palette.c("text" if it["cls"] == BuildSort.CLS_GATED else "text_dim"))
-	var target := BuildSort.fix_target(why, row, _st, _vcfg) if not can else ""
-	w["link"].visible = target != ""
-	w["link"].set_meta("target", target)
-	w["link"].text = "Show " + _label(target) if target != "" else ""
-	w["node"].add_theme_stylebox_override("panel", _style_focus if _focus == bid else _style_row)
+		if shorts.size() != 3 or shorts[k] != parts[k]["short"]:
+			w["costs"][k].add_theme_color_override("font_color", Palette.c("danger" if parts[k]["short"] else "text"))
+	w["shorts"] = [parts[0]["short"], parts[1]["short"], parts[2]["short"]]
+	w["reason"].text = BuildSort.row_reason(row, _st, _bview, _vcfg)  # with an unmet relic cost said too
 
 
 # ------------------------------------------------------------- placement ----
@@ -345,6 +408,7 @@ func cancel_placement() -> void:
 	_update_banner()
 	for bid in _rows:
 		_rows[bid]["place"].text = "Place"
+		_rows[bid].erase("sig")  # written here, not by a bind: the next bind must redo the row
 	_push_suggestion()
 
 
@@ -398,12 +462,12 @@ func on_lot_clicked(lot_id: String) -> void:
 		elif lot_id in row.get("lots", []):
 			var bid := _placing
 			var r: Dictionary = Game.state.cmd_build(bid, lot_id)
-			_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+			_report(r, "Building %s on %s." % [_label(bid), _lot_name(lot_id)], row)
 			if bool(r.get("ok", false)):
 				build_started.emit(lot_id)
 			cancel_placement()
 		else:
-			_say("%s: %s." % [lot_id, _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
+			_say("%s: %s." % [_lot_name(lot_id), _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
 		return
 	if lot_id != "" and _entry_at(lot_id) != {}:  # a built or constructing lot: the inspector, in the card too
 		_open_card(lot_id, "inspect")
@@ -436,6 +500,11 @@ func _report(r: Dictionary, ok_text: String, row := {}) -> void:
 	else:
 		_say("Refused: %s." % _reason(String(r.get("reason", "")), row))
 	command_issued.emit()
+
+
+## Another tab (backups' No vats yet) asks for this building: its row is focused and, when it can be built, placement starts.
+func select_building(bid: String) -> void:
+	_focus_building(bid)
 
 
 func _focus_building(bid: String) -> void:
@@ -475,6 +544,9 @@ func _make_inspector(style: StyleBox) -> Dictionary:
 	up.add_child(w["up_bone"])
 	up.add_theme_constant_override("separation", 12)
 	v.add_child(up)
+	w["sug_up"] = TownUI.label("suggested", 14, "select")  # the upgrade is the suggested action
+	w["sug_up"].visible = false
+	v.add_child(w["sug_up"])
 	var r1 := HBoxContainer.new()
 	w["upgrade"] = _btn("Upgrade", 100.0)
 	w["upgrade"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -532,14 +604,14 @@ func _update_inspector() -> void:
 	_fill_inspector(_insp, i)
 	if _card_mode == "inspect" and _card_lot == _selected_lot and not _insp_card.is_empty():
 		_fill_inspector(_insp_card, i)
-		_card.show_inspector("Lot %s" % _selected_lot)
+		_card.show_inspector(_lot_name(_selected_lot).capitalize())
 
 
 func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["node"].visible = true
-	w["title"].text = "%s  (%s)" % [i["label"], _selected_lot]
+	w["title"].text = "%s  (%s)" % [i["label"], _lot_name(_selected_lot)]
 	w["flavour"].text = i["flavour"]
-	w["level"].text = "Level %d of %d" % [i["level"], i["max_level"]]
+	w["level"].text = String(i["level_text"])
 	w["state"].text = "State: " + String(i["state_text"])
 	w["staffing"].text = "Staffing: " + String(i["staffing"])
 	var fm := String(i["foreman"])
@@ -548,6 +620,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["up_bone"].text = "%s bone" % TownUI.fmt_rate(-float(i["upkeep"]["bone"]))
 	var u: Dictionary = i["upgrade"]
 	w["upgrade"].visible = u["visible"]
+	w["sug_up"].visible = u["visible"] and not _sug_off and bool(_sug_data.get("upgrade", false)) and String(_sug_data.get("lot_id", "")) == _selected_lot
 	w["upgrade"].disabled = not u["enabled"]
 	w["upgrade"].text = "Upgrade to Lv %d: %s" % [u["level"], _cost_text(u["cost"])] if not (u["cost"] as Dictionary).is_empty() else "Upgrade"
 	w["queue_up"].visible = u["visible"]
@@ -557,7 +630,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
 	var why := ""
 	if u["visible"] and not u["enabled"]:
-		why = _reason(String(u["reason"]), {"cost": u["cost"]})
+		why = _reason(String(u["reason"]), {"cost": u["cost"], "level": u["level"]})
 	w["why"].visible = why != ""
 	w["why"].text = why
 	var c: Dictionary = i["cancel"]
@@ -578,14 +651,14 @@ func _cost_text(cost: Dictionary, marks := true) -> String:
 
 func _on_upgrade() -> void:
 	var r: Dictionary = Game.state.cmd_upgrade(_selected_lot)
-	_report(r, "Upgrading %s." % _selected_lot, {})
+	_report(r, "Upgrading %s." % _lot_name(_selected_lot), {})
 	if bool(r.get("ok", false)):
 		build_started.emit(_selected_lot)
 
 
 func _on_cancel_build() -> void:
 	var r: Dictionary = Game.state.cmd_cancel_build(_selected_lot)
-	_report(r, "Cancelled the build on %s." % _selected_lot, {})
+	_report(r, "Cancelled the build on %s." % _lot_name(_selected_lot), {})
 
 
 func _on_demolish() -> void:
@@ -596,11 +669,15 @@ func _on_demolish() -> void:
 	_armed_s = 0.0
 	var lot := _selected_lot
 	var r: Dictionary = Game.state.cmd_demolish(lot)
-	_report(r, "Demolished %s." % lot, {})
+	_report(r, "Demolished %s." % _lot_name(lot), {})
 	_update_inspector()
 
 
 func _process(delta: float) -> void:
+	if _scroll_q_s > 0.0:
+		_scroll_q_s -= delta
+		if is_visible_in_tree():
+			scroll_vertical = int(get_v_scroll_bar().max_value)
 	if _armed_s > 0.0:
 		_armed_s = maxf(_armed_s - delta, 0.0)
 		_update_inspector()
@@ -671,14 +748,14 @@ func _update_card() -> void:
 		_open_card(_card_lot, "inspect")
 		return
 	var items := BuildSort.fitting(_sorted, int(lot.get("size", 1)))
-	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_bid,
-		not _queue_full() and not _queued_lot(_card_lot))
+	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_new_bid(),
+		not _queue_full() and not _queued_lot(_card_lot), BuildSort.reserved_note(_card_lot, _reserved, _bview, _vcfg))
 
 
 func _on_card_build(bid: String, lot_id: String) -> void:
 	var row := _row_of(bid)
 	var r: Dictionary = Game.state.cmd_build(bid, lot_id)
-	_report(r, "Building %s on %s." % [_label(bid), lot_id], row)
+	_report(r, "Building %s on %s." % [_label(bid), _lot_name(lot_id)], row)
 	if bool(r.get("ok", false)):
 		build_started.emit(lot_id)
 		dismiss()
@@ -688,6 +765,11 @@ func _on_card_queue(bid: String, lot_id: String) -> void:
 	var row := _row_of(bid)
 	if _add_queue({"building_id": bid, "lot_id": lot_id, "upgrade": false, "level": 1, "cost": row.get("cost", {})}, row):
 		dismiss()
+
+
+## The suggested building when the suggestion is a new build ("" for an upgrade: an empty lot's card has no upgrade).
+func _sug_new_bid() -> String:
+	return "" if bool(_sug_data.get("upgrade", false)) else _sug_bid
 
 
 ## The suggestion shows on the canvas only while nothing else is going on: no placement, no
@@ -709,8 +791,10 @@ func on_suggestion_dismissed() -> void:
 
 
 # ----------------------------------------------------------------- queue ----
+## The Queue, under the catalog: each entry with its number, label, lot, status shape, an ETA from
+## today's rates and the measured build throughput, Up / Down / Unqueue (>= 44 px).
 func _build_queue_section() -> void:
-	_q_title = TownUI.label("Build queue (stand-in until E2: not saved)", 16)
+	_q_title = TownUI.label(String(_vcfg.get("queue_text", {}).get("title", "")), 16)
 	_q_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_q_title.custom_minimum_size = Vector2(40, 0)
 	_root.add_child(_q_title)
@@ -729,11 +813,13 @@ func _build_queue_section() -> void:
 	_root.add_child(_q_box)
 
 
+## The lot the row's Queue button takes: the suggestion's rule (BuildSort.queue_lot: smallest free lot, then the
+## nearest the crypt, the next tier's reserved lots last).
 func _free_lot(row: Dictionary) -> String:
-	for l in row.get("lots", []):
-		if not _queued_lot(String(l)):
-			return String(l)
-	return ""
+	var taken := {}
+	for e in _queue_entries():
+		taken[String(e["lot_id"])] = true
+	return BuildSort.queue_lot(row, taken, _reserved, _hops, _sizes)
 
 
 func _queued_lot(lot_id: String) -> bool:
@@ -763,7 +849,7 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	var r := _q.add(e, _ctx)
 	if r["ok"]:
 		_cap_box.visible = false
-		_say("Queued %s on %s." % [_label(e["building_id"]), e["lot_id"]])
+		_say("Queued %s on %s." % [_label(e["building_id"]), _lot_name(String(e["lot_id"]))])
 	elif r["reason"] == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:
@@ -800,6 +886,7 @@ func _update_queue() -> void:
 	while _q_pool.size() < entries.size():
 		_q_pool.append(_make_q_row(_q_pool.size()))
 	var tt: Dictionary = _vcfg.get("queue_text", {})
+	var etas := BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
 	for i in _q_pool.size():
 		var w: Dictionary = _q_pool[i]
 		w["node"].visible = i < entries.size()
@@ -810,11 +897,13 @@ func _update_queue() -> void:
 		var status := String(e["status"])
 		var why := BuildSort.entry_reason(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
 		var glyph: String = {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
-		var title := "%d. %s on %s" % [i + 1, what, e["lot_id"]]
+		var title := "%d. %s on %s" % [i + 1, what, _lot_name(String(e["lot_id"]))]
 		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" else title
 		w["detail"].text = "%s %s" % [glyph, BuildSort.fmt(String(tt.get(status, "")), {"why": why})]
 		w["detail"].add_theme_color_override("font_color", Palette.c(
 			{"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")))
+		w["eta"].text = String(etas[i])
+		w["eta"].visible = String(etas[i]) != ""  # a gate-skipped entry says why instead
 		w["up"].disabled = i == 0
 		w["down"].disabled = i == entries.size() - 1
 	var ghosts := BuildSort.ghosts(entries, _ctx.get("catalog", {}), _st, _bview, _vcfg)
@@ -855,6 +944,8 @@ func _make_q_row(index: int) -> Dictionary:
 	v.add_child(title)
 	var detail := _wrap("", 14, "text_dim")
 	v.add_child(detail)
+	var eta := _wrap("", 14, "text")
+	v.add_child(eta)
 	var up := _btn("Up", 56.0)
 	up.pressed.connect(func(): _move_queue(index, -1))
 	var down := _btn("Down", 56.0)
@@ -864,4 +955,4 @@ func _make_q_row(index: int) -> Dictionary:
 	for b in [up, down, rm]:
 		h.add_child(b)
 	_q_box.add_child(pc)
-	return {"node": pc, "title": title, "detail": detail, "up": up, "down": down}
+	return {"node": pc, "title": title, "detail": detail, "eta": eta, "up": up, "down": down}

@@ -22,7 +22,7 @@ const LOOKS := ["staffed", "unstaffed", "unpaid", "calm", "constructing", "heart
 var lots: Array = []
 ## The output changes of the last update(), one per building whose output moved by more than
 ## view.float.eps since the update before *and* that had a player-visible cause in the same step:
-## its staffed count (rounded), level or state changed (a ladder move, a build, staffing). Output
+## its staffed count (rounded), level, state or foreman changed (a ladder move, a build, staffing, a foreman placed). Output
 ## swings without one (haul trips averaging out) don't float. {lot_id, key, delta, text (signed,
 ## "+0.30 gold/s"), ink (the matter's Palette key), text_key (ink, or `text` where the ink is too
 ## dark for text)}. A building first seen, or a different building on a lot, seeds silently.
@@ -172,6 +172,17 @@ func strokes(building_id: String, r: Rect2, reveal: float) -> Array[PackedVector
 			p[i] = r.position + pl[i] * r.size
 		scaled.append(p)
 	return truncate(scaled, reveal)
+
+
+## The nodes still waiting to bind plus those a new fetch wants bound, each once, the waiting ones first and the
+## order kept. A fetch that lands before the queue drains adds to it, so no node is dropped (the open tab, last in
+## line, was, below about 8 fps).
+static func merge_pending(pending: Array, nodes: Array) -> Array:
+	var out := pending.duplicate()
+	for n in nodes:
+		if not out.has(n):
+			out.append(n)
+	return out
 
 
 ## `pls` drawn in order and cut so the drawn length is `frac` of the total (the last polyline
@@ -558,6 +569,23 @@ static func row_width(n: int, size: float, gap: float, group_gap: float, group: 
 	return o[n - 1] + size
 
 
+## "lot 5" for "lot-05": the lot as a player reads it. `vcfg.lot_name` is the format ({n} = the lot's
+## number, no leading zeros). An id with no number reads as its tail ("lot x"); "" stays "".
+static func lot_name(lot_id: String, vcfg: Dictionary) -> String:
+	if lot_id == "":
+		return ""
+	var tail := lot_id.get_slice("-", lot_id.get_slice_count("-") - 1)
+	var n := str(int(tail)) if tail.is_valid_int() else tail
+	return String(vcfg.get("lot_name", "lot {n}")).format({"n": n})
+
+
+## The slot ticks a building row draws: {shown, working, count}. Like the pips they stop at `pip_max`
+## (a deep ladder has 16+ slots); beside a capped row the whole count reads "12/16" (working / slots).
+static func slot_ticks(slots: int, working: int, pip_max: int) -> Dictionary:
+	var shown := mini(slots, pip_max)
+	return {"shown": shown, "working": mini(working, shown), "count": "%d/%d" % [working, slots] if slots > pip_max else ""}
+
+
 ## The integer shown beside a pip row: the count when it is more than one group, else "".
 static func count_label(n: int, group: int) -> String:
 	return str(n) if n > group else ""
@@ -598,7 +626,7 @@ static func output_keys(output: Dictionary, vcfg: Dictionary) -> Array:
 
 ## The building's one-line status as parts [[text, oblique: bool]] (rates oblique, words upright):
 ## "building: 45%", "unpaid: −0.03 gold/s upkeep", "idle: no staff (Haul is above it on the
-## ladder)", "short 2 hands", "working: +0.30 gold/s", "no staff needed: +8 living cap", and the
+## ladder)", "short 2 hands", "working: +0.30 gold/s", "no staff needed: +8 housing", and the
 ## heart's "Relish away: slab idle". Templates: view.status. `b` is a view_town buildings entry,
 ## `look` its look_of(), `town` the view_town dict. Rates come from `output` (zero rates left out).
 static func status_of(b: Dictionary, look: String, town: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Array:
@@ -642,7 +670,8 @@ static func _status_parts(b: Dictionary, look: String, town: Dictionary, bcfg: D
 		"heart":
 			return [[String(sc.get("heart_home" if bool(town.get("relish_home", false)) else "heart_away", "")), false]]
 		"calm":
-			var ben := String(bview.get(bid, {}).get("benefit", ""))
+			# the lot card's benefit with its numbers ("+8 housing"); the view's words when it has none
+			var ben := ", ".join(BuildSort.benefit(bid, {}, bcfg, bview, vcfg)["plain"])
 			if ben == "":
 				return [[String(sc.get("calm_none", "")), false]]
 			return [[BuildSort.fmt(String(sc.get("calm", "")), {"benefit": ben}), false]]
@@ -709,7 +738,7 @@ static func _idle_reason(b: Dictionary, town: Dictionary, bcfg: Dictionary, sc: 
 
 
 ## Compares lot `lot_id`'s building with the last update's. If a cause changed (its staffed count
-## rounded, its level or its state), records one float for the first output key (display order)
+## rounded, its level, its state or its foreman), records one float for the first output key (display order)
 ## that moved by more than view.float.eps. A building first seen, or a different building on the
 ## lot, seeds silently; an emptied lot forgets.
 func _check_float(lot_id: String, b: Dictionary) -> void:
@@ -719,7 +748,8 @@ func _check_float(lot_id: String, b: Dictionary) -> void:
 	var bid := String(b.get("building_id", ""))
 	var out: Dictionary = b.get("output", {})
 	var prev: Dictionary = _prev_out.get(lot_id, {})
-	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", ""))]
+	# the cause: its staffed count (rounded), level, state, or a foreman placed or changed on it
+	var cause := [roundi(float(b.get("staffed", 0.0))), int(b.get("level", 0)), String(b.get("state", "")), String(b.get("foreman", ""))]
 	_prev_out[lot_id] = {"building_id": bid, "output": out.duplicate(), "cause": cause}
 	if prev.is_empty() or String(prev["building_id"]) != bid or prev["cause"] == cause:
 		return

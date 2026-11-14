@@ -2,10 +2,18 @@ extends PanelContainer
 ## One ladder row of the Jobs tab: a drag handle, the job and its building, a tick row of
 ## staffed/slots, and up/down buttons (the accessible way to reorder). The whole row is a drag
 ## source and a drop target (Control drag-and-drop); a `select` line shows where it will land.
-## It owns no state: the panel tells it the order through `dropped`.
+## A job with no slots yet (its building isn't built) is dimmed with "no Forge yet" instead of the
+## ticks, and stays draggable. It owns no state: the panel tells it the order through `dropped`, and
+## previews a move through `hover_drop` / `hover_nudge` (ended by `hover_end`).
 
 signal dropped(job: String, lower_half_of: String, lower: bool)
 signal nudged(job: String, dir: int)
+## A drag of `dragged` hovers this row's upper or lower half (the drop it would make).
+signal hover_drop(dragged: String, target: String, lower: bool)
+## The pointer is on this row's up (-1) or down (+1) button.
+signal hover_nudge(job: String, dir: int)
+## The hover this row started is over (`source` is this row's job).
+signal hover_end(source: String)
 
 const DRAG_KEY := "town_job"
 
@@ -64,11 +72,15 @@ func setup(job_id: String, tick_px: Array) -> void:
 	_up.custom_minimum_size = Vector2(TownUI.MIN_TARGET, TownUI.MIN_TARGET)
 	_up.tooltip_text = "Move up the ladder"
 	_up.pressed.connect(func() -> void: nudged.emit(job, -1))
+	_up.mouse_entered.connect(func() -> void: if not _up.disabled: hover_nudge.emit(job, -1))
+	_up.mouse_exited.connect(func() -> void: hover_end.emit(job))
 	row.add_child(_up)
 	_down = TownUI.button("▼")
 	_down.custom_minimum_size = Vector2(TownUI.MIN_TARGET, TownUI.MIN_TARGET)
 	_down.tooltip_text = "Move down the ladder"
 	_down.pressed.connect(func() -> void: nudged.emit(job, 1))
+	_down.mouse_entered.connect(func() -> void: if not _down.disabled: hover_nudge.emit(job, 1))
+	_down.mouse_exited.connect(func() -> void: hover_end.emit(job))
 	row.add_child(_down)
 	_note = TownUI.label("", 12, "select")
 	_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -76,13 +88,16 @@ func setup(job_id: String, tick_px: Array) -> void:
 	col.add_child(_note)
 
 
-## Update in place: rank (1-based), label, building text, staffing, the stance note (or "").
+## Update in place: rank (1-based), label, building text, staffing, the stance note (or ""). With
+## no slots the row is dimmed and `site` says what is missing ("no Forge yet"); no tick row.
 func update(rank: int, last: bool, label: String, site: String, staffed: float, slots: int, note: String) -> void:
 	_name.text = "%d. %s" % [rank, label]
+	_name.add_theme_color_override("font_color", Palette.c("text" if slots > 0 else "text_dim"))
 	_site.text = site
 	_staffed = staffed
 	_slots = slots
-	_count.text = "%d/%d" % [roundi(staffed), slots]
+	_count.text = "%d/%d" % [roundi(staffed), slots] if slots > 0 else ""
+	_ticks.visible = slots > 0
 	_up.disabled = rank <= 1
 	_down.disabled = last
 	_note.text = note
@@ -145,12 +160,17 @@ func _can_drop_data(at: Vector2, data: Variant) -> bool:
 	if edge != _drop_edge:
 		_drop_edge = edge
 		queue_redraw()
+		if edge != 0:
+			hover_drop.emit(String(data[DRAG_KEY]), job, edge > 0)
+		else:
+			hover_end.emit(job)
 	return ok
 
 
 func _drop_data(at: Vector2, data: Variant) -> void:
 	_drop_edge = 0
 	queue_redraw()
+	hover_end.emit(job)
 	dropped.emit(String(data[DRAG_KEY]), job, at.y > size.y * 0.5)
 
 
@@ -159,3 +179,4 @@ func _notification(what: int) -> void:
 		if _drop_edge != 0:
 			_drop_edge = 0
 			queue_redraw()
+			hover_end.emit(job)

@@ -7,7 +7,9 @@ const MIN_TEXT := 12
 const MIN_TARGET := 44.0
 const SLANT_DEG := 9.0
 
+static var _boxes := {}  # state -> the shared button_box (built once)
 static var _oblique: FontVariation = null
+static var _bold: FontVariation = null
 
 
 ## Flat panel: `ground` fill, `contour` border.
@@ -39,6 +41,13 @@ static func button_box(state := "normal") -> StyleBoxFlat:
 		"disabled":
 			sb.bg_color = Palette.c("ground")
 	return sb
+
+
+## A button state's box, built once and shared (for the states a bind() reapplies every refetch).
+static func button_box_cached(state := "normal") -> StyleBoxFlat:
+	if not _boxes.has(state):
+		_boxes[state] = button_box(state)
+	return _boxes[state]
 
 
 static func label(text: String, size := 14, key := "text") -> Label:
@@ -79,11 +88,53 @@ static func oblique_font() -> FontVariation:
 	return _oblique
 
 
+## The emboldened font (cached): emphasis that is not colour (the crypt's dominant stat).
+static func bold_font() -> FontVariation:
+	if _bold == null:
+		_bold = FontVariation.new()
+		_bold.variation_embolden = 0.9
+	return _bold
+
+
 ## A Label that shows a signed rate in the oblique font.
 static func rate_label(text := "", size := 14, key := "text") -> Label:
 	var l := label(text, size, key)
 	l.add_theme_font_override("font", oblique_font())
 	return l
+
+
+## A label for parts [[text, oblique]] (words upright, rates oblique; fill it with set_parts). `wrap`
+## grows it to fit wrapped lines; otherwise it is one line, clipped at its width (give it a tooltip).
+static func parts_label(size := 14, key := "text", wrap := false) -> RichTextLabel:
+	var r := RichTextLabel.new()
+	var px := maxi(size, MIN_TEXT)
+	r.scroll_active = false
+	r.fit_content = wrap
+	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if wrap else TextServer.AUTOWRAP_OFF
+	r.clip_contents = true
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r.custom_minimum_size = Vector2(40, 0 if wrap else ceilf(px * 1.45))
+	r.mouse_filter = Control.MOUSE_FILTER_PASS
+	r.add_theme_font_size_override("normal_font_size", px)
+	r.add_theme_color_override("default_color", Palette.c(key))
+	r.set_meta("px", px)
+	return r
+
+
+## Fills a parts_label (only when the parts changed): oblique parts in the slanted font.
+static func set_parts(r: RichTextLabel, parts: Array) -> void:
+	if r.get_meta("parts", []) == parts:
+		return
+	r.set_meta("parts", parts.duplicate(true))
+	r.clear()
+	var px := int(r.get_meta("px", 14))
+	for p in parts:
+		if bool(p[1]):
+			r.push_font(oblique_font(), px)
+			r.add_text(String(p[0]))
+			r.pop()
+		else:
+			r.add_text(String(p[0]))
 
 
 ## Signed per-second text: "+0.42/s", "−0.10/s" (true minus sign). `unit` replaces "s".
