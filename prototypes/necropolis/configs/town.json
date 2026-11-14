@@ -33,6 +33,8 @@
     "grow_chunk_s": 60,
     "suggest_wait_s": 180,
     "level_text": "Level {level} of {max}",
+    "suggest_upgrade_text": "upgrade {label} to L{level}",
+    "suggest_upgrade_chip": "suggested: upgrade {lot} to L{level}",
     "suggest_save_text": "save for {label} (~{eta})",
     "grow_text": "AUTOPLAY +{h}:{mm} sim, real TownSim (debug): built {n}",
     "zoom_text": "ZOOM ×{scale} (debug)",

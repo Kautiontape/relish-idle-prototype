@@ -127,26 +127,44 @@ func _grow() -> void:
 	var cfgs := {"town": ConfigDb.data.get("town", {}), "buildings_view": ConfigDb.data.get("buildings_view", {}),
 		"buildings": ConfigDb.data.get("buildings", {}), "economy": ConfigDb.data.get("economy", {})}
 	var log_chunks := "--town-grow-log" in args
+	var paid := {"build": {"gold": 0.0, "bone": 0.0, "relics": 0.0, "n": 0}, "upgrade": {"gold": 0.0, "bone": 0.0, "relics": 0.0, "n": 0}}
 	while _grown_s < target:
 		var vws := _fetch_views()
 		var why := BuildSort.autoplay_why(vws, cfgs) if log_chunks else ""
 		var pick := BuildSort.autoplay_pick(vws, cfgs)
+		var kind := "-"
 		if not pick.is_empty():
-			var r: Dictionary = Game.state.cmd_build(pick["building_id"], pick["lot_id"])
+			var is_up := bool(pick.get("upgrade", false))
+			kind = "upgrade" if is_up else "build"
+			var r: Dictionary = Game.state.cmd_upgrade(pick["lot_id"]) if is_up else Game.state.cmd_build(pick["building_id"], pick["lot_id"])
 			if bool(r.get("ok", false)):
-				_grow_log.append({"t": _grown_s, "building_id": pick["building_id"], "lot_id": pick["lot_id"]})
+				_grow_log.append({"t": _grown_s, "building_id": pick["building_id"], "lot_id": pick["lot_id"], "upgrade": is_up})
+				for k in ["gold", "bone", "relics"]:
+					paid[kind][k] += float((r.get("cost", {}) as Dictionary).get(k, 0.0))
+				paid[kind]["n"] += 1
+			else:
+				kind += "-refused:" + String(r.get("reason", ""))
 		Game.state.cmd_debug_skip_time(chunk)
 		_grown_s += chunk
 		if log_chunks:
 			var town: Dictionary = Game.state.view_town()
 			var counts := {}
+			var lv := []
 			for b in town["buildings"]:
 				counts[b["building_id"]] = int(counts.get(b["building_id"], 0)) + 1
+				lv.append("%s:%s@L%d" % [b["building_id"], b["lot_id"], int(b["level"])])
 			var rr := []
 			for r in Game.state.view_hud().get("rates", []):
 				rr.append("%s=%+.3f" % [r["id"], float(r["rate"])])
+			var slots := 0
+			for j in town.get("jobs", []):
+				slots += int(j.get("slots", 0))
+			var bone_in := float(Game.state.view_rates().get("rates", {}).get("bone", {}).get("in", 0.0))
 			print("GROW2 t=%d pick=%s | %s | bld=%s | rates %s | gold=%.0f bone=%.0f bodies=%.0f" % [_grown_s,
 				str(pick.get("building_id", "-")), why, JSON.stringify(counts), " ".join(rr), town["gold"], town["bone"], town["bodies"]])
+			print("GROW3 t=%d kind=%s levels=%s slots=%d bone_in=%.4f paid_build=%.0fg/%.0fb/%.0fr/%d paid_upgrade=%.0fg/%.0fb/%.0fr/%d" % [_grown_s, kind,
+				",".join(lv), slots, bone_in, paid["build"]["gold"], paid["build"]["bone"], paid["build"]["relics"], paid["build"]["n"],
+				paid["upgrade"]["gold"], paid["upgrade"]["bone"], paid["upgrade"]["relics"], paid["upgrade"]["n"]])
 			print("GROW t=%d tier=%s buildings=%d built=%d workers=%.1f/%.1f idle=%.1f muster=%.3f living=%.1f/%.0f" % [_grown_s, town["tier"],
 				(town["buildings"] as Array).size(), _grow_log.size(), town["workers"]["total"], town["workers"]["steady"],
 				town["workers"]["idle"], town["workers"]["muster"], town["living"], town["living_cap"]])

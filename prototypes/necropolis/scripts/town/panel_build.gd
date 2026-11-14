@@ -201,7 +201,8 @@ func bind(views: Dictionary) -> void:
 	var gate := BuildSort.relic_gate(views, sorted, _st, _bview, _vcfg)
 	_pin.visible = not gate.is_empty()
 	_pin_label.text = String(gate.get("text", ""))
-	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg)
+	var ups := BuildSort.upgrade_items(views, BuildSort.needs(views, names, _vcfg, _bview, _bcfg), _bview, _bcfg, _vcfg)
+	_sug_data = BuildSort.suggest(sorted, _bview, _st, _vcfg, ups)
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))
 	var listed := {}
 	for i in sorted.size():
@@ -330,6 +331,7 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 	w["name"].text = _label(bid)
 	w["name"].add_theme_color_override("font_color", Palette.c("text_dim" if it["cls"] == BuildSort.CLS_GATED else "text"))
 	w["sug"].visible = bid == _sug_bid
+	w["sug"].text = String(_sug_data.get("chip", "suggested")) if bool(_sug_data.get("upgrade", false)) else "suggested"
 	w["count"].text = "built %d" % int(row.get("count", 0))
 	var ben := BuildSort.benefit(bid, row, _bcfg, _bview, _vcfg)
 	for k in 3:
@@ -515,6 +517,9 @@ func _make_inspector(style: StyleBox) -> Dictionary:
 	up.add_child(w["up_bone"])
 	up.add_theme_constant_override("separation", 12)
 	v.add_child(up)
+	w["sug_up"] = TownUI.label("suggested", 14, "select")  # the upgrade is the suggested action
+	w["sug_up"].visible = false
+	v.add_child(w["sug_up"])
 	var r1 := HBoxContainer.new()
 	w["upgrade"] = _btn("Upgrade", 100.0)
 	w["upgrade"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -588,6 +593,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["up_bone"].text = "%s bone" % TownUI.fmt_rate(-float(i["upkeep"]["bone"]))
 	var u: Dictionary = i["upgrade"]
 	w["upgrade"].visible = u["visible"]
+	w["sug_up"].visible = u["visible"] and not _sug_off and bool(_sug_data.get("upgrade", false)) and String(_sug_data.get("lot_id", "")) == _selected_lot
 	w["upgrade"].disabled = not u["enabled"]
 	w["upgrade"].text = "Upgrade to Lv %d: %s" % [u["level"], _cost_text(u["cost"])] if not (u["cost"] as Dictionary).is_empty() else "Upgrade"
 	w["queue_up"].visible = u["visible"]
@@ -715,7 +721,7 @@ func _update_card() -> void:
 		_open_card(_card_lot, "inspect")
 		return
 	var items := BuildSort.fitting(_sorted, int(lot.get("size", 1)))
-	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_bid,
+	_card.show_catalog(_card_lot, int(lot.get("size", 1)), items, _st, _sug_new_bid(),
 		not _queue_full() and not _queued_lot(_card_lot))
 
 
@@ -732,6 +738,11 @@ func _on_card_queue(bid: String, lot_id: String) -> void:
 	var row := _row_of(bid)
 	if _add_queue({"building_id": bid, "lot_id": lot_id, "upgrade": false, "level": 1, "cost": row.get("cost", {})}, row):
 		dismiss()
+
+
+## The suggested building when the suggestion is a new build ("" for an upgrade: an empty lot's card has no upgrade).
+func _sug_new_bid() -> String:
+	return "" if bool(_sug_data.get("upgrade", false)) else _sug_bid
 
 
 ## The suggestion shows on the canvas only while nothing else is going on: no placement, no

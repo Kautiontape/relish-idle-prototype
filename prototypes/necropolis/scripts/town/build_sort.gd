@@ -254,7 +254,8 @@ static func fitting(items: Array, lot_size: int) -> Array:
 ## (shortage / net rate) is within view.suggest_wait_s, the suggestion is that row, labelled "save for
 ## <Label> (~70 s)" with `save: true` and `eta_s`, instead of a lower-ranked buildable one. A stream
 ## that isn't flowing, or a longer wait, falls back to the plain rule.
-static func suggest(items: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}) -> Dictionary:
+static func suggest(items_in: Array, bview: Dictionary, st: Dictionary = {}, vcfg: Dictionary = {}, upgrades: Array = []) -> Dictionary:
+	var items := _with_upgrades(items_in, upgrades)
 	if not st.is_empty() and not vcfg.is_empty():
 		var saving := _save_for(items, bview, st, vcfg)
 		if not saving.is_empty():
@@ -277,7 +278,80 @@ static func suggest(items: Array, bview: Dictionary, st: Dictionary = {}, vcfg: 
 		return {}
 	var brow: Dictionary = best["row"]
 	var bid := String(brow.get("building_id", ""))
+	if bool(best.get("upgrade", false)):
+		return _upgrade_suggestion(best, bview, vcfg, {"building_id": bid, "lots": (brow["lots"] as Array).duplicate()})
 	return {"building_id": bid, "label": label_of(bid, bview), "lots": (brow["lots"] as Array).duplicate()}
+
+
+## `items` with the upgrade candidates (upgrade_items) merged in: the same order as sort_rows (class, then
+## need rank), and inside one class and need an upgrade ahead of every new build. No candidates: `items` as is.
+static func _with_upgrades(items: Array, upgrades: Array) -> Array:
+	if upgrades.is_empty():
+		return items
+	var all := items + upgrades
+	all.sort_custom(func(a, b):
+		if a["cls"] != b["cls"]:
+			return a["cls"] < b["cls"]
+		if a["rank"] != b["rank"]:
+			return a["rank"] < b["rank"]
+		var ua := bool(a.get("upgrade", false))
+		if ua != bool(b.get("upgrade", false)):
+			return ua
+		return a["idx"] < b["idx"])
+	return all
+
+
+## `sug` ({building_id, lots}) as an upgrade suggestion: the label says it is an upgrade, `chip` is the
+## catalog row's tag, `lot_id` the building's lot, `level` the level it goes to.
+static func _upgrade_suggestion(it: Dictionary, bview: Dictionary, vcfg: Dictionary, sug: Dictionary) -> Dictionary:
+	var vars := {"label": label_of(String(sug["building_id"]), bview), "level": int(it["level"]), "lot": String(it["lot_id"])}
+	sug["upgrade"] = true
+	sug["lot_id"] = String(it["lot_id"])
+	sug["level"] = int(it["level"])
+	sug["label"] = fmt(String(vcfg.get("suggest_upgrade_text", "")), vars)
+	sug["chip"] = fmt(String(vcfg.get("suggest_upgrade_chip", "")), vars)
+	return sug
+
+
+## Upgrade candidates for the suggestion: a built building that serves a live need (the same `serves`
+## match as sort_rows) and can go one level deeper: not constructing, not unpaid, below the catalog's
+## max_level. Cost and reason come from `inspect`, the inspector's. Items shaped like sort_rows' with
+## `upgrade: true`, `lot_id`, `level` (the one it goes to); `row` is {building_id, cost, can_build,
+## reason, lots: [its lot], lot_size, count, upgrade, level}. Same classes as a new build: affordable ->
+## CLS_NEED_BUILDABLE, short -> CLS_NEED_SHORT. A building serving no live need is no candidate.
+static func upgrade_items(views: Dictionary, needs_in: Array, bview: Dictionary, bcfg: Dictionary, vcfg: Dictionary) -> Array:
+	var st := stocks(views)
+	var out: Array = []
+	var bs: Array = views.get("town", {}).get("buildings", [])
+	for i in bs.size():
+		var b: Dictionary = bs[i]
+		var bid := String(b.get("building_id", ""))
+		if int(b.get("level", 0)) < 1:
+			continue
+		var up: Dictionary = inspect(b, st, bcfg, bview, vcfg)["upgrade"]
+		var why := String(up["reason"])
+		if not up["visible"] or not why in ["", "no_gold", "no_bone", "no_relics"]:
+			continue
+		var serves: Array = (bview.get(bid, {}).get("serves", []) as Array).duplicate()
+		serves.append("building:" + bid)
+		var nd := {}
+		var rank := 0
+		for ni in needs_in.size():
+			for sv in needs_in[ni]["serves"]:
+				if sv in serves:
+					nd = needs_in[ni]
+					rank = ni
+					break
+			if not nd.is_empty():
+				break
+		if nd.is_empty():
+			continue
+		var lot_id := String(b.get("lot_id", ""))
+		var row := {"building_id": bid, "cost": up["cost"], "can_build": why == "", "reason": why, "lots": [lot_id],
+			"lot_size": 1, "count": 1, "upgrade": true, "level": int(up["level"]), "requires": {}}
+		out.append({"row": row, "idx": 100000 + i, "need": String(nd["id"]), "chip": String(nd["chip"]), "rank": rank,
+			"cls": CLS_NEED_BUILDABLE if why == "" else CLS_NEED_SHORT, "upgrade": true, "lot_id": lot_id, "level": int(up["level"])})
+	return out
 
 
 const PRODUCES := ["gold", "bone", "bodies", "mint"]
@@ -336,8 +410,12 @@ static func _saving(row: Dictionary, bview: Dictionary, st: Dictionary, vcfg: Di
 	if eta > float(vcfg.get("suggest_wait_s", 0.0)):
 		return {}
 	var bid := String(row.get("building_id", ""))
-	return {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta,
-		"label": fmt(String(vcfg.get("suggest_save_text", "")), {"label": label_of(bid, bview), "eta": fmt_eta(eta, vcfg)})}
+	var shown := label_of(bid, bview)
+	var res := {"building_id": bid, "lots": (row["lots"] as Array).duplicate(), "save": true, "eta_s": eta}
+	if bool(row.get("upgrade", false)):  # saving for an upgrade says so
+		shown = String(_upgrade_suggestion({"level": row.get("level", 2), "lot_id": String(row["lots"][0])}, bview, vcfg, res)["label"])
+	res["label"] = fmt(String(vcfg.get("suggest_save_text", "")), {"label": shown, "eta": fmt_eta(eta, vcfg)})
+	return res
 
 
 ## True for a repeat (count >= 2) of a building that serves only morale or housing.
@@ -385,15 +463,20 @@ static func nearest_lot(lots: Array, hops: Dictionary, sizes: Dictionary = {}) -
 ## The debug autoplayer's move (`--town-grow`): the top buildable row of the mission sort, the one
 ## `suggest` marks, on its suggested lot (`nearest_lot`). `cfgs` = {town, buildings_view, buildings,
 ## economy} (the configs the town view's model takes); `views` as the shell fetches them. Returns
-## {building_id, lot_id}, or {} when nothing is buildable. Never offers a built unique building.
+## {building_id, lot_id} (`upgrade: true` and the building's lot when the suggestion is an upgrade, see
+## upgrade_items), or {} when nothing is buildable. Never offers a built unique building.
 static func autoplay_pick(views: Dictionary, cfgs: Dictionary) -> Dictionary:
 	var vcfg: Dictionary = cfgs.get("town", {}).get("view", {})
 	var bview: Dictionary = cfgs.get("buildings_view", {})
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
-	var items := sort_rows(rows, needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {})), bview, vcfg)
-	var sug := suggest(items, bview, stocks(views), vcfg)
+	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
+	var items := sort_rows(rows, nd, bview, vcfg)
+	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
+	var sug := suggest(items, bview, stocks(views), vcfg, ups)
 	if sug.is_empty() or bool(sug.get("save", false)):
 		return {}
+	if bool(sug.get("upgrade", false)):  # upgrade the building on its own lot
+		return {"building_id": sug["building_id"], "lot_id": sug["lot_id"], "upgrade": true}
 	var ref: Array = vcfg.get("ref_px", [1600, 900])
 	var model := TownModel.new(cfgs.get("town", {}), bview, cfgs.get("buildings", {}), cfgs.get("economy", {}))
 	model.update(views, Rect2(0, 0, float(ref[0]), float(ref[1])))
@@ -415,19 +498,22 @@ static func autoplay_why(views: Dictionary, cfgs: Dictionary) -> String:
 	var bview: Dictionary = cfgs.get("buildings_view", {})
 	var nd := needs(views, views.get("fort_names", {}), vcfg, bview, cfgs.get("buildings", {}))
 	var items := sort_rows(views.get("catalog", {}).get("buildings", []), nd, bview, vcfg)
-	var sug := suggest(items, bview, stocks(views), vcfg)
+	var ups := upgrade_items(views, nd, bview, cfgs.get("buildings", {}), vcfg)
+	var sug := suggest(items, bview, stocks(views), vcfg, ups)
 	if sug.is_empty():
 		var blocked := []
-		for it in items:
+		for it in items + ups:
 			if String(it["need"]) != "":
 				var r: Dictionary = it["row"]
-				blocked.append("%s:%s%s" % [r.get("building_id", ""), r.get("reason", "ok") if not bool(r.get("can_build", false)) else "buildable", "(nolot)" if (r.get("lots", []) as Array).is_empty() else ""])
+				blocked.append("%s%s:%s%s" % ["up:" if bool(it.get("upgrade", false)) else "", r.get("building_id", ""), r.get("reason", "ok") if not bool(r.get("can_build", false)) else "buildable", "(nolot)" if (r.get("lots", []) as Array).is_empty() else ""])
 		return "none needs=%s blocked=%s" % [",".join(nd.map(func(n): return String(n["id"]))), ",".join(blocked)]
 	var need := "none"
-	for it in items:
-		if String(it["row"].get("building_id", "")) == String(sug["building_id"]):
+	var is_up := bool(sug.get("upgrade", false))
+	for it in items + ups:
+		if String(it["row"].get("building_id", "")) == String(sug["building_id"]) and bool(it.get("upgrade", false)) == is_up:
 			need = String(it["need"]) if String(it["need"]) != "" else "none"
-	return "%s%s need=%s needs=%s" % [sug["building_id"], (" SAVE eta=%d" % int(sug.get("eta_s", 0))) if bool(sug.get("save", false)) else "",
+	return "%s%s%s need=%s needs=%s" % [sug["building_id"], (" upgrade->L%d@%s" % [int(sug["level"]), sug["lot_id"]]) if is_up else "",
+		(" SAVE eta=%d" % int(sug.get("eta_s", 0))) if bool(sug.get("save", false)) else "",
 		need, ",".join(nd.map(func(n): return String(n["id"])))]
 
 

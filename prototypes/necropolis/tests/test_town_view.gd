@@ -109,6 +109,7 @@ func run() -> int:
 	_build_suggest(day1)
 	_autoplay(day1, mid)
 	_deep_levels(day1)
+	_upgrade_first(day1)
 	_build_ghosts(day1)
 	_build_chips()
 	_build_caps(day1)
@@ -3049,7 +3050,8 @@ func _autoplay(day1: Dictionary, mid: Dictionary) -> void:
 		else:
 			r["can_build"] = false
 	views["catalog"] = {"buildings": rows}
-	t.ok(BuildSort.autoplay_pick(views, cfg).is_empty(), "autoplay: a built unique building is never picked")
+	var up_pick: Dictionary = BuildSort.autoplay_pick(views, cfg)  # an upgrade of a built building may be picked, never a second crypt
+	t.ok(up_pick.is_empty() or bool(up_pick.get("upgrade", false)), "autoplay: a built unique building is never picked as a new build (%s)" % str(up_pick))
 
 
 func _set_rate(v: Dictionary, id: String, rate: float) -> void:
@@ -3746,3 +3748,103 @@ func _deep_levels(day1: Dictionary) -> void:
 	q.evaluate(qc)
 	t.ok(q.entries[0]["status"] == "skipped_gate" and q.entries[0]["reason"] == "max_level", "deep: the queue skips an upgrade at 8 as max_level")
 
+
+
+# ------------------------------------------------- G3: the suggestion prefers upgrading ----
+## day1's views with a house built at `level` on a free lot (state `state`), the housing need live, plenty
+## of funds, and a catalog where only well (first) and house are buildable, each on one free lot.
+func _up_world(day1: Dictionary, level: int, state: String, gold := 1000.0, bone := 1000.0, house_max := 3) -> Dictionary:
+	var v: Dictionary = day1.duplicate(true)
+	var free: Array = []
+	for l in v["town"]["lots"]:
+		if bool(l["unlocked"]) and String(l["building_id"]) == "":
+			free.append(String(l["id"]))
+	# a quiet town: only the crypt stands, nobody idle, every stream flowing, so housing is the one live need
+	v["town"]["buildings"] = (v["town"]["buildings"] as Array).filter(func(b): return b["building_id"] == "crypt")
+	v["town"]["workers"]["idle"] = 0.0
+	v["town"]["workers"]["muster"] = 0.0
+	v["town"]["bodies"] = v["town"]["bodies_cap"]
+	for r in v["hud"]["rates"]:
+		r["rate"] = 1.0
+	var lot_h: String = free[0]
+	var lot_new: String = free[1]
+	for l in v["town"]["lots"]:
+		if String(l["id"]) == lot_h:
+			l["building_id"] = "house"
+	v["town"]["buildings"].append({"lot_id": lot_h, "building_id": "house", "level": level, "state": state, "progress": 0.5 if state == "constructing" else 1.0,
+		"slots": 0, "staffed": 0.0, "staff_cap": -1, "foreman": "", "output": {}, "upkeep": {"gold": 0.0, "bone": 0.0}})
+	v["town"]["gold"] = gold
+	v["town"]["bone"] = bone
+	v["town"]["living_cap"] = 10.0
+	v["town"]["living"] = 10.0  # the housing need is live
+	v["hud"]["relics"] = 9
+	var rows: Array = []
+	for bid in ["well", "house"]:
+		var r := _row(bid, true, "", [lot_new])
+		r["max_level"] = house_max
+		r["cost"] = {"gold": 5.0, "bone": 1.0, "relics": 0}
+		rows.append(r)
+	for r in v["catalog"]["buildings"]:
+		if not String(r["building_id"]) in ["well", "house"]:
+			r["can_build"] = false
+			r["reason"] = "needs_tier"
+			rows.append(r)
+	v["catalog"] = {"buildings": rows}
+	v["_lot_h"] = lot_h
+	v["_lot_new"] = lot_new
+	return v
+
+
+func _up_suggest(v: Dictionary) -> Dictionary:
+	var nd := BuildSort.needs(v, {}, vcfg, cfg["buildings_view"], cfg["buildings"])
+	var items := BuildSort.sort_rows(v["catalog"]["buildings"], nd, cfg["buildings_view"], vcfg)
+	var ups := BuildSort.upgrade_items(v, nd, cfg["buildings_view"], cfg["buildings"], vcfg)
+	return BuildSort.suggest(items, cfg["buildings_view"], BuildSort.stocks(v), vcfg, ups)
+
+
+func _upgrade_first(day1: Dictionary) -> void:
+	var v := _up_world(day1, 1, "active")
+	var housing_live := false
+	for n in BuildSort.needs(v, {}, vcfg, cfg["buildings_view"], cfg["buildings"]):
+		housing_live = housing_live or String(n["id"]) == "housing"
+	t.ok(housing_live, "upgrade first: the housing need is live in the test world")
+	var lot_h: String = v["_lot_h"]
+	var lot_new: String = v["_lot_new"]
+	var s := _up_suggest(v)
+	t.ok(bool(s.get("upgrade", false)) and s["building_id"] == "house" and s["lots"] == [lot_h] and s["level"] == 2,
+		"upgrade first (a): the upgrade on the built house's lot beats a new house or well for the same need (%s)" % str(s))
+	t.ok(s["label"].find("2") >= 0 and s["label"].find("House") >= 0, "upgrade first: the suggestion label says it is an upgrade to L2 (%s)" % s["label"])
+	var nodes := BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, cfg["buildings_view"], cfg["buildings"]), cfg["buildings_view"], cfg["buildings"], vcfg)
+	t.ok(nodes.size() == 1 and nodes[0]["cls"] == BuildSort.CLS_NEED_BUILDABLE and nodes[0]["lot_id"] == lot_h, "upgrade first: one candidate, a buildable need row")
+	# with the housing need dropped the upgrade is no candidate (it serves no live need)
+	v["town"]["living"] = 0.0
+	t.ok(BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, cfg["buildings_view"], cfg["buildings"]), cfg["buildings_view"], cfg["buildings"], vcfg).is_empty(),
+		"upgrade first: no live need served, no upgrade candidate")
+	# (b) at max level -> the new build
+	v = _up_world(day1, 3, "active")
+	s = _up_suggest(v)
+	t.ok(not s.has("upgrade") and s["building_id"] == "well" and s["lots"] == [v["_lot_new"]], "upgrade first (b): X at max_level -> the new build (%s)" % str(s))
+	# deeper max_level from the catalog makes the same house a candidate again
+	v = _up_world(day1, 3, "active", 1000.0, 1000.0, 8)
+	t.ok(bool(_up_suggest(v).get("upgrade", false)), "upgrade first: max_level 8 from the catalog keeps a level-3 house a candidate")
+	# (c) constructing or unpaid -> the new build
+	for st_name in ["constructing", "unpaid"]:
+		v = _up_world(day1, 1, st_name)
+		s = _up_suggest(v)
+		t.ok(not s.has("upgrade") and s["building_id"] == "well", "upgrade first (c): %s -> the new build (%s)" % [st_name, str(s)])
+	# (d) the upgrade is short while a new build is buildable -> the new build (class order unchanged)
+	v = _up_world(day1, 1, "active", 20.0, 1000.0)  # the new rows cost 5 gold, house L2 costs 80
+	s = _up_suggest(v)
+	t.ok(not s.has("upgrade") and s["building_id"] == "well", "upgrade first (d): short upgrade, buildable new row -> the new build (%s)" % str(s))
+	# an upgrade ahead of a new build only inside the same class and need: a need-less new build stays behind
+	v = _up_world(day1, 1, "active")
+	t.ok(_up_suggest(v).get("upgrade", false), "upgrade first: the buildable need upgrade leads")
+	# (e) autoplay returns upgrade + the building's lot; cmd_upgrade accepts it
+	v = _up_world(day1, 1, "active")
+	var pick: Dictionary = BuildSort.autoplay_pick(v, cfg)
+	t.ok(bool(pick.get("upgrade", false)) and pick["lot_id"] == v["_lot_h"] and pick["building_id"] == "house",
+		"upgrade first (e): autoplay_pick returns {building_id, lot_id, upgrade: true} (%s)" % str(pick))
+	v = _up_world(day1, 3, "active")
+	pick = BuildSort.autoplay_pick(v, cfg)
+	t.ok(not pick.has("upgrade") and pick["building_id"] == "well", "upgrade first (e): a new build has no upgrade flag (%s)" % str(pick))
+	t.ok(BuildSort.autoplay_why(_up_world(day1, 1, "active"), cfg).find("upgrade") >= 0, "upgrade first: the autoplay log line names the upgrade")
