@@ -31,6 +31,7 @@ var _refresh_s := 0.25
 ## tier_up event shortly after setup. Both say so on screen.
 var _demo := ""
 var _tier := ""  # the last fetched town tier (the synthetic tier_up's `from`)
+var _fort_names := {}  # fort id -> name, read once from view_realm (the Build tab's chips)
 
 
 func _ready() -> void:
@@ -55,6 +56,8 @@ func _standalone_check() -> void:
 ## args: {mode: "town"}; unknown keys (including legacy ones the router merges in) are ignored.
 func setup(_args: Dictionary) -> void:
 	_setup_done = true
+	for f in Game.state.view_realm().get("forts", []):
+		_fort_names[String(f.get("id", ""))] = String(f.get("name", ""))
 	_fetch()
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
@@ -132,7 +135,21 @@ func _build_ui() -> void:
 	_bound = [_hud, _view] + _panels
 	for n in _bound:
 		n.command_issued.connect(_on_command_issued)
-	_select_tab(0)
+	var build: Control = _panels[0]
+	build.placement_changed.connect(_view.set_placement)
+	build.lot_selected.connect(_view.set_selected_lot)
+	_view.lot_clicked.connect(build.on_lot_clicked)
+	_view.right_clicked.connect(build.dismiss)
+	# In-scene building: the lot card, the hover outline, the day-1 suggestion, queue ghosts, the build flash.
+	build.attach_card(_view.card)
+	build.card_opened.connect(_view.open_card)
+	build.card_closed.connect(_view.close_card)
+	build.hover_lots.connect(_view.set_hover_lots)
+	build.suggestion_changed.connect(_view.set_suggestion)
+	build.queue_changed.connect(_view.set_queue)
+	build.build_started.connect(_view.flash_lot)
+	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
+	_select_tab(_debug_tab())
 	if _demo != "":
 		var tag := TownUI.label("SYNTHETIC DEMO TOWN (debug)" if _demo == "full" else "SYNTHETIC TIER-UP EVENT (debug)",
 			14, "select")
@@ -140,6 +157,19 @@ func _build_ui() -> void:
 		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tag.add_theme_stylebox_override("normal", TownUI.panel_box())
 		_view.add_child(tag)
+
+
+## Reads `--town-tab=<build|jobs|stances|backups|crypt>`; only a debug build honours it. Tab 0 otherwise.
+func _debug_tab() -> int:
+	if not Game.state.debug_enabled:
+		return 0
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--town-tab="):
+			var i := ["build", "jobs", "stances", "backups", "crypt"].find(arg.trim_prefix("--town-tab="))
+			if i >= 0:
+				return i
+			printerr("Covington: unknown --town-tab=%s (expected build, jobs, stances, backups or crypt)" % arg.trim_prefix("--town-tab="))
+	return 0
 
 
 func _select_tab(i: int) -> void:
@@ -170,7 +200,7 @@ func _fetch() -> void:
 		"town": s.view_town(), "hud": s.view_hud(), "catalog": s.view_catalog(),
 		"stances": s.view_stances(), "backups": s.view_backups(),
 		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
-		"relish": s.view_relish(), "vei": s.view_vei(),
+		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,
 	}
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))

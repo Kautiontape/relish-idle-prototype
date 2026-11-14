@@ -1,6 +1,6 @@
 extends RefCounted
-## GameState: Relish's travel (STATE-API 4.2, 5.8), the legacy realm mirror and the
-## legacy teleport. Headless, no autoloads.
+## GameState: Relish's travel (STATE-API 4.2, 5.8), her effects and the legacy teleport.
+## Headless, no autoloads.
 
 const COV := Vector2(1780, 1270)
 const SLUICE := Vector2(1420, 1305)
@@ -30,9 +30,9 @@ func run() -> int:
 	t.ok(v["can_descend"] == false and v["reason"] == "not_at_fort", "home cannot descend")
 	t.ok(v["run_id"] == -1 and v["run_kind"] == "" and v["clones_ready"] == 0 and v["phylactery_charges"] == 0, "no run")
 	t.ok(v["effects"] == {"tide_fort": "", "redirect_fort": "", "home": true}, "effects: home only")
-	s.town["vats"] = 2
-	t.ok(s.view_relish()["clones_ready"] == 2, "clones_ready is the legacy vat count")
-	s.town["vats"] = 0
+	s.clones_ready = 2
+	t.ok(s.view_relish()["clones_ready"] == 2, "clones_ready is the backups stub stock")
+	s.clones_ready = 0
 
 	# --- travel ETA and arrival ---
 	var eta := COV.distance_to(SLUICE) / 220.0
@@ -48,13 +48,13 @@ func run() -> int:
 	v = s.view_relish()
 	t.ok(absf(Vector2(v["pos"][0], v["pos"][1]).distance_to(COV) - 220.0) < 1e-3, "220 px after one second")
 	t.ok(absf(v["eta_s"] - (eta - 1.0)) < 1e-3, "eta counts down")
-	t.ok(s.realm.relish["state"] == "idle" and s.realm.relish["at"] == "covington", "legacy channel idle while travelling")
+	t.ok(s.view_relish()["effects"] == {"tide_fort": "", "redirect_fort": "", "home": false}, "no effects while travelling")
 	s.tick(2.0)
 	v = s.view_relish()
 	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "", "arrival at a fort: at_fort")
 	t.ok(v["pos"] == [1420.0, 1305.0] and v["speed"] == 0.0 and v["eta_s"] == -1.0, "stands exactly on the node")
 	t.ok(v["can_descend"] == true and v["reason"] == "", "can descend at a fort")
-	t.ok(s.realm.relish["state"] == "idle" and s.realm.relish["at"] == "old-sluice", "legacy channel idle at the fort")
+	t.ok(s.view_relish()["effects"] == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "at the fort: tide and redirect there")
 	var h: float = v["heading"]
 	s.tick(5.0)
 	t.ok(s.view_relish()["heading"] == h, "she keeps her last heading when stopped")
@@ -69,8 +69,8 @@ func run() -> int:
 	t.ok(r2["ok"] and absf(r2["eta_s"] - r["eta_s"]) < 1e-9 and s.view_relish()["target"] == "covington",
 		"moving to the current target is a no-op ok")
 	s.tick(10.0)
-	t.ok(s.view_relish()["state"] == "home" and s.realm.relish["state"] == "raising" and s.realm.relish["at"] == "covington",
-		"arrival at Covington: home, legacy raising restored")
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"] and s.view_relish()["effects"]["tide_fort"] == "",
+		"arrival at Covington: home, no tide")
 
 	# vei
 	r = s.cmd_move_relish("vei")
@@ -103,7 +103,7 @@ func run() -> int:
 	r2 = s.cmd_cancel_travel()
 	t.ok(r2["ok"] and absf(r2["eta_s"] - r["eta_s"]) < 1e-9, "cancel again: no-op ok")
 	s.tick(1.5)
-	t.ok(s.view_relish()["state"] == "home" and s.realm.relish["state"] == "raising", "cancelled trip ends home")
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"], "cancelled trip ends home")
 	# cancel from a leg that left a fort
 	s = _mk()
 	s.legacy_teleport_relish("old-sluice")
@@ -130,9 +130,9 @@ func run() -> int:
 	t.ok(b["ok"], "begin dungeon")
 	t.ok(s.cmd_move_relish("covington")["reason"] == "in_dungeon", "in_dungeon refuses a move")
 	t.ok(s.legacy_teleport_relish("covington")["reason"] == "in_dungeon", "teleport refuses in a dungeon")
-	t.ok(s.realm.raiding == true and s.realm.relish["state"] == "idle", "realm.raiding while a run is open")
+	t.ok(s.raiding_fort_id() == "old-sluice" and s.view_relish()["effects"]["redirect_fort"] == "", "in the dungeon: raiding_fort_id, no redirect")
 	s.cmd_abort_dungeon()
-	t.ok(s.realm.raiding == false, "realm.raiding clears when the run closes")
+	t.ok(s.raiding_fort_id() == "", "raiding_fort_id clears when the run closes")
 	s.legacy_teleport_relish("vei")
 	s.cmd_begin_boss()
 	t.ok(s.cmd_move_relish("covington")["reason"] == "in_boss", "in_boss refuses a move")
@@ -148,32 +148,67 @@ func run() -> int:
 	t.ok(r == {"ok": true, "reason": ""} and s.rev == rv + 1, "teleport ok, bumps rev")
 	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["pos"] == [1420.0, 1305.0],
 		"teleport puts her at the fort, standing")
-	t.ok(s.realm.relish["at"] == "old-sluice" and s.realm.relish["state"] == "idle", "teleport mirrors to the realm")
+	t.ok(s.view_relish()["effects"] == {"tide_fort": "old-sluice", "redirect_fort": "old-sluice", "home": false}, "teleport: her effects follow")
 	s.legacy_teleport_relish("vei")
 	t.ok(s.view_relish()["state"] == "at_vei", "teleport to vei: at_vei")
 	s.legacy_teleport_relish("covington")
-	t.ok(s.view_relish()["state"] == "home" and s.realm.relish["state"] == "raising", "teleport home: home, raising")
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["effects"]["home"], "teleport home: home")
 	t.ok(s.legacy_teleport_relish("zzz")["reason"] == "unknown_node", "teleport: unknown_node")
 
-	# --- the open run feeds realm.raiding and raiding_fort_id ---
+	# --- the open run feeds raiding_fort_id ---
 	s = _mk()
 	s.legacy_teleport_relish("old-sluice")
 	s.cmd_begin_dungeon("old-sluice")
-	t.ok(s.realm.raiding and s.raiding_fort_id() == "old-sluice", "an open raid flags the realm")
+	t.ok(s.raiding_fort_id() == "old-sluice", "an open raid names its fort")
 	s.cmd_abort_dungeon()
-	t.ok(not s.realm.raiding and s.raiding_fort_id() == "", "aborting it clears the flag")
+	t.ok(s.raiding_fort_id() == "", "aborting it clears it")
 
-	# --- staying home leaves the legacy mint untouched; leaving stops the home mint ---
+	# --- D2: P_relish = 0, so where she stands never changes the mint ---
 	var home := _mk()
 	var away := _mk()
 	away.cmd_move_relish("old-sluice")
 	home.tick(60.0)
 	away.tick(60.0)
-	t.ok(home.realm.cov["r_out"] > away.realm.cov["r_out"], "the home mint (P_relish) stops while she is away")
+	t.ok(home._split["mint"] == away._split["mint"] and home._split["mint"] > 0.0,
+		"no home mint: the mint is the same home or away (both pits fed; home changes only the rot)")
 
 	# --- paused sim: travel holds ---
 	s = _mk()
 	s.cmd_move_relish("old-sluice")
 	s.cmd_pause(true)
 	t.ok(s.tick(5.0) == 0 and s.view_relish()["state"] == "travelling", "no travel while paused")
+
+	# --- arrival at ~0 remaining: a journey with at most ARRIVE_EPS px left is over ---
+	s = _mk()
+	s.cmd_move_relish("old-sluice")
+	var tp: Array = s._node_xy("old-sluice")
+	s.relish["pos"] = [tp[0] - GameState.ARRIVE_EPS * 0.5, tp[1]]
+	t.ok(s.view_relish()["state"] == "travelling" and s.view_relish()["eta_s"] >= 0.0, "a sliver left: still travelling before the step")
+	s.tick(0.5)
+	v = s.view_relish()
+	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["pos"] == tp and v["eta_s"] == -1.0,
+		"a sliver left arrives on the next substep")
+	s.cmd_move_relish("covington")
+	s.relish["pos"] = [COV.x, COV.y]  # exactly on the target
+	s.tick(0.5)
+	t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington", "zero left arrives on the next substep")
+	# a save whose Relish is travelling at ~0 left loads settled (normalised on load)
+	s.cmd_move_relish("old-sluice")
+	var d := s.to_dict()
+	d["relish"]["pos"] = [tp[0], tp[1] + 0.003]
+	var ld := GameState.new(TestUtil.configs())
+	t.ok(ld.from_dict(d)["ok"], "the save loads")
+	v = ld.view_relish()
+	t.ok(v["state"] == "at_fort" and v["at"] == "old-sluice" and v["target"] == "" and v["eta_s"] == -1.0, "a save at ~0 left loads settled, not stuck")
+	# the fixtures: every one loads settled or genuinely travelling, and a journey ends within eta_s + one substep
+	for name in GameState.FIXTURES:
+		var fx := _mk()
+		t.ok(fx.cmd_debug_load_fixture(name)["ok"], "fixture %s loads" % name)
+		v = fx.view_relish()
+		if v["state"] != "travelling":
+			t.ok(v["target"] == "", "fixture %s: Relish is settled (%s)" % [name, v["state"]])
+			continue
+		t.ok(v["eta_s"] > GameState.ARRIVE_EPS / 220.0, "fixture %s: genuinely travelling (eta %.3f s)" % [name, v["eta_s"]])
+		fx.tick(float(v["eta_s"]) + fx.substep_s() + 1e-6)
+		t.ok(fx.view_relish()["state"] != "travelling", "fixture %s: she arrives within eta_s + one substep" % name)
 	return t.failures

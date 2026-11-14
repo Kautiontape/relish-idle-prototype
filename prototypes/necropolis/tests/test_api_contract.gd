@@ -6,8 +6,8 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 1,
-	"SAVE_VERSION": 1,
+	"API_VERSION": 3,
+	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
 	"HUD_RATE_IDS": ["mint", "workers", "bodies", "gold", "bone", "living"],
@@ -24,10 +24,9 @@ const DOC_CONSTANTS := {
 	"DEBUG_GRANT_KEYS": ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"],
 	"DEBUG_STATE_KEYS": ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"],
 }
-## Arrays and maps that are empty at E1 by design, so their element schemas only run once
-## E2/E3 fill them. The fixtures cannot fill them either (the test checks it).
+## Arrays and maps that are empty by design until E3 fills them, so their element schemas only run
+## then. The fixtures cannot fill them either (the test checks it).
 const E1_EMPTY := {
-	"view_town.buildings[].output": "building output is E2",
 	"view_stances.stances[].projected": "stance projections are E3",
 }
 
@@ -251,7 +250,7 @@ func _exercise(s: GameState) -> void:
 	_all_views(s)  # the fresh state
 
 	# fill every array a view exposes
-	var g := _cmd(s, "cmd_debug_grant", [{"husks": 2, "remnants": 3, "big_undead": 2, "relics": 3, "essence": 25, "gold": 10.0}], true)
+	var g := _cmd(s, "cmd_debug_grant", [{"husks": 2, "remnants": 3, "big_undead": 2, "relics": 3, "essence": 25, "gold": 500.0, "bone": 200.0}], true)
 	t.ok(g.get("applied", {}).get("minted", []).size() == 7, "grant minted 7 items")
 	_cmd(s, "cmd_debug_grant", [{"materials": 5}], false)
 	s.debug_enabled = false
@@ -259,9 +258,9 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_debug_set_state", [{"paused": false}], false)
 	_cmd(s, "cmd_debug_skip_time", [1.0], false)
 	s.debug_enabled = true
-	s.town["vats"] = 2  # legacy vats: E1's clones_ready and vat slots
+	s.clones_ready = 1  # the backups stub stock (a vat is ready while a clone covers it)
+	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)  # two vat slots
 	s.blueprints.append("embalmer")  # blueprints are banked by apply_result (T1.4)
-	s.assignments["gather"] = 1  # the legacy convoy
 	var inv := s.view_inventory()
 	var h: String = inv["husks"][0]["uid"]
 	var r1: String = inv["remnants"][0]["uid"]
@@ -284,15 +283,18 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_set_valve", [0.0, 0.0, 0.0], false)
 	_cmd(s, "cmd_set_haul_target", ["ashgate"], true)
 	_cmd(s, "cmd_set_haul_target", ["nope"], false)
-	s.tick(0.5)  # the legacy convoy leaves for Ashgate
+	s.tick(0.5)  # TownSim's convoy (the Charnel House's haulers) leaves for Ashgate
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)
 	_cmd(s, "cmd_build", ["nope", "lot-05"], false)
 	_cmd(s, "cmd_upgrade", ["lot-04"], true)
 	_cmd(s, "cmd_upgrade", ["lot-99"], false)
-	_cmd(s, "cmd_demolish", ["lot-03"], true)
+	_cmd(s, "cmd_upgrade", ["lot-04"], false)  # under_construction
+	s.town_sim.place_building("lot-06", "well", 1)
+	_cmd(s, "cmd_demolish", ["lot-06"], true)
 	_cmd(s, "cmd_demolish", ["lot-99"], false)
 	_cmd(s, "cmd_cancel_build", ["lot-05"], true)
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
+	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
 	_cmd(s, "cmd_set_job_priority", [["haul", "build", "pit", "stall", "mill", "forge", "tend"]], true)
 	_cmd(s, "cmd_set_job_priority", [["haul"]], false)
 	_cmd(s, "cmd_set_staff_cap", ["lot-03", 2], true)
@@ -316,7 +318,7 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_debug_set_state", [{"nope": 1}], false)
 	_cmd(s, "cmd_debug_skip_time", [1.0], true)
 	_cmd(s, "cmd_debug_skip_time", [0.0], false)
-	t.ok(s.view_town()["haul"]["convoys"].size() == 1, "the legacy convoy is in view_town")
+	t.ok(s.view_town()["haul"]["convoys"].size() == 1, "the convoy is in view_town")
 	t.ok(s.view_fort("ashgate")["siege"] == [u2] and s.view_town()["buildings"][3]["foreman"] == u1, "siege and foreman echoed")
 	_all_views(s)  # a foreman, a siege, a convoy, vats, a blueprint, a stance
 

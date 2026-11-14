@@ -102,6 +102,45 @@ func lot(id: String) -> Dictionary:
 	return {}
 
 
+## The lot under `p`. Every lot's hit box is grown to at least `min_px` per side (around its
+## centre) so small lots stay clickable; a point inside a lot's real rect wins, else the grown box
+## whose centre is nearest. "" if none.
+func lot_at(p: Vector2, min_px: float) -> String:
+	var best := ""
+	var best_d := INF
+	for l in lots:
+		var r: Rect2 = l["rect"]
+		if r.has_point(p):
+			return String(l["id"])
+		var c := r.get_center()
+		var box := Rect2(c - Vector2(maxf(r.size.x, min_px), maxf(r.size.y, min_px)) * 0.5,
+			Vector2(maxf(r.size.x, min_px), maxf(r.size.y, min_px)))
+		if box.has_point(p) and c.distance_to(p) < best_d:
+			best_d = c.distance_to(p)
+			best = String(l["id"])
+	return best
+
+
+## Places BuildSort.ghosts() on the canvas: each ghost gains `rect` (the lot's footprint; the
+## queued building's, or the standing building's for an upgrade), `ring` (the number ring's centre,
+## inset at the footprint's top-left) and `lot_rect`. Ghosts on unknown lots are dropped.
+func ghost_layout(ghosts: Array) -> Array:
+	var out: Array = []
+	var ring_r := float((_v.get("ghost", {}) as Dictionary).get("ring_px", 0.0))
+	for g in ghosts:
+		var l := lot(String(g["lot_id"]))
+		if l.is_empty():
+			continue
+		var bid := String(g["building_id"])
+		var r: Rect2 = _footprint(bid, l)
+		var e: Dictionary = g.duplicate()
+		e["rect"] = r
+		e["lot_rect"] = l["rect"]
+		e["ring"] = r.position + Vector2(ring_r + 2.0, ring_r + 2.0)
+		out.append(e)
+	return out
+
+
 ## The silhouette of `building_id` scaled into `r`, truncated so the drawn length is `reveal` of the
 ## total (the last stroke partial). Reveal 0 draws nothing; an unknown id draws nothing.
 func strokes(building_id: String, r: Rect2, reveal: float) -> Array[PackedVector2Array]:

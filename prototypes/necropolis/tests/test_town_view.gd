@@ -81,6 +81,20 @@ func run() -> int:
 	_relish(day1)
 	_foremen(mid)
 	_edge_rates(day1, demo)
+	_build_needs(day1)
+	_build_sort(day1)
+	_build_reasons(day1)
+	_build_queue(day1)
+	_build_inspect(day1, mid)
+	_build_unique(day1)
+	_build_eta(day1)
+	_build_benefit()
+	_build_suggest(day1)
+	_build_ghosts(day1)
+	_build_chips()
+	_build_caps(day1)
+	_build_lot_refusal()
+	_lot_hit(day1)
 	_view_keys()
 	return t.failures
 
@@ -264,16 +278,36 @@ func _walls(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
 	m.update(mid, VIEW_RECT)
 	t.ok(m.tier == "village" and not m.walls("village").is_empty() and m.walls("town").is_empty() and m.walls("city").is_empty(),
 		"a village has its palisade only")
+	var village: Array = []
+	for l in mid["town"]["lots"]:
+		if l["unlocked"]:
+			village.append(l["id"])
+	var want: Array = []
+	for i in range(1, 17):
+		want.append("lot-%02d" % i)
+	want.append("lot-23")
+	t.ok(village == want, "a village's unlocked lots are lot-01..16 plus lot-23, not the first 17 (%s)" % str(village))
+	t.ok(not m.lot("lot-17")["unlocked"] and m.lot("lot-23")["unlocked"], "the model follows lots[].unlocked: lot-17 locked, lot-23 unlocked")
+	var wv := m.walls("village")
+	var inside := true
+	for id in village:
+		var r: Rect2 = m.lot(id)["rect"]
+		for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+			inside = inside and Geometry2D.is_point_in_polygon(c, wv)
+	t.ok(inside, "the village wall encloses every lot the view reports unlocked")
 	m.update(demo, VIEW_RECT)
 	t.ok(m.tier == "city", "the demo is a city")
 	var tiers: Dictionary = cfg["economy"]["town"]["tiers"]
 	for tier in cfg["town"]["view"]["tier_walls"]:
 		var w := m.walls(tier)
 		t.ok(w.size() >= 4, "%s wall is a polyline" % tier)
-		var n := int(tiers[tier]["lots"])
+		# the lots unlocked at a tier are its lot_ids, not "the first N": Village has lot-01..16 + lot-23
+		var ids: Array = tiers[tier]["lot_ids"]
+		var n := ids.size()
+		t.ok(n == int(tiers[tier]["lots"]), "%s: lots is the count of lot_ids" % tier)
 		var enclosed := true
-		for i in n:
-			var r: Rect2 = m.lots[i]["rect"]
+		for id in ids:
+			var r: Rect2 = m.lot(id)["rect"]
 			for c in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
 				enclosed = enclosed and Geometry2D.is_point_in_polygon(c, w)
 		t.ok(enclosed, "%s wall encloses the %d lots unlocked at %s" % [tier, n, tier])
@@ -324,10 +358,21 @@ func _glow_monotone(day1: Dictionary) -> void:
 	t.near(glows[7], 1.0, 0.0001, "glow caps at 1")
 
 
-func _standin(day1: Dictionary) -> void:
+## A copy of the views with every building's output blanked: the E1 stub the stand-ins are for.
+func _stub(views: Dictionary) -> Dictionary:
+	var v: Dictionary = views.duplicate(true)
+	for b in v["town"]["buildings"]:
+		b["output"] = {}
+	return v
+
+
+func _standin(live: Dictionary) -> void:
 	var m := _model()
+	m.update(live, VIEW_RECT)
+	t.ok(not m.staffing_standin, "live outputs (E2a): the staffing stand-in is off")
+	var day1 := _stub(live)
 	m.update(day1, VIEW_RECT)
-	t.ok(m.staffing_standin, "every output is the E1 stub: the staffing stand-in is on")
+	t.ok(m.staffing_standin, "every output blanked (the E1 stub): the staffing stand-in is on")
 	var charnel: Dictionary = m.lot("lot-03")["building"]
 	t.ok(charnel["building_id"] == "charnel_house" and charnel["slots"] > 0 and charnel["staffed"] > 0.0,
 		"day1: the charnel house is staffed")
@@ -592,6 +637,14 @@ func _run(a: TownAgents, secs: float, t0 := 0.0, reduced := false, fps := 30.0) 
 	return clock
 
 
+## Undead the stream asks for at 1 stroke = 1: every job's staffed plus the idle.
+func _undead_want(town: Dictionary) -> int:
+	var n := roundi(float(town["workers"]["idle"]))
+	for j in town["jobs"]:
+		n += roundi(float(j["staffed"]))
+	return n
+
+
 func _counts_match(a: TownAgents, town: Dictionary, k := 1) -> bool:
 	var ok := true
 	for j in town["jobs"]:
@@ -639,8 +692,10 @@ func _agent_growth(day1: Dictionary) -> void:
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var more: Dictionary = day1.duplicate(true)
-	more["town"]["workers"]["idle"] = 20.0
-	more["town"]["living"] = 30.0
+	var idle0 := a.count("idle")
+	var living0 := a.living_count()
+	more["town"]["workers"]["idle"] = float(idle0) + 20.0
+	more["town"]["living"] = float(living0) + 20.0
 	_resync(m, a, more)
 	var rate := float(vcfg["spawn_per_s"])
 	var fps := 30.0
@@ -654,7 +709,7 @@ func _agent_growth(day1: Dictionary) -> void:
 	for i in int(round((24.0 / rate + 2.0) * fps)):
 		clock += 1.0 / fps
 		a.step(1.0 / fps, fposmod(clock / tempo_s, 1.0), false)
-		gradual = gradual and a.count("idle") <= rate * clock + 1.0 + 1e-6 and a.living_count() - 10 <= rate * clock + 1.0 + 1e-6
+		gradual = gradual and a.count("idle") - idle0 <= rate * clock + 1.0 + 1e-6 and a.living_count() - living0 <= rate * clock + 1.0 + 1e-6
 		for u in a.undead:
 			if not old.has(u) and first_u == Vector2.INF:
 				first_u = u.pos
@@ -662,7 +717,7 @@ func _agent_growth(day1: Dictionary) -> void:
 			if not old.has(u) and first_l == Vector2.INF:
 				first_l = u.pos
 	t.ok(gradual, "growth is gradual: at most spawn_per_s new agents a second per kind")
-	t.ok(a.count("idle") == 20 and a.living_count() == 30, "and it reaches the stream: 20 idle, 30 living")
+	t.ok(a.count("idle") == idle0 + 20 and a.living_count() == living0 + 20, "and it reaches the stream: +20 idle, +20 living")
 	var crypt := (m.lot("lot-01")["building"]["rect"] as Rect2).get_center()
 	var step := float(vcfg["step_px"]) * m.scale
 	t.ok(first_u.distance_to(crypt) < 60.0 + 4.0 * step, "new undead rise at the crypt")
@@ -670,10 +725,13 @@ func _agent_growth(day1: Dictionary) -> void:
 	_resync(m, a, day1)
 	var before := a.living_count()
 	a.step(1.0 / fps, 0.0, false)
-	t.ok(a.living_count() >= before - 1 and a.count("idle") >= 19, "shrinking is gradual too")
+	t.ok(a.living_count() >= before - 1 and a.count("idle") >= idle0 + 19, "shrinking is gradual too")
 	_run(a, 200.0, clock)
-	t.ok(a.count("idle") == 0 and a.living_count() == 10 and a.undead.size() == 6 and a.living.size() == 10,
-		"the removed agents walk home (crypt, gate) and are gone: %d undead, %d living" % [a.undead.size(), a.living.size()])
+	var want_u := _undead_want(day1["town"])
+	var want_l := roundi(float(day1["town"]["living"]))
+	t.ok(a.count("idle") == idle0 and a.living_count() == want_l and a.undead.size() == want_u and a.living.size() == want_l,
+		"the removed agents walk home (crypt, gate) and are gone: %d undead (want %d), %d living (want %d)"
+		% [a.undead.size(), want_u, a.living.size(), want_l])
 
 
 func _agent_lockstep(day1: Dictionary) -> void:
@@ -755,6 +813,8 @@ func _agent_reduced(day1: Dictionary) -> void:
 	var m: TownModel = pair[0]
 	var a: TownAgents = pair[1]
 	var clock := _run(a, 2.0)
+	var want_u := _undead_want(day1["town"])
+	var want_l := roundi(float(day1["town"]["living"]))
 	var before := {}
 	for u in a.undead + a.living:
 		before[u] = [u.pos, u.dir]
@@ -764,21 +824,23 @@ func _agent_reduced(day1: Dictionary) -> void:
 		still = still and u.pos == before[u][0] and u.dir == before[u][1]
 	t.ok(still, "reduced motion: no agent moves or turns, whatever the beat does")
 	var more: Dictionary = day1.duplicate(true)
-	more["town"]["workers"]["idle"] = 4.0
-	more["town"]["living"] = 12.0
+	var idle_more := roundi(float(day1["town"]["workers"]["idle"])) + 4
+	var living_more := want_l + 2
+	more["town"]["workers"]["idle"] = float(idle_more)
+	more["town"]["living"] = float(living_more)
 	_resync(m, a, more)
 	_run(a, 10.0, clock, true)
 	still = true
 	for u in before:
 		still = still and u.pos == before[u][0]
-	t.ok(a.count("idle") == 4 and a.living_count() == 12 and still, "reduced motion: counts still follow the stream; the others stay put")
+	t.ok(a.count("idle") == idle_more and a.living_count() == living_more and still, "reduced motion: counts still follow the stream; the others stay put")
 	var calm := true
 	for u in a.undead:
 		calm = calm and u.tilt == 0.0 and u.flash == 0.0
 	t.ok(calm, "reduced motion: no beat actions")
 	_resync(m, a, day1)
 	_run(a, 10.0, clock, true)
-	t.ok(a.undead.size() == 6 and a.living.size() == 10, "reduced motion: removed agents vanish in place")
+	t.ok(a.undead.size() == want_u and a.living.size() == want_l, "reduced motion: removed agents vanish in place")
 
 
 func _agent_missing(day1: Dictionary) -> void:
@@ -788,8 +850,15 @@ func _agent_missing(day1: Dictionary) -> void:
 		if b["building_id"] != "charnel_house":
 			keep.append(b)
 	v["town"]["buildings"] = keep
+	var haulers := 0
+	var idle0 := roundi(float(day1["town"]["workers"]["idle"]))
+	for j in day1["town"]["jobs"]:
+		if j["id"] == "haul":
+			haulers = roundi(float(j["staffed"]))
+	t.ok(haulers > 0, "day1 has haulers to idle (%d)" % haulers)
 	var a: TownAgents = _agents(v)[1]
-	t.ok(a.count("haul") == 0 and a.count("idle") == 3, "no charnel house: its 3 haulers idle at the crypt")
+	t.ok(a.count("haul") == 0 and a.count("idle") == idle0 + haulers,
+		"no charnel house: its %d haulers idle at the crypt (with the %d already idle)" % [haulers, idle0])
 	var pit_hold := true
 	for u in a.undead:
 		if u.job == "pit":
@@ -801,12 +870,12 @@ func _agent_missing(day1: Dictionary) -> void:
 	var clock := _run(a, 2.0)
 	_resync(m, a, v)
 	_run(a, 0.1, clock)
-	t.ok(a.count("haul") == 0 and a.count("idle") == 3, "a job building gone mid-run re-tasks its agents to idle at once")
+	t.ok(a.count("haul") == 0 and a.count("idle") == idle0 + haulers, "a job building gone mid-run re-tasks its agents to idle at once")
 
 	var b2: Dictionary = day1.duplicate(true)
 	b2["town"]["jobs"].append({"id": "build", "slots": 2, "staffed": 2.0})
 	a = _agents(b2)[1]
-	t.ok(a.count("build") == 0 and a.count("idle") == 2, "build with nothing under construction: the builders idle")
+	t.ok(a.count("build") == 0 and a.count("idle") == idle0 + 2, "build with nothing under construction: the builders idle")
 	b2["town"]["buildings"].append({"lot_id": "lot-05", "building_id": "house", "level": 0, "state": "constructing",
 		"progress": 0.3, "slots": 0, "staffed": 0.0, "staff_cap": -1, "foreman": "", "output": {}, "upkeep": {"gold": 0.0, "bone": 0.0}})
 	a = _agents(b2)[1]
@@ -973,7 +1042,7 @@ func _trade_arcs(day1: Dictionary) -> void:
 	t.ok(a.trades_fired == 2 and a.arcs.size() >= 1, "2.0 sales/s for 1 s fires 2 arcs (%d)" % a.trades_fired)
 	var ends := true
 	for arc in a.arcs:
-		ends = ends and arc["seller"] == seller and not arc["buyer"].undead
+		ends = ends and arc["seller"].job == "stall" and not arc["buyer"].undead
 	t.ok(ends, "each arc runs from a living buyer to the stall worker")
 	v["town"]["trade_rate"] = 100.0
 	_resync(m, a, v)
@@ -998,8 +1067,12 @@ func _trade_arcs(day1: Dictionary) -> void:
 	t.ok(a.trades_fired == fired, "no living agent within trade_reach_px: the sale draws no arc")
 
 
-func _trade_standin(day1: Dictionary) -> void:
-	var a: TownAgents = _agents(day1)[1]
+func _trade_standin(live: Dictionary) -> void:
+	var a: TownAgents = _agents(live)[1]
+	t.ok(not a.trade_standin and is_equal_approx(a.trade_rate, float(live["town"]["trade_rate"])),
+		"live outputs (E2a): the stand-in is off and the rate is the view's trade_rate")
+	var day1 := _stub(live)
+	a = _agents(day1)[1]
 	var stall := 0.0
 	for j in day1["town"]["jobs"]:
 		if j["id"] == "stall":
@@ -1191,7 +1264,9 @@ func _view_keys() -> void:
 		"undead_dwell_steps", "haul_away_steps", "idle_dwell_steps", "idle_ring_px", "lane_px", "front_gap_px",
 		"post_spread", "stall_shuffle_px", "hammer_deg", "living_speed_px", "living_dwell_s", "living_sway_px",
 		"living_sway_stride_px", "trade_arc_s", "trade_reach_px", "max_trade_arcs", "cart_town_frac", "cart_pip_mass",
-		"relish_light_r", "relish_brighten", "flow_smooth_s", "foreman_strokes", "standin_sales_per_stall", "standin_sales_per_living", "agent"]
+		"relish_light_r", "relish_brighten", "flow_smooth_s", "foreman_strokes", "standin_sales_per_stall", "standin_sales_per_living", "agent",
+		"gate_reasons", "protected", "queue_max", "cap_buildings", "demolish_confirm_s", "placement_dim", "hit_min_px", "cap_bar",
+		"reasons", "states", "needs", "queue_text", "benefit", "card", "hover", "suggest", "ghost", "flash", "shortage_text"]
 	var nested := {"head": ["core_px", "ring_mul", "ring_w_px", "glow"], "warn": ["size_px", "line_px", "glow", "bang_px", "dot_px"],
 		"tierup_head": ["len_px", "gain", "w_mul", "ring_mul", "ring_w_px", "dot_mul", "glow"], "demo_tierup": ["tier", "delay_s"],
 		"bed": ["key", "alpha", "width_px"], "bed_line": ["key", "alpha", "width_px"], "locked_dot": ["key", "alpha", "step_px", "size_px"],
@@ -1199,7 +1274,13 @@ func _view_keys() -> void:
 			"living_bend", "living_w_px", "living_ring_px", "living_glow", "big_px", "big_w_px", "big_gap", "big_glow",
 			"cart_pip_px", "cart_pip_gap_px", "cart_cols", "cart_w_px", "tow_px", "arc_w_px", "arc_glow", "arc_bulge",
 			"arc_grow", "arc_fade", "arc_chevron_px", "relish_r_px", "relish_core_px", "relish_bob_px", "relish_w_px",
-			"relish_glow"]}
+			"relish_glow"],
+		"benefit": ["rate_effects", "plain_effects", "job_text", "now", "upgrade_now"],
+		"card": ["w_px", "max_h_px", "gap_px", "edge_px", "row_gap_px"], "hover": ["w_px", "alpha", "grow_px"],
+		"suggest": ["w_px", "dash_px", "alpha", "tag_prefix", "x_px", "tag_pad_px"],
+		"ghost": ["alpha", "dash_px", "w_px", "ring_px", "ring_w_px", "number_px", "hold_px", "strike_px", "plus_px", "tag_pad_px"],
+		"flash": ["w_px", "grow_px", "alpha", "text"],
+		"shortage_text": ["eta", "stuck", "eta_s", "eta_min", "eta_h", "eta_min_max_s", "eta_s_max_s"]}
 	var missing: Array = []
 	for k in keys:
 		if not vcfg.has(k):
@@ -1223,3 +1304,567 @@ func _view_keys() -> void:
 	t.ok(float(vcfg["relish_brighten"]) >= 0.0 and float(vcfg["spawn_per_s"]) > 0.0, "Relish only brightens; agents do spawn")
 	var und_v := float(vcfg["step_px"]) * float(vcfg["steps_per_beat"]) / tempo_s
 	t.ok(float(vcfg["living_speed_px"][1]) < und_v, "the living walk slower than the undead's mean pace (%.1f px/s)" % und_v)
+
+
+# ------------------------------------------------------------- build tab ----
+const FORTS := {"ashgate": "Ashgate", "old-sluice": "Old Sluice"}
+
+
+func _need_views(day1: Dictionary) -> Dictionary:
+	# A quiet baseline: nothing is a live need.
+	var v: Dictionary = day1.duplicate(true)
+	v["vei"]["tithe"] = {"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "wave_s_left": 0.0}
+	v["vei"]["fronts"] = []
+	v["relish"]["state"] = "idle"
+	v["relish"]["target"] = ""
+	v["relish"]["at"] = "covington"
+	for r in v["hud"]["rates"]:
+		if r["id"] == "gold":
+			r["rate"] = 0.1
+	v["town"]["bodies"] = 100.0
+	v["town"]["bodies_cap"] = 200.0
+	v["town"]["living"] = 5.0
+	v["town"]["living_cap"] = 16.0
+	v["town"]["morale"] = {"value": 0.8, "target": 0.8, "factors": []}
+	return v
+
+
+func _need_ids(v: Dictionary) -> Array:
+	var ids: Array = []
+	for n in BuildSort.needs(v, FORTS, vcfg):
+		ids.append(n["id"])
+	return ids
+
+
+func _build_needs(day1: Dictionary) -> void:
+	var v := _need_views(day1)
+	t.ok(_need_ids(v).is_empty(), "build needs: a quiet town has none")
+	v = _need_views(day1)
+	v["vei"]["tithe"]["warning"] = true
+	v["vei"]["tithe"]["target"] = "ashgate"
+	var n: Array = BuildSort.needs(v, FORTS, vcfg)
+	t.ok(_need_ids(v) == ["tithe"] and n[0]["chip"] == "tithe wave on Ashgate", "build needs: a tithe warning names the fort (%s)" % n[0]["chip"])
+	v["vei"]["tithe"]["warning"] = false
+	v["vei"]["tithe"]["wave_active"] = true
+	t.ok(_need_ids(v) == ["tithe"], "build needs: an active tithe wave counts")
+	v["vei"]["tithe"]["target"] = ""
+	t.ok(BuildSort.needs(v, FORTS, vcfg)[0]["chip"] == "tithe wave coming", "build needs: a wave with no target still has a chip")
+	v = _need_views(day1)
+	v["vei"]["fronts"] = [{"id": "raw", "need": 0.0, "have": 0.0}, {"id": "giants", "need": 24.0, "have": 26.5},
+		{"id": "swarm", "need": 30.0, "have": 12.0}]
+	n = BuildSort.needs(v, FORTS, vcfg)
+	t.ok(_need_ids(v) == ["front"] and n[0]["chip"].contains("swarm") and n[0]["chip"].contains("12 of 30"),
+		"build needs: the first short front (need > 0, have < need) is named: %s" % n[0]["chip"])
+	v["vei"]["fronts"] = [{"id": "giants", "need": 24.0, "have": 24.0}]
+	t.ok(_need_ids(v).is_empty(), "build needs: a front that is met is no need")
+	v = _need_views(day1)
+	v["relish"]["state"] = "travelling"
+	v["relish"]["target"] = "old-sluice"
+	t.ok(_need_ids(v) == ["warden"] and BuildSort.needs(v, FORTS, vcfg)[0]["chip"].contains("Old Sluice"), "build needs: Relish travelling to a fort")
+	v["relish"]["state"] = "idle"
+	v["relish"]["target"] = ""
+	v["relish"]["at"] = "ashgate"
+	t.ok(_need_ids(v) == ["warden"], "build needs: Relish standing at a fort")
+	v["relish"]["at"] = "vei"
+	t.ok(_need_ids(v).is_empty(), "build needs: Relish at Vei or home is not a fort")
+	v = _need_views(day1)
+	for r in v["hud"]["rates"]:
+		if r["id"] == "gold":
+			r["rate"] = -0.05
+	t.ok(_need_ids(v) == ["gold"], "build needs: gold net rate below 0")
+	v = _need_views(day1)
+	v["town"]["bodies"] = 59.0
+	t.ok(_need_ids(v) == ["bodies"], "build needs: bodies under 30% of cap")
+	v["town"]["bodies"] = 60.0
+	t.ok(_need_ids(v).is_empty(), "build needs: bodies at exactly 30% is not low")
+	v = _need_views(day1)
+	v["town"]["living"] = 16.0
+	t.ok(_need_ids(v) == ["housing"], "build needs: living at the living cap")
+	v = _need_views(day1)
+	v["town"]["morale"]["value"] = 0.49
+	t.ok(_need_ids(v) == ["morale"], "build needs: morale under 0.5")
+	v["town"]["morale"]["value"] = 0.5
+	t.ok(_need_ids(v).is_empty(), "build needs: morale at 0.5 is not low")
+	v = _need_views(day1)
+	v["town"]["bodies_cap"] = 0.0
+	v["town"]["living_cap"] = 0.0
+	t.ok(_need_ids(v).is_empty(), "build needs: zero caps never read as a need")
+	t.ok(BuildSort.needs({}, {}, vcfg).is_empty(), "build needs: empty views give none")
+	var ns: Dictionary = vcfg["needs"]
+	t.ok(ns["serves"].keys().size() == ns["order"].size(), "build needs: every ordered need has a serves list")
+	for id in ns["order"]:
+		for s in ns["serves"][id]:
+			var any := false
+			for bid in cfg["buildings_view"]:
+				any = any or s in cfg["buildings_view"][bid]["serves"]
+			t.ok(any, "build needs: some building serves '%s' (needed by %s)" % [s, id])
+
+
+func _row(id: String, can: bool, reason := "", lots: Array = []) -> Dictionary:
+	return {"building_id": id, "cost": {"gold": 10.0, "bone": 0.0, "relics": 0}, "count": 0, "lot_size": 1, "max_level": 2,
+		"requires": {"tier": "village", "blueprint": "", "building": ""}, "can_build": can, "reason": reason, "lots": lots}
+
+
+func _build_sort(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	# well/bakery serve morale; market serves gold; house serves housing; inn is gated; forge unbuildable.
+	var rows := [_row("market", false, "no_gold"), _row("house", true, "", ["lot-05"]), _row("inn", false, "needs_tier"),
+		_row("well", true, "", ["lot-06"]), _row("bakery", false, "no_gold"), _row("forge", true, "", ["lot-07"])]
+	var ids := func(items: Array) -> Array:
+		return items.map(func(i): return i["row"]["building_id"])
+	var base: Array = ids.call(BuildSort.sort_rows(rows, [], bv, vcfg))
+	t.ok(base == ["house", "well", "forge", "market", "bakery", "inn"], "build sort: no need: buildable, then blocked, gated last, catalog order inside (%s)" % str(base))
+	var needs: Array = [{"id": "morale", "chip": "morale is low", "serves": ["morale"]}]
+	var items: Array = BuildSort.sort_rows(rows, needs, bv, vcfg)
+	var got: Array = ids.call(items)
+	t.ok(got == ["well", "house", "forge", "bakery", "market", "inn"],
+		"build sort: buildable serving a need, buildable, serving but short, other blocked, gated (%s)" % str(got))
+	var cls: Array = items.map(func(i): return i["cls"])
+	t.ok(cls == [BuildSort.CLS_NEED_BUILDABLE, BuildSort.CLS_BUILDABLE, BuildSort.CLS_BUILDABLE, BuildSort.CLS_NEED_SHORT,
+		BuildSort.CLS_SHORT, BuildSort.CLS_GATED], "build sort: the five classes (%s)" % str(cls))
+	t.ok(items[0]["chip"] == "morale is low" and items[0]["need"] == "morale", "build sort: the serving row carries the need's chip")
+	t.ok(items[1]["chip"] == "" and items[1]["need"] == "", "build sort: other rows carry no chip")
+	t.ok(items[3]["chip"] == "morale is low", "build sort: a blocked row serving the need keeps its chip")
+	var two: Array = [{"id": "gold", "chip": "gold is draining", "serves": ["gold"]}, {"id": "housing", "chip": "no room", "serves": ["housing"]}]
+	items = BuildSort.sort_rows(rows, two, bv, vcfg)
+	got = ids.call(items)
+	t.ok(got == ["house", "well", "forge", "market", "bakery", "inn"], "build sort: several live needs (%s)" % str(got))
+	t.ok(items[3]["chip"] == "gold is draining" and items[0]["chip"] == "no room", "build sort: each row's chip names the need it serves")
+	t.ok(items[1]["chip"] == "no room", "build sort: a row serving two listed needs takes the first listed need that it serves")
+	# Funds-blocked and serving beats funds-blocked and not serving, whatever the catalog order.
+	var fb: Array = ids.call(BuildSort.sort_rows([_row("market", false, "no_gold"), _row("bakery", false, "no_gold")],
+		[{"id": "housing", "chip": "x", "serves": ["housing"]}], bv, vcfg))
+	t.ok(fb == ["bakery", "market"], "build sort: serving but short before other blocked (%s)" % str(fb))
+	# A gated row that serves the need still sorts below a buildable one that serves it.
+	var g: Array = ids.call(BuildSort.sort_rows([_row("inn", false, "needs_tier"), _row("house", true, "", ["lot-05"])],
+		[{"id": "housing", "chip": "x", "serves": ["housing"]}], bv, vcfg))
+	t.ok(g == ["house", "inn"], "build sort: gated serving row after buildable serving row")
+	var gs: Array = ids.call(BuildSort.sort_rows([_row("inn", false, "needs_tier"), _row("market", false, "no_gold")],
+		[{"id": "housing", "chip": "x", "serves": ["housing"]}], bv, vcfg))
+	t.ok(gs == ["market", "inn"], "build sort: gated serving row after a plain blocked row")
+	# Stable and total: same set, every row once.
+	var all: Array = ids.call(BuildSort.sort_rows(rows, two, bv, vcfg))
+	all.sort()
+	t.ok(all == ["bakery", "forge", "house", "inn", "market", "well"], "build sort: every row appears exactly once")
+	# The real catalog sorts and every row classifies.
+	var cat: Array = day1["catalog"]["buildings"]
+	var real: Array = BuildSort.sort_rows(cat, BuildSort.needs(day1, FORTS, vcfg), bv, vcfg)
+	var built_unique := cat.filter(func(r): return BuildSort.is_hidden(r, bv)).size()
+	t.ok(real.size() == cat.size() - built_unique, "build sort: the day1 catalog keeps all %d rows but the %d built unique" % [cat.size(), built_unique])
+	t.ok(BuildSort.can_queue(_row("house", true, "", ["lot-05"]), vcfg), "build sort: a buildable row can be queued")
+	t.ok(BuildSort.can_queue(_row("house", false, "no_gold", ["lot-05"]), vcfg), "build sort: an unaffordable row can be queued")
+	t.ok(not BuildSort.can_queue(_row("inn", false, "needs_tier", ["lot-05"]), vcfg), "build sort: a gated row cannot be queued")
+	t.ok(not BuildSort.can_queue(_row("house", false, "no_lot", []), vcfg), "build sort: a row with no free lot cannot be queued")
+
+
+const ALL_REASONS := ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small", "empty_lot",
+	"under_construction", "needs_tier", "needs_blueprint", "needs_building", "no_lot", "no_gold", "no_bone", "no_relics",
+	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order"]
+
+
+func _build_reasons(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var row := {"building_id": "embalmer", "cost": {"gold": 100.0, "bone": 30.0, "relics": 2}, "lot_size": 2,
+		"requires": {"tier": "village", "blueprint": "embalmer", "building": "house"}}
+	var st := {"gold": 40.0, "bone": 30.0, "relics": 0.0}
+	for r in ALL_REASONS:
+		var txt := BuildSort.reason_text(r, row, st, bv, vcfg)
+		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
+	for r in vcfg["reasons"]:
+		if r != "_unknown":
+			t.ok(r in ALL_REASONS, "view.reasons.%s is a documented reason id" % r)
+	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
+	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
+	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
+	t.ok(BuildSort.reason_text("no_lot", row, st, bv, vcfg) == "no free lot fits (size 2)", "reason: no_lot carries the size")
+	t.ok(BuildSort.reason_text("no_gold", row, st, bv, vcfg) == "needs 60 gold: build a Market", "reason: no_gold names the amount and the fix building")
+	t.ok(BuildSort.reason_text("no_relics", row, st, bv, vcfg) == "needs 2 relics: dungeon loot", "reason: no_relics points at dungeon loot")
+	t.ok(BuildSort.reason_text("no_bone", {"cost": {"bone": 60.0}}, {"bone": 30.0, "count": {"bone_mill": 1}}, bv, vcfg) == "needs 30 bone: staff the Bone Mill",
+		"reason: a built fix building is staffed, not built")
+	t.ok(BuildSort.reason_text("no_relics", {"cost": {"relics": 1}}, {"relics": 0.0}, bv, vcfg) == "needs 1 relic: dungeon loot", "reason: one relic is singular")
+	var tier_st := {"next_tier": {"tier": "village", "have": 4, "need": 6, "missing": ["house", "well"]}}
+	t.ok(BuildSort.reason_text("needs_tier", row, tier_st, bv, vcfg) == "needs Village tier (4/6 buildings, missing: House, Well)", "reason: needs_tier shows the tier progress")
+	t.ok(BuildSort.reason_text("needs_tier", row, {"next_tier": {"tier": "town"}}, bv, vcfg) == "needs Village tier", "reason: a tier further off has no progress")
+	var fx := {"count": {"market": 0, "bone_mill": 1}, "placeable": {"market": true, "bone_mill": true, "house": true}}
+	t.ok(BuildSort.fix_target("no_gold", row, fx, vcfg) == "market", "fix: a placeable, unbuilt fix building is clickable")
+	t.ok(BuildSort.fix_target("no_bone", row, fx, vcfg) == "", "fix: a built fix building is not offered again")
+	t.ok(BuildSort.fix_target("no_relics", row, fx, vcfg) == "", "fix: relics have no fix building")
+	t.ok(BuildSort.fix_target("needs_building", row, fx, vcfg) == "house", "fix: a missing required building is clickable when placeable")
+	t.ok(BuildSort.fix_target("no_gold", row, {"count": {}, "placeable": {"market": false}}, vcfg) == "", "fix: not clickable when it can't be placed")
+	for k in vcfg["shortage_fix"]:
+		t.ok(String(vcfg["shortage_fix"][k]) == "" or bv.has(vcfg["shortage_fix"][k]), "fix: shortage_fix.%s names a real building" % k)
+	t.ok(BuildSort.reason_text("never_heard_of_it", row, st, bv, vcfg) == vcfg["reasons"]["_unknown"], "reason: an unknown id gets the fallback, not the raw id")
+	t.ok(BuildSort.reason_text("no_gold", {}, st, bv, vcfg) == "needs 0 gold: build a Market", "reason: an empty row still formats")
+	# Every reason the real catalog gives on any fixture reads as text.
+	for r in day1["catalog"]["buildings"]:
+		if String(r["reason"]) != "":
+			var txt: String = BuildSort.reason_text(r["reason"], r, BuildSort.stocks(day1), bv, vcfg)
+			t.ok(not txt.contains("_"), "reason: day1 %s: %s" % [r["building_id"], txt])
+	var parts: Array = BuildSort.cost_parts({"gold": 40.0, "bone": 10.0, "relics": 0}, {"gold": 30.0, "bone": 10.0, "relics": 0.0})
+	t.ok(parts[0]["short"] and parts[0]["text"] == "! 40 gold", "cost parts: an unaffordable part carries a text marker")
+	t.ok(not parts[1]["short"] and parts[1]["text"] == "10 bone" and parts[2]["text"] == "0 relics", "cost parts: affordable parts are plain upright counts")
+	t.ok(BuildSort.shortfall_reason({"gold": 5.0, "bone": 9.0}, {"gold": 5.0, "bone": 1.0}) == "no_bone", "shortfall: the first short part")
+
+
+func _build_lot_refusal() -> void:
+	var row := {"lot_size": 2}
+	t.ok(BuildSort.lot_refusal({}, row) == "unknown_lot", "lot refusal: unknown lot")
+	t.ok(BuildSort.lot_refusal({"unlocked": false, "size": 2, "building_id": ""}, row) == "lot_locked", "lot refusal: locked")
+	t.ok(BuildSort.lot_refusal({"unlocked": true, "size": 2, "building_id": "house"}, row) == "lot_taken", "lot refusal: taken")
+	t.ok(BuildSort.lot_refusal({"unlocked": true, "size": 1, "building_id": ""}, row) == "lot_too_small", "lot refusal: too small")
+
+
+func _qctx(gold := 100.0, bone := 100.0, relics := 0.0, gold_cap := -1.0) -> Dictionary:
+	return {"gold": gold, "bone": bone, "relics": relics, "gold_cap": gold_cap, "bone_cap": -1.0, "gates": vcfg["gate_reasons"],
+		"catalog": {
+			"house": _row("house", true, "", ["lot-05", "lot-06"]),
+			"inn": _row("inn", false, "needs_tier", []),
+			"well": _row("well", true, "", ["lot-07"]),
+		},
+		"built": {"lot-01": {"building_id": "crypt", "level": 1, "max_level": 3, "state": "active"},
+			"lot-02": {"building_id": "house", "level": 3, "max_level": 3, "state": "active"}}}
+
+
+func _entry(bid: String, lot: String, gold := 10.0, upgrade := false) -> Dictionary:
+	return {"building_id": bid, "lot_id": lot, "upgrade": upgrade, "level": 1, "cost": {"gold": gold, "bone": 0.0, "relics": 0}}
+
+
+func _statuses(q: TownStandins.BuildQueue) -> Array:
+	return q.entries.map(func(e): return e["status"])
+
+
+func _build_queue(day1: Dictionary) -> void:
+	t.ok(TownStandins.queue_is_standin(day1["town"]), "queue: a town view without `queue` uses the stand-in")
+	t.ok(not TownStandins.queue_is_standin({"queue": []}), "queue: a real `queue` key switches the stand-in off")
+	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
+	var ctx := _qctx()
+	var r := q.add(_entry("house", "lot-05"), ctx)
+	t.ok(r["ok"] and r["index"] == 0 and r["cap_building"] == "", "queue: add returns ok, the index and no cap building")
+	t.ok(_statuses(q) == ["next"], "queue: an affordable head is `next`")
+	for k in ["building_id", "lot_id", "upgrade", "level", "cost", "status", "reason"]:
+		t.ok(q.entries[0].has(k), "queue: entry has `%s` (api-request #3 shape)" % k)
+	# Affordability holds the queue: the head waits for funds, everything behind it stays queued.
+	ctx = _qctx(5.0)
+	q.add(_entry("well", "lot-07"), ctx)
+	t.ok(_statuses(q) == ["waiting_funds", "queued"], "queue: an unaffordable head holds the queue (%s)" % str(_statuses(q)))
+	t.ok(q.entries[0]["reason"] == "no_gold", "queue: the held head says which store is short")
+	# Gate-blocked heads are skipped and the next entry takes the head.
+	var q2 := TownStandins.BuildQueue.new(8, vcfg["cap_buildings"])
+	q2.add(_entry("house", "lot-05"), _qctx())
+	q2.add(_entry("well", "lot-07"), _qctx())
+	var gated := _qctx()
+	gated["catalog"]["house"] = _row("house", false, "needs_tier", [])
+	q2.evaluate(gated)
+	t.ok(_statuses(q2) == ["skipped_gate", "next"] and q2.entries[0]["reason"] == "needs_tier", "queue: a gate-blocked head is skipped, the next one runs (%s)" % str(_statuses(q2)))
+	q2.evaluate(_qctx(5.0))
+	t.ok(_statuses(q2) == ["waiting_funds", "queued"], "queue: when the gate clears the head takes its place again")
+	var norelic := _qctx()
+	q2.entries[0]["cost"]["relics"] = 2
+	q2.evaluate(norelic)
+	t.ok(_statuses(q2) == ["skipped_gate", "next"] and q2.entries[0]["reason"] == "no_relics", "queue: a relics shortfall is a gate (time can't earn relics)")
+	q2.entries[0]["cost"]["relics"] = 0
+	var taken := _qctx()
+	taken["catalog"]["house"]["lots"] = ["lot-06"]
+	q2.evaluate(taken)
+	t.ok(q2.entries[0]["status"] == "skipped_gate" and q2.entries[0]["reason"] == "lot_taken", "queue: a lot taken since queueing is skipped")
+	# Upgrades.
+	var q3 := TownStandins.BuildQueue.new(8, vcfg["cap_buildings"])
+	t.ok(q3.add(_entry("crypt", "lot-01", 50.0, true), _qctx())["ok"] and q3.entries[0]["status"] == "next", "queue: an upgrade queues against the built lot")
+	q3.add(_entry("house", "lot-02", 50.0, true), _qctx())
+	t.ok(q3.entries[1]["status"] == "skipped_gate" and q3.entries[1]["reason"] == "max_level", "queue: an upgrade at max level is skipped")
+	# Refusals.
+	var full := TownStandins.BuildQueue.new(1, {})
+	full.add(_entry("house", "lot-05"), _qctx())
+	t.ok(full.add(_entry("well", "lot-07"), _qctx())["reason"] == "queue_full", "queue: queue_full at max_len")
+	var q4 := TownStandins.BuildQueue.new(8, vcfg["cap_buildings"])
+	var rr := q4.add(_entry("house", "lot-05", 600.0), _qctx(100.0, 100.0, 0.0, 500.0))
+	t.ok(not rr["ok"] and rr["reason"] == "cost_exceeds_cap" and rr["cap_building"] == vcfg["cap_buildings"]["gold"] and rr["store"] == "gold",
+		"queue: a cost over the gold cap is refused and offers the cap building (%s)" % rr["cap_building"])
+	t.ok(cfg["buildings_view"].has(rr["cap_building"]), "queue: the offered cap building is a real building")
+	t.ok(q4.entries.is_empty(), "queue: a refused add queues nothing")
+	t.ok(q4.add(_entry("house", "lot-05", 400.0), _qctx(100.0, 100.0, 0.0, 500.0))["ok"], "queue: a cost under the cap queues")
+	t.ok(q4.add(_entry("well", "lot-07", 9999.0), _qctx())["ok"], "queue: cap -1 means no cap")
+	t.ok(TownStandins.BuildQueue.new(8, {}).add(_entry("house", "lot-05", 600.0), _qctx(0.0, 0.0, 0.0, 500.0))["cap_building"] == "",
+		"queue: no cap building named gives \"\"")
+	t.ok(q4.add(_entry("inn", "lot-09"), _qctx())["reason"] == "needs_tier", "queue: a gate reason refuses at add")
+	t.ok(q4.add(_entry("house", "lot-09"), _qctx())["reason"] == "lot_taken", "queue: a lot the catalog doesn't offer is refused")
+	t.ok(q4.add(_entry("nonesuch", "lot-09"), _qctx())["reason"] == "unknown_building", "queue: an unknown building is refused")
+	# Reorder / unqueue keep the indices consistent.
+	var q5 := TownStandins.BuildQueue.new(8, {})
+	for e in [["house", "lot-05"], ["well", "lot-07"], ["house", "lot-06"]]:
+		q5.add(_entry(e[0], e[1]), _qctx())
+	var lots := func() -> Array:
+		return q5.entries.map(func(e): return e["lot_id"])
+	t.ok(q5.reorder([2, 0, 1])["ok"] and lots.call() == ["lot-06", "lot-05", "lot-07"], "queue: reorder applies a permutation (%s)" % str(lots.call()))
+	t.ok(q5.reorder([0, 0, 1])["reason"] == "bad_order" and q5.reorder([0, 1])["reason"] == "bad_order" and q5.reorder([0, 1, 3])["reason"] == "bad_order",
+		"queue: reorder refuses a non-permutation")
+	t.ok(lots.call() == ["lot-06", "lot-05", "lot-07"], "queue: a refused reorder changes nothing")
+	t.ok(q5.move(2, -1)["ok"] and lots.call() == ["lot-06", "lot-07", "lot-05"], "queue: move up one")
+	t.ok(q5.move(0, -1)["ok"] and lots.call() == ["lot-06", "lot-07", "lot-05"], "queue: move up at the top stays put")
+	t.ok(q5.move(1, 5)["ok"] and lots.call() == ["lot-06", "lot-05", "lot-07"], "queue: move down clamps at the end")
+	t.ok(q5.move(7, 1)["reason"] == "unknown_index", "queue: move of an unknown index")
+	t.ok(q5.unqueue(0)["ok"] and lots.call() == ["lot-05", "lot-07"], "queue: unqueue removes and shifts the rest")
+	t.ok(_statuses(q5) == ["next", "queued"], "queue: statuses follow the new head after an unqueue")
+	t.ok(q5.unqueue(5)["reason"] == "unknown_index" and q5.unqueue(-1)["reason"] == "unknown_index", "queue: unqueue of an unknown index")
+	t.ok(q5.entries.size() == 2, "queue: refused unqueues keep the list")
+	# queue_context from real views.
+	var qc := BuildSort.queue_context(day1, cfg["buildings"], vcfg)
+	t.ok(qc["catalog"].size() == day1["catalog"]["buildings"].size() and qc["gold_cap"] == -1.0 or qc["gold_cap"] >= 0.0, "queue: context reads the catalog and the gold cap")
+	t.ok(qc["built"].size() == day1["town"]["buildings"].size(), "queue: context lists the built lots")
+	t.ok(cfg["buildings_view"].has(vcfg["cap_buildings"]["gold"]) and cfg["buildings_view"].has(vcfg["cap_buildings"]["bone"]),
+		"queue: view.cap_buildings name real buildings")
+
+
+func _build_inspect(day1: Dictionary, mid: Dictionary) -> void:
+	var st := {"gold": 1000.0, "bone": 1000.0, "relics": 5.0}
+	var bcfg: Dictionary = cfg["buildings"]
+	var bv: Dictionary = cfg["buildings_view"]
+	var house := {"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active", "progress": 1.0, "slots": 0,
+		"staffed": 0.0, "foreman": "", "upkeep": {"gold": 0.01, "bone": 0.0}}
+	var i: Dictionary = BuildSort.inspect(house, st, bcfg, bv, vcfg)
+	t.ok(i["label"] == "House" and i["level"] == 1 and i["max_level"] == 3 and i["state_text"] == "working", "inspect: label, level of max, state")
+	t.ok(i["upgrade"]["enabled"] and i["upgrade"]["cost"] == bcfg["house"]["level_costs"][0] and i["upgrade"]["level"] == 2,
+		"inspect: upgrade cost is level_costs[level - 1]")
+	t.ok(not i["cancel"]["visible"] and i["demolish_visible"], "inspect: an active house can be demolished, not cancelled")
+	house["level"] = 3
+	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
+	t.ok(not i["upgrade"]["enabled"] and i["upgrade"]["reason"] == "max_level", "inspect: no upgrade at max level")
+	house["level"] = 2
+	i = BuildSort.inspect(house, {"gold": 10.0, "bone": 1000.0, "relics": 0.0}, bcfg, bv, vcfg)
+	t.ok(not i["upgrade"]["enabled"] and i["upgrade"]["reason"] == "no_gold", "inspect: an unaffordable upgrade says why")
+	house["state"] = "constructing"
+	house["progress"] = 0.4
+	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
+	t.ok(i["upgrade"]["reason"] == "under_construction" and i["cancel"]["visible"] and i["state_text"] == "under construction, 40% done",
+		"inspect: constructing blocks upgrade and offers cancel")
+	t.ok(i["cancel"]["refund"] == bcfg["house"]["level_costs"][1], "inspect: cancelling an upgrade refunds the upgrade's cost")
+	house["level"] = 0
+	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
+	t.ok(i["cancel"]["refund"] == bcfg["house"]["cost"], "inspect: cancelling a first build refunds the build cost")
+	var crypt := {"lot_id": "lot-01", "building_id": "crypt", "level": 1, "state": "active", "slots": 0, "staffed": 0.0, "foreman": "u4",
+		"upkeep": {"gold": 0.0, "bone": 0.0}}
+	i = BuildSort.inspect(crypt, st, bcfg, bv, vcfg)
+	t.ok(not i["demolish_visible"], "inspect: the crypt is protected, no demolish")
+	t.ok(i["foreman"] == "foreman u4", "inspect: the foreman shows")
+	i = BuildSort.inspect(crypt, {"gold": 0.0, "bone": 0.0, "foreman_names": {"u4": "Old Gristle"}, "max_level": {"crypt": 5}}, bcfg, bv, vcfg)
+	t.ok(i["foreman"] == "foreman Old Gristle" and i["max_level"] == 5, "inspect: the foreman by name and max_level from the catalog row")
+	t.ok(BuildSort.stocks({"big_undead": {"big_undead": [{"uid": "u4", "name": "Old Gristle"}]},
+		"catalog": {"buildings": [{"building_id": "crypt", "max_level": 7}]}})["foreman_names"] == {"u4": "Old Gristle"},
+		"inspect: stocks() maps big-undead uids to names")
+	for b in mid["town"]["buildings"]:
+		var s: Dictionary = BuildSort.inspect(b, BuildSort.stocks(mid), bcfg, bv, vcfg)
+		t.ok(s["label"] != "" and s["state_text"] != "" and s["staffing"] != "", "inspect: midgame %s reads fully" % b["building_id"])
+
+
+func _build_unique(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var uniques: Array = []
+	for bid in bv:
+		if bool(bv[bid].get("unique", false)):
+			uniques.append(bid)
+	t.ok(uniques == ["crypt"], "unique: only the crypt is marked unique (%s)" % str(uniques))
+	var crypt := _row("crypt", false, "no_lot")
+	crypt["count"] = 1
+	var ids := func(items: Array) -> Array:
+		return items.map(func(i): return i["row"]["building_id"])
+	t.ok(ids.call(BuildSort.sort_rows([crypt, _row("house", true, "", ["lot-05"])], [], bv, vcfg)) == ["house"],
+		"unique: a built crypt is never offered")
+	crypt["count"] = 0
+	t.ok(ids.call(BuildSort.sort_rows([crypt], [], bv, vcfg)) == ["crypt"], "unique: an unbuilt unique building is still offered")
+	var house := _row("house", true, "", ["lot-05"])
+	house["count"] = 3
+	t.ok(ids.call(BuildSort.sort_rows([house], [], bv, vcfg)) == ["house"], "unique: a built non-unique building stays")
+	for it in BuildSort.sort_rows(day1["catalog"]["buildings"], [], bv, vcfg):
+		t.ok(it["row"]["building_id"] != "crypt" or int(it["row"]["count"]) == 0, "unique: day1 catalog never lists a built crypt")
+
+
+func _build_eta(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var row := {"building_id": "house", "cost": {"gold": 10.0, "bone": 40.0, "relics": 0}, "lot_size": 1,
+		"requires": {"tier": "hamlet", "blueprint": "", "building": ""}}
+	var st := {"gold": 100.0, "bone": 12.0, "relics": 0.0, "count": {}, "rates": {"gold": 0.5, "bone": 0.15}}
+	t.ok(BuildSort.reason_text("no_bone", row, st, bv, vcfg) == "needs 28 more bone, about 3 min at +0.15/s",
+		"eta: 28 short at +0.15/s is about 3 min (%s)" % BuildSort.reason_text("no_bone", row, st, bv, vcfg))
+	st["rates"]["bone"] = 2.0
+	t.ok(BuildSort.reason_text("no_bone", row, st, bv, vcfg) == "needs 28 more bone, about 14 s at +2.00/s", "eta: under 90 s reads in seconds")
+	st["rates"]["bone"] = 0.002
+	t.ok(BuildSort.reason_text("no_bone", row, st, bv, vcfg) == "needs 28 more bone, about 3.9 h at +0.00/s", "eta: long waits read in hours (%s)" % BuildSort.reason_text("no_bone", row, st, bv, vcfg))
+	t.ok(BuildSort.fmt_eta(7200.0, vcfg) == "2 h" and BuildSort.fmt_eta(5399.0, vcfg) == "90 min" and BuildSort.fmt_eta(89.0, vcfg) == "89 s" and BuildSort.fmt_eta(90.0, vcfg) == "2 min",
+		"eta: duration formats and their thresholds")
+	for r in [0.0, -0.2]:
+		st["rates"]["bone"] = r
+		var txt := BuildSort.reason_text("no_bone", row, st, bv, vcfg)
+		t.ok(txt == "bone isn't flowing: build a Bone Mill", "eta: net rate %.1f gives the fix, not an estimate (%s)" % [r, txt])
+	st["count"] = {"bone_mill": 1}
+	t.ok(BuildSort.reason_text("no_bone", row, st, bv, vcfg) == "bone isn't flowing: staff the Bone Mill", "eta: a built mill is staffed instead")
+	var grow := {"building_id": "house", "cost": {"gold": 130.0, "bone": 0.0, "relics": 0}}
+	t.ok(BuildSort.reason_text("no_gold", grow, st, bv, vcfg) == "needs 30 more gold, about 60 s at +0.50/s", "eta: gold uses its own rate")
+	t.ok(BuildSort.reason_text("no_relics", {"cost": {"relics": 2}}, st, bv, vcfg) == "needs 2 relics: dungeon loot", "eta: relics never get an estimate")
+	# The live views: the Build tab's stocks carry the hud's net rates.
+	var live := BuildSort.stocks(day1)
+	t.ok(live.has("rates") and live["rates"].has("gold") and live["rates"].has("bone"), "eta: stocks() carries the hud net rates")
+	for r in day1["catalog"]["buildings"]:
+		if String(r["reason"]) in ["no_gold", "no_bone"]:
+			var txt: String = BuildSort.reason_text(r["reason"], r, live, bv, vcfg)
+			t.ok(txt.contains("more") or txt.contains("flowing"), "eta: day1 %s: %s" % [r["building_id"], txt])
+	# The inspector's upgrade and the queue read the same text.
+	var q := {"building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1, "cost": {"gold": 10.0, "bone": 40.0, "relics": 0},
+		"status": "waiting_funds", "reason": "no_bone"}
+	st["rates"]["bone"] = 0.15
+	st["count"] = {}
+	t.ok(BuildSort.entry_reason(q, {"house": row}, st, bv, vcfg) == "needs 28 more bone, about 3 min at +0.15/s", "eta: a waiting queue head shows the estimate")
+	q["reason"] = ""
+	t.ok(BuildSort.entry_reason(q, {}, st, bv, vcfg) == "", "eta: no reason, no text")
+	var ins := BuildSort.inspect({"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active", "slots": 0, "staffed": 0.0,
+		"upkeep": {}}, {"gold": 10.0, "bone": 1000.0, "relics": 0.0, "rates": {"gold": 0.5, "bone": 0.0}}, cfg["buildings"], bv, vcfg)
+	t.ok(BuildSort.reason_text(String(ins["upgrade"]["reason"]), {"cost": ins["upgrade"]["cost"]}, {"gold": 10.0, "rates": {"gold": 0.5}}, bv, vcfg)
+		== "needs 70 more gold, about 2 min at +0.50/s", "eta: an upgrade's shortfall gets the estimate")
+
+
+func _build_benefit() -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	var pit := BuildSort.benefit("raising_pit", {}, bc, bv, vcfg)
+	t.ok(pit["rates"].is_empty() and not pit["now"], "benefit: E2a's pit effects ({pits}) carry no rate, no 'now' label (%s)" % str(pit["rates"]))
+	t.ok(pit["plain"] == ["+1 raising pit", "2 pit jobs"], "benefit: jobs are plain text (%s)" % str(pit["plain"]))
+	var house := BuildSort.benefit("house", {}, bc, bv, vcfg)
+	t.ok(house["rates"].is_empty() and house["plain"] == ["+8 housing"], "benefit: a cap is plain text, not a rate (%s)" % str(house["plain"]))
+	var inn := BuildSort.benefit("inn", {}, bc, bv, vcfg)
+	t.ok(inn["rates"] == ["+0.02/s migrants"] and inn["plain"] == ["+20 housing"], "benefit: the inn's migrants rate and housing cap")
+	t.ok(BuildSort.benefit("guildhall", {}, bc, bv, vcfg)["plain"] == ["+1 stance slot"], "benefit: stance slots")
+	t.ok(BuildSort.benefit("crypt", {}, bc, bv, vcfg)["plain"] == [bv["crypt"]["benefit"]], "benefit: the crypt has no effects keys now (E2a), so its view line says the big-undead cap")
+	var synth := bc.duplicate(true)
+	synth["crypt"]["effects"] = {"big_undead_cap": 1}
+	t.ok(BuildSort.benefit("crypt", {}, synth, bv, vcfg)["plain"] == ["+1 big undead cap"], "benefit: a big_undead_cap effect is plain text")
+	t.ok(BuildSort.benefit("plaza", {}, bc, bv, vcfg)["plain"] == [bv["plaza"]["benefit"]], "benefit: no recognised effects or jobs falls back to the view line")
+	t.ok(BuildSort.benefit("market", {}, bc, bv, vcfg)["plain"] == ["2 stall jobs"], "benefit: a job building says its jobs")
+	var proj := BuildSort.benefit("raising_pit", {"projected": {"mint": 3.0, "gold": -0.05}}, bc, bv, vcfg)
+	t.ok(proj["now"] and proj["rates"] == ["+3.00/s mint now", "−0.05/s gold now"], "benefit: projected rates replace the stand-in and say 'now' (%s)" % str(proj["rates"]))
+	t.ok(proj["plain"] == ["+1 raising pit", "2 pit jobs"], "benefit: with projected, jobs and caps stay as plain text")
+	var hp := BuildSort.benefit("house", {"projected": {}}, bc, bv, vcfg)
+	t.ok(hp["now"] and hp["rates"].is_empty() and hp["plain"] == ["+8 housing"], "benefit: an empty projected shows no rate but keeps the cap text")
+	t.ok(BuildSort.rate_texts({"gold": 0.3, "bone": 0.0}, vcfg) == ["+0.30/s gold now"], "benefit: zero changes are left out of upgrade_projected")
+	var ins := BuildSort.inspect({"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active", "slots": 0, "staffed": 0.0,
+		"upkeep": {}, "upgrade_projected": {"gold": 0.1}}, {"gold": 1000.0, "bone": 1000.0}, bc, bv, vcfg)
+	t.ok(ins["upgrade_projected"] == {"gold": 0.1}, "benefit: the inspector passes upgrade_projected through")
+
+
+func _build_suggest(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var rows := [_row("market", false, "no_gold"), _row("house", true, "", ["lot-09", "lot-05"]), _row("well", true, "", ["lot-06"])]
+	var items: Array = BuildSort.sort_rows(rows, [], bv, vcfg)
+	var s: Dictionary = BuildSort.suggest(items, bv)
+	t.ok(s["building_id"] == "house" and s["label"] == "House" and s["lots"] == ["lot-09", "lot-05"], "suggest: the top buildable row of the sort")
+	items = BuildSort.sort_rows(rows, [{"id": "morale", "chip": "x", "serves": ["morale"]}], bv, vcfg)
+	t.ok(BuildSort.suggest(items, bv)["building_id"] == "well", "suggest: a buildable row serving a live need leads")
+	t.ok(BuildSort.suggest(BuildSort.sort_rows([_row("market", false, "no_gold"), _row("inn", false, "needs_tier")], [], bv, vcfg), bv).is_empty(),
+		"suggest: nothing buildable gives no suggestion")
+	t.ok(BuildSort.suggest(BuildSort.sort_rows([_row("house", true, "", [])], [], bv, vcfg), bv).is_empty(), "suggest: a row with no free lot is no suggestion")
+	t.ok(BuildSort.suggest([], bv).is_empty(), "suggest: empty catalog")
+	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {"lot-09": 3.0, "lot-05": 1.0}) == "lot-05", "suggest: the lot nearest the crypt")
+	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {"lot-09": 2.0, "lot-05": 2.0}) == "lot-09", "suggest: ties keep the first listed lot")
+	t.ok(BuildSort.nearest_lot(["lot-09", "lot-05"], {}) == "lot-09" and BuildSort.nearest_lot([], {}) == "", "suggest: unknown distances keep the first; none gives \"\"")
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	var hops := {}
+	for l in m.lots:
+		hops[l["id"]] = l["hops"]
+	var real: Dictionary = BuildSort.suggest(BuildSort.sort_rows(day1["catalog"]["buildings"], BuildSort.needs(day1, FORTS, vcfg), bv, vcfg), bv)
+	var any := false
+	for r in day1["catalog"]["buildings"]:
+		any = any or bool(r["can_build"])
+	t.ok(real.is_empty() != any, "suggest: day1 has a suggestion exactly when something is buildable (%s)" % str(real))
+	if not real.is_empty():
+		var lot := BuildSort.nearest_lot(real["lots"], hops)
+		for l in real["lots"]:
+			t.ok(float(hops[lot]) <= float(hops[l]), "suggest: day1 lot %s is nearest the crypt among %s" % [lot, str(real["lots"])])
+
+
+func _build_ghosts(day1: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var catalog := {}
+	for r in day1["catalog"]["buildings"]:
+		catalog[String(r["building_id"])] = r
+	var q := TownStandins.BuildQueue.new(8, vcfg["cap_buildings"])
+	var ctx := BuildSort.queue_context(day1, cfg["buildings"], vcfg)
+	# A funds-blocked head, a gated entry and a plain queued entry (the --town-queue seed).
+	q.entries = [_entry("house", "lot-05", 9999.0), _entry("inn", "lot-06"), _entry("well", "lot-07")]
+	q.entries[0]["cost"] = {"gold": 9999.0, "bone": 0.0, "relics": 0}
+	q.evaluate(ctx)
+	var st := BuildSort.stocks(day1)
+	var g: Array = BuildSort.ghosts(q.entries, ctx["catalog"], st, bv, vcfg)
+	t.ok(g.size() == 3, "ghosts: one per queue entry")
+	t.ok(g.map(func(x): return x["number"]) == [1, 2, 3] and g.map(func(x): return x["lot_id"]) == ["lot-05", "lot-06", "lot-07"],
+		"ghosts: numbers are the queue positions, on the entry's lot")
+	t.ok(g.map(func(x): return x["shape"]) == ["hold", "struck", "plain"] and g.map(func(x): return x["status"]) == ["waiting_funds", "skipped_gate", "queued"],
+		"ghosts: a waiting head holds, a gated entry is struck, the rest are plain (%s)" % str(g.map(func(x): return x["shape"])))
+	t.ok((g[0]["text"].begins_with("needs ") or g[0]["text"].contains("isn't flowing")) and g[1]["text"].begins_with("needs Village tier"),
+		"ghosts: hover text is the shortage (%s) and the gate (%s)" % [g[0]["text"], g[1]["text"]])
+	t.ok(g[2]["text"] == "", "ghosts: a plain queued entry has no hover text")
+	q.entries = [_entry("well", "lot-07")]
+	var rich := ctx.duplicate()
+	rich["gold"] = 1000.0
+	rich["bone"] = 1000.0
+	q.evaluate(rich)
+	t.ok(BuildSort.ghosts(q.entries, rich["catalog"], st, bv, vcfg)[0]["shape"] == "ring", "ghosts: a head that can be paid for is the solid ring")
+	var up := _entry("house", "lot-05", 10.0, true)
+	up["level"] = 2
+	var gu: Array = BuildSort.ghosts([up], {}, st, bv, vcfg)
+	t.ok(gu[0]["upgrade"] and gu[0]["level"] == 2, "ghosts: an upgrade is flagged (drawn as a small +1 over the building)")
+	# Canvas positions come from the model: the footprint of the queued building, a ring inside the lot.
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	var gl: Array = m.ghost_layout(g)
+	t.ok(gl.size() == 3, "ghosts: layout keeps every ghost on a known lot")
+	for e in gl:
+		var lot: Dictionary = m.lot(e["lot_id"])
+		t.ok((lot["rect"] as Rect2).grow(0.5).encloses(e["rect"]), "ghosts: %s's footprint sits inside its lot" % e["lot_id"])
+		t.ok((lot["rect"] as Rect2).has_point(e["ring"]), "ghosts: %s's number ring sits on its lot" % e["lot_id"])
+	t.ok(m.ghost_layout([{"lot_id": "lot-99", "building_id": "house"}]).is_empty(), "ghosts: an unknown lot is dropped")
+	t.ok(BuildSort.ghosts([], {}, st, bv, vcfg).is_empty(), "ghosts: an empty queue draws nothing")
+
+
+func _build_chips() -> void:
+	var c: Dictionary = vcfg["needs"]["chips"]
+	t.ok(String(c["warden_at"]).contains("for the warden at {fort}") and String(c["warden_at"]).contains("big undead and quality"), "chips: the warden chip says what it is for")
+	t.ok(c["gold"] == "gold is falling" and c["housing"] == "no room for more living" and c["tithe"] == "tithe wave on {fort}", "chips: gold, housing and tithe read in plain words")
+	for k in c:
+		t.ok(not String(c[k]).contains("_") and String(c[k]) != "", "chips: %s has no raw ids" % k)
+
+
+func _build_caps(day1: Dictionary) -> void:
+	t.ok(BuildSort.fill(50.0, 200.0) == 0.25, "caps: stock over cap")
+	t.ok(BuildSort.fill(50.0, -1.0) == -1.0, "caps: cap -1 means no cap (-1)")
+	t.ok(BuildSort.fill(500.0, 200.0) == 1.0 and BuildSort.fill(-3.0, 200.0) == 0.0, "caps: fill clamps to 0..1")
+	t.ok(BuildSort.fill(5.0, 0.0) == 1.0, "caps: a zero cap is full")
+	t.ok(BuildSort.hud_rate(day1["hud"], "gold").has("cap") and BuildSort.hud_rate(day1["hud"], "nonesuch").is_empty(), "caps: hud rates carry gold's cap")
+	var bar: Dictionary = vcfg["cap_bar"]
+	for k in ["gold", "bone"]:
+		t.ok(Palette.has(String(bar["ink"][k])), "caps: %s bar ink is a Palette key" % k)
+		t.ok(TownModel.contrast(Palette.c(String(bar["ink"][k])), Palette.c("ground")) >= 3.0, "caps: the %s fill reads at 3:1 on ground" % k)
+	t.ok(String(bar["ink"]["gold"]) == "living" and String(bar["ink"]["bone"]) == "dead", "caps: gold is living-orange, bone is dead matter")
+
+
+func _lot_hit(day1: Dictionary) -> void:
+	var m := _model()
+	m.update(day1, VIEW_RECT)
+	for l in m.lots:
+		t.ok(m.lot_at((l["rect"] as Rect2).get_center(), 44.0) == l["id"], "hit: the centre of %s hits %s" % [l["id"], l["id"]])
+	t.ok(m.lot_at(Vector2(-500, -500), 44.0) == "", "hit: far from every lot hits nothing")
+	# At a small view the lots shrink under 44 px; their hit boxes still reach 44 px.
+	var tiny := _model()
+	tiny.update(day1, Rect2(Vector2.ZERO, Vector2(260, 207)))
+	var r0: Rect2 = tiny.lots[0]["rect"]
+	t.ok(r0.size.x < 44.0 and r0.size.y < 44.0, "hit: at a small view lot-01 is under 44 px (%.0f x %.0f)" % [r0.size.x, r0.size.y])
+	var off := Vector2(21.0, 0.0)
+	t.ok(not r0.has_point(r0.get_center() + off), "hit: a click 21 px off its centre is outside the drawn lot")
+	t.ok(tiny.lot_at(r0.get_center() + off, 44.0) == "lot-01", "hit: ... but still lands on it with the 44 px box")
+	t.ok(tiny.lot_at(r0.get_center() + off, 0.0) != "lot-01", "hit: ... and misses without the grown box")
+	# Overlapping grown boxes go to the nearer centre; a point inside a real rect always wins.
+	var a: Rect2 = tiny.lots[0]["rect"]
+	for l in tiny.lots.slice(1):
+		var b: Rect2 = l["rect"]
+		var mid := (a.get_center() + b.get_center()) * 0.5
+		if a.get_center().distance_to(b.get_center()) < 44.0 and not a.has_point(mid) and not b.has_point(mid):
+			var got: String = tiny.lot_at(a.get_center().lerp(b.get_center(), 0.4), 44.0)
+			t.ok(got == "lot-01", "hit: between two close lots the nearer centre wins")

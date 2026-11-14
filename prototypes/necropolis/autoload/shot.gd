@@ -26,8 +26,6 @@ func _ready() -> void:
 		elif arg == "--cheat=boss":
 			_report(Game.state.cmd_debug_set_state({"forge_level": 4}), arg)
 			_report(Game.state.cmd_debug_grant({"backlog": 18000.0, "big_undead": 4}), arg)
-			Game.army["soldier"] = 40  # legacy forwarder, allowed at E1 (STATE-API 2.2)
-			Game.army["elite"] = 8
 		elif arg == "--finish-raid":
 			_finish_raid = true
 		elif arg == "--cheat=rich":
