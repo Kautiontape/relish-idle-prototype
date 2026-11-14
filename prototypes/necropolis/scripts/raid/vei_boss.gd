@@ -53,6 +53,7 @@ var phase1_s := -1.0            # how long the fronts took (-1: the break never 
 var stress := false             # DEV --boss-stress (BossDev)
 
 var _mote_acc: Array = [0.0, 0.0, 0.0, 0.0]
+var _p1_acc := 0.0              # scene seconds since phase 1 last stepped
 var _anchor_acc := 0.0
 var _anchor_next := 0
 var _guard_acc := 0.0
@@ -102,6 +103,24 @@ func is_over() -> bool:
 
 func in_break() -> bool:
 	return phase == Phase.BREAK
+
+
+## The boss's own beat (phase 2: the clock weaves land and pips fill on, which slows with the trance;
+## otherwise the Pulse). Its visuals (Vei's rings, the anchor ticks) read these so they stay on it.
+func beat_phase() -> float:
+	if Pulse.reduced_motion:
+		return Pulse.reduced_phase
+	if phase == Phase.BREAK:
+		return fposmod(BossLogic.beat_of(t2, tempo_s()), 1.0)
+	return Pulse.phase()
+
+
+func beat_wave() -> float:
+	if Pulse.reduced_motion:
+		return Pulse.reduced_wave
+	if phase == Phase.BREAK:
+		return exp(-beat_phase() * Pulse.wave_decay)
+	return Pulse.wave()
 
 
 func tempo_s() -> float:
@@ -251,17 +270,26 @@ func _process(delta: float) -> void:
 
 
 # --- phase 1: the fronts ---
+## The fronts advance at phase1.step_s (VeiFronts.phase1_step is pure and builds new state; it is
+## linear in dt, so stepping it at 10 Hz is the same fight with fewer allocations per tick).
 func _step_fronts(delta: float) -> void:
 	var vc := vcfg()
-	var before: Array = []
-	for f in p1["fronts"]:
-		before.append(bool(f["cleared"]))
-	p1 = VeiFronts.phase1_step(p1, delta, vc)
-	for i in (p1["fronts"] as Array).size():
-		if bool(p1["fronts"][i]["cleared"]) and not bool(before[i]):
-			_on_front_cleared(i)
-	lanes_node.fronts = p1["fronts"]
 	_front_motes(delta, vc)
+	_p1_acc += delta
+	if _p1_acc < float(vc.get("phase1", {}).get("step_s", 0.1)):
+		return
+	var before := 0
+	var fs: Array = p1["fronts"]
+	for i in fs.size():
+		if bool(fs[i]["cleared"]):
+			before |= 1 << i
+	p1 = VeiFronts.phase1_step(p1, _p1_acc, vc)
+	_p1_acc = 0.0
+	fs = p1["fronts"]
+	for i in fs.size():
+		if bool(fs[i]["cleared"]) and (before & (1 << i)) == 0:
+			_on_front_cleared(i)
+	lanes_node.fronts = fs
 	match VeiFronts.phase1_outcome(p1, vc):
 		"phase2":
 			_begin_break()
@@ -512,6 +540,29 @@ func _spawn_raised(n: int, tier: String, mult: float, vc: Dictionary) -> void:
 		RaidFx.ring(fx_root, rp, Palette.c("undead"), ring_px + 26.0, 0.5, 3.0)
 
 
+## THE SACRIFICE CHAIN (MECHANICS 5.0), as the dungeon has it: a lethal hit on Relish spends the
+## lowest-ranked ally first (chaff, soldier, elite, then the party's big undead), the nearest within
+## a rank (RaidLogic.ally_rank / sacrifice_pick). Overrides raid.gd's old boss branch (plain nearest),
+## which spent a named big undead before the chaff beside it.
+func sacrifice_nearest_ally() -> void:
+	var pool: Array = []
+	var cands: Array = []
+	for a in allies:
+		if not is_instance_valid(a) or not a.alive:
+			continue
+		pool.append(a)
+		cands.append({"rank": RaidLogic.ally_rank(a.role, a.tier), "dist": a.global_position.distance_to(relish.global_position)})
+	var k := RaidLogic.sacrifice_pick(cands)
+	if k < 0:
+		return
+	var best: RaidUnit = pool[k]
+	danger_hit()
+	RaidFx.soul_link(fx_root, best.global_position, relish.global_position)
+	RaidFx.ring(fx_root, best.global_position, Palette.c("danger"), 34.0, 0.45, 3.0)
+	RaidFx.ring(fx_root, relish.global_position, Palette.c("danger"), 26.0, 0.45, 2.0)
+	best.die(true)
+
+
 ## A guard's time is up (BossGuard.life_left): it falls back to her line. Not a kill, so no mote.
 func recall_guard(u: RaidUnit) -> void:
 	if not u.alive:
@@ -571,7 +622,7 @@ func try_phylactery() -> bool:
 		float(bc.get("crack_s", 1.2)))
 	RaidFx.ring(fx_root, relish.global_position, Palette.c("text", 0.8), 40.0, 0.5, 2.5)
 	_revive_shove(bc)
-	trance.grant_free()   # the circle is hers again at once: a backup is a real second chance
+	trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
 	hud.flash(Palette.c("relish"))
 	var left := backups_left()
 	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,

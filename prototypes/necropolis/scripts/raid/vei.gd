@@ -162,7 +162,7 @@ func _draw_vei() -> void:
 	var gone := 0
 	if unravel_f >= 0.0:
 		gone = clampi(floori(total * unravel_f + 0.0001), 0, total)
-	var beat := Pulse.wave()
+	var beat: float = boss.beat_wave() if boss != null else Pulse.wave()   # on the boss's beat
 	var bright := 1.0 + 0.25 * _flare
 	if feed_f >= 0.0:
 		bright += 0.4 * feed_f

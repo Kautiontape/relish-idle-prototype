@@ -4,7 +4,7 @@
   "break_beats": 20,
   "lapse_cost": 4,
   "loss_backlog_keep": 0.35,
-  "phase1": {"ref_s": 20.0, "max_rate": 3.0, "mote_rate": 0.25, "mote_spread_px": 46.0, "_doc": "mote_rate: essence motes (fresh, mass 0) per second dropped by the fallen at each contested lane's front (uncleared lanes), within mote_spread_px of where the stream meets the guard line."},
+  "phase1": {"ref_s": 20.0, "max_rate": 3.0, "mote_rate": 0.25, "mote_spread_px": 46.0, "step_s": 0.1, "_doc": "mote_rate: essence motes (fresh, mass 0) per second dropped by the fallen at each contested lane's front (uncleared lanes), within mote_spread_px of where the stream meets the guard line. step_s: how often the scene steps the fronts (VeiFronts.phase1_step is linear in dt)."},
   "phase1_max_s": 90.0,
   "raise_have_per_mult": 0.5,
   "ferry": {"base": 0.5, "per_pool": 0.01, "per_uncleared": 0.5, "per_q_div": 0.25},

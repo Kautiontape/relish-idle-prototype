@@ -366,22 +366,29 @@ func _boss_logic(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(BossLogic.beats_crossed(BossLogic.beat_of(t0, 2.0), BossLogic.beat_of(t0 + 1.5, 2.0)) == 1, "beat 0 lands after the rest of the Pulse beat")
 	t.near(BossLogic.ferry_per_beat(2.0, 1.714, cfg), 2.0 * 1.714 * float(cfg["ferry_beat_scale"]), 0.0001, "ferry per beat = F * tempo * scale")
 	t.near(BossLogic.ferry_per_beat(-1.0, 1.714, cfg), 0.0, 0.0, "no negative ferry")
-	# the break on the beat clock: a raise of V every 4 beats against F per beat
+	# the break on the beat clock: a raise of V every 4 beats against F per beat (explicit numbers, so
+	# the cases hold whatever vei.json is tuned to)
 	var fpb := 1.0
-	var run := func(v: float, every: int, beats_n: int) -> Dictionary:
+	var run := func(v: float, every: int, beats_n: int, bc: Dictionary) -> Dictionary:
 		var st := VeiFronts.break_start()
 		var mx := 0
+		var above := 0
 		for b in beats_n:
-			st = VeiFronts.break_beat(st, v if b % every == 0 else 0.0, fpb, cfg)
+			st = VeiFronts.break_beat(st, v if b % every == 0 else 0.0, fpb, bc)
 			mx = maxi(mx, int(st["streak"]))
-			if VeiFronts.broken(st, cfg):
-				return {"broken": true, "beat": b, "max": mx}
-		return {"broken": false, "beat": -1, "max": mx}
-	var strong: Dictionary = run.call(10.0, 4, 60)
-	t.ok(bool(strong["broken"]), "raises well above the ferry break her")
-	var weak: Dictionary = run.call(2.0, 4, 60)
-	t.ok(not bool(weak["broken"]) and int(weak["max"]) < int(cfg["break_beats"]), "raises that dip below the ferry between them never break her")
-	t.ok(not bool(run.call(0.0, 1, 60)["broken"]), "no raising, no break")
+			if float(st["ema"]) > fpb:
+				above += 1
+			if VeiFronts.broken(st, bc):
+				return {"broken": true, "beat": b, "max": mx, "above": above}
+		return {"broken": false, "beat": -1, "max": mx, "above": above}
+	var lapse_cfg := {"raise_ema_beats": 4, "break_beats": 20, "lapse_cost": 4}
+	var reset_rule := {"raise_ema_beats": 4, "break_beats": 20}
+	t.ok(bool(run.call(10.0, 4, 60, lapse_cfg)["broken"]), "raises well above the ferry break her")
+	for bc in [lapse_cfg, reset_rule]:
+		var dip: Dictionary = run.call(4.2, 4, 60, bc)
+		t.ok(int(dip["above"]) > 0 and int(dip["max"]) >= 1, "V 4.2 every 4 beats: the raise rate does rise above the ferry")
+		t.ok(not bool(dip["broken"]), "but it dips below between raises, and she never breaks (%s)" % ("lapse_cost 4" if bc.has("lapse_cost") else "reset"))
+	t.ok(not bool(run.call(0.0, 1, 60, lapse_cfg)["broken"]), "no raising, no break")
 
 	# --- horde, accruals, guards --------------------------------------------
 	t.suite("boss_horde")
@@ -533,4 +540,8 @@ func _result_wiring(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(int(r2["relish_deaths"]) == 1 and int(r2["backups_spent"]["phylactery"]) == 1 and r2["party_lost"] == ["a"],
 		"deaths, backups and the party lost carried")
 	t.ok(r2["won"] == true and Results.validate("boss", r2).is_empty(), "the win validates")
-	t.ok(Results.validate("boss", BossLogic.result_of({}, false)).is_empty(), "an empty state still builds a valid result")
+	t.ok(BossLogic.result_of({}, false).is_empty(), "a state missing its keys builds no result")
+	for key in BossLogic.RESULT_KEYS:
+		var cut := st2.duplicate(true)
+		cut.erase(key)
+		t.ok(BossLogic.result_of(cut, true).is_empty(), "result_of refuses a state without '%s' (a renamed fight_state key fails loudly)" % key)
