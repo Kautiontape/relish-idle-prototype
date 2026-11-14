@@ -1,8 +1,8 @@
 extends Node
 ## Scene router (STATE-API 2.3): one active scene at a time. Every scene gets setup(args)
 ## with ids only and emits finished(result); every exit routes through here.
-## E1 compatibility: the raid and boss scenes still get their legacy seed keys merged into args
-## until they are ported; the map and town are v2 and get ids only.
+## Every scene gets ids only (STATE-API 2.3) and reads its seed from views. A v1 raid or boss
+## result is still converted with Results.from_v1 before it is applied.
 
 const MAP := "res://scenes/map/WorldMap.tscn"
 const RAID := "res://scenes/raid/Raid.tscn"
@@ -47,10 +47,25 @@ func _swap(path: String, args: Dictionary) -> void:
 	current = node
 	if node.has_signal("finished"):
 		node.finished.connect(_on_finished.bind(node, path))
+	# The scene is added deferred: a swap can run inside a notification (a window close
+	# mid-raid routes the retreat result from NOTIFICATION_WM_CLOSE_REQUEST), where
+	# add_child fails with "Parent node is busy setting up children". The result apply
+	# above and the autosave below stay synchronous, so quitting still saves.
+	_mount.call_deferred(node, args)
+	Game.autosave()
+
+
+## Adds a swapped-in scene and runs its setup. A scene replaced again before it mounted
+## (two swaps in one frame) is dropped instead of added.
+func _mount(node: Node, args: Dictionary) -> void:
+	if not is_instance_valid(node):
+		return
+	if node != current:
+		node.queue_free()
+		return
 	add_child(node)
 	if node.has_method("setup"):
 		node.setup(args)
-	Game.autosave()
 
 
 func _on_finished(result: Dictionary, emitter: Node, path: String) -> void:
