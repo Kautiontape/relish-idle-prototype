@@ -46,8 +46,12 @@ static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
 # and Stances tabs call that whenever it exists, so this switches itself off). Today's assigned hands
 # (Σ jobs.staffed) fill the job slots top-down in `order`; a building's staff cap trims its job's room
 # (`bcfg` = buildings.json names the building's job; a site under construction keeps its room).
+# `taken` = hands a staffed vat slot takes (the backups panel's "staffing takes 1 hand from <job>"):
+# they come off the hands being filled, so the bottom of `order` loses them first. Only the stand-in
+# says so: TownSim's view_staffing_projection(order, {slot: true}) answers it for real.
+# TODO(api-request #16): this param goes with the stand-in.
 # Returns {jobs: [{id, slots, staffed}] in `order`, idle}.
-static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionary = {}) -> Dictionary:
+static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionary = {}, taken := 0) -> Dictionary:
 	var town: Dictionary = views.get("town", {})
 	var slots := {}
 	var room := {}
@@ -67,7 +71,7 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 			continue
 		var job := String(jobs.keys()[0])
 		room[job] = maxf(float(room[job]) - float(maxi(int(b.get("slots", 0)) - cap, 0)), 0.0)
-	var left := hands
+	var left := maxf(hands - float(taken), 0.0)
 	var out: Array = []
 	for id in order:
 		if not slots.has(String(id)):

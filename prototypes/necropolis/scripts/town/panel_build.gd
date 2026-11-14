@@ -473,6 +473,11 @@ func _report(r: Dictionary, ok_text: String, row := {}) -> void:
 	command_issued.emit()
 
 
+## Another tab (backups' No vats yet) asks for this building: its row is focused and, when it can be built, placement starts.
+func select_building(bid: String) -> void:
+	_focus_building(bid)
+
+
 func _focus_building(bid: String) -> void:
 	if bid == "" or not _rows.has(bid):
 		return

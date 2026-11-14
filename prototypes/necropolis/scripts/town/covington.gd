@@ -267,6 +267,7 @@ func _build_ui() -> void:
 	build.suggestion_changed.connect(_view.set_suggestion)
 	build.queue_changed.connect(_view.set_queue)
 	build.build_started.connect(_view.flash_lot)
+	_panels[3].show_building.connect(_on_show_building.bind(build))  # backups' No vats yet: the Build tab, that building selected
 	build.to_realm.connect(_on_return)  # the relic pin's To the realm: the same one exit as the HUD's Return
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_select_tab(_debug_tab())
@@ -297,6 +298,11 @@ func _select_tab(i: int) -> void:
 		_panels[k].visible = (k == i)
 		_tabs[k].set_pressed_no_signal(k == i)
 		_tabs[k].add_theme_stylebox_override("normal", TownUI.button_box("active" if k == i else "normal"))
+
+
+func _on_show_building(bid: String, build: Control) -> void:
+	_select_tab(0)
+	build.select_building(bid)
 
 
 func _on_command_issued() -> void:

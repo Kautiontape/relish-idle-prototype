@@ -134,6 +134,7 @@ func run() -> int:
 	_stance_flash(day1, demo)
 	_behaviour_config()
 	_behaviour_commands()
+	_backups(day1, pre)
 	return t.failures
 
 
@@ -3596,3 +3597,89 @@ func _full_staffing_label() -> void:
 	t.ok(b["rates"] == ["+0.50/s migrants at full staffing"] and not b["now"], "label: a job building's stand-in rate is 'at full staffing' (%s)" % str(b["rates"]))
 	t.ok(BuildSort.benefit("inn", {}, cfg["buildings"], bv, vcfg)["rates"] == ["+0.02/s migrants"], "label: a building with no staff has no staffing label")
 	t.ok(BuildSort.benefit("raising_pit", {"projected": {"mint": 3.0}}, bc, bv, vcfg)["rates"] == ["+3.00/s mint now"], "label: projected rates are 'now'")
+
+
+# ------------------------------------------------------------ backups panel ----
+func _backups(day1: Dictionary, pre: Dictionary) -> void:
+	var tx: Dictionary = vcfg["backups"]
+	# the death text: each outcome in words, the wait from respawn_s, no raw ids
+	var o := func(outcome: String, s: float) -> String:
+		return BackupsModel.outcome_text({"outcome": outcome, "respawn_s": s, "loses": []}, tx)
+	t.ok(o.call("phylactery", 0.0) == "A phylactery charge: she gets back up where she fell", "backups: phylactery outcome (%s)" % o.call("phylactery", 0.0))
+	t.ok(o.call("clone", 60.0) == "A ready clone: she wakes in Covington after 60 s", "backups: clone outcome with its wait (%s)" % o.call("clone", 60.0))
+	t.ok(o.call("unmade", 600.0) == "Unmade: she reforms after 10 min", "backups: unmade outcome in minutes (%s)" % o.call("unmade", 600.0))
+	t.ok(o.call("clone", 0.0) == "A ready clone: she wakes in Covington at once", "backups: a zero wait says at once (%s)" % o.call("clone", 0.0))
+	for oc in ["phylactery", "clone", "unmade", "", "bogus"]:
+		t.ok(not String(o.call(oc, 60.0)).contains("{") and not String(o.call(oc, 60.0)).contains("_"), "backups: '%s' leaks no raw id or placeholder" % oc)
+	t.ok(BackupsModel.wait_text(60.0, tx) == "60 s" and BackupsModel.wait_text(600.0, tx) == "10 min" and BackupsModel.wait_text(0.0, tx) == "",
+		"backups: wait text 60 s, 10 min, none")
+	# the ladder: phylactery < clone < unmade, the current step marked
+	for oc in ["phylactery", "clone", "unmade"]:
+		var steps := BackupsModel.ladder(oc)
+		t.ok(steps.map(func(x): return x["id"]) == ["phylactery", "clone", "unmade"]
+			and steps.filter(func(x): return x["current"]).map(func(x): return x["id"]) == [oc], "backups: the ladder marks only %s" % oc)
+	# every loses id in words
+	for id in ["party", "unbanked_loot", "flip", "morale"]:
+		var w := BackupsModel.loses_text(id, tx)
+		t.ok(w != "" and w != id and not w.contains("_"), "backups: loses '%s' reads '%s'" % [id, w])
+	t.ok(BackupsModel.loses_list(["unbanked_loot", "morale"], tx) == ["loot since the last checkpoint", "a morale shock"], "backups: loses list in order")
+	t.ok(not BackupsModel.loses_text("some_new_id", tx).contains("_"), "backups: an unknown loses id still reads as words")
+	var party := [{"name": "Old Gristle", "place": "town:lot-3"}, {"name": "Big u2", "place": "party"}]
+	var pt := BackupsModel.party_text(party, {"lot-3": "Market"}, {}, vcfg["crypt"], tx)
+	t.ok(pt == "the party: Old Gristle (foreman at the Market), Big u2", "backups: the party named with its places (%s)" % pt)
+	t.ok(BackupsModel.party_text([], {}, {}, vcfg["crypt"], tx) == "the party", "backups: an empty party is just 'the party'")
+	# vat state text
+	t.ok(BackupsModel.vat_state_text({"staffed": true, "ready": false}, tx) == "staffed: growing", "backups: staffed vat")
+	t.ok(BackupsModel.vat_state_text({"staffed": false, "ready": false}, tx) == "unstaffed: paused", "backups: unstaffed vat")
+	t.ok(BackupsModel.vat_state_text({"staffed": false, "ready": true}, tx) == "ready: a clone waits", "backups: ready vat")
+	# the silhouette reveal: length at grow 0, 0.5, 1
+	var rect := Rect2(0, 0, 56, 96)
+	var total := _strokes_len(BackupsModel.reveal_strokes(tx["figure"], rect, 1.0))
+	t.ok(total > 100.0, "backups: the whole figure has length (%.1f)" % total)
+	t.near(_strokes_len(BackupsModel.reveal_strokes(tx["figure"], rect, 0.0)), 0.0, 0.001, "backups: grow 0 draws nothing")
+	t.near(_strokes_len(BackupsModel.reveal_strokes(tx["figure"], rect, 0.5)), total * 0.5, 0.5, "backups: grow 0.5 draws half the length")
+	t.near(_strokes_len(BackupsModel.reveal_strokes(tx["figure"], rect, 1.0)), total, 0.001, "backups: grow 1 draws all of it")
+	# crafts: cost and reason in words
+	t.ok(BackupsModel.cost_text({"essence": 20, "relics": 1}, tx) == "20 essence, 1 relic", "backups: craft cost (%s)" % BackupsModel.cost_text({"essence": 20, "relics": 1}, tx))
+	t.ok(BackupsModel.cost_text({"essence": 15, "relics": 0}, tx) == "15 essence", "backups: a zero relic cost is left out")
+	t.ok(BackupsModel.craft_reason_text("needs_building", tx) == "needs the Ossuary Tower" and BackupsModel.craft_reason_text("no_essence", tx) == "not enough essence"
+		and BackupsModel.craft_reason_text("no_relics", tx) == "not enough relics", "backups: craft reasons in words")
+	t.ok(BackupsModel.pips_text(0, tx) == "none" and BackupsModel.pips_text(3, tx) == "◆◆◆" and BackupsModel.pips_text(11, tx) == "◆◆◆◆◆◆◆◆ +3", "backups: charges are countable pips")
+	# staffing a vat takes one hand off the bottom of the order (the stand-in, until #16)
+	var views: Dictionary = pre
+	var order: Array = TownBehaviour.effective(views["town"])
+	var before: Array = TownStandins.staffing_projection(views, order, cfg["buildings"])["jobs"]
+	var after: Array = TownStandins.staffing_projection(views, order, cfg["buildings"], 1)["jobs"]
+	var diff := TownBehaviour.staffing_diff(before, after)
+	var hands := 0.0
+	for j in before:
+		hands += float(j["staffed"])
+	t.ok(hands < 0.5 or (diff.size() == 1 and absf(float(diff[0]["delta"]) + 1.0) < 0.001), "backups: one vat takes exactly one hand (%s)" % str(diff))
+	if hands >= 0.5:
+		var bottom := ""
+		for j in before:
+			if float(j["staffed"]) > 0.0:
+				bottom = String(j["id"])
+		t.ok(String(diff[0]["id"]) == bottom, "backups: the hand comes from the bottom staffed job (%s vs %s)" % [diff[0]["id"], bottom])
+		var line := BackupsModel.staffing_cost_text(diff, vcfg["job_labels"], tx)
+		t.ok(line == "staffing takes 1 hand from %s" % vcfg["job_labels"][bottom], "backups: staffing cost line (%s)" % line)
+	t.ok(BackupsModel.staffing_cost_text([], vcfg["job_labels"], tx) == "staffing takes no hand from a job", "backups: no hand moves, said so")
+	# the stand-in with nothing taken is unchanged
+	t.ok(TownStandins.staffing_projection(views, order, cfg["buildings"], 0) == TownStandins.staffing_projection(views, order, cfg["buildings"]), "backups: taking 0 hands changes nothing")
+	# the chapel's upkeep comes from the town view, not a constant
+	var chapel := BackupsModel.chapel_upkeep(pre["town"]["buildings"], tx["chapel"])
+	t.ok(not chapel.is_empty() and float(chapel["gold"]) > 0.0, "backups: the chapel's upkeep is read from view_town (%s)" % str(chapel))
+	t.ok(BackupsModel.chapel_upkeep(day1["town"]["buildings"], tx["chapel"]).is_empty(), "backups: no chapel, no upkeep")
+	# the real view on the fixtures: every outcome and loses id reads
+	for v in [day1, pre]:
+		var d: Dictionary = v["backups"]["death"]
+		var txt := BackupsModel.outcome_text(d, tx)
+		t.ok(txt != "" and BackupsModel.loses_list(d["loses"], tx).size() == (d["loses"] as Array).size(), "backups: the fixture's death reads: %s" % txt)
+
+
+func _strokes_len(pls: Array) -> float:
+	var n := 0.0
+	for p in pls:
+		for i in range(1, p.size()):
+			n += p[i - 1].distance_to(p[i])
+	return n
