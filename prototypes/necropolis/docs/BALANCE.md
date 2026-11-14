@@ -138,7 +138,10 @@ E2a added is here with its value.
 | `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
 | `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
 | `loot.reclear_decay` | 0.5 | |
-| `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 8, 0.35 | |
+| `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 20, 0.35 | `vei.json`; `lapse_cost` 4: a beat below the ferry takes 4 pips back (MECHANICS §6) |
+| `vei.guards` `rate_per_uncleared`, `cap`, `life_s`; `unit.hp`, `unit.dmg` | 1.0/s, 12, 6 s; 49.5, 8.8 | tuned in D-c so no ±5% move swings the win rate by a cliff; hp and dmg sit off Relish's 30-hp hit counts on purpose |
+| `vei.weaves.dmg`, `period_beats` | 13.5, 3 | off the 30-hp hit counts as above |
+| `vei.backups` `revive_hp_frac`, `iframes_s`, `shove_px`, `shove_recover_s`, `ready_trance` | 1.0, 3 s, 180 px, 3 s, false | a revive in the Vei fight is at full hp but does not ready the trance; V1 (1+1) 65%, V2 (0+0) 15% at score 70 |
 | `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
 
 **Lots per tier** (`economy.json` `town.tiers.<tier>.lot_ids`; sizes are `town.json`'s: lot-01..04 and
