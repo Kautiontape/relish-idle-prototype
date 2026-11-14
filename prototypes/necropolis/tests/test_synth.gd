@@ -275,7 +275,24 @@ func _prefs(t: TestUtil, c: Dictionary) -> void:
 	AudioPrefs.set_master_db(-30.0)
 	t.ok(AudioServer.is_bus_mute(bus) and AudioServer.get_bus_volume_db(bus) == -30.0, "a harness session still applies to the bus")
 	t.ok(FileAccess.get_file_as_string(tmp) == before and FileAccess.get_modified_time(tmp) == mtime_before, "a harness session does not write the file")
+	# a harness session starts muted whatever the saved preference says, and writes nothing
+	var cf_unmuted := ConfigFile.new()
+	cf_unmuted.set_value("audio", "muted", false)
+	cf_unmuted.set_value("audio", "master_db", -6.0)
+	cf_unmuted.save(tmp)
+	var saved_text := FileAccess.get_file_as_string(tmp)
+	var saved_mtime := FileAccess.get_modified_time(tmp)
+	AudioServer.set_bus_mute(bus, false)
+	AudioPrefs.apply()  # still the harness Game from above
+	t.ok(AudioPrefs.muted() and AudioServer.is_bus_mute(bus), "a harness session starts with the Master bus muted, even when the saved preference is unmuted")
+	t.ok(FileAccess.get_file_as_string(tmp) == saved_text and FileAccess.get_modified_time(tmp) == saved_mtime, "starting muted in a harness session writes nothing")
 	game.free()
+	AudioPrefs.game_node = null
+	# a normal player launch keeps the saved (unmuted) preference
+	var player := _fake_game(true)
+	AudioPrefs.apply()
+	t.ok(not AudioPrefs.muted() and not AudioServer.is_bus_mute(bus), "a player launch keeps the saved unmuted preference")
+	player.free()
 	AudioPrefs.game_node = null
 	var game2 := _fake_game(true)
 	t.ok(AudioPrefs.can_save(), "autosave_enabled true may save")
