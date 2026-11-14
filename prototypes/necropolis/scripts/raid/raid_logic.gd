@@ -842,16 +842,17 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
 
 
-## The sacrifice chain's reach over sources (D-d/E Step 4b, the manager's option A): a warden's telegraphed
-## tell-attacks (the Bellringer's slam, the Huntsman's lunge, the Shieldwall's bash and rush, the
-## Pyre-priest's fire) strike Relish directly; the chain does not soak them, only the warden's own counter
-## answers them. Everything else (the living, packs, hounds, any other blow, Vei's weaves) still follows
-## the chain. MECHANICS §5.0.
+## The sacrifice chain's reach over sources (D-d/E Step 4b, the manager's option A): where the risk gate is on
+## (`bypass_on`: WardenLogic.lever_on, tier >= wardens.lever_min_tier and not the first dungeon; off with no
+## warden), a warden's telegraphed tell-attacks (the Bellringer's slam, the Huntsman's lunge, the
+## Shieldwall's bash and rush, the Pyre-priest's fire) strike Relish directly; the chain does not soak them,
+## only the warden's own counter answers them. Everything else (the living, packs, hounds, any other blow,
+## Vei's weaves), and everything at tier 1 and in the first dungeon, still follows the chain. MECHANICS §5.0.
 const TELL_ATTACKS := ["slam", "lunge", "bash", "rush", "fire"]
 
 
-static func chain_soaks(src: String) -> bool:
-	return not TELL_ATTACKS.has(src)
+static func chain_soaks(src: String, bypass_on: bool) -> bool:
+	return not (bypass_on and TELL_ATTACKS.has(src))
 
 
 ## The measuring bot (D-d/E Step 4 review): can she still raise with no undead standing? `motes` is the

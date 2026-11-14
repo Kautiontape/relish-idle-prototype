@@ -328,12 +328,18 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	# Step 4b (option A): a warden's tell-attacks strike her directly; the chain soaks everything else
 	var bypass := true
 	for src in ["slam", "lunge", "bash", "rush", "fire"]:
-		bypass = bypass and not RaidLogic.chain_soaks(src)
-	t.ok(bypass, "the chain never soaks a warden's tell-attack (slam, lunge, bash, rush, fire)")
-	t.ok(RaidLogic.chain_soaks("living") and RaidLogic.chain_soaks("pack") and RaidLogic.chain_soaks("hound") and RaidLogic.chain_soaks(""),
+		bypass = bypass and not RaidLogic.chain_soaks(src, true)
+	t.ok(bypass, "with the gate on the chain never soaks a warden's tell-attack (slam, lunge, bash, rush, fire)")
+	t.ok(RaidLogic.chain_soaks("living", true) and RaidLogic.chain_soaks("pack", true) and RaidLogic.chain_soaks("hound", true) and RaidLogic.chain_soaks("", true),
 		"it still soaks the living, packs, hounds and any unnamed blow (Vei's weaves)")
+	var wcfg: Dictionary = cfg["wardens"]
+	t.ok(not WardenLogic.lever_on(1, false, wcfg) and RaidLogic.chain_soaks("slam", WardenLogic.lever_on(1, false, wcfg)), "tier 1: the chain soaks a slam (the gate is off)")
+	t.ok(not WardenLogic.lever_on(3, true, wcfg) and RaidLogic.chain_soaks("lunge", WardenLogic.lever_on(3, true, wcfg)), "the first dungeon: the chain soaks a lunge")
+	t.ok(WardenLogic.lever_on(2, false, wcfg) and not RaidLogic.chain_soaks("slam", WardenLogic.lever_on(2, false, wcfg)), "tier 2: the slam strikes her")
 	var rel_src := FileAccess.get_file_as_string("res://scripts/raid/relish.gd")
-	t.ok(rel_src.contains("raid.has_allies() and RaidLogic.chain_soaks(src)"), "Relish.take_hit asks RaidLogic.chain_soaks, the one place the rule lives")
+	t.ok(rel_src.contains("raid.has_allies() and RaidLogic.chain_soaks(src, raid.warden_run != null and raid.warden_run.tell_bypass)"), "Relish.take_hit asks RaidLogic.chain_soaks with the fort's gate")
+	var wr_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
+	t.ok(wr_src.contains("tell_bypass = WardenLogic.lever_on("), "the gate is the lever's own (WardenLogic.lever_on)")
 	# 3c: a pack never turns on Relish: with no undead standing it breaks (standing or still being called)
 	t.ok(WardenLogic.pack_breaks(3, false, false) and WardenLogic.pack_breaks(0, true, false), "no undead stands: a standing pack, or one its horn calls, breaks")
 	t.ok(not WardenLogic.pack_breaks(3, false, true) and not WardenLogic.pack_breaks(0, true, true), "undead stand: it stays")

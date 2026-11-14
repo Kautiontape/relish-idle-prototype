@@ -37,7 +37,7 @@ static func spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	# D-d/E Step 4, the risk lever candidates (wardens.lever_min_tier up, never the first dungeon):
 	# attack_dmg_mult on all of its attack's damage (to her undead and to Relish), relish_dmg_mult on its
 	# damage to Relish only. 1.0 each leaves every spec as it was.
-	var lever := not first and tier >= int(w.get("lever_min_tier", 2))
+	var lever := lever_on(tier, first, w)
 	var all_m := float(w.get("attack_dmg_mult", 1.0)) if lever else 1.0
 	var rel_m := float(w.get("relish_dmg_mult", 1.0)) if lever else 1.0
 	for k in attack.keys():
@@ -480,6 +480,12 @@ static func rush_reach(base: float, rush_px: float, room_half: float, frac: floa
 	if frac > 0.0:
 		r = minf(r, room_half * frac)
 	return maxf(base, r)
+
+
+## D-d/E Step 4 / 4b, the risk gate: the lever and the tell-attacks' bypass of the sacrifice chain apply from
+## `wardens.lever_min_tier` up and never in the first dungeon (`w` is raid.json `wardens`).
+static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:
+	return not first and tier >= int(w.get("lever_min_tier", 2))
 
 
 ## D-d/E Step 4b, the counter is the soak: a bash whose lit arc covers her strikes Relish unless a wits

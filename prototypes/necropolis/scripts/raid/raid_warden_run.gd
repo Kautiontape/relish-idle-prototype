@@ -5,6 +5,7 @@ extends RefCounted
 ## `warden_beaten`. A held fort, or the boss arena, has none of it (every method is a no-op).
 
 var warden: RaidWarden = null
+var tell_bypass := false       # the risk gate for this fort (WardenLogic.lever_on): tell-attacks skip the chain
 var chest: RaidChest = null
 var last_chance_done := false
 var warden_name := ""   # the spec's name, kept after the warden dies (the death card names it)
@@ -47,6 +48,7 @@ func build() -> void:
 	node.configure(_raid, w)
 	warden_name = str(w.get("name", ""))
 	warden = node
+	tell_bypass = WardenLogic.lever_on(int(w["tier"]), bool(w["first_dungeon"]), _raid.rcfg().get("wardens", {}))
 
 
 ## Per physics frame: room tracking (wake, last chance).
