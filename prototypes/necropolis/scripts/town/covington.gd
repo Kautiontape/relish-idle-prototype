@@ -413,12 +413,12 @@ func _fetch(spread := false) -> void:
 	var views := _fetch_views()
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
-	_later = _bound.filter(_binds_now)
+	var now := _bound.filter(_binds_now)
 	if spread:
+		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
 		return
-	var all := _later
 	_later = []
-	for n in all:
+	for n in now:
 		n.bind(views)
 
 

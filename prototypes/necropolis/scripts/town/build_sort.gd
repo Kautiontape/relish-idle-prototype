@@ -844,8 +844,6 @@ static func label_of(building_id: String, bview: Dictionary) -> String:
 	return String(bview.get(building_id, {}).get("label", building_id.capitalize()))
 
 
-## Cost as display parts [{text, short}] for gold, bone, relics. A part the stock can't cover
-## starts with `!` (text marker, not colour only) and is flagged `short`.
 ## What a catalog row's stock-free nodes depend on, as one number: the sorted item (row, class, chip) and
 ## `extra` (the suggestion, placement, focus, queue state, fix target). Equal inputs, equal number; the panel
 ## remakes those nodes only when it differs from the bind before.
@@ -853,6 +851,8 @@ static func row_sig(item: Dictionary, extra: Array) -> int:
 	return [item, extra].hash()
 
 
+## Cost as display parts [{text, short}] for gold, bone, relics. A part the stock can't cover
+## starts with `!` (text marker, not colour only) and is flagged `short`.
 static func cost_parts(cost: Dictionary, st: Dictionary) -> Array:
 	var out: Array = []
 	for k in ["gold", "bone", "relics"]:

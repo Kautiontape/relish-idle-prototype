@@ -716,6 +716,8 @@ func _on_place_btn(uid: String, what: String) -> void:
 			_after_place(uid, r)
 		"foreman", "siege":
 			row["mode"] = "" if row["mode"] == what else what
+			row.erase("sig")  # the nodes below are written here, not by a bind: the next one redoes them
+			_bind_sig = 0
 			row["opts_sig"] = ""
 			(row["opts"] as Control).visible = row["mode"] != ""
 			if row["mode"] != "":
@@ -777,6 +779,8 @@ func _after_place(uid: String, r: Dictionary) -> void:
 		_say(row["status"], "")
 		row["mode"] = ""
 		(row["opts"] as Control).visible = false
+		row.erase("sig")  # the views may not move (the creature was placed there already): restyle the row anyway
+		_bind_sig = 0
 	else:
 		_say(row["status"], _tx("refused").format({"why": _reason(String(r.get("reason", "")))}))
 

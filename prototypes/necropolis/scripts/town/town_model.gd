@@ -176,6 +176,17 @@ func strokes(building_id: String, r: Rect2, reveal: float) -> Array[PackedVector
 
 ## `pls` drawn in order and cut so the drawn length is `frac` of the total (the last polyline
 ## partial). The end of the last returned polyline is the drawing head. 0 -> [], >= 1 -> all.
+## The nodes still waiting to bind plus those a new fetch wants bound, each once, the waiting ones first and the
+## order kept. A fetch that lands before the queue drains adds to it, so no node is dropped (the open tab, last in
+## line, was, below about 8 fps).
+static func merge_pending(pending: Array, nodes: Array) -> Array:
+	var out := pending.duplicate()
+	for n in nodes:
+		if not out.has(n):
+			out.append(n)
+	return out
+
+
 static func truncate(pls: Array[PackedVector2Array], frac: float) -> Array[PackedVector2Array]:
 	var out: Array[PackedVector2Array] = []
 	if frac <= 0.0:

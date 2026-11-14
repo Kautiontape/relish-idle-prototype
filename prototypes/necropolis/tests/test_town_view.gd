@@ -156,6 +156,10 @@ func run() -> int:
 	_fix3b_small(mid)
 	_fix3b_lot_names()
 	_fix3d_sigs(day1, mid)
+	_fix3e_queue()
+	_fix3e_sigs(mid)
+	_fix3e_handlers()
+	_fix3e_live()
 	return t.failures
 
 
@@ -4763,3 +4767,216 @@ func _fix3d_sigs(day1: Dictionary, mid: Dictionary) -> void:
 	# the shell binds only what is on screen
 	var src := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
 	t.ok(src.contains("func _binds_now(") and src.contains("_panels[i].bind(_last_views)"), "shell: hidden tabs bind on show, from the last views")
+
+
+# ---- fix 3e: the refresh fix's review ----
+## Item 1: the spread refresh's queue merges, so a fetch that lands before the queue drains drops nothing.
+func _fix3e_queue() -> void:
+	t.suite("town-fix3e-queue")
+	var a := RefCounted.new()
+	var b := RefCounted.new()
+	var c := RefCounted.new()
+	var d := RefCounted.new()
+	var pend: Array = [a, b, c]
+	var out := TownModel.merge_pending(pend, [a, b, c, d])
+	t.ok(out == [a, b, c, d], "queue: a refresh over a part-drained queue keeps the order and adds only the new one")
+	pend = [c]  # a, b were popped; the next fetch wants all four again
+	out = TownModel.merge_pending(pend, [a, b, c, d])
+	t.ok(out == [c, a, b, d], "queue: the node still waiting stays first, the rest follow once each (%d)" % out.size())
+	t.ok(TownModel.merge_pending([], [a, b]) == [a, b], "queue: an empty queue takes the list as it is")
+	t.ok(TownModel.merge_pending([a, b], []) == [a, b], "queue: nothing to add drops nothing")
+	# a slow-frame cycle: every fetch lands after one pop; the last node must still be bound in the end
+	var nodes: Array = [a, b, c, d]  # hud, view, build, open tab
+	var queue: Array = []
+	var bound := {}
+	for fetch in 6:
+		queue = TownModel.merge_pending(queue, nodes)
+		bound[queue.pop_front()] = true
+	t.ok(bound.size() == 4, "queue: popping one per fetch still reaches the open tab (%d of 4 bound)" % bound.size())
+	var shell := _read_src("res://scripts/town/covington.gd")
+	t.ok(shell.contains("TownModel.merge_pending(") and not shell.contains("_later = _bound.filter(_binds_now)"), "covington: the spread queue merges, it is not replaced")
+
+
+## Items 5 and 6 (pure part): each field a section reads moves its signature, each it doesn't read leaves it.
+func _fix3e_sigs(mid: Dictionary) -> void:
+	t.suite("town-fix3e-sigs")
+	var base := CryptLogic.bind_sig(mid)
+	var edits := {
+		"at": func(v: Dictionary): v["relish"]["at"] = "lot-77",
+		"target": func(v: Dictionary): v["relish"]["target"] = "fort-x",
+		"respawn_with_clone": func(v: Dictionary): v["relish"]["respawn_with_clone"] = not bool(v["relish"].get("respawn_with_clone", false)),
+		"a changed creature": func(v: Dictionary): v["big_undead"]["big_undead"] = [{"uid": "b-1", "name": "A", "place": "crypt"}],
+	}
+	for k in edits:
+		var v := mid.duplicate(true)
+		(edits[k] as Callable).call(v)
+		t.ok(CryptLogic.bind_sig(v) != base, "crypt sig: relish %s changes it" % k if k in ["at", "target", "respawn_with_clone"] else "crypt sig: %s changes it" % k)
+	var cv := mid.duplicate(true)
+	cv["big_undead"]["big_undead"] = [{"uid": "b-1", "name": "A", "place": "crypt"}]
+	var cv2 := cv.duplicate(true)
+	cv2["big_undead"]["big_undead"][0]["place"] = "party"
+	t.ok(CryptLogic.bind_sig(cv) != CryptLogic.bind_sig(cv2), "crypt sig: a creature's place changes it")
+	var lv := mid.duplicate(true)
+	lv["town"]["buildings"][0]["level"] = int(lv["town"]["buildings"][0].get("level", 1)) + 1
+	t.ok(CryptLogic.bind_sig(lv) != base, "crypt sig: a changed lot (its level) changes it")
+	var fv := mid.duplicate(true)
+	fv["town"]["buildings"][0]["foreman"] = "b-9"
+	t.ok(CryptLogic.bind_sig(fv) != base, "crypt sig: a changed lot's foreman changes it")
+	# the death section
+	var d0 := BackupsModel.death_sig(mid)
+	var dv := {
+		"dead_s_left": func(v: Dictionary): v["backups"]["dead_s_left"] = float(v["backups"].get("dead_s_left", 0.0)) + 3.0,
+		"party": func(v: Dictionary): v["party"] = {"party": [{"uid": "p-1", "name": "P", "place": "party"}]},
+		"loses": func(v: Dictionary): v["backups"]["death"]["loses"] = ["party", "everything"],
+		"respawn_s": func(v: Dictionary): v["backups"]["death"]["respawn_s"] = 12.0,
+	}
+	for k in dv:
+		var v := mid.duplicate(true)
+		if not v.has("party"):
+			v["party"] = {"party": []}
+		var before := BackupsModel.death_sig(v)
+		(dv[k] as Callable).call(v)
+		t.ok(BackupsModel.death_sig(v) != before, "death sig: %s changes it" % k)
+	# the vats section: what its fill and the staffing projection read
+	var base_v := mid.duplicate(true)
+	base_v["town"]["buildings"] = [{"building_id": "chapel_of_vats", "lot_id": "lot-01", "state": "active", "slots": 2, "staff_cap": 2,
+		"upkeep": {"gold": 0.5, "bone": 0.0}, "progress": 1.0, "staffed": 1.0, "output": {}, "rot": 0.0}]
+	base_v["town"]["jobs"] = [{"id": "pit", "slots": 2, "staffed": 1.0}]
+	base_v["town"]["workers"] = {"idle": 3.0, "total": 9.0}
+	base_v["town"]["ladder"] = ["pit", "stall"]
+	var v0 := BackupsModel.vats_sig(base_v)
+	var vv := {
+		"jobs.staffed": func(v: Dictionary): v["town"]["jobs"][0]["staffed"] = 2.0,
+		"jobs.slots": func(v: Dictionary): v["town"]["jobs"][0]["slots"] = 3,
+		"workers.idle": func(v: Dictionary): v["town"]["workers"]["idle"] = 4.0,
+		"the ladder": func(v: Dictionary): v["town"]["ladder"] = ["stall", "pit"],
+		"the effective ladder": func(v: Dictionary): v["town"]["ladder_effective"] = ["stall", "pit"],
+		"clones_ready": func(v: Dictionary): v["backups"]["clones_ready"] = int(v["backups"].get("clones_ready", 0)) + 1,
+		"a building's state": func(v: Dictionary): v["town"]["buildings"][0]["state"] = "constructing",
+		"a building's slots": func(v: Dictionary): v["town"]["buildings"][0]["slots"] = 3,
+		"a building's staff_cap": func(v: Dictionary): v["town"]["buildings"][0]["staff_cap"] = 1,
+		"a building's upkeep": func(v: Dictionary): v["town"]["buildings"][0]["upkeep"] = {"gold": 0.75, "bone": 0.0},
+		"a building's id": func(v: Dictionary): v["town"]["buildings"][0]["building_id"] = "bonemill",
+	}
+	for k in vv:
+		var v := base_v.duplicate(true)
+		(vv[k] as Callable).call(v)
+		t.ok(BackupsModel.vats_sig(v) != v0, "vats sig: %s changes it" % k)
+	# what the vats fill does not read leaves it
+	var calm := base_v.duplicate(true)
+	var cb: Dictionary = calm["town"]["buildings"][0]
+	cb["progress"] = 0.4
+	cb["staffed"] = 2.0
+	cb["output"] = {"mint": 1.0}
+	cb["rot"] = 0.3
+	cb["muster"] = 1.0
+	cb["lifetime"] = 99.0
+	calm["town"]["workers"]["total"] = 10.0
+	calm["town"]["workers"]["rot"] = 0.2
+	calm["town"]["workers"]["muster"] = 1.0
+	t.ok(BackupsModel.vats_sig(calm) == v0, "vats sig: progress, staffed, output, rot, muster, lifetime and the worker totals don't move it")
+	# the ossuary section: each field it shows
+	var o0 := BackupsModel.ossuary_sig(mid)
+	var ov := {
+		"phylactery_charges": func(v: Dictionary): v["backups"]["phylactery_charges"] = int(v["backups"].get("phylactery_charges", 0)) + 1,
+		"phylactery_max_per_dungeon": func(v: Dictionary): v["backups"]["phylactery_max_per_dungeon"] = int(v["backups"].get("phylactery_max_per_dungeon", 0)) + 1,
+		"simulacra_ready": func(v: Dictionary): v["inventory"]["simulacra_ready"] = int(v["inventory"].get("simulacra_ready", 0)) + 1,
+		"essence": func(v: Dictionary): v["inventory"]["essence"] = float(v["inventory"].get("essence", 0)) + 1.0,
+		"relics": func(v: Dictionary): v["inventory"]["relics"] = int(v["inventory"].get("relics", 0)) + 1,
+		"crafts": func(v: Dictionary): v["catalog"]["crafts"] = [{"item_id": "z", "can_craft": false, "cost": {}}],
+	}
+	for k in ov:
+		var v := mid.duplicate(true)
+		(ov[k] as Callable).call(v)
+		t.ok(BackupsModel.ossuary_sig(v) != o0, "ossuary sig: %s changes it" % k)
+
+
+## Items 2 and 3: a local handler that writes row nodes directly makes the row (and the panel) redo them.
+func _fix3e_handlers() -> void:
+	t.suite("town-fix3e-handlers")
+	var crypt := _read_src("res://scripts/town/panel_crypt.gd")
+	var after := crypt.substr(crypt.find("func _after_place("))
+	after = after.substr(0, after.find("\nfunc ", 10))
+	t.ok(after.contains("_bind_sig = 0") and after.contains("row.erase(\"sig\")"), "crypt: _after_place invalidates the row and the panel's signature")
+	var btn := crypt.substr(crypt.find("func _on_place_btn("))
+	btn = btn.substr(0, btn.find("\nfunc ", 10))
+	t.ok(btn.contains("_bind_sig = 0") and btn.contains("row.erase(\"sig\")"), "crypt: the Foreman/Siege chooser toggle invalidates them too")
+	var build := _read_src("res://scripts/town/panel_build.gd")
+	var cancel := build.substr(build.find("func cancel_placement("))
+	cancel = cancel.substr(0, cancel.find("\nfunc ", 10))
+	t.ok(cancel.contains("erase(\"sig\")"), "build: cancel_placement clears each row's signature after writing 'Place'")
+	var jobs := _read_src("res://scripts/town/panel_jobs.gd")
+	t.ok(jobs.contains("visibility_changed") and jobs.contains("_armed = 0"), "jobs: a hidden tab disarms the flash")
+	var bs := _read_src("res://scripts/town/build_sort.gd")
+	var i_doc := bs.find("## Cost as display parts")
+	var i_sig := bs.find("static func row_sig(")
+	var i_cp := bs.find("static func cost_parts(")
+	t.ok(i_doc >= 0 and i_doc < i_cp and (i_sig < i_doc or i_sig > i_cp), "build_sort: cost_parts keeps its own doc comment, row_sig sits outside it")
+
+
+## Item 6: a real GameState ticks with no command; none of the signatures moves.
+func _fix3e_live() -> void:
+	t.suite("town-fix3e-live")
+	for fx in ["day1", "midgame_2flips"]:
+		var s := GameState.new(TestUtil.configs())
+		s.debug_enabled = true
+		s.cmd_debug_load_fixture(fx)
+		var v0 := _live(s)
+		var sig0 := _live_sigs(v0)
+		var r0 := s.rev
+		for i in 6:
+			s.tick(0.5)
+		t.ok(s.rev > r0, "%s: the ticks moved the rev (%d to %d)" % [fx, r0, s.rev])
+		var v1 := _live(s)
+		# Allowed exceptions, each a field the panel really shows that moves with the sim: Relish travels in
+		# midgame_2flips (the crypt gate and place words change when she arrives), so the crypt compares with
+		# her view held; and a need chip carries a live count ("bodies are low (40 of 200)"), so a catalog row
+		# may move by its chip alone.
+		var held := v1.duplicate()
+		held["relish"] = v0["relish"]
+		var sig1 := _live_sigs(v1)
+		sig1["crypt"] = CryptLogic.bind_sig(held)
+		var items0 := {}
+		for it in BuildSort.tab_suggestion(v0, cfg["buildings_view"], cfg["buildings"], vcfg)["items"]:
+			items0[String(it["row"]["building_id"])] = it
+		var items1 := {}
+		for it in BuildSort.tab_suggestion(v1, cfg["buildings_view"], cfg["buildings"], vcfg)["items"]:
+			items1[String(it["row"]["building_id"])] = it
+		for k in sig0:
+			if not k.begins_with("row:"):
+				t.ok(sig0[k] == sig1[k], "%s: %s unchanged after 3 s of ticks with no command" % [fx, k])
+		var moved: Array = []
+		for k in sig0:
+			if k.begins_with("row:") and sig0[k] != sig1[k]:
+				var a: Dictionary = (items0[k.trim_prefix("row:")] as Dictionary).duplicate()
+				var b: Dictionary = (items1[k.trim_prefix("row:")] as Dictionary).duplicate()
+				a["chip"] = ""
+				b["chip"] = ""
+				if a != b:
+					moved.append(k)
+		t.ok(moved.is_empty(), "%s: no catalog row's signature moved but by its chip's live count (%s)" % [fx, str(moved)])
+		t.ok(sig0.keys().filter(func(k): return k.begins_with("row:")).size() > 5, "%s: the rows were checked (%d)" % [fx, sig0.size()])
+
+
+func _live(s: GameState) -> Dictionary:
+	return {"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "fort_names": {}, "catalog": s.view_catalog(),
+		"stances": s.view_stances(), "backups": s.view_backups(), "inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
+		"party": s.view_party(), "relish": s.view_relish(), "vei": s.view_vei()}
+
+
+func _live_sigs(v: Dictionary) -> Dictionary:
+	var out := {"crypt": CryptLogic.bind_sig(v), "death": BackupsModel.death_sig(v), "vats": BackupsModel.vats_sig(v),
+		"ossuary": BackupsModel.ossuary_sig(v)}
+	var bview: Dictionary = cfg["buildings_view"]
+	var tab := BuildSort.tab_suggestion(v, bview, cfg["buildings"], vcfg)
+	var st := BuildSort.stocks(v)
+	var sug_bid := String(tab["sug"].get("building_id", ""))
+	for it in tab["items"]:
+		var row: Dictionary = it["row"]
+		var bid := String(row.get("building_id", ""))
+		var can := bool(row.get("can_build", false))
+		var target := BuildSort.fix_target(String(row.get("reason", "")), row, st, vcfg) if not can else ""
+		var sug := bid == sug_bid
+		out["row:" + bid] = BuildSort.row_sig(it, [sug, String(tab["sug"].get("chip", "suggested")) if sug and bool(tab["sug"].get("upgrade", false)) else "",
+			false, false, false, target])
+	return out

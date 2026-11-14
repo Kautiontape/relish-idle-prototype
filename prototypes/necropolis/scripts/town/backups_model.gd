@@ -170,12 +170,21 @@ static func death_sig(views: Dictionary) -> int:
 		views.get("fort_names", {})].hash()
 
 
-## The vats section: the vats, the chapel's upkeep and what the staffing projection reads (the jobs, the hands,
-## the buildings' caps, the ladder).
+## The vats section: the vats, the chapel's upkeep and what the staffing projection reads: per building its id,
+## state, slots, staff_cap and upkeep; the idle hands; the jobs (id, slots, staffed); the ladder. Nothing else
+## the town view carries (progress, output, rot, muster, lifetime, the other worker counts) is in it, so it
+## doesn't move on a refresh that only ran the sim. The idle hands count by whole hands: the text says whole
+## hands, and the count creeps by fractions every tick while the town grows.
 static func vats_sig(views: Dictionary) -> int:
 	var town: Dictionary = views.get("town", {})
-	return [views.get("backups", {}).get("vats", []), views.get("backups", {}).get("clones_ready", 0), town.get("buildings", []),
-		town.get("jobs", []), town.get("workers", {}), town.get("ladder", []), town.get("ladder_effective", [])].hash()
+	var bs: Array = []
+	for b in town.get("buildings", []):
+		bs.append([b.get("building_id", ""), b.get("state", ""), b.get("slots", 0), b.get("staff_cap", -1), b.get("upkeep", {})])
+	var jobs: Array = []
+	for j in town.get("jobs", []):
+		jobs.append([j.get("id", ""), j.get("slots", 0), j.get("staffed", 0.0)])
+	return [views.get("backups", {}).get("vats", []), views.get("backups", {}).get("clones_ready", 0), bs, jobs,
+		roundi(float(town.get("workers", {}).get("idle", 0.0))), town.get("ladder", []), town.get("ladder_effective", [])].hash()
 
 
 ## The ossuary section: the charges, the simulacra and stock, the craft rows.

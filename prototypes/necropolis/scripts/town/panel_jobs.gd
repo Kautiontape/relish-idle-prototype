@@ -40,6 +40,9 @@ func _ready() -> void:
 	_bcfg = db.get("buildings", {})
 	_bview = db.get("buildings_view", {})
 	add_theme_constant_override("separation", 6)
+	visibility_changed.connect(func():
+		if not is_visible_in_tree():
+			_armed = 0)  # a hidden tab doesn't bind: left armed it would flash all it drifted on the way back
 	_summary = _wrap("", 14)
 	add_child(_summary)
 	var scroll := ScrollContainer.new()

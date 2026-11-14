@@ -408,6 +408,7 @@ func cancel_placement() -> void:
 	_update_banner()
 	for bid in _rows:
 		_rows[bid]["place"].text = "Place"
+		_rows[bid].erase("sig")  # written here, not by a bind: the next bind must redo the row
 	_push_suggestion()
 
 
