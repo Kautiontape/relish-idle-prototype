@@ -670,7 +670,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - pale-bastion carries the deaths: 14 / 20 with wits, 16 / 20 without. the-stair has 0 / 20 in both arms.
     - **Why.** With packs off Relish, the warden's own attack is the only killer, and only the Shieldwall's rush kills at all often.
       - In every pale-bastion death, in both arms, both party bigs were already lost, so no wits flanker was left to pin.
-      - The unpinned rushes then cut down the raised soldiers along with her: 12-21 undead still stood 5 s before 10 of the 14 deaths with wits, and before 13 of the 16 without.
+      - The unpinned rushes then cut down the raised soldiers along with her: 12-21 undead still stood 5 s before 11 of the 14 deaths with wits, and before 13 of the 16 without.
       - So the risk sits in the rush's reach into the raised army after the bigs fall, not in a wipe followed by a lone finish.
       - Without its counter, a warden's fight simply runs longer.
   - **Unchanged:** Vei byte-identical. Tier 1 and P1 equal the bot-fixed lines (bfix's own effect is above). `parity_check.sh` gives identical results, 5 of 5.
