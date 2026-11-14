@@ -852,3 +852,18 @@ static func foe_engaged(rel_pos: Vector2, rel_room: int, foe_pos: Vector2, foe_r
 	if rel_room >= 0 and foe_room == rel_room:
 		return true
 	return rel_pos.distance_to(foe_pos) <= fight_px
+
+
+## The measuring bot's reaction rule (raid.json autopilot react_*): a value set at a few target scores,
+## linear between them and clamped outside (`pts` ascending, `vals` the same length). Empty: 0.
+static func react_at(score: float, pts: Array, vals: Array) -> float:
+	var n := mini(pts.size(), vals.size())
+	if n == 0:
+		return 0.0
+	if score <= float(pts[0]):
+		return float(vals[0])
+	for i in range(1, n):
+		if score <= float(pts[i]):
+			var f := (score - float(pts[i - 1])) / maxf(1e-9, float(pts[i]) - float(pts[i - 1]))
+			return lerpf(float(vals[i - 1]), float(vals[i]), f)
+	return float(vals[n - 1])

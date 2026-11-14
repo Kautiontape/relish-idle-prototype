@@ -9,7 +9,7 @@ extends RefCounted
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
-## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
+## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-answer-mult=<x>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
 ##   with --raid-party-<stat>=<n> (power, beef, wits, presence, speed) every party big undead's <stat> set to n: the weak
 ##   points with and without (--raid-party-wits for the Shieldwall, --raid-party-power for the Pyre-priest).

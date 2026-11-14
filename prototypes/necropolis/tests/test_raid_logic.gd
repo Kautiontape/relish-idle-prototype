@@ -410,7 +410,40 @@ func run() -> int:
 	_warden_reach_tests(t, cfg)
 	_vis_tests(t, cfg)
 	_time_split_tests(t)
+	_react_tests(t, cfg)
 	return t.failures
+
+
+## The bot's reaction rule (raid.json autopilot react_*, RaidLogic.react_at; RaidAutopilot._answers).
+func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_react")
+	var ap: Dictionary = cfg["autopilot"]
+	var pts: Array = ap["react_score"]
+	var miss: Array = ap["react_miss"]
+	var dly: Array = ap["react_delay_s"]
+	t.ok(pts.size() == miss.size() and pts.size() == dly.size() and pts.size() >= 2, "react_score, react_miss and react_delay_s line up")
+	t.near(RaidLogic.react_at(70.0, pts, miss), 0.18, 1e-9, "score 70 misses 0.18 of the tells")
+	t.near(RaidLogic.react_at(70.0, pts, dly), 0.45, 1e-9, "and reacts 0.45 s after one shows")
+	t.near(RaidLogic.react_at(50.0, pts, miss), 0.30, 1e-9, "score 50: 0.30")
+	t.near(RaidLogic.react_at(90.0, pts, dly), 0.30, 1e-9, "score 90 reacts in 0.30 s")
+	t.near(RaidLogic.react_at(60.0, pts, miss), 0.24, 1e-9, "linear between the points (60: 0.24)")
+	t.near(RaidLogic.react_at(30.0, pts, miss), 0.30, 1e-9, "clamped below the first point")
+	t.near(RaidLogic.react_at(100.0, pts, dly), 0.30, 1e-9, "clamped above the last")
+	t.ok(RaidLogic.react_at(70.0, [], []) == 0.0, "no points: 0")
+	var mono := true
+	for k in range(30, 101):
+		mono = mono and RaidLogic.react_at(float(k), pts, miss) <= RaidLogic.react_at(float(k - 1), pts, miss) + 1e-12 \
+			and RaidLogic.react_at(float(k), pts, dly) <= RaidLogic.react_at(float(k - 1), pts, dly) + 1e-12
+	t.ok(mono, "a better circle score never misses more or reacts slower")
+	t.ok(not ap.has("dodge") and not ap.has("burn_step_off"), "the old per-warden chances are gone: one rule for every tell")
+	# one place, its own stream: the tell rolls never draw from the trace's rng, and the trace never from theirs
+	var answers := _func_body("res://scripts/raid/raid_autopilot.gd", "func _answers(")
+	t.ok(answers.contains("_rng_react.randf()") and not answers.contains("_rng.randf()"), "_answers rolls from the reaction stream")
+	t.ok(not _func_body("res://scripts/raid/raid_autopilot.gd", "func _trace_for(").contains("_rng_react"), "the trace jitter never draws from it")
+	for head in ["func _vs_bell(", "func _vs_wall(", "func _vs_pyre(", "func _dodge_step(", "func _vs_warden(", "func _decide("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("randf") and not body.contains("randi"),
+			"the bot's %s draws no roll of its own (tells go through _answers)" % head.trim_prefix("func ").trim_suffix("("))
 
 
 ## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).
