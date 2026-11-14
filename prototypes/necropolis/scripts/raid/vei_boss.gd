@@ -553,6 +553,7 @@ func try_phylactery() -> bool:
 	RaidFx.crack(fx_root, relish.global_position, Palette.c("relish"), float(bc.get("crack_radius_px", 110.0)),
 		float(bc.get("crack_s", 1.2)))
 	RaidFx.ring(fx_root, relish.global_position, Palette.c("text", 0.8), 40.0, 0.5, 2.5)
+	_revive_shove(bc)
 	hud.flash(Palette.c("relish"))
 	var left := backups_left()
 	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,
@@ -560,6 +561,18 @@ func try_phylactery() -> bool:
 	if _standalone:
 		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f" % [kind, deaths, left, fight_t])
 	return true
+
+
+## The revive shockwave: guards within backups.shove_px are thrown back to it and lose her for
+## shove_recover_s, so a revive among guards gives her a fair moment instead of a second death.
+func _revive_shove(bc: Dictionary) -> void:
+	var rp := relish.global_position
+	var px := float(bc.get("shove_px", 300.0))
+	var secs := float(bc.get("shove_s", 0.35))
+	for e in enemies:
+		if is_instance_valid(e) and e.alive and e is BossGuard and e.global_position.distance_to(rp) < px:
+			e.knock(rp, px, secs, float(bc.get("shove_recover_s", 2.5)))
+	RaidFx.ring(fx_root, rp, Palette.c("relish", 0.9), px, secs + 0.25, 4.0)
 
 
 ## No backup left: the final death (relish_deaths = spent + 1).
