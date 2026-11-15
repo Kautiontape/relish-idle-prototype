@@ -858,6 +858,11 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 ## human_real_s, and the wiring that keeps every knob off unless given.
 func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_human")
+	# the unstick watch does not count the degraded bot's held thinks (the read pause, the drawn circle; D-e quality pass)
+	var aim := _func_body("res://scripts/raid/raid_autopilot.gd", "func _aim_at(")
+	t.ok(aim.find("_read_left <= 0.0 and not _drawing") >= 0 and aim.find("_read_left <= 0.0 and not _drawing") < aim.find("unstick_step(")
+		and aim.find("_aim_last = _sim_t") > aim.find("_read_left <= 0.0 and not _drawing"),
+		"the watch steps, and its last-walked clock advances, only while she is free to walk (not in a read pause or a draw)")
 	var hum: Dictionary = cfg["autopilot"]["human"]
 	t.ok(hum.has("_doc") and float(hum["read_s"]) > 0.0 and float(hum["draw_s"]) > 0.0, "autopilot.human holds the bare flags' values, with a _doc")
 	t.ok(RaidLogic.human_knob("", false, 1.0, 60.0) == 0.0, "no flag: the knob is off")

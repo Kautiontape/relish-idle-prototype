@@ -707,14 +707,18 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 ## unstick_s, she gives it up. Changes nothing while she closes on it.
 func _aim_at(pos: Vector2, o) -> Vector2:
 	var p: Vector2 = o.global_position
-	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
-	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
-	_aim_obj = o
-	if step == "give_up":
-		_unreachable[o.get_instance_id()] = true
-	elif step == "aim_in":
-		_aimed_in += 1
-	_aim_last = _sim_t
+	if _read_left <= 0.0 and not _drawing:
+		# (the degraded bot's read pause and drawn circle hold her still by design (_human_goal): the watch
+		# skips those thinks and its last-walked clock stands, so the first think back restarts it, "closing";
+		# the frozen bot never holds, so its lines are unchanged. The quality pass of D-e.)
+		var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
+		var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
+		_aim_obj = o
+		if step == "give_up":
+			_unreachable[o.get_instance_id()] = true
+		elif step == "aim_in":
+			_aimed_in += 1
+		_aim_last = _sim_t
 	if bool(_aim["in"]):
 		var r := RaidLogic.room_of(_raid.layout, p)
 		if r >= 0:
