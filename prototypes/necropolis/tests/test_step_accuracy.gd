@@ -14,10 +14,11 @@ extends RefCounted
 ##   at 10 s as at 0.5 s; and a departure inside a step picks the fort the projection leads with, not
 ##   the stale snapshot's.
 ## - The gate's judge (convergence.gd judge(), the function its 10 s assertion calls; IDLE §4) on
-##   synthetic 12 h series sampled every 600 s, at economy.json idle's tol and floors: a tally a fixed
-##   0.7 behind passes; a mid-run fault that recovers by the endpoint passes (a) and fails (b); a 2%
-##   rate error fails (a); a stock 1.5% off at one sample fails; and outcomes compare by order, not
-##   time.
+##   synthetic 12 h series sampled every 600 s, with every case sized from economy.json idle's tol and
+##   floors: a fixed lag under the floor passes; a mid-run fault that recovers by the endpoint passes
+##   (a) and fails (b); a slope 2 tol off fails (a); a stock 1.5 tol off at one sample fails; a tally
+##   whose endpoint is under its floor passes (a) within the floor and fails outside it; and outcomes
+##   compare by order, not time.
 
 var t := TestUtil.new()
 const Q := 1.2  # digest_q for the realm cases
@@ -44,11 +45,11 @@ const REF_SLOPE := 0.005  # bone/s
 const N_SAMPLES := 73
 
 
-func _series(bone: Callable, stock: Callable) -> Array:
+func _series(bone: Callable, stock: Callable, slope := REF_SLOPE) -> Array:
 	var ref: Array = []
 	var run: Array = []
 	for i in N_SAMPLES:
-		var y := REF_SLOPE * 600.0 * i
+		var y := slope * 600.0 * i
 		var r := {"backlog": 1000.0 + 10.0 * i, "vei_dead": 50.0, "vei_pool": 600.0, "workers": 40.0, "gold": 500.0,
 			"bone": 300.0, "living": 20.0, "gold_over": 0.0, "bone_over": y}
 		var x := r.duplicate()
@@ -68,31 +69,47 @@ func _gate_judge() -> void:
 	var none: Dictionary = c._outcome()
 	var same := func(i: int, y: float) -> float: return y
 	var judge := func(s: Array, o: Dictionary, ro: Dictionary) -> Dictionary: return c.judge(s[0], s[1], floors, o, ro, gate)
-	t.ok(tol == 0.01 and fl == 1.0 and float(gate["floor"]["gold_over"]) == 6.0,
-		"the gate's numbers are economy.json idle's: tol %s, floors %s" % [str(tol), str(gate["floor"])])
-	# a fixed lag: 0.7 behind from the first sample on
-	t.ok(0.7 < fl, "the case: a 0.7 lag sits under the bone floor (%.1f)" % fl)
-	var g: Dictionary = judge.call(_series(func(i: int, y: float) -> float: return maxf(0.0, y - 0.7) if i > 0 else y, same), none, none)
-	t.ok(bool(g["ok"]) and bool(g["tallies"]["bone_over"]["a_ok"]) and bool(g["tallies"]["bone_over"]["b_ok"]),
-		"a tally a fixed 0.7 behind passes: %s" % c.gate_line(g))
-	# a mid-run fault: 5 bone off at 6 h (a bump from 3 h to 9 h), 0.04% off at 12 h
-	var fault := func(i: int, y: float) -> float: return y * (1.0 - 0.0004) + 5.0 * maxf(0.0, 1.0 - absf(i - 36) / 18.0)
+	# the config's numbers, only sanity-checked: every case below is sized from them. 0.74 bone is the worst
+	# (b) residual at 10 s over 12 h on the three starts (pre_vei at 600 s; IDLE §4), so the bone floor
+	# has to stay at least that for the gate to pass at 10 s.
+	var floors_ok := tol > 0.0
+	for m in gate["floor"]:
+		floors_ok = floors_ok and float(gate["floor"][m]) > 0.0
+	t.ok(floors_ok and fl >= 0.74, "the gate's numbers are economy.json idle's and sane: tol %s, floors %s" % [str(tol), str(gate["floor"])])
+	var y_end := REF_SLOPE * 43200.0
 	var y6 := REF_SLOPE * 21600.0
-	t.ok(5.0 > maxf(tol * y6, fl), "the case: 5 bone at 6 h is above its allowance there, max(%s × %.1f, %.1f)" % [str(tol), y6, fl])
+	# a fixed lag: 0.7 of the floor (or of tol · the endpoint, if that is smaller) behind from the first sample on
+	var lag := 0.7 * minf(fl, tol * y_end)
+	var g: Dictionary = judge.call(_series(func(i: int, y: float) -> float: return maxf(0.0, y - lag) if i > 0 else y, same), none, none)
+	t.ok(bool(g["ok"]) and bool(g["tallies"]["bone_over"]["a_ok"]) and bool(g["tallies"]["bone_over"]["b_ok"]),
+		"a tally a fixed %.3f behind passes: %s" % [lag, c.gate_line(g)])
+	# a mid-run fault: 5 times the larger of its allowance there and the floor, a bump from 3 h to 9 h, a
+	# twenty-fifth of tol off at 12 h
+	var bump := 5.0 * maxf(tol * y6, fl)
+	var fault := func(i: int, y: float) -> float: return y * (1.0 - 0.04 * tol) + bump * maxf(0.0, 1.0 - absf(i - 36) / 18.0)
 	g = judge.call(_series(fault, same), none, none)
 	var tr: Dictionary = g["tallies"]["bone_over"]
 	t.ok(bool(tr["a_ok"]), "a mid-run fault that recovers passes (a): %s at the end" % c._tally_a(tr))
 	t.ok(not bool(tr["b_ok"]) and not bool(g["ok"]), "and fails (b), so the gate fails: %.3f off at %.0f s against %.3f" % [
 		float(tr["b_d"]), float(tr["b_at"]), float(tr["b_allow"])])
-	# a rate error: the tally's slope 2% off
-	g = judge.call(_series(func(i: int, y: float) -> float: return 1.02 * y, same), none, none)
+	# a rate error: the tally's slope twice tol off
+	g = judge.call(_series(func(i: int, y: float) -> float: return (1.0 + 2.0 * tol) * y, same), none, none)
 	tr = g["tallies"]["bone_over"]
-	t.ok(not bool(tr["a_ok"]) and not bool(g["ok"]), "a tally 2%% off in its slope fails (a): %s" % c._tally_a(tr))
-	# a stock 1.5% off at one sample
-	g = judge.call(_series(same, func(i: int, x: float) -> float: return x * 1.015 if i == 40 else x), none, none)
+	t.ok(not bool(tr["a_ok"]) and not bool(g["ok"]), "a tally 2 tol off in its slope fails (a): %s" % c._tally_a(tr))
+	# a stock 1.5 tol off at one sample
+	g = judge.call(_series(same, func(i: int, x: float) -> float: return x * (1.0 + 1.5 * tol) if i == 40 else x), none, none)
 	t.ok(not bool(g["stocks"]["ok"]) and not bool(g["ok"]) and g["stocks"]["metric"] == "backlog",
-		"a stock 1.5%% off at one sample fails: %s at %.0f s" % [str(g["stocks"]["metric"]), float(g["stocks"]["at"])])
+		"a stock 1.5 tol off at one sample fails: %s at %.0f s" % [str(g["stocks"]["metric"]), float(g["stocks"]["at"])])
 	t.ok(bool(g["tallies"]["bone_over"]["ok"]) and bool(g["tallies"]["gold_over"]["ok"]), "while its tallies pass")
+	# a tally whose endpoint is under its floor (midgame_2flips' bone: 0.56 against a floor of 1): (a) is
+	# judged by the floor there, not by a relative error
+	var small := 0.5 * fl / 43200.0
+	g = judge.call(_series(func(i: int, y: float) -> float: return y + 0.3 * fl if i > 0 else y, same, small), none, none)
+	tr = g["tallies"]["bone_over"]
+	t.ok(float(tr["ref_end"]) < fl and bool(tr["a_ok"]) and bool(g["ok"]), "an endpoint under its floor, 0.3 floor off, passes (a): %s" % c._tally_a(tr))
+	g = judge.call(_series(func(i: int, y: float) -> float: return y + 1.5 * fl if i > 0 else y, same, small), none, none)
+	tr = g["tallies"]["bone_over"]
+	t.ok(float(tr["ref_end"]) < fl and not bool(tr["a_ok"]) and not bool(g["ok"]), "and 1.5 floors off fails (a): %s" % c._tally_a(tr))
 	# outcomes: the same switches 9.6 s apart pass; a flip only one run has fails
 	var o: Dictionary = c._outcome()
 	var ro: Dictionary = c._outcome()

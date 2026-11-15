@@ -22,7 +22,8 @@ extends RefCounted
 ##     worst");
 ##   - each tally (TALLIES: the gold and bone caps' overflow, ledger().stores, E2b-2 T3.2), on its
 ##     growth over the run: (a) at the last sample (the 12 h endpoint), |x − ref| / |ref| ≤ tol, or
-##     |x − ref| ≤ its floor where ref is 0; and (b) at every sample, |x − ref| ≤ max(tol · |ref|,
+##     |x − ref| ≤ its floor where |ref| is under the floor (0 included: a relative error on a tally
+##     that small is noise); and (b) at every sample, |x − ref| ≤ max(tol · |ref|,
 ##     its floor). The floors are `idle.catchup_gate_tally_floor`, a fixed amount per tally (BALANCE
 ##     §5). A tally starts at 0, so its early relative error means nothing: (b)'s floor carries the
 ##     fixed lag a 10 s step leaves, and (b) still catches a mid-run fault the endpoint averages away;
@@ -430,7 +431,7 @@ static func gate_of(all: Dictionary) -> Dictionary:
 ## The catch-up gate (IDLE §4; the header has the rule): `samples` against `ref`, both every `sample_s`
 ## from the same start, `floors` the stocks' (floors_of), the two runs' outcomes, and `gate` from
 ## gate_of(). Returns {ok, stocks: {ok, worst, metric, at}, tallies: {m: {ok, a_ok, a (relative, −1
-## where ref is 0), a_d, ref_end, b_ok, b (the worst |x − ref| / its allowance), b_d, b_allow, b_at,
+## where ref is 0; a_ok uses the floor instead where |ref| is under it), a_d, ref_end, b_ok, b (the worst |x − ref| / its allowance), b_d, b_allow, b_at,
 ## floor}}, outcomes: {ok, differ: [the lists that differ]}}. Times are s from the start.
 static func judge(samples: Array, ref: Array, floors: Dictionary, outcome: Dictionary, ref_outcome: Dictionary,
 		gate: Dictionary, sample_s := SAMPLE_S) -> Dictionary:
@@ -453,7 +454,7 @@ static func judge(samples: Array, ref: Array, floors: Dictionary, outcome: Dicti
 		var y_end := float(ref[n - 1][m]) - y0
 		var d_end := absf(float(samples[n - 1][m]) - x0 - y_end)
 		var a := d_end / absf(y_end) if y_end != 0.0 else -1.0
-		var tr := {"a": a, "a_d": d_end, "ref_end": y_end, "a_ok": a <= tol if y_end != 0.0 else d_end <= fl,
+		var tr := {"a": a, "a_d": d_end, "ref_end": y_end, "a_ok": a <= tol if absf(y_end) >= fl and y_end != 0.0 else d_end <= fl,
 			"b": 0.0, "b_d": 0.0, "b_allow": fl, "b_at": 0.0, "floor": fl}
 		for i in n:
 			var y := float(ref[i][m]) - y0

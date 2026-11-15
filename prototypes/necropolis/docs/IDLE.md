@@ -145,12 +145,12 @@ takes over 1 s.
     12 h, sampled every 600 s, when all three of these hold. `convergence.gd` asserts it at every
     start through one function, `judge()`. `test_step_accuracy` runs the same function on synthetic
     series: a fixed lag passes, a mid-run fault that recovers by the endpoint fails (b), a 2% rate
-    error fails (a), and a stock 1.5% off at one sample fails.
+    error fails (a), a tally whose endpoint is under its floor passes (a) within the floor and fails outside it, and a stock 1.5% off at one sample fails.
     - **Stocks** (Vei's backlog, dead and pool; Covington's workers, gold, bone and living): the
       worst over the samples of |x − ref| / max(|ref|, floor) is at most `idle.catchup_gate_tol`
       (1%).
     - **Tallies** (the gold and bone caps' overflow, `ledger().stores`, which start at 0): (a) at the
-      12 h endpoint, |x − ref| / |ref| ≤ 1% (where ref is 0, |x − ref| within its floor); and (b) at
+      12 h endpoint, |x − ref| / |ref| ≤ 1% (where |ref| is under its floor, 0 included, |x − ref| within the floor instead: a relative error on a tally that small is noise, so midgame_2flips' 0.56 bone is judged by the floor); and (b) at
       every sample, |x − ref| ≤ max(1% · |ref|, its floor). A tally that starts at 0 has no
       meaningful relative error at its first samples, so (b) has a floor,
       `idle.catchup_gate_tally_floor`: a fixed amount per tally, what one 10 s step's lag can carry
@@ -174,8 +174,8 @@ takes over 1 s.
     start:**
     - midgame_2flips: stocks 0.32% (the backlog, at 600 s); no gold overflow at either dt; bone over
       (a) 0.000% of 0.56 bone, (b) 0.000 of its 1.000 floor; outcomes equal (181 waves within 2.7 s,
-      Ashgate's retake within 0.8 s). A relative (a) on a tally this small is fragile: 0.006 bone
-      would fail it;
+      Ashgate's retake within 0.8 s). (a) judges a tally this small by its floor, not a relative error,
+      which 0.006 bone would fail;
     - pre_vei: stocks 0.49% (Vei's dead, at 7 800 s); no gold overflow; bone over (a) 0.042% of
       827.6 bone, (b) 0.740 of its 1.000 floor, at 600 s; outcomes equal (21 upkeep switches within
       9.6 s);
@@ -333,7 +333,7 @@ takes over 1 s.
     s (24-35 s at `6396edd`), so about 1.8 times the 10 s budget. Scaling the field's ticks with the
     length (14 × 150 for 7 days) would add 11 s more. T3.3 decides.
   - At `4d9a265` (E2b-2 T3.3a: the zero clock's split and the convoy's corpse rates) a core step at
-    10 s costs +3.7%, +6.1% and 0% on the three starts against `9b5fc99`, as measured for those
+    10 s costs midgame_2flips +3.7%, pre_vei +6.1%, fresh 0%, per step at 10 s against `9b5fc99`, as measured for those
     commits. The gate's commit changes no step, so it isn't re-measured.
 - A thread is the fallback.
 
