@@ -73,7 +73,6 @@ var _tells_ok := 0
 var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
 var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
 var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
-var _tally_pinned := false      # the Shieldwall's tell was pinned
 var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
 var _hits_seen := 0
 var _told_beats: Array = []     # the strike beat of every tell the bot saw (the tally's windows)
@@ -856,14 +855,12 @@ func _answers(kind: String, beat: float) -> bool:
 			_tells_ok += 1
 		_tally_open = true
 		_tally_ctr0 = _counter_count()
-		var ww = _raid.warden_run.warden
-		_tally_pinned = ww != null and is_instance_valid(ww) and ww is RaidShieldwall and ww.pinned_tell
 	return _tell_ok and _sim_t - _tell_seen >= _delay - 1e-6
 
 
 ## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
-## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it, or
-## a pinned bash) or not; and struck when a tell-attack blow reached her before the next tell.
+## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it; a pin
+## spares her only the rush, so it is not counted) or not; and struck when a tell-attack blow reached her before the next tell.
 ## Tell-attack blows on her since the last look, stamped with the warden's beat (for the tally).
 func _record_hits() -> void:
 	var th := _tell_hits()
