@@ -68,6 +68,8 @@ const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
 ## and `waited_on` within it too (both typed when present).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
+## The open run as the save writes it (E2b-2 T3.3c, IDLE I5; optional, written only while a run is open).
+const _PENDING_RETREAT := {"run_id": _I, "kind": _S, "fort_id": _S, "seed_rev": _I, "loot": _D, "outcome": _S}
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
 const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
 	"staff_caps": {"*": _I}, "haul": {"target": _S}}
@@ -237,6 +239,10 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		for e in m["queue"]:
 			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)):
 				return "queue"
+	if m.has("pending_retreat"):
+		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids)
+		if pr_why != "":
+			return pr_why
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
 	if town_why != "":
 		return town_why
@@ -316,6 +322,25 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 		return pr
 	if tn.has("rates"):
 		return _rates_problem(tn["rates"])
+	return ""
+
+
+## "" if the optional `pending_retreat` (E2b-2 T3.3c; the run open at the save) is sound: its keys typed, a
+## known kind and outcome (a boss run's always "retreated"), a raid's fort a known fort with Relish saved
+## at_fort there and a boss's "vei" with her at_vei (as dump writes them), and loot the raid result's
+## validator takes (Results.validate on the retreat result carrying it).
+static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary) -> String:
+	if not fits(pr, _PENDING_RETREAT):
+		return "pending_retreat"
+	var raid: bool = pr["kind"] == "raid"
+	if not (raid or pr["kind"] == "boss") or not StateRuns.OUTCOMES.has(pr["outcome"]) or (not raid and pr["outcome"] != "retreated"):
+		return "pending_retreat"
+	if raid and not (fort_ids.has(pr["fort_id"]) and rl["state"] == "at_fort" and rl["at"] == pr["fort_id"]):
+		return "pending_retreat fort"
+	if not raid and not (pr["fort_id"] == "vei" and rl["state"] == "at_vei"):
+		return "pending_retreat fort"
+	if not Results.validate("raid", StateRuns.end_result(pr, pr["loot"], "retreated")).is_empty():
+		return "pending_retreat loot"
 	return ""
 
 
@@ -456,7 +481,8 @@ static func _load_into(dir: String, out: Dictionary, paths: Dictionary, errors: 
 			_load_into(dir.path_join(s), out, paths, errors)
 
 
-## §9.1. A deep copy that survives JSON; the open run is written in its forfeited form.
+## §9.1. A deep copy that survives JSON. During a run Relish is written at its fort (at_fort, or at_vei) and
+## the run as `pending_retreat` (E2b-2 T3.3c), which a load ends as a retreat from its last checkpoint.
 static func dump(gs: GameState) -> Dictionary:
 	var rl := {
 		"state": gs.relish["state"], "at": gs.relish["at"], "target": gs.relish["target"],
@@ -529,6 +555,10 @@ static func dump(gs: GameState) -> Dictionary:
 			"upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}),
 	}
 	(d["cleared_forts"] as Array).sort()
+	# IDLE I5 (E2b-2 T3.3c): the open run, as the retreat a load ends it with (its last checkpoint); written only
+	# while a run is open
+	if not gs.run.is_empty():
+		d["pending_retreat"] = StateRuns.pending_of(gs)
 	return SaveIO.canon(d)
 
 

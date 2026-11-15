@@ -229,6 +229,7 @@ func _schema_self_check() -> void:
 		{"t": 1.0, "type": "stance_fired", "stance_id": "harvest", "active": true, "beat_id": 117},
 		{"t": 4712.5, "type": "loot_banked", "run_id": 1, "fort_id": "old-sluice", "relics": 1, "essence": 9, "blueprints": ["embalmer"], "minted": ["h12", "r13"]},
 		{"t": 11002.0, "type": "vei_result", "run_id": 9, "won": true, "fronts_cleared": ["giants", "carvers", "raw"], "relish_deaths": 1, "backlog_after": 18450.0},
+		{"t": 7200.0, "type": "run_ended", "run_id": 4, "kind": "raid", "outcome": "retreated", "cause": "gap"},
 		{"t": 600.0, "type": "autosaved", "slot": "auto", "saved_at": 1794556800},
 		{"t": 1.0, "type": "save_failed", "slot": "slot1", "reason": "write_failed"},
 	]
@@ -238,7 +239,7 @@ func _schema_self_check() -> void:
 		ApiSchema.check(ev, ApiSchema.EVENTS[ev["type"]], "example." + ev["type"], errs)
 		t.ok(errs.is_empty(), "§6 example %s passes its schema%s" % [ev["type"], "" if errs.is_empty() else ": " + str(errs)])
 		types[ev["type"]] = true
-	t.ok(types.size() == 18 and ApiSchema.EVENTS.size() == 18, "all 18 §6 event types have a schema and an example")
+	t.ok(types.size() == 19 and ApiSchema.EVENTS.size() == 19, "all 19 §6 event types have a schema and an example")
 	var raid := {"v": 2, "run_id": 1, "seed_rev": 512, "fort_id": "old-sluice", "warden_beaten": true,
 		"retreated": false, "relish_died": false, "revived_in_place": 0, "killed_living_mass": 30.0,
 		"raised": [{"score": 75, "count": 2, "mass": 8.0}], "chaff_mass": 4.0, "garrison_mass": 6.0,
@@ -382,6 +383,11 @@ func _exercise(s: GameState) -> void:
 	t.ok(s.view_dungeon_seed("nope") == {} and s.view_fort("nope") == {}, "views of unknown ids are {}")
 	_cmd(s, "cmd_new_game", [2], false)
 	_cmd(s, "cmd_set_party", [[u1]], false)
+	# T3.3c (api-request #4): the dungeon's checkpoint of its banked loot
+	var cp_loot := {"relics": 1, "blueprints": [], "husks": [{"kind": "hulk"}], "remnants": [], "essence": 4}
+	_cmd(s, "cmd_run_checkpoint", [bd["run_id"], cp_loot], true)
+	_cmd(s, "cmd_run_checkpoint", [bd["run_id"], cp_loot, "won"], false)
+	_cmd(s, "cmd_run_checkpoint", [int(bd["run_id"]) + 1, cp_loot], false)
 	_all_views(s)  # in the dungeon
 	_cmd(s, "cmd_abort_dungeon", [], true)
 	_cmd(s, "cmd_abort_dungeon", [], false)

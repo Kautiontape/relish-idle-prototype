@@ -84,6 +84,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - **Dungeon and boss:**
   - `cmd_set_party(uids:Array)`;
   - `cmd_begin_dungeon(fort_id) -> {ok, seed}` (Relish must be at the fort), `cmd_abort_dungeon()`;
+  - `cmd_run_checkpoint(run_id, loot, outcome)` (E2b-2 T3.3c, IDLE I5): the open raid's banked loot and the
+    exit it would end in, which a close, a crash, a load or a gap ends the run from;
   - `cmd_assign_front(uid, front_id)`;
   - `cmd_begin_boss() -> {ok, seed}`;
   - `apply_result(kind, result)` (`raid` | `boss`).
@@ -114,7 +116,7 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - `relish_died{outcome}`, `relish_respawned`;
 - `building_started`, `building_done`, `building_unpaid`, `tier_up`, `queue_started` (E2b-2);
 - `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
-- `stance_fired`, `loot_banked`, `vei_result`;
+- `stance_fired`, `loot_banked`, `vei_result`, `run_ended` (E2b-2: a gap ended the open run);
 - `autosaved`, `save_failed`.
 
 The autoload re-emits each event as a signal.
@@ -134,8 +136,11 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
   - no int dictionary keys (use arrays);
   - seeds are saved as strings.
 - Saves are atomic (tmp + rename) with `v` and a migrate hook. A corrupt file counts as no save.
-- Autosave runs every 30 s and on scene change, and never persists `in_dungeon`. On load, Relish is
-  at the fort and that run is forfeited.
+- Autosave runs every 30 s and on scene change, and never persists `in_dungeon`. A run open at the save
+  is written as `pending_retreat` (its last checkpoint; E2b-2 T3.3c, IDLE I5). On load, Relish is at the
+  fort and that run ends as a retreat from its last checkpoint, before the catch-up: the loot banked by
+  then, no flip; a checkpoint at the warden's victory beat ends as the win, one at the death beat as a
+  death (STATE-API §4.5). A boss run is forfeited.
 - Three fixture saves ship in `tests/fixtures/`: day-1, mid-game with 2 flips, and pre-Vei. Scene
   units use them for screenshots and view tests.
 
@@ -1335,6 +1340,12 @@ The Watchtower turns the bands into exact percentages and lists every tell.
      never loses everything.
 3. **Unmade:** she reforms after `backups.unmade_respawn_s`, with a morale shock and lost unbanked
    loot. Nothing else is lost, and nothing resets.
+
+**A run that ends without the scene** (a close, a crash, a load, a gap above `idle.gap_s`; IDLE I5, E2b-2
+T3.3c) banks the same bound: the dungeon tells GameState what is banked at every checkpoint room
+(`cmd_run_checkpoint`, STATE-API §4.5), and the run ends from the last one as a retreat (no flip, Relish
+`at_fort`), or as the win or the death when the checkpoint came at the warden's victory beat or the death
+beat. Whatever was found since is lost.
 
 **Clones** grow at `vats.grow_per_s` per **staffed** vat, from 0 to 1, one clone per vat.
 `view_backups` always shows what a death would cost right now.

@@ -108,14 +108,147 @@ static func begin_boss(gs: GameState) -> Dictionary:
 	return open_run(gs, "boss", "vei")
 
 
+## cmd_abort_dungeon. A dead run's refusal (no_run) is checked before catching_up (STATE-API §4.5, E2b-2
+## T3.3c): no run is open during a catch-up (every open run ends before one starts), so a dungeon scene still
+## sitting on an ended run learns it is over instead of being told to wait.
 static func abort_dungeon(gs: GameState) -> Dictionary:
 	if gs.run.is_empty():
 		return {"ok": false, "reason": "no_run", "run_id": -1}
+	if gs._catchup.active:
+		return GameState._refuse_catching_up({"run_id": -1})
 	var run_id: int = gs.run["run_id"]
 	gs.relish["state"] = "at_fort" if gs.run["kind"] == "raid" else "at_vei"
 	gs.run = {}
 	gs.rev += 1
 	return {"ok": true, "reason": "", "run_id": run_id}
+
+
+## The exits a checkpoint can name (STATE-API §4.5 cmd_run_checkpoint; the raid result's three, §8.1).
+const OUTCOMES := ["retreated", "warden_beaten", "relish_died"]
+
+
+## The raid result's `loot` (§8.1) in its canonical form: the five keys, ints as ints, each husk and remnant
+## with its own keys only, a deep copy. `l` has passed Results.validate (inside a result).
+static func loot_of(l: Dictionary) -> Dictionary:
+	var husks: Array = []
+	for h in l["husks"]:
+		husks.append({"kind": str(h["kind"])})
+	var remnants: Array = []
+	for m in l["remnants"]:
+		remnants.append({"aspect": str(m["aspect"]), "rarity": str(m["rarity"]), "magnitude": int(m["magnitude"])})
+	var bps: Array = []
+	for b in l["blueprints"]:
+		bps.append(str(b))
+	return {"relics": int(l["relics"]), "blueprints": bps, "husks": husks, "remnants": remnants, "essence": int(l["essence"])}
+
+
+static func empty_loot() -> Dictionary:
+	return {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}
+
+
+## The raid result an ended run applies (IDLE I5; STATE-API §4.5): its `outcome` as the exit, `loot` as the
+## banked loot, and nothing else the scene would report: no kills, no raises, no chaff, no revives, no party
+## member lost, and `garrison_mass` equal to the seed's `garrison_in_mass`, so the garrison taken in stays and
+## the fort's undead don't move (§8.3 step 5). `run` is the run ({run_id, seed_rev, fort_id, seed}).
+static func end_result(run: Dictionary, loot: Dictionary, outcome: String) -> Dictionary:
+	return {
+		"v": 2, "run_id": int(run["run_id"]), "seed_rev": int(run["seed_rev"]), "fort_id": str(run["fort_id"]),
+		"warden_beaten": outcome == "warden_beaten", "retreated": outcome == "retreated", "relish_died": outcome == "relish_died",
+		"revived_in_place": 0, "killed_living_mass": 0.0, "raised": [], "chaff_mass": 0.0,
+		"garrison_mass": float(run.get("seed", {}).get("garrison_in_mass", 0.0)), "party_lost": [], "loot": loot,
+	}
+
+
+## §4.5 cmd_run_checkpoint (api-request #4; IDLE I5): the open raid records the loot banked so far and the exit
+## it would end in now, replacing any earlier checkpoint. A dead run's refusals (no_run, wrong_run) come before
+## catching_up, so a dungeon scene on an ended run learns it is over; a boss run has nothing to bank (a boss
+## result carries no loot, §8.2): wrong_kind. Then invalid (Results.validate on a retreat result carrying
+## `loot`) and bad_outcome.
+static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: String) -> Dictionary:
+	var fail := {"ok": false, "reason": ""}
+	if gs.run.is_empty():
+		fail["reason"] = "no_run"
+	elif int(gs.run["run_id"]) != run_id:
+		fail["reason"] = "wrong_run"
+	elif gs.run["kind"] != "raid":
+		fail["reason"] = "wrong_kind"
+	elif gs._catchup.active:
+		fail["reason"] = "catching_up"  # (unreachable: no run is open during a catch-up)
+	elif not Results.validate("raid", end_result(gs.run, loot, "retreated")).is_empty():
+		fail["reason"] = "invalid"
+	elif not OUTCOMES.has(outcome):
+		fail["reason"] = "bad_outcome"
+	if fail["reason"] != "":
+		return fail
+	gs.run["checkpoint"] = {"loot": loot_of(loot), "outcome": outcome}
+	gs.rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## The open run as the save writes it (§9.1 `pending_retreat`): {run_id, kind, fort_id, seed_rev, loot,
+## outcome}, its last checkpoint's loot and outcome, or empty loot and "retreated" when it has none (a boss
+## run never has one).
+static func pending_of(gs: GameState) -> Dictionary:
+	var cp: Dictionary = gs.run.get("checkpoint", {})
+	return {
+		"run_id": int(gs.run["run_id"]), "kind": str(gs.run["kind"]), "fort_id": str(gs.run["fort_id"]),
+		"seed_rev": int(gs.run["seed_rev"]),
+		"loot": (cp["loot"] as Dictionary).duplicate(true) if cp.has("loot") else empty_loot(),
+		"outcome": str(cp.get("outcome", "retreated")),
+	}
+
+
+## Ends the open run from its last checkpoint (IDLE I5): a raid through the normal writeback as a result of
+## the checkpoint's outcome (end_result), so a retreat banks the loot with no flip and Relish at_fort,
+## warden_beaten flips the fort, relish_died is a death; the run's id joins applied_runs (a late result for it
+## is duplicate_run). `held` is cleared first: an ended run's kills aren't known (the checkpoint carries
+## none), so it never clears a counter-garrison. A boss run is forfeited as cmd_abort_dungeon forfeits it: no
+## writeback, the party intact, Relish at_vei, and its id is not an applied run (a late result is wrong_run).
+## Returns the outcome applied.
+static func end_open(gs: GameState) -> String:
+	var pr := pending_of(gs)
+	if pr["kind"] != "raid":
+		gs.relish["state"] = "at_vei"
+		gs.run = {}
+		gs.rev += 1
+		return "retreated"
+	gs.run["held"] = false
+	var r := apply_result(gs, "raid", end_result(gs.run, pr["loot"], pr["outcome"]))
+	if not r["ok"]:  # (never: the result is built to pass every check)
+		push_error("StateRuns: an ended run's writeback was refused (%s %s); forfeiting it" % [r["reason"], str(r["errors"])])
+		gs.relish["state"] = "at_fort"
+		gs.run = {}
+	return str(pr["outcome"])
+
+
+## A gap above idle.gap_s in the open game with a run open (the machine asleep in a dungeon; IDLE I5): the
+## event run_ended {run_id, kind, outcome, cause} first, so the dungeon scene knows to leave, then the end
+## (end_open) and its writeback's events, all queued live, before the gap's catch-up starts.
+static func end_for_gap(gs: GameState) -> void:
+	var pr := pending_of(gs)
+	gs._emit({"type": "run_ended", "run_id": pr["run_id"], "kind": pr["kind"],
+		"outcome": pr["outcome"] if pr["kind"] == "raid" else "retreated", "cause": "gap"})
+	end_open(gs)
+
+
+## A save's pending_retreat applied on load (from_dict, before any catch-up; IDLE I5): the run it records is
+## opened again as it stood (run_id, seed_rev, its fort, Relish in its dungeon) and ended by end_open. The seed
+## the writeback reads is dungeon_seed at the load, which gives the fields it uses as the run had them: its
+## party (the save's party: no command changes it while a run is open), its phylactery fields (the stock, which
+## nothing changes while a run is open) and garrison_in_mass (which the end result's garrison_mass equals, so
+## the fort's undead don't move whatever it is). Its events are queued as live: they happened before the time
+## away. A boss run needs nothing: the save already holds it forfeited (Relish at_vei, no run).
+static func apply_pending(gs: GameState, pr: Dictionary) -> void:
+	if str(pr["kind"]) != "raid":
+		return
+	var run_id := int(pr["run_id"])
+	var fort_id := str(pr["fort_id"])
+	var seed_rev := int(pr["seed_rev"])
+	gs.run = {"run_id": run_id, "kind": "raid", "fort_id": fort_id, "seed_rev": seed_rev,
+		"seed": dungeon_seed(gs, fort_id, run_id, seed_rev), "held": false,
+		"checkpoint": {"loot": loot_of(pr["loot"]), "outcome": str(pr["outcome"])}}
+	gs.relish["state"] = "in_dungeon"
+	end_open(gs)
 
 
 static func view_dungeon_seed(gs: GameState, fort_id: String) -> Dictionary:

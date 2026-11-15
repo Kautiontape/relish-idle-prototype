@@ -812,10 +812,18 @@ func cmd_begin_boss() -> Dictionary:
 	return StateRuns.begin_boss(self)
 
 
+## §4.5. no_run comes before catching_up (E2b-2 T3.3c): a dead run's refusal wins (StateRuns.abort_dungeon).
 func cmd_abort_dungeon() -> Dictionary:
-	if _catchup.active:
-		return _refuse_catching_up({"run_id": -1})
 	return StateRuns.abort_dungeon(self)
+
+
+## §4.5 (v6, E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's loot banked so far (the raid result's
+## `loot`, §8.1) and the exit it would end in now ("retreated", "warden_beaten" or "relish_died"), replacing
+## its last checkpoint. A close, a crash, a load or a gap above idle.gap_s ends the run from it
+## (StateRuns.end_open). Reasons: no_run, wrong_run, wrong_kind (a boss run banks nothing), catching_up,
+## invalid, bad_outcome: a dead run's refusals come first.
+func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated") -> Dictionary:
+	return StateRuns.checkpoint(self, run_id, loot, outcome)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:
@@ -1783,6 +1791,8 @@ func tick(dt: float, max_substeps := 0) -> int:
 	if max_substeps > 0 and _is_gap(dt):
 		var whole := floorf(dt)
 		_acc += dt - whole
+		if not run.is_empty():  # IDLE I5: no run survives a gap; it ends from its last checkpoint, run_ended first
+			StateRuns.end_for_gap(self)
 		_catchup.begin(self, whole, whole >= _req_f("economy.idle.report_min_s"))
 		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
 		_frame_work(0)
@@ -2093,6 +2103,10 @@ func from_dict(d: Dictionary) -> Dictionary:
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
 	_restore_dispatch()
+	# IDLE I5 (E2b-2 T3.3c): a run open at the save ends now, from its last checkpoint, before any catch-up
+	# (cmd_load's, either path); its events are queued as live
+	if m.get("pending_retreat") is Dictionary:
+		StateRuns.apply_pending(self, m["pending_retreat"])
 	return {"ok": true, "reason": ""}
 
 

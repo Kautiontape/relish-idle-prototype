@@ -99,6 +99,8 @@ const COMMANDS := {
 	"cmd_begin_dungeon": {"seed": RAID_SEED, "run_id": I, "seed_rev": I},
 	"cmd_begin_boss": {"seed": BOSS_SEED, "run_id": I, "seed_rev": I},
 	"cmd_abort_dungeon": {"run_id": I},
+	# api_version 6 (E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's last checkpoint
+	"cmd_run_checkpoint": {},
 	"apply_result": {"errors": [S], "minted": [S]},
 	"cmd_debug_grant": {"key": S, "applied": {"minted": [S]}},
 	"cmd_debug_set_state": {"key": S},
@@ -144,7 +146,9 @@ const REASONS := {
 	"cmd_assign_front": ["catching_up", "busy", "unknown_uid", "not_in_party", "unknown_front"],
 	"cmd_begin_dungeon": ["catching_up", "unknown_fort", "busy", "dead", "not_at_fort"],
 	"cmd_begin_boss": ["catching_up", "busy", "dead", "not_at_vei"],
-	"cmd_abort_dungeon": ["catching_up", "no_run"],
+	# T3.3c: a dead run's refusal comes before catching_up (no run is open during a catch-up)
+	"cmd_abort_dungeon": ["no_run", "catching_up"],
+	"cmd_run_checkpoint": ["no_run", "wrong_run", "wrong_kind", "catching_up", "invalid", "bad_outcome"],
 	"apply_result": ["unknown_kind", "unknown_v", "invalid", "duplicate_run", "wrong_run", "wrong_kind",
 		"stale_seed", "wrong_fort", "bad_revives", "bad_party", "bad_backups"],
 	"cmd_debug_grant": ["not_debug", "catching_up", "unknown_key", "bad_value"],
@@ -310,6 +314,8 @@ const EVENTS := {
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},
 	"loot_banked": {"run_id": I, "fort_id": S, "relics": I, "essence": I, "blueprints": [S], "minted": [S]},
 	"vei_result": {"run_id": I, "won": B, "fronts_cleared": [S], "relish_deaths": I, "backlog_after": F},
+	# api_version 6 (E2b-2 T3.3c; IDLE I5): a gap above idle.gap_s in the open game ended the open run
+	"run_ended": {"run_id": I, "kind": S, "outcome": S, "cause": S},
 	"autosaved": {"slot": S, "saved_at": I},
 	"save_failed": {"slot": S, "reason": S},
 }
@@ -327,6 +333,11 @@ const LEDGER := {
 	"stores": {"gold": {"overflow": F}, "bone": {"overflow": F}},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
+## to_dict()'s `pending_retreat` (api_version 6, E2b-2 T3.3c; IDLE I5): written only while a run is open, so
+## it isn't in SAVE (which every to_dict must hold); test_api_v6 checks it against this.
+const PENDING_RETREAT := {"run_id": I, "kind": S, "fort_id": S, "seed_rev": I,
+	"loot": {"relics": I, "blueprints": [S], "husks": [{"kind": S}], "remnants": [{"aspect": S, "rarity": S, "magnitude": I}], "essence": I},
+	"outcome": S}
 ## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will
 ## change are opaque (D); the rest are typed.
 ## `game_id` is optional on load (a save without it gets its seed's id, §9.1) but to_dict always writes it,

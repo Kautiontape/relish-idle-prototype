@@ -40,6 +40,7 @@ func run() -> int:
 	_mill_starved()
 	_catchup_api()
 	_catchup_chunked_api()
+	_run_checkpoint_api()
 	return t.failures
 
 
@@ -1337,7 +1338,8 @@ func _catchup_chunked_api() -> void:
 		"cmd_rename_big_undead": ["u1", "x"], "cmd_place_big_undead": ["u1", "crypt"], "cmd_craft": ["simulacrum"],
 		"cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
 		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
-		"cmd_abort_dungeon": [], "cmd_debug_grant": [{"gold": 1.0}], "cmd_debug_set_state": [{"paused": false}],
+		"cmd_abort_dungeon": [], "cmd_run_checkpoint": [1, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}],
+		"cmd_debug_grant": [{"gold": 1.0}], "cmd_debug_set_state": [{"paused": false}],
 		"cmd_debug_load_fixture": ["day1"], "cmd_debug_skip_time": [1.0],
 	}
 	var names: Array = []
@@ -1353,12 +1355,15 @@ func _catchup_chunked_api() -> void:
 		var res: Variant = n.callv(name, args[name])
 		errs = []
 		ApiSchema.check_command(name, res, errs)
-		if not (errs.is_empty() and res["ok"] == false and res["reason"] == "catching_up" and n.rev == rv):
+		# T3.3c: the run commands give a dead run's refusal before catching_up (no run is open during a
+		# catch-up: every open run ends before one starts), so a dungeon scene on an ended run learns it is over
+		var want := "no_run" if name in ["cmd_abort_dungeon", "cmd_run_checkpoint"] else "catching_up"
+		if not (errs.is_empty() and res["ok"] == false and res["reason"] == want and n.rev == rv):
 			bad.append("%s: %s %s" % [name, str(res), str(errs)])
 		var evs := n.drain_events()
 		if name == "cmd_save" and not (evs.size() == 1 and evs[0]["type"] == "save_failed" and evs[0]["reason"] == "catching_up"):
 			bad.append("cmd_save's save_failed: %s" % str(evs))
-	t.ok(bad.is_empty() and n.to_dict() == d0 and n.catching_up(), "during the catch-up every command refuses with catching_up, changing nothing%s" % (
+	t.ok(bad.is_empty() and n.to_dict() == d0 and n.catching_up(), "during the catch-up every command refuses with catching_up (the run commands no_run), changing nothing%s" % (
 		"" if bad.is_empty() else ": " + "; ".join(PackedStringArray(bad))))
 	n.debug_enabled = false
 	var nd := []
@@ -1388,3 +1393,56 @@ func _catchup_chunked_api() -> void:
 		for f in dd.get_files():
 			dd.remove(f)
 		DirAccess.remove_absolute(dir)
+
+
+## E2b-2 T3.3c (api-request #4; IDLE I5): cmd_run_checkpoint(run_id, loot, outcome := "retreated") -> {ok,
+## reason}, its reasons in order (no_run, wrong_run, wrong_kind for a boss run, invalid, bad_outcome; a refusal
+## changes nothing and leaves rev, a success adds 1), the save's pending_retreat (written only while a run is
+## open) and the run_ended event a gap raises, all in the contract.
+func _run_checkpoint_api() -> void:
+	t.suite("api-v6-checkpoint")
+	var loot := {"relics": 1, "blueprints": ["embalmer"], "husks": [{"kind": "hulk"}], "remnants": [{"aspect": "wits", "rarity": "common", "magnitude": 1}], "essence": 2}
+	var s := _mk()
+	t.ok(not s.to_dict().has("pending_retreat"), "no run open: the save has no pending_retreat")
+	var got: Array = [s.cmd_run_checkpoint(1, loot)]
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var b := s.cmd_begin_dungeon("old-sluice")
+	var id := int(b["run_id"])
+	got.append(s.cmd_run_checkpoint(id + 1, loot))
+	var bad_loot := loot.duplicate(true)
+	bad_loot["relics"] = -1
+	got.append(s.cmd_run_checkpoint(id, bad_loot))
+	got.append(s.cmd_run_checkpoint(id, loot, "won"))
+	var bad_both := bad_loot.duplicate(true)
+	got.append(s.cmd_run_checkpoint(id, bad_both, "won"))
+	var d0 := s.to_dict()
+	var rv := s.rev
+	var reasons: Array = got.map(func(r): return r["reason"])
+	var shape_ok := true
+	for i in got.size():
+		var errs: Array = []
+		ApiSchema.check_command("cmd_run_checkpoint", got[i], errs)
+		shape_ok = shape_ok and errs.is_empty() and got[i].keys().size() == 2
+	t.ok(shape_ok and reasons == ["no_run", "wrong_run", "invalid", "bad_outcome", "invalid"] and s.rev == rv and s.to_dict() == d0,
+		"no_run, wrong_run, invalid (before bad_outcome), bad_outcome: {ok, reason} only, nothing changed: %s" % str(reasons))
+	var ok := s.cmd_run_checkpoint(id, loot, "warden_beaten")
+	t.ok(ok == {"ok": true, "reason": ""} and s.rev == rv + 1, "a checkpoint: ok, +1 rev")
+	var pr: Dictionary = s.to_dict().get("pending_retreat", {})
+	var errs: Array = []
+	ApiSchema.check(pr, ApiSchema.PENDING_RETREAT, "pending_retreat", errs)
+	t.ok(errs.is_empty() and pr["loot"] == loot and pr["outcome"] == "warden_beaten" and pr["run_id"] == id and pr["fort_id"] == "old-sluice"
+		and pr["kind"] == "raid", "to_dict's pending_retreat holds the last checkpoint, in the contract %s" % str(errs))
+	# a gap ends it: run_ended in the contract
+	s.drain_events()
+	s.tick(60.0, s.max_substeps_per_frame())
+	var ev: Dictionary = s.drain_events()[0]
+	errs = []
+	ApiSchema.check(ev, ApiSchema.EVENTS["run_ended"], "run_ended", errs)
+	t.ok(errs.is_empty() and ev["type"] == "run_ended" and ev["cause"] == "gap" and ev["outcome"] == "warden_beaten" and ev["kind"] == "raid",
+		"a 60 s gap: run_ended {run_id, kind, outcome, cause: gap} in the contract: %s %s" % [str(ev), str(errs)])
+	var m := _fixture("pre_vei")
+	var bb := m.cmd_begin_boss()
+	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")
+	var mp: Dictionary = m.to_dict()["pending_retreat"]
+	t.ok(mp["kind"] == "boss" and mp["fort_id"] == "vei" and mp["loot"] == StateRuns.empty_loot() and mp["outcome"] == "retreated",
+		"an open boss run saves as pending_retreat {boss, vei, empty loot, retreated}: %s" % str(mp))

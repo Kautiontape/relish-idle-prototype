@@ -127,6 +127,19 @@ from `BALANCE.md` §0.
     with Relish where she stands. `view_hud.split` and mint `rate`, `view_rates`' `mint`, `work`, `war`
     and `flood`, and the WORK, FLOOD and fallen-through WAR lanes read the last substep's after a load
     instead of 0: a meaning change, not a shape change;
+  - (T3.3c) **no run survives a close, a crash, a load or a gap** (IDLE I5, api-request #4):
+    `cmd_run_checkpoint(run_id, loot, outcome := "retreated")` (§4.5) records the open raid's banked loot
+    and the exit it would end in; the save writes the open run as `pending_retreat` (§9.1), its last
+    checkpoint, and a load ends it from that through the normal writeback before the catch-up (§4.1's load
+    order), where it used to forfeit it with no loot: a meaning change, not a shape change. A save
+    without `pending_retreat` (older) still forfeits its run. A gap above `idle.gap_s` in the open game
+    ends the open run the same way, inside the frame that finds it, with the event `run_ended` first (§3,
+    §6). A boss run has nothing to bank: `cmd_run_checkpoint` refuses it with `wrong_kind`, and an ended
+    boss run is forfeited as `cmd_abort_dungeon` forfeits it;
+  - (T3.3c) **a dead run's refusal comes before `catching_up`**: `cmd_abort_dungeon` checks `no_run` first
+    (it checked `catching_up` first), and `cmd_run_checkpoint` checks `no_run` and `wrong_run` first (§4,
+    §4.5). No run is open during a catch-up, so during one they answer `no_run`: a meaning change, not a
+    shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -397,7 +410,11 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
     whose real time, `dt / time_scale`, is above `idle.gap_s` (30 s) goes through catch-up instead:
     its whole seconds, chunked (below), with its fraction added to `acc`. So the drop above applies only
     to a hitch under `idle.gap_s`, and debug fast-forward (a large `dt` from a large `time_scale`) stays
-    live play. A paused sim returns 0 before any of this, so paused time is never time off (I9). A call
+    live play. **A run open at the gap ends first** (v6, E2b-2 T3.3c; IDLE I5: the machine asleep in a
+    dungeon): inside the frame that finds the gap, before its catch-up starts, the event `run_ended {run_id,
+    kind, outcome, cause: "gap"}` is queued, then the run ends from its last checkpoint as a load ends a
+    `pending_retreat` (§4.5 `cmd_run_checkpoint`), and the writeback's events follow it, queued as live (not
+    collected for a report). A paused sim returns 0 before any of this, so paused time is never time off (I9). A call
     with no cap (tests, `cmd_debug_skip_time`) never routes a gap: it runs its substeps as before.
   - **While a catch-up is active** (a chunked `cmd_load`'s or a gap's, `view_catchup().active`): each
     call runs one chunk of it, `idle.catchup_steps_per_chunk` core steps, instead of live time, does no
@@ -457,6 +474,15 @@ below without being repeated in each. `cmd_save`'s refusal emits `save_failed` a
 (the shell's autosave doesn't call it then, §2.1). `apply_result` is not a command and isn't refused.
 Views stay readable during a catch-up and show the state as far as it has run.
 
+**The exception: the run commands** (v6, E2b-2 T3.3c; IDLE I5). Every open run ends before a catch-up
+starts (§4.1's load order, §3's gaps), so no run is live during one. On a run that has ended, every run
+command gives its **dead-run refusal, whether or not a catch-up is active**: `cmd_abort_dungeon` and
+`cmd_run_checkpoint` check `no_run` (and `cmd_run_checkpoint` `wrong_run`) before `catching_up`, and
+`apply_result`, which `catching_up` never gates, answers `duplicate_run` (an ended raid) or `wrong_run`
+(an ended boss run). So a dungeon scene still sitting on an ended run learns it is over instead of being
+told to wait. `cmd_begin_dungeon` and `cmd_begin_boss` open a run, not act on one, and keep `catching_up`
+first.
+
 ### 4.1 Game
 **`cmd_new_game(seed: int)` · E1**
 - **Reasons:** `busy` (a dungeon or boss run is open).
@@ -477,8 +503,9 @@ Game.state.cmd_new_game(1)  # -> {ok: true, reason: ""}
 - **Extras:** `saved_at: int` (unix seconds, from `clock_override` when it is set, §1.5), `path: String`.
 - **Reasons:** `bad_slot`, `write_failed`.
 - **Effect:** writes atomically (§9.3).
-  - During a run it writes the forfeited form (Relish at the fort, no run) and leaves the live state
-    alone.
+  - During a run it writes Relish at the run's fort (`at_fort`, or `at_vei`) and the run as
+    `pending_retreat` (v6, E2b-2 T3.3c; §9.1), its last checkpoint, which a load ends it with; it leaves
+    the live state alone.
   - On success with slot `"auto"` it emits `autosaved`. On any failure it emits `save_failed`.
 ```gdscript
 Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, path: "user://saves/slot1.json"}
@@ -491,6 +518,13 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
   `bad_version` (newer than `SAVE_VERSION`, or the migration failed).
 - **Effect:** `from_dict` in place. Then `time_scale = 1`, `paused = false`, the event queue is
   cleared, and the field is pre-warmed (§9).
+- **The load order** (v6, E2b-2 T3.3c): `from_dict` (the state as saved, the queue cleared), then **the
+  run open at the save ends** (its `pending_retreat`, §9.1: through the normal writeback, as a result of
+  its last checkpoint's outcome; IDLE I5), then the catch-up below.
+  The run's end comes first on both paths: the synchronous load and `chunked`, where it is done before
+  `cmd_load` returns and so before the first chunk. Its events (`loot_banked`, `fort_flipped`,
+  `relish_died`, …) are queued for the scenes as usual, stamped at the save's `t`: they happened before
+  the time away. The writeback is one more `rev`.
 - **Then the catch-up** (v6; IDLE §4, `scripts/sim/catchup.gd`): the time away is now (`clock_override`
   when set, §1.5) less the file's `saved_at`, in whole seconds. It is 0 when that is negative or the file
   has no `saved_at`, and at most `idle.catchup_max_s` (7 days), with `capped` true when it was more. That
@@ -506,7 +540,7 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
   `tick()` runs one chunk of it (§3). Meanwhile every command refuses with `catching_up` (§4). The step
   sequence depends only on the save, the time away and the configs, so the result is the same either way,
   to the bit.
-- `rev` rises by 1, plus 1 per catch-up core step.
+- `rev` rises by 1, plus 1 for a pending retreat's writeback (v6, T3.3c), plus 1 per catch-up core step.
 ```gdscript
 Game.state.cmd_load("auto")  # -> {ok: true, reason: "", away_s: 28800.0, capped: false}
 Game.state.cmd_load("nope")  # -> {ok: false, reason: "no_save", away_s: 0.0, capped: false}
@@ -854,13 +888,59 @@ Game.state.cmd_begin_boss()  # -> {ok: true, reason: "", run_id: 9, seed_rev: 21
 
 **`cmd_abort_dungeon()` · E1**
 - **Extras:** `run_id: int` (the run forfeited).
-- **Reasons:** `no_run`.
+- **Reasons:** `no_run`, then `catching_up` (v6, E2b-2 T3.3c: a dead run's refusal comes first, §4; no
+  run is open during a catch-up, so during one it answers `no_run`).
 - **Effect:** forfeits the open run, dungeon or boss.
   - There is no writeback, no loot and no flip, and the party is intact.
   - Relish goes back to `at_fort` (or `at_vei`), and the run is closed, so a later result for it is
     `wrong_run`.
 ```gdscript
 Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
+```
+
+**`cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated")` · E2b-2** (api_version 6,
+T3.3c; api-request #4, IDLE I5)
+- **Args:** `run_id` the open raid's; `loot` the raid result's `loot` shape (§8.1: `{relics, blueprints,
+  husks: [{kind}], remnants: [{aspect, rarity, magnitude}], essence}`), what is banked so far; `outcome`
+  the exit the run would end in if it ended now: `"retreated"`, `"warden_beaten"` or `"relish_died"`.
+- **Extras:** none (`{ok, reason}`).
+- **Reasons**, in check order: `no_run` (no run is open), `wrong_run` (`run_id` isn't the open run),
+  `wrong_kind` (the open run is a boss run: a boss result carries no loot, §8.2, so there is nothing to
+  bank), `catching_up`, `invalid` (`Results.validate("raid", …)` rejects a retreat result carrying `loot`),
+  `bad_outcome`. A dead run's refusals come before `catching_up` (§4): no run is open during a catch-up.
+- **Effect:** the open raid records `{loot, outcome}` (a deep copy, ints as ints), **replacing its last
+  checkpoint**; `rev` +1. Nothing else changes and no event is raised. **A checkpoint is only as good as
+  its last call** (the run's manager): a close, a crash, a load or a gap ends the run from the last one,
+  and whatever was found since is lost (the same bound as a death, MECHANICS §7).
+- **When the dungeon calls it** (the dungeon, Phase I; `raid_endings.gd` already calls it when it exists):
+  - at every room clear (each checkpoint room it banks), with the loot banked so far and `"retreated"`;
+  - at the warden's victory beat (warden beaten, chest open), with the loot including the chest and
+    `"warden_beaten"`;
+  - at the death beat, with the loot the death keeps and `"relish_died"`.
+- **How a run ends from it** (IDLE I5; `StateRuns.end_open`): through the normal writeback (§8.3), as the
+  raid result `{outcome as the exit, loot as the banked loot, killed_living_mass 0, raised [], chaff_mass
+  0, garrison_mass = the seed's garrison_in_mass (so the fort's undead don't move), revived_in_place 0,
+  party_lost []}`:
+  - `"retreated"`: the loot is banked, no flip, Relish `at_fort`;
+  - `"warden_beaten"`: the flip and the loot, as if the scene had sent the win;
+  - `"relish_died"`: a death, as `apply_result` treats one (§8.3 step 10: the whole party lost, a clone or
+    unmade);
+  - with no checkpoint, empty loot and `"retreated"`: nothing banked, as before T3.3c;
+  - its kills aren't known, so an ended run never clears a counter-garrison (`counter_garrison_cleared`
+    isn't raised and the yield isn't spent), and its phylactery revives and party losses aren't known
+    either (none are applied);
+  - its id joins `applied_runs`, so a late result for it is `duplicate_run`.
+- **A boss run** has no checkpoint; an ended boss run is forfeited as `cmd_abort_dungeon` forfeits it (no
+  writeback, the party intact, Relish `at_vei`, its id not an applied run: a late result is `wrong_run`).
+- **A dead run** (ended by a load or a gap) gets clean refusals from every run command and nothing
+  changes: `cmd_run_checkpoint` and `cmd_abort_dungeon` say `no_run`, `apply_result` `duplicate_run` (a
+  raid) or `wrong_run` (a boss run), during a catch-up too (§4). A gap's `run_ended` tells the dungeon
+  scene to leave (Phase I wires it).
+```gdscript
+Game.state.cmd_run_checkpoint(1, {"relics": 1, "blueprints": [], "husks": [{"kind": "hulk"}], "remnants": [], "essence": 9})
+# -> {ok: true, reason: ""}
+Game.state.cmd_run_checkpoint(1, loot, "warden_beaten")  # the warden's victory beat
+Game.state.cmd_run_checkpoint(9, loot)  # the open run is a boss run -> {ok: false, reason: "wrong_kind"}
 ```
 
 **`apply_result(kind: String, result: Dictionary)` · E1** (flip hold E2; backups E3)
@@ -876,8 +956,8 @@ Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
   | `unknown_kind` | `kind` is not `raid` or `boss` |
   | `unknown_v` | `result.v != 2` (convert v1 with `Results.from_v1` first) |
   | `invalid` | `Results.validate(kind, result)` is non-empty (see `errors`) |
-  | `duplicate_run` | `run_id` was already applied. Idempotent: a repeat changes nothing. |
-  | `wrong_run` | no run is open, or `run_id` isn't the open run (including a forfeited one) |
+  | `duplicate_run` | `run_id` was already applied. Idempotent: a repeat changes nothing. A raid run a load or a gap ended (v6, T3.3c) is an applied run. |
+  | `wrong_run` | no run is open, or `run_id` isn't the open run (including a forfeited one, and a boss run a load or a gap ended, v6) |
   | `wrong_kind` | the open run is the other kind |
   | `stale_seed` | `result.seed_rev` != the `seed_rev` recorded on the open run. It is **not** compared with the current `rev`, which keeps moving during the run. |
   | `wrong_fort` | raid only: `fort_id` != the open run's fort, which is where Relish is |
@@ -1800,6 +1880,7 @@ Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, tota
 | `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int` | E3 |
 | `loot_banked` | `run_id: int`, `fort_id: String`, `relics: int`, `essence: int`, `blueprints: Array[String]`, `minted: Array[String]` | E1 |
 | `vei_result` | `run_id: int`, `won: bool`, `fronts_cleared: Array[String]`, `relish_deaths: int`, `backlog_after: float` | E1 |
+| `run_ended` | `run_id: int`, `kind: String` (`raid`\|`boss`), `outcome: String` (the exit it ended in: `retreated`, `warden_beaten` or `relish_died`; a boss run's is `retreated`), `cause: String` (`gap`): a gap above `idle.gap_s` in the open game ended the open run (IDLE I5; §3). Queued first, before the end's writeback events (`loot_banked`, …) and the gap's catch-up, so the dungeon scene knows to leave (Phase I). A load's end of a saved run raises none (no scene is on it) | E2b-2 (v6, T3.3c) |
 | `autosaved` | `slot: String`, `saved_at: int` | E1 |
 | `save_failed` | `slot: String`, `reason: String` (`cmd_save`'s reason) | E1 |
 ```gdscript
@@ -2082,6 +2163,7 @@ take the router's legacy path (§2.3).
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
+| `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
 | `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, or past `queue.max_len`, is dropped with a warning |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
@@ -2136,7 +2218,8 @@ take the router's legacy path (§2.3).
 **Not saved:**
 - `rev`, `debug_enabled`, `save_dir`, the event queue;
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
-- the open run, which is forfeited;
+- the open run itself (`in_dungeon` is never saved): it is written as `pending_retreat` (v6, T3.3c),
+  which a load ends as a retreat from its last checkpoint;
 - the last substep's rates outside the fort, Vei and town blocks: `view_hud`'s `split` and mint
   `rate`, `view_rates`' `mint`, `work`, `war`, `flood`, `corpses` and `backlog` (the haul's part of
   `corpses.out` is TownSim's, saved), `view_vei`'s raw `diff`, and the three lanes
@@ -2151,8 +2234,20 @@ take the router's legacy path (§2.3).
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
   (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
-**Open runs.** `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or `at_vei`)
-with no run. On load the run is forfeited: no loot, no flip, the party intact.
+**Open runs** (IDLE I5). `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or
+`at_vei`) with no run, and since v6 (E2b-2 T3.3c) the run as `pending_retreat`. `from_dict` (so `cmd_load`
+on both paths, and `cmd_debug_load_fixture`) ends that run after the state is restored, before any
+catch-up, through the normal writeback as a result of its outcome (§4.5 `cmd_run_checkpoint`): a raid
+reopens as it stood (its `run_id`, `seed_rev` and fort, Relish in its dungeon) and ends. **What the
+writeback needs and where it comes from:** the result is built from `pending_retreat`'s `run_id`,
+`seed_rev`, `fort_id`, `loot` and `outcome`; the seed it reads is `view_dungeon_seed`'s rule
+(`StateRuns.dungeon_seed`) at the load, whose fields the writeback reads are as the run had them: the
+party (the save's: no command changes it while a run is open), the phylactery stock and its per-dungeon
+cap (nothing changes them while a run is open), and `garrison_in_mass` (the end result's `garrison_mass`
+equals it, so the fort's undead don't move). Its events are queued as live, stamped at the save's `t`, and
+`rev` rises by 1 more. A boss run needs nothing: the save holds it forfeited (Relish `at_vei`, no run, the
+party intact). A save without `pending_retreat` (written before T3.3c) forfeits its run as before: no loot,
+no flip, no event, the party intact.
 
 **Catch-up** (v6, E2b-2 T3.3b): only `cmd_load` catches up the time since a save (§4.1), from the file's
 `saved_at`. `from_dict` reads a dict, not a file, and `cmd_debug_load_fixture` loads a fixture, which has
@@ -2161,7 +2256,8 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 **`from_dict(d: Dictionary) -> {ok: bool, reason: String}`**
 - **Reasons:** `bad_version` (`v` above `SAVE_VERSION`, or the migration failed), `corrupt` (missing
   keys or wrong types).
-- It resets in place, clears the event queue, bumps `rev`, and keeps
+- It resets in place, clears the event queue, bumps `rev`, ends a `pending_retreat`'s run (above; one more
+  `rev`, its events queued), and keeps
   `next_run_id = max(saved, current)` and `next_uid = max(saved, current)`, so neither ever repeats within a session.
 
 **`static migrate(d: Dictionary) -> Dictionary`** upgrades one version at a time up to
