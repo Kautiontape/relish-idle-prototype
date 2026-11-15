@@ -74,6 +74,9 @@ from `BALANCE.md` §0.
   - (T3.2) `margin_cause` `"fall"` on a `thin` margin: a held fort that falls beyond the horizon and that
     one full wave wouldn't break reads `thin` / `"fall"`, no longer `thin` / `"wave"` (§5.5; MECHANICS
     §3.5): a meaning change, not a shape change;
+  - (T3.4a) **removed:** the non-contract compatibility members `raid_seed`, `boss_seed`,
+    `town_snapshot`, `apply_town_result` and `quality` on `GameState`, and `Game`'s forwarding members and
+    legacy getters (§2.2); `legacy_stores()` stays for one dungeon test;
   - (T3.4a) **the fort card's warden and loot lines come from the dungeon's configs** (api-request
     #5): `view_fort().warden` gains `name` (§5.5), and `warden.tells` and `loot_hint` (on `view_fort`
     and the raid seed alike) are read from `raid.json` `wardens.archetypes` and `loot.json` `hints`,
@@ -181,7 +184,7 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
-| `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
+| `legacy_stores` | **Not contract**: the E1 stores rebuilt from the new state; stays until `tests/test_results.gd:532` drops its call; §2.2. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
@@ -259,15 +262,11 @@ new state as a best effort, and writes to them are ignored; `time_scale` is the 
 | `realm: RealmSim` | `state.realm`, a live object replaced on new game or load, so re-read it on every use | map_nodes, map_routes, world_map, shot |
 | `field: InfluenceField` | `state.field` (same caveat) | world_map, map_field_view |
 | `towns: Array` | legacy village list (`{id, name, pos: Vector2, pop, control: green\|orange\|none}`) | map_nodes, world_map |
-| `res`, `army`, `town`, `assignments`, `idle_undead`, `gather` | fresh dicts from `state.legacy_stores()`, rebuilt on every read (below); writes change nothing | world_map, map_routes |
 | `won` | `state.won` | world_map |
 | `time_scale: float` | get: `state.time_scale`. Set: writes `state.time_scale` **unvalidated** (any value > 0). Keeps working in release builds; used by the map's ×1/×10/×60 buttons and `--speed=`. | world_map, shot |
-| `quality() -> float` | `state.quality()`, which is `digest_q()` | world_map |
 | `raiding_fort_id() -> String` | the active raid run's fort id, or `""` | map_nodes, shot |
-| `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()` | `state`'s compatibility members (below) | the router, for unported scenes (§2.3) |
-| `apply_town_result(r)` | `state.apply_town_result(r)`, a no-op from E2a | the router, for an unported town scene |
 
-**`legacy_stores()`** (E2a, what `Game`'s legacy getters read): the E1 stores rebuilt from TownSim and
+**`legacy_stores()`** (E2a; `Game`'s getters for it were removed in T3.4a, and only the dungeon's `tests/test_results.gd:532` still calls it, so it goes with that call): the E1 stores rebuilt from TownSim and
 the backups stock, every count an `int`:
 - `res = {gold, materials: bone, bodies, townsfolk: living}`;
 - `army = {soldier: 0, elite: 0}` (the army is gone);
@@ -277,17 +276,12 @@ the backups stock, every count an `int`:
 - `gather = {target, phase, eta, load}`: TownSim's convoy (`eta = (1 − t) · trip_s`), or phase `idle`
   with the set haul target (`""` for `auto`) when none is out.
 
-**Compatibility members on `GameState`** (not contract; each is marked `# legacy: delete when map
-drops the call` and goes when the map unit drops its call):
-
-| member | E2a behaviour | why it stays |
-|---|---|---|
-| `raid_seed(fort_id)` | the pre-E1 raid seed keys (`fort_id, name, tier, cap, living, undead, dead, boss: false, quality`) from the live fort and `q`; `{}` for an unknown fort | `scripts/main.gd` merges it into an unported dungeon's args |
-| `boss_seed()` | the pre-E1 boss seed keys, with `quality`, `backlog`, `vei_capacity` and `odds` live and `army: {soldier: 0, elite: 0}` | `scripts/main.gd` merges it into an unported boss's args |
-| `town_snapshot()` | `{}` (the town reads views) | `scripts/main.gd` merges it into the town's args |
-| `apply_town_result(r)` | a no-op (town actions are commands) | `scripts/main.gd` calls it for a legacy town result |
-| `legacy_stores()` | above | `Game`'s getters (world_map, map_routes) |
-| `quality()` | `digest_q()` | `Game.quality()` (world_map) |
+**Compatibility members on `GameState`** (not contract): only `legacy_stores()` (above) remains. It stays
+until `tests/test_results.gd:532` drops its call. `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()`,
+`apply_town_result(r)` and `quality()` were removed in T3.4a, with `Game`'s forwarding members and its
+`res`, `army`, `town`, `assignments`, `idle_undead` and `gather` getters: nothing called them
+(`view_dungeon_seed`, `view_boss_seed` and `digest_q()` are the contract). `Results.KINDS` keeps
+`"raid_seed"` and `"boss_seed"`: they validate those two views' seeds.
 
 **Removed at E1** (replaced by commands): `new_game`, `begin_raid`, `end_raid`, `apply_raid_result`,
 `auto_resolve_raid`, `apply_boss_result`, `auto_resolve_boss`. shot.gd's cheats move to
@@ -313,13 +307,9 @@ signal finished(result: Dictionary)
 | dungeon | `{mode: "dungeon", fort_id: String, run_id: int, seed_rev: int}` | `view_dungeon_seed(fort_id)` (§7.1), views | raid result v2 (§8.1) |
 | boss | `{mode: "boss", run_id: int, seed_rev: int}` | `view_boss_seed()` (§7.2), views | boss result v2 (§8.2) |
 
-- **E1 compatibility.** Until a scene is ported, the router also merges that scene's legacy seed
-  keys into `args`:
-  - dungeon: `Game.raid_seed(id)`;
-  - boss: `Game.boss_seed()`;
-  - town: `Game.town_snapshot()` (`{}` from E2a: the town reads views).
-
-  Ported scenes ignore unknown `args` keys.
+- **E1 compatibility** (removed in T3.4a): the router once merged a legacy seed (`Game.raid_seed`,
+  `boss_seed`, `town_snapshot`) into `args` for an unported scene; nothing calls them now. Ported
+  scenes ignore unknown `args` keys.
 - **`teleport_to`** names the node whose scene opens next; `""` means the map. With `v: 2` it never
   moves Relish.
 - **Router flow:**

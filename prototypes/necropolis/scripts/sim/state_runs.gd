@@ -65,7 +65,7 @@ static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionar
 		"rng_seed": derived_rng_seed(gs, run_id),
 		"backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": gs.digest_q(),
-		"vei_capacity": float(gs._cfg().get("R_vei", 50.0)),
+		"vei_capacity": gs._req_f("realm.R_vei"),
 		"fronts": gs._fronts(false),
 		"fronts_required": gs._fronts_required(),
 		"party": party_entries(gs, true),

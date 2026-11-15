@@ -363,19 +363,6 @@ func _legacy() -> void:
 	var c: Dictionary = s.town_sim.haul["convoys"][0]
 	t.ok(g["target"] == "vespers" and g["phase"] == "out" and absf(g["eta"] - (1.0 - c["t"]) * c["trip_s"]) < 1e-9 and g["load"] == 0.0,
 		"gather: the convoy out, eta = (1 − t) · trip_s")
-	t.ok(s.quality() == s.digest_q(), "quality() is q")
-	var rs := s.raid_seed("ashgate")
-	var f := s.realm.fort_by_id("ashgate")
-	t.ok(rs.keys() == ["fort_id", "name", "tier", "cap", "living", "undead", "dead", "boss", "quality"] and rs["living"] == f["living"]
-		and rs["quality"] == s.digest_q() and not rs["boss"] and s.raid_seed("nope") == {}, "raid_seed: the pre-E1 keys from the live fort")
-	var bs := s.boss_seed()
-	t.ok(bs["boss"] and bs["army"] == {"soldier": 0, "elite": 0} and bs["backlog"] == s.realm.vei["undead_queue"] and bs["odds"] == s.realm.odds()
-		and bs["quality"] == s.digest_q(), "boss_seed: the pre-E1 keys, an empty army")
-	t.ok(s.town_snapshot() == {}, "town_snapshot: {}")
-	var before := s.to_dict()
-	var rv := s.rev
-	s.apply_town_result({"town": {"slabs": 9}, "spend": {"gold": 50.0}, "assignments": {"trade": 5}, "deploy_simulacra": [{"fort_id": "ashgate", "charges": 5.0, "rate": 1.0}]})
-	t.ok(s.to_dict() == before and s.rev == rv and s.realm.simulacra.is_empty(), "apply_town_result: a no-op")
 
 
 # ------------------------------------------------------------ v1 → v2 saves ----

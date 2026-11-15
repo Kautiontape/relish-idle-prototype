@@ -134,7 +134,7 @@ func _split() -> void:
 	var inp: Dictionary = s._realm_inputs
 	t.ok(inp["war"] == s._split["war"] and inp["flood"] == s._split["flood"], "WAR and FLOOD are RealmSim's inputs")
 	t.near(s.realm.cov["r_out"], s._split["war"] + s._split["flood"], 1e-12, "RealmSim received them")
-	t.ok(inp["digest_q"] == s.digest_q() and s.quality() == s.digest_q(), "digest_q is q (quality() forwards to it)")
+	t.ok(inp["digest_q"] == s.digest_q(), "digest_q is q")
 
 
 # ----------------------------------------------------- Relish's tide and redirect ----
@@ -395,9 +395,7 @@ func _q() -> void:
 	var q := s.digest_q()
 	s.tick(s.substep_s())
 	t.ok(s._realm_inputs["digest_q"] == q and s.realm.digest_q == q, "RealmSim steps at q")
-	t.ok(s.view_vei()["digest_q"] == q and s.view_realm()["digest_q"] == q and s.quality() == q, "view_vei, view_realm and quality() show it")
-	t.ok(s.raid_seed("ashgate")["quality"] == q and s.boss_seed()["quality"] == q and s.town_snapshot() == {},
-		"the legacy seeds carry it (no elite term); the legacy town snapshot is {}")
+	t.ok(s.view_vei()["digest_q"] == q and s.view_realm()["digest_q"] == q, "view_vei and view_realm show it")
 	t.ok(s.town_sim.forge["level"] == 2, "forge_level is TownSim's")
 	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	t.ok(s.cmd_begin_dungeon("ashgate")["seed"]["digest_q"] == q, "the dungeon seed carries it")

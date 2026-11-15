@@ -34,7 +34,15 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len"]
+	"realm.relish.tide_bias", "economy.queue.max_len",
+	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
+	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
+	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
+	"economy.opening.starter_party", "economy.stance.base_slots", "economy.worker.mass", "economy.pit.bonus",
+	"economy.town.migrant_rate",
+	"realm.relish.travel_speed", "realm.relish.home_stance_bonus", "realm.readout.sign_eps", "realm.readout.ema_s",
+	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
+	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -142,6 +150,7 @@ var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for te
 ## session only, never saved, emptied by a new game and a load.
 var _proj_cache := {}
 var _field_acc := 0.0
+var _req_keys := {}  # REQUIRED path -> its split keys (a cache for _req)
 var _events: Array = []
 
 
@@ -165,9 +174,13 @@ func setup(cfgs: Dictionary) -> void:
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
 func _req(path: String) -> Variant:
-	assert(REQUIRED.has(path), "GameState reads %s; add it to REQUIRED" % path)
+	var keys: PackedStringArray = _req_keys.get(path, PackedStringArray())
+	if keys.is_empty():  # first read of this path: it must be one of REQUIRED; its split is cached (read per step)
+		assert(REQUIRED.has(path), "GameState reads %s; add it to REQUIRED" % path)
+		keys = path.split(".")
+		_req_keys[path] = keys
 	var v: Variant = _cfgs
-	for k in path.split("."):
+	for k in keys:
 		if not (v is Dictionary and (v as Dictionary).has(k)):
 			push_error("GameState: config %s is missing" % path)
 			return null
@@ -190,15 +203,15 @@ func _sec(file: String, section: String) -> Dictionary:
 
 
 func substep_s() -> float:
-	return float(_cfgs.get("economy", {}).get("sim", {}).get("substep_s", 0.5))
+	return _req_f("economy.sim.substep_s")
 
 
 func max_substeps_per_frame() -> int:
-	return int(_cfgs.get("economy", {}).get("sim", {}).get("max_substeps_per_frame", 16))
+	return int(_req_f("economy.sim.max_substeps_per_frame"))
 
 
 func travel_speed() -> float:
-	return float(_cfg().get("relish", {}).get("travel_speed", 220.0))
+	return _req_f("realm.relish.travel_speed")
 
 
 func drain_events() -> Array[Dictionary]:
@@ -240,8 +253,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	remnants = []
 	big_undead = []
 	party_uids = []
-	var v: Dictionary = opening.get("valve", {"work": 0.40, "war": 0.45, "flood": 0.15})
-	valve = _normalised(float(v.get("work", 0.4)), float(v.get("war", 0.45)), float(v.get("flood", 0.15)))
+	valve = _normalised(_req_f("economy.opening.valve.work"), _req_f("economy.opening.valve.war"), _req_f("economy.opening.valve.flood"))
 	valve_target = valve.duplicate()
 	work_pending = 0.0
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
@@ -295,9 +307,8 @@ func _build_realm_field_towns() -> void:
 ## Pre-warms the field so the map doesn't start blank, then publishes any in-flight slice.
 ## A load reuses it (T1.5).
 func _prewarm_field() -> void:
-	var pw: Dictionary = _sec("economy", "sim")
-	var pw_dt := float(pw.get("prewarm_dt", 0.2))
-	for i in int(pw.get("prewarm_ticks", 90)):
+	var pw_dt := _req_f("economy.sim.prewarm_dt")
+	for i in int(_req_f("economy.sim.prewarm_ticks")):
 		_inject_sources(pw_dt)
 		field.tick(pw_dt)
 	field.flush()
@@ -507,7 +518,7 @@ func _backups_cfg() -> Dictionary:
 ## if that would not be finite); odds = backlog / (backlog + K).
 func _vei_readout() -> Dictionary:
 	var ema := float(_readout["diff_ema"])
-	var eps := float(_sec("realm", "readout").get("sign_eps", 0.05))
+	var eps := _req_f("realm.readout.sign_eps")
 	var backlog: float = realm.vei["undead_queue"]
 	var drain := -1.0
 	if ema < 0.0:
@@ -526,7 +537,7 @@ func _vei_readout() -> Dictionary:
 ## not in the inflow.
 func _update_readout(dt: float, inflow: float, digestion: float) -> void:
 	_diff = inflow - digestion
-	var ema_s := float(_sec("realm", "readout").get("ema_s", 120.0))
+	var ema_s := _req_f("realm.readout.ema_s")
 	var a := 1.0 - exp(-dt / ema_s) if ema_s > 0.0 else 1.0
 	var ema := float(_readout["diff_ema"])
 	_readout["diff_ema"] = ema + a * (_diff - ema)
@@ -589,7 +600,7 @@ func _garrison_div() -> float:
 
 
 func _starter_units(fort_id: String) -> int:
-	return int(_sec("economy", "opening").get("starter_party", 8)) if _is_first_dungeon(fort_id) else 0
+	return int(_req_f("economy.opening.starter_party")) if _is_first_dungeon(fort_id) else 0
 
 
 ## raid.json wardens.by_fort is dungeon-owned; the E1 stub is bellringer.
@@ -819,9 +830,9 @@ func cmd_set_staff_cap(lot_id: String, cap: int) -> Dictionary:
 
 ## stance.base_slots, plus the Guildhall's, plus 1 while Relish is home (MECHANICS §4.5).
 func _stance_slots() -> int:
-	var n := int(_sec("economy", "stance").get("base_slots", 2)) + int(town_sim.built_effect("stance_slots"))
+	var n := int(_req_f("economy.stance.base_slots")) + int(town_sim.built_effect("stance_slots"))
 	if relish["state"] == "home":
-		n += int(_cfg().get("relish", {}).get("home_stance_bonus", 1))  # her one live home effect (§3.3)
+		n += int(_req_f("realm.relish.home_stance_bonus"))  # her one live home effect (§3.3)
 	return n
 
 
@@ -1064,7 +1075,7 @@ func _held() -> Dictionary:
 
 ## economy.json worker.mass: the mass of one worker.
 func worker_mass() -> float:
-	return float(_sec("economy", "worker").get("mass", 40.0))
+	return _req_f("economy.worker.mass")
 
 
 # ----------------------------------------------------------------- §5 views ----
@@ -1081,7 +1092,7 @@ func _world_size() -> Array:
 
 
 func _pool_cap() -> float:
-	return float(_cfg().get("vei_pool_cap", 600.0))
+	return _req_f("realm.vei_pool_cap")
 
 
 ## Every RATE_IDS stream as {id: [in, out]} per second, the one source of view_rates and view_hud
@@ -1371,31 +1382,21 @@ func view_vei() -> Dictionary:
 
 
 # ----------------------------------------------------------------- §3 tick ----
-func _qcfg() -> Dictionary:
-	return _sec("realm", "q")
-
-
 ## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
 ## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the
 ## forge job's levels); Σ foreman_q is 0 until E3.
 func digest_q() -> float:
-	var qc := _qcfg()
 	var ema := float(_readout["q_raise_ema"])
-	var q_raise := float(qc.get("q_raise_max", 0.6)) * maxf(0.0, (ema - 50.0) / 50.0)
+	var q_raise := _req_f("realm.q.q_raise_max") * maxf(0.0, (ema - 50.0) / 50.0)
 	var foremen := 0.0
-	var q := float(qc.get("q0", 1.2)) + float(qc.get("q_forge", 0.1)) * float(town_sim.forge["level"]) + foremen + q_raise
-	return clampf(q, 1.0, float(qc.get("q_max", 4.0)))
-
-
-## legacy: delete when map drops the call (world_map.gd reads Game.quality()). The same q.
-func quality() -> float:
-	return digest_q()
+	var q := _req_f("realm.q.q0") + _req_f("realm.q.q_forge") * float(town_sim.forge["level"]) + foremen + q_raise
+	return clampf(q, 1.0, _req_f("realm.q.q_max"))
 
 
 ## Each raised bucket {score, mass}, in apply order, moves ema_score by α = 1 − 0.5^(mass /
 ## q.raise_half_mass): a half-life in mass raised, not in time, so it holds while no circles arrive.
 func _raise_ema(raised: Array) -> void:
-	var half := float(_qcfg().get("raise_half_mass", 200.0))
+	var half := _req_f("realm.q.raise_half_mass")
 	var ema := float(_readout["q_raise_ema"])
 	for e in raised:
 		var m := maxf(0.0, float(e["mass"]))
@@ -1413,7 +1414,7 @@ func _slew_valve(dt: float) -> void:
 ## The valve one slew of `dt` from now (pure): what _slew_valve sets, and what the build benefit's
 ## hypothetical step splits with (StateViews.projections).
 func _slewed_valve(dt: float) -> Dictionary:
-	var rate := float(_cfg().get("valve", {}).get("slew_per_s", 0.10))
+	var rate := _req_f("realm.valve.slew_per_s")
 	var l1 := 0.0
 	for k in valve:
 		l1 += absf(float(valve_target[k]) - float(valve[k]))
@@ -1458,9 +1459,7 @@ func _advance(dt: float, max_substeps: int) -> int:
 
 ## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
 func _mint(pits: int, feed: float) -> float:
-	var cfg: Dictionary = _cfg()
-	var bonus := float(_sec("economy", "pit").get("bonus", 0.6))
-	return (float(cfg.get("P_base", 2.0)) + float(cfg.get("P_per_pit", 6.0)) * pits) * (1.0 + bonus * feed)
+	return (_req_f("realm.P_base") + _req_f("realm.P_per_pit") * pits) * (1.0 + _req_f("economy.pit.bonus") * feed)
 
 
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
@@ -1640,8 +1639,8 @@ func _inject_sources(dt: float) -> void:
 	var fcfg: Dictionary = _cfg().get("field", {})
 	var src_main: float = float(fcfg.get("src_main", 3.0))
 	var src_fort: float = float(fcfg.get("src_fort", 1.1))
-	field.inject(realm.cov_pos, true, src_main * (1.0 + float(_cfg().get("field_src_per_pit", 0.15)) * town_sim.pits()) * dt, 2)
-	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, float(_cfg().get("vei_pool_cap", 600.0)))
+	field.inject(realm.cov_pos, true, src_main * (1.0 + _req_f("realm.field_src_per_pit") * town_sim.pits()) * dt, 2)
+	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, _req_f("realm.vei_pool_cap"))
 	field.inject(realm.vei_pos, false, src_main * vei_str * dt, 3)
 	for f in realm.forts:
 		var cap: float = f["cap"]
@@ -1673,45 +1672,9 @@ func _update_towns(cfg: Dictionary) -> void:
 # ------------------------------- compatibility for unported callers, and death ----
 # STATE-API §2.2: built best-effort from the new state; nothing written to them is read back.
 
-## legacy: delete when map drops the call (scripts/main.gd merges it into an unported dungeon's
-## args). The pre-E1 raid seed's keys, from the live fort and q.
-func raid_seed(fort_id: String) -> Dictionary:
-	var f := realm.fort_by_id(fort_id)
-	if f.is_empty():
-		return {}
-	return {
-		"fort_id": fort_id, "name": f["name"], "tier": f["tier"], "cap": f["cap"],
-		"living": f["living"], "undead": f["undead"], "dead": f["dead"], "boss": false, "quality": digest_q(),
-	}
-
-
-## legacy: delete when map drops the call (scripts/main.gd merges it into an unported boss's args).
-## The pre-E1 boss seed's keys; the army is gone, so it is empty.
-func boss_seed() -> Dictionary:
-	return {
-		"fort_id": "vei", "name": "Vei's Domain", "tier": 5, "cap": 800.0,
-		"living": 500.0, "undead": 0.0, "dead": 60.0, "boss": true,
-		"quality": digest_q(), "backlog": float(realm.vei["undead_queue"]),
-		"army": {"soldier": 0, "elite": 0}, "vei_capacity": float(_cfg().get("R_vei", 50.0)), "odds": realm.odds(),
-	}
-
-
-## legacy: delete when map drops the call (scripts/main.gd merges it into the town scene's args).
-## {}: the town reads views now.
-func town_snapshot() -> Dictionary:
-	return {}
-
-
-## legacy: delete when map drops the call (scripts/main.gd passes a legacy town result). A no-op:
-## town actions are commands.
-@warning_ignore("unused_parameter")
-func apply_town_result(r: Dictionary) -> void:
-	pass
-
-
-## legacy: delete when map drops the reads (world_map.gd and map_routes.gd read Game.res, army,
-## town, assignments, idle_undead and gather; Game's getters forward here). The E1 stores rebuilt
-## fresh from the new state (STATE-API §2.2), so a write to them changes nothing:
+## legacy: stays only until tests/test_results.gd:532 (the dungeon's) drops its call; no scene reads
+## it (Game's getters are gone). The E1 stores rebuilt fresh from the new state (STATE-API §2.2), so
+## a write to them changes nothing:
 ## res {gold, materials: bone, bodies, townsfolk: living}; army {soldier: 0, elite: 0};
 ## town {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0};
 ## assignments: staffed workers per old job (trade: stall, forge, jobs: build, gather: haul,
@@ -1787,7 +1750,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 
 ## economy.json sim.autosave_s: real seconds between the shell's autosaves.
 func autosave_s() -> float:
-	return float(_cfgs.get("economy", {}).get("sim", {}).get("autosave_s", 30.0))
+	return _req_f("economy.sim.autosave_s")
 
 
 # ------------------------------------------------------- §4.1 save and load ----

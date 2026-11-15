@@ -73,6 +73,19 @@ func run() -> int:
 		if v == null:
 			missing.append(path)
 	t.ok(missing.is_empty() and GameState.REQUIRED.size() >= 9, "every GameState.REQUIRED config path is present: missing %s" % [missing])
+	# T3.4a: the economy and realm tunables that had inline fallbacks are REQUIRED now, and each read follows the config
+	for path in ["economy.sim.substep_s", "economy.sim.autosave_s", "economy.opening.valve.work", "economy.opening.starter_party", "economy.stance.base_slots",
+			"economy.worker.mass", "economy.pit.bonus", "economy.town.migrant_rate", "realm.relish.travel_speed", "realm.relish.home_stance_bonus",
+			"realm.readout.sign_eps", "realm.readout.ema_s", "realm.vei_pool_cap", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
+			"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass"]:
+		t.ok(GameState.REQUIRED.has(path), "%s is REQUIRED (no fallback)" % path)
+	var cfg2 := GameState.load_configs("res://configs")
+	cfg2["realm"]["q"]["q0"] = 2.5
+	cfg2["economy"]["sim"]["substep_s"] = 0.25
+	cfg2["economy"]["worker"]["mass"] = 33.0
+	var gs := GameState.new(cfg2)
+	gs.cmd_new_game(1)
+	t.ok(gs.substep_s() == 0.25 and gs.worker_mass() == 33.0 and gs.digest_q() >= 2.5, "the reads follow the config: substep %s, worker mass %s, q %s" % [gs.substep_s(), gs.worker_mass(), gs.digest_q()])
 	var gsr := GameState.new(cfg)
 	t.ok(gsr._raise_rate == float(cfg["realm"]["relish"]["raise_rate"]) and gsr._clear_min_living == float(cfg["realm"]["hold"]["clear_min_living"])
 		and gsr._recover_s == float(cfg["loot"]["recover_s"]) and gsr._reclear_decay == float(cfg["loot"]["reclear_decay"]),

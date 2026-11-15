@@ -216,7 +216,7 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 ## there (ticked at a step far past its stable dt) reads 0.0: the API carries no NaN or INF, and
 ## the owner is what the last field tick decided (GameState._dominance treats it as 0, so "none").
 static func villages(gs: GameState) -> Dictionary:
-	var rate := float(gs._sec("economy", "town").get("migrant_rate", 0.012))
+	var rate := gs._req_f("economy.town.migrant_rate")
 	var out: Array = []
 	for tw in gs.towns:
 		var owner: String = {"green": "player", "orange": "vei"}.get(tw["control"], "none")
@@ -248,7 +248,7 @@ static func town(gs: GameState) -> Dictionary:
 		var id := str(l.get("id", ""))
 		lots.append({"id": id, "size": int(l.get("size", 1)), "unlocked": BuildRules.lot_unlocked(gs, id),
 			"building_id": str(ts.buildings.get(id, {}).get("building_id", ""))})
-	var p_per_pit := float(gs._cfg().get("P_per_pit", 6.0))
+	var p_per_pit := gs._req_f("realm.P_per_pit")
 	var haul_rate := gs._haul_rate()
 	var staffed: Dictionary = ts.staffing.get("lots", {})
 	var ups := projections(gs, "upgrades")
