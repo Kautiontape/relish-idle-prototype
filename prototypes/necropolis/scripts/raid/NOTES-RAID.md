@@ -1481,3 +1481,51 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - The standard party declined the door at all three forts.
   - The spare-big party took it at all three, and its big rejoined: vespers 117.4 s (order 0.53, open 2.93, cache 3.05, shut 4.53; 1.5 s at the doorstep); lantern-keep 153.6 s (order 0.08, open 3.88, cache 18.77: the room's fight came first); chime-fort 128.9 s (order 13.98, open 17.87, cache 17.98; 3.0 s at the doorstep).
   - The wait at the doorstep is idle in the split.
+- **The checkpoint review's two overlaps** (bd13552, draw only, lines byte-identical to bff1cea):
+  - The world label moves off Relish's token while they would overlap, away from the wall and past her (`RaidHeldDoor.label_shift`, after the boss lanes' `label_shift`).
+  - The HUD's door row is now the StatBlock's DOOR row, on its plate, wrapped to the value column (`RaidHud.wrap_chunks`). It no longer runs across the map.
+  - All five shots were re-taken at bd13552 and read.
+
+### Identity (iter `de6id`, the 13 seed-1 lines at bff1cea)
+- 10 lines (t1, P1, t3, t4) are raw-identical to `de4id`. vespers is identical once the new `door` key is dropped.
+- lantern-keep 106.07 → 113.47 s and chime-fort 116.05 → 108.27 s, re-pinned in 8ad7ca1. The door is declined (one big), so only the niche's walls act.
+- Vei's seed-1 line is identical to a14d1ec's. `parity_check.sh` gives 5 of 5. A door-taken t2 line (vespers, the spare-big party, seed 1) is identical with and without `--reduced-motion`.
+
+### The measurement (seeds 20-39, score 70, the three t2 forts; 372 rows, all in lockstep, no script errors)
+- **Rows:**
+  - with the door at bff1cea: `de6a` / `de6ah` (arm a, frozen bot / typical human), `de6b` / `de6bh` (arm b);
+  - arm (b) without the door at a14d1ec: `de6b0` / `de6b0h`;
+  - arm (a) without the door: m4c and hb70d10. They reproduce byte for byte at a14d1ec (`de6spot` / `de6spoth`, seeds 20-21, 12 of 12).
+- **The typical human's length** is the per-run estimate: real seconds (scene + trance × (1/0.35 - 1), the 2 s circle) + 0.75 s of aim per raise + 0.2 × travel seconds + 1 s per room read + 0.2 s per tell. The frozen bot's is scene seconds.
+- **Deaths:** Wilson 90%, then the seed-clustered interval (n / 1.5). **Split:** pooled seconds, each fort's > 2× outliers out.
+- **The door taken, per arm, fort and profile:**
+  - arm (a): 0 of 20 at each fort for both profiles (declined: one big);
+  - arm (b): 20 of 20 at each fort for both profiles, its cache fetched every time. The big spent is p2 (beef 4) at vespers and lantern-keep, and p1 (speed 4) at chime-fort.
+
+| arm, profile | median s, no door → door | ≥ 180 s | died, no door → door | paired: died only with / only without | travel / idle % | relics | bigs spent: rejoined / lost |
+|---|---|---|---|---|---|---|---|
+| a, frozen | 117.6 → 116.4 | 5 → 7 of 60 | 6/60 = 10.0% (5-18; 5-20) → 7/60 = 11.7% (6-20; 6-23) | 3 / 2 | 5.13 / 1.28 → 4.92 / 1.36 | 128 → 126 | none spent |
+| a, typical human | 168.0 → 169.3 (scene 126.9 → 126.9) | 19 → 20 | 9/60 = 15.0% (9-24; 8-26) → 6/60 = 10.0% (5-18; 5-20) | 2 / 5 | 4.51 / 2.32 → 4.57 / 2.26 | 122 → 126 | none spent |
+| b, frozen | 87.5 → 106.4 | 0 → 3 | 0/60 (0-4; 0-6) → 4/60 = 6.7% (3-14; 3-16) | 4 / 0 | 6.91 / 1.70 → 6.18 / 4.40 | 142 → 185 | 60: 54 / 6 (4 deaths, 2 retreats) |
+| b, typical human | 129.4 → 162.3 (scene 97.0 → 123.2) | 4 → 18 | 1/60 = 1.7% (0-7; 0-9) → 2/60 = 3.3% (1-10; 1-12) | 2 / 1 | 6.00 / 3.26 → 5.79 / 5.14 | 140 → 190 | 60: 57 / 3 (2 deaths, 1 retreat) |
+
+- **Paired per run** (door minus none): arm (a) median +0.0 s (27 and 28 of 60 runs the same length); arm (b) median +22.9 s (frozen) and +30.6 s (typical human).
+- **Arm (a), declined: it neither pads nor idles beyond noise.**
+  - Travel is 4.92% and 4.57%, under the 5.3% ceiling.
+  - Idle is 1.28 → 1.36% for the frozen bot (+0.07 s a run, mean) and 2.32 → 2.26% for the typical human.
+  - The niche's walls changed the length of 33 and 32 of the 60 runs. Deaths move both ways within the intervals.
+- **Arm (b), the trade.**
+  - Length: +23-31 s a run. The typical human's estimate goes from 129 to 162 s, and the share at 180 s or more from 4 to 18 of 60.
+  - Risk: 0 → 4 deaths for the frozen bot (all 4 paired against a survived run) and 1 → 2 for the typical human.
+  - Loot: one relic a run (60 cache relics fetched in each profile). Result relics +43 and +50, net of the unbanked cache lost in deaths and of the chest's own rolls.
+  - Travel: arm (b) without the door is already over 5.3% (6.91% and 6.00%), because the spare-big party's fights are short. The door adds 0.9 s and 1.6 s of travel a run (the walk is 352-792 px, median per fort), and the share falls to 6.18% and 5.79%.
+  - Idle rises: 1.70 → 4.40% and 3.26 → 5.14%, about +3.5 s a run.
+- **What the idle is.** A throwaway probe on copies of both snapshots booked each idle tick to the bot's branch: frozen bot, arm (b), seeds 20-25, 18 runs each, every line byte-identical to its batch row.
+  - The doorstep wait (the big walking to the plate) is 12.6 s, 0.7 s a run. A human waits for it too.
+  - The rest is the bot's hold rule, which waits while hostile living fight its army in this room or the next and which `time_class` books as idle (Step 4's classification gap): 27.3 s without the door, 78.0 s with it. 41.8 s of that came while the big held the plate:
+    - with the plate's holder out of the room's fight, the route fights run longer;
+    - the bot's door step comes after its hold, so it waits out the room's fight before stepping in.
+  - The order-to-cache median is 2.5 s at vespers and 7-9 s at the other two. Not tuned: the bot is frozen.
+- **The t2 risk band (10-15%).**
+  - Arm (a), t2's own party: 11.7% (frozen) and 10.0% (typical human), inside the band.
+  - Arm (b), a spare big: 6.7% and 3.3% with the door, 0% and 1.7% without. Under the band, reported as asked.
