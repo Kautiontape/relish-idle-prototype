@@ -30,6 +30,9 @@ var _risk := {}                     # the UNBANKED counts, for the push line
 var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
+var _door_row: Label = null       # D-e task 6: the big spent on the held door (dungeon with a held door only)
+var _door_prompt: Label = null    # the held door's plate prompt, while she can send a big
+const RETREAT_TEXT := "Retreat through this exit? Your loot is banked and the fort does not flip."
 # boss extras
 var _boss_block: Control = null
 var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
@@ -48,6 +51,20 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_stats.setup(boss_mode)
 	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_stats)
+	if not boss_mode and raid.held_door != null:
+		# the held door (D-e task 6): its row under the stat block (the big it holds is not in the WARD's
+		# big row), and the plate's prompt over the hint line, wide enough for the whole trade
+		_door_row = _mk_label(box, 16, Palette.c("text"))
+		_door_row.visible = false
+		_door_prompt = _mk_label(self, 17, Palette.c("text"))
+		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+		_door_prompt.anchor_top = 1.0
+		_door_prompt.offset_top = -86.0
+		_door_prompt.offset_bottom = -58.0
+		_door_prompt.offset_left = -640.0
+		_door_prompt.offset_right = 640.0
+		_door_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_door_prompt.visible = false
 
 	_banner_plate = ColorRect.new()
 	_banner_plate.color = Palette.c("ground", 0.72)
@@ -125,7 +142,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 
 		_dialog = ConfirmationDialog.new()
 		_dialog.title = "Retreat"
-		_dialog.dialog_text = "Retreat through this exit? Your loot is banked and the fort does not flip."
+		_dialog.dialog_text = RETREAT_TEXT
 		_dialog.get_ok_button().text = "Retreat"
 		_dialog.confirmed.connect(func() -> void: raid.try_retreat())
 		add_child(_dialog)
@@ -245,6 +262,16 @@ func refresh() -> void:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	_hint.visible = not raid.first_raise_done and not raid._ended
+	if _door_row != null:
+		var dr: String = raid.held_door.row_text()
+		if dr != _door_row.text:
+			_door_row.text = dr
+			_door_row.add_theme_color_override("font_color", Palette.c("danger" if raid.held_door.state == "shut" else "text"))
+		_door_row.visible = dr != ""
+		var dp: String = raid.held_door.prompt_text() if not raid._ended else ""
+		if dp != _door_prompt.text:
+			_door_prompt.text = dp
+		_door_prompt.visible = dp != ""
 	if not raid.is_boss():
 		st.phyl = raid.phylactery_left()
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
@@ -398,6 +425,8 @@ func exit_enabled() -> bool:
 func open_exit_dialog() -> void:
 	if _dialog == null or raid._ended or not exit_enabled():
 		return
+	var spent: String = raid.held_door.holder_name if raid.held_door != null and raid.held_door.committed() else ""
+	_dialog.dialog_text = RETREAT_TEXT + RaidLogic.held_door_retreat_line(spent)   # a big spent on the held door is lost
 	_dialog.popup_centered()
 
 

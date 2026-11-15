@@ -970,6 +970,84 @@ static func detour_retreat(hp_frac: float, revives: int, allies: int, guard: int
 	return hp_frac < floor_hp or float(allies) < float(ap.get("detour_retreat_army_mult", 1.0)) * float(guard)
 
 
+## D-e task 6, the held door (raid.json held_door; RaidHeldDoor). Its site: LayoutLogic.held_door_site.
+static func held_door_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	return LayoutLogic.held_door_site(layout, tier, cfg)
+
+
+## THE SHUT-IN BIG'S FATE (the manager's ruling, 2026-11-15; the one place the rule lives): a big sent to
+## the held door's plate (`committed`) rejoins her party when the warden falls; if the run ends any other
+## way (a death, a retreat, a window close) it is lost and goes in party_lost.
+static func held_door_lost(exit: String, committed: bool) -> bool:
+	return committed and exit != "warden_beaten"
+
+
+## A party big's value in a warden weak point's stat ("beef", "speed", "wits", "power"; 0 for any other).
+static func big_stat(stats: Dictionary, stat: String) -> float:
+	return float(stats.get(stat, 0.0))
+
+
+## The measuring bot's held-door rule (raid.json autopilot door_*; NOTES-RAID "D-e task 6", frozen once
+## written). `stats`: the standing party bigs' values in this warden's weak-point stat, in party order;
+## `threshold` the weak point's. Take the door when at least `door_min_bigs` bigs stand and, after one is
+## spent, a big that meets the weak point still stands (or none met it to begin with). The big spent is the
+## lowest in that stat (the first in party order on a tie). Returns its index, or -1 to skip.
+static func held_door_pick(stats: Array, threshold: float, ap: Dictionary) -> int:
+	if stats.size() < int(ap.get("door_min_bigs", 2)):
+		return -1
+	var low := 0
+	var meets := 0
+	for i in stats.size():
+		if float(stats[i]) < float(stats[low]):
+			low = i
+		if float(stats[i]) >= threshold:
+			meets += 1
+	var left := meets - (1 if float(stats[low]) >= threshold else 0)
+	return low if meets == 0 or left >= 1 else -1
+
+
+## The held door's words (the world label, the plate's prompt, the HUD row, the death card's row and the
+## retreat dialog's line). `name` is the big's.
+const HELD_DOOR_ENTRY := "HELD DOOR · a big on the plate holds it · it stays behind"
+
+
+static func held_door_prompt() -> String:
+	return "AT THE HELD DOOR · click a big to send it (the plate sends the nearest) · it stays shut in until the warden falls · a retreat or a death loses it"
+
+
+static func held_door_label(state: String, name: String) -> String:
+	match state:
+		"held":
+			return "HELD · %s" % name
+		"sent":
+			return "SENT · %s" % name
+		"shut":
+			return "SHUT IN · %s" % name
+		"freed":
+			return "REJOINS · %s" % name
+	return HELD_DOOR_ENTRY
+
+
+## The HUD row while a big is spent on the door ("" when none is).
+static func held_door_row(state: String, name: String) -> String:
+	match state:
+		"sent", "held":
+			return "HELD DOOR · %s holds it · leaving the room shuts it in until the warden falls" % name
+		"shut":
+			return "SHUT IN · %s · rejoins when the warden falls · a retreat or a death loses it" % name
+	return ""
+
+
+## The death card's row for a big shut in at the door (apart from the party that fell in the fight).
+static func held_door_card_row(name: String) -> Dictionary:
+	return {"label": "SHUT IN", "text": "%s · lost at the cache" % name, "key": "danger"}
+
+
+## The retreat dialog's line for a big spent on the door ("" when none is).
+static func held_door_retreat_line(name: String) -> String:
+	return "" if name == "" else "\n%s is shut in at the cache: a retreat loses it." % name
+
+
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	return LayoutLogic.populate_piles(fort_id, layout, count)
 

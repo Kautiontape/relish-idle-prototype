@@ -247,7 +247,7 @@ func _record(exit: String) -> Dictionary:
 			role = "checkpoint"
 		rooms.append({"room": r, "role": role, "first_s": e["first_s"], "entries": e["entries"],
 			"scene_s": snappedf(float(e["scene_s"]), 0.01), "wall_s": snappedf(float(e["wall_ms"]) / 1000.0, 0.01)})
-	return {"v": 1, "kind": "raid_capture", "at": Time.get_datetime_string_from_system(),
+	var rec := {"v": 1, "kind": "raid_capture", "at": Time.get_datetime_string_from_system(),
 		"fort": str(fort.get("id", "")), "tier": _raid.fort_tier(), "first_dungeon": bool(fort.get("first_dungeon", false)),
 		"held": _raid.held, "run_id": int(_raid.seed_data.get("run_id", 0)), "seed_rev": int(_raid.seed_data.get("seed_rev", 0)),
 		"archetype": _archetype,
@@ -257,6 +257,17 @@ func _record(exit: String) -> Dictionary:
 		"wall_s": snappedf(float(Time.get_ticks_msec() - _t0_ms) / 1000.0, 0.01),
 		"raises": _raid.raises, "relish_hits": rel.hits.duplicate() if rel != null and is_instance_valid(rel) else {},
 		"rooms": rooms, "tells": _tally}
+	if _raid.held_door != null:
+		# D-e task 6: the door choice (only on a fort with a held door): taken or not (a big was sent), which
+		# big, the scene times of the order, the door opening, the cache, the shut-in and the rejoin, and its fate
+		var hd: RaidHeldDoor = _raid.held_door
+		var dd := hd.telemetry()
+		dd["taken"] = hd.holder_uid != "" or hd.fell > 0
+		dd["name"] = hd.holder_name
+		dd["fate"] = ("lost" if RaidLogic.held_door_lost(exit if exit in ["relish_died", "warden_beaten"] else "retreated", hd.committed())
+			else ("rejoined" if hd.state == "freed" else "kept")) if hd.holder_uid != "" else ("fell" if hd.fell > 0 else "")
+		rec["door"] = dd
+	return rec
 
 
 func _append(rec: Dictionary) -> void:

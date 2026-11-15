@@ -34,6 +34,7 @@ var held := false                # the fort is the player's (view_fort.held, or 
 var found_loot := {}             # loot found this run, minus essence (dings + the chest)
 var detour_guard: Array = []      # the guarded detour's living (RaidPopulate; raid.json detour)
 var detour_cache: Array = []      # its cache's pickups
+var held_door: RaidHeldDoor = null   # D-e task 6: the held door (raid.json held_door), null on a fort without one
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
@@ -172,6 +173,8 @@ func _build() -> void:
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
 	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
+	if not boss:
+		held_door = RaidHeldDoor.make(self, layout, tier, cfg)   # carves its niche into the layout (no rng)
 	if not boss:   # (VeiBoss seeds its own rngs from its seed in _build_extra and keeps no ledger)
 		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
 		rng_combat.seed = base ^ 0x6C0AB47
@@ -183,6 +186,8 @@ func _build() -> void:
 	arena.rng = rng_combat
 	add_child(arena)
 	arena.build(layout, cfg, controller_key())
+	if held_door != null:
+		add_child(held_door)
 
 	units_root = Node2D.new()
 	add_child(units_root)
@@ -296,6 +301,8 @@ func _physics_process(delta: float) -> void:
 	if not is_boss():
 		endings.track_position()
 		warden_run.tick()
+		if held_door != null:
+			held_door.tick(delta)
 	_cam_follow()
 	_post_physics(delta)
 
@@ -326,6 +333,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 		return
 	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
 		var w := screen_to_world(ev.position)
+		if held_door != null and held_door.click(w):
+			get_viewport().set_input_as_handled()   # the held door's order (on a big, or the plate): she stays put
+			return
 		relish.move_target = w
 		moves += 1
 		RaidFx.ping(fx_root, w)

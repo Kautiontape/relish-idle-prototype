@@ -27,6 +27,7 @@ var alive := true
 var warden_pack := false      # a warden's own living (the Huntsman's hounds): massless, drops nothing
 var leash_hold := false       # D-e task 3: holds its room (like the sentry) until Relish first enters it, then fights as any foe
 var sentry := false           # the detour's guard: holds its room (home_room), never follows out of it
+var parked := false           # D-e task 6: a big shut in behind the held door (off allies): no tick, never struck
 
 var _guard := {}             # bodyguard post this frame ({} when not guarding)
 var _flank := {}             # flank post this frame ({} when not flanking)
@@ -75,7 +76,7 @@ func grow_in() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if raid == null or raid._ended or not alive:
+	if raid == null or raid._ended or not alive or parked:
 		return
 	if _grow > 0.0:
 		_grow += delta
@@ -97,11 +98,15 @@ func _physics_process(delta: float) -> void:
 		_pick_target(cfg)
 
 	var move := Vector2.ZERO
-	_guard = raid.warden_run.guard_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null else {}
-	_flank = raid.warden_run.flank_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null and _guard.is_empty() else {}
-	_snuff = raid.warden_run.snuff_for(self) if faction == "ally" and kind == "big" and raid.warden_run != null \
-		and _guard.is_empty() and _flank.is_empty() else {}
-	if not _guard.is_empty():
+	# the held door's plate (D-e task 6): the big she sent holds it before any warden role
+	var plate_pt: Vector2 = raid.held_door.plate_for(self) if raid.held_door != null else Vector2.INF
+	var free_big := faction == "ally" and kind == "big" and raid.warden_run != null and plate_pt.x == INF
+	_guard = raid.warden_run.guard_for(self) if free_big else {}
+	_flank = raid.warden_run.flank_for(self) if free_big and _guard.is_empty() else {}
+	_snuff = raid.warden_run.snuff_for(self) if free_big and _guard.is_empty() and _flank.is_empty() else {}
+	if plate_pt.x != INF:
+		move = _hold_plate(plate_pt, cfg, delta)
+	elif not _guard.is_empty():
 		# bodyguard (fast big undead vs an awake Huntsman): strike what is in reach, never chase
 		var gp: Vector2 = _guard["point"]
 		var foe = null
@@ -209,6 +214,29 @@ func _physics_process(delta: float) -> void:
 	move += raid.separation_push(self) * float(cfg.get("separation_push", 110.0))
 	_slide_move(move, delta)
 	queue_redraw()
+
+
+## The held door's plate (D-e task 6): walk to it and stand on it; strike the foe it targets only when that
+## foe comes into reach (it never chases). Returns the move.
+func _hold_plate(pt: Vector2, cfg: Dictionary, delta: float) -> Vector2:
+	if _target != null and is_instance_valid(_target) and _target.alive:
+		var tt: Vector2 = _target.global_position - global_position
+		if tt.length() <= radius + _target.radius + float(cfg.get("strike_reach_pad", 7.0)) and _strike_t <= 0.0:
+			_strike_t = cadence
+			_lunge = 1.0
+			_facing = tt.normalized()
+			if _target is RaidWarden or _target is RaidAcolyte:
+				_target.hit_from(dmg, self)
+			else:
+				_hit_enemy(_target)
+	var tp := pt - global_position
+	if tp.length() <= 4.0:
+		return Vector2.ZERO
+	var ps := _steer_to(pt, delta) - global_position
+	if ps.length() < 1.0:
+		ps = tp
+	_facing = ps.normalized()
+	return ps.normalized() * minf(speed, tp.length() / maxf(delta, 0.001))
 
 
 ## The nearest of warden `w`'s standing pack within this unit's strike reach, else null (a flanker holding
@@ -333,7 +361,7 @@ func _slide_move(vel: Vector2, delta: float) -> void:
 
 
 func take_hit(amount: float) -> void:
-	if not alive:
+	if not alive or parked:
 		return
 	hp -= amount
 	_flash = 1.0

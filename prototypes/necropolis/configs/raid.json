@@ -310,6 +310,21 @@
     "cache_door_px": 45.0,
     "guard_spread_px": 50.0
   },
+  "held_door": {
+    "_doc": "D-e task 6, the held door (a set piece; LayoutLogic.held_door_site / held_door_walls, RaidHeldDoor; NOTES-RAID 'D-e task 6'). On a fort whose tier is in `tiers` (never the first dungeon, a held fort or the boss arena) one room on the route (a room on the shortest room path from the spawn to the warden room, not the warden's) gets a niche in one of its walls: niche_w_px along the wall by niche_d_px deep inside, behind wall_px walls, opening into the room through a door door_w_px wide. Where: of every wall stretch of every such room that keeps clear_px from each gap and exit and route_clear_px from the line the route walks through that room (each way in to each way out), the one whose doorstep adds the least walk to that line (the detour), then the lower room hop count, then the fixed side order n s w e, then the lower position. So the niche never pads: a decline walks the route as before, a take walks the detour. The cache (loot.json cache.relics_by_tier, the detour's) lies inside, within pickup reach of the doorway and out of reach through the closed door. A plate (plate_px square) lies beside the door in the room. The door is open only while a big undead stands within hold_px of the plate's centre; when Relish leaves the room (stands in any other room), the big sent to the plate is shut in behind the door: out of the fight, not in her party or ward, until the warden falls and the door unlocks (it rejoins). If the run ends any other way it is lost (party_lost; RaidLogic.held_door_lost, the one place the rule lives). How a big goes to the plate: Relish within order_px of the plate (her light's radius: she stands at the door) and a left click, the move click, on one of her party bigs sends that big; a click on the plate sends the nearest party big. There was no army order to reuse. Off: an empty `tiers`.",
+    "tiers": [2],
+    "niche_w_px": 110.0,
+    "niche_d_px": 44.0,
+    "wall_px": 12.0,
+    "door_w_px": 64.0,
+    "plate_px": 36.0,
+    "hold_px": 18.0,
+    "order_px": 220.0,
+    "clear_px": 30.0,
+    "route_clear_px": 40.0,
+    "step_px": 8.0,
+    "label_px": 14
+  },
   "floor": {
     "tint": "contour"
   },
@@ -418,6 +433,9 @@
     "detour_retreat_hp_frac": 0.5,
     "detour_retreat_hp_frac_revive": 0.3,
     "detour_retreat_army_mult": 1.0,
+    "_doc_door": "D-e task 6, the measuring bot's held-door rule (RaidAutopilot._door_tick / _door_decide, RaidLogic.held_door_pick; NOTES-RAID 'D-e task 6', frozen once written): decided once, at the first think she stands in the door's room before the wake, her read pause over and no living foe on her; take it when at least door_min_bigs party bigs stand and, once one is spent, one that meets the warden's weak point still stands (or none met it); spend the big lowest in the weak point's stat. Then: to the doorstep, the order (a click on that big) once she is within held_door.order_px of the plate with no foe on her, in through the doorway once the plate holds the door. She gives it up when the big falls first, or the door is not open door_wait_max_s after the order.",
+    "door_min_bigs": 2,
+    "door_wait_max_s": 8.0,
     "react_score": [50, 70, 90],
     "react_miss": [0.30, 0.18, 0.08],
     "react_delay_s": [0.60, 0.45, 0.30],

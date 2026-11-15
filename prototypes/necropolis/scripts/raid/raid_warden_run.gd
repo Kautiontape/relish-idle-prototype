@@ -218,6 +218,8 @@ func on_warden_died(w: RaidWarden) -> void:
 	if _raid._dev != null:
 		_raid._dev.on_warden_died(w)   # the measuring bot's last read of its counts
 	warden = null
+	if _raid.held_door != null:
+		_raid.held_door.on_warden_died()   # the held door unlocks: a shut-in big rejoins (D-e task 6)
 
 
 ## Relish opened the chest: merge its loot into what was found, then the victory beat, then the

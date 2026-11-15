@@ -144,6 +144,13 @@ var _det := {}                  # the guarded detour's site (RaidLogic.detour_si
 var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
 var _det_at := {}               # what she decided on: scene time, hp fraction, army, guard standing
 var _det_done_s := -1.0         # scene time the cache was hers (-1: not)
+var _door_state := ""           # the held door (D-e task 6): "" until she decides; "taken", "declined", "done" or "abandoned"
+var _door_big = null            # the big the door rule spends
+var _door_at := {}              # what she decided on: scene time, the bigs' values in the weak point's stat
+var _door_done_s := -1.0        # scene time the door's cache was hers (-1: not)
+var _door_wait_s := 0.0         # scene seconds she stood at the doorstep after the order, the door still shut
+var _door_walk0 := 0.0          # walk_px when she decided; the door's walk is walk_px from there to the cache
+var _door_walk := -1.0
 # the degraded bot (D-e; raid.json autopilot.human; all off unless a flag gives them)
 var _human_on := false          # any of the three knobs given: the result's `human` dict
 var _read_s := 0.0              # --raid-autopilot-read: scene seconds she stands on first entering a room
@@ -500,6 +507,22 @@ func on_finish(result: Dictionary) -> void:
 			"taken": st in ["taken", "done", "abandoned"], "done": st == "done", "abandoned": st == "abandoned",
 			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01), "died": _raid.relish == null or not _raid.relish.alive,
 			"cache_left": _det_cache_left(), "cache": _raid.detour_cache.size()}
+	if _raid.held_door != null:   # D-e task 6: only on lines with a held door, so every other line keeps its bytes
+		var hd: RaidHeldDoor = _raid.held_door
+		var dd := hd.telemetry()
+		dd["rule"] = _door_state
+		dd["at"] = _door_at
+		dd["done_s"] = snappedf(_door_done_s, 0.01)
+		dd["wait_s"] = snappedf(_door_wait_s, 0.01)
+		dd["walk_px"] = roundi(_door_walk)
+		var fate := ""
+		if hd.holder_uid != "":
+			fate = "lost" if RaidLogic.held_door_lost(exit if exit != "timeout" else "retreated", hd.committed()) \
+				else ("rejoined" if hd.state == "freed" else "kept")
+		elif hd.fell > 0:
+			fate = "fell"
+		dd["fate"] = fate
+		out["door"] = dd
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
 	out["killed_by"] = (src if src != "" else "wound") if died else ""
@@ -783,6 +806,7 @@ func _living() -> Array:
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
 	_detour_tick()
+	_door_tick(pos)
 	_avoid_arc = {}
 	_avoid_burn = {}
 	var hold_px := _c("hold_px", 200.0)
@@ -851,10 +875,14 @@ func _decide(pos: Vector2) -> Vector2:
 	# loose motes and piles, then pickups: the one chosen is kept until it is gone or unsafe (re-picking
 	# the nearest each think flip-flopped at a range edge: a pile just past pile_px, a pickup the other way)
 	var tgt = _stick if _still_target(_stick, living) else null
+	# a taken held door keeps her in its room until the cache is hers: she gathers only inside it (D-e task 6)
+	var droom := (_rooms()[_raid.held_door.room] as Rect2) if _door_state == "taken" else Rect2()
+	if tgt != null and _door_state == "taken" and not droom.has_point(tgt.global_position):
+		tgt = null
 	if tgt == null:
-		tgt = _collect_node(pos, living)
+		tgt = _collect_node(pos, living, Vector2.INF, 0.0, droom)
 	if tgt == null:
-		tgt = _pickup_node(pos, living)
+		tgt = _pickup_node(pos, living, Vector2.INF, 0.0, droom)
 	_stick = tgt
 	if tgt != null:
 		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
@@ -874,6 +902,10 @@ func _decide(pos: Vector2) -> Vector2:
 		if _hold_t < _c("stall_s", 30.0):
 			_why = "hold"
 			return pos
+	# the held door (D-e task 6): a taken door is walked to and its cache fetched before she moves on
+	if _door_state == "taken":
+		_why = "door"
+		return _door_goal(pos)
 	# nothing left to wait for: advance (a held fort ends with an exit)
 	var goal := _goal_room()
 	if int(_raid.layout.get("warden_room", -1)) < 0 and _cur_room == goal and living.is_empty():
@@ -1087,6 +1119,81 @@ func _det_cache_left() -> int:
 	return n
 
 
+## The held door's rule (D-e task 6; RaidLogic.held_door_pick, raid.json autopilot door_*; NOTES-RAID
+## "D-e task 6", frozen once written): decided once, at the first think she stands in the door's room before
+## the wake, her read pause over, with no living foe on her in her room. It reads the warden's weak point
+## (the stat and the threshold its label teaches) and the standing party bigs' values in that stat.
+func _door_tick(pos: Vector2) -> void:
+	var hd: RaidHeldDoor = _raid.held_door
+	if hd == null:
+		return
+	if _door_state == "":
+		var w = _raid.warden_run.warden
+		if _cur_room == hd.room and _read_left <= 0.0 and (w == null or not is_instance_valid(w) or not w.awake) \
+				and not _det_foe_on_her(pos):
+			_door_decide(hd, w)
+		return
+	if _door_state != "taken":
+		return
+	if hd.cache_left() == 0:
+		_door_state = "done"
+		_door_done_s = _sim_t
+		_door_walk = _walk_px - _door_walk0
+	elif hd.state == "shut" or hd.state == "freed":
+		_door_state = "abandoned"   # she left the room before the cache was hers: the big is shut in all the same
+	elif hd.fell > 0 or (hd.state == "unused" and (_door_big == null or not is_instance_valid(_door_big) or not _door_big.alive)):
+		_door_state = "abandoned"   # the big fell before the door held: she goes on
+	elif hd.times.has("ordered") and not hd.is_open and _sim_t - float(hd.times["ordered"]) > _c("door_wait_max_s", 8.0):
+		_door_state = "abandoned"   # it never reached the plate
+	elif hd.state == "unused" and hd.can_order() and not _det_foe_on_her(pos):
+		hd.click(_door_big.global_position)   # the human's order: a left click on that big, standing at the door
+	if _door_state == "taken" and hd.times.has("ordered") and not hd.is_open and pos.distance_to(hd.site["door_out"]) <= 8.0:
+		_door_wait_s += _c("think_frames", 3.0) / 60.0
+
+
+func _door_decide(hd: RaidHeldDoor, w) -> void:
+	var wp: Dictionary = w.spec.get("weak_point", {}) if w != null and is_instance_valid(w) else {}
+	var stat := str(wp.get("stat", ""))
+	var bigs := hd.party_bigs()
+	var vals: Array = []
+	for b in bigs:
+		vals.append(_big_stat(b, stat))
+	var k := RaidLogic.held_door_pick(vals, float(wp.get("threshold", 0.0)), _cfg)
+	_door_at = {"t": snappedf(_sim_t, 0.01), "stat": stat, "threshold": float(wp.get("threshold", 0.0)), "values": vals}
+	_door_state = "taken" if k >= 0 else "declined"
+	if k >= 0:
+		_door_big = bigs[k]
+		_door_at["big"] = str(bigs[k].uid)
+	_door_walk0 = _walk_px
+	print("AUTOPILOT_DOOR %s stat=%s values=%s big=%s frame=%d" % [_door_state, stat, str(vals), str(_door_at.get("big", "")), Engine.get_process_frames()])
+
+
+## A party big's value in a weak point's stat (RaidUnit keeps the four the wardens read).
+func _big_stat(u: RaidUnit, stat: String) -> float:
+	match stat:
+		"beef":
+			return u.beef
+		"speed":
+			return u.speed_stat
+		"wits":
+			return u.wits
+		"power":
+			return u.power
+	return 0.0
+
+
+## A taken door's walk: to the doorstep; once the plate holds the door, into the doorway (the cache is within
+## pickup reach of it; Relish's routing takes the doorway, LayoutLogic._niche_step).
+func _door_goal(pos: Vector2) -> Vector2:
+	var hd: RaidHeldDoor = _raid.held_door
+	var out: Vector2 = hd.site["door_out"]
+	if hd.is_open:
+		return _to_point(pos, hd.site["door_in"])
+	if pos.distance_to(out) <= 6.0:
+		return pos   # at the doorstep: wait for the plate
+	return _to_point(pos, out)
+
+
 ## Walk to the exit nearest by rooms, and retreat once standing in it.
 func _head_for_exit(pos: Vector2) -> Vector2:
 	if _raid.endings.can_retreat():
@@ -1168,6 +1275,8 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
 		if not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 			continue
+		if _raid.held_door != null and _raid.held_door.cache.has(o):
+			continue   # the held door's cache is the door rule's (_door_goal), never a floor pickup
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
 		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):

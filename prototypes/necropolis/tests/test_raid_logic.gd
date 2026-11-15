@@ -474,6 +474,23 @@ func run() -> int:
 			["res://scripts/raid/raid_logic.gd", "static func draw_step(", "RaidLogic.draw_step"],
 			["res://scripts/raid/raid_logic.gd", "static func read_starts(", "RaidLogic.read_starts"],
 			["res://scripts/raid/raid_logic.gd", "static func human_knob(", "RaidLogic.human_knob"],
+			["res://scripts/raid/layout_logic.gd", "static func held_door_site(", "LayoutLogic.held_door_site (D-e task 6)"],
+			["res://scripts/raid/layout_logic.gd", "static func _held_door_cands(", "LayoutLogic._held_door_cands"],
+			["res://scripts/raid/layout_logic.gd", "static func carve_held_door(", "LayoutLogic.carve_held_door"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_pick(", "RaidLogic.held_door_pick (the bot's door rule)"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_lost(", "RaidLogic.held_door_lost (the shut-in big's fate)"],
+			["res://scripts/raid/raid_held_door.gd", "func tick(", "RaidHeldDoor.tick"],
+			["res://scripts/raid/raid_held_door.gd", "func click(", "RaidHeldDoor.click (the order)"],
+			["res://scripts/raid/raid_held_door.gd", "func can_order(", "RaidHeldDoor.can_order"],
+			["res://scripts/raid/raid_held_door.gd", "func _shut_in(", "RaidHeldDoor._shut_in"],
+			["res://scripts/raid/raid_held_door.gd", "func _set_open(", "RaidHeldDoor._set_open"],
+			["res://scripts/raid/raid_held_door.gd", "func on_warden_died(", "RaidHeldDoor.on_warden_died"],
+			["res://scripts/raid/raid_held_door.gd", "func plate_for(", "RaidHeldDoor.plate_for"],
+			["res://scripts/raid/raid_held_door.gd", "func lost_uids(", "RaidHeldDoor.lost_uids"],
+			["res://scripts/raid/raid_unit.gd", "func _hold_plate(", "RaidUnit._hold_plate (the plate's holder)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_tick(", "the bot's held-door progress"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_decide(", "the bot's held-door rule"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_goal(", "the bot's walk to the held door"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -516,6 +533,7 @@ func run() -> int:
 	_human_tests(t, cfg)
 	_capture_tests(t)
 	_detour_tests(t, cfg)
+	_held_door_tests(t, cfg)
 	_bot_rule_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
 	t.ok(pick.contains("rel.alive and not warden_pack:") and not pick.contains("na == null"), "a warden's pack never takes Relish as its target (D-d/E 3c)")
@@ -606,6 +624,111 @@ func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 
 
 ## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.
+## D-e task 6, the held door: LayoutLogic.held_door_site / carve_held_door, RaidLogic.held_door_pick /
+## held_door_lost and its words.
+func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_held_door")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var hc: Dictionary = cfg["held_door"]
+	var pick_r := 40.0   # loot.json pickup.radius_px
+	var rel_r := 13.0    # raid.json relish.radius
+	var bad := ""
+	var sites := 0
+	var detours := {}
+	for f in world["forts"]:
+		var tier := int(f["tier"])
+		var fid := str(f["id"])
+		var lay := RaidLogic.gen_layout(fid, tier, false, cfg)
+		var site := RaidLogic.held_door_site(lay, tier, cfg)
+		if not (hc["tiers"] as Array).has(float(tier)) and not (hc["tiers"] as Array).has(tier):
+			if not site.is_empty():
+				bad += " %s: a door at tier %d" % [fid, tier]
+			continue
+		if site.is_empty():
+			bad += " %s: no door" % fid
+			continue
+		sites += 1
+		detours[fid] = snappedf(float(site["detour_px"]), 0.1)
+		var wr := int(lay["warden_room"])
+		var path := LayoutLogic.room_path(lay, RaidLogic.room_of(lay, lay["spawn"]), wr)
+		var r := int(site["room"])
+		var rc: Rect2 = lay["rooms"][r]
+		if not path.has(r) or r == wr:
+			bad += " %s: room %d is not a route room" % [fid, r]
+		if not rc.encloses(site["footprint"]) or not rc.has_point(site["plate"]) or not rc.has_point(site["door_out"]):
+			bad += " %s: niche or plate outside its room" % fid
+		for g in lay["gaps"]:
+			if (site["zone"] as Rect2).grow(float(hc["clear_px"]) - 0.01).intersects(g):
+				bad += " %s: niche by a gap" % fid
+		for d in lay["doors"]:
+			if (site["zone"] as Rect2).grow(float(hc["clear_px"]) - 0.01).intersects(d["rect"]):
+				bad += " %s: niche by an exit" % fid
+		if not (site["niche"] as Rect2).has_point(site["cache"]) or (site["cache"] as Vector2).distance_to(site["door_in"]) > pick_r - 2.0:
+			bad += " %s: cache not in reach from the doorway" % fid
+		# out of reach through the shut door: the nearest she can stand outside the plug is its front face plus her radius
+		if (site["cache"] as Vector2).distance_to(site["door_out"]) <= pick_r or (site["cache"] as Vector2).distance_to(
+				(site["door_in"] as Vector2) + (site["inward"] as Vector2) * (float(hc["wall_px"]) * 0.5 + rel_r)) <= pick_r:
+			bad += " %s: cache in reach through the shut door" % fid
+		if str(site) != str(RaidLogic.held_door_site(RaidLogic.gen_layout(fid, tier, false, cfg), tier, cfg)):
+			bad += " %s: not the same each build" % fid
+		# the carve: four walls drawn and solid, and the plug solid; the routing tables untouched
+		var portals := str(lay["portals"])
+		var nw := (lay["walls"] as Array).size()
+		var niw := (lay["inner_walls"] as Array).size()
+		LayoutLogic.carve_held_door(lay, site)
+		if (lay["walls"] as Array).size() != nw + 4 or (lay["inner_walls"] as Array).size() != niw + 5 or str(lay["portals"]) != portals:
+			bad += " %s: carve" % fid
+		var inside := LayoutLogic.resolve_walls(lay, site["cache"], rel_r)
+		if (site["plug"] as Rect2).grow(rel_r - 0.5).has_point(inside):
+			bad += " %s: the shut niche lets her in" % fid
+		var held := RaidLogic.gen_layout(fid, tier, false, cfg, {"held": true})
+		if not RaidLogic.held_door_site(held, tier, cfg).is_empty():
+			bad += " %s: a door in a held fort" % fid
+	t.ok(bad == "" and sites == 3, "a held door at each fort whose tier is in held_door.tiers (3: the t2 forts) and nowhere else; in a route room, not the warden's, inside it, clear of every gap and exit; the cache in reach from the doorway and out of reach through the shut door; the same each build; the carve adds 4 walls and the plug and no portal; none in a held fort (%s)" % bad)
+	t.ok(detours.size() == 3 and float(detours.values().max()) <= 200.0, "the niche adds at most 200 px of walk to the route at each t2 fort, when taken (%s)" % str(detours))
+	var lay1 := RaidLogic.gen_layout("old-sluice", 1, false, cfg, {"first_dungeon": true})
+	t.ok(RaidLogic.held_door_site(lay1, 2, cfg).is_empty() and RaidLogic.held_door_site(RaidLogic.gen_layout("vei", 5, true, cfg), 2, cfg).is_empty(),
+		"no held door in the first dungeon or the boss arena")
+	var off := cfg.duplicate(true)
+	off["held_door"]["tiers"] = []
+	t.ok(RaidLogic.held_door_site(RaidLogic.gen_layout("vespers", 2, false, off), 2, off).is_empty(), "held_door.tiers [] turns it off")
+	# the bot's rule: at least two bigs; spend the lowest in the weak point's stat; never the last that meets it
+	var ap: Dictionary = cfg["autopilot"]
+	t.ok(RaidLogic.held_door_pick([6.0], 6.0, ap) == -1, "one big (the standard t2 party: it meets both t2 weak points): she keeps it")
+	t.ok(RaidLogic.held_door_pick([7.0, 4.0], 6.0, ap) == 1, "the t3 party at the Bellringer (beef 7 and 4, threshold 6): she spends the beef-4 big")
+	t.ok(RaidLogic.held_door_pick([4.0, 6.0], 4.0, ap) == 0, "at the Huntsman (speed 4 and 6, threshold 4): both meet, she spends the slower, the other still meets it")
+	t.ok(RaidLogic.held_door_pick([3.0, 2.0], 6.0, ap) == 1, "none meets the weak point: she spends the lowest")
+	t.ok(RaidLogic.held_door_pick([6.0, 6.0], 6.0, ap) == 0, "a tie: the first in party order")
+	t.ok(RaidLogic.held_door_pick([], 6.0, ap) == -1, "no big: nothing to spend")
+	# the shut-in big's fate, in one place
+	t.ok(not RaidLogic.held_door_lost("warden_beaten", true) and RaidLogic.held_door_lost("retreated", true)
+		and RaidLogic.held_door_lost("relish_died", true) and not RaidLogic.held_door_lost("retreated", false),
+		"a big spent on the door rejoins when the warden falls; a retreat or a death loses it; with none spent nothing is lost")
+	# its words
+	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
+		"the entry and the leaving words are the spec's")
+	var pr := RaidLogic.held_door_prompt()
+	t.ok(pr.contains("shut in until the warden falls") and pr.contains("a retreat or a death loses it"), "the plate's prompt names the whole trade before she commits")
+	t.ok(RaidLogic.held_door_row("shut", "X").begins_with("SHUT IN · X") and RaidLogic.held_door_row("unused", "") == "", "the HUD row shows the shut-in big, and nothing with none spent")
+	var crow := RaidLogic.held_door_card_row("Gristle the Patient Ones")
+	var dcg: Dictionary = RaidLogic.DEATH_CARD
+	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var cw := ThemeDB.fallback_font.get_string_size(crow["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
+	t.ok(crow["label"] == "SHUT IN" and str(crow["text"]).contains("lost at the cache") and cw <= col_w,
+		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
+	t.ok(RaidLogic.held_door_retreat_line("X").contains("X is shut in at the cache") and RaidLogic.held_door_retreat_line("") == "", "the retreat dialog says a retreat loses it")
+	# the wiring: party_lost gets it on a retreat, the death card's row, the warden's fall frees it, the order is the move click
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func build_result(").contains("held_door.lost_uids(exit)"), "build_result adds the door's lost big to party_lost")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("held_door_card_row(shut)"), "the death card's SHUT IN row")
+	t.ok(_func_body("res://scripts/raid/raid_warden_run.gd", "func on_warden_died(").contains("held_door.on_warden_died()"), "the warden's fall unlocks the door")
+	var inp := _func_body("res://scripts/raid/raid.gd", "func _unhandled_input(")
+	t.ok(inp.find("held_door.click(w)") >= 0 and inp.find("held_door.click(w)") < inp.find("relish.move_target = w"), "the order is the move click, taken before the move")
+	var sh := _func_body("res://scripts/raid/raid_held_door.gd", "func _shut_in(")
+	t.ok(sh.contains("raid.allies.erase(holder)") and sh.contains("holder.parked = true"), "a shut-in big leaves her party (allies: the ward, the conduit, the counters) and is parked")
+	var ut := _func_body("res://scripts/raid/raid_unit.gd", "func take_hit(")
+	t.ok(ut.contains("not alive or parked"), "a parked big is never struck")
+
+
 func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_detour")
 	var world := TestUtil.load_json("res://configs/world.json")

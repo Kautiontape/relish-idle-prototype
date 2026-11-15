@@ -34,6 +34,8 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 			g.sentry = true   # it holds its post (raid.json detour)
 			_raid.detour_guard.append(g)
 	_place_cache(tier)
+	if _raid.held_door != null:
+		_raid.held_door.place_cache(tier)   # the held door's cache, in its niche (D-e task 6)
 	# garrison: exactly the seed's units, each carrying garrison_mass_div of ledger mass
 	var gn := int(sd.get("garrison_units", 0))
 	var gdiv := float(sd.get("garrison_mass_div", 10.0))
