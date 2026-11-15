@@ -773,7 +773,7 @@ upgrade refunds in full and changes nothing else.
 
 - **Relish never attacks.** HP is `relish.hp`.
 - **Lethal hits follow the sacrifice chain:** nearest chaff, then a soldier, then a big undead in the
-  party, then Relish.
+  party, then Relish. The chain soaks everything except a warden's tell-attacks, which strike her directly.
 - Your undead fight on their own.
 - Essence lives `essence.lifetime_s` (12, longer than the cooldown).
 - **RTS-drift guard:** the scene logs move clicks against raises. A ratio above 8:1 is a design smell,
@@ -858,7 +858,12 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   - Vei is a ferry. She has a **ferry rate** that drains your horde.
   - Relish must **raise at anchor points** (circles around the essence of the fallen) so your raise
     rate beats her ferry rate.
-  - She breaks after `vei.break_beats` consecutive tempo beats with raise > ferry.
+  - The break meter fills one pip per tempo beat on which the raise rate (smoothed over
+    `vei.raise_ema_beats`) beats the ferry; she breaks at `vei.break_beats` (20). A beat at or below
+    the ferry is a **lapse**: it takes `vei.lapse_cost` (4) pips back
+    (never below 0), so the beats need not be consecutive, but a lapse costs about four good beats.
+  - Uncleared fronts' guards fall back to the line after `vei.guards.life_s` (6 s) and drop no mote,
+    so they never outnumber rate × uncleared fronts × life; the fight can't snowball into a guard pile.
   - Her weaves hunt Relish, telegraphed on the beat.
 - **Backups in the fight:** each Relish death spends a phylactery charge first, then a ready clone.
   None left means the fight is lost. Each spent backup is a cracked violet ring.

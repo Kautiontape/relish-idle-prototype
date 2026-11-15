@@ -180,6 +180,18 @@ func run() -> int:
 		if sp["kind"] != "spearman":
 			t1_kinds = false
 	t.ok(t1_kinds, "tier 1 fields spearmen only")
+	# D-d/E Step 4c: a per-fort room weight moves only that fort's living between rooms (the same count)
+	var glay := RaidLogic.gen_layout("greywall", 1, false, cfg)
+	var gc: Dictionary = cfg.duplicate(true)
+	gc["enemy_room_mult_by_fort"] = {"greywall": {"1": 0.0}}
+	var g0 := RaidLogic.populate_enemies("greywall", glay, 22, 1, cfg)
+	var g1 := RaidLogic.populate_enemies("greywall", glay, 22, 1, gc)
+	var in1 := 0
+	for sp in g1:
+		in1 += 1 if int(sp["room"]) == 1 else 0
+	var alay := RaidLogic.gen_layout("ashgate", 1, false, cfg)
+	t.ok(g1.size() == g0.size() and in1 == 0 and str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, gc)) == str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, cfg)),
+		"enemy_room_mult_by_fort: a room weighted 0 at greywall gets none of its 22 living; ashgate is unchanged")
 
 	# --- v2: seed, per-mote raise, statlines, LedgerV2 ------------------------
 	var ccfg := TestUtil.load_json("res://configs/circle.json")
@@ -337,6 +349,129 @@ func run() -> int:
 	t.ok(RaidLogic.split_mass(5.0, 0).size() == 1, "n < 1 is treated as 1")
 	t.ok(RaidLogic.carry_room(0, cfg) == 12 and RaidLogic.carry_room(11, cfg) == 1
 		and RaidLogic.carry_room(12, cfg) == 0 and RaidLogic.carry_room(20, cfg) == 0, "carry_room against carry_max 12")
+	# reduced motion changes only what is drawn: where a carried mote COUNTS has no spin or Pulse in it
+	t.near(RaidLogic.carry_slot_angle(0, 12), -PI * 0.5, 1e-9, "carry slot 0 sits at 12 o'clock")
+	t.near(RaidLogic.carry_slot_angle(3, 12), 0.0, 1e-9, "carry slot 3 of 12 sits at 3 o'clock")
+	var swing_rad := RaidLogic.carry_swing_rad(3.0, 24.0)
+	t.near(swing_rad, 0.125, 1e-9, "a 3 px swing on a 24 px orbit is 0.125 rad")
+	t.ok(RaidLogic.carry_draw_spin(7.5, 0.8, swing_rad, true) == 0.0, "the carry swing is zero under reduced motion")
+	var worst := 0.0
+	for k in 400:
+		var sw := RaidLogic.carry_draw_spin(k * 0.05, 0.8, swing_rad, false)
+		worst = maxf(worst, 24.0 * 2.0 * sin(absf(sw) * 0.5))
+	t.ok(worst <= 3.0 + 1e-9 and worst > 2.5, "a drawn carried mote never strays more than the swing knob (3 px) from its counted slot (%.2f)" % worst)
+	for guarded in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle (the counted slot angle)"],
+			["res://scripts/raid/warden.gd", "func wake(", "Warden.wake (the beat alignment)"],
+			["res://scripts/raid/vei_boss.gd", "func _begin_break(", "VeiBoss._begin_break (the break start alignment)"],
+			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
+			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _step(", "RaidShieldwall._step (facing and bash)"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _pick_goal(", "RaidShieldwall._pick_goal"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _bash(", "RaidShieldwall._bash"],
+			["res://scripts/raid/warden_shieldwall.gd", "func hit_from(", "RaidShieldwall.hit_from (the glance/flank rule)"],
+			["res://scripts/raid/raid_warden_run.gd", "func flank_for(", "RaidWardenRun.flank_for (the flank role)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_wall(", "the bot's Shieldwall fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _wall_stand(", "the bot's Shieldwall stand point"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _step(", "RaidPyrePriest._step (the burn clock)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _mark_areas(", "RaidPyrePriest._mark_areas (where the fire lands)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _ignite(", "RaidPyrePriest._ignite"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func take_hit(", "RaidPyrePriest.take_hit (the ward)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func acolyte_hit(", "RaidPyrePriest.acolyte_hit (the snuff)"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func target_near(", "RaidPyrePriest.target_near"],
+			["res://scripts/raid/warden_acolyte.gd", "func hit_from(", "RaidAcolyte.hit_from"],
+			["res://scripts/raid/raid_warden_run.gd", "func snuff_for(", "RaidWardenRun.snuff_for (the acolyte-hunting role)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_pyre(", "the bot's Pyre-priest fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pyre_stand(", "the bot's Pyre-priest stand point"],
+			["res://scripts/raid/raid_autopilot.gd", "func _burn_fetch(", "the bot's mote out of the fire"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pyre_hold(", "the bot's held raise"],
+			["res://scripts/raid/warden.gd", "func _pack_step(", "RaidWarden._pack_step (the horn and the pack)"],
+			["res://scripts/raid/warden.gd", "func _loose_pack(", "RaidWarden._loose_pack"],
+			["res://scripts/raid/warden.gd", "func _scatter_pack(", "RaidWarden._scatter_pack (the pack breaks)"],
+			["res://scripts/raid/raid_unit.gd", "func scatter(", "RaidUnit.scatter"],
+			["res://scripts/raid/warden_shieldwall.gd", "func posted(", "RaidShieldwall.posted"],
+			["res://scripts/raid/raid_unit.gd", "func _pack_in_reach(", "RaidUnit._pack_in_reach (a posted flanker strikes the pack)"],
+			["res://scripts/raid/warden.gd", "func take_hit(", "RaidWarden.take_hit (the pack's ward)"],
+			["res://scripts/raid/warden_huntsman.gd", "func _step(", "RaidHuntsman._step (no lunge while its pack runs)"],
+			["res://scripts/raid/raid.gd", "func on_unit_died(", "RaidRaid.on_unit_died (a pack drops nothing)"],
+			["res://scripts/raid/raid_populate.gd", "func populate(", "RaidPopulate.populate (the detour's guard)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _detour_decide(", "the bot's detour rule"],
+			["res://scripts/raid/raid_autopilot.gd", "func _detour_tick(", "the bot's detour progress"],
+			["res://scripts/raid/raid_autopilot.gd", "func _real_gaps(", "the bot's real openings"],
+			["res://scripts/raid/raid_autopilot.gd", "func _goal_room(", "the bot's goal room"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_guard(", "the bot's guard count"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_cache_left(", "the bot's cache count"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_guard_seen(", "the bot's guard in view"],
+			["res://scripts/raid/raid_autopilot.gd", "func _det_foe_on_her(", "the bot's foe check"],
+			["res://scripts/raid/raid_autopilot.gd", "func _aim_at(", "the bot's unstick watch"],
+			["res://scripts/raid/raid_logic.gd", "static func unstick_step(", "RaidLogic.unstick_step"],
+			["res://scripts/raid/raid_logic.gd", "static func hold_blocks(", "RaidLogic.hold_blocks"],
+			["res://scripts/raid/relish.gd", "func _draw_hit_cue(", "Relish's hit cue (static: the same under reduced motion)"],
+			["res://scripts/raid/warden_logic.gd", "static func toll_strikes(", "WardenLogic.toll_strikes"],
+			["res://scripts/raid/warden_logic.gd", "static func toll_exit(", "WardenLogic.toll_exit"],
+			["res://scripts/raid/warden_bellringer.gd", "func _step(", "RaidBellringer._step (the toll)"],
+			["res://scripts/raid/warden_logic.gd", "static func bash_strikes_relish(", "WardenLogic.bash_strikes_relish"],
+			["res://scripts/raid/warden_logic.gd", "static func lever_on(", "WardenLogic.lever_on"],
+			["res://scripts/raid/warden_huntsman.gd", "func _begin_lunge(", "RaidHuntsman._begin_lunge"],
+			["res://scripts/raid/warden_huntsman.gd", "func _wall_clipped(", "RaidHuntsman._wall_clipped"],
+			["res://scripts/raid/warden_logic.gd", "static func wall_clipped(", "WardenLogic.wall_clipped"],
+			["res://scripts/raid/layout_logic.gd", "static func resolve_walls(", "LayoutLogic.resolve_walls"],
+			["res://scripts/raid/warden_bellringer.gd", "func _apply_slam(", "RaidBellringer._apply_slam"],
+			["res://scripts/raid/relish.gd", "func take_hit(", "RaidRelish.take_hit"],
+			["res://scripts/raid/raid_warden_run.gd", "func guard_for(", "RaidWardenRun.guard_for"],
+			["res://scripts/raid/raid_warden_run.gd", "func build(", "RaidWardenRun.build"],
+			["res://scripts/raid/raid_autopilot.gd", "func _answers(", "the bot's tell roll"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_bell(", "the bot's Bellringer fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_warden(", "the bot's warden fight"],
+			["res://scripts/raid/raid_autopilot.gd", "func _dodge_step(", "the bot's lunge sidestep"],
+			["res://scripts/raid/raid_autopilot.gd", "func _vs_wall(", "the bot's Shieldwall fight"],
+			["res://scripts/raid/warden_logic.gd", "static func slam_damage(", "WardenLogic.slam_damage"],
+			["res://scripts/raid/warden_shieldwall.gd", "func shield_half_deg(", "RaidShieldwall.shield_half_deg"],
+			["res://scripts/raid/warden_logic.gd", "static func lunge_lock(", "WardenLogic.lunge_lock (the honest lunge tell)"],
+			["res://scripts/raid/warden_logic.gd", "static func relish_mult(", "WardenLogic.relish_mult (the lever per tier)"],
+			["res://scripts/raid/layout_logic.gd", "static func populate_enemies(", "LayoutLogic.populate_enemies (the living per room)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _record_hits(", "the bot's blow stamps (the tell tally)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _tally_close(", "the bot's tell tally"],
+			["res://scripts/raid/raid_autopilot.gd", "func _untold_blows(", "the bot's untold blows"],
+			["res://scripts/raid/raid_autopilot.gd", "func _tell_hits(", "the bot's tell-attack blow count"],
+			["res://scripts/raid/raid_autopilot.gd", "func _counter_count(", "the bot's counter count"],
+			["res://scripts/raid/warden_logic.gd", "static func lane_reach(", "WardenLogic.lane_reach"],
+			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
+			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
+			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
+			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],
+			["res://scripts/raid/raid_warden_run.gd", "func breaks_pack(", "RaidWardenRun.breaks_pack"],
+			["res://scripts/raid/raid_warden_run.gd", "func pack_target(", "RaidWardenRun.pack_target"],
+			["res://scripts/raid/warden.gd", "func on_pack_broken(", "RaidWarden.on_pack_broken"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _begin_tell(", "RaidShieldwall._begin_tell (the rush)"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _end_rush(", "RaidShieldwall._end_rush"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _pinned(", "RaidShieldwall._pinned"],
+			["res://scripts/raid/warden_shieldwall.gd", "func front_half_deg(", "RaidShieldwall.front_half_deg (the rush's arc)"],
+			# the callees the guards above call, and the branches that run in the units' own tick
+			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _area_of(", "RaidPyrePriest._area_of"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func nearest_acolyte(", "RaidPyrePriest.nearest_acolyte"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func living(", "RaidPyrePriest.living"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _on_wake(", "RaidPyrePriest._on_wake"],
+			["res://scripts/raid/warden_pyre_priest.gd", "func _on_phase_change(", "RaidPyrePriest._on_phase_change"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _update_flankers(", "RaidShieldwall._update_flankers"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _on_wake(", "RaidShieldwall._on_wake"],
+			["res://scripts/raid/warden_shieldwall.gd", "func _on_phase_change(", "RaidShieldwall._on_phase_change"],
+			["res://scripts/raid/raid_unit.gd", "func _physics_process(", "RaidUnit._physics_process (the flank and snuff branches)"]]:
+		var body := _func_body(str(guarded[0]), str(guarded[1]))
+		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
+			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
+	# the drawn swing is for the eye only: sim code never reads it
+	for sim in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle"],
+			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
+			["res://scripts/raid/raid_autopilot.gd", "func _motes_near(", "the bot's _motes_near"]]:
+		var sbody := _func_body(str(sim[0]), str(sim[1]))
+		t.ok(sbody != "" and not sbody.contains("carry_draw_angle") and not sbody.contains("carry_draw_offset"),
+			"%s never calls carry_draw_angle / carry_draw_offset" % sim[2])
+	var raise_src := FileAccess.get_file_as_string("res://scripts/raid/raid_raise.gd")
+	t.ok(raise_src != "" and not raise_src.contains("carry_draw_"), "raid_raise.gd (enclosure) never reads the drawn carry swing")
+	var bot_src := FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd")
+	t.ok(bot_src != "" and not bot_src.contains("carry_draw_"), "the raid bot never reads the drawn carry swing")
 	t.ok(int(cfg["essence"]["per_living"]) == 1 and int(cfg["essence"]["per_undead"]) == 1, "essence per-death keys")
 
 	_checkpoint_tests(t, cfg)
@@ -348,7 +483,226 @@ func run() -> int:
 	_close_exit_tests(t)
 	_warden_reach_tests(t, cfg)
 	_vis_tests(t, cfg)
+	_time_split_tests(t)
+	_react_tests(t, cfg)
+	_detour_tests(t, cfg)
+	_bot_rule_tests(t, cfg)
+	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
+	t.ok(pick.contains("rel.alive and not warden_pack:") and not pick.contains("na == null"), "a warden's pack never takes Relish as its target (D-d/E 3c)")
+	var step_src := _func_body("res://scripts/raid/warden.gd", "func _pack_step(")
+	t.ok(step_src.contains("WardenLogic.pack_breaks(pack.size(), horn_beat >= 0.0, raid.has_allies())") and step_src.contains("_scatter_pack()"),
+		"with no undead standing the pack breaks (RaidWarden._pack_step -> _scatter_pack)")
+	var sc_src := _func_body("res://scripts/raid/warden.gd", "func _scatter_pack(")
+	t.ok(sc_src.contains("u.scatter()") and not sc_src.contains(".die(") and sc_src.contains("THE PACK BREAKS"), "it leaves, not dies (no drops, no kill), with its banner")
+	var us_src := _func_body("res://scripts/raid/raid_unit.gd", "func scatter(")
+	t.ok(us_src.contains("raid.enemies.erase(self)") and not us_src.contains("on_unit_died"), "a scattered unit leaves the enemies without a kill")
+	var pt_src := _func_body("res://scripts/raid/raid_warden_run.gd", "func pack_target(")
+	t.ok(pt_src.contains("(warden as RaidShieldwall).posted(u)") and pt_src.contains("return warden") and not pt_src.contains(".planted"), "at the Shieldwall a posted wits big keeps the wall (D-d/E 3c; no tell clause: the wall holds its bash while its pack stands)")
 	return t.failures
+
+
+## D-d/E 3c, the bot's hold and unstick watch: RaidLogic.hold_blocks / unstick_step.
+func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_bot_rules")
+	# Step 4b: a fort in tier_mix_by_fort rolls from its own mix, the same rng draws
+	var mc: Dictionary = cfg.duplicate(true)
+	mc["tier_mix_by_fort"] = {"x-fort": {"runner": 1.0}}
+	var r1 := RandomNumberGenerator.new()
+	r1.seed = 7
+	var r2 := RandomNumberGenerator.new()
+	r2.seed = 7
+	var own := true
+	for i in 30:
+		own = own and RaidLogic.roll_enemy_kind(r1, 4, mc, "x-fort") == "runner"
+		RaidLogic.roll_enemy_kind(r2, 4, mc, "other")
+	t.ok(own and r1.randi() == r2.randi(), "a listed fort rolls from its own mix, on the same rng draws as any other")
+	t.ok(RaidLogic.roll_enemy_kind(r1, 1, mc) == "spearman", "an unlisted fort rolls from tier_mix")
+	# Step 4b: a missed tell is planned against the state from before it (fixed after the freeze)
+	var vw := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_wall(")
+	t.ok(vw.contains("var use_pre := w.planted and not answered and not _wall_pre.is_empty()") and vw.contains("_wall_stand(pos, w, reach, room, facing)"),
+		"a Shieldwall tell is planned against the wall before it until she answers it (missed, or inside her reaction delay)")
+	var vb := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_bell(")
+	t.ok(vb.contains('if leave and _tell_id == "slam:%.4f" % b._slam_beat and not _tell_ok:'), "a missed slam is not reacted to until it has struck")
+	var vwd := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_warden(")
+	t.ok(vwd.contains("answering = (w as RaidShieldwall).planted and _answers(") and vwd.contains("answering = bb._slam_beat < 0.0 and _bell_beats_to_tell(bb) <= 0.0 and _answers(")
+		and vwd.find("if not answering:") < vwd.find("return _vs_bell("), "a warden tell is seen (rolled) even while she kites, and an answered one comes before the kite")
+	t.ok(RaidLogic.hold_blocks(true, 4, 3, 4, -1) and RaidLogic.hold_blocks(true, 3, 3, 4, -1), "a hostile foe in her room or the next holds her")
+	t.ok(not RaidLogic.hold_blocks(false, 4, 3, 4, -1) and not RaidLogic.hold_blocks(false, 3, 3, 4, -1), "a calm one does not (it held the-stair's spawn 20 s for nothing)")
+	t.ok(not RaidLogic.hold_blocks(true, 6, 3, 4, -1) and not RaidLogic.hold_blocks(true, -1, 3, 4, -1), "nor a hostile foe elsewhere or between rooms")
+	t.ok(not RaidLogic.hold_blocks(true, 5, 3, 5, 5) and RaidLogic.hold_blocks(true, 5, 5, 6, 5), "a taken detour's guard does not hold her at its door, only inside")
+	var mm := int(cfg["autopilot"]["min_motes"])
+	t.ok(RaidLogic.can_raise_from(mm, 0, mm) and RaidLogic.can_raise_from(0, 1, mm), "enough motes, or a pile to stir: she can still raise")
+	t.ok(not RaidLogic.can_raise_from(mm - 1, 0, mm), "fewer than min_motes and no pile: nothing to raise (with no undead standing she leaves)")
+	var ap: Dictionary = cfg["autopilot"]
+	var us := float(ap["unstick_s"])
+	var px := float(ap["unstick_px"])
+	var dt := float(ap["think_frames"]) / 60.0
+	var st := {}
+	t.ok(RaidLogic.unstick_step(st, false, 10.0, 300.0, -1.0, ap) == "new" and not bool(st["in"]), "a new target starts the clock")
+	# walking at 240 px/s she closes 12 px per think: never stuck
+	var walk := ""
+	var now := 10.0
+	var d := 300.0
+	for i in 40:
+		now += dt
+		d -= 12.0
+		walk += RaidLogic.unstick_step(st, true, now, d, now - dt, ap).substr(0, 1)
+	t.ok(not walk.contains("a") and not walk.contains("g"), "closing on it at walking pace never fires (%s)" % walk)
+	# pinned: the distance does not move
+	var pinned: Array[String] = []
+	for i in int(ceil(2.0 * us / dt)) + 2:
+		now += dt
+		var r := RaidLogic.unstick_step(st, true, now, d, now - dt, ap)
+		if r != "wait":
+			pinned.append("%s@%.2f" % [r, now])
+	t.ok(pinned.size() == 2 and pinned[0].begins_with("aim_in") and pinned[1].begins_with("give_up"), "pinned: aim inside after unstick_s, give up after another (%s)" % str(pinned))
+	var st2 := {}
+	RaidLogic.unstick_step(st2, false, 0.0, 100.0, -1.0, ap)
+	var slow := RaidLogic.unstick_step(st2, true, us + 0.01, 100.0 - px * 0.5, us + 0.01 - dt, ap)
+	t.ok(slow == "aim_in", "edging closer by under unstick_px in unstick_s counts as stuck")
+	var st3 := {}
+	RaidLogic.unstick_step(st3, false, 0.0, 100.0, -1.0, ap)
+	t.ok(RaidLogic.unstick_step(st3, true, us + 0.5, 100.0, 0.0, ap) == "closing", "a think spent on something else restarts the clock (no firing on the first think back)")
+	# through a doorway the walking distance jumps up (straight in the doorway, round by room centres beyond):
+	# a new room restarts the clock, so walking on is never read as stuck (the-stair seed 16 gave up a pile so)
+	var st4 := {}
+	RaidLogic.unstick_step(st4, false, 0.0, 700.0, -1.0, ap, -1)
+	var through := ""
+	var tt := 0.0
+	for i in int(ceil(2.0 * us / dt)) + 2:
+		tt += dt
+		through += RaidLogic.unstick_step(st4, true, tt, 1240.0 - 12.0 * i, tt - dt, ap, 1).substr(0, 1)
+	t.ok(not through.contains("a") and not through.contains("g"), "walking on after a doorway's distance jump never fires (%s)" % through.substr(0, 12))
+
+
+## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.
+func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_detour")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var dc: Dictionary = cfg["detour"]
+	var bad := ""
+	var normal := 0
+	var sites := 0
+	for f in world["forts"]:
+		var tier := int(f["tier"])
+		var fid := str(f["id"])
+		var lay := RaidLogic.gen_layout(fid, tier, false, cfg)
+		var site := RaidLogic.detour_site(lay, tier, cfg)
+		var guard := RaidLogic.detour_guard(fid, lay, tier, cfg)
+		if tier < int(dc["min_tier"]):
+			if not site.is_empty() or not guard.is_empty():
+				bad += " %s: a site at tier %d" % [fid, tier]
+			continue
+		if site.is_empty():
+			bad += " %s: no site" % fid
+			continue
+		sites += 1
+		var path := LayoutLogic.room_path(lay, RaidLogic.room_of(lay, lay["spawn"]), int(lay["warden_room"]))
+		var r := int(site["room"])
+		if path.has(r) or not path.has(int(site["from_room"])) or int(site["from_room"]) == int(lay["warden_room"]) \
+				or not (lay["adj"][r] as Array).has(int(site["from_room"])):
+			bad += " %s: room %d from %d" % [fid, r, int(site["from_room"])]
+		if not (lay["rooms"][r] as Rect2).has_point(site["pos"]) or (site["pos"] as Vector2).distance_to(site["gap"]) > float(dc["cache_door_px"]) + 40.0:
+			bad += " %s: cache at %s" % [fid, str(site["pos"])]
+		if str(lay["roles"][r]) == "normal":
+			normal += 1
+		if guard.size() != int(dc["guard_by_tier"][str(tier)]):
+			bad += " %s: guard %d" % [fid, guard.size()]
+		for m in guard:
+			if int(m["room"]) != r or not (lay["rooms"][r] as Rect2).has_point(m["pos"]) or LayoutLogic._in_walls(lay, m["pos"], 0.0):
+				bad += " %s: guard at %s" % [fid, str(m["pos"])]
+		if str(RaidLogic.detour_guard(fid, lay, tier, cfg)) != str(guard):
+			bad += " %s: guard not deterministic" % fid
+	t.ok(bad == "", "every fort from detour.min_tier to tier 4 has a cache in a side room off the path, bordering a path room that is not the warden's, cache_door_px from their gap (plus the 40 px it is kept off the walls), with its guard in that room, the same each build (%s)" % bad)
+	var want := 0
+	for f2 in world["forts"]:
+		if int(f2["tier"]) >= int(dc["min_tier"]) and int(f2["tier"]) <= 4:
+			want += 1
+	t.ok(sites == want and sites >= 6, "all %d forts from tier %d to 4 have one (%d)" % [want, int(dc["min_tier"]), sites])
+	t.ok(normal >= sites - 2, "a normal room is preferred to a checkpoint (%d of %d; at lantern-keep and pale-bastion only a checkpoint opens onto the path)" % [normal, sites])
+	var dt := maxi(3, int(dc["min_tier"]))
+	var first := RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg, {"first_dungeon": true})
+	t.ok(RaidLogic.detour_site(first, dt, cfg).is_empty(), "no detour in the first dungeon")
+	var held := RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg, {"held": true})
+	t.ok(RaidLogic.detour_site(held, dt, cfg).is_empty(), "none in a held fort")
+	t.ok(not RaidLogic.detour_site(RaidLogic.gen_layout("hollow-redoubt", dt, false, cfg), dt, cfg).is_empty(), "(the same fort at tier %d has one)" % dt)
+	var ap: Dictionary = cfg["autopilot"]
+	t.ok(RaidLogic.detour_take(0.8, 0, 8, 5, ap), "healthy, with an army 1.5x the guard she sees: she takes it")
+	t.ok(not RaidLogic.detour_take(0.5, 0, 10, 5, ap), "below detour_hp_frac: she leaves it")
+	t.ok(RaidLogic.detour_take(0.45, 1, 10, 5, ap), "a revive left lowers the hp she needs (detour_hp_frac_revive)")
+	t.ok(not RaidLogic.detour_take(0.9, 0, 7, 5, ap), "an army under 1.5x the guard: she leaves it")
+	t.ok(RaidLogic.detour_take(0.6, 0, 0, 0, ap), "a guard already down is no fight: healthy is enough")
+	t.ok(not RaidLogic.detour_retreat(0.7, 0, 6, 5, ap), "on the way in, healthy and not outnumbered: on she goes")
+	t.ok(RaidLogic.detour_retreat(0.45, 0, 10, 2, ap), "below detour_retreat_hp_frac: she turns back")
+	t.ok(not RaidLogic.detour_retreat(0.45, 1, 10, 2, ap), "with a revive left she holds on lower")
+	t.ok(RaidLogic.detour_retreat(0.9, 0, 3, 4, ap), "outnumbered by the guard: she turns back")
+	t.ok(float(ap["detour_retreat_hp_frac"]) < float(ap["detour_hp_frac"]), "she turns back above the hp she would not start at, below the one she starts at")
+
+
+## The bot's reaction rule (raid.json autopilot react_*, RaidLogic.react_at; RaidAutopilot._answers).
+func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_react")
+	var ap: Dictionary = cfg["autopilot"]
+	var pts: Array = ap["react_score"]
+	var miss: Array = ap["react_miss"]
+	var dly: Array = ap["react_delay_s"]
+	t.ok(pts.size() == miss.size() and pts.size() == dly.size() and pts.size() >= 2, "react_score, react_miss and react_delay_s line up")
+	t.near(RaidLogic.react_at(70.0, pts, miss), 0.18, 1e-9, "score 70 misses 0.18 of the tells")
+	t.near(RaidLogic.react_at(70.0, pts, dly), 0.45, 1e-9, "and reacts 0.45 s after one shows")
+	t.near(RaidLogic.react_at(50.0, pts, miss), 0.30, 1e-9, "score 50: 0.30")
+	t.near(RaidLogic.react_at(90.0, pts, dly), 0.30, 1e-9, "score 90 reacts in 0.30 s")
+	t.near(RaidLogic.react_at(60.0, pts, miss), 0.24, 1e-9, "linear between the points (60: 0.24)")
+	t.near(RaidLogic.react_at(30.0, pts, miss), 0.30, 1e-9, "clamped below the first point")
+	t.near(RaidLogic.react_at(100.0, pts, dly), 0.30, 1e-9, "clamped above the last")
+	t.ok(RaidLogic.react_at(70.0, [], []) == 0.0, "no points: 0")
+	var mono := true
+	for k in range(30, 101):
+		mono = mono and RaidLogic.react_at(float(k), pts, miss) <= RaidLogic.react_at(float(k - 1), pts, miss) + 1e-12 \
+			and RaidLogic.react_at(float(k), pts, dly) <= RaidLogic.react_at(float(k - 1), pts, dly) + 1e-12
+	t.ok(mono, "a better circle score never misses more or reacts slower")
+	t.ok(not ap.has("dodge") and not ap.has("burn_step_off"), "the old per-warden chances are gone: one rule for every tell")
+	# one place, its own stream: the tell rolls never draw from the trace's rng, and the trace never from theirs
+	var answers := _func_body("res://scripts/raid/raid_autopilot.gd", "func _answers(")
+	t.ok(answers.contains("_rng_react.randf()") and not answers.contains("_rng.randf()"), "_answers rolls from the reaction stream")
+	t.ok(not _func_body("res://scripts/raid/raid_autopilot.gd", "func _trace_for(").contains("_rng_react"), "the trace jitter never draws from it")
+	var watch := _func_body("res://scripts/raid/raid_autopilot.gd", "func _watch_threat(")
+	t.ok(watch.contains("_threat_last") and watch.contains("_delay"), "the kite's delay re-arms only after the foe has been out of kite range for the delay")
+	for head in ["func _vs_bell(", "func _vs_wall(", "func _vs_pyre(", "func _dodge_step(", "func _vs_warden(", "func _decide("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("randf") and not body.contains("randi"),
+			"the bot's %s draws no roll of its own (tells go through _answers)" % head.trim_prefix("func ").trim_suffix("("))
+
+
+## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).
+func _time_split_tests(t: TestUtil) -> void:
+	t.suite("raid_time_split")
+	t.ok(RaidLogic.time_class(true, true, 4.0, 1.0) == "trance", "the trance wins over a fight and a walk")
+	t.ok(RaidLogic.time_class(false, true, 4.0, 1.0) == "fight", "engaged while walking (kiting) is fight")
+	t.ok(RaidLogic.time_class(false, true, 0.0, 1.0) == "fight", "engaged standing still (holding, off a slam) is fight")
+	t.ok(RaidLogic.time_class(false, false, 4.0, 1.0) == "travel", "nothing engaged, walking: travel")
+	t.ok(RaidLogic.time_class(false, false, 1.0, 1.0) == "idle", "moving no more than move_px is not travel")
+	t.ok(RaidLogic.time_class(false, false, 0.0, 1.0) == "idle", "nothing engaged, standing: idle")
+	var seen := {}
+	for tr in [false, true]:
+		for en in [false, true]:
+			for mv in [0.0, 4.0]:
+				var k := RaidLogic.time_class(tr, en, mv, 1.0)
+				seen[k] = true
+				t.ok(k in RaidLogic.SPLIT_BUCKETS, "every case lands in a named bucket (%s)" % k)
+	t.ok(seen.size() == RaidLogic.SPLIT_BUCKETS.size(), "every bucket is reachable")
+	var me := Vector2(100, 100)
+	t.ok(not RaidLogic.foe_engaged(me, 2, Vector2(110, 100), 2, false, 260.0), "a calm foe at her side is not engaged")
+	t.ok(RaidLogic.foe_engaged(me, 2, Vector2(900, 100), 2, true, 260.0), "a hostile foe anywhere in her room is engaged")
+	t.ok(RaidLogic.foe_engaged(me, 2, Vector2(300, 100), 3, true, 260.0), "a hostile foe within fight_px through a wall is engaged")
+	t.ok(not RaidLogic.foe_engaged(me, 2, Vector2(400, 100), 3, true, 260.0), "a hostile foe beyond fight_px in another room is not")
+	t.ok(not RaidLogic.foe_engaged(me, -1, Vector2(900, 100), -1, true, 260.0), "two doorway bands are not one room")
+	t.ok(RaidLogic.foe_engaged(me, -1, Vector2(200, 100), -1, true, 260.0), "in a doorway band the radius still counts")
+	# the split only reads the run: no rng draw, no goal, no routing state
+	for head in ["func _split_tick(", "func _engaged(", "func _route_px(", "func _watch_army(", "func _army_at("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("_rng") and not body.contains("rng_combat") and not body.contains("move_target")
+			and not body.contains("_cur_room") and not body.contains("_hold_t") and not body.contains("_stick"),
+			"the bot's %s reads the run and changes nothing the policy uses" % head.trim_prefix("func ").trim_suffix("("))
 
 
 ## RaidLogic.profile_seed: BALANCE 3's standard party of tier T at a world.json fort.
@@ -383,12 +737,16 @@ func _profile_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.near(float(sd3["party"][0]["stats"]["beef"]), float(prof["party"][0]["stats"]["beef"]), 1e-6, "party stats are the profile's")
 	t.ok(not sd3["fort"]["first_clear"] and not sd3["fort"]["first_dungeon"] and int(sd3["phylactery_charges"]) == 0
 		and is_equal_approx(float(sd3["fort"]["yield_mult"]), 1.0), "first_* false, yield_mult 1, no phylactery charge")
-	t.ok(sd3["warden"]["archetype"] == "bellringer" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.bellringer", "warden from wardens.by_fort")
+	t.ok(sd3["warden"]["archetype"] == "shieldwall" and int(sd3["warden"]["tier"]) == 3 and sd3["loot_table_id"] == "t3.shieldwall", "warden from wardens.by_fort")
 	var hr := {}
 	for f in world["forts"]:
 		if f["id"] == "hollow-redoubt":
 			hr = f
 	t.ok(RaidLogic.profile_seed(hr, 3, cfg)["warden"]["archetype"] == "huntsman", "hollow-redoubt fields a huntsman")
+	for f in world["forts"]:
+		if f["id"] == "mourners-gate":
+			var mg := RaidLogic.profile_seed(f, 3, cfg)
+			t.ok(mg["warden"]["archetype"] == "pyre_priest" and mg["loot_table_id"] == "t3.pyre_priest", "mourners-gate fields the Pyre-priest (t3.pyre_priest)")
 	t.ok((RaidLogic.profile_seed(fort, 9, cfg)["party"] as Array).size() == (ap["party_profiles"]["4"]["party"] as Array).size(), "a party tier above 4 clamps to 4")
 	var p1 := RaidLogic.profile_seed(fort, 1, cfg)
 	var p4 := RaidLogic.profile_seed(fort, 4, cfg)
@@ -1362,7 +1720,7 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_level(1, 0.1, cfg) == 0.0, "a phylactery left: no danger rim at any hp")
 	t.near(RaidLogic.exposed_level(0, 1.0, cfg), lo, 0.0001, "none left at full hp: the faint rim")
 	t.near(RaidLogic.exposed_level(0, 0.0, cfg), hi, 0.0001, "none left at no hp: the strong rim")
-	t.ok(lo < 0.35 and hi > lo, "the full-hp rim is faint, and it strengthens (%.2f to %.2f)" % [lo, hi])
+	t.ok(lo >= 0.5 and hi > lo, "no revive reads clearly at full hp (a state, not a mood: >= 0.5) and still strengthens (%.2f to %.2f)" % [lo, hi])
 	t.ok(RaidLogic.exposed_level(0, 0.5, cfg) > RaidLogic.exposed_level(0, 0.9, cfg), "it rises as hp falls")
 	t.ok(RaidLogic.exposed_level(0, 2.0, cfg) == lo and RaidLogic.exposed_level(0, -1.0, cfg) == hi, "hp_frac is clamped")
 	t.ok(RaidLogic.phylactery_word(1) == "" and RaidLogic.phylactery_word(3) == "", "a charge left: no word")
@@ -1373,6 +1731,46 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lc := RaidLogic.loot_counts({"relics": 1, "remnants": [{}, {}], "essence": 5})
 	t.ok(RaidLogic.loot_line(lc) == "relics 1 · remnants 2 · essence 5", "only the non-zero kinds, in order: " + RaidLogic.loot_line(lc))
 	t.ok(RaidLogic.loot_line({"husks": 1, "blueprints": 0}) == "husks 1", "a zero kind never shows")
+	t.suite("raid_death_card_and_room_shape")
+	t.ok(RaidLogic.rooms_phrase(3, 7) == "3 of 7 rooms seen" and RaidLogic.rooms_phrase(9, 7) == "7 of 7 rooms seen", "rooms seen of the layout's rooms, clamped")
+	t.ok(RaidLogic.push_line(15, "NW", 1, {}, false, 3, 7) == "3 of 7 rooms seen · LIVING 15 left · exit NW, next room · nothing at risk",
+		RaidLogic.push_line(15, "NW", 1, {}, false, 3, 7))
+	t.ok(not RaidLogic.push_line(15, "NW", 1, {}).contains("rooms seen"), "no room total (boss, held): no shape clause")
+	t.ok(RaidLogic.death_cause("slam", "The Bellringer") == "The Bellringer's slam" and RaidLogic.death_cause("lunge", "The Huntsman") == "The Huntsman's lunge"
+		and RaidLogic.death_cause("living", "") == "the living" and RaidLogic.death_cause("", "x") == "a wound"
+		and RaidLogic.death_cause("slam", "") == "The warden's slam" and RaidLogic.death_cause("bash", "The Shieldwall") == "The Shieldwall's bash"
+		and RaidLogic.death_cause("fire", "The Pyre-priest") == "The Pyre-priest's fire",
+		"the death cause words")
+	t.ok(RaidLogic.death_lost_line({"relics": 1, "essence": 4}, 2) == "relics 1 · essence 4 · 2 big undead", "lost: unbanked loot and the party")
+	t.ok(RaidLogic.death_lost_line({}, 0) == "nothing", "nothing lost")
+	var rows := RaidLogic.death_card_rows("the living", {"remnants": 1}, {"essence": 3}, 1)
+	t.ok(rows.size() == 3 and rows[0]["text"] == "the living" and rows[1]["text"] == "remnants 1" and rows[2]["text"] == "essence 3 · 1 big undead",
+		"the death card's three rows: killed by, banked, lost")
+	var dvt := _func_body("res://scripts/raid/raid_dev.gd", "func tick(")
+	t.ok(dvt.contains("_autodie > 0 and frame > 0 and frame % _autodie == 0"), "--raid-autodie=N first hits at frame N, not at frame 0 (dev path: the death card showed and was gone before an N-based shot)")
+	var trow := RaidLogic.death_card_rows(RaidLogic.death_cause("toll", "The Bellringer"), {}, {}, 1, RaidLogic.death_tell("toll"))
+	t.ok(trow.size() == 4 and trow[0]["label"] == "KILLED BY" and trow[0]["text"] == "The Bellringer's toll" and trow[1]["label"] == "MISSED"
+		and trow[1]["text"] == "the ring at your feet" and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
+		"a death by a tell-attack: KILLED BY the attack, then MISSED its tell, on its own row")
+	# every value the KILLED BY and MISSED rows can hold fits the card's value column at its font size
+	var dcg: Dictionary = RaidLogic.DEATH_CARD
+	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var widest := ""
+	var widest_px := 0.0
+	var fnt := ThemeDB.fallback_font
+	for wn in ["The Bellringer", "The Huntsman", "The Shieldwall", "The Pyre-priest", ""]:
+		for src in ["slam", "toll", "lunge", "bash", "rush", "fire", "hound", "pack", "living", ""]:
+			for txt in [RaidLogic.death_cause(src, wn), RaidLogic.death_tell(src)]:
+				var px := fnt.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
+				if px > widest_px:
+					widest_px = px
+					widest = txt
+	t.ok(widest_px <= col_w, "the widest KILLED BY / MISSED value fits the card: '%s' %d px of %d" % [widest, int(widest_px), int(col_w)])
+	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
+		"a bare death says nothing banked, nothing lost (dim)")
+	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",
+		"the last-chance banner names the loose essence, never 'to bank' (banked and carried are other figures)")
+	t.ok(cfg["death"]["card_s"] > cfg["death"]["skip_after_s"], "the death card holds longer than its skip delay")
 	t.suite("raid_push_line")
 	t.ok(RaidLogic.compass(Vector2(-10, 0)) == "W" and RaidLogic.compass(Vector2(0, -5)) == "N"
 		and RaidLogic.compass(Vector2(3, 3)) == "SE" and RaidLogic.compass(Vector2(-4, -4)) == "NW", "compass: y grows down")
@@ -1414,7 +1812,25 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
-	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 essence to bank", "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 loose essence to gather", "last chance names the loose essence")
 	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")
+
+
+## The text of the func starting at `head` in a script file, up to the next top-level func or "## " doc line.
+func _func_body(path: String, head: String) -> String:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var src := f.get_as_text()
+	var i := src.find(head)
+	if i < 0:
+		return ""
+	var j := src.find("\nfunc ", i + 1)
+	var k := src.find("\n##", i + 1)
+	var end := src.length()
+	for x in [j, k]:
+		if x >= 0:
+			end = mini(end, x)
+	return src.substr(i, end - i)

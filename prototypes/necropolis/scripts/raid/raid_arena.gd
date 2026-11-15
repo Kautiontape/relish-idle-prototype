@@ -295,26 +295,4 @@ func separation_push(u: Node2D) -> Vector2:
 
 ## Keep a point inside the arena and out of internal walls (slide-friendly).
 func resolve_walls(p: Vector2, r: float) -> Vector2:
-	var size: Vector2 = layout["size"]
-	var t: float = layout["wall_t"]
-	p.x = clampf(p.x, t + r, size.x - t - r)
-	p.y = clampf(p.y, t + r, size.y - t - r)
-	for pass_i in 2:
-		for wrect in layout["inner_walls"]:
-			var g: Rect2 = (wrect as Rect2).grow(r)
-			if not g.has_point(p):
-				continue
-			var left := p.x - g.position.x
-			var right := g.end.x - p.x
-			var top := p.y - g.position.y
-			var bottom := g.end.y - p.y
-			var m := minf(minf(left, right), minf(top, bottom))
-			if m == left:
-				p.x = g.position.x
-			elif m == right:
-				p.x = g.end.x
-			elif m == top:
-				p.y = g.position.y
-			else:
-				p.y = g.end.y
-	return p
+	return LayoutLogic.resolve_walls(layout, p, r)

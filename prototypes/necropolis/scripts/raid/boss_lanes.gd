@@ -397,7 +397,8 @@ class Labels:
 		if ln == null or ln.boss == null or ln.boss.cam == null:
 			return
 		var n := ln.lanes.size()
-		_next.resize(2 + n * 4)
+		_next.resize(2 + n * 5)   # per lane: have, need, short, branch, then how far Relish's token pushed its label
+		var zoom_now := maxf(0.1, ln.boss.cam.zoom.x)
 		_next[0] = roundi(ln.boss.cam.zoom.x * 1000.0)
 		_next[1] = roundi(maxf(ln.lose_f, 0.0) * 100.0)
 		for i in n:
@@ -409,9 +410,39 @@ class Labels:
 			_next[3 + i * 4] = ceili(need - 0.0001)
 			_next[4 + i * 4] = ceili(need - have - 0.0001)
 			_next[5 + i * 4] = branch
+			_next[2 + n * 4 + i] = roundi(label_shift(i, zoom_now))
 		if _next != _key:
 			_key = _next.duplicate()
 			queue_redraw()
+
+	## Where lane i's label plate sits at screen-px size `fs` (before any shift): its world rect.
+	func _plate_rect(i: int, zoom: float, fs: int, wmax: float) -> Rect2:
+		var at: Vector2 = (lanes_node.lanes[i]["a"] as Vector2) + Vector2(0.0, 26.0 / zoom)
+		return Rect2(at.x - wmax * 0.5 - 6.0 / zoom, at.y - fs * 0.95, wmax + 12.0 / zoom, fs * 3.35)
+
+	## How far (world px, down positive) lane i's label must move so Relish's token does not sit on
+	## it: 0 when they are clear; else just below her (or above her when the arena ends under it).
+	## The plate's width is estimated (label_w_px on screen) so it can run every frame without text
+	## measuring; the draw uses the real width.
+	func label_shift(i: int, zoom: float) -> float:
+		var ln := lanes_node
+		var rel = ln.boss.relish
+		if rel == null or not is_instance_valid(rel):
+			return 0.0
+		var fs := int(round(float(ln.lc().get("label_px", 15)) / zoom))
+		var r := _plate_rect(i, zoom, fs, float(ln.lc().get("label_w_px", 150.0)) / zoom)
+		var pad: float = float(rel.radius) + 8.0 / zoom
+		if ln.boss.revive_cue:   # her i-frames ring (SafeCue) is part of her: clear all of it
+			pad = float(rel.radius) + (float(ln.boss.vcfg().get("backups", {}).get("cue_pad_px", 44.0)) + 8.0) / zoom
+		var c: Vector2 = rel.global_position
+		var near := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+		if near.distance_to(c) >= pad:
+			return 0.0
+		var down := c.y + pad - r.position.y
+		var floor_y: float = float(ln.boss.layout["size"].y) - float(ln.boss.layout["wall_t"])
+		if r.end.y + down > floor_y:
+			return -(r.end.y - (c.y - pad))
+		return down
 
 	## Lane i's label: [front name, "have X / need Y", status, status palette key].
 	func lane_text(i: int) -> PackedStringArray:
@@ -447,7 +478,7 @@ class Labels:
 		var font := ThemeDB.fallback_font
 		var dim := 1.0 - 0.7 * maxf(ln.lose_f, 0.0)
 		for i in ln.lanes.size():
-			var at: Vector2 = (ln.lanes[i]["a"] as Vector2) + Vector2(0.0, 26.0 / zoom)
+			var at: Vector2 = (ln.lanes[i]["a"] as Vector2) + Vector2(0.0, 26.0 / zoom + roundf(label_shift(i, zoom)))
 			var txt := lane_text(i)
 			var lines := [[txt[0], "text"], [txt[1], "text"], [txt[2], txt[3]]]
 			var y := at.y
@@ -486,3 +517,68 @@ class BackupMarks:
 			for j in 3:   # three shards with two gaps and a break: reads as cracked
 				var a0: float = TAU * j / 3.0 + 0.7 * i + 0.2
 				LineGlow.arc(self, Vector2.ZERO, rr, a0, a0 + TAU / 3.0 - 0.55, Palette.c("relish", 0.95), 2.2, 0.4)
+
+
+## The post-revive i-frames, as a cue on Relish (D-d): a violet ring outside her body whose arc is
+## the time left (a full ring at the revive, gone at 0), with sparks orbiting it, and the words
+## "SAFE n s" under her counting down in whole seconds. Reduced motion: no sparks, and the arc steps
+## once a second instead of sliding; the words stay, since they carry it. A child of Relish (drawn
+## just above her), driven by the boss (`revive_cue` / `revive_total`, set by its revive), so Relish's
+## own script is untouched. It reads her _iframes, the i-frames that already make her unhittable.
+class SafeCue:
+	extends Node2D
+	var boss: Node2D = null
+	var _on := false
+	var _step := -1
+
+	func _process(_d: float) -> void:
+		if boss == null or not boss.revive_cue:
+			if _on:
+				_on = false
+				queue_redraw()
+			return
+		var left: float = boss.relish._iframes
+		if left <= 0.0:
+			boss.revive_cue = false
+			_on = false
+			queue_redraw()
+			return
+		_on = true
+		if Pulse.reduced_motion:
+			var st := ceili(left)
+			if st != _step:
+				_step = st
+				queue_redraw()
+		else:
+			_step = -1
+			queue_redraw()
+
+	func _draw() -> void:
+		if boss == null or not boss.revive_cue:
+			return
+		var left: float = boss.relish._iframes
+		if left <= 0.0:
+			return
+		var z: float = maxf(0.05, boss.cam.zoom.x) if boss.cam != null else 1.0
+		var reduced: bool = Pulse.reduced_motion
+		var total: float = maxf(0.05, boss.revive_total)
+		var frac := clampf((float(ceili(left)) if reduced else left) / total, 0.0, 1.0)
+		var r: float = float(boss.relish.radius) + float(boss.vcfg().get("backups", {}).get("cue_pad_px", 26.0)) / z
+		var violet := Palette.c("relish")
+		draw_arc(Vector2.ZERO, r, 0.0, TAU, 40, Palette.c("relish", 0.28), 1.5 / z)
+		draw_arc(Vector2.ZERO, r, -PI * 0.5, -PI * 0.5 + TAU * frac, 48, violet, 4.0 / z)
+		draw_arc(Vector2.ZERO, r + 4.0 / z, -PI * 0.5, -PI * 0.5 + TAU * frac, 48, Palette.c("text", 0.8), 1.2 / z)
+		if not reduced:
+			var t := Time.get_ticks_msec() / 1000.0
+			for k in 6:
+				var a := t * 2.6 + TAU * k / 6.0
+				var d := Vector2.RIGHT.rotated(a)
+				draw_line(d * (r - 6.0 / z), d * (r + 8.0 / z), Palette.c("text", 0.55 + 0.35 * sin(t * 9.0 + k)), 2.0 / z)
+		# the words, on a plate so they read over the floor: 14 px on screen whatever the zoom
+		var fs := int(round(16.0 / z))
+		var text := "SAFE %d s" % ceili(left)
+		var font := ThemeDB.fallback_font
+		var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var at := Vector2(-tw * 0.5, float(boss.relish.radius) + 26.0 / z)   # inside the ring: nothing outside it is touched
+		draw_rect(Rect2(at + Vector2(-6.0 / z, -fs * 0.95), Vector2(tw + 12.0 / z, fs * 1.3)), Palette.c("ground", 0.8))
+		draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, violet.lerp(Palette.c("text"), 0.6))

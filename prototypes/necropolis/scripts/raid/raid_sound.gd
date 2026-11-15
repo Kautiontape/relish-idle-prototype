@@ -49,16 +49,10 @@ static func attach(parent: Node, warm_kinds: Array = WARM_KINDS) -> void:
 
 
 ## Queues the warm plan and starts the per-frame ticker (a child of the Synth, so it dies with it).
-## Needs the Synth in the tree (its _ready loads the config) and its `_stream`.
+## Needs the Synth in the tree (its _ready loads the config).
 static func _begin_warm(kinds: Array) -> void:
 	var live := _synth != null and is_instance_valid(_synth)
 	if not RaidSoundLogic.can_warm(live, live and _synth.is_inside_tree()):
-		return
-	# Stand-in until Synth offers a params-aware warm (the dungeon unit takes over the Synth files in
-	# D-d and adds a public one): `warm(kinds)` renders a kind with no params, which leaves every
-	# chime bucket and streak step to render on its first play. tests/test_raid_sound.gd fails if
-	# `_stream` is renamed.
-	if not _synth.has_method("_stream"):
 		return
 	var cfg := {}
 	if ResourceLoader.exists(SYNTH_LOGIC_PATH):
@@ -69,8 +63,7 @@ static func _begin_warm(kinds: Array) -> void:
 	var split := RaidSoundLogic.split_plan(plan)
 	# The plain kinds render now, in the build's own burst before the first frame (unravel alone is
 	# ~130 ms); only the many small param renders (chime buckets, streak steps) trickle.
-	for it in split["plain"]:
-		_synth.call("_stream", it["kind"], it["params"])
+	_synth.call("warm", split["plain"])
 	_queue = split["param"]
 	if not _queue.is_empty():
 		var t := Ticker.new()
@@ -82,11 +75,10 @@ static func _begin_warm(kinds: Array) -> void:
 static func tick() -> void:
 	if _queue.is_empty():
 		return
-	if _synth == null or not is_instance_valid(_synth) or not _synth.has_method("_stream"):
+	if _synth == null or not is_instance_valid(_synth):
 		_queue = []
 		return
-	var item: Dictionary = _queue.pop_front()
-	_synth.call("_stream", item["kind"], item["params"])
+	_synth.call("warm", [_queue.pop_front()])
 
 
 ## True while kinds are still queued to warm.

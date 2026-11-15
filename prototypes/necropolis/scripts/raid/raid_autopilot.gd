@@ -8,32 +8,78 @@ extends RefCounted
 ##   (it also heads for an exit and retreats when nothing has changed for autopilot.idle_s)
 ##   --raid-autopilot-bail=<0..1> run for an exit and retreat at or below this hp fraction (default: raid.json autopilot.bail_hp_frac, 0 = never)
 ##   --raid-autopilot-log         a status line every 2 scene seconds
-##   --raid-autopilot-dodge=<0..1> chance to sidestep each Huntsman lunge tell (default: raid.json autopilot.dodge)
+##   --raid-autopilot-answer-mult=<x> scales the chance to answer a warden tell (1 - react_miss; the context runs)
 ## Run it fast and deterministic with `--headless --fixed-fps 60 --disable-vsync --max-fps 0`.
 ## All policy numbers live in raid.json `autopilot`.
 ##
 ## Policy, every `think_frames` physics frames (scene time only; the bot never reads the wall clock):
 ##   route   BFS the room graph to the warden room (held fort: the deepest room, then out an exit).
-##   advance hold back while living enemies are near or in the current/next room; kite from the
+##   advance hold back while living enemies are near, or hostile in the current/next room; kite from the
 ##           nearest enemy and let the undead fight; else walk the path through the wall gaps.
 ##   collect walk to loose motes and corpse piles when no enemy is near.
 ##   raise   when the trance is ready and enough motes are near, draw a 44-point circle whose jitter
 ##           is binary-searched to land within a few points of the target score.
 ##   pickup  walk to remnants lying on the floor when no foe is near (before the chest ends the run).
-##   warden  Bellringer: stay out of the slam, but go in for motes (and raise) while the next tell is
-##           more than `slam_safe_beats` away (WardenLogic.slam_window_open), and get out before it;
-##           otherwise wait `bell_stage_px` outside the slam (so the army stays in reach of the bell).
-##           Huntsman: fight inside its room (it hunts the undead when she hides), sidestep lunge
-##           tells with probability `dodge`. Then the chest.
+##   react   every warden tell goes through one rule (`_answers`): answered with chance 1 - react_miss
+##           (rolled once per tell from `_rng_react`, a stream of its own) and acted on react_delay_s after
+##           she first sees it, both set by the target score (RaidLogic.react_at); until then, and all
+##           through a missed tell, she does what she would do with no tell. The kite from the living
+##           starts react_delay_s after a foe comes within kite_px (no miss).
+##   warden  Bellringer: go in for motes (and raise) when the trip in and out fits before the next tell
+##           with `slam_safe_beats` to spare (WardenLogic.slam_window_open), work inside until she
+##           answers a tell (or a slam ring is out), then get out; otherwise wait `bell_stage_px`
+##           outside the slam (so the army stays in reach of the bell).
+##           Huntsman: fight inside its room (it hunts the undead when she hides), sidestep a lunge
+##           tell she answers.
+##           Shieldwall: while she answers a bash tell, keep out of its bash arc (the front arc within its
+##           reach, plus `wall_margin_*`) and fetch only what lies outside it; wait on its side
+##           (`wall_side_deg` off its facing, `wall_stand_px` beyond the bash) so the raises there walk in
+##           from the side, going round the wall the short way as it turns.
+##           Pyre-priest: on a fire tell she answers, step off a lit burn area that covers her, first
+##           carrying a mote out of a lit area when the trip in and out fits before the beat, and fetch
+##           only what lies outside the fire; while
+##           acolytes live wait `pyre_stand_px` beyond the nearest one and hold a raise until within
+##           `pyre_raise_px` of one (unless the carry is full, she is out of its room or a living foe
+##           is within `kite_px`), so the raised undead go for it; once
+##           it is exposed wait `pyre_exposed_px` from it. Then the chest.
 ## The bot does NOT use the trance's time dilation: a real player slows time to draw. That is a
 ## conservative approximation (the bot raises instantly but never gets the slow-mo aim and dodge window).
+## Measuring fields (read only, never fed back): `split` (scene seconds per RaidLogic.time_class bucket),
+## the frame counters (`frames_drawn`, `physics_frames`, `frames_at_start`, `run_ticks`: the lockstep
+## check), `walk_px`, `walk_travel_px`, `route_px`, `rooms_entered`, `killed_by`, `react` (the reaction rule's
+## miss chance and delay, the warden tells seen and answered), `death_t`, `army_zero_t` (first time no undead
+## stood), `army_at_death_minus5`, `army_zero_s` (scene seconds after the wake with no undead standing),
+## `tell_tally` (per tell: answered or missed, a missed one countered, struck by its blow), `unstick` (the
+## unstick watch: aims pulled inside a room, targets given up), `left_no_army` (she left
+## with no undead standing and nothing to raise), `relish_hits` (blows that reached her, by source: slam,
+## lunge, bash, rush, fire, hound, pack, living) and `relish_soaked` (of them, the lethal ones an undead took
+## in her place). See NOTES-RAID "Run length and risk calibration".
 
 var _raid: Node2D
 var _cfg: Dictionary = {}
 var _target := 70
 var _seed := 0
-var _dodge := 0.5
-var _rng := RandomNumberGenerator.new()
+var _rng := RandomNumberGenerator.new()   # the trace jitter
+# the reaction rule (_answers; raid.json autopilot react_*): set from the target score in start()
+var _miss := 0.18               # chance a warden tell goes unanswered
+var _delay := 0.45              # scene seconds from first seeing a tell (or a foe within kite_px) to acting on it
+var _rng_react := RandomNumberGenerator.new()   # its own stream: the tell rolls never shift the trace draws
+var _tell_id := ""              # the tell the roll was made for ("<kind>:<beat>")
+var _tell_seen := 0.0           # scene time the bot first saw it
+var _tell_ok := false           # rolled: she answers it
+var _tell_side := 1.0           # rolled with it: the sidestep's side when nothing else decides
+var _tells := 0                 # warden tells seen / answered (the react dict)
+var _tells_ok := 0
+var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
+var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
+var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
+var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
+var _hits_seen := 0
+var _told_beats: Array = []     # the strike beat of every tell the bot saw (the tally's windows)
+var _wall_pre := {}             # the Shieldwall as it stood before its tell (a missed tell is planned against this)
+var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
+var _threat_last := -1.0        # scene time one was last within kite_px
+var _bell_goal = null           # the Bellringer fight's last point inside the slam she was making for
 
 var _sim_t := 0.0               # scene seconds the run has lasted (physics steps only)
 var _frame := 0
@@ -49,19 +95,49 @@ var _catches := 0               # Huntsman catches of Relish
 var _cur_room := -1
 var _prev_room := -1
 var _hold_t := 0.0              # continuous seconds spent holding back in the current room
-var _was_locked := false        # a Huntsman lunge tell was showing last think
-var _dodging := false           # this tell was chosen to be dodged
-var _dodge_side := 1.0
 var _archetype := ""
 var _sig := ""                  # progress signature: raises, living, warden hp, chest
 var _sig_t := 0.0               # scene time the signature last changed
 var _giving_up := false         # nothing has moved for idle_s: head for an exit and retreat
+var _no_army_t := -1.0          # since when no undead stood and nothing could be raised (-1: not now)
+var _left_no_army := false      # she left for that (the result's `left_no_army`)
 var _why := ""                 # which policy branch chose the last goal (log only)
 var _foes: Array = []          # living enemies this think (for the retreat's heading choice)
 var _bail := 0.0               # retreat to an exit once hp is at or below this fraction (0 = never)
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
 var _gaps_cache := {}           # "a>b" -> Array[Rect2] of the gaps joining two rooms
 var _stick = null               # the mote, pile or pickup being walked to (kept while still valid)
+var _aim_obj = null             # the unstick watch (D-d/E 3c; _aim_at, RaidLogic.unstick_step): the sticky target,
+var _aim := {"d": INF, "t": 0.0, "in": false}   # its state (closest walking distance, when it last closed, aiming inside),
+var _aim_last := -1.0           # and the last think it was walked to
+var _unreachable := {}          # instance ids of targets she could not close on (skipped from then on)
+var _aimed_in := 0              # times the watch pulled her aim inside the room (the result's `unstick`)
+var _avoid_arc := {}            # the Shieldwall's bash arc this think ({} for every other fight): spots in it are not safe
+var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 / -1; 0 before the first pick)
+var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think, once more as it dies and at the finish
+var _avoid_burn := {}           # the Pyre-priest's lit burn areas this think ({areas, r}; {} for every other fight): spots in them are not safe
+var _pyre := {}                 # the Pyre-priest's counts, read off it each think, once more as it dies and at the finish
+var _bell := {}                 # the Bellringer's toll counts, read like _shield / _pyre
+var _toll_tally := {"toll_answered": 0, "toll_answered_struck": 0, "toll_missed": 0, "toll_missed_struck": 0,
+	"toll_missed_muffled": 0}   # measuring only: the tells that carried a toll, by the roll and the toll's outcome
+var _min_hp := INF              # Relish's lowest hp so far (the pyre dict reports it)
+# measuring only (D-d/E): read off the run each physics tick, never fed back into a decision
+const SPLIT_MOVE_PX := 1.0      # a tick in which Relish moved more than this is travel (she walks 4 px a tick)
+var _split := {"travel": 0.0, "fight": 0.0, "trance": 0.0, "idle": 0.0}   # scene seconds per RaidLogic.time_class bucket
+var _last_pos := Vector2.INF    # Relish's position at the previous tick
+var _walk_px := 0.0             # how far Relish walked in all
+var _walk_travel_px := 0.0      # of it: in travel ticks
+var _rooms_entered := 0         # room changes (_track_room): decision points for the human factor
+var _frames0 := [0, 0]          # the process and physics frame counters at start()
+var _living_start := 0          # living on the field when the run starts
+var _army_zero_t := -1.0        # first scene time no undead stood (-1: never)
+var _army_zero_s := 0.0         # scene seconds with no undead standing, after the warden woke
+var _army_log: Array = []       # [t, undead standing] every half second (the death fields)
+var _pack := {}                 # the warden's pack counts (a warden with a pack only), read like _shield / _pyre
+var _det := {}                  # the guarded detour's site (RaidLogic.detour_site); {} on a fort without one
+var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
+var _det_at := {}               # what she decided on: scene time, hp fraction, army, guard standing
+var _det_done_s := -1.0         # scene time the cache was hers (-1: not)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -87,12 +163,22 @@ func start() -> void:
 	_log = RaidDev.cli_flag("--raid-autopilot-log")
 	var bl := RaidDev.cli_value("--raid-autopilot-bail=")
 	_bail = clampf(float(bl) if bl != "" else float(_cfg.get("bail_hp_frac", 0.0)), 0.0, 1.0)
-	var d := RaidDev.cli_value("--raid-autopilot-dodge=")
-	_dodge = clampf(float(d) if d != "" else float(_cfg.get("dodge", 0.5)), 0.0, 1.0)
 	_seed = int(str(_raid.seed_data.get("rng_seed", "1")).to_int())
 	_rng.seed = _seed ^ 0x0A170B07
+	_rng_react.seed = _seed ^ 0x5EAC7105
+	var pts: Array = _cfg.get("react_score", [50, 70, 90])
+	_miss = clampf(RaidLogic.react_at(float(_target), pts, _cfg.get("react_miss", [0.30, 0.18, 0.08])), 0.0, 1.0)
+	_delay = maxf(0.0, RaidLogic.react_at(float(_target), pts, _cfg.get("react_delay_s", [0.60, 0.45, 0.30])))
+	var am := RaidDev.cli_value("--raid-autopilot-answer-mult=")
+	if am != "":
+		_miss = 1.0 - clampf((1.0 - _miss) * float(am), 0.0, 1.0)
 	var w = _raid.warden_run.warden
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
+	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
+	_living_start = _raid.enemies.size()
+	_det = RaidLogic.detour_site(_raid.layout, _raid.fort_tier(), _raid.rcfg())
+	if w != null and is_instance_valid(w) and w.spec.has("pack"):
+		_pack = w.pack_telemetry()
 	_pin_clock()
 
 
@@ -114,6 +200,10 @@ func physics_tick(delta: float) -> void:
 		return
 	_sim_t += delta
 	_pin_clock()
+	var rel_hp: RaidRelish = _raid.relish
+	if rel_hp != null and is_instance_valid(rel_hp):
+		_min_hp = minf(_min_hp, rel_hp.hp)
+	_split_tick(delta)
 	_frame += 1
 	if _frame % maxi(1, int(_c("think_frames", 3.0))) != 0:
 		return
@@ -131,10 +221,21 @@ func physics_tick(delta: float) -> void:
 		if ww is RaidBellringer:
 			_attacks = ww._slams
 			_attacks_wp = ww.slams_muffled
+			_bell = ww.telemetry()
 		elif ww is RaidHuntsman:
 			_attacks = ww._lunges
 			_attacks_wp = ww.intercepts
 			_catches = ww.catches
+		elif ww is RaidShieldwall:
+			_attacks = ww.bashes
+			_attacks_wp = ww.flanks
+			_shield = ww.telemetry()
+		elif ww is RaidPyrePriest:
+			_attacks = ww.burns
+			_attacks_wp = ww.snuffs
+			_pyre = ww.telemetry()
+		if not _pack.is_empty():
+			_pack = ww.pack_telemetry()
 	_track_room(pos)
 	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
@@ -147,6 +248,87 @@ func physics_tick(delta: float) -> void:
 			_raid.carried_count(), _raid.get_tree().get_nodes_in_group("raid_essence").size() - _raid.carried_count(),
 			_raid.get_tree().get_nodes_in_group("raid_piles").size(), _raid.trance.state, _why, _hold_t,
 			_motes_near(pos, _c("raise_reach_px", 300.0)).size(), _motes_near(pos, 350.0).size(), _warden_log()])
+
+
+## One tick of the time split (RaidLogic.time_class; NOTES-RAID "Run length and risk calibration"):
+## reads the run, changes nothing. Runs every live physics tick, so the buckets sum to duration_s.
+func _split_tick(delta: float) -> void:
+	var rel: RaidRelish = _raid.relish
+	var rpos := Vector2.INF
+	var moved := 0.0
+	if rel != null and is_instance_valid(rel):
+		rpos = rel.global_position
+		if _last_pos != Vector2.INF:
+			moved = rpos.distance_to(_last_pos)
+		_last_pos = rpos
+	var tr: RaidTrance = _raid.trance
+	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
+	_split[k] = float(_split[k]) + delta
+	_watch_army(delta)
+	_record_hits()
+	_walk_px += moved
+	if k == "travel":
+		_walk_travel_px += moved
+
+
+## The death fields: the first tick no undead stood, and a half-second log of how many did.
+func _watch_army(delta: float) -> void:
+	var n := _allies_alive()
+	if n == 0 and _wake_s >= 0.0:
+		_army_zero_s += delta
+	if n == 0 and _army_zero_t < 0.0:
+		_army_zero_t = _sim_t
+	if _army_log.is_empty() or _sim_t - float(_army_log[_army_log.size() - 1][0]) >= 0.5:
+		_army_log.append([_sim_t, n])
+
+
+## Undead standing `back` scene seconds before `t` (the last half-second sample at or before it; -1 before any).
+func _army_at(t: float, back: float) -> int:
+	var out := -1
+	for e in _army_log:
+		if float(e[0]) <= t - back + 1e-6:
+			out = int(e[1])
+	return out
+
+
+## The split's "engaged": the warden from its wake while it lives (standing off a slam or waiting out a
+## tell is its fight), or a hostile living foe in her room or within combat.aggro_px of her.
+func _engaged(rpos: Vector2) -> bool:
+	var w = _raid.warden_run.warden
+	if w != null and is_instance_valid(w) and w.alive and w.awake:
+		return true
+	if rpos == Vector2.INF:
+		return false
+	var fight_px := float((_raid.rcfg().get("combat", {}) as Dictionary).get("aggro_px", 260.0))
+	var rr := RaidLogic.room_of(_raid.layout, rpos)
+	for e in _raid.enemies:
+		if not is_instance_valid(e) or not e.alive or not e._aggro:
+			continue
+		if RaidLogic.foe_engaged(rpos, rr, e.global_position, RaidLogic.room_of(_raid.layout, e.global_position), true, fight_px):
+			return true
+	return false
+
+
+## The shortest walk the bot's own routing takes from the spawn to the goal room's centre: the BFS room
+## path, through the nearest gap of each pair in turn (the human factor's route baseline).
+func _route_px() -> float:
+	var at: Vector2 = _raid.layout["spawn"]
+	var goal := int(_raid.layout.get("warden_room", -1))
+	if goal < 0:
+		goal = _goal_room()
+	var p := _path(RaidLogic.room_of(_raid.layout, at), goal)
+	var px := 0.0
+	for i in range(1, p.size()):
+		var best := _room_center(p[i])
+		var bd := INF
+		for g in _gaps_between(p[i - 1], p[i]):
+			var c := (g as Rect2).get_center()
+			if at.distance_to(c) < bd:
+				bd = at.distance_to(c)
+				best = c
+		px += at.distance_to(best)
+		at = best
+	return px + at.distance_to(_room_center(goal))
 
 
 func _warden_log() -> String:
@@ -168,12 +350,55 @@ func _watch_progress() -> void:
 		_sig_t = _sim_t
 	elif _sim_t - _sig_t > _c("idle_s", 60.0):
 		_giving_up = true
+	# D-d/E Step 4 review: no undead standing and nothing to raise from (RaidLogic.can_raise_from): a player
+	# sees it and leaves, once she reacts (her reaction delay), not after idle_s of a warden fight she cannot win
+	var rel: RaidRelish = _raid.relish
+	if _allies_alive() == 0 and not RaidLogic.can_raise_from(_motes_near(rel.global_position, _c("collect_px", 320.0)).size(),
+			_piles_within(rel.global_position, _c("pile_px", 900.0)), int(_c("min_motes", 3.0))):
+		if _no_army_t < 0.0:
+			_no_army_t = _sim_t
+		elif _sim_t - _no_army_t >= _delay - 1e-6 and not _giving_up:
+			_giving_up = true
+			_left_no_army = true
+	else:
+		_no_army_t = -1.0
+
+
+## Unstirred corpse piles within `reach` of `pos`.
+func _piles_within(pos: Vector2, reach: float) -> int:
+	var n := 0
+	for o in _raid.get_tree().get_nodes_in_group("raid_piles"):
+		if is_instance_valid(o) and not o._stirred and o._shrink < 0.0 and o.global_position.distance_to(pos) <= reach:
+			n += 1
+	return n
+
+
+## The warden died (RaidWardenRun.on_warden_died, before it lets go of it): read its counts one last
+## time, so the killing blow is in the `shield` / `pyre` dicts. The think-tick snapshots run before
+## the units' and the warden's physics, so they miss the last event of the run. Only those two dicts:
+## the older `_attacks` counters stay as the think tick leaves them (they feed every fort's line).
+func on_warden_died(w: RaidWarden) -> void:
+	_read_final(w)
+
+
+func _read_final(w) -> void:
+	if _done or w == null or not is_instance_valid(w):
+		return
+	if w is RaidShieldwall:
+		_shield = w.telemetry()
+	elif w is RaidBellringer:
+		_bell = w.telemetry()
+	elif w is RaidPyrePriest:
+		_pyre = w.telemetry()
+	if not _pack.is_empty():
+		_pack = w.pack_telemetry()
 
 
 ## The run ended (RaidEndings.finish): print the line once and quit.
 func on_finish(result: Dictionary) -> void:
 	if _done:
 		return
+	_read_final(_raid.warden_run.warden)   # still there when Relish died or the run timed out: its last counts
 	_done = true
 	var exit := "timeout" if _timed_out else ("relish_died" if bool(result.get("relish_died", false)) \
 		else ("warden_beaten" if bool(result.get("warden_beaten", false)) else "retreated"))
@@ -205,6 +430,55 @@ func on_finish(result: Dictionary) -> void:
 		"party_lost": result.get("party_lost", []),
 		"relish_hp_end": snappedf(_raid.relish.hp if _raid.relish != null and is_instance_valid(_raid.relish) else 0.0, 0.1),
 		"allies_end": _allies_alive()}
+	if _archetype == "shieldwall":   # its own counts (the other wardens' lines keep their shape)
+		out["shield"] = _shield
+	if _archetype == "pyre_priest":
+		var py := _pyre.duplicate()
+		var low := _min_hp
+		if _raid.relish != null and is_instance_valid(_raid.relish):
+			low = minf(low, _raid.relish.hp)   # the killing blow lands after the last tick
+		py["relish_min_hp"] = snappedf(maxf(0.0, low) if low < INF else -1.0, 0.1)
+		out["pyre"] = py
+	# measuring only (D-d/E): the time split, the frame counters (lockstep), the walk, the death's cause
+	out["split"] = {"travel_s": snappedf(float(_split["travel"]), 0.01), "fight_s": snappedf(float(_split["fight"]), 0.01),
+		"trance_s": snappedf(float(_split["trance"]), 0.01), "idle_s": snappedf(float(_split["idle"]), 0.01)}
+	out["frames_drawn"] = Engine.get_process_frames()
+	out["physics_frames"] = Engine.get_physics_frames()
+	out["frames_at_start"] = {"drawn": int(_frames0[0]), "physics": int(_frames0[1])}
+	out["run_ticks"] = _frame
+	out["walk_px"] = roundi(_walk_px)
+	out["walk_travel_px"] = roundi(_walk_travel_px)
+	out["route_px"] = roundi(_route_px())
+	out["rooms_entered"] = _rooms_entered
+	out["living_start"] = _living_start
+	if not _pack.is_empty():
+		out["pack"] = _pack
+	if not _det.is_empty():
+		var st := _det_state
+		out["detour"] = {"room": int(_det["room"]), "guard": _raid.detour_guard.size(), "offered": st != "",
+			"taken": st in ["taken", "done", "abandoned"], "done": st == "done", "abandoned": st == "abandoned",
+			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01), "died": _raid.relish == null or not _raid.relish.alive,
+			"cache_left": _det_cache_left(), "cache": _raid.detour_cache.size()}
+	var died := exit == "relish_died"
+	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
+	out["killed_by"] = (src if src != "" else "wound") if died else ""
+	out["death_t"] = snappedf(_sim_t, 0.01) if died else -1.0
+	out["army_zero_t"] = snappedf(_army_zero_t, 0.01)
+	out["army_zero_s"] = snappedf(_army_zero_s, 0.01)
+	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
+	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
+	out["left_no_army"] = _left_no_army
+	_record_hits()   # the killing blow ends the run before a split tick sees it
+	_tally_close()
+	var told := _tally.duplicate()
+	told["untold_blows"] = _untold_blows()
+	out["tell_tally"] = told
+	if _archetype == "bellringer" and int(_bell.get("toll_beats", 0)) > 0:   # (after the last tell's tally; no toll below lever_min_tier: those lines keep their shape)
+		out["bell"] = _bell.merged(_toll_tally)
+	var rh: RaidRelish = _raid.relish
+	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
+	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
+	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -259,6 +533,7 @@ func _track_room(pos: Vector2) -> void:
 		_prev_room = _cur_room
 		_cur_room = r
 		_hold_t = 0.0
+		_rooms_entered += 1
 
 
 func _rooms() -> Array:
@@ -312,6 +587,25 @@ func _gaps_between(a: int, b: int) -> Array:
 	return out
 
 
+## The gaps joining rooms a and b that really open between them: those within half a gap's width of one
+## of the layout's portals for the pair. A gap at a T-junction can touch both rooms' rects and still open
+## elsewhere; walking to it, then toward the far room's centre, sent the bot back to it (a dither that
+## stalled chime-fort until the bot gave up). Every gap when the layout has no portal for the pair.
+func _real_gaps(a: int, b: int) -> Array:
+	var all := _gaps_between(a, b)
+	var pts: Array = (_raid.layout.get("portals", {}) as Dictionary).get("%d:%d" % [a, b], [])
+	if pts.is_empty():
+		return all
+	var half := float(_raid.rcfg().get("layout", {}).get("inner_gap_width", 165.0)) * 0.5
+	var keep: Array = []
+	for g in all:
+		for p in pts:
+			if (g as Rect2).get_center().distance_to(p) <= half:
+				keep.append(g)
+				break
+	return keep if not keep.is_empty() else all
+
+
 ## The point to walk to now, to get to room `goal_room` and then `final` inside it: through the
 ## nearest gap into the next room on the path, then that room's centre.
 func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
@@ -325,7 +619,7 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 	var nxt: int = p[1]
 	var best := Vector2.ZERO
 	var bd := INF
-	for g in _gaps_between(_cur_room, nxt):
+	for g in _real_gaps(_cur_room, nxt):
 		var c := (g as Rect2).get_center()
 		var d := pos.distance_to(c)
 		if d < bd:
@@ -336,6 +630,30 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 	if bd > _c("arrive_px", 30.0):
 		return best
 	return _room_center(nxt)
+
+
+## Walk to the sticky target `o` (a mote, pile or pickup), watching that she closes on it (D-d/E 3c):
+## a pickup lying against a wall left her pinned on the wall's corner for 99 s (hollow-redoubt seed 6:
+## Relish's slide makes no progress when the straight line runs along a wall face). Not closing by
+## unstick_px of walking distance in unstick_s, she aims at the same spot pulled unstick_inset_px (plus
+## her radius) inside its room, as a player re-clicks a reachable spot; still not closing after another
+## unstick_s, she gives it up. Changes nothing while she closes on it.
+func _aim_at(pos: Vector2, o) -> Vector2:
+	var p: Vector2 = o.global_position
+	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
+	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
+	_aim_obj = o
+	if step == "give_up":
+		_unreachable[o.get_instance_id()] = true
+	elif step == "aim_in":
+		_aimed_in += 1
+	_aim_last = _sim_t
+	if bool(_aim["in"]):
+		var r := RaidLogic.room_of(_raid.layout, p)
+		if r >= 0:
+			var rr := (_raid.layout["rooms"][r] as Rect2).grow(-(_raid.relish.radius + _c("unstick_inset_px", 8.0)))
+			p = Vector2(clampf(p.x, rr.position.x, rr.end.x), clampf(p.y, rr.position.y, rr.end.y))
+	return _to_point(pos, p)
 
 
 ## Walk to a point through the room graph (a straight line would stick on a wall).
@@ -351,6 +669,8 @@ func _next_room() -> int:
 
 ## The warden room, or on a held fort the deepest room from the spawn.
 func _goal_room() -> int:
+	if _det_state == "taken":
+		return int(_det["room"])   # the guarded detour, until the cache is hers or she abandons it
 	var wr := int(_raid.layout.get("warden_room", -1))
 	if wr >= 0:
 		return wr
@@ -412,6 +732,9 @@ func _living() -> Array:
 
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
+	_detour_tick()
+	_avoid_arc = {}
+	_avoid_burn = {}
 	var hold_px := _c("hold_px", 200.0)
 	var kite_px := _c("kite_px", 240.0)
 	if _hold_t >= _c("stall_s", 30.0):
@@ -444,7 +767,7 @@ func _decide(pos: Vector2) -> Vector2:
 		_stick = pk0
 		if pk0 != null:
 			_why = "pickup"
-			return _to_point(pos, pk0.global_position)
+			return _aim_at(pos, pk0)
 		return _to_point(pos, run.chest.global_position)
 
 	var ne = null
@@ -456,17 +779,19 @@ func _decide(pos: Vector2) -> Vector2:
 		if d < nd:
 			nd = d
 			ne = e
+	_watch_threat(ne, nd)
 
 	# the warden, once awake
 	var w = run.warden
 	if w != null and is_instance_valid(w) and w.alive and w.awake:
 		_why = "warden"
 		return _vs_warden(pos, w, living, ne, nd)
-	_was_locked = false
-	_dodging = false
 
-	# an enemy too close: step back and let the undead fight
+	# an enemy too close: step back and let the undead fight (once she reacts: her old plan runs until then)
 	if ne != null and nd < kite_px:
+		if not _kite_due():
+			_why = "kite-wait"
+			return _raid.relish.move_target
 		_why = "kite"
 		return _back_step(pos, ne.global_position)
 	var near_enemy := ne != null and nd < hold_px
@@ -483,13 +808,15 @@ func _decide(pos: Vector2) -> Vector2:
 	_stick = tgt
 	if tgt != null:
 		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
-		return _to_point(pos, tgt.global_position)
-	# hold while living remain in this room or the next
+		return _aim_at(pos, tgt)
+	# hold while hostile living remain in this room or the next
 	var nxt := _next_room()
 	var blocked := false
+	var push := int(_det["room"]) if _det_state == "taken" else -1
 	for e in living:
-		var er := RaidLogic.room_of(_raid.layout, e.global_position)
-		if er >= 0 and (er == _cur_room or er == nxt):
+		# only a fight holds her (RaidLogic.hold_blocks): a calm foe a room on, out of the army's reach, held
+		# the spawn ~20 s (D-d/E 3c); a taken detour is a push, its guard does not hold her at its door
+		if RaidLogic.hold_blocks(e._aggro, RaidLogic.room_of(_raid.layout, e.global_position), _cur_room, nxt, push):
 			blocked = true
 			break
 	if blocked:
@@ -508,6 +835,189 @@ func _decide(pos: Vector2) -> Vector2:
 		if er >= 0:
 			return _toward_room(pos, er, ne.global_position)
 	return _toward_room(pos, goal, _room_center(goal))
+
+
+## The reaction rule, the one place every warden tell goes through (NOTES-RAID "the bot's reaction
+## model"): the first time the bot sees a tell (`kind` and its attack beat name it) it rolls once, from
+## its own stream, whether she answers it (1 - `_miss`); she acts on it `_delay` scene seconds after that
+## first sight. Until then, and all through a missed tell, she does what she would do with no tell.
+func _answers(kind: String, beat: float) -> bool:
+	var id := "%s:%.4f" % [kind, beat]
+	if id != _tell_id:
+		_tally_close()
+		_told_beats.append(beat)
+		_tell_id = id
+		_tell_seen = _sim_t
+		_tell_ok = _rng_react.randf() >= _miss
+		_tell_side = 1.0 if _rng_react.randf() < 0.5 else -1.0
+		_tells += 1
+		if _tell_ok:
+			_tells_ok += 1
+		_tally_open = true
+		_tally_ctr0 = _counter_count()
+	return _tell_ok and _sim_t - _tell_seen >= _delay - 1e-6
+
+
+## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
+## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it; a pin
+## spares her only the rush, so it is not counted) or not; and struck when a tell-attack blow reached her before the next tell.
+## Tell-attack blows on her since the last look, stamped with the warden's beat (for the tally).
+func _record_hits() -> void:
+	var th := _tell_hits()
+	if th > _hits_seen:
+		var tw = _raid.warden_run.warden
+		if tw != null and is_instance_valid(tw):
+			for i in th - _hits_seen:
+				_hit_beats.append(tw.beat())
+		_hits_seen = th
+
+
+## Tell-attack blows that fall in no seen tell's window (from its start to a beat after its strike): a blow
+## without a tell she could see. Measuring only; it should be 0.
+func _untold_blows() -> int:
+	var n := 0
+	for hb in _hit_beats:
+		var told := false
+		for tb in _told_beats:
+			told = told or (float(hb) >= float(tb) - 1.5 and float(hb) < float(tb) + 1.0)
+		if not told:
+			n += 1
+	return n
+
+
+func _tally_close() -> void:
+	if not _tally_open:
+		return
+	_tally_open = false
+	# struck: a tell-attack blow on her from its tell's start (tell_beats before its beat) to a beat after it
+	var tb := float(_tell_id.get_slice(":", 1))
+	var struck := false
+	for hb in _hit_beats:
+		struck = struck or (float(hb) >= tb - 1.5 and float(hb) < tb + 1.0)
+	var countered := _counter_count() > _tally_ctr0   # (a pin spares her only the rush: not counted as countered)
+	_tally["tells"] += 1
+	if _tell_ok:
+		_tally["answered"] += 1
+		if struck:
+			_tally["answered_struck"] += 1
+	else:
+		_tally["missed"] += 1
+		if countered:
+			_tally["missed_countered"] += 1
+		elif struck:
+			_tally["missed_struck"] += 1
+	var bw = _raid.warden_run.warden
+	if bw != null and is_instance_valid(bw) and bw is RaidBellringer and bw.toll_marks.has(_tell_id.get_slice(":", 1)):
+		var m: String = bw.toll_marks[_tell_id.get_slice(":", 1)]
+		var k := "toll_answered" if _tell_ok else ("toll_missed_muffled" if m == "muffled" else "toll_missed")
+		_toll_tally[k] += 1
+		if m == "struck" and k != "toll_missed_muffled":
+			_toll_tally[k + "_struck"] += 1
+
+
+func _tell_hits() -> int:
+	var rel: RaidRelish = _raid.relish
+	if rel == null or not is_instance_valid(rel):
+		return 0
+	var n := 0
+	for k in RaidLogic.TELL_ATTACKS:
+		n += int(rel.hits.get(k, 0))
+	return n
+
+
+func _counter_count() -> int:
+	var ww = _raid.warden_run.warden
+	if ww == null or not is_instance_valid(ww):
+		return 0
+	if ww is RaidBellringer:
+		return ww.slams_muffled
+	if ww is RaidHuntsman:
+		return ww.intercepts
+	return 0
+
+
+## The living have no one-beat tell, so no miss: the kite starts `_delay` after a living foe in her room
+## first comes within kite_px, and stays on while one is there. A foe that steps out of kite_px and back
+## within `_delay` is the same threat (she has seen it: no fresh delay at the kite's edge).
+func _watch_threat(ne, nd: float) -> void:
+	if ne != null and nd < _c("kite_px", 240.0):
+		if _threat_t < 0.0:
+			_threat_t = _sim_t
+		_threat_last = _sim_t
+	elif _threat_t >= 0.0 and _sim_t - _threat_last > _delay + 1e-6:
+		_threat_t = -1.0
+
+
+func _kite_due() -> bool:
+	return _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+
+
+## The guarded detour's rule (D-d/E 3b; RaidLogic.detour_take / detour_retreat; raid.json autopilot
+## detour_*; NOTES-RAID "the detour rule"): decided once, before the wake, at the first think the guard is
+## in view (a standing guard within detour_view_px; with its guard down, the cache) while no living foe is
+## on her in her room; then reassessed every think on the way in.
+func _detour_decide(seen: int) -> void:
+	var rel: RaidRelish = _raid.relish
+	var hpf: float = rel.hp / maxf(1.0, rel.max_hp)
+	var army := _allies_alive()
+	var rev: int = _raid.phylactery_left()
+	_det_at = {"t": snappedf(_sim_t, 0.01), "hp_frac": snappedf(hpf, 0.01), "army": army, "guard": seen, "revives": rev}
+	_det_state = "taken" if RaidLogic.detour_take(hpf, rev, army, seen, _cfg) else "declined"
+	print("AUTOPILOT_DETOUR %s hp=%.2f army=%d guard=%d frame=%d" % [_det_state, hpf, army, seen, Engine.get_process_frames()])
+
+
+## Each think: the decision (see _detour_decide); while a detour is taken, done once the cache is hers,
+## abandoned when RaidLogic.detour_retreat says turn back.
+func _detour_tick() -> void:
+	var rel: RaidRelish = _raid.relish
+	if _det_state == "" and not _det.is_empty():
+		var w = _raid.warden_run.warden
+		if w == null or not is_instance_valid(w) or not w.awake:
+			var seen := _det_guard_seen(rel.global_position)
+			var cache_seen := _det_guard() == 0 and _det_cache_left() > 0 \
+				and rel.global_position.distance_to(_det["pos"]) <= _c("detour_view_px", 480.0)
+			if (seen > 0 or cache_seen) and not _det_foe_on_her(rel.global_position):
+				_detour_decide(seen)
+	if _det_state != "taken":
+		return
+	if _det_cache_left() == 0:
+		_det_state = "done"
+		_det_done_s = _sim_t
+	elif RaidLogic.detour_retreat(rel.hp / maxf(1.0, rel.max_hp), _raid.phylactery_left(), _allies_alive(), _det_guard(), _cfg):
+		_det_state = "abandoned"
+
+
+## Standing guards within detour_view_px of her.
+func _det_guard_seen(pos: Vector2) -> int:
+	var n := 0
+	for e in _raid.detour_guard:
+		if is_instance_valid(e) and e.alive and pos.distance_to(e.global_position) <= _c("detour_view_px", 480.0):
+			n += 1
+	return n
+
+
+## A living foe that is not the detour's guard, in her room and within kite_px of her.
+func _det_foe_on_her(pos: Vector2) -> bool:
+	for e in _living():
+		if not e.sentry and _shares_room(e.global_position) and pos.distance_to(e.global_position) < _c("kite_px", 240.0):
+			return true
+	return false
+
+
+func _det_guard() -> int:
+	var n := 0
+	for e in _raid.detour_guard:
+		if is_instance_valid(e) and e.alive:
+			n += 1
+	return n
+
+
+func _det_cache_left() -> int:
+	var n := 0
+	for pk in _raid.detour_cache:
+		if is_instance_valid(pk) and pk.is_in_group("raid_pickups"):
+			n += 1
+	return n
 
 
 ## Walk to the exit nearest by rooms, and retreat once standing in it.
@@ -549,7 +1059,7 @@ func _collect_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, av
 	var best = null
 	var bd := _c("collect_px", 320.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
-		if not is_instance_valid(o) or o.absorbing or o.carried:
+		if not is_instance_valid(o) or o.absorbing or o.carried or _unreachable.has(o.get_instance_id()):
 			continue
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
@@ -560,7 +1070,7 @@ func _collect_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, av
 		return best
 	bd = _c("pile_px", 900.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_piles"):
-		if not is_instance_valid(o) or o._stirred or o._shrink >= 0.0:
+		if not is_instance_valid(o) or o._stirred or o._shrink >= 0.0 or _unreachable.has(o.get_instance_id()):
 			continue
 		var p2: Vector2 = o.global_position
 		var d2 := pos.distance_to(p2)
@@ -589,7 +1099,7 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 	var bd := _c("pickup_px", 900.0)
 	var clear := _c("pickup_foe_clear_px", 90.0)
 	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
-		if not is_instance_valid(o):
+		if not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 			continue
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
@@ -603,7 +1113,7 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 ## absorbing nor carried, a pile not yet stirred, with carry room; or a pickup on the floor) and no
 ## living foe stands by it.
 func _still_target(o, living: Array) -> bool:
-	if o == null or not is_instance_valid(o):
+	if o == null or not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 		return false
 	if o.is_in_group("raid_pickups"):
 		return _spot_ok(o.global_position, living, _c("pickup_foe_clear_px", 90.0), Vector2.INF, 0.0)
@@ -622,6 +1132,11 @@ func _still_target(o, living: Array) -> bool:
 
 func _spot_ok(p: Vector2, living: Array, clear: float, avoid: Vector2, avoid_r: float) -> bool:
 	if avoid != Vector2.INF and p.distance_to(avoid) < avoid_r:
+		return false
+	if not _avoid_arc.is_empty() and WardenLogic.bash_hits(float(_avoid_arc["facing"]), _avoid_arc["from"], p,
+			float(_avoid_arc["half"]), float(_avoid_arc["reach"]), 0.0):
+		return false
+	if not _avoid_burn.is_empty() and WardenLogic.in_burn(p, _avoid_burn["areas"], float(_avoid_burn["r"]), 0.0):
 		return false
 	for e in living:
 		if p.distance_to(e.global_position) < clear:
@@ -648,11 +1163,24 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 		var dodge_to = _dodge_step(pos, h)
 		if dodge_to != null:
 			return dodge_to
-	# other living first
+	if _archetype == "pyre_priest":
+		return _vs_pyre(pos, w as RaidPyrePriest, living, ne, nd)
+	# other living first (once she reacts: her old plan runs until then); but a warden tell showing is seen
+	# even while she kites (fixed after the freeze, Step 4b: kiting hid the tell from the roll, so it was
+	# rolled late or never), and an answered one is answered before the kite
 	if ne != null and nd < kite_px:
-		return _back_step(pos, ne.global_position)
+		var answering := false
+		if _archetype == "bellringer":
+			var bb := w as RaidBellringer
+			answering = bb._slam_beat < 0.0 and _bell_beats_to_tell(bb) <= 0.0 and _answers("slam", bb._next_attack)
+		elif _archetype == "shieldwall":
+			answering = (w as RaidShieldwall).planted and _answers("bash", (w as RaidShieldwall)._next_attack)
+		if not answering:
+			return _back_step(pos, ne.global_position) if _kite_due() else _raid.relish.move_target
 	if _archetype == "bellringer":
 		return _vs_bell(pos, w as RaidBellringer, living, safe_px)
+	if _archetype == "shieldwall":
+		return _vs_wall(pos, w as RaidShieldwall, living)
 	var wr_rect := Rect2()
 	if _archetype == "huntsman" and int(_raid.layout.get("warden_room", -1)) >= 0:
 		wr_rect = (_rooms()[int(_raid.layout["warden_room"])] as Rect2)   # stay in its room: it hunts the undead if she hides
@@ -673,21 +1201,54 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 	return pos
 
 
-## The Bellringer fight: raise through it. While the next tell is more than `slam_safe_beats` away
-## (counting the walk out), go in for motes the dying undead drop (the raise circle needs them) and
-## fetch pickups; otherwise keep outside the slam. Beats come from the warden's own clock.
+## The Bellringer fight: raise through it. The beat count says when to go in: for motes the dying
+## undead drop (the raise circle needs them) or a pickup, when the trip in and back out fits before the
+## next tell with `slam_safe_beats` to spare (`_bell_target`). Inside she works (on to the point she was
+## making for, else the motes in reach, else she holds) until she answers a slam tell (`_answers`) or a
+## slam ring is out (in plain sight: no roll); then out of the slam. The exit is the tell's answer, not
+## the beat count. Outside she gathers what is safe and waits `bell_stage_px` beyond the slam.
 func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) -> Vector2:
 	var wp := b.global_position
 	var beats := _bell_beats_to_tell(b)
 	var inside := pos.distance_to(wp) < safe_px
-	if beats > 0.0:
-		var t = _bell_target(pos, b, living, safe_px, beats)
-		if t != null:
-			_why = "bell-in"
-			return _to_point(pos, t)
-	if inside:
-		_why = "bell-out"
-		return _warden_retreat(pos, b, safe_px)
+	var leave := b._slam_beat >= 0.0
+	if leave and _tell_id == "slam:%.4f" % b._slam_beat and not _tell_ok:
+		leave = false   # a missed slam: she does not react to it until it has struck (fixed after the freeze, Step 4b)
+	if not leave and beats <= 0.0 and b._slam_beat < 0.0:
+		leave = _answers("slam", b._next_attack)
+	if leave:
+		_bell_goal = null
+		# the toll (Step 4b): answering the tell is also stepping out of the ring at her spot, to the exit the
+		# game's rule found for it (WardenLogic.toll_exit: in the room, out of both rings; sideways along the
+		# slam's edge if need be; fixed after the freeze, round 3: the exit the rule guarantees, so the answer
+		# and the rule cannot disagree; its own search, clamped into the room, could miss one by a wall)
+		var tclear: float = _raid.relish.radius + _c("burn_clear_px", 16.0)
+		if b.toll_at != Vector2.INF:
+			_avoid_burn = {"areas": [b.toll_at], "r": b.toll_r + tclear}   # and fetch nothing inside it
+		if b.toll_at != Vector2.INF and b.toll_exit_at != Vector2.INF and pos.distance_to(b.toll_exit_at) > 2.0 \
+				and pos.distance_to(b.toll_at) < b.toll_r + tclear:
+			_why = "toll-out"
+			return _to_point(pos, b.toll_exit_at)
+		if inside:
+			_why = "bell-out"
+			return _warden_retreat(pos, b, safe_px)
+	else:
+		if beats > 0.0:
+			var t = _bell_target(pos, b, living, safe_px, beats)
+			if t != null:
+				_bell_goal = t
+				_why = "bell-in"
+				return _to_point(pos, t)
+		if inside:
+			if _bell_goal != null and pos.distance_to(_bell_goal) > _c("arrive_px", 30.0):
+				_why = "bell-in"
+				return _to_point(pos, _bell_goal)
+			var work = _collect_target(pos, living)
+			if work != null:
+				_why = "bell-work"
+				return _to_point(pos, work)
+			_why = "bell-hold"
+			return pos
 	var loot = _collect_target(pos, living, wp, safe_px)
 	if loot != null:
 		return _to_point(pos, loot)
@@ -710,7 +1271,7 @@ func _bell_beats_to_tell(b: RaidBellringer) -> float:
 	return (b._next_attack - tell) - b.beat()
 
 
-## Where to stand to raise (else fetch a pickup) inside the slam and still be out before the tell. The
+## Where to stand to raise (else fetch a pickup) inside the slam, the trip in and out fitting before the tell. The
 ## raise reaches `raise_reach_px`, so Relish need not reach the motes: she stops `slam_stand_frac` of
 ## that from a cluster (`slam_cluster_frac` wide, at least `min_motes`) once the trance will be ready.
 ## The trip there plus the walk back out of the slam must fit in `beats` less `slam_safe_beats`.
@@ -718,7 +1279,7 @@ func _bell_target(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float
 	var wp := b.global_position
 	var speed: float = _raid.relish.speed
 	var tempo: float = b.tempo_s()
-	var margin := _c("slam_safe_beats", 1.0)
+	var margin := _c("slam_safe_beats", 0.25)
 	var reach := _c("raise_reach_px", 300.0)
 	var stand := reach * _c("slam_stand_frac", 0.5)
 	var cluster := reach * _c("slam_cluster_frac", 0.4)
@@ -771,6 +1332,178 @@ func _bell_target(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float
 	return best
 
 
+## The Shieldwall fight. While she answers a bash tell (`_answers`): out of the bash arc (its front
+## within reach, with `wall_margin_px` and `wall_margin_deg` to spare), fetching only what lies outside
+## it. Otherwise she fetches what lies in its room, else waits on its side: `wall_side_deg` off its
+## facing, `wall_stand_px` beyond the arc, so a raise there walks in from the side. The side is the
+## nearer one, kept until the other is `wall_switch_deg` nearer.
+func _vs_wall(pos: Vector2, w: RaidShieldwall, living: Array) -> Vector2:
+	var wp := w.global_position
+	var at: Dictionary = w.spec.get("attack", {})
+	var answered := false
+	if w.planted:
+		answered = _answers("bash", w._next_attack)
+	else:
+		_wall_pre = {"facing": w.facing, "half": w.front_half_deg(), "reach": float(at.get("reach_px", 140.0))}
+	# a tell is planned against the wall as it stood before the tell until she answers it: none of the tell's
+	# facing, arc or reach while it is missed (fixed after the freeze, Step 4b: the stand read them and dodged
+	# a tell it had missed), nor inside her reaction delay on one she will answer (fixed after the freeze, the
+	# quality pass: the aimed lane's facing snapped to her and the stand walked her off it with no delay)
+	var use_pre := w.planted and not answered and not _wall_pre.is_empty()
+	var facing: float = float(_wall_pre["facing"]) if use_pre else w.facing
+	var reach: float = (float(_wall_pre["reach"]) if use_pre else float(at.get("reach_px", 140.0))) \
+		+ float(_raid.relish.radius) + _c("wall_margin_px", 30.0)
+	var half: float = (float(_wall_pre["half"]) if use_pre else w.front_half_deg()) + _c("wall_margin_deg", 15.0)
+	var wr := int(_raid.layout.get("warden_room", -1))
+	var room: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
+	if answered:
+		_avoid_arc = {"from": wp, "facing": facing, "half": half, "reach": reach}
+		if WardenLogic.bash_hits(facing, wp, pos, half, reach, 0.0):
+			_why = "wall-out"
+			return _wall_stand(pos, w, reach, room, facing)
+	var loot = _collect_target(pos, living, Vector2.INF, 0.0, room)
+	if loot != null:
+		_why = "wall-loot"
+		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, Vector2.INF, 0.0, room)
+	if pk != null:
+		_why = "wall-pickup"
+		return _to_point(pos, pk)
+	_why = "wall-side"
+	return _wall_stand(pos, w, reach, room, facing)
+
+
+## The point on the Shieldwall's side to head for: round the wall the short way (WardenLogic.flank_step
+## on a circle `wall_stand_px` beyond the bash) toward `wall_side_deg` off its facing, kept in its room.
+func _wall_stand(pos: Vector2, w: RaidShieldwall, reach: float, room: Rect2, facing: float) -> Vector2:
+	var wp := w.global_position
+	var side := deg_to_rad(_c("wall_side_deg", 110.0))
+	var cur := (pos - wp).angle()
+	var off_p := absf(WardenLogic.angle_diff(cur, facing + side))
+	var off_m := absf(WardenLogic.angle_diff(cur, facing - side))
+	var sw := deg_to_rad(_c("wall_switch_deg", 20.0))
+	if _wall_side == 0.0:
+		_wall_side = 1.0 if off_p <= off_m else -1.0
+	elif _wall_side > 0.0 and off_m + sw < off_p:
+		_wall_side = -1.0
+	elif _wall_side < 0.0 and off_p + sw < off_m:
+		_wall_side = 1.0
+	var p := WardenLogic.flank_step(wp, pos, facing + side * _wall_side, reach + _c("wall_stand_px", 40.0), _c("wall_step_deg", 45.0))
+	if room.size != Vector2.ZERO:
+		p = WardenLogic.leash_clamp(room, p, float(_raid.relish.radius) + 8.0)
+	return _to_point(pos, p)
+
+
+## The Pyre-priest fight. On a fire tell she answers (`_answers`): carry a mote out of a lit area when
+## the trip in and out fits before the beat (`burn_safe_beats` to spare), else step off the lit area
+## that covers her, and fetch only what lies outside the fire. Then the living, then what lies in its
+## room, then her stand (_pyre_stand).
+func _vs_pyre(pos: Vector2, pp: RaidPyrePriest, living: Array, ne, nd: float) -> Vector2:
+	var wr := int(_raid.layout.get("warden_room", -1))
+	var room: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
+	var rel: RaidRelish = _raid.relish
+	var clear: float = rel.radius + _c("burn_clear_px", 16.0)
+	var stepping := pp.lit and _answers("fire", pp._tell_for)
+	if stepping:
+		_avoid_burn = {"areas": pp.areas, "r": pp.area_r + _c("burn_clear_px", 16.0)}
+		var grab = _burn_fetch(pos, pp, living, room, clear)
+		if grab != null:
+			_why = "pyre-grab"
+			return _to_point(pos, grab)
+		if WardenLogic.in_burn(pos, pp.areas, pp.area_r, clear):
+			_why = "pyre-off"
+			return _to_point(pos, WardenLogic.burn_exit(pos, pp.areas, pp.area_r, clear, room, rel.radius + 8.0))
+	if ne != null and nd < _c("kite_px", 240.0):
+		return _back_step(pos, ne.global_position) if _kite_due() else rel.move_target
+	var loot = _collect_target(pos, living, Vector2.INF, 0.0, room)
+	if loot != null:
+		_why = "pyre-loot"
+		return _to_point(pos, loot)
+	var pk = _pickup_target(pos, living, Vector2.INF, 0.0, room)
+	if pk != null:
+		_why = "pyre-pickup"
+		return _to_point(pos, pk)
+	_why = "pyre-stand"
+	return _to_point(pos, _pyre_stand(pos, pp, room, clear, stepping))
+
+
+## Where she waits: `pyre_stand_px` beyond the living acolyte nearest her (seen from the priest), so a
+## raise there walks into it; once it is exposed, `pyre_exposed_px` from the priest on her side.
+## Kept in its room, and off a lit area while she is stepping off this tell (`stepping`).
+func _pyre_stand(pos: Vector2, pp: RaidPyrePriest, room: Rect2, clear: float, stepping: bool) -> Vector2:
+	var wp := pp.global_position
+	var rr: float = _raid.relish.radius + 8.0
+	var a := pp.nearest_acolyte(pos)
+	var p: Vector2
+	if a != null:
+		var d := a.global_position - wp
+		p = a.global_position + (d.normalized() if d.length() > 1.0 else Vector2.UP) * _c("pyre_stand_px", 60.0)
+	else:
+		var d2 := pos - wp
+		p = wp + (d2.normalized() if d2.length() > 1.0 else Vector2.DOWN) * _c("pyre_exposed_px", 170.0)
+	if room.size != Vector2.ZERO:
+		p = WardenLogic.leash_clamp(room, p, rr)
+	if stepping:
+		p = WardenLogic.burn_exit(p, pp.areas, pp.area_r, clear, room, rr)
+	return p
+
+
+## A loose mote inside a lit burn area that she can gather and still be out before the beat: the trip
+## to it (less the gather radius) plus the way out of the deepest area covering it must fit in the
+## beats left with `burn_safe_beats` to spare (WardenLogic.slam_window_open). The nearest such mote, or
+## null (no carry room, or none worth it).
+func _burn_fetch(pos: Vector2, pp: RaidPyrePriest, living: Array, room: Rect2, clear: float):
+	if _raid.carry_room() <= 0:
+		return null
+	var speed: float = _raid.relish.speed
+	var gather := float(_raid.rcfg().get("essence", {}).get("gather_radius_px", 28.0))
+	var left := pp.beats_to_burn()
+	var fclear := _c("foe_clear_px", 170.0)
+	var best = null
+	var bd := INF
+	for o in _raid.get_tree().get_nodes_in_group("raid_essence"):
+		if not is_instance_valid(o) or o.absorbing or o.carried:
+			continue
+		var p: Vector2 = o.global_position
+		if not _in(room, p):
+			continue
+		var depth := 0.0
+		for c in pp.areas:
+			depth = maxf(depth, pp.area_r + clear - p.distance_to(c))
+		if depth <= 0.0:
+			continue   # outside the fire: the ordinary collection takes it
+		var trip := maxf(0.0, pos.distance_to(p) - gather)
+		if trip >= bd:
+			continue
+		var near_foe := false
+		for e in living:
+			near_foe = near_foe or p.distance_to(e.global_position) < fclear
+		if near_foe:
+			continue
+		if WardenLogic.slam_window_open(left, trip + depth, speed, pp.tempo_s(), _c("burn_safe_beats", 0.35)):
+			bd = trip
+			best = p
+	return best
+
+
+## Hold a raise (the Pyre-priest, while acolytes live): she is in its room with no living foe within
+## `kite_px`, farther than `pyre_raise_px` from every living acolyte, and her carry still has room, so
+## the raise waits until the raised undead would walk into one. Out of its room or under threat she
+## raises where she is.
+func _pyre_hold(pos: Vector2) -> bool:
+	var w = _raid.warden_run.warden
+	if w == null or not is_instance_valid(w) or not (w is RaidPyrePriest) or not w.alive or not w.awake:
+		return false
+	var wr := int(_raid.layout.get("warden_room", -1))
+	if wr < 0 or RaidLogic.room_of(_raid.layout, pos) != wr:
+		return false
+	for e in _living():
+		if pos.distance_to(e.global_position) < _c("kite_px", 240.0):
+			return false
+	var a: RaidAcolyte = (w as RaidPyrePriest).nearest_acolyte(pos)
+	return a != null and _raid.carry_room() > 0 and pos.distance_to(a.global_position) > _c("pyre_raise_px", 120.0)
+
+
 ## Where to wait out the warden: the farthest of the previous room's centre and this room's far
 ## corner from it (outside the slam when the geometry allows, otherwise as far as it goes).
 func _warden_retreat(pos: Vector2, w: RaidWarden, safe_px: float) -> Vector2:
@@ -794,18 +1527,10 @@ func _warden_retreat(pos: Vector2, w: RaidWarden, safe_px: float) -> Vector2:
 	return _toward_room(pos, RaidLogic.room_of(_raid.layout, best) if RaidLogic.room_of(_raid.layout, best) >= 0 else _cur_room, best)
 
 
-## A Huntsman lunge tell is showing: with probability `dodge` (rolled once per tell, seeded) step
-## perpendicular to the lunge line. Returns the point to run to, or null.
+## A Huntsman lunge tell is showing and she answers it (`_answers`): step perpendicular to the lunge
+## line. Returns the point to run to, or null.
 func _dodge_step(pos: Vector2, h: RaidHuntsman):
-	if not h._locked:
-		_was_locked = false
-		_dodging = false
-		return null
-	if not _was_locked:
-		_was_locked = true
-		_dodging = _rng.randf() < _dodge
-		_dodge_side = 1.0 if _rng.randf() < 0.5 else -1.0
-	if not _dodging:
+	if not h._locked or not _answers("lunge", h._next_attack):
 		return null
 	var from := h.global_position
 	var line := h._lock_pt - from
@@ -817,7 +1542,7 @@ func _dodge_step(pos: Vector2, h: RaidHuntsman):
 	var need: float = float(h.spec.get("attack", {}).get("hit_radius_px", 22.0)) + _raid.relish.radius + 14.0
 	if absf(off) >= need:
 		return pos   # already clear of the line: hold still
-	var side := signf(off) if absf(off) > 2.0 else _dodge_side
+	var side := signf(off) if absf(off) > 2.0 else _tell_side
 	return pos + perp * side * (need - absf(off) + _c("dodge_step_px", 60.0))
 
 
@@ -835,6 +1560,8 @@ func _motes_near(pos: Vector2, reach: float) -> Array[Vector2]:
 func _try_raise(pos: Vector2) -> void:
 	var tr: RaidTrance = _raid.trance
 	if tr == null or not tr.enabled or tr.state != RaidTrance.State.READY:
+		return
+	if _archetype == "pyre_priest" and _pyre_hold(pos):
 		return
 	var ring := RaidLogic.ghost_ring(_motes_near(pos, 1.0e9), pos, _c("raise_reach_px", 300.0), _c("raise_pad_px", 14.0))
 	if not bool(ring["ok"]) or int(ring["count"]) < int(_c("min_motes", 3.0)):

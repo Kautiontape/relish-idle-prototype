@@ -76,6 +76,15 @@ func _on_phase_change(old: int, new: int) -> void:
 		_next_attack = minf(_next_attack, maxf(beat() + tell, _last_attack + WardenLogic.period_beats(spec, new)))
 
 
+## The horn drops a lunge tell that was showing; when the hounds are down it waits a full tell first.
+func _on_horn() -> void:
+	_locked = false
+
+
+func _on_pack_down() -> void:
+	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()) + float(spec.get("attack", {}).get("pack_rest_beats", 0.0)))
+
+
 func _tell() -> float:
 	return float(spec.get("attack", {}).get("tell_beats", 1.0))
 
@@ -101,10 +110,11 @@ func _step(delta: float) -> void:
 	_lunge_flash = maxf(0.0, _lunge_flash - delta * 3.0)
 	if _dashing:
 		_advance_dash(delta)
+	var held := _pack_step(delta)   # its horn sounds or its hounds run: no lunge (one threat at a time)
 	if stun_left > 0.0:
 		stun_left = maxf(0.0, stun_left - delta)
 		return
-	if _dashing:
+	if _dashing or held:
 		return
 	var b := beat()
 	var tell := _tell()
@@ -115,7 +125,7 @@ func _step(delta: float) -> void:
 	# tell: lock the target point at Relish's position while she is in the room, else at an undead
 	if not _locked and b >= _next_attack - tell and tgt["kind"] != "none":
 		var late := b > _next_attack - tell + 0.1
-		_lock_pt = WardenLogic.lunge_target(global_position, tgt["pos"], float(at.get("range_px", 320.0)))
+		_lock_pt = WardenLogic.lunge_lock(_room, global_position, tgt["pos"], float(at.get("range_px", 320.0)), radius)   # drawn = dashed
 		_lock_undead = _hunting_undead
 		_locked = true
 		RaidSound.play("tell")
@@ -156,15 +166,7 @@ func _stalk(delta: float, stop_px: float, tgt: Dictionary) -> void:
 
 ## Where the dash really ends: along from->to, stopping at the first wall.
 func _wall_clipped(from: Vector2, to: Vector2) -> Vector2:
-	var dist := from.distance_to(to)
-	var steps := int(dist / 8.0)
-	var last := from
-	for i in range(1, steps + 1):
-		var p := from.lerp(to, float(i) / float(steps))
-		if raid.resolve_walls(p, radius).distance_to(p) > 1.0:
-			return last
-		last = p
-	return to if raid.resolve_walls(to, radius).distance_to(to) <= 1.0 else last
+	return WardenLogic.wall_clipped(from, to, radius, raid.resolve_walls)
 
 
 func _begin_lunge() -> void:
@@ -215,7 +217,7 @@ func _begin_lunge() -> void:
 				and WardenLogic.lunge_hits(from, to, rel.global_position, hit_r + rel.radius):
 			outcome = "caught"
 			catches += 1
-			rel.take_hit(float(at.get("dmg_relish", 12.0)))
+			rel.take_hit(float(at.get("dmg_relish", 12.0)), "lunge")
 	_dash_to = to
 	_dash_left = from.distance_to(to)
 	_dashing = true

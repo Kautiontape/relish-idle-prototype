@@ -400,14 +400,106 @@ static func risk_phrase(c: Dictionary) -> String:
 ## way to the nearest exit (the first step of its route, so never through a wall), "" when there is
 ## none (the clause is dropped); `hops` the rooms between her room and the exit's (0 this room, -1
 ## unknown: a doorway band).
-static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false) -> String:
-	var parts: PackedStringArray = ["LIVING %d left" % maxi(0, living)]
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false, rooms_seen := 0, rooms_total := 0) -> String:
+	var parts: PackedStringArray = []
+	if rooms_total > 0:
+		parts.append(rooms_phrase(rooms_seen, rooms_total))
+	parts.append("LIVING %d left" % maxi(0, living))
 	if at_exit:
 		parts.append("AT EXIT")
 	elif exit_word != "":
 		parts.append("exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops)))
 	parts.append(risk_phrase(at_risk))
 	return " · ".join(parts)
+
+
+## The run's shape: "3 of 7 rooms seen" (rooms Relish has stood in, of the layout's rooms). Seen, not
+## cleared: a room can be crossed with the living still in it. Never below 1 once she is in one.
+static func rooms_phrase(seen: int, total: int) -> String:
+	return "%d of %d rooms seen" % [clampi(seen, 0, maxi(0, total)), maxi(0, total)]
+
+
+## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "toll", "lunge", "bash", "fire", "hound", "living", or ""
+## when nothing named it, e.g. a dev kill), `warden_name` the warden's spec name ("The Bellringer").
+static func death_cause(src: String, warden_name: String) -> String:
+	var who := warden_name if warden_name != "" else "The warden"
+	match src:
+		"slam":
+			return "%s's slam" % who
+		"toll":
+			return "%s's toll" % who
+		"lunge":
+			return "%s's lunge" % who
+		"bash":
+			return "%s's bash" % who
+		"rush":
+			return "%s's rush" % who
+		"fire":
+			return "%s's fire" % who
+		"hound":
+			return "%s's hounds" % who
+		"pack":
+			return "%s's pack" % who
+		"living":
+			return "the living"
+	return "a wound"
+
+
+## The tell the killing attack showed, for the death card (D-d/E 3c: "missed: the swing"): the
+## Bellringer's clapper swing (its toll: the ring at her feet), the Huntsman's locked line, the Shieldwall's lit arc (bash or rush), the
+## Pyre-priest's marked ground. "" for a source with no one-beat tell (a pack, the living, a wound).
+static func death_tell(src: String) -> String:
+	match src:
+		"slam":
+			return "the swing"
+		"toll":
+			return "the ring at your feet"
+		"lunge":
+			return "the line"
+		"bash", "rush":
+			return "the lit arc"
+		"fire":
+			return "the marked ground"
+	return ""
+
+
+## The death card's KILLED BY text: the cause, then the tell she missed when the attack had one
+## ("The Bellringer's slam · missed: the swing").
+static func death_line(src: String, warden_name: String) -> String:
+	var tell := death_tell(src)
+	var cause := death_cause(src, warden_name)
+	return cause if tell == "" else "%s · missed: %s" % [cause, tell]
+
+
+## What she loses with the party: the unbanked loot ("relics 1 · essence 4") and the big undead of the
+## party (a death costs the whole party; the garrison and raised survive). "nothing" when neither.
+static func death_lost_line(unbanked: Dictionary, party_n: int) -> String:
+	var parts: PackedStringArray = []
+	var l := loot_line(unbanked)
+	if l != "":
+		parts.append(l)
+	if party_n > 0:
+		parts.append("%d big undead" % party_n)
+	return "nothing" if parts.is_empty() else " · ".join(parts)
+
+
+## The death card's geometry (RaidDeathCard._draw reads it; the test measures the widest value against it):
+## card width, padding, the label column, the value font size.
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
+
+
+## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
+## the attack had one (its own row, so a long cause never clips: "The Bellringer's toll" / "the ring at your
+## feet"), what the last checkpoint banked, what is lost.
+static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "") -> Array:
+	var bl := loot_line(banked_counts)
+	var lost := death_lost_line(unbanked, party_n)
+	var rows: Array = [{"label": "KILLED BY", "text": cause, "key": "danger"}]
+	if missed != "":
+		rows.append({"label": "MISSED", "text": missed, "key": "danger"})
+	rows.append({"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"})
+	rows.append({"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"})
+	return rows
 
 
 ## How much loose essence can still be banked: what lies loose, capped by the carry room left.
@@ -434,7 +526,7 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d essence to bank" % lit)
+	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence to gather" % lit)
 
 
 ## The held-fort clear's effect on the map (D-b review SF-5): the counter-garrison mass this run
@@ -526,6 +618,24 @@ static func carry_room(carried: int, cfg: Dictionary) -> int:
 	return maxi(0, int(cfg.get("essence", {}).get("carry_max", 12)) - carried)
 
 
+## The angle of a carried-cluster slot around Relish: the position that COUNTS (enclosure, the bot's
+## aim, the absorb streak). It reads no animation state, so reduced motion cannot change a raid.
+static func carry_slot_angle(slot: int, slots: int) -> float:
+	return -PI * 0.5 + TAU * slot / float(maxi(1, slots))
+
+
+## The swing the cluster is DRAWN rocking through at sim time `t`: a sine of at most `swing_rad`
+## either way (0 under reduced motion), so a drawn mote stays within ~orbit * swing_rad px of the
+## slot it counts at. Draw only: nothing that scores, aims or collides may read it.
+static func carry_draw_spin(t: float, rad_s: float, swing_rad: float, reduced: bool) -> float:
+	return 0.0 if reduced else sin(t * rad_s) * swing_rad
+
+
+## The most a drawn carried mote can be from where it counts, in px (the knob the swing is made from).
+static func carry_swing_rad(swing_px: float, orbit_px: float) -> float:
+	return swing_px / maxf(1.0, orbit_px)
+
+
 ## Raid result v2 builder (STATE-API 8.1). Pure bookkeeping, no scene state.
 class LedgerV2:
 	extends RefCounted
@@ -615,8 +725,11 @@ static func tier_kinds(tier: int, cfg: Dictionary) -> Array:
 	return mix.keys()
 
 
-static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictionary) -> String:
-	var mix: Dictionary = cfg.get("tier_mix", {}).get(str(clampi(tier, 1, 4)), {"spearman": 1.0})
+## `fort_id` with an entry in `tier_mix_by_fort` (D-d/E Step 4b) rolls from that fort's own mix instead.
+static func roll_enemy_kind(rng: RandomNumberGenerator, tier: int, cfg: Dictionary, fort_id := "") -> String:
+	var byf: Dictionary = cfg.get("tier_mix_by_fort", {})
+	var mix: Dictionary = byf[fort_id] if fort_id != "" and fort_id != "_doc" and byf.has(fort_id) \
+		else cfg.get("tier_mix", {}).get(str(clampi(tier, 1, 4)), {"spearman": 1.0})
 	var total := 0.0
 	for k in mix:
 		total += float(mix[k])
@@ -731,6 +844,88 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return LayoutLogic.populate_enemies(fort_id, layout, count, tier, cfg)
 
 
+## D-d/E Step 3: the guarded detour's site and guard (LayoutLogic.detour_site / detour_guard).
+static func detour_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	return LayoutLogic.detour_site(layout, tier, cfg)
+
+
+static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Dictionary) -> Array:
+	return LayoutLogic.detour_guard(fort_id, layout, tier, cfg)
+
+
+## The sacrifice chain's reach over sources (D-d/E Step 4b, the manager's option A): where the risk gate is on
+## (`bypass_on`: WardenLogic.lever_on, tier >= wardens.lever_min_tier and not the first dungeon; off with no
+## warden), a warden's telegraphed tell-attacks (the Bellringer's slam, the Huntsman's lunge, the
+## Shieldwall's bash and rush, the Pyre-priest's fire) strike Relish directly; the chain does not soak them,
+## only the warden's own counter answers them. Everything else (the living, packs, hounds, any other blow,
+## Vei's weaves), and everything at tier 1 and in the first dungeon, still follows the chain. MECHANICS §5.0.
+const TELL_ATTACKS := ["slam", "toll", "lunge", "bash", "rush", "fire"]
+
+
+static func chain_soaks(src: String, bypass_on: bool) -> bool:
+	return not (bypass_on and TELL_ATTACKS.has(src))
+
+
+## The measuring bot (D-d/E Step 4 review): can she still raise with no undead standing? `motes` is the
+## essence she has (carried, and loose within collect_px: `_motes_near` counts both), `piles` the unstirred
+## corpse piles within pile_px (stirring one gives motes). A raise needs `min_motes`.
+static func can_raise_from(motes: int, piles: int, min_motes: int) -> bool:
+	return motes >= min_motes or piles > 0
+
+
+## The measuring bot's hold (D-d/E 3c): a living foe holds her back when it is hostile and stands in her room
+## or the next one on her way. A taken detour is a push: its guard (`push_room`, -1 with none) does not hold
+## her at its door, only once she is inside.
+static func hold_blocks(hostile: bool, foe_room: int, cur_room: int, next_room: int, push_room: int) -> bool:
+	if not hostile or foe_room < 0 or (foe_room != cur_room and foe_room != next_room):
+		return false
+	return not (foe_room == push_room and foe_room != cur_room)
+
+
+## The measuring bot's unstick watch, one think on its sticky target (D-d/E 3c; autopilot unstick_*):
+## `st` {d, t, in, room} is the watch's state, updated in place; `same` whether the target is the one
+## watched, `d` her walking distance to it now, `last` the last think it was walked to, `room` the room she
+## stands in (-1 in a doorway). Returns "new" (a new target: the clock starts), "closing" (closer by
+## unstick_px; the first think back after one spent on something else; or a new room of hers, since the
+## walking distance jumps at a doorway: straight in the doorway, round by the room centres beyond it),
+## "wait", "aim_in" (not closing for unstick_s: aim inside its room) or "give_up" (still not closing
+## another unstick_s after that).
+static func unstick_step(st: Dictionary, same: bool, now: float, d: float, last: float, ap: Dictionary, room := -1) -> String:
+	if not same:
+		st["d"] = d
+		st["t"] = now
+		st["in"] = false
+		st["room"] = room
+		return "new"
+	if now - last > float(ap.get("think_frames", 3.0)) / 60.0 + 1e-6 or d < float(st["d"]) - float(ap.get("unstick_px", 8.0)) \
+			or room != int(st.get("room", room)):
+		st["d"] = d
+		st["t"] = now
+		st["room"] = room
+		return "closing"
+	if now - float(st["t"]) >= float(ap.get("unstick_s", 1.5)) - 1e-6:
+		var out := "give_up" if bool(st["in"]) else "aim_in"
+		st["in"] = true
+		st["t"] = now
+		return out
+	return "wait"
+
+
+## The measuring bot's detour rule (raid.json autopilot detour_*; NOTES-RAID "the detour rule"): take the
+## cache when her hp fraction is at least `detour_hp_frac` (`detour_hp_frac_revive` with a revive left) and
+## her army is at least `detour_army_mult` times the guard she can see.
+static func detour_take(hp_frac: float, revives: int, allies: int, guard: int, ap: Dictionary) -> bool:
+	var need := float(ap.get("detour_hp_frac_revive", 0.4)) if revives > 0 else float(ap.get("detour_hp_frac", 0.6))
+	return hp_frac >= need and float(allies) >= float(ap.get("detour_army_mult", 1.5)) * float(guard)
+
+
+## On the way in: turn back when her hp fraction is below `detour_retreat_hp_frac` (`..._revive` with a
+## revive left) or her army is below `detour_retreat_army_mult` times the guard still standing.
+static func detour_retreat(hp_frac: float, revives: int, allies: int, guard: int, ap: Dictionary) -> bool:
+	var floor_hp := float(ap.get("detour_retreat_hp_frac_revive", 0.3)) if revives > 0 else float(ap.get("detour_retreat_hp_frac", 0.5))
+	return hp_frac < floor_hp or float(allies) < float(ap.get("detour_retreat_army_mult", 1.0)) * float(guard)
+
+
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	return LayoutLogic.populate_piles(fort_id, layout, count)
 
@@ -754,3 +949,47 @@ static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) ->
 ## Warden spec for a fort {id, tier, archetype?, first_dungeon?} (see WardenLogic.spec).
 static func warden_spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	return WardenLogic.spec(fort, cfg)
+
+
+# ------------------------------------------------------ the run's time split ---
+## The measuring bot's time split (D-d/E; NOTES-RAID "Run length and risk calibration"): every physics
+## tick of a live run goes to one bucket, the first that matches: "trance" (the trance is open),
+## "fight" (something is engaged, `foe_engaged` or an awake warden), "travel" (Relish moved more than
+## `move_px` this tick), else "idle". The bot never opens the trance (its raise is instant), so its
+## trance share is 0 by construction.
+const SPLIT_BUCKETS := ["travel", "fight", "trance", "idle"]
+
+
+static func time_class(in_trance: bool, engaged: bool, moved_px: float, move_px: float) -> String:
+	if in_trance:
+		return "trance"
+	if engaged:
+		return "fight"
+	if moved_px > move_px:
+		return "travel"
+	return "idle"
+
+
+## A living foe is engaged once it is hostile (aggro'd: it never calms) and stands in Relish's room
+## (`rel_room` >= 0, a doorway band is no room) or within `fight_px` of her, wherever the wall is.
+static func foe_engaged(rel_pos: Vector2, rel_room: int, foe_pos: Vector2, foe_room: int, hostile: bool, fight_px: float) -> bool:
+	if not hostile:
+		return false
+	if rel_room >= 0 and foe_room == rel_room:
+		return true
+	return rel_pos.distance_to(foe_pos) <= fight_px
+
+
+## The measuring bot's reaction rule (raid.json autopilot react_*): a value set at a few target scores,
+## linear between them and clamped outside (`pts` ascending, `vals` the same length). Empty: 0.
+static func react_at(score: float, pts: Array, vals: Array) -> float:
+	var n := mini(pts.size(), vals.size())
+	if n == 0:
+		return 0.0
+	if score <= float(pts[0]):
+		return float(vals[0])
+	for i in range(1, n):
+		if score <= float(pts[i]):
+			var f := (score - float(pts[i - 1])) / maxf(1e-9, float(pts[i]) - float(pts[i - 1]))
+			return lerpf(float(vals[i - 1]), float(vals[i]), f)
+	return float(vals[n - 1])

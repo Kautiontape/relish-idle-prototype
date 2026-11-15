@@ -140,6 +140,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_pointers = Pointers.new()
 		_pointers.hud = self
 		add_child(_pointers)
+		move_child(_pointers, 0)   # under the stat block and its plate: the loot pointer never crosses HUD text
 
 	if boss_mode:
 		_boss_block = BossBlock.new()
@@ -150,11 +151,13 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_boss_block.anchor_left = 0.5
 		_boss_block.anchor_right = 0.5
-		_boss_block.offset_left = -300.0
-		_boss_block.offset_right = 300.0
+		_boss_block.offset_left = -320.0
+		_boss_block.offset_right = 320.0
 		_boss_block.offset_top = 10.0
-		_boss_block.offset_bottom = 104.0
-		_banner.offset_top = 112.0
+		_boss_block.offset_bottom = 10.0 + BossBlock.H_BREAK
+		_banner.offset_top = 10.0 + BossBlock.H_BREAK + 8.0
+	if not boss_mode:
+		_banner.offset_top = 116.0   # its own row under the push line (up to two lines), so neither can run into the other
 	_banner_top = _banner.offset_top
 
 
@@ -174,7 +177,7 @@ func _process(_delta: float) -> void:
 	refresh()
 	if _warden_block != null:
 		# the banner steps down under the warden's block while it shows
-		var top := _banner_top + (14.0 if _warden_block.visible else 0.0)
+		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -246,10 +249,8 @@ func refresh() -> void:
 		st.phyl = raid.phylactery_left()
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		if st.phyl_word != "":
-			# the words lean from text_dim to danger with her hp, as the halo does (day 1 starts with none)
-			var rel: RaidRelish = raid.relish
-			var lvl := RaidLogic.exposed_level(st.phyl, rel.hp / maxf(1.0, rel.max_hp), raid.rcfg()) if rel != null else 1.0
-			st.phyl_tone = Palette.c("text_dim").lerp(Palette.c("danger"), RaidLogic.exposed_tint(lvl, raid.rcfg()))
+			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
+			st.phyl_tone = Palette.c("danger")
 		# the checkpoint risk: BANKED is the last snapshot, UNBANKED is what a death loses now. Rebuilt only
 		# when what they show changes (banked and found_loot are replaced, never edited, when they change)
 		var carried: int = raid.carried_count()
@@ -264,6 +265,7 @@ func refresh() -> void:
 			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
+			st.set_key(floor_n > 0)
 			_push_t = 1.0   # the push line's "at risk" follows UNBANKED on the same frame
 		_push_t += _delta_real()
 		if _push != null and _push_t >= 0.25:
@@ -312,7 +314,8 @@ func _update_push() -> void:
 		var rt := int(doors[best].get("room", -1))
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
-	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit))
+	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit,
+		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size()))
 
 
 ## Width the push line may use without running under the warden's block (narrow windows wrap it).
@@ -432,7 +435,7 @@ class StatBlock:
 	var raised_text := ""
 	var phyl := 0
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
-	var phyl_tone: Color = Palette.c("text_dim")   # text_dim at full hp, danger as it falls (exposed_tint)
+	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
 	var unbanked_text := ""
 	var unbanked_n := 0      # items + essence a death would lose now
@@ -444,6 +447,8 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
+	var plate_alpha := 0.86
+	var show_key := false
 
 	func setup(p_boss: bool) -> void:
 		boss = p_boss
@@ -452,8 +457,39 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
+		plate_alpha = float(c.get("plate_alpha", 0.86))
 		var rows := 3.0 if boss else 12.0   # living, essence, raised | + 4 ward rows, phylactery, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
+
+	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
+	func set_key(on: bool) -> void:
+		if on == show_key:
+			return
+		show_key = on
+		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if on else 0.0)) * _row + 8.0)
+
+	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
+	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
+		var s := 5.0
+		match shape:
+			"gem":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -s * 1.2), p + Vector2(s, -s * 0.25), p + Vector2(0, s * 1.2), p + Vector2(-s, -s * 0.25), p + Vector2(0, -s * 1.2)]), col, 1.5)
+			"scroll":
+				draw_polyline(PackedVector2Array([p + Vector2(-s, -s * 0.8), p + Vector2(s * 0.55, -s * 0.8), p + Vector2(s, -s * 0.35), p + Vector2(s, s * 0.8), p + Vector2(-s, s * 0.8), p + Vector2(-s, -s * 0.8)]), col, 1.3)
+			"husk":
+				draw_polyline(PackedVector2Array([p + Vector2(0, -s * 1.2), p + Vector2(s * 0.75, -s * 0.6), p + Vector2(s * 0.75, s * 0.6), p + Vector2(0, s * 1.2), p + Vector2(-s * 0.75, s * 0.6), p + Vector2(-s * 0.75, -s * 0.6), p + Vector2(0, -s * 1.2)]), col, 1.5)
+			_:
+				draw_polyline(PackedVector2Array([p + Vector2(-s * 0.55, s), p + Vector2(-s * 0.1, -s * 1.25), p + Vector2(s * 0.55, s * 0.2), p + Vector2(-s * 0.55, s)]), col, 1.5)
+
+	func _draw_key(y: float) -> void:
+		var f := ThemeDB.fallback_font
+		var x := 6.0
+		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
+			var g := RaidLoot.floor_glyph(str(k[0]), false)
+			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
+			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+		draw_string(f, Vector2(6.0, y + _row), "grey ×9 = a corpse pile (the bodies in it): walk close, it gives essence", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
@@ -484,7 +520,8 @@ class StatBlock:
 		return x + step * n
 
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		# the plate sits near-opaque so a world glyph under the block never crosses its text
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", plate_alpha))
 		var y := _row - 5.0
 		var und := Palette.c("undead")
 		_label(y, "LIVING")
@@ -504,7 +541,8 @@ class StatBlock:
 				var r := _pip * (0.5 + 0.12 * i)
 				var shown := mini(n, _row_max)
 				var x := _pips(_col, y - 5.0, shown, shown, und, r, i == 3)
-				_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
+				if n > 0:   # a zero rank is an empty row (the label stays: it teaches the chain's order)
+					_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
 				y += _row
 			_label(y, "ESSENCE")
 			var ex := _pips(_col, y - 5.0, carry_max, carried, Palette.c("essence"), _pip * 0.5)
@@ -544,6 +582,8 @@ class StatBlock:
 				var nx := _value(px2 + 6.0, y, note, tone if risk else Palette.c("vei"))
 				if floor_n > 0:
 					floor_end = Vector2(nx + 4.0, y - 5.0)
+			if show_key:
+				_draw_key(y + _row)
 
 
 class TranceMeter:
@@ -596,15 +636,24 @@ class TranceMeter:
 ## "MUFFLED x n of m" (lit `undead` once it has worked, "braced" while a brace is up), the Huntsman's
 ## "INTERCEPTED x n · took k" (k pips taken inside stun windows). Pips a stun window took stay as
 ## `undead` rings with a slash; the open window's pips flash (steady under reduced motion).
+## The Shieldwall's "FLANKED x n of m · took k" (hits from off its shield, of all the hits it took; k
+## pips taken by them), the weak point's words until the first flank. The Pyre-priest's "SNUFFED x n ·
+## took k" (acolytes a power big killed in one blow; k their pips), the weak point's words until the
+## first snuff; its meter's right-hand pips are its acolytes.
 ## Row 2: the Bellringer's phase and its weak point; the Huntsman's CAUGHT track (danger diamonds,
-## notched where catches change its phase) and whether it is hunting your dead. Redrawn only when
-## what it shows changes (or every frame while a stun window flashes).
+## notched where catches change its phase) and whether it is hunting your dead; the Shieldwall's
+## phase and its shield (WardenLogic.shield_label: arc, multipliers, turn rate, bash period); the
+## Pyre-priest's phase, its acolytes left, its fire (WardenLogic.pyre_label: the ward, fires per beat
+## and how many at Relish) and the essence it has burned (hidden at 0). Redrawn
+## only when what it shows changes (or every frame while a stun window flashes).
 class WardenBlock:
 	extends Control
 	var raid: Node = null
 	var _key := -1
 	var _key2 := -1
 	var _t := 0.0
+	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) and a pack's row make the block taller
+	var _key3 := -1
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -623,6 +672,11 @@ class WardenBlock:
 		if not show:
 			return
 		_t += d / maxf(0.05, Engine.time_scale)
+		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0)
+		if eh != extra_h:
+			extra_h = eh
+			offset_bottom = offset_top + 62.0 + eh
+			_key = -1
 		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
 		var k2 := 0
 		var flashing := false
@@ -633,9 +687,17 @@ class WardenBlock:
 			var hw := w as RaidHuntsman
 			flashing = hw.is_stunned()
 			k2 = mini(hw.intercepts, 1023) | (mini(hw.catches, 1023) << 10) | (int(flashing) << 20) | (int(hw.hunting_undead) << 21)
-		if k != _key or k2 != _key2 or (flashing and not Pulse.reduced_motion):
+		elif w is RaidShieldwall:
+			var sw := w as RaidShieldwall
+			k2 = (sw.flanks & 0xFFFFF) | ((sw.hits & 0xFFFFF) << 20)
+		elif w is RaidPyrePriest:
+			var pp := w as RaidPyrePriest
+			k2 = mini(pp.snuffs, 63) | (mini(pp.living(), 63) << 6) | (mini(pp.essence_burned, 0xFFFF) << 12)
+		var k3 := mini(w.pack_alive(), 255) | (int(w.horn_beat >= 0.0) << 8) | (mini(w.horns, 63) << 9) | (mini(w.pack_broken, 1023) << 15)
+		if k != _key or k2 != _key2 or k3 != _key3 or (flashing and not Pulse.reduced_motion):
 			_key = k
 			_key2 = k2
+			_key3 = k3
 			queue_redraw()
 
 	func _text(x: float, y: float, text: String, px: int, key := "text") -> float:
@@ -645,6 +707,25 @@ class WardenBlock:
 
 	func _notch(x: float, y: float) -> void:
 		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
+
+	## The counter row's pack count: " · +n hounds" once its counter has killed any of its pack in one blow.
+	func _pack_tag(w: RaidWarden) -> String:
+		if w.pack_broken <= 0:
+			return ""
+		return " · +%d %s" % [w.pack_broken, str((w.spec.get("pack", {}) as Dictionary).get("name", "pack"))]
+
+	## A warden with a pack: HORN while it sounds, "HOUNDS n of m · it takes ×0.25" while they run, else
+	## what the pack is (WardenLogic.pack_teach).
+	func _pack_row(w: RaidWarden, x0: float, y: float) -> void:
+		var pk: Dictionary = w.spec.get("pack", {})
+		if pk.is_empty():
+			return
+		if w.horn_beat >= 0.0:
+			_text(x0, y, "HORN · %d %s coming" % [w.horn_pts.size(), str(pk.get("name", "pack"))], 13, "danger")
+		elif w.pack_alive() > 0:
+			_text(x0, y, WardenLogic.pack_label(pk, w.pack_alive(), int(pk.get("size", 0))), 13, "vei")
+		else:
+			_text(x0, y, WardenLogic.pack_teach(pk), 13, "text_dim")
 
 	func _draw() -> void:
 		var w := _warden()
@@ -670,7 +751,7 @@ class WardenBlock:
 				_notch(x - 3.5, y + 1.0)
 				x += 9.0
 			var p := Vector2(x, y - 5.0)
-			if i < lit:
+			if w.pip_lit(i):
 				draw_circle(p, r, Palette.c("vei"))
 			elif i >= win_lo and i < win_hi:
 				# the open stun window took this pip: it flashes, slashed (shape as well as colour)
@@ -687,7 +768,9 @@ class WardenBlock:
 		if w is RaidBellringer:
 			var bw := w as RaidBellringer
 			var n := bw.slams_muffled
-			var x2 := _text(x + 14.0, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams], 15, "undead" if n > 0 else "text_dim")
+			var x2 := x + 14.0
+			if bw.slams > 0:   # no slam yet: no "×0 of 0" (the PHASE row below already says what muffles it)
+				x2 = _text(x2, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams] + _pack_tag(w), 15, "undead" if n > 0 or w.pack_broken > 0 else "text_dim")
 			if bw.muffled:
 				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
 			_text(x0, y, "PHASE", 13, "text_dim")
@@ -695,8 +778,12 @@ class WardenBlock:
 			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 		elif hw != null:
 			var n2 := hw.intercepts
-			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken)
-			var x4 := _text(x + 14.0, y - 26.0, tag, 15, "undead" if n2 > 0 else "text_dim")
+			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w)
+			var x4 := x + 14.0
+			if n2 > 0 or w.pack_broken > 0:
+				x4 = _text(x4, y - 26.0, tag, 15, "undead")
+			else:   # no intercept yet: teach the counter in words instead of a zero
+				x4 = _text(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 			if win_hi > 0:
 				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
 			# row 2: the hunt, notched where catches change its phase
@@ -715,10 +802,40 @@ class WardenBlock:
 				else:
 					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
 				cx += 16.0
-			var x5 := _text(cx + 2.0, y, str(hw.catches), 15, "danger" if hw.catches > 0 else "text")
+			var x5 := cx + 2.0
+			if hw.catches > 0:
+				x5 = _text(x5, y, str(hw.catches), 15, "danger")
 			x5 = _text(x5 + 12.0, y, "phase %d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 13, "text_dim")
 			if hw.hunting_undead:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
+			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
+			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
+		elif w is RaidShieldwall:
+			var sw := w as RaidShieldwall
+			var x6 := x + 14.0
+			if sw.flanks > 0 or w.pack_broken > 0:
+				_text(x6, y - 26.0, "FLANKED ×%d of %d" % [sw.flanks, sw.hits] + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
+			else:   # no flank yet: teach the counter in words instead of a zero
+				_text(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase), 13, "text_dim")
+		elif w is RaidPyrePriest:
+			var pp := w as RaidPyrePriest
+			var x8 := x + 14.0
+			if pp.snuffs > 0 or w.pack_broken > 0:
+				_text(x8, y - 26.0, "SNUFFED ×%d" % pp.snuffs + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
+			else:   # no snuff yet: teach the counter in words instead of a zero
+				_text(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+			_text(x0, y, "PHASE", 13, "text_dim")
+			var x9 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
+			var lv := pp.living()
+			if lv > 0:
+				x9 = _text(x9 + 12.0, y, "ACOLYTES %d/%d" % [lv, pp.acolytes.size()], 13, "vei")
+			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
+			if pp.essence_burned > 0:
+				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
+		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
@@ -830,7 +947,7 @@ class PushLine:
 	func _line(f: Font, y: float, s: String) -> void:
 		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 8.0, y), Vector2(w + 8.0, 22.0)), Palette.c("ground", 0.72))
+		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.86))))
 		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 	func _draw() -> void:
@@ -902,19 +1019,24 @@ class ExitButton:
 
 
 ## Vei's final test (top centre). Fronts phase: FRONTS n/4 · need k, a front pip per front (filled
-## once it breaks through), and the phase-1 clock. The break: HORDE as an upright integer with its
-## signed oblique rate and which side is winning, then the BREAK meter drawn as the wardens' meter
-## (WardenBlock): break_beats pips lit from the left by the streak, a notch every `notch` pips, a
-## lapse's pips slashed in `danger` while it shows (flashing, steady under reduced motion), and the
-## running count "LAPSES ×n · lost k". Always: BACKUPS left as pips (a phylactery diamond, a clone
-## dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
+## once it breaks through), and the phase-1 clock. The break: BACKLOG (the seed's horde) as an upright
+## integer with the ferry's rate in plain words (the real clock is deaths, so no minus, no slant) and
+## which side is winning, then the BREAK meter drawn as the wardens' meter (WardenBlock): break_beats
+## pips lit from the left by the streak, a notch every `notch` pips, a lapse's pips slashed in `danger`
+## while it shows (flashing, steady under reduced motion), the beat count and, while the pace gains,
+## "~30 s at this pace". Under it one line: the phase-2 rule for the break's first hint_s seconds, and
+## once a lapse has happened "LAPSES ×n · −k beats" (no row before the first). Always: BACKUPS left as
+## pips (a phylactery diamond, a clone dot) and one cracked violet ring per backup spent. Reads the HUD's once-a-frame boss_info and
 ## redraws only when what it shows changes (or while a lapse flashes).
 class BossBlock:
 	extends Control
 	var raid: Node = null
 	var hud: Node = null
+	const H_FRONTS := 94.0   # the plate's height before the break (three rows)
+	const H_BREAK := 122.0  # and from the break on (four: the rule / lapse line sits under the meter)
 	var _key := PackedInt32Array()
 	var _next := PackedInt32Array()
+	var _eta_key := ""
 	var _t := 0.0
 	static var _oblique: FontVariation = null
 
@@ -942,7 +1064,7 @@ class BossBlock:
 		var info := _info()
 		if info.is_empty():
 			return
-		_next.resize(16)
+		_next.resize(17)
 		_next[0] = int(info["break_began"]) | (int(info["over"]) << 1) | (int(info["won"]) << 2) | (int(info["winning"]) << 3) | (int(info["lapse_on"]) << 4)
 		_next[1] = int(info["met"])
 		_next[2] = floori(float(info["t"]))
@@ -959,8 +1081,11 @@ class BossBlock:
 		_next[13] = roundi(float(info["ferry"]) * 100.0)
 		_next[14] = int(info["required"])
 		_next[15] = int(info["notch"])
-		if _next != _key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
+		_next[16] = int(info["rule_on"])
+		var eta_key := str(info["eta"])
+		if _next != _key or eta_key != _eta_key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
 			_key = _next.duplicate()
+			_eta_key = eta_key
 			queue_redraw()
 
 	func _label(x: float, y: float, text: String) -> float:
@@ -997,7 +1122,7 @@ class BossBlock:
 		var info := _info()
 		if info.is_empty():
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		draw_rect(Rect2(Vector2(0.0, 0.0), Vector2(size.x, H_BREAK if bool(info["break_began"]) else H_FRONTS)), Palette.c("ground", 0.62))
 		var x0 := 12.0
 		var col2 := 108.0
 		var y := 26.0
@@ -1014,10 +1139,11 @@ class BossBlock:
 				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
 			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
 		else:
-			# the horde, its rate, and which side the beat is going to
-			_label(x0, y, "HORDE")
+			# the backlog (the seed's horde), the ferry's rate in words, and which side the beat is going to.
+			# The backlog drains by deaths, not by this clock (it would take ~90 min): no minus, no slant.
+			_label(x0, y, "BACKLOG")
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			x2 = _text(x2 + 10.0, y, "−%.2f/s" % float(info["ferry"]), 15, "text_dim", oblique())
+			x2 = _text(x2 + 10.0, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
 			if bool(info["won"]):
 				_text(x2 + 18.0, y, "SHE BREAKS", 15, "vei")
 			elif bool(info["over"]):
@@ -1052,9 +1178,17 @@ class BossBlock:
 					draw_arc(p, r - 0.6, 0.0, TAU, 12, Palette.c("text_dim", 0.6), 1.3)
 				x += 13.0
 			x = _text(x + 2.0, y, "%d/%d" % [st, n], 15)
+			var eta := str(info["eta"])
+			if eta != "" and not bool(info["over"]):
+				_text(x + 10.0, y, eta, 13, "text_dim")
+			# under the meter: the rule for the break's first seconds, and the lapse count once there is one
+			y += 22.0
 			var nl := int(info["lapses"])
-			var tag := "LAPSES ×%d" % nl + ("" if nl <= 0 else " · lost %d" % int(info["lapse_lost"]))
-			_text(x + 14.0, y, tag, 13, "danger" if hi > 0 else "text_dim")
+			var tx := x0
+			if bool(info["rule_on"]):
+				tx = _text(x0, y, str(info["rule"]), 13, "text") + 18.0
+			if nl > 0:
+				_text(tx, y, BossLogic.lapse_text(nl, int(info["lapse_lost"])), 13, "danger" if hi > 0 else "text_dim")
 		y += 28.0
 		_label(x0, y, "BACKUPS")
 		var px := col2 + 8.0

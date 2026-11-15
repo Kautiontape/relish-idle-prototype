@@ -48,6 +48,9 @@ var lapse_lo := -1              # the last lapse took pips lapse_lo..lapse_hi-1 
 var lapse_hi := -1
 var _lapse_t := 0.0             # real seconds the last lapse still shows
 var beat_raised := 0.0          # raised value this beat
+var beat_hist: Array = []       # the last meter.eta_window_beats beats, 1 = gained a pip, 0 = lapsed (the ETA's pace)
+var revive_cue := false         # a revive's i-frames are running (BossLanes.SafeCue draws them)
+var revive_total := 0.0         # ... of this many seconds
 var t2 := 0.0                   # the break's scene clock (beat 0 on a tempo boundary)
 var anchors: Array = []
 var spent := {"phylactery": 0, "clones": 0}
@@ -67,6 +70,7 @@ var _p2_raises := 0
 var _seq_kind := ""             # "win" | "lose" while the closing set piece plays
 var _seq_t := 0.0
 var _emitted := false
+var _card: VeiCard = null       # the win card, once the unravel set piece is done
 var _rcfg_cache := {}
 var _bdev: BossDev = null
 var _bot: BossAutopilot = null
@@ -224,6 +228,10 @@ func _build_extra() -> void:
 	marks.boss = self
 	marks.z_index = 1   # relative: just above Relish
 	relish.add_child(marks)
+	var safe := BossLanes.SafeCue.new()
+	safe.boss = self
+	safe.z_index = 1
+	relish.add_child(safe)
 
 	hud.show_banner("VEI'S COURT · break %d of the 4 fronts" % VeiFronts.required(vc), 3.2, "vei")
 	if _standalone:
@@ -357,7 +365,7 @@ func _begin_break() -> void:
 	horde = horde0
 	ferry_beat = BossLogic.ferry_per_beat(ferry, tempo_s(), vc)
 	brk = VeiFronts.break_start()
-	t2 = BossLogic.align_t(Pulse.phase(), tempo_s())
+	t2 = BossLogic.align_t(WardenLogic.wake_phase(Pulse.now_ms(), Pulse.tempo_ms), tempo_s())
 	anchors = BossLogic.anchors(lanes, vc)
 	lanes_node.phase = 2
 	lanes_node.anchors = anchors
@@ -413,6 +421,7 @@ func _step_break(delta: float) -> void:
 			lapse_lo = int(brk["streak"])
 			lapse_hi = before
 			_lapse_t = float(vc.get("meter", {}).get("lapse_flash_s", 1.2))
+		beat_hist = BossLogic.push_beat(beat_hist, int(brk["streak"]) > before, int(vc.get("meter", {}).get("eta_window_beats", 8)))
 		beat_raised = 0.0
 		streak_max = maxi(streak_max, int(brk["streak"]))
 		if VeiFronts.broken(brk, vc):
@@ -611,6 +620,8 @@ func try_phylactery() -> bool:
 	deaths += 1
 	var bc: Dictionary = vcfg().get("backups", {})
 	relish.revive(relish.max_hp * float(bc.get("revive_hp_frac", 0.6)), float(bc.get("iframes_s", 2.0)))
+	revive_cue = true   # her i-frames get a ring and a count (BossLanes.SafeCue), not only the thin danger arc
+	revive_total = maxf(0.05, float(bc.get("iframes_s", 2.0)))
 	# the backup-crack set piece: a violet ring holds, then cracks; a cracked ring stays on her
 	# the loudest moment on screen: a wide violet crack, a white one inside it, a white flare ring
 	var cr := float(bc.get("crack_radius_px", 190.0))
@@ -711,10 +722,26 @@ func _win() -> void:
 	end_reason = "broken"
 	_end_common()
 	RaidSound.play("unravel")
-	hud.show_banner("VEI BREAKS · the game is beaten", 3.5, "vei")
 	vei.unravel_f = 0.0
 	_seq_kind = "win"
 	_seq_t = 0.0
+
+
+## The set piece is done: the board holds, dimmed, under the end card (VeiCard); its one button is
+## the way back. The `finished` result is the same dict as ever and emits once, on the button (the
+## router then opens the map) or on a window close (close_result: a broken Vei is the win), whichever
+## comes first. The standalone bot has no hand to click: it emits at once, as before.
+func _win_card() -> void:
+	_seq_kind = ""
+	if _card == null:
+		var info := BossLogic.end_card(seed_data, spent, party_lost, fight_t, horde0, horde)
+		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
+		info["clones_total"] = int(seed_data.get("clones_ready", 0))
+		_card = VeiCard.new()
+		hud.add_child(_card)
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(true))
+	if _bot != null and not (_bdev != null and _bdev.hold_card):
+		_emit(true)
 
 
 func _lose(reason: String) -> void:
@@ -734,6 +761,7 @@ func _lose(reason: String) -> void:
 func _end_common() -> void:
 	phase = Phase.OVER
 	_ended = true
+	revive_cue = false   # the i-frames cue is gone with the fight (win card and loss both)
 	trance.force_end()
 	Engine.time_scale = 1.0
 	vei.stop_weaves()
@@ -763,7 +791,7 @@ func _step_sequence(delta: float) -> void:
 			if lanes_node.win_f >= 1.0:
 				lanes_node.frozen = true   # every lane green toward her, and the lines stop
 		if _seq_t >= un + gr + float(ec.get("hold_s", 0.7)) * k:
-			_emit(true)
+			_win_card()
 	else:
 		var dr := float(ec.get("drain_s", 1.4)) * k
 		var f2 := clampf(_seq_t / maxf(dr, 0.01), 0.0, 1.0)
@@ -794,6 +822,8 @@ func _emit(won: bool) -> void:
 	var r := _result(won)
 	for e in Results.validate("boss", r):
 		push_error("necropolis: boss result invalid: " + e)
+	if _card != null and _standalone:
+		_card.visible = false   # the standalone result panel takes its place
 	if _standalone:
 		print("BOSS_RESULT ", JSON.stringify(r))
 	endings.finish(r)
@@ -812,7 +842,15 @@ func hud_info() -> Dictionary:
 			hint = "HOLD SPACE — CIRCLE THE ESSENCE BY A LANE · it joins that front"
 		elif phase == Phase.BREAK and _p2_raises == 0:
 			hint = "RAISE AT THE ANCHORS · outpace her ferry"
-	return {"phase": phase, "break_began": phase1_s >= 0.0, "met": met, "required": VeiFronts.required(vc),
+	var mc: Dictionary = vc.get("meter", {})
+	var break_s := fight_t - phase1_s if phase1_s >= 0.0 else 0.0
+	var eta := ""
+	if phase == Phase.BREAK:
+		eta = BossLogic.eta_text(BossLogic.break_eta_s(beat_hist, int(brk.get("streak", 0)), int(vc.get("break_beats", 8)),
+			int(vc.get("lapse_cost", -1)), tempo_s(), int(mc.get("eta_min_beats", 4)), float(mc.get("eta_max_s", 240.0))))
+	var rule_on := phase == Phase.BREAK and break_s < float(mc.get("hint_s", 14.0))
+	return {"phase": phase, "break_began": phase1_s >= 0.0, "eta": eta, "rule_on": rule_on,
+		"rule": BossLogic.phase2_hint(int(vc.get("break_beats", 8)), int(vc.get("lapse_cost", -1))) if rule_on else "", "met": met, "required": VeiFronts.required(vc),
 		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),

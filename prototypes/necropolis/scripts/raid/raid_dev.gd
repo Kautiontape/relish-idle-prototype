@@ -5,11 +5,14 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|bash|fire|living> (who the autodie hit names on the death card),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
-## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-dodge=<0..1>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
-## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles).
+## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-answer-mult=<x>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
+## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
+##   with --raid-party-<stat>=<n> (power, beef, wits, presence, speed) every party big undead's <stat> set to n: the weak
+##   points with and without (--raid-party-wits for the Shieldwall, --raid-party-power for the Pyre-priest).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -91,6 +94,11 @@ static func profile_seed(cfg: Dictionary) -> Dictionary:
 	for f in ConfigDb.data.get("world", {}).get("forts", []):
 		if str(f.get("id", "")) == fid:
 			var sd := RaidLogic.profile_seed(f, int(tier_s), cfg)
+			for st in ["power", "beef", "wits", "presence", "speed"]:
+				var v := cli_value("--raid-party-%s=" % st)
+				if v != "":
+					for e in sd["party"]:   # a weak point's with/without arms: only that stat of the party moves
+						e["stats"][st] = float(v)
 			print("RAID_DEV profile seed fort=%s tier=%d party_tier=%d living=%.1f dead=%.1f garrison_units=%d party=%d warden=%s" % [
 				fid, int(sd["fort"]["tier"]), int(tier_s), float(sd["living"]), float(sd["dead"]),
 				int(sd["garrison_units"]), (sd["party"] as Array).size(), str(sd["warden"]["archetype"])])
@@ -123,6 +131,17 @@ func start() -> void:
 	if RaidAutopilot.enabled() and not _raid.is_boss():
 		_ap = RaidAutopilot.new(_raid)
 		_ap.start()
+	if cli_flag("--raid-greyscale"):   # the whole screen in greyscale (shaders/greyscale_check.gdshader), for the warden-fight check
+		var cl := CanvasLayer.new()
+		cl.layer = 100
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var gm := ShaderMaterial.new()
+		gm.shader = load("res://shaders/greyscale_check.gdshader")
+		rect.material = gm
+		cl.add_child(rect)
+		_raid.add_child(cl)
 	if cli_flag("--raid-trance-hold") and not _raid.is_boss():
 		_raid.trance._button_down()   # open the trance and keep it open (the ghost-ring shot)
 	if cli_value("--raid-ding-chance=") != "":
@@ -148,7 +167,7 @@ func tick() -> void:
 	if _autoexit >= 0 and frame >= _autoexit and not _raid._ended:
 		_autoexit = -1
 		_raid.confirm_exit()
-	if _autodie > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():
+	if _autodie > 0 and frame > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():   # not at frame 0: the first hit at frame N
 		_autodie_hit()
 	if _perf:
 		_perf_sample(frame)
@@ -160,6 +179,12 @@ func tick() -> void:
 func physics_tick(delta: float) -> void:
 	if _ap != null:
 		_ap.physics_tick(delta)
+
+
+## Hook 5: the warden died, before the run lets go of it (the bot's last read of its counts).
+func on_warden_died(w: RaidWarden) -> void:
+	if _ap != null:
+		_ap.on_warden_died(w)
 
 
 ## Hook 4: the run ended (RaidEndings.finish); the bot prints its result line and quits.
@@ -205,7 +230,7 @@ func _autodie_hit() -> void:
 	for a in _raid.allies.duplicate():
 		if is_instance_valid(a) and a.alive:
 			a.die(true)
-	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0)
+	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0, cli_value("--raid-autodie-src="))   # src: slam | lunge | bash | fire | living (the death card)
 
 
 ## --raid-loot-sample: one pickup of each RaidLoot.FLOOR_KINDS kind, in a row 120 px above Relish.

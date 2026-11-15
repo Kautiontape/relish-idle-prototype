@@ -20,6 +20,8 @@ var left_spawn_exit := false     # Relish has been outside the spawn exit's radi
 var _raid: Node2D
 var _room := -2                  # Relish's current room
 var _spawn_exit := -1            # the exit Relish spawns inside (spawn sits within its radius)
+var _card: Control = null         # the death card, freed at finish (a standalone result panel replaces it)
+var _seen := {}                  # room index -> true once Relish has stood in it (the HUD's "n of m rooms seen")
 
 
 func _init(p_raid: Node2D) -> void:
@@ -31,6 +33,8 @@ func start() -> void:
 	var radius := float(_raid.rcfg().get("exits", {}).get("radius_px", 120.0))
 	_spawn_exit = RaidLogic.near_exit(_raid.layout, _raid.layout["spawn"], radius)
 	_room = RaidLogic.room_of(_raid.layout, _raid.relish.position)
+	if _room >= 0:
+		_seen[_room] = true
 	take_checkpoint(_room, false)
 
 
@@ -48,8 +52,14 @@ func track_position() -> void:
 	if room != _room:
 		var prev := _room
 		_room = room
+		_seen[room] = true
 		if RaidLogic.checkpoint_entered(layout, prev, room):
 			take_checkpoint(room, true)
+
+
+## Rooms Relish has stood in so far (read-only for the HUD; the sim never reads it).
+func rooms_seen() -> int:
+	return _seen.size()
 
 
 ## Bank loot: snapshot what was found plus what is carried now (MECHANICS 7).
@@ -169,10 +179,32 @@ func on_relish_died() -> void:
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
-	_raid.get_tree().create_timer(0.9).timeout.connect(func() -> void:
-		if not is_instance_valid(_raid):
-			return   # the scene was freed during the death beat
-		finish(_raid._death_result()))
+	var wait := 0.9
+	var card_s := float(_raid.rcfg().get("death", {}).get("card_s", 0.0))
+	if card_s > 0.0 and _raid.hud != null and not RaidAutopilot.enabled():   # the bot never waits on the card
+		wait = card_s
+		var card := RaidDeathCard.new()
+		_raid.hud.add_child(card)
+		card.setup(death_rows())
+		_card = card
+		card.dismissed.connect(_finish_death)
+	_raid.get_tree().create_timer(wait).timeout.connect(_finish_death)
+
+
+## The death beat is over (its timer, or a click on the card): the one emit. `finish` guards a double.
+func _finish_death() -> void:
+	if not is_instance_valid(_raid):
+		return   # the scene was freed during the death beat
+	finish(_raid._death_result())
+
+
+## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
+func death_rows() -> Array:
+	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
+	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
+	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
+	return RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, (_raid.seed_data.get("party", []) as Array).size(),
+		RaidLogic.death_tell(_raid.relish.last_hit_src))
 
 
 # ------------------------------------------------------------------- result ---
@@ -195,6 +227,8 @@ func finish(result: Dictionary) -> void:
 		return
 	finished = true
 	ended = true
+	if is_instance_valid(_card):
+		_card.queue_free()
 	Engine.time_scale = 1.0
 	_raid.finished.emit(result)
 	var tele := ""

@@ -32,6 +32,8 @@ var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
 var found_loot := {}             # loot found this run, minus essence (dings + the chest)
+var detour_guard: Array = []      # the guarded detour's living (RaidPopulate; raid.json detour)
+var detour_cache: Array = []      # its cache's pickups
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
@@ -371,10 +373,12 @@ func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
 		ledger_v2.on_kill(u.mass)
-		# kills drop essence at the corpse, carrying the enemy's mass
-		_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
+		if not u.warden_pack:   # a warden's own pack drops nothing (WardenLogic.pack_spec)
+			# kills drop essence at the corpse, carrying the enemy's mass
+			_drop_motes(u.global_position, u.mass, int(rcfg().get("essence", {}).get("per_living", 1)), false)
 		RaidFx.ring(fx_root, u.global_position, Palette.c("living", 0.6), 26.0, 0.3, 2.0)
-		_roll_ding(u.global_position)
+		if not u.warden_pack:
+			_roll_ding(u.global_position)
 		held_clear.on_enemy_died()
 	else:
 		allies.erase(u)
@@ -553,12 +557,25 @@ func _drop_motes(pos: Vector2, mass: float, n: int, recycled: bool) -> void:
 
 
 # --- carried cluster ---
-## Angle of a clock slot; one shared spin so every mote and tick turns together.
+## Angle of a clock slot: where the mote COUNTS (enclosure, bot aim, absorb). No spin in it, so it
+## is the same with and without reduced motion; the spin is only drawn (carry_draw_offset).
 func carry_angle(slot: int) -> float:
 	var e: Dictionary = rcfg().get("essence", {})
-	var slots := maxi(1, int(e.get("carry_max", 12)))
-	var spin := 0.0 if Pulse.reduced_motion else _carry_t * float(e.get("carry_spin_rad_s", 0.8))
-	return -PI * 0.5 + TAU * slot / float(slots) + spin
+	return RaidLogic.carry_slot_angle(slot, int(e.get("carry_max", 12)))
+
+
+## Where a carried slot is DRAWN: its counted angle plus the cluster's shared spin (zero under
+## reduced motion), at most carry_swing_px from the counted slot. Draw only: nothing that scores, aims or collides may read it.
+func carry_draw_angle(slot: int) -> float:
+	var e: Dictionary = rcfg().get("essence", {})
+	var swing := RaidLogic.carry_swing_rad(float(e.get("carry_swing_px", 3.0)), float(e.get("carry_orbit_px", 24.0)))
+	return carry_angle(slot) + RaidLogic.carry_draw_spin(_carry_t, float(e.get("carry_spin_rad_s", 0.8)), swing, Pulse.reduced_motion)
+
+
+## How far a carried mote is drawn from its counted spot (draw only).
+func carry_draw_offset(slot: int) -> Vector2:
+	var r := float(rcfg().get("essence", {}).get("carry_orbit_px", 24.0))
+	return Vector2(r, 0).rotated(carry_draw_angle(slot)) - Vector2(r, 0).rotated(carry_angle(slot))
 
 
 func carried_count() -> int:

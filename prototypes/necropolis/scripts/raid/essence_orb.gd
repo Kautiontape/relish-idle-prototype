@@ -119,9 +119,10 @@ func _draw() -> void:
 		draw_circle(Vector2.ZERO, 3.0, Palette.c("text", 0.9))
 		return
 	if carried:
-		# small and crisp so the ring reads as a count
-		draw_circle(Vector2.ZERO, 3.6, col)
-		draw_circle(Vector2.ZERO, 1.7, Palette.c("text", 0.9))
+		# small and crisp so the ring reads as a count; the spin is only drawn (counted spot = node position)
+		var off: Vector2 = raid.carry_draw_offset(carry_slot) if raid != null else Vector2.ZERO
+		draw_circle(off, 3.6, col)
+		draw_circle(off, 1.7, Palette.c("text", 0.9))
 		return
 	var r := 4.0 + 1.0 * pulse
 	if raid != null and raid.trance_active:

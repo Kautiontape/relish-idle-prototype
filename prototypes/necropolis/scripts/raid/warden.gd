@@ -5,8 +5,10 @@ extends Node2D
 ## enters its room, then it wakes and runs a beat clock on SCENE time (it slows with the trance).
 ## Undead target it like an enemy (global_position, radius, take_hit, alive) but it is not in
 ## `raid.enemies`: no LIVING count, no ledger mass. On death it drops `essence.per_warden` mass-0
-## motes and the chest. Subclasses (Bellringer, Huntsman) add the attack and the silhouette: they
-## override `_step`, `_phase_now`, `_draw_glyph`, `_draw_telegraph` and may hook `_on_wake`.
+## motes and the chest. Subclasses (Bellringer, Huntsman, Shieldwall, Pyre-priest) add the attack and the silhouette: they
+## override `_step`, `_phase_now`, `_draw_glyph`, `_draw_telegraph` and may hook `_on_wake` (the
+## Shieldwall also `hit_from`, the undead strike that says where it came from; the Pyre-priest
+## `take_hit` for its ward and `meter_lit` for its acolytes' pips).
 ## The break meter (WardenLogic.meter_*): the strength left as pips, phase notches where the phases
 ## are hp gates, and `weak_marks` on the pips a weak-point window took. The HUD's WardenBlock is the
 ## meter's full read; a small pip row under the glyph echoes it in the world.
@@ -32,6 +34,21 @@ var meter_n := 12              # pips in all
 var meter_notch: Array[int] = []
 var weak_marks := PackedByteArray()   # 1 on each pip a weak-point window took (index 0 = the first pip)
 var weak_taken := 0            # pips taken inside weak-point windows, summed over the fight
+
+# its pack (spec.pack, WardenLogic.pack_*; the Huntsman's hounds): none unless the spec has one
+var horns := 0                 # horns sounded (packs called)
+var pack: Array = []           # the current pack's units (pruned as they fall)
+var pack_called := 0           # pack units called in all
+var pack_down := 0             # of them, fallen
+var pack_s := 0.0              # scene seconds a horn sounded or a pack stood
+var horn_beat := -1.0          # the beat the pack comes in on while a horn sounds; -1: none
+var horn_pts: Array[Vector2] = []   # where it comes in (drawn through the horn)
+var pack_down_t := 99.0        # scene seconds since the last pack fell (draw: the labelled result)
+var pack_broken := 0           # pack units its counter killed in one blow (MUFFLED / INTERCEPTED / FLANKED / SNUFFED)
+var pack_scatters := 0         # packs that broke and left because no undead stood (D-d/E 3c)
+var pack_scattered := 0        # their units (gone, not killed: no drops)
+var pack_scatter_t := 99.0     # scene seconds since the last pack broke (draw: THE PACK BREAKS · WARD DOWN)
+var _pack_words: Array = []    # draw only: [{pos, t}] where a pack unit fell to the counter
 
 
 ## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
@@ -82,9 +99,20 @@ func meter_lit() -> int:
 	return WardenLogic.meter_lit(meter_bands, meter_per, hp / maxf(1.0, max_hp))
 
 
+## Whether pip `i` is lit now. The meters are one prefix band (the strength left); the Pyre-priest's
+## overrides it (its hp pips and its acolytes' pips are two bands). Both meter draws go through this.
+func pip_lit(i: int) -> bool:
+	return i < meter_lit()
+
+
 ## Mark the pips between `lit_after` and `lit_before` as taken by a weak-point window.
 func mark_weak(lit_before: int, lit_after: int) -> void:
-	for i in range(maxi(0, lit_after), mini(lit_before, meter_n)):
+	mark_weak_range(lit_after, lit_before)
+
+
+## Mark pips `[lo, hi)` as taken by a weak-point window.
+func mark_weak_range(lo: int, hi: int) -> void:
+	for i in range(maxi(0, lo), mini(hi, meter_n)):
 		if weak_marks[i] == 0:
 			weak_marks[i] = 1
 			weak_taken += 1
@@ -100,7 +128,7 @@ func wake() -> void:
 	if awake or not alive:
 		return
 	awake = true
-	t = -(1.0 - Pulse.phase()) * tempo_s()
+	t = -(1.0 - WardenLogic.wake_phase(Pulse.now_ms(), Pulse.tempo_ms)) * tempo_s()
 	var tells: Array = spec.get("tells", [])
 	var first := str(tells[0]) if not tells.is_empty() else ""
 	if raid.hud != null:
@@ -123,10 +151,16 @@ func _on_wake() -> void:
 	pass
 
 
+## An undead's strike (RaidUnit): the Shieldwall reads where it came from; every other warden just
+## takes the hit.
+func hit_from(amount: float, _attacker: Node2D) -> void:
+	take_hit(amount)
+
+
 func take_hit(amount: float) -> void:
 	if not alive or not awake:
 		return
-	hp -= amount
+	hp -= amount * WardenLogic.pack_ward(spec.get("pack", {}), pack_alive())
 	flash = 1.0
 	if hp <= 0.0:
 		hp = 0.0
@@ -138,6 +172,10 @@ func _physics_process(delta: float) -> void:
 	if raid == null or raid._ended or not alive:
 		return
 	_breath_t += delta
+	for i in range(_pack_words.size() - 1, -1, -1):   # draw-only clock (reads nothing back)
+		_pack_words[i]["t"] = float(_pack_words[i]["t"]) + delta
+		if float(_pack_words[i]["t"]) >= float(wcfg().get("pack_label_s", 1.2)):
+			_pack_words.remove_at(i)
 	flash = maxf(0.0, flash - delta * 4.0)
 	if drop_t >= 0.0:
 		drop_t += delta
@@ -171,6 +209,164 @@ func _on_phase_change(_old: int, new: int) -> void:
 ## Per awake physics frame, after the clock and phase update.
 func _step(_delta: float) -> void:
 	pass
+
+
+## Its pack's units still standing.
+func pack_alive() -> int:
+	var n := 0
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			n += 1
+	return n
+
+
+## One pack tick, for a subclass to call at the top of `_step` (WardenLogic.pack_*): at an hp gate it
+## sounds a horn and, on the beat, calls its pack into the far side of its room from Relish. True while
+## the horn sounds or any of the pack stands: the warden holds its own attack (one threat at a time).
+func _pack_step(delta: float) -> bool:
+	var pk: Dictionary = spec.get("pack", {})
+	if pk.is_empty():
+		return false
+	var before := pack.size()
+	var standing: Array = []
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			standing.append(u)
+	pack_down += before - standing.size()
+	pack = standing
+	if before > 0 and pack.is_empty():
+		pack_down_t = 0.0
+		_on_pack_down()
+		if raid._standalone:
+			print("RAID_WARDEN pack down n=%d frame=%d" % [horns, Engine.get_process_frames()])
+	if WardenLogic.pack_breaks(pack.size(), horn_beat >= 0.0, raid.has_allies()):
+		_scatter_pack()
+	if horn_beat < 0.0 and pack.is_empty() and WardenLogic.pack_due(pk, hp / maxf(1.0, max_hp), horns):
+		horns += 1
+		horn_beat = ceilf(beat() + float(pk.get("horn_beats", 1.0)))
+		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+		var rel: RaidRelish = raid.relish
+		var away: Vector2 = rel.global_position if rel != null and is_instance_valid(rel) else global_position
+		horn_pts = WardenLogic.pack_spots(room, away, int(pk.get("size", 0)), float(pk.get("spot_inset_px", 50.0)),
+			float(pk.get("spot_spread_px", 28.0)))
+		RaidSound.play("tell")
+		_on_horn()
+		if raid._standalone:
+			print("RAID_WARDEN horn n=%d hp=%.0f/%.0f frame=%d" % [horns, hp, max_hp, Engine.get_process_frames()])
+	if horn_beat >= 0.0:
+		pack_s += delta
+		if beat() >= horn_beat:
+			horn_beat = -1.0
+			_loose_pack(pk)
+		return true
+	if not pack.is_empty():
+		pack_s += delta
+		return true
+	pack_down_t += delta
+	pack_scatter_t += delta
+	return false
+
+
+## On the horn's beat: the pack comes in where the horn showed. Its own living: hostile at once, at home
+## in its room, massless, and they drop nothing (raid.on_unit_died reads `warden_pack`).
+func _loose_pack(pk: Dictionary) -> void:
+	var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
+	for p in horn_pts:
+		var u: RaidUnit = raid.spawn_unit("enemy", str(pk.get("kind", "runner")), raid.resolve_walls(p, float(wcfg().get("pack_spawn_wall_px", 10.0))), true)
+		u.mass = 0.0
+		u.home_room = room
+		u.warden_pack = true
+		u._aggro = true
+		pack.append(u)
+		pack_called += 1
+	if raid._standalone:
+		print("RAID_WARDEN pack n=%d hounds=%d frame=%d" % [horns, horn_pts.size(), Engine.get_process_frames()])
+
+
+## No undead stands (D-d/E 3c): the pack never turns on Relish, it breaks. Its units leave the fight (gone,
+## not killed: nothing drops, no kill is counted), a horn still sounding calls no one, the ward drops and the
+## warden fights her alone with its own attacks; the result shows over it (THE PACK BREAKS · WARD DOWN)
+## and on the banner.
+func _scatter_pack() -> void:
+	var n := 0
+	for u in pack:
+		if is_instance_valid(u) and u.alive:
+			RaidFx.ring(raid.fx_root, u.global_position, Palette.c("text_dim", 0.6), 22.0, 0.4, 2.0)
+			u.scatter()
+			n += 1
+	pack = []
+	horn_beat = -1.0
+	horn_pts.clear()
+	pack_scatters += 1
+	pack_scattered += n
+	pack_scatter_t = 0.0
+	pack_down_t = 99.0   # (the breaking, not NAME DOWN, is the labelled result)
+	_on_pack_down()
+	if raid.hud != null:
+		raid.hud.show_banner("THE PACK BREAKS — ward down", float(wcfg().get("pack_label_s", 1.2)) * 2.0, "undead")
+	if raid._standalone:
+		print("RAID_WARDEN pack scattered n=%d units=%d frame=%d" % [horns, n, Engine.get_process_frames()])
+
+
+## The horn just sounded / the pack just fell (a subclass hook: the Huntsman drops a pending lunge and
+## waits a tell before the next).
+func _on_horn() -> void:
+	pass
+
+
+func _on_pack_down() -> void:
+	pass
+
+
+## A pack unit fell to the counter in one blow (RaidUnit._hit_enemy): counted, and its verb shown there.
+func on_pack_broken(at: Vector2) -> void:
+	pack_broken += 1
+	_pack_words.append({"pos": at, "t": 0.0})
+	if raid._standalone:
+		print("RAID_WARDEN pack broken n=%d %s frame=%d" % [pack_broken, WardenLogic.pack_verb(spec), Engine.get_process_frames()])
+
+
+## The pack's counts, for the measuring bot (AUTOPILOT_RESULT `pack`).
+func pack_telemetry() -> Dictionary:
+	return {"horns": horns, "called": pack_called, "down": pack_down, "broken": pack_broken, "pack_s": snappedf(pack_s, 0.01),
+		"scatters": pack_scatters, "scattered": pack_scattered}
+
+
+## Its pack in the world (tell -> counter -> labelled result): while the horn sounds, a `danger` ring at
+## each point the pack comes in (closing on the beat; steady under reduced motion) and HORN over it;
+## while the pack stands, "<NAME> · WARDED" over it; for twice `wardens.pack_label_s` after it breaks (no
+## undead stood), THE PACK BREAKS · WARD DOWN; for `wardens.pack_label_s` after the last falls,
+## "<NAME> DOWN" in `undead`. Sizes in screen px (divided by the zoom).
+func _draw_pack(ci: CanvasItem) -> void:
+	var pk: Dictionary = spec.get("pack", {})
+	if pk.is_empty():
+		return
+	var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
+	var top := Vector2(0, -radius * 2.0 - fs * 1.6)
+	var nm := str(pk.get("name", "pack")).to_upper()
+	var hold := float(wcfg().get("pack_label_s", 1.2))
+	for w in _pack_words:
+		if float(w["t"]) < hold:
+			_pack_word(ci, (w["pos"] as Vector2) - global_position, WardenLogic.pack_verb(spec), fs, Palette.c("undead"))
+	if horn_beat >= 0.0:
+		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (horn_beat - beat()) / maxf(0.01, float(pk.get("horn_beats", 1.0))), 0.0, 1.0)
+		for p in horn_pts:
+			var at: Vector2 = p - global_position
+			LineGlow.ring(ci, at, (30.0 - 14.0 * f) / zoom(), Palette.c("danger", 0.55 + 0.4 * f), 2.6 / zoom(), 0.6)
+		_pack_word(ci, top, "HORN · %d %s" % [horn_pts.size(), str(pk.get("name", "pack"))], fs, Palette.c("danger"))
+	elif pack_alive() > 0:
+		_pack_word(ci, top, nm + " · WARDED", fs, Palette.c("vei"))
+	elif pack_scatter_t < hold * 2.0:
+		_pack_word(ci, top, "THE PACK BREAKS · WARD DOWN", fs, Palette.c("undead"))
+	elif pack_down_t < hold:
+		_pack_word(ci, top, nm + " DOWN", fs, Palette.c("undead"))
+
+
+func _pack_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) -> void:
+	var font := ThemeDB.fallback_font
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	ci.draw_rect(Rect2(p + Vector2(-tw * 0.5 - 4.0, -float(px) * 0.75), Vector2(tw + 8.0, float(px) * 1.25)), Palette.c("ground", 0.7))
+	ci.draw_string(font, p + Vector2(-tw * 0.5, float(px) * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, col)
 
 
 ## Subclass telegraph drawing, on the z 37 child (centred on the warden).
@@ -244,14 +440,13 @@ func _draw_meter_row() -> void:
 	var w := step * float(meter_n - 1) + gap * float(meter_notch.size())
 	var x := -w * 0.5
 	var y := _meter_y() + pr
-	var lit := meter_lit()
 	for i in meter_n:
 		if meter_notch.has(i):
 			var nx := x - step * 0.5 + gap * 0.5
 			draw_line(Vector2(nx, y - pr * 2.0), Vector2(nx, y + pr * 2.0), Palette.c("vei", 0.85), 1.6 / z)
 			x += gap
 		var p := Vector2(x, y)
-		if i < lit:
+		if pip_lit(i):
 			draw_circle(p, pr, Palette.c("vei"))
 		elif weak_marks[i] != 0:
 			draw_arc(p, pr, 0.0, TAU, 10, Palette.c("undead"), 1.4 / z)
@@ -271,4 +466,5 @@ class Telegraph:
 
 	func _draw() -> void:
 		if warden != null and is_instance_valid(warden) and warden.alive and warden.awake:
+			warden._draw_pack(self)
 			warden._draw_telegraph(self)

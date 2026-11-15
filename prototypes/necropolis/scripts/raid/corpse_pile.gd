@@ -66,6 +66,29 @@ func _set_lit(on: bool) -> void:
 		queue_redraw()
 
 
+## The Pyre-priest's fire reached the pile (RaidPyrePriest._ignite): it loses `frac` of its mass,
+## and burns away under `min_mass` (WardenLogic.pile_after_burn). The badge and the lumps follow the
+## mass left. Returns the mass burned.
+func burn(frac: float, min_mass: float) -> float:
+	if _stirred or _shrink >= 0.0:
+		return 0.0
+	var left := WardenLogic.pile_after_burn(mass, frac, min_mass)
+	var gone := mass - left
+	mass = left
+	if mass <= 0.0:
+		remove_from_group("raid_piles")
+		_shrink = 0.0   # it shrinks away (_process frees it)
+		return gone
+	_badge = "×%d" % roundi(mass) if roundi(mass) >= 1 else ""
+	var k := clampf(9.0 + mass * 0.7, 9.0, 26.0) / maxf(1.0, _base)
+	_base *= k
+	for l in _lumps:
+		l["off"] = (l["off"] as Vector2) * k
+		l["r"] = float(l["r"]) * k
+	queue_redraw()
+	return gone
+
+
 ## The pile stirs: convert its mass into essence orbs.
 func stir() -> void:
 	if _stirred:

@@ -12,6 +12,7 @@ extends Node2D
 var raid: Node = null
 var kind := "remnant"          # relic | remnant | husk | blueprint (RaidLoot.FLOOR_KINDS)
 var remnant := {}              # the item: a remnant {aspect, rarity, magnitude}, a husk {kind}, a blueprint {id}
+var cache := false             # the guarded detour's cache (RaidPopulate): a wider dashed ring and the word CACHE
 var _lit := false              # Relish's light falls on it
 var _rm := false               # reduced motion as last drawn
 var _s := 9.0                  # glyph size (loot.json pickup.size_px)
@@ -71,6 +72,16 @@ func _draw() -> void:
 	# the loot ring: what marks this as loot to pick up
 	var beat := 0.55 + 0.45 * Pulse.wave()
 	LineGlow.ring(self, Vector2.ZERO, s * 2.0, Palette.c("vei", 0.5 + 0.3 * beat), 1.3, 0.5 * beat)
+	if cache:
+		# the guarded cache: a wider dashed ring (shape as well as colour) and its word, sized on screen
+		var z := maxf(0.05, raid.cam.zoom.x) if raid != null and raid.cam != null else 1.0
+		var rr := s * 4.2
+		for k in 16:
+			draw_arc(Vector2.ZERO, rr, TAU * float(k) / 16.0, TAU * (float(k) + 0.55) / 16.0, 4, Palette.c("vei", 0.85), 1.6 / z)
+		var fs := roundi(14.0 / z)
+		var font := ThemeDB.fallback_font
+		var tw := font.get_string_size("CACHE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(font, Vector2(-tw * 0.5, -rr - fs * 0.4), "CACHE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("vei"))
 	match str(g["shape"]):
 		"gem":
 			# a relic: a cut gem, a diamond with its table line

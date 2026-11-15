@@ -185,7 +185,7 @@ No mechanic or balance change: the two byte-identity smokes (day1 at old-sluice,
 - **Wardens are `vei`, never the living's orange**, each with its own glyph: the Bellringer a bell outline (one rib per phase left, a clapper that swings through the tell and strikes on the slam, held at the struck angle under reduced motion), the Huntsman an arrowhead on a lance along its aim (tip `danger` while a lunge is locked).
 - **The break meter** (`WardenLogic.meter_*`, `wardens.meter_pips` 12; HUD `WardenBlock` top centre, a pip row under the glyph): the strength left as pips. An hp-phased warden gets one segment per phase, each counting down through that phase's hp band (ceil), so a notch is crossed on exactly the hit that changes `bellringer_phase` (tested at every 0.001 of hp). The Huntsman's phases are catches, so its strength is one flat row and its notches sit on the CAUGHT track (2, 4). Pips taken inside a stun window are marked `undead` with a slash for the fight and flash while the window is open; the Bellringer's counterplay reads as `MUFFLED x n of m`.
 - **The weak point as it happens**: a muffled slam goes out dim and dashed with MUFFLED riding it; through the tell each bracing big (the muffle's own rule) is ringed with a line into the bell; the live brace is the word BRACED.
-- **Relish's safety**: with no phylactery left her halo breaks into `danger`-leaning dashes, faint at full hp (`danger.exposed_min/max`); PHYLACT. says NO REVIVE · death ends the run; each Huntsman catch cracks her ring for the run.
+- **Relish's safety** (D-d/V2): with no phylactery left her halo breaks into `danger`-leaning dashes, clearly red even at full hp (`danger.exposed_min` 0.6, rising to `exposed_max`); PHYLACT. says NO REVIVE · death ends the run in `danger` whatever her hp (a state, not a mood; `exposed_tint` is no longer used by the HUD). No hits-to-death words: the conduit rule makes it depend on the allies left, so a number would not be honest. Each Huntsman catch cracks her ring for the run; the CAUGHT track's third row states the cost and the thresholds from the spec (`WardenLogic.catch_label`: "each catch costs Relish 12 hp (an ally takes a killing one) · it hunts faster at 2 and 4 catches"; first dungeon: 7 hp).
 - **Loot**: one glyph per kind (`RaidLoot.floor_glyph`), all in a faint `vei` loot ring; husks and remnants matte (`dead_lit` under her light). Only remnants drop on the floor in play (`--raid-loot-sample` lays all four). A dashed pointer runs from "N on the floor" to the nearest pickup (LOOT chevron off screen). RETREAT says "banks your loot" itself, since the hint line keeps the circle hint at the spawn exit before the first raise.
 - **Push or retreat**: `LIVING n left · exit W, 2 rooms · ... at risk` under RETREAT, an EXIT chevron off screen; corpse piles carry an `xN` badge; the last chance names its loose essence; the held clear names `counter-garrison −N`.
 
@@ -204,3 +204,936 @@ No mechanic or balance change: the two byte-identity smokes (day1 at old-sluice,
 - **The horde-drained loss exists but is out of reach at demo numbers.** H is the seed's backlog (~18k) and Vei ferries it at F (~3.4/s at pool 380, q 2.6, one uncleared front), so draining takes about 90 minutes. In practice the break is a race against deaths. A Vei-calibration item; left as is.
 - **fronts_cleared** in the result is the list frozen when the break begins, or, for a fight that ends in phase 1 (timeout, final death, close), what phase 1 had cleared (`BossLogic.fight_result`).
 - **Legacy removed from the shared files**: raid.gd's `ledger` and the boss `_build` branch that built it, the boss branches of `on_unit_died` (VeiBoss overrides it whole), `spawn_unit`'s guard branch, the `args.boss` setup branch, `backlog_left`/`army_lost`/`_on_ally_died`/`spawn_orb`, `RaidUnit.ledger_mass`/`from_army`, and `raid_raise.gd _perform_legacy`. Later (task 9e) also `sacrifice_nearest_ally`'s boss rank-0 branch, the boss `randomize()` branch and `RaidPile.consume()`. Kept: `RaidLogic.Ledger`/`raise_spec` as test-only fixtures (`test_results.gd` builds a v1 result with them).
+
+### Vei's win card, meter and cues (D-d V1)
+
+- **The win card** (`vei_card.gd` `VeiCard`, built by `VeiBoss._win_card`): after the unravel and the green lanes, the board holds under a dim (`card.dim`) and one plate says VEI BREAKS, the fight time (`BossLogic.clock_text`), the backups spent as the BACKUPS row draws them (a cracked violet ring per spent one, a violet diamond or dot per unspent one, "n of m"), the big undead lost ("n of m", known party uids only) and the backlog spent (the result's `backlog_spent`, the only banked figure a boss result carries), over one "BACK TO THE REALM" button (`card.button_h_px` 54, never under 44; Enter, Space and Escape press it too, as does a click). The card takes no press for `card.skip_after_s` (0.8 s, `BossLogic.card_unlocked`; the button is dim until then), because Space is the boss trance key and a player still holding it as the set piece ends would dismiss the card unseen; the boss bot never waits, and a window close during the card is still the win. All of it is `BossLogic.end_card` plus drawing. The old 3.5 s banner is gone.
+- **When `finished` emits: on the button**, not when the card shows (the router swaps to the map the moment it hears it, which would take the card away). Same dict, same single emit (`_emit`, guarded by `_emitted`). A window close while the card is up is the win: `close_result()` already reads a broken Vei as won and sets `_emitted`, so a later press does nothing. A router-launched run therefore returns to the realm on the button, as it did on the old timer. The standalone bot (`--boss-autoplay`) has no hand to click: `_win_card` emits at once, at the same moment the old timer did (its BOSS_RESULT / BOSS_AUTOPLAY lines are byte-identical). `--boss-autowin` shows the card and waits; pressing it prints BOSS_RESULT and the standalone result panel replaces the card.
+- **`BREAK 8/8` in the old `t9-victory`** was a stale still, not code: `break_beats` reaches the HUD, the row under her and `--boss-autowin` from `vei.json` (20); 8 is only the code default in `VeiFronts.broken` and the `vc.get("break_beats", 8)` fallbacks, which only a config without the key reaches. The re-shot reads 20/20.
+- **The meter is drawn once** in full: the HUD's BREAK row. The row under Vei is kept only as the close-to-the-break signal: it appears once the streak is within `meter.row_close_pips` (5, the last notch) of `break_beats`, and while a lapse flashes (0 keeps it always on). `RaidVei.MeterRow._shown`.
+- **Beside the beat count: "~30 s at this pace"** (`BossLogic.break_eta_s`, `eta_text`). The pace is the net pips per beat over the last `meter.eta_window_beats` (8) beats (a gain +1, a lapse -`lapse_cost`), the pips still to fill over it, times the tempo. No hint before `eta_min_beats` (4) beats are known, while the pace does not gain, under the reset rule once the window holds a lapse, or past `eta_max_s`. It is scene time at the current tempo: a slowed (trance) beat clock makes it optimistic by the slow-down, hence "at this pace". `VeiBoss.beat_hist` is a new field the sim never reads.
+- **Under the meter, one line**: the phase-2 rule for the break's first `meter.hint_s` (14) seconds, "keep raise > ferry for 20 beats · a lapse costs 4" (numbers from the config), and from the first lapse "LAPSES ×4 · −10 beats" (the beats the streak actually lost, capped by what it held, so 4 lapses of cost 4 show -10 when the streak was short). No LAPSES row before the first lapse.
+- **BACKLOG, not HORDE**: the label says what it is, the rate reads "ferried 3.43/s" (no minus, no slant), because the real clock is deaths (the drain takes ~90 minutes, above).
+- **Relish over a front label**: `Labels.label_shift` moves a lane's label plate just below her token while they would overlap (above her when the arena ends under it); it is in the redraw key.
+- **The i-frames cue** (`BossLanes.SafeCue`, a child of Relish like the backup marks, driven by `VeiBoss.revive_cue` / `revive_total`): a violet ring outside her body whose arc is the i-frame time left, with orbiting sparks, and "SAFE n s" counting down under her. Reduced motion: no sparks, the arc steps once a second; the words stay. Relish's own script is untouched; the cue reads her `_iframes`.
+- **Known gap: a hard kill while the card idles loses the win.** Nothing is saved until the button (the `finished` emit), so a SIGTERM or a crash with the card up drops the run as unfinished. A normal window close is safe: `close_result()` returns the win. The card also catches Enter, Space and Escape itself (`_input`), since the scene ignores input once the fight is over.
+- Dev: `--boss-hold-card` (with `--boss-autoplay`) makes the bot's win show the card and wait instead of emitting and quitting, for the card screenshot from a real fight; `--boss-greyscale` puts the greyscale check shader over the whole screen (the phase-2 greyscale still).
+
+## Reduced-motion parity (draw vs count)
+- Where a carried mote COUNTS is `RaidLogic.carry_slot_angle` (a clock slot, no animation state). What is DRAWN may rock by a sine (`raid.carry_draw_angle`/`carry_draw_offset`, `essence.carry_spin_rad_s`) but never more than `essence.carry_swing_px` (3 px) from the counted slot, and not at all under reduced motion. Sim code (`_carry_step`, `carry_angle`, enclosure in `raid_raise.gd`, the bot's `_motes_near`) never calls the draw functions; `tests/test_raid_logic.gd` guards it by source.
+- `tests/parity_check.sh` runs the raid bot (old-sluice day1, and the tier-3 profile at hollow-redoubt, pale-bastion and mourners-gate, seed 1) and the boss bot (seed 1) with and without `--reduced-motion` and exits non-zero on any difference in the result lines (~1 min).
+
+## D-d/V2: death frame, run shape, zero rows
+- **Death card** (`raid_death_card.gd`, `RaidEndings.on_relish_died`, config `raid.json death`): the death beat is `card_s` (4.5 s) instead of 0.9 s and shows one card: KILLED BY (`Relish.last_hit_src`: the Bellringer's slam, the Huntsman's lunge, the living, else "a wound"; a hit an ally soaked still names its source), BANKED (the last checkpoint), LOST (unbanked loot, and the party's big undead: a death costs the whole party). A click or SPACE after `skip_after_s` ends it early. The result dict and its single emit are untouched (`_finish_death` guards a double); a window close during it stays a death (`close_request`/`pending_exit`). The measuring bot never waits (`RaidAutopilot.enabled()` keeps the 0.9 s beat), so the bot lines are unchanged. Dev: `--raid-autodie=<frames> --raid-autodie-src=slam|lunge|living`.
+- **Run shape**: the push line starts with "3 of 5 rooms seen" (rooms Relish has stood in, `RaidEndings.rooms_seen`, of `layout.rooms`). Seen, not cleared: a room can be crossed with the living still in it. It wraps on a narrow window like the rest of the line.
+- **Last-chance banner**: "LAST CHANCE · a free trance · N loose essence to gather". N is the loose essence in the antechamber (capped by the carry room), a different figure from ESSENCE n/12 (carried) and UNBANKED (what a death loses), so it no longer says "bank".
+- **Zero rows**: MUFFLED hides until the first slam (the PHASE row already says what muffles it; "×0 of 3" stays, it teaches); the Huntsman's INTERCEPTED ×0 is replaced by the weak point's words until the first intercept; the CAUGHT count digit hides at 0 (the empty diamonds teach it); WARD ranks keep their labels at 0 but drop the "0" (the labels teach the chain's order).
+- **Loot key**: while anything lies on the floor, two dim rows under the stakes draw the four floor glyphs (relic, remnant, husk, blueprint) with their names and say what a grey ×9 pile is.
+- **Plate**: the stat block's backing plate is `hud.plate_alpha` 0.86 so a corpse glyph under it never crosses the NO REVIVE caption.
+- Dev: `--raid-greyscale` puts the greyscale check shader over the screen (the warden-fight still).
+
+## The Shieldwall (D-d/B, task 10 part 1)
+`warden_shieldwall.gd` (`RaidShieldwall`), rules in `WardenLogic.shield_*` / `flank_*` / `bash_hits`, knobs in `raid.json wardens.archetypes.shieldwall` (its `_doc`). Forts: pale-bastion (t3) and the-stair (t4); hollow-redoubt, mourners-gate, whitecross stay Huntsman and sable-hold Bellringer (the Pyre-priest task takes mourners-gate and whitecross).
+
+- **Facing (one rule):** it turns toward the densest crowd of undead within `face_reach_px` (240): for each undead's bearing, count the undead within the front half-arc of it; the most wins, a tie goes to the bearing nearest the current facing (an even ring holds still); the goal is that sector's mean bearing (`WardenLogic.shield_goal`, re-picked every `face_repick_s` 0.15 s). The flank-role undead are left out (else it would turn to them and cancel its own weak point). With no undead in reach it faces Relish while she is in its room, else holds. It turns at the phase's `turn_deg_s`, never past the goal (`turn_step`), and is planted (no turn) from the first frame of a bash tell through the bash frame itself (`WardenLogic.shield_turns`; before D-d/F the frame that bashed turned first, up to `turn_deg_s`/60 off the lit arc, 1.2° in phase 3), so the lit arc is where the bash lands. That fix moved the Shieldwall forts' seed-1 lines (pale-bastion, the-stair; every other fort's line is byte-identical). Dormant, it faces the antechamber.
+- **Hits (`hit_from`, the undead strike; RaidUnit calls it for any warden, the others forward it to `take_hit`):** the zone is read from the attacker's position (`shield_zone`). Front arc (±`front_half_deg`): GLANCE, ×`front_mult` 0.1, `clang`. Outside it: FLANKED, `flank` (`heavy` for a big undead); in full from the side, ×`back_mult` 2.5 from inside the back arc (±`back_half_deg` 45 round its back). The pips a flank hit takes are marked as the weak point's on the meter.
+- **The bash:** every `period_beats`, telegraphed `tell_beats` (1) ahead: the front arc out to `reach_px` (140) is lit `danger`, with the word BASH and her edge warning when it covers her. On the beat every undead in it takes `dmg_unit` 10 and is shoved `shove_px` 50 straight away; Relish in it takes `dmg_relish` 12 (death card: "The Shieldwall's bash").
+- **Phases** at hp thirds (the meter is notched there): turn 40 / 55 / 70 °/s, front ±80 / ±90 / ±100°, bash every 4 / 3 / 2 beats.
+- **Weak point (wits ≥ 4, effect `flank`):** a party big undead whose wits meet it and whose target is the wall takes the flank role (`RaidWardenRun.flank_for`): it walks round the orbit (its radius + the wall's + `flank_gap_px`), `flank_step_deg` 40 at a time so it never cuts through the wall, to a post straight behind (several spread `flank_spread_deg` 34 apart), and holds its blow while it is on the shield's side. The standard t3 party's bigs have wits 4 and the t4's 5, so the stock party meets it, as for the other wardens. `--raid-party-wits=<n>` (with `--raid-profile`) sets every party big's wits, for the without arm.
+- **Readability (tell -> counter -> labelled result -> meter drops):** the silhouette is a heavy `vei` shield arc over the front (one plate behind it per phase left; one falls away at each phase), a boss on the shield pointing where it faces, a helm and spine behind, and the back arc dashed with the word FLANK. A faint `danger` arc marks the bash's reach. GLANCE shows on the shield and FLANKED where the last flank landed (held `wardens.shield_label_s` 0.8 s). Each flank-role big is ringed `undead` with a line into the wall's back. HUD: "FLANKED ×n of m · took k" (the weak point's words until the first flank), row 2 "PHASE n/3" and the shield line from the spec ("front ±80° glances ×0.1 · back ×2.5 · turns 40°/s · bash every 4 beats"). Reduced motion: the facing is drawn at its sim angle, the tell's arc is steady and its word stays, the bash after-image is a step.
+- **The bot** (`_vs_wall`; its tell handling is superseded by the reaction rule, see "The bot's reaction model as built"): it keeps out of the bash arc grown by `wall_margin_px` 30 and `wall_margin_deg` 15, fetches only motes and pickups outside it, and otherwise waits `wall_side_deg` 110 off the facing, `wall_stand_px` 40 beyond the bash, walking round the short way and keeping its side until the other is `wall_switch_deg` 20 nearer. Its raises there walk in from the side. AUTOPILOT_RESULT gets a `shield` dict (hits, glances, flanks, backs, role hits, damage by kind, bashes, bash hits) for this archetype only; `warden_attacks` is bashes and `warden_attacks_weak_point` is flank hits.
+- **Measured** (score-70 bot, seeds 1-20 per row, the standard party at tier: `--raid-profile=3 --raid-fort=pale-bastion`, `--raid-profile=4 --raid-fort=the-stair`; "without" adds `--raid-party-wits=0`; batch from a working-tree snapshot that is sim-identical to 825a752: it differs only in HUD text (`raid_hud.gd`, `WardenLogic.shield_label`, the tells and weak-point label strings in `raid.json`, `tests/test_wardens.gd`); two rows re-run at 825a752 and one (pale-bastion seed 1, wits) at 7cf5bed give byte-identical lines; raw rows in the run's `reports/dungeon/shieldwall-raw.tsv`; fight = wake to the end, median [min-max] s):
+
+  | fort, arm | beaten | died | fight s | hits flanked / glanced / back | damage by the flank role | big undead lost |
+  |---|---|---|---|---|---|---|
+  | pale-bastion t3, wits | 20/20 | 0 | 73 [57-203] | 36% / 64% / 19% | 58% | 9 of 40 |
+  | pale-bastion t3, no wits | 19/20 (1 timeout) | 0 | 138 [94-582] | 30% / 70% / 13% | 0 | 40 of 40 |
+  | the-stair t4, wits | 20/20 | 0 | 66 [47-101] | 46% / 54% / 25% | 59% | 5 of 60 |
+  | the-stair t4, no wits | 20/20 | 0 | 107 [64-147] | 42% / 58% / 20% | 0 | 51 of 60 |
+
+  The counter shows in who does the damage and who survives, not in the hit count: the two or three flankers land only 7-8% of the hits but, at full damage and ×2.5 in the back, 58-59% of the damage, and they live (without the wits they fight in the crowd at its shield, glance and die to the bash). That halves the t3 fight and cuts the t4 one by 38%. Ordinary undead glance on 54-70% of their hits; the rest flank because the bot raises from the wall's side. Through the shield only 3-12% of the damage lands. The bash struck Relish once in 80 runs (the bot keeps out of the arc), so the risk here is the living, as at the other wardens; whole-run medians 90 s (t3) and 105 s (t4) sit with the other wardens' (P2 108-138 s).
+- Reduced-motion parity: `tests/parity_check.sh` identical, and the pale-bastion seed-1 pair (normal vs `--reduced-motion`) gives the same AUTOPILOT_RESULT. The other wardens' smokes (day1 old-sluice, P3 hollow-redoubt, seed 1) are byte-identical before and after.
+- Shots (run's `reports/dungeon/`): `dd-shieldwall-tell` (the lit arc and BASH, both wits bigs at its back ringed, FLANKED), `dd-shieldwall-tell-reduced` (same frame, steady arc), `dd-shieldwall-glance` (no-wits party just after the wake: the silhouette clear, GLANCE on the shield, FLANK on the dashed back, the weak point's words on the HUD), `dd-shieldwall-flank` (the two wits bigs posted behind it, FLANKED, the meter's slashed pips), `dd-shieldwall-greyscale`. Taken with the bot (`--raid-autopilot=70 --raid-autopilot-seed=1`) at frames read off `RAID_WARDEN bash ... frame=` (a headless `--shot` run boots the same way and prints them).
+- Known limits: the facing counts undead, not their strength (a big is one undead); the bash shove is a 50 px step, not a slide; a flanker in the role ignores the living around it; t4 fights run short (66 s median) because three wits-5 flankers at ×2.5 are strong: `hp_per_tier` or `back_mult` is the knob for the risk pass.
+
+## The Pyre-priest (D-d/D, task 10 part 2)
+`warden_pyre_priest.gd` (`RaidPyrePriest`) and `warden_acolyte.gd` (`RaidAcolyte`); rules in `WardenLogic`'s pyre section (`acolyte_count`/`acolyte_posts`, `ward_mult`, `is_snuffer`, `pyre_phase`, `burn_count`/`burn_aim_relish`/`burn_pick`/`relish_spots`/`burn_plan`, `in_burn`, `pile_after_burn`, `pyre_meter`/`pyre_meter_lit`, `pyre_label`, `burn_exit`), knobs in `raid.json wardens.archetypes.pyre_priest` (its `_doc`). Forts: mourners-gate (t3) and whitecross (t4).
+
+- **Acolytes and the ward:** `acolytes_base` 0 + `acolytes_per_tier` 1 x tier acolytes (3 at t3, 4 at t4; `acolyte_hp` 150, `acolyte_radius_px` 12), posted `acolyte_ring_px` 160 behind the priest from the antechamber's gap (the swarm's way in), spread over `acolyte_arc_deg` 110 and kept in the room. They are children of the priest, not `raid.enemies`: no LIVING count, no ledger mass, nothing dropped when they fall. Undead target them like the warden (`RaidWardenRun.target_in` offers the nearest of the priest and its living acolytes), so the swarm, coming in from the front, hits the priest first. While any acolyte lives the priest takes `ward_mult` 0.2 of every hit (a dashed `vei` line from each living acolyte into it; WARDED over it while hits land through the ward).
+- **The burn, on the beat:** every `period_beats` it marks burn areas `tell_beats` (1) ahead, fixed for the tell (`tell`): the phase's own area (`areas` 1) on the densest loose essence or unstirred corpse pile within `reach_px` 520 in its room (greedy coverage; a pile weighs `pile_weight` 2 motes; tie to the candidate nearest the priest), plus `areas_per_acolyte` 1 for each living acolyte beyond the first, aimed at Relish while she is in its room and reach (at most `relish_areas_max` 3: one on her, the others `relish_spread_px` 60 round her, the first straight away from the priest). On the beat (`ignite`) every loose mote inside is destroyed (BURNED −N at the area; carried motes are safe), a corpse pile inside loses `pile_burn_frac` 0.5 of its mass (burned away under `pile_min_mass` 0.5; its ×N badge follows), each undead touching an area takes `dmg_unit` 6 and Relish `dmg_relish` 8, once per beat however many areas cover them (death card: "The Pyre-priest's fire"). With nothing to burn and no acolyte fire, no area is lit. Burned essence leaves the field like early decay: the ledger never tracked loose motes, so the result is unchanged in shape.
+- **Phases:** phase 1 while any acolyte lives (whatever its hp); phase 2 (EXPOSED banner, no ward) when the last falls; phase 3 at `until_hp_frac` 0.4. Fires every 4 / 3 / 2 beats, radius 72 / 90 / 105 px. A priest whose hp crossed 0.4 while still warded goes straight to phase 3 when exposed.
+- **Weak point (power ≥ 6, effect `snuff`):** a big undead whose power meets it kills an acolyte in one blow (SNUFFED, `snuff`, its pips marked as the weak point's). Fighting the priest (its target is the priest or an acolyte) it takes the acolyte-hunting role (`RaidWardenRun.snuff_for`): it goes for the nearest living acolyte, ringed `undead` with a line to it. The standard t3 party's bigs have power 6.0 and 6.5 and the t4's 7-8, so the stock party meets it.
+- **Break meter:** 12 pips (`WardenLogic.pyre_meter`): `wardens.pyre_pips_per_acolyte` 2 per acolyte on the right (spent as they fall), its hp's pips on the left notched at the phase-3 gate (t3: 3 + 3 hp, 6 acolyte; t4: 2 + 2 hp, 8 acolyte), a notch between the two. The two are separate bands (`WardenLogic.pyre_pip_lit`, one check for the HUD row and the in-world row): the hp pips `[0, hp_pips)` light as a prefix of its hp share, the acolytes' pips `[hp_pips, n)` as a prefix of the living, so hp lost through the ward never darkens an acolyte's pip. A snuff marks its own acolyte band (`pyre_snuff_pips`). The other wardens' meters are one prefix band through the same `pip_lit`.
+- **HUD:** "SNUFFED ×n · took k" (the weak point's words until the first snuff), row 2 "PHASE n/3", "ACOLYTES n/m" (hidden at 0), the fire line from the spec ("warded ×0.2 · 3 fires every 4 beats, 2 at Relish", then "exposed · 1 fire every 3 beats" in `danger`) and "burned n essence" (hidden at 0).
+- **Readability:** the silhouette is a tall robe under a hood with a `danger` flame line above it (one band across the robe per phase left; one falls away at each phase), the pyre's matte logs at its feet; acolytes are small hooded glyphs, a matte cross once fallen. A lit area is a `danger` ground circle with flame ticks round its rim (shape as well as colour), filling brighter through the tell; "step off the fire" under the area nearest her the first time; her edge warns while she stands in one. After the beat the areas leave a short after-image and BURNED −N. Reduced motion: the fill is steady, the word FIRE sits in each lit area, the flame does not sway, the after-image is a step.
+- **The bot** (`_vs_pyre`; its step-off roll is superseded by the reaction rule, see "The bot's reaction model as built"): while a tell shows it first carries out a mote lying in a lit area when the trip in plus the way out fits before the beat with `burn_safe_beats` 0.35 to spare, else steps off a lit area that covers her to `burn_clear_px` 16 beyond its edge (`WardenLogic.burn_exit`), rolled once per tell with `burn_step_off` 0.8 (a decent player misreads one fire in five, as `dodge` 0.5 is for the Huntsman's lunges). Then the living, then what lies outside the fire in its room; else it waits `pyre_stand_px` 60 beyond the living acolyte nearest her (seen from the priest) and holds a raise until within `pyre_raise_px` 120 of one (unless her carry is full), so the raised undead walk into it; exposed, it waits `pyre_exposed_px` 170 from it. AUTOPILOT_RESULT gets a `pyre` dict for this archetype only (acolytes, `acolyte_kill_s` from the wake, snuffs, `exposed_s`, burns, areas, essence burned, piles and pile mass burned, burn hits on undead, `burn_relish`, `burn_soaked` (the chain spent an ally for her), damage warded and exposed, `relish_min_hp`); `warden_attacks` is burn beats and `warden_attacks_weak_point` snuffs.
+- **What the missing counter costs (the risk knobs):** `ward_mult` and `acolyte_hp` (how long a party without power is held in phase 1), `areas_per_acolyte`, `relish_areas_max`, `relish_spread_px` and `dmg_relish` (the fire on Relish while acolytes live), `dmg_unit` and `pile_burn_frac` (the army and the essence it loses), and the bot's `burn_step_off`. Without power the acolytes live until raises reach them, so the fire on her and the burned essence last.
+- **Measured** (score-70 bot, seeds 1-20 per row, the standard party at tier: `--raid-profile=3 --raid-fort=mourners-gate`, `--raid-profile=4 --raid-fort=whitecross`; "without" adds `--raid-party-power=5`, one under the threshold: it takes the snuff and the hunting role away but also 1.2-3.6 of each big's damage per hit, since `dmg = 3 + 1.2 x power`; batch from a `git archive` of c478820; raw rows in the run's `reports/dungeon/pyre-raw.tsv`; fight = wake to the end, median [min-max] s; lowest hp is Relish's per run, 0 when she died):
+
+  | fort, arm | beaten | Relish died | fight s | first / last acolyte falls, s after the wake | essence burned | fires on Relish (an ally spent for her) | lowest hp | big undead lost |
+  |---|---|---|---|---|---|---|---|---|
+  | mourners-gate t3, power | 19/20 | 1 | 102 [58-238] | 6 [1-32] / 8 [2-34] | 1.5 [0-17] | 2 (0) | 26 [0-30] | 11 of 40 |
+  | mourners-gate t3, no power | 16/20 (2 timeouts) | 2 | 150 [31-582] | 25 [10-412] / 44 [24-469] (all fell in 14) | 3 [0-21] | 15 (5) | 22 [0-30] | 20 of 40 |
+  | whitecross t4, power | 20/20 | 0 | 98 [57-120] | 18 [9-33] / 22 [13-34] | 2.5 [0-14] | 0 (0) | 26 [1-30] | 1 of 60 |
+  | whitecross t4, no power | 20/20 | 0 | 155 [89-332] | 41 [21-249] / 79 [34-292] | 6.5 [1-11] | 49 (22) | 6 [2-30] | 5 of 60 |
+
+  The counter shows in how long the priest is warded and how much fire lands on her: with the power bigs the last acolyte falls 8 s (t3) and 22 s (t4) after the wake (medians; 58 of 60 and 80 of 80 acolytes snuffed), so the ward takes 1% of the damage and almost no fire reaches her; without them the acolytes fall only to raises made beside them, 25-79 s in (at t3 six runs never cleared them), the ward eats 25-29% of the damage, the fight runs about half again as long and the fire on her goes from 2 to 15 (t3) and 0 to 49 hits (t4), 22 of which cost an ally. At t4 that leaves her at 6 hp (median) and the chain absorbs the rest, so nobody dies; at t3 two deaths and two timeouts against one death. The two timeouts kept one acolyte alive to the 600 s cap (the ward still on, the priest at 17% and 47%): with the living gone there was too little essence left to raise beside it. The one death with power (seed 15, woken early with 35 mass of living about) and the two without came from the living after the army thinned (at most one fire hit before). Without power more big undead are lost (20 vs 11, 5 vs 1). Whole-run medians 130 s (t3) and 115 s (t4) with power.
+- A knob probe (not committed; the same snapshot with `acolyte_hp` 250 and `dmg_relish` 12, seeds 1-10; rows in `reports/dungeon/pyre-probe-raw.tsv`): with power unchanged (10/10 and 10/10 beaten, lowest hp 23 and 26); without, lowest hp 10 at t3 (2 deaths, 1 timeout of 10) and 5 at t4 (no deaths: 11 of its 24 fire hits cost an ally). So `acolyte_hp` and `dmg_relish` move only the no-power arm (`ward_mult` and `relish_areas_max` act the same way by construction: they bite only while acolytes live); at t4 the sacrifice chain is what stands between a burned Relish and death, so `dmg_unit` (the army's attrition) and `burn_step_off` are the levers that turn that into deaths.
+- An earlier batch (63a430c; rows in `reports/dungeon/pyre-raw-63a430c.tsv`) read 10/20 beaten and 9 deaths at t3 without power: the bot then held raises while kiting the living out of the room, so its army starved. That was the bot, not the warden; c478820 raises where she is when out of the room or with a foe near, and the table is from it.
+- Reduced-motion parity: `tests/parity_check.sh` identical, and the mourners-gate seed-1 pair (normal vs `--reduced-motion`) and the whitecross t4 seed-1 pair give the same AUTOPILOT_RESULT and RAID_RESULT lines. The other wardens' lines (old-sluice day1, hollow-redoubt t3, pale-bastion t3, seed 1) are byte-identical to the pre-task HEAD (ebb74f0).
+- Shots (run's `reports/dungeon/`, mourners-gate seed 1, frames read off `RAID_WARDEN` prints of a headless `--shot` run): `dd-pyre-tell` (no power, the first tell: three lit areas, two on Relish who misread it and stands in one, "step off the fire", the ward lines, WARDED, her edge warning), `dd-pyre-tell-reduced` (same frame: steady fill, FIRE in each area), `dd-pyre-greyscale` (same frame), `dd-pyre-burned` (BURNED −4 on the priest's own area after the beat, "burned 4 essence" on the HUD), `dd-pyre-snuffed` (power: SNUFFED over a fallen acolyte, the other power big ringed with its line to the next one, "SNUFFED ×1 · took 2" and the two slashed pips), `dd-pyre-exposed` (the EXPOSED banner, every acolyte a cross, the meter at 6/12 with six slashed pips, PHASE 2/3 "exposed · 1 fire every 3 beats", the fire on a corpse pile).
+- Known limits: with nothing on the floor and no acolyte fire, the exposed priest lights nothing (3-10 burn beats a fight), so phases 2-3 press only while essence or corpses lie in reach; a fallback target (her, or the crowd at its feet) is the knob if they should press harder. Acolytes are not living units: no LIVING count, no essence or ding when they fall, and the living ignore them. The bot's step-off chance is a policy knob, not a measured human rate.
+
+## Run length and risk calibration (D-d/E)
+Measuring fields only so far: the sim is unchanged (the four seed-1 lines below are byte-identical apart from the new keys).
+
+- **New AUTOPILOT_RESULT keys** (read off the run each physics tick in `RaidAutopilot._split_tick` / `_engaged`, written in `on_finish`; never fed back into a decision, and the tests guard that those bodies touch no rng, goal or routing state):
+  - `split` {`travel_s`, `fight_s`, `trance_s`, `idle_s`}: scene seconds per bucket; they sum to `duration_s` (to the 0.01 rounding).
+  - `frames_drawn` (`Engine.get_process_frames()`) and `physics_frames` (`Engine.get_physics_frames()`) when the line prints, `frames_at_start` (both counters at `start()`: 0 and 0, the scene builds on the first frame), `run_ticks` (the live physics ticks the bot counted, = `duration_s` x 60; the rest of the frames are the end beat, e.g. 90 for the 1.5 s victory beat).
+  - `walk_px` (how far Relish walked in all), `walk_travel_px` (of it, in travel ticks), `route_px` (the shortest walk the bot's own routing takes from the spawn to the warden room's centre: the BFS room path through the nearest gap of each pair), `rooms_entered` (room changes, counted on think ticks; kiting through a doorway counts each crossing).
+  - `killed_by`: `Relish.last_hit_src` when she died (`slam`, `lunge`, `bash`, `fire`, `living`; `wound` when nothing named it), else "". The death card's KILLED BY reads the same source.
+  - The boss bot's line (`BOSS_AUTOPLAY`, `boss_autopilot.gd`) has no frame counters: that file is outside this task.
+- **The time split** (`RaidLogic.time_class`, `RaidLogic.foe_engaged`; tests `raid_time_split`). Each live physics tick (1/60 s of scene time, from the build to the death or the chest; the end beats are not in `duration_s`) goes to the first bucket that matches:
+  1. **trance**: the trance is open (`RaidTrance.State.ACTIVE`). The bot never opens it: `bot_raise_cooldown` raises at once without entering it, so the bot's trance share is 0 by construction. A player's trace time belongs in the bot-to-human factor, not here.
+  2. **fight**: something is engaged. The warden from its wake while it lives, wherever Relish stands (standing off a slam, waiting out a tell or fetching motes in its room is its fight; its acolytes come with it), or a hostile living foe (aggro'd: it never calms) in her room (a doorway band is no room) or within `combat.aggro_px` (260) of her through any wall. Kiting, holding while the army fights and stepping off a fire are fight.
+  3. **travel**: nothing engaged and Relish moved more than `SPLIT_MOVE_PX` (1 px) this tick (she walks 4 px a tick): walking the route, collecting motes and piles with no foe engaged, fetching pickups, walking to the chest after the kill.
+  4. **idle**: none of these: standing with nothing engaged (holding back while calm living stand in the next room, waiting on the cooldown, the stall before the bot gives up).
+  So the levers Step 3 may use (more fights, warden phases, guarded loot) land in fight; corridor length lands in travel and waits in idle. Walking through a room that holds any hostile living is fight too, so a grown room could hide walking inside fight: report `walk_px - walk_travel_px` (the walk inside fight) beside the shares. In the pilot it is 57-95% of all walking (median per tier).
+- **Lockstep** (the determinism gate). In every normal run `physics_frames` is `frames_drawn` + 1 (the line prints from a process callback after that frame's physics step; the 4 seed-1 lines and all 42 pilot runs). A run that ends inside a physics tick shows 1 as well: two timeouts at 600 s (mourners-gate, no power, seeds 8 and 12), whose lines are otherwise identical to their c478820 rows in `pyre-raw.tsv`. A run is **in lockstep** when `physics_frames - frames_drawn` is 0 or 1; any other value means process frames and physics ticks fell out of step (mote drift, corpse piles and the trance cooldown advance in `_process`), and the run is excluded from every table and listed as an outlier.
+- **Determinism watch.** The Pyre-priest's burn (`RaidPyrePriest._ignite`, `_mark_areas`) reads mote positions and `carried` flags that `essence_orb._process` advances (drift, absorb, the carry slots). That is deterministic under `--fixed-fps 60` (a process frame per physics tick: the lockstep rule above) but depends on frame pacing in live play: a hitch moves a mote a different distance between two ticks, so which motes a fire catches can differ from run to run. Nothing in the bot's lines depends on it; a human's run will, a little.
+- **Bot dict snapshots** (D-d/F). The `shield` and `pyre` dicts of AUTOPILOT_RESULT are read off the warden at each think tick (before that frame's warden and unit physics), once more in `RaidWardenRun.on_warden_died` before it lets go of the warden (via `RaidDev.on_warden_died` to `RaidAutopilot.on_warden_died`), and again in `on_finish` while the warden is still there (Relish died, timeout). So the killing blow (`hits`, `flanks`, `dmg_*`) and the burn or bash that kills Relish (`burn_relish`, `bash_relish`) are in them. The older `_attacks` and `_attacks_wp` counters (`warden_attacks`, `warden_attacks_weak_point`, `catches`) are still the think tick's snapshot and miss the last event; they feed every fort's line, so they stay as they are.
+- **Byte identity** (f77f8a9 vs f77f8a9 + these fields, seed 1, score 70, each from a `git archive` snapshot): `--raid-fixture=day1,old-sluice`, `--raid-profile=3 --raid-fort=hollow-redoubt`, `pale-bastion`, `mourners-gate`: AUTOPILOT_RESULT identical once the new keys are dropped (text and parsed), and every `RAID_WARDEN` (with its `frame=`), `RAID_RESULT` and `RAID_TELEMETRY` line identical. `tests/parity_check.sh` identical.
+- **Pilot** ("pilot, pre-fix, f77f8a9 + instrumentation": a `git archive` of 9b6442d, score 70, seeds 1-3, every fort at its tier with its tier's party profile, plus the first dungeon by `--raid-fixture=day1,old-sluice`; 39 runs and 3 re-runs, rows in the run's `reports/dungeon/calibration-dd-pilot.tsv`, runner `calibration-dd-run.py`). All 42 in lockstep. Three runs ran past 2x their fort's median: old-sluice (party 1) seed 1 at 272 s, mourners-gate seed 1 at 261 s, chime-fort seed 2 at 220 s; each re-run gave a byte-identical line, so they are the sim's own spread, not the machine. They are kept out of the table (with them: t1 106, t2 128, t3 113 s). Medians in scene seconds; shares pooled over the runs:
+
+  | row | runs | median s [min-max] | travel / fight / trance / idle % | beaten | died | raises |
+  |---|---|---|---|---|---|---|
+  | P1 first dungeon | 3 | 115 [106-120] | 3 / 89 / 0 / 8 | 3 | 0 | 18 |
+  | t1 | 8 | 106 [40-133] | 4 / 93 / 0 / 3 | 7 | 1 (greywall seed 3, the living, 40 s, before the wake) | 16 |
+  | t2 | 8 | 124 [54-216] | 5 / 91 / 0 / 4 | 8 | 0 | 17 |
+  | t3 | 8 | 104 [78-165] | 9 / 83 / 0 / 7 | 8 | 0 | 11 |
+  | t4 | 9 | 126 [79-282] | 12 / 83 / 0 / 5 | 9 | 0 | 14 |
+  | Bellringer at tier (t2, t4) | 9 | 156 [118-282] | 5 / 92 / 0 / 3 | 9 | 0 | 20 |
+  | Huntsman at tier (t2, t3) | 5 | 82 [54-95] | 13 / 72 / 0 / 15 | 5 | 0 | 10 |
+  | Shieldwall at tier (t3, t4) | 6 | 134 [78-165] | 13 / 80 / 0 / 8 | 6 | 0 | 17 |
+  | Pyre-priest at tier (t3, t4) | 5 | 113 [79-130] | 11 / 86 / 0 / 3 | 5 | 0 | 7 |
+
+  Fight is most of every run because the bot waits for its army in rooms with hostile living, and the warden fight counts whole. The deep tiers travel more (t4 12%: bigger layouts). Wall clock 11.7 s per run (median; 5.6-21.9), 10x scene speed, three at once with the machine's 1-min load at 1.7-3.7 on 12 cores.
+- **The bot's reaction model, as it is** (f77f8a9; read, not changed). The bot thinks every `think_frames` 3 physics frames (50 ms) and reads the warden's state, not the screen. Relish walks 240 px/s. Every tell lasts `tell_beats` 1 beat (1.714 s, `pulse.json tempo_ms`).
+
+  | threat | what it reads | when it reacts | margin | not answered | depends on score |
+  |---|---|---|---|---|---|
+  | Bellringer slam | the beat clock (`_next_attack`, `beat()`): beats until the next tell | before the tell. It goes in for motes only when the trip in and back out fits before the tell with `slam_safe_beats` 1 beat to spare (`WardenLogic.slam_window_open`); otherwise it stays outside | 302 px from the bell (reach 260 + half the band + `bell_margin_px` 24), waiting `bell_stage_px` 20 beyond | never | no |
+  | Huntsman lunge | `_locked` (the tell) and `_lock_pt` | the next think, 50 ms or less | 49 px off the line (22 + 13 + 14) plus `dodge_step_px` 60: 0.2 s of walking | `dodge` 0.5: half the tells, rolled once per tell | no |
+  | Shieldwall bash | the facing and the arc every think, tell or not | always: it never stands in the arc | the arc grown by `wall_margin_deg` 15 and `wall_margin_px` 30 (183 px) | never | no |
+  | Pyre-priest fire | `lit` and the areas (fixed for the tell) | the next think | `burn_clear_px` 16 beyond the area's edge (up to 134 px from its centre, 0.56 s) | 1 - `burn_step_off` = 0.2, rolled once per tell | no |
+  | the living | every living foe in her room, every think | the next think | kites at `kite_px` 240 (110 after `stall_s` 20 s held in one room) and holds at `hold_px` 200. It ignores a foe behind a wall and outruns them all (spearman 95, runner 175, brute 70 px/s) | never | no |
+
+  The score is read in one place: `_trace_for` searches the trace jitter until the grade lands within `score_tol` 5 of it. So it sets the raise's class and count and nothing about dodging. Two of the four wardens have no delay and no miss at all, and the Bellringer's reaction is effectively negative: the bot leaves before the tell starts. That is why the bash struck Relish once in 80 runs.
+- **Proposed score tie** (built as proposed: see "The bot's reaction model as built" below). One rule for every warden tell: per tell, a **miss** chance `m` (the tell is not answered: she keeps doing what she was doing) and a **reaction delay** `d` (an answered tell is acted on `d` after it starts), both set by the target score:
+
+  | score | m (tells missed) | d (s) | answered |
+  |---|---|---|---|
+  | 50 | 0.30 | 0.60 | 0.70 |
+  | 70 | 0.18 | 0.45 | 0.82 |
+  | 90 | 0.08 | 0.30 | 0.92 |
+
+  Between those points both are linear in the score.
+  - Basis for `d`: a choice reaction to a visual cue is about 0.35-0.5 s in the lab (Hick-Hyman, two to four choices), plus 0.1-0.2 s for a cue at the edge of the screen and a mouse move. Against a 1.714 s tell, 0.45 s still leaves 1.26 s, or 300 px of walking. That covers the lunge (49 px), any fire (134 px) and the Shieldwall's arc. So `d` rarely decides a hit, and misses are about attention, not speed.
+  - Basis for `m`: a lapse of about 0.05 (a tell at the edge of the screen while she watches the army or the motes), plus the share of fight time a player's eyes are on the circle. From the pilot that share is 0.09-0.23: raises after the wake times (0.35 x a 1.5-2.5 s trace + 0.3-0.7 s of aiming) over the fight's scene seconds. Assume about 0.7 of the tells that start during a trace go unanswered. This is an assumption, not a measurement: after the trace the tell still has 0.8-1.7 s of scene time, which after `d` is 84-300 px of walking. That is plenty for the lunge (49 px), so 0.7 is too high there, and about right for a deep exit from the bell (up to 302 px). That gives 0.11-0.21. 0.18 sits in the upper half, next to the 0.2 the Pyre-priest's step-off already uses, so that fight barely moves. A score-50 player draws longer and redraws more (0.30); a score-90 player is quick on both (0.08).
+  - What it changes against today, per warden:
+    - Bellringer: it keeps counting beats to go in (a player can count four beats), but with `slam_safe_beats` cut to about 0.25 beat, so the tell can find her inside. The exit becomes the tell's answer, with `m` and `d`.
+    - Shieldwall: it avoids the arc only while a bash tell shows (`m` and `d`), so between tells it may stand in front. It keeps the side stand as where it prefers to wait.
+    - Huntsman: `dodge` goes from 0.5 to 1 - `m` = 0.82, and the step starts `d` after the lock. At score 70 this fight gets easier for the bot. The 0.5 had no stated basis.
+    - Pyre-priest: `burn_step_off` goes from 0.8 to 0.82, and the step starts `d` after the tell.
+    - The living: the kite starts `d` after a foe comes within `kite_px`, with no miss chance (it is not a one-beat tell).
+  - The context runs ("0.6 and 1.0 of its score-70 value") then answer 0.49 and 0.82 of the tells.
+- **The bot's reaction model as built** (D-d/E1b; frozen from here on: Steps 3-4 move only game knobs).
+  - **One rule** (`RaidAutopilot._answers`, the one place every warden tell goes through). The first think that sees a tell rolls once whether she answers it: chance 1 - `_miss`, from `_rng_react`, a stream of its own (seed ^ 0x5EAC7105). She acts on it `_delay` scene seconds after that first sight. Until then, and all through a missed tell, she does what she would do with no tell.
+  - **The knobs** (`raid.json autopilot`): `react_score` [50, 70, 90], `react_miss` [0.30, 0.18, 0.08] and `react_delay_s` [0.60, 0.45, 0.30], linear in the target score between the points and clamped outside (`RaidLogic.react_at`, tested). The basis is the proposal above and the section's `_doc`. `dodge` and `burn_step_off` are gone. The trace (`_trace_for`, ring quality) is unchanged and is the only draw left on `_rng`, so the Bellringer and Shieldwall forts (which rolled nothing before) keep their trace draws; at the Huntsman and Pyre-priest forts the trace draws no longer interleave with tell rolls.
+  - **Per warden:**
+    - **Bellringer:** the beat count says when to go in. The trip in and back out must fit before the next tell with `slam_safe_beats` 0.25 (was 1.0) to spare. Inside she works until she answers a slam tell (or a slam ring is out, in plain sight: no roll): on to the point she was making for, else the motes in reach, else she holds. Then she leaves. The exit is the tell's answer, not the beat count.
+    - **Shieldwall:** the bash arc (with `wall_margin_*`) is kept clear only while she answers a bash tell. Between tells she fetches what lies in its room, the arc included, and otherwise waits at the side stand as before.
+    - **Huntsman:** the sidestep happens on an answered lunge tell, `_delay` after the lock. Its side when nothing else decides is rolled with the tell.
+    - **Pyre-priest:** the step-off, the mote carried out of a lit area and the keep-out of lit areas happen only on an answered fire tell, `_delay` after it lights.
+    - **Fixed after the freeze (D-d/E Step 4b, b1233c4; the manager's ruling "missed has to mean missed").**
+      - **The bug.** A missed Shieldwall tell still fed the tell's facing, arc and reach to her stand (`_wall_stand` reads them), so she dodged a tell she had missed. A missed slam's ring was still fled once it was out.
+      - **The fix.** From a missed tell until it strikes, the bot plans against the state from before it (`_wall_pre`), and does not react to a missed slam until its ring has passed.
+      - **Unchanged:** answered tells, m and d, and the Bellringer's beat-clock trips. A human learns the beat too.
+      - It is a bug in how the frozen model was built, not a new policy. It is revertible on its own.
+      - New tell geometry is answered through the same roll: the toll (fa42e59) is answered by stepping out of its ring, and the aimed lane by the existing step out of the lit arc.
+    - **The living:** no miss (no one-beat tell). The kite starts `_delay` after a living foe in her room first comes within `kite_px` (`_watch_threat`, `_kite_due`); until then her old goal stands (`kite-wait`). A foe that steps out of `kite_px` and back within `_delay` is the same threat, so there is no fresh delay at the kite's edge. The first build re-armed there: at greywall t1 seed 3 it re-armed 12 times in 21 s.
+  - **Measuring:** AUTOPILOT_RESULT gains `react` {`miss`, `delay_s`, `tells` seen, `answered`}. DEV `--raid-autopilot-answer-mult=<x>` scales the answered chance, for the context runs at 0.6 and 1.0; it replaces `--raid-autopilot-dodge`. The boss bot (`boss_autopilot.gd`, `vei.json autopilot.dodge`) is untouched.
+  - **The seed-1 lines move** (548098e, then with the rule as it now stands; score 70; scene s; raises; Relish's hp at the end; allies at the end; warden tells answered of seen):
+
+    | run | before | after | why |
+    |---|---|---|---|
+    | old-sluice day1 (Bellringer) | 105.5 s, 17 raises, hp 30, 17 allies | 98.1 s, 17 raises, hp 30, 23 allies; 11 of 12 tells | she now stays inside working until she answers each tell, so raises and positions shift. The one miss struck nothing |
+    | hollow-redoubt t3 (Huntsman) | 82.2 s, 10 raises, hp 26, 27 allies | 74.5 s, 9 raises, hp 30, 32 allies; 3 of 4 | 0.82 of the lunges answered against 0.5 before, and its trace draws no longer interleave with dodge rolls |
+    | pale-bastion t3 (Shieldwall) | 77.7 s, 12 raises, hp 30, 12 allies | 85.8 s, 12 raises, hp 30, 25 allies; 13 of 14 | she no longer keeps out of the arc between bashes, so she stands and fetches elsewhere. No bash struck her |
+    | mourners-gate t3 (Pyre-priest) | 261.3 s, 10 raises, hp 30, 13 allies | 151.8 s, 11 raises, hp 30, 19 allies; 4 of 5 | the fire keep-out, the step-off and the mote grab happen only on answered tells, and the trace draws no longer interleave. This seed's 261 s outlier is gone |
+
+    `tests/parity_check.sh` gives identical results (all five checks).
+- **Bot-to-human factor, first draft** (real seconds added to the bot's scene seconds; outside the trance scene time is real time). Measured from the pilot:
+  - Raises per run: 18 (P1), 16 (t1), 17 (t2), 11 (t3), 14 (t4). In the fights, a raise every 7-9 scene seconds after the wake, near the 6 s cooldown: the bot raises the moment the trance is ready.
+  - The bot's trace time per raise is 0. It never opens the trance: `bot_raise_cooldown` raises in one think, and the cooldown starts at once.
+  - Its walk in travel ticks is 0.85-2.3x `route_px` (median per tier: P1 0.85, t2 1.28, t3 1.67, t4 2.31). That walk includes the mote and pickup trips and the walk to the chest. Its whole walk is 1.7-18x the route (kiting, dodging, the warden fight).
+  - `rooms_entered` 5-41 (median per tier), inflated by kiting back and forth through a doorway. The layouts have at least 2 + tier rooms. Tells per fight minute: 7-13.
+
+  The model: human = bot scene seconds + raises x `c` + travel seconds x `r` + (2 + tier) rooms x `h` + tells x `k`.
+  - `c` per raise, 1.0-3.5 s. A comfortable ring traced in 1.5-2.5 s of real time, inside the trance (`time_scale` 0.35, focus 4 s real), and the cooldown starts only when the trance closes. Since the fights raise about as often as the cooldown allows, the trace adds almost in full. Low: 1.5 s x (1 - 0.35), the scene still runs at 0.35 during it. High: 2.5 s, plus 0.5 s aiming before the trance, plus 0.5 s starting late after READY.
+  - `r`, 0.10-0.30: click-to-move detours and hesitation on the travel seconds.
+  - `h`, 1-3 s per room on first entry: looking, choosing to push or wait, where to stand.
+  - `k`, 0-0.4 s per warden tell (`warden_attacks`): the pause or step a player makes on a tell that the bot makes in its own scene time anyway (low 0), or the beat a player loses re-aiming after it (high).
+  - Not in it: retried circles (the 1 s lockout and a redraw; part of the high end), and the warden fight's own hesitation (the reaction model above covers its risk, not its time).
+  - Factor (t2-t4 pooled, median per run): **1.18-1.65**. Human estimate per tier (median per run): P1 137-194 s (2.3-3.2 min), t1 2.1-3.0 min, t2 2.4-3.4 min, t3 2.0-2.6 min, t4 2.5-3.4 min. Per warden at tier: Bellringer 3.1-4.3, Shieldwall 2.6-3.7, Pyre-priest 2.1-2.5, Huntsman 1.6-2.3 min. So at f77f8a9 tiers 2-4 land below or at the bottom of the 3-6 min target, and only the Bellringer's forts reach it.
+- **Baseline** (iter `base`: a `git archive` of 5b70259, i.e. the review fixes at 548098e plus the reaction rule as frozen; the pilot's set: score 70, seeds 1-3, every fort at its tier with its tier's party, plus the first dungeon by `--raid-fixture=day1,old-sluice`; rows in the run's `reports/dungeon/calibration-dd-raw.tsv`; the rows of a first baseline at 4a89a8d, before the kite fix, are kept there as `base-4a89a8d`). **This is today's split**: Steps 3-4 may not raise a tier's travel or idle share above it.
+  - All 41 runs are in lockstep. Two outliers, each re-run byte-identical, are kept out: chime-fort seed 2 (282 s) and sable-hold seed 2 (338 s).
+  - 0.80 of the warden tells were answered (264 of 328 at t2-t4). There were no deaths at t2-t4, but Relish ended runs at 3-14 hp.
+  - Medians in scene seconds; "walk in fight" is the median `walk_px - walk_travel_px`; the pilot's value is in brackets:
+
+  | row | runs | median s | travel / fight / trance / idle % | walk in fight px | beaten | died (killed by) |
+  |---|---|---|---|---|---|---|
+  | P1 first dungeon | 3 | 98 (115) | 3 / 88 / 0 / 9 (3 / 89 / 0 / 8) | 4100 (948) | 3 | 0 |
+  | t1 | 9 | 103 (106) | 3 / 93 / 0 / 3 (4 / 93 / 0 / 3) | 3968 | 7 | 2 (living, at 12 s and 17 s) |
+  | t2 | 8 | 103 (124) | 4 / 91 / 0 / 5 (5 / 91 / 0 / 4) | 5710 (2988) | 8 | 0 |
+  | t3 | 9 | 121 (104) | 9 / 82 / 0 / 9 (9 / 83 / 0 / 7) | 10812 (9506) | 9 | 0 |
+  | t4 | 8 | 125 (126) | 15 / 80 / 0 / 5 (12 / 83 / 0 / 5) | 9524 (8944) | 8 | 0 |
+  | Bellringer at tier | 8 | 124 (156) | 4 / 94 / 0 / 2 | 5942 | 8 | 0 |
+  | Huntsman at tier | 5 | 78 (82) | 10 / 71 / 0 / 18 | 8802 | 5 | 0 |
+  | Shieldwall at tier | 6 | 110 (134) | 14 / 77 / 0 / 8 | 12316 | 6 | 0 |
+  | Pyre-priest at tier | 6 | 119 (113) | 12 / 86 / 0 / 2 | 5644 | 6 | 0 |
+
+  - Against the tier median the t2 Huntsman (chime-fort, 2 runs) is -35%; every other archetype at its tier is within 17%.
+  - At n = 3 per fort these medians are noisy: the same set at 4a89a8d gave the t3 Huntsman 79 s and t4 149 s, against 137 s and 125 s here. The Step 3 checks should use seeds 1-6 per fort.
+  - Time before the wake is 19-25 s per tier; the warden fight (wake to end) is 84 / 83 / 106 s at t2 / t3 / t4.
+  - The two t1 deaths are new against the pilot's one. ashgate seed 3: she walked round a corner into four living after loot, kept walking for the 0.45 s delay (8 hp), kited into the Huntsman's room, woke it and was cornered there. greywall seed 3 died at 17 s before any wake; it also dies with no delay (at 40 s, as in the pilot).
+  - **Human factor at this head:** 1.18-1.67 (t2-t4 pooled, median per run; t3 1.14-1.48, with few raises at the Pyre-priest). Human estimate: t2 2.0-2.9 min, t3 2.3-3.1, t4 2.4-3.2, P1 2.0-2.9.
+  - **The run-length window:** the check at each step is the median per-run human estimate per tier: low at least 180 s, high at most 360 s. In bot seconds at today's factors that is about 151-211 s at t2, 158-243 s at t3 and 154-224 s at t4 (pooled 153-216 s). Today all three tiers sit 30-50 s under its floor.
+
+## Run length, Step 3 (D-d/E): the levers
+The window: at t2-t4 the median per-run human estimate (bot-to-human factor above) must be at least 180 s at its low end and at most 360 s at its high end. No archetype at tier may be more than about 30% off its tier's median. Travel and idle shares may not rise above the seeds 1-6 baseline at 5b70259 (t2 5.3 / 5.1 %, t3 10.5 / 7.5 %, t4 16.0 / 6.5 %; medians 101 / 115 / 117 s; human estimate 119-171 / 132-170 / 136-187 s; P1 100 s, 119-172 s; t1 106 s, 126-183 s, 3 of 18 died).
+  - **The convention:** shares are pooled seconds over the runs, with outliers (more than 2x their fort's median, the E brief's rule) left out. That removes one run at t2 and one at t4. With every row the ceilings would read t2 4.8 / 5.4 % and t4 14.1 / 5.7 %; t3 is the same either way. Per-run medians give a third set of numbers. Claims such as "idle fell at every tier" hold under this convention.
+  - **The routing fix alone** (5b70259 plus `_real_gaps`, seeds 1-6 at t2-t4, iter `rg`) gives every line byte-identical to the baseline. The two baseline outliers (chime-fort seed 2 and sable-hold seed 2, long fights) were not the T-junction stall, and the fix moves no share. Tier 1 and the first dungeon stay as they are. The calibration log is the run's `reports/dungeon/calibration-dd-log.txt`.
+
+- **More living on the approach: measured and dropped.**
+  - The probe: 2 groups of 4 living at t2-t4, laid past each gap of the path within aggro range, sharing the seed's living mass. The patch is kept as `reports/dungeon/calibration-dd-approach-groups.patch`.
+  - Runs got shorter, not longer (t2-t4 medians 106 / 121 / 131 → 94 / 85 / 96 s). The wake came 2-7 s later, but the warden fight fell 16-38 s.
+  - The mechanism: every living death drops a mote, and every mote is part of a raise. A fight before the wake therefore grows the army, which then shortens the warden fight. The same 8 living taken out of the fort's count gave no lengthening either.
+  - The finding gives the rule for the levers below: **a warden's own pack drops nothing.**
+- **The Huntsman's hunt** (`archetypes.huntsman.pack`, `WardenLogic.pack_*`, `RaidWarden._pack_step`; the mechanic is in the base warden so another warden can take a pack by config).
+  - **Tell.** At each hp gate in `at_hp_frac` (0.66, 0.33), from `min_tier` 2 (never tier 1 or the first dungeon: their spec has no `pack` key, so their lines are unchanged), it sounds a horn `horn_beats` (1) ahead, on the beat.
+    - World: HORN · n hounds over it, and a `danger` ring closing on each entry point. Under reduced motion the ring is steady at its final size.
+    - HUD: a pack row saying "HORN · n hounds coming". RAID_WARDEN prints `horn`, `pack` and `pack down` with `frame=`.
+  - **The pack.** `size_by_tier` hounds (5 at t2, 6 at t3, 7 at t4: provisional, see the calibration) come in at the two inset corners of its room farthest from Relish (`pack_spots`; no rng).
+    - Hounds are `enemies.hound` (30 hp, 4 dmg, 150 px/s): hostile at once and massless.
+    - They count in LIVING. They drop no motes and no dings (`RaidUnit.warden_pack`, `raid.on_unit_died`).
+  - **Ward and hold.** While any hound runs:
+    - The Huntsman takes `ward_mult` 0.25 of every hit (`WardenLogic.pack_ward`, in `RaidWarden.take_hit`). A stun's ×2.5 multiplies with it, giving ×0.625.
+    - It does not lunge (one threat at a time: a pending lunge tell is dropped at the horn). After the last hound falls it waits a full tell before the next lunge.
+    - A warden without a pack takes exactly ×1.0, so the other wardens' lines are byte-identical.
+  - **The counter** is the speed weak point's bodyguard role, which already exists: a fast big undead posted by Relish strikes whatever comes into reach, so the hounds that rush her meet it first. Without fast bigs they reach her, which is the Step 4 arm's mechanism. The army's raises also answer the horn: the entry points show a beat ahead.
+  - **Labelled result.**
+    - While the hounds run: HOUNDS · WARDED over it, and HUD "HOUNDS n of m · it takes ×0.25".
+    - After the last falls: HOUNDS DOWN in `undead` for `wardens.pack_label_s` 1.2 s.
+    - Between packs the row teaches: "at 2/3 and 1/3 of its strength it calls n hounds · it is warded while they run".
+    - Its break meter, a flat row before, is now notched at the gates (`WardenLogic.meter_bands`).
+    - The death card names "The Huntsman's hounds" (`last_hit_src` "hound").
+  - **The bot** does not answer the horn: the hounds are living, and it kites them with its reaction delay as it does any living. AUTOPILOT_RESULT gains `pack` {horns, called, down, pack_s} on lines whose warden has a pack, and `living_start` on every line.
+  - **Probe** (seeds 1-6 at chime-fort t2 and hollow-redoubt t3).
+    - Each pack stands about 17-20 s (`pack_s` 34-40 per fight), and the fights ran 33-50 s longer (chime-fort 56-78 → 90-128 s; hollow-redoubt 74-85 → 116-153 s in the runs she survived).
+    - Hounds killed Relish in 3 of 12 runs. That is a Step 4 risk to tune, not tuned here.
+    - Every other warden's line, and tier 1 and the first dungeon, are byte-identical without the new keys.
+  - **Shot:** `de-huntsman-hounds.png` (chime-fort t2, seed 1, frame 2830). It shows the first pack just loosed, HOUNDS · WARDED over the Huntsman inside its army, the HUD row "HOUNDS 5 of 5 · it takes ×0.25", and the meter notched at 2/3 and 1/3.
+- **The guarded detour** (`raid.json detour`, `loot.json cache`, `LayoutLogic.detour_site` / `detour_guard`, `RaidPopulate`; tests `raid_detour`).
+  - **Placement.** From `min_tier` 2 (never tier 1, the first dungeon or a held fort), the cache lies in a side room.
+    - The room is off the shortest path from the spawn to the warden room and opens onto a path room that is not the warden's (a real opening, not just touching rects).
+    - A normal room is preferred to a checkpoint, because loot would bank there and change what is at risk.
+    - **At lantern-keep and pale-bastion the cache room is a checkpoint.** lantern-keep has no other room off its path. pale-bastion's other side room (3, normal) opens only through that checkpoint, so going there would cross it anyway and add a walk the travel guard counts.
+    - What that does to risk: walking into the cache room banks what she already carries. The cache itself banks when she walks back into the spawn room, which is a checkpoint at every fort and borders the cache room at 8 of 9 forts (mourners-gate's borders the antechamber). So at every fort the cache is at risk only during the guard's fight and the walk out, checkpoint room or not.
+    - The cache sits `cache_door_px` 320 into the room from that opening, deep enough that the army passing the door does not wake the guard.
+  - **Contents.** `loot.json cache.relics_by_tier` relic pickups (1 / 1 / 2 at t2 / t3 / t4). The count is fixed, with no roll, so the chest's and the dings' rolls are untouched. They are fetched by walking over them like any floor loot: found loot, lost on a death before it is banked.
+  - **The guard.** `guard_by_tier` (4 / 5 / 6) living of the tier's mix, within `guard_spread_px` 50 of the cache.
+    - They come out of the fort's own count, so the run has the same bodies, mass and motes; only their place changes.
+    - The cache draws a wider dashed `vei` ring and the word CACHE (shape as well as colour; no motion of its own). The loot pointer already points at it.
+  - **The bot's first rule** (Step 3, f1bf38e; replaced in 3b, see "The detour rule" below).
+    - **When:** once, at her first think in the antechamber before the wake. In s3a that fell at 2.0-16.7 s (t2), 2.1-33.3 s (t3) and 3.6-59.8 s (t4).
+    - **Take it when:** her hp is at least `detour_hp_frac` 0.6 of its most, and her army is at least `detour_army_mult` 2 × the guard still standing.
+    - **Abandon:** if her hp falls below `detour_abandon_hp_frac` 0.3.
+    - **Basis:** a decent player pushes for a side cache when healthy and with an army that wins that fight cleanly, and backs off when one or two more hits would kill her.
+    - **Once taken:** the cache room is her goal, and its guard does not hold her at its door (a push: they turn hostile as she and the army come in). She is done when the cache is hers.
+  - AUTOPILOT_RESULT `detour` {room, guard, offered, taken, done, abandoned, at {t, hp_frac, army, guard}, done_s, cache, cache_left} on lines with a cache. `AUTOPILOT_DETOUR <taken|declined> ... frame=` prints the decision.
+  - The human factor counts a taken detour as one more room.
+- **A bot routing fix that the detour exposed** (`RaidAutopilot._real_gaps`).
+  - The problem: `_toward_room` walked to the nearest gap whose grown rect touched both rooms, then toward the far room's centre. A gap at a T-junction can touch both rooms and still open elsewhere, so at chime-fort the bot went back and forth between such a gap and the far room's centre until it gave up (3 of 3 seeds retreated).
+  - The fix: it now uses only the gaps within half a gap's width of one of the layout's portals for the pair. It keeps every gap when the layout has none.
+  - This is a pathing bug, not a reaction knob. Tier 1 and the first dungeon are byte-identical with it.
+- **Shot:** `de-detour.png` (chime-fort t2, seed 1, frame 640). It shows the guarded CACHE in the side room with its four living, the loot pointer running to it, and Relish's army on its way across after she took it at frame 317 (hp 1.0, army 9 against a guard of 4).
+- **Packs on the other wardens** (the same `RaidWarden._pack_step`, config only plus a hold in each `_step`).
+  - **The packs:**
+    - The Bellringer's ringers (`enemies.ringer`) at 2/3 and 1/3.
+    - The Shieldwall's bearers (`enemies.bearer`: 40 hp, 110 px/s) at 2/3 and 1/3. On both of these the gates sit on the phase notches, so the meter is unchanged.
+    - The Pyre-priest's zealots (`enemies.zealot`) at its phase-3 notch, since its acolytes already ward the start of its fight. The zealots' ward multiplies with the acolytes'.
+  - **Hold.** While a pack runs, each warden holds its own attack: no slam, bash or fire tell until a beat after the last of the pack falls.
+  - **Counter.** These packs have no stat counter: the counter is the army, raised where the horn shows a beat ahead. That matters for Step 4's counter rule, which these packs do not touch.
+  - **Death card:** "The Bellringer's pack" (`last_hit_src` "pack").
+  - **Probe** (seeds 1-3, provisional sizes 5 / 6 / 7, with the hunt and the detour).
+    - Medians: t2 183, t3 127, t4 139 s. Human estimate: t2 216-304, t3 152-214, t4 165-219 s.
+    - Packs stand 12-48 s a fight.
+    - Deaths: 1 / 2 / 2 of 9 per tier (packs 3, hounds 1, the living 1).
+    - Tier 1 and the first dungeon are byte-identical.
+- **The Step 3 numbers** (iter `s3a`, seeds 1-6 at every t2-t4 fort, 54 runs, all in lockstep, none past 2x its fort's median). The pack sizes are set per warden (`size_by_tier`, t2 / t3 / t4): hounds 8 / 8 (t4 unused: no t4 Huntsman fort), ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12. The detour guard is 4 / 5 / 6. Medians in scene s; the human estimate is the median per-run low-high; seeds 1-6 baseline at 5b70259 → now:
+
+  | tier | median s | travel / fight / trance / idle % | walk in fight px | human estimate s | Relish died |
+  |---|---|---|---|---|---|
+  | t2 | 101 → 134 | 5.3 / 89.6 / 0 / 5.1 → 5.5 / 92.4 / 0 / 2.1 | 5964 → 13870 | 119-171 → **157-219** | 0 → 0 of 18 |
+  | t3 | 115 → 153 | 10.5 / 82.0 / 0 / 7.5 → 10.0 / 85.8 / 0 / 4.1 | 8468 → 14324 | 132-170 → **182-236** | 0 → 6 of 18 |
+  | t4 | 117 → 142 | 16.0 / 77.5 / 0 / 6.5 → 9.0 / 84.6 / 0 / 6.4 | 8100 → 15098 | 136-187 → **166-219** | 0 → 8 of 18 |
+
+  - **The window.**
+    - t3 is in it.
+    - t2 and t4 reach 87% and 92% of its floor (180 s at the low end); the high end is well inside 360 s.
+    - Tier 1 and the first dungeon are unchanged (P1 100 s, human 119-172 s).
+  - **The guard.** Idle fell at every tier and travel at t3 and t4. At t2 travel is 5.5% against 5.3%: the detour's walk where the guard has already fallen. This is a breach of 0.2 points.
+  - **Per warden at tier** (the tier median in brackets):
+    - t2: Bellringer 182 (+36%), Huntsman 101 (-25%) [134]. The Bellringer is outside the 30% rule.
+    - t3: Huntsman 122 (-20%), Pyre-priest 187 (+22%), Shieldwall 180 (+18%) [153].
+    - t4: Bellringer 173 (+22%), Pyre-priest 106 (-25%), Shieldwall 143 (+1%) [142].
+  - **Deaths** rose with the packs: t3 6 of 18 (hounds 4, the zealots 2), t4 8 of 18 (packs 7, the living 1).
+    - A death ends a run early, so t4's length is held down by its risk.
+    - Step 4's lever will move both. Run length and risk have to be read together from here.
+  - **The detour.**
+    - Offered in every run (54 of 54).
+    - Taken in 41: t2 7 of 18, t3 16, t4 18. The t2 army at the antechamber (about 7-9) is under twice a guard of 4.
+    - The cache was won in 25; she abandoned 10 below 0.3 hp.
+  - **Survivors only**, which is where length lands once Step 4 brings deaths to 10-15%:
+    - t3 153 s, human estimate 182-241 s.
+    - t4 151 s, human estimate 177-243 s: 98% of the floor.
+    - t2 is unchanged (no deaths): 134 s, human estimate 157-219 s, so its shortfall and the Bellringer's +36% there are real.
+  - **Step 4 facts.**
+    - Deaths are dominated by the packs: t4 7 of 8, t3 6 of 6 (hounds 4, zealots 2).
+    - At t4 the detour is a trap. It is taken 18 of 18, because the decision falls at 4-24 s with the starting army. She won it 4 times and abandoned it 9; 7 of the abandoned runs and all 8 deaths followed a taken detour.
+    - The decision is in the second room, so the take rate follows the garrison against the guard by fort (t2 7 of 18, t3 16, t4 18) more than the run's state. A later decision point would make it a real choice.
+    - The Shieldwall's bash still never struck Relish (`shield.bash_relish` 0 in 12 of 12). The bearers have no wits counter, so they give the no-wits arm no mechanism of its own.
+    - Pack units draw as ordinary living glyphs; only the WARDED label and the HUD row mark them as the warden's.
+  - **When each bot knob was frozen.**
+  - The reaction rule (`react_*`): at 5b70259.
+  - The routing through real openings (`_real_gaps`, a pathing fix): added at f1bf38e. On its own it leaves every 5b70259 line identical (iter `rg`).
+  - The first detour rule: Step 3. Its replacement (3b, below) and the `detour_*` knobs are frozen from 3b on. From here only game knobs move, including the guard and the cache.
+
+## Step 3b (D-d/E): every warden's danger gets a counter
+The review of Step 3 found two problems. 13 of its 14 deaths came from packs that ignored the counters, and the Shieldwall's bash never reached Relish. 3b changes the wardens and the detour rule; the reaction rule stays frozen.
+
+- **Packs answer their warden's counter** (`WardenLogic.pack_breaker` / `pack_verb`, `RaidWardenRun.breaks_pack` / `pack_target`, `RaidUnit._hit_enemy`, `RaidWarden.on_pack_broken`; tests `warden_pack`).
+  - **One blow.** A big undead whose stat meets the warden's own weak point kills a pack unit in one blow: beef for the ringers, speed for the hounds, wits for the bearers, power for the zealots. The threshold is the weak point's own.
+    - While a pack stands, such a big goes for the nearest pack unit. The Huntsman's speed bigs keep their bodyguard post at Relish and strike what comes into reach.
+    - The kill shows the weak point's verb where the unit fell, for `pack_label_s`: MUFFLED, INTERCEPTED, FLANKED or SNUFFED.
+    - The HUD's counter row adds the count, e.g. "SNUFFED ×3 · +6 zealots". The pack row teaches it: "... · power 6 kills one in a blow".
+    - AUTOPILOT_RESULT `pack.broken` counts these kills.
+  - **Off Relish.** A pack goes for her undead, not for her (`RaidUnit._pick_enemy_target`). It costs time and the army, and her risk stays in the warden's own counter-gated attacks: the unmuffled slam, the uncaught lunge, the rush and the fire.
+    - Once no undead stands, the pack turns on her. Without that, a wiped army stalled the fight until the bot gave up.
+    - Deaths of this kind show as "hound" or "pack" in `killed_by`, after a wipe.
+  - **The ward** while a pack stands is ×0.1, down from 0.25, so a pack's time adds to the fight.
+  - **The gates:** 2/3 and 1/3, on the Bellringer's and the Shieldwall's phase notches. The Pyre-priest has one gate at 0.4, its phase-3 notch.
+- **The Shieldwall's rush** (`RaidShieldwall._begin_tell` / `_end_rush` / `_pinned`, `WardenLogic.shield_pinned`; `attack.rush_px` 120, `rush_half_deg` 40, `pin_px` 30).
+  - **Tell.** As each bash tell starts, unless a wits flanker stands at its back, the bash is a rush. A flanker counts when it is within its orbit plus `pin_px` and off the shield's front arc. The rush lights an arc `rush_half_deg` wider and `rush_px` longer for its tell and bash, with RUSH over it. That arc reaches a conduit waiting at its side: the side stand is 223 px out at 110° off the facing, and a rush reaches 260 px at ±120-140°.
+  - **Counter and labelled result.** Wits flankers posted behind pin it: the bash stays a bash, with PINNED over the wall.
+  - **Why the wall and not the bot.** The bot reads the arc from `front_half_deg()` and `attack.reach_px`, and the rush writes its reach into `attack.reach_px` for those two beats. So the bot sees the lit rush arc and answers it like any bash tell, through the reaction rule (0.82 answered, 0.45 s). A missed tell, or an answer too slow to clear about 50 px, takes the 12-hp bash. The other two options were dropped:
+    - "The bash reaches her stand" alone moves the bot's stand outward, because the bot reads the reach.
+    - Pushing the fight into the arc depends on crowd flow.
+  - A horn over a rush's tell ends that rush.
+  - The `shield` dict gains `rushes`, `pins` and `rush_relish`.
+- **The detour rule** (bot policy, frozen from 3b on; `RaidAutopilot._detour_tick` / `_detour_decide`; `RaidLogic.detour_take` / `detour_retreat`; `autopilot.detour_*`).
+  - **When.** Once, before the wake, at the first think the guard is in view while no living foe is on her in her room. In view means a standing guard within `detour_view_px` 480 of her (about half a screen at tier zoom); with its guard down, the cache itself.
+  - **Take it when:**
+    - her hp is at least `detour_hp_frac` 0.6 of its most, or 0.4 with a phylactery revive left;
+    - and her army is at least `detour_army_mult` 1.5 × the guard she can see.
+  - **Reassess every think on the way in. Turn back when:**
+    - her hp falls below `detour_retreat_hp_frac` 0.5 (0.3 with a revive);
+    - or her army falls below `detour_retreat_army_mult` 1.0 × the guard still standing.
+  - **Basis, a decent player.**
+    - Fight a side guard only with clear numbers (1.5×, since raised soldiers trade about evenly with the tier's living) and at least one 12-hp hit of margin.
+    - A revive buys a lower floor.
+    - Turn back while one more hit still leaves you standing.
+    - The guard holds its post, so turning back works: it does not follow her out.
+- **The guard holds its post** (`RaidUnit.sentry`, `_pick_sentry_target`). It turns only on Relish or her undead inside its room, and never follows out. The fight therefore happens at the cache, the army passing the door does not draw it out, and leaving ends it.
+  - `cache_door_px` is down from 320 to 130, so the walk in and out is short. This is the fix for the travel breach.
+- **Measured** (the 3b code as committed: iter `s3e`, with pale-bastion and the-stair re-run as `s3f` after the rush reset; seeds 1-6 at every t2-t4 fort; all runs in lockstep; the baseline is 5b70259 seeds 1-6). Stopped rounds:
+  - `s3c`: pack unit hp 60-80. Armies the counter did not reach stalled (4 timeouts, 9 bot give-ups in 40 runs).
+  - `s3d`: three gates. Packs wiped t2 armies and the bot gave up.
+  - Final numbers: packs ×0.1 ward; sizes hounds 10 / 10 (t4 unused), ringers 5 / 8 / 8, bearers 8 / 11 / 12, zealots 8 / 8 / 14; units 30 hp (bearers 40); cache 130 px.
+
+  | tier | median s: base → all / survivors | travel / fight / trance / idle %, all runs | human estimate s, all / survivors | died (killed by) |
+  |---|---|---|---|---|
+  | t2 | 101 → 125 / 149 | 6.8 / 91.5 / 0 / 1.7 | 151-218 / 174-238 | 5 of 18 (hounds 4, living 1) |
+  | t3 | 115 → 123 / 117 | 6.8 / 87.2 / 0 / 6.0 (outliers out: 9.1 / 82.7 / 0 / 8.2) | 142-200 / 142-192 | 6 (pack 3, bash 2, hound 1) |
+  | t4 | 117 → 148 / 142 | 10.2 / 81.1 / 0 / 8.7 | 171-228 / 166-227 | 5 (pack 5) |
+
+  - **The window is not reached.** The low end is 151 / 142 / 171 s against 180 s.
+  - **The guard fails** at t2 travel (6.8 against 5.3%), and at t3 and t4 idle (8.2 against 7.5 and 8.7 against 6.5, outliers out).
+  - **Per archetype at tier** (tier median in brackets):
+    - t2: Bellringer 152 (+21%), Huntsman 83 (-34%) [125].
+    - t3: Huntsman 117, Pyre-priest 145 (+23%), Shieldwall 175 (+48%) [118].
+    - t4: Bellringer 184 (+24%), Pyre-priest 106 (-28%), Shieldwall 149 [148].
+  - **The detour** (offered / taken / won / abandoned / died after taking it; decision times):
+
+    | tier | offered | taken | won | abandoned | died after | decided at |
+    |---|---|---|---|---|---|---|
+    | t2 | 18 | 18 | 16 | 2 | 5 | 0-8 s |
+    | t3 | 14 | 14 | 8 | 4 | 3 | 1-30 s |
+    | t4 | 18 | 17 | 10 | 4 | 5 | 0-175 s |
+
+    The guard is usually in view from the spawn room, so the decision still falls early. Taking it is what lifts travel: runs that took it traveled about 9-11% at t2-t3 against 2-4% for those that did not (s3a, s3e).
+  - **With and without the counter** (10 seeds each, score 70; Relish died with / without):
+    - vespers (beef 5): 2 / 3. Living 2; living 2 and slam 1.
+    - hollow-redoubt (speed 3): 4 / 5. All hounds, after the army fell.
+    - pale-bastion (wits 0): 7 / 9. Rushes struck her 61 times in each arm. Pins: 77 of 439 bash tells with wits.
+    - mourners-gate (power 5): 1 / 2. Packs.
+    - The counters break the packs (pack.broken 40-88 of the units called with the counter, 0 without), but no counter yet halves deaths.
+  - **What blocks** (for the spec review):
+    - (1) **Pack strength.** Packs strong enough to lengthen a fight at tier wipe the army. With no undead left, the pack turns on her, so 13 of the 16 deaths at t2-t4 are "pack" or "hound" after a wipe (without that rule the fight stalls). Packs weak enough not to wipe it are broken in seconds by the counter, and the fights stay short.
+    - (2) **The Shieldwall's counter is split two ways.** Its wits bigs leave the flank to hunt bearers (`pack_target`), so the rush is rarely pinned, and the with-wits arm dies almost as often as the one without.
+    - (3) **The detour is decided from the spawn room** (the guard is in view there), and its walk is travel.
+  - **Unchanged:** tier 1, the first dungeon and Vei (byte-identical without the new keys). `parity_check.sh` gives identical results.
+  - **Shots:** `de-huntsman-hounds.png` (re-shot at 10 hounds), `de-ringers-muffled.png`, `de-bearers-flanked.png`, `de-zealots-snuffed.png`, `de-shieldwall-rush.png` (no-wits arm: RUSH lit to her side stand).
+
+## Step 3c (D-d/E): packs break off Relish, the idle sources, the death fields
+The review of 3b found that every death left no army standing, and that 13 of the 16 tier deaths were packs that turned on Relish after a wipe. 3c is one redirected round with a stop rule. The reaction rule and the detour rule stay frozen.
+
+- **The death fields** (measuring only): AUTOPILOT_RESULT gains `death_t`, `army_zero_t` (the first tick no undead stood, else -1) and `army_at_death_minus5` (undead standing 5 s before her death, from a half-second log). It also gains `unstick` {aimed_in, given_up} (below).
+- **The idle sources** (found before any tuning; a debug histogram of the bot's `_why` over idle ticks):
+  - **the-stair seed 1: 20 s in the spawn room and 20 s in the antechamber.** This is the bot's hold rule ("hold while living remain in this room or the next"). It waited on calm foes in the next room, about 1000 px away and 900 px from the nearest undead, until `stall_s` (20 s) ran out. Nothing moves in those 20 s and there is nothing to decide, so it is a bot wait, not a decision moment. It is cut.
+  - **sable-hold seed 2: 20 s, 6.6 s and 2.9 s.** The same rule, on calm foes.
+  - **hollow-redoubt seed 6: 99 s, then a retreat.** The bot walked to a remnant lying 6 px from a wall. Relish's slide makes no progress when the straight line runs along a wall face, so she stood pinned on the wall's corner until the bot's 60 s no-progress give-up. This is a bot wait.
+  - None of these is a game wait, and none is a gap in `time_class`: each was a tick with no hostile foe in reach and no movement.
+- **Bot fix 1, the unstick watch** (`RaidAutopilot._aim_at`; `autopilot.unstick_s` 1.5, `unstick_px` 8, `unstick_inset_px` 8). Walking to a mote, pile or pickup:
+  - if she does not close on it by 8 px of walking distance in 1.5 s, she aims at the same spot pulled inside its room, as a player re-clicks a reachable spot;
+  - if she still does not close in another 1.5 s, she gives it up.
+  - It changes nothing while she closes on the target. hollow-redoubt seed 6 goes from 100.9 s idle and a retreat to 26.4 s idle and a won run. Tier 1, P1, Vei and three tier 2-4 lines are byte-identical without the new key.
+- **Bot fix 2, the hold waits only on hostile foes** (`_decide`). A calm foe out of the army's reach is no fight to wait out.
+  - the-stair seed 1: idle 40.0 s -> 0.1 s. sable-hold seed 2: idle 30.1 s -> 0.7 s.
+  - **It changes the first dungeon and tier 1.** These runs held on calm foes too: P1 old-sluice seed 1 goes 98.1 -> 82.5 s, tier 1 ashgate 89.7 -> 105.6 s, old-sluice 113.2 -> 107.2 s, and pale-bastion seed 1 changes. Greywall, hollow-redoubt seed 1, whitecross seed 2 and Vei are identical. The game is untouched; only the bot's wait moved. P1 was calibrated earlier, so this is flagged.
+- **A pack never turns on Relish** (`WardenLogic.pack_breaks`, `RaidWarden._scatter_pack`, `RaidUnit.scatter`). The moment no undead stands, or none stands as its horn sounds, the pack breaks:
+  - it leaves the fight, gone and not killed (nothing drops, no kill is counted);
+  - its ward drops, and the warden fights her alone with its own attacks, each answered by its counter;
+  - THE PACK BREAKS · WARD DOWN shows over the warden for twice `pack_label_s`, and the banner says "THE PACK BREAKS — ward down";
+  - `pack` gains `scatters` and `scattered`.
+- **The Shieldwall's roles** (`RaidWardenRun.pack_target`, `RaidShieldwall.posted`, `RaidUnit._pack_in_reach`).
+  - A wits big holding its post at the wall's back keeps the wall as its target. "Holding its post" is the pin's own test, for one unit. It strikes the pack units that come to it with the one-blow FLANKED kill.
+  - Through a bash tell, every pack breaker keeps the wall. This clause never fires: the wall holds its own attack while its pack stands (`_pack_step` pushes the next tell past the pack), so no tell shows with a pack standing.
+  - The hunt goes to the breakers not posted there.
+  - The rush stays.
+  - **A first version was worse.** In it, posted flankers held the wall but did not strike the pack. At pale-bastion seed 1 the pack then ate them: 2 of 33 tells pinned, 0 pack units FLANKED.
+  - **With the strike** it is 8 of 9 tells and 16 of 18 units. That is about the 3b code's own seed-1 line (12 of 14 pinned, 21 of 22 FLANKED). The commit message of 4413cf3 compares against the first version, not 3b.
+- **The death card names the missed tell** (`RaidLogic.death_tell` / `death_line`): "The Bellringer's slam · missed: the swing", "the Huntsman's lunge · missed: the line", "the Shieldwall's bash / rush · missed: the lit arc", "the Pyre-priest's fire · missed: the marked ground". A pack, the living or a wound has no tell and no "missed:". A rush that strikes her is now its own source (`killed_by` "rush").
+- **Packs back to Step 3:** hounds 8 / 8, ringers 4 / 6 / 8, bearers 6 / 9 / 10, zealots 6 / 6 / 12; ward ×0.25.
+- **The detour's cache at the guard's post** (`detour.cache_door_px` 130 -> 45). LayoutLogic keeps it 40 px off the walls, so it lies about 55-60 px from the gap, and she takes it inside the guard fight, stepping through the door.
+  - t2, seeds 1-6: travel 7.4% -> 6.0% (`walk_travel_px` median 2628 -> 2194). That is still over the 5.3% ceiling.
+  - So **the detour starts at tier 3** (`detour.min_tier` 3).
+- **Pins under the measure.** At pale-bastion, seeds 1-10 with wits, 75 of 441 bash tells were pinned (17%), against 77 of 435 in 3b. The roles did not raise the pin rate where it counts.
+- **AUTOPILOT_RESULT `army_zero_s`:** scene seconds after the wake with no undead standing (measuring only).
+- **Measured** (the 3c code, f8dfd39 = 87c4d53 without `army_zero_s`; iter `c3`; seeds 1-6 at every t2-t4 fort; 326 of 326 runs in lockstep).
+  - **Baselines.** The baseline is 5b70259. Because the bot fixes move it, `bfix` is 5b70259 with only the two bot fixes, seeds 1-6, as an A/B.
+  - **The split** is pooled seconds with outliers (more than 2× their fort's median) out.
+  - **The human estimate** is the median of per-run estimates.
+
+  | tier | median s: base / bfix → all / survivors | travel / fight / trance / idle % | human estimate s, all / survivors | died (killed by) |
+  |---|---|---|---|---|
+  | t2 | 103 / 107 → 125 / 125 | 4.5 / 94.4 / 0 / 1.1 | 146-203 / 146-203 | 0 of 18 (2 retreated) |
+  | t3 | 115 / 95 → 194 / 158 | 7.3 / 91.7 / 0 / 1.1 | 210-263 / 181-219 | 5 of 18 (rush 4, lunge 1; 2 retreated) |
+  | t4 | 118 / 114 → 130 / 130 | 7.8 / 92.1 / 0 / 0.1 | 152-202 / 152-202 | 0 of 18 |
+
+  - **The guards hold on both baselines.**
+    - Travel (base / bfix ceilings): t2 4.5 against 5.3 / 5.9, t3 7.3 against 10.5 / 14.5, t4 7.8 against 16.0 / 11.6.
+    - Idle: 1.1 / 1.1 / 0.1 against 5.1 / 7.5 / 6.5 (base) and 1.6 / 2.2 / 0.3 (bfix).
+    - In seconds, t4 travel is 14.1 s median, against 17.8 at base and 10.1 for bfix: the t4 detour's walk.
+    - Part of the low share is dilution: the fights got longer.
+  - **The bot fixes alone move the baseline** (bfix against base): t3 115 -> 95 s, travel t3 10.5 -> 14.5% and t4 16.0 -> 11.6%, idle 5-8% -> 0.3-2%.
+  - **Window.** The low end at t2 (146 s) and t4 (152 s) is under 160 s. That gap is reported, not padded. At t3 the survivors land 181-219 s.
+  - **Per archetype** (tier median in brackets):
+    - t2: Bellringer 129 (+3%; the +36% is gone with the t2 detour), Huntsman 104 (-17%) [125].
+    - t3: Huntsman 193 (0%), Pyre-priest 154 (-20%), Shieldwall 255 (+32%) [194].
+    - t4: Bellringer 339 (**+161%**), Pyre-priest 116 (-11%), Shieldwall 112 (-14%) [130].
+    - The sable-hold Bellringer loses its party in every seed and then grinds on with raised soldiers for 260-450 s. In 3b those runs died to the pack instead. Not fixed: no one-knob change was found, and the stop rule holds.
+  - **The detour** (none at t2; offered / taken / won / abandoned / taken ∧ died):
+    - t3: 13 / 12 / 10 / 2 / 1.
+    - t4: 18 / 17 / 7 / 5 / 0. Five were still unfinished when the run ended.
+  - **How a wiped army resolves** (19 tier runs with no undead standing at some point: t2 4, t3 9, t4 6; the pack broke in 12):
+    - `army_zero_s` is mostly 1-9 s. She raises again from her fallen undead's motes within seconds and grinds on. These are the long runs: all 5 tier outliers are among them.
+    - Or the warden's own attack kills her: all 5 t3 deaths (rush 4, lunge 1). A pack killed no one.
+    - Or there are no motes left, and the bot's existing 60 s no-progress rule retreats her. This happened in 4 Huntsman runs, with 48-71 s of no army.
+    - No wait was added. There were no timeouts at tier; the arms had 3 runs at the 600 s cap.
+  - **With and without the counter** (the manager's pooling: 2 forts per warden at tier, seeds 1-20, 40 runs per arm; deaths, 90% Wilson interval; fight = end minus wake, median):
+
+    | warden (forts; without = flag) | with: died | without: died | fight s with / without |
+    |---|---|---|---|
+    | Bellringer (vespers, lantern-keep; beef 5) | 0 / 40 (0-6%) | 0 / 40 (0-6%) | 100 / 181 |
+    | Huntsman (chime-fort, hollow-redoubt; speed 3) | 5 / 40 (6-24%), lunge 5 | 4 / 40 (5-21%), lunge 2, living 2 | 96 / 125 |
+    | Shieldwall (pale-bastion, the-stair; wits 0) | 14 / 40 (24-48%), rush 14 | 16 / 40 (28-53%), rush 16 | 126 / 295 |
+    | Pyre-priest (mourners-gate, whitecross; power 5) | 1 / 40 (1-10%), living 1 | 1 / 40 (1-10%), fire 1 | 105 / 193 |
+    | all four | 20 / 160 = 12.5% (8.8-17.4%) | 21 / 160 = 13.1% (9.3-18.1%) | |
+
+    - **The arms do not separate on deaths** (the bar is about 2× and at least 10 points). The counters separate on fight length, at 1.3-3×.
+    - pale-bastion carries the deaths: 14 / 20 with wits, 16 / 20 without. the-stair has 0 / 20 in both arms.
+    - **Why.** With packs off Relish, the warden's own attack is the only killer, and only the Shieldwall's rush kills at all often.
+      - In every pale-bastion death, in both arms, both party bigs were already lost, so no wits flanker was left to pin.
+      - The unpinned rushes then cut down the raised soldiers along with her: 12-21 undead still stood 5 s before 11 of the 14 deaths with wits, and before 13 of the 16 without.
+      - So the risk sits in the rush's reach into the raised army after the bigs fall, not in a wipe followed by a lone finish.
+      - Without its counter, a warden's fight simply runs longer.
+  - **Unchanged:** Vei byte-identical. Tier 1 and P1 equal the bot-fixed lines (bfix's own effect is above). `parity_check.sh` gives identical results, 5 of 5.
+  - **Shots:**
+    - `de3c-pack-breaks.png`: hollow-redoubt, no speed. The banner and THE PACK BREAKS · WARD DOWN over the Huntsman, LIVING 0.
+    - `de3c-shieldwall-posted.png`: pale-bastion seed 1. Posted wits flankers at the wall's back, FLANKED on the bearers coming at them while BEARERS · WARDED stands.
+    - `de3c-shieldwall-pinned.png`: the first tell after that pack. BASH, PINNED.
+    - `de3c-death-card.png`: "The Bellringer's slam · missed: the swing".
+    - No shot shows a pinned rush with the pack standing, because the wall never tells while its pack stands.
+
+## Step 4 (D-d/E), before the lever: the 3c review items and the per-fort causes
+- **The Shieldwall's tell clause is moot by design** (b0977c1).
+  - The wall holds its bash while its pack stands, so "pinning outranks hunting through a tell" in `pack_target` could never fire. It is removed.
+  - Only posted wits bigs keep the wall. 4413cf3's message described the clause as live.
+- **The hold and the unstick watch as pure functions** (`RaidLogic.hold_blocks` / `unstick_step`; tests `raid_bot_rules`; b4763b1). Behaviour is unchanged: 14 lines are identical.
+- **The unstick watch fired on doorways, not on stuck walks.**
+  - Sampled firings (whitecross s3/s19, the-stair s5/s8, mourners-gate s5, pale-bastion s4) were all the same thing. The target was in another room, and the walking distance jumped at a doorway: straight in the gap, round by room centres beyond (1012-1257 px against 539-895 straight). She was walking on, with 0-1 undead touching her and no foe near.
+  - None was a crowd or a pinned walk. The clock now restarts when her room changes (0aa97d6).
+  - Seeds 1-6, t2-t4: firing runs 7 -> 1. The 6 changed lines differ only in the count.
+- **The residual idle is a classification gap.**
+  - the-stair s16 (16.8 s) and hollow-redoubt s11 (13.9 s) are both the hold on a hostile brute in the next room. The brute was fighting her army (its nearest undead 15-30 px away) 400-850 px from her.
+  - `time_class` calls that idle (no hostile foe within aggro_px or in her room), but it is the army's fight. It is kept as it is, so the baselines stay comparable.
+- **No army, nothing to raise: she leaves after her reaction delay** (5e2a7a9; `RaidLogic.can_raise_from`; result `left_no_army`).
+  - It applies with no undead standing, fewer than min_motes carried or within collect_px, and no pile within pile_px. It was 60 s inside a "fight".
+  - Seeds 1-6: 5 Huntsman lines change (chime-fort s2 112 -> 52 s, s5 158 -> 113, hollow-redoubt s4 228 -> 180, s5 569 -> 198, s2 died at 401 -> left at 395). t1 and P1 are identical.
+  - `army_zero_s` share of the run (c4): t2 0.1%, t3 0.5%, t4 0.5%.
+- **One outlier rule:** "> 2× its fort's median within the run set being reported".
+  - One iter is one run set, so the runner's `outlier_2x` is that rule: the tier set (`c4`) and the extra seeds (`c4x`) are separate iters.
+  - c3 mixed the tier set and the arms in one iter. Its row flags used 20-seed groups at the 8 arm forts.
+  - Under the rule the 3c tier shares stand as reported: t2 4.5 / 1.1, t3 7.3 / 1.1, t4 7.8 / 0.1 (travel / idle).
+- **Bad outcomes in the 3c arms** (died + retreated + timeout, seeds 1-20, with / without the counter):
+  - vespers 0 / 0, lantern-keep 0 / 0;
+  - chime-fort 6 / 0, hollow-redoubt 7 / 10;
+  - pale-bastion 14 / 17, the-stair 0 / 0;
+  - mourners-gate 1 / 2, whitecross 0 / 0.
+  - Pooled: 28 / 160 against 29 / 160.
+- **What held the three 600 s runs open:**
+  - chime-fort s8 (with speed): the army was gone and there was nothing to raise. She now leaves at 60 s.
+  - pale-bastion s13 (wits 0): 90 raises against a wall that glances from the front, with no flankers. The warden was at 16% at the cap.
+  - mourners-gate s15 (power 5): three undead chipped a priest warded by its living acolytes at 1.6 hp/s for 510 s. She held the pyre stand with one mote and a pile she would not stir. Progress that slow never trips the 60 s rule.
+  - The last two are counter-less grinds, and they count as bad outcomes.
+- **4.0: the no-counter arm faces more tells.** Tells at Relish (react.tells, 3c arms, 40 runs each), with / without:
+
+  | warden | median | total | per fight-minute |
+  |---|---|---|---|
+  | Bellringer | 18 / 33 | 838 / 1423 | 10.7 / 10.9 |
+  | Huntsman | 9 / 16 | 928 / 1226 | 5.4 / 7.1 |
+  | Shieldwall | 18 / 54 | 1153 / 2256 | 8.8 / 11.1 |
+  | Pyre-priest | 3 / 6 | 136 / 321 | 1.4 / 2.1 |
+
+  - The per-minute rates are close (the Huntsman and the Pyre-priest a little higher without the counter), and the fights run 1.3-3× longer.
+- **But the lever multiplies hits that land on her, not tells.** Hits on Relish in the same rows, with / without the counter (totals over 40 runs):
+  - Huntsman catches: 50 / 110 (median 0 / 2 a run).
+  - Pyre-priest burns: 14 / 58.
+  - Shieldwall bashes and rushes: 194 / 269, almost all at pale-bastion (190 / 256; the-stair 4 / 13). Since the room cap, pale-bastion takes 0.4 a run, so the Shieldwall is near zero hits in both arms at both forts.
+  - Bellringer: slam hits on her are not recorded; 0 deaths in 80 runs.
+  - **What that means for the lever.** A damage multiplier can make the Huntsman and the Pyre-priest deadly, and separate their arms (2-4× the hits without the counter). It cannot do either for an archetype whose hits are near zero in both arms.
+  - Before 4.2, a measuring-only `relish_hits` key by source (slam, lunge, bash, rush, fire, pack, living) gives the Bellringer's count and the 4.3 cause mix.
+- **4.1, the per-fort causes:**
+  - **pale-bastion against the-stair.** Same warden, but the warden rooms are 543 × 598 px against 1073 × 679.
+    - A 260 px rush covered nearly all of pale-bastion's, so an answered tell had nowhere to go. Rush hits on her: 9.4 a run there, 0.2-0.7 at the-stair, even without wits.
+    - Fixed by a general rule, not a per-fort one: the rush reach is capped at `rush_room_frac` 0.8 of the room's half-size (`WardenLogic.rush_reach`; ce17f3d). the-stair is unchanged.
+    - pale-bastion with wits, seeds 1-20: deaths 14 -> 0, rush hits 0.4 a run. But the fight runs longer (256 -> 335 s median): with its bigs lost it now grinds instead of killing.
+  - **chime-fort with speed.** The bodyguard post held its speed bigs at her side while the hounds ran (the Huntsman holds its lunge then).
+    - The hounds wiped the army away from her. s5 trace: 29 undead to hounds in 13 s, and 2 of the 29 motes in raise reach. Then she left.
+    - Fixed: there is no post while the pack stands, so they hunt it (7eecd95). Seeds 1-20: bad outcomes 6 -> 1, INTERCEPTED 51 -> 128 of 320 hounds.
+  - **sable-hold: not fixed in two probes.** The slam kills 280-440 undead a run (seeds 1-4, by damage source).
+    - 2 of the 3 bigs die to the fort's brutes before or at the wake in 3 of 4 seeds. The beef big then dies to the ringers or to slams.
+    - Unmuffled slams churn every raise for 200+ s.
+    - Probes, not committed: ringers at t4 8 -> 6 gave a median of 286 s; slam `dmg_unit` 11 -> 8 gave 259 s (339 now). Neither stops the grind.
+- **Seeds 1-6 at t2-t4** (c4, the code at ce17f3d; 58/58 in lockstep):
+
+  | tier | median s | per archetype (against the tier median) | deaths |
+  |---|---|---|---|
+  | t2 | 123 (human 144-201) | Bellringer 129 (+5%), Huntsman 118 (-3%) | 0 / 18 |
+  | t3 | 172 (200-266) | Huntsman 158 (-8%), Pyre-priest 154 (-10%), Shieldwall 316 (+84%) | 0 / 18 |
+  | t4 | 130 (152-202) | Bellringer 339 (+161%), Pyre-priest 116 (-11%), Shieldwall 112 (-14%) | 0 / 18 |
+
+  - Travel / idle: 4.5 / 1.2, 7.2 / 1.0, 7.8 / 0.1.
+  - **The two game fixes change only their own forts.** Against the bot-fix lines (`s4b`), vespers, lantern-keep, mourners-gate, the-stair, whitecross, sable-hold, t1 and P1 are identical. chime-fort and hollow-redoubt (the bodyguard fix) change 6 of 6, and pale-bastion (the cap) 5 of 6.
+  - **Two forts now grind once their bigs fall:** pale-bastion (+84% at t3, against a wall its raised soldiers glance off) and sable-hold (+161%). A Relish-damage lever adds exposure in proportion to fight length, so expect its deaths to pile onto these two.
+  - Not tested at pale-bastion: the checkpoint-room cache and the t3 party against the t4 party. The room geometry explained the rush hits.
+  - t1 and P1 lines equal the bot-fixed ones. Vei is identical. Parity is 5 of 5.
+
+## Step 4 (D-d/E), the lever probe and the conduit rule
+- **`relish_hits` / `relish_soaked`** (3a36410): blows that reached her by source, and of them the lethal ones an undead took. They are counted on Relish and never read by the sim; 18 c4 lines and Vei are identical.
+- **The conduit rule** (relish.gd `take_hit`; raid.gd `sacrifice_nearest_ally`; raid_logic.gd `ally_rank` / `sacrifice_pick`):
+  - **When.** A blow that would take her hp to 0 or below, while any undead stands anywhere in the dungeon. There is no reach.
+  - **Who dies.** One undead in her place: the lowest rank first (chaff, then soldier, then elite, then a party big), the nearest within that rank.
+  - **The cost.** She takes no damage and gets `relish.iframes_s` (0.5 s) of grace. There is no cap and no cooldown.
+  - **Design.** MECHANICS §5.0: "Lethal hits follow the sacrifice chain: nearest chaff, then a soldier, then a big undead in the party, then Relish". §7: "Before she dies, the sacrifice chain soaks lethal hits". GAMEPLAY pillar 4: "Her army is her weapon, her shield and her health bar". No reach or cap is designed either.
+- **The lever candidates** (42b8427, at 1.0): `wardens.relish_dmg_mult` and `wardens.attack_dmg_mult`, from `lever_min_tier` 2, never the first dungeon.
+- **Probe** (c4 code; the same 30 runs per value: t2-t4, seeds 1-10 a tier, forts in rotation):
+
+  | value | deaths | bad outcomes | median s | `army_zero_s` share | warden blows on her (soaked) |
+  |---|---|---|---|---|---|
+  | x1 | 0 | 1 | 139 | 0.6% | 14: lunge 10, fire 2, rush 1, slam 1 (3) |
+  | relish x2 | 0 | 0 | 150 | 0.6% | 17 (10) |
+  | relish x4 | 0 | 1 | 139 | 0.6% | 14 (14: every one lethal, every one soaked) |
+  | attack x1.5 | 1 (rush) | 7 | 159 | 9.1% | 9 (0) |
+  | attack x2.5 | 1 (rush) | 9 | 186 | 10.8% | 15 (13) |
+
+  - The bot answers 82% of tells and stands outside the arcs, so warden blows reach her about once in two runs. Each lethal one costs one undead.
+  - Raising the damage to the army instead (attack) wipes armies (`army_zero_s` 0.6% -> 9-11%). The wipes become 600 s grinds of re-raising (Bellringer 3, Shieldwall 2) and retreats, not deaths.
+  - Mini arms at attack x2.5 (10 seeds an arm), bad outcomes with / without the counter:
+    - hollow-redoubt 3 / 6 (deaths 0 / 2; lunge blows on her 12 / 28);
+    - mourners-gate 0 / 0 (fire 4 / 17).
+  - **Verdict: no warden-damage lever reaches 10-15% deaths at tier while the conduit rule stands.** Deaths need the conduit changed (a reach, a cost, or a cap), which is the manager's call.
+- **4.1 round 2, the two grinding forts (probes only, nothing committed):**
+  - **pale-bastion s2 trace.** One big died to a brute in room 1 before the wake (11 s), the other to the bearers. Then bashes and rushes killed 659 raised undead over 461 s, while she raised 69 times.
+  - **Can the flankers reach the wall's back?** Yes. Seed 1 pinned 16 of 16 tells while they lived; the 10% pin rate across seeds is dead flankers, not the room. The room was not grown.
+  - **sable-hold** has a brute in its spawn room (542 px from the spawn); the-stair and whitecross have none. The near-spawn living per fort is in the scratch dump.
+  - **Probes, seeds 1-6:**
+    - fewer brutes (tier_mix t3 0.3 -> 0.2, t4 0.45 -> 0.3): sable-hold 339 -> 228 s, pale-bastion 335 -> 208 s;
+    - party `hp_base` 30 -> 50: sable-hold 206 s, pale-bastion 318 s.
+    - Neither reaches about 30% of its tier median (t4 130, t3 172); bigs are still lost.
+  - **The shared mechanism:** the warden's area attack (slam, bash, rush) churns re-raised soldiers once the bigs are gone.
+
+## Step 4b (D-d/E): the manager's option A
+- **Tell-attacks bypass the chain** (`RaidLogic.chain_soaks`, `TELL_ATTACKS`; Relish.take_hit). The Bellringer's slam, the Huntsman's lunge, the Shieldwall's bash and rush, and the Pyre-priest's fire strike her directly. The chain still soaks the living, packs, hounds and Vei's weaves.
+- **The counter is the soak:**
+  - Bellringer: a MUFFLED slam no longer reaches her (`WardenLogic.slam_damage`; it took ×0.35 before). Answered: she is out of the ring as it crosses.
+  - Huntsman: an INTERCEPTED lunge never reaches her (`_begin_lunge`, `hit_i < 0`). Answered: she is off the locked line.
+  - Shieldwall: a bash whose tell a wits flanker pinned never strikes her (`pinned_tell`, `WardenLogic.bash_strikes_relish`). Answered: she is out of the lit arc.
+  - Pyre-priest: a burn she has stepped off misses her, and each acolyte killed takes one of her fires away (`WardenLogic.burn_count`). Both as built.
+- **The hit cue** (`Relish._draw_hit_cue`, `relish.hit_cue_s` 1.2): the most recent blow shows.
+  - A blow that reached her hp: a jagged burst and STRUCK −N, in `danger`.
+  - A blow an undead took: a smooth ring and SOAKED, in `undead`.
+  - It is static, so it reads the same in greyscale and under reduced motion.
+- **The docs** (f50277b) change only MECHANICS §5.0's chain line and GAMEPLAY pillar 4, as the manager authorized.
+- **The grind forts.** `tier_mix_by_fort` lowers the brutes at sable-hold (0.45 -> 0.15) and pale-bastion (0.3 -> 0.1). Their bigs had died to brutes before the wake.
+  - Seeds 1-6: sable-hold 339 -> 157 s (+26% of the t4 median, 125), pale-bastion 335 -> 151 s (-1% of t3's 153), with 0 deaths. No other fort moves.
+- **The lever** (`wardens.relish_dmg_mult`, from tier 2). The single tell-hit as a share of her 30 hp is the same at every tier, because dmg_relish has no tier term:
+
+  | relish_dmg_mult | slam, lunge, bash, rush (12) | fire (8) |
+  |---|---|---|
+  | 1.5 | 60% | 40% |
+  | 1.9 | 76% | 51% |
+  | 2.3 | 92% | 61% |
+
+  - One hit kills from full hp at 2.5 (fire at 3.75).
+- **Probe on the final code** (30 runs each, t2-t4, seeds 1-10, forts in rotation):
+
+  | relish_dmg_mult | deaths | killed by |
+  |---|---|---|
+  | 1.5 | 3 | lunge 3 |
+  | 1.9 | 3 | lunge 3 |
+  | 2.3 | 4 | lunge 3, fire 1 |
+
+  - Bad outcomes equal the deaths. 1.5 and 1.9 give identical outcomes.
+  - Tell blows on her: about 8 lunges and 2 fires per 30 runs, all unsoaked. Slams and bashes almost never land: the bot answers them, and muffles and pins spare her.
+  - **The curve is a staircase.** Two 12-hp blows kill from full hp from 1.25 up, two fires from 1.875 up, and one blow at 2.5.
+  - Deaths sit at the Huntsman (3 of 7 runs at every value).
+
+### Step 4b review: corrections and the reach of a missed tell
+- **Corrections to the Step 4b notes above:**
+  - sable-hold and pale-bastion are now their tiers' soft-living forts: brutes 0.15 and 0.1, against the tier's 0.45 and 0.3.
+  - Against c5, the proper base for this build, sable-hold went 278 -> 157 s, not 339 -> 157 s.
+  - The grind fix was tuned and measured on the same seeds, 1-6.
+- **The bypass is gated** like the lever (`WardenLogic.lever_on`, `RaidWardenRun.tell_bypass`; 49964d2). At tier 1 and in the first dungeon the chain soaks a tell-attack as before. t1 and P1 over seeds 1-6 are identical to the c4 code (24 of 24).
+- **`tell_tally`** (measuring only) counts each tell the bot sees: answered or missed, then for a missed one, countered or struck.
+- **The reach of a missed, uncountered tell** (c6, x1, seeds 1-6):
+
+  | warden | reach | answered tells struck |
+  |---|---|---|
+  | Bellringer | 0% of 65 | 0 |
+  | Shieldwall | 6% of 32 | 0 |
+  | Huntsman | 53% of 19 | 0 |
+  | Pyre-priest | 30% of 10 | 0 |
+
+- **Why the Bellringer and the Shieldwall miss: the bot's default plan already dodges them.**
+  - Bellringer (raid_autopilot.gd `_vs_bell`, `_bell_target`): she goes in only when the trip fits before the next tell (by the beat clock, `slam_safe_beats`), and stands outside `radius_px` otherwise. At the tell she is outside whether or not she answers.
+  - Shieldwall (`_vs_wall`, `_wall_stand`): answered and missed both head for the side stand. It is computed from the facing and `attack.reach_px` of the moment, and the rush writes into both, so a missed rush is dodged by default. Only a loot or pickup detour keeps her in the arc.
+- **No game-side change fixes this for the frozen bot.**
+  - A toll at her stand, a bigger slam or an aimed rush is either read by that default plan (and dodged again), or not readable, in which case answered tells land too.
+  - So nothing was built. The two options need a call:
+    - (a) a bot change: a missed tell plans with the geometry from before the tell until its strike, as "missed" means;
+    - (b) accept that the Bellringer and the Shieldwall carry no tell risk for this bot.
+- **The lever probe** (relish_dmg_mult 1.35 and 1.7; rotated 30 runs each): identical outcomes, 3 deaths of 30, all Huntsman lunges. The steps are unchanged: two 12-dmg blows kill from 1.25, two fires from 1.875, one blow from 2.5.
+
+### Step 4b: the reach at her stand
+- **Missed means missed** (b1233c4; see the reaction model). Against c6, the Huntsman, the Pyre-priest and sable-hold are identical. The Bellringer's t2 forts, both Shieldwall forts, P1 (6 of 6; its blows are still soaked) and 3 of the 18 t1 lines move. Missed rushes now land: pale-bastion has 4 deaths in 6, the-stair 1.
+- **The Bellringer's toll** (e09264b; `attack.toll_radius_px` 45; WardenLogic.toll_strikes):
+  - It is a ring at her spot beyond the slam's reach, from the risk gate. Stepping out is the answer.
+  - A braced bell tolls nothing on her (MUFFLED). The army's damage is unchanged.
+  - The bot answers it through the same roll and delay (fa42e59).
+- **The Shieldwall's aimed rush** (c97c2e8; `rush_lane_half_deg` 20; WardenLogic.lane_reach):
+  - It is a lane at her to the room's farthest corner. Sideways out is the answer, and a pin spares her.
+  - The lane is also what the undead in it take.
+- **Every tell is answerable by a human** (cc3fb06, a test). The check is lead (1 beat, 1.714 s) minus the score-50 delay (0.6 s) minus the walk to clear its area from the worst spot inside it:
+
+  | tell-attack | margin |
+  |---|---|
+  | slam ring | 0.17 s |
+  | toll | 0.77 s |
+  | lunge | 0.97 s |
+  | bash | 0.71 s |
+  | aimed lane (in the-stair's room) | 0.16 s |
+  | fire | 0.62 s |
+
+  - The same at every tier: tell_beats and these reaches have no tier term. No margin is negative, so no change was made.
+- **c7** (x1, seeds 1-6):
+  - Reach on missed, uncountered tells: Bellringer 43% (13 of 30), Huntsman 47%, Pyre-priest 30%, Shieldwall 29% (2 of 7). Answered tells struck: 0 at all four.
+  - Deaths: t2 5, t3 1, t4 7 of 18. The Bellringer accounts for 10 of its 18 runs.
+  - Medians against c6: t2 119 (123), t3 138 (153), t4 126 (125).
+- **The lever** (10 seeds a tier, forts rotated): t2 / t3 / t4 deaths of 10 are:
+
+  | relish_dmg_mult | t2 | t3 | t4 |
+  |---|---|---|---|
+  | 1.0 | 5 | 1 | 3 |
+  | 0.8 | 4 | 1 | 3 |
+  | 0.6 | 3 | 0 | 3 |
+
+  - **No value puts every tier in 5-25%.** The Bellringer sees about twice the tells per fight (15-41 against about 10 elsewhere), so its forts (vespers, sable-hold) die at any value. t3 has no Bellringer.
+  - Steps: with hits of 12 x m, n hits kill from m >= 2.5/n (1.25, 0.83, 0.63 for 2, 3, 4 hits); fire's 8 x m kills in n hits from 3.75/n. Chip damage from the living blurs both.
+
+### Step 4b: the tally gap and per-warden exposure
+- **The gap was the tally's.** The killing blow ended the run before a split tick recorded it, so struck tells fell one short of the blows in every death.
+  - ef91d24 books it, and adds `tell_tally.untold_blows`: blows in no seen tell's window.
+  - Every blow in the 13 c7 deaths, and in the 180 runs after, followed a tell she saw. untold_blows is 0 throughout.
+- **Two answered tells did strike, and both are fixed:**
+  - A toll in a corner just outside the ring had no exit (lantern-keep s2). It now lands only where stepping out toward the bell keeps her out of the slam (`toll_gap_px` 40; 40d281d).
+  - Kiting hid a lit tell from the roll (the-stair s1: the rush was seen 0.70 s before it struck). A warden tell is now seen and answered before the kite (0741e80, fixed after the freeze, beside "missed means missed").
+- **The exposure knobs** (old -> new):
+
+  | knob | old -> new | effect |
+  |---|---|---|
+  | Bellringer `toll_every` | (1) -> 3 | |
+  | Bellringer `toll_gap_px` | (0) -> 40 | |
+  | Pyre-priest `relish_area_every` | (none) -> 4 | aimed fires per fight about 4 -> 8.7 |
+  | Shieldwall `rush_lane_over_px` | (room) -> 80 | the lane reaches 80 px past her: an answer by stepping back, 0.72 s margin |
+
+- **e2** (x1, seeds 1-10, 2 forts x 10 per warden):
+
+  | warden | deaths | tells per fight | reach on missed |
+  |---|---|---|---|
+  | Bellringer | 0 / 20 | 22.5 | 2% |
+  | Huntsman | 4 / 20 | 11.3 | 56% |
+  | Shieldwall | 0 / 20 | 12.5 | 56% of 9 |
+  | Pyre-priest | 2 / 20 | 8.7 | 68% |
+
+  - Answered struck: 0. Tier deaths: 1, 5 and 0 of 30.
+  - Medians: t2 118, t3 130, t4 117 (vespers +35%, sable-hold +16%).
+- **Not met after two rounds:**
+  - The toll's exit gap leaves it almost nowhere she stands: the bot's answer kept its own 24 px slam margin, so the gap had to cover it.
+  - The Shieldwall's wits pins counter 43 of its 52 missed tells, so the counter, as designed, leaves almost nothing to land.
+  - The next step would be a toll gap of about 16, with the bot's exit judged against the ring's own reach, not its margin.
+
+### Step 4b: exposure round 3 (game side only)
+- **The toll's room rule** (6043ad8, replaces `toll_gap_px`): a toll lands only where she can step out of it away from the bell with the toll radius of floor to spare inside the room (`WardenLogic.toll_room_ok`), else that slam tolls nothing.
+- **A pin spares her only the rush** (599c361): a pinned tell's plain bash strikes her in its lit arc. The bot's tally no longer counts a pin as a counter, so the Shieldwall's missed-uncountered count grew from 9 to 52 (not comparable to e2).
+- **r3** (x1, 2 forts x 10 per warden; answered struck 0, untold_blows 0, margins toll 0.87 s and bash 0.71 s):
+
+  | warden | deaths | reach on missed |
+  |---|---|---|
+  | Bellringer | 0 / 20 | 0% of 40 |
+  | Huntsman | 4 / 20 | 56% of 34 |
+  | Shieldwall | 0 / 20 | 10% of 52 |
+  | Pyre-priest | 2 / 20 | 68% of 38 |
+
+  - Tier deaths: t2 1/30, t3 5/30, t4 0/20 (sable-hold not in this check). Medians t2 118, t3 130, t4 111.
+- **The room rule removes the toll at both Bellringer forts.** A print on a throwaway snapshot over the same 20 runs: 0 of 142 toll beats placed a toll.
+  - 110 failed the rule: beyond the slam's reach (291 px: 260 + 18 + 13) in a 640 x 490 room, she has about 30 px or less of floor behind her away from the bell.
+  - 31 had her inside the ring, 1 out of the room.
+  - So the Bellringer is slam-only, and `toll_every` 3 is moot. An exit anywhere in the outward half-plane (sideways along the wall) would place it; not built (last round).
+
+### Step 4b: the toll's exit rule (replaces the room rule)
+- **The rule** (c4330e7, `WardenLogic.toll_exit`): a toll lands at her spot only if an exit exists.
+  - The exit is a point in the room with her centre `toll_exit_margin_px` (16) beyond both the toll's reach on her and the slam's.
+  - She must reach it from where she stands within the lead less `toll_react_s` (0.6 s, the score-50 delay) at 240 px/s: 267 px.
+  - Sideways along the slam's edge counts. Otherwise that slam tolls nothing; the test's corner case is a corner the slam nearly fills.
+- **The bot steps to that exit** (cac7f31, fixed after the freeze, beside "missed means missed"). It is the same roll as the slam; only the step's target is the rule's.
+- **Worst-case exit path:**
+  - The test's 10 px grid over the three at-tier Bellringer warden rooms finds an exit at every spot beyond the slam (2447 of 2447). The longest is 90 px: margin 0.74 s.
+  - Measured in r4, the longest was 98 px: margin 0.71 s.
+- **r4** (x1; vespers, lantern-keep, sable-hold x seeds 1-10):
+  - Answered tells struck: 0 (502 tells, 115 with a toll). untold_blows: 0.
+  - Tolls placed: 138 of 143 toll beats.
+  - Missed, unmuffled tolls: 10, all struck. Missed and muffled: 13.
+
+  | fort | deaths |
+  |---|---|
+  | vespers | 3 / 10 |
+  | lantern-keep | 0 / 10 (1 retreat) |
+  | sable-hold | 1 / 10 |
+
+  - Reach on all missed, uncountered Bellringer tells: 11 of 52 (21%).
+  - t1 and P1 (6 rows) are byte-identical to ccb9a3c: the toll is gated from lever_min_tier.
+
+### Step 4b: where it stands (margins, knobs, bot fixes)
+- **Margins now** (every tell-attack, human-answerable: lead 1.714 s less the score-50 delay 0.6 s less the path out at 240 px/s; `test_wardens` prints them):
+
+  | tell-attack | the path out | margin |
+  |---|---|---|
+  | slam | out of the ring (260 + 18 + 13, from the bell's edge) | 0.17 s |
+  | toll | to its exit, worst case: 98 px measured (r4), 90 px on the test's grid | 0.71 s measured / 0.74 s grid |
+  | lunge | out of its hit radius | 0.97 s |
+  | bash | out of its reach | 0.71 s |
+  | fire, phase 3 (one aimed fire, 105 px) | 118 px | 0.62 s |
+  | fire with `relish_spread_px` 60 (phase 1, 72 px; 3 fires along her line from the priest) | sideways 85 px, clear of all three | 0.76 s |
+  | aimed lane, sideways | out of its 20-degree half-width at the far end | 0.16 s |
+  | aimed lane, stepping back | `rush_lane_over_px` 80 + her radius: 93 px | 0.72 s |
+
+- **The knobs Step 4b added** (old -> new; none existed at 5b70259; `toll_gap_px` is gone):
+
+  | knob | old -> new |
+  |---|---|
+  | bellringer `toll_radius_px` | none -> 45 |
+  | bellringer `toll_every` | none -> 3 |
+  | bellringer `toll_exit_margin_px` | none -> 16 |
+  | bellringer `toll_react_s` | none -> 0.6 |
+  | shieldwall `rush_lane_half_deg` | none -> 20 |
+  | shieldwall `rush_lane_over_px` | none -> 80 |
+  | pyre_priest `relish_area_every` | none -> 4 |
+  | wardens `relish_dmg_mult` | none -> 1.0 |
+  | wardens `lever_min_tier` | none -> 2 |
+  | `tier_mix_by_fort` sable-hold brute | 0.45 (the t4 mix) -> 0.15 |
+  | `tier_mix_by_fort` pale-bastion brute | 0.30 (the t3 mix) -> 0.10 |
+
+  - `toll_react_s` is the game's human-reaction budget, and it equals the score-50 `react_delay_s` (0.6 s) on purpose: a toll lands only where a score-50 player can still answer it. The game reads its own knob, never the bot's.
+- **The bot's reaction rule, frozen at 5b70259, and the fixes after the freeze** (each its own commit, revertible):
+  - b1233c4, 2026-11-14: missed means missed. A missed Shieldwall tell still fed its facing, arc and reach to her stand, and a missed slam's ring was fled once out (the manager's ruling).
+  - fa42e59, 2026-11-14: the toll is answered through the same roll as the slam (new tell geometry: step out of its ring).
+  - 0741e80, 2026-11-14: a warden tell is seen while she kites. The living's kite came first, so a lit tell could be rolled late (the-stair s1: answered, and struck).
+  - cac7f31, 2026-11-14: the toll answer steps to the exit the game's rule found, so the answer and the rule cannot disagree.
+  - Movement fixes from the 3c and Step 4 reviews (not the reaction rule), all 2026-11-14: the unstick watch (5a556bc) and its restart on a room change (0aa97d6), the hold on hostile foes only (fe808e7), and the no-army leave after her reaction delay (5e2a7a9).
+
+### Step 4b Part 2: the measurement (rows at 4bc567d, score 70 unless named)
+- **The review follow-ups after the batch** change no outcome: ed366ed source guards, 91bb300 dead `_tally_pinned`, 7fc00c5 the pinned-bash rule gated on `lever_on`, 197de0c the toll's own death source, b8f4605 the fire-spread margin line. The seed-1 lines (9 at-tier forts, t1 x3, P1) are byte-identical, apart from vespers s1 now booking its two toll blows as `toll`. **The batch rows book toll deaths as `slam`.**
+- **The lever** (`relish_dmg_mult`; pooled t2-t4, 9 forts x seeds 1-5): x0.75 4/45, x0.9 5/45, x1.0 5/45, x1.15 6/45, x1.35 8/45. +-5% at x1.0: 5/45 at 0.95 and at 1.05.
+  - The rule, set before the main batch: x1.0, in the 10-15% band, the committed default, and 1.15 differs by one death in 45. The curve is flat from 0.9 to 1.15: crossing the fire step (0.9375) changed nothing, and 1.35 is the first point clearly out.
+- **At tier, x1.0** (seeds 1-19, 19 a fort): 28/171 = 16.4% (90% 12-22), above the band.
+  - Per tier: t2 11/57 (19%), t3 14/57 (25%), t4 3/57 (5%).
+  - Per archetype: Bellringer 8/57, Huntsman 9/38, Pyre-priest 6/38, Shieldwall 5/38.
+  - Seeds 1-5 alone gave 5/45: the curve's seeds ran low.
+- **Risk:**
+  - Two tiers up (the t2 party at the t4 forts, 42): 28 died, 10 retreated.
+  - P1: 0/60. t1: 8/42, all at greywall (8/14, all by the living). Base had 3/18 across the three t1 forts, 2/6 of them at greywall.
+  - Scores 50/70/90 (t2-t4, seeds 1-4): 16/36, 4/36, 2/36.
+  - Dodge context (answer x0.6, 27 runs): 10/27 against 3/27 at x1.0.
+- **Causes, the 28 deaths at tier:** lunge 9, fire 5, rush 5, toll 5, slam 3, living 1. 27 had a missed tell that struck.
+- **The arms** (8 forts x 20 seeds): with the counter, deaths 27/160 = 16.9% (90% 12.6-22.3) and bad outcomes 29/160. Without it, deaths 95/160 = 59.4% (52.9-65.6) and bad 96/160.
+- **Length** (median scene s, seeds 1-6, now against base 5b70259 and bfix): t2 122 (103, 107), t3 138 (115, 95), t4 120 (118, 114), t1 105 (106), P1 96 (100).
+  - All seeds: t2 112, t3 130, t4 120, so the human estimate is 2.2-3.4 min (P1 1.9-2.7, t1 2.0-2.9). That is under 3-6 min.
+  - Idle is at most 1.6% at every tier.
+- **Reach on missed, uncountered tells at tier** (target 25-50%): Bellringer 24% (22/90; tolls struck 17 of 19 missed unmuffled), Shieldwall 17% (21/123), Huntsman 62% (42/68), Pyre-priest 70% (54/77). untold_blows: 0.
+- **Four answered tells struck in Part 2** (4 rows, 3 cases; 1 at tier). The gates (r3, r4) saw none. These are found, not fixed, since a fix changes the sim:
+  - vespers s11, at tier and the same run in its no-beef arm: she answered the first slam outside the warden room, and the walk in (`why=warden`) took her into the live ring. The Bellringer's answer runs only in its room.
+  - pale-bastion s1, no wits: the aimed rush was answered, but she switched between goals for 0.8 s before stepping out.
+  - hollow-redoubt s18, no speed: game-side. The lock point (1505, 697) lay past the room edge the Huntsman is leashed to, so the dash ran to the clamped point (1505, 669), along the room edge, not along the drawn line. Her sidestep, perpendicular to the drawn line, stood 29 px from the dash's end (catch reach 35). The drawn tell and the lunge's path disagree whenever the lock point is clamped.
+- **Vei:** identical to boss-before at the final head, so V1/V2 were not re-run.
+
+### Step 4b Part 2: the spec review's corrections
+- **No tier was inside the band at Part 2:** t2 19.3%, t3 24.6% and t4 5.3%. The 4c re-measure below gives the new per-tier verdict.
+- **Per archetype**, three of the archetypes had n = 38 (2 forts x 19 seeds). The 4c re-measure has 40 per two-fort archetype and 60 for the Bellringer's three forts.
+- **The curve** ran 3 forts per tier x 5 seeds: 15 a tier, 45 per point.
+- **What each no-counter arm takes away besides the counter** (`raid.json party`: hp 30 + 8 per beef, damage 3 + 1.2 per power, speed 90 + 10 per speed px/s):
+  - Bellringer, `--raid-party-beef=5`: the t2 big drops from beef 6 to 5, under the muffle threshold of 6. Its hp falls from 78 to 70.
+  - Huntsman, `--raid-party-speed=3`: speed 4 becomes 3 (130 to 120 px/s) at t2. At t3 the bigs drop from speed 4 and 6 to 3 (130 and 150 to 120 px/s). All fall under the intercept threshold of 4.
+  - Shieldwall, `--raid-party-wits=0`: the t3 bigs drop from wits 4 and 4 to 0, the t4 bigs from 5, 5 and 5 to 0. That puts them under the flank threshold of 4. Wits changes nothing else in the raid: no hp, damage or speed.
+  - Pyre-priest, `--raid-party-power=5`: the t3 bigs drop from power 6 and 6.5 to 5, so their hit falls from 10.2 and 10.8 to 9.0. The t4 bigs drop from 7, 7.5 and 8 to 5, so their hit falls from 11.4, 12.0 and 12.6 to 9.0. All fall under the snuff threshold of 6.
+- **Reach against 25-50%:** none of the four wardens was inside it. The Bellringer (24%) and the Shieldwall (17%) were below it; the Huntsman (62%) and the Pyre-priest (70%) were above it.
+- **Precision:**
+  - The toll fields. `toll_missed` (19) counts the tolls on missed tells that no bracing big muffled. `toll_missed_struck` (17) counts how many of those struck her, and `toll_missed_muffled` (34) counts the missed tolls that a brace muffled. "17 of 19 missed unmuffled" means `toll_missed_struck` / `toll_missed`.
+  - The idle share: Part 2's numbers pool seconds over the runs with outliers left out (more than 2x their fort's median). Pooled over the per-run splits with every row, the share is 0.1-2.1% (t1 2.1, t2 1.6). Both NOTES and the report now give the method with the number.
+  - The base medians t2 103 and t4 118 hold only with the outliers left out; with every row they are 105.5 and 119.2.
+
+## Step 4c (D-d/E): one bounded round (option b)
+- **The lunge clamp** (d79f3d0, `WardenLogic.lunge_lock`): the lock point is clamped to the Huntsman's leash as the tell begins, so the drawn line is the dash's line. The test checks that the ends match at the leash edge, and that a sidestep off the drawn line by the catch reach is safe all along it.
+  - Seed-1 lines: identical at every fort except hollow-redoubt, which went from beaten to dead.
+  - At x1.0, seeds 1-19: 10 of 19 chime-fort rows and 3 of 19 hollow-redoubt rows moved. t1 Huntsman forts (seeds 1-3): unmoved.
+  - hollow-redoubt s18, no speed: the old caught lunge now locks on an undead and misses. A later answered lunge still lands, because the bot alternates between its sidestep goal and its approach goal at the doorway under the room (a bot fault).
+  - Shot: de4c-lunge-clamped.png.
+- **greywall (t1) trace** (s3; all ours: `LayoutLogic.populate_enemies`):
+  - The opening room holds 5 of the 22 living, the long middle room 12 and the warden room 5.
+  - The army clears the opening by 7.5 s. Going for loot, she reaches the middle room's door (15 living within 250 px). 17 follow her back and wipe the 6 garrison chaff by 13.4 s, and she dies at 16.8 s.
+  - The count is 22 at every t1 fort; the world.json cap only sets the mass per enemy.
+  - The fix (b842fef, `enemy_room_mult_by_fort` greywall {1: 0.5, 2: 2}) gave 1/19 on seeds 1-19, **but 6/20 on fresh seeds 20-39**: it does not meet the bar (ashgate and old-sluice 0/14). The army is still gone at 13.5-16.1 s (the 18 g4c rows with an army-zero time). Traced at s20: the warden room's 12 leave it within 6 s and gather in the middle room. The spread is not the lever; their leash or the t1 garrison is. Not tried this round.
+- **The lever per tier** (a80402f, c9d3f36; `relish_dmg_mult_by_tier`), picked on seeds 1-19 by the rule fixed before the runs:
+
+  | tier | x1.0 | the other value | pick |
+  |---|---|---|---|
+  | t2 | 12/57 | x0.75: 7/57 | 0.75 |
+  | t3 | 15/57 | x0.75: 11/57 | 0.75 |
+  | t4 | 3/57 | x1.35: 7/57 | 1.35 |
+
+  - In missed tells (her hp is 30):
+    - At 0.75, slam, toll, lunge, bash and rush hit for 9 (30% of her hp; 4 kill her), and fire for 6 (20%; 5 kill).
+    - At 1.35 they hit for 16.2 (54%; 2 kill), and fire for 10.8 (36%; 3 kill).
+- **Re-measure at the final config** (822ed92, fresh seeds 20-39, score 70; the band is judged at score 70):
+  - At tier: 25/180 = 13.9% (90% 10-19). t2 6/60 (10.0%) and t3 8/60 (13.3%) are in the band; t4 11/60 (18.3%) is above it.
+  - Per archetype: Bellringer 9/60, Huntsman 6/40, Pyre-priest 9/40, Shieldwall 1/40.
+  - Per fort: vespers 4, chime-fort 2, lantern-keep 0, hollow-redoubt 4, mourners-gate 3, pale-bastion 1, sable-hold 5, the-stair 0, whitecross 6 (of 20 each).
+  - Causes: fire 9, lunge 6, toll 6, slam 3, rush 1. 24 of 25 had a missed tell that struck.
+  - Answered tells struck: 3; 2 traced as bot faults, sable-hold s38 untraced. hollow-redoubt s33 is the doorway alternation; sable-hold s34 is the walk into a live ring outside the warden room, like vespers s11. sable-hold s38 is untraced: a slam death at 40.4 s after one tell, answered and struck, with no bell block and her army still standing (army_zero_t -1). untold_blows: 0.
+  - Scores 50/70/90 (seeds 20-23): 15/36, 1/36, 1/36. Dodge, answer x0.6: 5/27 against 1/27.
+  - Arms (with = the at-tier rows, same arguments): with the counter 20/160 = 12.5% (8.8-17.4), bad 22. Without, 62/160 = 38.8% (32.7-45.2), bad 67. That is 3.1x and 26 points. At chime-fort both arms are 2/20.
+  - Two tiers up: 27/42 died, 12 retreated.
+  - P1, ashgate and old-sluice: seeds 1-3 identical, so the Part 2 rows stand (P1 0/60).
+  - greywall t1: 6/20; scores 50/90 at greywall 2/5 and 0/5.
+  - Reach on missed, uncountered tells (target 25-50%): none inside. Bellringer 23% and Shieldwall 12% are below; Huntsman 66% and Pyre-priest 74% are above.
+  - Length (median scene s; split pooled over runs with outliers out, the Part 2 method; the baselines ran at seeds 1-6):
+
+    | tier | median | human estimate (low against 2:40) | base / bfix |
+    |---|---|---|---|
+    | t2 | 118 | 139-197 (-21 s) | 103 / 107 |
+    | t3 | 123 | 141-193 (-19 s) | 115 / 95 |
+    | t4 | 126 | 151-215 (-9 s) | 118 / 114 |
+    | t1 | 106 | 127-186 (-33 s) | |
+    | P1 | 93 | 112-162 (-48 s) | |
+
+    Idle is 0.3-1.3% at t2-t4.
+  - Lockstep held; the 9 reruns are identical.
+- greywall t1, seeds 20-39 (g4cbase, 443df3d, before the room knob; seed 1 equals base): 11/20 died (90% 37-72), median army_zero_t 14.3 s, 1 death within 10 s of it, median 46 s. With the knob (g4c): 6/20 (16-48), 14.7 s, 0, 127 s. The 22 living at every t1 fort: raid_logic.gd:13 (enemy_count, living / cap x mass.enemies_per_cap 26) with the profile's living = cap x autopilot.profile_living_frac 0.85 (raid_logic.gd:133; raid.json:116, :442), all ours; in a real run the living come from the realm's seed (not ours).
+- **Per fort, the m4c at-tier rows** (seeds 20-39, 20 a fort; toll split from slam):
+
+  | fort | deaths | causes | answered struck | untold |
+  |---|---|---|---|---|
+  | vespers | 4 | toll 2, slam 2 | 0 | 0 |
+  | chime-fort | 2 | lunge 2 | 0 | 0 |
+  | lantern-keep | 0 | | 0 | 0 |
+  | hollow-redoubt | 4 | lunge 4 | 1 | 0 |
+  | pale-bastion | 1 | rush 1 | 0 | 0 |
+  | mourners-gate | 3 | fire 3 | 0 | 0 |
+  | the-stair | 0 | | 0 | 0 |
+  | whitecross | 6 | fire 6 | 0 | 0 |
+  | sable-hold | 5 | toll 4, slam 1 | 2 | 0 |
+
+## The quality pass (opus review of 5b70259..5d22c9f)
+- **Fixed, behaviour:**
+  - 89f2151: the muffled slam spares Relish only where the lever is on. Below it (t1, the first dungeon) she takes dmg_relish x the weak point's dmg_mult again, as at 5b70259.
+  - 984602b: the Shieldwall's shield is the phase's arc (`shield_half_deg`) in `hit_from` and on the glyph. A lane (20 deg) or a rush (wider) is the attack's arc only.
+  - 93ec7ca, a bot fix after the freeze (the reaction delay): the stand plans against the wall before the tell until she answers it. Inside the delay it had read the live tell, and the aimed lane snapped its facing to her.
+    - The other handlers read no tell geometry before `_answers` turns true. `_vs_bell` reads the toll only on leaving (answered, or a ring out in plain sight). `_dodge_step` is gated by `_answers`. `_vs_pyre` reads the fire areas only while `stepping`.
+  - fd295bd: a horn over a toll's tell clears the toll. This is draw only: nothing reads it then.
+  - c0d00b6: the slam's preview is drawn at radius + band/2. This is draw only (shot dq-slam-preview.png). The expanding ring already spans its band.
+- **Fixed, lines byte-identical:**
+  - 28962cd: `pack_rest_beats` and `pack_spawn_wall_px` moved into config.
+  - 28fe990: the CAUGHT label drops the ally note where the tell bypass is on.
+  - 6e7d9a5: the tests now read what they claim. The lunge's drawn end equals the dash's end with walls included, through the pure `WardenLogic.wall_clipped` and `LayoutLogic.resolve_walls`. The margins use each warden's own lead (all 1 beat, so no margin moved). The fire's radius comes from config.
+  - 8f5975d: source guards.
+- **Seed-1 lines** (13 raid lines and Vei, bcb7a37 against 8f5975d): only pale-bastion moved (94 -> 97 s, still beaten). t1, P1 and Vei are identical. Both Shieldwall forts were re-measured on the m4c seeds; the-stair's seed 1 had no lane in reach, but it is the same warden.
+- **Before -> after** (seeds 20-39, score 70):
+  - At tier: 25/180 = 13.9% (10-19) -> 26/180 = 14.4% (11-19). t4 went 11 -> 12 (the-stair 0 -> 1). Shieldwall 1/40 -> 2/40, rush deaths 1 -> 2.
+  - Arms: with 20/160 -> 21/160; without 62/160 -> 71/160 (the no-wits arms answer at her delay now).
+  - Scores 50/90: 15/36 -> 16/36, and 1/36 unchanged. Dodge 5/27 and two up 27/42 unchanged.
+  - Shieldwall reach: 12% -> 11%. Medians: t3 123, t4 126 -> 127.
+- **Notes only:**
+  - The untold_blows windows are hardcoded at 1.5 and 1.0 beats, and blows outside `_answers` count. Both can only inflate the count, and it is 0, so the 0 stands.
+  - The rush and the pin are not gated on `lever_on`, but no Shieldwall fort sits at t1 or in the first dungeon.
+  - There is a 13 px band that neither the toll (`in_ring` adds her radius) nor the slam strikes. It is a safe gap, not a hidden hit.
+  - greywall's room knob is sanctioned by the manager.
+- **Re-shoot (quality pass), stills at 0398377/8350858 in reports/dungeon:**
+  - dq-warden-greyscale-pack and dq-warden-greyscale-struck. In 15 sampled runs the bot took no blow while a pack stood: the warden's attacks pause and it kites the living.
+  - dq-death-toll and dq-death-fire: the card now has KILLED BY and MISSED rows (0398377). The toll line had clipped at the card's edge; the widest value is now 215 of 396 px.
+  - dq-roomline-lastchance, dq-danger-0phyl and dq-danger-0phyl-reduced.
+  - dq-huntsman-caught: CAUGHT 1, "each catch costs Relish 9 hp · it hunts faster at 2 and 4 catches". The earlier frame fell after the Huntsman died: RAID_WARDEN died printed between the second catch at 7403 and frame 7463, and the block hides a dead warden.
+  - dq-vei-victory-dim and dq-vei-victory: the button dim, then live after card.skip_after_s.
+  - dq-vei-phase2-greyscale (cfabd41's rule line) and dq-vei-iframes-reduced ("SAFE 3 s").
+  - The "--raid-warden skips the death card" was dev-path only and not about --raid-warden. --raid-autodie hit at process frame 0, so the 4.5 s card was gone before an N-based shot. Fixed in 8350858; seed-1 lines are identical (13/13).

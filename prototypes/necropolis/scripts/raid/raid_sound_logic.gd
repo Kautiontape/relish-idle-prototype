@@ -40,8 +40,8 @@ static func log_line(kind: String, params: Dictionary) -> String:
 
 ## The plan to warm: one {"kind", "params"} per distinct render of `kinds`, in order, deduped. A chime
 ## is every score bucket (kinds.chime.score_step, default 5, over 0..100); a streak is every step
-## bucket (kinds.streak.step_max 20 and step_bucket 1 by default); any other kind renders once with
-## no params. The buckets mirror SynthLogic.score_bucket / step_bucket, so each entry is a distinct
+## bucket (kinds.streak.step_max 20 and step_bucket 1 by default); a flank is its two buckets
+## (heavy false and true); any other kind renders once with no params. The buckets mirror SynthLogic.score_bucket / step_bucket, so each entry is a distinct
 ## cache key of the Synth. `synth_cfg` is the Synth's config (configs/synth.json; empty = defaults).
 static func warm_plan(kinds: Array, synth_cfg: Dictionary) -> Array:
 	var kc: Dictionary = synth_cfg.get("kinds", {})
@@ -60,6 +60,9 @@ static func warm_plan(kinds: Array, synth_cfg: Dictionary) -> Array:
 			var b := maxf(float(k.get("step_bucket", 1)), 1.0)
 			for step in int(top) + 1:
 				params.append({"step": roundi(roundf(clampf(float(step), 0.0, top) / b) * b)})
+		elif kind == "flank":
+			params.append({"heavy": false})
+			params.append({"heavy": true})
 		else:
 			params.append({})
 		for p in params:

@@ -5,8 +5,10 @@ extends RefCounted
 ## `warden_beaten`. A held fort, or the boss arena, has none of it (every method is a no-op).
 
 var warden: RaidWarden = null
+var tell_bypass := false       # the risk gate for this fort (WardenLogic.lever_on): tell-attacks skip the chain
 var chest: RaidChest = null
 var last_chance_done := false
+var warden_name := ""   # the spec's name, kept after the warden dies (the death card names it)
 
 var _raid: Node2D
 var _room := -2
@@ -35,12 +37,18 @@ func build() -> void:
 			node = RaidHuntsman.new()
 		"bellringer":
 			node = RaidBellringer.new()
+		"shieldwall":
+			node = RaidShieldwall.new()
+		"pyre_priest":
+			node = RaidPyrePriest.new()
 		_:
 			node = RaidWarden.new()   # an archetype with no attack yet is the inert base glyph
 	node.position = (rooms[int(_raid.layout["warden_room"])] as Rect2).get_center()
 	_raid.units_root.add_child(node)
 	node.configure(_raid, w)
+	warden_name = str(w.get("name", ""))
 	warden = node
+	tell_bypass = WardenLogic.lever_on(int(w["tier"]), bool(w["first_dungeon"]), _raid.rcfg().get("wardens", {}))
 
 
 ## Per physics frame: room tracking (wake, last chance).
@@ -58,10 +66,13 @@ func tick() -> void:
 
 
 ## Bodyguard post for a party big undead while an awake Huntsman hunts: {point, relish} when `u`
-## is a fast-enough big undead (speed_stat >= the weak point's threshold), else {}.
+## is a fast-enough big undead (speed_stat >= the weak point's threshold), else {}. None while its
+## hounds run (D-d/E Step 4.1): the Huntsman holds its lunge then, so its speed bigs leave the post to
+## hunt the hounds (pack_target, INTERCEPTED in one blow) and take it again when the last falls (a full
+## tell before the next lunge). Held at her side, they let the hounds wipe the army away from her.
 func guard_for(u: RaidUnit) -> Dictionary:
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake \
-			or str(warden.spec.get("archetype", "")) != "huntsman" or u.kind != "big":
+			or str(warden.spec.get("archetype", "")) != "huntsman" or u.kind != "big" or warden.pack_alive() > 0:
 		return {}
 	var rel: RaidRelish = _raid.relish
 	if rel == null or not is_instance_valid(rel) or not rel.alive:
@@ -79,11 +90,93 @@ func guard_for(u: RaidUnit) -> Dictionary:
 		"relish": rel.global_position}
 
 
+## Flank post for a party big undead fighting an awake Shieldwall: {point, front, warden} when `u` is
+## a big undead whose wits meet the weak point (WardenLogic.is_flanker) and whose target is the wall,
+## else {}. `point` is where it walks next (round the orbit toward its post behind the wall: the
+## flankers spread `flank_spread_deg` apart), `front` whether it stands on the shield's side now (it
+## holds its blow there).
+func flank_for(u: RaidUnit) -> Dictionary:
+	if warden == null or u.kind != "big" or u._target != warden or not is_instance_valid(warden) \
+			or not (warden is RaidShieldwall) or not warden.alive or not warden.awake:
+		return {}
+	var sw := warden as RaidShieldwall
+	if not WardenLogic.is_flanker(sw.spec, u.wits):
+		return {}
+	var flankers: Array = []
+	for a in _raid.allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and a._target == sw and WardenLogic.is_flanker(sw.spec, a.wits):
+			flankers.append(a)
+	var wp: Dictionary = sw.spec.get("weak_point", {})
+	var ang := WardenLogic.flank_angle(sw.facing, maxi(0, flankers.find(u)), flankers.size(), float(wp.get("flank_spread_deg", 34.0)))
+	var orbit: float = sw.radius + u.radius + float(wp.get("flank_gap_px", 3.0))
+	return {"point": WardenLogic.flank_step(sw.global_position, u.global_position, ang, orbit, float(wp.get("flank_step_deg", 40.0))),
+		"front": sw.is_front(u.global_position), "warden": sw}
+
+
+## Acolyte-hunting post for a party big undead fighting an awake Pyre-priest: {acolyte} (the living
+## acolyte nearest it) when `u` is a big undead whose power meets the weak point (WardenLogic.is_snuffer)
+## and whose target is the priest or one of its acolytes, while any acolyte lives; else {}.
+func snuff_for(u: RaidUnit) -> Dictionary:
+	if warden == null or u.kind != "big" or not is_instance_valid(warden) or not (warden is RaidPyrePriest) \
+			or not warden.alive or not warden.awake:
+		return {}
+	var pp := warden as RaidPyrePriest
+	if u._target == null or not is_instance_valid(u._target) or not (u._target == pp or u._target is RaidAcolyte):
+		return {}
+	if not WardenLogic.is_snuffer(pp.spec, u.power):
+		return {}
+	var a := pp.nearest_acolyte(u.global_position)
+	return {} if a == null else {"acolyte": a}
+
+
+## The pack's counter (WardenLogic.pack_breaker): `u` is a big undead whose stat meets the awake warden's
+## weak point, and the warden has a pack.
+func breaks_pack(u: RaidUnit) -> bool:
+	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake or u.kind != "big":
+		return false
+	var v := 0.0
+	match str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")):
+		"beef":
+			v = u.beef
+		"speed":
+			v = u.speed_stat
+		"wits":
+			v = u.wits
+		"power":
+			v = u.power
+	return WardenLogic.pack_breaker(warden.spec, v)
+
+
+## The pack unit nearest `u` while a pack stands and `u` breaks it (its target), else null. At the
+## Shieldwall (D-d/E 3c) pinning outranks the hunt: a wits big holding its post at the wall's back
+## (RaidShieldwall.posted) keeps the wall as its target (its flank role, where it strikes the pack units
+## that come to it: RaidUnit._pack_in_reach); the hunt goes to the pack breakers not posted there. (No
+## clause for a bash tell: the wall holds its bash while its pack stands, so no tell shows then.)
+func pack_target(u: RaidUnit):
+	if not breaks_pack(u):
+		return null
+	if warden is RaidShieldwall and warden.pack_alive() > 0 \
+			and (warden as RaidShieldwall).posted(u):
+		return warden
+	var best = null
+	var bd := INF
+	for e in warden.pack:
+		if is_instance_valid(e) and e.alive:
+			var d: float = u.global_position.distance_to(e.global_position)
+			if d < bd:
+				bd = d
+				best = e
+	return best
+
+
 ## The awake warden when it is within `reach` of walking from pos for an undead of `radius` (an enemy
-## for the undead, on the same walking leash as the enemies), else null.
+## for the undead, on the same walking leash as the enemies), else null. A Pyre-priest offers the
+## nearest of itself and its living acolytes (RaidPyrePriest.target_near).
 func target_in(pos: Vector2, reach: float, radius := 0.0):
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake:
 		return null
+	if warden is RaidPyrePriest:
+		return (warden as RaidPyrePriest).target_near(pos, reach, radius)
 	return warden if RaidLogic.warden_in_reach(_raid.layout, pos, warden.global_position, reach, radius) else null
 
 
@@ -122,6 +215,8 @@ func on_warden_died(w: RaidWarden) -> void:
 	c.position = _raid.resolve_walls(w.position, 14.0)
 	_raid.units_root.add_child(c)
 	chest = c
+	if _raid._dev != null:
+		_raid._dev.on_warden_died(w)   # the measuring bot's last read of its counts
 	warden = null
 
 

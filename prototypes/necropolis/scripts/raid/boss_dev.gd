@@ -14,6 +14,10 @@ extends RefCounted
 ##   --boss-autodie=<frames>  every ally gone and a lethal hit on Relish at that frame of the scene
 ##                            (a backup cracks, or the final death)
 ##   --boss-autowin=<frames>  Vei breaks at that frame (the victory set piece)
+##   --boss-hold-card         with the bot: its win shows the end card and holds, emitting nothing and not
+##                            quitting (the card screenshot from a real fight); off, the bot emits at once
+##   --boss-greyscale         the whole screen in greyscale (shaders/greyscale_check.gdshader), for the
+##                            "still readable without colour" check (VISUAL-LANGUAGE 4)
 ##   --boss-hold-tell         the first weave's tell holds and never lands (the phase-2 screenshot)
 ##   --boss-prof              frames 120..600: the frame time (p99), the viewport's CPU and GPU render
 ##                            time, the draw time of the boss's own nodes per frame (lanes, labels,
@@ -30,6 +34,7 @@ var _boss: Node2D
 var _frame0 := 0
 var _autodie := -1
 var _autowin := -1
+var hold_card := false         # --boss-hold-card: the bot's win shows the card and waits (shots only)
 var _hide: PackedStringArray = PackedStringArray()
 var _frames: Array = []        # wall ms between frames
 var _cpu: Array = []           # viewport CPU render ms
@@ -118,6 +123,7 @@ func start() -> void:
 	var w := cli_value("--boss-autowin=")
 	_autowin = int(w) if w != "" else -1
 	_boss.stress = cli_flag("--boss-stress")
+	hold_card = cli_flag("--boss-hold-card")
 	prof_on = cli_flag("--boss-prof")
 	if prof_on:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -128,6 +134,17 @@ func start() -> void:
 		_apply_hide()
 	if cli_flag("--boss-hold-tell"):
 		_boss.vei.hold_tell = true
+	if cli_flag("--boss-greyscale"):
+		var cl := CanvasLayer.new()
+		cl.layer = 100
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var gm := ShaderMaterial.new()
+		gm.shader = load("res://shaders/greyscale_check.gdshader")
+		rect.material = gm
+		cl.add_child(rect)
+		_boss.add_child(cl)
 	if cli_flag("--boss-phase2") or _boss.stress:
 		_skip_fronts()
 
