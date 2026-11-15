@@ -810,7 +810,7 @@ mass; bodies, rot return, WORK and muster are mass.
   from the snapshot taken before the step; GameState takes the pickups off them before the realm
   step. A long step's legs then found corpses the step itself would have raised or cleared. From
   midgame_2flips, whose convoy is fixed on Greywall, Relish raises the corpses there as they form
-  (4 mass/s against about 1.2 formed). A 10 s step's solve leaves about 0.047 (its raise is bounded
+  (4 mass/s against 0.2 to 2.2 formed). A 10 s step's solve leaves about 0.047 (its raise is bounded
   by the corpses its last pass saw), and the convoy hauled that: at `9b5fc99` 115.7 mass over 12 h
   at 10 s against 0.001 at 0.5 s (167 against 0.06 at `40d62c0`), and 2.68 against 0.001 once the
   zero clock kept Ashgate held, all of it in the first 800 s. Now 0 at both.

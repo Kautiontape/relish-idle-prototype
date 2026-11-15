@@ -127,7 +127,7 @@ func _zero_clock_outcome() -> void:
 
 ## midgame_2flips with no input, 1 h of core steps at 0.5 s and at 10 s (clipped as the convergence
 ## harness clips, field frozen): the bodies the convoy lands. Its target is Greywall, where Relish
-## stands from about 30 s and raises the corpses as they form (her 4 mass/s against about 1.2 formed),
+## stands from about 30 s and raises the corpses as they form (her 4 mass/s against 0.2 to 2.2 formed),
 ## so a convoy that reads them at its moment finds none. A 10 s step's solve leaves about 0.047 there
 ## (its raise is bounded on the corpses the solve's last pass saw), and the snapshot read that: before
 ## T3.3a the 10 s run landed 2.68 mass in the hour, the 0.5 s run 0.001. Within 5% of 0.5 s's figure,
