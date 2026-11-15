@@ -965,3 +965,66 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
   - Reach on all missed, uncountered Bellringer tells: 11 of 52 (21%).
   - t1 and P1 (6 rows) are byte-identical to ccb9a3c: the toll is gated from lever_min_tier.
+
+### Step 4b: where it stands (margins, knobs, bot fixes)
+- **Margins now** (every tell-attack, human-answerable: lead 1.714 s less the score-50 delay 0.6 s less the path out at 240 px/s; `test_wardens` prints them):
+
+  | tell-attack | the path out | margin |
+  |---|---|---|
+  | slam | out of the ring (260 + 18 + 13, from the bell's edge) | 0.17 s |
+  | toll | to its exit, worst case: 98 px measured (r4), 90 px on the test's grid | 0.71 s measured / 0.74 s grid |
+  | lunge | out of its hit radius | 0.97 s |
+  | bash | out of its reach | 0.71 s |
+  | fire, phase 3 (one aimed fire, 105 px) | 118 px | 0.62 s |
+  | fire with `relish_spread_px` 60 (phase 1, 72 px; 3 fires along her line from the priest) | sideways 85 px, clear of all three | 0.76 s |
+  | aimed lane, sideways | out of its 20-degree half-width at the far end | 0.16 s |
+  | aimed lane, stepping back | `rush_lane_over_px` 80 + her radius: 93 px | 0.72 s |
+
+- **The knobs Step 4b added** (old -> new; none existed at 5b70259; `toll_gap_px` is gone):
+
+  | knob | old -> new |
+  |---|---|
+  | bellringer `toll_radius_px` | none -> 45 |
+  | bellringer `toll_every` | none -> 3 |
+  | bellringer `toll_exit_margin_px` | none -> 16 |
+  | bellringer `toll_react_s` | none -> 0.6 |
+  | shieldwall `rush_lane_half_deg` | none -> 20 |
+  | shieldwall `rush_lane_over_px` | none -> 80 |
+  | pyre_priest `relish_area_every` | none -> 4 |
+  | wardens `relish_dmg_mult` | none -> 1.0 |
+  | wardens `lever_min_tier` | none -> 2 |
+  | `tier_mix_by_fort` sable-hold brute | 0.45 (the t4 mix) -> 0.15 |
+  | `tier_mix_by_fort` pale-bastion brute | 0.30 (the t3 mix) -> 0.10 |
+
+  - `toll_react_s` is the game's human-reaction budget, and it equals the score-50 `react_delay_s` (0.6 s) on purpose: a toll lands only where a score-50 player can still answer it. The game reads its own knob, never the bot's.
+- **The bot's reaction rule, frozen at 5b70259, and the fixes after the freeze** (each its own commit, revertible):
+  - b1233c4, 2026-11-14: missed means missed. A missed Shieldwall tell still fed its facing, arc and reach to her stand, and a missed slam's ring was fled once out (the manager's ruling).
+  - fa42e59, 2026-11-14: the toll is answered through the same roll as the slam (new tell geometry: step out of its ring).
+  - 0741e80, 2026-11-14: a warden tell is seen while she kites. The living's kite came first, so a lit tell could be rolled late (the-stair s1: answered, and struck).
+  - cac7f31, 2026-11-14: the toll answer steps to the exit the game's rule found, so the answer and the rule cannot disagree.
+  - Movement fixes from the 3c and Step 4 reviews (not the reaction rule), all 2026-11-14: the unstick watch (5a556bc) and its restart on a room change (0aa97d6), the hold on hostile foes only (fe808e7), and the no-army leave after her reaction delay (5e2a7a9).
+
+### Step 4b Part 2: the measurement (rows at 4bc567d, score 70 unless named)
+- **The review follow-ups after the batch** change no outcome: ed366ed source guards, 91bb300 dead `_tally_pinned`, 7fc00c5 the pinned-bash rule gated on `lever_on`, 197de0c the toll's own death source, b8f4605 the fire-spread margin line. The seed-1 lines (9 at-tier forts, t1 x3, P1) are byte-identical, apart from vespers s1 now booking its two toll blows as `toll`. **The batch rows book toll deaths as `slam`.**
+- **The lever** (`relish_dmg_mult`; pooled t2-t4, 9 forts x seeds 1-5): x0.75 4/45, x0.9 5/45, x1.0 5/45, x1.15 6/45, x1.35 8/45. +-5% at x1.0: 5/45 at 0.95 and at 1.05.
+  - The rule, set before the main batch: x1.0, in the 10-15% band, the committed default, and 1.15 differs by one death in 45. The curve is flat from 0.9 to 1.15: crossing the fire step (0.9375) changed nothing, and 1.35 is the first point clearly out.
+- **At tier, x1.0** (seeds 1-19, 19 a fort): 28/171 = 16.4% (90% 12-22), above the band.
+  - Per tier: t2 11/57 (19%), t3 14/57 (25%), t4 3/57 (5%).
+  - Per archetype: Bellringer 8/57, Huntsman 9/38, Pyre-priest 6/38, Shieldwall 5/38.
+  - Seeds 1-5 alone gave 5/45: the curve's seeds ran low.
+- **Risk:**
+  - Two tiers up (the t2 party at the t4 forts, 42): 28 died, 10 retreated.
+  - P1: 0/60. t1: 8/42, all at greywall (8/14, all by the living; base had 3/18 there).
+  - Scores 50/70/90 (t2-t4, seeds 1-4): 16/36, 4/36, 2/36.
+  - Dodge context (answer x0.6, 27 runs): 10/27 against 3/27 at x1.0.
+- **Causes, the 28 deaths at tier:** lunge 9, fire 5, rush 5, toll 5, slam 3, living 1. 27 had a missed tell that struck.
+- **The arms** (8 forts x 20 seeds): with the counter, deaths 27/160 = 16.9% (90% 12.6-22.3) and bad outcomes 29/160. Without it, deaths 95/160 = 59.4% (52.9-65.6) and bad 96/160.
+- **Length** (median scene s, seeds 1-6, now against base 5b70259 and bfix): t2 122 (103, 107), t3 138 (115, 95), t4 120 (118, 114), t1 105 (106), P1 96 (100).
+  - All seeds: t2 112, t3 130, t4 120, so the human estimate is 2.2-3.4 min (P1 1.9-2.7, t1 2.0-2.9). That is under 3-6 min.
+  - Idle is at most 1.6% at every tier.
+- **Reach on missed, uncountered tells at tier** (target 25-50%): Bellringer 24% (22/90; tolls struck 17 of 19 missed unmuffled), Shieldwall 17% (21/123), Huntsman 62% (42/68), Pyre-priest 70% (54/77). untold_blows: 0.
+- **Four answered tells struck in Part 2.** The gates (r3, r4) saw none. These are found, not fixed, since a fix changes the sim:
+  - vespers s11, at tier and the same run in its no-beef arm: she answered the first slam outside the warden room, and the walk in (`why=warden`) took her into the live ring. The Bellringer's answer runs only in its room.
+  - pale-bastion s1, no wits: the aimed rush was answered, but she switched between goals for 0.8 s before stepping out.
+  - hollow-redoubt s18, no speed: the lunge was answered and she stood at her sidestep point, but it caught her anyway (the cause is not yet traced).
+- **Vei:** identical to boss-before at the final head, so V1/V2 were not re-run.
