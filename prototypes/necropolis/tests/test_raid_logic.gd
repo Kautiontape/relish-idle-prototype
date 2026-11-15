@@ -754,8 +754,10 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.held_door_lost("relish_died", true) and not RaidLogic.held_door_lost("retreated", false),
 		"a big spent on the door rejoins when the warden falls; a retreat or a death loses it; with none spent nothing is lost")
 	# its words
-	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
+	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind · the warden fight is harder without it" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
 		"the entry and the leaving words are the spec's")
+	var ew := ThemeDB.fallback_font.get_string_size(RaidLogic.HELD_DOOR_ENTRY, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	t.ok(950.0 - ew * 0.5 - 14.0 > 345.0 and 950.0 + ew * 0.5 + 14.0 < 1600.0, "the entry banner (20 px, centred near x 950 as de6-door-entry shows) clears the HUD stat block (right edge ~345) and the screen at the 1600 px base width (%d px)" % int(ew))
 	var pr := RaidLogic.held_door_prompt()
 	t.ok(pr.contains("shut in until the warden falls") and pr.contains("a retreat or a death loses it"), "the plate's prompt names the whole trade before she commits")
 	t.ok(RaidLogic.held_door_row("shut", "X").begins_with("SHUT IN · X") and RaidLogic.held_door_row("unused", "") == "", "the HUD row shows the shut-in big, and nothing with none spent")
@@ -767,9 +769,10 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
 	t.ok(RaidLogic.held_door_retreat_line("shut", "X") == "\nX is shut in at the cache: a retreat loses it."
 		and RaidLogic.held_door_retreat_line("held", "X") == "\nX is on the plate · lost if you retreat."
-		and RaidLogic.held_door_retreat_line("sent", "X") == RaidLogic.held_door_retreat_line("held", "X")
+		and RaidLogic.held_door_retreat_line("sent", "X") == "\nX is sent to the plate · lost if you retreat."
+		and RaidLogic.held_door_retreat_line("sent", "X") != RaidLogic.held_door_retreat_line("held", "X")
 		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
-		"the retreat dialog names the big by its state: on the plate, or shut in at the cache; nothing once it rejoined or none was spent")
+		"the retreat dialog names the big by its state: sent to the plate (sent), on the plate (held), or shut in at the cache; nothing once it rejoined or none was spent")
 	# the death card: the SHUT IN row before AFTER, apart from LOST (behaviour, RaidLogic.death_rows_with_shut)
 	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", RaidLogic.death_next_row({}))
 	var card2 := RaidLogic.death_rows_with_shut(card, "Old Gristle")

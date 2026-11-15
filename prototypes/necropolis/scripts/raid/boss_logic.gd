@@ -434,3 +434,43 @@ static func end_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fig
 	return {"time_text": clock_text(fight_t), "spent_phyl": sp, "spent_clones": sc, "spent": sp + sc,
 		"backups_total": int(seed.get("phylactery_charges", 0)) + int(seed.get("clones_ready", 0)),
 		"party_lost": lost, "party": party, "backlog_spent": backlog_spent(horde0, horde)}
+
+
+## The lost fight's headline per end_reason, as the loss banner's words in a sentence (vei_boss.gd `_lose`).
+const LOSS_WORDS := {"fronts_held": "her fronts held · too few fell in time",
+	"horde_ferried": "the horde was ferried · she did not break",
+	"relish_unmade": "Relish fell with no backup left"}
+
+
+## loss_card(seed, spent, party_lost, fight_t, end_reason, keep) -> Dictionary
+##   What the Vei loss card prints (D-e close-out), in the win card's frame (`end_card`): time_text, the
+##   backups spent and the big undead lost (the same keys; on a loss all of the seed's party, MECHANICS §6),
+##   `ended` (LOSS_WORDS for the reason; an unknown
+##   one reads "the fight is lost"), `keep_pct` (loss_backlog_keep as a whole percent) and `keep_text`
+##   ("35% stays"), and `after`, the AFTER row, only for a final death (relish_unmade; with fronts_held or
+##   horde_ferried she is alive at Vei, so no row). The AFTER row is RaidLogic.death_next_row's text on the
+##   seed's `death_ends` (respawn_s > 0 adds " · reforms in N s"); a final death has spent every clone, so
+##   a seed without `death_ends` reads "unmade", never the seed's clones_ready.
+##   The backlog is a share, not a number: economy multiplies Vei's live queue at the writeback
+##   (STATE-API §8.3, `vei.undead_queue ×= loss_backlog_keep`), which is not the seed's backlog (the
+##   queue moves while she is away) and not what is left after `backlog_spent` (informational, A10).
+static func loss_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fight_t: float,
+		end_reason: String, keep: float) -> Dictionary:
+	var info := end_card(seed, spent, party_lost, fight_t, 0.0, 0.0)
+	info.erase("backlog_spent")
+	info["party_lost"] = info["party"]   # a lost fight kills the whole party (MECHANICS §6, STATE-API §8.3), not only the ones that fell in the scene
+	info["lost"] = true
+	info["reason"] = end_reason
+	info["ended"] = String(LOSS_WORDS.get(end_reason, "the fight is lost"))
+	var pct := clampi(roundi(keep * 100.0), 0, 100)
+	info["keep_pct"] = pct
+	info["keep_text"] = "%d%% stays" % pct
+	var after := {}
+	if end_reason == "relish_unmade":
+		var de: Variant = seed.get("death_ends", null)
+		var s := {"clones_ready": 0}
+		if de is Dictionary:
+			s["death_ends"] = de
+		after = RaidLogic.death_next_row(s)
+	info["after"] = after
+	return info

@@ -593,6 +593,46 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	t.near(float(ec["backlog_spent"]), 300.0, 0.0001, "end_card: backlog spent = horde0 - horde")
 	var ec0 := BossLogic.end_card(sd, {}, [], 0.0, 0.0, 10.0)
 	t.ok(ec0["spent"] == 0 and ec0["party_lost"] == 0 and float(ec0["backlog_spent"]) == 0.0, "end_card: an empty fight is all zeros (never negative)")
+	# the loss card: the win card's frame, the share of the backlog that stays, the AFTER row after a final death
+	var keep := float(cfg.get("loss_backlog_keep", -1.0))
+	t.ok(keep > 0.0 and keep < 1.0, "vei.json loss_backlog_keep is a share (%s)" % str(keep))
+	for reason in ["fronts_held", "horde_ferried", "relish_unmade"]:
+		var lcd := BossLogic.loss_card(sd, {}, [], 40.0, reason, keep)
+		t.ok(bool(lcd["lost"]) and lcd["reason"] == reason and lcd["ended"] == BossLogic.LOSS_WORDS[reason] and str(lcd["ended"]) != "" \
+			and lcd["time_text"] == "0:40" and not lcd.has("backlog_spent"), "loss_card %s: its own words, the fight time, no backlog-spent figure" % reason)
+		t.ok(lcd["keep_pct"] == roundi(keep * 100.0) and lcd["keep_text"] == "%d%% stays" % roundi(keep * 100.0),
+			"loss_card %s: the backlog reads as the share that stays, from loss_backlog_keep" % reason)
+		t.ok((reason == "relish_unmade") == not (lcd["after"] as Dictionary).is_empty(), "loss_card %s: the AFTER row only after a final death" % reason)
+	t.ok(str(BossLogic.loss_card(sd, {}, [], 1.0, "weird", keep)["ended"]) == "the fight is lost", "loss_card: an unknown reason reads 'the fight is lost'")
+	for sp in [[0, 0], [1, 0], [1, 1]]:
+		var lcs := BossLogic.loss_card(sd, {"phylactery": sp[0], "clones": sp[1]}, ["a", "ghost", "b"], 65.4, "relish_unmade", keep)
+		t.ok(lcs["spent"] == sp[0] + sp[1] and lcs["spent_phyl"] == sp[0] and lcs["spent_clones"] == sp[1] and lcs["backups_total"] == 3 \
+			and lcs["party_lost"] == lcs["party"] and lcs["party"] == (sd["party"] as Array).size() and lcs["time_text"] == "1:05",
+			"loss_card: backups spent %d + %d of 3; the whole party is lost, whoever had fallen in the scene" % [sp[0], sp[1]])
+	var sd_de := sd.duplicate(true)
+	var a_none: Dictionary = BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]
+	t.ok(a_none["label"] == "AFTER" and a_none["text"] == "unmade" and a_none["key"] == "danger",
+		"loss_card: no death_ends reads 'unmade', even when the seed began with a clone (a final death spent every backup)")
+	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 0.0}
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade", "loss_card: death_ends unmade at 0.0 shows no number")
+	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 60.0}
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms in 1:00", "loss_card: death_ends unmade at 60 s reads 'reforms in 1:00'")
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"] == RaidLogic.death_next_row({"death_ends": sd_de["death_ends"], "clones_ready": 0}),
+		"loss_card: the AFTER row is the raid card's rule (RaidLogic.death_next_row)")
+	t.ok((BossLogic.loss_card(sd_de, {}, [], 1.0, "fronts_held", keep)["after"] as Dictionary).is_empty(),
+		"loss_card: she is alive after a fronts-held loss, so no AFTER row")
+	# the card draws only what loss_card hands it; the scene builds it from the fight's own fields (no sim read)
+	var lsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
+	var li := lsrc.find("func _lose_card(")
+	var lbody := lsrc.substr(li, lsrc.find("\nfunc ", li + 1) - li)
+	t.ok(lbody.contains("BossLogic.loss_card(") and lbody.contains("_emit.bind(false)") and lbody.contains("_bot != null and not (_bdev != null and _bdev.hold_card)") \
+		and not lbody.contains("Game."), "_lose_card: the same dict emits on the button; the bot never waits; no Game.* read")
+	var si := lsrc.find("func _step_sequence(")
+	var sbody := lsrc.substr(si, lsrc.find("\nfunc ", si + 1) - si)
+	t.ok(sbody.contains("_lose_card()") and not sbody.contains("_emit(false)"),
+		"the loss sequence ends in the card, never a bare emit")
+	var lcsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_card.gd")
+	t.ok(not lcsrc.contains("Game."), "vei_card.gd reads no Game.*")
 	# the shipped config carries the new knobs
 	var mc: Dictionary = cfg.get("meter", {})
 	t.ok(int(mc.get("row_close_pips", -1)) >= 0 and int(mc.get("eta_window_beats", 0)) >= int(mc.get("eta_min_beats", 99)) \
