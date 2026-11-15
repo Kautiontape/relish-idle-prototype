@@ -676,6 +676,14 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     against 1 613 s at 0.3 mass/s, 1 428 s against 1 587 s at Whitecross from 300 (early only there);
   - **the zero clock**: a garrison already pinned at 0 has only `break_s − zero_s` left (60 s against
     60 s with 60 s on the clock; before, 120 s).
+  - **the planned support** (the T3.4b fix batch, the run's manager): the clock is the earlier of the
+    one at the current split and the one at the support the margin's train reads (the valve's target WAR,
+    Relish where she is travelling to), so a valve slewing down or Relish travelling away can't make it
+    late. A new game with all WAR at Ashgate, no WORK (no muster), its garrison at its 0.45 share's level:
+    a substep after the WAR is cut to 0 the slewing split still holds it (`garrison_rate` +5.1 mass/s, the
+    current clock −1), the planned clock says 120 s and it is retaken at 220 s (`test_wave_train`).
+    `garrison_rate` and `war_supports` stay at the current split, so a row can read a positive rate
+    beside a falling clock for the few seconds of a slew or a trip.
   At the level the line was already early, and stays so: with 0.2 mass/s (garrison 3.3) 143 s against
   733 s (her living climb at only `S − k_kill · G` = 0.043/s at first, and must pile to `q · W /
   k_destroy` = 40 before they pin it). So the clock is a warning of minutes against hours, never late.
@@ -734,7 +742,8 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     and redirect there, and the split with her tide moved there (`RealmSim.war_at_tide`). midgame_2flips
     as loaded has her a second from Greywall; held where she stands, the train called Old Sluice safe at
     its WAR of 1.258, which her tide cuts to 0.761 and the next waves break (retaken at 1 316 s). The
-    other readouts (`garrison_rate`, `fall_s`, `war_supports`) stay at the current split. Before the
+    fall clock reads the earlier of the planned and the current support (above); `garrison_rate` and
+    `war_supports` stay at the current split. Before the
     first substep after a load (no dispatch yet) it reads the saved `r_in` with her where she stands, as
     they do: midgame_2flips as loaded reads both forts safe for that half second, then thin.
   - **Quiet stretches**: while every fort has no living and kills her reship as it lands (`k_kill · U ≥
@@ -780,18 +789,25 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   the interval, while a view reads it; when every frame substeps it re-probes after
   `hold.train_starve_frames` (30) of them. A command re-probes at the next read, on its own frame, and so
   does a catch-up (its core steps move `t` without `rev` or the substep count). Off the frame path (tests,
-  headless tools) every miss probes, exactly.
+  headless tools) every miss probes, exactly. A new game and every load (`from_dict`: `cmd_load`, the
+  fixtures) empty the cache and turn the frame path off until the shell's next capped tick.
 - **The truth check** (`tests/slow/margin_truth.gd`): from each start, live 0.5 s steps for 12 h with no
   input; at the first substep and every 30 min to 4 h, each held fort's margin, then what happened in the
   next 8 h. midgame_2flips: 10 samples; the train read Ashgate and Old Sluice thin at t0 (Old Sluice fell
   at 1 316 s, Ashgate held: thin and pessimistic there) and Ashgate safe from 30 min to 4 h (8 safe,
   all held); the one-wave probe read all 10 safe, Old Sluice's at t0 the lie. pre_vei and fresh hold no
-  fort (no sample). pre_vei with Ashgate and Vespers contested: 10 safe samples, train and one-wave
-  alike, all broken at 2.2 and 2.4 h, after the town's gold ran out (pre_vei's gold floor: its pits stop,
-  the mint goes from 60.8 to 2.0 and the WAR from 49.7 to 0.95 mass/s): neither probe reads the town, so
-  the check counts a safe fort that fell after its WAR dropped below half its sampled value apart, as its
-  WAR falling, and prints it. midgame with the valve's WAR share cut to 0.05: both read thin at t0 (the
-  one-wave probe safe) and both fell. So 18 safe samples, none broken by the waves.
+  fort (no sample). pre_vei with Ashgate and Vespers contested (after 10 min of pre_vei's own play, past
+  its opening muster burst): 8 safe samples, train and one-wave alike, all broken at about 2 h, after the
+  town's gold reached its floor (7 092 s: its buildings go unpaid, its pits stop, the WAR goes from 49.7
+  to 0.95 mass/s at 7 096 s); then both read will_fall, Ashgate's clock the rest of its break exactly,
+  Vespers' 482 s early. midgame with the valve's WAR share cut to 0.05: both read thin at t0 (the one-wave
+  probe safe) and both fell. So 16 safe samples, none broken by the waves.
+  - **The known gap** (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass):
+    neither probe reads the town. The check counts a safe fort that fell apart, as "its WAR fell: supply
+    (E4)", only when a town store (gold or bone, whose floor of 0 idles buildings) reached its floor
+    before the fort's WAR first went below half its sampled value, and that before its last break began;
+    any other fall fails. Every run prints the count (8 of 16 safe samples today). E4's done-criterion is
+    the check passing with the exemption deleted.
 - **During grace** every readout is the post-grace one: the reship it will face; `fall_s` adds the
   grace left; the margin is the train's run through the grace, which no wave reaches, from the garrison
   the grace leaves it. `grace_s_left` > 0 says so.

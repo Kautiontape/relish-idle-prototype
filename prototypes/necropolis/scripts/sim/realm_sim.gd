@@ -1594,8 +1594,14 @@ func war_at_tide(war: float, from_fort: String, from_bias: float, to_fort: Strin
 ##   margin is the wave train's, in this order: "will_fall" as above; else "thin" ("wave") when the train
 ##   broke it; else "thin" ("fall") when rate < 0; else "thin" ("wave") when the held set hadn't settled
 ##   by the cap; else "safe". Left out ({}), the one-wave margin above (view_projection's drag).
+## - `plan` (T3.4b fix batch, the run's manager): the support the train reads, [w_in, redirect, raise_max]
+##   (the valve's target WAR, Relish where she is travelling to; GameState._train_support). Given, fall_s
+##   is the earlier of the clocks at the current support and at the planned one, so it errs early either
+##   way (a valve slewing down, Relish travelling away), and will_fall follows it; garrison_rate stays at
+##   the current support. So a fort can read garrison_rate ≥ 0 with fall_s ≥ 0 while its support is
+##   about to fall. Left out ([]), the current support's alone.
 func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, tide: bool, block: float, q: float,
-		train := {}) -> Dictionary:
+		train := {}, plan := []) -> Dictionary:
 	if not is_held(f):
 		return {"garrison_rate": 0.0, "fall_s": -1.0, "margin": "", "margin_cause": ""}
 	var s := reship_rate(f)
@@ -1604,13 +1610,12 @@ func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, ti
 	var hold_off := _r_drain * s / _k_kill if _k_kill > 0.0 else INF
 	var rate := garrison_rate_of(f, w_in, redirect, raise_max, q)
 	var g := maxf(0.0, float(f["undead"]))
-	var fall := -1.0
-	if rate < 0.0:
-		var g_line := minf(g, a / _r_drain) if _r_drain > 0.0 else g
-		var left := _break_s - (maxf(0.0, float(f.get("zero_s", 0.0))) if g <= 0.0 else 0.0)
-		fall = maxf(0.0, float(f.get("grace_s", 0.0))) + g_line / -rate + maxf(0.0, left)
-		if not is_finite(fall):
-			fall = -1.0
+	var fall := _fall_of(f, g, a, rate)
+	if plan.size() >= 3:
+		var ap := maxf(0.0, float(plan[0])) + (minf(maxf(0.0, float(plan[2])), s) if bool(plan[1]) else 0.0)
+		var fp := _fall_of(f, g, ap, garrison_rate_of(f, float(plan[0]), bool(plan[1]), float(plan[2]), q))
+		if fp >= 0.0 and (fall < 0.0 or fp < fall):
+			fall = fp
 	var out := {"garrison_rate": rate, "fall_s": fall, "margin": "safe", "margin_cause": ""}
 	if fall >= 0.0 and fall <= _horizon_s:
 		out["margin"] = "will_fall"
@@ -1629,6 +1634,17 @@ func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, ti
 		out["margin"] = "thin"
 		out["margin_cause"] = "fall"
 	return out
+
+
+## readout_of's fall clock at support `a` (mass/s) and its `rate`: grace left + min(garrison `g`, a / r_drain)
+## / −rate + what is left of break_s while rate < 0, else −1 (never INF).
+func _fall_of(f: Dictionary, g: float, a: float, rate: float) -> float:
+	if not (rate < 0.0):
+		return -1.0
+	var g_line := minf(g, a / _r_drain) if _r_drain > 0.0 else g
+	var left := _break_s - (maxf(0.0, float(f.get("zero_s", 0.0))) if g <= 0.0 else 0.0)
+	var fall := maxf(0.0, float(f.get("grace_s", 0.0))) + g_line / -rate + maxf(0.0, left)
+	return fall if is_finite(fall) else -1.0
 
 
 ## readout_of's garrison_rate alone (war_supports reads only it): A − min(r_drain · S / k_kill,

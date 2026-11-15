@@ -111,9 +111,10 @@ static func realm(gs: GameState) -> Dictionary:
 	var held := 0
 	var wars := gs._fort_wars()
 	var train: Dictionary = gs._train_live()["forts"]
+	var plan := gs._train_support(gs._train_war(), true)
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
-		forts.append(fort_entry(gs, f, wars[i], train.get(str(f["id"]), {})))
+		forts.append(fort_entry(gs, f, wars[i], train.get(str(f["id"]), {}), plan.get(str(f["id"]), [])))
 		if RealmSim.is_held(f):
 			held += 1
 	return {
@@ -141,14 +142,15 @@ static func simulacrum_charges(gs: GameState, fort_id: String) -> float:
 ## staging included), ship_in (tithe surges included), held, the hold's readouts (garrison,
 ## garrison_rate, fall_s, margin, margin_cause, grace_s_left; MECHANICS §3.5, at the WAR the current
 ## valve sends it: `w_in`, gs._fort_wars(); the margin the wave train's, `train` being the fort's
-## gs._train_live() entry), relish_here, tide, redirect, siege, tithe, can_descend. held_s_left is
+## gs._train_live() entry; fall_s the earlier at the current and the planned support, `plan` the fort's
+## gs._train_support() entry), relish_here, tide, redirect, siege, tithe, can_descend. held_s_left is
 ## deprecated (0.0). Threat and warden are still stubs.
-static func fort_entry(gs: GameState, f: Dictionary, w_in: float, train := {}) -> Dictionary:
+static func fort_entry(gs: GameState, f: Dictionary, w_in: float, train := {}, plan := []) -> Dictionary:
 	var id: String = f["id"]
 	var why := gs._descend_reason(id)
 	var fx := gs._relish_effects()
 	var archetype := gs._warden_archetype(id)
-	var ro := gs._fort_readout(f, w_in, train)
+	var ro := gs._fort_readout(f, w_in, train, plan)
 	var held := RealmSim.is_held(f)
 	return {
 		"id": id, "name": str(f["name"]), "tier": int(f["tier"]), "cap": float(f["cap"]),
@@ -209,8 +211,10 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 	while gs.realm.forts[i]["id"] != id:
 		i += 1
 	var out := {"rev": gs.rev}
-	var train: Dictionary = gs._train_live()["forts"].get(id, {}) if RealmSim.is_held(f) else {}
-	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i]), train))
+	var held := RealmSim.is_held(f)
+	var train: Dictionary = gs._train_live()["forts"].get(id, {}) if held else {}
+	var plan: Array = gs._train_support(gs._train_war(), true).get(id, []) if held else []
+	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i]), train, plan))
 	return out
 
 
@@ -377,13 +381,14 @@ static func projection(gs: GameState, valve_in: Dictionary, settled := false) ->
 		+ (float(wa[1]) - float(gs.realm.r_war_to_vei))
 	var margins := {}
 	var train: Dictionary = gs._train_valve(war)["forts"] if settled else {}
+	var plan := gs._train_support(war, false)  # the valve's split with Relish where she is travelling to
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
 		if float(f["undead"]) > 0.0:
 			diff += float(wars[i]) - float(now_wars[i])
 		if RealmSim.is_held(f):
 			var id := str(f["id"])
-			var ro := gs._fort_readout(f, float(wars[i]), train.get(id, {}))
+			var ro := gs._fort_readout(f, float(wars[i]), train.get(id, {}), plan.get(id, []))
 			margins[id] = {"margin": str(ro["margin"]), "margin_cause": str(ro["margin_cause"]),
 				"fall_s": float(ro["fall_s"]), "garrison_rate": float(ro["garrison_rate"]), "margin_verified": settled}
 	return {"rev": gs.rev, "valve": v.duplicate(), "split": split, "workers_steady": steady, "backlog_diff": diff,

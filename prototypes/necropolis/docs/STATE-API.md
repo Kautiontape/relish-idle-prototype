@@ -94,6 +94,11 @@ from `BALANCE.md` §0.
   - (T3.4b) `view_projection(valve, settled := false)` (§5.17): the optional `settled` gives the wave train's
     margins at that valve; left out, a drag's one-wave margins, as before. Each `margins` row gains
     `margin_verified` (bool): true for the train's, false for the one-wave probe's;
+  - (T3.4b fix batch) **current and planned readouts**: `garrison_rate` and `war_supports` read the current
+    split; the margin's train reads the planned support (the valve's target, Relish where she is travelling
+    to); `fall_s` is the earlier clock of the two, and `will_fall` follows it (§5.5, §5.17). So a row can show
+    `garrison_rate` ≥ 0 with `fall_s` ≥ 0, or with `thin` / `"wave"`, while the valve slews down or Relish
+    travels away: a meaning change, not a shape change;
   - (T3.4b) `fall_s` errs early (MECHANICS §3.5): `grace_s_left` + `min(garrison, support / r_drain) /
     −garrison_rate` + what is left of `hold.break_s` (less the zero clock while the garrison sits at 0); it
     was `garrison / −garrison_rate` + `hold.break_s`, late by up to 368 s for a garrison above the level its
@@ -1108,10 +1113,10 @@ dungeon's configs (v6, below); the hold's readouts
 | `held_s_left` | float | **deprecated (v6), always 0.0**: no timer ends a hold any more. The grace is `grace_s_left` |
 | `grace_s_left` | float | seconds of grace left, 0 when contested or not held (v6). While it is > 0, `margin`, `margin_cause`, `fall_s` and `garrison_rate` are the post-grace ones: what the fort will face once its grace ends, so the map can show "grace 3:40, then thin" (the margin is the train's run through the grace, which no wave reaches, T3.4b) |
 | `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
-| `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held |
-| `fall_s` | float | seconds until it is retaken at that rate (v6, api-request #13): `grace_s_left` + `min(garrison, support / r_drain) / −garrison_rate` + what is left of `hold.break_s` (all of it, less the zero clock while the garrison sits at 0) while the rate is < 0; −1.0 while it isn't falling or isn't held. Never INF. A straight line from the level the support holds that errs early: the fort is retaken no sooner (T3.4b; before, `garrison / −garrison_rate` + `hold.break_s`, late for a garrison above that level; MECHANICS §3.5) |
-| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, with the valve at its target and Relish where she is travelling to); else `"thin"` when it falls beyond the horizon; else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise |
-| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` the waves break or haven't settled; `""` for safe or not held |
+| `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held. **Reads the current split** (T3.4b): the valve where it is, Relish where she stands; `war_supports` too |
+| `fall_s` | float | seconds until it is retaken (v6, api-request #13): at a support, `grace_s_left` + `min(garrison, support / r_drain) / −rate` + what is left of `hold.break_s` (all of it, less the zero clock while the garrison sits at 0) while that support's rate is < 0, else −1.0. **The earlier of that clock at the current split and at the planned support** (T3.4b fix batch: the valve's target WAR and Relish where she is travelling to, the support the margin's train reads), so it errs early either way: the fort is retaken no sooner. −1.0 while neither falls, or not held. Never INF. So while the valve slews down or Relish travels away, a row can show `garrison_rate` ≥ 0 with `fall_s` ≥ 0 (and `will_fall`). Before T3.4b, `garrison / −garrison_rate` + `hold.break_s` at the current split, late for a garrison above the level its support holds (MECHANICS §3.5) |
+| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h; `fall_s` the earlier of current and planned, above); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, **at the planned support**: the valve at its target, Relish where she is travelling to); else `"thin"` when it falls beyond the horizon (`garrison_rate` < 0: **the current split**); else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. So while the valve slews down or Relish travels away a row can read `thin` / `"wave"` (the planned train breaks it) beside `garrison_rate` ≥ 0. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise |
+| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock: current or planned, the earlier) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition at the current split; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` the waves break or haven't settled (the planned support's train); `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
@@ -1621,10 +1626,18 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
   same before and after. Like every view it is a fresh deep copy carrying `rev`.
 - **At the current valve every field equals the live views':** `split` is `view_hud.split` (and
   `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
-  is `view_hud.war_supports`, each `margins` entry's `fall_s` and `garrison_rate` are that fort's
-  `view_fort` ones, and `backlog_diff` is `view_vei.diff_ema`. Its `margin` and `margin_cause` are
-  `view_fort`'s with `settled` (with the valve at its target, as it is once its slew is done); by default
-  they are the one-wave probe's (T3.4b: `view_fort` reads the train).
+  is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
+  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s, and with `settled` its
+  `margin` and `margin_cause` are too, **only with the valve at its target** (as it is once its slew is
+  done): `view_fort` reads the target's WAR as its planned support, a projection the valve passed. While
+  the valve slews, `settled` at the target valve runs `view_fort`'s own train (the same probe, the same
+  broken and settled verdicts), but its `garrison_rate` and `fall_s` are the target's, so its margin can
+  differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
+  `view_fort` reads the train).
+- **Current and planned in a row** (T3.4b fix batch): a row's `garrison_rate` reads that valve's split with
+  Relish where she stands; its `fall_s` is the earlier of that clock and the clock at that valve's split
+  with Relish where she is travelling to; with `settled`, its margin is the train at the latter. With her
+  not travelling the two are the same.
 - **Before the first substep after a load** the split is 0 (it is session-only, §5.1, §9.1), so the
   projection reads no WAR anywhere: every held fort falling. The live views read the saved `r_in`
   until then. The map knows (it waits for the streams).

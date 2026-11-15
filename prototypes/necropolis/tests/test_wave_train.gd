@@ -19,9 +19,11 @@ func run() -> int:
 	_grace()
 	_still_jump()
 	_fall_early()
+	_fall_planned()
 	_arrival()
 	_cache()
 	_frame()
+	_reset()
 	_retarget()
 	return t.failures
 
@@ -308,6 +310,72 @@ func _fall_early() -> void:
 		var at := float(evs[0][2]) if not evs.is_empty() else INF
 		t.ok(float(ro["fall_s"]) >= 0.0 and float(ro["fall_s"]) <= at, "%s: fall_s %.0f s, retaken at %.0f s (early by %.0f s)" % [
 			c[0], ro["fall_s"], at, at - float(ro["fall_s"])])
+
+
+## fall_s at the planned support (the T3.4b fix batch, the run's manager): a new game with every fort but
+## Ashgate full of corpses (all WAR goes to it), no WORK (so no muster), Ashgate contested at the level its
+## 0.45 WAR share holds and the waves pushed off; then cmd_set_valve cuts WAR to 0. A substep in, the valve
+## is still slewing, its split still holds the fort (garrison_rate > 0) and the current support's clock says
+## it doesn't fall (−1: late, since it does). view_fort's fall_s reads the earlier of that and the planned
+## support's (the valve's target: no WAR), and is early: RealmSim retakes the fort no sooner. will_fall
+## follows it; garrison_rate stays the current split's.
+func _fall_planned() -> void:
+	t.suite("wave-train-fall-planned")
+	var s := GameState.new(TestUtil.configs())
+	s.cmd_new_game(1)
+	s.debug_enabled = true
+	s.cmd_debug_set_state({"valve": {"work": 0.0, "war": 0.45, "flood": 0.55}})
+	for f in s.realm.forts:
+		f["living"] = 0.0
+		f["undead"] = 0.0
+		f["dead"] = 0.0 if f["id"] == "ashgate" else float(f["cap"])
+	s.realm.hold("ashgate", 0.0)
+	s.realm.start_tithe()
+	s.realm.tithe["next_s"] = 1e9
+	s.tick(s.substep_s())
+	s.realm.fort_by_id("ashgate")["undead"] = float(s._fort_wars()[0]) / _r
+	s.tick(s.substep_s())
+	t.ok(s.cmd_set_valve(0.0, 0.0, 1.0)["ok"], "(setup) WAR to 0")
+	s.tick(s.substep_s())
+	var f: Dictionary = s.realm.forts[0]
+	var cur := s._fort_readout(f, float(s._fort_wars()[0]))
+	var v := s.view_fort("ashgate")
+	t.ok(s.valve != s.valve_target and float(v["garrison_rate"]) > 0.0 and float(cur["fall_s"]) < 0.0,
+		"slewing (%s): the current split holds it (garrison_rate %.3f) and its clock says it doesn't fall" % [str(s.valve), float(v["garrison_rate"])])
+	var t0 := s.t
+	var at := INF
+	for k in int(2000.0 / s.substep_s()):
+		s.tick(s.substep_s())
+		for e in s.drain_events():
+			if e["type"] == "fort_retaken" and e["fort_id"] == "ashgate":
+				at = float(e["t"]) - t0
+		if at < INF:
+			break
+	t.ok(at < INF, "it falls: retaken %.0f s after the read" % at)
+	t.ok(float(v["fall_s"]) >= 0.0 and float(v["fall_s"]) <= at and v["margin"] == "will_fall",
+		"view_fort's fall_s %.0f s (the planned support's) is early, and it reads will_fall" % float(v["fall_s"]))
+
+
+## A new game and a load empty the wave train's cache and turn the frame path off: after a probed state on
+## the frame path, cmd_new_game and cmd_debug_load_fixture (from_dict, as cmd_load) leave nothing to serve,
+## and the next read probes.
+func _reset() -> void:
+	t.suite("wave-train-reset")
+	var s := _fixture("midgame_2flips")
+	var cap := s.max_substeps_per_frame()
+	for k in [0, 1]:
+		s.tick(s.substep_s(), cap)
+		s.view_fort("ashgate")
+		t.ok(not s._train_cache.is_empty() and s._frame_path, "(setup) probed, on the frame path")
+		if k == 0:
+			s.cmd_new_game(2)
+		else:
+			t.ok(s.cmd_debug_load_fixture("midgame_2flips")["ok"], "(setup) a load")
+		t.ok(s._train_cache.is_empty() and not s._frame_path, "%s: the train's cache is empty and the frame path off" % ["a new game", "a load"][k])
+		if k == 0:
+			s.realm.hold("ashgate", 0.0)  # a new game holds nothing: hold one to read
+		s.view_fort("ashgate")
+		t.ok(int(s._train_cache.get("computed", 0)) == 1, "%s: the next read probes" % ["a new game", "a load"][k])
 
 
 # ------------------------------------------------------------------------- GameState around it ----

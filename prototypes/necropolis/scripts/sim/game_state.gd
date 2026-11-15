@@ -155,8 +155,8 @@ var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for te
 var _proj_cache := {}
 ## The wave train's verdicts (_train): {live: [key, result, rev, _ticks, t], valve: [key, result, rev, _ticks, t],
 ## read (a view read the live slot since the frame refresh last ran), starve (substep frames in a row while
-## read), computed (probes run: tests, benches)}. Session only; a new game or a load bumps rev, so no key
-## from before it matches.
+## read), computed (probes run: tests, benches)}. Session only: a new game and every load (from_dict:
+## cmd_load, the fixtures) empty it (_reset_train).
 var _train_cache := {}
 var _ticks := 0  # live substeps run this session (_tick): rev less them is the commands' share of rev
 var _frame_path := false  # the shell drives tick() with a substep cap (the frame path): _train may serve the last refresh
@@ -270,6 +270,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
 	_realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 	_proj_cache = {}
+	_reset_train()
 	_realm_inputs = {}
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
@@ -1289,13 +1290,22 @@ func _fort_wars() -> Array:
 
 ## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
 ## gets (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
-## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin.
-func _fort_readout(f: Dictionary, w_in: float, train := {}) -> Dictionary:
+## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
+## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
+## of the clocks at the current and the planned support.
+func _fort_readout(f: Dictionary, w_in: float, train := {}, plan := []) -> Dictionary:
 	var fx := _relish_effects()
 	var id: String = f["id"]
 	var siege: Variant = _realm_inputs.get("siege_block", {})
 	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
-		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train)
+		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train, plan)
+
+
+## A new game or a load (cmd_new_game, from_dict): the wave train's cache is emptied and the frame path is
+## off until the shell's next capped tick, so nothing from the old state is served.
+func _reset_train() -> void:
+	_train_cache = {}
+	_frame_path = false
 
 
 ## The wave train's verdicts for the live flows (MECHANICS §3.5, E2b-2 T3.4b): RealmSim.train_probe over
@@ -1869,6 +1879,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
+	_reset_train()
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
