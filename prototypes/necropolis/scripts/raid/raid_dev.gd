@@ -167,7 +167,7 @@ func tick() -> void:
 	if _autoexit >= 0 and frame >= _autoexit and not _raid._ended:
 		_autoexit = -1
 		_raid.confirm_exit()
-	if _autodie > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():
+	if _autodie > 0 and frame > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():   # not at frame 0: the first hit at frame N
 		_autodie_hit()
 	if _perf:
 		_perf_sample(frame)

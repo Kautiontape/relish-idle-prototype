@@ -1746,6 +1746,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var rows := RaidLogic.death_card_rows("the living", {"remnants": 1}, {"essence": 3}, 1)
 	t.ok(rows.size() == 3 and rows[0]["text"] == "the living" and rows[1]["text"] == "remnants 1" and rows[2]["text"] == "essence 3 · 1 big undead",
 		"the death card's three rows: killed by, banked, lost")
+	var dvt := _func_body("res://scripts/raid/raid_dev.gd", "func tick(")
+	t.ok(dvt.contains("_autodie > 0 and frame > 0 and frame % _autodie == 0"), "--raid-autodie=N first hits at frame N, not at frame 0 (dev path: the death card showed and was gone before an N-based shot)")
 	var trow := RaidLogic.death_card_rows(RaidLogic.death_cause("toll", "The Bellringer"), {}, {}, 1, RaidLogic.death_tell("toll"))
 	t.ok(trow.size() == 4 and trow[0]["label"] == "KILLED BY" and trow[0]["text"] == "The Bellringer's toll" and trow[1]["label"] == "MISSED"
 		and trow[1]["text"] == "the ring at your feet" and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
