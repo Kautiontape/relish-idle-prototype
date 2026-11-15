@@ -1129,3 +1129,11 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - The rush and the pin are not gated on `lever_on`, but no Shieldwall fort sits at t1 or in the first dungeon.
   - There is a 13 px band that neither the toll (`in_ring` adds her radius) nor the slam strikes. It is a safe gap, not a hidden hit.
   - greywall's room knob is sanctioned by the manager.
+- **Re-shoot (quality pass), stills at 0398377/8350858 in reports/dungeon:**
+  - dq-warden-greyscale-pack and dq-warden-greyscale-struck. In 15 sampled runs the bot took no blow while a pack stood: the warden's attacks pause and it kites the living.
+  - dq-death-toll and dq-death-fire: the card now has KILLED BY and MISSED rows (0398377). The toll line had clipped at the card's edge; the widest value is now 215 of 396 px.
+  - dq-roomline-lastchance, dq-danger-0phyl and dq-danger-0phyl-reduced.
+  - dq-huntsman-caught: CAUGHT 1, "each catch costs Relish 9 hp · it hunts faster at 2 and 4 catches". The earlier frame fell after the Huntsman died: RAID_WARDEN died printed between the second catch at 7403 and frame 7463, and the block hides a dead warden.
+  - dq-vei-victory-dim and dq-vei-victory: the button dim, then live after card.skip_after_s.
+  - dq-vei-phase2-greyscale (cfabd41's rule line) and dq-vei-iframes-reduced ("SAFE 3 s").
+  - The "--raid-warden skips the death card" was dev-path only and not about --raid-warden. --raid-autodie hit at process frame 0, so the 4.5 s card was gone before an N-based shot. Fixed in 8350858; seed-1 lines are identical (13/13).
