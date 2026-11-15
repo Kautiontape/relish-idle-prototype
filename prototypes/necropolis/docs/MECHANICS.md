@@ -1210,13 +1210,17 @@ processing does.
     queue and town's trial order (Bone Mill, House, House, Well, Well, Bakery, Well, Well) 8 h through a load:
     every entry starts, the first at 7 s, 7, 207 and 538 s (the Mill later than its 476 s since the three
     ahead add upkeep the time holds fixed) and the second by 26 min.
-  - **cost:** `view_town` runs the walk on every call (Covington fetches it on each rev change). The times
-    add 20 to 45 µs a call with a full queue of 8 (day1 +20, midgame_2flips +44, pre_vei +39, the medians
-    of five 400-call runs on a loaded machine; the walk alone 79 → 101, 98 → 127, 105 → 138 µs), under
-    the 0.2 ms that would need a cache on `rev`, so there is none. The core step's processing runs the
+  - **cost:** `view_town` runs the walk once on every call (Covington fetches it on each rev change). The
+    times add 24 to 30 µs a call with a full queue of 8 (day1 +23.5, midgame_2flips +28.5, pre_vei +30.2:
+    the timed walk against the untimed one, 79.5 → 103.0, 99.7 → 128.1 and 103.5 → 133.6 µs; `view_town`
+    itself 292, 396 and 799 µs; the medians of five 400-call runs on a loaded machine, re-measured once at
+    F1, where R2's figures disagreed, +20 to +45 here and +11 to +32 in its report), under the 0.2 ms that
+    would need a cache on `rev`, so there is none. The core step's processing runs the
     same walk without the times (`queue_walk(..., false)`: it reads only the statuses), so live play and
     catch-up pay nothing for them: 76, 98 and 105 µs against 79, 98 and 105 before (a week's catch-up is
-    about 42 000 steps, and a queue that sits all week is the case R2 is for).
+    about 42 000 steps, and a queue that sits all week is the case R2 is for). The two walks give every
+    entry the same status, reason and waited_on and start the same entries (F1, from R2's spec review:
+    `test_build_queue`'s untimed check, over the three fixtures with full queues, a step in and a minute on).
 - **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
   rises this step opens its entries this step and this step's income counts: one walk, then each `next`
   entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the

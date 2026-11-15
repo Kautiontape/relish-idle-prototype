@@ -5,6 +5,10 @@ extends RefCounted
 ## save. Headless, no autoloads. Economy's suite.
 
 var t: TestUtil
+## Builds and upgrades that fill a fixture's queue to queue.max_len (each tried in order; refusals skipped).
+const FILL := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
+	["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
+	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
 
 
 func _mk(cfgs: Dictionary = {}) -> GameState:
@@ -82,6 +86,7 @@ func run() -> int:
 	_afford_never()
 	_afford_at_cap()
 	_afford_invariant()
+	_afford_untimed_same()
 	return t.failures
 
 
@@ -776,13 +781,10 @@ func _afford_at_cap() -> void:
 ## (a later one never earlier), a −1.0 names the store it waits on and a 0.0 none.
 func _afford_invariant() -> void:
 	t.suite("build_queue-afford-invariant")
-	var tries := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
-		["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
-		["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
 	for fx in GameState.FIXTURES:
 		var s := _fixture(fx)
 		s.tick(s.substep_s())
-		for p in tries:
+		for p in FILL:
 			if s.build_queue.size() < BuildRules.queue_max(s):
 				s.cmd_queue_build(p[0], p[1])
 		var w := BuildRules.queue_walk(s, s.build_queue)
@@ -805,3 +807,43 @@ func _afford_invariant() -> void:
 				bad.append("%d %s waits on '%s'" % [i, a, wait])
 		print("  [afford] %s: %s" % [fx, str(rows.map(func(r): return "%s %s %.1f" % [r["building_id"], r["status"], float(r["affordable_in_s"])]))])
 		t.ok(rows.size() == BuildRules.queue_max(s) and bad.is_empty(), "%s, a full queue of %d: status and time agree%s" % [fx, rows.size(), "" if bad.is_empty() else ": " + str(bad)])
+
+
+## F1 (R2's spec review): the core step's processing walks the queue untimed (queue_walk(gs, q, false), which reads
+## only the statuses), the views timed. The two must give every entry the same status, reason and waited_on (the
+## same row, less affordable_in_s) and start the same entries, or processing would start what the view doesn't
+## show as next. Over each fixture with a full queue (queue.max_len entries) a step in, and again a minute of live
+## play on with the queue refilled to full (some started, the funds moved).
+func _afford_untimed_same() -> void:
+	t.suite("build_queue-afford-untimed")
+	for fx in GameState.FIXTURES:
+		var s := _fixture(fx)
+		s.tick(s.substep_s())
+		for moment in ["a step in", "a minute on, refilled"]:
+			if moment != "a step in":
+				s.tick(60.0)
+			for p in FILL:
+				if s.build_queue.size() < BuildRules.queue_max(s):
+					s.cmd_queue_build(p[0], p[1])
+			for pass_n in 3:  # topped up with upgrades of the lots built on, when FILL's lots are taken by then
+				for lot_id in s.town_sim.buildings.keys():
+					if s.build_queue.size() < BuildRules.queue_max(s):
+						s.cmd_queue_build("", str(lot_id))
+			var a := BuildRules.queue_walk(s, s.build_queue, true)
+			var b := BuildRules.queue_walk(s, s.build_queue, false)
+			var diff: Array = []
+			for i in s.build_queue.size():
+				var ra: Dictionary = (a["rows"][i] as Dictionary).duplicate()
+				var rb: Dictionary = b["rows"][i]
+				for k in ["status", "reason", "waited_on"]:
+					if ra[k] != rb[k]:
+						diff.append("%d %s: %s timed, %s untimed" % [i, k, ra[k], rb[k]])
+				ra.erase("affordable_in_s")
+				if ra != rb:
+					diff.append("%d's row: %s timed, %s untimed" % [i, str(ra), str(rb)])
+			if a["start"] != b["start"]:
+				diff.append("start %s timed, %s untimed" % [str(a["start"]), str(b["start"])])
+			var seen: Array = (b["rows"] as Array).map(func(r): return "%s %s" % [r["status"], r["reason"]])
+			t.ok(s.build_queue.size() == BuildRules.queue_max(s) and diff.is_empty(),
+				"%s %s, a full queue of %d: the timed and untimed walks give each entry the same status, reason and waited_on, and start the same %s (%s)%s" % [
+				fx, moment, s.build_queue.size(), str(a["start"]), ", ".join(PackedStringArray(seen)), "" if diff.is_empty() else ": " + str(diff)])
