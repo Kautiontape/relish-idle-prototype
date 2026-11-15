@@ -91,11 +91,12 @@ func _step(delta: float) -> void:
 			if WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) \
 			and _slam_tells % every == 0 else 0.0
 		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
-		# (only where the slam's own ring cannot reach her: inside it, the ring is the threat)
+		# only where the slam's own ring cannot reach her (inside it, the ring is the threat), and where she can
+		# step out of it away from the bell with floor to spare (WardenLogic.toll_room_ok; else no toll)
 		toll_at = rel0.global_position if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
 			and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) \
-			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + toll_r + 2.0 * rel0.radius \
-			+ float(at.get("toll_gap_px", 0.0)) else Vector2.INF   # (room to step out toward the bell without entering the slam)
+			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + rel0.radius \
+			and WardenLogic.toll_room_ok(room, rel0.global_position, global_position, toll_r, rel0.radius) else Vector2.INF
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack

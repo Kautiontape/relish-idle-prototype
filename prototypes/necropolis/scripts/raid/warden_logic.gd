@@ -491,6 +491,26 @@ static func toll_strikes(rel_pos: Vector2, toll_at: Vector2, toll_r: float, rel_
 	return rel_pos.distance_to(toll_at) <= toll_r + rel_r
 
 
+## D-d/E Step 4b, where a toll may land: from her spot `pos`, the way away from the bell (`bell`) must have
+## floor inside the room for her to step out of the ring (toll_r + her radius) and the toll radius more
+## beyond it (the corner case: a toll she could not step out of). Measured along the ray to the room's edge.
+static func toll_room_ok(room: Rect2, pos: Vector2, bell: Vector2, toll_r: float, rel_r: float) -> bool:
+	var dir := pos - bell
+	if dir.length() < 1.0:
+		return false
+	dir = dir.normalized()
+	var t := INF
+	if dir.x > 1e-6:
+		t = minf(t, (room.end.x - pos.x) / dir.x)
+	elif dir.x < -1e-6:
+		t = minf(t, (room.position.x - pos.x) / dir.x)
+	if dir.y > 1e-6:
+		t = minf(t, (room.end.y - pos.y) / dir.y)
+	elif dir.y < -1e-6:
+		t = minf(t, (room.position.y - pos.y) / dir.y)
+	return t - rel_r >= 2.0 * toll_r + rel_r
+
+
 ## D-d/E Step 4b, the Shieldwall's aimed rush: its lane reaches to the warden room's farthest corner from
 ## the wall (anywhere she can stand in its room).
 static func lane_reach(room: Rect2, from: Vector2) -> float:
