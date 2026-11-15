@@ -374,11 +374,13 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(small < full and small <= 271.5 * rf + 1e-6 and small + 13.0 < 271.5, "in pale-bastion's (543 px) it stops at %d px: with her 13 px radius it still reaches her side stand (%d px), but the ring out to the room's half-size (271 px) is clear" % [small, stand])
 	t.ok(WardenLogic.rush_reach(140.0, 120.0, 100.0, rf) == 140.0 and WardenLogic.rush_reach(140.0, 120.0, 100.0, 0.0) == 260.0, "never below the bash's own reach; frac 0 is no cap")
 	# Step 4, the lever candidates: from lever_min_tier up, never the first dungeon
+	var cfg0: Dictionary = cfg.duplicate(true)
+	cfg0["wardens"]["relish_dmg_mult_by_tier"] = {}   # (Step 4c: the per-tier values off, so these read the base levers)
 	var lc: Dictionary = cfg.duplicate(true)
 	lc["wardens"]["attack_dmg_mult"] = 2.0
 	lc["wardens"]["relish_dmg_mult"] = 3.0
 	lc["wardens"]["relish_dmg_mult_by_tier"] = {}   # (the per-tier values would override it; Step 4c)
-	var base2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, cfg)["attack"]
+	var base2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, cfg0)["attack"]
 	var lev2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, lc)["attack"]
 	t.ok(is_equal_approx(float(lev2["dmg_unit"]), 2.0 * float(base2["dmg_unit"])) and is_equal_approx(float(lev2["dmg_relish"]), 6.0 * float(base2["dmg_relish"])),
 		"at tier 2 attack_dmg_mult scales all its damage, relish_dmg_mult only Relish's (%s)" % str(lev2))
@@ -392,7 +394,7 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and is_equal_approx(WardenLogic.relish_mult({"relish_dmg_mult": 1.2}, 3), 1.2), "relish_dmg_mult_by_tier per tier, else relish_dmg_mult")
 	var lt: Dictionary = cfg.duplicate(true)
 	lt["wardens"]["relish_dmg_mult_by_tier"] = {"3": 0.5}
-	var b3: Dictionary = WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman"}, cfg)["attack"]
+	var b3: Dictionary = WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman"}, cfg0)["attack"]
 	var l3: Dictionary = WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman"}, lt)["attack"]
 	t.ok(is_equal_approx(float(l3["dmg_relish"]), 0.5 * float(b3["dmg_relish"])) and is_equal_approx(float(l3["dmg_unit"]), float(b3["dmg_unit"]))
 		and str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, lt)) == str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, cfg))
