@@ -327,6 +327,20 @@ static func relish_mult(w: Dictionary, tier: int) -> float:
 	return float(by.get(str(tier), w.get("relish_dmg_mult", 1.0)))
 
 
+## Where a dash from `from` toward `to` really ends: along the line, stopping at the first wall (`resolve`:
+## the arena's resolve_walls(p, r)). RaidHuntsman._wall_clipped, pure for the test (D-d/E quality pass).
+static func wall_clipped(from: Vector2, to: Vector2, radius: float, resolve: Callable) -> Vector2:
+	var dist := from.distance_to(to)
+	var steps := int(dist / 8.0)
+	var last := from
+	for i in range(1, steps + 1):
+		var p := from.lerp(to, float(i) / float(steps))
+		if (resolve.call(p, radius) as Vector2).distance_to(p) > 1.0:
+			return last
+		last = p
+	return to if (resolve.call(to, radius) as Vector2).distance_to(to) <= 1.0 else last
+
+
 ## D-d/E Step 4c, the honest lunge tell: the lock point (`aim` clipped to `range_px`) clamped to the leash the
 ## dash is held to (`room` less the Huntsman's `radius`), so the line the tell draws is the line the dash runs.
 ## Unclamped, a lock past the room edge drew one line and dashed along another (hollow-redoubt s18).

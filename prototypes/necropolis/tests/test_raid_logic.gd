@@ -411,6 +411,8 @@ func run() -> int:
 			["res://scripts/raid/warden_bellringer.gd", "func _step(", "RaidBellringer._step (the toll)"],
 			["res://scripts/raid/warden_logic.gd", "static func bash_strikes_relish(", "WardenLogic.bash_strikes_relish"],
 			["res://scripts/raid/warden_logic.gd", "static func lever_on(", "WardenLogic.lever_on"],
+			["res://scripts/raid/warden_logic.gd", "static func wall_clipped(", "WardenLogic.wall_clipped"],
+			["res://scripts/raid/layout_logic.gd", "static func resolve_walls(", "LayoutLogic.resolve_walls"],
 			["res://scripts/raid/warden_logic.gd", "static func lunge_lock(", "WardenLogic.lunge_lock (the honest lunge tell)"],
 			["res://scripts/raid/warden_logic.gd", "static func relish_mult(", "WardenLogic.relish_mult (the lever per tier)"],
 			["res://scripts/raid/layout_logic.gd", "static func populate_enemies(", "LayoutLogic.populate_enemies (the living per room)"],

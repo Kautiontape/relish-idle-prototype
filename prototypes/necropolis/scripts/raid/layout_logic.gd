@@ -1298,3 +1298,31 @@ static func wall_touches_room(wall: Rect2, room: Rect2) -> bool:
 ## Relish crossing into a checkpoint room: the room changed and the new one is a checkpoint.
 static func checkpoint_entered(layout: Dictionary, prev_room: int, room: int) -> bool:
 	return room >= 0 and room != prev_room and (layout.get("checkpoints", []) as Array).has(room)
+
+
+## Keep a point inside the arena and out of its inner walls (slide-friendly): RaidArena.resolve_walls, as a
+## pure function of the layout (D-d/E quality pass: so the lunge's wall clip can be tested).
+static func resolve_walls(layout: Dictionary, p: Vector2, r: float) -> Vector2:
+	var size: Vector2 = layout["size"]
+	var t: float = layout["wall_t"]
+	p.x = clampf(p.x, t + r, size.x - t - r)
+	p.y = clampf(p.y, t + r, size.y - t - r)
+	for pass_i in 2:
+		for wrect in layout["inner_walls"]:
+			var g: Rect2 = (wrect as Rect2).grow(r)
+			if not g.has_point(p):
+				continue
+			var left := p.x - g.position.x
+			var right := g.end.x - p.x
+			var top := p.y - g.position.y
+			var bottom := g.end.y - p.y
+			var m := minf(minf(left, right), minf(top, bottom))
+			if m == left:
+				p.x = g.position.x
+			elif m == right:
+				p.x = g.end.x
+			elif m == top:
+				p.y = g.position.y
+			else:
+				p.y = g.end.y
+	return p

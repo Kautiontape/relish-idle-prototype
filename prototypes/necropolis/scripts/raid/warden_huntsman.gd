@@ -166,15 +166,7 @@ func _stalk(delta: float, stop_px: float, tgt: Dictionary) -> void:
 
 ## Where the dash really ends: along from->to, stopping at the first wall.
 func _wall_clipped(from: Vector2, to: Vector2) -> Vector2:
-	var dist := from.distance_to(to)
-	var steps := int(dist / 8.0)
-	var last := from
-	for i in range(1, steps + 1):
-		var p := from.lerp(to, float(i) / float(steps))
-		if raid.resolve_walls(p, radius).distance_to(p) > 1.0:
-			return last
-		last = p
-	return to if raid.resolve_walls(to, radius).distance_to(to) <= 1.0 else last
+	return WardenLogic.wall_clipped(from, to, radius, raid.resolve_walls)
 
 
 func _begin_lunge() -> void:

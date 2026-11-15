@@ -420,8 +420,14 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lroom := Rect2(1274.676, 30.0, 495.3244, 669.1307)
 	var lfrom := Vector2(1379.848, 669.1307)
 	var lock := WardenLogic.lunge_lock(lroom, lfrom, Vector2(1505.124, 696.832), 320.0, 30.0)
-	var dash_to := WardenLogic.leash_clamp(lroom, lock, 30.0)
-	t.ok(lock.distance_to(dash_to) < 0.001, "at the leash edge the drawn line ends where the dash ends (%s)" % str(lock))
+	# the drawn line (the Huntsman's position to _lock_pt, what _draw_telegraph reads) against the dash's real path
+	# (_begin_lunge: _wall_clipped of the leash-clamped lock), in hollow-redoubt's own walls
+	var hlay := RaidLogic.gen_layout("hollow-redoubt", 3, false, cfg)
+	var dash_to := WardenLogic.wall_clipped(lfrom, WardenLogic.leash_clamp(lroom, lock, 30.0), 30.0,
+		func(p: Vector2, r: float) -> Vector2: return LayoutLogic.resolve_walls(hlay, p, r))
+	var hroom: Rect2 = hlay["rooms"][int(hlay["warden_room"])]
+	t.ok(lock.distance_to(dash_to) < 0.5 and lroom.position.distance_to(hroom.position) < 0.01 and lroom.size.distance_to(hroom.size) < 0.01,
+		"at the leash edge the drawn line ends where the dash ends, walls included (%s vs %s)" % [str(lock), str(dash_to)])
 	var reach := 22.0 + 13.0
 	var dside := (lock - lfrom).normalized().orthogonal()
 	var all_safe := true
@@ -470,8 +476,10 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"toll": 0.0,   # its worst-case exit path, below
 		"lunge": float(archs["huntsman"]["attack"]["hit_radius_px"]) + rr,
 		"bash": float(archs["shieldwall"]["attack"]["reach_px"]) + rr - (float(archs["shieldwall"]["radius"]) + rr),
-		"fire": 105.0 + rr,
+		"fire": rr,   # plus the widest phase's burn_radius_px, below
 	}
+	for fph in (archs["pyre_priest"]["phases"] as Array):
+		clears["fire"] = maxf(float(clears["fire"]), float(fph["burn_radius_px"]) + rr)   # from config, not a hardcoded 105
 	# the toll's worst-case exit path: every spot a toll can land in the at-tier Bellringer forts' warden rooms
 	var slam_r := float(bell_at["radius_px"]) + float(bell_at["band_px"]) * 0.5
 	var budget := (float(bell_at["tell_beats"]) * beat_s - float(bell_at["toll_react_s"])) * spd
@@ -502,7 +510,8 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var worst := ""
 	var ok_all := true
 	for k in clears:
-		var margin := float(archs["bellringer"]["attack"]["tell_beats"]) * beat_s - d50 - float(clears[k]) / spd
+		var lead_arch: String = {"slam": "bellringer", "toll": "bellringer", "lunge": "huntsman", "bash": "shieldwall", "fire": "pyre_priest", "rush lane": "shieldwall"}[k]
+		var margin := float(archs[lead_arch]["attack"]["tell_beats"]) * beat_s - d50 - float(clears[k]) / spd   # each warden's own lead
 		ok_all = ok_all and margin >= 0.0
 		worst += " %s %.2fs" % [k, margin]
 	t.ok(ok_all, "every tell-attack is answerable by a human (lead - 0.6 s - clear/speed >= 0):%s" % worst)
