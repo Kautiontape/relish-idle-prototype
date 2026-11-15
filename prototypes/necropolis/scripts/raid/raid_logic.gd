@@ -1217,6 +1217,23 @@ static func capture_path(user_args: PackedStringArray, engine_args: PackedString
 	return ""
 
 
+## Capture's outcome for a finished run (RaidCapture.write): the result's own flags, and "timeout" when it has
+## none of them (only the measuring bot's time-out ends a run so: no exit, the last checkpoint's loot).
+static func capture_exit(relish_died: bool, warden_beaten: bool, retreated: bool) -> String:
+	if relish_died:
+		return "relish_died"
+	if warden_beaten:
+		return "warden_beaten"
+	return "retreated" if retreated else "timeout"
+
+
+## Capture's outcome for a run that ends with no `finished` (a standalone window close, the scene freed): the
+## ending a beat was already playing when there is one (`pending`, RaidEndings.pending_exit: a close during
+## the death beat is the death, with its killer), else `why` ("closed", "freed").
+static func capture_unfinished(why: String, pending: String) -> String:
+	return pending if pending in ["relish_died", "warden_beaten"] else why
+
+
 ## A tell-attack's outcome on the game side, first match: "struck" (its blow reached her hp), "countered"
 ## (the warden's counter took it: muffled, intercepted, pinned, snuffed), "dodged" (it was aimed at her:
 ## her edge warned through its tell, or a toll was placed at her feet), else "clear" (it never reached her).

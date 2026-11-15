@@ -891,6 +891,15 @@ func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
 ## D-e, capture mode: RaidLogic.capture_path / capture_outcome / capture_count, and RaidCapture reads only.
 func _capture_tests(t: TestUtil) -> void:
 	t.suite("raid_capture")
+	# the record's outcome (quality pass, Minor 6): a bot time-out is its own outcome, and a close during an
+	# ending beat records that beat's ending (a death keeps its killer)
+	t.ok(RaidLogic.capture_exit(true, false, false) == "relish_died" and RaidLogic.capture_exit(false, true, false) == "warden_beaten"
+		and RaidLogic.capture_exit(false, false, true) == "retreated", "a finished run's outcome is its result's flag")
+	t.ok(RaidLogic.capture_exit(false, false, false) == "timeout", "no flag at all (the bot's time-out away from an exit): timeout, not retreated")
+	t.ok(RaidLogic.capture_unfinished("closed", "relish_died") == "relish_died" and RaidLogic.capture_unfinished("closed", "warden_beaten") == "warden_beaten",
+		"a standalone close during the death beat records the death (and the victory beat the win)")
+	t.ok(RaidLogic.capture_unfinished("closed", "") == "closed" and RaidLogic.capture_unfinished("freed", "") == "freed", "with no beat playing: closed / freed")
+	t.ok(_func_body("res://scripts/raid/raid_capture.gd", "func flush_unfinished(").contains("pending_exit"), "the unfinished write reads the pending ending")
 	var none := PackedStringArray()
 	t.ok(RaidLogic.capture_path(none, none, "user://c.jsonl") == "", "no flag: off")
 	t.ok(RaidLogic.capture_path(PackedStringArray(["--capture"]), none, "user://c.jsonl") == "user://c.jsonl", "--capture: the default file")

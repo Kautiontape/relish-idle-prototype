@@ -214,9 +214,8 @@ func write(result: Dictionary) -> void:
 		return
 	_observe()   # the last frame's events (the killing blow ends the run before another tick)
 	_close_all()
-	var exit := "relish_died" if bool(result.get("relish_died", false)) \
-		else ("warden_beaten" if bool(result.get("warden_beaten", false)) else "retreated")
-	_append(_record(exit))
+	_append(_record(RaidLogic.capture_exit(bool(result.get("relish_died", false)), bool(result.get("warden_beaten", false)),
+		bool(result.get("retreated", false)))))
 
 
 ## Nothing finished (a standalone window close, or the scene freed without an ending): write what there is.
@@ -224,7 +223,7 @@ func flush_unfinished(why: String) -> void:
 	if _written:
 		return
 	_close_all()
-	_append(_record(why))
+	_append(_record(RaidLogic.capture_unfinished(why, _raid.endings.pending_exit if _raid.endings != null else "")))
 
 
 func _record(exit: String) -> Dictionary:
