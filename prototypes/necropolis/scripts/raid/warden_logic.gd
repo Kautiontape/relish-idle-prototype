@@ -319,6 +319,13 @@ static func lunge_target(from: Vector2, aim: Vector2, range_px: float) -> Vector
 	return from + d.normalized() * range_px
 
 
+## D-d/E Step 4c, the honest lunge tell: the lock point (`aim` clipped to `range_px`) clamped to the leash the
+## dash is held to (`room` less the Huntsman's `radius`), so the line the tell draws is the line the dash runs.
+## Unclamped, a lock past the room edge drew one line and dashed along another (hollow-redoubt s18).
+static func lunge_lock(room: Rect2, from: Vector2, aim: Vector2, range_px: float, radius: float) -> Vector2:
+	return leash_clamp(room, lunge_target(from, aim, range_px), radius)
+
+
 ## Where an intercepted lunge ends: the point of from->to nearest the interceptor.
 static func lunge_stop(from: Vector2, to: Vector2, interceptor_pos: Vector2) -> Vector2:
 	var seg := to - from

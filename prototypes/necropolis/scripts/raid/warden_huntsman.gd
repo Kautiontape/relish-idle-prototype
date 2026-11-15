@@ -125,7 +125,7 @@ func _step(delta: float) -> void:
 	# tell: lock the target point at Relish's position while she is in the room, else at an undead
 	if not _locked and b >= _next_attack - tell and tgt["kind"] != "none":
 		var late := b > _next_attack - tell + 0.1
-		_lock_pt = WardenLogic.lunge_target(global_position, tgt["pos"], float(at.get("range_px", 320.0)))
+		_lock_pt = WardenLogic.lunge_lock(_room, global_position, tgt["pos"], float(at.get("range_px", 320.0)), radius)   # drawn = dashed
 		_lock_undead = _hunting_undead
 		_locked = true
 		RaidSound.play("tell")

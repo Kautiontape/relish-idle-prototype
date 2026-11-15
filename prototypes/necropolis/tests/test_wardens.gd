@@ -385,6 +385,25 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lc)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
 		"tier 1 and the first dungeon are untouched by the lever")
 	t.ok(float(cfg["wardens"]["attack_dmg_mult"]) == 1.0 and float(cfg["wardens"]["relish_dmg_mult"]) == 1.0, "both levers rest at 1.0 until chosen")
+	# Step 4c: the honest lunge tell: the drawn line is the dash's line, also at the leash edge
+	var lroom := Rect2(1274.676, 30.0, 495.3244, 669.1307)
+	var lfrom := Vector2(1379.848, 669.1307)
+	var lock := WardenLogic.lunge_lock(lroom, lfrom, Vector2(1505.124, 696.832), 320.0, 30.0)
+	var dash_to := WardenLogic.leash_clamp(lroom, lock, 30.0)
+	t.ok(lock.distance_to(dash_to) < 0.001, "at the leash edge the drawn line ends where the dash ends (%s)" % str(lock))
+	var reach := 22.0 + 13.0
+	var dside := (lock - lfrom).normalized().orthogonal()
+	var all_safe := true
+	for k in 11:
+		var on_line := lfrom.lerp(lock, float(k) / 10.0)
+		for sgn in [-1.0, 1.0]:
+			all_safe = all_safe and not WardenLogic.lunge_hits(lfrom, dash_to, on_line + dside * sgn * (reach + 1.0), reach)
+	var old_lock := WardenLogic.lunge_target(lfrom, Vector2(1505.124, 696.832), 320.0)
+	var old_side := (old_lock - lfrom).normalized().orthogonal()
+	var old_to := WardenLogic.leash_clamp(lroom, old_lock, 30.0)
+	var old_caught := WardenLogic.lunge_hits(lfrom, old_to, old_lock + old_side * (reach + 1.0), reach) \
+		or WardenLogic.lunge_hits(lfrom, old_to, old_lock - old_side * (reach + 1.0), reach)
+	t.ok(all_safe and old_caught, "a sidestep off the drawn line by the catch reach is safe all along it (unclamped, a step off the old drawn line's end was caught on one side)")
 	# Step 4b, the reach at her stand: the toll and the aimed lane
 	t.ok(WardenLogic.toll_strikes(Vector2(100, 0), Vector2(60, 0), 70.0, 13.0, false, false), "the toll strikes her while she is still in its ring")
 	t.ok(not WardenLogic.toll_strikes(Vector2(200, 0), Vector2(60, 0), 70.0, 13.0, false, false), "stepped out: it misses")
