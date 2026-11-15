@@ -152,6 +152,10 @@ from `BALANCE.md` §0.
     and the state before and after; kept until dismissed, never saved. Its text comes from `economy.json`
     `idle.report`. So a load or such a gap now queues one event (`away_report`), where it queued none: a
     meaning change, not a shape change;
+  - (T3.3c) **the seeds' `death_ends`** (the dungeon's D-e, via the run's manager): `{outcome: String,
+    respawn_s: float}` on the raid seed (§7.1) and the boss seed (§7.2), what a death that ends the run ends
+    in, from `view_backups().death`'s rule (§5.13). `Results.validate` checks it when present (§8.4), so a
+    seed without it (a dungeon's own demo seed) still validates;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -257,6 +261,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `catching_up() -> bool` | **Not contract** (v6, E2b-2 T3.3b): whether a catch-up is active (`view_catchup().active`), for the shell's autosave. |
 | `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and the away report, `view_away`, §5.19): the events the last catch-up that a report replaces collected instead of queuing them (a load's, or an open-game gap's of `idle.report_min_s` or more; §6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
+| `var relish_returned: Dictionary` | **Not contract** (v6, E2b-2 T3.3c): her last walk home from a retaken fort, `{fort_id, cause, t}` or `{}`; scenes read it as `view_relish().returned` (§5.8). Read-only by rule. |
+| `static report_config_problem(cfgs: Dictionary) -> String` | **Not contract** (v6, E2b-2 T3.3c): `""` when `economy.json` `idle.report` has every key the away report reads (`GameState.REPORT_KEYS`) and words every queue reason, else what is missing; `setup()` reports it as an error (tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
 ## 2. The `Game` shell (`autoload/game.gd`)
@@ -2023,6 +2029,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `chest_husk` | bool | `true` on the first dungeon: the warden's chest holds a husk |
 | `watchtower` | bool | exact tells and percentages are unlocked |
 | `relish_hp` | float | `raid.json relish.hp` (30) |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends this run ends in, `{outcome: String, respawn_s: float}`: after any phylactery revives (in place, at most `phylactery_max_per_dungeon`), `"clone"` when a clone is ready (she wakes at Covington from it) else `"unmade"`, and its respawn time; `view_backups().death`'s `outcome` and `respawn_s` at issue (§5.13; until E3 a death respawns at once, 0.0). The death card's number; the dungeon falls back to text without one when it is absent |
 ```gdscript
 {v: 2, kind: "raid", run_id: 1, seed_rev: 512, rng_seed: "7203661890244157873",
  fort: {id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, first_clear: true, first_dungeon: true,
@@ -2030,7 +2037,8 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
  living: 61.2, dead: 3.1, undead: 6.4, garrison_units: 0, garrison_in_mass: 0.0, garrison_mass_div: 10.0, starter_units: 8, party: [],
  digest_q: 1.2, phylactery_charges: 0, phylactery_max_per_dungeon: 1, clones_ready: 0,
  warden: {archetype: "bellringer", tier: 1}, warden_spec: {}, loot_table_id: "t1.bellringer",
- loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0}
+ loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0,
+ death_ends: {outcome: "unmade", respawn_s: 0.0}}
 ```
 
 ### 7.2 Boss seed (`kind: "boss"`)
@@ -2049,12 +2057,13 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `party` | Array[Dictionary] | a big-undead entry plus `front: String` |
 | `phylactery_charges`, `clones_ready` | int | the backups the fight may spend (§8.2) |
 | `relish_hp` | float | |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends the fight ends in, `{outcome: String, respawn_s: float}`. Each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), so a death ends the fight only once none is left (a final death): `"unmade"` always, with its respawn time (0.0 until E3). The rule is `view_backups().death`'s with no clone ready. (§8.3 boss step 4's death reads the clones left after those spent, so a final death with a clone still ready would wake from it; the boss scene never sends one) |
 ```gdscript
 {v: 2, kind: "boss", run_id: 9, seed_rev: 21950, rng_seed: "-3317425092215838120",
  backlog: 18450.0, living_pool: 380.0, odds: 0.61, sign: 1, drain_s: -1.0, digest_q: 2.6, vei_capacity: 50.0,
  fronts: [{id: "giants", need: 24.0, have: 26.5, assigned: ["u4"]}, ...4], fronts_required: 3,
  party: [{uid: "u4", name: "Old Gristle", kind: "hulk", role: "brute", stats: {...}, front: "giants"}, ...],
- phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0}
+ phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0, death_ends: {outcome: "unmade", respawn_s: 0.0}}
 ```
 
 ## 8. Results
@@ -2174,6 +2183,10 @@ economy.)
 | `duplicate:<path>` | a repeated uid in `party_lost`, or a repeated front in `fronts_cleared` |
 | `bad_exit` | raid: not exactly one of `warden_beaten`, `retreated`, `relish_died` |
 | `bad_deaths` | boss: `relish_deaths` inconsistent with `backups_spent` and `won` (§8.2) |
+
+The seeds' optional keys (v6, E2b-2 T3.3c) are checked only when present: `death_ends` must be `{outcome:
+"clone" | "unmade", respawn_s: float ≥ 0}` (`range:death_ends.outcome` for another outcome). A seed without
+it is valid.
 
 Town and map results are `{v: 2, teleport_to: String}`, where `teleport_to` is `""` or a node id.
 Validate checks the type only; the router treats an unknown id as the map.

@@ -43,6 +43,7 @@ func run() -> int:
 	_run_checkpoint_api()
 	_relish_returned_api()
 	_away_api()
+	_death_ends()
 	return t.failures
 
 
@@ -1524,3 +1525,36 @@ func _away_api() -> void:
 		for f in dd.get_files():
 			dd.remove(f)
 		DirAccess.remove_absolute(dir)
+
+
+## E2b-2 T3.3c (the dungeon's D-e, via the run's manager): the raid seed's death_ends {outcome, respawn_s} is
+## view_backups().death's outcome and respawn_s, with no clone ready (unmade) and with one (clone); the boss
+## seed's is unmade (a fight ends in a death only once every backup is spent), with a clone ready or not. Both
+## validate (Results: an optional key, checked when present; a bad outcome is range:death_ends.outcome).
+func _death_ends() -> void:
+	t.suite("api-v6-death-ends")
+	for clones in [0, 1, 2]:
+		var s := _mk()
+		s.clones_ready = clones
+		s.cmd_debug_set_state({"relish_at": "old-sluice"})
+		var b := s.cmd_begin_dungeon("old-sluice")
+		var de: Dictionary = b["seed"]["death_ends"]
+		var bd: Dictionary = s.view_backups()["death"]
+		t.ok(de == {"outcome": bd["outcome"], "respawn_s": bd["respawn_s"]} and de["outcome"] == ("unmade" if clones == 0 else "clone")
+			and Results.validate("raid_seed", b["seed"]).is_empty() and s.view_dungeon_seed("old-sluice")["death_ends"] == de,
+			"%d clones ready: the raid seed's death_ends %s is view_backups().death's" % [clones, str(de)])
+		var m := _mk()
+		m.clones_ready = clones
+		m.cmd_debug_set_state({"relish_at": "vei"})
+		var bb := m.cmd_begin_boss()
+		t.ok(bb["seed"]["death_ends"] == {"outcome": "unmade", "respawn_s": 0.0} and Results.validate("boss_seed", bb["seed"]).is_empty(),
+			"%d clones ready: the boss seed's death_ends is unmade (backups go first): %s" % [clones, str(bb["seed"]["death_ends"])])
+	var s2 := _mk()
+	s2.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var sd: Dictionary = s2.cmd_begin_dungeon("old-sluice")["seed"]
+	var bad := sd.duplicate(true)
+	bad["death_ends"]["outcome"] = "phylactery"
+	var no := sd.duplicate(true)
+	no.erase("death_ends")
+	t.ok(Results.validate("raid_seed", bad) == ["range:death_ends.outcome"] and Results.validate("raid_seed", no).is_empty(),
+		"Results: a death_ends outcome outside clone/unmade is range:death_ends.outcome; a seed without it is valid (optional)")

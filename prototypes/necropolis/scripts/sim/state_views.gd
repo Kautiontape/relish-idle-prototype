@@ -494,18 +494,27 @@ static func backups(gs: GameState) -> Dictionary:
 	var vats: Array = []
 	for i in n:
 		vats.append(gs._vat_entry(i))
-	var outcome := "clone" if gs.clones_ready > 0 else "unmade"
+	return {
+		"rev": gs.rev, "phylactery_charges": gs._phylactery_charges, "phylactery_max_per_dungeon": gs._phylactery_max(),
+		"clones_ready": gs.clones_ready, "vats": vats, "death": death_rule(gs, gs.clones_ready),
+		"dead_s_left": float(gs.relish["dead_s_left"]),
+	}
+
+
+## The death rule (§5.13 `death`, the E1-safe rule until E3; MECHANICS §7, StateRuns.death): what a death
+## that ends a run costs with `clones` ready: a ready clone wakes her ("clone"), else she is unmade with the
+## morale shock ("unmade"); she respawns at once (respawn_s 0.0 until E3). `loses`: the party (if any), the
+## unbanked loot, and the morale when unmade. view_backups' death reads it at the clones ready now, and the
+## seeds' death_ends (StateRuns.death_ends) read it too.
+static func death_rule(gs: GameState, clones: int) -> Dictionary:
+	var outcome := "clone" if clones > 0 else "unmade"
 	var loses: Array = []
 	if not gs.party_uids.is_empty():
 		loses.append("party")
 	loses.append("unbanked_loot")
 	if outcome == "unmade":
 		loses.append("morale")
-	return {
-		"rev": gs.rev, "phylactery_charges": gs._phylactery_charges, "phylactery_max_per_dungeon": gs._phylactery_max(),
-		"clones_ready": gs.clones_ready, "vats": vats, "death": {"outcome": outcome, "respawn_s": 0.0, "loses": loses},
-		"dead_s_left": float(gs.relish["dead_s_left"]),
-	}
+	return {"outcome": outcome, "respawn_s": 0.0, "loses": loses}
 
 
 ## §5.14 · E2 (fronts E3; assigned is live). The readout, q and the tithe are live.

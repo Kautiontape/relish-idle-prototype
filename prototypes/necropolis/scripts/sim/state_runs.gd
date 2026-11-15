@@ -55,6 +55,7 @@ static func dungeon_seed(gs: GameState, fort_id: String, run_id: int, seed_rev: 
 		"loot_hint": gs._loot_hint(fort_id),
 		"chest_husk": first, "watchtower": false,
 		"relish_hp": gs._relish_hp(),
+		"death_ends": death_ends(gs, "raid"),
 	}
 
 
@@ -71,7 +72,22 @@ static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionar
 		"party": party_entries(gs, true),
 		"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready,
 		"relish_hp": gs._relish_hp(),
+		"death_ends": death_ends(gs, "boss"),
 	}
+
+
+## The seeds' `death_ends` (§7.1, §7.2; E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends
+## in, {outcome: "clone" | "unmade", respawn_s}, from view_backups' death rule (StateViews.death_rule).
+## - A raid: after any phylactery revives (each revives in place, at most phylactery.max_per_dungeon), the
+##   death that ends the run wakes her from a ready clone, else unmakes her: the rule at the clones ready now,
+##   so it equals view_backups().death's outcome and respawn_s.
+## - A boss run: each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), and the fight ends
+##   in a death only when none is left (a final death, relish_deaths = the backups spent + 1), so that death
+##   is "unmade": the rule with no clone ready. (writeback_boss's death reads the clones left after the ones
+##   spent: a final death with a clone still ready would wake from it, which the boss scene never sends.)
+static func death_ends(gs: GameState, kind: String) -> Dictionary:
+	var d := StateViews.death_rule(gs, gs.clones_ready if kind == "raid" else 0)
+	return {"outcome": str(d["outcome"]), "respawn_s": float(d["respawn_s"])}
 
 
 static func open_run(gs: GameState, kind: String, fort_id: String) -> Dictionary:

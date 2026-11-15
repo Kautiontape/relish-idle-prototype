@@ -37,12 +37,16 @@ const RAID_SEED := {
 	"party": [SEED_PARTY], "digest_q": F, "phylactery_charges": I, "phylactery_max_per_dungeon": I,
 	"clones_ready": I, "warden": {"archetype": S, "tier": I}, "warden_spec": D, "loot_table_id": S,
 	"loot_hint": S, "chest_husk": B, "watchtower": B, "relish_hp": F,
+	# api_version 6 (E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends in
+	"death_ends": {"outcome": S, "respawn_s": F},
 }
 const BOSS_SEED := {
 	"v": I, "kind": S, "run_id": I, "seed_rev": I, "rng_seed": S,
 	"backlog": F, "living_pool": F, "odds": F, "sign": I, "drain_s": F, "digest_q": F, "vei_capacity": F,
 	"fronts": [{"id": S, "need": F, "have": F, "assigned": [S]}], "fronts_required": I,
 	"party": [BOSS_PARTY], "phylactery_charges": I, "clones_ready": I, "relish_hp": F,
+	# api_version 6 (E2b-2 T3.3c): what a death that ends the fight ends in (always unmade: backups go first)
+	"death_ends": {"outcome": S, "respawn_s": F},
 }
 
 # --------------------------------------------------------------- results (§8) ----

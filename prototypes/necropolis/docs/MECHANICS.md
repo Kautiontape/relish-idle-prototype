@@ -1246,7 +1246,8 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   - `run_id`, `rng_seed`, the fort (tier, cap);
   - living, dead, your undead there;
   - the party from `cmd_set_party`;
-  - `digest_q`, phylactery charges, clones ready;
+  - `digest_q`, phylactery charges, clones ready, and what a death that ends the run ends in (`death_ends
+    {outcome, respawn_s}`, view_backups' rule; E2b-2 T3.3c);
   - the warden spec, the loot table id, `relish_hp`.
 - **Party:** your undead at the fort, converted to units by `raid.garrison_mass_div`, plus your
   chosen big undead.

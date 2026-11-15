@@ -7,7 +7,8 @@ const KINDS := ["raid", "boss", "town", "map", "raid_seed", "boss_seed"]
 
 ## Spec grammar. A String is a leaf token, an Array is [element spec], a Dictionary lists the
 ## required keys. Tokens: int, int+ (>= 0), float, mass (>= 0), str, bool, dict, score (0..100),
-## aspect, rarity, front (the last three are a str that must be in its list).
+## aspect, rarity, front, death_outcome (the last four are a str that must be in its list; death_outcome's
+## is clone or unmade).
 const _RAID := {
 	"run_id": "int", "seed_rev": "int", "fort_id": "str",
 	"warden_beaten": "bool", "retreated": "bool", "relish_died": "bool", "revived_in_place": "int+",
@@ -38,6 +39,9 @@ const _RAID_SEED := {
 	"loot_table_id": "str", "loot_hint": "str", "chest_husk": "bool", "watchtower": "bool",
 	"relish_hp": "float",
 }
+## The seeds' optional keys, checked when present (additive, E2b-2 T3.3c): `death_ends`, what a death that
+## ends the run ends in (STATE-API §7.1, §7.2). A dungeon's own demo seed may leave it out.
+const _SEED_OPTIONAL := {"death_ends": {"outcome": "death_outcome", "respawn_s": "mass"}}
 const _BOSS_SEED := {
 	"kind": "str", "run_id": "int", "seed_rev": "int", "rng_seed": "str",
 	"backlog": "float", "living_pool": "float", "odds": "float", "sign": "int", "drain_s": "float",
@@ -71,9 +75,11 @@ static func validate(kind: String, d: Dictionary) -> Array[String]:
 		"raid_seed":
 			_check(d, _RAID_SEED, "", errs)
 			_seed_kind(d, "raid", errs)
+			_optional(d, _SEED_OPTIONAL, errs)
 		"boss_seed":
 			_check(d, _BOSS_SEED, "", errs)
 			_seed_kind(d, "boss", errs)
+			_optional(d, _SEED_OPTIONAL, errs)
 	return errs
 
 
@@ -147,6 +153,11 @@ static func _leaf(v: Variant, tok: String, path: String, errs: Array[String]) ->
 				errs.append("range:" + path)
 			elif tok == "mass" and v < 0:
 				errs.append("range:" + path)
+		"death_outcome":
+			if typeof(v) != TYPE_STRING:
+				errs.append("type:" + path)
+			elif not ["clone", "unmade"].has(v):
+				errs.append("range:" + path)
 		"aspect", "rarity", "front":
 			if typeof(v) != TYPE_STRING:
 				errs.append("type:" + path)
@@ -155,6 +166,13 @@ static func _leaf(v: Variant, tok: String, path: String, errs: Array[String]) ->
 					else (GameState.RARITIES if tok == "rarity" else GameState.FRONT_IDS)
 				if not list.has(v):
 					errs.append("range:" + path)
+
+
+## Each key of `spec` that `d` holds, checked as _check checks a required one; an absent one is fine.
+static func _optional(d: Dictionary, spec: Dictionary, errs: Array[String]) -> void:
+	for k in spec:
+		if d.has(k):
+			_check(d[k], spec[k], k, errs)
 
 
 ## Appends `duplicate:<path>[i]` for each repeat of a String in `d[key]`.
