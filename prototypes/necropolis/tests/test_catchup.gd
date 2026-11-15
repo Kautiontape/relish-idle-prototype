@@ -1,6 +1,7 @@
 extends RefCounted
 ## The catch-up runner (IDLE §4, E2b-2 T3.3b; scripts/sim/catchup.gd): every load catches up the real time
-## since its save through GameState's own core step in adaptive, event-clipped steps.
+## since its save, and a long gap in the open game does too, through GameState's own core step in adaptive,
+## event-clipped steps, in chunks that never change the result.
 ## - A load with the clock (GameState.clock_override) N s on: t advances by N exactly, the ledger balances,
 ##   the catch-up's events are collected in time order inside its window and the scenes' queue gets none;
 ##   a negative elapsed time is 0 (the identity), one above idle.catchup_max_s is capped and flagged, a 0 s
@@ -11,6 +12,11 @@ extends RefCounted
 ## - The load flash: from a load until the first substep's train verdict, no frame shows a held fort safe
 ##   where the first settled read is thin; view_realm and the held forts' view_fort read the same just
 ##   before a save and just after its 0 s load.
+## - Chunks: synchronous and in chunks of 1, 7 and the default give the same to_dict() and RNG; a chunked
+##   catch-up's frames refresh no build-benefit row and run no train probe; the frame path sends a frame
+##   above idle.gap_s of real time through catch-up (the same state as that time caught up on load), keeps a
+##   20 s frame live and debug fast-forward live; a gap under idle.report_min_s queues its events (a retake
+##   inside a 300 s gap reaches the queue), a longer one collects them; paused time is no time off.
 ## Saves go under user://test_catchup_<pid>, removed at the end. The field is shrunk (8 × 6) and its
 ## pre-warm off, as tests/slow/convergence.gd's harness does, so the runs are cheap; the field step wiring
 ## is the same at any size.
@@ -34,6 +40,11 @@ func run() -> int:
 	_load_flash()
 	_load_identity_views()
 	_config_check()
+	_chunks_equal()
+	_frame_work_excluded()
+	_gap_frame()
+	_live_frames()
+	_gap_events()
 	_cleanup()
 	return t.failures
 
@@ -76,12 +87,12 @@ func _start(c: Dictionary, name: String) -> GameState:
 
 ## Saves `s` to `slot` at CLOCK; a fresh state loads it with the clock `away` s on. Returns the loaded
 ## state (its load's result in `meta.load`).
-func _away(c: Dictionary, s: GameState, slot: String, away: int) -> GameState:
+func _away(c: Dictionary, s: GameState, slot: String, away: int, chunked := false) -> GameState:
 	s.clock_override = CLOCK
 	t.ok(s.cmd_save(slot)["ok"], "(setup) %s saved" % slot)
 	var n := _mk(c)
 	n.clock_override = CLOCK + away
-	var r := n.cmd_load(slot)
+	var r := n.cmd_load(slot, chunked)
 	n.set_meta("load", r)
 	n.set_meta("saved", s.to_dict())  # what the save holds, as to_dict gives it (ints as ints)
 	return n
@@ -126,6 +137,8 @@ func _away_basic() -> void:
 		kinds[e["type"]] = true
 	t.ok(kinds.has("tithe_wave") and kinds.has("tithe_warning"), "the waves of the 50 min are among them: %s" % str(kinds.keys()))
 	t.ok(n.drain_events().is_empty(), "the scenes' queue gets none of them")
+	var cu := n.view_catchup()
+	t.ok(not cu["active"] and cu["done_s"] == 3000.0 and cu["total_s"] == 3000.0, "view_catchup: done, 3000 of 3000 s: %s" % str(cu))
 	t.ok(n._catchup.steps > 0 and n._catchup.field_calls == n._catchup.field_n and n._catchup.field_n == 150,
 		"%d core steps, %d field steps (of %d planned)" % [n._catchup.steps, n._catchup.field_calls, n._catchup.field_n])
 
@@ -442,6 +455,162 @@ static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) 
 			why.append("%s: %s vs %s" % [path, str(a), str(b)])
 	elif a != b:
 		why.append("%s: %s vs %s" % [path, str(a), str(b)])
+
+
+# ------------------------------------------------------------------------------- chunks ----
+## The step sequence depends only on the save, the time away and the configs: the same save caught up
+## synchronously and in chunks of 1, 7 and idle.catchup_steps_per_chunk (the views read between chunks,
+## as a progress screen's would) gives the same to_dict() and RNG state, to the bit.
+func _chunks_equal() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 360})
+	var s := _start(c, "midgame_2flips")
+	var sync := _away(c, s, "chunks", 1800)
+	var want := sync.to_dict()
+	var per := int(c["economy"]["idle"]["catchup_steps_per_chunk"])
+	for k in [1, 7, per]:
+		var n := _away(c, s, "chunks", 1800, true)
+		t.ok(n.get_meta("load")["ok"] and n.catching_up() and n.t == s.t, "chunked: the load returns with the catch-up pending (%d per chunk)" % k)
+		var chunks := 0
+		while n.catching_up():
+			n._catchup.run(n, k)
+			chunks += 1
+			if chunks % 25 == 1:
+				n.view_realm()
+				n.view_fort("ashgate")
+				n.view_town()
+				n.view_hud()
+				n.view_catalog()
+				n.view_projection(n.valve_target, true)
+		var got := n.to_dict()
+		t.ok(got == want and n.rng.state == sync.rng.state and n.catchup_events() == sync.catchup_events(),
+			"in %d chunks of %d: the same to_dict(), RNG state and events as synchronously" % [chunks, k])
+
+
+## A chunked catch-up's frames do no frame work: no build-benefit row is refreshed and no train probe runs
+## on them (StateViews.projection_frame and GameState._train_frame), with the catalog being read and a
+## view reading the train between frames, late in the substep interval (where both would run). One core
+## step per chunk (idle.catchup_steps_per_chunk 1), a 40 s gap of 0.5 s steps. The views' own reads may
+## probe; the frames mustn't. Also: a view read after a chunk re-probes the train (its state moved).
+func _frame_work_excluded() -> void:
+	var c := cfgs({"economy.idle.catchup_steps_per_chunk": 1})
+	var s := _start(c, "midgame_2flips")
+	var cap := s.max_substeps_per_frame()
+	s.tick(s.substep_s(), cap)
+	s.view_catalog()
+	s.view_fort("ashgate")
+	t.ok(s.tick(40.0, cap) == 0 and s.catching_up(), "(setup) a 40 s frame starts a catch-up")
+	var frames := 0
+	var rows := 0
+	var probes := 0
+	var reprobe := true
+	while s.catching_up() and frames < 200:
+		s.view_catalog()
+		var p0 := int(s._train_cache.get("computed", 0))
+		s.view_fort("ashgate")
+		reprobe = reprobe and int(s._train_cache.get("computed", 0)) == p0 + 1
+		s._acc = 0.45  # late in the interval: where the frame refreshes run
+		var r0 := int(s._proj_cache.get("rows_computed", 0))
+		var c0 := int(s._train_cache.get("computed", 0))
+		s.tick(1.0 / 60.0, cap)
+		if s.catching_up():
+			frames += 1
+			rows += int(s._proj_cache.get("rows_computed", 0)) - r0
+			probes += int(s._train_cache.get("computed", 0)) - c0
+	t.ok(frames > 50 and rows == 0, "%d frames of the catch-up refresh no build-benefit row (%d)" % [frames, rows])
+	t.ok(probes == 0, "and run no train probe (%d)" % probes)
+	t.ok(reprobe, "a view read after each chunk re-probes the train")
+
+
+## The frame path: a frame of 3 600 s of real time goes through catch-up and gives the same state as the
+## same 3 600 s caught up on load: in one chunk, and in the default chunks over frames, whose own time
+## then runs as live time (none of it dropped). Its fraction of a second stays in the accumulator.
+func _gap_frame() -> void:
+	var big := cfgs({"economy.idle.catchup_steps_per_chunk": 1_000_000})
+	var s := _start(big, "midgame_2flips")
+	var on_load := _away(big, s, "gap", 3600)
+	var framed := _away(big, s, "gap", 0)
+	var cap := framed.max_substeps_per_frame()
+	t.ok(framed.tick(3600.0, cap) == 0 and not framed.catching_up(), "a 3600 s frame is caught up (in one chunk here)")
+	t.ok(framed.to_dict() == on_load.to_dict() and framed.catchup_events() == on_load.catchup_events() and framed.drain_events().is_empty(),
+		"the same state and events as 3600 s caught up on load")
+	var c := cfgs()
+	var a := _away(c, s, "gap2", 3600)
+	var b := _away(c, s, "gap2", 0)
+	t.ok(b.tick(3600.0, cap) == 0 and b.catching_up(), "with the default chunks it is still running after the frame")
+	var frame_s := 0.0
+	var frames := 0
+	while b.catching_up() and frames < 1000:
+		b.tick(1.0 / 60.0, cap)
+		frame_s += 1.0 / 60.0
+		frames += 1
+	t.ok(not b.catching_up() and frames > 2, "(setup) done after %d more frames" % frames)
+	a.tick(frame_s, 60)  # the frames' time, as one live frame (cap at idle.gap_s of substeps)
+	var why: Array = []
+	_diff(a.to_dict(), b.to_dict(), 0.0, "d", why)
+	t.ok(why.is_empty() and a.t == b.t, "the frames' own %.2f s then ran live: the same state as the load's catch-up and %.2f s live%s" % [
+		frame_s, frame_s, "" if why.is_empty() else ": " + ", ".join(PackedStringArray(why.slice(0, 4)))])
+	var f := _away(c, s, "gap3", 0)
+	var acc0 := f._acc
+	f.tick(40.75, cap)
+	t.ok(f._catchup.total_s == 40.0 and absf(f._acc - (acc0 + 0.75)) < 1e-12, "a 40.75 s frame catches up 40 s and keeps 0.75 s in the accumulator (%.3f → %.3f)" % [acc0, f._acc])
+
+
+## What stays live: a 20 s frame (under idle.gap_s) runs its capped substeps and drops the rest, as
+## before; debug fast-forward at ×60 (60 s of sim in a 1 s frame) is live play; an uncapped tick (tests,
+## cmd_debug_skip_time) never routes a gap; a paused sim counts no time off.
+func _live_frames() -> void:
+	var c := cfgs()
+	var s := _start(c, "midgame_2flips")
+	var cap := s.max_substeps_per_frame()
+	var t0 := s.t
+	s._acc = 0.0
+	t.ok(s.tick(20.0, cap) == cap and not s.catching_up() and s._acc == 0.0 and s.t == t0 + cap * s.substep_s(),
+		"a 20 s frame: %d live substeps, the rest dropped" % cap)
+	t.ok(s.cmd_debug_set_state({"time_scale": 60.0})["ok"], "(setup) ×60")
+	t0 = s.t
+	t.ok(s.tick(60.0, cap) == cap and not s.catching_up() and s.t == t0 + cap * s.substep_s(), "×60, a 1 s frame (60 s of sim): live, %d substeps" % cap)
+	s.time_scale = 1.0
+	t0 = s.t
+	var n := s.tick(100.0)
+	t.ok(n == 200 and not s.catching_up() and s.t == t0 + 100.0, "an uncapped tick of 100 s: 200 live substeps (%d)" % n)
+	t.ok(s.cmd_pause(true)["ok"], "(setup) paused")
+	t0 = s.t
+	t.ok(s.tick(3600.0, cap) == 0 and not s.catching_up() and s.t == t0, "paused: a 3600 s frame is no time off")
+
+
+## The events of a gap under idle.report_min_s go to the scenes' queue as live (no report replaces them):
+## midgame_2flips 20 min in, Old Sluice's garrison sits at 0 and is retaken within 300 s, and that
+## fort_retaken reaches drain_events() from a 300 s frame. A 900 s frame collects it for the report
+## instead, and queues none.
+func _gap_events() -> void:
+	var c := cfgs()
+	var s := _start(c, "midgame_2flips")
+	s.tick(1200.0)
+	s.drain_events()
+	var cap := s.max_substeps_per_frame()
+	var live := _mk(c)
+	live.from_dict(s.to_dict())
+	live.drain_events()
+	live.tick(300.0)
+	var live_rt := live.drain_events().filter(func(e): return e["type"] == "fort_retaken")
+	t.ok(live_rt.size() == 1, "(setup) live, a fort is retaken within 300 s: %s" % str(live_rt))
+	for gap in [300.0, 900.0]:
+		var n := _mk(c)
+		n.from_dict(s.to_dict())
+		n.drain_events()
+		n.tick(gap, cap)
+		var q: Array = []
+		while n.catching_up():
+			q.append_array(n.drain_events())
+			n.tick(1.0 / 60.0, cap)
+		q.append_array(n.drain_events())
+		var rt_q := q.filter(func(e): return e["type"] == "fort_retaken")
+		var rt_c := n.catchup_events().filter(func(e): return e["type"] == "fort_retaken")
+		if gap < 600.0:
+			t.ok(rt_q.size() == 1 and rt_c.is_empty() and q.size() > 1, "a %.0f s gap: its %d events reach the queue, the retake among them" % [gap, q.size()])
+		else:
+			t.ok(rt_q.is_empty() and rt_c.size() == 1 and n.catchup_events().size() > 1,
+				"a %.0f s gap: its %d events are collected for the report (the retake among them), none queued (%d)" % [gap, n.catchup_events().size(), q.size()])
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step. E3's key isn't in economy.json yet, so

@@ -108,6 +108,17 @@ from `BALANCE.md` §0.
     `away_s: float` and `capped: bool` (§4.1). Its `rev` rises by 1 plus 1 per catch-up core step. The
     catch-up's events are collected for the away report (T3.3c), not queued (§6).
     `cmd_debug_load_fixture` and `from_dict` don't catch up (§9.1);
+  - (T3.3b) **chunked catch-up**: `cmd_load(slot, chunked := false)` (§4.1); with `chunked` it returns at
+    once with the catch-up pending, and each `tick()` runs one chunk of it (§3). `view_catchup()` (§5.18)
+    drives a progress screen (the map's, Phase I). Chunking never changes the result;
+  - (T3.3b) the reason **`catching_up`** on every command while a catch-up is active (§4's conventions):
+    checked first, after `not_debug` where that applies;
+  - (T3.3b) **long gaps in the open game** (IDLE §4 When): on the frame path a frame whose real time is
+    above `idle.gap_s` goes through catch-up instead of dropping its remainder past the substep cap (§3).
+    Under `idle.report_min_s` its events are queued as live, at or above it they are collected for the
+    report (§6). Debug fast-forward stays live play (the check is real time);
+  - (T3.3b) the shell boots with `cmd_load("auto", true)`, and its autosave waits out a catch-up (§2.1);
+    `catching_up()` (§1.5, not contract);
   - (T3.3b) `clock_override` (§1.5), the test seam for "now": `cmd_save` stamps `saved_at` and `cmd_load`
     measures the time away through it. Never saved;
   - (T3.3b) **the load flash**: a load rebuilds the last substep's split and WAR dispatch from what the save
@@ -218,7 +229,8 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
-| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and T3.3c's away report): the events the last load's catch-up collected instead of queuing them (§6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
+| `catching_up() -> bool` | **Not contract** (v6, E2b-2 T3.3b): whether a catch-up is active (`view_catchup().active`), for the shell's autosave. |
+| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and T3.3c's away report): the events the last catch-up that a report replaces collected instead of queuing them (a load's, or an open-game gap's of `idle.report_min_s` or more; §6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
@@ -230,7 +242,9 @@ var state: GameState                  # stable for the session (§1.2)
 signal game_event(ev: Dictionary)     # one signal for every event, in queue order; filter on ev.type
 var autosave_enabled: bool            # false in a harness session; set once at boot, read-only by rule
 func autosave() -> Dictionary         # = state.cmd_save("auto"); the router calls it after every swap;
-                                      # {ok: false, reason: "disabled"} (nothing written) when !autosave_enabled
+                                      # {ok: false, reason: "disabled"} (nothing written) when !autosave_enabled;
+                                      # {ok: false, reason: "catching_up"} (nothing written, no event) while
+                                      # a catch-up is active (v6)
 ```
 - **Boot (`_ready`):**
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
@@ -258,7 +272,9 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for
     `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
     otherwise `cmd_new_game(randi())`.
-  - **Normal launch** (a windowed launch with no args, or only `PLAYER_ARGS`): `cmd_load("auto")`; if that is not `ok` (no file, or
+  - **Normal launch** (a windowed launch with no args, or only `PLAYER_ARGS`): `cmd_load("auto", true)`
+    (v6: the catch-up of the time away runs in chunks over the first frames, so a week away doesn't
+    freeze the window; `view_catchup` drives a progress screen); if that is not `ok` (no file, or
     corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
     newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
     and a warning is printed, so the newer save is never overwritten.
@@ -266,14 +282,16 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     Continue resumes where the time away left the realm.
 - **Ticking (`_process(delta)`):**
   `state.tick(delta / maxf(0.05, Engine.time_scale) * state.time_scale, max_substeps)`. Here
-  `max_substeps` is `economy.json` `sim.max_substeps_per_frame`, and any remainder over the cap is
-  dropped (§3).
+  `max_substeps` is `economy.json` `sim.max_substeps_per_frame`. A frame whose real time is above
+  `idle.gap_s` goes through catch-up; under it, any remainder over the cap is dropped (§3). `tick`
+  divides by `time_scale` for the real time, so the shell passes nothing more.
   - The sim runs on **real** delta. Trance's `Engine.time_scale` never slows the realm.
   - `tick` itself honours `paused`.
 - **Events:** each frame, after ticking, the shell drains `state.drain_events()` and emits
   `game_event(ev)` for each event, in order.
 - **Autosave:** every 30 real seconds (unscaled delta) and on every scene change (the router calls
-  `autosave()`). The resulting `autosaved` / `save_failed` events reach scenes through
+  `autosave()`). While a catch-up is active it writes nothing (a save then would lose the time still to
+  run) and the 30 s clock stays due, so the save follows the catch-up. The resulting `autosaved` / `save_failed` events reach scenes through
   `game_event`.
 - **Legacy signals** keep firing until the map unit drops them. Each fires after the
   `game_event` for the same event:
@@ -375,6 +393,18 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   - `acc += dt`, then `n = floor(acc / sim.substep_s)` (`sim.substep_s` = 0.5).
   - If `max_substeps > 0` and `n > max_substeps`: run `max_substeps` and set `acc = 0`. The
     remainder after a hitch is dropped.
+  - **Long gaps** (v6, E2b-2 T3.3b; IDLE §4 When): with `max_substeps > 0` (the frame path), a call
+    whose real time, `dt / time_scale`, is above `idle.gap_s` (30 s) goes through catch-up instead:
+    its whole seconds, chunked (below), with its fraction added to `acc`. So the drop above applies only
+    to a hitch under `idle.gap_s`, and debug fast-forward (a large `dt` from a large `time_scale`) stays
+    live play. A paused sim returns 0 before any of this, so paused time is never time off (I9). A call
+    with no cap (tests, `cmd_debug_skip_time`) never routes a gap: it runs its substeps as before.
+  - **While a catch-up is active** (a chunked `cmd_load`'s or a gap's, `view_catchup().active`): each
+    call runs one chunk of it, `idle.catchup_steps_per_chunk` core steps, instead of live time, does no
+    frame work (the field's `advance`, the build benefit's and the wave train's refreshes) and returns 0.
+    The calls' own `dt` accumulates. When the catch-up finishes, that time runs as the finishing call's
+    `dt`: through catch-up again if its real time is above `idle.gap_s`, else as live substeps with the
+    cap raised to `idle.gap_s / sim.substep_s`, so none of it is dropped at 1×.
   - Otherwise `acc -= n * sim.substep_s`. The remainder is kept and saved.
   - `max_substeps = 0` means uncapped; tests and `cmd_debug_skip_time` use it.
 - Each substep advances `t += sim.substep_s`, runs the steps below **in this order** (a contract
@@ -419,6 +449,14 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
 The format for each entry is: signature · milestone, arguments, extra return keys, reasons in check
 order, effect, example. Every command also returns `ok` and `reason`.
 
+**`catching_up`** (v6, E2b-2 T3.3b; IDLE §4): while a catch-up is active (`view_catchup().active`: a
+chunked `cmd_load`'s, or an open-game gap's), every `cmd_*` returns `{ok: false, reason: "catching_up"}`
+with its own extras zero-valued, changes nothing and leaves `rev` alone. It is checked first, after
+`not_debug` where that applies (the time controls and the debug commands), so it heads every reason list
+below without being repeated in each. `cmd_save`'s refusal emits `save_failed` as every refusal does
+(the shell's autosave doesn't call it then, §2.1). `apply_result` is not a command and isn't refused.
+Views stay readable during a catch-up and show the state as far as it has run.
+
 ### 4.1 Game
 **`cmd_new_game(seed: int)` · E1**
 - **Reasons:** `busy` (a dungeon or boss run is open).
@@ -446,7 +484,7 @@ Game.state.cmd_new_game(1)  # -> {ok: true, reason: ""}
 Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, path: "user://saves/slot1.json"}
 ```
 
-**`cmd_load(slot: String)` · E1 (catch-up v6)**
+**`cmd_load(slot: String, chunked := false)` · E1 (catch-up v6)**
 - **Extras** (v6, E2b-2 T3.3b): `away_s: float`, the seconds caught up, and `capped: bool`. Both are 0.0
   and false on a refusal.
 - **Reasons:** `busy`, `bad_slot`, `no_save` (missing or corrupt; a corrupt file is no save),
@@ -462,6 +500,11 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
   live ticks, and the field ends published. The run's events are kept for the away report, not queued
   (§6). The lanes' callouts take the net change once at its end. A 0 s load is the identity: no step
   runs and the state is the save.
+- **`chunked`** (v6, an optional parameter): left out (false), the catch-up runs before `cmd_load`
+  returns. True: it returns at once with the catch-up pending (`view_catchup().active`), and each
+  `tick()` runs one chunk of it (§3). Meanwhile every command refuses with `catching_up` (§4). The step
+  sequence depends only on the save, the time away and the configs, so the result is the same either way,
+  to the bit.
 - `rev` rises by 1, plus 1 per catch-up core step.
 ```gdscript
 Game.state.cmd_load("auto")  # -> {ok: true, reason: "", away_s: 28800.0, capped: false}
@@ -1697,6 +1740,17 @@ Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # only Tow
 Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evaluated at the current valve
 ```
 
+### 5.18 `view_catchup()` · E2b-2 (api_version 6, T3.3b)
+The catch-up's progress, for a progress screen (the map's, Phase I; IDLE §4).
+| key | type | meaning |
+|---|---|---|
+| `active` | bool | a catch-up is running: a chunked `cmd_load`'s or an open-game gap's (§3). Commands refuse with `catching_up` meanwhile (§4) |
+| `done_s` | float | sim seconds of it run so far; once it is done, `total_s` |
+| `total_s` | float | its length in sim seconds (whole seconds); the last one's once it is done, 0 since a new game or a load with nothing to catch up |
+```gdscript
+Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, total_s: 604800.0}
+```
+
 ## 6. Events
 
 `drain_events() -> Array[Dictionary]`
@@ -1704,11 +1758,17 @@ Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evalua
   below.
 - The queue is cleared by new game, load and fixture load.
 - **A catch-up whose time a report will cover raises no queued events** (v6, E2b-2 T3.3b; IDLE §4, §7).
-  A load's catch-up keeps its events, with their `t`, for the away report (T3.3c's `view_away` and
-  `away_report`; `GameState.catchup_events()` meanwhile), and the scenes' queue gets none of them. A week
+  A load's catch-up, and an open-game gap's of `idle.report_min_s` (600 s) or more, keep their events,
+  with their `t`, for the away report (T3.3c's `view_away` and `away_report`;
+  `GameState.catchup_events()` meanwhile), and the scenes' queue gets none of them. A week
   away raises thousands of events, and replaying them on load would fire every setpiece, tithe explainer
   and toast at once; the report is their summary. A load already clears the queue, so this extends that
   rule.
+- **A gap under `idle.report_min_s`** (from `idle.gap_s` up) has no report, so its catch-up's events are
+  queued as live: all of them, uncapped and uncoalesced, each with its own `t`, reaching scenes chunk by
+  chunk (§2.1). Nothing that changes state is ever dropped there: a fort retaken inside a 300 s gap
+  reaches the queue (`tests/test_catchup.gd`). No event is capped or coalesced, so no re-read cue is
+  needed for that band.
 - **`away_report` is the cue for an on-screen scene to re-read its views** (T3.3c). These listeners keep
   state built from events, and each must re-read its views on `away_report`: a Phase I must-fix for
   their units, carried by the run's manager.

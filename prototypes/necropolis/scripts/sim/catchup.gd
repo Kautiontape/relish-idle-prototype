@@ -1,7 +1,7 @@
 class_name Catchup
 extends RefCounted
-## The catch-up runner (IDLE §4, E2b-2 T3.3b): the real time since a save run through GameState's own
-## core step (_core_step, the code live play runs) in adaptive, event-clipped
+## The catch-up runner (IDLE §4, E2b-2 T3.3b): the real time since a save, or a long gap in the open game,
+## run through GameState's own core step (_core_step, the code live play runs) in adaptive, event-clipped
 ## steps. GameState owns one (`_catchup`) and resets it on a new game and every load; it holds no
 ## reference back (the state is passed in), so nothing cycles.
 ##
@@ -19,7 +19,8 @@ extends RefCounted
 ##   steps' moments depend only on (the state at begin(), total_s, the configs), so chunking never changes
 ##   the result.
 ## - Events: with `report`, each chunk's events move out of the scenes' queue into `events` (with their
-##   t) for the away report (T3.3c); without it they stay queued as live. A load's catch-up reports.
+##   t) for the away report (T3.3c); without it they stay queued as live. A load's catch-up and an
+##   open-game gap of idle.report_min_s or more report; a shorter gap queues.
 ## - The presentation step doesn't run inside it: at the end the lanes' callouts take the net change once
 ##   (GameState._note_lane_causes) and the field accumulator is reset.
 
@@ -41,6 +42,9 @@ var field_calls := 0  ## field.catchup_step calls made
 var field_last_t := 0.0  ## the sim time of the last field call (t0 before the first)
 ## The events a report replaces ([{t, type, ...}], in queue order): the last reporting catch-up's.
 var events: Array = []
+## The frames' own sim seconds while a chunked catch-up is active (GameState.tick adds them; they run
+## once it is done). Session only.
+var frame_acc := 0.0
 ## Tests: when an Array, each core step appends [t at its start, its length, next_event_s before it].
 var trace: Variant = null
 var _last_evs: Array = []  # the last core step's realm events (the lanes' callouts at the end)
@@ -62,6 +66,7 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	var min_s := gs._req_f("economy.idle.field_step_min_s")
 	var most := int(gs._req_f("economy.idle.field_steps"))
 	field_n = clampi(int(floor(total_s / min_s)) if min_s > 0.0 else most, 1, maxi(1, most))
+	frame_acc = 0.0
 	_last_evs = []
 	if with_report:
 		events = []

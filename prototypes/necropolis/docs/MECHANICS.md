@@ -144,7 +144,10 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 - The autoload feeds it **real** delta × `Game.time_scale`:
   `delta / max(0.05, Engine.time_scale) * time_scale`. Trance's `Engine.time_scale` never slows the
   realm.
-- At most `sim.max_substeps_per_frame` per frame. A gap above `idle.gap_s` goes through catch-up instead of being dropped (IDLE.md §4); smaller remainders are dropped.
+- At most `sim.max_substeps_per_frame` per frame. A frame whose real time is above `idle.gap_s` goes
+  through catch-up instead of being dropped (IDLE.md §4; E2b-2 T3.3b, STATE-API §3), in chunks of
+  `idle.catchup_steps_per_chunk` core steps over the next frames; smaller remainders are dropped. Debug
+  fast-forward stays live (the check is real time).
 - Entering a dungeon or boss forces time scale 1. The router resets `Engine.time_scale = 1` on every
   scene swap.
 

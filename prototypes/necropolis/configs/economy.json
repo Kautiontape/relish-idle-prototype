@@ -26,6 +26,7 @@
   "idle": {
     "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
     "catchup_tol": 0.02, "field_steps": 150, "field_step_min_s": 2.0, "report_min_s": 600.0,
+    "catchup_steps_per_chunk": 150,
     "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 }
   },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },

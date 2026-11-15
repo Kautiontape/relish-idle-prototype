@@ -48,7 +48,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# T3.3b: the catch-up runner (Catchup; IDLE §4) and the clip events it reads
 	"economy.idle.gap_s", "economy.idle.catchup_max_s", "economy.idle.catchup_dt_max_s", "economy.idle.catchup_max_steps",
 	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
-	"realm.tithe.warning_s"]
+	"economy.idle.catchup_steps_per_chunk", "realm.tithe.warning_s"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -167,7 +167,7 @@ var _frame_path := false  # the shell drives tick() with a substep cap (the fram
 var _field_acc := 0.0
 var _req_keys := {}  # REQUIRED path -> its split keys (a cache for _req)
 var _events: Array = []
-## The catch-up runner (IDLE §4; scripts/sim/catchup.gd): a load's catch-up.
+## The catch-up runner (IDLE §4; scripts/sim/catchup.gd): a load's catch-up and an open-game gap's.
 ## Session only: a new game and every load replace it.
 var _catchup := Catchup.new()
 ## The test seam for the wall clock (STATE-API §1.5): unix seconds "now" when ≥ 0, else the system clock.
@@ -268,8 +268,24 @@ func _emit(ev: Dictionary) -> void:
 	_events.append(ev)
 
 
+## Whether a catch-up is under way (cmd_load with `chunked`, or an open-game gap; IDLE §4): every command
+## refuses with catching_up until it is done. Not contract (view_catchup is); the shell reads it.
+func catching_up() -> bool:
+	return _catchup.active
+
+
+## A command's refusal while a catch-up runs (STATE-API §4, `catching_up`): its own failure extras,
+## zero-valued. Checked first, after not_debug where that applies.
+static func _refuse_catching_up(extras := {}) -> Dictionary:
+	var out := {"ok": false, "reason": "catching_up"}
+	out.merge(extras)
+	return out
+
+
 # ------------------------------------------------------------------ game -----
 func cmd_new_game(seed: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	if not run.is_empty():
 		return {"ok": false, "reason": "busy"}
 	rng.seed = seed
@@ -361,6 +377,8 @@ func _prewarm_field() -> void:
 func cmd_set_time_scale(x: float) -> Dictionary:
 	if not debug_enabled:
 		return {"ok": false, "reason": "not_debug", "time_scale": time_scale}
+	if _catchup.active:
+		return _refuse_catching_up({"time_scale": time_scale})
 	if relish["state"] == "in_dungeon":
 		return {"ok": false, "reason": "in_dungeon", "time_scale": time_scale}
 	if relish["state"] == "in_boss":
@@ -375,6 +393,8 @@ func cmd_set_time_scale(x: float) -> Dictionary:
 func cmd_pause(b: bool) -> Dictionary:
 	if not debug_enabled:
 		return {"ok": false, "reason": "not_debug", "paused": paused}
+	if _catchup.active:
+		return _refuse_catching_up({"paused": paused})
 	paused = b
 	rev += 1
 	return {"ok": true, "reason": "", "paused": paused}
@@ -439,6 +459,8 @@ func _begin_travel(node_id: String) -> void:
 
 
 func cmd_move_relish(node_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"eta_s": 0.0})
 	var why := _move_refusal(node_id)
 	if why != "":
 		return {"ok": false, "reason": why, "eta_s": 0.0}
@@ -452,6 +474,8 @@ func cmd_move_relish(node_id: String) -> Dictionary:
 
 
 func cmd_cancel_travel() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"eta_s": 0.0})
 	if relish["state"] != "travelling":
 		return {"ok": false, "reason": "not_travelling", "eta_s": 0.0}
 	if relish["target"] != relish["at"]:
@@ -524,6 +548,8 @@ func view_relish() -> Dictionary:
 # ------------------------------------------------- §4.2 macro: valve, haul ----
 ## Sets the target (normalised) only; the current vector slews toward it each substep (§3 step 3).
 func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"target": {}})
 	var why := ""
 	if not (is_finite(work) and is_finite(war) and is_finite(flood)):
 		why = "not_finite"
@@ -545,6 +571,8 @@ func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
 ## Stores the target; TownSim's convoy takes it as a step input ("auto": the fort with the most dead
 ## above job.haul.auto_min_dead). A convoy already out finishes its trip first.
 func cmd_set_haul_target(target: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"haul_target": ""})
 	if target != "auto" and realm.fort_by_id(target).is_empty():
 		return {"ok": false, "reason": "unknown_fort", "haul_target": ""}
 	haul_target = target
@@ -720,6 +748,8 @@ func _fronts_required() -> int:
 
 
 func cmd_begin_dungeon(fort_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"seed": {}, "run_id": -1, "seed_rev": -1})
 	return StateRuns.begin_dungeon(self, fort_id)
 
 
@@ -735,10 +765,14 @@ func _boss_reason() -> String:
 
 
 func cmd_begin_boss() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"seed": {}, "run_id": -1, "seed_rev": -1})
 	return StateRuns.begin_boss(self)
 
 
 func cmd_abort_dungeon() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"run_id": -1})
 	return StateRuns.abort_dungeon(self)
 
 
@@ -771,14 +805,20 @@ func _cap_of(section: String) -> int:
 
 
 func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"key": "", "applied": {}})
 	return DebugCmds.grant(self, amounts)
 
 
 func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"key": ""})
 	return DebugCmds.set_state(self, patch)
 
 
 func cmd_debug_skip_time(seconds: float) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"substeps": 0})
 	return DebugCmds.skip_time(self, seconds)
 
 
@@ -797,6 +837,8 @@ func _count_built(building_id: String) -> int:
 ## `build` job advances it; `building_started` comes out of the next substep, `building_done` when
 ## the work is in. A `unique` building (the Crypt) is refused while one stands (api_version 3).
 func cmd_build(building_id: String, lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"cost": {}})
 	return BuildRules.build(self, building_id, lot_id)
 
 
@@ -804,17 +846,23 @@ func cmd_build(building_id: String, lot_id: String) -> Dictionary:
 ## meanwhile (TownSim). Reasons in order: unknown_lot, empty_lot, under_construction, unpaid,
 ## max_level, needs_tier, no_gold, no_bone, no_relics.
 func cmd_upgrade(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"level": 0, "cost": {}})
 	return BuildRules.upgrade(self, lot_id)
 
 
 ## §4.3 · E2: removes a finished building, no refund. The Crypt is protected.
 func cmd_demolish(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	return BuildRules.demolish(self, lot_id)
 
 
 ## §4.3 · E2: cancels the construction under way and refunds its cost in full (relics clamped to the
 ## cap). A cancelled first build frees the lot; a cancelled upgrade keeps the old level.
 func cmd_cancel_build(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"refund": {}})
 	return BuildRules.cancel_build(self, lot_id)
 
 
@@ -822,22 +870,30 @@ func cmd_cancel_build(lot_id: String) -> Dictionary:
 ## or queued for `lot_id`. Refuses only what waiting can't make valid; gates time or play can clear are
 ## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build).
 func cmd_queue_build(building_id: String, lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1})
 	return BuildRules.queue_build(self, building_id, lot_id)
 
 
 ## §4.3: removes queue entry `index` (unknown_index).
 func cmd_unqueue(index: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	return BuildRules.unqueue(self, index)
 
 
 ## §4.3: `order[k]` is the old index that moves to position k, a permutation of the current indices
 ## (bad_order).
 func cmd_reorder_queue(order: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	return BuildRules.reorder_queue(self, order)
 
 
 ## The ladder, a permutation of JOB_IDS, top first: TownSim's workers fill job slots in this order.
 func cmd_set_job_priority(order: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"order": []})
 	var why := _job_order_reason(order)
 	if why != "":
 		return {"ok": false, "reason": why, "order": []}
@@ -864,6 +920,8 @@ func _job_order_reason(order: Array) -> String:
 
 ## A lot's staff cap (-1 = none) for TownSim's staffing. A cap above the slots is accepted.
 func cmd_set_staff_cap(lot_id: String, cap: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"cap": 0})
 	var why := ""
 	if BuildRules.lot(self, lot_id).is_empty():
 		why = "unknown_lot"
@@ -891,6 +949,8 @@ func _stance_slots() -> int:
 ## E1/E3: stores the toggle. When the slots run short, the most recently enabled stances
 ## are suspended (view_stances), not switched off.
 func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"slots": 0, "used": 0})
 	if not STANCE_IDS.has(stance_id):
 		return {"ok": false, "reason": "unknown_stance", "slots": 0, "used": 0}
 	var slots := _stance_slots()
@@ -918,6 +978,8 @@ func _find_uid(items: Array, uid: Variant) -> Dictionary:
 ## invalid_recipe are checked from E2.
 @warning_ignore("unused_parameter")
 func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"big_undead": {}})
 	var why := ""
 	if relish["state"] != "home":
 		why = "not_home"
@@ -946,6 +1008,8 @@ func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -
 
 
 func cmd_rename_big_undead(uid: String, name: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"name": ""})
 	var b := _find_uid(big_undead, uid)
 	if b.is_empty():
 		return {"ok": false, "reason": "unknown_uid", "name": ""}
@@ -989,6 +1053,8 @@ func _leave_party(b: Dictionary) -> void:
 
 ## E1/E2: records the place (and takes it out of the party); foreman and siege effects are E2.
 func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"place": ""})
 	var b := _find_uid(big_undead, uid)
 	var why := ""
 	if b.is_empty():
@@ -1020,6 +1086,8 @@ func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 
 ## E3 stub: checks the item id, then ok with count 0.
 func cmd_craft(item_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"count": 0})
 	if not CRAFT_IDS.has(item_id):
 		return {"ok": false, "reason": "unknown_item", "count": 0}
 	rev += 1
@@ -1028,6 +1096,8 @@ func cmd_craft(item_id: String) -> Dictionary:
 
 ## E3 stub: checks the fort id, then ok with zero charges.
 func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"charges": 0.0, "ready_left": 0})
 	if realm.fort_by_id(fort_id).is_empty():
 		return {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}
 	rev += 1
@@ -1049,6 +1119,8 @@ func _vat_entry(i: int) -> Dictionary:
 ## and the ladder fills it like any other; unstaffing it closes the slot and gives the hand back
 ## (MECHANICS §7). Clones grow only while staffed from E3.
 func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"staffed": false})
 	if slot < 0 or slot >= _vat_slots():
 		return {"ok": false, "reason": "unknown_slot", "staffed": false}
 	while vats_staffed.size() <= slot:
@@ -1063,6 +1135,8 @@ func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 ## The listed uids join the party in this order (place "party"); former members not
 ## listed go back to the crypt and lose their front.
 func cmd_set_party(uids: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"party": []})
 	var why := ""
 	if not run.is_empty():
 		why = "busy"
@@ -1095,6 +1169,8 @@ func cmd_set_party(uids: Array) -> Dictionary:
 
 ## E1/E3: records a party member's front ("" unassigns). Fronts take effect at E3.
 func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	var b := _find_uid(big_undead, uid)
 	var why := ""
 	if not run.is_empty():
@@ -1575,9 +1651,17 @@ func view_vei() -> Dictionary:
 	return StateViews.vei(self)
 
 
-## Not contract (tests; T3.3c's away report): the events the last load's catch-up collected instead of
-## queuing them, in queue order with their `t`, as deep copies. [] after a new game, or a load with
-## nothing to catch up.
+## §5.18 · E2b-2 (api_version 6, T3.3b): the catch-up's progress, for a progress screen (the map's, Phase
+## I). `active` while one runs (a chunked cmd_load's, or an open-game gap's; IDLE §4); `done_s` of
+## `total_s` sim seconds are run. Once it is done `done_s == total_s` (the last one's), and 0 and 0 before
+## any since the last new game or load.
+func view_catchup() -> Dictionary:
+	return {"rev": rev, "active": _catchup.active, "done_s": _catchup.done_s(self), "total_s": _catchup.total_s}
+
+
+## Not contract (tests; T3.3c's away report): the events the last catch-up that a report replaces
+## collected instead of queuing them (a load's, or an open-game gap's of idle.report_min_s or more), in
+## queue order with their `t`, as deep copies. [] after a new game, or a load with nothing to catch up.
 func catchup_events() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for e in _catchup.events:
@@ -1633,11 +1717,40 @@ func _slewed_valve(dt: float) -> Dictionary:
 
 
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.
-## max_substeps > 0 caps the work; the remainder is then dropped.
+## max_substeps > 0 caps the work (the frame path); the remainder is then dropped. On the frame path a
+## frame whose real time (dt / time_scale) is above idle.gap_s goes through catch-up instead (IDLE §4; its
+## whole seconds, chunked, the fraction kept in the accumulator), so debug fast-forward stays live play.
+## While a catch-up is active each call runs one chunk of it (idle.catchup_steps_per_chunk core steps)
+## instead of live time; the calls' own time accumulates and, once the catch-up is done, runs as one
+## frame's time (with the cap raised to idle.gap_s of substeps, so at 1× none of it is dropped). Returns
+## 0 for a call that ran catch-up.
 func tick(dt: float, max_substeps := 0) -> int:
 	if paused or not is_finite(dt) or dt <= 0.0:
 		return 0
+	if _catchup.active:
+		_catchup.frame_acc += dt
+		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
+		if _catchup.active:
+			if max_substeps > 0:
+				_frame_work(0)
+			return 0
+		dt = _catchup.frame_acc
+		_catchup.frame_acc = 0.0
+		if max_substeps > 0 and not _is_gap(dt):
+			max_substeps = maxi(max_substeps, ceili(_req_f("economy.idle.gap_s") / substep_s()))
+	if max_substeps > 0 and _is_gap(dt):
+		var whole := floorf(dt)
+		_acc += dt - whole
+		_catchup.begin(self, whole, whole >= _req_f("economy.idle.report_min_s"))
+		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
+		_frame_work(0)
+		return 0
 	return _advance(dt, max_substeps)
+
+
+## Whether a frame of `dt` sim seconds is a gap (IDLE §4): its real time, dt / time_scale, above idle.gap_s.
+func _is_gap(dt: float) -> bool:
+	return dt / (time_scale if time_scale > 0.0 else 1.0) > _req_f("economy.idle.gap_s")
 
 
 func _advance(dt: float, max_substeps: int) -> int:
@@ -1654,15 +1767,23 @@ func _advance(dt: float, max_substeps: int) -> int:
 	field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
 	# the build benefit's refresh (STATE-API §5.10): the frame path only (a capped tick), on frames that ran
 	# no substep and late in the substep interval, so it never lands on the substep-and-fetch frames or the
-	# scenes' binds just after them. T3.3b: never run it during the catch-up
-	# (that runner must not pass through here with a cap, or must skip this call).
+	# scenes' binds just after them (_frame_work)
 	if max_substeps > 0:
-		StateViews.projection_frame(self, n)
-		# the wave train's refresh (MECHANICS §3.5): the same frames, so the probe never lands where the
-		# scenes refetch. T3.3b: the same rule as the build benefit's above
-		_frame_path = true
-		_train_frame(n)
+		_frame_work(n)
 	return n
+
+
+## The frame path's background work, once per capped tick(): the build benefit's refresh
+## (StateViews.projection_frame) and the wave train's (_train_frame, MECHANICS §3.5: the same frames, so the
+## probe never lands where the scenes refetch). `substeps` the substeps the frame ran. Never during a
+## catch-up (IDLE §4, E2b-2 T3.3b): a catch-up's frames run a chunk of core steps and come here with no
+## substep, and nothing runs until it is done.
+func _frame_work(substeps: int) -> void:
+	if _catchup.active:
+		return
+	StateViews.projection_frame(self, substeps)
+	_frame_path = true
+	_train_frame(substeps)
 
 
 ## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
@@ -2005,7 +2126,9 @@ func _now_unix() -> int:
 
 func cmd_save(slot: String) -> Dictionary:
 	var out := {"ok": false, "reason": "", "saved_at": 0, "path": ""}
-	if not SaveIO.slot_ok(slot):
+	if _catchup.active:
+		out["reason"] = "catching_up"  # the state is behind the clock: a save now would lose the rest
+	elif not SaveIO.slot_ok(slot):
 		out["reason"] = "bad_slot"
 	elif realm == null:
 		out["reason"] = "write_failed"  # no game to save
@@ -2031,9 +2154,12 @@ func cmd_save(slot: String) -> Dictionary:
 
 ## §4.1. Loads the slot, then catches up the real time since its saved_at (IDLE §4): `away_s` seconds (the
 ## whole seconds since then, 0 if the clock went back or the file has no saved_at, at most
-## idle.catchup_max_s; `capped` when it was more), synchronously, before it returns.
-func cmd_load(slot: String) -> Dictionary:
+## idle.catchup_max_s; `capped` when it was more). Synchronous, unless `chunked`: then it returns at once
+## with the catch-up pending, and tick() advances it a chunk per call (view_catchup).
+func cmd_load(slot: String, chunked := false) -> Dictionary:
 	var fail := {"ok": false, "reason": "", "away_s": 0.0, "capped": false}
+	if _catchup.active:
+		return _refuse_catching_up({"away_s": 0.0, "capped": false})
 	if not run.is_empty():
 		fail["reason"] = "busy"
 		return fail
@@ -2051,7 +2177,8 @@ func cmd_load(slot: String) -> Dictionary:
 	var away := _away_of(d.get("saved_at"))
 	_catchup.begin(self, float(away[0]), true)
 	_catchup.capped = away[1]
-	_catchup.run(self)
+	if not chunked:
+		_catchup.run(self)
 	return {"ok": true, "reason": "", "away_s": float(away[0]), "capped": away[1]}
 
 
@@ -2072,6 +2199,8 @@ func list_saves() -> Array[Dictionary]:
 
 ## §4.6, E1. Loads <fixture_dir>/<name>.json through from_dict.
 func cmd_debug_load_fixture(name: String) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up()
 	return DebugCmds.load_fixture(self, name)
 
 

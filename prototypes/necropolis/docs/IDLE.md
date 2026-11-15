@@ -101,7 +101,10 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   Continue is the launch path. One save-time field only: drop E1's duplicate `saved_unix`.
 - **Long gaps while the game is open** (machine asleep, a debugger pause): a frame delta above
   `idle.gap_s` (30 s) goes through catch-up instead of being dropped (this replaces MECHANICS §1.3's
-  "any remainder after a hitch is dropped").
+  "any remainder after a hitch is dropped" above `idle.gap_s`). The check is the frame's real time, so
+  debug fast-forward stays live play; its whole seconds catch up, chunked, and the fraction stays in the
+  accumulator. Its events are queued under `idle.report_min_s` and collected for the report at or above
+  it (STATE-API §6).
 - Negative elapsed time counts as 0. Anything above `idle.catchup_max_s` (7 days) is dropped as a
   sanity cap, not a design lever, and the report says so.
 - Quitting always saves.
@@ -136,7 +139,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   with `green_towns` off in 37 of 144. `catchup_step` is the plan that replaced both:
   `tests/slow/field_catchup_bench.gd`.)
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
-  advances it in fixed chunks, and chunking never changes the result.
+  (`view_catchup`) advances it in fixed chunks of `idle.catchup_steps_per_chunk` core steps, one per
+  frame, and chunking never changes the result (tested to the bit at chunks of 1, 7 and 150).
 
 **Budget.** 12 h in under 2 s and 7 days in under 10 s, on jenova, with a progress screen when it
 takes over 1 s.

@@ -39,6 +39,7 @@ func run() -> int:
 	_warden_card()
 	_mill_starved()
 	_catchup_api()
+	_catchup_chunked_api()
 	return t.failures
 
 
@@ -1287,6 +1288,99 @@ func _catchup_api() -> void:
 	t.ok(rc["ok"] and rc["away_s"] == 60.0 and rc["capped"] == true, "600 s on with idle.catchup_max_s 60: away_s 60.0, capped: %s" % str(rc))
 	var fail := m.cmd_load("missing")
 	var errs: Array = []
+	ApiSchema.check_command("cmd_load", fail, errs)
+	t.ok(errs.is_empty() and fail == {"ok": false, "reason": "no_save", "away_s": 0.0, "capped": false}, "a refused cmd_load carries away_s 0.0 and capped false")
+	var dd := DirAccess.open(dir)
+	if dd != null:
+		for f in dd.get_files():
+			dd.remove(f)
+		DirAccess.remove_absolute(dir)
+
+
+## E2b-2 T3.3b (IDLE §4): cmd_load(slot, true) returns with the catch-up pending; while it runs every cmd_*
+## refuses with catching_up (its own extras zero-valued, nothing changed,
+## rev alone; not_debug still first for the debug and time commands; cmd_save's refusal emits save_failed),
+## and view_catchup shows its progress.
+func _catchup_chunked_api() -> void:
+	t.suite("api-v6-catchup-chunked")
+	var dir := _dir + "_cuc"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var s := _fixture("midgame_2flips")
+	s.save_dir = dir
+	s.clock_override = 1_800_000_000
+	t.ok(s.cmd_save("cu")["ok"], "(setup) saved")
+	var n := GameState.new(TestUtil.configs())
+	n.debug_enabled = true
+	n.save_dir = dir
+	n.clock_override = 1_800_000_000 + 7200
+	var r := n.cmd_load("cu", true)
+	var errs: Array = []
+	ApiSchema.check_command("cmd_load", r, errs)
+	t.ok(errs.is_empty() and r["ok"] and r["away_s"] == 7200.0 and r["capped"] == false and n.catching_up(),
+		"cmd_load(slot, true): ok with away_s 7200.0 and capped false, the catch-up pending %s" % str(errs))
+	var cu := n.view_catchup()
+	errs = []
+	ApiSchema.check(cu, ApiSchema.VIEWS["view_catchup"], "view_catchup", errs)
+	t.ok(errs.is_empty() and cu["rev"] == n.rev and cu["active"] and cu["done_s"] == 0.0 and cu["total_s"] == 7200.0,
+		"view_catchup before its first chunk: %s %s" % [str(cu), str(errs)])
+	n.tick(1.0 / 60.0, n.max_substeps_per_frame())
+	var mid := n.view_catchup()
+	t.ok(mid["active"] and mid["done_s"] > 0.0 and mid["done_s"] < 7200.0 and mid["total_s"] == 7200.0,
+		"a frame runs one chunk: %.1f of 7200 s done" % float(mid["done_s"]))
+	var args := {
+		"cmd_new_game": [1], "cmd_save": ["x"], "cmd_load": ["cu"], "cmd_set_time_scale": [2.0], "cmd_pause": [true],
+		"cmd_set_valve": [1.0, 1.0, 1.0], "cmd_move_relish": ["covington"], "cmd_cancel_travel": [],
+		"cmd_set_haul_target": ["auto"], "cmd_build": ["house", "lot-08"], "cmd_upgrade": ["lot-02"],
+		"cmd_demolish": ["lot-05"], "cmd_cancel_build": ["lot-05"], "cmd_queue_build": ["house", "lot-08"],
+		"cmd_unqueue": [0], "cmd_reorder_queue": [[]], "cmd_set_job_priority": [GameState.JOB_IDS.duplicate()],
+		"cmd_set_staff_cap": ["lot-02", 1], "cmd_set_stance": ["vigil", true], "cmd_raise_big_undead": ["h1", [], "x"],
+		"cmd_rename_big_undead": ["u1", "x"], "cmd_place_big_undead": ["u1", "crypt"], "cmd_craft": ["simulacrum"],
+		"cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
+		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
+		"cmd_abort_dungeon": [], "cmd_debug_grant": [{"gold": 1.0}], "cmd_debug_set_state": [{"paused": false}],
+		"cmd_debug_load_fixture": ["day1"], "cmd_debug_skip_time": [1.0],
+	}
+	var names: Array = []
+	for m in n.get_method_list():
+		if str(m["name"]).begins_with("cmd_") and not names.has(str(m["name"])):
+			names.append(str(m["name"]))
+	t.ok(names.all(func(x): return args.has(x)) and names.size() == args.size(), "every cmd_* is tried (%d)" % names.size())
+	var d0 := n.to_dict()
+	var bad: Array = []
+	for name in args:
+		var rv := n.rev
+		n.drain_events()
+		var res: Variant = n.callv(name, args[name])
+		errs = []
+		ApiSchema.check_command(name, res, errs)
+		if not (errs.is_empty() and res["ok"] == false and res["reason"] == "catching_up" and n.rev == rv):
+			bad.append("%s: %s %s" % [name, str(res), str(errs)])
+		var evs := n.drain_events()
+		if name == "cmd_save" and not (evs.size() == 1 and evs[0]["type"] == "save_failed" and evs[0]["reason"] == "catching_up"):
+			bad.append("cmd_save's save_failed: %s" % str(evs))
+	t.ok(bad.is_empty() and n.to_dict() == d0 and n.catching_up(), "during the catch-up every command refuses with catching_up, changing nothing%s" % (
+		"" if bad.is_empty() else ": " + "; ".join(PackedStringArray(bad))))
+	n.debug_enabled = false
+	var nd := []
+	for name in ["cmd_set_time_scale", "cmd_pause", "cmd_debug_grant", "cmd_debug_set_state", "cmd_debug_load_fixture", "cmd_debug_skip_time"]:
+		nd.append(n.callv(name, args[name])["reason"])
+	t.ok(nd.all(func(x): return x == "not_debug"), "in a release build not_debug still comes first: %s" % str(nd))
+	n.debug_enabled = true
+	var last := float(mid["done_s"])
+	var rising := true
+	var frames := 0
+	while n.catching_up() and frames < 500:
+		n.tick(1.0 / 60.0, n.max_substeps_per_frame())
+		var v := n.view_catchup()
+		rising = rising and (float(v["done_s"]) > last or not v["active"])
+		last = float(v["done_s"])
+		frames += 1
+	var end := n.view_catchup()
+	t.ok(rising and not end["active"] and end["done_s"] == 7200.0 and end["total_s"] == 7200.0,
+		"view_catchup's done_s rises each frame to 7200 of 7200 s, then it is done (%d frames)" % frames)
+	t.ok(n.cmd_set_valve(1.0, 1.0, 1.0)["ok"], "commands work again once it is done")
+	var fail := n.cmd_load("missing")
+	errs = []
 	ApiSchema.check_command("cmd_load", fail, errs)
 	t.ok(errs.is_empty() and fail == {"ok": false, "reason": "no_save", "away_s": 0.0, "capped": false}, "a refused cmd_load carries away_s 0.0 and capped false")
 	var dd := DirAccess.open(dir)

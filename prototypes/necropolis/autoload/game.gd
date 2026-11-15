@@ -43,7 +43,9 @@ func _boot() -> void:
 			printerr("Game: --fixture=%s refused (%s); starting a new game" % [fixture, r["reason"]])
 		state.cmd_new_game(randi())
 	else:
-		var r := state.cmd_load("auto")
+		# Continue: the time since the save is caught up in chunks over the first frames (IDLE §4;
+		# view_catchup drives a progress screen), so a week away doesn't freeze the window
+		var r := state.cmd_load("auto", true)
 		if not r["ok"]:
 			if r["reason"] == "bad_version":
 				# A newer build wrote it (worktrees share user://): never overwrite it.
@@ -53,12 +55,13 @@ func _boot() -> void:
 
 
 func _process(delta: float) -> void:
-	# Real time: trance's Engine.time_scale must never slow the realm.
+	# Real time: trance's Engine.time_scale must never slow the realm. tick() itself sends a frame whose
+	# real time (its dt / time_scale) is above idle.gap_s through catch-up, and runs a catch-up's chunks.
 	var real := delta / maxf(0.05, Engine.time_scale)
 	state.tick(real * state.time_scale, state.max_substeps_per_frame())
 	_autosave_acc += real  # real seconds only: neither the sim speed nor a pause stretches it
-	if _autosave_acc >= state.autosave_s():
-		autosave()
+	if _autosave_acc >= state.autosave_s() and not state.catching_up():
+		autosave()  # (waits out a catch-up: a save then would lose the time still to run)
 	for ev: Dictionary in state.drain_events():
 		game_event.emit(ev)
 		match ev["type"]:
@@ -73,11 +76,16 @@ func _process(delta: float) -> void:
 
 ## Writes the "auto" slot now (the router calls it after every scene swap) and restarts the
 ## 30 s clock. Returns cmd_save's result; autosaved / save_failed reach scenes as game_event.
-## In a harness session returns {ok: false, reason: "disabled"} and writes nothing.
+## In a harness session returns {ok: false, reason: "disabled"} and writes nothing. While a catch-up runs
+## it writes nothing and returns {ok: false, reason: "catching_up"} with no save_failed event, and the
+## 30 s clock stays due, so the save follows the catch-up.
 func autosave() -> Dictionary:
-	_autosave_acc = 0.0
 	if not autosave_enabled:
+		_autosave_acc = 0.0
 		return {"ok": false, "reason": "disabled"}
+	if state.catching_up():
+		return {"ok": false, "reason": "catching_up"}
+	_autosave_acc = 0.0
 	return state.cmd_save("auto")
 
 
