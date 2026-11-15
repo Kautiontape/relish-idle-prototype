@@ -221,6 +221,9 @@ const VIEWS := {
 		"dead_s_left": F, "respawn_with_clone": B, "phylactery_charges": I, "clones_ready": I,
 		"can_descend": B, "reason": S, "run_id": I, "run_kind": S,
 		"effects": {"tide_fort": S, "redirect_fort": S, "home": B},
+		# api_version 6 (E2b-2 T3.3c; IDLE I5): her last walk home from a retaken fort, {} before any (so opaque
+		# here; RELISH_RETURNED types it once there is one)
+		"returned": D,
 	},
 	"view_town": {
 		"tier": S, "next_tier": {"tier": S, "have": I, "need": I, "missing": [S]},
@@ -314,6 +317,8 @@ const EVENTS := {
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},
 	"loot_banked": {"run_id": I, "fort_id": S, "relics": I, "essence": I, "blueprints": [S], "minted": [S]},
 	"vei_result": {"run_id": I, "won": B, "fronts_cleared": [S], "relish_deaths": I, "backlog_after": F},
+	# api_version 6 (E2b-2 T3.3c; IDLE I5): Relish walks home from the retaken fort she stood at
+	"relish_returned": {"fort_id": S, "cause": S},
 	# api_version 6 (E2b-2 T3.3c; IDLE I5): a gap above idle.gap_s in the open game ended the open run
 	"run_ended": {"run_id": I, "kind": S, "outcome": S, "cause": S},
 	"autosaved": {"slot": S, "saved_at": I},
@@ -333,6 +338,8 @@ const LEDGER := {
 	"stores": {"gold": {"overflow": F}, "bone": {"overflow": F}},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
+## view_relish().returned once there is one (api_version 6, E2b-2 T3.3c; IDLE I5), and the save's relish.returned.
+const RELISH_RETURNED := {"fort_id": S, "cause": S, "t": F}
 ## to_dict()'s `pending_retreat` (api_version 6, E2b-2 T3.3c; IDLE I5): written only while a run is open, so
 ## it isn't in SAVE (which every to_dict must hold); test_api_v6 checks it against this.
 const PENDING_RETREAT := {"run_id": I, "kind": S, "fort_id": S, "seed_rev": I,

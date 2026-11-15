@@ -68,6 +68,8 @@ const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
 ## and `waited_on` within it too (both typed when present).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
+## Relish's last walk home (E2b-2 T3.3c, view_relish().returned): relish.returned, optional, written once there is one.
+const _RETURNED := {"fort_id": _S, "cause": _S, "t": _F}
 ## The open run as the save writes it (E2b-2 T3.3c, IDLE I5; optional, written only while a run is open).
 const _PENDING_RETREAT := {"run_id": _I, "kind": _S, "fort_id": _S, "seed_rev": _I, "loot": _D, "outcome": _S}
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
@@ -207,6 +209,10 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		return "relish node"
 	if rl["state"] == "travelling" and rl["target"] == "":
 		return "relish target"
+	if rl.has("returned"):  # (E2b-2 T3.3c) optional: {} or a walk home from a known fort
+		var ret: Variant = rl["returned"]
+		if not (ret is Dictionary and (ret.is_empty() or (fits(ret, _RETURNED) and fort_ids.has(ret["fort_id"])))):
+			return "relish returned"
 	var seen := {}
 	for f in m["realm"]["forts"]:
 		if not fort_ids.has(f["id"]) or seen.has(f["id"]):
@@ -493,6 +499,9 @@ static func dump(gs: GameState) -> Dictionary:
 		var at: String = gs.run["fort_id"]
 		rl = {"state": "at_vei" if gs.run["kind"] == "boss" else "at_fort", "at": at, "target": "",
 			"pos": gs._node_xy(at), "heading": gs.relish["heading"], "dead_s_left": 0.0, "respawn_with_clone": false}
+	# her last walk home from a retaken fort (E2b-2 T3.3c; view_relish().returned): written only once there is one
+	if not gs.relish_returned.is_empty():
+		rl["returned"] = gs.relish_returned.duplicate()
 	var forts: Array = []
 	for f in gs.realm.forts:
 		forts.append({
@@ -596,6 +605,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		"pos": [float(rl["pos"][0]), float(rl["pos"][1])], "heading": float(rl["heading"]),
 		"dead_s_left": float(rl["dead_s_left"]), "respawn_with_clone": bool(rl["respawn_with_clone"]),
 	}
+	var ret: Variant = rl.get("returned", {})
+	gs.relish_returned = {"fort_id": str(ret["fort_id"]), "cause": str(ret["cause"]), "t": float(ret["t"])} if ret is Dictionary and not ret.is_empty() else {}
 	if gs.relish["state"] == "travelling" and gs._dist_to(gs.relish["target"]) <= GameState.ARRIVE_EPS:
 		gs._arrive(gs.relish["target"])  # a save taken at ~0 px left loads settled, not stuck
 	gs.valve_target = valve_of(m["valve"]["target"])

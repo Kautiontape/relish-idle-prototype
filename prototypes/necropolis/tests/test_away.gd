@@ -7,6 +7,9 @@ extends RefCounted
 ##   nothing; a save without pending_retreat (older) forfeits the run as before. A gap in the open game ends
 ##   the run inside the frame that finds it, run_ended first, before its catch-up. Every run command on the
 ##   ended run gets its dead-run refusal, during the catch-up too, and changes nothing.
+## - Relish walks home from a retaken fort (IDLE I5), live and in a catch-up alike: from the retake's moment
+##   inside its step, relish_returned after its fort_retaken, view_relish().returned (saved); a retake
+##   elsewhere, or while she is in its dungeon, moves nothing; a catch-up step ends at her arrival.
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
 
@@ -29,6 +32,9 @@ func run() -> int:
 	_old_save()
 	_gap_ends_run()
 	_dead_run()
+	_walk_home_live()
+	_walk_home_catchup()
+	_walk_home_arrival()
 	_cleanup()
 	return t.failures
 
@@ -348,6 +354,170 @@ func _dead_run() -> void:
 	t.ok(bgot.map(func(r): return r["reason"]) == ["no_run", "no_run", "wrong_run"] and b.rev == brv and b.to_dict() == bd0 and b.catching_up(),
 		"an ended boss run during its catch-up: no_run, no_run, wrong_run (not an applied run), nothing changed: %s" % str(bgot.map(func(r): return r["reason"])))
 
+
+# ------------------------------------------------------------- §2 Relish walks home ----
+## A new game with Greywall held and contested (no grace), her living there, no WAR (all FLOOD) and Relish
+## standing at `relish_at`: the garrison sits at 0, so it is broken hold.break_s later, less the 0.3 s its zero
+## clock starts at (so the retake lands inside a substep, at 121.7 s). With `siege`, a big undead sieges it too.
+func _greywall(c: Dictionary, relish_at := "greywall", siege := false) -> GameState:
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	s.tick(2.0)
+	if siege:
+		s.cmd_debug_grant({"big_undead": 1})
+		s.cmd_place_big_undead(s.view_big_undead()["big_undead"][0]["uid"], "fort:greywall")
+	s.cmd_debug_set_state({"relish_at": relish_at, "valve": {"work": 0.0, "war": 0.0, "flood": 1.0},
+		"forts": {"greywall": {"living": 60.0, "undead": 0.0, "dead": 0.0}}})
+	s.realm.hold("greywall", 0.0)
+	s.realm.fort_by_id("greywall")["zero_s"] = 0.3
+	s.drain_events()
+	return s
+
+
+## Ticks `s` at 0.5 s until a fort is retaken (at most 400 substeps); returns that substep's events.
+func _until_retaken(s: GameState) -> Array:
+	for i in 400:
+		s.tick(0.5)
+		var evs := s.drain_events()
+		if evs.any(func(e): return e["type"] == "fort_retaken"):
+			return evs
+	return []
+
+
+## Live: the fort she stands at is retaken, and from the retake's moment inside its substep she walks home
+## to Covington at relish.travel_speed: relish_returned {fort_id, cause: "retaken"} after its fort_retaken
+## and the siege's big_undead_returned, at the same t; view_relish().returned shows it, and it is saved; she
+## arrives home. A retake of a fort she isn't at moves nothing; nor does one while she is in its dungeon (the
+## run goes on, and she stands there when it ends).
+func _walk_home_live() -> void:
+	var c := cfgs()
+	var s := _greywall(c, "greywall", true)
+	t.ok(s.view_relish()["returned"] == {} and not s.to_dict()["relish"].has("returned"), "(setup) nothing returned yet: returned is {}, not saved")
+	var got := _until_retaken(s).filter(func(e): return e["type"] in ["fort_retaken", "big_undead_returned", "relish_returned"])
+	var after := s.view_relish()
+	var t_end := s.t
+	t.ok(got.size() == 3 and _types(got) == ["fort_retaken", "big_undead_returned", "relish_returned"]
+		and got[2] == {"type": "relish_returned", "fort_id": "greywall", "cause": "retaken", "t": got[0]["t"]},
+		"fort_retaken, big_undead_returned, then relish_returned {greywall, retaken} at its t: %s" % str(got))
+	var t_r := float(got[0]["t"]) if not got.is_empty() else 0.0
+	var gw := s._node_xy("greywall")
+	var walked := sqrt(pow(float(after["pos"][0]) - gw[0], 2.0) + pow(float(after["pos"][1]) - gw[1], 2.0))
+	t.ok(t_r > t_end - 0.5 and t_r < t_end and after["state"] == "travelling" and after["target"] == "covington"
+		and absf(walked - s.travel_speed() * (t_end - t_r)) < 1e-6,
+		"she starts home from the retake's moment inside the substep: %.4f px walked by its end (%.4f s at %.0f px/s)" % [walked, t_end - t_r, s.travel_speed()])
+	t.ok(after["returned"] == {"fort_id": "greywall", "cause": "retaken", "t": t_r}, "view_relish().returned: %s" % str(after["returned"]))
+	for i in 20:
+		s.tick(0.5)
+	var home := s.view_relish()
+	t.ok(home["state"] == "home" and home["at"] == "covington" and home["returned"]["fort_id"] == "greywall", "she arrives home; returned keeps the last one")
+	var n := _mk(c)
+	n.from_dict(JSON.parse_string(JSON.stringify(s.to_dict())))
+	t.ok(n.view_relish()["returned"] == home["returned"] and s.to_dict()["relish"]["returned"] == home["returned"], "returned is saved and loads")
+	var bad := s.to_dict()
+	bad["relish"]["returned"] = {"fort_id": "nowhere", "cause": "retaken", "t": 1.0}
+	t.ok(_mk(c).from_dict(bad) == {"ok": false, "reason": "corrupt"}, "a saved returned naming an unknown fort is corrupt")
+	# a retake elsewhere moves nothing
+	var e := _greywall(c, "ashgate")
+	var seen := _types(_until_retaken(e))
+	t.ok(seen.has("fort_retaken") and not seen.has("relish_returned") and e.view_relish()["state"] == "at_fort" and e.view_relish()["at"] == "ashgate"
+		and e.view_relish()["returned"] == {}, "Greywall retaken with Relish at Ashgate: she stays, nothing returned")
+	# in its dungeon: the run goes on; when it ends she stands at the fort
+	var d := _greywall(c, "greywall")
+	var b := d.cmd_begin_dungeon("greywall")
+	seen = _types(_until_retaken(d))
+	t.ok(b["ok"] and seen.has("fort_retaken") and not seen.has("relish_returned") and d.view_relish()["state"] == "in_dungeon" and not d.run.is_empty(),
+		"retaken while she is in its dungeon: the run goes on, no walk")
+	var r := d.apply_result("raid", StateRuns.end_result(d.run, StateRuns.empty_loot(), "retreated"))
+	t.ok(r["ok"] and d.view_relish()["state"] == "at_fort" and d.view_relish()["at"] == "greywall" and d.view_relish()["returned"] == {},
+		"the run ends as a retreat: she stands at Greywall, nothing returned")
+
+
+## Vei's and Covington's stocks of `a` against `b` (each within idle.catchup_tol of max(|b|, 1)), as
+## [the ids that differ]. Covington's living are left out: they follow the villages the field gives (its
+## migrants), and on this shrunk field with no pre-warm a new game's first 10 min end with 1 village yours live
+## and none caught up wherever Relish stands (16 living against 10.1 with her at Greywall, at Ashgate or home):
+## the field's residual (IDLE §4), not her walk.
+static func _stocks_differ(a: GameState, b: GameState, tol: float) -> Array:
+	var out: Array = []
+	var pairs := {
+		"backlog": [a.realm.vei["undead_queue"], b.realm.vei["undead_queue"]], "vei_dead": [a.realm.vei["dead_queue"], b.realm.vei["dead_queue"]],
+		"pool": [a.realm.vei["living_pool"], b.realm.vei["living_pool"]], "workers": [a.town_sim.workers, b.town_sim.workers],
+		"gold": [a.town_sim.gold, b.town_sim.gold], "bone": [a.town_sim.bone, b.town_sim.bone],
+	}
+	for k in pairs:
+		var x := float(pairs[k][0])
+		var y := float(pairs[k][1])
+		if absf(x - y) > tol * maxf(absf(y), 1.0):
+			out.append("%s %.4f vs %.4f" % [k, x, y])
+	return out
+
+
+## The same through a catch-up (one simulation, I1): saved before the retake and loaded 10 min later at 10 s
+## steps (idle.catchup_max_steps 60), she is home with the same `returned` (its t within a step of live's)
+## and Vei's and Covington's stocks within idle.catchup_tol of live 0.5 s. With her walk longer than a step
+## (relish.travel_speed 10 px/s, 31.7 s from Greywall), a catch-up step ends at her arrival, at its own time.
+func _walk_home_catchup() -> void:
+	for speed in [0.0, 10.0]:
+		var over := {"economy.idle.catchup_max_steps": 60}
+		if speed > 0.0:
+			over["realm.relish.travel_speed"] = speed
+		var c := cfgs(over)
+		var s := _greywall(c)
+		var live := _mk(c)
+		live.from_dict(s.to_dict())
+		live.drain_events()
+		live.tick(600.0)
+		var n := _away(c, s, "walk", 600)
+		var lr := live.view_relish()
+		var nr := n.view_relish()
+		var lt := float(lr["returned"].get("t", -1.0))
+		var nt := float(nr["returned"].get("t", -1.0))
+		var label := "the shipped speed" if speed == 0.0 else "%.0f px/s" % speed
+		t.ok(lr["state"] == "home" and nr["state"] == "home" and nr["pos"] == lr["pos"] and nr["returned"]["fort_id"] == "greywall"
+			and nr["returned"]["cause"] == "retaken" and lt > 0.0 and absf(nt - lt) < 10.0,
+			"%s: home in both, returned at %.2f s (catch-up) and %.2f s (live)" % [label, nt, lt])
+		var tol := float(c["economy"]["idle"]["catchup_tol"])
+		var diff := _stocks_differ(n, live, tol)
+		t.ok(diff.is_empty(), "%s: Vei's and Covington's stocks within %.0f%% of live %s" % [label, tol * 100.0, str(diff)])
+		if speed > 0.0:
+			var m := _mk(c)
+			m.from_dict(s.to_dict())
+			m._catchup.begin(m, 600.0, true)
+			m._catchup.trace = []
+			m._catchup.run(m)
+			var gw := m._node_xy("greywall")
+			var cv := m._node_xy("covington")
+			var arrive: float = nt + (sqrt(pow(float(cv[0]) - float(gw[0]), 2.0) + pow(float(cv[1]) - float(gw[1]), 2.0)) - GameState.ARRIVE_EPS) / speed
+			var ends: Array = (m._catchup.trace as Array).map(func(x): return float(x[0]) + float(x[1]))
+			t.ok(ends.any(func(x): return absf(x - arrive) < 1e-6) and m.view_relish()["state"] == "home",
+				"%s: a catch-up step ends at her arrival, %.4f s (her walk from %.4f s)" % [label, arrive, nt])
+
+
+## Her arrival and a retake inside one catch-up step: she walks home only if she stood there at the retake.
+## Sent from Covington to Greywall (316.6 px, 1.44 s at 220 px/s) with Greywall's break due `at` s on, then
+## caught up 60 s at 10 s steps (the first clipped at her arrival) and run live at 0.5 s: retaken 0.5 s on,
+## before she gets there, she stays at Greywall in both (no relish_returned: the fort fell before she
+## arrived, and she stands at a Vei fort as at any); retaken 5 s on, after, she walks home in both.
+func _walk_home_arrival() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 6})
+	var brk := float(c["realm"]["hold"]["break_s"])
+	for at in [0.5, 5.0]:
+		var s := _greywall(c, "covington")
+		s.realm.fort_by_id("greywall")["zero_s"] = brk - at
+		s.cmd_move_relish("greywall")
+		s.drain_events()
+		var live := _mk(c)
+		live.from_dict(s.to_dict())
+		live.drain_events()
+		live.tick(60.0)
+		var lq := _types(live.drain_events())
+		var n := _away(c, s, "arrive", 60)
+		var nq := _types(n.catchup_events())
+		var walks: bool = float(at) > 1.44
+		var want := "home" if walks else "at_fort"
+		t.ok(lq.has("fort_retaken") and nq.has("fort_retaken") and lq.has("relish_returned") == walks and nq.has("relish_returned") == walks
+			and live.view_relish()["state"] == want and n.view_relish()["state"] == want and n.view_relish()["pos"] == live.view_relish()["pos"],
+			"retaken %.1f s on (%s her arrival): %s in both, relish_returned %s" % [at, "after" if walks else "before", want, str(walks)])
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
 	if a is Dictionary and b is Dictionary:

@@ -116,7 +116,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - `relish_died{outcome}`, `relish_respawned`;
 - `building_started`, `building_done`, `building_unpaid`, `tier_up`, `queue_started` (E2b-2);
 - `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
-- `stance_fired`, `loot_banked`, `vei_result`, `run_ended` (E2b-2: a gap ended the open run);
+- `stance_fired`, `loot_banked`, `vei_result`, `run_ended` (E2b-2: a gap ended the open run), `relish_returned`
+  (E2b-2: her fort retaken, she walks home);
 - `autosaved`, `save_failed`.
 
 The autoload re-emits each event as a signal.
@@ -394,6 +395,12 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   - stances get one extra stance slot (`relish.home_stance_bonus`).
 - **Dead:** no tide, redirect, slab or bonus. **Everything else stays live:** valve, building,
   stances (vision review S3).
+- **Her fort retaken** (IDLE I5, E2b-2 T3.3c): when the fort she stands at (`at_fort`) is retaken, she
+  walks home to Covington at `relish.travel_speed`, from the retake's moment inside the step
+  (`relish_returned`, and `view_relish().returned`). Live play and catch-up alike, so she never waits at a
+  fort Vei holds while you're away. She must stand there at the retake: one she reaches after it, inside
+  the same step, she stays at (a live substep sees the fort fall before she arrives, and she stands at a
+  Vei fort as at any). In its dungeon she stays: the run goes on, and when it ends she stands at the fort.
 
 ### 3.4 Flips and tithe waves
 **Flip.** On `warden_beaten`:
@@ -456,6 +463,8 @@ pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming fal
   `big_undead_returned {uid, fort_id}` right after the `fort_retaken`;
 - a simulacrum planted there is lost (RealmSim drops it; `cmd_deploy_simulacrum` is still the E3
   stub, so only a save or a test plants one today);
+- Relish, if she stands there, walks home (§3.3, `relish_returned` after the `big_undead_returned`; E2b-2
+  T3.3c);
 - `clears_since_retaken` resets to 0 (§5.3).
 
 **The hold rule, both ways** (vision: "Needs WAR too"). Measured on RealmSim at 0.5 s (and 10 s) with

@@ -41,6 +41,7 @@ func run() -> int:
 	_catchup_api()
 	_catchup_chunked_api()
 	_run_checkpoint_api()
+	_relish_returned_api()
 	return t.failures
 
 
@@ -1446,3 +1447,29 @@ func _run_checkpoint_api() -> void:
 	var mp: Dictionary = m.to_dict()["pending_retreat"]
 	t.ok(mp["kind"] == "boss" and mp["fort_id"] == "vei" and mp["loot"] == StateRuns.empty_loot() and mp["outcome"] == "retreated",
 		"an open boss run saves as pending_retreat {boss, vei, empty loot, retreated}: %s" % str(mp))
+
+
+## E2b-2 T3.3c (IDLE I5): Relish walks home from the retaken fort she stands at: the event relish_returned
+## {fort_id, cause: "retaken"} and view_relish().returned {fort_id, cause, t} ({} before any), both in the
+## contract; the save's relish.returned (written once there is one) the same shape.
+func _relish_returned_api() -> void:
+	t.suite("api-v6-returned")
+	var s := _mk()
+	t.ok(s.view_relish()["returned"] == {}, "a new game: returned is {}")
+	s.cmd_debug_set_state({"relish_at": "greywall", "valve": {"work": 0.0, "war": 0.0, "flood": 1.0},
+		"forts": {"greywall": {"living": 60.0, "undead": 0.0}}})
+	s.realm.hold("greywall", 0.0)
+	s.drain_events()
+	var ev := {}
+	for i in int(float(s._cfg()["hold"]["break_s"]) / s.substep_s()) + 2:
+		s.tick(s.substep_s())
+		for e in s.drain_events():
+			if e["type"] == "relish_returned":
+				ev = e
+	var errs: Array = []
+	ApiSchema.check(ev, ApiSchema.EVENTS["relish_returned"], "relish_returned", errs)
+	var ret: Dictionary = s.view_relish()["returned"]
+	ApiSchema.check(ret, ApiSchema.RELISH_RETURNED, "view_relish.returned", errs)
+	ApiSchema.check(s.to_dict()["relish"]["returned"], ApiSchema.RELISH_RETURNED, "to_dict.relish.returned", errs)
+	t.ok(errs.is_empty() and ev["fort_id"] == "greywall" and ev["cause"] == "retaken" and ret["t"] == ev["t"] and ret["fort_id"] == "greywall",
+		"relish_returned {greywall, retaken}; view_relish().returned and the save's relish.returned {fort_id, cause, t}, in the contract %s" % str(errs))

@@ -140,6 +140,12 @@ from `BALANCE.md` §0.
     (it checked `catching_up` first), and `cmd_run_checkpoint` checks `no_run` and `wrong_run` first (§4,
     §4.5). No run is open during a catch-up, so during one they answer `no_run`: a meaning change, not a
     shape change;
+  - (T3.3c) **Relish walks home from a retaken fort** (IDLE I5; the run's manager: live play and catch-up
+    alike, one simulation): when the fort she stands at (`at_fort`) is retaken, she starts home to Covington
+    at her travel speed from the retake's moment inside its step. The event `relish_returned {fort_id, cause:
+    "retaken"}` (§6) and `view_relish().returned` (§5.8), saved as `relish.returned` (§9.1). A dynamics
+    change wherever she stands at a fort that is retaken (she used to stay): a meaning change, not a shape
+    change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1355,6 +1361,7 @@ The dead fields and the backups are E3. Until then a death respawns her at once.
 | `run_id` | int | the open run, or `-1` |
 | `run_kind` | String | `""`, `"raid"` or `"boss"` |
 | `effects` | Dictionary | `{tide_fort: String, redirect_fort: String, home: bool}`: what her position does now (E2) |
+| `returned` | Dictionary | v6 (E2b-2 T3.3c; IDLE I5): her last walk home from a retaken fort, `{fort_id: String, cause: String ("retaken"), t: float (the retake's moment)}`, or `{}` when there has been none since the new game. It keeps the last one (a later walk replaces it, nothing clears it) and is saved, so a load or a missed `relish_returned` event still tells the map. The map toasts it ("Greywall retaken — Relish is walking home") and offers to send her back (Phase I): it can tell a new one by its `t` |
 ```gdscript
 {rev: 9, state: "travelling", at: "covington", target: "old-sluice", pos: [1600.0, 1287.5],
  heading: 3.045, speed: 220.0, eta_s: 0.82, dead_s_left: 0.0, respawn_with_clone: false,
@@ -1874,6 +1881,7 @@ Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, tota
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
 | `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started at 3:12, when the tier rose": `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
+| `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |
 | `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began, the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
@@ -2147,7 +2155,7 @@ take the router's legacy path (§2.3).
 | `acc` | float | the tick accumulator's remainder |
 | `next_run_id`, `next_uid` | int | counters (§4.5, §1.3) |
 | `applied_runs` | Array[int] | the last 32 applied run ids |
-| `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`. State is never `in_dungeon` or `in_boss`. |
+| `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`, plus `returned: {fort_id, cause, t}` (v6, E2b-2 T3.3c: `view_relish().returned`), optional, written once there is one; a save without it loads `{}`, and one naming an unknown fort is `corrupt`. State is never `in_dungeon` or `in_boss`. |
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |
 | `realm` | Dictionary | RealmSim: forts (array with ids: masses, the hold, flip and clear counts), Vei, tithe, simulacra |
 | `villages` | Array[Dictionary] | `{id, owner}` |

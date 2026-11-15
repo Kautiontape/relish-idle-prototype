@@ -230,6 +230,7 @@ func _schema_self_check() -> void:
 		{"t": 4712.5, "type": "loot_banked", "run_id": 1, "fort_id": "old-sluice", "relics": 1, "essence": 9, "blueprints": ["embalmer"], "minted": ["h12", "r13"]},
 		{"t": 11002.0, "type": "vei_result", "run_id": 9, "won": true, "fronts_cleared": ["giants", "carvers", "raw"], "relish_deaths": 1, "backlog_after": 18450.0},
 		{"t": 7200.0, "type": "run_ended", "run_id": 4, "kind": "raid", "outcome": "retreated", "cause": "gap"},
+		{"t": 4917.2, "type": "relish_returned", "fort_id": "greywall", "cause": "retaken"},
 		{"t": 600.0, "type": "autosaved", "slot": "auto", "saved_at": 1794556800},
 		{"t": 1.0, "type": "save_failed", "slot": "slot1", "reason": "write_failed"},
 	]
@@ -239,7 +240,7 @@ func _schema_self_check() -> void:
 		ApiSchema.check(ev, ApiSchema.EVENTS[ev["type"]], "example." + ev["type"], errs)
 		t.ok(errs.is_empty(), "§6 example %s passes its schema%s" % [ev["type"], "" if errs.is_empty() else ": " + str(errs)])
 		types[ev["type"]] = true
-	t.ok(types.size() == 19 and ApiSchema.EVENTS.size() == 19, "all 19 §6 event types have a schema and an example")
+	t.ok(types.size() == 20 and ApiSchema.EVENTS.size() == 20, "all 20 §6 event types have a schema and an example")
 	var raid := {"v": 2, "run_id": 1, "seed_rev": 512, "fort_id": "old-sluice", "warden_beaten": true,
 		"retreated": false, "relish_died": false, "revived_in_place": 0, "killed_living_mass": 30.0,
 		"raised": [{"score": 75, "count": 2, "mass": 8.0}], "chaff_mass": 4.0, "garrison_mass": 6.0,

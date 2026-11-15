@@ -82,6 +82,13 @@ var rev := 0  # +1 per substep and per successful command
 
 # --- Relish (owned here; RealmSim sees only her effects, as step inputs: _relish_effects) ---
 var relish := {}
+## Her last walk home from a retaken fort (IDLE I5, E2b-2 T3.3c; _walk_home): {fort_id, cause: "retaken", t},
+## or {} when there has been none since the new game. view_relish().returned; saved as relish.returned.
+var relish_returned := {}
+## When she arrived at the node she stands at during this core step (step 4), -INF when she was standing there
+## from its start (or isn't standing): a retake in the step before it doesn't send her home (_emit_realm).
+## Session only, set every core step.
+var _arrived_t := -INF
 # --- runs and seeds (§4.5, §7) ---
 var run := {}  # {} or {run_id, kind: "raid"|"boss", fort_id, seed_rev, seed}
 var next_run_id := 1
@@ -382,6 +389,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 		"pos": [float(realm.cov_pos.x), float(realm.cov_pos.y)], "heading": 0.0,
 		"dead_s_left": 0.0, "respawn_with_clone": false,
 	}
+	relish_returned = {}
 	_reset_lanes()
 	_prewarm_field()
 	rev += 1
@@ -541,6 +549,18 @@ func _arrive(tgt: String) -> void:
 	relish["state"] = _state_at_node(tgt)
 	relish["at"] = tgt
 	relish["target"] = ""
+
+
+## IDLE I5 (E2b-2 T3.3c, the run's manager: live play and catch-up alike, one simulation): the fort she stands
+## at (at_fort) is retaken at `from_t` inside this step, so she starts home to Covington at her travel speed
+## from that moment: by the step's end (t) she has walked t − from_t of it, and arrives if that is enough
+## (that step's town and realm already ran with her at the fort, as a live substep's do). A longer walk ends
+## in a later step, which the catch-up clips at her arrival (Catchup.next_event_s). Records the walk
+## (relish_returned). Not while she is in its dungeon: the run goes on, and when it ends she stands there.
+func _walk_home(fort_id: String, from_t: float) -> void:
+	_begin_travel("covington")
+	_step_relish_travel(maxf(0.0, t - from_t))
+	relish_returned = {"fort_id": fort_id, "cause": "retaken", "t": from_t}
 
 
 ## Substep step 4 (§3): straight-line travel and arrival.
@@ -1922,7 +1942,12 @@ func _core_step(dt: float) -> Array:
 	var muster := float(town["muster_mass"]) / dt
 	_split = {"mint": mint, "work": work, "war": mint * valve["war"] + muster,
 		"flood": mint * valve["flood"], "muster": muster}
-	# §3 step 4: Relish's travel and state
+	# §3 step 4: Relish's travel and state (her arrival's moment inside the step, for a walk home: _emit_realm)
+	_arrived_t = -INF
+	if relish["state"] == "travelling":
+		var left := maxf(0.0, _dist_to(str(relish["target"])) - ARRIVE_EPS) / travel_speed()
+		if left <= dt:
+			_arrived_t = t - dt + left
 	_step_relish_travel(dt)
 	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
@@ -1956,7 +1981,8 @@ func _core_step(dt: float) -> Array:
 ## at their moment: a retake inside the step carries its own time (IDLE §4), the rest the step's
 ## end. One stamped before the step's end goes in ahead of the step's other events (from `mark`),
 ## in time order, so `t` never decreases. A retake sends the siege big undead there home (IDLE I6,
-## `big_undead_returned` right after it). Returns the realm events, in queue order.
+## `big_undead_returned` right after it), and Relish home if she stands there (IDLE I5, _walk_home:
+## `relish_returned` after those, at the same t). Returns the realm events, in queue order.
 func _emit_realm(timed: Array, dt: float, mark: int) -> Array:
 	var early: Array = []
 	var late: Array = []
@@ -1970,6 +1996,11 @@ func _emit_realm(timed: Array, dt: float, mark: int) -> Array:
 			for uid in _uids_at("fort:" + str(ev["fort_id"])):
 				_find_uid(big_undead, uid)["place"] = "crypt"
 				out.append({"type": "big_undead_returned", "uid": uid, "fort_id": str(ev["fort_id"]), "t": ev["t"]})
+			# she walks home if she stood there at the retake: not if she arrived after it inside this step (a
+			# live substep would have seen the fort fall before she got there, and she stays, as at any Vei fort)
+			if relish["state"] == "at_fort" and str(relish["at"]) == str(ev["fort_id"]) and _arrived_t <= float(ev["t"]):
+				_walk_home(str(ev["fort_id"]), float(ev["t"]))
+				out.append({"type": "relish_returned", "fort_id": str(ev["fort_id"]), "cause": "retaken", "t": ev["t"]})
 	# insertion by t keeps equal times in the order RealmSim raised them
 	var sorted: Array = []
 	for ev in early:

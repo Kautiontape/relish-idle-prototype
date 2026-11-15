@@ -22,6 +22,7 @@ static func relish(gs: GameState) -> Dictionary:
 		"reason": reason,
 		"run_id": int(gs.run.get("run_id", -1)), "run_kind": str(gs.run.get("kind", "")),
 		"effects": gs._relish_effects().merged({"home": gs.relish["state"] == "home"}),
+		"returned": gs.relish_returned.duplicate(),
 	}
 
 
