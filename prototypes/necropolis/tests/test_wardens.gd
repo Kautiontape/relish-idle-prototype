@@ -377,6 +377,7 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var lc: Dictionary = cfg.duplicate(true)
 	lc["wardens"]["attack_dmg_mult"] = 2.0
 	lc["wardens"]["relish_dmg_mult"] = 3.0
+	lc["wardens"]["relish_dmg_mult_by_tier"] = {}   # (the per-tier values would override it; Step 4c)
 	var base2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, cfg)["attack"]
 	var lev2: Dictionary = WardenLogic.spec({"id": "x", "tier": 2, "archetype": "bellringer"}, lc)["attack"]
 	t.ok(is_equal_approx(float(lev2["dmg_unit"]), 2.0 * float(base2["dmg_unit"])) and is_equal_approx(float(lev2["dmg_relish"]), 6.0 * float(base2["dmg_relish"])),
