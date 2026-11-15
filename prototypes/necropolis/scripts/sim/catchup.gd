@@ -33,7 +33,7 @@ const CLIP_MIN_S := 1e-6
 
 var active := false
 var report := true  ## events go to `events`, not the queue
-var capped := false  ## the elapsed time was above idle.catchup_max_s (cmd_load)
+var capped := false  ## the elapsed time was above idle.catchup_max_s (cmd_load, or an open-game gap: GameState.tick)
 var t0 := 0.0  ## the sim time the catch-up started at
 var total_s := 0.0  ## whole seconds it runs
 var end_t := 0.0  ## t0 + total_s
@@ -63,7 +63,7 @@ var _last_evs: Array = []  # the last core step's realm events (the lanes' callo
 func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	active = seconds > 0.0
 	report = with_report
-	capped = false  # (cmd_load sets it after begin)
+	capped = false  # (cmd_load and the gap path in GameState.tick set it after begin)
 	t0 = gs.t
 	total_s = maxf(0.0, seconds)
 	end_t = t0 + total_s

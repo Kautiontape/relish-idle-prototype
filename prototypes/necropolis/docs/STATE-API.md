@@ -1874,7 +1874,7 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 |---|---|---|
 | `shown` | bool | a report is waiting: true from its catch-up's end until `cmd_dismiss_away` |
 | `away_s` | float | the seconds it caught up (`cmd_load`'s `away_s`, or a gap's whole seconds); the map formats it |
-| `capped` | bool | the time away was above `idle.catchup_max_s` and capped there |
+| `capped` | bool | the time away was above `idle.catchup_max_s` and capped there (a load's, or an open-game gap's: the gap's excess, fraction too, is dropped) |
 | `gains`, `ready`, `losses` | Array[Dictionary] | its lines in IDLE §7's order, each `{text: String, kind: String, target: String}` |
 
 - **When** (`Catchup.run`, `GameState._report_away`): at the end of every **reporting catch-up**: a load's

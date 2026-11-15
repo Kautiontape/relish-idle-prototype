@@ -47,6 +47,7 @@ func run() -> int:
 	_chunks_equal()
 	_frame_work_excluded()
 	_gap_frame()
+	_gap_cap()
 	_live_frames()
 	_gap_events()
 	_accuracy_2h()
@@ -596,6 +597,36 @@ func _gap_frame() -> void:
 	var acc0 := f._acc
 	f.tick(40.75, cap)
 	t.ok(f._catchup.total_s == 40.0 and absf(f._acc - (acc0 + 0.75)) < 1e-12, "a 40.75 s frame catches up 40 s and keeps 0.75 s in the accumulator (%.3f → %.3f)" % [acc0, f._acc])
+
+
+## A gap in the open game is capped at idle.catchup_max_s as a load is (IDLE §4): with the cap at 900 s
+## and report_min_s 600, a frame of 900 + 3 600.5 s catches up exactly 900 s, drops the excess and its
+## 0.5 s fraction (the accumulator is as it was), and its report says capped with away_s 900. A gap under
+## the cap keeps its fraction and isn't capped.
+func _gap_cap() -> void:
+	var c := cfgs({"economy.idle.catchup_max_s": 900.0, "economy.idle.report_min_s": 600.0, "economy.idle.catchup_steps_per_chunk": 1_000_000})
+	var s := _start(c, "midgame_2flips")
+	var cap := s.max_substeps_per_frame()
+	var f := _away(c, s, "gapcap", 0)
+	var t0 := f.t
+	var acc0 := f._acc
+	f.tick(900.0 + 3600.5, cap)
+	while f.catching_up():
+		f.tick(1.0 / 60.0, cap)
+	var a := f.view_away()
+	t.ok(absf(f._catchup.total_s - 900.0) < 1e-9 and absf((f.t - t0) - 900.0) < 1e-6,
+		"a 4 500.5 s frame with the cap at 900 s: game time advanced by exactly the cap (%.6f s)" % (f.t - t0))
+	t.ok(a["shown"] and a["capped"] == true and a["away_s"] == 900.0, "its report says capped, away_s 900: %s" % str([a["shown"], a["capped"], a["away_s"]]))
+	t.ok(absf(f._acc - acc0) < 1e-12, "no fraction of the dropped excess in the accumulator (%.6f → %.6f)" % [acc0, f._acc])
+	var g := _away(c, s, "gapcap2", 0)
+	var acc1 := g._acc
+	var t1 := g.t
+	g.tick(800.75, cap)
+	while g.catching_up():
+		g.tick(1.0 / 60.0, cap)
+	var b := g.view_away()
+	t.ok(b["shown"] and b["capped"] == false and b["away_s"] == 800.0 and absf((g.t - t1) - 800.0) < 1e-6 and absf(g._acc - (acc1 + 0.75)) < 1e-12,
+		"control, an 800.75 s gap under the cap: 800 s, not capped, the 0.75 s fraction kept (%.3f → %.3f)" % [acc1, g._acc])
 
 
 ## What stays live: a 20 s frame (under idle.gap_s) runs its capped substeps and drops the rest, as

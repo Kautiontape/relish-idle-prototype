@@ -1890,10 +1890,18 @@ func tick(dt: float, max_substeps := 0) -> int:
 			max_substeps = maxi(max_substeps, ceili(_req_f("economy.idle.gap_s") / substep_s()))
 	if max_substeps > 0 and _is_gap(dt):
 		var whole := floorf(dt)
-		_acc += dt - whole
+		# the same sanity cap as a load's (_away_of): above idle.catchup_max_s the excess is dropped whole,
+		# its fraction too, and the report says capped
+		var most := _req_f("economy.idle.catchup_max_s")
+		var capped := whole > most
+		if capped:
+			whole = most
+		else:
+			_acc += dt - whole
 		if not run.is_empty():  # IDLE I5: no run survives a gap; it ends from its last checkpoint, run_ended first
 			StateRuns.end_for_gap(self)
 		_catchup.begin(self, whole, whole >= _req_f("economy.idle.report_min_s"))
+		_catchup.capped = capped  # (begin clears it, as cmd_load sets it after begin)
 		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
 		_frame_work(0)
 		return 0

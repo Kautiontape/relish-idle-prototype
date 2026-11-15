@@ -103,7 +103,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   `idle.gap_s` (30 s) goes through catch-up instead of being dropped (this replaces MECHANICS §1.3's
   "any remainder after a hitch is dropped" above `idle.gap_s`). The check is the frame's real time, so
   debug fast-forward stays live play; its whole seconds catch up, chunked, and the fraction stays in the
-  accumulator. Its events are queued under `idle.report_min_s` and collected for the report at or above
+  accumulator (above `idle.catchup_max_s` the same cap as a load's applies: the excess and its fraction
+  are dropped and the report says `capped`). Its events are queued under `idle.report_min_s` and collected for the report at or above
   it (STATE-API §6).
 - Negative elapsed time counts as 0. Anything above `idle.catchup_max_s` (7 days) is dropped as a
   sanity cap, not a design lever, and the report says so.
