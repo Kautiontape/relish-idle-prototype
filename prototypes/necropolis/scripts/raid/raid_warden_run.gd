@@ -134,16 +134,7 @@ func snuff_for(u: RaidUnit) -> Dictionary:
 func breaks_pack(u: RaidUnit) -> bool:
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake or u.kind != "big":
 		return false
-	var v := 0.0
-	match str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")):
-		"beef":
-			v = u.beef
-		"speed":
-			v = u.speed_stat
-		"wits":
-			v = u.wits
-		"power":
-			v = u.power
+	var v := RaidLogic.unit_stat(u, str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")))
 	return WardenLogic.pack_breaker(warden.spec, v)
 
 
@@ -218,6 +209,8 @@ func on_warden_died(w: RaidWarden) -> void:
 	if _raid._dev != null:
 		_raid._dev.on_warden_died(w)   # the measuring bot's last read of its counts
 	warden = null
+	if _raid.held_door != null:
+		_raid.held_door.on_warden_died()   # the held door unlocks: a shut-in big rejoins (D-e task 6)
 
 
 ## Relish opened the chest: merge its loot into what was found, then the victory beat, then the

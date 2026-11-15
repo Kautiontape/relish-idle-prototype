@@ -491,7 +491,7 @@ const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
 ## the attack had one (its own row, so a long cause never clips: "The Bellringer's toll" / "the ring at your
 ## feet"), what the last checkpoint banked, what is lost.
-static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "") -> Array:
+static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "", after := {}) -> Array:
 	var bl := loot_line(banked_counts)
 	var lost := death_lost_line(unbanked, party_n)
 	var rows: Array = [{"label": "KILLED BY", "text": cause, "key": "danger"}]
@@ -499,7 +499,36 @@ static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: 
 		rows.append({"label": "MISSED", "text": missed, "key": "danger"})
 	rows.append({"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"})
+	if not after.is_empty():
+		rows.append(after)
 	return rows
+
+
+## A wait for the death card's AFTER row: "45 s" under a minute, m:ss from 60 s ("1:30"); never "0 s".
+static func death_wait_text(secs: float) -> String:
+	var n := maxi(1, roundi(secs))
+	return "%d s" % n if n < 60 else "%d:%02d" % [n / 60, n % 60]
+
+
+## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
+## seed's `death_ends` {outcome: "clone"|"unmade", respawn_s} (economy's, after any phylactery revives); the
+## card copies no rule. "clone": "wakes at Covington", with " in N s" only when respawn_s > 0. "unmade":
+## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save), or with an
+## outcome it does not know (a newer economy's, or a broken key): the seed's clones_ready, "wakes at
+## Covington" if > 0 else "unmade", with no number. A missing or non-positive respawn_s shows no number.
+static func death_next_row(seed: Dictionary) -> Dictionary:
+	var de: Variant = seed.get("death_ends", null)
+	var clone := false
+	var secs := 0.0
+	if de is Dictionary and str((de as Dictionary).get("outcome", "")) in ["clone", "unmade"]:
+		clone = str(de["outcome"]) == "clone"
+		secs = float(de.get("respawn_s", 0.0))
+	else:
+		clone = int(seed.get("clones_ready", 0)) > 0
+	var text := "wakes at Covington" if clone else "unmade"
+	if secs > 0.0:
+		text += (" in %s" if clone else " · reforms in %s") % death_wait_text(secs)
+	return {"label": "AFTER", "text": text, "key": "text" if clone else "danger"}
 
 
 ## How much loose essence can still be banked: what lies loose, capped by the carry room left.
@@ -844,6 +873,22 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return LayoutLogic.populate_enemies(fort_id, layout, count, tier, cfg)
 
 
+## D-e task 3, the room leash (raid.json enemy_leash_by_fort; off with no entry): the rooms of `fort_id` whose
+## living hold their own room until Relish steps into it. [] for a fort with no entry.
+static func leash_rooms(fort_id: String, cfg: Dictionary) -> Array:
+	var e: Dictionary = (cfg.get("enemy_leash_by_fort", {}) as Dictionary).get(fort_id, {})
+	var out: Array = []
+	for r in e.get("rooms", []):
+		out.append(int(r))
+	return out
+
+
+## True while a leashed foe still holds: Relish is not yet in its room (its rect grown by `margin`).
+## It never reverts: the caller clears its hold the first time this is false.
+static func leash_holds(relish_pos: Vector2, room: Rect2, margin: float) -> bool:
+	return not room.grow(margin).has_point(relish_pos)
+
+
 ## D-d/E Step 3: the guarded detour's site and guard (LayoutLogic.detour_site / detour_guard).
 static func detour_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
 	return LayoutLogic.detour_site(layout, tier, cfg)
@@ -926,6 +971,134 @@ static func detour_retreat(hp_frac: float, revives: int, allies: int, guard: int
 	return hp_frac < floor_hp or float(allies) < float(ap.get("detour_retreat_army_mult", 1.0)) * float(guard)
 
 
+## D-e task 6, the held door (raid.json held_door; RaidHeldDoor). Its site: LayoutLogic.held_door_site.
+static func held_door_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	return LayoutLogic.held_door_site(layout, tier, cfg)
+
+
+## The held door's states (RaidHeldDoor; pure, so the order of events can be tested): "unused" (no big spent on
+## it), "sent" (on its way to the plate), "held" (on the plate: the door open), "shut" (shut in behind the door)
+## and "freed" (the warden fell: it rejoined). One live step of a big sent or holding: fallen, the door is free
+## again ("unused": it is in party_died); else it holds the plate or is on its way; and once she stands in
+## another room it is shut in. Every other state stands.
+static func held_door_step(state: String, holder_alive: bool, on_plate: bool, left_room: bool) -> String:
+	if state != "sent" and state != "held":
+		return state
+	if not holder_alive:
+		return "unused"
+	if left_room:
+		return "shut"
+	return "held" if on_plate else "sent"
+
+
+## The warden's fall: a big spent on the door rejoins whether it was shut in, on the plate or on its way.
+static func held_door_fall(state: String) -> String:
+	return "freed" if state in ["sent", "held", "shut"] else state
+
+
+## A big spent on the door that has not rejoined (sent, on the plate, or shut in).
+static func held_door_committed(state: String) -> bool:
+	return state in ["sent", "held", "shut"]
+
+
+## THE SHUT-IN BIG'S FATE (the manager's ruling, 2026-11-15; the one place the rule lives): a big sent to
+## the held door's plate (`committed`) rejoins her party when the warden falls; if the run ends any other
+## way (a death, a retreat, a window close) it is lost and goes in party_lost.
+static func held_door_lost(exit: String, committed: bool) -> bool:
+	return committed and exit != "warden_beaten"
+
+
+## A big undead's value in a warden weak point's stat ("beef", "speed", "wits", "power"; 0 for any other): the
+## RaidUnit fields the party's stats land in (RaidPopulate). The pack's counter (RaidWardenRun.breaks_pack) and
+## the bot's door rule read it here.
+static func unit_stat(u, stat: String) -> float:
+	match stat:
+		"beef":
+			return u.beef
+		"speed":
+			return u.speed_stat
+		"wits":
+			return u.wits
+		"power":
+			return u.power
+	return 0.0
+
+
+## The measuring bot's held-door rule (raid.json autopilot door_*; NOTES-RAID "D-e task 6", frozen once
+## written). `stats`: the standing party bigs' values in this warden's weak-point stat, in party order;
+## `threshold` the weak point's. Take the door when at least `door_min_bigs` bigs stand and, after one is
+## spent, a big that meets the weak point still stands (or none met it to begin with). The big spent is the
+## lowest in that stat (the first in party order on a tie). Returns its index, or -1 to skip.
+static func held_door_pick(stats: Array, threshold: float, ap: Dictionary) -> int:
+	if stats.size() < int(ap.get("door_min_bigs", 2)):
+		return -1
+	var low := 0
+	var meets := 0
+	for i in stats.size():
+		if float(stats[i]) < float(stats[low]):
+			low = i
+		if float(stats[i]) >= threshold:
+			meets += 1
+	var left := meets - (1 if float(stats[low]) >= threshold else 0)
+	return low if meets == 0 or left >= 1 else -1
+
+
+## The held door's words (the world label, the plate's prompt, the HUD row, the death card's row and the
+## retreat dialog's line). `name` is the big's.
+const HELD_DOOR_ENTRY := "HELD DOOR · a big on the plate holds it · it stays behind"
+
+
+static func held_door_prompt() -> String:
+	return "AT THE HELD DOOR · click a big to send it (the plate sends the nearest) · it stays shut in until the warden falls · a retreat or a death loses it"
+
+
+static func held_door_label(state: String, name: String) -> String:
+	match state:
+		"held":
+			return "HELD · %s" % name
+		"sent":
+			return "SENT · %s" % name
+		"shut":
+			return "SHUT IN · %s" % name
+		"freed":
+			return "REJOINS · %s" % name
+	return HELD_DOOR_ENTRY
+
+
+## The HUD row while a big is spent on the door ("" when none is).
+static func held_door_row(state: String, name: String) -> String:
+	match state:
+		"sent", "held":
+			return "HELD DOOR · %s holds it · leaving the room shuts it in until the warden falls" % name
+		"shut":
+			return "SHUT IN · %s · rejoins when the warden falls · a retreat or a death loses it" % name
+	return ""
+
+
+## The death card's row for a big shut in at the door (apart from the party that fell in the fight).
+static func held_door_card_row(name: String) -> Dictionary:
+	return {"label": "SHUT IN", "text": "%s · lost at the cache" % name, "key": "danger"}
+
+
+## The death card's rows with a shut-in big (`shut`, its name; "" for none): its SHUT IN row goes before the
+## card's last row (AFTER), apart from LOST (RaidEndings.death_rows).
+static func death_rows_with_shut(rows: Array, shut: String) -> Array:
+	var out := rows.duplicate()
+	if shut != "":
+		out.insert(maxi(0, out.size() - 1), held_door_card_row(shut))
+	return out
+
+
+## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
+static func held_door_retreat_line(state: String, name: String) -> String:
+	match state:
+		"sent", "held":
+			return "\n%s is on the plate · lost if you retreat." % name
+		"shut":
+			return "\n%s is shut in at the cache: a retreat loses it." % name
+	return ""
+
+
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:
 	return LayoutLogic.populate_piles(fort_id, layout, count)
 
@@ -993,3 +1166,111 @@ static func react_at(score: float, pts: Array, vals: Array) -> float:
 			var f := (score - float(pts[i - 1])) / maxf(1e-9, float(pts[i]) - float(pts[i - 1]))
 			return lerpf(float(vals[i - 1]), float(vals[i]), f)
 	return float(vals[n - 1])
+
+
+## The degraded bot's knobs (D-e; raid.json autopilot.human): `--raid-autopilot-<name>=<s>` gives `value`,
+## the bare `--raid-autopilot-<name>` gives `bare` true and takes `def` (the config's defended value).
+## Absent: 0, the knob is off. Never negative, and never past `cap`.
+static func human_knob(value: String, bare: bool, def: float, cap: float) -> float:
+	var v := 0.0
+	if value != "":
+		v = float(value)
+	elif bare:
+		v = def
+	return clampf(v, 0.0, cap)
+
+
+## The longest circle a player can draw in one trance, in scene seconds: the focus runs out after
+## trance.max_hold_s of real time, and the scene runs at trance.time_scale meanwhile.
+static func draw_cap(trance_cfg: Dictionary) -> float:
+	return float(trance_cfg.get("max_hold_s", 4.0)) * float(trance_cfg.get("time_scale", 0.35))
+
+
+## One look at a degraded bot's open circle (`--raid-autopilot-draw`): "hold" while it is drawn (she stands,
+## the trance open), "done" once `draw_s` scene seconds have passed (grade it and raise), "lost" when the
+## trance closed under her first (its focus ran out, or the run ended it), "cancel" when she must dodge a
+## warden tell she answered (a player lets go of the trance to move: the lockout, no raise).
+static func draw_step(draw_t: float, draw_s: float, trance_open: bool, dodging: bool) -> String:
+	if not trance_open:
+		return "lost"
+	if dodging:
+		return "cancel"
+	if draw_t >= draw_s - 1e-6:
+		return "done"
+	return "hold"
+
+
+## The read pause (`--raid-autopilot-read`): on her first entry into a room (a doorway band is no room) she
+## stands for `read_s` scene seconds before acting. True when this room starts one.
+static func read_starts(read_s: float, room: int, seen: Dictionary) -> bool:
+	return read_s > 0.0 and room >= 0 and not seen.has(room)
+
+
+## The bot's goal branches that move her off a warden tell she answered (`_why`): the degraded bot's
+## draw gives way to these, and they, or a due kite, end a read pause.
+const DODGE_WHYS := ["toll-out", "bell-out", "wall-out", "pyre-off", "dodge"]
+
+
+## Real seconds for a run measured in scene seconds: outside the trance they are the same, inside it
+## the scene runs at `time_scale` of real time (trance.gd), so each trance scene second took 1 / time_scale
+## real seconds. The degraded bot's draw lands in `trance_s`; its other knobs are scene time already.
+static func human_real_s(scene_s: float, trance_s: float, time_scale: float) -> float:
+	return scene_s + trance_s * (1.0 / maxf(0.05, time_scale) - 1.0)
+
+
+## Capture mode (D-e; RaidCapture, NOTES-RAID "Capture mode"): where a live run's record goes. `--capture`
+## gives `def_path`, `--capture=<path>` that path; "" is off. It is read from the engine args too, so a
+## player launch can pass it before `--` (BootRule only matches its DEV_ARGS there: the save resumes).
+static func capture_path(user_args: PackedStringArray, engine_args: PackedStringArray, def_path: String) -> String:
+	for args in [user_args, engine_args]:
+		for a in args:
+			if a == "--capture":
+				return def_path
+			if a.begins_with("--capture="):
+				var p: String = a.trim_prefix("--capture=")
+				return p if p != "" else def_path
+	return ""
+
+
+## Capture's outcome for a finished run (RaidCapture.write): the result's own flags, and "timeout" when it has
+## none of them (only the measuring bot's time-out ends a run so: no exit, the last checkpoint's loot).
+static func capture_exit(relish_died: bool, warden_beaten: bool, retreated: bool) -> String:
+	if relish_died:
+		return "relish_died"
+	if warden_beaten:
+		return "warden_beaten"
+	return "retreated" if retreated else "timeout"
+
+
+## Capture's outcome for a run that ends with no `finished` (a standalone window close, the scene freed): the
+## ending a beat was already playing when there is one (`pending`, RaidEndings.pending_exit: a close during
+## the death beat is the death, with its killer), else `why` ("closed", "freed").
+static func capture_unfinished(why: String, pending: String) -> String:
+	return pending if pending in ["relish_died", "warden_beaten"] else why
+
+
+## A tell-attack's outcome on the game side, first match: "struck" (its blow reached her hp), "countered"
+## (the warden's counter took it: muffled, intercepted, pinned, snuffed), "dodged" (it was aimed at her:
+## her edge warned through its tell, or a toll was placed at her feet), else "clear" (it never reached her).
+static func capture_outcome(struck: bool, countered: bool, aimed: bool) -> String:
+	if struck:
+		return "struck"
+	if countered:
+		return "countered"
+	if aimed:
+		return "dodged"
+	return "clear"
+
+
+## Count one closed tell into a capture tally {kind: {tells, shown, struck, countered, dodged, clear,
+## cancelled}}: `shown` when she stood in the warden's room as it began; `outcome` one capture_outcome gives,
+## or "cancelled" (a horn took it before it struck).
+static func capture_count(tally: Dictionary, kind: String, outcome: String, shown: bool) -> void:
+	if not tally.has(kind):
+		tally[kind] = {"tells": 0, "shown": 0, "struck": 0, "countered": 0, "dodged": 0, "clear": 0, "cancelled": 0}
+	var k: Dictionary = tally[kind]
+	k["tells"] = int(k["tells"]) + 1
+	if shown:
+		k["shown"] = int(k["shown"]) + 1
+	if k.has(outcome):
+		k[outcome] = int(k[outcome]) + 1

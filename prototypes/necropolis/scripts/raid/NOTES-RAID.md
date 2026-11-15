@@ -1137,3 +1137,526 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - dq-vei-victory-dim and dq-vei-victory: the button dim, then live after card.skip_after_s.
   - dq-vei-phase2-greyscale (cfabd41's rule line) and dq-vei-iframes-reduced ("SAFE 3 s").
   - The "--raid-warden skips the death card" was dev-path only and not about --raid-warden. --raid-autodie hit at process frame 0, so the 4.5 s card was gone before an N-based shot. Fixed in 8350858; seed-1 lines are identical (13/13).
+
+## D-e: the human bracket, capture mode and the fairness floor
+### Reconcile (record only; the analysis was done before D-e)
+- **The two figures are the same runs.** D-d's score-70 cell (1/36, seeds 20-23) is the at-tier m4c/qm rows for those seeds.
+- **Deaths per 4-seed block** (seeds 20-23, 24-27, 28-31, 32-35, 36-39; 36 runs each): 1, 2, 10, 7, 6 (26 of 180).
+- **Deaths cluster by seed.** Per-seed death counts across the 9 forts have about 1.5x the binomial variance: 1.71 against 1.11 at seeds 20-39, and 1.83 against 1.23 at seeds 1-19.
+- **The likely cause:** `_rng` and `_rng_react` (raid_autopilot.gd `start()`, lines 167-168 at 3a4ec38) are seeded from the run seed alone, so a seed's trace jitter and tell rolls repeat at every fort.
+- **The seeding stays as it is**, because changing it would break every baseline.
+- **Reporting from here on:** Wilson 90% plus a seed-clustered interval (Wilson on n_eff = n / 1.5), with configs compared paired on the same seeds.
+
+### Step 0: the fast-forward to 3a4ec38 (economy's API v5)
+- The 13 seed-1 raid lines (9 at tier, 3 at t1, P1) and Vei's seed-1 line, score 70, on `git archive` snapshots of 37fee80 and 3a4ec38: all 14 byte-identical (they also equal `qid` at 8f5975d). The m4c + qm rows at seeds 20-39 stand as the baseline (iters `de0pre`, `de0`).
+- **The baseline is the bot as it stands: score 70 reacts in 0.45 s** (`react_delay_s` at 70), with no read pause and no draw. The brief's "0.6 s" is the score-50 delay, so `hb70d06` is a degraded profile, not the baseline.
+
+### The degraded bot (D-e 2a; b895836; `raid.json autopilot.human`; each knob off unless given)
+- **`--raid-autopilot-delay=<s>`** sets the one reaction delay `_delay`: the warden tell's answer, the kite from the living and the no-army leave. The miss chance stays the score's (`react_miss`): **delay and miss are decoupled** from here on, so `hb50d10` misses 0.30 of the tells and reacts in 1.0 s.
+- **`--raid-autopilot-read[=<s>]`**, the read pause.
+  - On her first entry into each room (the spawn room included; a doorway band is no room) she stands `<s>` scene seconds: no move, no raise.
+  - The policy still runs every think, so every tell and threat is seen and rolled when it would be. A dodge off a tell she answers (`RaidLogic.DODGE_WHYS`: toll-out, bell-out, wall-out, pyre-off, the lunge's sidestep) or a due kite ends the pause.
+  - **1.0 s** (the bare flag's value) is the low end of the first draft's `h` (1-3 s per room): three or four fixations on a new part of the screen at about 0.25 s each, and a click. The rest of a player's room-entry hesitation, whether to push or wait, is what the bot's hold rule already spends.
+- **`--raid-autopilot-draw[=<s>]`**, the drawn circle.
+  - How a human's trance spends scene time (trance.gd): holding SPACE or the right button opens it at `time_scale` 0.35; the left drag traces; the release grades and raises, and the 6 s cooldown starts only then. Focus drains in real time (`max_hold_s` 4 s, so at most 1.4 scene seconds). Releasing early is a 1 s lockout with no raise. A traced left drag is not a move click, so she cannot steer while she draws. In the game Relish keeps walking to her last click; a player stops first, or the walk drags the carried motes out of the circle.
+  - The model: each raise opens the trance (`RaidTrance.bot_open`: ACTIVE, the dim, the focus bar, the split's trance bucket) and she stands `<s>` scene seconds while it is drawn. Then the circle, traced as it began, is graded and raised. A dodge off a tell she answers lets it go (`bot_cancel`: the lockout, no raise). A living foe in kite range does not: the chain still soaks the living's blows.
+  - `Engine.time_scale` stays 1.0. The bot measures scene time, and a player's slowed seconds are scene seconds all the same, so lockstep holds. Real time is `RaidLogic.human_real_s`: scene + trance_s x (1 / 0.35 - 1).
+  - **0.7 s** (the bare flag's value) is a 2.0 s real circle at 0.35, the middle of the first draft's 1.5-2.5 s. The aim before opening the trance and a late start after READY run at full speed and are not in it: they stay in the extra factor. Capped at `max_hold_s` x `time_scale` (1.4 s).
+  - There is no extra miss for tells during a draw: the basis of `react_miss` already counts the tells that start mid-trace.
+- AUTOPILOT_RESULT gains `human` {delay_s, read_s, draw_s, reads, reads_cut, draws, draws_cancelled, draws_lost} only when a knob is given. Tests: `raid_human` (RaidLogic.human_knob / draw_cap / draw_step / read_starts / human_real_s, the wiring) and the source guards.
+- **Byte identity with the knobs off** (b895836 against 3a4ec38, iter `de2aid`): the 13 seed-1 lines and Vei identical.
+
+### Capture mode (D-e 2c; d00c8c8; `RaidCapture`, off by default, local only)
+- **Shawn's launch command** (from the repo root, a normal player session: the save resumes and autosaves):
+  `godot --path prototypes/necropolis --capture`
+  - `--capture` goes **before** any `--`. After `--` it is a user arg, and the boot rule (scripts/sim/boot_rule.gd, PLAYER_ARGS is only `--reduced-motion`) makes that a harness session: a fresh game with autosave off. Before `--` it is an engine arg; Godot passes it through, the boot rule only matches its DEV_ARGS there, and the raid reads both lists (`RaidLogic.capture_path`). No other unit's file changed. A player arg still goes after it: `godot --path prototypes/necropolis --capture -- --reduced-motion`.
+  - `--capture=<path>` writes to that file instead (every test here used a scratch path, in harness sessions only).
+- **The file:** `user://raid_capture.jsonl`, on Linux `~/.local/share/godot/app_userdata/Relish — Necropolis/raid_capture.jsonl` (`OS.get_user_data_dir()`; keyed by the project name, so every worktree and snapshot shares it). One JSON line per run, appended.
+- **How the flag reaches the raid on the router's path:** the router (main.gd `_teleport` -> `_swap(RAID)` -> `_mount` -> `setup(args)`) passes only ids. raid.gd `_build()` runs on both paths (the router's `setup`, the standalone `_ready`) and reads the process's command line there, so nothing has to carry the flag. Dungeon runs only: the Vei fight builds no capture.
+- **Hooks** (all behind `capture != null`): raid.gd `_build` creates it; `_physics_process` ticks it each live frame (after the dev bot's think, before the units move); `danger_targeted` tells it the edge warned; `RaidEndings.finish` writes the record synchronously before the emit (a death after its beat or card, the win, a retreat, the router's window close through `close_request`); raid.gd `_notification` writes on a standalone window close (`closed`) or as a scene is freed with no ending (`freed`).
+- **The record** (`v` 1, `kind` "raid_capture"):
+  - `at` (local time), `fort`, `tier`, `first_dungeon`, `held`, `run_id`, `seed_rev`, `archetype`, `bot` (the measuring bot played it);
+  - `outcome` (`warden_beaten`, `relish_died`, `retreated`; `timeout` for the measuring bot's time-out away from an exit; `closed` / `freed` when nothing finished, unless an ending beat was playing: a standalone close during the death beat records `relish_died` with its killer, `RaidLogic.capture_unfinished`; the quality pass, D-e task 6), `closed` (a window close ended it: the router books it as a retreat, or a death during the death beat);
+  - `killed_by` (Relish.last_hit_src, the death card's source) and `missed_tell` (RaidLogic.death_tell: "the swing", "the ring at your feet", "the line", "the lit arc", "the marked ground"; "" for the living or a pack);
+  - `scene_s` (live scene seconds: physics steps to the death or the chest, as the bot's `duration_s`), `wall_live_s` (wall-clock seconds over those steps), `wall_s` (wall clock from the build to the write: the death card and the victory beat included);
+  - `rooms`: per room she stood in, `room`, `role` (spawn, ante, warden, checkpoint, room), `first_s` (scene time of the first entry), `entries`, `scene_s` and `wall_s` spent there (`Time.get_ticks_msec` per physics step; a doorway band counts to the room she came from);
+  - `tells`: per tell-attack (slam, toll, lunge, bash, rush, fire): `tells`, `shown` (she stood in the warden's room as it began), and one outcome each, first match: `struck` (a blow of it reached her: Relish.hits), `countered` (muffled, intercepted, pinned, an acolyte snuffed during it), `dodged` (aimed at her: the danger edge warned through its tell, `raid.danger_targeted`; a toll is aimed by being placed at her feet), `clear` (never aimed at her), `cancelled` (a horn, the warden's fall or the run's end took it before it struck);
+  - `raises`, `relish_hits` (blows that reached her, by source).
+- **Classification is the game's, never the bot's:** the warden's own state (the Bellringer's `_tell_for`, `_slam_beat`, `toll_marks`, `slams_muffled`; the Huntsman's `_locked`, `_lunges`, `intercepts`, `_lock_undead`; the Shieldwall's `_tell_for`, `rushing`, `pinned_tell`, `bashes`; the Pyre-priest's `_tell_for`, `lit`, `burns`, `snuffs`), Relish's `hits`, and the danger edge. A pinned Shieldwall tell is a `bash` (its plain bash is what lands; the pin is its counter). It reads the frame before, as the bot does, and once more at the write, so the killing blow is in it.
+- **The four checks** (at d00c8c8; rows `decapoff`, `decapon`, `decaphb` in the raw file; the router probes on a throwaway SceneTree script, harness sessions only):
+  - **(a) The bot's lines don't move with capture on.** On against off: 31 of 31 lines byte-identical (the 13 seed-1 lines, plus seeds 2-3 at the 9 at-tier forts). With the degraded bot (hb70d10 flags, seed 20, 9 forts) and capture, the lines equal the sweep's b895836 rows 9 of 9. Off, d00c8c8 equals de2aid 13 of 13.
+  - **(b) Capture's game-side counts against the bot's `tell_tally`.** 40 runs (seeds 1-3 at tier, the 9 degraded runs, t1 and P1 seed 1). Outcome, `killed_by` and `scene_s` equal the bot's `exit`, `killed_by` and `duration_s` in 40 of 40.
+    - **The evidence, kept** (a re-run of the same 40 at 187fb96 after the spec review, iter `decapchk`): one row per run in the run's `reports/dungeon/de-capture-check.tsv` (capture's tells, shown, struck, countered, dodged, clear and cancelled beside the bot's `tell_tally`, and five equality flags), and each run's capture record with its run key in `reports/dungeon/de-capture-check.jsonl`. Tells (the Bellringer's slam tells: a toll rides its slam's tell, which the bot counts once), struck, outcome, `killed_by` and `scene_s` are equal in 40 of 40. At tier the counts are the table's below; t1 and P1 differ (greywall's room leash is on at 187fb96: 53 tells, 3 struck) and match the same way.
+
+    | warden (runs) | tells: capture / bot | struck: capture / bot | countered: capture / bot | dodged, clear, cancelled |
+    |---|---|---|---|---|
+    | Bellringer at tier (12) | 278 slam + 67 toll / 278 | 7 (toll 7) / 7 | 146 slam (every muffle) + 30 toll / 28 | 37, 109, 16 |
+    | Huntsman at tier (8) | 132 / 132 | 9 / 9 | 22 (every intercept) / 3 | 95, 3, 3 |
+    | Shieldwall (8) | 25 rush + 78 bash / 103 | 2 / 2 | 68 (pinned) / 0 | 20, 2, 11 |
+    | Pyre-priest (8) | 76 / 76 | 10 / 10 | 4 (a snuff during a tell) / 0 | 50, 11, 1 |
+    | t1 and P1 (4) | 99 / 99 | 6 / 6 | 0 / 0 | 72, 20, 1 |
+
+    - Tells and struck match exactly at every warden. Struck also equals the tell-attack blows in `relish_hits`.
+    - Countered differs by construction. The bot books a counter only on a tell it missed (an answered tell's muffle or intercept is not counted). It has no counter at the Shieldwall (a pin spares her only the rush) or at the Pyre-priest. Capture counts every counter that fired during a tell.
+    - Dodged has no bot counterpart: the bot counts answered tells, which include tells that never threatened her.
+    - Cancelled: tells a horn cut, or a tell open when the warden fell or the run ended.
+  - **(c) The router path.** `--capture=<path>` before `--`, with `--new-game --teleport=old-sluice` after it: the map dives, the router opens the raid with run_id 1 (`_standalone` false, `_from_run` true), and capture is on. After `--` it works too, as a harness session.
+  - **(d) Flushes.**
+    - A window close through the router writes `retreated`, `closed` true, and the router applies the retreat.
+    - A death writes `relish_died`, `killed_by` slam, `missed_tell` "the swing", after the death card.
+    - A close during the death beat writes `relish_died`, `closed` true.
+    - A standalone close (no ending) writes `closed`.
+    - The bot's deaths write through the same `finish`.
+
+### The sweep (D-e 2b; b895836; seeds 20-39; 1,160 runs, all in lockstep)
+- **Profiles:** scores 50 and 70 x delays 0.6, 1.0 and 1.5 s, all with the read pause (1.0 s) and the draw (0.7 s), at the 9 forts at their tier (iters `hb<score>d<delay>`, 180 runs each). Plus the typical human at t1 and P1 (`hbt1`, 80 runs). The baseline is m4c + qm, the bot as it stands: score 70, 0.45 s, no read, no draw.
+- **Length and deaths at t2-t4.** Medians in scene seconds; "real" is the median of `RaidLogic.human_real_s` per run; the split is pooled seconds with each fort's > 2x outliers left out (the Part 2 method); deaths with Wilson 90% and the seed-clustered interval (Wilson on n / 1.5). The 31 runs that retreated (left with no army, or gave up: 2 to 8 per profile, hbt1 included) stay in the medians and count as neither a death nor a win:
+
+  | profile | median s (t2 / t3 / t4) | real s | travel / fight / trance / idle % | died |
+  |---|---|---|---|---|
+  | baseline (70, 0.45 s) | 123 (118 / 123 / 127) | 123 | 8.8 / 90.4 / 0 / 0.8 | 26/180 = 14.4% (11-19; 10-21) |
+  | 70, 0.6 s | 140 (140 / 151 / 126) | 160 | 8.1 / 82.2 / 7.7 / 2.0 | 27/180 = 15.0% (11-20; 10-21) |
+  | **70, 1.0 s (the typical human)** | **132 (127 / 140 / 131)** | **150** | 8.2 / 82.0 / 7.6 / 2.2 | 27/180 = 15.0% (11-20; 10-21) |
+  | 70, 1.5 s | 117 (118 / 120 / 106) | 133 | 8.1 / 81.5 / 7.9 / 2.5 | 95/180 = 52.8% (47-59; 45-60) |
+  | 50, 0.6 s | 144 (148 / 149 / 134) | 165 | 7.1 / 82.9 / 8.0 / 2.0 | 84/180 = 46.7% (41-53; 39-54) |
+  | 50, 1.0 s | 144 (143 / 151 / 139) | 164 | 6.8 / 83.1 / 8.0 / 2.1 | 80/180 = 44.4% (38-51; 37-52) |
+  | 50, 1.5 s | 128 (131 / 126 / 118) | 150 | 7.3 / 82.0 / 8.4 / 2.3 | 121/180 = 67.2% (61-73; 60-74) |
+
+  - **Per tier, every profile** (60 runs each; the split pooled per tier with that tier's > 2x outliers left out; Wilson 90% in %, then the clustered interval):
+
+  | profile, tier | median s (survivors) | travel / fight / trance / idle % | died (W90; clustered) |
+  |---|---|---|---|
+  | baseline, t2 | 118 (116) | 5.1 / 93.6 / 0.0 / 1.3 | 6/60 (5-18; 5-21) |
+  | baseline, t3 | 123 (120) | 10.3 / 88.7 / 0.0 / 1.0 | 8/60 (8-22; 7-25) |
+  | baseline, t4 | 127 (127) | 10.8 / 88.9 / 0.0 / 0.3 | 12/60 (13-30; 12-32) |
+  | 70, 0.6 s, t2 | 140 (132) | 4.3 / 85.1 / 8.8 / 1.9 | 7/60 (6-20; 6-23) |
+  | 70, 0.6 s, t3 | 151 (150) | 8.3 / 82.7 / 6.8 / 2.1 | 9/60 (9-24; 8-26) |
+  | 70, 0.6 s, t4 | 126 (127) | 12.0 / 78.5 / 7.3 / 2.1 | 11/60 (12-28; 10-30) |
+  | 70, 1.0 s, t2 | 127 (127) | 4.5 / 84.3 / 8.9 / 2.3 | 9/60 (9-24; 8-26) |
+  | 70, 1.0 s, t3 | 140 (140) | 8.1 / 83.1 / 6.6 / 2.1 | 8/60 (8-22; 7-25) |
+  | 70, 1.0 s, t4 | 131 (134) | 12.0 / 78.5 / 7.3 / 2.1 | 10/60 (10-26; 9-28) |
+  | 70, 1.5 s, t2 | 118 (116) | 4.4 / 84.6 / 8.8 / 2.3 | 27/60 (35-56; 33-58) |
+  | 70, 1.5 s, t3 | 120 (119) | 7.8 / 82.3 / 7.2 / 2.7 | 34/60 (46-67; 44-69) |
+  | 70, 1.5 s, t4 | 106 (131) | 12.8 / 77.1 / 7.7 / 2.5 | 34/60 (46-67; 44-69) |
+  | 50, 0.6 s, t2 | 148 (140) | 3.5 / 85.0 / 9.5 / 2.0 | 35/60 (48-68; 45-70) |
+  | 50, 0.6 s, t3 | 149 (145) | 8.0 / 83.1 / 6.9 / 2.0 | 23/60 (29-49; 27-51) |
+  | 50, 0.6 s, t4 | 134 (132) | 10.0 / 80.4 / 7.7 / 1.9 | 26/60 (33-54; 31-56) |
+  | 50, 1.0 s, t2 | 143 (129) | 3.4 / 84.9 / 9.6 / 2.2 | 35/60 (48-68; 45-70) |
+  | 50, 1.0 s, t3 | 151 (144) | 7.1 / 83.6 / 7.0 / 2.2 | 23/60 (29-49; 27-51) |
+  | 50, 1.0 s, t4 | 139 (136) | 10.1 / 80.5 / 7.4 / 1.9 | 22/60 (27-47; 25-50) |
+  | 50, 1.5 s, t2 | 131 (138) | 3.8 / 84.9 / 8.9 / 2.4 | 44/60 (63-82; 61-83) |
+  | 50, 1.5 s, t3 | 126 (128) | 7.8 / 81.7 / 8.1 / 2.3 | 40/60 (56-76; 54-78) |
+  | 50, 1.5 s, t4 | 118 (142) | 10.9 / 78.8 / 8.2 / 2.2 | 37/60 (51-71; 49-73) |
+
+  - **Paired by seed** (fort and seed), deaths in only one of the two: baseline vs 70 at 1.0 s, 20 against 21 (median length +8 s). 70 at 0.6 vs 1.0 s, 15 against 15. 50 at 0.6 vs 1.0 s, 30 against 26. 70 at 1.0 vs 1.5 s, 8 against 76. 50 at 1.0 vs 1.5 s, 17 against 58. 70 vs 50 at 1.0 s, 7 against 60.
+  - **What sets the risk is the miss chance, not the delay, up to 1.0 s.** From 0.45 to 1.0 s at score 70 the deaths do not move. Answered tells that struck: 3 of 2,116 at the baseline, 8 of 2,212 at 1.0 s. At 1.5 s they jump to 201 of 1,691. The Shieldwall's answered-and-struck tells go 0 -> 7 from 0.6 to 1.0 s (both scores), the one place the lane's negative 1.0 s margin shows.
+  - The read pause and the draw put 7-8% of each run in the trance and lift idle to about 2%. With the draw's real-time stretch (x 1/0.35 inside the trance) the typical human's runs are 150 s real against the baseline's 123.
+  - **t1 and P1** (the typical human, seeds 20-39):
+    - P1: 0/20, median 113 s (real 133).
+    - t1: 16/60 (27%; 18-37, clustered 17-39), all killed by the living. greywall accounts for 10/20 (median 41 s: early deaths, against 6/20 for g4c, the frozen bot on the same seeds), old-sluice 4/20, ashgate 2/20. The kite's 1.0 s delay and the read pause on entering its long middle room are the mechanism; greywall's living were already the t1 risk.
+- **Per tell-attack** (deaths; blows that struck her / tells; at-tier rows of each profile). The slam's tells are every slam rung at the Bellringer forts (`warden_attacks`), so the slams that carried a toll are counted there too; the toll's tells (`bell.tolls`) are that subset, not more tells:
+
+  | profile | slam | toll | lunge | bash | rush (the lane) | fire |
+  |---|---|---|---|---|---|---|
+  | baseline | 3; 10/1214 | 6; 22/272 | 6; 39/380 | 0; 0/391 | 2; 9/105 | 9; 37/291 |
+  | 70, 0.6 s | 0; 8/1368 | 8; 36/338 | 6; 43/506 | 0; 0/319 | 6; 40/279 | 6; 34/289 |
+  | 70, 1.0 s | 1; 10/1267 | 8; 30/298 | 5; 41/436 | 0; 0/344 | 5; 34/233 | 7; 28/249 |
+  | 70, 1.5 s | 3; 8/947 | 27; 67/223 | 6; 29/338 | 0; 2/329 | 22; 61/94 | 35; 101/157 |
+  | 50, 0.6 s | 10; 38/1631 | 34; 90/397 | 13; 67/497 | 0; 0/382 | 16; 60/257 | 10; 55/264 |
+  | 50, 1.0 s | 10; 27/1598 | 34; 93/393 | 11; 53/404 | 0; 0/439 | 13; 53/188 | 12; 55/288 |
+  | 50, 1.5 s | 10; 27/1136 | 35; 86/243 | 17; 75/505 | 0; 1/385 | 20; 62/101 | 37; 100/169 |
+
+  - **Which attacks start to kill first: the fire, the lane and the toll, at 1.5 s.** Pooled over both scores, from 1.0 to 1.5 s:
+    - the fire: deaths 19 -> 72, blows per tell 0.15 -> 0.62;
+    - the rush (at tier a rush that reaches her is the aimed lane): 18 -> 42, 0.21 -> 0.63;
+    - the toll: 42 -> 62, 0.18 -> 0.33.
+    - Answered tells that struck at 1.5 s, score 70: Pyre-priest 87 of 136, toll 55, Shieldwall 55 of 386. Their margins at 1.5 s are fire -0.28, toll -0.19 and the lane's step back -0.17 s.
+  - The slam (11 -> 13 deaths, 0.013 -> 0.017) and the lunge (16 -> 23, 0.11 -> 0.12; its margin is +0.07 s at 1.5 s) barely move.
+  - The slam's worst case (a 226 px walk from the bell's edge, -0.23 s at 1.0 s) is a spot the bot seldom holds when a tell starts. It goes in only when the trip in and out fits before the tell (the beat clock), so at the tell it is near the ring's edge or outside it. A human who stands at the bell is in that worst case; the bot never is.
+- **The step-6 gate** (the typical human, score 70 at 1.0 s with the read pause and the draw):
+  - At t2-t4 the medians are 127 / 140 / 131 scene seconds, which is **148 / 152 / 150 s real**: 2:28-2:32, 28-32 s under Shawn's 3:00.
+  - The degraded bot's scene time, with the trance's stretch, is the human estimate for what it models: the reaction delay, a read per room and a 2.0 s circle.
+  - **An extra factor still applies** for what it leaves out:
+    - the aim before opening the trance and a late start after READY: 0-1.5 s a raise (with a 2.5 s circle);
+    - click-to-move detours: 0.1-0.3 of the travel seconds;
+    - 0-2 s more per room than the 1.0 s read;
+    - 0-0.4 s per warden tell.
+  - **At the midpoints** (the spec review's figures: 0.75 s of aim per raise, 0.2 x the travel seconds, 1 s more per room read, 0.2 s per tell, with the 2 s circle) the medians are **172 / 173 / 177 s at t2 / t3 / t4, with 40-45% of runs at 180 s or more: at or just under 3:00.** My recompute of the same terms (the per-run read count for the rooms, `react.tells` for the tells) gives 168 / 169 / 173 s with 32-45% at 180 s or more; the gap is in how the terms are counted, and the reading is the same.
+  - At the high end (1.5 s a raise, 0.3 x travel, 2 s a room, 0.4 s a tell) the medians are 187 / 187 / 193 s.
+  - Per warden at tier, real: Bellringer 156 s, Shieldwall 158, Huntsman 144, Pyre-priest 142.
+
+### The fairness floor (D-e 2d): not built
+- **The arithmetic** (test_wardens now prints the margins at 1.0 s as well): lead 1.714 s - delay - walk. At 0.6 s: slam 0.17, lane sideways 0.16, toll 0.74, lunge 0.97, bash 0.71, fire 0.62 s. At 1.0 s: slam -0.23, lane -0.24, toll 0.34, lunge 0.57, bash 0.31, fire 0.22 s.
+- **The rule:** per tell-attack, blows that struck her per tell, at-tier rows of scores 50 and 70 pooled, 0.6 -> 1.0 s. The slam or the lane kills out of proportion if its growth is at least 2x the pooled growth of the toll, lunge, bash and fire, and its deaths rise.
+  - **When it was written:** the x2 rule sits in calibration-dd-log.txt's D-e header (line 335), above every sweep line. The log has no timestamps and isn't in git, and the rule wasn't in a committed file before the rows ran, so its timing can't be verified independently.
+- **The sweep does not confirm it.**
+  - The slam grows x0.84 (0.0153 -> 0.0129; deaths 10 -> 11).
+  - The rush grows x1.11 (0.187 -> 0.207; deaths 22 -> 18).
+  - The positive-margin attacks pooled grow x0.97.
+  - The recompute: slam x0.84 and lane x1.11 against x2, which is x0.87 and x1.14 relative to the pooled growth. The verdict holds by a wide margin either way. No lead was added, and the 1.0 s profiles were not re-run.
+  - From here on, a decision rule goes into a committed file, or a message to the manager, before its rows run.
+- A lead was drafted while the sweep ran and dropped on the verdict, uncommitted: `lever_lead_beats` in WardenLogic.spec, with the toll's landing rule kept on the base lead. The lane would have needed its rush-or-lane decision moved to the earlier tell start (it is made in `_begin_tell`).
+- What the sweep does show is above: past 1.0 s the fire, the lane and the toll go first, in line with their margins at 1.5 s. If the risk at tier is to hold for a slower player, those three are where the floor belongs. That is a design call, not this rule's.
+- **Byte identity with every new knob off** (the head's code is d00c8c8; bc57a91 changes only a test): the 13 seed-1 lines are identical to 3a4ec38 and 37fee80 (`decapoff` against `de2aid`, `de0`), and Vei's seed-1 line is identical. `tests/parity_check.sh`: 5 of 5 identical. Suite: 52 suites, all passed.
+
+## D-e task 3: greywall (t1), the pick rule (written before the pick rows)
+- **Both targets, at the realm's count (22 living), the profile's 6-chaff garrison:**
+  1. Frozen bot (score 70): at most 1/20 deaths over seeds 20-39 and at most 1/19 over seeds 1-19.
+  2. Typical human (score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`): at most 2/20 over seeds 20-39, and no more deaths than ashgate and than old-sluice under the same profile on the same seeds (so at most the smaller of the two).
+- **The pick is the smallest change that meets both.** Candidates in order of size, config first (greywall's `enemy_room_mult_by_fort`): A the current {1: 0.5, 2: 2}; B {1: 0.35, 2: 2.5}; C {0: 1.5, 1: 0.4, 2: 2}; D {1: 0.25, 2: 4}. The first that meets both is the pick. If none does, the leash in code (a per-fort rule, gated so only greywall moves), its smallest setting that meets both.
+- **Rows before this commit:** the measurement rows only (iters g3p-, g3f-, g3h-, g3hf-, g3h-ash/-slu: the current knob and the knob off, both counts, frozen bot and typical human), started before the rule was committed. They include candidate A's rows. Every candidate row other than A comes after it. The rows carry no timestamps: "after the rule" rests on file order in the jsonl and on commit order, and c6d6e65 itself says the A and knob-off rows started before it.
+- **The leash candidates, fixed before any leash row (config B, C and D were still running; B failed both targets):** the leash (`enemy_leash_by_fort`, code in this commit's neighbours) on top of the current room weights A. In order of size: L1 rooms [2] (the warden room's living hold until she enters it); L2 rooms [1, 2]. The first that meets both targets is the pick. If neither does, the report says so.
+- **What the realm hands greywall (read-only, a throwaway headless script; no save):** `cmd_begin_dungeon("greywall")` from a fresh game and from the day1 fixture give the same seed. Living 76.5 = cap 90 x realm.json:21 `start_living_frac` 0.85 (`scripts/sim/state_runs.gd:45` `f["living"]`) -> 22 enemies (`scripts/raid/raid_logic.gd:13`), the same as the profile's 22. Garrison units 0 (`scripts/sim/state_runs.gd:46`, `_garrison` at `scripts/sim/game_state.gd:493`: floor(fort undead 0 / 10)), party 0, starters 0 (not the first dungeon), undead 0, dead 0, warden huntsman, relish_hp 30. The midgame_2flips fixture gives living 76.5 (22 too), garrison 1; pre_vei living 0. So the count is the profile's; the profile's 6 chaff garrison (`configs/raid.json:455`; :451 is `profile_living_frac`) is more than the realm's day1 seed gives. Raided as seeded (`--raid-fixture=day1,greywall`) she has no army at all: the bot retreats at about 1 s (0/39 deaths, 39 retreats, both knob states), so that is not a measurable fight and the profile stands in. A per-fort multiplier on the realm's garrison would multiply 0; none was added.
+- **Config cannot reach it.** The room weights only move where the 22 stand (their positions are fixed per fort, only the bot's rolls vary by seed). Rows at the profile (22 living, 6 chaff), frozen bot seeds 1-19 / 20-39, then the typical human (70, delay 1.0, read 1.0, draw 0.7) seeds 20-39:
+
+  | config | frozen 1-19 | frozen 20-39 | human 20-39 | human median s |
+  |---|---|---|---|---|
+  | knob off (g3p-off) | 9/19 | 11/20 | 10/20 | 79 |
+  | A {1: .5, 2: 2} (today) | 1/19 | 6/20 | 10/20 | 41 |
+  | B {1: .35, 2: 2.5} | 6/19 | 6/20 | 17/20 | 33 |
+  | C {0: 1.5, 1: .4, 2: 2} | 4/19 | 5/20 | 9/20 | 109 |
+  | D {1: .25, 2: 4} | 5/19 | 4/20 | 16/20 | 27 |
+  | **L1 leash room 2 on A** | **0/19** | **0/20** | **3/20** | 130 |
+  | L2 leash rooms 1, 2 on A | 0/19 | 0/20 | 5/20 | 119 |
+  | ashgate, same human profile | | | 2/20 | 100 |
+  | old-sluice, same human profile | | | 4/20 | 112 |
+
+  Wilson 90%: L1 frozen 0-12 and 0-12, human 6-32; ashgate 3-26, old-sluice 9-38. A, B, C, D all fail the frozen target; A, C and D hold the median at 109-149 s only by leaving 4-6 of 20 dead.
+- **The leash** (`enemy_leash_by_fort`, `RaidLogic.leash_rooms` / `leash_holds`, `RaidUnit.leash_hold`, `RaidPopulate`; e83b760): the living of a listed room act like the detour's guard, turning only on her undead inside their room, until she first steps into it, then fight as any foe. Greywall room 2 (the warden room's living). Per fort; no other fort has an entry, so they cannot move.
+- **The pick, by the rule above: none meets both.** L1's 3/20 fails both parts of the human target: it is over the 2/20, and it is worse than ashgate's 2/20 (old-sluice's is 4/20). It meets the frozen target (0/19, 0/20). The committed rule only said "if none does, the leash" (c6d6e65) and "if neither does, the report says so" (834c716): choosing L1 over L2 (3 human deaths against 5, frozen tied) came after the rows, and "closest" was my word, not the rule's. The manager accepted L1 on 2026-11-15 because the gap is inside the noise (Wilson 6-32%).
+- **How L1 died for the human, and how the army fared.** The L1 and L2 rows (sha label e83b760) were run as a `--proj` probe: a copy of the e83b760 tree whose `configs/raid.json` had greywall's leash set to `"rooms": [2]` (L1) or `[1,2]` (L2), imported and run with the runner's `--proj` (the `--sha` is only a label; the committed config at e83b760 was `[]`). Re-run on a snapshot of the committed 0cdc2c7 (iters g3v-h, g3v-p; human seeds 28, 37, 39 and frozen seeds 1, 20, 30) the six result lines are byte-identical to the L1 rows. The three human deaths (g3h-L1 seeds 28, 37, 39): `army_zero_t` 12.3, 11.0 and 13.1 s with `army_zero_s` only 0.5, 2.9 and 0.6 s, the army still 10, 8 and 12 strong 5 s before she died; she died at 38, 52 and 47 s, after the warden woke at 35.5, 40.4 and 42.7 s. So the human's army was wiped early (about 11-13 s) and rebuilt, and the deaths came in the warden fight, not the early pile-on. For the frozen bot the army fell at all in only 2 of the 39 g3p-L1 runs.
+- **Greywall stays a t1 fort with a fight:** L1 medians 107-114 s frozen (ashgate and old-sluice t1 127-186 s human real, 100 and 112 s scene under the human profile; greywall human 130 s scene), for the frozen bot the army's first zero comes at 22-25 s in the 2 of 39 runs where it falls at all (against 14 s at A); the leash slows the clear, it does not empty the fort. The human's army zero is at 11-13 s (above).
+- **Identity:** the 12 seed-1 lines (9 at tier, ashgate, old-sluice, P1 old-sluice) are byte-identical between 5f57365 and the leash on (0cdc2c7); greywall's t1 line moves on purpose (the re-pin). Vei's seed-1 line and `parity_check.sh` identical. Rows: iters g3p-*, g3h-*, g3id-* in reports/dungeon/calibration-dd-raw.tsv(.jsonl). Rows before the rule's commit (c6d6e65): the measure rows (g3p-on/off, g3f, g3h-on/off, g3hf, g3h-ash/-slu); after it: B, C, D, L1, L2.
+
+## D-e task 4: the Shieldwall's reach
+- **Reach** is the share of missed, uncountered Shieldwall tells whose blow reached her (`tell_tally`: missed_struck / (missed - missed_countered); a pin is not a counter, 599c361). At seeds 20-39, frozen bot (score 70, 0.45 s), qm rows: 9 / 83 = 11%.
+- **Guards (the manager's):** answered-but-struck Shieldwall tells must not rise: 0 for the frozen bot (qm), 7 at 1.0 s (hb70d10 4, hb50d10 3, all at the-stair). No margin below today's at 0.6 s (bash 0.71, lane 0.16 sideways / 0.72 back); the lane is not narrowed and its sideways walk not lengthened. `untold_blows` 0. t1, P1 and Vei byte-identical; any new rule gated on `lever_on`.
+
+### Step 1: why 89% of the missed tells don't reach her (measuring only)
+- **The probe:** a throwaway copy of 3cbb6e3 printing one line per bash tell from `RaidShieldwall` (pinned / lane / rush; her distance and bearing off the facing as the tell began and at the blow; the bot's roll for it; the blow). Its 40 AUTOPILOT_RESULT lines (pale-bastion t3, the-stair t4, seeds 20-39, score 70) are byte-identical to qm (40 of 40), and the typical-human copy (score 70 and 50 at 1.0 s, read 1.0, draw 0.7) to hb70d10 / hb50d10 (80 of 80). So these are the same runs; nothing was decided on them. Per tell: the run's `reports/dungeon/de-t4-shield-tells.tsv`.
+- **Of all tells, 397 of 496 that came to a blow were pinned (80%).** 92 of the 99 unpinned ones were already the lane aimed at her (the other 7: she was outside its room, a wide rush).
+- **The 83 missed, uncountered tells** (the side stand: 223 px out, 110 deg off the facing, within 15 px and 12 deg):
+
+  | why it did not reach her | tells | share |
+  |---|---|---|
+  | pinned: a plain bash, her at her side stand at the blow | 55 | 66% |
+  | (of them, walked there during the tell, the wall having turned) | (14) | |
+  | cut before the blow (a horn over the tell, the warden's fall, the run's end) | 8 | 10% |
+  | the lane: she walked off it sideways by chance (going to a new stand) | 5 | 6% |
+  | pinned: a plain bash, her elsewhere, out of its arc or reach (walking in, fetching) | 5 | 6% |
+  | pinned late (the pin under a beat old) | 1 | 1% |
+  | the lane not aimed (a wide rush, her out of its room) | 0 | 0 |
+  | the lane ended short | 0 | 0 |
+  | **struck** (all 9 the lane) | 9 | 11% |
+
+- **Traced:** pale-bastion s20 beat 12: pinned, she at 223 px and 110.6 deg off, still there at the blow, the bash's ±80 deg out to 140 px misses. pale-bastion s23 beat 79: the lane aimed at her at 80.9 deg off the old facing (she was 197 px out, still walking to the stand), at the blow 25.8 deg off a 20 deg lane. pale-bastion s33 beat 59: the lane at her side stand, she stands still (missed), struck at 0.0 deg.
+- **The ceiling of the brief's levers:** if every missed lane struck, reach would be 14 / 83 = 17%. The aim rate (92 of 99 unpinned tells), the rush's reach and the lane's end touch 0 of the misses. A plain bash that reached her stand would need 223 px and ±110 deg: a longer or wider bash lowers the bash's 0.71 s margin, and the bot reads `attack.reach_px` and `front_half_deg()` before the tell, so its stand moves out with it; aimed at her without the reach it still misses (223 > 140 + 13). The cause is the game's: a pinned bash cannot reach the stand a player keeps on its side, and 80% of tells are pinned.
+- **At 1.0 s** (the 7 answered and struck): all at the-stair, all unpinned lanes early in the fight (beats 4-12) with her 453-537 px out as she walked in. The sideways walk there is 168-197 px against the 171 px a 1.0 s reaction leaves (462 px out). No pinned tell of the 1,191 probed (frozen and 1.0 s, of 1,700 that came to a blow) began beyond 462 px; all but 12 began within 300 px.
+- **With the pin counted as a counter** (as a muffle, an intercept or a snuff is at the other wardens; the manager's question, for the side-by-side): today's 83 split into 66-68 pinned and 15-17 unpinned. The tally books every tell the bot saw: 536 = 496 that came to a blow + 21 a horn cut (all pinned, in de-t4-shield-tells.tsv) + 19 still open at the warden's fall or the run's end (not in the tsv; their kind is the run's `shield.pins` and `rushes` less the tsv's). 8 of those 40 were missed: 5 pinned, 1 unpinned (pale-bastion s33, an open lane at the end), and 2 either (pale-bastion s26 and s36: a pinned horn-cut tell and an unpinned open one, one of them missed). Reach on the missed, unpinned tells is then 9 / 15-17 = 53-60% for the frozen bot, and 30 / 39-40 = 75-77% at 1.0 s (hb70d10: 104 missed, 58 pinned and 39 unpinned came to a blow, 7 cut of which 6 pinned and 1 either).
+
+### The decision: option A, a pin is the Shieldwall's counter in reach (the manager, 2026-11-15)
+- **The definition from D-e task 4 on:** a pinned Shieldwall tell is countered, as a muffled slam or an intercepted lunge is. Reach = struck / missed and uncountered, with the pinned tells out of the denominator. Nothing in the game changed; no candidate rows ran.
+- **The manager's condition, that the pin is shown to be the preparation,** holds on the existing arm rows (seeds 20-39, score 70; checked by the coordinator, re-counted here from the raw rows):
+
+  | | with wits (qm) | wits 0 (qarmo) |
+  |---|---|---|
+  | pale-bastion | 1/20 died | 12/20 |
+  | the-stair | 1/20 | 15/20 |
+  | both | 2/40 = 5% (Wilson 2-14%; clustered 1-17%) | 27/40 = 68% (55-78%; clustered 52-80%) |
+  | pins / bashes (`shield`) | 431/496 (87%) | 0/586 |
+  | deaths by | rush 2 | rush 27 |
+
+- **Reach under both definitions** (seeds 20-39; frozen bot = m4c, with qm for the Shieldwall forts; the typical human = hb70d10; struck / missed less countered). The bot's tally books no counter at the Pyre-priest (an acolyte's snuff takes fires away rather than countering a tell), so its two columns are one:
+
+  | warden | frozen, old | frozen, new | typical human, old | typical human, new |
+  |---|---|---|---|---|
+  | Bellringer | 26/112 = 23% | the same | 35/103 = 34% | the same |
+  | Huntsman | 38/58 = 66% | the same | 40/61 = 66% | the same |
+  | Shieldwall | 9/83 = 11% | 9/15-17 = 53-60% | 30/104 = 29% | 30/39-40 = 75-77% |
+  | Pyre-priest | 37/50 = 74% | the same | 28/40 = 70% | the same |
+
+  The Shieldwall's range comes from the probe and the rows' `shield` counts: 2 missed cut tells at the frozen bot and 1 at 1.0 s cannot be told pinned or not (above). Corrected after the spec review (it had 47-64% and 71-77%).
+- **The grading pass computes both directly:** `tell_tally` gains `missed_pinned` (missed tells whose tell was pinned, booked as the bot first sees it; the pin is decided as the tell begins and holds through its blow) and `missed_pinned_struck` (of them, a plain bash that struck her). Measuring only, in the Shieldwall's lines only. New reach = (missed_struck - missed_pinned_struck) / (missed - missed_countered - missed_pinned); old = missed_struck / (missed - missed_countered). Capture already books a pinned tell as `countered` (`tells.bash`, D-e 2c).
+- **The answered-but-struck guard** (0 frozen, 7 at 1.0 s over scores 50 and 70) is reported in the grading pass, at both profiles. Nothing here moves it: no game change.
+- **t4 stays at x1.35**; seeds 40-59 grade it.
+
+### Option B, kept off as a lever for later: `attack.rush_lane_every` (default 0)
+- **The rule** (`WardenLogic.lane_due`, `RaidShieldwall._begin_tell`; gated on `lever_on`): on every `rush_lane_every`-th bash tell since the wake (counting every tell, pinned or not), a tell a wits flanker pins is the aimed lane at her all the same, where a lane can be aimed (her in its room). The pin still holds the rush off the other tells. The lane's geometry is unchanged, so every margin is too. `--raid-shield-lane-every=<n>` (dev, standalone) sets it for one run. AUTOPILOT_RESULT `shield.pin_breaks` only with it on.
+- **Its readable tell:** PIN BROKEN where PINNED sits, in `danger`, through the tell; the posted flankers' rings and their lines into the wall's back drawn dashed for that tell (shape, not only colour); the HUD shield line ends "· every Nth breaks the pin" where the rule and the lever are on. The lane itself is a different shape from the bash's arc. Under reduced motion the lit arc is steady (as every tell's) and the word and the dashes are static. Not shot: off by default.
+- **What it would buy** (an estimate from the probe, not measured): about 55/N more struck of 83, so N = 4 near 27% and N = 2 near 44% on the old definition. Every pinned tell in the probe began within 462 px of the wall, inside the 1.0 s sideways budget (171 px), so its lanes would be answerable at 1.0 s. Off: of the 13 seed-1 lines, 11 are byte-identical; pale-bastion and the-stair differ only by the new `missed_pinned` and `missed_pinned_struck` keys (below).
+
+### The Pyre-priest trim test (from the D-e task 4 brief)
+- **The test:** whitecross "stands out" if its deaths are >= 5/20 and more than 2x the mean of t4's other two forts, on seeds 20-39 after the Shieldwall change.
+- **Applied to rows that predate it,** since no game change happened (m4c for sable-hold and whitecross, qm for the-stair): whitecross 6/20; sable-hold 5/20 and the-stair 1/20, mean 3. 6 is >= 5 but not more than 2 x 3 = 6, so whitecross does not stand out and there is no trim.
+
+### Identity (D-e task 4)
+- **The 13 seed-1 lines at 11beb24** (option B's knob off, the new tally keys in; iter `de4id`) against `g3id-post` (0cdc2c7): 11 byte-identical; pale-bastion and the-stair byte-identical once `missed_pinned` and `missed_pinned_struck` are taken out of `tell_tally` (pale-bastion s1: 1 missed, 1 of them pinned; the-stair s1: 1 missed, 0 pinned). Vei's seed-1 BOSS_RESULT is identical to 3cbb6e3's (both run in this task, side by side).
+- The margins (test_wardens printout) are unchanged: at 0.6 s slam 0.17, toll 0.74, lunge 0.97, bash 0.71, fire 0.62, lane sideways 0.16 s (lane back 0.72 s, from `rush_lane_over_px` 80 + 13 px); at 1.0 s slam -0.23, toll 0.34, lunge 0.57, bash 0.31, fire 0.22, lane -0.24 s.
+- Suite at 11beb24: ALL TESTS PASSED (12,221 checks). `tests/parity_check.sh`: 5 of 5 identical.
+
+## D-e task 5: the death card's AFTER row, and the dev "STRUCK −1030"
+- **The row** (`RaidLogic.death_next_row(seed)`, last on the card, label AFTER; `RaidEndings.death_rows` passes the seed the raid already holds, no `Game.*` read, `configs/backups.json` never read). The source is the seed's `death_ends` `{outcome, respawn_s}` (economy 602375e, STATE-API §7.1 v6: after any phylactery revives; not in integration yet, so no seed carries it today).
+  - `clone`: "wakes at Covington", plus " in N s" only when `respawn_s` > 0 (m:ss from 60 s: "in 1:30"; a fraction rounds up to 1 s, never "0 s"). Colour `text`.
+  - `unmade`: "unmade", plus " · reforms in N s" when `respawn_s` > 0. Colour `danger`.
+  - `death_ends` absent (an older save): the seed's `clones_ready`, "wakes at Covington" if > 0, else "unmade". No number.
+  - A phylactery revive returns from `RaidRelish.take_hit` before `on_relish_died`, so it never shows the card (source guard in test_raid_logic). Widest AFTER value 242 of 396 px.
+- **Dev:** `--raid-clones=<n>` (clones_ready) and `--raid-death-ends=<clone|unmade>:<respawn_s>` (injects the key; the only way to see the number until economy merges). Standalone demo seed only.
+- **The Vei fight:** the boss seed carries `death_ends` ("unmade" for a final death), but no loss card or loss text reads it. A lost fight shows only the banner "RELISH IS UNMADE" (`vei_boss.gd` `_lose`, banner text map). Reported, not built.
+- **STRUCK −1030:** dev only. The only `take_hit(max_hp + 1000)` calls were `--raid-autodie` (`raid_dev.gd _autodie_hit`) and `--boss-autodie` (`boss_dev.gd _die`), both created only from those flags. Every real blow passes its own damage (slam, toll, lunge, bash, rush, fire, the living's `dmg`), and `take_hit` shows `_struck_amt = amount`, so a real lethal hit shows its real number. **Chosen:** the dev blow equals her remaining hp (the cue stays on, so the shots exercise it), not suppression: `take_hit(relish.hp)`. The first autodie blow after a revive now reads "STRUCK −15" (her revive hp), and a full-hp kill "STRUCK −30".
+- **Identity:** the 13 seed-1 raid lines (iter `de4id`) at bd1dfc1 against 52b9da9: 13 of 13 byte-identical; Vei seed 1 (score 70) identical. The bot never waits on the card (`RaidAutopilot.enabled()`), and `death_next_row` runs only in the card path.
+- **Shots** (reports/dungeon; `--raid-autodie=60 --frames=330`; the dev autodie names its source at any fort, so each is shot where the warden matches): dq-death-toll (vespers, Bellringer toll) and dq-death-clone (vespers, slam, `--raid-clones=1`: "wakes at Covington"); dq-death-fire (`--raid-profile=3 --raid-fort=mourners-gate`, Pyre-priest fire: "unmade"); dq-death-number (`--raid-profile=2 --raid-fort=chime-fort`, Huntsman lunge, `--raid-death-ends=clone:90`: "wakes at Covington in 1:30"; the key is injected by that dev-only override, no seed carries it yet). Profile seeds hold no phylactery, so those two read STRUCK −30.
+
+## D-e task 6: the held door (a t2 set piece)
+### The bot's door rule (bot policy, frozen from here on; written and committed before any row it decides)
+- **When.** Once, at the first think she stands in the door's room before the warden wakes, her read pause over, with no living foe on her (a living foe that is not a detour guard, in her room, within `kite_px`).
+- **Take it when** at least `autopilot.door_min_bigs` (2) party bigs stand and, once one is spent, a big that meets this warden's weak point (`wardens.archetypes.<id>.weak_point` stat and threshold) still stands, or none met it to begin with. **Spend** the big lowest in that stat (the first in party order on a tie). Otherwise skip it. `RaidLogic.held_door_pick`; `RaidAutopilot._door_tick` / `_door_decide`.
+  - Spending the lowest never removes the last big that meets the weak point, so with two or more bigs the rule always takes the door, and the clause decides which big goes.
+  - With one big it always skips. The standard t2 party (`party_profiles["2"]`) has one big, beef 6 and speed 4. That meets the Bellringer's beef 6 and the Huntsman's speed 4, so the frozen bot and the typical human skip the door at every standard t2 run.
+- **Then.**
+  - She walks to the doorstep.
+  - She gives the order, the human's left click on that big, at the first think she is within `held_door.order_px` (220) of the plate with no foe on her.
+  - Once the plate holds the door, she steps into the doorway and takes the cache.
+  - She moves on. Leaving the room shuts the big in.
+- **She gives it up** if the big falls before the door holds, or if the door is not open `door_wait_max_s` (8 s) after the order. A big sent stays sent, so it is shut in when she leaves.
+- **Basis: a decent player.** The cache is a relic, and its price is a big that sits out the warden fight and is lost on a retreat or a death.
+  - With a spare big, they spend the one least use against this warden and keep the one that answers it. The warden's label says which stat answers it ("a beefy big undead braced at the bell muffles its slams"), and the 3c arms showed a fight without its counter runs 1.3-3x longer.
+  - With one big, that big is the counter, so they keep it.
+- Frozen like the detour rule. The reaction rule and the detour rule are unchanged.
+
+### The measurement arms (the manager, 2026-11-15; written before their rows)
+- Seeds 20-39 only. Profiles: the frozen bot (score 70) and the typical human (score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`).
+- **Arm (a), the standard t2 party** (`--raid-profile=2` at vespers, lantern-keep and chime-fort). With the door, paired by seed against the existing no-door rows: m4c for the frozen bot, hb70d10 for the typical human.
+- **Arm (b), a party with a spare big.** This is not the standard t2 party. It is the t3 party (`--raid-profile=3`: two bigs, beef 7 / speed 4 and beef 4 / speed 6) at the same three t2 forts. Its no-door rows run on a snapshot of a14d1ec (the code before the door), and it is paired by seed against them.
+  - At the Bellringer forts the rule spends the beef-4 big.
+  - At chime-fort (the Huntsman, speed 4) both bigs meet the weak point, so it spends the speed-4 big.
+- Reported per arm, per fort and per profile:
+  - the door-taken rate and which big is spent;
+  - the t2 median and the share of runs at 180 s or more (the typical human with the midpoint left-out factors);
+  - t2 deaths paired by seed, with Wilson 90% and the clustered interval;
+  - travel against the 5.3% ceiling, and idle;
+  - relics gained, and bigs spent, rejoined or lost.
+- **The rule's walk, made exact before any measurement row.** The seed-1 probes showed two gaps in how the committed rule was carried out. Neither changes the decision, which big is spent, or when she orders.
+  - The bot's usual gathering (piles within `pile_px` 900, in any room) took her out of the door's room before the cache was hers, so the big was shut in for nothing. While the door is taken she now gathers only inside the door's room (`_collect_node` / `_pickup_node` with that room).
+  - If she does leave first anyway, the rule ends (`abandoned`) and the big stays shut in.
+
+### The design as built (`raid.json held_door`, `RaidHeldDoor`, `LayoutLogic.held_door_site` / `carve_held_door` / `_niche_step`)
+- **Gate.** `held_door.tiers` [2]: vespers, lantern-keep and chime-fort. Never the first dungeon, a held fort or the boss arena. `[]` turns it off. Every new path is gated on the carved layout (`layout.held_door`) or `raid.held_door != null`, so every other fort runs the old code.
+- **Where.** The route is the greedy walk the bot's routing takes: from the spawn, through the nearest portal into each next room of the shortest room path. Every route room but the warden's is a candidate.
+  - On each of its four walls, every niche position 8 px apart whose zone (niche, walls and plate, grown by `clear_px` 30) touches no gap or exit, and whose footprint (grown by `route_clear_px` 40) misses the route's segment through that room.
+  - The pick is the least added walk (`detour_px`), with no rng.
+  - The result: vespers, the spawn room's north wall between its two gaps to the antechamber (96 px of detour); lantern-keep, the spawn room's south wall beside the spawn exit (25 px); chime-fort, the antechamber's north wall (152 px).
+  - The spawn room is a checkpoint at all three. At vespers and chime-fort the antechamber is one too, so a cache taken in the spawn room at vespers banks on entering the antechamber.
+- **The niche.** 110 px along the wall by 44 px deep, 12 px walls, a 64 px door, and a 36 px plate beside the door in the room. It is part of its room (`room_of`); the routing tables are unchanged.
+  - The niche and its door are solid (the plug) while the door is shut, so nothing can stand in a shut niche.
+  - `LayoutLogic.waypoint` takes any mover in or out through the doorway (`_niche_step`).
+  - The cache (`loot.json cache`, 1 relic at t2) lies inside, 28 px from the doorway's centre, and out of reach through the shut door (47 px from the doorstep against the 40 px pickup radius). It stays out of `raid_pickups` while the door is shut, so it is never "on the floor" and no one fetches it.
+- **The order.** There was no army order to reuse: the army follows Relish and the trance raises. Standing within `order_px` 220 of the plate (her light's radius: she stands at the door), she gives the order with the move click.
+  - A left click on one of her party bigs sends that big; a click on the plate sends the nearest. The click is used up: she does not walk there.
+  - A click on the big was added so the player chooses which big pays, as the choice is "spend a big or keep it for the warden" and the counter big matters. The bot uses the same click (`RaidHeldDoor.click`).
+- **The door.** It is open only while the sent big stands within `hold_px` 18 of the plate's centre (`RaidUnit._hold_plate`: it holds the plate before any warden role and strikes what comes into reach; it never chases). It never shuts on Relish.
+  - When she stands in any other room, the sent big is shut in (`_shut_in`): off `allies` (so out of the ward, the conduit chain, the pack counters and the party line), parked behind the barred door, never struck.
+  - **Its fate, in one place** (`RaidLogic.held_door_lost`, the manager's ruling): when the warden falls the door unlocks and the big rejoins at the doorstep. A retreat, a window close or a death puts its uid in `party_lost` (`RaidEndings.build_result`). No result key changed.
+  - Once the warden has fallen, no order is taken, so the cache is never free after the fight.
+- **Legible** (shape and words; nothing animates, so reduced motion is the same picture):
+  - The shut door is a barred slab and the open door a dashed frame. The plate is dashed when empty and a solid double square when held, with a dashed tie from the plate to the door.
+  - On entry: the banner and the world label "HELD DOOR · a big on the plate holds it · it stays behind".
+  - The plate's prompt, while she can order: "AT THE HELD DOOR · click a big to send it (the plate sends the nearest) · it stays shut in until the warden falls · a retreat or a death loses it".
+  - While held: the world label "HELD · <name>" and the HUD row "HELD DOOR · <name> holds it · leaving the room shuts it in until the warden falls".
+  - On leaving: the banner and world label "SHUT IN · <name>" in `danger`, and the HUD row "SHUT IN · <name> · rejoins when the warden falls · a retreat or a death loses it". The WARD's big row drops it.
+  - The retreat dialog adds "<name> is shut in at the cache: a retreat loses it." The death card gives it its own row, SHUT IN "<name> · lost at the cache", and the LOST row's big count leaves it out.
+  - No new Palette key.
+- **Measuring.**
+  - AUTOPILOT_RESULT `door` {room, side, detour_px, state, big, fell, cache, cache_left, times {ordered, open, cache, shut, freed}, spent_s (from the order to the cache in hand), rule, at {t, stat, threshold, values, big}, done_s, wait_s (standing at the doorstep after the order, the door still shut), walk_px (from the decision to the cache), fate (lost / rejoined / kept / fell / "")}. It appears only on lines with a door.
+  - Capture's record gains `door` (the same, plus `taken` and the big's `name`) only on those forts. `AUTOPILOT_DOOR <taken|declined> ... frame=` prints the decision.
+- **Shots** (reports/dungeon; vespers seed 1; `--frames` with `--fixed-fps 60`):
+  - de6-door-entry: the standard party, frame 75. Barred door, dashed plate, CACHE, label, banner and prompt.
+  - de6-door-held: the spare-big party, frame 180. Profile big 2 on the plate, the door open, HELD and the HUD row.
+  - de6-door-shut: frame 300. Behind the barred door, SHUT IN in the world, banner and HUD row; WARD big 1; the relic banked in the antechamber.
+  - de6-door-shut-reduced: the same frame under `--reduced-motion`.
+  - de6-door-held-greyscale: frame 180 under `--raid-greyscale`.
+- **Capture, checked** (vespers, the spare-big party, seed 1, the door taken): the bot's line is identical with `--capture` on and off. The record carries `door` {taken true, big p2 "Profile big 2", times, spent_s 2.52, fate rejoined}.
+- **The retreat card.** There is none to add a row to: no post-retreat card or summary reads `party_lost`. Only `sim/state_runs` (it removes the bigs), `results` and the Vei card do. The retreat confirmation dialog is the one retreat surface, and it now names the shut-in big. A window close shows nothing; the big is still in `party_lost`.
+  - The death card's SHUT IN row and the dialog line are checked in source only (tests). The bot never shows the card, so no row exercises them.
+- **Seed-1 probes before the rows** (working tree, scratch, not in the raw file):
+  - The standard party declined the door at all three forts.
+  - The spare-big party took it at all three, and its big rejoined: vespers 117.4 s (order 0.53, open 2.93, cache 3.05, shut 4.53; 1.5 s at the doorstep); lantern-keep 153.6 s (order 0.08, open 3.88, cache 18.77: the room's fight came first); chime-fort 128.9 s (order 13.98, open 17.87, cache 17.98; 3.0 s at the doorstep).
+  - The wait at the doorstep is idle in the split.
+- **The checkpoint review's two overlaps** (bd13552, draw only, lines byte-identical to bff1cea):
+  - The world label moves off Relish's token while they would overlap, away from the wall and past her (`RaidHeldDoor.label_shift`, after the boss lanes' `label_shift`).
+  - The HUD's door row is now the StatBlock's DOOR row, on its plate, wrapped to the value column (`RaidHud.wrap_chunks`). It no longer runs across the map.
+  - All five shots were re-taken at bd13552 and read.
+
+### Identity (iter `de6id`, the 13 seed-1 lines at bff1cea)
+- 10 lines (t1, P1, t3, t4) are raw-identical to `de4id`. vespers is identical once the new `door` key is dropped.
+- lantern-keep 106.07 → 113.47 s and chime-fort 116.05 → 108.27 s, re-pinned in 8ad7ca1. The door is declined (one big), so only the niche's walls act.
+- Vei's seed-1 line is identical to a14d1ec's. `parity_check.sh` gives 5 of 5. A door-taken t2 line (vespers, the spare-big party, seed 1) is identical with and without `--reduced-motion`.
+
+### The measurement (seeds 20-39, score 70, the three t2 forts; 372 rows, all in lockstep, no script errors)
+- **Rows:**
+  - with the door at bff1cea: `de6a` / `de6ah` (arm a, frozen bot / typical human), `de6b` / `de6bh` (arm b);
+  - arm (b) without the door at a14d1ec: `de6b0` / `de6b0h`;
+  - arm (a) without the door: m4c and hb70d10. They reproduce byte for byte at a14d1ec (`de6spot` / `de6spoth`, seeds 20-21, 12 of 12).
+- **The typical human's length** is the per-run estimate `duration_s + trance_s × (1/0.35 − 1) + 0.75 × raises + 0.2 × split.travel_s + 1.0 × human.reads + 0.2 × react.tells` (seconds). The 2 s circle comes in through the trance's stretch (the 0.7 scene-second draw at a 0.35 time scale) and is not added again. The frozen bot's length is scene seconds.
+- **Deaths:** Wilson 90%, then the seed-clustered interval (n / 1.5). **Split:** pooled seconds, each fort's > 2× outliers out.
+- **The door taken, per arm, fort and profile:**
+  - arm (a): 0 of 20 at each fort for both profiles (declined: one big);
+  - arm (b): 20 of 20 at each fort for both profiles, its cache fetched every time. The big spent is p2 (beef 4) at vespers and lantern-keep, and p1 (speed 4) at chime-fort.
+
+| arm, profile | median s, no door → door | ≥ 180 s | died, no door → door | paired: died only with / only without | travel / idle % | relics | bigs spent: rejoined / lost |
+|---|---|---|---|---|---|---|---|
+| a, frozen | 117.6 → 116.4 | 5 → 7 of 60 | 6/60 = 10.0% (5-18; 5-20) → 7/60 = 11.7% (6-20; 6-23) | 3 / 2 | 5.13 / 1.28 → 4.92 / 1.36 | 128 → 126 | none spent |
+| a, typical human | 168.0 → 169.3 (scene 126.9 → 126.9) | 19 → 20 | 9/60 = 15.0% (9-24; 8-26) → 6/60 = 10.0% (5-18; 5-20) | 2 / 5 | 4.51 / 2.32 → 4.57 / 2.26 | 122 → 126 | none spent |
+| b, frozen | 87.5 → 106.4 | 0 → 3 | 0/60 (0-4; 0-6) → 4/60 = 6.7% (3-14; 3-16) | 4 / 0 | 6.91 / 1.70 → 6.18 / 4.40 | 142 → 185 | 60: 54 / 6 (4 deaths, 2 retreats) |
+| b, typical human | 129.4 → 162.3 (scene 97.0 → 123.2) | 4 → 18 | 1/60 = 1.7% (0-7; 0-9) → 2/60 = 3.3% (1-10; 1-12) | 2 / 1 | 6.00 / 3.26 → 5.79 / 5.14 | 140 → 190 | 60: 57 / 3 (2 deaths, 1 retreat) |
+
+- **Paired per run** (door minus none, paired medians):
+  - arm (a): +0.0 s (27 and 28 of 60 runs the same length);
+  - arm (b): the frozen bot +22.9 scene seconds; the typical human +43.3 s on the estimate (+30.6 scene seconds).
+- **Arm (a), declined: it neither pads nor idles beyond noise.**
+  - Travel is 4.92% and 4.57%, under the 5.3% ceiling.
+  - Idle is 1.28 → 1.36% for the frozen bot (+0.07 s a run, mean) and 2.32 → 2.26% for the typical human.
+  - The niche's walls changed the length of 33 and 32 of the 60 runs. Deaths move both ways within the intervals.
+  - The typical human's 15.0 → 10.0% is noise, not the door making t2 safer: 9 against 6 of 60, paired 2 against 5, with the niche's walls shifting paths, and the door declined in every run.
+- **Arm (b), the trade.**
+  - Length (paired medians): +22.9 scene seconds for the frozen bot, and +43.3 s on the typical human's estimate (+30.6 scene seconds). The estimate's median goes from 129 to 162 s, and the share at 180 s or more from 4 to 18 of 60.
+  - Risk: 0 → 4 deaths for the frozen bot (all 4 paired against a survived run) and 1 → 2 for the typical human.
+  - Loot: one relic a run (60 cache relics fetched in each profile). Result relics +43 and +50, net of the unbanked cache lost in deaths and of the chest's own rolls.
+  - Travel: arm (b) without the door is already over 5.3% (6.91% and 6.00%), because the spare-big party's fights are short. The door adds 0.9 s and 1.6 s of travel a run (the walk is 352-792 px, median per fort), and the share falls to 6.18% and 5.79%.
+  - Idle rises: 1.70 → 4.40% and 3.26 → 5.14%, about +3.5 s a run.
+- **What the idle is.** A throwaway probe on copies of both snapshots booked each idle tick to the bot's branch: frozen bot, arm (b), seeds 20-25, 18 runs each, every line byte-identical to its batch row.
+  - The doorstep wait (the big walking to the plate) is 12.6 s, 0.7 s a run. A human waits for it too.
+  - The rest is the bot's hold rule, which waits while hostile living fight its army in this room or the next and which `time_class` books as idle (Step 4's classification gap): 27.3 s without the door, 78.0 s with it. 41.8 s of that came while the big held the plate:
+    - with the plate's holder out of the room's fight, the route fights run longer;
+    - the bot's door step comes after its hold, so it waits out the room's fight before stepping in.
+  - The order-to-cache median is 2.5 s at vespers and 7-9 s at the other two. Not tuned: the bot is frozen.
+- **The t2 risk band (10-15%).**
+  - Arm (a), t2's own party: 11.7% (frozen) and 10.0% (typical human), inside the band.
+  - Arm (b), a spare big: 6.7% and 3.3% with the door, 0% and 1.7% without. Under the band, reported as asked.
+
+### The quality pass (D-e opus review, 3a4ec38..520cd63; one commit each)
+- **Important 1, the warden falls with a big sent or on the plate** (5c1ba38). The fall frees it too (`RaidLogic.held_door_fall`: sent, held and shut all become freed). It is never shut in afterwards, the door unlocks, and a retreat after the fall keeps it.
+  - Gating `_shut_in` alone was not chosen: it would leave the big on the plate and committed, so a retreat would still lose it.
+  - The states are pure (`held_door_step`, `held_door_fall`, `held_door_committed`), and the order of events is tested.
+- **Important 2, source guards** (ff88879): rows for the changed routing (`waypoint`, `_waypoint_rooms`, `_niche_step`), the door's `make`, `place_cache` and `fate`, `spawn_cache`, the bot's `_collect_node` and `_pickup_node`, and the new pure functions. A new guard checks that every held-door, niche-routing and door-rule sim function draws no random number.
+- **Important 3, the unstick watch under the degraded bot's held goal** (79c7070).
+  - While a read pause or a drawn circle holds her still, `_aim_at` no longer steps the watch or advances its clock. The first think back restarts it. The frozen bot never holds, so its lines are unchanged.
+  - The closing branch's `st.in` is left as it is: clearing it would move frozen lines wherever the watch fires.
+  - **Effect:**
+    - The 9 hb70d10 rows at seed 20 (one per at-tier fort; `de6q3pre` at 64de0f4 against `de6q3` at 79c7070) are all identical: the watch fired in none of them.
+    - The 11 hb70d10 runs where it had fired (seeds 20-39: chime-fort 1, hollow-redoubt 6, mourners-gate 2, sable-hold 1, whitecross 1; `de6q3fpre` / `de6q3f`): 9 move, and **only in `unstick.aimed_in`**. Length, exit, split and every other key are unchanged in all 11.
+  - **So D-e's task 2 and task 6 human rows on seeds 20-39 carry this small bias.** It shows as a spurious `aimed_in` (hb70d10 11/180, hb50d10 8/180, de6ah 2/60, de6bh 19/60, de6b0h 6/60; de6ah has 1 `given_up`). In the sampled runs it changed nothing else. The grading pass re-measures the typical human with the fix.
+- **Minor 4** (74fca39): one weak-point lookup (`RaidLogic.unit_stat`); the dead `big_stat` and the unused `CAPTURE_OUTCOMES` are gone.
+- **Minor 5** (5f2d4f0): `RaidHeldDoor.fate(exit)` for the bot and capture; `RaidPopulate.spawn_cache` for both caches.
+- **Minor 6** (36e0cf4): capture records the bot's time-out as `timeout`, and a standalone close during an ending beat as that beat's ending, with its killer.
+- **Minor 7** (0f6fe53): the brittle tests are now behavioural (the death card's SHUT IN row, `party_lost` on a retreat) or matched on their tokens.
+- **Minor 8** (b11f0b2): the door's geometry is in `raid.json held_door` at the same values.
+- **Spec-review items:**
+  - The retreat dialog says it by state: on the plate · lost if you retreat, or shut in at the cache (566b4e1).
+  - The door's one-line labels sit beside the plate, and the prompt has its own plate; the shots were re-taken and read (64de0f4).
+  - An unknown `death_ends.outcome` falls back to `clones_ready`, and a missing `respawn_s` shows no number (7e9c317).
+
+## D-e grading pass (seeds 40-59, final config afb8dab): the plan, written before any row
+Measurement only: no tuning, no picks, no code change. One `git archive` snapshot of afb8dab runs everything. If any code changes after it, the pass stops and the manager is told. Seeds 40-59 run once; the only re-runs are the 9 determinism reruns below. The rows and this plan live in `reports/dungeon/calibration-dd-raw.tsv(.jsonl)` (iters `grade-*`); the log gets a D-e grading section.
+
+### Profiles
+- **Frozen bot:** score 70, no human knobs (it reacts in 0.45 s; NOTES' "0.6 s" is the score-50 delay).
+- **Typical human:** score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`.
+
+### The run list (seeds 40-59, 20 per cell)
+| set | iters | cells | runs |
+|---|---|---|---|
+| 1. at tier: the 9 forts, the tier's standard party (`--raid-profile=<T> --raid-fort=<id>`) | `grade-tier-frozen`, `grade-tier-human` | 9 forts x 2 profiles | 360 |
+| 2. t1: greywall, ashgate, old-sluice (`--raid-profile=1`) | `grade-t1-frozen`, `grade-t1-human` | 3 x 2 | 120 |
+| 3. P1: `--raid-fixture=day1,old-sluice` | `grade-p1-frozen`, `grade-p1-human` | 1 x 2 | 40 |
+| 4. held door, arm (b): the t3 party (`--raid-profile=3`) at vespers, lantern-keep and chime-fort, door on and door off | `grade-doorb-on-frozen/-human`, `grade-doorb-off-frozen/-human` | 3 x 2 x 2 | 240 |
+| 5. Vei: seed 1 (`--boss-autoplay=70 --boss-seed=1`) and `parity_check.sh`'s boss line | | identity only | 2 |
+| capture check: frozen, seed 40, one per at-tier fort, with `--capture=<R>/de-capture-check.d/grade-<fort>-40.jsonl` | `grade-cap` | 9 | 9 |
+| determinism reruns (rep 1): typical human, seed 41, one per at-tier fort | `grade-tier-human` rep 1 | 9 | 9 |
+
+The grading rows are 760; with capture and reruns 778 raid runs, plus the 2 Vei runs. About 14 s of wall each at 3 at once.
+- **Arm (a)** is not a separate set: it is the three t2 forts of set 1 (the standard t2 party, one big, door declined).
+- **Door off, one snapshot.** The code has no per-run flag for the door. The off rows run on a byte copy of the same imported snapshot with one config value changed, `configs/raid.json held_door.tiers` `[2]` -> `[]` (the documented off switch: no niche, no door, no cache). It is a config value, not code. Task 6's no-door rows ran a14d1ec instead, so the off rows here are not those rows' twin: they share afb8dab's every other line.
+- Seed 40-59 batches run with `calibration-dd-run.py --sha afb8dab`, at most 3 at once, headless, `--audio-driver Dummy`.
+
+### Reporting method (fixed here, before any row)
+- **Death rates:** count, Wilson 90%, and the seed-clustered interval (Wilson on n_eff = n / 1.5, the same proportion). Retreats (left with no army, gave up) count as neither a death nor a win and stay in the medians.
+- **At tier, both profiles:** pooled, per tier, per archetype, per fort. Causes: `killed_by` plus the missed tell (`RaidLogic.death_tell`), with the toll split from the slam. `untold_blows` summed. Answered-but-struck (`tell_tally.answered_struck`) per warden.
+  - **The Shieldwall guard, like for like:** frozen bot 0 on seeds 20-39 (qm, 2 forts x 20) against the same on 40-59. The typical human: 7 on seeds 20-39 was hb70d10 (4) plus hb50d10 (3), over two scores, so the like-for-like comparison is hb70d10's 4 against this pass's score-70 count; both are stated, and the score-50 profile is not re-run.
+- **Reach per warden, both definitions** (`tell_tally`): old = missed_struck / (missed - missed_countered); new = (missed_struck - missed_pinned_struck) / (missed - missed_countered - missed_pinned). `missed_pinned` and `missed_pinned_struck` exist in the Shieldwall's lines only, so the other wardens' two definitions are one.
+- **Length:** per tier and profile: the median scene seconds and the pooled split (travel, fight, trance, idle; each fort's > 2x outliers out, the Part 2 method). For the typical human the per-run estimate is `duration_s + trance_s x (1/0.35 - 1) + 0.75 x raises + 0.2 x split.travel_s + 1.0 x human.reads + 0.2 x react.tells`, with the circle coming in through the trance's stretch only; its median, its share >= 180 s, and real seconds = `duration_s + trance_s x (1/0.35 - 1)`. The frozen bot's length is scene seconds. Guards: travel <= 5.3 / 10.5 / 16.0% at t2 / t3 / t4, idle not above the D-d final (0.3-1.3% at t2-t4, frozen).
+- **t1 and P1, both profiles:** deaths per fort and pooled; for each death, whether it came in the warden fight (after `warden_wake_s`) or before, and the army at death and 5 s before (`army_at_death_minus5`); greywall against ashgate and old-sluice; length.
+- **The held door:**
+  - arm (a): door-taken rate; t2 median and deaths against task 6's no-door rows (seeds 20-39: 117.6 / 168.0 s median, 6 and 9 of 60 died), side by side, not paired. The human's 15.0 -> 10.0% there is noise, not the door making t2 safer.
+  - arm (b): taken rate, which big, the t2 median and the share >= 180 s, deaths paired by seed door on against off (Wilson 90% and clustered), relics gained, bigs spent / rejoined / lost, travel and idle. Idle is two figures: 0.7 s a run is the doorstep wait, and the rest is the bot's hold-while-the-army-fights rule (a side finding, untuned).
+- **Determinism:** the lockstep count (physics_frames - frames_drawn in 0 or 1) over every row, and the 9 reruns, which must be byte-identical (the whole AUTOPILOT_RESULT line).
+- **Then:** re-measure the stand-ins (`reports/dungeon/standins-measured.json`, `measured_at` = afb8dab), run the full suite and `parity_check.sh`.
+
+### Coverage of the manager's rulings
+| item | where it's covered |
+|---|---|
+| t4 at x1.35 | at tier, per tier: t4 graded with Wilson and the clustered interval |
+| greywall, ashgate, old-sluice at both profiles | t1 set, per fort |
+| t1 pooled and the first dungeon at the typical human | t1 set pooled; P1 at both profiles |
+| the answered-but-struck guard (frozen and 1.0 s, Shieldwall especially) | at tier, both profiles, per warden |
+| reach under both definitions | at tier, with `missed_pinned` giving exact counts |
+| D-d's 14.4% restated with its clustered interval | settled, no seeds: 26/180, Wilson 10.7-19.3%, clustered 9.9-20.5%. Restated beside the grade |
+| the L1 byte-for-byte check | settled, no seeds: 6 of 6 L1 rows re-run at 0cdc2c7 were byte-identical (43021cd's NOTES line). Cited |
+| the capture check (b) evidence | settled at 187fb96 (de-capture-check.tsv and .jsonl, 40 of 40). Task 6 added the door to capture, so 9 grading rows (frozen, one per at-tier fort, seed 40) re-run with `--capture`: the AUTOPILOT_RESULT must equal its no-capture grading row, and capture's tallies must match `tell_tally`. The rows are appended to the de-capture-check files |
+
+### Addendum: the door-off override, labelled (the manager's condition, before the door-off rows)
+- **The override:** the `grade-doorb-off-*` rows run on a copy of the imported afb8dab snapshot, not on the bare sha. The one change, in `configs/raid.json` `held_door`: `"tiers": [2]` -> `"tiers": []`. Nothing else differs from afb8dab.
+- **Labelled so:** these rows carry label `afb8dab+door-off (raid.json held_door.tiers [2] -> [])`; the runner's sha column holds the first 9 characters, `afb8dab+d`. Every other grade row is the clean afb8dab.
+- **The off rows are config-only,** and the report says so wherever it uses them: door off here means no niche, no door and no cache at all.
+
+### Addendum: the stand-ins re-measure at afb8dab (iter `grade-standins`; the Part 2 method, not graded)
+- 432 runs at the clean afb8dab snapshot, score 70 unless stated, the standard party of the tier: the 9 forts at tier seeds 20-39 (score 50 and 90: seeds 20-23); t1 ashgate and old-sluice seeds 1-14 (50/90: 1-5), greywall seeds 20-39 (50/90: 20-24); the first dungeon (day1, old-sluice) seeds 1-60; the tier-2 party at the 3 t4 forts, seeds 20-33. They replace `by_tier`, `first_dungeon`, `two_tiers_above`, `acceptance_70` and `measured_at` in `reports/dungeon/standins-measured.json`. The seed 20-39 rows are not part of the seed 40-59 grade.
+- `fight_telemetry` is not re-measured; its source commit stays stated in the file.
+
+### The grading pass: results (afb8dab, seeds 40-59, run once; plan fb38ecf, addenda 8ea9e41 and d536748)
+Rows: iters `grade-*` in `reports/dungeon/calibration-dd-raw.tsv(.jsonl)`; 778 raid runs, all in lockstep (physics_frames - frames_drawn 0 or 1), no script errors, no failed runs. The door-off rows (`grade-doorb-off-*`, 120) carry label `afb8dab+door-off (raid.json held_door.tiers [2] -> [])` in the label column; the sha column is cut to `afb8dab+d`. Every other grade row is the clean afb8dab. Rates are count, Wilson 90%, then the seed-clustered interval (n / 1.5). Retreats count as neither death nor win.
+- **At tier, pooled:** frozen 27/180 = 15.0% (11-20; 10-21); typical human 38/180 = 21.1% (17-27; 16-28). **Against the 10-15% band:** the typical human's 21.1% is above it, and the frozen bot's 15.0% sits at its top edge. Against seeds 20-39 the human is +6.1 points (z = 1.51, p about 0.13; z = 1.23 with the design effect): within seed noise, only just, and in the wrong direction for the band. D-d's 14.4% restated: 26/180, 10.7-19.3%, clustered 9.9-20.5% (seeds 20-39, a different seed set). The human's 15.0% on seeds 20-39 (hb70d10, 27/180) is below this pass's 21.1%, with overlapping clustered intervals (10-21 and 16-28).
+- **Per tier** (frozen | human): t2 9/60 = 15.0% (9-24; 8-26) | 12/60 = 20.0% (13-30; 12-32); t3 11/60 = 18.3% (12-28; 10-30) | 11/60 = 18.3%; t4 (x1.35) 7/60 = 11.7% (6-20; 6-23) | 15/60 = 25.0% (17-35; 16-38).
+- **Per archetype** (frozen | human): Bellringer 9/60 = 15.0% (9-24; 8-26) | 14/60 = 23.3% (16-33; 14-36); Huntsman 10/40 = 25.0% (16-38; 14-41) | 10/40 = 25.0%; Shieldwall 4/40 = 10.0% (5-21; 4-24) | 6/40 = 15.0% (8-26; 7-30); Pyre-priest 4/40 = 10.0% (5-21; 4-24) | 8/40 = 20.0% (12-32; 10-35).
+- **Per fort** (frozen | human, of 20): vespers 6 | 8; lantern-keep 1 | 0; chime-fort 2 | 4; hollow-redoubt 8 | 6; pale-bastion 1 | 3; mourners-gate 2 | 2; sable-hold 2 | 6; the-stair 3 | 3; whitecross 2 | 6. Hollow-redoubt's 8/20 frozen (40%, 24-58; clustered 21-62) is the highest cell and all 8 are the lunge. Reported, not tuned.
+- **Causes** (`killed_by`; the missed tell by `RaidLogic.death_tell`): frozen: toll 7 (the ring at your feet), slam 2 (the swing), lunge 9 (the line), rush 4 (the lit arc), fire 4 (the marked ground), living 1 (no tell). Typical human: toll 13, slam 1, lunge 10, rush 5, fire 7, living 2 (the-stair s54, whitecross s53), 38 in all. `untold_blows` is 0 in both profiles.
+- **Answered-but-struck, per warden** (answered tells): frozen Bellringer 3 of 963, Huntsman 1 of 295, Shieldwall 1 of 418, Pyre-priest 0 of 219; human Bellringer 0 of 1,198, Huntsman 1 of 403, Shieldwall 6 of 469, Pyre-priest 0 of 225.
+  - **The Shieldwall guard, like for like** (pale-bastion and the-stair, 40 runs each pass): frozen 1 now (the-stair) against 0 on seeds 20-39 (qm); typical human 6 now (all the-stair) against 4 in hb70d10 (the 7 earlier was hb70d10 4 + hb50d10 3). Both rose, on different seeds and from a handful of events; the guard as written ("must not have risen") is not met, and it is reported, not tuned.
+- **Reach per warden** (struck / missed and uncountered; `missed_pinned` counts exact): Bellringer 28/82 = 34% frozen, 44/139 = 32% human; Huntsman 40/64 = 62%, 63/96 = 66%; Pyre-priest 42/62 = 68%, 38/60 = 63% (one definition each). Shieldwall old 24/120 = 20% frozen and 30/131 = 23% human; new (a pin is a counter) 24/29 = 83% and 30/36 = 83%, with `missed_pinned` 91 and 95 and no pinned tell struck (`missed_pinned_struck` 0).
+- **Length** (median scene s; split travel / fight / trance / idle %, pooled, each fort's > 2x outliers out):
+
+  | profile, tier | median scene s | split | notes |
+  |---|---|---|---|
+  | frozen t2 | 116.5 | 4.8 / 94.0 / 0.0 / 1.2 | 2 of 60 >= 180 s |
+  | frozen t3 | 131.5 | 9.7 / 89.4 / 0.0 / 0.8 | 7 of 60 |
+  | frozen t4 | 125.2 | 10.8 / 89.0 / 0.0 / 0.2 | 2 of 60 |
+  | human t2 | 126.5 (real 149.0, estimate 168.5) | 4.0 / 85.0 / 9.1 / 1.9 | estimate >= 180 s: 26 of 60 |
+  | human t3 | 147.8 (real 170.0, estimate 190.8) | 8.0 / 82.9 / 6.9 / 2.3 | 38 of 60 |
+  | human t4 | 129.1 (real 149.7, estimate 169.3) | 10.8 / 80.0 / 7.5 / 1.8 | 22 of 60 |
+
+  The typical human's estimate (the formula as written above): median 178.3 s over all 180 runs, 86 of 180 (48%) >= 180 s. Guards: travel 4.8 / 9.7 / 10.8% (frozen) and 4.0 / 8.0 / 10.8% (human) against 5.3 / 10.5 / 16.0: all under. Idle: frozen 1.2 / 0.8 / 0.2% against D-d's 0.3-1.3%: not above. Human idle 1.9 / 2.3 / 1.8% against hb70d10's 2.3 / 2.1 / 2.1%: t3 is 0.2 points over it, reported.
+- **t1** (20 a fort; frozen | human): greywall 0 | 3, ashgate 2 | 3, old-sluice 0 | 1; pooled 2/60 = 3.3% (1-10; 1-12) | 7/60 = 11.7% (6-20; 6-23). Medians 113.0 s frozen; human scene 115.5, estimate 160.1, real 138.5 s. Splits 3.6 / 93.8 / 0.0 / 2.6 and 3.3 / 82.7 / 10.3 / 3.7.
+  - The greywall pick targets (frozen at most 1/20; human at most 2/20 and not above ashgate and old-sluice): frozen 0/20 met; human 3/20 is over 2/20 and equal to ashgate's 3/20 (old-sluice 1/20).
+  - Every t1 death was a living-pack death (`killed_by` living) with the army at 0. Frozen: ashgate s45 at 26.9 s before the wake (army 7 five seconds before), s56 at 13.0 s in the fight (wake 6.5 s; army 8). Human: 5 of 7 in the warden fight (greywall s41, s49, s58; ashgate s53, s55), 2 before the wake (ashgate s54, old-sluice s54); army five seconds before: 3, 12, 0, 2, 10, 7, 6.
+- **P1** (day1, old-sluice): 0/20 both profiles; median scene 91.6 s frozen (split 4.0 / 94.9 / 0.0 / 1.1); human 103.4 s scene, estimate 139.3, real 122.3 s (3.1 / 79.9 / 9.7 / 7.3: idle is 7.3%).
+- **The held door.**
+  - Arm (a), the standard t2 party at 3 forts, declined 0 of 60 taken for both profiles. Frozen: 9/60 = 15.0% (9-24; 8-26), median 116.5 s, 2 of 60 >= 180 s, against task 6's no-door rows (seeds 20-39, other seeds, side by side) 6/60 = 10.0%, 117.6 s, 5 of 60. Human: 12/60 = 20.0% (13-30; 12-32), estimate median 168.5 s, 26 of 60 >= 180 s, against 9/60 = 15.0%, 168.0 s, 19. The medians match to a second; the death counts differ by 3 both ways and are not the door, as task 6's own 15.0 to 10.0% was not.
+  - Arm (b) (the t3 party at the t2 forts, door on against `afb8dab+door-off`, paired by seed over 60):
+
+  | | frozen on | frozen off | human on | human off |
+  |---|---|---|---|---|
+  | taken, cache fetched | 60/60 | | 58/60 (2 abandoned at lantern-keep s45, s47: she left first, the big rejoined) | |
+  | died (W90; clustered) | 7/60 = 11.7% (6-20; 6-23) | 3/60 = 5.0% (2-12; 2-14) | 9/60 = 15.0% (9-24; 8-26) | 2/60 = 3.3% (1-10; 1-12) |
+  | paired deaths, only with / only without | 6 / 2 | | 8 / 1 | |
+  | median s | 111.6 scene | 88.3 | 161.1 estimate (122.0 scene) | 123.8 (94.8) |
+  | >= 180 s | 3/60 | 0 | 14/60 | 3/60 |
+  | paired median delta | +31.2 s scene | | +39.0 s estimate | |
+  | travel / idle % | 5.21 / 3.50 | 6.28 / 1.86 | 5.18 / 4.35 | 5.73 / 2.97 |
+  | relics (60 runs) | 190 | 142 | 184 | 147 |
+
+  **The trade, deaths:** door on against off, frozen 7 vs 3 (6 only with, 2 only without), human 9 vs 2 (8 / 1). Task 6's door-on rates were 6.7% frozen and 3.3% human on seeds 20-39; on seeds 40-59 they are 11.7% and 15.0%. The door costs a spare-big player real risk.
+  Bigs spent: p2 (beef 4) at vespers and lantern-keep, p1 (speed 4) at chime-fort, 60 a profile; frozen 53 rejoined and 7 lost, human 50 rejoined and 10 lost. The off rows' travel is above 5.3% (6.28 and 5.73), as task 6's were.
+  - **Idle, as two figures.** The doorstep wait is 0.66 s (frozen) and 0.64 s (human) a run. The rise in mean idle with the door is 2.67 s (frozen, 1.66 to 4.33 s) and 2.78 s (human, 2.87 to 5.65 s), so about 2 s a run beyond the wait is the bot's hold-while-the-army-fights rule (inferred from the difference; the branch probe of task 6 was not repeated). It is a side finding left untuned.
+- **Determinism:** 778 of 778 rows in lockstep. The 9 reruns (human, seed 41, one per at-tier fort, rep 1) are byte-identical to their rep-0 rows, 9 of 9. Task 6's identity checks stand; Vei seed 1 (`BOSS_AUTOPLAY` line, md5 e1ab8a0c...) is identical to the earlier runs' (e1ab8a0c...), and `parity_check.sh` gives 5 of 5 identical.
+- **Capture check (9 rows, frozen, seed 40, `--capture`, iter `grade-cap`):** the AUTOPILOT_RESULT is byte-identical to the no-capture `grade-tier-frozen` row, 9 of 9. Capture's tells (tolls excluded: they ride a slam's tell), struck, outcome, `killed_by` and `scene_s` equal `tell_tally`, outcome, `killed_by` and `duration_s` in 9 of 9 (capture 154 tells with 20 tolls against the bot's 134; struck 10 against 10). Rows are appended to `de-capture-check.tsv` and `.jsonl` (records in `de-capture-check.d/grade-<fort>-40.jsonl`).
+- **The stand-ins** are re-measured at afb8dab (iter `grade-standins`, 432 runs; `standins-measured.json` `measured_at` afb8dab, raw `standins-raw-afb8dab.tsv`): by_tier 70 deaths t1 0%, t2 11.7%, t3 13.3%, t4 20.0%; P1 0%; two tiers up 64.3%. `fight_telemetry` and the caveats text are the earlier file's and say so.
+- **Suite and parity** (HEAD with NOTES-only commits over afb8dab): ALL TESTS PASSED; `parity_check.sh` 5 of 5 identical.

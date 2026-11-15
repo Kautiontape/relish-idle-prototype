@@ -193,6 +193,18 @@ func run() -> int:
 	t.ok(g1.size() == g0.size() and in1 == 0 and str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, gc)) == str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, cfg)),
 		"enemy_room_mult_by_fort: a room weighted 0 at greywall gets none of its 22 living; ashgate is unchanged")
 
+	# D-e task 3: the room leash. On at greywall's room 2 only in the shipped config; a fort's listed rooms hold until she enters.
+	var lc: Dictionary = cfg.duplicate(true)
+	lc["enemy_leash_by_fort"] = {"greywall": {"rooms": [2, 1]}}
+	t.ok(RaidLogic.leash_rooms("greywall", cfg) == [2] and RaidLogic.leash_rooms("ashgate", cfg).is_empty()
+		and RaidLogic.leash_rooms("ashgate", lc).is_empty() and RaidLogic.leash_rooms("old-sluice", cfg).is_empty()
+		and RaidLogic.leash_rooms("greywall", lc) == [2, 1] and RaidLogic.leash_rooms("zz", {}).is_empty(),
+		"leash_rooms: the shipped config leashes greywall's room 2 only; no other fort; the listed rooms from a config")
+	var lroom := Rect2(100, 100, 200, 200)
+	t.ok(RaidLogic.leash_holds(Vector2(50, 50), lroom, 8.0) and not RaidLogic.leash_holds(Vector2(150, 150), lroom, 8.0)
+		and not RaidLogic.leash_holds(Vector2(95, 150), lroom, 8.0) and RaidLogic.leash_holds(Vector2(80, 150), lroom, 8.0),
+		"leash_holds: held outside the room, released inside it (the margin counts)")
+
 	# --- v2: seed, per-mote raise, statlines, LedgerV2 ------------------------
 	var ccfg := TestUtil.load_json("res://configs/circle.json")
 	t.suite("raid_v2_seed")
@@ -431,11 +443,17 @@ func run() -> int:
 			["res://scripts/raid/layout_logic.gd", "static func populate_enemies(", "LayoutLogic.populate_enemies (the living per room)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _record_hits(", "the bot's blow stamps (the tell tally)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _tally_close(", "the bot's tell tally"],
+			["res://scripts/raid/raid_autopilot.gd", "func _tell_pinned(", "the bot's pinned-tell read (the tally's missed_pinned, D-e task 4)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _untold_blows(", "the bot's untold blows"],
 			["res://scripts/raid/raid_autopilot.gd", "func _tell_hits(", "the bot's tell-attack blow count"],
 			["res://scripts/raid/raid_autopilot.gd", "func _counter_count(", "the bot's counter count"],
 			["res://scripts/raid/warden_logic.gd", "static func lane_reach(", "WardenLogic.lane_reach"],
+			["res://scripts/raid/warden_logic.gd", "static func lane_due(", "WardenLogic.lane_due (the lane on every n-th tell, D-e task 4)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
+			["res://scripts/raid/raid_logic.gd", "static func leash_holds(", "RaidLogic.leash_holds (the room leash)"],
+			["res://scripts/raid/raid_logic.gd", "static func leash_rooms(", "RaidLogic.leash_rooms"],
+			["res://scripts/raid/raid_unit.gd", "var leash_hold", "RaidUnit.leash_hold (a held foe)"],
+			["res://scripts/raid/raid_populate.gd", "u.leash_hold = ", "RaidPopulate sets the hold from the config"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],
@@ -446,6 +464,46 @@ func run() -> int:
 			["res://scripts/raid/warden_shieldwall.gd", "func _end_rush(", "RaidShieldwall._end_rush"],
 			["res://scripts/raid/warden_shieldwall.gd", "func _pinned(", "RaidShieldwall._pinned"],
 			["res://scripts/raid/warden_shieldwall.gd", "func front_half_deg(", "RaidShieldwall.front_half_deg (the rush's arc)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _draw_tick(", "the degraded bot's drawn circle (D-e)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _human_goal(", "the degraded bot's held goal (D-e)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _raise_with(", "the bot's raise from a traced circle"],
+			["res://scripts/raid/raid_autopilot.gd", "func _try_raise(", "the bot's raise (instant, or a drawn circle)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _track_room(", "the bot's room watch (the read pause)"],
+			["res://scripts/raid/trance.gd", "func bot_open(", "RaidTrance.bot_open"],
+			["res://scripts/raid/trance.gd", "func bot_cancel(", "RaidTrance.bot_cancel"],
+			["res://scripts/raid/raid_logic.gd", "static func draw_step(", "RaidLogic.draw_step"],
+			["res://scripts/raid/raid_logic.gd", "static func read_starts(", "RaidLogic.read_starts"],
+			["res://scripts/raid/raid_logic.gd", "static func human_knob(", "RaidLogic.human_knob"],
+			["res://scripts/raid/layout_logic.gd", "static func held_door_site(", "LayoutLogic.held_door_site (D-e task 6)"],
+			["res://scripts/raid/layout_logic.gd", "static func _held_door_cands(", "LayoutLogic._held_door_cands"],
+			["res://scripts/raid/layout_logic.gd", "static func carve_held_door(", "LayoutLogic.carve_held_door"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_pick(", "RaidLogic.held_door_pick (the bot's door rule)"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_lost(", "RaidLogic.held_door_lost (the shut-in big's fate)"],
+			["res://scripts/raid/raid_held_door.gd", "func tick(", "RaidHeldDoor.tick"],
+			["res://scripts/raid/raid_held_door.gd", "func click(", "RaidHeldDoor.click (the order)"],
+			["res://scripts/raid/raid_held_door.gd", "func can_order(", "RaidHeldDoor.can_order"],
+			["res://scripts/raid/raid_held_door.gd", "func _shut_in(", "RaidHeldDoor._shut_in"],
+			["res://scripts/raid/raid_held_door.gd", "func _set_open(", "RaidHeldDoor._set_open"],
+			["res://scripts/raid/raid_held_door.gd", "func on_warden_died(", "RaidHeldDoor.on_warden_died"],
+			["res://scripts/raid/raid_held_door.gd", "func plate_for(", "RaidHeldDoor.plate_for"],
+			["res://scripts/raid/raid_held_door.gd", "func lost_uids(", "RaidHeldDoor.lost_uids"],
+			["res://scripts/raid/raid_unit.gd", "func _hold_plate(", "RaidUnit._hold_plate (the plate's holder)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_tick(", "the bot's held-door progress"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_decide(", "the bot's held-door rule"],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_goal(", "the bot's walk to the held door"],
+			["res://scripts/raid/layout_logic.gd", "static func waypoint(", "LayoutLogic.waypoint (the niche's branch)"],
+			["res://scripts/raid/layout_logic.gd", "static func _waypoint_rooms(", "LayoutLogic._waypoint_rooms"],
+			["res://scripts/raid/layout_logic.gd", "static func _niche_step(", "LayoutLogic._niche_step (through the doorway)"],
+			["res://scripts/raid/raid_held_door.gd", "static func make(", "RaidHeldDoor.make (the carve)"],
+			["res://scripts/raid/raid_held_door.gd", "func place_cache(", "RaidHeldDoor.place_cache"],
+			["res://scripts/raid/raid_held_door.gd", "func fate(", "RaidHeldDoor.fate"],
+			["res://scripts/raid/raid_populate.gd", "static func spawn_cache(", "RaidPopulate.spawn_cache"],
+			["res://scripts/raid/raid_autopilot.gd", "func _collect_node(", "the bot's gathering (in the door's room while it is taken)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pickup_node(", "the bot's pickups (never the door's cache)"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_step(", "RaidLogic.held_door_step"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_fall(", "RaidLogic.held_door_fall"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_committed(", "RaidLogic.held_door_committed"],
+			["res://scripts/raid/raid_logic.gd", "static func unit_stat(", "RaidLogic.unit_stat (the weak point's stat)"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -461,6 +519,26 @@ func run() -> int:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
+	# D-e task 6's sim functions draw no random number: the held door, its routing and the bot's door rule are
+	# deterministic by construction, so they can never shift another stream's draws (quality pass, Important 2)
+	for rf in [["res://scripts/raid/layout_logic.gd", "static func held_door_site("], ["res://scripts/raid/layout_logic.gd", "static func _held_door_cands("],
+			["res://scripts/raid/layout_logic.gd", "static func carve_held_door("], ["res://scripts/raid/layout_logic.gd", "static func waypoint("],
+			["res://scripts/raid/layout_logic.gd", "static func _waypoint_rooms("], ["res://scripts/raid/layout_logic.gd", "static func _niche_step("],
+			["res://scripts/raid/raid_held_door.gd", "static func make("], ["res://scripts/raid/raid_held_door.gd", "func place_cache("],
+			["res://scripts/raid/raid_held_door.gd", "func tick("], ["res://scripts/raid/raid_held_door.gd", "func click("],
+			["res://scripts/raid/raid_held_door.gd", "func can_order("], ["res://scripts/raid/raid_held_door.gd", "func _shut_in("],
+			["res://scripts/raid/raid_held_door.gd", "func _set_open("], ["res://scripts/raid/raid_held_door.gd", "func on_warden_died("],
+			["res://scripts/raid/raid_held_door.gd", "func plate_for("], ["res://scripts/raid/raid_populate.gd", "static func spawn_cache("],
+			["res://scripts/raid/raid_unit.gd", "func _hold_plate("], ["res://scripts/raid/raid_autopilot.gd", "func _collect_node("],
+			["res://scripts/raid/raid_autopilot.gd", "func _pickup_node("], ["res://scripts/raid/raid_autopilot.gd", "func _door_tick("],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_decide("], ["res://scripts/raid/raid_autopilot.gd", "func _door_goal("],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_pick("], ["res://scripts/raid/raid_logic.gd", "static func held_door_step("],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_fall("]]:
+		var rbody := _func_body(str(rf[0]), str(rf[1]))
+		var draws := false
+		for tok in ["randf", "randi", "rng_combat", "rng_loot", "_rng", "rng.", "randomize("]:
+			draws = draws or rbody.contains(tok)
+		t.ok(rbody != "" and not draws, "%s %s draws no random number" % [str(rf[0]).get_file(), str(rf[1])])
 	# the drawn swing is for the eye only: sim code never reads it
 	for sim in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle"],
 			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
@@ -485,7 +563,10 @@ func run() -> int:
 	_vis_tests(t, cfg)
 	_time_split_tests(t)
 	_react_tests(t, cfg)
+	_human_tests(t, cfg)
+	_capture_tests(t)
 	_detour_tests(t, cfg)
+	_held_door_tests(t, cfg)
 	_bot_rule_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
 	t.ok(pick.contains("rel.alive and not warden_pack:") and not pick.contains("na == null"), "a warden's pack never takes Relish as its target (D-d/E 3c)")
@@ -576,6 +657,144 @@ func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 
 
 ## D-d/E Step 3, the guarded detour: LayoutLogic.detour_site / detour_guard, RaidLogic.detour_take.
+## D-e task 6, the held door: LayoutLogic.held_door_site / carve_held_door, RaidLogic.held_door_pick /
+## held_door_lost and its words.
+func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_held_door")
+	var world := TestUtil.load_json("res://configs/world.json")
+	var hc: Dictionary = cfg["held_door"]
+	var pick_r := 40.0   # loot.json pickup.radius_px
+	var rel_r := 13.0    # raid.json relish.radius
+	var bad := ""
+	var sites := 0
+	var detours := {}
+	for f in world["forts"]:
+		var tier := int(f["tier"])
+		var fid := str(f["id"])
+		var lay := RaidLogic.gen_layout(fid, tier, false, cfg)
+		var site := RaidLogic.held_door_site(lay, tier, cfg)
+		if not (hc["tiers"] as Array).has(float(tier)) and not (hc["tiers"] as Array).has(tier):
+			if not site.is_empty():
+				bad += " %s: a door at tier %d" % [fid, tier]
+			continue
+		if site.is_empty():
+			bad += " %s: no door" % fid
+			continue
+		sites += 1
+		detours[fid] = snappedf(float(site["detour_px"]), 0.1)
+		var wr := int(lay["warden_room"])
+		var path := LayoutLogic.room_path(lay, RaidLogic.room_of(lay, lay["spawn"]), wr)
+		var r := int(site["room"])
+		var rc: Rect2 = lay["rooms"][r]
+		if not path.has(r) or r == wr:
+			bad += " %s: room %d is not a route room" % [fid, r]
+		if not rc.encloses(site["footprint"]) or not rc.has_point(site["plate"]) or not rc.has_point(site["door_out"]):
+			bad += " %s: niche or plate outside its room" % fid
+		for g in lay["gaps"]:
+			if (site["zone"] as Rect2).grow(float(hc["clear_px"]) - 0.01).intersects(g):
+				bad += " %s: niche by a gap" % fid
+		for d in lay["doors"]:
+			if (site["zone"] as Rect2).grow(float(hc["clear_px"]) - 0.01).intersects(d["rect"]):
+				bad += " %s: niche by an exit" % fid
+		if not (site["niche"] as Rect2).has_point(site["cache"]) or (site["cache"] as Vector2).distance_to(site["door_in"]) > pick_r - 2.0:
+			bad += " %s: cache not in reach from the doorway" % fid
+		# out of reach through the shut door: the nearest she can stand outside the plug is its front face plus her radius
+		if (site["cache"] as Vector2).distance_to(site["door_out"]) <= pick_r or (site["cache"] as Vector2).distance_to(
+				(site["door_in"] as Vector2) + (site["inward"] as Vector2) * (float(hc["wall_px"]) * 0.5 + rel_r)) <= pick_r:
+			bad += " %s: cache in reach through the shut door" % fid
+		if str(site) != str(RaidLogic.held_door_site(RaidLogic.gen_layout(fid, tier, false, cfg), tier, cfg)):
+			bad += " %s: not the same each build" % fid
+		# the carve: four walls drawn and solid, and the plug solid; the routing tables untouched
+		var portals := str(lay["portals"])
+		var nw := (lay["walls"] as Array).size()
+		var niw := (lay["inner_walls"] as Array).size()
+		LayoutLogic.carve_held_door(lay, site)
+		if (lay["walls"] as Array).size() != nw + 4 or (lay["inner_walls"] as Array).size() != niw + 5 or str(lay["portals"]) != portals:
+			bad += " %s: carve" % fid
+		var inside := LayoutLogic.resolve_walls(lay, site["cache"], rel_r)
+		if (site["plug"] as Rect2).grow(rel_r - 0.5).has_point(inside):
+			bad += " %s: the shut niche lets her in" % fid
+		var held := RaidLogic.gen_layout(fid, tier, false, cfg, {"held": true})
+		if not RaidLogic.held_door_site(held, tier, cfg).is_empty():
+			bad += " %s: a door in a held fort" % fid
+	t.ok(bad == "" and sites == 3, "a held door at each fort whose tier is in held_door.tiers (3: the t2 forts) and nowhere else; in a route room, not the warden's, inside it, clear of every gap and exit; the cache in reach from the doorway and out of reach through the shut door; the same each build; the carve adds 4 walls and the plug and no portal; none in a held fort (%s)" % bad)
+	t.ok(detours.size() == 3 and float(detours.values().max()) <= 200.0, "the niche adds at most 200 px of walk to the route at each t2 fort, when taken (%s)" % str(detours))
+	var lay1 := RaidLogic.gen_layout("old-sluice", 1, false, cfg, {"first_dungeon": true})
+	t.ok(RaidLogic.held_door_site(lay1, 2, cfg).is_empty() and RaidLogic.held_door_site(RaidLogic.gen_layout("vei", 5, true, cfg), 2, cfg).is_empty(),
+		"no held door in the first dungeon or the boss arena")
+	var off := cfg.duplicate(true)
+	off["held_door"]["tiers"] = []
+	t.ok(RaidLogic.held_door_site(RaidLogic.gen_layout("vespers", 2, false, off), 2, off).is_empty(), "held_door.tiers [] turns it off")
+	# the bot's rule: at least two bigs; spend the lowest in the weak point's stat; never the last that meets it
+	var ap: Dictionary = cfg["autopilot"]
+	t.ok(RaidLogic.held_door_pick([6.0], 6.0, ap) == -1, "one big (the standard t2 party: it meets both t2 weak points): she keeps it")
+	t.ok(RaidLogic.held_door_pick([7.0, 4.0], 6.0, ap) == 1, "the t3 party at the Bellringer (beef 7 and 4, threshold 6): she spends the beef-4 big")
+	t.ok(RaidLogic.held_door_pick([4.0, 6.0], 4.0, ap) == 0, "at the Huntsman (speed 4 and 6, threshold 4): both meet, she spends the slower, the other still meets it")
+	t.ok(RaidLogic.held_door_pick([3.0, 2.0], 6.0, ap) == 1, "none meets the weak point: she spends the lowest")
+	t.ok(RaidLogic.held_door_pick([6.0, 6.0], 6.0, ap) == 0, "a tie: the first in party order")
+	t.ok(RaidLogic.held_door_pick([], 6.0, ap) == -1, "no big: nothing to spend")
+	# the door's order of events (RaidLogic.held_door_step / held_door_fall, the states RaidHeldDoor runs on)
+	var st := RaidLogic.held_door_step("sent", true, false, false)
+	t.ok(st == "sent" and RaidLogic.held_door_step("sent", true, true, false) == "held", "a sent big holds the door once it stands on the plate")
+	t.ok(RaidLogic.held_door_step("held", true, true, true) == "shut" and RaidLogic.held_door_step("sent", true, false, true) == "shut",
+		"she leaves the room: the big sent is shut in, on the plate or not")
+	t.ok(RaidLogic.held_door_step("held", false, false, true) == "unused", "a big that falls before it is shut in frees the door (it is in party_died)")
+	# the warden falls while the big is on the plate (the quality pass's scenario: the order after the wake, the
+	# army kills the warden, she leaves for the chest): it rejoins and is never shut in, and a retreat keeps it
+	var s2 := RaidLogic.held_door_fall("held")
+	s2 = RaidLogic.held_door_step(s2, true, true, true)
+	t.ok(s2 == "freed" and not RaidLogic.held_door_committed(s2) and not RaidLogic.held_door_lost("retreated", RaidLogic.held_door_committed(s2)),
+		"the warden falls with the big on the plate: freed; leaving the room does not shut it in; a retreat after keeps it")
+	t.ok(RaidLogic.held_door_fall("sent") == "freed" and RaidLogic.held_door_fall("shut") == "freed" and RaidLogic.held_door_fall("unused") == "unused",
+		"the fall frees a big on its way and a shut-in one too; an unused door stays unused")
+	var s3 := RaidLogic.held_door_step(RaidLogic.held_door_step("held", true, true, true), true, false, false)
+	t.ok(s3 == "shut" and RaidLogic.held_door_committed(s3) and RaidLogic.held_door_lost("retreated", true), "shut in stays shut in until the fall; a retreat then loses it")
+	# the shut-in big's fate, in one place
+	t.ok(not RaidLogic.held_door_lost("warden_beaten", true) and RaidLogic.held_door_lost("retreated", true)
+		and RaidLogic.held_door_lost("relish_died", true) and not RaidLogic.held_door_lost("retreated", false),
+		"a big spent on the door rejoins when the warden falls; a retreat or a death loses it; with none spent nothing is lost")
+	# its words
+	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
+		"the entry and the leaving words are the spec's")
+	var pr := RaidLogic.held_door_prompt()
+	t.ok(pr.contains("shut in until the warden falls") and pr.contains("a retreat or a death loses it"), "the plate's prompt names the whole trade before she commits")
+	t.ok(RaidLogic.held_door_row("shut", "X").begins_with("SHUT IN · X") and RaidLogic.held_door_row("unused", "") == "", "the HUD row shows the shut-in big, and nothing with none spent")
+	var crow := RaidLogic.held_door_card_row("Gristle the Patient Ones")
+	var dcg: Dictionary = RaidLogic.DEATH_CARD
+	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var cw := ThemeDB.fallback_font.get_string_size(crow["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
+	t.ok(crow["label"] == "SHUT IN" and str(crow["text"]).contains("lost at the cache") and cw <= col_w,
+		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
+	t.ok(RaidLogic.held_door_retreat_line("shut", "X") == "\nX is shut in at the cache: a retreat loses it."
+		and RaidLogic.held_door_retreat_line("held", "X") == "\nX is on the plate · lost if you retreat."
+		and RaidLogic.held_door_retreat_line("sent", "X") == RaidLogic.held_door_retreat_line("held", "X")
+		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
+		"the retreat dialog names the big by its state: on the plate, or shut in at the cache; nothing once it rejoined or none was spent")
+	# the death card: the SHUT IN row before AFTER, apart from LOST (behaviour, RaidLogic.death_rows_with_shut)
+	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", RaidLogic.death_next_row({}))
+	var card2 := RaidLogic.death_rows_with_shut(card, "Old Gristle")
+	t.ok(card2.size() == card.size() + 1 and card2[card2.size() - 1]["label"] == "AFTER" and card2[card2.size() - 2]["label"] == "SHUT IN"
+		and str(card2[card2.size() - 2]["text"]).begins_with("Old Gristle") and str(RaidLogic.death_rows_with_shut(card, "")) == str(card),
+		"the death card lists the shut-in big on its own row before AFTER; with none, the card is unchanged")
+	# party_lost on a retreat carries the door's big (behaviour: the ledger, with the uid RaidHeldDoor.lost_uids adds)
+	var lseed := {"party": [{"uid": "p1"}, {"uid": "p2"}], "fort": {"id": "x"}}
+	var lg := RaidLogic.LedgerV2.new(lseed, cfg)
+	var lost_r: Array = lg.build_result(lseed, "retreated", [], ["p2"], 0, {}, cfg)["party_lost"]
+	var lost_w: Array = lg.build_result(lseed, "warden_beaten", [], [], 0, {}, cfg)["party_lost"]
+	t.ok(lost_r == ["p2"] and lost_w.is_empty(), "a retreat with the door's big added loses it (and only it); a win with it rejoined loses none")
+	# the wiring, by the calls that carry it (loose: any formatting)
+	var bres := _func_body("res://scripts/raid/raid_endings.gd", "func build_result(")
+	t.ok(bres.contains("lost_uids(") and bres.contains("held_door"), "build_result adds the door's lost big to party_lost")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_rows_with_shut("), "the death card adds the SHUT IN row")
+	t.ok(_func_body("res://scripts/raid/raid_warden_run.gd", "func on_warden_died(").contains("on_warden_died()"), "the warden's fall reaches the door")
+	var inp := _func_body("res://scripts/raid/raid.gd", "func _unhandled_input(")
+	t.ok(inp.find("held_door.click(") >= 0 and inp.find("held_door.click(") < inp.find("move_target"), "the order is the move click, taken before the move")
+	var sh := _func_body("res://scripts/raid/raid_held_door.gd", "func _shut_in(")
+	t.ok(sh.contains("allies.erase(") and sh.contains("parked = true"), "a shut-in big leaves her party (allies: the ward, the conduit, the counters) and is parked")
+	var ut := _func_body("res://scripts/raid/raid_unit.gd", "func take_hit(")
+	t.ok(RegEx.create_from_string("if [^\\n]*parked[^\\n]*:\\s*return").search(ut) != null, "a parked big is never struck (take_hit returns first)")
+
+
 func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_detour")
 	var world := TestUtil.load_json("res://configs/world.json")
@@ -653,6 +872,14 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.near(RaidLogic.react_at(90.0, pts, dly), 0.30, 1e-9, "score 90 reacts in 0.30 s")
 	t.near(RaidLogic.react_at(60.0, pts, miss), 0.24, 1e-9, "linear between the points (60: 0.24)")
 	t.near(RaidLogic.react_at(30.0, pts, miss), 0.30, 1e-9, "clamped below the first point")
+	# D-e task 4: the pin counted as the Shieldwall's counter in reach, as its own measuring-only keys
+	var tc := _func_body("res://scripts/raid/raid_autopilot.gd", "func _tally_close(")
+	var ans := _func_body("res://scripts/raid/raid_autopilot.gd", "func _answers(")
+	var fin := FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd")
+	t.ok(ans.contains("_tally_pin = _tell_pinned()") and tc.contains("if _tally_pin:") and tc.contains("_pin_tally[\"missed_pinned\"] += 1")
+		and tc.contains("_pin_tally[\"missed_pinned_struck\"] += 1"), "the tally books a missed tell's pin as it is first seen (missed_pinned, and of them struck)")
+	t.ok(RegEx.create_from_string("if _archetype == \"shieldwall\":[^\\n]*\\n\\s*told\\.merge\\(_pin_tally\\)").search(fin) != null,
+		"tell_tally carries missed_pinned only in the Shieldwall's lines")
 	t.near(RaidLogic.react_at(100.0, pts, dly), 0.30, 1e-9, "clamped above the last")
 	t.ok(RaidLogic.react_at(70.0, [], []) == 0.0, "no points: 0")
 	var mono := true
@@ -671,6 +898,96 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
 		t.ok(body != "" and not body.contains("randf") and not body.contains("randi"),
 			"the bot's %s draws no roll of its own (tells go through _answers)" % head.trim_prefix("func ").trim_suffix("("))
+
+
+## D-e, the degraded bot (the human bracket): RaidLogic.human_knob / draw_cap / draw_step / read_starts /
+## human_real_s, and the wiring that keeps every knob off unless given.
+func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_human")
+	# the unstick watch does not count the degraded bot's held thinks (the read pause, the drawn circle; D-e quality pass)
+	var aim := _func_body("res://scripts/raid/raid_autopilot.gd", "func _aim_at(")
+	t.ok(aim.find("_read_left <= 0.0 and not _drawing") >= 0 and aim.find("_read_left <= 0.0 and not _drawing") < aim.find("unstick_step(")
+		and aim.find("_aim_last = _sim_t") > aim.find("_read_left <= 0.0 and not _drawing"),
+		"the watch steps, and its last-walked clock advances, only while she is free to walk (not in a read pause or a draw)")
+	var hum: Dictionary = cfg["autopilot"]["human"]
+	t.ok(hum.has("_doc") and float(hum["read_s"]) > 0.0 and float(hum["draw_s"]) > 0.0, "autopilot.human holds the bare flags' values, with a _doc")
+	t.ok(RaidLogic.human_knob("", false, 1.0, 60.0) == 0.0, "no flag: the knob is off")
+	t.near(RaidLogic.human_knob("", true, 1.0, 60.0), 1.0, 1e-9, "the bare flag takes the config's value")
+	t.near(RaidLogic.human_knob("1.5", true, 1.0, 60.0), 1.5, 1e-9, "a value wins over the default")
+	t.ok(RaidLogic.human_knob("-2", false, 1.0, 60.0) == 0.0, "never negative")
+	var cap := RaidLogic.draw_cap(cfg["trance"])
+	t.near(cap, float(cfg["trance"]["max_hold_s"]) * float(cfg["trance"]["time_scale"]), 1e-9, "the draw's cap is the focus in scene seconds (max_hold_s x time_scale)")
+	t.near(RaidLogic.human_knob("9", false, 0.7, cap), cap, 1e-9, "a circle longer than the focus is capped at it")
+	t.ok(float(hum["draw_s"]) <= cap, "the defended draw fits in one trance (%.2f <= %.2f s)" % [float(hum["draw_s"]), cap])
+	t.ok(RaidLogic.draw_step(0.2, 0.7, true, false) == "hold", "drawing: she stands")
+	t.ok(RaidLogic.draw_step(0.7, 0.7, true, false) == "done", "after draw_s the circle is graded and raised")
+	t.ok(RaidLogic.draw_step(0.2, 0.7, true, true) == "cancel", "a dodge off an answered tell lets the circle go")
+	t.ok(RaidLogic.draw_step(0.9, 0.7, false, true) == "lost", "a trance that closed under her raises nothing")
+	t.ok(RaidLogic.read_starts(1.0, 3, {}) and not RaidLogic.read_starts(1.0, 3, {3: true}), "a room is read on her first entry only")
+	t.ok(not RaidLogic.read_starts(1.0, -1, {}) and not RaidLogic.read_starts(0.0, 3, {}), "a doorway band is no room; with the knob off nothing is read")
+	t.near(RaidLogic.human_real_s(100.0, 0.0, 0.35), 100.0, 1e-9, "no trance: real seconds are scene seconds")
+	t.near(RaidLogic.human_real_s(100.0, 7.0, 0.35), 100.0 + 7.0 * (1.0 / 0.35 - 1.0), 1e-9, "each trance scene second took 1/0.35 real seconds")
+	for wy in RaidLogic.DODGE_WHYS:
+		t.ok(FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd").contains('_why = "%s"' % wy), "the dodge branch '%s' is one the bot sets" % wy)
+	var start := _func_body("res://scripts/raid/raid_autopilot.gd", "func start(")
+	var hon := RegEx.create_from_string("_human_on\\s*=([^\\n]*)").search(start)
+	t.ok(hon != null and hon.get_string(1).contains("dl != \"\"") and hon.get_string(1).contains("_read_s > 0.0") and hon.get_string(1).contains("_draw_s > 0.0"),
+		"the result's human dict only when a knob is given (the frozen bot's lines keep their bytes)")
+	var fin := _func_body("res://scripts/raid/raid_autopilot.gd", "func on_finish(")
+	t.ok(fin.contains("if _human_on:"), "on_finish writes the human dict only behind _human_on")
+	var tick := _func_body("res://scripts/raid/raid_autopilot.gd", "func physics_tick(")
+	t.ok(tick.contains("_read_left <= 0.0 and not _drawing") and tick.contains("if _drawing or _read_left > 0.0:"), "no raise while she reads or draws; her goal is held then")
+	var op := _func_body("res://scripts/raid/trance.gd", "func bot_open(")
+	t.ok(op.contains("State.ACTIVE") and not op.contains("time_scale"), "the bot's trance opens without touching Engine.time_scale (lockstep, scene time)")
+	for head in ["func _draw_tick(", "func _human_goal(", "func _raise_with("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("randf") and not body.contains("randi") and not body.contains("Pulse.phase") and not body.contains("reduced"),
+			"the degraded bot's %s draws no roll and reads no Pulse phase or reduced motion" % head.trim_prefix("func ").trim_suffix("("))
+
+
+## D-e, capture mode: RaidLogic.capture_path / capture_outcome / capture_count, and RaidCapture reads only.
+func _capture_tests(t: TestUtil) -> void:
+	t.suite("raid_capture")
+	# the record's outcome (quality pass, Minor 6): a bot time-out is its own outcome, and a close during an
+	# ending beat records that beat's ending (a death keeps its killer)
+	t.ok(RaidLogic.capture_exit(true, false, false) == "relish_died" and RaidLogic.capture_exit(false, true, false) == "warden_beaten"
+		and RaidLogic.capture_exit(false, false, true) == "retreated", "a finished run's outcome is its result's flag")
+	t.ok(RaidLogic.capture_exit(false, false, false) == "timeout", "no flag at all (the bot's time-out away from an exit): timeout, not retreated")
+	t.ok(RaidLogic.capture_unfinished("closed", "relish_died") == "relish_died" and RaidLogic.capture_unfinished("closed", "warden_beaten") == "warden_beaten",
+		"a standalone close during the death beat records the death (and the victory beat the win)")
+	t.ok(RaidLogic.capture_unfinished("closed", "") == "closed" and RaidLogic.capture_unfinished("freed", "") == "freed", "with no beat playing: closed / freed")
+	t.ok(_func_body("res://scripts/raid/raid_capture.gd", "func flush_unfinished(").contains("pending_exit"), "the unfinished write reads the pending ending")
+	var none := PackedStringArray()
+	t.ok(RaidLogic.capture_path(none, none, "user://c.jsonl") == "", "no flag: off")
+	t.ok(RaidLogic.capture_path(PackedStringArray(["--capture"]), none, "user://c.jsonl") == "user://c.jsonl", "--capture: the default file")
+	t.ok(RaidLogic.capture_path(none, PackedStringArray(["--path", ".", "--capture"]), "user://c.jsonl") == "user://c.jsonl",
+		"as an engine arg too (a player launch: the boot rule keeps the save)")
+	t.ok(RaidLogic.capture_path(PackedStringArray(["--new-game", "--capture=/tmp/x.jsonl"]), none, "user://c.jsonl") == "/tmp/x.jsonl", "--capture=<path>: that file")
+	var boot := preload("res://scripts/sim/boot_rule.gd")
+	t.ok(not boot.is_harness_args(PackedStringArray()) and boot.is_harness_args(PackedStringArray(["--capture"]))
+		and not boot.is_harness(PackedStringArray(), PackedStringArray(["--path", ".", "--capture"]), false),
+		"after -- it is a harness arg (a fresh game, no autosave); before -- the boot rule keeps the player's session")
+	t.ok(RaidLogic.capture_outcome(true, true, true) == "struck", "a blow that reached her is struck, whatever else")
+	t.ok(RaidLogic.capture_outcome(false, true, true) == "countered", "then the counter")
+	t.ok(RaidLogic.capture_outcome(false, false, true) == "dodged", "aimed at her and missed: dodged")
+	t.ok(RaidLogic.capture_outcome(false, false, false) == "clear", "never aimed at her: clear")
+	var tal := {}
+	RaidLogic.capture_count(tal, "slam", "dodged", true)
+	RaidLogic.capture_count(tal, "slam", "struck", false)
+	RaidLogic.capture_count(tal, "slam", "cancelled", true)
+	t.ok(tal["slam"]["tells"] == 3 and tal["slam"]["shown"] == 2 and tal["slam"]["dodged"] == 1 and tal["slam"]["struck"] == 1
+		and tal["slam"]["cancelled"] == 1 and tal["slam"]["countered"] == 0, "the tally counts every tell, the shown ones, and each outcome")
+	# it reads the run: no rng, no goal, no write to the warden, Relish or the raid
+	var src := FileAccess.get_file_as_string("res://scripts/raid/raid_capture.gd")
+	var wr := RegEx.create_from_string("\\b(_raid|rel|w|b|h|p)\\.[A-Za-z_.]+\\s*[-+*/]?=[^=]")
+	t.ok(src != "" and wr.search(src) == null and not src.contains("randf") and not src.contains("randi") and not src.contains("take_hit")
+		and not src.contains("move_target") and not src.contains("rng"), "RaidCapture reads the run and writes nothing the sim reads")
+	t.ok(not src.contains("http") and not src.contains("HTTP") and not src.contains("StreamPeer") and not src.contains("PacketPeer"), "capture is local only: no network")
+	var rsrc := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	t.ok(RegEx.create_from_string("if capture != null:\\s*capture\\.physics_tick\\(").search(rsrc) != null
+		and RegEx.create_from_string("if capture != null:\\s*capture\\.on_targeted\\(").search(rsrc) != null,
+		"the raid ticks and tells capture only when it is on")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func finish(").contains("_raid.capture.write(result)"), "every ending writes the record (RaidEndings.finish)")
 
 
 ## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).
@@ -1766,6 +2083,41 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 					widest_px = px
 					widest = txt
 	t.ok(widest_px <= col_w, "the widest KILLED BY / MISSED value fits the card: '%s' %d px of %d" % [widest, int(widest_px), int(col_w)])
+	# the AFTER row: what a run-ending death costs in time, from the seed's death_ends (literal seeds; none carries it yet)
+	var nx_clone := RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 45.0}, "clones_ready": 0})
+	t.ok(nx_clone["label"] == "AFTER" and nx_clone["text"] == "wakes at Covington in 45 s" and nx_clone["key"] == "text", "death_ends clone, 45 s: wakes in 45 s (clones_ready ignored)")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.0}})["text"] == "wakes at Covington", "death_ends clone, 0.0 (economy until E3): no number, never 'in 0 s'")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 60.0}})["text"] == "wakes at Covington in 1:00"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 150.0}})["text"] == "wakes at Covington in 2:30"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.3}})["text"] == "wakes at Covington in 1 s", "m:ss from 60 s; a fraction rounds up to 1 s, never 0")
+	var nx_un := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 0.0}, "clones_ready": 3})
+	t.ok(nx_un["text"] == "unmade" and nx_un["key"] == "danger", "death_ends unmade, 0.0: 'unmade' (clones_ready ignored)")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 60.0}})["text"] == "unmade · reforms in 1:00"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 30.0}})["text"] == "unmade · reforms in 30 s", "unmade with a respawn: reforms in N")
+	t.ok(RaidLogic.death_next_row({"clones_ready": 2})["text"] == "wakes at Covington" and RaidLogic.death_next_row({"clones_ready": 1})["key"] == "text",
+		"death_ends absent, clones > 0: wakes at Covington, no number")
+	t.ok(RaidLogic.death_next_row({"clones_ready": 0})["text"] == "unmade" and RaidLogic.death_next_row({})["text"] == "unmade", "death_ends absent, no clones: unmade")
+	# a death_ends this card does not know falls back like an absent key (clones_ready, no number), never a guess
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 2})["text"] == "wakes at Covington"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 0})["text"] == "unmade"
+		and RaidLogic.death_next_row({"death_ends": {"respawn_s": 30.0}, "clones_ready": 1})["text"] == "wakes at Covington",
+		"an unknown or missing outcome: the clones_ready fallback, with no number")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone"}})["text"] == "wakes at Covington"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade"}})["text"] == "unmade",
+		"a missing respawn_s: no number")
+	var arows := RaidLogic.death_card_rows("a wound", {}, {}, 0, "", nx_clone)
+	t.ok(arows.size() == 4 and arows[3]["label"] == "AFTER" and arows[3]["text"] == nx_clone["text"] and RaidLogic.death_card_rows("a wound", {}, {}, 0).size() == 3,
+		"the AFTER row comes last, and only when given")
+	var after_w := 0.0
+	for sd in [{"death_ends": {"outcome": "clone", "respawn_s": 3599.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 3599.0}},
+			{"death_ends": {"outcome": "clone", "respawn_s": 59.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 59.0}}, {"clones_ready": 1}, {}]:
+		after_w = maxf(after_w, fnt.get_string_size(RaidLogic.death_next_row(sd)["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x)
+	t.ok(after_w <= col_w, "the widest AFTER value fits the card: %d px of %d" % [int(after_w), int(col_w)])
+	var rtk := _func_body("res://scripts/raid/relish.gd", "func take_hit(")
+	t.ok(rtk.find("try_phylactery()") >= 0 and rtk.find("try_phylactery()") < rtk.find("on_relish_died()"), "a phylactery revive returns before the death (so no card): on_relish_died only after try_phylactery fails")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_next_row(_raid.seed_data)"), "the card's AFTER row reads the seed the raid got, no Game.* read")
+	var rdv := _func_body("res://scripts/raid/raid_dev.gd", "func _autodie_hit(")
+	t.ok(rdv.contains("take_hit(_raid.relish.hp,") and not rdv.contains("1000"), "the dev autodie blow equals her remaining hp (the STRUCK cue showed -1030)")
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
 	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",

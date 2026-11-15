@@ -558,6 +558,13 @@ static func lane_reach(room: Rect2, from: Vector2) -> float:
 	return r
 
 
+## D-e task 4, the Shieldwall's reach: the `n`-th bash tell since its wake (1-based) is aimed at her whether
+## or not a wits flanker pins it, on every `every`-th tell (`attack.rush_lane_every`; 0 or less: never, the pin
+## holds every rush off as before), and only where the lever is on (`lever`: WardenLogic.lever_on).
+static func lane_due(n: int, every: int, lever: bool) -> bool:
+	return lever and every > 0 and n > 0 and n % every == 0
+
+
 ## D-d/E Step 4 / 4b, the risk gate: the lever and the tell-attacks' bypass of the sacrifice chain apply from
 ## `wardens.lever_min_tier` up and never in the first dungeon (`w` is raid.json `wardens`).
 static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:
@@ -609,11 +616,21 @@ static func flank_step(from: Vector2, pos: Vector2, post_angle: float, orbit_px:
 
 ## The HUD's shield line for a phase, from the spec: "front ±80° glances ×0.1 · back ×2.5 · turns
 ## 40°/s · bash every 4 beats" (arc, turn rate and period per phase; the multipliers from the attack).
-static func shield_label(sp: Dictionary, phase: int) -> String:
+static func shield_label(sp: Dictionary, phase: int, lever := false) -> String:
 	var ph := shield_phase(sp, phase)
 	var at: Dictionary = sp.get("attack", {})
-	return "front ±%d° glances ×%s · back ×%s · turns %d°/s · bash every %s beats" % [roundi(ph["front_half_deg"]),
+	var line := "front ±%d° glances ×%s · back ×%s · turns %d°/s · bash every %s beats" % [roundi(ph["front_half_deg"]),
 		_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0))), roundi(ph["turn_deg_s"]), _num(ph["period_beats"])]
+	var every := int(at.get("rush_lane_every", 0))
+	if every > 0 and lever:   # (lever: WardenLogic.lever_on for this fight, as the rule itself is gated)
+		line += " · every %s breaks the pin" % _ordinal(every)   # D-e task 4
+	return line
+
+
+static func _ordinal(n: int) -> String:
+	if n % 100 in [11, 12, 13]:
+		return "%dth" % n
+	return "%d%s" % [n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")]
 
 
 static func _num(v: float) -> String:

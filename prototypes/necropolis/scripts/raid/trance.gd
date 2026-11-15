@@ -135,6 +135,23 @@ func bot_raise_cooldown(raised := true) -> void:
 	_complete(raised)
 
 
+## Dev autopilot with `--raid-autopilot-draw` (D-e, the degraded bot): the trance opens as a player's does
+## (ACTIVE: the dim, the focus bar, the split's trance bucket), but Engine.time_scale stays 1.0. The bot
+## measures scene time only, and a player's slowed trance seconds are scene seconds all the same
+## (RaidLogic.human_real_s converts them back to real time). It closes through bot_raise_cooldown or bot_cancel.
+func bot_open() -> void:
+	if state == State.READY and enabled:
+		state = State.ACTIVE
+		hold_left = float(_cfg().get("max_hold_s", 4.0))
+		raid.set_trance(true)
+
+
+## The degraded bot lets go of its circle to dodge a tell: what a player's early release does (the lockout).
+func bot_cancel() -> void:
+	if state == State.ACTIVE:
+		_cancel()
+
+
 ## Ready now: a cooldown or lockout is spent at once, nothing else changes (the boss's revive).
 func ready_now() -> void:
 	if state == State.COOLDOWN or state == State.LOCKOUT:

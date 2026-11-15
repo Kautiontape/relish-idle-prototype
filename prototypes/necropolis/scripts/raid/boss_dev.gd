@@ -242,7 +242,7 @@ func _die() -> void:
 	var rel: RaidRelish = _boss.relish
 	if rel != null and rel.alive:
 		rel._iframes = 0.0
-		rel.take_hit(rel.max_hp + 1000.0)
+		rel.take_hit(rel.hp)   # her remaining hp: the STRUCK cue reads a plausible number (dev path only)
 
 
 ## --boss-hide: the named layers stop drawing (units and motes come and go, so it runs every frame).

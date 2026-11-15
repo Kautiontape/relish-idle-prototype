@@ -23,15 +23,19 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 		# the guarded detour's guard comes out of the fort's own count: the same bodies, mass and motes, placed
 		var guard := RaidLogic.detour_guard(fort_id, layout, tier, cfg)
 		var spots := RaidLogic.populate_enemies(fort_id, layout, maxi(0, n - guard.size()), tier, cfg)
+		var leashed := RaidLogic.leash_rooms(fort_id, cfg)
 		for s in spots + guard:
 			var u: RaidUnit = _raid.spawn_unit("enemy", s["kind"], s["pos"])
 			u.mass = mpe
 			u.home_room = layout["rooms"][s["room"]]
+			u.leash_hold = int(s["room"]) in leashed
 		for i in guard.size():
 			var g: RaidUnit = _raid.enemies[_raid.enemies.size() - guard.size() + i]
 			g.sentry = true   # it holds its post (raid.json detour)
 			_raid.detour_guard.append(g)
 	_place_cache(tier)
+	if _raid.held_door != null:
+		_raid.held_door.place_cache(tier)   # the held door's cache, in its niche (D-e task 6)
 	# garrison: exactly the seed's units, each carrying garrison_mass_div of ledger mass
 	var gn := int(sd.get("garrison_units", 0))
 	var gdiv := float(sd.get("garrison_mass_div", 10.0))
@@ -70,14 +74,25 @@ func _place_cache(tier: int) -> void:
 	var site := RaidLogic.detour_site(_raid.layout, tier, _raid.rcfg())
 	if site.is_empty():
 		return
+	_raid.detour_cache.append_array(RaidPopulate.spawn_cache(_raid, site["pos"], Vector2.RIGHT, tier, true))
+
+
+## A cache's relic pickups (loot.json cache: relics_by_tier of them, spread_px apart along `along`, centred
+## on `center`, labelled CACHE), added under the raid's units. `resolve` keeps each clear of the walls (the
+## detour's); the held door's lie inside its shut niche, so they are placed as they are. The guarded detour and
+## the held door both spawn theirs here. Returns them.
+static func spawn_cache(raid: Node2D, center: Vector2, along: Vector2, tier: int, resolve: bool) -> Array:
 	var lc: Dictionary = ConfigDb.data.get("loot", {}).get("cache", {})
 	var n := int((lc.get("relics_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
 	var sp := float(lc.get("spread_px", 18.0))
+	var out: Array = []
 	for i in n:
 		var pk := RaidPickup.new()
-		pk.raid = _raid
+		pk.raid = raid
 		pk.kind = "relic"
 		pk.cache = true
-		pk.position = _raid.resolve_walls((site["pos"] as Vector2) + Vector2(sp * (float(i) - float(n - 1) * 0.5), 0.0), 6.0)
-		_raid.units_root.add_child(pk)
-		_raid.detour_cache.append(pk)
+		var p := center + along * (sp * (float(i) - float(n - 1) * 0.5))
+		pk.position = raid.resolve_walls(p, 6.0) if resolve else p
+		raid.units_root.add_child(pk)
+		out.append(pk)
+	return out

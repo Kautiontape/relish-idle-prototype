@@ -560,6 +560,16 @@ static func waypoint(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, rad
 		door_pad := 14.0) -> Vector2:
 	if not layout.has("next_room"):
 		return to_pos
+	if layout.has("held_door"):
+		var nw := _niche_step(layout, from_pos, to_pos, radius, door_pad)
+		if nw.x != INF:
+			return nw
+	return _waypoint_rooms(layout, from_pos, to_pos, radius, door_pad)
+
+
+## LayoutLogic.waypoint through the room graph (every layout; the held door's niche is waypoint's).
+static func _waypoint_rooms(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius: float,
+		door_pad := 14.0) -> Vector2:
 	var rf := room_of(layout, from_pos)
 	if rf >= 0 and rf == room_of(layout, to_pos):
 		return to_pos
@@ -627,6 +637,27 @@ static func waypoint(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, rad
 	if from_pos.distance_to(near) <= 3.0:
 		return far   # on the doorstep: step through even if a jamb still grazes the line
 	return near
+
+
+## The held door's niche (D-e task 6) is part of its room, so a straight walk in or out runs into its walls:
+## a mover crossing its mouth goes through the doorway. Leaving: to the doorway's centre (door_in) unless it
+## is already there, then the doorstep (door_out), then on. Entering: to the doorstep by the usual routing,
+## then the doorway, then in. A clear line goes straight. INF when neither end is in the niche, or both are.
+static func _niche_step(layout: Dictionary, from_pos: Vector2, to_pos: Vector2, radius: float, door_pad: float) -> Vector2:
+	var hd: Dictionary = layout["held_door"]
+	var plug: Rect2 = hd["plug"]
+	var fi := plug.has_point(from_pos)
+	if fi == plug.has_point(to_pos) or line_clear(layout, from_pos, to_pos, radius):
+		return Vector2(INF, INF)
+	var din: Vector2 = hd["door_in"]
+	var dout: Vector2 = hd["door_out"]
+	var inward: Vector2 = hd["inward"]
+	if fi:
+		return din if (from_pos - din).dot(inward) < -1.0 and from_pos.distance_to(din) > 3.0 else dout
+	var lat := absf((from_pos - din).dot(hd["along"]))
+	if from_pos.distance_to(dout) <= 3.0 or (lat <= float(hd["half"]) - radius * 0.5 and (from_pos - din).dot(inward) <= (dout - din).dot(inward) + 3.0):
+		return din   # at the doorstep or in the doorway's mouth: through it
+	return _waypoint_rooms(layout, from_pos, dout, radius, door_pad)
 
 
 ## Cheap route length estimate from a to b for a mover of `radius` (through the portals it fits, as
@@ -1138,6 +1169,156 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 				break
 		out.append({"kind": RaidLogic.roll_enemy_kind(rng, tier, cfg, fort_id), "pos": pos, "room": room})
 	return out
+
+
+## D-e task 6, the held door (raid.json held_door): where its niche goes, or {} when the fort has none
+## (its tier not in `tiers`, the first dungeon, a held fort, the boss arena, no warden room, or no wall
+## stretch that fits). The route is the greedy walk the bot's routing takes: from the spawn, through the
+## nearest portal into each next room of the shortest room path to the warden room. Every route room but
+## the warden's is a candidate; on each of its four walls every niche position (`step_px` apart) whose zone
+## (the niche, its walls and the plate, grown by clear_px) touches no gap and no exit, and whose footprint
+## (grown by route_clear_px) misses the route's segment through that room. The pick: the least detour (the
+## walk the doorstep adds to that segment), then the room fewer hops from the spawn, then the side order
+## n s w e, then the lower position. No rng: it never moves another fort, and the same fort builds the same
+## door. Returns {room, side, detour_px, rects (niche, footprint, plug, door, walls: [4]), points (door_in,
+## door_out, plate, cache, park), inward, along}.
+static func held_door_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
+	var hc: Dictionary = cfg.get("held_door", {})
+	var wr := int(layout.get("warden_room", -1))
+	var on := false
+	for tt in hc.get("tiers", []):
+		on = on or int(tt) == tier
+	if not on or wr < 0 or bool(layout.get("boss", false)) or bool(layout.get("first_dungeon", false)) or bool(layout.get("held", false)):
+		return {}
+	var path := room_path(layout, room_of(layout, layout["spawn"]), wr)
+	if path.size() < 2:
+		return {}
+	var portals: Dictionary = layout.get("portals", {})
+	var hops: Array = layout["hops"]
+	var best := {}
+	var bkey := []
+	var pos: Vector2 = layout["spawn"]
+	for k in path.size() - 1:
+		var r: int = path[k]
+		var out := Vector2.INF
+		for p in portals.get("%d:%d" % [r, path[k + 1]], []):
+			if out.x == INF or pos.distance_to(p) < pos.distance_to(out):
+				out = p
+		if out.x == INF:
+			return {}
+		var sides := ["n", "s", "w", "e"]
+		for si in sides.size():
+			for c in _held_door_cands(layout, r, str(sides[si]), hc, pos, out):
+				var key := [snappedf(float(c["detour_px"]), 0.5), int(hops[r]), si, float(c["a"])]
+				if best.is_empty() or _key_less(key, bkey):
+					best = c
+					bkey = key
+		pos = out
+	return best
+
+
+## a < b, element by element (numbers).
+static func _key_less(a: Array, b: Array) -> bool:
+	for i in a.size():
+		if float(a[i]) < float(b[i]):
+			return true
+		if float(a[i]) > float(b[i]):
+			return false
+	return false
+
+
+## Every niche that fits on `side` of room `r` (see held_door_site), the route through it running from
+## `pin` to `pout`.
+static func _held_door_cands(layout: Dictionary, r: int, side: String, hc: Dictionary, pin: Vector2, pout: Vector2) -> Array:
+	var out: Array = []
+	var rc: Rect2 = layout["rooms"][r]
+	var w := float(hc.get("niche_w_px", 110.0))
+	var d := float(hc.get("niche_d_px", 44.0))
+	var t := float(hc.get("wall_px", 12.0))
+	var dw := float(hc.get("door_w_px", 64.0))
+	var ps := float(hc.get("plate_px", 36.0))
+	var clear := float(hc.get("clear_px", 30.0))
+	var rclear := float(hc.get("route_clear_px", 40.0))
+	var step := maxf(1.0, float(hc.get("step_px", 8.0)))
+	var vertical := side == "w" or side == "e"
+	var lo := rc.position.y if vertical else rc.position.x
+	var hi := rc.end.y if vertical else rc.end.x
+	var pgap := float(hc.get("plate_gap_px", 4.0))
+	var plate_off := dw * 0.5 + ps * 0.5 + pgap          # the plate's centre past the door's centre, along the wall
+	var zone_hi := maxf(w + t, w * 0.5 + plate_off + ps * 0.5)   # the zone's far end past the niche's start
+	var zone_d := maxf(d + t, d + t + ps + float(hc.get("zone_pad_px", 8.0)))
+	var a := lo + t
+	while a + zone_hi <= hi:
+		var cu := a + w * 0.5
+		var zone := _hd_rect(rc, side, a - t, 0.0, t + zone_hi, zone_d)
+		var foot := _hd_rect(rc, side, a - t, 0.0, w + 2.0 * t, d + t)
+		var ok := not _seg_hits_rect(pin, pout, foot.grow(rclear))
+		if ok:
+			for g in layout.get("gaps", []):
+				if zone.grow(clear).intersects(g as Rect2):
+					ok = false
+					break
+		if ok:
+			for dr in layout.get("doors", []):
+				if zone.grow(clear).intersects(dr["rect"] as Rect2):
+					ok = false
+					break
+		if ok:
+			var door_out := _hd_pt(rc, side, cu, d + t + float(hc.get("doorstep_px", 19.0)))
+			out.append({"room": r, "side": side, "a": a,
+				"detour_px": pin.distance_to(door_out) + door_out.distance_to(pout) - pin.distance_to(pout),
+				"niche": _hd_rect(rc, side, a, 0.0, w, d), "footprint": foot, "zone": zone,
+				"plug": _hd_rect(rc, side, a, 0.0, w, d + t),
+				"door": _hd_rect(rc, side, cu - dw * 0.5, d, dw, t),
+				"walls": [_hd_rect(rc, side, a - t, 0.0, t, d + t), _hd_rect(rc, side, a + w, 0.0, t, d + t),
+					_hd_rect(rc, side, a - t, d, w * 0.5 - dw * 0.5 + t, t), _hd_rect(rc, side, cu + dw * 0.5, d, w * 0.5 - dw * 0.5 + t, t)],
+				"door_in": _hd_pt(rc, side, cu, d + t * 0.5), "door_out": door_out,
+				"plate": _hd_pt(rc, side, cu + plate_off, d + t + ps * 0.5 + pgap),
+				"cache": _hd_pt(rc, side, cu + float(hc.get("cache_off_px", 12.0)), d * 0.5),
+				"park": _hd_pt(rc, side, a + float(hc.get("park_px", 22.0)), d * 0.5),
+				"inward": _hd_pt(rc, side, 0.0, 1.0) - _hd_pt(rc, side, 0.0, 0.0),
+				"along": _hd_pt(rc, side, 1.0, 0.0) - _hd_pt(rc, side, 0.0, 0.0)})
+		a += step
+	return out
+
+
+## A rect in a wall's frame (`u0` along the wall, `v0` in from the room's edge on `side`) in world space.
+static func _hd_rect(rc: Rect2, side: String, u0: float, v0: float, du: float, dv: float) -> Rect2:
+	match side:
+		"n":
+			return Rect2(u0, rc.position.y + v0, du, dv)
+		"s":
+			return Rect2(u0, rc.end.y - v0 - dv, du, dv)
+		"w":
+			return Rect2(rc.position.x + v0, u0, dv, du)
+		_:
+			return Rect2(rc.end.x - v0 - dv, u0, dv, du)
+
+
+## A point in a wall's frame (see _hd_rect) in world space.
+static func _hd_pt(rc: Rect2, side: String, u: float, v: float) -> Vector2:
+	match side:
+		"n":
+			return Vector2(u, rc.position.y + v)
+		"s":
+			return Vector2(u, rc.end.y - v)
+		"w":
+			return Vector2(rc.position.x + v, u)
+		_:
+			return Vector2(rc.end.x - v, u)
+
+
+## Build the held door's niche into the layout: its four walls join `walls` (drawn as the fort's) and
+## `inner_walls` (collision), and the plug (the niche and its door, solid while the door is shut: nothing
+## can stand in a closed niche) joins `inner_walls`. The routing tables are not touched: the niche is part
+## of its room (room_of), so the room graph is the same.
+static func carve_held_door(layout: Dictionary, site: Dictionary) -> void:
+	for wrect in site["walls"]:
+		(layout["walls"] as Array).append(wrect)
+		(layout["inner_walls"] as Array).append(wrect)
+	(layout["inner_walls"] as Array).append(site["plug"])
+	layout["held_door"] = {"plug": site["plug"], "door_in": site["door_in"], "door_out": site["door_out"], "inward": site["inward"],
+		"along": site["along"], "half": (site["door"] as Rect2).size.dot((site["along"] as Vector2).abs()) * 0.5}
 
 
 ## `p` kept inside `rc` shrunk by `inset` (by at most 0.4 of each side).

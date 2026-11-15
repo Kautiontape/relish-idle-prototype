@@ -203,8 +203,11 @@ func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
 	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
 	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
-	return RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, (_raid.seed_data.get("party", []) as Array).size(),
-		RaidLogic.death_tell(_raid.relish.last_hit_src))
+	# a big shut in at the held door (D-e task 6) is lost too, on a row of its own apart from the party that fell
+	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
+	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
+	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
+		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data)), shut)
 
 
 # ------------------------------------------------------------------- result ---
@@ -216,7 +219,10 @@ func build_result(exit: String, closing := false) -> Dictionary:
 		if is_instance_valid(a) and a.alive:
 			survivors.append({"role": a.role, "tier": a.tier, "mass": a.mass})
 	var loot := RaidLogic.result_loot(exit, closing, _raid.found_loot, _raid.carried_count(), banked)
-	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, _raid.party_died, revived, loot, _raid.rcfg())
+	var died: Array = _raid.party_died
+	if _raid.held_door != null:
+		died = died + _raid.held_door.lost_uids(exit)   # a big spent on the held door and not rejoined (RaidLogic.held_door_lost)
+	var r: Dictionary = _raid.ledger_v2.build_result(_raid.seed_data, exit, survivors, died, revived, loot, _raid.rcfg())
 	for e in Results.validate("raid", r):
 		push_error("necropolis: raid result invalid: " + e)
 	return r
@@ -227,6 +233,8 @@ func finish(result: Dictionary) -> void:
 		return
 	finished = true
 	ended = true
+	if _raid.capture != null:
+		_raid.capture.write(result)   # capture mode: synchronous, before the emit (the router frees the scene; the bot quits)
 	if is_instance_valid(_card):
 		_card.queue_free()
 	Engine.time_scale = 1.0

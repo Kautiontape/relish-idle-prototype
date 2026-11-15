@@ -6,6 +6,7 @@ extends RefCounted
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
 ## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|bash|fire|living> (who the autodie hit names on the death card),
+## --raid-clones=<n> / --raid-death-ends=<clone|unmade>:<respawn_s> (the death card's AFTER row: clones_ready, or the injected seed key),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
@@ -13,6 +14,7 @@ extends RefCounted
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
 ##   with --raid-party-<stat>=<n> (power, beef, wits, presence, speed) every party big undead's <stat> set to n: the weak
 ##   points with and without (--raid-party-wits for the Shieldwall, --raid-party-power for the Pyre-priest).
+## --raid-shield-lane-every=<n> sets the Shieldwall's attack.rush_lane_every for this run (D-e task 4's candidates).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -114,10 +116,24 @@ static func apply_demo_overrides(sd: Dictionary) -> void:
 	if arche != "":
 		sd["warden"]["archetype"] = arche
 		sd["loot_table_id"] = "t%d.%s" % [int(sd["warden"].get("tier", 1)), arche]
+	# the death card's AFTER row (dev; no seed carries `death_ends` until economy merges): --raid-clones=<n> sets clones_ready,
+	# --raid-death-ends=<clone|unmade>:<respawn_s> injects the key
+	var cl := cli_value("--raid-clones=")
+	if cl != "":
+		sd["clones_ready"] = maxi(0, int(cl))
+	var de := cli_value("--raid-death-ends=")
+	if de != "":
+		var dp := de.split(":")
+		sd["death_ends"] = {"outcome": dp[0], "respawn_s": float(dp[1]) if dp.size() > 1 else 0.0}
 	var spd := cli_value("--raid-big-speed=")
 	if spd != "":
 		for e in sd.get("party", []):
 			e["stats"]["speed"] = float(spd)
+	# D-e task 4's candidates on one committed sha: the Shieldwall's attack.rush_lane_every for this process only
+	# (set before the warden's spec is built in _build)
+	var every := cli_value("--raid-shield-lane-every=")
+	if every != "":
+		ConfigDb.data["raid"]["wardens"]["archetypes"]["shieldwall"]["attack"]["rush_lane_every"] = int(every)
 
 
 ## Hook 1: the scene is built. Reads the dev flags and spawns the stress / mote setups.
@@ -230,7 +246,8 @@ func _autodie_hit() -> void:
 	for a in _raid.allies.duplicate():
 		if is_instance_valid(a) and a.alive:
 			a.die(true)
-	_raid.relish.take_hit(_raid.relish.max_hp + 1000.0, cli_value("--raid-autodie-src="))   # src: slam | lunge | bash | fire | living (the death card)
+	# the blow equals her remaining hp (lethal, hp - amount <= 0): the STRUCK cue reads a plausible number, never -1030
+	_raid.relish.take_hit(_raid.relish.hp, cli_value("--raid-autodie-src="))   # src: slam | lunge | bash | fire | living (the death card)
 
 
 ## --raid-loot-sample: one pickup of each RaidLoot.FLOOR_KINDS kind, in a row 120 px above Relish.

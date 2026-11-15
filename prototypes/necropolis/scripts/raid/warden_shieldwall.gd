@@ -35,6 +35,9 @@ var pins := 0                  # bashes a wits flanker at its back pinned (no ru
 var pinned_tell := false       # this bash's tell was pinned (no rush; with the risk lever off its bash also spares Relish)
 var lane := false              # this rush is aimed at her (D-d/E Step 4b): a narrow lane across its room
 var rush_relish := 0           # rushes that struck Relish
+var pin_broke := false         # this tell's pin did not hold (attack.rush_lane_every): PIN BROKEN, draw and HUD only
+var pin_breaks := 0            # tells a wits flanker pinned that were aimed at her all the same (attack.rush_lane_every, D-e task 4)
+var _bash_tells := 0           # bash tells begun since the wake (every attack.rush_lane_every-th is aimed at her)
 var _base_reach := -1.0        # attack.reach_px as configured (a rush lengthens it for its tell and bash)
 
 var _room := Rect2()
@@ -143,10 +146,13 @@ func beats_to_tell() -> float:
 
 
 func telemetry() -> Dictionary:
-	return {"hits": hits, "glances": glances, "flanks": flanks, "backs": backs, "role_hits": role_hits,
+	var out := {"hits": hits, "glances": glances, "flanks": flanks, "backs": backs, "role_hits": role_hits,
 		"dmg_glance": snappedf(dmg_glance, 0.1), "dmg_flank": snappedf(dmg_flank, 0.1), "dmg_role": snappedf(dmg_role, 0.1),
 		"bashes": bashes, "bash_units": bash_units, "bash_relish": bash_relish, "rushes": rushes, "pins": pins,
 		"rush_relish": rush_relish}
+	if int(spec.get("attack", {}).get("rush_lane_every", 0)) > 0:
+		out["pin_breaks"] = pin_breaks   # only with the knob on, so the lines with it off stay byte-identical
+	return out
 
 
 ## An undead's strike: glances on the shield, lands from outside it (the weak point's pips).
@@ -244,16 +250,25 @@ func _begin_tell(at: Dictionary) -> void:
 	if _base_reach < 0.0:
 		_base_reach = float(at.get("reach_px", 140.0))
 	pinned_tell = false
+	pin_broke = false
+	_bash_tells += 1
 	if float(at.get("rush_px", 0.0)) <= 0.0:
 		return
+	var rel: RaidRelish = raid.relish
+	var lever := WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg())
+	var aimable := float(at.get("rush_lane_half_deg", 0.0)) > 0.0 and rel != null and is_instance_valid(rel) and rel.alive \
+		and lever and _room.has_point(rel.global_position) and rel.global_position.distance_to(global_position) > 1.0
 	rushing = not _pinned()
+	if not rushing and aimable and WardenLogic.lane_due(_bash_tells, int(at.get("rush_lane_every", 0)), lever):
+		# D-e task 4: on every rush_lane_every-th tell the pin does not hold it: the lane comes for her (RUSH, no
+		# PINNED); the pin still holds the rush off the other tells
+		rushing = true
+		pin_broke = true
+		pin_breaks += 1
 	pinned_tell = not rushing
 	if rushing:
 		rushes += 1
-		var rel: RaidRelish = raid.relish
-		if float(at.get("rush_lane_half_deg", 0.0)) > 0.0 and rel != null and is_instance_valid(rel) and rel.alive \
-				and WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) \
-				and _room.has_point(rel.global_position) and rel.global_position.distance_to(global_position) > 1.0:
+		if aimable:
 			# D-d/E Step 4b: the rush aims at her: it turns to her as the tell begins and lights a lane
 			# rush_lane_half_deg wide across its room (stepping out of it is the answer; a pin spares her)
 			lane = true
@@ -269,6 +284,7 @@ func _begin_tell(at: Dictionary) -> void:
 
 func _end_rush(at: Dictionary) -> void:
 	lane = false
+	pin_broke = false
 	if rushing:
 		rushing = false
 		at["reach_px"] = _base_reach
@@ -389,6 +405,8 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		_word(ci, dir * (reach + fs * 0.9), "RUSH" if rushing else "BASH", fs, Palette.c("danger"))
 		if not rushing and float(at.get("rush_px", 0.0)) > 0.0:
 			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), "PINNED", fs, Palette.c("undead"))   # the flankers hold it
+		elif pin_broke:
+			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), "PIN BROKEN", fs, Palette.c("danger"))   # D-e task 4: the lane comes all the same
 	elif _bash_flash > 0.0:
 		# the bash's after-image along the arc it struck (a step, not a fade, under reduced motion)
 		var a := 0.3 if Pulse.reduced_motion else 0.3 * _bash_flash
@@ -398,8 +416,19 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		if not is_instance_valid(u):
 			continue
 		var to: Vector2 = u.global_position - global_position
-		ci.draw_line(to.normalized() * radius, to, Palette.c("undead", 0.7), 2.0)
-		LineGlow.ring(ci, to, float(u.radius) + 6.0, Palette.c("undead"), 2.4, 0.8)
+		if pin_broke and planted:
+			# D-e task 4: their pin does not hold this tell: the ring and the line dashed (shape, not only colour)
+			var rr := float(u.radius) + 6.0
+			for k in 8:
+				var a0 := TAU * float(k) / 8.0
+				ci.draw_arc(to, rr, a0, a0 + TAU / 16.0, 4, Palette.c("undead", 0.8), 2.4)
+			var n := 6
+			for k in n:
+				ci.draw_line(to.normalized() * radius + (to - to.normalized() * radius) * (float(k) / n),
+					to.normalized() * radius + (to - to.normalized() * radius) * ((float(k) + 0.5) / n), Palette.c("undead", 0.7), 2.0)
+		else:
+			ci.draw_line(to.normalized() * radius, to, Palette.c("undead", 0.7), 2.0)
+			LineGlow.ring(ci, to, float(u.radius) + 6.0, Palette.c("undead"), 2.4, 0.8)
 	# words, clear of the crowd at its body (`label_out_px` out): the open back says FLANK until a flank
 	# lands, then FLANKED where it landed; GLANCE over the shield (not over the lit arc's BASH)
 	var hold := float(wcfg().get("shield_label_s", 0.8))

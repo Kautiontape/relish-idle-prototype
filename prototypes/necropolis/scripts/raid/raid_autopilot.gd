@@ -9,6 +9,10 @@ extends RefCounted
 ##   --raid-autopilot-bail=<0..1> run for an exit and retreat at or below this hp fraction (default: raid.json autopilot.bail_hp_frac, 0 = never)
 ##   --raid-autopilot-log         a status line every 2 scene seconds
 ##   --raid-autopilot-answer-mult=<x> scales the chance to answer a warden tell (1 - react_miss; the context runs)
+##   the degraded bot (D-e, the human bracket; raid.json autopilot.human; each off unless given; the result's `human`):
+##   --raid-autopilot-delay=<s>   the one reaction delay (tell answers, the kite, the no-army leave); the miss stays the score's
+##   --raid-autopilot-read[=<s>]  on first entering each room she stands <s> scene seconds (a dodge or a due kite ends it)
+##   --raid-autopilot-draw[=<s>]  each raise opens the trance and she stands <s> scene seconds drawing it (a dodge drops it)
 ## Run it fast and deterministic with `--headless --fixed-fps 60 --disable-vsync --max-fps 0`.
 ## All policy numbers live in raid.json `autopilot`.
 ##
@@ -73,6 +77,8 @@ var _tells_ok := 0
 var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
 var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
 var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
+var _tally_pin := false         # the open tell was pinned (the Shieldwall; D-e task 4, measuring only)
+var _pin_tally := {"missed_pinned": 0, "missed_pinned_struck": 0}   # the Shieldwall's missed tells a pin countered (tell_tally, its lines only)
 var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
 var _hits_seen := 0
 var _told_beats: Array = []     # the strike beat of every tell the bot saw (the tally's windows)
@@ -101,7 +107,7 @@ var _sig_t := 0.0               # scene time the signature last changed
 var _giving_up := false         # nothing has moved for idle_s: head for an exit and retreat
 var _no_army_t := -1.0          # since when no undead stood and nothing could be raised (-1: not now)
 var _left_no_army := false      # she left for that (the result's `left_no_army`)
-var _why := ""                 # which policy branch chose the last goal (log only)
+var _why := ""                 # which policy branch chose the last goal (log; the degraded bot reads RaidLogic.DODGE_WHYS off it)
 var _foes: Array = []          # living enemies this think (for the retreat's heading choice)
 var _bail := 0.0               # retreat to an exit once hp is at or below this fraction (0 = never)
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
@@ -138,6 +144,28 @@ var _det := {}                  # the guarded detour's site (RaidLogic.detour_si
 var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
 var _det_at := {}               # what she decided on: scene time, hp fraction, army, guard standing
 var _det_done_s := -1.0         # scene time the cache was hers (-1: not)
+var _door_state := ""           # the held door (D-e task 6): "" until she decides; "taken", "declined", "done" or "abandoned"
+var _door_big = null            # the big the door rule spends
+var _door_at := {}              # what she decided on: scene time, the bigs' values in the weak point's stat
+var _door_done_s := -1.0        # scene time the door's cache was hers (-1: not)
+var _door_wait_s := 0.0         # scene seconds she stood at the doorstep after the order, the door still shut
+var _door_walk0 := 0.0          # walk_px when she decided; the door's walk is walk_px from there to the cache
+var _door_walk := -1.0
+# the degraded bot (D-e; raid.json autopilot.human; all off unless a flag gives them)
+var _human_on := false          # any of the three knobs given: the result's `human` dict
+var _read_s := 0.0              # --raid-autopilot-read: scene seconds she stands on first entering a room
+var _read_left := 0.0           # of the open read pause
+var _rooms_read := {}           # rooms she has entered (each is read once)
+var _reads := 0                 # read pauses begun / cut short by a dodge or a kite
+var _reads_cut := 0
+var _draw_s := 0.0              # --raid-autopilot-draw: scene seconds each circle takes, in the open trance
+var _drawing := false           # a circle is being drawn
+var _draw_t := 0.0              # scene seconds it has run
+var _draw_trace := PackedVector2Array()   # the circle, traced as it began
+var _draws := 0                 # circles begun / let go to dodge / lost to a trance that closed
+var _draws_cancelled := 0
+var _draws_lost := 0
+var _kite_acted := false        # this think kited (a due kite)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -172,6 +200,17 @@ func start() -> void:
 	var am := RaidDev.cli_value("--raid-autopilot-answer-mult=")
 	if am != "":
 		_miss = 1.0 - clampf((1.0 - _miss) * float(am), 0.0, 1.0)
+	# the degraded bot (D-e): the delay alone (the score's miss stays: delay and miss are decoupled), the read
+	# pause and the drawn circle; raid.json autopilot.human holds the bare flags' values and the basis
+	var hum: Dictionary = _cfg.get("human", {})
+	var dl := RaidDev.cli_value("--raid-autopilot-delay=")
+	if dl != "":
+		_delay = maxf(0.0, float(dl))
+	_read_s = RaidLogic.human_knob(RaidDev.cli_value("--raid-autopilot-read="), RaidDev.cli_flag("--raid-autopilot-read"),
+		float(hum.get("read_s", 1.0)), 60.0)
+	_draw_s = RaidLogic.human_knob(RaidDev.cli_value("--raid-autopilot-draw="), RaidDev.cli_flag("--raid-autopilot-draw"),
+		float(hum.get("draw_s", 0.7)), RaidLogic.draw_cap(_raid.rcfg().get("trance", {})))
+	_human_on = dl != "" or _read_s > 0.0 or _draw_s > 0.0
 	var w = _raid.warden_run.warden
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
 	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
@@ -204,6 +243,10 @@ func physics_tick(delta: float) -> void:
 	if rel_hp != null and is_instance_valid(rel_hp):
 		_min_hp = minf(_min_hp, rel_hp.hp)
 	_split_tick(delta)
+	if _read_left > 0.0:
+		_read_left = maxf(0.0, _read_left - delta)
+	if _drawing:
+		_draw_t += delta
 	_frame += 1
 	if _frame % maxi(1, int(_c("think_frames", 3.0))) != 0:
 		return
@@ -237,10 +280,15 @@ func physics_tick(delta: float) -> void:
 		if not _pack.is_empty():
 			_pack = ww.pack_telemetry()
 	_track_room(pos)
-	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
+	if _drawing:
+		_draw_tick(false)   # the circle is done: graded and raised (or the trance closed under her)
+	if not _raid.held_clear.started and _read_left <= 0.0 and not _drawing:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
 	_watch_progress()
+	_kite_acted = false
 	var goal := _decide(pos)
+	if _drawing or _read_left > 0.0:
+		goal = _human_goal(pos, goal)
 	rel.move_target = goal
 	if _log and _frame % 120 == 0:
 		print("AUTOPILOT t=%.1f room=%d pos=(%d,%d) goal=(%d,%d) hp=%.0f enemies=%d allies=%d carried=%d loose=%d piles=%d trance=%d why=%s hold=%.0f near=%d wide=%d warden=%s" % [
@@ -459,6 +507,16 @@ func on_finish(result: Dictionary) -> void:
 			"taken": st in ["taken", "done", "abandoned"], "done": st == "done", "abandoned": st == "abandoned",
 			"at": _det_at, "done_s": snappedf(_det_done_s, 0.01), "died": _raid.relish == null or not _raid.relish.alive,
 			"cache_left": _det_cache_left(), "cache": _raid.detour_cache.size()}
+	if _raid.held_door != null:   # D-e task 6: only on lines with a held door, so every other line keeps its bytes
+		var hd: RaidHeldDoor = _raid.held_door
+		var dd := hd.telemetry()
+		dd["rule"] = _door_state
+		dd["at"] = _door_at
+		dd["done_s"] = snappedf(_door_done_s, 0.01)
+		dd["wait_s"] = snappedf(_door_wait_s, 0.01)
+		dd["walk_px"] = roundi(_door_walk)
+		dd["fate"] = hd.fate(exit)
+		out["door"] = dd
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""
 	out["killed_by"] = (src if src != "" else "wound") if died else ""
@@ -472,6 +530,8 @@ func on_finish(result: Dictionary) -> void:
 	_tally_close()
 	var told := _tally.duplicate()
 	told["untold_blows"] = _untold_blows()
+	if _archetype == "shieldwall":   # D-e task 4: the pin as its counter (the other wardens' lines keep their shape)
+		told.merge(_pin_tally)
 	out["tell_tally"] = told
 	if _archetype == "bellringer" and int(_bell.get("toll_beats", 0)) > 0:   # (after the last tell's tally; no toll below lever_min_tier: those lines keep their shape)
 		out["bell"] = _bell.merged(_toll_tally)
@@ -479,6 +539,9 @@ func on_finish(result: Dictionary) -> void:
 	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
+	if _human_on:   # the degraded bot's knobs (D-e): only on its lines, so the frozen bot's lines keep their bytes
+		out["human"] = {"delay_s": snappedf(_delay, 0.001), "read_s": snappedf(_read_s, 0.001), "draw_s": snappedf(_draw_s, 0.001),
+			"reads": _reads, "reads_cut": _reads_cut, "draws": _draws, "draws_cancelled": _draws_cancelled, "draws_lost": _draws_lost}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -534,6 +597,10 @@ func _track_room(pos: Vector2) -> void:
 		_cur_room = r
 		_hold_t = 0.0
 		_rooms_entered += 1
+	if RaidLogic.read_starts(_read_s, r, _rooms_read):   # the degraded bot reads each room once, on first entry
+		_rooms_read[r] = true
+		_read_left = _read_s
+		_reads += 1
 
 
 func _rooms() -> Array:
@@ -640,14 +707,18 @@ func _toward_room(pos: Vector2, goal_room: int, final: Vector2) -> Vector2:
 ## unstick_s, she gives it up. Changes nothing while she closes on it.
 func _aim_at(pos: Vector2, o) -> Vector2:
 	var p: Vector2 = o.global_position
-	var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
-	var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
-	_aim_obj = o
-	if step == "give_up":
-		_unreachable[o.get_instance_id()] = true
-	elif step == "aim_in":
-		_aimed_in += 1
-	_aim_last = _sim_t
+	if _read_left <= 0.0 and not _drawing:
+		# (the degraded bot's read pause and drawn circle hold her still by design (_human_goal): the watch
+		# skips those thinks and its last-walked clock stands, so the first think back restarts it, "closing";
+		# the frozen bot never holds, so its lines are unchanged. The quality pass of D-e.)
+		var d := LayoutLogic.route_dist(_raid.layout, pos, p, _raid.relish.radius)
+		var step := RaidLogic.unstick_step(_aim, o == _aim_obj, _sim_t, d, _aim_last, _cfg, RaidLogic.room_of(_raid.layout, pos))
+		_aim_obj = o
+		if step == "give_up":
+			_unreachable[o.get_instance_id()] = true
+		elif step == "aim_in":
+			_aimed_in += 1
+		_aim_last = _sim_t
 	if bool(_aim["in"]):
 		var r := RaidLogic.room_of(_raid.layout, p)
 		if r >= 0:
@@ -733,6 +804,7 @@ func _living() -> Array:
 func _decide(pos: Vector2) -> Vector2:
 	_why = "adv"
 	_detour_tick()
+	_door_tick(pos)
 	_avoid_arc = {}
 	_avoid_burn = {}
 	var hold_px := _c("hold_px", 200.0)
@@ -801,10 +873,14 @@ func _decide(pos: Vector2) -> Vector2:
 	# loose motes and piles, then pickups: the one chosen is kept until it is gone or unsafe (re-picking
 	# the nearest each think flip-flopped at a range edge: a pile just past pile_px, a pickup the other way)
 	var tgt = _stick if _still_target(_stick, living) else null
+	# a taken held door keeps her in its room until the cache is hers: she gathers only inside it (D-e task 6)
+	var droom := (_rooms()[_raid.held_door.room] as Rect2) if _door_state == "taken" else Rect2()
+	if tgt != null and _door_state == "taken" and not droom.has_point(tgt.global_position):
+		tgt = null
 	if tgt == null:
-		tgt = _collect_node(pos, living)
+		tgt = _collect_node(pos, living, Vector2.INF, 0.0, droom)
 	if tgt == null:
-		tgt = _pickup_node(pos, living)
+		tgt = _pickup_node(pos, living, Vector2.INF, 0.0, droom)
 	_stick = tgt
 	if tgt != null:
 		_why = "pickup" if tgt.is_in_group("raid_pickups") else "loot"
@@ -824,6 +900,10 @@ func _decide(pos: Vector2) -> Vector2:
 		if _hold_t < _c("stall_s", 30.0):
 			_why = "hold"
 			return pos
+	# the held door (D-e task 6): a taken door is walked to and its cache fetched before she moves on
+	if _door_state == "taken":
+		_why = "door"
+		return _door_goal(pos)
 	# nothing left to wait for: advance (a held fort ends with an exit)
 	var goal := _goal_room()
 	if int(_raid.layout.get("warden_room", -1)) < 0 and _cur_room == goal and living.is_empty():
@@ -855,12 +935,14 @@ func _answers(kind: String, beat: float) -> bool:
 			_tells_ok += 1
 		_tally_open = true
 		_tally_ctr0 = _counter_count()
+		_tally_pin = _tell_pinned()
 	return _tell_ok and _sim_t - _tell_seen >= _delay - 1e-6
 
 
 ## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
 ## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it; a pin
-## spares her only the rush, so it is not counted) or not; and struck when a tell-attack blow reached her before the next tell.
+## is not counted there, its own key is: missed_pinned and missed_pinned_struck, the Shieldwall's lines only, D-e
+## task 4) or not; and struck when a tell-attack blow reached her before the next tell.
 ## Tell-attack blows on her since the last look, stamped with the warden's beat (for the tally).
 func _record_hits() -> void:
 	var th := _tell_hits()
@@ -885,6 +967,14 @@ func _untold_blows() -> int:
 	return n
 
 
+## D-e task 4 (measuring only, read by nothing in the policy): the Shieldwall's tell now showing is pinned. It is
+## decided as the tell begins and holds through its blow, so its first sight books it. From D-e task 4 a pin is the
+## Shieldwall's counter in reach, as a muffle, an intercept or a snuff is at the others (`tell_tally.missed_pinned`).
+func _tell_pinned() -> bool:
+	var w = _raid.warden_run.warden
+	return w != null and is_instance_valid(w) and w is RaidShieldwall and (w as RaidShieldwall).pinned_tell
+
+
 func _tally_close() -> void:
 	if not _tally_open:
 		return
@@ -906,6 +996,10 @@ func _tally_close() -> void:
 			_tally["missed_countered"] += 1
 		elif struck:
 			_tally["missed_struck"] += 1
+		if _tally_pin:
+			_pin_tally["missed_pinned"] += 1
+			if struck:
+				_pin_tally["missed_pinned_struck"] += 1
 	var bw = _raid.warden_run.warden
 	if bw != null and is_instance_valid(bw) and bw is RaidBellringer and bw.toll_marks.has(_tell_id.get_slice(":", 1)):
 		var m: String = bw.toll_marks[_tell_id.get_slice(":", 1)]
@@ -949,7 +1043,10 @@ func _watch_threat(ne, nd: float) -> void:
 
 
 func _kite_due() -> bool:
-	return _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+	var due := _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+	if due:
+		_kite_acted = true   # (every caller kites when it is due; the degraded bot's read pause ends on it)
+	return due
 
 
 ## The guarded detour's rule (D-d/E 3b; RaidLogic.detour_take / detour_retreat; raid.json autopilot
@@ -1018,6 +1115,67 @@ func _det_cache_left() -> int:
 		if is_instance_valid(pk) and pk.is_in_group("raid_pickups"):
 			n += 1
 	return n
+
+
+## The held door's rule (D-e task 6; RaidLogic.held_door_pick, raid.json autopilot door_*; NOTES-RAID
+## "D-e task 6", frozen once written): decided once, at the first think she stands in the door's room before
+## the wake, her read pause over, with no living foe on her in her room. It reads the warden's weak point
+## (the stat and the threshold its label teaches) and the standing party bigs' values in that stat.
+func _door_tick(pos: Vector2) -> void:
+	var hd: RaidHeldDoor = _raid.held_door
+	if hd == null:
+		return
+	if _door_state == "":
+		var w = _raid.warden_run.warden
+		if _cur_room == hd.room and _read_left <= 0.0 and (w == null or not is_instance_valid(w) or not w.awake) \
+				and not _det_foe_on_her(pos):
+			_door_decide(hd, w)
+		return
+	if _door_state != "taken":
+		return
+	if hd.cache_left() == 0:
+		_door_state = "done"
+		_door_done_s = _sim_t
+		_door_walk = _walk_px - _door_walk0
+	elif hd.state == "shut" or hd.state == "freed":
+		_door_state = "abandoned"   # she left the room before the cache was hers: the big is shut in all the same
+	elif hd.fell > 0 or (hd.state == "unused" and (_door_big == null or not is_instance_valid(_door_big) or not _door_big.alive)):
+		_door_state = "abandoned"   # the big fell before the door held: she goes on
+	elif hd.times.has("ordered") and not hd.is_open and _sim_t - float(hd.times["ordered"]) > _c("door_wait_max_s", 8.0):
+		_door_state = "abandoned"   # it never reached the plate
+	elif hd.state == "unused" and hd.can_order() and not _det_foe_on_her(pos):
+		hd.click(_door_big.global_position)   # the human's order: a left click on that big, standing at the door
+	if _door_state == "taken" and hd.times.has("ordered") and not hd.is_open and pos.distance_to(hd.site["door_out"]) <= 8.0:
+		_door_wait_s += _c("think_frames", 3.0) / 60.0
+
+
+func _door_decide(hd: RaidHeldDoor, w) -> void:
+	var wp: Dictionary = w.spec.get("weak_point", {}) if w != null and is_instance_valid(w) else {}
+	var stat := str(wp.get("stat", ""))
+	var bigs := hd.party_bigs()
+	var vals: Array = []
+	for b in bigs:
+		vals.append(RaidLogic.unit_stat(b, stat))
+	var k := RaidLogic.held_door_pick(vals, float(wp.get("threshold", 0.0)), _cfg)
+	_door_at = {"t": snappedf(_sim_t, 0.01), "stat": stat, "threshold": float(wp.get("threshold", 0.0)), "values": vals}
+	_door_state = "taken" if k >= 0 else "declined"
+	if k >= 0:
+		_door_big = bigs[k]
+		_door_at["big"] = str(bigs[k].uid)
+	_door_walk0 = _walk_px
+	print("AUTOPILOT_DOOR %s stat=%s values=%s big=%s frame=%d" % [_door_state, stat, str(vals), str(_door_at.get("big", "")), Engine.get_process_frames()])
+
+
+## A taken door's walk: to the doorstep; once the plate holds the door, into the doorway (the cache is within
+## pickup reach of it; Relish's routing takes the doorway, LayoutLogic._niche_step).
+func _door_goal(pos: Vector2) -> Vector2:
+	var hd: RaidHeldDoor = _raid.held_door
+	var out: Vector2 = hd.site["door_out"]
+	if hd.is_open:
+		return _to_point(pos, hd.site["door_in"])
+	if pos.distance_to(out) <= 6.0:
+		return pos   # at the doorstep: wait for the plate
+	return _to_point(pos, out)
 
 
 ## Walk to the exit nearest by rooms, and retreat once standing in it.
@@ -1101,6 +1259,8 @@ func _pickup_node(pos: Vector2, living: Array, avoid: Vector2 = Vector2.INF, avo
 	for o in _raid.get_tree().get_nodes_in_group("raid_pickups"):
 		if not is_instance_valid(o) or _unreachable.has(o.get_instance_id()):
 			continue
+		if _raid.held_door != null and _raid.held_door.cache.has(o):
+			continue   # the held door's cache is the door rule's (_door_goal), never a floor pickup
 		var p: Vector2 = o.global_position
 		var d := pos.distance_to(p)
 		if d < bd and _in(in_room, p) and _spot_ok(p, living, clear, avoid, avoid_r):
@@ -1162,6 +1322,8 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 			return _toward_room(pos, hr, _room_center(hr))
 		var dodge_to = _dodge_step(pos, h)
 		if dodge_to != null:
+			if dodge_to != pos:
+				_why = "dodge"   # (log, and the degraded bot's dodge test: RaidLogic.DODGE_WHYS)
 			return dodge_to
 	if _archetype == "pyre_priest":
 		return _vs_pyre(pos, w as RaidPyrePriest, living, ne, nd)
@@ -1567,6 +1729,20 @@ func _try_raise(pos: Vector2) -> void:
 	if not bool(ring["ok"]) or int(ring["count"]) < int(_c("min_motes", 3.0)):
 		return
 	var trace := _trace_for(ring["center"], ring["radius"])
+	if _draw_s > 0.0:
+		# the degraded bot draws it (D-e): the trance opens and she stands draw_s scene seconds (_draw_tick)
+		_drawing = true
+		_draw_t = 0.0
+		_draw_trace = trace
+		_draws += 1
+		tr.bot_open()
+		return
+	_raise_with(trace)
+
+
+## Grade a traced circle and raise from it (the bot's instant raise, or a drawn circle once it is done).
+func _raise_with(trace: PackedVector2Array) -> void:
+	var tr: RaidTrance = _raid.trance
 	var g := CircleScorer.grade(trace)
 	_raid.show_trace_feedback(g, trace.duplicate())
 	var before: int = _raid.raises
@@ -1580,6 +1756,42 @@ func _try_raise(pos: Vector2) -> void:
 			_raises_wake += 1
 		if _first_raise_s < 0.0:
 			_first_raise_s = _sim_t
+
+
+## The degraded bot's open circle (RaidLogic.draw_step): done after draw_s, graded where it was traced
+## and raised; lost if the trance closed under her; let go (the lockout, no raise) when she must dodge.
+func _draw_tick(dodging: bool) -> void:
+	var tr: RaidTrance = _raid.trance
+	var st := RaidLogic.draw_step(_draw_t, _draw_s, tr != null and tr.state == RaidTrance.State.ACTIVE, dodging)
+	if st == "hold":
+		return
+	_drawing = false
+	if st == "lost":
+		_draws_lost += 1
+	elif st == "cancel":
+		_draws_cancelled += 1
+		tr.bot_cancel()
+	else:
+		_raise_with(_draw_trace)
+
+
+## The degraded bot's goal while she draws or reads (D-e): she stands, unless the think dodged a warden tell
+## she answered (RaidLogic.DODGE_WHYS: the circle is let go) or, in a read pause, kited from the living
+## (the pause ends). The policy itself ran as ever, so every tell and threat was seen and rolled on time.
+func _human_goal(pos: Vector2, goal: Vector2) -> Vector2:
+	var dodging: bool = RaidLogic.DODGE_WHYS.has(_why)
+	if _drawing:
+		_draw_tick(dodging)
+		if _drawing:
+			_why = "draw"
+			return pos
+		return goal
+	if dodging or _kite_acted:
+		_read_left = 0.0
+		_reads_cut += 1
+		return goal
+	_why = "read"
+	return pos
 
 
 ## 44 points round the circle with seeded radial jitter; the jitter amplitude is binary-searched

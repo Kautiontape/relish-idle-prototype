@@ -34,6 +34,7 @@ var held := false                # the fort is the player's (view_fort.held, or 
 var found_loot := {}             # loot found this run, minus essence (dings + the chest)
 var detour_guard: Array = []      # the guarded detour's living (RaidPopulate; raid.json detour)
 var detour_cache: Array = []      # its cache's pickups
+var held_door: RaidHeldDoor = null   # D-e task 6: the held door (raid.json held_door), null on a fort without one
 
 var arena: RaidArena = null
 var endings: RaidEndings = null
@@ -45,6 +46,7 @@ var _built := false
 var _standalone := false
 var _from_run := false          # the seed came from Game.state (a run is open), not the demo
 var _dev: RaidDev = null        # the standalone dev harness; null when the router launched us
+var capture: RaidCapture = null # capture mode (--capture[=<path>], D-e): one record per live dungeon run; reads only
 
 ## Run-over flag read by units, HUD, trance and the boss; lives on endings.
 var _ended: bool:
@@ -171,6 +173,8 @@ func _build() -> void:
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
 	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
+	if not boss:
+		held_door = RaidHeldDoor.make(self, layout, tier, cfg)   # carves its niche into the layout (no rng)
 	if not boss:   # (VeiBoss seeds its own rngs from its seed in _build_extra and keeps no ledger)
 		var base := int(str(seed_data.get("rng_seed", "1")).to_int())
 		rng_combat.seed = base ^ 0x6C0AB47
@@ -182,6 +186,8 @@ func _build() -> void:
 	arena.rng = rng_combat
 	add_child(arena)
 	arena.build(layout, cfg, controller_key())
+	if held_door != null:
+		add_child(held_door)
 
 	units_root = Node2D.new()
 	add_child(units_root)
@@ -257,6 +263,10 @@ func _build() -> void:
 	if not boss:
 		endings.start()
 		held_clear.on_built()
+		var cap_path := RaidCapture.path_from_cli()
+		if cap_path != "":   # any launch path: the router's as well as the standalone scene's
+			capture = RaidCapture.new(self, cap_path)
+			capture.start()
 	if _standalone:
 		_dev = RaidDev.new(self)
 		_dev.start()
@@ -285,10 +295,14 @@ func _physics_process(delta: float) -> void:
 		return
 	if _dev != null:
 		_dev.physics_tick(delta)
+	if capture != null:
+		capture.physics_tick(delta)   # reads the run (the last frame's warden state); changes nothing
 	arena.rebuild_grid(allies, enemies, relish)
 	if not is_boss():
 		endings.track_position()
 		warden_run.tick()
+		if held_door != null:
+			held_door.tick(delta)
 	_cam_follow()
 	_post_physics(delta)
 
@@ -319,6 +333,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 		return
 	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT and ev.pressed:
 		var w := screen_to_world(ev.position)
+		if held_door != null and held_door.click(w):
+			get_viewport().set_input_as_handled()   # the held door's order (on a big, or the plate): she stays put
+			return
 		relish.move_target = w
 		moves += 1
 		RaidFx.ping(fx_root, w)
@@ -430,6 +447,8 @@ func danger_hit() -> void:
 func danger_targeted() -> void:
 	if danger != null:
 		danger.targeted()
+	if capture != null:
+		capture.on_targeted()
 
 
 ## Alive allies by sacrifice rank, for the HUD ward line.
@@ -628,7 +647,13 @@ func perform_raise(g: Dictionary) -> void:
 ## result before the quit completes.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST and endings != null:
+		if capture != null:
+			capture.closing = true
 		endings.close_request()
+		if capture != null:
+			capture.flush_unfinished("closed")   # standalone: no close_request ending, so the record is written here
+	elif what == NOTIFICATION_PREDELETE and capture != null:
+		capture.flush_unfinished("freed")   # freed with no ending (a swap away): what there is
 
 
 
