@@ -302,7 +302,8 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 	if _slam_beat < 0.0 and WardenLogic.is_tell(b, _next_attack, tell):
 		var f := clampf((b - (_next_attack - tell)) / maxf(0.01, tell), 0.0, 1.0)
 		# faint preview of the slam's full reach, so the player learns it
-		LineGlow.ring(ci, Vector2.ZERO, reach, Palette.c("danger", float(wcfg().get("tell_preview_alpha", 0.16))), 2.0, 0.0)
+		# at the slam's true reach on her centre (radius + band/2): her body clear of this ring is clear of the slam
+		LineGlow.ring(ci, Vector2.ZERO, reach + band * 0.5, Palette.c("danger", float(wcfg().get("tell_preview_alpha", 0.16))), 2.0, 0.0)
 		# the tightening ring at the bell
 		var r0 := radius * float(wcfg().get("tell_ring_start", 2.6))
 		LineGlow.ring(ci, Vector2.ZERO, lerpf(r0, radius * 1.15, f), Palette.c("danger", 0.45 + 0.5 * f), 3.0, 0.6)
