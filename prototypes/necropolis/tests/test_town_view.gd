@@ -1827,11 +1827,11 @@ func _build_inspect(day1: Dictionary, mid: Dictionary) -> void:
 	var house := {"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active", "progress": 1.0, "slots": 0,
 		"staffed": 0.0, "foreman": "", "upkeep": {"gold": 0.01, "bone": 0.0}}
 	var i: Dictionary = BuildSort.inspect(house, st, bcfg, bv, vcfg)
-	t.ok(i["label"] == "House" and i["level"] == 1 and i["max_level"] == 3 and i["state_text"] == "working", "inspect: label, level of max, state")
+	t.ok(i["label"] == "House" and i["level"] == 1 and i["max_level"] == int(bcfg["house"]["max_level"]) and i["state_text"] == "working", "inspect: label, level of max, state")
 	t.ok(i["upgrade"]["enabled"] and i["upgrade"]["cost"] == bcfg["house"]["level_costs"][0] and i["upgrade"]["level"] == 2,
 		"inspect: upgrade cost is level_costs[level - 1]")
 	t.ok(not i["cancel"]["visible"] and i["demolish_visible"], "inspect: an active house can be demolished, not cancelled")
-	house["level"] = 3
+	house["level"] = int(bcfg["house"]["max_level"])
 	i = BuildSort.inspect(house, st, bcfg, bv, vcfg)
 	t.ok(not i["upgrade"]["enabled"] and i["upgrade"]["reason"] == "max_level", "inspect: no upgrade at max level")
 	house["level"] = 2
@@ -4143,17 +4143,20 @@ func _fix3a_upgrades(day1: Dictionary) -> void:
 	# 9: the chip names no lot
 	var s := _up_suggest(_up_world(day1, 1, "active"))
 	t.ok(s["chip"] == "suggested: upgrade to L2" and not String(s["chip"]).contains("lot-"), "chip: reads 'suggested: upgrade to L2', no raw lot id (%s)" % s["chip"])
-	# 4: past the cost table is not upgradable
+	# 4: past the cost table is not upgradable (on a copy with the house's level_costs cut to two: the shipped
+	# house has a cost for every level since economy's T7)
+	var bc2: Dictionary = bc.duplicate(true)
+	bc2["house"]["level_costs"] = (bc2["house"]["level_costs"] as Array).slice(0, 2)
 	var st := {"gold": 1e6, "bone": 1e6, "relics": 9.0, "max_level": {"house": 8}}
 	var house := {"lot_id": "lot-05", "building_id": "house", "level": 3, "state": "active", "progress": 1.0, "slots": 0,
 		"staffed": 0.0, "foreman": "", "upkeep": {"gold": 0.0, "bone": 0.0}}
-	var i := BuildSort.inspect(house, st, bc, bv, vcfg)
+	var i := BuildSort.inspect(house, st, bc2, bv, vcfg)
 	t.ok(i["upgrade"]["reason"] == "no_cost" and not i["upgrade"]["enabled"] and not i["upgrade"]["can_queue"] and i["upgrade"]["cost"].is_empty(),
 		"no cost: past level_costs the upgrade is refused, not free (%s)" % str(i["upgrade"]))
 	t.ok(BuildSort.reason_text("no_cost", {"level": i["upgrade"]["level"]}, st, bv, vcfg) == "no cost set for L4", "no cost: the reason reads 'no cost set for L4'")
 	var v := _up_world(day1, 3, "active", 1000.0, 1000.0, 8)
-	t.ok(BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, bc), bv, bc, vcfg).is_empty(), "no cost: past the table is no upgrade candidate")
-	t.ok(not _up_suggest(v).has("upgrade"), "no cost: ... and no free upgrade suggestion")
+	t.ok(BuildSort.upgrade_items(v, BuildSort.needs(v, {}, vcfg, bv, bc2), bv, bc2, vcfg).is_empty(), "no cost: past the table is no upgrade candidate")
+	t.ok(not _up_suggest(v, bc2).has("upgrade"), "no cost: ... and no free upgrade suggestion")
 	# 8a: an upgrade never outranks a higher-ranked need's new build
 	v = _up_world(day1, 1, "active")
 	_set_rate(v, "gold", -0.05)  # the gold need ranks above housing

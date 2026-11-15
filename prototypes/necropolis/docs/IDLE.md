@@ -104,8 +104,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   "any remainder after a hitch is dropped" above `idle.gap_s`). The check is the frame's real time, so
   debug fast-forward stays live play; its whole seconds catch up, chunked, and the fraction stays in the
   accumulator (above `idle.catchup_max_s` the same cap as a load's applies: the excess and its fraction
-  are dropped and the report says `capped`). Its events are queued under `idle.report_min_s` and collected for the report at or above
-  it (STATE-API §6).
+  are dropped and the report says `capped`). Its events are queued under `idle.report_min_s` and
+  collected for the report at or above it (STATE-API §6).
 - Negative elapsed time counts as 0. Anything above `idle.catchup_max_s` (7 days) is dropped as a
   sanity cap, not a design lever, and the report says so.
 - Quitting always saves.
@@ -540,9 +540,10 @@ same profile with the game closed.
 
 ## 6. Store caps
 - Gold and bone have caps (`gold.cap` 6 500, `bone.cap` 200; E2b-2 T3.2), raised by the buildings
-  economy picked in `buildings.json`: the **Market** (+3 250 gold per level) and the **Bone Mill** (+100
-  bone per level), both hamlet buildings with three levels, so a cap can be raised from the first
-  session. The bodies store is capped too. A cap only clips the top: gold's floor of 0 and upkeep are
+  economy picked in `buildings.json`: the **Market** (+3 250 gold per level) and the **Bone Mill** (a
+  table per level, +100 at level 1 to +8 400 at level 8: caps 300 to 8 600; T7), both hamlet buildings
+  with eight levels, so a cap can be raised from the first session. The mill's table grows with BALANCE
+  §7's level ladder, so every price fits a cap the player can reach by its building's tier (BALANCE §5). The bodies store is capped too. A cap only clips the top: gold's floor of 0 and upkeep are
   unchanged.
 - **The first caps take at least about 8 h of the default income to fill,** which covers a night away
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).

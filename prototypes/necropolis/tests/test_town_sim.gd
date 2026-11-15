@@ -1189,8 +1189,16 @@ func _run_capped(ts: TownSim, total: float, dt: float) -> Array:
 	return over
 
 
+## A buildings.json effect at `level`, as _eff_b reads it (written out here, not called): a number per level
+## (× level), an Array the per-level table (its entry at level − 1, the last past its end).
+static func _at_level(v: Variant, level: int) -> float:
+	if v is Array:
+		return float(v[mini(level, (v as Array).size()) - 1]) if not (v as Array).is_empty() else 0.0
+	return float(v) * level
+
+
 ## IDLE §6: gold and bone are capped (economy.json gold.cap, bone.cap, plus the Market's gold_cap and the
-## Bone Mill's bone_cap per level). Only what comes in is clipped, exactly for constant rates inside the
+## Bone Mill's bone_cap per level; the mill's is a per-level table since T7). Only what comes in is clipped, exactly for constant rates inside the
 ## step: over a fill, from just over the cap and from far over it, a 10 s step ends with the stock and the
 ## overflow of twenty 0.5 s steps; a store over its cap keeps its excess, all its income overflowing while
 ## upkeep draws it down, and once the upkeep has brought it to the cap (it outruns the income) it runs on
@@ -1202,8 +1210,8 @@ func _store_caps() -> void:
 	var probe := _capped_town(0.0, 0.0)
 	var gcap := probe.gold_cap()
 	var bcap := probe.bone_cap()
-	t.ok(gcap == float(cfg["economy"]["gold"]["cap"]) + float(cfg["buildings"]["market"]["effects"]["gold_cap"])
-		and bcap == float(cfg["economy"]["bone"]["cap"]) + float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"]),
+	t.ok(gcap == float(cfg["economy"]["gold"]["cap"]) + _at_level(cfg["buildings"]["market"]["effects"]["gold_cap"], 1)
+		and bcap == float(cfg["economy"]["bone"]["cap"]) + _at_level(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"], 1),
 		"the caps: the base plus a level-1 Market's and Bone Mill's per-level shares (gold %.0f, bone %.0f)" % [gcap, bcap])
 	for c in [["a fill", gcap - 1.0, bcap - 1.0], ["from over the cap", gcap + 0.5, bcap + 0.5], ["far over", gcap + 50.0, bcap + 50.0]]:
 		var a := _capped_town(c[1], c[2])

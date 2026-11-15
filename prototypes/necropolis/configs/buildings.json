@@ -12,34 +12,34 @@
     "effects": {}
   },
   "raising_pit": {
-    "cost": {"gold": 90.0, "bone": 40.0, "relics": 0},
+    "cost": {"gold": 15.0, "bone": 150.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
     "build_work": 90.0,
     "lot_size": 1,
-    "max_level": 3,
-    "level_costs": [{"gold": 180.0, "bone": 80.0, "relics": 0}, {"gold": 270.0, "bone": 120.0, "relics": 0}],
+    "max_level": 8,
+    "level_costs": [{"gold": 30.0, "bone": 305.0, "relics": 0}, {"gold": 50.0, "bone": 450.0, "relics": 0}, {"gold": 80.0, "bone": 720.0, "relics": 0}, {"gold": 130.0, "bone": 1150.0, "relics": 0}, {"gold": 210.0, "bone": 1840.0, "relics": 1}, {"gold": 335.0, "bone": 2945.0, "relics": 1}, {"gold": 535.0, "bone": 4710.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"pit": 2},
     "effects": {"pits": 1}
   },
   "charnel_house": {
-    "cost": {"gold": 80.0, "bone": 30.0, "relics": 0},
+    "cost": {"gold": 15.0, "bone": 130.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
     "build_work": 90.0,
     "lot_size": 2,
-    "max_level": 3,
-    "level_costs": [{"gold": 80.0, "bone": 30.0, "relics": 0}, {"gold": 160.0, "bone": 60.0, "relics": 0}],
+    "max_level": 8,
+    "level_costs": [{"gold": 15.0, "bone": 130.0, "relics": 0}, {"gold": 30.0, "bone": 255.0, "relics": 0}, {"gold": 50.0, "bone": 410.0, "relics": 0}, {"gold": 80.0, "bone": 655.0, "relics": 0}, {"gold": 130.0, "bone": 1050.0, "relics": 1}, {"gold": 210.0, "bone": 1680.0, "relics": 1}, {"gold": 335.0, "bone": 2690.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"haul": 3},
-    "effects": {"body_cap": [0.0, 50.0, 100.0]}
+    "effects": {"body_cap": [0.0, 50.0, 100.0, 150.0, 200.0, 250.0, 300.0, 350.0]}
   },
   "market": {
-    "cost": {"gold": 80.0, "bone": 30.0, "relics": 0},
+    "cost": {"gold": 15.0, "bone": 130.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
     "build_work": 90.0,
     "lot_size": 2,
-    "max_level": 3,
-    "level_costs": [{"gold": 80.0, "bone": 30.0, "relics": 0}, {"gold": 160.0, "bone": 60.0, "relics": 0}],
+    "max_level": 8,
+    "level_costs": [{"gold": 15.0, "bone": 130.0, "relics": 0}, {"gold": 30.0, "bone": 255.0, "relics": 0}, {"gold": 45.0, "bone": 410.0, "relics": 0}, {"gold": 75.0, "bone": 650.0, "relics": 0}, {"gold": 120.0, "bone": 1040.0, "relics": 1}, {"gold": 190.0, "bone": 1675.0, "relics": 1}, {"gold": 300.0, "bone": 2685.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"stall": 2},
     "effects": {"gold_cap": 3250.0}
@@ -49,8 +49,8 @@
     "upkeep": {"gold": 0.01, "bone": 0.0},
     "build_work": 60.0,
     "lot_size": 1,
-    "max_level": 3,
-    "level_costs": [{"gold": 80.0, "bone": 20.0, "relics": 0}, {"gold": 120.0, "bone": 30.0, "relics": 0}],
+    "max_level": 8,
+    "level_costs": [{"gold": 80.0, "bone": 20.0, "relics": 0}, {"gold": 120.0, "bone": 30.0, "relics": 0}, {"gold": 35.0, "bone": 280.0, "relics": 0}, {"gold": 55.0, "bone": 455.0, "relics": 0}, {"gold": 90.0, "bone": 730.0, "relics": 1}, {"gold": 140.0, "bone": 1180.0, "relics": 1}, {"gold": 225.0, "bone": 1880.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},
     "effects": {"living_cap": 8.0}
@@ -82,11 +82,11 @@
     "upkeep": {"gold": 0.03, "bone": 0.0},
     "build_work": 90.0,
     "lot_size": 1,
-    "max_level": 3,
-    "level_costs": [{"gold": 120.0, "bone": 40.0, "relics": 0}, {"gold": 180.0, "bone": 60.0, "relics": 0}],
+    "max_level": 8,
+    "level_costs": [{"gold": 20.0, "bone": 190.0, "relics": 0}, {"gold": 30.0, "bone": 285.0, "relics": 0}, {"gold": 50.0, "bone": 455.0, "relics": 0}, {"gold": 80.0, "bone": 730.0, "relics": 0}, {"gold": 130.0, "bone": 1170.0, "relics": 1}, {"gold": 210.0, "bone": 1870.0, "relics": 1}, {"gold": 335.0, "bone": 2990.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {"mill": 2},
-    "effects": {"bone_cap": 100.0}
+    "effects": {"bone_cap": [100.0, 150.0, 350.0, 700.0, 1250.0, 2050.0, 3400.0, 8400.0]}
   },
   "inn": {
     "cost": {"gold": 150.0, "bone": 50.0, "relics": 0},
@@ -100,45 +100,45 @@
     "effects": {"living_cap": 20.0, "attract": 0.02, "morale": 0.04}
   },
   "forge": {
-    "cost": {"gold": 180.0, "bone": 50.0, "relics": 1},
+    "cost": {"gold": 30.0, "bone": 275.0, "relics": 1},
     "upkeep": {"gold": 0.05, "bone": 0.0},
     "build_work": 120.0,
     "lot_size": 2,
-    "max_level": 3,
-    "level_costs": [{"gold": 360.0, "bone": 100.0, "relics": 2}, {"gold": 540.0, "bone": 150.0, "relics": 3}],
+    "max_level": 8,
+    "level_costs": [{"gold": 65.0, "bone": 540.0, "relics": 2}, {"gold": 95.0, "bone": 820.0, "relics": 3}, {"gold": 150.0, "bone": 1310.0, "relics": 3}, {"gold": 240.0, "bone": 2095.0, "relics": 3}, {"gold": 385.0, "bone": 3350.0, "relics": 4}, {"gold": 615.0, "bone": 5360.0, "relics": 4}, {"gold": 985.0, "bone": 8575.0, "relics": 4}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {"forge": 2},
     "effects": {}
   },
   "graveyard": {
-    "cost": {"gold": 120.0, "bone": 50.0, "relics": 0},
+    "cost": {"gold": 20.0, "bone": 200.0, "relics": 0},
     "upkeep": {"gold": 0.05, "bone": 0.0},
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 3,
-    "level_costs": [{"gold": 240.0, "bone": 100.0, "relics": 0}, {"gold": 360.0, "bone": 150.0, "relics": 0}],
+    "level_costs": [{"gold": 45.0, "bone": 390.0, "relics": 0}, {"gold": 65.0, "bone": 590.0, "relics": 0}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
     "effects": {"body_cap": 100.0, "lifetime_bonus": 0.15}
   },
   "embalmer": {
-    "cost": {"gold": 200.0, "bone": 80.0, "relics": 1},
+    "cost": {"gold": 35.0, "bone": 330.0, "relics": 1},
     "upkeep": {"gold": 0.08, "bone": 0.0},
     "build_work": 180.0,
     "lot_size": 1,
     "max_level": 3,
-    "level_costs": [{"gold": 400.0, "bone": 160.0, "relics": 2}, {"gold": 600.0, "bone": 240.0, "relics": 3}],
+    "level_costs": [{"gold": 70.0, "bone": 655.0, "relics": 2}, {"gold": 110.0, "bone": 975.0, "relics": 3}],
     "requires": {"tier": "village", "blueprint": "embalmer", "building": ""},
     "jobs": {},
     "effects": {"lifetime_bonus": 0.5}
   },
   "stables": {
-    "cost": {"gold": 120.0, "bone": 50.0, "relics": 0},
+    "cost": {"gold": 20.0, "bone": 200.0, "relics": 0},
     "upkeep": {"gold": 0.05, "bone": 0.0},
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 3,
-    "level_costs": [{"gold": 240.0, "bone": 100.0, "relics": 0}, {"gold": 360.0, "bone": 150.0, "relics": 0}],
+    "level_costs": [{"gold": 45.0, "bone": 390.0, "relics": 0}, {"gold": 65.0, "bone": 590.0, "relics": 0}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {},
     "effects": {"haul_speed_mult": 0.3}
@@ -148,8 +148,8 @@
     "upkeep": {"gold": 0.12, "bone": 0.0},
     "build_work": 240.0,
     "lot_size": 2,
-    "max_level": 3,
-    "level_costs": [{"gold": 600.0, "bone": 240.0, "relics": 4}, {"gold": 900.0, "bone": 360.0, "relics": 6}],
+    "max_level": 8,
+    "level_costs": [{"gold": 600.0, "bone": 240.0, "relics": 4}, {"gold": 900.0, "bone": 360.0, "relics": 6}, {"gold": 1440.0, "bone": 575.0, "relics": 6}, {"gold": 2305.0, "bone": 920.0, "relics": 6}, {"gold": 3690.0, "bone": 1470.0, "relics": 7}, {"gold": 5905.0, "bone": 2350.0, "relics": 7}, {"gold": 9450.0, "bone": 3760.0, "relics": 7}],
     "requires": {"tier": "village", "blueprint": "", "building": ""},
     "jobs": {"tend": 2},
     "effects": {"vat_slots": 2}

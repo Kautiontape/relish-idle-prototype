@@ -1036,7 +1036,10 @@ mass; bodies, rot return, WORK and muster are mass.
   - Stocks never go negative and there is no debt.
 - **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
   bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
-  effects, so unpaid or mid-upgrade levels count). Only what came in is clipped, and the clip is exact
+  effects, so unpaid or mid-upgrade levels count). The Market's is a number, 3 250 a level (6 500 to
+  32 500 at its level 8); the Bone Mill's is a table per level (T7: an Array effect is the value at each
+  level, as the Charnel House's `body_cap` is), caps 300, 350, 550, 900, 1 450, 2 250, 3 600, 8 600 at
+  levels 1–8 over the base 200. Only what came in is clipped, and the clip is exact
   inside the step for constant rates (one 10 s step ends with the stock and the overflow of twenty 0.5 s
   steps, from under the cap or over it; `test_town_sim`). A store at or under its cap fills at income −
   upkeep and what would pass the cap overflows: the body store's rule (§4.1), what ends above `max(cap,
@@ -1157,10 +1160,10 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Crypt | holds the slab; idle rest; big-undead cap +1 per level above 1 | start |
 | Raising Pit | +`P_per_pit` mint; pit job | start (1) |
 | Charnel House | haul job; body store cap + | start |
-| Market | stall jobs (gold); + gold cap (`gold_cap` per level) | start (small) |
+| Market | stall jobs (gold); + gold cap (`gold_cap`, 3 250 per level, to level 8) | start (small) |
 | House | + `living_cap` | Hamlet |
 | Well, Bakery | + morale, + living cap | Hamlet |
-| Bone Mill | mill job; + bone cap (`bone_cap` per level) | Hamlet |
+| Bone Mill | mill job; + bone cap (`bone_cap`, a table per level: 100 to 8 400 over levels 1–8, BALANCE §5) | Hamlet |
 | Inn | + migration, + morale, + living cap | Village |
 | Forge | forge job; levels need relics | Village |
 | Graveyard | + body store cap; + worker lifetime | Village |

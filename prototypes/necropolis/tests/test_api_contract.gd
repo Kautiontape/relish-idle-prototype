@@ -323,12 +323,15 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_cancel_build", ["lot-05"], true)
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
-	# the build queue (T3.2): an upgrade of the market under construction waits (under_construction) and
-	# stays queued for the views below; a well starts on the next substep
+	# the build queue (T3.2): with no mill yet, the reliquary's bone is over the base cap (cost_exceeds_cap);
+	# then a level-1 Bone Mill (bone cap 300), since the Market is bought with bone (T7) and its level 3, which
+	# the queued upgrade builds, is over the base cap: an upgrade of the market under construction waits
+	# (under_construction) and stays queued for the views below; a well starts on the next substep
+	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap
+	s.town_sim.place_building("lot-08", "bone_mill", 1)
 	_cmd(s, "cmd_queue_build", ["", "lot-04"], true)
 	_cmd(s, "cmd_queue_build", ["well", "lot-06"], true)
 	_cmd(s, "cmd_queue_build", ["nope", "lot-06"], false)
-	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap
 	_cmd(s, "cmd_reorder_queue", [[1, 0]], true)
 	_cmd(s, "cmd_reorder_queue", [[0]], false)
 	_cmd(s, "cmd_queue_build", ["house", "lot-07"], true)

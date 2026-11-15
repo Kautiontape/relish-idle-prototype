@@ -617,15 +617,24 @@ func _yield() -> void:
 	t.ok(not g["held"] and r.view_fort("greywall")["yield_mult"] == 1.0, "a retake resets it to 1")
 
 
+## A buildings.json effect at `level`, as TownSim._eff_b reads it: a number per level (× level), an Array the
+## per-level table (its entry at level − 1, the last past its end).
+static func _at_level(v: Variant, level: int) -> float:
+	if v is Array:
+		return float(v[mini(level, (v as Array).size()) - 1]) if not (v as Array).is_empty() else 0.0
+	return float(v) * level
+
+
 ## The gold and bone caps (E2b-2 T3.2, IDLE §6; STATE-API §5.1, §5.9, §4.7): view_hud's gold and bone `cap`
 ## is live (it was −1.0) and equals view_town's gold_cap and bone_cap: the base plus the Market's and the
-## Bone Mill's per-level share. A demolished Market drops it. ledger().stores is the tally, 0 at a new game.
+## Bone Mill's per-level share (a number × level, or the Array's entry at the level, TownSim._eff_b's rule;
+## the mill's is a table since T7). A demolished Market drops it. ledger().stores is the tally, 0 at a new game.
 func _store_caps() -> void:
 	t.suite("api-v6-store-caps")
 	var cfg := TestUtil.configs()
 	var s := _mk()
-	var per_g := float(cfg["buildings"]["market"]["effects"]["gold_cap"])
-	var per_b := float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"])
+	var per_g := _at_level(cfg["buildings"]["market"]["effects"]["gold_cap"], 1)
+	var per_b2 := _at_level(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"], 2)
 	var base_g := float(cfg["economy"]["gold"]["cap"])
 	var base_b := float(cfg["economy"]["bone"]["cap"])
 	var caps := {}
@@ -636,7 +645,7 @@ func _store_caps() -> void:
 		"a new game: gold cap %.0f (base + a level-1 Market), bone cap %.0f (base), in view_hud and view_town" % [caps["gold"], caps["bone"]])
 	t.ok(s.ledger()["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}}, "ledger().stores is 0 at a new game")
 	s.town_sim.place_building("lot-05", "bone_mill", 2)
-	t.ok(s.view_town()["bone_cap"] == base_b + 2.0 * per_b, "a level-2 Bone Mill adds two shares: %.0f" % s.view_town()["bone_cap"])
+	t.ok(s.view_town()["bone_cap"] == base_b + per_b2, "a level-2 Bone Mill adds its level-2 bonus (%.0f): %.0f" % [per_b2, s.view_town()["bone_cap"]])
 	t.ok(s.cmd_demolish("lot-04")["ok"] and s.view_town()["gold_cap"] == base_g, "the Market demolished: the gold cap is the base again")
 	# pre_vei's mill earns bone (+0.107/s uncapped) while its store sits over the cap: it keeps the excess
 	# and every bone milled overflows, so the store never grows
@@ -702,7 +711,7 @@ func _construction_time() -> void:
 	t.ok(b["state"] == "constructing" and b["eta_s"] == -1.0 and b["work_left"] == work * 2.0 and b["upgrade_work"] == work * 2.0,
 		"no builders: eta_s −1.0; work_left the level's whole work; upgrade_work the construction's own (level + 1)")
 	# max level: upgrade_work 0.0; the catalog's work is a new build's
-	s.town_sim.place_building("lot-06", "house", 3)
+	s.town_sim.place_building("lot-06", "house", int(TestUtil.configs()["buildings"]["house"]["max_level"]))
 	t.ok(_bld(s, "lot-06")["upgrade_work"] == 0.0, "at max_level upgrade_work is 0.0")
 	var all_ok := true
 	for r in s.view_catalog()["buildings"]:

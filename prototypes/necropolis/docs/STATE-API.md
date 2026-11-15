@@ -694,7 +694,7 @@ Game.state.cmd_build("inn", "lot-06")    # -> {ok: false, reason: "needs_tier", 
   level (slots, output, upkeep and effects) until the upgrade is done; `view_town` shows it
   `constructing` meanwhile, with its old `level`.
 ```gdscript
-Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {gold: 80.0, bone: 30.0, relics: 0}}
+Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {gold: 15.0, bone: 130.0, relics: 0}}
 ```
 
 **`cmd_demolish(lot_id: String)` · E2**
@@ -1635,7 +1635,7 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,
-   lot_size: 1, max_level: 3, count: 0, requires: {tier: "hamlet", blueprint: "", building: ""},
+   lot_size: 1, max_level: 8, count: 0, requires: {tier: "hamlet", blueprint: "", building: ""},
    can_build: true, reason: "", lots: ["lot-05", "lot-06", "lot-07", "lot-08"]},
   {building_id: "inn", ..., can_build: false, reason: "needs_tier", lots: []}],
  crafts: [{item_id: "simulacrum", cost: {essence: 20, relics: 1}, can_craft: false, reason: "needs_building"}, ...],
@@ -1825,15 +1825,15 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
 - **At the current valve, with the valve at its target and Relish not travelling, every field equals the
   live views'.** Otherwise the planned support differs: while the valve slews, or Relish travels, the
   projection reads the target valve's WAR split and her committed arrival, so its rates, `fall_s` and the
-  margins that depend on them can differ from `view_fort`'s (details below). At that scope, `split` is `view_hud.split` (and
-  `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
-  is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
-  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same scope), and with `settled` its
-  `margin` and `margin_cause` are too, **only with the valve at its target** (as it is once its slew is
-  done): `view_fort` reads the target's WAR as its planned support, a projection the valve passed. While
-  the valve slews, `settled` at the target valve runs `view_fort`'s own train (the same probe, the same
-  broken and settled verdicts), but its `garrison_rate` and `fall_s` are the target's, so its margin can
-  differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
+  margins that depend on them can differ from `view_fort`'s (details below). At the current valve,
+  `split` is `view_hud.split` (and `war_overflow` `view_hud.war_overflow`), `workers_steady` is
+  `view_town.workers.steady`, `war_supports` is `view_hud.war_supports`, each `margins` entry's
+  `garrison_rate` is that fort's `view_fort` one, and `backlog_diff` is `view_vei.diff_ema`. Each entry's
+  `fall_s` is `view_fort`'s too, and with `settled` so are its `margin` and `margin_cause`, but **only with
+  the valve at its target** (as it is once its slew is done): `view_fort` reads the target's WAR as its
+  planned support, a projection the valve passed. While the valve slews, `settled` at the target valve
+  runs `view_fort`'s own train (the same probe, the same broken and settled verdicts), but its
+  `garrison_rate` and `fall_s` are the target's, so its margin can differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
   `view_fort` reads the train).
 - **Current and planned in a row** (T3.4b fix batch): a row's `garrison_rate` reads that valve's split with
   Relish where she stands; its `fall_s` is the earlier of that clock and the clock at that valve's split

@@ -31,6 +31,26 @@ func _q(s: GameState) -> Array:
 	return s.view_town()["queue"]
 
 
+## A buildings.json effect at `level`, as TownSim._eff_b reads it (written out here, not called): a number per
+## level (× level), an Array the per-level table (its entry at level − 1, the last past its end).
+static func _at_level(v: Variant, level: int) -> float:
+	if v is Array:
+		return float(v[mini(level, (v as Array).size()) - 1]) if not (v as Array).is_empty() else 0.0
+	return float(v) * level
+
+
+## The lowest Bone Mill level whose bone cap (bone.cap plus its bone_cap there) covers `bone`, from the configs;
+## −1 when none does. The setups below give a state the mill a bone price needs (T7: the dead's buildings are
+## bought with bone).
+static func _mill_level(bone: float) -> int:
+	var c := TestUtil.configs()
+	var m: Dictionary = c["buildings"]["bone_mill"]
+	for lv in range(1, int(m["max_level"]) + 1):
+		if float(c["economy"]["bone"]["cap"]) + _at_level(m["effects"]["bone_cap"], lv) >= bone:
+			return lv
+	return -1
+
+
 func _col(rows: Array, key: String) -> Array:
 	return rows.map(func(r): return r[key])
 
@@ -74,20 +94,30 @@ func _refusals() -> void:
 	t.ok(s.cmd_queue_build("well", "lot-05")["reason"] == "lot_taken", "lot_taken: a building under construction there")
 	t.ok(s.cmd_queue_build("market", "lot-06")["reason"] == "lot_too_small", "lot_too_small: a size-2 market on a size-1 lot")
 	t.ok(s.cmd_queue_build("", "lot-06")["reason"] == "empty_lot", "empty_lot: an upgrade where nothing stands or is queued")
-	for i in 2:
-		t.ok(s.cmd_queue_build("", "lot-02")["ok"], "the pit's upgrade %d of 2 is accepted" % (i + 1))
-	t.ok(s.cmd_queue_build("", "lot-02")["reason"] == "max_level", "max_level: a third upgrade of the pit would build level 4")
+	# max_level: every upgrade of the pit up to its max_level is accepted, one more is refused (a state with a
+	# top-level Bone Mill, so every level's bone is under the cap)
+	var pit := _mk()
+	var top := int(TestUtil.configs()["buildings"]["raising_pit"]["max_level"])
+	pit.town_sim.place_building("lot-05", "bone_mill", int(TestUtil.configs()["buildings"]["bone_mill"]["max_level"]))
+	t.ok(top - 1 < int(TestUtil.configs()["economy"]["queue"]["max_len"]), "(setup) the pit's %d upgrades fit in the queue" % (top - 1))
+	for i in top - 1:
+		t.ok(pit.cmd_queue_build("", "lot-02")["ok"], "the pit's upgrade %d of %d is accepted" % [i + 1, top - 1])
+	t.ok(pit.cmd_queue_build("", "lot-02")["reason"] == "max_level", "max_level: one more upgrade of the pit would build level %d" % (top + 1))
 	# the reliquary's 250 bone is over the base bone cap (no bone mill at a new game)
 	var cap := s.cmd_queue_build("reliquary", "lot-23")
 	t.ok(cap["reason"] == "cost_exceeds_cap" and cap["store"] == "bone" and cap["cap_building"] == "bone_mill" and cap["index"] == -1
 		and cap["cap_level"] == 1, "cost_exceeds_cap: the reliquary's bone over the bone cap; a level-1 Bone Mill (not built yet) covers it: %s" % str(cap))
 	# cap_level: the lowest level of the cap building whose cap covers the price. midgame_2flips has a level-1
-	# mill (cap 300); a Chapel of Vats' level 3 costs 360 bone, which a level-2 mill (400) covers
+	# mill; a Chapel of Vats' level 3 costs more bone than its cap, and the mill level that covers it is read
+	# from the configs (_mill_level)
 	var mg := _fixture("midgame_2flips")
 	mg.town_sim.place_building("lot-13", "chapel_of_vats", 2)
+	var c3_bone := float(BuildRules.construction_cost(mg, "chapel_of_vats", 3)["bone"])
 	var c3 := mg.cmd_queue_build("", "lot-13")
-	t.ok(c3["reason"] == "cost_exceeds_cap" and c3["store"] == "bone" and c3["cap_level"] == 2,
-		"the chapel's level 3 (360 bone) over a level-1 mill's 300: build the mill's level 2 first (cap_level 2): %s" % str(c3))
+	t.ok(c3_bone > mg.town_sim.bone_cap() and _mill_level(c3_bone) > 1 and c3["reason"] == "cost_exceeds_cap" and c3["store"] == "bone"
+		and c3["cap_level"] == _mill_level(c3_bone),
+		"the chapel's level 3 (%.0f bone) over a level-1 mill's %.0f: build the mill's level %d first (cap_level): %s" % [
+		c3_bone, mg.town_sim.bone_cap(), _mill_level(c3_bone), str(c3)])
 	var n := _q(s).size()
 	var rv := s.rev
 	t.ok(s.cmd_queue_build("nope", "lot-05")["ok"] == false and _q(s).size() == n and s.rev == rv, "a refusal changes nothing, rev stays")
@@ -106,7 +136,8 @@ func _refusals() -> void:
 	var g := _mk(c)
 	var rg := g.cmd_queue_build("house", "lot-05")
 	t.ok(rg["reason"] == "cost_exceeds_cap" and rg["store"] == "gold" and rg["cap_building"] == "market" and rg["cap_level"] == -1,
-		"cost_exceeds_cap on gold names the Market; no Market level covers 40 gold here (13 at level 3): cap_level -1: %s" % str(rg))
+		"cost_exceeds_cap on gold names the Market; no Market level covers 40 gold here (%.0f at its max level): cap_level -1: %s" % [
+		10.0 + float(c["buildings"]["market"]["max_level"]), str(rg)])
 	var rr := g.cmd_queue_build("", "lot-01")  # the crypt's level 2 costs a relic
 	t.ok(rr["reason"] == "cost_exceeds_cap" and rr["store"] == "gold", "the gold is checked before the relics: %s" % str(rr))
 	c["economy"]["gold"]["cap"] = 1e6
@@ -127,7 +158,7 @@ func _accepts() -> void:
 	t.suite("build_queue-accepts")
 	var s := _mk()
 	_funds(s, 0.0, 0.0)
-	var cases := [["house", "lot-09", "lot_locked"], ["embalmer", "lot-05", "needs_tier"], ["", "lot-01", "no_relics"]]
+	var cases := [["house", "lot-09", "lot_locked"], ["watchtower", "lot-05", "needs_tier"], ["", "lot-01", "no_relics"]]
 	for c in cases:
 		var r := s.cmd_queue_build(c[0], c[1])
 		t.ok(r["ok"] and r["reason"] == "" and r["cap_building"] == "" and r["store"] == "" and r["cap_level"] == -1, "%s on %s accepted: %s" % [c[0], c[1], str(r)])
@@ -135,19 +166,21 @@ func _accepts() -> void:
 	for i in cases.size():
 		t.ok(rows[i]["status"] == "skipped_gate" and rows[i]["reason"] == cases[i][2], "%s on %s shows skipped_gate (%s): %s %s" % [
 			cases[i][0], cases[i][1], cases[i][2], rows[i]["status"], rows[i]["reason"]])
-	# needs_blueprint: the village tier, no Embalmer blueprint
+	# needs_blueprint: the village tier, no Embalmer blueprint (and the mill its bone needs under the cap)
 	var v := _mk()
 	v.town_tier = "village"
+	v.town_sim.place_building("lot-06", "bone_mill", _mill_level(float(BuildRules.construction_cost(v, "embalmer", 1)["bone"])))
 	t.ok(v.cmd_queue_build("embalmer", "lot-05")["ok"] and _q(v)[0]["reason"] == "needs_blueprint", "needs_blueprint: %s" % _q(v)[0]["reason"])
 	# needs_building (no shipped building requires another: a config where the well needs a forge)
 	var c2 := TestUtil.configs().duplicate(true)
 	c2["buildings"]["well"]["requires"]["building"] = "forge"
 	var nb := _mk(c2)
 	t.ok(nb.cmd_queue_build("well", "lot-05")["ok"] and _q(nb)[0]["reason"] == "needs_building", "needs_building: %s" % _q(nb)[0]["reason"])
-	# an upgrade of a lot under construction, and of an unpaid building
+	# an upgrade of a lot under construction, and of an unpaid building (a well: its levels fit the base caps)
 	var u := _mk()
 	_funds(u, 1000.0, 100.0)
-	t.ok(u.cmd_upgrade("lot-02")["ok"] and u.cmd_queue_build("", "lot-02")["ok"], "an upgrade of the upgrading pit is accepted")
+	u.town_sim.place_building("lot-05", "well", 1)
+	t.ok(u.cmd_upgrade("lot-05")["ok"] and u.cmd_queue_build("", "lot-05")["ok"], "an upgrade of the upgrading well is accepted")
 	var row: Dictionary = _q(u)[0]
 	t.ok(row["status"] == "skipped_gate" and row["reason"] == "under_construction" and row["level"] == 3,
 		"it waits on the construction under way (under_construction) and builds level 3: %s" % str(row))
@@ -182,17 +215,19 @@ func _rule1_never_stalls() -> void:
 	t.suite("build_queue-rule1")
 	var s := _mk()
 	_funds(s, 100.0, 30.0)
-	s.cmd_queue_build("embalmer", "lot-05")  # needs_tier
+	s.cmd_queue_build("watchtower", "lot-05")  # needs_tier
 	s.cmd_queue_build("house", "lot-06")
 	s.drain_events()
 	s.tick(s.substep_s())
 	var st := _started(s.drain_events())
-	t.ok(st.size() == 1 and st[0]["building_id"] == "house" and st[0]["lot_id"] == "lot-06", "the house behind a gated embalmer starts: %s" % str(st))
-	t.ok(_q(s).size() == 1 and _q(s)[0]["status"] == "skipped_gate", "the embalmer stays, skipped")
+	t.ok(st.size() == 1 and st[0]["building_id"] == "house" and st[0]["lot_id"] == "lot-06", "the house behind a gated watchtower starts: %s" % str(st))
+	t.ok(_q(s).size() == 1 and _q(s)[0]["status"] == "skipped_gate", "the watchtower stays, skipped")
 	# its gate clears behind a head waiting for funds: it doesn't jump the head
 	var j := _mk()
-	_funds(j, 100.0, 30.0)
-	j.cmd_queue_build("", "lot-02")  # the pit's level 2: 180 gold
+	j.town_sim.place_building("lot-05", "house", 2)
+	var h3 := BuildRules.construction_cost(j, "house", 3)
+	_funds(j, float(h3["gold"]) - 20.0, float(h3["bone"]))  # short of the head's gold, not of a house's 40
+	j.cmd_queue_build("", "lot-05")  # the house's level 3: more gold than there is
 	j.cmd_queue_build("house", "lot-09")  # lot_locked at hamlet; 40 gold, affordable
 	t.ok(_col(_q(j), "status") == ["waiting_funds", "skipped_gate"], "head waits for funds, the house is gated: %s" % str(_col(_q(j), "status")))
 	j.town_tier = "village"  # opens lot-09
@@ -216,20 +251,20 @@ func _rule2_holds_nothing() -> void:
 	var s := _mk()
 	_funds(s, 40.0, 10.0)  # exactly a house
 	s.cmd_queue_build("", "lot-01")  # the crypt's level 2: no relics
-	s.cmd_queue_build("embalmer", "lot-05")  # needs_tier
+	s.cmd_queue_build("watchtower", "lot-05")  # needs_tier
 	s.cmd_queue_build("house", "lot-05")  # the same lot, behind it
 	s.drain_events()
 	s.tick(s.substep_s())
 	var st := _started(s.drain_events())
 	t.ok(st.size() == 1 and st[0]["building_id"] == "house", "the house starts on lot-05 with every coin there is: nothing is reserved: %s" % str(st))
 	var rows := _q(s)
-	t.ok(rows.size() == 2 and rows[1]["building_id"] == "embalmer" and rows[1]["status"] == "skipped_gate" and rows[1]["reason"] == "lot_taken",
-		"the embalmer stays, lot_taken: %s" % str(rows))
+	t.ok(rows.size() == 2 and rows[1]["building_id"] == "watchtower" and rows[1]["status"] == "skipped_gate" and rows[1]["reason"] == "lot_taken",
+		"the watchtower stays, lot_taken: %s" % str(rows))
 	# the player's own cmd_build takes a gated entry's lot
 	var b := _mk()
-	b.cmd_queue_build("embalmer", "lot-06")
+	b.cmd_queue_build("watchtower", "lot-06")
 	t.ok(b.cmd_build("well", "lot-06")["ok"], "cmd_build takes lot-06 (setup)")
-	t.ok(_q(b)[0]["reason"] == "lot_taken", "the queued embalmer shows lot_taken")
+	t.ok(_q(b)[0]["reason"] == "lot_taken", "the queued watchtower shows lot_taken")
 	b.tick(b.substep_s())
 	t.ok(_q(b).size() == 1 and _q(b)[0]["status"] == "skipped_gate" and _q(b)[0]["reason"] == "lot_taken", "and stays after a step")
 	# two queued builds on one lot: whichever starts first takes it
@@ -319,9 +354,12 @@ func _rule4_relics() -> void:
 func _funds_hold() -> void:
 	t.suite("build_queue-funds")
 	var s := _mk()
-	var cost := BuildRules.construction_cost(s, "raising_pit", 2)
+	s.town_sim.place_building("lot-05", "house", 1)
+	var cost := BuildRules.construction_cost(s, "house", 2)
 	_funds(s, float(cost["gold"]) - 1.0, float(cost["bone"]) + 10.0)  # a few steps of income short
-	s.cmd_queue_build("", "lot-02")
+	var well := BuildRules.construction_cost(s, "well", 1)
+	t.ok(s.town_sim.gold >= float(well["gold"]) and s.town_sim.bone >= float(well["bone"]), "(setup) the well behind it is affordable on its own")
+	s.cmd_queue_build("", "lot-05")
 	s.cmd_queue_build("well", "lot-06")  # affordable on its own
 	s.drain_events()
 	var steps := 0
@@ -333,45 +371,47 @@ func _funds_hold() -> void:
 		steps += 1
 		st = _started(s.drain_events())
 		if not st.is_empty():
-			t.ok(st[0]["lot_id"] == "lot-02", "nothing behind the head starts first (step %d)" % steps)
+			t.ok(st[0]["lot_id"] == "lot-05", "nothing behind the head starts first (step %d)" % steps)
 	t.ok(steps > 1 and before[1] == ["waiting_funds", "queued"] and float(before[0]) < float(cost["gold"]),
 		"the head waited %d steps for its gold (%.3f < %.1f); the well behind it stayed queued" % [steps, before[0], cost["gold"]])
-	t.ok(st.size() >= 1 and st[0]["lot_id"] == "lot-02" and st[0]["level"] == 2 and st[0]["waited_on"] == "no_gold",
-		"the pit's upgrade starts the step its gold is in: %s" % str(st))
+	t.ok(st.size() >= 1 and st[0]["lot_id"] == "lot-05" and st[0]["level"] == 2 and st[0]["waited_on"] == "no_gold",
+		"the house's upgrade starts the step its gold is in: %s" % str(st))
 
 
 ## Levels: two queued upgrades of a level-1 lot build 2, then 3; a reorder recomputes level and cost by
-## position; they start one after the other as each construction finishes.
+## position; they start one after the other as each construction finishes. (A level-1 house on lot-06: its
+## levels 2 and 3 fit the base caps; the pit's are bought with bone since T7.)
 func _levels() -> void:
 	t.suite("build_queue-levels")
 	var s := _mk()
 	_funds(s, 0.0, 0.0)
-	s.cmd_queue_build("", "lot-02")
+	s.town_sim.place_building("lot-06", "house", 1)
+	s.cmd_queue_build("", "lot-06")
 	s.cmd_queue_build("house", "lot-05")
-	s.cmd_queue_build("", "lot-02")
+	s.cmd_queue_build("", "lot-06")
 	var rows := _q(s)
-	t.ok(_col(rows, "level") == [2, 1, 3] and rows[0]["cost"] == BuildRules.construction_cost(s, "raising_pit", 2)
-		and rows[2]["cost"] == BuildRules.construction_cost(s, "raising_pit", 3), "levels 2, 1, 3 with their level_costs")
-	s.build_queue[0]["waited_on"] = "tag"  # tells the two pit entries apart
+	t.ok(_col(rows, "level") == [2, 1, 3] and rows[0]["cost"] == BuildRules.construction_cost(s, "house", 2)
+		and rows[2]["cost"] == BuildRules.construction_cost(s, "house", 3), "levels 2, 1, 3 with their level_costs")
+	s.build_queue[0]["waited_on"] = "tag"  # tells the two upgrade entries apart
 	t.ok(s.cmd_reorder_queue([2, 1, 0])["ok"], "reorder [2, 1, 0]")
 	rows = _q(s)
-	t.ok(_col(rows, "level") == [2, 1, 3] and rows[2]["waited_on"] == "tag" and rows[2]["cost"] == BuildRules.construction_cost(s, "raising_pit", 3),
+	t.ok(_col(rows, "level") == [2, 1, 3] and rows[2]["waited_on"] == "tag" and rows[2]["cost"] == BuildRules.construction_cost(s, "house", 3),
 		"the entry that was first is now last and builds level 3 at level 3's cost: %s" % str(_col(rows, "waited_on")))
 	s.build_queue[2]["waited_on"] = ""
-	_funds(s, 5000.0, 400.0)
+	_funds(s, 5000.0, 150.0)
 	var done: Array = []
 	var started: Array = []
 	for i in 4000:
 		s.tick(s.substep_s())
 		for e in s.drain_events():
-			if e["type"] == "queue_started" and e["lot_id"] == "lot-02":
+			if e["type"] == "queue_started" and e["lot_id"] == "lot-06":
 				started.append(e["level"])
-			elif e["type"] == "building_done" and e["lot_id"] == "lot-02":
+			elif e["type"] == "building_done" and e["lot_id"] == "lot-06":
 				done.append(e["level"])
 		if done.size() == 2:
 			break
-	t.ok(started == [2, 3] and done == [2, 3] and int(s.town_sim.buildings["lot-02"]["level"]) == 3,
-		"the pit builds 2, then 3 (started %s, done %s)" % [str(started), str(done)])
+	t.ok(started == [2, 3] and done == [2, 3] and int(s.town_sim.buildings["lot-06"]["level"]) == 3,
+		"the house on lot-06 builds 2, then 3 (started %s, done %s)" % [str(started), str(done)])
 
 
 ## The view's statuses say what the next step does: `next` starts; `waiting_funds` (short by more than a
@@ -380,10 +420,11 @@ func _view_matches_step() -> void:
 	t.suite("build_queue-view-step")
 	var s := _mk()
 	_funds(s, 100.0, 30.0)
+	s.town_sim.place_building("lot-08", "house", 2)
 	s.cmd_queue_build("house", "lot-05")  # 40: next
-	s.cmd_queue_build("", "lot-02")  # 180: short by 120 after the house
+	s.cmd_queue_build("", "lot-08")  # the house's level 3, 120: short by 60 after the house
 	s.cmd_queue_build("well", "lot-06")  # behind the waiting head
-	s.cmd_queue_build("embalmer", "lot-07")  # needs_tier
+	s.cmd_queue_build("watchtower", "lot-07")  # needs_tier
 	t.ok(BuildRules.next_tier(s)["tier"] == "village" and BuildRules.next_tier(s)["have"] < BuildRules.next_tier(s)["need"], "no tier rise pending")
 	var rows := _q(s)
 	t.ok(_col(rows, "status") == ["next", "waiting_funds", "queued", "skipped_gate"], "statuses: %s" % str(_col(rows, "status")))
@@ -419,9 +460,11 @@ func _tier_rise() -> void:
 	t.ok(tier_t >= 0.0 and st.size() == 1 and st[0]["t"] == tier_t and st[0]["building_id"] == "inn" and st[0]["waited_on"] == "lot_locked",
 		"the inn starts in the tier_up's step (t %.1f), waited_on lot_locked: %s" % [tier_t, str(st)])
 	var e := _mk()
-	_funds(e, 2000.0, 190.0)
+	var emb := BuildRules.construction_cost(e, "embalmer", 1)
+	_funds(e, 2000.0, float(emb["bone"]) + 10.0)  # the embalmer's bone and the house's (T7: it is bought with bone)
 	e.town_sim.place_building("lot-06", "well", 1)
 	e.town_sim.place_building("lot-07", "bakery", 1)
+	e.town_sim.place_building("lot-09", "bone_mill", _mill_level(float(emb["bone"]) + 10.0))  # its cap holds that
 	e.cmd_build("house", "lot-05")
 	e.blueprints.append("embalmer")
 	e.cmd_debug_grant({"relics": 1})
@@ -450,13 +493,15 @@ func _walk_gates() -> void:
 	t.suite("build_queue-walk-gates")
 	var s := _mk()
 	_funds(s, 0.0, 0.0)
-	s.cmd_queue_build("", "lot-02")
-	s.cmd_queue_build("", "lot-02")
+	var top := int(TestUtil.configs()["buildings"]["well"]["max_level"])  # a well two levels under its top
+	s.town_sim.place_building("lot-05", "well", top - 2)
+	s.cmd_queue_build("", "lot-05")
+	s.cmd_queue_build("", "lot-05")
 	_funds(s, 1000.0, 300.0)
-	t.ok(s.cmd_upgrade("lot-02")["ok"], "the pit's level 2 started by hand under its two queued upgrades")
+	t.ok(s.cmd_upgrade("lot-05")["ok"], "the well's level %d started by hand under its two queued upgrades" % (top - 1))
 	var rows := _q(s)
-	t.ok(_col(rows, "level") == [3, 4] and rows[1]["status"] == "skipped_gate" and rows[1]["reason"] == "max_level",
-		"they now build 3 and 4; the second is skipped (max_level): %s" % str(_col(rows, "reason")))
+	t.ok(_col(rows, "level") == [top, top + 1] and rows[1]["status"] == "skipped_gate" and rows[1]["reason"] == "max_level",
+		"they now build %d and %d; the second is skipped (max_level): %s" % [top, top + 1, str(_col(rows, "reason"))])
 	var u := TestUtil.configs().duplicate(true)
 	u["buildings"]["well"]["unique"] = true
 	var w := _mk(u)
@@ -473,9 +518,9 @@ func _walk_gates() -> void:
 	var r := _mk()
 	r.cmd_debug_grant({"relics": 1})
 	_funds(r, 1000.0, 200.0)
-	r.cmd_queue_build("embalmer", "lot-05")  # needs_tier, 1 relic
+	r.cmd_queue_build("watchtower", "lot-05")  # needs_tier, 1 relic
 	r.cmd_queue_build("", "lot-01")  # the crypt's level 2, 1 relic
-	t.ok(_col(_q(r), "status") == ["skipped_gate", "next"], "the gated embalmer reserves no relic: the crypt's upgrade is next with the only one")
+	t.ok(_col(_q(r), "status") == ["skipped_gate", "next"], "the gated watchtower reserves no relic: the crypt's upgrade is next with the only one")
 	r.drain_events()
 	r.tick(r.substep_s())
 	var st := _started(r.drain_events())
@@ -549,11 +594,11 @@ func _save() -> void:
 	var s := _mk()
 	_funds(s, 0.0, 0.0)
 	s.cmd_queue_build("house", "lot-05")
-	s.cmd_queue_build("embalmer", "lot-06")
+	s.cmd_queue_build("watchtower", "lot-06")
 	s.cmd_queue_build("", "lot-05")
 	var d := s.to_dict()
 	t.ok(d["queue"] == [{"building_id": "house", "lot_id": "lot-05", "upgrade": false, "waited_on": "no_gold"},
-		{"building_id": "embalmer", "lot_id": "lot-06", "upgrade": false, "waited_on": "needs_tier"},
+		{"building_id": "watchtower", "lot_id": "lot-06", "upgrade": false, "waited_on": "needs_tier"},
 		{"building_id": "house", "lot_id": "lot-05", "upgrade": true, "waited_on": ""}], "to_dict writes the entries: %s" % str(d["queue"]))
 	var back := GameState.new(TestUtil.configs())
 	t.ok(back.from_dict(JSON.parse_string(JSON.stringify(d)))["ok"] and back.view_town()["queue"] == s.view_town()["queue"]

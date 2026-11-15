@@ -226,7 +226,7 @@ func _upgrade_reasons() -> void:
 	s.town_sim.buildings["lot-04"]["state"] = "unpaid"
 	t.ok(fail.call("lot-04") == "unpaid", "unpaid: TownSim refuses an unpaid building")
 	s.town_sim.buildings["lot-04"]["state"] = "active"
-	s.town_sim.place_building("lot-06", "house", 3)
+	s.town_sim.place_building("lot-06", "house", int(_cfgs()["buildings"]["house"]["max_level"]))
 	t.ok(fail.call("lot-06") == "max_level", "max_level")
 	s.town_sim.place_building("lot-13", "inn", 1)
 	t.ok(fail.call("lot-13") == "needs_tier", "needs_tier (an Inn placed at Hamlet)")
@@ -239,13 +239,14 @@ func _upgrade_reasons() -> void:
 	t.ok(fail.call("lot-01") == "no_relics", "no_relics (the Crypt's second level costs a relic)")
 	t.ok(s.town_sim.gold == 500.0 and s.town_sim.bone == 500.0, "refusals pay nothing")
 	var r := s.cmd_upgrade("lot-04")
-	t.ok(r == {"ok": true, "reason": "", "level": 2, "cost": {"gold": 80.0, "bone": 30.0, "relics": 0}}, "upgrade the market: level 2 for level_costs[0]: %s" % [r])
-	t.ok(s.town_sim.gold == 420.0 and s.town_sim.bone == 470.0, "paid at once")
+	var m2 := BuildRules.cost_of(s, _cfgs()["buildings"]["market"]["level_costs"][0])
+	t.ok(r == {"ok": true, "reason": "", "level": 2, "cost": m2}, "upgrade the market: level 2 for level_costs[0]: %s" % [r])
+	t.ok(s.town_sim.gold == 500.0 - float(m2["gold"]) and s.town_sim.bone == 500.0 - float(m2["bone"]), "paid at once")
 	t.ok(s.cmd_upgrade("lot-04")["reason"] == "under_construction", "under_construction (an upgrade)")
 	# a level-2 upgrade costs level_costs[1]
 	s.town_sim.place_building("lot-07", "well", 2)
 	s.town_sim.gold = 500.0
-	t.ok(s.cmd_upgrade("lot-07")["cost"] == {"gold": 90.0, "bone": 30.0, "relics": 0}, "level 2 -> 3 costs level_costs[1]")
+	t.ok(s.cmd_upgrade("lot-07")["cost"] == BuildRules.cost_of(s, _cfgs()["buildings"]["well"]["level_costs"][1]), "level 2 -> 3 costs level_costs[1]")
 
 
 func _upgrade_works_meanwhile() -> void:
@@ -314,17 +315,19 @@ func _cancel() -> void:
 	t.ok(s.cmd_cancel_build("lot-99") == {"ok": false, "reason": "unknown_lot", "refund": {}}, "unknown_lot")
 	t.ok(s.cmd_cancel_build("lot-05")["reason"] == "not_building", "not_building (an empty lot)")
 	t.ok(s.cmd_cancel_build("lot-04")["reason"] == "not_building", "not_building (a finished building)")
-	# a new build: full refund, the lot is free, no event ever comes of it
-	s.cmd_debug_grant({"relics": 4, "gold": 500.0, "bone": 200.0})
+	# a new build: full refund, the lot is free, no event ever comes of it (the forge is bought with bone
+	# since T7: the grant covers its bone, a stock a grant may put over the cap)
+	var fc := BuildRules.construction_cost(s, "forge", 1)
+	s.cmd_debug_grant({"relics": 4, "gold": 500.0, "bone": float(fc["bone"]) + 100.0})
 	s.drain_events()
 	s.town_sim.place_building("lot-01", "crypt", 1)
 	s.town_tier = "village"
 	var gold := s.town_sim.gold
 	var bone := s.town_sim.bone
-	t.ok(s.cmd_build("forge", "lot-13")["ok"], "build a forge (1 relic)")
-	t.ok(s.relics == 3 and s.town_sim.gold == gold - 180.0, "paid")
+	t.ok(s.cmd_build("forge", "lot-13")["ok"], "build a forge (%d relic)" % int(fc["relics"]))
+	t.ok(s.relics == 4 - int(fc["relics"]) and s.town_sim.gold == gold - float(fc["gold"]) and s.town_sim.bone == bone - float(fc["bone"]), "paid")
 	var r := s.cmd_cancel_build("lot-13")
-	t.ok(r == {"ok": true, "reason": "", "refund": {"gold": 180.0, "bone": 50.0, "relics": 1}}, "cancel: full refund: %s" % [r])
+	t.ok(r == {"ok": true, "reason": "", "refund": fc}, "cancel: full refund: %s" % [r])
 	t.ok(s.town_sim.gold == gold and s.town_sim.bone == bone and s.relics == 4, "the stocks are back")
 	t.ok(_lot(s, "lot-13")["building_id"] == "" and _bld(s, "lot-13").is_empty(), "the lot is free")
 	var evs := _run(s, 5.0)
@@ -351,7 +354,7 @@ func _cancel() -> void:
 	s.cmd_upgrade("lot-04")
 	s.tick(5.0)
 	r = s.cmd_cancel_build("lot-04")
-	t.ok(r == {"ok": true, "reason": "", "refund": {"gold": 80.0, "bone": 30.0, "relics": 0}}, "cancel an upgrade: its cost back: %s" % [r])
+	t.ok(r == {"ok": true, "reason": "", "refund": BuildRules.construction_cost(s, "market", 2)}, "cancel an upgrade: its cost back: %s" % [r])
 	var b := _bld(s, "lot-04")
 	t.ok(b["level"] == 1 and b["state"] != "constructing" and b["progress"] == 1.0 and b["output"].has("gold") and b["slots"] == 2,
 		"level 1, working, no build slots: %s" % str(b))
@@ -359,7 +362,7 @@ func _cancel() -> void:
 	t.ok(s.cmd_cancel_build("lot-04")["reason"] == "not_building", "and it can't be cancelled again")
 	# relics are clamped to the cap
 	var c := _mk()
-	c.cmd_debug_grant({"relics": 12, "gold": 500.0, "bone": 200.0})
+	c.cmd_debug_grant({"relics": 12, "gold": 500.0, "bone": 2.0 * float(fc["bone"])})  # two forges' bone
 	c.town_tier = "village"
 	c.cmd_build("forge", "lot-13")
 	c.cmd_debug_grant({"relics": 1})
