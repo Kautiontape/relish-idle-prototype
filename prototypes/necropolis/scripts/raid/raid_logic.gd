@@ -419,13 +419,15 @@ static func rooms_phrase(seen: int, total: int) -> String:
 	return "%d of %d rooms seen" % [clampi(seen, 0, maxi(0, total)), maxi(0, total)]
 
 
-## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "lunge", "bash", "fire", "hound", "living", or ""
+## What the death card says killed her: `src` is Relish.last_hit_src ("slam", "toll", "lunge", "bash", "fire", "hound", "living", or ""
 ## when nothing named it, e.g. a dev kill), `warden_name` the warden's spec name ("The Bellringer").
 static func death_cause(src: String, warden_name: String) -> String:
 	var who := warden_name if warden_name != "" else "The warden"
 	match src:
 		"slam":
 			return "%s's slam" % who
+		"toll":
+			return "%s's toll" % who
 		"lunge":
 			return "%s's lunge" % who
 		"bash":
@@ -444,12 +446,14 @@ static func death_cause(src: String, warden_name: String) -> String:
 
 
 ## The tell the killing attack showed, for the death card (D-d/E 3c: "missed: the swing"): the
-## Bellringer's clapper swing, the Huntsman's locked line, the Shieldwall's lit arc (bash or rush), the
+## Bellringer's clapper swing (its toll: the ring at her feet), the Huntsman's locked line, the Shieldwall's lit arc (bash or rush), the
 ## Pyre-priest's marked ground. "" for a source with no one-beat tell (a pack, the living, a wound).
 static func death_tell(src: String) -> String:
 	match src:
 		"slam":
 			return "the swing"
+		"toll":
+			return "the ring at your feet"
 		"lunge":
 			return "the line"
 		"bash", "rush":
@@ -848,7 +852,7 @@ static func detour_guard(fort_id: String, layout: Dictionary, tier: int, cfg: Di
 ## Shieldwall's bash and rush, the Pyre-priest's fire) strike Relish directly; the chain does not soak them,
 ## only the warden's own counter answers them. Everything else (the living, packs, hounds, any other blow,
 ## Vei's weaves), and everything at tier 1 and in the first dungeon, still follows the chain. MECHANICS §5.0.
-const TELL_ATTACKS := ["slam", "lunge", "bash", "rush", "fire"]
+const TELL_ATTACKS := ["slam", "toll", "lunge", "bash", "rush", "fire"]
 
 
 static func chain_soaks(src: String, bypass_on: bool) -> bool:

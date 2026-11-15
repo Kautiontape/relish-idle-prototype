@@ -321,6 +321,8 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
 	# 3c: the death card names the attack and the tell she missed
 	t.ok(RaidLogic.death_line("slam", "The Bellringer") == "The Bellringer's slam · missed: the swing", "the card names the missed tell: " + RaidLogic.death_line("slam", "The Bellringer"))
+	t.ok(RaidLogic.death_line("toll", "The Bellringer") == "The Bellringer's toll · missed: the ring at your feet" and RaidLogic.TELL_ATTACKS.has("toll")
+		and not RaidLogic.chain_soaks("toll", true), "a toll death has its own line, and the toll stays a tell-attack: " + RaidLogic.death_line("toll", "The Bellringer"))
 	t.ok(RaidLogic.death_line("lunge", "The Huntsman") == "The Huntsman's lunge · missed: the line"
 		and RaidLogic.death_line("rush", "The Shieldwall") == "The Shieldwall's rush · missed: the lit arc"
 		and RaidLogic.death_line("bash", "The Shieldwall") == "The Shieldwall's bash · missed: the lit arc"

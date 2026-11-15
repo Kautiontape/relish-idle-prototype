@@ -134,7 +134,7 @@ func _step(delta: float) -> void:
 				and WardenLogic.toll_strikes(rp, toll_at, toll_r, rel0.radius, muffled, in_ring)
 			if struck:
 				tolls_struck += 1
-				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false), "slam")
+				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false), "toll")   # its own source: the card tells it from the slam
 			_toll_word = "MUFFLED" if muffled else ("TOLLED" if struck else "")
 			toll_marks["%.4f" % _slam_beat] = "muffled" if muffled else ("struck" if struck else "placed")
 			_toll_word_at = toll_at
