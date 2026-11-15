@@ -24,8 +24,13 @@ extends RefCounted
 ##   dungeon        what a raid writeback lost
 ##   pool_overflow  the march-back past Vei's pool cap (living above a fort's cap marching home); she
 ##                  then converts only into the headroom left
-##   store_overflow store caps (IDLE §6); 0 until the store caps (E2b T3.2)
+##   store_overflow always 0: the store caps (IDLE §6, E2b-2 T3.2) clip gold and bone, which are not
+##                  mass; their overflow is the currency tally `stores` below
 ## Held: every pool of mass, see held().
+##
+## Beside the mass, a currency tally (not mass, so outside the invariant): `stores` {gold: {overflow},
+## bone: {overflow}}, the income each store's cap clipped since the new game (TownSim's gold_overflow,
+## bone_overflow; GameState books them in the core step). Saved with the ledger; a save without it reads 0.
 ## Internal transfers book nothing: the valve split, WORK into workers, muster into WAR, haul pickups,
 ## combat, drain, Vei's conversion (dead and undead to living) and shipping, surges, the redirect,
 ## simulacra and the raid writeback's kills, flip and chaff.
@@ -35,9 +40,12 @@ const SINKS := ["cleared", "rot_loss", "burned", "milled", "vei_fight", "dungeon
 	"rot_overflow", "haul_overflow", "store_overflow"]
 const HELD := ["fort_living", "fort_undead", "corpses", "backlog", "vei_dead", "living_pool", "bodies",
 	"workers", "convoys", "work_pending"]
+## The capped currency stores the tally covers (IDLE §6).
+const STORES := ["gold", "bone"]
 
 var sources := {}
 var sinks := {}
+var stores := {}  # store -> {overflow: float}, totals since the new game
 
 
 func _init() -> void:
@@ -53,6 +61,9 @@ func reset(opening: float) -> void:
 	for k in SINKS:
 		sinks[k] = 0.0
 	sources["opening"] = opening
+	stores = {}
+	for k in STORES:
+		stores[k] = {"overflow": 0.0}
 
 
 func source(key: String, mass: float) -> void:
@@ -63,6 +74,17 @@ func source(key: String, mass: float) -> void:
 func sink(key: String, mass: float) -> void:
 	assert(sinks.has(key), "Ledger: unknown sink %s" % key)
 	sinks[key] = float(sinks[key]) + mass
+
+
+## A store's income its cap clipped this step (gold or bone; not mass).
+func overflow(store: String, amount: float) -> void:
+	assert(stores.has(store), "Ledger: unknown store %s" % store)
+	stores[store]["overflow"] = float(stores[store]["overflow"]) + amount
+
+
+## `stores` as ledger() and the save show it: a fresh copy.
+func stores_copy() -> Dictionary:
+	return stores.duplicate(true)
 
 
 ## Every pool of mass, now. Forts' living, undead and dead (corpses); Vei's undead queue (backlog),
@@ -103,7 +125,7 @@ static func error(l: Dictionary) -> float:
 
 ## The save's `ledger` block (STATE-API §9.1).
 func to_dict() -> Dictionary:
-	return {"sources": sources.duplicate(), "sinks": sinks.duplicate()}
+	return {"sources": sources.duplicate(), "sinks": sinks.duplicate(), "stores": stores.duplicate(true)}
 
 
 ## Restores the totals from a save's `ledger` block. A block with `sources.opening` was written by
@@ -122,3 +144,10 @@ func from_dict(d: Dictionary, held_now: Dictionary) -> void:
 	else:
 		sinks["dungeon"] = float(snk.get("dungeon", 0.0))
 		sources["opening"] = total(held_now) + float(sinks["dungeon"])
+	# the currency tally (E2b-2 T3.2): a save written before it reads 0
+	var st: Variant = d.get("stores", {})
+	if st is Dictionary:
+		for k in STORES:
+			var e: Variant = st.get(k, {})
+			if e is Dictionary:
+				stores[k]["overflow"] = float(e.get("overflow", 0.0))

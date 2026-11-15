@@ -7,8 +7,12 @@ var t: TestUtil
 var _dir := "user://test_saves_api_v5_%d" % OS.get_process_id()
 
 
+## town.projection_rows_per_call is lifted so view_town refreshes all its build-benefit rows in one call:
+## _pure compares two view_town calls, and the spread refresh (T3.2) would refresh more rows the second time.
 func _mk(seed_val := 1) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	var s := GameState.new(c)
 	s.cmd_new_game(seed_val)
 	s.debug_enabled = true
 	s.save_dir = _dir

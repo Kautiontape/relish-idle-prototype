@@ -6,10 +6,23 @@ extends RefCounted
 
 var t: TestUtil
 var _dir := "user://test_saves_%d" % OS.get_process_id()
+## The wall clock pinned for the save-then-load round trips (GameState.clock_override, E2b-2 T3.3b): every
+## cmd_load catches up the time since its save, so an unpinned clock gives these 0 or 1 s away, depending on
+## timing. Pinned, each is a 0 s load (the identity).
+const PINNED := 1_800_000_000
+
+
+## The shipped configs with town.projection_rows_per_call lifted, so a view refreshes all its build-benefit
+## rows in one call: the round trip compares a live state's views with a loaded one's, and under the spread
+## refresh (T3.2) the live state would have refreshed more rows than the fresh load.
+func _cfgs() -> Dictionary:
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	return c
 
 
 func _mk(seed_val := 1) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	s.cmd_new_game(seed_val)
@@ -102,7 +115,8 @@ func _slot_path(slot: String) -> String:
 func _views(s: GameState) -> Dictionary:
 	var out := {}
 	for name in ApiSchema.VIEWS:
-		if name == "view_field" or name == "view_dungeon_seed" or name == "view_boss_seed":
+		# view_projection is the readouts at another valve off the session-only split (STATE-API §5.17)
+		if name == "view_field" or name == "view_dungeon_seed" or name == "view_boss_seed" or name == "view_projection":
 			continue
 		if name == "view_fort":
 			for f in s.realm.forts:
@@ -120,6 +134,12 @@ func _views(s: GameState) -> Dictionary:
 	out["view_vei"].erase("diff")
 	for id in ["mint", "work", "war", "flood", "corpses", "backlog"]:
 		out["view_rates"]["rates"].erase(id)
+	# the build benefit's backlog reads the WAR's fall-through at the last dispatch (RealmSim.war_at),
+	# which is session-only, as view_projection's split is (STATE-API §5.10, §5.17)
+	for b in out["view_catalog"]["buildings"]:
+		(b["projected"] as Dictionary).erase("backlog")
+	for b in out["view_town"]["buildings"]:
+		(b["upgrade_projected"] as Dictionary).erase("backlog")
 	var lanes: Array = []
 	for l in out["view_lanes"]["lanes"]:
 		if l["rate"] > 0.0 and not (l["from"] == "covington" and (l["to"] == "vei" or l["to"] == "covington")):
@@ -202,7 +222,7 @@ func _round_trip() -> void:
 	var text := JSON.stringify(d)
 	var parsed: Variant = JSON.parse_string(text)
 	t.ok(parsed is Dictionary, "to_dict survives JSON.stringify and parse_string")
-	var b := GameState.new(TestUtil.configs())
+	var b := GameState.new(_cfgs())
 	b.save_dir = _dir
 	var r := b.from_dict(parsed)
 	t.ok(r == {"ok": true, "reason": ""}, "from_dict into a second state is ok: %s" % str(r))
@@ -211,7 +231,7 @@ func _round_trip() -> void:
 	_diff(d, db, 0.0, "d", why)
 	t.ok(db == d, "to_dict after the JSON round trip is equal, types included %s" % str(why))
 	t.ok(JSON.stringify(db) == text, "and so is its JSON text")
-	var c := GameState.new(TestUtil.configs())
+	var c := GameState.new(_cfgs())
 	c.from_dict(JSON.parse_string(text))
 	t.ok(_views(b) == _views(c), "two loads of one file show identical views")
 	var diffs: Array = []
@@ -236,7 +256,7 @@ func _round_trip() -> void:
 		"the pending building_started comes out of the loaded state's first substep, with upgrade")
 	# the generator state survives: the same next number from a loaded copy
 	var fresh := _rich()
-	var e := GameState.new(TestUtil.configs())
+	var e := GameState.new(_cfgs())
 	e.from_dict(JSON.parse_string(JSON.stringify(fresh.to_dict())))
 	t.ok(e.rng.randi() == fresh.rng.randi(), "a loaded state draws the same random numbers")
 
@@ -245,6 +265,7 @@ func _round_trip() -> void:
 func _in_place_and_ints() -> void:
 	var s := _rich()
 	var id := s.get_instance_id()
+	s.clock_override = PINNED
 	t.ok(s.cmd_save("one")["ok"], "saved")
 	var before := s.to_dict()
 	s.cmd_debug_grant({"gold": 500.0, "husks": 1})
@@ -259,7 +280,7 @@ func _in_place_and_ints() -> void:
 	var rid := s.next_run_id
 	var uid := s.next_uid
 	var r := s.cmd_load("one")
-	t.ok(r == {"ok": true, "reason": ""}, "cmd_load ok: %s" % str(r))
+	t.ok(r == {"ok": true, "reason": "", "away_s": 0.0, "capped": false}, "cmd_load ok, nothing to catch up: %s" % str(r))
 	t.ok(s.get_instance_id() == id, "the same state object survives a load")
 	t.ok(s.rev == rv + 1, "a load adds exactly 1 to rev")
 	t.ok(s.time_scale == 1.0 and not s.paused and s.drain_events().is_empty(), "time scale 1, unpaused, events cleared")
@@ -289,6 +310,7 @@ func _in_place_and_ints() -> void:
 		o.cmd_begin_dungeon("ashgate")
 		o.cmd_abort_dungeon()
 	o.cmd_debug_grant({"husks": 3})
+	o.clock_override = PINNED
 	o.cmd_save("early")
 	for i in 3:
 		o.cmd_begin_dungeon("ashgate")
@@ -301,7 +323,7 @@ func _in_place_and_ints() -> void:
 	# a hand-edited file whose counter is behind its own items cannot mint a duplicate uid
 	var dd := o.to_dict()
 	dd["next_uid"] = 1
-	var p := GameState.new(TestUtil.configs())
+	var p := GameState.new(_cfgs())
 	p.from_dict(JSON.parse_string(JSON.stringify(dd)))
 	p.debug_enabled = true
 	var mint: Array = p.cmd_debug_grant({"husks": 1})["applied"]["minted"]
@@ -314,7 +336,7 @@ func _in_place_and_ints() -> void:
 	q.tick(13.3)
 	var qd := q.to_dict()
 	var qp: Dictionary = JSON.parse_string(JSON.stringify(qd))
-	var q2 := GameState.new(TestUtil.configs())
+	var q2 := GameState.new(_cfgs())
 	q2.from_dict(qp)
 	var qw: Array = []
 	_diff(qd, q2.to_dict(), 0.0, "d", qw)
@@ -329,20 +351,22 @@ func _open_runs() -> void:
 	var bus: Array = s.view_big_undead()["big_undead"]
 	s.cmd_set_party([bus[0]["uid"], bus[1]["uid"]])
 	var b := s.cmd_begin_dungeon("old-sluice")
-	t.ok(s.run.size() == 5 and s.relish["state"] == "in_dungeon", "a raid is open")
+	t.ok(s.run.size() == 6 and not s.run["held"] and s.relish["state"] == "in_dungeon", "a raid is open (its fort wasn't held: v6's `held`)")
 	var d := s.to_dict()
 	t.ok(d["relish"]["state"] == "at_fort" and d["relish"]["at"] == "old-sluice" and d["relish"]["target"] == "", "the open raid is saved as at_fort at its fort")
 	t.ok(JSON.stringify(d).find("in_dungeon") == -1, "in_dungeon never reaches the file")
 	t.ok(d["party"].size() == 2, "the party is intact in the file")
 	t.ok(s.relish["state"] == "in_dungeon" and not s.run.is_empty(), "the live state is untouched by saving")
 	var rv := s.rev
+	s.clock_override = PINNED
 	var r := s.cmd_save("run")
 	t.ok(r["ok"] and s.rev == rv + 1 and s.run["run_id"] == b["run_id"], "cmd_save during a run succeeds and leaves the run alone")
-	t.ok(s.cmd_load("run") == {"ok": false, "reason": "busy"}, "cmd_load is busy during a run")
+	t.ok(s.cmd_load("run") == {"ok": false, "reason": "busy", "away_s": 0.0, "capped": false}, "cmd_load is busy during a run")
 	s.cmd_abort_dungeon()
-	var n := GameState.new(TestUtil.configs())
+	var n := GameState.new(_cfgs())
 	n.save_dir = _dir
 	n.debug_enabled = true
+	n.clock_override = PINNED
 	t.ok(n.cmd_load("run")["ok"], "the run file loads")
 	t.ok(n.run.is_empty() and n.view_relish()["state"] == "at_fort" and n.view_relish()["can_descend"], "a load forfeits the run: at_fort, no run")
 	t.ok(n.party_uids.size() == 2 and n.next_run_id > int(b["run_id"]), "the party is intact and the run id is not reused")
@@ -357,7 +381,7 @@ func _open_runs() -> void:
 	for st in ["in_dungeon", "in_boss"]:
 		var bad := _rich().to_dict()
 		bad["relish"]["state"] = st
-		var f := GameState.new(TestUtil.configs())
+		var f := GameState.new(_cfgs())
 		t.ok(f.from_dict(bad) == {"ok": false, "reason": "corrupt"}, "a saved relish.state %s is corrupt" % st)
 
 
@@ -407,12 +431,12 @@ func _bad_files() -> void:
 	var rv := s.rev
 	for slot in ["garbage", "array", "string", "nov", "empty", "strv", "broken", "bstate", "bconvoy", "bmorale", "typed", "node",
 			"fortset", "partym", "missing"]:
-		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "no_save"}, "%s is no_save" % slot)
+		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "no_save", "away_s": 0.0, "capped": false}, "%s is no_save" % slot)
 	for slot in ["future", "zero"]:
-		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version"}, "%s is bad_version" % slot)
-	t.ok(s.cmd_load("Bad Slot") == {"ok": false, "reason": "bad_slot"}, "a bad slot name is bad_slot")
+		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version", "away_s": 0.0, "capped": false}, "%s is bad_version" % slot)
+	t.ok(s.cmd_load("Bad Slot") == {"ok": false, "reason": "bad_slot", "away_s": 0.0, "capped": false}, "a bad slot name is bad_slot")
 	t.ok(s.rev == rv and s.to_dict() == before, "a refused load leaves rev and the state alone")
-	var f := GameState.new(TestUtil.configs())
+	var f := GameState.new(_cfgs())
 	t.ok(f.from_dict({}) == {"ok": false, "reason": "corrupt"}, "an empty dict is corrupt")
 	t.ok(f.from_dict({"v": 1}) == {"ok": false, "reason": "corrupt"}, "v alone is corrupt")
 	t.ok(f.from_dict({"v": 99}) == {"ok": false, "reason": "bad_version"}, "v above SAVE_VERSION is bad_version")
@@ -423,22 +447,22 @@ func _bad_files() -> void:
 	t.ok(f.from_dict(bt) == {"ok": false, "reason": "corrupt"}, "a tithe naming an unknown fort is corrupt")
 	# town.pending entries and town.rates shapes the later code reads (a crash otherwise)
 	var rich := _rich().to_dict()
-	t.ok(rich["town"]["pending"].size() == 1 and GameState.new(TestUtil.configs()).from_dict(rich.duplicate(true))["ok"], "the rich save, with a pending event, loads")
+	t.ok(rich["town"]["pending"].size() == 1 and GameState.new(_cfgs()).from_dict(rich.duplicate(true))["ok"], "the rich save, with a pending event, loads")
 	var pend_bad := [[{"level": 1}], [{"type": 3}], [{"type": "building_started", "lot_id": "lot-06", "building_id": "well"}],
 		[{"type": "building_started", "lot_id": "lot-06", "building_id": "well", "level": "x"}], [{"type": "tier_up", "level": "x"}]]
 	for pb in pend_bad:
 		var bp := rich.duplicate(true)
 		bp["town"]["pending"] = pb
-		t.ok(GameState.new(TestUtil.configs()).from_dict(bp) == {"ok": false, "reason": "corrupt"}, "town.pending %s is corrupt" % str(pb))
+		t.ok(GameState.new(_cfgs()).from_dict(bp) == {"ok": false, "reason": "corrupt"}, "town.pending %s is corrupt" % str(pb))
 	var rates_bad := [{"workers": 3.0}, {"workers": {"in": 1.0}}, {"workers": {"in": "a", "out": 1.0}}, {"bodies": {"out": 1.0}},
 		{"gold": []}, {"haul_trip": {}}, {"living": {"in": 1.0, "out": null}}]
 	for rb in rates_bad:
 		var br := rich.duplicate(true)
 		br["town"]["rates"] = rb
-		t.ok(GameState.new(TestUtil.configs()).from_dict(br) == {"ok": false, "reason": "corrupt"}, "town.rates %s is corrupt" % str(rb))
+		t.ok(GameState.new(_cfgs()).from_dict(br) == {"ok": false, "reason": "corrupt"}, "town.rates %s is corrupt" % str(rb))
 	var rok := rich.duplicate(true)
 	rok["town"]["rates"] = {}
-	t.ok(GameState.new(TestUtil.configs()).from_dict(rok)["ok"], "an empty rates block still loads (TownSim keeps its zeros)")
+	t.ok(GameState.new(_cfgs()).from_dict(rok)["ok"], "an empty rates block still loads (TownSim keeps its zeros)")
 
 
 # --------------------------------------------------------- saves and listing ----
@@ -525,7 +549,7 @@ func _saves_and_list() -> void:
 	t.ok(errs.is_empty() and s.rev == rv, "list_saves matches its schema and does not bump rev %s" % str(errs))
 	t.ok(list.map(func(e): return e["slot"]) == ["aaa", "new", "zzz", "mid", "old"], "newest first, ties by slot, corrupt and .tmp omitted: %s" % str(list.map(func(e): return e["slot"])))
 	t.ok(list[0]["saved_at"] == 300 and list[0]["summary"] == "sum aaa" and list[4]["saved_at"] == 100, "saved_at and summary come from the file")
-	var empty := GameState.new(TestUtil.configs())
+	var empty := GameState.new(_cfgs())
 	empty.save_dir = _dir + "/nothing-here"
 	t.ok(empty.list_saves() == [], "a missing directory lists nothing")
 
@@ -560,13 +584,15 @@ func _determinism() -> void:
 	# saving does not disturb the run of the sim
 	var d := _mk(11)
 	_script(d)
+	d.clock_override = PINNED
 	d.cmd_save("det")
 	d.tick(10.0)
 	a.tick(10.0)
 	t.ok(a.to_dict()["t"] == d.to_dict()["t"] and a.to_dict()["realm"] == d.to_dict()["realm"], "a save changes nothing about what the sim does next")
 	# a loaded copy plays on exactly like the original (the field is the one allowed drift, A6)
-	var e := GameState.new(TestUtil.configs())
+	var e := GameState.new(_cfgs())
 	e.save_dir = _dir
+	e.clock_override = PINNED
 	e.cmd_load("det")
 	e.tick(10.0)
 	var de := e.to_dict()
@@ -596,15 +622,19 @@ func _gaps() -> void:
 	for f in d["realm"]["forts"]:
 		if f["id"] == "old-sluice":
 			os_ = f
-	t.ok(os_["held_s"] > 0.0 and os_["flipped_count"] == 1 and os_["clears_since_retaken"] == 1, "held_s, flipped_count and clears_since_retaken are saved")
+	t.ok(os_["held"] == true and os_["grace_s"] > 0.0 and os_["zero_s"] == 0.0 and not os_.has("held_s") and os_["flipped_count"] == 1
+		and os_["clears_since_retaken"] == 1, "the hold (held, grace_s, zero_s; no held_s), flipped_count and clears_since_retaken are saved")
 	t.ok(d["cleared_forts"].has("old-sluice") and d["first_dungeon"] == "", "the cleared forts and the first dungeon are saved")
-	var n := GameState.new(TestUtil.configs())
+	var n := GameState.new(_cfgs())
 	n.save_dir = _dir
 	n.debug_enabled = true
 	n.from_dict(JSON.parse_string(JSON.stringify(d)))
 	t.ok(n.applied_runs == [run_id, int(b2["run_id"])] and n.ledger()["sinks"]["dungeon"] == sink, "applied_runs and the sink come back")
 	var vf := n.view_fort("old-sluice")
 	t.ok(vf["flipped_count"] == 1 and vf["clears_since_retaken"] == 1 and not vf["first_clear"] and not vf["first_dungeon"], "the fort's counters and its first-clear flags come back")
+	var nf := n.realm.fort_by_id("old-sluice")
+	t.ok(nf["held"] and nf["grace_s"] == os_["grace_s"] and nf["zero_s"] == 0.0 and nf["held_s"] == nf["grace_s"], "and its hold, as saved")
+	_hold_saves()
 	t.ok(n.apply_result("raid", res)["reason"] == "duplicate_run", "a run applied before the save is still a duplicate afterwards")
 	n.cmd_debug_set_state({"relish_at": "greywall"})
 	var b3 := n.cmd_begin_dungeon("greywall")
@@ -615,7 +645,7 @@ func _gaps() -> void:
 	t.ok(dp["realm"]["tithe"] == p.realm.tithe and dp["realm"]["tithe"]["warning"]["fort_id"] == "ashgate"
 		and dp["backups"]["phylactery_charges"] == 1 and dp["readout"]["diff_ema"] == -0.25
 		and dp["stances"]["hold"] == {"harvest": 12.5}, "the tithe, the readout and the placeholders are saved")
-	var q := GameState.new(TestUtil.configs())
+	var q := GameState.new(_cfgs())
 	q.from_dict(JSON.parse_string(JSON.stringify(dp)))
 	t.ok(q.to_dict() == dp, "and come back")
 	t.ok(q.autosave_s() == 30.0, "economy.json sim.autosave_s is 30")
@@ -627,7 +657,7 @@ func _gaps() -> void:
 
 # ------------------------------------------------------------------ fixtures ----
 func _load_fixture(name: String) -> GameState:
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	var r := s.cmd_debug_load_fixture(name)
@@ -651,6 +681,29 @@ func _fixtures() -> void:
 		else:
 			t.ok(back.get("game_id") == SaveIO.game_id_for(str(file["seed"])), "%s: the id a load computes is its seed's" % name)
 			back.erase("game_id")
+		# E2b-2 (api_version 6) writes each fort's hold as held, grace_s and zero_s; the fixtures carry
+		# held_s, which loads as held with that much grace and the zero clock at 0
+		var hold_ok := true
+		for i in (back["realm"]["forts"] as Array).size():
+			var bf: Dictionary = back["realm"]["forts"][i]
+			var hs := float(file["realm"]["forts"][i]["held_s"])
+			hold_ok = hold_ok and bf["held"] == (hs > 0.0) and bf["grace_s"] == hs and bf["zero_s"] == 0.0
+			# and the loot yield (v6): a fixture has none, so every fort loads at 1
+			hold_ok = hold_ok and bf["yield_c"] == 1.0 and bf["yield_t"] == 0.0
+			bf["held_s"] = bf["grace_s"]
+			for k in ["held", "grace_s", "zero_s", "yield_c", "yield_t"]:
+				bf.erase(k)
+		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0; its yield at 1" % name)
+		# E2b-2 T3.2 writes the ledger's currency tally (`stores`); the fixtures predate it, so it loads 0
+		var no_tally: bool = not (file["ledger"] as Dictionary).has("stores")
+		t.ok(no_tally and back["ledger"]["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}},
+			"%s: the fixture has no currency tally; it loads 0" % name)
+		if no_tally:
+			(back["ledger"] as Dictionary).erase("stores")
+		# and the build queue (T3.2): an optional top-level key the fixtures predate; it loads empty
+		t.ok(not file.has("queue") and back["queue"] == [], "%s: the fixture has no build queue; it loads empty" % name)
+		if not file.has("queue"):
+			back.erase("queue")
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])
@@ -669,9 +722,9 @@ func _fixtures() -> void:
 	var held := 0
 	for id in ["old-sluice", "ashgate"]:
 		var f := m.realm.fort_by_id(id)
-		if float(f.get("held_s", 0.0)) > 0.0 and int(f.get("flipped_count", 0)) == 1:
+		if RealmSim.in_grace(f) and int(f.get("flipped_count", 0)) == 1:
 			held += 1
-	t.ok(held == 2, "midgame: Old Sluice and Ashgate are flipped and held")
+	t.ok(held == 2, "midgame: Old Sluice and Ashgate are flipped and held, in grace")
 	var mw: Dictionary = m.realm.tithe["warning"]
 	t.ok(m.realm.tithe["started"] and mw["fort_id"] == "ashgate" and m.view_vei()["tithe"]["target"] == "ashgate"
 		and m.view_fort("ashgate")["tithe"]["targeted"], "midgame: a tithe warning on Ashgate")
@@ -743,3 +796,44 @@ func _migrate() -> void:
 	var nov := d.duplicate(true)
 	nov.erase("v")
 	t.ok(GameState.migrate(nov) == {}, "migrate fails with {} without v")
+
+
+## The hold's save keys (STATE-API §9.1, api_version 6): held, grace_s and zero_s round-trip; an older
+## save's held_s loads as held with that much grace; a save with neither loads unheld; a wrong type is
+## corrupt.
+func _hold_saves() -> void:
+	var s := _mk(1)
+	s.realm.hold("vespers", 0.0)
+	var vf := s.realm.fort_by_id("vespers")
+	vf["zero_s"] = 33.25
+	s.realm.hold("ashgate", 120.5)
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var n := _mk(2)
+	t.ok(n.from_dict(d)["ok"], "a save with contested and in-grace forts loads")
+	var nv := n.realm.fort_by_id("vespers")
+	var na := n.realm.fort_by_id("ashgate")
+	t.ok(nv["held"] and nv["grace_s"] == 0.0 and nv["zero_s"] == 33.25 and RealmSim.is_contested(nv), "a contested fort keeps its zero clock")
+	t.ok(na["held"] and na["grace_s"] == 120.5 and na["zero_s"] == 0.0 and RealmSim.in_grace(na), "a fort in grace keeps its grace")
+	t.ok(not n.realm.fort_by_id("greywall")["held"], "the rest are not held")
+	var old: Dictionary = d.duplicate(true)
+	for f in old["realm"]["forts"]:
+		var hs := 0.0
+		if f["id"] == "ashgate":
+			hs = 77.0
+		f["held_s"] = hs
+		for k in ["held", "grace_s", "zero_s"]:
+			f.erase(k)
+	var o := _mk(2)
+	t.ok(o.from_dict(old)["ok"], "a save from before api_version 6 (held_s only) loads")
+	var oa := o.realm.fort_by_id("ashgate")
+	t.ok(oa["held"] and oa["grace_s"] == 77.0 and oa["zero_s"] == 0.0 and oa["held_s"] == 77.0, "its held_s > 0 is held with that much grace, the zero clock at 0")
+	t.ok(not o.realm.fort_by_id("vespers")["held"], "and held_s 0 is not held")
+	var none: Dictionary = old.duplicate(true)
+	for f in none["realm"]["forts"]:
+		f.erase("held_s")
+	var z := _mk(2)
+	t.ok(z.from_dict(none)["ok"] and z.view_realm()["held_count"] == 0, "a fort with no hold keys at all loads unheld")
+	for bad in [["held", "yes"], ["grace_s", "x"], ["zero_s", true], ["held_s", "1"], ["yield_c", "x"], ["yield_t", false]]:
+		var c: Dictionary = d.duplicate(true)
+		c["realm"]["forts"][0][bad[0]] = bad[1]
+		t.ok(_mk(2).from_dict(c)["reason"] == "corrupt", "a fort's %s of the wrong type is corrupt" % bad[0])

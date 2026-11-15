@@ -1,6 +1,6 @@
 extends RefCounted
 ## GameState macro wiring (MECHANICS §1.3, §2.2, §3.2–§3.5, §10): the valve slew and split, Relish's
-## tide and redirect as RealmSim inputs, the substep order, the flip's hold and expiry, the tithe
+## tide and redirect as RealmSim inputs, the substep order, the flip's grace and contest, the tithe
 ## through GameState, q from circles, the sustained-differential readout and the live lanes.
 ## The influence field is shrunk in memory (a copy of the configs, never realm.json) so a new game
 ## and its substeps stay cheap; nothing here reads the field.
@@ -39,6 +39,13 @@ func _fort(s: GameState, id: String) -> Dictionary:
 
 
 ## old-sluice's WAR share over ashgate's, from the last substep.
+func _sum_cap(s: GameState) -> float:
+	var c := 0.0
+	for f in s.realm.forts:
+		c += float(f["cap"])
+	return c
+
+
 func _ratio(s: GameState) -> float:
 	return _fort(s, "old-sluice")["r_in"] / _fort(s, "ashgate")["r_in"]
 
@@ -127,7 +134,7 @@ func _split() -> void:
 	var inp: Dictionary = s._realm_inputs
 	t.ok(inp["war"] == s._split["war"] and inp["flood"] == s._split["flood"], "WAR and FLOOD are RealmSim's inputs")
 	t.near(s.realm.cov["r_out"], s._split["war"] + s._split["flood"], 1e-12, "RealmSim received them")
-	t.ok(inp["digest_q"] == s.digest_q() and s.quality() == s.digest_q(), "digest_q is q (quality() forwards to it)")
+	t.ok(inp["digest_q"] == s.digest_q(), "digest_q is q")
 
 
 # ----------------------------------------------------- Relish's tide and redirect ----
@@ -233,20 +240,23 @@ func _flip() -> void:
 	t.ok(ar["ok"], "a won dungeon applies: %s" % str(ar))
 	var f := _fort(s, "old-sluice")
 	var vf := s.view_fort("old-sluice")
-	t.ok(f["held_s"] == 375.0 and f["held"] == true, "the flip sets the RealmSim fort's held_s (375)")
-	t.ok(vf["held"] and vf["held_s_left"] == 375.0 and s.view_realm()["held_count"] == 1, "view_fort held, held_s_left; held_count 1")
+	t.ok(f["held"] and f["grace_s"] == 375.0 and f["zero_s"] == 0.0 and f["held_s"] == 375.0,
+		"the flip holds the RealmSim fort with 375 s of grace (held_s, deprecated, mirrors it)")
+	t.ok(vf["held"] and s.view_realm()["held_count"] == 1, "view_fort held; held_count 1")
 	s.drain_events()
 	s.tick(s.substep_s())
-	t.ok(f["r_shipped"] == 0.0 and s.view_fort("old-sluice")["ship_in"] == 0.0, "Vei ships nothing into a held fort")
-	t.near(f["held_s"], 375.0 - s.substep_s(), 1e-9, "the hold counts down")
-	s.tick(375.0 - 2.0 * s.substep_s())
-	t.ok(s.drain_events().filter(func(e): return e["type"] == "fort_retaken").is_empty() and f["held_s"] > 0.0,
-		"no retake while time is left (%.2f s)" % f["held_s"])
+	t.ok(f["r_shipped"] == 0.0 and s.view_fort("old-sluice")["ship_in"] == 0.0, "Vei ships nothing into a fort in grace")
+	t.near(f["grace_s"], 375.0 - s.substep_s(), 1e-9, "the grace counts down")
+	s.tick(375.0 - s.substep_s())
+	t.ok(f["grace_s"] == 0.0 and f["held"] and RealmSim.is_contested(f), "after its grace the fort is contested, still held")
 	s.tick(s.substep_s())
+	var share: float = float(s._cfg()["S_vei"]) * float(f["cap"]) / _sum_cap(s)
+	var reship: float = float(s._cfg()["hold"]["reship_share"]) * (1.0 + float(s._cfg()["tithe"]["backlog_scale"]) * s.realm.odds()) * share
+	t.near(float(f["r_shipped"]), reship, 1e-3 * reship, "she reships into it at reship_share × (1 + backlog_scale · odds) of its share (%.4f/s)" % reship)
+	s.tick(600.0)
 	var evs := s.drain_events().filter(func(e): return e["type"] == "fort_retaken")
-	t.ok(evs == [{"type": "fort_retaken", "fort_id": "old-sluice", "cause": "expired", "t": s.t}],
-		"expiry re-emits fort_retaken with this substep's t: %s" % str(evs))
-	t.ok(not s.view_fort("old-sluice")["held"] and s.view_realm()["held_count"] == 0, "the fort is no longer held")
+	t.ok(evs.is_empty() and f["held"] and float(f["undead"]) > 0.0,
+		"no timer ends it: WAR staging keeps a garrison there (%.1f), so it holds" % float(f["undead"]))
 
 
 # ------------------------------------------------- saves with legacy realm keys ----
@@ -318,10 +328,10 @@ func _tithe() -> void:
 	t.ok(s.realm.tithe["started"], "the first flip starts the tithe cycle")
 	t.near(s.realm.tithe["next_s"], float(tc["period_s"]) * (1.0 - float(tc["backlog_scale"]) * s.realm.odds()), 1e-9,
 		"the first wave is one period (at the odds now) after the flip")
-	s.realm.hold("old-sluice", 1e5)  # keep it held through the wave (the hold timer is 375 s)
+	s.realm.hold("old-sluice", 0.0)  # its grace ends now (no wave targets a fort in grace)
 	s.drain_events()
 	var w := _tick_until(s, "tithe_warning", 600.0)
-	t.ok(_ev_ok(w) and w["fort_id"] == "old-sluice" and w["t"] == s.t, "tithe_warning on the held fort, stamped and in the contract: %s" % str(w))
+	t.ok(_ev_ok(w) and w["fort_id"] == "old-sluice" and w["t"] == s.t, "tithe_warning on the contested fort, stamped and in the contract: %s" % str(w))
 	t.ok(w["t"] - t_flip > float(tc["period_s"]) * 0.5 - float(tc["warning_s"]), "not before its time")
 	var vv: Dictionary = s.view_vei()["tithe"]
 	var ft: Dictionary = s.view_fort("old-sluice")["tithe"]
@@ -340,9 +350,12 @@ func _tithe() -> void:
 		and covered >= 0.0 and covered <= s.substep_s() + 1e-9, "view_vei.tithe during the wave (it began %.3f s before the substep's end): %s" % [covered, str(vv)])
 	t.ok(s.view_fort("old-sluice")["tithe"] == {"targeted": true, "eta_s": 0.0, "wave_active": true}, "view_fort.tithe during the wave")
 	var lane := _lane(s, "living:vei:old-sluice")
+	var of := _fort(s, "old-sluice")
+	t.ok(absf(float(of["r_surge"]) - float(wv["surge"]) * covered / s.substep_s()) < 1e-9,
+		"the surge's rate over the part of the substep after the start (%.6f)" % float(of["r_surge"]))
 	t.ok(lane["why"] == "tithe wave" and absf(lane["bias"] - float(tc["surge_mult"]) * 0.5) < 1e-9
-		and absf(lane["rate"] - float(wv["surge"]) * covered / s.substep_s()) < 1e-9,
-		"the living lane: the surge's rate over the part of the substep after the start, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
+		and absf(lane["rate"] - float(of["r_shipped"])) < 1e-12 and float(of["r_shipped"]) > float(of["r_surge"]),
+		"the living lane: the surge plus her reship into the contested fort, bias surge_mult × counters, why 'tithe wave': %s" % str(lane))
 	t.ok(absf(s.view_fort("old-sluice")["ship_in"] - lane["rate"]) < 1e-12, "ship_in carries the surge")
 	var f := _fort(s, "old-sluice")
 	var end := s.t + float(tc["surge_s"])
@@ -351,10 +364,9 @@ func _tithe() -> void:
 		s.tick(s.substep_s())
 		got.append_array(s.drain_events().filter(func(e): return e["type"] == "fort_retaken"))
 	var lost: bool = not RealmSim.is_held(f)
-	t.ok(got.size() == (1 if lost else 0) and (not lost or (_ev_ok(got[0]) and got[0]["cause"] == "tithe_wave" and got[0]["t"] <= s.t)),
-		"the wave's end: retaken (with the event) iff it overwhelmed the garrison (lost: %s, %s)" % [lost, str(got)])
+	t.ok(got.size() == (1 if lost else 0) and (not lost or (_ev_ok(got[0]) and got[0]["cause"] == "broken" and got[0]["t"] <= s.t)),
+		"the wave's end decides nothing itself: a retake comes only from the contest (cause broken) (lost: %s, %s)" % [lost, str(got)])
 	t.ok(s.realm.tithe["wave"].is_empty() and not s.view_vei()["tithe"]["wave_active"], "the wave is over")
-	t.ok(lost and f["clears_since_retaken"] == 0, "this garrison (a fresh flip) is overwhelmed; the yield refreshes")
 
 
 # ------------------------------------------------------------------------------ q ----
@@ -383,9 +395,7 @@ func _q() -> void:
 	var q := s.digest_q()
 	s.tick(s.substep_s())
 	t.ok(s._realm_inputs["digest_q"] == q and s.realm.digest_q == q, "RealmSim steps at q")
-	t.ok(s.view_vei()["digest_q"] == q and s.view_realm()["digest_q"] == q and s.quality() == q, "view_vei, view_realm and quality() show it")
-	t.ok(s.raid_seed("ashgate")["quality"] == q and s.boss_seed()["quality"] == q and s.town_snapshot() == {},
-		"the legacy seeds carry it (no elite term); the legacy town snapshot is {}")
+	t.ok(s.view_vei()["digest_q"] == q and s.view_realm()["digest_q"] == q, "view_vei and view_realm show it")
 	t.ok(s.town_sim.forge["level"] == 2, "forge_level is TownSim's")
 	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	t.ok(s.cmd_begin_dungeon("ashgate")["seed"]["digest_q"] == q, "the dungeon seed carries it")
@@ -546,9 +556,19 @@ func _lanes() -> void:
 	t.ok(_lane(s, "living:vei:ashgate")["why"] == "held" and _lane(s, "living:vei:ashgate")["rate"] == 0.0, "a flip: 'held' on the living lane (no shipping)")
 	t.ok(_lane(s, "war:covington:ashgate")["why"] == "staging" and _lane(s, "war:covington:ashgate")["rate"] > 0.0
 		and _lane(s, "war:covington:ashgate")["rate"] == _fort(s, "ashgate")["r_staged"], "and 'staging' on its war lane")
-	_fort(s, "ashgate")["held_s"] = 0.25
+	# no WAR (and no WORK, so no muster), her living there, no garrison and no corpses (Relish stands
+	# there: her raise would feed one),, its grace over and its zero clock 0.25 s from break_s
+	s.cmd_debug_set_state({"valve": {"work": 0.0, "war": 0.0, "flood": 1.0}, "forts": {"ashgate": {"living": 80.0, "undead": 0.0, "dead": 0.0}}})
+	var ash_f := _fort(s, "ashgate")
+	ash_f["grace_s"] = 0.0
+	ash_f["held_s"] = 0.0
+	ash_f["zero_s"] = float(s._cfg()["hold"]["break_s"]) - 0.25
+	s.drain_events()
 	s.tick(s.substep_s())
-	t.ok(_lane(s, "living:vei:ashgate")["why"] == "retaken" and _lane(s, "war:covington:ashgate")["why"] == "retaken", "expiry: 'retaken'")
+	var rt := s.drain_events().filter(func(e): return e["type"] == "fort_retaken")
+	t.ok(rt.size() == 1 and rt[0]["cause"] == "broken" and absf(float(rt[0]["t"]) - (s.t - 0.25)) < 1e-9,
+		"broken 0.25 s into the substep, stamped then: %s (substep ends %.2f)" % [str(rt), s.t])
+	t.ok(_lane(s, "living:vei:ashgate")["why"] == "retaken" and _lane(s, "war:covington:ashgate")["why"] == "retaken", "a retake: 'retaken'")
 	# a simulacrum
 	s.cmd_debug_set_state({"forts": {"vespers": {"dead": 40.0}}})
 	s.realm.simulacra.append({"fort_id": "vespers", "charges": 30.0, "rate": 2.0})

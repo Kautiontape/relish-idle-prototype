@@ -20,8 +20,10 @@ const SAVE_SPEC := {
 	"next_run_id": _I, "next_uid": _I, "applied_runs": [_I],
 	"relish": {"state": _S, "at": _S, "target": _S, "pos": [_F], "heading": _F, "dead_s_left": _F, "respawn_with_clone": _B},
 	"valve": {"target": _VALVE_SPEC, "current": _VALVE_SPEC},
+	# a fort's hold keys are optional (_FORT_OPTIONAL): held, grace_s and zero_s from E2b-2 (api_version
+	# 6), held_s before it
 	"realm": {
-		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "held_s": _F, "flipped_count": _I,
+		"forts": [{"id": _S, "living": _F, "undead": _F, "dead": _F, "flipped_count": _I,
 			"clears_since_retaken": _I, "r_in": _F, "r_drain": _F, "r_shipped": _F, "r_dead_out": _F, "r_raised": _F}],
 		"cov": {"undead": _F, "r_out": _F},
 		"vei": {"undead_queue": _F, "dead_queue": _F, "living_pool": _F, "r_in_undead": _F, "r_in_dead": _F,
@@ -59,7 +61,17 @@ const SAVE_SPEC := {
 }
 ## TownSim's optional town keys (see SAVE_SPEC's town).
 const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
+## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
+## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
+const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
+## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
+## and `waited_on` within it too (both typed when present).
+const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
+## Relish's last walk home (E2b-2 T3.3c, view_relish().returned): relish.returned, optional, written once there is one.
+const _RETURNED := {"fort_id": _S, "cause": _S, "t": _F}
+## The open run as the save writes it (E2b-2 T3.3c, IDLE I5; optional, written only while a run is open).
+const _PENDING_RETREAT := {"run_id": _I, "kind": _S, "fort_id": _S, "seed_rev": _I, "loot": _D, "outcome": _S}
 ## A v1 (E1) save's town and legacy blocks, as migrate reads them.
 const _V1_TOWN := {"tier": _S, "lots": [{"lot_id": _S, "building_id": _S, "level": _I}], "ladder": [_S],
 	"staff_caps": {"*": _I}, "haul": {"target": _S}}
@@ -197,11 +209,18 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		return "relish node"
 	if rl["state"] == "travelling" and rl["target"] == "":
 		return "relish target"
+	if rl.has("returned"):  # (E2b-2 T3.3c) optional: {} or a walk home from a known fort
+		var ret: Variant = rl["returned"]
+		if not (ret is Dictionary and (ret.is_empty() or (fits(ret, _RETURNED) and fort_ids.has(ret["fort_id"])))):
+			return "relish returned"
 	var seen := {}
 	for f in m["realm"]["forts"]:
 		if not fort_ids.has(f["id"]) or seen.has(f["id"]):
 			return "fort id"
 		seen[f["id"]] = true
+		for k in _FORT_OPTIONAL:
+			if f.has(k) and not fits(f[k], _FORT_OPTIONAL[k]):
+				return "fort " + k
 	if seen.size() != fort_ids.size():
 		return "fort set"
 	for s in m["realm"]["simulacra"]:
@@ -214,6 +233,22 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	for v in m["villages"]:
 		if not ["player", "vei", "none"].has(v["owner"]):
 			return "village owner"
+	var tally: Variant = m["ledger"].get("stores", {})  # the currency tally (E2b-2 T3.2): optional, typed when present
+	if not (tally is Dictionary):
+		return "ledger stores"
+	for k in tally:
+		if not fits(tally[k], {"overflow": _F}):
+			return "ledger stores"
+	if m.has("queue"):
+		if not (m["queue"] is Array):
+			return "queue"
+		for e in m["queue"]:
+			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)):
+				return "queue"
+	if m.has("pending_retreat"):
+		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids)
+		if pr_why != "":
+			return pr_why
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
 	if town_why != "":
 		return town_why
@@ -293,6 +328,25 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 		return pr
 	if tn.has("rates"):
 		return _rates_problem(tn["rates"])
+	return ""
+
+
+## "" if the optional `pending_retreat` (E2b-2 T3.3c; the run open at the save) is sound: its keys typed, a
+## known kind and outcome (a boss run's always "retreated"), a raid's fort a known fort with Relish saved
+## at_fort there and a boss's "vei" with her at_vei (as dump writes them), and loot the raid result's
+## validator takes (Results.validate on the retreat result carrying it).
+static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary) -> String:
+	if not fits(pr, _PENDING_RETREAT):
+		return "pending_retreat"
+	var raid: bool = pr["kind"] == "raid"
+	if not (raid or pr["kind"] == "boss") or not StateRuns.OUTCOMES.has(pr["outcome"]) or (not raid and pr["outcome"] != "retreated"):
+		return "pending_retreat"
+	if raid and not (fort_ids.has(pr["fort_id"]) and rl["state"] == "at_fort" and rl["at"] == pr["fort_id"]):
+		return "pending_retreat fort"
+	if not raid and not (pr["fort_id"] == "vei" and rl["state"] == "at_vei"):
+		return "pending_retreat fort"
+	if not Results.validate("raid", StateRuns.end_result(pr, pr["loot"], "retreated")).is_empty():
+		return "pending_retreat loot"
 	return ""
 
 
@@ -433,7 +487,8 @@ static func _load_into(dir: String, out: Dictionary, paths: Dictionary, errors: 
 			_load_into(dir.path_join(s), out, paths, errors)
 
 
-## §9.1. A deep copy that survives JSON; the open run is written in its forfeited form.
+## §9.1. A deep copy that survives JSON. During a run Relish is written at its fort (at_fort, or at_vei) and
+## the run as `pending_retreat` (E2b-2 T3.3c), which a load ends as a retreat from its last checkpoint.
 static func dump(gs: GameState) -> Dictionary:
 	var rl := {
 		"state": gs.relish["state"], "at": gs.relish["at"], "target": gs.relish["target"],
@@ -444,11 +499,16 @@ static func dump(gs: GameState) -> Dictionary:
 		var at: String = gs.run["fort_id"]
 		rl = {"state": "at_vei" if gs.run["kind"] == "boss" else "at_fort", "at": at, "target": "",
 			"pos": gs._node_xy(at), "heading": gs.relish["heading"], "dead_s_left": 0.0, "respawn_with_clone": false}
+	# her last walk home from a retaken fort (E2b-2 T3.3c; view_relish().returned): written only once there is one
+	if not gs.relish_returned.is_empty():
+		rl["returned"] = gs.relish_returned.duplicate()
 	var forts: Array = []
 	for f in gs.realm.forts:
 		forts.append({
 			"id": f["id"], "living": f["living"], "undead": f["undead"], "dead": f["dead"],
-			"held_s": float(f.get("held_s", 0.0)), "flipped_count": int(f.get("flipped_count", 0)),
+			"held": RealmSim.is_held(f), "grace_s": float(f.get("grace_s", 0.0)), "zero_s": float(f.get("zero_s", 0.0)),
+			"yield_c": float(f.get("yield_c", 1.0)), "yield_t": float(f.get("yield_t", 0.0)),
+			"flipped_count": int(f.get("flipped_count", 0)),
 			"clears_since_retaken": int(f.get("clears_since_retaken", 0)),
 			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
 			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
@@ -500,8 +560,14 @@ static func dump(gs: GameState) -> Dictionary:
 		"ledger": gs._ledger.to_dict(),
 		"won": gs.won, "stats": gs.stats.duplicate(),
 		"cleared_forts": gs.cleared_forts.keys(), "first_dungeon": gs.first_dungeon_id,
+		"queue": gs.build_queue.map(func(e): return {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
+			"upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}),
 	}
 	(d["cleared_forts"] as Array).sort()
+	# IDLE I5 (E2b-2 T3.3c): the open run, as the retreat a load ends it with (its last checkpoint); written only
+	# while a run is open
+	if not gs.run.is_empty():
+		d["pending_retreat"] = StateRuns.pending_of(gs)
 	return SaveIO.canon(d)
 
 
@@ -539,6 +605,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		"pos": [float(rl["pos"][0]), float(rl["pos"][1])], "heading": float(rl["heading"]),
 		"dead_s_left": float(rl["dead_s_left"]), "respawn_with_clone": bool(rl["respawn_with_clone"]),
 	}
+	var ret: Variant = rl.get("returned", {})
+	gs.relish_returned = {"fort_id": str(ret["fort_id"]), "cause": str(ret["cause"]), "t": float(ret["t"])} if ret is Dictionary and not ret.is_empty() else {}
 	if gs.relish["state"] == "travelling" and gs._dist_to(gs.relish["target"]) <= GameState.ARRIVE_EPS:
 		gs._arrive(gs.relish["target"])  # a save taken at ~0 px left loads settled, not stuck
 	gs.valve_target = valve_of(m["valve"]["target"])
@@ -549,7 +617,21 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		var f := gs.realm.fort_by_id(e["id"])
 		for k in ["living", "undead", "dead", "r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised"]:
 			f[k] = float(e[k])
-		gs.realm.hold(e["id"], float(e["held_s"]))
+		# the hold, set as saved (never through RealmSim.hold, which would touch the tithe): an E2b-2
+		# save's held, grace_s and zero_s; an older one's held_s > 0 is held with that much grace left
+		if e.has("held"):
+			f["held"] = bool(e["held"])
+			f["grace_s"] = maxf(0.0, float(e.get("grace_s", 0.0))) if f["held"] else 0.0
+			f["zero_s"] = maxf(0.0, float(e.get("zero_s", 0.0))) if f["held"] else 0.0
+		else:
+			var hs := maxf(0.0, float(e.get("held_s", 0.0)))
+			f["held"] = hs > 0.0
+			f["grace_s"] = hs
+			f["zero_s"] = 0.0
+		f["held_s"] = f["grace_s"]
+		# the loot yield (api_version 6): a save without it read 1.0, so it loads at 1
+		f["yield_c"] = clampf(float(e.get("yield_c", 1.0)), 0.0, 1.0)
+		f["yield_t"] = float(e.get("yield_t", 0.0))
 		f["flipped_count"] = int(e["flipped_count"])
 		f["clears_since_retaken"] = int(e["clears_since_retaken"])
 		flipped = flipped or f["flipped_count"] > 0
@@ -631,6 +713,19 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	for id in m["cleared_forts"]:
 		gs.cleared_forts[str(id)] = true
 	gs.first_dungeon_id = str(m["first_dungeon"])
+	# the build queue (E2b-2 T3.2): optional; an entry naming a building or lot today's config lacks is
+	# dropped with a warning, and so is any past queue.max_len
+	gs.build_queue = []
+	for e in m.get("queue", []):
+		var bid := str(e["building_id"])
+		var lot_id := str(e["lot_id"])
+		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
+			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
+		elif gs.build_queue.size() >= BuildRules.queue_max(gs):
+			push_warning("SaveIO: dropped a queued %s on %s: past queue.max_len" % [bid, lot_id])
+		else:
+			gs.build_queue.append({"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]),
+				"waited_on": str(e.get("waited_on", ""))})
 	# session state: nothing of the old session survives a load
 	gs.run = {}
 	gs._field_acc = 0.0
@@ -640,6 +735,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.realm.digest_q = gs.digest_q()
 	gs._split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
 	gs._realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
+	gs._proj_cache = {}  # the build benefit's rows belong to the state they were computed at
 	gs._realm_inputs = {}
 	gs._reset_lanes()
 	gs._prewarm_field()

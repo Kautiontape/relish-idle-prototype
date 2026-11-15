@@ -22,8 +22,9 @@ func run() -> int:
 	var v := s.view_relish()
 	var keys := ["rev", "state", "at", "target", "pos", "heading", "speed", "eta_s", "dead_s_left",
 		"respawn_with_clone", "phylactery_charges", "clones_ready", "can_descend", "reason", "run_id",
-		"run_kind", "effects"]
-	t.ok(v.size() == keys.size() and keys.all(func(k): return v.has(k)), "view_relish has exactly the contract keys")
+		"run_kind", "effects",
+		"returned"]  # (api_version 6, E2b-2 T3.3c: her last walk home from a retaken fort, {} until there is one)
+	t.ok(v.size() == keys.size() and keys.all(func(k): return v.has(k)) and v["returned"] == {}, "view_relish has exactly the contract keys")
 	t.ok(v["state"] == "home" and v["at"] == "covington" and v["target"] == "", "starts home at covington")
 	t.ok(v["pos"] == [1780.0, 1270.0] and v["pos"][0] is float, "pos is Covington's, as floats")
 	t.ok(v["heading"] == 0.0 and v["speed"] == 0.0 and v["eta_s"] == -1.0, "heading 0, speed 0, eta -1")

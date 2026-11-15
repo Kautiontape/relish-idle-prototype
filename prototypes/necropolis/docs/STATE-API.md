@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 5)
+# Necropolis: GameState API (api_version 6)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -37,6 +37,128 @@ from `BALANCE.md` §0.
   - the vat rule (`cmd_staff_vat`, §4.3; MECHANICS §7): a staffed vat takes a hand, since a Chapel's
     tend slot is open only while its vat is staffed. So `view_town` shows a Chapel's tend `slots`
     only for its staffed vats: a meaning change, not a shape change.
+
+  `api_version` 6 (E2b-2 T3.1; later E2b-2 tasks add to this entry) added:
+  - **held forts as two pools** (IDLE §3, MECHANICS §3.4): a flip starts a grace, then her
+    counter-garrison contests your garrison; the fort is retaken once the garrison has sat at 0 for
+    `hold.break_s`. `fort_retaken`'s `cause` is now `"broken"` (§6); `"expired"` and `"tithe_wave"`
+    are no longer raised (the field stays). `fort_flipped.hold_s` now means the grace (same formula).
+    A `fort_retaken` carries its moment inside its substep as `t` (§6);
+  - the event `big_undead_returned {uid, fort_id}` (§6): a siege big undead at a retaken fort goes
+    back to the crypt (IDLE I6);
+  - the save's `realm.forts[]` hold keys `held`, `grace_s` and `zero_s` (§9.1). `held_s` is read
+    from older saves only (as the grace left) and no longer written;
+  - **the held forts' readouts** (api-requests #7 a–c, #13; MECHANICS §3.5): on `view_fort` and
+    `view_realm().forts[]`, `garrison`, `garrison_rate`, `fall_s`, `margin`, `margin_cause` and
+    `grace_s_left` (§5.5); `view_hud.war_supports` (§5.1); and `view_projection(valve)` (§5.17), the
+    same math at another valve, pure;
+  - the event `counter_garrison_cleared {fort_id, killed_mass}` (§6, §8.3, api-request #10): a held
+    fort's raid cleared its counter-garrison (and the fort was still held when the result was applied);
+  - `view_fort.yield_mult` and the seed's `fort.yield_mult` are live (§5.5, §7.1; MECHANICS §5.3):
+    the loot yield recovers with real time; the save's `realm.forts[]` gain `yield_c` and `yield_t`
+    (§9.1);
+  - (T3.2) **build benefit** (api-request #9): `view_catalog().buildings[i].projected` and
+    `view_town().buildings[i].upgrade_projected` (§5.10, §5.9);
+  - (T3.2) **construction time** (api-request #17): `view_town().buildings[i]` gains `work_left`, `eta_s`
+    and `upgrade_work`, and `view_catalog().buildings[i]` gains `work` (§5.9, §5.10), TownSim's own numbers;
+  - (T3.2) **the build queue** (IDLE §5, api-request #3; MECHANICS §4.4): `cmd_queue_build`, `cmd_unqueue`,
+    `cmd_reorder_queue` (§4.3), `view_town().queue` and `.queue_max` (§5.9), the event `queue_started`
+    (§6) and the save's optional `queue` key (§9.1). Gate-blocked entries are accepted as `skipped_gate`
+    (the run's manager, 2026-11-14), not refused as #3 first worded it. A `cost_exceeds_cap` refusal names
+    what to build first: `store`, `cap_building` and `cap_level` (the run's manager);
+  - (T3.2) **the gold and bone caps** (IDLE §6; MECHANICS §4.3): `view_hud().rates[i].cap` for `gold` and
+    `bone` is the live cap (it was −1.0); `view_town().gold_cap` and `.bone_cap` (§5.9); `ledger().stores`,
+    the currency tally of what the caps clipped, saved with the ledger (§4.7, §9.1); `sinks.store_overflow`
+    stays and is always 0. `view_rates` `gold.in` and `bone.in` are now net of what overflowed (§5.2): a
+    meaning change, not a shape change;
+  - (T3.2) `margin_cause` `"fall"` on a `thin` margin: a held fort that falls beyond the horizon and that
+    one full wave wouldn't break reads `thin` / `"fall"`, no longer `thin` / `"wave"` (§5.5; MECHANICS
+    §3.5): a meaning change, not a shape change;
+  - (T3.4a) **removed:** the non-contract compatibility members `raid_seed`, `boss_seed`,
+    `town_snapshot`, `apply_town_result` and `quality` on `GameState`, and `Game`'s forwarding members and
+    legacy getters (§2.2);
+  - (T3.4a follow-up) **removed:** `legacy_stores()`, the last compatibility member: every compatibility
+    member on `GameState` is gone (§2.2); `tests/test_results.gd` now checks the state dict for an army;
+  - (T3.4a) **the fort card's warden and loot lines come from the dungeon's configs** (api-request
+    #5): `view_fort().warden` gains `name` (§5.5), and `warden.tells` and `loot_hint` (on `view_fort`
+    and the raid seed alike) are read from `raid.json` `wardens.archetypes` and `loot.json` `hints`,
+    no longer E1 constants: a meaning change, not a shape change;
+  - (T3.4a) `view_town().buildings[].starved` (§5.9): a String reason a building's mills milled less than
+    their hands want (`"pits_first"`, `"no_bodies"`, else `""`); town renders it in Phase I, economy gives the key;
+  - (T3.4b) **a held fort's margin is judged against the wave train** (the run's manager; MECHANICS §3.5):
+    `view_fort` and `view_realm().forts[]` `margin` reads `safe` only when the held forts, run forward
+    together through her waves at her period from today's state, settle with it unbroken; `thin` (cause
+    `wave`) when the train breaks it or hasn't settled by its cap. Its ruled order: `will_fall`, the train
+    breaking it, `garrison_rate` < 0 (cause `fall`), unsettled, `safe` (§5.5): a meaning change, not a shape
+    change;
+  - (T3.4b) `view_projection(valve, settled := false)` (§5.17): the optional `settled` gives the wave train's
+    margins at that valve; left out, a drag's one-wave margins, as before. Each `margins` row gains
+    `margin_verified` (bool): true for the train's, false for the one-wave probe's;
+  - (T3.4b fix batch) **current and planned readouts**: `garrison_rate` and `war_supports` read the current
+    split; the margin's train reads the planned support (the valve's target, Relish where she is travelling
+    to); `fall_s` is the earlier clock of the two, and `will_fall` follows it (§5.5, §5.17). So a row can show
+    `garrison_rate` ≥ 0 with `fall_s` ≥ 0, or with `thin` / `"wave"`, while the valve slews down or Relish
+    travels away: a meaning change, not a shape change;
+  - (T3.4b) `fall_s` errs early (MECHANICS §3.5): `grace_s_left` + `min(garrison, support / r_drain) /
+    −garrison_rate` + what is left of `hold.break_s` (less the zero clock while the garrison sits at 0); it
+    was `garrison / −garrison_rate` + `hold.break_s`, late by up to 368 s for a garrison above the level its
+    support holds: a meaning change, not a shape change;
+  - (T3.3b) **every load catches up** (IDLE §4): `cmd_load` runs the real time since the file's `saved_at`
+    through GameState's own core step (`scripts/sim/catchup.gd`) before it returns, and its result gains
+    `away_s: float` and `capped: bool` (§4.1). Its `rev` rises by 1 plus 1 per catch-up core step. The
+    catch-up's events are collected for the away report (T3.3c), not queued (§6).
+    `cmd_debug_load_fixture` and `from_dict` don't catch up (§9.1);
+  - (T3.3b) **chunked catch-up**: `cmd_load(slot, chunked := false)` (§4.1); with `chunked` it returns at
+    once with the catch-up pending, and each `tick()` runs one chunk of it (§3). `view_catchup()` (§5.18)
+    drives a progress screen (the map's, Phase I). Chunking never changes the result;
+  - (T3.3b) the reason **`catching_up`** on every command while a catch-up is active (§4's conventions):
+    checked first, after `not_debug` where that applies;
+  - (T3.3b) **long gaps in the open game** (IDLE §4 When): on the frame path a frame whose real time is
+    above `idle.gap_s` goes through catch-up instead of dropping its remainder past the substep cap (§3).
+    Under `idle.report_min_s` its events are queued as live, at or above it they are collected for the
+    report (§6). Debug fast-forward stays live play (the check is real time);
+  - (T3.3b) the shell boots with `cmd_load("auto", true)`, and its autosave waits out a catch-up (§2.1);
+    `catching_up()` (§1.5, not contract);
+  - (T3.3b) `clock_override` (§1.5), the test seam for "now": `cmd_save` stamps `saved_at` and `cmd_load`
+    measures the time away through it. Never saved;
+  - (T3.3b) **the load flash**: a load rebuilds the last substep's split and WAR dispatch from what the save
+    holds (§9.1). So `view_fort` and `view_realm().forts[]` margins, `fall_s` and `garrison_rate`,
+    `view_projection` and `view_hud`'s split read what they read before the save, not the saved `r_in`
+    with Relish where she stands. `view_hud.split` and mint `rate`, `view_rates`' `mint`, `work`, `war`
+    and `flood`, and the WORK, FLOOD and fallen-through WAR lanes read the last substep's after a load
+    instead of 0: a meaning change, not a shape change;
+  - (T3.3c) **no run survives a close, a crash, a load or a gap** (IDLE I5, api-request #4):
+    `cmd_run_checkpoint(run_id, loot, outcome := "retreated")` (§4.5) records the open raid's banked loot
+    and the exit it would end in; the save writes the open run as `pending_retreat` (§9.1), its last
+    checkpoint, and a load ends it from that through the normal writeback before the catch-up (§4.1's load
+    order), where it used to forfeit it with no loot: a meaning change, not a shape change. A save
+    without `pending_retreat` (older) still forfeits its run. A gap above `idle.gap_s` in the open game
+    ends the open run the same way, inside the frame that finds it, with the event `run_ended` first (§3,
+    §6). A boss run has nothing to bank: `cmd_run_checkpoint` refuses it with `wrong_kind`, and an ended
+    boss run is forfeited as `cmd_abort_dungeon` forfeits it;
+  - (T3.3c) **a dead run's refusal comes before `catching_up`**: `cmd_abort_dungeon` checks `no_run` first
+    (it checked `catching_up` first), and `cmd_run_checkpoint` checks `no_run` and `wrong_run` first (§4,
+    §4.5). No run is open during a catch-up, so during one they answer `no_run`: a meaning change, not a
+    shape change;
+  - (T3.3c) **Relish walks home from a retaken fort** (IDLE I5; the run's manager: live play and catch-up
+    alike, one simulation): when the fort she stands at (`at_fort`) is retaken, she starts home to Covington
+    at her travel speed from the retake's moment inside its step. The event `relish_returned {fort_id, cause:
+    "retaken"}` (§6) and `view_relish().returned` (§5.8), saved as `relish.returned` (§9.1). A dynamics
+    change wherever she stands at a fort that is retaken (she used to stay): a meaning change, not a shape
+    change;
+  - (T3.3c) **the away report** (IDLE §7, api-request #7 d): `view_away()` (§5.19), `cmd_dismiss_away()`
+    (§4.1) and the event `away_report {away_s, capped}` (§6), built at the end of every reporting catch-up (a
+    load's of 1 s or more, an open-game gap's of `idle.report_min_s` or more) from the events it collected
+    and the state before and after; kept until dismissed, never saved. Its text comes from `economy.json`
+    `idle.report`. So a load or such a gap now queues one event (`away_report`), where it queued none: a
+    meaning change, not a shape change;
+  - (T3.3c) **the seeds' `death_ends`** (the dungeon's D-e, via the run's manager): `{outcome: String,
+    respawn_s: float}` on the raid seed (§7.1) and the boss seed (§7.2), what a death that ends the run ends
+    in, from `view_backups().death`'s rule (§5.13). `Results.validate` checks it when present (§8.4), so a
+    seed without it (a dungeon's own demo seed) still validates;
+  - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
+    timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
+    to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -91,7 +213,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 5
+const API_VERSION := 6
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -129,14 +251,18 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `var fixture_dir: String = "res://tests/fixtures"` | `cmd_debug_load_fixture` reads `<fixture_dir>/<name>.json`. Tests point it at a temp dir to make a bad fixture. |
 | `autosave_s() -> float` | `economy.json` `sim.autosave_s` (30): the shell's autosave period in real seconds. |
 | `var rev: int` | Read-only by rule. |
+| `var clock_override: int = -1` | v6 (E2b-2 T3.3b), a test seam: unix seconds "now" when ≥ 0, else the system clock. `cmd_save` stamps `saved_at` with it and `cmd_load` measures the time away with it, the sim's one read of the wall clock. Never saved; scenes never set it. |
 | `tick(dt: float, max_substeps := 0) -> int` | §3. |
 | `drain_events() -> Array[Dictionary]` | §6. Called by the shell and tests, **never by scenes**. |
 | `to_dict() -> Dictionary`, `from_dict(d: Dictionary) -> Dictionary` | §9. |
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
-| `raid_seed`, `boss_seed`, `town_snapshot`, `apply_town_result`, `legacy_stores`, `quality` | **Not contract**: compatibility for unported callers, best effort from the new state; §2.2. |
+| `catching_up() -> bool` | **Not contract** (v6, E2b-2 T3.3b): whether a catch-up is active (`view_catchup().active`), for the shell's autosave. |
+| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and the away report, `view_away`, §5.19): the events the last catch-up that a report replaces collected instead of queuing them (a load's, or an open-game gap's of `idle.report_min_s` or more; §6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
+| `var relish_returned: Dictionary` | **Not contract** (v6, E2b-2 T3.3c): her last walk home from a retaken fort, `{fort_id, cause, t}` or `{}`; scenes read it as `view_relish().returned` (§5.8). Read-only by rule. |
+| `static report_config_problem(cfgs: Dictionary) -> String` | **Not contract** (v6, E2b-2 T3.3c): `""` when `economy.json` `idle.report` has every key the away report reads (`GameState.REPORT_KEYS`) and words every queue reason, else what is missing; `setup()` reports it as an error (tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
 ## 2. The `Game` shell (`autoload/game.gd`)
@@ -147,7 +273,9 @@ var state: GameState                  # stable for the session (§1.2)
 signal game_event(ev: Dictionary)     # one signal for every event, in queue order; filter on ev.type
 var autosave_enabled: bool            # false in a harness session; set once at boot, read-only by rule
 func autosave() -> Dictionary         # = state.cmd_save("auto"); the router calls it after every swap;
-                                      # {ok: false, reason: "disabled"} (nothing written) when !autosave_enabled
+                                      # {ok: false, reason: "disabled"} (nothing written) when !autosave_enabled;
+                                      # {ok: false, reason: "catching_up"} (nothing written, no event) while
+                                      # a catch-up is active (v6)
 ```
 - **Boot (`_ready`):**
   `state = GameState.new()` once, `state.setup(ConfigDb.data)` (the same `load_configs` output), then
@@ -175,22 +303,32 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     player's `auto.json` is never touched. The boot state is `cmd_debug_load_fixture(name)` for
     `--fixture=` (if refused, an error is printed and it falls back to `cmd_new_game(randi())`),
     otherwise `cmd_new_game(randi())`.
-  - **Normal launch** (a windowed launch with no args, or only `PLAYER_ARGS`): `cmd_load("auto")`; if that is not `ok` (no file, or
+  - **Normal launch** (a windowed launch with no args, or only `PLAYER_ARGS`): `cmd_load("auto", true)`
+    (v6: the catch-up of the time away runs in chunks over the first frames, so a week away doesn't
+    freeze the window; `view_catchup` drives a progress screen); if that is not `ok` (no file, or
     corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
     newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
     and a warning is printed, so the newer save is never overwritten.
-  - Away-time catch-up on load (simulating the real time since the save file's `saved_at`) is a later
-    item. Today a resume continues from the saved `t`.
+  - The load catches up the real time since the save file's `saved_at` (IDLE §4; `cmd_load`, §4.1), so
+    Continue resumes where the time away left the realm.
+  - **Tested headless** (E2b-2 T3.3c): `tests/slow/boot_week.gd` compiles the shell's own source with two
+    substitutions, made by exact match (`ConfigDb.data`, which `--script` lacks, becomes the same loader;
+    the boot rule's harness decision becomes a normal launch), and boots it on a save taken mid-run, a week
+    away: the run ends before the first chunk, the catch-up finishes, live substeps resume, the due autosave
+    waits it out and then saves, the scenes' commands during it get `catching_up` or the dead-run refusals,
+    and nothing is logged as an error.
 - **Ticking (`_process(delta)`):**
   `state.tick(delta / maxf(0.05, Engine.time_scale) * state.time_scale, max_substeps)`. Here
-  `max_substeps` is `economy.json` `sim.max_substeps_per_frame`, and any remainder over the cap is
-  dropped (§3).
+  `max_substeps` is `economy.json` `sim.max_substeps_per_frame`. A frame whose real time is above
+  `idle.gap_s` goes through catch-up; under it, any remainder over the cap is dropped (§3). `tick`
+  divides by `time_scale` for the real time, so the shell passes nothing more.
   - The sim runs on **real** delta. Trance's `Engine.time_scale` never slows the realm.
   - `tick` itself honours `paused`.
 - **Events:** each frame, after ticking, the shell drains `state.drain_events()` and emits
   `game_event(ev)` for each event, in order.
 - **Autosave:** every 30 real seconds (unscaled delta) and on every scene change (the router calls
-  `autosave()`). The resulting `autosaved` / `save_failed` events reach scenes through
+  `autosave()`). While a catch-up is active it writes nothing (a save then would lose the time still to
+  run) and the 30 s clock stays due, so the save follows the catch-up. The resulting `autosaved` / `save_failed` events reach scenes through
   `game_event`.
 - **Legacy signals** keep firing until the map unit drops them. Each fires after the
   `game_event` for the same event:
@@ -213,35 +351,17 @@ new state as a best effort, and writes to them are ignored; `time_scale` is the 
 | `realm: RealmSim` | `state.realm`, a live object replaced on new game or load, so re-read it on every use | map_nodes, map_routes, world_map, shot |
 | `field: InfluenceField` | `state.field` (same caveat) | world_map, map_field_view |
 | `towns: Array` | legacy village list (`{id, name, pos: Vector2, pop, control: green\|orange\|none}`) | map_nodes, world_map |
-| `res`, `army`, `town`, `assignments`, `idle_undead`, `gather` | fresh dicts from `state.legacy_stores()`, rebuilt on every read (below); writes change nothing | world_map, map_routes |
 | `won` | `state.won` | world_map |
 | `time_scale: float` | get: `state.time_scale`. Set: writes `state.time_scale` **unvalidated** (any value > 0). Keeps working in release builds; used by the map's ×1/×10/×60 buttons and `--speed=`. | world_map, shot |
-| `quality() -> float` | `state.quality()`, which is `digest_q()` | world_map |
 | `raiding_fort_id() -> String` | the active raid run's fort id, or `""` | map_nodes, shot |
-| `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()` | `state`'s compatibility members (below) | the router, for unported scenes (§2.3) |
-| `apply_town_result(r)` | `state.apply_town_result(r)`, a no-op from E2a | the router, for an unported town scene |
 
-**`legacy_stores()`** (E2a, what `Game`'s legacy getters read): the E1 stores rebuilt from TownSim and
-the backups stock, every count an `int`:
-- `res = {gold, materials: bone, bodies, townsfolk: living}`;
-- `army = {soldier: 0, elite: 0}` (the army is gone);
-- `town = {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0}`;
-- `assignments`: staffed workers per old job, rounded: `trade` (stall), `forge`, `jobs` (build),
-  `gather` (haul), `slab` (pit); `idle_undead`: idle workers, rounded;
-- `gather = {target, phase, eta, load}`: TownSim's convoy (`eta = (1 − t) · trip_s`), or phase `idle`
-  with the set haul target (`""` for `auto`) when none is out.
-
-**Compatibility members on `GameState`** (not contract; each is marked `# legacy: delete when map
-drops the call` and goes when the map unit drops its call):
-
-| member | E2a behaviour | why it stays |
-|---|---|---|
-| `raid_seed(fort_id)` | the pre-E1 raid seed keys (`fort_id, name, tier, cap, living, undead, dead, boss: false, quality`) from the live fort and `q`; `{}` for an unknown fort | `scripts/main.gd` merges it into an unported dungeon's args |
-| `boss_seed()` | the pre-E1 boss seed keys, with `quality`, `backlog`, `vei_capacity` and `odds` live and `army: {soldier: 0, elite: 0}` | `scripts/main.gd` merges it into an unported boss's args |
-| `town_snapshot()` | `{}` (the town reads views) | `scripts/main.gd` merges it into the town's args |
-| `apply_town_result(r)` | a no-op (town actions are commands) | `scripts/main.gd` calls it for a legacy town result |
-| `legacy_stores()` | above | `Game`'s getters (world_map, map_routes) |
-| `quality()` | `digest_q()` | `Game.quality()` (world_map) |
+**Compatibility members on `GameState`** (not contract): none remain. `legacy_stores()` (the E1 stores
+rebuilt from the new state) was the last; it was removed once `tests/test_results.gd` stopped calling it.
+`raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()`, `apply_town_result(r)` and `quality()` were
+removed in T3.4a, with `Game`'s forwarding members and its `res`, `army`, `town`, `assignments`,
+`idle_undead` and `gather` getters: nothing called them (`view_dungeon_seed`, `view_boss_seed` and
+`digest_q()` are the contract). `Results.KINDS` keeps `"raid_seed"` and `"boss_seed"`: they validate those
+two views' seeds.
 
 **Removed at E1** (replaced by commands): `new_game`, `begin_raid`, `end_raid`, `apply_raid_result`,
 `auto_resolve_raid`, `apply_boss_result`, `auto_resolve_boss`. shot.gd's cheats move to
@@ -267,13 +387,9 @@ signal finished(result: Dictionary)
 | dungeon | `{mode: "dungeon", fort_id: String, run_id: int, seed_rev: int}` | `view_dungeon_seed(fort_id)` (§7.1), views | raid result v2 (§8.1) |
 | boss | `{mode: "boss", run_id: int, seed_rev: int}` | `view_boss_seed()` (§7.2), views | boss result v2 (§8.2) |
 
-- **E1 compatibility.** Until a scene is ported, the router also merges that scene's legacy seed
-  keys into `args`:
-  - dungeon: `Game.raid_seed(id)`;
-  - boss: `Game.boss_seed()`;
-  - town: `Game.town_snapshot()` (`{}` from E2a: the town reads views).
-
-  Ported scenes ignore unknown `args` keys.
+- **E1 compatibility** (removed in T3.4a): the router once merged a legacy seed (`Game.raid_seed`,
+  `boss_seed`, `town_snapshot`) into `args` for an unported scene; nothing calls them now. Ported
+  scenes ignore unknown `args` keys.
 - **`teleport_to`** names the node whose scene opens next; `""` means the map. With `v: 2` it never
   moves Relish.
 - **Router flow:**
@@ -314,6 +430,22 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   - `acc += dt`, then `n = floor(acc / sim.substep_s)` (`sim.substep_s` = 0.5).
   - If `max_substeps > 0` and `n > max_substeps`: run `max_substeps` and set `acc = 0`. The
     remainder after a hitch is dropped.
+  - **Long gaps** (v6, E2b-2 T3.3b; IDLE §4 When): with `max_substeps > 0` (the frame path), a call
+    whose real time, `dt / time_scale`, is above `idle.gap_s` (30 s) goes through catch-up instead:
+    its whole seconds, chunked (below), with its fraction added to `acc`. So the drop above applies only
+    to a hitch under `idle.gap_s`, and debug fast-forward (a large `dt` from a large `time_scale`) stays
+    live play. **A run open at the gap ends first** (v6, E2b-2 T3.3c; IDLE I5: the machine asleep in a
+    dungeon): inside the frame that finds the gap, before its catch-up starts, the event `run_ended {run_id,
+    kind, outcome, cause: "gap"}` is queued, then the run ends from its last checkpoint as a load ends a
+    `pending_retreat` (§4.5 `cmd_run_checkpoint`), and the writeback's events follow it, queued as live (not
+    collected for a report). A paused sim returns 0 before any of this, so paused time is never time off (I9). A call
+    with no cap (tests, `cmd_debug_skip_time`) never routes a gap: it runs its substeps as before.
+  - **While a catch-up is active** (a chunked `cmd_load`'s or a gap's, `view_catchup().active`): each
+    call runs one chunk of it, `idle.catchup_steps_per_chunk` core steps, instead of live time, does no
+    frame work (the field's `advance`, the build benefit's and the wave train's refreshes) and returns 0.
+    The calls' own `dt` accumulates. When the catch-up finishes, that time runs as the finishing call's
+    `dt`: through catch-up again if its real time is above `idle.gap_s`, else as live substeps with the
+    cap raised to `idle.gap_s / sim.substep_s`, so none of it is dropped at 1×.
   - Otherwise `acc -= n * sim.substep_s`. The remainder is kept and saved.
   - `max_substeps = 0` means uncapped; tests and `cmd_debug_skip_time` use it.
 - Each substep advances `t += sim.substep_s`, runs the steps below **in this order** (a contract
@@ -328,7 +460,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      before (TownSim's `rates.feed`). Split it into WORK, WAR and FLOOD.
   3. **TownSim.** Workforce, on this step's WORK (`work · dt`, in the same step: E2b replaced WORK
      arriving one substep late). Also jobs, haul, mill, pit burn, living, gold, bone, morale,
-     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR.
+     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR. Then the
+     tiers rise and the build queue is processed (v6; MECHANICS §4.4): its `next` entries start, in order,
+     and emit `queue_started`.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
   5. **`RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate, siege_block})`.**
      Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
@@ -356,6 +490,23 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
 The format for each entry is: signature · milestone, arguments, extra return keys, reasons in check
 order, effect, example. Every command also returns `ok` and `reason`.
 
+**`catching_up`** (v6, E2b-2 T3.3b; IDLE §4): while a catch-up is active (`view_catchup().active`: a
+chunked `cmd_load`'s, or an open-game gap's), every `cmd_*` returns `{ok: false, reason: "catching_up"}`
+with its own extras zero-valued, changes nothing and leaves `rev` alone. It is checked first, after
+`not_debug` where that applies (the time controls and the debug commands), so it heads every reason list
+below without being repeated in each. `cmd_save`'s refusal emits `save_failed` as every refusal does
+(the shell's autosave doesn't call it then, §2.1). `apply_result` is not a command and isn't refused.
+Views stay readable during a catch-up and show the state as far as it has run.
+
+**The exception: the run commands** (v6, E2b-2 T3.3c; IDLE I5). Every open run ends before a catch-up
+starts (§4.1's load order, §3's gaps), so no run is live during one. On a run that has ended, every run
+command gives its **dead-run refusal, whether or not a catch-up is active**: `cmd_abort_dungeon` and
+`cmd_run_checkpoint` check `no_run` (and `cmd_run_checkpoint` `wrong_run`) before `catching_up`, and
+`apply_result`, which `catching_up` never gates, answers `duplicate_run` (an ended raid) or `wrong_run`
+(an ended boss run). So a dungeon scene still sitting on an ended run learns it is over instead of being
+told to wait. `cmd_begin_dungeon` and `cmd_begin_boss` open a run, not act on one, and keep `catching_up`
+first.
+
 ### 4.1 Game
 **`cmd_new_game(seed: int)` · E1**
 - **Reasons:** `busy` (a dungeon or boss run is open).
@@ -373,23 +524,61 @@ Game.state.cmd_new_game(1)  # -> {ok: true, reason: ""}
 
 **`cmd_save(slot: String)` · E1**
 - **Args:** `slot` matches `^[a-z0-9_-]{1,32}$`. `"auto"` is the autosave slot.
-- **Extras:** `saved_at: int` (unix seconds), `path: String`.
+- **Extras:** `saved_at: int` (unix seconds, from `clock_override` when it is set, §1.5), `path: String`.
 - **Reasons:** `bad_slot`, `write_failed`.
 - **Effect:** writes atomically (§9.3).
-  - During a run it writes the forfeited form (Relish at the fort, no run) and leaves the live state
-    alone.
+  - During a run it writes Relish at the run's fort (`at_fort`, or `at_vei`) and the run as
+    `pending_retreat` (v6, E2b-2 T3.3c; §9.1), its last checkpoint, which a load ends it with; it leaves
+    the live state alone.
   - On success with slot `"auto"` it emits `autosaved`. On any failure it emits `save_failed`.
 ```gdscript
 Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, path: "user://saves/slot1.json"}
 ```
 
-**`cmd_load(slot: String)` · E1**
+**`cmd_load(slot: String, chunked := false)` · E1 (catch-up v6)**
+- **Extras** (v6, E2b-2 T3.3b): `away_s: float`, the seconds caught up, and `capped: bool`. Both are 0.0
+  and false on a refusal.
 - **Reasons:** `busy`, `bad_slot`, `no_save` (missing or corrupt; a corrupt file is no save),
   `bad_version` (newer than `SAVE_VERSION`, or the migration failed).
 - **Effect:** `from_dict` in place. Then `time_scale = 1`, `paused = false`, the event queue is
   cleared, and the field is pre-warmed (§9).
+- **The load order** (v6, E2b-2 T3.3c): `from_dict` (the state as saved, the queue cleared), then **the
+  run open at the save ends** (its `pending_retreat`, §9.1: through the normal writeback, as a result of
+  its last checkpoint's outcome; IDLE I5), then the catch-up below, then (when it caught up 1 s or more) the
+  away report (§5.19) and its `away_report` event, queued after the run's events.
+  The run's end comes first on both paths: the synchronous load and `chunked`, where it is done before
+  `cmd_load` returns and so before the first chunk. Its events (`loot_banked`, `fort_flipped`,
+  `relish_died`, …) are queued for the scenes as usual, stamped at the save's `t`: they happened before
+  the time away. The writeback is one more `rev`.
+- **Then the catch-up** (v6; IDLE §4, `scripts/sim/catchup.gd`): the time away is now (`clock_override`
+  when set, §1.5) less the file's `saved_at`, in whole seconds. It is 0 when that is negative or the file
+  has no `saved_at`, and at most `idle.catchup_max_s` (7 days), with `capped` true when it was more. That
+  much sim time runs through the core step (§3 steps 1–8) in adaptive steps: `clamp(away /
+  idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`, with `idle.catchup_dt_long_s` (15 s)
+  for the cap past the first `idle.catchup_dt_long_after_s` (12 h), shortened so that none straddles a
+  clip event (IDLE §4 Method). `idle.field_steps` field steps (api-request #14) run in place of the field's
+  live ticks, and the field ends published. The run's events are kept for the away report, not queued
+  (§6). The lanes' callouts take the net change once at its end. A 0 s load is the identity: no step
+  runs and the state is the save.
+- **`chunked`** (v6, an optional parameter): left out (false), the catch-up runs before `cmd_load`
+  returns. True: it returns at once with the catch-up pending (`view_catchup().active`), and each
+  `tick()` runs one chunk of it (§3). Meanwhile every command refuses with `catching_up` (§4). The step
+  sequence depends only on the save, the time away and the configs, so the result is the same either way,
+  to the bit.
+- `rev` rises by 1, plus 1 for a pending retreat's writeback (v6, T3.3c), plus 1 per catch-up core step.
 ```gdscript
-Game.state.cmd_load("auto")  # -> {ok: false, reason: "no_save"}
+Game.state.cmd_load("auto")  # -> {ok: true, reason: "", away_s: 28800.0, capped: false}
+Game.state.cmd_load("nope")  # -> {ok: false, reason: "no_save", away_s: 0.0, capped: false}
+```
+
+**`cmd_dismiss_away()` · E2b-2** (api_version 6, T3.3c; api-request #7 d, IDLE §7)
+- **Extras:** none.
+- **Reasons:** `catching_up` only (§4).
+- **Effect:** the away report is dismissed: `view_away().shown` becomes false. Its lines stay readable until
+  a new game, a load or the next report replaces them. With no report it changes nothing but `rev` (+1, a
+  successful command). The map calls it from DISMISS and from acting on a ready line (`AwayLogic.dismiss`).
+```gdscript
+Game.state.cmd_dismiss_away()  # -> {ok: true, reason: ""}
 ```
 
 **`list_saves() -> Array[Dictionary]` · E1.** Not a command, and does not bump `rev`.
@@ -527,6 +716,47 @@ Game.state.cmd_demolish("lot-03")  # -> {ok: true, reason: ""}
     still working.
 ```gdscript
 Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold: 40.0, bone: 10.0, relics: 0}}
+```
+
+**`cmd_queue_build(building_id: String, lot_id: String)` · E2b-2 (api_version 6, api-request #3; IDLE §5)**
+- **Args:** a building id and a lot; `building_id == ""` queues an upgrade of the building on `lot_id`
+  (built or under construction), or of the first new build queued for it.
+- **Extras:** `index: int` (the entry's position; −1 on a refusal), `cap_building: String`, `store:
+  String` and `cap_level: int`. With `cost_exceeds_cap`: `store` is the store whose cap the cost is over
+  (`gold`, `bone` or `relics`), `cap_building` the building whose `*_cap` effect raises it (the first in
+  `buildings.json`), and `cap_level` the lowest level of that building whose cap covers the price: the
+  cap now with its highest-level copy raised to that level, or with one built at it (so `1` when it isn't
+  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`.
+- **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
+  8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
+  `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
+  `lot_too_small`; for an upgrade `empty_lot` (nothing stands or is queued there) and `max_level` (the
+  level it would build, below, is past `max_level`); `cost_exceeds_cap` (its gold, bone or relic cost is
+  above that store's cap now).
+- **Accepted as gates** (the run's manager, 2026-11-14: IDLE §5 over this request's first wording; the
+  town adapts its UI in Phase I): `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, a
+  relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
+  `skipped_gate` with that reason and starts when the gate clears. Affordability (gold, bone) never
+  refuses: it holds the queue.
+- **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
+  the queue (§3, step 3; MECHANICS §4.4).
+```gdscript
+Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1}
+Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: true, reason: "", index: 1, ...}
+Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1}
+```
+
+**`cmd_unqueue(index: int)` · E2b-2 (v6, #3)**
+- **Reasons:** `unknown_index` (not 0..size − 1). **Effect:** removes the entry; `rev` + 1.
+
+**`cmd_reorder_queue(order: Array)` · E2b-2 (v6, #3)**
+- **Args:** `order[k]` is the old index that moves to position k: a permutation of the current indices
+  (ints, or floats that are whole numbers).
+- **Reasons:** `bad_order` (not such a permutation). **Effect:** reorders; levels and costs are recomputed
+  from the new order on the next walk; `rev` + 1.
+```gdscript
+Game.state.cmd_reorder_queue([1, 0])  # -> {ok: true, reason: ""}
+Game.state.cmd_unqueue(3)             # -> {ok: false, reason: "unknown_index"}
 ```
 
 **`cmd_set_job_priority(order: Array)` · E1/E2**
@@ -693,13 +923,69 @@ Game.state.cmd_begin_boss()  # -> {ok: true, reason: "", run_id: 9, seed_rev: 21
 
 **`cmd_abort_dungeon()` · E1**
 - **Extras:** `run_id: int` (the run forfeited).
-- **Reasons:** `no_run`.
+- **Reasons:** `no_run`, then `catching_up` (v6, E2b-2 T3.3c: a dead run's refusal comes first, §4; no
+  run is open during a catch-up, so during one it answers `no_run`).
 - **Effect:** forfeits the open run, dungeon or boss.
   - There is no writeback, no loot and no flip, and the party is intact.
   - Relish goes back to `at_fort` (or `at_vei`), and the run is closed, so a later result for it is
     `wrong_run`.
 ```gdscript
 Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
+```
+
+**`cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated")` · E2b-2** (api_version 6,
+T3.3c; api-request #4, IDLE I5)
+- **Args:** `run_id` the open raid's; `loot` the raid result's `loot` shape (§8.1: `{relics, blueprints,
+  husks: [{kind}], remnants: [{aspect, rarity, magnitude}], essence}`), what is banked so far; `outcome`
+  the exit the run would end in if it ended now: `"retreated"`, `"warden_beaten"` or `"relish_died"`.
+- **Extras:** none (`{ok, reason}`).
+- **Reasons**, in check order: `no_run` (no run is open), `wrong_run` (`run_id` isn't the open run),
+  `wrong_kind` (the open run is a boss run: a boss result carries no loot, §8.2, so there is nothing to
+  bank), `catching_up`, `invalid` (`Results.validate("raid", …)` rejects a retreat result carrying `loot`),
+  `bad_outcome`. A dead run's refusals come before `catching_up` (§4): no run is open during a catch-up.
+- **Effect:** the open raid records `{loot, outcome}` (a deep copy, ints as ints), **replacing its last
+  checkpoint**; `rev` +1. Nothing else changes and no event is raised. **A checkpoint is only as good as
+  its last call** (the run's manager): a close, a crash, a load or a gap ends the run from the last one,
+  and whatever was found since is lost (the same bound as a death, MECHANICS §7).
+- **When the dungeon calls it** (the dungeon, Phase I; `raid_endings.gd` already calls it when it exists):
+  - at every room clear (each checkpoint room it banks), with the loot banked so far and `"retreated"`;
+  - at the warden's victory beat (warden beaten, chest open), with the loot including the chest and
+    `"warden_beaten"`;
+  - at the death beat, with the loot the death keeps and `"relish_died"`.
+- **How a run ends from it** (IDLE I5; `StateRuns.end_open`): through the normal writeback (§8.3), as the
+  raid result `{outcome as the exit, loot as the banked loot, killed_living_mass 0, raised [], chaff_mass
+  0, garrison_mass = the seed's garrison_in_mass (so the fort's undead don't move), revived_in_place 0,
+  party_lost []}`:
+  - `"retreated"`: the loot is banked, no flip, Relish `at_fort`;
+  - `"warden_beaten"`: the flip and the loot, as if the scene had sent the win;
+  - `"relish_died"`: a death, as `apply_result` treats one (§8.3 step 10: the whole party lost, a clone or
+    unmade);
+  - with no checkpoint, empty loot and `"retreated"`: nothing banked, as before T3.3c;
+  - its kills aren't known, so an ended run never clears a counter-garrison (`counter_garrison_cleared`
+    isn't raised and the yield isn't spent), and its phylactery revives and party losses aren't known
+    either (none are applied);
+  - its id joins `applied_runs`, so a late result for it is `duplicate_run`;
+  - **a load (or gap) that ends a run with no checkpoint** (the save's `pending_retreat` is empty loot and
+    `"retreated"`) is still a writeback, so it has its side effects: `stats.raids` goes up by 1, the run's id
+    joins `applied_runs`, and `loot_banked` is emitted with zero loot (no relics, essence, blueprints or
+    minted uids), `rev` rises by 1, and Relish is `at_fort`. Nothing else moves (no kill, no flip);
+  - **a `relish_died` checkpoint** applies `StateRuns.death` at the end: a ready clone is spent
+    (`clones_ready` −1) or she is unmade, by `clones_ready` as it stands when the end is applied, not as the
+    scene saw it at the death beat (the seed's `death_ends`). Until E3 the stock only changes by debug grants,
+    so the two agree; once vats grow clones, `clones_ready` can drift between the beat and the end and the
+    outcome follow it. The in-run phylactery revives are not applied (`revived_in_place` 0), so
+    `phylactery_charges` is not spent for them either.
+- **A boss run** has no checkpoint; an ended boss run is forfeited as `cmd_abort_dungeon` forfeits it (no
+  writeback, the party intact, Relish `at_vei`, its id not an applied run: a late result is `wrong_run`).
+- **A dead run** (ended by a load or a gap) gets clean refusals from every run command and nothing
+  changes: `cmd_run_checkpoint` and `cmd_abort_dungeon` say `no_run`, `apply_result` `duplicate_run` (a
+  raid) or `wrong_run` (a boss run), during a catch-up too (§4). A gap's `run_ended` tells the dungeon
+  scene to leave (Phase I wires it).
+```gdscript
+Game.state.cmd_run_checkpoint(1, {"relics": 1, "blueprints": [], "husks": [{"kind": "hulk"}], "remnants": [], "essence": 9})
+# -> {ok: true, reason: ""}
+Game.state.cmd_run_checkpoint(1, loot, "warden_beaten")  # the warden's victory beat
+Game.state.cmd_run_checkpoint(9, loot)  # the open run is a boss run -> {ok: false, reason: "wrong_kind"}
 ```
 
 **`apply_result(kind: String, result: Dictionary)` · E1** (flip hold E2; backups E3)
@@ -715,8 +1001,8 @@ Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
   | `unknown_kind` | `kind` is not `raid` or `boss` |
   | `unknown_v` | `result.v != 2` (convert v1 with `Results.from_v1` first) |
   | `invalid` | `Results.validate(kind, result)` is non-empty (see `errors`) |
-  | `duplicate_run` | `run_id` was already applied. Idempotent: a repeat changes nothing. |
-  | `wrong_run` | no run is open, or `run_id` isn't the open run (including a forfeited one) |
+  | `duplicate_run` | `run_id` was already applied. Idempotent: a repeat changes nothing. A raid run a load or a gap ended (v6, T3.3c) is an applied run. |
+  | `wrong_run` | no run is open, or `run_id` isn't the open run (including a forfeited one, and a boss run a load or a gap ended, v6) |
   | `wrong_kind` | the open run is the other kind |
   | `stale_seed` | `result.seed_rev` != the `seed_rev` recorded on the open run. It is **not** compared with the current `rev`, which keeps moving during the run. |
   | `wrong_fort` | raid only: `fort_id` != the open run's fort, which is where Relish is |
@@ -800,10 +1086,16 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 ```
 
 ### 4.7 `ledger() -> Dictionary` · E2 (for tests; live from E2a T2.5)
-- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary}`, each `String → float` mass.
-  `sources` and `sinks` are totals since the new game, booked where mass enters or leaves the world
-  (`scripts/sim/ledger.gd`, preloaded as `GameState.Ledger`); `held` is summed from the live state
-  at the call. A fresh copy, like a view.
+- Returns `{sources: Dictionary, sinks: Dictionary, held: Dictionary, stores: Dictionary}`. `sources`,
+  `sinks` and `held` are each `String → float` mass. `sources` and `sinks` are totals since the new game,
+  booked where mass enters or leaves the world (`scripts/sim/ledger.gd`, preloaded as
+  `GameState.Ledger`); `held` is summed from the live state at the call. A fresh copy, like a view.
+- `stores` (v6, E2b-2 T3.2) is the currency tally beside the mass, outside the invariant (gold and bone
+  are not mass): `{gold: {overflow: float}, bone: {overflow: float}}`, the income each store's cap
+  clipped since the new game (MECHANICS §4.3; IDLE §6's "overflow is a ledger sink"). Saved with the
+  ledger (§9.1); a save without it loads 0. The currency soak checks `gold_end = gold_start + Σtrade −
+  Σupkeep − Σspent − stores.gold.overflow` (and bone with the mill) within 1e-9. T3.3's away report reads
+  it for "store overflow" among the losses.
 - **Invariant:** `Σheld + Σsinks == Σsources` within 1e-6 relative (`|miss| / max(1, Σsources)`) at
   every substep boundary and at any `sim.substep_s` (catch-up, IDLE §4). Measured misses are about
   1e-14.
@@ -822,7 +1114,7 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `pool_overflow` | what the march-back took past Vei's pool cap (`vei_pool_cap`): living above a fort's cap march back at `(L − cap) / tithe.march_back_s`, and whatever would take her pool past the cap books here; she then converts into the headroom left. Not always 0 since the march-back (v4: the meaning changed, not the shape) |
 | | `rot_overflow` (+3) | rot return lost to the body cap (MECHANICS §4.1) |
 | | `haul_overflow` (+3) | a landing convoy's load lost to the body cap |
-| | `store_overflow` (+3) | 0 until the store caps (E2b T3.2) |
+| | `store_overflow` (+3) | always 0: the store caps (E2b-2 T3.2) clip gold and bone, which are not mass; their overflow is `stores` (above) |
 | `held` | `fort_living`, `fort_undead`, `corpses` | Σ forts' `living`, `undead`, `dead` |
 | | `backlog`, `vei_dead`, `living_pool` | Vei's undead queue, dead queue and living pool |
 | | `bodies` | Covington's body store |
@@ -854,6 +1146,8 @@ Every field is live from E2a:
   `workers_steady_kept` is where the workforce actually settles (see `view_town.workers`, §5.9);
 - `war_overflow` is the WAR that fell through to Vei because every WAR target was capped (MECHANICS
   §3.2). It is the `war:covington:vei` lane's rate in `view_lanes` (§5.3).
+- `war_supports` (v6, api-request #7 b): "WAR supports N of M held forts". `m` is the held forts,
+  `n` those whose `garrison_rate` (§5.5) is ≥ 0 at the current valve.
 
 | key | type | meaning |
 |---|---|---|
@@ -867,6 +1161,7 @@ Every field is live from E2a:
 | `workers_steady_kept` | float | workers: the workforce TownSim's ODE settles at for the current inflow, lifetime, idle rot, staffable slots and idle cap; same as `view_town.workers.steady_kept` (v4) |
 | `game_id` | String | a stable identity for one game: fresh per new game, kept across its saves and loads (api-request #18). Derived from the seed, never from the rng: `"%08x" % (seed & 0xffffffff)`, 8 hex digits (`SaveIO.game_id_for`). Two games with the same seed share an id (only tests and fixtures do that). Fixtures carry none and compute it at load. |
 | `war_overflow` | float | mass/s: the last substep's WAR that fell through to Vei (`view_lanes` `war:covington:vei`); 0 while a WAR target has room (v4) |
+| `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
@@ -877,12 +1172,13 @@ Every field is live from E2a:
  rates: [{id: "mint", rate: 12.8, stock: -1.0, cap: -1.0, unit: "mass/s"},
          {id: "workers", rate: 0.103, stock: 12.0, cap: -1.0, unit: "workers/s"},
          {id: "bodies", rate: -0.35, stock: 40.0, cap: 200.0, unit: "mass/s"},
-         {id: "gold", rate: 0.22, stock: 80.0, cap: -1.0, unit: "gold/s"},
-         {id: "bone", rate: 0.0, stock: 30.0, cap: -1.0, unit: "bone/s"},
+         {id: "gold", rate: 0.21, stock: 80.0, cap: 9750.0, unit: "gold/s"},
+         {id: "bone", rate: 0.0, stock: 30.0, cap: 200.0, unit: "bone/s"},
          {id: "living", rate: 0.012, stock: 10.0, cap: 16.0, unit: "living/s"}],
  split: {work: 5.12, war: 5.76, flood: 1.92},
  valve: {work: 0.4, war: 0.45, flood: 0.15}, valve_target: {work: 0.4, war: 0.45, flood: 0.15},
- workers_steady: 61.4, workers_steady_kept: 18.2, war_overflow: 0.0, relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
+ workers_steady: 61.4, workers_steady_kept: 18.2, war_overflow: 0.0, war_supports: {n: 0, m: 0},
+ relics: 0, relics_cap: 12, essence: 0, essence_cap: 60,
  sign: 0, drain_s: -1.0, odds: 0.0, won: false}
 ```
 
@@ -912,8 +1208,8 @@ each of `GameState.RATE_IDS`.
 | `work`, `war`, `flood` | mass/s | `mint · valve` share (WAR also gets muster × `worker.mass`) | delivered (= in) | 0 |
 | `workers` | workers/s | `work / worker.mass` | rot + muster | in − out |
 | `bodies` | mass/s | haul + rot return | pit burn + mill | in − out |
-| `gold` | gold/s | trade | upkeep | in − out |
-| `bone` | bone/s | mill | upkeep | in − out |
+| `gold` | gold/s | trade, less what overflowed the gold cap (v6) | upkeep | in − out |
+| `bone` | bone/s | mill, less what overflowed the bone cap (v6) | upkeep | in − out |
 | `living` | living/s | migrants | departures | in − out |
 | `corpses` | mass/s | Σ forts: your kills + redirected garrison kills | haul + Relish's and the simulacra's raises + `k_clear` (shipping to Vei never lands here; see above) | in − out |
 | `backlog` | mass/s | FLOOD + fort drain + WAR that fell through to Vei | Vei's digestion | the raw `diff` |
@@ -988,12 +1284,19 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 {rev: 3, size: [2048.0, 1440.0], covington: {pos: [1780.0, 1270.0]},
  vei: {pos: [1024.0, 130.0], radius: 150.0, living_pool: 412.0, pool_cap: 600.0, backlog: 0.0},
  forts: [{id: "ashgate", ...}, ...12], held_count: 0, digest_q: 1.2}
+# a held fort's entry (midgame_2flips a substep in: 374 s of grace, then contested; post-grace readouts.
+# T3.4b: the wave train reads Relish at Greywall, where she arrives a second later, and the set doesn't
+# settle by the cap. At load, before the first substep, it reads the saved flows and says "safe")
+{id: "ashgate", ..., held: true, held_s_left: 0.0, grace_s_left: 374.0, garrison: 23.4,
+ garrison_rate: 1.463, fall_s: -1.0, margin: "thin", margin_cause: "wave", ...}
 ```
 
 ### 5.5 `view_fort(id: String)` · E1
 The masses, positions, `relish_here` and `can_descend` are live from E1; held, flip and tithe from
-E2a. `siege` lists the big undead placed there (the siege's effect is E3). The warden, threat, loot
-hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) until their E2 specs.
+E2a. `siege` lists the big undead placed there (the siege's effect is E3). The threat is
+still the E1 stub (`risk: "low"`) until its E2 spec; the warden and loot hint come from the
+dungeon's configs (v6, below); the hold's readouts
+(`garrison` to `grace_s_left`) and `yield_mult` are live from v6.
 
 | key | type | meaning |
 |---|---|---|
@@ -1003,15 +1306,21 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 | `pos` | Array | `[x, y]` |
 | `living`, `undead`, `dead`, `space` | float | mass; `space = max(0, cap − living − undead − dead)` |
 | `war_in`, `ship_in` | float | mass/s: WAR arriving (staging included); Vei's living arriving (tithe surges included) |
-| `held` | bool | flipped and still held |
-| `held_s_left` | float | 0 when not held |
+| `held` | bool | flipped and not yet retaken (in grace or contested; MECHANICS §3.4) |
+| `held_s_left` | float | **deprecated (v6), always 0.0**: no timer ends a hold any more. The grace is `grace_s_left` |
+| `grace_s_left` | float | seconds of grace left, 0 when contested or not held (v6). While it is > 0, `margin`, `margin_cause`, `fall_s` and `garrison_rate` are the post-grace ones: what the fort will face once its grace ends, so the map can show "grace 3:40, then thin" (the margin is the train's run through the grace, which no wave reaches, T3.4b) |
+| `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
+| `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held. **Reads the current split** (T3.4b): the valve where it is, Relish where she stands; `war_supports` too |
+| `fall_s` | float | seconds until it is retaken (v6, api-request #13): at a support, `grace_s_left` + `min(garrison, support / r_drain) / −rate` + what is left of `hold.break_s` (all of it, less the zero clock while the garrison sits at 0) while that support's rate is < 0, else −1.0. **The earlier of that clock at the current split and at the planned support** (T3.4b fix batch: the valve's target WAR and Relish where she is travelling to, the support the margin's train reads), so it errs early either way: the fort is retaken no sooner. −1.0 while neither falls, or not held. Never INF. So while the valve slews down or Relish travels away, a row can show `garrison_rate` ≥ 0 with `fall_s` ≥ 0 (and `will_fall`). Before T3.4b, `garrison / −garrison_rate` + `hold.break_s` at the current split, late for a garrison above the level its support holds (MECHANICS §3.5) |
+| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h; `fall_s` the earlier of current and planned, above); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, **at the planned support**: the valve at its target, Relish where she is travelling to); else `"thin"` when it falls beyond the horizon (`garrison_rate` < 0: **the current split**); else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. So while the valve slews down or Relish travels away a row can read `thin` / `"wave"` (the planned train breaks it) beside `garrison_rate` ≥ 0. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise |
+| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock: current or planned, the earlier) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition at the current split; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` the waves break or haven't settled (the planned support's train); `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
 | `clears_since_retaken` | int | |
-| `yield_mult` | float | `loot.reclear_decay ^ clears_since_retaken` |
-| `warden` | Dictionary | `{archetype: String, tells: Array[String]}`: one tell, or every tell with a Watchtower |
-| `loot_hint` | String | display text |
+| `yield_mult` | float | the loot yield now, 0..1 (v6, live; MECHANICS §5.3): `loot.reclear_decay` per clear that paid loot (a flip, a counter-garrison clear), climbing back linearly to exactly 1 over `loot.recover_s` from the last clear; 1 after a retake. The dungeon seed's `fort.yield_mult` is the same value at issue |
+| `warden` | Dictionary | `{archetype: String, name: String, tells: Array[String]}` (v6, T3.4a, api-request #5): `archetype` is `raid.json` `wardens.by_fort[id]` (`"bellringer"` for a fort it doesn't list); `name` and `tells` are that archetype's `wardens.archetypes.<id>.name` and `.tells`, the dungeon's own text (`""` and `[]` for an archetype the config doesn't list). A card shows the name and the tells (the Watchtower's "every tell" is the config's whole list today) |
+| `loot_hint` | String | display text (v6, T3.4a): the first dungeon reads `loot.json` `hints.first_dungeon_hint`; any other fort reads `hints["t<tier>.<archetype>"]`, `""` when the config has no such key. The raid seed's `loot_hint` is the same string |
 | `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here; 0 when none |
@@ -1022,9 +1331,11 @@ hint and `yield_mult` are still the E1 stubs (`bellringer`, `risk: "low"`, 1.0) 
 ```gdscript
 {rev: 3, id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, pos: [1420.0, 1305.0],
  living: 61.2, undead: 6.4, dead: 3.1, space: 9.3, war_in: 0.48, ship_in: 0.3,
- held: false, held_s_left: 0.0, flipped_count: 0, first_clear: true, first_dungeon: true,
+ held: false, held_s_left: 0.0, grace_s_left: 0.0, garrison: 0.0, garrison_rate: 0.0, fall_s: -1.0,
+ margin: "", margin_cause: "", flipped_count: 0, first_clear: true, first_dungeon: true,
  clears_since_retaken: 0, yield_mult: 1.0,
- warden: {archetype: "bellringer", tells: ["rings slam on the beat"]}, loot_hint: "a husk and a blueprint",
+ warden: {archetype: "bellringer", name: "The Bellringer", tells: ["slams ring out on the beat, and beef soaks them", "rings faster at each third of its health"]},
+ loot_hint: "a husk and a blueprint",
  threat: {party_strength: 8.0, garrison_strength: 6.1, risk: "low", risk_pct: -1.0},
  relish_here: false, tide: false, redirect: false, simulacrum_charges: 0.0, siege: [],
  tithe: {targeted: false, eta_s: -1.0, wave_active: false}, can_descend: false, reason: "not_at_fort"}
@@ -1089,6 +1400,7 @@ The dead fields and the backups are E3. Until then a death respawns her at once.
 | `run_id` | int | the open run, or `-1` |
 | `run_kind` | String | `""`, `"raid"` or `"boss"` |
 | `effects` | Dictionary | `{tide_fort: String, redirect_fort: String, home: bool}`: what her position does now (E2) |
+| `returned` | Dictionary | v6 (E2b-2 T3.3c; IDLE I5): her last walk home from a retaken fort, `{fort_id: String, cause: String ("retaken"), t: float (the retake's moment)}`, or `{}` when there has been none since the new game. It keeps the last one (a later walk replaces it, nothing clears it) and is saved, so a load or a missed `relish_returned` event still tells the map. The map toasts it ("Greywall retaken — Relish is walking home") and offers to send her back (Phase I): it can tell a new one by its `t` |
 ```gdscript
 {rev: 9, state: "travelling", at: "covington", target: "old-sluice", pos: [1600.0, 1287.5],
  heading: 3.045, speed: 220.0, eta_s: 0.82, dead_s_left: 0.0, respawn_with_clone: false,
@@ -1134,9 +1446,28 @@ until the first substep.
 | `migrants`, `departures` | float | living/s |
 | `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `dread`, `shock`. |
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
+| `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
+| `queue_max` | int | `economy.json` `queue.max_len` (8) |
+| `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
 | `haul` | Dictionary | `{target: String ("auto" or a fort id), current: String, convoys: Array[{from: String, to: String, phase: "out"\|"back", t: float, load: float}]}`. `t` is trip progress 0..1; `load` is mass. |
 | `relish_home` | bool | the slab works |
+
+Each `queue` entry (v6). Every field but `waited_on` is derived from today's state by the walk the core
+step's processing runs (MECHANICS §4.4), so a status says what the next processing does. The next step
+adds income and may raise the tier before the queue runs, so a `waiting_funds` head a little short can start
+in it: that is correct, not a mismatch.
+
+| key | type | meaning |
+|---|---|---|
+| `building_id`, `lot_id` | String | for an upgrade, the building on (or queued for) its lot |
+| `upgrade` | bool | |
+| `level` | int | the level it builds: 1 for a new build; for an upgrade one above what its lot will have once every entry ahead of it for that lot, and the construction under way there, are done (two queued upgrades of a level-1 lot: 2, then 3; a reorder recomputes it) |
+| `cost` | Dictionary | `{gold: float, bone: float, relics: int}`: the construction's cost at `level` (`cost`, or `level_costs[level − 2]`) |
+| `work` | float | the build work its construction needs: `build_work · level` (TownSim's step 6) |
+| `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
+| `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
+| `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
 
 Each `buildings` entry:
 
@@ -1152,6 +1483,11 @@ Each `buildings` entry:
 | `foreman` | String | big-undead uid, or `""` |
 | `output` | Dictionary | `String → float` per second, e.g. `{gold: 0.3}`, `{mint: 6.0, burn: 0.6}` |
 | `upkeep` | Dictionary | `{gold: float, bone: float}` per second |
+| `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
+| `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
+| `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
+| `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. The town reads it in Phase I and owns the text |
+| `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
  lots: [{id: "lot-01", size: 2, unlocked: true, building_id: "crypt"}, {id: "lot-05", size: 1, unlocked: true, building_id: ""}, ...24],
@@ -1159,7 +1495,7 @@ Each `buildings` entry:
               staffed: 2.0, staff_cap: -1, foreman: "", output: {gold: 0.3}, upkeep: {gold: 0.03, bone: 0.0}}, ...],
  ladder: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
  ladder_effective: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
- jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0}, {id: "stall", slots: 2, staffed: 2.0}, ...],
+ jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0}, {id: "mill", slots: 2, staffed: 2.0}, ...],
  workers: {total: 12.0, idle: 5.0, in: 0.128, rot: 0.025, muster: 0.0, steady: 61.4, steady_kept: 18.2, muster_steady: 0.05, lifetime_s: 480.0},
  living: 10.0, living_cap: 16.0, migrants: 0.012, departures: 0.0,
  morale: {value: 0.6, target: 0.6, factors: [{id: "base", delta: 0.6}]},
@@ -1195,6 +1531,107 @@ Each `buildings` entry:
 | `can_build` | bool | |
 | `reason` | String | the first failing reason among `unique`, `needs_tier`, `needs_blueprint`, `needs_building`, `no_lot` (no free unlocked lot fits), `no_gold`, `no_bone`, `no_relics` |
 | `lots` | Array[String] | free unlocked lots it fits |
+| `work` | float | v6 (E2b-2 T3.2, api-request #17): the build work a new build needs, `build_work · 1` |
+| `projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this building were finished now and staffed by the current ladder, at today's state (below) |
+
+**`projected` and `upgrade_projected`** (v6, api-request #9) use the sim's own code, never a mirrored
+formula. A copy of TownSim gets the building finished at level 1 on the row's first free lot (`lots[0]`),
+or, when no free unlocked lot fits, on a hypothetical lot after the last one, so it is staffed last in
+each job; for `upgrade_projected` the lot's building goes up a level in place. TownSim's own
+`place_building` restaffs it with the ladder's allocation. The copy is stepped one substep from the inputs
+the next core step will give TownSim (`_town_inputs`; the mint at the copy's working pits and the feed
+now; WORK at the valve that step splits with) and diffed against a copy of today's TownSim stepped from
+the same inputs, so the step's own drift cancels (the brief asked for a diff against the live last
+substep's rates; that one would carry a substep of drift):
+- `workers`, `bodies`, `gold`, `bone`, `living`: the change in that step's net rates, as `view_rates`
+  computes them (`bodies` with the trip-averaged haul);
+- `mint`: the change in the next step's mint (the pits' production);
+- `work`, `war`, `flood`: Δmint × the valve (the current valve slewed one substep toward its target, the
+  one the next step splits with; the current valve while no slew is pending). `war` leaves out any change
+  in TownSim's muster;
+- `backlog`: Δflood plus the change in the WAR that falls through to Vei at the next step's WAR
+  (`RealmSim.war_at`, the split `view_projection` reads). The dispatch it splits by is session-only, so
+  before the first substep after a load all of Δwar falls through (as in `view_projection`, §5.17);
+- `corpses`: 0.0.
+
+Checked against the sim (`test_api_v6`): a pit, a house, a market and a Bone Mill upgrade at
+`midgame_2flips` give, within 1e-9, the change in `view_rates` when the building is really finished in a
+copy (`place_building`) and one substep runs. Pure: nothing changes, `rev` stays, no event.
+
+**Cost and caching** (T3.2; timings on 12 cores at a load of about 5 to 7, other Godot processes running;
+no time is asserted). Each row is a TownSim clone (24 µs), its `place_building` restaff (150 µs) and one
+step (250 µs): 0.45 to 0.55 ms at `pre_vei`. The baseline the rows diff against (today's TownSim cloned and
+stepped from the same inputs) costs about the same. Every row at once at `pre_vei` (21 catalog rows, 20
+built lots) is about 20 ms. The town fetches its views on the substep frames, the heaviest ones (Covington
+fetches when `rev` moves), so the rows are cached and refreshed on the frames in between, late in each
+substep interval, the influence field's `advance()` pattern (§3 step 9):
+- **The views only read.** `view_catalog()` and `view_town()` return the cached rows and compute nothing.
+  A row not yet computed reads `{}`: after a new game or a load (both empty the cache) and for a new lot.
+  `economy.json` `town.projection_rows_per_call` (shipped 0) is a test override. Above 0 a call refreshes
+  up to that many of its own part's rows, exactly; the exactness, purity, persist and contract tests set
+  1000, so a call computes in full.
+- **Frame work.** `GameState._advance` does it after the substep loop, on the frame path only (a capped
+  `tick(dt, max_substeps)`, as `Game` calls it each frame), only when that call ran no substep, and only
+  once the substep accumulator holds at least `town.projection_phase` (0.5) × `substep_s()`. Scenes
+  refetch when `rev` moves, so their own work (the fetch, then the binds of what they fetched) bunches up
+  in the frames just after a substep; background work belongs in the later part of the interval. It
+  refreshes at most `town.projection_rows_per_frame` (1) units, the baseline counting as one; the
+  baseline is recomputed only when the state has moved since it was made (a new `rev`, `t` or
+  `TownSim.structure_rev`). `tick(dt)` with no cap (tests, harnesses) never does it, a paused sim doesn't,
+  and T3.3b's catch-up must not.
+- **Only while the catalog is wanted:** a `view_catalog()` read within the last
+  `town.projection_refresh_s` of sim (the call notes its `t` in the session-only cache; nothing saved or
+  shown changes). `view_town()` doesn't count, so the map (which reads `view_town()` but no projection)
+  and the raids pay nothing. Covington reads `view_catalog()` on every fetch whatever the tab, so in
+  practice the rows refresh while the town scene is open.
+- **Fast-forward.** When every frame substeps, nothing would refresh. So after
+  `town.projection_starve_frames` (30) substep frames in a row, one row goes through on the next, with
+  the baseline it needs (2 units, about 1.1 ms at `pre_vei`), whatever the phase.
+- **Stale.** A row is stale when `TownSim.structure_rev` (a building's arrival or removal, level, state
+  or staff cap, the ladder, the vats), the tier, the valve target or Relish's being home has changed
+  since it was computed (a structure change makes every row stale at once), or once
+  `town.projection_refresh_s` (5 s) of sim has passed since. A stale row keeps its last value until its
+  turn, with one exception: each cached `upgrade_projected` row stores the lot's `{building_id, level}`
+  it was computed for, and reads `{}` once the lot holds another (after a demolish and rebuild, or a
+  finished upgrade), so a card never shows another building's or level's projection. A catalog row is
+  keyed by its building id, so it can't belong to another building.
+- **Order.** Fixed: the baseline, then the catalog's stale rows in `buildings.json` order, then the
+  lots' in lot order.
+- **Tolerance.** A refreshed row's value is replaced only when some rate moved by more than
+  `town.projection_tol` (`rel` × abs(old) + `abs`: 1% and an absolute floor of 0.005/s, half the 0.01 the
+  build card shows). `BuildSort.row_sig` hashes the whole row, so without it every card whose floats
+  drifted would re-render each window. A shown value is within that tolerance of the fresh one; the
+  call override is exact.
+- **Lag bound.** After a change every row shows its new value within about (rows + one baseline per
+  substep) late light frames. At `pre_vei` at 60 fps each substep interval has 15 frames past the phase,
+  the first of them paying the baseline, so 41 rows take about 3 substeps (1.5 s at 1x), plus up to `projection_refresh_s` for drift with no structure change
+  (and a held row's tolerance). At fast-forward it is one row per `projection_starve_frames` frames. The
+  build card is display-only; nothing in the sim reads a projection.
+- **What the town shows.** `BuildSort` treats a `projected` that is a Dictionary as present
+  (`BuildSort.benefit`, `HudModel`), so `{}` replaces the stand-in's static numbers with no benefit lines
+  until the first refresh: about 1.5 s live after a load, a new game or a new lot, and always in a test
+  that neither overrides the budget nor runs capped frames.
+- **Measured** (the town scene at `pre_vei`, `--town-tab=build`, uncapped, headless with its per-frame
+  sleep off, 20 s of sim spanning four refresh windows and an upgrade, interleaved with 3d39deb, §3 with
+  no projections). The machine was shared, so only runs with no other Godot process at their start and
+  end count as clean. Clean runs: 3d39deb (2) median 405–468 µs, p99 1.13–1.29 ms, max 7.5–9.0 ms,
+  0–1 frames over 8 ms; this design (3) median 419–439 µs, p99 1.13–1.19 ms, max 6.7–8.5 ms, 0–1
+  frames over 8 ms. Over all 26 and 22 runs, contended ones included, 23 and 14 frames went over 8 ms;
+  one of them (9.3 ms, in a contended run) had a refresh unit on it. No unit ran on a substep frame.
+  Before this, with §4 computing in the views (3c71a45): max 27.7–28.8 ms and 5–6 frames over 8 ms, the
+  20 ms refresh each window and after the upgrade.
+- **What the refresh doesn't cause** (pre-existing and town-side): the town's bind frame after a
+  construction starts (the light frame after the construction-start substep), already 6.9–9.0 ms on
+  3d39deb, is the frame over 8 ms in both trees; and the rare pairs of frames of about 12 ms around
+  t+17–18 s, which also occur with every projection off.
+- **Tests** (`test_api_v6`, `api-v6-projected-frame`): the views compute nothing; an uncapped tick
+  refreshes nothing; with no recent `view_catalog()` read (or only `view_town()`) nothing refreshes; a
+  light frame refreshes at most `projection_rows_per_frame` units; with every row stale a substep frame
+  refreshes none; a light frame early in the interval refreshes nothing and one past the phase a unit;
+  after a structure change enough light frames match a fresh full compute within
+  `projection_tol`; after a window each row is its old value (within tolerance of the fresh one) or the
+  fresh value; and the starve rule lets the baseline and one row through on the 30th substep frame.
+
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,
@@ -1369,12 +1806,174 @@ Game.state.view_staffing_projection(["haul", "pit"])
 # -> {rev: 812, jobs: [], buildings: [], idle: 0.0, reason: "missing_job"}
 ```
 
+### 5.17 `view_projection(valve: Dictionary, settled := false)` · E2b-2 (api_version 6, api-requests #7 c, #13; `settled` T3.4b)
+The held forts' readouts (§5.5), "WAR supports N of M" (§5.1), the split and the payoff at another
+valve, for the live valve drag. The same math as the live views, at a hypothetical valve target.
+- **`settled`** (T3.4b, optional, the run's manager): the margins are judged against the wave train at
+  that valve, as `view_fort` judges them (§5.5), each row `margin_verified` true; the train runs once for
+  the valve and is cached with the state (about 1.2 ms on midgame_2flips, so once per drag, on its
+  release: map's Phase I wires the call on release or ~150 ms with no movement; a valve whose WAR is the
+  valve's target's reads the live verdict, no probe). Left out (false), a drag's margins: the one-wave probe
+  (MECHANICS §3.5, a full wave from the weakest state the support leaves the fort in), each row
+  `margin_verified` false, exactly as before T3.4b. Nothing else in the result depends on it.
+- **Args:** `valve`, `{work, war, flood}`, normalised as `cmd_set_valve` normalises it. It refuses
+  nothing: one `cmd_set_valve` would refuse (a missing or non-number key, a negative or non-finite
+  share, all zeroes) is the current valve (`view_hud.valve`), and so is one within 1e-12 of it on every
+  share.
+- **Pure:** nothing changes, `rev` stays, no event is queued; every view and the save dump read the
+  same before and after. Like every view it is a fresh deep copy carrying `rev`.
+- **At the current valve, with the valve at its target and Relish not travelling, every field equals the
+  live views'.** Otherwise the planned support differs: while the valve slews, or Relish travels, the
+  projection reads the target valve's WAR split and her committed arrival, so its rates, `fall_s` and the
+  margins that depend on them can differ from `view_fort`'s (details below). At that scope, `split` is `view_hud.split` (and
+  `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
+  is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
+  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same scope), and with `settled` its
+  `margin` and `margin_cause` are too, **only with the valve at its target** (as it is once its slew is
+  done): `view_fort` reads the target's WAR as its planned support, a projection the valve passed. While
+  the valve slews, `settled` at the target valve runs `view_fort`'s own train (the same probe, the same
+  broken and settled verdicts), but its `garrison_rate` and `fall_s` are the target's, so its margin can
+  differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
+  `view_fort` reads the train).
+- **Current and planned in a row** (T3.4b fix batch): a row's `garrison_rate` reads that valve's split with
+  Relish where she stands; its `fall_s` is the earlier of that clock and the clock at that valve's split
+  with Relish where she is travelling to; with `settled`, its margin is the train at the latter. With her
+  not travelling the two are the same.
+- **Before the first substep after a load** the split is 0 (it is session-only, §5.1, §9.1), so the
+  projection reads no WAR anywhere: every held fort falling. The live views read the saved `r_in`
+  until then. The map knows (it waits for the streams).
+
+| key | type | meaning |
+|---|---|---|
+| `valve` | Dictionary | `{work, war, flood}`: the valve evaluated (normalised; the current one for an invalid input) |
+| `split` | Dictionary | `{work, war, flood, war_overflow}` mass/s: this substep's mint × the valve, WAR plus TownSim's muster as it is now; `war_overflow` the WAR that falls through to Vei at that WAR (every target at its limit), as `view_hud.war_overflow` reads it |
+| `workers_steady` | float | workers: `view_town.workers.steady` × the WORK share against the current one (TownSim's steady workforce is `WORK / worker.mass × lifetime`, linear in WORK); `mint × work / worker.mass × lifetime` when the current WORK share is 0. The map's stand-in scaled the same way |
+| `backlog_diff` | float | mass/s: the sustained differential (`view_vei.diff_ema`) moved by the change in FLOOD, in the WAR that falls through to Vei, and in the WAR to each fort whose garrison isn't pinned at 0 (in steady state the extra drains on to her queue, since the garrison's pull doesn't grow with it). The map's stand-in added Δflood + Δwar × a fixed fraction; this is that, from the sim's own split |
+| `war_supports` | Dictionary | `{n: int, m: int}`, as `view_hud.war_supports`, at the valve's WAR |
+| `margins` | Dictionary | `{fort_id: {margin: String, margin_cause: String, fall_s: float, garrison_rate: float, margin_verified: bool}}`, one per held fort, as `view_fort` computes them at the valve's WAR to that fort (each fort's WAR is the last dispatch's split of the valve's WAR: its weights, Relish's tide and the full forts' limits as they stand). `margin_verified` (T3.4b): true when the margin is the wave train's (`settled`), false when it is the drag's one-wave probe |
+```gdscript
+Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15})   # midgame_2flips a substep in: its valve
+# -> {rev: 2, valve: {work: 0.4, war: 0.45, flood: 0.15},
+#     split: {work: 5.12, war: 9.71, flood: 1.92, war_overflow: 0.0}, workers_steady: 61.44, backlog_diff: 4.36,
+#     war_supports: {n: 2, m: 2},
+#     margins: {"ashgate": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 1.463, margin_verified: false},
+#               "old-sluice": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 0.872, margin_verified: false}}}
+Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15}, true)   # the same, settled: the wave train's
+# -> {..., margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 1.463, margin_verified: true},
+#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.872, margin_verified: true}}}
+#    (both unsettled at the cap: Ashgate is a knife-edge, and Relish's arrival at Greywall will cut Old Sluice's WAR)
+Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # only TownSim's muster (3.95/s) is WAR
+# -> {..., split: {work: 10.24, war: 3.95, flood: 2.56, war_overflow: 0.0}, workers_steady: 122.88, backlog_diff: 0.84,
+#     war_supports: {n: 2, m: 2},
+#     margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.367, margin_verified: false},
+#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.126, margin_verified: false}}}
+Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evaluated at the current valve
+```
+
+### 5.18 `view_catchup()` · E2b-2 (api_version 6, T3.3b)
+The catch-up's progress, for a progress screen (the map's, Phase I; IDLE §4).
+| key | type | meaning |
+|---|---|---|
+| `active` | bool | a catch-up is running: a chunked `cmd_load`'s or an open-game gap's (§3). Commands refuse with `catching_up` meanwhile (§4) |
+| `done_s` | float | sim seconds of it run so far; once it is done, `total_s` |
+| `total_s` | float | its length in sim seconds (whole seconds); the last one's once it is done, 0 since a new game or a load with nothing to catch up |
+```gdscript
+Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, total_s: 604800.0}
+```
+
+### 5.19 `view_away()` · E2b-2 (api_version 6, T3.3c; api-request #7 d, IDLE §7)
+The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
+| key | type | meaning |
+|---|---|---|
+| `shown` | bool | a report is waiting: true from its catch-up's end until `cmd_dismiss_away` |
+| `away_s` | float | the seconds it caught up (`cmd_load`'s `away_s`, or a gap's whole seconds); the map formats it |
+| `capped` | bool | the time away was above `idle.catchup_max_s` and capped there (a load's, or an open-game gap's: the gap's excess, fraction too, is dropped) |
+| `gains`, `ready`, `losses` | Array[Dictionary] | its lines in IDLE §7's order, each `{text: String, kind: String, target: String}` |
+
+- **When** (`Catchup.run`, `GameState._report_away`): at the end of every **reporting catch-up**: a load's
+  (`cmd_load`, either path) that caught up 1 s or more, and an open-game gap's of `idle.report_min_s` (600 s)
+  or more (§3). It is built from the events that catch-up collected (`catchup_events()`, §6) and the state
+  before it (taken at its start, after the run's end, §4.1) and after it, and the event `away_report` is
+  queued once, then. A shorter gap's events reach the scenes live and make no report.
+- **Kept until dismissed, never saved.** A later reporting catch-up replaces it; a load replaces it (a load
+  with nothing to catch up leaves none); a new game clears it. Before any report: `shown` false, `away_s`
+  0.0, `capped` false and the three lists empty.
+- **`kind`** is one of `stream`, `build`, `refilled`, `raid`, `slab`, `queue`, `retaken`, `village_lost`,
+  `overflow`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a fort, Covington's
+  slab or queue, nothing).
+- **gains** (`target` `""`):
+  - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
+    the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
+    its net total: `"backlog ▲ +2.1/s · +69,552"`. The totals are the ledger's and the stores' changes:
+    the mint `ledger().sources.mint`'s, the backlog, bodies and workers their `held` pools' (workers in
+    workers), gold, bone and living the town's; the rate is the total over `away_s`;
+  - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`;
+  - each queued build that started (`build`, `queue_started` events), with when, measured from when you
+    left, and why, one `idle.report.waited_on` template per `waited_on` value (`needs_tier` "when the tier
+    rose", `no_gold` "when the gold came in", ...; `""` started at once): `"Bakery started at 6 m, when the
+    gold came in"`, `"Inn started right away"`. A building is named by its town label
+    (`buildings_view.json`, the town's), with `level_fmt` past level 1 ("Market level 2");
+  - each fort refilled (`refilled`): held now, not retaken during the absence, its loot yield below 1 when
+    you left and back to 1 now (MECHANICS §5.3): `"Ashgate refilled"`.
+- **ready:** each refilled fort, `"Ashgate refilled: raid it"` (`raid`, the fort); husks waiting while the
+  crypt has room for a big undead (fewer than its cap), wherever Relish is, `"2 husks: raise at the slab"`
+  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`).
+- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
+  it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
+  with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
+  retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
+  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
+  in `ledger().stores`, from `idle.report.overflow_min` (1) wasted (`overflow`, `""`), `"Gold overflowed: 120
+  wasted"`. Empty when nothing was lost: the map prints "Nothing lost."
+- **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
+  significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
+  (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
+  `away_s`. Every template is `economy.json` `idle.report` (BALANCE §5).
+```gdscript
+Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped configs)
+# -> {rev: 4423, shown: true, away_s: 43200.0, capped: false,
+#     gains: [{text: "backlog ▲ +5.0/s · +216,247", kind: "stream", target: ""},
+#             {text: "mint +10/s · +446,432", kind: "stream", target: ""},
+#             {text: "workers 0/s · 0", kind: "stream", target: ""},
+#             {text: "bodies 0/s · −2", kind: "stream", target: ""},
+#             {text: "gold +0.16/s · +6,912", kind: "stream", target: ""},
+#             {text: "bone 0/s · 0", kind: "stream", target: ""},
+#             {text: "living 0/s · 0", kind: "stream", target: ""}],
+#     ready: [{text: "2 husks: raise at the slab", kind: "slab", target: "slab"},
+#             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
+#     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
+# with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
+# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd)
+```
+
 ## 6. Events
 
 `drain_events() -> Array[Dictionary]`
 - Every event has `t: float` (sim seconds, never decreasing) and `type: String`, plus the fields
   below.
 - The queue is cleared by new game, load and fixture load.
+- **A catch-up whose time a report will cover raises no queued events** (v6, E2b-2 T3.3b; IDLE §4, §7).
+  A load's catch-up, and an open-game gap's of `idle.report_min_s` (600 s) or more, keep their events,
+  with their `t`, for the away report (`view_away`, §5.19; `GameState.catchup_events()`), and the scenes'
+  queue gets none of them: only the report's `away_report`, at its end (T3.3c). A week
+  away raises thousands of events, and replaying them on load would fire every setpiece, tithe explainer
+  and toast at once; the report is their summary. A load already clears the queue, so this extends that
+  rule.
+- **A gap under `idle.report_min_s`** (from `idle.gap_s` up) has no report, so its catch-up's events are
+  queued as live: all of them, uncapped and uncoalesced, each with its own `t`, reaching scenes chunk by
+  chunk (§2.1). Nothing that changes state is ever dropped there: a fort retaken inside a 300 s gap
+  reaches the queue (`tests/test_catchup.gd`). No event is capped or coalesced, so no re-read cue is
+  needed for that band.
+- **`away_report` is the cue for an on-screen scene to re-read its views** (T3.3c). These listeners keep
+  state built from events, and each must re-read its views on `away_report`: a Phase I must-fix for
+  their units, carried by the run's manager.
+  - map: `map_setpieces` (with `setpiece_logic`), `map_tithe_explain`, `ground_forces` and
+    `flow_ground` (through `ground_meter`), `map_hud`, and the away panel (`map_away`);
+  - town: `covington.gd`, `town_view` and `town_hud`. The town panels (`panel_jobs`, `panel_stances`,
+    `panel_backups`, `panel_build`, `panel_crypt`) take `on_game_event` only as a cue to refresh and
+    ignore the event itself;
+  - the router (`scripts/main.gd`) holds the events that arrive while no scene is in the tree and
+    re-emits them; it keeps no state from them.
 - Scenes receive events only through `Game.game_event` (§2.1).
 
 | type | fields | ms |
@@ -1385,13 +1984,19 @@ Game.state.view_staffing_projection(["haul", "pit"])
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
-| `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` | E1 (hold effects E2) |
-| `fort_retaken` | `fort_id: String`, `cause: String` (`expired`\|`tithe_wave`) | E2 |
+| `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
+| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
+| `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started at 3:12, when the tier rose": `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
+| `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
+| `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |
+| `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays at the retake's 1), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
 | `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int` | E3 |
 | `loot_banked` | `run_id: int`, `fort_id: String`, `relics: int`, `essence: int`, `blueprints: Array[String]`, `minted: Array[String]` | E1 |
 | `vei_result` | `run_id: int`, `won: bool`, `fronts_cleared: Array[String]`, `relish_deaths: int`, `backlog_after: float` | E1 |
+| `run_ended` | `run_id: int`, `kind: String` (`raid`\|`boss`), `outcome: String` (the exit it ended in: `retreated`, `warden_beaten` or `relish_died`; a boss run's is `retreated`), `cause: String` (`gap`): a gap above `idle.gap_s` in the open game ended the open run (IDLE I5; §3). Queued first, before the end's writeback events (`loot_banked`, …) and the gap's catch-up, so the dungeon scene knows to leave (Phase I). A load's end of a saved run raises none (no scene is on it) | E2b-2 (v6, T3.3c) |
+| `away_report` | `away_s: float`, `capped: bool` (as `view_away`'s): a reporting catch-up ended and its report is in `view_away` (§5.19). Queued once per report, at the catch-up's end (its `t`), after the run's end's events and none of the catch-up's (they are the report's). The cue for an on-screen scene to re-read its views (above) | E2b-2 (v6, T3.3c) |
 | `autosaved` | `slot: String`, `saved_at: int` | E1 |
 | `save_failed` | `slot: String`, `reason: String` (`cmd_save`'s reason) | E1 |
 ```gdscript
@@ -1437,6 +2042,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `chest_husk` | bool | `true` on the first dungeon: the warden's chest holds a husk |
 | `watchtower` | bool | exact tells and percentages are unlocked |
 | `relish_hp` | float | `raid.json relish.hp` (30) |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends this run ends in, `{outcome: String, respawn_s: float}`: after any phylactery revives (in place, at most `phylactery_max_per_dungeon`), `"clone"` when a clone is ready (she wakes at Covington from it) else `"unmade"`, and its respawn time; `view_backups().death`'s `outcome` and `respawn_s` at issue (§5.13; until E3 a death respawns at once, 0.0). The death card's number; the dungeon falls back to text without one when it is absent |
 ```gdscript
 {v: 2, kind: "raid", run_id: 1, seed_rev: 512, rng_seed: "7203661890244157873",
  fort: {id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, first_clear: true, first_dungeon: true,
@@ -1444,7 +2050,8 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
  living: 61.2, dead: 3.1, undead: 6.4, garrison_units: 0, garrison_in_mass: 0.0, garrison_mass_div: 10.0, starter_units: 8, party: [],
  digest_q: 1.2, phylactery_charges: 0, phylactery_max_per_dungeon: 1, clones_ready: 0,
  warden: {archetype: "bellringer", tier: 1}, warden_spec: {}, loot_table_id: "t1.bellringer",
- loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0}
+ loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0,
+ death_ends: {outcome: "unmade", respawn_s: 0.0}}
 ```
 
 ### 7.2 Boss seed (`kind: "boss"`)
@@ -1463,12 +2070,13 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `party` | Array[Dictionary] | a big-undead entry plus `front: String` |
 | `phylactery_charges`, `clones_ready` | int | the backups the fight may spend (§8.2) |
 | `relish_hp` | float | |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends the fight ends in, `{outcome: String, respawn_s: float}`. Each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), so a death ends the fight only once none is left (a final death): `"unmade"` always, with its respawn time (0.0 until E3). The rule is `view_backups().death`'s with no clone ready. (§8.3 boss step 4's death reads the clones left after those spent, so a final death with a clone still ready would wake from it; the boss scene never sends one) |
 ```gdscript
 {v: 2, kind: "boss", run_id: 9, seed_rev: 21950, rng_seed: "-3317425092215838120",
  backlog: 18450.0, living_pool: 380.0, odds: 0.61, sign: 1, drain_s: -1.0, digest_q: 2.6, vei_capacity: 50.0,
  fronts: [{id: "giants", need: 24.0, have: 26.5, assigned: ["u4"]}, ...4], fronts_required: 3,
  party: [{uid: "u4", name: "Old Gristle", kind: "hulk", role: "brute", stats: {...}, front: "giants"}, ...],
- phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0}
+ phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0, death_ends: {outcome: "unmade", respawn_s: 0.0}}
 ```
 
 ## 8. Results
@@ -1516,8 +2124,8 @@ order, each clamped. The sim has kept running during the run.
 1. `k = min(killed_living_mass, f.living)`; `f.living −= k`; `f.dead += k`.
 2. If `warden_beaten`:
    - **all** the fort's living become dead: `f.dead += f.living`; `f.living = 0`;
-   - the fort flips: `fort_flipped`, held for `flip.hold_s · (1 + flip.tier_mult · tier)` (hold
-     E2);
+   - the fort flips: `fort_flipped`, held with a grace of `flip.hold_s · (1 + flip.tier_mult ·
+     tier)`, then contested (MECHANICS §3.4, v6);
    - `clears_since_retaken += 1`.
 3. `R = Σ raised.mass`; `R' = min(R, f.dead)`; `f.dead −= R'`. The `q_raise` EMA takes `raised`,
    mass-weighted and scaled by `R'/R` (E2).
@@ -1532,6 +2140,12 @@ order, each clamped. The sim has kept running during the run.
    - relics and essence are added, clamped to their caps (any overflow is lost);
    - blueprints are added to the set;
    - each husk and remnant gets a minted uid.
+
+   A held fort's raid that cleared its counter-garrison then raises `counter_garrison_cleared
+   {fort_id, killed_mass}` (§6; v6): the run records whether its fort was held when it began, the fort
+   must still be held when the result is applied (one Vei retaked during the raid banks its loot as a
+   retreat does, with no event and no yield spend: the retake's `yield_c` of 1 stands), and
+   `killed_mass` is step 1's clamped kill.
 
    `fort.first_clear` and the run-wide `first_dungeon` flag clear only when `warden_beaten` is true
    (api-request #15). A death or a retreat leaves both set, so the next first run still gets the
@@ -1584,6 +2198,10 @@ economy.)
 | `duplicate:<path>` | a repeated uid in `party_lost`, or a repeated front in `fronts_cleared` |
 | `bad_exit` | raid: not exactly one of `warden_beaten`, `retreated`, `relish_died` |
 | `bad_deaths` | boss: `relish_deaths` inconsistent with `backups_spent` and `won` (§8.2) |
+
+The seeds' optional keys (v6, E2b-2 T3.3c) are checked only when present: `death_ends` must be `{outcome:
+"clone" | "unmade", respawn_s: float ≥ 0}` (`range:death_ends.outcome` for another outcome). A seed without
+it is valid.
 
 Town and map results are `{v: 2, teleport_to: String}`, where `teleport_to` is `""` or a node id.
 Validate checks the type only; the router treats an unknown id as the map.
@@ -1654,9 +2272,9 @@ take the router's legacy path (§2.3).
 | `acc` | float | the tick accumulator's remainder |
 | `next_run_id`, `next_uid` | int | counters (§4.5, §1.3) |
 | `applied_runs` | Array[int] | the last 32 applied run ids |
-| `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`. State is never `in_dungeon` or `in_boss`. |
+| `relish` | Dictionary | `{state, at, target, pos: [x, y], heading, dead_s_left, respawn_with_clone}`, plus `returned: {fort_id, cause, t}` (v6, E2b-2 T3.3c: `view_relish().returned`), optional, written once there is one; a save without it loads `{}`, and one naming an unknown fort is `corrupt`. State is never `in_dungeon` or `in_boss`. |
 | `valve` | Dictionary | `{target: {work, war, flood}, current: {work, war, flood}}` |
-| `realm` | Dictionary | RealmSim: forts (array with ids: masses, `held_s`, flip and clear counts), Vei, tithe, simulacra |
+| `realm` | Dictionary | RealmSim: forts (array with ids: masses, the hold, flip and clear counts), Vei, tithe, simulacra |
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers |
@@ -1665,18 +2283,29 @@ take the router's legacy path (§2.3).
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |
 | `readout` | Dictionary | the `diff` EMA, the `q_raise` EMA |
-| `ledger` | Dictionary | sources and sinks so far |
+| `ledger` | Dictionary | sources and sinks so far, and the currency tally `stores` (v6) |
 | `won` | bool | |
 | `stats` | Dictionary | counters (raids, deaths, raised total) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
+| `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, or past `queue.max_len`, is dropped with a warning |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
-- `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, `held_s`, `flipped_count`,
+- `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
   `clears_since_retaken`, and the per-second rates `r_in`, `r_drain`, `r_shipped`, `r_dead_out`,
   `r_raised`, which the views show), `cov`, `vei` (masses and rates), `simulacra`
   (`{fort_id, charges, rate}`), `elapsed`, `cleared_total`, `raised_by_sims`, and `tithe`. Positions,
   names, caps and tiers come from config.
+- `realm.forts[]`'s hold (v6, MECHANICS §3.4): `held: bool`, `grace_s: float` (grace left; 0 once
+  contested) and `zero_s: float` (seconds the garrison has sat at 0 since it last didn't). All three
+  are optional on load and checked for type when present. A save from before v6 carries `held_s`
+  instead, read only on load: `held_s > 0` loads held with `grace_s = held_s` and `zero_s = 0`; a
+  fort with neither key loads unheld. The fixtures carry `held_s` and load this way (midgame_2flips:
+  Ashgate and Old Sluice held, 374.5 s of grace each).
+- `realm.forts[]`'s loot yield (v6, MECHANICS §5.3): `yield_c: float` (the yield just after the
+  fort's last clear that paid loot) and `yield_t: float` (the sim time of that clear). Optional on
+  load: a save without them loads `yield_c` 1, the yield it showed.
 - `realm.tithe` (E2a, RealmSim's countdowns): `{started: bool, next_s: float (to the next wave),
   next_id: int, warning: {} | {wave_id: int, fort_id, eta_s, surge}, wave: {} | {wave_id: int,
   fort_id, s_left, duration_s, mult, delivered}}`. Loading the E1 placeholder `{warning: {wave_id,
@@ -1702,7 +2331,9 @@ take the router's legacy path (§2.3).
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
   mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
   save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50).
-- `ledger`: `{sources, sinks}` as `ledger()` shows them (§4.7), every key. A block with
+- `ledger`: `{sources, sinks, stores}` as `ledger()` shows them (§4.7), every key. `stores` (v6, E2b-2
+  T3.2) is optional on load and typed when present (`{store: {overflow: float}}`); a save without it reads
+  0 overflow. A block with
   `sources.opening` is read back key by key (a missing key reads 0). One without it (a save from before
   `api_version` 3: E1, E2a, older fixtures) keeps only `sinks.dungeon`, and `opening` becomes what the
   save holds at load plus that sink, so the count balances from the load on.
@@ -1712,22 +2343,46 @@ take the router's legacy path (§2.3).
 **Not saved:**
 - `rev`, `debug_enabled`, `save_dir`, the event queue;
 - `time_scale` (a load starts at 1) and `paused` (a load starts unpaused);
-- the open run, which is forfeited;
+- the open run itself (`in_dungeon` is never saved): it is written as `pending_retreat` (v6, T3.3c),
+  which a load ends as a retreat from its last checkpoint;
 - the last substep's rates outside the fort, Vei and town blocks: `view_hud`'s `split` and mint
   `rate`, `view_rates`' `mint`, `work`, `war`, `flood`, `corpses` and `backlog` (the haul's part of
   `corpses.out` is TownSim's, saved), `view_vei`'s raw `diff`, and the three lanes
-  out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). They read 0 (or the lane
-  is absent) until the first substep after a load. Lane callouts are not saved either;
+  out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). Since v6 (E2b-2 T3.3b, the
+  load flash) a load rebuilds the split and the WAR dispatch as the last substep left them
+  (`GameState._restore_dispatch`): the mint from TownSim's saved worker inflow and the valve (the next
+  step's mint when the WORK share is 0), the muster from its saved rate, and each fort's dispatch weight
+  and limit from its saved `r_in` and Relish's tide. So `view_hud`'s split and mint rate, `view_rates`'
+  `mint`, `work`, `war` and `flood`, those three lanes and the held forts' readouts (§5.5, §5.17) read
+  what they read before the save, to its 15 digits. `corpses`, `backlog` and `diff` still read 0 until
+  the first substep after a load. Lane callouts are not saved either;
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
   (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
-**Open runs.** `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or `at_vei`)
-with no run. On load the run is forfeited: no loot, no flip, the party intact.
+**Open runs** (IDLE I5). `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or
+`at_vei`) with no run, and since v6 (E2b-2 T3.3c) the run as `pending_retreat`. `from_dict` (so `cmd_load`
+on both paths, and `cmd_debug_load_fixture`) ends that run after the state is restored, before any
+catch-up, through the normal writeback as a result of its outcome (§4.5 `cmd_run_checkpoint`): a raid
+reopens as it stood (its `run_id`, `seed_rev` and fort, Relish in its dungeon) and ends. **What the
+writeback needs and where it comes from:** the result is built from `pending_retreat`'s `run_id`,
+`seed_rev`, `fort_id`, `loot` and `outcome`; the seed it reads is `view_dungeon_seed`'s rule
+(`StateRuns.dungeon_seed`) at the load, whose fields the writeback reads are as the run had them: the
+party (the save's: no command changes it while a run is open), the phylactery stock and its per-dungeon
+cap (nothing changes them while a run is open), and `garrison_in_mass` (the end result's `garrison_mass`
+equals it, so the fort's undead don't move). Its events are queued as live, stamped at the save's `t`, and
+`rev` rises by 1 more. A boss run needs nothing: the save holds it forfeited (Relish `at_vei`, no run, the
+party intact). A save without `pending_retreat` (written before T3.3c) forfeits its run as before: no loot,
+no flip, no event, the party intact.
+
+**Catch-up** (v6, E2b-2 T3.3b): only `cmd_load` catches up the time since a save (§4.1), from the file's
+`saved_at`. `from_dict` reads a dict, not a file, and `cmd_debug_load_fixture` loads a fixture, which has
+no meaningful `saved_at` (it is a state, not a session's save), so neither catches up.
 
 **`from_dict(d: Dictionary) -> {ok: bool, reason: String}`**
 - **Reasons:** `bad_version` (`v` above `SAVE_VERSION`, or the migration failed), `corrupt` (missing
   keys or wrong types).
-- It resets in place, clears the event queue, bumps `rev`, and keeps
+- It resets in place, clears the event queue, bumps `rev`, ends a `pending_retreat`'s run (above; one more
+  `rev`, its events queued), and keeps
   `next_run_id = max(saved, current)` and `next_uid = max(saved, current)`, so neither ever repeats within a session.
 
 **`static migrate(d: Dictionary) -> Dictionary`** upgrades one version at a time up to
@@ -1745,7 +2400,8 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 
 ### 9.2 Files
 - A save file is `to_dict()` plus three file-only keys, `slot: String`, `saved_at: int` (unix
-  seconds) and `summary: String`, which `from_dict` ignores.
+  seconds) and `summary: String`, which `from_dict` ignores. `cmd_load` reads `saved_at` for its
+  catch-up (§4.1).
 - The path is `<save_dir>/<slot>.json`.
 - `list_saves()` reads only `saved_at` and `summary` (the slot is the file name), but skips any file
   that fails to parse, is not a Dictionary or lacks `v`. Order: `saved_at` descending, then slot.

@@ -101,7 +101,15 @@ E2a added is here with its value.
 | `relish.raise_rate` ⟵ `raiseRate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
 | `relish.home_rot_mult` | 0.7 | |
 | `relish.home_stance_bonus` | 1 | extra stance slots while she is home |
-| `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | |
+| `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | `hold_s · (1 + tier_mult · tier)` is a flip's grace (375 s at tier 1, 600 at tier 4): no shipping there and no wave targets it (E2b-2; it was the whole hold) |
+| `hold.reship_share` | 0.5 | after the grace her reship into a held fort is this × (1 + `tithe.backlog_scale` · odds) of her share `S_vei · cap / Σcap`, not cut to its room: 0.103 to 0.154 mass/s at Ashgate. A garrison holds without waves from `W_c = r_drain · reship / k_kill` of WAR (0.343 at Ashgate, 2.23 at Whitecross; MECHANICS §3.4) |
+| `hold.break_s` | 120 s | the garrison sat at 0 this long retakes the fort. With 0.5 and 120 a full wave breaks a settled garrison at Ashgate below 1.033 mass/s of WAR, or below 0.547 with Relish there (0.624 with a siege); Whitecross 3.03, 2.24 and 2.80 (MECHANICS §3.4's band, re-measured at E2b-2 T3.3a). Kept at the starting values |
+| `hold.clear_min_living` | 0.05 mass | the dungeon's spawn floor, mirrored (`raid_populate.gd` spawns no living at or under it): a held fort's raid at or under it clears its counter-garrison with nothing killed |
+| `hold.safe_horizon_s` | 28800 s | 8 h (the manager's): a held fort's margin reads "will_fall" when its fall clock is under this, and "safe" only when the wave train settles with it unbroken; the train also stops at this much probe time |
+| `hold.probe_dt_s`, `hold.probe_s` | 10 s, 600 s | the margin probes' step: the wave train's and the one-wave probe's RealmSim fort step on scratch copies at 10 s steps (catch-up's planned dt; their edges are the sim's at 10 s), the one-wave probe (view_projection's drag) for at most 600 s (the wave, `break_s` and the march-back's decay). About 30 µs per held fort per drag call (MECHANICS §3.5) |
+| `hold.train_settle_tol` | 0.001 (× the fort's cap) | E2b-2 T3.4b: the wave train's settled test (MECHANICS §3.5): a fort every compared wave hit must be no weaker than p cycles before, and any other must repeat, within this × its cap in mass (0.08 at Ashgate, 0.52 at Whitecross; a tolerance relative to the value would mean nothing at a garrison or a living count near 0). A fort whose waves' living are gone before the next settles in one cycle; Ashgate at 1.2 mass/s settles in 3 (its living at each wave's start 66.46, 66.96, 66.96: the second step 0.5, the third 0.004) |
+| `hold.train_max_cycles` | 4 | the wave train's cap, in cycles (wave start to wave start) after the last grace end or break in the probe (the run's manager: "about 4 cycles; hitting the cap unsettled reads thin, not safe"). midgame_2flips as loaded doesn't settle in 4 (both forts thin); 10 min in, with Old Sluice broken, Ashgate settles in 3 |
+| `hold.train_frame_phase`, `hold.train_starve_frames` | 0.5 (of a substep), 30 frames | the train's frame refresh (GameState._train_frame), the build benefit's rule with its own keys: on the frame path it re-probes on a frame with no substep at least this far into the substep interval (the scenes refetch early in it), or, when every frame substeps, after this many such frames in a row. 1.2 ms a probe at midgame_2flips, so it stays off the substep frames (MECHANICS §3.5's cost line) |
 | `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
 | `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge; a surge into the fort Relish stands at is × 0.5 (halved) |
@@ -125,6 +133,29 @@ E2a added is here with its value.
 | `job.build.rate`, `job.build.slots` | 0.5 work per worker-second, 3 per construction site | a House (60 work) in 40 s, the Reliquary (400) in about 4.5 min; an upgrade takes `build_work · target level` |
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
 | `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
+| `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250 |
+| `town.projection_refresh_s` | 5 s | the build benefit's cache (STATE-API §5.10, E2b-2 T3.2): a `projected` or `upgrade_projected` row goes stale this long after it was computed while the town's structure holds (a structure change makes every row stale at once); the frame refresh also runs only while `view_catalog()` was read within this much sim |
+| `town.projection_rows_per_frame` | 1 | the build-benefit units (rows, or the baseline they diff against) refreshed on a frame that ran no substep, late in the interval, while the catalog is read (STATE-API §5.10): 0.45 to 0.55 ms each at `pre_vei`. Every row settles about 1.5 s after a change at 60 fps (41 rows over the 15 late frames of each substep) |
+| `town.projection_phase` | 0.5 | the frame refresh runs only once the substep accumulator holds this fraction of `substep_s()`: scenes refetch when `rev` moves, so their work bunches up just after a substep, and background work belongs in the later part of the interval |
+| `town.projection_starve_frames` | 30 | at fast-forward, when every frame substeps: after this many substep frames in a row, one row (and its baseline) goes through on the next, whatever the phase; about 1.1 ms at `pre_vei` |
+| `town.projection_tol` | `rel` 1%, `abs` 0.005/s | a refreshed row keeps its old value unless some rate moved by more than `rel` × abs(old) + `abs` (the floor is half the 0.01 the build card shows), so the town's row signatures don't move on float drift every window |
+| `town.projection_rows_per_call` | 0 | a test override, not a tunable: above 0 a view call refreshes up to that many of its own rows, exactly (the exactness, purity, persist and contract tests set 1000) |
+| `queue.max_len` | 8 | the build queue's length (IDLE §5, E2b-2 T3.2), the town's stand-in's 8 |
+| `idle.catchup_gate_tol` | 0.01 | the catch-up gate (IDLE §4, E2b-2 T3.3a, the run's manager's rule): a 10 s core step against 0.5 s over 12 h with no input. Vei's and Covington's stocks within 1% at every 600 s sample, each overflow tally within 1% at the 12 h endpoint (a) and within max(1% of it, its floor) at every sample (b), the same outcomes. The core step's share of IDLE's 2% `idle.catchup_tol`. Read only by `tests/slow/convergence.gd` (its assertion) and `test_step_accuracy` (the judge's test) |
+| `idle.catchup_gate_tally_floor` | gold 6, bone 1 | (b)'s floor: a fixed amount per tally, what one 10 s step's lag can carry. **Bone 1:** at 10 s pre_vei's convoy runs 10–15 mass of corpses behind 0.5 s's (the start-of-step pickup cap, MECHANICS §4.2), about 0.7 bone of the mill's overflow; the worst (b) residual at 10 s over 12 h on the three starts is 0.74 bone (pre_vei at 600 s, where 1% of the tally is 0.65). A fifth of the judge test's 5-bone mid-run fault. **Gold 6:** no gold tally moves at any start; the largest gold income among them is 0.6 gold/s of trade (pre_vei: Market 2, four stalls at `stall.rate` 0.15; midgame_2flips and fresh 0.3), and 0.6 × 10 s = 6 gold, a whole number |
+| `idle.gap_s` | 30 s | IDLE §4 When: a frame on the frame path whose real time (its sim `dt` / `time_scale`) is above this goes through catch-up instead of having its remainder past `sim.max_substeps_per_frame` dropped; under it, frames stay live play (MECHANICS §1.3). Real time, so debug fast-forward stays live |
+| `idle.catchup_max_s` | 604 800 s (7 d) | the most a load catches up; more is dropped and flagged (`cmd_load`'s `capped`): a sanity cap, not a design lever (IDLE §4) |
+| `idle.catchup_dt_max_s` | 10 s | catch-up's longest core step for its first `idle.catchup_dt_long_after_s`: the largest step the gate (`idle.catchup_gate_tol`, E2b-2 T3.3a) passes at every start over 12 h; 15 s fails it at pre_vei (bone over (b) 1.09 of 1.00) |
+| `idle.catchup_dt_long_s` | 15 s | catch-up's longest core step past `idle.catchup_dt_long_after_s` (IDLE §4 Budget, the budget's lever 2, E2b-2 T3.3b; the run's manager's cap): a week takes 41 760 steps instead of 60 480. 15 s is the longest step whose outcomes match 0.5 s over 12 h at every start (T3.3a: 30 s flips midgame_2flips' Ashgate at 5 355 s and puts fresh at 2.38%); over 7 days its flips, retakes, forts held at the end and Relish's place match a 0.5 s run at every start (`tests/slow/catchup_week.gd`). 7 days is a timing test for the stocks only (IDLE §4) |
+| `idle.catchup_dt_long_after_s` | 43 200 s (12 h) | the longer step starts this far into a catch-up: the first 12 h, the span the gate and the accuracy test judge, keep `idle.catchup_dt_max_s` |
+| `idle.catchup_max_steps` | 4 320 | catch-up steps at `clamp(elapsed / this, sim.substep_s, idle.catchup_dt_max_s)` (IDLE §4 Method): 12 h at 10 s, and anything up to 36 min (2 160 s) at the live 0.5 s |
+| `idle.catchup_tol` | 0.02 | the accuracy test's tolerance (IDLE §4): a catch-up against live play with no input, on Vei's and Covington's stocks and the key rates (`tests/test_catchup.gd` at 2 h, `tests/slow/catchup_accuracy.gd` at 12 h), and closed against open (I1). The core step's own share is `idle.catchup_gate_tol` |
+| `idle.field_steps` | 75 | field steps per catch-up (api-request #14 asked about 150; E2b-2 T3.3b2, the run's manager's ruling: 75, on the condition that ground's owner test passes at 75, which it does: `tests/slow/field_catchup_bench.gd` run as a copy with `STEP_S` 576 s, catch-up against exact live ticks in 99.67% of village samples over 12 h, green villages equal at the end; 99.83% at its own 144). Each costs about one live field tick on the shipped grid, so 0.4–0.7 s in all instead of 0.9–1.4 s (`catchup_bench`, IDLE §4 Budget). Against 150 it changes no outcome or Vei and Covington stock over 12 h or 7 days from the three starts, and village owners by at most 1 of 12 (IDLE §4). Read by `Catchup.begin` and `test_catchup`'s load test |
+| `idle.field_step_min_s` | 2 s | no field step is shorter, so a short catch-up takes fewer (120 s: 60). A field step of up to `field.catchup_exact_ticks` (8) ticks, 1.6 s, runs that many live ticks plus a solve, so without it a 30 s gap would make 60 calls (one per 0.5 s core step) costing about 180 live ticks, more than the live field's 150; with it, 15 calls of about one tick each (ground's `field_catchup_bench.gd`, its MIN_STEP_S) |
+| `idle.catchup_steps_per_chunk` | 90 | core steps per frame while a chunked catch-up runs (a load's from the shell, an open-game gap's): sized at about 50 ms at pre_vei over 12 h (E2b-2 T3.3b: 330 µs a core step, a 6.3 ms field step every 29 core steps; `tests/slow/catchup_bench.gd` measured a median 46 ms at pre_vei, 43 ms at fresh and 53 ms at midgame_2flips). Since E2b-2 T3.3b2 (about 210 µs a core step, a field step every 58) the median is 30–33 ms at the three starts, at most about 50 ms with a field step in it. A 12 h catch-up is 48 chunks, a week 464 |
+| `idle.report_min_s` | 600 s | a gap at least this long gets the away report (IDLE §7, T3.3c) and its catch-up's events are collected for it; a load always is. A shorter open-game gap queues its events as live (STATE-API §6) |
+| `idle.report` | the away report's text (IDLE §7, E2b-2 T3.3c; STATE-API §5.19) | every line of `view_away` is a template here, in the style of `map_view.json`'s `demo_away`: `streams` (the gains' order: backlog, mint, workers, bodies, gold, bone, living) and their `stream_labels`, `stream_fmt` and `backlog_fmt` (with `arrow_up` ▲, `arrow_down` ▼, `arrow_flat` ■), `builds_one_fmt` / `builds_fmt` (names joined by `list_sep` " · ", spaced, so a number ending one name never glues to the separator; `level_fmt` past level 1), `started_fmt` / `started_now_fmt` with `when_hm_fmt` / `when_m_fmt` (the time since you left) and one `waited_on` reason per queue reason, `refilled_fmt`, `raid_fmt`, `husk_one_fmt` / `husks_fmt`, `queue_empty`, `retaken_fmt` / `retaken_home_fmt`, `village_lost_fmt`, `overflow_fmt` with `store_labels`; and the tokens the map parses: `plus` "+", `minus` "−", `rate_unit` "/s", `thousands` ",". Three numbers: **`rate_sig_digits` 2** and **`rate_max_decimals` 3** (a rate shows two significant digits, at most three decimals: +2.1/s, +0.43/s, +0.012/s, +140/s; under 0.0005/s it reads 0/s), and **`overflow_min` 1** (a store's overflow line shows from 1 wasted, so the report never says "0 wasted"; midgame_2flips' 12 h bone overflow is 0.56) |
+| `bone.cap`, bone mill `effects.bone_cap` | 200, + 100 per Bone Mill level (+50% of the base) | 300, 400, 500 at Bone Mill levels 1–3; a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
 | E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
@@ -133,12 +164,12 @@ E2a added is here with its value.
 | crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
 | `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
 | `town.tiers.<tier>.lot_ids`, `.lots` | below the table | explicit lot ids per tier; `.lots` is their count (kept for readers that want a number) |
-| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet |
+| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet. IDLE §4 needs it at least catch-up's longest step in config, the larger of `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s`: 15 s today (the long step, since E2b-2 T3.3b). `GameState.catchup_config_problem` reports an error at load below that, naming both keys, so E3 sets it to 15 or more, or lowers those steps |
 | `vats.grow_per_s` | 1/300 per staffed vat | |
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
 | `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
 | `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
-| `loot.reclear_decay` | 0.5 | |
+| `loot.reclear_decay`, `loot.recover_s` | 0.5, 28800 s | each clear that pays loot (a flip, a counter-garrison clear) multiplies a fort's loot yield by 0.5; the yield climbs back linearly to 1 over 8 h from its last clear (a retake resets it to 1). MECHANICS §5.3 |
 | `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 20, 0.35 | `vei.json`; `lapse_cost` 4: a beat below the ferry takes 4 pips back (MECHANICS §6) |
 | `vei.guards` `rate_per_uncleared`, `cap`, `life_s`; `unit.hp`, `unit.dmg` | 1.0/s, 12, 6 s; 49.5, 8.8 | tuned in D-c so no ±5% move swings the win rate by a cliff; hp and dmg sit off Relish's 30-hp hit counts on purpose |
 | `vei.weaves.dmg`, `period_beats` | 13.5, 3 | off the 30-hp hit counts as above |
@@ -162,6 +193,40 @@ shut until then so nothing small is put on them first, and a size-1 building may
 (a lot too small is the only size refusal), so the player can still block lot-23 with a house:
 demolish it. Town needs 12 buildings, which Village's 17 lots hold; City needs 20 of Town's 22.
 
+**Store caps** (E2b-2 T3.2; IDLE §6). Two constraints, and only these. *8 h fill:* the base cap is at
+least 8 h of a new game's settled net income, rounded up. *Nothing stuck:* the cap with its cap
+building at level 3 (2.5 × the base, at +50% per level) covers the largest single cost of that store in
+`buildings.json`, so every build can be queued once the cap building is maxed. The rates are measured:
+`cmd_new_game(1)`, no actions, 1 h at 0.5 s, the mean net rate over the last 10 min (the fixtures the
+same way, from their load).
+- **Gold:** a new game settles at +0.210 gold/s (trade 0.30, upkeep 0.09): 8 h is 6 048, so the base is
+  **6 500**. The largest gold cost is the Ossuary Tower's level 3 (1 350), far under even the base, so no
+  gold cost exceeds a gold cap and `cost_exceeds_cap` is never about gold with these numbers.
+- **Bone:** a new game has no Bone Mill, so its net bone is 0 and the 8 h rule asks nothing. The largest
+  bone cost is the Ossuary Tower's level 3 (450): 450 / 2.5 = 180, so the base is **200** (500 at Bone
+  Mill level 3). The costs above the base bone cap, so `cost_exceeds_cap` is reachable: Chapel of Vats
+  level 2 (240) and 3 (360), Embalmer level 3 (240), Reliquary (250), Ossuary Tower level 2 (300) and 3
+  (450). A level-1 mill (300) leaves the Chapel's level 3 and the Ossuary's level 3; level 2 (400) the
+  Ossuary's level 3; level 3 none.
+- **Nothing stuck, checked** (the run's manager, for E4): every building and level in `buildings.json`,
+  priced with `BuildRules.construction_cost`, against the highest cap the player can reach for each
+  resource with one cap building at its top level: gold 6 500 + 3 × 3 250 = 16 250, bone 200 + 3 × 100 =
+  500, relics 12 + 6 (the Reliquary, level 1) = 18. The top prices are the Ossuary Tower's level 3 in
+  all three (1 350 gold, 450 bone, 9 relics), so **no price is above its highest reachable cap: the list
+  is empty**, and `cmd_queue_build`'s `cap_level` is never −1 with the shipped numbers. (A second Market
+  or Bone Mill raises a cap further; the check counts one.)
+- **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 9 (the Ossuary's
+  level 3), so no relic cost exceeds it.
+
+| start | gold: cap, stock, net/s, fill | bone: cap, stock, net/s, fill |
+|---|---|---|
+| a new game (Market 1, no mill) | 9 750, 80, +0.210, 12.8 h (the base alone: 8.5 h) | 200, 30, 0, never (no mill) |
+| `midgame_2flips` (Market 1, Bone Mill 1) | 9 750, 656, +0.160, 15.8 h | 300, 328.5 (over the cap: it keeps the excess and earns nothing until under), 0 (the pits take every body), never |
+| `pre_vei` (Market 2, Bone Mill 1) | 13 000, 3 616, −0.470 (falling), never | 300, 459.6 (over the cap), +0.107 uncapped (the mill's share of a body surplus), earns nothing until spent under 300 |
+
+The 8 h rule covers only a new game: `pre_vei`'s bone, at its +0.107/s, fills its 300 cap in about 47 min
+from empty.
+
 **Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
 them in `buildings.json`.
 
@@ -184,7 +249,8 @@ them in `buildings.json`.
   `raise_rate` or let the redirect add the haul bonus.
 - **FLOOD as a no-brainer** once `q` is high. The tithe waves and WORK's diminishing returns must keep
   the split moving; the static-schedule ablation checks it.
-- **Gold:** the living cap and upkeep tiers must hold the stock rule.
+- **Gold:** the living cap and upkeep tiers must hold the stock rule. The store caps (above) bound gold
+  and bone from E2b-2; pre_vei's gold falls (−0.47/s) and its bone sits over its cap.
 - **Rate normalisation** (`view.rate_log_max`, 25/s on the map today) saturates at the new flow
   sizes, so it moves into config.
 - **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.

@@ -20,6 +20,41 @@
   },
   "worker": { "lifetime_s": 480.0, "mass": 40.0, "body_return": 0.25, "idle_rot_mult": 0.5, "idle_cap": 10.0 },
   "body_store": { "cap": 200.0 },
+  "gold": { "cap": 6500.0 },
+  "bone": { "cap": 200.0 },
+  "queue": { "max_len": 8 },
+  "idle": {
+    "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
+    "catchup_dt_long_s": 15.0, "catchup_dt_long_after_s": 43200.0,
+    "catchup_tol": 0.02, "field_steps": 75, "field_step_min_s": 2.0, "report_min_s": 600.0,
+    "catchup_steps_per_chunk": 90,
+    "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 },
+    "report": {
+      "streams": ["backlog", "mint", "workers", "bodies", "gold", "bone", "living"],
+      "stream_labels": { "backlog": "backlog", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
+      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total}",
+      "arrow_up": "▲", "arrow_down": "▼", "arrow_flat": "■",
+      "plus": "+", "minus": "−", "rate_unit": "/s", "thousands": ",", "rate_sig_digits": 2, "rate_max_decimals": 3,
+      "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
+      "level_fmt": "{name} level {level}",
+      "started_fmt": "{name} started at {when}, {why}", "started_now_fmt": "{name} started right away",
+      "when_hm_fmt": "{h} h {m} m", "when_m_fmt": "{m} m",
+      "waited_on": {
+        "needs_tier": "when the tier rose", "lot_locked": "when its lot opened", "needs_blueprint": "when its blueprint came",
+        "needs_building": "when the building it needs was built", "no_relics": "when the relics came in",
+        "no_gold": "when the gold came in", "no_bone": "when the bone came in", "lot_taken": "when its lot came free",
+        "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when its lot came free",
+        "cost_exceeds_cap": "when its cap rose"
+      },
+      "refilled_fmt": "{fort} refilled", "raid_fmt": "{fort} refilled: raid it",
+      "husk_one_fmt": "{n} husk: raise at the slab", "husks_fmt": "{n} husks: raise at the slab",
+      "queue_empty": "Queue empty: plan the next build",
+      "retaken_fmt": "{fort} retaken: raid it to win it back",
+      "retaken_home_fmt": "{fort} retaken, Relish walked home: raid it to win it back",
+      "village_lost_fmt": "village {village} lost to Vei",
+      "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0
+    }
+  },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
   "stance": { "base_slots": 2 },
   "job": {
@@ -35,6 +70,12 @@
   "upkeep": { "unpaid_hold_s": 30.0 },
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
+    "projection_refresh_s": 5.0,
+    "projection_rows_per_call": 0,
+    "projection_rows_per_frame": 1,
+    "projection_phase": 0.5,
+    "projection_starve_frames": 30,
+    "projection_tol": { "rel": 0.01, "abs": 0.005 },
     "migrant_rate": 0.012,
     "leave_rate": 0.004,
     "tiers": {

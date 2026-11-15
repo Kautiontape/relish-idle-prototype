@@ -23,7 +23,12 @@ func run() -> int:
 
 func _warden(t: TestUtil) -> void:
 	t.ok(CardLogic.warden_name("bellringer") == "The Bellringer", "bellringer is The Bellringer")
-	t.ok(CardLogic.warden_name("pyre_priest") == "The Pyre Priest", "pyre_priest reads The Pyre Priest")
+	# the configured name is used: raid.json's (whatever it calls pyre_priest), the title-cased fallback where it has none
+	var named: Dictionary = TestUtil.load_json("res://configs/raid.json").get("wardens", {}).get("archetypes", {}).get("pyre_priest", {})
+	var pyre := str(named.get("name", ""))
+	t.ok(CardLogic.warden_name("pyre_priest", pyre) == (pyre if pyre != "" else "The Pyre Priest"), "pyre_priest reads its configured name")
+	t.ok(CardLogic.warden_name("pyre_priest", "The Pyre-priest") == "The Pyre-priest", "a name on the view beats the id")
+	t.ok(CardLogic.warden_lines({"archetype": "pyre_priest", "name": "The Pyre-priest", "tells": ["a"]})[0] == "The Pyre-priest", "warden_lines uses the view's name")
 	t.ok(CardLogic.warden_name("storm_caller") == "The Storm Caller", "an unmapped archetype is title-cased")
 	var one := CardLogic.warden_lines({"archetype": "bellringer", "tells": ["rings slam on the beat"]})
 	t.ok(one == ["The Bellringer", "rings slam on the beat"], "one tell: name then the tell")

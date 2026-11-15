@@ -1730,10 +1730,13 @@ func _statuses(q: TownStandins.BuildQueue) -> Array:
 
 
 func _build_queue(day1: Dictionary) -> void:
-	t.ok(TownStandins.queue_is_standin(day1["town"]), "queue: a town view without `queue` uses the stand-in")
+	var no_q: Dictionary = (day1["town"] as Dictionary).duplicate(true)
+	no_q.erase("queue")
+	t.ok(TownStandins.queue_is_standin(no_q), "queue: a town view without `queue` uses the stand-in")
 	t.ok(not TownStandins.queue_is_standin({"queue": []}), "queue: a real `queue` key switches the stand-in off")
+	t.ok(not TownStandins.queue_is_standin(day1["town"]), "queue: the live view carries `queue` (E2b-2 T3.2), so the stand-in is off")
 	var local: Array = [{"building_id": "house", "lot_id": "lot-05"}]
-	t.ok(TownStandins.queue_entries(day1["town"], local) == local, "queue: without a `queue` key the local entries are shown")
+	t.ok(TownStandins.queue_entries(no_q, local) == local, "queue: without a `queue` key the local entries are shown")
 	var real_q: Array = [{"building_id": "inn", "lot_id": "lot-06"}]
 	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
 		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")

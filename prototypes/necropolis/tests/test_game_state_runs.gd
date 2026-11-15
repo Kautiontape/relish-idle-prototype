@@ -22,7 +22,7 @@ func run() -> int:
 	t.suite("game-state-runs")
 
 	# --- constants and construction ---
-	t.ok(GameState.API_VERSION == 5 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
+	t.ok(GameState.API_VERSION == 6 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
 	t.ok(GameState.DEBUG_GRANT_KEYS.size() == 11 and GameState.DEBUG_STATE_KEYS.size() == 7, "debug key lists")
 	var bare := GameState.new()
 	t.ok(bare._cfgs.is_empty(), "_init() with no configs leaves it unset")
@@ -122,7 +122,8 @@ func run() -> int:
 		"starter_units": TYPE_INT, "party": TYPE_ARRAY, "digest_q": TYPE_FLOAT,
 		"phylactery_charges": TYPE_INT, "phylactery_max_per_dungeon": TYPE_INT, "clones_ready": TYPE_INT,
 		"warden": TYPE_DICTIONARY, "warden_spec": TYPE_DICTIONARY, "loot_table_id": TYPE_STRING,
-		"loot_hint": TYPE_STRING, "chest_husk": TYPE_BOOL, "watchtower": TYPE_BOOL, "relish_hp": TYPE_FLOAT}, "dungeon seed")
+		"loot_hint": TYPE_STRING, "chest_husk": TYPE_BOOL, "watchtower": TYPE_BOOL, "relish_hp": TYPE_FLOAT,
+		"death_ends": TYPE_DICTIONARY}, "dungeon seed")  # (death_ends: api_version 6, E2b-2 T3.3c)
 	_types_ok(t, sd["fort"], {"id": TYPE_STRING, "name": TYPE_STRING, "tier": TYPE_INT, "cap": TYPE_FLOAT,
 		"first_clear": TYPE_BOOL, "first_dungeon": TYPE_BOOL, "clears_since_retaken": TYPE_INT,
 		"yield_mult": TYPE_FLOAT}, "seed.fort")
@@ -196,7 +197,8 @@ func run() -> int:
 		"rng_seed": TYPE_STRING, "backlog": TYPE_FLOAT, "living_pool": TYPE_FLOAT, "odds": TYPE_FLOAT,
 		"sign": TYPE_INT, "drain_s": TYPE_FLOAT, "digest_q": TYPE_FLOAT, "vei_capacity": TYPE_FLOAT,
 		"fronts": TYPE_ARRAY, "fronts_required": TYPE_INT, "party": TYPE_ARRAY,
-		"phylactery_charges": TYPE_INT, "clones_ready": TYPE_INT, "relish_hp": TYPE_FLOAT}, "boss seed")
+		"phylactery_charges": TYPE_INT, "clones_ready": TYPE_INT, "relish_hp": TYPE_FLOAT,
+		"death_ends": TYPE_DICTIONARY}, "boss seed")  # (death_ends: api_version 6, E2b-2 T3.3c)
 	t.ok(bs["kind"] == "boss" and bs["v"] == 2 and bs["backlog"] == 6000.0 and bs["vei_capacity"] == 50.0, "boss seed values")
 	t.ok(bs["fronts_required"] == 3 and bs["fronts"].size() == 4, "fronts_required 3, four fronts")
 	var fr: Array = bs["fronts"]

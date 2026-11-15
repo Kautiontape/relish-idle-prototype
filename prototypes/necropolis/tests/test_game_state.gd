@@ -69,7 +69,9 @@ func run() -> int:
 	t.ok(s.rev == rev0 + 2, "rev counts substeps")
 	t.near(s._acc, 0.25, 1e-9, "0.25 s left over")
 	t.ok(s.tick(0.25) == 1, "tick(0.25) completes a third substep")
-	t.ok(s.tick(100.0, 16) == 16, "cap of 16 substeps honoured")
+	# a 20 s hitch: under idle.gap_s, so still live (since E2b-2 T3.3b a capped frame above it is caught up,
+	# tests/test_catchup.gd; this used a 100 s frame)
+	t.ok(s.tick(20.0, 16) == 16, "cap of 16 substeps honoured")
 	t.near(s._acc, 0.0, 1e-12, "remainder dropped after the cap")
 	t.ok(s.tick(0.1) == 0, "a sub-step dt runs nothing")
 

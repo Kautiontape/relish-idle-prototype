@@ -64,6 +64,40 @@ func run() -> int:
 		if v == null:
 			missing.append(path)
 	t.ok(missing.is_empty() and RealmSim.REQUIRED.size() >= 18, "every RealmSim.REQUIRED realm.json key is present: missing %s" % [missing])
+	# GameState reads the hold and loot tunables once, with no numeric fallbacks (E2b-2 T3.2), so each must be in the configs
+	missing = []
+	for path in GameState.REQUIRED:
+		var v: Variant = cfg
+		for k in str(path).split("."):
+			v = (v as Dictionary).get(k, null) if v is Dictionary else null
+		if v == null:
+			missing.append(path)
+	t.ok(missing.is_empty() and GameState.REQUIRED.size() >= 9, "every GameState.REQUIRED config path is present: missing %s" % [missing])
+	# T3.4a: the economy and realm tunables that had inline fallbacks are REQUIRED now, and each read follows the config
+	for path in ["economy.sim.substep_s", "economy.sim.autosave_s", "economy.opening.valve.work", "economy.opening.starter_party", "economy.stance.base_slots",
+			"economy.worker.mass", "economy.pit.bonus", "economy.town.migrant_rate", "realm.relish.travel_speed", "realm.relish.home_stance_bonus",
+			"realm.readout.sign_eps", "realm.readout.ema_s", "realm.vei_pool_cap", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
+			"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass"]:
+		t.ok(GameState.REQUIRED.has(path), "%s is REQUIRED (no fallback)" % path)
+	var cfg2 := GameState.load_configs("res://configs")
+	cfg2["realm"]["q"]["q0"] = 2.5
+	cfg2["economy"]["sim"]["substep_s"] = 0.25
+	cfg2["economy"]["worker"]["mass"] = 33.0
+	var gs := GameState.new(cfg2)
+	gs.cmd_new_game(1)
+	t.ok(gs.substep_s() == 0.25 and gs.worker_mass() == 33.0 and gs.digest_q() >= 2.5, "the reads follow the config: substep %s, worker mass %s, q %s" % [gs.substep_s(), gs.worker_mass(), gs.digest_q()])
+	var gsr := GameState.new(cfg)
+	t.ok(gsr._raise_rate == float(cfg["realm"]["relish"]["raise_rate"]) and gsr._clear_min_living == float(cfg["realm"]["hold"]["clear_min_living"])
+		and gsr._recover_s == float(cfg["loot"]["recover_s"]) and gsr._reclear_decay == float(cfg["loot"]["reclear_decay"]),
+		"GameState holds the REQUIRED tunables as the configs give them")
+	var live_ok := true
+	for path in ["realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep", "realm.relish.tide_bias",
+			"economy.queue.max_len"]:
+		var v: Variant = cfg
+		for k in str(path).split("."):
+			v = v[k]
+		live_ok = live_ok and GameState.REQUIRED.has(path) and gsr._req_f(path) == float(v)
+	t.ok(live_ok, "the flip, death-shock, Vei-fight, tide and queue-length tunables are REQUIRED and read live, no fallback")
 	var realm_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/realm.json"))
 	var world_direct: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/world.json"))
 	t.near(float(cfg["realm"]["R_vei"]), float(realm_direct["R_vei"]), 0.0, "realm.R_vei matches")

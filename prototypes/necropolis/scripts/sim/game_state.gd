@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 5
+const API_VERSION := 6
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -24,6 +24,46 @@ const WARDEN_ARCHETYPES := ["bellringer", "huntsman", "shieldwall", "pyre_priest
 const FIXTURES := ["day1", "midgame_2flips", "pre_vei"]
 const DEBUG_GRANT_KEYS := ["gold", "bone", "bodies", "relics", "essence", "workers", "living", "backlog", "husks", "remnants", "big_undead"]
 const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"]
+## Every config value GameState (and StateRuns and StateViews for it) reads with no fallback, as
+## "file.section.key" paths (E2b-2 T3.2: tunables whose inline defaults duplicated the configs). setup()
+## checks every one (_req), so a missing key is an error at load, not a silent default, and
+## tests/test_game_state_configs.gd asserts each one is present in res://configs. The first four, and the
+## ones the core step and the field's sources read every step (E2b-2 T3.3b, catch-up's budget: the
+## members below), are read once in setup(); the rest are read live at each use (_req_f), since tests
+## change some of them after setup (realm.q.q0, realm.relish.home_stance_bonus, economy.stance.base_slots
+## and others).
+const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay",
+	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
+	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
+	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
+	"realm.relish.tide_bias", "economy.queue.max_len",
+	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
+	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
+	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
+	"economy.opening.starter_party", "economy.stance.base_slots", "economy.worker.mass", "economy.pit.bonus",
+	"economy.town.migrant_rate",
+	"realm.relish.travel_speed", "realm.relish.home_stance_bonus", "realm.readout.sign_eps", "realm.readout.ema_s",
+	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
+	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass",
+	# T3.4b: the wave train's frame refresh (_train_frame)
+	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames",
+	# T3.3b: the catch-up runner (Catchup; IDLE §4) and the clip events it reads
+	"economy.idle.gap_s", "economy.idle.catchup_max_s", "economy.idle.catchup_dt_max_s", "economy.idle.catchup_max_steps",
+	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
+	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
+	"realm.tithe.warning_s",
+	# T3.3c: the away report's text (StateViews.away_report; its keys are REPORT_KEYS, checked in setup)
+	"economy.idle.report"]
+## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
+## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
+const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
+	"plus", "minus", "rate_unit", "thousands", "rate_sig_digits", "rate_max_decimals", "builds_one_fmt", "builds_fmt",
+	"list_sep", "level_fmt", "started_fmt", "started_now_fmt", "when_hm_fmt", "when_m_fmt", "waited_on", "refilled_fmt",
+	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
+	"overflow_fmt", "store_labels", "overflow_min"]
+## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
+const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
+	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -34,10 +74,10 @@ const _RATE_UNITS := {
 	"bodies": "mass/s", "gold": "gold/s", "bone": "bone/s", "living": "living/s", "corpses": "mass/s",
 	"backlog": "mass/s",
 }
-## E1 stub tells for view_fort.warden (the dungeon unit owns warden specs from E2).
-const _WARDEN_TELLS := {"bellringer": ["rings slam on the beat"]}
 ## How long a lane's `why` callout lasts, in sim seconds (STATE-API §5.3).
 const _WHY_S := 10.0
+## _train's answer with no fort held (train_probe's shape; read-only).
+const _TRAIN_NONE := {"forts": {}, "settled": true, "p": 0, "cycles": 0, "steps": 0, "targets": []}
 
 var realm: RealmSim
 var field: InfluenceField
@@ -54,6 +94,13 @@ var rev := 0  # +1 per substep and per successful command
 
 # --- Relish (owned here; RealmSim sees only her effects, as step inputs: _relish_effects) ---
 var relish := {}
+## Her last walk home from a retaken fort (IDLE I5, E2b-2 T3.3c; _walk_home): {fort_id, cause: "retaken", t},
+## or {} when there has been none since the new game. view_relish().returned; saved as relish.returned.
+var relish_returned := {}
+## When she arrived at the node she stands at during this core step (step 4), -INF when she was standing there
+## from its start (or isn't standing): a retake in the step before it doesn't send her home (_emit_realm).
+## Session only, set every core step.
+var _arrived_t := -INF
 # --- runs and seeds (§4.5, §7) ---
 var run := {}  # {} or {run_id, kind: "raid"|"boss", fort_id, seed_rev, seed}
 var next_run_id := 1
@@ -82,6 +129,9 @@ var _ledger := Ledger.new()
 # --- settings GameState keeps (TownSim holds the job ladder and the staff caps) ---
 var haul_target := "auto"  # cmd_set_haul_target: "auto" or a fort id, TownSim's step input
 var stances_on: Array = []  # stance ids switched on, oldest first; the newest are suspended first
+## The build queue (IDLE §5, STATE-API §4.3; BuildRules.queue_walk): [{building_id, lot_id, upgrade: bool,
+## waited_on: String}] in order, at most economy.json queue.max_len. Saved (an optional `queue` key).
+var build_queue: Array = []
 var vats_staffed: Array = []  # bool per vat slot
 ## view_backups' stub stock (E3 grows clones in vats): ready clones. A death spends one (§8.3 step
 ## 10, the E1-safe rule); the vat slots are these clones until E3.
@@ -109,6 +159,41 @@ var won := false
 var stats := {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 
 var _cfgs := {}
+# ---- tunables read once in setup() from REQUIRED (no numbers here) ----
+var _raise_rate := 0.0  # realm.json relish.raise_rate: mass/s Relish raises where she redirects
+var _clear_min_living := 0.0  # realm.json hold.clear_min_living: the dungeon's spawn floor, mirrored
+var _recover_s := 0.0  # loot.json recover_s: a fort's loot yield back to 1 over this many seconds
+var _reclear_decay := 0.0  # loot.json reclear_decay: the yield × this per clear that paid loot
+# ---- the per-step tunables (E2b-2 T3.3b, catch-up's budget, lever 1: a _req_f costs about 0.9 µs and the
+# core step made 10 to 14 of them), read once in setup() from REQUIRED; no test changes them after setup.
+# realm.q.q0 and realm.relish.tide_bias stay live (a test changes q0 after setup; tide_bias is documented as
+# read live, test_game_state_configs) ----
+var _substep := 0.0  # economy.json sim.substep_s
+var _slew_per_s := 0.0  # realm.json valve.slew_per_s
+var _p_base := 0.0  # realm.json P_base
+var _p_per_pit := 0.0  # realm.json P_per_pit
+var _pit_bonus := 0.0  # economy.json pit.bonus
+var _q_raise_max := 0.0  # realm.json q.q_raise_max (q.q0 stays live: a test changes it after setup)
+var _q_forge := 0.0  # realm.json q.q_forge
+var _q_max := 0.0  # realm.json q.q_max
+var _ema_s := 0.0  # realm.json readout.ema_s
+var _travel_speed := 0.0  # realm.json relish.travel_speed
+var _tithe_warning_s := 0.0  # realm.json tithe.warning_s (the catch-up's clip events)
+var _src_per_pit := 0.0  # realm.json field_src_per_pit
+var _vei_pool_cap := 0.0  # realm.json vei_pool_cap
+var _gap_s := 0.0  # economy.json idle.gap_s (every frame's gap check)
+## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
+## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
+## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
+var _tiers_seen: Array = [-1, ""]
+## The core step's own fort snapshot for TownSim (_town_inputs with `reuse`), refilled in place every step
+## (E2b-2 T3.3b2: a fresh one was 12 dicts and 12 arrays a step). TownSim reads it inside its step and keeps
+## none of it; every other reader (StateViews' projections keep theirs) gets a fresh one. `_step_forts_of`
+## holds the realm's fort dicts and positions each entry was made from. Session only.
+var _step_forts: Array = []
+var _step_forts_of: Array = []
+## The mass ledger's sinks the core step books from TownSim's step (Ledger.sink's, inline: _core_step).
+const _TOWN_SINKS := ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]
 var _acc := 0.0
 ## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
 ## `war` includes). Session only.
@@ -119,8 +204,33 @@ var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0
 ## out). Session only.
 var _realm_flows := {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for tests
+## The build benefit projections (StateViews.projections, refreshed by StateViews.projection_frame): per
+## part {key: {value, t, sig, for}}, the shared baseline {state, ...}, wanted_t (view_catalog's last read),
+## starve (substep frames in a row), and rows_computed / rows_replaced counts (for tests and benches);
+## session only, never saved, emptied by a new game and a load.
+var _proj_cache := {}
+## The wave train's verdicts (_train): {live: [key, result, rev, _ticks, t], valve: [key, result, rev, _ticks, t],
+## read (a view read the live slot since the frame refresh last ran), starve (substep frames in a row while
+## read), computed (probes run: tests, benches)}. Session only: a new game and every load (from_dict:
+## cmd_load, the fixtures) empty it (_reset_train).
+var _train_cache := {}
+var _ticks := 0  # live substeps run this session (_tick): rev less them is the commands' share of rev
+var _frame_path := false  # the shell drives tick() with a substep cap (the frame path): _train may serve the last refresh
 var _field_acc := 0.0
+var _req_keys := {}  # REQUIRED path -> its split keys (a cache for _req)
 var _events: Array = []
+## The catch-up runner (IDLE §4; scripts/sim/catchup.gd): a load's catch-up and an open-game gap's.
+## Session only: a new game and every load replace it.
+var _catchup := Catchup.new()
+## The away report (IDLE §7, E2b-2 T3.3c; StateViews.away_report): {} or {shown, away_s, capped, gains, ready,
+## losses}, built at the end of a reporting catch-up (a load's, or an open-game gap's of idle.report_min_s or
+## more) and kept until dismissed (shown false) or replaced. Session only, never saved: a new game and every
+## load clear it.
+var _away := {}
+## The test seam for the wall clock (STATE-API §1.5): unix seconds "now" when ≥ 0, else the system clock.
+## cmd_save stamps saved_at and cmd_load measures the time away through it (_now_unix, the sim's one read
+## of the wall clock). Never saved.
+var clock_override := -1
 
 
 ## `configs` is keyed by file basename; a non-empty dict calls setup().
@@ -132,7 +242,98 @@ func _init(configs: Dictionary = {}) -> void:
 ## `cfgs` is the dict returned by load_configs (keyed by file name).
 func setup(cfgs: Dictionary) -> void:
 	_cfgs = cfgs
+	_raise_rate = _req_f("realm.relish.raise_rate")
+	_clear_min_living = _req_f("realm.hold.clear_min_living")
+	_recover_s = _req_f("loot.recover_s")
+	_reclear_decay = _req_f("loot.reclear_decay")
+	_substep = _req_f("economy.sim.substep_s")
+	_slew_per_s = _req_f("realm.valve.slew_per_s")
+	_p_base = _req_f("realm.P_base")
+	_p_per_pit = _req_f("realm.P_per_pit")
+	_pit_bonus = _req_f("economy.pit.bonus")
+	_q_raise_max = _req_f("realm.q.q_raise_max")
+	_q_forge = _req_f("realm.q.q_forge")
+	_q_max = _req_f("realm.q.q_max")
+	_ema_s = _req_f("realm.readout.ema_s")
+	_travel_speed = _req_f("realm.relish.travel_speed")
+	_tithe_warning_s = _req_f("realm.tithe.warning_s")
+	_src_per_pit = _req_f("realm.field_src_per_pit")
+	_vei_pool_cap = _req_f("realm.vei_pool_cap")
+	_gap_s = _req_f("economy.idle.gap_s")
+	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
+		_req(path)
+	var why_report := report_config_problem(cfgs)
+	if why_report != "":
+		push_error("GameState: " + why_report)
+	var hold := catchup_config_problem(cfgs)
+	if hold != "":
+		push_error("GameState: " + hold)
 	town_sim.setup(cfgs)
+
+
+## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step (the larger
+## of idle.catchup_dt_max_s and idle.catchup_dt_long_s), or a catch-up step could flip a stance twice inside
+## its hold. "" when it holds.
+## stance.hold_s is E3's and not in economy.json yet (BALANCE §5): with no key there is nothing to hold, so
+## nothing to check until E3 adds it. setup() reports a problem as an error.
+static func catchup_config_problem(cfgs: Dictionary) -> String:
+	var eco: Dictionary = cfgs.get("economy", {})
+	var stance: Variant = eco.get("stance", {})
+	if not (stance is Dictionary and (stance as Dictionary).has("hold_s")):
+		return ""
+	var hold := float(stance["hold_s"])
+	var idle: Dictionary = eco.get("idle", {})
+	var dt_max := maxf(float(idle.get("catchup_dt_max_s", 0.0)), float(idle.get("catchup_dt_long_s", 0.0)))
+	if hold < dt_max:
+		return "stance.hold_s (%s s) is under catch-up's longest step, %s s (idle.catchup_dt_max_s, idle.catchup_dt_long_s): a catch-up step must not straddle a stance's hold" % [
+			str(hold), str(dt_max)]
+	return ""
+
+
+## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
+## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; else what is missing. setup() reports it as an error.
+static func report_config_problem(cfgs: Dictionary) -> String:
+	var rep: Variant = cfgs.get("economy", {}).get("idle", {}).get("report")
+	if not (rep is Dictionary):
+		return "config economy.idle.report is missing"
+	var missing: Array = []
+	for k in REPORT_KEYS:
+		if not (rep as Dictionary).has(k):
+			missing.append(k)
+	if not missing.is_empty():
+		return "config economy.idle.report lacks %s" % ", ".join(PackedStringArray(missing))
+	for id in rep["streams"]:
+		if not (["backlog", "mint", "workers", "bodies", "gold", "bone", "living"] as Array).has(id) or not (rep["stream_labels"] as Dictionary).has(id):
+			return "config economy.idle.report.streams: %s is not a report stream with a label" % str(id)
+	for w in REPORT_WAITED_ON:
+		if not (rep["waited_on"] as Dictionary).has(w):
+			return "config economy.idle.report.waited_on has no words for %s" % w
+	for k in ["gold", "bone"]:
+		if not (rep["store_labels"] as Dictionary).has(k):
+			return "config economy.idle.report.store_labels has no %s" % k
+	return ""
+
+
+## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
+func _req(path: String) -> Variant:
+	var keys: PackedStringArray = _req_keys.get(path, PackedStringArray())
+	if keys.is_empty():  # first read of this path: it must be one of REQUIRED; its split is cached (read per step)
+		assert(REQUIRED.has(path), "GameState reads %s; add it to REQUIRED" % path)
+		keys = path.split(".")
+		_req_keys[path] = keys
+	var v: Variant = _cfgs
+	for k in keys:
+		if not (v is Dictionary and (v as Dictionary).has(k)):
+			push_error("GameState: config %s is missing" % path)
+			return null
+		v = v[k]
+	return v
+
+
+func _req_f(path: String) -> float:
+	var v: Variant = _req(path)
+	return float(v) if v is float or v is int else 0.0
 
 
 func _cfg() -> Dictionary:
@@ -145,15 +346,15 @@ func _sec(file: String, section: String) -> Dictionary:
 
 
 func substep_s() -> float:
-	return float(_cfgs.get("economy", {}).get("sim", {}).get("substep_s", 0.5))
+	return _substep
 
 
 func max_substeps_per_frame() -> int:
-	return int(_cfgs.get("economy", {}).get("sim", {}).get("max_substeps_per_frame", 16))
+	return int(_req_f("economy.sim.max_substeps_per_frame"))
 
 
 func travel_speed() -> float:
-	return float(_cfg().get("relish", {}).get("travel_speed", 220.0))
+	return _travel_speed
 
 
 func drain_events() -> Array[Dictionary]:
@@ -168,8 +369,24 @@ func _emit(ev: Dictionary) -> void:
 	_events.append(ev)
 
 
+## Whether a catch-up is under way (cmd_load with `chunked`, or an open-game gap; IDLE §4): every command
+## refuses with catching_up until it is done. Not contract (view_catchup is); the shell reads it.
+func catching_up() -> bool:
+	return _catchup.active
+
+
+## A command's refusal while a catch-up runs (STATE-API §4, `catching_up`): its own failure extras,
+## zero-valued. Checked first, after not_debug where that applies.
+static func _refuse_catching_up(extras := {}) -> Dictionary:
+	var out := {"ok": false, "reason": "catching_up"}
+	out.merge(extras)
+	return out
+
+
 # ------------------------------------------------------------------ game -----
 func cmd_new_game(seed: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	if not run.is_empty():
 		return {"ok": false, "reason": "busy"}
 	rng.seed = seed
@@ -185,6 +402,9 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_acc = 0.0
 	_field_acc = 0.0
 	_events = []
+	_catchup = Catchup.new()
+	_away = {}
+	_tiers_seen = [-1, ""]
 	t = 0.0
 	time_scale = 1.0
 	paused = false
@@ -195,12 +415,13 @@ func cmd_new_game(seed: int) -> Dictionary:
 	remnants = []
 	big_undead = []
 	party_uids = []
-	var v: Dictionary = opening.get("valve", {"work": 0.40, "war": 0.45, "flood": 0.15})
-	valve = _normalised(float(v.get("work", 0.4)), float(v.get("war", 0.45)), float(v.get("flood", 0.15)))
+	valve = _normalised(_req_f("economy.opening.valve.work"), _req_f("economy.opening.valve.war"), _req_f("economy.opening.valve.flood"))
 	valve_target = valve.duplicate()
 	work_pending = 0.0
 	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
 	_realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
+	_proj_cache = {}
+	_reset_train()
 	_realm_inputs = {}
 	first_dungeon_id = str(opening.get("first_dungeon", "old-sluice"))
 	cleared_forts = {}
@@ -212,15 +433,16 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_stance_hold = {}
 	blueprints = []
 	haul_target = "auto"
+	build_queue = []
 	stances_on = []
 	vats_staffed = []
-	town_sim.set_vats(vats_staffed)  # (new_game cleared them too)
 	town_tier = "hamlet"
 	relish = {
 		"state": "home", "at": "covington", "target": "",
 		"pos": [float(realm.cov_pos.x), float(realm.cov_pos.y)], "heading": 0.0,
 		"dead_s_left": 0.0, "respawn_with_clone": false,
 	}
+	relish_returned = {}
 	_reset_lanes()
 	_prewarm_field()
 	rev += 1
@@ -248,9 +470,8 @@ func _build_realm_field_towns() -> void:
 ## Pre-warms the field so the map doesn't start blank, then publishes any in-flight slice.
 ## A load reuses it (T1.5).
 func _prewarm_field() -> void:
-	var pw: Dictionary = _sec("economy", "sim")
-	var pw_dt := float(pw.get("prewarm_dt", 0.2))
-	for i in int(pw.get("prewarm_ticks", 90)):
+	var pw_dt := _req_f("economy.sim.prewarm_dt")
+	for i in int(_req_f("economy.sim.prewarm_ticks")):
 		_inject_sources(pw_dt)
 		field.tick(pw_dt)
 	field.flush()
@@ -259,6 +480,8 @@ func _prewarm_field() -> void:
 func cmd_set_time_scale(x: float) -> Dictionary:
 	if not debug_enabled:
 		return {"ok": false, "reason": "not_debug", "time_scale": time_scale}
+	if _catchup.active:
+		return _refuse_catching_up({"time_scale": time_scale})
 	if relish["state"] == "in_dungeon":
 		return {"ok": false, "reason": "in_dungeon", "time_scale": time_scale}
 	if relish["state"] == "in_boss":
@@ -273,6 +496,8 @@ func cmd_set_time_scale(x: float) -> Dictionary:
 func cmd_pause(b: bool) -> Dictionary:
 	if not debug_enabled:
 		return {"ok": false, "reason": "not_debug", "paused": paused}
+	if _catchup.active:
+		return _refuse_catching_up({"paused": paused})
 	paused = b
 	rev += 1
 	return {"ok": true, "reason": "", "paused": paused}
@@ -337,6 +562,8 @@ func _begin_travel(node_id: String) -> void:
 
 
 func cmd_move_relish(node_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"eta_s": 0.0})
 	var why := _move_refusal(node_id)
 	if why != "":
 		return {"ok": false, "reason": why, "eta_s": 0.0}
@@ -350,6 +577,8 @@ func cmd_move_relish(node_id: String) -> Dictionary:
 
 
 func cmd_cancel_travel() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"eta_s": 0.0})
 	if relish["state"] != "travelling":
 		return {"ok": false, "reason": "not_travelling", "eta_s": 0.0}
 	if relish["target"] != relish["at"]:
@@ -373,6 +602,18 @@ func _arrive(tgt: String) -> void:
 	relish["state"] = _state_at_node(tgt)
 	relish["at"] = tgt
 	relish["target"] = ""
+
+
+## IDLE I5 (E2b-2 T3.3c, the run's manager: live play and catch-up alike, one simulation): the fort she stands
+## at (at_fort) is retaken at `from_t` inside this step, so she starts home to Covington at her travel speed
+## from that moment: by the step's end (t) she has walked t − from_t of it, and arrives if that is enough
+## (that step's town and realm already ran with her at the fort, as a live substep's do). A longer walk ends
+## in a later step, which the catch-up clips at her arrival (Catchup.next_event_s). Records the walk
+## (relish_returned). Not while she is in its dungeon: the run goes on, and when it ends she stands there.
+func _walk_home(fort_id: String, from_t: float) -> void:
+	_begin_travel("covington")
+	_step_relish_travel(maxf(0.0, t - from_t))
+	relish_returned = {"fort_id": fort_id, "cause": "retaken", "t": from_t}
 
 
 ## Substep step 4 (§3): straight-line travel and arrival.
@@ -422,6 +663,8 @@ func view_relish() -> Dictionary:
 # ------------------------------------------------- §4.2 macro: valve, haul ----
 ## Sets the target (normalised) only; the current vector slews toward it each substep (§3 step 3).
 func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"target": {}})
 	var why := ""
 	if not (is_finite(work) and is_finite(war) and is_finite(flood)):
 		why = "not_finite"
@@ -443,6 +686,8 @@ func cmd_set_valve(work: float, war: float, flood: float) -> Dictionary:
 ## Stores the target; TownSim's convoy takes it as a step input ("auto": the fort with the most dead
 ## above job.haul.auto_min_dead). A convoy already out finishes its trip first.
 func cmd_set_haul_target(target: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"haul_target": ""})
 	if target != "auto" and realm.fort_by_id(target).is_empty():
 		return {"ok": false, "reason": "unknown_fort", "haul_target": ""}
 	haul_target = target
@@ -460,7 +705,7 @@ func _backups_cfg() -> Dictionary:
 ## if that would not be finite); odds = backlog / (backlog + K).
 func _vei_readout() -> Dictionary:
 	var ema := float(_readout["diff_ema"])
-	var eps := float(_sec("realm", "readout").get("sign_eps", 0.05))
+	var eps := _req_f("realm.readout.sign_eps")
 	var backlog: float = realm.vei["undead_queue"]
 	var drain := -1.0
 	if ema < 0.0:
@@ -479,7 +724,7 @@ func _vei_readout() -> Dictionary:
 ## not in the inflow.
 func _update_readout(dt: float, inflow: float, digestion: float) -> void:
 	_diff = inflow - digestion
-	var ema_s := float(_sec("realm", "readout").get("ema_s", 120.0))
+	var ema_s := _ema_s
 	var a := 1.0 - exp(-dt / ema_s) if ema_s > 0.0 else 1.0
 	var ema := float(_readout["diff_ema"])
 	_readout["diff_ema"] = ema + a * (_diff - ema)
@@ -500,22 +745,90 @@ func _garrison(fort_id: String) -> Array:
 	return [units, float(units) * div]
 
 
+## How far a held fort's raid may fall short of its seed's living and still clear the counter-garrison
+## (api-request #10): half of one living unit's mass as the dungeon spawns them (raid_populate.gd:
+## RaidLogic.enemy_count's clamp(round(living / cap · enemies_per_cap), enemy_min, enemy_max)
+## enemies of living / n each, raid.json mass), so a full clear reported to rounding counts. Living at
+## or under hold.clear_min_living (the dungeon's spawn floor, mirrored: it spawns no enemy then and
+## clears after held.empty_clear_s) is all tolerated: its clear reports 0.
+func _clear_tolerance(sd: Dictionary) -> float:
+	var living := maxf(0.0, float(sd.get("living", 0.0)))
+	if living <= _clear_min_living:
+		return living
+	var m: Dictionary = _sec("raid", "mass")
+	var cap := maxf(1.0, float(sd.get("fort", {}).get("cap", 100.0)))
+	var n := clampi(int(round(living / cap * float(m.get("enemies_per_cap", 26.0)))), int(m.get("enemy_min", 5)), int(m.get("enemy_max", 34)))
+	return 0.5 * living / float(maxi(1, n))
+
+
+## A fort's loot yield now (MECHANICS §5.3, IDLE §3): `yield_c` (just after its last clear that paid
+## loot) relaxing linearly back to 1 over loot.recover_s from `yield_t`: 1 − (1 − c) · max(0, 1 −
+## (t − yield_t) / recover_s). Exactly 1 from recover_s on, from any depth; a function of the sim time,
+## so a catch-up refills it with no step work.
+func _yield_mult(f: Dictionary) -> float:
+	var c := clampf(float(f.get("yield_c", 1.0)), 0.0, 1.0)
+	if c >= 1.0:
+		return 1.0
+	var rec := _recover_s
+	var left := 1.0 - (t - float(f.get("yield_t", 0.0))) / rec if rec > 0.0 else 0.0
+	return 1.0 - (1.0 - c) * clampf(left, 0.0, 1.0)
+
+
+## A clear that paid loot (a flip, a counter-garrison clear): the yield drops to yield_mult(now) ×
+## loot.reclear_decay, from now.
+func _spend_yield(f: Dictionary) -> void:
+	f["yield_c"] = _yield_mult(f) * _reclear_decay
+	f["yield_t"] = t
+
+
 ## raid.json mass.garrison_mass_div, which the seed carries so Results.from_v1 needs no config.
 func _garrison_div() -> float:
 	return float(_sec("raid", "mass").get("garrison_mass_div", 10.0))
 
 
 func _starter_units(fort_id: String) -> int:
-	return int(_sec("economy", "opening").get("starter_party", 8)) if _is_first_dungeon(fort_id) else 0
+	return int(_req_f("economy.opening.starter_party")) if _is_first_dungeon(fort_id) else 0
 
 
 ## raid.json wardens.by_fort is dungeon-owned; the E1 stub is bellringer.
 func _warden_archetype(fort_id: String) -> String:
-	return str(_sec("raid", "wardens").get("by_fort", {}).get(fort_id, "bellringer"))
+	var by_fort: Variant = _sec("raid", "wardens").get("by_fort", {})
+	return str((by_fort as Dictionary).get(fort_id, "bellringer")) if by_fort is Dictionary else "bellringer"
 
 
+## raid.json wardens.archetypes.<id>.name and .tells, dungeon-owned: "" and [] for an archetype the
+## config doesn't list (a missing key is the dungeon's to fix, never a crash here).
+func _warden_name(archetype: String) -> String:
+	var a: Variant = _warden_spec(archetype)
+	return str((a as Dictionary).get("name", "")) if a is Dictionary else ""
+
+
+## The archetype's spec, or {} when `archetypes` or the entry isn't a Dictionary.
+func _warden_spec(archetype: String) -> Dictionary:
+	var all: Variant = _sec("raid", "wardens").get("archetypes", {})
+	var a: Variant = (all as Dictionary).get(archetype, {}) if all is Dictionary else {}
+	return a if a is Dictionary else {}
+
+
+func _warden_tells(archetype: String) -> Array:
+	var out: Array = []
+	var tells: Variant = _warden_spec(archetype).get("tells", [])
+	if tells is Array:
+		for t in tells:
+			out.append(str(t))
+	return out
+
+
+## loot.json hints (dungeon-owned): the first dungeon reads `first_dungeon_hint`, any other fort
+## `hints["t<tier>.<archetype>"]`, "" when the key is missing.
 func _loot_hint(fort_id: String) -> String:
-	return "a husk and a blueprint" if _is_first_dungeon(fort_id) else ""
+	var hints: Dictionary = _sec("loot", "hints")  # _sec already reads a non-Dictionary as {}
+	if _is_first_dungeon(fort_id):
+		return str(hints.get("first_dungeon_hint", ""))
+	var f := realm.fort_by_id(fort_id)
+	if f.is_empty():
+		return ""
+	return str(hints.get("t%d.%s" % [int(f["tier"]), _warden_archetype(fort_id)], ""))
 
 
 func _phylactery_max() -> int:
@@ -550,6 +863,8 @@ func _fronts_required() -> int:
 
 
 func cmd_begin_dungeon(fort_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"seed": {}, "run_id": -1, "seed_rev": -1})
 	return StateRuns.begin_dungeon(self, fort_id)
 
 
@@ -565,11 +880,23 @@ func _boss_reason() -> String:
 
 
 func cmd_begin_boss() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"seed": {}, "run_id": -1, "seed_rev": -1})
 	return StateRuns.begin_boss(self)
 
 
+## §4.5. no_run comes before catching_up (E2b-2 T3.3c): a dead run's refusal wins (StateRuns.abort_dungeon).
 func cmd_abort_dungeon() -> Dictionary:
 	return StateRuns.abort_dungeon(self)
+
+
+## §4.5 (v6, E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's loot banked so far (the raid result's
+## `loot`, §8.1) and the exit it would end in now ("retreated", "warden_beaten" or "relish_died"), replacing
+## its last checkpoint. A close, a crash, a load or a gap above idle.gap_s ends the run from it
+## (StateRuns.end_open). Reasons: no_run, wrong_run, wrong_kind (a boss run banks nothing), catching_up,
+## invalid, bad_outcome: a dead run's refusals come first.
+func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated") -> Dictionary:
+	return StateRuns.checkpoint(self, run_id, loot, outcome)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:
@@ -601,14 +928,20 @@ func _cap_of(section: String) -> int:
 
 
 func cmd_debug_grant(amounts: Dictionary) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"key": "", "applied": {}})
 	return DebugCmds.grant(self, amounts)
 
 
 func cmd_debug_set_state(patch: Dictionary) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"key": ""})
 	return DebugCmds.set_state(self, patch)
 
 
 func cmd_debug_skip_time(seconds: float) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up({"substeps": 0})
 	return DebugCmds.skip_time(self, seconds)
 
 
@@ -627,6 +960,8 @@ func _count_built(building_id: String) -> int:
 ## `build` job advances it; `building_started` comes out of the next substep, `building_done` when
 ## the work is in. A `unique` building (the Crypt) is refused while one stands (api_version 3).
 func cmd_build(building_id: String, lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"cost": {}})
 	return BuildRules.build(self, building_id, lot_id)
 
 
@@ -634,22 +969,54 @@ func cmd_build(building_id: String, lot_id: String) -> Dictionary:
 ## meanwhile (TownSim). Reasons in order: unknown_lot, empty_lot, under_construction, unpaid,
 ## max_level, needs_tier, no_gold, no_bone, no_relics.
 func cmd_upgrade(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"level": 0, "cost": {}})
 	return BuildRules.upgrade(self, lot_id)
 
 
 ## §4.3 · E2: removes a finished building, no refund. The Crypt is protected.
 func cmd_demolish(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	return BuildRules.demolish(self, lot_id)
 
 
 ## §4.3 · E2: cancels the construction under way and refunds its cost in full (relics clamped to the
 ## cap). A cancelled first build frees the lot; a cancelled upgrade keeps the old level.
 func cmd_cancel_build(lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"refund": {}})
 	return BuildRules.cancel_build(self, lot_id)
+
+
+## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
+## or queued for `lot_id`. Refuses only what waiting can't make valid; gates time or play can clear are
+## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build).
+func cmd_queue_build(building_id: String, lot_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1})
+	return BuildRules.queue_build(self, building_id, lot_id)
+
+
+## §4.3: removes queue entry `index` (unknown_index).
+func cmd_unqueue(index: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
+	return BuildRules.unqueue(self, index)
+
+
+## §4.3: `order[k]` is the old index that moves to position k, a permutation of the current indices
+## (bad_order).
+func cmd_reorder_queue(order: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
+	return BuildRules.reorder_queue(self, order)
 
 
 ## The ladder, a permutation of JOB_IDS, top first: TownSim's workers fill job slots in this order.
 func cmd_set_job_priority(order: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"order": []})
 	var why := _job_order_reason(order)
 	if why != "":
 		return {"ok": false, "reason": why, "order": []}
@@ -676,6 +1043,8 @@ func _job_order_reason(order: Array) -> String:
 
 ## A lot's staff cap (-1 = none) for TownSim's staffing. A cap above the slots is accepted.
 func cmd_set_staff_cap(lot_id: String, cap: int) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"cap": 0})
 	var why := ""
 	if BuildRules.lot(self, lot_id).is_empty():
 		why = "unknown_lot"
@@ -694,15 +1063,17 @@ func cmd_set_staff_cap(lot_id: String, cap: int) -> Dictionary:
 
 ## stance.base_slots, plus the Guildhall's, plus 1 while Relish is home (MECHANICS §4.5).
 func _stance_slots() -> int:
-	var n := int(_sec("economy", "stance").get("base_slots", 2)) + int(town_sim.built_effect("stance_slots"))
+	var n := int(_req_f("economy.stance.base_slots")) + int(town_sim.built_effect("stance_slots"))
 	if relish["state"] == "home":
-		n += int(_cfg().get("relish", {}).get("home_stance_bonus", 1))  # her one live home effect (§3.3)
+		n += int(_req_f("realm.relish.home_stance_bonus"))  # her one live home effect (§3.3)
 	return n
 
 
 ## E1/E3: stores the toggle. When the slots run short, the most recently enabled stances
 ## are suspended (view_stances), not switched off.
 func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"slots": 0, "used": 0})
 	if not STANCE_IDS.has(stance_id):
 		return {"ok": false, "reason": "unknown_stance", "slots": 0, "used": 0}
 	var slots := _stance_slots()
@@ -730,6 +1101,8 @@ func _find_uid(items: Array, uid: Variant) -> Dictionary:
 ## invalid_recipe are checked from E2.
 @warning_ignore("unused_parameter")
 func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"big_undead": {}})
 	var why := ""
 	if relish["state"] != "home":
 		why = "not_home"
@@ -758,6 +1131,8 @@ func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -
 
 
 func cmd_rename_big_undead(uid: String, name: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"name": ""})
 	var b := _find_uid(big_undead, uid)
 	if b.is_empty():
 		return {"ok": false, "reason": "unknown_uid", "name": ""}
@@ -801,6 +1176,8 @@ func _leave_party(b: Dictionary) -> void:
 
 ## E1/E2: records the place (and takes it out of the party); foreman and siege effects are E2.
 func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"place": ""})
 	var b := _find_uid(big_undead, uid)
 	var why := ""
 	if b.is_empty():
@@ -832,6 +1209,8 @@ func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 
 ## E3 stub: checks the item id, then ok with count 0.
 func cmd_craft(item_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"count": 0})
 	if not CRAFT_IDS.has(item_id):
 		return {"ok": false, "reason": "unknown_item", "count": 0}
 	rev += 1
@@ -840,6 +1219,8 @@ func cmd_craft(item_id: String) -> Dictionary:
 
 ## E3 stub: checks the fort id, then ok with zero charges.
 func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"charges": 0.0, "ready_left": 0})
 	if realm.fort_by_id(fort_id).is_empty():
 		return {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}
 	rev += 1
@@ -861,6 +1242,8 @@ func _vat_entry(i: int) -> Dictionary:
 ## and the ladder fills it like any other; unstaffing it closes the slot and gives the hand back
 ## (MECHANICS §7). Clones grow only while staffed from E3.
 func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"staffed": false})
 	if slot < 0 or slot >= _vat_slots():
 		return {"ok": false, "reason": "unknown_slot", "staffed": false}
 	while vats_staffed.size() <= slot:
@@ -875,6 +1258,8 @@ func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 ## The listed uids join the party in this order (place "party"); former members not
 ## listed go back to the crypt and lose their front.
 func cmd_set_party(uids: Array) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"party": []})
 	var why := ""
 	if not run.is_empty():
 		why = "busy"
@@ -907,6 +1292,8 @@ func cmd_set_party(uids: Array) -> Dictionary:
 
 ## E1/E3: records a party member's front ("" unassigns). Fronts take effect at E3.
 func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
 	var b := _find_uid(big_undead, uid)
 	var why := ""
 	if not run.is_empty():
@@ -925,10 +1312,12 @@ func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 
 
 # ------------------------------------------------------------ §4.7 ledger ----
-## {sources, sinks, held}: mass totals since the new game, and every pool of mass now (Ledger).
-## Σheld + Σsinks == Σsources at every substep boundary (MECHANICS §2.1).
+## {sources, sinks, held, stores}: mass totals since the new game, every pool of mass now (Ledger), and
+## the currency tally of what the gold and bone caps clipped (not mass). Σheld + Σsinks == Σsources at
+## every substep boundary (MECHANICS §2.1).
 func ledger() -> Dictionary:
-	return {"sources": _ledger.sources.duplicate(), "sinks": _ledger.sinks.duplicate(), "held": _held()}
+	return {"sources": _ledger.sources.duplicate(), "sinks": _ledger.sinks.duplicate(), "held": _held(),
+		"stores": _ledger.stores_copy()}
 
 
 func _held() -> Dictionary:
@@ -937,7 +1326,7 @@ func _held() -> Dictionary:
 
 ## economy.json worker.mass: the mass of one worker.
 func worker_mass() -> float:
-	return float(_sec("economy", "worker").get("mass", 40.0))
+	return _req_f("economy.worker.mass")
 
 
 # ----------------------------------------------------------------- §5 views ----
@@ -954,7 +1343,7 @@ func _world_size() -> Array:
 
 
 func _pool_cap() -> float:
-	return float(_cfg().get("vei_pool_cap", 600.0))
+	return _vei_pool_cap
 
 
 ## Every RATE_IDS stream as {id: [in, out]} per second, the one source of view_rates and view_hud
@@ -965,28 +1354,38 @@ func _pool_cap() -> float:
 ## - corpses, backlog: the realm's last substep (_realm_flows, session only); the haul leaves the
 ##   corpses at the same trip-averaged rate the bodies receive it.
 func _rate_io() -> Dictionary:
-	var r: Dictionary = town_sim.rates
 	var haul := _haul_rate()
-	var out := {
-		"workers": [float(r["workers"]["in"]), float(r["workers"]["out"])],
-		"bodies": [float(r["bodies"]["rot"]) + haul, float(r["bodies"]["out"])],
-		"gold": [float(r["gold"]["in"]), float(r["gold"]["out"])],
-		"bone": [float(r["bone"]["in"]), float(r["bone"]["out"])],
-		"living": [float(r["living"]["in"]), float(r["living"]["out"])],
-		"corpses": [float(_realm_flows["corpses"][0]), float(_realm_flows["corpses"][1]) + haul],
-		"backlog": [float(_realm_flows["backlog"][0]), float(_realm_flows["backlog"][1])],
-	}
+	var out := _town_io(town_sim)
+	out["corpses"] = [float(_realm_flows["corpses"][0]), float(_realm_flows["corpses"][1]) + haul]
+	out["backlog"] = [float(_realm_flows["backlog"][0]), float(_realm_flows["backlog"][1])]
 	for id in ["mint", "work", "war", "flood"]:
 		out[id] = [float(_split[id]), float(_split[id])]
 	return out
 
 
+## TownSim's streams as _rate_io gives them, for `ts` (the live TownSim, or a hypothetical's): workers,
+## bodies (rot return plus the trip-averaged haul), gold, bone and living, each [in, out] per second.
+static func _town_io(ts: TownSim) -> Dictionary:
+	var r: Dictionary = ts.rates
+	return {
+		"workers": [float(r["workers"]["in"]), float(r["workers"]["out"])],
+		"bodies": [float(r["bodies"]["rot"]) + _haul_rate_of(ts), float(r["bodies"]["out"])],
+		"gold": [float(r["gold"]["in"]), float(r["gold"]["out"])],
+		"bone": [float(r["bone"]["in"]), float(r["bone"]["out"])],
+		"living": [float(r["living"]["in"]), float(r["living"]["out"])],
+	}
+
+
 ## The convoy's trip-averaged corpse rate (mass/s): the last landed trip's load over its round trip,
 ## while a convoy is out; 0 while none is.
 func _haul_rate() -> float:
-	if (town_sim.haul["convoys"] as Array).is_empty():
+	return _haul_rate_of(town_sim)
+
+
+static func _haul_rate_of(ts: TownSim) -> float:
+	if (ts.haul["convoys"] as Array).is_empty():
 		return 0.0
-	return float(town_sim.rates["haul_trip"])
+	return float(ts.rates["haul_trip"])
 
 
 ## TownSim's steady-state workforce: this substep's worker inflow × the lifetime now (§4.1).
@@ -1101,6 +1500,201 @@ func view_realm() -> Dictionary:
 	return StateViews.realm(self)
 
 
+## §5.17 · E2b-2 (api_version 6, api-requests #7 c, #13): the held forts' readouts, the split and the
+## payoff at another valve, without changing anything (StateViews.projection). `settled` (T3.4b): the
+## margins are the wave train's at that valve, not the drag's one-wave probe.
+func view_projection(valve: Dictionary, settled := false) -> Dictionary:
+	return StateViews.projection(self, valve, settled)
+
+
+## The WAR the current valve sends each fort, mass/s, in world order: the last dispatch's split of
+## this substep's WAR (RealmSim.war_at), so view_projection at the current valve reads the same; before
+## the first substep after a load, the saved r_in.
+func _fort_wars() -> Array:
+	if realm._disp_w.size() == realm.forts.size():
+		return realm.war_at(float(_split["war"]))[0]
+	var out: Array = []
+	for f in realm.forts:
+		out.append(float(f["r_in"]))
+	return out
+
+
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
+## gets (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
+## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
+## of the clocks at the current and the planned support.
+func _fort_readout(f: Dictionary, w_in: float, train := {}, plan := []) -> Dictionary:
+	var fx := _relish_effects()
+	var id: String = f["id"]
+	var siege: Variant = _realm_inputs.get("siege_block", {})
+	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
+		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train, plan)
+
+
+## A new game or a load (cmd_new_game, from_dict): the wave train's cache is emptied and the frame path is
+## off until the shell's next capped tick, so nothing from the old state is served.
+func _reset_train() -> void:
+	_train_cache = {}
+	_frame_path = false
+
+
+## The wave train's verdicts for the live flows (MECHANICS §3.5, E2b-2 T3.4b): RealmSim.train_probe over
+## every held fort at the WAR the valve sends it once its slew is done (_train_war), cached (_train).
+## view_fort and view_realm read it; nothing in the sim does.
+func _train_live() -> Dictionary:
+	return _train(_train_war(), true)
+
+
+## The WAR the live train reads, mass/s: this substep's mint × the valve's target share, plus TownSim's
+## muster as it is now. The valve slews to its target at valve.slew_per_s (at most 20 s for a full swing),
+## and nothing but a command changes the target, so the train reads where it is going, as it reads Relish
+## where she is travelling to (_train_support). With the valve at its target it is this substep's WAR
+## (_split.war), bit for bit; and it is the WAR view_projection reads at the target valve.
+func _train_war() -> float:
+	return float(_split["mint"]) * float(valve_target["war"]) + float(_split["muster"])
+
+
+## The wave train at `war` mass/s of WAR (view_projection's valve with `settled`), cached (_train).
+func _train_valve(war: float) -> Dictionary:
+	return _train(war, false)
+
+
+## RealmSim.train_probe on _train_support(war, live), computed lazily on the first read after the state
+## moved and kept in _train_cache, one slot for the live flows and one for a projected valve; either
+## slot answers a call whose key matches it (view_projection with `settled` at the current valve is the
+## live train). The key is [rev, t, q, the support, RealmSim.train_state()]: rev and t as the build
+## projections key theirs (a catch-up's core steps move t without rev), and the state the probe starts
+## from, so an edit that bumps neither (a test, debug) still misses. Session only.
+## On the frame path (_frame_path) a read of the live flows doesn't probe when only live substeps have
+## moved the state since the live slot was made: rev less the substeps unchanged (no command since) and t
+## moved by exactly those substeps (no core step outside _tick: a catch-up's steps move t alone). It serves
+## that slot, the verdict at most a few substeps old, and _train_frame refreshes it on the next frame with
+## no substep. A command (a valve, a raid's flip, a move) or a catch-up probes at the next read.
+## A projected valve whose WAR is the live train's (the valve's target) reads the live slot the same way,
+## so view_projection with `settled` at the valve's target always equals view_fort.
+func _train(war: float, live: bool) -> Dictionary:
+	if not live and war == _train_war() and realm._disp_w.size() == realm.forts.size():
+		live = true
+	var sup := _train_support(war, live)
+	if sup.is_empty():
+		return _TRAIN_NONE  # nothing held: nothing to probe, nothing to refresh
+	var q := digest_q()
+	var key := [rev, t, q, sup, realm.train_state()]
+	var slot := "live" if live else "valve"
+	for s in [slot, "valve" if live else "live"]:
+		var c: Array = _train_cache.get(s, [])
+		if not c.is_empty() and c[0] == key:
+			if s == "live":
+				_train_cache["read"] = true
+			return c[1]
+	if live and _frame_path:
+		var c: Array = _train_cache.get("live", [])
+		var subs := _ticks - int(c[3]) if not c.is_empty() else 0
+		if not c.is_empty() and rev - int(c[2]) == subs and absf(t - float(c[4]) - subs * substep_s()) <= 1e-6:
+			_train_cache["read"] = true
+			return c[1]
+	return _train_probe(slot, key, sup, q)
+
+
+## Runs the probe for `key` into `slot` (_train, _train_frame); `read` marks the live slot read (a view's
+## call, not the frame refresh's).
+func _train_probe(slot: String, key: Array, sup: Dictionary, q: float, read := true) -> Dictionary:
+	var res := realm.train_probe(sup, q)
+	_train_cache[slot] = [key, res, rev, _ticks, t]
+	_train_cache["computed"] = int(_train_cache.get("computed", 0)) + 1
+	if slot == "live" and read:
+		_train_cache["read"] = true
+	return res
+
+
+## The frame refresh of the live slot (_advance, the frame path, after the substep loop; `substeps` the
+## substeps that call ran), as StateViews.projection_frame schedules the build benefit: only while a view
+## reads the live slot (`read`), and only on a frame that ran no substep with the accumulator at least
+## hold.train_frame_phase of a substep in (the scenes' refetch is early in the interval). When every frame
+## substeps (fast-forward), it runs after hold.train_starve_frames such frames in a row. Returns whether it
+## probed.
+func _train_frame(substeps: int) -> bool:
+	if not bool(_train_cache.get("read", false)):
+		_train_cache["starve"] = 0
+		return false
+	if substeps > 0:
+		var starve := int(_train_cache.get("starve", 0)) + 1
+		_train_cache["starve"] = starve
+		if starve < int(_req_f("realm.hold.train_starve_frames")):
+			return false
+	elif _acc < _req_f("realm.hold.train_frame_phase") * substep_s():
+		return false
+	_train_cache["starve"] = 0
+	_train_cache["read"] = false
+	var sup := _train_support(_train_war(), true)
+	var q := digest_q()
+	var key := [rev, t, q, sup, realm.train_state()]
+	var c: Array = _train_cache.get("live", [])
+	if not c.is_empty() and c[0] == key:
+		return false
+	_train_probe("live", key, sup, q, false)
+	return true
+
+
+## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort, at `war`
+## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
+## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
+## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
+## but a command changes it. `live` before the first substep after a load (no dispatch yet) reads the
+## saved r_in with her where she stands, as the other readouts do.
+func _train_support(war: float, live: bool) -> Dictionary:
+	if not realm.forts.any(func(f): return bool(f.get("held", false))):
+		return {}  # nothing held: no split to read
+	var fx := _relish_effects()
+	var dest := str(relish["target"]) if relish["state"] == "travelling" else ""
+	if realm.fort_by_id(dest).is_empty():
+		dest = ""
+	var wars: Array = []
+	if live and realm._disp_w.size() != realm.forts.size():
+		wars = _fort_wars()
+	elif dest != "":
+		wars = realm.war_at_tide(war, str(_realm_inputs.get("tide_fort", "")), float(_realm_inputs.get("tide_bias", 1.0)),
+			dest, _req_f("realm.relish.tide_bias"))[0]
+		fx = {"tide_fort": dest, "redirect_fort": dest}
+	else:
+		wars = realm.war_at(war)[0]
+	var siege: Variant = _realm_inputs.get("siege_block", {})
+	var sup := {}
+	for i in realm.forts.size():
+		var f: Dictionary = realm.forts[i]
+		if RealmSim.is_held(f):
+			var id: String = f["id"]
+			sup[id] = [float(wars[i]), fx["redirect_fort"] == id, _raise_rate, fx["tide_fort"] == id,
+				RealmSim._siege_at(siege if siege is Dictionary else {}, id)]
+	return sup
+
+
+## _fort_readout's garrison_rate alone (war_supports).
+func _fort_rate(f: Dictionary, w_in: float) -> float:
+	var fx := _relish_effects()
+	return realm.garrison_rate_of(f, w_in, fx["redirect_fort"] == str(f["id"]), _raise_rate, digest_q())
+
+
+## view_projection's valve: `v` normalised as cmd_set_valve normalises it; the current valve for one
+## it would refuse (not three finite numbers ≥ 0 with a positive sum) or one within 1e-12 of it.
+func _projection_valve(v: Dictionary) -> Dictionary:
+	var x: Array = []
+	for k in ["work", "war", "flood"]:
+		var e: Variant = v.get(k)
+		if not (e is float or e is int) or not is_finite(float(e)) or float(e) < 0.0:
+			return valve.duplicate()
+		x.append(float(e))
+	var m := maxf(x[0], maxf(x[1], x[2]))
+	if not (m > 0.0):
+		return valve.duplicate()
+	var n := _normalised(x[0] / m, x[1] / m, x[2] / m)
+	for k in n:
+		if absf(float(n[k]) - float(valve[k])) > 1e-12:
+			return n
+	return valve.duplicate()
+
+
 ## The fort Relish stands at (at_fort, or in its dungeon), or "".
 func _standing_fort() -> String:
 	var st: String = relish["state"]
@@ -1180,32 +1774,66 @@ func view_vei() -> Dictionary:
 	return StateViews.vei(self)
 
 
+## §5.18 · E2b-2 (api_version 6, T3.3b): the catch-up's progress, for a progress screen (the map's, Phase
+## I). `active` while one runs (a chunked cmd_load's, or an open-game gap's; IDLE §4); `done_s` of
+## `total_s` sim seconds are run. Once it is done `done_s == total_s` (the last one's), and 0 and 0 before
+## any since the last new game or load.
+func view_catchup() -> Dictionary:
+	return {"rev": rev, "active": _catchup.active, "done_s": _catchup.done_s(self), "total_s": _catchup.total_s}
+
+
+## §5.19 · E2b-2 (api_version 6, T3.3c; IDLE §7, api-request #7 d): the last "While you were away" report,
+## {rev, shown, away_s, capped, gains, ready, losses}, each line {text, kind, target}; shown false and every
+## list empty before any (StateViews.away).
+func view_away() -> Dictionary:
+	return StateViews.away(self)
+
+
+## §4.1 · E2b-2 (v6, T3.3c): the report is dismissed: view_away().shown becomes false (its lines stay until a
+## new game, a load or the next report replaces them). Reasons: catching_up.
+func cmd_dismiss_away() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
+	if not _away.is_empty():
+		_away["shown"] = false
+	rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## A reporting catch-up's end (Catchup.run, after its events are collected): the report from what it started
+## from (`before`, StateViews.away_before), the state now and its collected events, then `away_report {away_s,
+## capped}` queued for the scenes, once.
+func _report_away(before: Dictionary, evs: Array, away_s: float, capped: bool) -> void:
+	_away = StateViews.away_report(self, before, evs, away_s, capped)
+	_emit({"type": "away_report", "away_s": away_s, "capped": capped})
+
+
+## Not contract (tests; T3.3c's away report): the events the last catch-up that a report replaces
+## collected instead of queuing them (a load's, or an open-game gap's of idle.report_min_s or more), in
+## queue order with their `t`, as deep copies. [] after a new game, or a load with nothing to catch up.
+func catchup_events() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for e in _catchup.events:
+		out.append((e as Dictionary).duplicate(true))
+	return out
+
+
 # ----------------------------------------------------------------- §3 tick ----
-func _qcfg() -> Dictionary:
-	return _sec("realm", "q")
-
-
 ## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
 ## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the
 ## forge job's levels); Σ foreman_q is 0 until E3.
 func digest_q() -> float:
-	var qc := _qcfg()
 	var ema := float(_readout["q_raise_ema"])
-	var q_raise := float(qc.get("q_raise_max", 0.6)) * maxf(0.0, (ema - 50.0) / 50.0)
+	var q_raise := _q_raise_max * maxf(0.0, (ema - 50.0) / 50.0)
 	var foremen := 0.0
-	var q := float(qc.get("q0", 1.2)) + float(qc.get("q_forge", 0.1)) * float(town_sim.forge["level"]) + foremen + q_raise
-	return clampf(q, 1.0, float(qc.get("q_max", 4.0)))
-
-
-## legacy: delete when map drops the call (world_map.gd reads Game.quality()). The same q.
-func quality() -> float:
-	return digest_q()
+	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + foremen + q_raise
+	return clampf(q, 1.0, _q_max)
 
 
 ## Each raised bucket {score, mass}, in apply order, moves ema_score by α = 1 − 0.5^(mass /
 ## q.raise_half_mass): a half-life in mass raised, not in time, so it holds while no circles arrive.
 func _raise_ema(raised: Array) -> void:
-	var half := float(_qcfg().get("raise_half_mass", 200.0))
+	var half := _req_f("realm.q.raise_half_mass")
 	var ema := float(_readout["q_raise_ema"])
 	for e in raised:
 		var m := maxf(0.0, float(e["mass"]))
@@ -1217,25 +1845,71 @@ func _raise_ema(raised: Array) -> void:
 ## §3 step 3: the current valve moves toward the target along the straight line, by at most
 ## `valve.slew_per_s · dt` of L1 distance, so its components always sum to 1.
 func _slew_valve(dt: float) -> void:
-	var rate := float(_cfg().get("valve", {}).get("slew_per_s", 0.10))
+	valve = _slewed_valve(dt)
+
+
+## The valve one slew of `dt` from now (pure): what _slew_valve sets, and what the build benefit's
+## hypothetical step splits with (StateViews.projections).
+func _slewed_valve(dt: float) -> Dictionary:
+	var rate := _slew_per_s
 	var l1 := 0.0
 	for k in valve:
 		l1 += absf(float(valve_target[k]) - float(valve[k]))
 	var max_step := rate * dt
 	if l1 <= max_step + 1e-12:
-		valve = valve_target.duplicate()
-		return
+		return valve_target.duplicate()
 	var f := max_step / l1
-	for k in valve:
-		valve[k] = float(valve[k]) + (float(valve_target[k]) - float(valve[k])) * f
+	var v := valve.duplicate()
+	for k in v:
+		v[k] = float(valve[k]) + (float(valve_target[k]) - float(valve[k])) * f
+	return v
 
 
 ## Advances the sim by `dt` seconds in fixed substeps. Returns substeps run.
-## max_substeps > 0 caps the work; the remainder is then dropped.
+## max_substeps > 0 caps the work (the frame path); the remainder is then dropped. On the frame path a
+## frame whose real time (dt / time_scale) is above idle.gap_s goes through catch-up instead (IDLE §4; its
+## whole seconds, chunked, the fraction kept in the accumulator), so debug fast-forward stays live play.
+## While a catch-up is active each call runs one chunk of it (idle.catchup_steps_per_chunk core steps)
+## instead of live time; the calls' own time accumulates and, once the catch-up is done, runs as one
+## frame's time (with the cap raised to idle.gap_s of substeps, so at 1× none of it is dropped). Returns
+## 0 for a call that ran catch-up.
 func tick(dt: float, max_substeps := 0) -> int:
 	if paused or not is_finite(dt) or dt <= 0.0:
 		return 0
+	if _catchup.active:
+		_catchup.frame_acc += dt
+		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
+		if _catchup.active:
+			if max_substeps > 0:
+				_frame_work(0)
+			return 0
+		dt = _catchup.frame_acc
+		_catchup.frame_acc = 0.0
+		if max_substeps > 0 and not _is_gap(dt):
+			max_substeps = maxi(max_substeps, ceili(_req_f("economy.idle.gap_s") / substep_s()))
+	if max_substeps > 0 and _is_gap(dt):
+		var whole := floorf(dt)
+		# the same sanity cap as a load's (_away_of): above idle.catchup_max_s the excess is dropped whole,
+		# its fraction too, and the report says capped
+		var most := _req_f("economy.idle.catchup_max_s")
+		var capped := whole > most
+		if capped:
+			whole = most
+		else:
+			_acc += dt - whole
+		if not run.is_empty():  # IDLE I5: no run survives a gap; it ends from its last checkpoint, run_ended first
+			StateRuns.end_for_gap(self)
+		_catchup.begin(self, whole, whole >= _req_f("economy.idle.report_min_s"))
+		_catchup.capped = capped  # (begin clears it, as cmd_load sets it after begin)
+		_catchup.run(self, int(_req_f("economy.idle.catchup_steps_per_chunk")))
+		_frame_work(0)
+		return 0
 	return _advance(dt, max_substeps)
+
+
+## Whether a frame of `dt` sim seconds is a gap (IDLE §4): its real time, dt / time_scale, above idle.gap_s.
+func _is_gap(dt: float) -> bool:
+	return dt / (time_scale if time_scale > 0.0 else 1.0) > _gap_s
 
 
 func _advance(dt: float, max_substeps: int) -> int:
@@ -1250,22 +1924,63 @@ func _advance(dt: float, max_substeps: int) -> int:
 		_acc = 0.0
 	# §3 step 9: once per tick(dt) call, after the loop, whether or not a substep ran
 	field.advance(int(_cfg().get("field", {}).get("slice_budget_cells", 0)))
+	# the build benefit's refresh (STATE-API §5.10): the frame path only (a capped tick), on frames that ran
+	# no substep and late in the substep interval, so it never lands on the substep-and-fetch frames or the
+	# scenes' binds just after them (_frame_work)
+	if max_substeps > 0:
+		_frame_work(n)
 	return n
+
+
+## The frame path's background work, once per capped tick(): the build benefit's refresh
+## (StateViews.projection_frame) and the wave train's (_train_frame, MECHANICS §3.5: the same frames, so the
+## probe never lands where the scenes refetch). `substeps` the substeps the frame ran. Never during a
+## catch-up (IDLE §4, E2b-2 T3.3b): a catch-up's frames run a chunk of core steps and come here with no
+## substep, and nothing runs until it is done.
+func _frame_work(substeps: int) -> void:
+	if _catchup.active:
+		return
+	StateViews.projection_frame(self, substeps)
+	_frame_path = true
+	_train_frame(substeps)
 
 
 ## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
 func _mint(pits: int, feed: float) -> float:
-	var cfg: Dictionary = _cfg()
-	var bonus := float(_sec("economy", "pit").get("bonus", 0.6))
-	return (float(cfg.get("P_base", 2.0)) + float(cfg.get("P_per_pit", 6.0)) * pits) * (1.0 + bonus * feed)
+	return (_p_base + _p_per_pit * pits) * (1.0 + _pit_bonus * feed)
 
 
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
-## snapshot of the forts before this step's realm step, Covington, the haul target, the relics.
-func _town_inputs(work_mass: float) -> Dictionary:
+## snapshot of the forts before this step's realm step, Covington, the haul target, the relics. Each
+## fort's `dead_rate` is RealmSim's projection of its corpses over the step (RealmSim.dead_rates, with
+## Relish's redirect as she stands now), so the convoy reads them at its own moment (E2b-2 T3.3a).
+## With `reuse` (the core step only) the forts are _step_forts, refilled in place: the same values.
+func _town_inputs(work_mass: float, reuse := false) -> Dictionary:
 	var forts: Array = []
-	for f in realm.forts:
-		forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f)})
+	var fx := _relish_effects()
+	var redirect: String = fx["redirect_fort"]
+	var rates := realm.dead_rates(redirect, _raise_rate, digest_q() if redirect != "" or not realm.simulacra.is_empty() else 1.0)
+	if reuse:
+		forts = _step_forts
+		var n := realm.forts.size()
+		if forts.size() != n:
+			forts.resize(n)
+			_step_forts_of.resize(n)
+		for i in n:
+			var f: Dictionary = realm.forts[i]
+			var of: Variant = _step_forts_of[i]
+			if not (of is Array and is_same(of[0], f) and of[1] == f["pos"]):
+				forts[i] = {"id": f["id"], "pos": _xy(f["pos"]), "dead": 0.0, "held": false, "dead_rate": 0.0}
+				_step_forts_of[i] = [f, f["pos"]]
+			var e: Dictionary = forts[i]
+			e["dead"] = float(f["dead"])
+			e["held"] = RealmSim.is_held(f)
+			e["dead_rate"] = rates[i]
+	else:
+		for i in realm.forts.size():
+			var f: Dictionary = realm.forts[i]
+			forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f),
+				"dead_rate": rates[i]})
 	return {
 		"work_mass": work_mass, "relish_home": relish["state"] == "home", "held_villages": green_towns,
 		"forts": forts, "cov_pos": _xy(realm.cov_pos), "haul_target": haul_target, "relics_available": relics,
@@ -1293,6 +2008,7 @@ func _tick(dt: float) -> void:
 	var evs := _core_step(dt)
 	_present_step(dt, evs)
 	rev += 1
+	_ticks += 1
 
 
 ## The sim's step, valid at any `dt` (IDLE §4: live play runs it at sim.substep_s, catch-up at
@@ -1307,7 +2023,7 @@ func _core_step(dt: float) -> Array:
 	if not (dt > 0.0) or not is_finite(dt):
 		return []
 	t += dt
-	var cfg: Dictionary = _cfg()
+	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
 	_slew_valve(dt)
@@ -1315,45 +2031,97 @@ func _core_step(dt: float) -> Array:
 	var work := mint * float(valve["work"])
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
-	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending))
+	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending, true))
 	work_pending = 0.0
 	_apply_pickups(town["pickups"])
 	relics = maxi(0, relics - int(town["relics_spent"]))
 	for ev in town["events"]:
 		_emit_town(ev)
-	BuildRules.rise_tiers(self)
+	if town_sim.structure_rev != int(_tiers_seen[0]) or town_tier != str(_tiers_seen[1]):
+		BuildRules.rise_tiers(self)
+		_tiers_seen = [town_sim.structure_rev, town_tier]
+	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
+	# opens its entries this step and this step's income counts
+	BuildRules.process_queue(self)
 	# TownSim's muster joins this step's WAR
 	var muster := float(town["muster_mass"]) / dt
 	_split = {"mint": mint, "work": work, "war": mint * valve["war"] + muster,
 		"flood": mint * valve["flood"], "muster": muster}
-	# §3 step 4: Relish's travel and state
+	# §3 step 4: Relish's travel and state (her arrival's moment inside the step, for a walk home: _emit_realm)
+	_arrived_t = -INF
+	if relish["state"] == "travelling":
+		var left := maxf(0.0, _dist_to(str(relish["target"])) - ARRIVE_EPS) / travel_speed()
+		if left <= dt:
+			_arrived_t = t - dt + left
 	_step_relish_travel(dt)
 	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
-	var rcfg: Dictionary = cfg.get("relish", {})
 	# (siege_block: the siege big undead's share per fort, E3; none yet)
 	_realm_inputs = {
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
-		"tide_fort": fx["tide_fort"], "tide_bias": float(rcfg.get("tide_bias", 3.0)),
-		"redirect_fort": fx["redirect_fort"], "redirect_rate": float(rcfg.get("raise_rate", 4.0)),
+		"tide_fort": fx["tide_fort"], "tide_bias": _req_f("realm.relish.tide_bias"),
+		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
 		"siege_block": {},
 	}
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
-	var evs := realm.drain_events()
-	for ev in evs:
-		_emit(ev)
-	# §3 step 7: the ledger books this step's source and sinks (held is read live)
-	_ledger.source("mint", mint * dt)
-	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
-		_ledger.sink(k, float(town[k]))
-	_ledger.sink("cleared", cleared)
-	_ledger.sink("pool_overflow", realm.pool_overflow)  # the march-back past Vei's pool cap (MECHANICS §3.4)
+	var evs := _emit_realm(realm.drain_timed(), dt, mark)
+	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
+	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
+	# ten a step); the keys are the ledger's fixed set
+	var src: Dictionary = _ledger.sources
+	var snk: Dictionary = _ledger.sinks
+	src["mint"] = float(src["mint"]) + mint * dt
+	for k in _TOWN_SINKS:
+		snk[k] = float(snk[k]) + float(town[k])
+	snk["cleared"] = float(snk["cleared"]) + cleared
+	# the currency tally beside the mass (not mass; IDLE §6): what the gold and bone caps clipped
+	var sto: Dictionary = _ledger.stores
+	sto["gold"]["overflow"] = float(sto["gold"]["overflow"]) + float(town["gold_overflow"])
+	sto["bone"]["overflow"] = float(sto["bone"]["overflow"]) + float(town["bone_overflow"])
+	snk["pool_overflow"] = float(snk["pool_overflow"]) + realm.pool_overflow  # the march-back past Vei's pool cap (MECHANICS §3.4)
 	_note_realm_flows(dt, cleared)
 	# §3 step 8: the readouts
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
 	return evs
+
+
+## This step's realm events ([[seconds into the step, event], ...], RealmSim.drain_timed), stamped
+## at their moment: a retake inside the step carries its own time (IDLE §4), the rest the step's
+## end. One stamped before the step's end goes in ahead of the step's other events (from `mark`),
+## in time order, so `t` never decreases. A retake sends the siege big undead there home (IDLE I6,
+## `big_undead_returned` right after it), and Relish home if she stands there (IDLE I5, _walk_home:
+## `relish_returned` after those, at the same t). Returns the realm events, in queue order.
+func _emit_realm(timed: Array, dt: float, mark: int) -> Array:
+	var early: Array = []
+	var late: Array = []
+	for e in timed:
+		var at := float(e[0])
+		var ev: Dictionary = e[1]
+		ev["t"] = (t - dt + at) if at >= 0.0 and at < dt else t
+		var out: Array = early if float(ev["t"]) < t else late
+		out.append(ev)
+		if ev["type"] == "fort_retaken":
+			for uid in _uids_at("fort:" + str(ev["fort_id"])):
+				_find_uid(big_undead, uid)["place"] = "crypt"
+				out.append({"type": "big_undead_returned", "uid": uid, "fort_id": str(ev["fort_id"]), "t": ev["t"]})
+			# she walks home if she stood there at the retake: not if she arrived after it inside this step (a
+			# live substep would have seen the fort fall before she got there, and she stays, as at any Vei fort)
+			if relish["state"] == "at_fort" and str(relish["at"]) == str(ev["fort_id"]) and _arrived_t <= float(ev["t"]):
+				_walk_home(str(ev["fort_id"]), float(ev["t"]))
+				out.append({"type": "relish_returned", "fort_id": str(ev["fort_id"]), "cause": "retaken", "t": ev["t"]})
+	# insertion by t keeps equal times in the order RealmSim raised them
+	var sorted: Array = []
+	for ev in early:
+		var k := sorted.size()
+		while k > 0 and float(sorted[k - 1]["t"]) > float(ev["t"]):
+			k -= 1
+		sorted.insert(k, ev)
+	for k in sorted.size():
+		_events.insert(mark + k, sorted[k])
+	_events.append_array(late)
+	return sorted + late
 
 
 ## The presentation step (§3 step 9 and the lane callouts): what only the map shows, plus the
@@ -1396,8 +2164,8 @@ func _inject_sources(dt: float) -> void:
 	var fcfg: Dictionary = _cfg().get("field", {})
 	var src_main: float = float(fcfg.get("src_main", 3.0))
 	var src_fort: float = float(fcfg.get("src_fort", 1.1))
-	field.inject(realm.cov_pos, true, src_main * (1.0 + float(_cfg().get("field_src_per_pit", 0.15)) * town_sim.pits()) * dt, 2)
-	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, float(_cfg().get("vei_pool_cap", 600.0)))
+	field.inject(realm.cov_pos, true, src_main * (1.0 + _src_per_pit * town_sim.pits()) * dt, 2)
+	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, _vei_pool_cap)
 	field.inject(realm.vei_pos, false, src_main * vei_str * dt, 3)
 	for f in realm.forts:
 		var cap: float = f["cap"]
@@ -1426,73 +2194,7 @@ func _update_towns(cfg: Dictionary) -> void:
 			green_towns += 1
 
 
-# ------------------------------- compatibility for unported callers, and death ----
-# STATE-API §2.2: built best-effort from the new state; nothing written to them is read back.
-
-## legacy: delete when map drops the call (scripts/main.gd merges it into an unported dungeon's
-## args). The pre-E1 raid seed's keys, from the live fort and q.
-func raid_seed(fort_id: String) -> Dictionary:
-	var f := realm.fort_by_id(fort_id)
-	if f.is_empty():
-		return {}
-	return {
-		"fort_id": fort_id, "name": f["name"], "tier": f["tier"], "cap": f["cap"],
-		"living": f["living"], "undead": f["undead"], "dead": f["dead"], "boss": false, "quality": digest_q(),
-	}
-
-
-## legacy: delete when map drops the call (scripts/main.gd merges it into an unported boss's args).
-## The pre-E1 boss seed's keys; the army is gone, so it is empty.
-func boss_seed() -> Dictionary:
-	return {
-		"fort_id": "vei", "name": "Vei's Domain", "tier": 5, "cap": 800.0,
-		"living": 500.0, "undead": 0.0, "dead": 60.0, "boss": true,
-		"quality": digest_q(), "backlog": float(realm.vei["undead_queue"]),
-		"army": {"soldier": 0, "elite": 0}, "vei_capacity": float(_cfg().get("R_vei", 50.0)), "odds": realm.odds(),
-	}
-
-
-## legacy: delete when map drops the call (scripts/main.gd merges it into the town scene's args).
-## {}: the town reads views now.
-func town_snapshot() -> Dictionary:
-	return {}
-
-
-## legacy: delete when map drops the call (scripts/main.gd passes a legacy town result). A no-op:
-## town actions are commands.
-@warning_ignore("unused_parameter")
-func apply_town_result(r: Dictionary) -> void:
-	pass
-
-
-## legacy: delete when map drops the reads (world_map.gd and map_routes.gd read Game.res, army,
-## town, assignments, idle_undead and gather; Game's getters forward here). The E1 stores rebuilt
-## fresh from the new state (STATE-API §2.2), so a write to them changes nothing:
-## res {gold, materials: bone, bodies, townsfolk: living}; army {soldier: 0, elite: 0};
-## town {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0};
-## assignments: staffed workers per old job (trade: stall, forge, jobs: build, gather: haul,
-## slab: pit), rounded; idle_undead: idle workers, rounded; gather {target, phase, eta, load}: the
-## convoy (phase "idle" and the set target, or "", when none is out). Every count is an int.
-func legacy_stores() -> Dictionary:
-	var ts := town_sim
-	var jobs: Dictionary = ts.staffing.get("jobs", {})
-	var assign := {}
-	for pair in [["trade", "stall"], ["forge", "forge"], ["jobs", "build"], ["gather", "haul"], ["slab", "pit"]]:
-		assign[pair[0]] = roundi(float(jobs.get(pair[1], {}).get("staffed", 0.0)))
-	var gather := {"target": "" if haul_target == "auto" else haul_target, "phase": "idle", "eta": 0.0, "load": 0.0}
-	for c in ts.haul["convoys"]:
-		gather = {"target": str(c["fort"]), "phase": str(c["phase"]),
-			"eta": (1.0 - float(c["t"])) * float(c["trip_s"]), "load": float(c["load"])}
-	return {
-		"res": {"gold": ts.gold, "materials": ts.bone, "bodies": ts.bodies, "townsfolk": ts.living},
-		"army": {"soldier": 0, "elite": 0},
-		"town": {"slabs": ts.pits(), "vats": clones_ready, "forge_level": int(ts.forge["level"]),
-			"sim_stations": 0, "trade_level": 0},
-		"assignments": assign,
-		"idle_undead": roundi(float(ts.staffing.get("idle", 0.0))),
-		"gather": gather,
-	}
-
+# ------------------------------------------------------------------------ death ----
 
 ## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
 ## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
@@ -1535,15 +2237,78 @@ func from_dict(d: Dictionary) -> Dictionary:
 	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
+	_reset_train()
+	_catchup = Catchup.new()
+	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
+	_tiers_seen = [-1, ""]
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
+	_restore_dispatch()
+	# IDLE I5 (E2b-2 T3.3c): a run open at the save ends now, from its last checkpoint, before any catch-up
+	# (cmd_load's, either path); its events are queued as live
+	if m.get("pending_retreat") is Dictionary:
+		StateRuns.apply_pending(self, m["pending_retreat"])
 	return {"ok": true, "reason": ""}
+
+
+## The load flash (E2b-2 T3.3b; T3.4b's concern 4). The last substep's split (_split) and WAR dispatch
+## (RealmSim's _disp_w, _disp_lim and r_war_to_vei) are session-only, so before the first substep after a
+## load the readouts read the saved r_in with Relish where she stands, not her committed arrival or the
+## valve's target: midgame_2flips as loaded read both held forts safe for a substep, then thin. This
+## rebuilds them from what the save holds, as that substep left them, so a load reads what the state read
+## before its save (to the save's 15 digits):
+## - the mint from TownSim's saved worker inflow (WORK is the mint × the valve's work share, taken in the
+##   same step), or with a work share of 0 the next step's (_mint at the working pits and the feed now);
+##   the muster from TownSim's saved rate; WAR, WORK and FLOOD as that step split them;
+## - each fort's dispatch weight (RealmSim._war_weight, with her tide where the saved state puts her, as
+##   the step's inputs did), for every fort that step sent WAR (r_in > 0) and every held fort;
+## - the limits: a fort whose r_in / weight is under the water level (the largest r_in / weight) took its
+##   limit, so its limit is its r_in; the rest had room (no limit). With WAR left over for Vei every
+##   target took its limit.
+## Nothing saved changes (to_dict is the same) and no step runs; the first substep replaces all of it.
+## view_rates' corpses and backlog and view_vei's raw diff still read 0 until then (STATE-API §9.1).
+func _restore_dispatch() -> void:
+	var wm := worker_mass()
+	var rw: Dictionary = town_sim.rates.get("workers", {})
+	var muster := float(rw.get("muster", 0.0)) * wm
+	var mint := 0.0
+	if float(valve["work"]) > 0.0:
+		mint = float(rw.get("in", 0.0)) * wm / float(valve["work"])
+	else:
+		mint = _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+	var war := mint * float(valve["war"]) + muster
+	_split = {"mint": mint, "work": mint * float(valve["work"]), "war": war, "flood": mint * float(valve["flood"]),
+		"muster": muster}
+	var fx := _relish_effects()
+	var bias := _req_f("realm.relish.tide_bias")
+	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],
+		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": {}}
+	var w: Array[float] = []
+	var given := 0.0
+	var level := 0.0
+	for f in realm.forts:
+		var r_in := float(f["r_in"])
+		var wt: float = realm._war_weight(f, fx["tide_fort"], bias) if r_in > 0.0 or RealmSim.is_held(f) else 0.0
+		w.append(wt)
+		given += r_in
+		if wt > 0.0:
+			level = maxf(level, r_in / wt)
+	var left := war - given
+	var spill := left > 1e-9 * war  # WAR fell through to Vei: every target was at its limit
+	var lim: Array[float] = []
+	for i in realm.forts.size():
+		var r_in := float(realm.forts[i]["r_in"])
+		lim.append(r_in if w[i] > 0.0 and (spill or r_in < level * w[i] * (1.0 - 1e-9)) else INF)
+	realm._disp_w = w
+	realm._disp_lim = lim
+	realm.r_war_to_vei = left if spill else 0.0
+	realm.r_flood = _split["flood"]  # (view_lanes' FLOOD lane; the step sets it before it reads it)
 
 
 ## economy.json sim.autosave_s: real seconds between the shell's autosaves.
 func autosave_s() -> float:
-	return float(_cfgs.get("economy", {}).get("sim", {}).get("autosave_s", 30.0))
+	return _req_f("economy.sim.autosave_s")
 
 
 # ------------------------------------------------------- §4.1 save and load ----
@@ -1554,14 +2319,22 @@ func _summary() -> String:
 	return "%d:%02d · %s · odds %.2f" % [mins / 60, mins % 60, town_tier.capitalize(), float(_vei_readout()["odds"])]
 
 
+## Unix seconds now: clock_override when it is set (a test's "now"), else the system clock. The sim's one
+## read of the wall clock (cmd_save stamps saved_at with it; cmd_load measures the time away with it).
+func _now_unix() -> int:
+	return clock_override if clock_override >= 0 else int(Time.get_unix_time_from_system())
+
+
 func cmd_save(slot: String) -> Dictionary:
 	var out := {"ok": false, "reason": "", "saved_at": 0, "path": ""}
-	if not SaveIO.slot_ok(slot):
+	if _catchup.active:
+		out["reason"] = "catching_up"  # the state is behind the clock: a save now would lose the rest
+	elif not SaveIO.slot_ok(slot):
 		out["reason"] = "bad_slot"
 	elif realm == null:
 		out["reason"] = "write_failed"  # no game to save
 	else:
-		var saved_at := int(Time.get_unix_time_from_system())
+		var saved_at := _now_unix()
 		var d := to_dict()
 		d["slot"] = slot
 		d["saved_at"] = saved_at
@@ -1580,18 +2353,44 @@ func cmd_save(slot: String) -> Dictionary:
 	return out
 
 
-func cmd_load(slot: String) -> Dictionary:
+## §4.1. Loads the slot, then catches up the real time since its saved_at (IDLE §4): `away_s` seconds (the
+## whole seconds since then, 0 if the clock went back or the file has no saved_at, at most
+## idle.catchup_max_s; `capped` when it was more). Synchronous, unless `chunked`: then it returns at once
+## with the catch-up pending, and tick() advances it a chunk per call (view_catchup).
+func cmd_load(slot: String, chunked := false) -> Dictionary:
+	var fail := {"ok": false, "reason": "", "away_s": 0.0, "capped": false}
+	if _catchup.active:
+		return _refuse_catching_up({"away_s": 0.0, "capped": false})
 	if not run.is_empty():
-		return {"ok": false, "reason": "busy"}
+		fail["reason"] = "busy"
+		return fail
 	if not SaveIO.slot_ok(slot):
-		return {"ok": false, "reason": "bad_slot"}
+		fail["reason"] = "bad_slot"
+		return fail
 	var d := SaveIO.read_file("%s/%s.json" % [save_dir, slot])
 	if d.is_empty():
-		return {"ok": false, "reason": "no_save"}
+		fail["reason"] = "no_save"
+		return fail
 	var r := from_dict(d)
-	if r["ok"]:
-		return {"ok": true, "reason": ""}
-	return {"ok": false, "reason": "bad_version" if r["reason"] == "bad_version" else "no_save"}
+	if not r["ok"]:
+		fail["reason"] = "bad_version" if r["reason"] == "bad_version" else "no_save"
+		return fail
+	var away := _away_of(d.get("saved_at"))
+	_catchup.begin(self, float(away[0]), true)
+	_catchup.capped = away[1]
+	if not chunked:
+		_catchup.run(self)
+	return {"ok": true, "reason": "", "away_s": float(away[0]), "capped": away[1]}
+
+
+## [the whole seconds to catch up, capped]: now (_now_unix) − `saved_at` (a save file's integer unix
+## seconds), 0 when that is negative or the file has none, at most idle.catchup_max_s (capped above it).
+func _away_of(saved_at: Variant) -> Array:
+	if not SaveIO.fits(saved_at, TYPE_INT):
+		return [0, false]
+	var away := maxi(0, _now_unix() - int(saved_at))
+	var most := int(_req_f("economy.idle.catchup_max_s"))
+	return [mini(away, most), away > most]
 
 
 ## §4.1: `[{slot, saved_at, summary}]`, newest first (ties by slot). Not a command: no rev bump.
@@ -1601,6 +2400,8 @@ func list_saves() -> Array[Dictionary]:
 
 ## §4.6, E1. Loads <fixture_dir>/<name>.json through from_dict.
 func cmd_debug_load_fixture(name: String) -> Dictionary:
+	if debug_enabled and _catchup.active:
+		return _refuse_catching_up()
 	return DebugCmds.load_fixture(self, name)
 
 

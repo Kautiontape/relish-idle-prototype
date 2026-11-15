@@ -73,7 +73,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `cmd_set_haul_target(fort_id | "auto")`.
 - **Town:**
   - `cmd_build(building_id, lot_id)`, `cmd_upgrade(lot_id)`, `cmd_demolish(lot_id)`,
-    `cmd_cancel_build(lot_id)`;
+    `cmd_cancel_build(lot_id)`; the build queue `cmd_queue_build(building_id, lot_id)`, `cmd_unqueue(index)`,
+    `cmd_reorder_queue(order)` (E2b-2, §4.4);
   - `cmd_set_job_priority(order:Array)`, `cmd_set_stance(stance_id, on:bool)`;
   - `cmd_raise_big_undead(husk_uid, remnant_uids, name)`, validated with SlabLogic's math;
   - `cmd_rename_big_undead(uid, name)`, `cmd_place_big_undead(uid, place)`, where place is
@@ -83,6 +84,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - **Dungeon and boss:**
   - `cmd_set_party(uids:Array)`;
   - `cmd_begin_dungeon(fort_id) -> {ok, seed}` (Relish must be at the fort), `cmd_abort_dungeon()`;
+  - `cmd_run_checkpoint(run_id, loot, outcome)` (E2b-2 T3.3c, IDLE I5): the open raid's banked loot and the
+    exit it would end in, which a close, a crash, a load or a gap ends the run from;
   - `cmd_assign_front(uid, front_id)`;
   - `cmd_begin_boss() -> {ok, seed}`;
   - `apply_result(kind, result)` (`raid` | `boss`).
@@ -95,7 +98,12 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `view_rates()`: `{id: {in, out, net}}` over a fixed exported id list;
   - `view_lanes()`: `[{from, to, kind: war|flood|work|dead|living|haul|redirect, rate, bias,
     why}]`, where `why` is a short change callout such as "Relish left" or "tithe wave" (vision S1);
-  - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`.
+  - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`;
+  - `view_away()`, `cmd_dismiss_away()` (E2b-2 T3.3c; IDLE §7): the "While you were away" report, built at
+    a reporting catch-up's end, kept until dismissed;
+  - `view_projection(valve, settled := false)`: the held forts' margins, "WAR supports N of M", the
+    split and the payoff at another valve, pure (E2b-2, §3.5); `settled` judges the margins against the
+    wave train (T3.4b), as `view_fort` does, instead of a drag's one-wave probe.
 - **Relish:** `view_relish()`: state, pos, target, heading, `dead_s_left`, phylactery charges,
   clones ready, `can_descend` and the reason.
 - **Town:** `view_town()`, `view_catalog()` (each building with cost, `can_build` and the reason),
@@ -108,9 +116,10 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 
 **Events:** `drain_events() -> [{t, type, ...}]`. Types:
 - `relish_died{outcome}`, `relish_respawned`;
-- `building_started`, `building_done`, `building_unpaid`, `tier_up`;
-- `fort_flipped`, `fort_retaken`, `tithe_warning`, `tithe_wave`;
-- `stance_fired`, `loot_banked`, `vei_result`;
+- `building_started`, `building_done`, `building_unpaid`, `tier_up`, `queue_started` (E2b-2);
+- `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
+- `stance_fired`, `loot_banked`, `vei_result`, `run_ended` (E2b-2: a gap ended the open run), `relish_returned`
+  (E2b-2: her fort retaken, she walks home), `away_report` (E2b-2: the away report is ready);
 - `autosaved`, `save_failed`.
 
 The autoload re-emits each event as a signal.
@@ -130,8 +139,11 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
   - no int dictionary keys (use arrays);
   - seeds are saved as strings.
 - Saves are atomic (tmp + rename) with `v` and a migrate hook. A corrupt file counts as no save.
-- Autosave runs every 30 s and on scene change, and never persists `in_dungeon`. On load, Relish is
-  at the fort and that run is forfeited.
+- Autosave runs every 30 s and on scene change, and never persists `in_dungeon`. A run open at the save
+  is written as `pending_retreat` (its last checkpoint; E2b-2 T3.3c, IDLE I5). On load, Relish is at the
+  fort and that run ends as a retreat from its last checkpoint, before the catch-up: the loot banked by
+  then, no flip; a checkpoint at the warden's victory beat ends as the win, one at the death beat as a
+  death (STATE-API §4.5). A boss run is forfeited.
 - Three fixture saves ship in `tests/fixtures/`: day-1, mid-game with 2 flips, and pre-Vei. Scene
   units use them for screenshots and view tests.
 
@@ -140,7 +152,10 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 - The autoload feeds it **real** delta × `Game.time_scale`:
   `delta / max(0.05, Engine.time_scale) * time_scale`. Trance's `Engine.time_scale` never slows the
   realm.
-- At most `sim.max_substeps_per_frame` per frame. A gap above `idle.gap_s` goes through catch-up instead of being dropped (IDLE.md §4); smaller remainders are dropped.
+- At most `sim.max_substeps_per_frame` per frame. A frame whose real time is above `idle.gap_s` goes
+  through catch-up instead of being dropped (IDLE.md §4; E2b-2 T3.3b, STATE-API §3), in chunks of
+  `idle.catchup_steps_per_chunk` core steps over the next frames; smaller remainders are dropped. Debug
+  fast-forward stays live (the check is real time).
 - Entering a dungeon or boss forces time scale 1. The router resets `Engine.time_scale = 1` on every
   scene swap.
 
@@ -149,7 +164,8 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 2. the valve slew and split. The mint reads the working pits now and the feed of the step before
    (both dimensionless), so the mint lags TownSim by one step, which is accepted (E2b: this
    replaces WORK arriving one substep late, a mass re-divided by the next step's dt);
-3. TownSim, on this step's WORK as rate × dt, in the same step;
+3. TownSim, on this step's WORK as rate × dt, in the same step; then the tiers rise and the build queue
+   is processed (§4.4);
 4. Relish's travel and state (GameState);
 5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.
    Holds and the tithe state are RealmSim's own state (§3.1), not inputs;
@@ -161,8 +177,11 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 Steps 1–8 are the **core step** (`GameState._core_step(dt)`): valid at any `dt`, everything in it is
 exact or a rate over the step (E2b T3.0; `tests/slow/convergence.gd` measures it). Step 9, the
 village owners it decides and the lanes' callouts are the **presentation step**. Live play runs the
-core step, then the presentation step, for each `sim.substep_s` substep; catch-up (IDLE §4) runs
-core steps of its own length and caps the presentation.
+core step, then the presentation step, for each `sim.substep_s` substep. Catch-up (IDLE §4;
+`scripts/sim/catchup.gd`, E2b-2 T3.3b) runs the same core step at its own lengths, clipped at events.
+In place of the presentation it runs `idle.field_steps` field steps (`InfluenceField.catchup_step`, each
+followed by the village owners) and the lanes' callouts once at its end, for the net change; its steps
+don't count as substeps (`rev` rises by 1 for each).
 
 The sim keeps ticking while any scene is open. Dungeon writebacks are **deltas clamped to the live
 values**.
@@ -175,8 +194,8 @@ values**.
 | war, flood | mass/s | stream | valve | forts / Vei's queue | per lane |
 | corpses at forts | mass | pool (RealmSim `dead`) | your kills, the redirect | haul, Relish's raise, shipping to Vei, `k_clear` | pips |
 | bodies | mass | capped store (`body_store.cap`) | haul, worker rot × `worker.body_return`, dungeon hauls | pit burn, mill | net /s and a bar |
-| gold | gold | stream, floor 0 | market trade | upkeep, build costs | net /s |
-| bone | bone | stream, floor 0 | mill | build costs, some upkeep | net /s |
+| gold | gold | capped store (`gold.cap`, raised by the Market), floor 0 | market trade | upkeep, build costs; what the cap clips (`ledger().stores`) | net /s and a bar |
+| bone | bone | capped store (`bone.cap`, raised by the Bone Mill), floor 0 | mill | build costs, some upkeep; what the cap clips | net /s and a bar |
 | relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons only | buildings, forge levels, phylactery, upgrades | count |
 | blueprints | set | unlocks | dungeons only (first clear guaranteed) | unlock building types | set |
 | essence | motes (int) | capped stock (`essence.cap`) | dungeons (carried out) | phylactery charges, simulacra | count |
@@ -196,7 +215,9 @@ net mass debug commands added or removed. The sinks (`ledger()` keys, STATE-API 
 - `vei_fight` (a lost Vei fight) and `dungeon` (the raid writeback's loss);
 - `pool_overflow`: living marching back from above a fort's cap (§3.4) that land past Vei's pool
   cap. Her own take is limited to the pool's headroom, so only the march-back books here;
-- `store_overflow`, 0 until E2b's store caps (IDLE §6).
+- `store_overflow`, always 0: the store caps (IDLE §6, E2b-2 T3.2) clip gold and bone, which are not
+  mass. Their overflow is a currency tally beside the ledger, `ledger().stores` `{gold: {overflow},
+  bone: {overflow}}` (§4.3), saved with it; the currency soak (`test_ledger`) closes on it.
 
 Everything else is an internal transfer: Vei turning dead and undead into living, her shipping and
 surges, the march-back into her pool, the valve, muster, haul pickups, the redirect and simulacra.
@@ -241,7 +262,12 @@ Names, to avoid confusion:
   config or keeps its own Relish.
 - `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
   (D2) and nothing reads it.
-- `forts[i].held_s` and the tithe-wave state are RealmSim state.
+- Each fort's hold (`held`, `grace_s`, `zero_s`; §3.4) and the tithe-wave state are RealmSim state.
+- **A step is split inside** at every held fort's grace end and at the moment a contested garrison
+  sitting at 0 completes `hold.break_s` there (E2b-2 T3.1), so each part has every fort in one regime
+  (in grace, contested or unheld) and both events land at their time at any dt. A split step's rates
+  are its parts' time-weighted means; a step with neither event is one part, as before. A retake's
+  `fort_retaken` carries its moment inside the step (GameState stamps `t` from it).
 - **Within a step** (E2b T3.0: exact at any `dt`, so catch-up's long steps match live play):
   1. the tithe clock (§3.4: a wave's start, at its exact time inside the step);
   2. Vei's shipping (§3.4) and the surge, as **inflow rates over the step**. Shipping goes into each
@@ -261,22 +287,35 @@ Names, to avoid confusion:
      and from then on the kills equal the inflow. The kills are the inflow less ΔL less what
      marched back. U's
      own path, `dU/dt = W + raises − r_drain · U − k_destroy · L̄ / q`, is exact, including the
-     moment U reaches 0. After that, every arriving undead is destroyed at once. Ū and L̄ come from
+     moment U reaches 0. After that, every arriving undead is destroyed at once. **U leaving 0**
+     (E2b-2 T3.3a): while U sits at 0 nothing kills the living, so their path is exact, and the
+     moment the pull `k_destroy · L / q` falls back below U's inflow (WAR and the raises) along it is
+     a closed form: above the cap the excess relaxes as `x(t) = c·τ + (x0 − c·τ) · e^(−t/τ)`, so it
+     falls through `x* = q · inflow / k_destroy − cap` at `τ · ln((x0 − c·τ) / (x* − c·τ))`, which
+     exists only when `c·τ < x* < x0` (at or under the cap, with U at 0, the living only rise). U is
+     at 0 from the step's start when it starts there with the pull at or above its inflow, whatever
+     the step's mean pull says, or from the moment the step's solve takes it there. A step that
+     holds that moment is split there: the first piece holds U at 0, the second starts it from 0,
+     both with the step's rates, and their masses add. Before, U's whole step took one regime from
+     the step's mean pull, so the moment it left 0 landed anywhere inside a 10 s step (the zero
+     clock below). Ū and L̄ come from
      alternating the two paths: a predictor from L0, then two corrections. The garrison's kills
      (`k_destroy · ∫L / q`, at most what the undead hold) and the drain come from U's path,
      `k_clear · ∫L` (at most the corpses) from living's. Kills at a redirect fort stay (§3.3). The
      redirect raises (Relish's, then the simulacra's) are a rate inside the step, bounded by the
-     corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`: the seconds into
-     the step when living or undead reached 0 (0 when they started there), −1 when they did not.
-     These are natural event boundaries for catch-up; nothing reads them yet. The living that
-     marched back land in her pool, after this step's shipping;
+     corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`, the seconds into
+     the step when living or undead reached 0 (0 when they started there), and `t_undead_back`,
+     when U left 0 again; each is −1 when it did not happen. Step 8's zero clock reads the last two.
+     The living that marched back land in her pool, after this step's shipping;
   6. Vei's conversion. What the march-back took past her pool's cap is lost (`pool_overflow`,
      §2.1). Her take is clamped to her pool's headroom, which **counts this step's shipping** and
      the march-back, so at her cap a long step converts what it ships less what marched back;
-  7. the wave books what it delivered and ends after `surge_s`; then the next wave's warning, its
-     target read from this step's dispatch (§3.4);
-  8. the hold countdown. A hold that runs out this step still counted as held for all of it, and a
-     fort retaken this step records one `fort_retaken`, never two.
+  7. the wave books what it delivered and ends after `surge_s`;
+  8. the holds (§3.4): grace counts down; a contested garrison's zero clock runs while it sits at 0
+     and restarts when it doesn't, counting only the time at 0 inside the step (`t_undead_out` to
+     `t_undead_back`, or to the step's end); `hold.break_s` of it retakes the fort, at that moment;
+  9. the next wave's warning, its target read from this step's dispatch and the holds as the step
+     leaves them (§3.4).
 
 ### 3.2 The valve
 - `mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed)`, where
@@ -358,19 +397,131 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   - stances get one extra stance slot (`relish.home_stance_bonus`).
 - **Dead:** no tide, redirect, slab or bonus. **Everything else stays live:** valve, building,
   stances (vision review S3).
+- **Her fort retaken** (IDLE I5, E2b-2 T3.3c): when the fort she stands at (`at_fort`) is retaken, she
+  walks home to Covington at `relish.travel_speed`, from the retake's moment inside the step
+  (`relish_returned`, and `view_relish().returned`). Live play and catch-up alike, so she never waits at a
+  fort Vei holds while you're away. She must stand there at the retake: one she reaches after it, inside
+  the same step, she stays at (a live substep sees the fort fall before she arrives, and she stands at a
+  Vei fort as at any). In its dungeon she stays: the run goes on, and when it ends she stands at the fort.
 
 ### 3.4 Flips and tithe waves
 **Flip.** On `warden_beaten`:
 - all the fort's living become dead, applied as a clamped delta;
-- the fort is **held**: a grace period of `flip.hold_s · (1 + flip.tier_mult · tier)`, then a support-vs-pressure contest (IDLE.md §3).
+- the fort is **held**: a grace of `flip.hold_s · (1 + flip.tier_mult · tier)` (`fort_flipped.hold_s`
+  is that grace), then a contest between two pools (IDLE.md §3; E2b-2 T3.1 replaced E2a's timer,
+  which retook the fort when `held_s` ran out, cause `expired`).
 
-E2a keeps the timer: RealmSim counts `held_s` down, and at 0 the fort is no longer held and
-RealmSim records `fort_retaken` with cause `expired` (GameState stamps `t`). The contest replaces it
-at E2b.
+**The hold's state** (RealmSim, saved): `held`, `grace_s` (grace left) and `zero_s` (seconds the
+garrison has sat at 0 since it last didn't). A save from before E2b-2 carries `held_s` instead: a
+fort with `held_s > 0` loads held, with `grace_s = held_s` and `zero_s = 0`.
+
+**Grace.** While `grace_s > 0`, Vei ships nothing there and no tithe wave targets it. A warning
+already naming the fort (it was warned, then flipped; or a save holds one) is dropped and made
+again, for another target, at that step's end (or at once when the wave is due within the step); a
+wave already running there delivers nothing while the grace lasts. midgame_2flips loads with such a
+warning on Ashgate (374.5 s of grace, the wave due in 150 s): its first step warns Greywall instead. The
+re-target is visible at once (E2b-2 T3.4b, `test_wave_train`'s re-target case): the moment the fort enters
+grace `view_vei().tithe` has no target and `view_fort().tithe` no longer names it; the next step's warning
+names the new target in both views, and a new `tithe_warning` (the next `wave_id`) names it.
+
+**The contest** (after grace):
+- **your garrison** is your undead there (`undead`), fed by WAR staging (§3.2): WAR is split across
+  the held forts, so more forts thin every garrison;
+- **her counter-garrison** is her living there. She **reships** at `hold.reship_share` ×
+  (1 + `tithe.backlog_scale` · odds) of the share she ships any fort: `S_vei · cap_i / Σcap` per
+  second (the share rule below), with the odds read at the step's start. It is drawn from her pool
+  with the rest of her shipping, pro rata when the pool can't cover every give, but, like the
+  surge, it is **not cut to the fort's room**: a fort full of corpses, or a garrison above its cap,
+  would otherwise shut her out for good, and an unsupplied fort would never fall. With
+  `reship_share` 0.5 and `backlog_scale` 0.5 the reship is 0.5× her share at odds 0 and 0.75× at
+  odds 1 (Ashgate 0.103 to 0.154 mass/s, Whitecross 0.669 to 1.003);
+- tithe waves target it and surge into her living there, as at any fort (counters below);
+- the usual fort combat (§3.1 step 5) runs the exchange: your kills stay as corpses to haul, her
+  kills ship to Vei.
+
+**Retake.** The fort is retaken when the garrison has sat at 0 for `hold.break_s`
+(`fort_retaken {fort_id, cause: "broken"}`). "At 0" is fort_step's clamped regime for U: the
+garrison's pull meets or exceeds U's inflow, so U sits at 0 (its path's `t_undead_out` onward, to
+`t_undead_back` when it leaves inside the step), or U is 0 with nothing arriving and nothing pulling
+(no WAR and no living there yet). It is not a mass threshold. Any time with U > 0 restarts the clock.
+- **The clock counts only the time at 0** (E2b-2 T3.3a): a step in which U leaves 0 counts up to
+  that moment (§3.1 step 5 solves it), so a step of any length gives the zero time fine steps give.
+  Before, a step whose U left 0 inside it took the whole step as one regime, at 0 or not, from its
+  mean pull. midgame_2flips' Ashgate is a knife-edge: with no input each wave pins its garrison
+  for 101.8 to 116.1 s of the 120 s `break_s` at 0.5 s, so its margin is 3.9 s. At
+  10 s the per-wave figure was up to 5 s off 0.5 s's, either way (106.4 s against 101.6 s at the
+  first wave), one wave crossed 120 s and the fort fell at 15 537 s; at 0.5 s it stood at 12 h. Now the first ten waves at 10 s pin it for 102.08, 106.76,
+  111.32, 111.57, 111.76, 111.94, 112.11, 112.26, 112.41 and 112.55 s (at 0.5 s 101.76, 106.83,
+  111.34, 111.55, 111.70, 111.85, 111.99, 112.12, 112.24 and 112.35 s), its longest 116.8 s (116.1),
+  and it holds all 178 waves at both. What is left is when U reaches 0 inside the wave (its step's
+  mean pull, as before) and the waves' own times: at 10 s they start 0.6 s late at the first and
+  1.3 s by the tenth (each period reads the odds when it is scheduled).
+- The drain alone never takes U exactly to 0, so a
+held fort with no WAR keeps a dwindling garrison until her reship lands; from then her living's pull
+pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming falls exactly
+`break_s` later ("Needs WAR too"). The retake lands at its time inside the step (§3.1). On a retake
+(IDLE I6):
+- a siege big undead there (GameState's place `fort:<id>`) returns to the crypt, with
+  `big_undead_returned {uid, fort_id}` right after the `fort_retaken`;
+- a simulacrum planted there is lost (RealmSim drops it; `cmd_deploy_simulacrum` is still the E3
+  stub, so only a save or a test plants one today);
+- Relish, if she stands there, walks home (§3.3, `relish_returned` after the `big_undead_returned`; E2b-2
+  T3.3c);
+- `clears_since_retaken` resets to 0 (§5.3).
+
+**The hold rule, both ways** (vision: "Needs WAR too"). Measured on RealmSim at 0.5 s (and 10 s) with
+`digest_q` 1.2: the fort contested (grace 0) with no living or corpses, every other fort full of
+corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
+- **Without waves**, a garrison holds if her reship dies on landing: the garrison its WAR `W`
+  sustains with no living there, `W / r_drain`, kills `k_kill · W / r_drain` ≥ her reship `S`, so
+  `W ≥ W_c = r_drain · S / k_kill` (3.33 S). Ashgate (cap 80, S 0.103 at odds 0): W_c 0.343 mass/s;
+  Greywall (90): 0.386; Vespers (160): 0.686; Whitecross (520): 2.23. Below it her living gather,
+  their pull grows and the garrison is pinned at 0, unless her living can't pile high enough: their
+  most, with no kills, is `cap + τ · S` (the march-back's level), whose pull `k_d · (cap + τ · S) / q`
+  (Ashgate 0.43 at q 1.2) the WAR may still beat. That stalemate (her living fill the fort, a small
+  garrison stands) binds first once `q` is above about 1.5 at odds 0, or 1.2 at odds 0.6.
+- **(a) A full-cap garrison with no staged WAR loses to a full wave, with or without Relish there.**
+  W = 0, U = cap: the drain (τ = 1 / r_drain = 17 s) and the wave's pull take U to 0 at `t_z` into
+  the wave, and the fort falls `break_s` later. With no Relish, U = U0 · e^(−r·t) less the pull's
+  integral `(k_d · c / q) · (e^(r·t)(t/r − 1/r²) + 1/r²) · e^(−r·t)` (c = 24 living/s arriving)
+  reaches 0 at t_z ≈ 23 s at Ashgate; measured 24.0 s (Greywall 25.0, Vespers 29.5, Whitecross 41.5),
+  so the retake comes at t_z + 120: 143.6, 144.5, 149.5 and 161.3 s after the wave starts. With
+  Relish there (her raise recycles the garrison's losses, and the wave is halved) U reaches 0 later:
+  37.0, 38.5, 46.0 and 75.5 s, retaken at 156.6, 158.0, 165.8 and 195.1 s. A siege: 32.0 to 55.5 s,
+  retaken at 151.5 to 175.4 s. At 10 s the retakes land within 1.2 s of these. So the fort falls by
+  the wave plus `break_s` (160 s) wherever U reaches 0 inside the wave: Ashgate and Greywall in every
+  mode, Vespers without Relish. At Vespers with Relish and at Whitecross U outlasts the wave (by 1.5
+  to 35.5 s), and the fort falls at `t_z + break_s`.
+- **(b) Near the threshold Relish or a siege flips the outcome.** The garrison settled at `W /
+  r_drain` before the wave. The smallest W that holds a full wave (measured by bisection, 0.5 s; 10 s
+  in brackets; re-measured at E2b-2 T3.3a, whose exact leave from 0 (§3.1 step 5) moved the 0.5 s
+  column by up to 0.002 and brought the 10 s column within 0.003 of it, from up to 0.023 above; only
+  Whitecross with Relish there, where U outlasts the wave, still differs, as before):
+
+  | fort | W_c (no waves) | no counter | Relish there (halved, her raise) | Relish's ×0.5 only (her tide, in its dungeon) | siege (0.6 blocked) |
+  |---|---|---|---|---|---|
+  | Ashgate (80) | 0.343 | 1.033 (1.033) | 0.547 (0.547) | 0.691 (0.693) | 0.624 (0.625) |
+  | Greywall (90) | 0.386 | 1.076 (1.077) | 0.583 (0.582) | 0.736 (0.737) | 0.669 (0.669) |
+  | Vespers (160) | 0.686 | 1.383 (1.386) | 0.834 (0.837) | 1.051 (1.051) | 0.988 (0.988) |
+  | Whitecross (520) | 2.229 | 3.028 (3.026) | 2.242 (2.219) | 2.802 (2.802) | 2.803 (2.803) |
+
+  Before T3.3a: Ashgate 1.035 (1.040), 0.547 (0.547), 0.692 (0.703), 0.625 (0.636); Greywall 1.078
+  (1.086), 0.583 (0.581), 0.736 (0.749), 0.670 (0.682); Vespers 1.384 (1.407), 0.834 (0.838), 1.052
+  (1.056), 0.988 (0.995); Whitecross 3.029 (3.029), 2.242 (2.219), 2.802 (2.802), 2.803 (2.803).
+
+  So the band where a full wave breaks the fort without Relish and it holds with her is [0.547,
+  1.033) mass/s of WAR at Ashgate, [0.583, 1.076) at Greywall, [0.834, 1.383) at Vespers and
+  [2.242, 3.028) at Whitecross; a siege's band starts at its column. Every edge sits above W_c: a
+  fort that only just holds without waves is broken by a full wave. At Ashgate the band runs from 1.6
+  to 3.0 × W_c; at Whitecross from 1.0 to 1.36 × W_c.
+- `hold.reship_share` 0.5 and `hold.break_s` 120 satisfy both, so they stay at their starting values.
+  A longer `break_s` can only lower the wave columns (the garrison must sit at 0 longer); a larger
+  `reship_share` raises W_c in proportion.
 
 **While held:**
-- **Vei's shipping share to that fort is lost**, because her shipping is per-fort capacity-limited,
-  so a held fort lowers her effective `S_vei`. The share rule: fort `i` receives at most
+- **In grace, Vei's shipping share to that fort is lost; contested, it gets only her reship**
+  (above), because her shipping is per-fort capacity-limited, so a held fort lowers her effective
+  `S_vei`. The share rule: fort `i` receives at most
   `S_vei · cap_i / Σcap` per second, into its room over the step and from her pool
   (plus what she converts that step). `Σcap` runs over every fort,
   held ones included, so a held fort's share is lost, not redistributed. The unused part of a full
@@ -419,9 +570,9 @@ at E2b.
   that reaches `warning_s`, so it can come up to one step late, never early, and its `eta_s` is the
   exact time left: the wave's own time doesn't depend on the step. (The target reads that step's
   WAR, a rate constant over the step.)
-- **Targets:** held forts first, the one with the most of your undead there; else the fort
-  receiving the most WAR at that moment. Ties go to world order, so with no WAR anywhere it is the
-  first fort.
+- **Targets:** contested held forts first (past their grace), the one with the most of your undead
+  there; else the fort receiving the most WAR at that moment. A fort in grace is never a target
+  (above). Ties go to world order, so with no WAR anywhere it is the first fort not in grace.
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
   shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
@@ -472,23 +623,12 @@ at E2b.
       down to 210 s at odds 1. At P = 210 the peak is 722 at τ = 60, 858 at 90 and 988 at 120, so
       `cap + W` bounds every fort's living only for τ up to about 110. At τ = 60 the excess left
       when the next wave starts is `e^(−380/60) = 0.2%` at odds 0 and `e^(−170/60) = 6%` at P = 210.
-    - **The hold** (E2a's rule compares the living the wave delivered with your undead there when
-      it ends). The march-back doesn't change what the wave delivers: 960, or 480 with Relish
-      there, 384 with a siege, 192 with both. So statically, a garrison at its fort's full cap
-      (`U = cap ≤ 520`) loses to a full wave at every fort, Relish saves it only at Whitecross
-      (520 > 480), and The Stair (480) ties. That holds at any τ.
-    - **Live** (`realm_sim`'s `_march_holds`: combat, drain and march-back on, 0.5 s). A held fort
-      starts with `U = cap` and no living or corpses, and every other fort is full of corpses, so
-      all the WAR stages there.
-      - With no WAR its garrison drains and is destroyed before the wave ends: Greywall ends with
-        0 undead and Whitecross with 0, or 0 and 90 with Relish there. So the hold is lost with or
-        without Relish.
-      - With WAR staged there the counters decide. At 30 mass/s the full wave still takes the hold
-        (the garrison ends at 424 at Greywall and 465 at Whitecross, against 960). Relish saves it
-        (509 and 557, against 480), and so does a siege (453 and 501, against 384). At 20 mass/s
-        nothing saves it.
-      - From τ = 40 to 120 the garrison's end moves by at most 8 (Greywall) and 0 (Whitecross),
-        at 0 to 40 mass/s of WAR. Staging, the drain and the counters set the hold; τ doesn't.
+    - **The hold** is the contest's now (the hold rule above): the wave's living add to her
+      counter-garrison and their pull pins your garrison at 0 or doesn't. The march-back sets how
+      fast that pull fades after the wave, so it moves the band's edges with `break_s`. (E2a
+      compared the living a wave delivered, 960 or 480 with Relish there, with your undead at its
+      end, so a full-cap garrison lost everywhere but Whitecross with Relish; `realm_sim`'s
+      `_march_holds` measured that, and `_hold_rule` replaces it.)
     - So τ = 60 (1.5 · `surge_s`): the excess outlasts the wave (it peaks at 73% of W), it is
       nearly gone before the next wave, and `cap + W` bounds the living at the shortest period.
       `tests/slow/convergence.gd` asserts that bound over 12 h, and that no fort ends above
@@ -499,11 +639,9 @@ at E2b.
     takes the cancelled fraction per fort as its `siege_block` input, 0 until then.
 
   Defending a flip is a real decision.
-- **Hold loss (E2a; E2b replaces the hold model, IDLE §3):** when the wave ends, a held target
-  loses its hold (`fort_retaken`, cause `tithe_wave`) only if the living mass the wave delivered
-  exceeds your undead there. Otherwise the hold stands, so the counters matter.
-- **A retake** (either cause) resets the fort's `clears_since_retaken` to 0, so its yield refreshes
-  (§5.3).
+- **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
+  counter-garrison, and the contest decides (the retake above).
+- **A retake** resets the fort's `clears_since_retaken` to 0 and its loot yield to 1 (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
@@ -522,6 +660,198 @@ at E2b.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most
   undead she could have taken last step: her rate at `q` after the dead she took first, and her
   pool's headroom, so a nearly full pool limits it too.
+
+**The held forts' readouts** (E2b-2 T3.1, api-requests #7 and #13; `RealmSim.readout_of`, read by
+`view_fort`, `view_realm().forts[]`, `view_hud.war_supports` and `view_projection`). For a held fort
+with `W` mass/s of WAR at the valve (the last dispatch's split of the valve's WAR: its weights,
+Relish's tide and the full forts' limits as they stand), her reship `S` (above, at the odds now) and
+`q` now:
+- **The support** `A = W + ρ`, where `ρ = min(relish.raise_rate, S)` while Relish redirects there:
+  at a supported fort her reship, killed on landing, is all the corpses there are to raise.
+- **`garrison_rate = A − min(r_drain · S / k_kill, k_destroy · (cap + τ · S) / q)`**, mass/s. Both
+  terms are fort_step's: the first is the drain (`r_drain · U`) of the smallest garrison that kills her
+  reship as it lands (`k_kill · U = S`, with no living there); the second is the pull
+  (`k_destroy · L / q`) of her living at their most with no garrison (`L = cap + τ · S`, the
+  march-back's level). The fort holds without waves exactly when the support covers one of them
+  (≥ 0): it either keeps her living at 0, or stands, small, under a full pile of them (the
+  stalemate, which binds first when `q` is above about 1.5 at odds 0). Below both her living gather
+  and their pull pins the garrison at 0.
+  - **Why not the controller's dG/dt at today's garrison, with her living at the level the reship
+    sustains** (the reading proposed for T3.1, set aside for this reason): the garrison's kills,
+    `k_kill · U`, don't depend on her living, so her reship either dies on landing (level 0) or
+    piles up to the cap; there is no level between to read. And `dG/dt` at today's garrison carries
+    `−r_drain · G`, negative for any garrison above the level its WAR holds: a full garrison at a
+    well-supplied fort would read falling, `war_supports` would count it unsupported, and "will
+    fall" would mislabel forts that hold. This rate's sign is the outcome; it reads neither today's
+    garrison nor today's (possibly surged) living, so it doesn't flicker through a wave.
+- **`fall_s` = grace left + `min(G, A / r_drain) / −garrison_rate` + what is left of `hold.break_s`**
+  (all of it, less the zero clock while the garrison already sits at 0) while the rate is < 0, else −1
+  (never INF). A straight line from the level the support holds. **It errs early** (E2b-2 T3.4b, the run's
+  manager: "make it err EARLY"): the fort is retaken no sooner than it says. Measured against RealmSim at
+  0.5 s with no wave from a contested Ashgate (or Whitecross) with every other fort full of corpses, 38
+  cases (q 1.2 and 2, 0 to 2 mass/s of WAR, the garrison at its level, at 40, 80 or 300, Relish there,
+  in grace, pinned): early in every one, by 0 s (a garrison at 0 with nothing arriving: exactly
+  `break_s`) to 1 377 s (0.3 mass/s with 80 undead: 236 s against 1 613 s). Two terms make it so:
+  - **the line starts at the level** `A / r_drain`: a garrison above it drains to it within a few
+    `1 / r_drain` (17 s), far faster than the line. From the garrison itself (before T3.4b) the clock read
+    late whenever it started well above that level: 353 s against 219 s with no WAR and 80 undead, 1 981 s
+    against 1 613 s at 0.3 mass/s, 1 428 s against 1 587 s at Whitecross from 300 (early only there);
+  - **the zero clock**: a garrison already pinned at 0 has only `break_s − zero_s` left (60 s against
+    60 s with 60 s on the clock; before, 120 s).
+  - **the planned support** (the T3.4b fix batch, the run's manager): the clock is the earlier of the
+    one at the current split and the one at the support the margin's train reads (the valve's target WAR,
+    Relish where she is travelling to), so a valve slewing down or Relish travelling away can't make it
+    late. A new game with all WAR at Ashgate, no WORK (no muster), its garrison at its 0.45 share's level:
+    a substep after the WAR is cut to 0 the slewing split still holds it (`garrison_rate` +5.1 mass/s, the
+    current clock −1), the planned clock says 120 s and it is retaken at 220 s (`test_wave_train`).
+    `garrison_rate` and `war_supports` stay at the current split, so a row can read a positive rate
+    beside a falling clock for the few seconds of a slew or a trip.
+  At the level the line was already early, and stays so: with 0.2 mass/s (garrison 3.3) 143 s against
+  733 s (her living climb at only `S − k_kill · G` = 0.043/s at first, and must pile to `q · W /
+  k_destroy` = 40 before they pin it). So the clock is a warning of minutes against hours, never late.
+- **`margin`**, checked in this order (E2b-2 T3.2, T3.4b): `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤
+  `hold.safe_horizon_s` (8 h); else `thin` (cause `wave`) when **the wave train breaks it** (below); else
+  `thin` (cause `fall`) when `garrison_rate` < 0 (attrition beyond the horizon: unsettled by the fall, not
+  by the waves); else `thin` (cause `wave`) when the held set **hasn't settled** by the train's cap; else
+  `safe`. The order is the one ruled: a fort the train breaks would also fall, but its threat is the
+  waves, and a fort that falls without them is never settled anyway (it weakens every cycle). `view_fort`
+  and `view_realm` read the train; `view_projection` reads it with `settled` and keeps the one-wave probe
+  (below) for a drag. The run's manager: "'safe' judges against the WAVE TRAIN (correctness first; the
+  worst lie = safe then breaks overnight)".
+  - **The wave train** (`RealmSim.train_probe`): every held fort runs forward **together**, from
+    **today's state** (each fort's garrison, her living there, its corpses, its zero clock and its
+    grace; the tithe as it stands: `next_s`, a pending warning and its target, a running wave and its
+    `s_left`), on scratch copies, at each fort's support (the WAR the valve sends it, Relish's redirect
+    and tide, the siege's block, `q`). It is RealmSim's own `fort_step` at `hold.probe_dt_s` (10 s), each
+    step cut at the next event so each lands at its time (a warning, a wave's start and end, a grace end,
+    a garrison at 0 reaching `break_s`), with the zero clock as step 9 runs it (T3.3a's leave-0 split
+    included), through her waves at her period (`tithe_period`, at today's odds). A contested fort gets
+    her reship, a fort in grace nothing; the running wave surges `surge_mult · S_vei` × its counters into
+    its target (her pool assumed to cover it). A fort whose clock reaches `break_s` is **broken** and
+    leaves the held set. A clock not yet started (only a test or debug holds a fort with no flip) runs as
+    if started now.
+  - **Targets**, as `_tithe_target`: at each warning, the contested fort (held, past grace, not broken)
+    with the most undead, ties in world order. A fort in grace is never a target; a pending warning naming
+    one is dropped and made again at once, as the clock does. The target is fixed at the warning, so a
+    wave warned while every held fort is in grace goes elsewhere even if the grace ends before it lands.
+    With no contested fort the rule's second branch (the fort receiving the most WAR) picks a fort that
+    isn't held (every held fort is then in grace or broken), so that wave threatens none. Several held
+    forts are probed in one joint run because the target depends on all of them: Ashgate (1.19 mass/s)
+    and Old Sluice (0.81) take waves Ashgate, Old Sluice, Ashgate, ... (Ashgate's first wave leaves it
+    below Old Sluice at the second warning), the order RealmSim's own 0.5 s steps give, and Old Sluice
+    breaks in both (`test_wave_train`).
+  - **Settled, judged jointly**: at each wave's start the probe samples the set, and compares it with the
+    sample p cycles before (the smallest p with the same wave starting at both, both after the last grace
+    end or break in the probe: a repeating target sequence, so A, A, A compares consecutive cycles and A,
+    B, A, B every second one). Every fort's zero clock must be at 0, and within `hold.train_settle_tol` ×
+    its cap (0.08 mass at Ashgate): a fort that **every** wave of those p cycles targeted must be no
+    weaker (garrison no lower, her living no higher, its corpses no lower where Relish raises); **any
+    other** contested fort must repeat both ways. That second rule tightens the ruled "no weaker" (the
+    run's manager's design asked for no weaker everywhere): a fort no wave hit is shielded by a
+    neighbour's larger garrison, and a garrison still rising there (or her living still falling, which
+    would raise it) could overtake the neighbour and draw a wave it was never tested against; for a fort
+    every wave already hits, more undead only keep the waves on it. Settled, every unbroken fort is;
+    before that, none is (the shielded fort: `test_wave_train`'s Old Sluice beside Ashgate at 1.2 mass/s,
+    never hit and the same at every sample, reads thin with the cap at 2 cycles, where Ashgate hasn't
+    repeated yet, and safe at the shipped 4, where it has).
+  - **The cap**: at most `hold.train_max_cycles` (4) cycles after the first sample of the current
+    epoch (since the last grace end or break), and the probe stops early once settled or every fort is
+    broken. A set still unsettled there reads thin, not safe. It also stops at `hold.safe_horizon_s` of
+    probe time, which counts as held (only a clock pushed far off, in tests, gets there).
+  - **What it reads that isn't in today's flows yet**, both committed and changed only by a command: the
+    WAR **at the valve's target** (it slews there at `valve.slew_per_s`, at most 20 s for a full swing),
+    and **Relish where she is travelling to** (her trip takes seconds at `relish.travel_speed`): her tide
+    and redirect there, and the split with her tide moved there (`RealmSim.war_at_tide`). midgame_2flips
+    as loaded has her a second from Greywall; held where she stands, the train called Old Sluice safe at
+    its WAR of 1.258, which her tide cuts to 0.761 and the next waves break (retaken at 1 316 s). The
+    fall clock reads the earlier of the planned and the current support (above); `garrison_rate` and
+    `war_supports` stay at the current split. Before the
+    first substep after a load (no dispatch yet) it reads the saved `r_in` with her where she stands, as
+    they do: midgame_2flips as loaded reads both forts safe for that half second, then thin.
+  - **Quiet stretches**: while every fort has no living and kills her reship as it lands (`k_kill · U ≥
+    S` from now to its level), or is in grace, fort_step's path is exact over any step, and the probe goes
+    straight to the next event: the same verdicts and samples as 10 s steps (to 1e-15), in 37 steps
+    instead of 84 for a strong Ashgate.
+  - **The odds caveat**: her odds climb over hours (the waves come faster, her reship grows) and the
+    train holds today's. In the truth check below no safe fort fell to that: midgame's Ashgate read safe
+    from 30 min to 4 h and stood all 12 h while her odds climbed, and pre_vei+2's forts, read safe at odds
+    0.60 to 0.96 (the period from 294 to about 220 s, the reship × 1.30 to 1.48), stood until the town's
+    economy failed (below).
+  - **The one-wave probe** (view_projection during a drag, `margin_verified` false): RealmSim's own
+    fort_step on a scratch copy of the fort at `hold.probe_dt_s` for at most `hold.probe_s` (600 s): the
+    garrison at the least of today's and the level its support holds (`A / r_drain`, or the
+    stalemate's), her living at the level her reship keeps there (none, or the stalemate's pile `(cap +
+    τ·S − τ·k_kill·A / r) / (1 − τ·k_kill·k_destroy / (q·r))`), no corpses; one wave of `surge_mult ·
+    S_vei` living/s × the counters for `surge_s` on top of her reship, with Relish's raise where she
+    redirects; the zero clock as the sim runs it. Broken when the clock reaches `break_s`; survived once
+    the wave is over and her living can no longer pin the garrison. Its margin is the order above with
+    "one full wave breaks it" for the train and no settled test. A falling fort's probe starts at a 0
+    garrison, so a full wave always breaks it and a slow fall reads `wave` unless `hold.probe_s` <
+    `hold.break_s`. Its edges are the 10 s column of §3.4's table (Ashgate 1.033, Greywall 1.077,
+    Vespers 1.386, Whitecross 3.026; with Relish there 0.547, 0.582, 0.837, 2.219). It misses wave
+    trains: a lone Ashgate at 1.04 to 1.10 mass/s survives one wave but not the next, since her living
+    from the first haven't gone when the second lands (the train breaks it at its second wave, RealmSim
+    at 0.5 s retakes it after its second, at 970 s).
+  - **A slow fall the train can read**: today's-state start doesn't make T3.2's slow faller (Ashgate at q
+    2, 60 undead, its WAR just under the edge) reach cause `fall`: its garrison drains to its level
+    within a minute and its first waves pin it past `break_s`, so it reads thin (wave). A slow fall no
+    wave in the train breaks is a shielded one: Old Sluice just under the edge beside a stronger Ashgate
+    that draws every wave reads thin (fall) (`test_api_v6`'s slow-fall case).
+- **Cadence and cache** (`GameState._train`): one joint probe serves `view_realm`'s rows, every
+  `view_fort` and `view_projection` with `settled` at the valve's target. It is computed lazily, on the
+  first read after the state moved, and cached on `[rev, t, q, the support, RealmSim.train_state()]`:
+  `rev` and `t` as the build projections key theirs (a catch-up's core steps move `t` without `rev`), and
+  the state the probe starts from, so an edit that bumps neither still misses. Nothing in the sim reads
+  the margin (`war_supports` reads `garrison_rate` only), so lazy is the same as once per step and costs a
+  catch-up nothing. Since T3.2's lesson (work in a view call lands on the substep frames, where the scenes
+  refetch), on the frame path (the shell's capped `tick`) a read after a substep doesn't probe when only
+  live substeps have moved the state since the cached one (no command since, and `t` moved by exactly
+  those substeps): it serves that verdict, at most a few substeps old, and `GameState._train_frame`
+  re-probes on the next frame with no substep, at least `hold.train_frame_phase` (0.5) of a substep into
+  the interval, while a view reads it; when every frame substeps it re-probes after
+  `hold.train_starve_frames` (30) of them. A command re-probes at the next read, on its own frame, and so
+  does a catch-up (its core steps move `t` without `rev` or the substep count). Off the frame path (tests,
+  headless tools) every miss probes, exactly. A new game and every load (`from_dict`: `cmd_load`, the
+  fixtures) empty the cache and turn the frame path off until the shell's next capped tick.
+- **The truth check** (`tests/slow/margin_truth.gd`): from each start, live 0.5 s steps for 12 h with no
+  input; at the first substep and every 30 min to 4 h, each held fort's margin, then what happened in the
+  next 8 h. midgame_2flips: 10 samples; the train read Ashgate and Old Sluice thin at t0 (Old Sluice fell
+  at 1 316 s, Ashgate held: thin and pessimistic there) and Ashgate safe from 30 min to 4 h (8 safe,
+  all held); the one-wave probe read all 10 safe, Old Sluice's at t0 the lie. pre_vei and fresh hold no
+  fort (no sample). pre_vei with Ashgate and Vespers contested (after 10 min of pre_vei's own play, past
+  its opening muster burst): 8 safe samples, train and one-wave alike, all broken at about 2 h, after the
+  town's gold reached its floor (7 092 s: its buildings go unpaid, its pits stop, the WAR goes from 49.7
+  to 0.95 mass/s at 7 096 s); then both read will_fall, Ashgate's clock the rest of its break exactly,
+  Vespers' 482 s early. midgame with the valve's WAR share cut to 0.05: both read thin at t0 (the one-wave
+  probe safe) and both fell. So 16 safe samples, none broken by the waves.
+  - **The known gap** (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass):
+    neither probe reads the town. The check counts a safe fort that fell apart, as "its WAR fell: supply
+    (E4)", only when a town store (gold or bone, whose floor of 0 idles buildings) reached its floor
+    before the fort's WAR first went below half its sampled value, and that before its last break began;
+    any other fall fails. Every run prints the count (8 of 16 safe samples today). E4's done-criterion is
+    the check passing with the exemption deleted.
+- **During grace** every readout is the post-grace one: the reship it will face; `fall_s` adds the
+  grace left; the margin is the train's run through the grace, which no wave reaches, from the garrison
+  the grace leaves it. `grace_s_left` > 0 says so.
+- **`war_supports`** `{n, m}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0. More WAR never
+  supports fewer (water-filling is monotone in the WAR it splits).
+- **Cost** (E2b-2 T3.4b), best of 3 at a load average of about 6.5 on 12 cores (no time is asserted). The
+  train probe uncached: 1 183 µs on midgame_2flips (2 held, 119 steps, unsettled at its 4-cycle cap), 1 209
+  µs 10 min in (172 steps: Old Sluice broken, Ashgate settled in 3 cycles), 2 µs on pre_vei (none held),
+  119 µs on pre_vei with 2 contested and 289 µs with 5 (each settled in one cycle); a cached read (the key)
+  about 20 µs. `view_realm` 313 µs on midgame_2flips with the train cached (476 µs at T3.4a's tip, which ran
+  two one-wave probes per call). Frames, a headless per-frame bench of the world map at 1600 × 900 (60 s of
+  live play, uncapped, against T3.4a's tip `2c01f45`, best of 3 interleaved runs): on midgame_2flips the 121
+  probes a run all landed on frames with no substep (p50 1.8 ms, max 2.3 to 2.5 ms, against about 0.25 ms for
+  such a frame) and the substep frames got cheaper (p50 4.5 to 4.7 ms against 4.8 to 4.9); p99 774 µs (750),
+  max 6.57 ms (6.95), 0 frames over 8 ms (0). On pre_vei with 2 contested, p99 805 µs (825), max 8.97 ms
+  (9.01), 3 over 8 ms (3), every one a substep frame. On pre_vei as loaded (nothing held, nothing probed;
+  the train adds 2 µs to a `view_realm`), p99 808 µs (799), max 8.56 ms (8.76), 3 over 8 ms (2; 13 against
+  11 over the three runs, the base alone 2 to 6). Lazily on the substep frames (before the frame refresh)
+  midgame's substep frames rose to p50 6.2 ms and max 8.4 ms, 6 frames over 8 ms (0), which a refresh cadence
+  alone couldn't fix (each probe would still land on a substep frame). The one-wave probe (a drag's
+  `view_projection`) is about
+  30 µs per held fort per call; `war_supports` reads only the rate.
 
 ### 3.6 Simulacra (kept, defined)
 - Crafted at the Ossuary from essence and a relic.
@@ -552,11 +882,10 @@ mass; bodies, rot return, WORK and muster are mass.
   exceeds the pits' want. So burned = want_pit/s · (dt − τ) + min(want_pit/s, rot/s) · τ and the
   mills the rest of out; with the store empty all step that is min(want_pit, in), the surplus to
   the mills. The two are netted before the cap clips, and
-  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`), split between `rot_overflow` and `haul_overflow` by
+  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`; a known edge: from over the cap with the draw outrunning the inflow, a long step books no overflow where shorter steps book the inflow until the store reaches the cap, which the gold and bone stores solve exactly, §4.3. E2b-2 T3.3a left it: no step of midgame_2flips, pre_vei or fresh over 12 h, at 0.5 s or 10 s, starts with the body store above its cap), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
-  loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so
-  a long step's later legs don't see corpses made inside it (a known gap at long steps).
+  loads landed), and the forts' corpses at that moment too (§4.2, E2b-2 T3.3a).
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count. That figure ignores the idle cap; `steady_kept` is where the workforce actually settles with it (STATE-API §5.9).
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
@@ -583,7 +912,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -599,6 +928,11 @@ mass; bodies, rot return, WORK and muster are mass.
   feed and the mint swung with the mills' want (12.8 to 8.98 mass/s in play). Feed is still
   continuous in the supply, so it never toggles. The total taken is unchanged, so the store's path
   and the convoy's view of it are too.
+  - **The town says so** (T3.4a): when the staffed mills milled less than their hands want in the
+    last step, `view_town().buildings[]` reads `starved` on a building with mill slots: `"pits_first"` if the pits took
+    bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
+    for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
+    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
   - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
     depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
     the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the
@@ -609,6 +943,49 @@ mass; bodies, rot return, WORK and muster are mass.
     almost nothing (100 bodies milled in 12 h instead of 5 117; bone +50 instead of +2 558).
     pre_vei is short in 57.5% of the steps: its mean mint is 25.92 against 25.90 mass/s, its mills
     1 656 bodies against 1 837. fresh is never short.
+- **The convoy reads the forts' corpses at its own moment** (E2b-2 T3.3a, as the run's manager
+  ruled). TownSim runs before the realm step (§1.3), and its convoy used to read each fort's corpses
+  from the snapshot taken before the step; GameState takes the pickups off them before the realm
+  step. A long step's legs then found corpses the step itself would have raised or cleared. From
+  midgame_2flips, whose convoy is fixed on Greywall, Relish raises the corpses there as they form
+  (4 mass/s against 0.2 to 2.2 formed). A 10 s step's solve leaves about 0.047 (its raise is bounded
+  by the corpses its last pass saw), and the convoy hauled that: at `9b5fc99` 115.7 mass over 12 h
+  at 10 s against 0.001 at 0.5 s (167 against 0.06 at `40d62c0`), and 2.68 against 0.001 once the
+  zero clock kept Ashgate held, all of it in the first 800 s. Now 0 at both.
+  - **The projection.** Each fort in TownSim's snapshot carries `dead_rate` (`RealmSim.dead_rates`): the
+    net rate of its corpses while it holds any, from the state before the step. What forms: the kills,
+    `k_kill · U` while living stand there, else what Vei shipped in last step (`r_shipped`, killed as
+    it lands) up to `k_kill · U`; and at a redirect site (Relish's fort, a live simulacrum's) what the
+    garrison destroys there, `k_destroy · L / q`, with U at 0 at most the WAR and raises arriving
+    (`r_in`). Less what leaves: the clearing `k_clear · L` and the raises wanted there.
+    `RealmSim.dead_at(dead, rate, s) = max(0, dead + rate · s)`: at 0, what forms is raised or
+    cleared as it forms. The pick (auto: the most corpses at departure) and the pickup (at arrival)
+    read it at the leg's moment, less this step's earlier pickups there.
+  - **What it costs in exactness.** When TownSim runs, this step's WAR (which includes TownSim's own
+    muster), shipping and dispatch aren't known. So it reads the fort as it stands at the step's
+    start: its pools, last step's `r_shipped` and `r_in` (where no living stand, the kills are one
+    step stale), and Relish's redirect as she stands before this step's travel. It is exact while
+    the step's rates hold those values.
+  - **After a load.** Every input is saved (the pools, `r_shipped`, `r_in`, Relish, the simulacra,
+    q's inputs), so after a load the convoy sees what the session saw, within the save's 15-digit
+    rounding (`test_step_accuracy`). A session-only rate such as `r_kills` would read 0 for a step
+    after every load, and the pick could differ.
+  - **The hold, and its gap.** A pickup is also held to what the fort held at the step's start, less
+    this step's earlier pickups there. GameState takes it off the fort before the realm step, which
+    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). Where the corpses
+    grow inside the step, a long step's legs can't take those made inside it, and they wait for the
+    next step's legs. That happens at forts with no living where Vei's shipping dies as it lands:
+    pre_vei's six corpse forts, 1.88 mass/s between them. At 10 s pre_vei's convoy runs 10 to 15 mass
+    behind 0.5 s's from the first minute (9.5 at 60 s, 12.9 at 600 s), and its forts hold that much
+    more. The bone its mill makes over the cap, `ledger().stores.bone.overflow`, is 1.14% behind at
+    600 s, falling to 0.04% by 12 h. Applying the pickups after the realm step, without the hold,
+    measured 0.22% (an experiment only). Taking them needs either the realm step delivering an owed
+    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept
+    (E2b-2 T3.3a: the hold and §1.3's order stay; the sink is on file, IDLE §4). The gap is bounded:
+    measured over 24 h it is the step's own corpses (their rate × dt / 2 on average) plus at most
+    about one load per fort (summed, up to 28 mass at pre_vei's gold floor), and it doesn't grow
+    (IDLE §4). The catch-up gate's bone floor
+    (`idle.catchup_gate_tally_floor`) carries it.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt
@@ -656,7 +1033,24 @@ mass; bodies, rot return, WORK and muster are mass.
       net of upkeep, it reached neither until 7 847 s and 7 853 s. The pits and WAR came back about
       45 s early, and three forts Vei had refilled with living fell instead of holding. Vei's dead
       were 31.9% off at 10 s over 12 h; now 0.50%.
-  - Stocks never go negative and there is no debt. Gold and bone have no caps yet (IDLE §6 is E2b).
+  - Stocks never go negative and there is no debt.
+- **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
+  bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
+  effects, so unpaid or mid-upgrade levels count). Only what came in is clipped, and the clip is exact
+  inside the step for constant rates (one 10 s step ends with the stock and the overflow of twenty 0.5 s
+  steps, from under the cap or over it; `test_town_sim`). A store at or under its cap fills at income −
+  upkeep and what would pass the cap overflows: the body store's rule (§4.1), what ends above `max(cap,
+  S0 − upkeep)`, `S0` the store before the step. A store over its cap (a demolished Market or Bone Mill,
+  an old save, a debug grant, which isn't clamped) keeps its excess and earns nothing while over it:
+  every coin in overflows and the upkeep (and spending) draws it down. When the upkeep outruns the income
+  it reaches the cap `(S0 − cap) / upkeep` into the step and runs on uncapped below it, so the overflow is
+  income × min(dt, that moment) (T3.2's review: the step-end rule booked nothing there at a long step).
+  Gold's floor of 0 and upkeep are unchanged. The overflow goes to the currency tally `ledger().stores` (§2.1), and TownSim's
+  `rates.gold`/`rates.bone` carry it as `overflow`, with `in` net of it (the body store's convention), so
+  `view_rates` and the HUD read the store's real net rate: 0 at a full store. The sizing is BALANCE §5.
+  - Known edge: the unpaid-resume solver (Upkeep, above) reads the stocks' paths without the cap, so it
+    could resume a building a few seconds early at a long step if a cap sat below the 30 s of upkeep a
+    resume needs. No cap is anywhere near that (BALANCE §5).
 
 ### 4.4 Buildings
 `configs/buildings.json` (economy) holds:
@@ -688,17 +1082,85 @@ the town has two size-3 lots, so lot-23 opens at Village and lot-24 at Town.
 until the new level completes; the construction adds `job.build.slots` build slots. A cancelled
 upgrade refunds in full and changes nothing else.
 
-**Every building has a numeric benefit** (vision review S7):
+**The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
+ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, at most `queue.max_len` (8), saved.
+Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
+`cmd_queue_build` and the core step's processing all run, so a status always says what the next
+processing does.
+- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full`,
+  `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
+  `lot_taken` (a building stands or is under construction there), `lot_too_small`; for an upgrade
+  `empty_lot` (nothing stands or is queued there) and `max_level`; and `cost_exceeds_cap` (a gold, bone or
+  relic cost above that store's cap now; it names the store, the building that raises its cap, the first
+  in `buildings.json` with that `*_cap` effect, and `cap_level`, the lowest level of that building whose
+  cap covers the price: 1 when it isn't built yet, −1 when no level does). Affordability never refuses:
+  it holds the queue.
+- **What it accepts as a gate** (the run's manager, 2026-11-14: IDLE §5 over api-request #3's wording,
+  since growth while away is Shawn's ask): `needs_tier`, `needs_blueprint`, `needs_building`,
+  `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
+  (`under_construction`) or an unpaid building (`unpaid`). A gated entry shows `skipped_gate` with that
+  reason and is re-checked every step.
+- **The level an entry builds:** 1 for a new build. An upgrade builds one level above what its lot will
+  have once every entry ahead of it for that lot, and the construction under way there, are done: two
+  queued upgrades of a level-1 lot build 2, then 3. The level is recomputed from the order on every walk,
+  so a reorder moves it; its cost is `construction_cost` at that level and its `work` `build_work ·
+  level`. An upgrade's building is the one on its lot when it was queued, or the first new build queued
+  there.
+- **The walk**, in queue order, on a copy of the stocks and lots:
+  - an entry blocked by a gate is `skipped_gate`, stays in place, and the walk goes on;
+  - the first entry that isn't gated is the head. When gold and bone cover it, it is `next`: the copy pays
+    its cost and takes its lot as its start will, and the walk goes on to the next head. Otherwise it is
+    `waiting_funds` (`no_gold`, `no_bone`) and every later entry that isn't gated is `queued`.
+  - So several affordable entries can start in one step, in order, and build at once on the build job.
+- **The manager's four rules for gated entries:**
+  1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate
+     clears, the entry starts at its own position: it never jumps an earlier entry that waits for funds.
+  2. **A gated entry holds nothing.** It reserves no gold, bone or relics and claims no lot. If another
+     entry or the player's `cmd_build` takes its lot first, it turns `skipped_gate` with `lot_taken`, and
+     stays for the player to see and unqueue; it is never dropped silently. Two queued builds on one lot:
+     whichever starts first takes it. An upgrade behind an entry for its lot that hasn't started shows that
+     entry's gate (or `queued` when it has none).
+  3. **The away report says when a gated entry started and why.** Each entry keeps `waited_on`, the last
+     reason that kept it from starting (`""` if it never waited): a gate, or `no_gold`/`no_bone`. It is set
+     when the entry is queued (from that first walk) and by each step's processing, never by a view. An
+     entry `queued` behind a head that waits on funds takes the head's `no_gold`/`no_bone` (the funds hold
+     it now, whatever gate held it before; T3.2's review), so starting in the head's step reads "when the
+     funds came". `queue_started` carries it.
+  4. **A relics-blocked entry reads as the plateau's ask:** its reason is exactly `no_relics`, the key
+     `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`. The keys match when
+     gold and bone are covered; short of gold or bone as well, the catalog says `no_gold`/`no_bone`
+     (`afford_reason`'s order) while the queue still reads `no_relics`, since relics are a gate there.
+- **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
+  rises this step opens its entries this step and this step's income counts: one walk, then each `next`
+  entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the
+  queue and emits `queue_started {building_id, lot_id, level, upgrade, waited_on}` at the step's `t`. Every
+  entry that stays and was skipped or waited on funds keeps that reason as `waited_on`.
+- **At any dt** (`tests/slow/queue_dt.gd` measures it; T3.3b re-measures with a build-start clip) the queue
+  starts entries at step boundaries, so a start is up to one step late at a long
+  step (the funds or the tier arrive inside it). Measured over 12 h of `midgame_2flips` (core steps, the
+  field frozen) with a full queue of 8 (two house and well upgrades, an inn, a graveyard, stables, and
+  the pit's, the market's and the mill's level 2; T3.2): the five entries affordable at once start 9.5 s
+  later at 10 s (one step); the pit's and the market's upgrades, which waited on gold, 223.5 s later
+  each (mean 70.6 s over the 7 starts). The 10 s run's gold ran 2.2 behind from the first constructions
+  on, since a construction ends on a step boundary and its builders (top of the ladder) keep the stalls
+  short a little longer, and with the new upkeep the town saved about 0.01 gold/s, so 2.2 gold took
+  about 220 s. End of run: gold 9 261 against 9 330 (−0.74%), bone 29.2 against 28.5, the same levels
+  everywhere; the mill's level 2 waits on bone in both. With no queue the two gold paths are identical.
+
+**Every building has a numeric benefit** (vision review S7). From E2b-2 (T3.2, api-request #9) the build
+card shows it as the change in each net rate if the building were finished now: `view_catalog`'s
+`projected` and `view_town`'s `upgrade_projected`, TownSim's own step run on a copy with the building
+finished against a copy without (STATE-API §5.10). The table is the design intent:
 
 | building | benefit | gate |
 |---|---|---|
 | Crypt | holds the slab; idle rest; big-undead cap +1 per level above 1 | start |
 | Raising Pit | +`P_per_pit` mint; pit job | start (1) |
 | Charnel House | haul job; body store cap + | start |
-| Market | stall jobs (gold) | start (small) |
+| Market | stall jobs (gold); + gold cap (`gold_cap` per level) | start (small) |
 | House | + `living_cap` | Hamlet |
 | Well, Bakery | + morale, + living cap | Hamlet |
-| Bone Mill | mill job | Hamlet |
+| Bone Mill | mill job; + bone cap (`bone_cap` per level) | Hamlet |
 | Inn | + migration, + morale, + living cap | Village |
 | Forge | forge job; levels need relics | Village |
 | Graveyard | + body store cap; + worker lifetime | Village |
@@ -784,7 +1246,8 @@ upgrade refunds in full and changes nothing else.
   - `run_id`, `rng_seed`, the fort (tier, cap);
   - living, dead, your undead there;
   - the party from `cmd_set_party`;
-  - `digest_q`, phylactery charges, clones ready;
+  - `digest_q`, phylactery charges, clones ready, and what a death that ends the run ends in (`death_ends
+    {outcome, respawn_s}`, view_backups' rule; E2b-2 T3.3c);
   - the warden spec, the loot table id, `relish_hp`.
 - **Party:** your undead at the fort, converted to units by `raid.garrison_mass_div`, plus your
   chosen big undead.
@@ -792,8 +1255,10 @@ upgrade refunds in full and changes nothing else.
 
 ### 5.2 Before you descend (threat in advance; vision review M5)
 Every fort card shows, **from the start**:
-- the warden archetype and its one-line tell;
-- the loot hint;
+- the warden archetype's name and its tells, read from `raid.json` `wardens.archetypes` (the
+  dungeon's own text, one source with the fight: `view_fort().warden`);
+- the loot hint, read from `loot.json` `hints` (the first dungeon's `first_dungeon_hint`, else
+  `hints["t<tier>.<archetype>"]`);
 - the party strength against the garrison;
 - the projected death risk (low, risky or deadly).
 
@@ -826,8 +1291,18 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   - remnants ding off kills;
   - the warden's chest;
   - a blueprint guaranteed on the first clear;
-  - **re-clear yield × `loot.reclear_decay`^(clears since last retaken)**. A fort that Vei retakes
-    and re-garrisons refreshes its yield (vision review M8).
+  - **re-clear yield × `yield_mult`**, which recovers with real time (IDLE §3; E2b-2 T3.1): each
+    clear that pays loot (a flip, a counter-garrison clear) sets `yield_c = yield_mult(now) ·
+    loot.reclear_decay` and `yield_t = now`, and `yield_mult = 1 − (1 − yield_c) · max(0, 1 − (t −
+    yield_t) / loot.recover_s)`. So one clear halves it, two back to back quarter it
+    (`reclear_decay`²), and it is back to exactly 1 `recover_s` (8 h) after the last clear, from any
+    depth. It is a function of the sim time, so a catch-up refills it with no step work; the dungeon
+    seed and `view_fort` read it live. A retake resets `yield_c` to 1, so a fort Vei retakes refreshes
+    its yield (vision review M8). A counter-garrison clear is paid only by a fort still held when the
+    result is applied: a held fort retaken during its own raid (the realm keeps stepping while she is
+    in the dungeon) banks its retreat's loot as usual, but raises no clear and spends no yield, so the
+    retake's reset to 1 stands. Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
+    it showed.
 - **Exits:**
   - **warden beaten:** loot banked, fort flips;
   - **retreat** at an exit: loot banked, no flip;
@@ -885,6 +1360,12 @@ The Watchtower turns the bands into exact percentages and lists every tell.
      never loses everything.
 3. **Unmade:** she reforms after `backups.unmade_respawn_s`, with a morale shock and lost unbanked
    loot. Nothing else is lost, and nothing resets.
+
+**A run that ends without the scene** (a close, a crash, a load, a gap above `idle.gap_s`; IDLE I5, E2b-2
+T3.3c) banks the same bound: the dungeon tells GameState what is banked at every checkpoint room
+(`cmd_run_checkpoint`, STATE-API §4.5), and the run ends from the last one as a retreat (no flip, Relish
+`at_fort`), or as the win or the death when the checkpoint came at the warden's victory beat or the death
+beat. Whatever was found since is lost.
 
 **Clones** grow at `vats.grow_per_s` per **staffed** vat, from 0 to 1, one clone per vat.
 `view_backups` always shows what a death would cost right now.
@@ -949,8 +1430,12 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   no target at all it falls through to Vei (`game_state_macro`, `realm_sim`).
 - **Relish:** travel, retarget and cancel; tide; redirect; nothing applies while dead; the order
   contract (`game_state_relish`, `game_state_macro`).
-- **Flips and tithe:** hold, shipping-share loss, the clock from the first flip, warning, target,
-  wave, counters, the E2a hold loss (`game_state_macro`, `realm_sim`).
+- **Flips and tithe:** grace and the contest (her reship, the zero clock, the break, the hold rule
+  both ways), shipping-share loss, the clock from the first flip, warning, target, wave, counters
+  (`game_state_macro`, `realm_sim`, `held_forts`); the held forts' readouts and `view_projection`
+  (`api_v6`); the wave train, its targets against RealmSim's own steps, its settled rule, its cache and
+  frame refresh, and the fall clock erring early (`wave_train`); whether a safe fort stands 8 h on, in live
+  play (`slow/margin_truth`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
   muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate

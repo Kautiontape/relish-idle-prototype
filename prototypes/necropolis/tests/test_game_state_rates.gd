@@ -139,7 +139,9 @@ func _hud() -> void:
 	t.ok(hud["split"] == {"work": r["work"]["in"], "war": r["war"]["in"], "flood": r["flood"]["in"]}, "view_hud.split is view_rates' work, war and flood")
 
 
-## The valve's and the realm's streams are session-only: 0 after a load until the first substep.
+## The realm's streams are session-only: 0 after a load until the first substep. The valve's (the mint and
+## its split) are too, but a load rebuilds them from what the save holds (E2b-2 T3.3b, the load flash:
+## GameState._restore_dispatch), so they read the last substep's.
 func _session_only() -> void:
 	var s := _busy()
 	s.tick(s.substep_s())
@@ -147,10 +149,14 @@ func _session_only() -> void:
 	n.debug_enabled = true
 	n.from_dict(JSON.parse_string(JSON.stringify(s.to_dict())))
 	var r: Dictionary = n.view_rates()["rates"]
-	var zero := true
-	for id in ["mint", "work", "war", "flood", "backlog"]:
-		zero = zero and r[id]["in"] == 0.0 and r[id]["out"] == 0.0
-	t.ok(zero and r["corpses"]["in"] == 0.0 and r["corpses"]["out"] == n._haul_rate(), "after a load: mint, the valve, corpses and backlog read 0 (the haul's part is TownSim's, saved)")
+	var r0: Dictionary = s.view_rates()["rates"]
+	var same := float(r0["mint"]["in"]) > 0.0
+	for id in ["mint", "work", "war", "flood"]:
+		for k in ["in", "out"]:
+			same = same and absf(float(r[id][k]) - float(r0[id][k])) <= 1e-12 * maxf(1.0, absf(float(r0[id][k])))
+	t.ok(same, "after a load: the mint and the valve's split read the last substep's, rebuilt from the save (mint %.4f)" % float(r["mint"]["in"]))
+	var zero: bool = r["backlog"]["in"] == 0.0 and r["backlog"]["out"] == 0.0
+	t.ok(zero and r["corpses"]["in"] == 0.0 and r["corpses"]["out"] == n._haul_rate(), "after a load: corpses and backlog read 0 (the haul's part is TownSim's, saved)")
 	var w0: Dictionary = s.view_rates()["rates"]["workers"]
 	t.ok(absf(r["workers"]["in"] - w0["in"]) <= 1e-12 * w0["in"] and absf(r["workers"]["out"] - w0["out"]) <= 1e-12 * maxf(1.0, w0["out"]),
 		"the town's rates are saved with TownSim (to the 15 digits a save keeps)")

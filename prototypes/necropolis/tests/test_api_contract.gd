@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 5,
+	"API_VERSION": 6,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -29,6 +29,15 @@ const DOC_CONSTANTS := {
 const E1_EMPTY := {
 	"view_stances.stances[].projected": "stance projections are E3",
 }
+## Arrays the fixtures can't fill because they predate them (make_fixtures.gd isn't rerun; T3.2). The
+## exercise still fills them (_check_coverage), and the fixture check asserts they are still empty there.
+const FIXTURE_EMPTY := {
+	"view_town.queue": "the build queue (T3.2) is newer than the fixtures",
+	# T3.3c: the away report comes from a catch-up, which a fixture load never runs
+	"view_away.gains": "the away report is a catch-up's (T3.3c)",
+	"view_away.ready": "the away report is a catch-up's (T3.3c)",
+	"view_away.losses": "the away report is a catch-up's (T3.3c)",
+}
 
 var t: TestUtil
 var _dir := "user://test_saves_contract_%d" % OS.get_process_id()
@@ -43,7 +52,7 @@ func run() -> int:
 	t = TestUtil.new()
 	t.suite("api-contract")
 	_schema_self_check()
-	var s := GameState.new(TestUtil.configs())
+	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.save_dir = _dir
 	_check_constants(s)
@@ -56,6 +65,14 @@ func run() -> int:
 
 
 # ------------------------------------------------------------------- helpers ----
+## The shipped configs with town.projection_rows_per_call lifted, so a view refreshes all its build-benefit
+## rows in one call: the copy checks call each view twice, and the spread refresh (T3.2) would otherwise
+## refresh more rows the second time.
+func _cfgs() -> Dictionary:
+	var c := TestUtil.configs()
+	c["economy"]["town"]["projection_rows_per_call"] = 1000
+	return c
+
 func _cmd(s: GameState, name: String, args: Array, want_ok: bool) -> Dictionary:
 	var rv := s.rev
 	var r: Variant = s.callv(name, args)
@@ -125,6 +142,9 @@ func _all_views(s: GameState) -> void:
 				_view(s, name)
 		elif name == "view_staffing_projection":
 			_view(s, name, [s.town_sim.effective_ladder(s.town_sim.ladder)])
+		elif name == "view_projection":
+			_view(s, name, [s.valve.duplicate()])
+			_view(s, name, [s.valve.duplicate(), true])  # T3.4b: the wave train's margins
 		else:
 			_view(s, name)
 	var l := s.ledger()
@@ -204,12 +224,18 @@ func _schema_self_check() -> void:
 		{"t": 1.0, "type": "building_unpaid", "lot_id": "lot-04", "building_id": "market", "unpaid": true},
 		{"t": 1.0, "type": "tier_up", "tier": "village", "from": "hamlet"},
 		{"t": 4712.5, "type": "fort_flipped", "fort_id": "old-sluice", "run_id": 1, "hold_s": 375.0},
-		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "expired"},
+		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "broken"},
+		{"t": 1.0, "type": "big_undead_returned", "uid": "u4", "fort_id": "old-sluice"},
+		{"t": 192.5, "type": "queue_started", "building_id": "market", "lot_id": "lot-13", "level": 1, "upgrade": false, "waited_on": "needs_tier"},
+		{"t": 4712.5, "type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 31.4},
 		{"t": 5100.0, "type": "tithe_warning", "wave_id": 2, "fort_id": "old-sluice", "eta_s": 150.0, "surge": 24.0},
 		{"t": 1.0, "type": "tithe_wave", "wave_id": 2, "fort_id": "old-sluice", "surge": 12.0, "duration_s": 40.0, "relish_here": true, "siege_block": 0.6},
 		{"t": 1.0, "type": "stance_fired", "stance_id": "harvest", "active": true, "beat_id": 117},
 		{"t": 4712.5, "type": "loot_banked", "run_id": 1, "fort_id": "old-sluice", "relics": 1, "essence": 9, "blueprints": ["embalmer"], "minted": ["h12", "r13"]},
 		{"t": 11002.0, "type": "vei_result", "run_id": 9, "won": true, "fronts_cleared": ["giants", "carvers", "raw"], "relish_deaths": 1, "backlog_after": 18450.0},
+		{"t": 7200.0, "type": "run_ended", "run_id": 4, "kind": "raid", "outcome": "retreated", "cause": "gap"},
+		{"t": 4917.2, "type": "relish_returned", "fort_id": "greywall", "cause": "retaken"},
+		{"t": 33121.0, "type": "away_report", "away_s": 33120.0, "capped": false},
 		{"t": 600.0, "type": "autosaved", "slot": "auto", "saved_at": 1794556800},
 		{"t": 1.0, "type": "save_failed", "slot": "slot1", "reason": "write_failed"},
 	]
@@ -219,7 +245,7 @@ func _schema_self_check() -> void:
 		ApiSchema.check(ev, ApiSchema.EVENTS[ev["type"]], "example." + ev["type"], errs)
 		t.ok(errs.is_empty(), "§6 example %s passes its schema%s" % [ev["type"], "" if errs.is_empty() else ": " + str(errs)])
 		types[ev["type"]] = true
-	t.ok(types.size() == 15 and ApiSchema.EVENTS.size() == 15, "all 15 §6 event types have a schema and an example")
+	t.ok(types.size() == 21 and ApiSchema.EVENTS.size() == 21, "all 21 §6 event types have a schema and an example")
 	var raid := {"v": 2, "run_id": 1, "seed_rev": 512, "fort_id": "old-sluice", "warden_beaten": true,
 		"retreated": false, "relish_died": false, "revived_in_place": 0, "killed_living_mass": 30.0,
 		"raised": [{"score": 75, "count": 2, "mass": 8.0}], "chaff_mass": 4.0, "garrison_mass": 6.0,
@@ -297,6 +323,17 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_cancel_build", ["lot-05"], true)
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
+	# the build queue (T3.2): an upgrade of the market under construction waits (under_construction) and
+	# stays queued for the views below; a well starts on the next substep
+	_cmd(s, "cmd_queue_build", ["", "lot-04"], true)
+	_cmd(s, "cmd_queue_build", ["well", "lot-06"], true)
+	_cmd(s, "cmd_queue_build", ["nope", "lot-06"], false)
+	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap
+	_cmd(s, "cmd_reorder_queue", [[1, 0]], true)
+	_cmd(s, "cmd_reorder_queue", [[0]], false)
+	_cmd(s, "cmd_queue_build", ["house", "lot-07"], true)
+	_cmd(s, "cmd_unqueue", [2], true)
+	_cmd(s, "cmd_unqueue", [5], false)
 	_cmd(s, "cmd_set_job_priority", [["haul", "build", "pit", "stall", "mill", "forge", "tend"]], true)
 	_cmd(s, "cmd_set_job_priority", [["haul"]], false)
 	_cmd(s, "cmd_set_staff_cap", ["lot-03", 2], true)
@@ -352,6 +389,11 @@ func _exercise(s: GameState) -> void:
 	t.ok(s.view_dungeon_seed("nope") == {} and s.view_fort("nope") == {}, "views of unknown ids are {}")
 	_cmd(s, "cmd_new_game", [2], false)
 	_cmd(s, "cmd_set_party", [[u1]], false)
+	# T3.3c (api-request #4): the dungeon's checkpoint of its banked loot
+	var cp_loot := {"relics": 1, "blueprints": [], "husks": [{"kind": "hulk"}], "remnants": [], "essence": 4}
+	_cmd(s, "cmd_run_checkpoint", [bd["run_id"], cp_loot], true)
+	_cmd(s, "cmd_run_checkpoint", [bd["run_id"], cp_loot, "won"], false)
+	_cmd(s, "cmd_run_checkpoint", [int(bd["run_id"]) + 1, cp_loot], false)
 	_all_views(s)  # in the dungeon
 	_cmd(s, "cmd_abort_dungeon", [], true)
 	_cmd(s, "cmd_abort_dungeon", [], false)
@@ -408,7 +450,7 @@ func _exercise(s: GameState) -> void:
 		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 0}})], true)
 	evs = _event_list(s)
 	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died", "relish_respawned"], "a raid death emits relish_died and relish_respawned")
-	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped"]:
+	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped", "queue_started"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death
 	_persistence(s)
@@ -483,6 +525,7 @@ func _persistence(s: GameState) -> void:
 	t.ok(errs.is_empty(), "to_dict() matches the top-level save schema%s" % ("" if errs.is_empty() else ": " + str(errs)))
 	t.ok(d["v"] == GameState.SAVE_VERSION and d["api_version"] == GameState.API_VERSION, "to_dict carries v and api_version")
 	_event_list(s)
+	s.clock_override = 1_800_000_000  # E2b-2 T3.3b: the round trip at 0 s away, so its cmd_load is +1 rev (no catch-up)
 	var sv := _cmd(s, "cmd_save", ["slot1"], true)
 	t.ok(FileAccess.file_exists(sv["path"]) and sv["path"] == _dir + "/slot1.json", "cmd_save wrote its path")
 	_cmd(s, "cmd_save", ["auto"], true)
@@ -512,6 +555,21 @@ func _persistence(s: GameState) -> void:
 	_cmd(s, "cmd_load", ["future"], false)
 	t.ok(s.cmd_load("future")["reason"] == "bad_version" and s.cmd_load("junk")["reason"] == "no_save" and s.cmd_load("nothing")["reason"] == "no_save",
 		"bad_version for a future file, no_save for a corrupt or missing one")
+	# T3.3c: the away report, from a chunked load 10 min on with gold at its cap (an overflow among the losses)
+	s.cmd_debug_grant({"gold": 1.0e9})
+	_cmd(s, "cmd_save", ["away"], true)
+	s.clock_override += 600
+	t.ok(s.cmd_load("away", true)["ok"] and s.catching_up(), "(setup) a chunked load 10 min on")
+	_cmd(s, "cmd_dismiss_away", [], false)  # catching_up
+	while s.catching_up():
+		s.tick(1.0 / 60.0, s.max_substeps_per_frame())
+	var away := s.view_away()
+	t.ok(away["shown"] and not away["gains"].is_empty() and not away["ready"].is_empty() and not away["losses"].is_empty(),
+		"(setup) its report has a line in each section: %s" % str(away["losses"]))
+	_all_views(s)
+	t.ok(_event_list(s).map(func(e): return e["type"]).has("away_report"), "the away_report event is in the contract")
+	_cmd(s, "cmd_dismiss_away", [], true)
+	s.clock_override -= 600
 	s.cmd_debug_set_state({"relish_at": "ashgate"})
 	_cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
 	_cmd(s, "cmd_load", ["slot1"], false)
@@ -531,7 +589,7 @@ func _fixtures() -> void:
 	var base := _filled
 	_filled = {}
 	for name in GameState.FIXTURES:
-		var s := GameState.new(TestUtil.configs())
+		var s := GameState.new(_cfgs())
 		s.debug_enabled = true
 		s.save_dir = _dir
 		_cmd(s, "cmd_debug_load_fixture", [name], true)
@@ -554,8 +612,10 @@ func _fixtures() -> void:
 		ApiSchema.containers(ApiSchema.VIEWS[name], name, paths)
 	var never: Array = []
 	for p in paths:
-		if not fixed.has(p) and not E1_EMPTY.has(p):
+		if not fixed.has(p) and not E1_EMPTY.has(p) and not FIXTURE_EMPTY.has(p):
 			never.append(p)
 	t.ok(never.is_empty(), "across the fixtures every array a view exposes is non-empty (never: %s)" % str(never))
+	for p in FIXTURE_EMPTY:
+		t.ok(paths.has(p) and not fixed.has(p), "%s is empty in every fixture (else drop it from FIXTURE_EMPTY)" % p)
 	for p in E1_EMPTY:
 		t.ok(not fixed.has(p), "%s is still empty in every fixture (else drop it from E1_EMPTY)" % p)

@@ -37,12 +37,16 @@ const RAID_SEED := {
 	"party": [SEED_PARTY], "digest_q": F, "phylactery_charges": I, "phylactery_max_per_dungeon": I,
 	"clones_ready": I, "warden": {"archetype": S, "tier": I}, "warden_spec": D, "loot_table_id": S,
 	"loot_hint": S, "chest_husk": B, "watchtower": B, "relish_hp": F,
+	# api_version 6 (E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends in
+	"death_ends": {"outcome": S, "respawn_s": F},
 }
 const BOSS_SEED := {
 	"v": I, "kind": S, "run_id": I, "seed_rev": I, "rng_seed": S,
 	"backlog": F, "living_pool": F, "odds": F, "sign": I, "drain_s": F, "digest_q": F, "vei_capacity": F,
 	"fronts": [{"id": S, "need": F, "have": F, "assigned": [S]}], "fronts_required": I,
 	"party": [BOSS_PARTY], "phylactery_charges": I, "clones_ready": I, "relish_hp": F,
+	# api_version 6 (E2b-2 T3.3c): what a death that ends the fight ends in (always unmade: backups go first)
+	"death_ends": {"outcome": S, "respawn_s": F},
 }
 
 # --------------------------------------------------------------- results (§8) ----
@@ -69,7 +73,8 @@ const RESULTS := {
 const COMMANDS := {
 	"cmd_new_game": {},
 	"cmd_save": {"saved_at": I, "path": S},
-	"cmd_load": {},
+	# api_version 6 (E2b-2 T3.3b): the catch-up of the time since the save (IDLE §4)
+	"cmd_load": {"away_s": F, "capped": B},
 	"cmd_set_time_scale": {"time_scale": F},
 	"cmd_pause": {"paused": B},
 	"cmd_set_valve": {"target": VALVE},
@@ -80,6 +85,10 @@ const COMMANDS := {
 	"cmd_upgrade": {"level": I, "cost": COST},
 	"cmd_demolish": {},
 	"cmd_cancel_build": {"refund": COST},
+	# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
+	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I},
+	"cmd_unqueue": {},
+	"cmd_reorder_queue": {},
 	"cmd_set_job_priority": {"order": [S]},
 	"cmd_set_staff_cap": {"cap": I},
 	"cmd_set_stance": {"slots": I, "used": I},
@@ -94,6 +103,10 @@ const COMMANDS := {
 	"cmd_begin_dungeon": {"seed": RAID_SEED, "run_id": I, "seed_rev": I},
 	"cmd_begin_boss": {"seed": BOSS_SEED, "run_id": I, "seed_rev": I},
 	"cmd_abort_dungeon": {"run_id": I},
+	# api_version 6 (E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's last checkpoint
+	"cmd_run_checkpoint": {},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): dismiss the away report
+	"cmd_dismiss_away": {},
 	"apply_result": {"errors": [S], "minted": [S]},
 	"cmd_debug_grant": {"key": S, "applied": {"minted": [S]}},
 	"cmd_debug_set_state": {"key": S},
@@ -102,44 +115,53 @@ const COMMANDS := {
 }
 
 ## Every reason each command may return (§4), in the doc's check order.
+## api_version 6 (E2b-2 T3.3b): every command refuses with catching_up while a catch-up runs (§4), checked
+## first (after not_debug where that applies).
 const REASONS := {
-	"cmd_new_game": ["busy"],
-	"cmd_save": ["bad_slot", "write_failed"],
-	"cmd_load": ["busy", "bad_slot", "no_save", "bad_version"],
-	"cmd_set_time_scale": ["not_debug", "in_dungeon", "in_boss", "invalid_scale"],
-	"cmd_pause": ["not_debug"],
-	"cmd_set_valve": ["not_finite", "negative", "zero_valve"],
-	"cmd_move_relish": ["dead", "in_dungeon", "in_boss", "unknown_node"],
-	"cmd_cancel_travel": ["not_travelling"],
-	"cmd_set_haul_target": ["unknown_fort"],
-	"cmd_build": ["unknown_building", "unknown_lot", "unique", "lot_locked", "lot_taken", "lot_too_small",
+	"cmd_new_game": ["catching_up", "busy"],
+	"cmd_save": ["catching_up", "bad_slot", "write_failed"],
+	"cmd_load": ["catching_up", "busy", "bad_slot", "no_save", "bad_version"],
+	"cmd_set_time_scale": ["not_debug", "catching_up", "in_dungeon", "in_boss", "invalid_scale"],
+	"cmd_pause": ["not_debug", "catching_up"],
+	"cmd_set_valve": ["catching_up", "not_finite", "negative", "zero_valve"],
+	"cmd_move_relish": ["catching_up", "dead", "in_dungeon", "in_boss", "unknown_node"],
+	"cmd_cancel_travel": ["catching_up", "not_travelling"],
+	"cmd_set_haul_target": ["catching_up", "unknown_fort"],
+	"cmd_build": ["catching_up", "unknown_building", "unknown_lot", "unique", "lot_locked", "lot_taken", "lot_too_small",
 		"needs_tier", "needs_blueprint", "needs_building", "no_gold", "no_bone", "no_relics"],
-	"cmd_upgrade": ["unknown_lot", "empty_lot", "under_construction", "unpaid", "max_level", "needs_tier",
+	"cmd_upgrade": ["catching_up", "unknown_lot", "empty_lot", "under_construction", "unpaid", "max_level", "needs_tier",
 		"no_gold", "no_bone", "no_relics"],
-	"cmd_demolish": ["unknown_lot", "empty_lot", "under_construction", "protected"],
-	"cmd_cancel_build": ["unknown_lot", "not_building"],
-	"cmd_set_job_priority": ["unknown_job", "duplicate_job", "missing_job"],
-	"cmd_set_staff_cap": ["unknown_lot", "empty_lot", "no_jobs", "bad_cap"],
-	"cmd_set_stance": ["unknown_stance", "no_slot"],
-	"cmd_raise_big_undead": ["not_home", "unknown_husk", "unknown_remnant", "duplicate_remnant",
+	"cmd_demolish": ["catching_up", "unknown_lot", "empty_lot", "under_construction", "protected"],
+	"cmd_cancel_build": ["catching_up", "unknown_lot", "not_building"],
+	"cmd_queue_build": ["catching_up", "queue_full", "unknown_building", "unknown_lot", "unique", "lot_taken", "lot_too_small",
+		"empty_lot", "max_level", "cost_exceeds_cap"],
+	"cmd_unqueue": ["catching_up", "unknown_index"],
+	"cmd_reorder_queue": ["catching_up", "bad_order"],
+	"cmd_set_job_priority": ["catching_up", "unknown_job", "duplicate_job", "missing_job"],
+	"cmd_set_staff_cap": ["catching_up", "unknown_lot", "empty_lot", "no_jobs", "bad_cap"],
+	"cmd_set_stance": ["catching_up", "unknown_stance", "no_slot"],
+	"cmd_raise_big_undead": ["catching_up", "not_home", "unknown_husk", "unknown_remnant", "duplicate_remnant",
 		"invalid_recipe", "at_cap", "bad_name"],
-	"cmd_rename_big_undead": ["unknown_uid", "bad_name"],
-	"cmd_place_big_undead": ["unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot",
+	"cmd_rename_big_undead": ["catching_up", "unknown_uid", "bad_name"],
+	"cmd_place_big_undead": ["catching_up", "unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot",
 		"foreman_taken", "unknown_fort"],
-	"cmd_craft": ["unknown_item", "needs_building", "no_essence", "no_relics"],
-	"cmd_deploy_simulacrum": ["unknown_fort", "none_ready"],
-	"cmd_staff_vat": ["unknown_slot"],
-	"cmd_set_party": ["busy", "unknown_uid", "duplicate_uid"],
-	"cmd_assign_front": ["busy", "unknown_uid", "not_in_party", "unknown_front"],
-	"cmd_begin_dungeon": ["unknown_fort", "busy", "dead", "not_at_fort"],
-	"cmd_begin_boss": ["busy", "dead", "not_at_vei"],
-	"cmd_abort_dungeon": ["no_run"],
+	"cmd_craft": ["catching_up", "unknown_item", "needs_building", "no_essence", "no_relics"],
+	"cmd_deploy_simulacrum": ["catching_up", "unknown_fort", "none_ready"],
+	"cmd_staff_vat": ["catching_up", "unknown_slot"],
+	"cmd_set_party": ["catching_up", "busy", "unknown_uid", "duplicate_uid"],
+	"cmd_assign_front": ["catching_up", "busy", "unknown_uid", "not_in_party", "unknown_front"],
+	"cmd_begin_dungeon": ["catching_up", "unknown_fort", "busy", "dead", "not_at_fort"],
+	"cmd_begin_boss": ["catching_up", "busy", "dead", "not_at_vei"],
+	# T3.3c: a dead run's refusal comes before catching_up (no run is open during a catch-up)
+	"cmd_abort_dungeon": ["no_run", "catching_up"],
+	"cmd_run_checkpoint": ["no_run", "wrong_run", "wrong_kind", "catching_up", "invalid", "bad_outcome"],
+	"cmd_dismiss_away": ["catching_up"],
 	"apply_result": ["unknown_kind", "unknown_v", "invalid", "duplicate_run", "wrong_run", "wrong_kind",
 		"stale_seed", "wrong_fort", "bad_revives", "bad_party", "bad_backups"],
-	"cmd_debug_grant": ["not_debug", "unknown_key", "bad_value"],
-	"cmd_debug_set_state": ["not_debug", "unknown_key", "bad_value", "busy"],
-	"cmd_debug_load_fixture": ["not_debug", "busy", "unknown_fixture", "bad_fixture"],
-	"cmd_debug_skip_time": ["not_debug", "bad_value"],
+	"cmd_debug_grant": ["not_debug", "catching_up", "unknown_key", "bad_value"],
+	"cmd_debug_set_state": ["not_debug", "catching_up", "unknown_key", "bad_value", "busy"],
+	"cmd_debug_load_fixture": ["not_debug", "catching_up", "busy", "unknown_fixture", "bad_fixture"],
+	"cmd_debug_skip_time": ["not_debug", "catching_up", "bad_value"],
 }
 
 # ------------------------------------------------------------------ views (§5) ----
@@ -148,20 +170,41 @@ const FORT := {
 	"living": F, "undead": F, "dead": F, "space": F, "war_in": F, "ship_in": F,
 	"held": B, "held_s_left": F, "flipped_count": I, "first_clear": B, "first_dungeon": B,
 	"clears_since_retaken": I, "yield_mult": F,
-	"warden": {"archetype": S, "tells": [S]}, "loot_hint": S,
+	"warden": {"archetype": S, "name": S, "tells": [S]}, "loot_hint": S,
 	"threat": {"party_strength": F, "garrison_strength": F, "risk": S, "risk_pct": F},
 	"relish_here": B, "tide": B, "redirect": B, "simulacrum_charges": F, "siege": [S],
 	"tithe": {"targeted": B, "eta_s": F, "wave_active": B},
 	"can_descend": B, "reason": S,
+	# api_version 6 (E2b-2 T3.1, api-requests #7 a, #13): the held fort's readouts and its grace
+	"garrison": F, "garrison_rate": F, "fall_s": F, "margin": S, "margin_cause": S, "grace_s_left": F,
 }
 const TOWN_BUILDING := {
 	"lot_id": S, "building_id": S, "level": I, "state": S, "progress": F, "slots": I, "staffed": F,
 	"staff_cap": I, "foreman": S, "output": {"*": F}, "upkeep": UPKEEP,
+	# api_version 6 (E2b-2 T3.2, api-request #17): construction time
+	"work_left": F, "eta_s": F, "upgrade_work": F,
+	# api_version 6 (E2b-2 T3.2, api-request #9): the next level's rate change ({} at max level or constructing)
+	"upgrade_projected": {"*": F},
+	# api_version 6 (T3.4a): why a building's mills milled less than their hands want
+	"starved": S,
 }
+## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
+const QUEUE_ENTRY := {
+	"building_id": S, "lot_id": S, "upgrade": B, "level": I, "cost": COST, "work": F, "status": S, "reason": S,
+	"waited_on": S,
+}
+## A line of view_away (api_version 6, E2b-2 T3.3c, api-request #7 d): `kind` one of AWAY_KINDS, `target` a
+## fort id, "slab", "queue" or "".
+const AWAY_LINE := {"text": S, "kind": S, "target": S}
+const AWAY_KINDS := ["stream", "build", "refilled", "raid", "slab", "queue", "retaken", "village_lost", "overflow"]
 const CATALOG_BUILDING := {
 	"building_id": S, "cost": COST, "upkeep": UPKEEP, "build_work": F, "lot_size": I, "max_level": I,
 	"count": I, "requires": {"tier": S, "blueprint": S, "building": S}, "can_build": B, "reason": S,
 	"lots": [S],
+	# api_version 6 (E2b-2 T3.2, api-request #17): a new build's work
+	"work": F,
+	# api_version 6 (E2b-2 T3.2, api-request #9): the rate change if it were finished now
+	"projected": {"*": F},
 }
 
 ## Views without `rev` (every view carries `rev: int` except the two seed views, §7).
@@ -170,6 +213,7 @@ const VIEWS := {
 		"game_id": S, "t": F, "time_scale": F, "paused": B,
 		"rates": [{"id": S, "rate": F, "stock": F, "cap": F, "unit": S}],
 		"split": VALVE, "valve": VALVE, "valve_target": VALVE, "workers_steady": F, "workers_steady_kept": F, "war_overflow": F,
+		"war_supports": {"n": I, "m": I},
 		"relics": I, "relics_cap": I, "essence": I, "essence_cap": I,
 		"sign": I, "drain_s": F, "odds": F, "won": B,
 	},
@@ -188,6 +232,9 @@ const VIEWS := {
 		"dead_s_left": F, "respawn_with_clone": B, "phylactery_charges": I, "clones_ready": I,
 		"can_descend": B, "reason": S, "run_id": I, "run_kind": S,
 		"effects": {"tide_fort": S, "redirect_fort": S, "home": B},
+		# api_version 6 (E2b-2 T3.3c; IDLE I5): her last walk home from a retaken fort, {} before any (so opaque
+		# here; RELISH_RETURNED types it once there is one)
+		"returned": D,
 	},
 	"view_town": {
 		"tier": S, "next_tier": {"tier": S, "have": I, "need": I, "missing": [S]},
@@ -198,6 +245,10 @@ const VIEWS := {
 		"living": F, "living_cap": F, "migrants": F, "departures": F,
 		"morale": {"value": F, "target": F, "factors": [{"id": S, "delta": F}]},
 		"gold": F, "bone": F, "bodies": F, "bodies_cap": F, "trade_rate": F,
+		# api_version 6 (E2b-2 T3.2, IDLE §6): the gold and bone caps
+		"gold_cap": F, "bone_cap": F,
+		# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
+		"queue": [QUEUE_ENTRY], "queue_max": I,
 		"haul": {"target": S, "current": S,
 			"convoys": [{"from": S, "to": S, "phase": S, "t": F, "load": F}]},
 		"relish_home": B,
@@ -242,6 +293,15 @@ const VIEWS := {
 	# the cmd_set_job_priority refusal its `order` would get
 	"view_staffing_projection": {"jobs": [{"id": S, "slots": I, "staffed": F}], "buildings": [{"lot_id": S, "staffed": F}],
 		"idle": F, "reason": S},
+	# api_version 6 (E2b-2 T3.1, api-requests #7 c, #13): takes `valve` (and, T3.4b, optionally `settled`); each
+	# margins row's margin_verified (T3.4b): the margin is the wave train's (settled) or the drag's one-wave probe
+	"view_projection": {"valve": VALVE, "split": {"work": F, "war": F, "flood": F, "war_overflow": F}, "workers_steady": F,
+		"backlog_diff": F, "war_supports": {"n": I, "m": I},
+		"margins": {"*": {"margin": S, "margin_cause": S, "fall_s": F, "garrison_rate": F, "margin_verified": B}}},
+	# api_version 6 (E2b-2 T3.3b): the catch-up's progress (IDLE §4)
+	"view_catchup": {"active": B, "done_s": F, "total_s": F},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): the "While you were away" report
+	"view_away": {"shown": B, "away_s": F, "capped": B, "gains": [AWAY_LINE], "ready": [AWAY_LINE], "losses": [AWAY_LINE]},
 }
 ## Views that take an id argument (and return {} for an unknown one).
 const VIEW_ARGS := {"view_fort": 1, "view_dungeon_seed": 1}
@@ -259,11 +319,23 @@ const EVENTS := {
 	"tier_up": {"tier": S, "from": S},
 	"fort_flipped": {"fort_id": S, "run_id": I, "hold_s": F},
 	"fort_retaken": {"fort_id": S, "cause": S},
+	# api_version 6 (E2b-2 T3.1): a siege big undead at a retaken fort returns to the crypt (IDLE I6)
+	"big_undead_returned": {"uid": S, "fort_id": S},
+	# api_version 6 (E2b-2 T3.1, api-request #10): a held fort's raid cleared its counter-garrison
+	"counter_garrison_cleared": {"fort_id": S, "killed_mass": F},
+	# api_version 6 (E2b-2 T3.2, api-request #3): a queued build started; waited_on is what held it last
+	"queue_started": {"building_id": S, "lot_id": S, "level": I, "upgrade": B, "waited_on": S},
 	"tithe_warning": {"wave_id": I, "fort_id": S, "eta_s": F, "surge": F},
 	"tithe_wave": {"wave_id": I, "fort_id": S, "surge": F, "duration_s": F, "relish_here": B, "siege_block": F},
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},
 	"loot_banked": {"run_id": I, "fort_id": S, "relics": I, "essence": I, "blueprints": [S], "minted": [S]},
 	"vei_result": {"run_id": I, "won": B, "fronts_cleared": [S], "relish_deaths": I, "backlog_after": F},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): a report replaced the catch-up's events
+	"away_report": {"away_s": F, "capped": B},
+	# api_version 6 (E2b-2 T3.3c; IDLE I5): Relish walks home from the retaken fort she stood at
+	"relish_returned": {"fort_id": S, "cause": S},
+	# api_version 6 (E2b-2 T3.3c; IDLE I5): a gap above idle.gap_s in the open game ended the open run
+	"run_ended": {"run_id": I, "kind": S, "outcome": S, "cause": S},
 	"autosaved": {"slot": S, "saved_at": I},
 	"save_failed": {"slot": S, "reason": S},
 }
@@ -277,8 +349,17 @@ const LEDGER := {
 		"pool_overflow": F, "rot_overflow": F, "haul_overflow": F, "store_overflow": F},
 	"held": {"fort_living": F, "fort_undead": F, "corpses": F, "backlog": F, "vei_dead": F,
 		"living_pool": F, "bodies": F, "workers": F, "convoys": F, "work_pending": F},
+	# api_version 6 (E2b-2 T3.2): the currency tally beside the mass, what the gold and bone caps clipped
+	"stores": {"gold": {"overflow": F}, "bone": {"overflow": F}},
 }
 const LIST_SAVES := [{"slot": S, "saved_at": I, "summary": S}]
+## view_relish().returned once there is one (api_version 6, E2b-2 T3.3c; IDLE I5), and the save's relish.returned.
+const RELISH_RETURNED := {"fort_id": S, "cause": S, "t": F}
+## to_dict()'s `pending_retreat` (api_version 6, E2b-2 T3.3c; IDLE I5): written only while a run is open, so
+## it isn't in SAVE (which every to_dict must hold); test_api_v6 checks it against this.
+const PENDING_RETREAT := {"run_id": I, "kind": S, "fort_id": S, "seed_rev": I,
+	"loot": {"relics": I, "blueprints": [S], "husks": [{"kind": S}], "remnants": [{"aspect": S, "rarity": S, "magnitude": I}], "essence": I},
+	"outcome": S}
 ## to_dict() (§9.1): the top-level keys and their exact types. Blocks whose insides E2/E3 will
 ## change are opaque (D); the rest are typed.
 ## `game_id` is optional on load (a save without it gets its seed's id, §9.1) but to_dict always writes it,
@@ -290,14 +371,16 @@ const SAVE := {
 	"valve": {"target": VALVE, "current": VALVE},
 	"realm": D, "villages": [{"id": S, "owner": S}], "town": D, "stances": D, "inventory": D,
 	"big_undead": [D], "party": [S], "backups": D, "readout": {"diff_ema": F, "q_raise_ema": F},
-	"ledger": {"sources": {"*": F}, "sinks": {"*": F}},
+	"ledger": {"sources": {"*": F}, "sinks": {"*": F}, "stores": {"gold": {"overflow": F}, "bone": {"overflow": F}}},
 	"won": B, "stats": {"raised_total": F, "raids": I, "deaths": I, "sims_built": I},
 	"cleared_forts": [S], "first_dungeon": S,
+	# api_version 6 (E2b-2 T3.2): the build queue; optional on load (an older save loads it empty)
+	"queue": [{"building_id": S, "lot_id": S, "upgrade": B, "waited_on": S}],
 }
 ## Methods on GameState besides the commands and views (§1.5).
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",
 	"migrate", "list_saves", "ledger"]
-const MEMBER_VARS := ["debug_enabled", "save_dir", "rev"]
+const MEMBER_VARS := ["debug_enabled", "save_dir", "rev", "clock_override"]  # clock_override: api_version 6, E2b-2 T3.3b
 ## Contract names not implemented yet (none after T1.5). The contract test fails if a listed name
 ## exists, so the list cannot go stale.
 const EXPECTED_MISSING := []

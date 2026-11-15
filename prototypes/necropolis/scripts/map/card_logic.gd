@@ -23,18 +23,18 @@ static func fmt_clock(s: float) -> String:
 
 # --- the warden --------------------------------------------------------------------
 
-## "The Bellringer": the config name, else the id title-cased ("pyre_priest" -> "The Pyre Priest").
-static func warden_name(archetype: String) -> String:
-	var names := _table("warden_names")
-	if names.has(archetype):
-		return str(names[archetype])
+## The warden's name: the view's `name` (raid.json's, the dungeon owns it) when it has one, else the
+## id title-cased ("pyre_priest" -> "The Pyre Priest").
+static func warden_name(archetype: String, name: String = "") -> String:
+	if name != "":
+		return name
 	return str(_c().get("warden_fallback_fmt", "%s")) % archetype.replace("_", " ").capitalize()
 
 
 ## The warden block's lines: [name, tell, ...]: one tell, or every tell (the Watchtower case),
 ## or the "no tell known" line.
 static func warden_lines(warden: Dictionary) -> Array:
-	var out: Array = [warden_name(str(warden.get("archetype", "")))]
+	var out: Array = [warden_name(str(warden.get("archetype", "")), str(warden.get("name", "")))]
 	var tells: Array = warden.get("tells", [])
 	if tells.is_empty():
 		out.append(str(_c().get("tell_none", "")))

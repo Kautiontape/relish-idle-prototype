@@ -141,8 +141,9 @@ static func construction_cost(gs: GameState, building_id: String, level: int) ->
 
 ## §4.3 · E2: pays the cost at once and starts construction on a free, unlocked lot. TownSim's
 ## `build` job advances it; `building_started` comes out of the next substep, `building_done` when
-## the work is in. A `unique` building (the Crypt) is refused while one stands (api_version 3).
-static func build(gs: GameState, building_id: String, lot_id: String) -> Dictionary:
+## the work is in. A `unique` building (the Crypt) is refused while one stands (api_version 3). `bump`
+## false: the build queue's start inside a substep, whose own rev bump covers it.
+static func build(gs: GameState, building_id: String, lot_id: String, bump := true) -> Dictionary:
 	var def: Dictionary = buildings_cfg(gs).get(building_id, {})
 	var lot := lot(gs, lot_id)
 	var cost := construction_cost(gs, building_id, 1)
@@ -169,14 +170,15 @@ static func build(gs: GameState, building_id: String, lot_id: String) -> Diction
 	if not r["ok"]:
 		return {"ok": false, "reason": str(r["reason"]), "cost": {}}  # unreachable: every gate is checked above
 	pay(gs, cost)
-	gs.rev += 1
+	if bump:
+		gs.rev += 1
 	return {"ok": true, "reason": "", "cost": cost}
 
 
 ## §4.3 · E2: pays level_costs and constructs the next level. The building works at its old level
 ## meanwhile (TownSim). Reasons in order: unknown_lot, empty_lot, under_construction, unpaid,
-## max_level, needs_tier, no_gold, no_bone, no_relics.
-static func upgrade(gs: GameState, lot_id: String) -> Dictionary:
+## max_level, needs_tier, no_gold, no_bone, no_relics. `bump` as build()'s.
+static func upgrade(gs: GameState, lot_id: String, bump := true) -> Dictionary:
 	var b: Dictionary = gs.town_sim.buildings.get(lot_id, {})
 	var why := ""
 	var level := 0
@@ -205,7 +207,8 @@ static func upgrade(gs: GameState, lot_id: String) -> Dictionary:
 	if not r["ok"]:
 		return {"ok": false, "reason": str(r["reason"]), "level": 0, "cost": {}}  # unreachable
 	pay(gs, cost)
-	gs.rev += 1
+	if bump:
+		gs.rev += 1
 	return {"ok": true, "reason": "", "level": level, "cost": cost}
 
 
@@ -322,6 +325,7 @@ static func catalog_rows(gs: GameState) -> Dictionary:
 			"build_work": float(def.get("build_work", 0.0)), "lot_size": int(def.get("lot_size", 1)),
 			"max_level": int(def.get("max_level", 1)), "count": count_built(gs, bid), "requires": req,
 			"can_build": why == "", "reason": why, "lots": lots,
+			"work": gs.town_sim.construction_work(str(bid), 1),  # v6 (T3.2, api-request #17): a new build's work
 		})
 		if req["blueprint"] != "" and not bps.has(req["blueprint"]):
 			bps.append(req["blueprint"])
@@ -344,3 +348,334 @@ static func cap_bonus(gs: GameState, section: String) -> int:
 				if b["building_id"] == "crypt":
 					n += int(sec.get("per_crypt_level", 0)) * maxi(0, int(b["level"]) - 1)
 	return n
+
+
+# ---------------------------------------------------------------- the build queue ----
+## The build queue (IDLE §5, STATE-API §4.3, api-request #3; MECHANICS §4.4). GameState keeps the
+## entries, {building_id, lot_id, upgrade, waited_on}, in order (`gs.build_queue`); everything else an
+## entry shows is derived from today's state by queue_walk(), which the view, cmd_queue_build and the
+## core step's processing all run, so a status always says what the next processing does.
+
+## economy.json queue.max_len (GameState.REQUIRED: a missing key is an error, never a silent 0 that would
+## make every cmd_queue_build queue_full).
+static func queue_max(gs: GameState) -> int:
+	return int(gs._req_f("economy.queue.max_len"))
+
+
+## The building whose effects raise `store`'s cap (gold_cap, bone_cap, relic_cap), the first in
+## buildings.json file order; "" when none does.
+static func cap_building(gs: GameState, store: String) -> String:
+	var key: String = {"gold": "gold_cap", "bone": "bone_cap", "relics": "relic_cap"}.get(store, "")
+	var cfg := buildings_cfg(gs)
+	for bid in cfg:
+		var fx: Variant = cfg[bid].get("effects", {})
+		if fx is Dictionary and (fx as Dictionary).has(key):
+			return str(bid)
+	return ""
+
+
+## The lowest level of `store`'s cap building (cap_building) at which the store's cap covers `price`: the
+## cap now with that building's highest-level copy raised to that level, or with one built at it when none
+## stands (so 1 when it isn't built yet and its level 1 is enough). −1 when no level covers it, or no
+## building raises that cap. cmd_queue_build's `cap_level` (STATE-API §4.3): what to build first.
+static func cap_level(gs: GameState, store: String, price: float) -> int:
+	var bid := cap_building(gs, store)
+	if bid == "":
+		return -1
+	var key: String = {"gold": "gold_cap", "bone": "bone_cap", "relics": "relic_cap"}[store]
+	var now := gs.town_sim.gold_cap() if store == "gold" else (gs.town_sim.bone_cap() if store == "bone" else float(gs._cap_of("relics")))
+	var have := 0
+	for lot_id in gs.town_sim.buildings:
+		var b: Dictionary = gs.town_sim.buildings[lot_id]
+		if b["building_id"] == bid:
+			have = maxi(have, int(b["level"]))
+	var base := now - gs.town_sim.effect_at(bid, key, have)
+	for lv in range(have + 1, int(buildings_cfg(gs).get(bid, {}).get("max_level", 1)) + 1):
+		if base + gs.town_sim.effect_at(bid, key, lv) >= price:
+			return lv
+	return -1
+
+
+## The store whose current cap `cost` is above (gold, bone, then relics), or "".
+static func over_cap(gs: GameState, cost: Dictionary) -> String:
+	if float(cost["gold"]) > gs.town_sim.gold_cap():
+		return "gold"
+	if float(cost["bone"]) > gs.town_sim.bone_cap():
+		return "bone"
+	if int(cost["relics"]) > gs._cap_of("relics"):
+		return "relics"
+	return ""
+
+
+## The building an upgrade queued on `lot_id` would upgrade: the one there (built or under
+## construction), else the first new build queued for the lot; "" when neither.
+static func queued_building(gs: GameState, lot_id: String, entries: Array) -> String:
+	var b: Dictionary = gs.town_sim.buildings.get(lot_id, {})
+	if not b.is_empty():
+		return str(b["building_id"])
+	for e in entries:
+		if e["lot_id"] == lot_id and not bool(e["upgrade"]):
+			return str(e["building_id"])
+	return ""
+
+
+## The level each entry builds (MECHANICS §4.4): a new build 1; an upgrade one above what its lot will
+## have once every entry ahead of it for that lot, and the construction under way there, are done. The
+## lot's level starts at its building's (its construction's target while constructing) and only entries
+## of that building move it; the first new build queued for an empty lot sets it at 1.
+static func queue_levels(gs: GameState, entries: Array) -> Array:
+	var proj := {}  # lot_id -> [building_id, level]
+	for lot_id in gs.town_sim.buildings:
+		var b: Dictionary = gs.town_sim.buildings[lot_id]
+		proj[lot_id] = [str(b["building_id"]), int(b["build_level"]) if b["state"] == "constructing" else int(b["level"])]
+	var out: Array = []
+	for e in entries:
+		var lot_id: String = e["lot_id"]
+		var bid: String = e["building_id"]
+		var p: Array = proj.get(lot_id, [])
+		if not bool(e["upgrade"]):
+			out.append(1)
+			if p.is_empty():
+				proj[lot_id] = [bid, 1]
+		elif not p.is_empty() and p[0] == bid:
+			p[1] = int(p[1]) + 1
+			out.append(int(p[1]))
+		else:
+			out.append(2)  # nothing of its building there or queued: it shows empty_lot
+	return out
+
+
+## One walk of the queue (MECHANICS §4.4) on a copy of today's stocks and lots, the one rule the view,
+## cmd_queue_build and the core step's processing share. In order: an entry blocked by a gate is
+## `skipped_gate` with its reason and the walk goes on (it holds nothing: no funds, no lot); the first
+## entry that isn't gated is the head: `next` when the gold and bone cover it, and the copy pays and takes
+## its lot as the start would, so the walk goes on to the next head; else `waiting_funds` (no_gold,
+## no_bone) and every later entry that isn't gated is `queued`. An upgrade behind an entry for its lot that
+## hasn't started shows that entry's gate (none: queued). Returns {rows: the view's entries, start: the
+## indices that start, in order}.
+static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
+	var levels := queue_levels(gs, entries)
+	var gold := gs.town_sim.gold
+	var bone := gs.town_sim.bone
+	var relics := gs.relics
+	var lots := {}  # lot_id -> {building_id, level, state}: the copy the walk takes lots in
+	for lot_id in gs.town_sim.buildings:
+		var b: Dictionary = gs.town_sim.buildings[lot_id]
+		lots[lot_id] = {"building_id": str(b["building_id"]), "level": int(b["level"]), "state": str(b["state"])}
+	var pending := {}  # lot_id -> the gate of the last entry for it that hasn't started ("" when not gated)
+	var stopped := false
+	var rows: Array = []
+	var start: Array = []
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		var lot_id: String = e["lot_id"]
+		var bid: String = e["building_id"]
+		var up := bool(e["upgrade"])
+		var level: int = levels[i]
+		var cost := construction_cost(gs, bid, level)
+		var why := _queue_gate(gs, e, level, cost, lots, pending, relics)
+		var status := "skipped_gate"
+		if why == "":
+			if stopped or (up and pending.has(lot_id)):
+				status = "queued"
+			elif gold < float(cost["gold"]):
+				status = "waiting_funds"
+				why = "no_gold"
+			elif bone < float(cost["bone"]):
+				status = "waiting_funds"
+				why = "no_bone"
+			else:
+				status = "next"
+		if status == "next":
+			gold -= float(cost["gold"])
+			bone -= float(cost["bone"])
+			relics -= int(cost["relics"])
+			if up:
+				lots[lot_id]["state"] = "constructing"
+			else:
+				lots[lot_id] = {"building_id": bid, "level": 0, "state": "constructing"}
+				pending.erase(lot_id)
+			start.append(i)
+		else:
+			pending[lot_id] = why if status == "skipped_gate" else ""
+			stopped = stopped or status == "waiting_funds"
+		rows.append({"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
+			"work": gs.town_sim.construction_work(bid, level),
+			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))})
+	return {"rows": rows, "start": start}
+
+
+## An entry's gate on the walk's copy (`lots`, `pending`, the relics left), in the build family's check
+## order, or "". An upgrade: empty_lot (another building there, or nothing there or queued for it),
+## max_level, then an earlier entry's gate for that lot while one hasn't started, else under_construction,
+## unpaid, needs_tier. A new build: unique, lot_locked, lot_taken (a building stands or is under
+## construction there), lot_too_small, needs_tier, needs_blueprint, needs_building. Then both:
+## cost_exceeds_cap (a cost over its store's cap now, after a cap building went), no_relics.
+static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictionary, lots: Dictionary, pending: Dictionary,
+		relics: int) -> String:
+	var lot_id: String = e["lot_id"]
+	var bid: String = e["building_id"]
+	var def: Dictionary = buildings_cfg(gs).get(bid, {})
+	var why := ""
+	if bool(e["upgrade"]):
+		var b: Dictionary = lots.get(lot_id, {})
+		if (not b.is_empty() and b["building_id"] != bid) or (b.is_empty() and not pending.has(lot_id)):
+			why = "empty_lot"
+		elif level > int(def.get("max_level", 1)):
+			why = "max_level"
+		elif pending.has(lot_id):
+			why = str(pending[lot_id])
+		elif b["state"] == "constructing":
+			why = "under_construction"
+		elif b["state"] == "unpaid":
+			why = "unpaid"
+		else:
+			why = req_reason(gs, {"tier": req_of(gs, bid)["tier"], "blueprint": "", "building": ""})
+	else:
+		var unique := bool(def.get("unique", false))
+		var taken := false
+		for l in lots:
+			taken = taken or (unique and lots[l]["building_id"] == bid)
+		if taken:
+			why = "unique"
+		elif not lot_unlocked(gs, lot_id):
+			why = "lot_locked"
+		elif lots.has(lot_id):
+			why = "lot_taken"
+		elif int(lot(gs, lot_id).get("size", 1)) < int(def.get("lot_size", 1)):
+			why = "lot_too_small"
+		else:
+			why = req_reason(gs, req_of(gs, bid))
+	if why == "" and over_cap(gs, cost) != "":
+		why = "cost_exceeds_cap"
+	if why == "" and relics < int(cost["relics"]):
+		why = "no_relics"
+	return why
+
+
+## The core step's processing (§3 step 3, right after rise_tiers): one walk, then each `next` entry starts
+## through cmd_build's or cmd_upgrade's own path, in order, and leaves the queue with `queue_started
+## {building_id, lot_id, level, upgrade, waited_on}`. Every entry that stays and was skipped or waited on
+## funds keeps that reason as its waited_on, and one queued behind the head that waits on funds takes the
+## head's (no_gold, no_bone): the funds hold it now. A start its command refuses (it never should: the walk
+## checks what they check) keeps its entry and stops this step's starts.
+static func process_queue(gs: GameState) -> void:
+	if gs.build_queue.is_empty():
+		return
+	var w := queue_walk(gs, gs.build_queue)
+	var gone := {}
+	for i in w["start"]:
+		var e: Dictionary = gs.build_queue[i]
+		var row: Dictionary = w["rows"][i]
+		var r := upgrade(gs, e["lot_id"], false) if bool(e["upgrade"]) else build(gs, e["building_id"], e["lot_id"], false)
+		if not r["ok"]:
+			push_warning("BuildRules: the queue's %s on %s was refused (%s)" % [e["building_id"], e["lot_id"], r["reason"]])
+			e["waited_on"] = str(r["reason"])
+			break
+		gone[i] = true
+		gs._emit({"type": "queue_started", "building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
+			"level": int(row["level"]), "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))})
+	var keep: Array = []
+	var held := ""  # the reason of the head waiting on funds, once the walk has reached it
+	for i in gs.build_queue.size():
+		var st: String = w["rows"][i]["status"]
+		if st == "waiting_funds" and held == "":
+			held = str(w["rows"][i]["reason"])
+		if gone.has(i):
+			continue
+		var e: Dictionary = gs.build_queue[i]
+		if st == "skipped_gate" or st == "waiting_funds":
+			e["waited_on"] = str(w["rows"][i]["reason"])
+		elif st == "queued" and held != "":
+			e["waited_on"] = held  # the head's funds hold it now, whatever gate held it before
+		keep.append(e)
+	gs.build_queue = keep
+
+
+## §4.3 cmd_queue_build: appends a build (or, with building_id "", an upgrade of the building on or queued
+## for `lot_id`). Refuses only what waiting can't make valid, in order: queue_full, unknown_building,
+## unknown_lot, unique (one stands, is under construction or is queued), lot_taken (one stands or is under
+## construction there; queued entries don't claim lots), lot_too_small; an upgrade's empty_lot (nothing
+## there or queued) and max_level (the level it would build); cost_exceeds_cap (a gold, bone or relic cost
+## over that store's cap now; `store` names it and `cap_building` the building that raises it). Gates
+## time or play can clear (the tier, a blueprint, a building, a locked lot, relics, a construction under
+## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses.
+static func queue_build(gs: GameState, building_id: String, lot_id: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "index": -1, "cap_building": "", "store": "", "cap_level": -1}
+	var q: Array = gs.build_queue
+	var up := building_id == ""
+	var bid := building_id
+	var def: Dictionary = buildings_cfg(gs).get(bid, {})
+	var why := ""
+	if q.size() >= queue_max(gs):
+		why = "queue_full"
+	elif not up and def.is_empty():
+		why = "unknown_building"
+	elif lot(gs, lot_id).is_empty():
+		why = "unknown_lot"
+	elif up:
+		bid = queued_building(gs, lot_id, q)
+		def = buildings_cfg(gs).get(bid, {})
+		if bid == "":
+			why = "empty_lot"
+	elif bool(def.get("unique", false)) and (unique_taken(gs, bid) or q.any(func(e): return e["building_id"] == bid and not bool(e["upgrade"]))):
+		why = "unique"
+	elif gs.town_sim.buildings.has(lot_id):
+		why = "lot_taken"
+	elif int(lot(gs, lot_id).get("size", 1)) < int(def.get("lot_size", 1)):
+		why = "lot_too_small"
+	var entry := {"building_id": bid, "lot_id": lot_id, "upgrade": up, "waited_on": ""}
+	if why == "":
+		var level: int = queue_levels(gs, q + [entry]).back()
+		if up and level > int(def.get("max_level", 1)):
+			why = "max_level"
+		else:
+			var cost := construction_cost(gs, bid, level)
+			var store := over_cap(gs, cost)
+			if store != "":
+				why = "cost_exceeds_cap"
+				out["cap_building"] = cap_building(gs, store)
+				out["store"] = store
+				out["cap_level"] = cap_level(gs, store, float(cost[store]))
+	if why != "":
+		out["reason"] = why
+		return out
+	q.append(entry)
+	var row: Dictionary = queue_walk(gs, q)["rows"].back()
+	if row["status"] == "skipped_gate" or row["status"] == "waiting_funds":
+		entry["waited_on"] = str(row["reason"])
+	gs.rev += 1
+	return {"ok": true, "reason": "", "index": q.size() - 1, "cap_building": "", "store": "", "cap_level": -1}
+
+
+## §4.3 cmd_unqueue: removes entry `index` (unknown_index).
+static func unqueue(gs: GameState, index: int) -> Dictionary:
+	if index < 0 or index >= gs.build_queue.size():
+		return {"ok": false, "reason": "unknown_index"}
+	gs.build_queue.remove_at(index)
+	gs.rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## §4.3 cmd_reorder_queue: `order[k]` is the old index that moves to position k (a whole number; a
+## permutation of the current indices, else bad_order).
+static func reorder_queue(gs: GameState, order: Array) -> Dictionary:
+	var n := gs.build_queue.size()
+	var seen := {}
+	if order.size() != n:
+		return {"ok": false, "reason": "bad_order"}
+	for i in order:
+		if not (i is int or (i is float and is_finite(i) and float(i) == floorf(i))) or int(i) < 0 or int(i) >= n or seen.has(int(i)):
+			return {"ok": false, "reason": "bad_order"}
+		seen[int(i)] = true
+	var out: Array = []
+	for i in order:
+		out.append(gs.build_queue[int(i)])
+	gs.build_queue = out
+	gs.rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## view_town's `queue`: the walk's rows (STATE-API §5.9).
+static func queue_rows(gs: GameState) -> Array:
+	return queue_walk(gs, gs.build_queue)["rows"]

@@ -28,6 +28,8 @@ extends RefCounted
 ##   haul_overflow: float   haul deliveries lost to the body cap (mass; a ledger sink)
 ##   rot_loss: float        rotted mass that never returns as bodies, (1 − body_return) (a ledger sink)
 ##   burned, milled: float  bodies the pits burned and the mills milled (mass; ledger sinks)
+##   gold_overflow, bone_overflow: float  income the gold and bone caps clipped (IDLE §6; not mass:
+##                          GameState tallies them in the ledger's `stores`)
 ##   events: Array          {type, ...} without `t` (GameState stamps it): building_started,
 ##                          building_done, building_unpaid
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
@@ -46,6 +48,7 @@ const REQUIRED := [
 	"economy.opening.living", "economy.opening.living_cap", "economy.opening.buildings",
 	"economy.worker.mass", "economy.worker.lifetime_s", "economy.worker.body_return",
 	"economy.worker.idle_rot_mult", "economy.worker.idle_cap", "economy.body_store.cap",
+	"economy.gold.cap", "economy.bone.cap",
 	"economy.morale.base", "economy.morale.ease_per_s", "economy.morale.dread_ratio", "economy.morale.dread_k",
 	"economy.morale.leave_below", "economy.morale.shock_s",
 	"economy.job.default_ladder", "economy.job.haul.speed", "economy.job.haul.carry", "economy.job.haul.auto_min_dead",
@@ -69,6 +72,8 @@ var _idle_rot := 0.0
 var _idle_cap := 0.0
 var _home_rot := 0.0
 var _body_cap := 0.0
+var _gold_cap := 0.0
+var _bone_cap := 0.0
 var _living_cap := 0.0
 var _haul_speed := 0.0
 var _carry := 0.0
@@ -98,8 +103,8 @@ var _shock_s := 0.0
 # ---- state (to_dict / from_dict) ----
 var workers := 0.0  # workers
 var bodies := 0.0  # mass, ≤ body_cap()
-var gold := 0.0
-var bone := 0.0
+var gold := 0.0  # ≤ gold_cap(), except an excess kept from before the cap dropped
+var bone := 0.0  # ≤ bone_cap(), likewise
 var living := 0.0  # people, ≤ living_cap()
 var morale := 0.0  # 0..1
 var shock := 0.0  # the decaying death shock, subtracted from the morale target
@@ -123,6 +128,11 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 ## {jobs: {job: {slots: int, staffed: float}} in ladder order, lots: {lot_id: staffed},
 ## idle: float, slots: float (staffable after staff caps)}
 var staffing := {}
+## Why the staffed mills milled less than their hands want in the last step (never saved; "" before a
+## first step, after a new game and after a load): "" when they got all they want or none are staffed;
+## "pits_first" when the pits took bodies and the supply fell short of both; "no_bodies" when the
+## pits took none either (nothing in the store or landing, or no staffed pit). STATE-API §5.9.
+var mill_starved := ""
 var _by_lot := {}  # lot_id -> {job: staffed}
 ## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
 ## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
@@ -136,10 +146,20 @@ var _staffed_w := NAN
 ## buildings' states and levels, so _mark_rooms() clears them.
 var _sums_w := {}
 var _sums_b := {}
+## What step() reads of the buildings, cached like the sums (E2b-2 T3.3b2, catch-up's budget): it reads only
+## their states and levels, so _mark_rooms() clears it and _lists() rebuilds it at its next read. {pits:
+## [[lot_id, pits, pit slots]] the working pits in lot order; attract: the working buildings' `attract` in lot
+## order; amen: the morale amenities, building id -> Σ `morale` (morale_factors' order); work: [[lot_id, upkeep
+## gold, upkeep bone]] the working buildings in lot order; unpaid: the unpaid lots in lot order; building: the
+## lots under construction in lot order; upkeep: lot_id -> [upkeep gold, upkeep bone] for every building}.
+var _lists_c := {}
 ## The vats staffed, per vat slot (GameState's vats_staffed, which it saves; set_vats), trailing
 ## falses dropped. A vat slot's tend room is open only while its vat is staffed (MECHANICS §7).
 var _vats: Array[bool] = []
 var _n_rooms := 0  # staff_rooms() builds, for tests (not saved)
+## +1 whenever the rooms may have changed (_mark_rooms: a building's arrival or removal, state, level or
+## staff cap, the ladder, the vats). The build benefit's cache keys on it (StateViews.projections). Not saved.
+var structure_rev := 0
 var _n_fills := 0  # staff_fill() runs from _staff(), for tests (not saved)
 var _pending: Array = []  # events from commands, returned by the next step()
 var _haul_trip := -1.0  # this step's landed trip, load / round trip (mass/s); -1 when none landed
@@ -158,6 +178,8 @@ func setup(cfgs: Dictionary) -> void:
 	_home_rot = maxf(EPS, _num(cfgs, "realm.relish.home_rot_mult"))
 	_haul_mult = _num(cfgs, "realm.flip.haul_mult")
 	_body_cap = _num(cfgs, "economy.body_store.cap")
+	_gold_cap = _num(cfgs, "economy.gold.cap")
+	_bone_cap = _num(cfgs, "economy.bone.cap")
 	_haul_speed = _num(cfgs, "economy.job.haul.speed")
 	_carry = _num(cfgs, "economy.job.haul.carry")
 	_auto_min = _num(cfgs, "economy.job.haul.auto_min_dead")
@@ -238,6 +260,7 @@ static func _d(v: Variant) -> Dictionary:
 
 ## BALANCE §0: the start buildings on their lots, the opening stocks and the default ladder.
 func new_game() -> void:
+	mill_starved = ""
 	workers = float(_start["workers"])
 	bodies = float(_start["bodies"])
 	gold = float(_start["gold"])
@@ -407,6 +430,66 @@ func vats_on() -> Array[bool]:
 	return _vats.duplicate()
 
 
+## A copy for a hypothetical (view_catalog's `projected`, view_town's `upgrade_projected`; STATE-API
+## §5.10): setup()'s tunables shared (no step changes them; `_lots` too, unless the caller swaps in its own
+## list), the state deep-copied, nothing pending, the caches dirty. Stepping it never touches this one.
+func clone() -> TownSim:
+	var c := TownSim.new()
+	c._lots = _lots
+	c._defs = _defs
+	c._start = _start
+	c._default_ladder = _default_ladder
+	c._mass = _mass
+	c._lifetime = _lifetime
+	c._body_return = _body_return
+	c._idle_rot = _idle_rot
+	c._idle_cap = _idle_cap
+	c._home_rot = _home_rot
+	c._body_cap = _body_cap
+	c._gold_cap = _gold_cap
+	c._bone_cap = _bone_cap
+	c._living_cap = _living_cap
+	c._haul_speed = _haul_speed
+	c._carry = _carry
+	c._auto_min = _auto_min
+	c._haul_mult = _haul_mult
+	c._mill_mass = _mill_mass
+	c._mill_rate = _mill_rate
+	c._forge_rate = _forge_rate
+	c._build_rate = _build_rate
+	c._build_slots = _build_slots
+	c._stall_rate = _stall_rate
+	c._shop_rate = _shop_rate
+	c._price = _price
+	c._burn = _burn
+	c._hold_s = _hold_s
+	c._forge_work = _forge_work
+	c._forge_relics = _forge_relics
+	c._migrant_rate = _migrant_rate
+	c._leave_rate = _leave_rate
+	c._morale_base = _morale_base
+	c._ease = _ease
+	c._dread_ratio = _dread_ratio
+	c._dread_k = _dread_k
+	c._leave_below = _leave_below
+	c._shock_s = _shock_s
+	c.workers = workers
+	c.bodies = bodies
+	c.gold = gold
+	c.bone = bone
+	c.living = living
+	c.morale = morale
+	c.shock = shock
+	c.buildings = buildings.duplicate(true)
+	c.ladder = ladder.duplicate()
+	c.haul = haul.duplicate(true)
+	c.forge = forge.duplicate()
+	c.rates = rates.duplicate(true)
+	c._vats = _vats.duplicate()
+	c._mark_rooms()
+	return c
+
+
 ## Refills the job slots from scratch after a stock or a building was changed directly (a debug
 ## grant of workers; tests that edit `buildings`): the rooms are rebuilt too.
 func restaff() -> void:
@@ -430,7 +513,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var events: Array = _pending
 	_pending = []
 	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "relics_spent": 0,
-		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0, "events": events}
+		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0,
+		"gold_overflow": 0.0, "bone_overflow": 0.0, "events": events}
 	if not is_finite(dt) or dt <= 0.0:
 		out["rates"] = rates.duplicate(true)
 		return out
@@ -453,16 +537,11 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4)
 	var pits := 0
 	var pit_can := 0.0  # mass/s the staffed pits can burn
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not _works(b):
-			continue
-		var p := int(_eff(b, "pits"))
-		if p <= 0:
-			continue
+	for e in _lists()["pits"]:  # [lot_id, pits, slots], the working pits in lot order
+		var p: int = e[1]
+		var slots: int = e[2]
 		pits += p
-		var slots := _slots(b, "pit")
-		var frac := 1.0 if slots <= 0 else float(_by_lot.get(lot_id, {}).get("pit", 0.0)) / slots
+		var frac := 1.0 if slots <= 0 else float(_by_lot.get(e[0], {}).get("pit", 0.0)) / slots
 		pit_can += _burn * p * frac
 	var want_pit := pit_can * dt
 	var want_mill := _mill_mass * _job("mill") * dt
@@ -471,6 +550,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 3. haul (§4.2): the convoy, as many legs as the step holds. Its departures and pickups see the
 	# store's projected level (rot in, pits and mills out, the loads landed so far); loads land whole
 	var b0 := bodies
+	var g0 := gold  # the gold and bone stores before the step (step 9's cap clip)
+	var bn0 := bone
 	var haul_in := _haul(dt, inp, _job("haul"), cap, out, b0, (rot_mass - want) / dt)
 
 	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
@@ -497,6 +578,10 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 		burned = wp * (dt - tau) + minf(wp, r_in) * tau
 	burned = clampf(burned, 0.0, taken)
 	var milled := taken - burned
+	# the mill's reason (view_town.jobs[].starved): short of its want by more than float noise
+	mill_starved = ""
+	if want_mill > 0.0 and milled < want_mill * (1.0 - 1e-9):
+		mill_starved = "pits_first" if burned > 0.0 else "no_bodies"
 	# only what comes in is clipped: an excess the store held before the step (a demolished house
 	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
 	# the pits have drawn the stock this step, whichever is higher
@@ -546,13 +631,11 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 
 	# 6. construction: build_work · target level, at job.build.rate per staffed builder
 	var build_work := 0.0
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or b["state"] != "constructing":
-			continue
-		var w := _build_rate * float(_by_lot.get(lot_id, {}).get("build", 0.0)) * dt
+	for lot_id in _lists()["building"]:  # the lots under construction, in lot order (a finish marks the rooms)
+		var b: Dictionary = buildings[lot_id]
+		var w := build_speed(lot_id) * dt
 		build_work += w
-		var need := float(_defs[b["building_id"]]["build_work"]) * int(b["build_level"])
+		var need := construction_work(b["building_id"], int(b["build_level"]))
 		b["progress"] = 1.0 if need <= 0.0 else float(b["progress"]) + w / need
 		if float(b["progress"]) >= 1.0 - EPS:
 			b["level"] = int(b["build_level"])
@@ -564,10 +647,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 7. the living (§4.3): exact first-order update, then the housing cap
 	var lcap := living_cap()
 	var mig := float(inp.get("held_villages", 0)) * _migrant_rate
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if not b.is_empty() and _works(b):
-			mig += _eff(b, "attract")
+	for a in _lists()["attract"]:  # every working building's attract, in lot order
+		mig += a
 	var k := _leave_rate if morale < _leave_below else 0.0
 	var l0 := living
 	var l1 := l0 + mig * dt
@@ -587,6 +668,17 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 9. upkeep: resume after the hold when the stocks cover it (on their paths over the step), idle
 	# the cheapest when short
 	var paid := _upkeep(dt, events, gold_in, bone_in)
+	# the gold and bone caps (IDLE §6): only what came in is clipped (store_overflow), exactly for
+	# constant rates inside the step: one 10 s step ends with the stock and the overflow of twenty 0.5 s
+	# steps, from under the cap or over it. A store already over its cap (a demolished cap building, an
+	# old save) keeps its excess, earns nothing until it is back under, and upkeep (and spending) draw it
+	# down. Gold's floor of 0 and upkeep are unchanged.
+	var g_over := store_overflow(g0, gold, gold_in, float(paid["gold"]), gold_cap())
+	var b_over := store_overflow(bn0, bone, bone_in, float(paid["bone"]), bone_cap())
+	gold -= g_over
+	bone -= b_over
+	out["gold_overflow"] = g_over
+	out["bone_overflow"] = b_over
 
 	# 10. rates for the views; the staffing and the states at the step's end (views and saves read
 	# them; the next step's _restaff() finds them current and has nothing to redo)
@@ -597,14 +689,29 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 			"muster": float(wf["muster"]) / dt, "steady": r * life, "lifetime_s": life, "slots": used_slots},
 		"bodies": {"in": (rot_in + haul_in) / dt, "out": (burned + milled) / dt, "rot": rot_in / dt, "haul": haul_in / dt,
 			"pit": burned / dt, "mill": milled / dt, "overflow": (float(out["rot_overflow"]) + float(out["haul_overflow"])) / dt},
-		"gold": {"in": gold_in / dt, "out": float(paid["gold"]) / dt},
-		"bone": {"in": bone_in / dt, "out": float(paid["bone"]) / dt},
+		"gold": {"in": (gold_in - g_over) / dt, "out": float(paid["gold"]) / dt, "overflow": g_over / dt,
+			"trade": gold_in / dt},
+		"bone": {"in": (bone_in - b_over) / dt, "out": float(paid["bone"]) / dt, "overflow": b_over / dt,
+			"mill": bone_in / dt},
 		"living": {"in": living_in / dt, "out": living_out / dt},
 		"trade_rate": sales, "haul_trip": float(rates.get("haul_trip", 0.0)) if _haul_trip < 0.0 else _haul_trip,
 		"forge": forge_work / dt, "build": build_work / dt, "tend": tend, "feed": float(out["feed"]),
 	}
 	out["rates"] = rates.duplicate(true)
 	return out
+
+
+## What a capped store (gold, bone) loses to its cap over a step (IDLE §6, MECHANICS §4.3): `s0` before
+## the step, `end` after its `income` and the upkeep `out` it paid. Only what came in is clipped, exactly
+## for constant rates inside the step. While the store is above its cap every coin in overflows and the
+## upkeep draws it down; when the upkeep outruns the income it reaches the cap (s0 − cap) / out of the
+## way through the step and runs on uncapped below it, so the overflow is income × min(1, that share).
+## Otherwise it is what ends above max(cap, s0 − out), the body store's rule (step 4). Returns the
+## overflow, ≥ 0 and never more than the income.
+static func store_overflow(s0: float, end: float, income: float, out: float, cap: float) -> float:
+	if s0 > cap and out > income:
+		return income * minf(1.0, (s0 - cap) / out)
+	return maxf(0.0, end - maxf(cap, s0 - out))
 
 
 ## The workforce's exact update over `dt` (MECHANICS §4.1, IDLE §4), in workers.
@@ -704,11 +811,18 @@ func steady_kept(relish_home: bool) -> Dictionary:
 ## The convoy. A leg takes distance / (job.haul.speed · stables) seconds. It leaves when haulers
 ## are staffed, the store is under the cap and there is a target (auto: the fort with the most
 ## dead above job.haul.auto_min_dead). The crew is fixed at departure. At arrival it picks up
-## carry · crew (× flip.haul_mult at a held fort), clamped to the fort's dead left in the snapshot
-## and to the store's headroom; on the way back the load lands (step() nets it into the store).
+## carry · crew (× flip.haul_mult at a held fort), clamped to the fort's dead and to the store's
+## headroom; on the way back the load lands (step() nets it into the store).
 ## The store's level at a leg's moment is projected from `b0`: `net` mass/s (rot return less what
-## the pits and mills want) and each landed load, held within [0, cap]. Pickups read the forts'
-## dead as the snapshot had them, so a long step's later legs see no corpses made inside it.
+## the pits and mills want) and each landed load, held within [0, cap].
+## The forts' dead are read at each leg's own moment s into the step (E2b-2 T3.3a), for the pick and
+## the pickup: RealmSim.dead_at(dead, dead_rate, s) from the snapshot's `dead` and `dead_rate` (a
+## snapshot without `dead_rate` reads 0: its dead as they stand), less what this step's legs took
+## there. A pickup is also held to the snapshot's dead less those legs: GameState takes it off the
+## fort before the realm step, which owns the corpses made inside it, so a long step's later legs
+## can't take those (MECHANICS §4.2: a lag of up to a step where corpses grow inside it). Before, both
+## read the snapshot: at 10 s from midgame_2flips the convoy found the corpses Relish's raises at
+## Greywall would have taken inside the step (at 9b5fc99, 115.7 mass over 12 h against 0.001 at 0.5 s).
 ## Returns the mass landed.
 func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
@@ -732,7 +846,7 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		if convoys.is_empty():
 			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) >= cap - EPS or speed <= 0.0:
 				break
-			var fid := _haul_pick(forts, target, taken)
+			var fid := _haul_pick(forts, target, taken, dt - left)
 			if fid == "":
 				break
 			var trip := maxf(MIN_TRIP_S, cov.distance_to(_xy(by_id[fid].get("pos", [0.0, 0.0]))) / speed)
@@ -747,7 +861,9 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		left -= need
 		if c["phase"] == "out":
 			var f: Dictionary = by_id.get(c["fort"], {})
-			var avail := maxf(0.0, float(f.get("dead", 0.0)) - float(taken.get(c["fort"], 0.0)))
+			var d0 := maxf(0.0, float(f.get("dead", 0.0)))
+			var now := RealmSim.dead_at(d0, float(f.get("dead_rate", 0.0)), dt - left)
+			var avail := maxf(0.0, minf(now, d0) - float(taken.get(c["fort"], 0.0)))
 			var mult := _haul_mult if bool(f.get("held", false)) else 1.0
 			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, hi)
 			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - level))
@@ -771,7 +887,10 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 	return delivered
 
 
-func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
+## The convoy's target at a departure `at` seconds into the step: the set one, or (auto) the fort with
+## the most dead then (RealmSim.dead_at, less what this step's legs took there) above
+## job.haul.auto_min_dead; ties go to the first in order.
+func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> String:
 	if target != "auto":
 		for f in forts:
 			if str(f.get("id", "")) == target:
@@ -781,7 +900,7 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
 	var most := _auto_min
 	for f in forts:
 		var id := str(f.get("id", ""))
-		var dead := float(f.get("dead", 0.0)) - float(taken.get(id, 0.0))
+		var dead := RealmSim.dead_at(float(f.get("dead", 0.0)), float(f.get("dead_rate", 0.0)), at) - float(taken.get(id, 0.0))
 		if dead > most:
 			most = dead
 			best = id
@@ -806,19 +925,18 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 	var due_b := 0.0
 	var secs := {}  # lot_id -> the seconds of this step its upkeep is paid for
 	var cands: Array = []  # [lot_id, seconds into the step its hold is over], in lot order
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty():
-			continue
-		if _works(b):
-			due_g += float(_defs[b["building_id"]]["upkeep_gold"])
-			due_b += float(_defs[b["building_id"]]["upkeep_bone"])
-			secs[lot_id] = dt
-		elif b["state"] == "unpaid":
-			var left := float(b["unpaid_s"])
-			b["unpaid_s"] = maxf(0.0, left - dt)
-			if float(b["unpaid_s"]) <= 0.0:
-				cands.append([lot_id, maxf(0.0, left)])
+	var lists := _lists()
+	var upk: Dictionary = lists["upkeep"]
+	for e in lists["work"]:  # [lot_id, upkeep gold, upkeep bone], the working buildings in lot order
+		due_g += float(e[1])
+		due_b += float(e[2])
+		secs[e[0]] = dt
+	for lot_id in lists["unpaid"]:
+		var b: Dictionary = buildings[lot_id]
+		var left := float(b["unpaid_s"])
+		b["unpaid_s"] = maxf(0.0, left - dt)
+		if float(b["unpaid_s"]) <= 0.0:
+			cands.append([lot_id, maxf(0.0, left)])
 	var span := maxf(_hold_s, dt)
 	var at := 0.0  # how far into the step the paths are solved
 	var g := gold - gold_in  # the stocks at `at`
@@ -855,8 +973,9 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 	var owe_g := 0.0
 	var owe_b := 0.0
 	for lot_id in secs:
-		owe_g += float(_defs[buildings[lot_id]["building_id"]]["upkeep_gold"]) * float(secs[lot_id])
-		owe_b += float(_defs[buildings[lot_id]["building_id"]]["upkeep_bone"]) * float(secs[lot_id])
+		var u: Array = upk[lot_id]
+		owe_g += float(u[0]) * float(secs[lot_id])
+		owe_b += float(u[1]) * float(secs[lot_id])
 	while gold < owe_g - EPS or bone < owe_b - EPS:
 		var short := "gold" if gold < owe_g - EPS else "bone"
 		var key := "upkeep_" + short
@@ -904,6 +1023,9 @@ static func _covers(v: float, rate: float, need: float, at: float) -> Array:
 ## The order the workers fill the jobs in: `order` after stances (MECHANICS §4.5). Stances are E3;
 ## until then it is `order` itself. `_staff()`, view_town's `ladder_effective` and the staffing
 ## projection (STATE-API §5.16) all read it, so they apply the stances the same way.
+## E3: the room cache (`_mark_rooms`) is keyed on `ladder`, not on this, while `_staff()` fills from the
+## effective ladder. So when stances change what it returns, they must call `_mark_rooms()`, or the cache
+## serves the old rooms.
 func effective_ladder(order: Array) -> Array:
 	return order.duplicate()
 
@@ -1018,10 +1140,49 @@ func _staff() -> void:
 
 ## The rooms changed (or may have): the next _staff() rebuilds them and the next _restaff() refills.
 func _mark_rooms() -> void:
+	structure_rev += 1
 	_rooms_dirty = true
 	_staffed_w = NAN
 	_sums_w.clear()
 	_sums_b.clear()
+	_lists_c = {}
+
+
+## The cached lists step() reads (_lists_c), rebuilt from the buildings when the rooms were last marked.
+func _lists() -> Dictionary:
+	if not _lists_c.is_empty():
+		return _lists_c
+	var pit_lots: Array = []
+	var attract := PackedFloat64Array()
+	var amen := {}
+	var work: Array = []
+	var unpaid: Array = []
+	var building: Array = []
+	var upkeep := {}
+	for lot_id in _lots:
+		var b: Dictionary = buildings.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var d: Dictionary = _defs[b["building_id"]]
+		var ug := float(d["upkeep_gold"])
+		var ub := float(d["upkeep_bone"])
+		upkeep[lot_id] = [ug, ub]
+		if b["state"] == "constructing":
+			building.append(lot_id)
+		if _works(b):
+			var pn := int(_eff(b, "pits"))
+			if pn > 0:
+				pit_lots.append([lot_id, pn, _slots(b, "pit")])
+			attract.append(_eff(b, "attract"))
+			var v := _eff(b, "morale")
+			if v != 0.0:
+				amen[b["building_id"]] = float(amen.get(b["building_id"], 0.0)) + v
+			work.append([lot_id, ug, ub])
+		elif b["state"] == "unpaid":
+			unpaid.append(lot_id)
+	_lists_c = {"pits": pit_lots, "attract": attract, "amen": amen, "work": work, "unpaid": unpaid, "building": building,
+		"upkeep": upkeep}
+	return _lists_c
 
 
 ## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
@@ -1139,9 +1300,58 @@ func body_cap() -> float:
 	return _body_cap + _sum_built("body_cap")
 
 
+## economy.json gold.cap plus the buildings' `gold_cap` effects (the Market, per level; IDLE §6). A
+## capacity effect: unpaid or mid-upgrade levels count.
+func gold_cap() -> float:
+	return _gold_cap + _sum_built("gold_cap")
+
+
+## economy.json bone.cap plus the buildings' `bone_cap` effects (the Bone Mill, per level).
+func bone_cap() -> float:
+	return _bone_cap + _sum_built("bone_cap")
+
+
+## The build work a construction of `building_id` heading to `level` needs in all (step 6: build_work ·
+## target level); 0 for an unknown building. The queue's `work` (STATE-API §5.9) reads it.
+func construction_work(building_id: String, level: int) -> float:
+	return float(_defs.get(building_id, {}).get("build_work", 0.0)) * level
+
+
+## A building's numeric effect `key` at `level` (_eff_b's rule: a number per level, an Array a per-level
+## table; 0 at level 0). The queue's cap_level reads the cap effects through it.
+func effect_at(building_id: String, key: String, level: int) -> float:
+	if not _defs.has(building_id):
+		return 0.0
+	return _eff_b({"building_id": building_id, "level": level}, key, _defs)
+
+
+## The work per second the builders staffed on a lot do now: job.build.rate × its build staffing as the
+## last restaff left it (step 6 advances a construction by this × dt). 0 with no builders.
+func build_speed(lot_id: String) -> float:
+	return _build_rate * float(_by_lot.get(lot_id, {}).get("build", 0.0))
+
+
+## A construction's work as view_town shows it (STATE-API §5.9, api-request #17): {left, eta_s}. `left` is
+## the build work still to do, construction_work · (1 − progress), the numbers step 6 uses; `eta_s` is
+## left / build_speed, −1.0 with no builders. {0.0, −1.0} on a lot that isn't constructing.
+func construction_left(lot_id: String) -> Dictionary:
+	var b: Dictionary = buildings.get(lot_id, {})
+	if b.is_empty() or b["state"] != "constructing":
+		return {"left": 0.0, "eta_s": -1.0}
+	var left := maxf(0.0, construction_work(b["building_id"], int(b["build_level"])) * (1.0 - float(b["progress"])))
+	var speed := build_speed(lot_id)
+	return {"left": left, "eta_s": left / speed if speed > 0.0 else -1.0}
+
+
 ## Working pits now: the mint's `pits` before a step has run (step() reports the same count).
 func pits() -> int:
 	return int(_sum_working("pits"))
+
+
+## The mill slots a lot's building offers (0 with no building).
+func lot_mill_slots(lot_id: String) -> int:
+	var b: Dictionary = buildings.get(lot_id, {})
+	return _slots(b, "mill") if not b.is_empty() else 0
 
 
 ## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
@@ -1206,14 +1416,7 @@ func lifetime_s(relish_home: bool) -> float:
 ## `morale`, summed per building id in lot order), dread and shock (each only when non-zero).
 func morale_factors() -> Array:
 	var out: Array = [{"id": "base", "delta": _morale_base}]
-	var amen := {}
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not _works(b):
-			continue
-		var v := _eff(b, "morale")
-		if v != 0.0:
-			amen[b["building_id"]] = float(amen.get(b["building_id"], 0.0)) + v
+	var amen: Dictionary = _lists()["amen"]
 	for id in amen:
 		out.append({"id": "amenity:" + str(id), "delta": amen[id]})
 	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
@@ -1224,10 +1427,19 @@ func morale_factors() -> Array:
 	return out
 
 
+## Σ morale_factors()' deltas in their order, clamped to 0..1 (summed here without building the rows: the
+## step reads it every step).
 func morale_target() -> float:
 	var s := 0.0
-	for f in morale_factors():
-		s += float(f["delta"])
+	s += _morale_base
+	var amen: Dictionary = _lists()["amen"]
+	for id in amen:
+		s += float(amen[id])
+	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
+	if dread > 0.0:
+		s += -dread
+	if shock > 0.0:
+		s += -shock
 	return clampf(s, 0.0, 1.0)
 
 
@@ -1256,6 +1468,7 @@ func to_dict() -> Dictionary:
 
 
 func from_dict(d: Dictionary) -> void:
+	mill_starved = ""
 	workers = float(d.get("workers", 0.0))
 	bodies = float(d.get("bodies", 0.0))
 	gold = float(d.get("gold", 0.0))
@@ -1303,7 +1516,7 @@ static func _zero_rates() -> Dictionary:
 	return {
 		"workers": {"in": 0.0, "out": 0.0, "rot": 0.0, "muster": 0.0, "steady": 0.0, "lifetime_s": 0.0, "slots": 0.0},
 		"bodies": {"in": 0.0, "out": 0.0, "rot": 0.0, "haul": 0.0, "pit": 0.0, "mill": 0.0, "overflow": 0.0},
-		"gold": {"in": 0.0, "out": 0.0},
+		"gold": {"in": 0.0, "out": 0.0},  # a step adds overflow and trade (mill for bone); read them with get()
 		"bone": {"in": 0.0, "out": 0.0},
 		"living": {"in": 0.0, "out": 0.0},
 		"trade_rate": 0.0, "haul_trip": 0.0, "forge": 0.0, "build": 0.0, "tend": 0.0, "feed": 0.0,

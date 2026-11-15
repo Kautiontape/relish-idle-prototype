@@ -1,29 +1,29 @@
 extends RefCounted
 ## Catch-up's field step against live ticks (IDLE §4; run with tests/run.sh --slow
 ## --only=field_catchup_bench; about 12 min on jenova).
-## - Cost: a 12 h catch-up's 144 field steps (300 s each) on the shipped 128 x 90 grid, from a
+## The field step count is the shipped one: `idle.field_steps` and `idle.field_step_min_s` from
+## configs/economy.json (no defaults: a missing key fails), so a step is 12 h / field_steps.
+## - Cost: a 12 h catch-up's field_steps field steps (12 h / field_steps each) on the shipped 128 x 90 grid, from a
 ##   contested field, as total ms, per-call µs and a ratio to a live tick timed in the same run
 ##   (wall-clock bounds are loose: they flake under load).
 ## - Owners: FieldScenario "jumps" (contested, forts changing hands) over 12 h, villages sampled every
-##   300 s, three ways from the same pre-warmed field:
+##   field step, three ways from the same pre-warmed field:
 ##     live:     a live 0.2 s tick every period, sources refreshed every second;
-##     exact:    the same 144 field steps, each as 1500 live ticks with the step's sources held;
-##     catch-up: the same 144 field steps, one catchup_step(300) each.
+##     exact:    the same field steps, each as step / 0.2 s live ticks with the step's sources held;
+##     catch-up: the same field steps, one catchup_step(step) each.
 ##   The acceptance (agreed with the manager): catch-up matches exact in >= 99% of village samples
 ##   and in green villages at the end; against live is reported beside it (a field step can't place
 ##   an owner change finer than its own length). Also reported: the share left after dropping
 ##   samples within 0.01 of the threshold (IDLE §4's accuracy fixtures aren't within a hair of one).
-## - Also printed: the field's cost of a whole catch-up over elapsed times from 30 s to 7 d, at 150
-##   calls and with field steps of at least MIN_STEP_S, and a step on midgame_2flips' own field.
+## - Also printed: the field's cost of a whole catch-up over elapsed times from 30 s to 7 d, at
+##   field_steps calls and with field steps of at least field_step_min_s, and a step on midgame_2flips' own field.
 ## Environment, for one-off runs: FIELD_CATCHUP_KINDS=jumps,drift,mixed picks scenarios (only jumps
 ## asserts; none skips the owners); FIELD_CATCHUP_FULL=1 runs them on the shipped grid instead of the 64 x 45 crop (about
 ## 40 min per scenario).
 
 const HOURS := 12.0
-const STEP_S := 300.0
 const PERIOD := 0.2
 const HAIR := 0.01
-const MIN_STEP_S := 2.0  # the shortest field step economy should send (dt > catchup_exact_ticks / tick_hz)
 
 
 func run() -> int:
@@ -31,8 +31,14 @@ func run() -> int:
 	t.suite("field_catchup_bench")
 	var cfg: Dictionary = TestUtil.configs()["realm"]["field"]
 	var th := float(cfg["town_threshold"])
-	var steps := int(HOURS * 3600.0 / STEP_S)
-	var per := int(round(STEP_S / PERIOD))
+	var idle: Dictionary = TestUtil.configs()["economy"]["idle"]
+	var steps := int(idle["field_steps"])  # economy's most calls, and the 12 h catch-up's step count
+	var min_step_s := float(idle["field_step_min_s"])  # the shortest field step economy should send (dt > catchup_exact_ticks / tick_hz)
+	var step_s := HOURS * 3600.0 / steps
+	var per := int(round(step_s / PERIOD))
+	if absf(per * PERIOD - step_s) > 1e-6:
+		t.ok(false, "a field step of %.4f s (12 h / idle.field_steps %d) must be a whole number of %.1f s live ticks" % [step_s, steps, PERIOD])
+		return t.failures
 
 	# cost, on the shipped grid
 	var sc := FieldScenario.make("jumps")
@@ -54,9 +60,9 @@ func run() -> int:
 	var cells := 0
 	var total := 0
 	for s in steps:
-		sc.inject(f, STEP_S * (s + 1), PERIOD)
+		sc.inject(f, step_s * (s + 1), PERIOD)
 		var t0 := Time.get_ticks_usec()
-		f.catchup_step(STEP_S)
+		f.catchup_step(step_s)
 		var us := Time.get_ticks_usec() - t0
 		call_us.append(us)
 		total += us
@@ -66,22 +72,22 @@ func run() -> int:
 	var med: int = sorted[int(sorted.size() * 0.5)]
 	var ratio := float(med) / float(live_us[7])
 	print("  [field_catchup_bench] cost, shipped grid, %d steps of %.0f s (12 h): total %.0f ms; per call median %d µs, max %d µs; %.2f grids of cells per call; live tick median %d µs -> %.2f live ticks per call" % [
-		steps, STEP_S, total / 1000.0, med, sorted[-1], float(cells) / steps / (f.w * f.h), live_us[7], ratio])
-	t.ok(ratio <= 2.0, "a 300 s field step costs about one live tick (%.2f; loose bound <= 2)" % ratio)
+		steps, step_s, total / 1000.0, med, sorted[-1], float(cells) / steps / (f.w * f.h), live_us[7], ratio])
+	t.ok(ratio <= 2.0, "a %.0f s field step costs about one live tick (%.2f; loose bound <= 2)" % [step_s, ratio])
 	t.ok(total <= 3e6, "a 12 h catch-up's field steps take %.2f s (loose bound <= 3 s)" % (total / 1e6))
-	# the field's cost over a catch-up's elapsed time E: 150 calls at E / 150, and with field steps of
-	# at least MIN_STEP_S (fewer calls for short gaps; steps up to catchup_exact_ticks ticks cost them)
+	# the field's cost over a catch-up's elapsed time E: field_steps calls at E / field_steps, and with field steps of
+	# at least min_step_s (fewer calls for short gaps; steps up to catchup_exact_ticks ticks cost them)
 	var rows: Array = ["  [field_catchup_bench] field cost of a catch-up of E, shipped grid, from the field above:",
-		"  | E | 150 calls: dt, total ms | dt >= %.0f s: calls, dt, total ms |" % MIN_STEP_S, "  |---|---|---|"]
+		"  | E | %d calls: dt, total ms | dt >= %.0f s: calls, dt, total ms |" % [steps, min_step_s], "  |---|---|---|"]
 	var worst := 0.0
 	for e_s in [30.0, 60.0, 240.0, 600.0, 7200.0, 43200.0, 604800.0]:
-		var a_ms := _cost(f, sc, e_s, 150) / 1000.0
-		var calls := mini(150, maxi(1, int(e_s / MIN_STEP_S)))
+		var a_ms := _cost(f, sc, e_s, steps) / 1000.0
+		var calls := mini(steps, maxi(1, int(e_s / min_step_s)))
 		var b_ms := _cost(f, sc, e_s, calls) / 1000.0
 		worst = maxf(worst, b_ms)
-		rows.append("  | %s | %.2f s, %.0f | %d, %.1f s, %.0f |" % [_dur(e_s), e_s / 150.0, a_ms, calls, e_s / calls, b_ms])
+		rows.append("  | %s | %.2f s, %.0f | %d, %.1f s, %.0f |" % [_dur(e_s), e_s / steps, a_ms, calls, e_s / calls, b_ms])
 	print("\n".join(PackedStringArray(rows)))
-	t.ok(worst <= 3000.0, "with field steps >= %.0f s no catch-up's field takes over 3 s (worst %.0f ms; loose)" % [MIN_STEP_S, worst])
+	t.ok(worst <= 3000.0, "with field steps >= %.0f s no catch-up's field takes over 3 s (worst %.0f ms; loose)" % [min_step_s, worst])
 	# the real game's field: midgame_2flips, its own sources (GameState._inject_sources)
 	var gs := GameState.new(TestUtil.configs())
 	gs.debug_enabled = true
@@ -91,21 +97,21 @@ func run() -> int:
 	for k in 20:
 		gs._inject_sources(PERIOD)
 		var t0 := Time.get_ticks_usec()
-		gs.field.catchup_step(STEP_S)
+		gs.field.catchup_step(step_s)
 		real_us.append(Time.get_ticks_usec() - t0)
 		real_cells += gs.field.last_catchup_cells
 	real_us.sort()
 	print("  [field_catchup_bench] midgame_2flips' own field and sources, 20 steps of %.0f s: median %d µs (%.2f live ticks), %.2f grids of cells per call" % [
-		STEP_S, real_us[10], float(real_us[10]) / float(live_us[7]), float(real_cells) / 20.0 / (gs.field.w * gs.field.h)])
+		step_s, real_us[10], float(real_us[10]) / float(live_us[7]), float(real_cells) / 20.0 / (gs.field.w * gs.field.h)])
 
 	var kinds := OS.get_environment("FIELD_CATCHUP_KINDS")
 	var full := OS.get_environment("FIELD_CATCHUP_FULL") == "1"
 	for kind in (kinds.split(",") if kinds != "" else PackedStringArray(["jumps"])):
 		if kind == "none":
 			continue
-		var r := _owners(kind, not full, cfg, th, steps, per)
+		var r := _owners(kind, not full, cfg, th, steps, per, step_s)
 		var lines: Array = ["  [field_catchup_bench] owners, %s on the %s grid, 12 h, %d villages every %.0f s (%d samples)" % [
-			kind, "shipped 128 x 90" if full else "64 x 45 cropped", r["villages"], STEP_S, r["samples"]],
+			kind, "shipped 128 x 90" if full else "64 x 45 cropped", r["villages"], step_s, r["samples"]],
 			"    live owners: %.0f%% green, %.0f%% orange, %.0f%% none; %d owner changes; %.1f%% of samples within %.2f of the threshold" % [
 				r["share"][0], r["share"][1], r["share"][2], r["changes"], r["hair"], HAIR],
 			"    catch-up vs exact %.2f%% (%.2f%% without those) | vs live %.2f%% | exact vs live %.2f%%" % [
@@ -148,7 +154,7 @@ static func _dur(s: float) -> String:
 	return "%.0f s" % s
 
 
-func _owners(kind: String, crop: bool, cfg: Dictionary, th: float, steps: int, per: int) -> Dictionary:
+func _owners(kind: String, crop: bool, cfg: Dictionary, th: float, steps: int, per: int, step_s: float) -> Dictionary:
 	var sc := FieldScenario.make(kind, crop)
 	var d_live: Array = []
 	var d_exact: Array = []
@@ -164,14 +170,14 @@ func _owners(kind: String, crop: bool, cfg: Dictionary, th: float, steps: int, p
 	var xf := sc.prewarmed(cfg)
 	var cf := sc.prewarmed(cfg)
 	for s in steps:
-		var ts := STEP_S * (s + 1)
+		var ts := step_s * (s + 1)
 		for k in per:
 			sc.inject(xf, ts, PERIOD)
 			xf.tick(PERIOD)
 		xf.flush()
 		d_exact.append(sc.doms(xf))
 		sc.inject(cf, ts, PERIOD)
-		cf.catchup_step(STEP_S)
+		cf.catchup_step(step_s)
 		var dc := sc.doms(cf)
 		for v in dc:
 			if not is_finite(v):
