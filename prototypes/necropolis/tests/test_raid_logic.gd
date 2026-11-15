@@ -2043,6 +2043,14 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.death_next_row({"clones_ready": 2})["text"] == "wakes at Covington" and RaidLogic.death_next_row({"clones_ready": 1})["key"] == "text",
 		"death_ends absent, clones > 0: wakes at Covington, no number")
 	t.ok(RaidLogic.death_next_row({"clones_ready": 0})["text"] == "unmade" and RaidLogic.death_next_row({})["text"] == "unmade", "death_ends absent, no clones: unmade")
+	# a death_ends this card does not know falls back like an absent key (clones_ready, no number), never a guess
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 2})["text"] == "wakes at Covington"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 0})["text"] == "unmade"
+		and RaidLogic.death_next_row({"death_ends": {"respawn_s": 30.0}, "clones_ready": 1})["text"] == "wakes at Covington",
+		"an unknown or missing outcome: the clones_ready fallback, with no number")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone"}})["text"] == "wakes at Covington"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade"}})["text"] == "unmade",
+		"a missing respawn_s: no number")
 	var arows := RaidLogic.death_card_rows("a wound", {}, {}, 0, "", nx_clone)
 	t.ok(arows.size() == 4 and arows[3]["label"] == "AFTER" and arows[3]["text"] == nx_clone["text"] and RaidLogic.death_card_rows("a wound", {}, {}, 0).size() == 3,
 		"the AFTER row comes last, and only when given")

@@ -513,13 +513,14 @@ static func death_wait_text(secs: float) -> String:
 ## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
 ## seed's `death_ends` {outcome: "clone"|"unmade", respawn_s} (economy's, after any phylactery revives); the
 ## card copies no rule. "clone": "wakes at Covington", with " in N s" only when respawn_s > 0. "unmade":
-## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save): the seed's
-## clones_ready, "wakes at Covington" if > 0 else "unmade", with no number.
+## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save), or with an
+## outcome it does not know (a newer economy's, or a broken key): the seed's clones_ready, "wakes at
+## Covington" if > 0 else "unmade", with no number. A missing or non-positive respawn_s shows no number.
 static func death_next_row(seed: Dictionary) -> Dictionary:
 	var de: Variant = seed.get("death_ends", null)
 	var clone := false
 	var secs := 0.0
-	if de is Dictionary and (de as Dictionary).has("outcome"):
+	if de is Dictionary and str((de as Dictionary).get("outcome", "")) in ["clone", "unmade"]:
 		clone = str(de["outcome"]) == "clone"
 		secs = float(de.get("respawn_s", 0.0))
 	else:
