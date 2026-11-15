@@ -24,6 +24,7 @@ var slams := 0                 # slams rung, for the HUD's "MUFFLED x n of m" (a
 var toll_at := Vector2.INF     # D-d/E Step 4b: where this tell's toll ring lies (her spot as the tell began; INF: none)
 var toll_r := 0.0              # its radius (attack.toll_radius_px)
 var tolls := 0                 # tolls rung (telemetry)
+var _slam_tells := 0           # slam tells begun (the toll lands on every attack.toll_every-th)
 var tolls_struck := 0          # of them, those that struck her
 var _toll_word_t := 99.0       # draw only: seconds since a toll resolved
 var _toll_word_at := Vector2.ZERO
@@ -84,13 +85,17 @@ func _step(delta: float) -> void:
 		_tell_for = _next_attack
 		RaidSound.play("tell")   # once per tell
 		# the toll: a ring where she stands as the tell begins (in its room); stepping out is the answer
+		_slam_tells += 1
+		var every := maxi(1, int(at.get("toll_every", 1)))
 		toll_r = float(at.get("toll_radius_px", 0.0)) \
-			if WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) else 0.0
+			if WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) \
+			and _slam_tells % every == 0 else 0.0
 		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
 		# (only where the slam's own ring cannot reach her: inside it, the ring is the threat)
 		toll_at = rel0.global_position if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
 			and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) \
-			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + rel0.radius else Vector2.INF
+			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + toll_r + 2.0 * rel0.radius \
+			+ float(at.get("toll_gap_px", 0.0)) else Vector2.INF   # (room to step out toward the bell without entering the slam)
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack
