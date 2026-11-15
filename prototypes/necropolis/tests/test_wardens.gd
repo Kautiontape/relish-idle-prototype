@@ -387,6 +387,12 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, true, false), "a muffled bell tolls nothing on her")
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, false, true), "no second blow where the slam's ring reaches her")
 	t.near(WardenLogic.lane_reach(Rect2(0, 0, 600, 400), Vector2(300, 200)), Vector2(300, 200).length(), 1e-6, "the lane reaches the room's farthest corner")
+	var pyre3 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "pyre_priest"}, cfg)
+	var her := Vector2(400, 300)
+	var plain := WardenLogic.burn_plan(pyre3, 1, 0, Vector2(200, 200), {"motes": [Vector2(250, 250)], "piles": [], "relish": her})
+	var aimed := WardenLogic.burn_plan(pyre3, 1, 0, Vector2(200, 200), {"motes": [Vector2(250, 250)], "piles": [], "relish": her, "aim": true})
+	t.ok(not plain.has(her) and aimed.size() == maxi(1, plain.size()) and aimed[aimed.size() - 1].distance_to(her) < 1.0,
+		"with no acolyte left an aimed burn beat still puts one fire on her (%s -> %s)" % [str(plain), str(aimed)])
 	# every tell is answerable by a human: lead >= the score-50 delay + the time to clear, worst case from inside
 	var pulse := TestUtil.load_json("res://configs/pulse.json")
 	var beat_s := float(pulse["tempo_ms"]) / 1000.0

@@ -46,6 +46,7 @@ var _next_attack := 0.0
 var _last_attack := 0.0
 var _tell_for := -1.0           # the _next_attack beat whose areas are marked
 var _told := false              # the first tell's "step off the fire" has been shown
+var _burn_tells := 0            # burn tells marked (D-d/E Step 4b: every relish_area_every-th aims a fire at her)
 var _first_tell_for := -1.0     # draw only: the _next_attack beat of that first tell
 var _burnt: Array[Vector2] = [] # draw only: the last burn's areas (its after-image)
 var _burnt_r := 0.0
@@ -288,7 +289,11 @@ func _mark_areas(r: float) -> void:
 	var rel: RaidRelish = raid.relish
 	if rel != null and is_instance_valid(rel) and rel.alive and _reachable(rel.global_position, from, reach):
 		relp = rel.global_position
-	areas = WardenLogic.burn_plan(spec, phase, living(), from, {"motes": motes, "piles": piles, "relish": relp})
+	_burn_tells += 1
+	var every := int(spec.get("attack", {}).get("relish_area_every", 0))
+	var aim := every > 0 and _burn_tells % every == 0 \
+		and WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg())
+	areas = WardenLogic.burn_plan(spec, phase, living(), from, {"motes": motes, "piles": piles, "relish": relp, "aim": aim})
 	if not areas.is_empty() and not _told:
 		_told = true
 		_first_tell_for = _next_attack

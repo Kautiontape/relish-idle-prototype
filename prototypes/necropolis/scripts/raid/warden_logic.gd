@@ -694,7 +694,8 @@ static func relish_spots(rel: Vector2, from: Vector2, n: int, spread_px: float) 
 
 ## One burn beat's area centres, deterministic. `field`: {motes: Array (Vector2: loose essence on the
 ## floor), piles: Array (Vector2: unstirred corpse piles), relish: Vector2 (Vector2.INF when she is
-## out of reach)}, each already filtered to the priest's room and reach. The acolytes' areas
+## out of reach), aim: bool (this beat one fire goes on her even with no acolyte left)}, each already
+## filtered to the priest's room and reach. The acolytes' areas
 ## (burn_aim_relish) go on Relish while she is in reach; every other area goes on the densest essence
 ## or corpses (a pile weighs attack.pile_weight motes). Fewer areas when nothing is left to burn.
 static func burn_plan(sp: Dictionary, phase: int, living: int, from: Vector2, field: Dictionary) -> Array[Vector2]:
@@ -703,6 +704,9 @@ static func burn_plan(sp: Dictionary, phase: int, living: int, from: Vector2, fi
 	var r := float(pyre_phase_knobs(sp, phase)["burn_radius_px"])
 	var rel: Vector2 = field.get("relish", Vector2.INF)
 	var n_rel := burn_aim_relish(sp, phase, living) if rel != Vector2.INF else 0
+	if bool(field.get("aim", false)) and rel != Vector2.INF and n_rel < 1:
+		n_rel = 1   # D-d/E Step 4b: on an aimed beat one of its own fires goes on her (attack.relish_area_every)
+		n = maxi(n, 1)
 	var cands: Array = []
 	var weights: Array = []
 	for m in field.get("motes", []):
