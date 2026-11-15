@@ -1153,9 +1153,18 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 			return dodge_to
 	if _archetype == "pyre_priest":
 		return _vs_pyre(pos, w as RaidPyrePriest, living, ne, nd)
-	# other living first (once she reacts: her old plan runs until then)
+	# other living first (once she reacts: her old plan runs until then); but a warden tell showing is seen
+	# even while she kites (fixed after the freeze, Step 4b: kiting hid the tell from the roll, so it was
+	# rolled late or never), and an answered one is answered before the kite
 	if ne != null and nd < kite_px:
-		return _back_step(pos, ne.global_position) if _kite_due() else _raid.relish.move_target
+		var answering := false
+		if _archetype == "bellringer":
+			var bb := w as RaidBellringer
+			answering = bb._slam_beat < 0.0 and _bell_beats_to_tell(bb) <= 0.0 and _answers("slam", bb._next_attack)
+		elif _archetype == "shieldwall":
+			answering = (w as RaidShieldwall).planted and _answers("bash", (w as RaidShieldwall)._next_attack)
+		if not answering:
+			return _back_step(pos, ne.global_position) if _kite_due() else _raid.relish.move_target
 	if _archetype == "bellringer":
 		return _vs_bell(pos, w as RaidBellringer, living, safe_px)
 	if _archetype == "shieldwall":
