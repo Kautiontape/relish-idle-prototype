@@ -314,11 +314,34 @@ func _draw() -> void:
 	# starts at `at` and runs into the room
 	var top := at.y - h * (0.5 if absf(inward.y) < 0.5 else (0.0 if inward.y > 0.0 else 1.0))
 	var left := at.x - w * 0.5 if absf(inward.x) < 0.5 else (at.x if inward.x > 0.0 else at.x - w)
-	draw_rect(Rect2(left - 6.0 / z, top - 4.0 / z, w + 12.0 / z, h + 6.0 / z), Palette.c("ground", 0.82))
+	var plate := Rect2(left - 6.0 / z, top - 4.0 / z, w + 12.0 / z, h + 6.0 / z)
+	var off := label_shift(plate, z)   # off Relish while they would overlap (the boss lanes' label_shift)
+	plate.position += off
+	left += off.x
+	top += off.y
+	draw_rect(plate, Palette.c("ground", 0.82))
 	for i in lines.size():
 		var tw := font.get_string_size(str(lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		draw_string(font, Vector2(left + (w - tw) * 0.5, top + lh * (i + 1) - fs * 0.3), str(lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
 			Palette.c(str(lines[i][1])))
+
+
+## Draw only: how far to move the label's plate `r` so it clears Relish's token (her radius and 8 screen px),
+## away from the wall, past her; zero while they do not overlap (BossLanes' label_shift, for this label).
+func label_shift(r: Rect2, z: float) -> Vector2:
+	var rel = raid.relish if raid != null else null
+	if rel == null or not is_instance_valid(rel):
+		return Vector2.ZERO
+	var c: Vector2 = rel.global_position
+	var pad: float = float(rel.radius) + 8.0 / z
+	var near := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+	if near.distance_to(c) >= pad:
+		return Vector2.ZERO
+	var inward: Vector2 = site["inward"]
+	# the plate's wall-side edge, along `inward`: past her centre by `pad`
+	var edge := minf((r.position - c).dot(inward), (r.end - c).dot(inward))
+	edge = minf(edge, minf((Vector2(r.end.x, r.position.y) - c).dot(inward), (Vector2(r.position.x, r.end.y) - c).dot(inward)))
+	return inward * maxf(0.0, pad - edge)
 
 
 func _dashed_rect(r: Rect2, col: Color, width: float) -> void:

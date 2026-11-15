@@ -30,8 +30,8 @@ var _risk := {}                     # the UNBANKED counts, for the push line
 var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
-var _door_row: Label = null       # D-e task 6: the big spent on the held door (dungeon with a held door only)
-var _door_prompt: Label = null    # the held door's plate prompt, while she can send a big
+var _door_prompt: Label = null    # D-e task 6: the held door's plate prompt, while she can send a big (its row is the StatBlock's DOOR)
+var _door_text := ""             # the DOOR row's text as last wrapped
 const RETREAT_TEXT := "Retreat through this exit? Your loot is banked and the fort does not flip."
 # boss extras
 var _boss_block: Control = null
@@ -52,10 +52,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_stats)
 	if not boss_mode and raid.held_door != null:
-		# the held door (D-e task 6): its row under the stat block (the big it holds is not in the WARD's
-		# big row), and the plate's prompt over the hint line, wide enough for the whole trade
-		_door_row = _mk_label(box, 16, Palette.c("text"))
-		_door_row.visible = false
+		# the held door (D-e task 6): the plate's prompt over the hint line, wide enough for the whole trade
+		# (the big it holds is on the StatBlock's DOOR row, not in the WARD's big row)
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
@@ -262,12 +260,12 @@ func refresh() -> void:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	_hint.visible = not raid.first_raise_done and not raid._ended
-	if _door_row != null:
+	if _door_prompt != null:
 		var dr: String = raid.held_door.row_text()
-		if dr != _door_row.text:
-			_door_row.text = dr
-			_door_row.add_theme_color_override("font_color", Palette.c("danger" if raid.held_door.state == "shut" else "text"))
-		_door_row.visible = dr != ""
+		if dr != _door_text:
+			_door_text = dr
+			st.set_door(RaidHud.wrap_chunks(dr, ThemeDB.fallback_font, st._val, st.value_w()),
+				Palette.c("danger" if raid.held_door.state == "shut" else "text"))
 		var dp: String = raid.held_door.prompt_text() if not raid._ended else ""
 		if dp != _door_prompt.text:
 			_door_prompt.text = dp
@@ -422,6 +420,31 @@ func exit_enabled() -> bool:
 	return raid != null and raid.can_retreat()
 
 
+## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
+## broken at spaces (draw only: the StatBlock's DOOR row wraps on its plate).
+static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if text == "":
+		return out
+	var words := PackedStringArray()
+	var chunks := text.split(" · ")
+	for i in chunks.size():
+		var ws := chunks[i].split(" ")
+		for j in ws.size():
+			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
+	var line := ""
+	for wd in words:
+		var trial := wd if line == "" else line + " " + wd
+		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+			out.append(line)
+			line = wd
+		else:
+			line = trial
+	if line != "":
+		out.append(line)
+	return out
+
+
 func open_exit_dialog() -> void:
 	if _dialog == null or raid._ended or not exit_enabled():
 		return
@@ -478,6 +501,8 @@ class StatBlock:
 	var _col := 92.0
 	var plate_alpha := 0.86
 	var show_key := false
+	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
+	var door_tone: Color = Palette.c("text")
 
 	func setup(p_boss: bool) -> void:
 		boss = p_boss
@@ -495,7 +520,20 @@ class StatBlock:
 		if on == show_key:
 			return
 		show_key = on
-		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if on else 0.0)) * _row + 8.0)
+		_fit()
+
+	## The held door's DOOR row (D-e task 6): its wrapped lines (none: no row) and their tone.
+	func set_door(lines: PackedStringArray, tone: Color) -> void:
+		door_lines = lines
+		door_tone = tone
+		_fit()
+
+	## The value column's width on the plate.
+	func value_w() -> float:
+		return 420.0 - _col - 8.0
+
+	func _fit() -> void:
+		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -613,6 +651,13 @@ class StatBlock:
 					floor_end = Vector2(nx + 4.0, y - 5.0)
 			if show_key:
 				_draw_key(y + _row)
+			if not door_lines.is_empty():
+				# the held door's big, on the plate: out of the WARD's big row while it is spent on the door
+				var dy := y + _row * (3.0 if show_key else 1.0)
+				_label(dy, "DOOR")
+				for ln in door_lines:
+					draw_string(ThemeDB.fallback_font, Vector2(_col, dy), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, door_tone)
+					dy += _row
 
 
 class TranceMeter:
