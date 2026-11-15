@@ -355,6 +355,12 @@ Measuring fields only so far: the sim is unchanged (the four seed-1 lines below 
     - **Shieldwall:** the bash arc (with `wall_margin_*`) is kept clear only while she answers a bash tell. Between tells she fetches what lies in its room, the arc included, and otherwise waits at the side stand as before.
     - **Huntsman:** the sidestep happens on an answered lunge tell, `_delay` after the lock. Its side when nothing else decides is rolled with the tell.
     - **Pyre-priest:** the step-off, the mote carried out of a lit area and the keep-out of lit areas happen only on an answered fire tell, `_delay` after it lights.
+    - **Fixed after the freeze (D-d/E Step 4b, b1233c4; the manager's ruling "missed has to mean missed").**
+      - **The bug.** A missed Shieldwall tell still fed the tell's facing, arc and reach to her stand (`_wall_stand` reads them), so she dodged a tell she had missed. A missed slam's ring was still fled once it was out.
+      - **The fix.** From a missed tell until it strikes, the bot plans against the state from before it (`_wall_pre`), and does not react to a missed slam until its ring has passed.
+      - **Unchanged:** answered tells, m and d, and the Bellringer's beat-clock trips. A human learns the beat too.
+      - It is a bug in how the frozen model was built, not a new policy. It is revertible on its own.
+      - New tell geometry is answered through the same roll: the toll (fa42e59) is answered by stepping out of its ring, and the aimed lane by the existing step out of the lit arc.
     - **The living:** no miss (no one-beat tell). The kite starts `_delay` after a living foe in her room first comes within `kite_px` (`_watch_threat`, `_kite_due`); until then her old goal stands (`kite-wait`). A foe that steps out of `kite_px` and back within `_delay` is the same threat, so there is no fresh delay at the kite's edge. The first build re-armed there: at greywall t1 seed 3 it re-armed 12 times in 21 s.
   - **Measuring:** AUTOPILOT_RESULT gains `react` {`miss`, `delay_s`, `tells` seen, `answered`}. DEV `--raid-autopilot-answer-mult=<x>` scales the answered chance, for the context runs at 0.6 and 1.0; it replaces `--raid-autopilot-dodge`. The boss bot (`boss_autopilot.gd`, `vei.json autopilot.dodge`) is untouched.
   - **The seed-1 lines move** (548098e, then with the rule as it now stands; score 70; scene s; raises; Relish's hp at the end; allies at the end; warden tells answered of seen):
@@ -850,3 +856,39 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - (a) a bot change: a missed tell plans with the geometry from before the tell until its strike, as "missed" means;
     - (b) accept that the Bellringer and the Shieldwall carry no tell risk for this bot.
 - **The lever probe** (relish_dmg_mult 1.35 and 1.7; rotated 30 runs each): identical outcomes, 3 deaths of 30, all Huntsman lunges. The steps are unchanged: two 12-dmg blows kill from 1.25, two fires from 1.875, one blow from 2.5.
+
+### Step 4b: the reach at her stand
+- **Missed means missed** (b1233c4; see the reaction model). Against c6, the Huntsman, the Pyre-priest and sable-hold are identical. The Bellringer's t2 forts, both Shieldwall forts, P1 (6 of 6; its blows are still soaked) and 3 of the 18 t1 lines move. Missed rushes now land: pale-bastion has 4 deaths in 6, the-stair 1.
+- **The Bellringer's toll** (e09264b; `attack.toll_radius_px` 45; WardenLogic.toll_strikes):
+  - It is a ring at her spot beyond the slam's reach, from the risk gate. Stepping out is the answer.
+  - A braced bell tolls nothing on her (MUFFLED). The army's damage is unchanged.
+  - The bot answers it through the same roll and delay (fa42e59).
+- **The Shieldwall's aimed rush** (c97c2e8; `rush_lane_half_deg` 20; WardenLogic.lane_reach):
+  - It is a lane at her to the room's farthest corner. Sideways out is the answer, and a pin spares her.
+  - The lane is also what the undead in it take.
+- **Every tell is answerable by a human** (cc3fb06, a test). The check is lead (1 beat, 1.714 s) minus the score-50 delay (0.6 s) minus the walk to clear its area from the worst spot inside it:
+
+  | tell-attack | margin |
+  |---|---|
+  | slam ring | 0.17 s |
+  | toll | 0.77 s |
+  | lunge | 0.97 s |
+  | bash | 0.71 s |
+  | aimed lane (in the-stair's room) | 0.16 s |
+  | fire | 0.62 s |
+
+  - The same at every tier: tell_beats and these reaches have no tier term. No margin is negative, so no change was made.
+- **c7** (x1, seeds 1-6):
+  - Reach on missed, uncountered tells: Bellringer 43% (13 of 30), Huntsman 47%, Pyre-priest 30%, Shieldwall 29% (2 of 7). Answered tells struck: 0 at all four.
+  - Deaths: t2 5, t3 1, t4 7 of 18. The Bellringer accounts for 10 of its 18 runs.
+  - Medians against c6: t2 119 (123), t3 138 (153), t4 126 (125).
+- **The lever** (10 seeds a tier, forts rotated): t2 / t3 / t4 deaths of 10 are:
+
+  | relish_dmg_mult | t2 | t3 | t4 |
+  |---|---|---|---|
+  | 1.0 | 5 | 1 | 3 |
+  | 0.8 | 4 | 1 | 3 |
+  | 0.6 | 3 | 0 | 3 |
+
+  - **No value puts every tier in 5-25%.** The Bellringer sees about twice the tells per fight (15-41 against about 10 elsewhere), so its forts (vespers, sable-hold) die at any value. t3 has no Bellringer.
+  - Steps: with hits of 12 x m, n hits kill from m >= 2.5/n (1.25, 0.83, 0.63 for 2, 3, 4 hits); fire's 8 x m kills in n hits from 3.75/n. Chip damage from the living blurs both.
