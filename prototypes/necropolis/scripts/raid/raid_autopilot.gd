@@ -77,6 +77,8 @@ var _tells_ok := 0
 var _tally := {"tells": 0, "answered": 0, "answered_struck": 0, "missed": 0, "missed_countered": 0, "missed_struck": 0}
 var _tally_open := false        # a tell is being tallied (measuring only: the result's tell_tally)
 var _tally_ctr0 := 0            # the warden's counter count then (muffles, intercepts)
+var _tally_pin := false         # the open tell was pinned (the Shieldwall; D-e task 4, measuring only)
+var _pin_tally := {"missed_pinned": 0, "missed_pinned_struck": 0}   # the Shieldwall's missed tells a pin countered (tell_tally, its lines only)
 var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
 var _hits_seen := 0
 var _told_beats: Array = []     # the strike beat of every tell the bot saw (the tally's windows)
@@ -511,6 +513,8 @@ func on_finish(result: Dictionary) -> void:
 	_tally_close()
 	var told := _tally.duplicate()
 	told["untold_blows"] = _untold_blows()
+	if _archetype == "shieldwall":   # D-e task 4: the pin as its counter (the other wardens' lines keep their shape)
+		told.merge(_pin_tally)
 	out["tell_tally"] = told
 	if _archetype == "bellringer" and int(_bell.get("toll_beats", 0)) > 0:   # (after the last tell's tally; no toll below lever_min_tier: those lines keep their shape)
 		out["bell"] = _bell.merged(_toll_tally)
@@ -901,12 +905,14 @@ func _answers(kind: String, beat: float) -> bool:
 			_tells_ok += 1
 		_tally_open = true
 		_tally_ctr0 = _counter_count()
+		_tally_pin = _tell_pinned()
 	return _tell_ok and _sim_t - _tell_seen >= _delay - 1e-6
 
 
 ## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
 ## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it; a pin
-## spares her only the rush, so it is not counted) or not; and struck when a tell-attack blow reached her before the next tell.
+## is not counted there, its own key is: missed_pinned and missed_pinned_struck, the Shieldwall's lines only, D-e
+## task 4) or not; and struck when a tell-attack blow reached her before the next tell.
 ## Tell-attack blows on her since the last look, stamped with the warden's beat (for the tally).
 func _record_hits() -> void:
 	var th := _tell_hits()
@@ -931,6 +937,14 @@ func _untold_blows() -> int:
 	return n
 
 
+## D-e task 4 (measuring only, read by nothing in the policy): the Shieldwall's tell now showing is pinned. It is
+## decided as the tell begins and holds through its blow, so its first sight books it. From D-e task 4 a pin is the
+## Shieldwall's counter in reach, as a muffle, an intercept or a snuff is at the others (`tell_tally.missed_pinned`).
+func _tell_pinned() -> bool:
+	var w = _raid.warden_run.warden
+	return w != null and is_instance_valid(w) and w is RaidShieldwall and (w as RaidShieldwall).pinned_tell
+
+
 func _tally_close() -> void:
 	if not _tally_open:
 		return
@@ -952,6 +966,10 @@ func _tally_close() -> void:
 			_tally["missed_countered"] += 1
 		elif struck:
 			_tally["missed_struck"] += 1
+		if _tally_pin:
+			_pin_tally["missed_pinned"] += 1
+			if struck:
+				_pin_tally["missed_pinned_struck"] += 1
 	var bw = _raid.warden_run.warden
 	if bw != null and is_instance_valid(bw) and bw is RaidBellringer and bw.toll_marks.has(_tell_id.get_slice(":", 1)):
 		var m: String = bw.toll_marks[_tell_id.get_slice(":", 1)]

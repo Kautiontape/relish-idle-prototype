@@ -443,6 +443,7 @@ func run() -> int:
 			["res://scripts/raid/layout_logic.gd", "static func populate_enemies(", "LayoutLogic.populate_enemies (the living per room)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _record_hits(", "the bot's blow stamps (the tell tally)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _tally_close(", "the bot's tell tally"],
+			["res://scripts/raid/raid_autopilot.gd", "func _tell_pinned(", "the bot's pinned-tell read (the tally's missed_pinned, D-e task 4)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _untold_blows(", "the bot's untold blows"],
 			["res://scripts/raid/raid_autopilot.gd", "func _tell_hits(", "the bot's tell-attack blow count"],
 			["res://scripts/raid/raid_autopilot.gd", "func _counter_count(", "the bot's counter count"],
@@ -682,6 +683,14 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.near(RaidLogic.react_at(90.0, pts, dly), 0.30, 1e-9, "score 90 reacts in 0.30 s")
 	t.near(RaidLogic.react_at(60.0, pts, miss), 0.24, 1e-9, "linear between the points (60: 0.24)")
 	t.near(RaidLogic.react_at(30.0, pts, miss), 0.30, 1e-9, "clamped below the first point")
+	# D-e task 4: the pin counted as the Shieldwall's counter in reach, as its own measuring-only keys
+	var tc := _func_body("res://scripts/raid/raid_autopilot.gd", "func _tally_close(")
+	var ans := _func_body("res://scripts/raid/raid_autopilot.gd", "func _answers(")
+	var fin := FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd")
+	t.ok(ans.contains("_tally_pin = _tell_pinned()") and tc.contains("if _tally_pin:") and tc.contains("_pin_tally[\"missed_pinned\"] += 1")
+		and tc.contains("_pin_tally[\"missed_pinned_struck\"] += 1"), "the tally books a missed tell's pin as it is first seen (missed_pinned, and of them struck)")
+	t.ok(fin.contains("if _archetype == \"shieldwall\":   # D-e task 4: the pin as its counter (the other wardens' lines keep their shape)\n\t\ttold.merge(_pin_tally)"),
+		"tell_tally carries missed_pinned only in the Shieldwall's lines")
 	t.near(RaidLogic.react_at(100.0, pts, dly), 0.30, 1e-9, "clamped above the last")
 	t.ok(RaidLogic.react_at(70.0, [], []) == 0.0, "no points: 0")
 	var mono := true
