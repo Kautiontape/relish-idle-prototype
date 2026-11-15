@@ -809,7 +809,7 @@ class WardenBlock:
 			if hw.hunting_undead:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
 			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
-			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec), 13, "text_dim")
+			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0

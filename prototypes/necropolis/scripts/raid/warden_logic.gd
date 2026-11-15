@@ -953,7 +953,7 @@ static func catch_notches(sp: Dictionary) -> Array[int]:
 ## `dmg_relish` hp per catch (spec.attack, already scaled for the first dungeon; a lethal catch is
 ## taken by an ally in her place) and the phases turn faster at each notch. "" for a warden with no
 ## catch notches.
-static func catch_label(sp: Dictionary) -> String:
+static func catch_label(sp: Dictionary, bypass := false) -> String:
 	var n := catch_notches(sp)
 	if n.is_empty():
 		return ""
@@ -961,7 +961,8 @@ static func catch_label(sp: Dictionary) -> String:
 	var at := ""
 	for i in n.size():
 		at += ("" if i == 0 else (" and " if i == n.size() - 1 else ", ")) + str(n[i])
-	return "each catch costs Relish %d hp (an ally takes a killing one) · it hunts faster at %s catches" % [dmg, at]
+	# with the tell bypass on (lever_on, D-d/E Step 4b) a killing catch is hers, so no ally note
+	return "each catch costs Relish %d hp%s · it hunts faster at %s catches" % [dmg, "" if bypass else " (an ally takes a killing one)", at]
 
 
 ## Slots on the CAUGHT track: the last notch plus two, so the open-ended last phase shows too.
