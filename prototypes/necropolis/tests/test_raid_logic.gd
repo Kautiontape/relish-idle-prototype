@@ -496,6 +496,7 @@ func run() -> int:
 	_time_split_tests(t)
 	_react_tests(t, cfg)
 	_human_tests(t, cfg)
+	_capture_tests(t)
 	_detour_tests(t, cfg)
 	_bot_rule_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
@@ -720,6 +721,41 @@ func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
 		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
 		t.ok(body != "" and not body.contains("randf") and not body.contains("randi") and not body.contains("Pulse.phase") and not body.contains("reduced"),
 			"the degraded bot's %s draws no roll and reads no Pulse phase or reduced motion" % head.trim_prefix("func ").trim_suffix("("))
+
+
+## D-e, capture mode: RaidLogic.capture_path / capture_outcome / capture_count, and RaidCapture reads only.
+func _capture_tests(t: TestUtil) -> void:
+	t.suite("raid_capture")
+	var none := PackedStringArray()
+	t.ok(RaidLogic.capture_path(none, none, "user://c.jsonl") == "", "no flag: off")
+	t.ok(RaidLogic.capture_path(PackedStringArray(["--capture"]), none, "user://c.jsonl") == "user://c.jsonl", "--capture: the default file")
+	t.ok(RaidLogic.capture_path(none, PackedStringArray(["--path", ".", "--capture"]), "user://c.jsonl") == "user://c.jsonl",
+		"as an engine arg too (a player launch: the boot rule keeps the save)")
+	t.ok(RaidLogic.capture_path(PackedStringArray(["--new-game", "--capture=/tmp/x.jsonl"]), none, "user://c.jsonl") == "/tmp/x.jsonl", "--capture=<path>: that file")
+	var boot := preload("res://scripts/sim/boot_rule.gd")
+	t.ok(not boot.is_harness_args(PackedStringArray()) and boot.is_harness_args(PackedStringArray(["--capture"]))
+		and not boot.is_harness(PackedStringArray(), PackedStringArray(["--path", ".", "--capture"]), false),
+		"after -- it is a harness arg (a fresh game, no autosave); before -- the boot rule keeps the player's session")
+	t.ok(RaidLogic.capture_outcome(true, true, true) == "struck", "a blow that reached her is struck, whatever else")
+	t.ok(RaidLogic.capture_outcome(false, true, true) == "countered", "then the counter")
+	t.ok(RaidLogic.capture_outcome(false, false, true) == "dodged", "aimed at her and missed: dodged")
+	t.ok(RaidLogic.capture_outcome(false, false, false) == "clear", "never aimed at her: clear")
+	var tal := {}
+	RaidLogic.capture_count(tal, "slam", "dodged", true)
+	RaidLogic.capture_count(tal, "slam", "struck", false)
+	RaidLogic.capture_count(tal, "slam", "cancelled", true)
+	t.ok(tal["slam"]["tells"] == 3 and tal["slam"]["shown"] == 2 and tal["slam"]["dodged"] == 1 and tal["slam"]["struck"] == 1
+		and tal["slam"]["cancelled"] == 1 and tal["slam"]["countered"] == 0, "the tally counts every tell, the shown ones, and each outcome")
+	# it reads the run: no rng, no goal, no write to the warden, Relish or the raid
+	var src := FileAccess.get_file_as_string("res://scripts/raid/raid_capture.gd")
+	var wr := RegEx.create_from_string("\\b(_raid|rel|w|b|h|p)\\.[A-Za-z_.]+\\s*[-+*/]?=[^=]")
+	t.ok(src != "" and wr.search(src) == null and not src.contains("randf") and not src.contains("randi") and not src.contains("take_hit")
+		and not src.contains("move_target") and not src.contains("rng"), "RaidCapture reads the run and writes nothing the sim reads")
+	t.ok(not src.contains("http") and not src.contains("HTTP") and not src.contains("StreamPeer") and not src.contains("PacketPeer"), "capture is local only: no network")
+	var rsrc := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	t.ok(rsrc.contains("if capture != null:\n\t\tcapture.physics_tick(delta)") and rsrc.contains("if capture != null:\n\t\tcapture.on_targeted()"),
+		"the raid ticks and tells capture only when it is on")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func finish(").contains("_raid.capture.write(result)"), "every ending writes the record (RaidEndings.finish)")
 
 
 ## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).

@@ -45,6 +45,7 @@ var _built := false
 var _standalone := false
 var _from_run := false          # the seed came from Game.state (a run is open), not the demo
 var _dev: RaidDev = null        # the standalone dev harness; null when the router launched us
+var capture: RaidCapture = null # capture mode (--capture[=<path>], D-e): one record per live dungeon run; reads only
 
 ## Run-over flag read by units, HUD, trance and the boss; lives on endings.
 var _ended: bool:
@@ -257,6 +258,10 @@ func _build() -> void:
 	if not boss:
 		endings.start()
 		held_clear.on_built()
+		var cap_path := RaidCapture.path_from_cli()
+		if cap_path != "":   # any launch path: the router's as well as the standalone scene's
+			capture = RaidCapture.new(self, cap_path)
+			capture.start()
 	if _standalone:
 		_dev = RaidDev.new(self)
 		_dev.start()
@@ -285,6 +290,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if _dev != null:
 		_dev.physics_tick(delta)
+	if capture != null:
+		capture.physics_tick(delta)   # reads the run (the last frame's warden state); changes nothing
 	arena.rebuild_grid(allies, enemies, relish)
 	if not is_boss():
 		endings.track_position()
@@ -430,6 +437,8 @@ func danger_hit() -> void:
 func danger_targeted() -> void:
 	if danger != null:
 		danger.targeted()
+	if capture != null:
+		capture.on_targeted()
 
 
 ## Alive allies by sacrifice rank, for the HUD ward line.
@@ -628,7 +637,13 @@ func perform_raise(g: Dictionary) -> void:
 ## result before the quit completes.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST and endings != null:
+		if capture != null:
+			capture.closing = true
 		endings.close_request()
+		if capture != null:
+			capture.flush_unfinished("closed")   # standalone: no close_request ending, so the record is written here
+	elif what == NOTIFICATION_PREDELETE and capture != null:
+		capture.flush_unfinished("freed")   # freed with no ending (a swap away): what there is
 
 
 

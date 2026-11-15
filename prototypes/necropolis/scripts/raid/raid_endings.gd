@@ -227,6 +227,8 @@ func finish(result: Dictionary) -> void:
 		return
 	finished = true
 	ended = true
+	if _raid.capture != null:
+		_raid.capture.write(result)   # capture mode: synchronous, before the emit (the router frees the scene; the bot quits)
 	if is_instance_valid(_card):
 		_card.queue_free()
 	Engine.time_scale = 1.0

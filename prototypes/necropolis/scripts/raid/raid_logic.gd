@@ -1043,3 +1043,47 @@ const DODGE_WHYS := ["toll-out", "bell-out", "wall-out", "pyre-off", "dodge"]
 ## real seconds. The degraded bot's draw lands in `trance_s`; its other knobs are scene time already.
 static func human_real_s(scene_s: float, trance_s: float, time_scale: float) -> float:
 	return scene_s + trance_s * (1.0 / maxf(0.05, time_scale) - 1.0)
+
+
+## Capture mode (D-e; RaidCapture, NOTES-RAID "Capture mode"): where a live run's record goes. `--capture`
+## gives `def_path`, `--capture=<path>` that path; "" is off. It is read from the engine args too, so a
+## player launch can pass it before `--` (BootRule only matches its DEV_ARGS there: the save resumes).
+static func capture_path(user_args: PackedStringArray, engine_args: PackedStringArray, def_path: String) -> String:
+	for args in [user_args, engine_args]:
+		for a in args:
+			if a == "--capture":
+				return def_path
+			if a.begins_with("--capture="):
+				var p: String = a.trim_prefix("--capture=")
+				return p if p != "" else def_path
+	return ""
+
+
+## A tell-attack's outcome on the game side, first match: "struck" (its blow reached her hp), "countered"
+## (the warden's counter took it: muffled, intercepted, pinned, snuffed), "dodged" (it was aimed at her:
+## her edge warned through its tell, or a toll was placed at her feet), else "clear" (it never reached her).
+const CAPTURE_OUTCOMES := ["struck", "countered", "dodged", "clear"]
+
+
+static func capture_outcome(struck: bool, countered: bool, aimed: bool) -> String:
+	if struck:
+		return "struck"
+	if countered:
+		return "countered"
+	if aimed:
+		return "dodged"
+	return "clear"
+
+
+## Count one closed tell into a capture tally {kind: {tells, shown, struck, countered, dodged, clear,
+## cancelled}}: `shown` when she stood in the warden's room as it began; `outcome` one of CAPTURE_OUTCOMES,
+## or "cancelled" (a horn took it before it struck).
+static func capture_count(tally: Dictionary, kind: String, outcome: String, shown: bool) -> void:
+	if not tally.has(kind):
+		tally[kind] = {"tells": 0, "shown": 0, "struck": 0, "countered": 0, "dodged": 0, "clear": 0, "cancelled": 0}
+	var k: Dictionary = tally[kind]
+	k["tells"] = int(k["tells"]) + 1
+	if shown:
+		k["shown"] = int(k["shown"]) + 1
+	if k.has(outcome):
+		k[outcome] = int(k[outcome]) + 1
