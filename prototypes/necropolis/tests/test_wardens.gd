@@ -385,6 +385,18 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lc)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
 		"tier 1 and the first dungeon are untouched by the lever")
 	t.ok(float(cfg["wardens"]["attack_dmg_mult"]) == 1.0 and float(cfg["wardens"]["relish_dmg_mult"]) == 1.0, "both levers rest at 1.0 until chosen")
+	# Step 4c: the lever per tier, falling back to relish_dmg_mult
+	var bt := {"relish_dmg_mult": 1.0, "relish_dmg_mult_by_tier": {"_doc": "x", "3": 0.75, "4": 1.35}}
+	t.ok(is_equal_approx(WardenLogic.relish_mult(bt, 2), 1.0) and is_equal_approx(WardenLogic.relish_mult(bt, 3), 0.75) and is_equal_approx(WardenLogic.relish_mult(bt, 4), 1.35)
+		and is_equal_approx(WardenLogic.relish_mult({"relish_dmg_mult": 1.2}, 3), 1.2), "relish_dmg_mult_by_tier per tier, else relish_dmg_mult")
+	var lt: Dictionary = cfg.duplicate(true)
+	lt["wardens"]["relish_dmg_mult_by_tier"] = {"3": 0.5}
+	var b3: Dictionary = WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman"}, cfg)["attack"]
+	var l3: Dictionary = WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman"}, lt)["attack"]
+	t.ok(is_equal_approx(float(l3["dmg_relish"]), 0.5 * float(b3["dmg_relish"])) and is_equal_approx(float(l3["dmg_unit"]), float(b3["dmg_unit"]))
+		and str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, lt)) == str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, cfg))
+		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lt)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
+		"the tier's value reaches only its Relish damage; t1 and the first dungeon untouched")
 	# Step 4c: the honest lunge tell: the drawn line is the dash's line, also at the leash edge
 	var lroom := Rect2(1274.676, 30.0, 495.3244, 669.1307)
 	var lfrom := Vector2(1379.848, 669.1307)

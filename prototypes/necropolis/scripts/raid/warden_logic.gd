@@ -39,7 +39,7 @@ static func spec(fort: Dictionary, cfg: Dictionary) -> Dictionary:
 	# damage to Relish only. 1.0 each leaves every spec as it was.
 	var lever := lever_on(tier, first, w)
 	var all_m := float(w.get("attack_dmg_mult", 1.0)) if lever else 1.0
-	var rel_m := float(w.get("relish_dmg_mult", 1.0)) if lever else 1.0
+	var rel_m := relish_mult(w, tier) if lever else 1.0
 	for k in attack.keys():
 		if str(k).begins_with("dmg_"):
 			attack[k] = float(attack[k]) * dmg_mult
@@ -317,6 +317,13 @@ static func lunge_target(from: Vector2, aim: Vector2, range_px: float) -> Vector
 	if d.length() <= range_px:
 		return aim
 	return from + d.normalized() * range_px
+
+
+## D-d/E Step 4c: the Relish-damage lever at `tier` (wardens.relish_dmg_mult_by_tier, else relish_dmg_mult).
+## Only read where lever_on holds (never t1, the first dungeon or Vei).
+static func relish_mult(w: Dictionary, tier: int) -> float:
+	var by: Dictionary = w.get("relish_dmg_mult_by_tier", {})
+	return float(by.get(str(tier), w.get("relish_dmg_mult", 1.0)))
 
 
 ## D-d/E Step 4c, the honest lunge tell: the lock point (`aim` clipped to `range_px`) clamped to the leash the
