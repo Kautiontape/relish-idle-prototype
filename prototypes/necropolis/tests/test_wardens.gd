@@ -456,6 +456,18 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		ok_all = ok_all and margin >= 0.0
 		worst += " %s %.2fs" % [k, margin]
 	t.ok(ok_all, "every tell-attack is answerable by a human (lead - 0.6 s - clear/speed >= 0):%s" % worst)
+	# the fire with its spread (phase 1, acolytes alive): one fire on her, the others relish_spread_px along her line
+	# from the priest; the way out is sideways, and it clears them all
+	var pya: Dictionary = archs["pyre_priest"]["attack"]
+	var r1 := float((archs["pyre_priest"]["phases"] as Array)[0]["burn_radius_px"])
+	var fspots := WardenLogic.relish_spots(Vector2.ZERO, Vector2(-200, 0), int(pya["relish_areas_max"]), float(pya["relish_spread_px"]))
+	var fout := Vector2(0, r1 + rr)
+	var fclear := true
+	for fsp in fspots:
+		fclear = fclear and fout.distance_to(fsp) > r1 + rr - 0.001
+	var fmargin := float(pya["tell_beats"]) * beat_s - d50 - fout.length() / spd
+	t.ok(fclear and fmargin >= 0.0, "the fire with its spread (%d fires, %d px apart, %d px wide): out sideways %.0f px, clear of all: %.2fs"
+		% [fspots.size(), int(pya["relish_spread_px"]), int(r1), fout.length(), fmargin])
 	var gd_src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
 	t.ok(gd_src.contains("or u.kind != \"big\" or warden.pack_alive() > 0:"), "the Huntsman's bodyguards leave the post while its hounds run (Step 4.1)")
 	for a2 in ["bellringer", "shieldwall"]:
