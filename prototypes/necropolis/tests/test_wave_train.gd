@@ -391,7 +391,8 @@ func _cache() -> void:
 ## live slot as it stands (no probe on the frame where the scenes refetch); a later frame with no substep,
 ## at least hold.train_frame_phase into the interval, re-probes, and then a view reads the fresh verdict
 ## (exactly a fresh probe's). A command re-probes at the next read. With nothing reading, no frame probes.
-## When every frame substeps, the frame after hold.train_starve_frames of them re-probes.
+## When every frame substeps, the frame after hold.train_starve_frames of them re-probes. Core steps run
+## outside a substep (a catch-up: t moves, rev doesn't) re-probe at the next read.
 func _frame() -> void:
 	t.suite("wave-train-frame")
 	var s := _fixture("midgame_2flips")
@@ -429,6 +430,12 @@ func _frame() -> void:
 		if k < starve - 1 and count.call() != m:
 			break
 	t.ok(count.call() == m + 1, "every frame substepping: the %d-th re-probes (%d)" % [starve, count.call() - m])
+	s.view_fort("ashgate")
+	var c0 := int(count.call())
+	for k in 3:
+		s._core_step(10.0)  # a catch-up's core steps: t moves, rev and the substep count don't
+	s.view_fort("ashgate")
+	t.ok(count.call() == c0 + 1, "core steps outside a substep (a catch-up): the next read probes, though rev hasn't moved")
 
 
 ## The re-targeted warning (MECHANICS §3.4, T3.4b §4): a warning names Ashgate (contested, the most

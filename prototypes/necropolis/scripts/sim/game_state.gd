@@ -153,7 +153,7 @@ var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for te
 ## starve (substep frames in a row), and rows_computed / rows_replaced counts (for tests and benches);
 ## session only, never saved, emptied by a new game and a load.
 var _proj_cache := {}
-## The wave train's verdicts (_train): {live: [key, result, rev, _ticks], valve: [key, result, rev, _ticks],
+## The wave train's verdicts (_train): {live: [key, result, rev, _ticks, t], valve: [key, result, rev, _ticks, t],
 ## read (a view read the live slot since the frame refresh last ran), starve (substep frames in a row while
 ## read), computed (probes run: tests, benches)}. Session only; a new game or a load bumps rev, so no key
 ## from before it matches.
@@ -1326,9 +1326,10 @@ func _train_valve(war: float) -> Dictionary:
 ## projections key theirs (a catch-up's core steps move t without rev), and the state the probe starts
 ## from, so an edit that bumps neither (a test, debug) still misses. Session only.
 ## On the frame path (_frame_path) a read of the live flows doesn't probe when only live substeps have
-## moved the state since the live slot was made (rev less the substeps is unchanged: no command since): it
-## serves that slot, the verdict at most a few substeps old, and _train_frame refreshes it on the next frame
-## with no substep. A command (a valve, a raid's flip, a move) probes at the next read, on its own frame.
+## moved the state since the live slot was made: rev less the substeps unchanged (no command since) and t
+## moved by exactly those substeps (no core step outside _tick: a catch-up's steps move t alone). It serves
+## that slot, the verdict at most a few substeps old, and _train_frame refreshes it on the next frame with
+## no substep. A command (a valve, a raid's flip, a move) or a catch-up probes at the next read.
 ## A projected valve whose WAR is the live train's (the valve's target) reads the live slot the same way,
 ## so view_projection with `settled` at the valve's target always equals view_fort.
 func _train(war: float, live: bool) -> Dictionary:
@@ -1348,7 +1349,8 @@ func _train(war: float, live: bool) -> Dictionary:
 			return c[1]
 	if live and _frame_path:
 		var c: Array = _train_cache.get("live", [])
-		if not c.is_empty() and rev - int(c[2]) == _ticks - int(c[3]):
+		var subs := _ticks - int(c[3]) if not c.is_empty() else 0
+		if not c.is_empty() and rev - int(c[2]) == subs and absf(t - float(c[4]) - subs * substep_s()) <= 1e-6:
 			_train_cache["read"] = true
 			return c[1]
 	return _train_probe(slot, key, sup, q)
@@ -1358,7 +1360,7 @@ func _train(war: float, live: bool) -> Dictionary:
 ## call, not the frame refresh's).
 func _train_probe(slot: String, key: Array, sup: Dictionary, q: float, read := true) -> Dictionary:
 	var res := realm.train_probe(sup, q)
-	_train_cache[slot] = [key, res, rev, _ticks]
+	_train_cache[slot] = [key, res, rev, _ticks, t]
 	_train_cache["computed"] = int(_train_cache.get("computed", 0)) + 1
 	if slot == "live" and read:
 		_train_cache["read"] = true
@@ -1401,6 +1403,8 @@ func _train_frame(substeps: int) -> bool:
 ## but a command changes it. `live` before the first substep after a load (no dispatch yet) reads the
 ## saved r_in with her where she stands, as the other readouts do.
 func _train_support(war: float, live: bool) -> Dictionary:
+	if not realm.forts.any(func(f): return bool(f.get("held", false))):
+		return {}  # nothing held: no split to read
 	var fx := _relish_effects()
 	var dest := str(relish["target"]) if relish["state"] == "travelling" else ""
 	if realm.fort_by_id(dest).is_empty():

@@ -774,11 +774,13 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   the margin (`war_supports` reads `garrison_rate` only), so lazy is the same as once per step and costs a
   catch-up nothing. Since T3.2's lesson (work in a view call lands on the substep frames, where the scenes
   refetch), on the frame path (the shell's capped `tick`) a read after a substep doesn't probe when only
-  live substeps have moved the state since the cached one (no command since): it serves that verdict, at
-  most a few substeps old, and `GameState._train_frame` re-probes on the next frame with no substep, at
-  least `hold.train_frame_phase` (0.5) of a substep into the interval, while a view reads it; when every
-  frame substeps it re-probes after `hold.train_starve_frames` (30) of them. A command re-probes at the
-  next read, on its own frame. Headless calls (tests, a catch-up) always probe on a miss, exactly.
+  live substeps have moved the state since the cached one (no command since, and `t` moved by exactly
+  those substeps): it serves that verdict, at most a few substeps old, and `GameState._train_frame`
+  re-probes on the next frame with no substep, at least `hold.train_frame_phase` (0.5) of a substep into
+  the interval, while a view reads it; when every frame substeps it re-probes after
+  `hold.train_starve_frames` (30) of them. A command re-probes at the next read, on its own frame, and so
+  does a catch-up (its core steps move `t` without `rev` or the substep count). Off the frame path (tests,
+  headless tools) every miss probes, exactly.
 - **The truth check** (`tests/slow/margin_truth.gd`): from each start, live 0.5 s steps for 12 h with no
   input; at the first substep and every 30 min to 4 h, each held fort's margin, then what happened in the
   next 8 h. midgame_2flips: 10 samples; the train read Ashgate and Old Sluice thin at t0 (Old Sluice fell
@@ -797,17 +799,20 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   supports fewer (water-filling is monotone in the WAR it splits).
 - **Cost** (E2b-2 T3.4b), best of 3 at a load average of about 6.5 on 12 cores (no time is asserted). The
   train probe uncached: 1 183 µs on midgame_2flips (2 held, 119 steps, unsettled at its 4-cycle cap), 1 209
-  µs 10 min in (172 steps: Old Sluice broken, Ashgate settled in 3 cycles), 7 µs on pre_vei (none held),
+  µs 10 min in (172 steps: Old Sluice broken, Ashgate settled in 3 cycles), 2 µs on pre_vei (none held),
   119 µs on pre_vei with 2 contested and 289 µs with 5 (each settled in one cycle); a cached read (the key)
   about 20 µs. `view_realm` 313 µs on midgame_2flips with the train cached (476 µs at T3.4a's tip, which ran
   two one-wave probes per call). Frames, a headless per-frame bench of the world map at 1600 × 900 (60 s of
-  live play, uncapped, against T3.4a's tip `2c01f45`): on midgame_2flips the 121 probes all landed on frames
-  with no substep (p50 1.8 ms, max 2.4 ms, against about 0.25 ms for such a frame) and the substep frames got
-  cheaper (p50 4.5 to 4.7 ms against 4.8 to 5.1); best of 3, p99 776 µs (757), max 6.98 ms (9.66), 0 frames
-  over 8 ms (1). On pre_vei with 2 contested, p99 808 µs (804), max 8.95 ms (9.06), 3 over 8 ms (3, every
-  one a substep frame). Lazily on the substep frames (before the frame refresh) midgame's substep frames
-  rose to p50 6.2 ms and max 8.4 ms, 6 frames over 8 ms, which a refresh cadence alone couldn't fix (each
-  probe would still land on a substep frame). The one-wave probe (a drag's `view_projection`) is about
+  live play, uncapped, against T3.4a's tip `2c01f45`, best of 3 interleaved runs): on midgame_2flips the 121
+  probes a run all landed on frames with no substep (p50 1.8 ms, max 2.3 to 2.5 ms, against about 0.25 ms for
+  such a frame) and the substep frames got cheaper (p50 4.5 to 4.7 ms against 4.8 to 4.9); p99 774 µs (750),
+  max 6.57 ms (6.95), 0 frames over 8 ms (0). On pre_vei with 2 contested, p99 805 µs (825), max 8.97 ms
+  (9.01), 3 over 8 ms (3), every one a substep frame. On pre_vei as loaded (nothing held, nothing probed;
+  the train adds 2 µs to a `view_realm`), p99 808 µs (799), max 8.56 ms (8.76), 3 over 8 ms (2; 13 against
+  11 over the three runs, the base alone 2 to 6). Lazily on the substep frames (before the frame refresh)
+  midgame's substep frames rose to p50 6.2 ms and max 8.4 ms, 6 frames over 8 ms (0), which a refresh cadence
+  alone couldn't fix (each probe would still land on a substep frame). The one-wave probe (a drag's
+  `view_projection`) is about
   30 µs per held fort per call; `war_supports` reads only the rate.
 
 ### 3.6 Simulacra (kept, defined)

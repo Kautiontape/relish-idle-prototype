@@ -14,7 +14,8 @@ extends RefCounted
 ## - Asserted: every "safe" sample's fort is still held 8 h on (the worst lie is safe, then broken
 ##   overnight), and at least one safe sample over all starts (else the check is vacuous). A margin reads
 ##   today's flows (MECHANICS §3.5): a safe fort that falls after the WAR the valve sends it has dropped
-##   below FLOW_DROP of what it was at the sample (the town's economy failing: pre_vei's gold runs out at
+##   below FLOW_DROP of what it was at the sample, before its last break began (the retake less break_s)
+##   (the town's economy failing: pre_vei's gold runs out at
 ##   about 2.2 h, its pits stop and the WAR goes from 49.7 to 0.95 mass/s) is counted apart, as "its WAR
 ##   fell", printed and not failed: neither probe reads the town. Relish's own moves are no such excuse (the
 ##   train reads her committed arrival; midgame's Old Sluice at t0 is the case).
@@ -105,9 +106,12 @@ func _run(s: GameState) -> Dictionary:
 			safe += 1
 			var at := float(retaken.get(smp[1], INF))
 			if at > float(smp[0]) and at <= float(smp[0]) + AHEAD_S:
+				# the WAR from the sample until the garrison's last break began (the retake less break_s, sample
+				# j taken at j × WAR_EVERY_S + one substep): a drop after that came with the fall, not before it
 				var series: PackedFloat64Array = war_t[smp[1]]
 				var low := INF
-				for j in range(int(float(smp[0]) / WAR_EVERY_S), mini(series.size(), int(at / WAR_EVERY_S) + 1)):
+				var until := at - float(s._cfgs["realm"]["hold"]["break_s"]) - step
+				for j in range(int(float(smp[0]) / WAR_EVERY_S), mini(series.size(), int(floorf(until / WAR_EVERY_S)) + 1)):
 					low = minf(low, series[j])
 				var line := "%s at %.0f s (WAR %.2f), retaken %.0f s later (its WAR fell to %.2f)" % [smp[1], smp[0], smp[7], at - float(smp[0]), low]
 				(war_fell if low < FLOW_DROP * float(smp[7]) else safe_broke).append(line)
