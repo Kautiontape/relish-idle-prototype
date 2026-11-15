@@ -1151,7 +1151,7 @@ func _door_decide(hd: RaidHeldDoor, w) -> void:
 	var bigs := hd.party_bigs()
 	var vals: Array = []
 	for b in bigs:
-		vals.append(_big_stat(b, stat))
+		vals.append(RaidLogic.unit_stat(b, stat))
 	var k := RaidLogic.held_door_pick(vals, float(wp.get("threshold", 0.0)), _cfg)
 	_door_at = {"t": snappedf(_sim_t, 0.01), "stat": stat, "threshold": float(wp.get("threshold", 0.0)), "values": vals}
 	_door_state = "taken" if k >= 0 else "declined"
@@ -1160,20 +1160,6 @@ func _door_decide(hd: RaidHeldDoor, w) -> void:
 		_door_at["big"] = str(bigs[k].uid)
 	_door_walk0 = _walk_px
 	print("AUTOPILOT_DOOR %s stat=%s values=%s big=%s frame=%d" % [_door_state, stat, str(vals), str(_door_at.get("big", "")), Engine.get_process_frames()])
-
-
-## A party big's value in a weak point's stat (RaidUnit keeps the four the wardens read).
-func _big_stat(u: RaidUnit, stat: String) -> float:
-	match stat:
-		"beef":
-			return u.beef
-		"speed":
-			return u.speed_stat
-		"wits":
-			return u.wits
-		"power":
-			return u.power
-	return 0.0
 
 
 ## A taken door's walk: to the doorstep; once the plate holds the door, into the doorway (the cache is within

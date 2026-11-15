@@ -1007,9 +1007,20 @@ static func held_door_lost(exit: String, committed: bool) -> bool:
 	return committed and exit != "warden_beaten"
 
 
-## A party big's value in a warden weak point's stat ("beef", "speed", "wits", "power"; 0 for any other).
-static func big_stat(stats: Dictionary, stat: String) -> float:
-	return float(stats.get(stat, 0.0))
+## A big undead's value in a warden weak point's stat ("beef", "speed", "wits", "power"; 0 for any other): the
+## RaidUnit fields the party's stats land in (RaidPopulate). The pack's counter (RaidWardenRun.breaks_pack) and
+## the bot's door rule read it here.
+static func unit_stat(u, stat: String) -> float:
+	match stat:
+		"beef":
+			return u.beef
+		"speed":
+			return u.speed_stat
+		"wits":
+			return u.wits
+		"power":
+			return u.power
+	return 0.0
 
 
 ## The measuring bot's held-door rule (raid.json autopilot door_*; NOTES-RAID "D-e task 6", frozen once
@@ -1209,9 +1220,6 @@ static func capture_path(user_args: PackedStringArray, engine_args: PackedString
 ## A tell-attack's outcome on the game side, first match: "struck" (its blow reached her hp), "countered"
 ## (the warden's counter took it: muffled, intercepted, pinned, snuffed), "dodged" (it was aimed at her:
 ## her edge warned through its tell, or a toll was placed at her feet), else "clear" (it never reached her).
-const CAPTURE_OUTCOMES := ["struck", "countered", "dodged", "clear"]
-
-
 static func capture_outcome(struck: bool, countered: bool, aimed: bool) -> String:
 	if struck:
 		return "struck"
@@ -1223,7 +1231,7 @@ static func capture_outcome(struck: bool, countered: bool, aimed: bool) -> Strin
 
 
 ## Count one closed tell into a capture tally {kind: {tells, shown, struck, countered, dodged, clear,
-## cancelled}}: `shown` when she stood in the warden's room as it began; `outcome` one of CAPTURE_OUTCOMES,
+## cancelled}}: `shown` when she stood in the warden's room as it began; `outcome` one capture_outcome gives,
 ## or "cancelled" (a horn took it before it struck).
 static func capture_count(tally: Dictionary, kind: String, outcome: String, shown: bool) -> void:
 	if not tally.has(kind):

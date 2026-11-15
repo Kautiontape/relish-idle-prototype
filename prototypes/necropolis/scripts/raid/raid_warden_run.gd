@@ -134,16 +134,7 @@ func snuff_for(u: RaidUnit) -> Dictionary:
 func breaks_pack(u: RaidUnit) -> bool:
 	if warden == null or not is_instance_valid(warden) or not warden.alive or not warden.awake or u.kind != "big":
 		return false
-	var v := 0.0
-	match str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")):
-		"beef":
-			v = u.beef
-		"speed":
-			v = u.speed_stat
-		"wits":
-			v = u.wits
-		"power":
-			v = u.power
+	var v := RaidLogic.unit_stat(u, str((warden.spec.get("weak_point", {}) as Dictionary).get("stat", "")))
 	return WardenLogic.pack_breaker(warden.spec, v)
 
 
