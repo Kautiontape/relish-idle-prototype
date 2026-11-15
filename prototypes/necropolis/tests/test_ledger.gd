@@ -72,6 +72,7 @@ func run() -> int:
 	_debug()
 	_runs()
 	_any_dt()
+	_convoy_moment()
 	_save_load()
 	_pre_ledger()
 	soak(SOAK_S, 11)
@@ -298,6 +299,32 @@ func _any_dt() -> void:
 			_negatives(s, neg)
 		t.ok(worst < TIGHT, "substep %.1f s: balanced at every substep for %d sim-s (worst %s)" % [dt, int(150 * dt), _e(worst)])
 		t.ok(neg.is_empty(), "substep %.1f s: no negative or non-finite pool%s" % [dt, "" if neg.is_empty() else ": " + str(neg.slice(0, 8))])
+
+
+## E2b-2 T3.3a (MECHANICS §4.2): the convoy reads each fort's corpses at its own moment in the step, and
+## a pickup is held to what the fort held at the step's start (GameState takes it off before the realm
+## step, which owns the corpses made inside it). pre_vei's forts hold no living and Vei's shipping dies as
+## it lands, so their corpses grow inside every step: the projection at a leg's moment is above what the
+## fort holds. 1 h of 10 s core steps balances at every step, and no pool goes negative.
+func _convoy_moment() -> void:
+	var s := GameState.new(_cfgs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var worst := 0.0
+	var neg: Array = []
+	var landed := 0.0
+	var growing := 0
+	for i in 360:
+		for f in s._town_inputs(0.0)["forts"]:
+			if float(f["dead_rate"]) > 0.0:
+				growing += 1
+		s._core_step(10.0)
+		landed += float(s.town_sim.rates["bodies"]["haul"]) * 10.0
+		worst = maxf(worst, _err(s))
+		_negatives(s, neg)
+	t.ok(landed > 1000.0 and growing > 360, "pre_vei at 10 s: the convoy lands %.0f mass in 1 h, from forts whose corpses grow inside the step (%d fort-steps)" % [landed, growing])
+	t.ok(worst < TIGHT, "and the ledger balances at every step (worst %s)" % _e(worst))
+	t.ok(neg.is_empty(), "and no pool goes negative%s" % ("" if neg.is_empty() else ": " + str(neg.slice(0, 8))))
 
 
 ## _soak_check's no-negatives and finiteness checks, on their own.

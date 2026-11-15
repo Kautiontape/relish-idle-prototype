@@ -15,7 +15,10 @@ extends RefCounted
 ## - Samples every SAMPLE_S (a multiple of every dt). A metric's error is the worst over the samples
 ##   of |x − ref| / max(|ref|, floor): a quantity pinned near 0 is judged against its natural scale.
 ##   The floor is the body cap for bodies, Vei's pool cap for her pool, 1% of Σ fort caps for the
-##   forts' pools, and 1% of the metric's peak |ref| (at least 1) for the rest.
+##   forts' pools, and 1% of the metric's peak |ref| (at least 1) for the rest. The gold and bone caps'
+##   overflow tallies (ledger().stores, E2b-2 T3.2; columns since T3.3a, so a store at its cap can't
+##   hide a cause that changes its income) take their store's floor: clipped bone is bone the stock
+##   would have held, so the tally is judged as strictly as the stock.
 ## - The 0.25 s row is the reference's own noise: no dt can be expected to match 0.5 s closer.
 ## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at: a tithe warning, a
 ##   wave's start or end, a building's unpaid hold ending, gold or bone reaching their floor
@@ -51,7 +54,7 @@ const TIMING_H := 1.0
 ## The integrator's share of IDLE's 2% (event clipping and the capped field spend the rest).
 const TOL := 0.005
 const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead", "fort_dead", "workers",
-	"bodies", "gold", "bone", "living"]
+	"bodies", "gold", "bone", "gold_over", "bone_over", "living"]
 ## Vei's stocks and Covington's smooth ones: the secondary criterion (the fort pools and bodies
 ## converge as dt → 0 since E2b T4.C on midgame_2flips, and on pre_vei until its gold floor; fresh's,
 ## and pre_vei's after the floor, within about one convoy load; at long steps they are still far
@@ -59,7 +62,7 @@ const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",
-	"bone": "bone", "living": "town living"}
+	"bone": "bone", "gold_over": "gold over", "bone_over": "bone over", "living": "town living"}
 
 var t := TestUtil.new()
 var _cfgs := {}
@@ -165,6 +168,7 @@ static func sample(s: GameState) -> Dictionary:
 	var d := {"backlog": float(s.realm.vei["undead_queue"]), "vei_dead": float(s.realm.vei["dead_queue"]),
 		"vei_pool": float(s.realm.vei["living_pool"]), "fort_living": 0.0, "fort_undead": 0.0, "fort_dead": 0.0,
 		"workers": s.town_sim.workers, "bodies": s.town_sim.bodies, "gold": s.town_sim.gold, "bone": s.town_sim.bone,
+		"gold_over": float(s._ledger.stores["gold"]["overflow"]), "bone_over": float(s._ledger.stores["bone"]["overflow"]),
 		"living": s.town_sim.living}
 	for f in s.realm.forts:
 		d["fort_living"] += float(f["living"])
@@ -407,6 +411,8 @@ static func floors_of(s: GameState, ref: Array) -> Dictionary:
 		for smp in ref:
 			peak = maxf(peak, absf(float(smp[m])))
 		out[m] = maxf(1.0, 0.01 * peak)
+	out["gold_over"] = out["gold"]
+	out["bone_over"] = out["bone"]
 	out["bodies"] = s.town_sim.body_cap()
 	out["vei_pool"] = float(s.realm.t.get("vei_pool_cap", 600.0))
 	for m in ["fort_living", "fort_undead", "fort_dead"]:

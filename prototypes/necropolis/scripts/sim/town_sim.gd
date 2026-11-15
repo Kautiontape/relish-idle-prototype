@@ -803,11 +803,18 @@ func steady_kept(relish_home: bool) -> Dictionary:
 ## The convoy. A leg takes distance / (job.haul.speed · stables) seconds. It leaves when haulers
 ## are staffed, the store is under the cap and there is a target (auto: the fort with the most
 ## dead above job.haul.auto_min_dead). The crew is fixed at departure. At arrival it picks up
-## carry · crew (× flip.haul_mult at a held fort), clamped to the fort's dead left in the snapshot
-## and to the store's headroom; on the way back the load lands (step() nets it into the store).
+## carry · crew (× flip.haul_mult at a held fort), clamped to the fort's dead and to the store's
+## headroom; on the way back the load lands (step() nets it into the store).
 ## The store's level at a leg's moment is projected from `b0`: `net` mass/s (rot return less what
-## the pits and mills want) and each landed load, held within [0, cap]. Pickups read the forts'
-## dead as the snapshot had them, so a long step's later legs see no corpses made inside it.
+## the pits and mills want) and each landed load, held within [0, cap].
+## The forts' dead are read at each leg's own moment s into the step (E2b-2 T3.3a), for the pick and
+## the pickup: RealmSim.dead_at(dead, dead_rate, s) from the snapshot's `dead` and `dead_rate` (a
+## snapshot without `dead_rate` reads 0: its dead as they stand), less what this step's legs took
+## there. A pickup is also held to the snapshot's dead less those legs: GameState takes it off the
+## fort before the realm step, which owns the corpses made inside it, so a long step's later legs
+## can't take those (MECHANICS §4.2: a lag of up to a step where corpses grow inside it). Before, both
+## read the snapshot: at 10 s from midgame_2flips the convoy found the corpses Relish's raises at
+## Greywall would have taken inside the step (at 9b5fc99, 115.7 mass over 12 h against 0.001 at 0.5 s).
 ## Returns the mass landed.
 func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
@@ -831,7 +838,7 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		if convoys.is_empty():
 			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) >= cap - EPS or speed <= 0.0:
 				break
-			var fid := _haul_pick(forts, target, taken)
+			var fid := _haul_pick(forts, target, taken, dt - left)
 			if fid == "":
 				break
 			var trip := maxf(MIN_TRIP_S, cov.distance_to(_xy(by_id[fid].get("pos", [0.0, 0.0]))) / speed)
@@ -846,7 +853,9 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		left -= need
 		if c["phase"] == "out":
 			var f: Dictionary = by_id.get(c["fort"], {})
-			var avail := maxf(0.0, float(f.get("dead", 0.0)) - float(taken.get(c["fort"], 0.0)))
+			var d0 := maxf(0.0, float(f.get("dead", 0.0)))
+			var now := RealmSim.dead_at(d0, float(f.get("dead_rate", 0.0)), dt - left)
+			var avail := maxf(0.0, minf(now, d0) - float(taken.get(c["fort"], 0.0)))
 			var mult := _haul_mult if bool(f.get("held", false)) else 1.0
 			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, hi)
 			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - level))
@@ -870,7 +879,10 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 	return delivered
 
 
-func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
+## The convoy's target at a departure `at` seconds into the step: the set one, or (auto) the fort with
+## the most dead then (RealmSim.dead_at, less what this step's legs took there) above
+## job.haul.auto_min_dead; ties go to the first in order.
+func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> String:
 	if target != "auto":
 		for f in forts:
 			if str(f.get("id", "")) == target:
@@ -880,7 +892,7 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary) -> String:
 	var most := _auto_min
 	for f in forts:
 		var id := str(f.get("id", ""))
-		var dead := float(f.get("dead", 0.0)) - float(taken.get(id, 0.0))
+		var dead := RealmSim.dead_at(float(f.get("dead", 0.0)), float(f.get("dead_rate", 0.0)), at) - float(taken.get(id, 0.0))
 		if dead > most:
 			most = dead
 			best = id

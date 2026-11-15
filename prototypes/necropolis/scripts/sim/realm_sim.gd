@@ -1463,6 +1463,43 @@ func _tithe_target() -> String:
 	return str(best.get("id", ""))
 
 
+## ---- The convoy's view of a fort's corpses (MECHANICS §4.2; E2b-2 T3.3a): pure on the state, read
+## by TownSim's convoy through GameState's fort snapshot ------------------------------------------
+
+## The net rate (mass/s) of a fort's corpses over the coming step while it holds any, from the state
+## before the step. TownSim's convoy runs before this step's realm step (MECHANICS §1.3), when its WAR,
+## shipping and dispatch aren't known yet, so it reads the fort as it stands: what forms, the living its
+## undead kill (k_kill · U while living are there; with none, what Vei shipped in last step, r_shipped,
+## killed as it lands, at most k_kill · U) and, at a redirect site (Relish's `redirect_fort`, a live
+## simulacrum's fort), what the garrison destroys there (k_destroy · L / q; with U at 0, at most the WAR
+## and raises arriving, r_in and the raises); less what leaves, the clearing k_clear · L and the raises
+## wanted there (Relish's `redirect_rate`, the simulacra's rates). Every input is saved (r_shipped and
+## r_in are), so the convoy's pick is the same after a load as in the session.
+func dead_rate(f: Dictionary, redirect_fort: String, redirect_rate: float, q: float) -> float:
+	var id := str(f["id"])
+	var l0 := maxf(0.0, float(f["living"]))
+	var u0 := maxf(0.0, float(f["undead"]))
+	var keep := redirect_fort != "" and id == redirect_fort
+	var raise := maxf(0.0, redirect_rate) if keep else 0.0
+	for sm in simulacra:
+		if str(sm["fort_id"]) == id and float(sm["charges"]) > 0.0:
+			keep = true
+			raise += maxf(0.0, float(sm["rate"]))
+	var kills := _k_kill * u0 if l0 > 0.0 else minf(_k_kill * u0, maxf(0.0, float(f["r_shipped"])))
+	var kept := 0.0
+	if keep:
+		var pull := _k_destroy / maxf(1.0, q) * l0
+		kept = pull if u0 > 0.0 else minf(pull, maxf(0.0, float(f["r_in"])) + raise)
+	return kills + kept - _k_clear * l0 - raise
+
+
+## A fort's corpses `s` seconds into the coming step, from `dead` at its start and dead_rate()'s `rate`:
+## the rate holds while it has any, and at 0 what forms is cleared or raised as it forms, so they stay
+## at 0 while the rate is < 0. Pure.
+static func dead_at(dead: float, rate: float, s: float) -> float:
+	return maxf(0.0, maxf(0.0, dead) + rate * maxf(0.0, s))
+
+
 ## ---- The held forts' readouts (MECHANICS §3.5): pure on the state, read by view_fort and
 ## view_projection --------------------------------------------------------------------------------
 

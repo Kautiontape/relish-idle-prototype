@@ -427,11 +427,11 @@ garrison's pull meets or exceeds U's inflow, so U sits at 0 (its path's `t_undea
   for 101.8 to 116.1 s of the 120 s `break_s` at 0.5 s, so its margin is 3.9 s. At
   10 s the per-wave figure was up to 5 s off 0.5 s's, either way (106.4 s against 101.6 s at the
   first wave), one wave crossed 120 s and the fort fell at 15 537 s; at 0.5 s it stood at 12 h. Now the first ten waves at 10 s pin it for 102.08, 106.76,
-  111.32, 111.57, 111.76, 111.94, 112.11, 112.27, 112.41 and 112.55 s (at 0.5 s 101.76, 106.83,
+  111.32, 111.57, 111.76, 111.94, 112.11, 112.26, 112.41 and 112.55 s (at 0.5 s 101.76, 106.83,
   111.34, 111.55, 111.70, 111.85, 111.99, 112.12, 112.24 and 112.35 s), its longest 116.8 s (116.1),
   and it holds all 178 waves at both. What is left is when U reaches 0 inside the wave (its step's
-  mean pull, as before) and the waves' own times, which differ by up to 1.2 s with the odds that
-  schedule them.
+  mean pull, as before) and the waves' own times: at 10 s they start 0.6 s late at the first and
+  1.3 s by the tenth (each period reads the odds when it is scheduled).
 - The drain alone never takes U exactly to 0, so a
 held fort with no WAR keeps a dwindling garrison until her reship lands; from then her living's pull
 pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming falls exactly
@@ -749,11 +749,10 @@ mass; bodies, rot return, WORK and muster are mass.
   exceeds the pits' want. So burned = want_pit/s · (dt − τ) + min(want_pit/s, rot/s) · τ and the
   mills the rest of out; with the store empty all step that is min(want_pit, in), the surplus to
   the mills. The two are netted before the cap clips, and
-  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`; a known edge, T3.3a's: from over the cap with the draw outrunning the inflow, a long step books no overflow where shorter steps book the inflow until the store reaches the cap, which the gold and bone stores solve exactly, §4.3), split between `rot_overflow` and `haul_overflow` by
+  only what is left above the cap overflows (a store already over the cap, after a demolition, keeps its excess and the pits draw it down; only what comes in is clipped, to `max(cap, B0 − out)`; a known edge: from over the cap with the draw outrunning the inflow, a long step books no overflow where shorter steps book the inflow until the store reaches the cap, which the gold and bone stores solve exactly, §4.3. E2b-2 T3.3a left it: no step of midgame_2flips, pre_vei or fresh over 12 h, at 0.5 s or 10 s, starts with the body store above its cap), split between `rot_overflow` and `haul_overflow` by
   their shares of the inflow. A long step near the cap books no phantom overflow. A convoy's
   departure and pickup see the store's projected level at that moment (rot in, pits and mills out,
-  loads landed). Pickups still read the forts' corpses from the snapshot taken before the step, so
-  a long step's later legs don't see corpses made inside it (a known gap at long steps).
+  loads landed), and the forts' corpses at that moment too (§4.2, E2b-2 T3.3a).
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count. That figure ignores the idle cap; `steady_kept` is where the workforce actually settles with it (STATE-API §5.9).
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
@@ -780,7 +779,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead`; otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -806,6 +805,44 @@ mass; bodies, rot return, WORK and muster are mass.
     almost nothing (100 bodies milled in 12 h instead of 5 117; bone +50 instead of +2 558).
     pre_vei is short in 57.5% of the steps: its mean mint is 25.92 against 25.90 mass/s, its mills
     1 656 bodies against 1 837. fresh is never short.
+- **The convoy reads the forts' corpses at its own moment** (E2b-2 T3.3a, as the run's manager
+  ruled). TownSim runs before the realm step (§1.3), and its convoy used to read each fort's corpses
+  from the snapshot taken before the step; GameState takes the pickups off them before the realm
+  step. A long step's legs then found corpses the step itself would have raised or cleared. From
+  midgame_2flips, whose convoy is fixed on Greywall, Relish raises the corpses there as they form
+  (4 mass/s against about 1.2 formed). A 10 s step's solve leaves about 0.047 (its raise is bounded
+  by the corpses its last pass saw), and the convoy hauled that: at `9b5fc99` 115.7 mass over 12 h
+  at 10 s against 0.001 at 0.5 s (167 against 0.06 at `40d62c0`), and 2.68 against 0.001 once the
+  zero clock kept Ashgate held, all of it in the first 800 s. Now 0 at both.
+  - **The projection.** Each fort in TownSim's snapshot carries `dead_rate` (`RealmSim.dead_rate`): the
+    net rate of its corpses while it holds any, from the state before the step. What forms: the kills,
+    `k_kill · U` while living stand there, else what Vei shipped in last step (`r_shipped`, killed as
+    it lands) up to `k_kill · U`; and at a redirect site (Relish's fort, a live simulacrum's) what the
+    garrison destroys there, `k_destroy · L / q`, with U at 0 at most the WAR and raises arriving
+    (`r_in`). Less what leaves: the clearing `k_clear · L` and the raises wanted there.
+    `RealmSim.dead_at(dead, rate, s) = max(0, dead + rate · s)`: at 0, what forms is raised or
+    cleared as it forms. The pick (auto: the most corpses at departure) and the pickup (at arrival)
+    read it at the leg's moment, less this step's earlier pickups there.
+  - **What it costs in exactness.** When TownSim runs, this step's WAR (which includes TownSim's own
+    muster), shipping and dispatch aren't known. So it reads the fort as it stands at the step's
+    start: its pools, last step's `r_shipped` and `r_in` (where no living stand, the kills are one
+    step stale), and Relish's redirect as she stands before this step's travel. It is exact while
+    the step's rates hold those values.
+  - **After a load.** Every input is saved (the pools, `r_shipped`, `r_in`, Relish, the simulacra,
+    q's inputs), so after a load the convoy sees what the session saw, within the save's 15-digit
+    rounding (`test_step_accuracy`). A session-only rate such as `r_kills` would read 0 for a step
+    after every load, and the pick could differ.
+  - **The hold, and its gap.** A pickup is also held to what the fort held at the step's start, less
+    this step's earlier pickups there. GameState takes it off the fort before the realm step, which
+    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). Where the corpses
+    grow inside the step, a long step's legs can't take those made inside it, and they wait for the
+    next step's legs. That happens at forts with no living where Vei's shipping dies as it lands:
+    pre_vei's six corpse forts, 1.88 mass/s between them. At 10 s pre_vei's convoy runs 10 to 15 mass
+    behind 0.5 s's from the first minute (9.5 at 60 s, 12.9 at 600 s), and its forts hold that much
+    more. The bone its mill makes over the cap, `ledger().stores.bone.overflow`, is 1.14% behind at
+    600 s, falling to 0.04% by 12 h. Applying the pickups after the realm step, without the hold,
+    measured 0.22% (an experiment only). Taking them needs either the realm step delivering an owed
+    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt

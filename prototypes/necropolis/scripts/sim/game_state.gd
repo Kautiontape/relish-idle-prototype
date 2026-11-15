@@ -1442,11 +1442,16 @@ func _mint(pits: int, feed: float) -> float:
 
 
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
-## snapshot of the forts before this step's realm step, Covington, the haul target, the relics.
+## snapshot of the forts before this step's realm step, Covington, the haul target, the relics. Each
+## fort's `dead_rate` is RealmSim's projection of its corpses over the step (RealmSim.dead_rate, with
+## Relish's redirect as she stands now), so the convoy reads them at its own moment (E2b-2 T3.3a).
 func _town_inputs(work_mass: float) -> Dictionary:
 	var forts: Array = []
+	var fx := _relish_effects()
+	var q := digest_q()
 	for f in realm.forts:
-		forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f)})
+		forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f),
+			"dead_rate": realm.dead_rate(f, fx["redirect_fort"], _raise_rate, q)})
 	return {
 		"work_mass": work_mass, "relish_home": relish["state"] == "home", "held_villages": green_towns,
 		"forts": forts, "cov_pos": _xy(realm.cov_pos), "haul_target": haul_target, "relics_available": relics,
