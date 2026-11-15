@@ -630,13 +630,15 @@ func _save() -> void:
 ## (STATE-API §5.9, MECHANICS §4.4) is 0.0 when an entry is affordable now, the seconds until it is at today's net
 ## rates, or −1.0 when it never is; cmd_queue_build returns the new entry's.
 
-## day1's first overnight (re-checked at b500b73): a House, a Well, a Bakery, then a Bone Mill. The House and the
-## Well are affordable now (0.0, next), the Bakery waits on gold at the day's +0.21/s, and the Mill's 20 bone is
-## the last of day1's 30 once the three have theirs: bone comes only from a Bone Mill, so its net is 0 and the Mill
-## is −1.0 from the moment it is queued (cmd_queue_build's extra, the review's "warn at queue time"). Once the other
-## three start it is the head, waiting on bone, still −1.0: the deadlock, named.
+## day1's first overnight (F1: the Bone Mill's level 1 is priced in gold only, 60 gold, BALANCE §7): a House, a
+## Well, a Bakery, then a Bone Mill. The House and the Well are affordable now (0.0, next), the Bakery waits on gold
+## at the day's +0.21/s, and the Mill waits behind it on gold too, (50 + 60 − stock) / net: it costs no bone, so
+## the three's 10 bone each leave it nothing to wait on there. At 20 bone it was the last of day1's 30 and only a
+## mill makes bone: −1.0 for ever, R2's deadlock (tests/test_day1_queues.gd runs both queues 8 h). With the gold
+## granted all four start in one step. And a store short at a net of 0 still reads −1.0 (cmd_queue_build's
+## extra too, the review's "warn at queue time"): day1 with its bone spent and no mill, a House.
 func _afford_deadlock() -> void:
-	t.suite("build_queue-afford-deadlock")
+	t.suite("build_queue-afford-day1")
 	var s := _fixture("day1")
 	s.tick(s.substep_s())  # a step's rates (a fixture loads with none)
 	var net: Dictionary = s.view_rates()["rates"]
@@ -651,21 +653,29 @@ func _afford_deadlock() -> void:
 		at_queue.append(float(_q(s).back()["affordable_in_s"]))
 	var rows := _q(s)
 	var gold_left := s.town_sim.gold - 70.0  # after the House's 40 and the Well's 30
+	var g := float(net["gold"]["net"])
 	t.ok(_col(rows, "status") == ["next", "next", "waiting_funds", "queued"], "(setup) House and Well next, the Bakery waits, the Mill queued: %s" % str(_col(rows, "status")))
+	t.ok(float(rows[3]["cost"]["bone"]) == 0.0 and float(rows[3]["cost"]["gold"]) == 60.0, "the Mill's level 1 costs 60 gold and no bone: %s" % str(rows[3]["cost"]))
 	t.ok(rows[0]["affordable_in_s"] == 0.0 and rows[1]["affordable_in_s"] == 0.0, "affordable now: the House and the Well read 0.0")
-	t.ok(absf(float(rows[2]["affordable_in_s"]) - (50.0 - gold_left) / float(net["gold"]["net"])) < 1e-6,
-		"the Bakery: (50 − %.3f) / %.3f = %.3f s" % [gold_left, float(net["gold"]["net"]), float(rows[2]["affordable_in_s"])])
-	t.ok(rows[3]["affordable_in_s"] == -1.0, "the Mill can never be afforded at today's income (bone 0/s): −1.0, %s" % str(rows[3]["affordable_in_s"]))
-	t.ok(extras == at_queue and extras == _col(rows, "affordable_in_s") and extras[3] == -1.0,
+	t.ok(absf(float(rows[2]["affordable_in_s"]) - (50.0 - gold_left) / g) < 1e-6,
+		"the Bakery: (50 − %.3f) / %.3f = %.3f s" % [gold_left, g, float(rows[2]["affordable_in_s"])])
+	t.ok(absf(float(rows[3]["affordable_in_s"]) - (50.0 + 60.0 - gold_left) / g) < 1e-6,
+		"the Mill waits on gold behind it: (50 + 60 − %.3f) / %.3f = %.3f s, not −1.0" % [gold_left, g, float(rows[3]["affordable_in_s"])])
+	t.ok(extras == at_queue and extras == _col(rows, "affordable_in_s") and float(extras[3]) > 0.0,
 		"cmd_queue_build's affordable_in_s is the new entry's row, then and now: %s" % str(extras))
 	s.cmd_debug_grant({"gold": 100.0})
 	s.drain_events()
 	s.tick(s.substep_s())
 	var st := _started(s.drain_events())
-	var mill: Dictionary = _q(s)[0] if _q(s).size() == 1 else {}
-	t.ok(st.size() == 3 and s.town_sim.bone == 0.0 and mill.get("status", "") == "waiting_funds" and mill.get("reason", "") == "no_bone",
-		"(setup) the House, the Well and the Bakery start (gold granted): the Mill is the head, waiting on bone, with 0 bone left")
-	t.ok(mill.get("affordable_in_s", 0.0) == -1.0, "once the others start the Mill still reads −1.0: %s" % str(mill.get("affordable_in_s")))
+	t.ok(st.size() == 4 and _q(s).is_empty() and s.town_sim.bone == 0.0,
+		"the gold granted, all four start in one step, the Mill too, on the three's 30 bone: %s" % str(st.map(func(e): return e["building_id"])))
+	var z := _fixture("day1")
+	z.tick(z.substep_s())
+	_funds(z, z.town_sim.gold, 0.0)
+	var r := z.cmd_queue_build("house", "lot-05")
+	var h: Dictionary = _q(z)[0]
+	t.ok(h["status"] == "waiting_funds" and h["reason"] == "no_bone" and h["affordable_in_s"] == -1.0 and r["affordable_in_s"] == -1.0,
+		"day1 with no bone and no mill: a House waits on bone at 0/s, −1.0 (the view and the extra): %s %s" % [str(h["affordable_in_s"]), str(r["affordable_in_s"])])
 
 
 ## The times: a gold-short entry with gold coming in reads (cost − stock) / net, the net view_rates (and the HUD)

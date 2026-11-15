@@ -245,7 +245,10 @@ from empty.
 then `g4_overrides.py c` in `reports/town/trial-tools/`; E4 tunes the numbers). Gold / bone / relics per
 level (relics shown when above 0; level 1 is `cost`, levels 2 and up `level_costs`); upkeep in gold/s. The
 dead's buildings cost mostly bone, the Bone Mill's level 1 stays gold-priced and the Market is bought
-with bone; the job buildings and the house climb to level 8, relic-free to level 5, with relic costs
+with bone. The mill's level 1 is gold only since F1 (60 gold, no bone; the run's manager for Shawn: the data
+brought in line with this rule, not a tuning). G3's A2/B2 and G4's C ran it at 60 / 20, and at 20 bone day1's
+first queue of a House, a Well, a Bakery and the Mill deadlocked: the three take 10 bone each of day1's 30 and
+only a mill makes bone (`tests/test_day1_queues.gd`). The job buildings and the house climb to level 8, relic-free to level 5, with relic costs
 that never fall with level.
 
 | building | tier | upkeep | L1 | L2 | L3 | L4 | L5 | L6 | L7 | L8 |
@@ -257,7 +260,7 @@ that never fall with level.
 | House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 35 / 280 | 55 / 455 | 90 / 730 / 1 | 140 / 1180 / 1 | 225 / 1880 / 1 |
 | Well | Hamlet | 0.01 | 30 / 10 | 60 / 20 | 90 / 30 |  |  |  |  |  |
 | Bakery | Hamlet | 0.01 | 50 / 10 | 100 / 20 | 150 / 30 |  |  |  |  |  |
-| Bone Mill | Hamlet | 0.03 | 60 / 20 | 20 / 190 | 30 / 285 | 50 / 455 | 80 / 730 | 130 / 1170 / 1 | 210 / 1870 / 1 | 335 / 2990 / 1 |
+| Bone Mill | Hamlet | 0.03 | 60 / 0 | 20 / 190 | 30 / 285 | 50 / 455 | 80 / 730 | 130 / 1170 / 1 | 210 / 1870 / 1 | 335 / 2990 / 1 |
 | Inn | Village | 0.05 | 150 / 50 | 300 / 100 | 450 / 150 |  |  |  |  |  |
 | Forge | Village | 0.05 | 30 / 275 / 1 | 65 / 540 / 2 | 95 / 820 / 3 | 150 / 1310 / 3 | 240 / 2095 / 3 | 385 / 3350 / 4 | 615 / 5360 / 4 | 985 / 8575 / 4 |
 | Graveyard | Village | 0.05 | 20 / 200 | 45 / 390 | 65 / 590 |  |  |  |  |  |

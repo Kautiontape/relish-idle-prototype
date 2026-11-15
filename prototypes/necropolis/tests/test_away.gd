@@ -15,8 +15,8 @@ extends RefCounted
 ##   builds started with when and why, an overflow, a refill, husks, an empty queue); the stream totals are
 ##   the ledger's and the stores' changes; every number token parses under the map's two patterns; shown
 ##   and dismissing; nothing lost gives an empty losses; away_report is queued once.
-## - R2: ready names the queue's head still waiting (day1's Bone Mill after 8 h: can't be afforded, with bone's
-##   0/s; a midgame Inn: affordable in its minutes), and prompts a raid when gold and bone are full and the
+## - R2: ready names the queue's head still waiting (a House on day1 with no bone and no mill, after 8 h: can't be
+##   afforded, with bone's 0/s; a midgame Inn: affordable in its minutes), and prompts a raid when gold and bone are full and the
 ##   queue is empty (not when a store is under full_tol of its cap, nor with a gated entry queued).
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
@@ -1032,13 +1032,15 @@ static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) 
 
 
 # ------------------------------------------------- R2: the queue's head and the raid prompt ----
-## day1 a step in with the review's first-overnight queue, a House, a Well, a Bakery, then a Bone Mill (its 20
-## bone the last of day1's 30, and only a mill makes bone), saved.
+## day1 a step in with its bone spent (TownSim's stock set to 0) and no Bone Mill, a House then a Well queued: the
+## House waits on bone at 0/s and the Well behind it. (The review's first overnight, a House, a Well, a Bakery and a
+## Bone Mill, deadlocked on the Mill's 20 bone until F1 priced its level 1 in gold only; tests/test_day1_queues.gd.)
 func _deadlock_start(c: Dictionary) -> GameState:
 	var s := _mk(c)
 	s.cmd_debug_load_fixture("day1")
 	s.tick(0.5)
-	for p in [["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"], ["bone_mill", "lot-08"]]:
+	s.town_sim.bone = 0.0
+	for p in [["house", "lot-05"], ["well", "lot-06"]]:
 		t.ok(s.cmd_queue_build(p[0], p[1])["ok"], "(setup) %s queued on %s" % p)
 	s.drain_events()
 	return s
@@ -1059,23 +1061,23 @@ func _stores_start(c: Dictionary, gold: float, bone: float, queue := []) -> Game
 
 
 ## R2 (the E2b-2 vision review's item 3; IDLE §7, STATE-API §5.19): the review's "come back and nothing happened"
-## night. day1's House, Well, Bakery and Bone Mill, loaded 8 h on: the three started (the Bakery once the gold came
-## in) and the Mill, the head now, can never be afforded at today's income, so `ready` says so with bone's net rate
-## and what raises it: "Bone Mill can't be afforded at today's income of 0/s bone: move it down, or build a Bone
-## Mill" (kind queue, target queue), the queue's own −1.0 and the net view_rates shows. No "Queue empty".
+## night. day1 with no bone and no mill, a House and a Well behind it, loaded 8 h on: nothing started, and the House,
+## the head, can never be afforded at today's income, so `ready` says so with bone's net rate and what raises it:
+## "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill" (kind queue, target
+## queue), the queue's own −1.0 and the net view_rates shows. No "Queue empty".
 func _report_deadlock(c: Dictionary) -> GameState:
 	var n := _away(c, _deadlock_start(c), "deadlock", 28800)
 	var rep := n.view_away()
 	var rows: Array = n.view_town()["queue"]
 	var words: Array = rep["gains"].filter(func(l): return l["kind"] == "build" and str(l["text"]).contains(" started ")).map(func(l): return l["text"])
-	t.ok(rows.size() == 1 and rows[0]["building_id"] == "bone_mill" and rows[0]["status"] == "waiting_funds" and rows[0]["affordable_in_s"] == -1.0
-		and words.size() == 3, "(setup) 8 h on, the House, the Well and the Bakery started, the Mill waits at −1.0: %s" % str(words))
+	t.ok(rows.size() == 2 and rows[0]["building_id"] == "house" and rows[0]["status"] == "waiting_funds" and rows[0]["reason"] == "no_bone"
+		and rows[0]["affordable_in_s"] == -1.0 and words.is_empty(), "(setup) 8 h on, nothing started: the House waits on bone at −1.0, the Well behind it: %s" % str(words))
 	var net := float(n.view_rates()["rates"]["bone"]["net"])
-	var want := "Bone Mill can't be afforded at today's income of %s bone: move it down, or build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
+	var want := "House can't be afforded at today's income of %s bone: move it down, or build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
 	var l := _find(rep, "ready", "queue")
 	print("  [away] the deadlocked night's ready: %s" % JSON.stringify(rep["ready"]))
 	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and _find(rep, "ready", "queue", "Queue empty").is_empty(),
-		"ready: the Mill can't be afforded, with bone's net (0/s) and what raises it: %s" % str(l))
+		"ready: the House can't be afforded, with bone's net (0/s) and what raises it: %s" % str(l))
 	return n
 
 

@@ -771,8 +771,10 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
 Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1, affordable_in_s: 0.0}
 Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: true, reason: "", index: 1, ...}
 Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1, affordable_in_s: -1.0}
-# day1 a step in, a House, a Well and a Bakery queued: its Bone Mill needs the last of the 30 bone, and only a mill makes bone
-Game.state.cmd_queue_build("bone_mill", "lot-08")  # -> {ok: true, reason: "", index: 3, ..., affordable_in_s: -1.0}
+# day1 a step in, a House, a Well and a Bakery queued: its Bone Mill (60 gold, no bone) waits on gold behind the Bakery
+Game.state.cmd_queue_build("bone_mill", "lot-08")  # -> {ok: true, reason: "", index: 3, ..., affordable_in_s: 475.7}
+# day1 with its bone spent and no mill: only a mill makes bone, so a House can't be afforded at today's income
+Game.state.cmd_queue_build("house", "lot-05")      # -> {ok: true, reason: "", index: 0, ..., affordable_in_s: -1.0}
 ```
 
 **`cmd_unqueue(index: int)` · E2b-2 (v6, #3)**
@@ -2022,8 +2024,8 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 # it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd), and, with its bone
 # over its cap as midgame_2flips' is, ready adds "Your stores are full and the queue is empty: raid a fort for
 # relics" (raid, "") after "Queue empty" (R2)
-Game.state.view_away()  # day1 with a House, a Well, a Bakery and a Bone Mill queued, loaded 8 h on (R2)
-# -> {..., ready: [{text: "Bone Mill can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill",
+Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)
+# -> {..., ready: [{text: "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill",
 #                   kind: "queue", target: "queue"}], ...}
 ```
 

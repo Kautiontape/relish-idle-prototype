@@ -103,15 +103,15 @@ func _queue_extra_catching_up() -> void:
 
 ## The away report's R2 lines keep view_away's line contract with kinds and targets it already had: the queue's head
 ## still waiting (kind "queue", target "queue") and the raid prompt (kind "raid", target "": a raid with no fort).
-## day1 with its Bone Mill the head at −1.0 (the House, the Well and the Bakery started on granted gold), and day1
-## with gold and bone at their caps and nothing queued, each saved and loaded 1 min on.
+## day1 with no bone and no mill, a House the head at −1.0 (F1: day1's own Bone Mill no longer waits at −1.0, its
+## level 1 costs no bone), and day1 with gold and bone at their caps and nothing queued, each saved and loaded 1 min
+## on.
 func _away_lines() -> void:
 	DirAccess.make_dir_recursive_absolute(_dir)
 	var m := _fixture("day1")
 	m.tick(m.substep_s())
-	for p in [["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"], ["bone_mill", "lot-08"]]:
-		m.cmd_queue_build(p[0], p[1])
-	m.cmd_debug_grant({"gold": 100.0})
+	m.town_sim.bone = 0.0
+	m.cmd_queue_build("house", "lot-05")
 	m.tick(m.substep_s())
 	var f := _fixture("day1")
 	f.tick(f.substep_s())

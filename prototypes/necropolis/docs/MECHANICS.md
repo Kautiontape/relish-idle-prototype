@@ -1199,12 +1199,15 @@ processing does.
     output isn't modelled: E4-3 decides what a build that would run a deficit does), and gates met later (a
     construction under way on the lot) aren't either. `cmd_queue_build` returns the new entry's, the warning
     at queue time. The away report names a head still waiting when you come back (IDLE §7).
-  - **day1's first overnight** (the review's case, re-checked at T7's config C and R1's shed order): a
-    House, a Well, a Bakery, then a Bone Mill. The House and the Well start at once, the Bakery 190 s later
-    on gold (+0.21/s), and that spends day1's last bone: the mill's 20 bone can only come from a Bone Mill,
-    so bone's net is 0 and the Mill reads `-1.0` from the moment it is queued. The review found it on gold
-    (upkeep matching income at 4 gold); at T7 the gold keeps coming (+0.18/s at 4 h) and the deadlock is the
-    bone.
+  - **day1's first overnight** (the review's case): a House, a Well, a Bakery, then a Bone Mill. The House
+    and the Well start at once, the Bakery on gold (+0.21/s) and the Mill behind it on gold too: queued, they
+    read 0, 0, 190 and 476 s. Until F1 the Mill's level 1 cost 20 bone, the last of day1's 30 once the other
+    three had theirs, and only a mill makes bone, so bone's net was 0 and the Mill read `-1.0` from the moment
+    it was queued: a deadlock (the review found it on gold, upkeep matching income at 4 gold; at T7 it was the
+    bone). Its level 1 is gold only since F1 (BALANCE §7's rule), and `tests/test_day1_queues.gd` runs that
+    queue and town's trial order (Bone Mill, House, House, Well, Well, Bakery, Well, Well) 8 h through a load:
+    every entry starts, the first at 7 s, 7, 207 and 538 s (the Mill later than its 476 s since the three
+    ahead add upkeep the time holds fixed) and the second by 26 min.
   - **cost:** `view_town` runs the walk on every call (Covington fetches it on each rev change). The times
     add 20 to 45 µs a call with a full queue of 8 (day1 +20, midgame_2flips +44, pre_vei +39, the medians
     of five 400-call runs on a loaded machine; the walk alone 79 → 101, 98 → 127, 105 → 138 µs), under
