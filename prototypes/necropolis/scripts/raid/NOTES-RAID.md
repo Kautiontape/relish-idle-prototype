@@ -1014,7 +1014,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - Seeds 1-5 alone gave 5/45: the curve's seeds ran low.
 - **Risk:**
   - Two tiers up (the t2 party at the t4 forts, 42): 28 died, 10 retreated.
-  - P1: 0/60. t1: 8/42, all at greywall (8/14, all by the living; base had 3/18 there).
+  - P1: 0/60. t1: 8/42, all at greywall (8/14, all by the living). Base had 3/18 across the three t1 forts, 2/6 of them at greywall.
   - Scores 50/70/90 (t2-t4, seeds 1-4): 16/36, 4/36, 2/36.
   - Dodge context (answer x0.6, 27 runs): 10/27 against 3/27 at x1.0.
 - **Causes, the 28 deaths at tier:** lunge 9, fire 5, rush 5, toll 5, slam 3, living 1. 27 had a missed tell that struck.
@@ -1023,8 +1023,8 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - All seeds: t2 112, t3 130, t4 120, so the human estimate is 2.2-3.4 min (P1 1.9-2.7, t1 2.0-2.9). That is under 3-6 min.
   - Idle is at most 1.6% at every tier.
 - **Reach on missed, uncountered tells at tier** (target 25-50%): Bellringer 24% (22/90; tolls struck 17 of 19 missed unmuffled), Shieldwall 17% (21/123), Huntsman 62% (42/68), Pyre-priest 70% (54/77). untold_blows: 0.
-- **Four answered tells struck in Part 2.** The gates (r3, r4) saw none. These are found, not fixed, since a fix changes the sim:
+- **Four answered tells struck in Part 2** (4 rows, 3 cases; 1 at tier). The gates (r3, r4) saw none. These are found, not fixed, since a fix changes the sim:
   - vespers s11, at tier and the same run in its no-beef arm: she answered the first slam outside the warden room, and the walk in (`why=warden`) took her into the live ring. The Bellringer's answer runs only in its room.
   - pale-bastion s1, no wits: the aimed rush was answered, but she switched between goals for 0.8 s before stepping out.
-  - hollow-redoubt s18, no speed: the lunge was answered and she stood at her sidestep point, but it caught her anyway (the cause is not yet traced).
+  - hollow-redoubt s18, no speed: game-side. The lock point (1505, 697) lay past the room edge the Huntsman is leashed to, so the dash ran to the clamped point (1505, 669), along the room edge, not along the drawn line. Her sidestep, perpendicular to the drawn line, stood 29 px from the dash's end (catch reach 35). The drawn tell and the lunge's path disagree whenever the lock point is clamped.
 - **Vei:** identical to boss-before at the final head, so V1/V2 were not re-run.
