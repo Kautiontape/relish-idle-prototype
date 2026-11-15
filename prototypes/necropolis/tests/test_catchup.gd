@@ -17,6 +17,9 @@ extends RefCounted
 ##   above idle.gap_s of real time through catch-up (the same state as that time caught up on load), keeps a
 ##   20 s frame live and debug fast-forward live; a gap under idle.report_min_s queues its events (a retake
 ##   inside a 300 s gap reaches the queue), a longer one collects them; paused time is no time off.
+## - Accuracy (IDLE §4): 2 h caught up against 2 h live at 0.5 s from midgame_2flips, within
+##   idle.catchup_tol; a threshold-free start matches to 1e-9; I1, a scripted session left 30 min, closed
+##   against open through the frame path; the same save and time away give the same to_dict() twice.
 ## Saves go under user://test_catchup_<pid>, removed at the end. The field is shrunk (8 × 6) and its
 ## pre-warm off, as tests/slow/convergence.gd's harness does, so the runs are cheap; the field step wiring
 ## is the same at any size.
@@ -46,6 +49,10 @@ func run() -> int:
 	_gap_frame()
 	_live_frames()
 	_gap_events()
+	_accuracy_2h()
+	_threshold_free()
+	_i1()
+	_determinism()
 	_cleanup()
 	return t.failures
 
@@ -642,6 +649,257 @@ func _gap_events() -> void:
 		else:
 			t.ok(rt_q.is_empty() and rt_c.size() == 1 and n.catchup_events().size() > 1,
 				"a %.0f s gap: its %d events are collected for the report (the retake among them), none queued (%d)" % [gap, n.catchup_events().size(), q.size()])
+
+
+# ---------------------------------------------------------------------- accuracy and I1 ----
+## IDLE §4's accuracy test, one start: a catch-up of `seconds` (a load with the clock that far on)
+## against a live 0.5 s run of the same seconds with no input (tick, the presentation step included),
+## both from the same save. Returns {ok, lines, ledger: [catch-up, live], stocks: {id: rel}, rates: {id:
+## rel}, held: [catch-up, live], town_same, outcomes: [the lists that differ]}. Shared with the slow
+## suite (12 h) and the I1 helper.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> Dictionary:
+	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
+	DirAccess.make_dir_recursive_absolute(dir)
+	var src := GameState.new(c)
+	src.debug_enabled = true
+	src.from_dict(JSON.parse_string(js))
+	src.save_dir = dir
+	src.clock_override = CLOCK
+	src.cmd_save("acc")
+	var cu := GameState.new(c)
+	cu.debug_enabled = true
+	cu.save_dir = dir
+	cu.clock_override = CLOCK + int(seconds)
+	cu.cmd_load("acc")
+	var live := GameState.new(c)
+	live.debug_enabled = true
+	live.save_dir = dir
+	live.clock_override = CLOCK
+	live.cmd_load("acc")
+	live.drain_events()
+	live.tick(seconds)
+	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol)
+	DirAccess.remove_absolute(dir + "/acc.json")
+	DirAccess.remove_absolute(dir)
+	return out
+
+
+## Two runs of the same span compared (accuracy(), the I1 helper): the ledger in each, Vei's and
+## Covington's stocks (convergence.gd's KEY, each against max(|live|, its floor): 1% of the live value's
+## scale, the body cap for bodies, Vei's pool cap for her pool), the key rates (the mint and its split,
+## TownSim's worker inflow and the gold, bone and living nets, Vei's sustained differential: each against
+## max(|live|, 1% of the mint)), the held forts (±1), Covington's buildings (id, level, state per lot) and
+## the outcomes in order (convergence.gd's outcome lists).
+static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float) -> Dictionary:
+	var conv = load("res://tests/slow/convergence.gd")
+	var sa: Dictionary = conv.sample(a)
+	var sb: Dictionary = conv.sample(b)
+	var stocks := {}
+	var worst := 0.0
+	for m in conv.KEY:
+		var fl := maxf(1.0, 0.01 * absf(float(sb[m])))
+		if m == "vei_pool":
+			fl = float(b._pool_cap())
+		var e := absf(float(sa[m]) - float(sb[m])) / maxf(absf(float(sb[m])), fl)
+		stocks[m] = e
+		worst = maxf(worst, e)
+	var ra := _rates(a)
+	var rb := _rates(b)
+	var rates := {}
+	var rfl := 0.01 * maxf(1.0, float(rb["mint"]))
+	for k in rb:
+		var e := absf(float(ra[k]) - float(rb[k])) / maxf(absf(float(rb[k])), rfl)
+		rates[k] = e
+		worst = maxf(worst, e)
+	var held := [0, 0]
+	for i in 2:
+		for f in [a, b][i].realm.forts:
+			if RealmSim.is_held(f):
+				held[i] += 1
+	var town_same := _town_of(a) == _town_of(b)
+	var oa: Dictionary = conv._outcome()
+	var ob: Dictionary = conv._outcome()
+	conv._note(a_evs, oa, 0.0)
+	conv._note(b_evs, ob, 0.0)
+	for pair in [[a, oa], [b, ob]]:
+		for f in pair[0].realm.forts:
+			if RealmSim.is_held(f):
+				pair[1]["held"].append(str(f["id"]))
+			if float(f["living"]) > 1.0:
+				pair[1]["garrisoned"].append(str(f["id"]))
+		pair[1]["tier"] = pair[0].town_tier
+	var differ: Array = conv.outcomes_differ(oa, ob)
+	var la := GameState.Ledger.error(a.ledger())
+	var lb := GameState.Ledger.error(b.ledger())
+	var ok := worst <= tol and absi(held[0] - held[1]) <= 1 and town_same and differ.is_empty() and la < 1e-9 and lb < 1e-9
+	var parts: Array = []
+	for m in stocks:
+		parts.append("%s %s" % [conv.SHORT[m], conv._pct(float(stocks[m]))])
+	var rparts: Array = []
+	for k in rates:
+		rparts.append("%s %s" % [k, conv._pct(float(rates[k]))])
+	var lines := "stocks: %s; rates: %s; held %d vs %d; Covington %s; outcomes %s (%d waves, %d builds, %d retakes); ledger %s, %s" % [
+		", ".join(PackedStringArray(parts)), ", ".join(PackedStringArray(rparts)), held[0], held[1],
+		"identical" if town_same else "differs", "equal" if differ.is_empty() else "differ: " + ", ".join(PackedStringArray(differ)),
+		(ob["waves"] as Array).size(), (ob["builds"] as Array).size(), (ob["retaken"] as Array).size(),
+		String.num_scientific(la), String.num_scientific(lb)]
+	return {"ok": ok, "lines": lines, "worst": worst, "stocks": stocks, "rates": rates, "held": held, "town_same": town_same,
+		"outcomes": differ}
+
+
+static func _rates(s: GameState) -> Dictionary:
+	var r: Dictionary = s.town_sim.rates
+	return {"mint": float(s._split["mint"]), "war": float(s._split["war"]), "flood": float(s._split["flood"]),
+		"worker_in": float(r["workers"]["in"]) * s.worker_mass(),
+		"gold_net": float(r["gold"]["in"]) - float(r["gold"]["out"]), "bone_net": float(r["bone"]["in"]) - float(r["bone"]["out"]),
+		"living_net": float(r["living"]["in"]) - float(r["living"]["out"]), "diff_ema": float(s._readout["diff_ema"])}
+
+
+static func _town_of(s: GameState) -> Dictionary:
+	var out := {}
+	for lot in s.town_sim.buildings:
+		var b: Dictionary = s.town_sim.buildings[lot]
+		out[lot] = [str(b["building_id"]), int(b["level"]), str(b["state"])]
+	return out
+
+
+## A catch-up of 2 h against a live 0.5 s run of it, from midgame_2flips (held forts, its waves and a
+## retake in the window), at the shrunk field: about 8 s, most of it the live run's 14 400 substeps. The
+## other starts are the slow suite's (tests/slow/catchup_accuracy.gd, 12 h): fresh needs 10 min of live
+## play on the shipped field to build (another 12 s here), and pre_vei's gold reaches its floor about
+## 2.14 h in, a threshold in reach of this window (T3.3a's attribution).
+func _accuracy_2h() -> void:
+	var c := cfgs()
+	var conv = load("res://tests/slow/convergence.gd").new()
+	var tol := float(c["economy"]["idle"]["catchup_tol"])
+	for st in ["midgame_2flips"]:
+		var js: String = conv.start_json(st)
+		var r := accuracy(c, js, 7200.0, tol)
+		print("  [catchup] %s, 2 h caught up vs live: %s" % [st, r["lines"]])
+		t.ok(r["ok"], "%s: 2 h caught up against 2 h live at 0.5 s: within %s, held forts ±1, Covington identical, the same outcomes, both ledgers balanced: %s" % [
+			st, conv._pct(tol), r["lines"]])
+
+
+## A threshold-free start, where every step is in one smooth regime, so a catch-up's 10 s step equals
+## twenty 0.5 s substeps: a new game with no workers (no staffing, no jobs, no rot, no convoy), the valve
+## all FLOOD (no WAR: no fort fights), Vei's pool at its cap (she converts nothing, so her queue only
+## grows), the living at their housing cap and gold well above upkeep and under its cap. The backlog grows
+## by FLOOD, gold falls by the upkeep, the differential's EMA relaxes exactly, the field settles the same
+## sources; no stock meets a floor or cap and no event happens. Caught up at 10 s steps against live:
+## every number in to_dict() within 1e-9 relative, the village owners aside. Those are the field's
+## (the presentation step's, MECHANICS §1.3), and catch-up's field steps don't replay the live field's
+## cadence (live it ticks at most field.max_ticks_per_step a substep, so it runs behind 5 Hz); here they
+## decide nothing (the living sit at their cap, so migrants change nothing). They are counted, not judged.
+## 30 min (180 steps of 10 s against 3 600 substeps), for the default suite's time.
+func _threshold_free() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 180})
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	s.cmd_set_valve(0.0, 0.0, 1.0)
+	s.valve = s.valve_target.duplicate()
+	s.town_sim.workers = 0.0
+	s.town_sim.living = s.town_sim.living_cap()
+	s.town_sim.gold = 3000.0
+	s.realm.vei["living_pool"] = s._pool_cap()
+	s.town_sim.restaff()
+	s._ledger.reset(GameState.Ledger.total(s._held()))
+	s.tick(1.0)  # its rates set
+	var js := JSON.stringify(s.to_dict())
+	var a := _mk(c)
+	a.from_dict(JSON.parse_string(js))
+	a.clock_override = CLOCK
+	a.cmd_save("free")
+	var cu := _mk(c)
+	cu.clock_override = CLOCK + 1800
+	cu.cmd_load("free")
+	var live := _mk(c)
+	live.clock_override = CLOCK
+	live.cmd_load("free")
+	live.tick(1800.0)
+	t.ok(cu._catchup.dt == 10.0, "(setup) the catch-up steps at 10 s")
+	var da := cu.to_dict()
+	var db := live.to_dict()
+	var owners := 0
+	for i in (db["villages"] as Array).size():
+		owners += int(da["villages"][i]["owner"] != db["villages"][i]["owner"])
+	da.erase("villages")
+	db.erase("villages")
+	var why: Array = []
+	_diff(da, db, 1e-9, "d", why)
+	t.ok(why.is_empty(), "a threshold-free start: 30 min caught up at 10 s equals 30 min live at 0.5 s within 1e-9 (backlog +%.1f, gold %.2f; %d of %d village owners differ, the field's)%s" % [
+		float(db["realm"]["vei"]["undead_queue"]) - float(JSON.parse_string(js)["realm"]["vei"]["undead_queue"]), float(db["town"]["gold"]),
+		owners, (live.to_dict()["villages"] as Array).size(), "" if why.is_empty() else ": " + ", ".join(PackedStringArray(why.slice(0, 8)))])
+
+
+## I1 (IDLE §2): closed equals open. A scripted session's opening commands (`script`, called on a new game
+## or a fixture), then the game left: open, ticked live through the frame path (frames of `frame_dt` s,
+## the shell's substep cap) for `seconds`; closed, saved there and loaded `seconds` later. Returns
+## compare()'s result. E3's autoplayer profiles extend this (their scripts and spans).
+static func i1(c: Dictionary, start: String, script: Callable, seconds: float, frame_dt: float, tol: float) -> Dictionary:
+	var dir := "user://test_catchup_i1_%d" % OS.get_process_id()
+	DirAccess.make_dir_recursive_absolute(dir)
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.save_dir = dir
+	if start == "new":
+		s.cmd_new_game(1)
+	else:
+		s.cmd_debug_load_fixture(start)
+	script.call(s)
+	s.clock_override = CLOCK
+	s.cmd_save("i1")
+	var closed := GameState.new(c)
+	closed.debug_enabled = true
+	closed.save_dir = dir
+	closed.clock_override = CLOCK + int(seconds)
+	closed.cmd_load("i1")
+	var open := GameState.new(c)
+	open.debug_enabled = true
+	open.save_dir = dir
+	open.clock_override = CLOCK
+	open.cmd_load("i1")
+	open.drain_events()
+	var evs: Array = []
+	var cap := open.max_substeps_per_frame()
+	var n := int(round(seconds / frame_dt))
+	for i in n:
+		open.tick(frame_dt, cap)
+		evs.append_array(open.drain_events())
+	var out := compare(closed, closed.catchup_events(), open, evs, tol)
+	out["open_t"] = open.t
+	out["closed_t"] = closed.t
+	DirAccess.remove_absolute(dir + "/i1.json")
+	DirAccess.remove_absolute(dir)
+	return out
+
+
+## I1 in the default suite: a new game; the valve to 0.5 / 0.35 / 0.15, a House built and a Well queued
+## (waiting on gold), then left 30 min; open through the frame path at 0.25 s frames against closed and
+## loaded 30 min later. A 30 min catch-up would step at the live 0.5 s (under 36 min the step is
+## sim.substep_s), so here it steps at 10 s (idle.catchup_max_steps 180), its longest; the slow suite runs
+## the shipped schedule over 12 h.
+func _i1() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 180})
+	var tol := float(c["economy"]["idle"]["catchup_tol"])
+	var script := func(s: GameState) -> void:
+		s.cmd_set_valve(0.5, 0.35, 0.15)
+		s.cmd_build("house", "lot-05")
+		s.cmd_queue_build("well", "lot-06")
+	var r := i1(c, "new", script, 1800.0, 0.25, tol)
+	print("  [catchup] I1, a new game's session left 30 min, closed vs open: %s" % r["lines"])
+	t.ok(r["ok"] and float(r["open_t"]) == float(r["closed_t"]), "I1: closed for 30 min equals open for 30 min within %.0f%%, the same outcomes: %s" % [
+		tol * 100.0, r["lines"]])
+
+
+## Determinism: the same save and time away give the identical to_dict() twice (and the same events).
+## 1 h at 10 s steps.
+func _determinism() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 360})
+	var s := _start(c, "midgame_2flips")
+	var a := _away(c, s, "det", 3600)
+	var b := _away(c, s, "det", 3600)
+	t.ok(a.to_dict() == b.to_dict() and a.catchup_events() == b.catchup_events() and a.rng.state == b.rng.state,
+		"the same save and 3600 s away: the same to_dict(), events and RNG twice")
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step (the larger of idle.catchup_dt_max_s and

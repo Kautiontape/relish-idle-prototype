@@ -413,8 +413,39 @@ takes over 1 s.
 - The ledger balances exactly. Key stocks and rates are within `idle.catchup_tol` (2%). Held forts
   are within ±1, and Covington is identical.
 
+- **Measured** (E2b-2 T3.3b; `tests/test_catchup.gd` at 2 h from midgame_2flips, about 8 s of the default
+  suite; fresh at 2 h once with the same helper; `tests/slow/catchup_accuracy.gd` at 12 h from all three; a
+  load's catch-up, the real runner, against `tick()` at 0.5 s with the presentation step, the field
+  shrunk to 8 × 6 for both). Stocks are Vei's and Covington's (`convergence.gd`'s KEY), each against
+  max(|live|, its floor); rates are the mint and its WAR and FLOOD, TownSim's worker inflow and gold, bone
+  and living nets, and Vei's sustained differential. Both ledgers balance to 2.4e-12 or better.
+  - midgame_2flips: 2 h, the backlog 0.008%, Vei's dead 0.12%, Covington's stocks under 0.0005%, the
+    rates under 0.003%, 1 held fort each, Covington identical, outcomes equal (25 waves, a retake); 12 h,
+    the backlog 0.025%, Vei's dead 0.22%, the differential 0.10%, outcomes equal (181 waves, a retake).
+  - fresh: 2 h, the backlog 0.58%, Vei's dead 0.40%, the differential 0.81%; 12 h, 0.12%, 0.08% and
+    0.21%; nothing held, Covington identical.
+  - pre_vei is left out (T3.3a's attribution): its gold reaches its floor about 2.14 h in with no input,
+    a threshold in reach of 2 h, and from there its pits burn from a store the convoy refills a load at a
+    time. At 12 h every stock is within 0.16% and every outcome and building state matches, but the mint
+    and its split read 14% apart: the mint reads the last step's feed, which a 10 s step averages over a
+    landing and a 0.5 s substep doesn't.
+  - **The threshold-free start** matches to 1e-9 relative everywhere: a new game with no workers, the
+    valve all FLOOD, Vei's pool at its cap, the living at their cap and gold well inside its range, so the
+    backlog grows by FLOOD (+13 942 in 30 min), gold falls by the upkeep, the differential's EMA relaxes
+    exactly and no stock meets a floor or cap. 30 min at 10 s steps against 30 min at 0.5 s (the default
+    suite; 1 h, +28 342, matched the same way): the whole `to_dict()` to 1e-9, the village owners aside (1 of 12 differ: the field's, which the live field ticks
+    at its capped cadence, and which decide nothing there with the living at their cap).
+
 **Also test I1 itself:** the sessions profile with the game left open and untouched must equal the
 same profile with the game closed.
+- **Measured** (E2b-2 T3.3b, `GameState`-level until E3's profiles; `tests/test_catchup.gd`'s `i1()` helper,
+  which E3 extends): a new game's opening (the valve to 0.5 / 0.35 / 0.15, a House built, a Well queued
+  on gold), then left. Open: `tick()` through the frame path at 0.25 s frames. Closed: saved, the clock
+  moved, loaded. 30 min with the catch-up at its longest step, 10 s (the default suite; at the shipped
+  schedule a 30 min catch-up steps at the live 0.5 s): the backlog 0.07%, Vei's dead 0.63%, gold 0.06%,
+  the differential 0.12%, Covington identical, outcomes equal (both builds). 1 h at the shipped 0.83 s
+  steps: 0.08%, 0.05%, 0.001% and 0.25%. 12 h (the slow suite): 0.11%, 0.10%, 0.002% and 0.22%, the
+  same.
 
 ## 5. The build queue
 - An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), up
