@@ -526,10 +526,11 @@ static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:
 	return not first and tier >= int(w.get("lever_min_tier", 2))
 
 
-## D-d/E Step 4b, the counter is the soak: a bash whose lit arc covers her strikes Relish unless a wits
-## flanker pinned it as its tell began (a pinned bash never reaches her; the chain no longer soaks it).
-static func bash_strikes_relish(in_arc: bool, pinned: bool) -> bool:
-	return in_arc and not pinned
+## D-d/E Step 4b: a bash whose lit arc covers her strikes Relish (the chain does not soak it). A wits
+## flanker's pin is the counter to the rush only: it stops the rush, and the plain bash it leaves still
+## strikes her in its arc (round 3: the manager's ruling named the pin as the rush's counter, no more).
+static func bash_strikes_relish(in_arc: bool) -> bool:
+	return in_arc
 
 
 ## A big undead takes the flank role when its wits meet the weak point's threshold.

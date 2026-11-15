@@ -290,7 +290,7 @@ func _bash(ph: Dictionary, at: Dictionary) -> void:
 	var hit_rel := false
 	var rel: RaidRelish = raid.relish
 	if rel != null and is_instance_valid(rel) and rel.alive and WardenLogic.bash_strikes_relish(
-			WardenLogic.bash_hits(facing, global_position, rel.global_position, half, reach, rel.radius), pinned_tell):
+			WardenLogic.bash_hits(facing, global_position, rel.global_position, half, reach, rel.radius)):
 		hit_rel = true
 		bash_relish += 1
 		if rushing:

@@ -889,7 +889,7 @@ func _tally_close() -> void:
 	var struck := false
 	for hb in _hit_beats:
 		struck = struck or (float(hb) >= tb - 1.5 and float(hb) < tb + 1.0)
-	var countered := _tally_pinned or _counter_count() > _tally_ctr0
+	var countered := _counter_count() > _tally_ctr0   # (a pin spares her only the rush: not counted as countered)
 	_tally["tells"] += 1
 	if _tell_ok:
 		_tally["answered"] += 1
