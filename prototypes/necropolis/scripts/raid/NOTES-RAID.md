@@ -1611,3 +1611,51 @@ The grading rows are 760; with capture and reruns 778 raid runs, plus the 2 Vei 
 ### Addendum: the stand-ins re-measure at afb8dab (iter `grade-standins`; the Part 2 method, not graded)
 - 432 runs at the clean afb8dab snapshot, score 70 unless stated, the standard party of the tier: the 9 forts at tier seeds 20-39 (score 50 and 90: seeds 20-23); t1 ashgate and old-sluice seeds 1-14 (50/90: 1-5), greywall seeds 20-39 (50/90: 20-24); the first dungeon (day1, old-sluice) seeds 1-60; the tier-2 party at the 3 t4 forts, seeds 20-33. They replace `by_tier`, `first_dungeon`, `two_tiers_above`, `acceptance_70` and `measured_at` in `reports/dungeon/standins-measured.json`. The seed 20-39 rows are not part of the seed 40-59 grade.
 - `fight_telemetry` is not re-measured; its source commit stays stated in the file.
+
+### The grading pass: results (afb8dab, seeds 40-59, run once; plan fb38ecf, addenda 8ea9e41 and d536748)
+Rows: iters `grade-*` in `reports/dungeon/calibration-dd-raw.tsv(.jsonl)`; 778 raid runs, all in lockstep (physics_frames - frames_drawn 0 or 1), no script errors, no failed runs. The door-off rows (`grade-doorb-off-*`, 120) carry label `afb8dab+door-off (raid.json held_door.tiers [2] -> [])` in the label column; the sha column is cut to `afb8dab+d`. Every other grade row is the clean afb8dab. Rates are count, Wilson 90%, then the seed-clustered interval (n / 1.5). Retreats count as neither death nor win.
+- **At tier, pooled:** frozen 27/180 = 15.0% (11-20; 10-21); typical human 38/180 = 21.1% (17-27; 16-28). D-d's 14.4% restated: 26/180, 10.7-19.3%, clustered 9.9-20.5% (seeds 20-39, a different seed set). The human's 15.0% on seeds 20-39 (hb70d10, 27/180) is below this pass's 21.1%, with overlapping clustered intervals (10-21 and 16-28).
+- **Per tier** (frozen | human): t2 9/60 = 15.0% (9-24; 8-26) | 12/60 = 20.0% (13-30; 12-32); t3 11/60 = 18.3% (12-28; 10-30) | 11/60 = 18.3%; t4 (x1.35) 7/60 = 11.7% (6-20; 6-23) | 15/60 = 25.0% (17-35; 16-38).
+- **Per archetype** (frozen | human): Bellringer 9/60 = 15.0% (9-24; 8-26) | 14/60 = 23.3% (16-33; 14-36); Huntsman 10/40 = 25.0% (16-38; 14-41) | 10/40 = 25.0%; Shieldwall 4/40 = 10.0% (5-21; 4-24) | 6/40 = 15.0% (8-26; 7-30); Pyre-priest 4/40 = 10.0% (5-21; 4-24) | 8/40 = 20.0% (12-32; 10-35).
+- **Per fort** (frozen | human, of 20): vespers 6 | 8; lantern-keep 1 | 0; chime-fort 2 | 4; hollow-redoubt 8 | 6; pale-bastion 1 | 3; mourners-gate 2 | 2; sable-hold 2 | 6; the-stair 3 | 3; whitecross 2 | 6. Hollow-redoubt's 8/20 frozen (40%, 24-58; clustered 21-62) is the highest cell and all 8 are the lunge. Reported, not tuned.
+- **Causes** (`killed_by`; the missed tell by `RaidLogic.death_tell`): frozen: toll 7 (the ring at your feet), slam 2 (the swing), lunge 9 (the line), rush 4 (the lit arc), fire 4 (the marked ground), living 1 (no tell). Typical human: toll 13, slam 1, lunge 10, rush 5, fire 7, living 4. `untold_blows` is 0 in both profiles.
+- **Answered-but-struck, per warden** (answered tells): frozen Bellringer 3 of 963, Huntsman 1 of 295, Shieldwall 1 of 418, Pyre-priest 0 of 219; human Bellringer 0 of 1,198, Huntsman 1 of 403, Shieldwall 6 of 469, Pyre-priest 0 of 225.
+  - **The Shieldwall guard, like for like** (pale-bastion and the-stair, 40 runs each pass): frozen 1 now (the-stair) against 0 on seeds 20-39 (qm); typical human 6 now (all the-stair) against 4 in hb70d10 (the 7 earlier was hb70d10 4 + hb50d10 3). Both rose, on different seeds and from a handful of events; the guard as written ("must not have risen") is not met, and it is reported, not tuned.
+- **Reach per warden** (struck / missed and uncountered; `missed_pinned` counts exact): Bellringer 28/82 = 34% frozen, 44/139 = 32% human; Huntsman 40/64 = 62%, 63/96 = 66%; Pyre-priest 42/62 = 68%, 38/60 = 63% (one definition each). Shieldwall old 24/120 = 20% frozen and 30/131 = 23% human; new (a pin is a counter) 24/29 = 83% and 30/36 = 83%, with `missed_pinned` 91 and 95 and no pinned tell struck (`missed_pinned_struck` 0).
+- **Length** (median scene s; split travel / fight / trance / idle %, pooled, each fort's > 2x outliers out):
+
+  | profile, tier | median scene s | split | notes |
+  |---|---|---|---|
+  | frozen t2 | 116.5 | 4.8 / 94.0 / 0.0 / 1.2 | 2 of 60 >= 180 s |
+  | frozen t3 | 131.5 | 9.7 / 89.4 / 0.0 / 0.8 | 7 of 60 |
+  | frozen t4 | 125.2 | 10.8 / 89.0 / 0.0 / 0.2 | 2 of 60 |
+  | human t2 | 126.5 (real 149.0, estimate 168.5) | 4.0 / 85.0 / 9.1 / 1.9 | estimate >= 180 s: 26 of 60 |
+  | human t3 | 147.8 (real 170.0, estimate 190.8) | 8.0 / 82.9 / 6.9 / 2.3 | 38 of 60 |
+  | human t4 | 129.1 (real 149.7, estimate 169.3) | 10.8 / 80.0 / 7.5 / 1.8 | 22 of 60 |
+
+  The typical human's estimate (the formula as written above): median 178.3 s over all 180 runs, 86 of 180 (48%) >= 180 s. Guards: travel 4.8 / 9.7 / 10.8% (frozen) and 4.0 / 8.0 / 10.8% (human) against 5.3 / 10.5 / 16.0: all under. Idle: frozen 1.2 / 0.8 / 0.2% against D-d's 0.3-1.3%: not above. Human idle 1.9 / 2.3 / 1.8% against hb70d10's 2.3 / 2.1 / 2.1%: t3 is 0.2 points over it, reported.
+- **t1** (20 a fort; frozen | human): greywall 0 | 3, ashgate 2 | 3, old-sluice 0 | 1; pooled 2/60 = 3.3% (1-10; 1-12) | 7/60 = 11.7% (6-20; 6-23). Medians 113.0 s frozen; human scene 115.5, estimate 160.1, real 138.5 s. Splits 3.6 / 93.8 / 0.0 / 2.6 and 3.3 / 82.7 / 10.3 / 3.7.
+  - The greywall pick targets (frozen at most 1/20; human at most 2/20 and not above ashgate and old-sluice): frozen 0/20 met; human 3/20 is over 2/20 and equal to ashgate's 3/20 (old-sluice 1/20).
+  - Every t1 death was a living-pack death (`killed_by` living) with the army at 0. Frozen: ashgate s45 at 26.9 s before the wake (army 7 five seconds before), s56 at 13.0 s in the fight (wake 6.5 s; army 8). Human: 5 of 7 in the warden fight (greywall s41, s49, s58; ashgate s53, s55), 2 before the wake (ashgate s54, old-sluice s54); army five seconds before: 3, 12, 0, 2, 10, 7, 6.
+- **P1** (day1, old-sluice): 0/20 both profiles; median scene 91.6 s frozen (split 4.0 / 94.9 / 0.0 / 1.1); human 103.4 s scene, estimate 139.3, real 122.3 s (3.1 / 79.9 / 9.7 / 7.3: idle is 7.3%).
+- **The held door.**
+  - Arm (a), the standard t2 party at 3 forts, declined 0 of 60 taken for both profiles. Frozen: 9/60 = 15.0% (9-24; 8-26), median 116.5 s, 2 of 60 >= 180 s, against task 6's no-door rows (seeds 20-39, other seeds, side by side) 6/60 = 10.0%, 117.6 s, 5 of 60. Human: 12/60 = 20.0% (13-30; 12-32), estimate median 168.5 s, 26 of 60 >= 180 s, against 9/60 = 15.0%, 168.0 s, 19. The medians match to a second; the death counts differ by 3 both ways and are not the door, as task 6's own 15.0 to 10.0% was not.
+  - Arm (b) (the t3 party at the t2 forts, door on against `afb8dab+door-off`, paired by seed over 60):
+
+  | | frozen on | frozen off | human on | human off |
+  |---|---|---|---|---|
+  | taken, cache fetched | 60/60 | | 58/60 (2 abandoned at lantern-keep s45, s47: she left first, the big rejoined) | |
+  | died (W90; clustered) | 7/60 = 11.7% (6-20; 6-23) | 3/60 = 5.0% (2-12; 2-14) | 9/60 = 15.0% (9-24; 8-26) | 2/60 = 3.3% (1-10; 1-12) |
+  | paired deaths, only with / only without | 6 / 2 | | 8 / 1 | |
+  | median s | 111.6 scene | 88.3 | 161.1 estimate (122.0 scene) | 123.8 (94.8) |
+  | >= 180 s | 3/60 | 0 | 14/60 | 3/60 |
+  | paired median delta | +31.2 s scene | | +39.0 s estimate | |
+  | travel / idle % | 5.21 / 3.50 | 6.28 / 1.86 | 5.18 / 4.35 | 5.73 / 2.97 |
+  | relics (60 runs) | 190 | 142 | 184 | 147 |
+
+  Bigs spent: p2 (beef 4) at vespers and lantern-keep, p1 (speed 4) at chime-fort, 60 a profile; frozen 53 rejoined and 7 lost, human 50 rejoined and 10 lost. The off rows' travel is above 5.3% (6.28 and 5.73), as task 6's were.
+  - **Idle, as two figures.** The doorstep wait is 0.66 s (frozen) and 0.64 s (human) a run. The rise in mean idle with the door is 2.67 s (frozen, 1.66 to 4.33 s) and 2.78 s (human, 2.87 to 5.65 s), so about 2 s a run beyond the wait is the bot's hold-while-the-army-fights rule (inferred from the difference; the branch probe of task 6 was not repeated). It is a side finding left untuned.
+- **Determinism:** 778 of 778 rows in lockstep. The 9 reruns (human, seed 41, one per at-tier fort, rep 1) are byte-identical to their rep-0 rows, 9 of 9. Task 6's identity checks stand; Vei seed 1 (`BOSS_AUTOPLAY` line, md5 e1ab8a0c...) is identical to the earlier runs' (e1ab8a0c...), and `parity_check.sh` gives 5 of 5 identical.
+- **Capture check (9 rows, frozen, seed 40, `--capture`, iter `grade-cap`):** the AUTOPILOT_RESULT is byte-identical to the no-capture `grade-tier-frozen` row, 9 of 9. Capture's tells (tolls excluded: they ride a slam's tell), struck, outcome, `killed_by` and `scene_s` equal `tell_tally`, outcome, `killed_by` and `duration_s` in 9 of 9 (capture 154 tells with 20 tolls against the bot's 134; struck 10 against 10). Rows are appended to `de-capture-check.tsv` and `.jsonl` (records in `de-capture-check.d/grade-<fort>-40.jsonl`).
+- **The stand-ins** are re-measured at afb8dab (iter `grade-standins`, 432 runs; `standins-measured.json` `measured_at` afb8dab, raw `standins-raw-afb8dab.tsv`): by_tier 70 deaths t1 0%, t2 11.7%, t3 13.3%, t4 20.0%; P1 0%; two tiers up 64.3%. `fight_telemetry` and the caveats text are the earlier file's and say so.
+- **Suite and parity** (HEAD with NOTES-only commits over afb8dab): ALL TESTS PASSED; `parity_check.sh` 5 of 5 identical.
