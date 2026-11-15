@@ -888,6 +888,7 @@ func _prime(s: TownSim) -> void:
 	for k in SUM_KEYS:
 		s._sum_working(k)
 		s._sum_built(k)
+	s._lists()  # and the step's building lists (E2b-2 T3.3b2)
 
 
 func _cache_ok(s: TownSim, before: Dictionary, what: String) -> void:
@@ -900,6 +901,9 @@ func _cache_ok(s: TownSim, before: Dictionary, what: String) -> void:
 	for k in SUM_KEYS:
 		cached[k] = [s._sum_working(k), s._sum_built(k)]
 	t.ok(cached == now["sums"], "%s: the effect sums are the ones from scratch: %s vs %s" % [what, str(cached), str(now["sums"])])
+	var lists: Dictionary = s._lists()
+	s._lists_c = {}
+	t.ok(lists == s._lists(), "%s: the step's building lists (pits, attract, amenities, upkeep, unpaid, constructing) are the ones from scratch: %s" % [what, str(lists)])
 
 
 func _room_cache() -> void:

@@ -186,6 +186,14 @@ var _gap_s := 0.0  # economy.json idle.gap_s (every frame's gap check)
 ## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
 ## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
 var _tiers_seen: Array = [-1, ""]
+## The core step's own fort snapshot for TownSim (_town_inputs with `reuse`), refilled in place every step
+## (E2b-2 T3.3b2: a fresh one was 12 dicts and 12 arrays a step). TownSim reads it inside its step and keeps
+## none of it; every other reader (StateViews' projections keep theirs) gets a fresh one. `_step_forts_of`
+## holds the realm's fort dicts and positions each entry was made from. Session only.
+var _step_forts: Array = []
+var _step_forts_of: Array = []
+## The mass ledger's sinks the core step books from TownSim's step (Ledger.sink's, inline: _core_step).
+const _TOWN_SINKS := ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]
 var _acc := 0.0
 ## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
 ## `war` includes). Session only.
@@ -1939,15 +1947,33 @@ func _mint(pits: int, feed: float) -> float:
 ## snapshot of the forts before this step's realm step, Covington, the haul target, the relics. Each
 ## fort's `dead_rate` is RealmSim's projection of its corpses over the step (RealmSim.dead_rates, with
 ## Relish's redirect as she stands now), so the convoy reads them at its own moment (E2b-2 T3.3a).
-func _town_inputs(work_mass: float) -> Dictionary:
+## With `reuse` (the core step only) the forts are _step_forts, refilled in place: the same values.
+func _town_inputs(work_mass: float, reuse := false) -> Dictionary:
 	var forts: Array = []
 	var fx := _relish_effects()
 	var redirect: String = fx["redirect_fort"]
 	var rates := realm.dead_rates(redirect, _raise_rate, digest_q() if redirect != "" or not realm.simulacra.is_empty() else 1.0)
-	for i in realm.forts.size():
-		var f: Dictionary = realm.forts[i]
-		forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f),
-			"dead_rate": rates[i]})
+	if reuse:
+		forts = _step_forts
+		var n := realm.forts.size()
+		if forts.size() != n:
+			forts.resize(n)
+			_step_forts_of.resize(n)
+		for i in n:
+			var f: Dictionary = realm.forts[i]
+			var of: Variant = _step_forts_of[i]
+			if not (of is Array and is_same(of[0], f) and of[1] == f["pos"]):
+				forts[i] = {"id": f["id"], "pos": _xy(f["pos"]), "dead": 0.0, "held": false, "dead_rate": 0.0}
+				_step_forts_of[i] = [f, f["pos"]]
+			var e: Dictionary = forts[i]
+			e["dead"] = float(f["dead"])
+			e["held"] = RealmSim.is_held(f)
+			e["dead_rate"] = rates[i]
+	else:
+		for i in realm.forts.size():
+			var f: Dictionary = realm.forts[i]
+			forts.append({"id": f["id"], "pos": _xy(f["pos"]), "dead": float(f["dead"]), "held": RealmSim.is_held(f),
+				"dead_rate": rates[i]})
 	return {
 		"work_mass": work_mass, "relish_home": relish["state"] == "home", "held_villages": green_towns,
 		"forts": forts, "cov_pos": _xy(realm.cov_pos), "haul_target": haul_target, "relics_available": relics,
@@ -1998,7 +2024,7 @@ func _core_step(dt: float) -> Array:
 	var work := mint * float(valve["work"])
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
-	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending))
+	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending, true))
 	work_pending = 0.0
 	_apply_pickups(town["pickups"])
 	relics = maxi(0, relics - int(town["relics_spent"]))
@@ -2034,15 +2060,20 @@ func _core_step(dt: float) -> Array:
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
 	var evs := _emit_realm(realm.drain_timed(), dt, mark)
-	# §3 step 7: the ledger books this step's source and sinks (held is read live)
-	_ledger.source("mint", mint * dt)
-	for k in ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]:
-		_ledger.sink(k, float(town[k]))
-	_ledger.sink("cleared", cleared)
+	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
+	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
+	# ten a step); the keys are the ledger's fixed set
+	var src: Dictionary = _ledger.sources
+	var snk: Dictionary = _ledger.sinks
+	src["mint"] = float(src["mint"]) + mint * dt
+	for k in _TOWN_SINKS:
+		snk[k] = float(snk[k]) + float(town[k])
+	snk["cleared"] = float(snk["cleared"]) + cleared
 	# the currency tally beside the mass (not mass; IDLE §6): what the gold and bone caps clipped
-	_ledger.overflow("gold", float(town["gold_overflow"]))
-	_ledger.overflow("bone", float(town["bone_overflow"]))
-	_ledger.sink("pool_overflow", realm.pool_overflow)  # the march-back past Vei's pool cap (MECHANICS §3.4)
+	var sto: Dictionary = _ledger.stores
+	sto["gold"]["overflow"] = float(sto["gold"]["overflow"]) + float(town["gold_overflow"])
+	sto["bone"]["overflow"] = float(sto["bone"]["overflow"]) + float(town["bone_overflow"])
+	snk["pool_overflow"] = float(snk["pool_overflow"]) + realm.pool_overflow  # the march-back past Vei's pool cap (MECHANICS §3.4)
 	_note_realm_flows(dt, cleared)
 	# §3 step 8: the readouts
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)

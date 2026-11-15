@@ -146,6 +146,13 @@ var _staffed_w := NAN
 ## buildings' states and levels, so _mark_rooms() clears them.
 var _sums_w := {}
 var _sums_b := {}
+## What step() reads of the buildings, cached like the sums (E2b-2 T3.3b2, catch-up's budget): it reads only
+## their states and levels, so _mark_rooms() clears it and _lists() rebuilds it at its next read. {pits:
+## [[lot_id, pits, pit slots]] the working pits in lot order; attract: the working buildings' `attract` in lot
+## order; amen: the morale amenities, building id -> Σ `morale` (morale_factors' order); work: [[lot_id, upkeep
+## gold, upkeep bone]] the working buildings in lot order; unpaid: the unpaid lots in lot order; building: the
+## lots under construction in lot order; upkeep: lot_id -> [upkeep gold, upkeep bone] for every building}.
+var _lists_c := {}
 ## The vats staffed, per vat slot (GameState's vats_staffed, which it saves; set_vats), trailing
 ## falses dropped. A vat slot's tend room is open only while its vat is staffed (MECHANICS §7).
 var _vats: Array[bool] = []
@@ -530,16 +537,11 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4)
 	var pits := 0
 	var pit_can := 0.0  # mass/s the staffed pits can burn
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not _works(b):
-			continue
-		var p := int(_eff(b, "pits"))
-		if p <= 0:
-			continue
+	for e in _lists()["pits"]:  # [lot_id, pits, slots], the working pits in lot order
+		var p: int = e[1]
+		var slots: int = e[2]
 		pits += p
-		var slots := _slots(b, "pit")
-		var frac := 1.0 if slots <= 0 else float(_by_lot.get(lot_id, {}).get("pit", 0.0)) / slots
+		var frac := 1.0 if slots <= 0 else float(_by_lot.get(e[0], {}).get("pit", 0.0)) / slots
 		pit_can += _burn * p * frac
 	var want_pit := pit_can * dt
 	var want_mill := _mill_mass * _job("mill") * dt
@@ -629,10 +631,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 
 	# 6. construction: build_work · target level, at job.build.rate per staffed builder
 	var build_work := 0.0
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or b["state"] != "constructing":
-			continue
+	for lot_id in _lists()["building"]:  # the lots under construction, in lot order (a finish marks the rooms)
+		var b: Dictionary = buildings[lot_id]
 		var w := build_speed(lot_id) * dt
 		build_work += w
 		var need := construction_work(b["building_id"], int(b["build_level"]))
@@ -647,10 +647,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# 7. the living (§4.3): exact first-order update, then the housing cap
 	var lcap := living_cap()
 	var mig := float(inp.get("held_villages", 0)) * _migrant_rate
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if not b.is_empty() and _works(b):
-			mig += _eff(b, "attract")
+	for a in _lists()["attract"]:  # every working building's attract, in lot order
+		mig += a
 	var k := _leave_rate if morale < _leave_below else 0.0
 	var l0 := living
 	var l1 := l0 + mig * dt
@@ -927,19 +925,18 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 	var due_b := 0.0
 	var secs := {}  # lot_id -> the seconds of this step its upkeep is paid for
 	var cands: Array = []  # [lot_id, seconds into the step its hold is over], in lot order
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty():
-			continue
-		if _works(b):
-			due_g += float(_defs[b["building_id"]]["upkeep_gold"])
-			due_b += float(_defs[b["building_id"]]["upkeep_bone"])
-			secs[lot_id] = dt
-		elif b["state"] == "unpaid":
-			var left := float(b["unpaid_s"])
-			b["unpaid_s"] = maxf(0.0, left - dt)
-			if float(b["unpaid_s"]) <= 0.0:
-				cands.append([lot_id, maxf(0.0, left)])
+	var lists := _lists()
+	var upk: Dictionary = lists["upkeep"]
+	for e in lists["work"]:  # [lot_id, upkeep gold, upkeep bone], the working buildings in lot order
+		due_g += float(e[1])
+		due_b += float(e[2])
+		secs[e[0]] = dt
+	for lot_id in lists["unpaid"]:
+		var b: Dictionary = buildings[lot_id]
+		var left := float(b["unpaid_s"])
+		b["unpaid_s"] = maxf(0.0, left - dt)
+		if float(b["unpaid_s"]) <= 0.0:
+			cands.append([lot_id, maxf(0.0, left)])
 	var span := maxf(_hold_s, dt)
 	var at := 0.0  # how far into the step the paths are solved
 	var g := gold - gold_in  # the stocks at `at`
@@ -976,8 +973,9 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 	var owe_g := 0.0
 	var owe_b := 0.0
 	for lot_id in secs:
-		owe_g += float(_defs[buildings[lot_id]["building_id"]]["upkeep_gold"]) * float(secs[lot_id])
-		owe_b += float(_defs[buildings[lot_id]["building_id"]]["upkeep_bone"]) * float(secs[lot_id])
+		var u: Array = upk[lot_id]
+		owe_g += float(u[0]) * float(secs[lot_id])
+		owe_b += float(u[1]) * float(secs[lot_id])
 	while gold < owe_g - EPS or bone < owe_b - EPS:
 		var short := "gold" if gold < owe_g - EPS else "bone"
 		var key := "upkeep_" + short
@@ -1144,6 +1142,44 @@ func _mark_rooms() -> void:
 	_staffed_w = NAN
 	_sums_w.clear()
 	_sums_b.clear()
+	_lists_c = {}
+
+
+## The cached lists step() reads (_lists_c), rebuilt from the buildings when the rooms were last marked.
+func _lists() -> Dictionary:
+	if not _lists_c.is_empty():
+		return _lists_c
+	var pit_lots: Array = []
+	var attract := PackedFloat64Array()
+	var amen := {}
+	var work: Array = []
+	var unpaid: Array = []
+	var building: Array = []
+	var upkeep := {}
+	for lot_id in _lots:
+		var b: Dictionary = buildings.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var d: Dictionary = _defs[b["building_id"]]
+		var ug := float(d["upkeep_gold"])
+		var ub := float(d["upkeep_bone"])
+		upkeep[lot_id] = [ug, ub]
+		if b["state"] == "constructing":
+			building.append(lot_id)
+		if _works(b):
+			var pn := int(_eff(b, "pits"))
+			if pn > 0:
+				pit_lots.append([lot_id, pn, _slots(b, "pit")])
+			attract.append(_eff(b, "attract"))
+			var v := _eff(b, "morale")
+			if v != 0.0:
+				amen[b["building_id"]] = float(amen.get(b["building_id"], 0.0)) + v
+			work.append([lot_id, ug, ub])
+		elif b["state"] == "unpaid":
+			unpaid.append(lot_id)
+	_lists_c = {"pits": pit_lots, "attract": attract, "amen": amen, "work": work, "unpaid": unpaid, "building": building,
+		"upkeep": upkeep}
+	return _lists_c
 
 
 ## The staffing `_staff()` would give now with the job order replaced by `order` (stances applied by
@@ -1377,14 +1413,7 @@ func lifetime_s(relish_home: bool) -> float:
 ## `morale`, summed per building id in lot order), dread and shock (each only when non-zero).
 func morale_factors() -> Array:
 	var out: Array = [{"id": "base", "delta": _morale_base}]
-	var amen := {}
-	for lot_id in _lots:
-		var b: Dictionary = buildings.get(lot_id, {})
-		if b.is_empty() or not _works(b):
-			continue
-		var v := _eff(b, "morale")
-		if v != 0.0:
-			amen[b["building_id"]] = float(amen.get(b["building_id"], 0.0)) + v
+	var amen: Dictionary = _lists()["amen"]
 	for id in amen:
 		out.append({"id": "amenity:" + str(id), "delta": amen[id]})
 	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
@@ -1395,10 +1424,19 @@ func morale_factors() -> Array:
 	return out
 
 
+## Σ morale_factors()' deltas in their order, clamped to 0..1 (summed here without building the rows: the
+## step reads it every step).
 func morale_target() -> float:
 	var s := 0.0
-	for f in morale_factors():
-		s += float(f["delta"])
+	s += _morale_base
+	var amen: Dictionary = _lists()["amen"]
+	for id in amen:
+		s += float(amen[id])
+	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
+	if dread > 0.0:
+		s += -dread
+	if shock > 0.0:
+		s += -shock
 	return clampf(s, 0.0, 1.0)
 
 
