@@ -57,11 +57,20 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
-		_door_prompt.offset_top = -86.0
-		_door_prompt.offset_bottom = -58.0
-		_door_prompt.offset_left = -640.0
-		_door_prompt.offset_right = 640.0
+		_door_prompt.offset_top = -92.0
+		_door_prompt.offset_bottom = -64.0
+		_door_prompt.offset_left = 0.0
+		_door_prompt.offset_right = 0.0
+		_door_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH   # sized to its text, centred
 		_door_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# its own dark plate, as the banner has: the map's walls never run through the trade it names
+		var pplate := StyleBoxFlat.new()
+		pplate.bg_color = Palette.c("ground", 0.86)
+		pplate.content_margin_left = 10.0
+		pplate.content_margin_right = 10.0
+		pplate.content_margin_top = 3.0
+		pplate.content_margin_bottom = 3.0
+		_door_prompt.add_theme_stylebox_override("normal", pplate)
 		_door_prompt.visible = false
 
 	_banner_plate = ColorRect.new()

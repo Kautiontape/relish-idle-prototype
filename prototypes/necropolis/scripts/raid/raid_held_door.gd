@@ -325,6 +325,16 @@ func _draw() -> void:
 	# starts at `at` and runs into the room
 	var top := at.y - h * (0.5 if absf(inward.y) < 0.5 else (0.0 if inward.y > 0.0 else 1.0))
 	var left := at.x - w * 0.5 if absf(inward.x) < 0.5 else (at.x if inward.x > 0.0 else at.x - w)
+	if state != "unused":
+		# one line (HELD, SENT, SHUT IN, REJOINS): beside the plate along the wall, away from the room's middle
+		# where the army crowds and strikes (its streaks crossed it under the plate)
+		var side_at: Vector2 = pc + along * (ps * 0.5 + 10.0 / z)
+		if absf(along.x) > 0.5:
+			left = side_at.x if along.x > 0.0 else side_at.x - w
+			top = side_at.y - h * 0.5
+		else:
+			left = side_at.x - w * 0.5
+			top = side_at.y if along.y > 0.0 else side_at.y - h
 	var plate := Rect2(left - 6.0 / z, top - 4.0 / z, w + 12.0 / z, h + 6.0 / z)
 	var off := label_shift(plate, z)   # off Relish while they would overlap (the boss lanes' label_shift)
 	plate.position += off
