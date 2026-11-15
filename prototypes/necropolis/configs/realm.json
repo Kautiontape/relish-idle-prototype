@@ -47,5 +47,6 @@
   },
 
   "flip": {"hold_s": 300.0, "tier_mult": 0.25, "haul_mult": 1.5},
-  "hold": {"reship_share": 0.5, "break_s": 120.0, "safe_horizon_s": 28800.0, "probe_dt_s": 10.0, "probe_s": 600.0, "clear_min_living": 0.05}
+  "hold": {"reship_share": 0.5, "break_s": 120.0, "safe_horizon_s": 28800.0, "probe_dt_s": 10.0, "probe_s": 600.0, "clear_min_living": 0.05,
+    "train_settle_tol": 0.001, "train_max_cycles": 4, "train_frame_phase": 0.5, "train_starve_frames": 30}
 }

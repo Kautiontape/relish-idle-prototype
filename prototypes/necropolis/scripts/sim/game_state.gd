@@ -42,7 +42,9 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.migrant_rate",
 	"realm.relish.travel_speed", "realm.relish.home_stance_bonus", "realm.readout.sign_eps", "realm.readout.ema_s",
 	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
-	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass"]
+	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass",
+	# T3.4b: the wave train's frame refresh (_train_frame)
+	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -55,6 +57,8 @@ const _RATE_UNITS := {
 }
 ## How long a lane's `why` callout lasts, in sim seconds (STATE-API §5.3).
 const _WHY_S := 10.0
+## _train's answer with no fort held (train_probe's shape; read-only).
+const _TRAIN_NONE := {"forts": {}, "settled": true, "p": 0, "cycles": 0, "steps": 0, "targets": []}
 
 var realm: RealmSim
 var field: InfluenceField
@@ -149,6 +153,13 @@ var _realm_inputs := {}  # the inputs of the last RealmSim.step (step 5), for te
 ## starve (substep frames in a row), and rows_computed / rows_replaced counts (for tests and benches);
 ## session only, never saved, emptied by a new game and a load.
 var _proj_cache := {}
+## The wave train's verdicts (_train): {live: [key, result, rev, _ticks], valve: [key, result, rev, _ticks],
+## read (a view read the live slot since the frame refresh last ran), starve (substep frames in a row while
+## read), computed (probes run: tests, benches)}. Session only; a new game or a load bumps rev, so no key
+## from before it matches.
+var _train_cache := {}
+var _ticks := 0  # live substeps run this session (_tick): rev less them is the commands' share of rev
+var _frame_path := false  # the shell drives tick() with a substep cap (the frame path): _train may serve the last refresh
 var _field_acc := 0.0
 var _req_keys := {}  # REQUIRED path -> its split keys (a cache for _req)
 var _events: Array = []
@@ -1258,9 +1269,10 @@ func view_realm() -> Dictionary:
 
 
 ## §5.17 · E2b-2 (api_version 6, api-requests #7 c, #13): the held forts' readouts, the split and the
-## payoff at another valve, without changing anything (StateViews.projection).
-func view_projection(valve: Dictionary) -> Dictionary:
-	return StateViews.projection(self, valve)
+## payoff at another valve, without changing anything (StateViews.projection). `settled` (T3.4b): the
+## margins are the wave train's at that valve, not the drag's one-wave probe.
+func view_projection(valve: Dictionary, settled := false) -> Dictionary:
+	return StateViews.projection(self, valve, settled)
 
 
 ## The WAR the current valve sends each fort, mass/s, in world order: the last dispatch's split of
@@ -1276,13 +1288,141 @@ func _fort_wars() -> Array:
 
 
 ## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
-## gets (MECHANICS §3.5; RealmSim.readout_of).
-func _fort_readout(f: Dictionary, w_in: float) -> Dictionary:
+## gets (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin.
+func _fort_readout(f: Dictionary, w_in: float, train := {}) -> Dictionary:
 	var fx := _relish_effects()
 	var id: String = f["id"]
 	var siege: Variant = _realm_inputs.get("siege_block", {})
 	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
-		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q())
+		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train)
+
+
+## The wave train's verdicts for the live flows (MECHANICS §3.5, E2b-2 T3.4b): RealmSim.train_probe over
+## every held fort at the WAR the valve sends it once its slew is done (_train_war), cached (_train).
+## view_fort and view_realm read it; nothing in the sim does.
+func _train_live() -> Dictionary:
+	return _train(_train_war(), true)
+
+
+## The WAR the live train reads, mass/s: this substep's mint × the valve's target share, plus TownSim's
+## muster as it is now. The valve slews to its target at valve.slew_per_s (at most 20 s for a full swing),
+## and nothing but a command changes the target, so the train reads where it is going, as it reads Relish
+## where she is travelling to (_train_support). With the valve at its target it is this substep's WAR
+## (_split.war), bit for bit; and it is the WAR view_projection reads at the target valve.
+func _train_war() -> float:
+	return float(_split["mint"]) * float(valve_target["war"]) + float(_split["muster"])
+
+
+## The wave train at `war` mass/s of WAR (view_projection's valve with `settled`), cached (_train).
+func _train_valve(war: float) -> Dictionary:
+	return _train(war, false)
+
+
+## RealmSim.train_probe on _train_support(war, live), computed lazily on the first read after the state
+## moved and kept in _train_cache, one slot for the live flows and one for a projected valve; either
+## slot answers a call whose key matches it (view_projection with `settled` at the current valve is the
+## live train). The key is [rev, t, q, the support, RealmSim.train_state()]: rev and t as the build
+## projections key theirs (a catch-up's core steps move t without rev), and the state the probe starts
+## from, so an edit that bumps neither (a test, debug) still misses. Session only.
+## On the frame path (_frame_path) a read of the live flows doesn't probe when only live substeps have
+## moved the state since the live slot was made (rev less the substeps is unchanged: no command since): it
+## serves that slot, the verdict at most a few substeps old, and _train_frame refreshes it on the next frame
+## with no substep. A command (a valve, a raid's flip, a move) probes at the next read, on its own frame.
+## A projected valve whose WAR is the live train's (the valve's target) reads the live slot the same way,
+## so view_projection with `settled` at the valve's target always equals view_fort.
+func _train(war: float, live: bool) -> Dictionary:
+	if not live and war == _train_war() and realm._disp_w.size() == realm.forts.size():
+		live = true
+	var sup := _train_support(war, live)
+	if sup.is_empty():
+		return _TRAIN_NONE  # nothing held: nothing to probe, nothing to refresh
+	var q := digest_q()
+	var key := [rev, t, q, sup, realm.train_state()]
+	var slot := "live" if live else "valve"
+	for s in [slot, "valve" if live else "live"]:
+		var c: Array = _train_cache.get(s, [])
+		if not c.is_empty() and c[0] == key:
+			if s == "live":
+				_train_cache["read"] = true
+			return c[1]
+	if live and _frame_path:
+		var c: Array = _train_cache.get("live", [])
+		if not c.is_empty() and rev - int(c[2]) == _ticks - int(c[3]):
+			_train_cache["read"] = true
+			return c[1]
+	return _train_probe(slot, key, sup, q)
+
+
+## Runs the probe for `key` into `slot` (_train, _train_frame); `read` marks the live slot read (a view's
+## call, not the frame refresh's).
+func _train_probe(slot: String, key: Array, sup: Dictionary, q: float, read := true) -> Dictionary:
+	var res := realm.train_probe(sup, q)
+	_train_cache[slot] = [key, res, rev, _ticks]
+	_train_cache["computed"] = int(_train_cache.get("computed", 0)) + 1
+	if slot == "live" and read:
+		_train_cache["read"] = true
+	return res
+
+
+## The frame refresh of the live slot (_advance, the frame path, after the substep loop; `substeps` the
+## substeps that call ran), as StateViews.projection_frame schedules the build benefit: only while a view
+## reads the live slot (`read`), and only on a frame that ran no substep with the accumulator at least
+## hold.train_frame_phase of a substep in (the scenes' refetch is early in the interval). When every frame
+## substeps (fast-forward), it runs after hold.train_starve_frames such frames in a row. Returns whether it
+## probed.
+func _train_frame(substeps: int) -> bool:
+	if not bool(_train_cache.get("read", false)):
+		_train_cache["starve"] = 0
+		return false
+	if substeps > 0:
+		var starve := int(_train_cache.get("starve", 0)) + 1
+		_train_cache["starve"] = starve
+		if starve < int(_req_f("realm.hold.train_starve_frames")):
+			return false
+	elif _acc < _req_f("realm.hold.train_frame_phase") * substep_s():
+		return false
+	_train_cache["starve"] = 0
+	_train_cache["read"] = false
+	var sup := _train_support(_train_war(), true)
+	var q := digest_q()
+	var key := [rev, t, q, sup, realm.train_state()]
+	var c: Array = _train_cache.get("live", [])
+	if not c.is_empty() and c[0] == key:
+		return false
+	_train_probe("live", key, sup, q, false)
+	return true
+
+
+## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort, at `war`
+## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
+## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
+## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
+## but a command changes it. `live` before the first substep after a load (no dispatch yet) reads the
+## saved r_in with her where she stands, as the other readouts do.
+func _train_support(war: float, live: bool) -> Dictionary:
+	var fx := _relish_effects()
+	var dest := str(relish["target"]) if relish["state"] == "travelling" else ""
+	if realm.fort_by_id(dest).is_empty():
+		dest = ""
+	var wars: Array = []
+	if live and realm._disp_w.size() != realm.forts.size():
+		wars = _fort_wars()
+	elif dest != "":
+		wars = realm.war_at_tide(war, str(_realm_inputs.get("tide_fort", "")), float(_realm_inputs.get("tide_bias", 1.0)),
+			dest, _req_f("realm.relish.tide_bias"))[0]
+		fx = {"tide_fort": dest, "redirect_fort": dest}
+	else:
+		wars = realm.war_at(war)[0]
+	var siege: Variant = _realm_inputs.get("siege_block", {})
+	var sup := {}
+	for i in realm.forts.size():
+		var f: Dictionary = realm.forts[i]
+		if RealmSim.is_held(f):
+			var id: String = f["id"]
+			sup[id] = [float(wars[i]), fx["redirect_fort"] == id, _raise_rate, fx["tide_fort"] == id,
+				RealmSim._siege_at(siege if siege is Dictionary else {}, id)]
+	return sup
 
 
 ## _fort_readout's garrison_rate alone (war_supports).
@@ -1462,6 +1602,10 @@ func _advance(dt: float, max_substeps: int) -> int:
 	# (that runner must not pass through here with a cap, or must skip this call).
 	if max_substeps > 0:
 		StateViews.projection_frame(self, n)
+		# the wave train's refresh (MECHANICS §3.5): the same frames, so the probe never lands where the
+		# scenes refetch. T3.3b: the same rule as the build benefit's above
+		_frame_path = true
+		_train_frame(n)
 	return n
 
 
@@ -1510,6 +1654,7 @@ func _tick(dt: float) -> void:
 	var evs := _core_step(dt)
 	_present_step(dt, evs)
 	rev += 1
+	_ticks += 1
 
 
 ## The sim's step, valid at any `dt` (IDLE §4: live play runs it at sim.substep_s, catch-up at

@@ -85,6 +85,19 @@ from `BALANCE.md` §0.
     no longer E1 constants: a meaning change, not a shape change;
   - (T3.4a) `view_town().buildings[].starved` (§5.9): a String reason a building's mills milled less than
     their hands want (`"pits_first"`, `"no_bodies"`, else `""`); town renders it in Phase I, economy gives the key;
+  - (T3.4b) **a held fort's margin is judged against the wave train** (the run's manager; MECHANICS §3.5):
+    `view_fort` and `view_realm().forts[]` `margin` reads `safe` only when the held forts, run forward
+    together through her waves at her period from today's state, settle with it unbroken; `thin` (cause
+    `wave`) when the train breaks it or hasn't settled by its cap. Its ruled order: `will_fall`, the train
+    breaking it, `garrison_rate` < 0 (cause `fall`), unsettled, `safe` (§5.5): a meaning change, not a shape
+    change;
+  - (T3.4b) `view_projection(valve, settled := false)` (§5.17): the optional `settled` gives the wave train's
+    margins at that valve; left out, a drag's one-wave margins, as before. Each `margins` row gains
+    `margin_verified` (bool): true for the train's, false for the one-wave probe's;
+  - (T3.4b) `fall_s` errs early (MECHANICS §3.5): `grace_s_left` + `min(garrison, support / r_drain) /
+    −garrison_rate` + what is left of `hold.break_s` (less the zero clock while the garrison sits at 0); it
+    was `garrison / −garrison_rate` + `hold.break_s`, late by up to 368 s for a garrison above the level its
+    support holds: a meaning change, not a shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1069,9 +1082,11 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 {rev: 3, size: [2048.0, 1440.0], covington: {pos: [1780.0, 1270.0]},
  vei: {pos: [1024.0, 130.0], radius: 150.0, living_pool: 412.0, pool_cap: 600.0, backlog: 0.0},
  forts: [{id: "ashgate", ...}, ...12], held_count: 0, digest_q: 1.2}
-# a held fort's entry (midgame_2flips at load: 374.5 s of grace, then contested; post-grace readouts)
-{id: "ashgate", ..., held: true, held_s_left: 0.0, grace_s_left: 374.5, garrison: 23.4,
- garrison_rate: 1.463, fall_s: -1.0, margin: "safe", margin_cause: "", ...}
+# a held fort's entry (midgame_2flips a substep in: 374 s of grace, then contested; post-grace readouts.
+# T3.4b: the wave train reads Relish at Greywall, where she arrives a second later, and the set doesn't
+# settle by the cap. At load, before the first substep, it reads the saved flows and says "safe")
+{id: "ashgate", ..., held: true, held_s_left: 0.0, grace_s_left: 374.0, garrison: 23.4,
+ garrison_rate: 1.463, fall_s: -1.0, margin: "thin", margin_cause: "wave", ...}
 ```
 
 ### 5.5 `view_fort(id: String)` · E1
@@ -1091,12 +1106,12 @@ dungeon's configs (v6, below); the hold's readouts
 | `war_in`, `ship_in` | float | mass/s: WAR arriving (staging included); Vei's living arriving (tithe surges included) |
 | `held` | bool | flipped and not yet retaken (in grace or contested; MECHANICS §3.4) |
 | `held_s_left` | float | **deprecated (v6), always 0.0**: no timer ends a hold any more. The grace is `grace_s_left` |
-| `grace_s_left` | float | seconds of grace left, 0 when contested or not held (v6). While it is > 0, `margin`, `margin_cause`, `fall_s` and `garrison_rate` are the post-grace ones: what the fort will face once its grace ends, so the map can show "grace 3:40, then thin" |
+| `grace_s_left` | float | seconds of grace left, 0 when contested or not held (v6). While it is > 0, `margin`, `margin_cause`, `fall_s` and `garrison_rate` are the post-grace ones: what the fort will face once its grace ends, so the map can show "grace 3:40, then thin" (the margin is the train's run through the grace, which no wave reaches, T3.4b) |
 | `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
 | `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held |
-| `fall_s` | float | seconds until it is retaken at that rate (v6, api-request #13): `grace_s_left` + `garrison / −garrison_rate` + `hold.break_s` while the rate is < 0; −1.0 while it isn't falling or isn't held. Never INF. A straight-line estimate (MECHANICS §3.5) |
-| `margin` | String | v6 (api-request #7 a), checked in this order: `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when one full tithe wave would break it; else `"thin"` when it falls beyond the horizon; else `"safe"` (it survives the next 8 h, a full wave included); `""` when not held |
-| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` a full wave would break; `""` for safe or not held |
+| `fall_s` | float | seconds until it is retaken at that rate (v6, api-request #13): `grace_s_left` + `min(garrison, support / r_drain) / −garrison_rate` + what is left of `hold.break_s` (all of it, less the zero clock while the garrison sits at 0) while the rate is < 0; −1.0 while it isn't falling or isn't held. Never INF. A straight line from the level the support holds that errs early: the fort is retaken no sooner (T3.4b; before, `garrison / −garrison_rate` + `hold.break_s`, late for a garrison above that level; MECHANICS §3.5) |
+| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, with the valve at its target and Relish where she is travelling to); else `"thin"` when it falls beyond the horizon; else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise |
+| `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` the waves break or haven't settled; `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
@@ -1588,9 +1603,16 @@ Game.state.view_staffing_projection(["haul", "pit"])
 # -> {rev: 812, jobs: [], buildings: [], idle: 0.0, reason: "missing_job"}
 ```
 
-### 5.17 `view_projection(valve: Dictionary)` · E2b-2 (api_version 6, api-requests #7 c, #13)
+### 5.17 `view_projection(valve: Dictionary, settled := false)` · E2b-2 (api_version 6, api-requests #7 c, #13; `settled` T3.4b)
 The held forts' readouts (§5.5), "WAR supports N of M" (§5.1), the split and the payoff at another
 valve, for the live valve drag. The same math as the live views, at a hypothetical valve target.
+- **`settled`** (T3.4b, optional, the run's manager): the margins are judged against the wave train at
+  that valve, as `view_fort` judges them (§5.5), each row `margin_verified` true; the train runs once for
+  the valve and is cached with the state (about 1.2 ms on midgame_2flips, so once per drag, on its
+  release: map's Phase I wires the call on release or ~150 ms with no movement; a valve whose WAR is the
+  valve's target's reads the live verdict, no probe). Left out (false), a drag's margins: the one-wave probe
+  (MECHANICS §3.5, a full wave from the weakest state the support leaves the fort in), each row
+  `margin_verified` false, exactly as before T3.4b. Nothing else in the result depends on it.
 - **Args:** `valve`, `{work, war, flood}`, normalised as `cmd_set_valve` normalises it. It refuses
   nothing: one `cmd_set_valve` would refuse (a missing or non-number key, a negative or non-finite
   share, all zeroes) is the current valve (`view_hud.valve`), and so is one within 1e-12 of it on every
@@ -1599,8 +1621,10 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
   same before and after. Like every view it is a fresh deep copy carrying `rev`.
 - **At the current valve every field equals the live views':** `split` is `view_hud.split` (and
   `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
-  is `view_hud.war_supports`, each `margins` entry is that fort's `view_fort` `margin`, `margin_cause`,
-  `fall_s` and `garrison_rate`, and `backlog_diff` is `view_vei.diff_ema`.
+  is `view_hud.war_supports`, each `margins` entry's `fall_s` and `garrison_rate` are that fort's
+  `view_fort` ones, and `backlog_diff` is `view_vei.diff_ema`. Its `margin` and `margin_cause` are
+  `view_fort`'s with `settled` (with the valve at its target, as it is once its slew is done); by default
+  they are the one-wave probe's (T3.4b: `view_fort` reads the train).
 - **Before the first substep after a load** the split is 0 (it is session-only, §5.1, §9.1), so the
   projection reads no WAR anywhere: every held fort falling. The live views read the saved `r_in`
   until then. The map knows (it waits for the streams).
@@ -1612,19 +1636,23 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
 | `workers_steady` | float | workers: `view_town.workers.steady` × the WORK share against the current one (TownSim's steady workforce is `WORK / worker.mass × lifetime`, linear in WORK); `mint × work / worker.mass × lifetime` when the current WORK share is 0. The map's stand-in scaled the same way |
 | `backlog_diff` | float | mass/s: the sustained differential (`view_vei.diff_ema`) moved by the change in FLOOD, in the WAR that falls through to Vei, and in the WAR to each fort whose garrison isn't pinned at 0 (in steady state the extra drains on to her queue, since the garrison's pull doesn't grow with it). The map's stand-in added Δflood + Δwar × a fixed fraction; this is that, from the sim's own split |
 | `war_supports` | Dictionary | `{n: int, m: int}`, as `view_hud.war_supports`, at the valve's WAR |
-| `margins` | Dictionary | `{fort_id: {margin: String, margin_cause: String, fall_s: float, garrison_rate: float}}`, one per held fort, as `view_fort` computes them at the valve's WAR to that fort (each fort's WAR is the last dispatch's split of the valve's WAR: its weights, Relish's tide and the full forts' limits as they stand) |
+| `margins` | Dictionary | `{fort_id: {margin: String, margin_cause: String, fall_s: float, garrison_rate: float, margin_verified: bool}}`, one per held fort, as `view_fort` computes them at the valve's WAR to that fort (each fort's WAR is the last dispatch's split of the valve's WAR: its weights, Relish's tide and the full forts' limits as they stand). `margin_verified` (T3.4b): true when the margin is the wave train's (`settled`), false when it is the drag's one-wave probe |
 ```gdscript
 Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15})   # midgame_2flips a substep in: its valve
 # -> {rev: 2, valve: {work: 0.4, war: 0.45, flood: 0.15},
 #     split: {work: 5.12, war: 9.71, flood: 1.92, war_overflow: 0.0}, workers_steady: 61.44, backlog_diff: 4.36,
 #     war_supports: {n: 2, m: 2},
-#     margins: {"ashgate": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 1.463},
-#               "old-sluice": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 0.872}}}
+#     margins: {"ashgate": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 1.463, margin_verified: false},
+#               "old-sluice": {margin: "safe", margin_cause: "", fall_s: -1.0, garrison_rate: 0.872, margin_verified: false}}}
+Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15}, true)   # the same, settled: the wave train's
+# -> {..., margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 1.463, margin_verified: true},
+#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.872, margin_verified: true}}}
+#    (both unsettled at the cap: Ashgate is a knife-edge, and Relish's arrival at Greywall will cut Old Sluice's WAR)
 Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # only TownSim's muster (3.95/s) is WAR
 # -> {..., split: {work: 10.24, war: 3.95, flood: 2.56, war_overflow: 0.0}, workers_steady: 122.88, backlog_diff: 0.84,
 #     war_supports: {n: 2, m: 2},
-#     margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.367},
-#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.126}}}
+#     margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.367, margin_verified: false},
+#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.126, margin_verified: false}}}
 Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evaluated at the current valve
 ```
 

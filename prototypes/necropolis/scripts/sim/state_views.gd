@@ -110,9 +110,10 @@ static func realm(gs: GameState) -> Dictionary:
 	var forts: Array = []
 	var held := 0
 	var wars := gs._fort_wars()
+	var train: Dictionary = gs._train_live()["forts"]
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
-		forts.append(fort_entry(gs, f, wars[i]))
+		forts.append(fort_entry(gs, f, wars[i], train.get(str(f["id"]), {})))
 		if RealmSim.is_held(f):
 			held += 1
 	return {
@@ -139,14 +140,15 @@ static func simulacrum_charges(gs: GameState, fort_id: String) -> float:
 ## A fort in the view_fort shape, without `rev`. Live: masses, positions, war_in (WAR arriving,
 ## staging included), ship_in (tithe surges included), held, the hold's readouts (garrison,
 ## garrison_rate, fall_s, margin, margin_cause, grace_s_left; MECHANICS §3.5, at the WAR the current
-## valve sends it: `w_in`, gs._fort_wars()), relish_here, tide, redirect, siege, tithe, can_descend.
-## held_s_left is deprecated (0.0). Threat and warden are still stubs.
-static func fort_entry(gs: GameState, f: Dictionary, w_in: float) -> Dictionary:
+## valve sends it: `w_in`, gs._fort_wars(); the margin the wave train's, `train` being the fort's
+## gs._train_live() entry), relish_here, tide, redirect, siege, tithe, can_descend. held_s_left is
+## deprecated (0.0). Threat and warden are still stubs.
+static func fort_entry(gs: GameState, f: Dictionary, w_in: float, train := {}) -> Dictionary:
 	var id: String = f["id"]
 	var why := gs._descend_reason(id)
 	var fx := gs._relish_effects()
 	var archetype := gs._warden_archetype(id)
-	var ro := gs._fort_readout(f, w_in)
+	var ro := gs._fort_readout(f, w_in, train)
 	var held := RealmSim.is_held(f)
 	return {
 		"id": id, "name": str(f["name"]), "tier": int(f["tier"]), "cap": float(f["cap"]),
@@ -207,7 +209,8 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 	while gs.realm.forts[i]["id"] != id:
 		i += 1
 	var out := {"rev": gs.rev}
-	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i])))
+	var train: Dictionary = gs._train_live()["forts"].get(id, {}) if RealmSim.is_held(f) else {}
+	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i]), train))
 	return out
 
 
@@ -351,8 +354,11 @@ static func war_supports(gs: GameState, wars: Array) -> Dictionary:
 ## sustained differential (view_vei.diff_ema) moved by the FLOOD, the fall-through and the WAR to the
 ## forts whose garrison isn't pinned at 0 (it drains on to her queue) against today's, and the held
 ## forts' margins and war_supports as view_fort and view_hud compute them. At the current valve every
-## field equals the live views'.
-static func projection(gs: GameState, valve_in: Dictionary) -> Dictionary:
+## field equals the live views', the margins with `settled` (E2b-2 T3.4b).
+## Margins: by default (a drag) the one-wave probe, each row margin_verified false; with `settled` the wave
+## train at that valve (gs._train_valve, cached on the valve's WAR and the state), margin_verified true, the
+## same verdict view_fort reads at the current valve.
+static func projection(gs: GameState, valve_in: Dictionary, settled := false) -> Dictionary:
 	var v := gs._projection_valve(valve_in)
 	var mint := float(gs._split["mint"])
 	var war: float = mint * v["war"] + float(gs._split["muster"])
@@ -370,14 +376,16 @@ static func projection(gs: GameState, valve_in: Dictionary) -> Dictionary:
 	var diff := float(gs._readout["diff_ema"]) + (float(split["flood"]) - float(gs._split["flood"])) \
 		+ (float(wa[1]) - float(gs.realm.r_war_to_vei))
 	var margins := {}
+	var train: Dictionary = gs._train_valve(war)["forts"] if settled else {}
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
 		if float(f["undead"]) > 0.0:
 			diff += float(wars[i]) - float(now_wars[i])
 		if RealmSim.is_held(f):
-			var ro := gs._fort_readout(f, float(wars[i]))
-			margins[str(f["id"])] = {"margin": str(ro["margin"]), "margin_cause": str(ro["margin_cause"]),
-				"fall_s": float(ro["fall_s"]), "garrison_rate": float(ro["garrison_rate"])}
+			var id := str(f["id"])
+			var ro := gs._fort_readout(f, float(wars[i]), train.get(id, {}))
+			margins[id] = {"margin": str(ro["margin"]), "margin_cause": str(ro["margin_cause"]),
+				"fall_s": float(ro["fall_s"]), "garrison_rate": float(ro["garrison_rate"]), "margin_verified": settled}
 	return {"rev": gs.rev, "valve": v.duplicate(), "split": split, "workers_steady": steady, "backlog_diff": diff,
 		"war_supports": war_supports(gs, wars), "margins": margins}
 

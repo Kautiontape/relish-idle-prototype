@@ -140,6 +140,7 @@ func _all_views(s: GameState) -> void:
 			_view(s, name, [s.town_sim.effective_ladder(s.town_sim.ladder)])
 		elif name == "view_projection":
 			_view(s, name, [s.valve.duplicate()])
+			_view(s, name, [s.valve.duplicate(), true])  # T3.4b: the wave train's margins
 		else:
 			_view(s, name)
 	var l := s.ledger()

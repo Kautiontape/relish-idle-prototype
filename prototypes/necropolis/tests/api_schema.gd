@@ -272,10 +272,11 @@ const VIEWS := {
 	# the cmd_set_job_priority refusal its `order` would get
 	"view_staffing_projection": {"jobs": [{"id": S, "slots": I, "staffed": F}], "buildings": [{"lot_id": S, "staffed": F}],
 		"idle": F, "reason": S},
-	# api_version 6 (E2b-2 T3.1, api-requests #7 c, #13): takes `valve`
+	# api_version 6 (E2b-2 T3.1, api-requests #7 c, #13): takes `valve` (and, T3.4b, optionally `settled`); each
+	# margins row's margin_verified (T3.4b): the margin is the wave train's (settled) or the drag's one-wave probe
 	"view_projection": {"valve": VALVE, "split": {"work": F, "war": F, "flood": F, "war_overflow": F}, "workers_steady": F,
 		"backlog_diff": F, "war_supports": {"n": I, "m": I},
-		"margins": {"*": {"margin": S, "margin_cause": S, "fall_s": F, "garrison_rate": F}}},
+		"margins": {"*": {"margin": S, "margin_cause": S, "fall_s": F, "garrison_rate": F, "margin_verified": B}}},
 }
 ## Views that take an id argument (and return {} for an unknown one).
 const VIEW_ARGS := {"view_fort": 1, "view_dungeon_seed": 1}

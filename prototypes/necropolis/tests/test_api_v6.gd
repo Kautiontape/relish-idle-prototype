@@ -90,7 +90,9 @@ static func _ro(vf: Dictionary) -> Dictionary:
 
 
 ## The projection at the current valve is the live views, exactly: midgame_2flips (two forts in grace),
-## pre_vei (none held), and pre_vei with Ashgate and Vespers held, contested, after a substep.
+## pre_vei (none held), and pre_vei with Ashgate and Vespers held, contested, after a substep. The margins
+## (E2b-2 T3.4b): by default (a drag) they are the one-wave probe's, as before, each row margin_verified
+## false; with `settled` they are view_fort's (the wave train's), margin_verified true.
 func _projection_now() -> void:
 	t.suite("api-v6-projection")
 	var cases := []
@@ -119,11 +121,21 @@ func _projection_now() -> void:
 		t.ok(p["war_supports"] == hud["war_supports"], "%s: war_supports is view_hud's: %s" % [name, str(hud["war_supports"])])
 		t.ok(p["backlog_diff"] == s.view_vei()["diff_ema"], "%s: backlog_diff is the sustained differential (%f)" % [name, p["backlog_diff"]])
 		var want := {}
-		for f in s.view_realm()["forts"]:
+		var one := {}
+		var wars := s._fort_wars()
+		for i in s.realm.forts.size():
+			var f: Dictionary = s.view_realm()["forts"][i]
 			if f["held"]:
-				want[f["id"]] = _ro(f)
+				want[f["id"]] = _ro(f).merged({"margin_verified": true})
+				one[f["id"]] = _ro(s._fort_readout(s.realm.forts[i], float(wars[i]))).merged({"margin_verified": false})
 				t.ok(_ro(s.view_fort(f["id"])) == _ro(f), "%s, %s: view_fort and view_realm agree" % [name, f["id"]])
-		t.ok(p["margins"] == want, "%s: every held fort's margin, cause, fall_s and garrison_rate are view_fort's exactly: %s" % [name, str(p["margins"])])
+		var ps := s.view_projection(s.view_hud()["valve"], true)
+		t.ok(ps["margins"] == want, "%s: settled, every held fort's margin, cause, fall_s and garrison_rate are view_fort's exactly: %s" % [name, str(ps["margins"])])
+		t.ok(p["margins"] == one, "%s: by default, the one-wave probe's, as before: %s" % [name, str(p["margins"])])
+		ps.erase("margins")
+		var pd := p.duplicate(true)
+		pd.erase("margins")
+		t.ok(ps == pd, "%s: settled changes only the margins" % name)
 		t.ok(int(hud["war_supports"]["m"]) == want.size(), "%s: m is the held forts (%d)" % [name, want.size()])
 	t.ok(cases[0][1].view_projection({})["valve"] == cases[0][1].view_hud()["valve"], "a valve with no keys is the current one")
 
@@ -149,6 +161,9 @@ func _projection_pure() -> void:
 		var p := s.view_projection(v)
 		t.ok(absf(float(p["valve"]["work"]) + float(p["valve"]["war"]) + float(p["valve"]["flood"]) - 1.0) < 1e-12 and p["valve"] != cur,
 			"%s is normalised as cmd_set_valve would: %s" % [str(v), str(p["valve"])])
+		var ps := s.view_projection(v, true)
+		t.ok(ps["valve"] == p["valve"] and ps["margins"].size() == p["margins"].size()
+			and ps["margins"].values().all(func(r): return r["margin_verified"]), "%s with settled: the train's margins (margin_verified)" % str(v))
 	for bad in [{"work": -1.0, "war": 1.0, "flood": 0.0}, {"work": 0.0, "war": 0.0, "flood": 0.0}, {"work": INF, "war": 1.0, "flood": 0.0},
 			{"work": "x", "war": 1.0, "flood": 0.0}, {"war": 1.0}]:
 		var p := s.view_projection(bad)
@@ -169,7 +184,9 @@ func _projection_pure() -> void:
 
 ## fall_s and garrison_rate by hand, from fort_step's terms: Ashgate contested with no WAR, every other
 ## fort full of corpses, odds 0, q 1.2. Her reship S = reship_share · S_vei · 80 / Σcap; the rate is
-## 0 − min(r_drain · S / k_kill, k_destroy · (80 + τ · S) / q); fall_s = G / −rate + break_s.
+## 0 − min(r_drain · S / k_kill, k_destroy · (80 + τ · S) / q); fall_s = min(G, A / r_drain) / −rate +
+## break_s (E2b-2 T3.4b: the line starts at the level its support holds, here 0 with no WAR, so it is
+## break_s; with 0.1 mass/s of WAR, 0.1 / r_drain / −rate + break_s).
 func _by_hand() -> void:
 	t.suite("api-v6-by-hand")
 	var s := _mk()
@@ -192,12 +209,15 @@ func _by_hand() -> void:
 	var vf := s.view_fort("ashgate")
 	t.ok(s.realm.odds() == 0.0 and s.digest_q() == 1.2, "odds 0, q 1.2 (setup)")
 	t.near(float(vf["garrison_rate"]), rate, 1e-12, "garrison_rate = −min(r_drain · S / k_kill = %.6f, k_destroy · (cap + τ · S) / q = %.6f)" % [hold_off, pile])
-	t.near(float(vf["fall_s"]), 30.0 / -rate + float(cfg["hold"]["break_s"]), 1e-9, "fall_s = garrison / −rate + break_s (%.3f)" % float(vf["fall_s"]))
+	t.near(float(vf["fall_s"]), float(cfg["hold"]["break_s"]), 1e-9, "no WAR: fall_s = min(30, 0 / r_drain) / −rate + break_s = break_s (%.3f)" % float(vf["fall_s"]))
+	var ro_w := s.realm.readout_of(ash, 0.1, false, 4.0, false, 0.0, s.digest_q())
+	t.near(float(ro_w["fall_s"]), (0.1 / float(cfg["r_drain"])) / (minf(hold_off, pile) - 0.1) + float(cfg["hold"]["break_s"]), 1e-9,
+		"0.1 mass/s: fall_s = (0.1 / r_drain) / −rate + break_s (%.3f)" % float(ro_w["fall_s"]))
 	t.ok(vf["margin"] == "will_fall" and vf["margin_cause"] == "fall" and vf["garrison"] == 30.0 and vf["grace_s_left"] == 0.0 and vf["held_s_left"] == 0.0,
 		"will_fall (cause fall); garrison 30; no grace; held_s_left 0.0 (deprecated)")
 	s.realm.hold("ashgate", 200.0)
 	vf = s.view_fort("ashgate")
-	t.near(float(vf["fall_s"]), 200.0 + 30.0 / -rate + float(cfg["hold"]["break_s"]), 1e-9, "in grace, fall_s adds the grace left")
+	t.near(float(vf["fall_s"]), 200.0 + float(cfg["hold"]["break_s"]), 1e-9, "in grace, fall_s adds the grace left")
 	t.ok(vf["grace_s_left"] == 200.0 and vf["margin"] == "will_fall" and float(vf["garrison_rate"]) == rate,
 		"and grace_s_left > 0 marks the post-grace margin and rate")
 	var gr := s.view_fort("greywall")
@@ -271,11 +291,12 @@ func _run_ash(sim: RealmSim, seconds: float, inp: Dictionary) -> float:
 	return -1.0
 
 
-## The chip predicts the sim (RealmSim at 10 s; the readout is view_fort's own, RealmSim.readout_of at
-## the WAR the dispatch gives Ashgate): will_fall is retaken within safe_horizon_s with no wave; safe
-## holds the horizon with no wave and then a full wave; thin holds the horizon with no wave and is broken
-## by the full wave. fall_s is a straight line (G / −rate ignores U's decay and her living's climb), so
-## its gap to the sim's retake is printed, not gated.
+## The one-wave chip predicts the sim (RealmSim at 10 s; RealmSim.readout_of with no train verdict at the
+## WAR the dispatch gives Ashgate: the margin view_projection gives during a drag; view_fort's is the wave
+## train's since E2b-2 T3.4b, tested in test_wave_train): will_fall is retaken within safe_horizon_s with no
+## wave; safe holds the horizon with no wave and then a full wave; thin holds the horizon with no wave and
+## is broken by the full wave. fall_s is a straight line (G / −rate ignores U's decay and her living's
+## climb), so its gap to the sim's retake is printed, not gated.
 func _chip_predicts() -> void:
 	t.suite("api-v6-chip")
 	var horizon := float(TestUtil.configs()["realm"]["hold"]["safe_horizon_s"])
@@ -313,26 +334,60 @@ func _chip_predicts() -> void:
 	print("  [api-v6-chip] Ashgate, no WAR: fall_s %.1f s, the sim's retake %.1f s (gap %.1f s)" % [ro["fall_s"], at, at - float(ro["fall_s"])])
 
 
-## The margin's order (E2b-2 T3.2 §0; MECHANICS §3.5): will_fall, then thin "wave" when one full wave
-## breaks it, then thin "fall" when it falls beyond the horizon, then safe. A contested Ashgate at q 2 (her
-## living's pile binds first) with 60 undead and its WAR just under the edge falls past the 8 h horizon.
-## With the shipped probe a falling fort's probe starts at the garrison its support holds, which is 0, so
-## a full wave always breaks it and the slow fall still reads "wave" (printed). The probe can only hold
-## where it can't see a break: with hold.probe_s under hold.break_s it never breaks, and the slow fall
-## reads cause "fall" (the reviewer's case: slow attrition, not a wave, is the threat).
+## The margin's order (E2b-2 T3.2 §0, T3.4b; MECHANICS §3.5): will_fall, then thin "wave" when the waves
+## break it, then thin "fall" when it falls beyond the horizon, then (the train) thin "wave" when unsettled,
+## then safe. A contested Ashgate at q 2 (her living's pile binds first) with 60 undead and its WAR just
+## under the edge falls past the 8 h horizon.
+## - The one-wave probe (view_projection's drag): a falling fort's probe starts at the garrison its support
+##   holds, which is 0, so a full wave always breaks it and the slow fall reads "wave" (printed). With
+##   hold.probe_s under hold.break_s it can't see a break, and the slow fall reads cause "fall".
+## - The wave train (view_fort, the shipped settings): it starts from today's state, but that doesn't make
+##   this fort's slow fall reachable: its 60 undead decay to the level its WAR holds within about a minute,
+##   and its first wave pins it past break_s, so the train breaks it and it reads thin (wave), as the one-wave
+##   probe did. A slow fall no wave in the train breaks is a shielded one: Old Sluice with its WAR just under
+##   the edge (a rate of −G / (1.5 × the horizon), so fall_s is about 1.5 × the horizon) beside Ashgate at 3.0
+##   mass/s, whose larger garrison draws every wave. The train never hits Old Sluice, the set settles, and
+##   its slow fall reads thin (fall): slow attrition, not a wave, is the threat (the reviewer's case).
 func _chip_slow_fall() -> void:
 	t.suite("api-v6-chip-slow-fall")
 	var horizon := float(TestUtil.configs()["realm"]["hold"]["safe_horizon_s"])
+	# the wave train, shipped settings: T3.2's slow faller (the train breaks it)
+	var lone := _slow_sim(TestUtil.configs())
+	lone.hold("ashgate", 0.0)
+	var fa := lone.fort_by_id("ashgate")
+	fa["undead"] = 60.0
+	var sa := lone.reship_rate(fa)
+	var ea := minf(lone._r_drain * sa / lone._k_kill, lone._k_destroy * (80.0 + lone._march * sa) / 2.0)
+	var wa := ea / (1.0 + 1.0 / (2.0 * horizon * lone._r_drain))
+	var tra := lone.train_probe({"ashgate": [wa, false, 4.0, false, 0.0]}, 2.0)
+	var roa := lone.readout_of(fa, wa, false, 4.0, false, 0.0, 2.0, tra["forts"]["ashgate"])
+	t.ok(roa["garrison_rate"] < 0.0 and float(roa["fall_s"]) > horizon and bool(tra["forts"]["ashgate"]["broken"]) and [roa["margin"], roa["margin_cause"]] == ["thin", "wave"],
+		"the train: T3.2's slow faller (q 2, 60 undead, fall_s %.0f s) is broken by its first waves (%s): thin (wave)" % [roa["fall_s"], str(tra["targets"])])
+	# the wave train, shipped settings: a shielded slow faller reads thin (fall)
+	var two := _slow_sim(TestUtil.configs())
+	for id in ["ashgate", "old-sluice"]:
+		two.hold(id, 0.0)
+		two.fort_by_id(id)["dead"] = 0.0
+	var fo := two.fort_by_id("old-sluice")
+	var so := two.reship_rate(fo)
+	var off_o := two._r_drain * so / two._k_kill
+	var wo := off_o / (1.0 + 1.0 / (1.5 * horizon * two._r_drain))  # its level G = wo / r falls at G / 1.5 h
+	fo["undead"] = wo / two._r_drain
+	two.fort_by_id("ashgate")["undead"] = 3.0 / two._r_drain
+	var tr2 := two.train_probe({"ashgate": [3.0, false, 4.0, false, 0.0], "old-sluice": [wo, false, 4.0, false, 0.0]}, 1.2)
+	var ro2 := two.readout_of(fo, wo, false, 4.0, false, 0.0, 1.2, tr2["forts"]["old-sluice"])
+	t.ok(ro2["garrison_rate"] < 0.0 and float(ro2["fall_s"]) > horizon and not (tr2["targets"] as Array).has("old-sluice")
+		and bool(tr2["settled"]) and not bool(tr2["forts"]["old-sluice"]["broken"]),
+		"the premise: Old Sluice's rate %.5f < 0, fall_s %.0f s past the horizon; every wave to Ashgate (%s); the set settles" % [
+		ro2["garrison_rate"], ro2["fall_s"], str(tr2["targets"])])
+	t.ok([ro2["margin"], ro2["margin_cause"]] == ["thin", "fall"], "the train: the shielded slow fall reads %s (%s)" % [ro2["margin"], ro2["margin_cause"]])
+	# the one-wave probe (a drag), as T3.2 pinned it
 	for short_probe in [false, true]:
 		var all := TestUtil.configs().duplicate(true)
 		if short_probe:
 			all["realm"]["hold"]["probe_s"] = 0.5 * float(all["realm"]["hold"]["break_s"])
-		var sim := RealmSim.new()
-		sim.setup(all["world"], all["realm"])
-		sim.vei["living_pool"] = 600.0
+		var sim := _slow_sim(all)
 		for o in sim.forts:
-			o["living"] = 0.0
-			o["undead"] = 0.0
 			o["dead"] = 0.0
 		sim.hold("ashgate", 0.0)
 		var f := sim.fort_by_id("ashgate")
@@ -341,7 +396,8 @@ func _chip_slow_fall() -> void:
 		var s := sim.reship_rate(f)
 		var hold_off := sim._r_drain * s / sim._k_kill
 		var pile := sim._k_destroy * (float(f["cap"]) + sim._march * s) / q
-		var w := minf(hold_off, pile) - 60.0 / (2.0 * horizon)  # a rate of −60 / 2h: it falls at about 2 × the horizon
+		var edge := minf(hold_off, pile)
+		var w := edge / (1.0 + 1.0 / (2.0 * horizon * sim._r_drain))  # a rate of −(w / r_drain) / 2h: fall_s about 2 × the horizon
 		var ro := sim.readout_of(f, w, false, 4.0, false, 0.0, q)
 		var breaks := sim._wave_breaks(f, w, s, w, false, 4.0, false, 0.0, q, hold_off)
 		var label := "probe_s %.0f" % float(all["realm"]["hold"]["probe_s"])
@@ -354,23 +410,44 @@ func _chip_slow_fall() -> void:
 			print("  [api-v6-chip-slow-fall] shipped probe: a falling fort's probe starts at a 0 garrison and breaks, so a slow fall reads thin (wave)")
 
 
+## A RealmSim for the slow-fall cases: her pool full, no living or undead anywhere, every fort full of
+## corpses (so WAR reaches only the held forts), her clock started (the first wave one period away).
+func _slow_sim(all: Dictionary) -> RealmSim:
+	var sim := RealmSim.new()
+	sim.setup(all["world"], all["realm"])
+	sim.vei["living_pool"] = 600.0
+	for o in sim.forts:
+		o["living"] = 0.0
+		o["undead"] = 0.0
+		o["dead"] = float(o["cap"])
+	sim.start_tithe()
+	return sim
+
+
 ## A fort in grace shows grace_s_left > 0 and its post-grace readouts: midgame_2flips at load (374.5 s
-## of grace on Ashgate and Old Sluice) reads the margin, cause and rate the same forts read with their
-## grace ended, and fall_s adds the grace.
+## of grace on Ashgate and Old Sluice) reads the rate the same forts read with their grace ended, and
+## fall_s adds the grace. The margin (E2b-2 T3.4b) is the wave train's run through the grace, which no
+## wave reaches (test_wave_train's grace case): what the fort faces once contested, from the garrison the
+## grace leaves it. It is no longer the same word the forts read with their grace zeroed now, which face
+## a wave at once with today's garrison: a different train, not the same fort later.
 func _grace_view() -> void:
 	t.suite("api-v6-grace")
 	var a := _fixture("midgame_2flips")
 	var b := _fixture("midgame_2flips")
 	for id in ["ashgate", "old-sluice"]:
 		b.realm.fort_by_id(id)["grace_s"] = 0.0
-	for id in ["ashgate", "old-sluice"]:
+	var tr := a._train_live()
+	for i in [0, 1]:
+		var id: String = a.realm.forts[i]["id"]
 		var va := a.view_fort(id)
 		var vb := b.view_fort(id)
-		t.ok(va["grace_s_left"] == 374.5 and vb["grace_s_left"] == 0.0 and va["margin"] == vb["margin"] and va["margin_cause"] == vb["margin_cause"]
+		var want := a.realm.readout_of(a.realm.forts[i], float(a._fort_wars()[i]), false, a._raise_rate, false, 0.0, a.digest_q(), tr["forts"][id])
+		t.ok(va["grace_s_left"] == 374.5 and vb["grace_s_left"] == 0.0 and va["margin"] == want["margin"] and va["margin_cause"] == want["margin_cause"]
 			and va["garrison_rate"] == vb["garrison_rate"] and va["margin"] != "" and (va["fall_s"] < 0.0) == (vb["fall_s"] < 0.0)
 			and (va["fall_s"] < 0.0 or absf(va["fall_s"] - vb["fall_s"] - 374.5) < 1e-9),
-			"%s in grace (%.1f s left): the post-grace margin %s (%s), rate %.4f, fall_s %.1f" % [id, va["grace_s_left"], va["margin"],
-			va["margin_cause"], va["garrison_rate"], va["fall_s"]])
+			"%s in grace (%.1f s left): the train's post-grace margin %s (%s), rate %.4f, fall_s %.1f (grace zeroed: %s)" % [id, va["grace_s_left"],
+			va["margin"], va["margin_cause"], va["garrison_rate"], va["fall_s"], vb["margin"]])
+	t.ok(bool(tr["samples"][0][1]), "midgame's first wave starts in grace and threatens neither (targets %s)" % str(tr["targets"]))
 
 
 # --------------------------------------------- §3 counter_garrison_cleared (#10) ----

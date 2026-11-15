@@ -97,8 +97,9 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `view_lanes()`: `[{from, to, kind: war|flood|work|dead|living|haul|redirect, rate, bias,
     why}]`, where `why` is a short change callout such as "Relish left" or "tithe wave" (vision S1);
   - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`;
-  - `view_projection(valve)`: the held forts' margins, "WAR supports N of M", the split and the
-    payoff at another valve, pure (E2b-2, §3.5).
+  - `view_projection(valve, settled := false)`: the held forts' margins, "WAR supports N of M", the
+    split and the payoff at another valve, pure (E2b-2, §3.5); `settled` judges the margins against the
+    wave train (T3.4b), as `view_fort` does, instead of a drag's one-wave probe.
 - **Relish:** `view_relish()`: state, pos, target, heading, `dead_s_left`, phylactery charges,
   clones ready, `can_descend` and the reason.
 - **Town:** `view_town()`, `view_catalog()` (each building with cost, `can_build` and the reason),
@@ -398,7 +399,10 @@ fort with `held_s > 0` loads held, with `grace_s = held_s` and `zero_s = 0`.
 already naming the fort (it was warned, then flipped; or a save holds one) is dropped and made
 again, for another target, at that step's end (or at once when the wave is due within the step); a
 wave already running there delivers nothing while the grace lasts. midgame_2flips loads with such a
-warning on Ashgate (374.5 s of grace, the wave due in 150 s): its first step warns Greywall instead.
+warning on Ashgate (374.5 s of grace, the wave due in 150 s): its first step warns Greywall instead. The
+re-target is visible at once (E2b-2 T3.4b, `test_wave_train`'s re-target case): the moment the fort enters
+grace `view_vei().tithe` has no target and `view_fort().tithe` no longer names it; the next step's warning
+names the new target in both views, and a new `tithe_warning` (the next `wave_id`) names it.
 
 **The contest** (after grace):
 - **your garrison** is your undead there (`undead`), fed by WAR staging (§3.2): WAR is split across
@@ -658,68 +662,153 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     well-supplied fort would read falling, `war_supports` would count it unsupported, and "will
     fall" would mislabel forts that hold. This rate's sign is the outcome; it reads neither today's
     garrison nor today's (possibly surged) living, so it doesn't flicker through a wave.
-- **`fall_s` = grace left + `G / −garrison_rate` + `hold.break_s`** while the rate is < 0, else −1
-  (never INF). A straight line: it ignores U's decay toward its level and her living's climb, which
-  accelerates as the garrison shrinks. Measured against RealmSim at 10 s from a contested Ashgate with
-  every other fort full of corpses (`test_api_v6`'s chip cases): with 0.2 mass/s of WAR (garrison
-  3.3) `fall_s` is 143 s and the fort falls at 722 s (her living climb at only `S − k_kill · G` =
-  0.043/s at first, and must pile to `q · W / k_destroy` = 40 before they pin it); with no WAR and
-  43.9 undead `fall_s` is 248 s and it falls at 209 s (the drain empties U faster than the line). So
-  the clock is a hint of minutes against hours, not a timer.
-- **`margin`**, checked in this order (E2b-2 T3.2): `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤
-  `hold.safe_horizon_s` (8 h); else `thin` (cause `wave`) when **one full wave breaks it**; else `thin`
-  (cause `fall`) when it falls beyond the horizon (`garrison_rate` < 0: slow attrition, not a wave, is
-  the threat); else `safe`. A slow fall used to read cause `wave` whatever the probe said.
-  - With today's probe a falling fort still reads `wave`: its probe starts at the garrison its support
-    holds, which is 0 whenever `garrison_rate` < 0 (the stalemate's garrison `(A − k_destroy · L / q) /
-    r_drain` at her pile is > 0 exactly when the rate is), so a full wave always breaks it. Cause `fall`
-    on `thin` shows only where the probe can't reach a break (`hold.probe_s` < `hold.break_s`;
-    `test_api_v6`'s slow-fall case). Starting a falling fort's probe from today's garrison would make it
-    reachable; T3.2's report proposes it.
-  - "A full wave would break it" is RealmSim's own fort_step run on a scratch copy of the fort at
-    `hold.probe_dt_s` (10 s) for at most `hold.probe_s` (600 s): the garrison at the least of today's
-    and the level its support holds (`A / r_drain`, or the stalemate's), her living at the level her
-    reship keeps there (none, or the stalemate's pile `(cap + τ·S − τ·k_kill·A / r) / (1 −
-    τ·k_kill·k_destroy / (q·r))`), no corpses; one wave of `surge_mult · S_vei` living/s × the
-    counters (`relish_mult` where Relish stands, less the siege's block, as the sim's own siege
-    input reads it) for `surge_s` on top of her reship, with Relish's raise where she redirects;
-    the zero clock as the sim runs it, a probe step ending at the break's moment as `step()`
-    splits there. Broken when the clock reaches `break_s`; survived once the wave is over and her
-    living can no longer pin the garrison: where it kills her reship as it lands, once it does
-    (`k_kill · U ≥ S`) and has stopped shrinking (`A ≥ r_drain · U + k_destroy · L / q`), since from
-    then her living only fall and the garrison only grows; in the stalemate, once her living are back
-    under the pile.
-  - **Which forts a wave can reach** isn't computable inside the horizon: the target is the
-    contested fort with the most undead at each warning, and the waves themselves move those
-    undead. So every contested fort is judged against one full wave (the cheapest honest version
-    the run's manager allowed). With `period_s` 420 many waves fall in 8 h, so a fort a full wave
-    would break is never "safe".
-  - The probe's edges are the 10 s column of §3.4's table (Ashgate 1.033, Greywall 1.077, Vespers
-    1.386, Whitecross 3.026; with Relish there 0.547, 0.582, 0.837, 2.219; before E2b-2 T3.3a's exact
-    leave from 0, 1.040, 1.086, 1.407, 3.029 and 0.547, 0.581, 0.838, 2.216). Against live play at
-    0.5 s that is conservative (it calls thin what holds) or equal, except at Whitecross (3.026
-    against 3.028) and with Relish at Greywall (0.582 against 0.583) and Whitecross (2.219 against
-    2.242): within about 1% of the WAR below those edges (1.03% at Whitecross with Relish, 0.17% at
-    Greywall with her, 0.07% at Whitecross without) the chip reads safe where a 0.5 s run breaks.
-- **What the chip can't see:** a margin reads today's flows. midgame_2flips as loaded: Old Sluice
-  reads safe (1.258 mass/s of WAR); 30 s in Relish reaches Greywall, her tide pulls its WAR to 0.761
-  and it reads thin; the next wave there (1 177 s) breaks it (retaken at 1 316 s, at 0.5 and 10 s
-  alike). Ashgate reads safe at 1.119 (q 1.31 and odds 0.26 put its edge at 0.956), and its first
-  wave pins its garrison at 0 for about 90 s of the 120. As her odds climb over the hours the waves
-  come faster and her reship grows, which no reading of today's flows foresees: at 10 s Ashgate
-  falls at 5.4 h, at 0.5 s it stands at 12 h in a stalemate (4 undead against 164 of her living,
-  178 waves in).
-  One full wave is the judge, as ruled; a train of waves at her period would see more (and cost
-  about 4 cycles of the probe per fort; T3.1's report proposes it).
-- **During grace** every readout is the post-grace one (the reship it will face; `fall_s` adds the
-  grace left), and `grace_s_left` > 0 says so.
+- **`fall_s` = grace left + `min(G, A / r_drain) / −garrison_rate` + what is left of `hold.break_s`**
+  (all of it, less the zero clock while the garrison already sits at 0) while the rate is < 0, else −1
+  (never INF). A straight line from the level the support holds. **It errs early** (E2b-2 T3.4b, the run's
+  manager: "make it err EARLY"): the fort is retaken no sooner than it says. Measured against RealmSim at
+  0.5 s with no wave from a contested Ashgate (or Whitecross) with every other fort full of corpses, 38
+  cases (q 1.2 and 2, 0 to 2 mass/s of WAR, the garrison at its level, at 40, 80 or 300, Relish there,
+  in grace, pinned): early in every one, by 0 s (a garrison at 0 with nothing arriving: exactly
+  `break_s`) to 1 377 s (0.3 mass/s with 80 undead: 236 s against 1 613 s). Two terms make it so:
+  - **the line starts at the level** `A / r_drain`: a garrison above it drains to it within a few
+    `1 / r_drain` (17 s), far faster than the line. From the garrison itself (before T3.4b) the clock read
+    late whenever it started well above that level: 353 s against 219 s with no WAR and 80 undead, 1 981 s
+    against 1 613 s at 0.3 mass/s, 1 428 s against 1 587 s at Whitecross from 300 (early only there);
+  - **the zero clock**: a garrison already pinned at 0 has only `break_s − zero_s` left (60 s against
+    60 s with 60 s on the clock; before, 120 s).
+  At the level the line was already early, and stays so: with 0.2 mass/s (garrison 3.3) 143 s against
+  733 s (her living climb at only `S − k_kill · G` = 0.043/s at first, and must pile to `q · W /
+  k_destroy` = 40 before they pin it). So the clock is a warning of minutes against hours, never late.
+- **`margin`**, checked in this order (E2b-2 T3.2, T3.4b): `will_fall` (cause `fall`) when 0 ≤ `fall_s` ≤
+  `hold.safe_horizon_s` (8 h); else `thin` (cause `wave`) when **the wave train breaks it** (below); else
+  `thin` (cause `fall`) when `garrison_rate` < 0 (attrition beyond the horizon: unsettled by the fall, not
+  by the waves); else `thin` (cause `wave`) when the held set **hasn't settled** by the train's cap; else
+  `safe`. The order is the one ruled: a fort the train breaks would also fall, but its threat is the
+  waves, and a fort that falls without them is never settled anyway (it weakens every cycle). `view_fort`
+  and `view_realm` read the train; `view_projection` reads it with `settled` and keeps the one-wave probe
+  (below) for a drag. The run's manager: "'safe' judges against the WAVE TRAIN (correctness first; the
+  worst lie = safe then breaks overnight)".
+  - **The wave train** (`RealmSim.train_probe`): every held fort runs forward **together**, from
+    **today's state** (each fort's garrison, her living there, its corpses, its zero clock and its
+    grace; the tithe as it stands: `next_s`, a pending warning and its target, a running wave and its
+    `s_left`), on scratch copies, at each fort's support (the WAR the valve sends it, Relish's redirect
+    and tide, the siege's block, `q`). It is RealmSim's own `fort_step` at `hold.probe_dt_s` (10 s), each
+    step cut at the next event so each lands at its time (a warning, a wave's start and end, a grace end,
+    a garrison at 0 reaching `break_s`), with the zero clock as step 9 runs it (T3.3a's leave-0 split
+    included), through her waves at her period (`tithe_period`, at today's odds). A contested fort gets
+    her reship, a fort in grace nothing; the running wave surges `surge_mult · S_vei` × its counters into
+    its target (her pool assumed to cover it). A fort whose clock reaches `break_s` is **broken** and
+    leaves the held set. A clock not yet started (only a test or debug holds a fort with no flip) runs as
+    if started now.
+  - **Targets**, as `_tithe_target`: at each warning, the contested fort (held, past grace, not broken)
+    with the most undead, ties in world order. A fort in grace is never a target; a pending warning naming
+    one is dropped and made again at once, as the clock does. The target is fixed at the warning, so a
+    wave warned while every held fort is in grace goes elsewhere even if the grace ends before it lands.
+    With no contested fort the rule's second branch (the fort receiving the most WAR) picks a fort that
+    isn't held (every held fort is then in grace or broken), so that wave threatens none. Several held
+    forts are probed in one joint run because the target depends on all of them: Ashgate (1.19 mass/s)
+    and Old Sluice (0.81) take waves Ashgate, Old Sluice, Ashgate, ... (Ashgate's first wave leaves it
+    below Old Sluice at the second warning), the order RealmSim's own 0.5 s steps give, and Old Sluice
+    breaks in both (`test_wave_train`).
+  - **Settled, judged jointly**: at each wave's start the probe samples the set, and compares it with the
+    sample p cycles before (the smallest p with the same wave starting at both, both after the last grace
+    end or break in the probe: a repeating target sequence, so A, A, A compares consecutive cycles and A,
+    B, A, B every second one). Every fort's zero clock must be at 0, and within `hold.train_settle_tol` ×
+    its cap (0.08 mass at Ashgate): a fort that **every** wave of those p cycles targeted must be no
+    weaker (garrison no lower, her living no higher, its corpses no lower where Relish raises); **any
+    other** contested fort must repeat both ways. That second rule tightens the ruled "no weaker" (the
+    run's manager's design asked for no weaker everywhere): a fort no wave hit is shielded by a
+    neighbour's larger garrison, and a garrison still rising there (or her living still falling, which
+    would raise it) could overtake the neighbour and draw a wave it was never tested against; for a fort
+    every wave already hits, more undead only keep the waves on it. Settled, every unbroken fort is;
+    before that, none is (the shielded fort: `test_wave_train`'s Old Sluice beside Ashgate at 1.2 mass/s,
+    never hit and the same at every sample, reads thin with the cap at 2 cycles, where Ashgate hasn't
+    repeated yet, and safe at the shipped 4, where it has).
+  - **The cap**: at most `hold.train_max_cycles` (4) cycles after the first sample of the current
+    epoch (since the last grace end or break), and the probe stops early once settled or every fort is
+    broken. A set still unsettled there reads thin, not safe. It also stops at `hold.safe_horizon_s` of
+    probe time, which counts as held (only a clock pushed far off, in tests, gets there).
+  - **What it reads that isn't in today's flows yet**, both committed and changed only by a command: the
+    WAR **at the valve's target** (it slews there at `valve.slew_per_s`, at most 20 s for a full swing),
+    and **Relish where she is travelling to** (her trip takes seconds at `relish.travel_speed`): her tide
+    and redirect there, and the split with her tide moved there (`RealmSim.war_at_tide`). midgame_2flips
+    as loaded has her a second from Greywall; held where she stands, the train called Old Sluice safe at
+    its WAR of 1.258, which her tide cuts to 0.761 and the next waves break (retaken at 1 316 s). The
+    other readouts (`garrison_rate`, `fall_s`, `war_supports`) stay at the current split. Before the
+    first substep after a load (no dispatch yet) it reads the saved `r_in` with her where she stands, as
+    they do: midgame_2flips as loaded reads both forts safe for that half second, then thin.
+  - **Quiet stretches**: while every fort has no living and kills her reship as it lands (`k_kill · U ≥
+    S` from now to its level), or is in grace, fort_step's path is exact over any step, and the probe goes
+    straight to the next event: the same verdicts and samples as 10 s steps (to 1e-15), in 37 steps
+    instead of 84 for a strong Ashgate.
+  - **The odds caveat**: her odds climb over hours (the waves come faster, her reship grows) and the
+    train holds today's. In the truth check below no safe fort fell to that: midgame's Ashgate read safe
+    from 30 min to 4 h and stood all 12 h while her odds climbed, and pre_vei+2's forts, read safe at odds
+    0.60 to 0.96 (the period from 294 to about 220 s, the reship × 1.30 to 1.48), stood until the town's
+    economy failed (below).
+  - **The one-wave probe** (view_projection during a drag, `margin_verified` false): RealmSim's own
+    fort_step on a scratch copy of the fort at `hold.probe_dt_s` for at most `hold.probe_s` (600 s): the
+    garrison at the least of today's and the level its support holds (`A / r_drain`, or the
+    stalemate's), her living at the level her reship keeps there (none, or the stalemate's pile `(cap +
+    τ·S − τ·k_kill·A / r) / (1 − τ·k_kill·k_destroy / (q·r))`), no corpses; one wave of `surge_mult ·
+    S_vei` living/s × the counters for `surge_s` on top of her reship, with Relish's raise where she
+    redirects; the zero clock as the sim runs it. Broken when the clock reaches `break_s`; survived once
+    the wave is over and her living can no longer pin the garrison. Its margin is the order above with
+    "one full wave breaks it" for the train and no settled test. A falling fort's probe starts at a 0
+    garrison, so a full wave always breaks it and a slow fall reads `wave` unless `hold.probe_s` <
+    `hold.break_s`. Its edges are the 10 s column of §3.4's table (Ashgate 1.033, Greywall 1.077,
+    Vespers 1.386, Whitecross 3.026; with Relish there 0.547, 0.582, 0.837, 2.219). It misses wave
+    trains: a lone Ashgate at 1.04 to 1.10 mass/s survives one wave but not the next, since her living
+    from the first haven't gone when the second lands (the train breaks it at its second wave, RealmSim
+    at 0.5 s retakes it after its second, at 970 s).
+  - **A slow fall the train can read**: today's-state start doesn't make T3.2's slow faller (Ashgate at q
+    2, 60 undead, its WAR just under the edge) reach cause `fall`: its garrison drains to its level
+    within a minute and its first waves pin it past `break_s`, so it reads thin (wave). A slow fall no
+    wave in the train breaks is a shielded one: Old Sluice just under the edge beside a stronger Ashgate
+    that draws every wave reads thin (fall) (`test_api_v6`'s slow-fall case).
+- **Cadence and cache** (`GameState._train`): one joint probe serves `view_realm`'s rows, every
+  `view_fort` and `view_projection` with `settled` at the valve's target. It is computed lazily, on the
+  first read after the state moved, and cached on `[rev, t, q, the support, RealmSim.train_state()]`:
+  `rev` and `t` as the build projections key theirs (a catch-up's core steps move `t` without `rev`), and
+  the state the probe starts from, so an edit that bumps neither still misses. Nothing in the sim reads
+  the margin (`war_supports` reads `garrison_rate` only), so lazy is the same as once per step and costs a
+  catch-up nothing. Since T3.2's lesson (work in a view call lands on the substep frames, where the scenes
+  refetch), on the frame path (the shell's capped `tick`) a read after a substep doesn't probe when only
+  live substeps have moved the state since the cached one (no command since): it serves that verdict, at
+  most a few substeps old, and `GameState._train_frame` re-probes on the next frame with no substep, at
+  least `hold.train_frame_phase` (0.5) of a substep into the interval, while a view reads it; when every
+  frame substeps it re-probes after `hold.train_starve_frames` (30) of them. A command re-probes at the
+  next read, on its own frame. Headless calls (tests, a catch-up) always probe on a miss, exactly.
+- **The truth check** (`tests/slow/margin_truth.gd`): from each start, live 0.5 s steps for 12 h with no
+  input; at the first substep and every 30 min to 4 h, each held fort's margin, then what happened in the
+  next 8 h. midgame_2flips: 10 samples; the train read Ashgate and Old Sluice thin at t0 (Old Sluice fell
+  at 1 316 s, Ashgate held: thin and pessimistic there) and Ashgate safe from 30 min to 4 h (8 safe,
+  all held); the one-wave probe read all 10 safe, Old Sluice's at t0 the lie. pre_vei and fresh hold no
+  fort (no sample). pre_vei with Ashgate and Vespers contested: 10 safe samples, train and one-wave
+  alike, all broken at 2.2 and 2.4 h, after the town's gold ran out (pre_vei's gold floor: its pits stop,
+  the mint goes from 60.8 to 2.0 and the WAR from 49.7 to 0.95 mass/s): neither probe reads the town, so
+  the check counts a safe fort that fell after its WAR dropped below half its sampled value apart, as its
+  WAR falling, and prints it. midgame with the valve's WAR share cut to 0.05: both read thin at t0 (the
+  one-wave probe safe) and both fell. So 18 safe samples, none broken by the waves.
+- **During grace** every readout is the post-grace one: the reship it will face; `fall_s` adds the
+  grace left; the margin is the train's run through the grace, which no wave reaches, from the garrison
+  the grace leaves it. `grace_s_left` > 0 says so.
 - **`war_supports`** `{n, m}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0. More WAR never
   supports fewer (water-filling is monotone in the WAR it splits).
-- **Cost**, best of 3 runs of 200 calls at a load average of about 3 on 12 cores (no time is
-  asserted): `view_projection` 163 µs on midgame_2flips (2 held), 22 µs on pre_vei (none held), 83
-  µs on pre_vei with 2 contested and 174 µs with 5, against the manager's ~1 ms per drag frame;
-  `view_realm` 295 µs on midgame_2flips. The probe runs per held fort per call (about 30 µs);
-  `war_supports` reads only the rate.
+- **Cost** (E2b-2 T3.4b), best of 3 at a load average of about 6.5 on 12 cores (no time is asserted). The
+  train probe uncached: 1 183 µs on midgame_2flips (2 held, 119 steps, unsettled at its 4-cycle cap), 1 209
+  µs 10 min in (172 steps: Old Sluice broken, Ashgate settled in 3 cycles), 7 µs on pre_vei (none held),
+  119 µs on pre_vei with 2 contested and 289 µs with 5 (each settled in one cycle); a cached read (the key)
+  about 20 µs. `view_realm` 313 µs on midgame_2flips with the train cached (476 µs at T3.4a's tip, which ran
+  two one-wave probes per call). Frames, a headless per-frame bench of the world map at 1600 × 900 (60 s of
+  live play, uncapped, against T3.4a's tip `2c01f45`): on midgame_2flips the 121 probes all landed on frames
+  with no substep (p50 1.8 ms, max 2.4 ms, against about 0.25 ms for such a frame) and the substep frames got
+  cheaper (p50 4.5 to 4.7 ms against 4.8 to 5.1); best of 3, p99 776 µs (757), max 6.98 ms (9.66), 0 frames
+  over 8 ms (1). On pre_vei with 2 contested, p99 808 µs (804), max 8.95 ms (9.06), 3 over 8 ms (3, every
+  one a substep frame). Lazily on the substep frames (before the frame refresh) midgame's substep frames
+  rose to p50 6.2 ms and max 8.4 ms, 6 frames over 8 ms, which a refresh cadence alone couldn't fix (each
+  probe would still land on a substep frame). The one-wave probe (a drag's `view_projection`) is about
+  30 µs per held fort per call; `war_supports` reads only the rate.
 
 ### 3.6 Simulacra (kept, defined)
 - Crafted at the Ossuary from essence and a relic.
@@ -1286,7 +1375,9 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
 - **Flips and tithe:** grace and the contest (her reship, the zero clock, the break, the hold rule
   both ways), shipping-share loss, the clock from the first flip, warning, target, wave, counters
   (`game_state_macro`, `realm_sim`, `held_forts`); the held forts' readouts and `view_projection`
-  (`api_v6`).
+  (`api_v6`); the wave train, its targets against RealmSim's own steps, its settled rule, its cache and
+  frame refresh, and the fall clock erring early (`wave_train`); whether a safe fort stands 8 h on, in live
+  play (`slow/margin_truth`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
   muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate

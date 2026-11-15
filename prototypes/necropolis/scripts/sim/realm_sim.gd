@@ -49,7 +49,7 @@ extends RefCounted
 const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei", "vei_pool_cap", "K", "covFalloff",
 	"veiPolicy", "start_living_frac", "tithe.period_s", "tithe.backlog_scale", "tithe.warning_s", "tithe.surge_s",
 	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s", "hold.reship_share", "hold.break_s",
-	"hold.safe_horizon_s", "hold.probe_dt_s", "hold.probe_s"]
+	"hold.safe_horizon_s", "hold.probe_dt_s", "hold.probe_s", "hold.train_settle_tol", "hold.train_max_cycles"]
 ## A step's rates that a split step (step()) averages over its parts, weighted by time.
 const _PART_FORT_RATES := ["r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised", "r_staged", "r_redirected", "r_kills", "r_surge"]
 const _PART_VEI_RATES := ["r_in_undead", "r_in_dead", "r_converted", "r_shipped"]
@@ -82,6 +82,11 @@ var _break_s := 0.0
 var _horizon_s := 0.0
 var _probe_dt := 0.0
 var _probe_s := 0.0
+var _settle_tol := 0.0
+var _max_cycles := 0
+## train_probe goes straight to the next event while every fort is still (_train_still); tests turn it off
+## to check the jump changes nothing. Not saved.
+var train_jump := true
 ## _load calls a step made and skipped (a bound showed the room it computes can't cut the give), for
 ## tests (not saved).
 var _n_load := 0
@@ -205,6 +210,8 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_horizon_s = maxf(0.0, _tf("hold.safe_horizon_s"))
 	_probe_dt = maxf(0.01, _tf("hold.probe_dt_s"))
 	_probe_s = maxf(0.0, _tf("hold.probe_s"))
+	_settle_tol = maxf(0.0, _tf("hold.train_settle_tol"))
+	_max_cycles = maxi(1, int(_tf("hold.train_max_cycles")))
 	var start_frac := _tf("start_living_frac")
 	cov_pos = _vec(world.get("covington", {}).get("pos", [1780, 1270]))
 	vei_pos = _vec(world.get("vei", {}).get("pos", [1024, 130]))
@@ -1544,6 +1551,26 @@ func war_at(war: float) -> Array:
 	return _water_into(maxf(0.0, war), _disp_w, _disp_lim, capped)
 
 
+## war_at() with the tide moved: the last dispatch's weights with `from_fort`'s tide (× `from_bias`)
+## taken off and `to_fort`'s put on (× `to_bias`), the limits as they stand. Pure. The train probe reads
+## it for Relish's committed arrival (GameState._train_inputs): a fort she is travelling to takes her tide
+## once she arrives. With from_fort == to_fort and the same bias it is war_at(war), bit for bit.
+func war_at_tide(war: float, from_fort: String, from_bias: float, to_fort: String, to_bias: float) -> Array:
+	if _disp_w.size() != forts.size() or (from_fort == to_fort and from_bias == to_bias):
+		return war_at(war)
+	var w: Array[float] = _disp_w.duplicate()
+	for i in forts.size():
+		var id: String = forts[i]["id"]
+		if not (w[i] > 0.0):
+			continue
+		if id == from_fort and from_bias > 0.0:
+			w[i] /= from_bias
+		if id == to_fort:
+			w[i] *= maxf(0.0, to_bias)
+	var capped: Array[bool] = []
+	return _water_into(maxf(0.0, war), w, _disp_lim, capped)
+
+
 ## A held fort's readouts (MECHANICS §3.5) with `w_in` mass/s of WAR to it, Relish's position there
 ## (`redirect`: she raises at up to `raise_max`; `tide`: a wave there is × tithe.relish_mult), the
 ## siege's `block` there and digest cost `q`: {garrison_rate, fall_s, margin, margin_cause}.
@@ -1553,12 +1580,22 @@ func war_at(war: float) -> Array:
 ##   the cheaper of the two ways to hold, keeping a garrison that kills her reship as it lands (its
 ##   drain) or outlasting her living at their most (their pull, with no kills: the march-back's
 ##   level). ≥ 0: it holds without waves; < 0: it falls.
-## - fall_s = grace left + garrison / −rate + break_s while the rate is < 0, else −1.
+## - fall_s = grace left + min(garrison, A / r_drain) / −rate + what is left of break_s (break_s, less the
+##   zero clock while the garrison sits at 0) while the rate is < 0, else −1. It errs early (E2b-2 T3.4b,
+##   MECHANICS §3.5): a garrison above the level its support holds drains to it within a few 1 / r_drain,
+##   far faster than the line, so the line starts from that level; and a garrison already at 0 has only
+##   the rest of its break left. Before, a full garrison read up to 368 s late (Ashgate, 0.3 mass/s of WAR,
+##   80 undead: 1 981 s against 1 613 s), and a pinned one late by its zero clock.
 ## - margin, in this order (E2b-2 T3.2): "will_fall" (cause "fall") when 0 ≤ fall_s ≤ safe_horizon_s;
 ##   else "thin" (cause "wave") when one full wave breaks it (_wave_breaks); else "thin" (cause
 ##   "fall") when it falls beyond the horizon (rate < 0: slow attrition, not a wave, is the threat);
 ##   else "safe". "" when not held. A slow fall used to read cause "wave" whatever the probe said.
-func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, tide: bool, block: float, q: float) -> Dictionary:
+## - `train` (E2b-2 T3.4b): this fort's entry of train_probe()'s `forts` ({broken, settled}). Given, the
+##   margin is the wave train's, in this order: "will_fall" as above; else "thin" ("wave") when the train
+##   broke it; else "thin" ("fall") when rate < 0; else "thin" ("wave") when the held set hadn't settled
+##   by the cap; else "safe". Left out ({}), the one-wave margin above (view_projection's drag).
+func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, tide: bool, block: float, q: float,
+		train := {}) -> Dictionary:
 	if not is_held(f):
 		return {"garrison_rate": 0.0, "fall_s": -1.0, "margin": "", "margin_cause": ""}
 	var s := reship_rate(f)
@@ -1569,13 +1606,22 @@ func readout_of(f: Dictionary, w_in: float, redirect: bool, raise_max: float, ti
 	var g := maxf(0.0, float(f["undead"]))
 	var fall := -1.0
 	if rate < 0.0:
-		fall = maxf(0.0, float(f.get("grace_s", 0.0))) + g / -rate + _break_s
+		var g_line := minf(g, a / _r_drain) if _r_drain > 0.0 else g
+		var left := _break_s - (maxf(0.0, float(f.get("zero_s", 0.0))) if g <= 0.0 else 0.0)
+		fall = maxf(0.0, float(f.get("grace_s", 0.0))) + g_line / -rate + maxf(0.0, left)
 		if not is_finite(fall):
 			fall = -1.0
 	var out := {"garrison_rate": rate, "fall_s": fall, "margin": "safe", "margin_cause": ""}
 	if fall >= 0.0 and fall <= _horizon_s:
 		out["margin"] = "will_fall"
 		out["margin_cause"] = "fall"
+	elif not train.is_empty():
+		if bool(train.get("broken", false)) or (rate >= 0.0 and not bool(train.get("settled", false))):
+			out["margin"] = "thin"
+			out["margin_cause"] = "wave"
+		elif rate < 0.0:
+			out["margin"] = "thin"
+			out["margin_cause"] = "fall"
 	elif _wave_breaks(f, a, s, w_in, redirect, raise_max, tide, block, qq, hold_off):
 		out["margin"] = "thin"
 		out["margin_cause"] = "wave"
@@ -1664,6 +1710,299 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 			if not kills_on_landing and float(pf["living"]) <= ceil_l:
 				return false
 	return false
+
+
+## The wave train (MECHANICS §3.5, E2b-2 T3.4b; the run's manager: "'safe' judges against the WAVE
+## TRAIN"): the held forts run forward together from today's state, on scratch copies, through her waves
+## at her period, and each is judged broken, settled or neither. Pure.
+## - `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} gives each held fort's support as
+##   readout_of takes it (WAR mass/s, Relish's redirect there and her raise, her tide there, the siege's
+##   cancelled fraction); a held fort it doesn't list isn't probed. `q` is the digest cost.
+## - Start: each fort's garrison, her living, its corpses, its zero clock and its grace now; the tithe as
+##   it stands (next_s, a pending warning and its target, a running wave and its s_left). A clock not yet
+##   started (no flip; only a test or debug holds a fort without one) runs as if started now. Her odds
+##   are today's: her reship (reship_rate) and the period (tithe_period) stay as they are.
+## - Each probe step is fort_step at hold.probe_dt_s, cut at every event so each lands at its time: a
+##   warning (next_s reaching warning_s), a wave's start and end, a grace end, and a garrison at 0 reaching
+##   break_s (as step() splits). A contested fort gets her reship, a fort in grace nothing; the running
+##   wave surges `surge_mult · S_vei` × its counters into its target (her pool assumed to cover it). The
+##   zero clock runs as step 9 runs it (only the time at 0 counts; fort_step's leave-0 split, E2b-2 T3.3a).
+##   A fort whose clock reaches break_s is broken and leaves the held set.
+## - Targets, as _tithe_target: at each warning the contested fort (held, past grace, not broken) with the
+##   most undead, ties in world order. A fort in grace is never a target, and a pending warning naming one
+##   is dropped and made again at once, as the clock does. With no contested fort the second branch picks
+##   a fort that isn't held (every held fort is in grace or broken), so that wave threatens none ("" in
+##   `targets`).
+## - Settled, judged jointly at the waves' starts (samples): the set at sample k against sample k − p,
+##   both after the last grace end and break (`epoch`), for the smallest p with the same wave starting at
+##   both (T_k = T_(k−p)), with every fort's zero clock at 0 at k and, within hold.train_settle_tol × its
+##   cap: a fort that every wave from k − p to k − 1 targeted no weaker (garrison no lower, her living no
+##   higher, its corpses no lower where Relish raises); any other contested fort the same both ways (a
+##   rise in its garrison, or a fall in her living that would raise it, could draw a wave it was never
+##   tested against: the shielded fort). Settled, every unbroken fort is.
+## - Stops once settled or every fort is broken; at most hold.train_max_cycles cycles (sample to sample)
+##   after the first sample of the current epoch; and at hold.safe_horizon_s of probe time, which counts
+##   as settled (it held the whole horizon: only a clock far off, in tests, gets there).
+## Returns {forts: {fort_id: {broken: bool, settled: bool}}, settled: bool, p: int (0 when not settled),
+## cycles: int (samples after the epoch's first), steps: int, targets: [fort_id or "", one per wave
+## started], samples: [[epoch, any fort in grace, the starting wave's target index (-1: none probed),
+## PackedFloat64Array [U, L, D, zero_s] per probed fort in world order, which were unbroken], one per wave
+## started] (tests)}.
+func train_probe(sup: Dictionary, q: float) -> Dictionary:
+	var qq := maxf(1.0, q)
+	var ids: Array[String] = []
+	var pfs: Array[Dictionary] = []
+	var cap := PackedFloat64Array()
+	var zero := PackedFloat64Array()
+	var grace := PackedFloat64Array()
+	var s_re := PackedFloat64Array()
+	var w := PackedFloat64Array()
+	var want := PackedFloat64Array()
+	var surge := PackedFloat64Array()
+	var keep: Array[bool] = []
+	var alive: Array[bool] = []
+	for f in forts:
+		var id: String = f["id"]
+		if not is_held(f) or not sup.has(id):
+			continue
+		var e: Array = sup[id]
+		ids.append(id)
+		cap.append(float(f["cap"]))
+		pfs.append({"cap": float(f["cap"]), "living": maxf(0.0, float(f["living"])), "undead": maxf(0.0, float(f["undead"])),
+			"dead": maxf(0.0, float(f["dead"]))})
+		zero.append(maxf(0.0, float(f["zero_s"])))
+		grace.append(maxf(0.0, float(f["grace_s"])))
+		s_re.append(reship_rate(f))
+		w.append(maxf(0.0, float(e[0])))
+		keep.append(bool(e[1]))
+		want.append(maxf(0.0, float(e[2])) if bool(e[1]) else 0.0)
+		surge.append(_surge_mult_t * _S_vei * (1.0 - clampf(float(e[4]), 0.0, 1.0)) * (_relish_mult if bool(e[3]) else 1.0))
+		alive.append(true)
+	var n := ids.size()
+	var out := {"forts": {}, "settled": false, "p": 0, "cycles": 0, "steps": 0, "targets": []}
+	if n == 0:
+		out["settled"] = true
+		return out
+	# the clock as it stands; wave_i: the running wave's fort (an index, -1 for a fort not probed, -2 none)
+	var period := tithe_period()
+	var started := bool(tithe.get("started", false))
+	var next_s := float(tithe["next_s"]) if started else period
+	var has_warn := false
+	var warn_i := -1
+	var wave_i := -2
+	var wave_left := 0.0
+	if started:
+		var w0: Dictionary = tithe.get("warning", {})
+		if not w0.is_empty():
+			warn_i = ids.find(str(w0["fort_id"]))
+			has_warn = not (warn_i >= 0 and grace[warn_i] > 0.0)
+		var wv0: Dictionary = tithe.get("wave", {})
+		if not wv0.is_empty() and float(wv0["s_left"]) > 1e-9:
+			wave_i = ids.find(str(wv0["fort_id"]))
+			wave_left = float(wv0["s_left"])
+	var targets: Array = []
+	var samples: Array = []  # [epoch, any in grace, target index, PackedFloat64Array [U, L, D, zero] × n, alive copy]
+	var epoch := 0
+	var first := -1  # the current epoch's first sample with no fort in grace
+	var el := 0.0
+	var steps := 0
+	var settled := false
+	var quiet := _probe_dt * 0.5
+	while true:
+		# ---- the events at this moment: the warning (the step that reaches warning_s, or a wave due now
+		# with none), then a wave's start (sampled first, before its surge)
+		if not has_warn and next_s <= _warning_s + _EPS_S:
+			warn_i = _train_target(pfs, grace, alive)
+			has_warn = true
+		if next_s <= _EPS_S:
+			var k := samples.size()
+			var st := PackedFloat64Array()
+			st.resize(4 * n)
+			var any_grace := false
+			for i in n:
+				st[4 * i] = float(pfs[i]["undead"])
+				st[4 * i + 1] = float(pfs[i]["living"])
+				st[4 * i + 2] = float(pfs[i]["dead"])
+				st[4 * i + 3] = zero[i]
+				any_grace = any_grace or (alive[i] and grace[i] > 0.0)
+			samples.append([epoch, any_grace, warn_i, st, alive.duplicate()])
+			targets.append(ids[warn_i] if warn_i >= 0 else "")
+			if first < 0 and not any_grace:
+				first = k
+			if first >= 0 and k > first:
+				var p := _train_settled(samples, k, first, cap, keep)
+				if p > 0:
+					settled = true
+					out["p"] = p
+					break
+				if k - first >= _max_cycles:
+					break
+			wave_i = warn_i
+			wave_left = _surge_s
+			has_warn = false
+			next_s += period
+		if el >= _horizon_s - _EPS_S:
+			settled = true  # it held through the whole horizon
+			break
+		# ---- one probe step, cut at the next event. With no wave running and none due inside the horizon
+		# (a clock pushed far off, in tests) the steps double, so reaching the horizon costs a few
+		quiet = quiet * 2.0 if wave_i == -2 and next_s >= _horizon_s - el else _probe_dt
+		if train_jump and _train_still(pfs, grace, alive, s_re, w, want, keep, wave_i, wave_left):
+			quiet = INF  # every fort's path is exact over any step: straight to the next event
+		var h := minf(quiet, _horizon_s - el)
+		h = minf(h, next_s)
+		if not has_warn and next_s - _warning_s > _EPS_S:
+			h = minf(h, next_s - _warning_s)
+		if wave_i > -2 and wave_left > _EPS_S:
+			h = minf(h, wave_left)
+		for i in n:
+			if not alive[i]:
+				continue
+			if grace[i] > 0.0:
+				h = minf(h, grace[i])
+			elif float(pfs[i]["undead"]) <= 0.0 and _break_s - zero[i] > _EPS_S:
+				h = minf(h, _break_s - zero[i])
+		var any := false
+		for i in n:
+			if not alive[i]:
+				continue
+			var pf: Dictionary = pfs[i]
+			var in_g := grace[i] > 0.0
+			var s_in := 0.0 if in_g else s_re[i]
+			if wave_i == i and wave_left > _EPS_S and not in_g:
+				s_in += surge[i]
+			var ub := float(pf["undead"])
+			fort_step(pf, h, s_in, w[i], want[i], keep[i], qq)
+			if in_g:
+				var g := grace[i] - h
+				grace[i] = g if g > _EPS_S else 0.0
+				zero[i] = 0.0
+				if grace[i] <= 0.0:
+					epoch += 1
+					first = -1
+				any = true
+				continue
+			# the zero clock, as step 9 runs it
+			var tz := float(pf["t_undead_out"])
+			var tb := float(pf["t_undead_back"])
+			var gone := false
+			if tb >= 0.0 and tz >= 0.0:
+				gone = ((zero[i] + tb) if ub <= 0.0 and tz <= 0.0 else tb - tz) >= _break_s - _EPS_S
+				zero[i] = 0.0
+			elif tz >= 0.0 or (ub <= 0.0 and float(pf["undead"]) <= 0.0):
+				zero[i] = (h - tz) if ub > 0.0 else zero[i] + h
+				gone = zero[i] >= _break_s - _EPS_S
+			else:
+				zero[i] = 0.0
+			if gone:
+				alive[i] = false
+				epoch += 1
+				first = -1
+			else:
+				any = true
+		if wave_i > -2:
+			wave_left -= h
+			if wave_left <= _EPS_S:
+				wave_i = -2
+		next_s -= h
+		el += h
+		steps += 1
+		if not any:
+			break
+	var cycles := (samples.size() - 1 - first) if first >= 0 else 0
+	for i in n:
+		out["forts"][ids[i]] = {"broken": not alive[i], "settled": alive[i] and settled}
+	out["settled"] = settled
+	out["samples"] = samples
+	out["cycles"] = maxi(0, cycles)
+	out["steps"] = steps
+	out["targets"] = targets
+	return out
+
+
+## Everything train_probe reads from the state, as one Array (GameState's cache key): the tithe clock,
+## her backlog (her odds: the reship and the period) and each held fort's pools, zero clock and grace.
+func train_state() -> Array:
+	var w: Dictionary = tithe.get("warning", {})
+	var wv: Dictionary = tithe.get("wave", {})
+	var out := [bool(tithe.get("started", false)), float(tithe.get("next_s", 0.0)), str(w.get("fort_id", "")),
+		str(wv.get("fort_id", "")), float(wv.get("s_left", 0.0)), float(vei["undead_queue"])]
+	for f in forts:
+		if is_held(f):
+			out.append_array([f["id"], float(f["living"]), float(f["undead"]), float(f["dead"]), float(f["zero_s"]),
+				float(f["grace_s"])])
+	return out
+
+
+## Whether every unbroken fort of the train is still: no living there, none surging in, and either in
+## grace (nothing ships in) or killing her reship as it lands all the way (k_kill · U ≥ S from now to the
+## level its support holds, U only moving toward it), with no corpses to raise from where Relish raises.
+## Then her living stay at 0, the garrison's pull is 0, its inflow is constant (WAR plus, where she
+## raises, the reship's corpses as they form) and fort_step's path is exact over any step, so the probe
+## goes straight to the next event.
+func _train_still(pfs: Array[Dictionary], grace: PackedFloat64Array, alive: Array[bool], s_re: PackedFloat64Array,
+		w: PackedFloat64Array, want: PackedFloat64Array, keep: Array[bool], wave_i: int, wave_left: float) -> bool:
+	for i in pfs.size():
+		if not alive[i]:
+			continue
+		var pf: Dictionary = pfs[i]
+		if float(pf["living"]) > 0.0 or (keep[i] and float(pf["dead"]) > 0.0):
+			return false
+		if grace[i] > 0.0:
+			continue
+		if wave_i == i and wave_left > _EPS_S:
+			return false
+		var lvl := (w[i] + (minf(want[i], s_re[i]) if keep[i] else 0.0)) / _r_drain if _r_drain > 0.0 else INF
+		if not (_k_kill * minf(float(pf["undead"]), lvl) >= s_re[i]):
+			return false
+	return true
+
+
+## _tithe_target over the train's scratch forts: the unbroken one past grace with the most undead (ties
+## to the first, world order), or -1 (the wave goes to a fort the probe doesn't hold).
+static func _train_target(pfs: Array[Dictionary], grace: PackedFloat64Array, alive: Array[bool]) -> int:
+	var best := -1
+	for i in pfs.size():
+		if alive[i] and not (grace[i] > 0.0) and (best < 0 or float(pfs[i]["undead"]) > float(pfs[best]["undead"])):
+			best = i
+	return best
+
+
+## train_probe's settled test at sample `k` (see there): the smallest p (1 .. k − first) for which the
+## set repeats, else 0.
+func _train_settled(samples: Array, k: int, first: int, cap: PackedFloat64Array, keep: Array[bool]) -> int:
+	var cur: Array = samples[k]
+	var st: PackedFloat64Array = cur[3]
+	var live: Array = cur[4]
+	var n := cap.size()
+	for i in n:
+		if live[i] and st[4 * i + 3] > _EPS_S:
+			return 0  # a garrison sits at 0 as the wave starts
+	for p in range(1, k - first + 1):
+		var old: Array = samples[k - p]
+		if int(old[0]) != int(cur[0]) or int(old[2]) != int(cur[2]):
+			continue
+		var so: PackedFloat64Array = old[3]
+		var ok := true
+		for i in n:
+			if not live[i]:
+				continue
+			var every := true
+			for j in range(k - p, k):
+				every = every and int(samples[j][2]) == i
+			var eps := _settle_tol * cap[i]
+			var du := st[4 * i] - so[4 * i]
+			var dl := st[4 * i + 1] - so[4 * i + 1]
+			var dd := st[4 * i + 2] - so[4 * i + 2] if keep[i] else 0.0
+			if every:
+				ok = du >= -eps and dl <= eps and dd >= -eps
+			else:
+				ok = absf(du) <= eps and absf(dl) <= eps and absf(dd) <= eps
+			if not ok:
+				break
+		if ok:
+			return p
+	return 0
 
 
 ## The legacy macro readout. inflow = Σ fort drain + FLOOD + WAR that fell through (= last step's
