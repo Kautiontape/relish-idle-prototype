@@ -1090,3 +1090,4 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
     Idle is 0.3-1.3% at t2-t4.
   - Lockstep held; the 9 reruns are identical.
+- greywall t1, seeds 20-39 (g4cbase, 443df3d, before the room knob; seed 1 equals base): 11/20 died (90% 37-72), median army_zero_t 14.3 s, 1 death within 10 s of it, median 46 s. With the knob (g4c): 6/20 (16-48), 14.7 s, 0, 127 s. The 22 living at every t1 fort: raid_logic.gd:13 (enemy_count, living / cap x mass.enemies_per_cap 26) with the profile's living = cap x autopilot.profile_living_frac 0.85 (raid_logic.gd:133; raid.json:116, :442), all ours; in a real run the living come from the realm's seed (not ours).
