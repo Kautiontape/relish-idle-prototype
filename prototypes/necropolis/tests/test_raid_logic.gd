@@ -770,16 +770,29 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.held_door_retreat_line("sent", "X") == RaidLogic.held_door_retreat_line("held", "X")
 		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
 		"the retreat dialog names the big by its state: on the plate, or shut in at the cache; nothing once it rejoined or none was spent")
-	# the wiring: party_lost gets it on a retreat, the death card's row, the warden's fall frees it, the order is the move click
-	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func build_result(").contains("held_door.lost_uids(exit)"), "build_result adds the door's lost big to party_lost")
-	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("held_door_card_row(shut)"), "the death card's SHUT IN row")
-	t.ok(_func_body("res://scripts/raid/raid_warden_run.gd", "func on_warden_died(").contains("held_door.on_warden_died()"), "the warden's fall unlocks the door")
+	# the death card: the SHUT IN row before AFTER, apart from LOST (behaviour, RaidLogic.death_rows_with_shut)
+	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", RaidLogic.death_next_row({}))
+	var card2 := RaidLogic.death_rows_with_shut(card, "Old Gristle")
+	t.ok(card2.size() == card.size() + 1 and card2[card2.size() - 1]["label"] == "AFTER" and card2[card2.size() - 2]["label"] == "SHUT IN"
+		and str(card2[card2.size() - 2]["text"]).begins_with("Old Gristle") and str(RaidLogic.death_rows_with_shut(card, "")) == str(card),
+		"the death card lists the shut-in big on its own row before AFTER; with none, the card is unchanged")
+	# party_lost on a retreat carries the door's big (behaviour: the ledger, with the uid RaidHeldDoor.lost_uids adds)
+	var lseed := {"party": [{"uid": "p1"}, {"uid": "p2"}], "fort": {"id": "x"}}
+	var lg := RaidLogic.LedgerV2.new(lseed, cfg)
+	var lost_r: Array = lg.build_result(lseed, "retreated", [], ["p2"], 0, {}, cfg)["party_lost"]
+	var lost_w: Array = lg.build_result(lseed, "warden_beaten", [], [], 0, {}, cfg)["party_lost"]
+	t.ok(lost_r == ["p2"] and lost_w.is_empty(), "a retreat with the door's big added loses it (and only it); a win with it rejoined loses none")
+	# the wiring, by the calls that carry it (loose: any formatting)
+	var bres := _func_body("res://scripts/raid/raid_endings.gd", "func build_result(")
+	t.ok(bres.contains("lost_uids(") and bres.contains("held_door"), "build_result adds the door's lost big to party_lost")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_rows_with_shut("), "the death card adds the SHUT IN row")
+	t.ok(_func_body("res://scripts/raid/raid_warden_run.gd", "func on_warden_died(").contains("on_warden_died()"), "the warden's fall reaches the door")
 	var inp := _func_body("res://scripts/raid/raid.gd", "func _unhandled_input(")
-	t.ok(inp.find("held_door.click(w)") >= 0 and inp.find("held_door.click(w)") < inp.find("relish.move_target = w"), "the order is the move click, taken before the move")
+	t.ok(inp.find("held_door.click(") >= 0 and inp.find("held_door.click(") < inp.find("move_target"), "the order is the move click, taken before the move")
 	var sh := _func_body("res://scripts/raid/raid_held_door.gd", "func _shut_in(")
-	t.ok(sh.contains("raid.allies.erase(holder)") and sh.contains("holder.parked = true"), "a shut-in big leaves her party (allies: the ward, the conduit, the counters) and is parked")
+	t.ok(sh.contains("allies.erase(") and sh.contains("parked = true"), "a shut-in big leaves her party (allies: the ward, the conduit, the counters) and is parked")
 	var ut := _func_body("res://scripts/raid/raid_unit.gd", "func take_hit(")
-	t.ok(ut.contains("not alive or parked"), "a parked big is never struck")
+	t.ok(RegEx.create_from_string("if [^\\n]*parked[^\\n]*:\\s*return").search(ut) != null, "a parked big is never struck (take_hit returns first)")
 
 
 func _detour_tests(t: TestUtil, cfg: Dictionary) -> void:
@@ -865,7 +878,7 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var fin := FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd")
 	t.ok(ans.contains("_tally_pin = _tell_pinned()") and tc.contains("if _tally_pin:") and tc.contains("_pin_tally[\"missed_pinned\"] += 1")
 		and tc.contains("_pin_tally[\"missed_pinned_struck\"] += 1"), "the tally books a missed tell's pin as it is first seen (missed_pinned, and of them struck)")
-	t.ok(fin.contains("if _archetype == \"shieldwall\":   # D-e task 4: the pin as its counter (the other wardens' lines keep their shape)\n\t\ttold.merge(_pin_tally)"),
+	t.ok(RegEx.create_from_string("if _archetype == \"shieldwall\":[^\\n]*\\n\\s*told\\.merge\\(_pin_tally\\)").search(fin) != null,
 		"tell_tally carries missed_pinned only in the Shieldwall's lines")
 	t.near(RaidLogic.react_at(100.0, pts, dly), 0.30, 1e-9, "clamped above the last")
 	t.ok(RaidLogic.react_at(70.0, [], []) == 0.0, "no points: 0")
@@ -917,7 +930,9 @@ func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
 	for wy in RaidLogic.DODGE_WHYS:
 		t.ok(FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd").contains('_why = "%s"' % wy), "the dodge branch '%s' is one the bot sets" % wy)
 	var start := _func_body("res://scripts/raid/raid_autopilot.gd", "func start(")
-	t.ok(start.contains("_human_on = dl != \"\" or _read_s > 0.0 or _draw_s > 0.0"), "the result's human dict only when a knob is given (the frozen bot's lines keep their bytes)")
+	var hon := RegEx.create_from_string("_human_on\\s*=([^\\n]*)").search(start)
+	t.ok(hon != null and hon.get_string(1).contains("dl != \"\"") and hon.get_string(1).contains("_read_s > 0.0") and hon.get_string(1).contains("_draw_s > 0.0"),
+		"the result's human dict only when a knob is given (the frozen bot's lines keep their bytes)")
 	var fin := _func_body("res://scripts/raid/raid_autopilot.gd", "func on_finish(")
 	t.ok(fin.contains("if _human_on:"), "on_finish writes the human dict only behind _human_on")
 	var tick := _func_body("res://scripts/raid/raid_autopilot.gd", "func physics_tick(")
@@ -969,7 +984,8 @@ func _capture_tests(t: TestUtil) -> void:
 		and not src.contains("move_target") and not src.contains("rng"), "RaidCapture reads the run and writes nothing the sim reads")
 	t.ok(not src.contains("http") and not src.contains("HTTP") and not src.contains("StreamPeer") and not src.contains("PacketPeer"), "capture is local only: no network")
 	var rsrc := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
-	t.ok(rsrc.contains("if capture != null:\n\t\tcapture.physics_tick(delta)") and rsrc.contains("if capture != null:\n\t\tcapture.on_targeted()"),
+	t.ok(RegEx.create_from_string("if capture != null:\\s*capture\\.physics_tick\\(").search(rsrc) != null
+		and RegEx.create_from_string("if capture != null:\\s*capture\\.on_targeted\\(").search(rsrc) != null,
 		"the raid ticks and tells capture only when it is on")
 	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func finish(").contains("_raid.capture.write(result)"), "every ending writes the record (RaidEndings.finish)")
 

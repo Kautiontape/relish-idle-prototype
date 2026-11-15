@@ -1080,6 +1080,15 @@ static func held_door_card_row(name: String) -> Dictionary:
 	return {"label": "SHUT IN", "text": "%s · lost at the cache" % name, "key": "danger"}
 
 
+## The death card's rows with a shut-in big (`shut`, its name; "" for none): its SHUT IN row goes before the
+## card's last row (AFTER), apart from LOST (RaidEndings.death_rows).
+static func death_rows_with_shut(rows: Array, shut: String) -> Array:
+	var out := rows.duplicate()
+	if shut != "":
+		out.insert(maxi(0, out.size() - 1), held_door_card_row(shut))
+	return out
+
+
 ## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
 static func held_door_retreat_line(state: String, name: String) -> String:
 	match state:

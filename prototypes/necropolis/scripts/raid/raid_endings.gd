@@ -206,11 +206,8 @@ func death_rows() -> Array:
 	# a big shut in at the held door (D-e task 6) is lost too, on a row of its own apart from the party that fell
 	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
 	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
-	var rows := RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
-		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data))
-	if shut != "":
-		rows.insert(rows.size() - 1, RaidLogic.held_door_card_row(shut))   # before AFTER, the card's last row
-	return rows
+	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
+		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data)), shut)
 
 
 # ------------------------------------------------------------------- result ---
