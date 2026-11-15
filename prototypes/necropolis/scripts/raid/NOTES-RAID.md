@@ -1206,3 +1206,66 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - A close during the death beat writes `relish_died`, `closed` true.
     - A standalone close (no ending) writes `closed`.
     - The bot's deaths write through the same `finish`.
+
+### The sweep (D-e 2b; b895836; seeds 20-39; 1,160 runs, all in lockstep)
+- **Profiles:** scores 50 and 70 x delays 0.6, 1.0 and 1.5 s, all with the read pause (1.0 s) and the draw (0.7 s), at the 9 forts at their tier (iters `hb<score>d<delay>`, 180 runs each). Plus the typical human at t1 and P1 (`hbt1`, 80 runs). The baseline is m4c + qm, the bot as it stands: score 70, 0.45 s, no read, no draw.
+- **Length and deaths at t2-t4.** Medians in scene seconds; "real" is the median of `RaidLogic.human_real_s` per run; the split is pooled seconds with each fort's > 2x outliers left out (the Part 2 method); deaths with Wilson 90% and the seed-clustered interval (Wilson on n / 1.5):
+
+  | profile | median s (t2 / t3 / t4) | real s | travel / fight / trance / idle % | died |
+  |---|---|---|---|---|
+  | baseline (70, 0.45 s) | 123 (118 / 123 / 127) | 123 | 8.8 / 90.4 / 0 / 0.8 | 26/180 = 14.4% (11-19; 10-21) |
+  | 70, 0.6 s | 140 (140 / 151 / 126) | 160 | 8.1 / 82.2 / 7.7 / 2.0 | 27/180 = 15.0% (11-20; 10-21) |
+  | **70, 1.0 s (the typical human)** | **132 (127 / 140 / 131)** | **150** | 8.2 / 82.0 / 7.6 / 2.2 | 27/180 = 15.0% (11-20; 10-21) |
+  | 70, 1.5 s | 117 (118 / 120 / 106) | 133 | 8.1 / 81.5 / 7.9 / 2.5 | 95/180 = 52.8% (47-59; 45-60) |
+  | 50, 0.6 s | 144 (148 / 149 / 134) | 165 | 7.1 / 82.9 / 8.0 / 2.0 | 84/180 = 46.7% (41-53; 39-54) |
+  | 50, 1.0 s | 144 (143 / 151 / 139) | 164 | 6.8 / 83.1 / 8.0 / 2.1 | 80/180 = 44.4% (38-51; 37-52) |
+  | 50, 1.5 s | 128 (131 / 126 / 118) | 150 | 7.3 / 82.0 / 8.4 / 2.3 | 121/180 = 67.2% (61-73; 60-74) |
+
+  - Per tier, deaths for the typical human: t2 9/60 (15%; 9-24, clustered 8-26), t3 8/60 (13%; 8-22, 7-25), t4 10/60 (17%; 10-26, 9-28). The baseline: 6 / 8 / 12 of 60.
+  - **Paired by seed** (fort and seed), deaths in only one of the two: baseline vs 70 at 1.0 s, 20 against 21 (median length +8 s). 70 at 0.6 vs 1.0 s, 15 against 15. 50 at 0.6 vs 1.0 s, 30 against 26. 70 at 1.0 vs 1.5 s, 8 against 76. 50 at 1.0 vs 1.5 s, 17 against 58. 70 vs 50 at 1.0 s, 7 against 60.
+  - **What sets the risk is the miss chance, not the delay, up to 1.0 s.** From 0.45 to 1.0 s at score 70 the deaths do not move. Answered tells that struck: 3 of 2,116 at the baseline, 8 of 2,212 at 1.0 s. At 1.5 s they jump to 201 of 1,691.
+  - The read pause and the draw put 7-8% of each run in the trance and lift idle to about 2%. With the draw's real-time stretch (x 1/0.35 inside the trance) the typical human's runs are 150 s real against the baseline's 123.
+  - **t1 and P1** (the typical human, seeds 20-39):
+    - P1: 0/20, median 113 s (real 133).
+    - t1: 16/60 (27%; 18-37, clustered 17-39), all killed by the living. greywall accounts for 10/20 (median 41 s: early deaths, against 6/20 for g4c, the frozen bot on the same seeds), old-sluice 4/20, ashgate 2/20. The kite's 1.0 s delay and the read pause on entering its long middle room are the mechanism; greywall's living were already the t1 risk.
+- **Per tell-attack** (deaths; blows that struck her / tells; at-tier rows of each profile):
+
+  | profile | slam | toll | lunge | bash | rush (the lane) | fire |
+  |---|---|---|---|---|---|---|
+  | baseline | 3; 10/1214 | 6; 22/272 | 6; 39/380 | 0; 0/391 | 2; 9/105 | 9; 37/291 |
+  | 70, 0.6 s | 0; 8/1368 | 8; 36/338 | 6; 43/506 | 0; 0/319 | 6; 40/279 | 6; 34/289 |
+  | 70, 1.0 s | 1; 10/1267 | 8; 30/298 | 5; 41/436 | 0; 0/344 | 5; 34/233 | 7; 28/249 |
+  | 70, 1.5 s | 3; 8/947 | 27; 67/223 | 6; 29/338 | 0; 2/329 | 22; 61/94 | 35; 101/157 |
+  | 50, 0.6 s | 10; 38/1631 | 34; 90/397 | 13; 67/497 | 0; 0/382 | 16; 60/257 | 10; 55/264 |
+  | 50, 1.0 s | 10; 27/1598 | 34; 93/393 | 11; 53/404 | 0; 0/439 | 13; 53/188 | 12; 55/288 |
+  | 50, 1.5 s | 10; 27/1136 | 35; 86/243 | 17; 75/505 | 0; 1/385 | 20; 62/101 | 37; 100/169 |
+
+  - **Which attacks start to kill first: the fire, the lane and the toll, at 1.5 s.** Pooled over both scores, from 1.0 to 1.5 s:
+    - the fire: deaths 19 -> 72, blows per tell 0.15 -> 0.62;
+    - the rush (at tier a rush that reaches her is the aimed lane): 18 -> 42, 0.21 -> 0.63;
+    - the toll: 42 -> 62, 0.18 -> 0.33.
+    - Answered tells that struck at 1.5 s, score 70: Pyre-priest 87 of 136, toll 55, Shieldwall 55 of 386. Their margins at 1.5 s are fire -0.28, toll -0.19 and the lane's step back -0.17 s.
+  - The slam (11 -> 13 deaths, 0.013 -> 0.017) and the lunge (16 -> 23, 0.11 -> 0.12; its margin is +0.07 s at 1.5 s) barely move.
+  - The slam's worst case (a 226 px walk from the bell's edge, -0.23 s at 1.0 s) is a spot the bot seldom holds when a tell starts. It goes in only when the trip in and out fits before the tell (the beat clock), so at the tell it is near the ring's edge or outside it. A human who stands at the bell is in that worst case; the bot never is.
+- **The step-6 gate** (the typical human, score 70 at 1.0 s with the read pause and the draw):
+  - At t2-t4 the medians are 127 / 140 / 131 scene seconds, which is **148 / 152 / 150 s real**: 2:28-2:32, 28-32 s under Shawn's 3:00.
+  - The degraded bot's scene time, with the trance's stretch, is the human estimate for what it models: the reaction delay, a read per room and a 2.0 s circle.
+  - **An extra factor still applies** for what it leaves out:
+    - the aim before opening the trance and a late start after READY: 0-1.5 s a raise (with a 2.5 s circle);
+    - click-to-move detours: 0.1-0.3 of the travel seconds;
+    - 0-2 s more per room than the 1.0 s read;
+    - 0-0.4 s per warden tell.
+  - With those, the median per-run estimate is 148-187 s at t2, 153-187 s at t3 and 153-193 s at t4. **3:00 is reached only with every left-out factor at its high end.**
+  - Per warden at tier, real: Bellringer 156 s, Shieldwall 158, Huntsman 144, Pyre-priest 142.
+
+### The fairness floor (D-e 2d): not built
+- **The arithmetic** (test_wardens now prints the margins at 1.0 s as well): lead 1.714 s - delay - walk. At 0.6 s: slam 0.17, lane sideways 0.16, toll 0.74, lunge 0.97, bash 0.71, fire 0.62 s. At 1.0 s: slam -0.23, lane -0.24, toll 0.34, lunge 0.57, bash 0.31, fire 0.22 s.
+- **The rule, fixed before the rows** (and logged): per tell-attack, blows that struck her per tell, at-tier rows of scores 50 and 70 pooled, 0.6 -> 1.0 s. The slam or the lane kills out of proportion if its growth is at least 2x the pooled growth of the toll, lunge, bash and fire, and its deaths rise.
+- **The sweep does not confirm it.**
+  - The slam grows x0.84 (0.0153 -> 0.0129; deaths 10 -> 11).
+  - The rush grows x1.11 (0.187 -> 0.207; deaths 22 -> 18).
+  - The positive-margin attacks pooled grow x0.97.
+  - So both are x0.87 and x1.14 the pooled growth, against a bar of x2. No lead was added, and the 1.0 s profiles were not re-run.
+- A lead was drafted while the sweep ran and dropped on the verdict, uncommitted: `lever_lead_beats` in WardenLogic.spec, with the toll's landing rule kept on the base lead. The lane would have needed its rush-or-lane decision moved to the earlier tell start (it is made in `_begin_tell`).
+- What the sweep does show is above: past 1.0 s the fire, the lane and the toll go first, in line with their margins at 1.5 s. If the risk at tier is to hold for a slower player, those three are where the floor belongs. That is a design call, not this rule's.
+- **Byte identity with every new knob off** (the head's code is d00c8c8; bc57a91 changes only a test): the 13 seed-1 lines are identical to 3a4ec38 and 37fee80 (`decapoff` against `de2aid`, `de0`), and Vei's seed-1 line is identical. `tests/parity_check.sh`: 5 of 5 identical. Suite: 52 suites, all passed.
