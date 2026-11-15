@@ -195,6 +195,268 @@
     "sable-hold": {"spearman": 0.55, "runner": 0.3, "brute": 0.15},
     "pale-bastion": {"spearman": 0.6, "runner": 0.3, "brute": 0.1}
   },
+  "enemy_room_mult_by_fort": {
+    "_doc": "D-d/E Step 4c: a fort listed here scales the weight each room (by index) gets when its living are spread (LayoutLogic.populate_enemies: weight = distance from the spawn ^ 1.5, times this; the same rng draws). For a fort whose layout piles the living next to the opening."
+  },
+  "tier_mix": {
+    "1": {
+      "spearman": 1.0
+    },
+    "2": {
+      "spearman": 0.72,
+      "runner": 0.28
+    },
+    "3": {
+      "spearman": 0.45,
+      "runner": 0.25,
+      "brute": 0.3
+    },
+    "4": {
+      "spearman": 0.3,
+      "runner": 0.25,
+      "brute": 0.45
+    }
+  },
+  "undead": {
+    "base": {
+      "hp": 10.0,
+      "dmg": 2.0,
+      "speed": 118.0,
+      "cadence_s": 0.9,
+      "radius": 9.0
+    },
+    "radius_by_tier": {
+      "chaff": 8.0,
+      "soldier": 10.0,
+      "elite": 12.0
+    },
+    "chaff": {
+      "hp": 8.0,
+      "dmg": 1.5,
+      "speed": 112.0,
+      "cadence_s": 0.9,
+      "radius": 8.0
+    },
+    "soldier": {
+      "hp": 22.0,
+      "dmg": 4.0,
+      "speed": 122.0,
+      "cadence_s": 0.9,
+      "radius": 10.0
+    },
+    "elite": {
+      "hp": 50.0,
+      "dmg": 9.0,
+      "speed": 128.0,
+      "cadence_s": 0.85,
+      "radius": 13.0
+    }
+  },
+  "raise": {
+    "soldier_min_score": 60,
+    "elite_min_score": 90,
+    "soldier_orb_div": 3.0,
+    "elite_orb_div": 4.0,
+    "spawn_ring_px": 52.0
+  },
+  "layout": {
+    "route_min_gap_px": 28.0,
+    "route_fit_pad_px": 4.0,
+    "tier_w": {
+      "1": 1100,
+      "2": 1450,
+      "3": 1800,
+      "4": 2200
+    },
+    "tier_h": {
+      "1": 800,
+      "2": 1050,
+      "3": 1250,
+      "4": 1500
+    },
+    "boss_w": 2600,
+    "boss_h": 1800,
+    "boss_doors": 7,
+    "boss_rooms": 4,
+    "wall_thickness": 30.0,
+    "wall_stroke_px": 3.0,
+    "wall_halo_px": 9.0,
+    "wall_intensity": 0.7,
+    "boss_wall_stroke_px": 6.0,
+    "boss_wall_intensity": 0.9,
+    "first_pile_px": 220.0,
+    "first_pile_min_px": 120.0,
+    "first_pile_look_mass": 6.0,
+    "door_width": 150.0,
+    "inner_gap_width": 165.0,
+    "min_room_px": 300.0,
+    "grid_cell": 32.0,
+    "grid_step_px": 128.0,
+    "wall_drift_speed": 0.05,
+    "wall_wavelength_px": 1100.0,
+    "boss_wall_heat": 0.6,
+    "checkpoints_by_tier": {"1": 1, "2": 1, "3": 2, "4": 2},
+    "held_rooms_delta": 1
+  },
+  "detour": {
+    "_doc": "D-d/E Step 3, the guarded detour (LayoutLogic.detour_site / detour_guard, RaidPopulate): from min_tier up (never the first dungeon or a held fort) a cache lies in a side room off the path from the spawn to the warden room, bordering a path room (a normal room before a checkpoint, where loot would bank), cache_door_px in from the gap they share, and guard_by_tier of the fort's own living (the tier's mix, within guard_spread_px of it) stand on it: they come out of the fort's count, so the run has the same bodies, mass and motes, only placed. What it holds is loot.json cache. Fetching it is a push: the army has to win the guard's fight in a room off the way. The guard holds its post (RaidUnit.sentry, 3b): it turns only on what comes into its room and never follows out of it, so the fight happens at the cache and walking out ends it. 3c: the cache lies at the guard's post just inside the door (cache_door_px; LayoutLogic keeps it 40 px off the walls), so she takes it inside the guard fight, stepping through the door, rather than walking in to it after the fight. min_tier 3 (3c): at tier 2 even at the door the detour's walk kept travel over the baseline's share (6.0% against 5.3%), so tier 2 has no detour.",
+    "min_tier": 3,
+    "guard_by_tier": {"1": 0, "2": 4, "3": 5, "4": 6},
+    "cache_door_px": 45.0,
+    "guard_spread_px": 50.0
+  },
+  "floor": {
+    "tint": "contour"
+  },
+  "camera": {
+    "zoom_min": 0.72,
+    "zoom_max": 1.15,
+    "view_pad_px": 120.0,
+    "smoothing": 5.0
+  },
+  "party": {
+    "hp_base": 30.0,
+    "hp_per_beef": 8.0,
+    "dmg_base": 3.0,
+    "dmg_per_power": 1.2,
+    "speed_base": 90.0,
+    "speed_per_speed": 10.0,
+    "cadence_s": 1.0,
+    "radius": 20.0
+  },
+  "garrison": {
+    "stat_mult": 1.0
+  },
+  "starter": {
+    "stat_mult": 1.5
+  },
+  "demo": {
+    "fort_id": "vespers",
+    "fort_name": "Vespers",
+    "tier": 2,
+    "cap": 160.0,
+    "living": 120.0,
+    "dead": 20.0,
+    "undead": 10.0,
+    "rng_seed": "1234567",
+    "run_id": 0,
+    "seed_rev": 0,
+    "first_clear": true,
+    "first_dungeon": false,
+    "clears_since_retaken": 0,
+    "yield_mult": 1.0,
+    "starter_units": 0,
+    "digest_q": 1.0,
+    "phylactery_charges": 1,
+    "phylactery_max_per_dungeon": 1,
+    "clones_ready": 0,
+    "warden": {
+      "archetype": "bellringer",
+      "tier": 2
+    },
+    "loot_hint": "a husk and a blueprint",
+    "chest_husk": false,
+    "watchtower": false,
+    "big_undead": {
+      "uid": "u1",
+      "name": "Old Gristle",
+      "kind": "hulk",
+      "role": "brute",
+      "stats": {
+        "power": 6.0,
+        "beef": 9.0,
+        "wits": 2.0,
+        "presence": 3.0,
+        "speed": 2.5
+      }
+    }
+  },
+  "ghost_ring": {
+    "reach_px": 300.0,
+    "pad_px": 14.0,
+    "dashes": 28,
+    "dash_fill": 0.55,
+    "spin_rad_s": 0.25,
+    "alpha": 0.55,
+    "width_px": 3.0,
+    "label_px": 16,
+    "label": "trace around the glow"
+  },
+  "autopilot": {
+    "think_frames": 3,
+    "max_s": 600.0,
+    "hold_px": 200.0,
+    "kite_px": 240.0,
+    "kite_committed_px": 110.0,
+    "collect_px": 320.0,
+    "pile_px": 900.0,
+    "foe_clear_px": 90.0,
+    "retreat_step_px": 90.0,
+    "arrive_px": 30.0,
+    "stall_s": 20.0,
+    "unstick_s": 1.5,
+    "unstick_px": 8.0,
+    "unstick_inset_px": 8.0,
+    "idle_s": 60.0,
+    "bail_hp_frac": 0.0,
+    "min_motes": 3,
+    "raise_reach_px": 300.0,
+    "raise_pad_px": 14.0,
+    "trace_points": 44,
+    "trace_tries": 8,
+    "trace_amp_max": 0.6,
+    "score_tol": 5,
+    "detour_view_px": 480.0,
+    "detour_hp_frac": 0.6,
+    "detour_hp_frac_revive": 0.4,
+    "detour_army_mult": 1.5,
+    "detour_retreat_hp_frac": 0.5,
+    "detour_retreat_hp_frac_revive": 0.3,
+    "detour_retreat_army_mult": 1.0,
+    "react_score": [50, 70, 90],
+    "react_miss": [0.30, 0.18, 0.08],
+    "react_delay_s": [0.60, 0.45, 0.30],
+    "dodge_step_px": 60.0,
+    "bell_margin_px": 24.0,
+    "bell_enter_margin_s": 1.5,
+    "bell_stage_px": 20.0,
+    "slam_safe_beats": 0.25,
+    "slam_reach_px": 600.0,
+    "slam_stand_frac": 0.5,
+    "slam_cluster_frac": 0.4,
+    "_doc": "The reaction rule (raid_autopilot.gd _answers, one place for every warden): each warden tell is answered with chance 1 - react_miss, rolled once per tell from the bot's own reaction stream, and acted on react_delay_s scene seconds after the bot first sees it; until then, and all through a missed tell, she does what she would do with no tell. Both are linear in the target score between the react_score points (clamped outside). The kite from the living starts react_delay_s after a living foe in her room comes within kite_px (no miss: the living have no one-beat tell). Basis (NOTES-RAID, the bot's reaction model): a choice reaction to a visual cue is about 0.35-0.5 s in the lab (Hick-Hyman, two to four choices) plus 0.1-0.2 s for a cue at the screen's edge and a mouse move, so 0.6 / 0.45 / 0.3 s at score 50 / 70 / 90; against a one-beat (1.714 s) tell that leaves time to clear any of them, so misses are attention: a lapse of about 0.05 plus the share of fight time a player's eyes are on the circle (0.09-0.23 in the D-d/E pilot) times an assumed 0.7 of the tells that start during a trace going unanswered, 0.11-0.21, so 0.18 at score 70, 0.30 at 50 (longer traces, more redraws) and 0.08 at 90. DEV --raid-autopilot-answer-mult=<x> scales the answered chance (the context runs at 0.6 and 1.0). The Bellringer: the beat count says when to go in (the trip in and out fits before the tell with slam_safe_beats to spare), she works inside until she answers a tell, and a slam ring in flight sends her out. The Shieldwall fight (_vs_wall): while she answers a bash tell she keeps out of the bash arc grown by wall_margin_px of reach and wall_margin_deg each side, and otherwise waits wall_side_deg off its facing, wall_stand_px beyond that reach, walking round wall_step_deg at a time; she keeps her side until the other is wall_switch_deg nearer. The Pyre-priest fight (_vs_pyre): while she answers a fire tell she steps off a lit burn area that covers her (to burn_clear_px beyond its edge), first fetching a mote inside a lit area when the trip in and out fits before the beat with burn_safe_beats to spare; while acolytes live she waits pyre_stand_px beyond the nearest one (from the priest) and holds a raise until she is within pyre_raise_px of one (unless her carry is full, she is out of its room or a living foe is within kite_px), so the raised undead reach it; once it is exposed she waits pyre_exposed_px from it. The guarded detour (_detour_tick, D-d/E 3b, frozen from 3b on): she decides once, before the wake, at the first think the guard (or, with its guard down, the cache) is in view (a standing guard within detour_view_px of her) while no living foe is on her in her room. She takes it when her hp is at least detour_hp_frac of its most (detour_hp_frac_revive with a phylactery revive left) and her army is at least detour_army_mult times the guard she can see (RaidLogic.detour_take). On the way in she reassesses every think and turns back when her hp falls below detour_retreat_hp_frac (detour_retreat_hp_frac_revive with a revive) or her army below detour_retreat_army_mult times the guard still standing (RaidLogic.detour_retreat): early enough that a hit or two on the way out still leaves her standing, and the guard holds its post, so walking out ends the fight. Basis in NOTES-RAID (the detour rule). The unstick watch (_aim_at, D-d/E 3c): walking to a mote, pile or pickup, not closing on it by unstick_px of walking distance in unstick_s, she aims at the same spot pulled unstick_inset_px plus her radius inside its room; still not closing after another unstick_s, she gives that target up. The hold (stall_s) waits only on hostile foes in her room or the next: a calm foe out of the army's reach is no fight to wait out (D-d/E 3c). With no undead standing and nothing to raise from (fewer than min_motes carried or loose within collect_px, no unstirred pile within pile_px; RaidLogic.can_raise_from) she leaves after her reaction delay, as a player would, rather than after idle_s (D-d/E Step 4 review); the result's left_no_army says so.",
+    "wall_margin_px": 30.0,
+    "wall_margin_deg": 15.0,
+    "wall_side_deg": 110.0,
+    "wall_stand_px": 40.0,
+    "wall_step_deg": 45.0,
+    "wall_switch_deg": 20.0,
+    "burn_clear_px": 16.0,
+    "burn_safe_beats": 0.35,
+    "pyre_stand_px": 60.0,
+    "pyre_raise_px": 120.0,
+    "pyre_exposed_px": 170.0,
+    "pickup_px": 900.0,
+    "pickup_foe_clear_px": 90.0,
+    "profile_living_frac": 0.85,
+    "profile_dead_frac": 0.1,
+    "party_profiles": {
+      "_doc": "BALANCE 3's standard 'party of tier T' (DEV: --raid-profile=<T> --raid-fort=<fort_id>, RaidLogic.profile_seed): what the risk targets and the dungeon stand-ins assume the player brings to a fort. garrison_units are the player's undead already at the fort's walls (chaff at garrison.stat_mult); starter_units are the first dungeon's only (0 here); party is one big undead per entry, stats as the slab rolls them (the pre_vei fixture's four bigs run power 3.4-8.8, beef 1.7-5.5, speed 3.7-7.6). Each tier adds a big and grows the stats; tier 2's big just meets both weak points (beef 6 braces the Bellringer, speed 4 intercepts the Huntsman). The fort holds living = cap * profile_living_frac (the start's realm start_living_frac) and dead = cap * profile_dead_frac; no phylactery charge. Fixed before calibration: tune the dungeon to the party, not the party to the targets.",
+      "1": {"garrison_units": 6, "starter_units": 0, "party": []},
+      "2": {"garrison_units": 6, "starter_units": 0, "party": [
+        {"stats": {"power": 5.0, "beef": 6.0, "wits": 3.0, "presence": 3.0, "speed": 4.0}}
+      ]},
+      "3": {"garrison_units": 8, "starter_units": 0, "party": [
+        {"stats": {"power": 6.0, "beef": 7.0, "wits": 4.0, "presence": 4.0, "speed": 4.0}},
+        {"stats": {"power": 6.5, "beef": 4.0, "wits": 4.0, "presence": 4.0, "speed": 6.0}}
+      ]},
+      "4": {"garrison_units": 12, "starter_units": 0, "party": [
+        {"stats": {"power": 7.0, "beef": 8.0, "wits": 5.0, "presence": 5.0, "speed": 4.5}},
+        {"stats": {"power": 7.5, "beef": 5.0, "wits": 5.0, "presence": 5.0, "speed": 7.0}},
+        {"stats": {"power": 8.0, "beef": 6.5, "wits": 5.0, "presence": 5.0, "speed": 5.5}}
+      ]}
+    }
+  },
   "wardens": {
     "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds. A warden's pack (archetypes.<id>.pack, the Huntsman's hounds) shows HORN and its entry rings through the horn, NAME · WARDED while it stands and NAME DOWN for pack_label_s after it falls, and THE PACK BREAKS · WARD DOWN for twice pack_label_s when it breaks because no undead stands (D-d/E 3c; the banner says it too). The risk lever (D-d/E Step 4; WardenLogic.spec): from lever_min_tier up, never in the first dungeon, attack_dmg_mult multiplies all of a warden's attack damage (dmg_unit to her undead and dmg_relish to Relish), relish_dmg_mult its damage to Relish only. Both 1.0: no change.",
     "lever_min_tier": 2,

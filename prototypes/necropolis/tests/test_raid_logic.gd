@@ -180,6 +180,18 @@ func run() -> int:
 		if sp["kind"] != "spearman":
 			t1_kinds = false
 	t.ok(t1_kinds, "tier 1 fields spearmen only")
+	# D-d/E Step 4c: a per-fort room weight moves only that fort's living between rooms (the same count)
+	var glay := RaidLogic.gen_layout("greywall", 1, false, cfg)
+	var gc: Dictionary = cfg.duplicate(true)
+	gc["enemy_room_mult_by_fort"] = {"greywall": {"1": 0.0}}
+	var g0 := RaidLogic.populate_enemies("greywall", glay, 22, 1, cfg)
+	var g1 := RaidLogic.populate_enemies("greywall", glay, 22, 1, gc)
+	var in1 := 0
+	for sp in g1:
+		in1 += 1 if int(sp["room"]) == 1 else 0
+	var alay := RaidLogic.gen_layout("ashgate", 1, false, cfg)
+	t.ok(g1.size() == g0.size() and in1 == 0 and str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, gc)) == str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, cfg)),
+		"enemy_room_mult_by_fort: a room weighted 0 at greywall gets none of its 22 living; ashgate is unchanged")
 
 	# --- v2: seed, per-mote raise, statlines, LedgerV2 ------------------------
 	var ccfg := TestUtil.load_json("res://configs/circle.json")
@@ -401,6 +413,7 @@ func run() -> int:
 			["res://scripts/raid/warden_logic.gd", "static func lever_on(", "WardenLogic.lever_on"],
 			["res://scripts/raid/warden_logic.gd", "static func lunge_lock(", "WardenLogic.lunge_lock (the honest lunge tell)"],
 			["res://scripts/raid/warden_logic.gd", "static func relish_mult(", "WardenLogic.relish_mult (the lever per tier)"],
+			["res://scripts/raid/layout_logic.gd", "static func populate_enemies(", "LayoutLogic.populate_enemies (the living per room)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _record_hits(", "the bot's blow stamps (the tell tally)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _tally_close(", "the bot's tell tally"],
 			["res://scripts/raid/raid_autopilot.gd", "func _untold_blows(", "the bot's untold blows"],

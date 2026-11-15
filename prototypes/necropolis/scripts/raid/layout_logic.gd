@@ -1046,9 +1046,10 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	var rooms: Array = layout["rooms"]
 	var weights: Array = []
 	var total := 0.0
-	for r in rooms:
-		var d: float = (r as Rect2).get_center().distance_to(spawn)
-		var wt := pow(maxf(d, 40.0), 1.5)
+	var rmult: Dictionary = cfg.get("enemy_room_mult_by_fort", {}).get(fort_id, {})   # D-d/E Step 4c (greywall)
+	for ri0 in rooms.size():
+		var d: float = (rooms[ri0] as Rect2).get_center().distance_to(spawn)
+		var wt := pow(maxf(d, 40.0), 1.5) * float(rmult.get(str(ri0), 1.0))
 		weights.append(wt)
 		total += wt
 	var out: Array = []
