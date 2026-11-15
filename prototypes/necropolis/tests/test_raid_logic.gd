@@ -754,8 +754,10 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.held_door_lost("relish_died", true) and not RaidLogic.held_door_lost("retreated", false),
 		"a big spent on the door rejoins when the warden falls; a retreat or a death loses it; with none spent nothing is lost")
 	# its words
-	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
+	t.ok(RaidLogic.HELD_DOOR_ENTRY == "HELD DOOR · a big on the plate holds it · it stays behind · the warden fight is harder without it" and RaidLogic.held_door_label("shut", "Old Gristle") == "SHUT IN · Old Gristle",
 		"the entry and the leaving words are the spec's")
+	var ew := ThemeDB.fallback_font.get_string_size(RaidLogic.HELD_DOOR_ENTRY, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	t.ok(950.0 - ew * 0.5 - 14.0 > 345.0 and 950.0 + ew * 0.5 + 14.0 < 1600.0, "the entry banner (20 px, centred near x 950 as de6-door-entry shows) clears the HUD stat block (right edge ~345) and the screen at the 1600 px base width (%d px)" % int(ew))
 	var pr := RaidLogic.held_door_prompt()
 	t.ok(pr.contains("shut in until the warden falls") and pr.contains("a retreat or a death loses it"), "the plate's prompt names the whole trade before she commits")
 	t.ok(RaidLogic.held_door_row("shut", "X").begins_with("SHUT IN · X") and RaidLogic.held_door_row("unused", "") == "", "the HUD row shows the shut-in big, and nothing with none spent")

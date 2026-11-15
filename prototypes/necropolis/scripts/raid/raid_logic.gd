@@ -1045,7 +1045,7 @@ static func held_door_pick(stats: Array, threshold: float, ap: Dictionary) -> in
 
 ## The held door's words (the world label, the plate's prompt, the HUD row, the death card's row and the
 ## retreat dialog's line). `name` is the big's.
-const HELD_DOOR_ENTRY := "HELD DOOR · a big on the plate holds it · it stays behind"
+const HELD_DOOR_ENTRY := "HELD DOOR · a big on the plate holds it · it stays behind · the warden fight is harder without it"
 
 
 static func held_door_prompt() -> String:
