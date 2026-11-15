@@ -1602,3 +1602,8 @@ The grading rows are 760; with capture and reruns 778 raid runs, plus the 2 Vei 
 | D-d's 14.4% restated with its clustered interval | settled, no seeds: 26/180, Wilson 10.7-19.3%, clustered 9.9-20.5%. Restated beside the grade |
 | the L1 byte-for-byte check | settled, no seeds: 6 of 6 L1 rows re-run at 0cdc2c7 were byte-identical (43021cd's NOTES line). Cited |
 | the capture check (b) evidence | settled at 187fb96 (de-capture-check.tsv and .jsonl, 40 of 40). Task 6 added the door to capture, so 9 grading rows (frozen, one per at-tier fort, seed 40) re-run with `--capture`: the AUTOPILOT_RESULT must equal its no-capture grading row, and capture's tallies must match `tell_tally`. The rows are appended to the de-capture-check files |
+
+### Addendum: the door-off override, labelled (the manager's condition, before the door-off rows)
+- **The override:** the `grade-doorb-off-*` rows run on a copy of the imported afb8dab snapshot, not on the bare sha. The one change, in `configs/raid.json` `held_door`: `"tiers": [2]` -> `"tiers": []`. Nothing else differs from afb8dab.
+- **Labelled so:** these rows carry label `afb8dab+door-off (raid.json held_door.tiers [2] -> [])`; the runner's sha column holds the first 9 characters, `afb8dab+d`. Every other grade row is the clean afb8dab.
+- **The off rows are config-only,** and the report says so wherever it uses them: door off here means no niche, no door and no cache at all.
