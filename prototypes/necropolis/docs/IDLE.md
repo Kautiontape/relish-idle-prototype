@@ -144,9 +144,9 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   - **75, not 150** (E2b-2 T3.3b2; the run's manager's ruling, ground being closed, on the condition that
     ground's own owner test passes at 75). That test is `tests/slow/field_catchup_bench.gd`: 12 h of a
     contested scenario, catch-up against the same field steps run as exact live ticks, at least 99% of
-    village samples and the green villages at the end equal. It fixes its step at `STEP_S` 300 s (144
-    steps) and reads no config, so it ran unchanged at 144 (99.83%, green 3 = 3) and as a copy with only
-    `STEP_S` 576 s, 75 steps (99.67%, green 3 = 3): it passes. A field step at 12 h is then 576 s, about one
+    village samples and the green villages at the end equal. It reads `idle.field_steps` and
+    `idle.field_step_min_s` and steps at 12 h / `field_steps`, so it runs at the shipped count (75 steps of
+    576 s: 99.67%, green 3 = 3 = 3, finite): it passes (it was 144 steps of 300 s, 99.83%, before). A field step at 12 h is then 576 s, about one
     live tick (7.6 ms median against a live tick's 9.6 ms in the same run, load about 6), so 0.4–0.7 s for
     the 75 instead of 0.9–1.4 s for the 150 (Budget). From the three starts, 75 against 150 over 12 h and 7 days
     (the shipped schedule, the 8 × 6 field and the shipped one) gives the same flips, retakes, forts held,
