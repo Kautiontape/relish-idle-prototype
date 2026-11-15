@@ -124,9 +124,10 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   building finishing, which are clipped already.
 - First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
-- `stance.hold_s` must be at least `dt`: checked at config load (`GameState.catchup_config_problem`, an
-  error against `idle.catchup_dt_max_s`). The key is E3's and not in `economy.json` yet, so there is
-  nothing to check until E3 adds it.
+- `stance.hold_s` must be at least catch-up's longest step in config, the larger of
+  `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
+  (`GameState.catchup_config_problem`, an error naming both keys; `test_catchup` overrides them both ways
+  round). The key is E3's and not in `economy.json` yet, so there is nothing to check until E3 adds it.
 - Gold and bone clamp to their floor of 0 and their cap on each step's net. The build queue loops
   inside a step until its head can't start.
 - The influence field takes `idle.field_steps` (75; 150 until E2b-2 T3.3b2, below) field steps over a

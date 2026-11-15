@@ -164,7 +164,7 @@ E2a added is here with its value.
 | crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
 | `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
 | `town.tiers.<tier>.lot_ids`, `.lots` | below the table | explicit lot ids per tier; `.lots` is their count (kept for readers that want a number) |
-| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet. IDLE §4 needs it at least catch-up's longest step, 15 s since E2b-2 T3.3b (`idle.catchup_dt_long_s`), and `GameState.catchup_config_problem` reports an error at load below that, so E3 sets it to 15 or more, or lowers that step |
+| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet. IDLE §4 needs it at least catch-up's longest step in config, the larger of `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s`: 15 s today (the long step, since E2b-2 T3.3b). `GameState.catchup_config_problem` reports an error at load below that, naming both keys, so E3 sets it to 15 or more, or lowers those steps |
 | `vats.grow_per_s` | 1/300 per staffed vat | |
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
 | `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |

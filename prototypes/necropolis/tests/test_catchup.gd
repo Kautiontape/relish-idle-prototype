@@ -907,17 +907,31 @@ func _determinism() -> void:
 		"the same save and 3600 s away: the same to_dict(), events and RNG twice")
 
 
-## IDLE §4: stance.hold_s must be at least catch-up's longest step (the larger of idle.catchup_dt_max_s and
-## idle.catchup_dt_long_s, 15 s). E3's key isn't in economy.json yet, so there is nothing to check; at or
-## above the longest step it holds; under it (BALANCE's planned 10 s against 15 s), setup() reports the
-## problem as an error.
+## IDLE §4: stance.hold_s must be at least catch-up's longest step in config, the larger of
+## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3's key isn't in
+## economy.json yet, so there is nothing to check; at or above the longest step it holds; under it (BALANCE's
+## planned 10 s against 15 s), setup() reports the problem as an error naming both keys. Both ways round
+## (E2b-2 T3.3b2): with idle.catchup_dt_max_s overridden above idle.catchup_dt_long_s the check follows it, so
+## it reads the config, not a fixed 15 s.
 func _config_check() -> void:
 	var c := TestUtil.configs()
-	var longest := maxf(float(c["economy"]["idle"]["catchup_dt_max_s"]), float(c["economy"]["idle"]["catchup_dt_long_s"]))
+	var idle: Dictionary = c["economy"]["idle"]
+	var longest := maxf(float(idle["catchup_dt_max_s"]), float(idle["catchup_dt_long_s"]))
 	t.ok(not (c["economy"]["stance"] as Dictionary).has("hold_s") and GameState.catchup_config_problem(c) == "",
 		"the shipped configs: no stance.hold_s yet (E3's), nothing to check")
 	c["economy"]["stance"]["hold_s"] = longest
 	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s %.0f s against a %.0f s longest step: it holds" % [longest, longest])
 	c["economy"]["stance"]["hold_s"] = 10.0
 	var p := GameState.catchup_config_problem(c)
-	t.ok(p.find("stance.hold_s") >= 0 and p.find("catchup_dt_long_s") >= 0, "stance.hold_s 10 s under a %.0f s step is a problem: %s" % [longest, p])
+	t.ok(p.find("stance.hold_s") >= 0 and p.find("catchup_dt_max_s") >= 0 and p.find("catchup_dt_long_s") >= 0,
+		"stance.hold_s 10 s under a %.0f s step is a problem naming both step keys: %s" % [longest, p])
+	# the other way round: idle.catchup_dt_max_s 20 s above idle.catchup_dt_long_s 15 s, so 20 s is the longest
+	var o := TestUtil.configs()
+	o["economy"]["idle"]["catchup_dt_max_s"] = 20.0
+	o["economy"]["idle"]["catchup_dt_long_s"] = 15.0
+	o["economy"]["stance"]["hold_s"] = 16.0
+	var q := GameState.catchup_config_problem(o)
+	t.ok(q.find("stance.hold_s") >= 0 and q.find("20") >= 0 and q.find("catchup_dt_max_s") >= 0 and q.find("catchup_dt_long_s") >= 0,
+		"idle.catchup_dt_max_s 20 s over idle.catchup_dt_long_s 15 s: stance.hold_s 16 s is under the longest step: %s" % q)
+	o["economy"]["stance"]["hold_s"] = 20.0
+	t.ok(GameState.catchup_config_problem(o) == "", "... and stance.hold_s 20 s holds")
