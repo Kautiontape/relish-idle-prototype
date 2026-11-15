@@ -1435,3 +1435,49 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - t2 deaths paired by seed, with Wilson 90% and the clustered interval;
   - travel against the 5.3% ceiling, and idle;
   - relics gained, and bigs spent, rejoined or lost.
+- **The rule's walk, made exact before any measurement row.** The seed-1 probes showed two gaps in how the committed rule was carried out. Neither changes the decision, which big is spent, or when she orders.
+  - The bot's usual gathering (piles within `pile_px` 900, in any room) took her out of the door's room before the cache was hers, so the big was shut in for nothing. While the door is taken she now gathers only inside the door's room (`_collect_node` / `_pickup_node` with that room).
+  - If she does leave first anyway, the rule ends (`abandoned`) and the big stays shut in.
+
+### The design as built (`raid.json held_door`, `RaidHeldDoor`, `LayoutLogic.held_door_site` / `carve_held_door` / `_niche_step`)
+- **Gate.** `held_door.tiers` [2]: vespers, lantern-keep and chime-fort. Never the first dungeon, a held fort or the boss arena. `[]` turns it off. Every new path is gated on the carved layout (`layout.held_door`) or `raid.held_door != null`, so every other fort runs the old code.
+- **Where.** The route is the greedy walk the bot's routing takes: from the spawn, through the nearest portal into each next room of the shortest room path. Every route room but the warden's is a candidate.
+  - On each of its four walls, every niche position 8 px apart whose zone (niche, walls and plate, grown by `clear_px` 30) touches no gap or exit, and whose footprint (grown by `route_clear_px` 40) misses the route's segment through that room.
+  - The pick is the least added walk (`detour_px`), with no rng.
+  - The result: vespers, the spawn room's north wall between its two gaps to the antechamber (96 px of detour); lantern-keep, the spawn room's south wall beside the spawn exit (25 px); chime-fort, the antechamber's north wall (152 px).
+  - The spawn room is a checkpoint at all three. At vespers and chime-fort the antechamber is one too, so a cache taken in the spawn room at vespers banks on entering the antechamber.
+- **The niche.** 110 px along the wall by 44 px deep, 12 px walls, a 64 px door, and a 36 px plate beside the door in the room. It is part of its room (`room_of`); the routing tables are unchanged.
+  - The niche and its door are solid (the plug) while the door is shut, so nothing can stand in a shut niche.
+  - `LayoutLogic.waypoint` takes any mover in or out through the doorway (`_niche_step`).
+  - The cache (`loot.json cache`, 1 relic at t2) lies inside, 28 px from the doorway's centre, and out of reach through the shut door (47 px from the doorstep against the 40 px pickup radius). It stays out of `raid_pickups` while the door is shut, so it is never "on the floor" and no one fetches it.
+- **The order.** There was no army order to reuse: the army follows Relish and the trance raises. Standing within `order_px` 220 of the plate (her light's radius: she stands at the door), she gives the order with the move click.
+  - A left click on one of her party bigs sends that big; a click on the plate sends the nearest. The click is used up: she does not walk there.
+  - A click on the big was added so the player chooses which big pays, as the choice is "spend a big or keep it for the warden" and the counter big matters. The bot uses the same click (`RaidHeldDoor.click`).
+- **The door.** It is open only while the sent big stands within `hold_px` 18 of the plate's centre (`RaidUnit._hold_plate`: it holds the plate before any warden role and strikes what comes into reach; it never chases). It never shuts on Relish.
+  - When she stands in any other room, the sent big is shut in (`_shut_in`): off `allies` (so out of the ward, the conduit chain, the pack counters and the party line), parked behind the barred door, never struck.
+  - **Its fate, in one place** (`RaidLogic.held_door_lost`, the manager's ruling): when the warden falls the door unlocks and the big rejoins at the doorstep. A retreat, a window close or a death puts its uid in `party_lost` (`RaidEndings.build_result`). No result key changed.
+  - Once the warden has fallen, no order is taken, so the cache is never free after the fight.
+- **Legible** (shape and words; nothing animates, so reduced motion is the same picture):
+  - The shut door is a barred slab and the open door a dashed frame. The plate is dashed when empty and a solid double square when held, with a dashed tie from the plate to the door.
+  - On entry: the banner and the world label "HELD DOOR · a big on the plate holds it · it stays behind".
+  - The plate's prompt, while she can order: "AT THE HELD DOOR · click a big to send it (the plate sends the nearest) · it stays shut in until the warden falls · a retreat or a death loses it".
+  - While held: the world label "HELD · <name>" and the HUD row "HELD DOOR · <name> holds it · leaving the room shuts it in until the warden falls".
+  - On leaving: the banner and world label "SHUT IN · <name>" in `danger`, and the HUD row "SHUT IN · <name> · rejoins when the warden falls · a retreat or a death loses it". The WARD's big row drops it.
+  - The retreat dialog adds "<name> is shut in at the cache: a retreat loses it." The death card gives it its own row, SHUT IN "<name> · lost at the cache", and the LOST row's big count leaves it out.
+  - No new Palette key.
+- **Measuring.**
+  - AUTOPILOT_RESULT `door` {room, side, detour_px, state, big, fell, cache, cache_left, times {ordered, open, cache, shut, freed}, spent_s (from the order to the cache in hand), rule, at {t, stat, threshold, values, big}, done_s, wait_s (standing at the doorstep after the order, the door still shut), walk_px (from the decision to the cache), fate (lost / rejoined / kept / fell / "")}. It appears only on lines with a door.
+  - Capture's record gains `door` (the same, plus `taken` and the big's `name`) only on those forts. `AUTOPILOT_DOOR <taken|declined> ... frame=` prints the decision.
+- **Shots** (reports/dungeon; vespers seed 1; `--frames` with `--fixed-fps 60`):
+  - de6-door-entry: the standard party, frame 75. Barred door, dashed plate, CACHE, label, banner and prompt.
+  - de6-door-held: the spare-big party, frame 180. Profile big 2 on the plate, the door open, HELD and the HUD row.
+  - de6-door-shut: frame 300. Behind the barred door, SHUT IN in the world, banner and HUD row; WARD big 1; the relic banked in the antechamber.
+  - de6-door-shut-reduced: the same frame under `--reduced-motion`.
+  - de6-door-held-greyscale: frame 180 under `--raid-greyscale`.
+- **Capture, checked** (vespers, the spare-big party, seed 1, the door taken): the bot's line is identical with `--capture` on and off. The record carries `door` {taken true, big p2 "Profile big 2", times, spent_s 2.52, fate rejoined}.
+- **The retreat card.** There is none to add a row to: no post-retreat card or summary reads `party_lost`. Only `sim/state_runs` (it removes the bigs), `results` and the Vei card do. The retreat confirmation dialog is the one retreat surface, and it now names the shut-in big. A window close shows nothing; the big is still in `party_lost`.
+  - The death card's SHUT IN row and the dialog line are checked in source only (tests). The bot never shows the card, so no row exercises them.
+- **Seed-1 probes before the rows** (working tree, scratch, not in the raw file):
+  - The standard party declined the door at all three forts.
+  - The spare-big party took it at all three, and its big rejoined: vespers 117.4 s (order 0.53, open 2.93, cache 3.05, shut 4.53; 1.5 s at the doorstep); lantern-keep 153.6 s (order 0.08, open 3.88, cache 18.77: the room's fight came first); chime-fort 128.9 s (order 13.98, open 17.87, cache 17.98; 3.0 s at the doorstep).
+  - The wait at the doorstep is idle in the split.
