@@ -76,6 +76,7 @@ var _tally_ctr0 := 0            # the warden's counter count then (muffles, inte
 var _tally_pinned := false      # the Shieldwall's tell was pinned
 var _hit_beats: Array = []      # the warden's beat at each tell-attack blow on her (the tally's attribution)
 var _hits_seen := 0
+var _told_beats: Array = []     # the strike beat of every tell the bot saw (the tally's windows)
 var _wall_pre := {}             # the Shieldwall as it stood before its tell (a missed tell is planned against this)
 var _threat_t := -1.0           # scene time a living foe in her room came within kite_px (-1: none now)
 var _threat_last := -1.0        # scene time one was last within kite_px
@@ -261,12 +262,7 @@ func _split_tick(delta: float) -> void:
 	var k := RaidLogic.time_class(tr != null and tr.state == RaidTrance.State.ACTIVE, _engaged(rpos), moved, SPLIT_MOVE_PX)
 	_split[k] = float(_split[k]) + delta
 	_watch_army(delta)
-	var th := _tell_hits()
-	if th > _hits_seen:
-		_hits_seen = th
-		var tw = _raid.warden_run.warden
-		if tw != null and is_instance_valid(tw):
-			_hit_beats.append(tw.beat())
+	_record_hits()
 	_walk_px += moved
 	if k == "travel":
 		_walk_travel_px += moved
@@ -467,8 +463,11 @@ func on_finish(result: Dictionary) -> void:
 	out["army_at_death_minus5"] = _army_at(_sim_t, 5.0) if died else -1
 	out["unstick"] = {"aimed_in": _aimed_in, "given_up": _unreachable.size()}
 	out["left_no_army"] = _left_no_army
+	_record_hits()   # the killing blow ends the run before a split tick sees it
 	_tally_close()
-	out["tell_tally"] = _tally.duplicate()
+	var told := _tally.duplicate()
+	told["untold_blows"] = _untold_blows()
+	out["tell_tally"] = told
 	var rh: RaidRelish = _raid.relish
 	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
@@ -839,6 +838,7 @@ func _answers(kind: String, beat: float) -> bool:
 	var id := "%s:%.4f" % [kind, beat]
 	if id != _tell_id:
 		_tally_close()
+		_told_beats.append(beat)
 		_tell_id = id
 		_tell_seen = _sim_t
 		_tell_ok = _rng_react.randf() >= _miss
@@ -856,6 +856,30 @@ func _answers(kind: String, beat: float) -> bool:
 ## The tell tally (measuring only, read by nothing): when the next tell is first seen, or the run ends, the
 ## open one is counted: answered or missed; a missed one countered (a muffle or an intercept during it, or
 ## a pinned bash) or not; and struck when a tell-attack blow reached her before the next tell.
+## Tell-attack blows on her since the last look, stamped with the warden's beat (for the tally).
+func _record_hits() -> void:
+	var th := _tell_hits()
+	if th > _hits_seen:
+		var tw = _raid.warden_run.warden
+		if tw != null and is_instance_valid(tw):
+			for i in th - _hits_seen:
+				_hit_beats.append(tw.beat())
+		_hits_seen = th
+
+
+## Tell-attack blows that fall in no seen tell's window (from its start to a beat after its strike): a blow
+## without a tell she could see. Measuring only; it should be 0.
+func _untold_blows() -> int:
+	var n := 0
+	for hb in _hit_beats:
+		var told := false
+		for tb in _told_beats:
+			told = told or (float(hb) >= float(tb) - 1.5 and float(hb) < float(tb) + 1.0)
+		if not told:
+			n += 1
+	return n
+
+
 func _tally_close() -> void:
 	if not _tally_open:
 		return
