@@ -504,7 +504,8 @@ func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.roll_enemy_kind(r1, 1, mc) == "spearman", "an unlisted fort rolls from tier_mix")
 	# Step 4b: a missed tell is planned against the state from before it (fixed after the freeze)
 	var vw := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_wall(")
-	t.ok(vw.contains("var use_pre := missed and not _wall_pre.is_empty()") and vw.contains("_wall_stand(pos, w, reach, room, facing)"), "a missed Shieldwall tell is planned against the wall before its tell")
+	t.ok(vw.contains("var use_pre := w.planted and not answered and not _wall_pre.is_empty()") and vw.contains("_wall_stand(pos, w, reach, room, facing)"),
+		"a Shieldwall tell is planned against the wall before it until she answers it (missed, or inside her reaction delay)")
 	var vb := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_bell(")
 	t.ok(vb.contains('if leave and _tell_id == "slam:%.4f" % b._slam_beat and not _tell_ok:'), "a missed slam is not reacted to until it has struck")
 	var vwd := _func_body("res://scripts/raid/raid_autopilot.gd", "func _vs_warden(")

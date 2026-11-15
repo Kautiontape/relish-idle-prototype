@@ -1341,15 +1341,15 @@ func _vs_wall(pos: Vector2, w: RaidShieldwall, living: Array) -> Vector2:
 	var wp := w.global_position
 	var at: Dictionary = w.spec.get("attack", {})
 	var answered := false
-	var missed := false
 	if w.planted:
 		answered = _answers("bash", w._next_attack)
-		missed = not _tell_ok
 	else:
 		_wall_pre = {"facing": w.facing, "half": w.front_half_deg(), "reach": float(at.get("reach_px", 140.0))}
-	# a missed tell is planned against the wall as it stood before the tell: none of the tell's facing,
-	# arc or reach (fixed after the freeze, Step 4b: the stand read them and dodged a tell it had missed)
-	var use_pre := missed and not _wall_pre.is_empty()
+	# a tell is planned against the wall as it stood before the tell until she answers it: none of the tell's
+	# facing, arc or reach while it is missed (fixed after the freeze, Step 4b: the stand read them and dodged
+	# a tell it had missed), nor inside her reaction delay on one she will answer (fixed after the freeze, the
+	# quality pass: the aimed lane's facing snapped to her and the stand walked her off it with no delay)
+	var use_pre := w.planted and not answered and not _wall_pre.is_empty()
 	var facing: float = float(_wall_pre["facing"]) if use_pre else w.facing
 	var reach: float = (float(_wall_pre["reach"]) if use_pre else float(at.get("reach_px", 140.0))) \
 		+ float(_raid.relish.radius) + _c("wall_margin_px", 30.0)
