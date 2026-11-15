@@ -38,6 +38,7 @@ func run() -> int:
 	_town_views()
 	_buildings_config()
 	_realm_views()
+	_loot_hints(TestUtil.configs())
 	_agreement()
 	return t.failures
 
@@ -522,6 +523,32 @@ func _realm_views() -> void:
 	t.ok(l["held"].keys() == GameState.Ledger.HELD and l["sources"].keys() == GameState.Ledger.SOURCES
 		and l["sinks"].keys() == GameState.Ledger.SINKS,
 		"ledger: every held, source and sink key (test_ledger checks the numbers)")
+
+
+## Every fort's card has a loot hint (the run's manager; GameState._loot_hint, beside _realm_views' Old Sluice
+## and Ashgate pins): every fort in raid.json wardens.by_fort but the first dungeon needs loot.json
+## hints["t<tier>.<archetype>"], non-empty, its tier the realm's (realm.fort_by_id, as _loot_hint reads it),
+## and view_fort(id).loot_hint reads it; the first dungeon reads first_dungeon_hint, non-empty. So a new warden
+## or tier can't ship with a blank card. `cfgs` so a copy with a key dropped shows the failure.
+func _loot_hints(cfgs: Dictionary) -> void:
+	var s := GameState.new(cfgs)
+	s.cmd_new_game(1)
+	var hints: Dictionary = cfgs["loot"]["hints"]
+	var by_fort: Dictionary = cfgs["raid"]["wardens"]["by_fort"]
+	t.ok(s.first_dungeon_id != "" and by_fort.has(s.first_dungeon_id), "(setup) the first dungeon %s has a warden" % s.first_dungeon_id)
+	for id in by_fort:
+		var fv := s.view_fort(id)
+		if id == s.first_dungeon_id:
+			var fh := str(hints.get("first_dungeon_hint", ""))
+			t.ok(fh != "" and fv["loot_hint"] == fh, "the first dungeon %s reads first_dungeon_hint, non-empty: \"%s\"" % [id, fv.get("loot_hint", "")])
+			continue
+		var f := s.realm.fort_by_id(id)
+		var tier := int(f.get("tier", -1))
+		var arch := s._warden_archetype(id)
+		var key := "t%d.%s" % [tier, arch]
+		var h := str(hints.get(key, ""))
+		t.ok(not f.is_empty() and h != "" and fv["loot_hint"] == h, "%s (tier %d, %s): loot.json hints[\"%s\"] is %s, and its card reads \"%s\"" % [
+			id, tier, arch, key, "\"%s\"" % h if h != "" else "MISSING or empty", fv.get("loot_hint", "")])
 
 
 # ----------------------------------------- can_descend / can_begin agreement ----
