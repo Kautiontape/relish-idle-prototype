@@ -147,8 +147,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
     village samples and the green villages at the end equal. It fixes its step at `STEP_S` 300 s (144
     steps) and reads no config, so it ran unchanged at 144 (99.83%, green 3 = 3) and as a copy with only
     `STEP_S` 576 s, 75 steps (99.67%, green 3 = 3): it passes. A field step at 12 h is then 576 s, about one
-    live tick (7.6 ms median against a live tick's 9.6 ms in the same run, load about 6), so 0.5–0.6 s for
-    the 75 instead of 0.8–1.4 s for the 150. From the three starts, 75 against 150 over 12 h and 7 days
+    live tick (7.6 ms median against a live tick's 9.6 ms in the same run, load about 6), so 0.4–0.7 s for
+    the 75 instead of 0.9–1.4 s for the 150 (Budget). From the three starts, 75 against 150 over 12 h and 7 days
     (the shipped schedule, the 8 × 6 field and the shipped one) gives the same flips, retakes, forts held,
     Relish's place and Covington, every Vei and Covington stock equal to the printed digit (0.000%), and
     village owners at most 1 of 12 apart; `catchup_week` and `catchup_accuracy` give at 75 what they gave
@@ -171,7 +171,7 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
   (`view_catchup`) advances it in fixed chunks of `idle.catchup_steps_per_chunk` core steps, one per
   frame, and chunking never changes the result (tested to the bit at chunks of 1, 7 and 150; the shipped
-  chunk is 90, about 50 ms at pre_vei).
+  chunk is 90, a median 30–33 ms since E2b-2 T3.3b2, Budget).
 
 **Budget.** 12 h in under 2 s and 7 days in under 10 s, on jenova, with a progress screen when it
 takes over 1 s.
@@ -414,20 +414,63 @@ takes over 1 s.
     the shipped schedule (0.19% at 10 s). pre_vei: nothing held, no flip or retake, Relish at Vei, stocks
     within 0.026% (0.035% at 10 s). fresh: nothing held, Relish home, stocks within 0.52% (0.12% at 10 s).
     The 0.5 s runs took 304–365 s each.
-  - So 12 h takes 2.1–2.7 s against its 2 s budget (inside the manager's 4 s behind a progress screen;
-    the field steps are 0.9–1.4 s of it) and 7 days 13.1–14.7 s against its 10 s, about 1.5 times over.
-    What is left of the step is TownSim's (107–162 µs) and RealmSim's (136–141 µs), which T3.3b doesn't
-    change.
+  - So at T3.3b 12 h took 2.1–2.7 s against its 2 s budget (inside the manager's 4 s behind a progress
+    screen; its 150 field steps 0.9–1.4 s of it) and 7 days 13.1–14.7 s against its 10 s (the field steps
+    0.9–1.2 s of it), about 1.5 times over; the table above is the measurement (T3.3b's report gave 13.0–14.6
+    s). What was left of the step was TownSim's (107–162 µs) and RealmSim's (136–141 µs).
+  - **Measured at E2b-2 T3.3b2** (`7b3489a` against `602375e`, `tests/slow/catchup_bench.gd`, the two run
+    one after the other twice, before, after, before, after; each figure the better of its two best-of-3
+    runs, at the load average beside it, 12 cores with other units' runs beside it; the bench's RealmSim
+    figure now steps on the last core step's inputs, not a load's empty ones, for both):
+
+    | start | 12 h s (core + field) | 7 d s (core + field) | µs per core step at 7 d | load average |
+    |---|---|---|---|---|
+    | midgame_2flips | 2.57 (1.21 + 1.35) → 1.58 (0.84 + 0.74) | 13.80 (12.64 + 1.16) → 9.70 (9.05 + 0.66) | 286 → 205 | 2.5–2.6 → 2.1–2.2 |
+    | pre_vei | 2.25 (1.34 + 0.91) → 1.38 (0.91 + 0.47) | 13.92 (12.99 + 0.93) → 9.36 (8.90 + 0.46) | 311 → 213 | 1.9–2.2 → 1.9–2.0 |
+    | fresh | 2.08 (1.21 + 0.86) → 1.31 (0.88 + 0.43) | 12.48 (11.61 + 0.87) → 9.45 (9.02 + 0.43) | 278 → 216 | 2.3–2.9 → 2.2 |
+
+    The other pair of runs: before 2.08–2.58 s and 12.79–14.17 s (load 2.8–3.5), after 1.33–1.61 s and
+    9.59–9.83 s (load 2.5–3.3). A chunk of 90 core steps takes a median 30–33 ms (40–52 ms before; at most
+    about 50 ms with a field step in it). Two levers, below.
+  - **Lever 1, a cheaper step, bit for bit.** From the three starts and a new game that builds, queues
+    and rises a tier, 1 h and 12 h of catch-up at 10 s steps then 600 s live give the same `to_dict()`,
+    events and unrounded state (`var_to_bytes`) as `602375e`; the convergence tables and `margin_truth` print
+    what they printed at `602375e`, and the soak what it printed at `4169662` (where it first repeats),
+    wall-clock fields aside. A core step at 10 s (12 h of them, best of 3,
+    the stages swapped into one copy of the project and timed in turn, twice, at a load of 1.5–2.5),
+    midgame_2flips / pre_vei / fresh: 257 / 301 / 255 µs before, 185 / 204 / 197 after (−28%, −32%, −22%):
+    - RealmSim's fort combat skips a path solve whose inputs equal the last one's (`fort_step`, `_load`):
+      the pull and the kills repeat in three of four passes (a garrison pinned at 0, the living's mean
+      unmoved). −9 to −14 µs.
+    - TownSim reads what it needs of the buildings from lists cached like the effect sums (`_lists`,
+      cleared by `_mark_rooms`): the working pits, the migrants' `attract`, the morale amenities (and
+      `morale_target` sums them without building the factor rows), the working and unpaid buildings'
+      upkeep and the lots under construction. −28 to −71 µs (pre_vei's upkeep the most).
+    - GameState refills the core step's fort snapshot for TownSim in place (`_town_inputs(…, true)`; every
+      other reader still gets a fresh one) and books the ledger inline: `Ledger.sink`'s key check formats
+      its message on every call, about 1 µs, ten a step. With `_load_cuts` reading e^(−r_drain · dt) once a
+      step: −11 to −16 µs.
+    - RealmSim's part reads each fort's held, grace and redirect-site flags once, and the dispatch writes
+      `r_in` and `r_staged` once: −4 to −5 µs.
+    - The test that mutates config after setup still works: `q.q0` and `relish.tide_bias` stay live.
+  - **Lever 2, 75 field steps** (Method, above): the field's share of 12 h falls from 0.86–1.35 s to
+    0.43–0.74 s and of 7 days from 0.87–1.16 s to 0.43–0.66 s (a field step costs 5.7–9.8 ms at 75 against
+    5.7–9.0 ms at 150: at 12 h one of 576 s against 288 s).
+  - **So 12 h takes 1.3–1.6 s against its 2 s budget and 7 days 9.4–9.7 s against its 10 s: both met**, at
+    a load average of about 2. The week's margin is 0.3–0.6 s (9.8 s in the other pair of runs): the load
+    average of 5–6 T3.3b measured at would likely use it up. A progress screen still shows for both (over
+    1 s). What is
+    left of the step is RealmSim's (109–115 µs) and TownSim's (65–78 µs), and GameState's own 20–31 µs.
 - **A thread is the fallback, not built** (the budget's lever 3). The catch-up would run on a worker
   thread while the main thread draws the progress screen. It needs the state owned by that thread for the
   run: GameState has no locks, so no view could read it mid-run (the progress screen would read a
   guarded copy of `view_catchup`, and every other view would wait for the end, which the chunks don't
   need); commands refusing as they do now (`catching_up`); and the shell polling for the end, then
-  running the frames' own time. It wouldn't shorten the run: the 41 760 core steps and 150 field steps are
+  running the frames' own time. It wouldn't shorten the run: the 41 760 core steps and 75 field steps are
   the same sequential work (each step reads the last), so a thread buys a responsive window, which the
-  chunks already give at 30–90 ms a frame. To cut the wall time, the field steps could run beside the
+  chunks already give at 30–50 ms a frame. To cut the wall time, the field steps could run beside the
   core on a second thread if the core took the village owners one field step late (a dynamics change to
-  gate first), hiding about 1 s; beyond that the cost is TownSim's and RealmSim's steps.
+  gate first), hiding about 0.4–0.7 s; beyond that the cost is TownSim's and RealmSim's steps.
 
 **Determinism.**
 - The RNG comes from the saved RNG state, never from the wall clock or a global `randf`.

@@ -119,12 +119,13 @@ func _chunks(c) -> void:
 				held.size(), view[int(view.size() / 2.0)] / 1000.0]])
 
 
-## Lever 1's profile (IDLE §4 Budget): a core step at 10 s from pre_vei and midgame_2flips, and its pieces,
-## µs per call (median of 9 batches): TownSim's step and RealmSim's step (on copies of the state, the
-## inputs the core step gives them), what GameState does around them, and the runner's next_event_s.
-## The field is shrunk (the core step never touches it).
+## Lever 1's profile (IDLE §4 Budget): a core step at 10 s from each start, and its pieces, µs per call
+## (median of 9 batches): TownSim's step and RealmSim's step (on copies of the state, the inputs the core
+## step gives them: RealmSim's are the last of the 30 steps' (E2b-2 T3.3b2; a load starts with none, so
+## before it timed a step with no WAR or FLOOD), what GameState does around them, and the runner's
+## next_event_s. The field is shrunk (the core step never touches it).
 func _profile(c) -> void:
-	for st in ["pre_vei", "midgame_2flips"]:
+	for st in STARTS:
 		var js: String = JSON.stringify(c.load_state(c.start_json(st)).to_dict())
 		var base: GameState = c.load_state(js)
 		for i in 30:
@@ -134,7 +135,8 @@ func _profile(c) -> void:
 		var town := _batches(func(s: GameState) -> void:
 			var w: float = s._mint(s.town_sim.pits(), float(s.town_sim.rates.get("feed", 0.0))) * float(s.valve["work"])
 			s.town_sim.step(10.0, s._town_inputs(w * 10.0)), c, at)
-		var realm := _batches(func(s: GameState) -> void: s.realm.step(10.0, s._realm_inputs), c, at)
+		var ri: Dictionary = base._realm_inputs.duplicate()
+		var realm := _batches(func(s: GameState) -> void: s.realm.step(10.0, ri), c, at)
 		var inputs := _batches(func(s: GameState) -> void: s._town_inputs(1.0), c, at, 50)
 		var dq := _batches(func(s: GameState) -> void: s.digest_q(), c, at, 50)
 		var mint := _batches(func(s: GameState) -> void: s._mint(3, 0.5), c, at, 50)
