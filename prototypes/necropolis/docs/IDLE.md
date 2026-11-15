@@ -436,9 +436,12 @@ takes over 1 s.
     and rises a tier, 1 h and 12 h of catch-up at 10 s steps then 600 s live give the same `to_dict()`,
     events and unrounded state (`var_to_bytes`) as `602375e`; the convergence tables and `margin_truth` print
     what they printed at `602375e`, and the soak what it printed at `4169662` (where it first repeats),
-    wall-clock fields aside. A core step at 10 s (12 h of them, best of 3,
-    the stages swapped into one copy of the project and timed in turn, twice, at a load of 1.5–2.5),
-    midgame_2flips / pre_vei / fresh: 257 / 301 / 255 µs before, 185 / 204 / 197 after (−28%, −32%, −22%):
+    wall-clock fields aside. A core step at 10 s (12 h of them, best of 3, the better of two rounds, the
+    versions swapped into one copy of the project and timed in turn), midgame_2flips / pre_vei / fresh:
+    264 / 307 / 266 µs at `602375e`, 191 / 211 / 202 µs committed (−28%, −31%, −24%; load 2.0–3.3). The
+    savings below were timed the same way one stage at a time (load 1.5–2.5), with a convoy change that
+    measured within noise and was dropped (lazy fort lookups; a second, reading the snapshot once for the
+    convoy's picks, also within noise, likewise):
     - RealmSim's fort combat skips a path solve whose inputs equal the last one's (`fort_step`, `_load`):
       the pull and the kills repeat in three of four passes (a garrison pinned at 0, the living's mean
       unmoved). −9 to −14 µs.
