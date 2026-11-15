@@ -1353,3 +1353,43 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - **The ceiling of the brief's levers:** if every missed lane struck, reach would be 14 / 83 = 17%. The aim rate (92 of 99 unpinned tells), the rush's reach and the lane's end touch 0 of the misses. A plain bash that reached her stand would need 223 px and ±110 deg: a longer or wider bash lowers the bash's 0.71 s margin, and the bot reads `attack.reach_px` and `front_half_deg()` before the tell, so its stand moves out with it; aimed at her without the reach it still misses (223 > 140 + 13). The cause is the game's: a pinned bash cannot reach the stand a player keeps on its side, and 80% of tells are pinned.
 - **At 1.0 s** (the 7 answered and struck): all at the-stair, all unpinned lanes early in the fight (beats 4-12) with her 453-537 px out as she walked in. The sideways walk there is 168-197 px against the 171 px a 1.0 s reaction leaves (462 px out). No pinned tell of the 1,191 probed (frozen and 1.0 s, of 1,700 that came to a blow) began beyond 462 px; all but 12 began within 300 px.
 - **With the pin counted as a counter** (as a muffle, an intercept or a snuff is at the other wardens; the manager's question, for the side-by-side): today's 83 split into 64-68 pinned and 14-19 unpinned. The 8 cut tells: at least 3 were pinned, 5 unknown (the probe printed no tell still open at the warden's fall; all 21 horn-cut tells were pinned). Reach on the missed, unpinned tells is then 9 / 14-19 = 47-64% for the frozen bot, and 30 / 39-42 = 71-77% at 1.0 s (hb70d10: 104 missed, 58 pinned and 39 unpinned came to a blow, 7 cut of which at least 4 pinned).
+
+### The decision: option A, a pin is the Shieldwall's counter in reach (the manager, 2026-11-15)
+- **The definition from D-e task 4 on:** a pinned Shieldwall tell is countered, as a muffled slam or an intercepted lunge is. Reach = struck / missed and uncountered, with the pinned tells out of the denominator. Nothing in the game changed; no candidate rows ran.
+- **The manager's condition, that the pin is shown to be the preparation,** holds on the existing arm rows (seeds 20-39, score 70; checked by the coordinator, re-counted here from the raw rows):
+
+  | | with wits (qm) | wits 0 (qarmo) |
+  |---|---|---|
+  | pale-bastion | 1/20 died | 12/20 |
+  | the-stair | 1/20 | 15/20 |
+  | both | 2/40 = 5% (Wilson 2-14%; clustered 1-17%) | 27/40 = 68% (55-78%; clustered 52-80%) |
+  | pins / bashes (`shield`) | 431/496 (87%) | 0/586 |
+  | deaths by | rush 2 | rush 27 |
+
+- **Reach under both definitions** (seeds 20-39; frozen bot = m4c, with qm for the Shieldwall forts; the typical human = hb70d10; struck / missed less countered). The bot's tally books no counter at the Pyre-priest (an acolyte's snuff takes fires away rather than countering a tell), so its two columns are one:
+
+  | warden | frozen, old | frozen, new | typical human, old | typical human, new |
+  |---|---|---|---|---|
+  | Bellringer | 26/112 = 23% | the same | 35/103 = 34% | the same |
+  | Huntsman | 38/58 = 66% | the same | 40/61 = 66% | the same |
+  | Shieldwall | 9/83 = 11% | 9/14-19 = 47-64% | 30/104 = 29% | 30/39-42 = 71-77% |
+  | Pyre-priest | 37/50 = 74% | the same | 28/40 = 70% | the same |
+
+  The Shieldwall's range comes from the probe: of its cut tells the pinned share is not known for a tell still open at the warden's fall (above).
+- **The grading pass computes both directly:** `tell_tally` gains `missed_pinned` (missed tells whose tell was pinned, booked as the bot first sees it; the pin is decided as the tell begins and holds through its blow) and `missed_pinned_struck` (of them, a plain bash that struck her). Measuring only, in the Shieldwall's lines only. New reach = (missed_struck - missed_pinned_struck) / (missed - missed_countered - missed_pinned); old = missed_struck / (missed - missed_countered). Capture already books a pinned tell as `countered` (`tells.bash`, D-e 2c).
+- **The answered-but-struck guard** (0 frozen, 7 at 1.0 s over scores 50 and 70) is reported in the grading pass, at both profiles. Nothing here moves it: no game change.
+- **t4 stays at x1.35**; seeds 40-59 grade it.
+
+### Option B, kept off as a lever for later: `attack.rush_lane_every` (default 0)
+- **The rule** (`WardenLogic.lane_due`, `RaidShieldwall._begin_tell`; gated on `lever_on`): on every `rush_lane_every`-th bash tell since the wake (counting every tell, pinned or not), a tell a wits flanker pins is the aimed lane at her all the same, where a lane can be aimed (her in its room). The pin still holds the rush off the other tells. The lane's geometry is unchanged, so every margin is too. `--raid-shield-lane-every=<n>` (dev, standalone) sets it for one run. AUTOPILOT_RESULT `shield.pin_breaks` only with it on.
+- **Its readable tell:** PIN BROKEN where PINNED sits, in `danger`, through the tell; the posted flankers' rings and their lines into the wall's back drawn dashed for that tell (shape, not only colour); the HUD shield line ends "· every Nth breaks the pin" where the rule and the lever are on. The lane itself is a different shape from the bash's arc. Under reduced motion the lit arc is steady (as every tell's) and the word and the dashes are static. Not shot: off by default.
+- **What it would buy** (an estimate from the probe, not measured): about 55/N more struck of 83, so N = 4 near 27% and N = 2 near 44% on the old definition. Every pinned tell in the probe began within 462 px of the wall, inside the 1.0 s sideways budget (171 px), so its lanes would be answerable at 1.0 s. Off: the 13 seed-1 lines are byte-identical (below).
+
+### The Pyre-priest trim test (from the D-e task 4 brief)
+- **The test:** whitecross "stands out" if its deaths are >= 5/20 and more than 2x the mean of t4's other two forts, on seeds 20-39 after the Shieldwall change.
+- **Applied to rows that predate it,** since no game change happened (m4c for sable-hold and whitecross, qm for the-stair): whitecross 6/20; sable-hold 5/20 and the-stair 1/20, mean 3. 6 is >= 5 but not more than 2 x 3 = 6, so whitecross does not stand out and there is no trim.
+
+### Identity (D-e task 4)
+- **The 13 seed-1 lines at 11beb24** (option B's knob off, the new tally keys in; iter `de4id`) against `g3id-post` (0cdc2c7): 11 byte-identical; pale-bastion and the-stair byte-identical once `missed_pinned` and `missed_pinned_struck` are taken out of `tell_tally` (pale-bastion s1: 1 missed, 1 of them pinned; the-stair s1: 1 missed, 0 pinned). Vei's seed-1 BOSS_RESULT is identical to 3cbb6e3's (both run in this task, side by side).
+- The margins (test_wardens printout) are unchanged: at 0.6 s slam 0.17, toll 0.74, lunge 0.97, bash 0.71, fire 0.62, lane sideways 0.16 s (lane back 0.72 s, from `rush_lane_over_px` 80 + 13 px); at 1.0 s slam -0.23, toll 0.34, lunge 0.57, bash 0.31, fire 0.22, lane -0.24 s.
+- Suite at 11beb24: ALL TESTS PASSED (12,221 checks). `tests/parity_check.sh`: 5 of 5 identical.
