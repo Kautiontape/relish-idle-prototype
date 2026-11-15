@@ -101,10 +101,16 @@ func front_half_deg() -> float:
 	return h + (float(spec.get("attack", {}).get("rush_half_deg", 0.0)) if rushing else 0.0)
 
 
+## The shield's own half-width, in degrees: the phase's front. A rush's wider arc and a lane's narrow one are
+## the attack's (front_half_deg), never the shield's (D-d/E quality pass: hit_from read the attack's arc).
+func shield_half_deg() -> float:
+	return float(WardenLogic.shield_phase(spec, phase)["front_half_deg"])
+
+
 ## True when a point stands on the shield's side (a strike from there glances): the phase's front, a
 ## rush does not widen the shield.
 func is_front(at: Vector2) -> bool:
-	return WardenLogic.in_front(facing, global_position, at, float(WardenLogic.shield_phase(spec, phase)["front_half_deg"]))
+	return WardenLogic.in_front(facing, global_position, at, shield_half_deg())
 
 
 ## A wits flank-role big undead posted at its back (WardenLogic.shield_pinned) pins it: no rush.
@@ -116,7 +122,7 @@ func _pinned() -> bool:
 		if is_instance_valid(a) and a.alive and a.kind == "big" and WardenLogic.is_flanker(spec, a.wits):
 			pts.append(a.global_position)
 			orbit = maxf(orbit, radius + a.radius + float(wp.get("flank_gap_px", 3.0)))
-	return WardenLogic.shield_pinned(facing, global_position, float(WardenLogic.shield_phase(spec, phase)["front_half_deg"]),
+	return WardenLogic.shield_pinned(facing, global_position, shield_half_deg(),
 		pts, orbit + float(spec.get("attack", {}).get("pin_px", 30.0)))
 
 
@@ -127,7 +133,7 @@ func posted(u: RaidUnit) -> bool:
 		return false
 	var wp: Dictionary = spec.get("weak_point", {})
 	var orbit: float = radius + u.radius + float(wp.get("flank_gap_px", 3.0))
-	return WardenLogic.shield_pinned(facing, global_position, float(WardenLogic.shield_phase(spec, phase)["front_half_deg"]),
+	return WardenLogic.shield_pinned(facing, global_position, shield_half_deg(),
 		[u.global_position], orbit + float(spec.get("attack", {}).get("pin_px", 30.0)))
 
 
@@ -147,7 +153,7 @@ func telemetry() -> Dictionary:
 func hit_from(amount: float, attacker: Node2D) -> void:
 	if not alive or not awake or attacker == null:
 		return
-	var zone := WardenLogic.shield_zone(facing, global_position, attacker.global_position, front_half_deg(),
+	var zone := WardenLogic.shield_zone(facing, global_position, attacker.global_position, shield_half_deg(),
 		float(spec.get("attack", {}).get("back_half_deg", 50.0)))
 	var front := zone == "front"
 	var dmg := amount * WardenLogic.shield_mult(spec, zone)
@@ -319,7 +325,7 @@ func _meter_y() -> float:
 ## helm and spine, and the open back dashed. Dormant: thin and unlit.
 func _draw_glyph(col: Color) -> void:
 	var r := radius
-	var h := deg_to_rad(front_half_deg())
+	var h := deg_to_rad(shield_half_deg())   # the shield, not the attack's arc
 	draw_set_transform(Vector2.ZERO, facing, Vector2.ONE)
 	var dim := not awake
 	if dim:

@@ -405,6 +405,17 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, lt)) == str(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, cfg))
 		and str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, lt)) == str(WardenLogic.spec({"id": "x", "tier": 3, "archetype": "huntsman", "first_dungeon": true}, cfg)),
 		"the tier's value reaches only its Relish damage; t1 and the first dungeon untouched")
+	# quality pass: the Shieldwall's shield is the phase's arc in every state; a lane (20 deg) or a rush (wider)
+	# is the attack's arc only. A hit from 50 deg off the facing glances on the phase-1 shield, lane or not.
+	var sw1 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "shieldwall"}, cfg)
+	var ph_half := float(WardenLogic.shield_phase(sw1, 0)["front_half_deg"])
+	var lane_half := float(sw1["attack"]["rush_lane_half_deg"])
+	var hit50 := Vector2.RIGHT.rotated(deg_to_rad(50.0)) * 60.0
+	var sw_src := FileAccess.get_file_as_string("res://scripts/raid/warden_shieldwall.gd")
+	var sw_hf := sw_src.substr(sw_src.find("func hit_from("), 400)
+	t.ok(WardenLogic.shield_zone(0.0, Vector2.ZERO, hit50, ph_half, 50.0) == "front" and WardenLogic.shield_zone(0.0, Vector2.ZERO, hit50, lane_half, 50.0) != "front"
+		and sw_hf.contains("shield_half_deg()") and not sw_hf.contains("front_half_deg()"),
+		"hit_from reads the shield's arc (phase %d deg), not the attack's: during a lane (%d deg) a hit from 50 deg still glances" % [ph_half, lane_half])
 	# Step 4c: the honest lunge tell: the drawn line is the dash's line, also at the leash edge
 	var lroom := Rect2(1274.676, 30.0, 495.3244, 669.1307)
 	var lfrom := Vector2(1379.848, 669.1307)
