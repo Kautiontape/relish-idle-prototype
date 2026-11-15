@@ -32,7 +32,7 @@ var bash_relish := 0           # bashes that struck Relish (soaked or not)
 var rushing := false           # this bash is a rush (D-d/E 3b): wider and longer, decided as its tell starts
 var rushes := 0                # bashes that were rushes
 var pins := 0                  # bashes a wits flanker at its back pinned (no rush)
-var pinned_tell := false       # this bash's tell was pinned (D-d/E Step 4b: then it never strikes Relish)
+var pinned_tell := false       # this bash's tell was pinned (no rush; with the risk lever off its bash also spares Relish)
 var lane := false              # this rush is aimed at her (D-d/E Step 4b): a narrow lane across its room
 var rush_relish := 0           # rushes that struck Relish
 var _base_reach := -1.0        # attack.reach_px as configured (a rush lengthens it for its tell and bash)
@@ -290,7 +290,8 @@ func _bash(ph: Dictionary, at: Dictionary) -> void:
 	var hit_rel := false
 	var rel: RaidRelish = raid.relish
 	if rel != null and is_instance_valid(rel) and rel.alive and WardenLogic.bash_strikes_relish(
-			WardenLogic.bash_hits(facing, global_position, rel.global_position, half, reach, rel.radius)):
+			WardenLogic.bash_hits(facing, global_position, rel.global_position, half, reach, rel.radius), pinned_tell,
+			WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg())):
 		hit_rel = true
 		bash_relish += 1
 		if rushing:

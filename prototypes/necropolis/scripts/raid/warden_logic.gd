@@ -535,11 +535,12 @@ static func lever_on(tier: int, first: bool, w: Dictionary) -> bool:
 	return not first and tier >= int(w.get("lever_min_tier", 2))
 
 
-## D-d/E Step 4b: a bash whose lit arc covers her strikes Relish (the chain does not soak it). A wits
-## flanker's pin is the counter to the rush only: it stops the rush, and the plain bash it leaves still
-## strikes her in its arc (round 3: the manager's ruling named the pin as the rush's counter, no more).
-static func bash_strikes_relish(in_arc: bool) -> bool:
-	return in_arc
+## D-d/E Step 4b: a bash whose lit arc covers her strikes Relish (the chain does not soak it). With the
+## risk lever on (`lever`: WardenLogic.lever_on), a wits flanker's pin is the counter to the rush only: it
+## stops the rush, and the plain bash it leaves still strikes her in its arc (round 3: the manager's ruling
+## named the pin as the rush's counter, no more). With it off, a pinned bash spares her, as before round 3.
+static func bash_strikes_relish(in_arc: bool, pinned: bool, lever: bool) -> bool:
+	return in_arc and (lever or not pinned)
 
 
 ## A big undead takes the flank role when its wits meet the weak point's threshold.
