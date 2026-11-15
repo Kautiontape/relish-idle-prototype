@@ -59,8 +59,10 @@ func _input(ev: InputEvent) -> void:
 func _draw() -> void:
 	var f := ThemeDB.fallback_font
 	var a := _alpha()
-	var w := 560.0
-	var pad := 22.0
+	var dc: Dictionary = RaidLogic.DEATH_CARD
+	var w: float = dc["w"]
+	var pad: float = dc["pad"]
+	var lw: float = dc["label_w"]
 	var row_h := 34.0
 	var h := pad * 2.0 + 44.0 + row_h * rows.size() + 30.0
 	var vs := get_viewport_rect().size
@@ -74,7 +76,7 @@ func _draw() -> void:
 	y += 40.0
 	for r in rows:
 		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, 110.0, 13, Palette.c("text_dim", a))
-		draw_string(f, Vector2(x + 120.0, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, w - pad * 2.0 - 120.0, 18, Palette.c(str(r["key"]), a))
+		draw_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, w - pad * 2.0 - lw, int(dc["value_px"]), Palette.c(str(r["key"]), a))
 		y += row_h
 	var foot := "the run ends here · click or SPACE to go on" if can_skip() else "the run ends here"
 	draw_string(f, Vector2(x, y + 4.0), foot, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim", a))

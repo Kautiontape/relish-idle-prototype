@@ -483,16 +483,23 @@ static func death_lost_line(unbanked: Dictionary, party_n: int) -> String:
 	return "nothing" if parts.is_empty() else " · ".join(parts)
 
 
-## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, what the last
-## checkpoint banked, what is lost.
-static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int) -> Array:
+## The death card's geometry (RaidDeathCard._draw reads it; the test measures the widest value against it):
+## card width, padding, the label column, the value font size.
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
+
+
+## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
+## the attack had one (its own row, so a long cause never clips: "The Bellringer's toll" / "the ring at your
+## feet"), what the last checkpoint banked, what is lost.
+static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "") -> Array:
 	var bl := loot_line(banked_counts)
 	var lost := death_lost_line(unbanked, party_n)
-	return [
-		{"label": "KILLED BY", "text": cause, "key": "danger"},
-		{"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"},
-		{"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"},
-	]
+	var rows: Array = [{"label": "KILLED BY", "text": cause, "key": "danger"}]
+	if missed != "":
+		rows.append({"label": "MISSED", "text": missed, "key": "danger"})
+	rows.append({"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"})
+	rows.append({"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"})
+	return rows
 
 
 ## How much loose essence can still be banked: what lies loose, capped by the carry room left.

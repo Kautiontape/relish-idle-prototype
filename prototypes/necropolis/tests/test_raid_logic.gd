@@ -1746,6 +1746,24 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var rows := RaidLogic.death_card_rows("the living", {"remnants": 1}, {"essence": 3}, 1)
 	t.ok(rows.size() == 3 and rows[0]["text"] == "the living" and rows[1]["text"] == "remnants 1" and rows[2]["text"] == "essence 3 · 1 big undead",
 		"the death card's three rows: killed by, banked, lost")
+	var trow := RaidLogic.death_card_rows(RaidLogic.death_cause("toll", "The Bellringer"), {}, {}, 1, RaidLogic.death_tell("toll"))
+	t.ok(trow.size() == 4 and trow[0]["label"] == "KILLED BY" and trow[0]["text"] == "The Bellringer's toll" and trow[1]["label"] == "MISSED"
+		and trow[1]["text"] == "the ring at your feet" and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
+		"a death by a tell-attack: KILLED BY the attack, then MISSED its tell, on its own row")
+	# every value the KILLED BY and MISSED rows can hold fits the card's value column at its font size
+	var dcg: Dictionary = RaidLogic.DEATH_CARD
+	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var widest := ""
+	var widest_px := 0.0
+	var fnt := ThemeDB.fallback_font
+	for wn in ["The Bellringer", "The Huntsman", "The Shieldwall", "The Pyre-priest", ""]:
+		for src in ["slam", "toll", "lunge", "bash", "rush", "fire", "hound", "pack", "living", ""]:
+			for txt in [RaidLogic.death_cause(src, wn), RaidLogic.death_tell(src)]:
+				var px := fnt.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
+				if px > widest_px:
+					widest_px = px
+					widest = txt
+	t.ok(widest_px <= col_w, "the widest KILLED BY / MISSED value fits the card: '%s' %d px of %d" % [widest, int(widest_px), int(col_w)])
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
 	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",

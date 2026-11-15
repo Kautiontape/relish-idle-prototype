@@ -201,9 +201,10 @@ func _finish_death() -> void:
 ## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
 func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
-	var cause := RaidLogic.death_line(_raid.relish.last_hit_src, wname)
+	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
 	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
-	return RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, (_raid.seed_data.get("party", []) as Array).size())
+	return RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, (_raid.seed_data.get("party", []) as Array).size(),
+		RaidLogic.death_tell(_raid.relish.last_hit_src))
 
 
 # ------------------------------------------------------------------- result ---
