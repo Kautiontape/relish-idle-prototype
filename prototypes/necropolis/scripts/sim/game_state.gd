@@ -1669,37 +1669,7 @@ func _update_towns(cfg: Dictionary) -> void:
 			green_towns += 1
 
 
-# ------------------------------- compatibility for unported callers, and death ----
-# STATE-API §2.2: built best-effort from the new state; nothing written to them is read back.
-
-## legacy: stays only until tests/test_results.gd:532 (the dungeon's) drops its call; no scene reads
-## it (Game's getters are gone). The E1 stores rebuilt fresh from the new state (STATE-API §2.2), so
-## a write to them changes nothing:
-## res {gold, materials: bone, bodies, townsfolk: living}; army {soldier: 0, elite: 0};
-## town {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0};
-## assignments: staffed workers per old job (trade: stall, forge, jobs: build, gather: haul,
-## slab: pit), rounded; idle_undead: idle workers, rounded; gather {target, phase, eta, load}: the
-## convoy (phase "idle" and the set target, or "", when none is out). Every count is an int.
-func legacy_stores() -> Dictionary:
-	var ts := town_sim
-	var jobs: Dictionary = ts.staffing.get("jobs", {})
-	var assign := {}
-	for pair in [["trade", "stall"], ["forge", "forge"], ["jobs", "build"], ["gather", "haul"], ["slab", "pit"]]:
-		assign[pair[0]] = roundi(float(jobs.get(pair[1], {}).get("staffed", 0.0)))
-	var gather := {"target": "" if haul_target == "auto" else haul_target, "phase": "idle", "eta": 0.0, "load": 0.0}
-	for c in ts.haul["convoys"]:
-		gather = {"target": str(c["fort"]), "phase": str(c["phase"]),
-			"eta": (1.0 - float(c["t"])) * float(c["trip_s"]), "load": float(c["load"])}
-	return {
-		"res": {"gold": ts.gold, "materials": ts.bone, "bodies": ts.bodies, "townsfolk": ts.living},
-		"army": {"soldier": 0, "elite": 0},
-		"town": {"slabs": ts.pits(), "vats": clones_ready, "forge_level": int(ts.forge["level"]),
-			"sim_stations": 0, "trade_level": 0},
-		"assignments": assign,
-		"idle_undead": roundi(float(ts.staffing.get("idle", 0.0))),
-		"gather": gather,
-	}
-
+# ------------------------------------------------------------------------ death ----
 
 ## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
 ## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.

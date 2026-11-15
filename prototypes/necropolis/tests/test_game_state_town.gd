@@ -57,7 +57,6 @@ func run() -> int:
 	_haul()
 	_views()
 	_events()
-	_legacy()
 	_migrate()
 	_fixtures()
 	_vat_hands()
@@ -332,37 +331,6 @@ func _events() -> void:
 	var errs: Array = []
 	ApiSchema.check(evs[0], ApiSchema.EVENTS["building_started"], "event", errs)
 	t.ok(errs.is_empty(), "and fits §6: %s" % str(errs))
-
-
-# ------------------------------------------- the compatibility members (§2.2) ----
-func _legacy() -> void:
-	var s := _mk()
-	var l := s.legacy_stores()
-	t.ok(l["res"] == {"gold": 80.0, "materials": 30.0, "bodies": 40.0, "townsfolk": 10.0}, "res: gold, materials = bone, bodies, townsfolk = living")
-	t.ok(l["army"] == {"soldier": 0, "elite": 0}, "army: empty")
-	t.ok(l["town"] == {"slabs": 1, "vats": 0, "forge_level": 0, "sim_stations": 0, "trade_level": 0}, "town: slabs = working pits, vats = clones")
-	t.ok(l["assignments"] == {"trade": 2, "forge": 0, "jobs": 0, "gather": 3, "slab": 2} and l["idle_undead"] == 5,
-		"assignments: staffed stall, forge, build, haul, pit; idle_undead: idle workers")
-	t.ok(l["gather"] == {"target": "", "phase": "idle", "eta": 0.0, "load": 0.0}, "gather: idle, no target")
-	var ints := true
-	for k in l["town"]:
-		ints = ints and typeof(l["town"][k]) == TYPE_INT
-	for k in l["assignments"]:
-		ints = ints and typeof(l["assignments"][k]) == TYPE_INT
-	t.ok(ints and typeof(l["idle_undead"]) == TYPE_INT and typeof(l["army"]["soldier"]) == TYPE_INT, "every count is an int (world_map prints %d)")
-	l["res"]["gold"] = 1.0e6
-	l["army"]["soldier"] = 40
-	t.ok(s.town_sim.gold == 80.0 and s.legacy_stores()["army"]["soldier"] == 0, "writes to them change nothing")
-	s.clones_ready = 2
-	s.cmd_debug_set_state({"forge_level": 3})
-	s.cmd_set_haul_target("vespers")
-	t.ok(s.legacy_stores()["town"]["vats"] == 2 and s.legacy_stores()["town"]["forge_level"] == 3
-		and s.legacy_stores()["gather"]["target"] == "vespers", "vats, forge level and the set target follow the new state")
-	s.tick(s.substep_s())
-	var g: Dictionary = s.legacy_stores()["gather"]
-	var c: Dictionary = s.town_sim.haul["convoys"][0]
-	t.ok(g["target"] == "vespers" and g["phase"] == "out" and absf(g["eta"] - (1.0 - c["t"]) * c["trip_s"]) < 1e-9 and g["load"] == 0.0,
-		"gather: the convoy out, eta = (1 − t) · trip_s")
 
 
 # ------------------------------------------------------------ v1 → v2 saves ----

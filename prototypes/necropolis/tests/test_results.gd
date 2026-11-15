@@ -529,7 +529,9 @@ func _raid_writeback() -> void:
 	t.ok(s.first_dungeon_id == "" and s.cleared_forts.has("old-sluice"), "first_clear and first_dungeon are spent")
 	# 60 living -> k 20 -> living 40 -> flipped: dead = 30 + 20 + 40 = 90; R = 12 <= 90
 	t.near(f["dead"], 90.0 - 12.0, 1e-9, "dead: kills, the flip, then the raised mass comes off")
-	t.ok(s.legacy_stores()["army"] == {"soldier": 0, "elite": 0}, "no legacy army: E1's step 12 is gone")
+	var dumped := JSON.stringify(s.to_dict())
+	t.ok(not dumped.contains("\"army\":") and not dumped.contains("\"soldier\":") and not dumped.contains("\"elite\":"),
+		"no legacy army: E1's step 12 is gone")
 	var uids: Array = out["minted"]
 	var seen := {}
 	for h in s.husks:

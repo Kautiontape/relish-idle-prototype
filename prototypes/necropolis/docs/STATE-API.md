@@ -76,7 +76,9 @@ from `BALANCE.md` §0.
     §3.5): a meaning change, not a shape change;
   - (T3.4a) **removed:** the non-contract compatibility members `raid_seed`, `boss_seed`,
     `town_snapshot`, `apply_town_result` and `quality` on `GameState`, and `Game`'s forwarding members and
-    legacy getters (§2.2); `legacy_stores()` stays for one dungeon test;
+    legacy getters (§2.2);
+  - (T3.4a follow-up) **removed:** `legacy_stores()`, the last compatibility member: every compatibility
+    member on `GameState` is gone (§2.2); `tests/test_results.gd` now checks the state dict for an army;
   - (T3.4a) **the fort card's warden and loot lines come from the dungeon's configs** (api-request
     #5): `view_fort().warden` gains `name` (§5.5), and `warden.tells` and `loot_hint` (on `view_fort`
     and the raid seed alike) are read from `raid.json` `wardens.archetypes` and `loot.json` `hints`,
@@ -184,7 +186,6 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
-| `legacy_stores` | **Not contract**: the E1 stores rebuilt from the new state; stays until `tests/test_results.gd:532` drops its call; §2.2. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
@@ -266,22 +267,13 @@ new state as a best effort, and writes to them are ignored; `time_scale` is the 
 | `time_scale: float` | get: `state.time_scale`. Set: writes `state.time_scale` **unvalidated** (any value > 0). Keeps working in release builds; used by the map's ×1/×10/×60 buttons and `--speed=`. | world_map, shot |
 | `raiding_fort_id() -> String` | the active raid run's fort id, or `""` | map_nodes, shot |
 
-**`legacy_stores()`** (E2a; `Game`'s getters for it were removed in T3.4a, and only the dungeon's `tests/test_results.gd:532` still calls it, so it goes with that call): the E1 stores rebuilt from TownSim and
-the backups stock, every count an `int`:
-- `res = {gold, materials: bone, bodies, townsfolk: living}`;
-- `army = {soldier: 0, elite: 0}` (the army is gone);
-- `town = {slabs: working pits, vats: clones_ready, forge_level, sim_stations: 0, trade_level: 0}`;
-- `assignments`: staffed workers per old job, rounded: `trade` (stall), `forge`, `jobs` (build),
-  `gather` (haul), `slab` (pit); `idle_undead`: idle workers, rounded;
-- `gather = {target, phase, eta, load}`: TownSim's convoy (`eta = (1 − t) · trip_s`), or phase `idle`
-  with the set haul target (`""` for `auto`) when none is out.
-
-**Compatibility members on `GameState`** (not contract): only `legacy_stores()` (above) remains. It stays
-until `tests/test_results.gd:532` drops its call. `raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()`,
-`apply_town_result(r)` and `quality()` were removed in T3.4a, with `Game`'s forwarding members and its
-`res`, `army`, `town`, `assignments`, `idle_undead` and `gather` getters: nothing called them
-(`view_dungeon_seed`, `view_boss_seed` and `digest_q()` are the contract). `Results.KINDS` keeps
-`"raid_seed"` and `"boss_seed"`: they validate those two views' seeds.
+**Compatibility members on `GameState`** (not contract): none remain. `legacy_stores()` (the E1 stores
+rebuilt from the new state) was the last; it was removed once `tests/test_results.gd` stopped calling it.
+`raid_seed(fort_id)`, `boss_seed()`, `town_snapshot()`, `apply_town_result(r)` and `quality()` were
+removed in T3.4a, with `Game`'s forwarding members and its `res`, `army`, `town`, `assignments`,
+`idle_undead` and `gather` getters: nothing called them (`view_dungeon_seed`, `view_boss_seed` and
+`digest_q()` are the contract). `Results.KINDS` keeps `"raid_seed"` and `"boss_seed"`: they validate those
+two views' seeds.
 
 **Removed at E1** (replaced by commands): `new_game`, `begin_raid`, `end_raid`, `apply_raid_result`,
 `auto_resolve_raid`, `apply_boss_result`, `auto_resolve_boss`. shot.gd's cheats move to
