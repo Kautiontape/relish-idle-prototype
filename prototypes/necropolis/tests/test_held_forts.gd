@@ -33,6 +33,7 @@ func run() -> int:
 		res[dt] = _run(c, js, dt)
 	_convergence(res)
 	_retake_effects(res[10.0])
+	_retaken_mid_run()
 	return t.failures
 
 
@@ -113,3 +114,53 @@ func _retake_effects(r: Dictionary) -> void:
 		ApiSchema.check(e, ApiSchema.EVENTS.get(e["type"], {}), "event", errs)
 		if e["type"] in ["fort_retaken", "big_undead_returned"]:
 			t.ok(errs.is_empty() and ApiSchema.EVENTS.has(e["type"]), "%s matches the contract%s" % [e["type"], "" if errs.is_empty() else ": " + str(errs)])
+
+
+# ------------------------- a fort retaken during its own raid pays no counter-garrison clear ----
+## A retreat result for the open run's seed that kills all of its living and brings 2 relics.
+func _clear_res(sd: Dictionary) -> Dictionary:
+	return {
+		"v": 2, "run_id": sd["run_id"], "seed_rev": sd["seed_rev"], "fort_id": sd["fort"]["id"],
+		"warden_beaten": false, "retreated": true, "relish_died": false, "revived_in_place": 0,
+		"killed_living_mass": sd["living"], "raised": [], "chaff_mass": 0.0, "garrison_mass": sd["garrison_in_mass"],
+		"party_lost": [], "loot": {"relics": 2, "blueprints": [], "husks": [], "remnants": [], "essence": 0},
+	}
+
+
+## A new game with Greywall held (living 52, undead 20) and a raid open on it; `retake` retakes it
+## mid-run. Used: RealmSim._retaken(f, "broken", 0.0) called directly (the realm's own zero clock
+## needs a hold.break_s-long contest), its events dropped (no siege big undead, Relish is in_dungeon).
+## Returns {s, cleared, loot_banked, relics, yield_c, held}: the clear event count, the loot_banked
+## count, the relics gained and the fort's yield_c / held after a valid retreat that kills all its living.
+func _mid_run(retake: bool) -> Dictionary:
+	var s := GameState.new(TestUtil.configs())
+	s.cmd_new_game(1)
+	s.debug_enabled = true
+	s.realm.hold("greywall", 0.0)
+	s.cmd_debug_set_state({"relish_at": "greywall", "forts": {"greywall": {"living": 52.0, "undead": 20.0}}})
+	var sd: Dictionary = s.cmd_begin_dungeon("greywall")["seed"]
+	var f: Dictionary = s.realm.fort_by_id("greywall")
+	if retake:
+		s.realm._retaken(f, "broken", 0.0)
+		s.realm.events.clear()
+	s.drain_events()
+	var relics0 := s.relics
+	var ok: bool = s.apply_result("raid", _clear_res(sd))["ok"]
+	var evs := s.drain_events()
+	return {"ok": ok, "cleared": evs.filter(func(e): return e["type"] == "counter_garrison_cleared").size(),
+		"banked": evs.filter(func(e): return e["type"] == "loot_banked").size(), "relics": s.relics - relics0,
+		"yield_c": float(f["yield_c"]), "held": bool(f["held"])}
+
+
+func _retaken_mid_run() -> void:
+	t.suite("held-forts-retaken-mid-raid")
+	var decay: float = float(TestUtil.configs()["loot"]["reclear_decay"])
+	var c := _mid_run(false)
+	t.ok(c["ok"] and c["cleared"] == 1 and c["banked"] == 1 and c["relics"] == 2
+		and absf(c["yield_c"] - decay) < 1e-12,
+		"control, still held: the clear event is raised, the yield spends to %.2f, the loot is banked: %s" % [decay, str(c)])
+	var r := _mid_run(true)
+	t.ok(r["ok"] and not r["held"], "retaken mid-run: the result still applies, the fort is Vei's: %s" % str(r))
+	t.ok(r["cleared"] == 0, "retaken mid-run: no counter_garrison_cleared for a fort Vei owns (%d)" % r["cleared"])
+	t.ok(r["yield_c"] == 1.0, "retaken mid-run: yield_c stays at the retake's 1 (%.3f), not halved" % r["yield_c"])
+	t.ok(r["banked"] == 1 and r["relics"] == 2, "retaken mid-run: the retreat banks its loot as usual (%d event, %d relics)" % [r["banked"], r["relics"]])

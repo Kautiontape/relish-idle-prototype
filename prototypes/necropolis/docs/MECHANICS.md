@@ -1298,7 +1298,10 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     (`reclear_decay`²), and it is back to exactly 1 `recover_s` (8 h) after the last clear, from any
     depth. It is a function of the sim time, so a catch-up refills it with no step work; the dungeon
     seed and `view_fort` read it live. A retake resets `yield_c` to 1, so a fort Vei retakes refreshes
-    its yield (vision review M8). Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
+    its yield (vision review M8). A counter-garrison clear is paid only by a fort still held when the
+    result is applied: a held fort retaken during its own raid (the realm keeps stepping while she is
+    in the dungeon) banks its retreat's loot as usual, but raises no clear and spends no yield, so the
+    retake's reset to 1 stands. Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
     it showed.
 - **Exits:**
   - **warden beaten:** loot banked, fort flips;
