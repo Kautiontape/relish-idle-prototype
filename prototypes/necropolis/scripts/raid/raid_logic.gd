@@ -975,6 +975,31 @@ static func held_door_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Di
 	return LayoutLogic.held_door_site(layout, tier, cfg)
 
 
+## The held door's states (RaidHeldDoor; pure, so the order of events can be tested): "unused" (no big spent on
+## it), "sent" (on its way to the plate), "held" (on the plate: the door open), "shut" (shut in behind the door)
+## and "freed" (the warden fell: it rejoined). One live step of a big sent or holding: fallen, the door is free
+## again ("unused": it is in party_died); else it holds the plate or is on its way; and once she stands in
+## another room it is shut in. Every other state stands.
+static func held_door_step(state: String, holder_alive: bool, on_plate: bool, left_room: bool) -> String:
+	if state != "sent" and state != "held":
+		return state
+	if not holder_alive:
+		return "unused"
+	if left_room:
+		return "shut"
+	return "held" if on_plate else "sent"
+
+
+## The warden's fall: a big spent on the door rejoins whether it was shut in, on the plate or on its way.
+static func held_door_fall(state: String) -> String:
+	return "freed" if state in ["sent", "held", "shut"] else state
+
+
+## A big spent on the door that has not rejoined (sent, on the plate, or shut in).
+static func held_door_committed(state: String) -> bool:
+	return state in ["sent", "held", "shut"]
+
+
 ## THE SHUT-IN BIG'S FATE (the manager's ruling, 2026-11-15; the one place the rule lives): a big sent to
 ## the held door's plate (`committed`) rejoins her party when the warden falls; if the run ends any other
 ## way (a death, a retreat, a window close) it is lost and goes in party_lost.

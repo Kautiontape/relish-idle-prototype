@@ -75,7 +75,7 @@ func cache_left() -> int:
 
 ## A big spent on the door that has not rejoined (sent, on the plate, or shut in).
 func committed() -> bool:
-	return state in ["sent", "held", "shut"]
+	return RaidLogic.held_door_committed(state)
 
 
 ## The party bigs standing in her party (the shut-in one is not).
@@ -155,18 +155,21 @@ func tick(delta: float) -> void:
 		_entered = true
 		if raid.hud != null:
 			raid.hud.show_banner(RaidLogic.HELD_DOOR_ENTRY, 3.0, "vei")
-	if (state == "sent" or state == "held") and (holder == null or not is_instance_valid(holder) or not holder.alive):
-		# it fell before it was shut in (party_died has it): the door is free to use again
-		holder = null
-		holder_uid = ""
-		holder_name = ""
-		fell += 1
-		state = "unused"
 	if state == "sent" or state == "held":
-		var on := holder.global_position.distance_to(site["plate"]) <= _c("hold_px", 18.0)
-		state = "held" if on else "sent"
-		if rroom >= 0 and rroom != room:
+		var alive := holder != null and is_instance_valid(holder) and holder.alive
+		var on := alive and holder.global_position.distance_to(site["plate"]) <= _c("hold_px", 18.0)
+		var nxt := RaidLogic.held_door_step(state, alive, on, rroom >= 0 and rroom != room)
+		if nxt == "unused":
+			# it fell before it was shut in (party_died has it): the door is free to use again
+			holder = null
+			holder_uid = ""
+			holder_name = ""
+			fell += 1
+			state = "unused"
+		elif nxt == "shut":
 			_shut_in()
+		else:
+			state = nxt
 	_set_open(state == "held" or state == "freed")
 	if not times.has("cache") and cache_n > 0 and cache_left() == 0:
 		times["cache"] = snappedf(_t, 0.01)
@@ -186,17 +189,22 @@ func _shut_in() -> void:
 		raid.hud.show_banner(RaidLogic.held_door_label("shut", holder_name), 3.0, "danger")
 
 
-## The warden fell: the door unlocks and a shut-in big rejoins her party at the doorstep. With none shut in
-## the door stays as it is, and no order is taken from here on.
+## The warden fell: the door unlocks and the big spent on it rejoins her party (RaidLogic.held_door_fall). A
+## shut-in big steps out to the doorstep and back into her allies; one on the plate or on its way was never out
+## of them, and it leaves the plate (plate_for) without being shut in when she moves on. With none spent the
+## door stays as it is, and no order is taken from here on.
 func on_warden_died() -> void:
 	_warden_fallen = true
-	if state != "shut" or holder == null or not is_instance_valid(holder):
+	var nxt := RaidLogic.held_door_fall(state)
+	if nxt == state or holder == null or not is_instance_valid(holder) or not holder.alive:
 		return
-	state = "freed"
+	var was := state
+	state = nxt
 	times["freed"] = snappedf(_t, 0.01)
-	holder.parked = false
-	holder.global_position = raid.resolve_walls(site["door_out"], holder.radius)
-	raid.allies.append(holder)
+	if was == "shut":
+		holder.parked = false
+		holder.global_position = raid.resolve_walls(site["door_out"], holder.radius)
+		raid.allies.append(holder)
 	_set_open(true)
 
 

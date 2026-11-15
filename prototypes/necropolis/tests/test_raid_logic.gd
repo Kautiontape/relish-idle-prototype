@@ -700,6 +700,22 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.held_door_pick([3.0, 2.0], 6.0, ap) == 1, "none meets the weak point: she spends the lowest")
 	t.ok(RaidLogic.held_door_pick([6.0, 6.0], 6.0, ap) == 0, "a tie: the first in party order")
 	t.ok(RaidLogic.held_door_pick([], 6.0, ap) == -1, "no big: nothing to spend")
+	# the door's order of events (RaidLogic.held_door_step / held_door_fall, the states RaidHeldDoor runs on)
+	var st := RaidLogic.held_door_step("sent", true, false, false)
+	t.ok(st == "sent" and RaidLogic.held_door_step("sent", true, true, false) == "held", "a sent big holds the door once it stands on the plate")
+	t.ok(RaidLogic.held_door_step("held", true, true, true) == "shut" and RaidLogic.held_door_step("sent", true, false, true) == "shut",
+		"she leaves the room: the big sent is shut in, on the plate or not")
+	t.ok(RaidLogic.held_door_step("held", false, false, true) == "unused", "a big that falls before it is shut in frees the door (it is in party_died)")
+	# the warden falls while the big is on the plate (the quality pass's scenario: the order after the wake, the
+	# army kills the warden, she leaves for the chest): it rejoins and is never shut in, and a retreat keeps it
+	var s2 := RaidLogic.held_door_fall("held")
+	s2 = RaidLogic.held_door_step(s2, true, true, true)
+	t.ok(s2 == "freed" and not RaidLogic.held_door_committed(s2) and not RaidLogic.held_door_lost("retreated", RaidLogic.held_door_committed(s2)),
+		"the warden falls with the big on the plate: freed; leaving the room does not shut it in; a retreat after keeps it")
+	t.ok(RaidLogic.held_door_fall("sent") == "freed" and RaidLogic.held_door_fall("shut") == "freed" and RaidLogic.held_door_fall("unused") == "unused",
+		"the fall frees a big on its way and a shut-in one too; an unused door stays unused")
+	var s3 := RaidLogic.held_door_step(RaidLogic.held_door_step("held", true, true, true), true, false, false)
+	t.ok(s3 == "shut" and RaidLogic.held_door_committed(s3) and RaidLogic.held_door_lost("retreated", true), "shut in stays shut in until the fall; a retreat then loses it")
 	# the shut-in big's fate, in one place
 	t.ok(not RaidLogic.held_door_lost("warden_beaten", true) and RaidLogic.held_door_lost("retreated", true)
 		and RaidLogic.held_door_lost("relish_died", true) and not RaidLogic.held_door_lost("retreated", false),
