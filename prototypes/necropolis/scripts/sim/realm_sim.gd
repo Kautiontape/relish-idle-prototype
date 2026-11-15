@@ -142,7 +142,6 @@ var _drained := 0.0
 var _cleared := 0.0
 var _raised := 0.0
 var _marched := 0.0
-var _raise_r := 0.0  # the raise rate (mass/s) fort_step's last solve settled on
 # seconds of this step the running wave covers (_tithe_clock, read by _wave_tail)
 var _wave_run := 0.0
 # the paths' scratch: undead end, mean, destroyed, drained, out time; living end, mean, out time,
@@ -808,53 +807,18 @@ func _load_cuts(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bo
 	return true
 
 
-## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
-## Updates `f`'s living, undead and dead, its t_living_out and t_undead_out, and sets _kills,
-## _destroyed, _drained, _cleared, _raised and _marched (mass this step):
-## - living gets `s_in` mass/s (Vei's shipping and a surge) and loses k_kill · U to the undead and,
-##   above the fort's cap, (L − cap) / tithe.march_back_s marching back to Vei (_marched);
-## - undead get `w_in` mass/s (WAR) plus the raises, and lose r_drain · U to the drain and
-##   k_destroy · L / q to the garrison;
-## - corpses get the kills (and, where `keep`, the garrison's kills too), lose k_clear · ∫L to
-##   clearing and the raises (`raise_want` mass/s, as far as the corpses cover them).
-## Each pool stops at 0: living pinned at 0 has every arrival killed at once, undead pinned at 0
-## have every arrival destroyed at once.
-## - U is held at its mean over the step for the kills, so living's path is linear below the cap
-##   (it reaches 0 at t* = L0 / (k_kill · Ū − s_in) and stays there; kills then equal the inflow)
-##   and exponential above it (_l_path).
-## - U's own path is exact for its linear ODE under the garrison's mean pull k_destroy · L̄ / q,
-##   including the moment it reaches 0. Ū and L̄ come from alternating the two paths (a predictor
-##   from L0, then two corrections).
-## - While U sits at 0 nothing kills the living, so their path is exact, and the moment the pull falls
-##   back below U's inflow along it (after a wave, as the living above the cap march back) is solved
-##   in closed form (_leave_s). When U leaves 0 inside the step, the step is split there (E2b-2
-##   T3.3a): the first piece holds U at 0, the second starts it from 0, both with this step's rates,
-##   and their masses add. A long step then counts the same time at 0 as short ones (step 9's zero
-##   clock). Before, U's whole step took one regime from the step's mean pull, so the moment it left
-##   0 landed anywhere in a 10 s step: midgame_2flips' Ashgate, pinned 102–116 s of the 120 s
-##   hold.break_s each wave, crossed 120 s at one wave and fell at 10 s (15 537 s), not at 0.5 s.
-## t_living_out / t_undead_out: seconds into the step when that pool reached 0 (0 when it started
-## there), −1 when it did not. t_undead_back: seconds into the step when U, after sitting at 0, left it
-## (−1 when it did not, or is at 0 at the step's end). Natural event boundaries (IDLE §4); step 9's
-## zero clock reads t_undead_out and t_undead_back.
-func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
-	var l0 := float(f["living"])
-	var u0 := float(f["undead"])
-	var d0 := float(f["dead"])
-	_fort_part(f, dt, s_in, w_in, raise_want, keep, q)
-	f["t_undead_back"] = -1.0
-	var back := _leave_at(f, dt, l0, u0, s_in, w_in + _raise_r, q)
-	if back < 0.0:
-		return
-	# U leaves 0 at `back`: the step again, in two pieces with the same rates
+## fort_step's split where U leaves 0 at `back` seconds into the step (from the fort's state before
+## it: `l0`, `u0`, `d0`): the step again, in two pieces with the same rates, their masses added.
+func _split_at(f: Dictionary, back: float, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float,
+		l0: float, u0: float, d0: float) -> void:
 	f["living"] = l0
 	f["undead"] = u0
 	f["dead"] = d0
-	_fort_part(f, back, s_in, w_in, raise_want, keep, q)
+	fort_step(f, back, s_in, w_in, raise_want, keep, q, false)
 	var lt1 := float(f["t_living_out"])
 	var ut1 := float(f["t_undead_out"])
 	var m := [_kills, _destroyed, _drained, _cleared, _raised, _marched]
-	_fort_part(f, dt - back, s_in, w_in, raise_want, keep, q)
+	fort_step(f, dt - back, s_in, w_in, raise_want, keep, q, false)
 	_kills += m[0]
 	_destroyed += m[1]
 	_drained += m[2]
@@ -919,18 +883,53 @@ static func _leave_s(l1: float, c: float, cap: float, tau: float, l_star: float,
 	return tl if tl < span else -1.0
 
 
-## fort_step's solve for one piece of a step (see fort_step): U's and L's paths with U and L at their
-## means for each other, the raises, the masses. Sets _raise_r, the raise rate it settled on.
-func _fort_part(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
+## One fort's combat over a step of `dt` (MECHANICS §3.1), exact in its pieces and mass-exact.
+## Updates `f`'s living, undead and dead, its t_living_out and t_undead_out, and sets _kills,
+## _destroyed, _drained, _cleared, _raised and _marched (mass this step):
+## - living gets `s_in` mass/s (Vei's shipping and a surge) and loses k_kill · U to the undead and,
+##   above the fort's cap, (L − cap) / tithe.march_back_s marching back to Vei (_marched);
+## - undead get `w_in` mass/s (WAR) plus the raises, and lose r_drain · U to the drain and
+##   k_destroy · L / q to the garrison;
+## - corpses get the kills (and, where `keep`, the garrison's kills too), lose k_clear · ∫L to
+##   clearing and the raises (`raise_want` mass/s, as far as the corpses cover them).
+## Each pool stops at 0: living pinned at 0 has every arrival killed at once, undead pinned at 0
+## have every arrival destroyed at once.
+## - U is held at its mean over the step for the kills, so living's path is linear below the cap
+##   (it reaches 0 at t* = L0 / (k_kill · Ū − s_in) and stays there; kills then equal the inflow)
+##   and exponential above it (_l_path).
+## - U's own path is exact for its linear ODE under the garrison's mean pull k_destroy · L̄ / q,
+##   including the moment it reaches 0. Ū and L̄ come from alternating the two paths (a predictor
+##   from L0, then two corrections).
+## - While U sits at 0 nothing kills the living, so their path is exact, and the moment the pull falls
+##   back below U's inflow along it (after a wave, as the living above the cap march back) is solved
+##   in closed form (_leave_s). When U leaves 0 inside the step, the step is split there (E2b-2
+##   T3.3a): the first piece holds U at 0, the second starts it from 0, both with this step's rates,
+##   and their masses add. A long step then counts the same time at 0 as short ones (step 9's zero
+##   clock). Before, U's whole step took one regime from the step's mean pull, so the moment it left
+##   0 landed anywhere in a 10 s step: midgame_2flips' Ashgate, pinned 102–116 s of the 120 s
+##   hold.break_s each wave, crossed 120 s at one wave and fell at 10 s (15 537 s), not at 0.5 s.
+## t_living_out / t_undead_out: seconds into the step when that pool reached 0 (0 when it started
+## there), −1 when it did not. t_undead_back: seconds into the step when U, after sitting at 0, left it
+## (−1 when it did not, or is at 0 at the step's end). Natural event boundaries (IDLE §4); step 9's
+## zero clock reads t_undead_out and t_undead_back.
+## With `leave` (the default) it then looks for U leaving 0 inside the step (_leave_at) and splits
+## there (_split_at; its pieces solve with `leave` false). Most forts are ruled out before _leave_at:
+## nothing arrives, U started above 0 and isn't at 0 at the end, the pull's threshold is at or under
+## the cap, or U started at 0 with the pull below its inflow (it rises from the start, as the solve
+## has it).
+func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float, leave := true) -> void:
 	var k_kill := _k_kill
 	var k_dq := _k_destroy / maxf(1.0, q)
 	var k_clear := _k_clear
 	var r := _r_drain
 	var cap := float(f["cap"])
 	var tau := _march_s()
-	var l0 := maxf(0.0, float(f["living"]))
-	var u0 := maxf(0.0, float(f["undead"]))
-	var d0 := maxf(0.0, float(f["dead"]))
+	var pl0 := float(f["living"])
+	var pu0 := float(f["undead"])
+	var pd0 := float(f["dead"])
+	var l0 := maxf(0.0, pl0)
+	var u0 := maxf(0.0, pu0)
+	var d0 := maxf(0.0, pd0)
 	var raise_r := raise_want
 	_u_path(dt, u0, w_in + raise_r, k_dq * l0, r)
 	_l_path(dt, l0, s_in, k_kill * _um, cap, tau)
@@ -976,13 +975,23 @@ func _fort_part(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: 
 	f["dead"] = maxf(0.0, dead - cleared - raised)
 	f["t_living_out"] = _lt
 	f["t_undead_out"] = _ut
-	_raise_r = raise_r
 	_kills = kills
 	_destroyed = _ud
 	_drained = _ug
 	_cleared = cleared
 	_raised = raised
 	_marched = marched
+	if not leave:
+		return
+	f["t_undead_back"] = -1.0
+	var a_in := w_in + raise_r
+	if not (a_in > 0.0) or (u0 > 0.0 and (_ut < 0.0 or _ue > 0.0)) or not (a_in > k_dq * cap):
+		return
+	if not (u0 > 0.0) and k_dq * l0 < a_in:
+		return
+	var back := _leave_at(f, dt, l0, u0, s_in, a_in, q)
+	if back >= 0.0:
+		_split_at(f, back, dt, s_in, w_in, raise_want, keep, q, pl0, pu0, pd0)
 
 
 ## tithe.march_back_s, the march-back's time constant τ (MECHANICS §3.4); kept above 0.
@@ -1466,34 +1475,42 @@ func _tithe_target() -> String:
 ## ---- The convoy's view of a fort's corpses (MECHANICS §4.2; E2b-2 T3.3a): pure on the state, read
 ## by TownSim's convoy through GameState's fort snapshot ------------------------------------------
 
-## The net rate (mass/s) of a fort's corpses over the coming step while it holds any, from the state
-## before the step. TownSim's convoy runs before this step's realm step (MECHANICS §1.3), when its WAR,
-## shipping and dispatch aren't known yet, so it reads the fort as it stands: what forms, the living its
-## undead kill (k_kill · U while living are there; with none, what Vei shipped in last step, r_shipped,
-## killed as it lands, at most k_kill · U) and, at a redirect site (Relish's `redirect_fort`, a live
-## simulacrum's fort), what the garrison destroys there (k_destroy · L / q; with U at 0, at most the WAR
-## and raises arriving, r_in and the raises); less what leaves, the clearing k_clear · L and the raises
-## wanted there (Relish's `redirect_rate`, the simulacra's rates). Every input is saved (r_shipped and
-## r_in are), so the convoy's pick is the same after a load as in the session.
-func dead_rate(f: Dictionary, redirect_fort: String, redirect_rate: float, q: float) -> float:
-	var id := str(f["id"])
-	var l0 := maxf(0.0, float(f["living"]))
-	var u0 := maxf(0.0, float(f["undead"]))
-	var keep := redirect_fort != "" and id == redirect_fort
-	var raise := maxf(0.0, redirect_rate) if keep else 0.0
+## Each fort's net corpse rate (mass/s, in world order) over the coming step while it holds any, from
+## the state before the step. TownSim's convoy runs before this step's realm step (MECHANICS §1.3), when
+## its WAR, shipping and dispatch aren't known yet, so it reads the fort as it stands: what forms, the
+## living its undead kill (k_kill · U while living are there; with none, what Vei shipped in last step,
+## r_shipped, killed as it lands, at most k_kill · U) and, at a redirect site (Relish's `redirect_fort`,
+## a live simulacrum's fort), what the garrison destroys there (k_destroy · L / q; with U at 0, at most
+## the WAR and raises arriving, r_in and the raises); less what leaves, the clearing k_clear · L and the
+## raises wanted there (Relish's `redirect_rate`, the simulacra's rates). `q` matters only at a redirect
+## site. Every input is saved (r_shipped and r_in are), so the convoy's pick is the same after a load as
+## in the session. Pure.
+func dead_rates(redirect_fort: String, redirect_rate: float, q: float) -> PackedFloat64Array:
+	var sims := {}  # fort_id -> the live simulacra's raise there, mass/s
 	for sm in simulacra:
-		if str(sm["fort_id"]) == id and float(sm["charges"]) > 0.0:
-			keep = true
-			raise += maxf(0.0, float(sm["rate"]))
-	var kills := _k_kill * u0 if l0 > 0.0 else minf(_k_kill * u0, maxf(0.0, float(f["r_shipped"])))
-	var kept := 0.0
-	if keep:
-		var pull := _k_destroy / maxf(1.0, q) * l0
-		kept = pull if u0 > 0.0 else minf(pull, maxf(0.0, float(f["r_in"])) + raise)
-	return kills + kept - _k_clear * l0 - raise
+		if float(sm["charges"]) > 0.0:
+			var fid := str(sm["fort_id"])
+			sims[fid] = float(sims.get(fid, 0.0)) + maxf(0.0, float(sm["rate"]))
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var out := PackedFloat64Array()
+	out.resize(forts.size())
+	for i in forts.size():
+		var f: Dictionary = forts[i]
+		var id: String = f["id"]
+		var l0 := maxf(0.0, float(f["living"]))
+		var u0 := maxf(0.0, float(f["undead"]))
+		var kills := _k_kill * u0 if l0 > 0.0 else minf(_k_kill * u0, maxf(0.0, float(f["r_shipped"])))
+		var rate := kills - _k_clear * l0
+		var relish := redirect_fort != "" and id == redirect_fort
+		if relish or sims.has(id):
+			var raise := (maxf(0.0, redirect_rate) if relish else 0.0) + float(sims.get(id, 0.0))
+			var pull := k_dq * l0
+			rate += (pull if u0 > 0.0 else minf(pull, maxf(0.0, float(f["r_in"])) + raise)) - raise
+		out[i] = rate
+	return out
 
 
-## A fort's corpses `s` seconds into the coming step, from `dead` at its start and dead_rate()'s `rate`:
+## A fort's corpses `s` seconds into the coming step, from `dead` at its start and dead_rates()' `rate`:
 ## the rate holds while it has any, and at 0 what forms is cleared or raised as it forms, so they stay
 ## at 0 while the rate is < 0. Pure.
 static func dead_at(dead: float, rate: float, s: float) -> float:

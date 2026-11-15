@@ -192,7 +192,7 @@ func _convoy_pick() -> void:
 		t.near(got, c[1], 1e-9, "a pickup 2 s into the step at a fort with 10 corpses and dead_rate %+.0f takes %.0f" % [c[0], c[1]])
 
 
-## The projection reads only saved state (RealmSim.dead_rate: the forts' pools, their r_shipped and r_in,
+## The projection reads only saved state (RealmSim.dead_rates: the forts' pools, their r_shipped and r_in,
 ## Relish's redirect, the simulacra, q), so a load doesn't change the convoy's view: every fort's
 ## dead_rate in TownSim's snapshot is the same after a JSON round trip, within the save's 15-digit
 ## rounding of the state it reads (1e-12 relative; a session-only rate, r_kills, would read 0 after a

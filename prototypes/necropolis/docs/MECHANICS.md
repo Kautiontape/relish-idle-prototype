@@ -814,7 +814,7 @@ mass; bodies, rot return, WORK and muster are mass.
   by the corpses its last pass saw), and the convoy hauled that: at `9b5fc99` 115.7 mass over 12 h
   at 10 s against 0.001 at 0.5 s (167 against 0.06 at `40d62c0`), and 2.68 against 0.001 once the
   zero clock kept Ashgate held, all of it in the first 800 s. Now 0 at both.
-  - **The projection.** Each fort in TownSim's snapshot carries `dead_rate` (`RealmSim.dead_rate`): the
+  - **The projection.** Each fort in TownSim's snapshot carries `dead_rate` (`RealmSim.dead_rates`): the
     net rate of its corpses while it holds any, from the state before the step. What forms: the kills,
     `k_kill · U` while living stand there, else what Vei shipped in last step (`r_shipped`, killed as
     it lands) up to `k_kill · U`; and at a redirect site (Relish's fort, a live simulacrum's) what the
