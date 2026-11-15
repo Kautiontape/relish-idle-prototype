@@ -18,7 +18,8 @@ extends RefCounted
 ##   floors: a fixed lag under the floor passes; a mid-run fault that recovers by the endpoint passes
 ##   (a) and fails (b); a slope 2 tol off fails (a); a stock 1.5 tol off at one sample fails; a tally
 ##   whose endpoint is under its floor passes (a) within the floor and fails outside it; and outcomes
-##   compare by order, not time.
+##   compare by order, not time, except that with a step given each flip and retake must land within
+##   convergence.gd's TIME_BOUND_STEPS × that step of the reference's.
 
 var t := TestUtil.new()
 const Q := 1.2  # digest_q for the realm cases
@@ -120,6 +121,30 @@ func _gate_judge() -> void:
 	o["flips"] = [["ashgate", 600.0]]
 	g = judge.call(flat, o, ro)
 	t.ok(not bool(g["ok"]) and g["outcomes"]["differ"] == ["flips"], "a flip only one run has: they differ (%s)" % str(g["outcomes"]["differ"]))
+	# the time bound: TIME_BOUND_STEPS × the run's step at that point (here 10 s, then 15 s from 43 200 s)
+	var k: float = c.TIME_BOUND_STEPS
+	var sched := func(at: float) -> float: return 15.0 if at >= 43200.0 else 10.0
+	var timed := func(dflip: float, dretake: float) -> Dictionary:
+		var a: Dictionary = c._outcome()
+		var b: Dictionary = c._outcome()
+		b["flips"] = [["ashgate", 600.0], ["vespers", 50000.0]]
+		b["retaken"] = [["ashgate (broken)", 3000.0]]
+		a["flips"] = [["ashgate", 600.0 + dflip], ["vespers", 50000.0 - 1.4 * k * 10.0]]
+		a["retaken"] = [["ashgate (broken)", 3000.0 + dretake]]
+		return c.judge(flat[0], flat[1], floors, a, b, gate, c.SAMPLE_S, sched)
+	g = timed.call(0.9 * k * 10.0, -0.9 * k * 10.0)
+	t.ok(bool(g["ok"]) and (g["outcomes"]["late"] as Array).is_empty(),
+		"a flip and a retake %.0f s off at a 10 s step, and a flip %.0f s off past 12 h at 15 s: within %s steps, equal (%s)" % [
+		0.9 * k * 10.0, 1.4 * k * 10.0, str(k), str(g["outcomes"]["differ"])])
+	g = timed.call(1.1 * k * 10.0, 0.0)
+	t.ok(not bool(g["ok"]) and g["outcomes"]["late"].size() == 1 and g["outcomes"]["differ"] == g["outcomes"]["late"]
+		and str(g["outcomes"]["late"][0]).begins_with("flips #1 ashgate"), "a flip %.0f s late at 10 s misses the bound: %s" % [
+		1.1 * k * 10.0, str(g["outcomes"]["late"])])
+	g = timed.call(0.0, -1.1 * k * 10.0)
+	t.ok(not bool(g["ok"]) and g["outcomes"]["late"].size() == 1 and str(g["outcomes"]["late"][0]).begins_with("retaken #1 ashgate"),
+		"a retake %.0f s early at 10 s misses it: %s" % [1.1 * k * 10.0, str(g["outcomes"]["late"])])
+	t.ok(c.outcomes_differ(o, ro).size() == 1 and c.outcome_times(o, ro, Callable()).is_empty(),
+		"without a step the times aren't judged (outcomes_differ's default)")
 
 
 ## A contested Ashgate with no corpses, `living` of her living and no garrison, every other fort full of

@@ -725,7 +725,9 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 ## scale, the body cap for bodies, Vei's pool cap for her pool), the key rates (the mint and its split,
 ## TownSim's worker inflow and the gold, bone and living nets, Vei's sustained differential: each against
 ## max(|live|, 1% of the mint)), the held forts (±1), Covington's buildings (id, level, state per lot) and
-## the outcomes in order (convergence.gd's outcome lists).
+## the outcomes in order (convergence.gd's outcome lists), each flip and retake within the outcomes' time
+## bound (convergence.gd's TIME_BOUND_STEPS) × `a`'s catch-up step at that moment: its `dt` for the first
+## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run.
 static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float) -> Dictionary:
 	var conv = load("res://tests/slow/convergence.gd")
 	var sa: Dictionary = conv.sample(a)
@@ -764,7 +766,9 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 			if float(f["living"]) > 1.0:
 				pair[1]["garrisoned"].append(str(f["id"]))
 		pair[1]["tier"] = pair[0].town_tier
-	var differ: Array = conv.outcomes_differ(oa, ob)
+	var cs: Catchup = a._catchup
+	var step_at := func(t: float) -> float: return cs.dt_long if t - cs.t0 >= cs.long_after_s else cs.dt
+	var differ: Array = conv.outcomes_differ(oa, ob, step_at)
 	var la := GameState.Ledger.error(a.ledger())
 	var lb := GameState.Ledger.error(b.ledger())
 	var ok := worst <= tol and absi(held[0] - held[1]) <= 1 and town_same and differ.is_empty() and la < 1e-9 and lb < 1e-9
@@ -774,11 +778,18 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 	var rparts: Array = []
 	for k in rates:
 		rparts.append("%s %s" % [k, conv._pct(float(rates[k]))])
-	var lines := "stocks: %s; rates: %s; held %d vs %d; Covington %s; outcomes %s (%d waves, %d builds, %d retakes); ledger %s, %s" % [
+	var tparts: Array = []  # each flip's and retake's Δ against its bound, for the report
+	for k in ["flips", "retaken"]:
+		for i in mini((oa[k] as Array).size(), (ob[k] as Array).size()):
+			if oa[k][i][0] == ob[k][i][0]:
+				var ta := float(oa[k][i][1])
+				tparts.append("%s %.1f s (bound %s × %s s)" % [oa[k][i][0], absf(ta - float(ob[k][i][1])), str(conv.TIME_BOUND_STEPS),
+					str(maxf(float(step_at.call(ta)), float(step_at.call(float(ob[k][i][1])))))])
+	var lines := "stocks: %s; rates: %s; held %d vs %d; Covington %s; outcomes %s (%d flips, %d waves, %d builds, %d retakes; flip and retake Δ: %s); ledger %s, %s" % [
 		", ".join(PackedStringArray(parts)), ", ".join(PackedStringArray(rparts)), held[0], held[1],
 		"identical" if town_same else "differs", "equal" if differ.is_empty() else "differ: " + ", ".join(PackedStringArray(differ)),
-		(ob["waves"] as Array).size(), (ob["builds"] as Array).size(), (ob["retaken"] as Array).size(),
-		String.num_scientific(la), String.num_scientific(lb)]
+		(ob["flips"] as Array).size(), (ob["waves"] as Array).size(), (ob["builds"] as Array).size(), (ob["retaken"] as Array).size(),
+		"none" if tparts.is_empty() else ", ".join(PackedStringArray(tparts)), String.num_scientific(la), String.num_scientific(lb)]
 	return {"ok": ok, "lines": lines, "worst": worst, "stocks": stocks, "rates": rates, "held": held, "town_same": town_same,
 		"outcomes": differ}
 
