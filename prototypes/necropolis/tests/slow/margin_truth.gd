@@ -13,32 +13,24 @@ extends RefCounted
 ##   valve's WAR share cut to 0.05 and the rest to FLOOD, where both held forts fall. (A cut to WORK doesn't
 ##   do it: TownSim musters the WORK it can't use, and Ashgate keeps its 1.12 mass/s.)
 ## - Asserted: every "safe" sample's fort is still held 8 h on (the worst lie is safe, then broken
-##   overnight), and at least one safe sample over all starts (else the check is vacuous).
-## - The known gap (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass): a margin
-##   reads today's flows and neither probe reads the town. A safe fort that falls is counted apart as "its
-##   WAR fell: supply (E4)" only when a town store (gold or bone: the stores upkeep is paid from, whose floor
-##   of 0 idles buildings) reached its floor at or after the sample started (a floor before it was in the
-##   readout the sample read) and before the fort's WAR first went below FLOW_DROP × its sampled
-##   value, and that drop came before its last break began (the retake less break_s): classify(). A WAR
-##   drop with no store at its floor fails, and so does a break with the WAR intact. pre_vei+2 is the case:
-##   pre_vei's gold reaches its floor at about 2 h, its buildings go unpaid, its pits stop and the WAR goes
-##   from 49.7 to 0.95 mass/s. Relish's own moves are no such excuse (the train reads her committed
-##   arrival; midgame's Old Sluice at t0 is the case).
-##   E4's done-criterion: this check passes with the exemption deleted (classify() returning "broke" always).
+##   overnight; safe_broke()), and at least one safe sample over all starts (else the check is vacuous). No
+##   fall is excused. R1 (the E2b-2 vision review; MECHANICS §4.3) deleted E2b-2's known gap, which counted a
+##   safe fort that fell after a town store's floor and its WAR's drop apart as "its WAR fell: supply (E4)":
+##   with the WAR chain shed last, pre_vei+2's gold floor (7 092 s) sheds the Statue and the passive buildings,
+##   its pits keep raising, and its 18 samples all read safe and all hold (before, its 8 safe samples all
+##   fell about 2 h in, all exempt: 8 of the 16 safe samples then). Relish's own moves are no excuse either
+##   (the train reads her committed arrival; midgame's Old Sluice at t0 is the case).
 ## - Reported: per start, the samples by word (train and one-wave), the thin forts that held (how
-##   pessimistic it is), each will_fall sample's fall_s against when it fell, the exempt cases with their
-##   store and floor time, and their count against the safe total.
+##   pessimistic it is), each will_fall sample's fall_s against when it fell, and the town stores' first floor
+##   (gold or bone: upkeep is paid from them, and at 0 buildings go unpaid), printed, not judged.
 
 const HOURS := 12.0
 const SAMPLE_EVERY_S := 1800.0
 const SAMPLE_UNTIL_S := 4.0 * 3600.0
 const AHEAD_S := 8.0 * 3600.0
-## A safe fort whose WAR went below this share of its sampled WAR (after a store's floor) fell to the town.
-const FLOW_DROP := 0.5
-## The town stores whose floor is a supply failure (upkeep is paid from them; at 0 buildings go unpaid), and
-## how close to that floor of 0 counts as at it: one unit (pre_vei's gold reads 0.007 as its buildings go
-## unpaid: upkeep idles them before the stock goes under). Bodies, workers and living sit at 0 in ordinary
-## play (the pits burn every body), so their floor says nothing about supply.
+## The town stores whose first floor is printed (upkeep is paid from them; at 0 buildings go unpaid), and how
+## close to that floor of 0 counts as at it: one unit (pre_vei's gold reads 0.007 as its buildings go unpaid:
+## upkeep idles them before the stock goes under).
 const STORES := ["gold", "bone"]
 const FLOOR_EPS := 1.0
 
@@ -47,13 +39,12 @@ var t := TestUtil.new()
 
 func run() -> int:
 	t.suite("margin_truth")
-	check_classify()
+	check_safe_broke()
 	var c = load("res://tests/slow/convergence.gd").new()
 	c.t = t
 	var starts := [["midgame_2flips", "midgame_2flips", ""], ["pre_vei", "pre_vei", ""], ["fresh", "fresh", ""],
 		["pre_vei+2", "pre_vei", "hold2"], ["midgame, WAR 0.05", "midgame_2flips", "war05"]]
 	var safe_total := 0
-	var exempt_total := 0
 	var lines: Array = []
 	for st in starts:
 		var s: GameState = c.load_state(c.start_json(st[1]))
@@ -66,92 +57,59 @@ func run() -> int:
 			t.ok(s.cmd_set_valve(0.40, 0.05, 0.55)["ok"], "(setup) the valve's WAR share 0.05, the rest to FLOOD")
 		var r := _run(s)
 		safe_total += int(r["safe"])
-		exempt_total += (r["supply"] as Array).size()
 		lines.append_array(_report(st[0], r))
-		t.ok(r["safe_broke"].is_empty(), "%s: every safe fort stands 8 h on (%d safe samples, %d exempt)%s" % [st[0], r["safe"],
-			(r["supply"] as Array).size(), "" if r["safe_broke"].is_empty() else ": broke " + str(r["safe_broke"])])
+		t.ok(r["safe_broke"].is_empty(), "%s: every safe fort stands 8 h on (%d safe samples)%s" % [st[0], r["safe"],
+			"" if r["safe_broke"].is_empty() else ": broke " + str(r["safe_broke"])])
 	for ln in lines:
 		print(ln)
-	print("  [margin_truth] the known gap: %d of %d safe samples fell after their WAR fell: supply (E4)" % [exempt_total, safe_total])
 	t.ok(safe_total > 0, "the check is not vacuous: %d safe samples over all starts" % safe_total)
 	return t.failures
 
 
-## A safe sample that fell, classified (see the header). `war` is the fort's WAR and `stores` {store:
-## Array} the town's stocks (floats), entry i at (i + 1) · dt seconds into the run; the sample is at
-## `sample_t` with WAR `w_sampled`, the retake at `retake_t`. Returns {kind: "supply" or "broke", store,
-## floor_t (the store's first floor time in the run, −1 when none), drop_t (when the WAR first went below
-## FLOW_DROP × w_sampled after the sample, −1 when never), break_t (the last break's start)}.
-static func classify(sample_t: float, w_sampled: float, retake_t: float, war: Array, stores: Dictionary,
-		dt: float, break_s: float) -> Dictionary:
-	var out := {"kind": "broke", "store": "", "floor_t": -1.0, "drop_t": -1.0, "break_t": retake_t - break_s}
-	for i in war.size():
-		var at := (i + 1) * dt
-		if at > sample_t and float(war[i]) < FLOW_DROP * w_sampled:
-			out["drop_t"] = at
-			break
-	var drop := float(out["drop_t"])
-	if drop < 0.0 or drop >= float(out["break_t"]):
-		return out  # the WAR held until the break began
-	for name in stores:
-		var series: Array = stores[name]
-		for i in series.size():
-			if float(series[i]) <= FLOOR_EPS:
-				var ft := (i + 1) * dt
-				# at or after the sample starts: a floor before it was already in the readout the sample read
-				if ft >= sample_t and ft <= drop and ft < float(out["break_t"]) and (out["floor_t"] < 0.0 or ft < float(out["floor_t"])):
-					out["kind"] = "supply"
-					out["store"] = name
-					out["floor_t"] = ft
-				break
+## The safe samples (`samples` as _run() returns them: [t, fort_id, margin, ...]) whose fort was retaken
+## (`retaken`: {fort_id: t}) after the sample and within AHEAD_S of it, each a line; every one is a failure.
+static func safe_broke(samples: Array, retaken: Dictionary) -> Array:
+	var out: Array = []
+	for smp in samples:
+		if smp[2] != "safe":
+			continue
+		var at := float(retaken.get(smp[1], INF))
+		if at > float(smp[0]) and at <= float(smp[0]) + AHEAD_S:
+			out.append("%s at %.0f s (WAR %.2f), retaken %.0f s later" % [smp[1], smp[0], smp[7], at - float(smp[0])])
 	return out
 
 
-## classify() on made-up series (1 s apart, 300 s; the sample at 0 with WAR 10, the retake at 250 s and
-## break_s 120, so the last break began at 130 s): gold at its floor at 41 s, then the WAR under half at
-## 51 s, is supply; the same WAR drop with gold never at its floor is broke; the WAR intact is broke; gold
-## at its floor at 200 s, after the last break began, is broke; so is a floor between the drop and the break,
-## and one from before the sample was read (it needs the floor at or after the sample's start). Returns the failures it added.
-func check_classify() -> int:
+## safe_broke() on made-up samples. E2b-2's exempt case (a fort read safe at 0 s with WAR 10, gold at its floor
+## 41 s on, its WAR under half from 51 s, retaken 250 s on, the town's supply to blame) is a failure now, as is
+## a safe fort retaken just inside 8 h; a fort retaken after 8 h, a safe fort never retaken, one retaken before
+## its sample, and a thin or will_fall reading retaken are not. Returns the failures it added.
+func check_safe_broke() -> int:
 	var f0 := t.failures
-	var mk := func(n: int, before: float, after: float, at: int) -> Array:
-		var a: Array = []
-		for i in n:
-			a.append(before if i < at else after)
-		return a
-	var drop: Array = mk.call(300, 10.0, 2.0, 50)
-	var held: Array = mk.call(300, 10.0, 10.0, 0)
+	var smp := func(at: float, id: String, margin: String) -> Array:
+		return [at, id, margin, "", -1.0, margin, "", 10.0]
 	var cases := [
-		["a store's floor, then the WAR drop", drop, {"gold": mk.call(300, 50.0, 0.5, 40), "bone": held}, "supply"],
-		["the WAR drop with no store at its floor", drop, {"gold": held, "bone": held}, "broke"],
-		["the WAR intact", held, {"gold": mk.call(300, 50.0, 0.5, 40), "bone": held}, "broke"],
-		["a store's floor after the last break began", drop, {"gold": mk.call(300, 50.0, 0.5, 199), "bone": held}, "broke"],
-		# between the WAR drop (51 s) and the break (130 s): isolates the "floor before the drop" condition
-		["a store's floor after the WAR drop but before the break", drop, {"gold": mk.call(300, 50.0, 0.5, 99), "bone": held}, "broke"],
-		# the sample is read at 30 s with gold already at its floor (from 5 s): the readout saw it
-		["a store's floor before the sample started", drop, {"gold": mk.call(300, 50.0, 0.5, 4), "bone": held}, "broke", 30.0],
-		["(control) the same floor, the sample read before it", drop, {"gold": mk.call(300, 50.0, 0.5, 4), "bone": held}, "supply", 0.0],
+		["a safe fort retaken 250 s on after a gold floor and a WAR drop (E2b-2's exemption)", [smp.call(0.0, "a", "safe")], {"a": 250.0}, 1],
+		["a safe fort retaken just inside 8 h", [smp.call(1800.0, "a", "safe")], {"a": 1800.0 + AHEAD_S}, 1],
+		["a safe fort retaken just after 8 h", [smp.call(0.0, "a", "safe")], {"a": AHEAD_S + 1.0}, 0],
+		["a safe fort never retaken", [smp.call(0.0, "a", "safe")], {}, 0],
+		["a safe sample after its fort's retake", [smp.call(1800.0, "a", "safe")], {"a": 900.0}, 0],
+		["thin and will_fall readings retaken", [smp.call(0.0, "a", "thin"), smp.call(0.0, "b", "will_fall")], {"a": 250.0, "b": 250.0}, 0],
 	]
 	for c in cases:
-		var r := classify(float(c[4]) if c.size() > 4 else 0.0, 10.0, 250.0, c[1], c[2], 1.0, 120.0)
-		t.ok(r["kind"] == c[3], "classify, %s: %s (floor %.0f s, drop %.0f s, break %.0f s)" % [c[0], r["kind"], r["floor_t"], r["drop_t"], r["break_t"]])
+		var r := safe_broke(c[1], c[2])
+		t.ok(r.size() == c[3], "safe_broke, %s: %d broke %s" % [c[0], r.size(), str(r)])
 	return t.failures - f0
 
 
 ## Runs `s` for HOURS of 0.5 s ticks, sampling as above. Returns {samples: [[t, fort_id, margin, cause,
 ## fall_s, one-wave margin, one-wave cause, WAR to it]], retaken: {fort_id: t}, floors: {store: first floor
-## t or −1}, safe, safe_broke, supply: [the exempt cases' lines]}.
+## t or −1}, safe, safe_broke: [safe_broke()'s lines]}.
 func _run(s: GameState) -> Dictionary:
 	var step := s.substep_s()
 	var t0 := s.t
 	var samples: Array = []
 	var retaken := {}
-	# the series after each tick, in plain Arrays (shared, so appending copies nothing): each fort held at
-	# the start's WAR, each store's stock
-	var war_t := {}
-	for f in s.realm.forts:
-		if RealmSim.is_held(f):
-			war_t[f["id"]] = []
+	# each store's stock after each tick, in plain Arrays (shared, so appending copies nothing): its first floor
 	var store_t := {}
 	for k in STORES:
 		store_t[k] = []
@@ -164,10 +122,6 @@ func _run(s: GameState) -> Dictionary:
 				retaken[e["fort_id"]] = float(e["t"]) - t0
 		var el := s.t - t0
 		var ws := s._fort_wars()
-		for k in s.realm.forts.size():
-			var id: String = s.realm.forts[k]["id"]
-			if war_t.has(id):
-				(war_t[id] as Array).append(float(ws[k]))
 		for k in STORES:
 			(store_t[k] as Array).append(float(s.town_sim.get(k)))
 		if el >= next_sample - 1e-9 and next_sample <= SAMPLE_UNTIL_S + 1e-9:
@@ -188,22 +142,8 @@ func _run(s: GameState) -> Dictionary:
 			if float(ss[i]) <= FLOOR_EPS:
 				floors[k] = (i + 1) * step
 				break
-	var safe := 0
-	var safe_broke: Array = []
-	var supply: Array = []
-	var break_s := float(s._cfgs["realm"]["hold"]["break_s"])
-	for smp in samples:
-		if smp[2] == "safe":
-			safe += 1
-			var at := float(retaken.get(smp[1], INF))
-			if at > float(smp[0]) and at <= float(smp[0]) + AHEAD_S:
-				var cl := classify(float(smp[0]), float(smp[7]), at, war_t[smp[1]], store_t, step, break_s)
-				var line := "%s at %.0f s (WAR %.2f), retaken %.0f s later: its WAR fell: %s%s" % [smp[1], smp[0], smp[7], at - float(smp[0]),
-					"supply (E4), %s at its floor at %.0f s, the WAR under %.1f at %.0f s, its last break from %.0f s" % [cl["store"], cl["floor_t"],
-					FLOW_DROP * float(smp[7]), cl["drop_t"], cl["break_t"]] if cl["kind"] == "supply" else "no (broke: drop %.0f s, floors %s, break %.0f s)" % [
-					cl["drop_t"], str(floors), cl["break_t"]], ""]
-				(supply if cl["kind"] == "supply" else safe_broke).append(line)
-	return {"samples": samples, "retaken": retaken, "floors": floors, "safe": safe, "safe_broke": safe_broke, "supply": supply}
+	var safe := samples.filter(func(smp): return smp[2] == "safe").size()
+	return {"samples": samples, "retaken": retaken, "floors": floors, "safe": safe, "safe_broke": safe_broke(samples, retaken)}
 
 
 ## The report lines for one start: the counts by word (train and one-wave), with what happened next.
@@ -212,8 +152,8 @@ func _report(name: String, r: Dictionary) -> Array:
 	var samples: Array = r["samples"]
 	var retaken: Dictionary = r["retaken"]
 	out.append("  [margin_truth] %s: %d samples, retaken %s, the stores' first floor %s" % [name, samples.size(), str(retaken), str(r["floors"])])
-	for ln in r["supply"]:
-		out.append("  [margin_truth] %s: %s" % [name, ln])
+	for ln in r["safe_broke"]:
+		out.append("  [margin_truth] %s: safe, then broke: %s" % [name, ln])
 	if samples.is_empty():
 		out.append("  [margin_truth] %s: no fort held, no sample (vacuous here)" % name)
 		return out

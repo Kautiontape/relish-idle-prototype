@@ -232,6 +232,29 @@ takes over 1 s.
     - Not gated, at 10 s: midgame_2flips' fort pools 0.89% to 4.08% (Σundead the worst); fresh's
       0.04% to 1.80% and its bodies 1.09%; pre_vei's corpses 48.4%, undead 12.7% and bodies 9.20%
       (the residual below).
+  - **R1, the shed order** (MECHANICS §4.3: decorations first, the WAR chain last; measured at
+    `b66e7a9`, against `bbb86dd`). midgame_2flips and fresh never shed: every row of every table is
+    unchanged (timings aside). pre_vei's gold floor (7 692 s) now sheds the Statue and eight passive
+    buildings and nothing else, where it shed fifteen buildings with every pit, the charnel house and
+    the mill among them, so its WAR holds (42.0 mass/s against a 16.4 plateau) and its realm keeps
+    moving after the floor:
+    - the gate at 10 s passes: stocks 0.66% (Vei's dead at 42 600 s; it was 0.49% at 7 800 s), bone
+      over (a) 0.005% of 4 730 bone (0.042% of 828: the mill keeps milling past the floor), (b) 0.740 of
+      1.000 at 600 s, as before; outcomes equal (11 upkeep switches within 9.6 s, 21 before). 15 s and
+      30 s still fail on bone over (b) at 600 s, before the floor (1.09, 1.24), as before;
+    - not gated, at 10 s: corpses 60.2% (48.4%), undead 9.51% (12.7%), bodies 4.17% (9.20%), gold
+      0.001% (0.08%). The forts holding living at the end are 6, not 9: Vespers, Chime-fort and
+      Lantern-keep no longer refill with her living while the WAR is near 0;
+    - as dt → 0 (against 0.125 s) pre_vei now shrinks first order nearly everywhere: err(0.5) /
+      err(0.25) is 2.80 for the backlog and Vei's dead, 2.56 for its living, 2.40 for its corpses
+      (0.87 before) and 2.77 for its bodies (1.00); the worst at 0.5 s is its corpses, 1.62% (11.2%).
+      The residual above was mostly the post-floor stand-off;
+    - a week (`catchup_week`): outcomes match 0.5 s, shipped and at 10 s throughout; the stocks are
+      further off than before because the realm keeps moving (shipped: backlog 0.24%, Vei's dead
+      1.10%, from 0.004% and 0.026%; 10 s: 0.14% and 0.75%). 12 h (`catchup_accuracy`, printed for
+      pre_vei): stocks within 0.64%, the mint 16.3% apart at the end (14.0%; below);
+    - the truth check: pre_vei+2's 18 samples all read safe and hold; the supply exemption is deleted
+      (MECHANICS §3.5).
   - Measured at `40d62c0` (E2b-2 T4.P: a Chapel's tend slot opens only while its vat is staffed,
     and the pits have first call on the bodies; MECHANICS §7, §4.1, §4.2). The 12 h table (worst
     Vei+Covington stock at 5, 10, 15 and 30 s; 0.5 s reference): midgame_2flips 4.22%, 14.3%,
@@ -354,7 +377,9 @@ takes over 1 s.
     gold, net of upkeep, reached either (7 847 s, 7 853 s). The pits and WAR came back early, and
     Vespers, Chime-fort and Lantern-keep, which Vei's living had refilled while WAR was near 0,
     fell instead of holding: Vei's dead 31.9% off at 10 s, the corpses 2 179%. The moments are now
-    solved on the stocks' paths inside the step, so no clip is needed for them.
+    solved on the stocks' paths inside the step, so no clip is needed for them. (Since R1 the floor
+    sheds by class, so only the Statue and eight passive buildings go unpaid and two houses resume:
+    above.)
   - Cost, measured at `7ef1d8b`, best of 3 at a load average of about 4 on 12 cores, worst start
     (pre_vei): about 550 µs per core step. At a fixed 5 s step, 12 h takes 5.5 s and 7 days 67 s
     with 150 field ticks, so this budget is not met at any accurate dt. Catch-up's step is
@@ -503,7 +528,9 @@ takes over 1 s.
     a threshold in reach of 2 h, and from there its pits burn from a store the convoy refills a load at a
     time. At 12 h every stock is within 0.16% and every outcome and building state matches, but the mint
     and its split read 14% apart: the mint reads the last step's feed, which a 10 s step averages over a
-    landing and a 0.5 s substep doesn't.
+    landing and a 0.5 s substep doesn't. Since R1's shed order all six of its pits keep working past
+    the floor (two did): stocks within 0.64%, the mint 16.3% apart (its 0.5 s WAR swings 33 to 49
+    mass/s around 42 over a convoy's cycle).
   - **The threshold-free start** matches to 1e-9 relative everywhere: a new game with no workers, the
     valve all FLOOD, Vei's pool at its cap, the living at their cap and gold well inside its range, so the
     backlog grows by FLOOD (+13 942 in 30 min), gold falls by the upkeep, the differential's EMA relaxes

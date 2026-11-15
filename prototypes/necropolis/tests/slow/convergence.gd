@@ -79,9 +79,10 @@ const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead
 const TALLIES := ["gold_over", "bone_over"]
 const TALLY_FLOOR_KEY := {"gold_over": "gold", "bone_over": "bone"}
 ## Vei's stocks and Covington's smooth ones: the stocks the gate judges ("Vei+Cov worst"). The fort
-## pools and bodies aren't gated: they converge as dt → 0 on midgame_2flips, and on pre_vei until its
-## gold floor; fresh's, and pre_vei's after the floor, sit within about one convoy load at any dt,
-## and at 10 s pre_vei's corpses wait a step for the convoy (IDLE §4, tests/slow/convergence_fine.gd).
+## pools and bodies aren't gated: they converge as dt → 0 on midgame_2flips, and on pre_vei (since R1's
+## shed order through its gold floor too: it sheds no pit there now); fresh's sit within about one convoy
+## load at any dt, and at 10 s pre_vei's corpses wait a step for the convoy (IDLE §4,
+## tests/slow/convergence_fine.gd).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",

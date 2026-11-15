@@ -826,12 +826,13 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   7 096 s: 8 of its samples read safe and broke at about 2 h, then read will_fall. midgame with the
   valve's WAR share cut to 0.05: both read thin at t0 (the one-wave probe safe) and both fell. So 26
   safe samples, none broken.
-  - **The known gap** (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass):
-    neither probe reads the town. The check counts a safe fort that fell apart, as "its WAR fell: supply
-    (E4)", only when a town store (gold or bone, whose floor of 0 idles buildings) reached its floor
-    before the fort's WAR first went below half its sampled value, and that before its last break began;
-    any other fall fails. Every run prints the count: 0 of 26 safe samples since R1's shed order (8 of
-    16 before it). E4's done-criterion is the check passing with the exemption deleted.
+  - **No fall is excused** (R1). E2b-2's known gap (the run's manager: accepted for E2b-2 only) counted
+    a safe fort that fell after a town store's floor and its WAR's drop apart, as "its WAR fell: supply
+    (E4)": 8 of 16 safe samples, all pre_vei+2's. With the shed order no safe sample falls (0 of 26), so
+    the exemption is deleted: every safe fort retaken within 8 h of its sample fails the check
+    (`safe_broke()`, whose synthetic cases include the old exempt one). Neither probe reads the town
+    still: a floor deep enough to shed the WAR chain itself (gold income under the chain's own upkeep
+    plus the Market's) would break a safe reading, and no start here has one.
 - **During grace** every readout is the post-grace one: the reship it will face; `fall_s` adds the
   grace left; the margin is the train's run through the grace, which no wave reaches, from the garrison
   the grace leaves it. `grace_s_left` > 0 says so.
