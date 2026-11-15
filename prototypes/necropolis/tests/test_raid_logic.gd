@@ -491,6 +491,19 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _door_tick(", "the bot's held-door progress"],
 			["res://scripts/raid/raid_autopilot.gd", "func _door_decide(", "the bot's held-door rule"],
 			["res://scripts/raid/raid_autopilot.gd", "func _door_goal(", "the bot's walk to the held door"],
+			["res://scripts/raid/layout_logic.gd", "static func waypoint(", "LayoutLogic.waypoint (the niche's branch)"],
+			["res://scripts/raid/layout_logic.gd", "static func _waypoint_rooms(", "LayoutLogic._waypoint_rooms"],
+			["res://scripts/raid/layout_logic.gd", "static func _niche_step(", "LayoutLogic._niche_step (through the doorway)"],
+			["res://scripts/raid/raid_held_door.gd", "static func make(", "RaidHeldDoor.make (the carve)"],
+			["res://scripts/raid/raid_held_door.gd", "func place_cache(", "RaidHeldDoor.place_cache"],
+			["res://scripts/raid/raid_held_door.gd", "func fate(", "RaidHeldDoor.fate"],
+			["res://scripts/raid/raid_populate.gd", "static func spawn_cache(", "RaidPopulate.spawn_cache"],
+			["res://scripts/raid/raid_autopilot.gd", "func _collect_node(", "the bot's gathering (in the door's room while it is taken)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _pickup_node(", "the bot's pickups (never the door's cache)"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_step(", "RaidLogic.held_door_step"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_fall(", "RaidLogic.held_door_fall"],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_committed(", "RaidLogic.held_door_committed"],
+			["res://scripts/raid/raid_logic.gd", "static func unit_stat(", "RaidLogic.unit_stat (the weak point's stat)"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -506,6 +519,26 @@ func run() -> int:
 		var body := _func_body(str(guarded[0]), str(guarded[1]))
 		t.ok(body != "" and not body.contains("Pulse.phase") and not body.contains("Pulse.wave") and not body.contains("reduced") and not body.contains("_carry_t"),
 			"%s reads no Pulse phase/wave, reduced-motion or spin state" % guarded[2])
+	# D-e task 6's sim functions draw no random number: the held door, its routing and the bot's door rule are
+	# deterministic by construction, so they can never shift another stream's draws (quality pass, Important 2)
+	for rf in [["res://scripts/raid/layout_logic.gd", "static func held_door_site("], ["res://scripts/raid/layout_logic.gd", "static func _held_door_cands("],
+			["res://scripts/raid/layout_logic.gd", "static func carve_held_door("], ["res://scripts/raid/layout_logic.gd", "static func waypoint("],
+			["res://scripts/raid/layout_logic.gd", "static func _waypoint_rooms("], ["res://scripts/raid/layout_logic.gd", "static func _niche_step("],
+			["res://scripts/raid/raid_held_door.gd", "static func make("], ["res://scripts/raid/raid_held_door.gd", "func place_cache("],
+			["res://scripts/raid/raid_held_door.gd", "func tick("], ["res://scripts/raid/raid_held_door.gd", "func click("],
+			["res://scripts/raid/raid_held_door.gd", "func can_order("], ["res://scripts/raid/raid_held_door.gd", "func _shut_in("],
+			["res://scripts/raid/raid_held_door.gd", "func _set_open("], ["res://scripts/raid/raid_held_door.gd", "func on_warden_died("],
+			["res://scripts/raid/raid_held_door.gd", "func plate_for("], ["res://scripts/raid/raid_populate.gd", "static func spawn_cache("],
+			["res://scripts/raid/raid_unit.gd", "func _hold_plate("], ["res://scripts/raid/raid_autopilot.gd", "func _collect_node("],
+			["res://scripts/raid/raid_autopilot.gd", "func _pickup_node("], ["res://scripts/raid/raid_autopilot.gd", "func _door_tick("],
+			["res://scripts/raid/raid_autopilot.gd", "func _door_decide("], ["res://scripts/raid/raid_autopilot.gd", "func _door_goal("],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_pick("], ["res://scripts/raid/raid_logic.gd", "static func held_door_step("],
+			["res://scripts/raid/raid_logic.gd", "static func held_door_fall("]]:
+		var rbody := _func_body(str(rf[0]), str(rf[1]))
+		var draws := false
+		for tok in ["randf", "randi", "rng_combat", "rng_loot", "_rng", "rng.", "randomize("]:
+			draws = draws or rbody.contains(tok)
+		t.ok(rbody != "" and not draws, "%s %s draws no random number" % [str(rf[0]).get_file(), str(rf[1])])
 	# the drawn swing is for the eye only: sim code never reads it
 	for sim in [["res://scripts/raid/raid.gd", "func carry_angle(", "carry_angle"],
 			["res://scripts/raid/essence_orb.gd", "func _carry_step(", "RaidEssence._carry_step"],
