@@ -53,6 +53,8 @@ const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei"
 ## A step's rates that a split step (step()) averages over its parts, weighted by time.
 const _PART_FORT_RATES := ["r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised", "r_staged", "r_redirected", "r_kills", "r_surge"]
 const _PART_VEI_RATES := ["r_in_undead", "r_in_dead", "r_converted", "r_shipped"]
+## A fort's moments inside its last step (fort_step), seconds, −1 when they didn't happen.
+const _T_OUT := ["t_living_out", "t_undead_out", "t_undead_back"]
 ## Seconds under which a grace end or a break counts as now (no part of a step is shorter).
 const _EPS_S := 1e-9
 
@@ -140,6 +142,7 @@ var _drained := 0.0
 var _cleared := 0.0
 var _raised := 0.0
 var _marched := 0.0
+var _raise_r := 0.0  # the raise rate (mass/s) fort_step's last solve settled on
 # seconds of this step the running wave covers (_tithe_clock, read by _wave_tail)
 var _wave_run := 0.0
 # the paths' scratch: undead end, mean, destroyed, drained, out time; living end, mean, out time,
@@ -423,7 +426,7 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var parts := 0
 	var acc := {}
 	var lost := 0.0
-	var t_out := {}  # fort_id -> [t_living_out, t_undead_out], seconds into the step, -1 if not
+	var t_out := {}  # fort_id -> [t_living_out, t_undead_out, t_undead_back], seconds into the step, -1 if not
 	while true:
 		var rem := dt - done
 		var h := _next_part(rem)
@@ -466,15 +469,15 @@ func _next_part(rem: float) -> float:
 
 
 ## A split step's running sums: each part's rates × its length, and the first moment living or
-## undead reached 0 at each fort.
+## undead reached 0, and undead left it, at each fort.
 func _accumulate(acc: Dictionary, t_out: Dictionary, h: float, at: float) -> void:
 	for f in forts:
 		var id: String = f["id"]
 		for k in _PART_FORT_RATES:
 			acc[id + "." + k] = float(acc.get(id + "." + k, 0.0)) + float(f[k]) * h
-		var to: Array = t_out.get(id, [-1.0, -1.0])
-		for j in 2:
-			var tk := float(f.get("t_living_out" if j == 0 else "t_undead_out", -1.0))
+		var to: Array = t_out.get(id, [-1.0, -1.0, -1.0])
+		for j in 3:
+			var tk := float(f.get(_T_OUT[j], -1.0))
 			if to[j] < 0.0 and tk >= 0.0:
 				to[j] = at + tk
 		t_out[id] = to
@@ -491,8 +494,8 @@ func _average(acc: Dictionary, t_out: Dictionary, dt: float) -> void:
 		var id: String = f["id"]
 		for k in _PART_FORT_RATES:
 			f[k] = float(acc[id + "." + k]) * inv
-		f["t_living_out"] = t_out[id][0]
-		f["t_undead_out"] = t_out[id][1]
+		for j in 3:
+			f[_T_OUT[j]] = t_out[id][j]
 	for k in _PART_VEI_RATES:
 		vei[k] = float(acc["vei." + k]) * inv
 	for k in ["r_war_to_vei", "r_marched", "r_digested_undead", "r_cap_undead"]:
@@ -702,7 +705,9 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 
 	# ---- 9. The holds: grace counts down; a contested garrison's zero clock (zero_s) runs while it
 	# sits at 0 (fort_step's clamped regime: the pull meets or exceeds its inflow, or nothing comes or
-	# pulls at all) and restarts whenever it doesn't; break_s of it retakes the fort, at that moment
+	# pulls at all) and restarts whenever it doesn't; break_s of it retakes the fort, at that moment.
+	# It counts only the time at 0: from t_undead_out (the part's start when it began there) to
+	# t_undead_back when U left 0 inside the part, else to the part's end
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		if not held.has(f["id"]):
@@ -714,7 +719,15 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 			f["zero_s"] = 0.0
 			continue
 		var tz := float(f.get("t_undead_out", -1.0))
+		var tb := float(f.get("t_undead_back", -1.0))
 		var u0: float = u_start[i]
+		if tb >= 0.0 and tz >= 0.0:
+			var run_s: float = (float(f["zero_s"]) + tb) if u0 <= 0.0 and tz <= 0.0 else tb - tz
+			if run_s >= _break_s - _EPS_S:
+				_retaken(f, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
+			else:
+				f["zero_s"] = 0.0
+			continue
 		if not (tz >= 0.0 or (u0 <= 0.0 and float(f["undead"]) <= 0.0)):
 			f["zero_s"] = 0.0
 			continue
@@ -812,9 +825,103 @@ func _load_cuts(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bo
 ## - U's own path is exact for its linear ODE under the garrison's mean pull k_destroy · L̄ / q,
 ##   including the moment it reaches 0. Ū and L̄ come from alternating the two paths (a predictor
 ##   from L0, then two corrections).
+## - While U sits at 0 nothing kills the living, so their path is exact, and the moment the pull falls
+##   back below U's inflow along it (after a wave, as the living above the cap march back) is solved
+##   in closed form (_leave_s). When U leaves 0 inside the step, the step is split there (E2b-2
+##   T3.3a): the first piece holds U at 0, the second starts it from 0, both with this step's rates,
+##   and their masses add. A long step then counts the same time at 0 as short ones (step 9's zero
+##   clock). Before, U's whole step took one regime from the step's mean pull, so the moment it left
+##   0 landed anywhere in a 10 s step: midgame_2flips' Ashgate, pinned 102–116 s of the 120 s
+##   hold.break_s each wave, crossed 120 s at one wave and fell at 10 s (15 537 s), not at 0.5 s.
 ## t_living_out / t_undead_out: seconds into the step when that pool reached 0 (0 when it started
-## there), −1 when it did not. Natural event boundaries (IDLE §4); read by nothing yet.
+## there), −1 when it did not. t_undead_back: seconds into the step when U, after sitting at 0, left it
+## (−1 when it did not, or is at 0 at the step's end). Natural event boundaries (IDLE §4); step 9's
+## zero clock reads t_undead_out and t_undead_back.
 func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
+	var l0 := float(f["living"])
+	var u0 := float(f["undead"])
+	var d0 := float(f["dead"])
+	_fort_part(f, dt, s_in, w_in, raise_want, keep, q)
+	f["t_undead_back"] = -1.0
+	var back := _leave_at(f, dt, l0, u0, s_in, w_in + _raise_r, q)
+	if back < 0.0:
+		return
+	# U leaves 0 at `back`: the step again, in two pieces with the same rates
+	f["living"] = l0
+	f["undead"] = u0
+	f["dead"] = d0
+	_fort_part(f, back, s_in, w_in, raise_want, keep, q)
+	var lt1 := float(f["t_living_out"])
+	var ut1 := float(f["t_undead_out"])
+	var m := [_kills, _destroyed, _drained, _cleared, _raised, _marched]
+	_fort_part(f, dt - back, s_in, w_in, raise_want, keep, q)
+	_kills += m[0]
+	_destroyed += m[1]
+	_drained += m[2]
+	_cleared += m[3]
+	_raised += m[4]
+	_marched += m[5]
+	var lt2 := float(f["t_living_out"])
+	f["t_living_out"] = lt1 if lt1 >= 0.0 else (back + lt2 if lt2 >= 0.0 else -1.0)
+	f["t_undead_out"] = ut1
+	# the second piece starts U from 0 with the pull below its inflow, so it rises (unless the first
+	# piece's path left the living a hair above the threshold: then it is still at 0)
+	f["t_undead_back"] = back if ut1 >= 0.0 and float(f["undead"]) > 0.0 else -1.0
+
+
+## Seconds into a step of `dt` at which U, at 0, leaves it: the moment the garrison's pull
+## k_destroy · L / q falls below U's inflow `a_in` (WAR plus the raises, mass/s) along the living's
+## path, which has no kills while U is 0. U is at 0 from the step's start when it starts there with the
+## pull at or above its inflow (whatever the step's mean pull says: a step that holds the moment has
+## its mean below), or from t_undead_out when fort_step's solve took it to 0 inside the step and left it
+## there. −1 when U isn't at 0, nothing arrives or pulls (then it stays at 0), or the pull doesn't fall
+## below the inflow inside the step. From the step's start the living's state is exact (`l0`); when U
+## reached 0 inside the step its living there come from the solve's path with U at its mean before then.
+func _leave_at(f: Dictionary, dt: float, l0: float, u0: float, s_in: float, a_in: float, q: float) -> float:
+	if not (a_in > 0.0):
+		return -1.0
+	var k_dq := _k_destroy / maxf(1.0, q)
+	var cap := float(f["cap"])
+	if not (k_dq > 0.0) or not (a_in / k_dq > cap):
+		return -1.0  # at or under the cap, with U at 0, the living only rise
+	var l_star := a_in / k_dq  # the living whose pull just meets U's inflow
+	var l1 := maxf(0.0, l0)
+	var from := 0.0
+	if u0 <= 0.0:
+		if not (l1 >= l_star):
+			return -1.0  # the pull is below the inflow from the start: U rises (the solve's regime)
+	else:
+		var tz := float(f["t_undead_out"])
+		if not (tz > 0.0) or float(f["undead"]) > 0.0:
+			return -1.0
+		# the living at tz, off the path with U at its mean over [0, tz] (it is 0 after)
+		_l_path(tz, l1, s_in, _k_kill * _um * dt / tz, cap, _march_s())
+		l1 = _le
+		from = tz
+	var tl := _leave_s(l1, s_in, cap, _march_s(), l_star, dt - from)
+	if tl < 0.0:
+		return -1.0
+	var back := from + tl
+	return back if back > _EPS_S and back < dt - _EPS_S else -1.0
+
+
+## Seconds after which living with no kills (L' = c − max(0, L − cap) / tau, c ≥ 0), from `l1`, fall
+## to `l_star` (> cap), or −1 if they don't within `span`. At or under the cap they only rise; above
+## it the excess x = L − cap relaxes toward c · tau as x(t) = c·tau + (x1 − c·tau) · e^(−t/tau), so it
+## falls through l_star − cap at tau · ln((x1 − c·tau) / (x* − c·tau)) when c · tau < x* < x1.
+static func _leave_s(l1: float, c: float, cap: float, tau: float, l_star: float, span: float) -> float:
+	var x1 := l1 - cap
+	var xs := maxf(0.0, c) * tau
+	var xstar := l_star - cap
+	if not (x1 > xstar) or not (xstar > xs):
+		return -1.0
+	var tl := tau * log((x1 - xs) / (xstar - xs))
+	return tl if tl < span else -1.0
+
+
+## fort_step's solve for one piece of a step (see fort_step): U's and L's paths with U and L at their
+## means for each other, the raises, the masses. Sets _raise_r, the raise rate it settled on.
+func _fort_part(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float) -> void:
 	var k_kill := _k_kill
 	var k_dq := _k_destroy / maxf(1.0, q)
 	var k_clear := _k_clear
@@ -869,6 +976,7 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 	f["dead"] = maxf(0.0, dead - cleared - raised)
 	f["t_living_out"] = _lt
 	f["t_undead_out"] = _ut
+	_raise_r = raise_r
 	_kills = kills
 	_destroyed = _ud
 	_drained = _ug
@@ -1482,7 +1590,13 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 			h = minf(h, _break_s - zero)  # split at the break, as step() does
 		fort_step(pf, h, s_in, maxf(0.0, w_in), want, redirect, q)
 		var tz := float(pf["t_undead_out"])
-		if tz >= 0.0 or (ub <= 0.0 and float(pf["undead"]) <= 0.0):
+		var tb := float(pf["t_undead_back"])
+		if tb >= 0.0 and tz >= 0.0:
+			# it left 0 inside the probe step: only the time at 0 counts (step 9)
+			if ((zero + tb) if ub <= 0.0 and tz <= 0.0 else tb - tz) >= _break_s - _EPS_S:
+				return true
+			zero = 0.0
+		elif tz >= 0.0 or (ub <= 0.0 and float(pf["undead"]) <= 0.0):
 			zero = (h - tz) if ub > 0.0 else zero + h
 			if zero >= _break_s - _EPS_S:
 				return true

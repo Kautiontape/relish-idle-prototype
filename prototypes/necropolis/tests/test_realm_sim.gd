@@ -1009,7 +1009,7 @@ func _retake_at(sim: RealmSim, dt: float, seconds: float, inp: Dictionary) -> Ar
 ## garrison with no WAR loses to a full wave at once, Relish there or not, a siege or not: broken by
 ## the wave plus break_s (Whitecross's 520 undead outlast the 40 s wave: U reaches 0 41.5 s in, 55.5
 ## with a siege and 75.5 with Relish, so by U's time at 0 plus break_s, within 80 s). (b) Ashgate with 0.8 mass/s of WAR, inside the band
-## [0.547, 1.035): its settled garrison (WAR / r_drain) is broken by a full wave alone, and holds it
+## [0.547, 1.033): its settled garrison (WAR / r_drain) is broken by a full wave alone, and holds it
 ## with Relish there or a siege; with no wave it holds (0.8 > W_c 0.343).
 func _hold_rule(t: TestUtil) -> void:
 	t.suite("realm_sim-hold-rule")

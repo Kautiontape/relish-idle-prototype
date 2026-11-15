@@ -272,21 +272,33 @@ Names, to avoid confusion:
      and from then on the kills equal the inflow. The kills are the inflow less ΔL less what
      marched back. U's
      own path, `dU/dt = W + raises − r_drain · U − k_destroy · L̄ / q`, is exact, including the
-     moment U reaches 0. After that, every arriving undead is destroyed at once. Ū and L̄ come from
+     moment U reaches 0. After that, every arriving undead is destroyed at once. **U leaving 0**
+     (E2b-2 T3.3a): while U sits at 0 nothing kills the living, so their path is exact, and the
+     moment the pull `k_destroy · L / q` falls back below U's inflow (WAR and the raises) along it is
+     a closed form: above the cap the excess relaxes as `x(t) = c·τ + (x0 − c·τ) · e^(−t/τ)`, so it
+     falls through `x* = q · inflow / k_destroy − cap` at `τ · ln((x0 − c·τ) / (x* − c·τ))`, which
+     exists only when `c·τ < x* < x0` (at or under the cap, with U at 0, the living only rise). U is
+     at 0 from the step's start when it starts there with the pull at or above its inflow, whatever
+     the step's mean pull says, or from the moment the step's solve takes it there. A step that
+     holds that moment is split there: the first piece holds U at 0, the second starts it from 0,
+     both with the step's rates, and their masses add. Before, U's whole step took one regime from
+     the step's mean pull, so the moment it left 0 landed anywhere inside a 10 s step (the zero
+     clock below). Ū and L̄ come from
      alternating the two paths: a predictor from L0, then two corrections. The garrison's kills
      (`k_destroy · ∫L / q`, at most what the undead hold) and the drain come from U's path,
      `k_clear · ∫L` (at most the corpses) from living's. Kills at a redirect fort stay (§3.3). The
      redirect raises (Relish's, then the simulacra's) are a rate inside the step, bounded by the
-     corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`: the seconds into
-     the step when living or undead reached 0 (0 when they started there), −1 when they did not.
-     These are natural event boundaries for catch-up; nothing reads them yet. The living that
-     marched back land in her pool, after this step's shipping;
+     corpses. Mass is exact. Each fort records `t_living_out` and `t_undead_out`, the seconds into
+     the step when living or undead reached 0 (0 when they started there), and `t_undead_back`,
+     when U left 0 again; each is −1 when it did not happen. Step 8's zero clock reads the last two.
+     The living that marched back land in her pool, after this step's shipping;
   6. Vei's conversion. What the march-back took past her pool's cap is lost (`pool_overflow`,
      §2.1). Her take is clamped to her pool's headroom, which **counts this step's shipping** and
      the march-back, so at her cap a long step converts what it ships less what marched back;
   7. the wave books what it delivered and ends after `surge_s`;
   8. the holds (§3.4): grace counts down; a contested garrison's zero clock runs while it sits at 0
-     and restarts when it doesn't; `hold.break_s` of it retakes the fort, at that moment;
+     and restarts when it doesn't, counting only the time at 0 inside the step (`t_undead_out` to
+     `t_undead_back`, or to the step's end); `hold.break_s` of it retakes the fort, at that moment;
   9. the next wave's warning, its target read from this step's dispatch and the holds as the step
      leaves them (§3.4).
 
@@ -405,9 +417,22 @@ warning on Ashgate (374.5 s of grace, the wave due in 150 s): its first step war
 
 **Retake.** The fort is retaken when the garrison has sat at 0 for `hold.break_s`
 (`fort_retaken {fort_id, cause: "broken"}`). "At 0" is fort_step's clamped regime for U: the
-garrison's pull meets or exceeds U's inflow, so U sits at 0 (its path's `t_undead_out` onward), or U
-is 0 with nothing arriving and nothing pulling (no WAR and no living there yet). It is not a mass
-threshold. Any time with U > 0 restarts the clock. The drain alone never takes U exactly to 0, so a
+garrison's pull meets or exceeds U's inflow, so U sits at 0 (its path's `t_undead_out` onward, to
+`t_undead_back` when it leaves inside the step), or U is 0 with nothing arriving and nothing pulling
+(no WAR and no living there yet). It is not a mass threshold. Any time with U > 0 restarts the clock.
+- **The clock counts only the time at 0** (E2b-2 T3.3a): a step in which U leaves 0 counts up to
+  that moment (§3.1 step 5 solves it), so a step of any length gives the zero time fine steps give.
+  Before, a step whose U left 0 inside it took the whole step as one regime, at 0 or not, from its
+  mean pull. midgame_2flips' Ashgate is a knife-edge: with no input each wave pins its garrison
+  for 101.8 to 116.1 s of the 120 s `break_s` at 0.5 s, so its margin is 3.9 s. At
+  10 s the per-wave figure was up to 5 s off 0.5 s's, either way (106.4 s against 101.6 s at the
+  first wave), one wave crossed 120 s and the fort fell at 15 537 s; at 0.5 s it stood at 12 h. Now the first ten waves at 10 s pin it for 102.08, 106.76,
+  111.32, 111.57, 111.76, 111.94, 112.11, 112.27, 112.41 and 112.55 s (at 0.5 s 101.76, 106.83,
+  111.34, 111.55, 111.70, 111.85, 111.99, 112.12, 112.24 and 112.35 s), its longest 116.8 s (116.1),
+  and it holds all 178 waves at both. What is left is when U reaches 0 inside the wave (its step's
+  mean pull, as before) and the waves' own times, which differ by up to 1.2 s with the odds that
+  schedule them.
+- The drain alone never takes U exactly to 0, so a
 held fort with no WAR keeps a dwindling garrison until her reship lands; from then her living's pull
 pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming falls exactly
 `break_s` later ("Needs WAR too"). The retake lands at its time inside the step (§3.1). On a retake
@@ -443,18 +468,24 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   to 35.5 s), and the fort falls at `t_z + break_s`.
 - **(b) Near the threshold Relish or a siege flips the outcome.** The garrison settled at `W /
   r_drain` before the wave. The smallest W that holds a full wave (measured by bisection, 0.5 s; 10 s
-  in brackets):
+  in brackets; re-measured at E2b-2 T3.3a, whose exact leave from 0 (§3.1 step 5) moved the 0.5 s
+  column by up to 0.002 and brought the 10 s column within 0.003 of it, from up to 0.023 above; only
+  Whitecross with Relish there, where U outlasts the wave, still differs, as before):
 
   | fort | W_c (no waves) | no counter | Relish there (halved, her raise) | Relish's ×0.5 only (her tide, in its dungeon) | siege (0.6 blocked) |
   |---|---|---|---|---|---|
-  | Ashgate (80) | 0.343 | 1.035 (1.040) | 0.547 (0.547) | 0.692 (0.703) | 0.625 (0.636) |
-  | Greywall (90) | 0.386 | 1.078 (1.086) | 0.583 (0.581) | 0.736 (0.749) | 0.670 (0.682) |
-  | Vespers (160) | 0.686 | 1.384 (1.407) | 0.834 (0.838) | 1.052 (1.056) | 0.988 (0.995) |
-  | Whitecross (520) | 2.229 | 3.029 (3.029) | 2.242 (2.219) | 2.802 (2.802) | 2.803 (2.803) |
+  | Ashgate (80) | 0.343 | 1.033 (1.033) | 0.547 (0.547) | 0.691 (0.693) | 0.624 (0.625) |
+  | Greywall (90) | 0.386 | 1.076 (1.077) | 0.583 (0.582) | 0.736 (0.737) | 0.669 (0.669) |
+  | Vespers (160) | 0.686 | 1.383 (1.386) | 0.834 (0.837) | 1.051 (1.051) | 0.988 (0.988) |
+  | Whitecross (520) | 2.229 | 3.028 (3.026) | 2.242 (2.219) | 2.802 (2.802) | 2.803 (2.803) |
+
+  Before T3.3a: Ashgate 1.035 (1.040), 0.547 (0.547), 0.692 (0.703), 0.625 (0.636); Greywall 1.078
+  (1.086), 0.583 (0.581), 0.736 (0.749), 0.670 (0.682); Vespers 1.384 (1.407), 0.834 (0.838), 1.052
+  (1.056), 0.988 (0.995); Whitecross 3.029 (3.029), 2.242 (2.219), 2.802 (2.802), 2.803 (2.803).
 
   So the band where a full wave breaks the fort without Relish and it holds with her is [0.547,
-  1.035) mass/s of WAR at Ashgate, [0.583, 1.078) at Greywall, [0.834, 1.384) at Vespers and
-  [2.242, 3.029) at Whitecross; a siege's band starts at its column. Every edge sits above W_c: a
+  1.033) mass/s of WAR at Ashgate, [0.583, 1.076) at Greywall, [0.834, 1.383) at Vespers and
+  [2.242, 3.028) at Whitecross; a siege's band starts at its column. Every edge sits above W_c: a
   fort that only just holds without waves is broken by a full wave. At Ashgate the band runs from 1.6
   to 3.0 × W_c; at Whitecross from 1.0 to 1.36 × W_c.
 - `hold.reship_share` 0.5 and `hold.break_s` 120 satisfy both, so they stay at their starting values.
@@ -663,11 +694,12 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     undead. So every contested fort is judged against one full wave (the cheapest honest version
     the run's manager allowed). With `period_s` 420 many waves fall in 8 h, so a fort a full wave
     would break is never "safe".
-  - The probe's edges are the 10 s column of §3.4's table (Ashgate 1.040, Greywall 1.086, Vespers
-    1.407, Whitecross 3.029; with Relish there 0.547, 0.581, 0.838, 2.216). Against live play at 0.5 s
-    that is conservative (it calls thin what holds) except with Relish at Greywall (0.581 against
-    0.583) and Whitecross (2.216 against 2.242): within 1.2% of the WAR below those edges the chip
-    reads safe where a 0.5 s run breaks.
+  - The probe's edges are the 10 s column of §3.4's table (Ashgate 1.033, Greywall 1.077, Vespers
+    1.386, Whitecross 3.026; with Relish there 0.547, 0.582, 0.837, 2.219; before E2b-2 T3.3a's exact
+    leave from 0, 1.040, 1.086, 1.407, 3.029 and 0.547, 0.581, 0.838, 2.216). Against live play at
+    0.5 s that is conservative (it calls thin what holds) or equal, except at Whitecross (3.026
+    against 3.028) and with Relish at Greywall (0.582 against 0.583) and Whitecross (2.219 against
+    2.242): within 1.0% of the WAR below those edges the chip reads safe where a 0.5 s run breaks.
 - **What the chip can't see:** a margin reads today's flows. midgame_2flips as loaded: Old Sluice
   reads safe (1.258 mass/s of WAR); 30 s in Relish reaches Greywall, her tide pulls its WAR to 0.761
   and it reads thin; the next wave there (1 177 s) breaks it (retaken at 1 316 s, at 0.5 and 10 s
