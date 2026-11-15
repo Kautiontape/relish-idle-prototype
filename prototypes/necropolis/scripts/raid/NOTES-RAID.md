@@ -1294,3 +1294,10 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - A lead was drafted while the sweep ran and dropped on the verdict, uncommitted: `lever_lead_beats` in WardenLogic.spec, with the toll's landing rule kept on the base lead. The lane would have needed its rush-or-lane decision moved to the earlier tell start (it is made in `_begin_tell`).
 - What the sweep does show is above: past 1.0 s the fire, the lane and the toll go first, in line with their margins at 1.5 s. If the risk at tier is to hold for a slower player, those three are where the floor belongs. That is a design call, not this rule's.
 - **Byte identity with every new knob off** (the head's code is d00c8c8; bc57a91 changes only a test): the 13 seed-1 lines are identical to 3a4ec38 and 37fee80 (`decapoff` against `de2aid`, `de0`), and Vei's seed-1 line is identical. `tests/parity_check.sh`: 5 of 5 identical. Suite: 52 suites, all passed.
+
+## D-e task 3: greywall (t1), the pick rule (written before the pick rows)
+- **Both targets, at the realm's count (22 living), the profile's 6-chaff garrison:**
+  1. Frozen bot (score 70): at most 1/20 deaths over seeds 20-39 and at most 1/19 over seeds 1-19.
+  2. Typical human (score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`): at most 2/20 over seeds 20-39, and no more deaths than ashgate and than old-sluice under the same profile on the same seeds (so at most the smaller of the two).
+- **The pick is the smallest change that meets both.** Candidates in order of size, config first (greywall's `enemy_room_mult_by_fort`): A the current {1: 0.5, 2: 2}; B {1: 0.35, 2: 2.5}; C {0: 1.5, 1: 0.4, 2: 2}; D {1: 0.25, 2: 4}. The first that meets both is the pick. If none does, the leash in code (a per-fort rule, gated so only greywall moves), its smallest setting that meets both.
+- **Rows before this commit:** the measurement rows only (iters g3p-, g3f-, g3h-, g3hf-, g3h-ash/-slu: the current knob and the knob off, both counts, frozen bot and typical human), started before the rule was committed. They include candidate A's rows. Every candidate row other than A comes after it.
