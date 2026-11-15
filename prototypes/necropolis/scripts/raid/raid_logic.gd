@@ -1092,7 +1092,9 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 ## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
 static func held_door_retreat_line(state: String, name: String) -> String:
 	match state:
-		"sent", "held":
+		"sent":
+			return "\n%s is sent to the plate · lost if you retreat." % name
+		"held":
 			return "\n%s is on the plate · lost if you retreat." % name
 		"shut":
 			return "\n%s is shut in at the cache: a retreat loses it." % name

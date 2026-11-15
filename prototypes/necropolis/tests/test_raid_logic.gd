@@ -767,9 +767,10 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
 	t.ok(RaidLogic.held_door_retreat_line("shut", "X") == "\nX is shut in at the cache: a retreat loses it."
 		and RaidLogic.held_door_retreat_line("held", "X") == "\nX is on the plate · lost if you retreat."
-		and RaidLogic.held_door_retreat_line("sent", "X") == RaidLogic.held_door_retreat_line("held", "X")
+		and RaidLogic.held_door_retreat_line("sent", "X") == "\nX is sent to the plate · lost if you retreat."
+		and RaidLogic.held_door_retreat_line("sent", "X") != RaidLogic.held_door_retreat_line("held", "X")
 		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
-		"the retreat dialog names the big by its state: on the plate, or shut in at the cache; nothing once it rejoined or none was spent")
+		"the retreat dialog names the big by its state: sent to the plate (sent), on the plate (held), or shut in at the cache; nothing once it rejoined or none was spent")
 	# the death card: the SHUT IN row before AFTER, apart from LOST (behaviour, RaidLogic.death_rows_with_shut)
 	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", RaidLogic.death_next_row({}))
 	var card2 := RaidLogic.death_rows_with_shut(card, "Old Gristle")
