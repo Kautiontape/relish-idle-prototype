@@ -1496,7 +1496,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - with the door at bff1cea: `de6a` / `de6ah` (arm a, frozen bot / typical human), `de6b` / `de6bh` (arm b);
   - arm (b) without the door at a14d1ec: `de6b0` / `de6b0h`;
   - arm (a) without the door: m4c and hb70d10. They reproduce byte for byte at a14d1ec (`de6spot` / `de6spoth`, seeds 20-21, 12 of 12).
-- **The typical human's length** is the per-run estimate: real seconds (scene + trance × (1/0.35 - 1), the 2 s circle) + 0.75 s of aim per raise + 0.2 × travel seconds + 1 s per room read + 0.2 s per tell. The frozen bot's is scene seconds.
+- **The typical human's length** is the per-run estimate `duration_s + trance_s × (1/0.35 − 1) + 0.75 × raises + 0.2 × split.travel_s + 1.0 × human.reads + 0.2 × react.tells` (seconds). The 2 s circle comes in through the trance's stretch (the 0.7 scene-second draw at a 0.35 time scale) and is not added again. The frozen bot's length is scene seconds.
 - **Deaths:** Wilson 90%, then the seed-clustered interval (n / 1.5). **Split:** pooled seconds, each fort's > 2× outliers out.
 - **The door taken, per arm, fort and profile:**
   - arm (a): 0 of 20 at each fort for both profiles (declined: one big);
@@ -1509,13 +1509,16 @@ The review of 3b found that every death left no army standing, and that 13 of th
 | b, frozen | 87.5 → 106.4 | 0 → 3 | 0/60 (0-4; 0-6) → 4/60 = 6.7% (3-14; 3-16) | 4 / 0 | 6.91 / 1.70 → 6.18 / 4.40 | 142 → 185 | 60: 54 / 6 (4 deaths, 2 retreats) |
 | b, typical human | 129.4 → 162.3 (scene 97.0 → 123.2) | 4 → 18 | 1/60 = 1.7% (0-7; 0-9) → 2/60 = 3.3% (1-10; 1-12) | 2 / 1 | 6.00 / 3.26 → 5.79 / 5.14 | 140 → 190 | 60: 57 / 3 (2 deaths, 1 retreat) |
 
-- **Paired per run** (door minus none): arm (a) median +0.0 s (27 and 28 of 60 runs the same length); arm (b) median +22.9 s (frozen) and +30.6 s (typical human).
+- **Paired per run** (door minus none, paired medians):
+  - arm (a): +0.0 s (27 and 28 of 60 runs the same length);
+  - arm (b): the frozen bot +22.9 scene seconds; the typical human +43.3 s on the estimate (+30.6 scene seconds).
 - **Arm (a), declined: it neither pads nor idles beyond noise.**
   - Travel is 4.92% and 4.57%, under the 5.3% ceiling.
   - Idle is 1.28 → 1.36% for the frozen bot (+0.07 s a run, mean) and 2.32 → 2.26% for the typical human.
   - The niche's walls changed the length of 33 and 32 of the 60 runs. Deaths move both ways within the intervals.
+  - The typical human's 15.0 → 10.0% is noise, not the door making t2 safer: 9 against 6 of 60, paired 2 against 5, with the niche's walls shifting paths, and the door declined in every run.
 - **Arm (b), the trade.**
-  - Length: +23-31 s a run. The typical human's estimate goes from 129 to 162 s, and the share at 180 s or more from 4 to 18 of 60.
+  - Length (paired medians): +22.9 scene seconds for the frozen bot, and +43.3 s on the typical human's estimate (+30.6 scene seconds). The estimate's median goes from 129 to 162 s, and the share at 180 s or more from 4 to 18 of 60.
   - Risk: 0 → 4 deaths for the frozen bot (all 4 paired against a survived run) and 1 → 2 for the typical human.
   - Loot: one relic a run (60 cache relics fetched in each profile). Result relics +43 and +50, net of the unbanked cache lost in deaths and of the chest's own rolls.
   - Travel: arm (b) without the door is already over 5.3% (6.91% and 6.00%), because the spare-big party's fights are short. The door adds 0.9 s and 1.6 s of travel a run (the walk is 352-792 px, median per fort), and the share falls to 6.18% and 5.79%.
@@ -1529,3 +1532,25 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - **The t2 risk band (10-15%).**
   - Arm (a), t2's own party: 11.7% (frozen) and 10.0% (typical human), inside the band.
   - Arm (b), a spare big: 6.7% and 3.3% with the door, 0% and 1.7% without. Under the band, reported as asked.
+
+### The quality pass (D-e opus review, 3a4ec38..520cd63; one commit each)
+- **Important 1, the warden falls with a big sent or on the plate** (5c1ba38). The fall frees it too (`RaidLogic.held_door_fall`: sent, held and shut all become freed). It is never shut in afterwards, the door unlocks, and a retreat after the fall keeps it.
+  - Gating `_shut_in` alone was not chosen: it would leave the big on the plate and committed, so a retreat would still lose it.
+  - The states are pure (`held_door_step`, `held_door_fall`, `held_door_committed`), and the order of events is tested.
+- **Important 2, source guards** (ff88879): rows for the changed routing (`waypoint`, `_waypoint_rooms`, `_niche_step`), the door's `make`, `place_cache` and `fate`, `spawn_cache`, the bot's `_collect_node` and `_pickup_node`, and the new pure functions. A new guard checks that every held-door, niche-routing and door-rule sim function draws no random number.
+- **Important 3, the unstick watch under the degraded bot's held goal** (79c7070).
+  - While a read pause or a drawn circle holds her still, `_aim_at` no longer steps the watch or advances its clock. The first think back restarts it. The frozen bot never holds, so its lines are unchanged.
+  - The closing branch's `st.in` is left as it is: clearing it would move frozen lines wherever the watch fires.
+  - **Effect:**
+    - The 9 hb70d10 rows at seed 20 (one per at-tier fort; `de6q3pre` at 64de0f4 against `de6q3` at 79c7070) are all identical: the watch fired in none of them.
+    - The 11 hb70d10 runs where it had fired (seeds 20-39: chime-fort 1, hollow-redoubt 6, mourners-gate 2, sable-hold 1, whitecross 1; `de6q3fpre` / `de6q3f`): 9 move, and **only in `unstick.aimed_in`**. Length, exit, split and every other key are unchanged in all 11.
+  - **So D-e's task 2 and task 6 human rows on seeds 20-39 carry this small bias.** It shows as a spurious `aimed_in` (hb70d10 11/180, hb50d10 8/180, de6ah 2/60, de6bh 19/60, de6b0h 6/60; de6ah has 1 `given_up`). In the sampled runs it changed nothing else. The grading pass re-measures the typical human with the fix.
+- **Minor 4** (74fca39): one weak-point lookup (`RaidLogic.unit_stat`); the dead `big_stat` and the unused `CAPTURE_OUTCOMES` are gone.
+- **Minor 5** (5f2d4f0): `RaidHeldDoor.fate(exit)` for the bot and capture; `RaidPopulate.spawn_cache` for both caches.
+- **Minor 6** (36e0cf4): capture records the bot's time-out as `timeout`, and a standalone close during an ending beat as that beat's ending, with its killer.
+- **Minor 7** (0f6fe53): the brittle tests are now behavioural (the death card's SHUT IN row, `party_lost` on a retreat) or matched on their tokens.
+- **Minor 8** (b11f0b2): the door's geometry is in `raid.json held_door` at the same values.
+- **Spec-review items:**
+  - The retreat dialog says it by state: on the plate · lost if you retreat, or shut in at the cache (566b4e1).
+  - The door's one-line labels sit beside the plate, and the prompt has its own plate; the shots were re-taken and read (64de0f4).
+  - An unknown `death_ends.outcome` falls back to `clones_ready`, and a missing `respawn_s` shows no number (7e9c317).
