@@ -519,7 +519,7 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(ok_all, "every tell-attack is answerable by a human (lead - 0.6 s - clear/speed >= 0):%s" % worst)
 	# D-e: the same at the degraded bot's typical human (1.0 s). The slam and the sideways lane go negative; the
 	# sweep found neither killing out of proportion at 1.0 s (NOTES-RAID "The fairness floor"), so no lead was added
-	t.ok(true, "the margins at a 1.0 s delay (D-e's typical human; reported, not required):%s" % at10)
+	t.ok(true, "PRINTOUT, not a check: the margins at a 1.0 s delay (D-e's typical human):%s" % at10)
 	# the fire with its spread (phase 1, acolytes alive): one fire on her, the others relish_spread_px along her line
 	# from the priest; the way out is sideways, and it clears them all
 	var pya: Dictionary = archs["pyre_priest"]["attack"]
