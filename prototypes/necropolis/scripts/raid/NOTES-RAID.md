@@ -1186,6 +1186,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - **The four checks** (at d00c8c8; rows `decapoff`, `decapon`, `decaphb` in the raw file; the router probes on a throwaway SceneTree script, harness sessions only):
   - **(a) The bot's lines don't move with capture on.** On against off: 31 of 31 lines byte-identical (the 13 seed-1 lines, plus seeds 2-3 at the 9 at-tier forts). With the degraded bot (hb70d10 flags, seed 20, 9 forts) and capture, the lines equal the sweep's b895836 rows 9 of 9. Off, d00c8c8 equals de2aid 13 of 13.
   - **(b) Capture's game-side counts against the bot's `tell_tally`.** 40 runs (seeds 1-3 at tier, the 9 degraded runs, t1 and P1 seed 1). Outcome, `killed_by` and `scene_s` equal the bot's `exit`, `killed_by` and `duration_s` in 40 of 40.
+    - **The evidence, kept** (a re-run of the same 40 at 187fb96 after the spec review, iter `decapchk`): one row per run in the run's `reports/dungeon/de-capture-check.tsv` (capture's tells, shown, struck, countered, dodged, clear and cancelled beside the bot's `tell_tally`, and five equality flags), and each run's capture record with its run key in `reports/dungeon/de-capture-check.jsonl`. Tells (the Bellringer's slam tells: a toll rides its slam's tell, which the bot counts once), struck, outcome, `killed_by` and `scene_s` are equal in 40 of 40. At tier the counts are the table's below; t1 and P1 differ (greywall's room leash is on at 187fb96: 53 tells, 3 struck) and match the same way.
 
     | warden (runs) | tells: capture / bot | struck: capture / bot | countered: capture / bot | dodged, clear, cancelled |
     |---|---|---|---|---|
@@ -1209,7 +1210,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
 ### The sweep (D-e 2b; b895836; seeds 20-39; 1,160 runs, all in lockstep)
 - **Profiles:** scores 50 and 70 x delays 0.6, 1.0 and 1.5 s, all with the read pause (1.0 s) and the draw (0.7 s), at the 9 forts at their tier (iters `hb<score>d<delay>`, 180 runs each). Plus the typical human at t1 and P1 (`hbt1`, 80 runs). The baseline is m4c + qm, the bot as it stands: score 70, 0.45 s, no read, no draw.
-- **Length and deaths at t2-t4.** Medians in scene seconds; "real" is the median of `RaidLogic.human_real_s` per run; the split is pooled seconds with each fort's > 2x outliers left out (the Part 2 method); deaths with Wilson 90% and the seed-clustered interval (Wilson on n / 1.5):
+- **Length and deaths at t2-t4.** Medians in scene seconds; "real" is the median of `RaidLogic.human_real_s` per run; the split is pooled seconds with each fort's > 2x outliers left out (the Part 2 method); deaths with Wilson 90% and the seed-clustered interval (Wilson on n / 1.5). The 31 runs that retreated (left with no army, or gave up: 2 to 8 per profile, hbt1 included) stay in the medians and count as neither a death nor a win:
 
   | profile | median s (t2 / t3 / t4) | real s | travel / fight / trance / idle % | died |
   |---|---|---|---|---|
@@ -1253,7 +1254,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - **t1 and P1** (the typical human, seeds 20-39):
     - P1: 0/20, median 113 s (real 133).
     - t1: 16/60 (27%; 18-37, clustered 17-39), all killed by the living. greywall accounts for 10/20 (median 41 s: early deaths, against 6/20 for g4c, the frozen bot on the same seeds), old-sluice 4/20, ashgate 2/20. The kite's 1.0 s delay and the read pause on entering its long middle room are the mechanism; greywall's living were already the t1 risk.
-- **Per tell-attack** (deaths; blows that struck her / tells; at-tier rows of each profile):
+- **Per tell-attack** (deaths; blows that struck her / tells; at-tier rows of each profile). The slam's tells are every slam rung at the Bellringer forts (`warden_attacks`), so the slams that carried a toll are counted there too; the toll's tells (`bell.tolls`) are that subset, not more tells:
 
   | profile | slam | toll | lunge | bash | rush (the lane) | fire |
   |---|---|---|---|---|---|---|
@@ -1280,17 +1281,20 @@ The review of 3b found that every death left no army standing, and that 13 of th
     - click-to-move detours: 0.1-0.3 of the travel seconds;
     - 0-2 s more per room than the 1.0 s read;
     - 0-0.4 s per warden tell.
-  - With those, the median per-run estimate is 148-187 s at t2, 153-187 s at t3 and 153-193 s at t4. **3:00 is reached only with every left-out factor at its high end.**
+  - **At the midpoints** (the spec review's figures: 0.75 s of aim per raise, 0.2 x the travel seconds, 1 s more per room read, 0.2 s per tell, with the 2 s circle) the medians are **172 / 173 / 177 s at t2 / t3 / t4, with 40-45% of runs at 180 s or more: at or just under 3:00.** My recompute of the same terms (the per-run read count for the rooms, `react.tells` for the tells) gives 168 / 169 / 173 s with 32-45% at 180 s or more; the gap is in how the terms are counted, and the reading is the same.
+  - At the high end (1.5 s a raise, 0.3 x travel, 2 s a room, 0.4 s a tell) the medians are 187 / 187 / 193 s.
   - Per warden at tier, real: Bellringer 156 s, Shieldwall 158, Huntsman 144, Pyre-priest 142.
 
 ### The fairness floor (D-e 2d): not built
 - **The arithmetic** (test_wardens now prints the margins at 1.0 s as well): lead 1.714 s - delay - walk. At 0.6 s: slam 0.17, lane sideways 0.16, toll 0.74, lunge 0.97, bash 0.71, fire 0.62 s. At 1.0 s: slam -0.23, lane -0.24, toll 0.34, lunge 0.57, bash 0.31, fire 0.22 s.
-- **The rule, fixed before the rows** (and logged): per tell-attack, blows that struck her per tell, at-tier rows of scores 50 and 70 pooled, 0.6 -> 1.0 s. The slam or the lane kills out of proportion if its growth is at least 2x the pooled growth of the toll, lunge, bash and fire, and its deaths rise.
+- **The rule:** per tell-attack, blows that struck her per tell, at-tier rows of scores 50 and 70 pooled, 0.6 -> 1.0 s. The slam or the lane kills out of proportion if its growth is at least 2x the pooled growth of the toll, lunge, bash and fire, and its deaths rise.
+  - **When it was written:** the x2 rule sits in calibration-dd-log.txt's D-e header (line 335), above every sweep line. The log has no timestamps and isn't in git, and the rule wasn't in a committed file before the rows ran, so its timing can't be verified independently.
 - **The sweep does not confirm it.**
   - The slam grows x0.84 (0.0153 -> 0.0129; deaths 10 -> 11).
   - The rush grows x1.11 (0.187 -> 0.207; deaths 22 -> 18).
   - The positive-margin attacks pooled grow x0.97.
-  - So both are x0.87 and x1.14 the pooled growth, against a bar of x2. No lead was added, and the 1.0 s profiles were not re-run.
+  - The recompute: slam x0.84 and lane x1.11 against x2, which is x0.87 and x1.14 relative to the pooled growth. The verdict holds by a wide margin either way. No lead was added, and the 1.0 s profiles were not re-run.
+  - From here on, a decision rule goes into a committed file, or a message to the manager, before its rows run.
 - A lead was drafted while the sweep ran and dropped on the verdict, uncommitted: `lever_lead_beats` in WardenLogic.spec, with the toll's landing rule kept on the base lead. The lane would have needed its rush-or-lane decision moved to the earlier tell start (it is made in `_begin_tell`).
 - What the sweep does show is above: past 1.0 s the fire, the lane and the toll go first, in line with their margins at 1.5 s. If the risk at tier is to hold for a slower player, those three are where the floor belongs. That is a design call, not this rule's.
 - **Byte identity with every new knob off** (the head's code is d00c8c8; bc57a91 changes only a test): the 13 seed-1 lines are identical to 3a4ec38 and 37fee80 (`decapoff` against `de2aid`, `de0`), and Vei's seed-1 line is identical. `tests/parity_check.sh`: 5 of 5 identical. Suite: 52 suites, all passed.
