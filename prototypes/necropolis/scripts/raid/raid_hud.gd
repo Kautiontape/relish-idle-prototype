@@ -819,7 +819,7 @@ class WardenBlock:
 				_text(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 			_text(x0, y, "PHASE", 13, "text_dim")
 			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
-			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase), 13, "text_dim")
+			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0

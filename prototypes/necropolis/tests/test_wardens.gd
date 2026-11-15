@@ -457,6 +457,20 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(WardenLogic.toll_exit(Rect2(0, 0, 640, 490), Vector2(620, 245), Vector2(320, 245), 45.0, 13.0, 291.0, 16.0, 60.0) == Vector2.INF,
 		"no exit a human reaches in time: no toll")
 	t.near(WardenLogic.lane_reach(Rect2(0, 0, 600, 400), Vector2(300, 200)), Vector2(300, 200).length(), 1e-6, "the lane reaches the room's farthest corner")
+	# D-e task 4: every rush_lane_every-th tell is aimed at her, pinned or not; 0 is off; never below the lever
+	var due3: Array = []
+	for n in range(1, 10):
+		if WardenLogic.lane_due(n, 3, true):
+			due3.append(n)
+	t.ok(due3 == [3, 6, 9], "every 3rd tell is due (%s)" % str(due3))
+	t.ok(not WardenLogic.lane_due(3, 0, true) and not WardenLogic.lane_due(4, -1, true), "rush_lane_every 0 (or less): never")
+	t.ok(not WardenLogic.lane_due(3, 3, false), "below the lever (tier 1, the first dungeon): never")
+	t.ok(not WardenLogic.lane_due(0, 3, true), "no tell yet: not due")
+	var swt_src := _func_src("res://scripts/raid/warden_shieldwall.gd", "func _begin_tell(")
+	t.ok(swt_src.contains("not rushing and aimable and WardenLogic.lane_due(_bash_tells, int(at.get(\"rush_lane_every\", 0)), lever)")
+		and swt_src.find("lane_due(") < swt_src.find("pinned_tell = not rushing"),
+		"_begin_tell: a due tell the pin would hold becomes the lane, only where it can be aimed at her (her in its room, the lever on), before the pin is booked")
+	t.ok(int((cfg["wardens"]["archetypes"]["shieldwall"]["attack"] as Dictionary).get("rush_lane_every", 0)) >= 0, "rush_lane_every is set (0 = off)")
 	var pyre3 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "pyre_priest"}, cfg)
 	var her := Vector2(400, 300)
 	var plain := WardenLogic.burn_plan(pyre3, 1, 0, Vector2(200, 200), {"motes": [Vector2(250, 250)], "piles": [], "relish": her})
@@ -802,6 +816,14 @@ func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(lab.contains("±%d°" % int(ph[0]["front_half_deg"])) and lab.contains("%d°/s" % int(ph[0]["turn_deg_s"])) and lab.contains("glances ×0.1")
 		and lab.contains("back ×%s" % str(a["attack"]["back_mult"])) and lab.contains("every 4 beats"), "the HUD's shield line comes from the spec: " + lab)
 	t.ok(WardenLogic.shield_label(sw, 2).contains("every 2 beats"), "the shield line follows the phase")
+	# D-e task 4: the HUD teaches the pin-break where the rule is on (rush_lane_every > 0 and the lever on), else silent
+	var swl: Dictionary = sw.duplicate(true)
+	swl["attack"]["rush_lane_every"] = 3
+	var swo: Dictionary = sw.duplicate(true)
+	swo["attack"]["rush_lane_every"] = 0
+	t.ok(WardenLogic.shield_label(swl, 0, true).ends_with(" · every 3rd breaks the pin") and not WardenLogic.shield_label(swl, 0, false).contains("pin")
+		and WardenLogic.shield_label(swo, 0, true) == WardenLogic.shield_label(swo, 0),
+		"the shield line says 'every 3rd breaks the pin' with the rule and the lever on; nothing below the lever or with the rule off")
 
 	t.suite("shieldwall_arc")
 	var o := Vector2(100, 100)
@@ -975,3 +997,17 @@ func _meter_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(agree2, "catches past n notches = huntsman_phase, for 0..8 catches")
 	var first := WardenLogic.spec({"id": "old-sluice", "tier": 1, "first_dungeon": true}, cfg)
 	t.ok(WardenLogic.meter_bands(first) == bb, "the first dungeon's Bellringer has the same bands")
+
+
+## The text of the func starting at `head` in a script file, up to the next top-level func or "## " doc line
+## (a copy of test_raid_logic.gd's _func_body).
+func _func_src(path: String, head: String) -> String:
+	var src := FileAccess.get_file_as_string(path)
+	var i := src.find(head)
+	if i < 0:
+		return ""
+	var end := src.length()
+	for x in [src.find("\nfunc ", i + 1), src.find("\n##", i + 1)]:
+		if x >= 0:
+			end = mini(end, x)
+	return src.substr(i, end - i)

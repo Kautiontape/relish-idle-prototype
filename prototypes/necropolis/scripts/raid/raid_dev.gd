@@ -13,6 +13,7 @@ extends RefCounted
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
 ##   with --raid-party-<stat>=<n> (power, beef, wits, presence, speed) every party big undead's <stat> set to n: the weak
 ##   points with and without (--raid-party-wits for the Shieldwall, --raid-party-power for the Pyre-priest).
+## --raid-shield-lane-every=<n> sets the Shieldwall's attack.rush_lane_every for this run (D-e task 4's candidates).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
 
@@ -118,6 +119,11 @@ static func apply_demo_overrides(sd: Dictionary) -> void:
 	if spd != "":
 		for e in sd.get("party", []):
 			e["stats"]["speed"] = float(spd)
+	# D-e task 4's candidates on one committed sha: the Shieldwall's attack.rush_lane_every for this process only
+	# (set before the warden's spec is built in _build)
+	var every := cli_value("--raid-shield-lane-every=")
+	if every != "":
+		ConfigDb.data["raid"]["wardens"]["archetypes"]["shieldwall"]["attack"]["rush_lane_every"] = int(every)
 
 
 ## Hook 1: the scene is built. Reads the dev flags and spawns the stress / mote setups.

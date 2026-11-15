@@ -447,6 +447,7 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _tell_hits(", "the bot's tell-attack blow count"],
 			["res://scripts/raid/raid_autopilot.gd", "func _counter_count(", "the bot's counter count"],
 			["res://scripts/raid/warden_logic.gd", "static func lane_reach(", "WardenLogic.lane_reach"],
+			["res://scripts/raid/warden_logic.gd", "static func lane_due(", "WardenLogic.lane_due (the lane on every n-th tell, D-e task 4)"],
 			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
 			["res://scripts/raid/raid_logic.gd", "static func leash_holds(", "RaidLogic.leash_holds (the room leash)"],
 			["res://scripts/raid/raid_logic.gd", "static func leash_rooms(", "RaidLogic.leash_rooms"],
