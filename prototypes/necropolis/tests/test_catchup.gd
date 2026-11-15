@@ -18,8 +18,10 @@ extends RefCounted
 ##   20 s frame live and debug fast-forward live; a gap under idle.report_min_s queues its events (a retake
 ##   inside a 300 s gap reaches the queue), a longer one collects them; paused time is no time off.
 ## - Accuracy (IDLE §4): 2 h caught up against 2 h live at 0.5 s from midgame_2flips, within
-##   idle.catchup_tol; a threshold-free start matches to 1e-9; I1, a scripted session left 30 min, closed
-##   against open through the frame path; the same save and time away give the same to_dict() twice.
+##   idle.catchup_tol; seven held forts with WAR at 0, 20 min caught up at 10 s against live: 3 or more
+##   retakes, each within the outcomes' time bound; a threshold-free start matches to 1e-9; I1, a scripted
+##   session left 30 min, closed against open through the frame path; the same save and time away give the
+##   same to_dict() twice.
 ## Saves go under user://test_catchup_<pid>, removed at the end. The field is shrunk (8 × 6) and its
 ## pre-warm off, as tests/slow/convergence.gd's harness does, so the runs are cheap; the field step wiring
 ## is the same at any size.
@@ -51,6 +53,7 @@ func run() -> int:
 	_live_frames()
 	_gap_events()
 	_accuracy_2h()
+	_retakes_bound()
 	_threshold_free()
 	_i1()
 	_determinism()
@@ -720,7 +723,8 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 	return out
 
 
-## Two runs of the same span compared (accuracy(), the I1 helper): the ledger in each, Vei's and
+## Two runs of the same span compared (accuracy(), the I1 helper; also returns `late`, the time-bound misses,
+## and `retaken`, each run's retake count): the ledger in each, Vei's and
 ## Covington's stocks (convergence.gd's KEY, each against max(|live|, its floor): 1% of the live value's
 ## scale, the body cap for bodies, Vei's pool cap for her pool), the key rates (the mint and its split,
 ## TownSim's worker inflow and the gold, bone and living nets, Vei's sustained differential: each against
@@ -791,7 +795,7 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 		(ob["flips"] as Array).size(), (ob["waves"] as Array).size(), (ob["builds"] as Array).size(), (ob["retaken"] as Array).size(),
 		"none" if tparts.is_empty() else ", ".join(PackedStringArray(tparts)), String.num_scientific(la), String.num_scientific(lb)]
 	return {"ok": ok, "lines": lines, "worst": worst, "stocks": stocks, "rates": rates, "held": held, "town_same": town_same,
-		"outcomes": differ}
+		"outcomes": differ, "late": conv.outcome_times(oa, ob, step_at), "retaken": [(oa["retaken"] as Array).size(), (ob["retaken"] as Array).size()]}
 
 
 static func _rates(s: GameState) -> Dictionary:
@@ -825,6 +829,31 @@ func _accuracy_2h() -> void:
 		print("  [catchup] %s, 2 h caught up vs live: %s" % [st, r["lines"]])
 		t.ok(r["ok"], "%s: 2 h caught up against 2 h live at 0.5 s: within %s, held forts ±1, Covington identical, the same outcomes, both ledgers balanced: %s" % [
 			st, conv._pct(tol), r["lines"]])
+
+
+## The outcomes' time bound on several retakes (the run's manager: the slow suites only ever met Old Sluice's):
+## midgame_2flips with five more forts held from now (no grace) on garrisons of 10 to 150 mass and the valve's
+## WAR at 0, so Vei's reship takes them back one by one. 20 min caught up at 10 s steps (catchup_max_steps 120,
+## the longest step) against live at 0.5 s: at least 3 retakes in both, the same in the same order, each within
+## TIME_BOUND_STEPS × 10 s of live's, and the rest of compare() as the 2 h test has it. About 2 s.
+func _retakes_bound() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 120})
+	var conv = load("res://tests/slow/convergence.gd").new()
+	var s := _mk(c)
+	t.ok(s.from_dict(JSON.parse_string(conv.start_json("midgame_2flips")))["ok"], "(setup) midgame_2flips loads")
+	var g := {"greywall": 10.0, "vespers": 20.0, "chime-fort": 60.0, "lantern-keep": 100.0, "hollow-redoubt": 150.0}
+	for id in g:
+		s.realm.hold(id, 0.0)
+		s.realm.fort_by_id(id)["undead"] = g[id]
+		s.realm.fort_by_id(id)["living"] = 0.0
+	t.ok(s.cmd_set_valve(0.85, 0.0, 0.15)["ok"], "(setup) the valve's WAR at 0")
+	s.valve = s.valve_target.duplicate()
+	s._ledger.reset(GameState.Ledger.total(s._held()))  # the garrisons were set by hand
+	var r := accuracy(c, JSON.stringify(s.to_dict()), 1200.0, float(c["economy"]["idle"]["catchup_tol"]))
+	print("  [catchup] seven held forts, WAR 0, 20 min caught up at 10 s vs live: %s" % r["lines"])
+	t.ok(int(r["retaken"][1]) >= 3 and r["retaken"][0] == r["retaken"][1] and (r["late"] as Array).is_empty() and r["ok"],
+		"%d retakes live, %d caught up, each within %s × 10 s of live's (misses %s); the rest of compare() holds: %s" % [
+		int(r["retaken"][1]), int(r["retaken"][0]), str(conv.TIME_BOUND_STEPS), str(r["late"]), r["lines"]])
 
 
 ## A threshold-free start, where every step is in one smooth regime, so a catch-up's 10 s step equals
