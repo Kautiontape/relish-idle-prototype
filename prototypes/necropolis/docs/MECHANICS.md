@@ -699,7 +699,8 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     leave from 0, 1.040, 1.086, 1.407, 3.029 and 0.547, 0.581, 0.838, 2.216). Against live play at
     0.5 s that is conservative (it calls thin what holds) or equal, except at Whitecross (3.026
     against 3.028) and with Relish at Greywall (0.582 against 0.583) and Whitecross (2.219 against
-    2.242): within 1.0% of the WAR below those edges the chip reads safe where a 0.5 s run breaks.
+    2.242): within about 1% of the WAR below those edges (1.03% at Whitecross with Relish, 0.17% at
+    Greywall with her, 0.07% at Whitecross without) the chip reads safe where a 0.5 s run breaks.
 - **What the chip can't see:** a margin reads today's flows. midgame_2flips as loaded: Old Sluice
   reads safe (1.258 mass/s of WAR); 30 s in Relish reaches Greywall, her tide pulls its WAR to 0.761
   and it reads thin; the next wave there (1 177 s) breaks it (retaken at 1 316 s, at 0.5 and 10 s
@@ -842,7 +843,11 @@ mass; bodies, rot return, WORK and muster are mass.
     more. The bone its mill makes over the cap, `ledger().stores.bone.overflow`, is 1.14% behind at
     600 s, falling to 0.04% by 12 h. Applying the pickups after the realm step, without the hold,
     measured 0.22% (an experiment only). Taking them needs either the realm step delivering an owed
-    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept.
+    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept
+    (E2b-2 T3.3a: the hold and §1.3's order stay; the sink is on file, IDLE §4). The gap is bounded:
+    measured over 24 h it is the step's own corpses (their rate × dt / 2 on average) plus at most
+    one load, and it doesn't grow (IDLE §4). The catch-up gate's bone floor
+    (`idle.catchup_gate_tally_floor`) carries it.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt

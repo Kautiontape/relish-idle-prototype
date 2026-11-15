@@ -23,6 +23,7 @@
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
   "queue": { "max_len": 8 },
+  "idle": { "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 } },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
   "stance": { "base_slots": 2 },
   "job": {

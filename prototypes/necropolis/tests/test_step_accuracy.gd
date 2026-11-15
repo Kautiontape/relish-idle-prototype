@@ -13,6 +13,11 @@ extends RefCounted
 ##   convoy, fixed on Greywall where Relish raises the corpses as they form, lands the same over 1 h
 ##   at 10 s as at 0.5 s; and a departure inside a step picks the fort the projection leads with, not
 ##   the stale snapshot's.
+## - The gate's judge (convergence.gd judge(), the function its 10 s assertion calls; IDLE §4) on
+##   synthetic 12 h series sampled every 600 s, at economy.json idle's tol and floors: a tally a fixed
+##   0.7 behind passes; a mid-run fault that recovers by the endpoint passes (a) and fails (b); a 2%
+##   rate error fails (a); a stock 1.5% off at one sample fails; and outcomes compare by order, not
+##   time.
 
 var t := TestUtil.new()
 const Q := 1.2  # digest_q for the realm cases
@@ -26,7 +31,78 @@ func run() -> int:
 	_convoy_greywall()
 	_convoy_pick()
 	_convoy_after_load()
+	_gate_judge()
 	return t.failures
+
+
+## The judge on synthetic series: 73 samples, every 600 s over 12 h. The reference's bone tally grows
+## at REF_SLOPE (slow on purpose: at pre_vei's 0.1 bone/s, 1% of it would be 23 bone at 6 h and the
+## mid-run fault below would pass (b)); its gold tally stays 0; its stocks are flat but the backlog.
+## `bone` maps a sample's index and the reference's bone tally to the run's; `stock` the index and the
+## reference's backlog to the run's backlog.
+const REF_SLOPE := 0.005  # bone/s
+const N_SAMPLES := 73
+
+
+func _series(bone: Callable, stock: Callable) -> Array:
+	var ref: Array = []
+	var run: Array = []
+	for i in N_SAMPLES:
+		var y := REF_SLOPE * 600.0 * i
+		var r := {"backlog": 1000.0 + 10.0 * i, "vei_dead": 50.0, "vei_pool": 600.0, "workers": 40.0, "gold": 500.0,
+			"bone": 300.0, "living": 20.0, "gold_over": 0.0, "bone_over": y}
+		var x := r.duplicate()
+		x["bone_over"] = float(bone.call(i, y))
+		x["backlog"] = float(stock.call(i, float(r["backlog"])))
+		ref.append(r)
+		run.append(x)
+	return [run, ref]
+
+
+func _gate_judge() -> void:
+	var c = load("res://tests/slow/convergence.gd").new()
+	var gate: Dictionary = c.gate_of(TestUtil.configs())
+	var tol := float(gate["tol"])
+	var fl := float(gate["floor"]["bone_over"])
+	var floors := {"backlog": 1.0, "vei_dead": 1.0, "vei_pool": 600.0, "workers": 1.0, "gold": 5.0, "bone": 3.0, "living": 1.0}
+	var none: Dictionary = c._outcome()
+	var same := func(i: int, y: float) -> float: return y
+	var judge := func(s: Array, o: Dictionary, ro: Dictionary) -> Dictionary: return c.judge(s[0], s[1], floors, o, ro, gate)
+	t.ok(tol == 0.01 and fl == 1.0 and float(gate["floor"]["gold_over"]) == 6.0,
+		"the gate's numbers are economy.json idle's: tol %s, floors %s" % [str(tol), str(gate["floor"])])
+	# a fixed lag: 0.7 behind from the first sample on
+	t.ok(0.7 < fl, "the case: a 0.7 lag sits under the bone floor (%.1f)" % fl)
+	var g: Dictionary = judge.call(_series(func(i: int, y: float) -> float: return maxf(0.0, y - 0.7) if i > 0 else y, same), none, none)
+	t.ok(bool(g["ok"]) and bool(g["tallies"]["bone_over"]["a_ok"]) and bool(g["tallies"]["bone_over"]["b_ok"]),
+		"a tally a fixed 0.7 behind passes: %s" % c.gate_line(g))
+	# a mid-run fault: 5 bone off at 6 h (a bump from 3 h to 9 h), 0.04% off at 12 h
+	var fault := func(i: int, y: float) -> float: return y * (1.0 - 0.0004) + 5.0 * maxf(0.0, 1.0 - absf(i - 36) / 18.0)
+	var y6 := REF_SLOPE * 21600.0
+	t.ok(5.0 > maxf(tol * y6, fl), "the case: 5 bone at 6 h is above its allowance there, max(%s × %.1f, %.1f)" % [str(tol), y6, fl])
+	g = judge.call(_series(fault, same), none, none)
+	var tr: Dictionary = g["tallies"]["bone_over"]
+	t.ok(bool(tr["a_ok"]), "a mid-run fault that recovers passes (a): %s at the end" % c._tally_a(tr))
+	t.ok(not bool(tr["b_ok"]) and not bool(g["ok"]), "and fails (b), so the gate fails: %.3f off at %.0f s against %.3f" % [
+		float(tr["b_d"]), float(tr["b_at"]), float(tr["b_allow"])])
+	# a rate error: the tally's slope 2% off
+	g = judge.call(_series(func(i: int, y: float) -> float: return 1.02 * y, same), none, none)
+	tr = g["tallies"]["bone_over"]
+	t.ok(not bool(tr["a_ok"]) and not bool(g["ok"]), "a tally 2%% off in its slope fails (a): %s" % c._tally_a(tr))
+	# a stock 1.5% off at one sample
+	g = judge.call(_series(same, func(i: int, x: float) -> float: return x * 1.015 if i == 40 else x), none, none)
+	t.ok(not bool(g["stocks"]["ok"]) and not bool(g["ok"]) and g["stocks"]["metric"] == "backlog",
+		"a stock 1.5%% off at one sample fails: %s at %.0f s" % [str(g["stocks"]["metric"]), float(g["stocks"]["at"])])
+	t.ok(bool(g["tallies"]["bone_over"]["ok"]) and bool(g["tallies"]["gold_over"]["ok"]), "while its tallies pass")
+	# outcomes: the same switches 9.6 s apart pass; a flip only one run has fails
+	var o: Dictionary = c._outcome()
+	var ro: Dictionary = c._outcome()
+	o["unpaid"] = [["lot-02 off", 7709.6], ["lot-02 on", 7809.6]]
+	ro["unpaid"] = [["lot-02 off", 7700.0], ["lot-02 on", 7800.0]]
+	var flat := _series(same, func(i: int, x: float) -> float: return x)
+	t.ok(bool(judge.call(flat, o, ro)["ok"]), "the same upkeep switches 9.6 s apart: the outcomes are equal")
+	o["flips"] = [["ashgate", 600.0]]
+	g = judge.call(flat, o, ro)
+	t.ok(not bool(g["ok"]) and g["outcomes"]["differ"] == ["flips"], "a flip only one run has: they differ (%s)" % str(g["outcomes"]["differ"]))
 
 
 ## A contested Ashgate with no corpses, `living` of her living and no garrison, every other fort full of
