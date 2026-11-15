@@ -272,7 +272,7 @@ func _pack_step(delta: float) -> bool:
 func _loose_pack(pk: Dictionary) -> void:
 	var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
 	for p in horn_pts:
-		var u: RaidUnit = raid.spawn_unit("enemy", str(pk.get("kind", "runner")), raid.resolve_walls(p, 10.0), true)
+		var u: RaidUnit = raid.spawn_unit("enemy", str(pk.get("kind", "runner")), raid.resolve_walls(p, float(wcfg().get("pack_spawn_wall_px", 10.0))), true)
 		u.mass = 0.0
 		u.home_room = room
 		u.warden_pack = true

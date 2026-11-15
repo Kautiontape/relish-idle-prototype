@@ -235,7 +235,7 @@ func nearest_acolyte(from: Vector2) -> RaidAcolyte:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no fire tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + 1.0)
+		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
 	var b := beat()
 	var k := WardenLogic.pyre_phase_knobs(spec, phase)
 	var showing := WardenLogic.is_tell(b, _next_attack, _tell())

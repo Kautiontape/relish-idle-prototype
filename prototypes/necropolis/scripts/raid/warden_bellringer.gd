@@ -81,7 +81,7 @@ func _contacts() -> Array:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + float(spec.get("attack", {}).get("tell_beats", 1.0)) + 1.0)
+		_next_attack = maxf(_next_attack, ceilf(beat()) + float(spec.get("attack", {}).get("tell_beats", 1.0)) + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
 		toll_at = Vector2.INF   # a horn over a toll's tell: that toll never lands (draw only; as the Shieldwall's _end_rush)
 		toll_exit_at = Vector2.INF
 	muffled = WardenLogic.is_muffled(spec, _contacts())

@@ -82,7 +82,7 @@ func _on_horn() -> void:
 
 
 func _on_pack_down() -> void:
-	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()))
+	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()) + float(spec.get("attack", {}).get("pack_rest_beats", 0.0)))
 
 
 func _tell() -> float:

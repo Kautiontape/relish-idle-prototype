@@ -184,7 +184,7 @@ func hit_from(amount: float, attacker: Node2D) -> void:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no bash tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + 1.0)
+		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
 		_end_rush(spec.get("attack", {}))   # a horn over a rush's tell: that rush never lands
 	var b := beat()
 	var at: Dictionary = spec.get("attack", {})
