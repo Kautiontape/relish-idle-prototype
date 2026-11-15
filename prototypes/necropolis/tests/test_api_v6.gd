@@ -50,7 +50,8 @@ func run() -> int:
 func _version() -> void:
 	t.suite("api-v6")
 	var s := _mk()
-	t.ok(GameState.API_VERSION == 6 and s.to_dict()["api_version"] == 6, "API_VERSION is 6")
+	# v7 (R1) added the away report's `unpaid` kind; v6's additions stand (test_api_contract pins the version)
+	t.ok(GameState.API_VERSION >= 6 and s.to_dict()["api_version"] == GameState.API_VERSION, "API_VERSION is 6 or later (%d)" % GameState.API_VERSION)
 	for f in s.to_dict()["realm"]["forts"]:
 		t.ok(f["held"] is bool and f["grace_s"] is float and f["zero_s"] is float and not f.has("held_s"),
 			"%s: the save writes held, grace_s, zero_s (no held_s)" % f["id"])
@@ -1517,7 +1518,9 @@ func _away_api() -> void:
 	var bad: Array = []
 	for k in ["gains", "ready", "losses"]:
 		for l in v[k]:
-			if not ApiSchema.AWAY_KINDS.has(l["kind"]) or not (forts.has(l["target"]) or l["target"] in ["slab", "queue", ""]):
+			# v7 (R1): an `unpaid` line, its target the building's lot (STATE-API §5.19)
+			var unpaid_ok: bool = l["kind"] == "unpaid" and n.town_sim.buildings.has(l["target"])
+			if not (ApiSchema.AWAY_KINDS.has(l["kind"]) or unpaid_ok) or not (forts.has(l["target"]) or l["target"] in ["slab", "queue", ""] or unpaid_ok):
 				bad.append(str(l))
 	t.ok(errs.is_empty() and bad.is_empty() and v["shown"] and v["away_s"] == 7200.0 and not v["gains"].is_empty(),
 		"a 2 h load's view_away matches the contract, every kind and target in its list %s %s" % [str(errs), str(bad)])

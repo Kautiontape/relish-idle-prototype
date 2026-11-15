@@ -70,6 +70,7 @@ func run() -> int:
 ## building or WAR producer: every raising pit keeps raising. Cheapest-first shed the four pits, the charnel
 ## house and the mill in the first substep of the floor, and the WAR went from 41.9 to 0.95 mass/s.
 func _floor_spares_war() -> void:
+	t.suite("game_state_town-floor")
 	var s := _mk()
 	t.ok(s.cmd_debug_load_fixture("pre_vei")["ok"], "(setup) pre_vei loads")
 	s.drain_events()

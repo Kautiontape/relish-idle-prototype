@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 6,
+	"API_VERSION": 7,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -58,10 +58,36 @@ func run() -> int:
 	_check_constants(s)
 	_check_names(s)
 	_exercise(s)
+	_unpaid_line()
 	_fixtures()
 	_check_coverage()
 	t.ok(_cleanup(), "the contract test's save directory is gone")
 	return t.failures
+
+
+## api_version 7 (R1; STATE-API §5.19): the away report's `unpaid` kind. pre_vei saved with 5 gold (its gold
+## floor about 10 s in) and loaded 10 min on: its losses carry one line per building that went unpaid, each
+## view_away's line shape with kind "unpaid" and its target the building's lot id (a lot in town.json).
+func _unpaid_line() -> void:
+	var s := GameState.new(_cfgs())
+	s.debug_enabled = true
+	s.save_dir = _dir
+	s.cmd_debug_load_fixture("pre_vei")
+	s.town_sim.gold = 5.0
+	s.clock_override = 1_800_000_000
+	t.ok(s.cmd_save("unpaid")["ok"], "(setup) pre_vei with 5 gold saved")
+	var n := GameState.new(_cfgs())
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = 1_800_000_000 + 600
+	t.ok(n.cmd_load("unpaid")["ok"], "(setup) loaded 10 min on")
+	var lots: Array = TestUtil.configs()["town"]["lots"].map(func(l): return str(l["id"]))
+	var unpaid: Array = n.view_away()["losses"].filter(func(l): return l["kind"] == "unpaid")
+	var errs: Array = []
+	for l in unpaid:
+		ApiSchema.check(l, ApiSchema.AWAY_LINE, "view_away.losses[]", errs)
+	t.ok(not unpaid.is_empty() and errs.is_empty() and unpaid.all(func(l): return lots.has(l["target"]) and n.town_sim.buildings.has(l["target"])),
+		"v7: view_away's unpaid lines match the line contract, kind \"unpaid\" with a lot id target: %s %s" % [str(unpaid), str(errs)])
 
 
 # ------------------------------------------------------------------- helpers ----

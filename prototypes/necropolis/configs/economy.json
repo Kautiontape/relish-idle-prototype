@@ -52,7 +52,14 @@
       "retaken_fmt": "{fort} retaken: raid it to win it back",
       "retaken_home_fmt": "{fort} retaken, Relish walked home: raid it to win it back",
       "village_lost_fmt": "village {village} lost to Vei",
-      "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0
+      "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0,
+      "unpaid_fmt": "{name} unpaid for {when}: {stopped}; stores kept", "unpaid_sep": ", ", "unpaid_none": "nothing stopped",
+      "unpaid_stopped": {
+        "pit": "raised no undead", "pits": "raised no undead", "haul": "hauled no corpses", "mill": "milled no bone",
+        "stall": "sold nothing", "forge": "forged nothing", "tend": "tended no vats", "morale": "lifted no morale",
+        "attract": "drew no migrants", "lifetime_bonus": "workers lived shorter", "haul_speed_mult": "convoys ran slower",
+        "death_shock_mult": "deaths shook the town harder", "hint_precision": "fort hints were vaguer"
+      }
     }
   },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },

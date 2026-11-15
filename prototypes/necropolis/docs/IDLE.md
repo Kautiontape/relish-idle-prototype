@@ -557,8 +557,21 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
   its ▲/▼), builds finished, and forts refilled;
 - **ready now,** each line an action: "Ashgate refilled: raid it", "2 husks: raise at the slab",
   "Queue empty: plan the next build";
-- **losses:** "Ashgate retaken: raid it to win it back", villages lost, store overflow. An absence with
-  no losses says **"Nothing lost."**
+- **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
+  store overflow. An absence with no losses says **"Nothing lost."**
+  - **Unpaid** (R1, the run's manager): one line per building that was unpaid at some time during the
+    absence, in lot order, with how long it was unpaid in all (its `building_unpaid` spells, true then
+    false, in the catch-up's events; one unpaid when you left counts from the start, one still unpaid
+    at the end to the end) and what it stopped doing: "Statue of Relish unpaid for 1 h 12 m: lifted no
+    morale, deaths shook the town harder; stores kept". The name is its town label (`level_fmt` past
+    level 1), the time the report's "{h} h {m} m" / "{m} m" (a spell under a minute reads "0 m").
+    "What it stopped" is one phrase per job it offers and per working effect it has (`pits`, `morale`,
+    `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`, `hint_precision`), each an
+    `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and
+    `pits` effect: "raised no undead"); a building with neither (a House, the Reliquary: only
+    capacity effects, which an unpaid building keeps) says "nothing stopped". "Stores kept" is always
+    true: capacity effects count while unpaid (MECHANICS §4.3), so no cap fell and no stock was lost.
+    `kind` `unpaid`, `target` its lot id.
 
 The full in/out table per stream is a debug view. API: `view_away()` (the last report, kept until
 dismissed) and the `away_report` event.

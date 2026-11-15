@@ -805,8 +805,8 @@ static func away_streams(gs: GameState) -> Dictionary:
 
 
 ## What a reporting catch-up starts from (Catchup.begin), for the report's before-and-after: the time, the
-## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, and the
-## village owners.
+## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, the
+## village owners, and the lots whose building is unpaid (R1: their unpaid lines count from the start).
 static func away_before(gs: GameState) -> Dictionary:
 	var forts := {}
 	for f in gs.realm.forts:
@@ -814,7 +814,12 @@ static func away_before(gs: GameState) -> Dictionary:
 	var villages := {}
 	for tw in gs.towns:
 		villages[str(tw["id"])] = str(tw["control"])
-	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages}
+	var unpaid: Array = []
+	for lot_id in gs.town_sim.buildings:
+		if gs.town_sim.buildings[lot_id]["state"] == "unpaid":
+			unpaid.append(str(lot_id))
+	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
+		"unpaid": unpaid}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -889,6 +894,7 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	for tw in gs.towns:
 		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
+	losses.append_array(_unpaid_lines(gs, rep, b, evs))
 	var o := _overflow(gs)
 	for k in ["gold", "bone"]:
 		var lost := float(o[k]) - float(b["overflow"][k])
@@ -899,6 +905,57 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 
 static func _away_line(text: String, kind: String, target: String) -> Dictionary:
 	return {"text": text, "kind": kind, "target": target}
+
+
+## R1 (the run's manager; IDLE §7): the losses' unpaid lines, one per building unpaid at some time during the
+## absence, in lot order: idle.report.unpaid_fmt, "Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths
+## shook the town harder; stores kept" (kind `unpaid`, target its lot). Its time is the sum of its spells from the
+## `building_unpaid` events in `evs` (unpaid true, then false); a building unpaid when you left (`b.unpaid`, or a
+## resume with no spell open) counts from the start, one still unpaid at the end to the end. What it stopped is
+## one unpaid_stopped phrase per GameState.unpaid_keys (its jobs, then its working effects), each phrase once,
+## joined by unpaid_sep; unpaid_none when it has neither.
+static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Array) -> Array:
+	var t0 := float(b["t"])
+	var spells := {}  # lot_id -> [seconds unpaid so far, the open spell's start or −1]
+	for lot_id in b.get("unpaid", []):
+		spells[str(lot_id)] = [0.0, t0]
+	var bids := {}  # lot_id -> the building id its events named
+	for e in evs:
+		if e["type"] != "building_unpaid":
+			continue
+		var lot := str(e["lot_id"])
+		bids[lot] = str(e["building_id"])
+		var sp: Array = spells.get(lot, [0.0, -1.0])
+		if bool(e["unpaid"]):
+			if float(sp[1]) < 0.0:
+				sp[1] = float(e["t"])
+		else:
+			sp[0] = float(sp[0]) + float(e["t"]) - (float(sp[1]) if float(sp[1]) >= 0.0 else t0)
+			sp[1] = -1.0
+		spells[lot] = sp
+	var out: Array = []
+	var stopped_words: Dictionary = rep["unpaid_stopped"]
+	var cfg := BuildRules.buildings_cfg(gs)
+	for l in BuildRules.lots_cfg(gs):
+		var lot_id := str(l.get("id", ""))
+		if not spells.has(lot_id):
+			continue
+		var sp: Array = spells[lot_id]
+		var secs := float(sp[0]) + (gs.t - float(sp[1]) if float(sp[1]) >= 0.0 else 0.0)
+		var bl: Dictionary = gs.town_sim.buildings.get(lot_id, {})
+		var bid := str(bl.get("building_id", bids.get(lot_id, "")))
+		var phrases: Array = []
+		for key in GameState.unpaid_keys(cfg.get(bid, {})):
+			if not stopped_words.has(key):
+				push_warning("StateViews: economy.json idle.report.unpaid_stopped has no words for %s" % key)
+				continue
+			var w := str(stopped_words[key])
+			if not phrases.has(w):
+				phrases.append(w)
+		var stopped := str(rep["unpaid_sep"]).join(PackedStringArray(phrases)) if not phrases.is_empty() else str(rep["unpaid_none"])
+		out.append(_away_line(str(rep["unpaid_fmt"]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
+			"when": _when(rep, secs), "stopped": stopped}), "unpaid", lot_id))
+	return out
 
 
 ## `digits` (an unsigned integer's decimal digits) with the report's thousands separator every three.

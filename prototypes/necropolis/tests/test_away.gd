@@ -832,6 +832,7 @@ func _report() -> void:
 	_report_nothing_lost()
 	_report_event()
 	_report_walked_home()
+	_report_unpaid()
 	_report_config()
 	_report_words()
 
@@ -845,6 +846,104 @@ func _report_walked_home() -> void:
 	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
 		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
 		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
+
+
+## pre_vei with `gold` left, run `live_s` live (0.5 s substeps), then saved and loaded `away` s on. The loaded
+## state's meta "unpaid_at_save" is the lots unpaid when it was saved, in lot order.
+func _unpaid_start(c: Dictionary, slot: String, gold: float, live_s: float, away: int) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("pre_vei")
+	s.town_sim.gold = gold
+	for i in int(live_s / 0.5):
+		s.tick(0.5)
+	s.drain_events()
+	var at_save: Array = []
+	for l in c["town"]["lots"]:
+		if s.town_sim.buildings.get(l["id"], {}).get("state", "") == "unpaid":
+			at_save.append(str(l["id"]))
+	var n := _away(c, s, slot, away)
+	n.set_meta("unpaid_at_save", at_save)
+	return n
+
+
+## Each building's unpaid seconds within the absence, as the report must count them, written out from the
+## collected events: the spells between unpaid true and false, from the start for `at_start` (unpaid when you
+## left), to the end for one still open. {lot_id: seconds}.
+static func _unpaid_secs(n: GameState, at_start: Array, away: float) -> Dictionary:
+	var t0 := n.t - away
+	var open := {}
+	var secs := {}
+	for l in at_start:
+		open[l] = t0
+		secs[l] = 0.0
+	for e in n.catchup_events():
+		if e["type"] != "building_unpaid":
+			continue
+		var l := str(e["lot_id"])
+		if bool(e["unpaid"]):
+			open[l] = float(e["t"])
+			secs[l] = float(secs.get(l, 0.0))
+		else:
+			secs[l] = float(secs.get(l, 0.0)) + float(e["t"]) - float(open.get(l, t0))
+			open.erase(l)
+	for l in open:
+		secs[l] = float(secs[l]) + n.t - float(open[l])
+	return secs
+
+
+## R1 (the run's manager; IDLE §7, STATE-API §5.19): the losses name each building that went unpaid while you
+## were away, one line each in lot order, "<label> unpaid for <time>: <what it stopped>; stores kept" (kind
+## unpaid, target its lot). (a) pre_vei saved with 5 gold and loaded 1 h on: its floor comes about 10 s into
+## the catch-up, the Statue, the houses, the Well, the Bakery, the Inn, the Graveyard, the Watchtower and the
+## Walls go unpaid, the two houses come back; nothing of the WAR chain has a line. (b) the same floor reached
+## live before the save: the buildings unpaid when you left count from the start, so the Statue, never paid
+## again, reads the whole hour.
+func _report_unpaid() -> void:
+	var c := cfgs()
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var words: Dictionary = rep["unpaid_stopped"]
+	var floor_lots := ["lot-05", "lot-06", "lot-07", "lot-08", "lot-12", "lot-15", "lot-16", "lot-17", "lot-23"]
+	var cases := [["a: the floor during the absence", _unpaid_start(c, "unpaid_a", 5.0, 0.0, 3600)],
+		["b: unpaid when you left", _unpaid_start(c, "unpaid_b", 5.0, 60.0, 3600)]]
+	t.ok((cases[0][1] as GameState).get_meta("unpaid_at_save").is_empty() and (cases[1][1] as GameState).get_meta("unpaid_at_save") == floor_lots,
+		"(setup) a: nothing unpaid at the save; b: the floor's nine lots unpaid at the save: %s" % str((cases[1][1] as GameState).get_meta("unpaid_at_save")))
+	for cs in cases:
+		var n: GameState = cs[1]
+		var at_start: Array = n.get_meta("unpaid_at_save")
+		var r := n.view_away()
+		var lines: Array = r["losses"].filter(func(l): return l["kind"] == "unpaid")
+		var secs := _unpaid_secs(n, at_start, 3600.0)
+		var lots: Array = secs.keys()
+		lots.sort()
+		var want: Array = []
+		for l in lots:
+			var bid := str(n.town_sim.buildings[l]["building_id"])
+			var said: Array = []
+			for k in GameState.unpaid_keys(c["buildings"][bid]):
+				if not said.has(words[k]):
+					said.append(words[k])
+			var stopped := ", ".join(PackedStringArray(said)) if not said.is_empty() else str(rep["unpaid_none"])
+			want.append({"text": "%s unpaid for %s: %s; stores kept" % [StateViews._building_name(n, rep, bid, int(n.town_sim.buildings[l]["level"])),
+				StateViews._when(rep, float(secs[l])), stopped], "kind": "unpaid", "target": l})
+		print("  [away] %s: %s" % [cs[0], JSON.stringify(lines)])
+		t.ok(lines == want and lots == floor_lots,
+			"%s: one line per building unpaid during the absence, in lot order, its time from the events: %s" % [cs[0], str(lines.map(func(l): return l["text"]))])
+		var statue: Dictionary = _find(r, "losses", "unpaid", "Statue")
+		var house: Dictionary = _find(r, "losses", "unpaid", "House")
+		t.ok(statue.get("target", "") == "lot-12" and str(statue.get("text", "")).ends_with(": lifted no morale, deaths shook the town harder; stores kept")
+			and str(house.get("text", "")).ends_with(": nothing stopped; stores kept"),
+			"%s: the Statue stopped its morale and its shock relief; a house, only capacity, stopped nothing: %s | %s" % [cs[0], statue.get("text", ""), house.get("text", "")])
+		if at_start.is_empty():
+			var ev_t := 0.0
+			for e in n.catchup_events():
+				if e["type"] == "building_unpaid" and e["lot_id"] == "lot-12":
+					ev_t = float(e["t"])
+					break
+			t.ok(ev_t > 0.0 and statue.get("text", "") == "Statue of Relish unpaid for %s: lifted no morale, deaths shook the town harder; stores kept" % StateViews._when(rep, n.t - ev_t),
+				"%s: the Statue counts from its unpaid event (%.0f s after you left) to the end: %s" % [cs[0], ev_t - n.t + 3600.0, statue.get("text", "")])
+		else:
+			t.ok(statue.get("text", "") == "Statue of Relish unpaid for 1 h 0 m: lifted no morale, deaths shook the town harder; stores kept",
+				"%s: the Statue, unpaid when you left and never paid again, reads the whole hour: %s" % [cs[0], statue.get("text", "")])
 
 
 ## Every waited_on template rendered through the away report's own code (StateViews._why_started, then the
@@ -886,6 +985,21 @@ func _report_config() -> void:
 		and GameState.report_config_problem(d).contains("missing"),
 		"a missing template, a missing reason's words and a missing block are each named: %s | %s | %s" % [
 			GameState.report_config_problem(a), GameState.report_config_problem(b), GameState.report_config_problem(d)])
+	# R1: the unpaid line's templates, and its words for what each building stops (every job and working effect in
+	# buildings.json); a capacity effect needs none
+	var u := TestUtil.configs()
+	(u["economy"]["idle"]["report"] as Dictionary).erase("unpaid_fmt")
+	var w := TestUtil.configs()
+	(w["economy"]["idle"]["report"]["unpaid_stopped"] as Dictionary).erase("haul")
+	var x := TestUtil.configs()
+	(x["economy"]["idle"]["report"]["unpaid_stopped"] as Dictionary).erase("hint_precision")
+	var cap := TestUtil.configs()
+	cap["buildings"]["house"]["effects"]["vat_slots"] = 1  # a capacity effect: kept while unpaid, nothing to word
+	t.ok(GameState.report_config_problem(u).contains("unpaid_fmt") and GameState.report_config_problem(w).contains("haul")
+		and GameState.report_config_problem(w).contains("charnel_house") and GameState.report_config_problem(x).contains("watchtower")
+		and GameState.report_config_problem(cap) == "",
+		"the unpaid line's template and each job's and working effect's words are checked, not a capacity effect's: %s | %s | %s" % [
+			GameState.report_config_problem(u), GameState.report_config_problem(w), GameState.report_config_problem(x)])
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
 	if a is Dictionary and b is Dictionary:

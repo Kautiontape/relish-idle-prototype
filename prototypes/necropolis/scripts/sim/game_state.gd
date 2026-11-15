@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 6
+const API_VERSION := 7
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -60,7 +60,9 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"plus", "minus", "rate_unit", "thousands", "rate_sig_digits", "rate_max_decimals", "builds_one_fmt", "builds_fmt",
 	"list_sep", "level_fmt", "started_fmt", "started_now_fmt", "when_hm_fmt", "when_m_fmt", "waited_on", "refilled_fmt",
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
-	"overflow_fmt", "store_labels", "overflow_min"]
+	"overflow_fmt", "store_labels", "overflow_min",
+	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
+	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -312,7 +314,34 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	for k in ["gold", "bone"]:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
+	# R1: an unpaid line words what its building stopped doing, one template per job it offers and per working
+	# effect it has (every effect but TownSim.CAPACITY_EFFECTS), so each one buildings.json has needs one
+	var stopped: Variant = rep["unpaid_stopped"]
+	if not (stopped is Dictionary):
+		return "config economy.idle.report.unpaid_stopped is not a table of words"
+	var bcfg: Variant = cfgs.get("buildings", {})
+	for bid in (bcfg as Dictionary if bcfg is Dictionary else {}):
+		for key in unpaid_keys((bcfg as Dictionary)[bid]):
+			if not (stopped as Dictionary).has(key):
+				return "config economy.idle.report.unpaid_stopped has no words for %s (buildings.json %s)" % [key, bid]
 	return ""
+
+
+## What an unpaid building stops doing, as idle.report.unpaid_stopped keys (R1, IDLE §7): the jobs its
+## buildings.json `def` offers slots in, then its working effects (every effect but the capacity ones, which
+## an unpaid building keeps: TownSim.CAPACITY_EFFECTS), each in the def's order.
+static func unpaid_keys(def: Variant) -> Array:
+	var d: Dictionary = def if def is Dictionary else {}
+	var out: Array = []
+	var jobs: Variant = d.get("jobs", {})
+	for j in (jobs as Dictionary if jobs is Dictionary else {}):
+		if int(jobs[j]) > 0:
+			out.append(str(j))
+	var fx: Variant = d.get("effects", {})
+	for k in (fx as Dictionary if fx is Dictionary else {}):
+		if not TownSim.CAPACITY_EFFECTS.has(k):
+			out.append(str(k))
+	return out
 
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.

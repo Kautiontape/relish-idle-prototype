@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 6)
+# Necropolis: GameState API (api_version 7)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -159,6 +159,18 @@ from `BALANCE.md` §0.
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
+
+  `api_version` 7 (R1, from the E2b-2 vision review; the run's manager's rule) added:
+  - the away report's **`unpaid` line** (§5.19, IDLE §7): a new `kind` value, `"unpaid"`, in `view_away().losses`,
+    one line per building that went unpaid during the absence, "Statue of Relish unpaid for 1 h 12 m: lifted no
+    morale, deaths shook the town harder; stores kept". Its `target` is the building's **lot id**, a new kind of
+    target (additive for map: `AwayLogic.action` reads an unknown target as `none` today; a click could dive to
+    Covington at that lot). An enum value is an addition under the rule above, so the version moves to 7;
+  - **the upkeep's shed order** (MECHANICS §4.3, `economy.json` `upkeep.shed_order`, `buildings.json`
+    `shed_class`): a stock that can't cover the upkeep idles the decorations first, then the passive no-job
+    buildings, then the job buildings, the WAR chain (Bone Mill, charnel houses, raising pits) last, where it
+    idled the cheapest first. `building_unpaid` (§6) and a building's `state` `unpaid` (§5.9) keep their
+    meaning; which building they name changes: a meaning change, not a shape change.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -213,7 +225,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 6
+const API_VERSION := 7
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -1899,8 +1911,9 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   with nothing to catch up leaves none); a new game clears it. Before any report: `shown` false, `away_s`
   0.0, `capped` false and the three lists empty.
 - **`kind`** is one of `stream`, `build`, `refilled`, `raid`, `slab`, `queue`, `retaken`, `village_lost`,
-  `overflow`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a fort, Covington's
-  slab or queue, nothing).
+  `overflow`, and from v7 `unpaid`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a
+  fort, Covington's slab or queue, nothing), and from v7 a lot id for `unpaid` (additive for map: Covington at
+  that lot; `AwayLogic.action` reads it as `none` until map takes it up).
 - **gains** (`target` `""`):
   - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
     the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
@@ -1924,7 +1937,16 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
   Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
   in `ledger().stores`, from `idle.report.overflow_min` (1) wasted (`overflow`, `""`), `"Gold overflowed: 120
-  wasted"`. Empty when nothing was lost: the map prints "Nothing lost."
+  wasted"`; before the overflow, from v7 (R1), each building that went unpaid during the absence, in lot
+  order (`unpaid`, its lot id): `"<label> unpaid for <time>: <what it stopped doing>; stores kept"`,
+  `"Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths shook the town harder; stores kept"`. The
+  time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6): one unpaid
+  when you left counts from the start, one still unpaid at the end to the end, and it reads as `when_hm_fmt`
+  / `when_m_fmt` ("0 m" under a minute). What it stopped is one `idle.report.unpaid_stopped` phrase per job it
+  offers and per working effect it has (capacity effects are kept), each phrase once, joined by
+  `unpaid_sep`; `unpaid_none` ("nothing stopped") for a building with neither, a House or the Reliquary.
+  "stores kept" holds always: an unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost:
+  the map prints "Nothing lost."
 - **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
   significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
   (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
