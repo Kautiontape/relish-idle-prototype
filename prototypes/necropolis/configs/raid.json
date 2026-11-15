@@ -464,7 +464,10 @@
     "attack_dmg_mult": 1.0,
     "relish_dmg_mult": 1.0,
     "relish_dmg_mult_by_tier": {
-      "_doc": "D-d/E Step 4c: relish_dmg_mult per tier (WardenLogic.relish_mult; a tier not listed takes relish_dmg_mult). Read only where the lever is on (lever_min_tier up, never the first dungeon or Vei)."
+      "_doc": "D-d/E Step 4c: relish_dmg_mult per tier (WardenLogic.relish_mult; a tier not listed takes relish_dmg_mult). Read only where the lever is on (lever_min_tier up, never the first dungeon or Vei). Picked on seeds 1-19 at score 70 by the rule fixed before the runs (the value closer to 12.5% deaths; one death or less goes to 1.0): t2 1.0 12/57 vs 0.75 7/57; t3 1.0 15/57 vs 0.75 11/57; t4 1.0 3/57 vs 1.35 7/57. Graded on seeds 20-39. At 0.75 a 12 hp tell-attack takes 9 of her 30 (4 kill her; fire 6: 5), at 1.35 16.2 (2 kill; fire 10.8: 3).",
+      "2": 0.75,
+      "3": 0.75,
+      "4": 1.35
     },
     "chest_open_px": 44.0,
     "victory_s": 1.5,
