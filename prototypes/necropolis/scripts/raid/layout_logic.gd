@@ -1243,9 +1243,10 @@ static func _held_door_cands(layout: Dictionary, r: int, side: String, hc: Dicti
 	var vertical := side == "w" or side == "e"
 	var lo := rc.position.y if vertical else rc.position.x
 	var hi := rc.end.y if vertical else rc.end.x
-	var plate_off := dw * 0.5 + ps * 0.5 + 4.0          # the plate's centre past the door's centre, along the wall
+	var pgap := float(hc.get("plate_gap_px", 4.0))
+	var plate_off := dw * 0.5 + ps * 0.5 + pgap          # the plate's centre past the door's centre, along the wall
 	var zone_hi := maxf(w + t, w * 0.5 + plate_off + ps * 0.5)   # the zone's far end past the niche's start
-	var zone_d := maxf(d + t, d + t + ps + 8.0)
+	var zone_d := maxf(d + t, d + t + ps + float(hc.get("zone_pad_px", 8.0)))
 	var a := lo + t
 	while a + zone_hi <= hi:
 		var cu := a + w * 0.5
@@ -1263,7 +1264,7 @@ static func _held_door_cands(layout: Dictionary, r: int, side: String, hc: Dicti
 					ok = false
 					break
 		if ok:
-			var door_out := _hd_pt(rc, side, cu, d + t + 19.0)
+			var door_out := _hd_pt(rc, side, cu, d + t + float(hc.get("doorstep_px", 19.0)))
 			out.append({"room": r, "side": side, "a": a,
 				"detour_px": pin.distance_to(door_out) + door_out.distance_to(pout) - pin.distance_to(pout),
 				"niche": _hd_rect(rc, side, a, 0.0, w, d), "footprint": foot, "zone": zone,
@@ -1272,8 +1273,9 @@ static func _held_door_cands(layout: Dictionary, r: int, side: String, hc: Dicti
 				"walls": [_hd_rect(rc, side, a - t, 0.0, t, d + t), _hd_rect(rc, side, a + w, 0.0, t, d + t),
 					_hd_rect(rc, side, a - t, d, w * 0.5 - dw * 0.5 + t, t), _hd_rect(rc, side, cu + dw * 0.5, d, w * 0.5 - dw * 0.5 + t, t)],
 				"door_in": _hd_pt(rc, side, cu, d + t * 0.5), "door_out": door_out,
-				"plate": _hd_pt(rc, side, cu + plate_off, d + t + ps * 0.5 + 4.0),
-				"cache": _hd_pt(rc, side, cu + 12.0, d * 0.5), "park": _hd_pt(rc, side, a + 22.0, d * 0.5),
+				"plate": _hd_pt(rc, side, cu + plate_off, d + t + ps * 0.5 + pgap),
+				"cache": _hd_pt(rc, side, cu + float(hc.get("cache_off_px", 12.0)), d * 0.5),
+				"park": _hd_pt(rc, side, a + float(hc.get("park_px", 22.0)), d * 0.5),
 				"inward": _hd_pt(rc, side, 0.0, 1.0) - _hd_pt(rc, side, 0.0, 0.0),
 				"along": _hd_pt(rc, side, 1.0, 0.0) - _hd_pt(rc, side, 0.0, 0.0)})
 		a += step
