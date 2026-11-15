@@ -10,6 +10,10 @@ extends Control
 ## and so does a click, all only after `card.skip_after_s` (as the death card's gate): the boss
 ## trance key is Space, so a player still holding it as the set piece ends must not dismiss the
 ## card unseen. Until then the button is dim. vei.json `card` holds the sizes, the dim and the gate.
+## The loss card (D-e close-out) is the same plate with `info.lost` set (BossLogic.loss_card, built by
+## vei_boss.gd `_lose_card`): VEI HOLDS over what ended the fight, the same FIGHT TIME, BACKUPS SPENT and
+## BIG UNDEAD LOST rows, BACKLOG as the share that stays (a share, not a number: BossLogic.loss_card says
+## why) and, after a final death, an AFTER row; the same button, gate and keys. Static, like the win card.
 
 var _info := {}
 var _cfg := {}
@@ -52,7 +56,7 @@ func _process(delta: float) -> void:
 
 func _plate() -> Rect2:
 	var w := float(_cfg.get("w_px", 620.0))
-	var h := float(_cfg.get("h_px", 470.0))
+	var h := float(_cfg.get("loss_h_px", 520.0)) if bool(_info.get("lost", false)) else float(_cfg.get("h_px", 470.0))
 	return Rect2((size - Vector2(w, h)) * 0.5, Vector2(w, h))
 
 
@@ -108,17 +112,18 @@ func _draw() -> void:
 	draw_rect(pl, vei, false, 3.0)
 	draw_rect(pl.grow(-9.0), Palette.c("vei", 0.35), false, 1.0)
 
-	# her rings, unravelled: four concentric arcs, each with a gap
+	# her rings: unravelled (four concentric arcs, each with a gap) when she breaks, whole when she holds
+	var lost := bool(_info.get("lost", false))
 	var cx := pl.position.x + pl.size.x * 0.5
 	var cy := pl.position.y + 62.0
 	for i in 4:
 		var r := 14.0 + 11.0 * i
 		var a0 := 0.6 + 0.9 * i
-		draw_arc(Vector2(cx, cy), r, a0, a0 + TAU * 0.78, 28, Palette.c("vei", 0.95 - 0.15 * i), 2.5)
+		draw_arc(Vector2(cx, cy), r, a0, a0 + (TAU if lost else TAU * 0.78), 48 if lost else 28, Palette.c("vei", 0.95 - 0.15 * i), 2.5)
 	draw_circle(Vector2(cx, cy), 4.0, Palette.c("text"))
 
-	_txt(pl.position.x, pl.position.y + 150.0, "VEI BREAKS", 46, "vei", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
-	_txt(pl.position.x, pl.position.y + 178.0, "the game is beaten", 18, "text_dim", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
+	_txt(pl.position.x, pl.position.y + 150.0, "VEI HOLDS" if lost else "VEI BREAKS", 46, "danger" if lost else "vei", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
+	_txt(pl.position.x, pl.position.y + 178.0, str(_info.get("ended", "the fight is lost")) if lost else "the game is beaten", 18, "text_dim", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
 
 	var lx := pl.position.x + 44.0
 	var rx := pl.end.x - 44.0
@@ -168,9 +173,19 @@ func _draw() -> void:
 	_txt(lx, y, "%d of %d" % [int(_info["party_lost"]), int(_info["party"])], 24, "text", HORIZONTAL_ALIGNMENT_RIGHT, rx - lx)
 	y += step
 
-	# what the fight spent of the backlog
-	_txt(lx, y, "BACKLOG SPENT", 15, "text_dim")
-	_txt(lx, y, RaidHud.BossBlock.thousands(roundi(float(_info["backlog_spent"]))), 24, "text", HORIZONTAL_ALIGNMENT_RIGHT, rx - lx)
+	if lost:
+		# a loss keeps a share of the backlog (economy's rule; the card prints the share, never a made-up number)
+		_txt(lx, y, "BACKLOG", 15, "text_dim")
+		_txt(lx, y, str(_info["keep_text"]), 24, "text", HORIZONTAL_ALIGNMENT_RIGHT, rx - lx)
+		var af: Dictionary = _info.get("after", {})
+		if not af.is_empty():
+			y += step
+			_txt(lx, y, str(af["label"]), 15, "text_dim")
+			_txt(lx, y, str(af["text"]), 24, str(af["key"]), HORIZONTAL_ALIGNMENT_RIGHT, rx - lx)
+	else:
+		# what the fight spent of the backlog
+		_txt(lx, y, "BACKLOG SPENT", 15, "text_dim")
+		_txt(lx, y, RaidHud.BossBlock.thousands(roundi(float(_info["backlog_spent"]))), 24, "text", HORIZONTAL_ALIGNMENT_RIGHT, rx - lx)
 
 	# the button
 	var b := _button_rect()

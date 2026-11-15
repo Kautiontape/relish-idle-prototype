@@ -70,7 +70,7 @@ var _p2_raises := 0
 var _seq_kind := ""             # "win" | "lose" while the closing set piece plays
 var _seq_t := 0.0
 var _emitted := false
-var _card: VeiCard = null       # the win card, once the unravel set piece is done
+var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
 var _bdev: BossDev = null
 var _bot: BossAutopilot = null
@@ -758,6 +758,23 @@ func _lose(reason: String) -> void:
 	_seq_t = 0.0
 
 
+## The drain is done: the board holds, dimmed, under the loss card (VeiCard, BossLogic.loss_card), the win
+## card's twin. The same dict emits once, on its button (the router then opens the map) or on a window
+## close (close_result: a lost fight is the loss), whichever comes first. The standalone bot emits at
+## once, as it always has (unless --boss-hold-card).
+func _lose_card() -> void:
+	_seq_kind = ""
+	if _card == null:
+		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)))
+		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
+		info["clones_total"] = int(seed_data.get("clones_ready", 0))
+		_card = VeiCard.new()
+		hud.add_child(_card)
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(false))
+	if _bot != null and not (_bdev != null and _bdev.hold_card):
+		_emit(false)
+
+
 func _end_common() -> void:
 	phase = Phase.OVER
 	_ended = true
@@ -798,7 +815,7 @@ func _step_sequence(delta: float) -> void:
 		lanes_node.lose_f = floorf(f2 * 3.0) / 3.0 if reduced else f2
 		vei.feed_f = lanes_node.lose_f
 		if _seq_t >= dr + float(ec.get("lose_hold_s", 0.5)) * k:
-			_emit(false)
+			_lose_card()
 
 
 ## The boss result (BossLogic.result_of, tested): fronts_cleared is the list frozen at the break, or,
