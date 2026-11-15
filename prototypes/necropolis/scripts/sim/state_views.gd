@@ -894,7 +894,8 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		for i in (w["rows"] as Array).size():
 			var row: Dictionary = w["rows"][i]
 			if row["status"] == "waiting_funds":
-				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs)), "queue", "queue"))
+				var behind := i < (w["rows"] as Array).size() - 1  # F1: "move it down" only with an entry to move it below
+				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), behind), "queue", "queue"))
 				break
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
@@ -926,17 +927,24 @@ static func stores_full(gs: GameState, tol: float) -> bool:
 
 ## R2 (the E2b-2 vision review's item 3; IDLE §7): the away report's line for the queue's head still waiting on
 ## funds, from its view row (affordable_in_s, building_id, level), the store that sets its time (queue_walk's
-## `waits`; the row's no_gold / no_bone when it names none) and the net rates (BuildRules.queue_net). A positive
-## time: afford_wait_fmt, "Inn is waiting on gold: affordable in 6 m", rounded up to the minute so a wait under
-## one never reads "0 m". −1.0: afford_never_fmt, "Bone Mill can't be afforded at today's income of 0/s bone: move
-## it down, or build a Bone Mill", with that store's net rate (a rate token) and afford_raise's words for it.
-static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary) -> String:
+## `waits`; the row's no_gold / no_bone when it names none), the net rates (BuildRules.queue_net) and whether any
+## entry is queued behind it (`behind`). A positive time: afford_wait_fmt, "Inn is waiting on gold: affordable in
+## 6 m", rounded up to the minute so a wait under one never reads "0 m". −1.0: that store's net rate (a rate
+## token) and what raises it, afford_raise's words, "House can't be afforded at today's income of 0/s bone: move it
+## down, or build a Bone Mill" (afford_never_fmt), without the move down when nothing is behind it
+## (afford_never_last_fmt). F1 (the run's manager): when the entry is its store's own producer
+## (idle.report.afford_producer, matched on the building, so an upgrade counts) the raise never names it:
+## afford_raise_self's fact instead, "Bone Mill L2 can't be afforded at today's income of 0/s bone, and nothing
+## else makes bone: move it down" (afford_never_self_fmt; afford_never_self_last_fmt with nothing behind).
+static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary, behind: bool) -> String:
 	var s := store if store != "" else ("bone" if str(row.get("reason", "")) == "no_bone" else "gold")
 	var name := _building_name(gs, rep, str(row["building_id"]), int(row["level"]))
 	var a := float(row["affordable_in_s"])
 	if a < 0.0:
-		return str(rep["afford_never_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
-			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise"][s])})
+		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if behind else "_last_fmt")
+		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),
+			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise_self" if own else "afford_raise"][s])})
 	return str(rep["afford_wait_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
 		"when": _when(rep, ceilf(a / 60.0) * 60.0)})
 
