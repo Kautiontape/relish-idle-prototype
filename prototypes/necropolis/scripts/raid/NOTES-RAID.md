@@ -1554,3 +1554,51 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - The retreat dialog says it by state: on the plate · lost if you retreat, or shut in at the cache (566b4e1).
   - The door's one-line labels sit beside the plate, and the prompt has its own plate; the shots were re-taken and read (64de0f4).
   - An unknown `death_ends.outcome` falls back to `clones_ready`, and a missing `respawn_s` shows no number (7e9c317).
+
+## D-e grading pass (seeds 40-59, final config afb8dab): the plan, written before any row
+Measurement only: no tuning, no picks, no code change. One `git archive` snapshot of afb8dab runs everything. If any code changes after it, the pass stops and the manager is told. Seeds 40-59 run once; the only re-runs are the 9 determinism reruns below. The rows and this plan live in `reports/dungeon/calibration-dd-raw.tsv(.jsonl)` (iters `grade-*`); the log gets a D-e grading section.
+
+### Profiles
+- **Frozen bot:** score 70, no human knobs (it reacts in 0.45 s; NOTES' "0.6 s" is the score-50 delay).
+- **Typical human:** score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`.
+
+### The run list (seeds 40-59, 20 per cell)
+| set | iters | cells | runs |
+|---|---|---|---|
+| 1. at tier: the 9 forts, the tier's standard party (`--raid-profile=<T> --raid-fort=<id>`) | `grade-tier-frozen`, `grade-tier-human` | 9 forts x 2 profiles | 360 |
+| 2. t1: greywall, ashgate, old-sluice (`--raid-profile=1`) | `grade-t1-frozen`, `grade-t1-human` | 3 x 2 | 120 |
+| 3. P1: `--raid-fixture=day1,old-sluice` | `grade-p1-frozen`, `grade-p1-human` | 1 x 2 | 40 |
+| 4. held door, arm (b): the t3 party (`--raid-profile=3`) at vespers, lantern-keep and chime-fort, door on and door off | `grade-doorb-on-frozen/-human`, `grade-doorb-off-frozen/-human` | 3 x 2 x 2 | 240 |
+| 5. Vei: seed 1 (`--boss-autoplay=70 --boss-seed=1`) and `parity_check.sh`'s boss line | | identity only | 2 |
+| capture check: frozen, seed 40, one per at-tier fort, with `--capture=<R>/de-capture-check.d/grade-<fort>-40.jsonl` | `grade-cap` | 9 | 9 |
+| determinism reruns (rep 1): typical human, seed 41, one per at-tier fort | `grade-tier-human` rep 1 | 9 | 9 |
+
+The grading rows are 760; with capture and reruns 778 raid runs, plus the 2 Vei runs. About 14 s of wall each at 3 at once.
+- **Arm (a)** is not a separate set: it is the three t2 forts of set 1 (the standard t2 party, one big, door declined).
+- **Door off, one snapshot.** The code has no per-run flag for the door. The off rows run on a byte copy of the same imported snapshot with one config value changed, `configs/raid.json held_door.tiers` `[2]` -> `[]` (the documented off switch: no niche, no door, no cache). It is a config value, not code. Task 6's no-door rows ran a14d1ec instead, so the off rows here are not those rows' twin: they share afb8dab's every other line.
+- Seed 40-59 batches run with `calibration-dd-run.py --sha afb8dab`, at most 3 at once, headless, `--audio-driver Dummy`.
+
+### Reporting method (fixed here, before any row)
+- **Death rates:** count, Wilson 90%, and the seed-clustered interval (Wilson on n_eff = n / 1.5, the same proportion). Retreats (left with no army, gave up) count as neither a death nor a win and stay in the medians.
+- **At tier, both profiles:** pooled, per tier, per archetype, per fort. Causes: `killed_by` plus the missed tell (`RaidLogic.death_tell`), with the toll split from the slam. `untold_blows` summed. Answered-but-struck (`tell_tally.answered_struck`) per warden.
+  - **The Shieldwall guard, like for like:** frozen bot 0 on seeds 20-39 (qm, 2 forts x 20) against the same on 40-59. The typical human: 7 on seeds 20-39 was hb70d10 (4) plus hb50d10 (3), over two scores, so the like-for-like comparison is hb70d10's 4 against this pass's score-70 count; both are stated, and the score-50 profile is not re-run.
+- **Reach per warden, both definitions** (`tell_tally`): old = missed_struck / (missed - missed_countered); new = (missed_struck - missed_pinned_struck) / (missed - missed_countered - missed_pinned). `missed_pinned` and `missed_pinned_struck` exist in the Shieldwall's lines only, so the other wardens' two definitions are one.
+- **Length:** per tier and profile: the median scene seconds and the pooled split (travel, fight, trance, idle; each fort's > 2x outliers out, the Part 2 method). For the typical human the per-run estimate is `duration_s + trance_s x (1/0.35 - 1) + 0.75 x raises + 0.2 x split.travel_s + 1.0 x human.reads + 0.2 x react.tells`, with the circle coming in through the trance's stretch only; its median, its share >= 180 s, and real seconds = `duration_s + trance_s x (1/0.35 - 1)`. The frozen bot's length is scene seconds. Guards: travel <= 5.3 / 10.5 / 16.0% at t2 / t3 / t4, idle not above the D-d final (0.3-1.3% at t2-t4, frozen).
+- **t1 and P1, both profiles:** deaths per fort and pooled; for each death, whether it came in the warden fight (after `warden_wake_s`) or before, and the army at death and 5 s before (`army_at_death_minus5`); greywall against ashgate and old-sluice; length.
+- **The held door:**
+  - arm (a): door-taken rate; t2 median and deaths against task 6's no-door rows (seeds 20-39: 117.6 / 168.0 s median, 6 and 9 of 60 died), side by side, not paired. The human's 15.0 -> 10.0% there is noise, not the door making t2 safer.
+  - arm (b): taken rate, which big, the t2 median and the share >= 180 s, deaths paired by seed door on against off (Wilson 90% and clustered), relics gained, bigs spent / rejoined / lost, travel and idle. Idle is two figures: 0.7 s a run is the doorstep wait, and the rest is the bot's hold-while-the-army-fights rule (a side finding, untuned).
+- **Determinism:** the lockstep count (physics_frames - frames_drawn in 0 or 1) over every row, and the 9 reruns, which must be byte-identical (the whole AUTOPILOT_RESULT line).
+- **Then:** re-measure the stand-ins (`reports/dungeon/standins-measured.json`, `measured_at` = afb8dab), run the full suite and `parity_check.sh`.
+
+### Coverage of the manager's rulings
+| item | where it's covered |
+|---|---|
+| t4 at x1.35 | at tier, per tier: t4 graded with Wilson and the clustered interval |
+| greywall, ashgate, old-sluice at both profiles | t1 set, per fort |
+| t1 pooled and the first dungeon at the typical human | t1 set pooled; P1 at both profiles |
+| the answered-but-struck guard (frozen and 1.0 s, Shieldwall especially) | at tier, both profiles, per warden |
+| reach under both definitions | at tier, with `missed_pinned` giving exact counts |
+| D-d's 14.4% restated with its clustered interval | settled, no seeds: 26/180, Wilson 10.7-19.3%, clustered 9.9-20.5%. Restated beside the grade |
+| the L1 byte-for-byte check | settled, no seeds: 6 of 6 L1 rows re-run at 0cdc2c7 were byte-identical (43021cd's NOTES line). Cited |
+| the capture check (b) evidence | settled at 187fb96 (de-capture-check.tsv and .jsonl, 40 of 40). Task 6 added the door to capture, so 9 grading rows (frozen, one per at-tier fort, seed 40) re-run with `--capture`: the AUTOPILOT_RESULT must equal its no-capture grading row, and capture's tallies must match `tell_tally`. The rows are appended to the de-capture-check files |
