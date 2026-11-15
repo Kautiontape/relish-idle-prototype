@@ -44,7 +44,11 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
 	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass",
 	# T3.4b: the wave train's frame refresh (_train_frame)
-	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames"]
+	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames",
+	# T3.3b: the catch-up runner (Catchup; IDLE §4) and the clip events it reads
+	"economy.idle.gap_s", "economy.idle.catchup_max_s", "economy.idle.catchup_dt_max_s", "economy.idle.catchup_max_steps",
+	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
+	"realm.tithe.warning_s"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -163,6 +167,13 @@ var _frame_path := false  # the shell drives tick() with a substep cap (the fram
 var _field_acc := 0.0
 var _req_keys := {}  # REQUIRED path -> its split keys (a cache for _req)
 var _events: Array = []
+## The catch-up runner (IDLE §4; scripts/sim/catchup.gd): a load's catch-up.
+## Session only: a new game and every load replace it.
+var _catchup := Catchup.new()
+## The test seam for the wall clock (STATE-API §1.5): unix seconds "now" when ≥ 0, else the system clock.
+## cmd_save stamps saved_at and cmd_load measures the time away through it (_now_unix, the sim's one read
+## of the wall clock). Never saved.
+var clock_override := -1
 
 
 ## `configs` is keyed by file basename; a non-empty dict calls setup().
@@ -180,7 +191,27 @@ func setup(cfgs: Dictionary) -> void:
 	_reclear_decay = _req_f("loot.reclear_decay")
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
+	var hold := catchup_config_problem(cfgs)
+	if hold != "":
+		push_error("GameState: " + hold)
 	town_sim.setup(cfgs)
+
+
+## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step
+## (idle.catchup_dt_max_s), or a catch-up step could flip a stance twice inside its hold. "" when it holds.
+## stance.hold_s is E3's and not in economy.json yet (BALANCE §5): with no key there is nothing to hold, so
+## nothing to check until E3 adds it. setup() reports a problem as an error.
+static func catchup_config_problem(cfgs: Dictionary) -> String:
+	var eco: Dictionary = cfgs.get("economy", {})
+	var stance: Variant = eco.get("stance", {})
+	if not (stance is Dictionary and (stance as Dictionary).has("hold_s")):
+		return ""
+	var hold := float(stance["hold_s"])
+	var dt_max := float(eco.get("idle", {}).get("catchup_dt_max_s", 0.0))
+	if hold < dt_max:
+		return "stance.hold_s (%s s) is under idle.catchup_dt_max_s (%s s): a catch-up step must not straddle a stance's hold" % [
+			str(hold), str(dt_max)]
+	return ""
 
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
@@ -254,6 +285,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_acc = 0.0
 	_field_acc = 0.0
 	_events = []
+	_catchup = Catchup.new()
 	t = 0.0
 	time_scale = 1.0
 	paused = false
@@ -1543,6 +1575,16 @@ func view_vei() -> Dictionary:
 	return StateViews.vei(self)
 
 
+## Not contract (tests; T3.3c's away report): the events the last load's catch-up collected instead of
+## queuing them, in queue order with their `t`, as deep copies. [] after a new game, or a load with
+## nothing to catch up.
+func catchup_events() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for e in _catchup.events:
+		out.append((e as Dictionary).duplicate(true))
+	return out
+
+
 # ----------------------------------------------------------------- §3 tick ----
 ## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
 ## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the
@@ -1880,10 +1922,66 @@ func from_dict(d: Dictionary) -> Dictionary:
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
 	_reset_train()
+	_catchup = Catchup.new()
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
+	_restore_dispatch()
 	return {"ok": true, "reason": ""}
+
+
+## The load flash (E2b-2 T3.3b; T3.4b's concern 4). The last substep's split (_split) and WAR dispatch
+## (RealmSim's _disp_w, _disp_lim and r_war_to_vei) are session-only, so before the first substep after a
+## load the readouts read the saved r_in with Relish where she stands, not her committed arrival or the
+## valve's target: midgame_2flips as loaded read both held forts safe for a substep, then thin. This
+## rebuilds them from what the save holds, as that substep left them, so a load reads what the state read
+## before its save (to the save's 15 digits):
+## - the mint from TownSim's saved worker inflow (WORK is the mint × the valve's work share, taken in the
+##   same step), or with a work share of 0 the next step's (_mint at the working pits and the feed now);
+##   the muster from TownSim's saved rate; WAR, WORK and FLOOD as that step split them;
+## - each fort's dispatch weight (RealmSim._war_weight, with her tide where the saved state puts her, as
+##   the step's inputs did), for every fort that step sent WAR (r_in > 0) and every held fort;
+## - the limits: a fort whose r_in / weight is under the water level (the largest r_in / weight) took its
+##   limit, so its limit is its r_in; the rest had room (no limit). With WAR left over for Vei every
+##   target took its limit.
+## Nothing saved changes (to_dict is the same) and no step runs; the first substep replaces all of it.
+## view_rates' corpses and backlog and view_vei's raw diff still read 0 until then (STATE-API §9.1).
+func _restore_dispatch() -> void:
+	var wm := worker_mass()
+	var rw: Dictionary = town_sim.rates.get("workers", {})
+	var muster := float(rw.get("muster", 0.0)) * wm
+	var mint := 0.0
+	if float(valve["work"]) > 0.0:
+		mint = float(rw.get("in", 0.0)) * wm / float(valve["work"])
+	else:
+		mint = _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+	var war := mint * float(valve["war"]) + muster
+	_split = {"mint": mint, "work": mint * float(valve["work"]), "war": war, "flood": mint * float(valve["flood"]),
+		"muster": muster}
+	var fx := _relish_effects()
+	var bias := _req_f("realm.relish.tide_bias")
+	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],
+		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": {}}
+	var w: Array[float] = []
+	var given := 0.0
+	var level := 0.0
+	for f in realm.forts:
+		var r_in := float(f["r_in"])
+		var wt: float = realm._war_weight(f, fx["tide_fort"], bias) if r_in > 0.0 or RealmSim.is_held(f) else 0.0
+		w.append(wt)
+		given += r_in
+		if wt > 0.0:
+			level = maxf(level, r_in / wt)
+	var left := war - given
+	var spill := left > 1e-9 * war  # WAR fell through to Vei: every target was at its limit
+	var lim: Array[float] = []
+	for i in realm.forts.size():
+		var r_in := float(realm.forts[i]["r_in"])
+		lim.append(r_in if w[i] > 0.0 and (spill or r_in < level * w[i] * (1.0 - 1e-9)) else INF)
+	realm._disp_w = w
+	realm._disp_lim = lim
+	realm.r_war_to_vei = left if spill else 0.0
+	realm.r_flood = _split["flood"]  # (view_lanes' FLOOD lane; the step sets it before it reads it)
 
 
 ## economy.json sim.autosave_s: real seconds between the shell's autosaves.
@@ -1899,6 +1997,12 @@ func _summary() -> String:
 	return "%d:%02d · %s · odds %.2f" % [mins / 60, mins % 60, town_tier.capitalize(), float(_vei_readout()["odds"])]
 
 
+## Unix seconds now: clock_override when it is set (a test's "now"), else the system clock. The sim's one
+## read of the wall clock (cmd_save stamps saved_at with it; cmd_load measures the time away with it).
+func _now_unix() -> int:
+	return clock_override if clock_override >= 0 else int(Time.get_unix_time_from_system())
+
+
 func cmd_save(slot: String) -> Dictionary:
 	var out := {"ok": false, "reason": "", "saved_at": 0, "path": ""}
 	if not SaveIO.slot_ok(slot):
@@ -1906,7 +2010,7 @@ func cmd_save(slot: String) -> Dictionary:
 	elif realm == null:
 		out["reason"] = "write_failed"  # no game to save
 	else:
-		var saved_at := int(Time.get_unix_time_from_system())
+		var saved_at := _now_unix()
 		var d := to_dict()
 		d["slot"] = slot
 		d["saved_at"] = saved_at
@@ -1925,18 +2029,40 @@ func cmd_save(slot: String) -> Dictionary:
 	return out
 
 
+## §4.1. Loads the slot, then catches up the real time since its saved_at (IDLE §4): `away_s` seconds (the
+## whole seconds since then, 0 if the clock went back or the file has no saved_at, at most
+## idle.catchup_max_s; `capped` when it was more), synchronously, before it returns.
 func cmd_load(slot: String) -> Dictionary:
+	var fail := {"ok": false, "reason": "", "away_s": 0.0, "capped": false}
 	if not run.is_empty():
-		return {"ok": false, "reason": "busy"}
+		fail["reason"] = "busy"
+		return fail
 	if not SaveIO.slot_ok(slot):
-		return {"ok": false, "reason": "bad_slot"}
+		fail["reason"] = "bad_slot"
+		return fail
 	var d := SaveIO.read_file("%s/%s.json" % [save_dir, slot])
 	if d.is_empty():
-		return {"ok": false, "reason": "no_save"}
+		fail["reason"] = "no_save"
+		return fail
 	var r := from_dict(d)
-	if r["ok"]:
-		return {"ok": true, "reason": ""}
-	return {"ok": false, "reason": "bad_version" if r["reason"] == "bad_version" else "no_save"}
+	if not r["ok"]:
+		fail["reason"] = "bad_version" if r["reason"] == "bad_version" else "no_save"
+		return fail
+	var away := _away_of(d.get("saved_at"))
+	_catchup.begin(self, float(away[0]), true)
+	_catchup.capped = away[1]
+	_catchup.run(self)
+	return {"ok": true, "reason": "", "away_s": float(away[0]), "capped": away[1]}
+
+
+## [the whole seconds to catch up, capped]: now (_now_unix) − `saved_at` (a save file's integer unix
+## seconds), 0 when that is negative or the file has none, at most idle.catchup_max_s (capped above it).
+func _away_of(saved_at: Variant) -> Array:
+	if not SaveIO.fits(saved_at, TYPE_INT):
+		return [0, false]
+	var away := maxi(0, _now_unix() - int(saved_at))
+	var most := int(_req_f("economy.idle.catchup_max_s"))
+	return [mini(away, most), away > most]
 
 
 ## §4.1: `[{slot, saved_at, summary}]`, newest first (ties by slot). Not a command: no rev bump.

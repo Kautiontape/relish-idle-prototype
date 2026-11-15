@@ -166,8 +166,11 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
 Steps 1–8 are the **core step** (`GameState._core_step(dt)`): valid at any `dt`, everything in it is
 exact or a rate over the step (E2b T3.0; `tests/slow/convergence.gd` measures it). Step 9, the
 village owners it decides and the lanes' callouts are the **presentation step**. Live play runs the
-core step, then the presentation step, for each `sim.substep_s` substep; catch-up (IDLE §4) runs
-core steps of its own length and caps the presentation.
+core step, then the presentation step, for each `sim.substep_s` substep. Catch-up (IDLE §4;
+`scripts/sim/catchup.gd`, E2b-2 T3.3b) runs the same core step at its own lengths, clipped at events.
+In place of the presentation it runs `idle.field_steps` field steps (`InfluenceField.catchup_step`, each
+followed by the village owners) and the lanes' callouts once at its end, for the net change; its steps
+don't count as substeps (`rev` rises by 1 for each).
 
 The sim keeps ticking while any scene is open. Dungeon writebacks are **deltas clamped to the live
 values**.

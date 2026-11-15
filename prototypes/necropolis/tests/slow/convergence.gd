@@ -32,9 +32,10 @@ extends RefCounted
 ##   The pools and bodies ("worst" takes them with the stocks) are printed, not gated. run() asserts
 ##   the gate at GATE_DT for every start.
 ## - The 0.25 s row is the reference's own noise: no dt can be expected to match 0.5 s closer.
-## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at: a tithe warning, a
-##   wave's start or end, a building's unpaid hold ending, gold or bone reaching their floor
-##   (projected from the last step's net), and Relish arriving. Without it the table measures event
+## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at (next_event_s, the catch-up
+##   runner's): a tithe warning, a wave's start or end, a building's unpaid hold ending, gold or bone
+##   reaching their floor (projected from the last step's net), Relish arriving, a construction
+##   finishing and the queue's head starting on funds. Without it the table measures event
 ##   timing (Relish's arrival lands up to one dt late; since T3.0m a wave's start and end are exact
 ##   inside a step, spread over it), not the integrator. The held forts' events are not clipped
 ##   (E2b-2 T3.1): a garrison reaching 0 is solved inside the fort step, and RealmSim splits its own
@@ -194,35 +195,12 @@ static func sample(s: GameState) -> Dictionary:
 	return d
 
 
-## The time to the next boundary a step must not straddle (see `clip` above). INF when none is
-## pending.
+## The time to the next boundary a step must not straddle (see `clip` above), INF when none is pending:
+## the catch-up runner's own (Catchup.next_event_s, E2b-2 T3.3b), which adds a construction finishing and
+## the queue's head starting on funds to the events this harness clipped at before. Neither happens from
+## these starts (no construction under way, no queue), so the tables are the same.
 static func next_event_s(s: GameState) -> float:
-	var r := s.realm
-	var e := INF
-	if s.relish["state"] == "travelling":
-		e = minf(e, maxf(0.0, s._dist_to(s.relish["target"]) - GameState.ARRIVE_EPS) / s.travel_speed())
-	var ts := s.town_sim
-	for lot in ts.buildings:
-		var b: Dictionary = ts.buildings[lot]
-		if b["state"] == "unpaid" and float(b["unpaid_s"]) > 0.0:
-			e = minf(e, float(b["unpaid_s"]))
-	for k in ["gold", "bone"]:
-		var stock: float = ts.gold if k == "gold" else ts.bone
-		var net := float(ts.rates[k]["in"]) - float(ts.rates[k]["out"])
-		if stock > 1.0 and net < 0.0:
-			e = minf(e, stock / -net)
-	var ti: Dictionary = r.tithe
-	if bool(ti.get("started", false)):
-		var ns := float(ti["next_s"])
-		var warn := float(r.t.get("tithe", {}).get("warning_s", 150.0))
-		if (ti["warning"] as Dictionary).is_empty() and ns - warn > 0.0:
-			e = minf(e, ns - warn)
-		if ns > 0.0:
-			e = minf(e, ns)
-		var wv: Dictionary = ti["wave"]
-		if not wv.is_empty() and float(wv["s_left"]) > 0.0:
-			e = minf(e, float(wv["s_left"]))
-	return e
+	return Catchup.next_event_s(s)
 
 
 ## Runs `seconds` of core steps of at most `dt` from `s`, sampling every SAMPLE_S. Returns

@@ -38,6 +38,7 @@ func run() -> int:
 	_projection_lot_bound()
 	_warden_card()
 	_mill_starved()
+	_catchup_api()
 	return t.failures
 
 
@@ -1058,6 +1059,7 @@ func _projection_reset() -> void:
 	for how in ["cmd_new_game", "cmd_load", "cmd_debug_load_fixture"]:
 		var s := _load_js(js, false)
 		s.save_dir = _dir
+		s.clock_override = 1_800_000_000  # (E2b-2 T3.3b) a 0 s load: nothing to catch up
 		var saved: bool = s.cmd_save("proj")["ok"] if how == "cmd_load" else true
 		_fill(s)
 		var c := s._proj_cache
@@ -1254,3 +1256,41 @@ func _all(s: GameState) -> Array:
 
 static func _sci(x: float) -> String:
 	return String.num_scientific(x) if x != 0.0 else "0"
+
+
+## E2b-2 T3.3b (IDLE §4): cmd_load's away_s and capped extras, on success (the time caught up, capped
+## above idle.catchup_max_s) and on every refusal (0.0 and false).
+func _catchup_api() -> void:
+	t.suite("api-v6-catchup")
+	var dir := _dir + "_cu"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var s := _fixture("midgame_2flips")
+	s.save_dir = dir
+	s.clock_override = 1_800_000_000
+	t.ok(s.cmd_save("cu")["ok"], "(setup) saved")
+	for away in [120, 0, -60]:
+		var n := GameState.new(TestUtil.configs())
+		n.debug_enabled = true
+		n.save_dir = dir
+		n.clock_override = 1_800_000_000 + away
+		var r := n.cmd_load("cu")
+		var errs: Array = []
+		ApiSchema.check_command("cmd_load", r, errs)
+		t.ok(errs.is_empty() and r["ok"] and r["away_s"] == float(maxi(away, 0)) and r["capped"] == false and n.t == s.t + maxi(away, 0),
+			"cmd_load %d s on: ok, away_s %.1f, capped false %s" % [away, float(r["away_s"]), str(errs)])
+	var c := TestUtil.configs()
+	c["economy"]["idle"]["catchup_max_s"] = 60.0
+	var m := GameState.new(c)
+	m.save_dir = dir
+	m.clock_override = 1_800_000_000 + 600
+	var rc := m.cmd_load("cu")
+	t.ok(rc["ok"] and rc["away_s"] == 60.0 and rc["capped"] == true, "600 s on with idle.catchup_max_s 60: away_s 60.0, capped: %s" % str(rc))
+	var fail := m.cmd_load("missing")
+	var errs: Array = []
+	ApiSchema.check_command("cmd_load", fail, errs)
+	t.ok(errs.is_empty() and fail == {"ok": false, "reason": "no_save", "away_s": 0.0, "capped": false}, "a refused cmd_load carries away_s 0.0 and capped false")
+	var dd := DirAccess.open(dir)
+	if dd != null:
+		for f in dd.get_files():
+			dd.remove(f)
+		DirAccess.remove_absolute(dir)

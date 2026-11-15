@@ -513,6 +513,7 @@ func _persistence(s: GameState) -> void:
 	t.ok(errs.is_empty(), "to_dict() matches the top-level save schema%s" % ("" if errs.is_empty() else ": " + str(errs)))
 	t.ok(d["v"] == GameState.SAVE_VERSION and d["api_version"] == GameState.API_VERSION, "to_dict carries v and api_version")
 	_event_list(s)
+	s.clock_override = 1_800_000_000  # E2b-2 T3.3b: the round trip at 0 s away, so its cmd_load is +1 rev (no catch-up)
 	var sv := _cmd(s, "cmd_save", ["slot1"], true)
 	t.ok(FileAccess.file_exists(sv["path"]) and sv["path"] == _dir + "/slot1.json", "cmd_save wrote its path")
 	_cmd(s, "cmd_save", ["auto"], true)

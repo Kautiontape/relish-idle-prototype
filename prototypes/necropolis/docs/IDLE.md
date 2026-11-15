@@ -108,22 +108,33 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 
 **Method: the same GameState, with adaptive, event-clipped steps.**
 - `dt = clamp(elapsed / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`.
-- A step never straddles an event: `dt = min(dt, t_next_event − t)`. The events are a grace ending, a
-  wave starting or ending, a garrison reaching 0, a break, a build starting or finishing, a store
-  hitting its cap, and a floor being hit. Since E2b-2 T3.1 RealmSim lands a grace ending, a garrison
-  reaching 0 and a break at their time inside its own step (it splits the step at the first and
-  last; fort combat solves the second), so catch-up needn't clip at them.
+- A step never straddles an event: `dt = min(dt, t_next_event − t)`. Catch-up clips at Relish's
+  arrival, an unpaid building's resume, a construction finishing, the build queue's head starting on
+  funds (its shortfall over the net income, for each currency it lacks), gold or bone reaching its floor,
+  a tithe warning, and a wave starting or ending (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
+  from the state at the step's start, and an event within 1 µs is now). Since E2b-2 T3.1 RealmSim lands
+  a grace ending, a garrison reaching 0 and a break at their time inside its own step (it splits the
+  step at the first and last; fort combat solves the second), and TownSim solves a store hitting its
+  cap inside its step, so catch-up doesn't clip at them. A gated queue entry starts on a tier rise or a
+  building finishing, which are clipped already.
 - First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
-- `stance.hold_s` must be at least `dt`.
+- `stance.hold_s` must be at least `dt`: checked at config load (`GameState.catchup_config_problem`, an
+  error against `idle.catchup_dt_max_s`). The key is E3's and not in `economy.json` yet, so there is
+  nothing to check until E3 adds it.
 - Gold and bone clamp to their floor of 0 and their cap on each step's net. The build queue loops
   inside a step until its head can't start.
-- The influence field ticks once per catch-up step with that step's `dt`. Village owners are the one
-  sim quantity that reads it. The field's results are already the same at every slice budget, so
-  catch-up's field is the live field. (E2b T3.0 measured, `tests/slow/field_cap.gd`: one tick at a
-  long `dt` fills the field with NaN. Its update is explicit, with `diffuse · 5 · dt` past 1 above
-  about 1.25 s. 144 ticks at the live 0.2 s instead leave owners lagging: 96.8% of village-samples
-  matched over 12 h, with `green_towns` off in 37 of 144. Catch-up's field needs its own plan.)
+- The influence field takes `idle.field_steps` (150) field steps over a catch-up (api-request #14,
+  ground's `InfluenceField.catchup_step`; E2b-2 T3.3b): each on the first core-step boundary at or after
+  its share of the time, the last on the end, each one live period's sources, then `catchup_step` for
+  the seconds since the last, then the village owners. Nothing injects between them, and the catch-up
+  ends with the field published. A short catch-up takes fewer, none under `idle.field_step_min_s` (2 s;
+  a field step of up to 8 ticks costs that many live ticks). Village owners are the one sim quantity
+  that reads the field. (E2b T3.0 measured, `tests/slow/field_cap.gd`: one live tick at a long `dt`
+  fills the field with NaN. Its update is explicit, with `diffuse · 5 · dt` past 1 above about 1.25 s.
+  144 ticks at the live 0.2 s instead left owners lagging: 96.8% of village-samples matched over 12 h,
+  with `green_towns` off in 37 of 144. `catchup_step` is the plan that replaced both:
+  `tests/slow/field_catchup_bench.gd`.)
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
   advances it in fixed chunks, and chunking never changes the result.
 

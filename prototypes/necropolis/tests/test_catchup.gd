@@ -1,0 +1,458 @@
+extends RefCounted
+## The catch-up runner (IDLE §4, E2b-2 T3.3b; scripts/sim/catchup.gd): every load catches up the real time
+## since its save through GameState's own core step in adaptive, event-clipped steps.
+## - A load with the clock (GameState.clock_override) N s on: t advances by N exactly, the ledger balances,
+##   the catch-up's events are collected in time order inside its window and the scenes' queue gets none;
+##   a negative elapsed time is 0 (the identity), one above idle.catchup_max_s is capped and flagged, a 0 s
+##   load is the identity. A step never straddles a clip event (the runner's trace), Relish's arrival and
+##   the tithe's moments are step boundaries, and a construction finishing and the queue's head starting on
+##   funds land at their own time, against a 0.5 s live run. next_event_s's clauses one by one, and the dt
+##   rule.
+## - The load flash: from a load until the first substep's train verdict, no frame shows a held fort safe
+##   where the first settled read is thin; view_realm and the held forts' view_fort read the same just
+##   before a save and just after its 0 s load.
+## Saves go under user://test_catchup_<pid>, removed at the end. The field is shrunk (8 × 6) and its
+## pre-warm off, as tests/slow/convergence.gd's harness does, so the runs are cheap; the field step wiring
+## is the same at any size.
+
+var t := TestUtil.new()
+var _dir := "user://test_catchup_%d" % OS.get_process_id()
+const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
+
+
+func run() -> int:
+	t.suite("catchup")
+	DirAccess.make_dir_recursive_absolute(_dir)
+	_away_basic()
+	_away_edges()
+	_dt_rule()
+	_next_event_units()
+	_no_straddle()
+	_construction_on_time()
+	_build_start_on_time()
+	_lanes_and_field()
+	_load_flash()
+	_load_identity_views()
+	_config_check()
+	_cleanup()
+	return t.failures
+
+
+# ------------------------------------------------------------------------------ helpers ----
+## The shipped configs with the field shrunk and its pre-warm off (convergence.gd's harness), then
+## `over` ({"file.section.key": value}).
+static func cfgs(over := {}) -> Dictionary:
+	var c := TestUtil.configs()
+	var fld: Dictionary = c["realm"]["field"]
+	fld["w"] = 8
+	fld["h"] = 6
+	c["economy"]["sim"]["prewarm_ticks"] = 0
+	for path in over:
+		var keys: PackedStringArray = str(path).split(".")
+		var d: Dictionary = c
+		for i in keys.size() - 1:
+			d = d[keys[i]]
+		d[keys[-1]] = over[path]
+	return c
+
+
+func _mk(c: Dictionary) -> GameState:
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.save_dir = _dir
+	return s
+
+
+## A start: a fixture loaded, or "day1" as cmd_new_game(1) a few substeps in (its rates set).
+func _start(c: Dictionary, name: String) -> GameState:
+	var s := _mk(c)
+	if name == "new":
+		s.cmd_new_game(1)
+		s.tick(2.0)
+	else:
+		t.ok(s.cmd_debug_load_fixture(name)["ok"], "(setup) %s loads" % name)
+	return s
+
+
+## Saves `s` to `slot` at CLOCK; a fresh state loads it with the clock `away` s on. Returns the loaded
+## state (its load's result in `meta.load`).
+func _away(c: Dictionary, s: GameState, slot: String, away: int) -> GameState:
+	s.clock_override = CLOCK
+	t.ok(s.cmd_save(slot)["ok"], "(setup) %s saved" % slot)
+	var n := _mk(c)
+	n.clock_override = CLOCK + away
+	var r := n.cmd_load(slot)
+	n.set_meta("load", r)
+	n.set_meta("saved", s.to_dict())  # what the save holds, as to_dict gives it (ints as ints)
+	return n
+
+
+func _ledger_err(s: GameState) -> float:
+	return GameState.Ledger.error(s.ledger())
+
+
+func _cleanup() -> void:
+	var d := DirAccess.open(_dir)
+	if d == null:
+		return
+	for f in d.get_files():
+		d.remove(f)
+	DirAccess.remove_absolute(_dir)
+
+
+# --------------------------------------------------------------------------- the load ----
+## midgame_2flips saved, then loaded 50 min later: the sim runs exactly those 3 000 s, the ledger balances,
+## and the catch-up's events are collected (in time order, inside its window) instead of queued.
+func _away_basic() -> void:
+	var c := cfgs()
+	var s := _start(c, "midgame_2flips")
+	var t0 := s.t
+	var n := _away(c, s, "basic", 3000)
+	var r: Dictionary = n.get_meta("load")
+	t.ok(r["ok"] and r["away_s"] == 3000.0 and r["capped"] == false, "the load catches up 3000 s: %s" % str(r))
+	t.ok(n.t == t0 + 3000.0, "t advances by exactly the time away (%.6f → %.6f)" % [t0, n.t])
+	t.ok(_ledger_err(n) < 1e-9, "the ledger balances after the catch-up (%s)" % String.num_scientific(_ledger_err(n)))
+	var evs := n.catchup_events()
+	var ordered := not evs.is_empty()
+	var inside := true
+	var last := -INF
+	for e in evs:
+		ordered = ordered and float(e["t"]) >= last
+		last = float(e["t"])
+		inside = inside and float(e["t"]) >= t0 - 1e-9 and float(e["t"]) <= t0 + 3000.0 + 1e-9
+	t.ok(ordered and inside, "its %d events are in time order, inside [%.0f, %.0f]" % [evs.size(), t0, t0 + 3000.0])
+	var kinds := {}
+	for e in evs:
+		kinds[e["type"]] = true
+	t.ok(kinds.has("tithe_wave") and kinds.has("tithe_warning"), "the waves of the 50 min are among them: %s" % str(kinds.keys()))
+	t.ok(n.drain_events().is_empty(), "the scenes' queue gets none of them")
+	t.ok(n._catchup.steps > 0 and n._catchup.field_calls == n._catchup.field_n and n._catchup.field_n == 150,
+		"%d core steps, %d field steps (of %d planned)" % [n._catchup.steps, n._catchup.field_calls, n._catchup.field_n])
+
+
+## A clock behind the save is no time away (the identity); one more than idle.catchup_max_s on is capped
+## there and flagged; a file without saved_at catches up nothing.
+func _away_edges() -> void:
+	var c := cfgs({"economy.idle.catchup_max_s": 600.0})
+	var s := _start(c, "midgame_2flips")
+	var t0 := s.t
+	var back := _away(c, s, "edges", -500)
+	var saved: Dictionary = back.get_meta("saved")
+	var rb: Dictionary = back.get_meta("load")
+	t.ok(rb["ok"] and rb["away_s"] == 0.0 and not rb["capped"] and back.t == t0 and back.to_dict() == saved,
+		"the clock 500 s behind the save: nothing to catch up, the state is the save: %s" % str(rb))
+	var far := _away(c, s, "edges", 1000)
+	var rf: Dictionary = far.get_meta("load")
+	t.ok(rf["ok"] and rf["away_s"] == 600.0 and rf["capped"] and far.t == t0 + 600.0,
+		"1000 s away with the cap at 600 s: 600 s caught up, capped (%s, t +%.1f)" % [str(rf), far.t - t0])
+	SaveIO.write_atomic(_dir + "/bare.json", JSON.stringify(saved))
+	var nb := _mk(c)
+	nb.clock_override = CLOCK + 900
+	var rn := nb.cmd_load("bare")
+	t.ok(rn["ok"] and rn["away_s"] == 0.0 and nb.t == t0, "a file without saved_at catches up nothing: %s" % str(rn))
+	var zero := _away(c, s, "edges", 0)
+	var rz: Dictionary = zero.get_meta("load")
+	t.ok(rz["away_s"] == 0.0 and zero.to_dict() == saved and zero._catchup.steps == 0 and zero.rev == 1,
+		"a load with 0 s away is the identity: no step, the state is the save (rev %d)" % zero.rev)
+
+
+## dt = clamp(elapsed / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s): 31 s steps at 0.5 s,
+## 2 h at 2 h / 4320, 12 h and 7 d at 10 s; and a 2 h catch-up's longest step is that.
+func _dt_rule() -> void:
+	var c := cfgs()
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	var n := float(c["economy"]["idle"]["catchup_max_steps"])
+	var mx := float(c["economy"]["idle"]["catchup_dt_max_s"])
+	var cases := [[31.0, 0.5], [7200.0, 7200.0 / n], [43200.0, mx], [604800.0, mx]]
+	for cs in cases:
+		t.near(Catchup.base_dt(s, cs[0]), cs[1], 1e-12, "a catch-up of %.0f s steps at %.4f s" % [cs[0], cs[1]])
+	var st := _start(c, "midgame_2flips")
+	st.clock_override = CLOCK
+	st.cmd_save("dt")
+	var l := _mk(c)
+	l.from_dict(SaveIO.read_file(_dir + "/dt.json"))
+	l._catchup.begin(l, 7200.0, true)
+	l._catchup.trace = []
+	l._catchup.run(l)
+	var longest := 0.0
+	for e in l._catchup.trace:
+		longest = maxf(longest, float(e[1]))
+	t.near(longest, 7200.0 / n, 1e-9, "a 2 h catch-up's longest step is 2 h / %d" % int(n))
+
+
+## next_event_s's clauses, each alone on a new game (Relish home, no tithe, nothing building or queued,
+## gold and bone not falling): it is INF there, then each event's own projection.
+func _next_event_units() -> void:
+	var c := cfgs()
+	var base := func() -> GameState:
+		var s := _mk(c)
+		s.cmd_new_game(1)
+		s.town_sim.rates = TownSim._zero_rates()
+		return s
+	var s: GameState = base.call()
+	t.ok(Catchup.next_event_s(s) == INF, "a new game: nothing pending (INF)")
+	# Relish's arrival
+	s.cmd_move_relish("old-sluice")
+	var want := (s._dist_to("old-sluice") - GameState.ARRIVE_EPS) / s.travel_speed()
+	t.near(Catchup.next_event_s(s), want, 1e-9, "Relish travelling: her arrival, %.3f s" % want)
+	# an unpaid building's hold
+	s = base.call()
+	s.town_sim.buildings["lot-04"]["state"] = "unpaid"
+	s.town_sim.buildings["lot-04"]["unpaid_s"] = 12.5
+	t.near(Catchup.next_event_s(s), 12.5, 1e-12, "an unpaid building: its hold's end, 12.5 s")
+	# a construction finishing
+	s = base.call()
+	t.ok(s.cmd_build("house", "lot-05")["ok"], "(setup) a house goes up")
+	s.town_sim.restaff()
+	var eta := float(s.town_sim.construction_left("lot-05")["eta_s"])
+	t.ok(eta > 0.0, "(setup) it has builders (eta %.1f s)" % eta)
+	s.town_sim.rates = TownSim._zero_rates()
+	t.near(Catchup.next_event_s(s), eta, 1e-9, "a construction: its finish, %.2f s" % eta)
+	# gold and bone reaching their floor
+	for k in ["gold", "bone"]:
+		s = base.call()
+		s.town_sim.gold = 100.0
+		s.town_sim.bone = 100.0
+		s.town_sim.rates[k] = {"in": 0.5, "out": 2.5}
+		t.near(Catchup.next_event_s(s), 50.0, 1e-12, "%s falling 2 /s from 100: its floor at 50 s" % k)
+	# the queue's head starting on funds: the later of the currencies it lacks
+	s = base.call()
+	s.town_sim.gold = 10.0
+	s.town_sim.bone = 4.0
+	t.ok(s.cmd_queue_build("house", "lot-05")["ok"] and s.build_queue[0]["waited_on"] == "no_gold", "(setup) a house waits on gold")
+	s.town_sim.rates["gold"] = {"in": 0.5, "out": 0.2}
+	s.town_sim.rates["bone"] = {"in": 0.2, "out": 0.0}
+	t.near(Catchup.next_event_s(s), maxf(30.0 / 0.3, 6.0 / 0.2), 1e-9, "a house short 30 gold at 0.3 /s and 6 bone at 0.2 /s: 100 s")
+	s.town_sim.rates["bone"] = {"in": 0.0, "out": 0.1}
+	t.near(Catchup.next_event_s(s), 40.0, 1e-9, "and with its bone falling it can't start on funds (bone's floor alone: 40 s)")
+	# the tithe: the warning, a wave starting, a wave ending
+	s = base.call()
+	s.realm.start_tithe()
+	var warn := float(c["realm"]["tithe"]["warning_s"])
+	s.realm.tithe["next_s"] = warn + 33.0
+	s.realm.tithe["warning"] = {}
+	t.near(Catchup.next_event_s(s), 33.0, 1e-9, "the tithe: its warning 33 s on")
+	s.realm.tithe["warning"] = {"wave_id": 1, "fort_id": "ashgate", "eta_s": 70.0, "surge": 1.0}
+	s.realm.tithe["next_s"] = 70.0
+	t.near(Catchup.next_event_s(s), 70.0, 1e-9, "warned: the wave's start 70 s on")
+	s.realm.tithe["next_s"] = 400.0
+	s.realm.tithe["warning"] = {}
+	s.realm.tithe["wave"] = {"wave_id": 1, "fort_id": "ashgate", "s_left": 17.0, "duration_s": 40.0, "mult": 1.0, "delivered": 0.0}
+	t.near(Catchup.next_event_s(s), 17.0, 1e-9, "a wave running: its end 17 s on")
+
+
+## No step straddles a clip event: each step of a 1 h catch-up at 10 s steps (idle.catchup_max_steps 360)
+## from midgame_2flips is at most the next event's time (the runner's trace), Relish's arrival at Greywall
+## and every tithe warning and wave in it are step boundaries.
+func _no_straddle() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 360})
+	var s := _start(c, "midgame_2flips")
+	var arrive := s.t + (s._dist_to("greywall") - GameState.ARRIVE_EPS) / s.travel_speed()
+	s.clock_override = CLOCK
+	s.cmd_save("straddle")
+	var l := _mk(c)
+	l.from_dict(SaveIO.read_file(_dir + "/straddle.json"))
+	l._catchup.begin(l, 3600.0, true)
+	l._catchup.trace = []
+	l._catchup.run(l)
+	var ok := true
+	var bounds := {}
+	var bad := ""
+	for e in l._catchup.trace:
+		bounds[snappedf(float(e[0]), 1e-6)] = true
+		bounds[snappedf(float(e[0]) + float(e[1]), 1e-6)] = true
+		if float(e[2]) > Catchup.CLIP_MIN_S and float(e[1]) > float(e[2]) + 1e-9:
+			ok = false
+			bad = str(e)
+	t.ok(ok and l._catchup.trace.size() > 360, "no step of %d is longer than the time to its next event%s" % [l._catchup.trace.size(),
+		"" if ok else ": " + bad])
+	t.ok(bounds.has(snappedf(arrive, 1e-6)), "Relish's arrival at Greywall (%.4f s) is a step boundary" % arrive)
+	var tithe := 0
+	var on := true
+	for e in l.catchup_events():
+		if e["type"] == "tithe_warning" or e["type"] == "tithe_wave":
+			tithe += 1
+			on = on and bounds.has(snappedf(float(e["t"]), 1e-6))
+	t.ok(tithe > 4 and on, "every tithe warning and wave (%d) is at a step boundary" % tithe)
+
+
+## A construction finishing inside a catch-up's 10 s step finishes at its own moment (the work left over
+## its builders' rate, here 25.2 s in), not at the step's end, and within a substep of a 0.5 s live run's.
+func _construction_on_time() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 60})
+	var s := _start(c, "new")
+	t.ok(s.cmd_build("house", "lot-05")["ok"], "(setup) a house goes up")
+	s.tick(0.5)
+	s.town_sim.buildings["lot-05"]["progress"] = 0.37
+	var eta := float(s.town_sim.construction_left("lot-05")["eta_s"])
+	var at := s.t + eta
+	t.ok(fmod(eta, 10.0) > 1.0 and fmod(eta, 10.0) < 9.0, "(setup) it finishes mid-step: %.2f s in" % eta)
+	var live := _mk(c)
+	live.from_dict(s.to_dict())
+	live.drain_events()
+	live.tick(ceilf(eta) + 1.0)
+	var live_t := _event_t(live.drain_events(), "building_done", "lot-05")
+	var n := _away(c, s, "build", 600)
+	var cu_t := _event_t(n.catchup_events(), "building_done", "lot-05")
+	t.near(cu_t, at, 1e-6, "in the catch-up the house is done at %.4f s, its own moment (%.4f)" % [cu_t, at])
+	t.ok(live_t >= at - 1e-9 and live_t - at <= 0.5 + 1e-9, "the live 0.5 s run's at %.2f s, the substep after it" % live_t)
+
+
+## The queue's head waiting on gold starts at the moment its shortfall is earned: in a 10 s-step catch-up
+## within a substep of a 0.5 s live run's start, not at a step's end.
+func _build_start_on_time() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 60})
+	var s := _start(c, "new")
+	s.cmd_debug_grant({"gold": 11.0 - s.town_sim.gold})
+	t.ok(s.cmd_queue_build("house", "lot-05")["ok"] and s.build_queue[0]["waited_on"] == "no_gold", "(setup) a house waits on gold")
+	var live := _mk(c)
+	live.from_dict(s.to_dict())
+	live.drain_events()
+	live.tick(600.0)
+	var live_t := _event_t(live.drain_events(), "queue_started", "lot-05")
+	var n := _away(c, s, "queue", 600)
+	var cu_t := _event_t(n.catchup_events(), "queue_started", "lot-05")
+	t.ok(live_t > s.t and fmod(live_t - s.t, 10.0) > 1.0 and fmod(live_t - s.t, 10.0) < 9.0,
+		"(setup) it starts mid-step: live at +%.2f s" % (live_t - s.t))
+	t.ok(cu_t > 0.0 and absf(cu_t - live_t) <= 0.5 + 1e-6,
+		"the catch-up starts it at +%.3f s, within the live run's substep (+%.2f s)" % [cu_t - s.t, live_t - s.t])
+
+
+func _event_t(evs: Array, type: String, lot: String) -> float:
+	for e in evs:
+		if e["type"] == type and str(e.get("lot_id", "")) == lot:
+			return float(e["t"])
+	return -1.0
+
+
+## The presentation step's parts at the catch-up's end: the lanes' baseline is the state now (the net
+## change's callouts, once), the field accumulator is reset, and the field steps' count follows
+## idle.field_step_min_s for a short catch-up.
+func _lanes_and_field() -> void:
+	var c := cfgs()
+	var n := _away(c, _start(c, "midgame_2flips"), "lanes", 0)
+	n._field_acc = 0.13
+	var was: Dictionary = n._lane_prev.duplicate(true)
+	n._catchup.begin(n, 120.0, true)
+	n._catchup.run(n)
+	t.ok(n._lane_prev == n._lane_state() and n._lane_prev != was, "the lanes' baseline is current after the catch-up (it moved: %s)" % str(n._lane_prev))
+	t.ok(n._field_acc == 0.0, "the field accumulator is reset")
+	t.ok(n._catchup.field_n == 60 and n._catchup.field_calls == 60, "120 s: 60 field steps of 2 s (idle.field_step_min_s), %d made" % n._catchup.field_calls)
+	t.ok(not n.view_lanes()["lanes"].is_empty(), "the lanes read")
+
+
+# ------------------------------------------------------------------------- the load flash ----
+## From a load until the first substep's train verdict is in, on every frame of the frame path, no held
+## fort's view_fort().margin reads safe where the first settled read (view_projection at the valve's
+## target, with `settled`, and the train after the first substep) reads thin. midgame_2flips as loaded
+## (Relish on her way to Greywall: her tide there thins Old Sluice), and a 0 s load of a real save of it
+## a substep in.
+func _load_flash() -> void:
+	var c := cfgs()
+	var fx := _start(c, "midgame_2flips")
+	_flash_frames(fx, "midgame_2flips as loaded")
+	var a := _start(c, "midgame_2flips")
+	a.tick(a.substep_s())
+	t.ok(a.relish["state"] == "travelling", "(setup) a substep in she is still on her way")
+	var b := _away(c, a, "flash", 0)
+	_flash_frames(b, "a 0 s load of a save a substep in")
+
+
+func _flash_frames(s: GameState, what: String) -> void:
+	var held: Array = []
+	for f in s.realm.forts:
+		if RealmSim.is_held(f):
+			held.append(str(f["id"]))
+	var settled: Dictionary = s.view_projection(s.valve_target, true)["margins"]
+	var bad: Array = []
+	var frames := 0
+	var after_substep := false
+	var thin := 0
+	for id in held:
+		if settled[id]["margin"] != "safe":
+			thin += 1
+	while frames < 200:
+		for id in held:
+			var m: String = s.view_fort(id)["margin"]
+			if m == "safe" and settled[id]["margin"] != "safe":
+				bad.append("frame %d %s safe (settled %s)" % [frames, id, settled[id]["margin"]])
+		if after_substep:
+			break
+		frames += 1
+		after_substep = s.tick(1.0 / 60.0, s.max_substeps_per_frame()) > 0
+	var first: Dictionary = {}
+	for id in held:
+		first[id] = s.view_fort(id)["margin"]
+		if first[id] == "safe" and settled[id]["margin"] != "safe":
+			bad.append("after the first substep %s safe" % id)
+	t.ok(thin > 0, "%s: (setup) a held fort reads thin in the first settled read: %s" % [what, str(settled)])
+	t.ok(bad.is_empty() and frames > 1, "%s: over %d frames to the first substep no held fort reads safe where the settled read is thin%s" % [
+		what, frames, "" if bad.is_empty() else ": " + ", ".join(PackedStringArray(bad))])
+
+
+## view_realm() and every held fort's view_fort() just before cmd_save equal those right after its 0 s
+## cmd_load, with no substep between (floats to the save's 15 digits): midgame_2flips as loaded, and a
+## substep in (a real save, the last substep's dispatch rebuilt at the load).
+func _load_identity_views() -> void:
+	var c := cfgs()
+	for k in [0, 1]:
+		var s := _start(c, "midgame_2flips")
+		if k == 1:
+			s.tick(s.substep_s())
+		var before := _flash_views(s)
+		var n := _away(c, s, "views%d" % k, 0)
+		var after := _flash_views(n)
+		var why: Array = []
+		_diff(before, after, 1e-9, "views", why)
+		t.ok(why.is_empty(), "%s: view_realm and the held forts' view_fort read the same after the 0 s load%s" % [
+			["as loaded", "a substep in"][k], "" if why.is_empty() else ": " + ", ".join(PackedStringArray(why.slice(0, 6)))])
+
+
+func _flash_views(s: GameState) -> Dictionary:
+	var out := {"realm": s.view_realm()}
+	out["realm"].erase("rev")
+	for f in s.realm.forts:
+		if RealmSim.is_held(f):
+			var v := s.view_fort(str(f["id"]))
+			v.erase("rev")
+			out[str(f["id"])] = v
+	return out
+
+
+## Every difference between `a` and `b` beyond `rel` (relative, for floats) into `why`.
+static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
+	if a is Dictionary and b is Dictionary:
+		for k in a:
+			if not b.has(k):
+				why.append(path + "." + str(k) + " missing")
+			else:
+				_diff(a[k], b[k], rel, path + "." + str(k), why)
+		for k in b:
+			if not a.has(k):
+				why.append(path + "." + str(k) + " extra")
+	elif a is Array and b is Array:
+		if a.size() != b.size():
+			why.append("%s: size %d vs %d" % [path, a.size(), b.size()])
+		else:
+			for i in a.size():
+				_diff(a[i], b[i], rel, "%s[%d]" % [path, i], why)
+	elif (a is float or a is int) and (b is float or b is int):
+		if absf(float(a) - float(b)) > rel * maxf(1.0, maxf(absf(float(a)), absf(float(b)))):
+			why.append("%s: %s vs %s" % [path, str(a), str(b)])
+	elif a != b:
+		why.append("%s: %s vs %s" % [path, str(a), str(b)])
+
+
+## IDLE §4: stance.hold_s must be at least catch-up's longest step. E3's key isn't in economy.json yet, so
+## there is nothing to check; at or above idle.catchup_dt_max_s it holds; under it, setup() reports the
+## problem as an error.
+func _config_check() -> void:
+	var c := TestUtil.configs()
+	t.ok(not (c["economy"]["stance"] as Dictionary).has("hold_s") and GameState.catchup_config_problem(c) == "",
+		"the shipped configs: no stance.hold_s yet (E3's), nothing to check")
+	c["economy"]["stance"]["hold_s"] = 10.0
+	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s 10 s against a 10 s longest step: it holds")
+	c["economy"]["stance"]["hold_s"] = 5.0
+	var p := GameState.catchup_config_problem(c)
+	t.ok(p.find("stance.hold_s") >= 0 and p.find("catchup_dt_max_s") >= 0, "stance.hold_s 5 s under a 10 s step is a problem: %s" % p)

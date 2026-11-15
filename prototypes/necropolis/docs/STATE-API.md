@@ -103,6 +103,19 @@ from `BALANCE.md` §0.
     −garrison_rate` + what is left of `hold.break_s` (less the zero clock while the garrison sits at 0); it
     was `garrison / −garrison_rate` + `hold.break_s`, late by up to 368 s for a garrison above the level its
     support holds: a meaning change, not a shape change;
+  - (T3.3b) **every load catches up** (IDLE §4): `cmd_load` runs the real time since the file's `saved_at`
+    through GameState's own core step (`scripts/sim/catchup.gd`) before it returns, and its result gains
+    `away_s: float` and `capped: bool` (§4.1). Its `rev` rises by 1 plus 1 per catch-up core step. The
+    catch-up's events are collected for the away report (T3.3c), not queued (§6).
+    `cmd_debug_load_fixture` and `from_dict` don't catch up (§9.1);
+  - (T3.3b) `clock_override` (§1.5), the test seam for "now": `cmd_save` stamps `saved_at` and `cmd_load`
+    measures the time away through it. Never saved;
+  - (T3.3b) **the load flash**: a load rebuilds the last substep's split and WAR dispatch from what the save
+    holds (§9.1). So `view_fort` and `view_realm().forts[]` margins, `fall_s` and `garrison_rate`,
+    `view_projection` and `view_hud`'s split read what they read before the save, not the saved `r_in`
+    with Relish where she stands. `view_hud.split` and mint `rate`, `view_rates`' `mint`, `work`, `war`
+    and `flood`, and the WORK, FLOOD and fallen-through WAR lanes read the last substep's after a load
+    instead of 0: a meaning change, not a shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -198,12 +211,14 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `var fixture_dir: String = "res://tests/fixtures"` | `cmd_debug_load_fixture` reads `<fixture_dir>/<name>.json`. Tests point it at a temp dir to make a bad fixture. |
 | `autosave_s() -> float` | `economy.json` `sim.autosave_s` (30): the shell's autosave period in real seconds. |
 | `var rev: int` | Read-only by rule. |
+| `var clock_override: int = -1` | v6 (E2b-2 T3.3b), a test seam: unix seconds "now" when ≥ 0, else the system clock. `cmd_save` stamps `saved_at` with it and `cmd_load` measures the time away with it, the sim's one read of the wall clock. Never saved; scenes never set it. |
 | `tick(dt: float, max_substeps := 0) -> int` | §3. |
 | `drain_events() -> Array[Dictionary]` | §6. Called by the shell and tests, **never by scenes**. |
 | `to_dict() -> Dictionary`, `from_dict(d: Dictionary) -> Dictionary` | §9. |
 | `static migrate(d: Dictionary) -> Dictionary` | §9. |
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
+| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and T3.3c's away report): the events the last load's catch-up collected instead of queuing them (§6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
@@ -247,8 +262,8 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     corrupt), `cmd_new_game(randi())`. Autosave stays enabled, **except** after `bad_version` (a
     newer build wrote `auto.json`; worktrees share `user://`): then autosave is off for the session
     and a warning is printed, so the newer save is never overwritten.
-  - Away-time catch-up on load (simulating the real time since the save file's `saved_at`) is a later
-    item. Today a resume continues from the saved `t`.
+  - The load catches up the real time since the save file's `saved_at` (IDLE §4; `cmd_load`, §4.1), so
+    Continue resumes where the time away left the realm.
 - **Ticking (`_process(delta)`):**
   `state.tick(delta / maxf(0.05, Engine.time_scale) * state.time_scale, max_substeps)`. Here
   `max_substeps` is `economy.json` `sim.max_substeps_per_frame`, and any remainder over the cap is
@@ -421,7 +436,7 @@ Game.state.cmd_new_game(1)  # -> {ok: true, reason: ""}
 
 **`cmd_save(slot: String)` · E1**
 - **Args:** `slot` matches `^[a-z0-9_-]{1,32}$`. `"auto"` is the autosave slot.
-- **Extras:** `saved_at: int` (unix seconds), `path: String`.
+- **Extras:** `saved_at: int` (unix seconds, from `clock_override` when it is set, §1.5), `path: String`.
 - **Reasons:** `bad_slot`, `write_failed`.
 - **Effect:** writes atomically (§9.3).
   - During a run it writes the forfeited form (Relish at the fort, no run) and leaves the live state
@@ -431,13 +446,26 @@ Game.state.cmd_new_game(1)  # -> {ok: true, reason: ""}
 Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, path: "user://saves/slot1.json"}
 ```
 
-**`cmd_load(slot: String)` · E1**
+**`cmd_load(slot: String)` · E1 (catch-up v6)**
+- **Extras** (v6, E2b-2 T3.3b): `away_s: float`, the seconds caught up, and `capped: bool`. Both are 0.0
+  and false on a refusal.
 - **Reasons:** `busy`, `bad_slot`, `no_save` (missing or corrupt; a corrupt file is no save),
   `bad_version` (newer than `SAVE_VERSION`, or the migration failed).
 - **Effect:** `from_dict` in place. Then `time_scale = 1`, `paused = false`, the event queue is
   cleared, and the field is pre-warmed (§9).
+- **Then the catch-up** (v6; IDLE §4, `scripts/sim/catchup.gd`): the time away is now (`clock_override`
+  when set, §1.5) less the file's `saved_at`, in whole seconds. It is 0 when that is negative or the file
+  has no `saved_at`, and at most `idle.catchup_max_s` (7 days), with `capped` true when it was more. That
+  much sim time runs through the core step (§3 steps 1–8) in adaptive steps: `clamp(away /
+  idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`, shortened so that none straddles a clip
+  event (IDLE §4 Method). `idle.field_steps` field steps (api-request #14) run in place of the field's
+  live ticks, and the field ends published. The run's events are kept for the away report, not queued
+  (§6). The lanes' callouts take the net change once at its end. A 0 s load is the identity: no step
+  runs and the state is the save.
+- `rev` rises by 1, plus 1 per catch-up core step.
 ```gdscript
-Game.state.cmd_load("auto")  # -> {ok: false, reason: "no_save"}
+Game.state.cmd_load("auto")  # -> {ok: true, reason: "", away_s: 28800.0, capped: false}
+Game.state.cmd_load("nope")  # -> {ok: false, reason: "no_save", away_s: 0.0, capped: false}
 ```
 
 **`list_saves() -> Array[Dictionary]` · E1.** Not a command, and does not bump `rev`.
@@ -1675,6 +1703,22 @@ Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evalua
 - Every event has `t: float` (sim seconds, never decreasing) and `type: String`, plus the fields
   below.
 - The queue is cleared by new game, load and fixture load.
+- **A catch-up whose time a report will cover raises no queued events** (v6, E2b-2 T3.3b; IDLE §4, §7).
+  A load's catch-up keeps its events, with their `t`, for the away report (T3.3c's `view_away` and
+  `away_report`; `GameState.catchup_events()` meanwhile), and the scenes' queue gets none of them. A week
+  away raises thousands of events, and replaying them on load would fire every setpiece, tithe explainer
+  and toast at once; the report is their summary. A load already clears the queue, so this extends that
+  rule.
+- **`away_report` is the cue for an on-screen scene to re-read its views** (T3.3c). These listeners keep
+  state built from events, and each must re-read its views on `away_report`: a Phase I must-fix for
+  their units, carried by the run's manager.
+  - map: `map_setpieces` (with `setpiece_logic`), `map_tithe_explain`, `ground_forces` and
+    `flow_ground` (through `ground_meter`), `map_hud`, and the away panel (`map_away`);
+  - town: `covington.gd`, `town_view` and `town_hud`. The town panels (`panel_jobs`, `panel_stances`,
+    `panel_backups`, `panel_build`, `panel_crypt`) take `on_game_event` only as a cue to refresh and
+    ignore the event itself;
+  - the router (`scripts/main.gd`) holds the events that arrive while no scene is in the tree and
+    re-emits them; it keeps no state from them.
 - Scenes receive events only through `Game.game_event` (§2.1).
 
 | type | fields | ms |
@@ -2035,13 +2079,23 @@ take the router's legacy path (§2.3).
 - the last substep's rates outside the fort, Vei and town blocks: `view_hud`'s `split` and mint
   `rate`, `view_rates`' `mint`, `work`, `war`, `flood`, `corpses` and `backlog` (the haul's part of
   `corpses.out` is TownSim's, saved), `view_vei`'s raw `diff`, and the three lanes
-  out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). They read 0 (or the lane
-  is absent) until the first substep after a load. Lane callouts are not saved either;
+  out of Covington's own rates (FLOOD and WAR fallen through to Vei, WORK). Since v6 (E2b-2 T3.3b, the
+  load flash) a load rebuilds the split and the WAR dispatch as the last substep left them
+  (`GameState._restore_dispatch`): the mint from TownSim's saved worker inflow and the valve (the next
+  step's mint when the WORK share is 0), the muster from its saved rate, and each fort's dispatch weight
+  and limit from its saved `r_in` and Relish's tide. So `view_hud`'s split and mint rate, `view_rates`'
+  `mint`, `work`, `war` and `flood`, those three lanes and the held forts' readouts (§5.5, §5.17) read
+  what they read before the save, to its 15 digits. `corpses`, `backlog` and `diff` still read 0 until
+  the first substep after a load. Lane callouts are not saved either;
 - the influence field: after a load it is pre-warmed from the loaded realm, as a new game does
   (`_prewarm_field`, including `field.flush()`), and village owners are restored from `villages`.
 
 **Open runs.** `to_dict()` during a run writes Relish as `at_fort` at the run's fort (or `at_vei`)
 with no run. On load the run is forfeited: no loot, no flip, the party intact.
+
+**Catch-up** (v6, E2b-2 T3.3b): only `cmd_load` catches up the time since a save (§4.1), from the file's
+`saved_at`. `from_dict` reads a dict, not a file, and `cmd_debug_load_fixture` loads a fixture, which has
+no meaningful `saved_at` (it is a state, not a session's save), so neither catches up.
 
 **`from_dict(d: Dictionary) -> {ok: bool, reason: String}`**
 - **Reasons:** `bad_version` (`v` above `SAVE_VERSION`, or the migration failed), `corrupt` (missing
@@ -2064,7 +2118,8 @@ with no run. On load the run is forfeited: no loot, no flip, the party intact.
 
 ### 9.2 Files
 - A save file is `to_dict()` plus three file-only keys, `slot: String`, `saved_at: int` (unix
-  seconds) and `summary: String`, which `from_dict` ignores.
+  seconds) and `summary: String`, which `from_dict` ignores. `cmd_load` reads `saved_at` for its
+  catch-up (§4.1).
 - The path is `<save_dir>/<slot>.json`.
 - `list_saves()` reads only `saved_at` and `summary` (the slot is the file name), but skips any file
   that fails to parse, is not a Dictionary or lacks `v`. Order: `saved_at` descending, then slot.

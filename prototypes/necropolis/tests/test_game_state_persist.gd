@@ -6,6 +6,10 @@ extends RefCounted
 
 var t: TestUtil
 var _dir := "user://test_saves_%d" % OS.get_process_id()
+## The wall clock pinned for the save-then-load round trips (GameState.clock_override, E2b-2 T3.3b): every
+## cmd_load catches up the time since its save, so an unpinned clock gives these 0 or 1 s away, depending on
+## timing. Pinned, each is a 0 s load (the identity).
+const PINNED := 1_800_000_000
 
 
 ## The shipped configs with town.projection_rows_per_call lifted, so a view refreshes all its build-benefit
@@ -261,6 +265,7 @@ func _round_trip() -> void:
 func _in_place_and_ints() -> void:
 	var s := _rich()
 	var id := s.get_instance_id()
+	s.clock_override = PINNED
 	t.ok(s.cmd_save("one")["ok"], "saved")
 	var before := s.to_dict()
 	s.cmd_debug_grant({"gold": 500.0, "husks": 1})
@@ -275,7 +280,7 @@ func _in_place_and_ints() -> void:
 	var rid := s.next_run_id
 	var uid := s.next_uid
 	var r := s.cmd_load("one")
-	t.ok(r == {"ok": true, "reason": ""}, "cmd_load ok: %s" % str(r))
+	t.ok(r == {"ok": true, "reason": "", "away_s": 0.0, "capped": false}, "cmd_load ok, nothing to catch up: %s" % str(r))
 	t.ok(s.get_instance_id() == id, "the same state object survives a load")
 	t.ok(s.rev == rv + 1, "a load adds exactly 1 to rev")
 	t.ok(s.time_scale == 1.0 and not s.paused and s.drain_events().is_empty(), "time scale 1, unpaused, events cleared")
@@ -305,6 +310,7 @@ func _in_place_and_ints() -> void:
 		o.cmd_begin_dungeon("ashgate")
 		o.cmd_abort_dungeon()
 	o.cmd_debug_grant({"husks": 3})
+	o.clock_override = PINNED
 	o.cmd_save("early")
 	for i in 3:
 		o.cmd_begin_dungeon("ashgate")
@@ -352,13 +358,15 @@ func _open_runs() -> void:
 	t.ok(d["party"].size() == 2, "the party is intact in the file")
 	t.ok(s.relish["state"] == "in_dungeon" and not s.run.is_empty(), "the live state is untouched by saving")
 	var rv := s.rev
+	s.clock_override = PINNED
 	var r := s.cmd_save("run")
 	t.ok(r["ok"] and s.rev == rv + 1 and s.run["run_id"] == b["run_id"], "cmd_save during a run succeeds and leaves the run alone")
-	t.ok(s.cmd_load("run") == {"ok": false, "reason": "busy"}, "cmd_load is busy during a run")
+	t.ok(s.cmd_load("run") == {"ok": false, "reason": "busy", "away_s": 0.0, "capped": false}, "cmd_load is busy during a run")
 	s.cmd_abort_dungeon()
 	var n := GameState.new(_cfgs())
 	n.save_dir = _dir
 	n.debug_enabled = true
+	n.clock_override = PINNED
 	t.ok(n.cmd_load("run")["ok"], "the run file loads")
 	t.ok(n.run.is_empty() and n.view_relish()["state"] == "at_fort" and n.view_relish()["can_descend"], "a load forfeits the run: at_fort, no run")
 	t.ok(n.party_uids.size() == 2 and n.next_run_id > int(b["run_id"]), "the party is intact and the run id is not reused")
@@ -423,10 +431,10 @@ func _bad_files() -> void:
 	var rv := s.rev
 	for slot in ["garbage", "array", "string", "nov", "empty", "strv", "broken", "bstate", "bconvoy", "bmorale", "typed", "node",
 			"fortset", "partym", "missing"]:
-		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "no_save"}, "%s is no_save" % slot)
+		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "no_save", "away_s": 0.0, "capped": false}, "%s is no_save" % slot)
 	for slot in ["future", "zero"]:
-		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version"}, "%s is bad_version" % slot)
-	t.ok(s.cmd_load("Bad Slot") == {"ok": false, "reason": "bad_slot"}, "a bad slot name is bad_slot")
+		t.ok(s.cmd_load(slot) == {"ok": false, "reason": "bad_version", "away_s": 0.0, "capped": false}, "%s is bad_version" % slot)
+	t.ok(s.cmd_load("Bad Slot") == {"ok": false, "reason": "bad_slot", "away_s": 0.0, "capped": false}, "a bad slot name is bad_slot")
 	t.ok(s.rev == rv and s.to_dict() == before, "a refused load leaves rev and the state alone")
 	var f := GameState.new(_cfgs())
 	t.ok(f.from_dict({}) == {"ok": false, "reason": "corrupt"}, "an empty dict is corrupt")
@@ -576,6 +584,7 @@ func _determinism() -> void:
 	# saving does not disturb the run of the sim
 	var d := _mk(11)
 	_script(d)
+	d.clock_override = PINNED
 	d.cmd_save("det")
 	d.tick(10.0)
 	a.tick(10.0)
@@ -583,6 +592,7 @@ func _determinism() -> void:
 	# a loaded copy plays on exactly like the original (the field is the one allowed drift, A6)
 	var e := GameState.new(_cfgs())
 	e.save_dir = _dir
+	e.clock_override = PINNED
 	e.cmd_load("det")
 	e.tick(10.0)
 	var de := e.to_dict()

@@ -69,7 +69,8 @@ const RESULTS := {
 const COMMANDS := {
 	"cmd_new_game": {},
 	"cmd_save": {"saved_at": I, "path": S},
-	"cmd_load": {},
+	# api_version 6 (E2b-2 T3.3b): the catch-up of the time since the save (IDLE §4)
+	"cmd_load": {"away_s": F, "capped": B},
 	"cmd_set_time_scale": {"time_scale": F},
 	"cmd_pause": {"paused": B},
 	"cmd_set_valve": {"target": VALVE},
@@ -342,7 +343,7 @@ const SAVE := {
 ## Methods on GameState besides the commands and views (§1.5).
 const MEMBER_METHODS := ["_init", "setup", "load_configs", "tick", "drain_events", "to_dict", "from_dict",
 	"migrate", "list_saves", "ledger"]
-const MEMBER_VARS := ["debug_enabled", "save_dir", "rev"]
+const MEMBER_VARS := ["debug_enabled", "save_dir", "rev", "clock_override"]  # clock_override: api_version 6, E2b-2 T3.3b
 ## Contract names not implemented yet (none after T1.5). The contract test fails if a listed name
 ## exists, so the list cannot go stale.
 const EXPECTED_MISSING := []
