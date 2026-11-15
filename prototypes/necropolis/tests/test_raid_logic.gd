@@ -1877,6 +1877,33 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 					widest_px = px
 					widest = txt
 	t.ok(widest_px <= col_w, "the widest KILLED BY / MISSED value fits the card: '%s' %d px of %d" % [widest, int(widest_px), int(col_w)])
+	# the AFTER row: what a run-ending death costs in time, from the seed's death_ends (literal seeds; none carries it yet)
+	var nx_clone := RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 45.0}, "clones_ready": 0})
+	t.ok(nx_clone["label"] == "AFTER" and nx_clone["text"] == "wakes at Covington in 45 s" and nx_clone["key"] == "text", "death_ends clone, 45 s: wakes in 45 s (clones_ready ignored)")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.0}})["text"] == "wakes at Covington", "death_ends clone, 0.0 (economy until E3): no number, never 'in 0 s'")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 60.0}})["text"] == "wakes at Covington in 1:00"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 150.0}})["text"] == "wakes at Covington in 2:30"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.3}})["text"] == "wakes at Covington in 1 s", "m:ss from 60 s; a fraction rounds up to 1 s, never 0")
+	var nx_un := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 0.0}, "clones_ready": 3})
+	t.ok(nx_un["text"] == "unmade" and nx_un["key"] == "danger", "death_ends unmade, 0.0: 'unmade' (clones_ready ignored)")
+	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 60.0}})["text"] == "unmade · reforms in 1:00"
+		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 30.0}})["text"] == "unmade · reforms in 30 s", "unmade with a respawn: reforms in N")
+	t.ok(RaidLogic.death_next_row({"clones_ready": 2})["text"] == "wakes at Covington" and RaidLogic.death_next_row({"clones_ready": 1})["key"] == "text",
+		"death_ends absent, clones > 0: wakes at Covington, no number")
+	t.ok(RaidLogic.death_next_row({"clones_ready": 0})["text"] == "unmade" and RaidLogic.death_next_row({})["text"] == "unmade", "death_ends absent, no clones: unmade")
+	var arows := RaidLogic.death_card_rows("a wound", {}, {}, 0, "", nx_clone)
+	t.ok(arows.size() == 4 and arows[3]["label"] == "AFTER" and arows[3]["text"] == nx_clone["text"] and RaidLogic.death_card_rows("a wound", {}, {}, 0).size() == 3,
+		"the AFTER row comes last, and only when given")
+	var after_w := 0.0
+	for sd in [{"death_ends": {"outcome": "clone", "respawn_s": 3599.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 3599.0}},
+			{"death_ends": {"outcome": "clone", "respawn_s": 59.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 59.0}}, {"clones_ready": 1}, {}]:
+		after_w = maxf(after_w, fnt.get_string_size(RaidLogic.death_next_row(sd)["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x)
+	t.ok(after_w <= col_w, "the widest AFTER value fits the card: %d px of %d" % [int(after_w), int(col_w)])
+	var rtk := _func_body("res://scripts/raid/relish.gd", "func take_hit(")
+	t.ok(rtk.find("try_phylactery()") >= 0 and rtk.find("try_phylactery()") < rtk.find("on_relish_died()"), "a phylactery revive returns before the death (so no card): on_relish_died only after try_phylactery fails")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_next_row(_raid.seed_data)"), "the card's AFTER row reads the seed the raid got, no Game.* read")
+	var rdv := _func_body("res://scripts/raid/raid_dev.gd", "func _autodie_hit(")
+	t.ok(rdv.contains("take_hit(_raid.relish.hp,") and not rdv.contains("1000"), "the dev autodie blow equals her remaining hp (the STRUCK cue showed -1030)")
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
 	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",

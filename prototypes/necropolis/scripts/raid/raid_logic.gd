@@ -491,7 +491,7 @@ const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
 ## the attack had one (its own row, so a long cause never clips: "The Bellringer's toll" / "the ring at your
 ## feet"), what the last checkpoint banked, what is lost.
-static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "") -> Array:
+static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "", after := {}) -> Array:
 	var bl := loot_line(banked_counts)
 	var lost := death_lost_line(unbanked, party_n)
 	var rows: Array = [{"label": "KILLED BY", "text": cause, "key": "danger"}]
@@ -499,7 +499,35 @@ static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: 
 		rows.append({"label": "MISSED", "text": missed, "key": "danger"})
 	rows.append({"label": "BANKED", "text": bl if bl != "" else "nothing", "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": "LOST", "text": lost, "key": "danger" if lost != "nothing" else "text_dim"})
+	if not after.is_empty():
+		rows.append(after)
 	return rows
+
+
+## A wait for the death card's AFTER row: "45 s" under a minute, m:ss from 60 s ("1:30"); never "0 s".
+static func death_wait_text(secs: float) -> String:
+	var n := maxi(1, roundi(secs))
+	return "%d s" % n if n < 60 else "%d:%02d" % [n / 60, n % 60]
+
+
+## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
+## seed's `death_ends` {outcome: "clone"|"unmade", respawn_s} (economy's, after any phylactery revives); the
+## card copies no rule. "clone": "wakes at Covington", with " in N s" only when respawn_s > 0. "unmade":
+## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save): the seed's
+## clones_ready, "wakes at Covington" if > 0 else "unmade", with no number.
+static func death_next_row(seed: Dictionary) -> Dictionary:
+	var de: Variant = seed.get("death_ends", null)
+	var clone := false
+	var secs := 0.0
+	if de is Dictionary and (de as Dictionary).has("outcome"):
+		clone = str(de["outcome"]) == "clone"
+		secs = float(de.get("respawn_s", 0.0))
+	else:
+		clone = int(seed.get("clones_ready", 0)) > 0
+	var text := "wakes at Covington" if clone else "unmade"
+	if secs > 0.0:
+		text += (" in %s" if clone else " · reforms in %s") % death_wait_text(secs)
+	return {"label": "AFTER", "text": text, "key": "text" if clone else "danger"}
 
 
 ## How much loose essence can still be banked: what lies loose, capped by the carry room left.
