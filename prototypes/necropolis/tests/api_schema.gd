@@ -192,6 +192,8 @@ const TOWN_BUILDING := {
 const QUEUE_ENTRY := {
 	"building_id": S, "lot_id": S, "upgrade": B, "level": I, "cost": COST, "work": F, "status": S, "reason": S,
 	"waited_on": S,
+	# api_version 7 (R2): when its funds come at today's net rates (0.0 now, −1.0 never)
+	"affordable_in_s": F,
 }
 ## A line of view_away (api_version 6, E2b-2 T3.3c, api-request #7 d): `kind` one of AWAY_KINDS, `target` a
 ## fort id, "slab", "queue" or "".

@@ -1020,10 +1020,11 @@ func cmd_cancel_build(lot_id: String) -> Dictionary:
 
 ## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
 ## or queued for `lot_id`. Refuses only what waiting can't make valid; gates time or play can clear are
-## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build).
+## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build). R2: the new entry's
+## affordable_in_s rides along (−1.0 on a refusal).
 func cmd_queue_build(building_id: String, lot_id: String) -> Dictionary:
 	if _catchup.active:
-		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1})
+		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1, "affordable_in_s": -1.0})
 	return BuildRules.queue_build(self, building_id, lot_id)
 
 

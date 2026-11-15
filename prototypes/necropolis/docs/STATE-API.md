@@ -170,7 +170,12 @@ from `BALANCE.md` §0.
     `shed_class`): a stock that can't cover the upkeep idles the decorations first, then the passive no-job
     buildings, then the job buildings, the WAR chain (Bone Mill, charnel houses, raising pits) last, where it
     idled the cheapest first. `building_unpaid` (§6) and a building's `state` `unpaid` (§5.9) keep their
-    meaning; which building they name changes: a meaning change, not a shape change.
+    meaning; which building they name changes: a meaning change, not a shape change;
+  - (R2, the same review's item 3; R1 and R2 merge as one milestone, so they share this entry and there is no
+    v8) **when each queued build becomes affordable**: `view_town().queue[].affordable_in_s: float` (§5.9),
+    `0.0` affordable now, the seconds until it is at today's net rates, `-1.0` never at them; and
+    `cmd_queue_build`'s extra `affordable_in_s: float` (§4.3), the new entry's (`-1.0` on a refusal), the
+    review's warning at queue time. The walk that sets `status` sets it, so the two never disagree.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -738,7 +743,9 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   (`gold`, `bone` or `relics`), `cap_building` the building whose `*_cap` effect raises it (the first in
   `buildings.json`), and `cap_level` the lowest level of that building whose cap covers the price: the
   cap now with its highest-level copy raised to that level, or with one built at it (so `1` when it isn't
-  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`.
+  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`. From v7 (R2) `affordable_in_s:
+  float`: the new entry's `affordable_in_s` as `view_town().queue` shows it (§5.9), so the player learns at
+  queue time that it will wait, or never be afforded at today's income (`-1.0`); `-1.0` on a refusal (no entry).
 - **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
   8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
   `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
@@ -753,9 +760,11 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
 - **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
   the queue (§3, step 3; MECHANICS §4.4).
 ```gdscript
-Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1}
+Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1, affordable_in_s: 0.0}
 Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: true, reason: "", index: 1, ...}
-Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1}
+Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1, affordable_in_s: -1.0}
+# day1 a step in, a House, a Well and a Bakery queued: its Bone Mill needs the last of the 30 bone, and only a mill makes bone
+Game.state.cmd_queue_build("bone_mill", "lot-08")  # -> {ok: true, reason: "", index: 3, ..., affordable_in_s: -1.0}
 ```
 
 **`cmd_unqueue(index: int)` · E2b-2 (v6, #3)**
@@ -1480,6 +1489,32 @@ in it: that is correct, not a mismatch.
 | `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
 | `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
+| `affordable_in_s` | float | v7 (R2): when its funds come at today's net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
+
+**`affordable_in_s`** (v7, R2; from the E2b-2 vision review's item 3, the run's manager's ruling for Shawn: the
+queue never stalls or jumps, so the player gets the data instead, and E3's autoplayer reads it too; MECHANICS
+§4.4, `BuildRules.queue_walk`):
+- **The net rates** are each store's net now, income less upkeep, from TownSim's last step: below its cap, the
+  net `view_rates` and the HUD show for gold and bone. At the cap those clip the income down to the upkeep and
+  read 0; the time uses the income before that clip (`rates.gold.trade` or `.bone.mill`, less `.out`), since
+  an entry ahead that spends the store brings the income back. Relics have no idle income (0).
+- **Entries ahead start first.** The entries that aren't gated (`next`, `waiting_funds`, `queued`) start in
+  queue order, each when the stocks, grown at those rates (each up to its cap) and less what the entries ahead
+  paid at their own starts, cover its gold, bone and relics. So an entry never reads earlier than the one
+  ahead of it, and of two gold-short entries the second reads `(cost₁ + cost₂ − gold) / net`.
+- **A `skipped_gate` entry** holds nothing: its time is its own funds' at its place in that order (the UI can
+  say "affordable in 4 m once Walls are up"), it pays nothing, so it moves no later entry's time, and its
+  status stays.
+- **`-1.0`** when its cost is above its store's cap now (`cost_exceeds_cap`); its relics are short (no idle
+  income: raid for relics); a store it is short of has a net ≤ 0; a store that covers it now falls under it
+  by then at a negative net; or it costs any of a store that an entry ahead holding the queue never gets
+  (that entry is `-1.0`; it holds the queue, so none of that store reaches this one). A later entry that
+  costs none of that store gets its time as if that entry weren't there: what it would read once the player
+  moves the stuck head down.
+- **Held fixed:** the rates don't change with what the entries ahead build. The upkeep a new building adds,
+  or its output, isn't modelled (E4-3 decides what a build that would run a deficit does), nor a gate the
+  entry meets later (a construction under way on its lot). A new game and a fixture load have no step's
+  rates until the first substep, so every short entry reads `-1.0` until then.
 
 Each `buildings` entry:
 

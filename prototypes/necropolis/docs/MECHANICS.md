@@ -1178,6 +1178,37 @@ processing does.
      `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`. The keys match when
      gold and bone are covered; short of gold or bone as well, the catalog says `no_gold`/`no_bone`
      (`afford_reason`'s order) while the queue still reads `no_relics`, since relics are a gate there.
+- **When each entry becomes affordable** (R2, the E2b-2 vision review's item 3; the run's manager for Shawn:
+  the queue never stalls or jumps, so the player gets the data instead: "data, not a skip"). The same walk
+  sets each entry's `affordable_in_s` (STATE-API §5.9), `0.0` affordable now, the seconds until it is at
+  today's net rates, `-1.0` never at them:
+  - **net rates:** each store's net now, income less upkeep, from TownSim's last step: the HUD's and
+    `view_rates`' net below the cap; at the cap, where theirs clips the income to the upkeep and reads 0, the
+    income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
+    brings it back. Relics have none, so a relic shortfall is `-1.0` ("raid for relics");
+  - **in queue order:** the entries that aren't gated start in order, each when the stocks, grown at those
+    rates up to their caps and less what the entries ahead paid at their own starts, cover it. Up to the head
+    those stocks are the walk's own copy, so `next` reads `0.0` and `waiting_funds` never does, and no entry
+    reads earlier than the one ahead. A `skipped_gate` entry holds nothing: its time is its own funds' there
+    ("affordable in 4 m once Walls are up"), and it pays nothing;
+  - **`-1.0`** when a cost is above its cap now, a relic cost is short, a short store's net is ≤ 0, a store
+    that covers it now runs under it at a negative net by then, or it costs any of a store that an entry
+    ahead holding the queue never gets. An entry that costs none of that store is timed as if that one were
+    moved down;
+  - **held fixed:** the rates don't move with what the entries ahead build (a new building's upkeep or
+    output isn't modelled: E4-3 decides what a build that would run a deficit does), and gates met later (a
+    construction under way on the lot) aren't either. `cmd_queue_build` returns the new entry's, the warning
+    at queue time. The away report names a head still waiting when you come back (IDLE §7).
+  - **day1's first overnight** (the review's case, re-checked at T7's config C and R1's shed order): a
+    House, a Well, a Bakery, then a Bone Mill. The House and the Well start at once, the Bakery 190 s later
+    on gold (+0.21/s), and that spends day1's last bone: the mill's 20 bone can only come from a Bone Mill,
+    so bone's net is 0 and the Mill reads `-1.0` from the moment it is queued. The review found it on gold
+    (upkeep matching income at 4 gold); at T7 the gold keeps coming (+0.18/s at 4 h) and the deadlock is the
+    bone.
+  - **cost:** `view_town` runs the walk on every call (Covington fetches it on each rev change). The times
+    add 20 to 45 µs a call with a full queue of 8 (day1 +20, midgame_2flips +44, pre_vei +39, the medians
+    of five 400-call runs on a loaded machine; the walk alone 79 → 101, 98 → 127, 105 → 138 µs), under
+    the 0.2 ms that would need a cache on `rev`, so there is none.
 - **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
   rises this step opens its entries this step and this step's income counts: one walk, then each `next`
   entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the

@@ -451,8 +451,16 @@ static func queue_levels(gs: GameState, entries: Array) -> Array:
 ## entry that isn't gated is the head: `next` when the gold and bone cover it, and the copy pays and takes
 ## its lot as the start would, so the walk goes on to the next head; else `waiting_funds` (no_gold,
 ## no_bone) and every later entry that isn't gated is `queued`. An upgrade behind an entry for its lot that
-## hasn't started shows that entry's gate (none: queued). Returns {rows: the view's entries, start: the
-## indices that start, in order}.
+## hasn't started shows that entry's gate (none: queued).
+## R2 (the E2b-2 vision review; the run's manager): the same walk times each entry's funds, its
+## `affordable_in_s` (_afford_at): the entries that aren't gated start in queue order, each when the stocks,
+## grown at queue_net's rates held fixed (each up to its cap) and less what the entries ahead paid at their own
+## starts, cover it; a gated entry gets its own time there and pays nothing. An entry that never starts (−1.0)
+## pays nothing either, and its store is `starved`: a later entry that costs any of it is −1.0 too, one that
+## doesn't is timed as if it weren't there. Up to the head the timeline's stocks are the walk's copy, so `next`
+## reads 0.0 and `waiting_funds` never does. Returns {rows: the view's entries, start: the indices that start,
+## in order, waits: per entry the store that sets its time ("gold", "bone", "relics"; "" when its stocks cover
+## it at the clock: 0.0, or the start of the entry ahead)}.
 static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
 	var levels := queue_levels(gs, entries)
 	var gold := gs.town_sim.gold
@@ -466,6 +474,11 @@ static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
 	var stopped := false
 	var rows: Array = []
 	var start: Array = []
+	# R2: the funds' timeline: `fund` the stocks at `clock` (the last timed start) after what the entries
+	# started by then paid; `starved` the stores an entry that never starts waits on
+	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
+		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}}
+	var waits: Array = []
 	for i in entries.size():
 		var e: Dictionary = entries[i]
 		var lot_id: String = e["lot_id"]
@@ -499,10 +512,76 @@ static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
 		else:
 			pending[lot_id] = why if status == "skipped_gate" else ""
 			stopped = stopped or status == "waiting_funds"
+		var at := _afford_at(gs, cost, tl, status != "skipped_gate")
+		waits.append(at[1])
 		rows.append({"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
 			"work": gs.town_sim.construction_work(bid, level),
-			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))})
-	return {"rows": rows, "start": start}
+			"status": status, "reason": why, "waited_on": str(e.get("waited_on", "")),
+			"affordable_in_s": float(at[0])})
+	return {"rows": rows, "start": start, "waits": waits}
+
+
+## R2: the net rates the queue's times hold fixed (STATE-API §5.9, MECHANICS §4.4): each capped store's income
+## in TownSim's last step before its cap's clip, less the upkeep it paid (gold `trade` − `out`, bone `mill` −
+## `out`; a save older than those keys reads `in` + `overflow`). Below the cap that is view_rates' and the HUD's
+## net exactly; at the cap their `in` is clipped down to the upkeep, so they read 0 while this keeps the income
+## that comes back once an entry ahead spends the store under its cap. Relics have no idle income: 0.
+static func queue_net(gs: GameState) -> Dictionary:
+	var r: Dictionary = gs.town_sim.rates
+	var out := {"relics": 0.0}
+	for k in [["gold", "trade"], ["bone", "mill"]]:
+		var s: Dictionary = r[k[0]]
+		out[k[0]] = float(s.get(k[1], float(s["in"]) + float(s.get("overflow", 0.0)))) - float(s["out"])
+	return out
+
+
+## R2: an entry's funds time on the walk's timeline `tl` (queue_walk), as [affordable_in_s, the store it waits
+## on]: 0.0 when the stocks at the clock cover its gold, bone and relics; else the clock plus the longest of
+## (cost − stock) / net over the short stores, every store grown at its net up to its cap meanwhile; −1.0 (and
+## the store) when a cost is above its store's cap (over_cap), a relic cost is short (no idle income), it costs
+## a starved store, a short store's net is ≤ 0, or a store that covers it now falls under it by then at a
+## negative net. One that `holds` (isn't gated) starts at its time: the clock moves there and the stocks pay its
+## cost; one that never does starves its store. A gated one changes nothing.
+static func _afford_at(gs: GameState, cost: Dictionary, tl: Dictionary, holds: bool) -> Array:
+	var fund: Dictionary = tl["fund"]
+	var net: Dictionary = tl["net"]
+	var never := ""
+	for s in ["gold", "bone", "relics"]:  # over_cap's check and order, on the caps the walk read once
+		if never == "" and float(cost[s]) > float(tl["cap"][s]):
+			never = s
+	if never == "" and float(cost["relics"]) > float(fund["relics"]):
+		never = "relics"
+	for s in tl["starved"]:
+		if never == "" and float(cost[s]) > 0.0:
+			never = str(s)
+	var dt := 0.0
+	var wait := ""
+	for s in ["gold", "bone"]:
+		var short := float(cost[s]) - float(fund[s])
+		if never != "" or short <= 0.0:
+			continue
+		if float(net[s]) <= 0.0:
+			never = s
+		elif short / float(net[s]) > dt:
+			dt = short / float(net[s])
+			wait = s
+	for s in ["gold", "bone"]:
+		if never == "" and float(net[s]) < 0.0 and float(fund[s]) + float(net[s]) * dt < float(cost[s]):
+			never = s
+	if never != "":
+		if holds:
+			tl["starved"][never] = true
+		return [-1.0, never]
+	var at := float(tl["clock"]) + dt
+	if holds:
+		for s in ["gold", "bone"]:
+			var grown := float(fund[s]) + float(net[s]) * dt
+			if float(net[s]) > 0.0 and grown > float(tl["cap"][s]):
+				grown = maxf(float(tl["cap"][s]), float(fund[s]))  # a full store wastes what comes in; one above its cap keeps its excess
+			fund[s] = maxf(0.0, grown - float(cost[s]))  # (an ulp under 0 after a timed wait would starve a store that costs nothing)
+		fund["relics"] = float(fund["relics"]) - float(cost["relics"])
+		tl["clock"] = at
+	return [at, wait]
 
 
 ## An entry's gate on the walk's copy (`lots`, `pending`, the relics left), in the build family's check
@@ -599,9 +678,10 @@ static func process_queue(gs: GameState) -> void:
 ## there or queued) and max_level (the level it would build); cost_exceeds_cap (a gold, bone or relic cost
 ## over that store's cap now; `store` names it and `cap_building` the building that raises it). Gates
 ## time or play can clear (the tier, a blueprint, a building, a locked lot, relics, a construction under
-## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses.
+## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses. R2: the new
+## entry's affordable_in_s, its row's from the walk (−1.0 on a refusal: no entry), warns at queue time.
 static func queue_build(gs: GameState, building_id: String, lot_id: String) -> Dictionary:
-	var out := {"ok": false, "reason": "", "index": -1, "cap_building": "", "store": "", "cap_level": -1}
+	var out := {"ok": false, "reason": "", "index": -1, "cap_building": "", "store": "", "cap_level": -1, "affordable_in_s": -1.0}
 	var q: Array = gs.build_queue
 	var up := building_id == ""
 	var bid := building_id
@@ -645,7 +725,8 @@ static func queue_build(gs: GameState, building_id: String, lot_id: String) -> D
 	if row["status"] == "skipped_gate" or row["status"] == "waiting_funds":
 		entry["waited_on"] = str(row["reason"])
 	gs.rev += 1
-	return {"ok": true, "reason": "", "index": q.size() - 1, "cap_building": "", "store": "", "cap_level": -1}
+	return {"ok": true, "reason": "", "index": q.size() - 1, "cap_building": "", "store": "", "cap_level": -1,
+		"affordable_in_s": float(row["affordable_in_s"])}
 
 
 ## §4.3 cmd_unqueue: removes entry `index` (unknown_index).

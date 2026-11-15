@@ -77,6 +77,11 @@ func run() -> int:
 	_cap_dropped()
 	_commands()
 	_save()
+	_afford_deadlock()
+	_afford_times()
+	_afford_never()
+	_afford_at_cap()
+	_afford_invariant()
 	return t.failures
 
 
@@ -85,7 +90,8 @@ func _refusals() -> void:
 	t.suite("build_queue-refusals")
 	var s := _mk()
 	var r := s.cmd_queue_build("nope", "lot-05")
-	t.ok(r == {"ok": false, "reason": "unknown_building", "index": -1, "cap_building": "", "store": "", "cap_level": -1}, "unknown_building: %s" % str(r))
+	t.ok(r == {"ok": false, "reason": "unknown_building", "index": -1, "cap_building": "", "store": "", "cap_level": -1, "affordable_in_s": -1.0},
+		"unknown_building: %s" % str(r))
 	t.ok(s.cmd_queue_build("house", "lot-99")["reason"] == "unknown_lot" and s.cmd_queue_build("", "lot-99")["reason"] == "unknown_lot",
 		"unknown_lot, for a build and an upgrade")
 	t.ok(s.cmd_queue_build("crypt", "lot-05")["reason"] == "unique", "unique: the Crypt stands")
@@ -199,7 +205,8 @@ func _view_shape() -> void:
 	var rows := _q(s)
 	var house: Dictionary = TestUtil.configs()["buildings"]["house"]
 	t.ok(rows[0] == {"building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1,
-		"cost": {"gold": 40.0, "bone": 10.0, "relics": 0}, "work": float(house["build_work"]), "status": "next", "reason": "", "waited_on": ""},
+		"cost": {"gold": 40.0, "bone": 10.0, "relics": 0}, "work": float(house["build_work"]), "status": "next", "reason": "", "waited_on": "",
+		"affordable_in_s": 0.0},
 		"a new build's row: %s" % str(rows[0]))
 	t.ok(rows[1]["building_id"] == "house" and rows[1]["upgrade"] and rows[1]["level"] == 2 and rows[1]["work"] == 2.0 * float(house["build_work"])
 		and rows[1]["cost"] == BuildRules.construction_cost(s, "house", 2),
@@ -616,3 +623,175 @@ func _save() -> void:
 	var bad := d.duplicate(true)
 	bad["queue"] = [{"building_id": 3, "lot_id": "lot-05", "upgrade": false}]
 	t.ok(GameState.new(TestUtil.configs()).from_dict(bad) == {"ok": false, "reason": "corrupt"}, "a queue entry of the wrong shape is corrupt")
+
+
+# ------------------------------------------------------------------ R2: affordable_in_s ----
+## R2 (the E2b-2 vision review, item 3; the run's manager: "data, not a skip"): view_town().queue[i].affordable_in_s
+## (STATE-API §5.9, MECHANICS §4.4) is 0.0 when an entry is affordable now, the seconds until it is at today's net
+## rates, or −1.0 when it never is; cmd_queue_build returns the new entry's.
+
+## day1's first overnight (re-checked at b500b73): a House, a Well, a Bakery, then a Bone Mill. The House and the
+## Well are affordable now (0.0, next), the Bakery waits on gold at the day's +0.21/s, and the Mill's 20 bone is
+## the last of day1's 30 once the three have theirs: bone comes only from a Bone Mill, so its net is 0 and the Mill
+## is −1.0 from the moment it is queued (cmd_queue_build's extra, the review's "warn at queue time"). Once the other
+## three start it is the head, waiting on bone, still −1.0: the deadlock, named.
+func _afford_deadlock() -> void:
+	t.suite("build_queue-afford-deadlock")
+	var s := _fixture("day1")
+	s.tick(s.substep_s())  # a step's rates (a fixture loads with none)
+	var net: Dictionary = s.view_rates()["rates"]
+	t.ok(float(net["bone"]["net"]) == 0.0 and float(net["gold"]["net"]) > 0.0 and s.town_sim.bone == 30.0,
+		"(setup) day1 a step in: bone 30 at 0/s, gold at %+.3f/s" % float(net["gold"]["net"]))
+	var plan := [["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"], ["bone_mill", "lot-08"]]
+	var extras: Array = []
+	var at_queue: Array = []
+	for p in plan:
+		var r := s.cmd_queue_build(p[0], p[1])
+		extras.append(r["affordable_in_s"])
+		at_queue.append(float(_q(s).back()["affordable_in_s"]))
+	var rows := _q(s)
+	var gold_left := s.town_sim.gold - 70.0  # after the House's 40 and the Well's 30
+	t.ok(_col(rows, "status") == ["next", "next", "waiting_funds", "queued"], "(setup) House and Well next, the Bakery waits, the Mill queued: %s" % str(_col(rows, "status")))
+	t.ok(rows[0]["affordable_in_s"] == 0.0 and rows[1]["affordable_in_s"] == 0.0, "affordable now: the House and the Well read 0.0")
+	t.ok(absf(float(rows[2]["affordable_in_s"]) - (50.0 - gold_left) / float(net["gold"]["net"])) < 1e-6,
+		"the Bakery: (50 − %.3f) / %.3f = %.3f s" % [gold_left, float(net["gold"]["net"]), float(rows[2]["affordable_in_s"])])
+	t.ok(rows[3]["affordable_in_s"] == -1.0, "the Mill can never be afforded at today's income (bone 0/s): −1.0, %s" % str(rows[3]["affordable_in_s"]))
+	t.ok(extras == at_queue and extras == _col(rows, "affordable_in_s") and extras[3] == -1.0,
+		"cmd_queue_build's affordable_in_s is the new entry's row, then and now: %s" % str(extras))
+	s.cmd_debug_grant({"gold": 100.0})
+	s.drain_events()
+	s.tick(s.substep_s())
+	var st := _started(s.drain_events())
+	var mill: Dictionary = _q(s)[0] if _q(s).size() == 1 else {}
+	t.ok(st.size() == 3 and s.town_sim.bone == 0.0 and mill.get("status", "") == "waiting_funds" and mill.get("reason", "") == "no_bone",
+		"(setup) the House, the Well and the Bakery start (gold granted): the Mill is the head, waiting on bone, with 0 bone left")
+	t.ok(mill.get("affordable_in_s", 0.0) == -1.0, "once the others start the Mill still reads −1.0: %s" % str(mill.get("affordable_in_s")))
+
+
+## The times: a gold-short entry with gold coming in reads (cost − stock) / net, the net view_rates (and the HUD)
+## shows below the cap, to 1e-6; the one behind it counts the first's cost, (c1 + c2 − stock) / net; neither
+## moves when more is queued behind. A gated entry gets its own funds' time and holds nothing.
+func _afford_times() -> void:
+	t.suite("build_queue-afford-times")
+	var s := _fixture("day1")
+	s.tick(s.substep_s())
+	_funds(s, 10.0, 30.0)
+	var net := float(s.view_rates()["rates"]["gold"]["net"])
+	t.ok(net > 0.0 and s.town_sim.gold < s.town_sim.gold_cap(), "(setup) day1 a step in, 10 gold under its cap at %+.3f/s" % net)
+	var r1 := s.cmd_queue_build("house", "lot-05")
+	var r2 := s.cmd_queue_build("well", "lot-06")
+	var rows := _q(s)
+	t.ok(rows[0]["status"] == "waiting_funds" and absf(float(rows[0]["affordable_in_s"]) - (40.0 - 10.0) / net) < 1e-6,
+		"a gold-short House: (40 − 10) / %.3f = %.6f s: %s" % [net, (40.0 - 10.0) / net, str(rows[0]["affordable_in_s"])])
+	t.ok(absf(float(rows[1]["affordable_in_s"]) - (40.0 + 30.0 - 10.0) / net) < 1e-6,
+		"the Well behind it counts the House's 40: (40 + 30 − 10) / %.3f = %.6f s: %s" % [net, (70.0 - 10.0) / net, str(rows[1]["affordable_in_s"])])
+	t.ok(r1["affordable_in_s"] == rows[0]["affordable_in_s"] and r2["affordable_in_s"] == rows[1]["affordable_in_s"],
+		"cmd_queue_build's extras match the view: %s %s" % [str(r1["affordable_in_s"]), str(r2["affordable_in_s"])])
+	# a gated entry ahead holds nothing: a House on locked lot-09 put first moves neither time, and gets its own
+	var g := _fixture("day1")
+	g.tick(g.substep_s())
+	_funds(g, 10.0, 30.0)
+	g.cmd_queue_build("house", "lot-09")
+	g.cmd_queue_build("house", "lot-05")
+	g.cmd_queue_build("well", "lot-06")
+	var gr := _q(g)
+	t.ok(gr[0]["reason"] == "lot_locked" and _col(gr.slice(1), "affordable_in_s") == _col(rows, "affordable_in_s"),
+		"a gated House ahead (lot_locked) holds nothing: the House's and the Well's times are as without it: %s" % str(_col(gr, "affordable_in_s")))
+	t.ok(absf(float(gr[0]["affordable_in_s"]) - (40.0 - 10.0) / net) < 1e-6,
+		"the gated House gets its own funds' time, (40 − 10) / %.3f: %s" % [net, str(gr[0]["affordable_in_s"])])
+
+
+## −1.0: a relic shortfall (relics have no idle income), and a cost above its store's cap now. The crypt's level 2
+## (1 relic) with gold and bone to spare reads −1.0 with no relics and 0.0 with one. After the Bone Mill goes, a
+## Chapel of Vats level 2 costs more bone than the cap: −1.0, though the bone the store kept above its cap covers it.
+func _afford_never() -> void:
+	t.suite("build_queue-afford-never")
+	var s := _mk()
+	s.tick(s.substep_s())
+	_funds(s, 1000.0, 100.0)
+	var r := s.cmd_queue_build("", "lot-01")
+	var row: Dictionary = _q(s)[0]
+	t.ok(row["reason"] == "no_relics" and float(row["cost"]["relics"]) > s.relics and float(row["cost"]["gold"]) <= 1000.0 and float(row["cost"]["bone"]) <= 100.0,
+		"(setup) the crypt's level 2 is short of relics only: %s" % str(row["cost"]))
+	t.ok(row["affordable_in_s"] == -1.0 and r["affordable_in_s"] == -1.0, "a relic shortfall reads −1.0 (raid for relics), the view and the extra: %s %s" % [
+		str(row["affordable_in_s"]), str(r["affordable_in_s"])])
+	s.cmd_debug_grant({"relics": 1})
+	t.ok(_q(s)[0]["status"] == "next" and _q(s)[0]["affordable_in_s"] == 0.0, "with the relic: next, 0.0")
+	var c := _fixture("midgame_2flips")
+	c.town_sim.place_building("lot-13", "chapel_of_vats", 1)
+	c.cmd_debug_grant({"relics": 5})
+	_funds(c, 1500.0, 290.0)
+	c.tick(c.substep_s())
+	_funds(c, 1500.0, 290.0)
+	t.ok(c.cmd_queue_build("", "lot-13")["ok"], "(setup) the chapel's level 2 queued under the mill's cap")
+	for lot_id in c.town_sim.buildings.keys():
+		if c.town_sim.buildings[lot_id]["building_id"] == "bone_mill":
+			c.cmd_demolish(lot_id)
+	var ch: Dictionary = _q(c)[0]
+	t.ok(ch["reason"] == "cost_exceeds_cap" and float(ch["cost"]["bone"]) > c.town_sim.bone_cap() and c.town_sim.bone >= float(ch["cost"]["bone"])
+		and c.town_sim.gold >= float(ch["cost"]["gold"]) and c.relics >= int(ch["cost"]["relics"]),
+		"(setup) the mill gone: %.0f bone over the %.0f cap, the stores holding all of it" % [float(ch["cost"]["bone"]), c.town_sim.bone_cap()])
+	t.ok(ch["affordable_in_s"] == -1.0, "a cost above its store's cap reads −1.0: %s" % str(ch["affordable_in_s"]))
+
+
+## At the cap: view_rates' gold net reads 0 there (its `in` is clipped down to the upkeep), but the income comes
+## back once an entry ahead spends the store under its cap, so the times use the income before the clip, less the
+## upkeep (TownSim's trade − out). A config with a 100-gold cap (the Market adding none): day1 at the cap, a House
+## and a Bakery now, then a Well 20 gold short: 20 / (trade − out), not −1.0.
+func _afford_at_cap() -> void:
+	t.suite("build_queue-afford-cap")
+	var c := TestUtil.configs().duplicate(true)
+	c["economy"]["gold"]["cap"] = 100.0
+	c["buildings"]["market"]["effects"]["gold_cap"] = 0.0
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	s.town_sim.gold = 100.0
+	s.tick(s.substep_s())
+	var g: Dictionary = s.town_sim.rates["gold"]
+	var hud := float(s.view_rates()["rates"]["gold"]["net"])
+	t.ok(s.town_sim.gold_cap() == 100.0 and s.town_sim.gold == 100.0 and absf(hud) < 1e-9 and float(g["trade"]) > float(g["out"]),
+		"(setup) gold full at its 100 cap: view_rates' net %.6f/s, income %.3f/s before the clip, upkeep %.3f/s" % [hud, float(g["trade"]), float(g["out"])])
+	s.cmd_queue_build("house", "lot-05")
+	s.cmd_queue_build("bakery", "lot-06")
+	var w := s.cmd_queue_build("well", "lot-07")
+	var rows := _q(s)
+	var want := (40.0 + 50.0 + 30.0 - 100.0) / (float(g["trade"]) - float(g["out"]))
+	t.ok(_col(rows, "status") == ["next", "next", "waiting_funds"] and absf(float(rows[2]["affordable_in_s"]) - want) < 1e-6 and w["affordable_in_s"] == rows[2]["affordable_in_s"],
+		"the Well, 20 gold short once the two ahead spend the store: %.3f s at the income before the clip, not −1.0: %s" % [want, str(rows[2]["affordable_in_s"])])
+
+
+## Status and time never disagree (one walk): over each fixture's full queue (queue.max_len entries), a step in, a
+## `next` entry reads 0.0, a `waiting_funds` head never does, the entries that hold the queue are timed in order
+## (a later one never earlier), a −1.0 names the store it waits on and a 0.0 none.
+func _afford_invariant() -> void:
+	t.suite("build_queue-afford-invariant")
+	var tries := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
+		["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
+		["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
+	for fx in GameState.FIXTURES:
+		var s := _fixture(fx)
+		s.tick(s.substep_s())
+		for p in tries:
+			if s.build_queue.size() < BuildRules.queue_max(s):
+				s.cmd_queue_build(p[0], p[1])
+		var w := BuildRules.queue_walk(s, s.build_queue)
+		var rows: Array = w["rows"]
+		var bad: Array = []
+		var last := 0.0
+		var never := false
+		for i in rows.size():
+			var r: Dictionary = rows[i]
+			var a := float(r["affordable_in_s"])
+			var wait := str(w["waits"][i])
+			if (r["status"] == "next" and a != 0.0) or (r["status"] == "waiting_funds" and a == 0.0):
+				bad.append("%d %s at %s" % [i, r["status"], a])
+			if r["status"] != "skipped_gate" and a >= 0.0 and not never and a < last:
+				bad.append("%d earlier than the one ahead: %s < %s" % [i, a, last])
+			if r["status"] != "skipped_gate" and a >= 0.0 and not never:
+				last = a
+			never = never or (r["status"] == "waiting_funds" and a < 0.0)
+			if (a < 0.0 and wait == "") or (a == 0.0 and wait != ""):
+				bad.append("%d %s waits on '%s'" % [i, a, wait])
+		print("  [afford] %s: %s" % [fx, str(rows.map(func(r): return "%s %s %.1f" % [r["building_id"], r["status"], float(r["affordable_in_s"])]))])
+		t.ok(rows.size() == BuildRules.queue_max(s) and bad.is_empty(), "%s, a full queue of %d: status and time agree%s" % [fx, rows.size(), "" if bad.is_empty() else ": " + str(bad)])
