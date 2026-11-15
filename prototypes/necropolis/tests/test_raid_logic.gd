@@ -193,12 +193,13 @@ func run() -> int:
 	t.ok(g1.size() == g0.size() and in1 == 0 and str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, gc)) == str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, cfg)),
 		"enemy_room_mult_by_fort: a room weighted 0 at greywall gets none of its 22 living; ashgate is unchanged")
 
-	# D-e task 3: the room leash. Off in the shipped config (every fort); a fort's listed rooms hold until she enters.
+	# D-e task 3: the room leash. On at greywall's room 2 only in the shipped config; a fort's listed rooms hold until she enters.
 	var lc: Dictionary = cfg.duplicate(true)
 	lc["enemy_leash_by_fort"] = {"greywall": {"rooms": [2, 1]}}
-	t.ok(RaidLogic.leash_rooms("greywall", cfg).is_empty() and RaidLogic.leash_rooms("ashgate", lc).is_empty()
+	t.ok(RaidLogic.leash_rooms("greywall", cfg) == [2] and RaidLogic.leash_rooms("ashgate", cfg).is_empty()
+		and RaidLogic.leash_rooms("ashgate", lc).is_empty() and RaidLogic.leash_rooms("old-sluice", cfg).is_empty()
 		and RaidLogic.leash_rooms("greywall", lc) == [2, 1] and RaidLogic.leash_rooms("zz", {}).is_empty(),
-		"leash_rooms: none in the shipped config, none at another fort, the listed rooms at greywall")
+		"leash_rooms: the shipped config leashes greywall's room 2 only; no other fort; the listed rooms from a config")
 	var lroom := Rect2(100, 100, 200, 200)
 	t.ok(RaidLogic.leash_holds(Vector2(50, 50), lroom, 8.0) and not RaidLogic.leash_holds(Vector2(150, 150), lroom, 8.0)
 		and not RaidLogic.leash_holds(Vector2(95, 150), lroom, 8.0) and RaidLogic.leash_holds(Vector2(80, 150), lroom, 8.0),
