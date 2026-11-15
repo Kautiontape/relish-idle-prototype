@@ -924,3 +924,21 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - The toll's exit gap leaves it almost nowhere she stands: the bot's answer kept its own 24 px slam margin, so the gap had to cover it.
   - The Shieldwall's wits pins counter 43 of its 52 missed tells, so the counter, as designed, leaves almost nothing to land.
   - The next step would be a toll gap of about 16, with the bot's exit judged against the ring's own reach, not its margin.
+
+### Step 4b: exposure round 3 (game side only)
+- **The toll's room rule** (6043ad8, replaces `toll_gap_px`): a toll lands only where she can step out of it away from the bell with the toll radius of floor to spare inside the room (`WardenLogic.toll_room_ok`), else that slam tolls nothing.
+- **A pin spares her only the rush** (599c361): a pinned tell's plain bash strikes her in its lit arc. The bot's tally no longer counts a pin as a counter, so the Shieldwall's missed-uncountered count grew from 9 to 52 (not comparable to e2).
+- **r3** (x1, 2 forts x 10 per warden; answered struck 0, untold_blows 0, margins toll 0.87 s and bash 0.71 s):
+
+  | warden | deaths | reach on missed |
+  |---|---|---|
+  | Bellringer | 0 / 20 | 0% of 40 |
+  | Huntsman | 4 / 20 | 56% of 34 |
+  | Shieldwall | 0 / 20 | 10% of 52 |
+  | Pyre-priest | 2 / 20 | 68% of 38 |
+
+  - Tier deaths: t2 1/30, t3 5/30, t4 0/20 (sable-hold not in this check). Medians t2 118, t3 130, t4 111.
+- **The room rule removes the toll at both Bellringer forts.** A print on a throwaway snapshot over the same 20 runs: 0 of 142 toll beats placed a toll.
+  - 110 failed the rule: beyond the slam's reach (291 px: 260 + 18 + 13) in a 640 x 490 room, she has about 30 px or less of floor behind her away from the bell.
+  - 31 had her inside the ring, 1 out of the room.
+  - So the Bellringer is slam-only, and `toll_every` 3 is moot. An exit anywhere in the outward half-plane (sideways along the wall) would place it; not built (last round).
