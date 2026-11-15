@@ -17,7 +17,8 @@ extends RefCounted
 ## - The known gap (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass): a margin
 ##   reads today's flows and neither probe reads the town. A safe fort that falls is counted apart as "its
 ##   WAR fell: supply (E4)" only when a town store (gold or bone: the stores upkeep is paid from, whose floor
-##   of 0 idles buildings) reached its floor before the fort's WAR first went below FLOW_DROP × its sampled
+##   of 0 idles buildings) reached its floor at or after the sample started (a floor before it was in the
+##   readout the sample read) and before the fort's WAR first went below FLOW_DROP × its sampled
 ##   value, and that drop came before its last break began (the retake less break_s): classify(). A WAR
 ##   drop with no store at its floor fails, and so does a break with the WAR intact. pre_vei+2 is the case:
 ##   pre_vei's gold reaches its floor at about 2 h, its buildings go unpaid, its pits stop and the WAR goes
@@ -97,7 +98,8 @@ static func classify(sample_t: float, w_sampled: float, retake_t: float, war: Ar
 		for i in series.size():
 			if float(series[i]) <= FLOOR_EPS:
 				var ft := (i + 1) * dt
-				if ft <= drop and ft < float(out["break_t"]) and (out["floor_t"] < 0.0 or ft < float(out["floor_t"])):
+				# at or after the sample starts: a floor before it was already in the readout the sample read
+				if ft >= sample_t and ft <= drop and ft < float(out["break_t"]) and (out["floor_t"] < 0.0 or ft < float(out["floor_t"])):
 					out["kind"] = "supply"
 					out["store"] = name
 					out["floor_t"] = ft
@@ -108,7 +110,8 @@ static func classify(sample_t: float, w_sampled: float, retake_t: float, war: Ar
 ## classify() on made-up series (1 s apart, 300 s; the sample at 0 with WAR 10, the retake at 250 s and
 ## break_s 120, so the last break began at 130 s): gold at its floor at 41 s, then the WAR under half at
 ## 51 s, is supply; the same WAR drop with gold never at its floor is broke; the WAR intact is broke; gold
-## at its floor at 200 s, after the last break began, is broke. Returns the failures it added.
+## at its floor at 200 s, after the last break began, is broke; so is a floor between the drop and the break,
+## and one from before the sample was read (it needs the floor at or after the sample's start). Returns the failures it added.
 func check_classify() -> int:
 	var f0 := t.failures
 	var mk := func(n: int, before: float, after: float, at: int) -> Array:
@@ -125,9 +128,12 @@ func check_classify() -> int:
 		["a store's floor after the last break began", drop, {"gold": mk.call(300, 50.0, 0.5, 199), "bone": held}, "broke"],
 		# between the WAR drop (51 s) and the break (130 s): isolates the "floor before the drop" condition
 		["a store's floor after the WAR drop but before the break", drop, {"gold": mk.call(300, 50.0, 0.5, 99), "bone": held}, "broke"],
+		# the sample is read at 30 s with gold already at its floor (from 5 s): the readout saw it
+		["a store's floor before the sample started", drop, {"gold": mk.call(300, 50.0, 0.5, 4), "bone": held}, "broke", 30.0],
+		["(control) the same floor, the sample read before it", drop, {"gold": mk.call(300, 50.0, 0.5, 4), "bone": held}, "supply", 0.0],
 	]
 	for c in cases:
-		var r := classify(0.0, 10.0, 250.0, c[1], c[2], 1.0, 120.0)
+		var r := classify(float(c[4]) if c.size() > 4 else 0.0, 10.0, 250.0, c[1], c[2], 1.0, 120.0)
 		t.ok(r["kind"] == c[3], "classify, %s: %s (floor %.0f s, drop %.0f s, break %.0f s)" % [c[0], r["kind"], r["floor_t"], r["drop_t"], r["break_t"]])
 	return t.failures - f0
 
