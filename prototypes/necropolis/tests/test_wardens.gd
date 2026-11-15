@@ -159,7 +159,12 @@ func run() -> int:
 	t.near(WardenLogic.slam_damage(bell, "big", 100.0, false), du * msk, 0.0001, "soak floors at min_soak")
 	t.near(WardenLogic.slam_damage(bell, "unit", 99.0, false), du, 0.0001, "beef never soaks small units")
 	t.near(WardenLogic.slam_damage(bell, "unit", 0.0, true), du * mfl, 0.0001, "muffled unit damage x the weak point's dmg_mult")
-	t.ok(WardenLogic.slam_damage(bell, "relish", 0.0, true) == 0.0, "a MUFFLED slam does not reach Relish (Step 4b: the counter is the soak)")
+	t.ok(WardenLogic.slam_damage(bell, "relish", 0.0, true) == 0.0 and WardenLogic.slam_damage(bell, "relish", 0.0, true, true) == 0.0,
+		"with the lever on (t2 up), a MUFFLED slam does not reach Relish (Step 4b: the counter is the soak)")
+	t.near(WardenLogic.slam_damage(bell, "relish", 0.0, true, false), dr * mfl, 0.0001, "below the lever (t1, the first dungeon) a muffled slam takes dmg_relish x the weak point's dmg_mult, as at 5b70259")
+	var bf1 := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "bellringer", "first_dungeon": true}, cfg)
+	t.ok(not WardenLogic.lever_on(1, false, cfg["wardens"]) and not WardenLogic.lever_on(3, true, cfg["wardens"]) and WardenLogic.lever_on(2, false, cfg["wardens"])
+		and WardenLogic.slam_damage(bf1, "relish", 0.0, true, false) > 0.0, "the gate: t1 and the first dungeon keep the muffled slam on her; t2 up does not")
 	t.ok(WardenLogic.bash_strikes_relish(true, false, true) and WardenLogic.bash_strikes_relish(true, true, true) and not WardenLogic.bash_strikes_relish(false, false, true),
 		"with the lever on, a bash strikes her in its lit arc, pinned or not (a pin spares her only the rush)")
 	t.ok(WardenLogic.bash_strikes_relish(true, false, false) and not WardenLogic.bash_strikes_relish(true, true, false),

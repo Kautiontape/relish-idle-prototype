@@ -243,10 +243,11 @@ static func slam_crosses(dist: float, r_prev: float, r_now: float, band_px: floa
 
 
 ## Slam damage to "unit", "big" or "relish". Big undead are soaked by beef; muffled slams are
-## scaled by the weak point's dmg_mult for the undead, and do not reach Relish at all (D-d/E Step 4b:
-## the counter is the soak; the chain no longer soaks a slam).
-static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool) -> float:
-	if target == "relish" and muffled:
+## scaled by the weak point's dmg_mult. With the risk lever on (`lever`: WardenLogic.lever_on; D-d/E Step
+## 4b, the counter is the soak; the chain no longer soaks a slam there) a muffled slam does not reach
+## Relish at all; below it (t1, the first dungeon) she takes the scaled slam as at 5b70259.
+static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool, lever := true) -> float:
+	if target == "relish" and muffled and lever:
 		return 0.0
 	var at: Dictionary = sp.get("attack", {})
 	var d := float(at.get("dmg_relish", 0.0)) if target == "relish" else float(at.get("dmg_unit", 0.0))
