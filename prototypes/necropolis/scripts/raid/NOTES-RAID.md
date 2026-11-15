@@ -1028,3 +1028,65 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - pale-bastion s1, no wits: the aimed rush was answered, but she switched between goals for 0.8 s before stepping out.
   - hollow-redoubt s18, no speed: game-side. The lock point (1505, 697) lay past the room edge the Huntsman is leashed to, so the dash ran to the clamped point (1505, 669), along the room edge, not along the drawn line. Her sidestep, perpendicular to the drawn line, stood 29 px from the dash's end (catch reach 35). The drawn tell and the lunge's path disagree whenever the lock point is clamped.
 - **Vei:** identical to boss-before at the final head, so V1/V2 were not re-run.
+
+### Step 4b Part 2: the spec review's corrections
+- **No tier was inside the band at Part 2:** t2 19.3%, t3 24.6% and t4 5.3%. The 4c re-measure below gives the new per-tier verdict.
+- **Per archetype**, three of the archetypes had n = 38 (2 forts x 19 seeds). The 4c re-measure has 40 per two-fort archetype and 60 for the Bellringer's three forts.
+- **The curve** ran 3 forts per tier x 5 seeds: 15 a tier, 45 per point.
+- **What each no-counter arm takes away besides the counter** (`raid.json party`: hp 30 + 8 per beef, damage 3 + 1.2 per power, speed 90 + 10 per speed px/s):
+  - Bellringer, `--raid-party-beef=5`: the t2 big drops from beef 6 to 5, under the muffle threshold of 6. Its hp falls from 78 to 70.
+  - Huntsman, `--raid-party-speed=3`: speed 4 becomes 3 (130 to 120 px/s) at t2. At t3 the bigs drop from speed 4 and 6 to 3 (130 and 150 to 120 px/s). All fall under the intercept threshold of 4.
+  - Shieldwall, `--raid-party-wits=0`: the t3 bigs drop from wits 4 and 4 to 0, the t4 bigs from 5, 5 and 5 to 0. That puts them under the flank threshold of 4. Wits changes nothing else in the raid: no hp, damage or speed.
+  - Pyre-priest, `--raid-party-power=5`: the t3 bigs drop from power 6 and 6.5 to 5, so their hit falls from 10.2 and 10.8 to 9.0. The t4 bigs drop from 7, 7.5 and 8 to 5, so their hit falls from 11.4, 12.0 and 12.6 to 9.0. All fall under the snuff threshold of 6.
+- **Reach against 25-50%:** none of the four wardens was inside it. The Bellringer (24%) and the Shieldwall (17%) were below it; the Huntsman (62%) and the Pyre-priest (70%) were above it.
+- **Precision:**
+  - The toll fields. `toll_missed` (19) counts the tolls on missed tells that no bracing big muffled. `toll_missed_struck` (17) counts how many of those struck her, and `toll_missed_muffled` (34) counts the missed tolls that a brace muffled. "17 of 19 missed unmuffled" means `toll_missed_struck` / `toll_missed`.
+  - The idle share: Part 2's numbers pool seconds over the runs with outliers left out (more than 2x their fort's median). Pooled over the per-run splits with every row, the share is 0.1-2.1% (t1 2.1, t2 1.6). Both NOTES and the report now give the method with the number.
+  - The base medians t2 103 and t4 118 hold only with the outliers left out; with every row they are 105.5 and 119.2.
+
+## Step 4c (D-d/E): one bounded round (option b)
+- **The lunge clamp** (d79f3d0, `WardenLogic.lunge_lock`): the lock point is clamped to the Huntsman's leash as the tell begins, so the drawn line is the dash's line. The test checks that the ends match at the leash edge, and that a sidestep off the drawn line by the catch reach is safe all along it.
+  - Seed-1 lines: identical at every fort except hollow-redoubt, which went from beaten to dead.
+  - At x1.0, seeds 1-19: 10 of 19 chime-fort rows and 3 of 19 hollow-redoubt rows moved. t1 Huntsman forts (seeds 1-3): unmoved.
+  - hollow-redoubt s18, no speed: the old caught lunge now locks on an undead and misses. A later answered lunge still lands, because the bot alternates between its sidestep goal and its approach goal at the doorway under the room (a bot fault).
+  - Shot: de4c-lunge-clamped.png.
+- **greywall (t1) trace** (s3; all ours: `LayoutLogic.populate_enemies`):
+  - The opening room holds 5 of the 22 living, the long middle room 12 and the warden room 5.
+  - The army clears the opening by 7.5 s. Going for loot, she reaches the middle room's door (15 living within 250 px). 17 follow her back and wipe the 6 garrison chaff by 13.4 s, and she dies at 16.8 s.
+  - The count is 22 at every t1 fort; the world.json cap only sets the mass per enemy.
+  - The fix (b842fef, `enemy_room_mult_by_fort` greywall {1: 0.5, 2: 2}) gave 1/19 on seeds 1-19, **but 6/20 on fresh seeds 20-39**: it does not meet the bar (ashgate and old-sluice 0/14). The army is still gone at 13.5-15.9 s. Traced at s20: the warden room's 12 leave it within 6 s and gather in the middle room. The spread is not the lever; their leash or the t1 garrison is. Not tried this round.
+- **The lever per tier** (a80402f, c9d3f36; `relish_dmg_mult_by_tier`), picked on seeds 1-19 by the rule fixed before the runs:
+
+  | tier | x1.0 | the other value | pick |
+  |---|---|---|---|
+  | t2 | 12/57 | x0.75: 7/57 | 0.75 |
+  | t3 | 15/57 | x0.75: 11/57 | 0.75 |
+  | t4 | 3/57 | x1.35: 7/57 | 1.35 |
+
+  - In missed tells (her hp is 30):
+    - At 0.75, slam, toll, lunge, bash and rush hit for 9 (30% of her hp; 4 kill her), and fire for 6 (20%; 5 kill).
+    - At 1.35 they hit for 16.2 (54%; 2 kill), and fire for 10.8 (36%; 3 kill).
+- **Re-measure at the final config** (822ed92, fresh seeds 20-39, score 70; the band is judged at score 70):
+  - At tier: 25/180 = 13.9% (90% 10-19). t2 6/60 (10.0%) and t3 8/60 (13.3%) are in the band; t4 11/60 (18.3%) is above it.
+  - Per archetype: Bellringer 9/60, Huntsman 6/40, Pyre-priest 9/40, Shieldwall 1/40.
+  - Per fort: vespers 4, chime-fort 2, lantern-keep 0, hollow-redoubt 4, mourners-gate 3, pale-bastion 1, sable-hold 5, the-stair 0, whitecross 6 (of 20 each).
+  - Causes: fire 9, lunge 6, toll 6, slam 3, rush 1. 24 of 25 had a missed tell that struck.
+  - Answered tells struck: 3, all the two known bot faults. hollow-redoubt s33 is the doorway alternation; sable-hold s34 is the walk into a live ring outside the warden room, like vespers s11. untold_blows: 0.
+  - Scores 50/70/90 (seeds 20-23): 15/36, 1/36, 1/36. Dodge, answer x0.6: 5/27 against 1/27.
+  - Arms (with = the at-tier rows, same arguments): with the counter 20/160 = 12.5% (8.8-17.4), bad 22. Without, 62/160 = 38.8% (32.7-45.2), bad 67. That is 3.1x and 26 points. At chime-fort both arms are 2/20.
+  - Two tiers up: 27/42 died, 12 retreated.
+  - P1, ashgate and old-sluice: seeds 1-3 identical, so the Part 2 rows stand (P1 0/60).
+  - greywall t1: 6/20; scores 50/90 at greywall 2/5 and 0/5.
+  - Reach on missed, uncountered tells (target 25-50%): none inside. Bellringer 23% and Shieldwall 12% are below; Huntsman 66% and Pyre-priest 74% are above.
+  - Length (median scene s; split pooled over runs with outliers out, the Part 2 method; the baselines ran at seeds 1-6):
+
+    | tier | median | human estimate (low against 2:40) | base / bfix |
+    |---|---|---|---|
+    | t2 | 118 | 139-197 (-21 s) | 103 / 107 |
+    | t3 | 123 | 141-193 (-19 s) | 115 / 95 |
+    | t4 | 126 | 151-215 (-9 s) | 118 / 114 |
+    | t1 | 106 | 127-186 (-33 s) | |
+    | P1 | 93 | 112-162 (-48 s) | |
+
+    Idle is 0.3-1.3% at t2-t4.
+  - Lockstep held; the 9 reruns are identical.
