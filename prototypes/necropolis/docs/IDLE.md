@@ -233,8 +233,8 @@ takes over 1 s.
       mass/s), and from about 3.3 h both runs repeat the same 6 600 s cycle. The gap is +0.1 to +7.8
       mass there (mean +3.9; rate · dt / 2 is 3.2): +3.93 over 2.3–13 h and +3.95 over 13–24 h
       (slope 0.005 mass/h). The convoy's landed gap stops moving too, at +24 to +32 mass: 10 s is
-      ahead now, because during the floor its convoy hauled corpses that her arriving living cleared
-      at 0.5 s.
+      ahead now. Over the floor (7 200 to 8 400 s) the 10 s convoy landed 37.4 mass more, the forts'
+      clearing took 60.8 less, and 30 fewer corpses formed (`ledger().sinks.cleared`, 3 h runs).
     - **The load's sawtooth.** `job.haul.carry` is 14 mass with a fixed crew, so a one-trip shift in
       phase moves a fort's corpses by up to a load. At 2 s the gap is −9.7 to +11.4 mass (mean
       −0.1): the 34.7% at 2 s is one load out of phase against a small floor. At 5 s its mean is

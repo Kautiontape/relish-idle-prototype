@@ -846,7 +846,8 @@ mass; bodies, rot return, WORK and muster are mass.
     pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept
     (E2b-2 T3.3a: the hold and §1.3's order stay; the sink is on file, IDLE §4). The gap is bounded:
     measured over 24 h it is the step's own corpses (their rate × dt / 2 on average) plus at most
-    one load, and it doesn't grow (IDLE §4). The catch-up gate's bone floor
+    about one load per fort (summed, up to 28 mass at pre_vei's gold floor), and it doesn't grow
+    (IDLE §4). The catch-up gate's bone floor
     (`idle.catchup_gate_tally_floor`) carries it.
 
 ### 4.3 The living
