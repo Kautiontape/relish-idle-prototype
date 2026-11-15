@@ -27,9 +27,11 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 ## Every config value GameState (and StateRuns and StateViews for it) reads with no fallback, as
 ## "file.section.key" paths (E2b-2 T3.2: tunables whose inline defaults duplicated the configs). setup()
 ## checks every one (_req), so a missing key is an error at load, not a silent default, and
-## tests/test_game_state_configs.gd asserts each one is present in res://configs. The first four are read
-## once in setup(); the rest are read live at each use (_req_f), since tests change some of them after
-## setup.
+## tests/test_game_state_configs.gd asserts each one is present in res://configs. The first four, and the
+## ones the core step and the field's sources read every step (E2b-2 T3.3b, catch-up's budget: the
+## members below), are read once in setup(); the rest are read live at each use (_req_f), since tests
+## change some of them after setup (realm.q.q0, realm.relish.home_stance_bonus, economy.stance.base_slots
+## and others).
 const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "loot.recover_s", "loot.reclear_decay",
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
@@ -48,7 +50,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# T3.3b: the catch-up runner (Catchup; IDLE §4) and the clip events it reads
 	"economy.idle.gap_s", "economy.idle.catchup_max_s", "economy.idle.catchup_dt_max_s", "economy.idle.catchup_max_steps",
 	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
-	"economy.idle.catchup_steps_per_chunk", "realm.tithe.warning_s"]
+	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
+	"realm.tithe.warning_s"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -142,6 +145,28 @@ var _raise_rate := 0.0  # realm.json relish.raise_rate: mass/s Relish raises whe
 var _clear_min_living := 0.0  # realm.json hold.clear_min_living: the dungeon's spawn floor, mirrored
 var _recover_s := 0.0  # loot.json recover_s: a fort's loot yield back to 1 over this many seconds
 var _reclear_decay := 0.0  # loot.json reclear_decay: the yield × this per clear that paid loot
+# ---- the per-step tunables (E2b-2 T3.3b, catch-up's budget, lever 1: a _req_f costs about 0.9 µs and the
+# core step made 10 to 14 of them), read once in setup() from REQUIRED; no test changes them after setup.
+# realm.q.q0 and realm.relish.tide_bias stay live (a test changes q0 after setup; tide_bias is documented as
+# read live, test_game_state_configs) ----
+var _substep := 0.0  # economy.json sim.substep_s
+var _slew_per_s := 0.0  # realm.json valve.slew_per_s
+var _p_base := 0.0  # realm.json P_base
+var _p_per_pit := 0.0  # realm.json P_per_pit
+var _pit_bonus := 0.0  # economy.json pit.bonus
+var _q_raise_max := 0.0  # realm.json q.q_raise_max (q.q0 stays live: a test changes it after setup)
+var _q_forge := 0.0  # realm.json q.q_forge
+var _q_max := 0.0  # realm.json q.q_max
+var _ema_s := 0.0  # realm.json readout.ema_s
+var _travel_speed := 0.0  # realm.json relish.travel_speed
+var _tithe_warning_s := 0.0  # realm.json tithe.warning_s (the catch-up's clip events)
+var _src_per_pit := 0.0  # realm.json field_src_per_pit
+var _vei_pool_cap := 0.0  # realm.json vei_pool_cap
+var _gap_s := 0.0  # economy.json idle.gap_s (every frame's gap check)
+## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
+## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
+## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
+var _tiers_seen: Array = [-1, ""]
 var _acc := 0.0
 ## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
 ## `war` includes). Session only.
@@ -189,6 +214,20 @@ func setup(cfgs: Dictionary) -> void:
 	_clear_min_living = _req_f("realm.hold.clear_min_living")
 	_recover_s = _req_f("loot.recover_s")
 	_reclear_decay = _req_f("loot.reclear_decay")
+	_substep = _req_f("economy.sim.substep_s")
+	_slew_per_s = _req_f("realm.valve.slew_per_s")
+	_p_base = _req_f("realm.P_base")
+	_p_per_pit = _req_f("realm.P_per_pit")
+	_pit_bonus = _req_f("economy.pit.bonus")
+	_q_raise_max = _req_f("realm.q.q_raise_max")
+	_q_forge = _req_f("realm.q.q_forge")
+	_q_max = _req_f("realm.q.q_max")
+	_ema_s = _req_f("realm.readout.ema_s")
+	_travel_speed = _req_f("realm.relish.travel_speed")
+	_tithe_warning_s = _req_f("realm.tithe.warning_s")
+	_src_per_pit = _req_f("realm.field_src_per_pit")
+	_vei_pool_cap = _req_f("realm.vei_pool_cap")
+	_gap_s = _req_f("economy.idle.gap_s")
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
 	var hold := catchup_config_problem(cfgs)
@@ -197,8 +236,9 @@ func setup(cfgs: Dictionary) -> void:
 	town_sim.setup(cfgs)
 
 
-## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step
-## (idle.catchup_dt_max_s), or a catch-up step could flip a stance twice inside its hold. "" when it holds.
+## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step (the larger
+## of idle.catchup_dt_max_s and idle.catchup_dt_long_s), or a catch-up step could flip a stance twice inside
+## its hold. "" when it holds.
 ## stance.hold_s is E3's and not in economy.json yet (BALANCE §5): with no key there is nothing to hold, so
 ## nothing to check until E3 adds it. setup() reports a problem as an error.
 static func catchup_config_problem(cfgs: Dictionary) -> String:
@@ -207,9 +247,10 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 	if not (stance is Dictionary and (stance as Dictionary).has("hold_s")):
 		return ""
 	var hold := float(stance["hold_s"])
-	var dt_max := float(eco.get("idle", {}).get("catchup_dt_max_s", 0.0))
+	var idle: Dictionary = eco.get("idle", {})
+	var dt_max := maxf(float(idle.get("catchup_dt_max_s", 0.0)), float(idle.get("catchup_dt_long_s", 0.0)))
 	if hold < dt_max:
-		return "stance.hold_s (%s s) is under idle.catchup_dt_max_s (%s s): a catch-up step must not straddle a stance's hold" % [
+		return "stance.hold_s (%s s) is under catch-up's longest step, %s s (idle.catchup_dt_max_s, idle.catchup_dt_long_s): a catch-up step must not straddle a stance's hold" % [
 			str(hold), str(dt_max)]
 	return ""
 
@@ -245,7 +286,7 @@ func _sec(file: String, section: String) -> Dictionary:
 
 
 func substep_s() -> float:
-	return _req_f("economy.sim.substep_s")
+	return _substep
 
 
 func max_substeps_per_frame() -> int:
@@ -253,7 +294,7 @@ func max_substeps_per_frame() -> int:
 
 
 func travel_speed() -> float:
-	return _req_f("realm.relish.travel_speed")
+	return _travel_speed
 
 
 func drain_events() -> Array[Dictionary]:
@@ -302,6 +343,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_field_acc = 0.0
 	_events = []
 	_catchup = Catchup.new()
+	_tiers_seen = [-1, ""]
 	t = 0.0
 	time_scale = 1.0
 	paused = false
@@ -609,7 +651,7 @@ func _vei_readout() -> Dictionary:
 ## not in the inflow.
 func _update_readout(dt: float, inflow: float, digestion: float) -> void:
 	_diff = inflow - digestion
-	var ema_s := _req_f("realm.readout.ema_s")
+	var ema_s := _ema_s
 	var a := 1.0 - exp(-dt / ema_s) if ema_s > 0.0 else 1.0
 	var ema := float(_readout["diff_ema"])
 	_readout["diff_ema"] = ema + a * (_diff - ema)
@@ -1220,7 +1262,7 @@ func _world_size() -> Array:
 
 
 func _pool_cap() -> float:
-	return _req_f("realm.vei_pool_cap")
+	return _vei_pool_cap
 
 
 ## Every RATE_IDS stream as {id: [in, out]} per second, the one source of view_rates and view_hud
@@ -1675,10 +1717,10 @@ func catchup_events() -> Array[Dictionary]:
 ## forge job's levels); Σ foreman_q is 0 until E3.
 func digest_q() -> float:
 	var ema := float(_readout["q_raise_ema"])
-	var q_raise := _req_f("realm.q.q_raise_max") * maxf(0.0, (ema - 50.0) / 50.0)
+	var q_raise := _q_raise_max * maxf(0.0, (ema - 50.0) / 50.0)
 	var foremen := 0.0
-	var q := _req_f("realm.q.q0") + _req_f("realm.q.q_forge") * float(town_sim.forge["level"]) + foremen + q_raise
-	return clampf(q, 1.0, _req_f("realm.q.q_max"))
+	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + foremen + q_raise
+	return clampf(q, 1.0, _q_max)
 
 
 ## Each raised bucket {score, mass}, in apply order, moves ema_score by α = 1 − 0.5^(mass /
@@ -1702,7 +1744,7 @@ func _slew_valve(dt: float) -> void:
 ## The valve one slew of `dt` from now (pure): what _slew_valve sets, and what the build benefit's
 ## hypothetical step splits with (StateViews.projections).
 func _slewed_valve(dt: float) -> Dictionary:
-	var rate := _req_f("realm.valve.slew_per_s")
+	var rate := _slew_per_s
 	var l1 := 0.0
 	for k in valve:
 		l1 += absf(float(valve_target[k]) - float(valve[k]))
@@ -1750,7 +1792,7 @@ func tick(dt: float, max_substeps := 0) -> int:
 
 ## Whether a frame of `dt` sim seconds is a gap (IDLE §4): its real time, dt / time_scale, above idle.gap_s.
 func _is_gap(dt: float) -> bool:
-	return dt / (time_scale if time_scale > 0.0 else 1.0) > _req_f("economy.idle.gap_s")
+	return dt / (time_scale if time_scale > 0.0 else 1.0) > _gap_s
 
 
 func _advance(dt: float, max_substeps: int) -> int:
@@ -1788,7 +1830,7 @@ func _frame_work(substeps: int) -> void:
 
 ## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
 func _mint(pits: int, feed: float) -> float:
-	return (_req_f("realm.P_base") + _req_f("realm.P_per_pit") * pits) * (1.0 + _req_f("economy.pit.bonus") * feed)
+	return (_p_base + _p_per_pit * pits) * (1.0 + _pit_bonus * feed)
 
 
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
@@ -1860,7 +1902,9 @@ func _core_step(dt: float) -> Array:
 	relics = maxi(0, relics - int(town["relics_spent"]))
 	for ev in town["events"]:
 		_emit_town(ev)
-	BuildRules.rise_tiers(self)
+	if town_sim.structure_rev != int(_tiers_seen[0]) or town_tier != str(_tiers_seen[1]):
+		BuildRules.rise_tiers(self)
+		_tiers_seen = [town_sim.structure_rev, town_tier]
 	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
 	# opens its entries this step and this step's income counts
 	BuildRules.process_queue(self)
@@ -1969,8 +2013,8 @@ func _inject_sources(dt: float) -> void:
 	var fcfg: Dictionary = _cfg().get("field", {})
 	var src_main: float = float(fcfg.get("src_main", 3.0))
 	var src_fort: float = float(fcfg.get("src_fort", 1.1))
-	field.inject(realm.cov_pos, true, src_main * (1.0 + _req_f("realm.field_src_per_pit") * town_sim.pits()) * dt, 2)
-	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, _req_f("realm.vei_pool_cap"))
+	field.inject(realm.cov_pos, true, src_main * (1.0 + _src_per_pit * town_sim.pits()) * dt, 2)
+	var vei_str: float = 1.0 + realm.vei["living_pool"] / maxf(1.0, _vei_pool_cap)
 	field.inject(realm.vei_pos, false, src_main * vei_str * dt, 3)
 	for f in realm.forts:
 		var cap: float = f["cap"]
@@ -2044,6 +2088,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	SaveIO.apply(self, m)
 	_reset_train()
 	_catchup = Catchup.new()
+	_tiers_seen = [-1, ""]
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)

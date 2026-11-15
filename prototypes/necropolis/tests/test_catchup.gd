@@ -32,6 +32,7 @@ func run() -> int:
 	_away_basic()
 	_away_edges()
 	_dt_rule()
+	_dt_schedule()
 	_next_event_units()
 	_no_straddle()
 	_construction_on_time()
@@ -192,6 +193,36 @@ func _dt_rule() -> void:
 	for e in l._catchup.trace:
 		longest = maxf(longest, float(e[1]))
 	t.near(longest, 7200.0 / n, 1e-9, "a 2 h catch-up's longest step is 2 h / %d" % int(n))
+
+
+## The step past the first 12 h (the budget's lever 2, IDLE §4): up to idle.catchup_dt_max_s for the first
+## idle.catchup_dt_long_after_s of a catch-up, up to idle.catchup_dt_long_s after. Scaled here
+## (catchup_max_steps 100 and the switch at 600 s): a 3 600 s catch-up from midgame_2flips takes 10 s steps
+## to 600 s and 15 s steps after; a 7 d one's base steps are 10 and 15 s at the shipped configs.
+func _dt_schedule() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 100, "economy.idle.catchup_dt_long_after_s": 600.0})
+	var s := _start(c, "midgame_2flips")
+	s.clock_override = CLOCK
+	s.cmd_save("sched")
+	var l := _mk(c)
+	l.from_dict(SaveIO.read_file(_dir + "/sched.json"))
+	var t0 := l.t
+	l._catchup.begin(l, 3600.0, true)
+	l._catchup.trace = []
+	l._catchup.run(l)
+	var before := 0.0
+	var after := 0.0
+	for e in l._catchup.trace:
+		if float(e[0]) - t0 < 600.0 - 1e-9:
+			before = maxf(before, float(e[1]))
+		else:
+			after = maxf(after, float(e[1]))
+	t.ok(before == 10.0 and after == 15.0 and l.t == t0 + 3600.0, "steps up to %.1f s before 600 s, up to %.1f s after" % [before, after])
+	var w := _mk(cfgs())
+	w.cmd_new_game(1)
+	w._catchup.begin(w, 604800.0, true)
+	t.ok(w._catchup.dt == 10.0 and w._catchup.dt_long == 15.0 and w._catchup.long_after_s == 43200.0,
+		"a week: %.0f s steps, %.0f s past %.0f s" % [w._catchup.dt, w._catchup.dt_long, w._catchup.long_after_s])
 
 
 ## next_event_s's clauses, each alone on a new game (Relish home, no tithe, nothing building or queued,
@@ -613,15 +644,17 @@ func _gap_events() -> void:
 				"a %.0f s gap: its %d events are collected for the report (the retake among them), none queued (%d)" % [gap, n.catchup_events().size(), q.size()])
 
 
-## IDLE §4: stance.hold_s must be at least catch-up's longest step. E3's key isn't in economy.json yet, so
-## there is nothing to check; at or above idle.catchup_dt_max_s it holds; under it, setup() reports the
+## IDLE §4: stance.hold_s must be at least catch-up's longest step (the larger of idle.catchup_dt_max_s and
+## idle.catchup_dt_long_s, 15 s). E3's key isn't in economy.json yet, so there is nothing to check; at or
+## above the longest step it holds; under it (BALANCE's planned 10 s against 15 s), setup() reports the
 ## problem as an error.
 func _config_check() -> void:
 	var c := TestUtil.configs()
+	var longest := maxf(float(c["economy"]["idle"]["catchup_dt_max_s"]), float(c["economy"]["idle"]["catchup_dt_long_s"]))
 	t.ok(not (c["economy"]["stance"] as Dictionary).has("hold_s") and GameState.catchup_config_problem(c) == "",
 		"the shipped configs: no stance.hold_s yet (E3's), nothing to check")
+	c["economy"]["stance"]["hold_s"] = longest
+	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s %.0f s against a %.0f s longest step: it holds" % [longest, longest])
 	c["economy"]["stance"]["hold_s"] = 10.0
-	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s 10 s against a 10 s longest step: it holds")
-	c["economy"]["stance"]["hold_s"] = 5.0
 	var p := GameState.catchup_config_problem(c)
-	t.ok(p.find("stance.hold_s") >= 0 and p.find("catchup_dt_max_s") >= 0, "stance.hold_s 5 s under a 10 s step is a problem: %s" % p)
+	t.ok(p.find("stance.hold_s") >= 0 and p.find("catchup_dt_long_s") >= 0, "stance.hold_s 10 s under a %.0f s step is a problem: %s" % [longest, p])

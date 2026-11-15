@@ -5,10 +5,11 @@ extends RefCounted
 ## steps. GameState owns one (`_catchup`) and resets it on a new game and every load; it holds no
 ## reference back (the state is passed in), so nothing cycles.
 ##
-## - The step: dt = clamp(total_s / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s), then
-##   shortened so it never straddles a clip event (next_event_s): dt = min(dt, t_next_event − t). An
-##   event within CLIP_MIN_S of now is taken as now (the step isn't shortened for it). The last step ends
-##   on t0 + total_s exactly.
+## - The step: dt = clamp(total_s / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s), and past
+##   the first idle.catchup_dt_long_after_s (12 h) of the catch-up the same with idle.catchup_dt_long_s (15
+##   s) for the cap (the budget's lever 2: a week steps at 15 s from 12 h on), then shortened so it never
+##   straddles a clip event (next_event_s): dt = min(dt, t_next_event − t). An event within CLIP_MIN_S of
+##   now is taken as now (the step isn't shortened for it). The last step ends on t0 + total_s exactly.
 ## - The field (api-request #14): field_n field steps over the catch-up (idle.field_steps, fewer for a
 ##   short one so that none is under idle.field_step_min_s), each on the first core-step boundary at or
 ##   after its planned moment t0 + total_s · k / field_n, the last on the catch-up's end: one live period's
@@ -35,6 +36,8 @@ var t0 := 0.0  ## the sim time the catch-up started at
 var total_s := 0.0  ## whole seconds it runs
 var end_t := 0.0  ## t0 + total_s
 var dt := 0.0  ## the base step
+var dt_long := 0.0  ## the base step past idle.catchup_dt_long_after_s
+var long_after_s := 0.0  ## idle.catchup_dt_long_after_s
 var steps := 0  ## core steps run so far
 var field_n := 0  ## field steps planned
 var field_k := 0  ## planned moments passed
@@ -59,6 +62,8 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	total_s = maxf(0.0, seconds)
 	end_t = t0 + total_s
 	dt = base_dt(gs, total_s)
+	dt_long = base_dt(gs, total_s, true)
+	long_after_s = gs._req_f("economy.idle.catchup_dt_long_after_s")
 	steps = 0
 	field_k = 0
 	field_calls = 0
@@ -73,10 +78,12 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 
 
 ## The base step for a catch-up of `seconds`: clamp(seconds / idle.catchup_max_steps, sim.substep_s,
-## idle.catchup_dt_max_s).
-static func base_dt(gs: GameState, seconds: float) -> float:
+## idle.catchup_dt_max_s), or with `long` (past idle.catchup_dt_long_after_s) idle.catchup_dt_long_s for the
+## cap.
+static func base_dt(gs: GameState, seconds: float, long := false) -> float:
 	var n := gs._req_f("economy.idle.catchup_max_steps")
-	return clampf(seconds / n if n > 0.0 else INF, gs.substep_s(), gs._req_f("economy.idle.catchup_dt_max_s"))
+	var cap := gs._req_f("economy.idle.catchup_dt_long_s" if long else "economy.idle.catchup_dt_max_s")
+	return clampf(seconds / n if n > 0.0 else INF, gs.substep_s(), cap)
 
 
 ## Seconds of the catch-up run so far.
@@ -93,7 +100,7 @@ func run(gs: GameState, max_steps := -1) -> int:
 	var n := 0
 	while active and (max_steps < 1 or n < max_steps):
 		var left := end_t - gs.t
-		var h := minf(dt, left)
+		var h := minf(dt_long if gs.t - t0 >= long_after_s else dt, left)
 		var last := h >= left
 		var e := next_event_s(gs)
 		if e > CLIP_MIN_S and e < h:
@@ -179,7 +186,7 @@ static func next_event_s(gs: GameState) -> float:
 	var ti: Dictionary = r.tithe
 	if bool(ti.get("started", false)):
 		var ns := float(ti["next_s"])
-		var warn := gs._req_f("realm.tithe.warning_s")
+		var warn := gs._tithe_warning_s
 		if (ti["warning"] as Dictionary).is_empty() and ns - warn > 0.0:
 			e = minf(e, ns - warn)
 		if ns > 0.0:
