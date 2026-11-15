@@ -9,6 +9,10 @@ extends RefCounted
 ##   --raid-autopilot-bail=<0..1> run for an exit and retreat at or below this hp fraction (default: raid.json autopilot.bail_hp_frac, 0 = never)
 ##   --raid-autopilot-log         a status line every 2 scene seconds
 ##   --raid-autopilot-answer-mult=<x> scales the chance to answer a warden tell (1 - react_miss; the context runs)
+##   the degraded bot (D-e, the human bracket; raid.json autopilot.human; each off unless given; the result's `human`):
+##   --raid-autopilot-delay=<s>   the one reaction delay (tell answers, the kite, the no-army leave); the miss stays the score's
+##   --raid-autopilot-read[=<s>]  on first entering each room she stands <s> scene seconds (a dodge or a due kite ends it)
+##   --raid-autopilot-draw[=<s>]  each raise opens the trance and she stands <s> scene seconds drawing it (a dodge drops it)
 ## Run it fast and deterministic with `--headless --fixed-fps 60 --disable-vsync --max-fps 0`.
 ## All policy numbers live in raid.json `autopilot`.
 ##
@@ -101,7 +105,7 @@ var _sig_t := 0.0               # scene time the signature last changed
 var _giving_up := false         # nothing has moved for idle_s: head for an exit and retreat
 var _no_army_t := -1.0          # since when no undead stood and nothing could be raised (-1: not now)
 var _left_no_army := false      # she left for that (the result's `left_no_army`)
-var _why := ""                 # which policy branch chose the last goal (log only)
+var _why := ""                 # which policy branch chose the last goal (log; the degraded bot reads RaidLogic.DODGE_WHYS off it)
 var _foes: Array = []          # living enemies this think (for the retreat's heading choice)
 var _bail := 0.0               # retreat to an exit once hp is at or below this fraction (0 = never)
 var _log := false              # --raid-autopilot-log: one status line every 2 scene seconds
@@ -138,6 +142,21 @@ var _det := {}                  # the guarded detour's site (RaidLogic.detour_si
 var _det_state := ""            # "" until she decides; then "taken", "declined", "done" or "abandoned"
 var _det_at := {}               # what she decided on: scene time, hp fraction, army, guard standing
 var _det_done_s := -1.0         # scene time the cache was hers (-1: not)
+# the degraded bot (D-e; raid.json autopilot.human; all off unless a flag gives them)
+var _human_on := false          # any of the three knobs given: the result's `human` dict
+var _read_s := 0.0              # --raid-autopilot-read: scene seconds she stands on first entering a room
+var _read_left := 0.0           # of the open read pause
+var _rooms_read := {}           # rooms she has entered (each is read once)
+var _reads := 0                 # read pauses begun / cut short by a dodge or a kite
+var _reads_cut := 0
+var _draw_s := 0.0              # --raid-autopilot-draw: scene seconds each circle takes, in the open trance
+var _drawing := false           # a circle is being drawn
+var _draw_t := 0.0              # scene seconds it has run
+var _draw_trace := PackedVector2Array()   # the circle, traced as it began
+var _draws := 0                 # circles begun / let go to dodge / lost to a trance that closed
+var _draws_cancelled := 0
+var _draws_lost := 0
+var _kite_acted := false        # this think kited (a due kite)
 
 
 func _init(p_raid: Node2D) -> void:
@@ -172,6 +191,17 @@ func start() -> void:
 	var am := RaidDev.cli_value("--raid-autopilot-answer-mult=")
 	if am != "":
 		_miss = 1.0 - clampf((1.0 - _miss) * float(am), 0.0, 1.0)
+	# the degraded bot (D-e): the delay alone (the score's miss stays: delay and miss are decoupled), the read
+	# pause and the drawn circle; raid.json autopilot.human holds the bare flags' values and the basis
+	var hum: Dictionary = _cfg.get("human", {})
+	var dl := RaidDev.cli_value("--raid-autopilot-delay=")
+	if dl != "":
+		_delay = maxf(0.0, float(dl))
+	_read_s = RaidLogic.human_knob(RaidDev.cli_value("--raid-autopilot-read="), RaidDev.cli_flag("--raid-autopilot-read"),
+		float(hum.get("read_s", 1.0)), 60.0)
+	_draw_s = RaidLogic.human_knob(RaidDev.cli_value("--raid-autopilot-draw="), RaidDev.cli_flag("--raid-autopilot-draw"),
+		float(hum.get("draw_s", 0.7)), RaidLogic.draw_cap(_raid.rcfg().get("trance", {})))
+	_human_on = dl != "" or _read_s > 0.0 or _draw_s > 0.0
 	var w = _raid.warden_run.warden
 	_archetype = str(w.spec.get("archetype", "")) if w != null and is_instance_valid(w) else ""
 	_frames0 = [Engine.get_process_frames(), Engine.get_physics_frames()]
@@ -204,6 +234,10 @@ func physics_tick(delta: float) -> void:
 	if rel_hp != null and is_instance_valid(rel_hp):
 		_min_hp = minf(_min_hp, rel_hp.hp)
 	_split_tick(delta)
+	if _read_left > 0.0:
+		_read_left = maxf(0.0, _read_left - delta)
+	if _drawing:
+		_draw_t += delta
 	_frame += 1
 	if _frame % maxi(1, int(_c("think_frames", 3.0))) != 0:
 		return
@@ -237,10 +271,15 @@ func physics_tick(delta: float) -> void:
 		if not _pack.is_empty():
 			_pack = ww.pack_telemetry()
 	_track_room(pos)
-	if not _raid.held_clear.started:   # the cleared fort's bonus motes are kept, not circled away
+	if _drawing:
+		_draw_tick(false)   # the circle is done: graded and raised (or the trance closed under her)
+	if not _raid.held_clear.started and _read_left <= 0.0 and not _drawing:   # the cleared fort's bonus motes are kept, not circled away
 		_try_raise(pos)
 	_watch_progress()
+	_kite_acted = false
 	var goal := _decide(pos)
+	if _drawing or _read_left > 0.0:
+		goal = _human_goal(pos, goal)
 	rel.move_target = goal
 	if _log and _frame % 120 == 0:
 		print("AUTOPILOT t=%.1f room=%d pos=(%d,%d) goal=(%d,%d) hp=%.0f enemies=%d allies=%d carried=%d loose=%d piles=%d trance=%d why=%s hold=%.0f near=%d wide=%d warden=%s" % [
@@ -479,6 +518,9 @@ func on_finish(result: Dictionary) -> void:
 	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["react"] = {"miss": snappedf(_miss, 0.001), "delay_s": snappedf(_delay, 0.001), "tells": _tells, "answered": _tells_ok}
+	if _human_on:   # the degraded bot's knobs (D-e): only on its lines, so the frozen bot's lines keep their bytes
+		out["human"] = {"delay_s": snappedf(_delay, 0.001), "read_s": snappedf(_read_s, 0.001), "draw_s": snappedf(_draw_s, 0.001),
+			"reads": _reads, "reads_cut": _reads_cut, "draws": _draws, "draws_cancelled": _draws_cancelled, "draws_lost": _draws_lost}
 	print("AUTOPILOT_RESULT ", JSON.stringify(out))
 	RaidQuit.finish(_raid.get_tree())
 
@@ -534,6 +576,10 @@ func _track_room(pos: Vector2) -> void:
 		_cur_room = r
 		_hold_t = 0.0
 		_rooms_entered += 1
+	if RaidLogic.read_starts(_read_s, r, _rooms_read):   # the degraded bot reads each room once, on first entry
+		_rooms_read[r] = true
+		_read_left = _read_s
+		_reads += 1
 
 
 func _rooms() -> Array:
@@ -949,7 +995,10 @@ func _watch_threat(ne, nd: float) -> void:
 
 
 func _kite_due() -> bool:
-	return _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+	var due := _threat_t >= 0.0 and _sim_t - _threat_t >= _delay - 1e-6
+	if due:
+		_kite_acted = true   # (every caller kites when it is due; the degraded bot's read pause ends on it)
+	return due
 
 
 ## The guarded detour's rule (D-d/E 3b; RaidLogic.detour_take / detour_retreat; raid.json autopilot
@@ -1162,6 +1211,8 @@ func _vs_warden(pos: Vector2, w: RaidWarden, living: Array, ne, nd: float) -> Ve
 			return _toward_room(pos, hr, _room_center(hr))
 		var dodge_to = _dodge_step(pos, h)
 		if dodge_to != null:
+			if dodge_to != pos:
+				_why = "dodge"   # (log, and the degraded bot's dodge test: RaidLogic.DODGE_WHYS)
 			return dodge_to
 	if _archetype == "pyre_priest":
 		return _vs_pyre(pos, w as RaidPyrePriest, living, ne, nd)
@@ -1567,6 +1618,20 @@ func _try_raise(pos: Vector2) -> void:
 	if not bool(ring["ok"]) or int(ring["count"]) < int(_c("min_motes", 3.0)):
 		return
 	var trace := _trace_for(ring["center"], ring["radius"])
+	if _draw_s > 0.0:
+		# the degraded bot draws it (D-e): the trance opens and she stands draw_s scene seconds (_draw_tick)
+		_drawing = true
+		_draw_t = 0.0
+		_draw_trace = trace
+		_draws += 1
+		tr.bot_open()
+		return
+	_raise_with(trace)
+
+
+## Grade a traced circle and raise from it (the bot's instant raise, or a drawn circle once it is done).
+func _raise_with(trace: PackedVector2Array) -> void:
+	var tr: RaidTrance = _raid.trance
 	var g := CircleScorer.grade(trace)
 	_raid.show_trace_feedback(g, trace.duplicate())
 	var before: int = _raid.raises
@@ -1580,6 +1645,42 @@ func _try_raise(pos: Vector2) -> void:
 			_raises_wake += 1
 		if _first_raise_s < 0.0:
 			_first_raise_s = _sim_t
+
+
+## The degraded bot's open circle (RaidLogic.draw_step): done after draw_s, graded where it was traced
+## and raised; lost if the trance closed under her; let go (the lockout, no raise) when she must dodge.
+func _draw_tick(dodging: bool) -> void:
+	var tr: RaidTrance = _raid.trance
+	var st := RaidLogic.draw_step(_draw_t, _draw_s, tr != null and tr.state == RaidTrance.State.ACTIVE, dodging)
+	if st == "hold":
+		return
+	_drawing = false
+	if st == "lost":
+		_draws_lost += 1
+	elif st == "cancel":
+		_draws_cancelled += 1
+		tr.bot_cancel()
+	else:
+		_raise_with(_draw_trace)
+
+
+## The degraded bot's goal while she draws or reads (D-e): she stands, unless the think dodged a warden tell
+## she answered (RaidLogic.DODGE_WHYS: the circle is let go) or, in a read pause, kited from the living
+## (the pause ends). The policy itself ran as ever, so every tell and threat was seen and rolled on time.
+func _human_goal(pos: Vector2, goal: Vector2) -> Vector2:
+	var dodging: bool = RaidLogic.DODGE_WHYS.has(_why)
+	if _drawing:
+		_draw_tick(dodging)
+		if _drawing:
+			_why = "draw"
+			return pos
+		return goal
+	if dodging or _kite_acted:
+		_read_left = 0.0
+		_reads_cut += 1
+		return goal
+	_why = "read"
+	return pos
 
 
 ## 44 points round the circle with seeded radial jitter; the jitter amplitude is binary-searched

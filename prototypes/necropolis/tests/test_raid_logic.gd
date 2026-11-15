@@ -446,6 +446,16 @@ func run() -> int:
 			["res://scripts/raid/warden_shieldwall.gd", "func _end_rush(", "RaidShieldwall._end_rush"],
 			["res://scripts/raid/warden_shieldwall.gd", "func _pinned(", "RaidShieldwall._pinned"],
 			["res://scripts/raid/warden_shieldwall.gd", "func front_half_deg(", "RaidShieldwall.front_half_deg (the rush's arc)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _draw_tick(", "the degraded bot's drawn circle (D-e)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _human_goal(", "the degraded bot's held goal (D-e)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _raise_with(", "the bot's raise from a traced circle"],
+			["res://scripts/raid/raid_autopilot.gd", "func _try_raise(", "the bot's raise (instant, or a drawn circle)"],
+			["res://scripts/raid/raid_autopilot.gd", "func _track_room(", "the bot's room watch (the read pause)"],
+			["res://scripts/raid/trance.gd", "func bot_open(", "RaidTrance.bot_open"],
+			["res://scripts/raid/trance.gd", "func bot_cancel(", "RaidTrance.bot_cancel"],
+			["res://scripts/raid/raid_logic.gd", "static func draw_step(", "RaidLogic.draw_step"],
+			["res://scripts/raid/raid_logic.gd", "static func read_starts(", "RaidLogic.read_starts"],
+			["res://scripts/raid/raid_logic.gd", "static func human_knob(", "RaidLogic.human_knob"],
 			# the callees the guards above call, and the branches that run in the units' own tick
 			["res://scripts/raid/warden_pyre_priest.gd", "func _update_hunters(", "RaidPyrePriest._update_hunters"],
 			["res://scripts/raid/warden_pyre_priest.gd", "func _reachable(", "RaidPyrePriest._reachable"],
@@ -485,6 +495,7 @@ func run() -> int:
 	_vis_tests(t, cfg)
 	_time_split_tests(t)
 	_react_tests(t, cfg)
+	_human_tests(t, cfg)
 	_detour_tests(t, cfg)
 	_bot_rule_tests(t, cfg)
 	var pick := _func_body("res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(")
@@ -671,6 +682,44 @@ func _react_tests(t: TestUtil, cfg: Dictionary) -> void:
 		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
 		t.ok(body != "" and not body.contains("randf") and not body.contains("randi"),
 			"the bot's %s draws no roll of its own (tells go through _answers)" % head.trim_prefix("func ").trim_suffix("("))
+
+
+## D-e, the degraded bot (the human bracket): RaidLogic.human_knob / draw_cap / draw_step / read_starts /
+## human_real_s, and the wiring that keeps every knob off unless given.
+func _human_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("raid_human")
+	var hum: Dictionary = cfg["autopilot"]["human"]
+	t.ok(hum.has("_doc") and float(hum["read_s"]) > 0.0 and float(hum["draw_s"]) > 0.0, "autopilot.human holds the bare flags' values, with a _doc")
+	t.ok(RaidLogic.human_knob("", false, 1.0, 60.0) == 0.0, "no flag: the knob is off")
+	t.near(RaidLogic.human_knob("", true, 1.0, 60.0), 1.0, 1e-9, "the bare flag takes the config's value")
+	t.near(RaidLogic.human_knob("1.5", true, 1.0, 60.0), 1.5, 1e-9, "a value wins over the default")
+	t.ok(RaidLogic.human_knob("-2", false, 1.0, 60.0) == 0.0, "never negative")
+	var cap := RaidLogic.draw_cap(cfg["trance"])
+	t.near(cap, float(cfg["trance"]["max_hold_s"]) * float(cfg["trance"]["time_scale"]), 1e-9, "the draw's cap is the focus in scene seconds (max_hold_s x time_scale)")
+	t.near(RaidLogic.human_knob("9", false, 0.7, cap), cap, 1e-9, "a circle longer than the focus is capped at it")
+	t.ok(float(hum["draw_s"]) <= cap, "the defended draw fits in one trance (%.2f <= %.2f s)" % [float(hum["draw_s"]), cap])
+	t.ok(RaidLogic.draw_step(0.2, 0.7, true, false) == "hold", "drawing: she stands")
+	t.ok(RaidLogic.draw_step(0.7, 0.7, true, false) == "done", "after draw_s the circle is graded and raised")
+	t.ok(RaidLogic.draw_step(0.2, 0.7, true, true) == "cancel", "a dodge off an answered tell lets the circle go")
+	t.ok(RaidLogic.draw_step(0.9, 0.7, false, true) == "lost", "a trance that closed under her raises nothing")
+	t.ok(RaidLogic.read_starts(1.0, 3, {}) and not RaidLogic.read_starts(1.0, 3, {3: true}), "a room is read on her first entry only")
+	t.ok(not RaidLogic.read_starts(1.0, -1, {}) and not RaidLogic.read_starts(0.0, 3, {}), "a doorway band is no room; with the knob off nothing is read")
+	t.near(RaidLogic.human_real_s(100.0, 0.0, 0.35), 100.0, 1e-9, "no trance: real seconds are scene seconds")
+	t.near(RaidLogic.human_real_s(100.0, 7.0, 0.35), 100.0 + 7.0 * (1.0 / 0.35 - 1.0), 1e-9, "each trance scene second took 1/0.35 real seconds")
+	for wy in RaidLogic.DODGE_WHYS:
+		t.ok(FileAccess.get_file_as_string("res://scripts/raid/raid_autopilot.gd").contains('_why = "%s"' % wy), "the dodge branch '%s' is one the bot sets" % wy)
+	var start := _func_body("res://scripts/raid/raid_autopilot.gd", "func start(")
+	t.ok(start.contains("_human_on = dl != \"\" or _read_s > 0.0 or _draw_s > 0.0"), "the result's human dict only when a knob is given (the frozen bot's lines keep their bytes)")
+	var fin := _func_body("res://scripts/raid/raid_autopilot.gd", "func on_finish(")
+	t.ok(fin.contains("if _human_on:"), "on_finish writes the human dict only behind _human_on")
+	var tick := _func_body("res://scripts/raid/raid_autopilot.gd", "func physics_tick(")
+	t.ok(tick.contains("_read_left <= 0.0 and not _drawing") and tick.contains("if _drawing or _read_left > 0.0:"), "no raise while she reads or draws; her goal is held then")
+	var op := _func_body("res://scripts/raid/trance.gd", "func bot_open(")
+	t.ok(op.contains("State.ACTIVE") and not op.contains("time_scale"), "the bot's trance opens without touching Engine.time_scale (lockstep, scene time)")
+	for head in ["func _draw_tick(", "func _human_goal(", "func _raise_with("]:
+		var body := _func_body("res://scripts/raid/raid_autopilot.gd", head)
+		t.ok(body != "" and not body.contains("randf") and not body.contains("randi") and not body.contains("Pulse.phase") and not body.contains("reduced"),
+			"the degraded bot's %s draws no roll and reads no Pulse phase or reduced motion" % head.trim_prefix("func ").trim_suffix("("))
 
 
 ## RaidLogic.time_class / foe_engaged: the measuring bot's time split (one bucket per tick, first match).

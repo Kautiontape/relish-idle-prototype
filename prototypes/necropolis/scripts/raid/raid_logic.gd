@@ -993,3 +993,53 @@ static func react_at(score: float, pts: Array, vals: Array) -> float:
 			var f := (score - float(pts[i - 1])) / maxf(1e-9, float(pts[i]) - float(pts[i - 1]))
 			return lerpf(float(vals[i - 1]), float(vals[i]), f)
 	return float(vals[n - 1])
+
+
+## The degraded bot's knobs (D-e; raid.json autopilot.human): `--raid-autopilot-<name>=<s>` gives `value`,
+## the bare `--raid-autopilot-<name>` gives `bare` true and takes `def` (the config's defended value).
+## Absent: 0, the knob is off. Never negative, and never past `cap`.
+static func human_knob(value: String, bare: bool, def: float, cap: float) -> float:
+	var v := 0.0
+	if value != "":
+		v = float(value)
+	elif bare:
+		v = def
+	return clampf(v, 0.0, cap)
+
+
+## The longest circle a player can draw in one trance, in scene seconds: the focus runs out after
+## trance.max_hold_s of real time, and the scene runs at trance.time_scale meanwhile.
+static func draw_cap(trance_cfg: Dictionary) -> float:
+	return float(trance_cfg.get("max_hold_s", 4.0)) * float(trance_cfg.get("time_scale", 0.35))
+
+
+## One look at a degraded bot's open circle (`--raid-autopilot-draw`): "hold" while it is drawn (she stands,
+## the trance open), "done" once `draw_s` scene seconds have passed (grade it and raise), "lost" when the
+## trance closed under her first (its focus ran out, or the run ended it), "cancel" when she must dodge a
+## warden tell she answered (a player lets go of the trance to move: the lockout, no raise).
+static func draw_step(draw_t: float, draw_s: float, trance_open: bool, dodging: bool) -> String:
+	if not trance_open:
+		return "lost"
+	if dodging:
+		return "cancel"
+	if draw_t >= draw_s - 1e-6:
+		return "done"
+	return "hold"
+
+
+## The read pause (`--raid-autopilot-read`): on her first entry into a room (a doorway band is no room) she
+## stands for `read_s` scene seconds before acting. True when this room starts one.
+static func read_starts(read_s: float, room: int, seen: Dictionary) -> bool:
+	return read_s > 0.0 and room >= 0 and not seen.has(room)
+
+
+## The bot's goal branches that move her off a warden tell she answered (`_why`): the degraded bot's
+## draw gives way to these, and they, or a due kite, end a read pause.
+const DODGE_WHYS := ["toll-out", "bell-out", "wall-out", "pyre-off", "dodge"]
+
+
+## Real seconds for a run measured in scene seconds: outside the trance they are the same, inside it
+## the scene runs at `time_scale` of real time (trance.gd), so each trance scene second took 1 / time_scale
+## real seconds. The degraded bot's draw lands in `trance_s`; its other knobs are scene time already.
+static func human_real_s(scene_s: float, trance_s: float, time_scale: float) -> float:
+	return scene_s + trance_s * (1.0 / maxf(0.05, time_scale) - 1.0)
