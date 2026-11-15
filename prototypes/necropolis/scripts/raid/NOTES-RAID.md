@@ -1405,3 +1405,33 @@ The review of 3b found that every death left no army standing, and that 13 of th
 - **STRUCK −1030:** dev only. The only `take_hit(max_hp + 1000)` calls were `--raid-autodie` (`raid_dev.gd _autodie_hit`) and `--boss-autodie` (`boss_dev.gd _die`), both created only from those flags. Every real blow passes its own damage (slam, toll, lunge, bash, rush, fire, the living's `dmg`), and `take_hit` shows `_struck_amt = amount`, so a real lethal hit shows its real number. **Chosen:** the dev blow equals her remaining hp (the cue stays on, so the shots exercise it), not suppression: `take_hit(relish.hp)`. The first autodie blow after a revive now reads "STRUCK −15" (her revive hp), and a full-hp kill "STRUCK −30".
 - **Identity:** the 13 seed-1 raid lines (iter `de4id`) at bd1dfc1 against 52b9da9: 13 of 13 byte-identical; Vei seed 1 (score 70) identical. The bot never waits on the card (`RaidAutopilot.enabled()`), and `death_next_row` runs only in the card path.
 - **Shots** (reports/dungeon; `--raid-autodie=60 --frames=330`; the dev autodie names its source at any fort, so each is shot where the warden matches): dq-death-toll (vespers, Bellringer toll) and dq-death-clone (vespers, slam, `--raid-clones=1`: "wakes at Covington"); dq-death-fire (`--raid-profile=3 --raid-fort=mourners-gate`, Pyre-priest fire: "unmade"); dq-death-number (`--raid-profile=2 --raid-fort=chime-fort`, Huntsman lunge, `--raid-death-ends=clone:90`: "wakes at Covington in 1:30"; the key is injected by that dev-only override, no seed carries it yet). Profile seeds hold no phylactery, so those two read STRUCK −30.
+
+## D-e task 6: the held door (a t2 set piece)
+### The bot's door rule (bot policy, frozen from here on; written and committed before any row it decides)
+- **When.** Once, at the first think she stands in the door's room before the warden wakes, her read pause over, with no living foe on her (a living foe that is not a detour guard, in her room, within `kite_px`).
+- **Take it when** at least `autopilot.door_min_bigs` (2) party bigs stand and, once one is spent, a big that meets this warden's weak point (`wardens.archetypes.<id>.weak_point` stat and threshold) still stands, or none met it to begin with. **Spend** the big lowest in that stat (the first in party order on a tie). Otherwise skip it. `RaidLogic.held_door_pick`; `RaidAutopilot._door_tick` / `_door_decide`.
+  - Spending the lowest never removes the last big that meets the weak point, so with two or more bigs the rule always takes the door, and the clause decides which big goes.
+  - With one big it always skips. The standard t2 party (`party_profiles["2"]`) has one big, beef 6 and speed 4. That meets the Bellringer's beef 6 and the Huntsman's speed 4, so the frozen bot and the typical human skip the door at every standard t2 run.
+- **Then.**
+  - She walks to the doorstep.
+  - She gives the order, the human's left click on that big, at the first think she is within `held_door.order_px` (220) of the plate with no foe on her.
+  - Once the plate holds the door, she steps into the doorway and takes the cache.
+  - She moves on. Leaving the room shuts the big in.
+- **She gives it up** if the big falls before the door holds, or if the door is not open `door_wait_max_s` (8 s) after the order. A big sent stays sent, so it is shut in when she leaves.
+- **Basis: a decent player.** The cache is a relic, and its price is a big that sits out the warden fight and is lost on a retreat or a death.
+  - With a spare big, they spend the one least use against this warden and keep the one that answers it. The warden's label says which stat answers it ("a beefy big undead braced at the bell muffles its slams"), and the 3c arms showed a fight without its counter runs 1.3-3x longer.
+  - With one big, that big is the counter, so they keep it.
+- Frozen like the detour rule. The reaction rule and the detour rule are unchanged.
+
+### The measurement arms (the manager, 2026-11-15; written before their rows)
+- Seeds 20-39 only. Profiles: the frozen bot (score 70) and the typical human (score 70, `--raid-autopilot-delay=1.0 --raid-autopilot-read=1.0 --raid-autopilot-draw=0.7`).
+- **Arm (a), the standard t2 party** (`--raid-profile=2` at vespers, lantern-keep and chime-fort). With the door, paired by seed against the existing no-door rows: m4c for the frozen bot, hb70d10 for the typical human.
+- **Arm (b), a party with a spare big.** This is not the standard t2 party. It is the t3 party (`--raid-profile=3`: two bigs, beef 7 / speed 4 and beef 4 / speed 6) at the same three t2 forts. Its no-door rows run on a snapshot of a14d1ec (the code before the door), and it is paired by seed against them.
+  - At the Bellringer forts the rule spends the beef-4 big.
+  - At chime-fort (the Huntsman, speed 4) both bigs meet the weak point, so it spends the speed-4 big.
+- Reported per arm, per fort and per profile:
+  - the door-taken rate and which big is spent;
+  - the t2 median and the share of runs at 180 s or more (the typical human with the midpoint left-out factors);
+  - t2 deaths paired by seed, with Wilson 90% and the clustered interval;
+  - travel against the 5.3% ceiling, and idle;
+  - relics gained, and bigs spent, rejoined or lost.
