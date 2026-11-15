@@ -605,21 +605,29 @@ func _starter_units(fort_id: String) -> int:
 
 ## raid.json wardens.by_fort is dungeon-owned; the E1 stub is bellringer.
 func _warden_archetype(fort_id: String) -> String:
-	return str(_sec("raid", "wardens").get("by_fort", {}).get(fort_id, "bellringer"))
+	var by_fort: Variant = _sec("raid", "wardens").get("by_fort", {})
+	return str((by_fort as Dictionary).get(fort_id, "bellringer")) if by_fort is Dictionary else "bellringer"
 
 
 ## raid.json wardens.archetypes.<id>.name and .tells, dungeon-owned: "" and [] for an archetype the
 ## config doesn't list (a missing key is the dungeon's to fix, never a crash here).
 func _warden_name(archetype: String) -> String:
-	var a: Variant = _sec("raid", "wardens").get("archetypes", {}).get(archetype, {})
+	var a: Variant = _warden_spec(archetype)
 	return str((a as Dictionary).get("name", "")) if a is Dictionary else ""
 
 
+## The archetype's spec, or {} when `archetypes` or the entry isn't a Dictionary.
+func _warden_spec(archetype: String) -> Dictionary:
+	var all: Variant = _sec("raid", "wardens").get("archetypes", {})
+	var a: Variant = (all as Dictionary).get(archetype, {}) if all is Dictionary else {}
+	return a if a is Dictionary else {}
+
+
 func _warden_tells(archetype: String) -> Array:
-	var a: Variant = _sec("raid", "wardens").get("archetypes", {}).get(archetype, {})
 	var out: Array = []
-	if a is Dictionary:
-		for t in (a as Dictionary).get("tells", []):
+	var tells: Variant = _warden_spec(archetype).get("tells", [])
+	if tells is Array:
+		for t in tells:
 			out.append(str(t))
 	return out
 
@@ -627,7 +635,7 @@ func _warden_tells(archetype: String) -> Array:
 ## loot.json hints (dungeon-owned): the first dungeon reads `first_dungeon_hint`, any other fort
 ## `hints["t<tier>.<archetype>"]`, "" when the key is missing.
 func _loot_hint(fort_id: String) -> String:
-	var hints: Dictionary = _sec("loot", "hints")
+	var hints: Dictionary = _sec("loot", "hints")  # _sec already reads a non-Dictionary as {}
 	if _is_first_dungeon(fort_id):
 		return str(hints.get("first_dungeon_hint", ""))
 	var f := realm.fort_by_id(fort_id)

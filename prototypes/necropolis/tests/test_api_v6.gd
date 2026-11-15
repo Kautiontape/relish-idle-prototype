@@ -1103,6 +1103,28 @@ func _warden_card() -> void:
 	var w4: Dictionary = s4.view_fort(nonfirst)["warden"]
 	t.ok(w4["archetype"] == by_fort[nonfirst] and w4["name"] == "" and w4["tells"] == [], "an unlisted archetype: name \"\" and tells []")
 
+	# malformed sections (not a Dictionary / Array) read as missing and never crash
+	var nf := ""
+	for id in by_fort:
+		if not s.view_fort(id)["first_dungeon"]:
+			nf = id
+	for bad in ["x", 7, [1], null]:
+		var c5 := TestUtil.configs()
+		c5["raid"]["wardens"]["archetypes"] = bad
+		c5["raid"]["wardens"]["by_fort"] = bad
+		c5["loot"]["hints"] = bad
+		var s5 := GameState.new(c5)
+		s5.cmd_new_game(1)
+		var v5: Dictionary = s5.view_fort(nf)
+		t.ok(v5["warden"]["archetype"] == "bellringer" and v5["warden"]["name"] == "" and v5["warden"]["tells"] == [] and v5["loot_hint"] == "",
+			"non-dict archetypes, by_fort and hints (%s): the card reads the stub, \"\" and []" % str(bad))
+	var c6 := TestUtil.configs()
+	for k in c6["raid"]["wardens"]["archetypes"]:
+		c6["raid"]["wardens"]["archetypes"][k]["tells"] = "not an array"
+	var s6 := GameState.new(c6)
+	s6.cmd_new_game(1)
+	t.ok(s6.view_fort(nf)["warden"]["tells"] == [] and str(s6.view_fort(nf)["warden"]["name"]) != "", "non-array tells read []; the name stays")
+
 
 ## T3.4a: view_town().buildings[].starved, on the Bone Mill (lot-05 here): "pits_first" when the pits took bodies and the
 ## supply fell short of both, "no_bodies" when the pits took none either, "" with a surplus or no

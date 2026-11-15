@@ -1309,14 +1309,14 @@ func pits() -> int:
 	return int(_sum_working("pits"))
 
 
-## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
-## slots only for its staffed vats); 0 when empty.
 ## The mill slots a lot's building offers (0 with no building).
 func lot_mill_slots(lot_id: String) -> int:
 	var b: Dictionary = buildings.get(lot_id, {})
 	return _slots(b, "mill") if not b.is_empty() else 0
 
 
+## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
+## slots only for its staffed vats); 0 when empty.
 func lot_slots(lot_id: String) -> int:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var n := 0
