@@ -892,3 +892,35 @@ The review of 3b found that every death left no army standing, and that 13 of th
 
   - **No value puts every tier in 5-25%.** The Bellringer sees about twice the tells per fight (15-41 against about 10 elsewhere), so its forts (vespers, sable-hold) die at any value. t3 has no Bellringer.
   - Steps: with hits of 12 x m, n hits kill from m >= 2.5/n (1.25, 0.83, 0.63 for 2, 3, 4 hits); fire's 8 x m kills in n hits from 3.75/n. Chip damage from the living blurs both.
+
+### Step 4b: the tally gap and per-warden exposure
+- **The gap was the tally's.** The killing blow ended the run before a split tick recorded it, so struck tells fell one short of the blows in every death.
+  - ef91d24 books it, and adds `tell_tally.untold_blows`: blows in no seen tell's window.
+  - Every blow in the 13 c7 deaths, and in the 180 runs after, followed a tell she saw. untold_blows is 0 throughout.
+- **Two answered tells did strike, and both are fixed:**
+  - A toll in a corner just outside the ring had no exit (lantern-keep s2). It now lands only where stepping out toward the bell keeps her out of the slam (`toll_gap_px` 40; 40d281d).
+  - Kiting hid a lit tell from the roll (the-stair s1: the rush was seen 0.70 s before it struck). A warden tell is now seen and answered before the kite (0741e80, fixed after the freeze, beside "missed means missed").
+- **The exposure knobs** (old -> new):
+
+  | knob | old -> new | effect |
+  |---|---|---|
+  | Bellringer `toll_every` | (1) -> 3 | |
+  | Bellringer `toll_gap_px` | (0) -> 40 | |
+  | Pyre-priest `relish_area_every` | (none) -> 4 | aimed fires per fight about 4 -> 8.7 |
+  | Shieldwall `rush_lane_over_px` | (room) -> 80 | the lane reaches 80 px past her: an answer by stepping back, 0.72 s margin |
+
+- **e2** (x1, seeds 1-10, 2 forts x 10 per warden):
+
+  | warden | deaths | tells per fight | reach on missed |
+  |---|---|---|---|
+  | Bellringer | 0 / 20 | 22.5 | 2% |
+  | Huntsman | 4 / 20 | 11.3 | 56% |
+  | Shieldwall | 0 / 20 | 12.5 | 56% of 9 |
+  | Pyre-priest | 2 / 20 | 8.7 | 68% |
+
+  - Answered struck: 0. Tier deaths: 1, 5 and 0 of 30.
+  - Medians: t2 118, t3 130, t4 117 (vespers +35%, sable-hold +16%).
+- **Not met after two rounds:**
+  - The toll's exit gap leaves it almost nowhere she stands: the bot's answer kept its own 24 px slam margin, so the gap had to cover it.
+  - The Shieldwall's wits pins counter 43 of its 52 missed tells, so the counter, as designed, leaves almost nothing to land.
+  - The next step would be a toll gap of about 16, with the bot's exit judged against the ring's own reach, not its margin.
