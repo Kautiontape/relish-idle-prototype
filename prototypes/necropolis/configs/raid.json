@@ -199,6 +199,10 @@
     "_doc": "D-d/E Step 4c: a fort listed here scales the weight each room (by index) gets when its living are spread (LayoutLogic.populate_enemies: weight = distance from the spawn ^ 1.5, times this; the same rng draws). For a fort whose layout piles the living next to the opening. greywall (t1): its long room 1, the one room between the opening and the warden room, drew 12 of its 22 living; once the opening room was clear she met them alone at its door, they followed her back and wiped the 6-unit garrison by 13-15 s (8 of 14 died, ashgate and old-sluice 0 of 14). Half of room 1's weight goes to the warden room (seeds 1-19: room 1 x0.5 alone 4/19 died, x0.25 6/19, x0.25 with the warden room x3 6/19, this 1/19).",
     "greywall": {"1": 0.5, "2": 2.0}
   },
+  "enemy_leash_by_fort": {
+    "_doc": "D-e task 3: a fort listed here keeps the living of its listed rooms (by index, as enemy_room_mult_by_fort) in their own room until Relish first steps into it (RaidUnit.leash_hold; RaidLogic.leash_rooms / leash_holds). Held, they act like the detour's guard: they turn only on her undead inside their room, and follow no one out. Once she is in the room they are released for good. For a fort whose living leave a room the moment the army is seen and pile on her in another (greywall: the warden room's 12 gather in the long middle room). Absent or empty: no leash, byte-identical.",
+    "greywall": {"rooms": []}
+  },
   "tier_mix": {
     "1": {
       "spearman": 1.0

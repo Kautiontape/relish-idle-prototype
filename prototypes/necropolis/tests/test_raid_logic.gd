@@ -193,6 +193,17 @@ func run() -> int:
 	t.ok(g1.size() == g0.size() and in1 == 0 and str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, gc)) == str(RaidLogic.populate_enemies("ashgate", alay, 22, 1, cfg)),
 		"enemy_room_mult_by_fort: a room weighted 0 at greywall gets none of its 22 living; ashgate is unchanged")
 
+	# D-e task 3: the room leash. Off in the shipped config (every fort); a fort's listed rooms hold until she enters.
+	var lc: Dictionary = cfg.duplicate(true)
+	lc["enemy_leash_by_fort"] = {"greywall": {"rooms": [2, 1]}}
+	t.ok(RaidLogic.leash_rooms("greywall", cfg).is_empty() and RaidLogic.leash_rooms("ashgate", lc).is_empty()
+		and RaidLogic.leash_rooms("greywall", lc) == [2, 1] and RaidLogic.leash_rooms("zz", {}).is_empty(),
+		"leash_rooms: none in the shipped config, none at another fort, the listed rooms at greywall")
+	var lroom := Rect2(100, 100, 200, 200)
+	t.ok(RaidLogic.leash_holds(Vector2(50, 50), lroom, 8.0) and not RaidLogic.leash_holds(Vector2(150, 150), lroom, 8.0)
+		and not RaidLogic.leash_holds(Vector2(95, 150), lroom, 8.0) and RaidLogic.leash_holds(Vector2(80, 150), lroom, 8.0),
+		"leash_holds: held outside the room, released inside it (the margin counts)")
+
 	# --- v2: seed, per-mote raise, statlines, LedgerV2 ------------------------
 	var ccfg := TestUtil.load_json("res://configs/circle.json")
 	t.suite("raid_v2_seed")
@@ -436,6 +447,10 @@ func run() -> int:
 			["res://scripts/raid/raid_autopilot.gd", "func _counter_count(", "the bot's counter count"],
 			["res://scripts/raid/warden_logic.gd", "static func lane_reach(", "WardenLogic.lane_reach"],
 			["res://scripts/raid/raid_autopilot.gd", "func _watch_progress(", "the bot's progress watch (the no-army leave)"],
+			["res://scripts/raid/raid_logic.gd", "static func leash_holds(", "RaidLogic.leash_holds (the room leash)"],
+			["res://scripts/raid/raid_logic.gd", "static func leash_rooms(", "RaidLogic.leash_rooms"],
+			["res://scripts/raid/raid_unit.gd", "var leash_hold", "RaidUnit.leash_hold (a held foe)"],
+			["res://scripts/raid/raid_populate.gd", "u.leash_hold = ", "RaidPopulate sets the hold from the config"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_sentry_target(", "RaidUnit._pick_sentry_target (the guard holds its post)"],
 			["res://scripts/raid/raid_unit.gd", "func _hit_enemy(", "RaidUnit._hit_enemy (the counter breaks a pack unit)"],
 			["res://scripts/raid/raid_unit.gd", "func _pick_enemy_target(", "RaidUnit._pick_enemy_target (a pack never picks Relish)"],

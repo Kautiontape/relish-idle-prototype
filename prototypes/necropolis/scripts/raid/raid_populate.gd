@@ -23,10 +23,12 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 		# the guarded detour's guard comes out of the fort's own count: the same bodies, mass and motes, placed
 		var guard := RaidLogic.detour_guard(fort_id, layout, tier, cfg)
 		var spots := RaidLogic.populate_enemies(fort_id, layout, maxi(0, n - guard.size()), tier, cfg)
+		var leashed := RaidLogic.leash_rooms(fort_id, cfg)
 		for s in spots + guard:
 			var u: RaidUnit = _raid.spawn_unit("enemy", s["kind"], s["pos"])
 			u.mass = mpe
 			u.home_room = layout["rooms"][s["room"]]
+			u.leash_hold = int(s["room"]) in leashed
 		for i in guard.size():
 			var g: RaidUnit = _raid.enemies[_raid.enemies.size() - guard.size() + i]
 			g.sentry = true   # it holds its post (raid.json detour)

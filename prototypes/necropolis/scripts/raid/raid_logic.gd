@@ -844,6 +844,22 @@ static func populate_enemies(fort_id: String, layout: Dictionary, count: int, ti
 	return LayoutLogic.populate_enemies(fort_id, layout, count, tier, cfg)
 
 
+## D-e task 3, the room leash (raid.json enemy_leash_by_fort; off with no entry): the rooms of `fort_id` whose
+## living hold their own room until Relish steps into it. [] for a fort with no entry.
+static func leash_rooms(fort_id: String, cfg: Dictionary) -> Array:
+	var e: Dictionary = (cfg.get("enemy_leash_by_fort", {}) as Dictionary).get(fort_id, {})
+	var out: Array = []
+	for r in e.get("rooms", []):
+		out.append(int(r))
+	return out
+
+
+## True while a leashed foe still holds: Relish is not yet in its room (its rect grown by `margin`).
+## It never reverts: the caller clears its hold the first time this is false.
+static func leash_holds(relish_pos: Vector2, room: Rect2, margin: float) -> bool:
+	return not room.grow(margin).has_point(relish_pos)
+
+
 ## D-d/E Step 3: the guarded detour's site and guard (LayoutLogic.detour_site / detour_guard).
 static func detour_site(layout: Dictionary, tier: int, cfg: Dictionary) -> Dictionary:
 	return LayoutLogic.detour_site(layout, tier, cfg)

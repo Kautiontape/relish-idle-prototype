@@ -25,6 +25,7 @@ var slots := 1               # party: nested diamonds (filled slots)
 var home_room := Rect2()
 var alive := true
 var warden_pack := false      # a warden's own living (the Huntsman's hounds): massless, drops nothing
+var leash_hold := false       # D-e task 3: holds its room (like the sentry) until Relish first enters it, then fights as any foe
 var sentry := false           # the detour's guard: holds its room (home_room), never follows out of it
 
 var _guard := {}             # bodyguard post this frame ({} when not guarding)
@@ -252,6 +253,13 @@ func _pick_enemy_target(cfg: Dictionary) -> void:
 	if sentry:
 		_pick_sentry_target()
 		return
+	if leash_hold:
+		var rl = raid.relish
+		if rl != null and is_instance_valid(rl) and rl.alive and not RaidLogic.leash_holds(rl.global_position, home_room, 8.0):
+			leash_hold = false   # she is in its room: released for good
+		else:
+			_pick_sentry_target()
+			return
 	# enemy: aggro within range of Relish or any undead, then stay hostile
 	var best = null
 	var best_d := INF
