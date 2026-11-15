@@ -129,8 +129,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   nothing to check until E3 adds it.
 - Gold and bone clamp to their floor of 0 and their cap on each step's net. The build queue loops
   inside a step until its head can't start.
-- The influence field takes `idle.field_steps` (150) field steps over a catch-up (api-request #14,
-  ground's `InfluenceField.catchup_step`; E2b-2 T3.3b): each on the first core-step boundary at or after
+- The influence field takes `idle.field_steps` (75; 150 until E2b-2 T3.3b2, below) field steps over a
+  catch-up (api-request #14, ground's `InfluenceField.catchup_step`; E2b-2 T3.3b): each on the first core-step boundary at or after
   its share of the time, the last on the end, each one live period's sources, then `catchup_step` for
   the seconds since the last, then the village owners. Nothing injects between them, and the catch-up
   ends with the field published. A short catch-up takes fewer, none under `idle.field_step_min_s` (2 s;
@@ -140,6 +140,33 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   144 ticks at the live 0.2 s instead left owners lagging: 96.8% of village-samples matched over 12 h,
   with `green_towns` off in 37 of 144. `catchup_step` is the plan that replaced both:
   `tests/slow/field_catchup_bench.gd`.)
+  - **75, not 150** (E2b-2 T3.3b2; the run's manager's ruling, ground being closed, on the condition that
+    ground's own owner test passes at 75). That test is `tests/slow/field_catchup_bench.gd`: 12 h of a
+    contested scenario, catch-up against the same field steps run as exact live ticks, at least 99% of
+    village samples and the green villages at the end equal. It fixes its step at `STEP_S` 300 s (144
+    steps) and reads no config, so it ran unchanged at 144 (99.83%, green 3 = 3) and as a copy with only
+    `STEP_S` 576 s, 75 steps (99.67%, green 3 = 3): it passes. A field step at 12 h is then 576 s, about one
+    live tick (7.6 ms median against a live tick's 9.6 ms in the same run, load about 6), so 0.5–0.6 s for
+    the 75 instead of 0.8–1.4 s for the 150. From the three starts, 75 against 150 over 12 h and 7 days
+    (the shipped schedule, the 8 × 6 field and the shipped one) gives the same flips, retakes, forts held,
+    Relish's place and Covington, every Vei and Covington stock equal to the printed digit (0.000%), and
+    village owners at most 1 of 12 apart; `catchup_week` and `catchup_accuracy` give at 75 what they gave
+    at 150.
+  - **The owners' feedback** (the migrants: `green_towns` × `town.migrant_rate` while living are under their
+    cap). Over 12 h from the three starts on the shipped field, catch-up against live play at 0.5 s (one
+    substep a frame, at most `field.max_ticks_per_step` field ticks each), sampled hourly: the owners differ
+    in at most 1 of 12 villages at any hour, at 150 and at 75 alike, and not more as time goes on
+    (midgame_2flips 0–1, a village orange live and unowned caught up; pre_vei 1 in the first 2 h, when
+    catch-up loses its second green village an hour or two before live play does, then 0; fresh 0). The
+    migrants that feeds TownSim differ by a fixed amount set in the first hours: +0.3–0.4 living over 12 h
+    at midgame_2flips and fresh (+0.1%), −24.8 at pre_vei (−4.1%, of 605 live; −11% at 3 h). It moves no
+    stock: Covington's living sit at their cap throughout at all three (26, 88 and 16), so the migrants
+    above it are dropped in both runs.
+  - **T3.3c's living gap** (`tests/test_away.gd`'s walk-home catch-up, 16 living live against 10.1 caught up)
+    is the shrunk field's: on its 8 × 6 field with no pre-warm, Covington's village is green live and goes
+    unowned at catch-up's first field step, so 0.12 living of migrants arrive in 10 min against 7.2 live.
+    On the shipped field, pre-warmed, the owners match at 10 of 11 samples (one village apart once, not the
+    green one), the migrants are 6.84 against 6.87 and both end at the cap of 16.
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
   (`view_catchup`) advances it in fixed chunks of `idle.catchup_steps_per_chunk` core steps, one per
   frame, and chunking never changes the result (tested to the bit at chunks of 1, 7 and 150; the shipped

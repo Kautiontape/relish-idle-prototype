@@ -148,8 +148,8 @@ func _away_basic() -> void:
 	t.ok(n.drain_events().map(func(e): return e["type"]) == ["away_report"], "the scenes' queue gets none of them: only the report's away_report")
 	var cu := n.view_catchup()
 	t.ok(not cu["active"] and cu["done_s"] == 3000.0 and cu["total_s"] == 3000.0, "view_catchup: done, 3000 of 3000 s: %s" % str(cu))
-	t.ok(n._catchup.steps > 0 and n._catchup.field_calls == n._catchup.field_n and n._catchup.field_n == 150,
-		"%d core steps, %d field steps (of %d planned)" % [n._catchup.steps, n._catchup.field_calls, n._catchup.field_n])
+	t.ok(n._catchup.steps > 0 and n._catchup.field_calls == n._catchup.field_n and n._catchup.field_n == int(c["economy"]["idle"]["field_steps"]),
+		"%d core steps, %d field steps (of %d planned: idle.field_steps)" % [n._catchup.steps, n._catchup.field_calls, n._catchup.field_n])
 
 
 ## A clock behind the save is no time away (the identity); one more than idle.catchup_max_s on is capped
