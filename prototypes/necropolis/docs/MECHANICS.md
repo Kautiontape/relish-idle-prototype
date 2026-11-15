@@ -1149,6 +1149,15 @@ processing does.
   short a little longer, and with the new upkeep the town saved about 0.01 gold/s, so 2.2 gold took
   about 220 s. End of run: gold 9 261 against 9 330 (−0.74%), bone 29.2 against 28.5, the same levels
   everywhere; the mill's level 2 waits on bone in both. With no queue the two gold paths are identical.
+  - Re-measured at T7, with the dead's buildings bought with bone (BALANCE §7): midgame_2flips earns no bone,
+    so the suite starts the mill at level 2 (its queued level is 3), the bone at the queue's whole bone and
+    the gold at the first five entries' and 10 more. The five start 9.5 s later at 10 s (one step); they
+    finish at 90 s against 80 s, so their upkeep (about 0.17 gold/s) starts 10 s later and the 10 s run's
+    gold runs 1.74 ahead from then on. At the town's +0.010 gold/s that is about 170 s, so the three entries
+    that wait on gold (the pit's and the market's level 2, the mill's level 3) start 168.5, 168.5 and
+    161.5 s **earlier** at 10 s (mean −56.4 s over the 8 starts): a long step's gold can run ahead as well
+    as behind, by the upkeep it saves. End of run: gold 12 424 against 12 372 (+0.42%), bone 50 in both,
+    the same entries in the same order and the same levels.
 
 **Every building has a numeric benefit** (vision review S7). From E2b-2 (T3.2, api-request #9) the build
 card shows it as the change in each net rate if the building were finished now: `view_catalog`'s
