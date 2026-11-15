@@ -1023,6 +1023,9 @@ static func _covers(v: float, rate: float, need: float, at: float) -> Array:
 ## The order the workers fill the jobs in: `order` after stances (MECHANICS §4.5). Stances are E3;
 ## until then it is `order` itself. `_staff()`, view_town's `ladder_effective` and the staffing
 ## projection (STATE-API §5.16) all read it, so they apply the stances the same way.
+## E3: the room cache (`_mark_rooms`) is keyed on `ladder`, not on this, while `_staff()` fills from the
+## effective ladder. So when stances change what it returns, they must call `_mark_rooms()`, or the cache
+## serves the old rooms.
 func effective_ladder(order: Array) -> Array:
 	return order.duplicate()
 

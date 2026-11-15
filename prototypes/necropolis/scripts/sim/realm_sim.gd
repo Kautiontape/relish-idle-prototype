@@ -195,6 +195,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_k_destroy = _tf("k_destroy")
 	_k_clear = _tf("k_clear")
 	_r_drain = _tf("r_drain")
+	_lc_dt = NAN  # the _load_cuts exp cache is keyed on dt alone and depends on _r_drain
 	_R_vei = _tf("R_vei")
 	_S_vei = _tf("S_vei")
 	_pool_cap = _tf("vei_pool_cap")
@@ -887,10 +888,10 @@ func _leave_at(f: Dictionary, dt: float, l0: float, u0: float, s_in: float, a_in
 		if not (tz > 0.0) or float(f["undead"]) > 0.0:
 			return -1.0
 		# the living at tz, off the path with U at its mean over [0, tz] (it is 0 after)
-		_l_path(tz, l1, s_in, _k_kill * _um * dt / tz, cap, _march_s())
+		_l_path(tz, l1, s_in, _k_kill * _um * dt / tz, cap, _march)
 		l1 = _le
 		from = tz
-	var tl := _leave_s(l1, s_in, cap, _march_s(), l_star, dt - from)
+	var tl := _leave_s(l1, s_in, cap, _march, l_star, dt - from)
 	if tl < 0.0:
 		return -1.0
 	var back := from + tl
@@ -1031,11 +1032,6 @@ func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: f
 	var back := _leave_at(f, dt, l0, u0, s_in, a_in, q)
 	if back >= 0.0:
 		_split_at(f, back, dt, s_in, w_in, raise_want, keep, q, pl0, pu0, pd0)
-
-
-## tithe.march_back_s, the march-back's time constant τ (MECHANICS §3.4); kept above 0.
-func _march_s() -> float:
-	return _march
 
 
 ## Living over a step (MECHANICS §3.1 step 5, §3.4): L' = c − max(0, L − cap) / tau with

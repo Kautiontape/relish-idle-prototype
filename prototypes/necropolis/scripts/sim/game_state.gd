@@ -436,7 +436,6 @@ func cmd_new_game(seed: int) -> Dictionary:
 	build_queue = []
 	stances_on = []
 	vats_staffed = []
-	town_sim.set_vats(vats_staffed)  # (new_game cleared them too)
 	town_tier = "hamlet"
 	relish = {
 		"state": "home", "at": "covington", "target": "",

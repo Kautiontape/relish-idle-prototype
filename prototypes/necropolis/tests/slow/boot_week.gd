@@ -61,9 +61,17 @@ func run() -> int:
 ## The shell's own source (autoload/game.gd) compiled with the two substitutions (see the header), or null.
 func _shell_script() -> GDScript:
 	var src := FileAccess.get_file_as_string("res://autoload/game.gd")
-	t.ok(src.contains(CONFIG_REF) and src.contains(HARNESS_REF), "the shell reads ConfigDb.data and decides harness with BootRule.is_harness, as this suite patches")
+	# a substitution that doesn't match fails loudly and stops the suite: the unpatched shell must not run
+	var subs := [["the config read (ConfigDb.data)", CONFIG_REF, "GameState.load_configs(\"res://configs\")"],
+		["the harness decision (BootRule.is_harness(...))", HARNESS_REF, "false"]]
+	for sb in subs:
+		var hit := src.contains(sb[1])
+		t.ok(hit, "the shell's source still has %s, which this suite substitutes" % sb[0])
+		if not hit:
+			push_error("boot_week: substitution not found in autoload/game.gd: %s; not running the unsubstituted shell" % sb[0])
+			return null
 	var gd := GDScript.new()
-	gd.source_code = src.replace(CONFIG_REF, "GameState.load_configs(\"res://configs\")").replace(HARNESS_REF, "false")
+	gd.source_code = src.replace(CONFIG_REF, subs[0][2]).replace(HARNESS_REF, subs[1][2])
 	var err := gd.reload()
 	t.ok(err == OK, "the patched shell compiles (%d)" % err)
 	return gd if err == OK else null

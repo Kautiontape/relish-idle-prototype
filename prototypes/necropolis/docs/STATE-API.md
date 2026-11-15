@@ -964,7 +964,17 @@ T3.3c; api-request #4, IDLE I5)
   - its kills aren't known, so an ended run never clears a counter-garrison (`counter_garrison_cleared`
     isn't raised and the yield isn't spent), and its phylactery revives and party losses aren't known
     either (none are applied);
-  - its id joins `applied_runs`, so a late result for it is `duplicate_run`.
+  - its id joins `applied_runs`, so a late result for it is `duplicate_run`;
+  - **a load (or gap) that ends a run with no checkpoint** (the save's `pending_retreat` is empty loot and
+    `"retreated"`) is still a writeback, so it has its side effects: `stats.raids` goes up by 1, the run's id
+    joins `applied_runs`, and `loot_banked` is emitted with zero loot (no relics, essence, blueprints or
+    minted uids), `rev` rises by 1, and Relish is `at_fort`. Nothing else moves (no kill, no flip);
+  - **a `relish_died` checkpoint** applies `StateRuns.death` at the end: a ready clone is spent
+    (`clones_ready` −1) or she is unmade, by `clones_ready` as it stands when the end is applied, not as the
+    scene saw it at the death beat (the seed's `death_ends`). Until E3 the stock only changes by debug grants,
+    so the two agree; once vats grow clones, `clones_ready` can drift between the beat and the end and the
+    outcome follow it. The in-run phylactery revives are not applied (`revived_in_place` 0), so
+    `phylactery_charges` is not spent for them either.
 - **A boss run** has no checkpoint; an ended boss run is forfeited as `cmd_abort_dungeon` forfeits it (no
   writeback, the party intact, Relish `at_vei`, its id not an applied run: a late result is `wrong_run`).
 - **A dead run** (ended by a load or a gap) gets clean refusals from every run command and nothing
@@ -1812,10 +1822,13 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
   share.
 - **Pure:** nothing changes, `rev` stays, no event is queued; every view and the save dump read the
   same before and after. Like every view it is a fresh deep copy carrying `rev`.
-- **At the current valve every field equals the live views':** `split` is `view_hud.split` (and
+- **At the current valve, with the valve at its target and Relish not travelling, every field equals the
+  live views'.** Otherwise the planned support differs: while the valve slews, or Relish travels, the
+  projection reads the target valve's WAR split and her committed arrival, so its rates, `fall_s` and the
+  margins that depend on them can differ from `view_fort`'s (details below). At that scope, `split` is `view_hud.split` (and
   `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
   is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
-  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s, and with `settled` its
+  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same scope), and with `settled` its
   `margin` and `margin_cause` are too, **only with the valve at its target** (as it is once its slew is
   done): `view_fort` reads the target's WAR as its planned support, a projection the valve passed. While
   the valve slews, `settled` at the target valve runs `view_fort`'s own train (the same probe, the same

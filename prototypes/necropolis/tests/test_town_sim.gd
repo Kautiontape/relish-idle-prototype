@@ -881,8 +881,6 @@ func _rooms_now(s: TownSim) -> Dictionary:
 		"sums": sums}
 
 
-## The cached staffing and effect sums are the ones from scratch, and the event changed the rooms or
-## the sums (so a missing dirty mark would show).
 ## Reads every effect sum once, so each cached key exists before the next event.
 func _prime(s: TownSim) -> void:
 	for k in SUM_KEYS:
@@ -891,6 +889,8 @@ func _prime(s: TownSim) -> void:
 	s._lists()  # and the step's building lists (E2b-2 T3.3b2)
 
 
+## The cached staffing and effect sums are the ones from scratch, and the event changed the rooms or
+## the sums (so a missing dirty mark would show).
 func _cache_ok(s: TownSim, before: Dictionary, what: String) -> void:
 	var f := _fresh_alloc(s)
 	var now := _rooms_now(s)

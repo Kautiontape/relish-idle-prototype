@@ -1104,13 +1104,14 @@ func _projection_lot_bound() -> void:
 	var other := ""
 	for lot_id in before:
 		var r: Dictionary = before[lot_id]
-		if up == "" and int(r["level"]) == 1:
+		# an upgradable lot: level 1 and a building that reaches level 3 (so level 2 still has a projection to drop)
+		if up == "" and int(r["level"]) == 1 and int(s.town_sim._defs[str(r["building_id"])]["max_level"]) >= 3:
 			up = lot_id
 		elif swap == "" and r["building_id"] != "house":
 			swap = lot_id
 		elif other == "":
 			other = lot_id
-	t.ok(up != "" and swap != "" and other != "", "(setup) lots: %s levels up, %s is rebuilt as a house, %s is untouched" % [up, swap, other])
+	t.ok(up != "" and swap != "" and other != "", "(setup) lots: %s (max_level 3 or more) levels up, %s is rebuilt as a house, %s is untouched" % [up, swap, other])
 	s.town_sim.place_building(up, str(before[up]["building_id"]), 2)  # the upgrade finished
 	s.town_sim.place_building(swap, "house", 1)  # demolished and rebuilt
 	var after := {}

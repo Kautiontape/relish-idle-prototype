@@ -1120,9 +1120,6 @@ func _wave_delivered(dt: float) -> float:
 	return got
 
 
-## A sim whose fort 0 (Ashgate, cap 80) is the only fort that can take anything: every other fort
-## is `others` ("full": living at the cap, nothing else; "corpses": full of corpses, no undead, so
-## no room and no target), and Vei has a full pool and a deep dead queue.
 ## Vei's shipping share for fort `f`, mass/s: S_vei from the test's config × its cap / Σ the forts'
 ## caps (so a config change moves the expectation with it).
 static func _share_rate(sim: RealmSim, f: Dictionary) -> float:
@@ -1132,6 +1129,9 @@ static func _share_rate(sim: RealmSim, f: Dictionary) -> float:
 	return float(TestUtil.configs()["realm"]["S_vei"]) * float(f["cap"]) / sum_cap
 
 
+## A sim whose fort 0 (Ashgate, cap 80) is the only fort that can take anything: every other fort
+## is `others` ("full": living at the cap, nothing else; "corpses": full of corpses, no undead, so
+## no room and no target), and Vei has a full pool and a deep dead queue.
 func _alone(over: Dictionary, others: String) -> RealmSim:
 	var sim := _mk(over)
 	for i in range(1, sim.forts.size()):

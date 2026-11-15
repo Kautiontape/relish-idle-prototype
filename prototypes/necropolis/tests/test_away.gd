@@ -40,6 +40,7 @@ func run() -> int:
 	_walk_home_live()
 	_walk_home_catchup()
 	_walk_home_arrival()
+	_arrival_same_step()
 	_report()
 	_cleanup()
 	return t.failures
@@ -525,6 +526,36 @@ func _walk_home_arrival() -> void:
 			and live.view_relish()["state"] == want and n.view_relish()["state"] == want and n.view_relish()["pos"] == live.view_relish()["pos"],
 			"retaken %.1f s on (%s her arrival): %s in both, relish_returned %s" % [at, "after" if walks else "before", want, str(walks)])
 
+## The arrival rule inside the arrival's own step, live (GameState._emit_realm). Sent from Covington to
+## Greywall (arrival 1.44 s on), with its break due at 1.40 s (just before) or 1.48 s (just after): both
+## inside the 1.0-1.5 s substep at 0.5 s, and inside the one 10 s core step. Before her arrival she stays
+## at the fort (no relish_returned); after it she walks home (relish_returned, at the retake's t). Run
+## through _core_step at 0.5 s (three steps) and at 10 s (one).
+func _arrival_same_step() -> void:
+	var c := cfgs({})
+	var brk := float(c["realm"]["hold"]["break_s"])
+	for at in [1.40, 1.48]:
+		var walks: bool = float(at) > 1.44
+		for dt in [0.5, 10.0]:
+			var s := _greywall(c, "covington")
+			s.realm.fort_by_id("greywall")["zero_s"] = brk - float(at)
+			s.cmd_move_relish("greywall")
+			s.drain_events()
+			var t0 := s.t
+			var evs: Array = []
+			for i in int(round(3.0 if dt == 0.5 else 1.0)):
+				s._core_step(dt)
+				evs.append_array(s.drain_events())
+			var rt := evs.filter(func(e): return e["type"] == "fort_retaken")
+			var back := evs.filter(func(e): return e["type"] == "relish_returned")
+			var st: String = s.view_relish()["state"]
+			t.ok(rt.size() == 1 and absf(float(rt[0]["t"]) - t0 - float(at)) < 1e-6,
+				"dt %.1f, due %.2f s on: Greywall retaken at %.2f s" % [dt, at, float(rt[0]["t"]) - t0 if not rt.is_empty() else -1.0])
+			t.ok(back.size() == (1 if walks else 0) and (not walks or back[0] == {"type": "relish_returned", "fort_id": "greywall", "cause": "retaken", "t": rt[0]["t"]})
+				and (st != "at_fort" if walks else st == "at_fort"),
+				"dt %.1f, retaken %s her arrival (1.44 s): relish_returned %s, she is %s (home or on her way)" % [dt, "after" if walks else "before", str(walks), st])
+
+
 # ------------------------------------------------------------------- §3 the away report ----
 ## The map's two number patterns (scripts/map/away_logic.gd, AwayLogic._compile), copied: a signed rate
 ## ending in /s, and a mass (a bare number, thousands commas allowed).
@@ -802,6 +833,7 @@ func _report() -> void:
 	_report_event()
 	_report_walked_home()
 	_report_config()
+	_report_words()
 
 
 ## The losses' walk-home line: Greywall retaken while Relish stood there, during a 10 min load's catch-up:
@@ -813,6 +845,29 @@ func _report_walked_home() -> void:
 	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
 		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
 		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
+
+
+## Every waited_on template rendered through the away report's own code (StateViews._why_started, then the
+## queue start's started_fmt with a name and a time): 12 reasons in the shipped config, each non-empty with
+## no {placeholder} left. And a building's name in a report line is its buildings_view.json label, the
+## capitalised id when it has none (StateViews._building_name, with level_fmt past level 1).
+func _report_words() -> void:
+	var c := cfgs()
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var words: Dictionary = rep["waited_on"]
+	t.ok(words.size() == 12, "idle.report.waited_on has 12 reasons (%d: %s)" % [words.size(), str(words.keys())])
+	var bad: Array = []
+	for w in words:
+		var why := StateViews._why_started(rep, str(w))
+		var line := str(rep["started_fmt"]).format({"name": "Bakery", "when": StateViews._when(rep, 400.0), "why": why})
+		if why.strip_edges() == "" or line.contains("{") or line.contains("}") or not line.contains(why) or why == str(w):
+			bad.append("%s -> %s" % [w, line])
+	t.ok(bad.is_empty(), "each of the %d waited_on templates renders to a non-empty line with nothing unfilled%s" % [words.size(), "" if bad.is_empty() else ": " + str(bad)])
+	var s := _mk(c)
+	t.ok(StateViews._building_name(s, rep, "walls", 1) == "Walls and Gate" and StateViews._building_name(s, rep, "walls", 2) == "Walls and Gate level 2",
+		"a building's name is its buildings_view label: walls is \"%s\"" % StateViews._building_name(s, rep, "walls", 1))
+	t.ok(StateViews._building_name(s, rep, "no_such_hut", 1) == "No Such Hut" and StateViews._building_name(s, rep, "no_such_hut", 3) == "No Such Hut level 3",
+		"an id with no label falls back to its id capitalised (String.capitalize): \"%s\"" % StateViews._building_name(s, rep, "no_such_hut", 1))
 
 
 ## The report's text is config (economy.json idle.report), read with no fallback: the shipped block has every
