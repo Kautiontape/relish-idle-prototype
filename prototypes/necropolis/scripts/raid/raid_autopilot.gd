@@ -118,6 +118,9 @@ var _wall_side := 0.0           # which side of the Shieldwall she keeps to (+1 
 var _shield := {}               # the Shieldwall's hit and bash counts, read off it each think, once more as it dies and at the finish
 var _avoid_burn := {}           # the Pyre-priest's lit burn areas this think ({areas, r}; {} for every other fight): spots in them are not safe
 var _pyre := {}                 # the Pyre-priest's counts, read off it each think, once more as it dies and at the finish
+var _bell := {}                 # the Bellringer's toll counts, read like _shield / _pyre
+var _toll_tally := {"toll_answered": 0, "toll_answered_struck": 0, "toll_missed": 0, "toll_missed_struck": 0,
+	"toll_missed_muffled": 0}   # measuring only: the tells that carried a toll, by the roll and the toll's outcome
 var _min_hp := INF              # Relish's lowest hp so far (the pyre dict reports it)
 # measuring only (D-d/E): read off the run each physics tick, never fed back into a decision
 const SPLIT_MOVE_PX := 1.0      # a tick in which Relish moved more than this is travel (she walks 4 px a tick)
@@ -219,6 +222,7 @@ func physics_tick(delta: float) -> void:
 		if ww is RaidBellringer:
 			_attacks = ww._slams
 			_attacks_wp = ww.slams_muffled
+			_bell = ww.telemetry()
 		elif ww is RaidHuntsman:
 			_attacks = ww._lunges
 			_attacks_wp = ww.intercepts
@@ -383,6 +387,8 @@ func _read_final(w) -> void:
 		return
 	if w is RaidShieldwall:
 		_shield = w.telemetry()
+	elif w is RaidBellringer:
+		_bell = w.telemetry()
 	elif w is RaidPyrePriest:
 		_pyre = w.telemetry()
 	if not _pack.is_empty():
@@ -468,6 +474,8 @@ func on_finish(result: Dictionary) -> void:
 	var told := _tally.duplicate()
 	told["untold_blows"] = _untold_blows()
 	out["tell_tally"] = told
+	if _archetype == "bellringer" and int(_bell.get("toll_beats", 0)) > 0:   # (after the last tell's tally; no toll below lever_min_tier: those lines keep their shape)
+		out["bell"] = _bell.merged(_toll_tally)
 	var rh: RaidRelish = _raid.relish
 	out["relish_hits"] = rh.hits.duplicate() if rh != null and is_instance_valid(rh) else {}
 	out["relish_soaked"] = rh.soaked.duplicate() if rh != null and is_instance_valid(rh) else {}
@@ -901,6 +909,13 @@ func _tally_close() -> void:
 			_tally["missed_countered"] += 1
 		elif struck:
 			_tally["missed_struck"] += 1
+	var bw = _raid.warden_run.warden
+	if bw != null and is_instance_valid(bw) and bw is RaidBellringer and bw.toll_marks.has(_tell_id.get_slice(":", 1)):
+		var m: String = bw.toll_marks[_tell_id.get_slice(":", 1)]
+		var k := "toll_answered" if _tell_ok else ("toll_missed_muffled" if m == "muffled" else "toll_missed")
+		_toll_tally[k] += 1
+		if m == "struck" and k != "toll_missed_muffled":
+			_toll_tally[k + "_struck"] += 1
 
 
 func _tell_hits() -> int:
@@ -1206,25 +1221,17 @@ func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) ->
 		leave = _answers("slam", b._next_attack)
 	if leave:
 		_bell_goal = null
-		# the toll (Step 4b): answering the tell is also stepping out of the ring at her spot, to the
-		# nearest point clear of it that is also out of the slam (else out of the slam as before)
+		# the toll (Step 4b): answering the tell is also stepping out of the ring at her spot, to the exit the
+		# game's rule found for it (WardenLogic.toll_exit: in the room, out of both rings; sideways along the
+		# slam's edge if need be; fixed after the freeze, round 3: the exit the rule guarantees, so the answer
+		# and the rule cannot disagree; its own search, clamped into the room, could miss one by a wall)
 		var tclear: float = _raid.relish.radius + _c("burn_clear_px", 16.0)
 		if b.toll_at != Vector2.INF:
 			_avoid_burn = {"areas": [b.toll_at], "r": b.toll_r + tclear}   # and fetch nothing inside it
-		if b.toll_at != Vector2.INF and pos.distance_to(b.toll_at) < b.toll_r + tclear:
-			var wr := int(_raid.layout.get("warden_room", -1))
-			var troom: Rect2 = (_rooms()[wr] as Rect2) if wr >= 0 else Rect2()
-			var best := Vector2.INF
-			for k in 16:
-				var c: Vector2 = b.toll_at + Vector2.RIGHT.rotated(TAU * k / 16.0) * (b.toll_r + tclear + 4.0)
-				if troom.size != Vector2.ZERO:
-					c = WardenLogic.leash_clamp(troom, c, _raid.relish.radius + 8.0)
-				if c.distance_to(b.toll_at) >= b.toll_r + tclear and c.distance_to(wp) >= safe_px \
-						and (best == Vector2.INF or pos.distance_to(c) < pos.distance_to(best)):
-					best = c
-			if best != Vector2.INF:
-				_why = "toll-out"
-				return _to_point(pos, best)
+		if b.toll_at != Vector2.INF and b.toll_exit_at != Vector2.INF and pos.distance_to(b.toll_exit_at) > 2.0 \
+				and pos.distance_to(b.toll_at) < b.toll_r + tclear:
+			_why = "toll-out"
+			return _to_point(pos, b.toll_exit_at)
 		if inside:
 			_why = "bell-out"
 			return _warden_retreat(pos, b, safe_px)
