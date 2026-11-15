@@ -1221,9 +1221,34 @@ The review of 3b found that every death left no army standing, and that 13 of th
   | 50, 1.0 s | 144 (143 / 151 / 139) | 164 | 6.8 / 83.1 / 8.0 / 2.1 | 80/180 = 44.4% (38-51; 37-52) |
   | 50, 1.5 s | 128 (131 / 126 / 118) | 150 | 7.3 / 82.0 / 8.4 / 2.3 | 121/180 = 67.2% (61-73; 60-74) |
 
-  - Per tier, deaths for the typical human: t2 9/60 (15%; 9-24, clustered 8-26), t3 8/60 (13%; 8-22, 7-25), t4 10/60 (17%; 10-26, 9-28). The baseline: 6 / 8 / 12 of 60.
+  - **Per tier, every profile** (60 runs each; the split pooled per tier with that tier's > 2x outliers left out; Wilson 90% in %, then the clustered interval):
+
+  | profile, tier | median s (survivors) | travel / fight / trance / idle % | died (W90; clustered) |
+  |---|---|---|---|
+  | baseline, t2 | 118 (116) | 5.1 / 93.6 / 0.0 / 1.3 | 6/60 (5-18; 5-21) |
+  | baseline, t3 | 123 (120) | 10.3 / 88.7 / 0.0 / 1.0 | 8/60 (8-22; 7-25) |
+  | baseline, t4 | 127 (127) | 10.8 / 88.9 / 0.0 / 0.3 | 12/60 (13-30; 12-32) |
+  | 70, 0.6 s, t2 | 140 (132) | 4.3 / 85.1 / 8.8 / 1.9 | 7/60 (6-20; 6-23) |
+  | 70, 0.6 s, t3 | 151 (150) | 8.3 / 82.7 / 6.8 / 2.1 | 9/60 (9-24; 8-26) |
+  | 70, 0.6 s, t4 | 126 (127) | 12.0 / 78.5 / 7.3 / 2.1 | 11/60 (12-28; 10-30) |
+  | 70, 1.0 s, t2 | 127 (127) | 4.5 / 84.3 / 8.9 / 2.3 | 9/60 (9-24; 8-26) |
+  | 70, 1.0 s, t3 | 140 (140) | 8.1 / 83.1 / 6.6 / 2.1 | 8/60 (8-22; 7-25) |
+  | 70, 1.0 s, t4 | 131 (134) | 12.0 / 78.5 / 7.3 / 2.1 | 10/60 (10-26; 9-28) |
+  | 70, 1.5 s, t2 | 118 (116) | 4.4 / 84.6 / 8.8 / 2.3 | 27/60 (35-56; 33-58) |
+  | 70, 1.5 s, t3 | 120 (119) | 7.8 / 82.3 / 7.2 / 2.7 | 34/60 (46-67; 44-69) |
+  | 70, 1.5 s, t4 | 106 (131) | 12.8 / 77.1 / 7.7 / 2.5 | 34/60 (46-67; 44-69) |
+  | 50, 0.6 s, t2 | 148 (140) | 3.5 / 85.0 / 9.5 / 2.0 | 35/60 (48-68; 45-70) |
+  | 50, 0.6 s, t3 | 149 (145) | 8.0 / 83.1 / 6.9 / 2.0 | 23/60 (29-49; 27-51) |
+  | 50, 0.6 s, t4 | 134 (132) | 10.0 / 80.4 / 7.7 / 1.9 | 26/60 (33-54; 31-56) |
+  | 50, 1.0 s, t2 | 143 (129) | 3.4 / 84.9 / 9.6 / 2.2 | 35/60 (48-68; 45-70) |
+  | 50, 1.0 s, t3 | 151 (144) | 7.1 / 83.6 / 7.0 / 2.2 | 23/60 (29-49; 27-51) |
+  | 50, 1.0 s, t4 | 139 (136) | 10.1 / 80.5 / 7.4 / 1.9 | 22/60 (27-47; 25-50) |
+  | 50, 1.5 s, t2 | 131 (138) | 3.8 / 84.9 / 8.9 / 2.4 | 44/60 (63-82; 61-83) |
+  | 50, 1.5 s, t3 | 126 (128) | 7.8 / 81.7 / 8.1 / 2.3 | 40/60 (56-76; 54-78) |
+  | 50, 1.5 s, t4 | 118 (142) | 10.9 / 78.8 / 8.2 / 2.2 | 37/60 (51-71; 49-73) |
+
   - **Paired by seed** (fort and seed), deaths in only one of the two: baseline vs 70 at 1.0 s, 20 against 21 (median length +8 s). 70 at 0.6 vs 1.0 s, 15 against 15. 50 at 0.6 vs 1.0 s, 30 against 26. 70 at 1.0 vs 1.5 s, 8 against 76. 50 at 1.0 vs 1.5 s, 17 against 58. 70 vs 50 at 1.0 s, 7 against 60.
-  - **What sets the risk is the miss chance, not the delay, up to 1.0 s.** From 0.45 to 1.0 s at score 70 the deaths do not move. Answered tells that struck: 3 of 2,116 at the baseline, 8 of 2,212 at 1.0 s. At 1.5 s they jump to 201 of 1,691.
+  - **What sets the risk is the miss chance, not the delay, up to 1.0 s.** From 0.45 to 1.0 s at score 70 the deaths do not move. Answered tells that struck: 3 of 2,116 at the baseline, 8 of 2,212 at 1.0 s. At 1.5 s they jump to 201 of 1,691. The Shieldwall's answered-and-struck tells go 0 -> 7 from 0.6 to 1.0 s (both scores), the one place the lane's negative 1.0 s margin shows.
   - The read pause and the draw put 7-8% of each run in the trance and lift idle to about 2%. With the draw's real-time stretch (x 1/0.35 inside the trance) the typical human's runs are 150 s real against the baseline's 123.
   - **t1 and P1** (the typical human, seeds 20-39):
     - P1: 0/20, median 113 s (real 133).
