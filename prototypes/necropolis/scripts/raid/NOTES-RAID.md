@@ -942,3 +942,26 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - 110 failed the rule: beyond the slam's reach (291 px: 260 + 18 + 13) in a 640 x 490 room, she has about 30 px or less of floor behind her away from the bell.
   - 31 had her inside the ring, 1 out of the room.
   - So the Bellringer is slam-only, and `toll_every` 3 is moot. An exit anywhere in the outward half-plane (sideways along the wall) would place it; not built (last round).
+
+### Step 4b: the toll's exit rule (replaces the room rule)
+- **The rule** (c4330e7, `WardenLogic.toll_exit`): a toll lands at her spot only if an exit exists.
+  - The exit is a point in the room with her centre `toll_exit_margin_px` (16) beyond both the toll's reach on her and the slam's.
+  - She must reach it from where she stands within the lead less `toll_react_s` (0.6 s, the score-50 delay) at 240 px/s: 267 px.
+  - Sideways along the slam's edge counts. Otherwise that slam tolls nothing; the test's corner case is a corner the slam nearly fills.
+- **The bot steps to that exit** (cac7f31, fixed after the freeze, beside "missed means missed"). It is the same roll as the slam; only the step's target is the rule's.
+- **Worst-case exit path:**
+  - The test's 10 px grid over the three at-tier Bellringer warden rooms finds an exit at every spot beyond the slam (2447 of 2447). The longest is 90 px: margin 0.74 s.
+  - Measured in r4, the longest was 98 px: margin 0.71 s.
+- **r4** (x1; vespers, lantern-keep, sable-hold x seeds 1-10):
+  - Answered tells struck: 0 (502 tells, 115 with a toll). untold_blows: 0.
+  - Tolls placed: 138 of 143 toll beats.
+  - Missed, unmuffled tolls: 10, all struck. Missed and muffled: 13.
+
+  | fort | deaths |
+  |---|---|
+  | vespers | 3 / 10 |
+  | lantern-keep | 0 / 10 (1 retreat) |
+  | sable-hold | 1 / 10 |
+
+  - Reach on all missed, uncountered Bellringer tells: 11 of 52 (21%).
+  - t1 and P1 (6 rows) are byte-identical to ccb9a3c: the toll is gated from lever_min_tier.
