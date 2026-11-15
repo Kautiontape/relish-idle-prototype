@@ -447,9 +447,12 @@ func _buildings_config() -> void:
 	var lot_size := {}
 	for l in town_lots:
 		lot_size[l["id"]] = int(l["size"])
+	# R1: each building's shed_class is a class in economy.json upkeep.shed_order (MECHANICS §4.3)
+	var shed_order: Array = TestUtil.configs()["economy"]["upkeep"]["shed_order"]
 	for id in cfg:
 		var b: Dictionary = cfg[id]
-		var good: bool = b.has_all(["cost", "upkeep", "build_work", "lot_size", "max_level", "level_costs", "requires", "jobs", "effects"])
+		var good: bool = b.has_all(["cost", "upkeep", "build_work", "lot_size", "max_level", "level_costs", "requires", "jobs", "effects", "shed_class"])
+		good = good and shed_order.has(b["shed_class"])
 		good = good and b["cost"].has_all(["gold", "bone", "relics"]) and b["upkeep"].has_all(["gold", "bone"])
 		good = good and b["requires"].has_all(["tier", "blueprint", "building"]) and GameState.TIERS.has(b["requires"]["tier"])
 		good = good and (b["requires"]["blueprint"] == "" or b["requires"]["blueprint"] == id)
@@ -469,6 +472,29 @@ func _buildings_config() -> void:
 		if cfg[id]["requires"]["blueprint"] != "":
 			bps.append(id)
 	t.ok(bps == ["embalmer", "ossuary_tower", "reliquary"], "blueprints gate the Embalmer, Ossuary Tower and Reliquary")
+	# R1 (the run's manager's rule; MECHANICS §4.3): the classes agree with the buildings. A decoration has no job
+	# and only morale-like effects (morale, the Statue's death_shock_mult); a passive building has no job; a job
+	# building has jobs; the WAR chain is the Bone Mill, the charnel houses and the raising pits (the charnel
+	# houses in it: unpaid for 2 h from pre_vei they cut its WAR plateau 21.5%, far over the 1% the exception needed)
+	var by_class := {}
+	var agree := true
+	for id in cfg:
+		var b: Dictionary = cfg[id]
+		var c := str(b["shed_class"])
+		(by_class.get_or_add(c, []) as Array).append(id)
+		var has_jobs := false
+		for j in b["jobs"]:
+			has_jobs = has_jobs or int(b["jobs"][j]) > 0
+		if c == "decoration":
+			agree = agree and not has_jobs and (b["effects"] as Dictionary).keys().all(func(k): return k in ["morale", "death_shock_mult"])
+		elif c == "passive":
+			agree = agree and not has_jobs
+		else:
+			agree = agree and has_jobs
+	t.ok(agree, "shed classes agree with each building's jobs and effects: %s" % str(by_class))
+	t.ok(by_class.get("decoration", []) == ["plaza", "statue"] and by_class.get("job", []) == ["market", "forge", "chapel_of_vats"]
+		and by_class.get("war_mill", []) == ["bone_mill"] and by_class.get("war_haul", []) == ["charnel_house"]
+		and by_class.get("war_pit", []) == ["raising_pit"], "decorations: Plaza, Statue; jobs: Market, Forge, Chapel; the WAR chain: Bone Mill, Charnel House, Raising Pit")
 
 
 # ----------------------------------------------------------- realm views ----

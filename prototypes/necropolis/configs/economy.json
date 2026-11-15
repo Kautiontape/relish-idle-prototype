@@ -67,7 +67,7 @@
   "stall": { "rate": 0.15 },
   "market": { "shop_rate": 0.03, "price": 1.0 },
   "pit": { "burn_per_s": 0.6, "bonus": 0.6 },
-  "upkeep": { "unpaid_hold_s": 30.0 },
+  "upkeep": { "unpaid_hold_s": 30.0, "shed_order": ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"] },
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
     "projection_refresh_s": 5.0,

@@ -2,6 +2,7 @@
   "crypt": {
     "cost": {"gold": 0.0, "bone": 0.0, "relics": 0},
     "upkeep": {"gold": 0.0, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 0.0,
     "lot_size": 2,
     "max_level": 3,
@@ -14,6 +15,7 @@
   "raising_pit": {
     "cost": {"gold": 15.0, "bone": 150.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
+    "shed_class": "war_pit",
     "build_work": 90.0,
     "lot_size": 1,
     "max_level": 8,
@@ -25,6 +27,7 @@
   "charnel_house": {
     "cost": {"gold": 15.0, "bone": 130.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
+    "shed_class": "war_haul",
     "build_work": 90.0,
     "lot_size": 2,
     "max_level": 8,
@@ -36,6 +39,7 @@
   "market": {
     "cost": {"gold": 15.0, "bone": 130.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
+    "shed_class": "job",
     "build_work": 90.0,
     "lot_size": 2,
     "max_level": 8,
@@ -47,6 +51,7 @@
   "house": {
     "cost": {"gold": 40.0, "bone": 10.0, "relics": 0},
     "upkeep": {"gold": 0.01, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 60.0,
     "lot_size": 1,
     "max_level": 8,
@@ -58,6 +63,7 @@
   "well": {
     "cost": {"gold": 30.0, "bone": 10.0, "relics": 0},
     "upkeep": {"gold": 0.01, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 60.0,
     "lot_size": 1,
     "max_level": 3,
@@ -69,6 +75,7 @@
   "bakery": {
     "cost": {"gold": 50.0, "bone": 10.0, "relics": 0},
     "upkeep": {"gold": 0.01, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 60.0,
     "lot_size": 1,
     "max_level": 3,
@@ -80,6 +87,7 @@
   "bone_mill": {
     "cost": {"gold": 60.0, "bone": 20.0, "relics": 0},
     "upkeep": {"gold": 0.03, "bone": 0.0},
+    "shed_class": "war_mill",
     "build_work": 90.0,
     "lot_size": 1,
     "max_level": 8,
@@ -91,6 +99,7 @@
   "inn": {
     "cost": {"gold": 150.0, "bone": 50.0, "relics": 0},
     "upkeep": {"gold": 0.05, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 3,
@@ -102,6 +111,7 @@
   "forge": {
     "cost": {"gold": 30.0, "bone": 275.0, "relics": 1},
     "upkeep": {"gold": 0.05, "bone": 0.0},
+    "shed_class": "job",
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 8,
@@ -113,6 +123,7 @@
   "graveyard": {
     "cost": {"gold": 20.0, "bone": 200.0, "relics": 0},
     "upkeep": {"gold": 0.05, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 3,
@@ -124,6 +135,7 @@
   "embalmer": {
     "cost": {"gold": 35.0, "bone": 330.0, "relics": 1},
     "upkeep": {"gold": 0.08, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 180.0,
     "lot_size": 1,
     "max_level": 3,
@@ -135,6 +147,7 @@
   "stables": {
     "cost": {"gold": 20.0, "bone": 200.0, "relics": 0},
     "upkeep": {"gold": 0.05, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 120.0,
     "lot_size": 2,
     "max_level": 3,
@@ -146,6 +159,7 @@
   "chapel_of_vats": {
     "cost": {"gold": 300.0, "bone": 120.0, "relics": 2},
     "upkeep": {"gold": 0.12, "bone": 0.0},
+    "shed_class": "job",
     "build_work": 240.0,
     "lot_size": 2,
     "max_level": 8,
@@ -157,6 +171,7 @@
   "ossuary_tower": {
     "cost": {"gold": 450.0, "bone": 150.0, "relics": 3},
     "upkeep": {"gold": 0.15, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 300.0,
     "lot_size": 2,
     "max_level": 3,
@@ -168,6 +183,7 @@
   "guildhall": {
     "cost": {"gold": 350.0, "bone": 120.0, "relics": 2},
     "upkeep": {"gold": 0.12, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 240.0,
     "lot_size": 2,
     "max_level": 1,
@@ -179,6 +195,7 @@
   "watchtower": {
     "cost": {"gold": 200.0, "bone": 80.0, "relics": 1},
     "upkeep": {"gold": 0.08, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 180.0,
     "lot_size": 1,
     "max_level": 1,
@@ -190,6 +207,7 @@
   "walls": {
     "cost": {"gold": 400.0, "bone": 120.0, "relics": 2},
     "upkeep": {"gold": 0.12, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 240.0,
     "lot_size": 3,
     "max_level": 1,
@@ -201,6 +219,7 @@
   "plaza": {
     "cost": {"gold": 350.0, "bone": 150.0, "relics": 2},
     "upkeep": {"gold": 0.15, "bone": 0.0},
+    "shed_class": "decoration",
     "build_work": 300.0,
     "lot_size": 2,
     "max_level": 1,
@@ -212,6 +231,7 @@
   "statue": {
     "cost": {"gold": 400.0, "bone": 150.0, "relics": 3},
     "upkeep": {"gold": 0.15, "bone": 0.0},
+    "shed_class": "decoration",
     "build_work": 300.0,
     "lot_size": 1,
     "max_level": 1,
@@ -223,6 +243,7 @@
   "reliquary": {
     "cost": {"gold": 600.0, "bone": 250.0, "relics": 4},
     "upkeep": {"gold": 0.2, "bone": 0.0},
+    "shed_class": "passive",
     "build_work": 400.0,
     "lot_size": 3,
     "max_level": 1,

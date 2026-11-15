@@ -80,7 +80,9 @@ func run() -> int:
 	_demolish()
 	_cancel()
 	_tiers()
+	_unpaid_keeps_tier()
 	_caps()
+	_unpaid_keeps_stores()
 	_playthrough()
 	_catalog_agrees()
 	return t.failures
@@ -431,7 +433,66 @@ func _tiers() -> void:
 	t.ok(p.view_town()["lots"].all(func(l): return l["unlocked"]), "City opens every lot")
 
 
+## R1 (the run's manager): an unpaid building keeps its tier and unlock contribution; a floor never drops a
+## tier gate. BuildRules.count_built counts every building past its first build whatever its state, so
+## next_tier, rise_tiers and req_reason's needs_building count an unpaid one, and the lots follow the tier
+## (which never falls). Hamlet's four start buildings, a well and the town's only house make the Village's six
+## with its market and house; nobody sells and the gold is 0, so the upkeep sheds the house in the substep the
+## tier is checked, and the Village rises with it unpaid.
+func _unpaid_keeps_tier() -> void:
+	var s := _mk()
+	s.town_sim.place_building("lot-05", "house", 1)
+	s.town_sim.place_building("lot-06", "well", 1)
+	s.town_sim.set_ladder([])
+	s.town_sim.gold = 0.0
+	s.drain_events()
+	s.tick(0.5)
+	var evs := s.drain_events()
+	var shed := _of(evs, "building_unpaid").filter(func(e): return bool(e["unpaid"])).map(func(e): return e["lot_id"])
+	var up := _of(evs, "tier_up")
+	t.ok(s.town_sim.buildings["lot-05"]["state"] == "unpaid" and shed.has("lot-05") and up.size() == 1 and s.town_tier == "village",
+		"the only house goes unpaid in the substep the tier is checked, and the Village rises: shed %s, %s" % [str(shed), str(up)])
+	t.ok(s.view_town()["next_tier"]["have"] == 6 and BuildRules.count_built(s, "house") == 1,
+		"the unpaid house counts: next_tier has 6 (%s)" % str(s.view_town()["next_tier"]))
+	t.ok(BuildRules.req_reason(s, {"tier": "hamlet", "blueprint": "", "building": "house"}) == "",
+		"a building that needs a house isn't refused needs_building while the house is unpaid")
+	var lots: Array = _cfgs()["economy"]["town"]["tiers"]["village"]["lot_ids"]
+	t.ok(lots.all(func(l): return BuildRules.lot_unlocked(s, l)), "and the Village's lots open")
+
+
 # ---------------------------------------------------------------- caps ----
+## R1 (the run's manager's condition): unpaid storage never destroys stock. The capacity effects GameState reads
+## (the Reliquary's relic_cap and essence_cap, the Chapel of Vats' vat_slots, the Guildhall's stance_slots;
+## TownSim.CAPACITY_EFFECTS) count while the building is unpaid, so with each store full the cap and the stock
+## stay as they were when a gold floor sheds the building and again when it is paid. (TownSim's own stores,
+## bodies, gold, bone and living: test_town_sim's _unpaid_keeps_caps.)
+func _unpaid_keeps_stores() -> void:
+	var hold := float(_cfgs()["economy"]["upkeep"]["unpaid_hold_s"])
+	for c in [["reliquary", "lot-24", 1], ["chapel_of_vats", "lot-13", 2], ["guildhall", "lot-14", 1]]:
+		var s := _mk()
+		s.town_sim.place_building(c[1], c[0], c[2])
+		s.relics = s._cap_of("relics")
+		s.essence = s._cap_of("essence")
+		for i in s._vat_slots():
+			s.cmd_staff_vat(i, true)
+		for id in GameState.STANCE_IDS:
+			s.cmd_set_stance(id, true)  # up to the slots; the rest are refused no_slot
+		var snap := func() -> Array:
+			return [s._cap_of("relics"), s.relics, s._cap_of("essence"), s.essence, s._vat_slots(), s.vats_staffed.duplicate(),
+				s._stance_slots(), s.stances_on.duplicate()]
+		var full: Array = snap.call()
+		s.town_sim.set_ladder([])  # nobody sells
+		s.town_sim.gold = 0.0
+		s.tick(0.5)
+		var unpaid: bool = s.town_sim.buildings[c[1]]["state"] == "unpaid"
+		t.ok(unpaid and snap.call() == full, "%s unpaid: the caps and the full stores as they were: %s" % [c[0], str(snap.call())])
+		s.town_sim.gold = 1000.0
+		for i in int(2.0 * hold) + 4:
+			s.tick(0.5)
+		var paid: bool = s.town_sim.buildings[c[1]]["state"] != "unpaid"
+		t.ok(paid and snap.call() == full, "%s paid again: the same (%s)" % [c[0], str(snap.call())])
+
+
 func _caps() -> void:
 	var s := _mk()
 	var hud := s.view_hud()
