@@ -200,8 +200,8 @@
     "greywall": {"1": 0.5, "2": 2.0}
   },
   "enemy_leash_by_fort": {
-    "_doc": "D-e task 3: a fort listed here keeps the living of its listed rooms (by index, as enemy_room_mult_by_fort) in their own room until Relish first steps into it (RaidUnit.leash_hold; RaidLogic.leash_rooms / leash_holds). Held, they act like the detour's guard: they turn only on her undead inside their room, and follow no one out. Once she is in the room they are released for good. For a fort whose living leave a room the moment the army is seen and pile on her in another (greywall: the warden room's 12 gather in the long middle room). Absent or empty: no leash, byte-identical.",
-    "greywall": {"rooms": []}
+    "_doc": "D-e task 3: a fort listed here keeps the living of its listed rooms (by index, as enemy_room_mult_by_fort) in their own room until Relish first steps into it (RaidUnit.leash_hold; RaidLogic.leash_rooms / leash_holds). Held, they act like the detour's guard: they turn only on her undead inside their room, and follow no one out. Once she is in the room they are released for good. For a fort whose living leave a room the moment the army is seen and pile on her in another (greywall: the warden room's 12 gather in the long middle room). Absent or empty: no leash, byte-identical. Picked rooms [2] (the warden room) for greywall: frozen bot 0/19 and 0/20, typical human 3/20 (the pick rule asked 2/20; no candidate met both, this is the closest).",
+    "greywall": {"rooms": [2]}
   },
   "tier_mix": {
     "1": {
