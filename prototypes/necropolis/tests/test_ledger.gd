@@ -579,7 +579,7 @@ func soak(sim_s: float, seed_val: int) -> void:
 					var ids: Array = ["auto"] + nodes.slice(2)
 					s.cmd_set_haul_target(ids[rng.randi() % ids.size()])
 					var order := GameState.JOB_IDS.duplicate()
-					order.shuffle()
+					_shuffle(order, rng)
 					s.cmd_set_job_priority(order)
 		var k := 1 if rng.randf() < 0.8 else rng.randi_range(2, 8)
 		st["substeps"] += s.tick(dt * k)
@@ -661,6 +661,16 @@ func soak(sim_s: float, seed_val: int) -> void:
 	t.ok(used and l["sources"]["debug"] != 0.0, "every sink the soak drives booked mass, and so did debug")
 	if sim_s >= 3600.0:
 		t.ok(st["waves"] > 0, "a full hour sees a tithe wave")
+
+
+## Shuffles `a` in place from `rng` (Fisher–Yates): Array.shuffle() draws from Godot's global RNG, so the
+## soak would not repeat (E2b-2 T3.3b2: its worst error and its retake and build counts varied run to run).
+static func _shuffle(a: Array, rng: RandomNumberGenerator) -> void:
+	for i in range(a.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var x: Variant = a[i]
+		a[i] = a[j]
+		a[j] = x
 
 
 ## A random result for the open run: a raid (beaten, retreated or died; kills, raises past what the

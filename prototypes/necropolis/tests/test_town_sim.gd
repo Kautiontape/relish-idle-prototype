@@ -764,6 +764,15 @@ func _mass(s: TownSim) -> float:
 	return m
 
 
+## Shuffles `a` in place from `rng` (Fisher–Yates; test_ledger.gd's soak has the same).
+static func _shuffle(a: Array, rng: RandomNumberGenerator) -> void:
+	for i in range(a.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var x: Variant = a[i]
+		a[i] = a[j]
+		a[j] = x
+
+
 func _soak() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
@@ -787,7 +796,7 @@ func _soak() -> void:
 			if s.buildings.has(lot) and s.buildings[lot]["state"] != "constructing":
 				s.start_construction(lot, s.buildings[lot]["building_id"], int(s.buildings[lot]["level"]) + 1)
 		if rng.randf() < 0.01:
-			jobs.shuffle()
+			_shuffle(jobs, rng)  # from the soak's own rng, so it repeats (Array.shuffle() draws from the global RNG)
 			s.ladder = jobs.duplicate()
 		if rng.randf() < 0.01:
 			var lot: String = lots[rng.randi() % lots.size()]
