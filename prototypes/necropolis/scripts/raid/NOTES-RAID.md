@@ -1104,3 +1104,28 @@ The review of 3b found that every death left no army standing, and that 13 of th
   | the-stair | 0 | | 0 | 0 |
   | whitecross | 6 | fire 6 | 0 | 0 |
   | sable-hold | 5 | toll 4, slam 1 | 2 | 0 |
+
+## The quality pass (opus review of 5b70259..5d22c9f)
+- **Fixed, behaviour:**
+  - 89f2151: the muffled slam spares Relish only where the lever is on. Below it (t1, the first dungeon) she takes dmg_relish x the weak point's dmg_mult again, as at 5b70259.
+  - 984602b: the Shieldwall's shield is the phase's arc (`shield_half_deg`) in `hit_from` and on the glyph. A lane (20 deg) or a rush (wider) is the attack's arc only.
+  - 93ec7ca, a bot fix after the freeze (the reaction delay): the stand plans against the wall before the tell until she answers it. Inside the delay it had read the live tell, and the aimed lane snapped its facing to her.
+    - The other handlers read no tell geometry before `_answers` turns true. `_vs_bell` reads the toll only on leaving (answered, or a ring out in plain sight). `_dodge_step` is gated by `_answers`. `_vs_pyre` reads the fire areas only while `stepping`.
+  - fd295bd: a horn over a toll's tell clears the toll. This is draw only: nothing reads it then.
+  - c0d00b6: the slam's preview is drawn at radius + band/2. This is draw only (shot dq-slam-preview.png). The expanding ring already spans its band.
+- **Fixed, lines byte-identical:**
+  - 28962cd: `pack_rest_beats` and `pack_spawn_wall_px` moved into config.
+  - 28fe990: the CAUGHT label drops the ally note where the tell bypass is on.
+  - 6e7d9a5: the tests now read what they claim. The lunge's drawn end equals the dash's end with walls included, through the pure `WardenLogic.wall_clipped` and `LayoutLogic.resolve_walls`. The margins use each warden's own lead (all 1 beat, so no margin moved). The fire's radius comes from config.
+  - 8f5975d: source guards.
+- **Seed-1 lines** (13 raid lines and Vei, bcb7a37 against 8f5975d): only pale-bastion moved (94 -> 97 s, still beaten). t1, P1 and Vei are identical. Both Shieldwall forts were re-measured on the m4c seeds; the-stair's seed 1 had no lane in reach, but it is the same warden.
+- **Before -> after** (seeds 20-39, score 70):
+  - At tier: 25/180 = 13.9% (10-19) -> 26/180 = 14.4% (11-19). t4 went 11 -> 12 (the-stair 0 -> 1). Shieldwall 1/40 -> 2/40, rush deaths 1 -> 2.
+  - Arms: with 20/160 -> 21/160; without 62/160 -> 71/160 (the no-wits arms answer at her delay now).
+  - Scores 50/90: 15/36 -> 16/36, and 1/36 unchanged. Dodge 5/27 and two up 27/42 unchanged.
+  - Shieldwall reach: 12% -> 11%. Medians: t3 123, t4 126 -> 127.
+- **Notes only:**
+  - The untold_blows windows are hardcoded at 1.5 and 1.0 beats, and blows outside `_answers` count. Both can only inflate the count, and it is 0, so the 0 stands.
+  - The rush and the pin are not gated on `lever_on`, but no Shieldwall fort sits at t1 or in the first dungeon.
+  - There is a 13 px band that neither the toll (`in_ring` adds her radius) nor the slam strikes. It is a safe gap, not a hidden hit.
+  - greywall's room knob is sanctioned by the manager.
