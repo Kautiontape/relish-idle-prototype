@@ -1054,7 +1054,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - The opening room holds 5 of the 22 living, the long middle room 12 and the warden room 5.
   - The army clears the opening by 7.5 s. Going for loot, she reaches the middle room's door (15 living within 250 px). 17 follow her back and wipe the 6 garrison chaff by 13.4 s, and she dies at 16.8 s.
   - The count is 22 at every t1 fort; the world.json cap only sets the mass per enemy.
-  - The fix (b842fef, `enemy_room_mult_by_fort` greywall {1: 0.5, 2: 2}) gave 1/19 on seeds 1-19, **but 6/20 on fresh seeds 20-39**: it does not meet the bar (ashgate and old-sluice 0/14). The army is still gone at 13.5-15.9 s. Traced at s20: the warden room's 12 leave it within 6 s and gather in the middle room. The spread is not the lever; their leash or the t1 garrison is. Not tried this round.
+  - The fix (b842fef, `enemy_room_mult_by_fort` greywall {1: 0.5, 2: 2}) gave 1/19 on seeds 1-19, **but 6/20 on fresh seeds 20-39**: it does not meet the bar (ashgate and old-sluice 0/14). The army is still gone at 13.5-16.1 s (the 18 g4c rows with an army-zero time). Traced at s20: the warden room's 12 leave it within 6 s and gather in the middle room. The spread is not the lever; their leash or the t1 garrison is. Not tried this round.
 - **The lever per tier** (a80402f, c9d3f36; `relish_dmg_mult_by_tier`), picked on seeds 1-19 by the rule fixed before the runs:
 
   | tier | x1.0 | the other value | pick |
@@ -1071,7 +1071,7 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - Per archetype: Bellringer 9/60, Huntsman 6/40, Pyre-priest 9/40, Shieldwall 1/40.
   - Per fort: vespers 4, chime-fort 2, lantern-keep 0, hollow-redoubt 4, mourners-gate 3, pale-bastion 1, sable-hold 5, the-stair 0, whitecross 6 (of 20 each).
   - Causes: fire 9, lunge 6, toll 6, slam 3, rush 1. 24 of 25 had a missed tell that struck.
-  - Answered tells struck: 3, all the two known bot faults. hollow-redoubt s33 is the doorway alternation; sable-hold s34 is the walk into a live ring outside the warden room, like vespers s11. untold_blows: 0.
+  - Answered tells struck: 3; 2 traced as bot faults, sable-hold s38 untraced. hollow-redoubt s33 is the doorway alternation; sable-hold s34 is the walk into a live ring outside the warden room, like vespers s11. sable-hold s38 is untraced: a slam death at 40.4 s after one tell, answered and struck, with no bell block and her army still standing (army_zero_t -1). untold_blows: 0.
   - Scores 50/70/90 (seeds 20-23): 15/36, 1/36, 1/36. Dodge, answer x0.6: 5/27 against 1/27.
   - Arms (with = the at-tier rows, same arguments): with the counter 20/160 = 12.5% (8.8-17.4), bad 22. Without, 62/160 = 38.8% (32.7-45.2), bad 67. That is 3.1x and 26 points. At chime-fort both arms are 2/20.
   - Two tiers up: 27/42 died, 12 retreated.
@@ -1091,3 +1091,16 @@ The review of 3b found that every death left no army standing, and that 13 of th
     Idle is 0.3-1.3% at t2-t4.
   - Lockstep held; the 9 reruns are identical.
 - greywall t1, seeds 20-39 (g4cbase, 443df3d, before the room knob; seed 1 equals base): 11/20 died (90% 37-72), median army_zero_t 14.3 s, 1 death within 10 s of it, median 46 s. With the knob (g4c): 6/20 (16-48), 14.7 s, 0, 127 s. The 22 living at every t1 fort: raid_logic.gd:13 (enemy_count, living / cap x mass.enemies_per_cap 26) with the profile's living = cap x autopilot.profile_living_frac 0.85 (raid_logic.gd:133; raid.json:116, :442), all ours; in a real run the living come from the realm's seed (not ours).
+- **Per fort, the m4c at-tier rows** (seeds 20-39, 20 a fort; toll split from slam):
+
+  | fort | deaths | causes | answered struck | untold |
+  |---|---|---|---|---|
+  | vespers | 4 | toll 2, slam 2 | 0 | 0 |
+  | chime-fort | 2 | lunge 2 | 0 | 0 |
+  | lantern-keep | 0 | | 0 | 0 |
+  | hollow-redoubt | 4 | lunge 4 | 1 | 0 |
+  | pale-bastion | 1 | rush 1 | 0 | 0 |
+  | mourners-gate | 3 | fire 3 | 0 | 0 |
+  | the-stair | 0 | | 0 | 0 |
+  | whitecross | 6 | fire 6 | 0 | 0 |
+  | sable-hold | 5 | toll 4, slam 1 | 2 | 0 |
