@@ -1607,3 +1607,7 @@ The grading rows are 760; with capture and reruns 778 raid runs, plus the 2 Vei 
 - **The override:** the `grade-doorb-off-*` rows run on a copy of the imported afb8dab snapshot, not on the bare sha. The one change, in `configs/raid.json` `held_door`: `"tiers": [2]` -> `"tiers": []`. Nothing else differs from afb8dab.
 - **Labelled so:** these rows carry label `afb8dab+door-off (raid.json held_door.tiers [2] -> [])`; the runner's sha column holds the first 9 characters, `afb8dab+d`. Every other grade row is the clean afb8dab.
 - **The off rows are config-only,** and the report says so wherever it uses them: door off here means no niche, no door and no cache at all.
+
+### Addendum: the stand-ins re-measure at afb8dab (iter `grade-standins`; the Part 2 method, not graded)
+- 432 runs at the clean afb8dab snapshot, score 70 unless stated, the standard party of the tier: the 9 forts at tier seeds 20-39 (score 50 and 90: seeds 20-23); t1 ashgate and old-sluice seeds 1-14 (50/90: 1-5), greywall seeds 20-39 (50/90: 20-24); the first dungeon (day1, old-sluice) seeds 1-60; the tier-2 party at the 3 t4 forts, seeds 20-33. They replace `by_tier`, `first_dungeon`, `two_tiers_above`, `acceptance_70` and `measured_at` in `reports/dungeon/standins-measured.json`. The seed 20-39 rows are not part of the seed 40-59 grade.
+- `fight_telemetry` is not re-measured; its source commit stays stated in the file.
