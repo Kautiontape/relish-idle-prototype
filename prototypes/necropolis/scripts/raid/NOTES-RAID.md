@@ -1137,3 +1137,72 @@ The review of 3b found that every death left no army standing, and that 13 of th
   - dq-vei-victory-dim and dq-vei-victory: the button dim, then live after card.skip_after_s.
   - dq-vei-phase2-greyscale (cfabd41's rule line) and dq-vei-iframes-reduced ("SAFE 3 s").
   - The "--raid-warden skips the death card" was dev-path only and not about --raid-warden. --raid-autodie hit at process frame 0, so the 4.5 s card was gone before an N-based shot. Fixed in 8350858; seed-1 lines are identical (13/13).
+
+## D-e: the human bracket, capture mode and the fairness floor
+### Reconcile (record only; the analysis was done before D-e)
+- **The two figures are the same runs.** D-d's score-70 cell (1/36, seeds 20-23) is the at-tier m4c/qm rows for those seeds.
+- **Deaths per 4-seed block** (seeds 20-23, 24-27, 28-31, 32-35, 36-39; 36 runs each): 1, 2, 10, 7, 6 (26 of 180).
+- **Deaths cluster by seed.** Per-seed death counts across the 9 forts have about 1.5x the binomial variance: 1.71 against 1.11 at seeds 20-39, and 1.83 against 1.23 at seeds 1-19.
+- **The likely cause:** `_rng` and `_rng_react` (raid_autopilot.gd `start()`, lines 167-168 at 3a4ec38) are seeded from the run seed alone, so a seed's trace jitter and tell rolls repeat at every fort.
+- **The seeding stays as it is**, because changing it would break every baseline.
+- **Reporting from here on:** Wilson 90% plus a seed-clustered interval (Wilson on n_eff = n / 1.5), with configs compared paired on the same seeds.
+
+### Step 0: the fast-forward to 3a4ec38 (economy's API v5)
+- The 13 seed-1 raid lines (9 at tier, 3 at t1, P1) and Vei's seed-1 line, score 70, on `git archive` snapshots of 37fee80 and 3a4ec38: all 14 byte-identical (they also equal `qid` at 8f5975d). The m4c + qm rows at seeds 20-39 stand as the baseline (iters `de0pre`, `de0`).
+- **The baseline is the bot as it stands: score 70 reacts in 0.45 s** (`react_delay_s` at 70), with no read pause and no draw. The brief's "0.6 s" is the score-50 delay, so `hb70d06` is a degraded profile, not the baseline.
+
+### The degraded bot (D-e 2a; b895836; `raid.json autopilot.human`; each knob off unless given)
+- **`--raid-autopilot-delay=<s>`** sets the one reaction delay `_delay`: the warden tell's answer, the kite from the living and the no-army leave. The miss chance stays the score's (`react_miss`): **delay and miss are decoupled** from here on, so `hb50d10` misses 0.30 of the tells and reacts in 1.0 s.
+- **`--raid-autopilot-read[=<s>]`**, the read pause.
+  - On her first entry into each room (the spawn room included; a doorway band is no room) she stands `<s>` scene seconds: no move, no raise.
+  - The policy still runs every think, so every tell and threat is seen and rolled when it would be. A dodge off a tell she answers (`RaidLogic.DODGE_WHYS`: toll-out, bell-out, wall-out, pyre-off, the lunge's sidestep) or a due kite ends the pause.
+  - **1.0 s** (the bare flag's value) is the low end of the first draft's `h` (1-3 s per room): three or four fixations on a new part of the screen at about 0.25 s each, and a click. The rest of a player's room-entry hesitation, whether to push or wait, is what the bot's hold rule already spends.
+- **`--raid-autopilot-draw[=<s>]`**, the drawn circle.
+  - How a human's trance spends scene time (trance.gd): holding SPACE or the right button opens it at `time_scale` 0.35; the left drag traces; the release grades and raises, and the 6 s cooldown starts only then. Focus drains in real time (`max_hold_s` 4 s, so at most 1.4 scene seconds). Releasing early is a 1 s lockout with no raise. A traced left drag is not a move click, so she cannot steer while she draws. In the game Relish keeps walking to her last click; a player stops first, or the walk drags the carried motes out of the circle.
+  - The model: each raise opens the trance (`RaidTrance.bot_open`: ACTIVE, the dim, the focus bar, the split's trance bucket) and she stands `<s>` scene seconds while it is drawn. Then the circle, traced as it began, is graded and raised. A dodge off a tell she answers lets it go (`bot_cancel`: the lockout, no raise). A living foe in kite range does not: the chain still soaks the living's blows.
+  - `Engine.time_scale` stays 1.0. The bot measures scene time, and a player's slowed seconds are scene seconds all the same, so lockstep holds. Real time is `RaidLogic.human_real_s`: scene + trance_s x (1 / 0.35 - 1).
+  - **0.7 s** (the bare flag's value) is a 2.0 s real circle at 0.35, the middle of the first draft's 1.5-2.5 s. The aim before opening the trance and a late start after READY run at full speed and are not in it: they stay in the extra factor. Capped at `max_hold_s` x `time_scale` (1.4 s).
+  - There is no extra miss for tells during a draw: the basis of `react_miss` already counts the tells that start mid-trace.
+- AUTOPILOT_RESULT gains `human` {delay_s, read_s, draw_s, reads, reads_cut, draws, draws_cancelled, draws_lost} only when a knob is given. Tests: `raid_human` (RaidLogic.human_knob / draw_cap / draw_step / read_starts / human_real_s, the wiring) and the source guards.
+- **Byte identity with the knobs off** (b895836 against 3a4ec38, iter `de2aid`): the 13 seed-1 lines and Vei identical.
+
+### Capture mode (D-e 2c; d00c8c8; `RaidCapture`, off by default, local only)
+- **Shawn's launch command** (from the repo root, a normal player session: the save resumes and autosaves):
+  `godot --path prototypes/necropolis --capture`
+  - `--capture` goes **before** any `--`. After `--` it is a user arg, and the boot rule (scripts/sim/boot_rule.gd, PLAYER_ARGS is only `--reduced-motion`) makes that a harness session: a fresh game with autosave off. Before `--` it is an engine arg; Godot passes it through, the boot rule only matches its DEV_ARGS there, and the raid reads both lists (`RaidLogic.capture_path`). No other unit's file changed. A player arg still goes after it: `godot --path prototypes/necropolis --capture -- --reduced-motion`.
+  - `--capture=<path>` writes to that file instead (every test here used a scratch path, in harness sessions only).
+- **The file:** `user://raid_capture.jsonl`, on Linux `~/.local/share/godot/app_userdata/Relish — Necropolis/raid_capture.jsonl` (`OS.get_user_data_dir()`; keyed by the project name, so every worktree and snapshot shares it). One JSON line per run, appended.
+- **How the flag reaches the raid on the router's path:** the router (main.gd `_teleport` -> `_swap(RAID)` -> `_mount` -> `setup(args)`) passes only ids. raid.gd `_build()` runs on both paths (the router's `setup`, the standalone `_ready`) and reads the process's command line there, so nothing has to carry the flag. Dungeon runs only: the Vei fight builds no capture.
+- **Hooks** (all behind `capture != null`): raid.gd `_build` creates it; `_physics_process` ticks it each live frame (after the dev bot's think, before the units move); `danger_targeted` tells it the edge warned; `RaidEndings.finish` writes the record synchronously before the emit (a death after its beat or card, the win, a retreat, the router's window close through `close_request`); raid.gd `_notification` writes on a standalone window close (`closed`) or as a scene is freed with no ending (`freed`).
+- **The record** (`v` 1, `kind` "raid_capture"):
+  - `at` (local time), `fort`, `tier`, `first_dungeon`, `held`, `run_id`, `seed_rev`, `archetype`, `bot` (the measuring bot played it);
+  - `outcome` (`warden_beaten`, `relish_died`, `retreated`; `closed` / `freed` when nothing finished), `closed` (a window close ended it: the router books it as a retreat, or a death during the death beat);
+  - `killed_by` (Relish.last_hit_src, the death card's source) and `missed_tell` (RaidLogic.death_tell: "the swing", "the ring at your feet", "the line", "the lit arc", "the marked ground"; "" for the living or a pack);
+  - `scene_s` (live scene seconds: physics steps to the death or the chest, as the bot's `duration_s`), `wall_live_s` (wall-clock seconds over those steps), `wall_s` (wall clock from the build to the write: the death card and the victory beat included);
+  - `rooms`: per room she stood in, `room`, `role` (spawn, ante, warden, checkpoint, room), `first_s` (scene time of the first entry), `entries`, `scene_s` and `wall_s` spent there (`Time.get_ticks_msec` per physics step; a doorway band counts to the room she came from);
+  - `tells`: per tell-attack (slam, toll, lunge, bash, rush, fire): `tells`, `shown` (she stood in the warden's room as it began), and one outcome each, first match: `struck` (a blow of it reached her: Relish.hits), `countered` (muffled, intercepted, pinned, an acolyte snuffed during it), `dodged` (aimed at her: the danger edge warned through its tell, `raid.danger_targeted`; a toll is aimed by being placed at her feet), `clear` (never aimed at her), `cancelled` (a horn, the warden's fall or the run's end took it before it struck);
+  - `raises`, `relish_hits` (blows that reached her, by source).
+- **Classification is the game's, never the bot's:** the warden's own state (the Bellringer's `_tell_for`, `_slam_beat`, `toll_marks`, `slams_muffled`; the Huntsman's `_locked`, `_lunges`, `intercepts`, `_lock_undead`; the Shieldwall's `_tell_for`, `rushing`, `pinned_tell`, `bashes`; the Pyre-priest's `_tell_for`, `lit`, `burns`, `snuffs`), Relish's `hits`, and the danger edge. A pinned Shieldwall tell is a `bash` (its plain bash is what lands; the pin is its counter). It reads the frame before, as the bot does, and once more at the write, so the killing blow is in it.
+- **The four checks** (at d00c8c8; rows `decapoff`, `decapon`, `decaphb` in the raw file; the router probes on a throwaway SceneTree script, harness sessions only):
+  - **(a) The bot's lines don't move with capture on.** On against off: 31 of 31 lines byte-identical (the 13 seed-1 lines, plus seeds 2-3 at the 9 at-tier forts). With the degraded bot (hb70d10 flags, seed 20, 9 forts) and capture, the lines equal the sweep's b895836 rows 9 of 9. Off, d00c8c8 equals de2aid 13 of 13.
+  - **(b) Capture's game-side counts against the bot's `tell_tally`.** 40 runs (seeds 1-3 at tier, the 9 degraded runs, t1 and P1 seed 1). Outcome, `killed_by` and `scene_s` equal the bot's `exit`, `killed_by` and `duration_s` in 40 of 40.
+
+    | warden (runs) | tells: capture / bot | struck: capture / bot | countered: capture / bot | dodged, clear, cancelled |
+    |---|---|---|---|---|
+    | Bellringer at tier (12) | 278 slam + 67 toll / 278 | 7 (toll 7) / 7 | 146 slam (every muffle) + 30 toll / 28 | 37, 109, 16 |
+    | Huntsman at tier (8) | 132 / 132 | 9 / 9 | 22 (every intercept) / 3 | 95, 3, 3 |
+    | Shieldwall (8) | 25 rush + 78 bash / 103 | 2 / 2 | 68 (pinned) / 0 | 20, 2, 11 |
+    | Pyre-priest (8) | 76 / 76 | 10 / 10 | 4 (a snuff during a tell) / 0 | 50, 11, 1 |
+    | t1 and P1 (4) | 99 / 99 | 6 / 6 | 0 / 0 | 72, 20, 1 |
+
+    - Tells and struck match exactly at every warden. Struck also equals the tell-attack blows in `relish_hits`.
+    - Countered differs by construction. The bot books a counter only on a tell it missed (an answered tell's muffle or intercept is not counted). It has no counter at the Shieldwall (a pin spares her only the rush) or at the Pyre-priest. Capture counts every counter that fired during a tell.
+    - Dodged has no bot counterpart: the bot counts answered tells, which include tells that never threatened her.
+    - Cancelled: tells a horn cut, or a tell open when the warden fell or the run ended.
+  - **(c) The router path.** `--capture=<path>` before `--`, with `--new-game --teleport=old-sluice` after it: the map dives, the router opens the raid with run_id 1 (`_standalone` false, `_from_run` true), and capture is on. After `--` it works too, as a harness session.
+  - **(d) Flushes.**
+    - A window close through the router writes `retreated`, `closed` true, and the router applies the retreat.
+    - A death writes `relish_died`, `killed_by` slam, `missed_tell` "the swing", after the death card.
+    - A close during the death beat writes `relish_died`, `closed` true.
+    - A standalone close (no ending) writes `closed`.
+    - The bot's deaths write through the same `finish`.
