@@ -584,6 +584,21 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
   its ▲/▼), builds finished, and forts refilled;
 - **ready now,** each line an action: "Ashgate refilled: raid it", "2 husks: raise at the slab",
   "Queue empty: plan the next build";
+  - **The queue's head still waiting** (R2, from the E2b-2 vision review's item 3: "come back and nothing
+    happened"). When the absence ends with the queue's head waiting on funds, one line says when its funds
+    come, from its `affordable_in_s` (MECHANICS §4.4): "Inn is waiting on gold: affordable in 6 m" (rounded
+    up to the minute, so a wait under one never reads "0 m"), or, when it never will at today's income,
+    "Bone Mill can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill": the
+    store, its net rate now, and what raises it (`idle.report.afford_raise`: a Market for gold, a Bone Mill
+    for bone, a raid for relics). `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
+    queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
+    to move a stuck head.
+  - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
+    the review's question 2). When the absence ends with every capped store full (gold and bone, each within
+    `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
+    the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
+    fort for relics" (`kind` `raid`, `target` `""`, after "Queue empty"). The overflow line stays in
+    losses for now (E4 moves it).
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
   store overflow. An absence with no losses says **"Nothing lost."**
   - **Unpaid** (R1, the run's manager): one line per building that was unpaid at some time during the

@@ -1,6 +1,7 @@
 extends RefCounted
 ## STATE-API v7's R2 additions (STATE-API §1.1; R1's `unpaid` kind is in test_api_contract.gd): the build queue's
-## `affordable_in_s` on every view_town().queue entry (§5.9) and as cmd_queue_build's extra (§4.3). Headless, no
+## `affordable_in_s` on every view_town().queue entry (§5.9) and as cmd_queue_build's extra (§4.3), and the away
+## report's two new ready lines in the line contract with the kinds and targets it had (§5.19). Headless, no
 ## autoloads.
 
 var t: TestUtil
@@ -18,6 +19,7 @@ func run() -> int:
 	_queue_rows()
 	_queue_extra()
 	_queue_extra_catching_up()
+	_away_lines()
 	return t.failures
 
 
@@ -96,4 +98,47 @@ func _queue_extra_catching_up() -> void:
 	if dd != null:
 		for f in dd.get_files():
 			dd.remove(f)
+		DirAccess.remove_absolute(_dir)
+
+
+## The away report's R2 lines keep view_away's line contract with kinds and targets it already had: the queue's head
+## still waiting (kind "queue", target "queue") and the raid prompt (kind "raid", target "": a raid with no fort).
+## day1 with its Bone Mill the head at −1.0 (the House, the Well and the Bakery started on granted gold), and day1
+## with gold and bone at their caps and nothing queued, each saved and loaded 1 min on.
+func _away_lines() -> void:
+	DirAccess.make_dir_recursive_absolute(_dir)
+	var m := _fixture("day1")
+	m.tick(m.substep_s())
+	for p in [["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"], ["bone_mill", "lot-08"]]:
+		m.cmd_queue_build(p[0], p[1])
+	m.cmd_debug_grant({"gold": 100.0})
+	m.tick(m.substep_s())
+	var f := _fixture("day1")
+	f.tick(f.substep_s())
+	f.town_sim.gold = f.town_sim.gold_cap()
+	f.town_sim.bone = f.town_sim.bone_cap()
+	var lines: Array = []
+	for pair in [["mill", m], ["full", f]]:
+		var g: GameState = pair[1]
+		g.save_dir = _dir
+		g.clock_override = 1_800_000_000
+		g.cmd_save(pair[0])
+		var n := GameState.new(TestUtil.configs())
+		n.debug_enabled = true
+		n.save_dir = _dir
+		n.clock_override = 1_800_000_000 + 60
+		n.cmd_load(pair[0])
+		lines.append_array(n.view_away()["ready"])
+	var mine := lines.filter(func(l): return (l["kind"] == "queue" and str(l["text"]).contains("afforded")) or (l["kind"] == "raid" and l["target"] == ""))
+	var errs: Array = []
+	for l in mine:
+		ApiSchema.check(l, ApiSchema.AWAY_LINE, "view_away.ready[]", errs)
+	t.ok(mine.size() == 2 and errs.is_empty() and mine.all(func(l): return ApiSchema.AWAY_KINDS.has(l["kind"]) and l["target"] in ["queue", ""])
+		and mine[0]["target"] == "queue" and mine[1]["kind"] == "raid",
+		"v7: the queue head's line (queue, \"queue\") and the raid prompt (raid, \"\") match the line contract, kinds and targets it had: %s %s" % [
+		str(mine), str(errs)])
+	var dd := DirAccess.open(_dir)
+	if dd != null:
+		for fl in dd.get_files():
+			dd.remove(fl)
 		DirAccess.remove_absolute(_dir)

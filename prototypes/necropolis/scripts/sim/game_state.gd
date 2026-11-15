@@ -62,7 +62,9 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
 	"overflow_fmt", "store_labels", "overflow_min",
 	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
-	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped"]
+	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped",
+	# R2: ready's line for the queue's head still waiting (StateViews.afford_text) and the full stores' raid prompt
+	"afford_wait_fmt", "afford_never_fmt", "afford_stores", "afford_raise", "full_tol", "full_raid"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -294,7 +296,8 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 
 ## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
 ## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
-## (REPORT_WAITED_ON) and its `store_labels` gold and bone; else what is missing. setup() reports it as an error.
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` and `afford_raise` word gold,
+## bone and relics, and `full_tol` is in [0, 1); else what is missing. setup() reports it as an error.
 static func report_config_problem(cfgs: Dictionary) -> String:
 	var rep: Variant = cfgs.get("economy", {}).get("idle", {}).get("report")
 	if not (rep is Dictionary):
@@ -314,6 +317,15 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	for k in ["gold", "bone"]:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
+	# R2: the queue head's line names the store its time waits on and what raises it, for every store a queue
+	# time can wait on; the raid prompt's full_tol is a fraction of the cap
+	for table in ["afford_stores", "afford_raise"]:
+		for k in ["gold", "bone", "relics"]:
+			if not (rep[table] is Dictionary and (rep[table] as Dictionary).has(k)):
+				return "config economy.idle.report.%s has no %s" % [table, k]
+	var tol: Variant = rep["full_tol"]
+	if not ((tol is float or tol is int) and float(tol) >= 0.0 and float(tol) < 1.0):
+		return "config economy.idle.report.full_tol (%s) is not a fraction of the cap in [0, 1)" % str(tol)
 	# R1: an unpaid line words what its building stopped doing, one template per job it offers and per working
 	# effect it has (every effect but TownSim.CAPACITY_EFFECTS), so each one buildings.json has needs one
 	var stopped: Variant = rep["unpaid_stopped"]

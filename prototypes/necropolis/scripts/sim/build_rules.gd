@@ -460,8 +460,9 @@ static func queue_levels(gs: GameState, entries: Array) -> Array:
 ## doesn't is timed as if it weren't there. Up to the head the timeline's stocks are the walk's copy, so `next`
 ## reads 0.0 and `waiting_funds` never does. Returns {rows: the view's entries, start: the indices that start,
 ## in order, waits: per entry the store that sets its time ("gold", "bone", "relics"; "" when its stocks cover
-## it at the clock: 0.0, or the start of the entry ahead)}.
-static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
+## it at the clock: 0.0, or the start of the entry ahead)}. `timed` false (the core step's processing, which reads
+## only the statuses, every step and every catch-up step) skips the times: no affordable_in_s, waits [].
+static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictionary:
 	var levels := queue_levels(gs, entries)
 	var gold := gs.town_sim.gold
 	var bone := gs.town_sim.bone
@@ -477,7 +478,7 @@ static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
 	# R2: the funds' timeline: `fund` the stocks at `clock` (the last timed start) after what the entries
 	# started by then paid; `starved` the stores an entry that never starts waits on
 	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
-		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}}
+		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}} if timed else {}
 	var waits: Array = []
 	for i in entries.size():
 		var e: Dictionary = entries[i]
@@ -512,12 +513,14 @@ static func queue_walk(gs: GameState, entries: Array) -> Dictionary:
 		else:
 			pending[lot_id] = why if status == "skipped_gate" else ""
 			stopped = stopped or status == "waiting_funds"
-		var at := _afford_at(gs, cost, tl, status != "skipped_gate")
-		waits.append(at[1])
-		rows.append({"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
+		var row := {"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
 			"work": gs.town_sim.construction_work(bid, level),
-			"status": status, "reason": why, "waited_on": str(e.get("waited_on", "")),
-			"affordable_in_s": float(at[0])})
+			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))}
+		if timed:
+			var at := _afford_at(gs, cost, tl, status != "skipped_gate")
+			waits.append(at[1])
+			row["affordable_in_s"] = float(at[0])
+		rows.append(row)
 	return {"rows": rows, "start": start, "waits": waits}
 
 
@@ -641,7 +644,7 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 static func process_queue(gs: GameState) -> void:
 	if gs.build_queue.is_empty():
 		return
-	var w := queue_walk(gs, gs.build_queue)
+	var w := queue_walk(gs, gs.build_queue, false)  # the statuses only: the times are the views'
 	var gone := {}
 	for i in w["start"]:
 		var e: Dictionary = gs.build_queue[i]

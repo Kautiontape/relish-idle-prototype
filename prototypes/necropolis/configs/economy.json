@@ -53,6 +53,11 @@
       "retaken_home_fmt": "{fort} retaken, Relish walked home: raid it to win it back",
       "village_lost_fmt": "village {village} lost to Vei",
       "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0,
+      "afford_wait_fmt": "{name} is waiting on {store}: affordable in {when}",
+      "afford_never_fmt": "{name} can't be afforded at today's income of {rate} {store}: move it down, or {raise}",
+      "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
+      "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill", "relics": "raid for relics" },
+      "full_tol": 0.01, "full_raid": "Your stores are full and the queue is empty: raid a fort for relics",
       "unpaid_fmt": "{name} unpaid for {when}: {stopped}; stores kept", "unpaid_sep": ", ", "unpaid_none": "nothing stopped",
       "unpaid_stopped": {
         "pit": "raised no undead", "pits": "raised no undead", "haul": "hauled no corpses", "mill": "milled no bone",

@@ -880,12 +880,22 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if RealmSim.is_held(f) and not retaken.has(id) and float(was.get("yield", 1.0)) < 1.0 and gs._yield_mult(f) >= 1.0:
 			gains.append(_away_line(str(rep["refilled_fmt"]).format({"fort": str(f["name"])}), "refilled", ""))
 			ready.append(_away_line(str(rep["raid_fmt"]).format({"fort": str(f["name"])}), "raid", id))
-	# ready: husks waiting while the crypt has room for a big undead; an empty queue
+	# ready: husks waiting while the crypt has room for a big undead; an empty queue, and with the stores full a
+	# prompt to raid; else (R2) the queue's head still waiting on funds, when its funds come or that they don't
 	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
 		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
 		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
 	if gs.build_queue.is_empty():
 		ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
+		if stores_full(gs, float(rep["full_tol"])):
+			ready.append(_away_line(str(rep["full_raid"]), "raid", ""))
+	else:
+		var w := BuildRules.queue_walk(gs, gs.build_queue)
+		for i in (w["rows"] as Array).size():
+			var row: Dictionary = w["rows"][i]
+			if row["status"] == "waiting_funds":
+				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs)), "queue", "queue"))
+				break
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)
@@ -905,6 +915,30 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 
 static func _away_line(text: String, kind: String, target: String) -> Dictionary:
 	return {"text": text, "kind": kind, "target": target}
+
+
+## R2 (the run's manager, from Shawn's "needs relics: raid a fort"; IDLE §7): every capped store, gold and bone, is
+## full: each within `tol` (idle.report.full_tol, a fraction of its cap) of its cap, or above it.
+static func stores_full(gs: GameState, tol: float) -> bool:
+	var ts := gs.town_sim
+	return ts.gold >= ts.gold_cap() * (1.0 - tol) and ts.bone >= ts.bone_cap() * (1.0 - tol)
+
+
+## R2 (the E2b-2 vision review's item 3; IDLE §7): the away report's line for the queue's head still waiting on
+## funds, from its view row (affordable_in_s, building_id, level), the store that sets its time (queue_walk's
+## `waits`; the row's no_gold / no_bone when it names none) and the net rates (BuildRules.queue_net). A positive
+## time: afford_wait_fmt, "Inn is waiting on gold: affordable in 6 m", rounded up to the minute so a wait under
+## one never reads "0 m". −1.0: afford_never_fmt, "Bone Mill can't be afforded at today's income of 0/s bone: move
+## it down, or build a Bone Mill", with that store's net rate (a rate token) and afford_raise's words for it.
+static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary) -> String:
+	var s := store if store != "" else ("bone" if str(row.get("reason", "")) == "no_bone" else "gold")
+	var name := _building_name(gs, rep, str(row["building_id"]), int(row["level"]))
+	var a := float(row["affordable_in_s"])
+	if a < 0.0:
+		return str(rep["afford_never_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
+			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise"][s])})
+	return str(rep["afford_wait_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
+		"when": _when(rep, ceilf(a / 60.0) * 60.0)})
 
 
 ## R1 (the run's manager; IDLE §7): the losses' unpaid lines, one per building unpaid at some time during the

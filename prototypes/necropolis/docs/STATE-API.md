@@ -175,7 +175,15 @@ from `BALANCE.md` §0.
     v8) **when each queued build becomes affordable**: `view_town().queue[].affordable_in_s: float` (§5.9),
     `0.0` affordable now, the seconds until it is at today's net rates, `-1.0` never at them; and
     `cmd_queue_build`'s extra `affordable_in_s: float` (§4.3), the new entry's (`-1.0` on a refusal), the
-    review's warning at queue time. The walk that sets `status` sets it, so the two never disagree.
+    review's warning at queue time. The walk that sets `status` sets it, so the two never disagree;
+  - (R2) **the away report's `ready` says why the queue sat still, or that the stores are full** (§5.19, IDLE
+    §7): a line for the queue's head still waiting on funds when the absence ends, "Inn is waiting on gold:
+    affordable in 6 m" or "Bone Mill can't be afforded at today's income of 0/s bone: move it down, or build a
+    Bone Mill" (`kind` `queue`, `target` `"queue"`), and, with the queue empty and gold and bone full (within
+    `idle.report.full_tol` of their caps), the prompt "Your stores are full and the queue is empty: raid a fort
+    for relics" (`kind` `raid`, `target` `""`). No new `kind` or `target` value, so `AWAY_KINDS` stands; a
+    `raid` line with no fort is new (`AwayLogic.action` reads `""` as `none`): a meaning change, additive for
+    map. Their text is `economy.json` `idle.report`'s new templates.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1948,7 +1956,8 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 - **`kind`** is one of `stream`, `build`, `refilled`, `raid`, `slab`, `queue`, `retaken`, `village_lost`,
   `overflow`, and from v7 `unpaid`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a
   fort, Covington's slab or queue, nothing), and from v7 a lot id for `unpaid` (additive for map: Covington at
-  that lot; `AwayLogic.action` reads it as `none` until map takes it up).
+  that lot; `AwayLogic.action` reads it as `none` until map takes it up). From v7 (R2) a `raid` line can have
+  `target` `""`: the full stores' prompt names no fort.
 - **gains** (`target` `""`):
   - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
     the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
@@ -1965,7 +1974,17 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
     you left and back to 1 now (MECHANICS §5.3): `"Ashgate refilled"`.
 - **ready:** each refilled fort, `"Ashgate refilled: raid it"` (`raid`, the fort); husks waiting while the
   crypt has room for a big undead (fewer than its cap), wherever Relish is, `"2 husks: raise at the slab"`
-  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`).
+  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`). From v7
+  (R2, the E2b-2 vision review's item 3), the queue's line when it isn't empty: its head still waiting on funds
+  at the end of the absence (the first `waiting_funds` entry of `view_town().queue`, §5.9), from its
+  `affordable_in_s` and the store that sets it, `"Inn is waiting on gold: affordable in 6 m"` (the wait rounded
+  up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"Bone Mill can't be afforded at today's income
+  of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
+  below the cap, and what raises it, `idle.report.afford_raise`); none when no entry waits on funds (every one
+  gated). `queue`, `"queue"`, so the map's click dives to the queue. And after `"Queue empty"`, when gold and
+  bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
+  the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
+  `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind).
 - **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
   it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
   with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
@@ -2000,7 +2019,12 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
 #     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
-# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd)
+# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd), and, with its bone
+# over its cap as midgame_2flips' is, ready adds "Your stores are full and the queue is empty: raid a fort for
+# relics" (raid, "") after "Queue empty" (R2)
+Game.state.view_away()  # day1 with a House, a Well, a Bakery and a Bone Mill queued, loaded 8 h on (R2)
+# -> {..., ready: [{text: "Bone Mill can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill",
+#                   kind: "queue", target: "queue"}], ...}
 ```
 
 ## 6. Events

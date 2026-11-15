@@ -1208,7 +1208,10 @@ processing does.
   - **cost:** `view_town` runs the walk on every call (Covington fetches it on each rev change). The times
     add 20 to 45 µs a call with a full queue of 8 (day1 +20, midgame_2flips +44, pre_vei +39, the medians
     of five 400-call runs on a loaded machine; the walk alone 79 → 101, 98 → 127, 105 → 138 µs), under
-    the 0.2 ms that would need a cache on `rev`, so there is none.
+    the 0.2 ms that would need a cache on `rev`, so there is none. The core step's processing runs the
+    same walk without the times (`queue_walk(..., false)`: it reads only the statuses), so live play and
+    catch-up pay nothing for them: 76, 98 and 105 µs against 79, 98 and 105 before (a week's catch-up is
+    about 42 000 steps, and a queue that sits all week is the case R2 is for).
 - **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
   rises this step opens its entries this step and this step's income counts: one walk, then each `next`
   entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the
