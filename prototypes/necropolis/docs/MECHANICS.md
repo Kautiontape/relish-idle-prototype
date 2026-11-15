@@ -796,6 +796,11 @@ mass; bodies, rot return, WORK and muster are mass.
   feed and the mint swung with the mills' want (12.8 to 8.98 mass/s in play). Feed is still
   continuous in the supply, so it never toggles. The total taken is unchanged, so the store's path
   and the convoy's view of it are too.
+  - **The town says so** (T3.4a): when the staffed mills milled less than their hands want in the
+    last step, `view_town().buildings[]` reads `starved` on a building with mill slots: `"pits_first"` if the pits took
+    bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
+    for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
+    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
   - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
     depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
     the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the

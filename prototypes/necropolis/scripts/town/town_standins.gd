@@ -381,6 +381,7 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 			"upgrade_work": float(def.get("build_work", 0.0)) * (lvl + 1) if lvl < int(def.get("max_level", 1)) else 0.0,
 			"eta_s": -1.0,
 			"upgrade_projected": {},
+			"starved": "",
 		})
 	var jobs_out: Array = []
 	for j in town.get("ladder_effective", []):

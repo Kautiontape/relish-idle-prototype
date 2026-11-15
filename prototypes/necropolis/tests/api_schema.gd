@@ -171,6 +171,8 @@ const TOWN_BUILDING := {
 	"work_left": F, "eta_s": F, "upgrade_work": F,
 	# api_version 6 (E2b-2 T3.2, api-request #9): the next level's rate change ({} at max level or constructing)
 	"upgrade_projected": {"*": F},
+	# api_version 6 (T3.4a): why a building's mills milled less than their hands want
+	"starved": S,
 }
 ## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
 const QUEUE_ENTRY := {

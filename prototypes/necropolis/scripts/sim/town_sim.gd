@@ -128,6 +128,11 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 ## {jobs: {job: {slots: int, staffed: float}} in ladder order, lots: {lot_id: staffed},
 ## idle: float, slots: float (staffable after staff caps)}
 var staffing := {}
+## Why the staffed mills milled less than their hands want in the last step (never saved; "" before a
+## first step, after a new game and after a load): "" when they got all they want or none are staffed;
+## "pits_first" when the pits took bodies and the supply fell short of both; "no_bodies" when the
+## pits took none either (nothing in the store or landing, or no staffed pit). STATE-API §5.9.
+var mill_starved := ""
 var _by_lot := {}  # lot_id -> {job: staffed}
 ## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
 ## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
@@ -248,6 +253,7 @@ static func _d(v: Variant) -> Dictionary:
 
 ## BALANCE §0: the start buildings on their lots, the opening stocks and the default ladder.
 func new_game() -> void:
+	mill_starved = ""
 	workers = float(_start["workers"])
 	bodies = float(_start["bodies"])
 	gold = float(_start["gold"])
@@ -570,6 +576,10 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 		burned = wp * (dt - tau) + minf(wp, r_in) * tau
 	burned = clampf(burned, 0.0, taken)
 	var milled := taken - burned
+	# the mill's reason (view_town.jobs[].starved): short of its want by more than float noise
+	mill_starved = ""
+	if want_mill > 0.0 and milled < want_mill * (1.0 - 1e-9):
+		mill_starved = "pits_first" if burned > 0.0 else "no_bodies"
 	# only what comes in is clipped: an excess the store held before the step (a demolished house
 	# dropped the cap) persists and the pits draw it down; inflow fills to the cap, or to wherever
 	# the pits have drawn the stock this step, whichever is higher
@@ -1301,6 +1311,12 @@ func pits() -> int:
 
 ## The job slots a lot offers now (build slots while constructing, none while unpaid, a Chapel's tend
 ## slots only for its staffed vats); 0 when empty.
+## The mill slots a lot's building offers (0 with no building).
+func lot_mill_slots(lot_id: String) -> int:
+	var b: Dictionary = buildings.get(lot_id, {})
+	return _slots(b, "mill") if not b.is_empty() else 0
+
+
 func lot_slots(lot_id: String) -> int:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var n := 0
@@ -1411,6 +1427,7 @@ func to_dict() -> Dictionary:
 
 
 func from_dict(d: Dictionary) -> void:
+	mill_starved = ""
 	workers = float(d.get("workers", 0.0))
 	bodies = float(d.get("bodies", 0.0))
 	gold = float(d.get("gold", 0.0))

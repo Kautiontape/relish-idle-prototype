@@ -37,6 +37,7 @@ func run() -> int:
 	_projection_reset()
 	_projection_lot_bound()
 	_warden_card()
+	_mill_starved()
 	return t.failures
 
 
@@ -1101,6 +1102,50 @@ func _warden_card() -> void:
 	s4.cmd_new_game(1)
 	var w4: Dictionary = s4.view_fort(nonfirst)["warden"]
 	t.ok(w4["archetype"] == by_fort[nonfirst] and w4["name"] == "" and w4["tells"] == [], "an unlisted archetype: name \"\" and tells []")
+
+
+## T3.4a: view_town().buildings[].starved, on the Bone Mill (lot-05 here): "pits_first" when the pits took bodies and the
+## supply fell short of both, "no_bodies" when the pits took none either, "" with a surplus or no
+## staffed mill; every other job's is "". Read from TownSim's last step; "" before one.
+func _mill_starved() -> void:
+	t.suite("api-v6-mill-starved")
+	var s := _mk()
+	var ts := s.town_sim
+	t.ok(ts.place_building("lot-05", "bone_mill", 1), "(setup) a bone mill on lot-05")
+	ts.ladder = ["pit", "mill"]
+	ts.workers = 4.0
+	t.ok(_mill_row(s)["starved"] == "", "before any step: \"\"")
+	ts.bodies = 100.0
+	ts.step(0.5, {"work_mass": 0.0})
+	t.ok(float(s.town_sim.staffing["jobs"]["mill"]["staffed"]) > 0.0 and _mill_row(s)["starved"] == "", "a surplus: the mill got all it wants: \"\"")
+	ts.bodies = 0.1  # wants this step: pits 0.3, mill 0.2 (test_town_sim's short-bodies case)
+	var o := ts.step(0.5, {"work_mass": 0.0})
+	t.ok(float(o["burned"]) > 0.0 and float(o["milled"]) < 0.2 and _mill_row(s)["starved"] == "pits_first", "supply below the pits' want and the mill's: \"pits_first\"")
+	var blds := s.view_town()["buildings"] as Array
+	t.ok(blds.all(func(r): return r["lot_id"] == "lot-05" or r["starved"] == ""), "no building without mill slots reads a reason")
+	t.ok(not (s.view_town()["jobs"][0] as Dictionary).has("starved"), "the job rows are unchanged")
+	ts.bodies = 100.0
+	ts.step(0.5, {"work_mass": 0.0})
+	t.ok(_mill_row(s)["starved"] == "", "a surplus again clears it")
+	# nothing to mill: the store is empty, only the mill is staffed, and the rot return is under its want
+	ts.ladder = ["mill", "pit"]
+	ts.workers = 0.2
+	ts.bodies = 0.0
+	o = ts.step(0.5, {"work_mass": 0.0})
+	t.ok(float(o["burned"]) == 0.0 and float(o["milled"]) < 0.2 * float(s.town_sim.staffing["jobs"]["mill"]["staffed"]) and _mill_row(s)["starved"] == "no_bodies",
+		"no bodies and no pit burning: \"no_bodies\"")
+	# a load reads "" until the first step (this state held "no_bodies" a moment ago)
+	ts.ladder = ["pit", "mill", "haul", "build", "stall", "forge", "tend"]
+	var ld := s.from_dict(JSON.parse_string(JSON.stringify(s.to_dict())))
+	t.ok(ld["ok"] and s.town_sim.mill_starved == "" and _mill_row(s)["starved"] == "", "after a load: \"\" until the first step (%s)" % str(ld))
+	t.ok(_mk().view_town()["buildings"].all(func(r): return r["starved"] == ""), "a fresh town: every building \"\"")
+
+
+func _mill_row(s: GameState) -> Dictionary:
+	for r in s.view_town()["buildings"]:
+		if r["lot_id"] == "lot-05":
+			return r
+	return {}
 
 
 ## Every view's output and the save, for purity checks.

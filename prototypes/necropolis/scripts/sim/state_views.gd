@@ -268,6 +268,8 @@ static func town(gs: GameState) -> Dictionary:
 			"upgrade_work": ts.construction_work(bid, int(b["level"]) + 1) if int(b["level"]) < top else 0.0,
 			# v6 (E2b-2 T3.2, api-request #9): the change in each net rate if its next level were finished now
 			"upgrade_projected": (ups.get(lot_id, {}) as Dictionary).duplicate(),
+			# v6 (T3.4a): why its mills milled less than their hands want (TownSim's last step); "" for a building without mill slots
+			"starved": ts.mill_starved if ts.lot_mill_slots(lot_id) > 0 else "",
 		})
 	var effective := ts.effective_ladder(ts.ladder)
 	var jobs := job_rows(effective, ts.staffing.get("jobs", {}))

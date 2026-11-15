@@ -78,6 +78,8 @@ from `BALANCE.md` §0.
     #5): `view_fort().warden` gains `name` (§5.5), and `warden.tells` and `loot_hint` (on `view_fort`
     and the raid seed alike) are read from `raid.json` `wardens.archetypes` and `loot.json` `hints`,
     no longer E1 constants: a meaning change, not a shape change;
+  - (T3.4a) `view_town().buildings[].starved` (§5.9): a String reason a building's mills milled less than
+    their hands want (`"pits_first"`, `"no_bodies"`, else `""`); town renders it in Phase I, economy gives the key;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1284,6 +1286,7 @@ Each `buildings` entry:
 | `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
 | `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
+| `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. The town reads it in Phase I and owns the text |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
@@ -1292,7 +1295,7 @@ Each `buildings` entry:
               staffed: 2.0, staff_cap: -1, foreman: "", output: {gold: 0.3}, upkeep: {gold: 0.03, bone: 0.0}}, ...],
  ladder: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
  ladder_effective: ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
- jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0}, {id: "stall", slots: 2, staffed: 2.0}, ...],
+ jobs: [{id: "haul", slots: 3, staffed: 3.0}, {id: "pit", slots: 2, staffed: 2.0}, {id: "mill", slots: 2, staffed: 2.0}, ...],
  workers: {total: 12.0, idle: 5.0, in: 0.128, rot: 0.025, muster: 0.0, steady: 61.4, steady_kept: 18.2, muster_steady: 0.05, lifetime_s: 480.0},
  living: 10.0, living_cap: 16.0, migrants: 0.012, departures: 0.0,
  morale: {value: 0.6, target: 0.6, factors: [{id: "base", delta: 0.6}]},
