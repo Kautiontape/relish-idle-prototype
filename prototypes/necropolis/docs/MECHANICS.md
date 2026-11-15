@@ -1185,7 +1185,9 @@ processing does.
   - **net rates:** each store's net now, income less upkeep, from TownSim's last step: the HUD's and
     `view_rates`' net below the cap; at the cap, where theirs clips the income to the upkeep and reads 0, the
     income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
-    brings it back. Relics have none, so a relic shortfall is `-1.0` ("raid for relics");
+    brings it back. Relics have none, so a relic shortfall is `-1.0` ("raid for relics"). Catch-up's clip at
+    the head's start (`Catchup.build_start_s`, IDLE §4) reads the same helper, `BuildRules.queue_net`, since
+    F1, so the two never drift (it read the HUD's clipped net before, which agreed below the cap only);
   - **in queue order:** the entries that aren't gated start in order, each when the stocks, grown at those
     rates up to their caps and less what the entries ahead paid at their own starts, cover it. Up to the head
     those stocks are the walk's own copy, so `next` reads `0.0` and `waiting_funds` never does, and no entry

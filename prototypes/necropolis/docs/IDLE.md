@@ -116,7 +116,10 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   for the cap (E2b-2 T3.3b, the budget's lever 2, below).
 - A step never straddles an event: `dt = min(dt, t_next_event − t)`. Catch-up clips at Relish's
   arrival, an unpaid building's resume, a construction finishing, the build queue's head starting on
-  funds (its shortfall over the net income, for each currency it lacks), gold or bone reaching its floor,
+  funds (its shortfall over the net income, for each currency it lacks; since F1 the net its
+  `affordable_in_s` uses, `BuildRules.queue_net`: the HUD's below the cap, and at a full store the income
+  before the cap's clip, so a head behind an entry that just spent the store is clipped at its start, not
+  read as never), gold or bone reaching its floor,
   a tithe warning, and a wave starting or ending (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
   from the state at the step's start, and an event within 1 µs is now). Since E2b-2 T3.1 RealmSim lands
   a grace ending, a garrison reaching 0 and a break at their time inside its own step (it splits the

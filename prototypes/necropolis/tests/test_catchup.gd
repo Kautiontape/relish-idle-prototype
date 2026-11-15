@@ -8,7 +8,7 @@ extends RefCounted
 ##   load is the identity. A step never straddles a clip event (the runner's trace), Relish's arrival and
 ##   the tithe's moments are step boundaries, and a construction finishing and the queue's head starting on
 ##   funds land at their own time, against a 0.5 s live run. next_event_s's clauses one by one, and the dt
-##   rule.
+##   rule. F1: at a full store the head's time is affordable_in_s's (BuildRules.queue_net), not the clipped net.
 ## - The load flash: from a load until the first substep's train verdict, no frame shows a held fort safe
 ##   where the first settled read is thin; view_realm and the held forts' view_fort read the same just
 ##   before a save and just after its 0 s load.
@@ -42,6 +42,7 @@ func run() -> int:
 	_no_straddle()
 	_construction_on_time()
 	_build_start_on_time()
+	_build_start_at_cap()
 	_lanes_and_field()
 	_load_flash()
 	_load_identity_views()
@@ -373,6 +374,37 @@ func _build_start_on_time() -> void:
 		"(setup) it starts mid-step: live at +%.2f s" % (live_t - s.t))
 	t.ok(cu_t > 0.0 and absf(cu_t - live_t) <= 0.5 + 1e-6,
 		"the catch-up starts it at +%.3f s, within the live run's substep (+%.2f s)" % [cu_t - s.t, live_t - s.t])
+
+
+## F1: at a full store the queue's head is timed with the net affordable_in_s uses (BuildRules.queue_net: the income
+## before the cap's clip, less the upkeep), not the HUD's in − out, which the clip holds at 0 there. A config with a
+## 100-gold cap (the Market adding none): day1 full, then a House, a Bakery and a Well queued, and one substep. Its
+## TownSim step ends at the cap (the gold income clipped down to the upkeep), then the House and the Bakery start
+## and spend the store, so the Well is the head on no_gold with the income back. build_start_s reads (30 − gold) /
+## (trade − out), the Well's own affordable_in_s exactly; the clipped form's net is 0, so it read INF: no clip.
+func _build_start_at_cap() -> void:
+	var c := cfgs({"economy.gold.cap": 100.0, "buildings.market.effects.gold_cap": 0.0})
+	var s := _mk(c)
+	t.ok(s.cmd_debug_load_fixture("day1")["ok"], "(setup) day1 loads")
+	s.town_sim.gold = 100.0
+	s.tick(s.substep_s())
+	for p in [["house", "lot-05"], ["bakery", "lot-06"], ["well", "lot-07"]]:
+		t.ok(s.cmd_queue_build(p[0], p[1])["ok"], "(setup) %s queued on %s" % p)
+	s.tick(s.substep_s())
+	var g: Dictionary = s.town_sim.rates["gold"]
+	var clipped := float(g["in"]) - float(g["out"])
+	var net := float(g["trade"]) - float(g["out"])
+	var rows: Array = s.view_town()["queue"]
+	t.ok(rows.size() == 1 and rows[0]["building_id"] == "well" and s.build_queue[0]["waited_on"] == "no_gold" and float(g["overflow"]) > 0.0
+		and absf(clipped) < 1e-12 and net > 0.0 and s.town_sim.gold < 30.0,
+		"(setup) the House and the Bakery started from the full store: the Well waits on gold (%.3f), the step's income clipped (in − out %s/s; %.4f/s before the clip)" % [
+		s.town_sim.gold, String.num_scientific(clipped), net])
+	var want := (30.0 - s.town_sim.gold) / net
+	var got := Catchup.build_start_s(s)
+	t.ok(absf(got - want) <= 1e-9 * want and got == float(rows[0]["affordable_in_s"]),
+		"build_start_s at a full store: %.3f s, (30 − %.3f) / %.4f, the Well's affordable_in_s (%.3f s) exactly; the HUD's clipped net would give %s" % [
+		got, s.town_sim.gold, net, float(rows[0]["affordable_in_s"]), "INF" if not (clipped > 0.0) else String.num_scientific((30.0 - s.town_sim.gold) / clipped) + " s"])
+	t.ok(Catchup.next_event_s(s) <= got, "next_event_s clips at it or sooner: %.3f s" % Catchup.next_event_s(s))
 
 
 func _event_t(evs: Array, type: String, lot: String) -> float:
