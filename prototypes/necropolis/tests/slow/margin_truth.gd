@@ -123,6 +123,8 @@ func check_classify() -> int:
 		["the WAR drop with no store at its floor", drop, {"gold": held, "bone": held}, "broke"],
 		["the WAR intact", held, {"gold": mk.call(300, 50.0, 0.5, 40), "bone": held}, "broke"],
 		["a store's floor after the last break began", drop, {"gold": mk.call(300, 50.0, 0.5, 199), "bone": held}, "broke"],
+		# between the WAR drop (51 s) and the break (130 s): isolates the "floor before the drop" condition
+		["a store's floor after the WAR drop but before the break", drop, {"gold": mk.call(300, 50.0, 0.5, 99), "bone": held}, "broke"],
 	]
 	for c in cases:
 		var r := classify(0.0, 10.0, 250.0, c[1], c[2], 1.0, 120.0)
