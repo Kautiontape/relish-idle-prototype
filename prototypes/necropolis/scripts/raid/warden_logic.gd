@@ -491,24 +491,33 @@ static func toll_strikes(rel_pos: Vector2, toll_at: Vector2, toll_r: float, rel_
 	return rel_pos.distance_to(toll_at) <= toll_r + rel_r
 
 
-## D-d/E Step 4b, where a toll may land: from her spot `pos`, the way away from the bell (`bell`) must have
-## floor inside the room for her to step out of the ring (toll_r + her radius) and the toll radius more
-## beyond it (the corner case: a toll she could not step out of). Measured along the ray to the room's edge.
-static func toll_room_ok(room: Rect2, pos: Vector2, bell: Vector2, toll_r: float, rel_r: float) -> bool:
-	var dir := pos - bell
-	if dir.length() < 1.0:
-		return false
-	dir = dir.normalized()
-	var t := INF
-	if dir.x > 1e-6:
-		t = minf(t, (room.end.x - pos.x) / dir.x)
-	elif dir.x < -1e-6:
-		t = minf(t, (room.position.x - pos.x) / dir.x)
-	if dir.y > 1e-6:
-		t = minf(t, (room.end.y - pos.y) / dir.y)
-	elif dir.y < -1e-6:
-		t = minf(t, (room.position.y - pos.y) / dir.y)
-	return t - rel_r >= 2.0 * toll_r + rel_r
+## D-d/E Step 4b, where a toll may land: the nearest exit from her spot `pos` (the toll's centre), a point
+## inside the room (her body clear of its walls) that is outside the toll's ring and outside the slam's
+## (her centre beyond each one's reach on her by `margin`), within `budget_px` of where she stands: the lead
+## less a human's reaction, at her speed. Rays at `n` angles, stepped `step_px`; sideways along the slam's
+## edge counts. Vector2.INF when there is none (a corner the slam nearly fills): then that slam tolls nothing.
+static func toll_exit(room: Rect2, pos: Vector2, bell: Vector2, toll_r: float, rel_r: float, slam_reach: float,
+		margin: float, budget_px: float, n := 32, step_px := 4.0) -> Vector2:
+	var inner := room.grow(-rel_r)
+	var clear := toll_r + rel_r + margin
+	var safe := slam_reach + margin
+	var best := Vector2.INF
+	var bd := INF
+	if inner.size.x <= 0.0 or inner.size.y <= 0.0:
+		return best
+	for k in n:
+		var u := Vector2.RIGHT.rotated(TAU * float(k) / float(n))
+		var r := clear
+		while r <= budget_px and r < bd:
+			var c := pos + u * r
+			if not inner.has_point(c):
+				break   # the room is a rectangle: past its edge the ray stays out
+			if c.distance_to(bell) >= safe:
+				best = c
+				bd = r
+				break
+			r += step_px
+	return best
 
 
 ## D-d/E Step 4b, the Shieldwall's aimed rush: its lane reaches to the warden room's farthest corner from

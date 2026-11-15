@@ -385,9 +385,16 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not WardenLogic.toll_strikes(Vector2(200, 0), Vector2(60, 0), 70.0, 13.0, false, false), "stepped out: it misses")
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, true, false), "a muffled bell tolls nothing on her")
 	t.ok(not WardenLogic.toll_strikes(Vector2(60, 0), Vector2(60, 0), 70.0, 13.0, false, true), "no second blow where the slam's ring reaches her")
-	var troom := Rect2(0, 0, 600, 400)
-	t.ok(WardenLogic.toll_room_ok(troom, Vector2(300, 200), Vector2(200, 200), 45.0, 13.0), "a toll lands where she has floor to step out away from the bell")
-	t.ok(not WardenLogic.toll_room_ok(troom, Vector2(560, 200), Vector2(300, 200), 45.0, 13.0), "not with a wall at her back (the corner case: no toll)")
+	# the toll's exit (round 3): a point in the room out of both rings, reached in the lead less a human's reaction
+	var ex_open := WardenLogic.toll_exit(Rect2(0, 0, 1000, 800), Vector2(500, 100), Vector2(500, 400), 45.0, 13.0, 100.0, 16.0, 267.0)
+	t.ok(ex_open != Vector2.INF and absf(ex_open.distance_to(Vector2(500, 100)) - 74.0) < 0.01, "open floor: the exit is just out of the toll (%s)" % str(ex_open))
+	var ex_wall := WardenLogic.toll_exit(Rect2(0, 0, 640, 490), Vector2(620, 245), Vector2(320, 245), 45.0, 13.0, 291.0, 16.0, 267.0)
+	t.ok(ex_wall != Vector2.INF and ex_wall.distance_to(Vector2(320, 245)) >= 307.0 and Rect2(0, 0, 640, 490).grow(-13.0).has_point(ex_wall)
+		and absf(ex_wall.x - 620.0) < 1.0, "a wall at her back: the exit runs sideways along the slam's edge, in the room (%s)" % str(ex_wall))
+	t.ok(WardenLogic.toll_exit(Rect2(0, 0, 560, 400), Vector2(13, 13), Vector2(280, 200), 45.0, 13.0, 291.0, 16.0, 267.0) == Vector2.INF,
+		"a corner the slam nearly fills (lantern-keep s2's corner, in a tighter room): no exit, so no toll")
+	t.ok(WardenLogic.toll_exit(Rect2(0, 0, 640, 490), Vector2(620, 245), Vector2(320, 245), 45.0, 13.0, 291.0, 16.0, 60.0) == Vector2.INF,
+		"no exit a human reaches in time: no toll")
 	t.near(WardenLogic.lane_reach(Rect2(0, 0, 600, 400), Vector2(300, 200)), Vector2(300, 200).length(), 1e-6, "the lane reaches the room's farthest corner")
 	var pyre3 := WardenLogic.spec({"id": "x", "tier": 3, "archetype": "pyre_priest"}, cfg)
 	var her := Vector2(400, 300)
@@ -405,11 +412,32 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var bell_at: Dictionary = archs["bellringer"]["attack"]
 	var clears := {
 		"slam": float(bell_at["radius_px"]) + float(bell_at["band_px"]) * 0.5 + rr - (float(archs["bellringer"]["radius"]) + rr),
-		"toll": float(bell_at["toll_radius_px"]) + rr,
+		"toll": 0.0,   # its worst-case exit path, below
 		"lunge": float(archs["huntsman"]["attack"]["hit_radius_px"]) + rr,
 		"bash": float(archs["shieldwall"]["attack"]["reach_px"]) + rr - (float(archs["shieldwall"]["radius"]) + rr),
 		"fire": 105.0 + rr,
 	}
+	# the toll's worst-case exit path: every spot a toll can land in the at-tier Bellringer forts' warden rooms
+	var slam_r := float(bell_at["radius_px"]) + float(bell_at["band_px"]) * 0.5
+	var budget := (float(bell_at["tell_beats"]) * beat_s - float(bell_at["toll_react_s"])) * spd
+	var toll_worst := 0.0
+	var toll_spots := [0, 0]
+	for fid in ["vespers", "lantern-keep", "sable-hold"]:
+		var blay := RaidLogic.gen_layout(fid, 4 if fid == "sable-hold" else 2, false, cfg)
+		var broom: Rect2 = blay["rooms"][int(blay["warden_room"])]
+		var bc := broom.get_center()
+		for gx in range(int(broom.position.x + rr) + 5, int(broom.end.x - rr), 10):
+			for gy in range(int(broom.position.y + rr) + 5, int(broom.end.y - rr), 10):
+				var sp := Vector2(gx, gy)
+				if sp.distance_to(bc) <= slam_r + rr:
+					continue
+				toll_spots[1] += 1
+				var ex := WardenLogic.toll_exit(broom, sp, bc, float(bell_at["toll_radius_px"]), rr, slam_r + rr, float(bell_at["toll_exit_margin_px"]), budget)
+				if ex != Vector2.INF:
+					toll_spots[0] += 1
+					toll_worst = maxf(toll_worst, sp.distance_to(ex))
+	t.ok(toll_spots[0] > 0, "the toll can land at %d of %d spots beyond the slam in the at-tier Bellringer rooms" % toll_spots)
+	clears["toll"] = toll_worst
 	var lane_r := 0.0
 	for fid in ["pale-bastion", "the-stair"]:
 		var lay := RaidLogic.gen_layout(fid, 3 if fid == "pale-bastion" else 4, false, cfg)

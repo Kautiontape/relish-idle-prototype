@@ -504,7 +504,7 @@
     },
     "archetypes": {
       "bellringer": {
-        "_doc": "The Bellringer (warden_bellringer.gd). The toll (D-d/E Step 4b): as a slam's tell begins, a ring attack.toll_radius_px wide lands where Relish stands in its room beyond the slam's reach, and only where she can step out of it away from the bell with the toll radius of floor to spare inside the room (WardenLogic.toll_room_ok; in a corner just outside the ring the toll had no exit, and then that slam tolls nothing) (TOLL; on every attack.toll_every-th slam tell, so the tells aimed at her per fight are near the other wardens'); on the slam it strikes her if she is still in it (TOLLED; a tell-attack, so the chain does not soak it), unless a beefy big braces the bell (MUFFLED: the counter spares her) or the slam's own ring will reach her there. Stepping out is the answer; it reaches the stand she keeps outside the ring, which the slam alone never did.",
+        "_doc": "The Bellringer (warden_bellringer.gd). The toll (D-d/E Step 4b): as a slam's tell begins, a ring attack.toll_radius_px wide lands where Relish stands in its room beyond the slam's reach, and only where an exit exists (WardenLogic.toll_exit, round 3): a point inside the room, her centre toll_exit_margin_px beyond both the toll's reach on her and the slam's, within reach of her spot in the lead less toll_react_s (a human's reaction, the score-50 delay) at her speed; sideways along the slam's edge counts. Else that slam tolls nothing (a corner the slam nearly fills, as lantern-keep s2). The bot's answer steps to that exit (TOLL; on every attack.toll_every-th slam tell, so the tells aimed at her per fight are near the other wardens'); on the slam it strikes her if she is still in it (TOLLED; a tell-attack, so the chain does not soak it), unless a beefy big braces the bell (MUFFLED: the counter spares her) or the slam's own ring will reach her there. Stepping out is the answer; it reaches the stand she keeps outside the ring, which the slam alone never did.",
         "name": "The Bellringer",
         "tells": [
           "slams ring out on the beat, and beef soaks them",
@@ -542,6 +542,8 @@
           "ring_beats": 0.6,
           "toll_radius_px": 45.0,
           "toll_every": 3,
+          "toll_exit_margin_px": 16.0,
+          "toll_react_s": 0.6,
           "radius_px": 260.0,
           "band_px": 36.0,
           "dmg_unit": 11.0,

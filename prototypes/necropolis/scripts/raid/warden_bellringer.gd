@@ -26,6 +26,10 @@ var toll_r := 0.0              # its radius (attack.toll_radius_px)
 var tolls := 0                 # tolls rung (telemetry)
 var _slam_tells := 0           # slam tells begun (the toll lands on every attack.toll_every-th)
 var tolls_struck := 0          # of them, those that struck her
+var toll_exit_at := Vector2.INF   # the exit WardenLogic.toll_exit found for this tell's toll (the decent player's step)
+var toll_beats := 0            # toll beats with her in the room beyond the slam's reach (telemetry: tolls / toll_beats placed)
+var toll_exit_px_max := 0.0    # the longest exit path among the tolls placed (telemetry: the worst-case margin)
+var toll_marks := {}           # telemetry: "%.4f" slam beat of each toll placed -> "placed", "struck" or "muffled"
 var _toll_word_t := 99.0       # draw only: seconds since a toll resolved
 var _toll_word_at := Vector2.ZERO
 var _toll_word := ""
@@ -57,6 +61,11 @@ func _on_phase_change(old: int, new: int) -> void:
 	var b := beat()
 	if b < _next_attack - tell:
 		_next_attack = minf(_next_attack, maxf(b + tell, _last_attack + WardenLogic.period_beats(spec, new)))
+
+
+## The toll's counts (autopilot telemetry; reads only): tolls placed of toll_beats, tolls struck, the longest exit path.
+func telemetry() -> Dictionary:
+	return {"tolls": tolls, "tolls_struck": tolls_struck, "toll_beats": toll_beats, "toll_exit_px_max": snappedf(toll_exit_px_max, 0.1)}
 
 
 ## Party big undead touching the bell: [{beef}] for WardenLogic.is_muffled.
@@ -91,12 +100,22 @@ func _step(delta: float) -> void:
 			if WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg()) \
 			and _slam_tells % every == 0 else 0.0
 		var room: Rect2 = (raid.layout["rooms"] as Array)[int(raid.layout["warden_room"])]
-		# only where the slam's own ring cannot reach her (inside it, the ring is the threat), and where she can
-		# step out of it away from the bell with floor to spare (WardenLogic.toll_room_ok; else no toll)
-		toll_at = rel0.global_position if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
-			and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) \
-			> float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5 + rel0.radius \
-			and WardenLogic.toll_room_ok(room, rel0.global_position, global_position, toll_r, rel0.radius) else Vector2.INF
+		# only where the slam's own ring cannot reach her (inside it, the ring is the threat), and only where an
+		# exit exists inside the room, out of both rings, that a human reaches in time (WardenLogic.toll_exit;
+		# else that slam tolls nothing)
+		toll_at = Vector2.INF
+		toll_exit_at = Vector2.INF
+		var slam_reach := float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5
+		if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
+				and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) > slam_reach + rel0.radius:
+			toll_beats += 1
+			var budget := (float(at.get("tell_beats", 1.0)) * tempo_s() - float(at.get("toll_react_s", 0.6))) * rel0.speed
+			toll_exit_at = WardenLogic.toll_exit(room, rel0.global_position, global_position, toll_r, rel0.radius,
+				slam_reach + rel0.radius, float(at.get("toll_exit_margin_px", 16.0)), budget)
+			if toll_exit_at != Vector2.INF:
+				toll_at = rel0.global_position
+				toll_marks["%.4f" % _next_attack] = "placed"
+				toll_exit_px_max = maxf(toll_exit_px_max, toll_at.distance_to(toll_exit_at))
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
 		_last_attack = _next_attack
@@ -117,9 +136,11 @@ func _step(delta: float) -> void:
 				tolls_struck += 1
 				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false), "slam")
 			_toll_word = "MUFFLED" if muffled else ("TOLLED" if struck else "")
+			toll_marks["%.4f" % _slam_beat] = "muffled" if muffled else ("struck" if struck else "placed")
 			_toll_word_at = toll_at
 			_toll_word_t = 0.0
 			toll_at = Vector2.INF
+			toll_exit_at = Vector2.INF
 		_next_attack = _last_attack + WardenLogic.period_beats(spec, phase)
 		if raid._standalone:
 			print("RAID_WARDEN slam n=%d muffled=%s phase=%d bigs_at_bell=%d frame=%d" % [_slams, str(_slam_muffled), phase, _contacts().size(), Engine.get_process_frames()])
