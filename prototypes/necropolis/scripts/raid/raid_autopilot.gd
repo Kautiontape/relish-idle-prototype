@@ -515,13 +515,7 @@ func on_finish(result: Dictionary) -> void:
 		dd["done_s"] = snappedf(_door_done_s, 0.01)
 		dd["wait_s"] = snappedf(_door_wait_s, 0.01)
 		dd["walk_px"] = roundi(_door_walk)
-		var fate := ""
-		if hd.holder_uid != "":
-			fate = "lost" if RaidLogic.held_door_lost(exit if exit != "timeout" else "retreated", hd.committed()) \
-				else ("rejoined" if hd.state == "freed" else "kept")
-		elif hd.fell > 0:
-			fate = "fell"
-		dd["fate"] = fate
+		dd["fate"] = hd.fate(exit)
 		out["door"] = dd
 	var died := exit == "relish_died"
 	var src: String = _raid.relish.last_hit_src if _raid.relish != null and is_instance_valid(_raid.relish) else ""

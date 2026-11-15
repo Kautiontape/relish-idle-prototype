@@ -74,14 +74,25 @@ func _place_cache(tier: int) -> void:
 	var site := RaidLogic.detour_site(_raid.layout, tier, _raid.rcfg())
 	if site.is_empty():
 		return
+	_raid.detour_cache.append_array(RaidPopulate.spawn_cache(_raid, site["pos"], Vector2.RIGHT, tier, true))
+
+
+## A cache's relic pickups (loot.json cache: relics_by_tier of them, spread_px apart along `along`, centred
+## on `center`, labelled CACHE), added under the raid's units. `resolve` keeps each clear of the walls (the
+## detour's); the held door's lie inside its shut niche, so they are placed as they are. The guarded detour and
+## the held door both spawn theirs here. Returns them.
+static func spawn_cache(raid: Node2D, center: Vector2, along: Vector2, tier: int, resolve: bool) -> Array:
 	var lc: Dictionary = ConfigDb.data.get("loot", {}).get("cache", {})
 	var n := int((lc.get("relics_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
 	var sp := float(lc.get("spread_px", 18.0))
+	var out: Array = []
 	for i in n:
 		var pk := RaidPickup.new()
-		pk.raid = _raid
+		pk.raid = raid
 		pk.kind = "relic"
 		pk.cache = true
-		pk.position = _raid.resolve_walls((site["pos"] as Vector2) + Vector2(sp * (float(i) - float(n - 1) * 0.5), 0.0), 6.0)
-		_raid.units_root.add_child(pk)
-		_raid.detour_cache.append(pk)
+		var p := center + along * (sp * (float(i) - float(n - 1) * 0.5))
+		pk.position = raid.resolve_walls(p, 6.0) if resolve else p
+		raid.units_root.add_child(pk)
+		out.append(pk)
+	return out

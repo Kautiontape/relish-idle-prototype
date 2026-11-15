@@ -50,19 +50,10 @@ func _c(key: String, def: float) -> float:
 
 ## The cache's relic pickups in the niche (RaidPopulate, after the living; no rng).
 func place_cache(tier: int) -> void:
-	var lc: Dictionary = ConfigDb.data.get("loot", {}).get("cache", {})
-	cache_n = int((lc.get("relics_by_tier", {}) as Dictionary).get(str(clampi(tier, 1, 4)), 0))
-	var sp := float(lc.get("spread_px", 18.0))
-	var along: Vector2 = site["along"]
-	for i in cache_n:
-		var pk := RaidPickup.new()
-		pk.raid = raid
-		pk.kind = "relic"
-		pk.cache = true
-		pk.position = (site["cache"] as Vector2) + along * (sp * (float(i) - float(cache_n - 1) * 0.5))
-		raid.units_root.add_child(pk)
+	cache = RaidPopulate.spawn_cache(raid, site["cache"], site["along"], tier, false)
+	cache_n = cache.size()
+	for pk in cache:
 		pk.remove_from_group("raid_pickups")   # behind the shut door: not on the floor yet
-		cache.append(pk)
 
 
 func cache_left() -> int:
@@ -242,6 +233,18 @@ func lost_uids(exit: String) -> Array:
 	if holder_uid != "" and RaidLogic.held_door_lost(exit, committed()):
 		return [holder_uid]
 	return []
+
+
+## What became of the big spent on the door, for a run that ended `exit` (the bot's `door` dict and capture's
+## record): "lost" (RaidLogic.held_door_lost: any end but the warden's fall, while it is spent), "rejoined" (the
+## warden fell), "kept" (spent and not lost: only before the run ends), "fell" (it died before it was shut in,
+## and none was spent after), or "" (none was ever sent).
+func fate(exit: String) -> String:
+	if holder_uid == "":
+		return "fell" if fell > 0 else ""
+	if RaidLogic.held_door_lost(exit, committed()):
+		return "lost"
+	return "rejoined" if state == "freed" else "kept"
 
 
 ## The shut-in big's name while it is shut in ("" otherwise): the death card's row.

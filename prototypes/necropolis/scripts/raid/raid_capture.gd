@@ -264,8 +264,7 @@ func _record(exit: String) -> Dictionary:
 		var dd := hd.telemetry()
 		dd["taken"] = hd.holder_uid != "" or hd.fell > 0
 		dd["name"] = hd.holder_name
-		dd["fate"] = ("lost" if RaidLogic.held_door_lost(exit if exit in ["relish_died", "warden_beaten"] else "retreated", hd.committed())
-			else ("rejoined" if hd.state == "freed" else "kept")) if hd.holder_uid != "" else ("fell" if hd.fell > 0 else "")
+		dd["fate"] = hd.fate(exit)
 		rec["door"] = dd
 	return rec
 
