@@ -45,8 +45,6 @@ const _RATE_UNITS := {
 	"bodies": "mass/s", "gold": "gold/s", "bone": "bone/s", "living": "living/s", "corpses": "mass/s",
 	"backlog": "mass/s",
 }
-## E1 stub tells for view_fort.warden (the dungeon unit owns warden specs from E2).
-const _WARDEN_TELLS := {"bellringer": ["rings slam on the beat"]}
 ## How long a lane's `why` callout lasts, in sim seconds (STATE-API §5.3).
 const _WHY_S := 10.0
 
@@ -599,8 +597,32 @@ func _warden_archetype(fort_id: String) -> String:
 	return str(_sec("raid", "wardens").get("by_fort", {}).get(fort_id, "bellringer"))
 
 
+## raid.json wardens.archetypes.<id>.name and .tells, dungeon-owned: "" and [] for an archetype the
+## config doesn't list (a missing key is the dungeon's to fix, never a crash here).
+func _warden_name(archetype: String) -> String:
+	var a: Variant = _sec("raid", "wardens").get("archetypes", {}).get(archetype, {})
+	return str((a as Dictionary).get("name", "")) if a is Dictionary else ""
+
+
+func _warden_tells(archetype: String) -> Array:
+	var a: Variant = _sec("raid", "wardens").get("archetypes", {}).get(archetype, {})
+	var out: Array = []
+	if a is Dictionary:
+		for t in (a as Dictionary).get("tells", []):
+			out.append(str(t))
+	return out
+
+
+## loot.json hints (dungeon-owned): the first dungeon reads `first_dungeon_hint`, any other fort
+## `hints["t<tier>.<archetype>"]`, "" when the key is missing.
 func _loot_hint(fort_id: String) -> String:
-	return "a husk and a blueprint" if _is_first_dungeon(fort_id) else ""
+	var hints: Dictionary = _sec("loot", "hints")
+	if _is_first_dungeon(fort_id):
+		return str(hints.get("first_dungeon_hint", ""))
+	var f := realm.fort_by_id(fort_id)
+	if f.is_empty():
+		return ""
+	return str(hints.get("t%d.%s" % [int(f["tier"]), _warden_archetype(fort_id)], ""))
 
 
 func _phylactery_max() -> int:

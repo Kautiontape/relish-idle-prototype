@@ -1117,8 +1117,10 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 
 ### 5.2 Before you descend (threat in advance; vision review M5)
 Every fort card shows, **from the start**:
-- the warden archetype and its one-line tell;
-- the loot hint;
+- the warden archetype's name and its tells, read from `raid.json` `wardens.archetypes` (the
+  dungeon's own text, one source with the fight: `view_fort().warden`);
+- the loot hint, read from `loot.json` `hints` (the first dungeon's `first_dungeon_hint`, else
+  `hints["t<tier>.<archetype>"]`);
 - the party strength against the garrison;
 - the projected death risk (low, risky or deadly).
 

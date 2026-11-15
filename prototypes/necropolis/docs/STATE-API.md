@@ -74,6 +74,10 @@ from `BALANCE.md` §0.
   - (T3.2) `margin_cause` `"fall"` on a `thin` margin: a held fort that falls beyond the horizon and that
     one full wave wouldn't break reads `thin` / `"fall"`, no longer `thin` / `"wave"` (§5.5; MECHANICS
     §3.5): a meaning change, not a shape change;
+  - (T3.4a) **the fort card's warden and loot lines come from the dungeon's configs** (api-request
+    #5): `view_fort().warden` gains `name` (§5.5), and `warden.tells` and `loot_hint` (on `view_fort`
+    and the raid seed alike) are read from `raid.json` `wardens.archetypes` and `loot.json` `hints`,
+    no longer E1 constants: a meaning change, not a shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -1088,8 +1092,9 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 
 ### 5.5 `view_fort(id: String)` · E1
 The masses, positions, `relish_here` and `can_descend` are live from E1; held, flip and tithe from
-E2a. `siege` lists the big undead placed there (the siege's effect is E3). The warden, threat, loot
-hint are still the E1 stubs (`bellringer`, `risk: "low"`) until their E2 specs; the hold's readouts
+E2a. `siege` lists the big undead placed there (the siege's effect is E3). The threat is
+still the E1 stub (`risk: "low"`) until its E2 spec; the warden and loot hint come from the
+dungeon's configs (v6, below); the hold's readouts
 (`garrison` to `grace_s_left`) and `yield_mult` are live from v6.
 
 | key | type | meaning |
@@ -1113,8 +1118,8 @@ hint are still the E1 stubs (`bellringer`, `risk: "low"`) until their E2 specs; 
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
 | `clears_since_retaken` | int | |
 | `yield_mult` | float | the loot yield now, 0..1 (v6, live; MECHANICS §5.3): `loot.reclear_decay` per clear that paid loot (a flip, a counter-garrison clear), climbing back linearly to exactly 1 over `loot.recover_s` from the last clear; 1 after a retake. The dungeon seed's `fort.yield_mult` is the same value at issue |
-| `warden` | Dictionary | `{archetype: String, tells: Array[String]}`: one tell, or every tell with a Watchtower |
-| `loot_hint` | String | display text |
+| `warden` | Dictionary | `{archetype: String, name: String, tells: Array[String]}` (v6, T3.4a, api-request #5): `archetype` is `raid.json` `wardens.by_fort[id]` (`"bellringer"` for a fort it doesn't list); `name` and `tells` are that archetype's `wardens.archetypes.<id>.name` and `.tells`, the dungeon's own text (`""` and `[]` for an archetype the config doesn't list). A card shows the name and the tells (the Watchtower's "every tell" is the config's whole list today) |
+| `loot_hint` | String | display text (v6, T3.4a): the first dungeon reads `loot.json` `hints.first_dungeon_hint`; any other fort reads `hints["t<tier>.<archetype>"]`, `""` when the config has no such key. The raid seed's `loot_hint` is the same string |
 | `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here; 0 when none |
@@ -1128,7 +1133,8 @@ hint are still the E1 stubs (`bellringer`, `risk: "low"`) until their E2 specs; 
  held: false, held_s_left: 0.0, grace_s_left: 0.0, garrison: 0.0, garrison_rate: 0.0, fall_s: -1.0,
  margin: "", margin_cause: "", flipped_count: 0, first_clear: true, first_dungeon: true,
  clears_since_retaken: 0, yield_mult: 1.0,
- warden: {archetype: "bellringer", tells: ["rings slam on the beat"]}, loot_hint: "a husk and a blueprint",
+ warden: {archetype: "bellringer", name: "The Bellringer", tells: ["slams ring out on the beat, and beef soaks them", "rings faster at each third of its health"]},
+ loot_hint: "a husk and a blueprint",
  threat: {party_strength: 8.0, garrison_strength: 6.1, risk: "low", risk_pct: -1.0},
  relish_here: false, tide: false, redirect: false, simulacrum_charges: 0.0, siege: [],
  tithe: {targeted: false, eta_s: -1.0, wave_active: false}, can_descend: false, reason: "not_at_fort"}

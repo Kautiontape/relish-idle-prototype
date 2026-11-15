@@ -156,7 +156,7 @@ const FORT := {
 	"living": F, "undead": F, "dead": F, "space": F, "war_in": F, "ship_in": F,
 	"held": B, "held_s_left": F, "flipped_count": I, "first_clear": B, "first_dungeon": B,
 	"clears_since_retaken": I, "yield_mult": F,
-	"warden": {"archetype": S, "tells": [S]}, "loot_hint": S,
+	"warden": {"archetype": S, "name": S, "tells": [S]}, "loot_hint": S,
 	"threat": {"party_strength": F, "garrison_strength": F, "risk": S, "risk_pct": F},
 	"relish_here": B, "tide": B, "redirect": B, "simulacrum_charges": F, "siege": [S],
 	"tithe": {"targeted": B, "eta_s": F, "wave_active": B},

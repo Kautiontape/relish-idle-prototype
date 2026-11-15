@@ -160,7 +160,7 @@ static func fort_entry(gs: GameState, f: Dictionary, w_in: float) -> Dictionary:
 		"flipped_count": int(f.get("flipped_count", 0)),
 		"first_clear": not gs.cleared_forts.has(id), "first_dungeon": gs._is_first_dungeon(id),
 		"clears_since_retaken": int(f.get("clears_since_retaken", 0)), "yield_mult": gs._yield_mult(f),
-		"warden": {"archetype": archetype, "tells": (GameState._WARDEN_TELLS.get(archetype, []) as Array).duplicate()},
+		"warden": {"archetype": archetype, "name": gs._warden_name(archetype), "tells": gs._warden_tells(archetype)},
 		"loot_hint": gs._loot_hint(id),
 		"threat": {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0},
 		"relish_here": gs._standing_fort() == id, "tide": fx["tide_fort"] == id, "redirect": fx["redirect_fort"] == id,

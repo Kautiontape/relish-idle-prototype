@@ -493,7 +493,10 @@ func _realm_views() -> void:
 	t.ok(realm["forts"].size() == 12 and realm["forts"][1] == fv, "view_realm.forts are view_fort without rev")
 	t.ok(fv["first_dungeon"] and fv["first_clear"] and fv["loot_hint"] == "a husk and a blueprint" and fv["warden"]["archetype"] == "bellringer",
 		"Old Sluice is the first dungeon")
-	t.ok(not s.view_fort("ashgate")["first_dungeon"] and s.view_fort("ashgate")["loot_hint"] == "", "Ashgate is not")
+	var hints: Dictionary = TestUtil.configs()["loot"]["hints"]
+	var ash := s.view_fort("ashgate")
+	t.ok(not ash["first_dungeon"] and ash["loot_hint"] == str(hints.get("t%d.%s" % [ash["tier"], ash["warden"]["archetype"]], "")),
+		"Ashgate is not: it reads its tier's hint, not the first dungeon's")
 	t.near(fv["space"], maxf(0.0, fv["cap"] - fv["living"] - fv["undead"] - fv["dead"]), 1e-9, "space = cap - masses")
 	t.ok(fv["threat"]["risk"] == "low" and fv["threat"]["risk_pct"] == -1.0 and fv["tithe"]["eta_s"] == -1.0, "E1 threat and tithe stubs")
 	t.ok(not fv["relish_here"] and s.view_party()["fort_id"] == "", "she is home")

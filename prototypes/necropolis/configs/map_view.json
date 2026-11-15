@@ -640,12 +640,6 @@
   "hint_left_px": 214,
   "toast_left_px": 10,
   "cards": {
-    "warden_names": {
-      "bellringer": "The Bellringer",
-      "huntsman": "The Huntsman",
-      "shieldwall": "The Shieldwall",
-      "pyre_priest": "The Pyre Priest"
-    },
     "warden_fallback_fmt": "The %s",
     "tell_none": "no tell known yet",
     "tell_label": "TELL",

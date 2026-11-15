@@ -36,6 +36,7 @@ func run() -> int:
 	_projection_frame_pure()
 	_projection_reset()
 	_projection_lot_bound()
+	_warden_card()
 	return t.failures
 
 
@@ -1041,6 +1042,65 @@ func _projection_lot_bound() -> void:
 		got[r["lot_id"]] = r["upgrade_projected"]
 	t.ok(not (got[up] as Dictionary).is_empty() and not (got[swap] as Dictionary).is_empty(),
 		"once refreshed both lots show their own projections again")
+
+
+## T3.4a (#5): the fort card's warden (name, tells) and loot hint come from raid.json's
+## wardens.archetypes and loot.json's hints. Compared against the config, never a literal.
+func _warden_card() -> void:
+	t.suite("api-v6-warden-card")
+	var cfgs := TestUtil.configs()
+	var raid_w: Dictionary = cfgs["raid"]["wardens"]
+	var hints: Dictionary = cfgs["loot"]["hints"]
+	var s := GameState.new(cfgs)
+	s.cmd_new_game(1)
+	var by_fort: Dictionary = raid_w["by_fort"]
+	t.ok(by_fort.size() == 12, "(setup) every fort has a warden in by_fort")
+	for id in by_fort:
+		var a: String = by_fort[id]
+		var spec: Dictionary = raid_w["archetypes"].get(a, {})
+		var w: Dictionary = s.view_fort(id)["warden"]
+		t.ok(w["archetype"] == a and str(w["name"]) != "" and w["name"] == spec.get("name"), "%s: the card names %s as the config does" % [id, a])
+		t.ok(not (w["tells"] as Array).is_empty() and w["tells"] == spec.get("tells"), "%s: the card's tells are the config's" % id)
+	# the loot hint: the first dungeon's, else the tier's and archetype's, over every archetype and tier
+	var first := ""
+	for id in by_fort:
+		if s.view_fort(id)["first_dungeon"]:
+			first = id
+	t.ok(first != "" and s.view_fort(first)["loot_hint"] == hints["first_dungeon_hint"] and s.view_fort(first)["loot_hint"] != "", "the first dungeon reads first_dungeon_hint")
+	t.ok(StateRuns.dungeon_seed(s, first, 1, s.rev)["loot_hint"] == hints["first_dungeon_hint"], "(seed) the same hint")
+	var seen := {}
+	for a in raid_w["archetypes"]:
+		var c2 := TestUtil.configs()
+		for id in c2["raid"]["wardens"]["by_fort"]:
+			c2["raid"]["wardens"]["by_fort"][id] = a
+		var s2 := GameState.new(c2)
+		s2.cmd_new_game(1)
+		for f in s2.realm.forts:
+			var fv := s2.view_fort(f["id"])
+			if fv["first_dungeon"]:
+				continue
+			var key := "t%d.%s" % [int(f["tier"]), a]
+			seen[key] = true
+			t.ok(fv["loot_hint"] == str(hints.get(key, "")), "%s as %s reads hints[%s]" % [f["id"], a, key])
+			t.ok(StateRuns.dungeon_seed(s2, f["id"], 1, s2.rev)["loot_hint"] == fv["loot_hint"], "%s: the raid seed reads the same hint" % f["id"])
+	t.ok(seen.size() >= 4, "(setup) more than one tier was checked")
+	# a hint key the config lacks reads ""
+	var c3 := TestUtil.configs()
+	c3["loot"]["hints"] = {}
+	var s3 := GameState.new(c3)
+	s3.cmd_new_game(1)
+	var nonfirst := ""
+	for id in by_fort:
+		if not s3.view_fort(id)["first_dungeon"]:
+			nonfirst = id
+	t.ok(s3.view_fort(nonfirst)["loot_hint"] == "" and s3.view_fort(first)["loot_hint"] == "", "no hints in the config: every fort's hint is empty")
+	# an archetype the config doesn't list: name "" and no tells
+	var c4 := TestUtil.configs()
+	(c4["raid"]["wardens"]["archetypes"] as Dictionary).erase(by_fort[nonfirst])
+	var s4 := GameState.new(c4)
+	s4.cmd_new_game(1)
+	var w4: Dictionary = s4.view_fort(nonfirst)["warden"]
+	t.ok(w4["archetype"] == by_fort[nonfirst] and w4["name"] == "" and w4["tells"] == [], "an unlisted archetype: name \"\" and tells []")
 
 
 ## Every view's output and the save, for purity checks.
