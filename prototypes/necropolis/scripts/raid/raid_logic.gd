@@ -1079,9 +1079,14 @@ static func held_door_card_row(name: String) -> Dictionary:
 	return {"label": "SHUT IN", "text": "%s · lost at the cache" % name, "key": "danger"}
 
 
-## The retreat dialog's line for a big spent on the door ("" when none is).
-static func held_door_retreat_line(name: String) -> String:
-	return "" if name == "" else "\n%s is shut in at the cache: a retreat loses it." % name
+## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
+static func held_door_retreat_line(state: String, name: String) -> String:
+	match state:
+		"sent", "held":
+			return "\n%s is on the plate · lost if you retreat." % name
+		"shut":
+			return "\n%s is shut in at the cache: a retreat loses it." % name
+	return ""
 
 
 static func populate_piles(fort_id: String, layout: Dictionary, count: int) -> Array:

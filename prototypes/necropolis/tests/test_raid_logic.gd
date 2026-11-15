@@ -732,7 +732,11 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var cw := ThemeDB.fallback_font.get_string_size(crow["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
 	t.ok(crow["label"] == "SHUT IN" and str(crow["text"]).contains("lost at the cache") and cw <= col_w,
 		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
-	t.ok(RaidLogic.held_door_retreat_line("X").contains("X is shut in at the cache") and RaidLogic.held_door_retreat_line("") == "", "the retreat dialog says a retreat loses it")
+	t.ok(RaidLogic.held_door_retreat_line("shut", "X") == "\nX is shut in at the cache: a retreat loses it."
+		and RaidLogic.held_door_retreat_line("held", "X") == "\nX is on the plate · lost if you retreat."
+		and RaidLogic.held_door_retreat_line("sent", "X") == RaidLogic.held_door_retreat_line("held", "X")
+		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
+		"the retreat dialog names the big by its state: on the plate, or shut in at the cache; nothing once it rejoined or none was spent")
 	# the wiring: party_lost gets it on a retreat, the death card's row, the warden's fall frees it, the order is the move click
 	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func build_result(").contains("held_door.lost_uids(exit)"), "build_result adds the door's lost big to party_lost")
 	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("held_door_card_row(shut)"), "the death card's SHUT IN row")

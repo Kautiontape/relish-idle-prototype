@@ -448,8 +448,9 @@ static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) ->
 func open_exit_dialog() -> void:
 	if _dialog == null or raid._ended or not exit_enabled():
 		return
-	var spent: String = raid.held_door.holder_name if raid.held_door != null and raid.held_door.committed() else ""
-	_dialog.dialog_text = RETREAT_TEXT + RaidLogic.held_door_retreat_line(spent)   # a big spent on the held door is lost
+	var hd = raid.held_door
+	# a big spent on the held door is lost, said by its state (on the plate, or shut in at the cache)
+	_dialog.dialog_text = RETREAT_TEXT + (RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
 	_dialog.popup_centered()
 
 
