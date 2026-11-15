@@ -772,3 +772,194 @@ static func _proj_row(gs: GameState, part: String, key: String, b: Dictionary) -
 		var bl: Dictionary = gs.town_sim.buildings[key]
 		ts.place_building(key, str(bl["building_id"]), int(bl["level"]) + 1)
 	return _proj_diff(gs, _proj_step(gs, ts, b), b)
+
+
+# ---------------------------------------------------------------- the away report ----
+## §5.19 · E2b-2 (v6, T3.3c; IDLE §7, api-request #7 d): the last away report, kept until dismissed (gs._away;
+## {} before any), as a deep copy.
+static func away(gs: GameState) -> Dictionary:
+	var a: Dictionary = gs._away
+	return {
+		"rev": gs.rev, "shown": bool(a.get("shown", false)), "away_s": float(a.get("away_s", 0.0)),
+		"capped": bool(a.get("capped", false)), "gains": (a.get("gains", []) as Array).duplicate(true),
+		"ready": (a.get("ready", []) as Array).duplicate(true), "losses": (a.get("losses", []) as Array).duplicate(true),
+	}
+
+
+## The stream stocks the report's gains diff (IDLE §7): Vei's backlog, the mint booked so far (the ledger's
+## sources.mint), and Covington's workers, bodies, gold, bone and living.
+static func away_streams(gs: GameState) -> Dictionary:
+	var ts := gs.town_sim
+	return {"backlog": float(gs.realm.vei["undead_queue"]), "mint": float(gs._ledger.sources.get("mint", 0.0)),
+		"workers": float(ts.workers), "bodies": float(ts.bodies), "gold": float(ts.gold), "bone": float(ts.bone),
+		"living": float(ts.living)}
+
+
+## What a reporting catch-up starts from (Catchup.begin), for the report's before-and-after: the time, the
+## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, and the
+## village owners.
+static func away_before(gs: GameState) -> Dictionary:
+	var forts := {}
+	for f in gs.realm.forts:
+		forts[str(f["id"])] = {"held": RealmSim.is_held(f), "yield": gs._yield_mult(f)}
+	var villages := {}
+	for tw in gs.towns:
+		villages[str(tw["id"])] = str(tw["control"])
+	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages}
+
+
+static func _overflow(gs: GameState) -> Dictionary:
+	var tally := gs._ledger.stores_copy()
+	var out := {}
+	for k in ["gold", "bone"]:
+		out[k] = float(tally.get(k, {}).get("overflow", 0.0))
+	return out
+
+
+## The report (IDLE §7) of a catch-up of `away_s` seconds (`capped`) from `b` (away_before) to now, with the
+## events it collected (`evs`): gains, ready and losses, each line {text, kind, target}, the text from
+## economy.json idle.report. Numbers in the text are the map's tokens: a signed rate ending in /s, a mass a
+## bare number with thousands commas, nothing glued to a word (AwayLogic.spans).
+static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float, capped: bool) -> Dictionary:
+	var rep: Dictionary = gs._req("economy.idle.report")
+	var gains: Array = []
+	var ready: Array = []
+	var losses: Array = []
+	# gains: each stream's net rate and net total, the backlog with its arrow
+	var now := away_streams(gs)
+	for id in rep["streams"]:
+		var total := float(now[id]) - float(b["streams"][id])
+		var rate := total / away_s if away_s > 0.0 else 0.0
+		var arrow := str(rep["arrow_up"]) if total > 0.0 else (str(rep["arrow_down"]) if total < 0.0 else str(rep["arrow_flat"]))
+		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
+		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
+			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total)}), "stream", ""))
+	# builds finished, then each queued build that started, with when (since you left) and why
+	var done: Array = []
+	for e in evs:
+		if e["type"] == "building_done":
+			done.append(_building_name(gs, rep, str(e["building_id"]), int(e["level"])))
+	if not done.is_empty():
+		var fmt := str(rep["builds_one_fmt"] if done.size() == 1 else rep["builds_fmt"])
+		gains.append(_away_line(fmt.format({"n": _fmt_count(rep, done.size()), "names": str(rep["list_sep"]).join(PackedStringArray(done))}), "build", ""))
+	for e in evs:
+		if e["type"] != "queue_started":
+			continue
+		var name := _building_name(gs, rep, str(e["building_id"]), int(e["level"]))
+		var w := str(e["waited_on"])
+		if w == "":
+			gains.append(_away_line(str(rep["started_now_fmt"]).format({"name": name}), "build", ""))
+		else:
+			gains.append(_away_line(str(rep["started_fmt"]).format({"name": name, "when": _when(rep, float(e["t"]) - float(b["t"])),
+				"why": _why_started(rep, w)}), "build", ""))
+	# forts refilled: held now, not retaken while away, the loot yield below full when you left and full now
+	var retaken: Array = []
+	var walked := {}
+	for e in evs:
+		if e["type"] == "fort_retaken":
+			retaken.append(str(e["fort_id"]))
+		elif e["type"] == "relish_returned":
+			walked[str(e["fort_id"])] = true
+	for f in gs.realm.forts:
+		var id := str(f["id"])
+		var was: Dictionary = b["forts"].get(id, {})
+		if RealmSim.is_held(f) and not retaken.has(id) and float(was.get("yield", 1.0)) < 1.0 and gs._yield_mult(f) >= 1.0:
+			gains.append(_away_line(str(rep["refilled_fmt"]).format({"fort": str(f["name"])}), "refilled", ""))
+			ready.append(_away_line(str(rep["raid_fmt"]).format({"fort": str(f["name"])}), "raid", id))
+	# ready: husks waiting while the crypt has room for a big undead; an empty queue
+	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
+		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
+		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
+	if gs.build_queue.is_empty():
+		ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
+	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
+	for id in retaken:
+		var f := gs.realm.fort_by_id(id)
+		var fmt := str(rep["retaken_home_fmt"] if walked.has(id) else rep["retaken_fmt"])
+		losses.append(_away_line(fmt.format({"fort": str(f.get("name", id))}), "retaken", id))
+	for tw in gs.towns:
+		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
+			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
+	var o := _overflow(gs)
+	for k in ["gold", "bone"]:
+		var lost := float(o[k]) - float(b["overflow"][k])
+		if lost >= float(rep["overflow_min"]):
+			losses.append(_away_line(str(rep["overflow_fmt"]).format({"store": str(rep["store_labels"][k]), "n": _fmt_count(rep, lost)}), "overflow", ""))
+	return {"shown": true, "away_s": away_s, "capped": capped, "gains": gains, "ready": ready, "losses": losses}
+
+
+static func _away_line(text: String, kind: String, target: String) -> Dictionary:
+	return {"text": text, "kind": kind, "target": target}
+
+
+## `digits` (an unsigned integer's decimal digits) with the report's thousands separator every three.
+static func _commas(rep: Dictionary, digits: String) -> String:
+	var sep := str(rep["thousands"])
+	var out := ""
+	var n := digits.length()
+	for i in n:
+		if i > 0 and (n - i) % 3 == 0:
+			out += sep
+		out += digits[i]
+	return out
+
+
+## |x| at `dec` decimals with thousands separators on the integer part (no sign).
+static func _fmt_abs(rep: Dictionary, x: float, dec: int) -> String:
+	var s := ("%." + str(dec) + "f") % absf(x)
+	var parts := s.split(".")
+	return _commas(rep, parts[0]) + ("." + parts[1] if parts.size() > 1 else "")
+
+
+## A count or a store's waste: |x| rounded, with thousands separators, unsigned ("120", "2").
+static func _fmt_count(rep: Dictionary, x: float) -> String:
+	return _fmt_abs(rep, roundf(x), 0)
+
+
+## A mass total: rounded, signed with idle.report's plus or minus, "0" when it rounds to 0 ("+69,552").
+static func _fmt_signed(rep: Dictionary, x: float) -> String:
+	var r := roundf(x)
+	if r == 0.0:
+		return "0"
+	return (str(rep["plus"]) if r > 0.0 else str(rep["minus"])) + _fmt_abs(rep, r, 0)
+
+
+## A rate: rate_sig_digits significant digits, at most rate_max_decimals decimals, signed, with rate_unit
+## ("+2.1/s", "−0.43/s"); "0/s" when it rounds to 0 there.
+static func _fmt_rate(rep: Dictionary, x: float) -> String:
+	var unit := str(rep["rate_unit"])
+	var most := int(rep["rate_max_decimals"])
+	var dec := most
+	if absf(x) > 0.0:
+		dec = clampi(int(rep["rate_sig_digits"]) - 1 - int(floor(log(absf(x)) / log(10.0))), 0, most)
+	var body := _fmt_abs(rep, x, dec)
+	if float(body.replace(str(rep["thousands"]), "")) == 0.0:
+		return "0" + unit
+	return (str(rep["plus"]) if x > 0.0 else str(rep["minus"])) + body + unit
+
+
+## How long after you left: when_hm_fmt ("3 h 12 m"), or when_m_fmt under an hour ("12 m").
+static func _when(rep: Dictionary, s: float) -> String:
+	var secs := maxf(0.0, s)
+	var h := int(secs / 3600.0)
+	var m := int(fmod(secs, 3600.0) / 60.0)
+	return str(rep["when_hm_fmt"] if h > 0 else rep["when_m_fmt"]).format({"h": h, "m": m})
+
+
+## The reason a queued build waited, as idle.report.waited_on words it (one per waited_on value; STATE-API §6
+## queue_started). A value it doesn't word is reported (push_warning) and shown as itself.
+static func _why_started(rep: Dictionary, w: String) -> String:
+	var words: Dictionary = rep["waited_on"]
+	if words.has(w):
+		return str(words[w])
+	push_warning("StateViews: economy.json idle.report.waited_on has no words for %s" % w)
+	return w
+
+
+## A building as the report names it: its label in buildings_view.json (town's, the name the town shows),
+## or its id capitalised when it has none; with level_fmt past level 1 ("Market level 2").
+static func _building_name(gs: GameState, rep: Dictionary, bid: String, level: int) -> String:
+	var view: Variant = gs._cfgs.get("buildings_view", {})
+	var row: Variant = (view as Dictionary).get(bid, {}) if view is Dictionary else {}
+	var name := str((row as Dictionary).get("label", bid.capitalize())) if row is Dictionary else bid.capitalize()
+	return str(rep["level_fmt"]).format({"name": name, "level": level}) if level > 1 else name

@@ -20,8 +20,10 @@ extends RefCounted
 ##   steps' moments depend only on (the state at begin(), total_s, the configs), so chunking never changes
 ##   the result.
 ## - Events: with `report`, each chunk's events move out of the scenes' queue into `events` (with their
-##   t) for the away report (T3.3c); without it they stay queued as live. A load's catch-up and an
-##   open-game gap of idle.report_min_s or more report; a shorter gap queues.
+##   t) for the away report; without it they stay queued as live. A load's catch-up and an open-game gap of
+##   idle.report_min_s or more report; a shorter gap queues. At a reporting catch-up's end the report is built
+##   (GameState._report_away: StateViews.away_report from `before`, taken at begin, the state then and
+##   `events`) and its away_report event queued (E2b-2 T3.3c).
 ## - The presentation step doesn't run inside it: at the end the lanes' callouts take the net change once
 ##   (GameState._note_lane_causes) and the field accumulator is reset.
 
@@ -48,6 +50,9 @@ var events: Array = []
 ## The frames' own sim seconds while a chunked catch-up is active (GameState.tick adds them; they run
 ## once it is done). Session only.
 var frame_acc := 0.0
+## With `report`: what the catch-up started from, for the away report's before-and-after
+## (StateViews.away_before; E2b-2 T3.3c).
+var before := {}
 ## Tests: when an Array, each core step appends [t at its start, its length, next_event_s before it].
 var trace: Variant = null
 var _last_evs: Array = []  # the last core step's realm events (the lanes' callouts at the end)
@@ -58,6 +63,7 @@ var _last_evs: Array = []  # the last core step's realm events (the lanes' callo
 func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	active = seconds > 0.0
 	report = with_report
+	capped = false  # (cmd_load sets it after begin)
 	t0 = gs.t
 	total_s = maxf(0.0, seconds)
 	end_t = t0 + total_s
@@ -75,6 +81,7 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	_last_evs = []
 	if with_report:
 		events = []
+		before = StateViews.away_before(gs) if active else {}
 
 
 ## The base step for a catch-up of `seconds`: clamp(seconds / idle.catchup_max_steps, sim.substep_s,
@@ -98,6 +105,7 @@ func run(gs: GameState, max_steps := -1) -> int:
 		return 0
 	var mark: int = gs._events.size()  # this chunk's events start here (commands can't run inside a chunk)
 	var n := 0
+	var done := false
 	while active and (max_steps < 1 or n < max_steps):
 		var left := end_t - gs.t
 		var h := minf(dt_long if gs.t - t0 >= long_after_s else dt, left)
@@ -118,9 +126,12 @@ func run(gs: GameState, max_steps := -1) -> int:
 		_field_steps(gs, last)
 		if last:
 			_finish(gs)
+			done = true
 	if report:
 		events.append_array(gs._events.slice(mark))
 		gs._events.resize(mark)
+		if done:  # the away report (IDLE §7, T3.3c): built at the end, its event queued after the collection
+			gs._report_away(before, events, total_s, capped)
 	return n
 
 

@@ -146,6 +146,12 @@ from `BALANCE.md` §0.
     "retaken"}` (§6) and `view_relish().returned` (§5.8), saved as `relish.returned` (§9.1). A dynamics
     change wherever she stands at a fort that is retaken (she used to stay): a meaning change, not a shape
     change;
+  - (T3.3c) **the away report** (IDLE §7, api-request #7 d): `view_away()` (§5.19), `cmd_dismiss_away()`
+    (§4.1) and the event `away_report {away_s, capped}` (§6), built at the end of every reporting catch-up (a
+    load's of 1 s or more, an open-game gap's of `idle.report_min_s` or more) from the events it collected
+    and the state before and after; kept until dismissed, never saved. Its text comes from `economy.json`
+    `idle.report`. So a load or such a gap now queues one event (`away_report`), where it queued none: a
+    meaning change, not a shape change;
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
@@ -249,7 +255,7 @@ const DEBUG_STATE_KEYS := ["time_scale", "paused", "relish_at", "valve", "forge_
 | `list_saves() -> Array[Dictionary]` | §4.1. |
 | `ledger() -> Dictionary` | §4.7 (tests). |
 | `catching_up() -> bool` | **Not contract** (v6, E2b-2 T3.3b): whether a catch-up is active (`view_catchup().active`), for the shell's autosave. |
-| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and T3.3c's away report): the events the last catch-up that a report replaces collected instead of queuing them (a load's, or an open-game gap's of `idle.report_min_s` or more; §6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
+| `catchup_events() -> Array[Dictionary]` | **Not contract** (v6, E2b-2 T3.3b; tests and the away report, `view_away`, §5.19): the events the last catch-up that a report replaces collected instead of queuing them (a load's, or an open-game gap's of `idle.report_min_s` or more; §6), in queue order with their `t`, as deep copies; `[]` after a new game or a load with nothing to catch up. |
 | `worker_mass() -> float` | **Not contract**: `economy.json` `worker.mass`, the mass of one worker (the ledger and tests use it). |
 | `var town_sim: TownSim` | **Not contract** (no API_VERSION bump): Covington's economy (MECHANICS §4), created once and reset in place. Tests and the fixture generator use it; scenes read the views. |
 
@@ -299,6 +305,12 @@ func autosave() -> Dictionary         # = state.cmd_save("auto"); the router cal
     and a warning is printed, so the newer save is never overwritten.
   - The load catches up the real time since the save file's `saved_at` (IDLE §4; `cmd_load`, §4.1), so
     Continue resumes where the time away left the realm.
+  - **Tested headless** (E2b-2 T3.3c): `tests/slow/boot_week.gd` compiles the shell's own source with two
+    substitutions, made by exact match (`ConfigDb.data`, which `--script` lacks, becomes the same loader;
+    the boot rule's harness decision becomes a normal launch), and boots it on a save taken mid-run, a week
+    away: the run ends before the first chunk, the catch-up finishes, live substeps resume, the due autosave
+    waits it out and then saves, the scenes' commands during it get `catching_up` or the dead-run refusals,
+    and nothing is logged as an error.
 - **Ticking (`_process(delta)`):**
   `state.tick(delta / maxf(0.05, Engine.time_scale) * state.time_scale, max_substeps)`. Here
   `max_substeps` is `economy.json` `sim.max_substeps_per_frame`. A frame whose real time is above
@@ -526,7 +538,8 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
   cleared, and the field is pre-warmed (§9).
 - **The load order** (v6, E2b-2 T3.3c): `from_dict` (the state as saved, the queue cleared), then **the
   run open at the save ends** (its `pending_retreat`, §9.1: through the normal writeback, as a result of
-  its last checkpoint's outcome; IDLE I5), then the catch-up below.
+  its last checkpoint's outcome; IDLE I5), then the catch-up below, then (when it caught up 1 s or more) the
+  away report (§5.19) and its `away_report` event, queued after the run's events.
   The run's end comes first on both paths: the synchronous load and `chunked`, where it is done before
   `cmd_load` returns and so before the first chunk. Its events (`loot_banked`, `fort_flipped`,
   `relish_died`, …) are queued for the scenes as usual, stamped at the save's `t`: they happened before
@@ -550,6 +563,16 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
 ```gdscript
 Game.state.cmd_load("auto")  # -> {ok: true, reason: "", away_s: 28800.0, capped: false}
 Game.state.cmd_load("nope")  # -> {ok: false, reason: "no_save", away_s: 0.0, capped: false}
+```
+
+**`cmd_dismiss_away()` · E2b-2** (api_version 6, T3.3c; api-request #7 d, IDLE §7)
+- **Extras:** none.
+- **Reasons:** `catching_up` only (§4).
+- **Effect:** the away report is dismissed: `view_away().shown` becomes false. Its lines stay readable until
+  a new game, a load or the next report replaces them. With no report it changes nothing but `rev` (+1, a
+  successful command). The map calls it from DISMISS and from acting on a ready line (`AwayLogic.dismiss`).
+```gdscript
+Game.state.cmd_dismiss_away()  # -> {ok: true, reason: ""}
 ```
 
 **`list_saves() -> Array[Dictionary]` · E1.** Not a command, and does not bump `rev`.
@@ -1839,6 +1862,71 @@ The catch-up's progress, for a progress screen (the map's, Phase I; IDLE §4).
 Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, total_s: 604800.0}
 ```
 
+### 5.19 `view_away()` · E2b-2 (api_version 6, T3.3c; api-request #7 d, IDLE §7)
+The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
+| key | type | meaning |
+|---|---|---|
+| `shown` | bool | a report is waiting: true from its catch-up's end until `cmd_dismiss_away` |
+| `away_s` | float | the seconds it caught up (`cmd_load`'s `away_s`, or a gap's whole seconds); the map formats it |
+| `capped` | bool | the time away was above `idle.catchup_max_s` and capped there |
+| `gains`, `ready`, `losses` | Array[Dictionary] | its lines in IDLE §7's order, each `{text: String, kind: String, target: String}` |
+
+- **When** (`Catchup.run`, `GameState._report_away`): at the end of every **reporting catch-up**: a load's
+  (`cmd_load`, either path) that caught up 1 s or more, and an open-game gap's of `idle.report_min_s` (600 s)
+  or more (§3). It is built from the events that catch-up collected (`catchup_events()`, §6) and the state
+  before it (taken at its start, after the run's end, §4.1) and after it, and the event `away_report` is
+  queued once, then. A shorter gap's events reach the scenes live and make no report.
+- **Kept until dismissed, never saved.** A later reporting catch-up replaces it; a load replaces it (a load
+  with nothing to catch up leaves none); a new game clears it. Before any report: `shown` false, `away_s`
+  0.0, `capped` false and the three lists empty.
+- **`kind`** is one of `stream`, `build`, `refilled`, `raid`, `slab`, `queue`, `retaken`, `village_lost`,
+  `overflow`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a fort, Covington's
+  slab or queue, nothing).
+- **gains** (`target` `""`):
+  - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
+    the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
+    its net total: `"backlog ▲ +2.1/s · +69,552"`. The totals are the ledger's and the stores' changes:
+    the mint `ledger().sources.mint`'s, the backlog, bodies and workers their `held` pools' (workers in
+    workers), gold, bone and living the town's; the rate is the total over `away_s`;
+  - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`;
+  - each queued build that started (`build`, `queue_started` events), with when, measured from when you
+    left, and why, one `idle.report.waited_on` template per `waited_on` value (`needs_tier` "when the tier
+    rose", `no_gold` "when the gold came in", ...; `""` started at once): `"Bakery started at 6 m, when the
+    gold came in"`, `"Inn started right away"`. A building is named by its town label
+    (`buildings_view.json`, the town's), with `level_fmt` past level 1 ("Market level 2");
+  - each fort refilled (`refilled`): held now, not retaken during the absence, its loot yield below 1 when
+    you left and back to 1 now (MECHANICS §5.3): `"Ashgate refilled"`.
+- **ready:** each refilled fort, `"Ashgate refilled: raid it"` (`raid`, the fort); husks waiting while the
+  crypt has room for a big undead (fewer than its cap), wherever Relish is, `"2 husks: raise at the slab"`
+  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`).
+- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
+  it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
+  with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
+  retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
+  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
+  in `ledger().stores`, from `idle.report.overflow_min` (1) wasted (`overflow`, `""`), `"Gold overflowed: 120
+  wasted"`. Empty when nothing was lost: the map prints "Nothing lost."
+- **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
+  significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
+  (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
+  `away_s`. Every template is `economy.json` `idle.report` (BALANCE §5).
+```gdscript
+Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped configs)
+# -> {rev: 4423, shown: true, away_s: 43200.0, capped: false,
+#     gains: [{text: "backlog ▲ +5.0/s · +216,247", kind: "stream", target: ""},
+#             {text: "mint +10/s · +446,432", kind: "stream", target: ""},
+#             {text: "workers 0/s · 0", kind: "stream", target: ""},
+#             {text: "bodies 0/s · −2", kind: "stream", target: ""},
+#             {text: "gold +0.16/s · +6,912", kind: "stream", target: ""},
+#             {text: "bone 0/s · 0", kind: "stream", target: ""},
+#             {text: "living 0/s · 0", kind: "stream", target: ""}],
+#     ready: [{text: "2 husks: raise at the slab", kind: "slab", target: "slab"},
+#             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
+#     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
+# with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
+# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd)
+```
+
 ## 6. Events
 
 `drain_events() -> Array[Dictionary]`
@@ -1847,8 +1935,8 @@ Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, tota
 - The queue is cleared by new game, load and fixture load.
 - **A catch-up whose time a report will cover raises no queued events** (v6, E2b-2 T3.3b; IDLE §4, §7).
   A load's catch-up, and an open-game gap's of `idle.report_min_s` (600 s) or more, keep their events,
-  with their `t`, for the away report (T3.3c's `view_away` and `away_report`;
-  `GameState.catchup_events()` meanwhile), and the scenes' queue gets none of them. A week
+  with their `t`, for the away report (`view_away`, §5.19; `GameState.catchup_events()`), and the scenes'
+  queue gets none of them: only the report's `away_report`, at its end (T3.3c). A week
   away raises thousands of events, and replaying them on load would fire every setpiece, tithe explainer
   and toast at once; the report is their summary. A load already clears the queue, so this extends that
   rule.
@@ -1889,6 +1977,7 @@ Game.state.view_catchup()  # -> {rev: 52113, active: true, done_s: 86400.0, tota
 | `loot_banked` | `run_id: int`, `fort_id: String`, `relics: int`, `essence: int`, `blueprints: Array[String]`, `minted: Array[String]` | E1 |
 | `vei_result` | `run_id: int`, `won: bool`, `fronts_cleared: Array[String]`, `relish_deaths: int`, `backlog_after: float` | E1 |
 | `run_ended` | `run_id: int`, `kind: String` (`raid`\|`boss`), `outcome: String` (the exit it ended in: `retreated`, `warden_beaten` or `relish_died`; a boss run's is `retreated`), `cause: String` (`gap`): a gap above `idle.gap_s` in the open game ended the open run (IDLE I5; §3). Queued first, before the end's writeback events (`loot_banked`, …) and the gap's catch-up, so the dungeon scene knows to leave (Phase I). A load's end of a saved run raises none (no scene is on it) | E2b-2 (v6, T3.3c) |
+| `away_report` | `away_s: float`, `capped: bool` (as `view_away`'s): a reporting catch-up ended and its report is in `view_away` (§5.19). Queued once per report, at the catch-up's end (its `t`), after the run's end's events and none of the catch-up's (they are the report's). The cue for an on-screen scene to re-read its views (above) | E2b-2 (v6, T3.3c) |
 | `autosaved` | `slot: String`, `saved_at: int` | E1 |
 | `save_failed` | `slot: String`, `reason: String` (`cmd_save`'s reason) | E1 |
 ```gdscript

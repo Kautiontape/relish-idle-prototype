@@ -51,7 +51,19 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.idle.gap_s", "economy.idle.catchup_max_s", "economy.idle.catchup_dt_max_s", "economy.idle.catchup_max_steps",
 	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
 	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
-	"realm.tithe.warning_s"]
+	"realm.tithe.warning_s",
+	# T3.3c: the away report's text (StateViews.away_report; its keys are REPORT_KEYS, checked in setup)
+	"economy.idle.report"]
+## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
+## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
+const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
+	"plus", "minus", "rate_unit", "thousands", "rate_sig_digits", "rate_max_decimals", "builds_one_fmt", "builds_fmt",
+	"list_sep", "level_fmt", "started_fmt", "started_now_fmt", "when_hm_fmt", "when_m_fmt", "waited_on", "refilled_fmt",
+	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
+	"overflow_fmt", "store_labels", "overflow_min"]
+## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
+const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
+	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -202,6 +214,11 @@ var _events: Array = []
 ## The catch-up runner (IDLE §4; scripts/sim/catchup.gd): a load's catch-up and an open-game gap's.
 ## Session only: a new game and every load replace it.
 var _catchup := Catchup.new()
+## The away report (IDLE §7, E2b-2 T3.3c; StateViews.away_report): {} or {shown, away_s, capped, gains, ready,
+## losses}, built at the end of a reporting catch-up (a load's, or an open-game gap's of idle.report_min_s or
+## more) and kept until dismissed (shown false) or replaced. Session only, never saved: a new game and every
+## load clear it.
+var _away := {}
 ## The test seam for the wall clock (STATE-API §1.5): unix seconds "now" when ≥ 0, else the system clock.
 ## cmd_save stamps saved_at and cmd_load measures the time away through it (_now_unix, the sim's one read
 ## of the wall clock). Never saved.
@@ -237,6 +254,9 @@ func setup(cfgs: Dictionary) -> void:
 	_gap_s = _req_f("economy.idle.gap_s")
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
+	var why_report := report_config_problem(cfgs)
+	if why_report != "":
+		push_error("GameState: " + why_report)
 	var hold := catchup_config_problem(cfgs)
 	if hold != "":
 		push_error("GameState: " + hold)
@@ -259,6 +279,31 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 	if hold < dt_max:
 		return "stance.hold_s (%s s) is under catch-up's longest step, %s s (idle.catchup_dt_max_s, idle.catchup_dt_long_s): a catch-up step must not straddle a stance's hold" % [
 			str(hold), str(dt_max)]
+	return ""
+
+
+## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
+## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; else what is missing. setup() reports it as an error.
+static func report_config_problem(cfgs: Dictionary) -> String:
+	var rep: Variant = cfgs.get("economy", {}).get("idle", {}).get("report")
+	if not (rep is Dictionary):
+		return "config economy.idle.report is missing"
+	var missing: Array = []
+	for k in REPORT_KEYS:
+		if not (rep as Dictionary).has(k):
+			missing.append(k)
+	if not missing.is_empty():
+		return "config economy.idle.report lacks %s" % ", ".join(PackedStringArray(missing))
+	for id in rep["streams"]:
+		if not (["backlog", "mint", "workers", "bodies", "gold", "bone", "living"] as Array).has(id) or not (rep["stream_labels"] as Dictionary).has(id):
+			return "config economy.idle.report.streams: %s is not a report stream with a label" % str(id)
+	for w in REPORT_WAITED_ON:
+		if not (rep["waited_on"] as Dictionary).has(w):
+			return "config economy.idle.report.waited_on has no words for %s" % w
+	for k in ["gold", "bone"]:
+		if not (rep["store_labels"] as Dictionary).has(k):
+			return "config economy.idle.report.store_labels has no %s" % k
 	return ""
 
 
@@ -350,6 +395,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_field_acc = 0.0
 	_events = []
 	_catchup = Catchup.new()
+	_away = {}
 	_tiers_seen = [-1, ""]
 	t = 0.0
 	time_scale = 1.0
@@ -1729,6 +1775,32 @@ func view_catchup() -> Dictionary:
 	return {"rev": rev, "active": _catchup.active, "done_s": _catchup.done_s(self), "total_s": _catchup.total_s}
 
 
+## §5.19 · E2b-2 (api_version 6, T3.3c; IDLE §7, api-request #7 d): the last "While you were away" report,
+## {rev, shown, away_s, capped, gains, ready, losses}, each line {text, kind, target}; shown false and every
+## list empty before any (StateViews.away).
+func view_away() -> Dictionary:
+	return StateViews.away(self)
+
+
+## §4.1 · E2b-2 (v6, T3.3c): the report is dismissed: view_away().shown becomes false (its lines stay until a
+## new game, a load or the next report replaces them). Reasons: catching_up.
+func cmd_dismiss_away() -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up()
+	if not _away.is_empty():
+		_away["shown"] = false
+	rev += 1
+	return {"ok": true, "reason": ""}
+
+
+## A reporting catch-up's end (Catchup.run, after its events are collected): the report from what it started
+## from (`before`, StateViews.away_before), the state now and its collected events, then `away_report {away_s,
+## capped}` queued for the scenes, once.
+func _report_away(before: Dictionary, evs: Array, away_s: float, capped: bool) -> void:
+	_away = StateViews.away_report(self, before, evs, away_s, capped)
+	_emit({"type": "away_report", "away_s": away_s, "capped": capped})
+
+
 ## Not contract (tests; T3.3c's away report): the events the last catch-up that a report replaces
 ## collected instead of queuing them (a load's, or an open-game gap's of idle.report_min_s or more), in
 ## queue order with their `t`, as deep copies. [] after a new game, or a load with nothing to catch up.
@@ -2129,6 +2201,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	SaveIO.apply(self, m)
 	_reset_train()
 	_catchup = Catchup.new()
+	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
 	_tiers_seen = [-1, ""]
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)

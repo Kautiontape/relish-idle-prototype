@@ -42,6 +42,7 @@ func run() -> int:
 	_catchup_chunked_api()
 	_run_checkpoint_api()
 	_relish_returned_api()
+	_away_api()
 	return t.failures
 
 
@@ -1340,6 +1341,7 @@ func _catchup_chunked_api() -> void:
 		"cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
 		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
 		"cmd_abort_dungeon": [], "cmd_run_checkpoint": [1, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}],
+		"cmd_dismiss_away": [],
 		"cmd_debug_grant": [{"gold": 1.0}], "cmd_debug_set_state": [{"paused": false}],
 		"cmd_debug_load_fixture": ["day1"], "cmd_debug_skip_time": [1.0],
 	}
@@ -1473,3 +1475,52 @@ func _relish_returned_api() -> void:
 	ApiSchema.check(s.to_dict()["relish"]["returned"], ApiSchema.RELISH_RETURNED, "to_dict.relish.returned", errs)
 	t.ok(errs.is_empty() and ev["fort_id"] == "greywall" and ev["cause"] == "retaken" and ret["t"] == ev["t"] and ret["fort_id"] == "greywall",
 		"relish_returned {greywall, retaken}; view_relish().returned and the save's relish.returned {fort_id, cause, t}, in the contract %s" % str(errs))
+
+
+## E2b-2 T3.3c (api-request #7 d; IDLE §7): view_away() -> {rev, shown, away_s, capped, gains, ready, losses},
+## each line {text, kind, target} with `kind` in the request's list and `target` a fort id, "slab", "queue" or
+## ""; empty and not shown before any; cmd_dismiss_away() -> {ok, reason}; the away_report {away_s, capped}
+## event. All in the contract.
+func _away_api() -> void:
+	t.suite("api-v6-away")
+	var dir := _dir + "_away"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var s := _mk()
+	t.ok(s.view_away() == {"rev": s.rev, "shown": false, "away_s": 0.0, "capped": false, "gains": [], "ready": [], "losses": []},
+		"a new game: no report (shown false, the lists empty)")
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.save_dir = dir
+	s.clock_override = 1_800_000_000
+	s.cmd_save("away")
+	var n := GameState.new(TestUtil.configs())
+	n.debug_enabled = true
+	n.save_dir = dir
+	n.clock_override = 1_800_000_000 + 7200
+	n.cmd_load("away")
+	var v := n.view_away()
+	var spec: Dictionary = (ApiSchema.VIEWS["view_away"] as Dictionary).duplicate()
+	spec["rev"] = TYPE_INT
+	var errs: Array = []
+	ApiSchema.check(v, spec, "view_away", errs)
+	var forts := n.realm.forts.map(func(f): return str(f["id"]))
+	var bad: Array = []
+	for k in ["gains", "ready", "losses"]:
+		for l in v[k]:
+			if not ApiSchema.AWAY_KINDS.has(l["kind"]) or not (forts.has(l["target"]) or l["target"] in ["slab", "queue", ""]):
+				bad.append(str(l))
+	t.ok(errs.is_empty() and bad.is_empty() and v["shown"] and v["away_s"] == 7200.0 and not v["gains"].is_empty(),
+		"a 2 h load's view_away matches the contract, every kind and target in its list %s %s" % [str(errs), str(bad)])
+	var ev: Array = n.drain_events().filter(func(e): return e["type"] == "away_report")
+	errs = []
+	if ev.size() == 1:
+		ApiSchema.check(ev[0], ApiSchema.EVENTS["away_report"], "away_report", errs)
+	t.ok(ev.size() == 1 and errs.is_empty() and ev[0]["away_s"] == 7200.0 and ev[0]["capped"] == false, "one away_report {away_s, capped} in the contract %s" % str(errs))
+	var r := n.cmd_dismiss_away()
+	errs = []
+	ApiSchema.check_command("cmd_dismiss_away", r, errs)
+	t.ok(errs.is_empty() and r == {"ok": true, "reason": ""} and not n.view_away()["shown"], "cmd_dismiss_away: {ok, reason}, shown false %s" % str(errs))
+	var dd := DirAccess.open(dir)
+	if dd != null:
+		for f in dd.get_files():
+			dd.remove(f)
+		DirAccess.remove_absolute(dir)

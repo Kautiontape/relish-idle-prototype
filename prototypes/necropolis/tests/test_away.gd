@@ -10,6 +10,11 @@ extends RefCounted
 ## - Relish walks home from a retaken fort (IDLE I5), live and in a catch-up alike: from the retake's moment
 ##   inside its step, relish_returned after its fort_retaken, view_relish().returned (saved); a retake
 ##   elsewhere, or while she is in its dungeon, moves nothing; a catch-up step ends at her arrival.
+## - The away report (IDLE §7, api-request #7 d): a catch-up over a known window gives the expected lines in
+##   each section (a retake, with and without Relish's walk home, a village lost, a build finished, queued
+##   builds started with when and why, an overflow, a refill, husks, an empty queue); the stream totals are
+##   the ledger's and the stores' changes; every number token parses under the map's two patterns; shown
+##   and dismissing; nothing lost gives an empty losses; away_report is queued once.
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
 
@@ -35,6 +40,7 @@ func run() -> int:
 	_walk_home_live()
 	_walk_home_catchup()
 	_walk_home_arrival()
+	_report()
 	_cleanup()
 	return t.failures
 
@@ -518,6 +524,313 @@ func _walk_home_arrival() -> void:
 		t.ok(lq.has("fort_retaken") and nq.has("fort_retaken") and lq.has("relish_returned") == walks and nq.has("relish_returned") == walks
 			and live.view_relish()["state"] == want and n.view_relish()["state"] == want and n.view_relish()["pos"] == live.view_relish()["pos"],
 			"retaken %.1f s on (%s her arrival): %s in both, relish_returned %s" % [at, "after" if walks else "before", want, str(walks)])
+
+# ------------------------------------------------------------------- §3 the away report ----
+## The map's two number patterns (scripts/map/away_logic.gd, AwayLogic._compile), copied: a signed rate
+## ending in /s, and a mass (a bare number, thousands commas allowed).
+const RATE_RE := "^[+\\-−]?\\d[\\d,\\.]*/s$"
+const MASS_RE := "^[+\\-−]?\\d[\\d,\\.]*$"
+
+
+## Every line of a report, section-tagged: [[section, line], ...].
+static func _lines(rep: Dictionary) -> Array:
+	var out: Array = []
+	for k in ["gains", "ready", "losses"]:
+		for l in rep[k]:
+			out.append([k, l])
+	return out
+
+
+## The first line of `kind` in a section whose text has `needle` ({} when none).
+static func _find(rep: Dictionary, section: String, kind: String, needle := "") -> Dictionary:
+	for l in rep[section]:
+		if l["kind"] == kind and (needle == "" or str(l["text"]).contains(needle)):
+			return l
+	return {}
+
+
+## The number tokens of `text` as floats (commas dropped, the signs kept, /s cut).
+static func _numbers(text: String) -> Array:
+	var out: Array = []
+	for tok in text.split(" ", false):
+		var s := tok.replace(",", "").replace("−", "-").trim_suffix("/s").trim_prefix("+")
+		if s.is_valid_float():
+			out.append(float(s))
+	return out
+
+
+## midgame_2flips set up for a 12 h report with a line in every section: Ashgate's loot yield spent (it
+## refills), Tarnish (Vei's by the end) set yours, gold granted to 5 000 (it reaches its cap), the fixture's 2
+## husks with a free crypt slot, and an empty queue. Old Sluice is retaken about 82 min in.
+func _report_start(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var ash := s.realm.fort_by_id("ashgate")
+	s._spend_yield(ash)
+	for tw in s.towns:
+		if tw["id"] == "tarnish":
+			tw["control"] = "green"
+	s.cmd_debug_grant({"gold": 5000.0 - s.town_sim.gold})
+	s.drain_events()
+	return s
+
+
+## A gold-short midgame_2flips with two queued builds for a 1 h report: an Inn on lot-13 (the fixture is a
+## village already, so it starts at the first step, at once) and a Bakery on lot-08 that waits on gold once
+## the Inn has spent it.
+func _queue_start(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.cmd_debug_grant({"gold": 156.0 - s.town_sim.gold})
+	t.ok(s.cmd_queue_build("inn", "lot-13")["ok"] and s.cmd_queue_build("bakery", "lot-08")["ok"], "(setup) an Inn and a Bakery queued")
+	s.drain_events()
+	return s
+
+
+## Sections (IDLE §7): a 12 h catch-up of _report_start's midgame_2flips gives the streams first (in
+## idle.report.streams' order, kind stream), Ashgate refilled (gains) and "raid it" (ready, its target the
+## fort), the 2 husks (target slab), the empty queue (target queue), Old Sluice retaken, Tarnish lost and the
+## gold overflow (losses); a 1 h catch-up of _queue_start's gives the builds finished and each queued build's
+## start with when and why.
+func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
+	var rep := n.view_away()
+	print("  [away] the 12 h report: %s" % JSON.stringify(rep))
+	t.ok(rep["shown"] and rep["away_s"] == 43200.0 and rep["capped"] == false, "shown, away_s 43200, not capped")
+	var streams: Array = c["economy"]["idle"]["report"]["streams"]
+	var heads: Array = rep["gains"].slice(0, streams.size()).map(func(l): return str(l["text"]).split(" ")[0])
+	t.ok(heads == streams and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
+		"the gains open with the %d streams, in order: %s" % [streams.size(), str(heads)])
+	t.ok(str(rep["gains"][0]["text"]).begins_with("backlog ▲ +") or str(rep["gains"][0]["text"]).begins_with("backlog ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
+	t.ok(_find(rep, "gains", "refilled") == {"text": "Ashgate refilled", "kind": "refilled", "target": ""}, "gains: Ashgate refilled")
+	t.ok(_find(rep, "ready", "raid") == {"text": "Ashgate refilled: raid it", "kind": "raid", "target": "ashgate"}, "ready: Ashgate refilled: raid it")
+	t.ok(_find(rep, "ready", "slab") == {"text": "2 husks: raise at the slab", "kind": "slab", "target": "slab"}, "ready: 2 husks: raise at the slab")
+	t.ok(_find(rep, "ready", "queue") == {"text": "Queue empty: plan the next build", "kind": "queue", "target": "queue"}, "ready: Queue empty")
+	t.ok(_find(rep, "losses", "retaken") == {"text": "Old Sluice retaken: raid it to win it back", "kind": "retaken", "target": "old-sluice"}, "losses: Old Sluice retaken")
+	t.ok(_find(rep, "losses", "village_lost") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
+	var over := float(n.ledger()["stores"]["gold"]["overflow"])
+	var ol := _find(rep, "losses", "overflow")
+	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold overflowed: %s wasted" % _commas(roundi(over)) and ol["target"] == "",
+		"losses: Gold overflowed: %s wasted" % _commas(roundi(over)))
+	t.ok(_find(rep, "losses", "overflow", "Bone").is_empty() and float(n.ledger()["stores"]["bone"]["overflow"]) < 1.0,
+		"no bone line: its %.2f bone of overflow is under idle.report.overflow_min" % float(n.ledger()["stores"]["bone"]["overflow"]))
+	# the queue
+	var qr := q.view_away()
+	print("  [away] the 1 h queue report's gains: %s" % JSON.stringify(qr["gains"]))
+	var starts: Array = q.catchup_events().filter(func(e): return e["type"] == "queue_started")
+	t.ok(starts.size() == 2 and starts[1]["waited_on"] == "no_gold", "(setup) both started, the Bakery after waiting on gold: %s" % str(starts))
+	# each start's line is its template on its own waited_on ("" started at once), its time since you left
+	var words: Dictionary = c["economy"]["idle"]["report"]["waited_on"]
+	var want_lines: Array = []
+	for e in starts:
+		var name := "Inn" if e["building_id"] == "inn" else "Bakery"
+		var mins := int((float(e["t"]) - q.t + 3600.0) / 60.0)
+		want_lines.append("%s started right away" % name if e["waited_on"] == "" else "%s started at %d m, %s" % [name, mins, words[str(e["waited_on"])]])
+	var got_lines: Array = qr["gains"].filter(func(l): return l["kind"] == "build" and str(l["text"]).contains(" started ")).map(func(l): return l["text"])
+	t.ok(got_lines == want_lines and got_lines.has("Inn started right away") and str(got_lines.back()).begins_with("Bakery started at ")
+		and str(got_lines.back()).ends_with(", when the gold came in"),
+		"each queued start with when and why (the Inn at once, the Bakery once the gold came in): %s" % str(got_lines))
+	t.ok(not _find(qr, "gains", "build", "2 builds finished").is_empty(), "the builds finished: %s" % str(qr["gains"].filter(func(l): return l["kind"] == "build").map(func(l): return l["text"])))
+
+
+static func _commas(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	for i in s.length():
+		if i > 0 and (s.length() - i) % 3 == 0:
+			out += ","
+		out += s[i]
+	return out
+
+
+## Consistency: each stream line's total is the ledger's and the stores' change over the absence (to its
+## rounding), and its rate that total over away_s (to its two significant digits): the mint the ledger's
+## sources.mint, the backlog, workers (in workers) and bodies its held pools, gold, bone and living the town's.
+func _report_consistency(s: GameState, n: GameState) -> void:
+	var rep := n.view_away()
+	var wm := s.worker_mass()
+	var la := s.ledger()
+	var lb := n.ledger()
+	var want := {
+		"mint": float(lb["sources"]["mint"]) - float(la["sources"]["mint"]),
+		"backlog": float(lb["held"]["backlog"]) - float(la["held"]["backlog"]),
+		"workers": (float(lb["held"]["workers"]) - float(la["held"]["workers"])) / wm,
+		"bodies": float(lb["held"]["bodies"]) - float(la["held"]["bodies"]),
+		"gold": n.town_sim.gold - s.town_sim.gold, "bone": n.town_sim.bone - s.town_sim.bone, "living": n.town_sim.living - s.town_sim.living,
+	}
+	var bad: Array = []
+	for l in rep["gains"]:
+		if l["kind"] != "stream":
+			continue
+		var id := str(l["text"]).split(" ")[0]
+		var nums := _numbers(str(l["text"]))
+		var total := float(want[id])
+		var rate := total / 43200.0
+		var ok := nums.size() == 2 and absf(nums[1] - total) <= 0.5 and absf(nums[0] - rate) <= maxf(0.05 * absf(rate), 0.0005)
+		if not ok:
+			bad.append("%s: %s against %.4f/s · %.3f" % [id, str(nums), rate, total])
+	t.ok(bad.is_empty() and want.size() == 7, "every stream's total is the ledger's or the stores' change, its rate that over away_s%s" % (
+		"" if bad.is_empty() else ": " + "; ".join(PackedStringArray(bad))))
+
+
+## Tokens: every token with a digit in every line of the reports here parses under the map's rule (a rate
+## or a mass), so nothing is glued to a word.
+func _report_tokens(reps: Array) -> void:
+	var rate := RegEx.new()
+	rate.compile(RATE_RE)
+	var mass := RegEx.new()
+	mass.compile(MASS_RE)
+	var bad: Array = []
+	var n := 0
+	for rep in reps:
+		for pair in _lines(rep):
+			for tok in str(pair[1]["text"]).split(" ", false):
+				if RegEx.create_from_string("\\d").search(tok) == null:
+					continue
+				n += 1
+				if rate.search(tok) == null and mass.search(tok) == null:
+					bad.append("'%s' in '%s'" % [tok, pair[1]["text"]])
+	t.ok(bad.is_empty() and n > 20, "%d number tokens, each a rate or a mass under the map's patterns%s" % [n, "" if bad.is_empty() else ": " + str(bad)])
+
+
+## Shown (IDLE §7, STATE-API §5.19): a reporting catch-up's report is shown; cmd_dismiss_away sets shown false
+## (ok, +1 rev; the lines stay); a gap under idle.report_min_s leaves it as it is and one at or above it
+## replaces it; it isn't saved: a load replaces it (a 0 s load with none), a new game clears it; a chunked
+## load's shows once its catch-up is done, and dismissing meanwhile is refused (catching_up).
+func _report_shown() -> void:
+	var c := cfgs()
+	var n := _away(c, _report_start(c), "shown", 1200)
+	var rep := n.view_away()
+	t.ok(rep["shown"] and not rep["gains"].is_empty(), "(setup) a 20 min load shows its report")
+	var rv := n.rev
+	t.ok(n.cmd_dismiss_away() == {"ok": true, "reason": ""} and n.rev == rv + 1, "cmd_dismiss_away: ok, +1 rev")
+	var after := n.view_away()
+	t.ok(not after["shown"] and after["gains"] == rep["gains"] and after["losses"] == rep["losses"] and after["away_s"] == rep["away_s"],
+		"dismissed: shown false, the lines kept")
+	t.ok(not n.to_dict().has("away") and JSON.stringify(n.to_dict()).find("Queue empty") == -1, "the report isn't saved")
+	var cap := n.max_substeps_per_frame()
+	n.tick(120.0, cap)
+	while n.catching_up():
+		n.tick(1.0 / 60.0, cap)
+	t.ok(n.view_away() == after.merged({"rev": n.rev}, true), "a 120 s gap (under idle.report_min_s) leaves the report as it was")
+	n.tick(900.0, cap)
+	while n.catching_up():
+		n.tick(1.0 / 60.0, cap)
+	var g := n.view_away()
+	t.ok(g["shown"] and g["away_s"] == 900.0, "a 900 s gap replaces it with its own, shown: away_s %.0f" % float(g["away_s"]))
+	var z := _away(c, n, "shown0", 0)
+	t.ok(z.view_away() == {"rev": z.rev, "shown": false, "away_s": 0.0, "capped": false, "gains": [], "ready": [], "losses": []},
+		"a 0 s load: no report (a load replaces the last)")
+	n.cmd_new_game(2)
+	t.ok(not n.view_away()["shown"] and n.view_away()["gains"].is_empty(), "a new game clears it")
+	var ch := _mk(c)
+	ch.clock_override = CLOCK + 7200
+	ch.cmd_load("shown", true)
+	t.ok(ch.catching_up() and not ch.view_away()["shown"] and ch.cmd_dismiss_away()["reason"] == "catching_up",
+		"a chunked load: no report until its catch-up is done, and dismissing is refused meanwhile (catching_up)")
+	while ch.catching_up():
+		ch.tick(1.0 / 60.0, ch.max_substeps_per_frame())
+	t.ok(ch.view_away()["shown"] and ch.view_away()["away_s"] == 7200.0, "then its report shows")
+
+
+## Nothing lost: a new game left 10 min loses nothing (no retake, no village, no overflow): losses is empty (the
+## map prints "Nothing lost.").
+func _report_nothing_lost() -> void:
+	var c := cfgs()
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	s.tick(2.0)
+	var rep := _away(c, s, "none_lost", 600).view_away()
+	t.ok(rep["shown"] and rep["losses"].is_empty() and not rep["gains"].is_empty(), "a new game away 10 min: shown, losses empty: %s" % str(rep["losses"]))
+
+
+## The event: away_report {away_s, capped} is queued once per report, at its end, after the run's own events
+## and none of the catch-up's (a load's, a chunked load's, a 900 s gap's); a 120 s gap queues none.
+func _report_event() -> void:
+	var c := cfgs()
+	var s := _with_checkpoint(c, LOOT_A)
+	var n := _away(c, s, "ev", 1800)
+	var q := n.drain_events()
+	var ar := q.filter(func(e): return e["type"] == "away_report")
+	t.ok(ar.size() == 1 and ar[0] == {"type": "away_report", "away_s": 1800.0, "capped": false, "t": n.t} and _types(q) == ["loot_banked", "away_report"],
+		"a load: loot_banked (the run's end) then one away_report {1800, false} at the end: %s" % str(_types(q)))
+	var cc := cfgs({"economy.idle.catchup_max_s": 600.0})
+	var m := _mk(cc)
+	m.clock_override = CLOCK + 1800
+	m.cmd_load("ev", true)
+	var mq: Array = []
+	while m.catching_up():
+		m.tick(1.0 / 60.0, m.max_substeps_per_frame())
+		mq.append_array(m.drain_events())
+	mq.append_array(m.drain_events())
+	var mar := mq.filter(func(e): return e["type"] == "away_report")
+	t.ok(mar.size() == 1 and mar[0]["away_s"] == 600.0 and mar[0]["capped"] == true and m.view_away()["capped"],
+		"a chunked load capped at 600 s: one away_report {600, true}")
+	for gap in [120.0, 900.0]:
+		var g := _mk(c)
+		g.cmd_new_game(1)
+		g.tick(2.0)
+		g.drain_events()
+		var gq: Array = []
+		g.tick(gap, g.max_substeps_per_frame())
+		while g.catching_up():
+			gq.append_array(g.drain_events())
+			g.tick(1.0 / 60.0, g.max_substeps_per_frame())
+		gq.append_array(g.drain_events())
+		var n_ar := gq.filter(func(e): return e["type"] == "away_report").size()
+		t.ok(n_ar == (1 if gap >= 600.0 else 0), "a %.0f s gap queues %d away_report" % [gap, n_ar])
+
+
+
+## The away report's tests on one 12 h catch-up of _report_start's midgame_2flips and one 1 h of
+## _queue_start's (each shared by the sections, the consistency and the tokens), then the rest.
+func _report() -> void:
+	var c := cfgs()
+	var s := _report_start(c)
+	var n := _away(c, s, "rep", 43200)
+	var q := _away(c, _queue_start(c), "repq", 3600)
+	_report_sections(c, n, q)
+	_report_consistency(s, n)
+	var g := _mk(c)
+	g.cmd_new_game(1)
+	g.tick(2.0)
+	g.tick(900.0, g.max_substeps_per_frame())
+	while g.catching_up():
+		g.tick(1.0 / 60.0, g.max_substeps_per_frame())
+	_report_tokens([n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()])
+	_report_shown()
+	_report_nothing_lost()
+	_report_event()
+	_report_walked_home()
+	_report_config()
+
+
+## The losses' walk-home line: Greywall retaken while Relish stood there, during a 10 min load's catch-up:
+## "Greywall retaken, Relish walked home: raid it to win it back", and view_relish().returned tells it too.
+func _report_walked_home() -> void:
+	var c := cfgs()
+	var n := _away(c, _greywall(c), "walked", 600)
+	var l := _find(n.view_away(), "losses", "retaken")
+	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
+		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
+		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
+
+
+## The report's text is config (economy.json idle.report), read with no fallback: the shipped block has every
+## key (GameState.REPORT_KEYS) and a word for every waited_on reason; without a key, or a reason's words,
+## report_config_problem names it (setup reports it as an error).
+func _report_config() -> void:
+	var c := TestUtil.configs()
+	t.ok(GameState.report_config_problem(c) == "", "the shipped idle.report has every key and every waited_on reason")
+	var a := TestUtil.configs()
+	(a["economy"]["idle"]["report"] as Dictionary).erase("retaken_fmt")
+	var b := TestUtil.configs()
+	(b["economy"]["idle"]["report"]["waited_on"] as Dictionary).erase("no_bone")
+	var d := TestUtil.configs()
+	(d["economy"]["idle"] as Dictionary).erase("report")
+	t.ok(GameState.report_config_problem(a).contains("retaken_fmt") and GameState.report_config_problem(b).contains("no_bone")
+		and GameState.report_config_problem(d).contains("missing"),
+		"a missing template, a missing reason's words and a missing block are each named: %s | %s | %s" % [
+			GameState.report_config_problem(a), GameState.report_config_problem(b), GameState.report_config_problem(d)])
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
 	if a is Dictionary and b is Dictionary:

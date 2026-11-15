@@ -144,7 +144,8 @@ func _away_basic() -> void:
 	for e in evs:
 		kinds[e["type"]] = true
 	t.ok(kinds.has("tithe_wave") and kinds.has("tithe_warning"), "the waves of the 50 min are among them: %s" % str(kinds.keys()))
-	t.ok(n.drain_events().is_empty(), "the scenes' queue gets none of them")
+	# (T3.3c: the scenes' queue gets the away report's away_report, which a report replaces them with)
+	t.ok(n.drain_events().map(func(e): return e["type"]) == ["away_report"], "the scenes' queue gets none of them: only the report's away_report")
 	var cu := n.view_catchup()
 	t.ok(not cu["active"] and cu["done_s"] == 3000.0 and cu["total_s"] == 3000.0, "view_catchup: done, 3000 of 3000 s: %s" % str(cu))
 	t.ok(n._catchup.steps > 0 and n._catchup.field_calls == n._catchup.field_n and n._catchup.field_n == 150,
@@ -569,8 +570,12 @@ func _gap_frame() -> void:
 	var framed := _away(big, s, "gap", 0)
 	var cap := framed.max_substeps_per_frame()
 	t.ok(framed.tick(3600.0, cap) == 0 and not framed.catching_up(), "a 3600 s frame is caught up (in one chunk here)")
-	t.ok(framed.to_dict() == on_load.to_dict() and framed.catchup_events() == on_load.catchup_events() and framed.drain_events().is_empty(),
-		"the same state and events as 3600 s caught up on load")
+	# (T3.3c: each queues its report's away_report, and nothing else)
+	var fq := framed.drain_events()
+	var lq := on_load.drain_events()
+	t.ok(framed.to_dict() == on_load.to_dict() and framed.catchup_events() == on_load.catchup_events()
+		and fq.map(func(e): return e["type"]) == ["away_report"] and fq == lq and framed.view_away() == on_load.view_away().merged({"rev": framed.rev}, true),
+		"the same state, events and report as 3600 s caught up on load")
 	var c := cfgs()
 	var a := _away(c, s, "gap2", 3600)
 	var b := _away(c, s, "gap2", 0)

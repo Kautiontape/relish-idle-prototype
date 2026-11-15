@@ -99,6 +99,8 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
   - `view_lanes()`: `[{from, to, kind: war|flood|work|dead|living|haul|redirect, rate, bias,
     why}]`, where `why` is a short change callout such as "Relish left" or "tithe wave" (vision S1);
   - `view_realm()`, `view_fort(id)`, `view_field()`, `view_villages()`;
+  - `view_away()`, `cmd_dismiss_away()` (E2b-2 T3.3c; IDLE §7): the "While you were away" report, built at
+    a reporting catch-up's end, kept until dismissed;
   - `view_projection(valve, settled := false)`: the held forts' margins, "WAR supports N of M", the
     split and the payoff at another valve, pure (E2b-2, §3.5); `settled` judges the margins against the
     wave train (T3.4b), as `view_fort` does, instead of a drag's one-wave probe.
@@ -117,7 +119,7 @@ At E1 every entry exists, backed by stubs that return correct shapes until E2 an
 - `building_started`, `building_done`, `building_unpaid`, `tier_up`, `queue_started` (E2b-2);
 - `fort_flipped`, `fort_retaken`, `big_undead_returned` (E2b-2), `tithe_warning`, `tithe_wave`;
 - `stance_fired`, `loot_banked`, `vei_result`, `run_ended` (E2b-2: a gap ended the open run), `relish_returned`
-  (E2b-2: her fort retaken, she walks home);
+  (E2b-2: her fort retaken, she walks home), `away_report` (E2b-2: the away report is ready);
 - `autosaved`, `save_failed`.
 
 The autoload re-emits each event as a signal.

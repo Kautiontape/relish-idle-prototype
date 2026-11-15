@@ -101,6 +101,8 @@ const COMMANDS := {
 	"cmd_abort_dungeon": {"run_id": I},
 	# api_version 6 (E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's last checkpoint
 	"cmd_run_checkpoint": {},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): dismiss the away report
+	"cmd_dismiss_away": {},
 	"apply_result": {"errors": [S], "minted": [S]},
 	"cmd_debug_grant": {"key": S, "applied": {"minted": [S]}},
 	"cmd_debug_set_state": {"key": S},
@@ -149,6 +151,7 @@ const REASONS := {
 	# T3.3c: a dead run's refusal comes before catching_up (no run is open during a catch-up)
 	"cmd_abort_dungeon": ["no_run", "catching_up"],
 	"cmd_run_checkpoint": ["no_run", "wrong_run", "wrong_kind", "catching_up", "invalid", "bad_outcome"],
+	"cmd_dismiss_away": ["catching_up"],
 	"apply_result": ["unknown_kind", "unknown_v", "invalid", "duplicate_run", "wrong_run", "wrong_kind",
 		"stale_seed", "wrong_fort", "bad_revives", "bad_party", "bad_backups"],
 	"cmd_debug_grant": ["not_debug", "catching_up", "unknown_key", "bad_value"],
@@ -186,6 +189,10 @@ const QUEUE_ENTRY := {
 	"building_id": S, "lot_id": S, "upgrade": B, "level": I, "cost": COST, "work": F, "status": S, "reason": S,
 	"waited_on": S,
 }
+## A line of view_away (api_version 6, E2b-2 T3.3c, api-request #7 d): `kind` one of AWAY_KINDS, `target` a
+## fort id, "slab", "queue" or "".
+const AWAY_LINE := {"text": S, "kind": S, "target": S}
+const AWAY_KINDS := ["stream", "build", "refilled", "raid", "slab", "queue", "retaken", "village_lost", "overflow"]
 const CATALOG_BUILDING := {
 	"building_id": S, "cost": COST, "upkeep": UPKEEP, "build_work": F, "lot_size": I, "max_level": I,
 	"count": I, "requires": {"tier": S, "blueprint": S, "building": S}, "can_build": B, "reason": S,
@@ -289,6 +296,8 @@ const VIEWS := {
 		"margins": {"*": {"margin": S, "margin_cause": S, "fall_s": F, "garrison_rate": F, "margin_verified": B}}},
 	# api_version 6 (E2b-2 T3.3b): the catch-up's progress (IDLE §4)
 	"view_catchup": {"active": B, "done_s": F, "total_s": F},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): the "While you were away" report
+	"view_away": {"shown": B, "away_s": F, "capped": B, "gains": [AWAY_LINE], "ready": [AWAY_LINE], "losses": [AWAY_LINE]},
 }
 ## Views that take an id argument (and return {} for an unknown one).
 const VIEW_ARGS := {"view_fort": 1, "view_dungeon_seed": 1}
@@ -317,6 +326,8 @@ const EVENTS := {
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},
 	"loot_banked": {"run_id": I, "fort_id": S, "relics": I, "essence": I, "blueprints": [S], "minted": [S]},
 	"vei_result": {"run_id": I, "won": B, "fronts_cleared": [S], "relish_deaths": I, "backlog_after": F},
+	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): a report replaced the catch-up's events
+	"away_report": {"away_s": F, "capped": B},
 	# api_version 6 (E2b-2 T3.3c; IDLE I5): Relish walks home from the retaken fort she stood at
 	"relish_returned": {"fort_id": S, "cause": S},
 	# api_version 6 (E2b-2 T3.3c; IDLE I5): a gap above idle.gap_s in the open game ended the open run
