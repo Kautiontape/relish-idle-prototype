@@ -252,7 +252,8 @@ func _begin_tell(at: Dictionary) -> void:
 			# rush_lane_half_deg wide across its room (stepping out of it is the answer; a pin spares her)
 			lane = true
 			facing = (rel.global_position - global_position).angle()
-			at["reach_px"] = WardenLogic.lane_reach(_room, global_position)
+			at["reach_px"] = minf(WardenLogic.lane_reach(_room, global_position),
+				rel.global_position.distance_to(global_position) + float(at.get("rush_lane_over_px", 80.0)))
 		else:
 			at["reach_px"] = WardenLogic.rush_reach(_base_reach, float(at.get("rush_px", 0.0)),
 				minf(_room.size.x, _room.size.y) * 0.5, float(at.get("rush_room_frac", 0.0)))
