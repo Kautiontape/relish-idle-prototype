@@ -189,8 +189,8 @@ static func upgrade(gs: GameState, lot_id: String, bump := true) -> Dictionary:
 		why = "empty_lot"
 	elif b["state"] == "constructing":
 		why = "under_construction"
-	elif b["state"] == "unpaid":
-		why = "unpaid"
+	elif b["state"] == "unpaid" or b["state"] == "thrift":
+		why = "unpaid"  # a Thrift-idled building waits for Thrift to let it go, as an unpaid one for its gold
 	else:
 		var bid: String = b["building_id"]
 		level = int(b["level"]) + 1
@@ -590,7 +590,7 @@ static func _afford_at(gs: GameState, cost: Dictionary, tl: Dictionary, holds: b
 ## An entry's gate on the walk's copy (`lots`, `pending`, the relics left), in the build family's check
 ## order, or "". An upgrade: empty_lot (another building there, or nothing there or queued for it),
 ## max_level, then an earlier entry's gate for that lot while one hasn't started, else under_construction,
-## unpaid, needs_tier. A new build: unique, lot_locked, lot_taken (a building stands or is under
+## unpaid (unpaid, or idled by Thrift), needs_tier. A new build: unique, lot_locked, lot_taken (a building stands or is under
 ## construction there), lot_too_small, needs_tier, needs_blueprint, needs_building. Then both:
 ## cost_exceeds_cap (a cost over its store's cap now, after a cap building went), no_relics.
 static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictionary, lots: Dictionary, pending: Dictionary,
@@ -609,7 +609,7 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 			why = str(pending[lot_id])
 		elif b["state"] == "constructing":
 			why = "under_construction"
-		elif b["state"] == "unpaid":
+		elif b["state"] == "unpaid" or b["state"] == "thrift":
 			why = "unpaid"
 		else:
 			why = req_reason(gs, {"tier": req_of(gs, bid)["tier"], "blueprint": "", "building": ""})

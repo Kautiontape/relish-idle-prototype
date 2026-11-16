@@ -56,6 +56,7 @@ func run() -> int:
 	_thrift_never()
 	_thrift_keeps()
 	_thrift_away_line()
+	_thrift_upgrade_held()
 	_projected()
 	_round_trip()
 	_old_shape()
@@ -422,6 +423,66 @@ func _thrift_away_line() -> void:
 		and lines.map(func(l): return l["target"]) == ["lot-05", "lot-23"],
 		"30 min away with Thrift idling them: %s" % str(lines))
 	t.ok(not texts.any(func(x): return str(x).contains("ran out")), "no line says the gold ran out")
+
+
+## An upgrade doesn't undo Thrift's idle (qf3 fix 1): a Chapel of Vats L1 (class job, 0.12 upkeep over thrift_upkeep)
+## idled by Thrift refuses cmd_upgrade (unpaid), and a queued upgrade waits on unpaid while the gold covers it, the
+## building staying `thrift` and the away report's Thrift line running, until Thrift lets it go; then it starts.
+func _thrift_upgrade_held() -> void:
+	var s := _mk()
+	s.town_tier = "village"
+	s.town_sim.place_building("lot-09", "bone_mill", 3)  # raises bone's cap over the upgrade's 240
+	s.town_sim.place_building("lot-14", "chapel_of_vats", 1)
+	s.town_sim.living = 0.0
+	s.town_sim.restaff()
+	s.town_sim.gold = 2000.0
+	s.town_sim.bone = 1000.0
+	s.relics = 10
+	s.cmd_set_stance("thrift", true)
+	_beat(s)
+	t.ok(s.town_sim.buildings["lot-14"]["state"] == "thrift", "(setup) Thrift idles the Chapel of Vats: %s" % str(s.town_sim._lists()["thrift"]))
+	var r := s.cmd_upgrade("lot-14")
+	t.ok(not r["ok"] and r["reason"] == "unpaid" and s.town_sim.buildings["lot-14"]["state"] == "thrift",
+		"cmd_upgrade on a Thrift-idled building is refused unpaid and leaves it idled: %s" % str(r))
+	var qr := s.cmd_queue_build("", "lot-14")
+	t.ok(qr["ok"], "(setup) its upgrade queues: %s" % str(qr))
+	for i in 120:
+		s.tick(0.5)
+	var row: Dictionary = s.view_town()["queue"][0] if not (s.view_town()["queue"] as Array).is_empty() else {}
+	t.ok(s.town_sim.gold >= 600.0 and s.town_sim.buildings["lot-14"]["state"] == "thrift" and row.get("status", "") == "skipped_gate"
+		and row.get("reason", "") == "unpaid",
+		"a minute on with the gold covering it: the Chapel is still idled by Thrift and its queued upgrade waits on unpaid: %s" % str(row))
+	s.cmd_set_stance("thrift", false)
+	for i in 4:
+		s.tick(0.5)
+	t.ok(s.town_sim.buildings["lot-14"]["state"] == "constructing" and (s.view_town()["queue"] as Array).is_empty(),
+		"Thrift off: the Chapel resumes and the queued upgrade starts: %s" % s.town_sim.buildings["lot-14"]["state"])
+	# the away report: the same town saved and loaded 30 min on, Thrift idling it the whole while
+	var a := _mk()
+	a.town_tier = "village"
+	a.town_sim.place_building("lot-09", "bone_mill", 3)
+	a.town_sim.place_building("lot-14", "chapel_of_vats", 1)
+	a.town_sim.living = 0.0
+	a.town_sim.restaff()
+	a.town_sim.gold = 2000.0
+	a.town_sim.bone = 1000.0
+	a.relics = 10
+	a.cmd_set_stance("thrift", true)
+	_beat(a)
+	a.cmd_queue_build("", "lot-14")
+	a.clock_override = CLOCK
+	a.cmd_save("thriftup")
+	var n := GameState.new(cfgs())
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = CLOCK + 1800
+	n.cmd_load("thriftup")
+	var lines: Array = n.view_away()["losses"].filter(func(l): return l["kind"] == "unpaid")
+	# Thrift stops acting 19 m in (the town's trade grows): its line ends there, and only then does the upgrade start
+	t.ok(lines.size() == 1 and str(lines[0]["text"]).begins_with("Chapel of Vats") and str(lines[0]["text"]).contains("idled by Thrift for 19 m")
+		and n.town_sim.buildings["lot-14"]["level"] == 2,
+		"30 min away: Thrift's line for the Chapel ends when Thrift stops (19 m), not at the end of the absence, and the upgrade built after: %s %s" % [
+		n.town_sim.buildings["lot-14"]["state"], str(lines)])
 
 
 # ------------------------------------------------------------------------------------------------ projected ----

@@ -233,7 +233,12 @@ from `BALANCE.md` §0.
     2 h 10 m: lifted no morale, deaths shook the town harder" (its lot as `target`, as R1's): the kind now means a
     building stopped, by the gold running out or by Thrift. No new kind or target, so `AWAY_KINDS` stands;
   - the build card's `projected` and `upgrade_projected` (§5.10) are computed on TownSim as the stances leave it
-    (its effective ladder, idle cap and Thrift's buildings).
+    (its effective ladder, idle cap and Thrift's buildings);
+  - **§4.3 `cmd_upgrade` and §5.10 the queue's upgrade gate** (QF3, a change of meaning, no new reason): `unpaid`
+    now also covers a building Thrift idles (state `thrift`). `cmd_upgrade` on it is refused `unpaid`, and a
+    queued upgrade of it waits as `skipped_gate`, reason `unpaid` (the away report: "when its lot came free"), until
+    Thrift lets the building go. Was: the upgrade started and took it out of Thrift's set, so it worked at its old
+    level and the away report's Thrift line ran to the end of the absence.
 
   E3-2 (the backups, MECHANICS §7) adds no key (`tests/api_schema.gd` unchanged; the save shape unchanged). Changes
   of meaning (stubs going live):
@@ -892,7 +897,7 @@ Game.state.cmd_build("inn", "lot-06")    # -> {ok: false, reason: "needs_tier", 
 **`cmd_upgrade(lot_id: String)` · E2**
 - **Extras:** `level: int` (the target level), `cost: {gold, bone, relics}` from `level_costs`.
 - **Reasons:** `unknown_lot`, `empty_lot`, `under_construction`, `unpaid` (an unpaid building can't
-  upgrade; added at `api_version` 2), `max_level`, `needs_tier` (the building's own tier, which only
+  upgrade; added at `api_version` 2; from v8, also a building Thrift idles), `max_level`, `needs_tier` (the building's own tier, which only
   a placed building can lack), `no_gold`, `no_bone`, `no_relics`.
 - **Effect:** pays, then runs construction like a build. The building keeps working at its old
   level (slots, output, upkeep and effects) until the upgrade is done; `view_town` shows it

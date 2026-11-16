@@ -1409,8 +1409,9 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   - **An idled building** takes TownSim's state `thrift`, which `view_town` shows as `"idle"` (STATE-API §5.9:
     "no staff, or a stance idles it"): like an unpaid one it offers no slots, gives no output and pays no
     upkeep, and keeps its capacity effects (its caps) and its tier count (`count_built`). It never resumes by
-    the upkeep's rule, only when Thrift stops acting; an upgrade started on it takes it out of Thrift's set
-    (it works at its old level while it builds).
+    the upkeep's rule, only when Thrift stops acting. An upgrade can't start on it meanwhile: `cmd_upgrade` is
+    refused `unpaid`, and a queued upgrade waits on `unpaid`, until Thrift lets the building go (then it starts
+    as for any working building).
   - The away report names Thrift as the reason, not the gold (IDLE §7).
   - **It doesn't flicker** (R1's measure, the run's manager: no building idled and resumed again within
     `upkeep.unpaid_hold_s`, 30 s; `slow/stances_catchup`): from pre_vei with Thrift on, 12 h live at 0.5 s,

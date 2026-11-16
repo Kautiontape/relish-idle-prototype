@@ -356,7 +356,7 @@ func place_building(lot_id: String, building_id: String, level: int) -> bool:
 ## there). Costs and gates are the caller's (T2.4); this only checks the lot and the level. The
 ## lot offers `job.build.slots` build slots and nothing else until it completes.
 ## `building_started` comes out of the next step(). Reasons: unknown_lot, unknown_building,
-## occupied, busy (already constructing), unpaid (an unpaid building can't upgrade), bad_level.
+## occupied, busy (already constructing), unpaid (an unpaid or Thrift-idled building can't upgrade), bad_level.
 func start_construction(lot_id: String, building_id: String, level: int) -> Dictionary:
 	if not _lots.has(lot_id):
 		return {"ok": false, "reason": "unknown_lot"}
@@ -373,7 +373,7 @@ func start_construction(lot_id: String, building_id: String, level: int) -> Dict
 			return {"ok": false, "reason": "occupied"}
 		if b["state"] == "constructing":
 			return {"ok": false, "reason": "busy"}
-		if b["state"] == "unpaid":
+		if b["state"] == "unpaid" or b["state"] == "thrift":
 			return {"ok": false, "reason": "unpaid"}
 		if level != int(b["level"]) + 1 or level > int(_defs[building_id]["max_level"]):
 			return {"ok": false, "reason": "bad_level"}
