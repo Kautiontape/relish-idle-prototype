@@ -4,8 +4,8 @@ extends RefCounted
 ## pre_vei and fresh, at
 ##   - the reference: 0.5 s throughout (idle.catchup_max_steps raised so the step is sim.substep_s, about
 ##     1.2 M core steps, roughly 5 min a start);
-##   - the shipped schedule (10 s steps for the first 12 h, 20 s past them since E3-1, 15 s before:
-##     idle.catchup_dt_long_s);
+##   - the shipped schedule (10 s steps for the first 12 h, 15 s past them: idle.catchup_dt_long_s; E3-1's
+##     20 s lost midgame_2flips' Ashgate here, BALANCE §5);
 ##   - and 10 s throughout (idle.catchup_dt_long_s set to idle.catchup_dt_max_s), when the shipped
 ##     schedule's step past 12 h is longer: T3.3a gates 10 s only over 12 h, and a flip that 10 s itself
 ##     causes over a week would show only against 0.5 s.

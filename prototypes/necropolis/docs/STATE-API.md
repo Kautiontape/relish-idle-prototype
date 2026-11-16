@@ -633,7 +633,7 @@ Game.state.cmd_save("slot1")  # -> {ok: true, reason: "", saved_at: 1794556800, 
   when set, §1.5) less the file's `saved_at`, in whole seconds. It is 0 when that is negative or the file
   has no `saved_at`, and at most `idle.catchup_max_s` (7 days), with `capped` true when it was more. That
   much sim time runs through the core step (§3 steps 1–8) in adaptive steps: `clamp(away /
-  idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`, with `idle.catchup_dt_long_s` (20 s since E3-1)
+  idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`, with `idle.catchup_dt_long_s` (15 s)
   for the cap past the first `idle.catchup_dt_long_after_s` (12 h), shortened so that none straddles a
   clip event (IDLE §4 Method). `idle.field_steps` field steps (api-request #14) run in place of the field's
   live ticks, and the field ends published. The run's events are kept for the away report, not queued

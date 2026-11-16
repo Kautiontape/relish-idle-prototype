@@ -211,8 +211,8 @@ func _dt_rule() -> void:
 ## The step past the first 12 h (the budget's lever 2, IDLE §4): up to idle.catchup_dt_max_s for the first
 ## idle.catchup_dt_long_after_s of a catch-up, up to idle.catchup_dt_long_s after. Scaled here
 ## (catchup_max_steps 100 and the switch at 600 s): a 3 600 s catch-up from midgame_2flips takes 10 s steps
-## to 600 s and idle.catchup_dt_long_s steps after (20 s since E3-1, 15 s before); a 7 d one's base steps are
-## 10 s and that at the shipped configs.
+## to 600 s and idle.catchup_dt_long_s steps after (15 s); a 7 d one's base steps are 10 s and that at the
+## shipped configs.
 func _dt_schedule() -> void:
 	var c := cfgs({"economy.idle.catchup_max_steps": 100, "economy.idle.catchup_dt_long_after_s": 600.0})
 	var long_s := float(c["economy"]["idle"]["catchup_dt_long_s"])
@@ -1013,8 +1013,8 @@ func _determinism() -> void:
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step in config, the larger of
-## idle.catchup_dt_max_s and idle.catchup_dt_long_s (20 s shipped since E3-1: the long step). E3-1 ships the key, at
-## the longest step, and it holds; at or above the longest step it holds; under it (BALANCE's
+## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3-1 ships the key at 20 s,
+## above the longest step, and it holds; at or above the longest step it holds; under it (BALANCE's
 ## old planned 10 s against the long step), setup() reports the problem as an error naming both keys. Both ways round
 ## (E2b-2 T3.3b2): with idle.catchup_dt_max_s overridden above idle.catchup_dt_long_s the check follows it, so
 ## it reads the config, not a fixed 15 s.
