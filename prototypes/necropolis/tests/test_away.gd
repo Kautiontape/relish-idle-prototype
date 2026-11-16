@@ -834,6 +834,7 @@ func _report() -> void:
 	var r2: Array = [_report_deadlock(c).view_away(), _report_wait(c).view_away(), _report_never_last(c).view_away()]
 	r2.append_array(_report_full(c))
 	r2.append_array(_report_self(c))  # F1: the stuck line for its store's own producer, with and without an entry behind
+	r2.append_array(_report_move_down(c))  # F2: "move it down" only when it lets another entry start
 	_report_tokens([n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()] + r2)
 	_report_shown()
 	_report_nothing_lost()
@@ -1064,8 +1065,9 @@ func _stores_start(c: Dictionary, gold: float, bone: float, queue := []) -> Game
 ## R2 (the E2b-2 vision review's item 3; IDLE §7, STATE-API §5.19): the review's "come back and nothing happened"
 ## night. day1 with no bone and no mill, a House and a Well behind it, loaded 8 h on: nothing started, and the House,
 ## the head, can never be afforded at today's income, so `ready` says so with bone's net rate and what raises it:
-## "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill" (kind queue, target
-## queue), the queue's own −1.0 and the net view_rates shows. No "Queue empty".
+## "House can't be afforded at today's income of 0/s bone: build a Bone Mill" (kind queue, target queue; F2: the Well
+## needs bone too, so moving the House down helps nothing), the queue's own −1.0 and the net view_rates shows. No
+## "Queue empty".
 func _report_deadlock(c: Dictionary) -> GameState:
 	var n := _away(c, _deadlock_start(c), "deadlock", 28800)
 	var rep := n.view_away()
@@ -1074,12 +1076,44 @@ func _report_deadlock(c: Dictionary) -> GameState:
 	t.ok(rows.size() == 2 and rows[0]["building_id"] == "house" and rows[0]["status"] == "waiting_funds" and rows[0]["reason"] == "no_bone"
 		and rows[0]["affordable_in_s"] == -1.0 and words.is_empty(), "(setup) 8 h on, nothing started: the House waits on bone at −1.0, the Well behind it: %s" % str(words))
 	var net := float(n.view_rates()["rates"]["bone"]["net"])
-	var want := "House can't be afforded at today's income of %s bone: move it down, or build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
+	# F2: the Well behind it costs bone too (10), so moving the House down only makes the Well an equally stuck head
+	var want := "House can't be afforded at today's income of %s bone: build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
 	var l := _find(rep, "ready", "queue")
 	print("  [away] the deadlocked night's ready: %s" % JSON.stringify(rep["ready"]))
-	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and _find(rep, "ready", "queue", "Queue empty").is_empty(),
-		"ready: the House can't be afforded, with bone's net (0/s) and what raises it, the Well behind it to move it below: %s" % str(l))
+	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and _find(rep, "ready", "queue", "Queue empty").is_empty()
+		and not str(l["text"]).contains("move it down"),
+		"ready: the House can't be afforded, with bone's net (0/s) and what raises it; the Well behind it is stuck on bone too, so no \"move it down\": %s" % str(l))
 	return n
+
+
+## F2 (the phase review): "move it down" only when some other entry could start if the stuck head weren't ahead of
+## it (StateViews._move_down_helps: the queue's walk less the head, a row that isn't skipped_gate with
+## affordable_in_s >= 0). day1 with no bone and no Mill, a House (40 g, 10 b) and then (a) a Bone Mill (level 1 is
+## 60 g, 0 b since F1: it can start): "House can't be afforded at today's income of 0/s bone: move it down, or
+## build a Bone Mill"; (b) the Crypt's level 2 (gated: no relics): no entry could take its place, so no move down.
+func _report_move_down(c: Dictionary) -> Array:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var out: Array = []
+	for cs in [["a Bone Mill behind it, which can start", [["house", "lot-05"], ["bone_mill", "lot-06"]], true],
+			["only a gated entry behind it", [["house", "lot-05"], ["", "lot-01"]], false]]:
+		var s := _stores_start(c, -1.0, 0.0, cs[1])
+		var n := _away(c, s, "move_down", 600)
+		var rows: Array = n.view_town()["queue"]
+		var head: Dictionary = rows[0] if not rows.is_empty() else {}
+		var behind: Dictionary = rows[1] if rows.size() > 1 else {}
+		t.ok(rows.size() == 2 and head.get("building_id", "") == "house" and head.get("status", "") == "waiting_funds"
+			and head.get("affordable_in_s", 0.0) == -1.0 and (behind.get("status", "") == "skipped_gate") != cs[2],
+			"(setup) %s: the House waits on bone at −1.0, the entry behind it is %s" % [cs[0], str(behind.get("status", ""))])
+		var net := float(n.view_rates()["rates"]["bone"]["net"])
+		var want := "House can't be afforded at today's income of %s bone: %sbuild a Bone Mill" % [StateViews._fmt_rate(rep, net),
+			"move it down, or " if cs[2] else ""]
+		var r := n.view_away()
+		var l := _find(r, "ready", "queue")
+		print("  [away] move it down, %s: %s" % [cs[0], str(l.get("text", ""))])
+		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and str(l["text"]).contains("move it down") == cs[2],
+			"ready: %s, \"move it down\" %s: %s" % [cs[0], "offered" if cs[2] else "not offered", str(l)])
+		out.append(r)
+	return out
 
 
 ## F1 (the run's manager): with nothing queued behind the head, "move it down" can't help, so the line drops it

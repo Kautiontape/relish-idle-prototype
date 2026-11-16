@@ -596,13 +596,19 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     for bone, a raid for relics). `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
     queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
     to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
-    - **nothing behind it:** "move it down" is dropped, since there is nothing to move it below: "House
-      can't be afforded at today's income of 0/s bone: build a Bone Mill";
+    - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
+      if the stuck one weren't ahead of it, which the report reads off the queue's walk less the stuck entry
+      (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
+      anyway) and has `affordable_in_s` >= 0 (affordable now, or later at today's income). With nothing behind
+      it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
+      line drops it: "House can't be afforded at today's income of 0/s bone: build a Bone Mill". With a Bone Mill
+      behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at today's income of 0/s
+      bone: move it down, or build a Bone Mill";
     - **its store's own producer** (`idle.report.afford_producer`: the Market for gold, the Bone Mill for
       bone; an upgrade counts): what raises the store would be the entry itself, so the line says a fact
       instead, true today (only a mill makes bone, only a Market gold, and a raid gives neither: loot.json
       has relics and no gold or bone): "Bone Mill level 2 can't be afforded at today's income of 0/s bone,
-      and nothing else makes bone: move it down", without ": move it down" when nothing is behind it. The
+      and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
       bone fact holds until P4 makes rot a source of bone.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within

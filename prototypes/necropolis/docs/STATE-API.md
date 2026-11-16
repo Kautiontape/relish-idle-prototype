@@ -179,14 +179,17 @@ from `BALANCE.md` §0.
   - (R2) **the away report's `ready` says why the queue sat still, or that the stores are full** (§5.19, IDLE
     §7): a line for the queue's head still waiting on funds when the absence ends, "Inn is waiting on gold:
     affordable in 6 m" or "House can't be afforded at today's income of 0/s bone: move it down, or build a
-    Bone Mill" (`kind` `queue`, `target` `"queue"`), and, with the queue empty and gold and bone full (within
+    Bone Mill" (`kind` `queue`, `target` `"queue"`; the move down only when another queued entry could start in
+    the head's place, F2), and, with the queue empty and gold and bone full (within
     `idle.report.full_tol` of their caps), the prompt "Your stores are full and the queue is empty: raid a fort
     for relics" (`kind` `raid`, `target` `""`). No new `kind` or `target` value, so `AWAY_KINDS` stands; a
     `raid` line with no fort is new (`AwayLogic.action` reads `""` as `none`): a meaning change, additive for
     map. Their text is `economy.json` `idle.report`'s new templates;
-  - (F1, the run's manager) **that stuck line never names itself or a move that can't help** (§5.19): with
-    nothing queued behind the head it drops "move it down" ("House can't be afforded at today's income of 0/s
-    bone: build a Bone Mill"), and a head that is its store's own producer gets a true fact for what raises it
+  - (F1, the run's manager; F2 sharpened the rule) **that stuck line never names itself or a move that can't
+    help** (§5.19): unless some other queued entry could start if the head weren't ahead of it (the queue's walk
+    less the head has a row that isn't `skipped_gate` with `affordable_in_s` >= 0) it drops "move it down"
+    ("House can't be afforded at today's income of 0/s bone: build a Bone Mill": nothing behind it, or only entries
+    that need bone too, or only gated ones), and a head that is its store's own producer gets a true fact for what raises it
     instead of itself ("Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes
     bone: move it down"). Text only: the line's `kind`, `target` and shape are R2's.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
@@ -1988,11 +1991,12 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at today's income
   of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
   below the cap, and what raises it, `idle.report.afford_raise`); none when no entry waits on funds (every one
-  gated). From F1: `"House can't be afforded at today's income of 0/s bone: build a Bone Mill"` when nothing is
-  queued behind the head (no move down), and when the head is its store's own producer
+  gated). From F1: `"House can't be afforded at today's income of 0/s bone: build a Bone Mill"` when moving the head
+  down can't help (F2: no other queued entry could start in its place: nothing behind it, or only entries stuck on
+  the same store, or only gated ones; no move down), and when the head is its store's own producer
   (`idle.report.afford_producer`, the Bone Mill for bone and the Market for gold, its upgrades too) a fact in place
   of itself, `"Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes bone: move
-  it down"` (`afford_raise_self`; without ": move it down" when nothing is behind it). `queue`, `"queue"`, so the map's click dives to the queue. And after `"Queue empty"`, when gold and
+  it down"` (`afford_raise_self`; without ": move it down" when moving it down can't help). `queue`, `"queue"`, so the map's click dives to the queue. And after `"Queue empty"`, when gold and
   bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
   the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
   `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind).
@@ -2034,7 +2038,7 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 # over its cap as midgame_2flips' is, ready adds "Your stores are full and the queue is empty: raid a fort for
 # relics" (raid, "") after "Queue empty" (R2)
 Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)
-# -> {..., ready: [{text: "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill",
+# -> {..., ready: [{text: "House can't be afforded at today's income of 0/s bone: build a Bone Mill",  # F2: the Well needs bone too
 #                   kind: "queue", target: "queue"}], ...}
 ```
 
