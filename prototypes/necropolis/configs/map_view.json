@@ -897,7 +897,7 @@
         "target": ""
       },
       {
-        "text": "Gold overflowed: 120 wasted",
+        "text": "Gold is full: 120 not stored",
         "kind": "overflow",
         "target": ""
       }

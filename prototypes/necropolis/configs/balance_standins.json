@@ -1,0 +1,167 @@
+{
+  "_doc": "E3-6a v0: the dungeon stand-ins the autoplayer (E3-6b) resolves raids with, through tests/autoplay/standin_resolver.gd (BALANCE §8, IDLE §8). Read by the resolver and the autoplayer only, never by scripts/sim/. Every number comes from the dungeon unit's raw rows at afb8dab (reports/dungeon in the run directory; each entry's `source` names its file, iteration and seeds), except where a source says GUESS. The run's manager's rulings: loot and outcome rates are the frozen bot's at score 70 (standins-raw-afb8dab.tsv, iter grade-standins); deaths and durations are the typical human's (score 70, delay 1.0, read 1.0, draw 0.7; calibration-dd-raw.tsv), the death rate pooled over seeds 20-39 (hb70d10) and 40-59 (the grading pass, grade-*-human rep 0) where both exist; death_rate_frozen is by_tier.<T>.70's for E3-6b's one sensitivity pass. Per entry: death_rate (human) and death_rate_frozen; duration_s (the median of the human's per-run estimate, the grading pass) and duration_s_frozen (the frozen bot's median scene seconds); death_t_frac (a death ends the run at death_t_frac x duration_s: the median human estimate of the died rows over that of all the rows, the same rows as death_rate); mean_loot (the frozen bot's warden_beaten rows, per kind, without the chest's guaranteed husk and first-clear blueprint, which the resolver adds from the seed's chest_husk and first_clear); kept_frac (what a death banks of mean_loot, per kind: the 27 died rows at tier pooled); mass.won / mass.died (killed_frac: killed_living_mass over the seed's living mass; raised_per_living_unit: raised_count over living_start, the living units at the start; garrison_survive_frac and raised_survivors_per_living_unit: allies_end less the party standing and the starters, the garrison taken in counted first, then the rest per living unit; mass.died is the 27 pooled died rows in every entry); party_lost_per_member (a party member's chance to be lost on a win: party_lost per won row over the party size); revives (measured: 0.0, the profile seeds carry no phylactery charge; the resolver's revive comes from the seed). The rows carry no raised, chaff or garrison mass, so those are GUESSes in the resolver (BALANCE §8). Rounded to 3 places.",
+  "v": 0,
+  "measured_at": "afb8dab",
+  "score": 70,
+  "1": {
+    "death_rate": 0.117,
+    "death_rate_frozen": 0.0,
+    "duration_s": 160.062,
+    "duration_s_frozen": 106.11,
+    "death_t_frac": 0.203,
+    "mean_loot": {"relics": 1.356, "remnants": 2.533, "husks": 0.222, "blueprints": 0.0, "essence": 5.756},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 1.0, "raised_per_living_unit": 8.015, "garrison_survive_frac": 1.0, "raised_survivors_per_living_unit": 0.921},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.0,
+    "revives": 0.0,
+    "source": {
+      "loot_outcomes_mass": "standins-raw-afb8dab.tsv, iter grade-standins, score 70, --raid-profile=1 (6 garrison units, no big): ashgate and old-sluice seeds 1-14, greywall seeds 20-39; 48 rows (45 warden_beaten, 0 relish_died, 3 retreated); by_tier.1.70 in standins-measured.json",
+      "deaths": "calibration-dd-raw.tsv, iter grade-t1-human rep 0, seeds 40-59, ashgate, greywall, old-sluice: 7/60 (no t1 human row on seeds 20-39)",
+      "deaths_frozen": "by_tier.1.70.death_rate: 0/48, the rows above (the grading pass's grade-t1-frozen, seeds 40-59: 2/60, for reference)",
+      "duration": "grade-t1-human rep 0, seeds 40-59: median human estimate 160.1 s (NOTES-RAID at 128c95a, D-e grading pass)",
+      "duration_frozen": "by_tier.1.70.median_duration_s, the rows above",
+      "death_t": "grade-t1-human rep 0, seeds 40-59: median estimate of the 7 died rows over the 60 rows",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "no big in the t1 profile (the rows above): no loss measured, so none (GUESS 0)"
+    }
+  },
+  "2": {
+    "death_rate": 0.175,
+    "death_rate_frozen": 0.117,
+    "duration_s": 168.484,
+    "duration_s_frozen": 116.425,
+    "death_t_frac": 1.279,
+    "mean_loot": {"relics": 2.423, "remnants": 4.135, "husks": 0.231, "blueprints": 0.0, "essence": 6.0},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 0.951, "raised_per_living_unit": 6.455, "garrison_survive_frac": 0.99, "raised_survivors_per_living_unit": 0.639},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.712,
+    "revives": 0.0,
+    "source": {
+      "loot_outcomes_mass": "standins-raw-afb8dab.tsv, iter grade-standins, score 70, --raid-profile=2 (6 garrison units, 1 big) at vespers, lantern-keep, chime-fort, seeds 20-39; 60 rows (52 warden_beaten, 7 relish_died, 1 retreated); by_tier.2.70",
+      "deaths": "calibration-dd-raw.tsv, iters hb70d10 (seeds 20-39, b895836) and grade-tier-human rep 0 (seeds 40-59, afb8dab), tier 2: 9/60 + 12/60 = 21/120",
+      "deaths_frozen": "by_tier.2.70.death_rate: 7/60, the rows above, seeds 20-39 (grade-tier-frozen t2, seeds 40-59: 9/60, for reference)",
+      "duration": "grade-tier-human rep 0, tier 2, seeds 40-59: median human estimate 168.5 s",
+      "duration_frozen": "by_tier.2.70.median_duration_s, the rows above, seeds 20-39",
+      "death_t": "hb70d10 (seeds 20-39) + grade-tier-human rep 0 (seeds 40-59), tier 2: median estimate of the 21 died rows over the 120 rows (above 1: t2's deaths came late, in long warden fights)",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "the 52 warden_beaten rows above (seeds 20-39): party_lost over the profile's 1 big"
+    }
+  },
+  "3": {
+    "death_rate": 0.158,
+    "death_rate_frozen": 0.133,
+    "duration_s": 190.842,
+    "duration_s_frozen": 122.675,
+    "death_t_frac": 0.959,
+    "mean_loot": {"relics": 3.941, "remnants": 5.451, "husks": 0.412, "blueprints": 0.0, "essence": 2.941},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 0.798, "raised_per_living_unit": 4.058, "garrison_survive_frac": 1.0, "raised_survivors_per_living_unit": 0.721},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.48,
+    "revives": 0.0,
+    "source": {
+      "loot_outcomes_mass": "standins-raw-afb8dab.tsv, iter grade-standins, score 70, --raid-profile=3 (8 garrison units, 2 bigs) at hollow-redoubt, pale-bastion, mourners-gate, seeds 20-39; 60 rows (51 warden_beaten, 8 relish_died, 1 retreated); by_tier.3.70",
+      "deaths": "calibration-dd-raw.tsv, iters hb70d10 (seeds 20-39, b895836) and grade-tier-human rep 0 (seeds 40-59, afb8dab), tier 3: 8/60 + 11/60 = 19/120",
+      "deaths_frozen": "by_tier.3.70.death_rate: 8/60, the rows above, seeds 20-39 (grade-tier-frozen t3, seeds 40-59: 11/60, for reference)",
+      "duration": "grade-tier-human rep 0, tier 3, seeds 40-59: median human estimate 190.8 s",
+      "duration_frozen": "by_tier.3.70.median_duration_s, the rows above, seeds 20-39",
+      "death_t": "hb70d10 (seeds 20-39) + grade-tier-human rep 0 (seeds 40-59), tier 3: median estimate of the 19 died rows over the 120 rows",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "the 51 warden_beaten rows above (seeds 20-39): party_lost over the profile's 2 bigs"
+    }
+  },
+  "4": {
+    "death_rate": 0.208,
+    "death_rate_frozen": 0.2,
+    "duration_s": 169.275,
+    "duration_s_frozen": 126.915,
+    "death_t_frac": 0.554,
+    "mean_loot": {"relics": 5.979, "remnants": 6.479, "husks": 0.396, "blueprints": 0.0, "essence": 3.625},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 0.901, "raised_per_living_unit": 5.055, "garrison_survive_frac": 0.986, "raised_survivors_per_living_unit": 0.63},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.41,
+    "revives": 0.0,
+    "source": {
+      "loot_outcomes_mass": "standins-raw-afb8dab.tsv, iter grade-standins, score 70, --raid-profile=4 (12 garrison units, 3 bigs) at the-stair, whitecross, sable-hold, seeds 20-39; 60 rows (48 warden_beaten, 12 relish_died); by_tier.4.70",
+      "deaths": "calibration-dd-raw.tsv, iters hb70d10 (seeds 20-39, b895836) and grade-tier-human rep 0 (seeds 40-59, afb8dab), tier 4: 10/60 + 15/60 = 25/120",
+      "deaths_frozen": "by_tier.4.70.death_rate: 12/60, the rows above, seeds 20-39 (grade-tier-frozen t4, seeds 40-59: 7/60, for reference)",
+      "duration": "grade-tier-human rep 0, tier 4, seeds 40-59: median human estimate 169.3 s",
+      "duration_frozen": "by_tier.4.70.median_duration_s, the rows above, seeds 20-39",
+      "death_t": "hb70d10 (seeds 20-39) + grade-tier-human rep 0 (seeds 40-59), tier 4: median estimate of the 25 died rows over the 120 rows",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "the 48 warden_beaten rows above (seeds 20-39): party_lost over the profile's 3 bigs"
+    }
+  },
+  "first_dungeon": {
+    "death_rate": 0.0,
+    "death_rate_frozen": 0.0,
+    "duration_s": 139.25,
+    "duration_s_frozen": 92.975,
+    "death_t_frac": 0.203,
+    "mean_loot": {"relics": 1.367, "remnants": 2.7, "husks": 0.183, "blueprints": 0.0, "essence": 6.483},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 1.0, "raised_per_living_unit": 7.403, "garrison_survive_frac": 1.0, "raised_survivors_per_living_unit": 0.66},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.0,
+    "revives": 0.0,
+    "source": {
+      "loot_outcomes_mass": "standins-raw-afb8dab.tsv, iter grade-standins, score 70, --raid-fixture=day1,old-sluice (no garrison, no big, the opening's 8 massless starters), seeds 1-60; 60 rows, all warden_beaten; first_dungeon in standins-measured.json. mean_loot without the chest husk (1.183 - 1) and the first-clear blueprint (1.0 - 1)",
+      "deaths": "calibration-dd-raw.tsv, iter grade-p1-human rep 0, seeds 40-59: 0/20 (no P1 human row on seeds 20-39)",
+      "deaths_frozen": "first_dungeon.death_rate: 0/60, the rows above, seeds 1-60 (grade-p1-frozen, seeds 40-59: 0/20, for reference)",
+      "duration": "grade-p1-human rep 0, seeds 40-59: median human estimate 139.3 s",
+      "duration_frozen": "first_dungeon.median_duration_s, the rows above, seeds 1-60",
+      "death_t": "GUESS: no first-dungeon row died (0/60 frozen, seeds 1-60; 0/20 human, seeds 40-59), so t1's 0.203",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "no big in the day1 fixture (the rows above, seeds 1-60): no loss measured, so none (GUESS 0)"
+    }
+  },
+  "held_door": {
+    "death_rate": 0.15,
+    "death_rate_frozen": 0.117,
+    "duration_s": 161.052,
+    "duration_s_frozen": 111.63,
+    "death_t_frac": 1.031,
+    "mean_loot": {"relics": 3.509, "remnants": 4.283, "husks": 0.302, "blueprints": 0.0, "essence": 5.415},
+    "kept_frac": {"relics": 0.1, "remnants": 0.173, "husks": 0.0, "blueprints": 0.0, "essence": 0.0},
+    "mass": {
+      "won": {"killed_frac": 0.965, "raised_per_living_unit": 5.822, "garrison_survive_frac": 0.993, "raised_survivors_per_living_unit": 0.611},
+      "died": {"killed_frac": 0.938, "raised_per_living_unit": 4.043, "garrison_survive_frac": 0.724, "raised_survivors_per_living_unit": 0.153}
+    },
+    "party_lost_per_member": 0.528,
+    "revives": 0.0,
+    "door_big_lost_rate": 0.117,
+    "relics_per_run_without_door": 2.367,
+    "source": {
+      "label": "from the D-e grading pass, NOTES-RAID at 128c95a, rows grade-doorb-* in calibration-dd-raw.tsv, afb8dab",
+      "loot_outcomes_mass": "calibration-dd-raw.tsv, iter grade-doorb-on-frozen, arm (b): the t3 party (--raid-profile=3, 8 garrison units, 2 bigs) at vespers, lantern-keep, chime-fort, seeds 40-59, the door taken 60/60; 60 rows (53 warden_beaten, 7 relish_died); 190 relics in 60 runs against grade-doorb-off-frozen's 142 (relics_per_run_without_door, a record: a declined door uses the t2 entry)",
+      "deaths": "calibration-dd-raw.tsv, iter grade-doorb-on-human, seeds 40-59: 9/60",
+      "deaths_frozen": "grade-doorb-on-frozen, seeds 40-59: 7/60",
+      "duration": "grade-doorb-on-human, seeds 40-59: median human estimate 161.1 s",
+      "duration_frozen": "grade-doorb-on-frozen, seeds 40-59: median scene seconds",
+      "death_t": "grade-doorb-on-human, seeds 40-59: median estimate of the 9 died rows over the 60 rows",
+      "kept_and_died_mass": "the 27 relish_died rows of standins-raw-afb8dab.tsv, iter grade-standins, at tier, score 70, seeds 20-39 (t2 7, t3 8, t4 12), pooled",
+      "party": "the 53 warden_beaten rows above (seeds 40-59): party_lost over the 1 big that fights (the door's big sits the fight out and rejoins on a win)",
+      "door_big": "grade-doorb-on-frozen, seeds 40-59, door.fate: 53 rejoined, 7 lost, the 7 exactly its 7 deaths (door_big_lost_rate, a record): the resolver loses it by the dungeon's rule, RaidLogic.held_door_lost (on a death or a retreat, never on a win)"
+    }
+  },
+  "held": {
+    "death_rate_mult": 0.5,
+    "duration_mult": 0.5,
+    "party_lost_mult": 0.5,
+    "source": "GUESS",
+    "_doc": "No row raids a held fort, so a held fort's raid is the tier's own entry with GUESSes (the run's manager's ruling 4): death_rate and death_rate_frozen x death_rate_mult, duration_s x duration_mult, and party_lost_per_member x party_lost_mult (the same reading: a short run with no warden room). Loot is RaidLoot.held_clear's (loot.json held_clear, yield-scaled); a death banks nothing (the clear's roll comes at the clear). The clear ends retreated and kills exactly the seed's living (STATE-API notes for api-request #10, so the writeback raises counter_garrison_cleared); its raises and survivors are the tier's mass.won ratios, a death's mass.died."
+  }
+}

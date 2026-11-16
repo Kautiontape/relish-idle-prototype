@@ -115,23 +115,96 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   first `idle.catchup_dt_long_after_s` (12 h) of a catch-up the same with `idle.catchup_dt_long_s` (15 s)
   for the cap (E2b-2 T3.3b, the budget's lever 2, below).
 - A step never straddles an event: `dt = min(dt, t_next_event − t)`. Catch-up clips at Relish's
-  arrival, an unpaid building's resume, a construction finishing, the build queue's head starting on
+  arrival, her respawn while she is dead (her `dead_s_left`, E3-2: a save closed while she is dead wakes her at
+  the right `t`, and the home stance slot and Vigil follow from there), an unpaid building's resume, a construction finishing, the build queue's head starting on
   funds (its shortfall over the net income, for each currency it lacks; since F1 the net its
   `affordable_in_s` uses, `BuildRules.queue_net`: the HUD's below the cap, and at a full store the income
   before the cap's clip, so a head behind an entry that just spent the store is clipped at its start, not
   read as never), gold or bone reaching its floor,
-  a tithe warning, and a wave starting or ending (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
+  a tithe warning, a wave starting or ending, and (E3-4) a simulacrum running out of charges, guarded (below)
+  (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
   from the state at the step's start, and an event within 1 µs is now). Since E2b-2 T3.1 RealmSim lands
   a grace ending, a garrison reaching 0 and a break at their time inside its own step (it splits the
   step at the first and last; fort combat solves the second), and TownSim solves a store hitting its
   cap inside its step, so catch-up doesn't clip at them. A gated queue entry starts on a tier rise or a
   building finishing, which are clipped already.
-- First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
+- First-order quantities (worker rot, `q`, the EMAs) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
+- **The vats** (E3-2, MECHANICS §7) grow linearly, `min(1, grow + vats.grow_per_s · hands · dt)` on the step's tend
+  hands, which is exact at any step. **Catch-up doesn't clip at a vat's fill:** it raises no event, and though
+  `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
+  run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
+  pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
+  (`test_backups`). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  away report; `test_backups`).
+- **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
+  (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
+  is refused with `catching_up` while it runs; the catch-up's own events move only a siege (a retake) and the
+  party (a death). Whether a foreman works follows its building's state, whose changes are TownSim's at a step's
+  start (Thrift's idling, the stance step) or ones the catch-up clips at already (an unpaid building's resume, a
+  construction finishing, a store reaching its floor). The multiplier is a constant over a step, so TownSim's
+  step integrates it exactly. With the foreman at work midgame_2flips caught up 6 h matches 6 h live
+  (`test_big_undead`).
+- **A siege at a retake** (E3-3, MECHANICS §3.4). Catch-up doesn't clip at a retake: RealmSim splits its step at
+  the break (above). The siege's block goes from the retake's moment all the same. RealmSim runs the step's parts
+  after the retake without that fort's `siege_block` (`RealmSim._unsieged`), and GameState sends the siege home
+  (`big_undead_returned`), so the next step has no block there. A 10 s step with the retake 2 s in delivers a wave
+  there exactly as a 2 s step with the block and an 8 s step without it (`test_big_undead`).
+- **A simulacrum running out** (E3-4, MECHANICS §3.6; the run's manager required the measurement). RealmSim raises
+  a step's share evenly over it (`min(rate, charges / dt)`), so one running out inside a long step spreads its last
+  charges over the whole step. Measured (`test_crafting`, the shipped simulacrum, 300 charges at 1.0 mass/s, at a
+  fort held in grace with only its corpses moving, so nothing else differs: the same run with the exhaustion on a step
+  boundary matches live to 1e-6): run out 292.5 s in, inside a 15 s step (`idle.catchup_dt_long_s`), against live
+  0.5 s, the dead and raised mass are exact, but at the step's end (300 s) the fort's undead read 13.99 against
+  12.89 (+1.09 mass, **+8.5%**), +6.8% at the next step's end and +1.2% a minute on, and it is gone 7.5 s late. That
+  is outside `idle.catchup_tol` (2%), so **catch-up clips at it** (`Catchup.simulacrum_out_s`): a step ends at
+  `charges / rate`, a lower bound on the moment, since the raise never passes the rate (an early clip only splits a
+  step, and the next projects again). Clipped, it is gone at live's moment and the undead, dead and raised mass match
+  live to 0.0000% at the exhaustion, the next step's end and 10 min on. Two guards keep the budget:
+  - **corpses:** only while the fort's corpses now cover every raise wanted there until then (Relish's where she
+    redirects, and each live simulacrum's there, up to its charges). A corpse-limited raise runs out later than
+    `charges / rate`, and a starved simulacrum would cut every step short for the rest of a week (10 charges with no
+    corpses: 60 steps where 40 do, 10 min at 15 s). Such a one isn't clipped: its last raise spreads over its step, as
+    Relish's corpse-limited raise already does;
+  - **a floor:** none under `sim.substep_s`, live play's own granularity, so a sliver of charges left can't make
+    ever shorter steps (0.25 charges: 41 steps where 40 do, without it).
+  With no simulacrum planted the clause is skipped, so every catch-up without one is bit-identical to the tip
+  (`test_backups`' 12 h identity from each fixture). A retake inside a long step loses the simulacrum at the retake's
+  moment (RealmSim drops it there, and the step's later parts raise nothing for it): IDLE I6.
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
-  (`GameState.catchup_config_problem`, an error naming both keys; `test_catchup` overrides them both ways
-  round). The key is E3's and not in `economy.json` yet, so there is nothing to check until E3 adds it.
+  (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;
+  `test_catchup` overrides them both ways round). E3-1 ships it at 20 s, above the 15 s step (BALANCE §5 has
+  why 20 s suits the game).
+- **The stances in catch-up** (E3-1, MECHANICS §4.5). The stance step is the core step's first (STATE-API §3
+  step 1), so catch-up runs it as live play does: at a new beat each condition is read from the state the step
+  starts from, and a step of 10 or 15 s crosses a beat every time. The conditions move on continuous stocks
+  (bodies, morale, the stalls' income against the upkeep), and Relish's state, whose arrival is clipped already.
+  **Catch-up doesn't clip at a condition's crossing; the hold alone keeps it exact enough** (the run's manager
+  asked for the decision and its evidence):
+  - a crossing inside a step is seen at the next step's start, at most one step late, where live play sees it
+    at the next beat (1.714 s). Then the hold, at least the longest step, keeps the stance there: a step
+    changes a stance at most once, as live play does, so a catch-up never chatters where live play holds, and
+    each change is one step late at most;
+  - nothing a stance changes is a cliff the step's other clips depend on: a ladder stance moves hands between
+    jobs (the convoy, the stalls, the pits' feed: rates the step integrates), Muster's idle cap is applied
+    exactly inside TownSim's workforce update, and Thrift's idled buildings pay no upkeep from the step's start;
+  - **with no stance on, catch-up is bit-identical to the tip** (41749be): 12 h caught up from each fixture
+    hashes the same state (to_dict() less its `stances` block and `api_version`), the same events less
+    `stance_fired`, and the same away report (`test_stances`). What differs is the stance state: each
+    condition's `active`, its hold and `fired_beat_id` (the save's `stances`), and the `stance_fired` events;
+  - **with stances on, catch-up matches live**: pre_vei with Thrift and Muster on (both act from the first
+    beat), 30 min caught up at 10 s against 30 min at 0.5 s: the same stances act and Thrift idles the same
+    three buildings (the Statue, the Reliquary, the Walls) in both, Covington identical, every stock within
+    0.25% (gold 0.019%: catch-up idles them from its first step's start, live play at the first beat 1.5 s in),
+    the outcomes equal; its rates are as far from live as with no stance on (pre_vei's mint is a step's own
+    instant, 11.3% with none on, 12.2% here) (`test_stances`). Over 6 h at the shipped step (5 s;
+    `slow/stances_catchup`, measured at E3-1): midgame_2flips with Vigil, Harvest and Thrift on matches 0.5 s
+    in every outcome (85 waves, Old Sluice's retake 0.2 s apart against a bound of 2 × 5 s), Covington
+    identical, every stock within 0.23% and every rate within 0.008%, the same three firings in both (Vigil,
+    Harvest and the off Muster turn active; Thrift's condition never holds there, its stalls out-earn its
+    upkeep); pre_vei with Thrift and Muster on: the same outcomes, Covington identical (Thrift's same three
+    buildings), stocks within 0.49%, its mint 35.3% apart at the end (the instant above).
 - Gold and bone clamp to their floor of 0 and their cap on each step's net. The build queue loops
   inside a step until its head can't start.
 - The influence field takes `idle.field_steps` (75; 150 until E2b-2 T3.3b2, below) field steps over a
@@ -443,6 +516,11 @@ takes over 1 s.
     the shipped schedule (0.19% at 10 s). pre_vei: nothing held, no flip or retake, Relish at Vei, stocks
     within 0.026% (0.035% at 10 s). fresh: nothing held, Relish home, stocks within 0.52% (0.12% at 10 s).
     The 0.5 s runs took 304–365 s each.
+    - **20 s retakes Ashgate over the midgame week (0.5 s reference holds); 15 and 17.5 hold. Don't raise it
+      without re-running catchup_week.** E3-1 tried 20 s (with `stance.hold_s` 20): catchup_week's
+      midgame_2flips lost Ashgate at 229 887 s, held at 15 s and 17.5 s. The run's manager took it back to
+      15 s: a catch-up that loses a fort the live game would have held breaks the player's trust, and the
+      player did nothing wrong; 2 s a week isn't worth that, and 17.5 s is out because its margin is unknown.
   - So at T3.3b 12 h took 2.1–2.7 s against its 2 s budget (inside the manager's 4 s behind a progress
     screen; its 150 field steps 0.9–1.4 s of it) and 7 days 13.1–14.7 s against its 10 s (the field steps
     0.9–1.2 s of it), about 1.5 times over; the table above is the measurement (T3.3b's report gave 13.0–14.6
@@ -578,63 +656,111 @@ same profile with the game closed.
 - **The first caps take at least about 8 h of the default income to fill,** which covers a night away
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
 - **Overflow is tallied beside the ledger** (`ledger().stores`; gold and bone are not mass, so the mass
-  soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was wasted (T3.3).
+  soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was not stored (T3.3;
+  W: "Gold is full: 2,162 not stored").
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on
 a **"While you were away"** panel. It is ordered **gains, then ready actions, then losses**:
 - **gains:** how long you were away, then each core stream's net rate and net total (the backlog with
-  its ▲/▼), builds finished, and forts refilled;
+  its ▲/▼), builds finished, each queued build that started ("House started 2 h 10 m after you left,
+  when the gold came in", W; "Inn started right away" when it never waited), and forts refilled;
 - **ready now,** each line an action: "Ashgate refilled: raid it", "2 husks: raise at the slab",
-  "Queue empty: plan the next build";
+  "Queue empty: plan the next build" (not when the stores are full: the raid prompt below takes its place);
   - **The queue's head still waiting** (R2, from the E2b-2 vision review's item 3: "come back and nothing
     happened"). When the absence ends with the queue's head waiting on funds, one line says when its funds
     come, from its `affordable_in_s` (MECHANICS §4.4): "Inn is waiting on gold: affordable in 6 m" (rounded
-    up to the minute, so a wait under one never reads "0 m"), or, when it never will at today's income,
-    "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill": the
+    up to the minute, so a wait under one never reads "0 m"), or, when it never will at the current income,
+    "House can't be afforded at the current income of 0/s bone: move it down, or build a Bone Mill": the
     store, its net rate now, and what raises it (`idle.report.afford_raise`: a Market for gold, a Bone Mill
-    for bone, a raid for relics). `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
+    for bone). A head short of relics, which have no idle income, gets Shawn's words with no rate (W, the
+    run's manager): "Crypt level 2 needs relics: raid a fort", with ", or move it down" under the rule below
+    (`afford_relics_last_fmt` only: W2 removed `afford_relics_fmt`, the move-down form, from the config,
+    `REPORT_KEYS` and `report_config_problem`, since nothing can choose it). No head reaches that form: the
+    queue's walk gates a relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds,
+    and a gated entry holds nothing. W2's relics wall (below) is what shows it. `kind` `queue`, `target`
+    `queue`, so the map can dive to the queue. The
     queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
     to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
     - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
       if the stuck one weren't ahead of it, which the report reads off the queue's walk less the stuck entry
       (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
-      anyway) and has `affordable_in_s` >= 0 (affordable now, or later at today's income). With nothing behind
+      anyway) and has `affordable_in_s` >= 0 (affordable now, or later at the current income). With nothing behind
       it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
-      line drops it: "House can't be afforded at today's income of 0/s bone: build a Bone Mill". With a Bone Mill
-      behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at today's income of 0/s
-      bone: move it down, or build a Bone Mill";
+      line drops it: "House can't be afforded at the current income of 0/s bone: build a Bone Mill". With a Bone
+      Mill behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at the current income
+      of 0/s bone: move it down, or build a Bone Mill";
     - **its store's own producer** (`idle.report.afford_producer`: the Market for gold, the Bone Mill for
       bone; an upgrade counts): what raises the store would be the entry itself, so the line says a fact
       instead, true today (only a mill makes bone, only a Market gold, and a raid gives neither: loot.json
-      has relics and no gold or bone): "Bone Mill level 2 can't be afforded at today's income of 0/s bone,
+      has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
       bone fact holds until P4 makes rot a source of bone.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
     the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
-    fort for relics" (`kind` `raid`, `target` `""`, after "Queue empty"). The overflow line stays in
-    losses for now (E4 moves it).
+    fort for relics" (`kind` `raid`, `target` `""`), in place of "Queue empty" (W: no build can be planned
+    without relics, so the two would contradict each other). The full store's line stays in losses for now
+    (E4 moves it). A non-empty queue never gets this prompt; the wall below is its form.
+  - **The relics wall** (W2, the run's manager for Shawn): a queue of only relic-gated builds is the plateau
+    Shawn wants visible, and the walk skips such an entry (`skipped_gate`, reason `no_relics`), so it never
+    became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
+    least one skipped on `no_relics`, `ready` gets "Crypt level 2 needs relics: raid a fort"
+    (`afford_relics_last_fmt`, kind `queue`, target `queue`) for the first such entry in queue order: no rate,
+    no "move it down" (a gated entry holds nothing). Stores full or not. **No entry can start** is read off
+    the walk's statuses: no row is `next`, and no `waiting_funds` head will be afforded (`affordable_in_s` >= 0);
+    either means the town is still building, so no wall. An entry `queued` behind a head at −1.0 can't start
+    either (the queue never jumps), so it doesn't clear the wall: House (−1.0 on bone), Well (queued), then a
+    gated Crypt level 2 shows the House's line and the wall. A head stuck at
+    −1.0 on gold or bone with a relic-gated entry in the queue shows both lines in queue order, since each
+    names a different build ("House can't be afforded at the current income of 0/s bone: build a Bone Mill",
+    then "Crypt level 2 needs relics: raid a fort"). The wall takes the place of the raid prompt: a non-empty
+    queue never had it, so the wall is the only line, and the truly empty queue with full stores keeps
+    `full_raid`.
+  - **A start under a minute** (W2): a queued build that waited but began less than 60 s after you left reads
+    "Inn started within a minute of you leaving, when the gold came in" (`started_brief_fmt`), not "0 m
+    after". A start that didn't wait stays "started right away" (`started_now_fmt`). The cutoff is the
+    report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
+    "briefly" in `_unpaid_lines`; not a tuning number.
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
-  store overflow. An absence with no losses says **"Nothing lost."**
-  - **Unpaid** (R1, the run's manager): one line per building that was unpaid at some time during the
-    absence, in lot order, with how long it was unpaid in all (its `building_unpaid` spells, true then
-    false, in the catch-up's events; one unpaid when you left counts from the start, one still unpaid
-    at the end to the end) and what it stopped doing: "Statue of Relish unpaid for 1 h 12 m: lifted no
-    morale, deaths shook the town harder; stores kept". The name is its town label (`level_fmt` past
-    level 1), the time the report's "{h} h {m} m" / "{m} m" (a spell under a minute reads "0 m").
-    "What it stopped" is one phrase per job it offers and per working effect it has (`pits`, `morale`,
-    `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`), each an
-    `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and
-    `pits` effect: "raised no undead"); a building with neither (a House, the Reliquary: only
-    capacity effects, which an unpaid building keeps) says "nothing stopped". So does one whose only
-    working effects are in `idle.report.unpaid_inert` (F2: the effect keys nothing in the sim reads yet,
-    `hint_precision` today, so a Watchtower's line reads "Watchtower unpaid for 1 h: nothing stopped; stores
-    kept", not a lie about vaguer fort hints). A key leaves that list in the change that makes the sim read it,
-    and gets its words in `unpaid_stopped` then. "Stores kept" is always
-    true: capacity effects count while unpaid (MECHANICS §4.3), so no cap fell and no stock was lost.
-    `kind` `unpaid`, `target` its lot id.
+  each building the Thrift stance idled (E3-1),
+  each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
+  An absence with no losses says **"Nothing lost."**
+  - **Unpaid** (R1, the run's manager; W words it as a returning player reads it): one line per building
+    that was unpaid at some time during the absence, in lot order, with how long it was stopped in all (its
+    `building_unpaid` spells, true then false, in the catch-up's events; one unpaid when you left counts
+    from the start, one still unpaid at the end to the end), the store that ran out, and what it stopped
+    doing: "Charnel House stopped for 3 h 20 m, gold ran out: hauled no corpses". The name is its town label
+    (`level_fmt` past level 1), the time the report's "{h} h {m} m" / "{m} m"; under a minute in all it
+    stopped "briefly" ("Charnel House stopped briefly, gold ran out: hauled no corpses",
+    `unpaid_brief_fmt`), the report's minute rounding, not a tuning number. The store is each one its
+    `buildings.json` upkeep is above 0 in (the same at every level), worded by `idle.report.afford_stores`:
+    gold for every building today, since none pays bone; one that paid both would read "gold · bone ran out"
+    (`list_sep`). "What it stopped" is one phrase per job it offers and per working effect it has (`pits`,
+    `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`), each an
+    `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and `pits`
+    effect: "raised no undead"); a building with neither (a House, the Reliquary: only capacity effects,
+    which an unpaid building keeps) has no tail: "House stopped for 14 m, gold ran out" (`unpaid_none_fmt`,
+    `unpaid_none_brief_fmt`). So does one whose only working effects are in `idle.report.unpaid_inert` (F2:
+    the effect keys nothing in the sim reads yet, `hint_precision` today, so a Watchtower's line reads
+    "Watchtower stopped for 59 m, gold ran out", not a lie about vaguer fort hints). A key leaves that list in
+    the change that makes the sim read it, and gets its words in `unpaid_stopped` then. Capacity effects count
+    while unpaid (MECHANICS §4.3), so no cap falls and no stock is lost; the line no longer says "stores
+    kept", which read as the stockpile's safety rather than the building's idleness. `kind` `unpaid`,
+    `target` its lot id.
+  - **Idled by Thrift** (E3-1, the run's manager's ruling; MECHANICS §4.5): one line per building the Thrift
+    stance idled at some time during the absence, in lot order, after the unpaid lines, naming Thrift as the
+    reason, not the gold: "Statue of Relish idled by Thrift for 2 h 10 m: lifted no morale, deaths shook the
+    town harder" (`idle.report.thrift_fmt`; the brief's "Inn" can't be one at the shipped threshold, its 0.05
+    gold/s isn't above `stance.thrift_upkeep`). Its time is the sum of its spells (the catch-up runner notes each building
+    Thrift idles or resumes with its moment, `Catchup.thrift_log`; Thrift raises no event, its buildings read
+    `"idle"` in `view_town`); one idled when you left counts from the start, one still idled at the end to the
+    end. What it stopped is the unpaid line's phrases; under a minute it was idled "briefly"
+    (`thrift_brief_fmt`), and one that stopped nothing has no tail ("Reliquary idled by Thrift for 30 m",
+    `thrift_none_fmt`, `thrift_none_brief_fmt`). The same `kind` `unpaid` and lot target as R1's lines, so no
+    new kind or target: the kind now means "a building stopped", by the gold running out or by Thrift
+    (STATE-API §5.19). A building both unpaid and idled by Thrift in one absence gets both lines.
 
 The full in/out table per stream is a debug view. API: `view_away()` (the last report, kept until
 dismissed) and the `away_report` event.
@@ -658,6 +784,145 @@ dismissed) and the `away_report` event.
 
 **The stock rule:** no stock grows without bound over a 7-day sessions run. Every store is capped,
 and the queue spends into growth.
+
+**How the autoplayer resolves raids** (E3-6a; BALANCE §8): the dungeon can't run headless, so the profiles' raids go
+through `StandinResolver.resolve(seed, standins, cfgs, opts)` (`tests/autoplay/standin_resolver.gd`, on
+`configs/balance_standins.json`; a test harness `scripts/sim/` never reads), which turns the seed `cmd_begin_dungeon`
+issued into a raid result for the real `apply_result`, deterministic on the seed's `rng_seed`: a death at the typical
+human's rate for the tier (a phylactery charge revives her in place once), else the warden beaten or, for a held
+fort (`opts.held`, from `view_fort`), the counter-garrison cleared; the frozen bot's score-70 loot scaled by the
+seed's `yield_mult`; masses on the seed's own fort; and a `duration_s` (the human's estimate, or the time of the
+death) that E3-6b's autoplayer ticks the game through live before it applies the result, so the realm and the town
+move while Relish is in the dungeon. `opts.deaths: "frozen"` is the one sensitivity pass at the frozen bot's death
+rates, and `opts.door` sends a spare big through the t2 held door when the gate allows.
+
+**How the autoplayer plays** (E3-6b; `tests/autoplay/autoplayer.gd`, class `Autoplayer`).
+- **Running it.** Each profile is its own slow suite: `tests/run.sh --slow --only=autoplay_<profile>`. `AUTOPLAY_DAYS=n`
+  sets the length of the multi-day ones. `tests/test_autoplay_smoke.gd` runs first30 and 40 min of sessions in the default
+  suite.
+- **Output.** It prints one `AUTOPLAY_ROW <json>` per sample (session starts and ends, day ends, every 30 min of open
+  time) and one `AUTOPLAY_SUMMARY <json>` per profile. Those are the measures E3-7's report reads. The summary names the
+  policy behind each measure (`policy`) and the GUESS stand-ins, the vats' best case and the field behind them
+  (`labels`). It asserts no balance number.
+- **Commands only.** A profile starts from `cmd_new_game(1)` and from then on calls only `cmd_*` and `view_*`. Every
+  GameState it plays has `debug_enabled` false. It waits one substep before its first look, since until then every short
+  queue entry reads −1.
+- **Closed and open.** Closed is `cmd_save`, a fresh GameState, then `cmd_load` with `clock_override` the gap later, so
+  the real catch-up runs. Open is the same state ticked through the frame path: 0.5 s frames, the substep cap.
+- **A raid.** Relish walks to the fort live, then `cmd_begin_dungeon`. The resolver above gives the result (deaths
+  `"human"`, the door on, `held` read off `view_fort` just before the begin). The bot ticks the result's `duration_s` live
+  and applies it. A death waits out the real respawn.
+- **The field is 8 × 6** (the convergence and catch-up suites' convention). The shipped 128 × 90 costs 11.5 ms a live
+  substep, against 0.64 ms. The field decides which villages are owned, so the living and the migrants carry that label.
+- **The schedule.** Three 20 min sessions a sim day, at 00:00, 04:00 and 08:00 from the new game, closed 3 h 40 m,
+  3 h 40 m, then a 15 h 40 m night. The brief's "8 h apart, then a 16 h night" can't fit three sessions in a day, so this
+  keeps the long night. A day ends at the next 00:00 load, before the bot acts.
+
+The profiles:
+- **first30**: GAMEPLAY §6's opening, scripted. From a new game: Old Sluice (the fort flagged `first_dungeon`), its flip,
+  the first big undead at the slab, one queue set (filled and reordered once), then left to 30:00 and closed to the next
+  session. Each beat's time is recorded.
+- **sessions**: the schedule above for 8 days. In each session the bot takes the town's turn (below), then raids while a
+  raid fits in what is left: the walk both ways plus the longest the stand-in entry can take, a death's `death_t_frac`
+  above 1 included. After each raid it takes the town's turn again, and while it waits it looks at the town every 60 s.
+  It closes every gap. Each night's save is also loaded into a throwaway state 12 h on, for Vei's odds 12 h after
+  closing.
+- **sessions_open**: the I1 gate, run in lockstep. The sessions run (closed) logs every command. The same commands are
+  issued at the same sim t on a GameState left open between sessions, ticked for exactly the frames the time takes, and
+  its raids re-resolve from its own seeds. At each day's end, over 2 days, the gate asserts: the same t, the bodies within
+  one convoy load, every other stock within `idle.catchup_tol` (gold and bone against 1% of their cap, Vei's pool against
+  its cap, the rest against 1.0), the same buildings and levels, the same held forts, and every command answered as the
+  closed run's was.
+  - The bodies' bound is computed at each sample: `job.haul.carry` × the haulers staffed in the open run (view_town's
+    `jobs` row), never tighter than `catchup_tol` (with no haulers it is 0). The check prints the delta and the bound and
+    fails over it. The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other
+    targets than an open run's (the haul phase).
+  - At 01a7191 both days pass. Day 2's bodies are 24.66 apart against a bound of 84 (14 × 6 haulers). The backlog is
+    0.52% and 0.64% apart; every other stock is identical.
+  - Revert proofs (sim edits, never committed):
+    - With one landed load taken off the store in each catch-up (five over the two days), the gate still passes. The
+      bodies are 27.38 and 16.14 apart, and the backlog 0.65% and 0.74%. One lost load is at most one load, so a
+      one-load bound can't see it. The store drains to about 0 between loads, and the bone the mills make of it sits
+      at its cap at each sample. Only the backlog moves, by about 0.1 points.
+    - With every catch-up landing taken off, the gate fails both days on the backlog (4.32% and 5.55% apart), not on
+      the bodies.
+    - At 99e4630 the bodies under the 2% rule failed day 2 (2.18 against 26.83).
+  - Measured at E3-6b: day 1 passes (the backlog is 0.52% apart, every other stock identical). Day 2 fails on the
+    bodies alone: 2.18 closed against 26.83 open.
+  - The convoy runs out of phase from the first close: a different target and a different point of its trip at each
+    session start. The bodies stock is a sawtooth of convoy loads, so it differs by up to a load.
+  - Everything else agrees: the backlog is 0.64% apart, every other stock is identical, the buildings and the held forts
+    are the same, and all 161 commands answered the same.
+  - convergence.gd's catch-up gate leaves the bodies ungated for this reason ("within about one convoy load at any dt").
+    The I1 gate keeps them, as "every stock" asks: the run's manager decides.
+- **once_per_session**: sessions with exactly one raid a session.
+- **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
+  fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
+- **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
+  default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
+  that catch-up's `building_done` events.
+- **town_only**: the sessions schedule, playing only the town (the queue, the stances, the vats). It never raids, so it
+  never gets a husk.
+- **away_risk**: the sessions run to the end of day 3's last session, saved there. If nothing is held then, it falls
+  back to the midgame_2flips fixture and says so. Then 24 h away, twice from that save:
+  - as the sessions bot left it;
+  - after the prepared setup: the held forts that read `will_fall` or `thin` raided; WAR raised in 0.05 steps
+    (`view_projection`, WORK and FLOOD keeping their ratio) until "WAR supports N of M" covers every held fort; a siege at
+    the thinnest held fort (`will_fall`, then `thin`, then the lower `garrison_rate`); and a simulacrum crafted and
+    deployed there when one can be.
+
+  It measures the held forts lost.
+- **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least
+  half". This profile makes the risk real. From the same save it is away three times:
+  - 24 h with WAR cut to 0 (WORK and FLOOD keeping their ratio), graded against "at least half";
+  - 72 h as the sessions bot left it, graded against "at least half";
+  - 72 h after the prepared setup, graded against "at most a quarter".
+
+  (WAR cut and then prepared would be away_risk's `prepared` again, because the setup raises WAR from wherever it is.)
+  Then the WAR-cut midgame (test_held_forts' setup): the midgame_2flips fixture as it loads, away 24 h as it stands, with
+  WAR cut, and after the prepared setup.
+- **bank_bigs** (E3-7): sessions, except that once the giants or carvers front is short (they have no backlog term), no
+  raid takes a big. Only a party member has a front (`cmd_assign_front` refuses `not_in_party`, and leaving the party
+  clears the front). So between raids the party holds the bigs, each on whichever of giants and carvers is still
+  short, by its higher stat there. Before each raid the party is emptied, so the bot raids t1 only and no big goes
+  through the held door; the next look puts them back. The fronts read short from a new game's first look, so this
+  holds all run. It is run beside the sessions baseline for its deltas.
+- **static**: a regression baseline. The sessions schedule, the same build list with no reorder, and one raid a
+  session at the day's tier (days 1–2 t1, 3–4 t2, 5–6 t3, 7–8 t4), whatever the party.
+- **ablation_held**, **ablation_bone**, **sensitivity**: sessions with one change (BALANCE §2), each run beside the
+  sessions baseline for its deltas.
+
+The policies (the run's manager's, for Shawn):
+- **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
+  item is queued once the level below it on its lot is built, building or queued. A refusal (mostly `cost_exceeds_cap`)
+  leaves it for a later look.
+  - The list (`BUILD_LIST`): Market level 2, a Raising Pit, the Bone Mill, a House (the Village gate), mill level 2, pit
+    level 2, charnel level 2, a second House; then the Chapel of Vats on lot-13 and Walls on lot-23 (the Town gate),
+    Market and mill level 3, the Forge, two more pits, the Stables, a House, the Embalmer, another pit, the Ossuary on
+    lot-16 and the Reliquary on lot-24 (the City gate), and pits and Houses on the Town and City lots.
+  - Then the level ladder (`LADDER`), level by level to each building's max: the mill and the Market first (the caps),
+    then the pits, the charnel house, the Forge, the Chapel, the Houses and the rest.
+  - Why this list: the pacing spine's S0 row, the tier gates, BALANCE §7's adopted structure (each producer bought with
+    the other resource, the mill and the Market climbing in step), and the tier buildings' lots kept free (BALANCE §5).
+  - **Reorder** (not in static): when the head (the first entry that isn't `skipped_gate`) reads `affordable_in_s` −1,
+    or later than another entry, the soonest-affordable entry moves to the head with `cmd_reorder_queue`. The Bone Mill
+    is not first by fiat: the reorder puts it first, because Market level 2 reads −1 on bone with no mill.
+- **Raids** go to the highest tier the party reaches, with no death-rate filter, and the bot never retreats.
+  - The sim gates no raid tier (`cmd_begin_dungeon` refuses only `unknown_fort`, `busy`, `dead` and `not_at_fort`), so
+    the reach is the stand-ins' own premise: tier T needs at least as many bigs in the party as raid.json
+    `autopilot.party_profiles` gives it (t1 none, t2 one, t3 two, t4 three).
+  - Within that: the first dungeon while it is flagged, then the higher yield, an unheld fort before a held one, then
+    world order. A held fort is raided once its `yield_mult` is back to 0.5.
+- **Raise**: whenever a husk is held and the crypt has room, with every remnant that fits (`SlabLogic.evaluate`, largest
+  magnitude first). Relish must be home for it.
+- **Placement**: the party fills first, with the oldest bigs, up to three (the largest standard party). Each member gets
+  the front of its best stat. The first spare goes foreman at the Market, or at the Bone Mill while the queue's head
+  waits on bone. Later spares stay in the crypt. Sieges only in away_risk's prepared setup.
+- **Vats** are staffed as soon as a Chapel exists. This is labelled "best case".
+- **Crafting**: one phylactery charge whenever the catalog allows it and none is held. No simulacra, except in
+  away_risk's prepared setup.
+- **Stances**: Vigil and Harvest on.
+- **The valve** stays at its default, except in away_risk's prepared setup.
 
 ## 9. Who builds what
 - **economy:**

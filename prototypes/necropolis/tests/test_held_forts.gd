@@ -16,9 +16,14 @@ extends RefCounted
 ##   T3.1: Ashgate 980.06 and 980.32 s (0.26 s apart, 0.04% of its 605.6 s fall), Old Sluice 1299.63
 ##   and 1299.82 s (0.19 s, 0.02% of 925.1 s), so the 10 s step is the binding gate.
 
+## E3-3 (the siege live): that run moves u9, midgame's siege at Ashgate, to the crypt first, so it keeps testing "a WAR
+## cut breaks both forts". The same cut with u9 sieging Ashgate (SIEGE_RUN_S, at both dt) holds Ashgate about 635 s
+## longer, its waves blunted: retaken at 1614.85 s at 0.5 s and 1614.36 s at 10 s against 980.06 and 980.33 s, Old
+## Sluice's unchanged (_siege_holds); IDLE I6's siege return at its retake is checked on that run (_retake_effects).
 const GRACE_TOL := 1e-3
 const RETAKE_K := 0.005
 const RUN_S := 1500.0
+const SIEGE_RUN_S := 1700.0
 
 var t := TestUtil.new()
 
@@ -30,17 +35,24 @@ func run() -> int:
 	var js: String = c.start_json("midgame_2flips")
 	var res := {}
 	for dt in [0.5, 10.0]:
-		res[dt] = _run(c, js, dt)
+		res[dt] = _run(c, js, dt, false, RUN_S)
 	_convergence(res)
-	_retake_effects(res[10.0])
+	var sg := {}
+	for dt in [0.5, 10.0]:
+		sg[dt] = _run(c, js, dt, true, SIEGE_RUN_S)
+	_siege_holds(res, sg)
+	_retake_effects(sg[10.0])
 	_retaken_mid_run()
 	return t.failures
 
 
-## One run of midgame_2flips with no WAR at core steps of `dt`: {shipped_380: {fort: mass}, retaken:
-## [[fort, s from the start, cause]], events, grace_end, s (the state at the end)}.
-func _run(c, js: String, dt: float) -> Dictionary:
+## One run of midgame_2flips with no WAR at core steps of `dt` for `run_s`, u9 sieging Ashgate with `siege` (else
+## moved to the crypt first, E3-3): {shipped_380: {fort: mass}, retaken: [[fort, s from the start, cause]], events,
+## grace_end, s (the state at the end)}.
+func _run(c, js: String, dt: float, siege: bool, run_s: float) -> Dictionary:
 	var s: GameState = c.load_state(js)
+	if not siege:
+		s.cmd_place_big_undead("u9", "crypt")
 	s.cmd_debug_set_state({"valve": {"work": 0.5, "war": 0.0, "flood": 0.5}})
 	s.drain_events()
 	var t0 := s.t
@@ -50,7 +62,7 @@ func _run(c, js: String, dt: float) -> Dictionary:
 	var retaken: Array = []
 	var evs: Array = []
 	var el := 0.0
-	while el < RUN_S - 1e-9:
+	while el < run_s - 1e-9:
 		s._core_step(dt)
 		el += dt
 		for id in shipped:
@@ -63,7 +75,7 @@ func _run(c, js: String, dt: float) -> Dictionary:
 			evs.append(ev)
 			if e["type"] == "fort_retaken":
 				retaken.append([str(e["fort_id"]), float(ev["t"]), str(e["cause"])])
-	print("  [held_forts] dt %.1f: reship by 380 s %s; retaken %s" % [dt, str(at_380), str(retaken)])
+	print("  [held_forts] dt %.1f%s: reship by 380 s %s; retaken %s" % [dt, ", u9 sieging Ashgate" if siege else "", str(at_380), str(retaken)])
 	return {"shipped_380": at_380, "retaken": retaken, "events": evs, "grace_end": grace, "s": s}
 
 
@@ -88,6 +100,23 @@ func _convergence(res: Dictionary) -> void:
 		t.ok(ra[i][2] == "broken" and rb[i][2] == "broken" and gap <= gate,
 			"%s: retaken (broken) at %.2f s at 10 s and %.2f s at 0.5 s, %.2f s apart (%.3f%% of its %.1f s fall; gate %.1f s)" % [
 			ra[i][0], float(rb[i][1]), float(ra[i][1]), gap, 100.0 * gap / fall, fall, gate])
+
+
+## E3-3: the same WAR cut with u9 sieging Ashgate holds Ashgate longer than without it, at both dt (its waves blunted by
+## tithe.siege_block; measured: 1614.85 s at 0.5 s and 1614.36 s at 10 s against 980.06 and 980.33 s), and Old Sluice
+## (no siege) falls as it does without it, within 1 s (her pool moves a little with the blunted waves).
+func _siege_holds(res: Dictionary, sg: Dictionary) -> void:
+	for dt in [0.5, 10.0]:
+		var at := {}
+		var at_sg := {}
+		for r in res[dt]["retaken"]:
+			at[r[0]] = float(r[1])
+		for r in sg[dt]["retaken"]:
+			at_sg[r[0]] = float(r[1])
+		t.ok(at.has("ashgate") and at_sg.has("ashgate") and float(at_sg["ashgate"]) > float(at["ashgate"]) + 300.0
+			and at_sg.has("old-sluice") and absf(float(at_sg["old-sluice"]) - float(at.get("old-sluice", -1.0))) <= 1.0,
+			"dt %.1f, the WAR cut with u9 sieging Ashgate: Ashgate retaken at %.2f s against %.2f s without it; Old Sluice at %.2f s (within 1 s of it)" % [
+			dt, float(at_sg.get("ashgate", -1.0)), float(at.get("ashgate", -1.0)), float(at_sg.get("old-sluice", -1.0))])
 
 
 ## IDLE I6 at the retake: midgame_2flips' siege big undead at Ashgate (u9) goes back to the crypt, with

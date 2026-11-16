@@ -311,14 +311,13 @@ func _stubs() -> void:
 	var r2: String = s.remnants[1]["uid"]
 	var before := _snapshot(s)
 	var rv := s.rev
-	t.ok(s.cmd_craft("phylactery_charge") == {"ok": true, "reason": "", "count": 0}, "craft: ok, count 0")
-	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}, "deploy: ok, nothing planted")
-	var raised := s.cmd_raise_big_undead(h, [r1, r2], "Old Gristle")
-	t.ok(raised["ok"] and raised["big_undead"] == {"uid": "", "name": "", "kind": "", "role": "",
-		"stats": {"power": 0.0, "beef": 0.0, "wits": 0.0, "presence": 0.0, "speed": 0.0}, "place": "", "front": ""},
-		"raise: ok with a full-shape zero entry")
-	t.ok(s.rev == rv + 3, "each stub success adds 1 to rev")
-	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "the stubs change nothing")
+	# (the craft and the deploy were stubs here until E3-4, the raise until E3-3; all are live now:
+	# tests/test_crafting.gd, tests/test_big_undead.gd. With no Ossuary the craft is refused, and with none ready the
+	# deploy)
+	t.ok(s.cmd_craft("phylactery_charge") == {"ok": false, "reason": "needs_building", "count": 0}, "craft: needs_building with no Ossuary")
+	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": false, "reason": "none_ready", "charges": 0.0, "ready_left": 0}, "deploy: none_ready")
+	t.ok(s.rev == rv, "the refusals leave rev alone")
+	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "neither changes anything")
 	t.ok(s.cmd_build("nope", "lot-99") == {"ok": false, "reason": "unknown_building", "cost": {}}, "build: unknown_building first")
 	t.ok(s.cmd_build("house", "lot-99")["reason"] == "unknown_lot", "build: unknown_lot")
 	t.ok(s.cmd_upgrade("lot-25") == {"ok": false, "reason": "unknown_lot", "level": 0, "cost": {}}, "upgrade: unknown_lot")
@@ -326,12 +325,14 @@ func _stubs() -> void:
 	t.ok(s.cmd_cancel_build("x") == {"ok": false, "reason": "unknown_lot", "refund": {}}, "cancel_build: unknown_lot")
 	t.ok(s.cmd_craft("relic") == {"ok": false, "reason": "unknown_item", "count": 0}, "craft: unknown_item")
 	t.ok(s.cmd_deploy_simulacrum("vei") == {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}, "deploy: unknown_fort")
-	# the raise stub's checks, in order
+	# the raise's id checks, in order (E3-3 adds invalid_recipe, at_cap and bad_name after them: test_big_undead)
 	for c in [["h999", [r1], "unknown_husk"], [h, ["r999"], "unknown_remnant"], [h, [r1, r1], "duplicate_remnant"],
 			[h, ["r999", r1, r1], "unknown_remnant"], [h, [7], "unknown_remnant"]]:
 		t.ok(s.cmd_raise_big_undead(c[0], c[1], "x") == {"ok": false, "reason": c[2], "big_undead": {}},
 			"raise(%s, %s) -> %s" % c)
-	t.ok(s.cmd_raise_big_undead(h, [], "")["ok"], "raise stub: no remnants and no name pass (recipe and name checks are E2)")
+	t.ok(s.cmd_raise_big_undead(h, [], "")["reason"] == "invalid_recipe",
+		"raise: no remnants is invalid_recipe, checked before the name (E3-3: slab.min_remnants)")
+	t.ok(s.husks.size() == 1 and s.remnants.size() == 2 and s.big_undead.is_empty(), "the refusals consume nothing")
 	s.cmd_move_relish("old-sluice")
 	t.ok(s.cmd_raise_big_undead("h999", [], "x")["reason"] == "not_home", "raise: not_home before the item checks")
 
@@ -343,15 +344,16 @@ func _vats() -> void:
 	var v := s.view_backups()
 	t.ok(v["vats"] == [] and v["clones_ready"] == 0 and v["phylactery_charges"] == 0 and v["phylactery_max_per_dungeon"] == 1,
 		"no vats, no backups")
-	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": 0.0, "loses": ["unbanked_loot", "morale"]},
-		"a death now: unmade (the E1-safe rule, an immediate respawn until E3)")
+	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": float(TestUtil.configs()["backups"]["backups"]["unmade_respawn_s"]),
+		"loses": ["unbanked_loot", "morale"]}, "a death now: unmade, reforming after backups.unmade_respawn_s (E3-2)")
 	s.clones_ready = 1
 	t.ok(s.cmd_staff_vat(0, true)["reason"] == "unknown_slot", "a clone stock alone makes no vat: it takes a Chapel of Vats")
 	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)
 	t.ok(s.cmd_staff_vat(1, true) == {"ok": true, "reason": "", "staffed": true}, "staff vat 1")
 	v = s.view_backups()
-	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
-		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}], "a level-1 Chapel is 2 vats, one ready for the clone; staffing echoed")
+	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 0.0, "ready": false},
+		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}],
+		"a level-1 Chapel is 2 empty vats (E3-2: a vat holds only the clone it grew; the clone set before it is a spare one); staffing echoed")
 	t.ok(v["death"]["outcome"] == "clone" and v["death"]["loses"] == ["unbanked_loot"], "with a clone: no morale shock")
 	s.cmd_debug_grant({"big_undead": 1})
 	s.cmd_set_party([s.big_undead[0]["uid"]])

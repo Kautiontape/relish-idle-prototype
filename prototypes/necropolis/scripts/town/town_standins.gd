@@ -382,6 +382,7 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 			"eta_s": -1.0,
 			"upgrade_projected": {},
 			"starved": "",
+			"foreman_mult": 1.0,
 		})
 	var jobs_out: Array = []
 	for j in town.get("ladder_effective", []):

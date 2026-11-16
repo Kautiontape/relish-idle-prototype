@@ -81,11 +81,11 @@ func _rich(seed_val := 1) -> GameState:
 	s.realm.tithe["next_s"] = 150.5
 	s.realm.tithe["next_id"] = 2
 	s._phylactery_charges = 1
-	s._stance_hold = {"harvest": 12.5}
 	s.cmd_move_relish("vei")
 	s.tick(1.0)
 	s.town_sim.start_construction("lot-06", "well", 1)  # its building_started is pending until a step
 	s._readout = {"diff_ema": -0.25, "q_raise_ema": 1.5}  # after the last tick, which moves diff_ema
+	s._stance_hold = {"harvest": 12.5}  # after the last tick too: E3-1's holds run down each step
 	s.cmd_set_time_scale(1.0)
 	s.towns[0]["control"] = "green"  # after the last tick, which would recompute them from the field
 	s.towns[1]["control"] = "orange"
@@ -704,6 +704,12 @@ func _fixtures() -> void:
 		t.ok(not file.has("queue") and back["queue"] == [], "%s: the fixture has no build queue; it loads empty" % name)
 		if not file.has("queue"):
 			back.erase("queue")
+		# E3-3 (v8) writes each big undead's filled_slots; no fixture carries it, so each loads 1 (the old-save rule)
+		var fs_ok := true
+		for i in (back["big_undead"] as Array).size():
+			fs_ok = fs_ok and not (file["big_undead"][i] as Dictionary).has("filled_slots") and back["big_undead"][i].get("filled_slots") == 1
+			(back["big_undead"][i] as Dictionary).erase("filled_slots")
+		t.ok(fs_ok, "%s: no big undead in the fixture carries filled_slots; each of its %d loads 1" % [name, (back["big_undead"] as Array).size()])
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])

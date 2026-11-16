@@ -48,6 +48,24 @@ From the autoplayer (§4): hours to Vei-ready with one lever removed, against th
 If any lever costs less than its target, it is decorative. Fix the design before tuning anything
 else.
 
+**The ablations as built** (E3-6b's autoplayer, `tests/autoplay/autoplayer.gd`; IDLE §8). Each runs under the sessions
+profile and runs the sessions baseline beside it. It prints the delta in days to Vei-ready, or, when either run never gets
+there, the fronts met and the backlog at the end (with relics, buildings and levels).
+- **(a) Never raid held or refilled forts** (IDLE §8's extra row, at least +20%; `autoplay_ablation_held`). The bot's raid
+  pick skips every held fort, so a fort is raided until its warden falls and is then left until Vei retakes it. A refilled
+  fort is a held one (IDLE §7), so this is the whole rule. Nothing else in the policy changes.
+- **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
+  buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
+  built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
+  every `level_costs` entry of §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and
+  forge), with their gold and relic prices unchanged. "Removed" is read as the rows above read it: the lever is taken out,
+  not replaced by a gold price. The Market keeps its bone price (a living building bought with bone), and so do the Crypt's
+  levels.
+- **The sensitivity pass** (`autoplay_sensitivity`; §8): the sessions profile at the frozen bot's death rates
+  (`opts.deaths` `"frozen"`) instead of the typical human's.
+- The table's other rows (the valve, a static valve schedule, Relish's tide, circle quality, defending, the ladder and
+  stances) have no profile in E3.
+
 ## 3. Risk targets
 - A dungeon at or below the party's tier: under 10% chance Relish dies with circles around 70.
   Two tiers above: over 40%. The first dungeon: under 5%.
@@ -70,7 +88,7 @@ else.
   - keeps the default stances.
 - **Dungeon stand-in** (`configs/balance_standins.json`): loot, flip chance, duration and death
   chance by tier, party strength and an assumed circle score. Economy ships v0; the dungeon unit
-  adjusts the values from real runs.
+  adjusts the values from real runs. v0 and its resolver: §8 (E3-6a).
 - **No unbounded stock:** over a 4 h active run, no uncapped stock may end above 2× its value at 2 h.
   Gold must stay a stream.
 - Output: one line per profile, e.g. `[pacing] active: ready 2.9 h · odds 0.62 · fronts 3/4`, plus
@@ -99,6 +117,7 @@ E2a added is here with its value.
 | `relish.travel_speed` | 220 px/s | kept (the top-level duplicate `travelSpeed` is gone) |
 | `relish.tide_bias` | 3.0 | |
 | `relish.raise_rate` ⟵ `raiseRate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
+| `simulacrum.rate`, `simulacrum.charges` | 1.0 mass/s, 300 mass | `realm.json`, E3-4, v0: **E4 placeholders** (the run's manager; read REQUIRED, `GameState.REQUIRED`). A planted simulacrum performs Relish's redirect at its fort (MECHANICS §3.6): it raises corpses at `rate` until it has raised `charges`, then crumbles. 5 min of raising, a quarter of Relish's `raise_rate`, at a fort whose corpses keep up; longer where they don't (only the raise spends charges) |
 | `relish.home_rot_mult` | 0.7 | |
 | `relish.home_stance_bonus` | 1 | extra stance slots while she is home |
 | `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | `hold_s · (1 + tier_mult · tier)` is a flip's grace (375 s at tier 1, 600 at tier 4): no shipping there and no wave targets it (E2b-2; it was the whole hold) |
@@ -112,7 +131,7 @@ E2a added is here with its value.
 | `hold.train_frame_phase`, `hold.train_starve_frames` | 0.5 (of a substep), 30 frames | the train's frame refresh (GameState._train_frame), the build benefit's rule with its own keys: on the frame path it re-probes on a frame with no substep at least this far into the substep interval (the scenes refetch early in it), or, when every frame substeps, after this many such frames in a row. 1.2 ms a probe at midgame_2flips, so it stays off the substep frames (MECHANICS §3.5's cost line) |
 | `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
-| `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge; a surge into the fort Relish stands at is × 0.5 (halved) |
+| `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge (live from E3-3, read REQUIRED by GameState: flat, one per fort, whatever the big's stats; whether it should scale with them is an E4 question); a surge into the fort Relish stands at is × 0.5 (halved) |
 | `tithe.march_back_s` | 60 s | living above a fort's cap march back to Vei's pool at `(L − cap) / march_back_s`; past her pool's cap they are lost (`pool_overflow`). Replaces `tithe.overfill` (2.0, E2b T3.0s). At 60 s a full wave leaves at most 701 above the cap, and waves don't stack past one wave's mass even at the shortest period (MECHANICS §3.4) |
 | `readout.ema_s`, `readout.sign_eps` | 120, 0.05 mass/s | the sign flips past ±`sign_eps` of the EMA |
 | `q.q0` ⟵ `q`, `q.q_forge` ⟵ `q_per_forge`, `q.q_raise_max`, `q.raise_half_mass`, `q.q_max` ⟵ `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
@@ -147,7 +166,7 @@ E2a added is here with its value.
 | `idle.gap_s` | 30 s | IDLE §4 When: a frame on the frame path whose real time (its sim `dt` / `time_scale`) is above this goes through catch-up instead of having its remainder past `sim.max_substeps_per_frame` dropped; under it, frames stay live play (MECHANICS §1.3). Real time, so debug fast-forward stays live |
 | `idle.catchup_max_s` | 604 800 s (7 d) | the most a load catches up; more is dropped and flagged (`cmd_load`'s `capped`): a sanity cap, not a design lever (IDLE §4) |
 | `idle.catchup_dt_max_s` | 10 s | catch-up's longest core step for its first `idle.catchup_dt_long_after_s`: the largest step the gate (`idle.catchup_gate_tol`, E2b-2 T3.3a) passes at every start over 12 h; 15 s fails it at pre_vei (bone over (b) 1.09 of 1.00) |
-| `idle.catchup_dt_long_s` | 15 s | catch-up's longest core step past `idle.catchup_dt_long_after_s` (IDLE §4 Budget, the budget's lever 2, E2b-2 T3.3b; the run's manager's cap): a week takes 41 760 steps instead of 60 480. 15 s is the longest step whose outcomes match 0.5 s over 12 h at every start (T3.3a: 30 s flips midgame_2flips' Ashgate at 5 355 s and puts fresh at 2.38%); over 7 days its flips, retakes, forts held at the end and Relish's place match a 0.5 s run at every start (`tests/slow/catchup_week.gd`). 7 days is a timing test for the stocks only (IDLE §4) |
+| `idle.catchup_dt_long_s` | 15 s | catch-up's longest core step past `idle.catchup_dt_long_after_s` (IDLE §4 Budget, the budget's lever 2, E2b-2 T3.3b; the run's manager's cap): a week takes 41 760 steps instead of 60 480. 15 s is the longest step whose outcomes match 0.5 s over 12 h at every start (T3.3a: 30 s flips midgame_2flips' Ashgate at 5 355 s and puts fresh at 2.38%); over 7 days its flips, retakes, forts held at the end and Relish's place match a 0.5 s run at every start (`tests/slow/catchup_week.gd`). 7 days is a timing test for the stocks only (IDLE §4). **20 s retakes Ashgate over the midgame week (0.5 s reference holds); 15 and 17.5 hold. Don't raise it without re-running catchup_week.** (E3-1 tried 20 s: midgame_2flips lost Ashgate at 229 887 s. The run's manager took it back to 15 s: a catch-up that loses a fort the live game would have held breaks the player's trust, and the player did nothing wrong; 2 s a week isn't worth that, and 17.5 s is out because its margin is unknown.) |
 | `idle.catchup_dt_long_after_s` | 43 200 s (12 h) | the longer step starts this far into a catch-up: the first 12 h, the span the gate and the accuracy test judge, keep `idle.catchup_dt_max_s` |
 | `idle.catchup_max_steps` | 4 320 | catch-up steps at `clamp(elapsed / this, sim.substep_s, idle.catchup_dt_max_s)` (IDLE §4 Method): 12 h at 10 s, and anything up to 36 min (2 160 s) at the live 0.5 s |
 | `idle.catchup_tol` | 0.02 | the accuracy test's tolerance (IDLE §4): a catch-up against live play with no input, on Vei's and Covington's stocks and the key rates (`tests/test_catchup.gd` at 2 h, `tests/slow/catchup_accuracy.gd` at 12 h), and closed against open (I1). The core step's own share is `idle.catchup_gate_tol` |
@@ -155,20 +174,30 @@ E2a added is here with its value.
 | `idle.field_step_min_s` | 2 s | no field step is shorter, so a short catch-up takes fewer (120 s: 60). A field step of up to `field.catchup_exact_ticks` (8) ticks, 1.6 s, runs that many live ticks plus a solve, so without it a 30 s gap would make 60 calls (one per 0.5 s core step) costing about 180 live ticks, more than the live field's 150; with it, 15 calls of about one tick each (ground's `field_catchup_bench.gd`, its MIN_STEP_S) |
 | `idle.catchup_steps_per_chunk` | 90 | core steps per frame while a chunked catch-up runs (a load's from the shell, an open-game gap's): sized at about 50 ms at pre_vei over 12 h (E2b-2 T3.3b: 330 µs a core step, a 6.3 ms field step every 29 core steps; `tests/slow/catchup_bench.gd` measured a median 46 ms at pre_vei, 43 ms at fresh and 53 ms at midgame_2flips). Since E2b-2 T3.3b2 (about 210 µs a core step, a field step every 58) the median is 30–33 ms at the three starts, at most about 50 ms with a field step in it. A 12 h catch-up is 48 chunks, a week 464 |
 | `idle.report_min_s` | 600 s | a gap at least this long gets the away report (IDLE §7, T3.3c) and its catch-up's events are collected for it; a load always is. A shorter open-game gap queues its events as live (STATE-API §6) |
-| `idle.report` | the away report's text (IDLE §7, E2b-2 T3.3c; STATE-API §5.19) | every line of `view_away` is a template here, in the style of `map_view.json`'s `demo_away`: `streams` (the gains' order: backlog, mint, workers, bodies, gold, bone, living) and their `stream_labels`, `stream_fmt` and `backlog_fmt` (with `arrow_up` ▲, `arrow_down` ▼, `arrow_flat` ■), `builds_one_fmt` / `builds_fmt` (names joined by `list_sep` " · ", spaced, so a number ending one name never glues to the separator; `level_fmt` past level 1), `started_fmt` / `started_now_fmt` with `when_hm_fmt` / `when_m_fmt` (the time since you left) and one `waited_on` reason per queue reason, `refilled_fmt`, `raid_fmt`, `husk_one_fmt` / `husks_fmt`, `queue_empty`, `retaken_fmt` / `retaken_home_fmt`, `village_lost_fmt`, `overflow_fmt` with `store_labels`, and (R1) `unpaid_fmt` "{name} unpaid for {when}: {stopped}; stores kept" with `unpaid_stopped` (one phrase per job and per working effect a building can have: `pit` and `pits` "raised no undead", `haul` "hauled no corpses", `mill`, `stall`, `forge`, `tend`, `morale` "lifted no morale", `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`; `report_config_problem` checks every one buildings.json has), joined by `unpaid_sep` ", ", and `unpaid_none` "nothing stopped" for a building with only capacity (or inert) effects; F2 adds **`unpaid_inert`** `["hint_precision"]`, the effect keys nothing in the sim reads yet (a list of strings, each an effect some building has, checked by `report_config_problem`; `GameState.unpaid_keys` skips them, so the Watchtower's unpaid line reads "nothing stopped"). Remove a key from this list in the change that makes the sim read it, and give it words in `unpaid_stopped`. Every `unpaid_stopped` key was checked against the sim at F2: `pit`/`pits` town_sim.gd:553, 1196-1198; `haul` :568; `mill` :560; `stall` :618; `forge` :627; `tend` :698; `morale` :1200-1202; `attract` :663, 1199; `lifetime_bonus` :1435; `haul_speed_mult` :848; `death_shock_mult` :519 (`add_shock`, called by state_runs.gd:292); `hint_precision` is read nowhere, so it is inert and its words are dropped; and the tokens the map parses: `plus` "+", `minus` "−", `rate_unit` "/s", `thousands` ",". Three numbers: **`rate_sig_digits` 2** and **`rate_max_decimals` 3** (a rate shows two significant digits, at most three decimals: +2.1/s, +0.43/s, +0.012/s, +140/s; under 0.0005/s it reads 0/s), and **`overflow_min` 1** (a store's overflow line shows from 1 wasted, so the report never says "0 wasted"; midgame_2flips' 12 h bone overflow is 0.56). R2 adds the ready lines for the queue's head still waiting, `afford_wait_fmt` "{name} is waiting on {store}: affordable in {when}" (the wait rounded up to the minute) and `afford_never_fmt` "{name} can't be afforded at today's income of {rate} {store}: move it down, or {raise}" (the rate before the words, so the map's rate token ends in /s with nothing glued to it), with `afford_stores` (gold, bone, relics: how a line names each store) and `afford_raise` (what raises each store's income: "build a Market", "build a Bone Mill", "raid for relics"). F1 (the run's manager: the line never names itself or a move that can't help) adds `afford_never_last_fmt` "{name} can't be afforded at today's income of {rate} {store}: {raise}" for a head whose move down can't help (F2: nothing behind it could start in its place: the queue's walk less the head has no row that isn't `skipped_gate` with `affordable_in_s` >= 0), and for a head that is its store's own producer, `afford_producer` (gold `market`, bone `bone_mill`: the building whose job makes each store, matched on the building so an upgrade counts) with `afford_raise_self` (a fact, true at F1: "nothing else makes gold", "nothing else makes bone"; bone's until P4 makes rot a source) in `afford_never_self_fmt` "{name} can't be afforded at today's income of {rate} {store}, and {raise}: move it down" and `afford_never_self_last_fmt` (the same without ": move it down"). Each raise text is true of the configs (test_away checks it): only the Market's stalls make gold and only the Bone Mill's milling bone, and loot.json gives relics at every tier and no gold or bone; and the raid prompt `full_raid` "Your stores are full and the queue is empty: raid a fort for relics", shown when the queue is empty and gold and bone are each within **`full_tol` 0.01** of their caps (a fraction of the cap: 1%, so a store a coin or two under its cap still reads full; at day1's caps that is 97.5 gold and 2 bone). `report_config_problem` checks each key, the three stores in both tables, `full_tol` in [0, 1), and (F1) a producer for gold and bone, each a buildings.json building for a store `afford_stores` words, with its `afford_raise_self` words |
+| `idle.report` | the away report's text (IDLE §7, E2b-2 T3.3c; STATE-API §5.19) | every line of `view_away` is a template here, in the style of `map_view.json`'s `demo_away`: `streams` (the gains' order: backlog, mint, workers, bodies, gold, bone, living) and their `stream_labels`, `stream_fmt` and `backlog_fmt` (with `arrow_up` ▲, `arrow_down` ▼, `arrow_flat` ■), `builds_one_fmt` / `builds_fmt` (names joined by `list_sep` " · ", spaced, so a number ending one name never glues to the separator; `level_fmt` past level 1), `started_fmt` "{name} started {when} after you left, {why}" (W) / `started_now_fmt` "{name} started right away" and, W2, `started_brief_fmt` "{name} started within a minute of you leaving, {why}" (a start that waited, under 60 s in; the cutoff is the report's minute rounding in `StateViews.away_report`, not a tuning number; `afford_relics_fmt` is gone, `afford_relics_last_fmt` is also the relics wall's line) with `when_hm_fmt` / `when_m_fmt` (the time since you left) and one `waited_on` reason per queue reason, `refilled_fmt`, `raid_fmt`, `husk_one_fmt` / `husks_fmt`, `queue_empty`, `retaken_fmt` / `retaken_home_fmt`, `village_lost_fmt`, `overflow_fmt` "{store} is full: {n} not stored" (W: not called waste) with `store_labels`, and (R1; W words it as a returning player reads it) `unpaid_fmt` "{name} stopped for {when}, {store} ran out: {stopped}", `unpaid_brief_fmt` "{name} stopped briefly, {store} ran out: {stopped}" (stopped under a minute in all, where `when_m_fmt` would read "0 m": the report's minute rounding, no number), and for a building that stopped nothing (only capacity or inert effects) the same with no tail, `unpaid_none_fmt` "{name} stopped for {when}, {store} ran out" and `unpaid_none_brief_fmt` "{name} stopped briefly, {store} ran out"; `{store}` is each store its buildings.json `upkeep` is above 0 in (the same at every level), in `afford_stores`' words joined by `list_sep` (gold for every building today: none pays bone); W dropped `unpaid_none` "nothing stopped" and the "; stores kept" ending; with `unpaid_stopped` (one phrase per job and per working effect a building can have: `pit` and `pits` "raised no undead", `haul` "hauled no corpses", `mill`, `stall`, `forge`, `tend`, `morale` "lifted no morale", `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`; `report_config_problem` checks every one buildings.json has), joined by `unpaid_sep` ", "; F2 adds **`unpaid_inert`** `["hint_precision"]`, the effect keys nothing in the sim reads yet (a list of strings, each an effect some building has, checked by `report_config_problem`; `GameState.unpaid_keys` skips them, so the Watchtower's unpaid line has no tail: "Watchtower stopped for 59 m, gold ran out"). Remove a key from this list in the change that makes the sim read it, and give it words in `unpaid_stopped`. Every `unpaid_stopped` key was checked against the sim at F2: `pit`/`pits` town_sim.gd:553, 1196-1198; `haul` :568; `mill` :560; `stall` :618; `forge` :627; `tend` :698; `morale` :1200-1202; `attract` :663, 1199; `lifetime_bonus` :1435; `haul_speed_mult` :848; `death_shock_mult` :519 (`add_shock`, called by state_runs.gd:292); `hint_precision` is read nowhere, so it is inert and its words are dropped; and the tokens the map parses: `plus` "+", `minus` "−", `rate_unit` "/s", `thousands` ",". Three numbers: **`rate_sig_digits` 2** and **`rate_max_decimals` 3** (a rate shows two significant digits, at most three decimals: +2.1/s, +0.43/s, +0.012/s, +140/s; under 0.0005/s it reads 0/s), and **`overflow_min` 1** (a store's full line shows from 1 not stored, so the report never says "0 not stored"; midgame_2flips' 12 h bone overflow is 0.56). R2 adds the ready lines for the queue's head still waiting, `afford_wait_fmt` "{name} is waiting on {store}: affordable in {when}" (the wait rounded up to the minute) and `afford_never_fmt` "{name} can't be afforded at the current income of {rate} {store}: move it down, or {raise}" (W: "the current income", not "today's"; the rate before the words, a token of its own with a space each side, so the map's rate token ends in /s with nothing glued to it), with `afford_stores` (gold, bone, relics: how a line names each store, the unpaid line's store too) and `afford_raise` (what raises gold's and bone's income: "build a Market", "build a Bone Mill"; W dropped relics' "raid for relics"). W (the run's manager, Shawn's words) gives a head short of relics its own line, with no rate (relics have no idle income) and no raise: `afford_relics_last_fmt` "{name} needs relics: raid a fort", the relics wall's line (W2): shown for the first entry skipped on `no_relics` when no entry can start (no row `next`, no `waiting_funds` head that will be afforded; an entry `queued` behind a head at -1.0 can't start either). No head reaches it, since the queue's walk gates a relic shortfall first; the move-down form `afford_relics_fmt` is gone. F1 (the run's manager: the line never names itself or a move that can't help) adds `afford_never_last_fmt` "{name} can't be afforded at the current income of {rate} {store}: {raise}" for a head whose move down can't help (F2: nothing behind it could start in its place: the queue's walk less the head has no row that isn't `skipped_gate` with `affordable_in_s` >= 0), and for a head that is its store's own producer, `afford_producer` (gold `market`, bone `bone_mill`: the building whose job makes each store, matched on the building so an upgrade counts) with `afford_raise_self` (a fact, true at F1: "nothing else makes gold", "nothing else makes bone"; bone's until P4 makes rot a source) in `afford_never_self_fmt` "{name} can't be afforded at the current income of {rate} {store}, and {raise}: move it down" and `afford_never_self_last_fmt` (the same without ": move it down"). Each raise text is true of the configs (test_away checks it): only the Market's stalls make gold and only the Bone Mill's milling bone, and loot.json gives relics at every tier ("raid a fort") and no gold or bone; and the raid prompt `full_raid` "Your stores are full and the queue is empty: raid a fort for relics", shown when the queue is empty and gold and bone are each within **`full_tol` 0.01** of their caps (a fraction of the cap: 1%, so a store a coin or two under its cap still reads full; at day1's caps that is 97.5 gold and 2 bone), in place of `queue_empty` (W: you can't plan a build without relics). `report_config_problem` checks each key, the three stores in `afford_stores` and gold and bone in `afford_raise`, `full_tol` in [0, 1), and (F1) a producer for gold and bone, each a buildings.json building for a store `afford_stores` words, with its `afford_raise_self` words |
 | `bone.cap`, bone mill `effects.bone_cap` | 200, + the Bone Mill's per-level table 100, 150, 350, 700, 1250, 2050, 3400, 8400 (T7) | caps 300, 350, 550, 900, 1 450, 2 250, 3 600, 8 600 at Bone Mill levels 1–8 (the rule is under Store caps below; E4 tunes it); a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
-| E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level; `hint_precision` is in `idle.report.unpaid_inert` until the sim reads it |
+| E3 effects (data only for now) | watchtower `hint_precision` 1 | per level; `hint_precision` is in `idle.report.unpaid_inert` until the sim reads it |
+| ossuary `effects.craft_slots` | 1 per level | E3-4, the craft gate (MECHANICS §3.6): `cmd_craft` refuses `needs_building` while the built buildings' `craft_slots` sum to under 1. A capacity effect, so an unpaid or Thrift-idled Ossuary still crafts. **Higher Ossuary levels add nothing in E3:** crafting is instant and has no queue, so a second slot changes nothing, and the level-2 and level-3 upgrades (900 / 300 / 6 and 1 350 / 450 / 9) buy nothing. Ossuary L2+ is dead content, an E4 question (slots as parallel crafts, cheaper crafts per level, or one level) |
+| `craft.simulacrum`, `craft.phylactery_charge` | 20 essence + 1 relic; 15 essence | `economy.json`, E3-4, read REQUIRED (`GameState.REQUIRED`): what `cmd_craft` takes. **No stock cap** on the simulacra ready or the charges (the run's manager's ruling): the essence cap (60) and relic cap (12) bind them, so a full essence store makes 3 simulacra or 4 charges. `phylactery.max_per_dungeon` stays the per-dungeon use limit |
 | `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both to 18 and 90) | |
 | `big_undead.cap`, `big_undead.per_crypt_level` ⟵ crypt `effects.big_undead_cap` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
 | crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
 | `town.tiers.<tier>.buildings`, `.requires` | 0 / 6 / 12 / 20 finished buildings (the Crypt counts), plus `market` + `house`, `walls` + `chapel_of_vats`, `reliquary` | the next tier rises when both hold |
 | `town.tiers.<tier>.lot_ids`, `.lots` | below the table | explicit lot ids per tier; `.lots` is their count (kept for readers that want a number) |
-| `stance.base_slots`, `stance.hold_s` | 2, 10 | `stance.hold_s` is E3 and not in `economy.json` yet. IDLE §4 needs it at least catch-up's longest step in config, the larger of `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s`: 15 s today (the long step, since E2b-2 T3.3b). `GameState.catchup_config_problem` reports an error at load below that, naming both keys, so E3 sets it to 15 or more, or lowers those steps |
-| `vats.grow_per_s` | 1/300 per staffed vat | |
-| `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | |
-| `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | |
+| `stance.base_slots` | 2 | stance slots before the Guildhall's and Relish's home one (MECHANICS §4.5) |
+| `stance.hold_s` | 20 s | E3-1, v0 (E4 calibrates): a stance's `active` can't change again until this has passed since its last change (MECHANICS §4.5). **Why 20 s:** a firing lasts long enough to see its work, a whole convoy round trip to any fort at the base haul speed (3.5 s to Ashgate, 18.2 s to Sable Hold), while a condition sitting on its line can't reshuffle the hands every beat or two. **The constraint: `hold_s` ≥ the longest catch-up step (15 s,** the larger of `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s`; IDLE §4), so a step can't be raised past it without moving the hold. `GameState.catchup_config_problem` reports an error at load below that, naming both keys, and since E3-1 a config without it too |
+| `stance.top_job`, `stance.priority` | vigil `tend`, harvest `haul`, hearth `stall`; `[vigil, harvest, hearth]` | E3-1: the job each ladder stance lifts to the top, and their order when several act at once (MECHANICS §4.5): Vigil first (Relish's way back; a tend slot opens only for a staffed vat, so it takes few hands), then Harvest (the pits' bodies), then Hearth (the stalls). `GameState.stance_config_problem` checks each is a stance and a job, and that the priority names exactly them |
+| `stance.harvest_bodies_frac` | 0.3 | E3-1, v0: Harvest's condition, bodies under this share of the body cap |
+| `stance.hearth_morale` | 0.5 | E3-1, v0: Hearth's condition, morale under it (above `morale.leave_below`, 0.35, so it acts before the living start to leave) |
+| `stance.thrift_upkeep` | 0.05 gold/s | E3-1, v0: Thrift idles only buildings whose gold upkeep is above it (TownSim's; the same at every level): the Embalmer, the Chapel of Vats, the Ossuary Tower, the Guildhall, the Watchtower, the Walls, the Plaza, the Statue and the Reliquary today; never the WAR chain or the Market (below) |
+| `stance.thrift_spares_from` | `war_mill` | E3-1 (the run's manager's ruling, applying R1): Thrift idles only the `shed_class`es ranked before this one in `upkeep.shed_order` (decoration, passive, job), so never the WAR chain at any level. TownSim reports an error at setup if it isn't a class there |
+| `idle.report` Thrift lines (E3-1) | `thrift_fmt` "{name} idled by Thrift for {when}: {stopped}", `thrift_brief_fmt` "{name} idled briefly by Thrift: {stopped}", `thrift_none_fmt` "{name} idled by Thrift for {when}", `thrift_none_brief_fmt` "{name} idled briefly by Thrift" | the losses' line for each building the Thrift stance idled during the absence (IDLE §7), naming Thrift as the reason, not the gold; `{stopped}` is the unpaid line's phrases (`unpaid_stopped`, joined by `unpaid_sep`); under a minute "briefly", as the unpaid line. In `GameState.REPORT_KEYS` |
+| `vats.grow_per_s` | 1/300 (0.003333) per tended vat | E3-2 (MECHANICS §7): a vat grows at this × its tend hands (0..1) while staffed and tended, so a fully tended empty vat holds a ready clone in 300 s; untended or unstaffed it doesn't grow. Read REQUIRED (`GameState.REQUIRED`) |
+| `foreman.mult`, `speed_k`, `presence_k` | 1.0, 0.05, 0.01 | E3-3, v0: **E4 placeholders** (E4 calibrates; read REQUIRED, `TownSim.REQUIRED`). A working foreman (MECHANICS §4.2) multiplies its building's job output by `mult + speed · speed_k` and lifts the morale target by `presence_k · presence`. With stats of 1 to 10 that is ×1.05 to ×1.5 and +0.01 to +0.10: midgame_2flips' u8 (speed 3.66, presence 6.44) gives the Market ×1.183 and +0.064 |
+| `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | E3-2 (MECHANICS §7): after a run-ending death she is `dead` this long, then wakes at Covington (from a ready clone, or reformed when unmade); `view_backups().death.respawn_s` and the seeds' `death_ends` show it. Read REQUIRED |
+| `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | `max_per_dungeon` (REQUIRED from E3-2): the in-place revives a dungeon may use; `view_backups().death` reads `phylactery` only while it is above 0. `revive_hp` is the dungeon's |
 | `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
 | `loot.reclear_decay`, `loot.recover_s` | 0.5, 28800 s | each clear that pays loot (a flip, a counter-garrison clear) multiplies a fort's loot yield by 0.5; the yield climbs back linearly to 1 over 8 h from its last clear (a retake resets it to 1). MECHANICS §5.3 |
 | `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 20, 0.35 | `vei.json`; `lapse_cost` 4: a beat below the ferry takes 4 pips back (MECHANICS §6) |
@@ -367,3 +396,129 @@ in §5; E4 tunes the numbers):**
   E3's `pure_idle` and `town_only` profiles (target: 2–3 days, then "needs relics"). L6+ relic costs
   are untested without raids.
 - Rent is dropped.
+
+## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
+The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`
+(`StandinResolver.resolve(seed, standins, cfgs, opts) -> {result, duration_s, died, notes}`, a test harness, static,
+no Engine) turns the seed `cmd_begin_dungeon` issued into a raid result v2 that the real `apply_result` takes, drawn
+from what the dungeon unit measured. Only the resolver and the autoplayer read the file; `scripts/sim/` never does
+(`tests/test_standins.gd` checks). The numbers are the dungeon unit's raw rows at afb8dab (the run's
+`reports/dungeon`), rounded to 3 places, and each entry's `source` names its file, iteration and seeds.
+
+**The rulings** (the run's manager, for Shawn):
+- Loot and outcome rates are the frozen bot's at score 70 (`standins-raw-afb8dab.tsv`, iter `grade-standins`; by_tier
+  and first_dungeon in `standins-measured.json`).
+- Deaths and durations are the typical human's (score 70, delay 1.0, read 1.0, draw 0.7; `calibration-dd-raw.tsv`):
+  - the death rate is pooled over seeds 20–39 (`hb70d10`, the rows task 6 and the grading pass compare against)
+    and 40–59 (the grading pass, `grade-*-human`, rep 0) where both exist;
+  - the duration is the grading pass's median per-run estimate (NOTES-RAID at 128c95a, "Length");
+  - `death_rate_frozen` is `by_tier.<T>.70`'s, for E3-6b's one sensitivity pass (`opts.deaths: "frozen"`).
+- A held fort's raid has no measured stand-in (GUESS, below). The held door uses its grading-pass arm (b).
+- No boss stand-in: E3 measures Vei-ready, not the fight. The bot never retreats a fresh fort.
+
+**Each entry** (`"1"`..`"4"`, `"first_dungeon"`, `"held_door"`):
+- `death_rate` (human) and `death_rate_frozen`;
+- `duration_s` (the human estimate's median) and `duration_s_frozen` (the frozen bot's median scene seconds);
+- `death_t_frac`: a death ends the run at this × `duration_s`. It is the median human estimate of the died rows over
+  that of all the rows, the same rows as `death_rate`;
+- `mean_loot` {relics, remnants, husks, blueprints, essence}: the frozen bot's warden_beaten rows. A death is rolled
+  apart, so the all-exits means in `by_tier` would count it twice. The first dungeon's chest husk and first-clear
+  blueprint are taken out: the resolver adds them from the seed's `chest_husk` and `first_clear`;
+- `kept_frac`, per kind: what a death banks of `mean_loot` (STATE-API §8.1: banked loot only). It is pooled over the 27
+  died rows at tier (t2 7, t3 8, t4 12), each against its own tier's win;
+- `mass.won` and `mass.died`:
+  - `killed_frac`: killed_living_mass over the seed's living **mass** (`living_start` is a count of living units);
+  - `raised_per_living_unit`: raised_count over living_start;
+  - `garrison_survive_frac` and `raised_survivors_per_living_unit`: allies_end less the party standing and the
+    starters, the garrison taken in counted first, the rest per living unit.
+  - `mass.died` is the 27 pooled died rows in every entry;
+- `party_lost_per_member`: a member's chance to be lost on a win (the won rows' party_lost over the profile's bigs);
+- `revives`: 0.0 everywhere (the profile seeds carry no charge);
+- `source`.
+
+| entry | death_rate (human) | frozen | duration_s | frozen | death_t_frac | relics | remnants | husks | essence | party lost / member |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0.117 (7/60) | 0.0 (0/48) | 160.1 | 106.1 | 0.203 | 1.356 | 2.533 | 0.222 | 5.756 | 0 (no big) |
+| 2 | 0.175 (21/120) | 0.117 (7/60) | 168.5 | 116.4 | 1.279 | 2.423 | 4.135 | 0.231 | 6.0 | 0.712 |
+| 3 | 0.158 (19/120) | 0.133 (8/60) | 190.8 | 122.7 | 0.959 | 3.941 | 5.451 | 0.412 | 2.941 | 0.48 |
+| 4 | 0.208 (25/120) | 0.2 (12/60) | 169.3 | 126.9 | 0.554 | 5.979 | 6.479 | 0.396 | 3.625 | 0.41 |
+| first_dungeon | 0.0 (0/20) | 0.0 (0/60) | 139.3 | 93.0 | 0.203 (GUESS: t1's) | 1.367 | 2.7 | 0.183 | 6.483 | 0 (no big) |
+| held_door | 0.15 (9/60) | 0.117 (7/60) | 161.1 | 111.6 | 1.031 | 3.509 | 4.283 | 0.302 | 5.415 | 0.528 |
+
+Blueprints are 0.0 everywhere: the only blueprint is the chest's first clear. Every entry has `kept_frac` relics
+0.1, remnants 0.173, husks, blueprints and essence 0, and `mass.died` killed 0.938, raised 4.043 per living unit,
+garrison kept 0.724, raised survivors 0.153 per living unit. `mass.won` is killed 1.0 / 0.951 / 0.798 / 0.901 / 1.0 /
+0.965, raised 8.015 / 6.455 / 4.058 / 5.055 / 7.403 / 5.822 per living unit, garrison kept 1.0 / 0.99 / 1.0 / 0.986 /
+1.0 / 0.993, and raised survivors 0.921 / 0.639 / 0.721 / 0.63 / 0.66 / 0.611 per living unit (t1-t4, first_dungeon,
+held_door).
+
+**`"held"` (`"source": "GUESS"`).** Each multiplier applies to the tier's own entry:
+- `death_rate_mult` 0.5 and `duration_mult` 0.5 (the ruling);
+- `party_lost_mult` 0.5, the same reading: a short run with no warden room.
+
+**The resolver.**
+- **The entry:**
+  - `held` with `opts.held`. The seed has no held key: the run records it, and the scene reads `view_fort` live, so
+    E3-6b passes `view_fort(id).held` at issue;
+  - otherwise `first_dungeon` with `seed.fort.first_dungeon`;
+  - otherwise `held_door` when the door is taken;
+  - otherwise the tier's.
+- **The held door:**
+  - it takes `opts.door` on a fort whose tier is in `raid.json held_door.tiers` (t2), and never the first dungeon or
+    a held fort;
+  - `RaidLogic.held_door_pick` must spend a big (at least `door_min_bigs`, 2, with the counter kept; one big always
+    declines);
+  - a declined door uses the t2 entry (the standard party). The arm's door-off rows (3/60 frozen deaths, 142
+    relics) are only recorded, as `relics_per_run_without_door`.
+- **Outcome:**
+  - a death at the entry's rate (× 0.5 when held);
+  - each charge this run may spend (`RaidLogic.can_revive`: min(charges, `phylactery_max_per_dungeon`)) revives her in
+    place once, `revived_in_place` +1, and the rest of the run rolls again at the same rate;
+  - otherwise `warden_beaten`, or `retreated` for a held fort's clear;
+  - the frozen bot's own retreats (left with no army: t1 3 of 48, t2 and t3 1 of 60) and timeouts (none) fold into
+    the clear, so the flip rate is 1 − `death_rate`.
+- **Duration:** `duration_s` (× 0.5 when held), or `death_t_frac` of it on a death. E3-6b ticks the game live for it.
+- **Loot:**
+  - counts are `RaidLoot.scaled_count(rng, mean × (kept on a death), seed.fort.yield_mult)`, so a reclear's yield
+    scales them as the scene's rolls are scaled;
+  - essence counts at 1.0: it is the motes she carried, which the scene doesn't scale;
+  - typed items come from the seed's table, `t<tier>.<archetype>`: remnants by `RaidLoot._remnant`, husk kinds from
+    the tier's `chest_by_tier.husk_kinds`, blueprints by `first_blueprint`;
+  - a win adds `RaidLoot.chest` at yield 0 with the seed's `first_clear` and `chest_husk` (the first-clear blueprint,
+    or a relic when all are owned via `opts.blueprints`, and the first dungeon's husk);
+  - a held clear is `RaidLoot.held_clear`, and a held death banks nothing.
+- **Masses:** on the seed's own fort, through `RaidLogic.LedgerV2`, the scene's own builder.
+  - killed = `killed_frac` × living. A held clear kills exactly the seed's living, so the writeback raises
+    `counter_garrison_cleared`.
+  - One raised bucket at `score` 70: count = `raised_per_living_unit` × `RaidLogic.enemy_count`, and fresh mass =
+    count × `RaidLogic.mass_per_enemy`, capped at killed + the seed's dead.
+  - Survivors are the garrison taken in × `garrison_survive_frac`, plus `raised_survivors_per_living_unit` ×
+    enemy_count units at mass_per_enemy. Score 70 is a soldier (`RaidLogic.score_class`), so it stays and
+    `chaff_mass` is 0: chaff leaves with Relish, garrison stays.
+- **Party:**
+  - on a win each member is lost at `party_lost_per_member` (× 0.5 when held), except the door's big, which sits out
+    the fight;
+  - the door's big is lost by `RaidLogic.held_door_lost`: a death or a retreat, never a win. Its arm's 7 lost of 60
+    are exactly its 7 deaths;
+  - on a death the whole party is in `party_lost`, as the writeback loses it anyway.
+- **Deterministic:** the rng is `seed.rng_seed ^ SALT`.
+
+**GUESSes and limits:**
+- The rows carry no raised, chaff or garrison mass (the AUTOPILOT line has none). So:
+  - `raised_count` counts re-raises of recycled motes, which carry no fresh mass, and the cap on fresh mass binds
+    in every entry: in effect all killed and piled mass is raised (an upper bound);
+  - the survivors' split (the garrison first) and their mass per unit are GUESSes;
+  - on a death the standing party can't be told apart, so all of it is taken off allies_end;
+  - the first dungeon's 8 massless starters are taken off allies_end as if they all survived.
+- t1 and the first dungeon's profiles have no big, so no party loss is measured there (0). Their entries have no died
+  row, so they share the pooled `mass.died` and `kept_frac`. The first dungeon's `death_t_frac` is t1's.
+- `death_t_frac` is above 1 at t2 (1.279) and the held door (1.031): their deaths came late, in long warden fights.
+  It is kept, not clamped.
+- `party_lost_per_member` is high: the t2 profile's one big is lost in 71% of its wins. That is measured, not tuned.
+- The detour cache's relics are a fixed count in the scene, but here they are yield-scaled with the chest's.
+- `hb70d10` ran at b895836 with the unstick watch's small bias (NOTES-RAID, D-e quality pass). In the sampled runs it
+  moved only `unstick.aimed_in`.
+- `_remnant` and `_by_tier` are RaidLoot's underscore-named (private by convention) table readers. They are called
+  read-only, because no public reader returns a typed remnant or a tier's husk kinds.
+- How the numbers were derived: a read-only script over the raw `.tsv` files, quoted in E3-6a's report. Re-derive
+  them from the same rows when the dungeon re-measures.

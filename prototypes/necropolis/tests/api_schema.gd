@@ -24,9 +24,9 @@ const VALVE := {"work": F, "war": F, "flood": F}
 const COST := {"gold": F, "bone": F, "relics": I}
 const UPKEEP := {"gold": F, "bone": F}
 const STAT_BLOCK := {"power": F, "beef": F, "wits": F, "presence": F, "speed": F}
-const BIG_UNDEAD := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "place": S, "front": S}
-const SEED_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK}
-const BOSS_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "front": S}
+const BIG_UNDEAD := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "place": S, "front": S, "filled_slots": I}
+const SEED_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "filled_slots": I}
+const BOSS_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "front": S, "filled_slots": I}
 
 # ----------------------------------------------------------------- seeds (§7) ----
 const RAID_SEED := {
@@ -86,7 +86,7 @@ const COMMANDS := {
 	"cmd_demolish": {},
 	"cmd_cancel_build": {"refund": COST},
 	# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
-	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I},
+	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I, "affordable_in_s": F},
 	"cmd_unqueue": {},
 	"cmd_reorder_queue": {},
 	"cmd_set_job_priority": {"order": [S]},
@@ -187,6 +187,8 @@ const TOWN_BUILDING := {
 	"upgrade_projected": {"*": F},
 	# api_version 6 (T3.4a): why a building's mills milled less than their hands want
 	"starved": S,
+	# api_version 8 (E3-3): the multiplier its foreman gives its job output (1.0 with none, or where one gives nothing)
+	"foreman_mult": F,
 }
 ## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
 const QUEUE_ENTRY := {
@@ -284,7 +286,7 @@ const VIEWS := {
 	"view_vei": {
 		"backlog": F, "living_pool": F, "pool_cap": F, "diff": F, "diff_ema": F,
 		"sign": I, "drain_s": F, "odds": F, "digest_q": F,
-		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S]}],
+		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S], "counted": [S]}],
 		"fronts_required": I, "fronts_met": I,
 		"tithe": {"target": S, "eta_s": F, "warning": B, "wave_active": B, "wave_s_left": F},
 		"can_begin": B, "reason": S, "won": B,

@@ -211,9 +211,11 @@ func _dt_rule() -> void:
 ## The step past the first 12 h (the budget's lever 2, IDLE §4): up to idle.catchup_dt_max_s for the first
 ## idle.catchup_dt_long_after_s of a catch-up, up to idle.catchup_dt_long_s after. Scaled here
 ## (catchup_max_steps 100 and the switch at 600 s): a 3 600 s catch-up from midgame_2flips takes 10 s steps
-## to 600 s and 15 s steps after; a 7 d one's base steps are 10 and 15 s at the shipped configs.
+## to 600 s and idle.catchup_dt_long_s steps after (15 s); a 7 d one's base steps are 10 s and that at the
+## shipped configs.
 func _dt_schedule() -> void:
 	var c := cfgs({"economy.idle.catchup_max_steps": 100, "economy.idle.catchup_dt_long_after_s": 600.0})
+	var long_s := float(c["economy"]["idle"]["catchup_dt_long_s"])
 	var s := _start(c, "midgame_2flips")
 	s.clock_override = CLOCK
 	s.cmd_save("sched")
@@ -230,11 +232,11 @@ func _dt_schedule() -> void:
 			before = maxf(before, float(e[1]))
 		else:
 			after = maxf(after, float(e[1]))
-	t.ok(before == 10.0 and after == 15.0 and l.t == t0 + 3600.0, "steps up to %.1f s before 600 s, up to %.1f s after" % [before, after])
+	t.ok(before == 10.0 and after == long_s and long_s > 10.0 and l.t == t0 + 3600.0, "steps up to %.1f s before 600 s, up to %.1f s after" % [before, after])
 	var w := _mk(cfgs())
 	w.cmd_new_game(1)
 	w._catchup.begin(w, 604800.0, true)
-	t.ok(w._catchup.dt == 10.0 and w._catchup.dt_long == 15.0 and w._catchup.long_after_s == 43200.0,
+	t.ok(w._catchup.dt == 10.0 and w._catchup.dt_long == long_s and w._catchup.long_after_s == 43200.0,
 		"a week: %.0f s steps, %.0f s past %.0f s" % [w._catchup.dt, w._catchup.dt_long, w._catchup.long_after_s])
 
 
@@ -1011,17 +1013,17 @@ func _determinism() -> void:
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step in config, the larger of
-## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3's key isn't in
-## economy.json yet, so there is nothing to check; at or above the longest step it holds; under it (BALANCE's
-## planned 10 s against 15 s), setup() reports the problem as an error naming both keys. Both ways round
+## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3-1 ships the key at 20 s,
+## above the longest step, and it holds; at or above the longest step it holds; under it (BALANCE's
+## old planned 10 s against the long step), setup() reports the problem as an error naming both keys. Both ways round
 ## (E2b-2 T3.3b2): with idle.catchup_dt_max_s overridden above idle.catchup_dt_long_s the check follows it, so
 ## it reads the config, not a fixed 15 s.
 func _config_check() -> void:
 	var c := TestUtil.configs()
 	var idle: Dictionary = c["economy"]["idle"]
 	var longest := maxf(float(idle["catchup_dt_max_s"]), float(idle["catchup_dt_long_s"]))
-	t.ok(not (c["economy"]["stance"] as Dictionary).has("hold_s") and GameState.catchup_config_problem(c) == "",
-		"the shipped configs: no stance.hold_s yet (E3's), nothing to check")
+	t.ok(float(c["economy"]["stance"]["hold_s"]) >= longest and GameState.catchup_config_problem(c) == "",
+		"the shipped configs: stance.hold_s %.0f s (E3-1) is at least the %.0f s longest step: it holds" % [float(c["economy"]["stance"]["hold_s"]), longest])
 	c["economy"]["stance"]["hold_s"] = longest
 	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s %.0f s against a %.0f s longest step: it holds" % [longest, longest])
 	c["economy"]["stance"]["hold_s"] = 10.0

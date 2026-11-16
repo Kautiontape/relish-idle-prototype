@@ -44,11 +44,14 @@ const SAVE_SPEC := {
 		"forge": {"level": _I, "progress": _F},
 	},
 	"stances": {"on": [_S], "hold": {"*": _F}},
+	# simulacra_ready (written since E1, read back from E3-4) is optional, an int when present (problem()); absent it
+	# loads as 0
 	"inventory": {
 		"husks": [{"uid": _S, "kind": _S, "rarity": _S}],
 		"remnants": [{"uid": _S, "aspect": _S, "rarity": _S, "magnitude": _I}],
-		"blueprints": [_S], "relics": _I, "essence": _I, "simulacra_ready": _I,
+		"blueprints": [_S], "relics": _I, "essence": _I,
 	},
+	# a record's filled_slots (v8, E3-3) is optional, an int when present (problem()); absent it loads as 1
 	"big_undead": [{"uid": _S, "name": _S, "kind": _S, "role": _S, "place": _S, "front": _S,
 		"stats": {"power": _F, "beef": _F, "wits": _F, "presence": _F, "speed": _F}}],
 	"party": [_S],
@@ -64,7 +67,11 @@ const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]
 ## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
 const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
-const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
+## v8 (E3-1) adds "thrift": a building the Thrift stance idles (TownSim.buildings).
+const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid", "thrift"]
+## The stances' state (v8, E3-1): stances.state, optional, {stance id: this} for each stance whose condition has
+## changed at least once (one never changed is inactive and never fired: a save without it, the fixtures').
+const _STANCE_STATE := {"active": _B, "fired_beat_id": _I}
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
 ## and `waited_on` within it too (both typed when present).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
@@ -257,6 +264,17 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not GameState.STANCE_IDS.has(st) or on.has(st):
 			return "stance"
 		on[st] = true
+	# v8 (E3-1): the optional stance state, typed when present
+	if (m["stances"] as Dictionary).has("state"):
+		var ss: Variant = m["stances"]["state"]
+		if not ss is Dictionary:
+			return "stance state"
+		for st in ss:
+			if not GameState.STANCE_IDS.has(st) or not fits(ss[st], _STANCE_STATE):
+				return "stance state"
+	# v8 (E3-4): the simulacra ready, optional (a save without them reads 0), an int when present
+	if (m["inventory"] as Dictionary).has("simulacra_ready") and not fits(m["inventory"]["simulacra_ready"], _I):
+		return "inventory simulacra_ready"
 	var uids := {}
 	for h in m["inventory"]["husks"]:
 		if uids.has(h["uid"]):
@@ -269,6 +287,8 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	var bu_uids := {}
 	for b in m["big_undead"]:
 		if uids.has(b["uid"]) or bu_uids.has(b["uid"]) or (b["front"] != "" and not GameState.FRONT_IDS.has(b["front"])):
+			return "big undead"
+		if b.has("filled_slots") and not fits(b["filled_slots"], _I):  # v8 (E3-3): optional; absent reads 1
 			return "big undead"
 		bu_uids[b["uid"]] = true
 	seen = {}
@@ -531,7 +551,8 @@ static func dump(gs: GameState) -> Dictionary:
 	var bus: Array = []
 	for b in gs.big_undead:
 		bus.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
-			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate()})
+			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate(),
+			"filled_slots": GameState.filled_slots_of(b)})
 	var vats: Array = []
 	for i in gs._vat_slots():
 		var ve := gs._vat_entry(i)
@@ -550,9 +571,9 @@ static func dump(gs: GameState) -> Dictionary:
 		},
 		"villages": villages,
 		"town": town,
-		"stances": {"on": gs.stances_on.duplicate(), "hold": gs._stance_hold.duplicate()},
+		"stances": stances_of(gs),
 		"inventory": {"husks": husk_list, "remnants": remnant_list, "blueprints": gs.blueprints.duplicate(),
-			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": 0},
+			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": gs.simulacra_ready},
 		"big_undead": bus,
 		"party": gs.party_uids.duplicate(),
 		"backups": {"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready, "vats": vats},
@@ -569,6 +590,21 @@ static func dump(gs: GameState) -> Dictionary:
 	if not gs.run.is_empty():
 		d["pending_retreat"] = StateRuns.pending_of(gs)
 	return SaveIO.canon(d)
+
+
+## The save's `stances` block (STATE-API §9.1): `on` (oldest first), `hold` (stance id -> the seconds of its hold
+## left, for each stance held) and, v8 (E3-1), `state` ({stance id: {active, fired_beat_id}} for each stance whose
+## condition has changed), written once there is one, so a save where none has changed (the fixtures') keeps its
+## E1 shape. Thrift's idled buildings are saved in the town block (state "thrift").
+static func stances_of(gs: GameState) -> Dictionary:
+	var out := {"on": gs.stances_on.duplicate(), "hold": gs._stance_hold.duplicate()}
+	var st := {}
+	for id in GameState.STANCE_IDS:
+		if gs._stance_fired.has(id):
+			st[id] = {"active": gs._stance_active.has(id), "fired_beat_id": int(gs._stance_fired[id])}
+	if not st.is_empty():
+		out["state"] = st
+	return out
 
 
 ## The number in a uid: "h12" -> 12, anything else 0.
@@ -665,9 +701,19 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.stances_on = []
 	for st in m["stances"]["on"]:
 		gs.stances_on.append(str(st))
+	# the holds (E3-1: live; a key that isn't a stance, or a hold run out, is dropped) and the optional state (v8): a
+	# save without it is "nothing held, never fired" for every stance not in it
 	gs._stance_hold = {}
 	for k in m["stances"]["hold"]:
-		gs._stance_hold[k] = float(m["stances"]["hold"][k])
+		if GameState.STANCE_IDS.has(k) and float(m["stances"]["hold"][k]) > 0.0:
+			gs._stance_hold[k] = float(m["stances"]["hold"][k])
+	gs._stance_active = {}
+	gs._stance_fired = {}
+	var ss: Dictionary = m["stances"].get("state", {})
+	for k in ss:
+		if bool(ss[k]["active"]):
+			gs._stance_active[k] = true
+		gs._stance_fired[k] = int(ss[k]["fired_beat_id"])
 	var inv: Dictionary = m["inventory"]
 	gs.husks = []
 	for h in inv["husks"]:
@@ -680,25 +726,34 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		gs.blueprints.append(str(b))
 	gs.relics = int(inv["relics"])
 	gs.essence = int(inv["essence"])
+	gs.simulacra_ready = int(inv.get("simulacra_ready", 0))  # E3-4: read back; a save without it reads 0
 	gs.big_undead = []
 	for b in m["big_undead"]:
 		var st := {}
 		for k in GameState.STATS:
 			st[k] = float(b["stats"][k])
 		gs.big_undead.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
-			"stats": st, "place": b["place"], "front": b["front"]})
+			"stats": st, "place": b["place"], "front": b["front"], "filled_slots": GameState.filled_slots_of(b)})
 	gs.party_uids = []
 	for u in m["party"]:
 		gs.party_uids.append(str(u))
 	gs.vats_staffed = []
+	gs.vats_grow = []
 	for v in m["backups"]["vats"]:
 		var slot := int(v["slot"])
 		if slot >= 0 and slot < 1024:
 			while gs.vats_staffed.size() <= slot:
 				gs.vats_staffed.append(false)
 			gs.vats_staffed[slot] = bool(v["staffed"])
+			# E3-2: each vat's clone is read back (the save always wrote it: until E3 1.0 for a slot a clone covered)
+			while gs.vats_grow.size() <= slot:
+				gs.vats_grow.append(0.0)
+			gs.vats_grow[slot] = clampf(float(v["grow"]), 0.0, 1.0)
 	gs._phylactery_charges = int(m["backups"]["phylactery_charges"])
-	gs.clones_ready = maxi(0, int(m["backups"]["clones_ready"]))
+	# the old-save rule (E3-2, MECHANICS §7): the vats' grow is the truth, and a clones_ready above the vats at 1 (a
+	# save from before E3 with clones and no Chapel, more clones than vats, a Chapel demolished) is kept as spare
+	# clones outside the vats, so a load never loses a clone; one below them reads the vats
+	gs._clones_spare = maxi(0, int(m["backups"]["clones_ready"]) - gs._vats_ready())
 	# an E1 save's q_raise_ema is the placeholder 0.0: it loads as the neutral 50 (an EMA that starts
 	# at 50 can never reach exactly 0)
 	var qe := float(m["readout"]["q_raise_ema"])

@@ -118,8 +118,8 @@ charnel house, the forge sparking, and the crypt slab pulsing at the heart of it
     slots and earn more.
 - **Raise big undead at the crypt slab.** Only while Relish is home. Lay a husk on the slab, slot in
   remnants from dungeons, watch it take shape, hold to raise, name it. Big undead are the few you
-  count by name. They lead dungeon parties, run a building as foreman, or break a fortress as a
-  siege.
+  count by name. They lead dungeon parties, run a building as foreman, or besiege a fortress to
+  blunt Vei's tithe waves there.
 - **Build backups.**
   - **Clone vats** grow spare bodies for Relish, but only while staffed.
   - **A phylactery** lets her get back up once inside a fight.

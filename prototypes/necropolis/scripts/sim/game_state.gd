@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 7
+const API_VERSION := 8
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -52,8 +52,23 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
 	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
 	"realm.tithe.warning_s",
+	# E3-3: the siege's block of a tithe wave (MECHANICS §3.4; _siege_blocks)
+	"realm.tithe.siege_block",
 	# T3.3c: the away report's text (StateViews.away_report; its keys are REPORT_KEYS, checked in setup)
-	"economy.idle.report"]
+	"economy.idle.report",
+	# E3-1: the stances (MECHANICS §4.5; _stance_step): the hold, the ladder stances' jobs and order, the
+	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
+	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
+	"economy.stance.hearth_morale", "pulse.tempo_ms",
+	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
+	# (StateViews.death_rule) and the phylactery's revives per dungeon (_phylactery_max)
+	"backups.vats.grow_per_s", "backups.backups.clone_respawn_s", "backups.backups.unmade_respawn_s",
+	"backups.phylactery.max_per_dungeon",
+	# E3-4: the crafts' costs (MECHANICS §3.6; cmd_craft and view_catalog's crafts, _craft_cost)
+	"economy.craft.simulacrum.essence", "economy.craft.simulacrum.relics", "economy.craft.phylactery_charge.essence",
+	"economy.craft.phylactery_charge.relics",
+	# E3-4: a planted simulacrum's raise and charges (MECHANICS §3.6; cmd_deploy_simulacrum)
+	"realm.simulacrum.rate", "realm.simulacrum.charges"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -62,12 +77,19 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
 	"overflow_fmt", "store_labels", "overflow_min",
 	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
-	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped", "unpaid_inert",
+	"unpaid_fmt", "unpaid_sep", "unpaid_stopped", "unpaid_inert",
 	# R2: ready's line for the queue's head still waiting (StateViews.afford_text) and the full stores' raid prompt
 	"afford_wait_fmt", "afford_never_fmt", "afford_stores", "afford_raise", "full_tol", "full_raid",
 	# F1: that line without the move down when nothing is behind the head, and its forms for a head that is its
 	# store's own producer (the raise never names the entry itself)
-	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self"]
+	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self",
+	# W: the unpaid line under a minute ("briefly") and, when it stopped nothing, without its tail; the stuck head
+	# short of relics in Shawn's words, with and without the move down
+	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt",
+	# W2: a start that waited but began within a minute of you leaving ("started within a minute of you leaving, ...")
+	"started_brief_fmt",
+	# E3-1: the losses' Thrift lines (one per building the Thrift stance idled during the absence; kind `unpaid`)
+	"thrift_fmt", "thrift_brief_fmt", "thrift_none_fmt", "thrift_none_brief_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -140,12 +162,48 @@ var stances_on: Array = []  # stance ids switched on, oldest first; the newest a
 ## waited_on: String}] in order, at most economy.json queue.max_len. Saved (an optional `queue` key).
 var build_queue: Array = []
 var vats_staffed: Array = []  # bool per vat slot
-## view_backups' stub stock (E3 grows clones in vats): ready clones. A death spends one (§8.3 step
-## 10, the E1-safe rule); the vat slots are these clones until E3.
-var clones_ready := 0
-# --- E3 placeholders: saved and restored so a fixture can carry them; nothing reads them yet ---
-var _phylactery_charges := 0  # backups.phylactery_charges (E3)
-var _stance_hold := {}  # stance id -> hold seconds left (E3)
+## E3-2 (MECHANICS §7): each vat's clone, 0..1 per vat slot (view_backups' numbering; a slot past the end reads
+## 0). It grows at backups.json vats.grow_per_s × the vat's tend hands (TownSim.vat_hands) in the core step's
+## backups step (_grow_vats), and a vat at 1 holds a ready clone. Saved as backups.vats[].grow.
+var vats_grow: Array = []
+## Ready clones kept outside the vats (the old-save rule, MECHANICS §7): a save's clones_ready above its vats
+## at 1, and the ready clone of a vat that no longer exists (its Chapel demolished). Saved inside clones_ready.
+var _clones_spare := 0
+## Ready clones (view_backups.clones_ready): the vats at 1 plus the spare ones. No longer a free stock (E3-2).
+## A death spends one (spend_clones: the lowest ready vat first, then a spare). Setting it (tests, a fixture's
+## generator) sets the total: the spare clones make up what the vats at 1 don't hold, and a total below them
+## empties ready vats from the lowest slot.
+var clones_ready: int:
+	get:
+		return _vats_ready() + _clones_spare
+	set(v):
+		_set_clones_ready(v)
+var _grow_per_s := 0.0  # backups.json vats.grow_per_s
+# --- the crafted stocks (E3-4, MECHANICS §3.6, §7): fungible counts, no cap of their own (the essence and relic
+# caps bound them); cmd_craft adds to them ---
+## Phylactery charges (view_backups, saved as backups.phylactery_charges): a raid's revives in place spend them (E3-2).
+var _phylactery_charges := 0
+## Simulacra crafted and not yet planted (view_inventory.simulacra_ready; saved as inventory.simulacra_ready):
+## cmd_deploy_simulacrum takes one. A planted one is RealmSim's (realm.simulacra).
+var simulacra_ready := 0
+# --- the stances (E3-1, MECHANICS §4.5; _stance_step). Saved as `stances`: hold, and the optional `state` ---
+## stance id -> the seconds of its hold left: its `active` can't change again until it is gone (stance.hold_s
+## after each change). Saved as stances.hold.
+var _stance_hold := {}
+## stance id -> true while its condition holds, as the stance step last let it change (STATE-API §5.11 `active`);
+## absent = false. Saved in stances.state.
+var _stance_active := {}
+## stance id -> the beat of its last change (fired_beat_id); absent = -1, never fired. Saved in stances.state.
+var _stance_fired := {}
+## The beat the stance step last read the conditions at: they are read again once beat_at(t) moves. -1 after a new
+## game (the first step reads them); a load sets the loaded t's beat. Session only.
+var _stance_beat := -1
+## The stances acting (on, not suspended, active) as _apply_stances last gave them to TownSim: {id: true}. Session
+## only (a load recomputes it from the saved stance state; Thrift's idled buildings are saved as theirs).
+var _stance_acting := {}
+## view_stances' projections, cached: [[rev, t, TownSim.structure_rev], {stance id: projected}] (StateViews.
+## stance_projections). Session only.
+var _stance_proj: Array = []
 # --- the readouts (§3 step 8, MECHANICS §2.2, §3.5); saved as the `readout` block ---
 ## diff_ema: the EMA of the differential over readout.ema_s. q_raise_ema: the mass-weighted EMA of
 ## raised circle scores behind q_raise (`ema_score`, from 50); only apply_result moves it (IDLE I2).
@@ -189,6 +247,13 @@ var _tithe_warning_s := 0.0  # realm.json tithe.warning_s (the catch-up's clip e
 var _src_per_pit := 0.0  # realm.json field_src_per_pit
 var _vei_pool_cap := 0.0  # realm.json vei_pool_cap
 var _gap_s := 0.0  # economy.json idle.gap_s (every frame's gap check)
+# the stance step's tunables (E3-1; read once: the core step reads them every step)
+var _beat_s := 0.0  # pulse.json tempo_ms / 1000: a beat, sim seconds
+var _stance_hold_s := 0.0  # economy.json stance.hold_s
+var _harvest_frac := 0.0  # economy.json stance.harvest_bodies_frac
+var _hearth_morale := 0.0  # economy.json stance.hearth_morale
+var _stance_priority: Array = []  # economy.json stance.priority: the ladder stances, top first when several act
+var _stance_top_job := {}  # economy.json stance.top_job: ladder stance id -> the job it lifts
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
 ## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
 ## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
@@ -267,6 +332,15 @@ func setup(cfgs: Dictionary) -> void:
 	_src_per_pit = _req_f("realm.field_src_per_pit")
 	_vei_pool_cap = _req_f("realm.vei_pool_cap")
 	_gap_s = _req_f("economy.idle.gap_s")
+	_beat_s = _req_f("pulse.tempo_ms") / 1000.0
+	_stance_hold_s = _req_f("economy.stance.hold_s")
+	_harvest_frac = _req_f("economy.stance.harvest_bodies_frac")
+	_hearth_morale = _req_f("economy.stance.hearth_morale")
+	_grow_per_s = _req_f("backups.vats.grow_per_s")
+	var pri: Variant = _req("economy.stance.priority")
+	var top: Variant = _req("economy.stance.top_job")
+	_stance_priority = (pri as Array).duplicate() if pri is Array else []
+	_stance_top_job = (top as Dictionary).duplicate() if top is Dictionary else {}
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
 	var why_report := report_config_problem(cfgs)
@@ -275,19 +349,22 @@ func setup(cfgs: Dictionary) -> void:
 	var hold := catchup_config_problem(cfgs)
 	if hold != "":
 		push_error("GameState: " + hold)
+	var why_stance := stance_config_problem(cfgs)
+	if why_stance != "":
+		push_error("GameState: " + why_stance)
+		_stance_priority = []  # no ladder stance lifts a job rather than one lifting an unknown one
 	town_sim.setup(cfgs)
 
 
 ## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step (the larger
 ## of idle.catchup_dt_max_s and idle.catchup_dt_long_s), or a catch-up step could flip a stance twice inside
-## its hold. "" when it holds.
-## stance.hold_s is E3's and not in economy.json yet (BALANCE §5): with no key there is nothing to hold, so
-## nothing to check until E3 adds it. setup() reports a problem as an error.
+## its hold. "" when it holds. E3-1 made stance.hold_s live (BALANCE §5), so a config without it is a problem too.
+## setup() reports a problem as an error.
 static func catchup_config_problem(cfgs: Dictionary) -> String:
 	var eco: Dictionary = cfgs.get("economy", {})
 	var stance: Variant = eco.get("stance", {})
-	if not (stance is Dictionary and (stance as Dictionary).has("hold_s")):
-		return ""
+	if not (stance is Dictionary and ((stance as Dictionary).get("hold_s") is float or (stance as Dictionary).get("hold_s") is int)):
+		return "stance.hold_s is missing: a stance's hold must be at least catch-up's longest step (idle.catchup_dt_max_s, idle.catchup_dt_long_s)"
 	var hold := float(stance["hold_s"])
 	var idle: Dictionary = eco.get("idle", {})
 	var dt_max := maxf(float(idle.get("catchup_dt_max_s", 0.0)), float(idle.get("catchup_dt_long_s", 0.0)))
@@ -299,8 +376,9 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 
 ## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
 ## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
-## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` and `afford_raise` word gold,
-## bone and relics, and `full_tol` is in [0, 1); F1: `afford_producer` names a buildings.json building for gold
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` words gold, bone and relics and
+## `afford_raise` gold and bone (W: a head short of relics has its own line, afford_relics_last_fmt), and `full_tol` is
+## in [0, 1); F1: `afford_producer` names a buildings.json building for gold
 ## and for bone (the stores a building makes) and for no store the tables don't word, and `afford_raise_self`
 ## words each producer's store; else what is missing. setup() reports it as an error.
 static func report_config_problem(cfgs: Dictionary) -> String:
@@ -322,12 +400,13 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	for k in ["gold", "bone"]:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
-	# R2: the queue head's line names the store its time waits on and what raises it, for every store a queue
-	# time can wait on; the raid prompt's full_tol is a fraction of the cap
-	for table in ["afford_stores", "afford_raise"]:
-		for k in ["gold", "bone", "relics"]:
-			if not (rep[table] is Dictionary and (rep[table] as Dictionary).has(k)):
-				return "config economy.idle.report.%s has no %s" % [table, k]
+	# R2: the queue head's line names the store its time waits on, for every store a queue time can wait on, and
+	# what raises it, for gold and bone (W: relics' line is afford_relics_last_fmt's, "raid a fort"); the raid prompt's
+	# full_tol is a fraction of the cap
+	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]]]:
+		for k in pair[1]:
+			if not (rep[pair[0]] is Dictionary and (rep[pair[0]] as Dictionary).has(k)):
+				return "config economy.idle.report.%s has no %s" % [pair[0], k]
 	var tol: Variant = rep["full_tol"]
 	if not ((tol is float or tol is int) and float(tol) >= 0.0 and float(tol) < 1.0):
 		return "config economy.idle.report.full_tol (%s) is not a fraction of the cap in [0, 1)" % str(tol)
@@ -494,6 +573,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	remnants = []
 	big_undead = []
 	party_uids = []
+	_sync_foremen()
 	valve = _normalised(_req_f("economy.opening.valve.work"), _req_f("economy.opening.valve.war"), _req_f("economy.opening.valve.flood"))
 	valve_target = valve.duplicate()
 	work_pending = 0.0
@@ -506,10 +586,17 @@ func cmd_new_game(seed: int) -> Dictionary:
 	cleared_forts = {}
 	_ledger.reset(Ledger.total(_held()))  # the opening: what the board holds now
 	_phylactery_charges = 0
-	clones_ready = 0
+	simulacra_ready = 0
+	vats_grow = []
+	_clones_spare = 0
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
 	_diff = 0.0
 	_stance_hold = {}
+	_stance_active = {}
+	_stance_fired = {}
+	_stance_beat = -1
+	_stance_acting = {}
+	_stance_proj = []
 	blueprints = []
 	haul_target = "auto"
 	build_queue = []
@@ -775,10 +862,6 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 
 
 # ------------------------------------------------------------------- runs ----
-func _backups_cfg() -> Dictionary:
-	return _cfgs.get("backups", {})
-
-
 ## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
 ## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
 ## if that would not be finite); odds = backlog / (backlog + K).
@@ -910,23 +993,42 @@ func _loot_hint(fort_id: String) -> String:
 	return str(hints.get("t%d.%s" % [int(f["tier"]), _warden_archetype(fort_id)], ""))
 
 
+## backups.json phylactery.max_per_dungeon: the in-place revives a dungeon may use (MECHANICS §7; REQUIRED from E3-2).
 func _phylactery_max() -> int:
-	return int(_backups_cfg().get("phylactery", {}).get("max_per_dungeon", 1))
+	return int(_req_f("backups.phylactery.max_per_dungeon"))
 
 
 func _relish_hp() -> float:
 	return float(_cfgs.get("raid", {}).get("relish", {}).get("hp", 30.0))
 
 
-## Vei's fronts, per FRONT_IDS. need/have/cleared are E3; `assigned` echoes cmd_assign_front.
-func _fronts(with_cleared: bool) -> Array:
+## Vei's fronts, per FRONT_IDS (MECHANICS §6; live from E3-5, v8): `need`, `have` and `cleared` are
+## VeiFronts.have_need's on `info`, with the vei config `_cfgs["vei"]` (at runtime the very Dictionary ConfigDb.data["vei"]
+## holds: Game._ready hands ConfigDb.data to setup(), which keeps it, no copy; VeiFronts' defaults cover a missing key).
+## `assigned` echoes cmd_assign_front, as it always did: the uids whose front is that id. With `view` (view_vei's rows)
+## the row also carries `cleared` and `counted`: the uids VeiFronts counted there (have_need's own `assigned`), so the
+## assigned ones plus each unassigned party member on the front of its highest stat; `have` sums the stat of the uids in
+## `counted`. Without it the row is the boss seed's, {id, need, have, assigned} (§7.2).
+func _fronts(info: Dictionary, view: bool) -> Array:
 	var out: Array = []
-	for id in FRONT_IDS:
-		var e := {"id": id, "need": 0.0, "have": 0.0, "assigned": _front_assigned(id)}
-		if with_cleared:
-			e["cleared"] = false
+	for f in VeiFronts.have_need(info, _cfgs.get("vei", {})):
+		var id := str(f["id"])
+		var e := {"id": id, "need": float(f["need"]), "have": float(f["have"]), "assigned": _front_assigned(id)}
+		if view:
+			e["cleared"] = bool(f["cleared"])
+			e["counted"] = (f["assigned"] as Array).duplicate()
 		out.append(e)
 	return out
+
+
+## have_need's info from the state now (view_vei's fronts): Vei's backlog (her undead queue), her living pool,
+## digest_q(), and every big undead as view_big_undead gives it (StateViews.bu_entry: its uid, stats, place and front).
+func _front_info() -> Dictionary:
+	var units: Array = []
+	for b in big_undead:
+		units.append(StateViews.bu_entry(self, b))
+	return {"backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
+		"digest_q": digest_q(), "big_undead": units}
 
 
 func _front_assigned(front_id: String) -> Array:
@@ -1027,8 +1129,9 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 # ------------------------------------------------------------- §4.3 town ----
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
 # staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
-# through TownSim's build job. Raise, craft and deploy are still §1.1 stubs (id checks, then ok
-# with zero extras, no change); stances and vat staffing are stored and echoed (E3).
+# through TownSim's build job. Crafting and planting simulacra are live from E3-4 (cmd_craft, at a building with
+# `craft_slots`: the Ossuary Tower; cmd_deploy_simulacrum); the raise is live from E3-3 (the slab,
+# cmd_raise_big_undead). The stances act from E3-1 (the stance step, below cmd_set_stance).
 
 ## Buildings of that id that have finished their first build (level ≥ 1); every building when "".
 func _count_built(building_id: String) -> int:
@@ -1057,7 +1160,9 @@ func cmd_upgrade(lot_id: String) -> Dictionary:
 func cmd_demolish(lot_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up()
-	return BuildRules.demolish(self, lot_id)
+	var r := BuildRules.demolish(self, lot_id)
+	_sync_foremen()  # (a foreman there went back to the crypt: BuildRules.foreman_home)
+	return r
 
 
 ## §4.3 · E2: cancels the construction under way and refunds its cost in full (relics clamped to the
@@ -1065,7 +1170,9 @@ func cmd_demolish(lot_id: String) -> Dictionary:
 func cmd_cancel_build(lot_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"refund": {}})
-	return BuildRules.cancel_build(self, lot_id)
+	var r := BuildRules.cancel_build(self, lot_id)
+	_sync_foremen()  # (a cancelled first build sends its foreman to the crypt)
+	return r
 
 
 ## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
@@ -1150,7 +1257,8 @@ func _stance_slots() -> int:
 
 
 ## E1/E3: stores the toggle. When the slots run short, the most recently enabled stances
-## are suspended (view_stances), not switched off.
+## are suspended (view_stances), not switched off. E3-1: the stances acting take effect at once
+## (_apply_stances: an on stance whose condition holds acts now; `active` itself moves only at a beat).
 func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"slots": 0, "used": 0})
@@ -1163,8 +1271,150 @@ func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 		stances_on.append(stance_id)
 	elif not on:
 		stances_on.erase(stance_id)
+	_apply_stances(t)
 	rev += 1
 	return {"ok": true, "reason": "", "slots": slots, "used": mini(stances_on.size(), slots)}
+
+
+# ------------------------------------------------------------------ the stances (E3-1) ----
+## MECHANICS §4.5, STATE-API §3 step 1 and §5.11. Each stance has a binary condition, computed for every stance,
+## on or off: `active` (_stance_active) is that condition as the stance step last let it change. It changes only at
+## a beat (the core step's first step, when floor(t / beat_s) has moved), and not again until economy.json
+## stance.hold_s has passed since its last change (_stance_hold: the seconds left); each change emits stance_fired
+## and sets fired_beat_id (_stance_fired). A stance acts while it is on, not suspended and active
+## (_stance_acting), and only then does its effect apply (_apply_stances).
+
+## The beat index at `at` (STATE-API §3 step 1): floor(at / beat_s), beat_s = pulse.json tempo_ms / 1000; 0 with
+## no tempo.
+func beat_at(at: float) -> int:
+	return int(floor(at / _beat_s)) if _beat_s > 0.0 else 0
+
+
+## The stance step, §3 step 1 of a core step of `dt` (t already advanced): the holds run down by dt; at a new beat
+## every stance's condition is read from the state the step starts from, and each whose hold is over and whose
+## condition differs from `active` changes (stance_fired, its fired_beat_id the beat, a fresh hold); then the
+## stances acting are applied, effective from the step's start (t − dt).
+func _stance_step(dt: float) -> void:
+	for id in _stance_hold.keys():
+		var left := float(_stance_hold[id]) - dt
+		if left <= 1e-9:
+			_stance_hold.erase(id)
+		else:
+			_stance_hold[id] = left
+	var beat := beat_at(t)
+	if beat != _stance_beat:
+		_stance_beat = beat
+		for id in STANCE_IDS:
+			if _stance_hold.has(id):
+				continue
+			var now := _stance_condition(id)
+			if now == _stance_active.has(id):
+				continue
+			if now:
+				_stance_active[id] = true
+			else:
+				_stance_active.erase(id)
+			_stance_fired[id] = beat
+			_stance_hold[id] = _stance_hold_s
+			_emit({"type": "stance_fired", "stance_id": id, "active": now, "beat_id": beat})
+	if not stances_on.is_empty() or not _stance_acting.is_empty():
+		_apply_stances(t - dt)
+
+
+## A stance's condition now (MECHANICS §4.5; its thresholds economy.json `stance`), from the state as it stands:
+## - vigil: Relish is away from home or dead (any state but home);
+## - harvest: the bodies are under stance.harvest_bodies_frac of the body cap;
+## - hearth: morale is under stance.hearth_morale;
+## - muster: there are idle workers, or the last step mustered some to WAR (so its own effect, which leaves none
+##   idle, doesn't switch it off while the town makes more hands than it has work for);
+## - thrift: the stalls' gold income now is under the gold upkeep the town owes, the buildings Thrift idles
+##   counted as paying (TownSim.trade_income, gold_bill), so its own effect doesn't switch it off.
+func _stance_condition(id: String) -> bool:
+	var ts := town_sim
+	match id:
+		"vigil":
+			return relish["state"] != "home"
+		"harvest":
+			return ts.bodies < _harvest_frac * ts.body_cap()
+		"hearth":
+			return ts.morale < _hearth_morale
+		"muster":
+			return float(ts.staffing.get("idle", 0.0)) > 0.0 or float(ts.rates["workers"]["muster"]) > 0.0
+		"thrift":
+			return ts.trade_income() < ts.gold_bill()
+	return false
+
+
+## The stances that would act with `on_list` the toggles (oldest first): {id: true} for each on, not suspended (within
+## the slots, the oldest first) and active.
+func _acting_of(on_list: Array) -> Dictionary:
+	var out := {}
+	if on_list.is_empty():
+		return out
+	var slots := _stance_slots()
+	for i in mini(on_list.size(), slots):
+		if _stance_active.has(on_list[i]):
+			out[on_list[i]] = true
+	return out
+
+
+## The jobs `acting` lifts to the top of the ladder, in economy.json stance.priority order (stance.top_job).
+func _top_jobs_of(acting: Dictionary) -> Array:
+	var top: Array = []
+	for id in _stance_priority:
+		if acting.has(id):
+			var j: String = _stance_top_job[id]
+			if not top.has(j):
+				top.append(j)
+	return top
+
+
+## Gives TownSim the effects of the stances acting now (MECHANICS §4.5): the ladder stances' jobs lifted
+## (TownSim.set_top_jobs, which marks the room cache), Muster's idle cap of 0, and Thrift: when it starts acting it
+## idles TownSim.thrift_pick's buildings; when it stops, every building it idled resumes. `at`: the moment they take
+## effect (a core step's start, or a command's t), for the away report's Thrift spells. `on_load`: a load restores
+## Thrift's buildings as saved and refills the staffing without marking the states. Called by every core step's
+## stance step (so a slot that goes or comes with Relish, or with the Guildhall, suspends or resumes a stance's effect
+## from the next step), by cmd_set_stance (at once) and after a load.
+func _apply_stances(at: float, on_load := false) -> void:
+	var acting := _acting_of(stances_on)
+	town_sim.set_top_jobs(_top_jobs_of(acting), on_load)
+	town_sim.muster_all = acting.has("muster")
+	if not on_load:
+		if acting.has("thrift"):
+			if not _stance_acting.has("thrift"):
+				_note_thrift(at, town_sim.thrift_idle(town_sim.thrift_pick()), true)
+		else:
+			_note_thrift(at, town_sim.thrift_resume(), false)
+	_stance_acting = acting
+
+
+## Thrift's spells for the away report (IDLE §7): while a reporting catch-up runs, each building Thrift idles or
+## resumes is noted with its moment ([t, lot_id, idled]) on the catch-up runner.
+func _note_thrift(at: float, lots: Array, idled: bool) -> void:
+	if lots.is_empty() or not (_catchup.active and _catchup.report):
+		return
+	for lot_id in lots:
+		_catchup.thrift_log.append([at, str(lot_id), idled])
+
+
+## economy.json `stance`'s ladder stances, checked at setup (E3-1): `priority` lists exactly `top_job`'s stances, each
+## a STANCE_IDS id, and each lifts a JOB_IDS job. "" when it holds.
+static func stance_config_problem(cfgs: Dictionary) -> String:
+	var st: Variant = cfgs.get("economy", {}).get("stance", {})
+	if not (st is Dictionary and (st as Dictionary).get("top_job") is Dictionary and (st as Dictionary).get("priority") is Array):
+		return "config economy.stance needs top_job (a table) and priority (a list)"
+	var top: Dictionary = st["top_job"]
+	var pri: Array = st["priority"]
+	for id in top:
+		if not STANCE_IDS.has(id) or not JOB_IDS.has(str(top[id])):
+			return "config economy.stance.top_job.%s (%s) is not a stance lifting a job" % [str(id), str(top[id])]
+		if not pri.has(id):
+			return "config economy.stance.priority has no %s (top_job names it)" % str(id)
+	for id in pri:
+		if not top.has(id) or pri.count(id) != 1:
+			return "config economy.stance.priority's %s is not one of top_job's stances, once" % str(id)
+	return ""
 
 
 func _find_uid(items: Array, uid: Variant) -> Dictionary:
@@ -1176,10 +1426,14 @@ func _find_uid(items: Array, uid: Variant) -> Dictionary:
 	return {}
 
 
-## E2 stub (the raise needs the town unit's SlabLogic): checks not_home and the item ids,
-## then ok with a zero-valued entry. Nothing is consumed or minted; at_cap, bad_name and
-## invalid_recipe are checked from E2.
-@warning_ignore("unused_parameter")
+## §4.3 · live from E3-3 (v8; MECHANICS §4.6): the crypt slab's raise. The refusals, in check order: catching_up,
+## not_home (Relish isn't home), unknown_husk, unknown_remnant, duplicate_remnant, then the slab's
+## SlabLogic.evaluate(the husk's kind, the remnants' records in the order given, town.json slab) and invalid_recipe
+## when it says not ok, at_cap (big_undead.size() >= _cap_of("big_undead")), bad_name (empty or over 24 characters
+## after strip_edges). On success it consumes the husk and those remnants, mints u<n> from the save's uid counter
+## and stores {uid, name (stripped), kind (the husk's), role (SlabLogic's role id), stats (SlabLogic's), place
+## "crypt", front "", filled_slots (SlabLogic's `filled`)}; rev +1, and the extra is that entry as view_big_undead
+## shows it. No event: STATE-API §6 lists none for a raise.
 func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"big_undead": {}})
@@ -1202,12 +1456,47 @@ func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -
 			seen[r] = true
 	if why != "":
 		return {"ok": false, "reason": why, "big_undead": {}}
+	var husk := _find_uid(husks, husk_uid)
+	var rems: Array = []
+	for r in remnant_uids:
+		rems.append(_find_uid(remnants, r))
+	var slab := SlabLogic.evaluate(str(husk["kind"]), rems, _sec("town", "slab"))
+	var nm := name.strip_edges()
+	if not bool(slab["ok"]):
+		why = "invalid_recipe"
+	elif big_undead.size() >= _cap_of("big_undead"):
+		why = "at_cap"
+	elif nm.is_empty() or nm.length() > 24:
+		why = "bad_name"
+	if why != "":
+		return {"ok": false, "reason": why, "big_undead": {}}
+	_take_uid(husks, husk_uid)
+	for r in remnant_uids:
+		_take_uid(remnants, r)
 	var st := {}
 	for k in STATS:
-		st[k] = 0.0
+		st[k] = float(slab["stats"].get(k, 0.0))
+	var b := {"uid": _mint_uid("u"), "name": nm, "kind": str(husk["kind"]), "role": str(slab["role"]), "stats": st,
+		"place": "crypt", "front": "", "filled_slots": int(slab["filled"])}
+	big_undead.append(b)
 	rev += 1
-	return {"ok": true, "reason": "", "big_undead": {
-		"uid": "", "name": "", "kind": "", "role": "", "stats": st, "place": "", "front": ""}}
+	return {"ok": true, "reason": "", "big_undead": StateViews.bu_entry(self, b)}
+
+
+## Removes the item with that uid from `items` (the husks or the remnants).
+func _take_uid(items: Array, uid: Variant) -> void:
+	for i in items.size():
+		if items[i]["uid"] == uid:
+			items.remove_at(i)
+			return
+
+
+## A big undead's filled remnant slots (E3-3, api-request #6): SlabLogic's `filled` at its raise. A record without
+## the key reads 1 (the run's manager's ruling): every fixture's, every save's from before v8, and a debug mint's
+## (DebugCmds.mint_big_undead raises nothing on the slab). One slot is what the dungeon and the Vei fight drew before
+## (vei_boss reads maxi(1, filled_slots ?? 1)), so those big undead fight as they did.
+static func filled_slots_of(b: Dictionary) -> int:
+	return int(b.get("filled_slots", 1))
 
 
 func cmd_rename_big_undead(uid: String, name: String) -> Dictionary:
@@ -1248,13 +1537,60 @@ func _foreman_of(lot_id: String) -> String:
 	return at[0] if not at.is_empty() else ""
 
 
+## TownSim's foremen from the big undead placed `town:<lot_id>` (E3-3; TownSim.set_foremen): {lot_id: {speed,
+## presence}}, their stats. Called wherever a place can change (cmd_place_big_undead, cmd_set_party, cmd_demolish,
+## cmd_cancel_build), on a new game and a load, and at every core step's start, so TownSim's step and every
+## projection read the placements as they stand. A catch-up changes none: commands are refused while it runs, and its
+## own events move only a siege (a retake) and the party (a death).
+func _sync_foremen() -> void:
+	var map := {}
+	for b in big_undead:
+		var place := str(b["place"])
+		if place.begins_with("town:"):
+			var st: Dictionary = b["stats"]
+			map[place.trim_prefix("town:")] = {"speed": float(st.get("speed", 0.0)), "presence": float(st.get("presence", 0.0))}
+	town_sim.set_foremen(map)
+
+
+## RealmSim's `siege_block` input (E3-3, the run's manager's rulings; MECHANICS §3.4): {fort_id: tithe.siege_block}
+## for each fort with at least one big undead placed `fort:<id>`. One siege per fort counts (a second is allowed and
+## adds nothing) and the block is flat, whatever the big's stats; a siege adds no kill power. Read from the places as
+## they stand: the core step's inputs and _restore_dispatch's call it, so a placement reaches the next step at once.
+## The margin and forecast don't (_forecast_siege). A retake sends the siege home (_emit_realm), so the next step has
+## no block there; RealmSim drops it for the rest of the step the retake falls in (RealmSim.step).
+func _siege_blocks() -> Dictionary:
+	var out := {}
+	for b in big_undead:
+		var place := str(b["place"])
+		if place.begins_with("fort:"):
+			var id := place.trim_prefix("fort:")
+			if not realm.fort_by_id(id).is_empty():
+				out[id] = _req_f("realm.tithe.siege_block")
+	return out
+
+
+## The siege block the margin and forecast credit (E3-3, the run's manager's ruling: a new feature must never make the
+## chip say "safe" at a fort that falls): none. view_fort's margin, fall_s and the wave train, view_projection's
+## margins, read every fort as if unsieged (_fort_readout, _train_support), while RealmSim's step applies the block.
+## The wave train's support is the WAR at the sampling instant, held over the whole forecast; with a block crediting
+## a fort near its band's edge, that error can turn "safe" where the sim breaks it (E3-3's diagnosis: midgame_2flips
+## one substep in reads Ashgate's WAR 1.427 against the 1.119 it settles at a minute later). So the chip is
+## conservative: a fort reads safe only if it holds without its siege, and it may read thin where the siege holds it.
+## Crediting the siege is E4's, once the train's support mirrors the sim (MECHANICS §3.4).
+func _forecast_siege() -> Dictionary:
+	return {}
+
+
 ## Takes a big undead out of the party. Its front goes too: fronts are for party members.
 func _leave_party(b: Dictionary) -> void:
 	party_uids.erase(b["uid"])
 	b["front"] = ""
 
 
-## E1/E2: records the place (and takes it out of the party); foreman and siege effects are E2.
+## E1/E2: records the place (and takes it out of the party). From E3-3 a foreman works its building (TownSim's
+## foremen, _sync_foremen; MECHANICS §4.2) and a siege blocks tithe.siege_block of a tithe wave at its fort
+## (_siege_blocks; MECHANICS §3.4); a place where it gives nothing (a second siege, a passive building) is still
+## allowed.
 func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"place": ""})
@@ -1283,44 +1619,168 @@ func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	if party_uids.has(uid):
 		_leave_party(b)
 	b["place"] = place
+	_sync_foremen()
 	rev += 1
 	return {"ok": true, "reason": "", "place": place}
 
 
-## E3 stub: checks the item id, then ok with count 0.
+## §4.3 · E3 (live from E3-4; MECHANICS §3.6, §7): crafts one item at once. Reasons, after catching_up, in
+## _craft_reason's order: unknown_item, needs_building, no_essence, no_relics. It takes economy.json
+## craft.<item_id>'s essence and relics and adds 1 to the simulacra ready (stats.sims_built counts it) or to the
+## phylactery charges; `count` is that stock now. Neither stock has a cap of its own: the essence and relic caps
+## bound them, and phylactery.max_per_dungeon limits the revives a run may use, not the stock. No event; it mints
+## no uid (both stocks are counts).
 func cmd_craft(item_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"count": 0})
-	if not CRAFT_IDS.has(item_id):
-		return {"ok": false, "reason": "unknown_item", "count": 0}
+	var why := _craft_reason(item_id)
+	if why != "":
+		return {"ok": false, "reason": why, "count": 0}
+	var cost := _craft_cost(item_id)
+	essence -= int(cost["essence"])
+	relics -= int(cost["relics"])
+	var count := 0
+	if item_id == "simulacrum":
+		simulacra_ready += 1
+		stats["sims_built"] = int(stats["sims_built"]) + 1
+		count = simulacra_ready
+	else:
+		_phylactery_charges += 1
+		count = _phylactery_charges
 	rev += 1
-	return {"ok": true, "reason": "", "count": 0}
+	return {"ok": true, "reason": "", "count": count}
 
 
-## E3 stub: checks the fort id, then ok with zero charges.
+## Why cmd_craft(item_id) would refuse now, "" when it would craft (E3-4; view_catalog's crafts read it too, so the
+## two agree). In order: unknown_item; needs_building, while the built buildings' `craft_slots` sum to under 1
+## (TownSim.built_effect: a capacity effect, so an unpaid or Thrift-idled Ossuary still crafts, and one still on its
+## first build doesn't; the building is found by its effect, not its id; a level above 1 adds nothing more in E3);
+## no_essence; no_relics.
+func _craft_reason(item_id: String) -> String:
+	if not CRAFT_IDS.has(item_id):
+		return "unknown_item"
+	if town_sim.built_effect("craft_slots") < 1.0:
+		return "needs_building"
+	var cost := _craft_cost(item_id)
+	if essence < int(cost["essence"]):
+		return "no_essence"
+	if relics < int(cost["relics"]):
+		return "no_relics"
+	return ""
+
+
+## A craft's cost, {essence: int, relics: int}: economy.json craft.<item_id> (REQUIRED). `item_id` is one of CRAFT_IDS.
+func _craft_cost(item_id: String) -> Dictionary:
+	return {"essence": int(_req_f("economy.craft.%s.essence" % item_id)), "relics": int(_req_f("economy.craft.%s.relics" % item_id))}
+
+
+## §4.3 · E3 (live from E3-4; MECHANICS §3.6): plants a simulacrum at any fort, held or not; several at one fort
+## stack (view_fort.simulacrum_charges sums them). Reasons, after catching_up: unknown_fort, then none_ready (no
+## simulacrum ready). It takes one from simulacra_ready and appends {fort_id, charges: realm.json simulacrum.charges,
+## rate: simulacrum.rate} to RealmSim's simulacra: from the next step it performs Relish's redirect there (RealmSim
+## step 5) until its charges run out and it crumbles (step 6), or the fort is retaken, which loses it
+## (RealmSim._retaken; IDLE I6). Extras: its charges and ready_left (the simulacra still ready). No event (the lanes'
+## "simulacrum" callout comes from the next substep, _note_lane_causes).
 func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"charges": 0.0, "ready_left": 0})
+	var why := ""
 	if realm.fort_by_id(fort_id).is_empty():
-		return {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}
+		why = "unknown_fort"
+	elif simulacra_ready < 1:
+		why = "none_ready"
+	if why != "":
+		return {"ok": false, "reason": why, "charges": 0.0, "ready_left": 0}
+	var charges := _req_f("realm.simulacrum.charges")
+	simulacra_ready -= 1
+	realm.simulacra.append({"fort_id": fort_id, "charges": charges, "rate": _req_f("realm.simulacrum.rate")})
 	rev += 1
-	return {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}
+	return {"ok": true, "reason": "", "charges": charges, "ready_left": simulacra_ready}
 
 
-## Vat slots: the Chapel of Vats' `vat_slots` per level (E3 makes them grow clones).
+## Vat slots: the Chapel of Vats' `vat_slots` per level, over every built Chapel (MECHANICS §7).
 func _vat_slots() -> int:
 	return int(town_sim.built_effect("vat_slots"))
 
 
-## A vat as view_backups and the save show it. Until E3 a vat is ready while a clone stock covers it.
+## A vat's clone, 0..1 (vats_grow; a slot it doesn't reach reads 0).
+func _vat_grow(i: int) -> float:
+	return float(vats_grow[i]) if i < vats_grow.size() else 0.0
+
+
+## A vat as view_backups and the save show it (E3-2): its clone's `grow`, ready at 1.
 func _vat_entry(i: int) -> Dictionary:
-	var ready := i < clones_ready
-	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0 if ready else 0.0, "ready": ready}
+	var g := _vat_grow(i)
+	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": g, "ready": g >= 1.0}
+
+
+## The vats holding a ready clone (grow at 1). Every entry of vats_grow counts, so a Chapel demolished between
+## two core steps keeps its ready clones until the next backups step moves them to the spare ones (_grow_vats).
+func _vats_ready() -> int:
+	var n := 0
+	for g in vats_grow:
+		if float(g) >= 1.0:
+			n += 1
+	return n
+
+
+## clones_ready's setter: the total becomes `v` (≥ 0). The spare clones make up what the vats at 1 don't hold;
+## a total below the vats at 1 empties ready vats from the lowest slot (and no spare is left).
+func _set_clones_ready(v: int) -> void:
+	var want := maxi(0, v)
+	var in_vats := _vats_ready()
+	if want >= in_vats:
+		_clones_spare = want - in_vats
+		return
+	_clones_spare = 0
+	var drop := in_vats - want
+	for i in vats_grow.size():
+		if drop <= 0:
+			break
+		if float(vats_grow[i]) >= 1.0:
+			vats_grow[i] = 0.0
+			drop -= 1
+
+
+## Spends `n` ready clones (a death's, a boss fight's; MECHANICS §7): each empties the lowest ready vat back to 0,
+## so it grows again, and only when no vat is ready does it take a spare clone (which never regrows). Stops when
+## none is left. Returns the clones spent.
+func spend_clones(n: int) -> int:
+	var spent := 0
+	for i in vats_grow.size():
+		if spent >= n:
+			break
+		if float(vats_grow[i]) >= 1.0:
+			vats_grow[i] = 0.0
+			spent += 1
+	var spare := mini(n - spent, _clones_spare)
+	_clones_spare -= spare
+	return spent + spare
+
+
+## The core step's backups step (STATE-API §3 step 6; E3-2, MECHANICS §7), at `dt`: each vat grows by
+## vats.grow_per_s × its hands × dt, clamped at 1 (linear, so the update is exact at any step: IDLE §4), on the
+## hands TownSim's step staffed it with (`hands`, TownSim.vat_hands: [] while no vat is staffed, so nothing moves).
+## A vat past the Chapels' slots now (its Chapel demolished) is dropped, its ready clone kept as a spare.
+func _grow_vats(dt: float, hands: Array) -> void:
+	for i in hands.size():
+		var h := float(hands[i])
+		if h <= 0.0:
+			continue
+		while vats_grow.size() <= i:
+			vats_grow.append(0.0)
+		vats_grow[i] = minf(1.0, float(vats_grow[i]) + _grow_per_s * h * dt)
+	var n := _vat_slots()
+	if vats_grow.size() > n:
+		for i in range(n, vats_grow.size()):
+			if float(vats_grow[i]) >= 1.0:
+				_clones_spare += 1
+		vats_grow.resize(n)
 
 
 ## E1/E3 (the hand E2b-2): stores the staffing, and a staffed vat takes a hand: its tend slot opens
 ## and the ladder fills it like any other; unstaffing it closes the slot and gives the hand back
-## (MECHANICS §7). Clones grow only while staffed from E3.
+## (MECHANICS §7). From E3-2 its clone grows while it is tended (_grow_vats); unstaffed, it keeps its progress.
 func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"staffed": false})
@@ -1366,11 +1826,12 @@ func cmd_set_party(uids: Array) -> Dictionary:
 	for u in uids:
 		party_uids.append(u)
 		_find_uid(big_undead, u)["place"] = "party"
+	_sync_foremen()  # (a foreman moved into the party leaves its building)
 	rev += 1
 	return {"ok": true, "reason": "", "party": party_uids.duplicate()}
 
 
-## E1/E3: records a party member's front ("" unassigns). Fronts take effect at E3.
+## E1/E3: records a party member's front ("" unassigns). From E3-5 the front counts its stat there (_fronts).
 func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up()
@@ -1599,17 +2060,16 @@ func _fort_wars() -> Array:
 	return out
 
 
-## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
-## gets (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with no siege credited
+## (_forecast_siege, E3-3: conservative) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
 ## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
 ## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
 ## of the clocks at the current and the planned support.
 func _fort_readout(f: Dictionary, w_in: float, train := {}, plan := []) -> Dictionary:
 	var fx := _relish_effects()
 	var id: String = f["id"]
-	var siege: Variant = _realm_inputs.get("siege_block", {})
 	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
-		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train, plan)
+		fx["tide_fort"] == id, RealmSim._siege_at(_forecast_siege(), id), digest_q(), train, plan)
 
 
 ## A new game or a load (cmd_new_game, from_dict): the wave train's cache is emptied and the frame path is
@@ -1717,7 +2177,8 @@ func _train_frame(substeps: int) -> bool:
 	return true
 
 
-## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort, at `war`
+## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort (`block` from
+## _forecast_siege: none credited, E3-3), at `war`
 ## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
 ## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
 ## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
@@ -1739,14 +2200,14 @@ func _train_support(war: float, live: bool) -> Dictionary:
 		fx = {"tide_fort": dest, "redirect_fort": dest}
 	else:
 		wars = realm.war_at(war)[0]
-	var siege: Variant = _realm_inputs.get("siege_block", {})
+	var siege := _forecast_siege()  # (E3-3: the forecast credits no siege; the step does)
 	var sup := {}
 	for i in realm.forts.size():
 		var f: Dictionary = realm.forts[i]
 		if RealmSim.is_held(f):
 			var id: String = f["id"]
 			sup[id] = [float(wars[i]), fx["redirect_fort"] == id, _raise_rate, fx["tide_fort"] == id,
-				RealmSim._siege_at(siege if siege is Dictionary else {}, id)]
+				RealmSim._siege_at(siege, id)]
 	return sup
 
 
@@ -1802,7 +2263,8 @@ func view_villages() -> Dictionary:
 
 ## §5.9 · E2: TownSim's town. Lots from town.json; buildings with their state, progress, slots,
 ## staffing, cap, foreman, output and upkeep; the ladder and its jobs; the workforce, the living,
-## morale and its factors, the stocks and caps, trade, the convoy. Stances (ladder_effective) are E3.
+## morale and its factors, the stocks and caps, trade, the convoy. ladder_effective is the ladder after the
+## stances acting (E3-1).
 func view_town() -> Dictionary:
 	return StateViews.town(self)
 
@@ -1820,12 +2282,13 @@ func view_catalog() -> Dictionary:
 	return StateViews.catalog(self)
 
 
-## §5.11 · E3. E1 echoes cmd_set_stance: nothing fires, nothing is projected.
+## §5.11 · E3, live from E3-1: the toggles, each stance's condition (`active`, on or off), its last change's beat,
+## its hold left and the change in each net rate if it were toggled now (StateViews.stances).
 func view_stances() -> Dictionary:
 	return StateViews.stances(self)
 
 
-## §5.12 · E1. Simulacra and phylactery charges are E3 (0).
+## §5.12 · E1. The simulacra ready and the phylactery charges are live from E3-4 (cmd_craft).
 func view_inventory() -> Dictionary:
 	return StateViews.inventory(self)
 
@@ -1841,14 +2304,12 @@ func view_party() -> Dictionary:
 	return StateViews.party(self)
 
 
-## §5.13 · E3. Until E3: clones_ready is the stub stock and each ready clone is a vat slot; the
-## E1-safe death rule (a clone if one is ready, else unmade with the morale shock) with an
-## immediate respawn.
+## §5.13 · E3, live from E3-2 (StateViews.backups): the vats, and what a death would cost now (StateViews.death_rule).
 func view_backups() -> Dictionary:
 	return StateViews.backups(self)
 
 
-## §5.14 · E2 (fronts E3; assigned is live). The readout, q and the tithe are live.
+## §5.14 · E2 (fronts live from E3-5). The readout, q, the tithe and the fronts are live (StateViews.vei).
 ## can_begin/reason are cmd_begin_boss()'s check.
 func view_vei() -> Dictionary:
 	return StateViews.vei(self)
@@ -1899,14 +2360,14 @@ func catchup_events() -> Array[Dictionary]:
 
 
 # ----------------------------------------------------------------- §3 tick ----
-## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
-## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the
-## forge job's levels); Σ foreman_q is 0 until E3.
+## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + q_raise, 1, q_max), q_raise =
+## q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the forge job's levels). E3-3 dropped
+## the formula's Σ foreman_q (the run's manager's ruling): a foreman adds no q of its own; a Forge foreman reaches
+## q through forge_level, its smiths' work multiplied (TownSim step 5).
 func digest_q() -> float:
 	var ema := float(_readout["q_raise_ema"])
 	var q_raise := _q_raise_max * maxf(0.0, (ema - 50.0) / 50.0)
-	var foremen := 0.0
-	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + foremen + q_raise
+	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + q_raise
 	return clampf(q, 1.0, _q_max)
 
 
@@ -2025,8 +2486,9 @@ func _frame_work(substeps: int) -> void:
 	_train_frame(substeps)
 
 
-## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
-func _mint(pits: int, feed: float) -> float:
+## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s. `pits` is the working pits
+## weighted by their foremen (TownSim.pit_weight, E3-3): their count while no foreman works a pit.
+func _mint(pits: float, feed: float) -> float:
 	return (_p_base + _p_per_pit * pits) * (1.0 + _pit_bonus * feed)
 
 
@@ -2104,10 +2566,14 @@ func _core_step(dt: float) -> Array:
 		return []
 	t += dt
 	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
+	_sync_foremen()  # (E3-3) TownSim's foremen as the big undead stand; a no-op unless a place changed
+	# §3 step 1: the stances (E3-1): at a new beat their conditions are read from the state the step starts from,
+	# then the ones acting are given to TownSim for this step
+	_stance_step(dt)
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
 	_slew_valve(dt)
-	var mint := _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+	var mint := _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var work := mint * float(valve["work"])
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
@@ -2136,17 +2602,22 @@ func _core_step(dt: float) -> Array:
 	_step_relish_travel(dt)
 	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
-	# (siege_block: the siege big undead's share per fort, E3; none yet)
+	# (siege_block: tithe.siege_block at each fort a big undead sieges, E3-3: _siege_blocks)
 	_realm_inputs = {
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
 		"tide_fort": fx["tide_fort"], "tide_bias": _req_f("realm.relish.tide_bias"),
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
-		"siege_block": {},
+		"siege_block": _siege_blocks(),
 	}
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
 	var evs := _emit_realm(realm.drain_timed(), dt, mark)
+	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them, and a dead Relish's
+	# respawn counts down (catch-up clips a step at it: Catchup.next_event_s)
+	_grow_vats(dt, town["vat_hands"])
+	if relish["state"] == "dead":
+		_count_down_respawn(dt)
 	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
 	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
 	# ten a step); the keys are the ledger's fixed set
@@ -2276,11 +2747,28 @@ func _update_towns(cfg: Dictionary) -> void:
 
 # ------------------------------------------------------------------------ death ----
 
-## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
-## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
-## The caller has closed the run.
+## Relish's death that ends a run (§8.3 raid step 10, boss step 4; E3-2, MECHANICS §7): StateRuns.death. The caller
+## has closed the run. A raid's: it judges by the clones ready now (a boss fight's final death passes 0).
 func _death(run_id: int) -> void:
-	StateRuns.death(self, run_id)
+	StateRuns.death(self, run_id, clones_ready)
+
+
+## The backups step's respawn (§3 step 6; E3-2): dead_s_left runs down by the step's dt, and at 0 she wakes at
+## Covington (_respawn). Catch-up clips a step at it, so a step never runs past it (Catchup.next_event_s).
+func _count_down_respawn(dt: float) -> void:
+	var left := float(relish["dead_s_left"]) - dt
+	if left <= 1e-9:
+		_respawn()
+	else:
+		relish["dead_s_left"] = left
+
+
+## She wakes at Covington, home (MECHANICS §7): from her clone (`respawn_with_clone`) or reformed after being unmade.
+## Emits relish_respawned {with_clone, at: "covington"} with the step's t.
+func _respawn() -> void:
+	var with_clone := bool(relish["respawn_with_clone"])
+	_place_relish("covington")
+	_emit({"type": "relish_respawned", "with_clone": with_clone, "at": "covington"})
 
 
 # ------------------------------------------------------------ apply_result ----
@@ -2317,6 +2805,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
+	_sync_foremen()  # (E3-3: TownSim's foremen come from the loaded big undead's places)
 	_reset_train()
 	_catchup = Catchup.new()
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
@@ -2324,6 +2813,15 @@ func from_dict(d: Dictionary) -> Dictionary:
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
+	# the stances (E3-1): the conditions are read again at the loaded t's next beat; the ones acting are given back
+	# to TownSim as saved (Thrift's buildings are in their saved state). A building Thrift idles while Thrift
+	# doesn't act (a hand-made save) goes back to work
+	_stance_beat = beat_at(t)
+	_stance_acting = {}
+	_stance_proj = []
+	_apply_stances(t, true)
+	if not _stance_acting.has("thrift"):
+		town_sim.thrift_resume()
 	_restore_dispatch()
 	# IDLE I5 (E2b-2 T3.3c): a run open at the save ends now, from its last checkpoint, before any catch-up
 	# (cmd_load's, either path); its events are queued as live
@@ -2356,14 +2854,14 @@ func _restore_dispatch() -> void:
 	if float(valve["work"]) > 0.0:
 		mint = float(rw.get("in", 0.0)) * wm / float(valve["work"])
 	else:
-		mint = _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+		mint = _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var war := mint * float(valve["war"]) + muster
 	_split = {"mint": mint, "work": mint * float(valve["work"]), "war": war, "flood": mint * float(valve["flood"]),
 		"muster": muster}
 	var fx := _relish_effects()
 	var bias := _req_f("realm.relish.tide_bias")
 	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],
-		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": {}}
+		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": _siege_blocks()}
 	var w: Array[float] = []
 	var given := 0.0
 	var level := 0.0

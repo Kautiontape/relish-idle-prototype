@@ -1457,6 +1457,20 @@ func _run_checkpoint_api() -> void:
 		"a 60 s gap: run_ended {run_id, kind, outcome, cause: gap} in the contract: %s %s" % [str(ev), str(errs)])
 	var m := _fixture("pre_vei")
 	var bb := m.cmd_begin_boss()
+	# E3-3 (api-request #6): this pre_vei boss seed is the parent's (35ceaa1: its JSON's sha256 below) but for
+	# filled_slots 1, an int, on each party entry, so the Vei fight (vei_boss.gd: maxi(1, filled_slots ?? 1)) is unchanged
+	var parent_sha := "92992a68afbea9f5cf9f1ec9a792f62e431b2a7d12fc629c8c622b7e7609d7c1"
+	var bs: Dictionary = bb["seed"].duplicate(true)
+	var ones := (bs["party"] as Array).size() == 4
+	for e in bs["party"]:
+		ones = ones and typeof(e.get("filled_slots")) == TYPE_INT and int(e["filled_slots"]) == 1
+		e.erase("filled_slots")
+	# E3-5: the fronts' need and have are live (0.0 at 35ceaa1), so they are zeroed before the hash
+	for f in bs["fronts"]:
+		f["need"] = 0.0
+		f["have"] = 0.0
+	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
+		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")
 	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")
 	var mp: Dictionary = m.to_dict()["pending_retreat"]
 	t.ok(mp["kind"] == "boss" and mp["fort_id"] == "vei" and mp["loot"] == StateRuns.empty_loot() and mp["outcome"] == "retreated",
@@ -1560,7 +1574,7 @@ func _death_ends() -> void:
 		m.clones_ready = clones
 		m.cmd_debug_set_state({"relish_at": "vei"})
 		var bb := m.cmd_begin_boss()
-		t.ok(bb["seed"]["death_ends"] == {"outcome": "unmade", "respawn_s": 0.0} and Results.validate("boss_seed", bb["seed"]).is_empty(),
+		t.ok(bb["seed"]["death_ends"] == {"outcome": "unmade", "respawn_s": 600.0} and Results.validate("boss_seed", bb["seed"]).is_empty(),
 			"%d clones ready: the boss seed's death_ends is unmade (backups go first): %s" % [clones, str(bb["seed"]["death_ends"])])
 	var s2 := _mk()
 	s2.cmd_debug_set_state({"relish_at": "old-sluice"})

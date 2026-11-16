@@ -21,6 +21,7 @@ static func party_entries(gs: GameState, with_front := false) -> Array:
 				var e: Dictionary = {
 					"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
 					"stats": (b["stats"] as Dictionary).duplicate(),
+					"filled_slots": GameState.filled_slots_of(b),  # v8 (E3-3, api-request #6): both seeds' party
 				}
 				if with_front:
 					e["front"] = b["front"]
@@ -59,32 +60,43 @@ static func dungeon_seed(gs: GameState, fort_id: String, run_id: int, seed_rev: 
 	}
 
 
+## §7.2. The fronts (live from E3-5, v8) are VeiFronts.have_need's on the seed's own backlog, living pool, digest_q and
+## party (VeiFronts.info_from_boss_seed), so they are exactly what the fight computes from this seed (BossLogic.party_lanes;
+## vei_boss.gd's _fronts_for when they are all zero), with `assigned` cmd_assign_front's echo. They are view_vei's at issue:
+## the same backlog, pool and q, and the same units counted, as only party members have a front or the party place
+## (cmd_assign_front, _leave_party, cmd_set_party).
 static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionary:
 	var ro := gs._vei_readout()
-	return {
+	var sd := {
 		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
 		"rng_seed": derived_rng_seed(gs, run_id),
 		"backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": gs.digest_q(),
 		"vei_capacity": gs._req_f("realm.R_vei"),
-		"fronts": gs._fronts(false),
+		"fronts": [],  # filled below, from the seed itself (its key keeps its place)
 		"fronts_required": gs._fronts_required(),
 		"party": party_entries(gs, true),
 		"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready,
 		"relish_hp": gs._relish_hp(),
 		"death_ends": death_ends(gs, "boss"),
 	}
+	sd["fronts"] = gs._fronts(VeiFronts.info_from_boss_seed(sd), false)
+	return sd
 
 
 ## The seeds' `death_ends` (§7.1, §7.2; E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends
-## in, {outcome: "clone" | "unmade", respawn_s}, from view_backups' death rule (StateViews.death_rule).
+## in, {outcome: "clone" | "unmade", respawn_s}, from view_backups' death rule (StateViews.death_rule) past its
+## phylactery step: a revive in place doesn't end the run, so a death that does is past them (Results.validate
+## takes only clone or unmade here). E3-2: respawn_s is the outcome's, backups.clone_respawn_s or unmade_respawn_s.
 ## - A raid: after any phylactery revives (each revives in place, at most phylactery.max_per_dungeon), the
 ##   death that ends the run wakes her from a ready clone, else unmakes her: the rule at the clones ready now,
-##   so it equals view_backups().death's outcome and respawn_s.
+##   so it equals view_backups().death's outcome and respawn_s while no charge is left (with one, view_backups
+##   reads "phylactery") and what death() then does.
 ## - A boss run: each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), and the fight ends
 ##   in a death only when none is left (a final death, relish_deaths = the backups spent + 1), so that death
 ##   is "unmade": the rule with no clone ready. (writeback_boss's death reads the clones left after the ones
-##   spent: a final death with a clone still ready would wake from it, which the boss scene never sends.)
+##   spent: a final death with a clone still ready would wake from it, which the boss scene never sends. A clone
+##   grown mid-fight (the sim ticks on) stays in its vat: writeback_boss passes death() 0 clones, this rule.)
 static func death_ends(gs: GameState, kind: String) -> Dictionary:
 	var d := StateViews.death_rule(gs, gs.clones_ready if kind == "raid" else 0)
 	return {"outcome": str(d["outcome"]), "respawn_s": float(d["respawn_s"])}
@@ -279,21 +291,35 @@ static func view_boss_seed(gs: GameState) -> Dictionary:
 	return {}
 
 
-## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
-## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
-## The caller has closed the run.
-static func death(gs: GameState, run_id: int) -> void:
+## Relish's death that ends a run (§8.3 raid step 10, boss step 4; E3-2, MECHANICS §7), by the death rule past the
+## phylactery (StateViews.death_rule with no charge: the dungeon spent its revives in place already, and a death that
+## ends the run is past them): a ready clone if there is one (spent: the lowest ready vat empties back to 0, else a
+## spare clone goes; GameState.spend_clones), else she is unmade and the town takes morale.death_shock. She is `dead`
+## at the node she died at, `dead_s_left` the outcome's respawn_s (backups.clone_respawn_s or unmade_respawn_s) and
+## `respawn_with_clone` which it was. `clones` is the clone count the rule judges by: a raid passes the clones ready now
+## (gs.clones_ready), a boss fight 0, as the seed's death_ends does (a clone grown while the fight ran stays in its
+## vat: the seed promised unmade). The backups step counts it down and wakes her at Covington with
+## relish_respawned (GameState._count_down_respawn). A respawn_s of 0 wakes her at once. The caller has closed the run
+## and removed the party.
+static func death(gs: GameState, run_id: int, clones: int) -> void:
 	gs.stats["deaths"] += 1
 	var at_node: String = gs.relish["at"]
-	var clone := gs.clones_ready > 0
+	var d := StateViews.death_rule(gs, clones)
+	var clone := str(d["outcome"]) == "clone"
 	if clone:
-		gs.clones_ready -= 1
+		gs.spend_clones(1)
 	else:
 		gs.town_sim.add_shock(gs._req_f("economy.morale.death_shock"))
-	gs._emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
-		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
-	gs._place_relish("covington")
-	gs._emit({"type": "relish_respawned", "with_clone": clone, "at": "covington"})
+	var respawn_s := float(d["respawn_s"])
+	gs._emit({"type": "relish_died", "outcome": str(d["outcome"]), "in_place": false,
+		"at": at_node, "run_id": run_id, "respawn_s": respawn_s})
+	gs.relish["state"] = "dead"
+	gs.relish["target"] = ""
+	gs.relish["pos"] = gs._node_xy(at_node)
+	gs.relish["dead_s_left"] = respawn_s
+	gs.relish["respawn_with_clone"] = clone
+	if respawn_s <= 0.0:
+		gs._respawn()
 
 
 static func ar_fail(gs: GameState, reason: String, errors: Array = []) -> Dictionary:
@@ -361,8 +387,9 @@ static func remove_big_undead(gs: GameState, uid: String) -> void:
 	gs.party_uids.erase(uid)
 
 
-## §8.3 raid steps 1-11 (death by the E1-safe rule until E3). The result is already validated and
-## matched to the open run. Returns the minted uids.
+## §8.3 raid steps 1-11 (E3-2: each revive in place spends a charge and raises relish_died{phylactery, in_place}; a
+## death that ends the run is death()'s). The result is already validated and matched to the open run. Returns the
+## minted uids.
 static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	var sd: Dictionary = gs.run["seed"]
 	var run_id: int = gs.run["run_id"]
@@ -461,20 +488,28 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	if cg_cleared:
 		gs._spend_yield(f)  # the clear paid loot (held_clear's roll)
 		gs._emit({"type": "counter_garrison_cleared", "fort_id": fort_id, "killed_mass": k})
+	# 9 (E3-2): each phylactery revive the dungeon reports was a death in place (she carried on in the run)
+	for i in int(r["revived_in_place"]):
+		gs._emit({"type": "relish_died", "outcome": "phylactery", "in_place": true, "at": fort_id, "run_id": run_id,
+			"respawn_s": 0.0})
 	# 10. death: the whole party is lost (A8), then the death rule; 11. otherwise she stays
 	if died:
 		for uid in party:
 			remove_big_undead(gs, uid)
-		death(gs, run_id)
+		death(gs, run_id, gs.clones_ready)
 	else:
 		gs.relish["state"] = "at_fort"
 	return minted
 
 
-## §8.3 boss steps 1-5 (a final death by the E1-safe rule until E3).
+## §8.3 boss steps 1-5. Each backup the fight spent was a death in place (E3-5): one relish_died{in_place} per backup
+## in backups_spent, the phylactery charges first, then the clones (VeiFronts.next_backup's order), queued after
+## vei_result and before a final death's, as a raid's revives follow its loot_banked. A final death is death()'s (E3-2:
+## the shared death rule at the clones left, so "unmade" once every clone is spent; dead, then the respawn).
 static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	var sd: Dictionary = gs.run["seed"]
 	var run_id: int = gs.run["run_id"]
+	var at: String = gs.run["fort_id"]  # "vei" (open_run)
 	var did_win: bool = r["won"]
 	var bs: Dictionary = r["backups_spent"]
 	var clones := int(bs["clones"])
@@ -492,14 +527,19 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	for uid in r["party_lost"]:
 		remove_big_undead(gs, uid)
 	gs._phylactery_charges = maxi(0, gs._phylactery_charges - int(bs["phylactery"]))
-	gs.clones_ready = maxi(0, gs.clones_ready - clones)
+	gs.spend_clones(clones)  # the lowest ready vats first, then spare clones (E3-2; clamped at what is ready)
 	gs.run = {}
 	var cleared: Array = []
 	for fid in r["fronts_cleared"]:
 		cleared.append(str(fid))
 	gs._emit({"type": "vei_result", "run_id": run_id, "won": did_win, "fronts_cleared": cleared,
 		"relish_deaths": deaths, "backlog_after": float(gs.realm.vei["undead_queue"])})
+	# 3 (E3-5): the fight's revives, each in place (she carried on in the fight), in the order it spent them
+	var charges := int(bs["phylactery"])
+	for i in charges + clones:
+		gs._emit({"type": "relish_died", "outcome": "phylactery" if i < charges else "clone", "in_place": true,
+			"at": at, "run_id": run_id, "respawn_s": 0.0})
 	if final_death:
-		death(gs, run_id)
+		death(gs, run_id, 0)  # the seed's death_ends rule (no clone): a clone grown mid-fight stays in its vat
 	else:
 		gs.relish["state"] = "at_vei"

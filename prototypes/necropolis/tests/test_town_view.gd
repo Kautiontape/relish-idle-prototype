@@ -1366,8 +1366,8 @@ func _foremen(mid: Dictionary) -> void:
 		for e in mid["big_undead"]["big_undead"]:
 			if e["uid"] == uid:
 				kind = String(e["kind"])
-		var want := SlabLogic.slots_for(kind, cfg["town"]["slab"]).size()
-		t.ok(want > 0 and a.foremen[0]["strokes"] == want, "no filled_slots in view_big_undead yet: the %s's anatomy slots (%d)" % [kind, want])
+		var want: int = (mid["big_undead"]["big_undead"] as Array).reduce(func(w, e): return int(e.get("filled_slots", -1)) if e["uid"] == uid else w, -1)
+		t.ok(want > 0 and a.foremen[0]["strokes"] == want, "filled_slots in view_big_undead: that count (api-request #6)")
 		t.ok((m.lot("lot-04")["rect"] as Rect2).grow(48.0).has_point(a.foremen[0]["pos"]), "at its building")
 	var slab: Dictionary = cfg["town"]["slab"]
 	t.ok(TownStandins.foreman_strokes({"kind": "zombie", "filled_slots": 3}, vcfg, slab) == 3, "an entry with filled_slots: that count (api-request #6)")
@@ -3827,6 +3827,7 @@ func _up_world(day1: Dictionary, level: int, state: String, gold := 1000.0, bone
 	v["town"]["workers"]["idle"] = 0.0
 	v["town"]["workers"]["muster"] = 0.0
 	v["town"]["bodies"] = v["town"]["bodies_cap"]
+	v["vei"]["fronts"] = []  # no front need (the fronts are live from E3-5), as _need_views
 	for r in v["hud"]["rates"]:
 		r["rate"] = 1.0
 	var lot_h: String = free[0]

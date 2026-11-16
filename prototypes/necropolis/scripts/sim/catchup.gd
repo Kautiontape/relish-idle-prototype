@@ -47,6 +47,10 @@ var field_calls := 0  ## field.catchup_step calls made
 var field_last_t := 0.0  ## the sim time of the last field call (t0 before the first)
 ## The events a report replaces ([{t, type, ...}], in queue order): the last reporting catch-up's.
 var events: Array = []
+## The buildings the Thrift stance idled and resumed during the last reporting catch-up, in order: [[t, lot_id,
+## idled]] (GameState._note_thrift, E3-1), for the away report's Thrift lines (IDLE §7). Not events: Thrift raises
+## none (a building it idles reads state "idle" in view_town).
+var thrift_log: Array = []
 ## The frames' own sim seconds while a chunked catch-up is active (GameState.tick adds them; they run
 ## once it is done). Session only.
 var frame_acc := 0.0
@@ -81,6 +85,7 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	_last_evs = []
 	if with_report:
 		events = []
+		thrift_log = []
 		before = StateViews.away_before(gs) if active else {}
 
 
@@ -162,6 +167,8 @@ func _finish(gs: GameState) -> void:
 ## The seconds from now to the next moment a catch-up step must not straddle (IDLE §4), INF when none
 ## is pending. The events, each projected from the state now:
 ## - Relish's arrival (her distance less GameState.ARRIVE_EPS over relish.travel_speed);
+## - Relish's respawn while she is dead (her dead_s_left; E3-2), so a save closed while she is dead wakes her at the
+##   right moment, and the stance slot and Vigil follow from there;
 ## - an unpaid building's hold ending (its unpaid_s);
 ## - a construction finishing (TownSim.construction_left's eta_s: the work left over its builders' rate);
 ## - the build queue's head waiting on funds starting: (cost − stock) / net income for each currency it
@@ -170,13 +177,16 @@ func _finish(gs: GameState) -> void:
 ##   A gated entry starts on a tier rise or a building finishing, which are clipped already;
 ## - gold or bone reaching its floor (stock / −net, while the stock is above 1 and the net negative);
 ## - the tithe: its warning (next_s − tithe.warning_s), a wave starting (next_s) and a wave ending
-##   (its s_left).
+##   (its s_left);
+## - a simulacrum running out of charges (E3-4: simulacrum_out_s, guarded).
 ## A grace ending, a garrison reaching 0 and a break are solved inside RealmSim's step, and the store
 ## caps inside TownSim's, so they aren't clipped. tests/slow/convergence.gd's harness clips with this.
 static func next_event_s(gs: GameState) -> float:
 	var e := INF
 	if gs.relish["state"] == "travelling":
 		e = minf(e, maxf(0.0, gs._dist_to(gs.relish["target"]) - GameState.ARRIVE_EPS) / gs.travel_speed())
+	elif gs.relish["state"] == "dead" and float(gs.relish["dead_s_left"]) > 0.0:
+		e = minf(e, float(gs.relish["dead_s_left"]))  # her respawn (E3-2)
 	var ts := gs.town_sim
 	for lot in ts.buildings:
 		var b: Dictionary = ts.buildings[lot]
@@ -206,6 +216,44 @@ static func next_event_s(gs: GameState) -> float:
 		var wv: Dictionary = ti["wave"]
 		if not wv.is_empty() and float(wv["s_left"]) > 0.0:
 			e = minf(e, float(wv["s_left"]))
+	if not r.simulacra.is_empty():
+		e = minf(e, simulacrum_out_s(gs))
+	return e
+
+
+## The seconds until the first simulacrum runs out of charges (E3-4, IDLE §4), INF when none is clipped. RealmSim
+## spreads a step's raise evenly over it (min(rate, charges / dt)), so a simulacrum running out inside a 15 s step
+## raised its last charges over the whole step: its fort's undead read +8.5% at that step's end against live play
+## (test_crafting). A step ends at the moment instead: charges / rate, a lower bound, since the raise never passes
+## the rate (an early clip only splits a step, and the next projects again). Two guards:
+## - corpses: only while the fort's dead now cover every raise wanted there until then (Relish's, where she
+##   redirects, and each live simulacrum's there, up to its charges). A corpse-limited raise runs out later than
+##   charges / rate, and a starved simulacrum would cut every step short for the rest of a week; such a one is not
+##   clipped, and its last raise spreads over its step as Relish's corpse-limited raise does;
+## - a floor: none under sim.substep_s, live play's own granularity, so a sliver of charges left doesn't make ever
+##   shorter steps.
+static func simulacrum_out_s(gs: GameState) -> float:
+	var r := gs.realm
+	var redirect: String = gs._relish_effects()["redirect_fort"]
+	var e := INF
+	for sm in r.simulacra:
+		var rate := float(sm["rate"])
+		var c := float(sm["charges"])
+		if not (rate > 0.0 and c > 0.0):
+			continue
+		var at := c / rate
+		if at < gs.substep_s() or at >= e:
+			continue
+		var fid := str(sm["fort_id"])
+		var f := r.fort_by_id(fid)
+		if f.is_empty():
+			continue
+		var want := gs._raise_rate * at if redirect == fid else 0.0
+		for o in r.simulacra:
+			if str(o["fort_id"]) == fid and float(o["charges"]) > 0.0:
+				want += minf(float(o["charges"]), maxf(0.0, float(o["rate"])) * at)
+		if float(f["dead"]) >= want:
+			e = at
 	return e
 
 
