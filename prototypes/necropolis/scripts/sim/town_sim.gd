@@ -1692,6 +1692,26 @@ func pit_weight() -> float:
 	return n
 
 
+## The pits' feed with no load landing and an empty store (E4 must-fix #1; GameState._train_war_at): this step's rot
+## (rates.bodies.rot) burned up to what the staffed pits can burn, over their foreman-weighted want, as step() computes
+## `feed`. It is the feed a convoy cycle falls back to once a landed load is burned. 0 with no working pit.
+func trough_feed() -> float:
+	var pit_w := 0.0
+	var pit_can := 0.0
+	for e in _lists()["pits"]:  # [lot_id, pits, slots], as step() reads them
+		var p: int = e[1]
+		var slots: int = e[2]
+		var m := _fm_lot(e[0])
+		pit_w += p * m
+		var frac := 1.0 if slots <= 0 else float(_by_lot.get(e[0], {}).get("pit", 0.0)) / slots
+		pit_can += _burn * p * frac * m
+	var wanted := _burn * pit_w
+	if not (wanted > 0.0):
+		return 0.0
+	var rot := float((rates.get("bodies", {}) as Dictionary).get("rot", 0.0))
+	return clampf(minf(maxf(0.0, rot), pit_can) / wanted, 0.0, 1.0)
+
+
 ## vat_hands() as the vats grow on them (E3-3): each vat's tend hands × its Chapel's foreman multiplier, the factor
 ## GameState._grow_vats grows a vat by (step()'s `vat_hands`). vat_hands() itself while no foreman works.
 func vat_work() -> Array:

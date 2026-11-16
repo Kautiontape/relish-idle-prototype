@@ -2086,13 +2086,28 @@ func _train_live() -> Dictionary:
 	return _train(_train_war(), true)
 
 
-## The WAR the live train reads, mass/s: this substep's mint × the valve's target share, plus TownSim's
-## muster as it is now. The valve slews to its target at valve.slew_per_s (at most 20 s for a full swing),
-## and nothing but a command changes the target, so the train reads where it is going, as it reads Relish
-## where she is travelling to (_train_support). With the valve at its target it is this substep's WAR
-## (_split.war), bit for bit; and it is the WAR view_projection reads at the target valve.
+## The WAR the live train reads, mass/s: _train_war_at the valve's target. The valve slews to its target at
+## valve.slew_per_s (at most 20 s for a full swing), and nothing but a command changes the target, so the train
+## reads where it is going, as it reads Relish where she is travelling to (_train_support). It is the WAR
+## view_projection's train reads at the target valve, bit for bit.
 func _train_war() -> float:
-	return float(_split["mint"]) * float(valve_target["war"]) + float(_split["muster"])
+	return _train_war_at(valve_target)
+
+
+## The settled WAR the wave train reads at valve `v` (E4 must-fix #1; MECHANICS §3.5), mass/s: the mint at the
+## pits' trough feed (TownSim.trough_feed: the rot alone, no load landing) × v.war, plus the muster TownSim settles
+## at on that mint's WORK (TownSim.workforce_steady at mint × v.work / worker mass, the lifetime, slots and idle cap
+## now). Before, the train read this substep's mint and muster: a landed load's feed of 1 and the WORK burst it
+## musters, held across the whole forecast. After midgame_2flips' load that read 9.713 against the 7.617 the split
+## settles at a minute on; over a convoy cycle the split swings 63.5 ↔ 98.7 and this reads 63.5, its minimum.
+## It ignores the bodies in store, so a big stock reads low for as long as the pits burn it at full.
+func _train_war_at(v: Dictionary) -> float:
+	var mint := _mint(town_sim.pit_weight(), town_sim.trough_feed())
+	var wm := worker_mass()
+	var r := mint * float(v["work"]) / wm if wm > 0.0 else 0.0
+	var steady := TownSim.workforce_steady(r, town_sim.lifetime_s(relish["state"] == "home"), town_sim._idle_rot,
+		float(town_sim.staffing.get("slots", 0.0)), town_sim.idle_cap())
+	return mint * float(v["war"]) + float(steady["muster"]) * wm
 
 
 ## The wave train at `war` mass/s of WAR (view_projection's valve with `settled`), cached (_train).

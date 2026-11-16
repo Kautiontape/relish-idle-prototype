@@ -21,6 +21,7 @@ func run() -> int:
 	_fall_early()
 	_fall_planned()
 	_arrival()
+	_settled_support()
 	_cache()
 	_frame()
 	_reset()
@@ -422,11 +423,39 @@ func _arrival() -> void:
 	t.ok(v.valve != v.valve_target, "(setup) a substep in, the valve is still slewing: %s" % str(v.valve))
 	var live := v._train_live()
 	var n := int(v._train_cache.get("computed", 0))
-	var tw := float(v._split["mint"]) * 0.10 + float(v._split["muster"])
+	var ts := v.town_sim
+	var mint_tr := v._mint(ts.pit_weight(), ts.trough_feed())
+	var st := TownSim.workforce_steady(mint_tr * 0.75 / v.worker_mass(), ts.lifetime_s(v.relish["state"] == "home"), ts._idle_rot,
+		float(ts.staffing.get("slots", 0.0)), ts.idle_cap())
+	var tw := mint_tr * 0.10 + float(st["muster"]) * v.worker_mass()  # the target's settled WAR (_settled_support)
 	t.ok(absf(v._train_war() - tw) < 1e-12 and v._train_valve(v._train_war()) == live and int(v._train_cache.get("computed", 0)) == n,
 		"the live train reads the target's WAR (%.3f, the split is at %.3f): the settled projection there is the same probe" % [v._train_war(), float(v._split["war"])])
 	var mid := v.realm.train_probe(v._train_support(float(v._split["war"]), true), v.digest_q())
 	t.ok(live["forts"] != mid["forts"], "and its verdicts differ from the mid-slew split's: %s against %s" % [str(live["forts"]), str(mid["forts"])])
+
+
+## The settled support (E4 must-fix #1; GameState._train_war_at). midgame_2flips a substep after its load still
+## burns the saved load at a feed of 1, so the split's WAR is above the 7.617 it settles at a minute on. The
+## train reads that settled WAR from the first substep (before, it read the burst's 9.713 across the whole
+## forecast). A minute on, with the load burned, the pits' trough feed is their feed and the train's WAR is the
+## split's. view_projection with `settled` at the valve's target is view_fort's verdict, and reads the same WAR.
+func _settled_support() -> void:
+	var s := _fixture("midgame_2flips")
+	s.tick(s.substep_s())
+	var w0 := s._train_war()
+	var burst := float(s._split["war"])
+	var feed0 := float(s.town_sim.rates["feed"])
+	t.ok(feed0 > s.town_sim.trough_feed() + 0.1 and burst > w0 + 1.0,
+		"(setup) a substep after the load the pits burn it at a feed of %.2f (trough %.2f): the split's WAR %.3f, the train's %.3f" % [
+		feed0, s.town_sim.trough_feed(), burst, w0])
+	var proj: Dictionary = s.view_projection(s.valve_target, true)
+	var vf := s.view_fort("ashgate")
+	t.ok(str(proj["margins"]["ashgate"]["margin"]) == str(vf["margin"]) and absf(s._train_war_at(s.valve_target) - w0) == 0.0,
+		"view_projection with settled at the target reads view_fort's verdict at Ashgate (%s) on the same WAR" % vf["margin"])
+	s.tick(60.0)
+	t.near(float(s._split["war"]), w0, 1e-6, "a minute on, the split settles at the WAR the train read at the first substep")
+	t.near(s.town_sim.trough_feed(), float(s.town_sim.rates["feed"]), 1e-9, "with the load burned, the trough feed is the pits' feed")
+	t.near(s._train_war(), float(s._split["war"]), 1e-9, "and the train's WAR is the split's")
 
 
 ## The cache: one probe serves view_realm, every view_fort and view_projection with `settled` at the current

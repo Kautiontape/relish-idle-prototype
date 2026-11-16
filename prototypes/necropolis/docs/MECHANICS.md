@@ -652,8 +652,8 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
     say "safe" at a fort that falls). `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s
     margins, read every fort as if unsieged (`GameState._forecast_siege`), while RealmSim's step applies the block.
     So the chip is conservative: a fort reads safe only if it holds without its siege, and it may read thin where
-    the siege actually holds it. Why: the wave train's support is the WAR at the sampling instant, held over the
-    whole forecast. Credited, a block let that error turn safe where the sim breaks the fort. One substep after
+    the siege actually holds it. Why: the wave train's support was the WAR at the sampling instant, held over the
+    whole forecast (the settled WAR since E4, below). Credited, a block let that error turn safe where the sim breaks the fort. One substep after
     midgame_2flips' load, the train reads Ashgate's WAR at 1.427 and Old Sluice's at 0.970 against the 1.119 and
     0.761 they settle at a minute later. On those garrisons the blunted waves never rotate to Old Sluice, which the
     sim breaks at 1 315 s; with the valve's WAR cut to 0.05 the sieged Ashgate itself read safe and fell at 988 s
@@ -779,6 +779,17 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     epoch (since the last grace end or break), and the probe stops early once settled or every fort is
     broken. A set still unsettled there reads thin, not safe. It also stops at `hold.safe_horizon_s` of
     probe time, which counts as held (only a clock pushed far off, in tests, gets there).
+  - **The support it reads is the settled WAR** (E4 must-fix #1; `GameState._train_war_at`): the mint at the pits'
+    trough feed (`TownSim.trough_feed`: the rot alone, burned up to what the staffed pits can burn, as with no load
+    landing and an empty store) × the valve's WAR share, plus the muster TownSim settles at on that mint's WORK
+    (`TownSim.workforce_steady`). Before, it read the substep's mint and muster, a landed load's feed of 1 and the
+    WORK burst it musters, held across the whole forecast. One substep after midgame_2flips' load that read 9.713
+    mass/s against the 7.617 the split settles at a minute later; over a convoy cycle (the sessions bot's day 2) the
+    split swings 63.5 ↔ 98.7 and the settled WAR reads 63.5, its minimum, without flicker (an average over the
+    last trip read 77.7–98.7). It ignores the bodies in store, so a large stock reads low for as long as the pits
+    burn it at full: pessimistic, not false (a follow-up). It isn't guaranteed to err early: the train isn't
+    monotone in WAR (midgame_2flips at a WAR share of 0.45 reads Ashgate safe at the settled 7.617 and thin at
+    the burst's 9.713; it holds). `view_projection` reads the same settled WAR at its valve.
   - **What it reads that isn't in today's flows yet**, both committed and changed only by a command: the
     WAR **at the valve's target** (it slews there at `valve.slew_per_s`, at most 20 s for a full swing),
     and **Relish where she is travelling to** (her trip takes seconds at `relish.travel_speed`): her tide

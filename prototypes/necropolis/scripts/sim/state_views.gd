@@ -366,7 +366,8 @@ static func war_supports(gs: GameState, wars: Array) -> Dictionary:
 ## field equals the live views', the margins with `settled` (E2b-2 T3.4b).
 ## Margins: by default (a drag) the one-wave probe, each row margin_verified false; with `settled` the wave
 ## train at that valve (gs._train_valve, cached on the valve's WAR and the state), margin_verified true, the
-## same verdict view_fort reads at the current valve.
+## same verdict view_fort reads at the current valve. The train and the fall clock's plan read the settled WAR
+## at the valve (gs._train_war_at: the trough feed's mint and the steady muster at its WORK; E4 must-fix #1).
 static func projection(gs: GameState, valve_in: Dictionary, settled := false) -> Dictionary:
 	var v := gs._projection_valve(valve_in)
 	var mint := float(gs._split["mint"])
@@ -385,8 +386,11 @@ static func projection(gs: GameState, valve_in: Dictionary, settled := false) ->
 	var diff := float(gs._readout["diff_ema"]) + (float(split["flood"]) - float(gs._split["flood"])) \
 		+ (float(wa[1]) - float(gs.realm.r_war_to_vei))
 	var margins := {}
-	var train: Dictionary = gs._train_valve(war)["forts"] if settled else {}
-	var plan := gs._train_support(war, false)  # the valve's split with Relish where she is travelling to
+	# the train and the fall clock's plan read the settled WAR at that valve (gs._train_war_at, E4 must-fix #1),
+	# as view_fort reads it at the valve's target; garrison_rate and war_supports stay at the split above
+	var war_s := gs._train_war_at(v)
+	var train: Dictionary = gs._train_valve(war_s)["forts"] if settled else {}
+	var plan := gs._train_support(war_s, false)  # the valve's split with Relish where she is travelling to
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
 		if float(f["undead"]) > 0.0:
