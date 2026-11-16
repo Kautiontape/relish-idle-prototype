@@ -551,6 +551,10 @@ func clone() -> TownSim:
 	c.forge = forge.duplicate()
 	c.rates = rates.duplicate(true)
 	c._vats = _vats.duplicate()
+	# the staffing as it stands (E3-3): a foreman's multiplier reads its building's hands (_fm_works), and a
+	# projection reads pit_weight() before its first step's restaff refills it (StateViews._proj_step's mint)
+	c.staffing = staffing.duplicate(true)
+	c._by_lot = _by_lot.duplicate(true)
 	c._mark_rooms()
 	return c
 

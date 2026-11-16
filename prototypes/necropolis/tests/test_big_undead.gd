@@ -64,6 +64,9 @@ func run() -> int:
 	_fm_gold_cap()
 	_fm_pit_ledger()
 	_fm_view()
+	_fm_outputs()
+	_fm_stance_flows()
+	_fm_clone_sync()
 	_identity()
 	_fm_catchup()
 	return t.failures
@@ -534,6 +537,95 @@ func _fm_view() -> void:
 		if e["lot_id"] == "lot-04":
 			back = float(e["foreman_mult"])
 	t.ok(back == 1.0, "moved to the crypt: 1.0 at once")
+
+
+## Places an FM-speed big undead (granted) on each of `lots`; returns their uids.
+func _foremen_at(s: GameState, lots: Array) -> Array:
+	var n := s.big_undead.size()
+	s.cmd_debug_grant({"big_undead": lots.size()})
+	var uids: Array = []
+	for i in lots.size():
+		var b: Dictionary = s.big_undead[n + i]
+		b["stats"]["speed"] = FM["speed"]
+		b["stats"]["presence"] = FM["presence"]
+		s.cmd_place_big_undead(b["uid"], "town:" + str(lots[i]))
+		uids.append(b["uid"])
+	return uids
+
+
+## view_town's `output` shows a working foreman's building × m: the Market's gold, the Raising Pit's mint and burn,
+## the Bone Mill's bone, the Forge's work, against the same view with the foremen in the crypt.
+func _fm_outputs() -> void:
+	var s := _town()
+	var m := _m()
+	var uids := _foremen_at(s, ["lot-02", "lot-04", "lot-05", "lot-06"])
+	var on := {}
+	for e in s.view_town()["buildings"]:
+		on[e["lot_id"]] = e["output"]
+	for uid in uids:
+		s.cmd_place_big_undead(uid, "crypt")
+	var off := {}
+	for e in s.view_town()["buildings"]:
+		off[e["lot_id"]] = e["output"]
+	var ok := true
+	var shown: Array = []
+	for pair in [["lot-04", "gold"], ["lot-02", "mint"], ["lot-02", "burn"], ["lot-05", "bone"], ["lot-06", "forge"]]:
+		var a := float(off[pair[0]].get(pair[1], 0.0))
+		var b := float(on[pair[0]].get(pair[1], 0.0))
+		ok = ok and a > 0.0 and _near(b, a * m)
+		shown.append("%s %.3f -> %.3f" % [pair[1], a, b])
+	t.ok(ok and on["lot-03"] == off["lot-03"], "view_town output × m at each working foreman's building: %s" % ", ".join(PackedStringArray(shown)))
+
+
+## The stances' projection runs on the foremen too (TownSim.stance_flows): the gold flow up by (m − 1) × the stalls'
+## income, the bone by (m − 1) × the mill's, the pits counted as pit_weight; and Thrift's condition reads the
+## Market foreman's gold (trade_income × m).
+func _fm_stance_flows() -> void:
+	var s := _town()
+	var m := _m()
+	var c0 := s.town_sim.clone()
+	c0.restaff()
+	var c1 := s.town_sim.clone()
+	c1.set_foremen({"lot-02": FM.duplicate(), "lot-04": FM.duplicate(), "lot-05": FM.duplicate()})
+	c1.restaff()
+	var r0 := c0.stance_flows([], false, {}, true, 0)
+	var r1 := c1.stance_flows([], false, {}, true, 0)
+	var inc := c0.trade_income()
+	var bone := float(c0.lot_output("lot-05", 0.0, 0.0)["bone"])
+	t.ok(_near(float(r1["gold"]) - float(r0["gold"]), (m - 1.0) * inc) and _near(float(r1["bone"]) - float(r0["bone"]), (m - 1.0) * bone)
+		and float(r0["pits"]) == 1.0 and _near(float(r1["pits"]), c1.pit_weight()) and _near(float(r1["pits"]), m) and r1["feed"] == r0["feed"],
+		"stance_flows: gold %+.4f, bone %+.4f, pits %.2f (pit_weight), feed unchanged" % [float(r1["gold"]) - float(r0["gold"]),
+		float(r1["bone"]) - float(r0["bone"]), float(r1["pits"])])
+	t.ok(inc > 0.0 and _near(c1.trade_income(), inc * m), "Thrift reads the stalls' income × m: %.4f -> %.4f /s" % [inc, c1.trade_income()])
+
+
+## clone() carries the foremen (every projection runs on a clone); a place that ends a foreman's work reaches TownSim
+## at once, with no step between: into the party, its building demolished, its first build cancelled.
+func _fm_clone_sync() -> void:
+	var s := _town()
+	var m := _m()
+	var uid: String = _foremen_at(s, ["lot-04"])[0]
+	var pit: String = _foremen_at(s, ["lot-02"])[0]
+	var c := s.town_sim.clone()
+	t.ok(c.foremen == s.town_sim.foremen and _near(c.foreman_mult("lot-04"), m) and _near(c.pit_weight(), m),
+		"clone() carries the foremen and the staffing they read: %s, pit_weight %.2f" % [str(c.foremen), c.pit_weight()])
+	var feed := float(s.town_sim.rates.get("feed", 0.0))
+	var pm := float(StateViews._proj_base(s)["rates"]["mint"])
+	t.ok(_near(pm, s._mint(m, feed)) and pm > s._mint(1.0, feed), "the build card's baseline (a clone stepped once) mints on the Pit foreman's weight: %.3f" % pm)
+	s.cmd_place_big_undead(pit, "crypt")
+	s.cmd_set_party([uid])
+	t.ok(s.town_sim.foremen.is_empty() and s.town_sim.foreman_mult("lot-04") == 1.0, "into the party: TownSim drops it at once")
+	s.cmd_place_big_undead(uid, "town:lot-04")
+	t.ok(s.town_sim.foremen.has("lot-04"), "(setup) placed again")
+	t.ok(s.cmd_demolish("lot-04")["ok"] and s.town_sim.foremen.is_empty() and s.big_undead[0]["place"] == "crypt",
+		"its building demolished: home to the crypt, and TownSim drops it at once")
+	var d := _mk()
+	d.cmd_debug_grant({"gold": 500.0, "bone": 200.0})
+	t.ok(d.cmd_build("house", "lot-05")["ok"], "(setup) a House started on lot-05")
+	var u2: String = _foremen_at(d, ["lot-05"])[0]
+	t.ok(d.town_sim.foremen.has("lot-05") and d.town_sim.foreman_mult("lot-05") == 1.0, "a foreman on a construction: allowed, gives nothing")
+	t.ok(d.cmd_cancel_build("lot-05")["ok"] and d.town_sim.foremen.is_empty() and d._find_uid(d.big_undead, u2)["place"] == "crypt",
+		"its first build cancelled: home to the crypt, and TownSim drops it at once")
 
 
 ## The identity harness (the parent's PARENT came from this code on a snapshot): `fx` under `c` with `crypt` moved to
