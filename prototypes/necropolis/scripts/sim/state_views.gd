@@ -880,15 +880,17 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if RealmSim.is_held(f) and not retaken.has(id) and float(was.get("yield", 1.0)) < 1.0 and gs._yield_mult(f) >= 1.0:
 			gains.append(_away_line(str(rep["refilled_fmt"]).format({"fort": str(f["name"])}), "refilled", ""))
 			ready.append(_away_line(str(rep["raid_fmt"]).format({"fort": str(f["name"])}), "raid", id))
-	# ready: husks waiting while the crypt has room for a big undead; an empty queue, and with the stores full a
-	# prompt to raid; else (R2) the queue's head still waiting on funds, when its funds come or that they don't
+	# ready: husks waiting while the crypt has room for a big undead; an empty queue, or with the stores full the
+	# prompt to raid in its place (W: no build can be planned without relics, so "Queue empty" would contradict
+	# it); else (R2) the queue's head still waiting on funds, when its funds come or that they don't
 	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
 		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
 		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
 	if gs.build_queue.is_empty():
-		ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
 		if stores_full(gs, float(rep["full_tol"])):
 			ready.append(_away_line(str(rep["full_raid"]), "raid", ""))
+		else:
+			ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
 	else:
 		var w := BuildRules.queue_walk(gs, gs.build_queue)
 		for i in (w["rows"] as Array).size():
@@ -943,17 +945,23 @@ static func _move_down_helps(gs: GameState, i: int) -> bool:
 ## `waits`; the row's no_gold / no_bone when it names none), the net rates (BuildRules.queue_net) and whether moving it
 ## down would let another entry start in its place (`movable`; _move_down_helps, F2). A positive time: afford_wait_fmt, "Inn is waiting on gold: affordable in
 ## 6 m", rounded up to the minute so a wait under one never reads "0 m". −1.0: that store's net rate (a rate
-## token) and what raises it, afford_raise's words, "House can't be afforded at today's income of 0/s bone: move it
-## down, or build a Bone Mill" (afford_never_fmt), without the move down when it can't help: nothing
+## token) and what raises it, afford_raise's words, "House can't be afforded at the current income of 0/s bone:
+## move it down, or build a Bone Mill" (afford_never_fmt), without the move down when it can't help: nothing
 ## behind it could start in its place (afford_never_last_fmt). F1 (the run's manager): when the entry is its store's own producer
 ## (idle.report.afford_producer, matched on the building, so an upgrade counts) the raise never names it:
-## afford_raise_self's fact instead, "Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing
-## else makes bone: move it down" (afford_never_self_fmt; afford_never_self_last_fmt when moving down can't help).
+## afford_raise_self's fact instead, "Bone Mill level 2 can't be afforded at the current income of 0/s bone, and
+## nothing else makes bone: move it down" (afford_never_self_fmt; afford_never_self_last_fmt when moving down can't
+## help). W (the run's manager, Shawn's words): short of relics, which have no idle income, no rate and no raise:
+## "Crypt level 2 needs relics: raid a fort, or move it down" (afford_relics_fmt; afford_relics_last_fmt without the
+## move down). The away report's walk gates a relic shortfall (no_relics) before any head waits on funds, so no
+## head reaches this form today.
 static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary, movable: bool) -> String:
 	var s := store if store != "" else ("bone" if str(row.get("reason", "")) == "no_bone" else "gold")
 	var name := _building_name(gs, rep, str(row["building_id"]), int(row["level"]))
 	var a := float(row["affordable_in_s"])
 	if a < 0.0:
+		if s == "relics":
+			return str(rep["afford_relics_fmt" if movable else "afford_relics_last_fmt"]).format({"name": name})
 		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),
@@ -963,13 +971,16 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 
 
 ## R1 (the run's manager; IDLE §7): the losses' unpaid lines, one per building unpaid at some time during the
-## absence, in lot order: idle.report.unpaid_fmt, "Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths
-## shook the town harder; stores kept" (kind `unpaid`, target its lot). Its time is the sum of its spells from the
+## absence, in lot order: idle.report.unpaid_fmt, "Statue of Relish stopped for 1 h 12 m, gold ran out: lifted no
+## morale, deaths shook the town harder" (kind `unpaid`, target its lot). Its time is the sum of its spells from the
 ## `building_unpaid` events in `evs` (unpaid true, then false); a building unpaid when you left (`b.unpaid`, or a
 ## resume with no spell open) counts from the start, one still unpaid at the end to the end. What it stopped is
 ## one unpaid_stopped phrase per GameState.unpaid_keys (its jobs, then its working effects), each phrase once,
-## joined by unpaid_sep; unpaid_none when it has neither. F2: an effect nothing reads yet (idle.report.unpaid_inert)
-## stopped nothing, so it has no phrase.
+## joined by unpaid_sep. F2: an effect nothing reads yet (idle.report.unpaid_inert) stopped nothing, so it has no
+## phrase. W (the run's manager): the store that ran out is each store its buildings.json upkeep is above 0 in
+## (BuildRules.upkeep_of: the same at every level; gold for every building today), afford_stores' words joined by
+## list_sep; under a minute in all, where when_m_fmt would read "0 m", it stopped "briefly" (unpaid_brief_fmt); one
+## that stopped nothing has no tail (unpaid_none_fmt, unpaid_none_brief_fmt): "Watchtower stopped for 59 m, gold ran out".
 static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Array) -> Array:
 	var t0 := float(b["t"])
 	var spells := {}  # lot_id -> [seconds unpaid so far, the open spell's start or −1]
@@ -1008,9 +1019,15 @@ static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Ar
 			var w := str(stopped_words[key])
 			if not phrases.has(w):
 				phrases.append(w)
-		var stopped := str(rep["unpaid_sep"]).join(PackedStringArray(phrases)) if not phrases.is_empty() else str(rep["unpaid_none"])
-		out.append(_away_line(str(rep["unpaid_fmt"]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
-			"when": _when(rep, secs), "stopped": stopped}), "unpaid", lot_id))
+		var paid: Array = []
+		var up := BuildRules.upkeep_of(gs, bid)
+		for k in up:
+			if float(up[k]) > 0.0:
+				paid.append(str(rep["afford_stores"][k]))
+		var fmt := "unpaid" + ("_none" if phrases.is_empty() else "") + ("_brief" if secs < 60.0 else "") + "_fmt"
+		out.append(_away_line(str(rep[fmt]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
+			"when": _when(rep, secs), "store": str(rep["list_sep"]).join(PackedStringArray(paid)),
+			"stopped": str(rep["unpaid_sep"]).join(PackedStringArray(phrases))}), "unpaid", lot_id))
 	return out
 
 

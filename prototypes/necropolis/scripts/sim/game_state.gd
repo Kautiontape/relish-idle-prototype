@@ -62,12 +62,15 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
 	"overflow_fmt", "store_labels", "overflow_min",
 	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
-	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped", "unpaid_inert",
+	"unpaid_fmt", "unpaid_sep", "unpaid_stopped", "unpaid_inert",
 	# R2: ready's line for the queue's head still waiting (StateViews.afford_text) and the full stores' raid prompt
 	"afford_wait_fmt", "afford_never_fmt", "afford_stores", "afford_raise", "full_tol", "full_raid",
 	# F1: that line without the move down when nothing is behind the head, and its forms for a head that is its
 	# store's own producer (the raise never names the entry itself)
-	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self"]
+	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self",
+	# W: the unpaid line under a minute ("briefly") and, when it stopped nothing, without its tail; the stuck head
+	# short of relics in Shawn's words, with and without the move down
+	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_fmt", "afford_relics_last_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -299,8 +302,9 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 
 ## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
 ## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
-## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` and `afford_raise` word gold,
-## bone and relics, and `full_tol` is in [0, 1); F1: `afford_producer` names a buildings.json building for gold
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` words gold, bone and relics and
+## `afford_raise` gold and bone (W: a head short of relics has its own line, afford_relics_fmt), and `full_tol` is
+## in [0, 1); F1: `afford_producer` names a buildings.json building for gold
 ## and for bone (the stores a building makes) and for no store the tables don't word, and `afford_raise_self`
 ## words each producer's store; else what is missing. setup() reports it as an error.
 static func report_config_problem(cfgs: Dictionary) -> String:
@@ -322,12 +326,13 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	for k in ["gold", "bone"]:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
-	# R2: the queue head's line names the store its time waits on and what raises it, for every store a queue
-	# time can wait on; the raid prompt's full_tol is a fraction of the cap
-	for table in ["afford_stores", "afford_raise"]:
-		for k in ["gold", "bone", "relics"]:
-			if not (rep[table] is Dictionary and (rep[table] as Dictionary).has(k)):
-				return "config economy.idle.report.%s has no %s" % [table, k]
+	# R2: the queue head's line names the store its time waits on, for every store a queue time can wait on, and
+	# what raises it, for gold and bone (W: relics' line is afford_relics_fmt's, "raid a fort"); the raid prompt's
+	# full_tol is a fraction of the cap
+	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]]]:
+		for k in pair[1]:
+			if not (rep[pair[0]] is Dictionary and (rep[pair[0]] as Dictionary).has(k)):
+				return "config economy.idle.report.%s has no %s" % [pair[0], k]
 	var tol: Variant = rep["full_tol"]
 	if not ((tol is float or tol is int) and float(tol) >= 0.0 and float(tol) < 1.0):
 		return "config economy.idle.report.full_tol (%s) is not a fraction of the cap in [0, 1)" % str(tol)

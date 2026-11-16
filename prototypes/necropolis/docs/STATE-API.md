@@ -162,8 +162,8 @@ from `BALANCE.md` §0.
 
   `api_version` 7 (R1, from the E2b-2 vision review; the run's manager's rule) added:
   - the away report's **`unpaid` line** (§5.19, IDLE §7): a new `kind` value, `"unpaid"`, in `view_away().losses`,
-    one line per building that went unpaid during the absence, "Statue of Relish unpaid for 1 h 12 m: lifted no
-    morale, deaths shook the town harder; stores kept". Its `target` is the building's **lot id**, a new kind of
+    one line per building that went unpaid during the absence, "Statue of Relish stopped for 1 h 12 m, gold ran
+    out: lifted no morale, deaths shook the town harder" (W's wording). Its `target` is the building's **lot id**, a new kind of
     target (additive for map: `AwayLogic.action` reads an unknown target as `none` today; a click could dive to
     Covington at that lot). An enum value is an addition under the rule above, so the version moves to 7;
   - **the upkeep's shed order** (MECHANICS §4.3, `economy.json` `upkeep.shed_order`, `buildings.json`
@@ -178,7 +178,7 @@ from `BALANCE.md` §0.
     review's warning at queue time. The walk that sets `status` sets it, so the two never disagree;
   - (R2) **the away report's `ready` says why the queue sat still, or that the stores are full** (§5.19, IDLE
     §7): a line for the queue's head still waiting on funds when the absence ends, "Inn is waiting on gold:
-    affordable in 6 m" or "House can't be afforded at today's income of 0/s bone: move it down, or build a
+    affordable in 6 m" or "House can't be afforded at the current income of 0/s bone: move it down, or build a
     Bone Mill" (`kind` `queue`, `target` `"queue"`; the move down only when another queued entry could start in
     the head's place, F2), and, with the queue empty and gold and bone full (within
     `idle.report.full_tol` of their caps), the prompt "Your stores are full and the queue is empty: raid a fort
@@ -188,10 +188,21 @@ from `BALANCE.md` §0.
   - (F1, the run's manager; F2 sharpened the rule) **that stuck line never names itself or a move that can't
     help** (§5.19): unless some other queued entry could start if the head weren't ahead of it (the queue's walk
     less the head has a row that isn't `skipped_gate` with `affordable_in_s` >= 0) it drops "move it down"
-    ("House can't be afforded at today's income of 0/s bone: build a Bone Mill": nothing behind it, or only entries
+    ("House can't be afforded at the current income of 0/s bone: build a Bone Mill": nothing behind it, or only entries
     that need bone too, or only gated ones), and a head that is its store's own producer gets a true fact for what raises it
-    instead of itself ("Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes
-    bone: move it down"). Text only: the line's `kind`, `target` and shape are R2's.
+    instead of itself ("Bone Mill level 2 can't be afforded at the current income of 0/s bone, and nothing else makes
+    bone: move it down"). Text only: the line's `kind`, `target` and shape are R2's;
+  - (W, E3's first task; text only: W adds no key and changes no shape, so the version stays 7 and there is no v8)
+    **the away report is worded as a returning player reads it** (§5.19, IDLE §7; the run's manager's rulings on
+    the review of T7 + R1 + R2): the unpaid line names the store that ran out, "Charnel House stopped for 3 h 20 m,
+    gold ran out: hauled no corpses" ("stopped briefly" under a minute; no tail when it stopped nothing,
+    "Watchtower stopped for 59 m, gold ran out"; no more "unpaid for", "nothing stopped" or "; stores kept"); a
+    queued start reads "House started 2 h 10 m after you left, when the gold came in"; the stuck line reads "at
+    the current income of 0/s bone" (the rate still a token of its own); a head short of relics reads Shawn's
+    "Crypt level 2 needs relics: raid a fort" (", or move it down" under F2's rule), with no rate; the full
+    store's line reads "Gold is full: 2,162 not stored" (`kind` `overflow`, in `losses`, as before); and "Queue
+    empty: plan the next build" no longer shows beside the raid prompt: the prompt takes its place. Kinds,
+    targets and the line shape are unchanged.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1978,46 +1989,53 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`;
   - each queued build that started (`build`, `queue_started` events), with when, measured from when you
     left, and why, one `idle.report.waited_on` template per `waited_on` value (`needs_tier` "when the tier
-    rose", `no_gold` "when the gold came in", ...; `""` started at once): `"Bakery started at 6 m, when the
-    gold came in"`, `"Inn started right away"`. A building is named by its town label
+    rose", `no_gold` "when the gold came in", ...; `""` started at once): `"Bakery started 6 m after you left,
+    when the gold came in"`, `"Inn started right away"`. A building is named by its town label
     (`buildings_view.json`, the town's), with `level_fmt` past level 1 ("Market level 2");
   - each fort refilled (`refilled`): held now, not retaken during the absence, its loot yield below 1 when
     you left and back to 1 now (MECHANICS §5.3): `"Ashgate refilled"`.
 - **ready:** each refilled fort, `"Ashgate refilled: raid it"` (`raid`, the fort); husks waiting while the
   crypt has room for a big undead (fewer than its cap), wherever Relish is, `"2 husks: raise at the slab"`
-  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`). From v7
+  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`), unless the
+  stores are full: the raid prompt below shows in its place (W). From v7
   (R2, the E2b-2 vision review's item 3), the queue's line when it isn't empty: its head still waiting on funds
   at the end of the absence (the first `waiting_funds` entry of `view_town().queue`, §5.9), from its
   `affordable_in_s` and the store that sets it, `"Inn is waiting on gold: affordable in 6 m"` (the wait rounded
-  up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at today's income
+  up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at the current income
   of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
-  below the cap, and what raises it, `idle.report.afford_raise`); none when no entry waits on funds (every one
-  gated). From F1: `"House can't be afforded at today's income of 0/s bone: build a Bone Mill"` when moving the head
+  below the cap, and what raises it, `idle.report.afford_raise`), and short of relics, Shawn's words with no rate,
+  `"Crypt level 2 needs relics: raid a fort"` (W; `afford_relics_fmt` adds ", or move it down" under F2's rule;
+  no head reaches it today, since the walk gates a relic shortfall as `no_relics` first); none when no entry waits
+  on funds (every one gated). From F1: `"House can't be afforded at the current income of 0/s bone: build a Bone Mill"` when moving the head
   down can't help (F2: no other queued entry could start in its place: nothing behind it, or only entries stuck on
   the same store, or only gated ones; no move down), and when the head is its store's own producer
   (`idle.report.afford_producer`, the Bone Mill for bone and the Market for gold, its upgrades too) a fact in place
-  of itself, `"Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes bone: move
-  it down"` (`afford_raise_self`; without ": move it down" when moving it down can't help). `queue`, `"queue"`, so the map's click dives to the queue. And after `"Queue empty"`, when gold and
+  of itself, `"Bone Mill level 2 can't be afforded at the current income of 0/s bone, and nothing else makes bone: move
+  it down"` (`afford_raise_self`; without ": move it down" when moving it down can't help). `queue`, `"queue"`, so the map's click dives to the queue. And with the queue empty, when gold and
   bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
   the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
-  `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind).
+  `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind), in place of
+  `"Queue empty"` (W: no build can be planned without relics).
 - **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
   it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
   with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
   retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
   Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
-  in `ledger().stores`, from `idle.report.overflow_min` (1) wasted (`overflow`, `""`), `"Gold overflowed: 120
-  wasted"`; before the overflow, from v7 (R1), each building that went unpaid during the absence, in lot
-  order (`unpaid`, its lot id): `"<label> unpaid for <time>: <what it stopped doing>; stores kept"`,
-  `"Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths shook the town harder; stores kept"`. The
-  time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6): one unpaid
-  when you left counts from the start, one still unpaid at the end to the end, and it reads as `when_hm_fmt`
-  / `when_m_fmt` ("0 m" under a minute). What it stopped is one `idle.report.unpaid_stopped` phrase per job it
-  offers and per working effect it has (capacity effects are kept, and so are the effects in `idle.report.unpaid_inert`,
-  which nothing reads yet: F2), each phrase once, joined by
-  `unpaid_sep`; `unpaid_none` ("nothing stopped") for a building with neither, a House or the Reliquary.
-  "stores kept" holds always: an unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost:
-  the map prints "Nothing lost."
+  in `ledger().stores`, from `idle.report.overflow_min` (1) not stored (`overflow`, `""`), `"Gold is full: 120
+  not stored"` (W: not called waste); before it, from v7 (R1), each building that went unpaid during the absence,
+  in lot order (`unpaid`, its lot id), worded by W: `"<label> stopped for <time>, <store> ran out: <what it
+  stopped doing>"`, `"Statue of Relish stopped for 1 h 12 m, gold ran out: lifted no morale, deaths shook the town
+  harder"`. The time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6):
+  one unpaid when you left counts from the start, one still unpaid at the end to the end, and it reads as
+  `when_hm_fmt` / `when_m_fmt`, or "briefly" under a minute (`"Charnel House stopped briefly, gold ran out:
+  hauled no corpses"`). The store is each one its `buildings.json` upkeep is above 0 in, in
+  `idle.report.afford_stores`' words joined by `list_sep` (gold for every building today); it is read from the
+  configs, not from the event, which keeps its keys. What it stopped is one `idle.report.unpaid_stopped` phrase per
+  job it offers and per working effect it has (capacity effects are kept, and so are the effects in
+  `idle.report.unpaid_inert`, which nothing reads yet: F2), each phrase once, joined by `unpaid_sep`; a building
+  with neither, a House, the Reliquary or the Watchtower, has no tail: `"Watchtower stopped for 59 m, gold ran
+  out"`. An unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost: the map prints "Nothing
+  lost."
 - **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
   significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
   (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
@@ -2036,11 +2054,11 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
 #     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
-# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd), and, with its bone
-# over its cap as midgame_2flips' is, ready adds "Your stores are full and the queue is empty: raid a fort for
-# relics" (raid, "") after "Queue empty" (R2)
+# it"; with gold near its cap, losses add "Gold is full: 2,162 not stored" (tests/test_away.gd), and, with its bone
+# over its cap as midgame_2flips' is, ready shows "Your stores are full and the queue is empty: raid a fort for
+# relics" (raid, "") in place of "Queue empty" (R2; W)
 Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)
-# -> {..., ready: [{text: "House can't be afforded at today's income of 0/s bone: build a Bone Mill",  # F2: the Well needs bone too
+# -> {..., ready: [{text: "House can't be afforded at the current income of 0/s bone: build a Bone Mill",  # F2: the Well needs bone too
 #                   kind: "queue", target: "queue"}], ...}
 ```
 
@@ -2084,7 +2102,7 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
-| `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started at 3:12, when the tier rose": `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
+| `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started 3 h 12 m after you left, when the tier rose" (W's wording): `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |
 | `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays at the retake's 1), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |

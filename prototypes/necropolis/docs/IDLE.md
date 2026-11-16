@@ -578,22 +578,28 @@ same profile with the game closed.
 - **The first caps take at least about 8 h of the default income to fill,** which covers a night away
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
 - **Overflow is tallied beside the ledger** (`ledger().stores`; gold and bone are not mass, so the mass
-  soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was wasted (T3.3).
+  soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was not stored (T3.3;
+  W: "Gold is full: 2,162 not stored").
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on
 a **"While you were away"** panel. It is ordered **gains, then ready actions, then losses**:
 - **gains:** how long you were away, then each core stream's net rate and net total (the backlog with
-  its ▲/▼), builds finished, and forts refilled;
+  its ▲/▼), builds finished, each queued build that started ("House started 2 h 10 m after you left,
+  when the gold came in", W; "Inn started right away" when it never waited), and forts refilled;
 - **ready now,** each line an action: "Ashgate refilled: raid it", "2 husks: raise at the slab",
-  "Queue empty: plan the next build";
+  "Queue empty: plan the next build" (not when the stores are full: the raid prompt below takes its place);
   - **The queue's head still waiting** (R2, from the E2b-2 vision review's item 3: "come back and nothing
     happened"). When the absence ends with the queue's head waiting on funds, one line says when its funds
     come, from its `affordable_in_s` (MECHANICS §4.4): "Inn is waiting on gold: affordable in 6 m" (rounded
-    up to the minute, so a wait under one never reads "0 m"), or, when it never will at today's income,
-    "House can't be afforded at today's income of 0/s bone: move it down, or build a Bone Mill": the
+    up to the minute, so a wait under one never reads "0 m"), or, when it never will at the current income,
+    "House can't be afforded at the current income of 0/s bone: move it down, or build a Bone Mill": the
     store, its net rate now, and what raises it (`idle.report.afford_raise`: a Market for gold, a Bone Mill
-    for bone, a raid for relics). `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
+    for bone). A head short of relics, which have no idle income, gets Shawn's words with no rate (W, the
+    run's manager): "Crypt level 2 needs relics: raid a fort", with ", or move it down" under the rule below
+    (`afford_relics_fmt`, `afford_relics_last_fmt`). No head reaches that form today: the queue's walk gates a
+    relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds, and a gated entry
+    gets no line. `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
     queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
     to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
     - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
@@ -601,40 +607,47 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
       anyway) and has `affordable_in_s` >= 0 (affordable now, or later at today's income). With nothing behind
       it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
-      line drops it: "House can't be afforded at today's income of 0/s bone: build a Bone Mill". With a Bone Mill
-      behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at today's income of 0/s
-      bone: move it down, or build a Bone Mill";
+      line drops it: "House can't be afforded at the current income of 0/s bone: build a Bone Mill". With a Bone
+      Mill behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at the current income
+      of 0/s bone: move it down, or build a Bone Mill";
     - **its store's own producer** (`idle.report.afford_producer`: the Market for gold, the Bone Mill for
       bone; an upgrade counts): what raises the store would be the entry itself, so the line says a fact
       instead, true today (only a mill makes bone, only a Market gold, and a raid gives neither: loot.json
-      has relics and no gold or bone): "Bone Mill level 2 can't be afforded at today's income of 0/s bone,
+      has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
       bone fact holds until P4 makes rot a source of bone.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
     the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
-    fort for relics" (`kind` `raid`, `target` `""`, after "Queue empty"). The overflow line stays in
-    losses for now (E4 moves it).
+    fort for relics" (`kind` `raid`, `target` `""`), in place of "Queue empty" (W: no build can be planned
+    without relics, so the two would contradict each other). The full store's line stays in losses for now
+    (E4 moves it).
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
-  store overflow. An absence with no losses says **"Nothing lost."**
-  - **Unpaid** (R1, the run's manager): one line per building that was unpaid at some time during the
-    absence, in lot order, with how long it was unpaid in all (its `building_unpaid` spells, true then
-    false, in the catch-up's events; one unpaid when you left counts from the start, one still unpaid
-    at the end to the end) and what it stopped doing: "Statue of Relish unpaid for 1 h 12 m: lifted no
-    morale, deaths shook the town harder; stores kept". The name is its town label (`level_fmt` past
-    level 1), the time the report's "{h} h {m} m" / "{m} m" (a spell under a minute reads "0 m").
-    "What it stopped" is one phrase per job it offers and per working effect it has (`pits`, `morale`,
-    `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`), each an
-    `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and
-    `pits` effect: "raised no undead"); a building with neither (a House, the Reliquary: only
-    capacity effects, which an unpaid building keeps) says "nothing stopped". So does one whose only
-    working effects are in `idle.report.unpaid_inert` (F2: the effect keys nothing in the sim reads yet,
-    `hint_precision` today, so a Watchtower's line reads "Watchtower unpaid for 1 h: nothing stopped; stores
-    kept", not a lie about vaguer fort hints). A key leaves that list in the change that makes the sim read it,
-    and gets its words in `unpaid_stopped` then. "Stores kept" is always
-    true: capacity effects count while unpaid (MECHANICS §4.3), so no cap fell and no stock was lost.
-    `kind` `unpaid`, `target` its lot id.
+  each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
+  An absence with no losses says **"Nothing lost."**
+  - **Unpaid** (R1, the run's manager; W words it as a returning player reads it): one line per building
+    that was unpaid at some time during the absence, in lot order, with how long it was stopped in all (its
+    `building_unpaid` spells, true then false, in the catch-up's events; one unpaid when you left counts
+    from the start, one still unpaid at the end to the end), the store that ran out, and what it stopped
+    doing: "Charnel House stopped for 3 h 20 m, gold ran out: hauled no corpses". The name is its town label
+    (`level_fmt` past level 1), the time the report's "{h} h {m} m" / "{m} m"; under a minute in all it
+    stopped "briefly" ("Charnel House stopped briefly, gold ran out: hauled no corpses",
+    `unpaid_brief_fmt`), the report's minute rounding, not a tuning number. The store is each one its
+    `buildings.json` upkeep is above 0 in (the same at every level), worded by `idle.report.afford_stores`:
+    gold for every building today, since none pays bone; one that paid both would read "gold · bone ran out"
+    (`list_sep`). "What it stopped" is one phrase per job it offers and per working effect it has (`pits`,
+    `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`), each an
+    `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and `pits`
+    effect: "raised no undead"); a building with neither (a House, the Reliquary: only capacity effects,
+    which an unpaid building keeps) has no tail: "House stopped for 14 m, gold ran out" (`unpaid_none_fmt`,
+    `unpaid_none_brief_fmt`). So does one whose only working effects are in `idle.report.unpaid_inert` (F2:
+    the effect keys nothing in the sim reads yet, `hint_precision` today, so a Watchtower's line reads
+    "Watchtower stopped for 59 m, gold ran out", not a lie about vaguer fort hints). A key leaves that list in
+    the change that makes the sim read it, and gets its words in `unpaid_stopped` then. Capacity effects count
+    while unpaid (MECHANICS §4.3), so no cap falls and no stock is lost; the line no longer says "stores
+    kept", which read as the stockpile's safety rather than the building's idleness. `kind` `unpaid`,
+    `target` its lot id.
 
 The full in/out table per stream is a debug view. API: `view_away()` (the last report, kept until
 dismissed) and the `away_report` event.
