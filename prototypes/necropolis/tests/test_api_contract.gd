@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 7,
+	"API_VERSION": 8,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -25,10 +25,9 @@ const DOC_CONSTANTS := {
 	"DEBUG_STATE_KEYS": ["time_scale", "paused", "relish_at", "valve", "forge_level", "won", "forts"],
 }
 ## Arrays and maps that are empty by design until E3 fills them, so their element schemas only run
-## then. The fixtures cannot fill them either (the test checks it).
-const E1_EMPTY := {
-	"view_stances.stances[].projected": "stance projections are E3",
-}
+## then. The fixtures cannot fill them either (the test checks it). None since E3-1: the stances' projections are
+## filled (FIXTURE_EMPTY has them).
+const E1_EMPTY := {}
 ## Arrays the fixtures can't fill because they predate them (make_fixtures.gd isn't rerun; T3.2). The
 ## exercise still fills them (_check_coverage), and the fixture check asserts they are still empty there.
 const FIXTURE_EMPTY := {
@@ -37,6 +36,9 @@ const FIXTURE_EMPTY := {
 	"view_away.gains": "the away report is a catch-up's (T3.3c)",
 	"view_away.ready": "the away report is a catch-up's (T3.3c)",
 	"view_away.losses": "the away report is a catch-up's (T3.3c)",
+	# E3-1: a stance's projection is {} while toggling it changes nothing, and at a fixture load no stance is active
+	# yet (nothing fired: the conditions are read at the first beat); the exercise fills it
+	"view_stances.stances[].projected": "no stance is active at a fixture load (E3-1)",
 }
 
 var t: TestUtil
@@ -456,7 +458,9 @@ func _exercise(s: GameState) -> void:
 	t.ok(won_raid["minted"].size() == 2 and won_raid["errors"] == [], "the husk and the remnant are minted")
 	var dup := _cmd(s, "apply_result", ["raid", win], false)
 	t.ok(dup["reason"] == "duplicate_run" and dup["minted"] == [] and dup["errors"] == [], "a repeat is duplicate_run")
-	var evs := _event_list(s)
+	# (E3-1: the travel's substeps may raise stance_fired, each checked against the contract; these lists leave them out)
+	var no_stances := func(e: Dictionary) -> bool: return e["type"] != "stance_fired"
+	var evs := _event_list(s).filter(no_stances)
 	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "fort_flipped"], "a won dungeon emits loot_banked, then fort_flipped")
 	t.ok(evs[1]["hold_s"] == 375.0 and evs[0]["minted"] == won_raid["minted"], "hold_s 375 (tier 1) and the minted uids")
 	t.ok(s.view_relish()["state"] == "at_fort" and s.view_fort("old-sluice")["flipped_count"] == 1, "she stays at the fort, which has flipped once")
@@ -468,7 +472,7 @@ func _exercise(s: GameState) -> void:
 		"relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "backlog_spent": 100.0}
 	_cmd(s, "apply_result", ["boss", _with_key(lose, "relish_deaths", 3)], false)
 	_cmd(s, "apply_result", ["boss", lose], true)
-	evs = _event_list(s)
+	evs = _event_list(s).filter(no_stances)
 	t.ok(evs.map(func(e): return e["type"]) == ["vei_result", "relish_died", "relish_respawned"], "a lost boss with a final death: vei_result first")
 	t.ok(s.view_relish()["state"] == "home" and s.view_party()["party"].is_empty(), "she is home, the party died")
 	_all_views(s)  # after a boss loss
@@ -477,9 +481,9 @@ func _exercise(s: GameState) -> void:
 	var d2 := _cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
 	_cmd(s, "apply_result", ["raid", _raid_result(d2["seed"], {"retreated": false, "relish_died": true,
 		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 0}})], true)
-	evs = _event_list(s)
+	evs = _event_list(s).filter(no_stances)
 	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died", "relish_respawned"], "a raid death emits relish_died and relish_respawned")
-	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped", "queue_started"]:
+	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped", "queue_started", "stance_fired"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death
 	_persistence(s)

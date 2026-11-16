@@ -81,11 +81,11 @@ func _rich(seed_val := 1) -> GameState:
 	s.realm.tithe["next_s"] = 150.5
 	s.realm.tithe["next_id"] = 2
 	s._phylactery_charges = 1
-	s._stance_hold = {"harvest": 12.5}
 	s.cmd_move_relish("vei")
 	s.tick(1.0)
 	s.town_sim.start_construction("lot-06", "well", 1)  # its building_started is pending until a step
 	s._readout = {"diff_ema": -0.25, "q_raise_ema": 1.5}  # after the last tick, which moves diff_ema
+	s._stance_hold = {"harvest": 12.5}  # after the last tick too: E3-1's holds run down each step
 	s.cmd_set_time_scale(1.0)
 	s.towns[0]["control"] = "green"  # after the last tick, which would recompute them from the field
 	s.towns[1]["control"] = "orange"

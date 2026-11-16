@@ -248,7 +248,8 @@ static func convoys(gs: GameState) -> Array:
 
 ## §5.9 · E2: TownSim's town. Lots from town.json; buildings with their state, progress, slots,
 ## staffing, cap, foreman, output and upkeep; the ladder and its jobs; the workforce, the living,
-## morale and its factors, the stocks and caps, trade, the convoy. Stances (ladder_effective) are E3.
+## morale and its factors, the stocks and caps, trade, the convoy. ladder_effective is the ladder after the
+## stances acting (E3-1: TownSim.effective_ladder).
 static func town(gs: GameState) -> Dictionary:
 	var ts := gs.town_sim
 	var lots: Array = []
@@ -267,8 +268,9 @@ static func town(gs: GameState) -> Dictionary:
 		var cl := ts.construction_left(lot_id)
 		var top := int(BuildRules.buildings_cfg(gs).get(bid, {}).get("max_level", 1))
 		buildings.append({
+			# E3-1: a building the Thrift stance idles reads "idle" (§5.9: "no staff, or a stance idles it")
 			"lot_id": lot_id, "building_id": bid, "level": int(b["level"]),
-			"state": str(b["state"]), "progress": float(b["progress"]), "slots": ts.lot_slots(lot_id),
+			"state": "idle" if b["state"] == "thrift" else str(b["state"]), "progress": float(b["progress"]), "slots": ts.lot_slots(lot_id),
 			"staffed": float(staffed.get(lot_id, 0.0)), "staff_cap": int(b["staff_cap"]),
 			"foreman": gs._foreman_of(lot_id), "output": ts.lot_output(lot_id, p_per_pit, haul_rate), "upkeep": BuildRules.upkeep_of(gs, bid),
 			# v6 (E2b-2 T3.2, api-request #17): construction time, TownSim's own numbers
@@ -427,15 +429,89 @@ static func beat_id(gs: GameState) -> int:
 	return int(floor(gs.t / beat_s)) if beat_s > 0.0 else 0
 
 
-## §5.11 · E3. E1 echoes cmd_set_stance: nothing fires, nothing is projected.
+## §5.11 · E3 (live from E3-1, MECHANICS §4.5): each stance's toggle and suspension, its condition (`active`, for
+## every stance, on or off: GameState._stance_step), the beat of its last change, its hold left, and `projected`
+## (stance_projections).
 static func stances(gs: GameState) -> Dictionary:
 	var slots := gs._stance_slots()
+	var proj := stance_projections(gs)
 	var list: Array = []
 	for id in GameState.STANCE_IDS:
 		var idx := gs.stances_on.find(id)
-		list.append({"id": id, "on": idx >= 0, "suspended": idx >= slots, "active": false,
-			"fired_beat_id": -1, "hold_s_left": 0.0, "projected": {}})
+		list.append({"id": id, "on": idx >= 0, "suspended": idx >= slots, "active": gs._stance_active.has(id),
+			"fired_beat_id": int(gs._stance_fired.get(id, -1)), "hold_s_left": maxf(0.0, float(gs._stance_hold.get(id, 0.0))),
+			"projected": (proj[id] as Dictionary).duplicate()})
 	return {"rev": gs.rev, "slots": slots, "used": mini(gs.stances_on.size(), slots), "beat_id": beat_id(gs), "stances": list}
+
+
+## view_stances' `projected` (STATE-API §5.11, E3-1): for each stance, the change in each net rate per second if it
+## were toggled now, as cmd_set_stance would toggle it (turning one on that no slot has room for changes nothing;
+## turning an older one off can free a slot for a suspended one). Pure, no rev, no event: the stances that would act
+## then (GameState._acting_of; `active` as it stands) give TownSim.stance_flows' flows from the one allocation
+## (staff_allocate) on the effective ladder they make, Muster's idle cap and Thrift's buildings (the ones it idles
+## now, or TownSim.thrift_pick's when it would start acting), against the same flows for the stances acting now:
+## - workers, bodies, gold, bone, living: the change in that net (per second);
+## - mint: the change in the next step's mint (GameState._mint at the pits' feed); work, war and flood: Δmint × the
+##   valve the next step splits with (the current valve slewed one substep), war plus Δmuster × worker.mass;
+##   backlog: Δflood plus the change in the WAR that falls through to Vei (RealmSim.war_at), as the build card's;
+## - corpses: minus the change in the haul (the convoy takes the corpses it brings).
+## Sparse: a rate the toggle leaves alone is absent, and a stance whose toggle changes no stance's acting (an
+## inactive one, or one no slot has room for) reads {}. Cached on [rev, t, structure_rev] (gs._stance_proj).
+static func stance_projections(gs: GameState) -> Dictionary:
+	var key := [gs.rev, gs.t, gs.town_sim.structure_rev]
+	var cached: Array = gs._stance_proj
+	if not cached.is_empty() and cached[0] == key:
+		return cached[1]
+	var out := {}
+	var now := gs._acting_of(gs.stances_on)
+	var base := {}
+	for id in GameState.STANCE_IDS:
+		var on_list: Array = gs.stances_on.duplicate()
+		if on_list.has(id):
+			on_list.erase(id)
+		elif on_list.size() < gs._stance_slots():
+			on_list.append(id)
+		var acting := gs._acting_of(on_list)
+		if acting == now:
+			out[id] = {}
+			continue
+		if base.is_empty():
+			base = _stance_flows(gs, now, now)
+		out[id] = _stance_diff(gs, _stance_flows(gs, acting, now), base)
+	gs._stance_proj = [key, out]
+	return out
+
+
+## TownSim.stance_flows for the stances `acting`, `now` those acting today (Thrift's buildings: the ones it idles
+## while it acts and keeps acting, thrift_pick's when it would start).
+static func _stance_flows(gs: GameState, acting: Dictionary, now: Dictionary) -> Dictionary:
+	var ts := gs.town_sim
+	var thrift := {}
+	if acting.has("thrift"):
+		for lot_id in (ts.thrift_pick() if not now.has("thrift") else ts._lists()["thrift"]):
+			thrift[lot_id] = true
+	return ts.stance_flows(gs._top_jobs_of(acting), acting.has("muster"), thrift, gs.relish["state"] == "home", gs.green_towns)
+
+
+## A toggled stance's flows `r` against today's `b` (stance_projections): {rate_id: Δ}, only the rates that move.
+static func _stance_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionary:
+	var v := gs._slewed_valve(gs.substep_s())
+	var dm := gs._mint(int(r["pits"]), float(r["feed"])) - gs._mint(int(b["pits"]), float(b["feed"]))
+	var d_must := (float(r["muster"]) - float(b["muster"])) * gs.worker_mass()
+	var war0 := float(gs._split["mint"]) * float(v["war"]) + float(gs._split["muster"])
+	var d_war := dm * float(v["war"]) + d_must
+	var fell := 0.0
+	if d_war != 0.0:
+		fell = float(gs.realm.war_at(war0 + d_war)[1]) - float(gs.realm.war_at(war0)[1])
+	var all := {"mint": dm, "work": dm * float(v["work"]), "war": d_war, "flood": dm * float(v["flood"]),
+		"backlog": dm * float(v["flood"]) + fell, "corpses": -(float(r["haul"]) - float(b["haul"]))}
+	for id in ["workers", "bodies", "gold", "bone", "living"]:
+		all[id] = float(r[id]) - float(b[id])
+	var out := {}
+	for id in GameState.RATE_IDS:
+		if float(all[id]) != 0.0:
+			out[id] = float(all[id])
+	return out
 
 
 ## §5.12 · E1. Simulacra and phylactery charges are E3 (0).
@@ -806,7 +882,8 @@ static func away_streams(gs: GameState) -> Dictionary:
 
 ## What a reporting catch-up starts from (Catchup.begin), for the report's before-and-after: the time, the
 ## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, the
-## village owners, and the lots whose building is unpaid (R1: their unpaid lines count from the start).
+## village owners, and the lots whose building is unpaid (R1: their unpaid lines count from the start) or idled by
+## the Thrift stance (E3-1: their Thrift lines too).
 static func away_before(gs: GameState) -> Dictionary:
 	var forts := {}
 	for f in gs.realm.forts:
@@ -815,11 +892,14 @@ static func away_before(gs: GameState) -> Dictionary:
 	for tw in gs.towns:
 		villages[str(tw["id"])] = str(tw["control"])
 	var unpaid: Array = []
+	var thrift: Array = []  # E3-1: the lots the Thrift stance idles (their Thrift lines count from the start)
 	for lot_id in gs.town_sim.buildings:
 		if gs.town_sim.buildings[lot_id]["state"] == "unpaid":
 			unpaid.append(str(lot_id))
+		elif gs.town_sim.buildings[lot_id]["state"] == "thrift":
+			thrift.append(str(lot_id))
 	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
-		"unpaid": unpaid}
+		"unpaid": unpaid, "thrift": thrift}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -935,6 +1015,7 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
 	losses.append_array(_unpaid_lines(gs, rep, b, evs))
+	losses.append_array(_thrift_lines(gs, rep, b, gs._catchup.thrift_log))
 	var o := _overflow(gs)
 	for k in ["gold", "bone"]:
 		var lost := float(o[k]) - float(b["overflow"][k])
@@ -1056,6 +1137,50 @@ static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Ar
 		out.append(_away_line(str(rep[fmt]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
 			"when": _when(rep, secs), "store": str(rep["list_sep"]).join(PackedStringArray(paid)),
 			"stopped": str(rep["unpaid_sep"]).join(PackedStringArray(phrases))}), "unpaid", lot_id))
+	return out
+
+
+## E3-1 (the run's manager's ruling; IDLE §7): the losses' Thrift lines, one per building the Thrift stance idled at
+## some time during the absence, in lot order, after the unpaid lines: idle.report.thrift_fmt, "Statue of Relish idled
+## by Thrift for 2 h 10 m: lifted no morale, deaths shook the town harder", naming Thrift, not the gold. Kind `unpaid` with
+## the building's lot as its target, as R1's lines have it (no new kind or target). Its time is the sum of its spells
+## from `idles` (Catchup.thrift_log: [t, lot_id, idled], in order); one idled when you left (`b.thrift`) counts from the
+## start, one still idled at the end to the end. What it stopped is the unpaid line's phrases (GameState.unpaid_keys),
+## and under a minute it was idled "briefly" (thrift_brief_fmt); one that stopped nothing has no tail
+## (thrift_none_fmt, thrift_none_brief_fmt).
+static func _thrift_lines(gs: GameState, rep: Dictionary, b: Dictionary, idles: Array) -> Array:
+	var spells := {}  # lot_id -> [seconds idled so far, the open spell's start or −1]
+	for lot_id in b.get("thrift", []):
+		spells[str(lot_id)] = [0.0, float(b["t"])]
+	for e in idles:
+		var lot := str(e[1])
+		var sp: Array = spells.get(lot, [0.0, -1.0])
+		if bool(e[2]):
+			if float(sp[1]) < 0.0:
+				sp[1] = float(e[0])
+		elif float(sp[1]) >= 0.0:
+			sp[0] = float(sp[0]) + float(e[0]) - float(sp[1])
+			sp[1] = -1.0
+		spells[lot] = sp
+	var out: Array = []
+	var stopped_words: Dictionary = rep["unpaid_stopped"]
+	var cfg := BuildRules.buildings_cfg(gs)
+	for l in BuildRules.lots_cfg(gs):
+		var lot_id := str(l.get("id", ""))
+		if not spells.has(lot_id):
+			continue
+		var sp: Array = spells[lot_id]
+		var secs := float(sp[0]) + (gs.t - float(sp[1]) if float(sp[1]) >= 0.0 else 0.0)
+		var bl: Dictionary = gs.town_sim.buildings.get(lot_id, {})
+		var bid := str(bl.get("building_id", ""))
+		var phrases: Array = []
+		for key in GameState.unpaid_keys(cfg.get(bid, {}), rep["unpaid_inert"]):
+			var w := str(stopped_words.get(key, key))
+			if not phrases.has(w):
+				phrases.append(w)
+		var fmt := "thrift" + ("_none" if phrases.is_empty() else "") + ("_brief" if secs < 60.0 else "") + "_fmt"
+		out.append(_away_line(str(rep[fmt]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
+			"when": _when(rep, secs), "stopped": str(rep["unpaid_sep"]).join(PackedStringArray(phrases))}), "unpaid", lot_id))
 	return out
 
 

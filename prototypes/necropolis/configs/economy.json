@@ -67,6 +67,8 @@
       "full_tol": 0.01, "full_raid": "Your stores are full and the queue is empty: raid a fort for relics",
       "unpaid_fmt": "{name} stopped for {when}, {store} ran out: {stopped}", "unpaid_brief_fmt": "{name} stopped briefly, {store} ran out: {stopped}",
       "unpaid_none_fmt": "{name} stopped for {when}, {store} ran out", "unpaid_none_brief_fmt": "{name} stopped briefly, {store} ran out",
+      "thrift_fmt": "{name} idled by Thrift for {when}: {stopped}", "thrift_brief_fmt": "{name} idled briefly by Thrift: {stopped}",
+      "thrift_none_fmt": "{name} idled by Thrift for {when}", "thrift_none_brief_fmt": "{name} idled briefly by Thrift",
       "unpaid_sep": ", ", "unpaid_inert": ["hint_precision"],
       "unpaid_stopped": {
         "pit": "raised no undead", "pits": "raised no undead", "haul": "hauled no corpses", "mill": "milled no bone",
@@ -77,7 +79,11 @@
     }
   },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
-  "stance": { "base_slots": 2 },
+  "stance": {
+    "base_slots": 2, "hold_s": 15.0,
+    "top_job": { "vigil": "tend", "harvest": "haul", "hearth": "stall" }, "priority": ["vigil", "harvest", "hearth"],
+    "harvest_bodies_frac": 0.3, "hearth_morale": 0.5, "thrift_upkeep": 0.05, "thrift_spares_from": "war_mill"
+  },
   "job": {
     "default_ladder": ["build", "haul", "pit", "stall", "mill", "forge", "tend"],
     "haul": { "speed": 140.0, "carry": 14.0, "auto_min_dead": 4.0 },

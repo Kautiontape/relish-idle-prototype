@@ -37,7 +37,7 @@ v2 folds in two reviews (run folder `reports/review-docs-vision.md` and
 | Results | `scripts/sim/results.gd` | economy | schema validation for seeds and results, used by both sides' tests |
 | RealmSim | `scripts/sim/realm_sim.gd` | economy | `step(dt, inputs)`, pure on its inputs |
 | TownSim | `scripts/sim/town_sim.gd` | economy | workforce, jobs, living, gold, bone, buildings' effects |
-| Stances | `scripts/sim/stances.gd` | economy | the job ladder and stances (§4.5) |
+| Stances | `scripts/sim/game_state.gd` (the stance step, E3-1), `scripts/sim/town_sim.gd` (their effects) | economy | the job ladder and stances (§4.5); planned as `stances.gd`, kept in the two files they read and write |
 | Backups | `scripts/sim/backups.gd` | economy | the only writer of Relish's death and respawn state; vats, clones, phylactery |
 | Ledger | `scripts/sim/ledger.gd` | economy | source/sink/held accounting (§2.1); preloaded as `GameState.Ledger`, with no `class_name` (the dungeon's inner `RaidLogic.Ledger` would clash with a global one) |
 | Game (autoload) | `autoload/game.gd` | economy | thin shell: real-delta ticking, autosave, `events` signal |
@@ -894,7 +894,7 @@ mass; bodies, rot return, WORK and muster are mass.
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
   - Idle beyond `worker.idle_cap` are mustered to WAR at once (`n · worker.mass` mass), so WORK is
     never a black hole, but it is waste. The workforce never ends a step above the staffable slots
-    plus `idle_cap`.
+    plus `idle_cap`. While the Muster stance acts the idle cap reads 0 (§4.5, `TownSim.idle_cap`).
 - **The update is exact** (IDLE §4). With the step's inflow held constant, the equation is linear in
   three regimes: all staffed (τ = `lifetime`), some idle (τ = `lifetime / idle_rot_mult`), and pinned
   at slots + `idle_cap` with the surplus mustered. Each boundary crossing is timed exactly, so one
@@ -1284,21 +1284,76 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   `view_staffing_projection` (STATE-API §5.16) with another order, so a preview never drifts from
   the staffing it previews.
 - **Stances:** named, pre-written behaviours the player toggles. Slots: `stance.base_slots` (2), plus
-  the Guildhall, plus 1 while Relish is home. Each shows its projected effect on net rates before you
-  toggle it. None touches the valve (one controller per dial).
+  the Guildhall, plus 1 while Relish is home; when they run short the newest are suspended (on, but no
+  effect) until a slot frees. Each shows its projected effect on net rates before you toggle it. None
+  touches the valve (one controller per dial). Live from E3-1 (the run's manager's rulings for Shawn); the
+  thresholds are `economy.json` `stance`, v0 (BALANCE §5, E4 calibrates).
 
-| stance | effect |
-|---|---|
-| Vigil | while Relish is away or dead, tend jumps to the top of the ladder |
-| Harvest | while bodies < 30% of cap, haul jumps to the top |
-| Thrift | buildings over a gold upkeep threshold idle when gold income < upkeep |
-| Muster | idle workers muster to WAR at once (no idle cap) |
-| Hearth | stalls and the inn jump to the top while morale < 0.5 |
+| stance | condition (binary) | effect while it acts |
+|---|---|---|
+| Vigil | Relish is away from home or dead (any state but `home`) | `tend` to the top of the effective ladder |
+| Harvest | bodies < `stance.harvest_bodies_frac` (0.3) × the body cap | `haul` to the top |
+| Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
+| Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once |
+| Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
 
-- Stances act on the ladder's order and on binary conditions only, with a `stance.hold_s` minimum
-  so nothing chatters.
+- **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
+  while it is on, not suspended and active; an off or suspended stance shows `active` and does nothing.
+- **When it is read** (STATE-API §3 step 1). Each core step starts with the stance step: at a new beat
+  (`floor(t / beat_s)`, `pulse.json` `tempo_ms`, 1.714 s) every condition is read from the state the step
+  starts from (TownSim's after the last step: its staffing, stocks and morale; Relish's state). Which
+  stances act (the toggles and the slots) is applied at the start of every core step, and at once by
+  `cmd_set_stance`, so a slot that goes with Relish suspends a stance's effect from the next step.
+- **The hold.** A stance's `active` can't change again until `stance.hold_s` has passed since its last
+  change (15 s at E3-1; `hold_s_left` shows what is left). Each change emits `stance_fired {stance_id, active,
+  beat_id}` and sets `fired_beat_id` to the beat; one that never changed reads −1. The hold is at least
+  catch-up's longest step (IDLE §4), so a catch-up step changes a stance at most once, as live play would.
+- **Conditions that their own effect would undo.** Muster's effect leaves nobody idle, so "idle workers"
+  alone would switch it off a step after it acts and on again a hold later; it reads the last step's muster
+  too, so it holds while the town makes more hands than it has work for. Thrift's upkeep counts the buildings
+  it idles as paying (what the town would owe without Thrift), so idling them doesn't switch it off; it stops
+  when the income covers the whole bill again.
+- **Several lift at once:** their jobs go to the top in `stance.priority` order (shipped `vigil`, `harvest`,
+  `hearth`: Relish's way back first, a tend slot opening only for a staffed vat, so it takes few hands; then
+  the pits' bodies; then the stalls), the rest of the ladder after in the player's order. `stance.top_job`
+  names each ladder stance's job (config, checked at setup).
+- **Hearth moves the stalls only.** The table used to say "stalls and the inn"; `buildings.json` gives the Inn
+  no job slots, so nothing of the Inn can move up a ladder.
+- **The effective ladder and the rooms.** The stances change `ladder_effective` (`TownSim.effective_ladder`:
+  the lifted jobs on top) through `TownSim.set_top_jobs`, which marks the room cache (it is keyed on the
+  player's ladder), so the one allocation restaffs at once.
+- **Thrift** (the run's manager's ruling, applying R1):
+  - **Reach:** only buildings whose `shed_class` ranks before `stance.thrift_spares_from` (`war_mill`) in
+    `upkeep.shed_order`: decorations, passive and job buildings; never the WAR chain (Bone Mill, charnel
+    houses, raising pits) at any level, and never a store's earner (a building with stall or mill jobs: the
+    Market). Upkeep is the same at every level (`buildings.json` `upkeep`), so "over the threshold at its
+    level" is its one figure.
+  - **Order and amount:** when Thrift starts acting (its condition turns active while it is on, it is turned
+    on while active, or a slot frees for it) it idles the eligible working buildings one at a time in shed
+    order (the decorations first), the dearest first within a class, ties in lot order, and stops once the
+    stalls' income covers the upkeep still paid, or nothing eligible is left (`TownSim.thrift_pick`). The
+    income is today's: a job building idled frees hands the stalls may then take, which isn't counted, so it
+    may idle one more than it needed. A building mid-upgrade isn't picked. The set is kept while it acts: a
+    deficit that grows later falls to the shed order at the gold floor (§4.3), as before. When Thrift stops
+    acting (inactive, off or suspended), every building it idled resumes at once and pays from that step.
+  - **An idled building** takes TownSim's state `thrift`, which `view_town` shows as `"idle"` (STATE-API §5.9:
+    "no staff, or a stance idles it"): like an unpaid one it offers no slots, gives no output and pays no
+    upkeep, and keeps its capacity effects (its caps) and its tier count (`count_built`). It never resumes by
+    the upkeep's rule, only when Thrift stops acting; an upgrade started on it takes it out of Thrift's set
+    (it works at its old level while it builds).
+  - The away report names Thrift as the reason, not the gold (IDLE §7).
+  - **It doesn't flicker** (R1's measure, the run's manager: no building idled and resumed again within
+    `upkeep.unpaid_hold_s`, 30 s; `slow/stances_catchup`): from pre_vei with Thrift on, 12 h live at 0.5 s,
+    Thrift turns active at the first beat (2.0 s) and idles the Statue, the Walls and the Reliquary from that
+    step's start (1.5 s), 0.47 gold/s of upkeep, and nothing else switches in 12 h: the stalls' 0.60 gold/s pays
+    the 0.60 left, so the gold holds at 3 616 and never reaches the floor that sheds nine buildings at 7 692 s
+    with no stance on (§4.3). 0 `building_unpaid`.
+- **Projected** (`view_stances().stances[].projected`, STATE-API §5.11): the change in each net rate per second
+  if the stance were toggled now, from the one allocation (`TownSim.staff_allocate` on the effective ladder
+  the toggle would make, with Muster's cap and Thrift's buildings) and the flows TownSim's step runs on that
+  staffing, against the same for the stances acting now: pure, no rev, no event.
 - Firings show in `view_stances()` with `fired_beat_id`. The town scene flashes the affected agents
-  on its next visual beat.
+  on its next visual beat (for every stance's change, on or off, since `active` is for every stance).
 
 ### 4.6 The crypt slab: big undead
 - Only while Relish is home. The town scene's crypt view runs SlabLogic's live preview (ported from
@@ -1541,7 +1596,11 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate
   (`town_sim`, `game_state_town`). Building, upgrading, tiers, caps and the catalog agreeing with
   `cmd_build` (`game_state_build`).
-- **Ladder and stances:** ladder ordering (`town_sim`); stances, hold and no chatter are E3 (not yet).
+- **Ladder and stances:** ladder ordering (`town_sim`); the stances (E3-1, `stances`): each one's effect on the
+  ladder and the staffing, `active` for an off stance, suspension, the hold, `fired_beat_id` and `stance_fired`,
+  the priority, Thrift's order, reach and kept caps, its away line, `projected` against live, the save, and
+  catch-up (bit-identical to the tip with none on; with Thrift and Muster on, 30 min at 10 s against live;
+  `slow/stances_catchup` 6 h and Thrift's flicker).
 - **Backups:** order; clones grow only while staffed; the loot-loss bound: E3 (not yet).
 - **`q`:** the formula, and the circle EMA (mass-weighted, unchanged by 12 h of idle ticking)
   (`game_state_macro`).

@@ -130,8 +130,37 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
-  (`GameState.catchup_config_problem`, an error naming both keys; `test_catchup` overrides them both ways
-  round). The key is E3's and not in `economy.json` yet, so there is nothing to check until E3 adds it.
+  (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;
+  `test_catchup` overrides them both ways round). E3-1 ships it at 15 s.
+- **The stances in catch-up** (E3-1, MECHANICS §4.5). The stance step is the core step's first (STATE-API §3
+  step 1), so catch-up runs it as live play does: at a new beat each condition is read from the state the step
+  starts from, and a step of 10 or 15 s crosses a beat every time. The conditions move on continuous stocks
+  (bodies, morale, the stalls' income against the upkeep), and Relish's state, whose arrival is clipped already.
+  **Catch-up doesn't clip at a condition's crossing; the hold alone keeps it exact enough** (the run's manager
+  asked for the decision and its evidence):
+  - a crossing inside a step is seen at the next step's start, at most one step late, where live play sees it
+    at the next beat (1.714 s). Then the hold, at least the longest step, keeps the stance there: a step
+    changes a stance at most once, as live play does, so a catch-up never chatters where live play holds, and
+    each change is one step late at most;
+  - nothing a stance changes is a cliff the step's other clips depend on: a ladder stance moves hands between
+    jobs (the convoy, the stalls, the pits' feed: rates the step integrates), Muster's idle cap is applied
+    exactly inside TownSim's workforce update, and Thrift's idled buildings pay no upkeep from the step's start;
+  - **with no stance on, catch-up is bit-identical to the tip** (41749be): 12 h caught up from each fixture
+    hashes the same state (to_dict() less its `stances` block and `api_version`), the same events less
+    `stance_fired`, and the same away report (`test_stances`). What differs is the stance state: each
+    condition's `active`, its hold and `fired_beat_id` (the save's `stances`), and the `stance_fired` events;
+  - **with stances on, catch-up matches live**: pre_vei with Thrift and Muster on (both act from the first
+    beat), 30 min caught up at 10 s against 30 min at 0.5 s: the same stances act and Thrift idles the same
+    three buildings (the Statue, the Reliquary, the Walls) in both, Covington identical, every stock within
+    0.25% (gold 0.019%: catch-up idles them from its first step's start, live play at the first beat 1.5 s in),
+    the outcomes equal; its rates are as far from live as with no stance on (pre_vei's mint is a step's own
+    instant, 11.3% with none on, 12.2% here) (`test_stances`). Over 6 h at the shipped step (5 s;
+    `slow/stances_catchup`, measured at E3-1): midgame_2flips with Vigil, Harvest and Thrift on matches 0.5 s
+    in every outcome (85 waves, Old Sluice's retake 0.2 s apart against a bound of 2 × 5 s), Covington
+    identical, every stock within 0.23% and every rate within 0.008%, the same three firings in both (Vigil,
+    Harvest and the off Muster turn active; Thrift's condition never holds there, its stalls out-earn its
+    upkeep); pre_vei with Thrift and Muster on: the same outcomes, Covington identical (Thrift's same three
+    buildings), stocks within 0.49%, its mint 35.3% apart at the end (the instant above).
 - Gold and bone clamp to their floor of 0 and their cap on each step's net. The build queue loops
   inside a step until its head can't start.
 - The influence field takes `idle.field_steps` (75; 150 until E2b-2 T3.3b2, below) field steps over a
@@ -646,6 +675,7 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
     "briefly" in `_unpaid_lines`; not a tuning number.
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
+  each building the Thrift stance idled (E3-1),
   each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
   An absence with no losses says **"Nothing lost."**
   - **Unpaid** (R1, the run's manager; W words it as a returning player reads it): one line per building
@@ -670,6 +700,18 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     while unpaid (MECHANICS §4.3), so no cap falls and no stock is lost; the line no longer says "stores
     kept", which read as the stockpile's safety rather than the building's idleness. `kind` `unpaid`,
     `target` its lot id.
+  - **Idled by Thrift** (E3-1, the run's manager's ruling; MECHANICS §4.5): one line per building the Thrift
+    stance idled at some time during the absence, in lot order, after the unpaid lines, naming Thrift as the
+    reason, not the gold: "Statue of Relish idled by Thrift for 2 h 10 m: lifted no morale, deaths shook the
+    town harder" (`idle.report.thrift_fmt`; the brief's "Inn" can't be one at the shipped threshold, its 0.05
+    gold/s isn't above `stance.thrift_upkeep`). Its time is the sum of its spells (the catch-up runner notes each building
+    Thrift idles or resumes with its moment, `Catchup.thrift_log`; Thrift raises no event, its buildings read
+    `"idle"` in `view_town`); one idled when you left counts from the start, one still idled at the end to the
+    end. What it stopped is the unpaid line's phrases; under a minute it was idled "briefly"
+    (`thrift_brief_fmt`), and one that stopped nothing has no tail ("Reliquary idled by Thrift for 30 m",
+    `thrift_none_fmt`, `thrift_none_brief_fmt`). The same `kind` `unpaid` and lot target as R1's lines, so no
+    new kind or target: the kind now means "a building stopped", by the gold running out or by Thrift
+    (STATE-API §5.19). A building both unpaid and idled by Thrift in one absence gets both lines.
 
 The full in/out table per stream is a debug view. API: `view_away()` (the last report, kept until
 dismissed) and the `away_report` event.

@@ -476,7 +476,8 @@ func _unpaid_keeps_stores() -> void:
 		for i in s._vat_slots():
 			s.cmd_staff_vat(i, true)
 		for id in GameState.STANCE_IDS:
-			s.cmd_set_stance(id, true)  # up to the slots; the rest are refused no_slot
+			if id != "thrift":  # E3-1: Thrift would idle the building before the gold floor sheds it
+				s.cmd_set_stance(id, true)  # up to the slots; the rest are refused no_slot
 		var snap := func() -> Array:
 			return [s._cap_of("relics"), s.relics, s._cap_of("essence"), s.essence, s._vat_slots(), s.vats_staffed.duplicate(),
 				s._stance_slots(), s.stances_on.duplicate()]

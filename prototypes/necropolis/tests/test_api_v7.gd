@@ -31,7 +31,7 @@ func _fixture(name: String) -> GameState:
 
 
 func _version() -> void:
-	t.ok(GameState.API_VERSION == 7, "API_VERSION is 7: R2's additions join R1's v7 entry (one milestone), no v8")
+	t.ok(GameState.API_VERSION == 8, "API_VERSION is 8: R2's additions joined R1's v7 entry (one milestone); E3's v8 entry follows (E3-1's save keys, STATE-API §1.1)")
 
 
 ## Every view_town().queue entry carries affordable_in_s, a float (the queue row's schema, ApiSchema.QUEUE_ENTRY):

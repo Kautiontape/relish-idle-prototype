@@ -47,6 +47,10 @@ var field_calls := 0  ## field.catchup_step calls made
 var field_last_t := 0.0  ## the sim time of the last field call (t0 before the first)
 ## The events a report replaces ([{t, type, ...}], in queue order): the last reporting catch-up's.
 var events: Array = []
+## The buildings the Thrift stance idled and resumed during the last reporting catch-up, in order: [[t, lot_id,
+## idled]] (GameState._note_thrift, E3-1), for the away report's Thrift lines (IDLE §7). Not events: Thrift raises
+## none (a building it idles reads state "idle" in view_town).
+var thrift_log: Array = []
 ## The frames' own sim seconds while a chunked catch-up is active (GameState.tick adds them; they run
 ## once it is done). Session only.
 var frame_acc := 0.0
@@ -81,6 +85,7 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	_last_evs = []
 	if with_report:
 		events = []
+		thrift_log = []
 		before = StateViews.away_before(gs) if active else {}
 
 

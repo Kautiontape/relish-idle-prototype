@@ -1011,8 +1011,8 @@ func _determinism() -> void:
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step in config, the larger of
-## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3's key isn't in
-## economy.json yet, so there is nothing to check; at or above the longest step it holds; under it (BALANCE's
+## idle.catchup_dt_max_s and idle.catchup_dt_long_s (15 s shipped: the long step). E3-1 ships the key, at the
+## longest step, and it holds; at or above the longest step it holds; under it (BALANCE's
 ## planned 10 s against 15 s), setup() reports the problem as an error naming both keys. Both ways round
 ## (E2b-2 T3.3b2): with idle.catchup_dt_max_s overridden above idle.catchup_dt_long_s the check follows it, so
 ## it reads the config, not a fixed 15 s.
@@ -1020,8 +1020,8 @@ func _config_check() -> void:
 	var c := TestUtil.configs()
 	var idle: Dictionary = c["economy"]["idle"]
 	var longest := maxf(float(idle["catchup_dt_max_s"]), float(idle["catchup_dt_long_s"]))
-	t.ok(not (c["economy"]["stance"] as Dictionary).has("hold_s") and GameState.catchup_config_problem(c) == "",
-		"the shipped configs: no stance.hold_s yet (E3's), nothing to check")
+	t.ok(float(c["economy"]["stance"]["hold_s"]) >= longest and GameState.catchup_config_problem(c) == "",
+		"the shipped configs: stance.hold_s %.0f s (E3-1) is at least the %.0f s longest step: it holds" % [float(c["economy"]["stance"]["hold_s"]), longest])
 	c["economy"]["stance"]["hold_s"] = longest
 	t.ok(GameState.catchup_config_problem(c) == "", "stance.hold_s %.0f s against a %.0f s longest step: it holds" % [longest, longest])
 	c["economy"]["stance"]["hold_s"] = 10.0

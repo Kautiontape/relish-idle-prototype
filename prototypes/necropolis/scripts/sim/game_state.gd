@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 7
+const API_VERSION := 8
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -53,7 +53,11 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
 	"realm.tithe.warning_s",
 	# T3.3c: the away report's text (StateViews.away_report; its keys are REPORT_KEYS, checked in setup)
-	"economy.idle.report"]
+	"economy.idle.report",
+	# E3-1: the stances (MECHANICS §4.5; _stance_step): the hold, the ladder stances' jobs and order, the
+	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
+	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
+	"economy.stance.hearth_morale", "pulse.tempo_ms"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -72,7 +76,9 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	# short of relics in Shawn's words, with and without the move down
 	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt",
 	# W2: a start that waited but began within a minute of you leaving ("started within a minute of you leaving, ...")
-	"started_brief_fmt"]
+	"started_brief_fmt",
+	# E3-1: the losses' Thrift lines (one per building the Thrift stance idled during the absence; kind `unpaid`)
+	"thrift_fmt", "thrift_brief_fmt", "thrift_none_fmt", "thrift_none_brief_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -150,7 +156,24 @@ var vats_staffed: Array = []  # bool per vat slot
 var clones_ready := 0
 # --- E3 placeholders: saved and restored so a fixture can carry them; nothing reads them yet ---
 var _phylactery_charges := 0  # backups.phylactery_charges (E3)
-var _stance_hold := {}  # stance id -> hold seconds left (E3)
+# --- the stances (E3-1, MECHANICS §4.5; _stance_step). Saved as `stances`: hold, and the optional `state` ---
+## stance id -> the seconds of its hold left: its `active` can't change again until it is gone (stance.hold_s
+## after each change). Saved as stances.hold.
+var _stance_hold := {}
+## stance id -> true while its condition holds, as the stance step last let it change (STATE-API §5.11 `active`);
+## absent = false. Saved in stances.state.
+var _stance_active := {}
+## stance id -> the beat of its last change (fired_beat_id); absent = -1, never fired. Saved in stances.state.
+var _stance_fired := {}
+## The beat the stance step last read the conditions at: they are read again once beat_at(t) moves. -1 after a new
+## game (the first step reads them); a load sets the loaded t's beat. Session only.
+var _stance_beat := -1
+## The stances acting (on, not suspended, active) as _apply_stances last gave them to TownSim: {id: true}. Session
+## only (a load recomputes it from the saved stance state; Thrift's idled buildings are saved as theirs).
+var _stance_acting := {}
+## view_stances' projections, cached: [[rev, t, TownSim.structure_rev], {stance id: projected}] (StateViews.
+## stance_projections). Session only.
+var _stance_proj: Array = []
 # --- the readouts (§3 step 8, MECHANICS §2.2, §3.5); saved as the `readout` block ---
 ## diff_ema: the EMA of the differential over readout.ema_s. q_raise_ema: the mass-weighted EMA of
 ## raised circle scores behind q_raise (`ema_score`, from 50); only apply_result moves it (IDLE I2).
@@ -194,6 +217,13 @@ var _tithe_warning_s := 0.0  # realm.json tithe.warning_s (the catch-up's clip e
 var _src_per_pit := 0.0  # realm.json field_src_per_pit
 var _vei_pool_cap := 0.0  # realm.json vei_pool_cap
 var _gap_s := 0.0  # economy.json idle.gap_s (every frame's gap check)
+# the stance step's tunables (E3-1; read once: the core step reads them every step)
+var _beat_s := 0.0  # pulse.json tempo_ms / 1000: a beat, sim seconds
+var _stance_hold_s := 0.0  # economy.json stance.hold_s
+var _harvest_frac := 0.0  # economy.json stance.harvest_bodies_frac
+var _hearth_morale := 0.0  # economy.json stance.hearth_morale
+var _stance_priority: Array = []  # economy.json stance.priority: the ladder stances, top first when several act
+var _stance_top_job := {}  # economy.json stance.top_job: ladder stance id -> the job it lifts
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
 ## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
 ## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
@@ -272,6 +302,14 @@ func setup(cfgs: Dictionary) -> void:
 	_src_per_pit = _req_f("realm.field_src_per_pit")
 	_vei_pool_cap = _req_f("realm.vei_pool_cap")
 	_gap_s = _req_f("economy.idle.gap_s")
+	_beat_s = _req_f("pulse.tempo_ms") / 1000.0
+	_stance_hold_s = _req_f("economy.stance.hold_s")
+	_harvest_frac = _req_f("economy.stance.harvest_bodies_frac")
+	_hearth_morale = _req_f("economy.stance.hearth_morale")
+	var pri: Variant = _req("economy.stance.priority")
+	var top: Variant = _req("economy.stance.top_job")
+	_stance_priority = (pri as Array).duplicate() if pri is Array else []
+	_stance_top_job = (top as Dictionary).duplicate() if top is Dictionary else {}
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
 	var why_report := report_config_problem(cfgs)
@@ -280,19 +318,22 @@ func setup(cfgs: Dictionary) -> void:
 	var hold := catchup_config_problem(cfgs)
 	if hold != "":
 		push_error("GameState: " + hold)
+	var why_stance := stance_config_problem(cfgs)
+	if why_stance != "":
+		push_error("GameState: " + why_stance)
+		_stance_priority = []  # no ladder stance lifts a job rather than one lifting an unknown one
 	town_sim.setup(cfgs)
 
 
 ## IDLE §4: a stance's hold (economy.json stance.hold_s) must be at least catch-up's longest step (the larger
 ## of idle.catchup_dt_max_s and idle.catchup_dt_long_s), or a catch-up step could flip a stance twice inside
-## its hold. "" when it holds.
-## stance.hold_s is E3's and not in economy.json yet (BALANCE §5): with no key there is nothing to hold, so
-## nothing to check until E3 adds it. setup() reports a problem as an error.
+## its hold. "" when it holds. E3-1 made stance.hold_s live (BALANCE §5), so a config without it is a problem too.
+## setup() reports a problem as an error.
 static func catchup_config_problem(cfgs: Dictionary) -> String:
 	var eco: Dictionary = cfgs.get("economy", {})
 	var stance: Variant = eco.get("stance", {})
-	if not (stance is Dictionary and (stance as Dictionary).has("hold_s")):
-		return ""
+	if not (stance is Dictionary and ((stance as Dictionary).get("hold_s") is float or (stance as Dictionary).get("hold_s") is int)):
+		return "stance.hold_s is missing: a stance's hold must be at least catch-up's longest step (idle.catchup_dt_max_s, idle.catchup_dt_long_s)"
 	var hold := float(stance["hold_s"])
 	var idle: Dictionary = eco.get("idle", {})
 	var dt_max := maxf(float(idle.get("catchup_dt_max_s", 0.0)), float(idle.get("catchup_dt_long_s", 0.0)))
@@ -517,6 +558,11 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
 	_diff = 0.0
 	_stance_hold = {}
+	_stance_active = {}
+	_stance_fired = {}
+	_stance_beat = -1
+	_stance_acting = {}
+	_stance_proj = []
 	blueprints = []
 	haul_target = "auto"
 	build_queue = []
@@ -1035,7 +1081,7 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
 # staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
 # through TownSim's build job. Raise, craft and deploy are still §1.1 stubs (id checks, then ok
-# with zero extras, no change); stances and vat staffing are stored and echoed (E3).
+# with zero extras, no change). The stances act from E3-1 (the stance step, below cmd_set_stance).
 
 ## Buildings of that id that have finished their first build (level ≥ 1); every building when "".
 func _count_built(building_id: String) -> int:
@@ -1157,7 +1203,8 @@ func _stance_slots() -> int:
 
 
 ## E1/E3: stores the toggle. When the slots run short, the most recently enabled stances
-## are suspended (view_stances), not switched off.
+## are suspended (view_stances), not switched off. E3-1: the stances acting take effect at once
+## (_apply_stances: an on stance whose condition holds acts now; `active` itself moves only at a beat).
 func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"slots": 0, "used": 0})
@@ -1170,8 +1217,150 @@ func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 		stances_on.append(stance_id)
 	elif not on:
 		stances_on.erase(stance_id)
+	_apply_stances(t)
 	rev += 1
 	return {"ok": true, "reason": "", "slots": slots, "used": mini(stances_on.size(), slots)}
+
+
+# ------------------------------------------------------------------ the stances (E3-1) ----
+## MECHANICS §4.5, STATE-API §3 step 1 and §5.11. Each stance has a binary condition, computed for every stance,
+## on or off: `active` (_stance_active) is that condition as the stance step last let it change. It changes only at
+## a beat (the core step's first step, when floor(t / beat_s) has moved), and not again until economy.json
+## stance.hold_s has passed since its last change (_stance_hold: the seconds left); each change emits stance_fired
+## and sets fired_beat_id (_stance_fired). A stance acts while it is on, not suspended and active
+## (_stance_acting), and only then does its effect apply (_apply_stances).
+
+## The beat index at `at` (STATE-API §3 step 1): floor(at / beat_s), beat_s = pulse.json tempo_ms / 1000; 0 with
+## no tempo.
+func beat_at(at: float) -> int:
+	return int(floor(at / _beat_s)) if _beat_s > 0.0 else 0
+
+
+## The stance step, §3 step 1 of a core step of `dt` (t already advanced): the holds run down by dt; at a new beat
+## every stance's condition is read from the state the step starts from, and each whose hold is over and whose
+## condition differs from `active` changes (stance_fired, its fired_beat_id the beat, a fresh hold); then the
+## stances acting are applied, effective from the step's start (t − dt).
+func _stance_step(dt: float) -> void:
+	for id in _stance_hold.keys():
+		var left := float(_stance_hold[id]) - dt
+		if left <= 1e-9:
+			_stance_hold.erase(id)
+		else:
+			_stance_hold[id] = left
+	var beat := beat_at(t)
+	if beat != _stance_beat:
+		_stance_beat = beat
+		for id in STANCE_IDS:
+			if _stance_hold.has(id):
+				continue
+			var now := _stance_condition(id)
+			if now == _stance_active.has(id):
+				continue
+			if now:
+				_stance_active[id] = true
+			else:
+				_stance_active.erase(id)
+			_stance_fired[id] = beat
+			_stance_hold[id] = _stance_hold_s
+			_emit({"type": "stance_fired", "stance_id": id, "active": now, "beat_id": beat})
+	if not stances_on.is_empty() or not _stance_acting.is_empty():
+		_apply_stances(t - dt)
+
+
+## A stance's condition now (MECHANICS §4.5; its thresholds economy.json `stance`), from the state as it stands:
+## - vigil: Relish is away from home or dead (any state but home);
+## - harvest: the bodies are under stance.harvest_bodies_frac of the body cap;
+## - hearth: morale is under stance.hearth_morale;
+## - muster: there are idle workers, or the last step mustered some to WAR (so its own effect, which leaves none
+##   idle, doesn't switch it off while the town makes more hands than it has work for);
+## - thrift: the stalls' gold income now is under the gold upkeep the town owes, the buildings Thrift idles
+##   counted as paying (TownSim.trade_income, gold_bill), so its own effect doesn't switch it off.
+func _stance_condition(id: String) -> bool:
+	var ts := town_sim
+	match id:
+		"vigil":
+			return relish["state"] != "home"
+		"harvest":
+			return ts.bodies < _harvest_frac * ts.body_cap()
+		"hearth":
+			return ts.morale < _hearth_morale
+		"muster":
+			return float(ts.staffing.get("idle", 0.0)) > 0.0 or float(ts.rates["workers"]["muster"]) > 0.0
+		"thrift":
+			return ts.trade_income() < ts.gold_bill()
+	return false
+
+
+## The stances that would act with `on_list` the toggles (oldest first): {id: true} for each on, not suspended (within
+## the slots, the oldest first) and active.
+func _acting_of(on_list: Array) -> Dictionary:
+	var out := {}
+	if on_list.is_empty():
+		return out
+	var slots := _stance_slots()
+	for i in mini(on_list.size(), slots):
+		if _stance_active.has(on_list[i]):
+			out[on_list[i]] = true
+	return out
+
+
+## The jobs `acting` lifts to the top of the ladder, in economy.json stance.priority order (stance.top_job).
+func _top_jobs_of(acting: Dictionary) -> Array:
+	var top: Array = []
+	for id in _stance_priority:
+		if acting.has(id):
+			var j: String = _stance_top_job[id]
+			if not top.has(j):
+				top.append(j)
+	return top
+
+
+## Gives TownSim the effects of the stances acting now (MECHANICS §4.5): the ladder stances' jobs lifted
+## (TownSim.set_top_jobs, which marks the room cache), Muster's idle cap of 0, and Thrift: when it starts acting it
+## idles TownSim.thrift_pick's buildings; when it stops, every building it idled resumes. `at`: the moment they take
+## effect (a core step's start, or a command's t), for the away report's Thrift spells. `on_load`: a load restores
+## Thrift's buildings as saved and refills the staffing without marking the states. Called by every core step's
+## stance step (so a slot that goes or comes with Relish, or with the Guildhall, suspends or resumes a stance's effect
+## from the next step), by cmd_set_stance (at once) and after a load.
+func _apply_stances(at: float, on_load := false) -> void:
+	var acting := _acting_of(stances_on)
+	town_sim.set_top_jobs(_top_jobs_of(acting), on_load)
+	town_sim.muster_all = acting.has("muster")
+	if not on_load:
+		if acting.has("thrift"):
+			if not _stance_acting.has("thrift"):
+				_note_thrift(at, town_sim.thrift_idle(town_sim.thrift_pick()), true)
+		else:
+			_note_thrift(at, town_sim.thrift_resume(), false)
+	_stance_acting = acting
+
+
+## Thrift's spells for the away report (IDLE §7): while a reporting catch-up runs, each building Thrift idles or
+## resumes is noted with its moment ([t, lot_id, idled]) on the catch-up runner.
+func _note_thrift(at: float, lots: Array, idled: bool) -> void:
+	if lots.is_empty() or not (_catchup.active and _catchup.report):
+		return
+	for lot_id in lots:
+		_catchup.thrift_log.append([at, str(lot_id), idled])
+
+
+## economy.json `stance`'s ladder stances, checked at setup (E3-1): `priority` lists exactly `top_job`'s stances, each
+## a STANCE_IDS id, and each lifts a JOB_IDS job. "" when it holds.
+static func stance_config_problem(cfgs: Dictionary) -> String:
+	var st: Variant = cfgs.get("economy", {}).get("stance", {})
+	if not (st is Dictionary and (st as Dictionary).get("top_job") is Dictionary and (st as Dictionary).get("priority") is Array):
+		return "config economy.stance needs top_job (a table) and priority (a list)"
+	var top: Dictionary = st["top_job"]
+	var pri: Array = st["priority"]
+	for id in top:
+		if not STANCE_IDS.has(id) or not JOB_IDS.has(str(top[id])):
+			return "config economy.stance.top_job.%s (%s) is not a stance lifting a job" % [str(id), str(top[id])]
+		if not pri.has(id):
+			return "config economy.stance.priority has no %s (top_job names it)" % str(id)
+	for id in pri:
+		if not top.has(id) or pri.count(id) != 1:
+			return "config economy.stance.priority's %s is not one of top_job's stances, once" % str(id)
+	return ""
 
 
 func _find_uid(items: Array, uid: Variant) -> Dictionary:
@@ -1809,7 +1998,8 @@ func view_villages() -> Dictionary:
 
 ## §5.9 · E2: TownSim's town. Lots from town.json; buildings with their state, progress, slots,
 ## staffing, cap, foreman, output and upkeep; the ladder and its jobs; the workforce, the living,
-## morale and its factors, the stocks and caps, trade, the convoy. Stances (ladder_effective) are E3.
+## morale and its factors, the stocks and caps, trade, the convoy. ladder_effective is the ladder after the
+## stances acting (E3-1).
 func view_town() -> Dictionary:
 	return StateViews.town(self)
 
@@ -1827,7 +2017,8 @@ func view_catalog() -> Dictionary:
 	return StateViews.catalog(self)
 
 
-## §5.11 · E3. E1 echoes cmd_set_stance: nothing fires, nothing is projected.
+## §5.11 · E3, live from E3-1: the toggles, each stance's condition (`active`, on or off), its last change's beat,
+## its hold left and the change in each net rate if it were toggled now (StateViews.stances).
 func view_stances() -> Dictionary:
 	return StateViews.stances(self)
 
@@ -2111,6 +2302,9 @@ func _core_step(dt: float) -> Array:
 		return []
 	t += dt
 	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
+	# §3 step 1: the stances (E3-1): at a new beat their conditions are read from the state the step starts from,
+	# then the ones acting are given to TownSim for this step
+	_stance_step(dt)
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
 	_slew_valve(dt)
@@ -2331,6 +2525,15 @@ func from_dict(d: Dictionary) -> Dictionary:
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept)
 	town_sim.set_vats(vats_staffed, true)
+	# the stances (E3-1): the conditions are read again at the loaded t's next beat; the ones acting are given back
+	# to TownSim as saved (Thrift's buildings are in their saved state). A building Thrift idles while Thrift
+	# doesn't act (a hand-made save) goes back to work
+	_stance_beat = beat_at(t)
+	_stance_acting = {}
+	_stance_proj = []
+	_apply_stances(t, true)
+	if not _stance_acting.has("thrift"):
+		town_sim.thrift_resume()
 	_restore_dispatch()
 	# IDLE I5 (E2b-2 T3.3c): a run open at the save ends now, from its last checkpoint, before any catch-up
 	# (cmd_load's, either path); its events are queued as live

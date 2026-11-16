@@ -64,7 +64,11 @@ const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]
 ## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
 const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
-const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid"]
+## v8 (E3-1) adds "thrift": a building the Thrift stance idles (TownSim.buildings).
+const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid", "thrift"]
+## The stances' state (v8, E3-1): stances.state, optional, {stance id: this} for each stance whose condition has
+## changed at least once (one never changed is inactive and never fired: a save without it, the fixtures').
+const _STANCE_STATE := {"active": _B, "fired_beat_id": _I}
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
 ## and `waited_on` within it too (both typed when present).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
@@ -257,6 +261,14 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not GameState.STANCE_IDS.has(st) or on.has(st):
 			return "stance"
 		on[st] = true
+	# v8 (E3-1): the optional stance state, typed when present
+	if (m["stances"] as Dictionary).has("state"):
+		var ss: Variant = m["stances"]["state"]
+		if not ss is Dictionary:
+			return "stance state"
+		for st in ss:
+			if not GameState.STANCE_IDS.has(st) or not fits(ss[st], _STANCE_STATE):
+				return "stance state"
 	var uids := {}
 	for h in m["inventory"]["husks"]:
 		if uids.has(h["uid"]):
@@ -550,7 +562,7 @@ static func dump(gs: GameState) -> Dictionary:
 		},
 		"villages": villages,
 		"town": town,
-		"stances": {"on": gs.stances_on.duplicate(), "hold": gs._stance_hold.duplicate()},
+		"stances": stances_of(gs),
 		"inventory": {"husks": husk_list, "remnants": remnant_list, "blueprints": gs.blueprints.duplicate(),
 			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": 0},
 		"big_undead": bus,
@@ -569,6 +581,21 @@ static func dump(gs: GameState) -> Dictionary:
 	if not gs.run.is_empty():
 		d["pending_retreat"] = StateRuns.pending_of(gs)
 	return SaveIO.canon(d)
+
+
+## The save's `stances` block (STATE-API §9.1): `on` (oldest first), `hold` (stance id -> the seconds of its hold
+## left, for each stance held) and, v8 (E3-1), `state` ({stance id: {active, fired_beat_id}} for each stance whose
+## condition has changed), written once there is one, so a save where none has changed (the fixtures') keeps its
+## E1 shape. Thrift's idled buildings are saved in the town block (state "thrift").
+static func stances_of(gs: GameState) -> Dictionary:
+	var out := {"on": gs.stances_on.duplicate(), "hold": gs._stance_hold.duplicate()}
+	var st := {}
+	for id in GameState.STANCE_IDS:
+		if gs._stance_fired.has(id):
+			st[id] = {"active": gs._stance_active.has(id), "fired_beat_id": int(gs._stance_fired[id])}
+	if not st.is_empty():
+		out["state"] = st
+	return out
 
 
 ## The number in a uid: "h12" -> 12, anything else 0.
@@ -665,9 +692,19 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.stances_on = []
 	for st in m["stances"]["on"]:
 		gs.stances_on.append(str(st))
+	# the holds (E3-1: live; a key that isn't a stance, or a hold run out, is dropped) and the optional state (v8): a
+	# save without it is "nothing held, never fired" for every stance not in it
 	gs._stance_hold = {}
 	for k in m["stances"]["hold"]:
-		gs._stance_hold[k] = float(m["stances"]["hold"][k])
+		if GameState.STANCE_IDS.has(k) and float(m["stances"]["hold"][k]) > 0.0:
+			gs._stance_hold[k] = float(m["stances"]["hold"][k])
+	gs._stance_active = {}
+	gs._stance_fired = {}
+	var ss: Dictionary = m["stances"].get("state", {})
+	for k in ss:
+		if bool(ss[k]["active"]):
+			gs._stance_active[k] = true
+		gs._stance_fired[k] = int(ss[k]["fired_beat_id"])
 	var inv: Dictionary = m["inventory"]
 	gs.husks = []
 	for h in inv["husks"]:

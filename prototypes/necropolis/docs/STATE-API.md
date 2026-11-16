@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 7)
+# Necropolis: GameState API (api_version 8)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -208,6 +208,32 @@ from `BALANCE.md` §0.
     on `no_relics`, `ready` shows "Crypt level 2 needs relics: raid a fort" (`queue`, `"queue"`; `afford_relics_fmt`,
     the move-down form, is removed), and a start that waited but began under a minute in reads "Inn started
     within a minute of you leaving, when the gold came in" (`idle.report.started_brief_fmt`).
+
+  `api_version` 8 (E3; the run's manager: E3 has one v8 entry, later E3 tasks add to it, and there is no v9).
+  E3-1 (the stances go live, MECHANICS §4.5) added:
+  - the save's optional **`stances.state`** (§9.1): `{stance_id: {active: bool, fired_beat_id: int}}` for each
+    stance whose condition has changed, written once there is one; and the town block's building **state
+    `thrift`**, a building the Thrift stance idles. A save without them (the fixtures', every save before v8)
+    loads as nothing held, never fired. `SAVE_VERSION` stays 2. These are the keys that move the version to 8;
+    no view, command or event gains a key, so `tests/api_schema.gd` is unchanged.
+
+  Changes of meaning (stubs going live; no shape changes):
+  - **§5.11 `view_stances`**: `active` is each stance's condition alone, computed **for every stance, on or
+    off** (the run's manager); a stance acts only while it is on, not suspended and active. `fired_beat_id` is
+    the beat of its `active`'s last change (−1 before any), `hold_s_left` the `stance.hold_s` left before it can
+    change again, `projected` the change in each net rate if it were toggled now (sparse: `{}` when toggling it
+    changes nothing). Was: `active` false, `fired_beat_id` −1, `hold_s_left` 0.0 and `projected` `{}` always;
+  - **§6 `stance_fired`** is raised at each change of a stance's `active`, on or off (it was never raised);
+  - **§3 step 1** runs: the conditions are read at each new beat, and the stances acting are applied every core
+    step and by `cmd_set_stance` (§4.3);
+  - **§5.9 `view_town`**: `ladder_effective` is the ladder after the stances acting (it was the ladder); a
+    building's `state` reads `"idle"` while Thrift idles it ("a stance idles it", which nothing did); and
+    `workers.steady_kept` / `.muster_steady` read an idle cap of 0 while Muster acts;
+  - **§5.19 `view_away`**: the `unpaid` kind also carries the Thrift line, "Statue of Relish idled by Thrift for
+    2 h 10 m: lifted no morale, deaths shook the town harder" (its lot as `target`, as R1's): the kind now means a
+    building stopped, by the gold running out or by Thrift. No new kind or target, so `AWAY_KINDS` stands;
+  - the build card's `projected` and `upgrade_projected` (§5.10) are computed on TownSim as the stances leave it
+    (its effective ladder, idle cap and Thrift's buildings).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -262,7 +288,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 7
+const API_VERSION := 8
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -503,7 +529,11 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   step:
   1. **Stances and the job ladder.** Re-evaluated only when the beat index
      `beat_id = floor(t / beat_s)` changes, where `beat_s = pulse.json tempo_ms / 1000` (1.714).
-     Emits `stance_fired`.
+     Emits `stance_fired`. (v8, E3-1; MECHANICS §4.5) Each hold runs down by the step's `dt`; at a new beat every
+     stance's condition is read from the state the step starts from, and each whose hold is over and whose
+     condition differs from its `active` changes (`stance_fired`, a fresh `stance.hold_s`). Then the stances
+     acting (on, not suspended, active) are given to TownSim for this step: the jobs they lift, Muster's idle cap
+     of 0, Thrift's buildings. Catch-up runs it the same way at its own `dt` (IDLE §4).
   2. **The valve.** Slew the current vector toward the target by at most `valve.slew_per_s · dt` of
      L1 distance (the sum stays 1). The mint reads the working pits now and the feed of the step
      before (TownSim's `rates.feed`). Split it into WORK, WAR and FLOOD.
@@ -842,7 +872,11 @@ Game.state.cmd_set_staff_cap("lot-03", 1)  # -> {ok: true, reason: "", cap: 1}
 - **Reasons:** `unknown_stance`, `no_slot` (turning one on with every slot used; turning one off
   never fails).
 - **Effect:** if the slot count later drops (Relish leaves home), the most recently enabled stances
-  are `suspended`, not switched off. They resume when a slot returns.
+  are `suspended`, not switched off. They resume when a slot returns. (v8, E3-1) The stances acting take
+  effect at once: one turned on whose condition is `active` acts now (its job lifted, Muster's idle cap, Thrift
+  idling its buildings), one turned off stops now; `active` itself changes only at a beat (§3 step 1). A slot
+  that goes or comes otherwise (Relish leaves or comes home, the Guildhall) moves the effects from the next core
+  step.
 ```gdscript
 Game.state.cmd_set_stance("harvest", true)  # -> {ok: true, reason: "", slots: 3, used: 1}
 ```
@@ -1470,7 +1504,8 @@ living, morale and its factors; the stocks and caps; trade; the convoy. The stoc
 `view_hud` and `view_catalog`'s `no_gold`/`no_bone` read, so fixtures and debug grants show up in
 every view. The tier is GameState's (stored; it rises in `tick` when the requirements hold, T2.4: `tier_up`),
 lots come from `town.json` and are unlocked by the tier, and
-`ladder_effective` is the ladder until stances (E3). Flows are TownSim's last step: 0 at a new game
+`ladder_effective` is the ladder after the stances acting (v8, E3-1: the jobs they lift on top, in
+`stance.priority` order, then the player's ladder; MECHANICS §4.5). Flows are TownSim's last step: 0 at a new game
 until the first substep.
 - `workers.lifetime_s` is the lifetime now (`worker.lifetime_s · (1 + Σ lifetime_bonus)`, ÷
   `relish.home_rot_mult` while Relish is home: 685.7 at a new game); `workers.steady` is the last
@@ -1556,7 +1591,7 @@ Each `buildings` entry:
 |---|---|---|
 | `lot_id`, `building_id` | String | |
 | `level` | int | 0 while the first build is under way |
-| `state` | String | `"constructing"` (building or upgrading), `"active"`, `"unpaid"` (idled by unpaid upkeep), or `"idle"` (no staff, or a stance idles it) |
+| `state` | String | `"constructing"` (building or upgrading), `"active"`, `"unpaid"` (idled by unpaid upkeep), or `"idle"` (no staff, or a stance idles it: from v8, E3-1, a building the Thrift stance idles, which offers no slots, gives no output and pays no upkeep, its caps and tier count kept; the save's state `thrift`) |
 | `progress` | float | 0..1 while constructing, else 1.0 |
 | `slots` | int | the job slots it offers now (a Chapel of Vats: its tend slots for its staffed vats only, `cmd_staff_vat`) |
 | `staffed` | float | |
@@ -1723,27 +1758,48 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
  blueprints: [{id: "embalmer", owned: false}, ...]}
 ```
 
-### 5.11 `view_stances()` · E3 (E1: echoes `cmd_set_stance`)
+### 5.11 `view_stances()` · E3 (E1: echoes `cmd_set_stance`; live from E3-1, v8)
 | key | type | meaning |
 |---|---|---|
 | `slots`, `used` | int | `stance.base_slots` + Guildhall + 1 while Relish is home |
 | `beat_id` | int | the current sim beat, `floor(t / beat_s)` |
 | `stances` | Array[Dictionary] | one per `STANCE_IDS` (below) |
 
-Each `stances` entry:
+Each `stances` entry (MECHANICS §4.5 has each stance's condition and effect):
 
 | key | type | meaning |
 |---|---|---|
 | `id` | String | |
 | `on` | bool | the player toggle |
 | `suspended` | bool | on, but no slot is free |
-| `active` | bool | its condition is firing now |
-| `fired_beat_id` | int | the beat it last changed `active`, or `-1` |
-| `hold_s_left` | float | the `stance.hold_s` remaining |
-| `projected` | Dictionary | `rate_id → float`: the change in each net rate per second if toggled |
+| `active` | bool | its condition is firing now. v8 (E3-1, the run's manager): the condition alone, computed for **every stance, on or off**, as the stance step last let it change (§3 step 1: at a beat, held by `stance.hold_s`). A stance acts only while it is on, not suspended and active, so an off or suspended stance can read `true` and do nothing. `false` after a new game and a fixture load until a beat reads the conditions |
+| `fired_beat_id` | int | the beat it last changed `active`, or `-1` (never since the new game; a save keeps it, §9.1) |
+| `hold_s_left` | float | the `stance.hold_s` remaining before `active` can change again (0.0 when none) |
+| `projected` | Dictionary | `rate_id → float`: the change in each net rate per second if toggled. v8 (E3-1): toggled as `cmd_set_stance` would (turning one on with no free slot changes nothing; turning an older one off can free a slot for a suspended one), from the one allocation (`TownSim.staff_allocate` on the effective ladder the toggle makes, with Muster's idle cap and Thrift's buildings: the ones it idles, or the ones it would idle starting now) and the flows TownSim's step runs on it, against the same for today's stances (MECHANICS §4.5). **Sparse:** only the rates that move; `{}` when toggling it changes no stance's acting (an inactive stance, or one no slot has room for) or moves no rate. Pure: no `rev`, no event |
+
+**`projected`** (v8, E3-1): `workers`, `bodies`, `gold`, `bone`, `living` are the change in that net now:
+the workers' inflow (last step's) less the rot (staffed, and idle × `worker.idle_rot_mult`, over the lifetime)
+and the muster (the inflow the pinned workforce can't hold); the bodies' rot return and trip-averaged haul (the
+haul scaled by the haulers and the convoy's speed; 0 while no convoy is out) less the pits' burn and the mills'
+draw (their want while the store holds bodies, else the pits first); the stalls' gold less the gold upkeep; the
+bone milled less the bone upkeep; the migrants less the departures; each 0 at its store's cap while it would
+rise. `mint` is the next step's (the pits' feed), `work`, `war` and `flood` Δmint × the valve the next step
+splits with (`war` plus Muster's Δmuster × `worker.mass`), `backlog` Δflood plus the change in the WAR that falls
+through to Vei (`RealmSim.war_at`), `corpses` minus the haul's change. **Not projected** (they need the sim
+stepped): what morale does over time (Thrift idling a Well or the Statue lowers the morale target, which morale
+eases toward at `morale.ease_per_s`, so departures and Hearth's condition move later, not now); the first
+convoy a lifted haul would send (none is out, so its haul reads 0); and the one-off lump Muster sends at once
+(the idle hands above the new cap of 0, a mass, not a rate). **Cost** (median of 5 × 400 calls, the cache cleared
+each call, 5 s after a fixture load, on a loaded machine): 0.22 to 0.30 ms at day1, 0.22 to 0.45 ms at
+midgame_2flips, 0.60 to 1.06 ms at pre_vei (one allocation per stance whose toggle changes the acting stances,
+plus one for today's), over 0.2 ms, so it is cached on `[rev, t, TownSim.structure_rev]`: a cached call is about
+9 µs.
 ```gdscript
 {rev: 3, slots: 3, used: 1, beat_id: 117, stances: [
-  {id: "harvest", on: true, suspended: false, active: false, fired_beat_id: -1, hold_s_left: 0.0, projected: {bodies: 0.4, gold: -0.05}}, ...5]}
+  {id: "harvest", on: true, suspended: false, active: false, fired_beat_id: -1, hold_s_left: 0.0, projected: {}},
+  {id: "hearth", on: false, suspended: false, active: true, fired_beat_id: 115, hold_s_left: 11.6,
+   projected: {mint: -0.6, work: -0.24, war: -0.27, flood: -0.09, bodies: -0.31, gold: 0.3, corpses: 0.12, backlog: -0.09}}, ...5]}
+# (illustrative: Hearth's condition holds while it is off, so it reads active; toggling it on would lift the stalls)
 ```
 
 ### 5.12 `view_inventory()`, `view_big_undead()`, `view_party()` · E1
@@ -2043,8 +2099,16 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   job it offers and per working effect it has (capacity effects are kept, and so are the effects in
   `idle.report.unpaid_inert`, which nothing reads yet: F2), each phrase once, joined by `unpaid_sep`; a building
   with neither, a House, the Reliquary or the Watchtower, has no tail: `"Watchtower stopped for 59 m, gold ran
-  out"`. An unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost: the map prints "Nothing
-  lost."
+  out"`. An unpaid building's caps stand (MECHANICS §4.3). After them, from v8 (E3-1, the run's manager's
+  ruling), each building the Thrift stance idled during the absence, in lot order, with the **same kind
+  `unpaid` and its lot id as `target`**, naming Thrift as the reason, not the gold: `"Statue of Relish idled by
+  Thrift for 2 h 10 m: lifted no morale, deaths shook the town harder"` (`idle.report.thrift_fmt`; `"Reliquary
+  idled by Thrift for 30 m"` with no tail, `thrift_none_fmt`; "idled briefly" under a minute). Its time is the
+  sum of its Thrift spells (the catch-up runner's `thrift_log`; Thrift raises no event), one idled when you left
+  from the start, one still idled at the end to the end; what it stopped, the unpaid line's phrases. **A meaning
+  change of the kind:** `unpaid` now means a building stopped, by the gold running out or by Thrift; no new
+  kind or target, so `AWAY_KINDS` and the line's shape stand. Empty when nothing was lost: the map prints
+  "Nothing lost."
 - **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
   significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
   (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
@@ -2117,7 +2181,7 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 | `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays at the retake's 1), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
-| `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int` | E3 |
+| `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int`: a stance's `active` changed, at the beat `beat_id` (its `fired_beat_id`, §5.11), for every stance, on or off (v8, E3-1: `active` is the condition alone). Raised by the core step's stance step (§3 step 1), at most once per stance per `stance.hold_s`; stamped with the step's `t`, after that step's realm events inside it | E3 (live from E3-1) |
 | `loot_banked` | `run_id: int`, `fort_id: String`, `relics: int`, `essence: int`, `blueprints: Array[String]`, `minted: Array[String]` | E1 |
 | `vei_result` | `run_id: int`, `won: bool`, `fronts_cleared: Array[String]`, `relish_deaths: int`, `backlog_after: float` | E1 |
 | `run_ended` | `run_id: int`, `kind: String` (`raid`\|`boss`), `outcome: String` (the exit it ended in: `retreated`, `warden_beaten` or `relish_died`; a boss run's is `retreated`), `cause: String` (`gap`): a gap above `idle.gap_s` in the open game ended the open run (IDLE I5; §3). Queued first, before the end's writeback events (`loot_banked`, …) and the gap's catch-up, so the dungeon scene knows to leave (Phase I). A load's end of a saved run raises none (no scene is on it) | E2b-2 (v6, T3.3c) |
@@ -2402,7 +2466,7 @@ take the router's legacy path (§2.3).
 | `realm` | Dictionary | RealmSim: forts (array with ids: masses, the hold, flip and clear counts), Vei, tithe, simulacra |
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
-| `stances` | Dictionary | toggles and hold timers |
+| `stances` | Dictionary | toggles and hold timers, and from v8 (E3-1) the optional `state` (below) |
 | `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` |
 | `big_undead` | Array[Dictionary] | the entries, with `place` and `front` |
 | `party` | Array[String] | |
@@ -2439,7 +2503,8 @@ take the router's legacy path (§2.3).
   `warning` or `wave` naming an unknown fort makes the save `corrupt`.
 - `town` (v2): `workers`, `bodies`, `gold`, `bone`, `living`, `morale`, `shock`; `buildings`
   (`[{lot_id, building_id, level, state, progress, staff_cap, unpaid_s, build_level}]` in lot order;
-  `state` is `constructing`, `active`, `idle` or `unpaid`); `ladder`; `haul: {target, current,
+  `state` is `constructing`, `active`, `idle` or `unpaid`, and from v8 (E3-1) `thrift`, a building the Thrift
+  stance idles, which `view_town` shows as `"idle"`); `ladder`; `haul: {target, current,
   convoys: [{fort, phase, t, trip_s, load, crew}]}` (at most one convoy); `forge: {level, progress}`
   (the q forge); `rates` (TownSim's last step, which the views show); `pending` (events a command
   queued that no substep has emitted yet, e.g. a `building_started`); and GameState's `tier` and
@@ -2450,7 +2515,16 @@ take the router's legacy path (§2.3).
   another state or at a level the building lacks, a ladder that is not a permutation of `JOB_IDS`, or a
   haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
   building states and recomputes the staffing; the first substep restaffs.
-- `stances`: `on` (oldest first) and `hold` (E3 timers, stored as is).
+- `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
+  for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
+  optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has
+  changed at least once, written once there is one (typed when present, else `corrupt`). A stance not in it
+  loads inactive and never fired, so a save without it, the fixtures' `{hold: {}, on: []}` and every save before
+  v8, loads as "nothing held, never fired", and the fixtures come back as they are. The hold and `active` are
+  saved so a load continues the hold where the save left it (a catch-up from a save then changes the stances
+  when continuing would have); `fired_beat_id` so the stances read the same after a load (a beat is
+  `floor(t / beat_s)` of the saved `t`). Thrift's idled buildings are saved in the town block, as state `thrift`.
+  Which stances act is not saved: a load recomputes it from these and gives TownSim their effects.
 - `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` (the stub stock, read back) and
   `vats` (one per ready clone until E3; only `staffed` is read back).
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
@@ -2587,4 +2661,4 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 | A10 | Boss `backlog_spent` is informational. A loss keeps `loss_backlog_keep` of the backlog; a win leaves it alone. | Legacy parity, and the ledger counts the loss sink once. |
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
-| A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold`, `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view, and fronts stay at 0 until E3. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
+| A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view, and fronts stay at 0 until E3. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
