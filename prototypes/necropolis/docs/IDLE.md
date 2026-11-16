@@ -631,9 +631,10 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     least one skipped on `no_relics`, `ready` gets "Crypt level 2 needs relics: raid a fort"
     (`afford_relics_last_fmt`, kind `queue`, target `queue`) for the first such entry in queue order: no rate,
     no "move it down" (a gated entry holds nothing). Stores full or not. **No entry can start** is read off
-    the walk's statuses: every row is `skipped_gate`, or the one `waiting_funds` head at `affordable_in_s`
-    −1.0 (never). A row that is `next`, `queued` (behind a head) or a `waiting_funds` head that will be
-    afforded (>= 0) means the town is still building (or is held by its head), so no wall. A head stuck at
+    the walk's statuses: no row is `next`, and no `waiting_funds` head will be afforded (`affordable_in_s` >= 0);
+    either means the town is still building, so no wall. An entry `queued` behind a head at −1.0 can't start
+    either (the queue never jumps), so it doesn't clear the wall: House (−1.0 on bone), Well (queued), then a
+    gated Crypt level 2 shows the House's line and the wall. A head stuck at
     −1.0 on gold or bone with a relic-gated entry in the queue shows both lines in queue order, since each
     names a different build ("House can't be afforded at the current income of 0/s bone: build a Bone Mill",
     then "Crypt level 2 needs relics: raid a fort"). The wall takes the place of the raid prompt: a non-empty

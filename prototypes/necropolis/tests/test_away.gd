@@ -1337,7 +1337,8 @@ func _report_full(c: Dictionary) -> Array:
 
 ## W2 (the run's manager, for Shawn; IDLE §7): the relics wall. The queue's walk gates a relic shortfall, so a relic-gated
 ## entry is `skipped_gate`, never a waiting head, and a queue of only those used to get no `ready` line. When the absence
-## ends with no entry able to start (every row `skipped_gate`, or the one `waiting_funds` head at −1.0) and one is gated
+## ends with no entry able to start (no row `next`, no `waiting_funds` head that will be afforded; an entry `queued`
+## behind a head at −1.0 can't start either, case (f): House, Well queued, gated Crypt) and one is gated
 ## on `no_relics`, `ready` has "Crypt level 2 needs relics: raid a fort" for the first such entry (kind queue, target
 ## queue, no rate, no "move it down"), with the stores full or not, and never the raid prompt (which a non-empty queue
 ## never had). (a) relic-gated only, stores full; (b) the same, not full; (c) an entry that waits on gold with a finite
@@ -1353,7 +1354,9 @@ func _report_wall(c: Dictionary) -> Array:
 	var cases := [["(a) relic-gated only, stores full", -1.0, -1.0, [["", "lot-01"]], [wall]],
 		["(b) relic-gated only, stores not full", 50.0, bcap * 0.5, [["", "lot-01"]], [wall]],
 		["(d) empty queue, stores full", -1.0, -1.0, [], [prompt]],
-		["(e) a House stuck on bone, then the gated entry", -1.0, 0.0, [["house", "lot-05"], ["", "lot-01"]], ["house", wall]]]
+		["(e) a House stuck on bone, then the gated entry", -1.0, 0.0, [["house", "lot-05"], ["", "lot-01"]], ["house", wall]],
+		["(f) a House stuck on bone, a Well queued behind it, then the gated entry", -1.0, 0.0,
+			[["house", "lot-05"], ["well", "lot-06"], ["", "lot-01"]], ["house", wall]]]
 	for cs in cases:
 		var n := _away(c, _stores_start(c, cs[1], cs[2], cs[3]), "wall", 600)
 		var r := n.view_away()

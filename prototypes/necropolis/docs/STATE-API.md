@@ -2010,8 +2010,8 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
   below the cap, and what raises it, `idle.report.afford_raise`), and short of relics, Shawn's words with no rate,
   `"Crypt level 2 needs relics: raid a fort"` (W; no head reaches it, since the walk gates a relic shortfall as
-  `no_relics` first; W2: the line instead shows for the first `no_relics` entry when no entry can start, every row
-  `skipped_gate` or the one `waiting_funds` head at `-1.0`, with the stores full or not, in queue order after or
+  `no_relics` first; W2: the line instead shows for the first `no_relics` entry when no entry can start (no row `next`,
+  no `waiting_funds` head with `affordable_in_s` >= 0; an entry `queued` behind a `-1.0` head can't start either), with the stores full or not, in queue order after or
   before that head's own line: `["House can't be afforded at the current income of 0/s bone: build a Bone Mill",
   "Crypt level 2 needs relics: raid a fort"]`); none when no entry waits on funds and none is relic-gated.
   W2: a start that waited but began under a minute in reads `"Inn started within a minute of you leaving, when the

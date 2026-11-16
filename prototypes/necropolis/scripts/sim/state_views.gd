@@ -900,8 +900,8 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	else:
 		# the queue's lines, in queue order: the head still waiting on funds (R2), and W2's relics wall, the first
 		# entry skipped on `no_relics` when no entry can start. "No entry can start" is read off the walk's statuses:
-		# every row is `skipped_gate`, or the one `waiting_funds` head at affordable_in_s −1.0 (never), so no row
-		# is `next`, `queued` (behind a head) or a head that will be afforded. A head at −1.0 on gold or bone
+		# no row is `next` and no `waiting_funds` head will be afforded (affordable_in_s >= 0). An entry `queued`
+		# behind a head at −1.0 can't start either (the queue never jumps), so it doesn't clear the wall. A head at −1.0 on gold or bone
 		# ahead of (or behind) a relic-gated entry shows both lines: each names a different build.
 		var w := BuildRules.queue_walk(gs, gs.build_queue)
 		var rows: Array = w["rows"]
@@ -916,8 +916,10 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 				"waiting_funds":
 					if float(row["affordable_in_s"]) >= 0.0:
 						stuck = false
-				_:
+				"next":
 					stuck = false
+				# "queued" changes nothing: it sits behind a head (the queue never jumps), so it starts only if
+				# that head does, and a head that will be afforded has already cleared `stuck`
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
