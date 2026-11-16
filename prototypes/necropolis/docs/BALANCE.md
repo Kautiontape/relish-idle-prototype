@@ -48,6 +48,24 @@ From the autoplayer (§4): hours to Vei-ready with one lever removed, against th
 If any lever costs less than its target, it is decorative. Fix the design before tuning anything
 else.
 
+**The ablations as built** (E3-6b's autoplayer, `tests/autoplay/autoplayer.gd`; IDLE §8). Each runs under the sessions
+profile and runs the sessions baseline beside it. It prints the delta in days to Vei-ready, or, when either run never gets
+there, the fronts met and the backlog at the end (with relics, buildings and levels).
+- **(a) Never raid held or refilled forts** (IDLE §8's extra row, at least +20%; `autoplay_ablation_held`). The bot's raid
+  pick skips every held fort, so a fort is raided until its warden falls and is then left until Vei retakes it. A refilled
+  fort is a held one (IDLE §7), so this is the whole rule. Nothing else in the policy changes.
+- **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
+  buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
+  built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
+  every `level_costs` entry of §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and
+  forge), with their gold and relic prices unchanged. "Removed" is read as the rows above read it: the lever is taken out,
+  not replaced by a gold price. The Market keeps its bone price (a living building bought with bone), and so do the Crypt's
+  levels.
+- **The sensitivity pass** (`autoplay_sensitivity`; §8): the sessions profile at the frozen bot's death rates
+  (`opts.deaths` `"frozen"`) instead of the typical human's.
+- The table's other rows (the valve, a static valve schedule, Relish's tide, circle quality, defending, the ladder and
+  stances) have no profile in E3.
+
 ## 3. Risk targets
 - A dungeon at or below the party's tier: under 10% chance Relish dies with circles around 70.
   Two tiers above: over 40%. The first dungeon: under 5%.

@@ -796,6 +796,104 @@ death) that E3-6b's autoplayer ticks the game through live before it applies the
 move while Relish is in the dungeon. `opts.deaths: "frozen"` is the one sensitivity pass at the frozen bot's death
 rates, and `opts.door` sends a spare big through the t2 held door when the gate allows.
 
+**How the autoplayer plays** (E3-6b; `tests/autoplay/autoplayer.gd`, class `Autoplayer`).
+- **Running it.** Each profile is its own slow suite: `tests/run.sh --slow --only=autoplay_<profile>`. `AUTOPLAY_DAYS=n`
+  sets the length of the multi-day ones. `tests/test_autoplay_smoke.gd` runs first30 and 40 min of sessions in the default
+  suite.
+- **Output.** It prints one `AUTOPLAY_ROW <json>` per sample (session starts and ends, day ends, every 30 min of open
+  time) and one `AUTOPLAY_SUMMARY <json>` per profile. Those are the measures E3-7's report reads. The summary names the
+  policy behind each measure (`policy`) and the GUESS stand-ins, the vats' best case and the field behind them
+  (`labels`). It asserts no balance number.
+- **Commands only.** A profile starts from `cmd_new_game(1)` and from then on calls only `cmd_*` and `view_*`. Every
+  GameState it plays has `debug_enabled` false. It waits one substep before its first look, since until then every short
+  queue entry reads −1.
+- **Closed and open.** Closed is `cmd_save`, a fresh GameState, then `cmd_load` with `clock_override` the gap later, so
+  the real catch-up runs. Open is the same state ticked through the frame path: 0.5 s frames, the substep cap.
+- **A raid.** Relish walks to the fort live, then `cmd_begin_dungeon`. The resolver above gives the result (deaths
+  `"human"`, the door on, `held` read off `view_fort` just before the begin). The bot ticks the result's `duration_s` live
+  and applies it. A death waits out the real respawn.
+- **The field is 8 × 6** (the convergence and catch-up suites' convention). The shipped 128 × 90 costs 11.5 ms a live
+  substep, against 0.64 ms. The field decides which villages are owned, so the living and the migrants carry that label.
+- **The schedule.** Three 20 min sessions a sim day, at 00:00, 04:00 and 08:00 from the new game, closed 3 h 40 m,
+  3 h 40 m, then a 15 h 40 m night. The brief's "8 h apart, then a 16 h night" can't fit three sessions in a day, so this
+  keeps the long night. A day ends at the next 00:00 load, before the bot acts.
+
+The profiles:
+- **first30**: GAMEPLAY §6's opening, scripted. From a new game: Old Sluice (the fort flagged `first_dungeon`), its flip,
+  the first big undead at the slab, one queue set (filled and reordered once), then left to 30:00 and closed to the next
+  session. Each beat's time is recorded.
+- **sessions**: the schedule above for 8 days. In each session the bot takes the town's turn (below), then raids while a
+  raid fits in what is left: the walk both ways plus the longest the stand-in entry can take, a death's `death_t_frac`
+  above 1 included. After each raid it takes the town's turn again, and while it waits it looks at the town every 60 s.
+  It closes every gap. Each night's save is also loaded into a throwaway state 12 h on, for Vei's odds 12 h after
+  closing.
+- **sessions_open**: the I1 gate, run in lockstep. The sessions run (closed) logs every command. The same commands are
+  issued at the same sim t on a GameState left open between sessions, ticked for exactly the frames the time takes, and
+  its raids re-resolve from its own seeds. At each day's end, over 2 days, the gate asserts: the same t, every stock within
+  `idle.catchup_tol` (gold, bone and bodies against 1% of their cap, Vei's pool against its cap, the rest against 1.0),
+  the same buildings and levels, the same held forts, and every command answered as the closed run's was.
+  - Measured at E3-6b: day 1 passes (the backlog is 0.52% apart, every other stock identical). Day 2 fails on the
+    bodies alone: 2.18 closed against 26.83 open.
+  - The convoy runs out of phase from the first close: a different target and a different point of its trip at each
+    session start. The bodies stock is a sawtooth of convoy loads, so it differs by up to a load.
+  - Everything else agrees: the backlog is 0.64% apart, every other stock is identical, the buildings and the held forts
+    are the same, and all 161 commands answered the same.
+  - convergence.gd's catch-up gate leaves the bodies ungated for this reason ("within about one convoy load at any dt").
+    The I1 gate keeps them, as "every stock" asks: the run's manager decides.
+- **once_per_session**: sessions with exactly one raid a session.
+- **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
+  fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
+- **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
+  default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
+  that catch-up's `building_done` events.
+- **town_only**: the sessions schedule, playing only the town (the queue, the stances, the vats). It never raids, so it
+  never gets a husk.
+- **away_risk**: the sessions run to the end of day 3's last session, saved there. If nothing is held then, it falls
+  back to the midgame_2flips fixture and says so. Then 24 h away, twice from that save:
+  - as the sessions bot left it;
+  - after the prepared setup: the held forts that read `will_fall` or `thin` raided; WAR raised in 0.05 steps
+    (`view_projection`, WORK and FLOOD keeping their ratio) until "WAR supports N of M" covers every held fort; a siege at
+    the thinnest held fort (`will_fall`, then `thin`, then the lower `garrison_rate`); and a simulacrum crafted and
+    deployed there when one can be.
+
+  It measures the held forts lost.
+- **static**: a regression baseline. The sessions schedule, the same build list with no reorder, and one raid a
+  session at the day's tier (days 1–2 t1, 3–4 t2, 5–6 t3, 7–8 t4), whatever the party.
+- **ablation_held**, **ablation_bone**, **sensitivity**: sessions with one change (BALANCE §2), each run beside the
+  sessions baseline for its deltas.
+
+The policies (the run's manager's, for Shawn):
+- **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
+  item is queued once the level below it on its lot is built, building or queued. A refusal (mostly `cost_exceeds_cap`)
+  leaves it for a later look.
+  - The list (`BUILD_LIST`): Market level 2, a Raising Pit, the Bone Mill, a House (the Village gate), mill level 2, pit
+    level 2, charnel level 2, a second House; then the Chapel of Vats on lot-13 and Walls on lot-23 (the Town gate),
+    Market and mill level 3, the Forge, two more pits, the Stables, a House, the Embalmer, another pit, the Ossuary on
+    lot-16 and the Reliquary on lot-24 (the City gate), and pits and Houses on the Town and City lots.
+  - Then the level ladder (`LADDER`), level by level to each building's max: the mill and the Market first (the caps),
+    then the pits, the charnel house, the Forge, the Chapel, the Houses and the rest.
+  - Why this list: the pacing spine's S0 row, the tier gates, BALANCE §7's adopted structure (each producer bought with
+    the other resource, the mill and the Market climbing in step), and the tier buildings' lots kept free (BALANCE §5).
+  - **Reorder** (not in static): when the head (the first entry that isn't `skipped_gate`) reads `affordable_in_s` −1,
+    or later than another entry, the soonest-affordable entry moves to the head with `cmd_reorder_queue`. The Bone Mill
+    is not first by fiat: the reorder puts it first, because Market level 2 reads −1 on bone with no mill.
+- **Raids** go to the highest tier the party reaches, with no death-rate filter, and the bot never retreats.
+  - The sim gates no raid tier (`cmd_begin_dungeon` refuses only `unknown_fort`, `busy`, `dead` and `not_at_fort`), so
+    the reach is the stand-ins' own premise: tier T needs at least as many bigs in the party as raid.json
+    `autopilot.party_profiles` gives it (t1 none, t2 one, t3 two, t4 three).
+  - Within that: the first dungeon while it is flagged, then the higher yield, an unheld fort before a held one, then
+    world order. A held fort is raided once its `yield_mult` is back to 0.5.
+- **Raise**: whenever a husk is held and the crypt has room, with every remnant that fits (`SlabLogic.evaluate`, largest
+  magnitude first). Relish must be home for it.
+- **Placement**: the party fills first, with the oldest bigs, up to three (the largest standard party). Each member gets
+  the front of its best stat. The first spare goes foreman at the Market, or at the Bone Mill while the queue's head
+  waits on bone. Later spares stay in the crypt. Sieges only in away_risk's prepared setup.
+- **Vats** are staffed as soon as a Chapel exists. This is labelled "best case".
+- **Crafting**: one phylactery charge whenever the catalog allows it and none is held. No simulacra, except in
+  away_risk's prepared setup.
+- **Stances**: Vigil and Harvest on.
+- **The valve** stays at its default, except in away_risk's prepared setup.
+
 ## 9. Who builds what
 - **economy:**
   - E1: one save-time field (`saved_at`; drop `saved_unix`). The time commands return `not_debug` in
