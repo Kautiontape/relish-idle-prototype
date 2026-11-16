@@ -907,8 +907,11 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
 - A retake of its fort loses it, charges and all (§3.4; IDLE I6, so one at a fort that falls while you're away is
   lost too).
 - Catch-up clips a step at a simulacrum running out, while its corpses keep up (IDLE §4).
-- The margin chip credits no simulacrum (§3.5's readouts read Relish's raise alone), as it credits no siege:
-  conservative, and E4's to credit.
+- The margin chip credits no simulacrum (§3.5's readouts read Relish's raise alone): conservative. E4 credits the
+  siege (§3.4) but not this. A simulacrum's charges run out (300 at 1.0 mass/s: at most 300 s of raise), well
+  inside the cycles the wave train settles over, so a standing credit would read safe where the fort falls once
+  they are spent. Crediting it needs a per-fort charge budget in `RealmSim.train_probe`, and a run-out event its
+  quiet stretches clip at. Not built (E4 follow-up).
 - The tide is hers alone.
 
 ## 4. Economic: Covington
