@@ -259,6 +259,20 @@ from `BALANCE.md` §0.
   - **§5.13 `view_backups` live**: `death` reads `phylactery` while a charge can revive her (in place, `loses` []),
     else `clone` / `unmade` with the real `respawn_s`; `dead_s_left` is live. The seeds' `death_ends` (§7.1, §7.2)
     skip the phylactery step and carry the real `respawn_s` (was: 0.0).
+
+  E3-3 (big undead, MECHANICS §4.6) adds **`filled_slots: int`** (api-request #6) to every big-undead entry:
+  `view_big_undead().big_undead[]`, `view_party().party[]` and `cmd_raise_big_undead`'s `big_undead` (§5.12), the
+  dungeon seed's `party[]` (§7.1) and the boss seed's (§7.2); `tests/api_schema.gd` `BIG_UNDEAD`, `SEED_PARTY` and
+  `BOSS_PARTY` gain it. The save's big-undead record carries it too, optional (§9.1): **a record without it loads
+  as 1** (the run's manager's ruling), so every fixture and every save before v8 does, and so does a debug mint
+  (`cmd_debug_grant`'s `big_undead` raises nothing on the slab). One is what the dungeon party and the Vei fight
+  drew before (`maxi(1, filled_slots ?? 1)`), so those big undead fight as they did. `SAVE_VERSION` stays 2.
+  Changes of meaning (stubs going live):
+  - **§4.3 the raise is live** (`cmd_raise_big_undead`): it checks the recipe with SlabLogic, consumes the husk and the
+    remnants, mints `u<n>` and stores the entry in the crypt (was: an `ok` with a zero-valued entry and no change);
+  - **`at_cap`** is returned when the big undead number `big_undead.cap` plus `big_undead.per_crypt_level` per
+    Crypt level above 1 (`view_big_undead().cap`), and `invalid_recipe` and `bad_name` are checked (they were
+    listed and never returned).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -272,8 +286,8 @@ from `BALANCE.md` §0.
     from E2a: the valve and TownSim act on them);
   - `cmd_set_stance`, `cmd_staff_vat`, `cmd_assign_front`.
 
-  Action commands (raise, craft, deploy; build, upgrade, demolish and cancel were stubs until
-  E2a T2.4) run their id checks
+  Action commands (craft, deploy; build, upgrade, demolish and cancel were stubs until
+  E2a T2.4, and the raise until E3-3) run their id checks
   (`unknown_*`), then return `ok` with zero-valued extras and change nothing. Stub views return
   BALANCE §0 constants or the stub values noted at each view.
 
@@ -911,18 +925,22 @@ Game.state.cmd_set_staff_cap("lot-03", 1)  # -> {ok: true, reason: "", cap: 1}
 Game.state.cmd_set_stance("harvest", true)  # -> {ok: true, reason: "", slots: 3, used: 1}
 ```
 
-**`cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String)` · E2** (needs the
-town unit's SlabLogic)
+**`cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String)` · E2** (the town
+unit's SlabLogic; live from E3-3, v8)
 - **Extras:** `big_undead: Dictionary`, shaped like a `view_big_undead` entry (§5.12).
-- **Reasons:** `not_home` (Relish isn't `home`), `unknown_husk`, `unknown_remnant`,
-  `duplicate_remnant`, `invalid_recipe` (SlabLogic rejects the combination), `at_cap`
-  (`big_undead.cap`), `bad_name` (empty or over 24 characters after `strip_edges`).
-- **Effect:** consumes the husk and the remnants, computes the stats with SlabLogic, mints `u<n>`
-  and places it in the crypt.
+- **Reasons**, in this order: `not_home` (Relish isn't `home`), `unknown_husk`, `unknown_remnant`,
+  `duplicate_remnant`, `invalid_recipe` (`SlabLogic.evaluate(the husk's kind, the remnants in the
+  order given, town.json slab)` returns `ok` false: an unknown kind, a remnant no slot takes, or fewer
+  than `slab.min_remnants` placed), `at_cap` (as many big undead as `view_big_undead().cap`:
+  `big_undead.cap` plus `per_crypt_level` per Crypt level above 1), `bad_name` (empty or over 24
+  characters after `strip_edges`).
+- **Effect:** consumes the husk and exactly those remnants, mints `u<n>` from the save's uid counter
+  and stores `{uid, name (stripped), kind (the husk's), role (SlabLogic's role id), stats
+  (SlabLogic's), place: "crypt", front: "", filled_slots (SlabLogic's filled)}`. `rev` +1. No event.
 ```gdscript
 Game.state.cmd_raise_big_undead("h1", ["r2", "r3"], "Old Gristle")
-# -> {ok: true, reason: "", big_undead: {uid: "u4", name: "Old Gristle", kind: "hulk", role: "brute",
-#     stats: {power: 6.0, beef: 9.0, wits: 2.0, presence: 3.0, speed: 2.5}, place: "crypt", front: ""}}
+# -> {ok: true, reason: "", big_undead: {uid: "u4", name: "Old Gristle", kind: "hulk", role: "bulwark",
+#     stats: {power: 2.0, beef: 3.0, wits: 0.0, presence: 0.0, speed: 0.0}, place: "crypt", front: "", filled_slots: 2}}
 ```
 
 **`cmd_rename_big_undead(uid: String, name: String)` · E1**
@@ -1836,8 +1854,8 @@ plus one for today's), over 0.2 ms, so it is cached on `[rev, t, TownSim.structu
 ```
 
 ### 5.12 `view_inventory()`, `view_big_undead()`, `view_party()` · E1
-Loot comes in through `apply_result` and grants. The big-undead raise is E2 (still a §1.1 stub at
-E2a).
+Loot comes in through `apply_result` and grants. The big-undead raise (§4.3) was a §1.1 stub until
+E3-3 (v8), which made it live.
 
 **`view_inventory()`**
 
@@ -1865,6 +1883,7 @@ Each big-undead entry:
 | `stats` | Dictionary | `{power, beef, wits, presence, speed}`, all float |
 | `place` | String | `"crypt"`, `"town:<lot_id>"`, `"fort:<fort_id>"` or `"party"` |
 | `front` | String | its front id, or `""` |
+| `filled_slots` | int | v8 (E3-3, api-request #6): the remnant slots its raise filled (SlabLogic's `filled`); 1 for one raised before v8, a fixture's and a debug grant's (§9.1). The map's glyph, the town's foreman diamond and the dungeon's and the Vei fight's party units draw one stroke per slot |
 
 **`view_party()`**
 
@@ -1877,8 +1896,8 @@ Each big-undead entry:
 ```gdscript
 view_inventory():  {rev: 3, husks: [{uid: "h1", kind: "skeleton"}], remnants: [{uid: "r2", aspect: "beef", rarity: "common", magnitude: 3}],
                     blueprints: ["embalmer"], relics: 2, relics_cap: 12, essence: 14, essence_cap: 60, simulacra_ready: 0, phylactery_charges: 0}
-view_big_undead(): {rev: 3, cap: 2, count: 1, big_undead: [{uid: "u4", name: "Old Gristle", kind: "hulk", role: "brute",
-                    stats: {power: 6.0, beef: 9.0, wits: 2.0, presence: 3.0, speed: 2.5}, place: "party", front: ""}]}
+view_big_undead(): {rev: 3, cap: 4, count: 1, big_undead: [{uid: "u4", name: "Old Gristle", kind: "hulk", role: "bulwark",
+                    stats: {power: 2.0, beef: 3.0, wits: 0.0, presence: 0.0, speed: 0.0}, place: "party", front: "", filled_slots: 2}]}
 view_party():      {rev: 3, party: [{uid: "u4", ...}], fort_id: "old-sluice", garrison_units: 0, garrison_in_mass: 0.0, starter_units: 8, strength: 8.0}
 ```
 
@@ -2267,7 +2286,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `garrison_in_mass` | float | `garrison_units × garrison_mass_div`: the writeback baseline (§8.3). It is recorded, never recomputed. |
 | `garrison_mass_div` | float | `raid.mass.garrison_mass_div` (10.0). `Results.from_v1` reads it from the seed, so the adapter needs no config. |
 | `starter_units` | int | `opening.starter_party` (8) when `fort.first_dungeon`, else 0. **Massless:** they never write back. |
-| `party` | Array[Dictionary] | big undead in party order: `{uid, name, kind, role, stats: {power, beef, wits, presence, speed}}` |
+| `party` | Array[Dictionary] | big undead in party order: `{uid, name, kind, role, stats: {power, beef, wits, presence, speed}, filled_slots: int}` (`filled_slots` v8, E3-3: §5.12's) |
 | `digest_q` | float | |
 | `phylactery_charges` | int | the stock at issue |
 | `phylactery_max_per_dungeon` | int | `phylactery.max_per_dungeon` |
@@ -2304,7 +2323,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `vei_capacity` | float | `R_vei` |
 | `fronts` | Array[Dictionary] | `{id: String, need: float, have: float, assigned: Array[String]}` |
 | `fronts_required` | int | `vei.fronts_required` |
-| `party` | Array[Dictionary] | a big-undead entry plus `front: String` |
+| `party` | Array[Dictionary] | a big-undead entry (with `filled_slots`, v8) plus `front: String` |
 | `phylactery_charges`, `clones_ready` | int | the backups the fight may spend (§8.2) |
 | `relish_hp` | float | |
 | `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends the fight ends in, `{outcome: String, respawn_s: float}`. Each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), so a death ends the fight only once none is left (a final death): `"unmade"` always, with its respawn time (E3-2, v8: `backups.unmade_respawn_s`, 600; 0.0 until E3-2). The rule is `view_backups().death`'s past the phylactery step (it is the death that ends the fight, never `phylactery`) with no clone ready. (§8.3 boss step 4's death reads the clones left after those spent, so a final death with a clone still ready would wake from it; the boss scene never sends one) |
@@ -2520,7 +2539,7 @@ take the router's legacy path (§2.3).
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers, and from v8 (E3-1) the optional `state` (below) |
 | `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` |
-| `big_undead` | Array[Dictionary] | the entries, with `place` and `front` |
+| `big_undead` | Array[Dictionary] | the entries, with `place` and `front`, and from v8 (E3-3) `filled_slots: int`, optional: an int when present (else `corrupt`), and a record without it loads as 1 (§5.12) |
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |
 | `readout` | Dictionary | the `diff` EMA, the `q_raise` EMA |

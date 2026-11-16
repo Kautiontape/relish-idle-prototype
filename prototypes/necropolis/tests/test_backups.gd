@@ -378,7 +378,8 @@ func _catchup_fill() -> void:
 		"caught up (%.0f s steps): it fills %.2f s in, %.2f s from live, within one catch-up step" % [step, t_cu, t_cu - t_live])
 
 
-## The tip's 12 h catch-up identity (TIP's function): the whole state, the events collected and the away report.
+## The tip's 12 h catch-up identity (TIP's function): the whole state (less the big undead's filled_slots, E3-3's
+## key, which every fixture loads as 1), the events collected and the away report.
 func identity(c: Dictionary, fixture: String, seconds: int, dir: String) -> Dictionary:
 	var s := GameState.new(c)
 	s.debug_enabled = true
@@ -392,6 +393,8 @@ func identity(c: Dictionary, fixture: String, seconds: int, dir: String) -> Dict
 	n.clock_override = CLOCK + seconds
 	n.cmd_load("identity")
 	var d := n.to_dict()
+	for b in d["big_undead"]:  # the key E3-3 adds to each record (1 for every fixture's): the rest is the tip's
+		b.erase("filled_slots")
 	var evs: Array = n.catchup_events()
 	var away := n.view_away()
 	away.erase("rev")

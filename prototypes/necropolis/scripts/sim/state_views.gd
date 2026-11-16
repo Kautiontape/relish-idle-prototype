@@ -537,7 +537,7 @@ static func bu_entry(gs: GameState, b: Dictionary) -> Dictionary:
 	for k in GameState.STATS:
 		st[k] = float(b["stats"].get(k, 0.0))
 	return {"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"], "stats": st,
-		"place": b["place"], "front": b["front"]}
+		"place": b["place"], "front": b["front"], "filled_slots": GameState.filled_slots_of(b)}  # filled_slots: v8, E3-3
 
 
 ## §5.12 · E1.

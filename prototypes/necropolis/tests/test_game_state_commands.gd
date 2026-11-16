@@ -313,11 +313,8 @@ func _stubs() -> void:
 	var rv := s.rev
 	t.ok(s.cmd_craft("phylactery_charge") == {"ok": true, "reason": "", "count": 0}, "craft: ok, count 0")
 	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}, "deploy: ok, nothing planted")
-	var raised := s.cmd_raise_big_undead(h, [r1, r2], "Old Gristle")
-	t.ok(raised["ok"] and raised["big_undead"] == {"uid": "", "name": "", "kind": "", "role": "",
-		"stats": {"power": 0.0, "beef": 0.0, "wits": 0.0, "presence": 0.0, "speed": 0.0}, "place": "", "front": ""},
-		"raise: ok with a full-shape zero entry")
-	t.ok(s.rev == rv + 3, "each stub success adds 1 to rev")
+	# (the raise was a stub here until E3-3; it is live now: tests/test_big_undead.gd)
+	t.ok(s.rev == rv + 2, "each stub success adds 1 to rev")
 	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "the stubs change nothing")
 	t.ok(s.cmd_build("nope", "lot-99") == {"ok": false, "reason": "unknown_building", "cost": {}}, "build: unknown_building first")
 	t.ok(s.cmd_build("house", "lot-99")["reason"] == "unknown_lot", "build: unknown_lot")
@@ -326,12 +323,14 @@ func _stubs() -> void:
 	t.ok(s.cmd_cancel_build("x") == {"ok": false, "reason": "unknown_lot", "refund": {}}, "cancel_build: unknown_lot")
 	t.ok(s.cmd_craft("relic") == {"ok": false, "reason": "unknown_item", "count": 0}, "craft: unknown_item")
 	t.ok(s.cmd_deploy_simulacrum("vei") == {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}, "deploy: unknown_fort")
-	# the raise stub's checks, in order
+	# the raise's id checks, in order (E3-3 adds invalid_recipe, at_cap and bad_name after them: test_big_undead)
 	for c in [["h999", [r1], "unknown_husk"], [h, ["r999"], "unknown_remnant"], [h, [r1, r1], "duplicate_remnant"],
 			[h, ["r999", r1, r1], "unknown_remnant"], [h, [7], "unknown_remnant"]]:
 		t.ok(s.cmd_raise_big_undead(c[0], c[1], "x") == {"ok": false, "reason": c[2], "big_undead": {}},
 			"raise(%s, %s) -> %s" % c)
-	t.ok(s.cmd_raise_big_undead(h, [], "")["ok"], "raise stub: no remnants and no name pass (recipe and name checks are E2)")
+	t.ok(s.cmd_raise_big_undead(h, [], "")["reason"] == "invalid_recipe",
+		"raise: no remnants is invalid_recipe, checked before the name (E3-3: slab.min_remnants)")
+	t.ok(s.husks.size() == 1 and s.remnants.size() == 2 and s.big_undead.is_empty(), "the refusals consume nothing")
 	s.cmd_move_relish("old-sluice")
 	t.ok(s.cmd_raise_big_undead("h999", [], "x")["reason"] == "not_home", "raise: not_home before the item checks")
 

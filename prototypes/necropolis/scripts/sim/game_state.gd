@@ -1097,8 +1097,9 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 # ------------------------------------------------------------- §4.3 town ----
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
 # staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
-# through TownSim's build job. Raise, craft and deploy are still §1.1 stubs (id checks, then ok
-# with zero extras, no change). The stances act from E3-1 (the stance step, below cmd_set_stance).
+# through TownSim's build job. Craft and deploy are still §1.1 stubs (id checks, then ok with zero
+# extras, no change); the raise is live from E3-3 (the slab, cmd_raise_big_undead). The stances act
+# from E3-1 (the stance step, below cmd_set_stance).
 
 ## Buildings of that id that have finished their first build (level ≥ 1); every building when "".
 func _count_built(building_id: String) -> int:
@@ -1389,10 +1390,14 @@ func _find_uid(items: Array, uid: Variant) -> Dictionary:
 	return {}
 
 
-## E2 stub (the raise needs the town unit's SlabLogic): checks not_home and the item ids,
-## then ok with a zero-valued entry. Nothing is consumed or minted; at_cap, bad_name and
-## invalid_recipe are checked from E2.
-@warning_ignore("unused_parameter")
+## §4.3 · live from E3-3 (v8; MECHANICS §4.6): the crypt slab's raise. The refusals, in check order: catching_up,
+## not_home (Relish isn't home), unknown_husk, unknown_remnant, duplicate_remnant, then the slab's
+## SlabLogic.evaluate(the husk's kind, the remnants' records in the order given, town.json slab) and invalid_recipe
+## when it says not ok, at_cap (big_undead.size() >= _cap_of("big_undead")), bad_name (empty or over 24 characters
+## after strip_edges). On success it consumes the husk and those remnants, mints u<n> from the save's uid counter
+## and stores {uid, name (stripped), kind (the husk's), role (SlabLogic's role id), stats (SlabLogic's), place
+## "crypt", front "", filled_slots (SlabLogic's `filled`)}; rev +1, and the extra is that entry as view_big_undead
+## shows it. No event: STATE-API §6 lists none for a raise.
 func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"big_undead": {}})
@@ -1415,12 +1420,47 @@ func cmd_raise_big_undead(husk_uid: String, remnant_uids: Array, name: String) -
 			seen[r] = true
 	if why != "":
 		return {"ok": false, "reason": why, "big_undead": {}}
+	var husk := _find_uid(husks, husk_uid)
+	var rems: Array = []
+	for r in remnant_uids:
+		rems.append(_find_uid(remnants, r))
+	var slab := SlabLogic.evaluate(str(husk["kind"]), rems, _sec("town", "slab"))
+	var nm := name.strip_edges()
+	if not bool(slab["ok"]):
+		why = "invalid_recipe"
+	elif big_undead.size() >= _cap_of("big_undead"):
+		why = "at_cap"
+	elif nm.is_empty() or nm.length() > 24:
+		why = "bad_name"
+	if why != "":
+		return {"ok": false, "reason": why, "big_undead": {}}
+	_take_uid(husks, husk_uid)
+	for r in remnant_uids:
+		_take_uid(remnants, r)
 	var st := {}
 	for k in STATS:
-		st[k] = 0.0
+		st[k] = float(slab["stats"].get(k, 0.0))
+	var b := {"uid": _mint_uid("u"), "name": nm, "kind": str(husk["kind"]), "role": str(slab["role"]), "stats": st,
+		"place": "crypt", "front": "", "filled_slots": int(slab["filled"])}
+	big_undead.append(b)
 	rev += 1
-	return {"ok": true, "reason": "", "big_undead": {
-		"uid": "", "name": "", "kind": "", "role": "", "stats": st, "place": "", "front": ""}}
+	return {"ok": true, "reason": "", "big_undead": StateViews.bu_entry(self, b)}
+
+
+## Removes the item with that uid from `items` (the husks or the remnants).
+func _take_uid(items: Array, uid: Variant) -> void:
+	for i in items.size():
+		if items[i]["uid"] == uid:
+			items.remove_at(i)
+			return
+
+
+## A big undead's filled remnant slots (E3-3, api-request #6): SlabLogic's `filled` at its raise. A record without
+## the key reads 1 (the run's manager's ruling): every fixture's, every save's from before v8, and a debug mint's
+## (DebugCmds.mint_big_undead raises nothing on the slab). One slot is what the dungeon and the Vei fight drew before
+## (vei_boss reads maxi(1, filled_slots ?? 1)), so those big undead fight as they did.
+static func filled_slots_of(b: Dictionary) -> int:
+	return int(b.get("filled_slots", 1))
 
 
 func cmd_rename_big_undead(uid: String, name: String) -> Dictionary:

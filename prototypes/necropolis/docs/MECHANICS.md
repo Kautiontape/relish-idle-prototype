@@ -1359,8 +1359,17 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 ### 4.6 The crypt slab: big undead
 - Only while Relish is home. The town scene's crypt view runs SlabLogic's live preview (ported from
   `slab/`: build_state, namer, role, live morph, hold-to-raise).
-- **The raise:** `cmd_raise_big_undead(husk_uid, remnant_uids, name)`. GameState validates the
-  inventory and computes the stats.
+- **The raise:** `cmd_raise_big_undead(husk_uid, remnant_uids, name)`, live from E3-3 (v8). GameState
+  validates the inventory and computes the stats with the town unit's `SlabLogic.evaluate(the husk's kind,
+  the remnants in the order given, town.json slab)`, which the sim calls (it is RefCounted, no Engine) and
+  the town scene owns. The refusals, in order: `not_home`, `unknown_husk`, `unknown_remnant`,
+  `duplicate_remnant`, `invalid_recipe` (SlabLogic says not ok), `at_cap` (the cap below), `bad_name` (empty
+  or over 24 characters after `strip_edges`). A raise consumes the husk and exactly those remnants, mints
+  `u<n>` from the save's uid counter and stores `{uid, name, kind, role (SlabLogic's role id), stats
+  (SlabLogic's), place: "crypt", front: "", filled_slots (SlabLogic's filled)}`. No event.
+- **`filled_slots`** (api-request #6) is on every big-undead entry, both seeds' party and the save. One
+  saved without it (a fixture's, any save before v8, a debug grant's) reads 1, the one slot the dungeon and
+  the Vei fight drew before, so it fights as it did (the run's manager's ruling).
 - **Stats** (one stat, one watchable verb):
 
   | stat | used by |

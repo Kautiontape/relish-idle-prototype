@@ -21,6 +21,7 @@ static func party_entries(gs: GameState, with_front := false) -> Array:
 				var e: Dictionary = {
 					"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
 					"stats": (b["stats"] as Dictionary).duplicate(),
+					"filled_slots": GameState.filled_slots_of(b),  # v8 (E3-3, api-request #6): both seeds' party
 				}
 				if with_front:
 					e["front"] = b["front"]

@@ -20,7 +20,8 @@ var _dir := "user://test_stances_%d" % OS.get_process_id()
 const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## The tip's catch-ups with no stance on (41749be, before the stances went live): each fixture saved and loaded
 ## 12 h on, the field shrunk as test_catchup's harness has it. identity() hashes the state (to_dict() less its
-## stances block and api_version), the events the catch-up collected (less stance_fired) and its away report.
+## stances block and api_version, and from E3-3 less each big undead's filled_slots), the events the catch-up
+## collected (less stance_fired) and its away report.
 const TIP := {
 	"day1": {"state": "f0770dea4e6b375fdb5c39b93e0522d4b37b46dbb3330e00f22f5c0629cc2c85",
 		"events": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
@@ -549,6 +550,8 @@ func identity(c: Dictionary, fixture: String, seconds: int) -> Dictionary:
 	var d := n.to_dict()
 	d.erase("stances")
 	d.erase("api_version")
+	for b in d["big_undead"]:  # E3-3's key on each record (1 for every fixture's)
+		b.erase("filled_slots")
 	var evs: Array = n.catchup_events().filter(func(e): return e["type"] != "stance_fired")
 	var away := n.view_away()
 	away.erase("rev")

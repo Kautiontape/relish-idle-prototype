@@ -24,9 +24,9 @@ const VALVE := {"work": F, "war": F, "flood": F}
 const COST := {"gold": F, "bone": F, "relics": I}
 const UPKEEP := {"gold": F, "bone": F}
 const STAT_BLOCK := {"power": F, "beef": F, "wits": F, "presence": F, "speed": F}
-const BIG_UNDEAD := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "place": S, "front": S}
-const SEED_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK}
-const BOSS_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "front": S}
+const BIG_UNDEAD := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "place": S, "front": S, "filled_slots": I}
+const SEED_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "filled_slots": I}
+const BOSS_PARTY := {"uid": S, "name": S, "kind": S, "role": S, "stats": STAT_BLOCK, "front": S, "filled_slots": I}
 
 # ----------------------------------------------------------------- seeds (§7) ----
 const RAID_SEED := {

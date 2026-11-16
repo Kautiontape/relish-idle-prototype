@@ -49,6 +49,7 @@ const SAVE_SPEC := {
 		"remnants": [{"uid": _S, "aspect": _S, "rarity": _S, "magnitude": _I}],
 		"blueprints": [_S], "relics": _I, "essence": _I, "simulacra_ready": _I,
 	},
+	# a record's filled_slots (v8, E3-3) is optional, an int when present (problem()); absent it loads as 1
 	"big_undead": [{"uid": _S, "name": _S, "kind": _S, "role": _S, "place": _S, "front": _S,
 		"stats": {"power": _F, "beef": _F, "wits": _F, "presence": _F, "speed": _F}}],
 	"party": [_S],
@@ -281,6 +282,8 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	var bu_uids := {}
 	for b in m["big_undead"]:
 		if uids.has(b["uid"]) or bu_uids.has(b["uid"]) or (b["front"] != "" and not GameState.FRONT_IDS.has(b["front"])):
+			return "big undead"
+		if b.has("filled_slots") and not fits(b["filled_slots"], _I):  # v8 (E3-3): optional; absent reads 1
 			return "big undead"
 		bu_uids[b["uid"]] = true
 	seen = {}
@@ -543,7 +546,8 @@ static func dump(gs: GameState) -> Dictionary:
 	var bus: Array = []
 	for b in gs.big_undead:
 		bus.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
-			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate()})
+			"place": b["place"], "front": b["front"], "stats": (b["stats"] as Dictionary).duplicate(),
+			"filled_slots": GameState.filled_slots_of(b)})
 	var vats: Array = []
 	for i in gs._vat_slots():
 		var ve := gs._vat_entry(i)
@@ -723,7 +727,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		for k in GameState.STATS:
 			st[k] = float(b["stats"][k])
 		gs.big_undead.append({"uid": b["uid"], "name": b["name"], "kind": b["kind"], "role": b["role"],
-			"stats": st, "place": b["place"], "front": b["front"]})
+			"stats": st, "place": b["place"], "front": b["front"], "filled_slots": GameState.filled_slots_of(b)})
 	gs.party_uids = []
 	for u in m["party"]:
 		gs.party_uids.append(str(u))
