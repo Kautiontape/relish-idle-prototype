@@ -112,8 +112,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 
 **Method: the same GameState, with adaptive, event-clipped steps.**
 - `dt = clamp(elapsed / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s)`, and past the
-  first `idle.catchup_dt_long_after_s` (12 h) of a catch-up the same with `idle.catchup_dt_long_s` (15 s)
-  for the cap (E2b-2 T3.3b, the budget's lever 2, below).
+  first `idle.catchup_dt_long_after_s` (12 h) of a catch-up the same with `idle.catchup_dt_long_s` (20 s
+  since E3-1, 15 s before) for the cap (E2b-2 T3.3b, the budget's lever 2, below).
 - A step never straddles an event: `dt = min(dt, t_next_event − t)`. Catch-up clips at Relish's
   arrival, an unpaid building's resume, a construction finishing, the build queue's head starting on
   funds (its shortfall over the net income, for each currency it lacks; since F1 the net its
@@ -129,12 +129,13 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 - First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
-  `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
+  `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (20 s today): checked at config load
   (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;
-  `test_catchup` overrides them both ways round). E3-1 ships it at 15 s.
+  `test_catchup` overrides them both ways round). E3-1 ships it at 20 s with `idle.catchup_dt_long_s` 20 s,
+  raised together from 15 s (BALANCE §5 has why 20 s suits the game).
 - **The stances in catch-up** (E3-1, MECHANICS §4.5). The stance step is the core step's first (STATE-API §3
   step 1), so catch-up runs it as live play does: at a new beat each condition is read from the state the step
-  starts from, and a step of 10 or 15 s crosses a beat every time. The conditions move on continuous stocks
+  starts from, and a step of 10 or 20 s crosses a beat every time. The conditions move on continuous stocks
   (bodies, morale, the stalls' income against the upkeep), and Relish's state, whose arrival is clipped already.
   **Catch-up doesn't clip at a condition's crossing; the hold alone keeps it exact enough** (the run's manager
   asked for the decision and its evidence):
@@ -472,6 +473,11 @@ takes over 1 s.
     the shipped schedule (0.19% at 10 s). pre_vei: nothing held, no flip or retake, Relish at Vei, stocks
     within 0.026% (0.035% at 10 s). fresh: nothing held, Relish home, stocks within 0.52% (0.12% at 10 s).
     The 0.5 s runs took 304–365 s each.
+    - **E3-1 raised it to 20 s**, together with `stance.hold_s` (which must be at least the longest step; the
+      run's manager: one change, BALANCE §5 has why 20 s suits the stances): a week takes about 32 400 core
+      steps (plus clips) instead of 41 760. The first 12 h still step at 10 s, so the 12 h gate and accuracy
+      tests are unchanged; `tests/slow/catchup_week.gd` holds the 20 s schedule to the same outcome condition
+      against 0.5 s and the same time bound (TIME_BOUND_STEPS × the step at that moment, 20 s past 12 h).
   - So at T3.3b 12 h took 2.1–2.7 s against its 2 s budget (inside the manager's 4 s behind a progress
     screen; its 150 field steps 0.9–1.4 s of it) and 7 days 13.1–14.7 s against its 10 s (the field steps
     0.9–1.2 s of it), about 1.5 times over; the table above is the measurement (T3.3b's report gave 13.0–14.6
@@ -527,7 +533,7 @@ takes over 1 s.
   run: GameState has no locks, so no view could read it mid-run (the progress screen would read a
   guarded copy of `view_catchup`, and every other view would wait for the end, which the chunks don't
   need); commands refusing as they do now (`catching_up`); and the shell polling for the end, then
-  running the frames' own time. It wouldn't shorten the run: the 41 760 core steps and 75 field steps are
+  running the frames' own time. It wouldn't shorten the run: the 32 400 core steps (41 760 before E3-1) and 75 field steps are
   the same sequential work (each step reads the last), so a thread buys a responsive window, which the
   chunks already give at 30–50 ms a frame. To cut the wall time, the field steps could run beside the
   core on a second thread if the core took the village owners one field step late (a dynamics change to

@@ -25,7 +25,7 @@
   "queue": { "max_len": 8 },
   "idle": {
     "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
-    "catchup_dt_long_s": 15.0, "catchup_dt_long_after_s": 43200.0,
+    "catchup_dt_long_s": 20.0, "catchup_dt_long_after_s": 43200.0,
     "catchup_tol": 0.02, "field_steps": 75, "field_step_min_s": 2.0, "report_min_s": 600.0,
     "catchup_steps_per_chunk": 90,
     "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 },
@@ -80,7 +80,7 @@
   },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
   "stance": {
-    "base_slots": 2, "hold_s": 15.0,
+    "base_slots": 2, "hold_s": 20.0,
     "top_job": { "vigil": "tend", "harvest": "haul", "hearth": "stall" }, "priority": ["vigil", "harvest", "hearth"],
     "harvest_bodies_frac": 0.3, "hearth_morale": 0.5, "thrift_upkeep": 0.05, "thrift_spares_from": "war_mill"
   },

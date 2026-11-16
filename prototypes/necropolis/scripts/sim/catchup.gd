@@ -6,8 +6,8 @@ extends RefCounted
 ## reference back (the state is passed in), so nothing cycles.
 ##
 ## - The step: dt = clamp(total_s / idle.catchup_max_steps, sim.substep_s, idle.catchup_dt_max_s), and past
-##   the first idle.catchup_dt_long_after_s (12 h) of the catch-up the same with idle.catchup_dt_long_s (15
-##   s) for the cap (the budget's lever 2: a week steps at 15 s from 12 h on), then shortened so it never
+##   the first idle.catchup_dt_long_after_s (12 h) of the catch-up the same with idle.catchup_dt_long_s (20
+##   s since E3-1) for the cap (the budget's lever 2: a week steps at 20 s from 12 h on), then shortened so it never
 ##   straddles a clip event (next_event_s): dt = min(dt, t_next_event − t). An event within CLIP_MIN_S of
 ##   now is taken as now (the step isn't shortened for it). The last step ends on t0 + total_s exactly.
 ## - The field (api-request #14): field_n field steps over the catch-up (idle.field_steps, fewer for a

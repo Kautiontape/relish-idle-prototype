@@ -255,7 +255,7 @@ func _priority() -> void:
 			"stance.priority %s: Vigil and Harvest both act, %s on top: %s" % [str(pri), str(want), str(s.view_town()["ladder_effective"])])
 
 
-## The hold (stance.hold_s, 15 s): a change can't be undone before it has passed; hold_s_left shows what is left;
+## The hold (stance.hold_s, 20 s): a change can't be undone before it has passed; hold_s_left shows what is left;
 ## fired_beat_id is the beat of the last change and stance_fired reports each change.
 func _hold_and_fired() -> void:
 	var s := _mk()

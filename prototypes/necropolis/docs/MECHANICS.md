@@ -1305,7 +1305,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   stances act (the toggles and the slots) is applied at the start of every core step, and at once by
   `cmd_set_stance`, so a slot that goes with Relish suspends a stance's effect from the next step.
 - **The hold.** A stance's `active` can't change again until `stance.hold_s` has passed since its last
-  change (15 s at E3-1; `hold_s_left` shows what is left). Each change emits `stance_fired {stance_id, active,
+  change (20 s; `hold_s_left` shows what is left; BALANCE §5 has why). Each change emits `stance_fired {stance_id, active,
   beat_id}` and sets `fired_beat_id` to the beat; one that never changed reads −1. The hold is at least
   catch-up's longest step (IDLE §4), so a catch-up step changes a stance at most once, as live play would.
 - **Conditions that their own effect would undo.** Muster's effect leaves nobody idle, so "idle workers"
