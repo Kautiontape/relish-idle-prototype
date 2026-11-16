@@ -400,7 +400,8 @@ static func projection(gs: GameState, valve_in: Dictionary, settled := false) ->
 		"war_supports": war_supports(gs, wars), "margins": margins}
 
 
-## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating.
+## §5.10 · E2 (crafts E3): buildings.json in file order, with live gating. The crafts' reasons are cmd_craft's
+## (GameState._craft_reason, E3-4) and their costs economy.json craft.<id>'s.
 static func catalog(gs: GameState) -> Dictionary:
 	var rows := BuildRules.catalog_rows(gs)
 	var out: Array = rows["buildings"]
@@ -410,16 +411,8 @@ static func catalog(gs: GameState) -> Dictionary:
 	var bps: Array = rows["blueprints"]
 	var crafts: Array = []
 	for id in GameState.CRAFT_IDS:
-		var c: Dictionary = gs._sec("economy", "craft").get(id, {})
-		var cost := {"essence": int(c.get("essence", 0)), "relics": int(c.get("relics", 0))}
-		var why := ""
-		if gs._count_built("ossuary_tower") == 0:
-			why = "needs_building"
-		elif gs.essence < cost["essence"]:
-			why = "no_essence"
-		elif gs.relics < cost["relics"]:
-			why = "no_relics"
-		crafts.append({"item_id": id, "cost": cost, "can_craft": why == "", "reason": why})
+		var why := gs._craft_reason(id)
+		crafts.append({"item_id": id, "cost": gs._craft_cost(id), "can_craft": why == "", "reason": why})
 	var bp_list: Array = []
 	for b in bps:
 		bp_list.append({"id": b, "owned": gs.blueprints.has(b)})
@@ -516,7 +509,8 @@ static func _stance_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Diction
 	return out
 
 
-## §5.12 · E1. Simulacra and phylactery charges are E3 (0).
+## §5.12 · E1. The simulacra ready and the phylactery charges are GameState's stocks (E3-4: cmd_craft adds to them;
+## a raid's revives in place spend the charges, E3-2).
 static func inventory(gs: GameState) -> Dictionary:
 	var hs: Array = []
 	for h in gs.husks:
@@ -529,7 +523,7 @@ static func inventory(gs: GameState) -> Dictionary:
 	return {
 		"rev": gs.rev, "husks": hs, "remnants": rs, "blueprints": bps,
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
-		"simulacra_ready": 0, "phylactery_charges": gs._phylactery_charges,
+		"simulacra_ready": gs.simulacra_ready, "phylactery_charges": gs._phylactery_charges,
 	}
 
 

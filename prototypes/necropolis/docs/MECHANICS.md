@@ -877,7 +877,11 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   30 µs per held fort per call; `war_supports` reads only the rate.
 
 ### 3.6 Simulacra (kept, defined)
-- Crafted at the Ossuary from essence and a relic.
+- Crafted at the Ossuary from essence and a relic (E3-4): `cmd_craft("simulacrum")` takes `economy.json`
+  `craft.simulacrum` (20 essence, 1 relic) at once and adds 1 to `simulacra_ready`, a fungible count GameState saves.
+  It needs a built building with `craft_slots` (the Ossuary Tower; a capacity effect, so an unpaid or Thrift-idled one
+  still crafts), checked by the effect, not the building's id. There is no stock cap: the essence (60) and relic (12)
+  caps bind it. The same command crafts a phylactery charge (§7).
 - `cmd_deploy_simulacrum(fort_id)` plants one. It performs **Relish's redirect** at that fort at
   `simulacrum.rate` until its charges run out: garrison kills there stay as corpses while it has
   charges, and it raises corpses into the fort's undead. Charges are mass and only the raise spends
@@ -931,9 +935,9 @@ mass; bodies, rot return, WORK and muster are mass.
   value is an array: the Charnel House's `body_cap` is 0 at level 1, then +50 a level to 350 at level 8 (`[0, 50, ..., 350]`), so only its upgrades add.
   Flow effects (`pits`, `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`, the Statue's
   `death_shock_mult`, E3's `hint_precision`) need the building working. Capacity effects (`body_cap`,
-  `gold_cap`, `bone_cap`, `relic_cap`, `essence_cap`, `living_cap`, `vat_slots`, `stance_slots`, E3's
-  `craft_slots`; `TownSim.CAPACITY_EFFECTS`) also count while it is unpaid or upgrading, so an unpaid
-  spell never destroys stock.
+  `gold_cap`, `bone_cap`, `relic_cap`, `essence_cap`, `living_cap`, `vat_slots`, `stance_slots`, and
+  `craft_slots`, the craft gate from E3-4 (§3.6); `TownSim.CAPACITY_EFFECTS`) also count while it is unpaid or
+  upgrading, so an unpaid spell never destroys stock.
 
 | job | building | effect |
 |---|---|---|
@@ -1574,7 +1578,8 @@ The Watchtower turns the bands into exact percentages and lists every tell.
 **Before she dies,** the sacrifice chain (§5.0) soaks lethal hits.
 
 **At HP 0, in order:**
-1. **A phylactery charge** (crafted at the Ossuary): revive in place at `phylactery.revive_hp`. At
+1. **A phylactery charge** (crafted at the Ossuary: `cmd_craft("phylactery_charge")`, `economy.json`
+   `craft.phylactery_charge`, 15 essence, from E3-4; §3.6's gate, no stock cap): revive in place at `phylactery.revive_hp`. At
    most `phylactery.max_per_dungeon` per dungeon. The dungeon reports its revives (`revived_in_place`) and
    GameState spends the charges, one `relish_died {outcome: "phylactery", in_place: true}` each (E3-2). It loses
    nothing: the run goes on.

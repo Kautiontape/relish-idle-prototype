@@ -44,10 +44,12 @@ const SAVE_SPEC := {
 		"forge": {"level": _I, "progress": _F},
 	},
 	"stances": {"on": [_S], "hold": {"*": _F}},
+	# simulacra_ready (written since E1, read back from E3-4) is optional, an int when present (problem()); absent it
+	# loads as 0
 	"inventory": {
 		"husks": [{"uid": _S, "kind": _S, "rarity": _S}],
 		"remnants": [{"uid": _S, "aspect": _S, "rarity": _S, "magnitude": _I}],
-		"blueprints": [_S], "relics": _I, "essence": _I, "simulacra_ready": _I,
+		"blueprints": [_S], "relics": _I, "essence": _I,
 	},
 	# a record's filled_slots (v8, E3-3) is optional, an int when present (problem()); absent it loads as 1
 	"big_undead": [{"uid": _S, "name": _S, "kind": _S, "role": _S, "place": _S, "front": _S,
@@ -270,6 +272,9 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		for st in ss:
 			if not GameState.STANCE_IDS.has(st) or not fits(ss[st], _STANCE_STATE):
 				return "stance state"
+	# v8 (E3-4): the simulacra ready, optional (a save without them reads 0), an int when present
+	if (m["inventory"] as Dictionary).has("simulacra_ready") and not fits(m["inventory"]["simulacra_ready"], _I):
+		return "inventory simulacra_ready"
 	var uids := {}
 	for h in m["inventory"]["husks"]:
 		if uids.has(h["uid"]):
@@ -568,7 +573,7 @@ static func dump(gs: GameState) -> Dictionary:
 		"town": town,
 		"stances": stances_of(gs),
 		"inventory": {"husks": husk_list, "remnants": remnant_list, "blueprints": gs.blueprints.duplicate(),
-			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": 0},
+			"relics": gs.relics, "essence": gs.essence, "simulacra_ready": gs.simulacra_ready},
 		"big_undead": bus,
 		"party": gs.party_uids.duplicate(),
 		"backups": {"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready, "vats": vats},
@@ -721,6 +726,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		gs.blueprints.append(str(b))
 	gs.relics = int(inv["relics"])
 	gs.essence = int(inv["essence"])
+	gs.simulacra_ready = int(inv.get("simulacra_ready", 0))  # E3-4: read back; a save without it reads 0
 	gs.big_undead = []
 	for b in m["big_undead"]:
 		var st := {}

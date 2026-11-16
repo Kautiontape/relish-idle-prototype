@@ -302,6 +302,21 @@ from `BALANCE.md` §0.
     siege did nothing;
   - **kill power is not built** (the run's manager's ruling): a siege's only effect is the block. The docs said a siege
     "adds kill power" (`cmd_place_big_undead`'s Args); that is struck, and goes to E4 only if the hold band needs it.
+
+  E3-4's crafting (MECHANICS §3.6, §7) adds no key (`tests/api_schema.gd` unchanged; the save shape unchanged:
+  `inventory.simulacra_ready` was always written, and from E3-4 it is read back, optional on load). Changes of meaning
+  (stubs going live):
+  - **§4.3 `cmd_craft` is live**: instant; it takes `economy.json` `craft.<item_id>`'s essence and relics and adds 1 to
+    the simulacra ready or the phylactery charges, `count` the new stock. The refusals in order: `unknown_item`,
+    `needs_building`, `no_essence`, `no_relics` (was: `unknown_item`, then `ok` with `count` 0 and no change);
+  - **`needs_building` is read from `craft_slots`** (the run's manager's ruling): the built buildings' `craft_slots` (the
+    Ossuary Tower's, 1 per level) sum to under 1. A capacity effect, so an unpaid or Thrift-idled Ossuary still crafts;
+    one on its first build doesn't. `view_catalog`'s crafts give the same reason (§5.10; it read "no Ossuary Tower built",
+    which agreed with the shipped configs);
+  - **`simulacra_ready` is live** in `view_inventory` (§5.12) and the save (§9.1): a GameState stock, written as it
+    stands and read back, a save without it reading 0 (was: 0 in both). Neither stock has a cap of its own (the run's
+    manager's ruling): the essence and relic caps bind them;
+  - **`stats.sims_built`** (the save's, §9.1) counts the simulacra crafted (it was never moved).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -315,8 +330,8 @@ from `BALANCE.md` §0.
     from E2a: the valve and TownSim act on them);
   - `cmd_set_stance`, `cmd_staff_vat`, `cmd_assign_front`.
 
-  Action commands (craft, deploy; build, upgrade, demolish and cancel were stubs until
-  E2a T2.4, and the raise until E3-3) run their id checks
+  Action commands (deploy; build, upgrade, demolish and cancel were stubs until
+  E2a T2.4, the raise until E3-3 and the craft until E3-4) run their id checks
   (`unknown_*`), then return `ok` with zero-valued extras and change nothing. Stub views return
   BALANCE §0 constants or the stub values noted at each view.
 
@@ -1003,12 +1018,17 @@ Game.state.cmd_rename_big_undead("u4", "Gristle the Patient")  # -> {ok: true, r
 Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: "", place: "town:lot-04"}
 ```
 
-**`cmd_craft(item_id: String)` · E3**
+**`cmd_craft(item_id: String)` · E3 (live from E3-4, v8)**
 - **Args:** one of `CRAFT_IDS`.
 - **Extras:** `count: int` (the new stock: simulacra ready, or phylactery charges).
-- **Reasons:** `unknown_item`, `needs_building` (no Ossuary Tower), `no_essence`, `no_relics`.
-- **Effect:** instant. A simulacrum costs essence and a relic; a phylactery charge costs essence
-  (amounts in config).
+- **Reasons**, checked in this order: `unknown_item`; `needs_building` (the built buildings' `craft_slots` sum to under
+  1: no Ossuary Tower past its first build. A capacity effect, so an unpaid or Thrift-idled one still crafts. A level
+  above 1 adds nothing more in E3); `no_essence`; `no_relics`.
+- **Effect:** instant. It takes `economy.json` `craft.<item_id>`'s costs, a simulacrum 20 essence and 1 relic and a
+  phylactery charge 15 essence, and adds 1 to that stock (`view_inventory().simulacra_ready`, or the phylactery charges
+  E3-2's death rule spends, MECHANICS §7); a simulacrum also counts in `stats.sims_built` (§9.1). Neither stock has a
+  cap of its own (the essence and relic caps bind them; `phylactery.max_per_dungeon` limits the revives a run may use,
+  not the stock). No event; no uid (both are counts). It is allowed while a run is open (§9.1 Open runs).
 ```gdscript
 Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
 ```
@@ -1718,7 +1738,7 @@ has finished, and a lot under construction is not free. From T2.4 (E2a) the gate
 | key | type | meaning |
 |---|---|---|
 | `buildings` | Array[Dictionary] | one per building id (below) |
-| `crafts` | Array[Dictionary] | per `CRAFT_IDS`: `{item_id: String, cost: {essence: int, relics: int}, can_craft: bool, reason: String}` (`cmd_craft`'s reasons) |
+| `crafts` | Array[Dictionary] | per `CRAFT_IDS`: `{item_id: String, cost: {essence: int, relics: int}, can_craft: bool, reason: String}`: `reason` is what `cmd_craft` would answer now, `""` when it would craft (from E3-4 the same rule, `needs_building` read from `craft_slots`, §4.3), and `cost` is `economy.json` `craft.<item_id>` |
 | `blueprints` | Array[Dictionary] | `{id: String, owned: bool}` |
 
 Each `buildings` entry:
@@ -1900,7 +1920,7 @@ E3-3 (v8), which made it live.
 | `husks` | Array[Dictionary] | `{uid: String, kind: String}` |
 | `remnants` | Array[Dictionary] | `{uid: String, aspect: String (one of STATS), rarity: String (one of RARITIES), magnitude: int}` |
 | `blueprints` | Array[String] | owned blueprint ids |
-| `relics`, `relics_cap`, `essence`, `essence_cap`, `simulacra_ready`, `phylactery_charges` | int | simulacra and charges are fungible counts, not uids. From T2.4 the caps are the base plus the Reliquary (`relic_cap` 6, `essence_cap` 30). |
+| `relics`, `relics_cap`, `essence`, `essence_cap`, `simulacra_ready`, `phylactery_charges` | int | simulacra and charges are fungible counts, not uids. From T2.4 the caps are the base plus the Reliquary (`relic_cap` 6, `essence_cap` 30). `simulacra_ready` and `phylactery_charges` are live from E3-4 (`cmd_craft` adds to them; until then `simulacra_ready` read 0), with no cap of their own |
 
 **`view_big_undead()`**
 
@@ -2574,14 +2594,14 @@ take the router's legacy path (§2.3).
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers, and from v8 (E3-1) the optional `state` (below) |
-| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` |
+| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` (from E3-4 optional on load: an int when present, else `corrupt`; absent it reads 0) |
 | `big_undead` | Array[Dictionary] | the entries, with `place` and `front`, and from v8 (E3-3) `filled_slots: int`, optional: an int when present (else `corrupt`), and a record without it loads as 1 (§5.12) |
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |
 | `readout` | Dictionary | the `diff` EMA, the `q_raise` EMA |
 | `ledger` | Dictionary | sources and sinks so far, and the currency tally `stores` (v6) |
 | `won` | bool | |
-| `stats` | Dictionary | counters (raids, deaths, raised total) |
+| `stats` | Dictionary | counters (raids, deaths, raised total, and from E3-4 `sims_built`: the simulacra crafted) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 | `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
@@ -2648,7 +2668,9 @@ take the router's legacy path (§2.3).
   `sources.opening` is read back key by key (a missing key reads 0). One without it (a save from before
   `api_version` 3: E1, E2a, older fixtures) keeps only `sinks.dungeon`, and `opening` becomes what the
   save holds at load plus that sink, so the count balances from the load on.
-- `inventory.simulacra_ready` is written as 0.
+- `inventory.simulacra_ready` is GameState's stock of simulacra crafted and not yet planted (E3-4; until E3-4 it was
+  written as 0 and not read). It is written as it stands and read back; a save without it reads 0, and the fixtures
+  (0) come back as they are.
 - `villages` owners are `player`, `vei` or `none`. Floats are written at 15 significant digits (§10 A12).
 
 **Not saved:**
@@ -2679,7 +2701,8 @@ writeback needs and where it comes from:** the result is built from `pending_ret
 `seed_rev`, `fort_id`, `loot` and `outcome`; the seed it reads is `view_dungeon_seed`'s rule
 (`StateRuns.dungeon_seed`) at the load, whose fields the writeback reads are as the run had them: the
 party (the save's: no command changes it while a run is open), the phylactery stock and its per-dungeon
-cap (nothing changes them while a run is open), and `garrison_in_mass` (the end result's `garrison_mass`
+cap (from E3-4 `cmd_craft` can add a charge while a run is open; the retreat revives no one, so it spends none and
+its check, revives ≤ the seed's charges, holds at 0 whatever the stock), and `garrison_in_mass` (the end result's `garrison_mass`
 equals it, so the fort's undead don't move). Its events are queued as live, stamped at the save's `t`, and
 `rev` rises by 1 more. A boss run needs nothing: the save holds it forfeited (Relish `at_vei`, no run, the
 party intact). A save without `pending_retreat` (written before T3.3c) forfeits its run as before: no loot,

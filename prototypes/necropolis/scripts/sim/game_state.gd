@@ -63,7 +63,10 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
 	# (StateViews.death_rule) and the phylactery's revives per dungeon (_phylactery_max)
 	"backups.vats.grow_per_s", "backups.backups.clone_respawn_s", "backups.backups.unmade_respawn_s",
-	"backups.phylactery.max_per_dungeon"]
+	"backups.phylactery.max_per_dungeon",
+	# E3-4: the crafts' costs (MECHANICS §3.6; cmd_craft and view_catalog's crafts, _craft_cost)
+	"economy.craft.simulacrum.essence", "economy.craft.simulacrum.relics", "economy.craft.phylactery_charge.essence",
+	"economy.craft.phylactery_charge.relics"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -174,8 +177,12 @@ var clones_ready: int:
 	set(v):
 		_set_clones_ready(v)
 var _grow_per_s := 0.0  # backups.json vats.grow_per_s
-# --- E3 placeholders: saved and restored so a fixture can carry them; nothing reads them yet ---
-var _phylactery_charges := 0  # backups.phylactery_charges (E3)
+# --- the crafted stocks (E3-4, MECHANICS §3.6, §7): fungible counts, no cap of their own (the essence and relic
+# caps bound them); cmd_craft adds to them ---
+## Phylactery charges (view_backups, saved as backups.phylactery_charges): a raid's revives in place spend them (E3-2).
+var _phylactery_charges := 0
+## Simulacra crafted and not yet planted (view_inventory.simulacra_ready; saved as inventory.simulacra_ready).
+var simulacra_ready := 0
 # --- the stances (E3-1, MECHANICS §4.5; _stance_step). Saved as `stances`: hold, and the optional `state` ---
 ## stance id -> the seconds of its hold left: its `active` can't change again until it is gone (stance.hold_s
 ## after each change). Saved as stances.hold.
@@ -576,6 +583,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	cleared_forts = {}
 	_ledger.reset(Ledger.total(_held()))  # the opening: what the board holds now
 	_phylactery_charges = 0
+	simulacra_ready = 0
 	vats_grow = []
 	_clones_spare = 0
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
@@ -1100,9 +1108,10 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 # ------------------------------------------------------------- §4.3 town ----
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
 # staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
-# through TownSim's build job. Craft and deploy are still §1.1 stubs (id checks, then ok with zero
-# extras, no change); the raise is live from E3-3 (the slab, cmd_raise_big_undead). The stances act
-# from E3-1 (the stance step, below cmd_set_stance).
+# through TownSim's build job. Crafting is live from E3-4 (cmd_craft, at a building with `craft_slots`: the
+# Ossuary Tower); deploy is still a §1.1 stub (its id check, then ok with zero extras, no change); the raise is
+# live from E3-3 (the slab, cmd_raise_big_undead). The stances act from E3-1 (the stance step, below
+# cmd_set_stance).
 
 ## Buildings of that id that have finished their first build (level ≥ 1); every building when "".
 func _count_built(building_id: String) -> int:
@@ -1595,14 +1604,54 @@ func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	return {"ok": true, "reason": "", "place": place}
 
 
-## E3 stub: checks the item id, then ok with count 0.
+## §4.3 · E3 (live from E3-4; MECHANICS §3.6, §7): crafts one item at once. Reasons, after catching_up, in
+## _craft_reason's order: unknown_item, needs_building, no_essence, no_relics. It takes economy.json
+## craft.<item_id>'s essence and relics and adds 1 to the simulacra ready (stats.sims_built counts it) or to the
+## phylactery charges; `count` is that stock now. Neither stock has a cap of its own: the essence and relic caps
+## bound them, and phylactery.max_per_dungeon limits the revives a run may use, not the stock. No event; it mints
+## no uid (both stocks are counts).
 func cmd_craft(item_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"count": 0})
-	if not CRAFT_IDS.has(item_id):
-		return {"ok": false, "reason": "unknown_item", "count": 0}
+	var why := _craft_reason(item_id)
+	if why != "":
+		return {"ok": false, "reason": why, "count": 0}
+	var cost := _craft_cost(item_id)
+	essence -= int(cost["essence"])
+	relics -= int(cost["relics"])
+	var count := 0
+	if item_id == "simulacrum":
+		simulacra_ready += 1
+		stats["sims_built"] = int(stats["sims_built"]) + 1
+		count = simulacra_ready
+	else:
+		_phylactery_charges += 1
+		count = _phylactery_charges
 	rev += 1
-	return {"ok": true, "reason": "", "count": 0}
+	return {"ok": true, "reason": "", "count": count}
+
+
+## Why cmd_craft(item_id) would refuse now, "" when it would craft (E3-4; view_catalog's crafts read it too, so the
+## two agree). In order: unknown_item; needs_building, while the built buildings' `craft_slots` sum to under 1
+## (TownSim.built_effect: a capacity effect, so an unpaid or Thrift-idled Ossuary still crafts, and one still on its
+## first build doesn't; the building is found by its effect, not its id; a level above 1 adds nothing more in E3);
+## no_essence; no_relics.
+func _craft_reason(item_id: String) -> String:
+	if not CRAFT_IDS.has(item_id):
+		return "unknown_item"
+	if town_sim.built_effect("craft_slots") < 1.0:
+		return "needs_building"
+	var cost := _craft_cost(item_id)
+	if essence < int(cost["essence"]):
+		return "no_essence"
+	if relics < int(cost["relics"]):
+		return "no_relics"
+	return ""
+
+
+## A craft's cost, {essence: int, relics: int}: economy.json craft.<item_id> (REQUIRED). `item_id` is one of CRAFT_IDS.
+func _craft_cost(item_id: String) -> Dictionary:
+	return {"essence": int(_req_f("economy.craft.%s.essence" % item_id)), "relics": int(_req_f("economy.craft.%s.relics" % item_id))}
 
 
 ## E3 stub: checks the fort id, then ok with zero charges.
@@ -2205,7 +2254,7 @@ func view_stances() -> Dictionary:
 	return StateViews.stances(self)
 
 
-## §5.12 · E1. Simulacra and phylactery charges are E3 (0).
+## §5.12 · E1. The simulacra ready and the phylactery charges are live from E3-4 (cmd_craft).
 func view_inventory() -> Dictionary:
 	return StateViews.inventory(self)
 

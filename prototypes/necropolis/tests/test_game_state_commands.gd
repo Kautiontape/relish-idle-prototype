@@ -311,11 +311,12 @@ func _stubs() -> void:
 	var r2: String = s.remnants[1]["uid"]
 	var before := _snapshot(s)
 	var rv := s.rev
-	t.ok(s.cmd_craft("phylactery_charge") == {"ok": true, "reason": "", "count": 0}, "craft: ok, count 0")
+	# (the craft was a stub here until E3-4, the raise until E3-3; both are live now: tests/test_crafting.gd,
+	# tests/test_big_undead.gd. With no Ossuary the craft is refused)
+	t.ok(s.cmd_craft("phylactery_charge") == {"ok": false, "reason": "needs_building", "count": 0}, "craft: needs_building with no Ossuary")
 	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}, "deploy: ok, nothing planted")
-	# (the raise was a stub here until E3-3; it is live now: tests/test_big_undead.gd)
-	t.ok(s.rev == rv + 2, "each stub success adds 1 to rev")
-	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "the stubs change nothing")
+	t.ok(s.rev == rv + 1, "the deploy stub's success adds 1 to rev, the craft's refusal nothing")
+	t.ok(_snapshot(s) == before and s.realm.simulacra.is_empty(), "neither changes anything")
 	t.ok(s.cmd_build("nope", "lot-99") == {"ok": false, "reason": "unknown_building", "cost": {}}, "build: unknown_building first")
 	t.ok(s.cmd_build("house", "lot-99")["reason"] == "unknown_lot", "build: unknown_lot")
 	t.ok(s.cmd_upgrade("lot-25") == {"ok": false, "reason": "unknown_lot", "level": 0, "cost": {}}, "upgrade: unknown_lot")
