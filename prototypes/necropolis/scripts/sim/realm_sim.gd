@@ -40,7 +40,10 @@ extends RefCounted
 ##   tide_bias: float      the tide's multiplier; missing means 1 (neutral), not 0
 ##   redirect_fort: String the fort where Relish redirects (garrison kills stay, she raises)
 ##   redirect_rate: float  mass/s she raises there, bounded by the fort's dead
-##   siege_block: Dictionary  fort_id -> fraction 0..1 of a tithe surge a siege cancels there (E3)
+##   siege_block: Dictionary  fort_id -> fraction 0..1 of a tithe surge a siege cancels there (live from E3-3:
+##                         GameState gives tithe.siege_block at each fort a big undead sieges, flat, one per
+##                         fort; a siege adds no kill power, which isn't built). A fort retaken inside the step
+##                         loses its block for the rest of it (_unsieged)
 
 ## Every realm.json key RealmSim reads, as "key" or "section.key" paths. setup() reads them once into
 ## the members below (no defaults in the code: the numbers live in the config alone), and
@@ -427,7 +430,7 @@ func _war_weight(f: Dictionary, tide_fort: String, tide_bias: float) -> float:
 ## those events), each part with every fort in one regime (in grace, contested, unheld) for all of
 ## it, so a grace end and a retake land at their time. A split step's rates are its parts'
 ## time-weighted means and its pool_overflow their sum; a step with no such event is one part, as
-## before.
+## before. A sieged fort retaken in a part has no siege block in the parts after it (E3-3, _unsieged).
 func step(dt: float, inputs: Dictionary) -> void:
 	pool_overflow = 0.0  # per step: a step that does nothing leaves nothing to book
 	if not (dt > 0.0) or not is_finite(dt):
@@ -437,13 +440,16 @@ func step(dt: float, inputs: Dictionary) -> void:
 	var acc := {}
 	var lost := 0.0
 	var t_out := {}  # fort_id -> [t_living_out, t_undead_out, t_undead_back], seconds into the step, -1 if not
+	var part_in := inputs  # (E3-3) the parts after a retake run without that fort's siege block (_unsieged)
 	while true:
 		var rem := dt - done
 		var h := _next_part(rem)
 		var last := h >= rem - _EPS_S
 		if last:
 			h = rem
-		_step_part(h, inputs, done)
+		var ev0 := events.size()
+		_step_part(h, part_in, done)
+		part_in = _unsieged(part_in, ev0)
 		lost += pool_overflow
 		parts += 1
 		if not last or parts > 1:
@@ -454,6 +460,27 @@ func step(dt: float, inputs: Dictionary) -> void:
 	pool_overflow = lost
 	if parts > 1:
 		_average(acc, t_out, dt)
+
+
+## E3-3 (the run's manager's ruling): the inputs for the parts after one in which a sieged fort was retaken
+## (its fort_retaken among the events from `ev0`), with that fort's siege_block dropped. A retake sends the siege
+## home (GameState, big_undead_returned) at its moment, so from then the rest of the step surges there unblocked, as
+## live play's next substep would; _next_part ends a part at a break, so the retake is a part's end. `inputs` itself,
+## not a copy, unless a sieged fort was retaken (a run with no siege is bit-identical).
+func _unsieged(inputs: Dictionary, ev0: int) -> Dictionary:
+	var siege: Variant = inputs.get("siege_block", {})
+	if not (siege is Dictionary) or (siege as Dictionary).is_empty():
+		return inputs
+	var out := inputs
+	for k in range(ev0, events.size()):
+		var e: Dictionary = events[k]
+		if e["type"] != "fort_retaken" or not (out["siege_block"] as Dictionary).has(e["fort_id"]):
+			continue
+		if is_same(out, inputs):
+			out = inputs.duplicate()
+			out["siege_block"] = (siege as Dictionary).duplicate()
+		(out["siege_block"] as Dictionary).erase(e["fort_id"])
+	return out
 
 
 ## The longest first part of `rem` seconds of step: up to the nearest grace end, or the moment a

@@ -52,6 +52,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.idle.catchup_tol", "economy.idle.field_steps", "economy.idle.field_step_min_s", "economy.idle.report_min_s",
 	"economy.idle.catchup_steps_per_chunk", "economy.idle.catchup_dt_long_s", "economy.idle.catchup_dt_long_after_s",
 	"realm.tithe.warning_s",
+	# E3-3: the siege's block of a tithe wave (MECHANICS §3.4; _siege_blocks)
+	"realm.tithe.siege_block",
 	# T3.3c: the away report's text (StateViews.away_report; its keys are REPORT_KEYS, checked in setup)
 	"economy.idle.report",
 	# E3-1: the stances (MECHANICS §4.5; _stance_step): the hold, the ladder stances' jobs and order, the
@@ -1521,6 +1523,35 @@ func _sync_foremen() -> void:
 	town_sim.set_foremen(map)
 
 
+## RealmSim's `siege_block` input (E3-3, the run's manager's rulings; MECHANICS §3.4): {fort_id: tithe.siege_block}
+## for each fort with at least one big undead placed `fort:<id>`. One siege per fort counts (a second is allowed and
+## adds nothing) and the block is flat, whatever the big's stats; a siege adds no kill power. Read from the places as
+## they stand: the core step's inputs and _restore_dispatch's call it, so a placement reaches the next step at once.
+## The margin and forecast don't (_forecast_siege). A retake sends the siege home (_emit_realm), so the next step has
+## no block there; RealmSim drops it for the rest of the step the retake falls in (RealmSim.step).
+func _siege_blocks() -> Dictionary:
+	var out := {}
+	for b in big_undead:
+		var place := str(b["place"])
+		if place.begins_with("fort:"):
+			var id := place.trim_prefix("fort:")
+			if not realm.fort_by_id(id).is_empty():
+				out[id] = _req_f("realm.tithe.siege_block")
+	return out
+
+
+## The siege block the margin and forecast credit (E3-3, the run's manager's ruling: a new feature must never make the
+## chip say "safe" at a fort that falls): none. view_fort's margin, fall_s and the wave train, view_projection's
+## margins, read every fort as if unsieged (_fort_readout, _train_support), while RealmSim's step applies the block.
+## The wave train's support is the WAR at the sampling instant, held over the whole forecast; with a block crediting
+## a fort near its band's edge, that error can turn "safe" where the sim breaks it (E3-3's diagnosis: midgame_2flips
+## one substep in reads Ashgate's WAR 1.427 against the 1.119 it settles at a minute later). So the chip is
+## conservative: a fort reads safe only if it holds without its siege, and it may read thin where the siege holds it.
+## Crediting the siege is E4's, once the train's support mirrors the sim (MECHANICS §3.4).
+func _forecast_siege() -> Dictionary:
+	return {}
+
+
 ## Takes a big undead out of the party. Its front goes too: fronts are for party members.
 func _leave_party(b: Dictionary) -> void:
 	party_uids.erase(b["uid"])
@@ -1528,7 +1559,9 @@ func _leave_party(b: Dictionary) -> void:
 
 
 ## E1/E2: records the place (and takes it out of the party). From E3-3 a foreman works its building (TownSim's
-## foremen, _sync_foremen; MECHANICS §4.2); a place where it gives nothing is still allowed.
+## foremen, _sync_foremen; MECHANICS §4.2) and a siege blocks tithe.siege_block of a tithe wave at its fort
+## (_siege_blocks; MECHANICS §3.4); a place where it gives nothing (a second siege, a passive building) is still
+## allowed.
 func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"place": ""})
@@ -1944,17 +1977,16 @@ func _fort_wars() -> Array:
 	return out
 
 
-## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and the siege the sim
-## gets (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with no siege credited
+## (_forecast_siege, E3-3: conservative) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
 ## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
 ## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
 ## of the clocks at the current and the planned support.
 func _fort_readout(f: Dictionary, w_in: float, train := {}, plan := []) -> Dictionary:
 	var fx := _relish_effects()
 	var id: String = f["id"]
-	var siege: Variant = _realm_inputs.get("siege_block", {})
 	return realm.readout_of(f, w_in, fx["redirect_fort"] == id, _raise_rate,
-		fx["tide_fort"] == id, RealmSim._siege_at(siege if siege is Dictionary else {}, id), digest_q(), train, plan)
+		fx["tide_fort"] == id, RealmSim._siege_at(_forecast_siege(), id), digest_q(), train, plan)
 
 
 ## A new game or a load (cmd_new_game, from_dict): the wave train's cache is emptied and the frame path is
@@ -2062,7 +2094,8 @@ func _train_frame(substeps: int) -> bool:
 	return true
 
 
-## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort, at `war`
+## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort (`block` from
+## _forecast_siege: none credited, E3-3), at `war`
 ## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
 ## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
 ## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
@@ -2084,14 +2117,14 @@ func _train_support(war: float, live: bool) -> Dictionary:
 		fx = {"tide_fort": dest, "redirect_fort": dest}
 	else:
 		wars = realm.war_at(war)[0]
-	var siege: Variant = _realm_inputs.get("siege_block", {})
+	var siege := _forecast_siege()  # (E3-3: the forecast credits no siege; the step does)
 	var sup := {}
 	for i in realm.forts.size():
 		var f: Dictionary = realm.forts[i]
 		if RealmSim.is_held(f):
 			var id: String = f["id"]
 			sup[id] = [float(wars[i]), fx["redirect_fort"] == id, _raise_rate, fx["tide_fort"] == id,
-				RealmSim._siege_at(siege if siege is Dictionary else {}, id)]
+				RealmSim._siege_at(siege, id)]
 	return sup
 
 
@@ -2486,12 +2519,12 @@ func _core_step(dt: float) -> Array:
 	_step_relish_travel(dt)
 	# §3 step 5: RealmSim, pure on these inputs; its events get this step's t
 	var fx := _relish_effects()
-	# (siege_block: the siege big undead's share per fort, E3; none yet)
+	# (siege_block: tithe.siege_block at each fort a big undead sieges, E3-3: _siege_blocks)
 	_realm_inputs = {
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
 		"tide_fort": fx["tide_fort"], "tide_bias": _req_f("realm.relish.tide_bias"),
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
-		"siege_block": {},
+		"siege_block": _siege_blocks(),
 	}
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
@@ -2745,7 +2778,7 @@ func _restore_dispatch() -> void:
 	var fx := _relish_effects()
 	var bias := _req_f("realm.relish.tide_bias")
 	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],
-		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": {}}
+		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": _siege_blocks()}
 	var w: Array[float] = []
 	var given := 0.0
 	var level := 0.0

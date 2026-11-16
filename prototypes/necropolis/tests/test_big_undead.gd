@@ -21,6 +21,18 @@ extends RefCounted
 ## - view_town's foreman_mult (TOWN_BUILDING, v8);
 ## - with no foreman, day1 and pre_vei 6 h live and 12 h caught up hash as the parent's (0e4f932), and midgame_2flips
 ##   with u8 back in the crypt too; caught up matches live with the foreman on midgame over 6 h.
+## The siege (MECHANICS §3.4; realm.json tithe.siege_block, flat, one per fort; no kill power):
+## - a sieged fort's wave reads siege_block tithe.siege_block in its tithe_wave and surges × (1 − it); a second siege
+##   there adds nothing (the same block, the same state);
+## - a retake inside a step: RealmSim drops the fort's block for the rest of the step (one 10 s step equals a 2 s
+##   step with the block then an 8 s step without it); the siege goes home, live and caught up, and the next step
+##   has no block there;
+## - the margin chip credits no siege (the run's manager's ruling: conservative): at a sieged fort it reads as if
+##   unsieged, so never "safe" where the fort falls without its siege. MECHANICS §3.4 (b)'s Ashgate reads thin, the
+##   sim holds it with the siege and breaks it without; midgame_2flips with its WAR cut to 0.05 doesn't read its
+##   sieged Ashgate safe at the first settled read, and the sim retakes it; the step still applies the block;
+## - midgame_2flips with u9 back in the crypt hashes as the parent's (2287fea), with u8 and u9 as 0e4f932's; caught up
+##   matches live over 6 h with the foreman and the siege at work.
 
 var t := TestUtil.new()
 var slab: Dictionary
@@ -39,6 +51,10 @@ const PARENT := {
 	"midgame_2flips": {"live": {"state": "e1257bdad6bdf175", "events": "40f1447a241a7e7d", "n_events": 175},
 		"caught": {"state": "efb2ac63c701837d", "events": "0bc1a1375468f3e5", "away": "05cda66f6b8dc51f", "n_events": 367, "steps": 4422}},
 }
+## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
+## from the same harness on a git archive of it (the same with none moved: the siege did nothing there).
+const PARENT_C3 := {"live": {"state": "94dbf012763c002d", "events": "40f1447a241a7e7d", "n_events": 175},
+	"caught": {"state": "07877cce16f345fc", "events": "0bc1a1375468f3e5", "away": "ca228dfee330c89f", "n_events": 367, "steps": 4422}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 
@@ -69,6 +85,12 @@ func run() -> int:
 	_fm_clone_sync()
 	_fm_feed_short()
 	_fm_load_new()
+	t.suite("big_undead-siege")
+	_siege_wave()
+	_siege_split()
+	_siege_retake()
+	_siege_margin()
+	_siege_chip_war05()
 	_identity()
 	_fm_catchup()
 	return t.failures
@@ -664,6 +686,211 @@ func _fm_load_new() -> void:
 	t.ok(s.town_sim.foremen.is_empty(), "a new game: no foremen, at once")
 
 
+# ------------------------------------------------------------------ the siege ----
+## midgame_2flips' first wave after its re-target (its first step warns for a fort not in grace) with `n` big undead
+## (granted) sieging that fort: [the target, its tithe_wave, the state's hash less the big undead, the step's block].
+func _wave_with(c: Dictionary, n: int) -> Array:
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(0.5)
+	var target := str(s.realm.tithe["warning"].get("fort_id", ""))
+	# u7 (in the crypt) and one granted (the cap is 4, midgame holds 3), in every case, so the runs draw the same rng
+	s.cmd_debug_grant({"big_undead": 1})
+	var free: Array = s.big_undead.filter(func(b): return b["place"] == "crypt")
+	for i in n:
+		s.cmd_place_big_undead(free[i]["uid"], "fort:" + target)
+	s.drain_events()
+	s.tick(200.0)  # past the wave's start (warned 150 s ahead)
+	var wave := {}
+	for e in s.drain_events():
+		if e["type"] == "tithe_wave" and wave.is_empty():
+			wave = e
+	var blk := float((s._realm_inputs["siege_block"] as Dictionary).get(target, 0.0))
+	return [target, wave, JSON.stringify(_strip(s.to_dict())).sha256_text(), blk]
+
+
+## A sieged fort's wave: its tithe_wave reads siege_block tithe.siege_block and its surge × (1 − it); a second siege
+## there adds nothing: the same block, the same state.
+func _siege_wave() -> void:
+	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
+	var block := float(c["realm"]["tithe"]["siege_block"])
+	var r0 := _wave_with(c, 0)
+	var r1 := _wave_with(c, 1)
+	var r2 := _wave_with(c, 2)
+	var w0: Dictionary = r0[1]
+	var w1: Dictionary = r1[1]
+	t.ok(not w0.is_empty() and not w1.is_empty() and w0["fort_id"] == r0[0] and w1["fort_id"] == r1[0] and float(w0["siege_block"]) == 0.0
+		and float(w1["siege_block"]) == block and _near(float(w1["surge"]), float(w0["surge"]) * (1.0 - block)) and float(r1[3]) == block,
+		"the wave at %s: siege_block %.1f with a siege (0 without), its surge %.2f -> %.2f /s; the step's input block %.1f" % [
+		str(r1[0]), float(w1.get("siege_block", -1.0)), float(w0.get("surge", -1.0)), float(w1.get("surge", -1.0)), float(r1[3])])
+	t.ok(r2[1] == r1[1] and r2[2] == r1[2] and float(r2[3]) == block,
+		"a second siege there adds nothing: the same wave (%s) and the same state" % str(r2[1].get("siege_block", -1.0)))
+
+
+## A contested fort alone (test_realm_sim's _contested): `id` held with no grace, garrison `u0`, every other fort full
+## of corpses, Vei's pool full; `zero_s` on its zero clock; with `wave`, a full wave starting there.
+static func _contested(id: String, u0: float, living: float, zero_s: float, wave: bool) -> RealmSim:
+	var all := TestUtil.configs()
+	var sim := RealmSim.new()
+	sim.setup((all["world"] as Dictionary).duplicate(true), (all["realm"] as Dictionary).duplicate(true))
+	sim.vei["living_pool"] = 600.0
+	sim.vei["dead_queue"] = 1e5
+	for o in sim.forts:
+		if o["id"] != id:
+			o["living"] = 0.0
+			o["undead"] = 0.0
+			o["dead"] = o["cap"]
+	var f := sim.fort_by_id(id)
+	sim.hold(id, 0.0)
+	f["living"] = living
+	f["dead"] = 0.0
+	f["undead"] = u0
+	f["zero_s"] = zero_s
+	sim.start_tithe()
+	sim.tithe["next_s"] = 1e6
+	if wave:
+		var surge_s := float(sim.t["tithe"]["surge_s"])
+		sim.tithe["wave"] = {"wave_id": 1, "fort_id": id, "s_left": surge_s, "duration_s": surge_s,
+			"mult": float(sim.t["tithe"]["surge_mult"]), "delivered": 0.0}
+	return sim
+
+
+## A retake inside a step (E3-3, the run's manager's ruling): RealmSim drops the fort's siege block for the parts after
+## it. Ashgate pinned at 0 (her living at its cap), its break 2 s off, a wave running there: one 10 s step with the
+## block delivers what a 2 s step with it and an 8 s step without it do, not what 10 s of block would (2 s + 8 s, both
+## blocked).
+func _siege_split() -> void:
+	var brk := float(TestUtil.configs()["realm"]["hold"]["break_s"])
+	var blocked := {"war": 0.0, "digest_q": 1.2, "siege_block": {"ashgate": 0.6}}
+	var free := {"war": 0.0, "digest_q": 1.2}
+	var a := _contested("ashgate", 0.0, 80.0, brk - 2.0, true)
+	a.step(10.0, blocked)
+	var at := -1.0
+	for e in a.drain_timed():
+		if e[1]["type"] == "fort_retaken":
+			at = float(e[0])
+	var b := _contested("ashgate", 0.0, 80.0, brk - 2.0, true)
+	b.step(2.0, blocked)
+	b.step(8.0, free)
+	var d := _contested("ashgate", 0.0, 80.0, brk - 2.0, true)
+	d.step(2.0, blocked)
+	d.step(8.0, blocked)
+	var da := float(a.tithe["wave"]["delivered"])
+	var db := float(b.tithe["wave"]["delivered"])
+	var dd := float(d.tithe["wave"]["delivered"])
+	t.ok(_near(at, 2.0, 1e-9) and _near(da, db, 1e-12) and da > dd * 1.5 and not RealmSim.is_held(a.fort_by_id("ashgate")),
+		"Ashgate retaken %.3f s into a 10 s step: the wave delivered %.2f, as 2 s blocked + 8 s free (%.2f), not 10 s blocked (%.2f)" % [at, da, db, dd])
+
+
+## The retake sends the siege home and the block goes with it, live (0.5 s steps) and caught up (a load 1 h on, its
+## steps not clipped at the retake): midgame_2flips' sieged Ashgate contested, its garrison pinned at 0 by her living
+## and its break 3 s off. big_undead_returned {u9, ashgate} right after fort_retaken, u9 in the crypt, and the steps
+## after it read no block at Ashgate.
+func _siege_retake() -> void:
+	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
+	var brk := float(c["realm"]["hold"]["break_s"])
+	for mode in ["live", "caught up"]:
+		var s := GameState.new(c)
+		s.debug_enabled = true
+		s.save_dir = _dir
+		s.cmd_debug_load_fixture("midgame_2flips")
+		s.cmd_debug_set_state({"valve": {"work": 0.5, "war": 0.0, "flood": 0.5}})
+		s.realm.hold("ashgate", 0.0)
+		var f := s.realm.fort_by_id("ashgate")
+		f["living"] = 400.0  # her counter-garrison's pull (k_destroy · L / q, about 2 mass/s) pins the garrison at 0
+		f["undead"] = 0.0
+		f["zero_s"] = brk - 3.0
+		var t0 := s.t
+		var g := s
+		var evs: Array = []
+		if mode == "live":
+			s.drain_events()
+			s.tick(10.0)
+			evs = s.drain_events()
+		else:
+			s.clock_override = CLOCK
+			s.cmd_save("retake")
+			g = GameState.new(c)
+			g.debug_enabled = true
+			g.save_dir = _dir
+			g.clock_override = CLOCK + 3600
+			g.cmd_load("retake")
+			evs = g.catchup_events()
+		var k := -1
+		for i in evs.size():
+			if evs[i]["type"] == "fort_retaken" and evs[i]["fort_id"] == "ashgate":
+				k = i
+				break
+		var ret: bool = k >= 0 and k + 1 < evs.size() and evs[k + 1] == {"type": "big_undead_returned", "uid": "u9", "fort_id": "ashgate", "t": evs[k]["t"]}
+		t.ok(ret and g._find_uid(g.big_undead, "u9")["place"] == "crypt" and g._siege_blocks().is_empty()
+			and not (g._realm_inputs["siege_block"] as Dictionary).has("ashgate"),
+			"%s: Ashgate retaken %.2f s in, u9 home at once, and the steps after it read no block there" % [mode,
+			float(evs[k]["t"]) - t0 if k >= 0 else -1.0])
+
+
+## The margin chip at a sieged fort is conservative (MECHANICS §3.4 (b)): Ashgate contested with 0.8 mass/s of WAR and
+## its garrison settled at WAR / r_drain, a full wave starting. GameState's chip credits no siege (_forecast_siege), so
+## it reads the unsieged one-wave margin, thin (a wave breaks it), with or without u9 there; the sim breaks it without
+## the siege and holds it with it. So it never reads safe where the fort falls; where the siege holds it, it reads thin
+## (the conservative case). readout_of with the block credited would read safe there (what E4 may credit).
+func _siege_margin() -> void:
+	var cfg: Dictionary = TestUtil.configs()["realm"]
+	var w := 0.8
+	var u0: float = w / float(cfg["r_drain"])
+	var block := float(cfg["tithe"]["siege_block"])
+	var gs := _mk()
+	gs.cmd_debug_load_fixture("midgame_2flips")  # u9 sieges Ashgate: the block the step applies, the chip doesn't
+	var chip_block := RealmSim._siege_at(gs._forecast_siege(), "ashgate")
+	t.ok(RealmSim._siege_at(gs._siege_blocks(), "ashgate") == block, "(setup) midgame_2flips' u9 sieges Ashgate: the step's block %.1f" % block)
+	for sieged in [false, true]:
+		var sim := _contested("ashgate", u0, 0.0, 0.0, true)
+		var ro := sim.readout_of(sim.fort_by_id("ashgate"), w, false, 0.0, false, chip_block, 1.2, {}, [])
+		var credited := sim.readout_of(sim.fort_by_id("ashgate"), w, false, 0.0, false, block, 1.2, {}, [])
+		var inp := {"war": w, "digest_q": 1.2}
+		if sieged:
+			inp["siege_block"] = {"ashgate": block}
+		var fell := -1.0
+		var el := 0.0
+		while el < 1200.0 - 1e-9 and fell < 0.0:
+			sim.step(0.5, inp)
+			for e in sim.drain_timed():
+				if e[1]["type"] == "fort_retaken":
+					fell = el + float(e[0])
+			el += 0.5
+		t.ok(chip_block == 0.0 and ro["margin"] == "thin" and ro["margin_cause"] == "wave" and credited["margin"] == "safe" and (fell < 0.0) == sieged,
+			"Ashgate, WAR %.1f, %s: the chip reads %s (%s; with the block credited it would read %s), the sim %s%s" % [w,
+			"sieged" if sieged else "no siege", ro["margin"], ro["margin_cause"], credited["margin"],
+			"holds it 1200 s" if fell < 0.0 else "breaks it at %.1f s" % fell, ": conservative, siege not credited" if sieged else ""])
+
+
+## The regression for the chip's lie under a siege (E3-3's margin_truth failure): midgame_2flips with its valve's WAR share
+## cut to 0.05 (margin_truth's "midgame, WAR 0.05") and u9 sieging Ashgate. One substep in (margin_truth's t 0), its
+## wave-train chip (view_fort) and the settled read at the valve's target (view_projection) must not read Ashgate safe:
+## the sim retakes it (988 s at 0.5 s; 978 s without the siege). Crediting the block read it safe.
+func _siege_chip_war05() -> void:
+	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.cmd_set_valve(0.40, 0.05, 0.55)
+	s.tick(s.substep_s())
+	var chip: Dictionary = s.view_fort("ashgate")
+	var settled: Dictionary = s.view_projection(s.valve_target, true)["margins"].get("ashgate", {})
+	var sieged: bool = s._find_uid(s.big_undead, "u9")["place"] == "fort:ashgate" and s._siege_blocks().has("ashgate")
+	var t0 := s.t
+	var fell := -1.0
+	while s.t - t0 < 1200.0 and fell < 0.0:
+		s.tick(s.substep_s())
+		for e in s.drain_events():
+			if e["type"] == "fort_retaken" and e["fort_id"] == "ashgate":
+				fell = float(e["t"]) - t0
+	t.ok(sieged and chip["margin"] != "safe"
+		and settled.get("margin", "safe") != "safe" and fell >= 0.0,
+		"midgame, WAR 0.05, u9 sieging Ashgate: one substep in its chip reads %s (%s), the settled read %s; the sim retakes it %.1f s later" % [
+		chip["margin"], chip["margin_cause"], settled.get("margin", "?"), fell])
+
+
 ## The identity harness (the parent's PARENT came from this code on a snapshot): `fx` under `c` with `crypt` moved to
 ## the crypt, `seconds` live (tick uncapped). Returns [the state, its events].
 func _live(c: Dictionary, fx: String, crypt: Array, seconds: float) -> Array:
@@ -716,31 +943,56 @@ static func _hash_caught(n: GameState) -> Dictionary:
 		"away": JSON.stringify(away).sha256_text().left(16), "n_events": evs.size(), "steps": n._catchup.steps}
 
 
-## With no foreman working, 6 h live and 12 h caught up hash as the parent's (PARENT): day1, pre_vei, and midgame_2flips
-## with u8 (the Market's foreman) back in the crypt. The midgame live run is kept for _fm_catchup (_mid_off).
+## With no foreman working and no siege, 6 h live and 12 h caught up hash as before them (PARENT, 0e4f932): day1,
+## pre_vei, and midgame_2flips with u8 (the Market's foreman) and u9 (Ashgate's siege) back in the crypt; and with u9
+## alone back in the crypt, midgame_2flips hashes as the siege's parent's (PARENT_C3, 2287fea). The midgame live run
+## with both moved is kept for _fm_catchup (_mid_off).
 func _identity() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
-	for cs in [["day1", []], ["pre_vei", []], ["midgame_2flips", ["u8"]]]:
+	for cs in [["day1", [], PARENT["day1"], "0e4f932"], ["pre_vei", [], PARENT["pre_vei"], "0e4f932"],
+			["midgame_2flips", ["u8", "u9"], PARENT["midgame_2flips"], "0e4f932"], ["midgame_2flips", ["u9"], PARENT_C3, "2287fea"]]:
 		var lv := _live(c, cs[0], cs[1], 21600.0)
-		if cs[0] == "midgame_2flips":
+		if cs[1].size() == 2:
 			_mid_off = lv
 		var hl := _hash_live(lv)
 		var hc := _hash_caught(_caught(c, cs[0], cs[1], 43200))
-		t.ok(hl == PARENT[cs[0]]["live"] and hc == PARENT[cs[0]]["caught"],
-			"%s%s: 6 h live and 12 h caught up hash as the parent's (0e4f932): %s, %s" % [cs[0], " with %s in the crypt" % str(cs[1]) if not cs[1].is_empty() else "", str(hl), str(hc)])
+		t.ok(hl == cs[2]["live"] and hc == cs[2]["caught"],
+			"%s%s: 6 h live and 12 h caught up hash as %s's: %s, %s" % [cs[0], " with %s in the crypt" % str(cs[1]) if not cs[1].is_empty() else "",
+			cs[3], str(hl), str(hc)])
 
 
-## Caught up matches live with the foreman, midgame_2flips over 6 h at the shipped step, by test_catchup's compare(): the
-## stocks within idle.catchup_tol, the held forts, Covington, the outcomes; the rates no further from live than with u8
-## in the crypt (the same comparison), plus the tolerance.
+## Caught up matches live with the foreman and the siege at work, midgame_2flips over 6 h at the shipped step, by
+## test_catchup's compare(): the stocks within idle.catchup_tol, the held forts, Covington, the outcomes; the rates no
+## further from live than with u8 and u9 in the crypt (the same comparison), plus the tolerance. The live run's sieged
+## Ashgate, sampled 600 s in (past its grace) in the margin truth check's form (T3.4b): the chip's wave train credits
+## no block while the sim's step applies 0.6, and a "safe" chip's fort still stands at the end; its waves read
+## siege_block 0.6.
 func _fm_catchup() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
 	var tol := float(c["economy"]["idle"]["catchup_tol"])
+	var block := float(c["realm"]["tithe"]["siege_block"])
 	var tc = load("res://tests/test_catchup.gd")
-	var on := _live(c, "midgame_2flips", [], 21600.0)
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.drain_events()
+	s.tick(600.0)
+	var chip: Dictionary = s.view_fort("ashgate")
+	var sup: Array = s._train_support(s._train_war(), true).get("ashgate", [])
+	var step_block := float((s._realm_inputs["siege_block"] as Dictionary).get("ashgate", -1.0))
+	s.tick(21000.0)
+	var on := [s, s.drain_events()]
+	var held_end := RealmSim.is_held(s.realm.fort_by_id("ashgate"))
+	t.ok(chip["held"] and sup.size() == 5 and float(sup[4]) == 0.0 and step_block == block and (chip["margin"] != "safe" or held_end),
+		"sieged Ashgate at 600 s: the chip reads %s (%s), its wave train crediting no block (%.1f) where the step applies %.1f; at 6 h it is %s" % [
+		chip["margin"], chip["margin_cause"], float(sup[4]) if sup.size() == 5 else -1.0, step_block, "held" if held_end else "retaken"])
+	var at_ash: Array = (on[1] as Array).filter(func(e): return e["type"] == "tithe_wave" and e["fort_id"] == "ashgate")
+	var others: Array = (on[1] as Array).filter(func(e): return e["type"] == "tithe_wave" and e["fort_id"] != "ashgate")
+	t.ok(not at_ash.is_empty() and at_ash.all(func(e): return float(e["siege_block"]) == block) and others.all(func(e): return float(e["siege_block"]) == 0.0),
+		"over 6 h live: %d waves at sieged Ashgate read siege_block %.1f, the %d elsewhere 0" % [at_ash.size(), block, others.size()])
 	var cu_on := _caught(c, "midgame_2flips", [], 21600)
 	var r: Dictionary = tc.compare(cu_on, cu_on.catchup_events(), on[0], on[1], tol)
-	var cu_off := _caught(c, "midgame_2flips", ["u8"], 21600)
+	var cu_off := _caught(c, "midgame_2flips", ["u8", "u9"], 21600)
 	var off: Dictionary = tc.compare(cu_off, cu_off.catchup_events(), _mid_off[0], _mid_off[1], tol)
 	var worse: Array = []
 	for k in r["rates"]:
@@ -751,4 +1003,5 @@ func _fm_catchup() -> void:
 	var m := live_gs.town_sim.foreman_mult("lot-04")
 	t.ok(m > 1.0 and cu_on.town_sim.foreman_mult("lot-04") == m and stocks_ok and worse.is_empty() and r["town_same"]
 		and (r["outcomes"] as Array).is_empty() and r["held"][0] == r["held"][1],
-		"midgame_2flips, the Market's foreman at m %.4f, 6 h caught up against live at 0.5 s: %s (u8 in the crypt: %s)" % [m, r["lines"], off["lines"]])
+		"midgame_2flips, the Market's foreman at m %.4f and Ashgate's siege, 6 h caught up against live at 0.5 s: %s (u8 and u9 in the crypt: %s)" % [
+		m, r["lines"], off["lines"]])

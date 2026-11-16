@@ -35,10 +35,14 @@ const TIP := {
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
-	# unchanged, and with u8 in the crypt it is the parent's (test_big_undead)
-	"midgame_2flips": {"state": "922636852914c9afff89ec02a529358cf5b5f2f6878e274dd5b41d7d1341b1e2",
-		"events": "0bc1a1375468f3e5deabd304cb9130fa6581a8bcbd978863e16c0b8448099416",
-		"away": "ca228dfee330c89f1674e6a1f554c6ee0a4b05d419bba6f6d10755963b978592", "steps": 4422, "n_events": 367},
+	# unchanged, and with u8 in the crypt it is the parent's (test_big_undead).
+	# Re-baselined again at E3-3's siege: u9's siege blocks 0.6 of every wave at Ashgate (it holds, as before, now
+	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 368 events); Old Sluice's retake is unchanged
+	# (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village Bellwether lost to Vei".
+	# With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
+	"midgame_2flips": {"state": "3eaa11f0a41cdff63215de5adfb91871227afc1c1220adb1c9eb3b522b6f8e84",
+		"events": "9a72a12c778a9f191dc40d3463c844b565a42dabdc654981ef2f990ebbc003f6",
+		"away": "e2bc458078af958d89e77a3966400d2b4883d8554d32c588a492714cf0782472", "steps": 4424, "n_events": 368},
 	"pre_vei": {"state": "3983ed76900e24729627fce8fae16be54c74579c6fe702bb45d69bff67e3fdb6",
 		"events": "794d7e0224d331e98c2019bfe0b5d175b34798a7420c5d42e015f585f2182d39",
 		"away": "47c37eeb42384917945ace19104f947301da6faf9c612df41baa3cfc32d5de35", "steps": 4321, "n_events": 16},

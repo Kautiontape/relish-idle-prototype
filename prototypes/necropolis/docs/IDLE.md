@@ -144,6 +144,11 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   construction finishing, a store reaching its floor). The multiplier is a constant over a step, so TownSim's
   step integrates it exactly. With the foreman at work midgame_2flips caught up 6 h matches 6 h live
   (`test_big_undead`).
+- **A siege at a retake** (E3-3, MECHANICS §3.4). Catch-up doesn't clip at a retake: RealmSim splits its step at
+  the break (above). The siege's block goes from the retake's moment all the same. RealmSim runs the step's parts
+  after the retake without that fort's `siege_block` (`RealmSim._unsieged`), and GameState sends the siege home
+  (`big_undead_returned`), so the next step has no block there. A 10 s step with the retake 2 s in delivers a wave
+  there exactly as a 2 s step with the block and an 8 s step without it (`test_big_undead`).
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
   (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;

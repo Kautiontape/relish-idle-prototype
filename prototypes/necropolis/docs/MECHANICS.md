@@ -260,8 +260,9 @@ Names, to avoid confusion:
   pool cap and simulacra.
 - The asymmetry is unchanged: your kills stay; garrison kills ship to Vei. Vei digests with `cheap`.
 - `step(dt, inputs)` is pure on its inputs. The mint's split, `q`, Relish's position and each
-  fort's siege share (`siege_block`, E3) arrive as inputs; RealmSim never reads them from its
-  config or keeps its own Relish.
+  fort's siege share (`siege_block`, live from E3-3) arrive as inputs; RealmSim never reads them from its
+  config or keeps its own Relish. The one exception inside a step: a sieged fort retaken in a part loses its
+  block for the step's later parts (§3.4's retake).
 - `directShare` is **removed** everywhere, including `readout()`. FLOOD replaces it. `P_relish` is 0
   (D2) and nothing reads it.
 - Each fort's hold (`held`, `grace_s`, `zero_s`; §3.4) and the tithe-wave state are RealmSim state.
@@ -465,7 +466,11 @@ pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming fal
 `break_s` later ("Needs WAR too"). The retake lands at its time inside the step (§3.1). On a retake
 (IDLE I6):
 - a siege big undead there (GameState's place `fort:<id>`) returns to the crypt, with
-  `big_undead_returned {uid, fort_id}` right after the `fort_retaken`;
+  `big_undead_returned {uid, fort_id}` right after the `fort_retaken`. Its block is gone from that moment (E3-3):
+  RealmSim splits the step at the break (§3.1) and runs the parts after it without that fort's `siege_block`
+  (`RealmSim._unsieged`), and the next step's inputs have none there. A catch-up doesn't clip at a retake, so this
+  holds inside its long steps too: a 10 s step with the retake 2 s in delivers a wave there as a 2 s step with the
+  block and an 8 s step without it (`test_big_undead`);
 - a simulacrum planted there is lost (RealmSim drops it; `cmd_deploy_simulacrum` is still the E3
   stub, so only a save or a test plants one today);
 - Relish, if she stands there, walks home (§3.3, `relish_returned` after the `big_undead_returned`; E2b-2
@@ -638,8 +643,20 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
       `cap · 1.01` unless a wave ran there within 7τ.
 - **Counters** (applied every step of the wave; the event reports them at its start):
   - Relish standing there (at the fort or in its dungeon) multiplies the surge by `tithe.relish_mult` (0.5: halves it);
-  - a big undead placed there as siege cancels `tithe.siege_block` of it. Siege is E3: RealmSim
-    takes the cancelled fraction per fort as its `siege_block` input, 0 until then.
+  - a big undead placed there as siege cancels `tithe.siege_block` of it (live from E3-3). RealmSim
+    takes the cancelled fraction per fort as its `siege_block` input: GameState gives `tithe.siege_block` at each
+    fort with at least one big undead placed `fort:<id>` (`_siege_blocks`), flat, one per fort. It is the siege's
+    only effect: it adds no kill power (not built; E4 only if the hold band needs it).
+  - **The margin chip credits no siege** (E3-3, the run's manager's ruling: a new feature must never make the chip
+    say "safe" at a fort that falls). `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s
+    margins, read every fort as if unsieged (`GameState._forecast_siege`), while RealmSim's step applies the block.
+    So the chip is conservative: a fort reads safe only if it holds without its siege, and it may read thin where
+    the siege actually holds it. Why: the wave train's support is the WAR at the sampling instant, held over the
+    whole forecast. Credited, a block let that error turn safe where the sim breaks the fort. One substep after
+    midgame_2flips' load, the train reads Ashgate's WAR at 1.427 and Old Sluice's at 0.970 against the 1.119 and
+    0.761 they settle at a minute later. On those garrisons the blunted waves never rotate to Old Sluice, which the
+    sim breaks at 1 315 s; with the valve's WAR cut to 0.05 the sieged Ashgate itself read safe and fell at 988 s
+    (`margin_truth`). Crediting the siege is an E4 item, once the train's support mirrors the sim.
 
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
@@ -725,7 +742,7 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     **today's state** (each fort's garrison, her living there, its corpses, its zero clock and its
     grace; the tithe as it stands: `next_s`, a pending warning and its target, a running wave and its
     `s_left`), on scratch copies, at each fort's support (the WAR the valve sends it, Relish's redirect
-    and tide, the siege's block, `q`). It is RealmSim's own `fort_step` at `hold.probe_dt_s` (10 s), each
+    and tide, the siege's block (none credited from E3-3: §3.4's counters), `q`). It is RealmSim's own `fort_step` at `hold.probe_dt_s` (10 s), each
     step cut at the next event so each lands at its time (a warning, a wave's start and end, a grace end,
     a garrison at 0 reaching `break_s`), with the zero clock as step 9 runs it (T3.3a's leave-0 split
     included), through her waves at her period (`tithe_period`, at today's odds). A contested fort gets
@@ -1420,7 +1437,10 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   The specialist-or-all-rounder decision pays off on the fronts (vision review M4).
 - **Placement:**
   - town foreman (`town:<lot_id>`);
-  - fort siege (`fort:<id>`), which adds kill power there and blocks tithe;
+  - fort siege (`fort:<id>`), which blocks `tithe.siege_block` (0.6) of a tithe wave there (§3.4; live from
+    E3-3). One siege per fort counts: a second is allowed and adds nothing. The block is flat, whatever the big's
+    stats. A siege adds no kill power (the run's manager's ruling): that isn't built, and goes to E4 only if the
+    hold band needs it;
   - the party (`cmd_set_party`);
   - the crypt.
 - Cap: `big_undead.cap` (4, + `big_undead.per_crypt_level` per Crypt level above 1). They die only in dungeons or the Vei fight.

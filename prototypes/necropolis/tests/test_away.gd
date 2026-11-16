@@ -654,7 +654,8 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 		== {"text": "Your stores are full and the queue is empty: raid a fort for relics", "kind": "raid", "target": ""},
 		"ready: the stores full and the queue empty, the raid prompt in place of Queue empty: %s" % str(rep["ready"].map(func(l): return l["text"])))
 	t.ok(_find(rep, "losses", "retaken") == {"text": "Old Sluice retaken: raid it to win it back", "kind": "retaken", "target": "old-sluice"}, "losses: Old Sluice retaken")
-	t.ok(_find(rep, "losses", "village_lost") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
+	# (E3-3: with u9's siege blunting Ashgate's waves the report loses Bellwether first, then Tarnish)
+	t.ok(_find(rep, "losses", "village_lost", "Tarnish") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
 	var over := float(n.ledger()["stores"]["gold"]["overflow"])
 	var ol := _find(rep, "losses", "overflow")
 	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold is full: %s not stored" % _commas(roundi(over)) and ol["target"] == "",

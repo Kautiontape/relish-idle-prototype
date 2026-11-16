@@ -287,6 +287,21 @@ from `BALANCE.md` §0.
   - **Σ foreman_q is dropped** from `q` (MECHANICS §2.2; `view_vei().digest_q`, the seeds' `digest_q`): a foreman
     adds no `q`. A Forge foreman reaches `q` only through the forge level its smiths reach sooner. Was: a term
     documented as 0 until E3.
+
+  E3-3's siege adds no key. Changes of meaning:
+  - **the siege block is live** (§3 step 5, MECHANICS §3.4; `cmd_place_big_undead`, §4.3): a fort with a big undead
+    placed `fort:<id>` gets `tithe.siege_block` (0.6) in RealmSim's `siege_block`, flat, one per fort (a second
+    siege is allowed and adds nothing). A wave there surges × (1 − 0.6), and its `tithe_wave` event's `siege_block`
+    reads 0.6. A retake sends the siege home (`big_undead_returned`, as before) and the block goes from that moment,
+    inside a catch-up's long step too. Was: `{}` always, `siege_block` 0.0 on every wave;
+  - **the margin chip credits no siege** (the run's manager's ruling; MECHANICS §3.4): `view_fort`'s `margin`,
+    `margin_cause`, `fall_s` and `garrison_rate` (the wave train), and `view_projection`'s `margins`, read every fort
+    as if unsieged. So they are conservative: a fort reads `safe` only if it holds without its siege, and may read
+    `thin` where the siege actually holds it. Crediting the siege is an E4 item, once the train's support mirrors the
+    sim. Unchanged in shape, and unchanged from before the siege for every fort: the chip reads what it read when a
+    siege did nothing;
+  - **kill power is not built** (the run's manager's ruling): a siege's only effect is the block. The docs said a siege
+    "adds kill power" (`cmd_place_big_undead`'s Args); that is struck, and goes to E4 only if the hold band needs it.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -600,7 +615,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      Holds and the tithe state are RealmSim's own, not inputs (MECHANICS §3.1). Includes hold
      expiry and the tithe cycle, which starts at the first flip. Emits `fort_retaken`,
      `tithe_warning` and `tithe_wave`. `tide_fort` is also where Relish stands, so a surge there
-     is halved; `siege_block` (fort id → the fraction of a surge a siege cancels) is `{}` until E3.
+     is halved; `siege_block` (fort id → the fraction of a surge a siege cancels) is `tithe.siege_block` at each fort
+     with a big undead placed `fort:<id>` (v8, E3-3; `{}` before): flat, one per fort. A fort retaken inside the step
+     loses it for the step's later parts, and the next step's inputs have none there (the siege went home).
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
      respawn. Emits `relish_respawned`. (v8, E3-2; MECHANICS §7) Each vat grows by `vats.grow_per_s` × its tend
      hands × `dt`, clamped at 1, on the hands TownSim's step (step 3) staffed it with; a vat whose Chapel is gone
@@ -967,7 +984,7 @@ Game.state.cmd_rename_big_undead("u4", "Gristle the Patient")  # -> {ok: true, r
 **`cmd_place_big_undead(uid: String, place: String)` · E1/E2**
 - **Args:** `place` is one of:
   - `"town:<lot_id>"`: foreman;
-  - `"fort:<fort_id>"`: siege, which adds kill power and blocks tithe;
+  - `"fort:<fort_id>"`: siege, which blocks `tithe.siege_block` of a tithe wave there (from E3-3; no kill power);
   - `"crypt"`.
 - **Extras:** `place: String`.
 - **Reasons:**
@@ -979,7 +996,9 @@ Game.state.cmd_rename_big_undead("u4", "Gristle the Patient")  # -> {ok: true, r
 - **Effect:** removes it from the party, if it was in it. The place is recorded. From E3-3 (v8) a foreman
   works its building (MECHANICS §4.2: its job output × `foreman.mult + speed · foreman.speed_k`, its presence on
   morale; it adds no `q`), and a place where it gives nothing (a passive building, one not `active`) is still
-  allowed. The siege's block is E3 (§3 step 5 here).
+  allowed. From E3-3 a siege blocks `tithe.siege_block` (0.6) of a tithe wave at its fort (§3 step 5 here,
+  MECHANICS §3.4): flat, one per fort, so a second siege there is allowed and adds nothing. It adds no kill power
+  (not built).
 ```gdscript
 Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: "", place: "town:lot-04"}
 ```
@@ -1466,7 +1485,7 @@ dungeon's configs (v6, below); the hold's readouts
 | `garrison` | float | mass: your undead there while held, 0 when not held (v6, api-request #7 a) |
 | `garrison_rate` | float | mass/s (v6, api-request #13; MECHANICS §3.5): the support (the WAR the current valve sends it, plus Relish's sustained raise where she redirects) less the cheaper way to hold against her reship, outside waves. ≥ 0: it holds without waves; < 0: it falls. 0 when not held. **Reads the current split** (T3.4b): the valve where it is, Relish where she stands; `war_supports` too |
 | `fall_s` | float | seconds until it is retaken (v6, api-request #13): at a support, `grace_s_left` + `min(garrison, support / r_drain) / −rate` + what is left of `hold.break_s` (all of it, less the zero clock while the garrison sits at 0) while that support's rate is < 0, else −1.0. **The earlier of that clock at the current split and at the planned support** (T3.4b fix batch: the valve's target WAR and Relish where she is travelling to, the support the margin's train reads), so it errs early either way: the fort is retaken no sooner. −1.0 while neither falls, or not held. Never INF. So while the valve slews down or Relish travels away, a row can show `garrison_rate` ≥ 0 with `fall_s` ≥ 0 (and `will_fall`). Before T3.4b, `garrison / −garrison_rate` + `hold.break_s` at the current split, late for a garrison above the level its support holds (MECHANICS §3.5) |
-| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h; `fall_s` the earlier of current and planned, above); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, **at the planned support**: the valve at its target, Relish where she is travelling to); else `"thin"` when it falls beyond the horizon (`garrison_rate` < 0: **the current split**); else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. So while the valve slews down or Relish travels away a row can read `thin` / `"wave"` (the planned train breaks it) beside `garrison_rate` ≥ 0. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise |
+| `margin` | String | v6 (api-request #7 a), checked in this order (T3.4b): `"will_fall"` when 0 ≤ `fall_s` ≤ `hold.safe_horizon_s` (8 h; `fall_s` the earlier of current and planned, above); else `"thin"` when the wave train breaks it (the held forts run forward together through her waves at her period, from today's state, **at the planned support**: the valve at its target, Relish where she is travelling to); else `"thin"` when it falls beyond the horizon (`garrison_rate` < 0: **the current split**); else `"thin"` when the held forts haven't settled by the train's cap (`hold.train_max_cycles`); else `"safe"` (the train settles with it unbroken); `""` when not held. So while the valve slews down or Relish travels away a row can read `thin` / `"wave"` (the planned train breaks it) beside `garrison_rate` ≥ 0. Until T3.4b, `"thin"` when one full wave would break it, and `"safe"` otherwise. **No siege is credited** (v8, E3-3; MECHANICS §3.4): the train and the one-wave probe read every fort as if unsieged, so `"safe"` means it holds without its siege, and a sieged fort may read `thin` where the siege holds it (conservative; crediting it is E4's) |
 | `margin_cause` | String | v6: `"fall"` for `will_fall` (the fall clock: current or planned, the earlier) and for a `thin` that falls beyond the horizon with no wave breaking it (slow attrition at the current split; E2b-2 T3.2, MECHANICS §3.5); `"wave"` for a `thin` the waves break or haven't settled (the planned support's train); `""` for safe or not held |
 | `flipped_count` | int | times flipped |
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
