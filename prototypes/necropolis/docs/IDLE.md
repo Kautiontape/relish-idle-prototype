@@ -829,9 +829,14 @@ The profiles:
   closing.
 - **sessions_open**: the I1 gate, run in lockstep. The sessions run (closed) logs every command. The same commands are
   issued at the same sim t on a GameState left open between sessions, ticked for exactly the frames the time takes, and
-  its raids re-resolve from its own seeds. At each day's end, over 2 days, the gate asserts: the same t, every stock within
-  `idle.catchup_tol` (gold, bone and bodies against 1% of their cap, Vei's pool against its cap, the rest against 1.0),
-  the same buildings and levels, the same held forts, and every command answered as the closed run's was.
+  its raids re-resolve from its own seeds. At each day's end, over 2 days, the gate asserts: the same t, the bodies within
+  one convoy load, every other stock within `idle.catchup_tol` (gold and bone against 1% of their cap, Vei's pool against
+  its cap, the rest against 1.0), the same buildings and levels, the same held forts, and every command answered as the
+  closed run's was.
+  - The bodies' bound is computed at each sample: `job.haul.carry` × the haulers staffed in the open run (view_town's
+    `jobs` row), never tighter than `catchup_tol` (with no haulers it is 0). The check prints the delta and the bound and
+    fails over it. The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other
+    targets than an open run's (the haul phase).
   - Measured at E3-6b: day 1 passes (the backlog is 0.52% apart, every other stock identical). Day 2 fails on the
     bodies alone: 2.18 closed against 26.83 open.
   - The convoy runs out of phase from the first close: a different target and a different point of its trip at each

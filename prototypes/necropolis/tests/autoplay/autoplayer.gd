@@ -981,25 +981,47 @@ func _i1_sample() -> Dictionary:
 	# for her pool (test_catchup compare()'s), 1.0 for the rest
 	var floors := {"gold": 0.01 * float(tn["gold_cap"]), "bone": 0.01 * float(tn["bone_cap"]),
 		"bodies": 0.01 * float(tn["bodies_cap"]), "vei_pool": float(v["pool_cap"])}
+	# the bodies are judged within one convoy load instead (the manager's ruling at the E3-6b stop): a closed run's
+	# convoys can be at another phase of their trip at the sample than an open run's, so the store can differ by up
+	# to a load (job.haul.carry x the haulers staffed in this run now, as view_town's jobs row counts them)
+	var haulers := 0.0
+	for j in tn["jobs"]:
+		if str(j["id"]) == "haul":
+			haulers = float(j["staffed"])
+	var carry := float(c["economy"]["job"]["haul"]["carry"])
+	var bounds := {"bodies": {"bound": carry * haulers, "carry": carry, "haulers": haulers}}
 	var bl := {}
 	for b in tn["buildings"]:
 		bl[str(b["lot_id"])] = "%s L%d" % [str(b["building_id"]), int(b["level"])]
-	return {"t": s.t, "stocks": stocks, "floors": floors, "buildings": bl, "held": _held_ids()}
+	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids()}
 
 
 ## The I1 gate's check of a closed sample `a` against the open one `b`: the same t exactly, every stock within `tol`, the
-## same buildings and levels, the same held forts. The first quantity that differs, and by how much, leads `why`.
+## same buildings and levels, the same held forts. A stock in the open sample's `bounds` (the bodies: one convoy load) is
+## judged by its absolute difference against that bound instead, never tighter than `tol` (with no haulers staffed the
+## load is 0); `bounded` holds its delta and bound, and it stays out of `worst`. The first quantity that differs, and by
+## how much, leads `why`.
 static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var why: Array = []
 	var errs := {}
+	var bounded := {}
 	var worst := ["", 0.0]
 	if float(a["t"]) != float(b["t"]):
 		why.append("t %.2f closed vs %.2f open" % [float(a["t"]), float(b["t"])])
+	var bounds: Dictionary = b.get("bounds", {})
 	for k in b["stocks"]:
 		var y := float(b["stocks"][k])
 		var den := maxf(absf(y), float(b["floors"].get(k, 1.0)))
-		var e := absf(float(a["stocks"][k]) - y) / maxf(den, 1e-12)
+		var d := absf(float(a["stocks"][k]) - y)
+		var e := d / maxf(den, 1e-12)
 		errs[k] = e
+		if bounds.has(k):
+			var bd := maxf(float(bounds[k]["bound"]), tol * den)
+			bounded[k] = {"delta": d, "bound": bd, "load": float(bounds[k]["bound"])}
+			if d > bd:
+				why.append("%s %s closed vs %s open (delta %s over the bound %s: %s x %s haulers)" % [k, str(_r(float(a["stocks"][k]))),
+					str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(float(bounds[k]["carry"]))), str(_r(float(bounds[k]["haulers"])))])
+			continue
 		if e > float(worst[1]):
 			worst = [k, e]
 		if e > tol:
@@ -1013,7 +1035,7 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 			why.append("buildings %d closed vs %d open" % [(a["buildings"] as Dictionary).size(), (b["buildings"] as Dictionary).size()])
 	if a["held"] != b["held"]:
 		why.append("held %s closed vs %s open" % [str(a["held"]), str(b["held"])])
-	return {"ok": why.is_empty(), "why": why, "errs": errs, "worst": worst}
+	return {"ok": why.is_empty(), "why": why, "errs": errs, "bounded": bounded, "worst": worst}
 
 
 # -------------------------------------------------------------------------------------------- away risk ---
@@ -1634,9 +1656,10 @@ static func run_profile(name: String, t: TestUtil) -> int:
 
 
 ## The I1 gate (a real assertion): sessions closed (the leader, its commands logged) against sessions_open, the same
-## commands at the same sim t on a game left open between sessions. At each day's end: the same t exactly, every stock
-## within idle.catchup_tol, the same buildings and levels, the same held forts; and every replayed command answered as
-## the leader's was.
+## commands at the same sim t on a game left open between sessions. At each day's end: the same t exactly, the bodies
+## within one convoy load (job.haul.carry x the haulers staffed, i1_compare's `bounds`), every other stock within
+## idle.catchup_tol, the same buildings and levels, the same held forts; and every replayed command answered as the
+## leader's was.
 static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 	var days := days_env(2)
 	var tol := float(cfg["economy"]["idle"]["catchup_tol"])
@@ -1655,15 +1678,22 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		var r := i1_compare(lead.i1[d], fol.i1[d], tol)
 		var parts: Array = []
 		for k in r["errs"]:
+			if (r["bounded"] as Dictionary).has(k):
+				var bk: Dictionary = r["bounded"][k]
+				var lb: Dictionary = fol.i1[d]["bounds"][k]
+				parts.append("%s %s/%s delta %s, bound %s (one load: %s x %s haulers)" % [k, str(_r(float(lead.i1[d]["stocks"][k]))),
+					str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bk["delta"]))), str(_r(float(bk["bound"]))),
+					str(_r(float(lb["carry"]))), str(_r(float(lb["haulers"])))])
+				continue
 			parts.append("%s %s/%s %.4f%%" % [k, str(_r(float(lead.i1[d]["stocks"][k]))), str(_r(float(fol.i1[d]["stocks"][k]))),
 				float(r["errs"][k]) * 100.0])
 		print("  [autoplay] I1 day %d (t %.0f): %s; worst %s %.4f%%; buildings %s; held %s" % [d + 1, float(fol.i1[d]["t"]),
 			", ".join(PackedStringArray(parts)), str(r["worst"][0]), float(r["worst"][1]) * 100.0,
 			"same" if lead.i1[d]["buildings"] == fol.i1[d]["buildings"] else "DIFFER", str(fol.i1[d]["held"])])
-		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"]})
+		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"], "bounded": r["bounded"]})
 		if not bool(r["ok"]) and first_bad == "":
 			first_bad = "day %d: %s" % [d + 1, str(r["why"][0])]
-		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, every stock within %.0f%%, buildings and levels, held forts)%s" % [
+		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, the bodies within one convoy load, every other stock within %.0f%%, buildings and levels, held forts)%s" % [
 			d + 1, tol * 100.0, "" if bool(r["ok"]) else ": " + "; ".join(PackedStringArray(r["why"]))])
 	t.ok(lead.i1.size() == days and fol.i1.size() == days, "I1: a sample at each of the %d days' ends (closed %d, open %d)" % [days, lead.i1.size(), fol.i1.size()])
 	t.ok(fol.div.is_empty(), "I1: every one of the %d replayed commands was answered as the closed run's, and every raid resolved the same%s" % [
