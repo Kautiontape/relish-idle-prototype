@@ -67,6 +67,8 @@ func run() -> int:
 	_fm_outputs()
 	_fm_stance_flows()
 	_fm_clone_sync()
+	_fm_feed_short()
+	_fm_load_new()
 	_identity()
 	_fm_catchup()
 	return t.failures
@@ -626,6 +628,40 @@ func _fm_clone_sync() -> void:
 	t.ok(d.town_sim.foremen.has("lot-05") and d.town_sim.foreman_mult("lot-05") == 1.0, "a foreman on a construction: allowed, gives nothing")
 	t.ok(d.cmd_cancel_build("lot-05")["ok"] and d.town_sim.foremen.is_empty() and d._find_uid(d.big_undead, u2)["place"] == "crypt",
 		"its first build cancelled: home to the crypt, and TownSim drops it at once")
+
+
+## The pits' `wanted` counts the Pit foreman's weight: with the store empty and only the rot coming in (less than the
+## pit wants), both pits burn the same bodies, and the foreman's pit, wanting m times as much, reads feed / m.
+func _fm_feed_short() -> void:
+	var s := _mk()
+	s.town_sim.bodies = 0.0
+	s.cmd_set_haul_target("ashgate")
+	s.realm.fort_by_id("ashgate")["dead"] = 0.0  # (nothing to haul: only the rot comes in)
+	var p := _pair(s, "lot-02")
+	var f0 := float(p[2]["feed"])
+	var f1 := float(p[3]["feed"])
+	t.ok(f0 > 0.0 and f0 < 1.0 and float(p[2]["burned"]) == float(p[3]["burned"]) and _near(f1, f0 / _m()),
+		"short of bodies: both burn %.4f, the feed %.4f -> %.4f (wanted × m)" % [float(p[2]["burned"]), f0, f1])
+
+
+## A load and a new game set TownSim's foremen at once, before any step: midgame_2flips' u8 works the Market as it
+## loads (structure_rev moves, so the caches keyed on it refresh), and a new game drops it.
+func _fm_load_new() -> void:
+	var s := _mk()
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var u8: Dictionary = s._find_uid(s.big_undead, "u8")
+	var m8 := float(TestUtil.configs()["economy"]["foreman"]["mult"]) + float(u8["stats"]["speed"]) * float(TestUtil.configs()["economy"]["foreman"]["speed_k"])
+	var fm := 0.0
+	for e in s.view_town()["buildings"]:
+		if e["lot_id"] == "lot-04":
+			fm = float(e["foreman_mult"])
+	t.ok(s.town_sim.foremen.keys() == ["lot-04"] and _near(fm, m8), "midgame_2flips as it loads: u8 works the Market, foreman_mult %.4f, no step run" % fm)
+	var rv := s.town_sim.structure_rev
+	s.cmd_place_big_undead("u8", "crypt")
+	t.ok(s.town_sim.structure_rev > rv, "a foreman's change moves TownSim.structure_rev (the build benefit's and the stances' caches)")
+	s.cmd_place_big_undead("u8", "town:lot-04")
+	s.cmd_new_game(2)
+	t.ok(s.town_sim.foremen.is_empty(), "a new game: no foremen, at once")
 
 
 ## The identity harness (the parent's PARENT came from this code on a snapshot): `fx` under `c` with `crypt` moved to
