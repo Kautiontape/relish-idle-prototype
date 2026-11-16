@@ -60,7 +60,33 @@ func run() -> int:
 	_migrate()
 	_fixtures()
 	_vat_hands()
+	_floor_spares_war()
 	return t.failures
+
+
+## R1 (the E2b-2 vision review, the run's manager's rule; MECHANICS §4.3): pre_vei spends more gold than its one
+## Market earns (upkeep 1.07 gold/s against stall sales of 0.60). With its gold at its floor the upkeep sheds the
+## Statue first, then the passive no-job buildings, cheapest first, until what is left is paid, and no job
+## building or WAR producer: every raising pit keeps raising. Cheapest-first shed the four pits, the charnel
+## house and the mill in the first substep of the floor, and the WAR went from 41.9 to 0.95 mass/s.
+func _floor_spares_war() -> void:
+	t.suite("game_state_town-floor")
+	var s := _mk()
+	t.ok(s.cmd_debug_load_fixture("pre_vei")["ok"], "(setup) pre_vei loads")
+	s.drain_events()
+	s.town_sim.gold = 5.0  # its floor in about 10 s instead of 2 h
+	var pits0 := s.town_sim.pits()
+	var bcfg: Dictionary = _cfgs()["buildings"]
+	var shed: Array = []
+	for i in 240:
+		s.tick(0.5)
+		for e in s.drain_events():
+			if e["type"] == "building_unpaid" and bool(e["unpaid"]):
+				shed.append(str(e["building_id"]))
+	var classes := shed.map(func(b): return str(bcfg[b]["shed_class"]))
+	t.ok(not shed.is_empty() and shed[0] == "statue" and classes.all(func(c): return c == "decoration" or c == "passive"),
+		"pre_vei's gold floor sheds the Statue, then only passive buildings: %s" % str(shed))
+	t.ok(s.town_sim.pits() == pits0 and pits0 > 0, "and every raising pit still raises (%d pits)" % s.town_sim.pits())
 
 
 # ------------------------------------------------------------- BALANCE §0 ----

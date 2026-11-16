@@ -35,6 +35,12 @@ extends RefCounted
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
 
 const JOBS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
+## The capacity effects (caps and slots): they count for every built level, unpaid or mid-upgrade too
+## (_sum_built), so an unpaid spell never lowers a cap or destroys stock (R1, the run's manager). Every
+## other effect is a working one and needs the building working (_sum_working, _lists). `craft_slots` is
+## E3's (data only).
+const CAPACITY_EFFECTS := ["body_cap", "gold_cap", "bone_cap", "relic_cap", "essence_cap", "living_cap", "vat_slots",
+	"stance_slots", "craft_slots"]
 const WORKING := ["active", "idle"]  # built, paid and not under construction (_works() adds a building mid-upgrade)
 const EPS := 1e-9
 const MAX_LEGS := 256  # convoy legs one step may run (a long catch-up step makes many trips)
@@ -55,14 +61,16 @@ const REQUIRED := [
 	"economy.job.mill.mass_per_s", "economy.job.mill.rate", "economy.job.forge.rate",
 	"economy.job.build.rate", "economy.job.build.slots",
 	"economy.stall.rate", "economy.market.shop_rate", "economy.market.price", "economy.pit.burn_per_s",
-	"economy.upkeep.unpaid_hold_s", "economy.forge.level_work", "economy.forge.level_relics",
+	"economy.upkeep.unpaid_hold_s", "economy.upkeep.shed_order", "economy.forge.level_work", "economy.forge.level_relics",
 	"economy.town.migrant_rate", "economy.town.leave_rate",
 	"realm.relish.home_rot_mult", "realm.flip.haul_mult", "town.lots", "buildings",
 ]
 
 # ---- tunables, read once in setup() from REQUIRED (no numbers here) ----
 var _lots: Array[String] = []  # town.json lot ids, in order
-var _defs := {}  # building id -> {jobs: {job: int}, effects: {}, upkeep_gold, upkeep_bone, build_work, max_level}
+## building id -> {jobs: {job: int}, effects: {}, upkeep_gold, upkeep_bone, build_work, max_level, has_jobs,
+## shed_rank: its `shed_class`'s place in economy.json upkeep.shed_order (_upkeep sheds the lowest first)}
+var _defs := {}
 var _start := {}  # economy.json opening: workers, bodies, gold, bone, living (floats), buildings {lot_id: id}
 var _default_ladder: Array[String] = []
 var _mass := 0.0
@@ -216,6 +224,7 @@ func setup(cfgs: Dictionary) -> void:
 	for l in _arr(_at(cfgs, "town.lots")):
 		_lots.append(str(_d(l).get("id", "")))
 	_defs = {}
+	var shed_order := _arr(_at(cfgs, "economy.upkeep.shed_order"))
 	var bcfg := _d(_at(cfgs, "buildings"))
 	for id in bcfg:
 		var b := _d(bcfg[id])
@@ -224,11 +233,15 @@ func setup(cfgs: Dictionary) -> void:
 		var has_jobs := false
 		for j in jobs:
 			has_jobs = has_jobs or int(jobs[j]) > 0
+		var rank := shed_order.find(str(b.get("shed_class", "")))
+		if rank < 0:
+			push_error("TownSim: buildings.json %s's shed_class %s is not in economy.upkeep.shed_order" % [id, str(b.get("shed_class", ""))])
+			rank = 0  # shed with the first class: never protected by a missing key
 		_defs[str(id)] = {
 			"jobs": jobs, "effects": _d(b.get("effects")),
 			"upkeep_gold": float(up.get("gold", 0.0)), "upkeep_bone": float(up.get("bone", 0.0)),
 			"build_work": float(b.get("build_work", 0.0)), "max_level": int(b.get("max_level", 0)),
-			"has_jobs": has_jobs,
+			"has_jobs": has_jobs, "shed_rank": rank,
 		}
 	_mark_rooms()
 
@@ -913,10 +926,15 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> S
 ## its stocks cover the paying upkeep plus its own for max(unpaid_hold_s, dt). The moments are
 ## solved on those paths; buildings resume in their order (ties in lot order), each raising the
 ## upkeep the next must cover, and a resumed building pays from its moment on. Then, while a stock
-## can't cover the step's upkeep, the cheapest paying building by its upkeep in that stock (ties in
-## lot order) goes unpaid, except a building that earns that stock (stalls for gold, mills for
-## bone): idling it could never pay the bill back. What is still owed is paid down to 0; there is
-## no debt. E2b T4.C: resumes used to be checked at the step's end, in lot order, on the stocks
+## can't cover the step's upkeep, one paying building goes unpaid at a time: the first class in
+## economy.json upkeep.shed_order (its buildings.json `shed_class`: decorations, then the passive
+## no-job buildings, then the job buildings, then the WAR chain last, the mill, the charnel houses and
+## the raising pits), and within it the cheapest by its upkeep in that stock (ties in lot order),
+## except a building that earns that stock (stalls for gold, mills for bone): idling it could never
+## pay the bill back. What is still owed is paid down to 0; there is no debt. R1 (the E2b-2 vision
+## review): cheapest-first alone idled the raising pits (0.03 gold/s) before the Statue, the
+## Reliquary and the Walls, so pre_vei's gold floor took its WAR from 41.9 to 0.95 mass/s, then a
+## 16.4 plateau. E2b T4.C: resumes used to be checked at the step's end, in lot order, on the stocks
 ## before the step's upkeep: a 10 s step from pre_vei resumed its raising pit (lot-02) at 7 804 s,
 ## ahead of the house (lot-05) whose lower threshold the gold crossed first, and about 45 s before
 ## the gold, net of upkeep, reached either (7 847 s, 7 853 s).
@@ -981,14 +999,19 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 		var key := "upkeep_" + short
 		var earner := "stall" if short == "gold" else "mill"
 		var pick := ""
-		var cheapest := INF
+		var first := 1 << 30  # the shed class's rank (upkeep.shed_order), then
+		var cheapest := INF  # the cheapest within it, then lot order (strict <)
 		for lot_id in _lots:
 			var b: Dictionary = buildings.get(lot_id, {})
 			if b.is_empty() or not WORKING.has(b["state"]):
 				continue
 			var d: Dictionary = _defs[b["building_id"]]
 			var u := float(d[key])
-			if u > 0.0 and u < cheapest and int(d["jobs"].get(earner, 0)) <= 0:
+			if u <= 0.0 or int(d["jobs"].get(earner, 0)) > 0:
+				continue
+			var rank := int(d["shed_rank"])
+			if rank < first or (rank == first and u < cheapest):
+				first = rank
 				cheapest = u
 				pick = lot_id
 		if pick == "":

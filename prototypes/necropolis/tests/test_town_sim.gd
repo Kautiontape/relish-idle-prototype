@@ -64,6 +64,8 @@ func run() -> int:
 	_build()
 	_living_morale()
 	_upkeep()
+	_shed_order()
+	_unpaid_keeps_caps()
 	_round_trip()
 	_handles()
 	_room_cache()
@@ -665,6 +667,143 @@ func _upkeep() -> void:
 		"each pays its upkeep from its own moment (the gold at the step's end)")
 
 
+## The lots that went unpaid in a step's events, in the order they did.
+static func _shed_lots(o: Dictionary) -> Array:
+	var out: Array = []
+	for e in o["events"]:
+		if e["type"] == "building_unpaid" and bool(e["unpaid"]):
+			out.append(e["lot_id"])
+	return out
+
+
+## R1 (the E2b-2 vision review, the run's manager's rule; MECHANICS §4.3): while a stock can't cover the
+## step's upkeep the buildings go unpaid one at a time by class, economy.json upkeep.shed_order over each
+## building's buildings.json shed_class: decorations, then the passive no-job buildings, then the job
+## buildings, then the WAR chain last (the mill, then the charnel houses, then the raising pits); within a
+## class the cheapest by its upkeep in that stock, ties in lot order. The earner of the short stock (stalls
+## for gold, mills for bone) is never picked. Cheapest-first alone shed the raising pits (0.03 gold/s) before
+## the Statue (0.15) and the Reliquary (0.20).
+func _shed_order() -> void:
+	var bdefs: Dictionary = _base["buildings"]
+	t.ok(_eco("upkeep")["shed_order"] == ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"],
+		"upkeep.shed_order: decorations, passive, job buildings, then the WAR chain (mill, charnel houses, pits last)")
+	# gold at 0 and nobody selling: everything that pays gold goes unpaid in one step, in the shed order
+	var s := _sim()  # the crypt (lot-01), a raising pit (lot-02), a charnel house (lot-03), the market (lot-04)
+	for e in [["lot-05", "reliquary"], ["lot-06", "forge"], ["lot-07", "bone_mill"], ["lot-08", "house"], ["lot-09", "statue"],
+			["lot-10", "chapel_of_vats"], ["lot-11", "house"]]:
+		s.place_building(e[0], e[1], 1)
+	s.ladder = []
+	s.gold = 0.0
+	var shed := _shed_lots(s.step(1.0, _inp()))
+	var want := ["lot-09", "lot-08", "lot-11", "lot-05", "lot-06", "lot-10", "lot-07", "lot-03", "lot-02"]
+	t.ok(shed == want, "a gold floor sheds the Statue (decoration, 0.15), the houses (0.01, lot order) then the Reliquary (0.20, passive), the Forge (0.05) then the Chapel (0.12, jobs), then the mill, the charnel house and the raising pit last: %s" % str(shed))
+	t.ok(s.buildings["lot-04"]["state"] != "unpaid" and s.buildings["lot-01"]["state"] != "unpaid",
+		"the market (its stalls earn the gold) is never shed for gold, nor the crypt (no upkeep)")
+	# a floor sheds only what it must, so the WAR chain keeps working: the Statue's upkeep is the gap
+	var m := _sim()
+	m.place_building("lot-05", "statue", 1)
+	m.ladder = ["stall"]
+	m.workers = 2.0
+	m.living = 5.0
+	m.gold = 0.0
+	m.restaff()
+	var sales := minf(_staffed(m, "stall") * float(_eco("stall")["rate"]), m.living * float(_eco("market")["shop_rate"])) \
+		* float(_eco("market")["price"])
+	var due := 0.0
+	for lot in m.buildings:
+		due += float(bdefs[m.buildings[lot]["building_id"]]["upkeep"]["gold"])
+	var u_statue := float(bdefs["statue"]["upkeep"]["gold"])
+	var o := m.step(1.0, _inp({"work_mass": _hold_work(m, 2.0, 1.0)}))
+	t.ok(sales < due and sales >= due - u_statue and _shed_lots(o) == ["lot-05"] and m.pits() == 1 and m.buildings["lot-03"]["state"] != "unpaid",
+		"sales %.3f gold/s under the upkeep %.3f: only the Statue goes, the pit and charnel house keep working (shed %s)" % [sales, due, str(_shed_lots(o))])
+	# bone: the mill earns it, so it is never shed for bone, though it is in the WAR chain
+	var b := _sim({"buildings.statue.upkeep.bone": 0.1, "buildings.bone_mill.upkeep.bone": 0.1})
+	b.place_building("lot-05", "bone_mill", 1)
+	b.place_building("lot-06", "statue", 1)
+	b.ladder = []
+	b.gold = 1000.0
+	b.bone = 0.0
+	shed = _shed_lots(b.step(1.0, _inp()))
+	t.ok(shed == ["lot-06"] and b.buildings["lot-05"]["state"] != "unpaid", "a bone floor sheds the Statue and never the mill (it earns the bone): %s" % str(shed))
+
+
+## R1 (the run's manager's condition): an unpaid building keeps every capacity effect (TownSim.CAPACITY_EFFECTS)
+## at its built level, so a store at its cap keeps its cap and its stock when the building goes unpaid and
+## when it is paid again. Each cap building alone in a town with nobody working (no flows) and its store at
+## the cap; gold at 0 sheds it through the upkeep cascade, then gold resumes it after the hold. The Market
+## earns gold and has no bone upkeep, so no floor sheds it: it is set unpaid by hand (a save can hold that),
+## resumed by its own full store. The relic, essence, vat and stance caps are GameState's
+## (test_game_state_build). Array effects (the Charnel House's body_cap, the Bone Mill's bone_cap) at level 3.
+func _unpaid_keeps_caps() -> void:
+	var hold := float(_eco("upkeep")["unpaid_hold_s"])
+	var store_of := {"body_cap": "bodies", "gold_cap": "gold", "bone_cap": "bone", "living_cap": "living"}
+	var cap_of := func(ts: TownSim, key: String) -> float:
+		match key:
+			"body_cap":
+				return ts.body_cap()
+			"gold_cap":
+				return ts.gold_cap()
+			"bone_cap":
+				return ts.bone_cap()
+			"living_cap":
+				return ts.living_cap()
+		return ts.built_effect(key)
+	var bdefs: Dictionary = _base["buildings"]
+	var seen := {}
+	for bid in bdefs:
+		for key in bdefs[bid]["effects"]:
+			if not TownSim.CAPACITY_EFFECTS.has(key):
+				continue
+			seen[key] = true
+			var lv := mini(3, int(bdefs[bid]["max_level"]))
+			var s := _sim()
+			s.buildings = {}
+			s.place_building("lot-05", bid, lv)
+			s.ladder = []
+			s.workers = 0.0
+			s.bodies = 0.0
+			s.living = 0.0
+			s.bone = 0.0
+			s.gold = 0.0
+			s.restaff()
+			var cap0: float = cap_of.call(s, key)
+			var store := str(store_of.get(key, ""))
+			if store != "":
+				s.set(store, cap0)
+			var stock0: float = s.get(store) if store != "" else 0.0
+			var is_market: bool = key == "gold_cap"
+			if is_market:
+				s.buildings["lot-05"]["state"] = "unpaid"
+				s.buildings["lot-05"]["unpaid_s"] = hold
+				s.restaff()
+			var o := s.step(1.0, _inp())
+			var went: bool = s.buildings["lot-05"]["state"] == "unpaid" and (is_market or _shed_lots(o) == ["lot-05"])
+			var cap1: float = cap_of.call(s, key)
+			var stock1: float = s.get(store) if store != "" else 0.0
+			t.ok(went and cap1 == cap0 and cap0 > 0.0 and stock1 == stock0,
+				"%s L%d unpaid: %s keeps %.1f (%.1f), its store %s at the cap keeps %.1f (%.1f)" % [bid, lv, key, cap0, cap1, store, stock0, stock1])
+			# paid again: gold for the hold's upkeep (the Market's own store covers it)
+			if not is_market:
+				s.gold = 1000.0
+			var back := false
+			var paid := 0.0
+			for i in int(hold) + 3:
+				o = s.step(1.0, _inp())
+				paid += float(o["rates"]["gold"]["out"])
+				back = back or s.buildings["lot-05"]["state"] != "unpaid"
+			var cap2: float = cap_of.call(s, key)
+			var stock2: float = s.get(store) if store != "" else 0.0
+			var stock_ok := stock2 == stock0 if not is_market else absf(stock2 - (stock0 - paid)) < 1e-9
+			t.ok(back and cap2 == cap0 and stock_ok,
+				"%s L%d paid again: %s keeps %.1f (%.1f), its store %s keeps %.1f%s (%.4f)" % [bid, lv, key, cap0, cap2, store, stock0,
+				" less the upkeep it paid" if is_market else "", stock2])
+	var keys := seen.keys()
+	keys.sort()
+	var want := TownSim.CAPACITY_EFFECTS.duplicate()
+	want.sort()
+	t.ok(keys == want, "every capacity effect has a building that was checked both ways: %s" % str(keys))
+
+
 # -------------------------------------------------------------- round trip ----
 func _rich() -> TownSim:
 	var s := _sim()
@@ -1189,8 +1328,16 @@ func _run_capped(ts: TownSim, total: float, dt: float) -> Array:
 	return over
 
 
+## A buildings.json effect at `level`, as _eff_b reads it (written out here, not called): a number per level
+## (× level), an Array the per-level table (its entry at level − 1, the last past its end).
+static func _at_level(v: Variant, level: int) -> float:
+	if v is Array:
+		return float(v[mini(level, (v as Array).size()) - 1]) if not (v as Array).is_empty() else 0.0
+	return float(v) * level
+
+
 ## IDLE §6: gold and bone are capped (economy.json gold.cap, bone.cap, plus the Market's gold_cap and the
-## Bone Mill's bone_cap per level). Only what comes in is clipped, exactly for constant rates inside the
+## Bone Mill's bone_cap per level; the mill's is a per-level table since T7). Only what comes in is clipped, exactly for constant rates inside the
 ## step: over a fill, from just over the cap and from far over it, a 10 s step ends with the stock and the
 ## overflow of twenty 0.5 s steps; a store over its cap keeps its excess, all its income overflowing while
 ## upkeep draws it down, and once the upkeep has brought it to the cap (it outruns the income) it runs on
@@ -1202,8 +1349,8 @@ func _store_caps() -> void:
 	var probe := _capped_town(0.0, 0.0)
 	var gcap := probe.gold_cap()
 	var bcap := probe.bone_cap()
-	t.ok(gcap == float(cfg["economy"]["gold"]["cap"]) + float(cfg["buildings"]["market"]["effects"]["gold_cap"])
-		and bcap == float(cfg["economy"]["bone"]["cap"]) + float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"]),
+	t.ok(gcap == float(cfg["economy"]["gold"]["cap"]) + _at_level(cfg["buildings"]["market"]["effects"]["gold_cap"], 1)
+		and bcap == float(cfg["economy"]["bone"]["cap"]) + _at_level(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"], 1),
 		"the caps: the base plus a level-1 Market's and Bone Mill's per-level shares (gold %.0f, bone %.0f)" % [gcap, bcap])
 	for c in [["a fill", gcap - 1.0, bcap - 1.0], ["from over the cap", gcap + 0.5, bcap + 0.5], ["far over", gcap + 50.0, bcap + 50.0]]:
 		var a := _capped_town(c[1], c[2])

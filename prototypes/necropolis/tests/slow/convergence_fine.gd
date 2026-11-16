@@ -7,8 +7,9 @@ extends RefCounted
 ## discontinuity). Only convergence.gd's check() is asserted: the ledger, the stocks' signs and the
 ## march-back's regression (no fort's living past cap + one wave's mass, and none above cap · 1.01
 ## at the end unless a wave ran there within 7τ). Long: 0.125 s is 345 600 core steps per start.
-## Also prints the outcomes (convergence.gd's outcome_table) and midgame_2flips' peak living per fort. Run with
-## tests/run.sh --slow --only=convergence_fine.
+## Also prints the outcomes (convergence.gd's outcome_table), its flips and retakes against the outcomes'
+## time bound (time_lines: 2 × the row's dt, printed, not asserted) and midgame_2flips' peak living per fort.
+## Run with tests/run.sh --slow --only=convergence_fine.
 
 const DTS := [0.125, 0.25, 0.5]
 const HOURS := 12.0
@@ -22,6 +23,7 @@ func run() -> int:
 	print(c.table(res, HOURS))
 	print(ratios(c, res))
 	print(c.outcome_table(res, HOURS))
+	print(c.time_lines(res, "against %s s" % str(DTS[0])))
 	print(c.peak_table(res, "midgame_2flips"))
 	c.check(res)
 	return c.t.failures

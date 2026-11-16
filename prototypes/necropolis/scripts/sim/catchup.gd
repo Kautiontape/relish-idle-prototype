@@ -165,7 +165,8 @@ func _finish(gs: GameState) -> void:
 ## - an unpaid building's hold ending (its unpaid_s);
 ## - a construction finishing (TownSim.construction_left's eta_s: the work left over its builders' rate);
 ## - the build queue's head waiting on funds starting: (cost − stock) / net income for each currency it
-##   lacks, the later of them, while every one of those nets is positive (the last step's TownSim rates).
+##   lacks, the later of them, while every one of those nets is positive (the last step's TownSim rates,
+##   before the cap's clip: BuildRules.queue_net, affordable_in_s's; build_start_s).
 ##   A gated entry starts on a tier rise or a building finishing, which are clipped already;
 ## - gold or bone reaching its floor (stock / −net, while the stock is above 1 and the net negative);
 ## - the tithe: its warning (next_s − tithe.warning_s), a wave starting (next_s) and a wave ending
@@ -211,7 +212,10 @@ static func next_event_s(gs: GameState) -> float:
 ## The seconds until the build queue's head waiting on funds can pay (see next_event_s), INF when no
 ## entry waits on funds or a currency it lacks isn't growing. The core step's processing leaves that head
 ## with waited_on no_gold or no_bone (BuildRules.process_queue; the entries queued behind it take the
-## same, so the head is the first), and the stocks at a step boundary are those its walk read.
+## same, so the head is the first), and the stocks at a step boundary are those its walk read. F1: the net
+## is affordable_in_s's, BuildRules.queue_net (the income before the cap's clip, less the upkeep), so the two
+## never drift: below the cap it is the HUD's in − out exactly; at a full store, where that clips to 0, an
+## entry ahead that spent the store this step has brought the income back.
 static func build_start_s(gs: GameState) -> float:
 	var q: Array = gs.build_queue
 	var head := -1
@@ -226,11 +230,12 @@ static func build_start_s(gs: GameState) -> float:
 	var level: int = BuildRules.queue_levels(gs, q)[head]
 	var cost := BuildRules.construction_cost(gs, str(e["building_id"]), level)
 	var ts := gs.town_sim
+	var nets := BuildRules.queue_net(gs)
 	var at := 0.0
 	for k in ["gold", "bone"]:
 		var lack := float(cost[k]) - (ts.gold if k == "gold" else ts.bone)
 		if lack > 0.0:
-			var net := float(ts.rates[k]["in"]) - float(ts.rates[k]["out"])
+			var net := float(nets[k])
 			if not (net > 0.0):
 				return INF
 			at = maxf(at, lack / net)

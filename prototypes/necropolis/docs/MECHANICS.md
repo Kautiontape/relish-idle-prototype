@@ -819,17 +819,20 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   at 1 316 s, Ashgate held: thin and pessimistic there) and Ashgate safe from 30 min to 4 h (8 safe,
   all held); the one-wave probe read all 10 safe, Old Sluice's at t0 the lie. pre_vei and fresh hold no
   fort (no sample). pre_vei with Ashgate and Vespers contested (after 10 min of pre_vei's own play, past
-  its opening muster burst): 8 safe samples, train and one-wave alike, all broken at about 2 h, after the
-  town's gold reached its floor (7 092 s: its buildings go unpaid, its pits stop, the WAR goes from 49.7
-  to 0.95 mass/s at 7 096 s); then both read will_fall, Ashgate's clock the rest of its break exactly,
-  Vespers' 482 s early. midgame with the valve's WAR share cut to 0.05: both read thin at t0 (the one-wave
-  probe safe) and both fell. So 16 safe samples, none broken by the waves.
-  - **The known gap** (the run's manager: accepted for E2b-2 only, labelled and counted, not a pass):
-    neither probe reads the town. The check counts a safe fort that fell apart, as "its WAR fell: supply
-    (E4)", only when a town store (gold or bone, whose floor of 0 idles buildings) reached its floor
-    before the fort's WAR first went below half its sampled value, and that before its last break began;
-    any other fall fails. Every run prints the count (8 of 16 safe samples today). E4's done-criterion is
-    the check passing with the exemption deleted.
+  its opening muster burst): 18 samples, all safe, train and one-wave alike, and all held. Its gold
+  reaches its floor at 7 092 s, and the upkeep sheds the Statue and the passive buildings (§4.3's shed
+  order, R1), so its pits keep raising and the two forts' WAR holds (6.3 to 10.7 mass/s at the samples).
+  Before R1 the cheapest-first shed stopped the pits there and the WAR went from 49.7 to 0.95 mass/s at
+  7 096 s: 8 of its samples read safe and broke at about 2 h, then read will_fall. midgame with the
+  valve's WAR share cut to 0.05: both read thin at t0 (the one-wave probe safe) and both fell. So 26
+  safe samples, none broken.
+  - **No fall is excused** (R1). E2b-2's known gap (the run's manager: accepted for E2b-2 only) counted
+    a safe fort that fell after a town store's floor and its WAR's drop apart, as "its WAR fell: supply
+    (E4)": 8 of 16 safe samples, all pre_vei+2's. With the shed order no safe sample falls (0 of 26), so
+    the exemption is deleted: every safe fort retaken within 8 h of its sample fails the check
+    (`safe_broke()`, whose synthetic cases include the old exempt one). Neither probe reads the town
+    still: a floor deep enough to shed the WAR chain itself (gold income under the chain's own upkeep
+    plus the Market's) would break a safe reading, and no start here has one.
 - **During grace** every readout is the post-grace one: the reship it will face; `fall_s` adds the
   grace left; the margin is the train's run through the grace, which no wave reaches, from the garrison
   the grace leaves it. `grace_s_left` > 0 says so.
@@ -905,10 +908,12 @@ mass; bodies, rot return, WORK and muster are mass.
   upgrade keeps its old level's slots too (its building keeps working).
   An unpaid building offers none. Staffing is fractional.
 - **Effects.** A building's numeric `effects` are per level (× level), or a per-level table when the
-  value is an array: the Charnel House's `body_cap` is `[0, 50, 100]`, so only its upgrades add.
-  Flow effects (`pits`, `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`) need the building
-  working. Capacity effects (`living_cap`, `body_cap`) also count while it is unpaid or upgrading,
-  so an unpaid spell never destroys stock.
+  value is an array: the Charnel House's `body_cap` is 0 at level 1, then +50 a level to 350 at level 8 (`[0, 50, ..., 350]`), so only its upgrades add.
+  Flow effects (`pits`, `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`, the Statue's
+  `death_shock_mult`, E3's `hint_precision`) need the building working. Capacity effects (`body_cap`,
+  `gold_cap`, `bone_cap`, `relic_cap`, `essence_cap`, `living_cap`, `vat_slots`, `stance_slots`, E3's
+  `craft_slots`; `TownSim.CAPACITY_EFFECTS`) also count while it is unpaid or upgrading, so an unpaid
+  spell never destroys stock.
 
 | job | building | effect |
 |---|---|---|
@@ -1009,17 +1014,50 @@ mass; bodies, rot return, WORK and muster are mass.
   most `view.max_trade_arcs`.
 - **Upkeep.** Each working building pays its `upkeep {gold, bone}` per second from the stocks, after
   the step's income.
-  - **Unpaid.** When a stock can't cover it, the cheapest building by its upkeep in that stock goes
-    idle (flag `unpaid`, event `building_unpaid{lot_id, building_id, unpaid: true}`). Ties go in lot
-    order, and it repeats until the bill fits. Only buildings with upkeep in that stock are picked,
-    so never the crypt. A building that earns that stock (stalls for gold, mills for bone) is never
-    picked, because idling the only earner would lock the town out of ever paying again. What is
-    still owed is paid down to 0.
+  - **Unpaid.** When a stock can't cover it, one building goes idle (flag `unpaid`, event
+    `building_unpaid{lot_id, building_id, unpaid: true}`), and it repeats until the bill fits. The
+    pick is by **shed order** (R1, the run's manager's rule): each building's `buildings.json`
+    `shed_class`, in the order of `economy.json` `upkeep.shed_order`:
+    1. `decoration`: buildings whose only effects are morale-like (the Plaza; the Statue, morale and
+       its `death_shock_mult`);
+    2. `passive`: the other no-job buildings (houses, the Well, the Bakery, the Inn, the Graveyard,
+       the Embalmer, the Stables, the Ossuary Tower, the Guildhall, the Watchtower, the Walls, the
+       Reliquary; the crypt, which has no upkeep);
+    3. `job`: the job buildings outside the WAR chain (the Market, the Forge, the Chapel of Vats);
+    4. the WAR chain last: `war_mill` (the Bone Mill), then `war_haul` (the charnel houses), then
+       `war_pit` (the raising pits, the very last).
+
+    Within a class the cheapest by its upkeep in that stock goes first, ties in lot order. Only
+    buildings with upkeep in that stock are picked, so never the crypt. A building that earns that
+    stock (stalls for gold, mills for bone) is never picked, because idling the only earner would
+    lock the town out of ever paying again. What is still owed is paid down to 0.
+    - **Why** (the E2b-2 vision review: "cheapest-first is backwards for this game: it kills the
+      thing that holds the forts"). Cheapest first idled the raising pits (0.03 gold/s) before the
+      Statue, the Reliquary and the Walls. pre_vei's gold floor (7 692 s, one Market's 0.60 gold/s
+      against 1.07 of upkeep) then took its WAR from 41.9 to 0.95 mass/s for 179 s, then a plateau
+      of 16.4 (mint 51.7 to 20.8). With the shed order the floor sheds only decorations and passive
+      buildings (0.49 gold/s of them) and the WAR holds: its 60 s mean stays 41.9–42.2 through the
+      floor and over the last hour of 12 h is 42.0 (mint 52.2; 12 h at 0.5 s from pre_vei).
+    - **The charnel houses are in the WAR chain**: their haul is most of the pits' bodies. From
+      pre_vei with every charnel house held unpaid for 2 h at 0.5 s (before its gold floor), the WAR
+      over the last hour was 32.93 mass/s against 41.95 paid (−21.5%; the pits' feed 0.13 against
+      0.60). The manager's exception (keep them ordinary job buildings) needed under 1%.
+    - The class is a key, not derived from `jobs` and `effects`, because the charnel houses' place
+      came from that measurement, not from their keys. `test_game_state_commands` checks each class
+      is in the order and agrees with the building (no job for a decoration or a passive building,
+      only morale-like effects for a decoration, jobs for the rest).
     - A building that resumed inside the step (Resume, below) is billed only for the seconds it was
       paid, from its resume to the step's end. If the same step's cascade then idles it, the
       cascade takes exactly that off the bill, so it pays nothing for the step and the buildings
       still paying are billed their own upkeep and no more (since `72dfd81`).
-  - An unpaid building gives no slots and no output.
+  - An unpaid building gives no slots and no output. It keeps its **capacity effects** (`body_cap`,
+    `gold_cap`, `bone_cap`, `relic_cap`, `essence_cap`, `living_cap`, `vat_slots`, `stance_slots`,
+    `craft_slots`: `TownSim.CAPACITY_EFFECTS`, §4.2) at its built level, so no cap falls and no stock
+    is lost while it is unpaid or when it is paid again (R1, the manager's condition; `test_town_sim`
+    and `test_game_state_build` check each key both ways with its store full).
+  - It keeps its **tier and unlock contribution**: `count_built` counts a building past its first
+    build whatever its state, so `next_tier`, the tier rise and `needs_building` count an unpaid
+    one, and the lots follow the tier, which never falls (`test_game_state_build`).
   - **Resume.** It stays unpaid for at least `upkeep.unpaid_hold_s`. It resumes (`unpaid: false`)
     at the first moment its stocks cover the paying upkeep plus its own for
     `max(unpaid_hold_s, dt)`, so it doesn't chatter. Inside a step that moment is solved on the
@@ -1033,10 +1071,20 @@ mass; bodies, rot return, WORK and muster are mass.
       net of upkeep, it reached neither until 7 847 s and 7 853 s. The pits and WAR came back about
       45 s early, and three forts Vei had refilled with living fell instead of holding. Vei's dead
       were 31.9% off at 10 s over 12 h; now 0.50%.
+    - The resume order doesn't follow the shed order (R1): the cheapest threshold is crossed first,
+      so the cheapest unpaid building comes back first, whatever its class. Kept, because it doesn't
+      flicker: from pre_vei over 12 h at 0.5 s its floor (7 692 s) sheds the Statue, both houses, the
+      Well, the Bakery, the Inn, the Graveyard, the Watchtower and the Walls (7 694.5–7 695 s), then
+      the two houses resume (8 579.5 s, 8 609.5 s) and nothing is shed again: no building resumed and
+      went unpaid again within `unpaid_hold_s`. The gold then sits at 18 (30 s of the 0.60 gold/s the
+      paying buildings cost, which the stalls' 0.60 exactly pays).
   - Stocks never go negative and there is no debt.
 - **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
   bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
-  effects, so unpaid or mid-upgrade levels count). Only what came in is clipped, and the clip is exact
+  effects, so unpaid or mid-upgrade levels count). The Market's is a number, 3 250 a level (6 500 to
+  32 500 at its level 8); the Bone Mill's is a table per level (T7: an Array effect is the value at each
+  level, as the Charnel House's `body_cap` is), caps 300, 350, 550, 900, 1 450, 2 250, 3 600, 8 600 at
+  levels 1–8 over the base 200. Only what came in is clipped, and the clip is exact
   inside the step for constant rates (one 10 s step ends with the stock and the overflow of twenty 0.5 s
   steps, from under the cap or over it; `test_town_sim`). A store at or under its cap fills at income −
   upkeep and what would pass the cap overflows: the body store's rule (§4.1), what ends above `max(cap,
@@ -1130,6 +1178,49 @@ processing does.
      `view_catalog` gives a row the relics can't pay for, with the same `cost.relics`. The keys match when
      gold and bone are covered; short of gold or bone as well, the catalog says `no_gold`/`no_bone`
      (`afford_reason`'s order) while the queue still reads `no_relics`, since relics are a gate there.
+- **When each entry becomes affordable** (R2, the E2b-2 vision review's item 3; the run's manager for Shawn:
+  the queue never stalls or jumps, so the player gets the data instead: "data, not a skip"). The same walk
+  sets each entry's `affordable_in_s` (STATE-API §5.9), `0.0` affordable now, the seconds until it is at
+  today's net rates, `-1.0` never at them:
+  - **net rates:** each store's net now, income less upkeep, from TownSim's last step: the HUD's and
+    `view_rates`' net below the cap; at the cap, where theirs clips the income to the upkeep and reads 0, the
+    income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
+    brings it back. Relics have none, so a relic shortfall is `-1.0` ("raid for relics"). Catch-up's clip at
+    the head's start (`Catchup.build_start_s`, IDLE §4) reads the same helper, `BuildRules.queue_net`, since
+    F1, so the two never drift (it read the HUD's clipped net before, which agreed below the cap only);
+  - **in queue order:** the entries that aren't gated start in order, each when the stocks, grown at those
+    rates up to their caps and less what the entries ahead paid at their own starts, cover it. Up to the head
+    those stocks are the walk's own copy, so `next` reads `0.0` and `waiting_funds` never does, and no entry
+    reads earlier than the one ahead. A `skipped_gate` entry holds nothing: its time is its own funds' there
+    ("affordable in 4 m once Walls are up"), and it pays nothing;
+  - **`-1.0`** when a cost is above its cap now, a relic cost is short, a short store's net is ≤ 0, a store
+    that covers it now runs under it at a negative net by then, or it costs any of a store that an entry
+    ahead holding the queue never gets. An entry that costs none of that store is timed as if that one were
+    moved down;
+  - **held fixed:** the rates don't move with what the entries ahead build (a new building's upkeep or
+    output isn't modelled: E4-3 decides what a build that would run a deficit does), and gates met later (a
+    construction under way on the lot) aren't either. `cmd_queue_build` returns the new entry's, the warning
+    at queue time. The away report names a head still waiting when you come back (IDLE §7).
+  - **day1's first overnight** (the review's case): a House, a Well, a Bakery, then a Bone Mill. The House
+    and the Well start at once, the Bakery on gold (+0.21/s) and the Mill behind it on gold too: queued, they
+    read 0, 0, 190 and 476 s. Until F1 the Mill's level 1 cost 20 bone, the last of day1's 30 once the other
+    three had theirs, and only a mill makes bone, so bone's net was 0 and the Mill read `-1.0` from the moment
+    it was queued: a deadlock (the review found it on gold, upkeep matching income at 4 gold; at T7 it was the
+    bone). Its level 1 is gold only since F1 (BALANCE §7's rule), and `tests/test_day1_queues.gd` runs that
+    queue and town's trial order (Bone Mill, House, House, Well, Well, Bakery, Well, Well) 8 h through a load:
+    every entry starts, the first at 7 s, 7, 207 and 538 s (the Mill later than its 476 s since the three
+    ahead add upkeep the time holds fixed) and the second by 26 min.
+  - **cost:** `view_town` runs the walk once on every call (Covington fetches it on each rev change). The
+    times add 24 to 30 µs a call with a full queue of 8 (day1 +23.5, midgame_2flips +28.5, pre_vei +30.2:
+    the timed walk against the untimed one, 79.5 → 103.0, 99.7 → 128.1 and 103.5 → 133.6 µs; `view_town`
+    itself 292, 396 and 799 µs; the medians of five 400-call runs on a loaded machine, re-measured once at
+    F1, where R2's figures disagreed, +20 to +45 here and +11 to +32 in its report), under the 0.2 ms that
+    would need a cache on `rev`, so there is none. The core step's processing runs the
+    same walk without the times (`queue_walk(..., false)`: it reads only the statuses), so live play and
+    catch-up pay nothing for them: 76, 98 and 105 µs against 79, 98 and 105 before (a week's catch-up is
+    about 42 000 steps, and a queue that sits all week is the case R2 is for). The two walks give every
+    entry the same status, reason and waited_on and start the same entries (F1, from R2's spec review:
+    `test_build_queue`'s untimed check, over the three fixtures with full queues, a step in and a minute on).
 - **Processing**, once per core step, right after `BuildRules.rise_tiers` (§1.3 step 3), so a tier that
   rises this step opens its entries this step and this step's income counts: one walk, then each `next`
   entry starts through `cmd_build`'s or `cmd_upgrade`'s own path (paying its cost), in order, leaves the
@@ -1146,6 +1237,15 @@ processing does.
   short a little longer, and with the new upkeep the town saved about 0.01 gold/s, so 2.2 gold took
   about 220 s. End of run: gold 9 261 against 9 330 (−0.74%), bone 29.2 against 28.5, the same levels
   everywhere; the mill's level 2 waits on bone in both. With no queue the two gold paths are identical.
+  - Re-measured at T7, with the dead's buildings bought with bone (BALANCE §7): midgame_2flips earns no bone,
+    so the suite starts the mill at level 2 (its queued level is 3), the bone at the queue's whole bone and
+    the gold at the first five entries' and 10 more. The five start 9.5 s later at 10 s (one step); they
+    finish at 90 s against 80 s, so their upkeep (about 0.17 gold/s) starts 10 s later and the 10 s run's
+    gold runs 1.74 ahead from then on. At the town's +0.010 gold/s that is about 170 s, so the three entries
+    that wait on gold (the pit's and the market's level 2, the mill's level 3) start 168.5, 168.5 and
+    161.5 s **earlier** at 10 s (mean −56.4 s over the 8 starts): a long step's gold can run ahead as well
+    as behind, by the upkeep it saves. End of run: gold 12 424 against 12 372 (+0.42%), bone 50 in both,
+    the same entries in the same order and the same levels.
 
 **Every building has a numeric benefit** (vision review S7). From E2b-2 (T3.2, api-request #9) the build
 card shows it as the change in each net rate if the building were finished now: `view_catalog`'s
@@ -1157,10 +1257,10 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Crypt | holds the slab; idle rest; big-undead cap +1 per level above 1 | start |
 | Raising Pit | +`P_per_pit` mint; pit job | start (1) |
 | Charnel House | haul job; body store cap + | start |
-| Market | stall jobs (gold); + gold cap (`gold_cap` per level) | start (small) |
+| Market | stall jobs (gold); + gold cap (`gold_cap`, 3 250 per level, to level 8) | start (small) |
 | House | + `living_cap` | Hamlet |
 | Well, Bakery | + morale, + living cap | Hamlet |
-| Bone Mill | mill job; + bone cap (`bone_cap` per level) | Hamlet |
+| Bone Mill | mill job; + bone cap (`bone_cap`, a table per level: 100 to 8 400 over levels 1–8, BALANCE §5) | Hamlet |
 | Inn | + migration, + morale, + living cap | Village |
 | Forge | forge job; levels need relics | Village |
 | Graveyard | + body store cap; + worker lifetime | Village |

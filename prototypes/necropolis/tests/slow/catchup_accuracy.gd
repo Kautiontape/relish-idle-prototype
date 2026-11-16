@@ -8,10 +8,12 @@ extends RefCounted
 ## Run with tests/run.sh --slow --only=catchup_accuracy (a few minutes).
 ## - Starts: midgame_2flips and fresh (convergence.gd's: a new game run 10 min). pre_vei is run and
 ##   printed, not asserted: its gold reaches its floor about 2.14 h in with no input (one Market against
-##   City-tier upkeep, a fixture artifact that is E4's, T3.3a's attribution). From there its pits work 2 of 6
-##   on a store the convoy refills a load at a time, so the feed the mint reads (the last step's burned /
-##   wanted) is a 10 s step's average over a landing against one 0.5 s substep's: at 12 h every stock and
-##   outcome matches (Covington identical) and the mint and its split read 14% apart.
+##   City-tier upkeep, a fixture artifact that is E4's, T3.3a's attribution). From there its pits work (all 6
+##   since R1's shed order sheds the decorations and passive buildings first; 2 of 6 before) on a store the
+##   convoy refills a load at a time, so the feed the mint reads (the last step's burned / wanted) is a 10 s
+##   step's average over a landing against one 0.5 s substep's: at 12 h every stock and outcome matches
+##   (Covington identical) and the mint and its split read 16% apart (14% before R1; the 0.5 s WAR swings
+##   33 to 49 mass/s around its 42 over a convoy's cycle).
 
 const HOURS := 12.0
 

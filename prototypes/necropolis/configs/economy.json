@@ -52,7 +52,24 @@
       "retaken_fmt": "{fort} retaken: raid it to win it back",
       "retaken_home_fmt": "{fort} retaken, Relish walked home: raid it to win it back",
       "village_lost_fmt": "village {village} lost to Vei",
-      "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0
+      "overflow_fmt": "{store} overflowed: {n} wasted", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0,
+      "afford_wait_fmt": "{name} is waiting on {store}: affordable in {when}",
+      "afford_never_fmt": "{name} can't be afforded at today's income of {rate} {store}: move it down, or {raise}",
+      "afford_never_last_fmt": "{name} can't be afforded at today's income of {rate} {store}: {raise}",
+      "afford_never_self_fmt": "{name} can't be afforded at today's income of {rate} {store}, and {raise}: move it down",
+      "afford_never_self_last_fmt": "{name} can't be afforded at today's income of {rate} {store}, and {raise}",
+      "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
+      "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill", "relics": "raid for relics" },
+      "afford_producer": { "gold": "market", "bone": "bone_mill" },
+      "afford_raise_self": { "gold": "nothing else makes gold", "bone": "nothing else makes bone" },
+      "full_tol": 0.01, "full_raid": "Your stores are full and the queue is empty: raid a fort for relics",
+      "unpaid_fmt": "{name} unpaid for {when}: {stopped}; stores kept", "unpaid_sep": ", ", "unpaid_none": "nothing stopped", "unpaid_inert": ["hint_precision"],
+      "unpaid_stopped": {
+        "pit": "raised no undead", "pits": "raised no undead", "haul": "hauled no corpses", "mill": "milled no bone",
+        "stall": "sold nothing", "forge": "forged nothing", "tend": "tended no vats", "morale": "lifted no morale",
+        "attract": "drew no migrants", "lifetime_bonus": "workers lived shorter", "haul_speed_mult": "convoys ran slower",
+        "death_shock_mult": "deaths shook the town harder"
+      }
     }
   },
   "morale": { "base": 0.6, "ease_per_s": 0.005, "dread_ratio": 4.0, "dread_k": 0.05, "leave_below": 0.35, "death_shock": 0.3, "shock_s": 600.0 },
@@ -67,7 +84,7 @@
   "stall": { "rate": 0.15 },
   "market": { "shop_rate": 0.03, "price": 1.0 },
   "pit": { "burn_per_s": 0.6, "bonus": 0.6 },
-  "upkeep": { "unpaid_hold_s": 30.0 },
+  "upkeep": { "unpaid_hold_s": 30.0, "shed_order": ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"] },
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
     "projection_refresh_s": 5.0,

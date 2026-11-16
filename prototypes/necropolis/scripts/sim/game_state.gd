@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 6
+const API_VERSION := 7
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -60,7 +60,14 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"plus", "minus", "rate_unit", "thousands", "rate_sig_digits", "rate_max_decimals", "builds_one_fmt", "builds_fmt",
 	"list_sep", "level_fmt", "started_fmt", "started_now_fmt", "when_hm_fmt", "when_m_fmt", "waited_on", "refilled_fmt",
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
-	"overflow_fmt", "store_labels", "overflow_min"]
+	"overflow_fmt", "store_labels", "overflow_min",
+	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
+	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped", "unpaid_inert",
+	# R2: ready's line for the queue's head still waiting (StateViews.afford_text) and the full stores' raid prompt
+	"afford_wait_fmt", "afford_never_fmt", "afford_stores", "afford_raise", "full_tol", "full_raid",
+	# F1: that line without the move down when nothing is behind the head, and its forms for a head that is its
+	# store's own producer (the raise never names the entry itself)
+	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -292,7 +299,10 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 
 ## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
 ## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
-## (REPORT_WAITED_ON) and its `store_labels` gold and bone; else what is missing. setup() reports it as an error.
+## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` and `afford_raise` word gold,
+## bone and relics, and `full_tol` is in [0, 1); F1: `afford_producer` names a buildings.json building for gold
+## and for bone (the stores a building makes) and for no store the tables don't word, and `afford_raise_self`
+## words each producer's store; else what is missing. setup() reports it as an error.
 static func report_config_problem(cfgs: Dictionary) -> String:
 	var rep: Variant = cfgs.get("economy", {}).get("idle", {}).get("report")
 	if not (rep is Dictionary):
@@ -312,7 +322,76 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	for k in ["gold", "bone"]:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
+	# R2: the queue head's line names the store its time waits on and what raises it, for every store a queue
+	# time can wait on; the raid prompt's full_tol is a fraction of the cap
+	for table in ["afford_stores", "afford_raise"]:
+		for k in ["gold", "bone", "relics"]:
+			if not (rep[table] is Dictionary and (rep[table] as Dictionary).has(k)):
+				return "config economy.idle.report.%s has no %s" % [table, k]
+	var tol: Variant = rep["full_tol"]
+	if not ((tol is float or tol is int) and float(tol) >= 0.0 and float(tol) < 1.0):
+		return "config economy.idle.report.full_tol (%s) is not a fraction of the cap in [0, 1)" % str(tol)
+	# F1: a head that is its store's own producer gets afford_raise_self's words, not afford_raise's (which would
+	# name it): the producer of each store a building makes is a real building, and its store has those words
+	var prod: Variant = rep["afford_producer"]
+	var own: Variant = rep["afford_raise_self"]
+	if not (prod is Dictionary and own is Dictionary):
+		return "config economy.idle.report.afford_producer and afford_raise_self must be tables by store"
+	var bdefs: Variant = cfgs.get("buildings", {})
+	for k in ["gold", "bone"]:
+		if not (prod as Dictionary).has(k):
+			return "config economy.idle.report.afford_producer has no %s" % k
+	for k in prod:
+		if not (rep["afford_stores"] as Dictionary).has(k):
+			return "config economy.idle.report.afford_producer.%s is not a store afford_stores words" % str(k)
+		if not (bdefs is Dictionary and (bdefs as Dictionary).has(str(prod[k]))):
+			return "config economy.idle.report.afford_producer.%s (%s) is not a building in buildings.json" % [str(k), str(prod[k])]
+		if not (own as Dictionary).has(k):
+			return "config economy.idle.report.afford_raise_self has no %s (afford_producer names %s)" % [str(k), str(prod[k])]
+	# R1: an unpaid line words what its building stopped doing, one template per job it offers and per working
+	# effect it has (every effect but TownSim.CAPACITY_EFFECTS), so each one buildings.json has needs one
+	var stopped: Variant = rep["unpaid_stopped"]
+	if not (stopped is Dictionary):
+		return "config economy.idle.report.unpaid_stopped is not a table of words"
+	var bcfg: Variant = cfgs.get("buildings", {})
+	# F2: `unpaid_inert` lists the effect keys nothing in the sim reads yet (an unpaid building loses nothing by
+	# them): a list of strings, each an effect key some building in buildings.json has
+	var inert: Variant = rep["unpaid_inert"]
+	if not inert is Array:
+		return "config economy.idle.report.unpaid_inert is not a list of effect keys"
+	var has_effect := {}
+	for bid in (bcfg as Dictionary if bcfg is Dictionary else {}):
+		var fx: Variant = (bcfg as Dictionary)[bid].get("effects", {}) if (bcfg as Dictionary)[bid] is Dictionary else {}
+		for k in (fx as Dictionary if fx is Dictionary else {}):
+			has_effect[str(k)] = true
+	for k in inert:
+		if not k is String:
+			return "config economy.idle.report.unpaid_inert has a non-string entry (%s)" % str(k)
+		if not has_effect.has(k):
+			return "config economy.idle.report.unpaid_inert has %s, an effect no building in buildings.json has" % k
+	for bid in (bcfg as Dictionary if bcfg is Dictionary else {}):
+		for key in unpaid_keys((bcfg as Dictionary)[bid], inert):
+			if not (stopped as Dictionary).has(key):
+				return "config economy.idle.report.unpaid_stopped has no words for %s (buildings.json %s)" % [key, bid]
 	return ""
+
+
+## What an unpaid building stops doing, as idle.report.unpaid_stopped keys (R1, IDLE §7): the jobs its
+## buildings.json `def` offers slots in, then its working effects (every effect but the capacity ones, which
+## an unpaid building keeps: TownSim.CAPACITY_EFFECTS), each in the def's order. F2: not the effects in `inert`
+## (idle.report.unpaid_inert), which nothing in the sim reads yet, so losing them stops nothing.
+static func unpaid_keys(def: Variant, inert: Array) -> Array:
+	var d: Dictionary = def if def is Dictionary else {}
+	var out: Array = []
+	var jobs: Variant = d.get("jobs", {})
+	for j in (jobs as Dictionary if jobs is Dictionary else {}):
+		if int(jobs[j]) > 0:
+			out.append(str(j))
+	var fx: Variant = d.get("effects", {})
+	for k in (fx as Dictionary if fx is Dictionary else {}):
+		if not TownSim.CAPACITY_EFFECTS.has(k) and not inert.has(str(k)):
+			out.append(str(k))
+	return out
 
 
 ## The config value at a REQUIRED path. A missing one is reported loudly and reads as null.
@@ -991,10 +1070,11 @@ func cmd_cancel_build(lot_id: String) -> Dictionary:
 
 ## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
 ## or queued for `lot_id`. Refuses only what waiting can't make valid; gates time or play can clear are
-## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build).
+## accepted and show as skipped_gate; affordability holds the queue (BuildRules.queue_build). R2: the new entry's
+## affordable_in_s rides along (−1.0 on a refusal).
 func cmd_queue_build(building_id: String, lot_id: String) -> Dictionary:
 	if _catchup.active:
-		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1})
+		return _refuse_catching_up({"index": -1, "cap_building": "", "store": "", "cap_level": -1, "affordable_in_s": -1.0})
 	return BuildRules.queue_build(self, building_id, lot_id)
 
 

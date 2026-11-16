@@ -27,10 +27,13 @@ extends RefCounted
 ##     its floor). The floors are `idle.catchup_gate_tally_floor`, a fixed amount per tally (BALANCE
 ##     §5). A tally starts at 0, so its early relative error means nothing: (b)'s floor carries the
 ##     fixed lag a 10 s step leaves, and (b) still catches a mid-run fault the endpoint averages away;
-##   - the outcomes (below) equal the reference's: the same events in the same order (their times may
-##     differ), the same forts held and holding living at the end, the same tier.
+##   - the outcomes (below) equal the reference's: the same events in the same order, the same forts
+##     held and holding living at the end, the same tier. Their times may differ, but each flip and
+##     retake must land within TIME_BOUND_STEPS (2) × the run's step at that point of the reference's
+##     (the run's manager; outcome_times()): here the row's dt, in a catch-up its dt at that moment
+##     (tests/test_catchup.gd compare(), tests/slow/catchup_week.gd). A test tolerance, not a tuning number.
 ##   The pools and bodies ("worst" takes them with the stocks) are printed, not gated. run() asserts
-##   the gate at GATE_DT for every start.
+##   the gate at GATE_DT for every start, and prints every row's flips and retakes against the bound.
 ## - The 0.25 s row is the reference's own noise: no dt can be expected to match 0.5 s closer.
 ## - `clip`: steps are shortened so none straddles an event IDLE §4 clips at (next_event_s, the catch-up
 ##   runner's): a tithe warning, a wave's start or end, a building's unpaid hold ending, gold or bone
@@ -66,6 +69,9 @@ const RUNS := 3
 const TIMING_H := 1.0
 ## The dt the gate is asserted at: catch-up's planned idle.catchup_dt_max_s (IDLE §4).
 const GATE_DT := 10.0
+## The outcomes' time bound (the header; outcome_times()): each flip and retake within this many of the
+## run's steps at that point of the reference's. A test tolerance, not a tuning number.
+const TIME_BOUND_STEPS := 2.0
 const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead", "fort_dead", "workers",
 	"bodies", "gold", "bone", "living"]
 ## The tallies the gate judges by its (a) and (b) (see the header), and each one's floor key in
@@ -73,9 +79,10 @@ const METRICS := ["backlog", "vei_dead", "vei_pool", "fort_living", "fort_undead
 const TALLIES := ["gold_over", "bone_over"]
 const TALLY_FLOOR_KEY := {"gold_over": "gold", "bone_over": "bone"}
 ## Vei's stocks and Covington's smooth ones: the stocks the gate judges ("Vei+Cov worst"). The fort
-## pools and bodies aren't gated: they converge as dt → 0 on midgame_2flips, and on pre_vei until its
-## gold floor; fresh's, and pre_vei's after the floor, sit within about one convoy load at any dt,
-## and at 10 s pre_vei's corpses wait a step for the convoy (IDLE §4, tests/slow/convergence_fine.gd).
+## pools and bodies aren't gated: they converge as dt → 0 on midgame_2flips, and on pre_vei (since R1's
+## shed order through its gold floor too: it sheds no pit there now); fresh's sit within about one convoy
+## load at any dt, and at 10 s pre_vei's corpses wait a step for the convoy (IDLE §4,
+## tests/slow/convergence_fine.gd).
 const KEY := ["backlog", "vei_dead", "vei_pool", "workers", "gold", "bone", "living"]
 const SHORT := {"backlog": "backlog", "vei_dead": "vei dead", "vei_pool": "vei pool", "fort_living": "Σliving",
 	"fort_undead": "Σundead", "fort_dead": "Σdead", "workers": "workers", "bodies": "bodies", "gold": "gold",
@@ -92,8 +99,10 @@ func run() -> int:
 	var res := measure(STARTS, HOURS, DTS, true)
 	print(table(res, HOURS))
 	print(outcome_table(res, HOURS))
+	print(time_lines(res, "clipped"))
 	var unclipped := measure(STARTS, HOURS, [0.5, 15.0, 30.0], false)
 	print(table(unclipped, HOURS, "no event clipping (Relish's arrival lands up to one dt late; a wave starts and ends at its time, spread over its steps)"))
+	print(time_lines(unclipped, "no event clipping"))
 	check(res)
 	print(gate_check(res, GATE_DT, HOURS))
 	print(attribution())
@@ -389,7 +398,9 @@ func measure(starts: Array, hours: float, dts: Array, clip: bool, edit := Callab
 					var y := float(ref[i][m])
 					e = maxf(e, absf(x - y) / maxf(absf(y), floor_m))
 				err[m] = e
-			per[dt] = {"err": err, "gate": judge(r["samples"], ref, floors, r["outcome"], runs[dts[0]]["outcome"], gate),
+			var row_dt: float = dt
+			var step_at := func(_t: float) -> float: return row_dt  # the row's dt: the outcomes' time bound
+			per[dt] = {"err": err, "gate": judge(r["samples"], ref, floors, r["outcome"], runs[dts[0]]["outcome"], gate, SAMPLE_S, step_at),
 				"steps": r["steps"], "us_per_step": r["us_per_step"], "coupled": r["coupled"],
 				"neg": r["neg"], "ledger_err": r["ledger_err"], "floors": floors, "peak": r["peak"], "end_over": r["end_over"],
 				"outcome": r["outcome"]}
@@ -410,9 +421,11 @@ static func gate_of(all: Dictionary) -> Dictionary:
 ## from the same start, `floors` the stocks' (floors_of), the two runs' outcomes, and `gate` from
 ## gate_of(). Returns {ok, stocks: {ok, worst, metric, at}, tallies: {m: {ok, a_ok, a (relative, −1
 ## where ref is 0; a_ok uses the floor instead where |ref| is under it), a_d, ref_end, b_ok, b (the worst |x − ref| / its allowance), b_d, b_allow, b_at,
-## floor}}, outcomes: {ok, differ: [the lists that differ]}}. Times are s from the start.
+## floor}}, outcomes: {ok, differ: [the lists that differ, then each time-bound miss], late: [the time-bound
+## misses]}}. Times are s from the start. `step_at` (t → the run's step at t) sets the outcomes' time bound
+## (outcome_times()); without it the times aren't judged.
 static func judge(samples: Array, ref: Array, floors: Dictionary, outcome: Dictionary, ref_outcome: Dictionary,
-		gate: Dictionary, sample_s := SAMPLE_S) -> Dictionary:
+		gate: Dictionary, sample_s := SAMPLE_S, step_at := Callable()) -> Dictionary:
 	var tol := float(gate["tol"])
 	var n := mini(samples.size(), ref.size())
 	var stocks := {"worst": 0.0, "metric": "", "at": 0.0}
@@ -447,15 +460,17 @@ static func judge(samples: Array, ref: Array, floors: Dictionary, outcome: Dicti
 		tr["ok"] = bool(tr["a_ok"]) and bool(tr["b_ok"])
 		ok = ok and bool(tr["ok"])
 		tallies[m] = tr
-	var differ := outcomes_differ(outcome, ref_outcome)
+	var differ := outcomes_differ(outcome, ref_outcome, step_at)
 	ok = ok and differ.is_empty()
-	return {"ok": ok, "stocks": stocks, "tallies": tallies, "outcomes": {"ok": differ.is_empty(), "differ": differ}}
+	return {"ok": ok, "stocks": stocks, "tallies": tallies, "outcomes": {"ok": differ.is_empty(), "differ": differ,
+		"late": outcome_times(outcome, ref_outcome, step_at)}}
 
 
 ## The outcome lists (_outcome()) that differ from the reference's: an event list when its events
-## aren't the same ones in the same order (their times may differ), the forts held and holding living
-## at the end as sets, and the tier.
-static func outcomes_differ(o: Dictionary, ref: Dictionary) -> Array:
+## aren't the same ones in the same order, the forts held and holding living at the end as sets, and the
+## tier; then, with `step_at`, each flip and retake that misses the time bound (outcome_times()). Other
+## events' times may differ.
+static func outcomes_differ(o: Dictionary, ref: Dictionary, step_at := Callable()) -> Array:
 	var out: Array = []
 	for k in ["flips", "retaken", "waves", "builds", "unpaid", "tiers"]:
 		var a: Array = o[k]
@@ -470,7 +485,59 @@ static func outcomes_differ(o: Dictionary, ref: Dictionary) -> Array:
 			out.append(k)
 	if o["tier"] != ref["tier"]:
 		out.append("tier")
+	out.append_array(outcome_times(o, ref, step_at))
 	return out
+
+
+## The flips and retakes that land more than TIME_BOUND_STEPS × the run's step at that point from the
+## reference's (the header): pairwise in order, while both lists name the same fort (a list whose forts
+## differ is outcomes_differ's already). `step_at(t)` is the judged run's step at time t (the outcome
+## lists' clock); the bound takes the larger of its step at the two times, so one pair across a step
+## change (catch-up's 12 h) is judged by the longer step. Each miss as "<list> #<n> <fort> at <t> s, ref
+## <t> s: Δ <d> s over <k> × <h> s". [] without `step_at`.
+static func outcome_times(o: Dictionary, ref: Dictionary, step_at: Callable) -> Array:
+	var out: Array = []
+	if not step_at.is_valid():
+		return out
+	for k in ["flips", "retaken"]:
+		var a: Array = o[k]
+		var b: Array = ref[k]
+		for i in mini(a.size(), b.size()):
+			if a[i][0] != b[i][0]:
+				break
+			var ta := float(a[i][1])
+			var tb := float(b[i][1])
+			var h := maxf(float(step_at.call(ta)), float(step_at.call(tb)))
+			var d := absf(ta - tb)
+			if d > TIME_BOUND_STEPS * h:
+				out.append("%s #%d %s at %.1f s, ref %.1f s: Δ %.1f s over %s × %s s" % [k, i + 1, a[i][0], ta, tb, d,
+					str(TIME_BOUND_STEPS), str(h)])
+	return out
+
+
+## Every row's flips and retakes against the time bound (judge()'s `late`): one line per start and dt
+## that isn't the reference, "within" with the worst Δ / bound, or each miss.
+static func time_lines(res: Dictionary, what: String) -> String:
+	var lines: Array = ["  [convergence] %s: flips and retakes against %s × the row's dt of the reference's (TIME_BOUND_STEPS)" % [
+		what, str(TIME_BOUND_STEPS)]]
+	for st in res:
+		var per: Dictionary = res[st]
+		var dts: Array = per.keys()
+		var ref: Dictionary = per[dts[0]]["outcome"]
+		for dt in dts.slice(1):
+			var o: Dictionary = per[dt]["outcome"]
+			var late: Array = per[dt]["gate"]["outcomes"]["late"]
+			var worst := 0.0
+			var n := 0
+			for k in ["flips", "retaken"]:
+				for i in mini((o[k] as Array).size(), (ref[k] as Array).size()):
+					if o[k][i][0] != ref[k][i][0]:
+						break
+					n += 1
+					worst = maxf(worst, absf(float(o[k][i][1]) - float(ref[k][i][1])) / (TIME_BOUND_STEPS * float(dt)))
+			lines.append("  [convergence] %s at %s s: %s" % [st, str(dt), ("%d within (worst %.2f of the bound)" % [n, worst])
+				if late.is_empty() else "%d MISS: %s" % [late.size(), "; ".join(PackedStringArray(late))]])
+	return "\n".join(PackedStringArray(lines))
 
 
 ## A judge() result in one line: the verdict, then each part's figure.

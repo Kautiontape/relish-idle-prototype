@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 6)
+# Necropolis: GameState API (api_version 7)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -159,6 +159,39 @@ from `BALANCE.md` §0.
   - **deprecated:** `view_fort.held_s_left` stays and is always 0.0. A held fort is no longer on a
     timer; its grace is `grace_s_left`. The map's grace countdown reads `held_s_left` today and moves
     to `grace_s_left` (its Phase I), and its `fort_horizon` stops seeing a hold timer.
+
+  `api_version` 7 (R1, from the E2b-2 vision review; the run's manager's rule) added:
+  - the away report's **`unpaid` line** (§5.19, IDLE §7): a new `kind` value, `"unpaid"`, in `view_away().losses`,
+    one line per building that went unpaid during the absence, "Statue of Relish unpaid for 1 h 12 m: lifted no
+    morale, deaths shook the town harder; stores kept". Its `target` is the building's **lot id**, a new kind of
+    target (additive for map: `AwayLogic.action` reads an unknown target as `none` today; a click could dive to
+    Covington at that lot). An enum value is an addition under the rule above, so the version moves to 7;
+  - **the upkeep's shed order** (MECHANICS §4.3, `economy.json` `upkeep.shed_order`, `buildings.json`
+    `shed_class`): a stock that can't cover the upkeep idles the decorations first, then the passive no-job
+    buildings, then the job buildings, the WAR chain (Bone Mill, charnel houses, raising pits) last, where it
+    idled the cheapest first. `building_unpaid` (§6) and a building's `state` `unpaid` (§5.9) keep their
+    meaning; which building they name changes: a meaning change, not a shape change;
+  - (R2, the same review's item 3; R1 and R2 merge as one milestone, so they share this entry and there is no
+    v8) **when each queued build becomes affordable**: `view_town().queue[].affordable_in_s: float` (§5.9),
+    `0.0` affordable now, the seconds until it is at today's net rates, `-1.0` never at them; and
+    `cmd_queue_build`'s extra `affordable_in_s: float` (§4.3), the new entry's (`-1.0` on a refusal), the
+    review's warning at queue time. The walk that sets `status` sets it, so the two never disagree;
+  - (R2) **the away report's `ready` says why the queue sat still, or that the stores are full** (§5.19, IDLE
+    §7): a line for the queue's head still waiting on funds when the absence ends, "Inn is waiting on gold:
+    affordable in 6 m" or "House can't be afforded at today's income of 0/s bone: move it down, or build a
+    Bone Mill" (`kind` `queue`, `target` `"queue"`; the move down only when another queued entry could start in
+    the head's place, F2), and, with the queue empty and gold and bone full (within
+    `idle.report.full_tol` of their caps), the prompt "Your stores are full and the queue is empty: raid a fort
+    for relics" (`kind` `raid`, `target` `""`). No new `kind` or `target` value, so `AWAY_KINDS` stands; a
+    `raid` line with no fort is new (`AwayLogic.action` reads `""` as `none`): a meaning change, additive for
+    map. Their text is `economy.json` `idle.report`'s new templates;
+  - (F1, the run's manager; F2 sharpened the rule) **that stuck line never names itself or a move that can't
+    help** (§5.19): unless some other queued entry could start if the head weren't ahead of it (the queue's walk
+    less the head has a row that isn't `skipped_gate` with `affordable_in_s` >= 0) it drops "move it down"
+    ("House can't be afforded at today's income of 0/s bone: build a Bone Mill": nothing behind it, or only entries
+    that need bone too, or only gated ones), and a head that is its store's own producer gets a true fact for what raises it
+    instead of itself ("Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes
+    bone: move it down"). Text only: the line's `kind`, `target` and shape are R2's.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -213,7 +246,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 6
+const API_VERSION := 7
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -694,7 +727,7 @@ Game.state.cmd_build("inn", "lot-06")    # -> {ok: false, reason: "needs_tier", 
   level (slots, output, upkeep and effects) until the upgrade is done; `view_town` shows it
   `constructing` meanwhile, with its old `level`.
 ```gdscript
-Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {gold: 80.0, bone: 30.0, relics: 0}}
+Game.state.cmd_upgrade("lot-04")  # -> {ok: true, reason: "", level: 2, cost: {gold: 15.0, bone: 130.0, relics: 0}}
 ```
 
 **`cmd_demolish(lot_id: String)` · E2**
@@ -726,7 +759,9 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   (`gold`, `bone` or `relics`), `cap_building` the building whose `*_cap` effect raises it (the first in
   `buildings.json`), and `cap_level` the lowest level of that building whose cap covers the price: the
   cap now with its highest-level copy raised to that level, or with one built at it (so `1` when it isn't
-  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`.
+  built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`. From v7 (R2) `affordable_in_s:
+  float`: the new entry's `affordable_in_s` as `view_town().queue` shows it (§5.9), so the player learns at
+  queue time that it will wait, or never be afforded at today's income (`-1.0`); `-1.0` on a refusal (no entry).
 - **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
   8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
   `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
@@ -741,9 +776,13 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
 - **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
   the queue (§3, step 3; MECHANICS §4.4).
 ```gdscript
-Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1}
+Game.state.cmd_queue_build("house", "lot-06")      # -> {ok: true, reason: "", index: 0, cap_building: "", store: "", cap_level: -1, affordable_in_s: 0.0}
 Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: true, reason: "", index: 1, ...}
-Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1}
+Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1, affordable_in_s: -1.0}
+# day1 a step in, a House, a Well and a Bakery queued: its Bone Mill (60 gold, no bone) waits on gold behind the Bakery
+Game.state.cmd_queue_build("bone_mill", "lot-08")  # -> {ok: true, reason: "", index: 3, ..., affordable_in_s: 475.7}
+# day1 with its bone spent and no mill: only a mill makes bone, so a House can't be afforded at today's income
+Game.state.cmd_queue_build("house", "lot-05")      # -> {ok: true, reason: "", index: 0, ..., affordable_in_s: -1.0}
 ```
 
 **`cmd_unqueue(index: int)` · E2b-2 (v6, #3)**
@@ -1468,6 +1507,32 @@ in it: that is correct, not a mismatch.
 | `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
 | `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
+| `affordable_in_s` | float | v7 (R2): when its funds come at today's net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
+
+**`affordable_in_s`** (v7, R2; from the E2b-2 vision review's item 3, the run's manager's ruling for Shawn: the
+queue never stalls or jumps, so the player gets the data instead, and E3's autoplayer reads it too; MECHANICS
+§4.4, `BuildRules.queue_walk`):
+- **The net rates** are each store's net now, income less upkeep, from TownSim's last step: below its cap, the
+  net `view_rates` and the HUD show for gold and bone. At the cap those clip the income down to the upkeep and
+  read 0; the time uses the income before that clip (`rates.gold.trade` or `.bone.mill`, less `.out`), since
+  an entry ahead that spends the store brings the income back. Relics have no idle income (0).
+- **Entries ahead start first.** The entries that aren't gated (`next`, `waiting_funds`, `queued`) start in
+  queue order, each when the stocks, grown at those rates (each up to its cap) and less what the entries ahead
+  paid at their own starts, cover its gold, bone and relics. So an entry never reads earlier than the one
+  ahead of it, and of two gold-short entries the second reads `(cost₁ + cost₂ − gold) / net`.
+- **A `skipped_gate` entry** holds nothing: its time is its own funds' at its place in that order (the UI can
+  say "affordable in 4 m once Walls are up"), it pays nothing, so it moves no later entry's time, and its
+  status stays.
+- **`-1.0`** when its cost is above its store's cap now (`cost_exceeds_cap`); its relics are short (no idle
+  income: raid for relics); a store it is short of has a net ≤ 0; a store that covers it now falls under it
+  by then at a negative net; or it costs any of a store that an entry ahead holding the queue never gets
+  (that entry is `-1.0`; it holds the queue, so none of that store reaches this one). A later entry that
+  costs none of that store gets its time as if that entry weren't there: what it would read once the player
+  moves the stuck head down.
+- **Held fixed:** the rates don't change with what the entries ahead build. The upkeep a new building adds,
+  or its output, isn't modelled (E4-3 decides what a build that would run a deficit does), nor a gate the
+  entry meets later (a construction under way on its lot). A new game and a fixture load have no step's
+  rates until the first substep, so every short entry reads `-1.0` until then.
 
 Each `buildings` entry:
 
@@ -1635,7 +1700,7 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
 ```gdscript
 {rev: 3, buildings: [
   {building_id: "house", cost: {gold: 40.0, bone: 10.0, relics: 0}, upkeep: {gold: 0.01, bone: 0.0}, build_work: 60.0,
-   lot_size: 1, max_level: 3, count: 0, requires: {tier: "hamlet", blueprint: "", building: ""},
+   lot_size: 1, max_level: 8, count: 0, requires: {tier: "hamlet", blueprint: "", building: ""},
    can_build: true, reason: "", lots: ["lot-05", "lot-06", "lot-07", "lot-08"]},
   {building_id: "inn", ..., can_build: false, reason: "needs_tier", lots: []}],
  crafts: [{item_id: "simulacrum", cost: {essence: 20, relics: 1}, can_craft: false, reason: "needs_building"}, ...],
@@ -1825,15 +1890,16 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
 - **At the current valve, with the valve at its target and Relish not travelling, every field equals the
   live views'.** Otherwise the planned support differs: while the valve slews, or Relish travels, the
   projection reads the target valve's WAR split and her committed arrival, so its rates, `fall_s` and the
-  margins that depend on them can differ from `view_fort`'s (details below). At that scope, `split` is `view_hud.split` (and
+  margins that depend on them can differ from `view_fort`'s (details below). In that case (the current
+  valve, with the valve at its target and Relish not travelling), `split` is `view_hud.split` (and
   `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
   is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
-  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same scope), and with `settled` its
-  `margin` and `margin_cause` are too, **only with the valve at its target** (as it is once its slew is
-  done): `view_fort` reads the target's WAR as its planned support, a projection the valve passed. While
-  the valve slews, `settled` at the target valve runs `view_fort`'s own train (the same probe, the same
-  broken and settled verdicts), but its `garrison_rate` and `fall_s` are the target's, so its margin can
-  differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
+  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same case), and
+  with `settled` its `margin` and `margin_cause` are too, **only with the valve at its target** (as it is
+  once its slew is done): `view_fort` reads the target's WAR as its
+  planned support, a projection the valve passed. While the valve slews, `settled` at the target valve
+  runs `view_fort`'s own train (the same probe, the same broken and settled verdicts), but its
+  `garrison_rate` and `fall_s` are the target's, so its margin can differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:
   `view_fort` reads the train).
 - **Current and planned in a row** (T3.4b fix batch): a row's `garrison_rate` reads that valve's split with
   Relish where she stands; its `fall_s` is the earlier of that clock and the clock at that valve's split
@@ -1899,8 +1965,10 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   with nothing to catch up leaves none); a new game clears it. Before any report: `shown` false, `away_s`
   0.0, `capped` false and the three lists empty.
 - **`kind`** is one of `stream`, `build`, `refilled`, `raid`, `slab`, `queue`, `retaken`, `village_lost`,
-  `overflow`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a fort, Covington's
-  slab or queue, nothing).
+  `overflow`, and from v7 `unpaid`; **`target`** is a fort id, `"slab"`, `"queue"` or `""` (the map's click: a
+  fort, Covington's slab or queue, nothing), and from v7 a lot id for `unpaid` (additive for map: Covington at
+  that lot; `AwayLogic.action` reads it as `none` until map takes it up). From v7 (R2) a `raid` line can have
+  `target` `""`: the full stores' prompt names no fort.
 - **gains** (`target` `""`):
   - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
     the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
@@ -1917,14 +1985,39 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
     you left and back to 1 now (MECHANICS §5.3): `"Ashgate refilled"`.
 - **ready:** each refilled fort, `"Ashgate refilled: raid it"` (`raid`, the fort); husks waiting while the
   crypt has room for a big undead (fewer than its cap), wherever Relish is, `"2 husks: raise at the slab"`
-  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`).
+  (`slab`, `"slab"`); an empty build queue, `"Queue empty: plan the next build"` (`queue`, `"queue"`). From v7
+  (R2, the E2b-2 vision review's item 3), the queue's line when it isn't empty: its head still waiting on funds
+  at the end of the absence (the first `waiting_funds` entry of `view_town().queue`, §5.9), from its
+  `affordable_in_s` and the store that sets it, `"Inn is waiting on gold: affordable in 6 m"` (the wait rounded
+  up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at today's income
+  of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
+  below the cap, and what raises it, `idle.report.afford_raise`); none when no entry waits on funds (every one
+  gated). From F1: `"House can't be afforded at today's income of 0/s bone: build a Bone Mill"` when moving the head
+  down can't help (F2: no other queued entry could start in its place: nothing behind it, or only entries stuck on
+  the same store, or only gated ones; no move down), and when the head is its store's own producer
+  (`idle.report.afford_producer`, the Bone Mill for bone and the Market for gold, its upgrades too) a fact in place
+  of itself, `"Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing else makes bone: move
+  it down"` (`afford_raise_self`; without ": move it down" when moving it down can't help). `queue`, `"queue"`, so the map's click dives to the queue. And after `"Queue empty"`, when gold and
+  bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
+  the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
+  `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind).
 - **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
   it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
   with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
   retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
   Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
   in `ledger().stores`, from `idle.report.overflow_min` (1) wasted (`overflow`, `""`), `"Gold overflowed: 120
-  wasted"`. Empty when nothing was lost: the map prints "Nothing lost."
+  wasted"`; before the overflow, from v7 (R1), each building that went unpaid during the absence, in lot
+  order (`unpaid`, its lot id): `"<label> unpaid for <time>: <what it stopped doing>; stores kept"`,
+  `"Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths shook the town harder; stores kept"`. The
+  time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6): one unpaid
+  when you left counts from the start, one still unpaid at the end to the end, and it reads as `when_hm_fmt`
+  / `when_m_fmt` ("0 m" under a minute). What it stopped is one `idle.report.unpaid_stopped` phrase per job it
+  offers and per working effect it has (capacity effects are kept, and so are the effects in `idle.report.unpaid_inert`,
+  which nothing reads yet: F2), each phrase once, joined by
+  `unpaid_sep`; `unpaid_none` ("nothing stopped") for a building with neither, a House or the Reliquary.
+  "stores kept" holds always: an unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost:
+  the map prints "Nothing lost."
 - **Tokens** (the map parses them, `AwayLogic.spans`): a signed rate ends in `/s` (`+2.1/s`, `−0.43/s`, two
   significant digits, `0/s` under 0.0005), a mass or count is a bare number with thousands commas
   (`+69,552`, `120`), and nothing is glued to a word. The away time is never in a line: the map formats
@@ -1943,7 +2036,12 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
 #     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
-# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd)
+# it"; with gold near its cap, losses add "Gold overflowed: 2,162 wasted" (tests/test_away.gd), and, with its bone
+# over its cap as midgame_2flips' is, ready adds "Your stores are full and the queue is empty: raid a fort for
+# relics" (raid, "") after "Queue empty" (R2)
+Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)
+# -> {..., ready: [{text: "House can't be afforded at today's income of 0/s bone: build a Bone Mill",  # F2: the Well needs bone too
+#                   kind: "queue", target: "queue"}], ...}
 ```
 
 ## 6. Events
@@ -1982,7 +2080,7 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 | `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate until E3) |
 | `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts; `cmd_build` and `cmd_upgrade` do not emit it themselves, and a cancel before that substep drops it) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
-| `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed) | E2 |
+| `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed). Which building goes idle follows the shed order since R1 (decorations, then the passive no-job buildings, then the job buildings, the WAR chain last: MECHANICS §4.3, `economy.json` `upkeep.shed_order`): the event's meaning is unchanged, so a gold floor that used to raise it for a raising pit first now raises it for the Statue | E2 |
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |

@@ -805,8 +805,8 @@ static func away_streams(gs: GameState) -> Dictionary:
 
 
 ## What a reporting catch-up starts from (Catchup.begin), for the report's before-and-after: the time, the
-## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, and the
-## village owners.
+## stream stocks, the caps' overflow tallies (ledger().stores), each fort's hold and loot yield, the
+## village owners, and the lots whose building is unpaid (R1: their unpaid lines count from the start).
 static func away_before(gs: GameState) -> Dictionary:
 	var forts := {}
 	for f in gs.realm.forts:
@@ -814,7 +814,12 @@ static func away_before(gs: GameState) -> Dictionary:
 	var villages := {}
 	for tw in gs.towns:
 		villages[str(tw["id"])] = str(tw["control"])
-	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages}
+	var unpaid: Array = []
+	for lot_id in gs.town_sim.buildings:
+		if gs.town_sim.buildings[lot_id]["state"] == "unpaid":
+			unpaid.append(str(lot_id))
+	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
+		"unpaid": unpaid}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -875,12 +880,22 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if RealmSim.is_held(f) and not retaken.has(id) and float(was.get("yield", 1.0)) < 1.0 and gs._yield_mult(f) >= 1.0:
 			gains.append(_away_line(str(rep["refilled_fmt"]).format({"fort": str(f["name"])}), "refilled", ""))
 			ready.append(_away_line(str(rep["raid_fmt"]).format({"fort": str(f["name"])}), "raid", id))
-	# ready: husks waiting while the crypt has room for a big undead; an empty queue
+	# ready: husks waiting while the crypt has room for a big undead; an empty queue, and with the stores full a
+	# prompt to raid; else (R2) the queue's head still waiting on funds, when its funds come or that they don't
 	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
 		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
 		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
 	if gs.build_queue.is_empty():
 		ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
+		if stores_full(gs, float(rep["full_tol"])):
+			ready.append(_away_line(str(rep["full_raid"]), "raid", ""))
+	else:
+		var w := BuildRules.queue_walk(gs, gs.build_queue)
+		for i in (w["rows"] as Array).size():
+			var row: Dictionary = w["rows"][i]
+			if row["status"] == "waiting_funds":
+				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
+				break
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)
@@ -889,6 +904,7 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	for tw in gs.towns:
 		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
+	losses.append_array(_unpaid_lines(gs, rep, b, evs))
 	var o := _overflow(gs)
 	for k in ["gold", "bone"]:
 		var lost := float(o[k]) - float(b["overflow"][k])
@@ -899,6 +915,103 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 
 static func _away_line(text: String, kind: String, target: String) -> Dictionary:
 	return {"text": text, "kind": kind, "target": target}
+
+
+## R2 (the run's manager, from Shawn's "needs relics: raid a fort"; IDLE §7): every capped store, gold and bone, is
+## full: each within `tol` (idle.report.full_tol, a fraction of its cap) of its cap, or above it.
+static func stores_full(gs: GameState, tol: float) -> bool:
+	var ts := gs.town_sim
+	return ts.gold >= ts.gold_cap() * (1.0 - tol) and ts.bone >= ts.bone_cap() * (1.0 - tol)
+
+
+## F2 (the phase review; IDLE §7): whether moving the queue's entry `i` (the stuck head) down would let another
+## entry start in its place: the walk of the queue less that entry (a copy; the queue is not touched) has a row
+## that isn't `skipped_gate` (a gated entry passes the head anyway) and whose affordable_in_s is ≥ 0.0 (affordable
+## now, or later at today's income). The walk with the entry in can't answer this: its later rows are timed as if
+## the head started at its time (or, at −1.0, starved its store), so they say nothing about the head not being ahead.
+static func _move_down_helps(gs: GameState, i: int) -> bool:
+	var rest: Array = gs.build_queue.duplicate()
+	rest.remove_at(i)
+	for row in BuildRules.queue_walk(gs, rest, true)["rows"]:
+		if row["status"] != "skipped_gate" and float(row["affordable_in_s"]) >= 0.0:
+			return true
+	return false
+
+
+## R2 (the E2b-2 vision review's item 3; IDLE §7): the away report's line for the queue's head still waiting on
+## funds, from its view row (affordable_in_s, building_id, level), the store that sets its time (queue_walk's
+## `waits`; the row's no_gold / no_bone when it names none), the net rates (BuildRules.queue_net) and whether moving it
+## down would let another entry start in its place (`movable`; _move_down_helps, F2). A positive time: afford_wait_fmt, "Inn is waiting on gold: affordable in
+## 6 m", rounded up to the minute so a wait under one never reads "0 m". −1.0: that store's net rate (a rate
+## token) and what raises it, afford_raise's words, "House can't be afforded at today's income of 0/s bone: move it
+## down, or build a Bone Mill" (afford_never_fmt), without the move down when it can't help: nothing
+## behind it could start in its place (afford_never_last_fmt). F1 (the run's manager): when the entry is its store's own producer
+## (idle.report.afford_producer, matched on the building, so an upgrade counts) the raise never names it:
+## afford_raise_self's fact instead, "Bone Mill level 2 can't be afforded at today's income of 0/s bone, and nothing
+## else makes bone: move it down" (afford_never_self_fmt; afford_never_self_last_fmt when moving down can't help).
+static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary, movable: bool) -> String:
+	var s := store if store != "" else ("bone" if str(row.get("reason", "")) == "no_bone" else "gold")
+	var name := _building_name(gs, rep, str(row["building_id"]), int(row["level"]))
+	var a := float(row["affordable_in_s"])
+	if a < 0.0:
+		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
+		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),
+			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise_self" if own else "afford_raise"][s])})
+	return str(rep["afford_wait_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
+		"when": _when(rep, ceilf(a / 60.0) * 60.0)})
+
+
+## R1 (the run's manager; IDLE §7): the losses' unpaid lines, one per building unpaid at some time during the
+## absence, in lot order: idle.report.unpaid_fmt, "Statue of Relish unpaid for 1 h 12 m: lifted no morale, deaths
+## shook the town harder; stores kept" (kind `unpaid`, target its lot). Its time is the sum of its spells from the
+## `building_unpaid` events in `evs` (unpaid true, then false); a building unpaid when you left (`b.unpaid`, or a
+## resume with no spell open) counts from the start, one still unpaid at the end to the end. What it stopped is
+## one unpaid_stopped phrase per GameState.unpaid_keys (its jobs, then its working effects), each phrase once,
+## joined by unpaid_sep; unpaid_none when it has neither. F2: an effect nothing reads yet (idle.report.unpaid_inert)
+## stopped nothing, so it has no phrase.
+static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Array) -> Array:
+	var t0 := float(b["t"])
+	var spells := {}  # lot_id -> [seconds unpaid so far, the open spell's start or −1]
+	for lot_id in b.get("unpaid", []):
+		spells[str(lot_id)] = [0.0, t0]
+	var bids := {}  # lot_id -> the building id its events named
+	for e in evs:
+		if e["type"] != "building_unpaid":
+			continue
+		var lot := str(e["lot_id"])
+		bids[lot] = str(e["building_id"])
+		var sp: Array = spells.get(lot, [0.0, -1.0])
+		if bool(e["unpaid"]):
+			if float(sp[1]) < 0.0:
+				sp[1] = float(e["t"])
+		else:
+			sp[0] = float(sp[0]) + float(e["t"]) - (float(sp[1]) if float(sp[1]) >= 0.0 else t0)
+			sp[1] = -1.0
+		spells[lot] = sp
+	var out: Array = []
+	var stopped_words: Dictionary = rep["unpaid_stopped"]
+	var cfg := BuildRules.buildings_cfg(gs)
+	for l in BuildRules.lots_cfg(gs):
+		var lot_id := str(l.get("id", ""))
+		if not spells.has(lot_id):
+			continue
+		var sp: Array = spells[lot_id]
+		var secs := float(sp[0]) + (gs.t - float(sp[1]) if float(sp[1]) >= 0.0 else 0.0)
+		var bl: Dictionary = gs.town_sim.buildings.get(lot_id, {})
+		var bid := str(bl.get("building_id", bids.get(lot_id, "")))
+		var phrases: Array = []
+		for key in GameState.unpaid_keys(cfg.get(bid, {}), rep["unpaid_inert"]):
+			if not stopped_words.has(key):
+				push_warning("StateViews: economy.json idle.report.unpaid_stopped has no words for %s" % key)
+				continue
+			var w := str(stopped_words[key])
+			if not phrases.has(w):
+				phrases.append(w)
+		var stopped := str(rep["unpaid_sep"]).join(PackedStringArray(phrases)) if not phrases.is_empty() else str(rep["unpaid_none"])
+		out.append(_away_line(str(rep["unpaid_fmt"]).format({"name": _building_name(gs, rep, bid, maxi(1, int(bl.get("level", 1)))),
+			"when": _when(rep, secs), "stopped": stopped}), "unpaid", lot_id))
+	return out
 
 
 ## `digits` (an unsigned integer's decimal digits) with the report's thousands separator every three.

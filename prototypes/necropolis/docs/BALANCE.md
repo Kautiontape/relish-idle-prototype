@@ -132,8 +132,9 @@ E2a added is here with its value.
 | `forge.level_work`, `forge.level_relics` | 120 · n work for level n (8 levels); relics 1, 1, 1, 1, 2, 2, 2, 2 | level 1 in 2 min, level 8 in 16 min at a level-1 Forge; 12 relics in all (the relic cap); +0.8 `q` at the top |
 | `job.build.rate`, `job.build.slots` | 0.5 work per worker-second, 3 per construction site | a House (60 work) in 40 s, the Reliquary (400) in about 4.5 min; an upgrade takes `build_work · target level` |
 | `upkeep.unpaid_hold_s` | 30 s | the least time a building stays unpaid; it resumes once the stock covers 30 s of upkeep |
-| `body_store.cap` | 200, + charnel upgrades (+50 at level 2, +100 at level 3), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
-| `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250 |
+| `upkeep.shed_order`, building `shed_class` | `decoration`, `passive`, `job`, `war_mill`, `war_haul`, `war_pit` | R1 (the run's manager's rule; MECHANICS §4.3): while a stock can't cover the upkeep, the first class in this order goes unpaid first, the cheapest within it (ties in lot order). Decorations: Plaza, Statue. Passive (no job): Crypt, House, Well, Bakery, Inn, Graveyard, Embalmer, Stables, Ossuary Tower, Guildhall, Watchtower, Walls, Reliquary. Job: Market, Forge, Chapel of Vats. The WAR chain last: the Bone Mill, the Charnel House (its haul is most of the pits' bodies: unpaid 2 h from pre_vei it cut the WAR plateau 21.5%), the Raising Pit. Each building's class is its `buildings.json` `shed_class`, which must be in the order (`test_game_state_commands`) |
+| `body_store.cap` | 200, + the Charnel House's per-level `body_cap` table (0 at level 1, then +50 a level: +100 at level 3, +350 at level 8), +100 per graveyard level | the start Charnel House (level 1) adds nothing, so the start cap is 200 |
+| `gold.cap`, market `effects.gold_cap` | 6500, + 3250 per Market level (+50% of the base) | IDLE §6, E2b-2 T3.2 (sizing below). The start Market (level 1) makes a new game's cap 9750; level 3 gives 2.5 × the base, 16 250, and level 8 (T7's ladder) 5 ×, 32 500 |
 | `town.projection_refresh_s` | 5 s | the build benefit's cache (STATE-API §5.10, E2b-2 T3.2): a `projected` or `upgrade_projected` row goes stale this long after it was computed while the town's structure holds (a structure change makes every row stale at once); the frame refresh also runs only while `view_catalog()` was read within this much sim |
 | `town.projection_rows_per_frame` | 1 | the build-benefit units (rows, or the baseline they diff against) refreshed on a frame that ran no substep, late in the interval, while the catalog is read (STATE-API §5.10): 0.45 to 0.55 ms each at `pre_vei`. Every row settles about 1.5 s after a change at 60 fps (41 rows over the 15 late frames of each substep) |
 | `town.projection_phase` | 0.5 | the frame refresh runs only once the substep accumulator holds this fraction of `substep_s()`: scenes refetch when `rev` moves, so their work bunches up just after a substep, and background work belongs in the later part of the interval |
@@ -154,11 +155,11 @@ E2a added is here with its value.
 | `idle.field_step_min_s` | 2 s | no field step is shorter, so a short catch-up takes fewer (120 s: 60). A field step of up to `field.catchup_exact_ticks` (8) ticks, 1.6 s, runs that many live ticks plus a solve, so without it a 30 s gap would make 60 calls (one per 0.5 s core step) costing about 180 live ticks, more than the live field's 150; with it, 15 calls of about one tick each (ground's `field_catchup_bench.gd`, its MIN_STEP_S) |
 | `idle.catchup_steps_per_chunk` | 90 | core steps per frame while a chunked catch-up runs (a load's from the shell, an open-game gap's): sized at about 50 ms at pre_vei over 12 h (E2b-2 T3.3b: 330 µs a core step, a 6.3 ms field step every 29 core steps; `tests/slow/catchup_bench.gd` measured a median 46 ms at pre_vei, 43 ms at fresh and 53 ms at midgame_2flips). Since E2b-2 T3.3b2 (about 210 µs a core step, a field step every 58) the median is 30–33 ms at the three starts, at most about 50 ms with a field step in it. A 12 h catch-up is 48 chunks, a week 464 |
 | `idle.report_min_s` | 600 s | a gap at least this long gets the away report (IDLE §7, T3.3c) and its catch-up's events are collected for it; a load always is. A shorter open-game gap queues its events as live (STATE-API §6) |
-| `idle.report` | the away report's text (IDLE §7, E2b-2 T3.3c; STATE-API §5.19) | every line of `view_away` is a template here, in the style of `map_view.json`'s `demo_away`: `streams` (the gains' order: backlog, mint, workers, bodies, gold, bone, living) and their `stream_labels`, `stream_fmt` and `backlog_fmt` (with `arrow_up` ▲, `arrow_down` ▼, `arrow_flat` ■), `builds_one_fmt` / `builds_fmt` (names joined by `list_sep` " · ", spaced, so a number ending one name never glues to the separator; `level_fmt` past level 1), `started_fmt` / `started_now_fmt` with `when_hm_fmt` / `when_m_fmt` (the time since you left) and one `waited_on` reason per queue reason, `refilled_fmt`, `raid_fmt`, `husk_one_fmt` / `husks_fmt`, `queue_empty`, `retaken_fmt` / `retaken_home_fmt`, `village_lost_fmt`, `overflow_fmt` with `store_labels`; and the tokens the map parses: `plus` "+", `minus` "−", `rate_unit` "/s", `thousands` ",". Three numbers: **`rate_sig_digits` 2** and **`rate_max_decimals` 3** (a rate shows two significant digits, at most three decimals: +2.1/s, +0.43/s, +0.012/s, +140/s; under 0.0005/s it reads 0/s), and **`overflow_min` 1** (a store's overflow line shows from 1 wasted, so the report never says "0 wasted"; midgame_2flips' 12 h bone overflow is 0.56) |
-| `bone.cap`, bone mill `effects.bone_cap` | 200, + 100 per Bone Mill level (+50% of the base) | 300, 400, 500 at Bone Mill levels 1–3; a new game (no mill) has 200 |
+| `idle.report` | the away report's text (IDLE §7, E2b-2 T3.3c; STATE-API §5.19) | every line of `view_away` is a template here, in the style of `map_view.json`'s `demo_away`: `streams` (the gains' order: backlog, mint, workers, bodies, gold, bone, living) and their `stream_labels`, `stream_fmt` and `backlog_fmt` (with `arrow_up` ▲, `arrow_down` ▼, `arrow_flat` ■), `builds_one_fmt` / `builds_fmt` (names joined by `list_sep` " · ", spaced, so a number ending one name never glues to the separator; `level_fmt` past level 1), `started_fmt` / `started_now_fmt` with `when_hm_fmt` / `when_m_fmt` (the time since you left) and one `waited_on` reason per queue reason, `refilled_fmt`, `raid_fmt`, `husk_one_fmt` / `husks_fmt`, `queue_empty`, `retaken_fmt` / `retaken_home_fmt`, `village_lost_fmt`, `overflow_fmt` with `store_labels`, and (R1) `unpaid_fmt` "{name} unpaid for {when}: {stopped}; stores kept" with `unpaid_stopped` (one phrase per job and per working effect a building can have: `pit` and `pits` "raised no undead", `haul` "hauled no corpses", `mill`, `stall`, `forge`, `tend`, `morale` "lifted no morale", `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`; `report_config_problem` checks every one buildings.json has), joined by `unpaid_sep` ", ", and `unpaid_none` "nothing stopped" for a building with only capacity (or inert) effects; F2 adds **`unpaid_inert`** `["hint_precision"]`, the effect keys nothing in the sim reads yet (a list of strings, each an effect some building has, checked by `report_config_problem`; `GameState.unpaid_keys` skips them, so the Watchtower's unpaid line reads "nothing stopped"). Remove a key from this list in the change that makes the sim read it, and give it words in `unpaid_stopped`. Every `unpaid_stopped` key was checked against the sim at F2: `pit`/`pits` town_sim.gd:553, 1196-1198; `haul` :568; `mill` :560; `stall` :618; `forge` :627; `tend` :698; `morale` :1200-1202; `attract` :663, 1199; `lifetime_bonus` :1435; `haul_speed_mult` :848; `death_shock_mult` :519 (`add_shock`, called by state_runs.gd:292); `hint_precision` is read nowhere, so it is inert and its words are dropped; and the tokens the map parses: `plus` "+", `minus` "−", `rate_unit` "/s", `thousands` ",". Three numbers: **`rate_sig_digits` 2** and **`rate_max_decimals` 3** (a rate shows two significant digits, at most three decimals: +2.1/s, +0.43/s, +0.012/s, +140/s; under 0.0005/s it reads 0/s), and **`overflow_min` 1** (a store's overflow line shows from 1 wasted, so the report never says "0 wasted"; midgame_2flips' 12 h bone overflow is 0.56). R2 adds the ready lines for the queue's head still waiting, `afford_wait_fmt` "{name} is waiting on {store}: affordable in {when}" (the wait rounded up to the minute) and `afford_never_fmt` "{name} can't be afforded at today's income of {rate} {store}: move it down, or {raise}" (the rate before the words, so the map's rate token ends in /s with nothing glued to it), with `afford_stores` (gold, bone, relics: how a line names each store) and `afford_raise` (what raises each store's income: "build a Market", "build a Bone Mill", "raid for relics"). F1 (the run's manager: the line never names itself or a move that can't help) adds `afford_never_last_fmt` "{name} can't be afforded at today's income of {rate} {store}: {raise}" for a head whose move down can't help (F2: nothing behind it could start in its place: the queue's walk less the head has no row that isn't `skipped_gate` with `affordable_in_s` >= 0), and for a head that is its store's own producer, `afford_producer` (gold `market`, bone `bone_mill`: the building whose job makes each store, matched on the building so an upgrade counts) with `afford_raise_self` (a fact, true at F1: "nothing else makes gold", "nothing else makes bone"; bone's until P4 makes rot a source) in `afford_never_self_fmt` "{name} can't be afforded at today's income of {rate} {store}, and {raise}: move it down" and `afford_never_self_last_fmt` (the same without ": move it down"). Each raise text is true of the configs (test_away checks it): only the Market's stalls make gold and only the Bone Mill's milling bone, and loot.json gives relics at every tier and no gold or bone; and the raid prompt `full_raid` "Your stores are full and the queue is empty: raid a fort for relics", shown when the queue is empty and gold and bone are each within **`full_tol` 0.01** of their caps (a fraction of the cap: 1%, so a store a coin or two under its cap still reads full; at day1's caps that is 97.5 gold and 2 bone). `report_config_problem` checks each key, the three stores in both tables, `full_tol` in [0, 1), and (F1) a producer for gold and bone, each a buildings.json building for a store `afford_stores` words, with its `afford_raise_self` words |
+| `bone.cap`, bone mill `effects.bone_cap` | 200, + the Bone Mill's per-level table 100, 150, 350, 700, 1250, 2050, 3400, 8400 (T7) | caps 300, 350, 550, 900, 1 450, 2 250, 3 600, 8 600 at Bone Mill levels 1–8 (the rule is under Store caps below; E4 tunes it); a new game (no mill) has 200 |
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
-| E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level |
+| E3 effects (data only for now) | ossuary `craft_slots` 1, watchtower `hint_precision` 1 | per level; `hint_precision` is in `idle.report.unpaid_inert` until the sim reads it |
 | `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both to 18 and 90) | |
 | `big_undead.cap`, `big_undead.per_crypt_level` ⟵ crypt `effects.big_undead_cap` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
 | crypt `unique` | true | `buildings.json`: the only unique building, so a second Crypt is refused (`unique`, STATE-API §4.3) |
@@ -193,30 +194,43 @@ shut until then so nothing small is put on them first, and a size-1 building may
 (a lot too small is the only size refusal), so the player can still block lot-23 with a house:
 demolish it. Town needs 12 buildings, which Village's 17 lots hold; City needs 20 of Town's 22.
 
-**Store caps** (E2b-2 T3.2; IDLE §6). Two constraints, and only these. *8 h fill:* the base cap is at
-least 8 h of a new game's settled net income, rounded up. *Nothing stuck:* the cap with its cap
-building at level 3 (2.5 × the base, at +50% per level) covers the largest single cost of that store in
-`buildings.json`, so every build can be queued once the cap building is maxed. The rates are measured:
-`cmd_new_game(1)`, no actions, 1 h at 0.5 s, the mean net rate over the last 10 min (the fixtures the
-same way, from their load).
+**Store caps** (E2b-2 T3.2; IDLE §6; the ladder's bone cap since T7). Two constraints, and only these.
+*8 h fill:* the base cap is at least 8 h of a new game's settled net income, rounded up. *Nothing stuck:*
+every price of every building level fits a cap the player can reach by that building's tier
+(`tests/test_build_ladder.gd`, below), so every build can be queued once the cap buildings are climbed.
+The rates are measured: `cmd_new_game(1)`, no actions, 1 h at 0.5 s, the mean net rate over the last
+10 min (the fixtures the same way, from their load).
 - **Gold:** a new game settles at +0.210 gold/s (trade 0.30, upkeep 0.09): 8 h is 6 048, so the base is
-  **6 500**. The largest gold cost is the Ossuary Tower's level 3 (1 350), far under even the base, so no
-  gold cost exceeds a gold cap and `cost_exceeds_cap` is never about gold with these numbers.
-- **Bone:** a new game has no Bone Mill, so its net bone is 0 and the 8 h rule asks nothing. The largest
-  bone cost is the Ossuary Tower's level 3 (450): 450 / 2.5 = 180, so the base is **200** (500 at Bone
-  Mill level 3). The costs above the base bone cap, so `cost_exceeds_cap` is reachable: Chapel of Vats
-  level 2 (240) and 3 (360), Embalmer level 3 (240), Reliquary (250), Ossuary Tower level 2 (300) and 3
-  (450). A level-1 mill (300) leaves the Chapel's level 3 and the Ossuary's level 3; level 2 (400) the
-  Ossuary's level 3; level 3 none.
-- **Nothing stuck, checked** (the run's manager, for E4): every building and level in `buildings.json`,
-  priced with `BuildRules.construction_cost`, against the highest cap the player can reach for each
-  resource with one cap building at its top level: gold 6 500 + 3 × 3 250 = 16 250, bone 200 + 3 × 100 =
-  500, relics 12 + 6 (the Reliquary, level 1) = 18. The top prices are the Ossuary Tower's level 3 in
-  all three (1 350 gold, 450 bone, 9 relics), so **no price is above its highest reachable cap: the list
-  is empty**, and `cmd_queue_build`'s `cap_level` is never −1 with the shipped numbers. (A second Market
-  or Bone Mill raises a cap further; the check counts one.)
+  **6 500**, and the Market adds 3 250 a level (32 500 at its level 8). The largest gold cost is the
+  Chapel of Vats' level 8 (9 450): over the base, under the start Market's 9 750, so `cost_exceeds_cap`
+  is about gold only with the Market demolished (cap_level 1). Every other gold cost is under the base.
+  The ladder test passes on gold, so the Market's `gold_cap` stays 3 250 a level (T7).
+- **Bone:** a new game has no Bone Mill, so its net bone is 0 and the 8 h rule asks nothing: the base is
+  **200**. The Bone Mill's `bone_cap` is a table per level (T7; MECHANICS §4.3), sized with the level
+  ladder by one rule, E4's to tune: **the cap at mill level L covers 1.2 × the larger of the mill's and
+  the Market's level-L+1 bone cost (they climb in step), rounded up to 50; the cap at the top level covers
+  every bone cost of every building level.** Each entry is the smallest that meets it, and never below
+  the one before; level 1 stays 100 (the rule alone gives 50), so a level-1 mill's cap stays 300. The
+  mill's next level binds at every level below the top (190, 285, 455, 730, 1 170, 1 870, 2 990, × 1.2:
+  228, 342, 546, 876, 1 404, 2 244, 3 588), the Market's being smaller at each; the top is set by the
+  Forge's level 8 (8 575). So the bonuses are **100, 150, 350, 700, 1 250, 2 050, 3 400, 8 400** and the
+  caps 300, 350, 550, 900, 1 450, 2 250, 3 600, 8 600 (level 2's 350 is under the old linear 400). The
+  jump to level 8 is the Forge's price, not the mill's or the Market's: E4's.
+- **Nothing stuck, checked** (the run's manager; `tests/test_build_ladder.gd` in the default suite, T7):
+  every building, level and store with a price (`BuildRules.construction_cost`): (a) from a new game with
+  no cap building built, `cap_level` is not −1 (relics: the cap with every relic-cap building at its max
+  level, 18); (b) the price fits the caps the climb reaches by the building's own tier (an upgrade needs
+  only that tier). The climb: from the base caps with no cap building built, every cap building of that
+  tier or below whose next level's whole cost (gold, bone, relics) fits the caps now is built or
+  upgraded, until nothing changes. With the shipped numbers it buys the Market and the mill in step,
+  levels 1 to 8, all at Hamlet (gold 32 500, bone 8 600, relics 12; Village adds nothing), and the
+  Reliquary at Town (relics 18). The tightest price is the Forge's level 8, 8 575 of 8 600. The test
+  also fails a per-level Array effect without one entry per level. (A second Market or Bone Mill raises
+  a cap further; the check counts one.)
 - **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 9 (the Ossuary's
-  level 3), so no relic cost exceeds it.
+  level 3); the ladder's are the Chapel's 7 and the Forge's 4 at level 8 (Village, cap 12), so no relic
+  cost exceeds the cap its tier reaches. Relic income is not checked: L6+ relic costs are untested
+  without raids (E4).
 
 | start | gold: cap, stock, net/s, fill | bone: cap, stock, net/s, fill |
 |---|---|---|
@@ -227,19 +241,40 @@ same way, from their load).
 The 8 h rule covers only a new game: `pre_vei`'s bone, at its +0.107/s, fills its 300 cap in about 47 min
 from empty.
 
-**Building costs** (gold / bone / relics; upkeep in gold/s). Starting values; the economy unit puts
-them in `buildings.json`.
+**Building costs** (T7, BALANCE §7's adopted structure: town's trial G4 config C, `g3_overrides.py b2`
+then `g4_overrides.py c` in `reports/town/trial-tools/`; E4 tunes the numbers). Gold / bone / relics per
+level (relics shown when above 0; level 1 is `cost`, levels 2 and up `level_costs`); upkeep in gold/s. The
+dead's buildings cost mostly bone, the Bone Mill's level 1 stays gold-priced and the Market is bought
+with bone. The mill's level 1 is gold only since F1 (60 gold, no bone; the run's manager for Shawn: the data
+brought in line with this rule, not a tuning). G3's A2/B2 and G4's C ran it at 60 / 20, and at 20 bone day1's
+first queue of a House, a Well, a Bakery and the Mill deadlocked: the three take 10 bone each of day1's 30 and
+only a mill makes bone (`tests/test_day1_queues.gd`). The job buildings and the house climb to level 8; the ladder adds no relic price below level 6 (the pit, charnel house,
+Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1, 2, 3, 3, 3 at L1-L5) and the Chapel of Vats
+(2, 4, 6, 6, 6) keep their own; relic costs never fall with level.
 
-| building | cost | upkeep |
-|---|---|---|
-| House, Well, Bakery | 30–50 / 10 / 0 | 0.01 |
-| Bone Mill, Raising Pit | 60–90 / 20–40 / 0 | 0.03 |
-| Market expansion, Charnel upgrade | 80 / 30 / 0 | 0.03 |
-| Inn, Forge, Graveyard, Stables | 120–180 / 50 / 0–1 | 0.05 |
-| Embalmer, Watchtower | 200 / 80 / 1 | 0.08 |
-| Chapel of Vats, Guildhall, Walls | 300–400 / 120 / 2 | 0.12 |
-| Ossuary Tower, Plaza/Statue | 350–450 / 150 / 2–3 | 0.15 |
-| Reliquary | 600 / 250 / 4 | 0.2 |
+| building | tier | upkeep | L1 | L2 | L3 | L4 | L5 | L6 | L7 | L8 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Crypt | Hamlet | 0 | 0 / 0 | 150 / 60 / 1 | 300 / 120 / 2 |  |  |  |  |  |
+| Raising Pit | Hamlet | 0.03 | 15 / 150 | 30 / 305 | 50 / 450 | 80 / 720 | 130 / 1150 | 210 / 1840 / 1 | 335 / 2945 / 1 | 535 / 4710 / 1 |
+| Charnel House | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 50 / 410 | 80 / 655 | 130 / 1050 / 1 | 210 / 1680 / 1 | 335 / 2690 / 1 |
+| Market | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 45 / 410 | 75 / 650 | 120 / 1040 / 1 | 190 / 1675 / 1 | 300 / 2685 / 1 |
+| House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 35 / 280 | 55 / 455 | 90 / 730 / 1 | 140 / 1180 / 1 | 225 / 1880 / 1 |
+| Well | Hamlet | 0.01 | 30 / 10 | 60 / 20 | 90 / 30 |  |  |  |  |  |
+| Bakery | Hamlet | 0.01 | 50 / 10 | 100 / 20 | 150 / 30 |  |  |  |  |  |
+| Bone Mill | Hamlet | 0.03 | 60 / 0 | 20 / 190 | 30 / 285 | 50 / 455 | 80 / 730 | 130 / 1170 / 1 | 210 / 1870 / 1 | 335 / 2990 / 1 |
+| Inn | Village | 0.05 | 150 / 50 | 300 / 100 | 450 / 150 |  |  |  |  |  |
+| Forge | Village | 0.05 | 30 / 275 / 1 | 65 / 540 / 2 | 95 / 820 / 3 | 150 / 1310 / 3 | 240 / 2095 / 3 | 385 / 3350 / 4 | 615 / 5360 / 4 | 985 / 8575 / 4 |
+| Graveyard | Village | 0.05 | 20 / 200 | 45 / 390 | 65 / 590 |  |  |  |  |  |
+| Embalmer | Village | 0.08 | 35 / 330 / 1 | 70 / 655 / 2 | 110 / 975 / 3 |  |  |  |  |  |
+| Stables | Village | 0.05 | 20 / 200 | 45 / 390 | 65 / 590 |  |  |  |  |  |
+| Chapel of Vats | Village | 0.12 | 300 / 120 / 2 | 600 / 240 / 4 | 900 / 360 / 6 | 1440 / 575 / 6 | 2305 / 920 / 6 | 3690 / 1470 / 7 | 5905 / 2350 / 7 | 9450 / 3760 / 7 |
+| Ossuary Tower | Town | 0.15 | 450 / 150 / 3 | 900 / 300 / 6 | 1350 / 450 / 9 |  |  |  |  |  |
+| Guildhall | Town | 0.12 | 350 / 120 / 2 |  |  |  |  |  |  |  |
+| Watchtower | Town | 0.08 | 200 / 80 / 1 |  |  |  |  |  |  |  |
+| Walls and Gate | Village | 0.12 | 400 / 120 / 2 |  |  |  |  |  |  |  |
+| Plaza | Town | 0.15 | 350 / 150 / 2 |  |  |  |  |  |  |  |
+| Statue of Relish | Town | 0.15 | 400 / 150 / 3 |  |  |  |  |  |  |  |
+| Reliquary | Town | 0.2 | 600 / 250 / 4 |  |  |  |  |  |  |  |
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
@@ -255,7 +290,7 @@ them in `buildings.json`.
   sizes, so it moves into config.
 - **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.
 
-## 7. Town growth over days (proposed direction, 2026-11-14, pending a trial run)
+## 7. Town growth over days (direction 2026-11-14, trials G3 and G4; the adopted structure is in the configs since T7)
 Town's G2 run (day1, 4 h, following "suggested", no raids; `runs/.../reports/town/g2-log.tsv`) stalls:
 the workforce sits at slots + `idle_cap` = 19 from minute 4 to hour 4, gold binds first (one Market,
 net +0.06/s after upkeep), all 17 Village lots fill with wells and houses by 1:00, and 2,228 bone has
@@ -308,13 +343,24 @@ Growth slows (about +3.8 slots/h over 4–8 h), and 186 of 240 chunks pick nothi
 gates short of relics). Rent was not trialled (it needs TownSim code), and it isn't needed: gold is now
 in surplus.
 
-**Adopted structure (for economy to put in the configs after E2b; E4 tunes the numbers):**
-- the dead's buildings cost mostly bone; the bone mill stays gold-priced and the Market is bought with
-  bone (each producer is bought with the other resource);
-- a level ladder to L8 for the job buildings and the house, relic-free to L5, with relic costs that
-  never fall with level;
+**Adopted structure (in the configs at this commit, T7: G4's C exactly, bar the Bone Mill's level 1, gold-only since F1: §5; `buildings.json`, the cost table
+in §5; E4 tunes the numbers):**
+- the dead's buildings cost mostly bone; the bone mill stays gold-priced at its level 1 and the Market is
+  bought with bone (each producer is bought with the other resource);
+- a level ladder to L8 for the job buildings (raising pit, charnel house, market, bone mill, forge,
+  chapel of vats) and the house; the ladder adds no relic price below L6 (the Forge keeps its own, 1, 2, 3, 3, 3 at L1-L5, and
+  the Chapel of Vats its own, 2, 4, 6, 6, 6), with relic costs that never fall with level; the
+  charnel house's `body_cap` table runs on to 8 entries (+50 a level, 350 at L8);
+- the bone cap grows with the ladder: the Bone Mill's `bone_cap` is a table per level, 100, 150, 350, 700,
+  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). The rule (§5, Store caps): each level's cap covers 1.2 ×
+  the mill's and the Market's next level, rounded up to 50, and the top level's every bone cost (the
+  Forge's L8, 8 575); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
+  building's tier. The Market's `gold_cap` stays 3 250 a level (32 500 at L8). G4 ran on town's branch
+  before the store caps (8f73c36 has no gold or bone cap), so its 8 h says nothing about a capped
+  ladder; with the linear 100 a level the climb stops at mill L4 (cap 600) and every price above it is
+  stuck;
 - the suggestion reserves the next tier's gate lots (town code, 8f73c36) and prefers upgrades;
-- pits get first call on bodies.
+- pits get first call on bodies (40d62c0).
 - **E4's job:** split costs so that **neither resource piles up**. Both should be ≥ 60% spent, and the
   binder should alternate (today gold piles once the Market is bone-bought). Give gold real sinks: tier
   gates, living buildings, upkeep that scales with level. Measure where the no-raid plateau lands with

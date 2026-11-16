@@ -15,6 +15,9 @@ extends RefCounted
 ##   builds started with when and why, an overflow, a refill, husks, an empty queue); the stream totals are
 ##   the ledger's and the stores' changes; every number token parses under the map's two patterns; shown
 ##   and dismissing; nothing lost gives an empty losses; away_report is queued once.
+## - R2: ready names the queue's head still waiting (a House on day1 with no bone and no mill, after 8 h: can't be
+##   afforded, with bone's 0/s; a midgame Inn: affordable in its minutes), and prompts a raid when gold and bone are full and the
+##   queue is empty (not when a store is under full_tol of its cap, nor with a gated entry queued).
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
 
@@ -827,13 +830,20 @@ func _report() -> void:
 	g.tick(900.0, g.max_substeps_per_frame())
 	while g.catching_up():
 		g.tick(1.0 / 60.0, g.max_substeps_per_frame())
-	_report_tokens([n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()])
+	# R2: the queue's head still waiting (never, and in minutes) and the raid prompt, their reports' tokens checked too
+	var r2: Array = [_report_deadlock(c).view_away(), _report_wait(c).view_away(), _report_never_last(c).view_away()]
+	r2.append_array(_report_full(c))
+	r2.append_array(_report_self(c))  # F1: the stuck line for its store's own producer, with and without an entry behind
+	r2.append_array(_report_move_down(c))  # F2: "move it down" only when it lets another entry start
+	_report_tokens([n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()] + r2)
 	_report_shown()
 	_report_nothing_lost()
 	_report_event()
 	_report_walked_home()
+	_report_unpaid()
 	_report_config()
 	_report_words()
+	_report_afford_words()
 
 
 ## The losses' walk-home line: Greywall retaken while Relish stood there, during a 10 min load's catch-up:
@@ -845,6 +855,109 @@ func _report_walked_home() -> void:
 	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
 		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
 		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
+
+
+## pre_vei with `gold` left, run `live_s` live (0.5 s substeps), then saved and loaded `away` s on. The loaded
+## state's meta "unpaid_at_save" is the lots unpaid when it was saved, in lot order.
+func _unpaid_start(c: Dictionary, slot: String, gold: float, live_s: float, away: int) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("pre_vei")
+	s.town_sim.gold = gold
+	for i in int(live_s / 0.5):
+		s.tick(0.5)
+	s.drain_events()
+	var at_save: Array = []
+	for l in c["town"]["lots"]:
+		if s.town_sim.buildings.get(l["id"], {}).get("state", "") == "unpaid":
+			at_save.append(str(l["id"]))
+	var n := _away(c, s, slot, away)
+	n.set_meta("unpaid_at_save", at_save)
+	return n
+
+
+## Each building's unpaid seconds within the absence, as the report must count them, written out from the
+## collected events: the spells between unpaid true and false, from the start for `at_start` (unpaid when you
+## left), to the end for one still open. {lot_id: seconds}.
+static func _unpaid_secs(n: GameState, at_start: Array, away: float) -> Dictionary:
+	var t0 := n.t - away
+	var open := {}
+	var secs := {}
+	for l in at_start:
+		open[l] = t0
+		secs[l] = 0.0
+	for e in n.catchup_events():
+		if e["type"] != "building_unpaid":
+			continue
+		var l := str(e["lot_id"])
+		if bool(e["unpaid"]):
+			open[l] = float(e["t"])
+			secs[l] = float(secs.get(l, 0.0))
+		else:
+			secs[l] = float(secs.get(l, 0.0)) + float(e["t"]) - float(open.get(l, t0))
+			open.erase(l)
+	for l in open:
+		secs[l] = float(secs[l]) + n.t - float(open[l])
+	return secs
+
+
+## R1 (the run's manager; IDLE §7, STATE-API §5.19): the losses name each building that went unpaid while you
+## were away, one line each in lot order, "<label> unpaid for <time>: <what it stopped>; stores kept" (kind
+## unpaid, target its lot). (a) pre_vei saved with 5 gold and loaded 1 h on: its floor comes about 10 s into
+## the catch-up, the Statue, the houses, the Well, the Bakery, the Inn, the Graveyard, the Watchtower and the
+## Walls go unpaid, the two houses come back; nothing of the WAR chain has a line. (b) the same floor reached
+## live before the save: the buildings unpaid when you left count from the start, so the Statue, never paid
+## again, reads the whole hour.
+func _report_unpaid() -> void:
+	var c := cfgs()
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var words: Dictionary = rep["unpaid_stopped"]
+	var floor_lots := ["lot-05", "lot-06", "lot-07", "lot-08", "lot-12", "lot-15", "lot-16", "lot-17", "lot-23"]
+	var cases := [["a: the floor during the absence", _unpaid_start(c, "unpaid_a", 5.0, 0.0, 3600)],
+		["b: unpaid when you left", _unpaid_start(c, "unpaid_b", 5.0, 60.0, 3600)]]
+	t.ok((cases[0][1] as GameState).get_meta("unpaid_at_save").is_empty() and (cases[1][1] as GameState).get_meta("unpaid_at_save") == floor_lots,
+		"(setup) a: nothing unpaid at the save; b: the floor's nine lots unpaid at the save: %s" % str((cases[1][1] as GameState).get_meta("unpaid_at_save")))
+	for cs in cases:
+		var n: GameState = cs[1]
+		var at_start: Array = n.get_meta("unpaid_at_save")
+		var r := n.view_away()
+		var lines: Array = r["losses"].filter(func(l): return l["kind"] == "unpaid")
+		var secs := _unpaid_secs(n, at_start, 3600.0)
+		var lots: Array = secs.keys()
+		lots.sort()
+		var want: Array = []
+		for l in lots:
+			var bid := str(n.town_sim.buildings[l]["building_id"])
+			var said: Array = []
+			for k in GameState.unpaid_keys(c["buildings"][bid], rep["unpaid_inert"]):
+				if not said.has(words[k]):
+					said.append(words[k])
+			var stopped := ", ".join(PackedStringArray(said)) if not said.is_empty() else str(rep["unpaid_none"])
+			want.append({"text": "%s unpaid for %s: %s; stores kept" % [StateViews._building_name(n, rep, bid, int(n.town_sim.buildings[l]["level"])),
+				StateViews._when(rep, float(secs[l])), stopped], "kind": "unpaid", "target": l})
+		print("  [away] %s: %s" % [cs[0], JSON.stringify(lines)])
+		t.ok(lines == want and lots == floor_lots,
+			"%s: one line per building unpaid during the absence, in lot order, its time from the events: %s" % [cs[0], str(lines.map(func(l): return l["text"]))])
+		var statue: Dictionary = _find(r, "losses", "unpaid", "Statue")
+		var house: Dictionary = _find(r, "losses", "unpaid", "House")
+		# F2: nothing in the sim reads hint_precision, so a shed Watchtower stopped nothing
+		var tower: Dictionary = _find(r, "losses", "unpaid", "Watchtower")
+		t.ok(n.town_sim.buildings.get(tower.get("target", ""), {}).get("building_id", "") == "watchtower"
+			and tower.get("text", "") == "Watchtower unpaid for %s: nothing stopped; stores kept" % StateViews._when(rep, float(secs.get(tower.get("target", ""), -1.0))),
+			"%s: the Watchtower, whose only working effect nothing reads yet, stopped nothing: %s" % [cs[0], tower.get("text", "")])
+		t.ok(statue.get("target", "") == "lot-12" and str(statue.get("text", "")).ends_with(": lifted no morale, deaths shook the town harder; stores kept")
+			and str(house.get("text", "")).ends_with(": nothing stopped; stores kept"),
+			"%s: the Statue stopped its morale and its shock relief; a house, only capacity, stopped nothing: %s | %s" % [cs[0], statue.get("text", ""), house.get("text", "")])
+		if at_start.is_empty():
+			var ev_t := 0.0
+			for e in n.catchup_events():
+				if e["type"] == "building_unpaid" and e["lot_id"] == "lot-12":
+					ev_t = float(e["t"])
+					break
+			t.ok(ev_t > 0.0 and statue.get("text", "") == "Statue of Relish unpaid for %s: lifted no morale, deaths shook the town harder; stores kept" % StateViews._when(rep, n.t - ev_t),
+				"%s: the Statue counts from its unpaid event (%.0f s after you left) to the end: %s" % [cs[0], ev_t - n.t + 3600.0, statue.get("text", "")])
+		else:
+			t.ok(statue.get("text", "") == "Statue of Relish unpaid for 1 h 0 m: lifted no morale, deaths shook the town harder; stores kept",
+				"%s: the Statue, unpaid when you left and never paid again, reads the whole hour: %s" % [cs[0], statue.get("text", "")])
 
 
 ## Every waited_on template rendered through the away report's own code (StateViews._why_started, then the
@@ -886,6 +999,29 @@ func _report_config() -> void:
 		and GameState.report_config_problem(d).contains("missing"),
 		"a missing template, a missing reason's words and a missing block are each named: %s | %s | %s" % [
 			GameState.report_config_problem(a), GameState.report_config_problem(b), GameState.report_config_problem(d)])
+	# R1: the unpaid line's templates, and its words for what each building stops (every job and working effect in
+	# buildings.json); a capacity effect needs none
+	var u := TestUtil.configs()
+	(u["economy"]["idle"]["report"] as Dictionary).erase("unpaid_fmt")
+	var w := TestUtil.configs()
+	(w["economy"]["idle"]["report"]["unpaid_stopped"] as Dictionary).erase("haul")
+	var x := TestUtil.configs()
+	(x["economy"]["idle"]["report"]["unpaid_inert"] as Array).clear()  # F2: hint_precision is a working effect again: it needs words
+	var y := TestUtil.configs()
+	(y["economy"]["idle"]["report"]["unpaid_inert"] as Array).append("no_such_effect")
+	var z := TestUtil.configs()
+	z["economy"]["idle"]["report"]["unpaid_inert"] = ["hint_precision", 7]
+	var cap := TestUtil.configs()
+	cap["buildings"]["house"]["effects"]["vat_slots"] = 1  # a capacity effect: kept while unpaid, nothing to word
+	t.ok(GameState.report_config_problem(u).contains("unpaid_fmt") and GameState.report_config_problem(w).contains("haul")
+		and GameState.report_config_problem(w).contains("charnel_house") and GameState.report_config_problem(x).contains("watchtower")
+		and GameState.report_config_problem(cap) == "",
+		"the unpaid line's template and each job's and working effect's words are checked, not a capacity effect's: %s | %s | %s" % [
+			GameState.report_config_problem(u), GameState.report_config_problem(w), GameState.report_config_problem(x)])
+	# F2: the inert list (effect keys nothing reads yet) is a list of strings, each an effect some building has
+	t.ok(GameState.report_config_problem(y).contains("no_such_effect") and GameState.report_config_problem(z).contains("non-string")
+		and GameState.report_config_problem(TestUtil.configs()) == "",
+		"an inert key no building has, and a non-string one, are each named: %s | %s" % [GameState.report_config_problem(y), GameState.report_config_problem(z)])
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
 	if a is Dictionary and b is Dictionary:
@@ -908,3 +1044,306 @@ static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) 
 			why.append("%s: %s vs %s" % [path, str(a), str(b)])
 	elif a != b:
 		why.append("%s: %s vs %s" % [path, str(a), str(b)])
+
+
+# ------------------------------------------------- R2: the queue's head and the raid prompt ----
+## day1 a step in with its bone spent (TownSim's stock set to 0) and no Bone Mill, a House then a Well queued: the
+## House waits on bone at 0/s and the Well behind it. (The review's first overnight, a House, a Well, a Bakery and a
+## Bone Mill, deadlocked on the Mill's 20 bone until F1 priced its level 1 in gold only; tests/test_day1_queues.gd.)
+func _deadlock_start(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("day1")
+	s.tick(0.5)
+	s.town_sim.bone = 0.0
+	for p in [["house", "lot-05"], ["well", "lot-06"]]:
+		t.ok(s.cmd_queue_build(p[0], p[1])["ok"], "(setup) %s queued on %s" % p)
+	s.drain_events()
+	return s
+
+
+## day1 a step in with gold and bone set to `gold` and `bone` (TownSim's stocks; −1 leaves one at its cap), and
+## each of `queue` queued.
+func _stores_start(c: Dictionary, gold: float, bone: float, queue := []) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("day1")
+	s.tick(0.5)
+	s.town_sim.gold = s.town_sim.gold_cap() if gold < 0.0 else gold
+	s.town_sim.bone = s.town_sim.bone_cap() if bone < 0.0 else bone
+	for p in queue:
+		t.ok(s.cmd_queue_build(p[0], p[1])["ok"], "(setup) %s queued on %s" % p)
+	s.drain_events()
+	return s
+
+
+## R2 (the E2b-2 vision review's item 3; IDLE §7, STATE-API §5.19): the review's "come back and nothing happened"
+## night. day1 with no bone and no mill, a House and a Well behind it, loaded 8 h on: nothing started, and the House,
+## the head, can never be afforded at today's income, so `ready` says so with bone's net rate and what raises it:
+## "House can't be afforded at today's income of 0/s bone: build a Bone Mill" (kind queue, target queue; F2: the Well
+## needs bone too, so moving the House down helps nothing), the queue's own −1.0 and the net view_rates shows. No
+## "Queue empty".
+func _report_deadlock(c: Dictionary) -> GameState:
+	var n := _away(c, _deadlock_start(c), "deadlock", 28800)
+	var rep := n.view_away()
+	var rows: Array = n.view_town()["queue"]
+	var words: Array = rep["gains"].filter(func(l): return l["kind"] == "build" and str(l["text"]).contains(" started ")).map(func(l): return l["text"])
+	t.ok(rows.size() == 2 and rows[0]["building_id"] == "house" and rows[0]["status"] == "waiting_funds" and rows[0]["reason"] == "no_bone"
+		and rows[0]["affordable_in_s"] == -1.0 and words.is_empty(), "(setup) 8 h on, nothing started: the House waits on bone at −1.0, the Well behind it: %s" % str(words))
+	var net := float(n.view_rates()["rates"]["bone"]["net"])
+	# F2: the Well behind it costs bone too (10), so moving the House down only makes the Well an equally stuck head
+	var want := "House can't be afforded at today's income of %s bone: build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
+	var l := _find(rep, "ready", "queue")
+	print("  [away] the deadlocked night's ready: %s" % JSON.stringify(rep["ready"]))
+	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and _find(rep, "ready", "queue", "Queue empty").is_empty()
+		and not str(l["text"]).contains("move it down"),
+		"ready: the House can't be afforded, with bone's net (0/s) and what raises it; the Well behind it is stuck on bone too, so no \"move it down\": %s" % str(l))
+	return n
+
+
+## F2 (the phase review): "move it down" only when some other entry could start if the stuck head weren't ahead of
+## it (StateViews._move_down_helps: the queue's walk less the head, a row that isn't skipped_gate with
+## affordable_in_s >= 0). day1 with no bone and no Mill, a House (40 g, 10 b) and then (a) a Bone Mill (level 1 is
+## 60 g, 0 b since F1: it can start): "House can't be afforded at today's income of 0/s bone: move it down, or
+## build a Bone Mill"; (b) the Crypt's level 2 (gated: no relics): no entry could take its place, so no move down.
+func _report_move_down(c: Dictionary) -> Array:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var out: Array = []
+	for cs in [["a Bone Mill behind it, which can start", [["house", "lot-05"], ["bone_mill", "lot-06"]], true],
+			["only a gated entry behind it", [["house", "lot-05"], ["", "lot-01"]], false]]:
+		var s := _stores_start(c, -1.0, 0.0, cs[1])
+		var n := _away(c, s, "move_down", 600)
+		var rows: Array = n.view_town()["queue"]
+		var head: Dictionary = rows[0] if not rows.is_empty() else {}
+		var behind: Dictionary = rows[1] if rows.size() > 1 else {}
+		t.ok(rows.size() == 2 and head.get("building_id", "") == "house" and head.get("status", "") == "waiting_funds"
+			and head.get("affordable_in_s", 0.0) == -1.0 and (behind.get("status", "") == "skipped_gate") != cs[2],
+			"(setup) %s: the House waits on bone at −1.0, the entry behind it is %s" % [cs[0], str(behind.get("status", ""))])
+		var net := float(n.view_rates()["rates"]["bone"]["net"])
+		var want := "House can't be afforded at today's income of %s bone: %sbuild a Bone Mill" % [StateViews._fmt_rate(rep, net),
+			"move it down, or " if cs[2] else ""]
+		var r := n.view_away()
+		var l := _find(r, "ready", "queue")
+		print("  [away] move it down, %s: %s" % [cs[0], str(l.get("text", ""))])
+		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and str(l["text"]).contains("move it down") == cs[2],
+			"ready: %s, \"move it down\" %s: %s" % [cs[0], "offered" if cs[2] else "not offered", str(l)])
+		out.append(r)
+	return out
+
+
+## F1 (the run's manager): with nothing queued behind the head, "move it down" can't help, so the line drops it
+## (idle.report.afford_never_last_fmt): day1 with no bone and no mill, a House alone, loaded 10 min on: "House can't
+## be afforded at today's income of 0/s bone: build a Bone Mill".
+func _report_never_last(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("day1")
+	s.tick(0.5)
+	s.town_sim.bone = 0.0
+	t.ok(s.cmd_queue_build("house", "lot-05")["ok"], "(setup) a House queued alone on no bone")
+	s.drain_events()
+	var n := _away(c, s, "never_last", 600)
+	var rows: Array = n.view_town()["queue"]
+	t.ok(rows.size() == 1 and rows[0]["status"] == "waiting_funds" and rows[0]["affordable_in_s"] == -1.0,
+		"(setup) 10 min on, the House waits on bone at −1.0, nothing behind it: %s" % str(rows.map(func(r): return r["status"])))
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var want := "House can't be afforded at today's income of %s bone: build a Bone Mill" % StateViews._fmt_rate(rep, float(n.view_rates()["rates"]["bone"]["net"]))
+	var l := _find(n.view_away(), "ready", "queue")
+	print("  [away] the head alone, never: %s" % str(l.get("text", "")))
+	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and not str(l["text"]).contains("move it down"),
+		"ready: nothing behind the House, so no \"move it down\": %s" % str(l))
+	return n
+
+
+## F1 (the run's manager): when the head is its own store's producer (idle.report.afford_producer, an upgrade
+## included), "build a Bone Mill" would name itself, so the line says afford_raise_self's fact instead, true at this
+## commit (loot.json gives no bone; only a mill makes it): "Bone Mill level 2 can't be afforded at today's income of
+## 0/s bone, and nothing else makes bone", with ": move it down" when an entry is behind it. A constructed state,
+## since F1 left day1 no such case: midgame_2flips, whose pits take every body (its mill makes 0 bone/s), with its
+## bone set to 50 and the mill's level 2 (190 bone) queued, alone and with a House behind it, each loaded 10 min on.
+func _report_self(c: Dictionary) -> Array:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var out: Array = []
+	for behind in [false, true]:
+		var s := _mk(c)
+		s.cmd_debug_load_fixture("midgame_2flips")
+		s.tick(0.5)
+		var mill := ""
+		for lot_id in s.town_sim.buildings:
+			if s.town_sim.buildings[lot_id]["building_id"] == "bone_mill":
+				mill = str(lot_id)
+		s.town_sim.bone = 50.0
+		t.ok(mill != "" and s.cmd_queue_build("", mill)["ok"], "(setup) the Bone Mill's next level queued on %s" % mill)
+		if behind:
+			t.ok(s.cmd_queue_build("house", str(BuildRules.free_lots(s, 1)[0]))["ok"], "(setup) a House queued behind it")
+		s.drain_events()
+		var n := _away(c, s, "self", 600)
+		var rows: Array = n.view_town()["queue"]
+		var row: Dictionary = rows[0] if not rows.is_empty() else {}
+		t.ok(rows.size() == (2 if behind else 1) and row.get("building_id", "") == "bone_mill" and row.get("reason", "") == "no_bone"
+			and row.get("affordable_in_s", 0.0) == -1.0 and float(n.view_rates()["rates"]["bone"]["net"]) == 0.0,
+			"(setup) 10 min on, the mill's level %d waits on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), ", a House behind it" if behind else ""])
+		var name := StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0)))
+		var want := "%s can't be afforded at today's income of %s bone, and nothing else makes bone%s" % [name,
+			StateViews._fmt_rate(rep, 0.0), ": move it down" if behind else ""]
+		var r := n.view_away()
+		var l := _find(r, "ready", "queue")
+		print("  [away] its own producer, never%s: %s" % [", an entry behind" if behind else "", str(l.get("text", ""))])
+		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and not str(l["text"]).substr(name.length()).contains(StateViews._building_name(n, rep, "bone_mill", 1)),
+			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s: %s" % [
+			" (with \"move it down\": a House is behind it)" if behind else " (nothing behind it: no move down)", str(l)])
+		out.append(r)
+	return out
+
+
+## A head waiting on gold with gold coming in: midgame_2flips with 10 gold and an Inn queued (150 gold), loaded
+## 10 min on: still waiting, "Inn is waiting on gold: affordable in <its affordable_in_s, rounded up to the
+## minute>".
+func _report_wait(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(0.5)
+	s.cmd_debug_grant({"gold": 10.0 - s.town_sim.gold})
+	t.ok(s.cmd_queue_build("inn", "lot-13")["ok"], "(setup) an Inn queued on 10 gold")
+	s.drain_events()
+	var n := _away(c, s, "wait", 600)
+	var row: Dictionary = n.view_town()["queue"][0] if n.view_town()["queue"].size() == 1 else {}
+	var a := float(row.get("affordable_in_s", -1.0))
+	t.ok(row.get("status", "") == "waiting_funds" and row.get("reason", "") == "no_gold" and a > 0.0,
+		"(setup) 10 min on the Inn still waits on gold, affordable in %.1f s" % a)
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var want := "Inn is waiting on gold: affordable in %s" % StateViews._when(rep, ceilf(a / 60.0) * 60.0)
+	var l := _find(n.view_away(), "ready", "queue")
+	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and ceilf(a / 60.0) >= 1.0,
+		"ready: the Inn waits on gold, its wait rounded up to the minute: %s" % str(l))
+	return n
+
+
+## The raid prompt (R2; the run's manager, from Shawn's "needs relics: raid a fort"): an absence that ends with gold
+## and bone each within idle.report.full_tol of its cap and the queue empty gets "Your stores are full and the queue
+## is empty: raid a fort for relics" (kind raid, target ""), after "Queue empty". day1 has no bone income, so its
+## bone stays where it is set: full (at the cap, and at 99.5% of it, inside the 1%), not full (50%, and 98%, just
+## outside), and full with a gated entry queued (the crypt's level 2, no relics: it holds nothing, so the stores
+## stay full) gets no prompt. Each loaded 10 min on.
+func _report_full(c: Dictionary) -> Array:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var prompt := {"text": str(rep["full_raid"]), "kind": "raid", "target": ""}
+	var tol := float(rep["full_tol"])
+	var bcap := float(c["economy"]["bone"]["cap"])  # day1 has no Bone Mill: the base cap
+	var cases := [["at the caps", -1.0, [], true], ["bone at 99.5% of its cap", bcap * (1.0 - tol / 2.0), [], true],
+		["bone at half its cap", bcap * 0.5, [], false], ["bone at 98% of its cap", bcap * (1.0 - 2.0 * tol), [], false],
+		["full, a gated entry queued", -1.0, [["", "lot-01"]], false]]
+	var reps: Array = []
+	for cs in cases:
+		var s := _stores_start(c, -1.0, cs[1], cs[2])
+		var n := _away(c, s, "full", 600)
+		var r := n.view_away()
+		reps.append(r)
+		var full: bool = n.town_sim.gold >= n.town_sim.gold_cap() * (1.0 - tol) and n.town_sim.bone >= n.town_sim.bone_cap() * (1.0 - tol)
+		var has: bool = r["ready"].has(prompt)
+		var at: int = r["ready"].find(prompt)
+		var empty_at: int = r["ready"].find({"text": str(rep["queue_empty"]), "kind": "queue", "target": "queue"})
+		t.ok(has == cs[3] and full == (cs[1] < 0.0 or cs[1] >= bcap * (1.0 - tol)) and (not has or at == empty_at + 1),
+			"%s (gold %.1f of %.0f, bone %.1f of %.0f, queue %d): the raid prompt %s%s" % [cs[0], n.town_sim.gold, n.town_sim.gold_cap(),
+			n.town_sim.bone, n.town_sim.bone_cap(), n.build_queue.size(), "shown" if has else "not shown", ", after Queue empty" if has else ""])
+	return reps
+
+
+## Every new template renders through the report's own code (StateViews.afford_text) to a line with nothing
+## unfilled, for each store a head can wait on and the stores the tables word (gold, bone, relics), each stuck form
+## (F1: with an entry behind and without, for a building and for its store's own producer); the prompt too. A stuck
+## line says "move it down" only with an entry behind, and a producer's never names itself after its name. The
+## words are true of the configs (F1's truth check): each store's producer offers the job that makes it (stall:
+## gold, mill: bone, TownSim's only incomes) and no other building does ("nothing else makes ..."), afford_raise names
+## that producer ("build a Market"), and loot.json gives relics at every tier and no gold or bone anywhere (so a raid
+## is no fix for those). And report_config_problem names a missing template, store, producer or self text, a
+## producer that isn't a building, or a full_tol out of [0, 1).
+func _report_afford_words() -> void:
+	var c := cfgs()
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var s := _mk(c)
+	var bad: Array = []
+	var shown: Array = []
+	var prod: Dictionary = rep["afford_producer"]
+	for store in ["gold", "bone", "relics"]:
+		var bids := ["bakery"] + ([prod[store]] if prod.has(store) else [])
+		for bid in bids:
+			var own: bool = prod.get(store, "") == bid
+			var own_name := StateViews._building_name(s, rep, str(bid), 1)
+			for a in [-1.0, 30.0, 4000.0]:
+				for behind in [true, false]:
+					var row := {"building_id": bid, "level": 2, "affordable_in_s": a, "reason": "no_gold"}
+					var line := StateViews.afford_text(s, rep, row, store, {"gold": 0.21, "bone": 0.0, "relics": 0.0}, behind)
+					var name := StateViews._building_name(s, rep, str(bid), 2)
+					var raise := str(rep["afford_raise_self" if own else "afford_raise"][store]) if a < 0.0 else ""
+					if (line.strip_edges() == "" or line.contains("{") or line.contains("}") or not line.contains(str(rep["afford_stores"][store]))
+							or (raise != "" and not line.contains(raise)) or (a < 0.0 and line.contains("move it down") != behind)
+							or (own and line.substr(name.length()).contains(own_name))):
+						bad.append("%s %s %s %s -> %s" % [store, bid, a, behind, line])
+					if a < 0.0:
+						shown.append(line)
+	print("  [away] the stuck forms: %s" % JSON.stringify(shown))
+	var prompt := str(rep["full_raid"])
+	t.ok(bad.is_empty() and prompt.strip_edges() != "" and not prompt.contains("{"), "each new template renders with nothing unfilled%s" % (
+		"" if bad.is_empty() else ": " + str(bad)))
+	# the truth check: who makes each store, and what a raid gives
+	var makes := {"gold": "stall", "bone": "mill"}  # TownSim: gold comes only from stalls, bone only from milling
+	var lies: Array = []
+	for store in makes:
+		var by: Array = []
+		for bid in c["buildings"]:
+			if int(c["buildings"][bid].get("jobs", {}).get(makes[store], 0)) > 0:
+				by.append(bid)
+		var pname := StateViews._building_name(s, rep, str(prod.get(store, "")), 1)
+		if by != [prod.get(store, "")] or not str(rep["afford_raise"][store]).contains(pname):
+			lies.append("%s: made by %s, the producer %s, \"%s\"" % [store, str(by), str(prod.get(store, "")), rep["afford_raise"][store]])
+	var loot_keys := _keys_deep(c["loot"])
+	if loot_keys.has("gold") or loot_keys.has("bone"):
+		lies.append("loot.json gives gold or bone, so a raid is a fix: %s" % str(loot_keys))
+	var chests: Dictionary = c["loot"]["chest_by_tier"]
+	if chests.is_empty() or not chests.values().all(func(ch): return int(ch.get("relics", [0, 0])[1]) > 0):
+		lies.append("a chest tier gives no relics: \"%s\"" % rep["afford_raise"]["relics"])
+	t.ok(lies.is_empty(), "each raise text is true of the configs (only a Market makes gold, only a Bone Mill bone, raids give relics and neither)%s" % (
+		"" if lies.is_empty() else ": " + str(lies)))
+	var probs: Array = []
+	for k in ["afford_wait_fmt", "afford_never_fmt", "full_raid", "full_tol", "afford_never_last_fmt", "afford_never_self_fmt",
+			"afford_never_self_last_fmt", "afford_producer", "afford_raise_self"]:
+		var m := TestUtil.configs()
+		(m["economy"]["idle"]["report"] as Dictionary).erase(k)
+		probs.append([k, GameState.report_config_problem(m)])
+	var r1 := TestUtil.configs()
+	(r1["economy"]["idle"]["report"]["afford_raise"] as Dictionary).erase("bone")
+	probs.append(["afford_raise.bone", GameState.report_config_problem(r1)])
+	var r2 := TestUtil.configs()
+	(r2["economy"]["idle"]["report"]["afford_stores"] as Dictionary).erase("relics")
+	probs.append(["afford_stores.relics", GameState.report_config_problem(r2)])
+	var r3 := TestUtil.configs()
+	r3["economy"]["idle"]["report"]["full_tol"] = 1.5
+	probs.append(["full_tol", GameState.report_config_problem(r3)])
+	# F1: the producers and their self words
+	var p1 := TestUtil.configs()
+	(p1["economy"]["idle"]["report"]["afford_producer"] as Dictionary).erase("gold")
+	probs.append(["afford_producer.gold", GameState.report_config_problem(p1)])
+	var p2 := TestUtil.configs()
+	p2["economy"]["idle"]["report"]["afford_producer"]["bone"] = "bone_mil"
+	probs.append(["afford_producer.bone", GameState.report_config_problem(p2)])
+	var p3 := TestUtil.configs()
+	(p3["economy"]["idle"]["report"]["afford_raise_self"] as Dictionary).erase("bone")
+	probs.append(["afford_raise_self.bone", GameState.report_config_problem(p3)])
+	var p4 := TestUtil.configs()
+	p4["economy"]["idle"]["report"]["afford_producer"]["essence"] = "reliquary"
+	probs.append(["afford_producer.essence", GameState.report_config_problem(p4)])
+	print("  [away] the F1 config problems: %s" % str(probs.slice(probs.size() - 4).map(func(p): return p[1])))
+	var unnamed := probs.filter(func(p): return not str(p[1]).contains(str(p[0]).split(".")[0]) or not str(p[1]).contains(str(p[0]).split(".")[-1]))
+	t.ok(unnamed.is_empty(), "report_config_problem names each missing R2 or F1 template, table store, producer and self text, a producer that isn't a building, and an out-of-range full_tol%s" % (
+		"" if unnamed.is_empty() else ": " + str(unnamed)))
+
+
+## Every key of `v` at any depth (loot.json's tables).
+static func _keys_deep(v: Variant) -> Array:
+	var out: Array = []
+	if v is Dictionary:
+		for k in v:
+			out.append(str(k))
+			out.append_array(_keys_deep(v[k]))
+	elif v is Array:
+		for x in v:
+			out.append_array(_keys_deep(x))
+	return out

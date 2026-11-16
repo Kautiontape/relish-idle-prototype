@@ -50,7 +50,8 @@ func run() -> int:
 func _version() -> void:
 	t.suite("api-v6")
 	var s := _mk()
-	t.ok(GameState.API_VERSION == 6 and s.to_dict()["api_version"] == 6, "API_VERSION is 6")
+	# v7 (R1) added the away report's `unpaid` kind; v6's additions stand (test_api_contract pins the version)
+	t.ok(GameState.API_VERSION >= 6 and s.to_dict()["api_version"] == GameState.API_VERSION, "API_VERSION is 6 or later (%d)" % GameState.API_VERSION)
 	for f in s.to_dict()["realm"]["forts"]:
 		t.ok(f["held"] is bool and f["grace_s"] is float and f["zero_s"] is float and not f.has("held_s"),
 			"%s: the save writes held, grace_s, zero_s (no held_s)" % f["id"])
@@ -617,15 +618,24 @@ func _yield() -> void:
 	t.ok(not g["held"] and r.view_fort("greywall")["yield_mult"] == 1.0, "a retake resets it to 1")
 
 
+## A buildings.json effect at `level`, as TownSim._eff_b reads it: a number per level (× level), an Array the
+## per-level table (its entry at level − 1, the last past its end).
+static func _at_level(v: Variant, level: int) -> float:
+	if v is Array:
+		return float(v[mini(level, (v as Array).size()) - 1]) if not (v as Array).is_empty() else 0.0
+	return float(v) * level
+
+
 ## The gold and bone caps (E2b-2 T3.2, IDLE §6; STATE-API §5.1, §5.9, §4.7): view_hud's gold and bone `cap`
 ## is live (it was −1.0) and equals view_town's gold_cap and bone_cap: the base plus the Market's and the
-## Bone Mill's per-level share. A demolished Market drops it. ledger().stores is the tally, 0 at a new game.
+## Bone Mill's per-level share (a number × level, or the Array's entry at the level, TownSim._eff_b's rule;
+## the mill's is a table since T7). A demolished Market drops it. ledger().stores is the tally, 0 at a new game.
 func _store_caps() -> void:
 	t.suite("api-v6-store-caps")
 	var cfg := TestUtil.configs()
 	var s := _mk()
-	var per_g := float(cfg["buildings"]["market"]["effects"]["gold_cap"])
-	var per_b := float(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"])
+	var per_g := _at_level(cfg["buildings"]["market"]["effects"]["gold_cap"], 1)
+	var per_b2 := _at_level(cfg["buildings"]["bone_mill"]["effects"]["bone_cap"], 2)
 	var base_g := float(cfg["economy"]["gold"]["cap"])
 	var base_b := float(cfg["economy"]["bone"]["cap"])
 	var caps := {}
@@ -636,7 +646,7 @@ func _store_caps() -> void:
 		"a new game: gold cap %.0f (base + a level-1 Market), bone cap %.0f (base), in view_hud and view_town" % [caps["gold"], caps["bone"]])
 	t.ok(s.ledger()["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}}, "ledger().stores is 0 at a new game")
 	s.town_sim.place_building("lot-05", "bone_mill", 2)
-	t.ok(s.view_town()["bone_cap"] == base_b + 2.0 * per_b, "a level-2 Bone Mill adds two shares: %.0f" % s.view_town()["bone_cap"])
+	t.ok(s.view_town()["bone_cap"] == base_b + per_b2, "a level-2 Bone Mill adds its level-2 bonus (%.0f): %.0f" % [per_b2, s.view_town()["bone_cap"]])
 	t.ok(s.cmd_demolish("lot-04")["ok"] and s.view_town()["gold_cap"] == base_g, "the Market demolished: the gold cap is the base again")
 	# pre_vei's mill earns bone (+0.107/s uncapped) while its store sits over the cap: it keeps the excess
 	# and every bone milled overflows, so the store never grows
@@ -702,7 +712,7 @@ func _construction_time() -> void:
 	t.ok(b["state"] == "constructing" and b["eta_s"] == -1.0 and b["work_left"] == work * 2.0 and b["upgrade_work"] == work * 2.0,
 		"no builders: eta_s −1.0; work_left the level's whole work; upgrade_work the construction's own (level + 1)")
 	# max level: upgrade_work 0.0; the catalog's work is a new build's
-	s.town_sim.place_building("lot-06", "house", 3)
+	s.town_sim.place_building("lot-06", "house", int(TestUtil.configs()["buildings"]["house"]["max_level"]))
 	t.ok(_bld(s, "lot-06")["upgrade_work"] == 0.0, "at max_level upgrade_work is 0.0")
 	var all_ok := true
 	for r in s.view_catalog()["buildings"]:
@@ -1508,7 +1518,9 @@ func _away_api() -> void:
 	var bad: Array = []
 	for k in ["gains", "ready", "losses"]:
 		for l in v[k]:
-			if not ApiSchema.AWAY_KINDS.has(l["kind"]) or not (forts.has(l["target"]) or l["target"] in ["slab", "queue", ""]):
+			# v7 (R1): an `unpaid` line, its target the building's lot (STATE-API §5.19)
+			var unpaid_ok: bool = l["kind"] == "unpaid" and n.town_sim.buildings.has(l["target"])
+			if not (ApiSchema.AWAY_KINDS.has(l["kind"]) or unpaid_ok) or not (forts.has(l["target"]) or l["target"] in ["slab", "queue", ""] or unpaid_ok):
 				bad.append(str(l))
 	t.ok(errs.is_empty() and bad.is_empty() and v["shown"] and v["away_s"] == 7200.0 and not v["gains"].is_empty(),
 		"a 2 h load's view_away matches the contract, every kind and target in its list %s %s" % [str(errs), str(bad)])
