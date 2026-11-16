@@ -40,6 +40,7 @@ const PROBE_S := 43200  # Vei's odds this long into each night (a probe load; th
 const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_profiles "4", three bigs
 const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to this
 const STANCES := ["vigil", "harvest"]
+const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
 const SLOT := "ap"
 ## BALANCE §2's "removed" for ablation (b): the dead's buildings (BALANCE §7's list) cost no bone at any level.
 const DEAD_BUILDINGS := ["raising_pit", "charnel_house", "bone_mill", "stables", "graveyard", "embalmer", "forge"]
@@ -86,6 +87,8 @@ var reorder := true
 var no_held := false  # ablation (a): never raid a held (or refilled) fort
 var static_raids := false  # static: one raid a session at the day's tier
 var stop_at_vei := false
+var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants or carvers front is short
+var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
 var print_rows := true
 var open_rows := false
 var live_days := false  # emit a day_end row when live time crosses a day boundary (continuous)
@@ -362,6 +365,9 @@ static func _fit(kind: String, remnants: Array, slab: Dictionary) -> Array:
 ## Placement: the party fills first (the oldest bigs, up to PARTY_MAX), each assigned the front of its best stat; the
 ## first spare big goes foreman at the Market, or at the Bone Mill while bone binds (the queue's head waits on bone);
 ## later spares stay in the crypt. Sieges only in away_risk's prepared setup.
+## bank_bigs (E3-7, the manager's ruling 4 at the E3-6b stop): once the giants or carvers front is short (_bank_now), the
+## party holds the bigs on giants and carvers between raids (_bank_fronts: only a party member has a front), and _raid
+## empties it before each raid, so no raid takes a big (_reach: t1 only; the held door off). This look puts them back.
 func _place() -> void:
 	var uids: Array = []
 	for b in s.view_big_undead()["big_undead"]:
@@ -372,11 +378,14 @@ func _place() -> void:
 		have.append(str(p["uid"]))
 	if have != want:
 		_cmd("party", [want])
-	for b in s.view_big_undead()["big_undead"]:
-		if str(b["place"]) == "party":
-			var f := _best_front(b["stats"])
-			if str(b["front"]) != f:
-				_cmd("front", [str(b["uid"]), f])
+	if bank_bigs and _bank_now():
+		_bank_fronts()
+	else:
+		for b in s.view_big_undead()["big_undead"]:
+			if str(b["place"]) == "party":
+				var f := _best_front(b["stats"])
+				if str(b["front"]) != f:
+					_cmd("front", [str(b["uid"]), f])
 	if uids.size() > PARTY_MAX:
 		var spare := str(uids[PARTY_MAX])
 		var lot := _foreman_lot(s.view_town())
@@ -386,6 +395,38 @@ func _place() -> void:
 				cur = str(b["place"])
 		if lot != "" and cur != "town:" + lot:
 			_cmd("place", [spare, "town:" + lot])
+
+
+## bank_bigs' latch: true from the first look that reads giants or carvers short (have < need) to the run's end.
+func _bank_now() -> bool:
+	if not _banking:
+		for fr in s.view_vei()["fronts"]:
+			if str(fr["id"]) in BANK_FRONTS and float(fr["have"]) < float(fr["need"]):
+				_banking = true
+	return _banking
+
+
+## bank_bigs' fronts: a party member already on giants or carvers stays there; any other goes to the one of the two
+## still short where its stat is higher (both short or neither: the higher stat; ties to giants).
+func _bank_fronts() -> void:
+	for b in s.view_big_undead()["big_undead"]:
+		if str(b["place"]) != "party" or str(b["front"]) in BANK_FRONTS:
+			continue
+		var short := {}
+		for fr in s.view_vei()["fronts"]:
+			short[str(fr["id"])] = float(fr["have"]) < float(fr["need"])
+		var best := ""
+		var bv := -INF
+		var any_short := bool(short.get("giants", false)) or bool(short.get("carvers", false))
+		for fid in BANK_FRONTS:
+			if any_short and not bool(short.get(fid, false)):
+				continue
+			var v := float(b["stats"].get(str(c["vei"]["fronts"][fid]["stat"]), 0.0))
+			if v > bv:
+				bv = v
+				best = fid
+		if best != "":
+			_cmd("front", [str(b["uid"]), best])
 
 
 func _best_front(stats: Dictionary) -> String:
@@ -607,6 +648,8 @@ static func _gt(a: Array, b: Array) -> bool:
 
 
 func _reach() -> int:
+	if _banking:
+		return 1  # bank_bigs: the party is emptied before every raid
 	var n := (s.view_party()["party"] as Array).size()
 	var profs: Dictionary = c["raid"]["autopilot"]["party_profiles"]
 	var reach := 1
@@ -650,11 +693,14 @@ func _at(fid: String) -> bool:
 
 
 func _resolve(seed: Dictionary, held: bool) -> Dictionary:
-	return StandinResolver.resolve(seed, sb, c, {"deaths": deaths, "door": true, "held": held,
+	# bank_bigs sends no big through the held door either, once it banks
+	return StandinResolver.resolve(seed, sb, c, {"deaths": deaths, "door": not _banking, "held": held,
 		"blueprints": s.view_inventory()["blueprints"]})
 
 
 func _raid(fid: String, limit: float) -> Dictionary:
+	if _banking and not (s.view_party()["party"] as Array).is_empty():
+		_cmd("party", [[]])  # bank_bigs: no raid takes a big (their fronts go with them; the next look restores both)
 	if not bool(_cmd("move", [fid])["ok"]):
 		return {}
 	if not _tick_until(func(): return _at(fid), s.t + 600.0):
@@ -1097,6 +1143,16 @@ func prepare_away() -> Dictionary:
 	return rec
 
 
+## away_risk_real's WAR cut: the valve's WAR to 0, WORK and FLOOD keeping their ratio (a player who turned WAR down for
+## growth before leaving).
+func cut_war() -> Dictionary:
+	var tg: Dictionary = s.view_hud()["valve_target"]
+	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
+	var r := _cmd("valve", [float(tg["work"]) / wf, 0.0, float(tg["flood"]) / wf])
+	return {"from": tg.duplicate(), "ok": bool(r["ok"]), "reason": str(r["reason"]),
+		"war_supports": s.view_hud()["war_supports"].duplicate()}
+
+
 ## The held forts, the most in need first: will_fall, thin, safe, then the lower garrison_rate, then world order.
 func _held_forts_by_need() -> Array:
 	var out: Array = []
@@ -1117,7 +1173,7 @@ func _held_ids() -> Array:
 	return out
 
 
-## A 24 h absence from the state as it stands: the held forts lost.
+## An absence of `gap` s from the state as it stands: the held forts lost.
 func leave(gap: int) -> Dictionary:
 	var before := _held_ids()
 	var n0 := retakes.size()
@@ -1321,7 +1377,8 @@ func policy() -> Dictionary:
 			"; reorder: the soonest-affordable entry to the head when the head reads -1 or later than another" if reorder else "; no reorder (static)"),
 		"raids": ("one a session at the day's tier (days 1-2 t1, 3-4 t2, 5-6 t3, 7-8 t4)" if static_raids else
 			"the highest tier the party reaches (tier T needs raid.json party_profiles[T]'s bigs), the first dungeon first, higher yield, unheld before held") +
-			"; never retreat; held forts once yield_mult >= %.1f%s; deaths %s; held door on" % [HELD_RAID_YIELD, " (never: ablation a)" if no_held else "", deaths],
+			"; never retreat; held forts once yield_mult >= %.1f%s; deaths %s; held door on" % [HELD_RAID_YIELD, " (never: ablation a)" if no_held else "", deaths] +
+			("; bank_bigs: once giants or carvers is short, the party holds the bigs on those fronts between raids and is emptied before each raid (t1 only; the held door off)" if bank_bigs else ""),
 		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (largest magnitude first)",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
@@ -1588,6 +1645,7 @@ static func _bot(name: String, cfg: Dictionary, o := {}) -> Autoplayer:
 	b.no_held = bool(o.get("no_held", false))
 	b.static_raids = bool(o.get("static", false))
 	b.reorder = not bool(o.get("static", false))
+	b.bank_bigs = bool(o.get("bank_bigs", false))
 	b.print_rows = bool(o.get("print_rows", true))
 	return b
 
@@ -1643,6 +1701,10 @@ static func run_profile(name: String, t: TestUtil) -> int:
 			_p_i1(t, cfg)
 		"away_risk":
 			_p_away_risk(t, cfg)
+		"away_risk_real":
+			_p_away_risk(t, cfg, true)
+		"bank_bigs":
+			_p_versus(t, name, cfg, {"bank_bigs": true}, cfg)
 		"ablation_held":
 			_p_versus(t, name, cfg, {"no_held": true}, cfg)
 		"ablation_bone":
@@ -1705,8 +1767,11 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 
 ## away_risk: the sessions run to the end of day 3's last session (or the midgame_2flips fixture when nothing is held
 ## there, said so), then a 24 h absence twice from that save: as the sessions bot left it, and after the prepared setup.
-static func _p_away_risk(t: TestUtil, cfg: Dictionary) -> void:
-	var lead := _bot("away_risk", cfg)
+## `real` (away_risk_real, E3-7, the manager's ruling 5 at the E3-6b stop: a setup where the risk is real) takes three
+## absences from the same save instead: 24 h with WAR cut to 0 (cut_war), and 72 h as the sessions bot left it and
+## after the prepared setup. (WAR cut then prepared would be `prepared` again: prepare_away raises WAR from the target.)
+static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
+	var lead := _bot("away_risk_real" if real else "away_risk", cfg)
 	lead.new_game()
 	lead.play_sessions(3, -1, true, false)
 	var src := "the sessions run at the end of day 3's last session (t %.0f)" % lead.s.t
@@ -1724,22 +1789,30 @@ static func _p_away_risk(t: TestUtil, cfg: Dictionary) -> void:
 	lead.s.clock_override = CLOCK0 + int(lead.s.t)
 	t.ok(bool(lead.s.cmd_save("risk")["ok"]), "away_risk: the start is saved")
 	var out := {"source": src, "t_leave": lead.s.t}
-	for variant in ["default", "prepared"]:
+	# [name, away s, WAR cut first, the prepared setup]
+	var variants: Array = [["default", DAY, false, false], ["prepared", DAY, false, true]]
+	if real:
+		variants = [["war_cut", DAY, true, false], ["default_72h", 3 * DAY, false, false], ["prepared_72h", 3 * DAY, false, true]]
+	for vr in variants:
+		var variant := str(vr[0])
 		var b := _bot("away_risk_" + variant, cfg, {"dir": lead.dir})
 		b.s = b._fresh()
 		b.s.clock_override = CLOCK0 + int(lead.s.t)
 		t.ok(bool(b.s.cmd_load("risk")["ok"]), "away_risk %s: the start loads (0 s away: the identity)" % variant)
 		b.s.drain_events()
 		var prep := {}
-		if variant == "prepared":
-			prep = b.prepare_away()
+		if bool(vr[2]):
+			prep["war_cut"] = b.cut_war()
+		if bool(vr[3]):
+			prep.merge(b.prepare_away())
 		b._row("leave")
-		var rec := b.leave(DAY)
+		var rec := b.leave(int(vr[1]))
+		rec["away_s"] = int(vr[1])
 		rec["prep"] = prep
 		b._row("return")
 		out[variant] = rec
-		print("  [autoplay] away_risk %s: held %s at leave, %s at return, lost %d%s" % [variant, str(rec["held_at_leave"]),
-			str(rec["held_at_return"]), int(rec["lost_n"]), "; prep %s" % JSON.stringify(prep) if variant == "prepared" else ""])
+		print("  [autoplay] away_risk %s (%d h): held %s at leave, %s at return, lost %d%s" % [variant, int(float(vr[1]) / 3600.0),
+			str(rec["held_at_leave"]), str(rec["held_at_return"]), int(rec["lost_n"]), "; prep %s" % JSON.stringify(prep) if not prep.is_empty() else ""])
 		b.finish(t)
 	lead.finish(t, {"away_risk": out})
 	lead.cleanup()

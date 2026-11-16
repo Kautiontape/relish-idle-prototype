@@ -837,6 +837,16 @@ The profiles:
     `jobs` row), never tighter than `catchup_tol` (with no haulers it is 0). The check prints the delta and the bound and
     fails over it. The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other
     targets than an open run's (the haul phase).
+  - At 01a7191 both days pass. Day 2's bodies are 24.66 apart against a bound of 84 (14 × 6 haulers). The backlog is
+    0.52% and 0.64% apart; every other stock is identical.
+  - Revert proofs (sim edits, never committed):
+    - With one landed load taken off the store in each catch-up (five over the two days), the gate still passes. The
+      bodies are 27.38 and 16.14 apart, and the backlog 0.65% and 0.74%. One lost load is at most one load, so a
+      one-load bound can't see it. The store drains to about 0 between loads, and the bone the mills make of it sits
+      at its cap at each sample. Only the backlog moves, by about 0.1 points.
+    - With every catch-up landing taken off, the gate fails both days on the backlog (4.32% and 5.55% apart), not on
+      the bodies.
+    - At 99e4630 the bodies under the 2% rule failed day 2 (2.18 against 26.83).
   - Measured at E3-6b: day 1 passes (the backlog is 0.52% apart, every other stock identical). Day 2 fails on the
     bodies alone: 2.18 closed against 26.83 open.
   - The convoy runs out of phase from the first close: a different target and a different point of its trip at each
@@ -862,6 +872,19 @@ The profiles:
     deployed there when one can be.
 
   It measures the held forts lost.
+- **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least
+  half". This profile makes the risk real. From the same save it is away three times:
+  - 24 h with WAR cut to 0 (WORK and FLOOD keeping their ratio), graded against "at least half";
+  - 72 h as the sessions bot left it, graded against "at least half";
+  - 72 h after the prepared setup, graded against "at most a quarter".
+
+  (WAR cut and then prepared would be away_risk's `prepared` again, because the setup raises WAR from wherever it is.)
+- **bank_bigs** (E3-7): sessions, except that once the giants or carvers front is short (they have no backlog term), no
+  raid takes a big. Only a party member has a front (`cmd_assign_front` refuses `not_in_party`, and leaving the party
+  clears the front). So between raids the party holds the bigs, each on whichever of giants and carvers is still
+  short, by its higher stat there. Before each raid the party is emptied, so the bot raids t1 only and no big goes
+  through the held door; the next look puts them back. The fronts read short from a new game's first look, so this
+  holds all run. It is run beside the sessions baseline for its deltas.
 - **static**: a regression baseline. The sessions schedule, the same build list with no reorder, and one raid a
   session at the day's tier (days 1–2 t1, 3–4 t2, 5–6 t3, 7–8 t4), whatever the party.
 - **ablation_held**, **ablation_bone**, **sensitivity**: sessions with one change (BALANCE §2), each run beside the
