@@ -968,7 +968,8 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 ## `building_unpaid` events in `evs` (unpaid true, then false); a building unpaid when you left (`b.unpaid`, or a
 ## resume with no spell open) counts from the start, one still unpaid at the end to the end. What it stopped is
 ## one unpaid_stopped phrase per GameState.unpaid_keys (its jobs, then its working effects), each phrase once,
-## joined by unpaid_sep; unpaid_none when it has neither.
+## joined by unpaid_sep; unpaid_none when it has neither. F2: an effect nothing reads yet (idle.report.unpaid_inert)
+## stopped nothing, so it has no phrase.
 static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Array) -> Array:
 	var t0 := float(b["t"])
 	var spells := {}  # lot_id -> [seconds unpaid so far, the open spell's start or −1]
@@ -1000,7 +1001,7 @@ static func _unpaid_lines(gs: GameState, rep: Dictionary, b: Dictionary, evs: Ar
 		var bl: Dictionary = gs.town_sim.buildings.get(lot_id, {})
 		var bid := str(bl.get("building_id", bids.get(lot_id, "")))
 		var phrases: Array = []
-		for key in GameState.unpaid_keys(cfg.get(bid, {})):
+		for key in GameState.unpaid_keys(cfg.get(bid, {}), rep["unpaid_inert"]):
 			if not stopped_words.has(key):
 				push_warning("StateViews: economy.json idle.report.unpaid_stopped has no words for %s" % key)
 				continue

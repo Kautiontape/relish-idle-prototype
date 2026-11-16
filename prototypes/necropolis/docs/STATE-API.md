@@ -2012,7 +2012,8 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6): one unpaid
   when you left counts from the start, one still unpaid at the end to the end, and it reads as `when_hm_fmt`
   / `when_m_fmt` ("0 m" under a minute). What it stopped is one `idle.report.unpaid_stopped` phrase per job it
-  offers and per working effect it has (capacity effects are kept), each phrase once, joined by
+  offers and per working effect it has (capacity effects are kept, and so are the effects in `idle.report.unpaid_inert`,
+  which nothing reads yet: F2), each phrase once, joined by
   `unpaid_sep`; `unpaid_none` ("nothing stopped") for a building with neither, a House or the Reliquary.
   "stores kept" holds always: an unpaid building's caps stand (MECHANICS §4.3). Empty when nothing was lost:
   the map prints "Nothing lost."

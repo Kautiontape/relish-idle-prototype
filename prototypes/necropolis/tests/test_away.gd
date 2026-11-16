@@ -928,7 +928,7 @@ func _report_unpaid() -> void:
 		for l in lots:
 			var bid := str(n.town_sim.buildings[l]["building_id"])
 			var said: Array = []
-			for k in GameState.unpaid_keys(c["buildings"][bid]):
+			for k in GameState.unpaid_keys(c["buildings"][bid], rep["unpaid_inert"]):
 				if not said.has(words[k]):
 					said.append(words[k])
 			var stopped := ", ".join(PackedStringArray(said)) if not said.is_empty() else str(rep["unpaid_none"])
@@ -939,6 +939,11 @@ func _report_unpaid() -> void:
 			"%s: one line per building unpaid during the absence, in lot order, its time from the events: %s" % [cs[0], str(lines.map(func(l): return l["text"]))])
 		var statue: Dictionary = _find(r, "losses", "unpaid", "Statue")
 		var house: Dictionary = _find(r, "losses", "unpaid", "House")
+		# F2: nothing in the sim reads hint_precision, so a shed Watchtower stopped nothing
+		var tower: Dictionary = _find(r, "losses", "unpaid", "Watchtower")
+		t.ok(n.town_sim.buildings.get(tower.get("target", ""), {}).get("building_id", "") == "watchtower"
+			and tower.get("text", "") == "Watchtower unpaid for %s: nothing stopped; stores kept" % StateViews._when(rep, float(secs.get(tower.get("target", ""), -1.0))),
+			"%s: the Watchtower, whose only working effect nothing reads yet, stopped nothing: %s" % [cs[0], tower.get("text", "")])
 		t.ok(statue.get("target", "") == "lot-12" and str(statue.get("text", "")).ends_with(": lifted no morale, deaths shook the town harder; stores kept")
 			and str(house.get("text", "")).ends_with(": nothing stopped; stores kept"),
 			"%s: the Statue stopped its morale and its shock relief; a house, only capacity, stopped nothing: %s | %s" % [cs[0], statue.get("text", ""), house.get("text", "")])
@@ -1001,7 +1006,11 @@ func _report_config() -> void:
 	var w := TestUtil.configs()
 	(w["economy"]["idle"]["report"]["unpaid_stopped"] as Dictionary).erase("haul")
 	var x := TestUtil.configs()
-	(x["economy"]["idle"]["report"]["unpaid_stopped"] as Dictionary).erase("hint_precision")
+	(x["economy"]["idle"]["report"]["unpaid_inert"] as Array).clear()  # F2: hint_precision is a working effect again: it needs words
+	var y := TestUtil.configs()
+	(y["economy"]["idle"]["report"]["unpaid_inert"] as Array).append("no_such_effect")
+	var z := TestUtil.configs()
+	z["economy"]["idle"]["report"]["unpaid_inert"] = ["hint_precision", 7]
 	var cap := TestUtil.configs()
 	cap["buildings"]["house"]["effects"]["vat_slots"] = 1  # a capacity effect: kept while unpaid, nothing to word
 	t.ok(GameState.report_config_problem(u).contains("unpaid_fmt") and GameState.report_config_problem(w).contains("haul")
@@ -1009,6 +1018,10 @@ func _report_config() -> void:
 		and GameState.report_config_problem(cap) == "",
 		"the unpaid line's template and each job's and working effect's words are checked, not a capacity effect's: %s | %s | %s" % [
 			GameState.report_config_problem(u), GameState.report_config_problem(w), GameState.report_config_problem(x)])
+	# F2: the inert list (effect keys nothing reads yet) is a list of strings, each an effect some building has
+	t.ok(GameState.report_config_problem(y).contains("no_such_effect") and GameState.report_config_problem(z).contains("non-string")
+		and GameState.report_config_problem(TestUtil.configs()) == "",
+		"an inert key no building has, and a non-string one, are each named: %s | %s" % [GameState.report_config_problem(y), GameState.report_config_problem(z)])
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
 	if a is Dictionary and b is Dictionary:

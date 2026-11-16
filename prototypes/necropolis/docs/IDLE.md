@@ -625,10 +625,14 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     morale, deaths shook the town harder; stores kept". The name is its town label (`level_fmt` past
     level 1), the time the report's "{h} h {m} m" / "{m} m" (a spell under a minute reads "0 m").
     "What it stopped" is one phrase per job it offers and per working effect it has (`pits`, `morale`,
-    `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`, `hint_precision`), each an
+    `attract`, `lifetime_bonus`, `haul_speed_mult`, `death_shock_mult`), each an
     `idle.report.unpaid_stopped` template, the same phrase said once (a raising pit's `pit` job and
     `pits` effect: "raised no undead"); a building with neither (a House, the Reliquary: only
-    capacity effects, which an unpaid building keeps) says "nothing stopped". "Stores kept" is always
+    capacity effects, which an unpaid building keeps) says "nothing stopped". So does one whose only
+    working effects are in `idle.report.unpaid_inert` (F2: the effect keys nothing in the sim reads yet,
+    `hint_precision` today, so a Watchtower's line reads "Watchtower unpaid for 1 h: nothing stopped; stores
+    kept", not a lie about vaguer fort hints). A key leaves that list in the change that makes the sim read it,
+    and gets its words in `unpaid_stopped` then. "Stores kept" is always
     true: capacity effects count while unpaid (MECHANICS §4.3), so no cap fell and no stock was lost.
     `kind` `unpaid`, `target` its lot id.
 

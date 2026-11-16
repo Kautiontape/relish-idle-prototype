@@ -62,7 +62,7 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
 	"overflow_fmt", "store_labels", "overflow_min",
 	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
-	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped",
+	"unpaid_fmt", "unpaid_sep", "unpaid_none", "unpaid_stopped", "unpaid_inert",
 	# R2: ready's line for the queue's head still waiting (StateViews.afford_text) and the full stores' raid prompt
 	"afford_wait_fmt", "afford_never_fmt", "afford_stores", "afford_raise", "full_tol", "full_raid",
 	# F1: that line without the move down when nothing is behind the head, and its forms for a head that is its
@@ -354,8 +354,23 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	if not (stopped is Dictionary):
 		return "config economy.idle.report.unpaid_stopped is not a table of words"
 	var bcfg: Variant = cfgs.get("buildings", {})
+	# F2: `unpaid_inert` lists the effect keys nothing in the sim reads yet (an unpaid building loses nothing by
+	# them): a list of strings, each an effect key some building in buildings.json has
+	var inert: Variant = rep["unpaid_inert"]
+	if not inert is Array:
+		return "config economy.idle.report.unpaid_inert is not a list of effect keys"
+	var has_effect := {}
 	for bid in (bcfg as Dictionary if bcfg is Dictionary else {}):
-		for key in unpaid_keys((bcfg as Dictionary)[bid]):
+		var fx: Variant = (bcfg as Dictionary)[bid].get("effects", {}) if (bcfg as Dictionary)[bid] is Dictionary else {}
+		for k in (fx as Dictionary if fx is Dictionary else {}):
+			has_effect[str(k)] = true
+	for k in inert:
+		if not k is String:
+			return "config economy.idle.report.unpaid_inert has a non-string entry (%s)" % str(k)
+		if not has_effect.has(k):
+			return "config economy.idle.report.unpaid_inert has %s, an effect no building in buildings.json has" % k
+	for bid in (bcfg as Dictionary if bcfg is Dictionary else {}):
+		for key in unpaid_keys((bcfg as Dictionary)[bid], inert):
 			if not (stopped as Dictionary).has(key):
 				return "config economy.idle.report.unpaid_stopped has no words for %s (buildings.json %s)" % [key, bid]
 	return ""
@@ -363,8 +378,9 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 
 ## What an unpaid building stops doing, as idle.report.unpaid_stopped keys (R1, IDLE §7): the jobs its
 ## buildings.json `def` offers slots in, then its working effects (every effect but the capacity ones, which
-## an unpaid building keeps: TownSim.CAPACITY_EFFECTS), each in the def's order.
-static func unpaid_keys(def: Variant) -> Array:
+## an unpaid building keeps: TownSim.CAPACITY_EFFECTS), each in the def's order. F2: not the effects in `inert`
+## (idle.report.unpaid_inert), which nothing in the sim reads yet, so losing them stops nothing.
+static func unpaid_keys(def: Variant, inert: Array) -> Array:
 	var d: Dictionary = def if def is Dictionary else {}
 	var out: Array = []
 	var jobs: Variant = d.get("jobs", {})
@@ -373,7 +389,7 @@ static func unpaid_keys(def: Variant) -> Array:
 			out.append(str(j))
 	var fx: Variant = d.get("effects", {})
 	for k in (fx as Dictionary if fx is Dictionary else {}):
-		if not TownSim.CAPACITY_EFFECTS.has(k):
+		if not TownSim.CAPACITY_EFFECTS.has(k) and not inert.has(str(k)):
 			out.append(str(k))
 	return out
 
