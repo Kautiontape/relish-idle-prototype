@@ -57,6 +57,7 @@ func run() -> int:
 	_thrift_keeps()
 	_thrift_away_line()
 	_thrift_upgrade_held()
+	_muster_refreshes_projections()
 	_projected()
 	_round_trip()
 	_old_shape()
@@ -483,6 +484,33 @@ func _thrift_upgrade_held() -> void:
 		and n.town_sim.buildings["lot-14"]["level"] == 2,
 		"30 min away: Thrift's line for the Chapel ends when Thrift stops (19 m), not at the end of the absence, and the upgrade built after: %s %s" % [
 		n.town_sim.buildings["lot-14"]["state"], str(lines)])
+
+
+## Muster lifts no job, so starting it moves no structure_rev by a job change, yet it changes the idle cap the build
+## card's projections are computed with (qf3 fix 3): the rows refreshed before it started are stale at once, not after
+## projection_refresh_s. The refresh (StateViews._proj_refresh, what the frame path runs) after Muster starts gives
+## the rows a from-scratch refresh gives, and they moved.
+func _muster_refreshes_projections() -> void:
+	var s := _mk()
+	s.tick(0.5)
+	_beat(s)
+	var idle0 := float(s.view_town()["workers"]["idle"])
+	StateViews._proj_refresh(s, ["catalog", "upgrades"], 1000, false)
+	var before: Array = s.view_catalog()["buildings"].map(func(r): return (r["projected"] as Dictionary).duplicate())
+	s.cmd_set_stance("muster", true)
+	_beat(s)
+	t.ok(idle0 > 1.0 and _st(s, "muster")["active"] and s.town_sim.idle_cap() == 0.0, "(setup) idle hands, and Muster acts (cap 0)")
+	StateViews._proj_refresh(s, ["catalog", "upgrades"], 1000, false)
+	var after: Array = s.view_catalog()["buildings"].map(func(r): return (r["projected"] as Dictionary).duplicate())
+	var town_after: Array = s.view_town()["buildings"].map(func(b): return (b["upgrade_projected"] as Dictionary).duplicate())
+	s._proj_cache = {}
+	StateViews._proj_refresh(s, ["catalog", "upgrades"], 1000, false)
+	var exact: Array = s.view_catalog()["buildings"].map(func(r): return (r["projected"] as Dictionary).duplicate())
+	var town_exact: Array = s.view_town()["buildings"].map(func(b): return (b["upgrade_projected"] as Dictionary).duplicate())
+	t.ok(before != exact and not before.any(func(p): return (p as Dictionary).is_empty()),
+		"(setup) Muster's idle cap of 0 moves the build card's projections")
+	t.ok(after == exact and town_after == town_exact,
+		"Muster started: the next refresh recomputes every projected and upgrade_projected row at once (the cap of 0), not after projection_refresh_s")
 
 
 # ------------------------------------------------------------------------------------------------ projected ----

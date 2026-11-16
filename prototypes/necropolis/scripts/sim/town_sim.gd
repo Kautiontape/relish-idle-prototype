@@ -153,8 +153,14 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 ## The jobs the acting ladder stances lift to the top, in economy.json stance.priority order (effective_ladder).
 ## Set through set_top_jobs, which marks the rooms.
 var top_jobs: Array = []
-## Muster acts: the idle cap reads 0 (idle_cap), so every idle worker musters to WAR at once.
-var muster_all := false
+## Muster acts: the idle cap reads 0 (idle_cap), so every idle worker musters to WAR at once. Muster lifts no job, so
+## a change moves structure_rev itself (as set_top_jobs and set_foremen do): the build card's projections, which
+## key on it, are computed with the idle cap and must not outlive the change.
+var muster_all := false:
+	set(v):
+		if v != muster_all:
+			structure_rev += 1
+		muster_all = v
 
 # ---- the foremen (E3-3, MECHANICS §4.2): GameState sets them from the big undead placed `town:<lot_id>`
 # (set_foremen; never saved: a load derives them from the save's big undead). State, not a step input, so clone()
