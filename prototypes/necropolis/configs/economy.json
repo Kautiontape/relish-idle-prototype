@@ -118,5 +118,9 @@
   },
   "relics": { "cap": 12 },
   "essence": { "cap": 60 },
-  "big_undead": { "cap": 4, "per_crypt_level": 1 }
+  "big_undead": { "cap": 4, "per_crypt_level": 1 },
+  "foreman": {
+    "_doc": "E3-3, v0 values: E4 placeholders (BALANCE §5). A big undead placed town:<lot_id> works there only at a building with job slots that is active (built, paid, not upgrading, not idled by Thrift, with hands staffed): it multiplies the building's job output by mult + speed x speed_k (MECHANICS §4.2) and adds presence_k x presence to the morale target.",
+    "mult": 1.0, "speed_k": 0.05, "presence_k": 0.01
+  }
 }

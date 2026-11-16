@@ -187,6 +187,8 @@ const TOWN_BUILDING := {
 	"upgrade_projected": {"*": F},
 	# api_version 6 (T3.4a): why a building's mills milled less than their hands want
 	"starved": S,
+	# api_version 8 (E3-3): the multiplier its foreman gives its job output (1.0 with none, or where one gives nothing)
+	"foreman_mult": F,
 }
 ## view_town().queue's entries (api_version 6, E2b-2 T3.2, api-request #3)
 const QUEUE_ENTRY := {

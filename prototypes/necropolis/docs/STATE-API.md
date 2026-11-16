@@ -273,6 +273,20 @@ from `BALANCE.md` §0.
   - **`at_cap`** is returned when the big undead number `big_undead.cap` plus `big_undead.per_crypt_level` per
     Crypt level above 1 (`view_big_undead().cap`), and `invalid_recipe` and `bad_name` are checked (they were
     listed and never returned).
+
+  E3-3's foreman adds **`foreman_mult: float`** to `view_town().buildings[]` (§5.9; `tests/api_schema.gd`
+  `TOWN_BUILDING`): the multiplier the building's job output gets from its foreman, 1.0 with none or where one
+  gives nothing. Changes of meaning:
+  - **the foreman works** (MECHANICS §4.2; `cmd_place_big_undead`, §4.3): a big undead placed `town:<lot_id>` at an
+    `active` job building multiplies its job output (the Market's gold, the Bone Mill's bone, the Raising Pit's burn
+    and raise, the Charnel House's carry, the Forge's work, the Chapel's vat growth) by `foreman.mult + speed ·
+    foreman.speed_k`, and lifts the morale target by `foreman.presence_k · presence` (a new factor id, `foreman`,
+    in `view_town().morale.factors`). Every view that reads TownSim's flows shows it: `view_town` (`output`, the
+    rates), `view_rates`, `view_hud`, the stances' and the build card's `projected`, the queue's `affordable_in_s`.
+    Was: recorded and echoed, no effect;
+  - **Σ foreman_q is dropped** from `q` (MECHANICS §2.2; `view_vei().digest_q`, the seeds' `digest_q`): a foreman
+    adds no `q`. A Forge foreman reaches `q` only through the forge level its smiths reach sooner. Was: a term
+    documented as 0 until E3.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -962,8 +976,10 @@ Game.state.cmd_rename_big_undead("u4", "Gristle the Patient")  # -> {ok: true, r
   - `bad_place`, `unknown_lot`, `empty_lot`;
   - `foreman_taken` (one foreman per lot);
   - `unknown_fort`.
-- **Effect:** removes it from the party, if it was in it. The place is recorded; the foreman's `q`
-  and the siege's block are E3 (MECHANICS §2.2, §3 step 5 here).
+- **Effect:** removes it from the party, if it was in it. The place is recorded. From E3-3 (v8) a foreman
+  works its building (MECHANICS §4.2: its job output × `foreman.mult + speed · foreman.speed_k`, its presence on
+  morale; it adds no `q`), and a place where it gives nothing (a passive building, one not `active`) is still
+  allowed. The siege's block is E3 (§3 step 5 here).
 ```gdscript
 Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: "", place: "town:lot-04"}
 ```
@@ -1585,7 +1601,7 @@ until the first substep.
 | `workers` | Dictionary | `{total: float, idle: float, in: float, rot: float, muster: float, steady: float, steady_kept: float, muster_steady: float, lifetime_s: float}`: workers, workers/s, sim seconds |
 | `living`, `living_cap` | float | people |
 | `migrants`, `departures` | float | living/s |
-| `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `dread`, `shock`. |
+| `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `foreman` (v8, E3-3: the working foremen's `foreman.presence_k · presence`, only when non-zero), `dread`, `shock`. |
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
 | `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
 | `queue_max` | int | `economy.json` `queue.max_len` (8) |
@@ -1655,6 +1671,7 @@ Each `buildings` entry:
 | `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
 | `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. The town reads it in Phase I and owns the text |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
+| `foreman_mult` | float | v8 (E3-3): the multiplier this building's job output gets from its foreman now (MECHANICS §4.2): `foreman.mult + speed · foreman.speed_k` while one works there; 1.0 with no foreman, and where one gives nothing (a passive building, or one not `active`: unpaid, idled by Thrift, mid-upgrade, no hands staffed). Its `output` already includes it |
 ```gdscript
 {rev: 3, tier: "hamlet", next_tier: {tier: "village", have: 4, need: 6, missing: ["house"]},
  lots: [{id: "lot-01", size: 2, unlocked: true, building_id: "crypt"}, {id: "lot-05", size: 1, unlocked: true, building_id: ""}, ...24],

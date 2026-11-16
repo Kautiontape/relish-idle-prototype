@@ -136,6 +136,14 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
   (`test_backups`). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
   away report; `test_backups`).
+- **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
+  (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
+  is refused with `catching_up` while it runs; the catch-up's own events move only a siege (a retake) and the
+  party (a death). Whether a foreman works follows its building's state, whose changes are TownSim's at a step's
+  start (Thrift's idling, the stance step) or ones the catch-up clips at already (an unpaid building's resume, a
+  construction finishing, a store reaching its floor). The multiplier is a constant over a step, so TownSim's
+  step integrates it exactly. With the foreman at work midgame_2flips caught up 6 h matches 6 h live
+  (`test_big_undead`).
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
   (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;

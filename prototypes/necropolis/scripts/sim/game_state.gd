@@ -561,6 +561,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	remnants = []
 	big_undead = []
 	party_uids = []
+	_sync_foremen()
 	valve = _normalised(_req_f("economy.opening.valve.work"), _req_f("economy.opening.valve.war"), _req_f("economy.opening.valve.flood"))
 	valve_target = valve.duplicate()
 	work_pending = 0.0
@@ -1128,7 +1129,9 @@ func cmd_upgrade(lot_id: String) -> Dictionary:
 func cmd_demolish(lot_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up()
-	return BuildRules.demolish(self, lot_id)
+	var r := BuildRules.demolish(self, lot_id)
+	_sync_foremen()  # (a foreman there went back to the crypt: BuildRules.foreman_home)
+	return r
 
 
 ## §4.3 · E2: cancels the construction under way and refunds its cost in full (relics clamped to the
@@ -1136,7 +1139,9 @@ func cmd_demolish(lot_id: String) -> Dictionary:
 func cmd_cancel_build(lot_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"refund": {}})
-	return BuildRules.cancel_build(self, lot_id)
+	var r := BuildRules.cancel_build(self, lot_id)
+	_sync_foremen()  # (a cancelled first build sends its foreman to the crypt)
+	return r
 
 
 ## §4.3 (E2b-2 T3.2, api-request #3): queues a build, or with building_id "" an upgrade of the building on
@@ -1501,13 +1506,29 @@ func _foreman_of(lot_id: String) -> String:
 	return at[0] if not at.is_empty() else ""
 
 
+## TownSim's foremen from the big undead placed `town:<lot_id>` (E3-3; TownSim.set_foremen): {lot_id: {speed,
+## presence}}, their stats. Called wherever a place can change (cmd_place_big_undead, cmd_set_party, cmd_demolish,
+## cmd_cancel_build), on a new game and a load, and at every core step's start, so TownSim's step and every
+## projection read the placements as they stand. A catch-up changes none: commands are refused while it runs, and its
+## own events move only a siege (a retake) and the party (a death).
+func _sync_foremen() -> void:
+	var map := {}
+	for b in big_undead:
+		var place := str(b["place"])
+		if place.begins_with("town:"):
+			var st: Dictionary = b["stats"]
+			map[place.trim_prefix("town:")] = {"speed": float(st.get("speed", 0.0)), "presence": float(st.get("presence", 0.0))}
+	town_sim.set_foremen(map)
+
+
 ## Takes a big undead out of the party. Its front goes too: fronts are for party members.
 func _leave_party(b: Dictionary) -> void:
 	party_uids.erase(b["uid"])
 	b["front"] = ""
 
 
-## E1/E2: records the place (and takes it out of the party); foreman and siege effects are E2.
+## E1/E2: records the place (and takes it out of the party). From E3-3 a foreman works its building (TownSim's
+## foremen, _sync_foremen; MECHANICS §4.2); a place where it gives nothing is still allowed.
 func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"place": ""})
@@ -1536,6 +1557,7 @@ func cmd_place_big_undead(uid: String, place: String) -> Dictionary:
 	if party_uids.has(uid):
 		_leave_party(b)
 	b["place"] = place
+	_sync_foremen()
 	rev += 1
 	return {"ok": true, "reason": "", "place": place}
 
@@ -1688,6 +1710,7 @@ func cmd_set_party(uids: Array) -> Dictionary:
 	for u in uids:
 		party_uids.append(u)
 		_find_uid(big_undead, u)["place"] = "party"
+	_sync_foremen()  # (a foreman moved into the party leaves its building)
 	rev += 1
 	return {"ok": true, "reason": "", "party": party_uids.duplicate()}
 
@@ -2221,14 +2244,14 @@ func catchup_events() -> Array[Dictionary]:
 
 
 # ----------------------------------------------------------------- §3 tick ----
-## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise,
-## 1, q_max), q_raise = q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the
-## forge job's levels); Σ foreman_q is 0 until E3.
+## Vei's digest cost q (MECHANICS §2.2): clamp(q0 + q_forge · forge_level + q_raise, 1, q_max), q_raise =
+## q_raise_max · max(0, (ema_score − 50) / 50). forge_level is TownSim's (the forge job's levels). E3-3 dropped
+## the formula's Σ foreman_q (the run's manager's ruling): a foreman adds no q of its own; a Forge foreman reaches
+## q through forge_level, its smiths' work multiplied (TownSim step 5).
 func digest_q() -> float:
 	var ema := float(_readout["q_raise_ema"])
 	var q_raise := _q_raise_max * maxf(0.0, (ema - 50.0) / 50.0)
-	var foremen := 0.0
-	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + foremen + q_raise
+	var q := _req_f("realm.q.q0") + _q_forge * float(town_sim.forge["level"]) + q_raise
 	return clampf(q, 1.0, _q_max)
 
 
@@ -2347,8 +2370,9 @@ func _frame_work(substeps: int) -> void:
 	_train_frame(substeps)
 
 
-## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s.
-func _mint(pits: int, feed: float) -> float:
+## MECHANICS §3.2: mint = (P_base + P_per_pit · pits) · (1 + pit.bonus · feed), mass/s. `pits` is the working pits
+## weighted by their foremen (TownSim.pit_weight, E3-3): their count while no foreman works a pit.
+func _mint(pits: float, feed: float) -> float:
 	return (_p_base + _p_per_pit * pits) * (1.0 + _pit_bonus * feed)
 
 
@@ -2426,13 +2450,14 @@ func _core_step(dt: float) -> Array:
 		return []
 	t += dt
 	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
+	_sync_foremen()  # (E3-3) TownSim's foremen as the big undead stand; a no-op unless a place changed
 	# §3 step 1: the stances (E3-1): at a new beat their conditions are read from the state the step starts from,
 	# then the ones acting are given to TownSim for this step
 	_stance_step(dt)
 	# §3 step 2: the valve slews, then splits the mint. The mint reads the working pits now and the
 	# feed of the step before (both dimensionless, so a step of any length takes them as they are)
 	_slew_valve(dt)
-	var mint := _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+	var mint := _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var work := mint * float(valve["work"])
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
@@ -2664,6 +2689,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	if SaveIO.problem(m, _cfgs) != "":
 		return {"ok": false, "reason": "corrupt"}
 	SaveIO.apply(self, m)
+	_sync_foremen()  # (E3-3: TownSim's foremen come from the loaded big undead's places)
 	_reset_train()
 	_catchup = Catchup.new()
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
@@ -2712,7 +2738,7 @@ func _restore_dispatch() -> void:
 	if float(valve["work"]) > 0.0:
 		mint = float(rw.get("in", 0.0)) * wm / float(valve["work"])
 	else:
-		mint = _mint(town_sim.pits(), float(town_sim.rates.get("feed", 0.0)))
+		mint = _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var war := mint * float(valve["war"]) + muster
 	_split = {"mint": mint, "work": mint * float(valve["work"]), "war": war, "flood": mint * float(valve["flood"]),
 		"muster": muster}

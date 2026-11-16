@@ -201,7 +201,7 @@ values**.
 | essence | motes (int) | capped stock (`essence.cap`) | dungeons (carried out) | phylactery charges, simulacra | count |
 | husks, remnants | items with uids | stock | dungeons | slab | count |
 | living | people | stream, capped by housing (`living_cap`) | migrants, the inn | departures at low morale | net /s, cap |
-| digest quality `q` | level, 1..`q_max` | derived (§2.2) | forge, foremen, circles | none | number |
+| digest quality `q` | level, 1..`q_max` | derived (§2.2) | forge (a Forge foreman's through it), circles | none | number |
 | big undead | named units | stock (`big_undead.cap`) | slab | dungeon and Vei deaths | names |
 | backlog | mass | Vei's queue (RealmSim) | FLOOD, drain, chaff, raise | digestion, a lost Vei fight | tank level with net rate |
 
@@ -233,7 +233,7 @@ a full pool and a full body store with every building unstaffed, and asserts tha
 own overflow sink (`pool_overflow`, `rot_overflow`).
 
 ### 2.2 Digest quality `q`
-`q = clamp(q0 + q_forge · forge_level + Σ foreman_q + q_raise, 1, q_max)` (`realm.json` `q.*`).
+`q = clamp(q0 + q_forge · forge_level + q_raise, 1, q_max)` (`realm.json` `q.*`).
 - `q_raise = q_raise_max · max(0, (ema_score − 50) / 50)`, where `ema_score` is a mass-weighted EMA
   over every raised undead's circle score. It starts at 50, so `q_raise` starts at 0.
 - **Its half-life is in mass raised, not in seconds** (`q.raise_half_mass`, which replaces
@@ -242,7 +242,9 @@ own overflow sink (`pool_overflow`, `rot_overflow`).
   `ema_score += α · (score − ema_score)`. The masses are the ones actually raised: the result's masses scaled by R'/R (R' = what the fort's dead could cover, STATE-API §8.3 step 3), so a result reporting 1000 mass at a fort with 10 dead moves the EMA as if about 10 were raised. Why: IDLE I2
   says what active play earned never decays while you're away, and a time-based EMA would decay
   with every idle hour. This one holds while no circles arrive.
-- `forge_level` is TownSim's forge level (the forge job, §4.2); `Σ foreman_q` is 0 until E3. The save
+- `forge_level` is TownSim's forge level (the forge job, §4.2). The formula's `Σ foreman_q` term is dropped
+  (E3-3, the run's manager's ruling): a foreman adds no `q` of its own. A Forge foreman reaches `q` through
+  `forge_level`, its smiths' work multiplied (§4.2), which reaches each level sooner. No save change. The save
   keeps `ema_score` as `readout.q_raise_ema`.
 - Good circles visibly raise `q`, which makes every undead cost Vei more (vision review M7).
 
@@ -925,7 +927,42 @@ mass; bodies, rot return, WORK and muster are mass.
 | pit | raising pit | each working pit burns `pit.burn_per_s` × its staffed share, with first call on the bodies (below). `wanted = pit.burn_per_s · pits` counts every working pit, and `feed = min(1, burned / wanted)`. |
 | tend | chapel of vats | one slot per vat, open only while that vat is staffed (§7; E2b-2): `jobs.tend` × level slots for `vat_slots` × level vats, the same count. Grows clones (§7, E3); until then only the tenders count |
 | build | construction | `job.build.rate` work per worker-second against `build_work · target level`. A `build_work` of 0 completes at once. |
-| foreman | (big undead only) | multiplies a building's output by `foreman.mult` + speed·`foreman.speed_k` |
+| foreman | (big undead only) | multiplies a building's job output by `foreman.mult` + speed·`foreman.speed_k` (live from E3-3; below) |
+
+- **The foreman** (E3-3, the run's manager's rulings; `economy.json` `foreman`, v0 E4 placeholders, BALANCE §5).
+  A big undead placed `town:<lot_id>` works there, and multiplies that building's **job output** by
+  `m = foreman.mult + speed · foreman.speed_k` (speed is its stat):
+  - **What it multiplies:** the Market's gold, the Bone Mill's bone, the Raising Pit's raise, the Charnel House's
+    carry, the Forge's work and the Chapel of Vats' growth. The job comes from `buildings.json`, never the id:
+    stall gold, mill bone, pit burn and raise, haul carry, forge work, tend growth.
+  - **After the job's own caps.** The stalls' gold is `min(staffed · stall.rate, living · shop_rate) · price · m`,
+    so the living cap on the sales comes first, and `trade_rate` stays the sales. The mill's bone is the bodies
+    milled × `mill.rate` × m: the bodies it takes don't change, so no mass moves. A Chapel's vats grow on
+    their tend hands (one per vat) × m. Two exceptions keep the mass ledger exact, and the ledger wins:
+    - **The Pit:** the foreman multiplies the pit's burn too, so it draws bodies m times as fast. It also
+      multiplies its weight in the pits' `wanted` and in the mint's pit count (`TownSim.pit_weight`: Σ pits × m
+      over the working pits, a float). So the raise follows the burn: the pit raises m times its share of
+      `P_per_pit · pits · (1 + pit.bonus · feed)` at the same feed, and burns m times the bodies for it.
+    - **The Charnel House:** the carry per hauler is multiplied (the convoy's crew, fixed at departure, is the
+      haulers × m). The clamps on a pickup, the fort's dead at that moment and the store's headroom, still apply
+      after it.
+    - **The store caps** still clip gold and bone as before, the overflow booked to `ledger().stores`. "After the
+      job's caps" means the job's caps, not the store's.
+  - **It gives nothing** at a building that has no job slots (a passive one), or isn't working (unpaid, idled by
+    Thrift, or mid-upgrade: TownSim's state `constructing`), or has no hands staffed. The exact condition: a job
+    building whose TownSim state is `active` (`TownSim._fm_works`). A foreman placed there is still allowed (no
+    refusal) and changes nothing, and `view_town`'s `foreman_mult` reads 1.0.
+  - **Presence:** a foreman that works adds `foreman.presence_k · presence` to the morale target, shown as the
+    `foreman` factor (`view_town().morale.factors`), and clamped with the other sources (the target is 0..1).
+  - **How TownSim gets it:** as state, `TownSim.foremen` (`lot_id → {speed, presence}`), which GameState sets from
+    the big undead's places (`_sync_foremen`): at each core step's start, on every command that moves one, on a
+    new game and on a load. It isn't saved, because the save's big undead carry the places. `clone()` carries it,
+    so every projection runs with it: the stances' `projected`, the build card's and `upgrade_projected`, the
+    forecasts' and margins' clones, `lot_output`, and `queue_net` / `affordable_in_s`, which read the last step's
+    rates. Placing a foreman moves `structure_rev`, so the caches keyed on it refresh.
+  - The foremen can't change inside a catch-up: commands are refused, and its own events move only a siege and
+    the party. Whether one works follows the building's state, whose changes the catch-up clips at or TownSim
+    makes at a step's start (IDLE §4).
 
 - **The pits have first call on the bodies; the mills take only the surplus** (E2b-2, the run's
   manager). While the store holds bodies both draw their want; while it stands empty the rot

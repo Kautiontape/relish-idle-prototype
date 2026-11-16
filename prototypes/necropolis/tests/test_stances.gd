@@ -26,9 +26,13 @@ const TIP := {
 	"day1": {"state": "f0770dea4e6b375fdb5c39b93e0522d4b37b46dbb3330e00f22f5c0629cc2c85",
 		"events": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
 		"away": "977a359676d37ffbebe0472847672d4adc73cc50b00708cec3a4ce95d8918f6f", "steps": 4320, "n_events": 0},
-	"midgame_2flips": {"state": "4fe1e2383e1ea937a053970ba8613822c451c7f334c0ff1bfb32f830d4bbe2c1",
+	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
+	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
+	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
+	# unchanged, and with u8 in the crypt it is the parent's (test_big_undead)
+	"midgame_2flips": {"state": "68202b75e64fddfc6d485f3a90e9b946939c915912a4aba9a03ff1b8499a12a3",
 		"events": "371f20b416876f2151e89b6711da77313a88157dd4d9c240a6f4883daf923c77",
-		"away": "05cda66f6b8dc51f18e6f50d5ed95c56a79d1a54c6b23f8770aff26a0f19d05e", "steps": 4422, "n_events": 364},
+		"away": "ca228dfee330c89f1674e6a1f554c6ee0a4b05d419bba6f6d10755963b978592", "steps": 4422, "n_events": 364},
 	"pre_vei": {"state": "e265430eb891a5c30724b8e1b0e13acc368558d656a6919547410e394e837b5f",
 		"events": "e998730792cd96410f3549a122acae36123317752337abacf68862b238098db0",
 		"away": "47c37eeb42384917945ace19104f947301da6faf9c612df41baa3cfc32d5de35", "steps": 4321, "n_events": 11},

@@ -280,6 +280,8 @@ static func town(gs: GameState) -> Dictionary:
 			"upgrade_projected": (ups.get(lot_id, {}) as Dictionary).duplicate(),
 			# v6 (T3.4a): why its mills milled less than their hands want (TownSim's last step); "" for a building without mill slots
 			"starved": ts.mill_starved if ts.lot_mill_slots(lot_id) > 0 else "",
+			# v8 (E3-3): the multiplier its foreman gives its job output now (1.0 with none, or where one gives nothing)
+			"foreman_mult": ts.foreman_mult(lot_id),
 		})
 	var effective := ts.effective_ladder(ts.ladder)
 	var jobs := job_rows(effective, ts.staffing.get("jobs", {}))
@@ -496,7 +498,7 @@ static func _stance_flows(gs: GameState, acting: Dictionary, now: Dictionary) ->
 ## A toggled stance's flows `r` against today's `b` (stance_projections): {rate_id: Δ}, only the rates that move.
 static func _stance_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionary:
 	var v := gs._slewed_valve(gs.substep_s())
-	var dm := gs._mint(int(r["pits"]), float(r["feed"])) - gs._mint(int(b["pits"]), float(b["feed"]))
+	var dm := gs._mint(float(r["pits"]), float(r["feed"])) - gs._mint(float(b["pits"]), float(b["feed"]))
 	var d_must := (float(r["muster"]) - float(b["muster"])) * gs.worker_mass()
 	var war0 := float(gs._split["mint"]) * float(v["war"]) + float(gs._split["muster"])
 	var d_war := dm * float(v["war"]) + d_must
@@ -812,7 +814,7 @@ static func _proj_base(gs: GameState) -> Dictionary:
 ## Steps a hypothetical TownSim `ts` once from the baseline's inputs: {mint, muster, <town id>: net}.
 static func _proj_step(gs: GameState, ts: TownSim, b: Dictionary) -> Dictionary:
 	var dt := float(b["dt"])
-	var mint := gs._mint(ts.pits(), float(b["feed"]))
+	var mint := gs._mint(ts.pit_weight(), float(b["feed"]))
 	var inp: Dictionary = (b["inputs"] as Dictionary).duplicate()
 	inp["work_mass"] = mint * float(b["valve"]["work"]) * dt + gs.work_pending
 	var o := ts.step(dt, inp)

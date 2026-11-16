@@ -18,8 +18,9 @@ extends RefCounted
 ##   haul_target: String    "auto" or a fort id
 ##   relics_available: int  relics the forge may spend this substep
 ## step outputs:
-##   pits: int              working pits (the mint's P_per_pit term)
-##   feed: float 0..1       burned / wanted (the mint's feed bonus)
+##   pits: int              working pits (the mint's P_per_pit term reads pit_weight(): them weighted by their
+##                          foremen, E3-3)
+##   feed: float 0..1       burned / wanted (the mint's feed bonus; wanted counts pit_weight's pits)
 ##   muster_mass: float     mass to add to WAR
 ##   pickups: Array         [{fort_id, mass}] corpses taken from forts this substep, each total ≤
 ##                          that fort's `dead` (GameState takes them off the forts)
@@ -30,6 +31,8 @@ extends RefCounted
 ##   burned, milled: float  bodies the pits burned and the mills milled (mass; ledger sinks)
 ##   gold_overflow, bone_overflow: float  income the gold and bone caps clipped (IDLE §6; not mass:
 ##                          GameState tallies them in the ledger's `stores`)
+##   vat_hands: Array       each vat's tend hands this step × its Chapel's foreman multiplier (vat_work, E3-3):
+##                          what GameState grows the vats on
 ##   events: Array          {type, ...} without `t` (GameState stamps it): building_started,
 ##                          building_done, building_unpaid
 ##   rates: Dictionary      this substep's flows per second (a copy of `rates`)
@@ -66,6 +69,8 @@ const REQUIRED := [
 	"realm.relish.home_rot_mult", "realm.flip.haul_mult", "town.lots", "buildings",
 	# E3-1: Thrift's reach (MECHANICS §4.5; thrift_pick)
 	"economy.stance.thrift_upkeep", "economy.stance.thrift_spares_from",
+	# E3-3: the foreman (MECHANICS §4.2; _fm, E4 placeholders)
+	"economy.foreman.mult", "economy.foreman.speed_k", "economy.foreman.presence_k",
 ]
 
 # ---- tunables, read once in setup() from REQUIRED (no numbers here) ----
@@ -113,6 +118,9 @@ var _thrift_over := 0.0  # economy.json stance.thrift_upkeep: Thrift idles only 
 ## economy.json stance.thrift_spares_from's place in upkeep.shed_order: Thrift idles only the classes ranked before
 ## it (the decorations, the passive and the job buildings; never the WAR chain)
 var _thrift_rank := 0
+var _f_mult := 0.0  # economy.json foreman.mult: a working foreman's multiplier before its speed
+var _f_speed_k := 0.0  # foreman.speed_k: the multiplier per point of the foreman's speed
+var _f_presence_k := 0.0  # foreman.presence_k: the morale per point of a working foreman's presence
 
 # ---- state (to_dict / from_dict) ----
 var workers := 0.0  # workers
@@ -147,6 +155,15 @@ var rates := {}  # the last substep's flows per second (views); see _zero_rates(
 var top_jobs: Array = []
 ## Muster acts: the idle cap reads 0 (idle_cap), so every idle worker musters to WAR at once.
 var muster_all := false
+
+# ---- the foremen (E3-3, MECHANICS §4.2): GameState sets them from the big undead placed `town:<lot_id>`
+# (set_foremen; never saved: a load derives them from the save's big undead). State, not a step input, so clone()
+# carries them and every projection (stance_flows, lot_output, the build benefit's and the forecasts' clones, the
+# stances' and the queue's readings of the last step's rates) sees them ----
+## lot_id -> {speed: float, presence: float}, the foreman's stats. A foreman works (_fm_works) only at a building with
+## job slots that is working and staffed; there it multiplies the building's job output by foreman.mult + speed ·
+## foreman.speed_k (_fm) and lifts the morale target by foreman.presence_k · presence (morale_factors).
+var foremen := {}
 
 # ---- derived (not saved; rebuilt by _staff()) ----
 ## {jobs: {job: {slots: int, staffed: float}} in ladder order, lots: {lot_id: staffed},
@@ -239,6 +256,9 @@ func setup(cfgs: Dictionary) -> void:
 	if _thrift_rank < 0:
 		push_error("TownSim: economy.stance.thrift_spares_from is not a class in economy.upkeep.shed_order")
 		_thrift_rank = 0  # Thrift idles nothing rather than everything
+	_f_mult = _num(cfgs, "economy.foreman.mult")
+	_f_speed_k = _num(cfgs, "economy.foreman.speed_k")
+	_f_presence_k = _num(cfgs, "economy.foreman.presence_k")
 	_default_ladder = []
 	for j in _arr(_at(cfgs, "economy.job.default_ladder")):
 		_default_ladder.append(str(j))
@@ -512,6 +532,10 @@ func clone() -> TownSim:
 	c._shock_s = _shock_s
 	c._thrift_over = _thrift_over
 	c._thrift_rank = _thrift_rank
+	c._f_mult = _f_mult
+	c._f_speed_k = _f_speed_k
+	c._f_presence_k = _f_presence_k
+	c.foremen = foremen.duplicate(true)
 	c.top_jobs = top_jobs.duplicate()
 	c.muster_all = muster_all
 	c.workers = workers
@@ -575,15 +599,20 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["rot_loss"] = rotted - rot_mass
 	out["muster_mass"] = float(wf["muster"]) * _mass
 
-	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4)
+	# 2. what the pits and the mills want this step (the pits have first call on the bodies, step 4). A Pit foreman
+	# (E3-3) multiplies its pit's burn and its weight in the pits' `wanted` (pit_weight), so the pit draws bodies m
+	# times as fast and the mint (GameState._mint, on pit_weight) raises m times its share: the raise follows the burn
 	var pits := 0
+	var pit_w := 0.0  # the working pits weighted by their foremen: float(pits) while none works
 	var pit_can := 0.0  # mass/s the staffed pits can burn
 	for e in _lists()["pits"]:  # [lot_id, pits, slots], the working pits in lot order
 		var p: int = e[1]
 		var slots: int = e[2]
 		pits += p
+		var m := _fm_lot(e[0])
+		pit_w += p * m
 		var frac := 1.0 if slots <= 0 else float(_by_lot.get(e[0], {}).get("pit", 0.0)) / slots
-		pit_can += _burn * p * frac
+		pit_can += _burn * p * frac * m
 	var want_pit := pit_can * dt
 	var want_mill := _mill_mass * _job("mill") * dt
 	var want := want_pit + want_mill
@@ -593,7 +622,9 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var b0 := bodies
 	var g0 := gold  # the gold and bone stores before the step (step 9's cap clip)
 	var bn0 := bone
-	var haul_in := _haul(dt, inp, _job("haul"), cap, out, b0, (rot_mass - want) / dt)
+	# (the crew: the haulers × their Charnel House's foreman multiplier, _job_w: a foreman multiplies the carry per
+	# hauler, and the fort's dead and the store's headroom still clamp the load after it)
+	var haul_in := _haul(dt, inp, _job_w("haul"), cap, out, b0, (rot_mass - want) / dt)
 
 	# 4. the store over the step: rot return and landings in, the pits and mills out, netted before
 	# the cap clips (MECHANICS §4.1), so a long step near the cap books no phantom overflow. What
@@ -636,15 +667,16 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	haul_in -= haul_over
 	out["burned"] = burned
 	out["milled"] = milled
-	var bone_in := milled * _mill_rate
+	var bone_in := milled * _mill_rate * _job_f("mill")  # a Bone Mill foreman multiplies the bone, not the bodies milled
 	bone += bone_in
-	var wanted := _burn * pits * dt
+	var wanted := _burn * pit_w * dt
 	out["pits"] = pits
 	out["feed"] = clampf(burned / wanted, 0.0, 1.0) if wanted > 0.0 else 0.0
 
-	# 4. stalls: gold = min(staffed · stall.rate, living · shop_rate) · price
+	# 4. stalls: gold = min(staffed · stall.rate, living · shop_rate) · price, × a Market foreman's multiplier after
+	# that cap (E3-3; trade_rate stays the sales)
 	var sales := minf(_job("stall") * _stall_rate, living * _shop_rate)
-	var gold_in := sales * _price * dt
+	var gold_in := sales * _price * _job_f("stall") * dt
 	gold += gold_in
 
 	# 5. the forge: work toward the next q level; a level completes only with its relics
@@ -652,7 +684,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var relics_left := int(inp.get("relics_available", 0))
 	var spent := 0
 	if int(forge["level"]) < _forge_work.size():
-		forge_work = _forge_rate * _job("forge") * dt
+		forge_work = _forge_rate * _job_w("forge") * dt  # a Forge foreman's smiths work m times as fast (E3-3)
 		forge["progress"] = float(forge["progress"]) + forge_work
 		while int(forge["level"]) < _forge_work.size():
 			var lvl := int(forge["level"])
@@ -725,7 +757,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	# them; the next step's _restaff() finds them current and has nothing to redo). The vats' hands are
 	# this step's tend staffing, as the forge's work is its own (GameState grows the vats on them, E3-2)
 	var tend := _job("tend")
-	out["vat_hands"] = vat_hands()
+	out["vat_hands"] = vat_work()  # each vat's tend hands × its Chapel's foreman multiplier: what it grows on (E3-3)
 	_restaff()
 	rates = {
 		"workers": {"in": r, "out": (float(wf["rot"]) + float(wf["muster"])) / dt, "rot": float(wf["rot"]) / dt,
@@ -1340,7 +1372,7 @@ func project_staffing(order: Array, vat_override: Dictionary) -> Dictionary:
 ## second (step 4's formula, before the gold cap's clip). Read from the state, not the last step's rates, so it
 ## holds after a new game or a load with no step run yet.
 func trade_income() -> float:
-	return minf(_job("stall") * _stall_rate, living * _shop_rate) * _price
+	return minf(_job("stall") * _stall_rate, living * _shop_rate) * _price * _job_f("stall")  # × a Market foreman's m (E3-3)
 
 
 ## Thrift's upkeep (E3-1): the gold upkeep per second of the working buildings and of the ones Thrift idles, what
@@ -1434,6 +1466,8 @@ func thrift_resume() -> Array:
 ##   it stands);
 ## each net clipped to 0 at its store's cap while it would rise. Also the working pits and their feed (burned /
 ## wanted), for the next step's mint (GameState._mint). `home`: Relish home (the lifetime). Pure: changes nothing.
+## The foremen (E3-3) count as in step(), on this staffing: a working foreman's building's gold, bone, crew (the
+## haul's scale) and pit (its burn and its weight in `pits`, a float like pit_weight) × its multiplier.
 ## Returns {workers, bodies, gold, bone, living, muster (workers/s), haul (mass/s), pits, feed}.
 func stance_flows(top: Array, muster: bool, thrift: Dictionary, home: bool, held_villages: int) -> Dictionary:
 	var bin := buildings.duplicate()  # shallow: a lot whose state changes gets its own copy
@@ -1451,7 +1485,7 @@ func stance_flows(top: Array, muster: bool, thrift: Dictionary, home: bool, held
 	var bonus := 0.0
 	var speed := 0.0
 	var attract := 0.0
-	var pits := 0
+	var pits := 0.0  # the working pits weighted by their foremen, as pit_weight (E3-3)
 	var want_pit := 0.0
 	var up_g := 0.0
 	var up_b := 0.0
@@ -1467,9 +1501,10 @@ func stance_flows(top: Array, muster: bool, thrift: Dictionary, home: bool, held
 		attract += _eff_b(b, "attract", _defs)
 		var p := int(_eff_b(b, "pits", _defs))
 		if p > 0:
-			pits += p
+			var m := _fm(lot_id, b, by_lot.get(lot_id, {})) if not foremen.is_empty() else 1.0  # its foreman (E3-3)
+			pits += p * m
 			var slots := _slots_b(b, "pit", _defs, _build_slots)
-			want_pit += _burn * p * (1.0 if slots <= 0 else float(by_lot.get(lot_id, {}).get("pit", 0.0)) / slots)
+			want_pit += _burn * p * (1.0 if slots <= 0 else float(by_lot.get(lot_id, {}).get("pit", 0.0)) / slots) * m
 	var life := _lifetime * (1.0 + bonus) / (_home_rot if home else 1.0)
 	# the workforce, instantaneous: staffed and idle as the allocation leaves them, the idle above the cap mustered
 	var staffed := maxf(0.0, workers - float(st["idle"]))
@@ -1481,12 +1516,15 @@ func stance_flows(top: Array, muster: bool, thrift: Dictionary, home: bool, held
 	var must := r - rot if w >= top_w - EPS and r > rot else 0.0
 	# the body store
 	var rot_in := rot * _mass * _body_return
-	var crew0 := _job("haul")
+	var crew0 := _job_w("haul")  # the crews as the carry counts them, foremen's multipliers in (E3-3)
 	var haul_rate := 0.0
 	if crew0 > 0.0 and not (haul["convoys"] as Array).is_empty():
-		haul_rate = float(rates.get("haul_trip", 0.0)) * (float(jobs.get("haul", {}).get("staffed", 0.0)) / crew0) \
+		var crew := _job_w_of("haul", float(jobs.get("haul", {}).get("staffed", 0.0)), by_lot, bin)
+		haul_rate = float(rates.get("haul_trip", 0.0)) * (crew / crew0) \
 			* ((1.0 + speed) / (1.0 + _sum_working("haul_speed_mult")))
-	var want_mill := _mill_mass * float(jobs.get("mill", {}).get("staffed", 0.0))
+	var stalls := float(jobs.get("stall", {}).get("staffed", 0.0))
+	var mills := float(jobs.get("mill", {}).get("staffed", 0.0))
+	var want_mill := _mill_mass * mills
 	var burned := want_pit
 	var milled := want_mill
 	if bodies <= EPS:
@@ -1495,10 +1533,10 @@ func stance_flows(top: Array, muster: bool, thrift: Dictionary, home: bool, held
 		milled = clampf(supply - burned, 0.0, want_mill)
 	var out := {
 		"workers": r - rot - must, "muster": must, "haul": haul_rate, "pits": pits,
-		"feed": clampf(burned / (_burn * pits), 0.0, 1.0) if pits > 0 and _burn > 0.0 else 0.0,
+		"feed": clampf(burned / (_burn * pits), 0.0, 1.0) if pits > 0.0 and _burn > 0.0 else 0.0,
 		"bodies": rot_in + haul_rate - burned - milled,
-		"gold": minf(float(jobs.get("stall", {}).get("staffed", 0.0)) * _stall_rate, living * _shop_rate) * _price - up_g,
-		"bone": milled * _mill_rate - up_b,
+		"gold": minf(stalls * _stall_rate, living * _shop_rate) * _price * _job_f_of("stall", stalls, by_lot, bin) - up_g,
+		"bone": milled * _mill_rate * _job_f_of("mill", mills, by_lot, bin) - up_b,
 		"living": float(held_villages) * _migrant_rate + attract - (living * _leave_rate if morale < _leave_below else 0.0),
 	}
 	for pair in [["bodies", bodies, body_cap()], ["gold", gold, gold_cap()], ["bone", bone, bone_cap()], ["living", living, living_cap()]]:
@@ -1551,6 +1589,130 @@ static func _slots_b(b: Dictionary, job: String, defs: Dictionary, build_slots: 
 
 func _job(job: String) -> float:
 	return float(staffing.get("jobs", {}).get(job, {}).get("staffed", 0.0))
+
+
+# ------------------------------------------------------------ the foremen ----
+## GameState's foremen (E3-3): lot_id -> {speed, presence} for every big undead placed `town:<lot_id>`
+## (GameState._sync_foremen). A change moves structure_rev, so the caches keyed on it (the build benefit's, the
+## stances' projections) are computed again; the rooms don't depend on the foremen.
+func set_foremen(map: Dictionary) -> void:
+	if map == foremen:
+		return
+	foremen = map.duplicate(true)
+	structure_rev += 1
+
+
+## Whether a foreman on `lot_id` works (E3-3, the run's manager's ruling; MECHANICS §4.2): one stands there and the
+## building `b` has job slots in buildings.json (a passive building has no work to lead), is working (TownSim's state
+## active or idle: built, paid, not mid-upgrade, not idled by Thrift) and has hands staffed (`st`, its staffing by
+## job; with them the restaff marks it `active`). Anywhere else a foreman is allowed and gives nothing.
+func _fm_works(lot_id: String, b: Dictionary, st: Dictionary) -> bool:
+	if not foremen.has(lot_id) or b.is_empty() or not WORKING.has(b["state"]) or not bool(_defs[b["building_id"]]["has_jobs"]):
+		return false
+	for j in st:
+		if float(st[j]) > 0.0:
+			return true
+	return false
+
+
+## The multiplier the building `b` on `lot_id` gets on its job output: foreman.mult + speed · foreman.speed_k while
+## its foreman works (_fm_works, on the staffing `st`), else 1.0.
+func _fm(lot_id: String, b: Dictionary, st: Dictionary) -> float:
+	if not _fm_works(lot_id, b, st):
+		return 1.0
+	return _f_mult + float(foremen[lot_id]["speed"]) * _f_speed_k
+
+
+## _fm for the building on `lot_id` now, on the staffing the last restaff left.
+func _fm_lot(lot_id: String) -> float:
+	if foremen.is_empty() or not foremen.has(lot_id):
+		return 1.0
+	return _fm(lot_id, buildings.get(lot_id, {}), _by_lot.get(lot_id, {}))
+
+
+## `job`'s hands as its output counts them: `plain` (the job's hands, staffing's total) plus, for each lot whose
+## foreman works, its hands there × (m − 1), on the staffing `by_lot` and the buildings `bin` (today's, or a
+## projection's). So Σ hands × m over the lots, and `plain` exactly while no foreman works.
+func _job_w_of(job: String, plain: float, by_lot: Dictionary, bin: Dictionary) -> float:
+	if foremen.is_empty():
+		return plain
+	var w := plain
+	for lot_id in foremen:
+		var st: Dictionary = by_lot.get(lot_id, {})
+		var h := float(st.get(job, 0.0))
+		if h > 0.0:
+			w += h * (_fm(lot_id, bin.get(lot_id, {}), st) - 1.0)
+	return w
+
+
+## _job_w_of's hands over the plain ones: the factor a job's output gets from its foremen (1.0 while none works there,
+## or with no hands).
+func _job_f_of(job: String, plain: float, by_lot: Dictionary, bin: Dictionary) -> float:
+	if foremen.is_empty() or not (plain > 0.0):
+		return 1.0
+	return _job_w_of(job, plain, by_lot, bin) / plain
+
+
+## _job_w_of today: the haulers' crew and the smiths' work (step 3, step 5).
+func _job_w(job: String) -> float:
+	return _job_w_of(job, _job(job), _by_lot, buildings)
+
+
+## _job_f_of today: the stalls' gold and the mills' bone (step 4).
+func _job_f(job: String) -> float:
+	return _job_f_of(job, _job(job), _by_lot, buildings)
+
+
+## view_town's `foreman_mult` (E3-3, STATE-API §5.9): the multiplier the building on `lot_id` gets from its foreman
+## now; 1.0 with none, and where one gives nothing (_fm_works: a passive, unpaid, Thrift-idled, mid-upgrade or
+## unstaffed building).
+func foreman_mult(lot_id: String) -> float:
+	return _fm_lot(lot_id)
+
+
+## The working pits weighted by their foremen (E3-3): Σ pits × _fm over the working pits. The mint counts it
+## (GameState._mint's pit term) and so do the pits' `wanted` (step 2), so a Pit foreman's pit raises m times its
+## share while it burns m times as much: the raise follows the burn. float(pits()) while no foreman works.
+func pit_weight() -> float:
+	if foremen.is_empty():
+		return float(pits())
+	var n := 0.0
+	for e in _lists()["pits"]:
+		n += int(e[1]) * _fm_lot(e[0])
+	return n
+
+
+## vat_hands() as the vats grow on them (E3-3): each vat's tend hands × its Chapel's foreman multiplier, the factor
+## GameState._grow_vats grows a vat by (step()'s `vat_hands`). vat_hands() itself while no foreman works.
+func vat_work() -> Array:
+	var hands := vat_hands()
+	if foremen.is_empty() or hands.is_empty():
+		return hands
+	var at := 0
+	for lot_id in _lots:
+		var b: Dictionary = buildings.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var n := int(_eff(b, "vat_slots"))
+		if n <= 0:
+			continue
+		var m := _fm_lot(lot_id)
+		for i in range(at, mini(at + n, hands.size())):
+			hands[i] = float(hands[i]) * m
+		at += n
+	return hands
+
+
+## The working foremen's presence (E3-3): Σ foreman.presence_k · presence over the foremen that work (_fm_works),
+## the morale target's `foreman` term. 0 while none works.
+func _foreman_presence() -> float:
+	if foremen.is_empty():
+		return 0.0
+	var s := 0.0
+	for lot_id in foremen:
+		if _fm_works(lot_id, buildings.get(lot_id, {}), _by_lot.get(lot_id, {})):
+			s += _f_presence_k * float(foremen[lot_id]["presence"])
+	return s
 
 
 # ------------------------------------------------------- effects and caps ----
@@ -1671,30 +1833,33 @@ func lot_slots(lot_id: String) -> int:
 ## share of the town's sales; millers {bone}; haulers {bodies}, their share of `haul_rate` (the
 ## trip-averaged haul, which GameState passes in with the realm's P_per_pit); smiths {forge} (work/s,
 ## while a forge level is left); an inn {living} (its migrants). {} during a first build or while unpaid.
+## A working foreman's building (E3-3) shows its outputs × its multiplier (_fm_lot); its haulers' share is of
+## the crew as the carry counts it (_job_w).
 func lot_output(lot_id: String, mint_per_pit: float, haul_rate: float) -> Dictionary:
 	var b: Dictionary = buildings.get(lot_id, {})
 	var out := {}
 	if b.is_empty() or not _works(b):
 		return out
 	var st: Dictionary = _by_lot.get(lot_id, {})
+	var m := _fm_lot(lot_id)  # its foreman's multiplier (E3-3): 1.0 with none working there
 	var p := _eff(b, "pits")
 	if p > 0.0:
 		var slots := _slots(b, "pit")
 		var frac := 1.0 if slots <= 0 else float(st.get("pit", 0.0)) / slots
-		out["mint"] = mint_per_pit * p
-		out["burn"] = _burn * p * frac
+		out["mint"] = mint_per_pit * p * m
+		out["burn"] = _burn * p * frac * m
 	var stall := float(st.get("stall", 0.0))
 	if stall > 0.0:
-		out["gold"] = minf(_job("stall") * _stall_rate, living * _shop_rate) * _price * (stall / _job("stall"))
+		out["gold"] = minf(_job("stall") * _stall_rate, living * _shop_rate) * _price * (stall / _job("stall")) * m
 	var mill := float(st.get("mill", 0.0))
 	if mill > 0.0:
-		out["bone"] = mill * _mill_mass * _mill_rate
+		out["bone"] = mill * _mill_mass * _mill_rate * m
 	var haul_n := float(st.get("haul", 0.0))
 	if haul_n > 0.0:
-		out["bodies"] = haul_rate * (haul_n / _job("haul"))
+		out["bodies"] = haul_rate * (haul_n * m / _job_w("haul"))  # its share of the convoy's crew, as the carry counts it
 	var smiths := float(st.get("forge", 0.0))
 	if smiths > 0.0 and int(forge["level"]) < _forge_work.size():
-		out["forge"] = smiths * _forge_rate
+		out["forge"] = smiths * _forge_rate * m
 	var attract := _eff(b, "attract")
 	if attract > 0.0:
 		out["living"] = attract
@@ -1712,12 +1877,16 @@ func lifetime_s(relish_home: bool) -> float:
 
 
 ## The morale target's terms for view_town: base, amenity:<building_id> (working buildings'
-## `morale`, summed per building id in lot order), dread and shock (each only when non-zero).
+## `morale`, summed per building id in lot order), foreman (E3-3: the working foremen's presence ×
+## foreman.presence_k, _foreman_presence), dread and shock (each of the last three only when non-zero).
 func morale_factors() -> Array:
 	var out: Array = [{"id": "base", "delta": _morale_base}]
 	var amen: Dictionary = _lists()["amen"]
 	for id in amen:
 		out.append({"id": "amenity:" + str(id), "delta": amen[id]})
+	var fp := _foreman_presence()  # E3-3: the working foremen's presence
+	if fp != 0.0:
+		out.append({"id": "foreman", "delta": fp})
 	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
 	if dread > 0.0:
 		out.append({"id": "dread", "delta": -dread})
@@ -1734,6 +1903,9 @@ func morale_target() -> float:
 	var amen: Dictionary = _lists()["amen"]
 	for id in amen:
 		s += float(amen[id])
+	var fp := _foreman_presence()
+	if fp != 0.0:
+		s += fp
 	var dread := maxf(0.0, workers / maxf(living, 1.0) - _dread_ratio) * _dread_k
 	if dread > 0.0:
 		s += -dread
