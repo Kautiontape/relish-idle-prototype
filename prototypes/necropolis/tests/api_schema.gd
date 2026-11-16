@@ -86,7 +86,7 @@ const COMMANDS := {
 	"cmd_demolish": {},
 	"cmd_cancel_build": {"refund": COST},
 	# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
-	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I},
+	"cmd_queue_build": {"index": I, "cap_building": S, "store": S, "cap_level": I, "affordable_in_s": F},
 	"cmd_unqueue": {},
 	"cmd_reorder_queue": {},
 	"cmd_set_job_priority": {"order": [S]},
