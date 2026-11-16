@@ -126,8 +126,15 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   step at the first and last; fort combat solves the second), and TownSim solves a store hitting its
   cap inside its step, so catch-up doesn't clip at them. A gated queue entry starts on a tier rise or a
   building finishing, which are clipped already.
-- First-order quantities (worker rot, `q`, the EMAs, vats) use the exact update
+- First-order quantities (worker rot, `q`, the EMAs) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
+- **The vats** (E3-2, MECHANICS §7) grow linearly, `min(1, grow + vats.grow_per_s · hands · dt)` on the step's tend
+  hands, which is exact at any step. **Catch-up doesn't clip at a vat's fill:** it raises no event, and though
+  `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
+  run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
+  pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
+  (`test_backups`). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  away report; `test_backups`).
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
   (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;

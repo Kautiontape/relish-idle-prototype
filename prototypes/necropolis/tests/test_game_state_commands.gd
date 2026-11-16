@@ -350,8 +350,9 @@ func _vats() -> void:
 	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)
 	t.ok(s.cmd_staff_vat(1, true) == {"ok": true, "reason": "", "staffed": true}, "staff vat 1")
 	v = s.view_backups()
-	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 1.0, "ready": true},
-		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}], "a level-1 Chapel is 2 vats, one ready for the clone; staffing echoed")
+	t.ok(v["clones_ready"] == 1 and v["vats"] == [{"slot": 0, "staffed": false, "grow": 0.0, "ready": false},
+		{"slot": 1, "staffed": true, "grow": 0.0, "ready": false}],
+		"a level-1 Chapel is 2 empty vats (E3-2: a vat holds only the clone it grew; the clone set before it is a spare one); staffing echoed")
 	t.ok(v["death"]["outcome"] == "clone" and v["death"]["loses"] == ["unbanked_loot"], "with a clone: no morale shock")
 	s.cmd_debug_grant({"big_undead": 1})
 	s.cmd_set_party([s.big_undead[0]["uid"]])

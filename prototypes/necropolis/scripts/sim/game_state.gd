@@ -57,7 +57,9 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# E3-1: the stances (MECHANICS §4.5; _stance_step): the hold, the ladder stances' jobs and order, the
 	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
 	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
-	"economy.stance.hearth_morale", "pulse.tempo_ms"]
+	"economy.stance.hearth_morale", "pulse.tempo_ms",
+	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats)
+	"backups.vats.grow_per_s"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -151,9 +153,23 @@ var stances_on: Array = []  # stance ids switched on, oldest first; the newest a
 ## waited_on: String}] in order, at most economy.json queue.max_len. Saved (an optional `queue` key).
 var build_queue: Array = []
 var vats_staffed: Array = []  # bool per vat slot
-## view_backups' stub stock (E3 grows clones in vats): ready clones. A death spends one (§8.3 step
-## 10, the E1-safe rule); the vat slots are these clones until E3.
-var clones_ready := 0
+## E3-2 (MECHANICS §7): each vat's clone, 0..1 per vat slot (view_backups' numbering; a slot past the end reads
+## 0). It grows at backups.json vats.grow_per_s × the vat's tend hands (TownSim.vat_hands) in the core step's
+## backups step (_grow_vats), and a vat at 1 holds a ready clone. Saved as backups.vats[].grow.
+var vats_grow: Array = []
+## Ready clones kept outside the vats (the old-save rule, MECHANICS §7): a save's clones_ready above its vats
+## at 1, and the ready clone of a vat that no longer exists (its Chapel demolished). Saved inside clones_ready.
+var _clones_spare := 0
+## Ready clones (view_backups.clones_ready): the vats at 1 plus the spare ones. No longer a free stock (E3-2).
+## A death spends one (spend_clones: the lowest ready vat first, then a spare). Setting it (tests, a fixture's
+## generator) sets the total: the spare clones make up what the vats at 1 don't hold, and a total below them
+## empties ready vats from the lowest slot.
+var clones_ready: int:
+	get:
+		return _vats_ready() + _clones_spare
+	set(v):
+		_set_clones_ready(v)
+var _grow_per_s := 0.0  # backups.json vats.grow_per_s
 # --- E3 placeholders: saved and restored so a fixture can carry them; nothing reads them yet ---
 var _phylactery_charges := 0  # backups.phylactery_charges (E3)
 # --- the stances (E3-1, MECHANICS §4.5; _stance_step). Saved as `stances`: hold, and the optional `state` ---
@@ -306,6 +322,7 @@ func setup(cfgs: Dictionary) -> void:
 	_stance_hold_s = _req_f("economy.stance.hold_s")
 	_harvest_frac = _req_f("economy.stance.harvest_bodies_frac")
 	_hearth_morale = _req_f("economy.stance.hearth_morale")
+	_grow_per_s = _req_f("backups.vats.grow_per_s")
 	var pri: Variant = _req("economy.stance.priority")
 	var top: Variant = _req("economy.stance.top_job")
 	_stance_priority = (pri as Array).duplicate() if pri is Array else []
@@ -554,7 +571,8 @@ func cmd_new_game(seed: int) -> Dictionary:
 	cleared_forts = {}
 	_ledger.reset(Ledger.total(_held()))  # the opening: what the board holds now
 	_phylactery_charges = 0
-	clones_ready = 0
+	vats_grow = []
+	_clones_spare = 0
 	_readout = {"diff_ema": 0.0, "q_raise_ema": 50.0}
 	_diff = 0.0
 	_stance_hold = {}
@@ -1503,20 +1521,89 @@ func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
 	return {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}
 
 
-## Vat slots: the Chapel of Vats' `vat_slots` per level (E3 makes them grow clones).
+## Vat slots: the Chapel of Vats' `vat_slots` per level, over every built Chapel (MECHANICS §7).
 func _vat_slots() -> int:
 	return int(town_sim.built_effect("vat_slots"))
 
 
-## A vat as view_backups and the save show it. Until E3 a vat is ready while a clone stock covers it.
+## A vat's clone, 0..1 (vats_grow; a slot it doesn't reach reads 0).
+func _vat_grow(i: int) -> float:
+	return float(vats_grow[i]) if i < vats_grow.size() else 0.0
+
+
+## A vat as view_backups and the save show it (E3-2): its clone's `grow`, ready at 1.
 func _vat_entry(i: int) -> Dictionary:
-	var ready := i < clones_ready
-	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": 1.0 if ready else 0.0, "ready": ready}
+	var g := _vat_grow(i)
+	return {"slot": i, "staffed": i < vats_staffed.size() and bool(vats_staffed[i]), "grow": g, "ready": g >= 1.0}
+
+
+## The vats holding a ready clone (grow at 1). Every entry of vats_grow counts, so a Chapel demolished between
+## two core steps keeps its ready clones until the next backups step moves them to the spare ones (_grow_vats).
+func _vats_ready() -> int:
+	var n := 0
+	for g in vats_grow:
+		if float(g) >= 1.0:
+			n += 1
+	return n
+
+
+## clones_ready's setter: the total becomes `v` (≥ 0). The spare clones make up what the vats at 1 don't hold;
+## a total below the vats at 1 empties ready vats from the lowest slot (and no spare is left).
+func _set_clones_ready(v: int) -> void:
+	var want := maxi(0, v)
+	var in_vats := _vats_ready()
+	if want >= in_vats:
+		_clones_spare = want - in_vats
+		return
+	_clones_spare = 0
+	var drop := in_vats - want
+	for i in vats_grow.size():
+		if drop <= 0:
+			break
+		if float(vats_grow[i]) >= 1.0:
+			vats_grow[i] = 0.0
+			drop -= 1
+
+
+## Spends `n` ready clones (a death's, a boss fight's; MECHANICS §7): each empties the lowest ready vat back to 0,
+## so it grows again, and only when no vat is ready does it take a spare clone (which never regrows). Stops when
+## none is left. Returns the clones spent.
+func spend_clones(n: int) -> int:
+	var spent := 0
+	for i in vats_grow.size():
+		if spent >= n:
+			break
+		if float(vats_grow[i]) >= 1.0:
+			vats_grow[i] = 0.0
+			spent += 1
+	var spare := mini(n - spent, _clones_spare)
+	_clones_spare -= spare
+	return spent + spare
+
+
+## The core step's backups step (STATE-API §3 step 6; E3-2, MECHANICS §7), at `dt`: each vat grows by
+## vats.grow_per_s × its hands × dt, clamped at 1 (linear, so the update is exact at any step: IDLE §4), on the
+## hands TownSim's step staffed it with (`hands`, TownSim.vat_hands: [] while no vat is staffed, so nothing moves).
+## A vat past the Chapels' slots now (its Chapel demolished) is dropped, its ready clone kept as a spare.
+func _grow_vats(dt: float, hands: Array) -> void:
+	for i in hands.size():
+		var h := float(hands[i])
+		if h <= 0.0:
+			continue
+		while vats_grow.size() <= i:
+			vats_grow.append(0.0)
+		vats_grow[i] = minf(1.0, float(vats_grow[i]) + _grow_per_s * h * dt)
+	var n := _vat_slots()
+	if vats_grow.size() > n:
+		for i in range(n, vats_grow.size()):
+			if float(vats_grow[i]) >= 1.0:
+				_clones_spare += 1
+		vats_grow.resize(n)
 
 
 ## E1/E3 (the hand E2b-2): stores the staffing, and a staffed vat takes a hand: its tend slot opens
 ## and the ladder fills it like any other; unstaffing it closes the slot and gives the hand back
-## (MECHANICS §7). Clones grow only while staffed from E3.
+## (MECHANICS §7). From E3-2 its clone grows while it is tended (_grow_vats); unstaffed, it keeps its progress.
 func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"staffed": false})
@@ -2039,8 +2126,7 @@ func view_party() -> Dictionary:
 	return StateViews.party(self)
 
 
-## §5.13 · E3. Until E3: clones_ready is the stub stock and each ready clone is a vat slot; the
-## E1-safe death rule (a clone if one is ready, else unmade with the morale shock) with an
+## §5.13 · E3. The vats are live from E3-2 (StateViews.backups); the death is still the E1-safe rule with an
 ## immediate respawn.
 func view_backups() -> Dictionary:
 	return StateViews.backups(self)
@@ -2348,6 +2434,8 @@ func _core_step(dt: float) -> Array:
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
 	var evs := _emit_realm(realm.drain_timed(), dt, mark)
+	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them
+	_grow_vats(dt, town["vat_hands"])
 	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
 	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
 	# ten a step); the keys are the ledger's fixed set

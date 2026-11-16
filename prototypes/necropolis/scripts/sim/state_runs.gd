@@ -280,15 +280,13 @@ static func view_boss_seed(gs: GameState) -> Dictionary:
 
 
 ## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
-## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
-## The caller has closed the run.
+## spent: the lowest ready vat empties back to 0, else a spare clone goes; GameState.spend_clones, E3-2), else
+## she is unmade and the town takes morale.death_shock; she respawns home at once. The caller has closed the run.
 static func death(gs: GameState, run_id: int) -> void:
 	gs.stats["deaths"] += 1
 	var at_node: String = gs.relish["at"]
-	var clone := gs.clones_ready > 0
-	if clone:
-		gs.clones_ready -= 1
-	else:
+	var clone := gs.spend_clones(1) == 1
+	if not clone:
 		gs.town_sim.add_shock(gs._req_f("economy.morale.death_shock"))
 	gs._emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
 		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
@@ -492,7 +490,7 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	for uid in r["party_lost"]:
 		remove_big_undead(gs, uid)
 	gs._phylactery_charges = maxi(0, gs._phylactery_charges - int(bs["phylactery"]))
-	gs.clones_ready = maxi(0, gs.clones_ready - clones)
+	gs.spend_clones(clones)  # the lowest ready vats first, then spare clones (E3-2; clamped at what is ready)
 	gs.run = {}
 	var cleared: Array = []
 	for fid in r["fronts_cleared"]:

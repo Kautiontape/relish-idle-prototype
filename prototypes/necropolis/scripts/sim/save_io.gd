@@ -728,14 +728,22 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	for u in m["party"]:
 		gs.party_uids.append(str(u))
 	gs.vats_staffed = []
+	gs.vats_grow = []
 	for v in m["backups"]["vats"]:
 		var slot := int(v["slot"])
 		if slot >= 0 and slot < 1024:
 			while gs.vats_staffed.size() <= slot:
 				gs.vats_staffed.append(false)
 			gs.vats_staffed[slot] = bool(v["staffed"])
+			# E3-2: each vat's clone is read back (the save always wrote it: until E3 1.0 for a slot a clone covered)
+			while gs.vats_grow.size() <= slot:
+				gs.vats_grow.append(0.0)
+			gs.vats_grow[slot] = clampf(float(v["grow"]), 0.0, 1.0)
 	gs._phylactery_charges = int(m["backups"]["phylactery_charges"])
-	gs.clones_ready = maxi(0, int(m["backups"]["clones_ready"]))
+	# the old-save rule (E3-2, MECHANICS §7): the vats' grow is the truth, and a clones_ready above the vats at 1 (a
+	# save from before E3 with clones and no Chapel, more clones than vats, a Chapel demolished) is kept as spare
+	# clones outside the vats, so a load never loses a clone; one below them reads the vats
+	gs._clones_spare = maxi(0, int(m["backups"]["clones_ready"]) - gs._vats_ready())
 	# an E1 save's q_raise_ema is the placeholder 0.0: it loads as the neutral 50 (an EMA that starts
 	# at 50 can never reach exactly 0)
 	var qe := float(m["readout"]["q_raise_ema"])

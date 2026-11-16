@@ -562,9 +562,9 @@ static func party(gs: GameState) -> Dictionary:
 		"starter_units": gs._starter_units(fid), "strength": 0.0}
 
 
-## §5.13 · E3. Until E3: clones_ready is the stub stock and each ready clone is a vat slot; the
-## E1-safe death rule (a clone if one is ready, else unmade with the morale shock) with an
-## immediate respawn.
+## §5.13 · E3. From E3-2 the vats are live: each vat's `grow` is its clone (GameState.vats_grow, grown while it is
+## tended), ready at 1, and clones_ready is the vats at 1 plus any spare clones (the old-save rule). The death is
+## still the E1-safe rule (a clone if one is ready, else unmade with the morale shock) with an immediate respawn.
 static func backups(gs: GameState) -> Dictionary:
 	var n := gs._vat_slots()
 	var vats: Array = []

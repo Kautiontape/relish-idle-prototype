@@ -234,6 +234,18 @@ from `BALANCE.md` §0.
     building stopped, by the gold running out or by Thrift. No new kind or target, so `AWAY_KINDS` stands;
   - the build card's `projected` and `upgrade_projected` (§5.10) are computed on TownSim as the stances leave it
     (its effective ladder, idle cap and Thrift's buildings).
+
+  E3-2 (the backups, MECHANICS §7) adds no key (`tests/api_schema.gd` unchanged; the save shape unchanged). Changes
+  of meaning (stubs going live):
+  - **clones grow** (§3 step 6, §4.3 `cmd_staff_vat`): a vat grows at `vats.grow_per_s` × its tend hands while staffed
+    and tended, the Chapel's tend hands going to its staffed vats in slot order (it never grew);
+  - **§5.13 `view_backups`**: `vats[].grow` is live and `ready` is `grow` at 1, and `clones_ready` is the vats at 1
+    plus any spare clones (was: a plain stock, slot `i` ready while `i < clones_ready`). The same `clones_ready` is in
+    `view_relish` (§5.8) and both seeds (§7.1, §7.2);
+  - **§8.3** a death's clone (raid step 10, boss step 4) and a boss fight's `backups_spent.clones` (boss step 3) empty
+    the lowest ready vat back to 0, then a spare clone (was: the stock −1);
+  - **§9.1 `backups`**: each vat's `grow` is read back, and the old-save rule reads a `clones_ready` above the vats at 1
+    as spare clones (was: only `staffed` read back, `clones_ready` the stock).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -549,7 +561,9 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      `tithe_warning` and `tithe_wave`. `tide_fort` is also where Relish stands, so a surge there
      is halved; `siege_block` (fort id → the fraction of a surge a siege cancels) is `{}` until E3.
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
-     respawn. Emits `relish_respawned`.
+     respawn. Emits `relish_respawned`. (v8, E3-2; MECHANICS §7) Each vat grows by `vats.grow_per_s` × its tend
+     hands × `dt`, clamped at 1, on the hands TownSim's step (step 3) staffed it with; a vat whose Chapel is gone
+     leaves its ready clone as a spare. Linear, so catch-up runs it the same way at its own `dt`, exactly.
   7. **The ledger.** Books the substep's mint (source) and its sinks: TownSim's rot loss, rot and
      haul overflow, pit burn and milling, and RealmSim's `k_clear` (§4.7). `held` is read live.
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
@@ -943,7 +957,8 @@ Game.state.cmd_deploy_simulacrum("vespers")  # -> {ok: true, reason: "", charges
 - **Args:** `slot` is 0..`vat_slots - 1`.
 - **Extras:** `staffed: bool`.
 - **Reasons:** `unknown_slot`.
-- A clone grows only while its vat is staffed (E3).
+- A clone grows only while its vat is staffed and tended (v8, E3-2; MECHANICS §7): at `vats.grow_per_s` × the vat's
+  tend hands (0..1), the Chapel's tend hands going to its staffed vats in slot order. Unstaffed, a vat keeps its `grow`.
 - **Effect (E2b-2, api_version 5): a staffed vat takes a hand** (MECHANICS §7). A Chapel of Vats
   offers one tend slot per vat, open only while that vat is staffed. `true` opens the vat's slot at
   once and the ladder fills it like any other room (an idle worker if there is one, else the lowest
@@ -1060,9 +1075,9 @@ T3.3c; api-request #4, IDLE I5)
     minted uids), `rev` rises by 1, and Relish is `at_fort`. Nothing else moves (no kill, no flip);
   - **a `relish_died` checkpoint** applies `StateRuns.death` at the end: a ready clone is spent
     (`clones_ready` −1) or she is unmade, by `clones_ready` as it stands when the end is applied, not as the
-    scene saw it at the death beat (the seed's `death_ends`). Until E3 the stock only changes by debug grants,
-    so the two agree; once vats grow clones, `clones_ready` can drift between the beat and the end and the
-    outcome follow it. The in-run phylactery revives are not applied (`revived_in_place` 0), so
+    scene saw it at the death beat (the seed's `death_ends`). Since E3-2 (v8) the vats grow clones, so
+    `clones_ready` can rise between the beat and the end (a vat filling meanwhile) and the outcome follows it: a
+    death the scene saw as unmade can end as a clone. The in-run phylactery revives are not applied (`revived_in_place` 0), so
     `phylactery_charges` is not spent for them either.
 - **A boss run** has no checkpoint; an ended boss run is forfeited as `cmd_abort_dungeon` forfeits it (no
   writeback, the party intact, Relish `at_vei`, its id not an applied run: a late result is `wrong_run`).
@@ -1850,9 +1865,11 @@ view_party():      {rev: 3, party: [{uid: "u4", ...}], fort_id: "old-sluice", ga
 ```
 
 ### 5.13 `view_backups()` · E3
-Until E3 `clones_ready` is a plain stock (GameState's, saved in `backups`; the fixtures and tests set
-it, no system grows one yet). From T2.4 the vats are the Chapel of Vats' `vat_slots` per level (none
-without a Chapel): slot `i` is `ready` (`grow` 1.0) while `i < clones_ready`, else `grow` 0.0. The
+The vats are the Chapel of Vats' `vat_slots` per level over every built Chapel (none without one; from T2.4).
+From E3-2 (v8) they are live (MECHANICS §7): each vat's `grow` is its clone, 0..1, growing at `vats.grow_per_s` ×
+its tend hands while it is staffed and tended, and `ready` at 1. `clones_ready` is the vats at 1 plus any spare
+clones (the old-save rule: a save's clones above its vats at 1, a demolished Chapel's ready clones), no longer a
+plain stock (until E3-2 it was GameState's stock, and slot `i` read `ready` while `i < clones_ready`). The
 phylactery charges are stored as is. `death` follows the E1-safe rule of §8.3 step 10.
 | key | type | meaning |
 |---|---|---|
@@ -2525,8 +2542,13 @@ take the router's legacy path (§2.3).
   when continuing would have); `fired_beat_id` so the stances read the same after a load (a beat is
   `floor(t / beat_s)` of the saved `t`). Thrift's idled buildings are saved in the town block, as state `thrift`.
   Which stances act is not saved: a load recomputes it from these and gives TownSim their effects.
-- `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` (the stub stock, read back) and
-  `vats` (one per ready clone until E3; only `staffed` is read back).
+- `backups`: `phylactery_charges` (E3, stored as is), `clones_ready` and `vats` (one per vat slot). From E3-2 (v8)
+  each vat's `grow` is read back as well as `staffed` (until E3-2 only `staffed` was, and `grow` was written 1.0 for
+  a slot a clone covered), and `clones_ready` is written as the total, the vats at 1 plus the spare clones. **The
+  old-save rule** (MECHANICS §7): the vats' `grow` is the truth, and a `clones_ready` above the vats at 1 loads the
+  excess as spare clones outside the vats, so a load never loses a clone (a v1 save's legacy vats, a save whose Chapel
+  was demolished); one below them reads the vats. The fixtures agree already (pre_vei: 1 clone, its vat 0 at 1.0)
+  and load as they are. No key is added, so the save shape and `SAVE_VERSION` are unchanged.
 - `readout`: `diff_ema` (the differential's EMA) and `q_raise_ema` (E2a: `ema_score`, the
   mass-weighted circle EMA behind `q_raise`, MECHANICS §2.2; a new game starts it at 50, and an E1
   save's placeholder 0.0 loads as 50, which the EMA can never reach exactly from 50).

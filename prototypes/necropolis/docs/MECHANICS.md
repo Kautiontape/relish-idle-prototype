@@ -1522,7 +1522,30 @@ T3.3c) banks the same bound: the dungeon tells GameState what is banked at every
 `at_fort`), or as the win or the death when the checkpoint came at the warden's victory beat or the death
 beat. Whatever was found since is lost.
 
-**Clones** grow at `vats.grow_per_s` per **staffed** vat, from 0 to 1, one clone per vat.
+**Clones** grow in the vats, from 0 to 1, one clone per vat (E3-2; the run's manager's vat rule: growth ties to the
+vats). A vat at 1 holds a ready clone, and `clones_ready` is the vats at 1, plus any spare clones (below): no longer a
+free stock.
+- **Growth:** a vat grows at `vats.grow_per_s` × its tend hands (0..1) per second (the core step's backups step,
+  STATE-API §3 step 6), so a fully tended vat at `grow` is ready in (1 − grow) / `grow_per_s` (an empty one in 300
+  s). It doesn't grow while unstaffed, or while staffed but untended (its slot is open but the ladder gave the hands to
+  the rooms above it). Unstaffing it stops the growth and keeps the progress. An unpaid Chapel offers no tend slot
+  (below), and nor does one Thrift idles, so their vats stop too. The Vigil stance puts tend on top (§4.5).
+- **The hands per vat:** tend workers are staffed per Chapel, not per vat (the ladder fills a Chapel's tend room),
+  so a Chapel's tend hands go to its staffed vats in slot order, one hand each, the lowest slot first
+  (`TownSim.vat_hands`), as the ladder fills its rooms top-down: 1.5 hands on two staffed vats grow the first at the
+  full rate and the second at half. A ready vat that stays staffed keeps its hand (it can't grow past 1).
+- **Spending:** a death that spends a clone empties the lowest ready vat back to 0, so it grows again; only when no
+  vat is ready does it take a spare clone, which never regrows. The boss fight's spent clones (§8.2
+  `backups_spent.clones`) follow the same order.
+- **Spare clones, the old-save rule:** the vats' `grow` is the truth. A save whose `clones_ready` is above its vats
+  at 1 keeps the excess as spare clones outside the vats, so a load never loses a clone; one below them reads the
+  vats. Real saves reach it: a v1 save's legacy vats load as clones with no Chapel (STATE-API §9.1), and a save from
+  before E3 whose Chapel was demolished kept its stub clones. From E3-2 a demolished Chapel's ready clones become
+  spare clones at the next core step, and a Chapel built again starts empty. The save writes `clones_ready` as the
+  total, so its shape is unchanged.
+- **Catch-up** doesn't clip at a vat's fill (IDLE §4): the growth is linear and clamps at 1, so each step's update is
+  exact at any length, the fill raises no event, and nothing inside a catch-up reads it (no run is open during one).
+
 `view_backups` always shows what a death would cost right now.
 
 **A staffed vat takes a hand** (E2b-2, the run's manager). A Chapel of Vats offers one tend slot per
@@ -1533,7 +1556,7 @@ gives it: an idle worker if there is one, else the lowest room staffed below it.
 closes the slot and the hand goes back to the ladder's next room, or idles. The vats are numbered
 as `view_backups` numbers them: in lot order over every built Chapel (unpaid or mid-upgrade too, at
 its built level), then by vat within it. An unpaid Chapel keeps its numbers but offers no slot.
-Clone growth isn't tied to the tenders yet (E3).
+From E3-2 the tend hand is what grows the vat's clone (above).
 - **Measured:** a save with a Chapel and no staffed vat loses its tenders to the ladder. pre_vei
   (two unstaffed vats, 35 workers on 25 slots, the idle pool at its cap of 10) has 2 tenders fewer:
   they go idle, which puts the idle pool 2 over its cap, so its first step musters 2 workers (80

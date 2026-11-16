@@ -555,7 +555,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	_pending = []
 	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "relics_spent": 0,
 		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0,
-		"gold_overflow": 0.0, "bone_overflow": 0.0, "events": events}
+		"gold_overflow": 0.0, "bone_overflow": 0.0, "vat_hands": [], "events": events}
 	if not is_finite(dt) or dt <= 0.0:
 		out["rates"] = rates.duplicate(true)
 		return out
@@ -722,8 +722,10 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	out["bone_overflow"] = b_over
 
 	# 10. rates for the views; the staffing and the states at the step's end (views and saves read
-	# them; the next step's _restaff() finds them current and has nothing to redo)
+	# them; the next step's _restaff() finds them current and has nothing to redo). The vats' hands are
+	# this step's tend staffing, as the forge's work is its own (GameState grows the vats on them, E3-2)
 	var tend := _job("tend")
+	out["vat_hands"] = vat_hands()
 	_restaff()
 	rates = {
 		"workers": {"in": r, "out": (float(wf["rot"]) + float(wf["muster"])) / dt, "rot": float(wf["rot"]) / dt,
@@ -1185,6 +1187,35 @@ static func tend_open(lots: Array, buildings_in: Dictionary, defs: Dictionary, v
 			if i < vats.size() and bool(vats[i]):
 				on += 1
 		out[lot_id] = on
+		at += n
+	return out
+
+
+## The hands on each vat now (E3-2, MECHANICS §7), by vat slot (tend_open's numbering, view_backups'): tend
+## workers are staffed per Chapel, not per vat, so a Chapel's tend staffing fills its staffed vats in slot order,
+## one hand each, the lowest slot first, as the ladder fills its rooms top-down. With s hands on a Chapel's k
+## staffed vats, the first floor(s) have 1, the next s − floor(s), the rest 0; an unstaffed vat has 0, and so does
+## every vat of a Chapel that offers no tend slot (unpaid, idled by Thrift). [] while no vat is staffed. step()
+## reports it for the step's own staffing (`vat_hands`), before its end restaff.
+func vat_hands() -> Array:
+	if _vats.is_empty():
+		return []
+	var out: Array = []
+	var at := 0
+	for lot_id in _lots:
+		var b: Dictionary = buildings.get(lot_id, {})
+		if b.is_empty():
+			continue
+		var n := int(_eff(b, "vat_slots"))
+		if n <= 0:
+			continue
+		var left := float(_by_lot.get(lot_id, {}).get("tend", 0.0))
+		for i in range(at, at + n):
+			var h := 0.0
+			if i < _vats.size() and _vats[i]:
+				h = clampf(left, 0.0, 1.0)
+				left -= h
+			out.append(h)
 		at += n
 	return out
 
