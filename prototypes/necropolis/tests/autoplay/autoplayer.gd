@@ -1043,10 +1043,12 @@ func _i1_sample() -> Dictionary:
 
 
 ## The I1 gate's check of a closed sample `a` against the open one `b`: the same t exactly, every stock within `tol`, the
-## same buildings and levels, the same held forts. A stock in the open sample's `bounds` (the bodies: one convoy load) is
+## same buildings and levels, the same held forts. A stock in either sample's `bounds` (the bodies: one convoy load) is
 ## judged by its absolute difference against that bound instead, never tighter than `tol` (with no haulers staffed the
-## load is 0); `bounded` holds its delta and bound, and it stays out of `worst`. The first quantity that differs, and by
-## how much, leads `why`.
+## load is 0). The load is carry x the larger of the two runs' staffed haulers (E4 step 0, the E3 review's item 3: the
+## open run's alone made a closed run with more haulers fail on a load it was allowed). `bounded` holds its delta, bound
+## and both runs' haulers, and it stays out of `worst`. The first quantity that differs, and by how much, leads `why`.
+## tests/test_i1_gate.gd proves each branch on synthetic samples (two loads dropped fails on the bodies).
 static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var why: Array = []
 	var errs := {}
@@ -1054,19 +1056,26 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var worst := ["", 0.0]
 	if float(a["t"]) != float(b["t"]):
 		why.append("t %.2f closed vs %.2f open" % [float(a["t"]), float(b["t"])])
-	var bounds: Dictionary = b.get("bounds", {})
+	var ba: Dictionary = a.get("bounds", {})
+	var bb: Dictionary = b.get("bounds", {})
 	for k in b["stocks"]:
 		var y := float(b["stocks"][k])
 		var den := maxf(absf(y), float(b["floors"].get(k, 1.0)))
 		var d := absf(float(a["stocks"][k]) - y)
 		var e := d / maxf(den, 1e-12)
 		errs[k] = e
-		if bounds.has(k):
-			var bd := maxf(float(bounds[k]["bound"]), tol * den)
-			bounded[k] = {"delta": d, "bound": bd, "load": float(bounds[k]["bound"])}
+		if ba.has(k) or bb.has(k):
+			var la: Dictionary = ba.get(k, {})
+			var lb: Dictionary = bb.get(k, {})
+			var carry := float(lb.get("carry", la.get("carry", 0.0)))
+			var h_closed := float(la.get("haulers", 0.0))
+			var h_open := float(lb.get("haulers", 0.0))
+			var load := carry * maxf(h_closed, h_open)
+			var bd := maxf(load, tol * den)
+			bounded[k] = {"delta": d, "bound": bd, "load": load, "carry": carry, "haulers_closed": h_closed, "haulers_open": h_open}
 			if d > bd:
-				why.append("%s %s closed vs %s open (delta %s over the bound %s: %s x %s haulers)" % [k, str(_r(float(a["stocks"][k]))),
-					str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(float(bounds[k]["carry"]))), str(_r(float(bounds[k]["haulers"])))])
+				why.append("%s %s closed vs %s open (delta %s over the bound %s: %s x max(%s closed, %s open) haulers)" % [k,
+					str(_r(float(a["stocks"][k]))), str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(carry)), str(_r(h_closed)), str(_r(h_open))])
 			continue
 		if e > float(worst[1]):
 			worst = [k, e]
@@ -1719,7 +1728,7 @@ static func run_profile(name: String, t: TestUtil) -> int:
 
 ## The I1 gate (a real assertion): sessions closed (the leader, its commands logged) against sessions_open, the same
 ## commands at the same sim t on a game left open between sessions. At each day's end: the same t exactly, the bodies
-## within one convoy load (job.haul.carry x the haulers staffed, i1_compare's `bounds`), every other stock within
+## within one convoy load (job.haul.carry x the larger of the two runs' haulers staffed, i1_compare's `bounds`), every other stock within
 ## idle.catchup_tol, the same buildings and levels, the same held forts; and every replayed command answered as the
 ## leader's was.
 static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
@@ -1742,10 +1751,9 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		for k in r["errs"]:
 			if (r["bounded"] as Dictionary).has(k):
 				var bk: Dictionary = r["bounded"][k]
-				var lb: Dictionary = fol.i1[d]["bounds"][k]
-				parts.append("%s %s/%s delta %s, bound %s (one load: %s x %s haulers)" % [k, str(_r(float(lead.i1[d]["stocks"][k]))),
-					str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bk["delta"]))), str(_r(float(bk["bound"]))),
-					str(_r(float(lb["carry"]))), str(_r(float(lb["haulers"])))])
+				parts.append("%s %s/%s delta %s, bound %s (one load: %s x max(%s closed, %s open) haulers)" % [k,
+					str(_r(float(lead.i1[d]["stocks"][k]))), str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bk["delta"]))),
+					str(_r(float(bk["bound"]))), str(_r(float(bk["carry"]))), str(_r(float(bk["haulers_closed"]))), str(_r(float(bk["haulers_open"])))])
 				continue
 			parts.append("%s %s/%s %.4f%%" % [k, str(_r(float(lead.i1[d]["stocks"][k]))), str(_r(float(fol.i1[d]["stocks"][k]))),
 				float(r["errs"][k]) * 100.0])
@@ -1760,6 +1768,9 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(lead.i1.size() == days and fol.i1.size() == days, "I1: a sample at each of the %d days' ends (closed %d, open %d)" % [days, lead.i1.size(), fol.i1.size()])
 	t.ok(fol.div.is_empty(), "I1: every one of the %d replayed commands was answered as the closed run's, and every raid resolved the same%s" % [
 		lead.cmd_log.size(), "" if fol.div.is_empty() else ": first " + str(fol.div[0])])
+	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
+	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
+	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
 	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10)}})
 	lead.cleanup()
 	fol.cleanup()

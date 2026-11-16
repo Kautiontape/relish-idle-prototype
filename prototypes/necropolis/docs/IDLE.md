@@ -833,10 +833,21 @@ The profiles:
   one convoy load, every other stock within `idle.catchup_tol` (gold and bone against 1% of their cap, Vei's pool against
   its cap, the rest against 1.0), the same buildings and levels, the same held forts, and every command answered as the
   closed run's was.
-  - The bodies' bound is computed at each sample: `job.haul.carry` × the haulers staffed in the open run (view_town's
-    `jobs` row), never tighter than `catchup_tol` (with no haulers it is 0). The check prints the delta and the bound and
-    fails over it. The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other
-    targets than an open run's (the haul phase).
+  - The bodies' bound is computed at each sample: `job.haul.carry` × the larger of the two runs' staffed haulers
+    (view_town's `jobs` row; E4 step 0 took the max, where E3 read the open run's alone), never tighter than
+    `catchup_tol` (with no haulers it is 0). `carry` is the load per hauler per trip: a convoy picks up carry × its crew,
+    the haulers × their foreman's multiplier (× `flip.haul_mult` at a held fort), so the bound, which counts neither
+    multiplier, can only be too tight. The check prints the delta, the bound and both haulers counts and fails over it.
+    The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other targets than an
+    open run's (the haul phase).
+  - **The bodies branch's proof is `tests/test_i1_gate.gd`** (default suite, E4 step 0, the manager's ruling): it calls
+    `i1_compare` on synthetic samples that differ only in the bodies. Two loads dropped fails on the bodies; just under
+    one load passes on the bound, though it is 25% of the store; just over one load fails; a closed run with more
+    haulers than the open one widens the bound either way round; with no haulers `catchup_tol` is the bound; a stock
+    outside the bound still fails on `catchup_tol`. Its own revert proofs (never committed): the open run's haulers
+    alone fail the more-haulers case, and no bounds branch fails the suite.
+  - `_p_i1` also asserts the closed leader's harness checks (`finish`: every result validated and applied, the ledger
+    balanced), where E3 asserted only the open run's.
   - At 01a7191 both days pass. Day 2's bodies are 24.66 apart against a bound of 84 (14 × 6 haulers). The backlog is
     0.52% and 0.64% apart; every other stock is identical.
   - Revert proofs (sim edits, never committed):
