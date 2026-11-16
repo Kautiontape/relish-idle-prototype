@@ -1556,7 +1556,7 @@ func _sync_foremen() -> void:
 ## for each fort with at least one big undead placed `fort:<id>`. One siege per fort counts (a second is allowed and
 ## adds nothing) and the block is flat, whatever the big's stats; a siege adds no kill power. Read from the places as
 ## they stand: the core step's inputs and _restore_dispatch's call it, so a placement reaches the next step at once.
-## The margin and forecast don't (_forecast_siege). A retake sends the siege home (_emit_realm), so the next step has
+## The margin and forecast credit the same (_forecast_siege, from E4). A retake sends the siege home (_emit_realm), so the next step has
 ## no block there; RealmSim drops it for the rest of the step the retake falls in (RealmSim.step).
 func _siege_blocks() -> Dictionary:
 	var out := {}
@@ -1569,16 +1569,14 @@ func _siege_blocks() -> Dictionary:
 	return out
 
 
-## The siege block the margin and forecast credit (E3-3, the run's manager's ruling: a new feature must never make the
-## chip say "safe" at a fort that falls): none. view_fort's margin, fall_s and the wave train, view_projection's
-## margins, read every fort as if unsieged (_fort_readout, _train_support), while RealmSim's step applies the block.
-## The wave train's support is the WAR at the sampling instant, held over the whole forecast; with a block crediting
-## a fort near its band's edge, that error can turn "safe" where the sim breaks it (E3-3's diagnosis: midgame_2flips
-## one substep in reads Ashgate's WAR 1.427 against the 1.119 it settles at a minute later). So the chip is
-## conservative: a fort reads safe only if it holds without its siege, and it may read thin where the siege holds it.
-## Crediting the siege is E4's, once the train's support mirrors the sim (MECHANICS §3.4).
+## The siege block the margin and forecast credit (MECHANICS §3.4): the step's own (_siege_blocks), from E4. E3-3 credited
+## none (the run's manager's ruling: a new feature must never make the chip say "safe" at a fort that falls): the wave
+## train then read the WAR at the sampling instant, a landed load's burst held over the whole forecast, and with a block
+## crediting a fort near its band's edge that error turned "safe" where the sim broke it (midgame_2flips at a WAR share
+## of 0.05, Ashgate retaken at 988 s). The train reads the settled WAR since E4 (_train_war_at), and credited, that case
+## reads thin (test_big_undead's _siege_chip_war05; margin_truth).
 func _forecast_siege() -> Dictionary:
-	return {}
+	return _siege_blocks()
 
 
 ## Takes a big undead out of the party. Its front goes too: fronts are for party members.
@@ -2060,8 +2058,8 @@ func _fort_wars() -> Array:
 	return out
 
 
-## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with no siege credited
-## (_forecast_siege, E3-3: conservative) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with its siege credited
+## (_forecast_siege, from E4) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
 ## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
 ## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
 ## of the clocks at the current and the planned support.
@@ -2193,7 +2191,7 @@ func _train_frame(substeps: int) -> bool:
 
 
 ## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort (`block` from
-## _forecast_siege: none credited, E3-3), at `war`
+## _forecast_siege: the step's, credited from E4), at `war`
 ## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
 ## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
 ## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
@@ -2215,7 +2213,7 @@ func _train_support(war: float, live: bool) -> Dictionary:
 		fx = {"tide_fort": dest, "redirect_fort": dest}
 	else:
 		wars = realm.war_at(war)[0]
-	var siege := _forecast_siege()  # (E3-3: the forecast credits no siege; the step does)
+	var siege := _forecast_siege()  # (the step's blocks, credited from E4)
 	var sup := {}
 	for i in realm.forts.size():
 		var f: Dictionary = realm.forts[i]

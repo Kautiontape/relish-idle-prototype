@@ -829,24 +829,23 @@ func _siege_retake() -> void:
 			float(evs[k]["t"]) - t0 if k >= 0 else -1.0])
 
 
-## The margin chip at a sieged fort is conservative (MECHANICS §3.4 (b)): Ashgate contested with 0.8 mass/s of WAR and
-## its garrison settled at WAR / r_drain, a full wave starting. GameState's chip credits no siege (_forecast_siege), so
-## it reads the unsieged one-wave margin, thin (a wave breaks it), with or without u9 there; the sim breaks it without
-## the siege and holds it with it. So it never reads safe where the fort falls; where the siege holds it, it reads thin
-## (the conservative case). readout_of with the block credited would read safe there (what E4 may credit).
+## The margin chip at a sieged fort (MECHANICS §3.4 (b)): Ashgate contested with 0.8 mass/s of WAR and its garrison
+## settled at WAR / r_drain, a full wave starting. GameState's chip credits the step's siege block (_forecast_siege,
+## from E4): without u9 there it reads the unsieged one-wave margin, thin (a wave breaks it), and the sim breaks it;
+## with u9 there it reads safe, and the sim holds it. (E3-3 credited none and read thin both ways.)
 func _siege_margin() -> void:
 	var cfg: Dictionary = TestUtil.configs()["realm"]
 	var w := 0.8
 	var u0: float = w / float(cfg["r_drain"])
 	var block := float(cfg["tithe"]["siege_block"])
 	var gs := _mk()
-	gs.cmd_debug_load_fixture("midgame_2flips")  # u9 sieges Ashgate: the block the step applies, the chip doesn't
-	var chip_block := RealmSim._siege_at(gs._forecast_siege(), "ashgate")
-	t.ok(RealmSim._siege_at(gs._siege_blocks(), "ashgate") == block, "(setup) midgame_2flips' u9 sieges Ashgate: the step's block %.1f" % block)
+	gs.cmd_debug_load_fixture("midgame_2flips")  # u9 sieges Ashgate: the block the step applies, and the chip
+	t.ok(RealmSim._siege_at(gs._siege_blocks(), "ashgate") == block and RealmSim._siege_at(gs._forecast_siege(), "ashgate") == block,
+		"(setup) midgame_2flips' u9 sieges Ashgate: the step's block %.1f, and the chip's" % block)
 	for sieged in [false, true]:
 		var sim := _contested("ashgate", u0, 0.0, 0.0, true)
+		var chip_block := block if sieged else 0.0
 		var ro := sim.readout_of(sim.fort_by_id("ashgate"), w, false, 0.0, false, chip_block, 1.2, {}, [])
-		var credited := sim.readout_of(sim.fort_by_id("ashgate"), w, false, 0.0, false, block, 1.2, {}, [])
 		var inp := {"war": w, "digest_q": 1.2}
 		if sieged:
 			inp["siege_block"] = {"ashgate": block}
@@ -858,16 +857,18 @@ func _siege_margin() -> void:
 				if e[1]["type"] == "fort_retaken":
 					fell = el + float(e[0])
 			el += 0.5
-		t.ok(chip_block == 0.0 and ro["margin"] == "thin" and ro["margin_cause"] == "wave" and credited["margin"] == "safe" and (fell < 0.0) == sieged,
-			"Ashgate, WAR %.1f, %s: the chip reads %s (%s; with the block credited it would read %s), the sim %s%s" % [w,
-			"sieged" if sieged else "no siege", ro["margin"], ro["margin_cause"], credited["margin"],
-			"holds it 1200 s" if fell < 0.0 else "breaks it at %.1f s" % fell, ": conservative, siege not credited" if sieged else ""])
+		var want := ["safe", ""] if sieged else ["thin", "wave"]
+		t.ok(ro["margin"] == want[0] and ro["margin_cause"] == want[1] and (fell < 0.0) == sieged,
+			"Ashgate, WAR %.1f, %s: the chip reads %s (%s), the sim %s" % [w,
+			"sieged" if sieged else "no siege", ro["margin"], ro["margin_cause"],
+			"holds it 1200 s" if fell < 0.0 else "breaks it at %.1f s" % fell])
 
 
 ## The regression for the chip's lie under a siege (E3-3's margin_truth failure): midgame_2flips with its valve's WAR share
 ## cut to 0.05 (margin_truth's "midgame, WAR 0.05") and u9 sieging Ashgate. One substep in (margin_truth's t 0), its
 ## wave-train chip (view_fort) and the settled read at the valve's target (view_projection) must not read Ashgate safe:
-## the sim retakes it (988 s at 0.5 s; 978 s without the siege). Crediting the block read it safe.
+## the sim retakes it (988 s at 0.5 s; 978 s without the siege). Credited on the instant support (E3-3) it read safe;
+## credited on the settled support (E4 must-fix #1) it must not.
 func _siege_chip_war05() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
 	var s := GameState.new(c)
@@ -965,7 +966,7 @@ func _identity() -> void:
 ## test_catchup's compare(): the stocks within idle.catchup_tol, the held forts, Covington, the outcomes; the rates no
 ## further from live than with u8 and u9 in the crypt (the same comparison), plus the tolerance. The live run's sieged
 ## Ashgate, sampled 600 s in (past its grace) in the margin truth check's form (T3.4b): the chip's wave train credits
-## no block while the sim's step applies 0.6, and a "safe" chip's fort still stands at the end; its waves read
+## the block the sim's step applies (0.6, from E4), and a "safe" chip's fort still stands at the end; its waves read
 ## siege_block 0.6.
 func _fm_catchup() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
@@ -983,8 +984,8 @@ func _fm_catchup() -> void:
 	s.tick(21000.0)
 	var on := [s, s.drain_events()]
 	var held_end := RealmSim.is_held(s.realm.fort_by_id("ashgate"))
-	t.ok(chip["held"] and sup.size() == 5 and float(sup[4]) == 0.0 and step_block == block and (chip["margin"] != "safe" or held_end),
-		"sieged Ashgate at 600 s: the chip reads %s (%s), its wave train crediting no block (%.1f) where the step applies %.1f; at 6 h it is %s" % [
+	t.ok(chip["held"] and sup.size() == 5 and float(sup[4]) == block and step_block == block and (chip["margin"] != "safe" or held_end),
+		"sieged Ashgate at 600 s: the chip reads %s (%s), its wave train crediting a block of %.1f as the step applies %.1f; at 6 h it is %s" % [
 		chip["margin"], chip["margin_cause"], float(sup[4]) if sup.size() == 5 else -1.0, step_block, "held" if held_end else "retaken"])
 	var at_ash: Array = (on[1] as Array).filter(func(e): return e["type"] == "tithe_wave" and e["fort_id"] == "ashgate")
 	var others: Array = (on[1] as Array).filter(func(e): return e["type"] == "tithe_wave" and e["fort_id"] != "ashgate")

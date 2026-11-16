@@ -648,16 +648,17 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
     takes the cancelled fraction per fort as its `siege_block` input: GameState gives `tithe.siege_block` at each
     fort with at least one big undead placed `fort:<id>` (`_siege_blocks`), flat, one per fort. It is the siege's
     only effect: it adds no kill power (not built; E4 only if the hold band needs it).
-  - **The margin chip credits no siege** (E3-3, the run's manager's ruling: a new feature must never make the chip
-    say "safe" at a fort that falls). `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s
-    margins, read every fort as if unsieged (`GameState._forecast_siege`), while RealmSim's step applies the block.
-    So the chip is conservative: a fort reads safe only if it holds without its siege, and it may read thin where
-    the siege actually holds it. Why: the wave train's support was the WAR at the sampling instant, held over the
-    whole forecast (the settled WAR since E4, below). Credited, a block let that error turn safe where the sim breaks the fort. One substep after
-    midgame_2flips' load, the train reads Ashgate's WAR at 1.427 and Old Sluice's at 0.970 against the 1.119 and
-    0.761 they settle at a minute later. On those garrisons the blunted waves never rotate to Old Sluice, which the
-    sim breaks at 1 315 s; with the valve's WAR cut to 0.05 the sieged Ashgate itself read safe and fell at 988 s
-    (`margin_truth`). Crediting the siege is an E4 item, once the train's support mirrors the sim.
+  - **The margin chip credits the siege** (from E4; `GameState._forecast_siege` is the step's `_siege_blocks`).
+    `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s margins, read each fort's block as
+    RealmSim's step applies it. E3-3 credited none (the run's manager's ruling: a new feature must never make the
+    chip say "safe" at a fort that falls), because the wave train's support was then the WAR at the sampling
+    instant, a landed load's burst held over the whole forecast, and credited, a block let that error turn safe
+    where the sim breaks the fort. One substep after midgame_2flips' load the train read Ashgate's WAR at 1.427 and
+    Old Sluice's at 0.970 against the 1.119 and 0.761 they settle at a minute later; with the valve's WAR cut to
+    0.05 the sieged Ashgate read safe and fell at 988 s (`margin_truth`). On the settled support (§3.5, E4 must-fix
+    #1) that case reads thin, credited (`test_big_undead`'s `_siege_chip_war05`). Its revert proof, never
+    committed: the instant support with the block credited reads it safe again, and Old Sluice safe with Relish
+    travelling to Greywall (`test_wave_train`'s `_arrival`).
 
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
