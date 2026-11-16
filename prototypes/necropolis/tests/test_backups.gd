@@ -11,6 +11,16 @@ extends RefCounted
 ##   kept as a spare;
 ## - catch-up: a tended pre_vei vat fills at the same time caught up as live, within one catch-up step; with no vat
 ##   tended a 12 h catch-up from each fixture is bit-identical to the tip's (TIP).
+## A death follows the backups' order, with real respawns (E3-2's second part):
+## - each outcome: a phylactery charge revives her in place (loses nothing, the run goes on), else a ready clone (she
+##   wakes at Covington after backups.clone_respawn_s), else unmade (after unmade_respawn_s, with the morale shock);
+##   the whole party is lost in both run-ending outcomes; the charge goes before the clone; max_per_dungeon;
+## - view_backups().death is what an actual death then does, and a seed's death_ends what the run-ending death does
+##   (past the phylactery), with a charge present too;
+## - the unbanked loot a death inside the scene loses is bounded at what was found since the last checkpoint;
+## - the respawn counts down live (dead_s_left in view_relish and view_backups) and caught up (a save closed while
+##   she is dead wakes her at the right t, the stance slot and Vigil following); while dead she is away from home for
+##   the home stance slot, Vigil, her home effects and the dead refusals.
 
 var t := TestUtil.new()
 var _dir := "user://test_backups_%d" % OS.get_process_id()
@@ -46,6 +56,13 @@ func run() -> int:
 	_demolish()
 	_catchup_fill()
 	_identity()
+	_death_order()
+	_each_outcome()
+	_max_per_dungeon()
+	_loot_bound()
+	_countdown_live()
+	_away_while_dead()
+	_respawn_caught_up()
 	_cleanup()
 	return t.failures
 
@@ -389,3 +406,253 @@ func _identity() -> void:
 	for fx in GameState.FIXTURES:
 		var h := identity(c, fx, 43200, _dir)
 		t.ok(TIP.get(fx, {}) == h, "%s: with no vat tended, 12 h caught up is bit-identical to the tip's (state, events, away report): %s" % [fx, str(h)])
+
+
+# ------------------------------------------------------------------ death ----
+const DIED := {"retreated": false, "relish_died": true}
+
+
+func _clone_s(s: GameState) -> float:
+	return float(s._cfgs["backups"]["backups"]["clone_respawn_s"])
+
+
+func _unmade_s(s: GameState) -> float:
+	return float(s._cfgs["backups"]["backups"]["unmade_respawn_s"])
+
+
+## A party of two big undead; returns their uids.
+func _party(s: GameState) -> Array:
+	s.cmd_debug_grant({"big_undead": 2})
+	var uids: Array = s.view_big_undead()["big_undead"].map(func(b): return b["uid"])
+	s.cmd_set_party(uids)
+	return uids
+
+
+## A raid open at Old Sluice; returns its seed.
+func _open_raid(s: GameState) -> Dictionary:
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	var r := s.cmd_begin_dungeon("old-sluice")
+	t.ok(r["ok"], "(setup) a raid at Old Sluice")
+	s.drain_events()
+	return r["seed"]
+
+
+## The raid result for `sd`: a retreat with nothing, `over` replacing keys.
+func _raid_res(sd: Dictionary, over := {}) -> Dictionary:
+	var r := {"v": 2, "run_id": sd["run_id"], "seed_rev": sd["seed_rev"], "fort_id": sd["fort"]["id"],
+		"warden_beaten": false, "retreated": true, "relish_died": false, "revived_in_place": 0,
+		"killed_living_mass": 0.0, "raised": [], "chaff_mass": 0.0, "garrison_mass": sd["garrison_in_mass"],
+		"party_lost": [], "loot": {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}}
+	r.merge(over, true)
+	return r
+
+
+func _died_events(s: GameState) -> Array:
+	return s.drain_events().filter(func(e): return e["type"] == "relish_died")
+
+
+## MECHANICS §7's order when a charge and a clone both exist: view_backups' death reads the phylactery (in place, it
+## loses nothing); the seed's death_ends is past it (the clone); in the run the dungeon revives her once in place (the
+## charge, relish_died{phylactery, in_place}) and a second death ends the run from the clone, which is exactly what
+## death_ends said: dead for clone_respawn_s, the vat emptied, the whole party lost, no morale shock.
+func _death_order() -> void:
+	var s := _chapel()
+	s.vats_grow = [1.0]
+	s._phylactery_charges = 1
+	var party := _party(s)
+	t.ok(s.view_backups()["death"] == {"outcome": "phylactery", "respawn_s": 0.0, "loses": []},
+		"a charge and a clone: view_backups' death is the phylactery first: in place, it loses nothing (%s)" % str(s.view_backups()["death"]))
+	var sd := _open_raid(s)
+	var de: Dictionary = sd["death_ends"]
+	t.ok(de == {"outcome": "clone", "respawn_s": _clone_s(s)} and int(sd["phylactery_charges"]) == 1 and Results.validate("raid_seed", sd).is_empty(),
+		"the seed's death_ends is the death that ends the run, past the revive: %s" % str(de))
+	var r := s.apply_result("raid", _raid_res(sd, DIED.merged({"revived_in_place": 1})))
+	var evs := _died_events(s)
+	t.ok(r["ok"] and evs.size() == 2 and evs[0] == {"type": "relish_died", "t": s.t, "outcome": "phylactery", "in_place": true,
+		"at": "old-sluice", "run_id": sd["run_id"], "respawn_s": 0.0} and evs[1]["outcome"] == "clone" and evs[1]["in_place"] == false,
+		"the revive in place, then the run-ending death from the clone: %s" % str(evs))
+	t.ok(evs[1]["outcome"] == de["outcome"] and evs[1]["respawn_s"] == de["respawn_s"] and s.relish["state"] == "dead"
+		and s.relish["dead_s_left"] == de["respawn_s"] and s.relish["respawn_with_clone"],
+		"the run-ending death is what death_ends said: %s, dead for %.0f s from the clone" % [evs[1]["outcome"], float(s.relish["dead_s_left"])])
+	t.ok(s._phylactery_charges == 0 and s.vats_grow == [0.0] and s.clones_ready == 0 and s.town_sim.shock == 0.0
+		and s.big_undead.filter(func(b): return party.has(b["uid"])).is_empty() and s.party_uids.is_empty(),
+		"the charge and the clone are spent, no morale shock, the whole party is lost")
+
+
+## Each outcome, from view_backups().death and the seed's death_ends against what an actual death then does:
+## - a phylactery charge alone: a revive in place, and the run goes on (a retreat after it): the charge spent, nothing
+##   else lost (the party, the loot, Relish at the fort);
+## - a clone: dead for clone_respawn_s, the whole party lost, no shock;
+## - neither: unmade, dead for unmade_respawn_s, the whole party lost, the morale shock.
+func _each_outcome() -> void:
+	# a phylactery charge, no clone
+	var p := _mk()
+	p._phylactery_charges = 1
+	var party := _party(p)
+	var bd: Dictionary = p.view_backups()["death"]
+	var sd := _open_raid(p)
+	var relics0 := p.relics
+	var essence0 := p.essence
+	var r := p.apply_result("raid", _raid_res(sd, {"revived_in_place": 1,
+		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 3}}))
+	var evs := _died_events(p)
+	t.ok(bd == {"outcome": "phylactery", "respawn_s": 0.0, "loses": []} and r["ok"] and evs.size() == 1 and evs[0]["outcome"] == bd["outcome"]
+		and evs[0]["in_place"] and evs[0]["respawn_s"] == bd["respawn_s"],
+		"phylactery: view_backups' death %s is what the revive did: in place, respawn 0" % str(bd))
+	t.ok(p._phylactery_charges == 0 and p.view_relish()["state"] == "at_fort" and p.party_uids == party and p.relics == relics0 + 1
+		and p.essence == essence0 + 3
+		and p.town_sim.shock == 0.0 and int(p.stats["deaths"]) == 0, "the run went on: the charge spent, Relish at the fort, the party and the loot kept")
+	t.ok(sd["death_ends"] == {"outcome": "unmade", "respawn_s": _unmade_s(p)}, "its seed's death_ends is past the charge: unmade (%s)" % str(sd["death_ends"]))
+	# a clone, then nothing: the run-ending outcomes
+	for clones in [1, 0]:
+		var s := _mk()
+		s.clones_ready = clones
+		var uids := _party(s)
+		var want: Dictionary = s.view_backups()["death"]
+		var sd2 := _open_raid(s)
+		t.ok(sd2["death_ends"] == {"outcome": want["outcome"], "respawn_s": want["respawn_s"]},
+			"%d clones: the seed's death_ends is view_backups().death's outcome and respawn_s (%s)" % [clones, str(want)])
+		t.ok(s.apply_result("raid", _raid_res(sd2, DIED.merged({"party_lost": [uids[0]]})))["ok"], "(setup) the death applies")
+		var e := _died_events(s)
+		var rl := s.view_relish()
+		var kind := "clone" if clones == 1 else "unmade"
+		var rs := _clone_s(s) if clones == 1 else _unmade_s(s)
+		t.ok(e.size() == 1 and e[0]["outcome"] == want["outcome"] and e[0]["outcome"] == kind and e[0]["respawn_s"] == want["respawn_s"]
+			and want["respawn_s"] == rs and rl["state"] == "dead" and rl["dead_s_left"] == rs and rl["respawn_with_clone"] == (clones == 1),
+			"%s: view_backups' death is what the death did: %s for %.0f s" % [kind, e[0]["outcome"] if not e.is_empty() else "?", float(rl["dead_s_left"])])
+		t.ok(want["loses"] == (["party", "unbanked_loot"] if clones == 1 else ["party", "unbanked_loot", "morale"])
+			and s.big_undead.is_empty() and s.party_uids.is_empty() and s.town_sim.shock == (0.0 if clones == 1 else float(s._cfgs["economy"]["morale"]["death_shock"])),
+			"%s: the whole party is lost (not only the one the dungeon reported), %s" % [kind, "no morale shock" if clones == 1 else "the morale shock"])
+		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0, "%s: the fort doesn't flip" % kind)
+
+
+func _fort(s: GameState, id: String) -> Dictionary:
+	return s.realm.fort_by_id(id)
+
+
+## phylactery.max_per_dungeon (1): a run may revive her in place at most that often. With 2 charges the seed carries
+## the cap, a result reporting 2 revives is refused (bad_revives) and 1 spends one, leaving view_backups on the
+## phylactery for the next run; with the cap at 0 no charge revives her, so view_backups' death is past it.
+func _max_per_dungeon() -> void:
+	var s := _mk()
+	s._phylactery_charges = 2
+	var sd := _open_raid(s)
+	t.ok(int(sd["phylactery_max_per_dungeon"]) == 1 and s.apply_result("raid", _raid_res(sd, DIED.merged({"revived_in_place": 2})))["reason"] == "bad_revives",
+		"2 charges, max_per_dungeon 1: a run reporting 2 revives is refused (bad_revives)")
+	t.ok(s.apply_result("raid", _raid_res(sd, {"revived_in_place": 1}))["ok"] and s._phylactery_charges == 1
+		and s.view_backups()["death"]["outcome"] == "phylactery", "1 revive spends 1; the next run's death still reads the phylactery")
+	var z := _mk()
+	z._phylactery_charges = 1
+	z._cfgs["backups"]["phylactery"]["max_per_dungeon"] = 0
+	t.ok(z.view_backups()["death"]["outcome"] == "unmade" and z.view_backups()["phylactery_max_per_dungeon"] == 0,
+		"max_per_dungeon 0: a charge can't revive her, so a death would unmake her")
+	var zd := _open_raid(z)
+	t.ok(z.apply_result("raid", _raid_res(zd, {"revived_in_place": 1}))["reason"] == "bad_revives", "and a revive is refused")
+
+
+## The unbanked loot a death inside the scene loses is bounded at what was found since the last checkpoint room: the
+## dungeon's death result carries the last checkpoint's snapshot (RaidLogic.result_loot, its rule), and the writeback
+## banks that on a death as on any exit, so only what was found since is lost.
+func _loot_bound() -> void:
+	var banked := {"relics": 1, "blueprints": [], "husks": [{"kind": "hulk"}], "remnants": [], "essence": 4}
+	var found := {"relics": 3, "blueprints": [], "husks": [{"kind": "hulk"}, {"kind": "zombie"}], "remnants": [], "essence": 0}
+	var loot := RaidLogic.result_loot("relish_died", false, found, 9, banked)
+	t.ok(loot == banked, "the scene's death result carries the last checkpoint's loot, not what was found since: %s" % str(loot))
+	var s := _mk()
+	var sd := _open_raid(s)
+	t.ok(s.cmd_run_checkpoint(sd["run_id"], banked)["ok"], "(setup) the checkpoint room banks it")
+	var relics := s.relics
+	var essence := s.essence
+	t.ok(s.apply_result("raid", _raid_res(sd, DIED.merged({"loot": loot})))["ok"] and s.relics == relics + 1 and s.essence == essence + 4
+		and s.husks.size() == 1, "a death banks the checkpoint's loot (relics +1, essence +4, the husk): only what was found since is lost")
+
+
+## The respawn counts down live: dead_s_left in view_relish and view_backups runs down with the sim, and at
+## unmade_respawn_s she wakes at Covington (relish_respawned at the death's t + respawn_s).
+func _countdown_live() -> void:
+	var s := _mk()
+	var sd := _open_raid(s)
+	s.apply_result("raid", _raid_res(sd, DIED))
+	var rs := _unmade_s(s)
+	var t0 := s.t
+	s.drain_events()
+	s.tick(rs / 2.0)
+	t.ok(s.view_relish()["dead_s_left"] == rs / 2.0 and s.view_backups()["dead_s_left"] == rs / 2.0 and s.view_relish()["state"] == "dead",
+		"halfway: dead_s_left %.1f in view_relish and view_backups" % float(s.view_backups()["dead_s_left"]))
+	s.tick(rs / 2.0 - s.substep_s())
+	t.ok(s.view_relish()["state"] == "dead" and s.view_relish()["dead_s_left"] == s.substep_s(), "a substep before: still dead")
+	s.tick(s.substep_s())
+	var back := s.drain_events().filter(func(e): return e["type"] == "relish_respawned")
+	t.ok(back == [{"type": "relish_respawned", "t": t0 + rs, "with_clone": false, "at": "covington"}] and s.view_relish()["state"] == "home"
+		and s.view_relish()["at"] == "covington" and s.view_backups()["dead_s_left"] == 0.0, "at respawn_s she reforms at Covington: %s" % str(back))
+
+
+## While dead she is away from home for every rule that reads it: the home stance slot goes (3 slots home, 2 while
+## dead, so the newest of three stances is suspended), Vigil's condition holds, her home effects are off (view_relish
+## effects.home, TownSim's relish_home: the workers' lifetime), and the contract's `dead` refusals hold (cmd_move_relish,
+## cmd_begin_dungeon, cmd_begin_boss; view_relish and view_vei say dead). The slab says not_home, as it always did.
+func _away_while_dead() -> void:
+	var s := _mk()
+	var home_life := s.town_sim.lifetime_s(true)
+	var home_slots := int(s.view_stances()["slots"])
+	for id in ["harvest", "hearth", "vigil"]:
+		t.ok(s.cmd_set_stance(id, true)["ok"], "(setup) %s on at home" % id)
+	var sd := _open_raid(s)
+	s.apply_result("raid", _raid_res(sd, DIED))
+	s.tick(5.0)
+	var st: Dictionary = {}
+	for e in s.view_stances()["stances"]:
+		st[e["id"]] = e
+	t.ok(int(s.view_stances()["slots"]) == home_slots - 1 and st["vigil"]["suspended"] and st["vigil"]["active"],
+		"dead: %d stance slots, not %d (no home slot), so Vigil, the newest, is suspended; its condition holds" % [int(s.view_stances()["slots"]), home_slots])
+	t.ok(not s.view_relish()["effects"]["home"] and float(s.view_town()["workers"]["lifetime_s"]) == s.town_sim.lifetime_s(false)
+		and s.town_sim.lifetime_s(false) != home_life, "dead: her home effects are off (effects.home false, the workers' lifetime away from her)")
+	t.ok(s.cmd_move_relish("covington")["reason"] == "dead" and s.cmd_begin_dungeon("old-sluice")["reason"] == "dead"
+		and s.cmd_begin_boss()["reason"] == "dead" and s.view_relish()["reason"] == "dead" and not s.view_relish()["can_descend"]
+		and s.view_vei()["reason"] == "dead", "dead: move, descend and the boss refuse with dead")
+	t.ok(s.cmd_raise_big_undead("h1", [], "x")["reason"] == "not_home", "the slab: not_home")
+	s.tick(_unmade_s(s))
+	st = {}
+	for e in s.view_stances()["stances"]:
+		st[e["id"]] = e
+	t.ok(s.view_relish()["state"] == "home" and int(s.view_stances()["slots"]) == home_slots and not st["vigil"]["suspended"]
+		and s.view_relish()["effects"]["home"], "respawned home: the home slot is back (Vigil no longer suspended), her home effects on")
+
+
+## A save closed while she is dead wakes her at the right time: dead at the save (unmade, the Vigil stance on), loaded
+## respawn_s + 1 h later. The catch-up clips a step at her respawn: relish_respawned at the death's t + respawn_s,
+## then she is home, the home slot back, and Vigil's condition turns off within a step after it (its hold long over).
+func _respawn_caught_up() -> void:
+	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
+	var s := GameState.new(c)
+	s.cmd_new_game(1)
+	s.debug_enabled = true
+	s.save_dir = _dir
+	s.cmd_set_stance("vigil", true)
+	var sd := _open_raid(s)
+	s.apply_result("raid", _raid_res(sd, DIED))
+	var t_died := s.t
+	var rs := _unmade_s(s)
+	s.tick(30.0)
+	var vigil_on: bool = s.view_stances()["stances"].filter(func(e): return e["id"] == "vigil")[0]["active"]
+	s.clock_override = CLOCK
+	s.cmd_save("dead")
+	var away := int(rs - 30.0) + 3600
+	var n := GameState.new(c)
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = CLOCK + away
+	t.ok(n.cmd_load("dead")["ok"] and vigil_on, "(setup) dead at the save, Vigil active; loaded %d s later" % away)
+	var evs := n.catchup_events()
+	var back := evs.filter(func(e): return e["type"] == "relish_respawned")
+	t.ok(back.size() == 1 and absf(float(back[0]["t"]) - (t_died + rs)) < 1e-6 and back[0]["with_clone"] == false,
+		"caught up: relish_respawned at the death's t + respawn_s (%.3f against %.3f)" % [float(back[0]["t"]) if not back.is_empty() else -1.0, t_died + rs])
+	var offs := evs.filter(func(e): return e["type"] == "stance_fired" and e["stance_id"] == "vigil" and not e["active"])
+	# the conditions are read at a new beat (live play's next beat, 1.714 s), at a step boundary: within a beat and a step
+	var step := Catchup.base_dt(n, float(away))
+	var bound := n._beat_s + step
+	t.ok(not back.is_empty() and offs.size() == 1 and float(offs[0]["t"]) > float(back[0]["t"]) and float(offs[0]["t"]) - float(back[0]["t"]) <= bound + 1e-6,
+		"Vigil follows: its condition turns off %.2f s after the respawn, within a beat and a catch-up step (%.2f s)" % [
+		float(offs[0]["t"]) - float(back[0]["t"]) if not offs.is_empty() and not back.is_empty() else -1.0, bound])
+	t.ok(n.view_relish()["state"] == "home" and n.view_relish()["dead_s_left"] == 0.0 and int(n.view_stances()["slots"]) == int(s.view_stances()["slots"]) + 1,
+		"after it she is home, and the home stance slot is back (%d slots)" % int(n.view_stances()["slots"]))

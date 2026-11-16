@@ -473,16 +473,30 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "apply_result", ["boss", _with_key(lose, "relish_deaths", 3)], false)
 	_cmd(s, "apply_result", ["boss", lose], true)
 	evs = _event_list(s).filter(no_stances)
-	t.ok(evs.map(func(e): return e["type"]) == ["vei_result", "relish_died", "relish_respawned"], "a lost boss with a final death: vei_result first")
-	t.ok(s.view_relish()["state"] == "home" and s.view_party()["party"].is_empty(), "she is home, the party died")
-	_all_views(s)  # after a boss loss
+	t.ok(evs.map(func(e): return e["type"]) == ["vei_result", "relish_died"], "a lost boss with a final death: vei_result first, then relish_died")
+	# E3-2: she is dead for the outcome's respawn_s, then wakes at Covington
+	var rs := float(evs[1]["respawn_s"])
+	t.ok(rs > 0.0 and s.view_relish()["state"] == "dead" and s.view_relish()["dead_s_left"] == rs and s.view_party()["party"].is_empty(),
+		"she is dead for its respawn_s (%.0f s), the party died" % rs)
+	_all_views(s)  # after a boss loss, while she is dead
+	var dead_move := _cmd(s, "cmd_move_relish", ["ashgate"], false)
+	t.ok(dead_move["reason"] == "dead", "while dead she can't move: dead")
+	s.tick(rs)
+	evs = _event_list(s).filter(func(e): return e["type"] == "relish_respawned")
+	t.ok(evs.size() == 1 and s.view_relish()["state"] == "home" and s.view_relish()["dead_s_left"] == 0.0,
+		"after respawn_s she respawns home: relish_respawned")
 	_cmd(s, "cmd_move_relish", ["ashgate"], true)
 	_travel(s)
 	var d2 := _cmd(s, "cmd_begin_dungeon", ["ashgate"], true)
 	_cmd(s, "apply_result", ["raid", _raid_result(d2["seed"], {"retreated": false, "relish_died": true,
 		"loot": {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 0}})], true)
 	evs = _event_list(s).filter(no_stances)
-	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died", "relish_respawned"], "a raid death emits relish_died and relish_respawned")
+	t.ok(evs.map(func(e): return e["type"]) == ["loot_banked", "relish_died"] and s.view_relish()["state"] == "dead",
+		"a raid death emits relish_died, and she is dead")
+	_all_views(s)  # after a death, while she is dead
+	s.tick(float(evs[1]["respawn_s"]))
+	t.ok(_event_list(s).filter(func(e): return e["type"] == "relish_respawned").size() == 1 and s.view_relish()["state"] == "home",
+		"then relish_respawned after its respawn_s")
 	for ty in ["relish_died", "relish_respawned", "vei_result", "loot_banked", "fort_flipped", "queue_started", "stance_fired"]:
 		t.ok(_events_seen.has(ty), "event %s checked against the contract" % ty)
 	_all_views(s)  # after a death

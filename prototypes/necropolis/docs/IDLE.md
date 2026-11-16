@@ -115,7 +115,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   first `idle.catchup_dt_long_after_s` (12 h) of a catch-up the same with `idle.catchup_dt_long_s` (15 s)
   for the cap (E2b-2 T3.3b, the budget's lever 2, below).
 - A step never straddles an event: `dt = min(dt, t_next_event − t)`. Catch-up clips at Relish's
-  arrival, an unpaid building's resume, a construction finishing, the build queue's head starting on
+  arrival, her respawn while she is dead (her `dead_s_left`, E3-2: a save closed while she is dead wakes her at
+  the right `t`, and the home stance slot and Vigil follow from there), an unpaid building's resume, a construction finishing, the build queue's head starting on
   funds (its shortfall over the net income, for each currency it lacks; since F1 the net its
   `affordable_in_s` uses, `BuildRules.queue_net`: the HUD's below the cap, and at a full store the income
   before the cap's clip, so a head behind an entry that just spent the store is clipped at its start, not

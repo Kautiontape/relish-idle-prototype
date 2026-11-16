@@ -58,8 +58,10 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
 	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
 	"economy.stance.hearth_morale", "pulse.tempo_ms",
-	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats)
-	"backups.vats.grow_per_s"]
+	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
+	# (StateViews.death_rule) and the phylactery's revives per dungeon (_phylactery_max)
+	"backups.vats.grow_per_s", "backups.backups.clone_respawn_s", "backups.backups.unmade_respawn_s",
+	"backups.phylactery.max_per_dungeon"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -846,10 +848,6 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 
 
 # ------------------------------------------------------------------- runs ----
-func _backups_cfg() -> Dictionary:
-	return _cfgs.get("backups", {})
-
-
 ## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
 ## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
 ## if that would not be finite); odds = backlog / (backlog + K).
@@ -981,8 +979,9 @@ func _loot_hint(fort_id: String) -> String:
 	return str(hints.get("t%d.%s" % [int(f["tier"]), _warden_archetype(fort_id)], ""))
 
 
+## backups.json phylactery.max_per_dungeon: the in-place revives a dungeon may use (MECHANICS §7; REQUIRED from E3-2).
 func _phylactery_max() -> int:
-	return int(_backups_cfg().get("phylactery", {}).get("max_per_dungeon", 1))
+	return int(_req_f("backups.phylactery.max_per_dungeon"))
 
 
 func _relish_hp() -> float:
@@ -2126,8 +2125,7 @@ func view_party() -> Dictionary:
 	return StateViews.party(self)
 
 
-## §5.13 · E3. The vats are live from E3-2 (StateViews.backups); the death is still the E1-safe rule with an
-## immediate respawn.
+## §5.13 · E3, live from E3-2 (StateViews.backups): the vats, and what a death would cost now (StateViews.death_rule).
 func view_backups() -> Dictionary:
 	return StateViews.backups(self)
 
@@ -2434,8 +2432,11 @@ func _core_step(dt: float) -> Array:
 	realm.step(dt, _realm_inputs)
 	var cleared := realm.cleared_total - cleared0
 	var evs := _emit_realm(realm.drain_timed(), dt, mark)
-	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them
+	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them, and a dead Relish's
+	# respawn counts down (catch-up clips a step at it: Catchup.next_event_s)
 	_grow_vats(dt, town["vat_hands"])
+	if relish["state"] == "dead":
+		_count_down_respawn(dt)
 	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
 	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
 	# ten a step); the keys are the ledger's fixed set
@@ -2565,11 +2566,28 @@ func _update_towns(cfg: Dictionary) -> void:
 
 # ------------------------------------------------------------------------ death ----
 
-## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
-## spent), else she is unmade and the town takes morale.death_shock; she respawns home at once.
-## The caller has closed the run.
+## Relish's death that ends a run (§8.3 raid step 10, boss step 4; E3-2, MECHANICS §7): StateRuns.death. The caller
+## has closed the run.
 func _death(run_id: int) -> void:
 	StateRuns.death(self, run_id)
+
+
+## The backups step's respawn (§3 step 6; E3-2): dead_s_left runs down by the step's dt, and at 0 she wakes at
+## Covington (_respawn). Catch-up clips a step at it, so a step never runs past it (Catchup.next_event_s).
+func _count_down_respawn(dt: float) -> void:
+	var left := float(relish["dead_s_left"]) - dt
+	if left <= 1e-9:
+		_respawn()
+	else:
+		relish["dead_s_left"] = left
+
+
+## She wakes at Covington, home (MECHANICS §7): from her clone (`respawn_with_clone`) or reformed after being unmade.
+## Emits relish_respawned {with_clone, at: "covington"} with the step's t.
+func _respawn() -> void:
+	var with_clone := bool(relish["respawn_with_clone"])
+	_place_relish("covington")
+	_emit({"type": "relish_respawned", "with_clone": with_clone, "at": "covington"})
 
 
 # ------------------------------------------------------------ apply_result ----

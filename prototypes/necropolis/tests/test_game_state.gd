@@ -98,19 +98,30 @@ func run() -> int:
 	t.ok(e.drain_events().is_empty(), "drain empties the queue")
 	var run_id := _run_raid(e, {"relish_died": true})
 	evs = e.drain_events().filter(func(ev): return ev["type"] != "loot_banked")
-	t.ok(evs.size() == 2 and evs[0]["type"] == "relish_died" and evs[0]["outcome"] == "unmade"
+	var unmade_s := float(TestUtil.configs()["backups"]["backups"]["unmade_respawn_s"])
+	var clone_s := float(TestUtil.configs()["backups"]["backups"]["clone_respawn_s"])
+	t.ok(evs.size() == 1 and evs[0]["type"] == "relish_died" and evs[0]["outcome"] == "unmade"
 		and evs[0]["in_place"] == false and evs[0]["at"] == "old-sluice" and evs[0]["run_id"] == run_id
-		and evs[0]["respawn_s"] == 0.0, "relish death queues relish_died (unmade)")
-	t.ok(evs[1]["type"] == "relish_respawned" and evs[1]["with_clone"] == false and evs[1]["at"] == "covington",
-		"then relish_respawned without a clone")
+		and evs[0]["respawn_s"] == unmade_s, "relish death queues relish_died (unmade, respawn_s backups.unmade_respawn_s)")
+	t.ok(e.relish["state"] == "dead" and e.relish["dead_s_left"] == unmade_s and e.relish["respawn_with_clone"] == false,
+		"she is dead for unmade_respawn_s (E3-2)")
 	var shock := float(TestUtil.configs()["economy"]["morale"]["death_shock"])
 	t.near(e.town_sim.shock, shock, 1e-12, "unmade: the town takes morale.death_shock")
+	e.tick(unmade_s)
+	evs = e.drain_events().filter(func(ev): return ev["type"] == "relish_respawned")
+	t.ok(evs.size() == 1 and evs[0]["with_clone"] == false and evs[0]["at"] == "covington" and e.relish["state"] == "home",
+		"then relish_respawned without a clone, at Covington, after unmade_respawn_s")
+	var shock_now := e.town_sim.shock  # (decaying since the death, over shock_s)
 	e.clones_ready = 1
 	_run_raid(e, {"relish_died": true})
 	evs = e.drain_events().filter(func(ev): return ev["type"] != "loot_banked")
-	t.ok(evs.size() == 2 and evs[0]["outcome"] == "clone" and evs[1]["with_clone"] == true, "a ready clone gives a clone respawn")
-	t.ok(e.relish["state"] == "home" and e.clones_ready == 0 and e.town_sim.shock == shock,
-		"she respawns home at once, the clone is spent, no new shock")
+	t.ok(evs.size() == 1 and evs[0]["outcome"] == "clone" and evs[0]["respawn_s"] == clone_s and e.relish["respawn_with_clone"] == true,
+		"a ready clone gives a clone death (respawn_s backups.clone_respawn_s)")
+	t.ok(e.relish["state"] == "dead" and e.clones_ready == 0 and e.town_sim.shock == shock_now,
+		"she is dead until her respawn, the clone is spent, no new shock")
+	e.tick(clone_s)
+	evs = e.drain_events().filter(func(ev): return ev["type"] == "relish_respawned")
+	t.ok(evs.size() == 1 and evs[0]["with_clone"] == true and e.relish["state"] == "home", "she respawns home from the clone after clone_respawn_s")
 
 	# --- debug commands ---
 	var g := _mk()

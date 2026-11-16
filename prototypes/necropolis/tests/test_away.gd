@@ -231,7 +231,8 @@ func _checkpoint_chunked() -> void:
 
 
 ## The two exits that already happened while the player was there: warden_beaten flips the fort (and
-## banks), relish_died is a death (the party lost, a clone spent, Relish home), as apply_result treats them.
+## banks), relish_died is a death (the party lost, a clone spent, Relish dead until her respawn, then home), as
+## apply_result treats them.
 func _end_exceptions() -> void:
 	var c := cfgs()
 	var w := _with_checkpoint(c, LOOT_B, "warden_beaten")
@@ -245,10 +246,15 @@ func _end_exceptions() -> void:
 	var deaths := int(dd.stats["deaths"])
 	var m := _away(c, dd, "died", 0)
 	evs = m.drain_events()
-	t.ok(_types(evs) == ["loot_banked", "relish_died", "relish_respawned"] and evs[1]["outcome"] == "clone" and evs[1]["at"] == "old-sluice"
-		and m.clones_ready == 0 and m.party_uids.is_empty() and m.big_undead.is_empty() and m.view_relish()["state"] == "home"
+	var clone_s := float(c["backups"]["backups"]["clone_respawn_s"])
+	t.ok(_types(evs) == ["loot_banked", "relish_died"] and evs[1]["outcome"] == "clone" and evs[1]["at"] == "old-sluice"
+		and m.clones_ready == 0 and m.party_uids.is_empty() and m.big_undead.is_empty() and m.view_relish()["state"] == "dead"
+		and m.view_relish()["dead_s_left"] == clone_s and m.view_relish()["respawn_with_clone"]
 		and int(m.stats["deaths"]) == deaths + 1 and not m.view_fort("old-sluice")["held"],
-		"relish_died: a death (a clone spent, the party lost, Relish home, no flip): %s" % str(_types(evs)))
+		"relish_died: a death (a clone spent, the party lost, Relish dead for clone_respawn_s, no flip): %s" % str(_types(evs)))
+	m.tick(clone_s)
+	t.ok(m.drain_events().filter(func(e): return e["type"] == "relish_respawned").size() == 1 and m.view_relish()["state"] == "home",
+		"then she respawns home from the clone after clone_respawn_s")
 
 
 ## No checkpoint: a save mid-run banks nothing, as before; the run is a retreat with empty loot (no flip,

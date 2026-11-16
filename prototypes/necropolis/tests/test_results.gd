@@ -600,17 +600,28 @@ func _raid_death() -> void:
 			"raised": [{"score": 70, "count": 2, "mass": 4.0}], "garrison_mass": 20.0, "party_lost": [u1],
 			"loot": {"relics": 2, "blueprints": [], "husks": [{"kind": "zombie"}], "remnants": [], "essence": 7}}))
 		var evs := s.drain_events()
-		t.ok(out["ok"] and _types(evs) == ["loot_banked", "relish_died", "relish_respawned"], "death events in order (%s)" % str(_types(evs)))
+		# E3-2 (MECHANICS §7): she is dead for the outcome's respawn_s (backups.json), then wakes at Covington
+		var respawn_s := float(TestUtil.configs()["backups"]["backups"]["clone_respawn_s" if vats == 1 else "unmade_respawn_s"])
+		t.ok(out["ok"] and _types(evs) == ["loot_banked", "relish_died"], "death events in order (%s)" % str(_types(evs)))
 		t.ok(evs[1] == {"type": "relish_died", "t": s.t, "outcome": "clone" if vats == 1 else "unmade", "in_place": false,
-			"at": "old-sluice", "run_id": sd["run_id"], "respawn_s": 0.0}, "relish_died: %s" % str(evs[1]))
-		t.ok(evs[2] == {"type": "relish_respawned", "t": s.t, "with_clone": vats == 1, "at": "covington"}, "relish_respawned")
+			"at": "old-sluice", "run_id": sd["run_id"], "respawn_s": respawn_s}, "relish_died: %s" % str(evs[1]))
+		var rl := s.view_relish()
+		t.ok(rl["state"] == "dead" and rl["at"] == "old-sluice" and rl["dead_s_left"] == respawn_s and rl["respawn_with_clone"] == (vats == 1),
+			"she is dead at the fort for its respawn_s (%.0f s), respawn_with_clone %s" % [respawn_s, str(vats == 1)])
 		t.ok(s.relics == 2 and s.essence == 7 and s.husks.size() == 1, "the banked loot is kept on a death")
 		t.ok(s.big_undead.is_empty() and s.party_uids == [], "the whole party is lost (A8); no stale uid in the party list")
-		t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington" and s.run.is_empty(), "she respawns home at once")
+		t.ok(s.run.is_empty(), "the run is closed")
 		t.ok(_fort(s, "old-sluice").get("flipped_count", 0) == 0 and _fort(s, "old-sluice")["held_s"] == 0.0, "a death does not flip")
 		t.ok(s.clones_ready == 0, "the clone is spent or was absent")
 		t.ok(s.town_sim.shock == (0.0 if vats == 1 else shock), "a clone: no morale shock; unmade: morale.death_shock (%f)" % s.town_sim.shock)
 		t.ok(s.stats["deaths"] == 1 and s.stats["raids"] == 1, "stats count the raid and the death")
+		var died_t := s.t
+		s.tick(respawn_s)
+		var back := s.drain_events().filter(func(e): return e["type"] == "relish_respawned")
+		t.ok(back == [{"type": "relish_respawned", "t": died_t + respawn_s, "with_clone": vats == 1, "at": "covington"}],
+			"relish_respawned after respawn_s: %s" % str(back))
+		t.ok(s.view_relish()["state"] == "home" and s.view_relish()["at"] == "covington" and s.view_relish()["dead_s_left"] == 0.0,
+			"she respawns home after respawn_s")
 
 
 # ------------------------------------------------------------ boss writeback ----
@@ -668,11 +679,19 @@ func _boss_writeback() -> void:
 		s.drain_events()
 		out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1}))
 		evs = s.drain_events()
-		t.ok(out["ok"] and _types(evs) == ["vei_result", "relish_died", "relish_respawned"], "final death: vei_result first (%s)" % str(_types(evs)))
+		t.ok(out["ok"] and _types(evs) == ["vei_result", "relish_died"], "final death: vei_result first (%s)" % str(_types(evs)))
 		t.ok(evs[1]["outcome"] == ("clone" if vats == 1 else "unmade") and evs[1]["at"] == "vei" and evs[1]["in_place"] == false
 			and evs[1]["run_id"] == sd["run_id"] and evs[0]["relish_deaths"] == 1, "the clone rule: %s" % str(evs[1]))
-		t.ok(s.view_relish()["state"] == "home" and s.big_undead.is_empty() and s.run.is_empty(), "respawned home at once, party gone")
+		# E3-2 (MECHANICS §7): dead for the outcome's respawn_s (backups.json), then home
+		var respawn_s := float(TestUtil.configs()["backups"]["backups"]["clone_respawn_s" if vats == 1 else "unmade_respawn_s"])
+		var rl := s.view_relish()
+		t.ok(evs[1]["respawn_s"] == respawn_s and rl["state"] == "dead" and rl["dead_s_left"] == respawn_s and rl["respawn_with_clone"] == (vats == 1)
+			and s.big_undead.is_empty() and s.run.is_empty(), "dead for its respawn_s (%.0f s), party gone" % respawn_s)
 		t.ok(s.clones_ready == 0 and s.town_sim.shock == (0.0 if vats == 1 else shock), "the clone spent, or the morale shock when unmade")
+		s.tick(respawn_s)
+		var back := s.drain_events().filter(func(e): return e["type"] == "relish_respawned")
+		t.ok(back.size() == 1 and back[0]["with_clone"] == (vats == 1) and back[0]["at"] == "covington" and s.view_relish()["state"] == "home",
+			"respawned home after respawn_s: %s" % str(back))
 	# a spent clone is not a death event until E3
 	s = _mk()
 	s.clones_ready = 2
@@ -792,8 +811,21 @@ func _parity() -> void:
 			"%s: deaths, clones and the morale shock equal" % tag)
 		t.ok(b.view_relish()["state"] == a.view_relish()["state"] or not died, "%s: relish state" % tag)
 		if died:
-			t.ok(_types(b.drain_events()) == ["loot_banked", "relish_died", "relish_respawned"] and _types(a.drain_events()) == ["relish_died", "relish_respawned"],
-				"%s: the v2 path adds loot_banked and keeps the legacy death events" % tag)
+			# E3-2: both deaths leave her dead for the same respawn_s, then both respawn
+			var eb := b.drain_events()
+			var ea := a.drain_events()
+			var rs := float(eb[1]["respawn_s"]) if eb.size() > 1 else -1.0
+			t.ok(_types(eb) == ["loot_banked", "relish_died"] and _types(ea) == ["relish_died"] and ea[0]["respawn_s"] == rs and rs > 0.0
+				and b.view_relish()["state"] == "dead" and a.view_relish()["state"] == "dead"
+				and b.view_relish()["dead_s_left"] == rs and a.view_relish()["dead_s_left"] == rs,
+				"%s: the v2 path adds loot_banked and keeps the legacy death event; both dead for %.0f s" % [tag, rs])
+			a.tick(rs)
+			b.tick(rs)
+			var ra := a.drain_events().filter(func(e): return e["type"] == "relish_respawned")
+			var rb := b.drain_events().filter(func(e): return e["type"] == "relish_respawned")
+			t.ok(ra.size() == 1 and rb.size() == 1 and ra[0]["with_clone"] == rb[0]["with_clone"]
+				and a.view_relish()["state"] == "home" and b.view_relish()["state"] == "home",
+				"%s: both respawn home after respawn_s (relish_respawned)" % tag)
 	# a ready clone
 	var a2 := _legacy_state(4)
 	a2.clones_ready = 1

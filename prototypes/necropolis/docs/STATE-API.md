@@ -245,7 +245,20 @@ from `BALANCE.md` §0.
   - **§8.3** a death's clone (raid step 10, boss step 4) and a boss fight's `backups_spent.clones` (boss step 3) empty
     the lowest ready vat back to 0, then a spare clone (was: the stock −1);
   - **§9.1 `backups`**: each vat's `grow` is read back, and the old-save rule reads a `clones_ready` above the vats at 1
-    as spare clones (was: only `staffed` read back, `clones_ready` the stock).
+    as spare clones (was: only `staffed` read back, `clones_ready` the stock);
+  - **the death order** (MECHANICS §7; §8.3 raid steps 9–10): a raid's revives in place spend their charges with one
+    `relish_died{outcome: "phylactery", in_place: true}` each (was: spent with no event), then a death that ends the run
+    wakes her from a clone, else unmakes her (the clone is the lowest ready vat);
+  - **real respawns** (§5.8 `view_relish`, §6 `relish_died` / `relish_respawned`, §3 step 6): a run-ending death
+    leaves her `dead` at its node for the outcome's `respawn_s` (`backups.clone_respawn_s` 60, `unmade_respawn_s`
+    600), `dead_s_left` counting down and `respawn_with_clone` set, then `relish_respawned` puts her home; catch-up
+    clips at it (IDLE §4). While dead the home stance slot, Vigil and her home effects read her away, and the `dead`
+    refusals (§4.2, §4.5) apply. Was: `respawn_s` 0.0 and an immediate `relish_respawned`, never `dead`;
+  - **the party lost in both outcomes** (§8.3 step 10; A8): the code already did; MECHANICS §7's unmade line now
+    says so;
+  - **§5.13 `view_backups` live**: `death` reads `phylactery` while a charge can revive her (in place, `loses` []),
+    else `clone` / `unmade` with the real `respawn_s`; `dead_s_left` is live. The seeds' `death_ends` (§7.1, §7.2)
+    skip the phylactery step and carry the real `respawn_s` (was: 0.0).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -563,7 +576,10 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
   6. **Backups.** Vats grow and respawn timers count down; Backups is the only writer of death and
      respawn. Emits `relish_respawned`. (v8, E3-2; MECHANICS §7) Each vat grows by `vats.grow_per_s` × its tend
      hands × `dt`, clamped at 1, on the hands TownSim's step (step 3) staffed it with; a vat whose Chapel is gone
-     leaves its ready clone as a spare. Linear, so catch-up runs it the same way at its own `dt`, exactly.
+     leaves its ready clone as a spare. Linear, so catch-up runs it the same way at its own `dt`, exactly. While
+     Relish is `dead` her `dead_s_left` runs down by `dt`, and at 0 she wakes at Covington, `home`, with
+     `relish_respawned` stamped at the step's `t`; catch-up clips a step at it (IDLE §4), so it lands on her
+     respawn's moment exactly.
   7. **The ledger.** Books the substep's mint (source) and its sinks: TownSim's rot loss, rot and
      haul overflow, pit burn and milling, and RealmSim's `k_clear` (§4.7). `held` is read live.
   8. **Readouts.** `diff`, its EMA over `readout.ema_s`, sign, drain time and odds.
@@ -1485,7 +1501,9 @@ doesn't copy a 128 × 90 grid every frame. Read it only.
 ```
 
 ### 5.8 `view_relish()` · E1
-The dead fields and the backups are E3. Until then a death respawns her at once.
+The dead fields and the backups are E3, live from E3-2 (v8; MECHANICS §7): a death that ends a run leaves her
+`dead` at the node she died at for the outcome's `respawn_s` (`dead_s_left` counting down, `respawn_with_clone`
+which it was), then `relish_respawned` puts her `home` at Covington. Until E3-2 a death respawned her at once.
 
 | key | type | meaning |
 |---|---|---|
@@ -1870,7 +1888,20 @@ From E3-2 (v8) they are live (MECHANICS §7): each vat's `grow` is its clone, 0.
 its tend hands while it is staffed and tended, and `ready` at 1. `clones_ready` is the vats at 1 plus any spare
 clones (the old-save rule: a save's clones above its vats at 1, a demolished Chapel's ready clones), no longer a
 plain stock (until E3-2 it was GameState's stock, and slot `i` read `ready` while `i < clones_ready`). The
-phylactery charges are stored as is. `death` follows the E1-safe rule of §8.3 step 10.
+phylactery charges are stored as is (crafting them is E3-4).
+
+`death` (E3-2, MECHANICS §7's order) is what a death at HP 0 in the next run would cost right now:
+- **`phylactery`** while a charge is left and `phylactery_max_per_dungeon` > 0: she revives in place and the run
+  goes on, so it loses nothing (`respawn_s` 0.0, `loses` []);
+- else **`clone`** with a clone ready: she wakes at Covington after `backups.clone_respawn_s` (60), losing the whole
+  party (when there is one) and the unbanked loot;
+- else **`unmade`**: she reforms after `backups.unmade_respawn_s` (600), losing those and the morale.
+
+A seed's `death_ends` (§7.1, §7.2) is the death that ends the run, so it skips the phylactery step (a revive
+doesn't end the run) and reads `clone` or `unmade` with its `respawn_s`, which `Results.validate` requires: with
+no charge it equals this `death`'s `outcome` and `respawn_s`, and with one it is the step after it. Both equal what
+the death then does (`relish_died`'s `outcome` and `respawn_s`, and `dead_s_left`). `dead_s_left` is live: her
+respawn's seconds left while she is dead, else 0.
 | key | type | meaning |
 |---|---|---|
 | `phylactery_charges`, `phylactery_max_per_dungeon`, `clones_ready` | int | |
@@ -2184,8 +2215,8 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 
 | type | fields | ms |
 |---|---|---|
-| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0; `phylactery` and timers E3) |
-| `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate until E3) |
+| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0). Live from E3-2 (v8): a raid's revives in place each raise one `{outcome: "phylactery", in_place: true, respawn_s: 0.0}` (§8.3 step 9; the Vei fight's are E3-5's); a death that ends a run raises `clone` or `unmade` with its real `respawn_s` (`backups.clone_respawn_s`, `unmade_respawn_s`), and she is `dead` until it has passed |
+| `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate until E3). From E3-2 (v8) raised by the core step's backups step (§3 step 6) when her `dead_s_left` reaches 0, `respawn_s` after her `relish_died`, stamped at that step's `t` (catch-up clips at it) |
 | `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts; `cmd_build` and `cmd_upgrade` do not emit it themselves, and a cancel before that substep drops it) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed). Which building goes idle follows the shed order since R1 (decorations, then the passive no-job buildings, then the job buildings, the WAR chain last: MECHANICS §4.3, `economy.json` `upkeep.shed_order`): the event's meaning is unchanged, so a gold floor that used to raise it for a raising pit first now raises it for the Statue | E2 |
@@ -2248,7 +2279,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `chest_husk` | bool | `true` on the first dungeon: the warden's chest holds a husk |
 | `watchtower` | bool | exact tells and percentages are unlocked |
 | `relish_hp` | float | `raid.json relish.hp` (30) |
-| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends this run ends in, `{outcome: String, respawn_s: float}`: after any phylactery revives (in place, at most `phylactery_max_per_dungeon`), `"clone"` when a clone is ready (she wakes at Covington from it) else `"unmade"`, and its respawn time; `view_backups().death`'s `outcome` and `respawn_s` at issue (§5.13; until E3 a death respawns at once, 0.0). The death card's number; the dungeon falls back to text without one when it is absent |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends this run ends in, `{outcome: String, respawn_s: float}`: after any phylactery revives (in place, at most `phylactery_max_per_dungeon`), `"clone"` when a clone is ready (she wakes at Covington from it) else `"unmade"`, and its respawn time (E3-2, v8: `backups.clone_respawn_s` or `unmade_respawn_s`; until E3-2 a death respawned at once, 0.0). It is the death that ends the run, so it skips view_backups' phylactery step (§5.13: `view_backups().death` reads `phylactery` while a charge is left), and it is never `phylactery` (`Results.validate`, §8.4): with no charge it is `view_backups().death`'s `outcome` and `respawn_s` at issue, and with one the step after it. The run-ending death then does exactly this (`relish_died`, `dead_s_left`), by the clones ready when the result is applied. The death card's number; the dungeon falls back to text without one when it is absent |
 ```gdscript
 {v: 2, kind: "raid", run_id: 1, seed_rev: 512, rng_seed: "7203661890244157873",
  fort: {id: "old-sluice", name: "Old Sluice", tier: 1, cap: 80.0, first_clear: true, first_dungeon: true,
@@ -2257,7 +2288,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
  digest_q: 1.2, phylactery_charges: 0, phylactery_max_per_dungeon: 1, clones_ready: 0,
  warden: {archetype: "bellringer", tier: 1}, warden_spec: {}, loot_table_id: "t1.bellringer",
  loot_hint: "a husk and a blueprint", chest_husk: true, watchtower: false, relish_hp: 30.0,
- death_ends: {outcome: "unmade", respawn_s: 0.0}}
+ death_ends: {outcome: "unmade", respawn_s: 600.0}}
 ```
 
 ### 7.2 Boss seed (`kind: "boss"`)
@@ -2276,13 +2307,13 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `party` | Array[Dictionary] | a big-undead entry plus `front: String` |
 | `phylactery_charges`, `clones_ready` | int | the backups the fight may spend (§8.2) |
 | `relish_hp` | float | |
-| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends the fight ends in, `{outcome: String, respawn_s: float}`. Each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), so a death ends the fight only once none is left (a final death): `"unmade"` always, with its respawn time (0.0 until E3). The rule is `view_backups().death`'s with no clone ready. (§8.3 boss step 4's death reads the clones left after those spent, so a final death with a clone still ready would wake from it; the boss scene never sends one) |
+| `death_ends` | Dictionary | v6 (E2b-2 T3.3c): what a death that ends the fight ends in, `{outcome: String, respawn_s: float}`. Each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), so a death ends the fight only once none is left (a final death): `"unmade"` always, with its respawn time (E3-2, v8: `backups.unmade_respawn_s`, 600; 0.0 until E3-2). The rule is `view_backups().death`'s past the phylactery step (it is the death that ends the fight, never `phylactery`) with no clone ready. (§8.3 boss step 4's death reads the clones left after those spent, so a final death with a clone still ready would wake from it; the boss scene never sends one) |
 ```gdscript
 {v: 2, kind: "boss", run_id: 9, seed_rev: 21950, rng_seed: "-3317425092215838120",
  backlog: 18450.0, living_pool: 380.0, odds: 0.61, sign: 1, drain_s: -1.0, digest_q: 2.6, vei_capacity: 50.0,
  fronts: [{id: "giants", need: 24.0, have: 26.5, assigned: ["u4"]}, ...4], fronts_required: 3,
  party: [{uid: "u4", name: "Old Gristle", kind: "hulk", role: "brute", stats: {...}, front: "giants"}, ...],
- phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0, death_ends: {outcome: "unmade", respawn_s: 0.0}}
+ phylactery_charges: 1, clones_ready: 1, relish_hp: 30.0, death_ends: {outcome: "unmade", respawn_s: 600.0}}
 ```
 
 ## 8. Results
@@ -2357,7 +2388,8 @@ order, each clamped. The sim has kept running during the run.
    (api-request #15). A death or a retreat leaves both set, so the next first run still gets the
    starter husk and the guaranteed blueprint.
 9. `party_lost` big undead are removed. `phylactery_charges −= revived_in_place` (clamped at 0), with one
-   `relish_died{outcome: "phylactery", in_place: true}` per revive (E3).
+   `relish_died{outcome: "phylactery", in_place: true, at: the fort, respawn_s: 0.0}` per revive (E3; live from
+   E3-2, v8), queued after `loot_banked` and the flip's or clear's event, before a run-ending death's.
 10. If `relish_died` (E3, MECHANICS §7):
     - **A clone is ready:** `outcome: "clone"`. She respawns at Covington after
       `backups.clone_respawn_s`.
@@ -2366,9 +2398,11 @@ order, each clamped. The sim has kept running during the run.
     - In both cases the **whole party** and the unbanked loot are lost (the scene already dropped
       loot found since the last checkpoint), the fort doesn't flip, Relish is `dead`, then
       `relish_respawned`. Nothing in the town or the realm resets (A8).
-    - **Until E3** (the E1-safe rule): a ready clone (`clones_ready` > 0, spent) gives `clone`;
-      otherwise `unmade`, and the town takes `morale.death_shock` (`TownSim.add_shock`). She
-      respawns home at once.
+    - **Live from E3-2** (v8; `StateRuns.death`): the clone spent is the lowest ready vat, emptied back to 0
+      (then a spare clone); `unmade` adds `morale.death_shock` (`TownSim.add_shock`). She is `dead` at the
+      fort with `dead_s_left` the outcome's `respawn_s` and `respawn_with_clone`, and the backups step (§3
+      step 6) wakes her at Covington when it has passed. Until E3-2 (the E1-safe rule) she respawned home at
+      once.
 11. If she didn't die, Relish is `at_fort` at that fort. The run closes.
 
 (E1's step 12, the legacy army parity, and boss step 6 below were removed at E2a with the legacy
@@ -2382,7 +2416,8 @@ economy.)
 3. `phylactery_charges −= backups_spent.phylactery`; `clones_ready −= backups_spent.clones` (both
    clamped at 0); one `relish_died{in_place: true}` per spent backup (E3).
 4. A final death (`relish_deaths == s + 1`) gives `outcome: "unmade"` (MECHANICS §7), and she is
-   `dead`. Otherwise she is `at_vei`. Until E3 a final death follows raid step 10's E1-safe rule.
+   `dead`. Otherwise she is `at_vei`. A final death follows raid step 10's rule (from E3-2 the shared death
+   rule: `dead` at Vei for its `respawn_s`, then `relish_respawned`); the fight's own use of the backups is E3-5's.
 5. Emits `vei_result` (a boss result carries no loot, so there is no `loot_banked`).
 
 ### 8.4 `Results.validate(kind: String, d: Dictionary) -> Array[String]` (`scripts/sim/results.gd`)

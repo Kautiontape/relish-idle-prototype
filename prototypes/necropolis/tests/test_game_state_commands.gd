@@ -343,8 +343,8 @@ func _vats() -> void:
 	var v := s.view_backups()
 	t.ok(v["vats"] == [] and v["clones_ready"] == 0 and v["phylactery_charges"] == 0 and v["phylactery_max_per_dungeon"] == 1,
 		"no vats, no backups")
-	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": 0.0, "loses": ["unbanked_loot", "morale"]},
-		"a death now: unmade (the E1-safe rule, an immediate respawn until E3)")
+	t.ok(v["death"] == {"outcome": "unmade", "respawn_s": float(TestUtil.configs()["backups"]["backups"]["unmade_respawn_s"]),
+		"loses": ["unbanked_loot", "morale"]}, "a death now: unmade, reforming after backups.unmade_respawn_s (E3-2)")
 	s.clones_ready = 1
 	t.ok(s.cmd_staff_vat(0, true)["reason"] == "unknown_slot", "a clone stock alone makes no vat: it takes a Chapel of Vats")
 	s.town_sim.place_building("lot-13", "chapel_of_vats", 1)

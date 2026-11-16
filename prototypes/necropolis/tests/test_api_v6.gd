@@ -1560,7 +1560,7 @@ func _death_ends() -> void:
 		m.clones_ready = clones
 		m.cmd_debug_set_state({"relish_at": "vei"})
 		var bb := m.cmd_begin_boss()
-		t.ok(bb["seed"]["death_ends"] == {"outcome": "unmade", "respawn_s": 0.0} and Results.validate("boss_seed", bb["seed"]).is_empty(),
+		t.ok(bb["seed"]["death_ends"] == {"outcome": "unmade", "respawn_s": 600.0} and Results.validate("boss_seed", bb["seed"]).is_empty(),
 			"%d clones ready: the boss seed's death_ends is unmade (backups go first): %s" % [clones, str(bb["seed"]["death_ends"])])
 	var s2 := _mk()
 	s2.cmd_debug_set_state({"relish_at": "old-sluice"})

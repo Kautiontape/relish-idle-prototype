@@ -167,6 +167,8 @@ func _finish(gs: GameState) -> void:
 ## The seconds from now to the next moment a catch-up step must not straddle (IDLE §4), INF when none
 ## is pending. The events, each projected from the state now:
 ## - Relish's arrival (her distance less GameState.ARRIVE_EPS over relish.travel_speed);
+## - Relish's respawn while she is dead (her dead_s_left; E3-2), so a save closed while she is dead wakes her at the
+##   right moment, and the stance slot and Vigil follow from there;
 ## - an unpaid building's hold ending (its unpaid_s);
 ## - a construction finishing (TownSim.construction_left's eta_s: the work left over its builders' rate);
 ## - the build queue's head waiting on funds starting: (cost − stock) / net income for each currency it
@@ -182,6 +184,8 @@ static func next_event_s(gs: GameState) -> float:
 	var e := INF
 	if gs.relish["state"] == "travelling":
 		e = minf(e, maxf(0.0, gs._dist_to(gs.relish["target"]) - GameState.ARRIVE_EPS) / gs.travel_speed())
+	elif gs.relish["state"] == "dead" and float(gs.relish["dead_s_left"]) > 0.0:
+		e = minf(e, float(gs.relish["dead_s_left"]))  # her respawn (E3-2)
 	var ts := gs.town_sim
 	for lot in ts.buildings:
 		var b: Dictionary = ts.buildings[lot]

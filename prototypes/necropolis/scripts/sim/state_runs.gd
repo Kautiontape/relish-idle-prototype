@@ -77,10 +77,13 @@ static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionar
 
 
 ## The seeds' `death_ends` (§7.1, §7.2; E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends
-## in, {outcome: "clone" | "unmade", respawn_s}, from view_backups' death rule (StateViews.death_rule).
+## in, {outcome: "clone" | "unmade", respawn_s}, from view_backups' death rule (StateViews.death_rule) past its
+## phylactery step: a revive in place doesn't end the run, so a death that does is past them (Results.validate
+## takes only clone or unmade here). E3-2: respawn_s is the outcome's, backups.clone_respawn_s or unmade_respawn_s.
 ## - A raid: after any phylactery revives (each revives in place, at most phylactery.max_per_dungeon), the
 ##   death that ends the run wakes her from a ready clone, else unmakes her: the rule at the clones ready now,
-##   so it equals view_backups().death's outcome and respawn_s.
+##   so it equals view_backups().death's outcome and respawn_s while no charge is left (with one, view_backups
+##   reads "phylactery") and what death() then does.
 ## - A boss run: each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), and the fight ends
 ##   in a death only when none is left (a final death, relish_deaths = the backups spent + 1), so that death
 ##   is "unmade": the rule with no clone ready. (writeback_boss's death reads the clones left after the ones
@@ -279,19 +282,33 @@ static func view_boss_seed(gs: GameState) -> Dictionary:
 	return {}
 
 
-## Relish's death until E3 (§8.3 step 10, the E1-safe rule): a ready clone if there is one (it is
-## spent: the lowest ready vat empties back to 0, else a spare clone goes; GameState.spend_clones, E3-2), else
-## she is unmade and the town takes morale.death_shock; she respawns home at once. The caller has closed the run.
+## Relish's death that ends a run (§8.3 raid step 10, boss step 4; E3-2, MECHANICS §7), by the death rule past the
+## phylactery (StateViews.death_rule with no charge: the dungeon spent its revives in place already, and a death that
+## ends the run is past them): a ready clone if there is one (spent: the lowest ready vat empties back to 0, else a
+## spare clone goes; GameState.spend_clones), else she is unmade and the town takes morale.death_shock. She is `dead`
+## at the node she died at, `dead_s_left` the outcome's respawn_s (backups.clone_respawn_s or unmade_respawn_s) and
+## `respawn_with_clone` which it was; the backups step counts it down and wakes her at Covington with
+## relish_respawned (GameState._count_down_respawn). A respawn_s of 0 wakes her at once. The caller has closed the run
+## and removed the party.
 static func death(gs: GameState, run_id: int) -> void:
 	gs.stats["deaths"] += 1
 	var at_node: String = gs.relish["at"]
-	var clone := gs.spend_clones(1) == 1
-	if not clone:
+	var d := StateViews.death_rule(gs, gs.clones_ready)
+	var clone := str(d["outcome"]) == "clone"
+	if clone:
+		gs.spend_clones(1)
+	else:
 		gs.town_sim.add_shock(gs._req_f("economy.morale.death_shock"))
-	gs._emit({"type": "relish_died", "outcome": "clone" if clone else "unmade", "in_place": false,
-		"at": at_node, "run_id": run_id, "respawn_s": 0.0})
-	gs._place_relish("covington")
-	gs._emit({"type": "relish_respawned", "with_clone": clone, "at": "covington"})
+	var respawn_s := float(d["respawn_s"])
+	gs._emit({"type": "relish_died", "outcome": str(d["outcome"]), "in_place": false,
+		"at": at_node, "run_id": run_id, "respawn_s": respawn_s})
+	gs.relish["state"] = "dead"
+	gs.relish["target"] = ""
+	gs.relish["pos"] = gs._node_xy(at_node)
+	gs.relish["dead_s_left"] = respawn_s
+	gs.relish["respawn_with_clone"] = clone
+	if respawn_s <= 0.0:
+		gs._respawn()
 
 
 static func ar_fail(gs: GameState, reason: String, errors: Array = []) -> Dictionary:
@@ -359,8 +376,9 @@ static func remove_big_undead(gs: GameState, uid: String) -> void:
 	gs.party_uids.erase(uid)
 
 
-## §8.3 raid steps 1-11 (death by the E1-safe rule until E3). The result is already validated and
-## matched to the open run. Returns the minted uids.
+## §8.3 raid steps 1-11 (E3-2: each revive in place spends a charge and raises relish_died{phylactery, in_place}; a
+## death that ends the run is death()'s). The result is already validated and matched to the open run. Returns the
+## minted uids.
 static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	var sd: Dictionary = gs.run["seed"]
 	var run_id: int = gs.run["run_id"]
@@ -459,6 +477,10 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	if cg_cleared:
 		gs._spend_yield(f)  # the clear paid loot (held_clear's roll)
 		gs._emit({"type": "counter_garrison_cleared", "fort_id": fort_id, "killed_mass": k})
+	# 9 (E3-2): each phylactery revive the dungeon reports was a death in place (she carried on in the run)
+	for i in int(r["revived_in_place"]):
+		gs._emit({"type": "relish_died", "outcome": "phylactery", "in_place": true, "at": fort_id, "run_id": run_id,
+			"respawn_s": 0.0})
 	# 10. death: the whole party is lost (A8), then the death rule; 11. otherwise she stays
 	if died:
 		for uid in party:
@@ -469,7 +491,8 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	return minted
 
 
-## §8.3 boss steps 1-5 (a final death by the E1-safe rule until E3).
+## §8.3 boss steps 1-5. A final death is death()'s (E3-2: dead, then the respawn); the fight's own use of the
+## backups (its in-place events) is E3-5's.
 static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	var sd: Dictionary = gs.run["seed"]
 	var run_id: int = gs.run["run_id"]

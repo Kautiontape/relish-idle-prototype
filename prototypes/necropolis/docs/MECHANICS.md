@@ -395,8 +395,9 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   - workers rot `relish.home_rot_mult` slower;
   - the slab works;
   - stances get one extra stance slot (`relish.home_stance_bonus`).
-- **Dead:** no tide, redirect, slab or bonus. **Everything else stays live:** valve, building,
-  stances (vision review S3).
+- **Dead** (from E3-2, for the death's respawn time, §7): no tide, redirect, slab or bonus (no home rot and no
+  home stance slot; Vigil's condition holds). **Everything else stays live:** valve, building, stances (vision
+  review S3).
 - **Her fort retaken** (IDLE I5, E2b-2 T3.3c): when the fort she stands at (`at_fort`) is retaken, she
   walks home to Covington at `relish.travel_speed`, from the retake's moment inside the step
   (`relish_returned`, and `view_relish().returned`). Live play and catch-up alike, so she never waits at a
@@ -1508,13 +1509,31 @@ The Watchtower turns the bands into exact percentages and lists every tell.
 
 **At HP 0, in order:**
 1. **A phylactery charge** (crafted at the Ossuary): revive in place at `phylactery.revive_hp`. At
-   most `phylactery.max_per_dungeon` per dungeon.
+   most `phylactery.max_per_dungeon` per dungeon. The dungeon reports its revives (`revived_in_place`) and
+   GameState spends the charges, one `relish_died {outcome: "phylactery", in_place: true}` each (E3-2). It loses
+   nothing: the run goes on.
 2. **A ready clone:** she wakes at Covington after `backups.clone_respawn_s`.
-   - The party and any unbanked loot are lost, and the fort doesn't flip.
+   - The whole party and any unbanked loot are lost, and the fort doesn't flip.
    - Unbanked loot is capped at what was found since the last checkpoint room, so a 6-minute run
-     never loses everything.
-3. **Unmade:** she reforms after `backups.unmade_respawn_s`, with a morale shock and lost unbanked
-   loot. Nothing else is lost, and nothing resets.
+     never loses everything (the dungeon's death result carries its last checkpoint's loot,
+     `RaidLogic.result_loot`, and the writeback banks it).
+3. **Unmade:** she reforms after `backups.unmade_respawn_s`, with a morale shock. As with a clone, the whole
+   party and the unbanked loot are lost and the fort doesn't flip (the contract, STATE-API §8.3 step 10 and
+   A8, so the cost order is phylactery < clone < unmade; E3-2 fixed the old "Nothing else is lost", which
+   read as keeping the party). Nothing in the town or the realm resets.
+
+**Dead, then the respawn** (E3-2). A death that ends the run (2 or 3) leaves her `dead` at the node she died at,
+`dead_s_left` the outcome's respawn time and `respawn_with_clone` which it was. The core step's backups step
+(STATE-API §3 step 6) counts it down, and at 0 she wakes at Covington, home (`relish_respawned {with_clone}`).
+While dead she is away from home for every rule that reads it: no home stance slot (§4.5), Vigil's condition
+holds, her home effects are off (§3.3), and moving her, a descent and the Vei fight refuse with `dead` (STATE-API
+§4.2, §4.5); the slab refuses `not_home`. Catch-up clips a step at her respawn (IDLE §4), so a save closed while
+she is dead wakes her at the right time, and the stance slot and Vigil follow from there.
+
+**What a death would cost now** (`view_backups().death`) follows this order: `phylactery` while a charge is left
+and `max_per_dungeon` lets a dungeon use one (in place, loses nothing), else `clone`, else `unmade`, with the
+respawn time and what it loses. A seed's `death_ends` is the death that ends the run, so it skips the phylactery
+step (the revives come first) and reads `clone` or `unmade`, as `Results.validate` requires.
 
 **A run that ends without the scene** (a close, a crash, a load, a gap above `idle.gap_s`; IDLE I5, E2b-2
 T3.3c) banks the same bound: the dungeon tells GameState what is banked at every checkpoint room
