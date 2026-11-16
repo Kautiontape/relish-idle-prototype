@@ -2748,9 +2748,9 @@ func _update_towns(cfg: Dictionary) -> void:
 # ------------------------------------------------------------------------ death ----
 
 ## Relish's death that ends a run (§8.3 raid step 10, boss step 4; E3-2, MECHANICS §7): StateRuns.death. The caller
-## has closed the run.
+## has closed the run. A raid's: it judges by the clones ready now (a boss fight's final death passes 0).
 func _death(run_id: int) -> void:
-	StateRuns.death(self, run_id)
+	StateRuns.death(self, run_id, clones_ready)
 
 
 ## The backups step's respawn (§3 step 6; E3-2): dead_s_left runs down by the step's dt, and at 0 she wakes at

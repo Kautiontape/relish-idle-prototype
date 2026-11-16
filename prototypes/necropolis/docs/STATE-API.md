@@ -2556,7 +2556,8 @@ economy.)
    `relish_died`, as a raid's revives follow its `loot_banked`: `vei_result`, the revives, the final death.
 4. A final death (`relish_deaths == s + 1`) gives `outcome: "unmade"` (MECHANICS §7), and she is
    `dead`. Otherwise she is `at_vei`. A final death follows raid step 10's rule (from E3-2 the shared death
-   rule, `StateRuns.death`, at the clones left once step 3 has spent them: with none left, `unmade`, `dead` at Vei
+   rule, `StateRuns.death`, judged at 0 clones, the seed's `death_ends` rule: a clone grown in a vat while the fight
+   ran is not the fight's backup and stays ready, unspent. So `unmade`, `dead` at Vei
    for `backups.unmade_respawn_s` (600 s), the morale shock, then `relish_respawned`; `relish_died{outcome: "unmade",
    in_place: false, at: "vei", respawn_s: 600.0}`).
 5. Emits `vei_result` (a boss result carries no loot, so there is no `loot_banked`).

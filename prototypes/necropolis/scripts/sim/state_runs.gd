@@ -95,7 +95,8 @@ static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionar
 ## - A boss run: each death spends a phylactery charge, then a clone (§8.2, MECHANICS §6), and the fight ends
 ##   in a death only when none is left (a final death, relish_deaths = the backups spent + 1), so that death
 ##   is "unmade": the rule with no clone ready. (writeback_boss's death reads the clones left after the ones
-##   spent: a final death with a clone still ready would wake from it, which the boss scene never sends.)
+##   spent: a final death with a clone still ready would wake from it, which the boss scene never sends. A clone
+##   grown mid-fight (the sim ticks on) stays in its vat: writeback_boss passes death() 0 clones, this rule.)
 static func death_ends(gs: GameState, kind: String) -> Dictionary:
 	var d := StateViews.death_rule(gs, gs.clones_ready if kind == "raid" else 0)
 	return {"outcome": str(d["outcome"]), "respawn_s": float(d["respawn_s"])}
@@ -295,13 +296,15 @@ static func view_boss_seed(gs: GameState) -> Dictionary:
 ## ends the run is past them): a ready clone if there is one (spent: the lowest ready vat empties back to 0, else a
 ## spare clone goes; GameState.spend_clones), else she is unmade and the town takes morale.death_shock. She is `dead`
 ## at the node she died at, `dead_s_left` the outcome's respawn_s (backups.clone_respawn_s or unmade_respawn_s) and
-## `respawn_with_clone` which it was; the backups step counts it down and wakes her at Covington with
+## `respawn_with_clone` which it was. `clones` is the clone count the rule judges by: a raid passes the clones ready now
+## (gs.clones_ready), a boss fight 0, as the seed's death_ends does (a clone grown while the fight ran stays in its
+## vat: the seed promised unmade). The backups step counts it down and wakes her at Covington with
 ## relish_respawned (GameState._count_down_respawn). A respawn_s of 0 wakes her at once. The caller has closed the run
 ## and removed the party.
-static func death(gs: GameState, run_id: int) -> void:
+static func death(gs: GameState, run_id: int, clones: int) -> void:
 	gs.stats["deaths"] += 1
 	var at_node: String = gs.relish["at"]
-	var d := StateViews.death_rule(gs, gs.clones_ready)
+	var d := StateViews.death_rule(gs, clones)
 	var clone := str(d["outcome"]) == "clone"
 	if clone:
 		gs.spend_clones(1)
@@ -493,7 +496,7 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	if died:
 		for uid in party:
 			remove_big_undead(gs, uid)
-		death(gs, run_id)
+		death(gs, run_id, gs.clones_ready)
 	else:
 		gs.relish["state"] = "at_fort"
 	return minted
@@ -537,6 +540,6 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 		gs._emit({"type": "relish_died", "outcome": "phylactery" if i < charges else "clone", "in_place": true,
 			"at": at, "run_id": run_id, "respawn_s": 0.0})
 	if final_death:
-		death(gs, run_id)
+		death(gs, run_id, 0)  # the seed's death_ends rule (no clone): a clone grown mid-fight stays in its vat
 	else:
 		gs.relish["state"] = "at_vei"

@@ -34,6 +34,7 @@ func run() -> int:
 	_seed_otherwise_unchanged()
 	_backups_in_place()
 	_final_death()
+	_final_death_vat_filled()
 	return t.failures
 
 
@@ -255,6 +256,31 @@ func _backups_in_place() -> void:
 	n.apply_result("boss", {"v": 2, "run_id": nb["run_id"], "seed_rev": nb["seed_rev"], "won": true, "fronts_cleared": [],
 		"relish_deaths": 0, "backups_spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "backlog_spent": 0.0})
 	t.ok(n.drain_events().map(func(e): return e["type"]) == ["vei_result"], "no backup spent: vei_result alone")
+
+
+## A clone that grows while the fight runs (the sim ticks on; a tended vat fills) isn't the fight's backup: the seed
+## said death_ends unmade, so a final death is unmade (600 s, the morale shock) and the new clone stays in its vat.
+func _final_death_vat_filled() -> void:
+	var s := _fixture("pre_vei")
+	var bb := s.cmd_begin_boss()
+	var sd: Dictionary = bb["seed"]
+	t.ok(sd["death_ends"]["outcome"] == "unmade" and sd["clones_ready"] == 1, "(setup) the seed promises unmade with 1 clone")
+	s.cmd_staff_vat(1, true)
+	s.vats_grow = [1.0, 0.9999]
+	for i in 8:
+		s.tick(0.5)
+	t.ok(s.vats_grow[1] >= 1.0 and s.clones_ready == 2, "(setup) a vat filled mid-fight: clones_ready %d, vats %s" % [s.clones_ready, str(s.vats_grow)])
+	s.drain_events()
+	var shock0: float = s.town_sim.shock
+	var res := {"v": 2, "run_id": sd["run_id"], "seed_rev": sd["seed_rev"], "won": false, "fronts_cleared": [],
+		"relish_deaths": 3, "backups_spent": {"phylactery": 1, "clones": 1}, "party_lost": [], "backlog_spent": 0.0}
+	t.ok(s.apply_result("boss", res)["ok"], "(setup) the lost fight applies")
+	var died: Array = s.drain_events().filter(func(e): return e["type"] == "relish_died" and not e["in_place"])
+	t.ok(died.size() == 1 and died[0]["outcome"] == "unmade" and died[0]["respawn_s"] == 600.0,
+		"the final death is the seed's unmade, 600 s, not a wake from the clone grown mid-fight: %s" % str(died))
+	t.ok(s.town_sim.shock > shock0 and s.view_relish()["dead_s_left"] == 600.0 and not s.relish["respawn_with_clone"],
+		"the town takes the morale shock (%.3f to %.3f) and she is dead for 600 s" % [shock0, s.town_sim.shock])
+	t.ok(s.clones_ready == 1, "the clone grown in the fight is still ready: clones_ready %d" % s.clones_ready)
 
 
 ## Boss step 4: a final death after every backup (pre_vei: 1 charge, 1 clone, both spent, deaths = s + 1) follows the

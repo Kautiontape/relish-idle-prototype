@@ -680,17 +680,19 @@ func _boss_writeback() -> void:
 		out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1}))
 		evs = s.drain_events()
 		t.ok(out["ok"] and _types(evs) == ["vei_result", "relish_died"], "final death: vei_result first (%s)" % str(_types(evs)))
-		t.ok(evs[1]["outcome"] == ("clone" if vats == 1 else "unmade") and evs[1]["at"] == "vei" and evs[1]["in_place"] == false
-			and evs[1]["run_id"] == sd["run_id"] and evs[0]["relish_deaths"] == 1, "the clone rule: %s" % str(evs[1]))
+		# QF3: a boss fight's final death follows the seed's death_ends (the rule at 0 clones): unmade, even with a
+		# clone ready that the fight didn't spend (one grown in its vat while the fight ran stays unspent)
+		t.ok(evs[1]["outcome"] == "unmade" and evs[1]["at"] == "vei" and evs[1]["in_place"] == false
+			and evs[1]["run_id"] == sd["run_id"] and evs[0]["relish_deaths"] == 1, "the death rule at 0 clones (clones ready %d): %s" % [vats, str(evs[1])])
 		# E3-2 (MECHANICS §7): dead for the outcome's respawn_s (backups.json), then home
-		var respawn_s := float(TestUtil.configs()["backups"]["backups"]["clone_respawn_s" if vats == 1 else "unmade_respawn_s"])
+		var respawn_s := float(TestUtil.configs()["backups"]["backups"]["unmade_respawn_s"])
 		var rl := s.view_relish()
-		t.ok(evs[1]["respawn_s"] == respawn_s and rl["state"] == "dead" and rl["dead_s_left"] == respawn_s and rl["respawn_with_clone"] == (vats == 1)
+		t.ok(evs[1]["respawn_s"] == respawn_s and rl["state"] == "dead" and rl["dead_s_left"] == respawn_s and rl["respawn_with_clone"] == false
 			and s.big_undead.is_empty() and s.run.is_empty(), "dead for its respawn_s (%.0f s), party gone" % respawn_s)
-		t.ok(s.clones_ready == 0 and s.town_sim.shock == (0.0 if vats == 1 else shock), "the clone spent, or the morale shock when unmade")
+		t.ok(s.clones_ready == vats and s.town_sim.shock == shock, "the morale shock, and the clone ready stays (%d)" % vats)
 		s.tick(respawn_s)
 		var back := s.drain_events().filter(func(e): return e["type"] == "relish_respawned")
-		t.ok(back.size() == 1 and back[0]["with_clone"] == (vats == 1) and back[0]["at"] == "covington" and s.view_relish()["state"] == "home",
+		t.ok(back.size() == 1 and back[0]["with_clone"] == false and back[0]["at"] == "covington" and s.view_relish()["state"] == "home",
 			"respawned home after respawn_s: %s" % str(back))
 	# a spent clone is a death in place (E3-5: one relish_died{clone, in_place} after vei_result; it was no event before)
 	s = _mk()
@@ -858,7 +860,10 @@ func _parity() -> void:
 			var lbl := "boss %s vats %d" % [str(case), vats]
 			t.ok(o3["ok"], "%s: applies" % lbl)
 			t.near(b3.realm.vei["undead_queue"], a3.realm.vei["undead_queue"], 1e-9, "%s: backlog equals" % lbl)
-			t.ok(b3.won == a3.won and b3.clones_ready == a3.clones_ready, "%s: won and clones equal" % lbl)
+			# QF3: the legacy path spent a ready clone on a lost fight's death; the boss writeback now judges a final
+			# death at 0 clones (the seed's death_ends), so that clone stays ready
+			var keeps: bool = bool(case["relish_died"]) and not bool(case["won"]) and vats == 1
+			t.ok(b3.won == a3.won and b3.clones_ready == (vats if keeps else a3.clones_ready), "%s: won and clones equal (a final death keeps its ready clone)" % lbl)
 			t.ok(b3.view_relish()["state"] == a3.view_relish()["state"] or not (case["relish_died"] and not case["won"]), "%s: she is home after a death" % lbl)
 			var ea := a3.drain_events().filter(func(e): return e["type"] == "vei_result")
 			var eb := b3.drain_events().filter(func(e): return e["type"] == "vei_result")
