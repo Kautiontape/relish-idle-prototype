@@ -1770,6 +1770,7 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 ## `real` (away_risk_real, E3-7, the manager's ruling 5 at the E3-6b stop: a setup where the risk is real) takes three
 ## absences from the same save instead: 24 h with WAR cut to 0 (cut_war), and 72 h as the sessions bot left it and
 ## after the prepared setup. (WAR cut then prepared would be `prepared` again: prepare_away raises WAR from the target.)
+## Then the WAR-cut midgame: the midgame_2flips fixture, 24 h as it loads, with WAR cut, and after the prepared setup.
 static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
 	var lead := _bot("away_risk_real" if real else "away_risk", cfg)
 	lead.new_game()
@@ -1793,12 +1794,36 @@ static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
 	var variants: Array = [["default", DAY, false, false], ["prepared", DAY, false, true]]
 	if real:
 		variants = [["war_cut", DAY, true, false], ["default_72h", 3 * DAY, false, false], ["prepared_72h", 3 * DAY, false, true]]
+	_away_variants(t, cfg, lead.dir, "risk", lead.s.t, variants, out)
+	if real:
+		# the WAR-cut midgame (test_held_forts' setup: midgame_2flips with WAR cut retakes both held forts within about
+		# 1 300 s): the fixture as it loads (one substep, no bot turn), 24 h as it stands, with WAR cut, and prepared
+		var m := _bot("away_risk_midgame", cfg, {"dir": lead.dir})
+		m.s = m._fresh()
+		m.s.debug_enabled = true
+		m.s.cmd_debug_load_fixture("midgame_2flips")
+		m.s.debug_enabled = false
+		m._frame()
+		m._tick_to(ceilf(m.s.t - 1e-9))
+		m.s.clock_override = CLOCK0 + int(m.s.t)
+		t.ok(bool(m.s.cmd_save("risk_mid")["ok"]), "away_risk_real: the midgame_2flips start is saved")
+		var mo := {"source": "the midgame_2flips fixture as it loads (one substep, no bot turn)", "t_leave": m.s.t}
+		_away_variants(t, cfg, lead.dir, "risk_mid", m.s.t, [["midgame_default", DAY, false, false],
+			["midgame_war_cut", DAY, true, false], ["midgame_prepared", DAY, false, true]], mo)
+		out["midgame"] = mo
+	lead.finish(t, {"away_risk": out})
+	lead.cleanup()
+
+
+## away_risk's absences: for each [name, away s, WAR cut first, the prepared setup], a fresh bot loads `slot` (saved at
+## `t0`, 0 s away), sets itself up, and is away; its record goes in `out[name]`.
+static func _away_variants(t: TestUtil, cfg: Dictionary, dir: String, slot: String, t0: float, variants: Array, out: Dictionary) -> void:
 	for vr in variants:
 		var variant := str(vr[0])
-		var b := _bot("away_risk_" + variant, cfg, {"dir": lead.dir})
+		var b := _bot("away_risk_" + variant, cfg, {"dir": dir})
 		b.s = b._fresh()
-		b.s.clock_override = CLOCK0 + int(lead.s.t)
-		t.ok(bool(b.s.cmd_load("risk")["ok"]), "away_risk %s: the start loads (0 s away: the identity)" % variant)
+		b.s.clock_override = CLOCK0 + int(t0)
+		t.ok(bool(b.s.cmd_load(slot)["ok"]), "away_risk %s: the start loads (0 s away: the identity)" % variant)
 		b.s.drain_events()
 		var prep := {}
 		if bool(vr[2]):
@@ -1814,8 +1839,6 @@ static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
 		print("  [autoplay] away_risk %s (%d h): held %s at leave, %s at return, lost %d%s" % [variant, int(float(vr[1]) / 3600.0),
 			str(rec["held_at_leave"]), str(rec["held_at_return"]), int(rec["lost_n"]), "; prep %s" % JSON.stringify(prep) if not prep.is_empty() else ""])
 		b.finish(t)
-	lead.finish(t, {"away_risk": out})
-	lead.cleanup()
 
 
 ## An ablation or the sensitivity pass under sessions, with the sessions baseline run alongside for the deltas: in

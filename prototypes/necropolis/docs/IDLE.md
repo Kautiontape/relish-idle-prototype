@@ -879,6 +879,8 @@ The profiles:
   - 72 h after the prepared setup, graded against "at most a quarter".
 
   (WAR cut and then prepared would be away_risk's `prepared` again, because the setup raises WAR from wherever it is.)
+  Then the WAR-cut midgame (test_held_forts' setup): the midgame_2flips fixture as it loads, away 24 h as it stands, with
+  WAR cut, and after the prepared setup.
 - **bank_bigs** (E3-7): sessions, except that once the giants or carvers front is short (they have no backlog term), no
   raid takes a big. Only a party member has a front (`cmd_assign_front` refuses `not_in_party`, and leaving the party
   clears the front). So between raids the party holds the bigs, each on whichever of giants and carvers is still
