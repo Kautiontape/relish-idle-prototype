@@ -317,6 +317,25 @@ from `BALANCE.md` §0.
     stands and read back, a save without it reading 0 (was: 0 in both). Neither stock has a cap of its own (the run's
     manager's ruling): the essence and relic caps bind them;
   - **`stats.sims_built`** (the save's, §9.1) counts the simulacra crafted (it was never moved).
+
+  E3-4's simulacra (MECHANICS §3.6) add no key either (`tests/api_schema.gd` unchanged; the save's `realm.simulacra`
+  was always written and read back). They add **`realm.json` `simulacrum.rate` (1.0 mass/s) and `simulacrum.charges`
+  (300 mass)**, read REQUIRED by GameState (E4 placeholders, BALANCE §5). Changes of meaning (stubs going live):
+  - **§4.3 `cmd_deploy_simulacrum` is live**: it takes one from `simulacra_ready` and plants `{fort_id, charges, rate}`
+    from those keys in RealmSim's `simulacra`, returning its `charges` (300.0) and `ready_left`. The refusals in order:
+    `unknown_fort`, `none_ready` (was: `unknown_fort`, then `ok` with 0.0 charges, 0 ready left and nothing planted). Any
+    fort takes one, and several at one fort stack: `view_fort().simulacrum_charges` (§5.5) sums them;
+  - **simulacra raise** (RealmSim already ran its list; now a command fills it): from the next step a planted one
+    performs Relish's redirect at its fort at `rate` until its charges run out, then crumbles. While it has charges the
+    garrison's kills there stay as corpses (`view_rates` `corpses`, `view_lanes` `redirect` and its `"simulacrum"`
+    callout, §5.2, §5.3), and the raised mass reaches Vei as that fort's drain. A retake loses it (MECHANICS §3.4; IDLE
+    I6), live and inside a catch-up;
+  - **catch-up clips at a simulacrum running out** (IDLE §4, `Catchup.simulacrum_out_s`): at `charges / rate` while its
+    fort's corpses cover the raises wanted there until then, and not under one substep. Unclipped, one running out
+    inside a 15 s step read +8.5% on its fort's undead at that step's end;
+  - **the margin credits no simulacrum**, as it credits no siege (§5.5): `view_fort`'s `margin`, `margin_cause`,
+    `fall_s` and `garrison_rate`, and `view_projection`'s `margins`, read a held fort's support without the raises of the
+    simulacra planted there (Relish's sustained raise is the only one). Conservative; crediting them is E4's.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -330,9 +349,9 @@ from `BALANCE.md` §0.
     from E2a: the valve and TownSim act on them);
   - `cmd_set_stance`, `cmd_staff_vat`, `cmd_assign_front`.
 
-  Action commands (deploy; build, upgrade, demolish and cancel were stubs until
-  E2a T2.4, the raise until E3-3 and the craft until E3-4) run their id checks
-  (`unknown_*`), then return `ok` with zero-valued extras and change nothing. Stub views return
+  Action commands were stubs that ran their id checks (`unknown_*`), then returned `ok` with
+  zero-valued extras and changed nothing: build, upgrade, demolish and cancel until E2a T2.4,
+  the raise until E3-3, and the craft and the deploy until E3-4. None is left. Stub views return
   BALANCE §0 constants or the stub values noted at each view.
 
 ### 1.2 Where it lives
@@ -1033,11 +1052,16 @@ Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: ""
 Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
 ```
 
-**`cmd_deploy_simulacrum(fort_id: String)` · E3**
-- **Extras:** `charges: float` (the planted simulacrum's charges, in mass), `ready_left: int`.
-- **Reasons:** `unknown_fort`, `none_ready`.
-- **Effect:** it redirects at that fort at `simulacrum.rate` until its charges run out (MECHANICS
-  §3.6).
+**`cmd_deploy_simulacrum(fort_id: String)` · E3 (live from E3-4, v8)**
+- **Extras:** `charges: float` (the planted simulacrum's charges, in mass), `ready_left: int` (the simulacra still
+  ready).
+- **Reasons**, in this order: `unknown_fort`, `none_ready` (`simulacra_ready` is under 1). There are no others.
+- **Effect:** it takes one from `simulacra_ready` and plants `{fort_id, charges: simulacrum.charges, rate:
+  simulacrum.rate}` (`realm.json`: 300 mass, 1.0 mass/s) at that fort, held or not. From the next step it redirects
+  there at `rate` until its charges run out (MECHANICS §3.6): the garrison's kills there stay as corpses and it raises
+  corpses into the fort's undead; charges are mass, only the raise spends them, and at 0 it crumbles. Several at one
+  fort stack (`view_fort().simulacrum_charges` sums them) and raise side by side. A retake of the fort loses it
+  (MECHANICS §3.4; IDLE I6). No event.
 ```gdscript
 Game.state.cmd_deploy_simulacrum("vespers")  # -> {ok: true, reason: "", charges: 300.0, ready_left: 0}
 ```
@@ -1486,7 +1510,10 @@ The masses and positions are live at E1. The held, tithe, threat and warden fiel
 
 ### 5.5 `view_fort(id: String)` · E1
 The masses, positions, `relish_here` and `can_descend` are live from E1; held, flip and tithe from
-E2a. `siege` lists the big undead placed there (the siege's effect is E3). The threat is
+E2a. `siege` lists the big undead placed there; from E3-3 (v8) a siege blocks `tithe.siege_block` of a tithe wave
+at its fort, and the margin chip credits none (`margin`, below). `simulacrum_charges` is live from E3-4 (v8): the
+simulacra `cmd_deploy_simulacrum` planted there, and the margin chip credits their raise no more than a siege's
+block. The threat is
 still the E1 stub (`risk: "low"`) until its E2 spec; the warden and loot hint come from the
 dungeon's configs (v6, below); the hold's readouts
 (`garrison` to `grace_s_left`) and `yield_mult` are live from v6.
@@ -1516,7 +1543,7 @@ dungeon's configs (v6, below); the hold's readouts
 | `loot_hint` | String | display text (v6, T3.4a): the first dungeon reads `loot.json` `hints.first_dungeon_hint`; any other fort reads `hints["t<tier>.<archetype>"]`, `""` when the config has no such key. The raid seed's `loot_hint` is the same string |
 | `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
-| `simulacrum_charges` | float | mass left across simulacra planted here; 0 when none |
+| `simulacrum_charges` | float | mass left across simulacra planted here, summed when several are (they stack); 0 when none. Each one's charges fall by what it raises and it crumbles at 0; a retake loses them all (MECHANICS §3.6, §3.4) |
 | `siege` | Array[String] | big-undead uids placed here |
 | `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). |
 | `can_descend` | bool | `cmd_begin_dungeon(id)` would succeed now |

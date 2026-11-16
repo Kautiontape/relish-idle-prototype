@@ -66,7 +66,9 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"backups.phylactery.max_per_dungeon",
 	# E3-4: the crafts' costs (MECHANICS §3.6; cmd_craft and view_catalog's crafts, _craft_cost)
 	"economy.craft.simulacrum.essence", "economy.craft.simulacrum.relics", "economy.craft.phylactery_charge.essence",
-	"economy.craft.phylactery_charge.relics"]
+	"economy.craft.phylactery_charge.relics",
+	# E3-4: a planted simulacrum's raise and charges (MECHANICS §3.6; cmd_deploy_simulacrum)
+	"realm.simulacrum.rate", "realm.simulacrum.charges"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
 ## setup() checks each is there, and that `waited_on` words every queue reason in REPORT_WAITED_ON.
 const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "arrow_up", "arrow_down", "arrow_flat",
@@ -181,7 +183,8 @@ var _grow_per_s := 0.0  # backups.json vats.grow_per_s
 # caps bound them); cmd_craft adds to them ---
 ## Phylactery charges (view_backups, saved as backups.phylactery_charges): a raid's revives in place spend them (E3-2).
 var _phylactery_charges := 0
-## Simulacra crafted and not yet planted (view_inventory.simulacra_ready; saved as inventory.simulacra_ready).
+## Simulacra crafted and not yet planted (view_inventory.simulacra_ready; saved as inventory.simulacra_ready):
+## cmd_deploy_simulacrum takes one. A planted one is RealmSim's (realm.simulacra).
 var simulacra_ready := 0
 # --- the stances (E3-1, MECHANICS §4.5; _stance_step). Saved as `stances`: hold, and the optional `state` ---
 ## stance id -> the seconds of its hold left: its `active` can't change again until it is gone (stance.hold_s
@@ -1108,10 +1111,9 @@ func cmd_debug_skip_time(seconds: float) -> Dictionary:
 # ------------------------------------------------------------- §4.3 town ----
 # The town is TownSim's (BALANCE §0 at a new game). The job ladder and staff caps drive its
 # staffing. The build family (T2.4) pays from TownSim's stocks and the relics, and constructs
-# through TownSim's build job. Crafting is live from E3-4 (cmd_craft, at a building with `craft_slots`: the
-# Ossuary Tower); deploy is still a §1.1 stub (its id check, then ok with zero extras, no change); the raise is
-# live from E3-3 (the slab, cmd_raise_big_undead). The stances act from E3-1 (the stance step, below
-# cmd_set_stance).
+# through TownSim's build job. Crafting and planting simulacra are live from E3-4 (cmd_craft, at a building with
+# `craft_slots`: the Ossuary Tower; cmd_deploy_simulacrum); the raise is live from E3-3 (the slab,
+# cmd_raise_big_undead). The stances act from E3-1 (the stance step, below cmd_set_stance).
 
 ## Buildings of that id that have finished their first build (level ≥ 1); every building when "".
 func _count_built(building_id: String) -> int:
@@ -1654,14 +1656,28 @@ func _craft_cost(item_id: String) -> Dictionary:
 	return {"essence": int(_req_f("economy.craft.%s.essence" % item_id)), "relics": int(_req_f("economy.craft.%s.relics" % item_id))}
 
 
-## E3 stub: checks the fort id, then ok with zero charges.
+## §4.3 · E3 (live from E3-4; MECHANICS §3.6): plants a simulacrum at any fort, held or not; several at one fort
+## stack (view_fort.simulacrum_charges sums them). Reasons, after catching_up: unknown_fort, then none_ready (no
+## simulacrum ready). It takes one from simulacra_ready and appends {fort_id, charges: realm.json simulacrum.charges,
+## rate: simulacrum.rate} to RealmSim's simulacra: from the next step it performs Relish's redirect there (RealmSim
+## step 5) until its charges run out and it crumbles (step 6), or the fort is retaken, which loses it
+## (RealmSim._retaken; IDLE I6). Extras: its charges and ready_left (the simulacra still ready). No event (the lanes'
+## "simulacrum" callout comes from the next substep, _note_lane_causes).
 func cmd_deploy_simulacrum(fort_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up({"charges": 0.0, "ready_left": 0})
+	var why := ""
 	if realm.fort_by_id(fort_id).is_empty():
-		return {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0}
+		why = "unknown_fort"
+	elif simulacra_ready < 1:
+		why = "none_ready"
+	if why != "":
+		return {"ok": false, "reason": why, "charges": 0.0, "ready_left": 0}
+	var charges := _req_f("realm.simulacrum.charges")
+	simulacra_ready -= 1
+	realm.simulacra.append({"fort_id": fort_id, "charges": charges, "rate": _req_f("realm.simulacrum.rate")})
 	rev += 1
-	return {"ok": true, "reason": "", "charges": 0.0, "ready_left": 0}
+	return {"ok": true, "reason": "", "charges": charges, "ready_left": simulacra_ready}
 
 
 ## Vat slots: the Chapel of Vats' `vat_slots` per level, over every built Chapel (MECHANICS §7).

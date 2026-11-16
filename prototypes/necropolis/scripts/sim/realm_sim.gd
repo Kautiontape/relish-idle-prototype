@@ -1175,9 +1175,8 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 
 
 ## A hold ends, `at` seconds into the step (IDLE I6): the event, the fort's yield refreshes (MECHANICS
-## §5.3), and a simulacrum planted there is lost. GameState sends a siege big undead there home.
-## TODO(E3): cmd_deploy_simulacrum is still a stub, so only a save or a test plants a simulacrum today;
-## when E3 deploys them this is their loss at a retake.
+## §5.3), and every simulacrum planted there (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the
+## step's later parts raise nothing for it. GameState sends a siege big undead there home.
 func _retaken(f: Dictionary, cause: String, at: float) -> void:
 	f["held"] = false
 	f["grace_s"] = 0.0

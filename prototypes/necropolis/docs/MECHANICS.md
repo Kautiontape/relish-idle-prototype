@@ -471,8 +471,9 @@ pins U at 0. A fort that reaches its grace end with U = 0 and nothing coming fal
   (`RealmSim._unsieged`), and the next step's inputs have none there. A catch-up doesn't clip at a retake, so this
   holds inside its long steps too: a 10 s step with the retake 2 s in delivers a wave there as a 2 s step with the
   block and an 8 s step without it (`test_big_undead`);
-- a simulacrum planted there is lost (RealmSim drops it; `cmd_deploy_simulacrum` is still the E3
-  stub, so only a save or a test plants one today);
+- every simulacrum planted there (`cmd_deploy_simulacrum`, live from E3-4) is lost with its charges: RealmSim drops it
+  at the retake's moment (`RealmSim._retaken`), so the step's parts after it raise nothing for it, live and inside a
+  catch-up's long step alike (`test_crafting`);
 - Relish, if she stands there, walks home (§3.3, `relish_returned` after the `big_undead_returned`; E2b-2
   T3.3c);
 - `clears_since_retaken` resets to 0 (§5.3).
@@ -882,10 +883,20 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
   It needs a built building with `craft_slots` (the Ossuary Tower; a capacity effect, so an unpaid or Thrift-idled one
   still crafts), checked by the effect, not the building's id. There is no stock cap: the essence (60) and relic (12)
   caps bind it. The same command crafts a phylactery charge (§7).
-- `cmd_deploy_simulacrum(fort_id)` plants one. It performs **Relish's redirect** at that fort at
+- `cmd_deploy_simulacrum(fort_id)` plants one (live from E3-4) at any fort, held or not, taking it from
+  `simulacra_ready` (`none_ready` with none). It performs **Relish's redirect** at that fort at
   `simulacrum.rate` until its charges run out: garrison kills there stay as corpses while it has
   charges, and it raises corpses into the fort's undead. Charges are mass and only the raise spends
-  them.
+  them. `realm.json` `simulacrum.rate` 1.0 mass/s and `simulacrum.charges` 300 (E4 placeholders, BALANCE §5): 5 min of
+  raising, a quarter of Relish's `raise_rate`, at a fort whose corpses keep up. The raise is §3.1 step 5's, after
+  Relish's, bounded by the corpses; a spent one crumbles (step 6).
+- Several at one fort stack: each raises at its own rate from its own charges, and `view_fort().simulacrum_charges`
+  sums them.
+- A retake of its fort loses it, charges and all (§3.4; IDLE I6, so one at a fort that falls while you're away is
+  lost too).
+- Catch-up clips a step at a simulacrum running out, while its corpses keep up (IDLE §4).
+- The margin chip credits no simulacrum (§3.5's readouts read Relish's raise alone), as it credits no siege:
+  conservative, and E4's to credit.
 - The tide is hers alone.
 
 ## 4. Economic: Covington
@@ -1666,7 +1677,7 @@ GameState mints uids for looted items when it applies the result. The town scene
 ## 9. Config ownership
 | file | owner | contents |
 |---|---|---|
-| `realm.json` | economy | RealmSim tunables, `valve.*`, `relish.*`, `flip.*`, `tithe.*`, `readout.*`, `q.*` |
+| `realm.json` | economy | RealmSim tunables, `valve.*`, `relish.*`, `simulacrum.*` (E3-4), `flip.*`, `tithe.*`, `readout.*`, `q.*` |
 | `economy.json` (new) | economy | `sim.*`, `worker.*`, `job.*`, `stall.*`, `market.*`, `pit.*`, `body_store.*`, `town.*`, `inn.*`, `morale.*`, `stance.*`, `foreman.*`, caps, `opening.*` |
 | `buildings.json` (new) | economy | costs, upkeep, jobs, effects, requires |
 | `buildings_view.json` (new) | town | labels, silhouettes, flavour |

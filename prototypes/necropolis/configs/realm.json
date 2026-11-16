@@ -13,6 +13,7 @@
   "field_src_per_pit": 0.15,
   "veiPolicy": "cheap",
   "relish": {"travel_speed": 220.0, "tide_bias": 3.0, "raise_rate": 4.0, "home_rot_mult": 0.7, "home_stance_bonus": 1},
+  "simulacrum": {"_doc": "E3-4, v0: E4 placeholders (BALANCE 5). A planted simulacrum (cmd_deploy_simulacrum) performs Relish's redirect at its fort (MECHANICS 3.6): while it has charges the garrison's kills there stay as corpses, and it raises corpses into the fort's undead at rate mass/s. charges are mass, and only the raise spends them; at 0 it crumbles. 300 at 1.0 is 5 min of raising, a quarter of Relish's raise_rate. Read REQUIRED by GameState.", "rate": 1.0, "charges": 300.0},
   "valve": {"slew_per_s": 0.10},
   "tithe": {"period_s": 420.0, "backlog_scale": 0.5, "warning_s": 150.0, "surge_s": 40.0, "surge_mult": 3.0, "siege_block": 0.6, "relish_mult": 0.5, "march_back_s": 60.0},
   "readout": {"ema_s": 120.0, "sign_eps": 0.05},

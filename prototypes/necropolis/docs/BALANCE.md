@@ -99,6 +99,7 @@ E2a added is here with its value.
 | `relish.travel_speed` | 220 px/s | kept (the top-level duplicate `travelSpeed` is gone) |
 | `relish.tide_bias` | 3.0 | |
 | `relish.raise_rate` ⟵ `raiseRate` | 4.0 mass/s | was 30 (emptied piles), then 1.5 (a wash at low `q`); calibrate against the +30% ablation |
+| `simulacrum.rate`, `simulacrum.charges` | 1.0 mass/s, 300 mass | `realm.json`, E3-4, v0: **E4 placeholders** (the run's manager; read REQUIRED, `GameState.REQUIRED`). A planted simulacrum performs Relish's redirect at its fort (MECHANICS §3.6): it raises corpses at `rate` until it has raised `charges`, then crumbles. 5 min of raising, a quarter of Relish's `raise_rate`, at a fort whose corpses keep up; longer where they don't (only the raise spends charges) |
 | `relish.home_rot_mult` | 0.7 | |
 | `relish.home_stance_bonus` | 1 | extra stance slots while she is home |
 | `flip.hold_s`, `flip.tier_mult`, `flip.haul_mult` | 300, 0.25, 1.5 | `hold_s · (1 + tier_mult · tier)` is a flip's grace (375 s at tier 1, 600 at tier 4): no shipping there and no wave targets it (E2b-2; it was the whole hold) |

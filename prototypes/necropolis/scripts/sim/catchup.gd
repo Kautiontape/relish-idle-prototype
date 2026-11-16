@@ -177,7 +177,8 @@ func _finish(gs: GameState) -> void:
 ##   A gated entry starts on a tier rise or a building finishing, which are clipped already;
 ## - gold or bone reaching its floor (stock / −net, while the stock is above 1 and the net negative);
 ## - the tithe: its warning (next_s − tithe.warning_s), a wave starting (next_s) and a wave ending
-##   (its s_left).
+##   (its s_left);
+## - a simulacrum running out of charges (E3-4: simulacrum_out_s, guarded).
 ## A grace ending, a garrison reaching 0 and a break are solved inside RealmSim's step, and the store
 ## caps inside TownSim's, so they aren't clipped. tests/slow/convergence.gd's harness clips with this.
 static func next_event_s(gs: GameState) -> float:
@@ -215,6 +216,44 @@ static func next_event_s(gs: GameState) -> float:
 		var wv: Dictionary = ti["wave"]
 		if not wv.is_empty() and float(wv["s_left"]) > 0.0:
 			e = minf(e, float(wv["s_left"]))
+	if not r.simulacra.is_empty():
+		e = minf(e, simulacrum_out_s(gs))
+	return e
+
+
+## The seconds until the first simulacrum runs out of charges (E3-4, IDLE §4), INF when none is clipped. RealmSim
+## spreads a step's raise evenly over it (min(rate, charges / dt)), so a simulacrum running out inside a 15 s step
+## raised its last charges over the whole step: its fort's undead read +8.5% at that step's end against live play
+## (test_crafting). A step ends at the moment instead: charges / rate, a lower bound, since the raise never passes
+## the rate (an early clip only splits a step, and the next projects again). Two guards:
+## - corpses: only while the fort's dead now cover every raise wanted there until then (Relish's, where she
+##   redirects, and each live simulacrum's there, up to its charges). A corpse-limited raise runs out later than
+##   charges / rate, and a starved simulacrum would cut every step short for the rest of a week; such a one is not
+##   clipped, and its last raise spreads over its step as Relish's corpse-limited raise does;
+## - a floor: none under sim.substep_s, live play's own granularity, so a sliver of charges left doesn't make ever
+##   shorter steps.
+static func simulacrum_out_s(gs: GameState) -> float:
+	var r := gs.realm
+	var redirect: String = gs._relish_effects()["redirect_fort"]
+	var e := INF
+	for sm in r.simulacra:
+		var rate := float(sm["rate"])
+		var c := float(sm["charges"])
+		if not (rate > 0.0 and c > 0.0):
+			continue
+		var at := c / rate
+		if at < gs.substep_s() or at >= e:
+			continue
+		var fid := str(sm["fort_id"])
+		var f := r.fort_by_id(fid)
+		if f.is_empty():
+			continue
+		var want := gs._raise_rate * at if redirect == fid else 0.0
+		for o in r.simulacra:
+			if str(o["fort_id"]) == fid and float(o["charges"]) > 0.0:
+				want += minf(float(o["charges"]), maxf(0.0, float(o["rate"])) * at)
+		if float(f["dead"]) >= want:
+			e = at
 	return e
 
 

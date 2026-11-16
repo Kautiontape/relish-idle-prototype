@@ -10,12 +10,24 @@ extends RefCounted
 ## - view_catalog's crafts give what cmd_craft would answer, and view_inventory shows the stocks;
 ## - save -> load keeps simulacra_ready; a save without it reads 0, and one of another type is corrupt;
 ## - a crafted phylactery charge is the stock E3-2's death rule spends: a raid's revive in place, as test_backups has it.
+## E3-4's simulacra (MECHANICS §3.6, §3.4's retake; STATE-API §4.3 cmd_deploy_simulacrum, §5.5; IDLE I6, §4):
+## - cmd_deploy_simulacrum's refusals, in order: unknown_fort, none_ready; it takes one from the stock and plants
+##   {fort_id, charges, rate} from realm.json simulacrum (300, 1.0), returning its charges and ready_left; any fort;
+##   several at one fort stack (view_fort sums their charges, and they raise side by side);
+## - a planted simulacrum raises its fort's corpses at its rate until its charges run out, then crumbles; while it has
+##   charges the garrison's kills there stay as corpses, and once it is gone they ship to Vei again; the ledger holds;
+## - a retake loses it, live and caught up (IDLE I6: a simulacrum at a fort that falls while you're away is lost);
+## - save -> load mid-charge keeps it, and the loaded game runs it out as the unsaved one does;
+## - catch-up clips at its exhaustion: one running out 292.5 s in, inside a 15 s step, against live 0.5 s (its fort's
+##   undead, dead and raised mass, and when it is gone); a starved one and a sliver are not clipped (the guards).
 ## Saves go under user://test_crafting_<pid>, removed at the end.
 
 var t := TestUtil.new()
 var _dir := "user://test_crafting_%d" % OS.get_process_id()
 const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 const OSSUARY_LOT := "lot-13"  # size 2, the Ossuary Tower's
+const FORT := "whitecross"  # the simulacra's fort (cap 520), held in grace in _grace
+var _cat = load("res://tests/test_catchup.gd")  # its harness configs (the field shrunk, no pre-warm)
 
 
 func run() -> int:
@@ -29,6 +41,16 @@ func run() -> int:
 	_save_load()
 	_old_save()
 	_charge_revives()
+	_deploy_refusals()
+	_deploy()
+	_raise_until_out()
+	_corpses_kept()
+	_stacking()
+	_retake_live()
+	_retake_caught_up()
+	_save_mid_charge()
+	_exhaustion()
+	_guards()
 	_cleanup()
 	return t.failures
 
@@ -287,3 +309,319 @@ func _charge_revives() -> void:
 		"the dungeon's revive in place spends it: relish_died %s" % str(died))
 	t.ok(s._phylactery_charges == 0 and s.view_inventory()["phylactery_charges"] == 0 and s.view_relish()["state"] == "at_fort"
 		and s.view_relish()["at"] == "old-sluice", "the charge is spent and the run went on: Relish at Old Sluice")
+
+
+# ============================================================================================== the simulacra ====
+func _sims_at(s: GameState, fort_id: String) -> Array:
+	return s.realm.simulacra.filter(func(sm): return str(sm["fort_id"]) == fort_id)
+
+
+## [undead, dead, raised_by_sims] at FORT.
+func _masses(s: GameState) -> Array:
+	var f := s.realm.fort_by_id(FORT)
+	return [float(f["undead"]), float(f["dead"]), s.realm.raised_by_sims]
+
+
+## A new game (test_catchup's harness configs unless `c`) 2 s in with FORT held in grace (Vei ships nothing there and
+## no wave targets it) holding only `dead` corpses: no living, no undead, the valve's WAR at 0 (the muster's WAR still
+## stages there and kills nothing), the haul sent to Ashgate. Only a simulacrum moves its corpses: nothing kills,
+## clears or hauls there.
+func _grace(c := {}, dead := 400.0) -> GameState:
+	var s := _mk(_cat.cfgs() if c.is_empty() else c)
+	s.tick(2.0)
+	s.cmd_set_haul_target("ashgate")
+	s.cmd_debug_set_state({"valve": {"work": 0.4, "war": 0.0, "flood": 0.6}, "forts": {FORT: {"living": 0.0, "undead": 0.0, "dead": dead}}})
+	s.realm.hold(FORT, 5000.0)
+	s.drain_events()
+	return s
+
+
+## Each refusal in order: an unknown fort with none ready is unknown_fort, and with one ready too; a known fort with
+## none ready is none_ready. A refusal changes nothing (rev, the stock, the realm's simulacra).
+func _deploy_refusals() -> void:
+	var s := _mk()
+	var rv := s.rev
+	t.ok(s.cmd_deploy_simulacrum("vei") == {"ok": false, "reason": "unknown_fort", "charges": 0.0, "ready_left": 0},
+		"deploy at an unknown fort with none ready: unknown_fort, before none_ready")
+	t.ok(s.cmd_deploy_simulacrum("vespers") == {"ok": false, "reason": "none_ready", "charges": 0.0, "ready_left": 0},
+		"deploy with none ready: none_ready")
+	s.simulacra_ready = 1
+	t.ok(s.cmd_deploy_simulacrum("nowhere")["reason"] == "unknown_fort" and s.simulacra_ready == 1 and s.realm.simulacra.is_empty()
+		and s.rev == rv, "one ready, an unknown fort: unknown_fort; the refusals change nothing")
+
+
+## A deploy takes one from the stock and plants realm.json simulacrum's charges and rate at the fort: its extras are
+## those charges and ready_left; view_fort shows them; rev + 1; no event. Any fort takes one (a held one too). The
+## numbers follow the config.
+func _deploy() -> void:
+	var s := _mk()
+	s.simulacra_ready = 3
+	s.drain_events()
+	var rv := s.rev
+	var r := s.cmd_deploy_simulacrum("vespers")
+	t.ok(r == {"ok": true, "reason": "", "charges": 300.0, "ready_left": 2} and s.simulacra_ready == 2 and s.rev == rv + 1,
+		"deploy at Vespers: its charges (realm.json simulacrum.charges, 300) and ready_left 2: %s" % str(r))
+	t.ok(s.realm.simulacra == [{"fort_id": "vespers", "charges": 300.0, "rate": 1.0}] and s.view_fort("vespers")["simulacrum_charges"] == 300.0
+		and s.view_inventory()["simulacra_ready"] == 2 and s.drain_events().is_empty(),
+		"RealmSim gets {vespers, 300, rate 1.0} (simulacrum.rate), view_fort shows its charges, no event: %s" % str(s.realm.simulacra))
+	s.realm.hold("ashgate", 0.0)
+	t.ok(s.cmd_deploy_simulacrum("ashgate")["ok"] and _sims_at(s, "ashgate").size() == 1, "a held fort takes one too")
+	var c := TestUtil.configs()
+	c["realm"]["simulacrum"] = {"rate": 2.5, "charges": 40.0}
+	var o := _mk(c)
+	o.simulacra_ready = 1
+	t.ok(o.cmd_deploy_simulacrum("greywall") == {"ok": true, "reason": "", "charges": 40.0, "ready_left": 0}
+		and o.realm.simulacra == [{"fort_id": "greywall", "charges": 40.0, "rate": 2.5}], "the charges and rate are realm.json simulacrum's (40, 2.5 here)")
+
+
+## A planted simulacrum raises its fort's corpses at its rate, every substep, until its charges run out, then
+## crumbles: at FORT (held in grace, 400 corpses, nothing else moving them) the shipped 300 charges at 1.0 mass/s last
+## exactly 300 s; it raised 300 into the fort's undead, the corpses are 100, it raises nothing after. The ledger holds.
+func _raise_until_out() -> void:
+	var s := _grace()
+	s.simulacra_ready = 1
+	s.cmd_deploy_simulacrum(FORT)
+	var f := s.realm.fort_by_id(FORT)
+	var dt := s.substep_s()
+	var t0 := s.t
+	var at_rate := true
+	var gone := -1.0
+	for i in 700:
+		var c0 := float(_sims_at(s, FORT)[0]["charges"]) if not _sims_at(s, FORT).is_empty() else 0.0
+		s.tick(dt)
+		if gone < 0.0:
+			at_rate = at_rate and absf(float(f["r_raised"]) - 1.0) < 1e-9 and absf(c0 - 1.0 * dt - (float(_sims_at(s, FORT)[0]["charges"]) if not _sims_at(s, FORT).is_empty() else 0.0)) < 1e-9
+			if _sims_at(s, FORT).is_empty():
+				gone = s.t - t0
+		if s.t - t0 >= 310.0:
+			break
+	t.ok(at_rate and absf(gone - 300.0) < 1e-6, "it raises at its rate (1.0 mass/s, its charges down 0.5 a substep) until they run out, %.1f s in, and crumbles" % gone)
+	t.ok(absf(s.realm.raised_by_sims - 300.0) < 1e-6 and absf(float(f["dead"]) - 100.0) < 1e-6 and float(f["r_raised"]) == 0.0
+		and s.view_fort(FORT)["simulacrum_charges"] == 0.0,
+		"it raised its 300 charges (raised_by_sims %.4f), 100 corpses are left, and nothing is raised after it" % s.realm.raised_by_sims)
+	t.ok(GameState.Ledger.error(s.ledger()) < 1e-9, "the ledger holds: %s" % String.num_scientific(GameState.Ledger.error(s.ledger())))
+
+
+## MECHANICS §3.6: while it has charges the garrison's kills at its fort stay there as corpses (r_redirected, no
+## r_dead_out), as at Relish's redirect; once it has crumbled they ship to Vei again. Vespers, unheld, with living and
+## undead fighting and corpses to raise.
+func _corpses_kept() -> void:
+	var s := _mk(_cat.cfgs())
+	s.tick(2.0)
+	s.cmd_set_haul_target("ashgate")
+	s.cmd_debug_set_state({"forts": {"vespers": {"living": 60.0, "undead": 20.0, "dead": 40.0}}})
+	var f := s.realm.fort_by_id("vespers")
+	s.tick(0.5)
+	var before := [float(f["r_dead_out"]), float(f["r_redirected"])]
+	s.simulacra_ready = 1
+	s.cmd_deploy_simulacrum("vespers")
+	s.tick(0.5)
+	t.ok(before[0] > 0.0 and before[1] == 0.0 and float(f["r_dead_out"]) == 0.0 and float(f["r_redirected"]) > 0.0 and float(f["r_raised"]) > 0.0,
+		"with charges its garrison's kills stay as corpses: %.3f mass/s kept, none shipped (before it, %.3f shipped)" % [float(f["r_redirected"]), before[0]])
+	s.realm.simulacra[0]["charges"] = 0.25  # its last quarter: it runs out in the next substep
+	s.tick(0.5)
+	s.tick(0.5)
+	t.ok(s.realm.simulacra.is_empty() and float(f["r_dead_out"]) > 0.0 and float(f["r_redirected"]) == 0.0 and float(f["r_raised"]) == 0.0,
+		"once it has crumbled they ship to Vei again: %.3f mass/s" % float(f["r_dead_out"]))
+
+
+## Several at one fort stack: view_fort's simulacrum_charges is their sum, and they raise side by side, each at its rate
+## from its own charges.
+func _stacking() -> void:
+	var s := _grace()
+	s.simulacra_ready = 2
+	s.cmd_deploy_simulacrum(FORT)
+	var r := s.cmd_deploy_simulacrum(FORT)
+	t.ok(r["ready_left"] == 0 and _sims_at(s, FORT).size() == 2 and s.view_fort(FORT)["simulacrum_charges"] == 600.0,
+		"two at one fort: view_fort sums their charges (%.1f)" % s.view_fort(FORT)["simulacrum_charges"])
+	for i in 20:
+		s.tick(0.5)
+	var f := s.realm.fort_by_id(FORT)
+	var ch: Array = _sims_at(s, FORT).map(func(sm): return float(sm["charges"]))
+	t.ok(absf(float(f["r_raised"]) - 2.0) < 1e-9 and ch.size() == 2 and absf(float(ch[0]) - 290.0) < 1e-9 and absf(float(ch[1]) - 290.0) < 1e-9
+		and absf(s.view_fort(FORT)["simulacrum_charges"] - 580.0) < 1e-9,
+		"10 s on they raise 2.0 mass/s together, each down to 290 (%s), 580 shown" % str(ch))
+
+
+## Greywall held and contested (no grace) with 60 living and no undead or corpses, no WAR (test_away's _greywall): its
+## garrison sits at 0, so it is broken hold.break_s less 0.3 s in. A simulacrum planted there has nothing to raise.
+func _contested(c: Dictionary) -> GameState:
+	var s := _mk(c)
+	s.tick(2.0)
+	s.cmd_debug_set_state({"valve": {"work": 0.0, "war": 0.0, "flood": 1.0}, "forts": {"greywall": {"living": 60.0, "undead": 0.0, "dead": 0.0}}})
+	s.realm.hold("greywall", 0.0)
+	s.realm.fort_by_id("greywall")["zero_s"] = 0.3
+	s.drain_events()
+	return s
+
+
+## Live: a retake loses the simulacrum planted at the fort, at the retake's substep, with its charges; one at another
+## fort is kept.
+func _retake_live() -> void:
+	var s := _contested(_cat.cfgs())
+	s.simulacra_ready = 2
+	s.cmd_deploy_simulacrum("greywall")
+	s.cmd_deploy_simulacrum("vespers")
+	var held_until := -1.0
+	var evs: Array = []
+	for i in 400:
+		s.tick(0.5)
+		evs = s.drain_events().filter(func(e): return e["type"] == "fort_retaken")
+		if not evs.is_empty():
+			break
+		if not _sims_at(s, "greywall").is_empty() and float(_sims_at(s, "greywall")[0]["charges"]) == 300.0:
+			held_until = s.t
+	t.ok(evs.size() == 1 and evs[0]["fort_id"] == "greywall" and held_until >= s.t - 0.5 - 1e-9,
+		"(setup) Greywall is retaken at %.2f s, its simulacrum there unspent (300 charges) up to the substep before" % (float(evs[0]["t"]) if not evs.is_empty() else -1.0))
+	t.ok(_sims_at(s, "greywall").is_empty() and s.view_fort("greywall")["simulacrum_charges"] == 0.0 and _sims_at(s, "vespers").size() == 1,
+		"the retake loses the simulacrum at Greywall; Vespers' is kept")
+
+
+## Caught up (IDLE I6): saved with a simulacrum at Greywall before it falls and loaded 10 min later (10 s steps): the
+## catch-up's events hold the retake, and the simulacrum is gone, lost, not spent: nothing was raised there.
+func _retake_caught_up() -> void:
+	var c: Dictionary = _cat.cfgs({"economy.idle.catchup_max_steps": 60})
+	var s := _contested(c)
+	s.simulacra_ready = 1
+	s.cmd_deploy_simulacrum("greywall")
+	var raised0 := s.realm.raised_by_sims
+	s.clock_override = CLOCK
+	t.ok(s.cmd_save("retake")["ok"], "(setup) saved with a simulacrum at Greywall")
+	var n := _mk(c)
+	n.clock_override = CLOCK + 600
+	t.ok(n.cmd_load("retake")["ok"] and n._catchup.dt == 10.0, "(setup) loaded 10 min later, caught up at 10 s steps")
+	var rt: Array = n.catchup_events().filter(func(e): return e["type"] == "fort_retaken" and e["fort_id"] == "greywall")
+	t.ok(rt.size() == 1 and n.realm.simulacra.is_empty() and n.view_fort("greywall")["simulacrum_charges"] == 0.0 and n.realm.raised_by_sims == raised0,
+		"away, Greywall fell (%.1f s in) and its simulacrum was lost with it, unspent: %s" % [float(rt[0]["t"]) - s.t if not rt.is_empty() else -1.0, str(n.realm.simulacra)])
+
+
+## save -> load mid-charge: 60 s into its 300, the save holds it as RealmSim does ({fort_id, charges 240, rate}), a
+## fresh state loading it shows the same, and from there both run it out at the same substep with the same masses.
+func _save_mid_charge() -> void:
+	var s := _grace()
+	s.simulacra_ready = 1
+	s.cmd_deploy_simulacrum(FORT)
+	for i in 120:
+		s.tick(0.5)
+	s.clock_override = CLOCK
+	t.ok(s.cmd_save("mid")["ok"], "(setup) saved 60 s into its charges")
+	var n := _mk(_cat.cfgs())
+	n.clock_override = CLOCK
+	t.ok(n.cmd_load("mid")["ok"], "(setup) loaded at once (nothing to catch up)")
+	t.ok(n.to_dict()["realm"]["simulacra"] == [{"fort_id": FORT, "charges": 240.0, "rate": 1.0}] and n.realm.simulacra == s.realm.simulacra
+		and n.view_fort(FORT)["simulacrum_charges"] == 240.0, "the load keeps it: %s" % str(n.realm.simulacra))
+	var gone := [-1.0, -1.0]
+	for i in 500:
+		for k in 2:
+			var g: GameState = [s, n][k]
+			g.tick(0.5)
+			if gone[k] < 0.0 and g.realm.simulacra.is_empty():
+				gone[k] = g.t
+	var ms := _masses(s)
+	var mn := _masses(n)
+	var same := true
+	for i in 3:
+		same = same and absf(float(ms[i]) - float(mn[i])) <= 1e-9 * maxf(1.0, absf(float(ms[i])))
+	t.ok(gone[0] > 0.0 and gone[0] == gone[1] and same, "the loaded game runs it out when the unsaved one does (%.1f s), the fort's masses the same: %s vs %s" % [
+		float(gone[1]), str(ms), str(mn)])
+
+
+## The exhaustion against live (the run's manager's required test; IDLE §4): FORT held in grace with only its corpses,
+## the shipped simulacrum planted and 7.5 s run live, so it runs out 292.5 s after the save: inside a 15 s step of a
+## catch-up stepping at idle.catchup_dt_long_s from its start (catchup_dt_long_after_s 0, catchup_max_steps 1).
+## Without the clip (E3-4 measured it, and the clip's revert reads it) that step raised its last 7.5 charges over all
+## 15 s: at its end, 300 s in, the fort's undead read 13.99 against live's 12.89 (+1.09 mass, +8.5%), still +1.2%
+## 60 s on, with the dead and raised mass exact; it was gone 7.5 s late. Clipped (Catchup.simulacrum_out_s), a step
+## ends at the exhaustion: it is gone at live's moment, and the undead, dead and raised mass match live within
+## idle.catchup_tol there, at the next step's end and at the catch-up's end (10 min).
+func _exhaustion() -> void:
+	var c: Dictionary = _cat.cfgs()
+	var cu_c: Dictionary = _cat.cfgs({"economy.idle.catchup_max_steps": 1, "economy.idle.catchup_dt_long_after_s": 0.0})
+	var long_s := float(c["economy"]["idle"]["catchup_dt_long_s"])
+	var tol := float(c["economy"]["idle"]["catchup_tol"])
+	var span := 600.0
+	var s := _grace(c)
+	s.simulacra_ready = 1
+	s.cmd_deploy_simulacrum(FORT)
+	for i in 15:
+		s.tick(0.5)
+	var js := JSON.stringify(s.to_dict())
+	var live := GameState.new(c)
+	live.from_dict(JSON.parse_string(js))
+	var t0 := live.t
+	var rows := {}
+	var gone_live := -1.0
+	while live.t < t0 + span - 1e-9:
+		live.tick(live.substep_s())
+		rows[snappedf(live.t - t0, 0.5)] = _masses(live)
+		if gone_live < 0.0 and live.realm.simulacra.is_empty():
+			gone_live = live.t - t0
+	var cu := GameState.new(cu_c)
+	cu.from_dict(JSON.parse_string(js))
+	cu._catchup.begin(cu, span, false)
+	cu._catchup.trace = []
+	var gone_cu := -1.0
+	var at := {}  # seconds after t0 -> the caught-up masses: the exhaustion, the next step's end, the catch-up's end
+	while cu._catchup.active:
+		cu._catchup.run(cu, 1)
+		var k := snappedf(cu.t - t0, 0.5)
+		if gone_cu < 0.0 and cu.realm.simulacra.is_empty():
+			gone_cu = cu.t - t0
+			at[k] = _masses(cu)
+		elif gone_cu >= 0.0 and at.size() == 1:
+			at[k] = _masses(cu)
+	at[snappedf(cu.t - t0, 0.5)] = _masses(cu)
+	var steps: Array = cu._catchup.trace
+	var ends_there := steps.any(func(e): return absf(float(e[0]) + float(e[1]) - (t0 + gone_live)) < 1e-9)
+	t.ok(absf(gone_live - 292.5) < 1e-9 and fmod(gone_live, long_s) > 1e-6 and float(steps[0][1]) == long_s,
+		"live: it runs out %.1f s after the save, inside a %.0f s catch-up step (the catch-up's first step %.1f s)" % [gone_live, long_s, float(steps[0][1])])
+	t.ok(ends_there and absf(gone_cu - gone_live) < 1e-9, "caught up, a step ends at the exhaustion: gone %.2f s in, live %.2f s (unclipped: 300 s, 7.5 s late)" % [gone_cu, gone_live])
+	var worst := 0.0
+	var parts: Array = []
+	var keys := at.keys()
+	keys.sort()
+	for k in keys:
+		var a: Array = at[k]
+		var b: Array = rows.get(k, [])
+		if b.is_empty():
+			worst = INF
+			continue
+		var es: Array = []
+		for i in 3:
+			var e := absf(float(a[i]) - float(b[i])) / maxf(absf(float(b[i])), 1.0)
+			es.append(e)
+			worst = maxf(worst, e)
+		parts.append("%.1f s: undead %.4f vs %.4f (%.4f%%), dead %.4f vs %.4f, raised %.4f vs %.4f" % [k, a[0], b[0], 100.0 * float(es[0]), a[1], b[1], a[2], b[2]])
+	t.ok(keys.size() == 3 and worst <= tol and GameState.Ledger.error(cu.ledger()) < 1e-9 and GameState.Ledger.error(live.ledger()) < 1e-9,
+		"clipped, the fort's undead, dead and raised mass match live within idle.catchup_tol (%.0f%%; worst %.4f%%), both ledgers balanced: %s" % [
+		100.0 * tol, 100.0 * worst, "; ".join(PackedStringArray(parts))])
+
+
+## The clip's guards (Catchup.simulacrum_out_s): neither changes a catch-up's steps.
+## - corpses: a starved simulacrum (10 charges left, under one 15 s step's raise, at FORT with no corpses) raises
+##   nothing and runs out never; a 10 min catch-up at 15 s steps takes as many steps as with none planted (without the
+##   guard each step would end 10 s in);
+## - the floor: a sliver (0.25 charges, under one substep's raise, with corpses) is not clipped either: as many steps
+##   as with none, and it is gone at the first step's end.
+func _guards() -> void:
+	var cu_c: Dictionary = _cat.cfgs({"economy.idle.catchup_max_steps": 1, "economy.idle.catchup_dt_long_after_s": 0.0})
+	var steps_of := func(js: String) -> Array:
+		var g := GameState.new(cu_c)
+		g.from_dict(JSON.parse_string(js))
+		g._catchup.begin(g, 600.0, false)
+		g._catchup.run(g)
+		return [g._catchup.steps, g.realm.simulacra.duplicate(true)]
+	for pair in [[0.0, 10.0, "starved: 10 charges, no corpses"], [400.0, 0.25, "a sliver: 0.25 charges, 400 corpses"]]:
+		var s := _grace(cu_c, float(pair[0]))
+		var none: Array = steps_of.call(JSON.stringify(s.to_dict()))
+		s.simulacra_ready = 1
+		s.cmd_deploy_simulacrum(FORT)
+		s.realm.simulacra[0]["charges"] = float(pair[1])
+		var got: Array = steps_of.call(JSON.stringify(s.to_dict()))
+		var left: Array = got[1]
+		var kept := left.is_empty()
+		if float(pair[0]) == 0.0:
+			kept = left.size() == 1 and absf(float(left[0]["charges"]) - 10.0) < 1e-9
+		t.ok(int(none[0]) == 40 and int(got[0]) == int(none[0]) and kept,
+			"%s: a 10 min catch-up takes %d steps, as with none planted (%d); it is %s: %s" % [pair[2], int(got[0]), int(none[0]),
+			"still there, unspent" if float(pair[0]) == 0.0 else "gone", str(left)])

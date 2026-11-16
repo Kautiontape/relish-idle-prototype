@@ -121,7 +121,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   `affordable_in_s` uses, `BuildRules.queue_net`: the HUD's below the cap, and at a full store the income
   before the cap's clip, so a head behind an entry that just spent the store is clipped at its start, not
   read as never), gold or bone reaching its floor,
-  a tithe warning, and a wave starting or ending (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
+  a tithe warning, a wave starting or ending, and (E3-4) a simulacrum running out of charges, guarded (below)
+  (`Catchup.next_event_s`, E2b-2 T3.3b; each projected
   from the state at the step's start, and an event within 1 µs is now). Since E2b-2 T3.1 RealmSim lands
   a grace ending, a garrison reaching 0 and a break at their time inside its own step (it splits the
   step at the first and last; fort combat solves the second), and TownSim solves a store hitting its
@@ -149,6 +150,27 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   after the retake without that fort's `siege_block` (`RealmSim._unsieged`), and GameState sends the siege home
   (`big_undead_returned`), so the next step has no block there. A 10 s step with the retake 2 s in delivers a wave
   there exactly as a 2 s step with the block and an 8 s step without it (`test_big_undead`).
+- **A simulacrum running out** (E3-4, MECHANICS §3.6; the run's manager required the measurement). RealmSim raises
+  a step's share evenly over it (`min(rate, charges / dt)`), so one running out inside a long step spreads its last
+  charges over the whole step. Measured (`test_crafting`, the shipped simulacrum, 300 charges at 1.0 mass/s, at a
+  fort held in grace with only its corpses moving, so nothing else differs: the same run with the exhaustion on a step
+  boundary matches live to 1e-6): run out 292.5 s in, inside a 15 s step (`idle.catchup_dt_long_s`), against live
+  0.5 s, the dead and raised mass are exact, but at the step's end (300 s) the fort's undead read 13.99 against
+  12.89 (+1.09 mass, **+8.5%**), +6.8% at the next step's end and +1.2% a minute on, and it is gone 7.5 s late. That
+  is outside `idle.catchup_tol` (2%), so **catch-up clips at it** (`Catchup.simulacrum_out_s`): a step ends at
+  `charges / rate`, a lower bound on the moment, since the raise never passes the rate (an early clip only splits a
+  step, and the next projects again). Clipped, it is gone at live's moment and the undead, dead and raised mass match
+  live to 0.0000% at the exhaustion, the next step's end and 10 min on. Two guards keep the budget:
+  - **corpses:** only while the fort's corpses now cover every raise wanted there until then (Relish's where she
+    redirects, and each live simulacrum's there, up to its charges). A corpse-limited raise runs out later than
+    `charges / rate`, and a starved simulacrum would cut every step short for the rest of a week (10 charges with no
+    corpses: 60 steps where 40 do, 10 min at 15 s). Such a one isn't clipped: its last raise spreads over its step, as
+    Relish's corpse-limited raise already does;
+  - **a floor:** none under `sim.substep_s`, live play's own granularity, so a sliver of charges left can't make
+    ever shorter steps (0.25 charges: 41 steps where 40 do, without it).
+  With no simulacrum planted the clause is skipped, so every catch-up without one is bit-identical to the tip
+  (`test_backups`' 12 h identity from each fixture). A retake inside a long step loses the simulacrum at the retake's
+  moment (RealmSim drops it there, and the step's later parts raise nothing for it): IDLE I6.
 - `stance.hold_s` must be at least catch-up's longest step in config, the larger of
   `idle.catchup_dt_max_s` and `idle.catchup_dt_long_s` (15 s today): checked at config load
   (`GameState.catchup_config_problem`, an error naming both keys, and since E3-1 a config without it;
