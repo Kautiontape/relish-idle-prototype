@@ -199,10 +199,15 @@ from `BALANCE.md` §0.
     "Watchtower stopped for 59 m, gold ran out"; no more "unpaid for", "nothing stopped" or "; stores kept"); a
     queued start reads "House started 2 h 10 m after you left, when the gold came in"; the stuck line reads "at
     the current income of 0/s bone" (the rate still a token of its own); a head short of relics reads Shawn's
-    "Crypt level 2 needs relics: raid a fort" (", or move it down" under F2's rule), with no rate; the full
+    "Crypt level 2 needs relics: raid a fort" with no rate; the full
     store's line reads "Gold is full: 2,162 not stored" (`kind` `overflow`, in `losses`, as before); and "Queue
     empty: plan the next build" no longer shows beside the raid prompt: the prompt takes its place. Kinds,
     targets and the line shape are unchanged.
+  - (W2, the run's manager for Shawn; text and report rules only, no key or shape change, so the version stays 7)
+    **the relics wall and a start under a minute** (§5.19, IDLE §7): with no entry able to start and one skipped
+    on `no_relics`, `ready` shows "Crypt level 2 needs relics: raid a fort" (`queue`, `"queue"`; `afford_relics_fmt`,
+    the move-down form, is removed), and a start that waited but began under a minute in reads "Inn started
+    within a minute of you leaving, when the gold came in" (`idle.report.started_brief_fmt`).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -772,7 +777,7 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   cap now with its highest-level copy raised to that level, or with one built at it (so `1` when it isn't
   built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`. From v7 (R2) `affordable_in_s:
   float`: the new entry's `affordable_in_s` as `view_town().queue` shows it (§5.9), so the player learns at
-  queue time that it will wait, or never be afforded at today's income (`-1.0`); `-1.0` on a refusal (no entry).
+  queue time that it will wait, or never be afforded at the current income (`-1.0`); `-1.0` on a refusal (no entry).
 - **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
   8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
   `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
@@ -792,7 +797,7 @@ Game.state.cmd_queue_build("", "lot-02")           # the pit's level 2 -> {ok: t
 Game.state.cmd_queue_build("reliquary", "lot-23")  # no mill yet -> {ok: false, reason: "cost_exceeds_cap", index: -1, cap_building: "bone_mill", store: "bone", cap_level: 1, affordable_in_s: -1.0}
 # day1 a step in, a House, a Well and a Bakery queued: its Bone Mill (60 gold, no bone) waits on gold behind the Bakery
 Game.state.cmd_queue_build("bone_mill", "lot-08")  # -> {ok: true, reason: "", index: 3, ..., affordable_in_s: 475.7}
-# day1 with its bone spent and no mill: only a mill makes bone, so a House can't be afforded at today's income
+# day1 with its bone spent and no mill: only a mill makes bone, so a House can't be afforded at the current income
 Game.state.cmd_queue_build("house", "lot-05")      # -> {ok: true, reason: "", index: 0, ..., affordable_in_s: -1.0}
 ```
 
@@ -2004,9 +2009,13 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at the current income
   of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
   below the cap, and what raises it, `idle.report.afford_raise`), and short of relics, Shawn's words with no rate,
-  `"Crypt level 2 needs relics: raid a fort"` (W; `afford_relics_fmt` adds ", or move it down" under F2's rule;
-  no head reaches it today, since the walk gates a relic shortfall as `no_relics` first); none when no entry waits
-  on funds (every one gated). From F1: `"House can't be afforded at the current income of 0/s bone: build a Bone Mill"` when moving the head
+  `"Crypt level 2 needs relics: raid a fort"` (W; no head reaches it, since the walk gates a relic shortfall as
+  `no_relics` first; W2: the line instead shows for the first `no_relics` entry when no entry can start, every row
+  `skipped_gate` or the one `waiting_funds` head at `-1.0`, with the stores full or not, in queue order after or
+  before that head's own line: `["House can't be afforded at the current income of 0/s bone: build a Bone Mill",
+  "Crypt level 2 needs relics: raid a fort"]`); none when no entry waits on funds and none is relic-gated.
+  W2: a start that waited but began under a minute in reads `"Inn started within a minute of you leaving, when the
+  gold came in"` (`gains`; `started_now_fmt`'s "right away" stays for one that didn't wait). From F1: `"House can't be afforded at the current income of 0/s bone: build a Bone Mill"` when moving the head
   down can't help (F2: no other queued entry could start in its place: nothing behind it, or only entries stuck on
   the same store, or only gated ones; no move down), and when the head is its store's own producer
   (`idle.report.afford_producer`, the Bone Mill for bone and the Market for gold, its upgrades too) a fact in place

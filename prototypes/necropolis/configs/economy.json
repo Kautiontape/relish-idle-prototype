@@ -38,6 +38,7 @@
       "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
       "level_fmt": "{name} level {level}",
       "started_fmt": "{name} started {when} after you left, {why}", "started_now_fmt": "{name} started right away",
+      "started_brief_fmt": "{name} started within a minute of you leaving, {why}",
       "when_hm_fmt": "{h} h {m} m", "when_m_fmt": "{m} m",
       "waited_on": {
         "needs_tier": "when the tier rose", "lot_locked": "when its lot opened", "needs_blueprint": "when its blueprint came",
@@ -58,7 +59,7 @@
       "afford_never_last_fmt": "{name} can't be afforded at the current income of {rate} {store}: {raise}",
       "afford_never_self_fmt": "{name} can't be afforded at the current income of {rate} {store}, and {raise}: move it down",
       "afford_never_self_last_fmt": "{name} can't be afforded at the current income of {rate} {store}, and {raise}",
-      "afford_relics_fmt": "{name} needs relics: raid a fort, or move it down", "afford_relics_last_fmt": "{name} needs relics: raid a fort",
+      "afford_relics_last_fmt": "{name} needs relics: raid a fort",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },

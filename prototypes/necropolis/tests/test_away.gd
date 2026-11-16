@@ -843,6 +843,8 @@ func _report() -> void:
 	r2.append_array(_report_full(c))
 	r2.append_array(_report_self(c))  # F1: the stuck line for its store's own producer, with and without an entry behind
 	r2.append_array(_report_move_down(c))  # F2: "move it down" only when it lets another entry start
+	r2.append_array(_report_wall(c))  # W2: the relics wall, when no entry can start
+	r2.append_array(_report_brief_start(c))  # W2: a start that waited, under a minute in
 	var reps: Array = [n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()] + r2
 	_report_shown()
 	_report_nothing_lost()
@@ -878,6 +880,8 @@ func _report_filled(reps: Array) -> void:
 		"unpaid_none_brief_fmt": func(x: String): return x.contains(" stopped briefly, ") and x.ends_with(" ran out"),
 		"started_fmt": func(x: String): return x.contains(" started ") and x.contains(" m after you left, when "),
 		"started_now_fmt": func(x: String): return x.ends_with(" started right away"),
+		"started_brief_fmt": func(x: String): return x.contains(" started within a minute of you leaving, ") and not x.contains(" 0 m "),
+		"afford_relics_last_fmt": func(x: String): return x.ends_with(" needs relics: raid a fort"),
 		"overflow_fmt": func(x: String): return x.begins_with("Gold is full: ") and x.ends_with(" not stored"),
 		"afford_never_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": move it down, or build a "),
 		"afford_never_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": build a ") and not x.contains("move it down"),
@@ -1099,13 +1103,13 @@ func _report_config() -> void:
 	# W: the unpaid line's brief and tailless forms and the relics line's two are required like the rest; unpaid_none
 	# (now the tailless forms) and afford_raise.relics (now the relics line) are gone, and the shipped block has neither
 	var named: Array = []
-	for k in ["unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_fmt", "afford_relics_last_fmt"]:
+	for k in ["unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt", "started_brief_fmt"]:
 		var m := TestUtil.configs()
 		(m["economy"]["idle"]["report"] as Dictionary).erase(k)
 		named.append(GameState.report_config_problem(m))
 	var shipped: Dictionary = TestUtil.configs()["economy"]["idle"]["report"]
-	t.ok(named.size() == 5 and range(5).all(func(i): return str(named[i]).contains(["unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_fmt", "afford_relics_last_fmt"][i]))
-		and not shipped.has("unpaid_none") and not (shipped["afford_raise"] as Dictionary).has("relics") and not GameState.REPORT_KEYS.has("unpaid_none"),
+	t.ok(named.size() == 5 and range(5).all(func(i): return str(named[i]).contains(["unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt", "started_brief_fmt"][i]))
+		and not shipped.has("unpaid_none") and not shipped.has("afford_relics_fmt") and not GameState.REPORT_KEYS.has("afford_relics_fmt") and not (shipped["afford_raise"] as Dictionary).has("relics") and not GameState.REPORT_KEYS.has("unpaid_none"),
 		"W's new templates are each named when missing; unpaid_none and afford_raise.relics are dropped: %s" % str(named))
 
 static func _diff(a: Variant, b: Variant, rel: float, path: String, why: Array) -> void:
@@ -1331,6 +1335,81 @@ func _report_full(c: Dictionary) -> Array:
 	return reps
 
 
+## W2 (the run's manager, for Shawn; IDLE §7): the relics wall. The queue's walk gates a relic shortfall, so a relic-gated
+## entry is `skipped_gate`, never a waiting head, and a queue of only those used to get no `ready` line. When the absence
+## ends with no entry able to start (every row `skipped_gate`, or the one `waiting_funds` head at −1.0) and one is gated
+## on `no_relics`, `ready` has "Crypt level 2 needs relics: raid a fort" for the first such entry (kind queue, target
+## queue, no rate, no "move it down"), with the stores full or not, and never the raid prompt (which a non-empty queue
+## never had). (a) relic-gated only, stores full; (b) the same, not full; (c) an entry that waits on gold with a finite
+## time, plus a gated one: the town is still building, no wall; (d) an empty queue with full stores: the raid prompt as
+## before, no wall; (e) a House stuck at −1.0 on bone ahead of the gated entry: both lines, the head's first.
+func _report_wall(c: Dictionary) -> Array:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var wall := {"text": "Crypt level 2 needs relics: raid a fort", "kind": "queue", "target": "queue"}
+	var prompt := {"text": str(rep["full_raid"]), "kind": "raid", "target": ""}
+	var empty := {"text": str(rep["queue_empty"]), "kind": "queue", "target": "queue"}
+	var bcap := float(c["economy"]["bone"]["cap"])
+	var out: Array = []
+	var cases := [["(a) relic-gated only, stores full", -1.0, -1.0, [["", "lot-01"]], [wall]],
+		["(b) relic-gated only, stores not full", 50.0, bcap * 0.5, [["", "lot-01"]], [wall]],
+		["(d) empty queue, stores full", -1.0, -1.0, [], [prompt]],
+		["(e) a House stuck on bone, then the gated entry", -1.0, 0.0, [["house", "lot-05"], ["", "lot-01"]], ["house", wall]]]
+	for cs in cases:
+		var n := _away(c, _stores_start(c, cs[1], cs[2], cs[3]), "wall", 600)
+		var r := n.view_away()
+		var got: Array = (r["ready"] as Array).filter(func(l): return l["kind"] == "queue" or l["kind"] == "raid")
+		var shape: bool = (got.size() == 2 and str(got[0]["text"]).begins_with("House can't be afforded") and got[1] == wall) if cs[4][0] is String else got == cs[4]
+		print("  [away] the wall, %s: %s" % [cs[0], JSON.stringify(got.map(func(l): return l["text"]))])
+		t.ok(shape and got.has(wall) == (cs[0] != "(d) empty queue, stores full") and got.has(prompt) == (cs[3] as Array).is_empty()
+				and not got.has(empty) and not got.any(func(l): return str(l["text"]).contains("needs relics") and str(l["text"]).contains("move it down")),
+			"%s: ready has %s%s" % [cs[0], "the wall" if got.has(wall) else "no wall", " and the raid prompt" if got.has(prompt) else ""])
+		out.append(r)
+	# (c) the Inn waits on gold with a finite time, a gated Crypt upgrade behind it: still building, so no wall
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(0.5)
+	s.cmd_debug_grant({"gold": 10.0 - s.town_sim.gold})
+	s.relics = 0
+	var crypt := ""
+	for lot_id in s.town_sim.buildings:
+		if str(s.town_sim.buildings[lot_id]["building_id"]) == "crypt":
+			crypt = str(lot_id)
+	t.ok(crypt != "" and s.cmd_queue_build("inn", "lot-13")["ok"] and s.cmd_queue_build("", crypt)["ok"], "(setup) an Inn and a Crypt upgrade queued, no relics")
+	s.drain_events()
+	var n := _away(c, s, "wall_c", 600)
+	var rows: Array = n.view_town()["queue"]
+	t.ok(rows.size() == 2 and rows[0]["status"] == "waiting_funds" and float(rows[0]["affordable_in_s"]) > 0.0 and rows[1]["status"] == "skipped_gate"
+		and rows[1]["reason"] == "no_relics", "(setup) the Inn waits on gold, the Crypt upgrade is gated on relics")
+	var r := n.view_away()
+	var qlines: Array = (r["ready"] as Array).filter(func(l): return l["kind"] == "queue").map(func(l): return str(l["text"]))
+	print("  [away] the wall, (c) an entry that can start plus a gated one: %s" % JSON.stringify(qlines))
+	t.ok(qlines.size() == 1 and qlines[0].begins_with("Inn is waiting on gold") and not qlines.any(func(x: String): return x.contains("needs relics")),
+		"(c) one entry that can start plus a relic-gated one: the Inn's line only, no wall")
+	out.append(r)
+	return out
+
+
+## W2: a queued start that waited but began under a minute after you left reads "Inn started within a minute of you
+## leaving, when the gold came in", not "0 m after" and not "right away" (which stays for a start that didn't wait);
+## a start from a minute on keeps "started 6 m after you left". midgame_2flips with gold set 20 s short of the Inn.
+func _report_brief_start(c: Dictionary) -> Array:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(0.5)
+	var cost := float(BuildRules.construction_cost(s, "inn", 1)["gold"])
+	var net := float(BuildRules.queue_net(s)["gold"])
+	s.cmd_debug_grant({"gold": cost - 20.0 * net - s.town_sim.gold})
+	t.ok(net > 0.0 and s.cmd_queue_build("inn", "lot-13")["ok"], "(setup) an Inn queued about 20 s short of its gold (net %.3f/s)" % net)
+	s.drain_events()
+	var n := _away(c, s, "brief_start", 600)
+	var r := n.view_away()
+	var started: Array = (r["gains"] as Array).filter(func(l): return l["kind"] == "build" and str(l["text"]).contains("started"))
+	print("  [away] a start under a minute: %s" % JSON.stringify(started.map(func(l): return l["text"])))
+	t.ok(started.size() == 1 and started[0]["text"] == "Inn started within a minute of you leaving, when the gold came in",
+		"a start that waited under a minute: %s" % JSON.stringify(started))
+	return [r]
+
+
 ## Every new template renders through the report's own code (StateViews.afford_text) to a line with nothing
 ## unfilled, for each store a head can wait on and the stores the tables word (gold, bone, relics), each stuck form
 ## (F1: with an entry behind and without, for a building and for its store's own producer); the prompt too. A stuck
@@ -1365,7 +1444,7 @@ func _report_afford_words() -> void:
 					var raise := str(rep["afford_raise_self" if own else "afford_raise"][store]) if a < 0.0 and not relics else ""
 					var income := " at the current income of %s %s" % [StateViews._fmt_rate(rep, float(net[store])), str(rep["afford_stores"][store])]
 					if (line.strip_edges() == "" or line.contains("{") or line.contains("}") or not line.contains(str(rep["afford_stores"][store]))
-							or (raise != "" and not line.contains(raise)) or (a < 0.0 and line.contains("move it down") != behind)
+							or (raise != "" and not line.contains(raise)) or (a < 0.0 and line.contains("move it down") != (behind and not relics))
 							or (own and line.substr(name.length()).contains(own_name)) or (a < 0.0 and not relics and not line.contains(income))):
 						bad.append("%s %s %s %s -> %s" % [store, bid, a, behind, line])
 					if a < 0.0:
@@ -1376,7 +1455,7 @@ func _report_afford_words() -> void:
 	var prompt := str(rep["full_raid"])
 	t.ok(bad.is_empty() and prompt.strip_edges() != "" and not prompt.contains("{"), "each new template renders with nothing unfilled%s" % (
 		"" if bad.is_empty() else ": " + str(bad)))
-	t.ok(relic_lines == ["Bakery level 2 needs relics: raid a fort, or move it down", "Bakery level 2 needs relics: raid a fort"]
+	t.ok(relic_lines == ["Bakery level 2 needs relics: raid a fort", "Bakery level 2 needs relics: raid a fort"]
 		and relic_lines.all(func(l): return l.contains("needs relics: raid a fort") and not l.contains("/s") and not l.contains("income")),
 		"a head short of relics: \"needs relics: raid a fort\", no rate, the move down only with an entry behind: %s" % str(relic_lines))
 	# the truth check: who makes each store, and what a raid gives

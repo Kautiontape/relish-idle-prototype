@@ -864,8 +864,14 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if w == "":
 			gains.append(_away_line(str(rep["started_now_fmt"]).format({"name": name}), "build", ""))
 		else:
-			gains.append(_away_line(str(rep["started_fmt"]).format({"name": name, "when": _when(rep, float(e["t"]) - float(b["t"])),
-				"why": _why_started(rep, w)}), "build", ""))
+			var since := float(e["t"]) - float(b["t"])
+			# W2: it waited but began under a minute in (the same cutoff as _unpaid_lines' "briefly": where _when
+			# would read "0 m")
+			if since < 60.0:
+				gains.append(_away_line(str(rep["started_brief_fmt"]).format({"name": name, "why": _why_started(rep, w)}), "build", ""))
+			else:
+				gains.append(_away_line(str(rep["started_fmt"]).format({"name": name, "when": _when(rep, since),
+					"why": _why_started(rep, w)}), "build", ""))
 	# forts refilled: held now, not retaken while away, the loot yield below full when you left and full now
 	var retaken: Array = []
 	var walked := {}
@@ -892,12 +898,32 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		else:
 			ready.append(_away_line(str(rep["queue_empty"]), "queue", "queue"))
 	else:
+		# the queue's lines, in queue order: the head still waiting on funds (R2), and W2's relics wall, the first
+		# entry skipped on `no_relics` when no entry can start. "No entry can start" is read off the walk's statuses:
+		# every row is `skipped_gate`, or the one `waiting_funds` head at affordable_in_s −1.0 (never), so no row
+		# is `next`, `queued` (behind a head) or a head that will be afforded. A head at −1.0 on gold or bone
+		# ahead of (or behind) a relic-gated entry shows both lines: each names a different build.
 		var w := BuildRules.queue_walk(gs, gs.build_queue)
-		for i in (w["rows"] as Array).size():
-			var row: Dictionary = w["rows"][i]
+		var rows: Array = w["rows"]
+		var stuck := true
+		var wall := -1
+		for i in rows.size():
+			var row: Dictionary = rows[i]
+			match str(row["status"]):
+				"skipped_gate":
+					if wall < 0 and str(row["reason"]) == "no_relics":
+						wall = i
+				"waiting_funds":
+					if float(row["affordable_in_s"]) >= 0.0:
+						stuck = false
+				_:
+					stuck = false
+		for i in rows.size():
+			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
-				break
+			elif i == wall and stuck:
+				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)
@@ -929,7 +955,7 @@ static func stores_full(gs: GameState, tol: float) -> bool:
 ## F2 (the phase review; IDLE §7): whether moving the queue's entry `i` (the stuck head) down would let another
 ## entry start in its place: the walk of the queue less that entry (a copy; the queue is not touched) has a row
 ## that isn't `skipped_gate` (a gated entry passes the head anyway) and whose affordable_in_s is ≥ 0.0 (affordable
-## now, or later at today's income). The walk with the entry in can't answer this: its later rows are timed as if
+## now, or later at the current income). The walk with the entry in can't answer this: its later rows are timed as if
 ## the head started at its time (or, at −1.0, starved its store), so they say nothing about the head not being ahead.
 static func _move_down_helps(gs: GameState, i: int) -> bool:
 	var rest: Array = gs.build_queue.duplicate()
@@ -952,16 +978,16 @@ static func _move_down_helps(gs: GameState, i: int) -> bool:
 ## afford_raise_self's fact instead, "Bone Mill level 2 can't be afforded at the current income of 0/s bone, and
 ## nothing else makes bone: move it down" (afford_never_self_fmt; afford_never_self_last_fmt when moving down can't
 ## help). W (the run's manager, Shawn's words): short of relics, which have no idle income, no rate and no raise:
-## "Crypt level 2 needs relics: raid a fort, or move it down" (afford_relics_fmt; afford_relics_last_fmt without the
-## move down). The away report's walk gates a relic shortfall (no_relics) before any head waits on funds, so no
-## head reaches this form today.
+## "Crypt level 2 needs relics: raid a fort" (afford_relics_last_fmt, never with a move down: W2, a gated entry
+## holds nothing). The away report's walk gates a relic shortfall (no_relics) before any head waits on funds, so no
+## head reaches this form; W2's relics wall (away_report) calls it for the first `no_relics` entry.
 static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: String, net: Dictionary, movable: bool) -> String:
 	var s := store if store != "" else ("bone" if str(row.get("reason", "")) == "no_bone" else "gold")
 	var name := _building_name(gs, rep, str(row["building_id"]), int(row["level"]))
 	var a := float(row["affordable_in_s"])
 	if a < 0.0:
 		if s == "relics":
-			return str(rep["afford_relics_fmt" if movable else "afford_relics_last_fmt"]).format({"name": name})
+			return str(rep["afford_relics_last_fmt"]).format({"name": name})
 		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),

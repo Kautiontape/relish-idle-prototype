@@ -70,7 +70,9 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"afford_never_last_fmt", "afford_never_self_fmt", "afford_never_self_last_fmt", "afford_producer", "afford_raise_self",
 	# W: the unpaid line under a minute ("briefly") and, when it stopped nothing, without its tail; the stuck head
 	# short of relics in Shawn's words, with and without the move down
-	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_fmt", "afford_relics_last_fmt"]
+	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt",
+	# W2: a start that waited but began within a minute of you leaving ("started within a minute of you leaving, ...")
+	"started_brief_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap"]
@@ -303,7 +305,7 @@ static func catchup_config_problem(cfgs: Dictionary) -> String:
 ## IDLE §7 (E2b-2 T3.3c): "" when economy.json idle.report has every key the away report reads (REPORT_KEYS),
 ## its `streams` are the report's seven and labelled, its `waited_on` words every queue reason
 ## (REPORT_WAITED_ON) and its `store_labels` gold and bone; R2: `afford_stores` words gold, bone and relics and
-## `afford_raise` gold and bone (W: a head short of relics has its own line, afford_relics_fmt), and `full_tol` is
+## `afford_raise` gold and bone (W: a head short of relics has its own line, afford_relics_last_fmt), and `full_tol` is
 ## in [0, 1); F1: `afford_producer` names a buildings.json building for gold
 ## and for bone (the stores a building makes) and for no store the tables don't word, and `afford_raise_self`
 ## words each producer's store; else what is missing. setup() reports it as an error.
@@ -327,7 +329,7 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 		if not (rep["store_labels"] as Dictionary).has(k):
 			return "config economy.idle.report.store_labels has no %s" % k
 	# R2: the queue head's line names the store its time waits on, for every store a queue time can wait on, and
-	# what raises it, for gold and bone (W: relics' line is afford_relics_fmt's, "raid a fort"); the raid prompt's
+	# what raises it, for gold and bone (W: relics' line is afford_relics_last_fmt's, "raid a fort"); the raid prompt's
 	# full_tol is a fraction of the cap
 	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]]]:
 		for k in pair[1]:

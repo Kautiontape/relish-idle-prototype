@@ -597,15 +597,17 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     store, its net rate now, and what raises it (`idle.report.afford_raise`: a Market for gold, a Bone Mill
     for bone). A head short of relics, which have no idle income, gets Shawn's words with no rate (W, the
     run's manager): "Crypt level 2 needs relics: raid a fort", with ", or move it down" under the rule below
-    (`afford_relics_fmt`, `afford_relics_last_fmt`). No head reaches that form today: the queue's walk gates a
-    relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds, and a gated entry
-    gets no line. `kind` `queue`, `target` `queue`, so the map can dive to the queue. The
+    (`afford_relics_last_fmt` only: W2 removed `afford_relics_fmt`, the move-down form, from the config,
+    `REPORT_KEYS` and `report_config_problem`, since nothing can choose it). No head reaches that form: the
+    queue's walk gates a relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds,
+    and a gated entry holds nothing. W2's relics wall (below) is what shows it. `kind` `queue`, `target`
+    `queue`, so the map can dive to the queue. The
     queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
     to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
     - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
       if the stuck one weren't ahead of it, which the report reads off the queue's walk less the stuck entry
       (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
-      anyway) and has `affordable_in_s` >= 0 (affordable now, or later at today's income). With nothing behind
+      anyway) and has `affordable_in_s` >= 0 (affordable now, or later at the current income). With nothing behind
       it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
       line drops it: "House can't be afforded at the current income of 0/s bone: build a Bone Mill". With a Bone
       Mill behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at the current income
@@ -622,7 +624,26 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
     fort for relics" (`kind` `raid`, `target` `""`), in place of "Queue empty" (W: no build can be planned
     without relics, so the two would contradict each other). The full store's line stays in losses for now
-    (E4 moves it).
+    (E4 moves it). A non-empty queue never gets this prompt; the wall below is its form.
+  - **The relics wall** (W2, the run's manager for Shawn): a queue of only relic-gated builds is the plateau
+    Shawn wants visible, and the walk skips such an entry (`skipped_gate`, reason `no_relics`), so it never
+    became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
+    least one skipped on `no_relics`, `ready` gets "Crypt level 2 needs relics: raid a fort"
+    (`afford_relics_last_fmt`, kind `queue`, target `queue`) for the first such entry in queue order: no rate,
+    no "move it down" (a gated entry holds nothing). Stores full or not. **No entry can start** is read off
+    the walk's statuses: every row is `skipped_gate`, or the one `waiting_funds` head at `affordable_in_s`
+    −1.0 (never). A row that is `next`, `queued` (behind a head) or a `waiting_funds` head that will be
+    afforded (>= 0) means the town is still building (or is held by its head), so no wall. A head stuck at
+    −1.0 on gold or bone with a relic-gated entry in the queue shows both lines in queue order, since each
+    names a different build ("House can't be afforded at the current income of 0/s bone: build a Bone Mill",
+    then "Crypt level 2 needs relics: raid a fort"). The wall takes the place of the raid prompt: a non-empty
+    queue never had it, so the wall is the only line, and the truly empty queue with full stores keeps
+    `full_raid`.
+  - **A start under a minute** (W2): a queued build that waited but began less than 60 s after you left reads
+    "Inn started within a minute of you leaving, when the gold came in" (`started_brief_fmt`), not "0 m
+    after". A start that didn't wait stays "started right away" (`started_now_fmt`). The cutoff is the
+    report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
+    "briefly" in `_unpaid_lines`; not a tuning number.
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
   each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
   An absence with no losses says **"Nothing lost."**
