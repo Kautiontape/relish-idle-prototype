@@ -785,6 +785,17 @@ dismissed) and the `away_report` event.
 **The stock rule:** no stock grows without bound over a 7-day sessions run. Every store is capped,
 and the queue spends into growth.
 
+**How the autoplayer resolves raids** (E3-6a; BALANCE §8): the dungeon can't run headless, so the profiles' raids go
+through `StandinResolver.resolve(seed, standins, cfgs, opts)` (`tests/autoplay/standin_resolver.gd`, on
+`configs/balance_standins.json`; a test harness `scripts/sim/` never reads), which turns the seed `cmd_begin_dungeon`
+issued into a raid result for the real `apply_result`, deterministic on the seed's `rng_seed`: a death at the typical
+human's rate for the tier (a phylactery charge revives her in place once), else the warden beaten or, for a held
+fort (`opts.held`, from `view_fort`), the counter-garrison cleared; the frozen bot's score-70 loot scaled by the
+seed's `yield_mult`; masses on the seed's own fort; and a `duration_s` (the human's estimate, or the time of the
+death) that E3-6b's autoplayer ticks the game through live before it applies the result, so the realm and the town
+move while Relish is in the dungeon. `opts.deaths: "frozen"` is the one sensitivity pass at the frozen bot's death
+rates, and `opts.door` sends a spare big through the t2 held door when the gate allows.
+
 ## 9. Who builds what
 - **economy:**
   - E1: one save-time field (`saved_at`; drop `saved_unix`). The time commands return `not_debug` in

@@ -70,7 +70,7 @@ else.
   - keeps the default stances.
 - **Dungeon stand-in** (`configs/balance_standins.json`): loot, flip chance, duration and death
   chance by tier, party strength and an assumed circle score. Economy ships v0; the dungeon unit
-  adjusts the values from real runs.
+  adjusts the values from real runs. v0 and its resolver: §8 (E3-6a).
 - **No unbounded stock:** over a 4 h active run, no uncapped stock may end above 2× its value at 2 h.
   Gold must stay a stream.
 - Output: one line per profile, e.g. `[pacing] active: ready 2.9 h · odds 0.62 · fronts 3/4`, plus
@@ -378,3 +378,129 @@ in §5; E4 tunes the numbers):**
   E3's `pure_idle` and `town_only` profiles (target: 2–3 days, then "needs relics"). L6+ relic costs
   are untested without raids.
 - Rent is dropped.
+
+## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
+The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`
+(`StandinResolver.resolve(seed, standins, cfgs, opts) -> {result, duration_s, died, notes}`, a test harness, static,
+no Engine) turns the seed `cmd_begin_dungeon` issued into a raid result v2 that the real `apply_result` takes, drawn
+from what the dungeon unit measured. Only the resolver and the autoplayer read the file; `scripts/sim/` never does
+(`tests/test_standins.gd` checks). The numbers are the dungeon unit's raw rows at afb8dab (the run's
+`reports/dungeon`), rounded to 3 places, and each entry's `source` names its file, iteration and seeds.
+
+**The rulings** (the run's manager, for Shawn):
+- Loot and outcome rates are the frozen bot's at score 70 (`standins-raw-afb8dab.tsv`, iter `grade-standins`; by_tier
+  and first_dungeon in `standins-measured.json`).
+- Deaths and durations are the typical human's (score 70, delay 1.0, read 1.0, draw 0.7; `calibration-dd-raw.tsv`):
+  - the death rate is pooled over seeds 20–39 (`hb70d10`, the rows task 6 and the grading pass compare against)
+    and 40–59 (the grading pass, `grade-*-human`, rep 0) where both exist;
+  - the duration is the grading pass's median per-run estimate (NOTES-RAID at 128c95a, "Length");
+  - `death_rate_frozen` is `by_tier.<T>.70`'s, for E3-6b's one sensitivity pass (`opts.deaths: "frozen"`).
+- A held fort's raid has no measured stand-in (GUESS, below). The held door uses its grading-pass arm (b).
+- No boss stand-in: E3 measures Vei-ready, not the fight. The bot never retreats a fresh fort.
+
+**Each entry** (`"1"`..`"4"`, `"first_dungeon"`, `"held_door"`):
+- `death_rate` (human) and `death_rate_frozen`;
+- `duration_s` (the human estimate's median) and `duration_s_frozen` (the frozen bot's median scene seconds);
+- `death_t_frac`: a death ends the run at this × `duration_s`. It is the median human estimate of the died rows over
+  that of all the rows, the same rows as `death_rate`;
+- `mean_loot` {relics, remnants, husks, blueprints, essence}: the frozen bot's warden_beaten rows. A death is rolled
+  apart, so the all-exits means in `by_tier` would count it twice. The first dungeon's chest husk and first-clear
+  blueprint are taken out: the resolver adds them from the seed's `chest_husk` and `first_clear`;
+- `kept_frac`, per kind: what a death banks of `mean_loot` (STATE-API §8.1: banked loot only). It is pooled over the 27
+  died rows at tier (t2 7, t3 8, t4 12), each against its own tier's win;
+- `mass.won` and `mass.died`:
+  - `killed_frac`: killed_living_mass over the seed's living **mass** (`living_start` is a count of living units);
+  - `raised_per_living_unit`: raised_count over living_start;
+  - `garrison_survive_frac` and `raised_survivors_per_living_unit`: allies_end less the party standing and the
+    starters, the garrison taken in counted first, the rest per living unit.
+  - `mass.died` is the 27 pooled died rows in every entry;
+- `party_lost_per_member`: a member's chance to be lost on a win (the won rows' party_lost over the profile's bigs);
+- `revives`: 0.0 everywhere (the profile seeds carry no charge);
+- `source`.
+
+| entry | death_rate (human) | frozen | duration_s | frozen | death_t_frac | relics | remnants | husks | essence | party lost / member |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0.117 (7/60) | 0.0 (0/48) | 160.1 | 106.1 | 0.203 | 1.356 | 2.533 | 0.222 | 5.756 | 0 (no big) |
+| 2 | 0.175 (21/120) | 0.117 (7/60) | 168.5 | 116.4 | 1.279 | 2.423 | 4.135 | 0.231 | 6.0 | 0.712 |
+| 3 | 0.158 (19/120) | 0.133 (8/60) | 190.8 | 122.7 | 0.959 | 3.941 | 5.451 | 0.412 | 2.941 | 0.48 |
+| 4 | 0.208 (25/120) | 0.2 (12/60) | 169.3 | 126.9 | 0.554 | 5.979 | 6.479 | 0.396 | 3.625 | 0.41 |
+| first_dungeon | 0.0 (0/20) | 0.0 (0/60) | 139.3 | 93.0 | 0.203 (GUESS: t1's) | 1.367 | 2.7 | 0.183 | 6.483 | 0 (no big) |
+| held_door | 0.15 (9/60) | 0.117 (7/60) | 161.1 | 111.6 | 1.031 | 3.509 | 4.283 | 0.302 | 5.415 | 0.528 |
+
+Blueprints are 0.0 everywhere: the only blueprint is the chest's first clear. Every entry has `kept_frac` relics
+0.1, remnants 0.173, husks, blueprints and essence 0, and `mass.died` killed 0.938, raised 4.043 per living unit,
+garrison kept 0.724, raised survivors 0.153 per living unit. `mass.won` is killed 1.0 / 0.951 / 0.798 / 0.901 / 1.0 /
+0.965, raised 8.015 / 6.455 / 4.058 / 5.055 / 7.403 / 5.822 per living unit, garrison kept 1.0 / 0.99 / 1.0 / 0.986 /
+1.0 / 0.993, and raised survivors 0.921 / 0.639 / 0.721 / 0.63 / 0.66 / 0.611 per living unit (t1-t4, first_dungeon,
+held_door).
+
+**`"held"` (`"source": "GUESS"`).** Each multiplier applies to the tier's own entry:
+- `death_rate_mult` 0.5 and `duration_mult` 0.5 (the ruling);
+- `party_lost_mult` 0.5, the same reading: a short run with no warden room.
+
+**The resolver.**
+- **The entry:**
+  - `held` with `opts.held`. The seed has no held key: the run records it, and the scene reads `view_fort` live, so
+    E3-6b passes `view_fort(id).held` at issue;
+  - otherwise `first_dungeon` with `seed.fort.first_dungeon`;
+  - otherwise `held_door` when the door is taken;
+  - otherwise the tier's.
+- **The held door:**
+  - it takes `opts.door` on a fort whose tier is in `raid.json held_door.tiers` (t2), and never the first dungeon or
+    a held fort;
+  - `RaidLogic.held_door_pick` must spend a big (at least `door_min_bigs`, 2, with the counter kept; one big always
+    declines);
+  - a declined door uses the t2 entry (the standard party). The arm's door-off rows (3/60 frozen deaths, 142
+    relics) are only recorded, as `relics_per_run_without_door`.
+- **Outcome:**
+  - a death at the entry's rate (× 0.5 when held);
+  - each charge this run may spend (`RaidLogic.can_revive`: min(charges, `phylactery_max_per_dungeon`)) revives her in
+    place once, `revived_in_place` +1, and the rest of the run rolls again at the same rate;
+  - otherwise `warden_beaten`, or `retreated` for a held fort's clear;
+  - the frozen bot's own retreats (left with no army: t1 3 of 48, t2 and t3 1 of 60) and timeouts (none) fold into
+    the clear, so the flip rate is 1 − `death_rate`.
+- **Duration:** `duration_s` (× 0.5 when held), or `death_t_frac` of it on a death. E3-6b ticks the game live for it.
+- **Loot:**
+  - counts are `RaidLoot.scaled_count(rng, mean × (kept on a death), seed.fort.yield_mult)`, so a reclear's yield
+    scales them as the scene's rolls are scaled;
+  - essence counts at 1.0: it is the motes she carried, which the scene doesn't scale;
+  - typed items come from the seed's table, `t<tier>.<archetype>`: remnants by `RaidLoot._remnant`, husk kinds from
+    the tier's `chest_by_tier.husk_kinds`, blueprints by `first_blueprint`;
+  - a win adds `RaidLoot.chest` at yield 0 with the seed's `first_clear` and `chest_husk` (the first-clear blueprint,
+    or a relic when all are owned via `opts.blueprints`, and the first dungeon's husk);
+  - a held clear is `RaidLoot.held_clear`, and a held death banks nothing.
+- **Masses:** on the seed's own fort, through `RaidLogic.LedgerV2`, the scene's own builder.
+  - killed = `killed_frac` × living. A held clear kills exactly the seed's living, so the writeback raises
+    `counter_garrison_cleared`.
+  - One raised bucket at `score` 70: count = `raised_per_living_unit` × `RaidLogic.enemy_count`, and fresh mass =
+    count × `RaidLogic.mass_per_enemy`, capped at killed + the seed's dead.
+  - Survivors are the garrison taken in × `garrison_survive_frac`, plus `raised_survivors_per_living_unit` ×
+    enemy_count units at mass_per_enemy. Score 70 is a soldier (`RaidLogic.score_class`), so it stays and
+    `chaff_mass` is 0: chaff leaves with Relish, garrison stays.
+- **Party:**
+  - on a win each member is lost at `party_lost_per_member` (× 0.5 when held), except the door's big, which sits out
+    the fight;
+  - the door's big is lost by `RaidLogic.held_door_lost`: a death or a retreat, never a win. Its arm's 7 lost of 60
+    are exactly its 7 deaths;
+  - on a death the whole party is in `party_lost`, as the writeback loses it anyway.
+- **Deterministic:** the rng is `seed.rng_seed ^ SALT`.
+
+**GUESSes and limits:**
+- The rows carry no raised, chaff or garrison mass (the AUTOPILOT line has none). So:
+  - `raised_count` counts re-raises of recycled motes, which carry no fresh mass, and the cap on fresh mass binds
+    in every entry: in effect all killed and piled mass is raised (an upper bound);
+  - the survivors' split (the garrison first) and their mass per unit are GUESSes;
+  - on a death the standing party can't be told apart, so all of it is taken off allies_end;
+  - the first dungeon's 8 massless starters are taken off allies_end as if they all survived.
+- t1 and the first dungeon's profiles have no big, so no party loss is measured there (0). Their entries have no died
+  row, so they share the pooled `mass.died` and `kept_frac`. The first dungeon's `death_t_frac` is t1's.
+- `death_t_frac` is above 1 at t2 (1.279) and the held door (1.031): their deaths came late, in long warden fights.
+  It is kept, not clamped.
+- `party_lost_per_member` is high: the t2 profile's one big is lost in 71% of its wins. That is measured, not tuned.
+- The detour cache's relics are a fixed count in the scene, but here they are yield-scaled with the chest's.
+- `hb70d10` ran at b895836 with the unstick watch's small bias (NOTES-RAID, D-e quality pass). In the sampled runs it
+  moved only `unstick.aimed_in`.
+- `_remnant` and `_by_tier` are RaidLoot's underscore-named (private by convention) table readers. They are called
+  read-only, because no public reader returns a typed remnant or a tier's husk kinds.
+- How the numbers were derived: a read-only script over the raw `.tsv` files, quoted in E3-6a's report. Re-derive
+  them from the same rows when the dungeon re-measures.
