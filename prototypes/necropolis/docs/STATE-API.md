@@ -236,7 +236,7 @@ from `BALANCE.md` §0.
     (its effective ladder, idle cap and Thrift's buildings);
   - **§4.3 `cmd_upgrade` and §5.10 the queue's upgrade gate** (QF3, a change of meaning, no new reason): `unpaid`
     now also covers a building Thrift idles (state `thrift`). `cmd_upgrade` on it is refused `unpaid`, and a
-    queued upgrade of it waits as `skipped_gate`, reason `unpaid` (the away report: "when its lot came free"), until
+    queued upgrade of it waits as `skipped_gate`, reason `unpaid` (the away report: "when it was back at work"), until
     Thrift lets the building go. Was: the upgrade started and took it out of Thrift's set, so it worked at its old
     level and the away report's Thrift line ran to the end of the absence.
 

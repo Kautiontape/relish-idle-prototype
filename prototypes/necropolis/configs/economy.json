@@ -44,7 +44,7 @@
         "needs_tier": "when the tier rose", "lot_locked": "when its lot opened", "needs_blueprint": "when its blueprint came",
         "needs_building": "when the building it needs was built", "no_relics": "when the relics came in",
         "no_gold": "when the gold came in", "no_bone": "when the bone came in", "lot_taken": "when its lot came free",
-        "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when its lot came free",
+        "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when it was back at work",
         "cost_exceeds_cap": "when its cap rose"
       },
       "refilled_fmt": "{fort} refilled", "raid_fmt": "{fort} refilled: raid it",
