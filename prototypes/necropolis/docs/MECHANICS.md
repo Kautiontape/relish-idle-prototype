@@ -1564,6 +1564,9 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   | raw | power plus backlog |
 
   Each threshold scales with Vei's living pool. You need `vei.fronts_required` (3 of 4).
+  Live from E3-5: `view_vei` and the boss seed carry each front's have and need, `VeiFronts.have_need` on her
+  backlog, living pool, `q` and the party (an assigned member counts on its front, an unassigned one on the front of
+  its highest stat), so the dialog, the town's front chip and the fight read the same numbers (STATE-API §5.14, §7.2).
 - **Phase 1:** the fronts resolve as streams on the field, horde against her guard, each to its
   threshold. Uncleared fronts keep sending guards in phase 2.
 - **Phase 2, the break** (vision review S4: a verb, not HP):
@@ -1578,7 +1581,8 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     so they never outnumber rate × uncleared fronts × life; the fight can't snowball into a guard pile.
   - Her weaves hunt Relish, telegraphed on the beat.
 - **Backups in the fight:** each Relish death spends a phylactery charge first, then a ready clone.
-  None left means the fight is lost. Each spent backup is a cracked violet ring.
+  None left means the fight is lost. Each spent backup is a cracked violet ring, and from E3-5 the writeback raises
+  one `relish_died {in_place: true}` for it, the charges first (STATE-API §8.3 boss step 3).
 - **Win:** `won = true`, the victory set piece, the game is beaten. Play continues (endless).
 - **Lose:**
   - backlog × `vei.loss_backlog_keep` (0.35 is kept);
@@ -1744,4 +1748,7 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   capped field's village owners (`slow/field_cap`).
 - **Dungeon:** seeded loot, re-clear decay, warden specs, essence from both sides (`raid_logic`,
   the dungeon unit's).
-- **Vei:** front thresholds, the break-beats rule, backup order: E3 (not yet).
+- **Vei:** front thresholds, the break-beats rule and the backup order are VeiFronts' (`vei_fronts`, the dungeon
+  unit's). The glue (E3-5, `vei_glue`): `view_vei`'s fronts against the config formula, `counted` against `assigned`,
+  the boss seed's fronts exactly the fight's recompute from the seed with ConfigDb's `vei` (the gate), and one in-place
+  `relish_died` per spent backup, then a final death.

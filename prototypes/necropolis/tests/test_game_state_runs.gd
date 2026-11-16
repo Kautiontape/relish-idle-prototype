@@ -202,8 +202,12 @@ func run() -> int:
 	t.ok(bs["kind"] == "boss" and bs["v"] == 2 and bs["backlog"] == 6000.0 and bs["vei_capacity"] == 50.0, "boss seed values")
 	t.ok(bs["fronts_required"] == 3 and bs["fronts"].size() == 4, "fronts_required 3, four fronts")
 	var fr: Array = bs["fronts"]
-	t.ok(fr.map(func(x): return x["id"]) == GameState.FRONT_IDS and fr[0] == {"id": "giants", "need": 0.0, "have": 0.0, "assigned": []},
-		"fronts in FRONT_IDS order, zeroed")
+	# E3-5: live (they were 0.0 until then). No party, and giants counts only wits, so its have is 0 and its need
+	# vei.json's need_base + need_per_pool · the pool (test_vei_glue checks every front)
+	var gc: Dictionary = TestUtil.configs()["vei"]["fronts"]["giants"]
+	var g_need := float(gc["need_base"]) + float(gc["need_per_pool"]) * float(bs["living_pool"])
+	t.ok(fr.map(func(x): return x["id"]) == GameState.FRONT_IDS and fr[0] == {"id": "giants", "need": g_need, "have": 0.0, "assigned": []},
+		"fronts in FRONT_IDS order, live: giants needs %.2f, has 0 (%s)" % [g_need, str(fr[0])])
 	t.ok(bs["sign"] in [-1, 0, 1] and (bs["sign"] < 0) == (bs["drain_s"] >= 0.0), "drain_s only when the differential is negative")
 	t.ok(s.view_boss_seed() == bs and s.view_dungeon_seed("vei").is_empty(), "view_boss_seed returns the seed")
 	t.ok(s.cmd_abort_dungeon()["ok"] and s.view_relish()["state"] == "at_vei", "aborting a boss run: back at_vei")

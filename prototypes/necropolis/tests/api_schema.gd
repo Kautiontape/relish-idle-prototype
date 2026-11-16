@@ -286,7 +286,7 @@ const VIEWS := {
 	"view_vei": {
 		"backlog": F, "living_pool": F, "pool_cap": F, "diff": F, "diff_ema": F,
 		"sign": I, "drain_s": F, "odds": F, "digest_q": F,
-		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S]}],
+		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S], "counted": [S]}],
 		"fronts_required": I, "fronts_met": I,
 		"tithe": {"target": S, "eta_s": F, "warning": B, "wave_active": B, "wave_s_left": F},
 		"can_begin": B, "reason": S, "won": B,

@@ -1465,8 +1465,12 @@ func _run_checkpoint_api() -> void:
 	for e in bs["party"]:
 		ones = ones and typeof(e.get("filled_slots")) == TYPE_INT and int(e["filled_slots"]) == 1
 		e.erase("filled_slots")
+	# E3-5: the fronts' need and have are live (0.0 at 35ceaa1), so they are zeroed before the hash
+	for f in bs["fronts"]:
+		f["need"] = 0.0
+		f["have"] = 0.0
 	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
-		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1)")
+		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")
 	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")
 	var mp: Dictionary = m.to_dict()["pending_retreat"]
 	t.ok(mp["kind"] == "boss" and mp["fort_id"] == "vei" and mp["loot"] == StateRuns.empty_loot() and mp["outcome"] == "retreated",

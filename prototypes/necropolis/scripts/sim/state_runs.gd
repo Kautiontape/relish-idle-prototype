@@ -60,21 +60,28 @@ static func dungeon_seed(gs: GameState, fort_id: String, run_id: int, seed_rev: 
 	}
 
 
+## §7.2. The fronts (live from E3-5, v8) are VeiFronts.have_need's on the seed's own backlog, living pool, digest_q and
+## party (VeiFronts.info_from_boss_seed), so they are exactly what the fight computes from this seed (BossLogic.party_lanes;
+## vei_boss.gd's _fronts_for when they are all zero), with `assigned` cmd_assign_front's echo. They are view_vei's at issue:
+## the same backlog, pool and q, and the same units counted, as only party members have a front or the party place
+## (cmd_assign_front, _leave_party, cmd_set_party).
 static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionary:
 	var ro := gs._vei_readout()
-	return {
+	var sd := {
 		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
 		"rng_seed": derived_rng_seed(gs, run_id),
 		"backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": gs.digest_q(),
 		"vei_capacity": gs._req_f("realm.R_vei"),
-		"fronts": gs._fronts(false),
+		"fronts": [],  # filled below, from the seed itself (its key keeps its place)
 		"fronts_required": gs._fronts_required(),
 		"party": party_entries(gs, true),
 		"phylactery_charges": gs._phylactery_charges, "clones_ready": gs.clones_ready,
 		"relish_hp": gs._relish_hp(),
 		"death_ends": death_ends(gs, "boss"),
 	}
+	sd["fronts"] = gs._fronts(VeiFronts.info_from_boss_seed(sd), false)
+	return sd
 
 
 ## The seeds' `death_ends` (§7.1, §7.2; E2b-2 T3.3c, the dungeon's D-e): what a death that ends the run ends
@@ -492,11 +499,14 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	return minted
 
 
-## §8.3 boss steps 1-5. A final death is death()'s (E3-2: dead, then the respawn); the fight's own use of the
-## backups (its in-place events) is E3-5's.
+## §8.3 boss steps 1-5. Each backup the fight spent was a death in place (E3-5): one relish_died{in_place} per backup
+## in backups_spent, the phylactery charges first, then the clones (VeiFronts.next_backup's order), queued after
+## vei_result and before a final death's, as a raid's revives follow its loot_banked. A final death is death()'s (E3-2:
+## the shared death rule at the clones left, so "unmade" once every clone is spent; dead, then the respawn).
 static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	var sd: Dictionary = gs.run["seed"]
 	var run_id: int = gs.run["run_id"]
+	var at: String = gs.run["fort_id"]  # "vei" (open_run)
 	var did_win: bool = r["won"]
 	var bs: Dictionary = r["backups_spent"]
 	var clones := int(bs["clones"])
@@ -521,6 +531,11 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 		cleared.append(str(fid))
 	gs._emit({"type": "vei_result", "run_id": run_id, "won": did_win, "fronts_cleared": cleared,
 		"relish_deaths": deaths, "backlog_after": float(gs.realm.vei["undead_queue"])})
+	# 3 (E3-5): the fight's revives, each in place (she carried on in the fight), in the order it spent them
+	var charges := int(bs["phylactery"])
+	for i in charges + clones:
+		gs._emit({"type": "relish_died", "outcome": "phylactery" if i < charges else "clone", "in_place": true,
+			"at": at, "run_id": run_id, "respawn_s": 0.0})
 	if final_death:
 		death(gs, run_id)
 	else:

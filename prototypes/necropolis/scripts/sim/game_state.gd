@@ -1002,15 +1002,33 @@ func _relish_hp() -> float:
 	return float(_cfgs.get("raid", {}).get("relish", {}).get("hp", 30.0))
 
 
-## Vei's fronts, per FRONT_IDS. need/have/cleared are E3; `assigned` echoes cmd_assign_front.
-func _fronts(with_cleared: bool) -> Array:
+## Vei's fronts, per FRONT_IDS (MECHANICS §6; live from E3-5, v8): `need`, `have` and `cleared` are
+## VeiFronts.have_need's on `info`, with the vei config `_cfgs["vei"]` (at runtime the very Dictionary ConfigDb.data["vei"]
+## holds: Game._ready hands ConfigDb.data to setup(), which keeps it, no copy; VeiFronts' defaults cover a missing key).
+## `assigned` echoes cmd_assign_front, as it always did: the uids whose front is that id. With `view` (view_vei's rows)
+## the row also carries `cleared` and `counted`: the uids VeiFronts counted there (have_need's own `assigned`), so the
+## assigned ones plus each unassigned party member on the front of its highest stat; `have` sums the stat of the uids in
+## `counted`. Without it the row is the boss seed's, {id, need, have, assigned} (§7.2).
+func _fronts(info: Dictionary, view: bool) -> Array:
 	var out: Array = []
-	for id in FRONT_IDS:
-		var e := {"id": id, "need": 0.0, "have": 0.0, "assigned": _front_assigned(id)}
-		if with_cleared:
-			e["cleared"] = false
+	for f in VeiFronts.have_need(info, _cfgs.get("vei", {})):
+		var id := str(f["id"])
+		var e := {"id": id, "need": float(f["need"]), "have": float(f["have"]), "assigned": _front_assigned(id)}
+		if view:
+			e["cleared"] = bool(f["cleared"])
+			e["counted"] = (f["assigned"] as Array).duplicate()
 		out.append(e)
 	return out
+
+
+## have_need's info from the state now (view_vei's fronts): Vei's backlog (her undead queue), her living pool,
+## digest_q(), and every big undead as view_big_undead gives it (StateViews.bu_entry: its uid, stats, place and front).
+func _front_info() -> Dictionary:
+	var units: Array = []
+	for b in big_undead:
+		units.append(StateViews.bu_entry(self, b))
+	return {"backlog": float(realm.vei["undead_queue"]), "living_pool": float(realm.vei["living_pool"]),
+		"digest_q": digest_q(), "big_undead": units}
 
 
 func _front_assigned(front_id: String) -> Array:
@@ -1813,7 +1831,7 @@ func cmd_set_party(uids: Array) -> Dictionary:
 	return {"ok": true, "reason": "", "party": party_uids.duplicate()}
 
 
-## E1/E3: records a party member's front ("" unassigns). Fronts take effect at E3.
+## E1/E3: records a party member's front ("" unassigns). From E3-5 the front counts its stat there (_fronts).
 func cmd_assign_front(uid: String, front_id: String) -> Dictionary:
 	if _catchup.active:
 		return _refuse_catching_up()
@@ -2291,7 +2309,7 @@ func view_backups() -> Dictionary:
 	return StateViews.backups(self)
 
 
-## §5.14 · E2 (fronts E3; assigned is live). The readout, q and the tithe are live.
+## §5.14 · E2 (fronts live from E3-5). The readout, q, the tithe and the fronts are live (StateViews.vei).
 ## can_begin/reason are cmd_begin_boss()'s check.
 func view_vei() -> Dictionary:
 	return StateViews.vei(self)

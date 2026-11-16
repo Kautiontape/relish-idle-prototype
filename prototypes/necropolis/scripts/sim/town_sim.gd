@@ -41,7 +41,7 @@ const JOBS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
 ## The capacity effects (caps and slots): they count for every built level, unpaid or mid-upgrade too
 ## (_sum_built), so an unpaid spell never lowers a cap or destroys stock (R1, the run's manager). Every
 ## other effect is a working one and needs the building working (_sum_working, _lists). `craft_slots` is
-## E3's (data only).
+## read by cmd_craft's gate from E3-4 (needs_building under 1).
 const CAPACITY_EFFECTS := ["body_cap", "gold_cap", "bone_cap", "relic_cap", "essence_cap", "living_cap", "vat_slots",
 	"stance_slots", "craft_slots"]
 const WORKING := ["active", "idle"]  # built, paid and not under construction (_works() adds a building mid-upgrade)

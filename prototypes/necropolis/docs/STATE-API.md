@@ -336,6 +336,22 @@ from `BALANCE.md` §0.
   - **the margin credits no simulacrum**, as it credits no siege (§5.5): `view_fort`'s `margin`, `margin_cause`,
     `fall_s` and `garrison_rate`, and `view_projection`'s `margins`, read a held fort's support without the raises of the
     simulacra planted there (Relish's sustained raise is the only one). Conservative; crediting them is E4's.
+
+  E3-5 (the Vei glue, MECHANICS §6) adds **`counted: Array[String]`** to each `view_vei().fronts[]` entry (§5.14;
+  `tests/api_schema.gd` `view_vei`'s fronts row): the uids VeiFronts counted on that front, so **`have` counts the uids in
+  `counted`, and `assigned` lists only what the player put there** (`cmd_assign_front`). An unassigned party member is in
+  the `counted` of the front of its highest stat and in no `assigned`. The boss seed's fronts (§7.2) gain nothing: they
+  keep `{id, need, have, assigned}`. The save shape is unchanged. Changes of meaning (stubs going live):
+  - **§5.14 `view_vei`'s fronts are live**: `need`, `have` and `cleared` are `VeiFronts.have_need`'s on her backlog (the
+    undead queue), living pool, `digest_q` and the big undead, with `vei.json` (was: 0.0, 0.0 and false always), and
+    `fronts_met` is the cleared count, `VeiFronts.fronts_met` (was: 0 always). `assigned` keeps its meaning;
+  - **§7.2 the boss seed's fronts are live**: the same `need` and `have`, computed from the seed itself
+    (`VeiFronts.info_from_boss_seed`, the fight's own recompute), `assigned` the echo (was: 0.0 and 0.0, so the fight
+    computed them itself);
+  - **§8.3 boss step 3 raises the fight's revives**: one `relish_died{outcome: "phylactery" | "clone", in_place: true,
+    at: "vei", respawn_s: 0.0}` per backup in `backups_spent`, the phylactery charges first, then the clones
+    (`VeiFronts.next_backup`'s order), after `vei_result` and before a final death's `relish_died` (was: spent with no
+    event). No new event type.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1098,6 +1114,8 @@ Game.state.cmd_set_party(["u4", "u7"])  # -> {ok: true, reason: "", party: ["u4"
 **`cmd_assign_front(uid: String, front_id: String)` · E1/E3**
 - **Args:** `front_id` is one of `FRONT_IDS`, or `""` to unassign.
 - **Reasons:** `busy`, `unknown_uid`, `not_in_party`, `unknown_front`.
+- **Effect:** records the front. From E3-5 (v8) the member counts its stat there (`view_vei().fronts`, §5.14); unassigned,
+  it counts on the front of its highest stat.
 ```gdscript
 Game.state.cmd_assign_front("u4", "carvers")  # -> {ok: true, reason: ""}
 ```
@@ -1129,7 +1147,7 @@ Game.state.cmd_begin_dungeon("ashgate")  # Relish at Old Sluice
 # -> {ok: false, reason: "not_at_fort", run_id: -1, seed_rev: -1, seed: {}}
 ```
 
-**`cmd_begin_boss()` · E1** (fronts E3)
+**`cmd_begin_boss()` · E1** (fronts live from E3-5, v8)
 - **Extras:** `seed: Dictionary` (§7.2), `run_id: int`, `seed_rev: int`.
 - **Reasons:** `busy`, `dead`, `not_at_vei` (she must stand at Vei's node, state `at_vei`).
 - **Effect:** opens the run, sets Relish to `in_boss`, and forces `time_scale = 1` and
@@ -1990,7 +2008,7 @@ From E3-2 (v8) they are live (MECHANICS §7): each vat's `grow` is its clone, 0.
 its tend hands while it is staffed and tended, and `ready` at 1. `clones_ready` is the vats at 1 plus any spare
 clones (the old-save rule: a save's clones above its vats at 1, a demolished Chapel's ready clones), no longer a
 plain stock (until E3-2 it was GameState's stock, and slot `i` read `ready` while `i < clones_ready`). The
-phylactery charges are stored as is (crafting them is E3-4).
+phylactery charges are a stock, crafted at the Ossuary from E3-4 (`cmd_craft("phylactery_charge")`, §4.3).
 
 `death` (E3-2, MECHANICS §7's order) is what a death at HP 0 in the next run would cost right now:
 - **`phylactery`** while a charge is left and `phylactery_max_per_dungeon` > 0: she revives in place and the run
@@ -2016,12 +2034,21 @@ respawn's seconds left while she is dead, else 0.
  death: {outcome: "unmade", respawn_s: 600.0, loses: ["unbanked_loot", "morale"]}, dead_s_left: 0.0}
 ```
 
-### 5.14 `view_vei()` · E1 (EMA sign E2, tithe E2, fronts E3)
+### 5.14 `view_vei()` · E1 (EMA sign E2, tithe E2, fronts live from E3-5, v8)
 `sign`, `drain_s` and `odds` are the sustained readout (MECHANICS §3.5): `diff` is what entered her
 undead queue last substep less the undead she took, per second (the backlog's net rate without
 lumps, and `view_rates.backlog.net`); `diff_ema` its EMA; `sign` ±1 past ±`readout.sign_eps`. `tithe.target` is the running wave's fort (`eta_s` 0.0,
 `wave_s_left`), else the warned fort (`eta_s` to its wave), else `""` and -1.0. `warning` is true
 while a warning is pending.
+
+The fronts (MECHANICS §6) are `VeiFronts.have_need` (`scripts/raid/vei_fronts.gd`) on her `backlog`, `living_pool`,
+`digest_q` and the big undead as `view_big_undead` gives them, with `vei.json` (the very data `ConfigDb.data["vei"]`
+holds, which the fight reads): `have` = `per_stat` × the stat of each uid in `counted` + `per_backlog` × backlog +
+`per_q` × q, `need` = `need_base` + `need_per_pool` × living pool, `cleared` = have ≥ need, and `fronts_met` the
+cleared count. A party member with a front counts there; one without counts on the front of its highest stat (ties
+in `FRONT_IDS` order); a big undead outside the party counts nowhere. **`have` counts the uids in `counted`;
+`assigned` lists only what the player put there** (`cmd_assign_front`'s echo, unchanged since E1). Until E3-5 `need`
+and `have` were 0.0, `cleared` false and `fronts_met` 0.
 
 | key | type | meaning |
 |---|---|---|
@@ -2030,8 +2057,8 @@ while a warning is pending.
 | `diff_ema` | float | mass/s: the EMA over `readout.ema_s` |
 | `sign`, `drain_s`, `odds` | int, float, float | as in `view_hud` |
 | `digest_q` | float | |
-| `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String]}` |
-| `fronts_required`, `fronts_met` | int | |
+| `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
+| `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |
 | `tithe` | Dictionary | `{target: String, eta_s: float, warning: bool, wave_active: bool, wave_s_left: float}`. `target` is `""` and `eta_s` is `-1.0` before a target is chosen. |
 | `can_begin` | bool | `cmd_begin_boss()` would succeed |
 | `reason` | String | `""`, `busy`, `dead` or `not_at_vei` |
@@ -2039,7 +2066,8 @@ while a warning is pending.
 ```gdscript
 {rev: 3, backlog: 18450.0, living_pool: 380.0, pool_cap: 600.0, diff: 9.4, diff_ema: 6.1, sign: 1, drain_s: -1.0,
  odds: 0.61, digest_q: 2.6,
- fronts: [{id: "giants", need: 24.0, have: 26.5, cleared: true, assigned: ["u4"]}, ...4],
+ fronts: [{id: "giants", need: 24.0, have: 26.5, cleared: true, assigned: ["u4"], counted: ["u4"]},
+         {id: "swarm", need: 24.0, have: 24.9, cleared: true, assigned: ["u2"], counted: ["u1", "u2"]}, ...4],
  fronts_required: 3, fronts_met: 3,
  tithe: {target: "ashgate", eta_s: 88.0, warning: true, wave_active: false, wave_s_left: 0.0},
  can_begin: true, reason: "", won: false}
@@ -2317,7 +2345,7 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 
 | type | fields | ms |
 |---|---|---|
-| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0). Live from E3-2 (v8): a raid's revives in place each raise one `{outcome: "phylactery", in_place: true, respawn_s: 0.0}` (§8.3 step 9; the Vei fight's are E3-5's); a death that ends a run raises `clone` or `unmade` with its real `respawn_s` (`backups.clone_respawn_s`, `unmade_respawn_s`), and she is `dead` until it has passed |
+| `relish_died` | `outcome: String` (`phylactery`\|`clone`\|`unmade`), `in_place: bool` (she carried on in the run), `at: String` (node), `run_id: int`, `respawn_s: float` (0 when `in_place`) | E1 (until E3: `clone` when a clone is ready, else `unmade`, respawn 0). Live from E3-2 (v8): a raid's revives in place each raise one `{outcome: "phylactery", in_place: true, respawn_s: 0.0}` (§8.3 step 9), and from E3-5 each backup the Vei fight spent one `{outcome: "phylactery" \| "clone", in_place: true, at: "vei", respawn_s: 0.0}`, the charges first (§8.3 boss step 3); a death that ends a run raises `clone` or `unmade` with its real `respawn_s` (`backups.clone_respawn_s`, `unmade_respawn_s`), and she is `dead` until it has passed |
 | `relish_respawned` | `with_clone: bool`, `at: String` (`"covington"`) | E1 (immediate until E3). From E3-2 (v8) raised by the core step's backups step (§3 step 6) when her `dead_s_left` reaches 0, `respawn_s` after her `relish_died`, stamped at that step's `t` (catch-up clips at it) |
 | `building_started` | `lot_id: String`, `building_id: String`, `level: int` (target; 1 for a new building), `upgrade: bool` (`level > 1`) | E2 (TownSim's, from the substep after the construction starts; `cmd_build` and `cmd_upgrade` do not emit it themselves, and a cancel before that substep drops it) |
 | `building_done` | `lot_id`, `building_id`, `level: int` | E2 |
@@ -2404,7 +2432,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `living_pool` | float | |
 | `odds`, `sign`, `drain_s`, `digest_q` | float, int, float, float | as in `view_vei` |
 | `vei_capacity` | float | `R_vei` |
-| `fronts` | Array[Dictionary] | `{id: String, need: float, have: float, assigned: Array[String]}` |
+| `fronts` | Array[Dictionary] | `{id: String, need: float, have: float, assigned: Array[String]}`, per `FRONT_IDS`. Live from E3-5 (v8; 0.0 and 0.0 before, so the fight computed them): `VeiFronts.have_need(VeiFronts.info_from_boss_seed(seed), vei.json)`'s `need` and `have`, the fight's own recompute from this seed, exactly; they are `view_vei`'s at issue (§5.14: the same backlog, pool, q and party). `assigned` is `cmd_assign_front`'s echo; there is no `cleared` or `counted` here |
 | `fronts_required` | int | `vei.fronts_required` |
 | `party` | Array[Dictionary] | a big-undead entry (with `filled_slots`, v8) plus `front: String` |
 | `phylactery_charges`, `clones_ready` | int | the backups the fight may spend (§8.2) |
@@ -2516,10 +2544,16 @@ economy.)
    (MECHANICS §6).
 2. `party_lost` big undead are removed.
 3. `phylactery_charges −= backups_spent.phylactery`; `clones_ready −= backups_spent.clones` (both
-   clamped at 0); one `relish_died{in_place: true}` per spent backup (E3).
+   clamped at 0; the clone is the lowest ready vat, E3-2); one `relish_died{in_place: true}` per spent backup (live
+   from E3-5, v8): `{outcome: "phylactery", in_place: true, at: "vei", run_id, respawn_s: 0.0}` for each of
+   `backups_spent.phylactery`, then `{outcome: "clone", ...}` for each of `backups_spent.clones`, the order the fight
+   spends them (`VeiFronts.next_backup`). They are queued after `vei_result` (step 5) and before a final death's
+   `relish_died`, as a raid's revives follow its `loot_banked`: `vei_result`, the revives, the final death.
 4. A final death (`relish_deaths == s + 1`) gives `outcome: "unmade"` (MECHANICS §7), and she is
    `dead`. Otherwise she is `at_vei`. A final death follows raid step 10's rule (from E3-2 the shared death
-   rule: `dead` at Vei for its `respawn_s`, then `relish_respawned`); the fight's own use of the backups is E3-5's.
+   rule, `StateRuns.death`, at the clones left once step 3 has spent them: with none left, `unmade`, `dead` at Vei
+   for `backups.unmade_respawn_s` (600 s), the morale shock, then `relish_respawned`; `relish_died{outcome: "unmade",
+   in_place: false, at: "vei", respawn_s: 600.0}`).
 5. Emits `vei_result` (a boss result carries no loot, so there is no `loot_banked`).
 
 ### 8.4 `Results.validate(kind: String, d: Dictionary) -> Array[String]` (`scripts/sim/results.gd`)
@@ -2783,7 +2817,7 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 |---|---|
 | `day1.json` | `cmd_new_game(1)` at t ≈ 0: the BALANCE §0 start. Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no clones or vats; Old Sluice flagged first. |
 | `midgame_2flips.json` | About 1 h in, Village tier (it rises by itself on the first substep): the start set plus a House, a Well and a Bone Mill (lots 5–7), which ran the hour. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Vei's backlog is hand-shaped to 4000 (odds ≈ 0.25), since an hour of the full mint would leave it near `pre_vei`'s. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight (to Greywall), 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
-| `pre_vei.json` | About 3 h in, City tier: 20 buildings (the start set with the pit and the market at level 2, three more pits, two houses, a well, a bakery, a bone mill, a statue, a Chapel of Vats, a forge, an inn, a graveyard, a watchtower, the Walls and the Reliquary, whose blueprint is owned), up for the last 30 min and none unpaid. Odds ≈ 0.6, a party of 4 big undead assigned to fronts (views show fronts at 0 until E3 computes need/have; the party's front assignments are in the fixture; 3 of 4 fronts would be met), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
+| `pre_vei.json` | About 3 h in, City tier: 20 buildings (the start set with the pit and the market at level 2, three more pits, two houses, a well, a bakery, a bone mill, a statue, a Chapel of Vats, a forge, an inn, a graveyard, a watchtower, the Walls and the Reliquary, whose blueprint is owned), up for the last 30 min and none unpaid. Odds ≈ 0.6, a party of 4 big undead assigned to fronts, one each (the assignments are in the fixture; from E3-5 the fronts are live, and at the shipped `vei.json` none is met: have / need giants 5.6 / 26, swarm 17.2 / 24, carvers 5.3 / 30, raw 25.0 / 58, so 0 of 4, short of the 3 of 4 this fixture was meant to stand for, BALANCE §1's Vei-ready row; until E3-5 they read 0), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
 | `v1_day1.json`, `v1_midgame_2flips.json` | The E1 (save v1) `day1` and `midgame_2flips`, kept as they were for the v1 → v2 migration tests. Not loadable by name. |
 
 - Each fixture is a `to_dict()` at the current `v`. Fields from E2/E3 systems are written by the
@@ -2823,4 +2857,4 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 | A10 | Boss `backlog_spent` is informational. A loss keeps `loss_backlog_keep` of the backlog; a win leaves it alone. | Legacy parity, and the ledger counts the loss sink once. |
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
-| A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view, and fronts stay at 0 until E3. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
+| A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view. The fronts are not stored: from E3-5 they are computed from the state (§5.14), and read 0 until then. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |

@@ -692,14 +692,16 @@ func _boss_writeback() -> void:
 		var back := s.drain_events().filter(func(e): return e["type"] == "relish_respawned")
 		t.ok(back.size() == 1 and back[0]["with_clone"] == (vats == 1) and back[0]["at"] == "covington" and s.view_relish()["state"] == "home",
 			"respawned home after respawn_s: %s" % str(back))
-	# a spent clone is not a death event until E3
+	# a spent clone is a death in place (E3-5: one relish_died{clone, in_place} after vei_result; it was no event before)
 	s = _mk()
 	s.clones_ready = 2
 	sd = _begin_boss(s)
 	s.drain_events()
 	out = s.apply_result("boss", _boss_res(sd, {"won": false, "relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 1}}))
-	t.ok(out["ok"] and s.clones_ready == 1 and _types(s.drain_events()) == ["vei_result"] and s.view_relish()["state"] == "at_vei",
-		"a loss with a clone spent: one clone used, she carries on at Vei (in-place events are E3)")
+	var cev := s.drain_events()
+	t.ok(out["ok"] and s.clones_ready == 1 and _types(cev) == ["vei_result", "relish_died"] and cev[1]["outcome"] == "clone"
+		and cev[1]["in_place"] == true and cev[1]["respawn_s"] == 0.0 and s.view_relish()["state"] == "at_vei",
+		"a loss with a clone spent: one clone used, one relish_died{clone, in_place} after vei_result, she carries on at Vei")
 
 
 ## I2 (the writeback creates no mass) and phylactery charges are spent (§8.3).

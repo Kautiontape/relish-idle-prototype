@@ -3827,6 +3827,7 @@ func _up_world(day1: Dictionary, level: int, state: String, gold := 1000.0, bone
 	v["town"]["workers"]["idle"] = 0.0
 	v["town"]["workers"]["muster"] = 0.0
 	v["town"]["bodies"] = v["town"]["bodies_cap"]
+	v["vei"]["fronts"] = []  # no front need (the fronts are live from E3-5), as _need_views
 	for r in v["hud"]["rates"]:
 		r["rate"] = 1.0
 	var lot_h: String = free[0]

@@ -597,16 +597,18 @@ static func death_rule(gs: GameState, clones: int, charges := 0) -> Dictionary:
 	return {"outcome": outcome, "respawn_s": respawn_s, "loses": loses}
 
 
-## §5.14 · E2 (fronts E3; assigned is live). The readout, q and the tithe are live.
-## can_begin/reason are cmd_begin_boss()'s check.
+## §5.14 · E2 (fronts live from E3-5, v8). The readout, q and the tithe are live; the fronts are VeiFronts.have_need's
+## on the state now (GameState._fronts on _front_info), with `assigned` cmd_assign_front's echo and `counted` the uids
+## VeiFronts counted, and fronts_met is VeiFronts.fronts_met of them. can_begin/reason are cmd_begin_boss()'s check.
 static func vei(gs: GameState) -> Dictionary:
 	var ro := gs._vei_readout()
 	var why := gs._boss_reason()
+	var fronts := gs._fronts(gs._front_info(), true)
 	return {
 		"rev": gs.rev, "backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"pool_cap": gs._pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff_ema"]),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": gs.digest_q(),
-		"fronts": gs._fronts(true), "fronts_required": gs._fronts_required(), "fronts_met": 0,
+		"fronts": fronts, "fronts_required": gs._fronts_required(), "fronts_met": VeiFronts.fronts_met(fronts),
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
 	}
