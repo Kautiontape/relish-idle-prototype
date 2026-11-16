@@ -1890,12 +1890,13 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
 - **At the current valve, with the valve at its target and Relish not travelling, every field equals the
   live views'.** Otherwise the planned support differs: while the valve slews, or Relish travels, the
   projection reads the target valve's WAR split and her committed arrival, so its rates, `fall_s` and the
-  margins that depend on them can differ from `view_fort`'s (details below). At the current valve,
-  `split` is `view_hud.split` (and `war_overflow` `view_hud.war_overflow`), `workers_steady` is
-  `view_town.workers.steady`, `war_supports` is `view_hud.war_supports`, each `margins` entry's
-  `garrison_rate` is that fort's `view_fort` one, and `backlog_diff` is `view_vei.diff_ema`. Each entry's
-  `fall_s` is `view_fort`'s too, and with `settled` so are its `margin` and `margin_cause`, but **only with
-  the valve at its target** (as it is once its slew is done): `view_fort` reads the target's WAR as its
+  margins that depend on them can differ from `view_fort`'s (details below). In that case (the current
+  valve, with the valve at its target and Relish not travelling), `split` is `view_hud.split` (and
+  `war_overflow` `view_hud.war_overflow`), `workers_steady` is `view_town.workers.steady`, `war_supports`
+  is `view_hud.war_supports`, each `margins` entry's `garrison_rate` is that fort's `view_fort` one, and
+  `backlog_diff` is `view_vei.diff_ema`. Each entry's `fall_s` is `view_fort`'s (in the same case), and
+  with `settled` its `margin` and `margin_cause` are too, **only with the valve at its target** (as it is
+  once its slew is done): `view_fort` reads the target's WAR as its
   planned support, a projection the valve passed. While the valve slews, `settled` at the target valve
   runs `view_fort`'s own train (the same probe, the same broken and settled verdicts), but its
   `garrison_rate` and `fall_s` are the target's, so its margin can differ where `fall_s` decides it. By default the margin and cause are the one-wave probe's (T3.4b:

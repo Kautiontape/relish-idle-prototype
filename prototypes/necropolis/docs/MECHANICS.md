@@ -908,7 +908,7 @@ mass; bodies, rot return, WORK and muster are mass.
   upgrade keeps its old level's slots too (its building keeps working).
   An unpaid building offers none. Staffing is fractional.
 - **Effects.** A building's numeric `effects` are per level (× level), or a per-level table when the
-  value is an array: the Charnel House's `body_cap` is `[0, 50, 100]`, so only its upgrades add.
+  value is an array: the Charnel House's `body_cap` is 0 at level 1, then +50 a level to 350 at level 8 (`[0, 50, ..., 350]`), so only its upgrades add.
   Flow effects (`pits`, `morale`, `attract`, `lifetime_bonus`, `haul_speed_mult`, the Statue's
   `death_shock_mult`, E3's `hint_precision`) need the building working. Capacity effects (`body_cap`,
   `gold_cap`, `bone_cap`, `relic_cap`, `essence_cap`, `living_cap`, `vat_slots`, `stance_slots`, E3's

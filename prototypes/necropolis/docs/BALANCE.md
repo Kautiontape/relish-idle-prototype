@@ -248,8 +248,9 @@ dead's buildings cost mostly bone, the Bone Mill's level 1 stays gold-priced and
 with bone. The mill's level 1 is gold only since F1 (60 gold, no bone; the run's manager for Shawn: the data
 brought in line with this rule, not a tuning). G3's A2/B2 and G4's C ran it at 60 / 20, and at 20 bone day1's
 first queue of a House, a Well, a Bakery and the Mill deadlocked: the three take 10 bone each of day1's 30 and
-only a mill makes bone (`tests/test_day1_queues.gd`). The job buildings and the house climb to level 8, relic-free to level 5, with relic costs
-that never fall with level.
+only a mill makes bone (`tests/test_day1_queues.gd`). The job buildings and the house climb to level 8; the ladder adds no relic price below level 6 (the pit, charnel house,
+Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1, 2, 3, 3, 3 at L1-L5) and the Chapel of Vats
+(2, 4, 6, 6, 6) keep their own; relic costs never fall with level.
 
 | building | tier | upkeep | L1 | L2 | L3 | L4 | L5 | L6 | L7 | L8 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -342,12 +343,13 @@ Growth slows (about +3.8 slots/h over 4–8 h), and 186 of 240 chunks pick nothi
 gates short of relics). Rent was not trialled (it needs TownSim code), and it isn't needed: gold is now
 in surplus.
 
-**Adopted structure (in the configs at this commit, T7: G4's C exactly, `buildings.json`, the cost table
+**Adopted structure (in the configs at this commit, T7: G4's C exactly, bar the Bone Mill's level 1, gold-only since F1: §5; `buildings.json`, the cost table
 in §5; E4 tunes the numbers):**
 - the dead's buildings cost mostly bone; the bone mill stays gold-priced at its level 1 and the Market is
   bought with bone (each producer is bought with the other resource);
 - a level ladder to L8 for the job buildings (raising pit, charnel house, market, bone mill, forge,
-  chapel of vats) and the house, relic-free to L5, with relic costs that never fall with level; the
+  chapel of vats) and the house; the ladder adds no relic price below L6 (the Forge keeps its own, 1, 2, 3, 3, 3 at L1-L5, and
+  the Chapel of Vats its own, 2, 4, 6, 6, 6), with relic costs that never fall with level; the
   charnel house's `body_cap` table runs on to 8 entries (+50 a level, 350 at L8);
 - the bone cap grows with the ladder: the Bone Mill's `bone_cap` is a table per level, 100, 150, 350, 700,
   1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). The rule (§5, Store caps): each level's cap covers 1.2 ×
