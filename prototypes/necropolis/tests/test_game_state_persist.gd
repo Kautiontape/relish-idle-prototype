@@ -704,6 +704,12 @@ func _fixtures() -> void:
 		t.ok(not file.has("queue") and back["queue"] == [], "%s: the fixture has no build queue; it loads empty" % name)
 		if not file.has("queue"):
 			back.erase("queue")
+		# E3-3 (v8) writes each big undead's filled_slots; no fixture carries it, so each loads 1 (the old-save rule)
+		var fs_ok := true
+		for i in (back["big_undead"] as Array).size():
+			fs_ok = fs_ok and not (file["big_undead"][i] as Dictionary).has("filled_slots") and back["big_undead"][i].get("filled_slots") == 1
+			(back["big_undead"][i] as Dictionary).erase("filled_slots")
+		t.ok(fs_ok, "%s: no big undead in the fixture carries filled_slots; each of its %d loads 1" % [name, (back["big_undead"] as Array).size()])
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])
