@@ -661,7 +661,8 @@ func _craft_husk() -> void:
 ## The husk the bot would craft now, "" for none. It reads the player's source, view_catalog().husk_craft (the E4 review:
 ## its kinds, its price and the reason the craft would answer), never the raw configs. It crafts when the craft would
 ## go (reason ""; `ignore_room` also takes at_cap, the crypt full, for _fill's crypt trigger), giants or carvers is
-## short (_short_fronts), a remnant would be left for the raise, and the queue's head doesn't wait on bone. The kind
+## short (_short_fronts), a remnant would be left for the raise, and the bone left after the price still covers the
+## queue head's bone (the E4 review: a craft mustn't make the head wait on bone, nor delay one that already does). The kind
 ## (husk_craft.kinds) is the one whose slab fill (_slab_fill, on the remnants the craft leaves:
 ## GameState.husk_craft_pick) brings the larger share of a short front's want, in list order on a tie; none is made
 ## unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a body too weak to keep isn't
@@ -681,7 +682,7 @@ func _husk_kind(ignore_room: bool) -> String:
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var h := _head(q)
-	if h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone":
+	if h >= 0 and float(tn["bone"]) - float(hc["cost"]["bone"]) < float(q[h]["cost"]["bone"]):
 		return ""
 	var short := _short_fronts(bu)
 	if short.is_empty():
@@ -1745,7 +1746,7 @@ func policy() -> Dictionary:
 		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
-		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (view_catalog().husk_craft: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
+		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (view_catalog().husk_craft: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the bone left covers the queue head's bone, of the kind whose fill brings the larger share of a short front's want",
 		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}

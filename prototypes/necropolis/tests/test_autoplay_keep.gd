@@ -192,6 +192,22 @@ func _husk_policy(c: Dictionary) -> void:
 	t.ok(w.crafted.is_empty(), "the queue's head waits on bone: no craft")
 	w.cleanup()
 
+	# the E4 review: the craft mustn't take bone the queue's head needs, though the head doesn't wait on bone yet
+	var hb: Autoplayer = mk.call("headbone")
+	t.ok(bool(hb.s.cmd_queue_build("", "lot-04")["ok"]), "(setup) Market level 2 queued")
+	var head_bone := float((hb.s.view_town()["queue"] as Array)[0]["cost"]["bone"])
+	var price := float(cl["economy"]["craft"]["husk"]["bone"])
+	hb.s.town_sim.bone = price + head_bone - 1.0
+	t.ok(head_bone > 0.0 and str((hb.s.view_town()["queue"] as Array)[0]["reason"]) != "no_bone",
+		"(setup) the head needs %.0f bone and doesn't wait on bone at %.0f" % [head_bone, hb.s.town_sim.bone])
+	hb._craft_husk()
+	t.ok(hb.crafted.is_empty(), "bone %.0f: the price %.0f would leave the head's %.0f short: no craft" % [price + head_bone - 1.0, price, head_bone])
+	hb.s.town_sim.bone = price + head_bone
+	hb._craft_husk()
+	t.ok(hb.crafted.size() == 1 and is_equal_approx(hb.s.town_sim.bone, head_bone),
+		"bone %.0f: the price leaves exactly the head's bone: it crafts (%s)" % [price + head_bone, str(hb.crafted)])
+	hb.cleanup()
+
 	var f: Autoplayer = mk.call("full")
 	for _i in int(f.s.view_big_undead()["cap"]):
 		_big(f.s, 0.0, 0.0)
