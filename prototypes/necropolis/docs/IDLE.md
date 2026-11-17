@@ -943,6 +943,11 @@ The policies (the run's manager's, for Shawn):
   - **Reorder** (not in static): when the head (the first entry that isn't `skipped_gate`) reads `affordable_in_s` −1,
     or later than another entry, the soonest-affordable entry moves to the head with `cmd_reorder_queue`. The Bone Mill
     is not first by fiat: the reorder puts it first, because Market level 2 reads −1 on bone with no mill.
+  - **The crypt's levels** (E4 step 2's sizing stop, the manager's ruling 2; every profile): from the first look that
+    finds the crypt full (big undead at the cap) while a husk waits, crypt levels 2 and 3 head the list (150 g, 60 b
+    and 1 relic, then 300 g, 120 b and 2 relics; `big_undead.per_crypt_level` adds a place a level, so cap 4 → 6). The
+    latch holds for the run. **The player's reason:** a husk that can't be raised is a body wasted, and a crypt level
+    is the only way to more room. Before this the bot never levelled the crypt (cap 4 on all 8 days of sessions).
 - **Raids** go to the highest tier the party reaches, with no death-rate filter, and the bot never retreats.
   - The sim gates no raid tier (`cmd_begin_dungeon` refuses only `unknown_fort`, `busy`, `dead` and `not_at_fort`), so
     the reach is the stand-ins' own premise: tier T needs at least as many bigs in the party as raid.json
@@ -959,8 +964,14 @@ The policies (the run's manager's, for Shawn):
   waits on bone. Later spares stay in the crypt. Sieges only in away_risk's prepared setup.
 - **Keepers** (keep_fronts, E4 step 2): the player's bank-or-raid choice.
   - On giants and carvers, a big whose stat brings at least `KEEP_SHARE` (0.25) of the front's want is a keeper
-    candidate. Candidates are taken best first, at most the big-undead cap less `RAID_ROOM` (2, room for two raiders,
-    who reach t3), and only as many as meet the want. The front whose keepers cover the larger share is the one kept.
+    candidate. The front whose candidates alone cover the larger share of its want (ties to giants) takes its keepers
+    first, best first, as many as meet its want; the other front then takes its own from the bigs left, the same way.
+    At most the big-undead cap less `RAID_ROOM` (2, room for two raiders, who reach t3) in all, and a big keeps one
+    front. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3); before it only the better-covered front
+    was kept, so at most 2 keepers on 1 front and giants was never kept in sessions.
+  - **The player's reason:** a big that brings a good part of a front Vei will test is worth more at home than on a
+    raid, where a death loses the whole party (A8). With two fronts short, a player keeps what each needs, and still
+    sends two raiders so the raids reach t3.
   - The want is the front's need at Vei's **full** pool (need_base + need_per_pool × pool_cap) less today's backlog and
     q terms (E4 step 3's fix). It read today's need before, and her pool dips through every tithe wave: in the dip one
     keeper met the want alone, and the second was released, raided and was lost (sessions, at 168.09 h and 168.17 h).

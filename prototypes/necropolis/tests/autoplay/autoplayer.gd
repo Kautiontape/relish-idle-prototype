@@ -77,6 +77,10 @@ const LADDER := [
 	["house", "lot-20"], ["stables", "lot-15"], ["embalmer", "lot-12"], ["ossuary_tower", "lot-16"],
 ]
 
+## The crypt's levels (E4 step 2's sizing, ruling 2: economy.json big_undead.per_crypt_level, a place a level), put at
+## the head of the list from the first look that finds the crypt full while a husk waits (_crypt_up, every profile).
+const CRYPT_LEVELS := [["crypt", "lot-01", 2], ["crypt", "lot-01", 3]]
+
 static var _list_cache: Array = []
 
 var profile := ""
@@ -94,6 +98,7 @@ var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants 
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
+var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that finds the crypt full while a husk waits
 var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
 var print_rows := true
 var open_rows := false
@@ -421,10 +426,12 @@ func _big_want() -> Dictionary:
 	return out
 
 
-## keep_fronts' keepers (E4 step 2; IDLE §8): the bigs that stay home on giants or carvers while the rest raid. On each
-## of the two whose want (_big_want) is positive, the bigs whose stat there brings at least KEEP_SHARE of the want, the
-## best first (ties to the older uid), at most cap - RAID_ROOM of them, and only as many as meet the want. The front whose
-## keepers cover the larger share of its want is kept (ties to giants). {} when no big qualifies.
+## keep_fronts' keepers (E4 step 2; two fronts from the sizing stop's ruling, IDLE §8): the bigs that stay home on giants
+## and carvers while the rest raid. On each of the two whose want (_big_want) is positive, the candidates are the bigs
+## whose stat there brings at least KEEP_SHARE of the want, best first (ties to the older uid). The front whose candidates
+## alone cover the larger share of its want (ties to giants) takes its keepers first, as many as meet its want; the other
+## then takes its own from the bigs left, as many as meet its want. At most cap - RAID_ROOM in all, and a big keeps one
+## front. {uids: the keepers in that order, front_of: {uid: front}}; {} when no big qualifies.
 func _keepers() -> Dictionary:
 	if not keep_fronts:
 		return {}
@@ -433,8 +440,7 @@ func _keepers() -> Dictionary:
 	if k <= 0:
 		return {}
 	var want := _big_want()
-	var best := {}
-	var best_cov := 0.0
+	var order: Array = []  # [the share its candidates cover alone, front, candidates, want]
 	for fid in BANK_FRONTS:
 		var w := float(want.get(fid, 0.0))
 		if w <= 0.0:
@@ -445,18 +451,30 @@ func _keepers() -> Dictionary:
 			var x := float(fc["per_stat"]) * float(b["stats"].get(str(fc["stat"]), 0.0))
 			if x >= KEEP_SHARE * w:
 				rows.append([x, str(b["uid"])])
+		if rows.is_empty():
+			continue
 		rows.sort_custom(func(r1, r2): return float(r1[0]) > float(r2[0]) or (float(r1[0]) == float(r2[0]) and _uid_n(str(r1[1])) < _uid_n(str(r2[1]))))
-		var uids: Array = []
 		var sum := 0.0
 		for r in rows.slice(0, k):
-			uids.append(str(r[1]))
 			sum += float(r[0])
 			if sum >= w:
 				break
-		if not uids.is_empty() and sum / w > best_cov:
-			best_cov = sum / w
-			best = {"front": fid, "uids": uids}
-	return best
+		order.append([sum / w, fid, rows, w])
+	order.sort_custom(func(o1, o2): return float(o1[0]) > float(o2[0]) or (float(o1[0]) == float(o2[0]) and str(o1[1]) == "giants"))
+	var uids: Array = []
+	var front_of := {}
+	for o in order:
+		var sum := 0.0
+		for r in o[2]:
+			if uids.size() >= k or sum >= float(o[3]):
+				break
+			var u := str(r[1])
+			if front_of.has(u):
+				continue
+			uids.append(u)
+			front_of[u] = str(o[1])
+			sum += float(r[0])
+	return {} if uids.is_empty() else {"uids": uids, "front_of": front_of}
 
 
 ## Placement: the party fills first (the oldest bigs, up to PARTY_MAX), each assigned the front of its best stat; the
@@ -488,7 +506,7 @@ func _place() -> void:
 	else:
 		for b in s.view_big_undead()["big_undead"]:
 			if str(b["place"]) == "party":
-				var f := str(keep["front"]) if _keep.has(str(b["uid"])) else _best_front(b["stats"])
+				var f := str(keep["front_of"][str(b["uid"])]) if _keep.has(str(b["uid"])) else _best_front(b["stats"])
 				if str(b["front"]) != f:
 					_cmd("front", [str(b["uid"]), f])
 	if rest.size() > PARTY_MAX:
@@ -595,8 +613,13 @@ static func _list(cfg: Dictionary) -> Array:
 
 
 ## The queue: kept filled from the priority list. An item is queued once the level below it on its lot is built,
-## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look.
+## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look. From the first look that finds
+## the crypt full (big undead at the cap) while a husk waits, the crypt's levels (CRYPT_LEVELS) head the list: a husk
+## that can't be raised is a big lost, and a level is a place (big_undead.per_crypt_level).
 func _fill() -> void:
+	if not _crypt_up:
+		var bu := s.view_big_undead()
+		_crypt_up = int(bu["count"]) >= int(bu["cap"]) and not (s.view_inventory()["husks"] as Array).is_empty()
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -607,7 +630,8 @@ func _fill() -> void:
 		var cur: Array = plan.get(str(e["lot_id"]), ["", 0])
 		plan[str(e["lot_id"])] = [str(e["building_id"]), maxi(int(cur[1]), int(e["level"]))]
 	var n := q.size()
-	for it in _list(c):
+	var walk: Array = CRYPT_LEVELS + _list(c) if _crypt_up else _list(c)
+	for it in walk:
 		if n >= qmax:
 			break
 		var lot: String = it[1]
@@ -1572,7 +1596,7 @@ func _day_end() -> void:
 # ----------------------------------------------------------------------------------------------- summary ---
 func policy() -> Dictionary:
 	return {
-		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots)%s" % (
+		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots; the crypt's levels 2 and 3 at its head from the first look that finds the crypt full while a husk waits)%s" % (
 			"; reorder: the soonest-affordable entry to the head when the head reads -1 or later than another" if reorder else "; no reorder (static)"),
 		"raids": ("one a session at the day's tier (days 1-2 t1, 3-4 t2, 5-6 t3, 7-8 t4)" if static_raids else
 			"the highest tier the party reaches (tier T needs raid.json party_profiles[T]'s bigs), the first dungeon first, higher yield, unheld before held") +
@@ -1581,7 +1605,7 @@ func policy() -> Dictionary:
 			("; keep_fronts: keepers stay home, so the reach counts the raiders only" if keep_fronts else "; raid_all: every big in the party rides"),
 		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (%s)" % (
 			"giants' or carvers' stat first when that brings a larger share of the front's want, else the largest magnitude" if keep_fronts else "largest magnitude first"),
-		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, at most cap - %d, as many as meet it; the front they cover more of" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
+		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
 		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared)",

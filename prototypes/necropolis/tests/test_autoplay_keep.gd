@@ -4,7 +4,10 @@ extends RefCounted
 ## - a big whose wits bring KEEP_SHARE of giants' want is kept there: it joins the party first, on giants, and _reach
 ##   counts only the raiders;
 ## - a big under the share is not kept, and raid_all (the E3 policy, ablation_keep) keeps none and reaches by the party;
-## - the slab fill puts giants' stat first when that brings more of its want, and raid_all keeps the magnitude fill.
+## - the slab fill puts giants' stat first when that brings more of its want, and raid_all keeps the magnitude fill;
+## - two-front keeping (the sizing stop's ruling): both fronts' keepers at cap 6, the better-covered front's at cap 4, a
+##   big that qualifies on both kept once;
+## - the crypt's levels head the fill once the crypt is full while a husk waits, and not before.
 
 var t := TestUtil.new()
 
@@ -25,6 +28,91 @@ static func _party(gs: GameState) -> Array:
 	var out: Array = []
 	for p in gs.view_party()["party"]:
 		out.append(str(p["uid"]))
+	return out
+
+
+## A big whose `fid` stat brings `share` of that front's want (x = per_stat x stat).
+static func _stat_for(c: Dictionary, want: float, fid: String, share: float) -> float:
+	return share * want / float(c["vei"]["fronts"][fid]["per_stat"])
+
+
+## The sizing stop's ruling (two-front keeping): at cap 6 (cap - RAID_ROOM = 4) two skeletons that meet giants together and
+## two zombies that meet carvers together are all kept, each on its front; at cap 4 only the better-covered front's two
+## are; a big that qualifies on both fronts keeps one.
+func _two_fronts(c: Dictionary) -> void:
+	var c6 := c.duplicate(true)
+	c6["economy"]["big_undead"]["cap"] = 6
+	var b := Autoplayer._bot("keep_test_two", c6, {"print_rows": false})
+	b.new_game()
+	var w: Dictionary = b._big_want()
+	var g1 := _big(b.s, _stat_for(c, w["giants"], "giants", 0.6), 0.0)
+	var g2 := _big(b.s, _stat_for(c, w["giants"], "giants", 0.5), 0.0)
+	var z1 := _big(b.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.55))
+	var z2 := _big(b.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.5))
+	b._place()
+	t.ok(b._keep == [g1, g2, z1, z2], "cap 6: both fronts' pairs are kept, giants (1.10 of its want) before carvers (1.05): %s" % str(b._keep))
+	t.ok(_front(b.s, g1) == "giants" and _front(b.s, g2) == "giants" and _front(b.s, z1) == "carvers" and _front(b.s, z2) == "carvers",
+		"each keeper is on its own front: %s %s %s %s" % [_front(b.s, g1), _front(b.s, g2), _front(b.s, z1), _front(b.s, z2)])
+	t.ok(b._reach() == 1, "four keepers home, no raider: the reach is t1 (%d)" % b._reach())
+	b.cleanup()
+
+	var b4 := Autoplayer._bot("keep_test_two4", c, {"print_rows": false})
+	b4.new_game()
+	_big(b4.s, _stat_for(c, w["giants"], "giants", 0.6), 0.0)
+	_big(b4.s, _stat_for(c, w["giants"], "giants", 0.5), 0.0)
+	var y1 := _big(b4.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.65))
+	var y2 := _big(b4.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.5))
+	b4._place()
+	t.ok(b4._keep == [y1, y2], "cap 4 (room for 2 keepers): the better-covered front's pair (carvers 1.15 against giants 1.10): %s" % str(b4._keep))
+	b4.cleanup()
+
+	# a big that qualifies on both: wits for 0.9 of giants, beef for 0.5 of carvers; another zombie brings 0.6 of carvers.
+	# Carvers covers 1.1 alone, giants 0.9, so carvers takes both and giants has no candidate left
+	var bb := Autoplayer._bot("keep_test_both", c6, {"print_rows": false})
+	bb.new_game()
+	var both := _big(bb.s, _stat_for(c, w["giants"], "giants", 0.9), _stat_for(c, w["carvers"], "carvers", 0.5))
+	var zc := _big(bb.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.6))
+	bb._place()
+	t.ok(bb._keep == [zc, both] and _front(bb.s, both) == "carvers",
+		"a big that qualifies on both fronts is kept once, on the front that took it first: %s, %s" % [str(bb._keep), _front(bb.s, both)])
+	bb.cleanup()
+
+
+## The crypt's levels (the sizing stop's ruling): no crypt entry while the crypt has room; once it is full (big undead at
+## the cap) and a husk waits, the fill queues crypt level 2 first, and the latch holds after the husk is gone.
+func _crypt_levels(c: Dictionary) -> void:
+	for full in [false, true]:
+		var b := Autoplayer._bot("keep_test_crypt", c, {"print_rows": false})
+		b.new_game()
+		var cap := int(b.s.view_big_undead()["cap"])
+		for _i in cap - (0 if full else 1):
+			_big(b.s, 0.0, 0.0)
+		b.s.husks.append({"uid": b.s._mint_uid("h"), "kind": "skeleton", "rarity": "common"})
+		b._fill()
+		var ids := _queue_ids(b.s)
+		if not full:
+			t.ok(not b._crypt_up and not _queued(b.s, "lot-01"), "the crypt has room (%d of %d): no crypt level is queued: %s" % [
+				cap - 1, cap, str(ids)])
+		else:
+			t.ok(b._crypt_up and not ids.is_empty() and str(ids[0]) == "crypt/lot-01/2",
+				"the crypt full (%d) with a husk waiting: crypt level 2 heads the fill: %s" % [cap, str(ids)])
+			b.s.husks.clear()
+			b._fill()
+			t.ok(b._crypt_up, "the latch holds with no husk left")
+		b.cleanup()
+
+
+static func _queued(gs: GameState, lot: String) -> bool:
+	for e in gs.view_town()["queue"]:
+		if str(e["lot_id"]) == lot:
+			return true
+	return false
+
+
+static func _queue_ids(gs: GameState) -> Array:
+	var out: Array = []
+	for e in gs.view_town()["queue"]:
+		out.append("%s/%s/%d" % [e["building_id"], e["lot_id"], int(e["level"])])
 	return out
 
 
@@ -89,6 +177,9 @@ func run() -> int:
 	dp._place()
 	t.ok(dp._keep == [k1, k2], "with her pool drawn to 0 both stay kept: %s" % str(dp._keep))
 	dp.cleanup()
+
+	_two_fronts(c)
+	_crypt_levels(c)
 
 	# the fill: a skeleton (two nerve slots: wits or speed) with two big speed remnants and two small wits ones
 	var slab: Dictionary = c["town"]["slab"]
