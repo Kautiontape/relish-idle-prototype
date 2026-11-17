@@ -17,16 +17,13 @@ extends RefCounted
 ##   and 1299.82 s (0.19 s, 0.02% of 925.1 s), so the 10 s step is the binding gate.
 
 ## E3-3 (the siege live): that run moves u9, midgame's siege at Ashgate, to the crypt first, so it keeps testing "a WAR
-## cut breaks both forts". The same cut with u9 sieging Ashgate (SIEGE_RUN_S, at both dt) holds Ashgate about 735 s
-## longer, its waves blunted: retaken at about 1755 s at both dt against 1020.79 and 1020.52 s, Old Sluice's unchanged
-## (_siege_holds); IDLE I6's siege return at its retake is checked on that run (_retake_effects).
-## E4 step 3: with the fixture's backlog at the live scale (12M against K 36M) her odds hold at 0.25 over the run
-## instead of drifting up from it (4000 against K 12000), so her waves keep their 367 s period and both forts fall a
-## little later than at E3-3 (Ashgate 980 → 1021 s without the siege, 1615 → 1755 s with it); SIEGE_RUN_S 1700 → 1900.
+## cut breaks both forts". The same cut with u9 sieging Ashgate (SIEGE_RUN_S, at both dt) holds Ashgate about 635 s
+## longer, its waves blunted: retaken at 1614.85 s at 0.5 s and 1614.36 s at 10 s against 980.06 and 980.33 s, Old
+## Sluice's unchanged (_siege_holds); IDLE I6's siege return at its retake is checked on that run (_retake_effects).
 const GRACE_TOL := 1e-3
 const RETAKE_K := 0.005
 const RUN_S := 1500.0
-const SIEGE_RUN_S := 1900.0
+const SIEGE_RUN_S := 1700.0
 
 var t := TestUtil.new()
 
@@ -106,7 +103,7 @@ func _convergence(res: Dictionary) -> void:
 
 
 ## E3-3: the same WAR cut with u9 sieging Ashgate holds Ashgate longer than without it, at both dt (its waves blunted by
-## tithe.siege_block; measured at E4 step 3: about 1755 s at both dt against 1020.79 and 1020.52 s), and Old Sluice
+## tithe.siege_block; measured: 1614.85 s at 0.5 s and 1614.36 s at 10 s against 980.06 and 980.33 s), and Old Sluice
 ## (no siege) falls as it does without it, within 1 s (her pool moves a little with the blunted waves).
 func _siege_holds(res: Dictionary, sg: Dictionary) -> void:
 	for dt in [0.5, 10.0]:

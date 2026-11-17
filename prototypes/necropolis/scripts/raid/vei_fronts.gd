@@ -62,9 +62,9 @@ const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
 
 const _DEF_FRONTS := {
 	"giants": {"stat": "wits", "per_stat": 1.0, "per_backlog": 0.0, "per_q": 0.0, "need_base": 14.0, "need_per_pool": 0.02},
-	"swarm": {"stat": "presence", "per_stat": 1.0, "per_backlog": 0.0000005, "per_q": 0.0, "need_base": 12.0, "need_per_pool": 0.02},
+	"swarm": {"stat": "presence", "per_stat": 1.0, "per_backlog": 0.0006, "per_q": 0.0, "need_base": 12.0, "need_per_pool": 0.02},
 	"carvers": {"stat": "beef", "per_stat": 1.0, "per_backlog": 0.0, "per_q": 3.0, "need_base": 18.0, "need_per_pool": 0.02},
-	"raw": {"stat": "power", "per_stat": 1.0, "per_backlog": 0.00000025, "per_q": 0.0, "need_base": 40.0, "need_per_pool": 0.03},
+	"raw": {"stat": "power", "per_stat": 1.0, "per_backlog": 0.0012, "per_q": 0.0, "need_base": 40.0, "need_per_pool": 0.03},
 }
 const _DEF_FERRY := {"base": 0.5, "per_pool": 0.01, "per_uncleared": 0.5, "per_q_div": 0.25}
 

@@ -43,7 +43,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.opening.starter_party", "economy.stance.base_slots", "economy.worker.mass", "economy.pit.bonus",
 	"economy.town.migrant_rate",
 	"realm.relish.travel_speed", "realm.relish.home_stance_bonus", "realm.readout.sign_eps", "realm.readout.ema_s",
-	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei", "realm.K",
+	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
 	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass",
 	# T3.4b: the wave train's frame refresh (_train_frame)
 	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames",

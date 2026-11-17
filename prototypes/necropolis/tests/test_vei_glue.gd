@@ -79,7 +79,7 @@ func _known() -> Array:
 		s._find_uid(s.big_undead, u[i])["stats"] = stats[i]
 	t.ok(s.cmd_set_party([u[0], u[1], u[2]])["ok"] and s.cmd_assign_front(u[0], "giants")["ok"]
 		and s.cmd_assign_front(u[2], "raw")["ok"], "(setup) A, B, C in the party; A on giants, C on raw, B unassigned")
-	s.realm.vei["undead_queue"] = 90000000.0  # E4 step 3: a live-scale backlog (3000x the old 30000, as realm.json K)
+	s.realm.vei["undead_queue"] = 30000.0
 	s.realm.vei["living_pool"] = 200.0
 	return [s, u]
 
@@ -103,17 +103,16 @@ func _formula() -> void:
 		var sum := 0.0
 		for uid in who[f["id"]]:
 			sum += float(s._find_uid(s.big_undead, uid)["stats"][c["stat"]])
-		var have := float(c["per_stat"]) * sum + float(c["per_backlog"]) * 90000000.0 + float(c["per_q"]) * q
+		var have := float(c["per_stat"]) * sum + float(c["per_backlog"]) * 30000.0 + float(c["per_q"]) * q
 		var need := float(c["need_base"]) + float(c["need_per_pool"]) * 200.0
-		t.near(float(f["have"]), have, 1e-9, "%s: have %.4f = %s·Σ%s + %s·9e7 + %s·q (q %.4f)" % [f["id"], f["have"], c["per_stat"], c["stat"], c["per_backlog"], c["per_q"], q])
+		t.near(float(f["have"]), have, 1e-9, "%s: have %.4f = %s·Σ%s + %s·30000 + %s·q (q %.4f)" % [f["id"], f["have"], c["per_stat"], c["stat"], c["per_backlog"], c["per_q"], q])
 		t.near(float(f["need"]), need, 1e-9, "%s: need %.4f = %s + %s·200" % [f["id"], f["need"], c["need_base"], c["need_per_pool"]])
 		t.ok(f["cleared"] == (float(f["have"]) >= float(f["need"])), "%s: cleared %s is have >= need" % [f["id"], f["cleared"]])
 		if f["cleared"]:
 			met += 1
-	# at the shipped vei.json (E4 step 3: mass alone clears exactly swarm): giants 9 / 18 open, swarm 51 / 16 met,
-	# carvers 3q / 22 open, raw 12 + 22.5 / 46 open (raw needs power from bigs)
-	t.ok(fr.map(func(f): return f["cleared"]) == [false, true, false, false], "swarm met by mass, raw, giants and carvers open: %s" % str(fr.map(func(f): return f["cleared"])))
-	t.ok(vv["fronts_met"] == met and vv["fronts_met"] == 1 and vv["fronts_required"] == 3, "fronts_met 1 (the cleared count), fronts_required 3")
+	# at the shipped vei.json: giants 9 / 18 open, swarm 24 / 16 met, carvers 3q / 22 open, raw 48 / 46 met
+	t.ok(fr.map(func(f): return f["cleared"]) == [false, true, false, true], "swarm and raw met, giants and carvers open: %s" % str(fr.map(func(f): return f["cleared"])))
+	t.ok(vv["fronts_met"] == met and vv["fronts_met"] == 2 and vv["fronts_required"] == 3, "fronts_met 2 (the cleared count), fronts_required 3")
 	# the backlog moves have where it counts (swarm and raw), and the pool moves need
 	s.realm.vei["undead_queue"] = 0.0
 	s.realm.vei["living_pool"] = 600.0
@@ -223,7 +222,6 @@ func _seed_otherwise_unchanged() -> void:
 	for f in bs["fronts"]:
 		f["need"] = 0.0
 		f["have"] = 0.0
-	bs["backlog"] = float(bs["backlog"]) / 3000.0  # E4 step 3: the fixture's backlog is 3000x E3-3's, as realm.json K
 	t.ok(JSON.stringify(bs).sha256_text() == PRE_VEI_ZEROED_SHA,
 		"pre_vei's boss seed with its fronts zeroed is E3-3's (%s); live, it hashes %s" % [PRE_VEI_ZEROED_SHA.left(16), live])
 

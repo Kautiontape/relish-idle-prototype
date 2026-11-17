@@ -1,5 +1,5 @@
 {
-  "_doc": "Vei's final test (MECHANICS 6, GAMEPLAY 3d), read by VeiFronts (scripts/raid/vei_fronts.gd). Placeholders until calibrated, except the fronts' per_backlog and the demo seed's backlog (E4 step 3, BALANCE 5): sized for the live backlog (about 1e8 by day 8, against realm.json K 36M), so mass alone clears swarm and never raw within 8 days; the demo's backlog is 3000x its old 18450, as K is, so its odds stay 0.61. fronts_required of the four fronts must clear. fronts.<id>: have = per_stat * sum(stat of big undead counted on the front) + per_backlog * backlog + per_q * digest_q; need = need_base + need_per_pool * Vei's living pool; cleared = have >= need. phase1: ref_s = seconds to clear a front at have == need; max_rate caps have/need; phase1_max_s is the timeout (lost). raise_have_per_mult: what one raised undead adds to a front's have in phase 1, per stat_mult. ferry (phase 2): base + per_pool*living_pool + per_uncleared*uncleared (mass/s), divided by (1 + per_q_div*(q-1)). mote_mass = value of one raised mote toward the raise rate; raise_ema_beats = smoothing window of the raise rate in tempo beats. Vei breaks once her break streak reaches break_beats: each tempo beat with raise > ferry adds one, and a beat without (a lapse) costs lapse_cost beats of it (-1: the lapse resets it to 0). loss_backlog_keep = share of the backlog kept on a loss. The blocks below fronts are the boss scene's (scripts/raid/vei_boss.gd, BossLogic, BossLanes, RaidVei); each has its own _doc.",
+  "_doc": "Vei's final test (MECHANICS 6, GAMEPLAY 3d), read by VeiFronts (scripts/raid/vei_fronts.gd). Placeholders until calibrated. fronts_required of the four fronts must clear. fronts.<id>: have = per_stat * sum(stat of big undead counted on the front) + per_backlog * backlog + per_q * digest_q; need = need_base + need_per_pool * Vei's living pool; cleared = have >= need. phase1: ref_s = seconds to clear a front at have == need; max_rate caps have/need; phase1_max_s is the timeout (lost). raise_have_per_mult: what one raised undead adds to a front's have in phase 1, per stat_mult. ferry (phase 2): base + per_pool*living_pool + per_uncleared*uncleared (mass/s), divided by (1 + per_q_div*(q-1)). mote_mass = value of one raised mote toward the raise rate; raise_ema_beats = smoothing window of the raise rate in tempo beats. Vei breaks once her break streak reaches break_beats: each tempo beat with raise > ferry adds one, and a beat without (a lapse) costs lapse_cost beats of it (-1: the lapse resets it to 0). loss_backlog_keep = share of the backlog kept on a loss. The blocks below fronts are the boss scene's (scripts/raid/vei_boss.gd, BossLogic, BossLanes, RaidVei); each has its own _doc.",
   "fronts_required": 3,
   "break_beats": 20,
   "lapse_cost": 4,
@@ -13,9 +13,9 @@
   "raise_ema_beats": 4,
   "fronts": {
     "giants": {"stat": "wits", "per_stat": 1, "per_backlog": 0, "per_q": 0, "need_base": 14, "need_per_pool": 0.02},
-    "swarm": {"stat": "presence", "per_stat": 1, "per_backlog": 0.0000005, "per_q": 0, "need_base": 12, "need_per_pool": 0.02},
+    "swarm": {"stat": "presence", "per_stat": 1, "per_backlog": 0.0006, "per_q": 0, "need_base": 12, "need_per_pool": 0.02},
     "carvers": {"stat": "beef", "per_stat": 1, "per_backlog": 0, "per_q": 3, "need_base": 18, "need_per_pool": 0.02},
-    "raw": {"stat": "power", "per_stat": 1, "per_backlog": 0.00000025, "per_q": 0, "need_base": 40, "need_per_pool": 0.03}
+    "raw": {"stat": "power", "per_stat": 1, "per_backlog": 0.0012, "per_q": 0, "need_base": 40, "need_per_pool": 0.03}
   },
   "arena": {
     "_doc": "The boss arena: layout_logic.gen_layout(is_boss) with these layout keys merged over raid.json layout (rooms 1 = no partitions: the lanes cross open ground). The camera fits the whole arena (zoom clamped to zoom_min..zoom_max, margin_px of ground round it).",
@@ -46,7 +46,7 @@
     "force_met_frac": 1.15, "force_unmet_frac": 0.3,
     "seed": {
       "v": 2, "kind": "boss", "run_id": 0, "seed_rev": 0, "rng_seed": "1",
-      "backlog": 55350000.0, "living_pool": 380.0, "odds": 0.61, "sign": 1, "drain_s": -1.0, "digest_q": 2.6, "vei_capacity": 50.0,
+      "backlog": 18450.0, "living_pool": 380.0, "odds": 0.61, "sign": 1, "drain_s": -1.0, "digest_q": 2.6, "vei_capacity": 50.0,
       "fronts": [
         {"id": "giants", "need": 0.0, "have": 0.0, "assigned": ["u3", "u4"]},
         {"id": "swarm", "need": 0.0, "have": 0.0, "assigned": []},

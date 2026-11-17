@@ -74,18 +74,4 @@ func run() -> int:
 		str(w_keep), str(w_e3)])
 	b.cleanup()
 	e3.cleanup()
-
-	# E4 step 3: Vei-ready is BALANCE §1's, odds >= 0.6 as well as the fronts (fronts_required 0 here, so only the odds gate)
-	var c0 := c.duplicate(true)
-	c0["vei"]["fronts_required"] = 0
-	var g := Autoplayer._bot("keep_test_odds", c0, {"print_rows": false})
-	g.new_game()
-	g._vei_check(g.s.t + 3600.0)
-	var odds_new := float(g.s.view_vei()["odds"])
-	t.ok(odds_new < Autoplayer.VEI_READY_ODDS and g.vei_ready_t < 0.0,
-		"fronts met but odds %.3f < %.1f: no Vei-ready" % [odds_new, Autoplayer.VEI_READY_ODDS])
-	g.s.realm.vei["undead_queue"] = 2.0 * float(c0["realm"]["K"])  # odds 2/3
-	g._vei_check(g.s.t + 3600.0)
-	t.ok(g.vei_ready_t >= 0.0, "fronts met and odds %.3f: Vei-ready at %.0f s" % [float(g.s.view_vei()["odds"]), g.vei_ready_t])
-	g.cleanup()
 	return t.failures

@@ -1580,9 +1580,6 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   | raw | power plus backlog |
 
   Each threshold scales with Vei's living pool. You need `vei.fronts_required` (3 of 4).
-  E4 step 3 (the manager's ruling): mass alone clears exactly one front, swarm. Raw needs power from bigs as well as
-  the backlog, and giants and carvers need composition. The backlog terms are sized for the live backlog, about 1e8 by
-  day 8 (BALANCE §5).
   Live from E3-5: `view_vei` and the boss seed carry each front's have and need, `VeiFronts.have_need` on her
   backlog, living pool, `q` and the party (an assigned member counts on its front, an unassigned one on the front of
   its highest stat), so the dialog, the town's front chip and the fight read the same numbers (STATE-API §5.14, §7.2).

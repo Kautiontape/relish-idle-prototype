@@ -544,9 +544,7 @@ static func queue_net(gs: GameState) -> Dictionary:
 ## the store) when a cost is above its store's cap (over_cap), a relic cost is short (no idle income), it costs
 ## a starved store, a short store's net is ≤ 0, or a store that covers it now falls under it by then at a
 ## negative net. One that `holds` (isn't gated) starts at its time: the clock moves there and the stocks pay its
-## cost; one that never does starves its store. A gated one changes nothing. "≤ 0" is ≤ NET_EPS: float noise in a
-## net that is 0 by construction (TownSim's `milled = taken − burned`) must read never, not a 1e18 s wait.
-const NET_EPS := 1e-9
+## cost; one that never does starves its store. A gated one changes nothing.
 static func _afford_at(gs: GameState, cost: Dictionary, tl: Dictionary, holds: bool) -> Array:
 	var fund: Dictionary = tl["fund"]
 	var net: Dictionary = tl["net"]
@@ -565,7 +563,7 @@ static func _afford_at(gs: GameState, cost: Dictionary, tl: Dictionary, holds: b
 		var short := float(cost[s]) - float(fund[s])
 		if never != "" or short <= 0.0:
 			continue
-		if float(net[s]) <= NET_EPS:  # E4 step 3: a net within float noise of 0 (1.7e-17 seen) is never, not 8e18 s
+		if float(net[s]) <= 0.0:
 			never = s
 		elif short / float(net[s]) > dt:
 			dt = short / float(net[s])
