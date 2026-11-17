@@ -1031,8 +1031,10 @@ The profiles:
 - **town_only**: the sessions schedule, playing only the town (the queue, the stances, the vats). It never raids, so it
   never gets a husk.
 - **away_risk**: the sessions run to the end of day 3's last session, saved there. If nothing is held then, it falls
-  back to the midgame_2flips fixture and says so. Then 24 h away, twice from that save:
-  - as the sessions bot left it;
+  back to the midgame_2flips fixture and says so. Then 24 h away, three times from that save:
+  - at the default valve (`default`: the opening's 0.25 / 0.60 / 0.15, undoing the in-session WAR top-up, ruling 3),
+    graded against "at least half";
+  - as the sessions bot left it (`as_left`: its topped-up WAR), a report row;
   - after the prepared setup (E4 step 5, ruling B1 (ii): what a player does reading each held fort's margin forecast,
     `view_fort().hold`, before a long absence): a siege and a simulacrum (crafted when none is ready) at the held fort
     with the lowest margin, the one the next wave will pick; then WAR raised in 0.05 steps (WORK and FLOOD keeping their
@@ -1148,7 +1150,15 @@ The policies (the run's manager's, for Shawn):
     (83 in sessions by day 8 before this) while a front Vei will test is short; a player grinds the weakest into a body
     for that front, but not with the bone the next build is waiting on.
 - **Stances**: Vigil and Harvest on.
-- **The valve** stays at its default, except in away_risk's prepared setup.
+- **The valve** (ruling 3 of 2026-11-17 03:28: the bots raise WAR in-session for held forts where a player would): in
+  every look the bot sets WAR to the least 0.05 step that covers every held fort WAR can save (WORK and FLOOD keeping
+  their ratio), floored at the opening valve's 0.60. A fort's support scales with WAR, so it needs WAR × need / war_in
+  (`view_fort().hold`). A fort with no WAR yet (just flipped) waits a look, and one needing more than 0.95 is let go:
+  a player can't hold it with WAR, and every step costs growth. WAR comes back down only with two steps of slack, and
+  then to a step above the need (the floor when nothing needs more), so the bot doesn't trim it every minute. The
+  first build flipped 0.75 ↔ 0.80 each look in continuous (69 changes). **The player's reason:** the forecast shows a
+  fort under its need, so they add WAR until it holds, and they take it back when growth covers it. away_risk's
+  default row resets the valve to the opening's; its prepared row raises it further.
 
 ## 9. Who builds what
 - **economy:**
