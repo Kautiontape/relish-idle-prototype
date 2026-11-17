@@ -98,7 +98,8 @@ static func _rems(s: GameState, mags: Array) -> Array:
 
 
 ## cmd_craft_husk's refusals in order (the sizing stop's ruling 2, lever (b)): unknown_kind before the remnants and the
-## bone; then no_remnants (one short of craft.husk.remnants) before no_bone; then no_bone (a bone short). None changes
+## bone; then no_remnants (one short of craft.husk.remnants) before no_bone; then no_bone (a bone short); then at_cap
+## (v10: the big undead and the husks waiting fill the crypt's big_undead cap; the bot's own room rule). None changes
 ## anything: rev, the husks, the remnants, the bone, the uid counter, the events; view_catalog's husk_craft agrees.
 func _husk_refusals() -> void:
 	var s := _mk()
@@ -126,6 +127,28 @@ func _husk_refusals() -> void:
 	cat = s.view_catalog()["husk_craft"]
 	t.ok(bool(cat["can_craft"]) and str(cat["reason"]) == "" and float(cat["cost"]["bone"]) == bone and int(cat["cost"]["remnants"]) == n,
 		"with the price in hand the catalog reads can_craft, and its cost is economy.json craft.husk's: %s" % str(cat))
+	# at_cap (v10, the E4 review): the crypt's places are its big undead and the husks waiting, at the big_undead cap
+	var cap := s._cap_of("big_undead")
+	for i in cap - s.big_undead.size() - s.husks.size():
+		s.husks.append({"uid": "hfill%d" % i, "kind": "skeleton", "rarity": "common"})
+	before = snap.call()
+	cat = s.view_catalog()["husk_craft"]
+	t.ok(s.cmd_craft_husk("skeleton")["reason"] == "at_cap" and str(cat["reason"]) == "at_cap" and not bool(cat["can_craft"]),
+		"big undead %d and husks waiting %d at the cap %d: at_cap; the catalog agrees" % [s.big_undead.size(), s.husks.size(), cap])
+	t.ok(snap.call() == before, "at_cap changes nothing")
+	s.town_sim.bone = bone - 1.0
+	t.ok(s.cmd_craft_husk("skeleton")["reason"] == "no_bone", "at_cap is checked last: a bone short reads no_bone")
+	s.town_sim.bone = bone
+	s.husks.pop_back()
+	s.big_undead.append({"uid": "bfill"})
+	t.ok(s.cmd_craft_husk("skeleton")["reason"] == "at_cap", "a big undead takes a place as a waiting husk does")
+	s.big_undead.pop_back()
+	t.ok(bool(s.view_catalog()["husk_craft"]["can_craft"]) and bool(s.cmd_craft_husk("skeleton")["ok"]),
+		"one place free: can_craft, and it crafts (the husk fills the last place)")
+	_rems(s, range(1, n + 1))
+	s.town_sim.bone = bone
+	t.ok(s.cmd_craft_husk("skeleton")["reason"] == "at_cap" and s.view_catalog()["husk_craft"]["reason"] == "at_cap",
+		"then, with the remnants and bone back, it reads at_cap again")
 
 
 ## A craft takes the weakest craft.husk.remnants (the smallest magnitude, then the oldest uid) and craft.husk.bone exactly,

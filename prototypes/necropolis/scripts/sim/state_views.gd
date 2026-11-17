@@ -991,6 +991,16 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
 		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
 		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
+	# E4 step 4 (the resume rule's income test): the buildings still unpaid because the gold income can't pay them,
+	# in lot order, on one line, so the player sees why they're off and that a Market fixes it
+	var held: Array = []
+	for lot_id in gs.town_sim.buildings:
+		if gs.town_sim.held_by_income(str(lot_id)):
+			var hb: Dictionary = gs.town_sim.buildings[lot_id]
+			held.append(_building_name(gs, rep, str(hb["building_id"]), int(hb["level"])))
+	if not held.is_empty():
+		ready.append(_away_line(str(rep["unpaid_upkeep_fmt"]).format({"names": str(rep["list_sep"]).join(PackedStringArray(held)),
+			"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	if gs.build_queue.is_empty():
 		if stores_full(gs, float(rep["full_tol"])):
 			ready.append(_away_line(str(rep["full_raid"]), "raid", ""))
@@ -1006,12 +1016,15 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		var rows: Array = w["rows"]
 		var stuck := true
 		var wall := -1
+		var upk := -1  # E4 step 4: the first entry the upkeep gate holds (BuildRules.upkeep_short), its own line
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			match str(row["status"]):
 				"skipped_gate":
 					if wall < 0 and str(row["reason"]) == "no_relics":
 						wall = i
+					if upk < 0 and str(row["reason"]) == "upkeep":
+						upk = i
 				"waiting_funds":
 					if float(row["affordable_in_s"]) >= 0.0:
 						stuck = false
@@ -1025,6 +1038,10 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
+			elif i == upk:
+				ready.append(_away_line(str(rep["afford_upkeep_fmt"]).format({
+					"name": _building_name(gs, rep, str(row["building_id"]), int(row["level"])),
+					"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)

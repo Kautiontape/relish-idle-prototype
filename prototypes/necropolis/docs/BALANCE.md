@@ -322,6 +322,16 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
   the split moving; the static-schedule ablation checks it.
 - **Gold:** the living cap and upkeep tiers must hold the stock rule. The store caps (above) bound gold
   and bone from E2b-2; pre_vei's gold falls (−0.47/s) and its bone sits over its cap.
+  - **The gold trap (E4 step 4): the resume rule's absorbing state.** A town whose full upkeep exceeds its gold
+    income sheds buildings at the floor. MECHANICS §4.3's resume rule then re-admitted one the moment the gold
+    covered a hold of the paying upkeep plus its own, so any surplus went to the next, and the gold could never climb
+    past one hold while anything stayed unpaid. Sessions pinned at 27.00 from day 5 (2bb8bca through 2fe96cc), with
+    every queue entry over 27 g, the gold lever (Market L4) among them. Two fixes, both in: the queue's upkeep gate
+    (MECHANICS §4.4: a new building whose upkeep would take net gold negative is skipped, reason `upkeep`) closes the
+    way in, and sessions no longer reaches the floor (day-end gold 13 067 at its lowest, day 5). The resume rule's
+    income test (§4.3, `upkeep.resume_net_min` 0) closes the trap itself: pre_vei past its floor now saves +0.01 g/s
+    and passes the Market's next level in about 20 min (test_gold_trap). Gold income that grows with the town (lever
+    (iii)) is left to step 9, only if its calibration needs it.
 - **Rate normalisation** (`view.rate_log_max`, 25/s on the map today) saturates at the new flow
   sizes, so it moves into config.
 - **The Vei fight's feel** won't converge until `vei.json` is tuned against real circles.

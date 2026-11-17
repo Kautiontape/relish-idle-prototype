@@ -99,6 +99,12 @@ var _banking := false  # bank_bigs' latch: set at the first look that finds gian
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
+var crypt_up_t := -1.0  # when _crypt_up set (s.t), -1 never; it never clears, so it can't churn (the E4 review's item 5)
+## The keepers' churn (the E4 review's item 5, a report): looks whose keepers changed, keepers dropped while still held
+## (churn proper: a big leaves the fronts with nothing lost), drops re-kept later (flip_backs), and the looks where the
+## other front order won, by the tie-break that chose it (_keepers: met, kept, cov).
+var keep_churn := {"looks": 0, "changes": 0, "drops_held": 0, "flip_backs": 0, "alt_by": {"met": 0, "kept": 0, "cov": 0}}
+var _dropped := {}  # uid: true, a keeper dropped while held (keep_churn's flip_backs)
 var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
 var crafted: Array = []  # every husk crafted (_craft_husk): [t_h, kind]
 var print_rows := true
@@ -109,6 +115,7 @@ var sample_i1 := false
 # what it saw
 var cmd_log: Array = []
 var div: Array = []
+var thr_row := {}  # the replay's first command answered otherwise than the leader's, with its thresholds (threshold_row)
 var rows: Array = []
 var i1: Array = []
 var wave_targets := {}  # with sample_i1: each tithe wave's fort and start t, by wave_id (the I1 report's target row)
@@ -295,14 +302,63 @@ func _after(op: String, a: Array, r: Dictionary) -> void:
 
 func _cmd(op: String, a: Array, extra := {}) -> Dictionary:
 	var t0 := s.t
+	var pre := _stock_snap() if record else {}
 	var r := _exec(op, a)
 	_after(op, a, r)
 	if record:
 		var e := {"t": t0, "op": op, "args": [] if op == "apply" else a.duplicate(true), "ok": bool(r.get("ok", false)),
-			"reason": str(r.get("reason", ""))}
+			"reason": str(r.get("reason", "")), "snap": pre}
 		e.merge(extra)
 		cmd_log.append(e)
 	return r
+
+
+## The town stocks a command's answer can turn on, read just before it (the I1 replay's threshold row).
+func _stock_snap() -> Dictionary:
+	var tn := s.view_town()
+	var inv := s.view_inventory()
+	return {"bone": float(tn["bone"]), "gold": float(tn["gold"]), "relics": int(inv["relics"]),
+		"remnants": (inv["remnants"] as Array).size(), "husks": (inv["husks"] as Array).size(),
+		"queue_len": (tn["queue"] as Array).size(), "bodies": float(tn["bodies"])}
+
+
+## The thresholds `op`'s answer turns on, read from this run's state: [stock, "ge" | "lt", value]. A husk craft needs the
+## bone and the remnants at their price; a queue command needs the queue under queue_max. Other ops: none known.
+func _thresholds(op: String) -> Array:
+	match op:
+		"craft_husk":
+			var cost: Dictionary = s.view_catalog()["husk_craft"]["cost"]
+			return [["bone", "ge", float(cost["bone"])], ["remnants", "ge", float(cost["remnants"])]]
+		"queue":
+			return [["queue_len", "lt", float(s.view_town()["queue_max"])]]
+	return []
+
+
+## The I1 replay's threshold row (the E4 review's item 9; a report row, not a gate), for the first command answered
+## otherwise than the leader's: each of its thresholds with the closed run's stock (logged before the leader's command)
+## and the open run's (just before the replayed one), and whether the threshold lies between them (a straddle: one run
+## on each side). The other stocks that differ are listed too. {} when nothing diverged.
+static func threshold_row(e: Dictionary, open_snap: Dictionary, thr: Array) -> Dictionary:
+	var closed: Dictionary = e.get("snap", {})
+	var rows: Array = []
+	var straddle := false
+	for th in thr:
+		var k := str(th[0])
+		var c := float(closed.get(k, 0.0))
+		var o := float(open_snap.get(k, 0.0))
+		var v := float(th[2])
+		var pc := c >= v if str(th[1]) == "ge" else c < v
+		var po := o >= v if str(th[1]) == "ge" else o < v
+		rows.append({"stock": k, "need": "%s %s" % ["≥" if str(th[1]) == "ge" else "<", str(_r(v))], "closed": _r(c), "open": _r(o),
+			"straddle": pc != po})
+		straddle = straddle or pc != po
+	var other := {}
+	for k in closed:
+		if not open_snap.has(k) or absf(float(closed[k]) - float(open_snap[k])) <= 1e-6:
+			continue
+		other[k] = [_r(float(closed[k])), _r(float(open_snap[k]))]
+	return {"t": float(e["t"]), "op": str(e["op"]), "args": str(e.get("args", [])), "closed": "%s %s" % [str(e["ok"]), str(e["reason"])],
+		"thresholds": rows, "straddle": straddle, "differ": other}
 
 
 # ----------------------------------------------------------------------------------- the town's turn ---
@@ -496,8 +552,26 @@ func _keepers() -> Dictionary:
 		var kb := _kept_of(best["uids"])
 		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and (ka > kb
 				or (ka == kb and float(alt["cov"]) > float(best["cov"]) + 1e-9))):
+			var by := "met" if int(alt["met"]) > int(best["met"]) else ("kept" if ka > kb else "cov")
+			keep_churn["alt_by"][by] = int(keep_churn["alt_by"][by]) + 1
 			best = alt
 	return {} if (best["uids"] as Array).is_empty() else {"uids": best["uids"], "front_of": best["front_of"]}
+
+
+## keep_churn's tally for one look: `was` the last look's keepers, `held` the bigs held now (uids).
+func _count_churn(was: Array, held: Array) -> void:
+	keep_churn["looks"] = int(keep_churn["looks"]) + 1
+	var same := was.size() == _keep.size() and was.all(func(u): return _keep.has(u))
+	if not same:
+		keep_churn["changes"] = int(keep_churn["changes"]) + 1
+	for u in was:
+		if not _keep.has(u) and held.has(u):
+			keep_churn["drops_held"] = int(keep_churn["drops_held"]) + 1
+			_dropped[u] = true
+	for u in _keep:
+		if _dropped.has(u):
+			keep_churn["flip_backs"] = int(keep_churn["flip_backs"]) + 1
+			_dropped.erase(u)
 
 
 ## How many of `uids` are keepers now (_keep, the last look's).
@@ -545,7 +619,9 @@ func _place() -> void:
 	for b in s.view_big_undead()["big_undead"]:
 		uids.append(str(b["uid"]))
 	var keep := _keepers()
+	var was: Array = _keep
 	_keep = (keep.get("uids", []) as Array).duplicate()
+	_count_churn(was, uids)
 	var rest: Array = []
 	for u in uids:
 		if not _keep.has(u):
@@ -658,30 +734,31 @@ func _craft_husk() -> void:
 		crafted.append([_r(s.t / 3600.0), kind])
 
 
-## The husk the bot would craft now, "" for none. It crafts when giants or carvers is short (_short_fronts), the crypt has
-## room for one more (the bigs and the husks waiting under the cap; `ignore_room` skips this, for _fill's crypt trigger),
-## a remnant would be left for the raise, the bone covers economy.json craft.husk's price, and the queue's head doesn't
-## wait on bone. The kind (loot.json chest_by_tier 1's husk_kinds) is the one whose slab fill (_slab_fill, on the
-## remnants the craft leaves: GameState.husk_craft_pick) brings the larger share of a short front's want, in list order
-## on a tie; none is made unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a
-## body too weak to keep isn't worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons
-## and its giants front sat at 9/14 from day 3).
+## The husk the bot would craft now, "" for none. It reads the player's source, view_catalog().husk_craft (the E4 review:
+## its kinds, its price and the reason the craft would answer), never the raw configs. It crafts when the craft would
+## go (reason ""; `ignore_room` also takes at_cap, the crypt full, for _fill's crypt trigger), giants or carvers is
+## short (_short_fronts), a remnant would be left for the raise, and the bone left after the price still covers the
+## queue head's bone (the E4 review: a craft mustn't make the head wait on bone, nor delay one that already does). The kind
+## (husk_craft.kinds) is the one whose slab fill (_slab_fill, on the remnants the craft leaves:
+## GameState.husk_craft_pick) brings the larger share of a short front's want, in list order on a tie; none is made
+## unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a body too weak to keep isn't
+## worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons and its giants front sat at
+## 9/14 from day 3).
 func _husk_kind(ignore_room: bool) -> String:
-	var hc: Dictionary = c["economy"]["craft"]["husk"]
-	var n := int(hc["remnants"])
-	var tn := s.view_town()
-	if float(tn["bone"]) < float(hc["bone"]):
+	var hc: Dictionary = s.view_catalog()["husk_craft"]
+	var why := str(hc["reason"])
+	if why != "" and not (ignore_room and why == "at_cap"):
 		return ""
+	var n := int(hc["cost"]["remnants"])
 	var inv := s.view_inventory()
 	var rems: Array = inv["remnants"]
 	if rems.size() <= n:
 		return ""
 	var bu := s.view_big_undead()
-	if not ignore_room and int(bu["count"]) + (inv["husks"] as Array).size() >= int(bu["cap"]):
-		return ""
+	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var h := _head(q)
-	if h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone":
+	if h >= 0 and float(tn["bone"]) - float(hc["cost"]["bone"]) < float(q[h]["cost"]["bone"]):
 		return ""
 	var short := _short_fronts(bu)
 	if short.is_empty():
@@ -693,7 +770,7 @@ func _husk_kind(ignore_room: bool) -> String:
 	var slab: Dictionary = c["town"]["slab"]
 	var best := ""
 	var best_sc := 0.0
-	for kind in c["loot"]["chest_by_tier"]["1"]["husk_kinds"]:
+	for kind in hc["kinds"]:
 		var st: Dictionary = SlabLogic.evaluate(str(kind), _slab_fill(str(kind), rest, slab), slab)["stats"]
 		for fid in short:
 			var fc: Dictionary = c["vei"]["fronts"][fid]
@@ -750,6 +827,8 @@ func _fill() -> void:
 		var bu := s.view_big_undead()
 		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"])
 			and (not (s.view_inventory()["husks"] as Array).is_empty() or _husk_kind(true) != ""))
+		if _crypt_up:
+			crypt_up_t = s.t
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -1250,6 +1329,8 @@ func _replay_one(e: Dictionary) -> void:
 	var op := str(e["op"])
 	var a: Array = e["args"]
 	var r := {}
+	var pre := _stock_snap() if thr_row.is_empty() else {}
+	var thr := _thresholds(op) if thr_row.is_empty() else []
 	if op == "begin":
 		var fid := str(a[0])
 		var f := s.view_fort(fid)
@@ -1285,6 +1366,9 @@ func _replay_one(e: Dictionary) -> void:
 		_after(op, a, r)
 	if bool(r.get("ok", false)) != bool(e["ok"]) or str(r.get("reason", "")) != str(e["reason"]):
 		_div(e, "answered %s %s" % [str(r.get("ok", false)), str(r.get("reason", ""))])
+		if thr_row.is_empty():
+			thr_row = threshold_row(e, pre, thr)
+			thr_row["open"] = "%s %s" % [str(r.get("ok", false)), str(r.get("reason", ""))]
 
 
 func _div(e: Dictionary, why: String) -> void:
@@ -1745,7 +1829,7 @@ func policy() -> Dictionary:
 		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
-		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (economy.json craft.husk: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
+		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (view_catalog().husk_craft: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the bone left covers the queue head's bone, of the kind whose fill brings the larger share of a short front's want",
 		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}
@@ -1817,7 +1901,8 @@ func summary() -> Dictionary:
 		"never": vei_ready_t < 0.0, "ready_wave_t": vei_ready_wave_t,
 		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
 		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
-		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
+		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted,
+		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})
@@ -2161,11 +2246,24 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		"none differs" if first_target.is_empty() else "the first to differ is wave %d on day %d: %s closed at t %s, %s open at t %s" % [
 			int(first_target["wave_id"]), int(first_target["day"]), str(first_target["closed"][0]), str(first_target["closed"][1]),
 			str(first_target["open"][0]), str(first_target["open"][1])]])
+	# the threshold row (the E4 review's item 9, a report row, not a gate): the first command answered otherwise, the
+	# stock its answer turns on and the threshold, closed against open, so a run says whether it is a straddle
+	var tr: Dictionary = fol.thr_row
+	if tr.is_empty():
+		print("  [autoplay] I1 threshold (a report row, not a gate): every replayed command answered as the closed run's")
+	else:
+		var parts: Array = []
+		for th in tr["thresholds"]:
+			parts.append("%s %s: closed %s, open %s%s" % [th["stock"], th["need"], str(th["closed"]), str(th["open"]), " (straddle)" if bool(th["straddle"]) else ""])
+		print("  [autoplay] I1 threshold (a report row, not a gate): the first command answered otherwise is %s %s at t %s (closed %s, open %s); %s; %s; other stocks apart (closed, open): %s" % [
+			tr["op"], tr["args"], str(_r(float(tr["t"]))), tr["closed"], tr["open"],
+			"; ".join(PackedStringArray(parts)) if not parts.is_empty() else "no threshold known for this op",
+			"a threshold straddle" if bool(tr["straddle"]) else "not a straddle of a known threshold", JSON.stringify(tr["differ"])])
 	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
 	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
 	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
 	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10),
-		"wave_targets": {"compared": both, "first_differs": first_target}}})
+		"wave_targets": {"compared": both, "first_differs": first_target}, "threshold": tr}})
 	lead.cleanup()
 	fol.cleanup()
 

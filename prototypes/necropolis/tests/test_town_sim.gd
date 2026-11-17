@@ -18,6 +18,11 @@ func _cfgs(over := {}) -> Dictionary:
 	return c
 
 
+## E4 step 4: the resume rule's income test off (upkeep.resume_net_min far below any net), for the cases that test the
+## stocks' path alone in a town where nobody sells; _upkeep tests the income test itself.
+const NO_INCOME_TEST := {"economy.upkeep.resume_net_min": -1e9}
+
+
 func _sim(over := {}) -> TownSim:
 	var s := TownSim.new()
 	s.setup(_cfgs(over))
@@ -575,8 +580,8 @@ func _living_morale() -> void:
 # ------------------------------------------------------------------ upkeep ----
 func _upkeep() -> void:
 	var hold := float(_eco("upkeep")["unpaid_hold_s"])
-	# the cheapest building goes unpaid first
-	var s := _sim()
+	# the cheapest building goes unpaid first (the income test off: nobody sells here, and this is the stocks' path)
+	var s := _sim(NO_INCOME_TEST)
 	s.place_building("lot-05", "house", 1)
 	s.ladder = []  # nobody sells: no income
 	s.gold = 0.095  # owed this 1 s step: 0.03 · 3 + 0.01 = 0.10
@@ -598,6 +603,35 @@ func _upkeep() -> void:
 			resumed_at = i + 1.0
 	t.ok(resumed_at >= hold and resumed_at <= hold + 1.0, "it resumes after upkeep.unpaid_hold_s (at %f s)" % resumed_at)
 	t.ok(s.buildings["lot-05"]["state"] == "active", "and is active again")
+	# E4 step 4, the resume rule's income test (shipped resume_net_min 0): with the gold to cover it many times over but
+	# nobody selling, the house stays unpaid, held by the income; once the stalls' income beats the paying upkeep plus
+	# its own, it resumes
+	var it := _sim()
+	it.place_building("lot-05", "house", 1)
+	it.ladder = []
+	it.gold = 0.095
+	it.step(1.0, _inp())
+	it.gold = 1000.0
+	for i in int(hold) + 5:
+		it.step(1.0, _inp())
+	t.ok(it.buildings["lot-05"]["state"] == "unpaid" and it.held_by_income("lot-05") and it.gold > 900.0,
+		"no income: the house stays unpaid past its hold with %.0f gold, held by the income test" % it.gold)
+	it.ladder = ["stall"]
+	it.workers = 4.0
+	it.living = 100.0
+	it.restaff()
+	var due := 0.0
+	for e in it._lists()["work"]:
+		due += float(e[1])
+	t.ok(it.gold_income() - due - it.upkeep_gold_of("house") > 0.0, "(setup) the stalls' %.3f g/s beat the paying %.3f plus the house's %.2f" % [
+		it.gold_income(), due, it.upkeep_gold_of("house")])
+	var back_at := -1.0
+	for i in 6:
+		var oi := it.step(1.0, _inp())
+		if back_at < 0.0 and oi["events"].any(func(e): return e["type"] == "building_unpaid" and e["unpaid"] == false and e["lot_id"] == "lot-05"):
+			back_at = i + 1.0
+	t.ok(back_at > 0.0 and it.buildings["lot-05"]["state"] == "active" and not it.held_by_income("lot-05"),
+		"with the income there it resumes (at %.0f s)" % back_at)
 	# broke with no income: stocks never go negative and the market (the gold earner) keeps going
 	s = _sim()
 	s.ladder = []
@@ -607,8 +641,9 @@ func _upkeep() -> void:
 	t.ok(s.buildings["lot-02"]["state"] == "unpaid" and s.buildings["lot-03"]["state"] == "unpaid", "the pit and charnel house idle")
 	t.ok(s.buildings["lot-04"]["state"] != "unpaid", "the market is never idled for the gold it earns (no softlock)")
 	t.ok(s.buildings["lot-01"]["state"] != "unpaid", "the crypt (no upkeep) is never picked")
-	# no chatter: income a little above the remaining upkeep, toggles stay ≥ hold apart
-	s = _sim()
+	# no chatter: income a little above the remaining upkeep, toggles stay ≥ hold apart (the stocks' path, the income
+	# test off; with it on, the shed building never comes back: below)
+	s = _sim(NO_INCOME_TEST)
 	s.ladder = ["stall"]
 	s.workers = 1.0
 	s.living = 2.5  # sales 0.075 gold/s vs upkeep 0.09
@@ -630,6 +665,18 @@ func _upkeep() -> void:
 			last[e["lot_id"]] = tnow
 	t.ok(n >= 2 and gaps_ok, "a marginal economy idles and resumes with no chatter (%d events, each ≥ unpaid_hold_s apart)" % n)
 	t.ok(not neg, "stocks never went negative")
+	# the same economy under the income test: what it sheds stays off (resuming it would take the net under 0), so one
+	# event in 20 min, and the gold climbs on the surplus instead of pinning
+	var m := _sim()
+	m.ladder = ["stall"]
+	m.workers = 1.0
+	m.living = 2.5
+	m.gold = 0.0
+	var nm := 0
+	for i in 2400:
+		var om := m.step(0.5, _inp({"work_mass": _hold_work(m, 1.0, 0.5)}))
+		nm += om["events"].filter(func(e): return e["type"] == "building_unpaid").size()
+	t.ok(nm == 1 and m.gold > 1.0, "under the income test the marginal economy sheds once and saves: %d event, gold %.2f after 20 min" % [nm, m.gold])
 	# E2b T4.C: inside a step, buildings resume in the order their stocks reach each threshold, on the
 	# stocks' paths net of upkeep (they were checked at the step's end, in lot order, on the gold
 	# before the step's upkeep). The raising pit (lot-02) and a house (lot-05, cheaper, so a lower
@@ -756,7 +803,7 @@ func _unpaid_keeps_caps() -> void:
 				continue
 			seen[key] = true
 			var lv := mini(3, int(bdefs[bid]["max_level"]))
-			var s := _sim()
+			var s := _sim(NO_INCOME_TEST)
 			s.buildings = {}
 			s.place_building("lot-05", bid, lv)
 			s.ladder = []
@@ -1090,8 +1137,8 @@ func _room_cache() -> void:
 	t.ok(done, "the market finishes")
 	_cache_ok(s, r0, "a build finishing")
 	# an upkeep switch: nobody sells (no stall on the ladder), no gold, the cheapest goes unpaid (a
-	# building with slots, so its rooms go); then it resumes
-	var u := _sim()
+	# building with slots, so its rooms go); then it resumes (the resume rule's income test off: no one sells)
+	var u := _sim(NO_INCOME_TEST)
 	u.set_ladder(["pit", "haul"])
 	u.gold = 0.0
 	u.restaff()

@@ -35,8 +35,10 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## still agree with test_big_undead's caught runs and test_stances' reports. The notes below are from before.
 ## Re-pinned at E4 (API v9, the husk craft; the standing re-pin rule): the three states only, since to_dict() carries
 ## api_version. The proof: e299d87 with API_VERSION set back to 8 passes the old pins, events and reports unchanged.
+## Re-pinned at E4's review fixes (API v10, the craft's at_cap): the three states only, as at v9. The proof: the at_cap
+## commit with API_VERSION set back to 9 passes the old pins, events and reports unchanged.
 const TIP := {
-	"day1": {"state": "9c3111ddb10818a99d4f386f9884fefa65adbff695690d27424dc96da823687d",
+	"day1": {"state": "49bfe8beffe79a5eeb98c8f99bcc8d4f83d55b95d34f93d031215dae2f8ee270",
 		"events": "7adf8ca1cc296dda1400a30dc17e06fe586208e878f465b1cb8eed498c982412",
 		"away": "31d28a99e4efc264f50298e678d56b1fbd8b58a2e932376f5743780b813c523b", "steps": 4320, "n_events": 3},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
@@ -47,12 +49,17 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 368 events); Old Sluice's retake is unchanged
 	# (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village Bellwether lost to Vei".
 	# With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
-	"midgame_2flips": {"state": "743de2788077e40e479ae4bf7bf7c2c228499aaf0ff9ddf185da18827739fc75",
+	"midgame_2flips": {"state": "b1469601055f2e47fd6d128250b8edc058229c0f8dd8e7ab3f44433bdf612d86",
 		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
 		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 240},
-	"pre_vei": {"state": "43b6da98609fe2fa088a27729d6bef18a22fdddef1bb34ded0f873b543d0202d",
-		"events": "794d7e0224d331e98c2019bfe0b5d175b34798a7420c5d42e015f585f2182d39",
-		"away": "f1b76d9e37b0b61823342af55ddf419cb305435c162771c7b982288a7940d927", "steps": 4321, "n_events": 16},
+	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
+	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
+	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
+	# +0.01 g/s instead of sitting at 18, and the report gains the "Still stopped, ... Build a Market" line. day1 and
+	# midgame_2flips shed nothing in their 12 h, so they don't move.
+	"pre_vei": {"state": "5bc97b178adac2190e664ae2c2e6a9dbabaacfe28971e2efbc953e9a2f2a3cb4",
+		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
+		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 15},
 }
 
 

@@ -905,6 +905,36 @@ The profiles:
       the same kind of break, a town stock that parts between the open and closed runs (bone here; at 7a8d469 day 4
       also read bone 900 against 550), but that's an inference: the step sweep that showed step-independence was run
       at 7a8d469, not re-run here. Not chased.
+    - **The cause, from one bounded probe (E4, the manager's ruling (b) after the steps 0–3 milestone): the runs part
+      on a bone offset that broke the I1 bound before the bot's answer flipped; not the queue's event clips, and the
+      offset's source is only partly attributed.** The answer flips where the offset spans the craft's price, but the
+      offset is not small: a 15% bone gap at that command (328.92 against 284.09), and day 4's bodies gap reached
+      140.6 at a command, over the gate's one-load bound (126). The gate samples only day ends, so it passed. The
+      probe replayed 6563284's 5-day row with every command's stocks logged just before it in both runs (bone to 0.01,
+      the queue and its head, husks, remnants, bodies) and every build's start and finish time.
+      - At the first differing command, the zombie craft at 346 115 s, the closed run holds 328.92 bone and the open
+        run 284.09, with the price at 300. One run sits on each side of the threshold. Gold is 0.82 apart and every
+        other logged stock is equal, and the 686 commands before it answered alike.
+      - The code review's 60% reading for the queue (catchup.gd's exact clips put the closed run up to 0.5 s ahead at
+        each start) doesn't hold. The closed run's builds mostly start *later*: 20 of 27 on day 1 (mean +14 s, the
+        worst +51.7 s), 9 of 13 on day 4 (mean +39.5 s, the worst +98 s), with some earlier. The offsets begin in the
+        first away period (1 943 s), while the closed run catches up.
+      - Day 4's bone offset tracks the bodies gap, the convoy's phase (the haul phase item above): the largest bodies
+        gap at a command grows 8.8, 67.5, 92.5, 140.6 over days 1–4, and bone parts by up to 2.9, 12.0, 6.4 and 22.1,
+        then 45 at the craft. Day 4's 140.6 is over the gate's one-load bound (126), which only samples day ends: a
+        bound break the gate can't see, not a benign straddle (the E4 step 4 review's I1 note).
+      - **The away-period build lag is unattributed (an open item).** On day 1 the bodies and bone gaps are small (8.8
+        and 2.9) and the closed run holds about 16 g *less* gold, yet its builds start later. The probe samples only at
+        commands, which all fall in sessions, so it can't see inside an away period, where the lag starts. Candidates:
+        the catch-up's build-start timing, or the haul phase. Not chased further (ruling (b): one probe).
+      - Both runs' ledgers balance, and buildings, levels and every other stock agree at days 1–4: no difference outside
+        `catchup_tol` at the sampled commands, so nothing is fixed in the sim. The bot acts at the instant a stock
+        crosses a threshold, so a bone gap any size can flip one answer, and the game parts from there.
+      - **The I1 replay's threshold row** (a report row, not a gate; Autoplayer.threshold_row, tested in test_i1_gate)
+        prints the first command answered otherwise, with the stock its answer turns on, the threshold, closed against
+        open, and whether it is a straddle. Known thresholds: the husk craft's bone and remnants, and the queue's room.
+        A straddle says only that the answer flipped there; how far apart the runs already were is the stocks' gap,
+        which can be past the bound (as here).
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
@@ -1005,6 +1035,12 @@ The policies (the run's manager's, for Shawn):
     a sliver of cover elsewhere, and a front of weak bigs mustn't crowd out a front that could be met. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3);
     before it only the better-covered front was kept, so at most 2 keepers on 1 front and giants was never kept in
     sessions.
+  - **Churn, measured (the E4 code review's item 5; the summary's `vei.keep_churn`, at 2fe96cc):** no flip-backs in
+    any profile, so the three-deep tie-break stays. Sessions: 435 looks, 7 keeper changes, 2 keepers dropped while
+    held, the other order never chosen. Continuous: 4 929 looks, 6 changes, 2 drops, and the coverage tie-break
+    picked the other order on 862 looks, the same order every time. ablation_keep keeps no one. A look on an
+    unchanged state keeps the same keepers and sends no command (test_autoplay_keep). The crypt latch only ever sets
+    (`vei.crypt_up_h`: sessions 4.0 h, continuous 7.05 h), so it can't churn.
   - **The player's reason:** a big that brings a good part of a front Vei will test is worth more at home than on a
     raid, where a death loses the whole party (A8). With two fronts short, a player keeps what each needs, and still
     sends two raiders so the raids reach t3.
@@ -1022,7 +1058,11 @@ The policies (the run's manager's, for Shawn):
   - **The husk craft** (lever (b), the sizing stop's ruling 2; every profile): one t1 husk (`cmd_craft_husk`, the
     weakest `craft.husk.remnants` and `craft.husk.bone`, GUESS) when giants or carvers is short of its want (the full
     pool's, less what the bigs on it bring), the crypt has room for one more (bigs and husks waiting under the cap), a
-    remnant is left for the raise and the queue's head doesn't wait on bone. The kind is the one whose slab fill, on
+    remnant is left for the raise and the bone left after the price covers the queue head's bone (the E4 code review's
+    item 6; it used to check only that the head didn't wait on bone, so a craft could make a ready head wait; at
+    bf2d1e9 sessions crafts 5 husks in 8 days, not 12, and is Vei-ready on day 5.3334, not 6.0001; continuous is
+    unchanged, 10 crafts and day 3.48; ablation_keep crafts 6, not 14, and is still never ready). It reads
+    all of this from `view_catalog().husk_craft` (kinds, price, reason; item 3), not the configs. The kind is the one whose slab fill, on
     the remnants the craft leaves, brings the larger share of a short front's want, and none is made unless that share
     is at least `KEEP_SHARE`, so the body would be a keeper candidate there. (Without that floor, continuous ground its
     thin remnants into wits-2 skeletons and its giants front sat at 9/14 from day 3, so it reached Vei after sessions.)

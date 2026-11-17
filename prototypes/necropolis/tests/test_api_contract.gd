@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 9,
+	"API_VERSION": 10,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -388,6 +388,9 @@ func _exercise(s: GameState) -> void:
 	for i in int(s._req_f("economy.craft.husk.remnants")):
 		s.remnants.append({"uid": s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1 + i})
 	s.town_sim.bone = maxf(s.town_sim.bone, s._req_f("economy.craft.husk.bone"))
+	# and (v10) a place in the crypt: the bigs and the husks waiting under the big_undead cap
+	while s.big_undead.size() + s.husks.size() >= s._cap_of("big_undead") and not s.husks.is_empty():
+		s.husks.pop_back()
 	_cmd(s, "cmd_craft_husk", ["skeleton"], true)
 	_cmd(s, "cmd_craft_husk", ["nope"], false)
 	_cmd(s, "cmd_deploy_simulacrum", ["vespers"], true)

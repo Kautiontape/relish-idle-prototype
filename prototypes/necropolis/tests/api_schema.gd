@@ -147,7 +147,7 @@ const REASONS := {
 	"cmd_place_big_undead": ["catching_up", "unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot",
 		"foreman_taken", "unknown_fort"],
 	"cmd_craft": ["catching_up", "unknown_item", "needs_building", "no_essence", "no_relics"],
-	"cmd_craft_husk": ["catching_up", "unknown_kind", "no_remnants", "no_bone"],
+	"cmd_craft_husk": ["catching_up", "unknown_kind", "no_remnants", "no_bone", "at_cap"],  # at_cap: v10 (E4 review)
 	"cmd_deploy_simulacrum": ["catching_up", "unknown_fort", "none_ready"],
 	"cmd_staff_vat": ["catching_up", "unknown_slot"],
 	"cmd_set_party": ["catching_up", "busy", "unknown_uid", "duplicate_uid"],

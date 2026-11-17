@@ -1150,6 +1150,24 @@ mass; bodies, rot return, WORK and muster are mass.
     constant rate, and pays the working buildings' upkeep as it goes. Buildings resume in the order
     of their moments, ties in lot order. Each raises the upkeep the next must cover, and each pays
     its own from its moment on.
+    - **The income test** (E4 step 4, the run's manager's ruling (i) on the gold-trap stop; gold only, since
+      all upkeep is gold): it resumes on its own only while the gold income exceeds the paying upkeep plus
+      its own by `upkeep.resume_net_min` (0: strictly positive). The stocks condition above still applies.
+      **One margin** (the E4 step 4 review's must-fix): the test reads the income from state (`TownSim.gold_income`,
+      as the gate below and the views do), not the step's `gold_in / dt`, and passes only when the income beats
+      the bill by more than `resume_net_min` + `BuildRules.NET_EPS` (1e-9 g/s, float noise), so a tie, an income
+      equal to the paying upkeep plus its own, stays unpaid at every step size. pre_vei's second House sits on that
+      tie (0.60 g/s). Before, the test read `gold_in / dt` with no epsilon, so a tie resolved on rounding that
+      depended on the step, open against closed (`test_gold_trap`'s tie case).
+      A building that earns gold (stall jobs) or has no gold upkeep is exempt, as in the shed order.
+      Without the test, any surplus was spent re-admitting the next building, so the gold pinned at one
+      hold of upkeep while anything stayed unpaid (BALANCE §6, the absorbing state): sessions sat at 27.00
+      gold from day 5, and no entry costing more, the Market level that would pay its way out among them,
+      could start. With it a town whose income can't pay everything keeps the rest unpaid and saves the
+      surplus (pre_vei: +0.01 g/s, past the Market's next level in about 20 min). A building held by the
+      test reads `upkeep` as an upgrade's queue reason and `waited_on` (not `unpaid`), and the away report
+      lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`). The
+      Thrift stance's resume of the buildings it idled is unchanged; no command resumes an unpaid one.
     - E2b T4.C: they used to be checked at the step's end, in lot order, on the stocks before the
       step's upkeep was paid. From pre_vei's gold floor a 10 s step resumed the raising pit
       (lot-02) at 7 804 s. The gold had crossed the house's (lot-05) lower threshold first, and,
@@ -1162,7 +1180,8 @@ mass; bodies, rot return, WORK and muster are mass.
       Well, the Bakery, the Inn, the Graveyard, the Watchtower and the Walls (7 694.5–7 695 s), then
       the two houses resume (8 579.5 s, 8 609.5 s) and nothing is shed again: no building resumed and
       went unpaid again within `unpaid_hold_s`. The gold then sits at 18 (30 s of the 0.60 gold/s the
-      paying buildings cost, which the stalls' 0.60 exactly pays).
+      paying buildings cost, which the stalls' 0.60 exactly pays). Since E4 step 4's income test the
+      second House stays unpaid (resuming it would leave the net at 0), so the gold climbs at +0.01 g/s.
   - Stocks never go negative and there is no debt.
 - **The gold and bone caps** (IDLE §6, E2b-2 T3.2). `gold_cap = gold.cap + Σ gold_cap` and `bone_cap =
   bone.cap + Σ bone_cap` (`economy.json`; the Market's and the Bone Mill's per-level `effects`, capacity
@@ -1233,6 +1252,20 @@ processing does.
   `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
   (`under_construction`) or an unpaid building (`unpaid`). A gated entry shows `skipped_gate` with that
   reason and is re-checked every step.
+- **The upkeep gate** (E4 step 4, the run's manager's E4 ruling (3), plan.md 2026-11-15 02:22: "a queued build
+  whose upkeep would take net gold negative waits with a reason"): a new building is gated `upkeep` when the
+  stalls' gold income now (`TownSim.gold_income`: min(staffed stalls · `stall.rate`, living · `shop_rate`) ·
+  price · a Market foreman's multiplier, read from state, so it is the same before a load's first step) is
+  under the gold upkeep of every building on the walk's lots (working, unpaid, Thrift-idled, under
+  construction, and the entries this walk starts ahead of it) plus its own. It is judged by the resume rule's
+  one margin (§4.3's income test, `TownSim.income_pays`): the income must beat that bill by more than
+  `upkeep.resume_net_min` + `NET_EPS`, so a net of exactly 0 waits too, and a building the gate lets in can always
+  resume once shed (the E4 step 4 review: the gate used to admit a net of 0 that the resume rule refused). A
+  building with stall jobs is
+  exempt (the shed order's rule: holding it could never pay the bill back), as is one with no gold upkeep.
+  Upkeep is flat per building, so an upgrade adds none and is never held. It is a gate, not a funds wait: the
+  entries behind it start, so a Market level queued after it can pay for it. It closes the gold trap's way in
+  (BALANCE §6), not the trap itself.
 - **The level an entry builds:** 1 for a new build. An upgrade builds one level above what its lot will
   have once every entry ahead of it for that lot, and the construction under way there, are done: two
   queued upgrades of a level-1 lot build 2, then 3. The level is recomputed from the order on every walk,

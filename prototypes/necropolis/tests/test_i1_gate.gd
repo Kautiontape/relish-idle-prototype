@@ -80,7 +80,30 @@ func run() -> int:
 	t.ok(not bool(gold_off["ok"]) and _why0(gold_off).begins_with("gold") and str(gold_off["worst"][0]) == "gold",
 		"gold 3%% off fails on catchup_tol, and the bodies stay out of worst: %s, worst %s" % [str(gold_off["why"]), str(gold_off["worst"])])
 	_pool(c)
+	_threshold_row()
 	return t.failures
+
+
+## The I1 replay's threshold row (the E4 review's item 9): on the measured first difference at 6563284 (a zombie craft at
+## 346 115 s, bone 328.92 closed against 284.09 open, the price 300) the threshold lies between the runs, a straddle;
+## both over it isn't; a queue command reads its room (queue_len < queue_max) the same way; an op with no known
+## threshold lists only the stocks that differ.
+func _threshold_row() -> void:
+	var e := {"t": 346115.0, "op": "craft_husk", "args": ["zombie"], "ok": true, "reason": "",
+		"snap": {"bone": 328.92, "remnants": 20, "gold": 460.95, "husks": 0}}
+	var thr := [["bone", "ge", 300.0], ["remnants", "ge", 6.0]]
+	var st := Autoplayer.threshold_row(e, {"bone": 284.09, "remnants": 20, "gold": 460.13, "husks": 0}, thr)
+	t.ok(bool(st["straddle"]) and bool(st["thresholds"][0]["straddle"]) and not bool(st["thresholds"][1]["straddle"])
+		and st["differ"].has("bone") and st["differ"].has("gold") and not st["differ"].has("remnants"),
+		"bone 328.92 closed against 284.09 open, the price 300 between: a straddle on bone, not on the remnants: %s" % JSON.stringify(st))
+	var both := Autoplayer.threshold_row(e, {"bone": 310.0, "remnants": 20, "gold": 460.95, "husks": 0}, thr)
+	t.ok(not bool(both["straddle"]) and both["differ"].keys() == ["bone"], "both runs over the price: not a straddle: %s" % JSON.stringify(both))
+	var qe := {"t": 274631.5, "op": "queue", "args": ["", "lot-07"], "ok": true, "reason": "", "snap": {"queue_len": 7}}
+	var qs := Autoplayer.threshold_row(qe, {"queue_len": 8}, [["queue_len", "lt", 8.0]])
+	t.ok(bool(qs["straddle"]), "the queue: 7 closed (room) against 8 open (full) of queue_max 8: a straddle: %s" % JSON.stringify(qs))
+	var no := Autoplayer.threshold_row({"t": 1.0, "op": "party", "args": [], "ok": true, "reason": "", "snap": {"bone": 1.0}}, {"bone": 2.0}, [])
+	t.ok(not bool(no["straddle"]) and (no["thresholds"] as Array).is_empty() and no["differ"].keys() == ["bone"],
+		"an op with no known threshold: no straddle, the stocks that differ listed: %s" % JSON.stringify(no))
 
 
 ## Vei's pool (E4 step 3, the manager's ruling (ii)), on day 2's measured samples at K 36M: the closed run full, 18.7 s

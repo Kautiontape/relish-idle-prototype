@@ -470,6 +470,7 @@ func _unpaid_keeps_stores() -> void:
 	var hold := float(_cfgs()["economy"]["upkeep"]["unpaid_hold_s"])
 	for c in [["reliquary", "lot-24", 1], ["chapel_of_vats", "lot-13", 2], ["guildhall", "lot-14", 1]]:
 		var s := _mk()
+		s.town_sim._resume_net_min = -1e9  # E4 step 4: the resume rule's income test off (nobody sells here; the stores are the test)
 		s.town_sim.place_building(c[1], c[0], c[2])
 		s.relics = s._cap_of("relics")
 		s.essence = s._cap_of("essence")

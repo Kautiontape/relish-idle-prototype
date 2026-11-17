@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 9)
+# Necropolis: GameState API (api_version 10)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -364,6 +364,19 @@ from `BALANCE.md` §0.
     `no_remnants`, `no_bone`; extra `husk`. Its costs are GUESS;
   - **§5.10 `view_catalog().husk_craft`**: `{kinds, cost: {bone, remnants}, can_craft, reason}`.
   The save shape is unchanged (a crafted husk is a husk). The town's UI for it is a Phase I item.
+
+  `api_version` 10 (E4's steps 4–5 milestone; one entry, later steps add to it) added:
+  - **§4.3 `cmd_craft_husk`'s reason `at_cap`** (the E4 code review): the crypt has no room for another husk (its big
+    undead plus the husks waiting reach the `big_undead` cap), checked last; `view_catalog().husk_craft.reason`
+    reads it too. The save shape is unchanged.
+  - **§4.4 `cmd_queue_build`'s gate `upkeep`** (E4 step 4, the E4 ruling (3)): a new building whose gold upkeep would
+    take net gold negative is `skipped_gate` with reason `upkeep`, and `waited_on` / `queue_started.waited_on` can
+    read `upkeep` (`idle.report.waited_on.upkeep`). §5.19 `view_away`'s `ready` gains a line for the first such entry
+    (`idle.report.afford_upkeep_fmt`, kind `queue`, target `queue`). No key changes.
+  - **The resume rule's income test** (MECHANICS §4.3, `economy.json` `upkeep.resume_net_min`; the manager's ruling
+    (i) on the gold-trap stop): an unpaid building held off by the income reads `upkeep` (not `unpaid`) as a queued
+    upgrade's reason and `waited_on`, and `view_away`'s `ready` lists such buildings on one line
+    (`idle.report.unpaid_upkeep_fmt`: the income and "Build a Market", kind `queue`, target `queue`). No key changes.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -418,7 +431,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 8
+const API_VERSION := 10
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -956,6 +969,15 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
   `skipped_gate` with that reason and starts when the gate clears. Affordability (gold, bone) never
   refuses: it holds the queue.
+- **The upkeep gate** (v10, E4 step 4, the run's manager's E4 ruling (3)): a new building whose gold upkeep
+  would take net gold negative is `skipped_gate` with reason `upkeep`. Net gold is the stalls' income now
+  (today's staffing and living, from state) less the gold upkeep of every building on its lots (working,
+  unpaid, Thrift-idled or under construction, and the entries the same walk starts ahead of it) and its own.
+  It waits unless the income beats that bill by more than `upkeep.resume_net_min` + 1e-9 g/s, the resume rule's
+  margin (MECHANICS §4.3), so a net of exactly 0 waits (text and rule only; no key change).
+  A building with stall jobs (the Market) is exempt, as is one with no gold upkeep; an upgrade adds no upkeep
+  (it is flat per building), so it is never held. The entries behind it still start, so a Market level
+  queued after it can pay for it. `view_away` names the first such entry (§5.19).
 - **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
   the queue (§3, step 3; MECHANICS §4.4).
 ```gdscript
@@ -1086,7 +1108,9 @@ Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
 - **Extras:** `husk: Dictionary`, the husk made, as `view_inventory().husks` lists it: `{uid: String, kind: String,
   rarity: String}` (`{}` on a refusal).
 - **Reasons**, checked in this order: `unknown_kind`; `no_remnants` (fewer than `economy.json` `craft.husk.remnants`);
-  `no_bone` (the bone store under `craft.husk.bone`).
+  `no_bone` (the bone store under `craft.husk.bone`); `at_cap` (v10: the crypt has no room for it, its big undead
+  plus the husks waiting at the `big_undead` cap, the cap `cmd_raise_big_undead`'s own `at_cap` reads; a husk that
+  can't be raised would sit waiting).
 - **Effect:** instant. It takes the `craft.husk.remnants` weakest remnants (the smallest `magnitude` first, then the
   oldest uid) and `craft.husk.bone` bone (shipped 6 and 300, GUESS: slow and costly, the bone competing with the build
   queue; a new game's 200 bone cap is under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
@@ -1815,7 +1839,7 @@ has finished, and a lot under construction is not free. From T2.4 (E2a) the gate
 | `buildings` | Array[Dictionary] | one per building id (below) |
 | `crafts` | Array[Dictionary] | per `CRAFT_IDS`: `{item_id: String, cost: {essence: int, relics: int}, can_craft: bool, reason: String}`: `reason` is what `cmd_craft` would answer now, `""` when it would craft (from E3-4 the same rule, `needs_building` read from `craft_slots`, §4.3), and `cost` is `economy.json` `craft.<item_id>` |
 | `blueprints` | Array[Dictionary] | `{id: String, owned: bool}` |
-| `husk_craft` | Dictionary | v9 (E4, lever (b)): `{kinds: Array[String], cost: {bone: float, remnants: int}, can_craft: bool, reason: String}`: the kinds `cmd_craft_husk` makes (`loot.json` `chest_by_tier["1"].husk_kinds`), its price (`economy.json` `craft.husk`, GUESS), and the reason it would answer now for any of those kinds (`no_remnants`, `no_bone`, or `""`, §4.3). The town shows it in Phase I |
+| `husk_craft` | Dictionary | v9 (E4, lever (b)): `{kinds: Array[String], cost: {bone: float, remnants: int}, can_craft: bool, reason: String}`: the kinds `cmd_craft_husk` makes (`loot.json` `chest_by_tier["1"].husk_kinds`), its price (`economy.json` `craft.husk`, GUESS), and the reason it would answer now for any of those kinds (`no_remnants`, `no_bone`, `at_cap` from v10, or `""`, §4.3). The town shows it in Phase I |
 
 Each `buildings` entry:
 

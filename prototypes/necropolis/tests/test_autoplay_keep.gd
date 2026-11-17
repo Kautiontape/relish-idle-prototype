@@ -107,6 +107,14 @@ func _two_fronts(c: Dictionary) -> void:
 	_big(bs.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.41))
 	bs._place()
 	t.ok(bs._keep == gk + [c1], "two more carvers bigs, one front met either way: today's keepers stay (%s)" % str(bs._keep))
+	# churn (the E4 review's item 5): a look on an unchanged state keeps the same keepers and sends no party command
+	bs.record = true
+	var ch0: Dictionary = bs.keep_churn.duplicate(true)
+	bs._place()
+	t.ok(bs._keep == gk + [c1] and bs.cmd_log.is_empty() and int(bs.keep_churn["changes"]) == int(ch0["changes"]),
+		"a repeat look on an unchanged state: the same keepers, no command (%s, %d commands)" % [str(bs._keep), bs.cmd_log.size()])
+	t.ok(int(bs.keep_churn["looks"]) == 3 and int(bs.keep_churn["changes"]) == 1 and int(bs.keep_churn["drops_held"]) == 0
+		and int(bs.keep_churn["flip_backs"]) == 0, "keep_churn over the three looks: one change (the first), no keeper dropped: %s" % str(bs.keep_churn))
 	bs.cleanup()
 
 
@@ -192,6 +200,22 @@ func _husk_policy(c: Dictionary) -> void:
 	t.ok(w.crafted.is_empty(), "the queue's head waits on bone: no craft")
 	w.cleanup()
 
+	# the E4 review: the craft mustn't take bone the queue's head needs, though the head doesn't wait on bone yet
+	var hb: Autoplayer = mk.call("headbone")
+	t.ok(bool(hb.s.cmd_queue_build("", "lot-04")["ok"]), "(setup) Market level 2 queued")
+	var head_bone := float((hb.s.view_town()["queue"] as Array)[0]["cost"]["bone"])
+	var price := float(cl["economy"]["craft"]["husk"]["bone"])
+	hb.s.town_sim.bone = price + head_bone - 1.0
+	t.ok(head_bone > 0.0 and str((hb.s.view_town()["queue"] as Array)[0]["reason"]) != "no_bone",
+		"(setup) the head needs %.0f bone and doesn't wait on bone at %.0f" % [head_bone, hb.s.town_sim.bone])
+	hb._craft_husk()
+	t.ok(hb.crafted.is_empty(), "bone %.0f: the price %.0f would leave the head's %.0f short: no craft" % [price + head_bone - 1.0, price, head_bone])
+	hb.s.town_sim.bone = price + head_bone
+	hb._craft_husk()
+	t.ok(hb.crafted.size() == 1 and is_equal_approx(hb.s.town_sim.bone, head_bone),
+		"bone %.0f: the price leaves exactly the head's bone: it crafts (%s)" % [price + head_bone, str(hb.crafted)])
+	hb.cleanup()
+
 	var f: Autoplayer = mk.call("full")
 	for _i in int(f.s.view_big_undead()["cap"]):
 		_big(f.s, 0.0, 0.0)
@@ -209,6 +233,21 @@ func _husk_policy(c: Dictionary) -> void:
 	m._craft_husk()
 	t.ok(m._keep.size() == 2 and m.crafted.is_empty(), "both fronts met by their keepers: no craft (%s)" % str(m._keep))
 	m.cleanup()
+
+	# The bot reads the player's source, view_catalog().husk_craft, not its raw configs (the E4 review): its own copy says
+	# the craft costs 1e9 bone and 99 remnants and makes zombies only, the state's (the view's) says 100 bone, n remnants,
+	# skeleton or zombie, so a craft of a skeleton is the view's answer
+	var vw: Autoplayer = mk.call("view")
+	vw.c = cl.duplicate(true)
+	vw.c["economy"]["craft"]["husk"]["bone"] = 1e9
+	vw.c["economy"]["craft"]["husk"]["remnants"] = 99
+	vw.c["loot"]["chest_by_tier"]["1"]["husk_kinds"] = ["zombie"]
+	var hcv: Dictionary = vw.s.view_catalog()["husk_craft"]
+	t.ok(bool(hcv["can_craft"]) and float(hcv["cost"]["bone"]) == 100.0 and hcv["kinds"].has("skeleton"), "(setup) the view: %s" % str(hcv))
+	vw._craft_husk()
+	t.ok(vw.crafted.size() == 1 and str(vw.crafted[0][1]) == "skeleton",
+		"the bot follows the view's price and kinds, not its raw configs: %s" % str(vw.crafted))
+	vw.cleanup()
 
 
 static func _queued(gs: GameState, lot: String) -> bool:

@@ -41,9 +41,12 @@ const TIP := {
 	"midgame_2flips": {"state": "eddec8267b5eaf04dc486e16370207748e560ca971e6333c08f07ca085f7b9ed",
 		"events": "d65e73ac632b43279456c3e4548c2d3995c93bfad1a7957ed6f4c4c97e95742f",
 		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 237},
-	"pre_vei": {"state": "696f5cf011d7a11b887a9ed080a1e2ea8b490f1fcf88476bea10d99f8c85a5bf",
-		"events": "e998730792cd96410f3549a122acae36123317752337abacf68862b238098db0",
-		"away": "f1b76d9e37b0b61823342af55ddf419cb305435c162771c7b982288a7940d927", "steps": 4321, "n_events": 11},
+	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
+	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
+	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").
+	"pre_vei": {"state": "febd8f3c141aa3793aefe0914417b9817237b176737dae0f6112d6cb97d939a0",
+		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
+		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 10},
 }
 
 
