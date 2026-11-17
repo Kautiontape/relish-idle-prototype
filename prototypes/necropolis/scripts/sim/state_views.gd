@@ -991,6 +991,16 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	if not gs.husks.is_empty() and gs.big_undead.size() < gs._cap_of("big_undead"):
 		var fmt := str(rep["husk_one_fmt"] if gs.husks.size() == 1 else rep["husks_fmt"])
 		ready.append(_away_line(fmt.format({"n": _fmt_count(rep, gs.husks.size())}), "slab", "slab"))
+	# E4 step 4 (the resume rule's income test): the buildings still unpaid because the gold income can't pay them,
+	# in lot order, on one line, so the player sees why they're off and that a Market fixes it
+	var held: Array = []
+	for lot_id in gs.town_sim.buildings:
+		if gs.town_sim.held_by_income(str(lot_id)):
+			var hb: Dictionary = gs.town_sim.buildings[lot_id]
+			held.append(_building_name(gs, rep, str(hb["building_id"]), int(hb["level"])))
+	if not held.is_empty():
+		ready.append(_away_line(str(rep["unpaid_upkeep_fmt"]).format({"names": str(rep["list_sep"]).join(PackedStringArray(held)),
+			"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	if gs.build_queue.is_empty():
 		if stores_full(gs, float(rep["full_tol"])):
 			ready.append(_away_line(str(rep["full_raid"]), "raid", ""))

@@ -611,6 +611,8 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 			why = str(pending[lot_id])
 		elif b["state"] == "constructing":
 			why = "under_construction"
+		elif b["state"] == "unpaid" and gs.town_sim.held_by_income(lot_id):
+			why = "upkeep"  # E4 step 4: held off by the resume rule's income test, so the income is what it waits on
 		elif b["state"] == "unpaid" or b["state"] == "thrift":
 			why = "unpaid"
 		else:

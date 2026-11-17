@@ -373,6 +373,10 @@ from `BALANCE.md` §0.
     take net gold negative is `skipped_gate` with reason `upkeep`, and `waited_on` / `queue_started.waited_on` can
     read `upkeep` (`idle.report.waited_on.upkeep`). §5.19 `view_away`'s `ready` gains a line for the first such entry
     (`idle.report.afford_upkeep_fmt`, kind `queue`, target `queue`). No key changes.
+  - **The resume rule's income test** (MECHANICS §4.3, `economy.json` `upkeep.resume_net_min`; the manager's ruling
+    (i) on the gold-trap stop): an unpaid building held off by the income reads `upkeep` (not `unpaid`) as a queued
+    upgrade's reason and `waited_on`, and `view_away`'s `ready` lists such buildings on one line
+    (`idle.report.unpaid_upkeep_fmt`: the income and "Build a Market", kind `queue`, target `queue`). No key changes.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become

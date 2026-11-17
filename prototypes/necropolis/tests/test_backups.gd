@@ -52,9 +52,14 @@ const TIP := {
 	"midgame_2flips": {"state": "b1469601055f2e47fd6d128250b8edc058229c0f8dd8e7ab3f44433bdf612d86",
 		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
 		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 240},
-	"pre_vei": {"state": "7b8389e12e0bd85d9294d895ea9187f7e68695da294c6f73b7474bdff6b36601",
-		"events": "794d7e0224d331e98c2019bfe0b5d175b34798a7420c5d42e015f585f2182d39",
-		"away": "f1b76d9e37b0b61823342af55ddf419cb305435c162771c7b982288a7940d927", "steps": 4321, "n_events": 16},
+	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
+	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
+	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
+	# +0.01 g/s instead of sitting at 18, and the report gains the "Still stopped, ... Build a Market" line. day1 and
+	# midgame_2flips shed nothing in their 12 h, so they don't move.
+	"pre_vei": {"state": "5bc97b178adac2190e664ae2c2e6a9dbabaacfe28971e2efbc953e9a2f2a3cb4",
+		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
+		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 15},
 }
 
 

@@ -64,7 +64,8 @@ const REQUIRED := [
 	"economy.job.mill.mass_per_s", "economy.job.mill.rate", "economy.job.forge.rate",
 	"economy.job.build.rate", "economy.job.build.slots",
 	"economy.stall.rate", "economy.market.shop_rate", "economy.market.price", "economy.pit.burn_per_s",
-	"economy.upkeep.unpaid_hold_s", "economy.upkeep.shed_order", "economy.forge.level_work", "economy.forge.level_relics",
+	"economy.upkeep.unpaid_hold_s", "economy.upkeep.shed_order", "economy.upkeep.resume_net_min",
+	"economy.forge.level_work", "economy.forge.level_relics",
 	"economy.town.migrant_rate", "economy.town.leave_rate",
 	"realm.relish.home_rot_mult", "realm.flip.haul_mult", "town.lots", "buildings",
 	# E3-1: Thrift's reach (MECHANICS §4.5; thrift_pick)
@@ -104,6 +105,7 @@ var _shop_rate := 0.0
 var _price := 0.0
 var _burn := 0.0
 var _hold_s := 0.0
+var _resume_net_min := 0.0  # economy.json upkeep.resume_net_min (E4 step 4, the resume rule's income margin, g/s)
 var _forge_work: Array[float] = []
 var _forge_relics: Array[int] = []
 var _migrant_rate := 0.0
@@ -241,6 +243,7 @@ func setup(cfgs: Dictionary) -> void:
 	_price = _num(cfgs, "economy.market.price")
 	_burn = _num(cfgs, "economy.pit.burn_per_s")
 	_hold_s = _num(cfgs, "economy.upkeep.unpaid_hold_s")
+	_resume_net_min = _num(cfgs, "economy.upkeep.resume_net_min")
 	_forge_work = []
 	_forge_relics = []
 	for w in _arr(_at(cfgs, "economy.forge.level_work")):
@@ -526,6 +529,7 @@ func clone() -> TownSim:
 	c._price = _price
 	c._burn = _burn
 	c._hold_s = _hold_s
+	c._resume_net_min = _resume_net_min
 	c._forge_work = _forge_work
 	c._forge_relics = _forge_relics
 	c._migrant_rate = _migrant_rate
@@ -1002,7 +1006,9 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> S
 ## Upkeep (§4.3), on the stocks' paths over the step: each starts at what it held before this
 ## step's income (`gold_in`, `bone_in`), which comes in at a constant rate, and pays the working
 ## buildings' upkeep as it goes. An unpaid building whose hold is over resumes at the first moment
-## its stocks cover the paying upkeep plus its own for max(unpaid_hold_s, dt). The moments are
+## its stocks cover the paying upkeep plus its own for max(unpaid_hold_s, dt), and only while the gold
+## income exceeds the paying upkeep plus its own by upkeep.resume_net_min (_income_pays; E4 step 4: else
+## any surplus is spent re-admitting the next building and the gold pins at one hold's worth). The moments are
 ## solved on those paths; buildings resume in their order (ties in lot order), each raising the
 ## upkeep the next must cover, and a resumed building pays from its moment on. Then, while a stock
 ## can't cover the step's upkeep, one paying building goes unpaid at a time: the first class in
@@ -1045,6 +1051,8 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 		var when := INF
 		for k in cands.size():
 			var d: Dictionary = _defs[buildings[cands[k][0]]["building_id"]]
+			if not _income_pays(in_g, due_g, float(d["upkeep_gold"]), int(d["jobs"].get("stall", 0)) > 0):
+				continue  # E4 step 4: the income can't pay it on top of the paying upkeep; it stays unpaid
 			var tg := _covers(g, in_g - due_g, (due_g + float(d["upkeep_gold"])) * span, at)
 			var tb := _covers(bn, in_b - due_b, (due_b + float(d["upkeep_bone"])) * span, at)
 			var lo := maxf(maxf(at, float(cands[k][1])), maxf(float(tg[0]), float(tb[0])))
@@ -1801,6 +1809,30 @@ func _sales() -> float:
 ## upkeep_short) reads it, so it is the same before a load's first step as after it.
 func gold_income() -> float:
 	return _sales() * _price * _job_f("stall")
+
+
+## The resume rule's income test (E4 step 4, the run's manager's ruling on the gold-trap stop: (i), gold only): an
+## unpaid building with gold upkeep `own` may resume only while the gold income (`income`, g/s) exceeds the paying
+## upkeep (`due`) plus its own by economy.json upkeep.resume_net_min (0: strictly positive), so a town whose income
+## can't pay everything keeps a surplus and its gold climbs. One with no gold upkeep always may, and so does one that
+## earns gold (`earns`: stall jobs, the shed order's exemption): its stalls are the income, so the test could never
+## pass while it is off.
+func _income_pays(income: float, due: float, own: float, earns: bool) -> bool:
+	return own <= 0.0 or earns or income - due - own > _resume_net_min
+
+
+## Whether the unpaid building on `lot_id` is held off by the income now (its hold is over, but _income_pays says
+## no at today's gold income and paying upkeep): the away report's and the queue's "the income can't pay its
+## upkeep" (StateViews.away_report, BuildRules._queue_gate). False for any other state.
+func held_by_income(lot_id: String) -> bool:
+	var b: Dictionary = buildings.get(lot_id, {})
+	if b.is_empty() or str(b["state"]) != "unpaid" or float(b["unpaid_s"]) > 0.0:
+		return false
+	var due := 0.0
+	for e in _lists()["work"]:
+		due += float(e[1])
+	var bid := str(b["building_id"])
+	return not _income_pays(gold_income(), due, upkeep_gold_of(bid), earns_gold(bid))
 
 
 ## A building's gold upkeep a second (buildings.json `upkeep.gold`; flat per building, not per level), 0 for an

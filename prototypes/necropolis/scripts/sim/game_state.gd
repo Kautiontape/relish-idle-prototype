@@ -92,8 +92,9 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"started_brief_fmt",
 	# E3-1: the losses' Thrift lines (one per building the Thrift stance idled during the absence; kind `unpaid`)
 	"thrift_fmt", "thrift_brief_fmt", "thrift_none_fmt", "thrift_none_brief_fmt",
-	# E4 step 4 (v10): ready's line for the first entry the upkeep gate holds (BuildRules.upkeep_short)
-	"afford_upkeep_fmt"]
+	# E4 step 4 (v10): ready's line for the first entry the upkeep gate holds (BuildRules.upkeep_short), and the one for
+	# the buildings the resume rule's income test keeps unpaid (TownSim.held_by_income)
+	"afford_upkeep_fmt", "unpaid_upkeep_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]

@@ -61,6 +61,7 @@
       "afford_never_self_last_fmt": "{name} can't be afforded at the current income of {rate} {store}, and {raise}",
       "afford_relics_last_fmt": "{name} needs relics: raid a fort",
       "afford_upkeep_fmt": "{name} waits: the current income of {rate} gold can't pay its upkeep: build a Market",
+      "unpaid_upkeep_fmt": "Still stopped, the current income of {rate} gold can't pay their upkeep: {names}. Build a Market",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },
@@ -95,7 +96,9 @@
   "stall": { "rate": 0.15 },
   "market": { "shop_rate": 0.03, "price": 1.0 },
   "pit": { "burn_per_s": 0.6, "bonus": 0.6 },
-  "upkeep": { "unpaid_hold_s": 30.0, "shed_order": ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"] },
+  "upkeep": { "unpaid_hold_s": 30.0, "shed_order": ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"],
+    "resume_net_min": 0.0,
+    "_doc": "resume_net_min (gold/s; E4 step 4, the manager's ruling on the gold-trap stop): an unpaid building resumes only while the gold income exceeds the paying upkeep plus its own by more than this (0: strictly positive), besides its stocks covering one hold. A town whose income can't pay every building keeps the rest unpaid and saves the surplus." },
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
     "projection_refresh_s": 5.0,
