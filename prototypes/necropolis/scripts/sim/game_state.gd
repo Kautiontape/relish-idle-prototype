@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 9
+const API_VERSION := 10
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -1676,7 +1676,8 @@ func _craft_cost(item_id: String) -> Dictionary:
 
 ## §4.3 · E4 (the sizing stop's ruling 2, lever (b); v9): grinds remnants and bone into a t1 husk, at once. Reasons,
 ## after catching_up, in _husk_craft_reason's order: unknown_kind (not one of the t1 chest's husk_kinds, loot.json
-## chest_by_tier 1), no_remnants (fewer than economy.json craft.husk.remnants), no_bone (under craft.husk.bone). It
+## chest_by_tier 1), no_remnants (fewer than economy.json craft.husk.remnants), no_bone (under craft.husk.bone), at_cap
+## (v10, the E4 review: the crypt has no room for it, its big undead and the husks waiting at the big_undead cap). It
 ## takes the weakest remnants (husk_craft_pick: the smallest magnitude first, then the oldest uid) and the bone, and
 ## adds {uid: h<n> from the save's uid counter, kind, rarity "common"} to the husks, as a raid's loot does. The extra is
 ## that husk. No event; no building, and Relish needn't be home (raising it at the slab needs her). Its costs are GUESS.
@@ -1710,6 +1711,8 @@ func _husk_craft_reason(kind: String) -> String:
 		return "no_remnants"
 	if town_sim.bone < _req_f("economy.craft.husk.bone"):
 		return "no_bone"
+	if big_undead.size() + husks.size() >= _cap_of("big_undead"):
+		return "at_cap"
 	return ""
 
 

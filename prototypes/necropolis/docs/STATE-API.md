@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 9)
+# Necropolis: GameState API (api_version 10)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -364,6 +364,11 @@ from `BALANCE.md` §0.
     `no_remnants`, `no_bone`; extra `husk`. Its costs are GUESS;
   - **§5.10 `view_catalog().husk_craft`**: `{kinds, cost: {bone, remnants}, can_craft, reason}`.
   The save shape is unchanged (a crafted husk is a husk). The town's UI for it is a Phase I item.
+
+  `api_version` 10 (E4's steps 4–5 milestone; one entry, later steps add to it) added:
+  - **§4.3 `cmd_craft_husk`'s reason `at_cap`** (the E4 code review): the crypt has no room for another husk (its big
+    undead plus the husks waiting reach the `big_undead` cap), checked last; `view_catalog().husk_craft.reason`
+    reads it too. The save shape is unchanged.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1086,7 +1091,9 @@ Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
 - **Extras:** `husk: Dictionary`, the husk made, as `view_inventory().husks` lists it: `{uid: String, kind: String,
   rarity: String}` (`{}` on a refusal).
 - **Reasons**, checked in this order: `unknown_kind`; `no_remnants` (fewer than `economy.json` `craft.husk.remnants`);
-  `no_bone` (the bone store under `craft.husk.bone`).
+  `no_bone` (the bone store under `craft.husk.bone`); `at_cap` (v10: the crypt has no room for it, its big undead
+  plus the husks waiting at the `big_undead` cap, the cap `cmd_raise_big_undead`'s own `at_cap` reads; a husk that
+  can't be raised would sit waiting).
 - **Effect:** instant. It takes the `craft.husk.remnants` weakest remnants (the smallest `magnitude` first, then the
   oldest uid) and `craft.husk.bone` bone (shipped 6 and 300, GUESS: slow and costly, the bone competing with the build
   queue; a new game's 200 bone cap is under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
@@ -1815,7 +1822,7 @@ has finished, and a lot under construction is not free. From T2.4 (E2a) the gate
 | `buildings` | Array[Dictionary] | one per building id (below) |
 | `crafts` | Array[Dictionary] | per `CRAFT_IDS`: `{item_id: String, cost: {essence: int, relics: int}, can_craft: bool, reason: String}`: `reason` is what `cmd_craft` would answer now, `""` when it would craft (from E3-4 the same rule, `needs_building` read from `craft_slots`, §4.3), and `cost` is `economy.json` `craft.<item_id>` |
 | `blueprints` | Array[Dictionary] | `{id: String, owned: bool}` |
-| `husk_craft` | Dictionary | v9 (E4, lever (b)): `{kinds: Array[String], cost: {bone: float, remnants: int}, can_craft: bool, reason: String}`: the kinds `cmd_craft_husk` makes (`loot.json` `chest_by_tier["1"].husk_kinds`), its price (`economy.json` `craft.husk`, GUESS), and the reason it would answer now for any of those kinds (`no_remnants`, `no_bone`, or `""`, §4.3). The town shows it in Phase I |
+| `husk_craft` | Dictionary | v9 (E4, lever (b)): `{kinds: Array[String], cost: {bone: float, remnants: int}, can_craft: bool, reason: String}`: the kinds `cmd_craft_husk` makes (`loot.json` `chest_by_tier["1"].husk_kinds`), its price (`economy.json` `craft.husk`, GUESS), and the reason it would answer now for any of those kinds (`no_remnants`, `no_bone`, `at_cap` from v10, or `""`, §4.3). The town shows it in Phase I |
 
 Each `buildings` entry:
 
