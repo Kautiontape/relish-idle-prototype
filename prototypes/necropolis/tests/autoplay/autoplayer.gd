@@ -100,6 +100,7 @@ var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and t
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
 var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
+var crafted: Array = []  # every husk crafted (_craft_husk): [t_h, kind]
 var print_rows := true
 var open_rows := false
 var live_days := false  # emit a day_end row when live time crosses a day boundary (continuous)
@@ -255,6 +256,8 @@ func _exec(op: String, a: Array) -> Dictionary:
 			return s.cmd_staff_vat(int(a[0]), bool(a[1]))
 		"craft":
 			return s.cmd_craft(str(a[0]))
+		"craft_husk":
+			return s.cmd_craft_husk(str(a[0]))
 		"stance":
 			return s.cmd_set_stance(str(a[0]), bool(a[1]))
 		"move":
@@ -313,6 +316,7 @@ func _act(queue_set := true) -> void:
 	if str(rel["state"]) == "at_fort" or str(rel["state"]) == "at_vei":
 		_cmd("move", ["covington"])
 	_stances()
+	_craft_husk()
 	_raise()
 	_place()
 	_vats()
@@ -595,6 +599,77 @@ func _craft() -> void:
 			_cmd("craft", ["phylactery_charge"])
 
 
+## The husk craft (E4 step 2's sizing stop, the manager's ruling 2: lever (b); every profile): one t1 husk from the
+## weakest remnants and bone (cmd_craft_husk) whenever _husk_kind finds one worth making. Each is logged in `crafted`.
+func _craft_husk() -> void:
+	var kind := _husk_kind(false)
+	if kind != "" and bool(_cmd("craft_husk", [kind])["ok"]):
+		crafted.append([_r(s.t / 3600.0), kind])
+
+
+## The husk the bot would craft now, "" for none. It crafts when giants or carvers is short (_short_fronts), the crypt has
+## room for one more (the bigs and the husks waiting under the cap; `ignore_room` skips this, for _fill's crypt trigger),
+## a remnant would be left for the raise, the bone covers economy.json craft.husk's price, and the queue's head doesn't
+## wait on bone. The kind (loot.json chest_by_tier 1's husk_kinds) is the one whose slab fill (_slab_fill, on the
+## remnants the craft leaves: GameState.husk_craft_pick) brings the larger share of a short front's want, in list order
+## on a tie; a kind that brings none is never made.
+func _husk_kind(ignore_room: bool) -> String:
+	var hc: Dictionary = c["economy"]["craft"]["husk"]
+	var n := int(hc["remnants"])
+	var tn := s.view_town()
+	if float(tn["bone"]) < float(hc["bone"]):
+		return ""
+	var inv := s.view_inventory()
+	var rems: Array = inv["remnants"]
+	if rems.size() <= n:
+		return ""
+	var bu := s.view_big_undead()
+	if not ignore_room and int(bu["count"]) + (inv["husks"] as Array).size() >= int(bu["cap"]):
+		return ""
+	var q: Array = tn["queue"]
+	var h := _head(q)
+	if h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone":
+		return ""
+	var short := _short_fronts(bu)
+	if short.is_empty():
+		return ""
+	var picked := {}
+	for r in GameState.husk_craft_pick(rems, n):
+		picked[str(r["uid"])] = true
+	var rest: Array = rems.filter(func(r): return not picked.has(str(r["uid"])))
+	var slab: Dictionary = c["town"]["slab"]
+	var best := ""
+	var best_sc := 0.0
+	for kind in c["loot"]["chest_by_tier"]["1"]["husk_kinds"]:
+		var st: Dictionary = SlabLogic.evaluate(str(kind), _slab_fill(str(kind), rest, slab), slab)["stats"]
+		for fid in short:
+			var fc: Dictionary = c["vei"]["fronts"][fid]
+			var sc := float(fc["per_stat"]) * float(st.get(str(fc["stat"]), 0.0)) / float(short[fid])
+			if sc > best_sc:
+				best_sc = sc
+				best = str(kind)
+	return best
+
+
+## Giants and carvers where the bigs on the front (front == it) bring less than its want (_big_want, at Vei's full pool):
+## {front: want}.
+func _short_fronts(bu: Dictionary) -> Dictionary:
+	var want := _big_want()
+	var out := {}
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		var have := 0.0
+		for b in bu["big_undead"]:
+			if str(b["front"]) == fid:
+				have += float(fc["per_stat"]) * float(b["stats"].get(str(fc["stat"]), 0.0))
+		if have < w:
+			out[fid] = w
+	return out
+
+
 static func _list(cfg: Dictionary) -> Array:
 	if not _list_cache.is_empty():
 		return _list_cache
@@ -614,13 +689,14 @@ static func _list(cfg: Dictionary) -> Array:
 
 ## The queue: kept filled from the priority list. An item is queued once the level below it on its lot is built,
 ## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look. From the first look that keeps a
-## big (_keep), or finds the crypt full (big undead at the cap) while a husk waits, the crypt's levels (CRYPT_LEVELS)
-## head the list: a keeper takes a place a raider would use, a husk that can't be raised is a big lost, and a level is a
-## place (big_undead.per_crypt_level).
+## big (_keep), or finds the crypt full (big undead at the cap) while a husk waits or the bot would craft one but for the
+## room (_husk_kind), the crypt's levels (CRYPT_LEVELS) head the list: a keeper takes a place a raider would use, a husk
+## that can't be raised is a big lost, and a level is a place (big_undead.per_crypt_level).
 func _fill() -> void:
 	if not _crypt_up:
 		var bu := s.view_big_undead()
-		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"]) and not (s.view_inventory()["husks"] as Array).is_empty())
+		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"])
+			and (not (s.view_inventory()["husks"] as Array).is_empty() or _husk_kind(true) != ""))
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -1609,7 +1685,7 @@ func policy() -> Dictionary:
 		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
-		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared)",
+		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (economy.json craft.husk: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
 		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}
@@ -1678,7 +1754,7 @@ func summary() -> Dictionary:
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
-		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily, "raised": raised}
+		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})

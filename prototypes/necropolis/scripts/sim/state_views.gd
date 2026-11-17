@@ -420,7 +420,11 @@ static func catalog(gs: GameState) -> Dictionary:
 	var bp_list: Array = []
 	for b in bps:
 		bp_list.append({"id": b, "owned": gs.blueprints.has(b)})
-	return {"rev": gs.rev, "buildings": out, "crafts": crafts, "blueprints": bp_list}
+	# v9 (E4, lever (b)): the husk craft (cmd_craft_husk), its kinds, price and the kind-free reason it would answer now
+	var hw := gs._husk_craft_reason("")
+	var husk := {"kinds": gs.husk_craft_kinds(), "cost": {"bone": gs._req_f("economy.craft.husk.bone"),
+		"remnants": int(gs._req_f("economy.craft.husk.remnants"))}, "can_craft": hw == "", "reason": hw}
+	return {"rev": gs.rev, "buildings": out, "crafts": crafts, "blueprints": bp_list, "husk_craft": husk}
 
 
 static func beat_id(gs: GameState) -> int:

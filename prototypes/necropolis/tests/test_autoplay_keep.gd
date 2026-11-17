@@ -112,6 +112,61 @@ func _crypt_levels(c: Dictionary) -> void:
 	k.cleanup()
 
 
+## The bot's husk craft (lever (b), the sizing stop's ruling 2), at craft.husk.bone 100 (a new game's bone cap is 200)
+## with 120 bone and one wits remnant more than the craft eats: with giants and carvers short it crafts a skeleton (the
+## wits fill brings giants the larger share); it doesn't while the queue's head waits on bone (Market level 2, 130 bone),
+## with the crypt full (and then the crypt trigger fires), or with both fronts met by keepers.
+func _husk_policy(c: Dictionary) -> void:
+	var cl := c.duplicate(true)
+	cl["economy"]["craft"]["husk"]["bone"] = 100.0
+	var n := int(cl["economy"]["craft"]["husk"]["remnants"])
+	var mk := func(tag: String) -> Autoplayer:
+		var b := Autoplayer._bot("keep_test_husk_" + tag, cl, {"print_rows": false})
+		b.new_game()
+		b.s.remnants.clear()
+		b.s.husks.clear()
+		for i in n + 1:
+			b.s.remnants.append({"uid": b.s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1 + i % 3})
+		b.s.town_sim.bone = 120.0
+		return b
+	var a: Autoplayer = mk.call("a")
+	a._craft_husk()
+	t.ok(a.crafted.size() == 1 and str(a.crafted[0][1]) == "skeleton" and a.s.husks.size() == 1 and a.s.remnants.size() == 1,
+		"both fronts short, room, bone and a remnant to spare: a skeleton is crafted (%s; %d remnant left)" % [str(a.crafted), a.s.remnants.size()])
+	a.s.town_sim.bone = 120.0
+	for i in n - 1:
+		a.s.remnants.append({"uid": a.s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1})
+	a._craft_husk()
+	t.ok(a.crafted.size() == 1, "the bone back and %d remnants, exactly the craft's (none to spare for the raise): no second craft" % n)
+	a.cleanup()
+
+	var w: Autoplayer = mk.call("wait")
+	var qr := w.s.cmd_queue_build("", "lot-04")
+	var q: Array = w.s.view_town()["queue"]
+	t.ok(bool(qr["ok"]) and not q.is_empty() and str(q[0]["reason"]) == "no_bone", "setup: Market level 2 heads the queue, waiting on bone: %s" % str(q))
+	w._craft_husk()
+	t.ok(w.crafted.is_empty(), "the queue's head waits on bone: no craft")
+	w.cleanup()
+
+	var f: Autoplayer = mk.call("full")
+	for _i in int(f.s.view_big_undead()["cap"]):
+		_big(f.s, 0.0, 0.0)
+	f._craft_husk()
+	t.ok(f.crafted.is_empty() and f._husk_kind(true) == "skeleton", "the crypt full: no craft, though one would go but for the room")
+	f._fill()
+	t.ok(f._crypt_up, "and the crypt trigger fires on it (no husk waiting, no keeper)")
+	f.cleanup()
+
+	var m: Autoplayer = mk.call("met")
+	var wm: Dictionary = m._big_want()
+	_big(m.s, _stat_for(c, wm["giants"], "giants", 1.0), 0.0)
+	_big(m.s, 0.0, _stat_for(c, wm["carvers"], "carvers", 1.0))
+	m._place()
+	m._craft_husk()
+	t.ok(m._keep.size() == 2 and m.crafted.is_empty(), "both fronts met by their keepers: no craft (%s)" % str(m._keep))
+	m.cleanup()
+
+
 static func _queued(gs: GameState, lot: String) -> bool:
 	for e in gs.view_town()["queue"]:
 		if str(e["lot_id"]) == lot:
@@ -190,6 +245,7 @@ func run() -> int:
 
 	_two_fronts(c)
 	_crypt_levels(c)
+	_husk_policy(c)
 
 	# the fill: a skeleton (two nerve slots: wits or speed) with two big speed remnants and two small wits ones
 	var slab: Dictionary = c["town"]["slab"]

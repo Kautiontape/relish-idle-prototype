@@ -51,6 +51,9 @@ func run() -> int:
 	_save_mid_charge()
 	_exhaustion()
 	_guards()
+	_husk_refusals()
+	_husk_craft()
+	_husk_kinds_follow_config()
 	_cleanup()
 	return t.failures
 
@@ -81,6 +84,101 @@ func _ossuary(c := {}) -> GameState:
 
 func _cfg_cost(id: String, k: String) -> int:
 	return int(TestUtil.configs()["economy"]["craft"][id][k])
+
+
+# ------------------------------------------------------------------------------------- the husk craft (E4, v9) ----
+## Adds remnants with these magnitudes (aspect wits, common), oldest first; returns their uids.
+static func _rems(s: GameState, mags: Array) -> Array:
+	var out: Array = []
+	for m in mags:
+		var uid := s._mint_uid("r")
+		s.remnants.append({"uid": uid, "aspect": "wits", "rarity": "common", "magnitude": int(m)})
+		out.append(uid)
+	return out
+
+
+## cmd_craft_husk's refusals in order (the sizing stop's ruling 2, lever (b)): unknown_kind before the remnants and the
+## bone; then no_remnants (one short of craft.husk.remnants) before no_bone; then no_bone (a bone short). None changes
+## anything: rev, the husks, the remnants, the bone, the uid counter, the events; view_catalog's husk_craft agrees.
+func _husk_refusals() -> void:
+	var s := _mk()
+	var n := int(s._req_f("economy.craft.husk.remnants"))
+	var bone := s._req_f("economy.craft.husk.bone")
+	s.remnants.clear()
+	s.town_sim.bone = 0.0
+	_rems(s, range(1, n))
+	var snap := func() -> Array:
+		return [s.rev, s.husks.duplicate(true), s.remnants.duplicate(true), s.town_sim.bone, s.next_uid, s._events.size()]
+	var before: Array = snap.call()
+	t.ok(s.cmd_craft_husk("lich") == {"ok": false, "reason": "unknown_kind", "husk": {}}, "a kind outside the t1 chest's: unknown_kind, before the remnants and the bone")
+	t.ok(s.cmd_craft_husk("skeleton")["reason"] == "no_remnants" and s.view_catalog()["husk_craft"]["reason"] == "no_remnants",
+		"%d remnants of %d: no_remnants, before the bone; the catalog agrees" % [n - 1, n])
+	_rems(s, [9])
+	s.town_sim.bone = bone - 1.0
+	var cat: Dictionary = s.view_catalog()["husk_craft"]
+	t.ok(s.cmd_craft_husk("zombie")["reason"] == "no_bone" and str(cat["reason"]) == "no_bone" and not bool(cat["can_craft"]),
+		"enough remnants, a bone short of %.0f: no_bone; the catalog agrees (can_craft false)" % bone)
+	before[2] = s.remnants.duplicate(true)
+	before[3] = s.town_sim.bone
+	before[4] = s.next_uid
+	t.ok(snap.call() == before, "the refusals change nothing")
+	s.town_sim.bone = bone
+	cat = s.view_catalog()["husk_craft"]
+	t.ok(bool(cat["can_craft"]) and str(cat["reason"]) == "" and float(cat["cost"]["bone"]) == bone and int(cat["cost"]["remnants"]) == n,
+		"with the price in hand the catalog reads can_craft, and its cost is economy.json craft.husk's: %s" % str(cat))
+
+
+## A craft takes the weakest craft.husk.remnants (the smallest magnitude, then the oldest uid) and craft.husk.bone exactly,
+## and adds {uid h<n>, kind, rarity common} to the husks (the extra is that record); rev + 1, no event; the mass ledger
+## doesn't move (bone and remnants are not mass); the husk raises at the slab like a raid's.
+func _husk_craft() -> void:
+	var s := _mk()
+	var n := int(s._req_f("economy.craft.husk.remnants"))
+	var bone := s._req_f("economy.craft.husk.bone")
+	s.remnants.clear()
+	s.husks.clear()
+	var mags: Array = []
+	for i in n + 2:
+		mags.append([3, 1, 2, 1, 5][i % 5])  # ties at 1 and the large ones kept
+	var uids := _rems(s, mags)
+	var want: Array = GameState.husk_craft_pick(s.remnants, n).map(func(r): return str(r["uid"]))
+	var order: Array = range(mags.size())
+	order.sort_custom(func(a, b): return int(mags[a]) < int(mags[b]) or (int(mags[a]) == int(mags[b]) and a < b))
+	var expect: Array = order.slice(0, n).map(func(i): return str(uids[i]))
+	t.ok(want == expect, "the pick is the %d weakest, smallest magnitude first, then the oldest: %s" % [n, str(want)])
+	s.town_sim.bone = bone + 7.5
+	var rev := s.rev
+	var ev := s._events.size()
+	var led := s.ledger()
+	var r := s.cmd_craft_husk("skeleton")
+	var left: Array = s.remnants.map(func(x): return str(x["uid"]))
+	var gone := true
+	for u in want:
+		gone = gone and not left.has(u)
+	t.ok(bool(r["ok"]) and gone and left.size() == mags.size() - n, "the craft takes exactly the picked remnants: %s left" % str(left))
+	t.near(s.town_sim.bone, 7.5, 1e-9, "it takes craft.husk.bone (%.0f) exactly" % bone)
+	var h: Dictionary = r["husk"]
+	t.ok(s.husks.size() == 1 and s.husks[0] == h and str(h["kind"]) == "skeleton" and str(h["rarity"]) == "common"
+		and str(h["uid"]).begins_with("h"), "it adds the husk it returns: %s" % str(h))
+	t.ok(s.rev == rev + 1 and s._events.size() == ev, "rev + 1, no event")
+	t.ok(s.ledger()["sinks"] == led["sinks"] and s.ledger()["sources"] == led["sources"] and GameState.Ledger.error(s.ledger()) < 1e-6,
+		"the mass ledger doesn't move and stays balanced")
+	var ri := s.cmd_raise_big_undead(str(h["uid"]), [left[0]], "Ground")
+	t.ok(bool(ri["ok"]) and s.husks.is_empty(), "the crafted husk raises at the slab: %s" % str(ri["reason"]))
+
+
+## The kinds follow loot.json chest_by_tier 1's husk_kinds: with ["siren"] there, a siren crafts and a skeleton is
+## unknown_kind; view_catalog lists them.
+func _husk_kinds_follow_config() -> void:
+	var c := TestUtil.configs()
+	c["loot"]["chest_by_tier"]["1"]["husk_kinds"] = ["siren"]
+	var s := _mk(c)
+	_rems(s, range(int(s._req_f("economy.craft.husk.remnants"))))
+	s.town_sim.bone = s._req_f("economy.craft.husk.bone")
+	t.ok(s.view_catalog()["husk_craft"]["kinds"] == ["siren"] and s.cmd_craft_husk("skeleton")["reason"] == "unknown_kind"
+		and bool(s.cmd_craft_husk("siren")["ok"]), "the kinds are the t1 chest's (siren here): skeleton unknown_kind, siren crafts")
+	t.ok(TestUtil.configs()["loot"]["chest_by_tier"]["1"]["husk_kinds"] == GameState.new(TestUtil.configs()).husk_craft_kinds(),
+		"shipped: the kinds are loot.json chest_by_tier 1's: %s" % str(TestUtil.configs()["loot"]["chest_by_tier"]["1"]["husk_kinds"]))
 
 
 # -------------------------------------------------------------------------------------------------- the refusals ----

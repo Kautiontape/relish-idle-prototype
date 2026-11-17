@@ -114,7 +114,8 @@
   },
   "craft": {
     "simulacrum": { "essence": 20, "relics": 1 },
-    "phylactery_charge": { "essence": 15, "relics": 0 }
+    "phylactery_charge": { "essence": 15, "relics": 0 },
+    "husk": { "_doc": "GUESS (E4 step 2's sizing, lever (b)): cmd_craft_husk grinds this many remnants (the weakest) and this much bone into a t1 husk (loot.json chest_by_tier 1's husk_kinds). Slow and costly by its price: the bone competes with the build queue. Sized so sessions reaches Vei-ready on day 5-6 (BALANCE §5).", "bone": 300, "remnants": 6 }
   },
   "relics": { "cap": 12 },
   "essence": { "cap": 60 },

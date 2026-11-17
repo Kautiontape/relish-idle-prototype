@@ -985,6 +985,14 @@ The policies (the run's manager's, for Shawn):
 - **Vats** are staffed as soon as a Chapel exists. This is labelled "best case".
 - **Crafting**: one phylactery charge whenever the catalog allows it and none is held. No simulacra, except in
   away_risk's prepared setup.
+  - **The husk craft** (lever (b), the sizing stop's ruling 2; every profile): one t1 husk (`cmd_craft_husk`, the
+    weakest `craft.husk.remnants` and `craft.husk.bone`, GUESS) when giants or carvers is short of its want (the full
+    pool's, less what the bigs on it bring), the crypt has room for one more (bigs and husks waiting under the cap), a
+    remnant is left for the raise and the queue's head doesn't wait on bone. The kind is the one whose slab fill, on
+    the remnants the craft leaves, brings the larger share of a short front's want; a kind that brings none isn't made.
+    It runs before the raise, so the husk rises in the same look. **The player's reason:** remnants pile up unused
+    (83 in sessions by day 8 before this) while a front Vei will test is short; a player grinds the weakest into a body
+    for that front, but not with the bone the next build is waiting on.
 - **Stances**: Vigil and Harvest on.
 - **The valve** stays at its default, except in away_risk's prepared setup.
 
