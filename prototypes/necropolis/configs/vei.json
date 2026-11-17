@@ -12,9 +12,9 @@
   "mote_mass": 1.0,
   "raise_ema_beats": 4,
   "fronts": {
-    "giants": {"stat": "wits", "per_stat": 1, "per_backlog": 0, "per_q": 0, "need_base": 14, "need_per_pool": 0.02},
+    "giants": {"stat": "wits", "per_stat": 1, "per_backlog": 0, "per_q": 0, "need_base": 2, "need_per_pool": 0.02},
     "swarm": {"stat": "presence", "per_stat": 1, "per_backlog": 0.0000005, "per_q": 0, "need_base": 12, "need_per_pool": 0.02},
-    "carvers": {"stat": "beef", "per_stat": 1, "per_backlog": 0, "per_q": 3, "need_base": 18, "need_per_pool": 0.02},
+    "carvers": {"stat": "beef", "per_stat": 1, "per_backlog": 0, "per_q": 3, "need_base": 2, "need_per_pool": 0.02},
     "raw": {"stat": "power", "per_stat": 1, "per_backlog": 0.00000025, "per_q": 0, "need_base": 40, "need_per_pool": 0.03}
   },
   "arena": {
