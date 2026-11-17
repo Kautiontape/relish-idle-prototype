@@ -56,9 +56,13 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## Was: day1 b2547329… / efef071d… live, dbed8b89… / 7adf8ca1… / 31d28a99… caught; pre_vei eee267d1… live, 7f1c4934… /
 ## 73b76696… caught; midgame_2flips 28455d22… / ea617806… live, a73efc4b… / b70fcb08… / 167e638f… caught; PARENT_C3
 ## b1b87959… live, 2d724838… / 235bce4c… caught.
+## Re-pinned at E4 step 9's odds lever (option B; the standing re-pin rule): the caught away reports only, PARENT_C3's
+## too, as test_backups' re-pin (the backlog line's "odds A → B" are the win odds); every state and event unchanged.
+## The proof: the change at odds time_weight 0, backlog_cap 1 passes the old pins here (was day1 4f807d58…, pre_vei
+## 0915402c…, midgame_2flips 1125e651…, PARENT_C3 066cdb6c…).
 const PARENT := {
 	"day1": {"live": {"state": "0b4b2c8c088675b2", "events": "d4879c9aa75cb133", "n_events": 2},
-		"caught": {"state": "3e768c1b3a617251", "events": "bf49daaddc2123e6", "away": "4f807d582bdab443", "n_events": 2, "steps": 4320}},
+		"caught": {"state": "3e768c1b3a617251", "events": "bf49daaddc2123e6", "away": "ab49446c969569f9", "n_events": 2, "steps": 4320}},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule), live and caught:
 	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
@@ -70,22 +74,23 @@ const PARENT := {
 	# unchanged). day1's and midgame_2flips' convoys land nothing here. The claim off passes the old pins (was a9cdb710…
 	# live, ffeda0ce… / a8a97ed8… caught).
 	"pre_vei": {"live": {"state": "a100f0087bc79b1d", "events": "618ddc3b937abcfb", "n_events": 15},
-		"caught": {"state": "700b706edae0115d", "events": "e3093d57d7355dc3", "away": "0915402c0be35720", "n_events": 15, "steps": 4321}},
+		"caught": {"state": "700b706edae0115d", "events": "e3093d57d7355dc3", "away": "50f7cc0b2696b50d", "n_events": 15, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
-	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
+	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged; with
+	# the line back under losses the old hashes pass (test_backups' revert proof, E4 review item 5)
 	# E4 step 5 B1 (ii) (the standing re-pin rule): midgame_2flips live and caught, PARENT_C3 too, as test_backups' re-pin
 	# (the lowest-margin rule retakes Old Sluice sooner; fort_retaken's war_in and pressure_mult; the retake line's
 	# cause). day1 and pre_vei hold nothing that is retaken here and don't move. The proof tree (the most-undead rule,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 7b0b81e0… / 64c42f4e…
 	# live, 7cf1dab3… / 9edee230… / 9e4483b4… caught; PARENT_C3 41a73272… live, 7ae237fa… / 70cd4e03… caught)
 	"midgame_2flips": {"live": {"state": "aa33406ee63dcdda", "events": "f0094e8ce5a052a2", "n_events": 123},
-		"caught": {"state": "fb2fbcd7af9ef17e", "events": "9d7e28db25274e96", "away": "1125e651125aee81", "n_events": 241, "steps": 4356}},
+		"caught": {"state": "fb2fbcd7af9ef17e", "events": "9d7e28db25274e96", "away": "d12c7234d4eea995", "n_events": 241, "steps": 4356}},
 }
 ## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
 ## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
 ## E4 step 3 as PARENT is, and at B1 (ii) (above).
 const PARENT_C3 := {"live": {"state": "6982227bd19fd694", "events": "f0094e8ce5a052a2", "n_events": 123},
-	"caught": {"state": "3cacefd0b08443fe", "events": "9d7e28db25274e96", "away": "066cdb6ccd27c016", "n_events": 241, "steps": 4356}}
+	"caught": {"state": "3cacefd0b08443fe", "events": "9d7e28db25274e96", "away": "871f3587f2e001f0", "n_events": 241, "steps": 4356}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 

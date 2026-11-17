@@ -196,7 +196,7 @@ values**.
 | bodies | mass | capped store (`body_store.cap`) | haul, worker rot × `worker.body_return`, dungeon hauls | pit burn, mill | net /s and a bar |
 | gold | gold | capped store (`gold.cap`, raised by the Market), floor 0 | market trade | upkeep, build costs; what the cap clips (`ledger().stores`) | net /s and a bar |
 | bone | bone | capped store (`bone.cap`, raised by the Bone Mill), floor 0 | mill | build costs, some upkeep; what the cap clips | net /s and a bar |
-| relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons only | buildings, forge levels, phylactery, upgrades | count |
+| relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons, and from E4 step 9 the idle relic trickle: one per `economy.json` `relic_trickle.period_s` (12 h) of game time while every fort at or below the highest tier ever flipped is held (read at each step's start; the paying seconds accrue, and are kept while it doesn't pay), so a player walled at a tier still gets relics (the run's manager's rulings on step 9 (3)) | buildings, forge levels, phylactery, upgrades | count |
 | blueprints | set | unlocks | dungeons only (first clear guaranteed) | unlock building types | set |
 | essence | motes (int) | capped stock (`essence.cap`) | dungeons (carried out) | phylactery charges, simulacra | count |
 | husks, remnants | items with uids | stock | dungeons | slab | count |
@@ -414,6 +414,10 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   Vei fort as at any). In its dungeon she stays: the run goes on, and when it ends she stands at the fort.
 
 ### 3.4 Flips and tithe waves
+**In this section "her odds" means her strain, `backlog / (backlog + K)`** (`RealmSim.strain`, `view_vei.strain`).
+Her tithe period, reship and one-wave need read it. Since E4 step 9 the odds a player reads are the win odds of §3.5,
+which nothing here reads.
+
 **Flip.** On `warden_beaten`:
 - all the fort's living become dead, applied as a clamped delta;
 - the fort is **held**: a grace of `flip.hold_s · (1 + flip.tier_mult · tier)` (`fort_flipped.hold_s`
@@ -704,7 +708,15 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   mass/s (0.05). One substep moves the EMA by about `diff / 240`, so a single substep flips the
   sign only past about 12 mass/s.
 - **Drain time:** `backlog / −EMA` when the EMA < 0, else "holding". Never INF in state.
-- **Odds:** `backlog / (backlog + K)`.
+- **Odds** (the win odds; E4 step 9, the run's manager's ruling of 2026-11-17 13:44, option B):
+  `odds.time_weight · t / (t + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain)`, with `t` the
+  game's age (sim seconds since the new game) and **strain** `backlog / (backlog + K)`. Mostly time-based, with the
+  raid (backlog) part capped, so a player who is always present and raids hard reaches them sooner, but not by as much
+  as the backlog alone would give. These are the odds every view shows, the boss seed carries and Vei-ready reads.
+  **Nothing in the fight reads them:** her tithe period, her reship into held forts and the one-wave need read the
+  strain (§3.4), so she still fights back harder as the queue clogs, not as the game ages. The odds a player reads
+  therefore don't drive her pressure directly; the strain is in `view_vei.strain`, never shown as odds. Until E4
+  step 9 the odds were the strain (`time_weight` 0 with `backlog_cap` 1 gives them back bit for bit).
 - The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most

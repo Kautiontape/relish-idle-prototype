@@ -383,15 +383,18 @@ func drain_timed() -> Array:
 	return out
 
 
-## Vei's odds now: backlog / (backlog + K).
-func odds() -> float:
+## Vei's strain now: backlog / (backlog + K). Her tithe period, her reship and the one-wave need read it (MECHANICS
+## §3.4: she fights back harder as the queue clogs). It was "her odds" until E4 step 9 (the manager's 2026-11-17 13:44
+## ruling, option B): the odds a player reads, the boss seed's and Vei-ready's are GameState.win_odds, which reads this
+## with the game's age, and nothing here reads them. In the comments below, "her odds" is this strain.
+func strain() -> float:
 	var b: float = vei["undead_queue"]
 	return b / (b + _K)
 
 
-## The tithe interval when it is scheduled: period_s · (1 − backlog_scale · odds), never below 0.
+## The tithe interval when it is scheduled: period_s · (1 − backlog_scale · strain), never below 0.
 func tithe_period() -> float:
-	return _period_s * maxf(0.0, 1.0 - _backlog_scale * odds())
+	return _period_s * maxf(0.0, 1.0 - _backlog_scale * strain())
 
 
 static func _tithe_idle() -> Dictionary:
@@ -606,7 +609,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 	for f in forts:
 		held_i.append(held.has(f["id"]))
 		grace_i.append(grace.has(f["id"]))
-	var reship_k: float = _reship_share * (1.0 + _backlog_scale * odds())
+	var reship_k: float = _reship_share * (1.0 + _backlog_scale * strain())
 
 	# ---- 1. The tithe clock: a wave's start, this step's surge (the warning is step 8's); a wave
 	# delivers nothing into a fort in grace ----
@@ -806,7 +809,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		if tb >= 0.0 and tz >= 0.0:
 			var run_s: float = (float(f["zero_s"]) + tb) if u0 <= 0.0 and tz <= 0.0 else tb - tz
 			if run_s >= _break_s - _EPS_S:
-				_retaken(f, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
+				_retaken(f, i, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
 			else:
 				f["zero_s"] = 0.0
 			continue
@@ -816,7 +819,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		# at 0 from tz (from the start when it began there) to the part's end
 		f["zero_s"] = (dt - tz) if u0 > 0.0 else float(f["zero_s"]) + dt
 		if float(f["zero_s"]) >= _break_s - _EPS_S:
-			_retaken(f, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
+			_retaken(f, i, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
 
 	# ---- 10. The next wave's warning, its target read from the forts as this part leaves them ----
 	_tithe_warn()
@@ -1214,7 +1217,11 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 ## (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the step's later parts raise nothing for it.
 ## GameState sends a siege big undead there home. The fort's loot yield is left as it is (MECHANICS §5.3; the
 ## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
-func _retaken(f: Dictionary, cause: String, at: float) -> void:
+## The event's `war_in` is the settled WAR its margin chip read (margins_of's: the step's target_war split as this
+## part's dispatch splits it, read before the hold ends), not the part's r_in, which the convoy's sawtooth moves so
+## open and closed read different values (E4 review item 7). `i` is f's index in `forts`.
+func _retaken(f: Dictionary, i: int, cause: String, at: float) -> void:
+	var settled := float(war_at(maxf(0.0, float(_part_inputs.get("target_war", _part_inputs.get("war", 0.0)))))[0][i])
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
@@ -1225,8 +1232,8 @@ func _retaken(f: Dictionary, cause: String, at: float) -> void:
 		if str(sm.get("fort_id", "")) != str(f["id"]):
 			alive.append(sm)
 	simulacra = alive
-	# (B1 (ii)) the WAR it had and Vei's pressure there, for the away report's cause
-	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "war_in": maxf(0.0, float(f.get("r_in", 0.0))),
+	# (B1 (ii)) the settled WAR it had and Vei's pressure there, for the away report's cause
+	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "war_in": maxf(0.0, settled),
 		"pressure_mult": hold_mult, "_at": at})
 
 
@@ -1633,9 +1640,9 @@ static func dead_at(dead: float, rate: float, s: float) -> float:
 ## view_projection --------------------------------------------------------------------------------
 
 ## Her reship into a contested fort now, mass/s, before her pool limits it (step 2): reship_share ×
-## (1 + backlog_scale · odds now) × S_vei · cap / Σcap.
+## (1 + backlog_scale · strain now) × S_vei · cap / Σcap.
 func reship_rate(f: Dictionary) -> float:
-	return _reship_at(float(f["cap"]), odds())
+	return _reship_at(float(f["cap"]), strain())
 
 
 ## reship_rate for a fort of `cap` at her odds `o`.
@@ -1663,7 +1670,7 @@ func _reship_at(cap: float, o: float) -> float:
 func need_of(f: Dictionary, redirect: bool, raise_max: float, tide: bool, block: float, q: float) -> float:
 	var cap := float(f["cap"])
 	var qq := maxf(1.0, q)
-	var o := odds()
+	var o := strain()
 	if _need_odds_step > 0.0:
 		o = floorf(o / _need_odds_step) * _need_odds_step
 	var s := _reship_at(cap, o)
@@ -2252,7 +2259,7 @@ func readout() -> Dictionary:
 	var massed: float = vei["undead_queue"]
 	return {
 		"inflow": inflow, "capacity": cap_undead, "differential": inflow - cap_undead,
-		"massed": massed, "odds": odds(),
+		"massed": massed, "strain": strain(),
 		"winning": inflow > cap_undead,
 	}
 

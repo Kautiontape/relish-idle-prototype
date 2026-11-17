@@ -51,10 +51,20 @@ static func hud(gs: GameState) -> Dictionary:
 		"bone_war_share": gs._bone_war_share,
 		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
 		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
-		"hold_mult": gs.hold_mult(),  # (v11, B1) Vei's pressure at held forts
+		"hold_mult": gs.realm.hold_mult,  # (v11, B1) Vei's pressure at held forts, as synced (fort_hold's; E4 review item 9)
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
+		# v12 (E4 step 9, ruling 3): the idle relic trickle, and the tier it reads
+		"highest_tier_flipped": gs.highest_tier_flipped(), "relic_trickle": relic_trickle(gs),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
+
+
+## view_hud.relic_trickle (v12, E4 step 9, ruling 3; GameState._relic_trickle): {paying, next_s}: whether it pays now
+## (every fort at or below highest_tier_flipped held), and the paying seconds left to its next relic (-1.0 while not).
+static func relic_trickle(gs: GameState) -> Dictionary:
+	var on := gs.relic_trickle_paying()
+	var period := gs._req_f("economy.relic_trickle.period_s")
+	return {"paying": on, "next_s": maxf(0.0, period - gs.relic_trickle_s) if on else -1.0}
 
 
 ## §5.2 · E2, live for every id from E2a (_rate_io): the valve streams and the realm's corpses and
@@ -249,7 +259,9 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 ## (RealmSim.margins_of at the realm inputs): `war_in` the settled WAR to it (the valve's target at the pits'
 ## trough feed, mass/s), `need` its one-wave need (RealmSim.need_of: the least WAR at which one full wave from
 ## its settled garrison doesn't break it), `margin` war_in − need (the lowest contested margin draws the next
-## wave), `pressure_mult` Vei's pressure there (GameState.hold_mult), and the chip's `fall_s` and `margin_cause`.
+## wave), `pressure_mult` Vei's pressure there (RealmSim.hold_mult, the value GameState.hold_mult last synced, so
+## the need and the margin beside it were derived at it even after an edit between steps moved the pits), and the
+## chip's `fall_s` and `margin_cause`.
 ## A fort not held reads zeros, ×1 and "".
 static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionary:
 	var out := {"war_in": 0.0, "need": 0.0, "margin": 0.0, "pressure_mult": 1.0, "fall_s": -1.0, "margin_cause": ""}
@@ -260,7 +272,7 @@ static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionar
 	out["war_in"] = float(e.get("war_in", 0.0))
 	out["need"] = float(e.get("need", 0.0))
 	out["margin"] = float(e.get("margin", 0.0))
-	out["pressure_mult"] = gs.hold_mult()
+	out["pressure_mult"] = gs.realm.hold_mult  # (E4 review item 9) the value need and margin were derived at, not re-read live
 	out["fall_s"] = float(entry.get("fall_s", -1.0))
 	out["margin_cause"] = str(entry.get("margin_cause", ""))
 	return out
@@ -679,6 +691,9 @@ static func vei(gs: GameState) -> Dictionary:
 		"rev": gs.rev, "backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"pool_cap": gs._pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff_ema"]),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": gs.digest_q(),
+		# v12 (E4 step 9, option B): her strain, backlog / (backlog + K), which her tithe period, reship and need read;
+		# `odds` is the win odds (GameState.win_odds), the one odds a view shows
+		"strain": ro["strain"],
 		"fronts": fronts, "fronts_required": gs._fronts_required(), "fronts_met": VeiFronts.fronts_met(fronts),
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
@@ -1001,19 +1016,21 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var ready: Array = []
 	var losses: Array = []
 	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
-	# "away: +N, odds A → B"; odds = backlog / (backlog + K), MECHANICS §3 step 8)
+	# "away: +N, odds A → B"; the win odds, MECHANICS §3 step 8: at the away's start from its age and backlog, and now
+	# view_vei's (E4 step 9, option B)
 	var now := away_streams(gs)
 	var k_odds := gs._req_f("realm.K")
+	var b0 := float(b["streams"]["backlog"])
+	var odds_from := gs.win_odds(float(b["t"]), b0 / (b0 + k_odds))
+	var odds_to := float(gs._vei_readout()["odds"])
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])
 		var rate := total / away_s if away_s > 0.0 else 0.0
 		var arrow := str(rep["arrow_up"]) if total > 0.0 else (str(rep["arrow_down"]) if total < 0.0 else str(rep["arrow_flat"]))
 		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
-		var b0 := float(b["streams"]["backlog"])
-		var b1 := float(now["backlog"])
 		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
 			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total),
-			"odds_from": "%.2f" % (b0 / (b0 + k_odds)), "odds_to": "%.2f" % (b1 / (b1 + k_odds))}), "stream", ""))
+			"odds_from": "%.2f" % odds_from, "odds_to": "%.2f" % odds_to}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
 	for e in evs:

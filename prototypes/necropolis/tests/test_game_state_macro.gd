@@ -251,7 +251,7 @@ func _flip() -> void:
 	t.ok(f["grace_s"] == 0.0 and f["held"] and RealmSim.is_contested(f), "after its grace the fort is contested, still held")
 	s.tick(s.substep_s())
 	var share: float = float(s._cfg()["S_vei"]) * float(f["cap"]) / _sum_cap(s)
-	var reship: float = float(s._cfg()["hold"]["reship_share"]) * (1.0 + float(s._cfg()["tithe"]["backlog_scale"]) * s.realm.odds()) * share
+	var reship: float = float(s._cfg()["hold"]["reship_share"]) * (1.0 + float(s._cfg()["tithe"]["backlog_scale"]) * s.realm.strain()) * share
 	t.near(float(f["r_shipped"]), reship, 1e-3 * reship, "she reships into it at reship_share × (1 + backlog_scale · odds) of its share (%.4f/s)" % reship)
 	s.tick(600.0)
 	var evs := s.drain_events().filter(func(e): return e["type"] == "fort_retaken")
@@ -326,8 +326,8 @@ func _tithe() -> void:
 	t.ok(_raid(s, "old-sluice", [], true)["ok"], "flip Old Sluice")
 	var t_flip := s.t
 	t.ok(s.realm.tithe["started"], "the first flip starts the tithe cycle")
-	t.near(s.realm.tithe["next_s"], float(tc["period_s"]) * (1.0 - float(tc["backlog_scale"]) * s.realm.odds()), 1e-9,
-		"the first wave is one period (at the odds now) after the flip")
+	t.near(s.realm.tithe["next_s"], float(tc["period_s"]) * (1.0 - float(tc["backlog_scale"]) * s.realm.strain()), 1e-9,
+		"the first wave is one period (at the strain now) after the flip")
 	s.realm.hold("old-sluice", 0.0)  # its grace ends now (no wave targets a fort in grace)
 	s.drain_events()
 	var w := _tick_until(s, "tithe_warning", 600.0)
@@ -490,7 +490,8 @@ func _readout() -> void:
 	t.near(s.view_vei()["drain_s"], 1000.0 / -ema, 1e-9, "drain_s = backlog / −EMA")
 	t.ok(s.view_hud()["drain_s"] == s.view_vei()["drain_s"], "view_hud agrees")
 	var k := float(s._cfg()["K"])
-	t.near(s.view_vei()["odds"], 1000.0 / (1000.0 + k), 1e-12, "odds = backlog / (backlog + K)")
+	t.near(s.view_vei()["strain"], 1000.0 / (1000.0 + k), 1e-12, "strain = backlog / (backlog + K)")
+	t.ok(s.view_vei()["odds"] == s.win_odds(s.t, s.view_vei()["strain"]), "odds = the win odds at the game's age on that strain")
 	s._readout["diff_ema"] = -5e-324
 	t.ok(s.view_vei()["drain_s"] == -1.0 and is_finite(s.view_vei()["drain_s"]), "a vanishing EMA gives -1.0, never INF")
 	s.realm.vei["undead_queue"] = 0.0

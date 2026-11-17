@@ -628,7 +628,12 @@ takes over 1 s.
     saws with each landed load, so one instant compares two phases. With the claim, fresh read 12.80
     caught up against 9.40 live (36.2%) while its minted totals were 0.0015% apart and its 600 s means
     0.05%. Without the claim, fresh passed on its phase (0.84%) and read 12.80 against 9.40 600 s later.
-    The 2 h default case and I1 still read the instant.
+    The 2 h default case and I1 still read the instant. **The window's premise is asserted** (E4 review
+    item 4): a mean over the window is off by at most about swing × cycle ÷ window, so each start's live
+    mint must cycle in at most a tenth of it, or not saw past the tolerance. Measured: fresh saws 30.8% on
+    a 21.4 s cycle, pre_vei 36.6% on 8.5 s, midgame_2flips not at all. **What a player sees:** the instant
+    mint a player returns to mid-cycle can read up to about 36% off live's for a few minutes (the
+    endpoint), though the totals and the means agree; a readout matter for the final report.
   - midgame_2flips: 2 h, the backlog 0.008%, Vei's dead 0.12%, Covington's stocks under 0.0005%, the
     rates under 0.003%, 1 held fort each, Covington identical, outcomes equal (25 waves, a retake); 12 h,
     the backlog 0.025%, Vei's dead 0.22%, the differential 0.10%, outcomes equal (181 waves, a retake).
@@ -817,9 +822,9 @@ dismissed) and the `away_report` event.
 | Vei-ready under the sessions profile | about 5–8 days (about 4–10 h of active play in all) |
 | share of backlog growth that happens while away, under sessions | ≥ 70% |
 | dead air: active minutes in which nothing has positive projected value | < 10% |
-| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. |
+| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. Since E4 step 9 (the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row): continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days |
-| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1 |
+| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
@@ -936,7 +941,10 @@ The profiles:
       over the step (dead about 0.06; Catchup.simulacrum_out_s's note), so the garrison reaches 0 at 3 711 s against
       3 678 s and the fort breaks 32.5 s late (3 831.2 s against 3 798.7 s: 3.25 steps, over the 2-step bound),
       reordering the retakes. With her at home all 7 match within 0.24 s; the test runs so. Before A1 the muster's WAR
-      (7.37 mass/s) fed the forts and hid it.
+      (7.37 mass/s) fed the forts and hid it. The gap stays under test (E4 review item 3): test_catchup's
+      _retakes_relish leaves her raising at Greywall and asserts the known bound (the same 7 forts retaken, Greywall
+      32.5 s late, over the 2-step bound and within 4 steps, the other six within 2 steps), so a fix to the spread
+      shows there and this record changes with it.
     - **The I1 gate fails days 1–2 at A1's start valve** (E4 step 5, A1 with the A1 day-1 valve ruling; an open item for
       the steps 5–8 review, the manager's A1 I1 ruling). Day 1: workers 50/46, living 86/70, the crypt L2 closed against
       L1 open; the first command answered otherwise is a queue at 14 400 s (queue_len 7 closed, 8 open). At the old valve
@@ -1017,6 +1025,7 @@ The profiles:
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
 - **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
   Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
+  Since E4 step 9 the odds are the win odds (`view_vei.odds`, mostly the game's age; MECHANICS §3.5), not the strain.
   - **The fronts are read at her full pool** (`_full_met`: each front's have against need_base + need_per_pool ×
     pool_cap, the need `_big_want` reads), at the look and again on arrival (E4 step 2, the manager's ruling R2 at the
     readout stop). Before R2 they were read at the pool she had then, and both profiles' readies fell inside a tithe
@@ -1046,6 +1055,16 @@ The profiles:
     steady and flat in Vei's pressure.
 
   It measures the held forts lost.
+
+  **E4 step 9's rulings on its misses** (the run's manager, 2026-11-17 12:45, items 2 and 4; 14:24):
+  - The prepared setup loses 0 of 6 (the aim is 10–25%, "not 0"; measured at 4ee7125 and 515092a, not re-run since
+    the odds lever, which leaves the hold calibration alone): accepted, with α at 0.85. The one lever allowed was a
+    10–15% jitter on the wave size in realm.json only, aiming at a fort lost in 1–3 of 10 prepared seeds. RealmSim has no
+    random draw at all (its waves are fully determined), so a jitter needs code. It was skipped, per the ruling's
+    fallback, and is reported.
+  - Relish's hold band is dead from 8 h to day 1.0 (the t1 forts need 0.28–0.42 against the 0.60 floor; the step 5–8
+    milestone's band_probe at 4ee7125, not re-run since): accepted. There the forecast shows "holds" with its margin (`view_fort().hold`), so the
+    player still reads how safe each fort is.
 - **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least
   half". This profile makes the risk real. From the same save it is away three times:
   - 24 h with WAR cut to 0 (WORK and FLOOD keeping their ratio), graded against "at least half";

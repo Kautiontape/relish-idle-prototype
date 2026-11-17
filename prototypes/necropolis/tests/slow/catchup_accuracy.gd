@@ -39,6 +39,15 @@ func run() -> int:
 		print("  [catchup_accuracy] %s, %.0f h caught up vs live: %s%s" % [st, HOURS, "pass" if r["ok"] else "FAIL", "; " + str(r["lines"])])
 		if st != "pre_vei":
 			t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])
+		# the window's premise (E4 review item 4): a mean over WINDOW_S is off by at most about swing × cycle ÷ window, so
+		# the mint's saw must cycle well inside it (at most a tenth: 10 cycles), or not saw past the tolerance at all.
+		# Measured at the E4 review items' tree: fresh 30.8% on 21.4 s, pre_vei 36.6% on 8.5 s, midgame_2flips none
+		var wd: Dictionary = r["window"]
+		var cyc := float(wd["cycle_s"])
+		var sw := float(wd["swing"])
+		t.ok((cyc <= 0.1 * WINDOW_S and float(wd["cycle_s_cu"]) <= 0.1 * WINDOW_S) or sw <= tol,
+			"%s: the mint saws %s on a %.1f s cycle live (%.1f s caught up), well inside the %.0f s window: the means' phase error is at most about %s" % [
+			st, conv._pct(sw), cyc, float(wd["cycle_s_cu"]), WINDOW_S, conv._pct(sw * cyc / WINDOW_S if is_finite(cyc) else 0.0)])
 	var script := func(s: GameState) -> void:
 		s.cmd_set_valve(0.5, 0.35, 0.15)
 		s.cmd_build("house", "lot-05")

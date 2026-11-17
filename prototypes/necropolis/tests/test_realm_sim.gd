@@ -356,7 +356,7 @@ func run() -> int:
 	t.ok(not over_pool, "Vei's pool never exceeds its cap")
 	t.near(sim.total_matter(), before + added - sim.cleared_total - lost, 1e-6 * maxf(1.0, before + added),
 		"matter: start + WAR + FLOOD − cleared − her pool's overflow (%.1f)" % lost)
-	t.ok(sim.readout()["odds"] >= 0.0 and sim.readout()["odds"] < 1.0, "odds in [0,1)")
+	t.ok(sim.readout()["strain"] >= 0.0 and sim.readout()["strain"] < 1.0, "strain in [0,1)")
 	t.ok(not sim.readout().has("directShare") and not sim.t.has("directShare"), "directShare is gone")
 
 	return t.failures
@@ -1053,7 +1053,7 @@ func _contest(t: TestUtil) -> void:
 		f["undead"] = 20.0
 		f["dead"] = 80.0  # full of corpses: no room
 		sim.vei["undead_queue"] = float(sim.t["K"]) * odds_q  # odds 0 or 0.5
-		var od := sim.odds()
+		var od := sim.strain()
 		sim.hold(f["id"], 0.0)
 		sim.step(0.5, {})
 		var want: float = share_k * (1.0 + bscale * od) * _share_rate(sim, f)

@@ -24,6 +24,7 @@
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
   "queue": { "max_len": 8 },
+  "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while no raidable fort remains, read as every fort at or below the highest tier ever flipped being held (GameState.relic_trickle_paying), paid into the relic store (lost at its cap). For a player walled at a tier. Read REQUIRED by GameState.", "period_s": 43200.0},
   "idle": {
     "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
     "catchup_dt_long_s": 15.0, "catchup_dt_long_after_s": 43200.0,

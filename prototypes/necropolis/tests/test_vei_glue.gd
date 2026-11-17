@@ -225,6 +225,7 @@ func _seed_otherwise_unchanged() -> void:
 		f["need"] = 0.0
 		f["have"] = 0.0
 	bs["backlog"] = float(bs["backlog"]) / 3000.0  # E4 step 3: the fixture's backlog is 3000x E3-3's, as realm.json K
+	bs["odds"] = s.realm.strain()  # E4 step 9 (option B): the seed carries the win odds; E3-3's odds were the strain
 	t.ok(JSON.stringify(bs).sha256_text() == PRE_VEI_ZEROED_SHA,
 		"pre_vei's boss seed with its fronts zeroed is E3-3's (%s); live, it hashes %s" % [PRE_VEI_ZEROED_SHA.left(16), live])
 

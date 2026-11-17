@@ -120,6 +120,7 @@ var sample_i1 := false
 var cmd_log: Array = []
 var div: Array = []
 var thr_row := {}  # the replay's first command answered otherwise than the leader's, with its thresholds (threshold_row)
+var bodies_row := {"n": 0, "worst": -1.0, "worst_t": -1.0, "worst_bound": 0.0, "breaks": 0, "first_break": {}}  # (bodies_gap_add)
 var rows: Array = []
 var i1: Array = []
 var wave_targets := {}  # with sample_i1: each tithe wave's fort and start t, by wave_id (the I1 report's target row)
@@ -341,11 +342,15 @@ func _thresholds(op: String) -> Array:
 ## The I1 replay's threshold row (the E4 review's item 9; a report row, not a gate), for the first command answered
 ## otherwise than the leader's: each of its thresholds with the closed run's stock (logged before the leader's command)
 ## and the open run's (just before the replayed one), and whether the threshold lies between them (a straddle: one run
-## on each side). The other stocks that differ are listed too. {} when nothing diverged.
+## on each side). The other stocks that differ are listed too. {} when nothing diverged. Each threshold row carries
+## its stock gap, closed − open and |closed − open| ÷ max(|open|, 1) (`gap_rel`), and `stock_gap` is the largest: a
+## straddle on a gap well over catchup_tol means the runs were already apart, not a tie on the line (the step 4
+## review's item 7: 328.92 against 284.09 bone is 15.8%).
 static func threshold_row(e: Dictionary, open_snap: Dictionary, thr: Array) -> Dictionary:
 	var closed: Dictionary = e.get("snap", {})
 	var rows: Array = []
 	var straddle := false
+	var gap := 0.0
 	for th in thr:
 		var k := str(th[0])
 		var c := float(closed.get(k, 0.0))
@@ -353,16 +358,41 @@ static func threshold_row(e: Dictionary, open_snap: Dictionary, thr: Array) -> D
 		var v := float(th[2])
 		var pc := c >= v if str(th[1]) == "ge" else c < v
 		var po := o >= v if str(th[1]) == "ge" else o < v
+		var rel := absf(c - o) / maxf(absf(o), 1.0)
 		rows.append({"stock": k, "need": "%s %s" % ["≥" if str(th[1]) == "ge" else "<", str(_r(v))], "closed": _r(c), "open": _r(o),
-			"straddle": pc != po})
+			"straddle": pc != po, "gap": _r(c - o), "gap_rel": _r(rel)})
 		straddle = straddle or pc != po
+		gap = maxf(gap, rel)
 	var other := {}
 	for k in closed:
 		if not open_snap.has(k) or absf(float(closed[k]) - float(open_snap[k])) <= 1e-6:
 			continue
 		other[k] = [_r(float(closed[k])), _r(float(open_snap[k]))]
 	return {"t": float(e["t"]), "op": str(e["op"]), "args": str(e.get("args", [])), "closed": "%s %s" % [str(e["ok"]), str(e["reason"])],
-		"thresholds": rows, "straddle": straddle, "differ": other}
+		"thresholds": rows, "straddle": straddle, "stock_gap": _r(gap), "differ": other}
+
+
+## A fraction as a percent for the I1 report rows: 0.158 → "15.8%".
+static func conv_pct(x: float) -> String:
+	return "%.1f%%" % (100.0 * x)
+
+
+## The I1 replay's bodies row (the step 4 review's item 7; a report row, not a gate): the gate samples the bodies at day
+## ends only, against one convoy load, so a gap over the load between them is unseen there. This samples it at every
+## replayed command, as the probe did: the closed run's bodies (logged before the leader's command) against the open
+## run's (just before the replayed one), against the open run's one-load bound then. `row` accumulates {n, worst,
+## worst_t, worst_bound, breaks, first_break: {t, gap, bound} or {}}.
+static func bodies_gap_add(row: Dictionary, t: float, closed: float, open: float, bound: float) -> void:
+	var g := absf(closed - open)
+	row["n"] = int(row.get("n", 0)) + 1
+	if g > float(row.get("worst", -1.0)):
+		row["worst"] = _r(g)
+		row["worst_t"] = _r(t)
+		row["worst_bound"] = _r(bound)
+	if g > bound:
+		row["breaks"] = int(row.get("breaks", 0)) + 1
+		if (row.get("first_break", {}) as Dictionary).is_empty():
+			row["first_break"] = {"t": _r(t), "gap": _r(g), "bound": _r(bound), "closed": _r(closed), "open": _r(open)}
 
 
 # ----------------------------------------------------------------------------------- the town's turn ---
@@ -1392,6 +1422,9 @@ func _replay_one(e: Dictionary) -> void:
 	var r := {}
 	var pre := _stock_snap() if thr_row.is_empty() else {}
 	var thr := _thresholds(op) if thr_row.is_empty() else []
+	var snap: Dictionary = e.get("snap", {})
+	if snap.has("bodies"):  # (the bodies row: every command, closed against open, against one load now)
+		bodies_gap_add(bodies_row, float(e["t"]), float(snap["bodies"]), float(s.view_town()["bodies"]), float(_one_load()["bound"]))
 	if op == "begin":
 		var fid := str(a[0])
 		var f := s.view_fort(fid)
@@ -1452,18 +1485,24 @@ func _i1_sample() -> Dictionary:
 		"bodies": 0.01 * float(tn["bodies_cap"]), "vei_pool": float(v["pool_cap"])}
 	# the bodies are judged within one convoy load instead (the manager's ruling at the E3-6b stop): a closed run's
 	# convoys can be at another phase of their trip at the sample than an open run's, so the store can differ by up
-	# to a load (job.haul.carry x the haulers staffed in this run now, as view_town's jobs row counts them)
-	var haulers := 0.0
-	for j in tn["jobs"]:
-		if str(j["id"]) == "haul":
-			haulers = float(j["staffed"])
-	var carry := float(c["economy"]["job"]["haul"]["carry"])
-	var bounds := {"bodies": {"bound": carry * haulers, "carry": carry, "haulers": haulers}}
+	# to a load (_one_load)
+	var bounds := {"bodies": _one_load()}
 	var bl := {}
 	for b in tn["buildings"]:
 		bl[str(b["lot_id"])] = "%s L%d" % [str(b["building_id"]), int(b["level"])]
 	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids(),
 		"pool_wave": _pool_wave()}
+
+
+## One convoy load, the I1 bodies bound: {bound, carry, haulers}, job.haul.carry × the haulers staffed in this run now
+## (as view_town's jobs row counts them).
+func _one_load() -> Dictionary:
+	var haulers := 0.0
+	for j in s.view_town()["jobs"]:
+		if str(j["id"]) == "haul":
+			haulers = float(j["staffed"])
+	var carry := float(c["economy"]["job"]["haul"]["carry"])
+	return {"bound": carry * haulers, "carry": carry, "haulers": haulers}
 
 
 ## Vei's tithe clock and her pool's rates at an I1 sample, for i1_compare's pool bound (E4 step 3, the manager's
@@ -1622,18 +1661,33 @@ func prepare_away() -> Dictionary:
 			var dr := _cmd("deploy", [thin])
 			rec["simulacrum"]["deploy"] = "ok" if bool(dr["ok"]) else str(dr["reason"])
 		_tick_to(s.t + 1.0)
-	var tg: Dictionary = s.view_hud()["valve_target"]
-	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
-	var war := float(tg["war"])
-	rec["valve"] = {"from": war, "war": war, "min_margin": _min_hold_margin()}
-	while float(rec["valve"]["min_margin"]) < 0.0 and war < 0.95 - 1e-9:
-		war = minf(0.95, war + 0.05)
-		var ok := bool(_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])["ok"])
-		_tick_to(s.t + 1.0)
-		rec["valve"] = {"from": float(tg["war"]), "war": war, "ok": ok, "min_margin": _min_hold_margin()}
+	rec["valve"] = _pump_war()
 	if str(s.view_relish()["state"]) != "home":
 		_cmd("move", ["covington"])
 		_tick_until(func(): return str(s.view_relish()["state"]) == "home", s.t + 600.0)
+	return rec
+
+
+## prepare_away's WAR: up in WAR_STEP steps (WORK and FLOOD keeping their ratio) until no held fort WAR can save reads a
+## margin under 0, and never past WAR_MAX. A fort that needs more than WAR_MAX at the valve now (war × need ÷ war_in, as
+## _war_topup reads it) is a lost cause: it is let go, as _war_topup lets it go in a session (E4 review item 11 (a);
+## before, the pump ran to WAR_MAX for it, paying growth for a fort WAR can't hold). A fort no dispatch has reached yet
+## (war_in 0) is still counted. {from, war, ok, min_margin (over the forts not let go), let_go}.
+func _pump_war() -> Dictionary:
+	var tg: Dictionary = s.view_hud()["valve_target"]
+	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
+	var war := float(tg["war"])
+	var gone: Array = []
+	for f in s.view_realm()["forts"]:
+		var h: Dictionary = f["hold"]
+		if bool(f["held"]) and float(h["war_in"]) > 0.0 and war * float(h["need"]) / float(h["war_in"]) > WAR_MAX + 1e-9:
+			gone.append(str(f["id"]))
+	var rec := {"from": war, "war": war, "min_margin": _min_hold_margin(gone), "let_go": gone}
+	while float(rec["min_margin"]) < 0.0 and war < WAR_MAX - 1e-9:
+		war = minf(WAR_MAX, war + WAR_STEP)
+		var ok := bool(_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])["ok"])
+		_tick_to(s.t + 1.0)
+		rec = {"from": float(tg["war"]), "war": war, "ok": ok, "min_margin": _min_hold_margin(gone), "let_go": gone}
 	return rec
 
 
@@ -1670,10 +1724,10 @@ func _lowest_hold() -> String:
 
 
 ## The lowest held margin (view_fort().hold.margin), INF with none held.
-func _min_hold_margin() -> float:
+func _min_hold_margin(skip: Array = []) -> float:
 	var low := INF
 	for f in s.view_realm()["forts"]:
-		if bool(f["held"]):
+		if bool(f["held"]) and not skip.has(str(f["id"])):
 			low = minf(low, float(s.view_fort(str(f["id"]))["hold"]["margin"]))
 	return low
 
@@ -2343,16 +2397,28 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 	else:
 		var parts: Array = []
 		for th in tr["thresholds"]:
-			parts.append("%s %s: closed %s, open %s%s" % [th["stock"], th["need"], str(th["closed"]), str(th["open"]), " (straddle)" if bool(th["straddle"]) else ""])
+			parts.append("%s %s: closed %s, open %s, a stock gap of %s%s" % [th["stock"], th["need"], str(th["closed"]), str(th["open"]),
+				conv_pct(float(th["gap_rel"])), " (straddle)" if bool(th["straddle"]) else ""])
+		var apart := float(tr["stock_gap"]) > tol
 		print("  [autoplay] I1 threshold (a report row, not a gate): the first command answered otherwise is %s %s at t %s (closed %s, open %s); %s; %s; other stocks apart (closed, open): %s" % [
 			tr["op"], tr["args"], str(_r(float(tr["t"]))), tr["closed"], tr["open"],
 			"; ".join(PackedStringArray(parts)) if not parts.is_empty() else "no threshold known for this op",
-			"a threshold straddle" if bool(tr["straddle"]) else "not a straddle of a known threshold", JSON.stringify(tr["differ"])])
+			("a threshold straddle on a %s stock gap, over the %s tolerance: the runs were already apart" % [conv_pct(float(tr["stock_gap"])), conv_pct(tol)]
+				if apart else "a threshold straddle within the tolerance") if bool(tr["straddle"]) else "not a straddle of a known threshold",
+			JSON.stringify(tr["differ"])])
+	# the bodies row (the step 4 review's item 7, a report row, not a gate): the bodies gap at every replayed command
+	# against one load, since the gate's day-end samples miss a break between them
+	var br: Dictionary = fol.bodies_row
+	print("  [autoplay] I1 bodies at each command (a report row, not a gate): %d commands; the widest gap %s at t %s (one load %s); %d over one load%s" % [
+		int(br["n"]), str(br["worst"]), str(br["worst_t"]), str(br["worst_bound"]), int(br["breaks"]),
+		"" if (br["first_break"] as Dictionary).is_empty() else ", the first at t %s: closed %s, open %s, a gap of %s over %s" % [
+			str(br["first_break"]["t"]), str(br["first_break"]["closed"]), str(br["first_break"]["open"]), str(br["first_break"]["gap"]),
+			str(br["first_break"]["bound"])]])
 	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
 	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
 	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
 	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10),
-		"wave_targets": {"compared": both, "first_differs": first_target}, "threshold": tr}})
+		"wave_targets": {"compared": both, "first_differs": first_target}, "threshold": tr, "bodies_at_commands": br}})
 	lead.cleanup()
 	fol.cleanup()
 
@@ -2387,6 +2453,18 @@ static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
 	if real:
 		variants = [["war_cut", DAY, true, false], ["default_72h", 3 * DAY, false, false], ["prepared_72h", 3 * DAY, false, true]]
 	_away_variants(t, cfg, lead.dir, "risk", lead.s.t, variants, out)
+	if not real:
+		# E4 review item 11 (b): the default row grades the opening valve (default_valve undoes the bot's in-session top-up,
+		# ruling 3), and as_left the bot's own WAR. Side by side, so the 03:28 target ("the default valve loses at least
+		# half") is not read as met in play
+		var dv: Dictionary = out["default"]
+		var al: Dictionary = out["as_left"]
+		var w_open := float(cfg["economy"]["opening"]["valve"]["war"])
+		var w_play := float(dv["prep"]["valve_default"]["from"]["war"])
+		out["default_vs_as_left"] = {"opening_war": w_open, "lost_default": int(dv["lost_n"]), "played_war": w_play,
+			"lost_as_left": int(al["lost_n"]), "held": dv["held_at_leave"]}
+		print("  [autoplay] away_risk default against as_left (24 h, held at leave %s): at the opening valve's WAR %.2f it loses %d; as left at the bot's in-session WAR %.2f it loses %d. The 03:28 target is graded at the opening valve, not at the WAR a player leaves" % [
+			str(dv["held_at_leave"]), w_open, int(dv["lost_n"]), w_play, int(al["lost_n"])])
 	if real:
 		# the WAR-cut midgame (test_held_forts' setup: midgame_2flips with WAR cut retakes both held forts within about
 		# 1 300 s): the fixture as it loads (one substep, no bot turn), 24 h as it stands, with WAR cut, and prepared

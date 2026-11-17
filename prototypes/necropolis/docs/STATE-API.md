@@ -392,6 +392,20 @@ from `BALANCE.md` §0.
     `view_town.queue[].short` (`{gold, bone}` a head waiting on funds is short of), `.starved` (the mills' reason while
     it is short of bone) and `.lever`; and `view_hud.bone_war_share` (a new game's bone edge, for the valve readout).
     The away report's head line names the bone short and the lever (§5.19).
+
+  `api_version` 12 (E4 step 9, the odds lever; the run's manager's ruling of 2026-11-17 13:44, option B) added:
+  - **The win odds**: `view_hud.odds`, `view_vei.odds`, the boss seed's `odds`, the save summary's and the away
+    report's "odds A → B" are `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) ·
+    min(`odds.backlog_cap`, strain) (§5.1), mostly time-based with the backlog term capped. A meaning change, not a
+    shape change. `GameState.win_odds_of` is the pure formula (the map valve's "odds in 10 min" projects with it).
+  - **`view_vei.strain`**: `backlog / (backlog + K)`, what the odds were until v12. Her tithe period, reship and
+    one-wave need read it, unchanged, so the hold calibration doesn't move; it is never shown as odds.
+    `RealmSim.odds()` is renamed `strain()`, and `RealmSim.readout().odds` is `.strain` (not contract).
+  - **The idle relic trickle** (the run's manager's rulings on step 9 (3), 2026-11-17 12:45 and 14:24; MECHANICS
+    §2's relics row): `view_hud.highest_tier_flipped` and `view_hud.relic_trickle {paying, next_s}` (§5.1), and the save's optional
+    `inventory.relic_trickle_s` (the accrued paying seconds; written once non-zero, so a save that never paid is
+    byte for byte as before; absent, it loads as 0; §9.1). The highest tier flipped is derived from the forts' saved
+    `flipped_count` (never reset), so it needs no save key of its own, and an old save reads its own history.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -446,7 +460,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 11
+const API_VERSION := 12
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -1472,9 +1486,11 @@ Every field is live from E2a:
 | `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
 | `hold_mult` | float | v11 (E4 step 5, ruling B1): Vei's pressure at held forts, max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`); 1.0 in a new game (MECHANICS §3.4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
+| `highest_tier_flipped` | int | v12 (E4 step 9, ruling 3): the top tier among forts ever flipped (`view_fort.flipped_count` > 0), 0 before any flip |
+| `relic_trickle` | Dictionary | v12 (E4 step 9, ruling 3; MECHANICS §2's relics row): `{paying: bool, next_s: float}`. The idle relic trickle pays one relic per `economy.json` `relic_trickle.period_s` (12 h) of game time while every fort at or below `highest_tier_flipped` is held (read at each step's start, open and caught up alike), into the relic store (lost at `relics_cap`). `next_s` is the paying seconds left to its next relic, `-1.0` while it doesn't pay; the accrued seconds are kept while it doesn't |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
-| `odds` | float | `backlog / (backlog + K)`, 0..1 |
+| `odds` | float | The win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `realm.json` `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`). Until v12, the strain itself. A meaning change, not a shape change: nothing in the fight reads them (her tithe period, reship and need read the strain), and the boss seed, the away report's "odds A → B", the save summary and the map valve's "odds in 10 min" show these same odds |
 | `won` | bool | |
 ```gdscript
 {rev: 3, game_id: "0000002a", t: 1.0, time_scale: 1.0, paused: false,
@@ -1638,7 +1654,7 @@ dungeon's configs (v6, below); the hold's readouts
 | `simulacrum_charges` | float | mass left across simulacra planted here, summed when several are (they stack); 0 when none. Each one's charges fall by what it raises and it crumbles at 0; a retake loses them all (MECHANICS §3.6, §3.4) |
 | `siege` | Array[String] | big-undead uids placed here |
 | `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool, next: bool, next_s: float}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). `next` (v11, E4 step 5 B1 (ii)): the fort is the one the next wave would go to if it were chosen now, or the warned one during a warning (`view_vei.tithe.next_target`); `next_s` (v11) the seconds to the next wave, `-1.0` before the clock starts. |
-| `hold` | Dictionary | v11 (E4 step 5, ruling B1 (ii)): the margin forecast the wave's target rule reads, `{war_in, need, margin, pressure_mult, fall_s, margin_cause}`. `war_in` is the settled WAR to it (mass/s: the valve's target at the pits' trough feed, split as the last dispatch splits WAR; not the convoy's sawtooth, so not `war_in` above), `need` its one-wave need (mass/s, MECHANICS §3.4: the least WAR at which one full wave from its settled garrison doesn't break it), `margin` = `war_in − need` (the lowest contested margin draws the next wave), `pressure_mult` Vei's pressure there (`view_hud.hold_mult`), `fall_s` and `margin_cause` as above. A fort not held reads `0.0`, `1.0`, `-1.0` and `""`. Also on `view_realm.forts`. |
+| `hold` | Dictionary | v11 (E4 step 5, ruling B1 (ii)): the margin forecast the wave's target rule reads, `{war_in, need, margin, pressure_mult, fall_s, margin_cause}`. `war_in` is the settled WAR to it (mass/s: the valve's target at the pits' trough feed, split as the last dispatch splits WAR; not the convoy's sawtooth, so not `war_in` above), `need` its one-wave need (mass/s, MECHANICS §3.4: the least WAR at which one full wave from its settled garrison doesn't break it), `margin` = `war_in − need` (the lowest contested margin draws the next wave), `pressure_mult` Vei's pressure there (`view_hud.hold_mult`; the value `need` and `margin` were derived at, RealmSim's as last synced, so an edit between steps that moves the pits shows in both at the next step), `fall_s` and `margin_cause` as above. **The forecast's word** (holds or will_fall, the 03:28 must-show) **is the fort entry's `margin` string above, not a key of `hold`**: `hold.margin` is the number (mass/s), and a UI reads `"will_fall"` / `"thin"` / `"safe"` from the entry beside it (E4 review item 10). A fort not held reads `0.0`, `1.0`, `-1.0` and `""`. Also on `view_realm.forts`. |
 | `can_descend` | bool | `cmd_begin_dungeon(id)` would succeed now |
 | `reason` | String | the reason it would return (`""`, `busy`, `dead`, `not_at_fort`) |
 ```gdscript
@@ -2138,6 +2154,7 @@ and `have` were 0.0, `cleared` false and `fronts_met` 0.
 | `diff` | float | mass/s: the raw differential this substep (0.0 after a load until the first substep) |
 | `diff_ema` | float | mass/s: the EMA over `readout.ema_s` |
 | `sign`, `drain_s`, `odds` | int, float, float | as in `view_hud` |
+| `strain` | float | v12 (E4 step 9, option B): `backlog / (backlog + K)`, 0..1. Her tithe period, her reship into held forts and the one-wave need read it (MECHANICS §3.4); it is not shown as odds. `odds` is the win odds, which read it with the game's age (`view_hud.odds`) |
 | `digest_q` | float | |
 | `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
 | `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |
@@ -2743,7 +2760,7 @@ take the router's legacy path (§2.3).
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers, and from v8 (E3-1) the optional `state` (below) |
-| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` (from E3-4 optional on load: an int when present, else `corrupt`; absent it reads 0) |
+| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` (from E3-4 optional on load: an int when present, else `corrupt`; absent it reads 0), `relic_trickle_s` (v12, E4 step 9: the idle relic trickle's accrued paying seconds, `view_hud.relic_trickle`; written only once non-zero; optional on load, a number when present, else `corrupt`; absent it reads 0) |
 | `big_undead` | Array[Dictionary] | the entries, with `place` and `front`, and from v8 (E3-3) `filled_slots: int`, optional: an int when present (else `corrupt`), and a record without it loads as 1 (§5.12) |
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |
