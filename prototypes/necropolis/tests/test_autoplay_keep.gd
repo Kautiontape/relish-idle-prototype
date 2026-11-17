@@ -259,7 +259,11 @@ func run() -> int:
 	# E4 step 3: a dip in Vei's pool (every tithe wave draws it) doesn't release a keeper. Two carvers bigs that meet the
 	# want at her full pool together, each over what the want would be with her pool at 0 (the old rule read today's
 	# need, so one alone met it and the other was released to raid)
-	var dp := Autoplayer._bot("keep_test_dip", c, {"print_rows": false})
+	# (at carvers' need_base 18, the value it was built on: the shipped 2 since E4 step 2's sizing leaves the want at an
+	# empty pool under 0, and the case needs it above)
+	var cd := c.duplicate(true)
+	cd["vei"]["fronts"]["carvers"]["need_base"] = 18.0
+	var dp := Autoplayer._bot("keep_test_dip", cd, {"print_rows": false})
 	dp.new_game()
 	var cap := float(dp.s.view_vei()["pool_cap"])
 	dp.s.realm.vei["living_pool"] = cap

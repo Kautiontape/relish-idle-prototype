@@ -885,8 +885,17 @@ The profiles:
     - test_i1_gate's pool cases, on day 2's measured samples: the gap passes on D; one over D fails; neither drawn, or
       both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
     - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
-      runs. The slip grows about 30 s a day and passes the 150 s warning lead near day 5; past it a target can differ,
-      which this bound doesn't cover. AUTOPLAY_DAYS=8 measures it.
+      runs. AUTOPLAY_DAYS=8 measures it.
+    - **I1 holds 3 days at K 36M; day 4 is a known limit** (E4 step 2's sizing stop, the manager's ruling 1). At
+      152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4: closed is a House level
+      ahead (living 134 against 126, lot-07 L3 against L2). The first command to answer differently is a queue command
+      in the 08:00 session of day 4 (288 761 s), refused `queue_full` open and with room closed: the closed run started
+      a build first. A smaller catch-up step doesn't move that break. At 7a8d469, with `catchup_dt_max_s` and
+      `catchup_dt_long_s` both 10/15, 3 and 2, the first differing command was the same queue command at the same
+      moment (274 631.5 s), while the slip fell about ten times (days 1–3: 7.9/29.8/62.5 s, 3.2/10.9/22.4, 0.6/3.1/6.9)
+      and the first differing wave target moved from day 4 to day 5. A smaller step is also out of budget
+      (catchup_bench's worst start, against 2 s and 10 s: 10 s 1.69 and 11.47; 3 s 4.30 and 53.0; 2 s 6.06 and 80.4),
+      so the step stays 10 s and the gate stays 2 days.
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.

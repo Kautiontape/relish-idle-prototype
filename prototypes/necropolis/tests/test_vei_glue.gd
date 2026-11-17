@@ -110,10 +110,10 @@ func _formula() -> void:
 		t.ok(f["cleared"] == (float(f["have"]) >= float(f["need"])), "%s: cleared %s is have >= need" % [f["id"], f["cleared"]])
 		if f["cleared"]:
 			met += 1
-	# at the shipped vei.json (E4 step 3: mass alone clears exactly swarm): giants 9 / 18 open, swarm 51 / 16 met,
-	# carvers 3q / 22 open, raw 12 + 22.5 / 46 open (raw needs power from bigs)
-	t.ok(fr.map(func(f): return f["cleared"]) == [false, true, false, false], "swarm met by mass, raw, giants and carvers open: %s" % str(fr.map(func(f): return f["cleared"])))
-	t.ok(vv["fronts_met"] == met and vv["fronts_met"] == 1 and vv["fronts_required"] == 3, "fronts_met 1 (the cleared count), fronts_required 3")
+	# at the shipped vei.json (E4 step 3: mass alone clears exactly swarm; E4 step 2's sizing re-pin, giants and carvers
+	# need_base 2): giants 9 / 6 met by its bigs, swarm 51 / 16 met by mass, carvers 3q / 6 open, raw 12 + 22.5 / 46 open
+	t.ok(fr.map(func(f): return f["cleared"]) == [true, true, false, false], "swarm met by mass and giants by its bigs; raw and carvers open: %s" % str(fr.map(func(f): return f["cleared"])))
+	t.ok(vv["fronts_met"] == met and vv["fronts_met"] == 2 and vv["fronts_required"] == 3, "fronts_met 2 (the cleared count), fronts_required 3")
 	# the backlog moves have where it counts (swarm and raw), and the pool moves need
 	s.realm.vei["undead_queue"] = 0.0
 	s.realm.vei["living_pool"] = 600.0

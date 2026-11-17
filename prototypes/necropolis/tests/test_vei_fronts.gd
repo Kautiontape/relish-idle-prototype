@@ -67,11 +67,11 @@ func run() -> int:
 	t.near(float(_by(fr, "swarm")["have"]), 4.0 + 10.0, 0.0001, "swarm have = presence + 5e-7*backlog")
 	t.near(float(_by(fr, "carvers")["have"]), 6.0 + 6.0, 0.0001, "carvers have = beef + 3*q")
 	t.near(float(_by(fr, "raw")["have"]), 7.0 + 5.0, 0.0001, "raw have = power + 2.5e-7*backlog")
-	t.near(float(_by(fr, "giants")["need"]), 14.0 + 10.0, 0.0001, "giants need = base + 0.02*pool")
+	t.near(float(_by(fr, "giants")["need"]), 2.0 + 10.0, 0.0001, "giants need = base + 0.02*pool")  # E4 step 2's sizing: base 2
 	t.near(float(_by(fr, "raw")["need"]), 40.0 + 15.0, 0.0001, "raw need = base + 0.03*pool")
 	t.ok(_by(fr, "giants")["assigned"] == ["g1", "g2"], "assigned lists the counted uids")
 	var fr0 := VeiFronts.have_need(_info(units, 10000.0, 0.0, 2.0), cfg)
-	t.near(float(_by(fr0, "giants")["need"]), 14.0, 0.0001, "pool 0 gives need_base")
+	t.near(float(_by(fr0, "giants")["need"]), 2.0, 0.0001, "pool 0 gives need_base")
 	t.ok(float(_by(fr, "giants")["need"]) > float(_by(fr0, "giants")["need"]), "need scales with living pool")
 
 	# --- counting rule -------------------------------------------------------
@@ -104,7 +104,9 @@ func run() -> int:
 	fr = VeiFronts.have_need(_info(cu), cfg)
 	t.ok(bool(_by(fr, "giants")["cleared"]), "have == need clears")
 	t.ok(not bool(_by(fr, "swarm")["cleared"]), "have < need does not clear")
-	t.ok(VeiFronts.fronts_met(fr) == 1, "fronts_met counts cleared fronts")
+	# E4 step 2's sizing (need_base 2): carvers' 3 × q alone clears its need at this pool too, so count the cleared
+	t.ok(VeiFronts.fronts_met(fr) == fr.filter(func(f): return bool(f["cleared"])).size() and VeiFronts.fronts_met(fr) >= 1,
+		"fronts_met counts cleared fronts (%d)" % VeiFronts.fronts_met(fr))
 	t.ok(VeiFronts.required(cfg) == 3, "required reads fronts_required")
 	t.ok(VeiFronts.required({}) == 3, "required defaults to 3")
 	t.ok(VeiFronts.required({"fronts_required": 2}) == 2, "required honours cfg")
