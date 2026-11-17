@@ -7,7 +7,7 @@ extends RefCounted
 ## - the slab fill puts giants' stat first when that brings more of its want, and raid_all keeps the magnitude fill;
 ## - two-front keeping (the sizing stop's ruling): both fronts' keepers at cap 6, the better-covered front's at cap 4, a
 ##   big that qualifies on both kept once;
-## - the crypt's levels head the fill once the crypt is full while a husk waits, and not before.
+## - the crypt's levels head the fill once a big is kept, or the crypt is full while a husk waits, and not before.
 
 var t := TestUtil.new()
 
@@ -100,6 +100,16 @@ func _crypt_levels(c: Dictionary) -> void:
 			b._fill()
 			t.ok(b._crypt_up, "the latch holds with no husk left")
 		b.cleanup()
+	# a keeper alone (the crypt has room, no husk): the crypt's levels head the fill too
+	var k := Autoplayer._bot("keep_test_crypt_k", c, {"print_rows": false})
+	k.new_game()
+	_big(k.s, _stat_for(c, k._big_want()["giants"], "giants", 0.5), 0.0)
+	k._place()
+	k._fill()
+	var kids := _queue_ids(k.s)
+	t.ok(k._keep.size() == 1 and k._crypt_up and not kids.is_empty() and str(kids[0]) == "crypt/lot-01/2",
+		"a keeper held (%s), the crypt with room: crypt level 2 heads the fill: %s" % [str(k._keep), str(kids)])
+	k.cleanup()
 
 
 static func _queued(gs: GameState, lot: String) -> bool:

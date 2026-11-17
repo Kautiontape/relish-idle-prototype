@@ -78,7 +78,7 @@ const LADDER := [
 ]
 
 ## The crypt's levels (E4 step 2's sizing, ruling 2: economy.json big_undead.per_crypt_level, a place a level), put at
-## the head of the list from the first look that finds the crypt full while a husk waits (_crypt_up, every profile).
+## the head of the list from the first look that keeps a big, or finds the crypt full while a husk waits (_crypt_up).
 const CRYPT_LEVELS := [["crypt", "lot-01", 2], ["crypt", "lot-01", 3]]
 
 static var _list_cache: Array = []
@@ -98,7 +98,7 @@ var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants 
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
-var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that finds the crypt full while a husk waits
+var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
 var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
 var print_rows := true
 var open_rows := false
@@ -613,13 +613,14 @@ static func _list(cfg: Dictionary) -> Array:
 
 
 ## The queue: kept filled from the priority list. An item is queued once the level below it on its lot is built,
-## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look. From the first look that finds
-## the crypt full (big undead at the cap) while a husk waits, the crypt's levels (CRYPT_LEVELS) head the list: a husk
-## that can't be raised is a big lost, and a level is a place (big_undead.per_crypt_level).
+## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look. From the first look that keeps a
+## big (_keep), or finds the crypt full (big undead at the cap) while a husk waits, the crypt's levels (CRYPT_LEVELS)
+## head the list: a keeper takes a place a raider would use, a husk that can't be raised is a big lost, and a level is a
+## place (big_undead.per_crypt_level).
 func _fill() -> void:
 	if not _crypt_up:
 		var bu := s.view_big_undead()
-		_crypt_up = int(bu["count"]) >= int(bu["cap"]) and not (s.view_inventory()["husks"] as Array).is_empty()
+		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"]) and not (s.view_inventory()["husks"] as Array).is_empty())
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -1596,7 +1597,7 @@ func _day_end() -> void:
 # ----------------------------------------------------------------------------------------------- summary ---
 func policy() -> Dictionary:
 	return {
-		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots; the crypt's levels 2 and 3 at its head from the first look that finds the crypt full while a husk waits)%s" % (
+		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots; the crypt's levels 2 and 3 at its head from the first look that keeps a big, or finds the crypt full while a husk waits)%s" % (
 			"; reorder: the soonest-affordable entry to the head when the head reads -1 or later than another" if reorder else "; no reorder (static)"),
 		"raids": ("one a session at the day's tier (days 1-2 t1, 3-4 t2, 5-6 t3, 7-8 t4)" if static_raids else
 			"the highest tier the party reaches (tier T needs raid.json party_profiles[T]'s bigs), the first dungeon first, higher yield, unheld before held") +

@@ -943,11 +943,13 @@ The policies (the run's manager's, for Shawn):
   - **Reorder** (not in static): when the head (the first entry that isn't `skipped_gate`) reads `affordable_in_s` −1,
     or later than another entry, the soonest-affordable entry moves to the head with `cmd_reorder_queue`. The Bone Mill
     is not first by fiat: the reorder puts it first, because Market level 2 reads −1 on bone with no mill.
-  - **The crypt's levels** (E4 step 2's sizing stop, the manager's ruling 2; every profile): from the first look that
-    finds the crypt full (big undead at the cap) while a husk waits, crypt levels 2 and 3 head the list (150 g, 60 b
-    and 1 relic, then 300 g, 120 b and 2 relics; `big_undead.per_crypt_level` adds a place a level, so cap 4 → 6). The
-    latch holds for the run. **The player's reason:** a husk that can't be raised is a body wasted, and a crypt level
-    is the only way to more room. Before this the bot never levelled the crypt (cap 4 on all 8 days of sessions).
+  - **The crypt's levels** (E4 step 2's sizing stop, the manager's ruling 2): from the first look that keeps a big
+    (keep_fronts), or finds the crypt full (big undead at the cap) while a husk waits (every profile), crypt levels 2
+    and 3 head the list (150 g, 60 b and 1 relic, then 300 g, 120 b and 2 relics; `big_undead.per_crypt_level` adds a
+    place a level, so cap 4 → 6). The latch holds for the run. **The player's reason:** a big kept home takes a place
+    a raider would use, a husk that can't be raised is a body wasted, and a crypt level is the only way to more room.
+    Before this the bot never levelled the crypt (cap 4 on all 8 days of sessions). The full-crypt trigger alone never
+    fired in sessions (afbb436 at try 1's needs): raiders die faster than the crypt fills.
 - **Raids** go to the highest tier the party reaches, with no death-rate filter, and the bot never retreats.
   - The sim gates no raid tier (`cmd_begin_dungeon` refuses only `unknown_fort`, `busy`, `dead` and `not_at_fort`), so
     the reach is the stand-ins' own premise: tier T needs at least as many bigs in the party as raid.json
