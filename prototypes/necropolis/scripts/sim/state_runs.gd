@@ -402,7 +402,7 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	f["dead"] += k
 	# a held fort's raid that cleared its counter-garrison (api-request #10): held when the run began
 	# (run["held"]) and still held now (the realm keeps stepping during a run, so Vei may have retaken
-	# it: a retake resets yield_c to 1, MECHANICS §5.3, and a clear must not halve that), a retreat, and
+	# it: the fort is hers again, so it is no held clear and spends no yield, MECHANICS §5.3), a retreat, and
 	# kills that reach the seed's living less half of one of the dungeon's living units
 	var cg_cleared: bool = bool(gs.run.get("held", false)) and RealmSim.is_held(f) and bool(r["retreated"]) \
 		and float(r["killed_living_mass"]) >= float(sd["living"]) - gs._clear_tolerance(sd)

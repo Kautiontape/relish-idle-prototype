@@ -205,5 +205,5 @@ func _retaken_mid_run() -> void:
 	var r := _mid_run(true)
 	t.ok(r["ok"] and not r["held"], "retaken mid-run: the result still applies, the fort is Vei's: %s" % str(r))
 	t.ok(r["cleared"] == 0, "retaken mid-run: no counter_garrison_cleared for a fort Vei owns (%d)" % r["cleared"])
-	t.ok(r["yield_c"] == 1.0, "retaken mid-run: yield_c stays at the retake's 1 (%.3f), not halved" % r["yield_c"])
+	t.ok(r["yield_c"] == 1.0, "retaken mid-run: no yield spent, yield_c stays at the 1 it had (the retake leaves it; %.3f), not halved" % r["yield_c"])
 	t.ok(r["banked"] == 1 and r["relics"] == 2, "retaken mid-run: the retreat banks its loot as usual (%d event, %d relics)" % [r["banked"], r["relics"]])

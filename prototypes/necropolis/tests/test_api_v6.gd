@@ -572,8 +572,8 @@ func _counter_garrison() -> void:
 # ------------------------------------------------- §4 the loot yield recovers ----
 ## view_fort.yield_mult (and the seed's) is live (MECHANICS §5.3): loot.reclear_decay^clears relaxing
 ## linearly back to 1 over loot.recover_s. One paying clear halves it, two back to back quarter it; it
-## recovers linearly to exactly 1 at recover_s from any depth; a save keeps it; a retake resets it; a
-## save from before v6 reads 1.
+## recovers linearly to exactly 1 at recover_s from any depth; a save keeps it; a retake keeps it (it goes on
+## recovering from the spent yield); a save from before v6 reads 1.
 func _yield() -> void:
 	t.suite("api-v6-yield")
 	var loot: Dictionary = TestUtil.configs()["loot"]
@@ -613,17 +613,21 @@ func _yield() -> void:
 		e.erase("yield_t")
 	var o := _mk(2)
 	t.ok(o.from_dict(d)["ok"] and o.view_fort("old-sluice")["yield_mult"] == 1.0, "an older save reads 1")
-	# a retake resets it
+	# a retake keeps the spent yield (the run's manager, 2026-11-17: a fort lost and retaken has already been
+	# looted, so losing it costs, not pays; it was reset to 1, which made a re-flip a full-yield raid)
 	var r := _mk()
 	r.cmd_debug_set_state({"valve": {"work": 0.0, "war": 0.0, "flood": 1.0}, "forts": {"greywall": {"living": 60.0, "undead": 0.0}}})
 	var g := r.realm.fort_by_id("greywall")
 	r.realm.hold("greywall", 0.0)
 	g["yield_c"] = 0.25
 	g["yield_t"] = r.t
+	var yt0 := r.t
 	t.ok(float(r.view_fort("greywall")["yield_mult"]) < 1.0, "a held fort with a spent yield (setup)")
 	for i in int(float(r._cfg()["hold"]["break_s"]) / r.substep_s()) + 2:
 		r.tick(r.substep_s())
-	t.ok(not g["held"] and r.view_fort("greywall")["yield_mult"] == 1.0, "a retake resets it to 1")
+	var want := 1.0 - 0.75 * maxf(0.0, 1.0 - (r.t - yt0) / rec)
+	t.ok(not g["held"] and g["yield_c"] == 0.25 and g["yield_t"] == yt0, "a retake keeps the spent yield (yield_c 0.25, yield_t unmoved)")
+	t.near(float(r.view_fort("greywall")["yield_mult"]), want, 1e-12, "and it keeps recovering from it: %.4f, not 1" % want)
 
 
 ## A buildings.json effect at `level`, as TownSim._eff_b reads it: a number per level (× level), an Array the

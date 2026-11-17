@@ -211,7 +211,7 @@ var _disp_lim: Array[float] = []
 ## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_s is
 ## deprecated: a copy of grace_s kept for old readers, not saved. The loot yield (saved; GameState reads
 ## it, MECHANICS §5.3): yield_c, the yield just after the last clear that paid loot, and yield_t, the
-## sim time of that clear; a retake resets yield_c to 1.
+## sim time of that clear; a retake leaves both as they are (the spent yield keeps recovering).
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
 	_k_kill = _tf("k_kill")
@@ -1210,16 +1210,16 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 	_ud = maxf(0.0, total - _ue - _ug)
 
 
-## A hold ends, `at` seconds into the step (IDLE I6): the event, the fort's yield refreshes (MECHANICS
-## §5.3), and every simulacrum planted there (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the
-## step's later parts raise nothing for it. GameState sends a siege big undead there home.
+## A hold ends, `at` seconds into the step (IDLE I6): the event, and every simulacrum planted there
+## (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the step's later parts raise nothing for it.
+## GameState sends a siege big undead there home. The fort's loot yield is left as it is (MECHANICS §5.3; the
+## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
 func _retaken(f: Dictionary, cause: String, at: float) -> void:
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
 	f["zero_s"] = 0.0
 	f["clears_since_retaken"] = 0
-	f["yield_c"] = 1.0
 	var alive: Array = []
 	for sm in simulacra:
 		if str(sm.get("fort_id", "")) != str(f["id"]):

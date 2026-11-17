@@ -691,7 +691,7 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
   counter-garrison, and the contest decides (the retake above).
-- **A retake** resets the fort's `clears_since_retaken` to 0 and its loot yield to 1 (§5.3).
+- **A retake** resets the fort's `clears_since_retaken` to 0 and leaves its loot yield as it was (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
@@ -1641,12 +1641,18 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     yield_t) / loot.recover_s)`. So one clear halves it, two back to back quarter it
     (`reclear_decay`²), and it is back to exactly 1 `recover_s` (8 h) after the last clear, from any
     depth. It is a function of the sim time, so a catch-up refills it with no step work; the dungeon
-    seed and `view_fort` read it live. A retake resets `yield_c` to 1, so a fort Vei retakes refreshes
-    its yield (vision review M8). A counter-garrison clear is paid only by a fort still held when the
-    result is applied: a held fort retaken during its own raid (the realm keeps stepping while she is
-    in the dungeon) banks its retreat's loot as usual, but raises no clear and spends no yield, so the
-    retake's reset to 1 stands. Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
-    it showed.
+    seed and `view_fort` read it live. **A retake keeps the spent yield:** `yield_c` and `yield_t` are
+    left as they were, so the yield goes on recovering from its last clear (the run's manager,
+    2026-11-17, E4 step 6). A fort lost and retaken has already been looted, so losing it must cost,
+    not pay. Until then a retake reset `yield_c` to 1, which made the re-flip after each of Vei's
+    retakes a full-yield raid: in sessions to day 8 the re-flips paid 54 of 121 relics (45%), so losing
+    forts sped growth, against vision review M8's aim of killing the repeat farm. Keeping it, sessions'
+    re-flips pay 46 of 107 relics and its Vei-ready moves from day 5.33 back to day 6.0 (one seed, 8 days,
+    before the husk craft's re-price; BALANCE §5's loot row).
+    A counter-garrison clear is paid only by a fort still held when the result is applied: a held fort
+    retaken during its own raid (the realm keeps stepping while she is in the dungeon) banks its
+    retreat's loot as usual, but raises no clear and spends no yield, since the fort is Vei's again.
+    Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as it showed.
 - **Exits:**
   - **warden beaten:** loot banked, fort flips;
   - **retreat** at an exit: loot banked, no flip;
