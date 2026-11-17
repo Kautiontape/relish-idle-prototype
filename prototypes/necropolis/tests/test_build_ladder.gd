@@ -33,7 +33,34 @@ func run() -> int:
 	t = TestUtil.new()
 	t.suite("build_ladder")
 	check(TestUtil.configs())
+	_house_handover(TestUtil.configs())
 	return t.failures
+
+
+## The House's gold → bone handover (E4 step 8; BALANCE §7). The House is a living building bought with gold, and
+## the only one whose ladder runs past level 3; config C priced its L4 to L8 on the dead's bone ladder, so L4 went
+## from 120 gold / 30 bone to 35 / 280: bone ×9.3 in one level (×1.5 to 2 below it), past a new game's 200 bone cap
+## before any mill, and gold falling. Now each currency's price never falls from one level to the next and rises at
+## most HOUSE_STEP_MAX times, and L4 and L5 fit a new game's bone cap.
+const HOUSE_STEP_MAX := 2.5
+
+
+func _house_handover(cfgs: Dictionary) -> void:
+	var s := GameState.new(cfgs)
+	s.cmd_new_game(1)
+	var cap := s.town_sim.bone_cap()
+	var top := int(BuildRules.buildings_cfg(s)["house"]["max_level"])
+	var prev := {}
+	for lv in range(1, top + 1):
+		var c: Dictionary = BuildRules.construction_cost(s, "house", lv)
+		if lv > 1:
+			for k in ["gold", "bone"]:
+				var r := float(c[k]) / maxf(1e-9, float(prev[k]))
+				t.ok(r >= 1.0 and r <= HOUSE_STEP_MAX, "House L%d's %s %.0f is %.2f× L%d's (never falls, at most %.1f×)" % [
+					lv, k, float(c[k]), r, lv - 1, HOUSE_STEP_MAX])
+		if lv == 4 or lv == 5:
+			t.ok(float(c["bone"]) <= cap, "House L%d's %.0f bone fits a new game's bone cap (%.0f) before any mill" % [lv, float(c["bone"]), cap])
+		prev = c
 
 
 ## A new game with every cap building on its lots demolished: the base caps.

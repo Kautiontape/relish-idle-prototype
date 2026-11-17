@@ -728,7 +728,14 @@ func _fixtures() -> void:
 		t.ok(s.rev > 0 and s.drain_events().is_empty() and s.run.is_empty(), "%s: events cleared, no run" % name)
 	var day1 := _load_fixture("day1")
 	var fresh := _mk(1)
-	t.ok(day1.to_dict() == fresh.to_dict() and day1.t == 0.0, "day1 is cmd_new_game(1) at t = 0")
+	# E4's A1 day-1 ruling moved the start valve to 0.25/0.60/0.15; day1 was saved at the one before (0.40/0.45/0.15),
+	# and fixtures can't be remade, so it is a new game at that valve
+	var dd := day1.to_dict()
+	var fd := fresh.to_dict()
+	var old := {"work": 0.40, "war": 0.45, "flood": 0.15}
+	t.ok(dd["valve"]["current"] == old and dd["valve"]["target"] == old, "day1 keeps its saved start valve 0.40/0.45/0.15: %s" % str(dd["valve"]))
+	dd["valve"] = fd["valve"]
+	t.ok(dd == fd and day1.t == 0.0, "day1 is cmd_new_game(1) at t = 0, but for its saved valve")
 	var d1 := day1.town_sim
 	t.ok([d1.gold, d1.bone, d1.bodies, d1.workers, d1.living, d1.living_cap()] == [80.0, 30.0, 40.0, 12.0, 10.0, 16.0]
 		and d1.buildings.size() == 4, "day1 is BALANCE §0: 80/30/40, 12 workers, 10 living of 16, the 4 start buildings")

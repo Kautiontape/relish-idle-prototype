@@ -23,6 +23,10 @@ extends RefCounted
 ## E4 step 3: with the fixture's backlog at the live scale (12M against K 36M) her odds hold at 0.25 over the run
 ## instead of drifting up from it (4000 against K 12000), so her waves keep their 367 s period and both forts fall a
 ## little later than at E3-3 (Ashgate 980 → 1021 s without the siege, 1615 → 1755 s with it); SIEGE_RUN_S 1700 → 1900.
+## E4 step 5 (ruling A1): TownSim's muster goes to Vei's queue with the FLOOD now, so a valve of 0.5 / 0 / 0.5 sends no
+## WAR at all and both forts are broken at grace + break_s (494.5 s), a siege or not. The runs keep their premise, a
+## cut whose only WAR is TownSim's muster, with the Muster stance on (its muster still joins WAR). A flat WAR share of
+## the old muster's mean (4 mass/s) doesn't: Ashgate falls to the reship at about 1018 s and the siege buys 10 s.
 const GRACE_TOL := 1e-3
 const RETAKE_K := 0.005
 const RUN_S := 1500.0
@@ -56,7 +60,11 @@ func _run(c, js: String, dt: float, siege: bool, run_s: float) -> Dictionary:
 	var s: GameState = c.load_state(js)
 	if not siege:
 		s.cmd_place_big_undead("u9", "crypt")
+	# E4 step 5 (A1): the muster joins the FLOOD now, so the cut keeps the WAR it used to send through the Muster
+	# stance, whose muster still joins WAR
 	s.cmd_debug_set_state({"valve": {"work": 0.5, "war": 0.0, "flood": 0.5}})
+	var ms := s.cmd_set_stance("muster", true)
+	t.ok(bool(ms["ok"]), "(setup) Muster on: %s" % str(ms))
 	s.drain_events()
 	var t0 := s.t
 	var grace := float(s.realm.fort_by_id("ashgate")["grace_s"])
@@ -135,6 +143,9 @@ func _retake_effects(r: Dictionary) -> void:
 	t.ok(k >= 0 and k + 1 < evs.size() and evs[k + 1] == {"type": "big_undead_returned", "uid": "u9", "fort_id": "ashgate", "t": evs[k]["t"]},
 		"Ashgate's retake: big_undead_returned {uid: u9, fort_id: ashgate} right after it, at its t: %s" % (str(evs.slice(k, k + 2)) if k >= 0 else "none"))
 	t.ok(k >= 0 and absf(fmod(float(evs[k]["t"]), 10.0)) > 1e-6, "the retake is stamped inside its 10 s step (%.3f s from the start)" % (float(evs[k]["t"]) if k >= 0 else -1.0))
+	# (E4 step 5, B1 (ii)) its cause for the away report: the WAR it had (none: the run's valve sends no WAR) and Vei's pressure
+	t.ok(k >= 0 and float(evs[k]["pressure_mult"]) == s.hold_mult() and float(evs[k]["war_in"]) >= 0.0,
+		"fort_retaken carries war_in and pressure_mult (×%.3f): %s" % [s.hold_mult(), str(evs[k]) if k >= 0 else "none"])
 	var b := s._find_uid(s.big_undead, "u9")
 	t.ok(b["place"] == "crypt" and s.view_fort("ashgate")["siege"] == [], "u9 is in the crypt; Ashgate has no siege")
 	var mono := true
@@ -194,5 +205,5 @@ func _retaken_mid_run() -> void:
 	var r := _mid_run(true)
 	t.ok(r["ok"] and not r["held"], "retaken mid-run: the result still applies, the fort is Vei's: %s" % str(r))
 	t.ok(r["cleared"] == 0, "retaken mid-run: no counter_garrison_cleared for a fort Vei owns (%d)" % r["cleared"])
-	t.ok(r["yield_c"] == 1.0, "retaken mid-run: yield_c stays at the retake's 1 (%.3f), not halved" % r["yield_c"])
+	t.ok(r["yield_c"] == 1.0, "retaken mid-run: no yield spent, yield_c stays at the 1 it had (the retake leaves it; %.3f), not halved" % r["yield_c"])
 	t.ok(r["banked"] == 1 and r["relics"] == 2, "retaken mid-run: the retreat banks its loot as usual (%d event, %d relics)" % [r["banked"], r["relics"]])

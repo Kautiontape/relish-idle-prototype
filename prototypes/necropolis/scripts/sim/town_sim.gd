@@ -591,7 +591,7 @@ func add_shock(x: float) -> void:
 func step(dt: float, inp: Dictionary) -> Dictionary:
 	var events: Array = _pending
 	_pending = []
-	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "relics_spent": 0,
+	var out := {"pits": 0, "feed": 0.0, "muster_mass": 0.0, "pickups": [], "claims": [], "relics_spent": 0,
 		"rot_overflow": 0.0, "haul_overflow": 0.0, "rot_loss": 0.0, "burned": 0.0, "milled": 0.0,
 		"gold_overflow": 0.0, "bone_overflow": 0.0, "vat_hands": [], "events": events}
 	if not is_finite(dt) or dt <= 0.0:
@@ -914,11 +914,19 @@ func idle_cap() -> float:
 ## The forts' dead are read at each leg's own moment s into the step (E2b-2 T3.3a), for the pick and
 ## the pickup: RealmSim.dead_at(dead, dead_rate, s) from the snapshot's `dead` and `dead_rate` (a
 ## snapshot without `dead_rate` reads 0: its dead as they stand), less what this step's legs took
-## there. A pickup is also held to the snapshot's dead less those legs: GameState takes it off the
-## fort before the realm step, which owns the corpses made inside it, so a long step's later legs
-## can't take those (MECHANICS §4.2: a lag of up to a step where corpses grow inside it). Before, both
-## read the snapshot: at 10 s from midgame_2flips the convoy found the corpses Relish's raises at
-## Greywall would have taken inside the step (at 9b5fc99, 115.7 mass over 12 h against 0.001 at 0.5 s).
+## there. A pickup's load is held to the snapshot's dead less those legs (`pickups`: GameState takes
+## it off the fort before the realm step, which owns the corpses made inside it). Before, both read the
+## snapshot: at 10 s from midgame_2flips the convoy found the corpses Relish's raises at Greywall would
+## have taken inside the step (at 9b5fc99, 115.7 mass over 12 h against 0.001 at 0.5 s).
+## The claim (E4, the run's manager's A1 I1 ruling (1)): the corpses formed at the fort since the step's
+## start, as the projection reads them at the leg's moment (dead_at − dead), less this step's earlier
+## claims there, up to what the load left of the carry and the headroom. They are the realm step's, so
+## the leg only claims them (`claims`: fort, mass, and whether its load landed in this step) and
+## GameState takes each after the realm step, at most what the fort then holds (GameState._take_claims,
+## land_claim). The hold and §1.3's order stay, and nothing is owed: this is not T3.3a's on-file sink
+## inside the realm step. Without it a long step's dead-limited leg missed them, and they waited at the
+## fort, where some were cleared: the I1 first away's convoy, leaving at auto_min_dead, made 99 such legs
+## in 2 400 s and landed 1.7% less at 3 s than at 0.5 s (MECHANICS §4.2).
 ## Returns the mass landed.
 func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
@@ -930,7 +938,10 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 	var target := str(inp.get("haul_target", "auto"))
 	var speed := _haul_speed * (1.0 + _sum_working("haul_speed_mult"))
 	var convoys: Array = haul["convoys"]
-	var taken := {}
+	var taken := {}  # fort id -> the snapshot's corpses this step's legs loaded there
+	var late := {}  # fort id -> the corpses formed inside this step that its legs claimed there
+	var claims: Array = []
+	var open_claim := -1  # the index in `claims` of the leg on its way back, until it lands
 	var delivered := 0.0
 	var left := dt
 	var hi := maxf(cap, b0)  # an over-cap store keeps its excess (step 4); it is the projection's ceiling
@@ -942,7 +953,7 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		if convoys.is_empty():
 			if crew_now <= EPS or clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) >= cap - EPS or speed <= 0.0:
 				break
-			var fid := _haul_pick(forts, target, taken, dt - left)
+			var fid := _haul_pick(forts, target, taken, late, dt - left)
 			if fid == "":
 				break
 			var trip := maxf(MIN_TRIP_S, cov.distance_to(_xy(by_id[fid].get("pos", [0.0, 0.0]))) / speed)
@@ -956,18 +967,28 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 			break
 		left -= need
 		if c["phase"] == "out":
-			var f: Dictionary = by_id.get(c["fort"], {})
+			var fid: String = c["fort"]
+			var f: Dictionary = by_id.get(fid, {})
 			var d0 := maxf(0.0, float(f.get("dead", 0.0)))
 			var now := RealmSim.dead_at(d0, float(f.get("dead_rate", 0.0)), dt - left)
-			var avail := maxf(0.0, minf(now, d0) - float(taken.get(c["fort"], 0.0)))
+			var avail := maxf(0.0, minf(now, d0) - float(taken.get(fid, 0.0)))
 			var mult := _haul_mult if bool(f.get("held", false)) else 1.0
 			var level := clampf(lvl + net * (dt - left - at_lvl), 0.0, hi)
-			var load := minf(minf(avail, _carry * float(c["crew"]) * mult), maxf(0.0, cap - level))
-			taken[c["fort"]] = float(taken.get(c["fort"], 0.0)) + load
+			var room := minf(_carry * float(c["crew"]) * mult, maxf(0.0, cap - level))
+			var load := minf(avail, room)
+			taken[fid] = float(taken.get(fid, 0.0)) + load
+			var claim := minf(maxf(0.0, now - d0 - float(late.get(fid, 0.0))), room - load)
+			if claim > 0.0:
+				late[fid] = float(late.get(fid, 0.0)) + claim
+				claims.append({"fort_id": fid, "mass": claim, "landed": false})
+				open_claim = claims.size() - 1
 			c["load"] = load
 			c["phase"] = "back"
 			c["t"] = 0.0
 		else:
+			if open_claim >= 0:
+				claims[open_claim]["landed"] = true
+				open_claim = -1
 			delivered += float(c["load"])
 			lvl = minf(hi, clampf(lvl + net * (dt - left - at_lvl), 0.0, hi) + float(c["load"]))
 			at_lvl = dt - left
@@ -980,13 +1001,34 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 		if float(taken.get(id, 0.0)) > 0.0:
 			picks.append({"fort_id": id, "mass": float(taken[id])})
 	out["pickups"] = picks
+	out["claims"] = claims
 	return delivered
 
 
+## Lands a leg's claim (_haul) that GameState took off its fort after the realm step: onto the convoy's
+## load while that leg is still on its way back (`landed` false), else into the body store up to its cap
+## (the rates gain it over `dt`). Returns the mass taken; what the store can't hold stays at the fort.
+func land_claim(mass: float, landed: bool, dt: float) -> float:
+	if not (mass > 0.0):
+		return 0.0
+	var convoys: Array = haul["convoys"]
+	if not landed and not convoys.is_empty() and str(convoys[0]["phase"]) == "back":
+		convoys[0]["load"] = float(convoys[0]["load"]) + mass
+		return mass
+	var got := minf(mass, maxf(0.0, body_cap() - bodies))
+	if got > 0.0:
+		bodies += got
+		if dt > 0.0 and rates.has("bodies"):
+			var rb: Dictionary = rates["bodies"]
+			rb["in"] = float(rb["in"]) + got / dt
+			rb["haul"] = float(rb["haul"]) + got / dt
+	return got
+
+
 ## The convoy's target at a departure `at` seconds into the step: the set one, or (auto) the fort with
-## the most dead then (RealmSim.dead_at, less what this step's legs took there) above
+## the most dead then (RealmSim.dead_at, less what this step's legs loaded and claimed there) above
 ## job.haul.auto_min_dead; ties go to the first in order.
-func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> String:
+func _haul_pick(forts: Array, target: String, taken: Dictionary, late: Dictionary, at: float) -> String:
 	if target != "auto":
 		for f in forts:
 			if str(f.get("id", "")) == target:
@@ -996,7 +1038,8 @@ func _haul_pick(forts: Array, target: String, taken: Dictionary, at: float) -> S
 	var most := _auto_min
 	for f in forts:
 		var id := str(f.get("id", ""))
-		var dead := RealmSim.dead_at(float(f.get("dead", 0.0)), float(f.get("dead_rate", 0.0)), at) - float(taken.get(id, 0.0))
+		var dead := RealmSim.dead_at(float(f.get("dead", 0.0)), float(f.get("dead_rate", 0.0)), at) - float(taken.get(id, 0.0)) \
+			- float(late.get(id, 0.0))
 		if dead > most:
 			most = dead
 			best = id

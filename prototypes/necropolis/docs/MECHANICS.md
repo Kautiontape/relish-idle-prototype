@@ -326,9 +326,13 @@ Names, to avoid confusion:
   toggles. `P_base` and `P_per_pit` (6.0; it was `P_per_slab`) are `realm.json` keys, `pit.bonus` and
   `pit.burn_per_s` are `economy.json`'s. `pits` is the working pits now and `feed` the feed of the
   step before (TownSim's `rates.feed`), both dimensionless (§1.3 step 2).
-- `work = mint · v.work` goes to TownSim as `work · dt` in the same step, `war = mint · v.war` plus
-  TownSim's muster (`muster_mass / dt`) goes to RealmSim dispatch, and `flood = mint · v.flood` goes
-  to `vei.undead_queue`.
+- `work = mint · v.work` goes to TownSim as `work · dt` in the same step, `war = mint · v.war` goes to
+  RealmSim dispatch, and `flood = mint · v.flood` plus TownSim's muster (`muster_mass / dt`) goes to
+  `vei.undead_queue`. While the Muster stance acts (§4.5), the whole muster joins WAR instead.
+  (E4 step 5, the run's manager's ruling A1, 2026-11-17: before it every muster joined WAR, so surplus
+  WORK reached the forts 1:1 and from about day 1 the valve had two real settings, FLOOD and not-FLOOD;
+  on the sessions day-3 state a WAR share of 0 still sent 54–84 mass/s of muster. Overflow to Vei's queue
+  feeds the idle win condition and moves pacing least. `view_hud.split.muster_to` shows the route.)
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
 - **WAR dispatch:** WAR splits over the forts with living (living > 0, **or living arriving this
@@ -376,7 +380,8 @@ Names, to avoid confusion:
   took it, `vei`) and the fall-through rate, for the lanes.
 - **The optimum split must move** over the arc and with Relish's position. Diminishing returns make
   sure of it:
-  - WORK beyond filled slots plus `worker.idle_cap` is wasted;
+  - WORK beyond filled slots plus `worker.idle_cap` is wasted for the town: it musters to Vei's queue
+    with the FLOOD (§3.2, ruling A1), so it feeds the backlog but not the forts;
   - FLOOD at low `q` is cheap for Vei;
   - WAR into strong garrisons arms her.
 
@@ -414,6 +419,19 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
 - the fort is **held**: a grace of `flip.hold_s · (1 + flip.tier_mult · tier)` (`fort_flipped.hold_s`
   is that grace), then a contest between two pools (IDLE.md §3; E2b-2 T3.1 replaced E2a's timer,
   which retook the fort when `held_s` ran out, cause `expired`).
+
+**Vei's pressure at held forts** (E4 step 5, rulings B1 and B1 (ii)): her living's pull on a held fort's
+garrison (grace or contested) is `k_destroy / q × hold_mult` (RealmSim `_k_dq`), with `hold_mult` =
+max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`) (GameState.hold_mult). The settled mint is
+`P_base + P_per_pit · pits` (working pits; no feed, no foremen), so it is a step function of the buildings and
+reads the same open and closed; `mint_ref` 8.0 is a new game's one pit, so a new game reads ×1 and the table
+below is unchanged there. α 0.85 (the ruled fallback's ceiling; at 0.7 the sessions day-3 state, settled
+mint 92, m 5.5, lost no fort in 24 h away, and the default valve's 0.60 WAR share keeps every margin
+positive). Sub-linear: WAR grows with the mint, the need with mint^α, so a growing necropolis finds holding
+somewhat easier, never trivial. Her mass, pool, fronts and boss seed don't read it. Every pull site and
+readout reads it (fort_step, `_load`, `_leave_at`, `dead_rates`, `garrison_rate_of`, `_wave_breaks`,
+`need_of` and the train's scratch forts). GameState sets it at each core step's start (its input), at its
+end and on a load (`_sync_hold_mult`). Not saved.
 
 **The hold's state** (RealmSim, saved): `held`, `grace_s` (grace left) and `zero_s` (seconds the
 garrison has sat at 0 since it last didn't). A save from before E2b-2 carries `held_s` instead: a
@@ -577,11 +595,21 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   (`tithe_warning` event), with the target shown on the map and on the fort's ring. The target
   stays fixed for that wave, whatever changes before it starts. It is made at the end of the step
   that reaches `warning_s`, so it can come up to one step late, never early, and its `eta_s` is the
-  exact time left: the wave's own time doesn't depend on the step. (The target reads that step's
-  WAR, a rate constant over the step.)
-- **Targets:** contested held forts first (past their grace), the one with the most of your undead
-  there; else the fort receiving the most WAR at that moment. A fort in grace is never a target
-  (above). Ties go to world order, so with no WAR anywhere it is the first fort not in grace.
+  exact time left: the wave's own time doesn't depend on the step.
+- **Targets** (E4 step 5, ruling B1 (ii)): contested held forts first (past their grace), the one with the
+  **lowest margin**: its settled support (the step's `target_war`, GameState's `_train_war`: the valve's
+  target at the pits' trough feed, split as the last dispatch splits WAR, so the pick doesn't follow the
+  convoy's sawtooth) less its **one-wave need** (`RealmSim.need_of`: the least WAR at which it holds with
+  no waves and one full wave from its settled garrison, support / `r_drain`, doesn't break it, with
+  Relish's raise and tide and the siege there; a bisection to `hold.need_tol` in at most
+  `hold.need_iters` halvings, her reship at her odds snapped down to `hold.need_odds_step`, memoised).
+  Margins within `hold.margin_eps` tie, and ties go to world order. Else the fort receiving the most WAR
+  at that moment; with no WAR anywhere, the first fort not in grace. A fort in grace is never a target
+  (above). Before B1 (ii) the wave went to the most undead, so the strongest garrison drew every wave
+  and shielded the weak (at the sessions day-3 state no fort fell at any pressure up to ×16). The need
+  is about `k_dq` · (cap + 120) there, so it scales with `hold_mult` (§3.4). The telegraph: the fort the
+  rule would pick now and the time to the next wave are in the views before the warning fixes it
+  (STATE-API §5.4 `tithe.next_target`, §5.5 `hold`).
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
   shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
@@ -663,7 +691,7 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
   counter-garrison, and the contest decides (the retake above).
-- **A retake** resets the fort's `clears_since_retaken` to 0 and its loot yield to 1 (§5.3).
+- **A retake** resets the fort's `clears_since_retaken` to 0 and leaves its loot yield as it was (§5.3).
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
@@ -753,7 +781,8 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     leaves the held set. A clock not yet started (only a test or debug holds a fort with no flip) runs as
     if started now.
   - **Targets**, as `_tithe_target`: at each warning, the contested fort (held, past grace, not broken)
-    with the most undead, ties in world order. A fort in grace is never a target; a pending warning naming
+    with the lowest margin, its `sup` WAR less its one-wave need (`need_of`, once per fort per probe: her
+    odds, q and the support don't move in the probe), ties in world order. A fort in grace is never a target; a pending warning naming
     one is dropped and made again at once, as the clock does. The target is fixed at the warning, so a
     wave warned while every held fort is in grace goes elsewhere even if the grace ends before it lands.
     With no contested fort the rule's second branch (the fort receiving the most WAR) picks a fort that
@@ -942,9 +971,10 @@ mass; bodies, rot return, WORK and muster are mass.
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count. That figure ignores the idle cap; `steady_kept` is where the workforce actually settles with it (STATE-API §5.9).
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
-  - Idle beyond `worker.idle_cap` are mustered to WAR at once (`n · worker.mass` mass), so WORK is
-    never a black hole, but it is waste. The workforce never ends a step above the staffable slots
-    plus `idle_cap`. While the Muster stance acts the idle cap reads 0 (§4.5, `TownSim.idle_cap`).
+  - Idle beyond `worker.idle_cap` are mustered at once (`n · worker.mass` mass) to Vei's queue with the
+    FLOOD (§3.2, ruling A1), so WORK is never a black hole, but it is waste for the town. The workforce
+    never ends a step above the staffable slots plus `idle_cap`. While the Muster stance acts the idle
+    cap reads 0 (§4.5, `TownSim.idle_cap`) and the whole muster joins WAR.
 - **The update is exact** (IDLE §4). With the step's inflow held constant, the equation is linear in
   three regimes: all staffed (τ = `lifetime`), some idle (τ = `lifetime / idle_rot_mult`), and pinned
   at slots + `idle_cap` with the surplus mustered. Each boundary crossing is timed exactly, so one
@@ -967,7 +997,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). What formed there since the step's start it claims, up to the carry and headroom the load leaves, and that is taken after the realm step (§4.2, the hold and the claim). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -1023,6 +1053,23 @@ mass; bodies, rot return, WORK and muster are mass.
     bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
     for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
     stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
+  - **The bone cliff** (E4, the run's manager's A1 day-1 ruling). Under A1 (§3.2) the muster goes to Vei, so
+    early bodies come from WAR's corpses at the forts and the workers' rot return. Below a WAR share of about 0.54
+    a new game's pits eat every body (0.20 mass/s of rot return; the forts' corpses are cleared as they form) and
+    the mill makes exactly 0; above it the feedback runs (bodies → pits → mint → WAR → corpses) and bone reaches
+    its cap within hours. A new game at FLOOD 0.15, the mill alone queued, 2 h (tools' edge probe):
+
+    | WAR share | 0.45 | 0.50 | 0.53 | 0.54 | 0.55 | 0.60 |
+    |---|---|---|---|---|---|---|
+    | bone milled in 2 h | 3.6 | 3.5 | 3.4 | 263 (from 30–60 min) | 324 (cap) | 367 (cap) |
+
+    It is a tipping point, not a per-fort inequality: at 0.40 the three nearest forts' WAR already beats their
+    living's pull (k_destroy / q · L), so no closed form reads it off a state. The cliff stays because it is
+    visible and one valve move fixes it (the ruling): the start valve is 0.25 / 0.60 / 0.15 (BALANCE §0); the
+    mill's row and a queue head short of bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
+    `short` names the bone, and the away report's head line says so (IDLE §7; STATE-API §5.9, §5.19);
+    `view_hud.bone_war_share` is a new game's edge (`economy.json` `opening.bone_edge.war_share`, bracketed by
+    test_day1_queues) for the valve readout. Pits-first and the yields are unchanged, and there is no mill floor.
   - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
     depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
     the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the
@@ -1060,22 +1107,30 @@ mass; bodies, rot return, WORK and muster are mass.
     q's inputs), so after a load the convoy sees what the session saw, within the save's 15-digit
     rounding (`test_step_accuracy`). A session-only rate such as `r_kills` would read 0 for a step
     after every load, and the pick could differ.
-  - **The hold, and its gap.** A pickup is also held to what the fort held at the step's start, less
-    this step's earlier pickups there. GameState takes it off the fort before the realm step, which
-    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). Where the corpses
-    grow inside the step, a long step's legs can't take those made inside it, and they wait for the
-    next step's legs. That happens at forts with no living where Vei's shipping dies as it lands:
-    pre_vei's six corpse forts, 1.88 mass/s between them. At 10 s pre_vei's convoy runs 10 to 15 mass
-    behind 0.5 s's from the first minute (9.5 at 60 s, 12.9 at 600 s), and its forts hold that much
-    more. The bone its mill makes over the cap, `ledger().stores.bone.overflow`, is 1.14% behind at
-    600 s, falling to 0.04% by 12 h. Applying the pickups after the realm step, without the hold,
-    measured 0.22% (an experiment only). Taking them needs either the realm step delivering an owed
-    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept
-    (E2b-2 T3.3a: the hold and §1.3's order stay; the sink is on file, IDLE §4). The gap is bounded:
-    measured over 24 h it is the step's own corpses (their rate × dt / 2 on average) plus at most
-    about one load per fort (summed, up to 28 mass at pre_vei's gold floor), and it doesn't grow
-    (IDLE §4). The catch-up gate's bone floor
-    (`idle.catchup_gate_tally_floor`) carries it.
+  - **The hold and the claim.** A pickup's load is held to what the fort held at the step's start,
+    less this step's earlier loads there. GameState takes it off the fort before the realm step, which
+    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). What formed at the
+    fort since the step's start, as the projection reads it at the leg's moment (`dead_at` less the
+    start's `dead`, less this step's earlier claims there), the leg **claims**, up to what its load
+    leaves of the carry and the headroom (E4, the run's manager's A1 I1 ruling (1)). GameState takes
+    each claim after the realm step (`_take_claims`), at most what the fort then holds, so the realm
+    step keeps first call on those corpses. The claim rides the convoy while that leg is still on its
+    way back, else goes into the body store up to its cap (`TownSim.land_claim`); what isn't taken
+    stays at the fort. Mass only moves between held pools, nothing is owed, no save field is added,
+    and §1.3's order and the hold stay. It is not E2b-2 T3.3a's on-file sink inside the realm step.
+    - **Why.** A leg is dead-limited wherever the convoy leaves as soon as a fort holds
+      `job.haul.auto_min_dead`, as it does early on: about 4.2 mass a load against a carry of 14 per
+      hauler. Held to the step's start alone, a long step's legs left the corpses formed before each
+      pickup at the fort. In the I1 gate's first away that was 30.5 mass over 99 legs at 3 s against
+      3.4 at 0.5 s, and at forts with living the clearing took some (+8.3), so the caught-up run
+      landed and milled 1.7% less and the bone-bound queue amplified it (IDLE §8).
+    - **With the claim** pre_vei's convoy lands the same over 600 s, 30 min and 1 h at 3 s and 10 s as
+      at 0.5 s, and leaves the same corpses and load (1 129.81 mass at 600 s at all three;
+      `test_step_accuracy`). Before, 600 s at 10 s was 13.3 mass behind; at 10 s the convoy ran 10 to
+      15 mass behind 0.5 s's from the first minute and the bone over the cap was 1.14% behind at 600 s.
+      convergence_1h's 15 s row for pre_vei reads Σdead 0.000% (63.1% before) and its bone-over tally
+      0.18 of its 1.0 floor (1.09). The catch-up gate's bone floor (`idle.catchup_gate_tally_floor`)
+      stays.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt
@@ -1168,6 +1223,9 @@ mass; bodies, rot return, WORK and muster are mass.
       test reads `upkeep` as an upgrade's queue reason and `waited_on` (not `unpaid`), and the away report
       lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`). The
       Thrift stance's resume of the buildings it idled is unchanged; no command resumes an unpaid one.
+      Thrift's resume runs no income test (`TownSim.thrift_resume` sets them active), so when it stops acting
+      with the income still short, the shed order sheds them again at the next gold floor and the income
+      test then holds them unpaid: one cycle, not a thrash (the E4 step 4 review's item 5).
     - E2b T4.C: they used to be checked at the step's end, in lot order, on the stocks before the
       step's upkeep was paid. From pre_vei's gold floor a 10 s step resumed the raising pit
       (lot-02) at 7 804 s. The gold had crossed the house's (lot-05) lower threshold first, and,
@@ -1412,7 +1470,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Vigil | Relish is away from home or dead (any state but `home`) | `tend` to the top of the effective ladder |
 | Harvest | bodies < `stance.harvest_bodies_frac` (0.3) × the body cap | `haul` to the top |
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
-| Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once |
+| Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
@@ -1583,12 +1641,18 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     yield_t) / loot.recover_s)`. So one clear halves it, two back to back quarter it
     (`reclear_decay`²), and it is back to exactly 1 `recover_s` (8 h) after the last clear, from any
     depth. It is a function of the sim time, so a catch-up refills it with no step work; the dungeon
-    seed and `view_fort` read it live. A retake resets `yield_c` to 1, so a fort Vei retakes refreshes
-    its yield (vision review M8). A counter-garrison clear is paid only by a fort still held when the
-    result is applied: a held fort retaken during its own raid (the realm keeps stepping while she is
-    in the dungeon) banks its retreat's loot as usual, but raises no clear and spends no yield, so the
-    retake's reset to 1 stands. Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as
-    it showed.
+    seed and `view_fort` read it live. **A retake keeps the spent yield:** `yield_c` and `yield_t` are
+    left as they were, so the yield goes on recovering from its last clear (the run's manager,
+    2026-11-17, E4 step 6). A fort lost and retaken has already been looted, so losing it must cost,
+    not pay. Until then a retake reset `yield_c` to 1, which made the re-flip after each of Vei's
+    retakes a full-yield raid: in sessions to day 8 the re-flips paid 54 of 121 relics (45%), so losing
+    forts sped growth, against vision review M8's aim of killing the repeat farm. Keeping it, sessions'
+    re-flips pay 46 of 107 relics and its Vei-ready moves from day 5.33 back to day 6.0 (one seed, 8 days,
+    before the husk craft's re-price; BALANCE §5's loot row).
+    A counter-garrison clear is paid only by a fort still held when the result is applied: a held fort
+    retaken during its own raid (the realm keeps stepping while she is in the dungeon) banks its
+    retreat's loot as usual, but raises no clear and spends no yield, since the fort is Vei's again.
+    Saved per fort (`yield_c`, `yield_t`); an older save reads 1, as it showed.
 - **Exits:**
   - **warden beaten:** loot banked, fort flips;
   - **retreat** at an exit: loot banked, no flip;
@@ -1773,7 +1837,7 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   play (`slow/margin_truth`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
-  muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate
+  the muster joins FLOOD (WAR under Muster; E4 step 5 A1), haul pickups come off the forts, the views read TownSim, v1 saves migrate
   (`town_sim`, `game_state_town`). Building, upgrading, tiers, caps and the catalog agreeing with
   `cmd_build` (`game_state_build`).
 - **Ladder and stances:** ladder ordering (`town_sim`); the stances (E3-1, `stances`): each one's effect on the

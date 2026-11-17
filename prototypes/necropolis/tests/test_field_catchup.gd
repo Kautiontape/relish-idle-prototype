@@ -252,4 +252,36 @@ func run() -> int:
 		if not _sane(fi):
 			bad_inf.append(c2["entrench_rate"])
 	t.ok(bad_inf.is_empty(), "dt = INF stays finite, also with entrench_rate 0 (bad: %s)" % str(bad_inf))
+
+	# overlay_in_flight (E4, the I1 test's village in Covington's cell): live play reads the field with
+	# lag_ticks of injects in flight on top of a result (_publish). After a step and its overlay, the
+	# inject cells read as a live field's published arrays do (no flush): the forts' cells, where both
+	# colours inject and the contest wipes the step's bare result, and the main sources'. The pipeline's
+	# base stays the step's result, and the next step is the same with or without the overlay.
+	var lv3 := _clone(settled)
+	for k in 200:
+		s.inject(lv3, 600.0, PERIOD)
+		lv3.tick(PERIOD)
+	var ov := _clone(settled)
+	var bare := _clone(settled)
+	s.inject(ov, 600.0, PERIOD)
+	s.inject(bare, 600.0, PERIOD)
+	ov.catchup_step(40.0)
+	bare.catchup_step(40.0)
+	ov.overlay_in_flight()
+	var d_ov := 0.0
+	var d_bare := 0.0
+	for c3 in s.forts + [s.main_g, s.main_o]:
+		var p3 := s.pos_of(c3)
+		d_ov = maxf(d_ov, absf(ov.dominance_at(p3) - lv3.dominance_at(p3)))
+		d_bare = maxf(d_bare, absf(bare.dominance_at(p3) - lv3.dominance_at(p3)))
+	t.ok(d_ov <= 0.02 and d_bare >= 0.1, "after a step, overlay_in_flight reads the inject cells as live play's published field (worst %.4f; the bare step's %.4f)" % [
+		d_ov, d_bare])
+	t.ok(ov._head[0] == bare._head[0] and ov._head[1] == bare._head[1] and ov._head[2] == bare._head[2] and ov.entrench == bare.entrench,
+		"the overlay leaves the pipeline's base and entrench alone")
+	s.inject(ov, 600.0, PERIOD)
+	s.inject(bare, 600.0, PERIOD)
+	ov.catchup_step(40.0)
+	bare.catchup_step(40.0)
+	t.ok(ov.green == bare.green and ov.orange == bare.orange and ov.entrench == bare.entrench, "the next step is the same with or without it")
 	return t.failures

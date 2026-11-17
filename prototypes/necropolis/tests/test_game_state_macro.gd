@@ -337,8 +337,12 @@ func _tithe() -> void:
 	var ft: Dictionary = s.view_fort("old-sluice")["tithe"]
 	t.ok(vv["target"] == "old-sluice" and vv["warning"] and not vv["wave_active"] and absf(vv["eta_s"] - w["eta_s"]) < 1e-9,
 		"view_vei.tithe during the warning: %s" % str(vv))
-	t.ok(ft == {"targeted": true, "eta_s": vv["eta_s"], "wave_active": false}, "view_fort.tithe on the target: %s" % str(ft))
-	t.ok(s.view_fort("ashgate")["tithe"] == {"targeted": false, "eta_s": -1.0, "wave_active": false}, "and not elsewhere")
+	# (v11) next/next_s: during the warning the next wave is the warned one, at its eta
+	t.ok(ft == {"targeted": true, "eta_s": vv["eta_s"], "wave_active": false, "next": true, "next_s": vv["eta_s"]},
+		"view_fort.tithe on the target: %s" % str(ft))
+	t.ok(vv["next_target"] == "old-sluice" and vv["next_s"] == vv["eta_s"], "view_vei.tithe's next is the warned wave")
+	t.ok(s.view_fort("ashgate")["tithe"] == {"targeted": false, "eta_s": -1.0, "wave_active": false, "next": false, "next_s": vv["eta_s"]},
+		"and not elsewhere")
 	var wv := _tick_until(s, "tithe_wave", 200.0)
 	t.ok(_ev_ok(wv) and wv["fort_id"] == "old-sluice" and wv["wave_id"] == w["wave_id"], "tithe_wave follows on the warned fort: %s" % str(wv))
 	t.near(wv["t"] - w["t"], w["eta_s"], s.substep_s(), "eta_s after its warning")
@@ -348,7 +352,10 @@ func _tithe() -> void:
 	var covered: float = float(tc["surge_s"]) - float(vv["wave_s_left"])
 	t.ok(vv["wave_active"] and vv["target"] == "old-sluice" and vv["eta_s"] == 0.0 and not vv["warning"]
 		and covered >= 0.0 and covered <= s.substep_s() + 1e-9, "view_vei.tithe during the wave (it began %.3f s before the substep's end): %s" % [covered, str(vv)])
-	t.ok(s.view_fort("old-sluice")["tithe"] == {"targeted": true, "eta_s": 0.0, "wave_active": true}, "view_fort.tithe during the wave")
+	# (v11) during the wave the next is the following one, a period on; the only contested fort is still the pick
+	t.ok(vv["next_target"] == "old-sluice" and vv["next_s"] > float(tc["warning_s"]), "view_vei.tithe's next during the wave: %s" % str(vv))
+	t.ok(s.view_fort("old-sluice")["tithe"] == {"targeted": true, "eta_s": 0.0, "wave_active": true, "next": true, "next_s": vv["next_s"]},
+		"view_fort.tithe during the wave")
 	var lane := _lane(s, "living:vei:old-sluice")
 	var of := _fort(s, "old-sluice")
 	t.ok(absf(float(of["r_surge"]) - float(wv["surge"]) * covered / s.substep_s()) < 1e-9,

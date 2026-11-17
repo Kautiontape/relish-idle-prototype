@@ -104,7 +104,7 @@ func _new_game() -> void:
 	t.ok([ts.gold, ts.bone, ts.bodies, ts.workers, ts.living, ts.living_cap()] == [80.0, 30.0, 40.0, 12.0, 10.0, 16.0],
 		"gold/bone/bodies 80/30/40, 12 workers, 10 living of 16")
 	t.ok(_bld(s, "lot-04")["slots"] == 2, "a small market: 2 stalls")
-	t.ok(s.valve == {"work": 0.40, "war": 0.45, "flood": 0.15} and s.valve_target == s.valve, "valve 0.40/0.45/0.15")
+	t.ok(s.valve == {"work": 0.25, "war": 0.60, "flood": 0.15} and s.valve_target == s.valve, "valve 0.25/0.60/0.15 (E4's A1 day-1 ruling)")
 	var vr := s.view_relish()
 	t.ok(vr["state"] == "home" and vr["phylactery_charges"] == 0 and vr["clones_ready"] == 0 and s.view_backups()["vats"] == [],
 		"Relish home, no phylactery, no clones or vats")
@@ -200,21 +200,47 @@ func _mint() -> void:
 	t.ok(p.view_town()["buildings"][4]["output"]["mint"] == 6.0, "each pit's output shows its P_per_pit")
 
 
-# ------------------------------------------------------------ muster to WAR ----
+# ------------------------------------------------- muster to FLOOD, or WAR under Muster ----
+## E4 step 5, ruling A1: the workers above the idle cap go to Vei's queue with the FLOOD; only the Muster stance (a
+## deliberate act) sends its muster to WAR. Before A1 every muster joined WAR (revert proof: with _split_of's route
+## forced to WAR the FLOOD lines below fail and the WAR lines read the muster).
 func _muster() -> void:
 	var s := _mk()
 	var mass := float(TestUtil.configs()["economy"]["worker"]["mass"])
 	s.tick(s.substep_s())
 	t.ok(s._split["muster"] == 0.0, "12 workers under 7 slots + idle_cap 10: no muster")
 	s.cmd_debug_grant({"workers": 20.0})  # 32: 15 above 7 slots + 10 idle
+	var q0 := float(s.realm.vei["undead_queue"])
 	s.tick(s.substep_s())
 	var sp: Dictionary = s._split
 	t.ok(sp["muster"] >= 15.0 * mass / s.substep_s() - 1e-9, "the 15 above the cap muster at once: %.1f mass/s" % sp["muster"])
 	t.near(sp["muster"], float(s.town_sim.rates["workers"]["muster"]) * mass, 1e-9, "muster mass/s = TownSim's muster × worker.mass")
-	t.near(sp["war"], sp["mint"] * s.valve["war"] + sp["muster"], 1e-9, "WAR = mint · valve.war + muster")
-	t.ok(s._realm_inputs["war"] == sp["war"], "RealmSim gets WAR with the muster in it")
-	t.near(s.view_rates()["rates"]["war"]["in"], sp["war"], 0.0, "view_rates.war.in includes it")
+	t.ok(not bool(sp["muster_war"]), "no Muster stance: the muster goes to FLOOD")
+	t.near(sp["war"], sp["mint"] * s.valve["war"], 1e-9, "WAR = mint · valve.war, no muster in it")
+	t.near(sp["flood"], sp["mint"] * s.valve["flood"] + sp["muster"], 1e-9, "FLOOD = mint · valve.flood + muster")
+	t.ok(s._realm_inputs["war"] == sp["war"] and s._realm_inputs["flood"] == sp["flood"], "RealmSim gets FLOOD with the muster in it")
+	t.near(s.view_rates()["rates"]["flood"]["in"], sp["flood"], 0.0, "view_rates.flood.in includes it")
+	var hs: Dictionary = s.view_hud()["split"]
+	t.ok(float(hs["muster"]) == float(sp["muster"]) and str(hs["muster_to"]) == "flood" and float(hs["flood"]) == float(sp["flood"]),
+		"view_hud.split shows the muster and its route: %s" % str(hs))
+	t.ok(str(s.view_town()["workers"]["muster_to"]) == "flood", "view_town.workers.muster_to reads flood")
+	t.ok(s.realm.r_flood == float(sp["flood"]) and float(s.realm.vei["r_in_undead"]) >= float(sp["muster"]) - 1e-9,
+		"the muster reached Vei's queue: r_flood %.2f, her queue's inflow %.2f mass/s (queue %.2f → %.2f, less her digestion)" % [s.realm.r_flood,
+		float(s.realm.vei["r_in_undead"]), q0, float(s.realm.vei["undead_queue"])])
+	var err := GameState.Ledger.error(s.ledger())
+	t.ok(err <= 1e-12, "the ledger still balances (relative miss %.2e)" % err)
 	t.ok(s.town_sim.workers <= 17.0 + 1e-9, "the workforce ends the step at slots + idle_cap")
+	# the Muster stance: every idle worker musters, to WAR
+	var m := _mk()
+	m.cmd_debug_grant({"workers": 20.0})
+	m.cmd_set_stance("muster", true)
+	m.tick(m.substep_s())
+	var mp: Dictionary = m._split
+	t.ok(bool(m.town_sim.muster_all) and bool(mp["muster_war"]) and float(mp["muster"]) > 0.0, "Muster acts: its muster goes to WAR (%.1f mass/s)" % float(mp["muster"]))
+	t.near(mp["war"], mp["mint"] * m.valve["war"] + mp["muster"], 1e-9, "WAR = mint · valve.war + muster")
+	t.near(mp["flood"], mp["mint"] * m.valve["flood"], 1e-9, "FLOOD = mint · valve.flood, no muster in it")
+	t.ok(m._realm_inputs["war"] == mp["war"] and str(m.view_hud()["split"]["muster_to"]) == "war" and str(m.view_town()["workers"]["muster_to"]) == "war",
+		"RealmSim gets WAR with it; the HUD and the town read war")
 
 
 # ------------------------------------------------------------------- haul ----

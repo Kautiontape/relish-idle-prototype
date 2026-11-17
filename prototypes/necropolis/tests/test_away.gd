@@ -20,7 +20,8 @@ extends RefCounted
 ##   queue is empty (not when a store is under full_tol of its cap, nor with a gated entry queued).
 ## - W: the report reads as a returning player speaks: "<name> stopped for <time>, gold ran out: <what it stopped>"
 ##   (briefly under a minute; no tail when it stopped nothing), "<name> started <time> after you left, <why>", "at the
-##   current income of", "needs relics: raid a fort", "Gold is full: <n> not stored", and the raid prompt in place of
+##   current income of", "needs relics: raid a fort", "Gold filled up, <n> not stored: queue more, or raid for relics"
+##   (a ready line since E4 step 7), and the raid prompt in place of
 ##   "Queue empty"; every line of the reports is filled.
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
@@ -634,7 +635,8 @@ func _queue_start(c: Dictionary) -> GameState:
 ## Sections (IDLE §7): a 12 h catch-up of _report_start's midgame_2flips gives the streams first (in
 ## idle.report.streams' order, kind stream), Ashgate refilled (gains) and "raid it" (ready, its target the
 ## fort), the 2 husks (target slab), the empty queue with its stores full, so the raid prompt in place of "Queue
-## empty" (W), Old Sluice retaken, Tarnish lost and gold full, "Gold is full: 2,162 not stored" (losses); a 1 h
+## empty" (W), and gold full, "Gold filled up, 2,162 not stored: queue more, or raid for relics" (ready since E4
+## step 7, target the queue); Old Sluice retaken and Tarnish lost (losses); a 1 h
 ## catch-up of _queue_start's gives the builds finished and each queued build's start with when and why: "Inn
 ## started right away", "Bakery started 6 m after you left, when the gold came in" (W).
 func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
@@ -661,14 +663,18 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	t.ok(_find(rep, "ready", "queue").is_empty() and _find(rep, "ready", "raid", "stores are full")
 		== {"text": "Your stores are full and the queue is empty: raid a fort for relics", "kind": "raid", "target": ""},
 		"ready: the stores full and the queue empty, the raid prompt in place of Queue empty: %s" % str(rep["ready"].map(func(l): return l["text"])))
-	t.ok(_find(rep, "losses", "retaken") == {"text": "Old Sluice retaken: raid it to win it back", "kind": "retaken", "target": "old-sluice"}, "losses: Old Sluice retaken")
+	var os_text := _retaken_text(c, n, "old-sluice", "Old Sluice", false)
+	t.ok(_find(rep, "losses", "retaken") == {"text": os_text, "kind": "retaken", "target": "old-sluice"},
+		"losses: Old Sluice retaken, with its fort_retaken's WAR and Vei's pressure: %s" % os_text)
 	# (E3-3: with u9's siege blunting Ashgate's waves the report loses Bellwether first, then Tarnish)
 	t.ok(_find(rep, "losses", "village_lost", "Tarnish") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
 	var over := float(n.ledger()["stores"]["gold"]["overflow"])
-	var ol := _find(rep, "losses", "overflow")
-	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold is full: %s not stored" % _commas(roundi(over)) and ol["target"] == "",
-		"losses: %s" % str(ol.get("text", "")))
-	t.ok(_find(rep, "losses", "overflow", "Bone").is_empty() and float(n.ledger()["stores"]["bone"]["overflow"]) < 1.0,
+	# E4 step 7: the full store is a ready action now (target the queue), and no longer a loss
+	var ol := _find(rep, "ready", "overflow")
+	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold filled up, %s not stored: queue more, or raid for relics" % _commas(roundi(over))
+		and ol["target"] == "queue", "ready: %s" % str(ol.get("text", "")))
+	t.ok(_find(rep, "losses", "overflow").is_empty(), "no overflow line among the losses (E4 step 7): %s" % str(rep["losses"].map(func(l): return l["text"])))
+	t.ok(_find(rep, "ready", "overflow", "Bone").is_empty() and float(n.ledger()["stores"]["bone"]["overflow"]) < 1.0,
 		"no bone line: its %.2f bone of overflow is under idle.report.overflow_min" % float(n.ledger()["stores"]["bone"]["overflow"]))
 	# the queue
 	var qr := q.view_away()
@@ -876,7 +882,8 @@ func _report() -> void:
 
 ## W (the run's manager): every line of the reports above, built through the away path, is filled (no "{…}" left,
 ## none empty), and between them they render each form W reworded: the unpaid line for a time and briefly, with its
-## tail and without; a start after you left and right away; a full store; each stuck form "at the current income
+## tail and without; a start after you left and right away; a full store (E4 step 7: "filled up, … not stored: queue
+## more, or raid for relics"); each stuck form "at the current income
 ## of"; and the raid prompt with "Queue empty" not beside it. (The relics forms, which no head reaches through the
 ## walk today, are rendered through StateViews.afford_text in _report_afford_words.)
 func _report_filled(reps: Array) -> void:
@@ -898,11 +905,13 @@ func _report_filled(reps: Array) -> void:
 		"started_now_fmt": func(x: String): return x.ends_with(" started right away"),
 		"started_brief_fmt": func(x: String): return x.contains(" started within a minute of you leaving, ") and not x.contains(" 0 m "),
 		"afford_relics_last_fmt": func(x: String): return x.ends_with(" needs relics: raid a fort"),
-		"overflow_fmt": func(x: String): return x.begins_with("Gold is full: ") and x.ends_with(" not stored"),
+		"overflow_fmt": func(x: String): return x.begins_with("Gold filled up, ") and x.ends_with(" not stored: queue more, or raid for relics"),
 		"afford_never_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": move it down, or build a "),
 		"afford_never_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": build a ") and not x.contains("move it down"),
 		"afford_never_self_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone: move it down"),
 		"afford_never_self_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone"),
+		"afford_starved_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR, or move it down"),
+		"afford_starved_last_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR"),
 		"full_raid": func(x: String): return x == "Your stores are full and the queue is empty: raid a fort for relics",
 		"queue_empty": func(x: String): return x == "Queue empty: plan the next build",
 	}
@@ -916,13 +925,26 @@ func _report_filled(reps: Array) -> void:
 		"no report shows the raid prompt beside a queue line, and none says today's, stores kept, wasted or unpaid")
 
 
+## A retake's loss line as economy.json words it (B1 (ii)): its collected fort_retaken's war_in and pressure_mult,
+## one decimal each; "" when no fort_retaken for `id` was collected.
+static func _retaken_text(c: Dictionary, n: GameState, id: String, fort_name: String, walked: bool) -> String:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	for e in n.catchup_events():
+		if e["type"] == "fort_retaken" and e["fort_id"] == id:
+			return str(rep["retaken_home_fmt"] if walked else rep["retaken_fmt"]).format({"fort": fort_name,
+				"war": "%.1f" % float(e["war_in"]), "mult": "%.1f" % float(e["pressure_mult"])})
+	return ""
+
+
 ## The losses' walk-home line: Greywall retaken while Relish stood there, during a 10 min load's catch-up:
-## "Greywall retaken, Relish walked home: raid it to win it back", and view_relish().returned tells it too.
+## "Greywall retaken (WAR …/s against Vei's pressure, … times base), Relish walked home: raid it to win it back",
+## and view_relish().returned tells it too.
 func _report_walked_home() -> void:
 	var c := cfgs()
 	var n := _away(c, _greywall(c), "walked", 600)
 	var l := _find(n.view_away(), "losses", "retaken")
-	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
+	var want := _retaken_text(c, n, "greywall", "Greywall", true)
+	t.ok(want != "" and l == {"text": want, "kind": "retaken", "target": "greywall"}
 		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
 		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
 
@@ -1261,10 +1283,21 @@ func _report_never_last(c: Dictionary) -> GameState:
 ## included), "build a Bone Mill" would name itself, so the line says afford_raise_self's fact instead, true at this
 ## commit (loot.json gives no bone; only a mill makes it): "Bone Mill level 2 can't be afforded at the current income of
 ## 0/s bone, and nothing else makes bone", with ": move it down" when an entry is behind it. A constructed state,
-## since F1 left day1 no such case: midgame_2flips, whose pits take every body (its mill makes 0 bone/s), with its
-## bone set to 50 and the mill's level 2 (190 bone) queued, alone and with a House behind it, each loaded 10 min on.
+## since F1 left day1 no such case: midgame_2flips, with its bone set to 50 and the mill's level 2 (190 bone) queued,
+## alone and with a House behind it, each loaded 10 min on, its mill's staff cap at 0 (it makes 0 bone/s, and wants
+## none). E4 (the run's manager's A1 day-1 ruling): with the mill staffed, midgame_2flips' pits eat every body (its
+## starved pits_first), so the line names the bone short and the lever instead, ahead of F1's fact (afford_starved_fmt:
+## "Bone Mill level 2 can't be afforded, 140 bone short at the current income of 0/s bone: the pits are eating every
+## body. Raise WAR, or move it down"); a new mill wouldn't help, so neither form says to build one.
 func _report_self(c: Dictionary) -> Array:
 	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var out: Array = []
+	for staffed in [false, true]:
+		out.append_array(_report_self_one(c, rep, staffed))
+	return out
+
+
+func _report_self_one(c: Dictionary, rep: Dictionary, staffed: bool) -> Array:
 	var out: Array = []
 	for behind in [false, true]:
 		var s := _mk(c)
@@ -1275,6 +1308,8 @@ func _report_self(c: Dictionary) -> Array:
 			if s.town_sim.buildings[lot_id]["building_id"] == "bone_mill":
 				mill = str(lot_id)
 		s.town_sim.bone = 50.0
+		if not staffed:
+			t.ok(s.cmd_set_staff_cap(mill, 0)["ok"], "(setup) the mill's staff cap at 0")
 		t.ok(mill != "" and s.cmd_queue_build("", mill)["ok"], "(setup) the Bone Mill's next level queued on %s" % mill)
 		if behind:
 			t.ok(s.cmd_queue_build("house", str(BuildRules.free_lots(s, 1)[0]))["ok"], "(setup) a House queued behind it")
@@ -1286,13 +1321,18 @@ func _report_self(c: Dictionary) -> Array:
 			and row.get("affordable_in_s", 0.0) == -1.0 and absf(float(n.view_rates()["rates"]["bone"]["net"])) <= BuildRules.NET_EPS,
 			"(setup) 10 min on, the mill's level %d waits on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), ", a House behind it" if behind else ""])
 		var name := StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0)))
+		t.ok(str(row.get("starved", "")) == ("pits_first" if staffed else ""), "(setup) the head's starved: %s" % str(row.get("starved", "")))
 		var want := "%s can't be afforded at the current income of %s bone, and nothing else makes bone%s" % [name,
 			StateViews._fmt_rate(rep, 0.0), ": move it down" if behind else ""]
+		if staffed:
+			want = str(rep["afford_starved_fmt" if behind else "afford_starved_last_fmt"]).format({"name": name,
+				"short": StateViews._fmt_count(rep, ceilf(float(row["short"]["bone"]))), "rate": StateViews._fmt_rate(rep, 0.0)})
 		var r := n.view_away()
 		var l := _find(r, "ready", "queue")
-		print("  [away] its own producer, never%s: %s" % [", an entry behind" if behind else "", str(l.get("text", ""))])
+		print("  [away] its own producer, never%s%s: %s" % [", staffed" if staffed else "", ", an entry behind" if behind else "", str(l.get("text", ""))])
 		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and not str(l["text"]).substr(name.length()).contains(StateViews._building_name(n, rep, "bone_mill", 1)),
-			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s: %s" % [
+			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s%s: %s" % [
+			" (the pits eat every body: raise WAR)" if staffed else " (unstaffed: nothing else makes bone)",
 			" (with \"move it down\": a House is behind it)" if behind else " (nothing behind it: no move down)", str(l)])
 		out.append(r)
 	return out

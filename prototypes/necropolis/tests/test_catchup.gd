@@ -57,6 +57,7 @@ func run() -> int:
 	_retakes_bound()
 	_threshold_free()
 	_i1()
+	_i1_field()
 	_determinism()
 	_cleanup()
 	return t.failures
@@ -690,13 +691,23 @@ func _live_frames() -> void:
 
 
 ## The events of a gap under idle.report_min_s go to the scenes' queue as live (no report replaces them):
-## midgame_2flips 20 min in, Old Sluice's garrison sits at 0 and is retaken within 300 s, and that
-## fort_retaken reaches drain_events() from a 300 s frame. A 900 s frame collects it for the report
-## instead, and queues none.
+## midgame_2flips 180 s before the 30 s window its first retake falls in (found live), so a fort is retaken
+## within 300 s, and that fort_retaken reaches drain_events() from a 300 s frame. A 900 s frame collects it for
+## the report instead, and queues none. (Before B1 (ii) the start was a fixed 20 min, when Old Sluice sat at 0
+## under the most-undead rule; the lowest-margin rule moves which fort falls and when, so the setup finds it.)
 func _gap_events() -> void:
 	var c := cfgs()
 	var s := _start(c, "midgame_2flips")
-	s.tick(1200.0)
+	var scan := _mk(c)
+	scan.from_dict(s.to_dict())
+	scan.drain_events()
+	var first := -1.0
+	while first < 0.0 and scan.t - s.t < 10800.0:
+		scan.tick(30.0)
+		if scan.drain_events().any(func(e): return e["type"] == "fort_retaken"):
+			first = scan.t - s.t
+	t.ok(first > 0.0, "(setup) live, midgame_2flips loses its first fort %.0f s in" % first)
+	s.tick(maxf(0.0, first - 180.0))
 	s.drain_events()
 	var cap := s.max_substeps_per_frame()
 	var live := _mk(c)
@@ -730,7 +741,13 @@ func _gap_events() -> void:
 ## both from the same save. Returns {ok, lines, ledger: [catch-up, live], stocks: {id: rel}, rates: {id:
 ## rel}, held: [catch-up, live], town_same, outcomes: [the lists that differ]}. Shared with the slow
 ## suite (12 h) and the I1 helper.
-static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> Dictionary:
+## With `window_s` > 0 (the slow suite's 12 h starts; E4, the A1 I1 fix's measurement correction) the rates the
+## feed drives (WINDOWED: the mint reads the last step's burned / wanted, and its split and the workers' inflow
+## follow it) are judged on their means over the next `window_s` live at 0.5 s in both runs, and their endpoint
+## values are printed, not asserted. The feed saws with the convoy's loads (fresh's mint 9.4 to 12.8 a cycle), so
+## one instant compares two phases: fresh at 12 h read 36.2% apart on a minted total 0.0015% apart and 600 s means
+## 0.05% apart, and before the claim it passed at 12 h on its phase (0.84%) and read 36% apart 600 s later.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0) -> Dictionary:
 	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute(dir)
 	var src := GameState.new(c)
@@ -751,10 +768,46 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 	live.cmd_load("acc")
 	live.drain_events()
 	live.tick(seconds)
-	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol)
+	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol, WINDOWED if window_s > 0.0 else [])
+	if window_s > 0.0:
+		var conv = load("res://tests/slow/convergence.gd")
+		var ma := _window_means(cu, window_s)
+		var mb := _window_means(live, window_s)
+		var rfl := 0.01 * maxf(1.0, float(mb["mint"]))
+		var w := 0.0
+		var wparts: Array = []
+		for k in WINDOWED:
+			var e := absf(float(ma[k]) - float(mb[k])) / maxf(absf(float(mb[k])), rfl)
+			w = maxf(w, e)
+			wparts.append("%s %s" % [k, conv._pct(e)])
+		out["window"] = {"s": window_s, "worst": w}
+		out["worst"] = maxf(float(out["worst"]), w)
+		out["ok"] = bool(out["ok"]) and w <= tol
+		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s" % [
+			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts))]
 	DirAccess.remove_absolute(dir + "/acc.json")
 	DirAccess.remove_absolute(dir)
 	return out
+
+
+## The rates the pits' feed drives (accuracy()'s window).
+const WINDOWED := ["mint", "war", "flood", "worker_in"]
+
+
+## Each WINDOWED rate's mean over `window_s` more of live play at 0.5 s.
+static func _window_means(s: GameState, window_s: float) -> Dictionary:
+	var sum := {}
+	for k in WINDOWED:
+		sum[k] = 0.0
+	var n := maxi(1, int(round(window_s / 0.5)))
+	for i in n:
+		s.tick(0.5)
+		var r := _rates(s)
+		for k in WINDOWED:
+			sum[k] = float(sum[k]) + float(r[k])
+	for k in WINDOWED:
+		sum[k] = float(sum[k]) / n
+	return sum
 
 
 ## Two runs of the same span compared (accuracy(), the I1 helper; also returns `late`, the time-bound misses,
@@ -765,8 +818,9 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 ## max(|live|, 1% of the mint)), the held forts (±1), Covington's buildings (id, level, state per lot) and
 ## the outcomes in order (convergence.gd's outcome lists), each flip and retake within the outcomes' time
 ## bound (convergence.gd's TIME_BOUND_STEPS) × `a`'s catch-up step at that moment: its `dt` for the first
-## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run.
-static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float) -> Dictionary:
+## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run. The rates in `printed_only` are
+## reported but left out of `worst` and `ok` (accuracy()'s window judges them instead).
+static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float, printed_only: Array = []) -> Dictionary:
 	var conv = load("res://tests/slow/convergence.gd")
 	var sa: Dictionary = conv.sample(a)
 	var sb: Dictionary = conv.sample(b)
@@ -786,7 +840,8 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 	for k in rb:
 		var e := absf(float(ra[k]) - float(rb[k])) / maxf(absf(float(rb[k])), rfl)
 		rates[k] = e
-		worst = maxf(worst, e)
+		if not printed_only.has(k):
+			worst = maxf(worst, e)
 	var held := [0, 0]
 	for i in 2:
 		for f in [a, b][i].realm.forts:
@@ -882,6 +937,11 @@ func _retakes_bound() -> void:
 		s.realm.fort_by_id(id)["living"] = 0.0
 	t.ok(s.cmd_set_valve(0.85, 0.0, 0.15)["ok"], "(setup) the valve's WAR at 0")
 	s.valve = s.valve_target.duplicate()
+	# E4 step 5 (ruling A1): the muster joins the FLOOD now, so the WAR really is 0, and Relish (travelling to Greywall
+	# in the fixture) would raise its corpses while its garrison drains: a catch-up step spreads her corpse-limited raise
+	# over the step (Catchup.simulacrum_out_s's note), so caught up Greywall broke 32.5 s late (3.25 steps of 10 s; IDLE
+	# §8). This test is Vei's reship's retakes, so she waits at home; with her there all 7 match within 0.24 s
+	s._place_relish("covington")
 	s._ledger.reset(GameState.Ledger.total(s._held()))  # the garrisons were set by hand
 	var r := accuracy(c, JSON.stringify(s.to_dict()), 1200.0, float(c["economy"]["idle"]["catchup_tol"]))
 	print("  [catchup] seven held forts, WAR 0, 20 min caught up at 10 s vs live: %s" % r["lines"])
@@ -978,6 +1038,10 @@ static func i1(c: Dictionary, start: String, script: Callable, seconds: float, f
 	var out := compare(closed, closed.catchup_events(), open, evs, tol)
 	out["open_t"] = open.t
 	out["closed_t"] = closed.t
+	out["owners"] = [{}, {}]  # each run's village owners by id (closed, open)
+	for i in 2:
+		for v in [closed, open][i].to_dict()["villages"]:
+			out["owners"][i][str(v["id"])] = str(v["owner"])
 	DirAccess.remove_absolute(dir + "/i1.json")
 	DirAccess.remove_absolute(dir)
 	return out
@@ -999,6 +1063,20 @@ func _i1() -> void:
 	print("  [catchup] I1, a new game's session left 30 min, closed vs open: %s" % r["lines"])
 	t.ok(r["ok"] and float(r["open_t"]) == float(r["closed_t"]), "I1: closed for 30 min equals open for 30 min within %.0f%%, the same outcomes: %s" % [
 		tol * 100.0, r["lines"]])
+
+
+## I1's field (E4): a catch-up's village owners read the field as live play does, the step's in-flight
+## injects on top (InfluenceField.overlay_in_flight). In this shrunk field Bellwether shares Covington's
+## cell with an orange inject, so the contest wipes the step's bare result there: without the overlay a
+## caught-up Bellwether read none for its first 80 s here (and, under A1's thinner WAR, the whole half-hour),
+## while open play's read green from its first second (the I1 test's 61.5% town living under A1, Bellwether's
+## migrants). A new game left 60 s, closed (30 field steps of 2 s) against open.
+func _i1_field() -> void:
+	var r := i1(cfgs(), "new", func(_s: GameState) -> void: pass, 60.0, 0.25, 1.0)
+	var o: Array = r["owners"]
+	t.ok(o[0] == o[1] and str(o[1].get("bellwether", "")) == "player",
+		"I1's field: 60 s closed reads the village owners open play does, Bellwether (Covington's cell) held in both: closed %s, open %s" % [
+		str(o[0]), str(o[1])])
 
 
 ## Determinism: the same save and time away give the identical to_dict() twice (and the same events).

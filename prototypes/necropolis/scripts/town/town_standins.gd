@@ -382,6 +382,7 @@ static func demo_views(base: Dictionary, buildings_cfg: Dictionary, town_cfg: Di
 			"eta_s": -1.0,
 			"upgrade_projected": {},
 			"starved": "",
+			"lever": "",  # v11 (E4's A1 day-1 ruling): the lever for `starved`; none in the demo
 			"foreman_mult": 1.0,
 		})
 	var jobs_out: Array = []

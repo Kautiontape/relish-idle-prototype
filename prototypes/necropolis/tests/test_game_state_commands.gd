@@ -72,7 +72,7 @@ func _valve() -> void:
 	var s := _mk()
 	var h := s.view_hud()
 	t.near(h["valve"]["work"] + h["valve"]["war"] + h["valve"]["flood"], 1.0, 1e-12, "the start valve sums to 1")
-	t.near(h["valve_target"]["war"], 0.45, 1e-12, "the start valve is BALANCE §0's")
+	t.near(h["valve_target"]["war"], 0.60, 1e-12, "the start valve is BALANCE §0's (WAR 0.60 since E4's A1 day-1 ruling)")
 	var rv := s.rev
 	var r := s.cmd_set_valve(2, 2, 1)
 	t.ok(r["ok"] and r["reason"] == "" and s.rev == rv + 1, "cmd_set_valve(2, 2, 1) ok")

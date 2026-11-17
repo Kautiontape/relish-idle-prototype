@@ -11,9 +11,9 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | buildings | Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls) |
 | lots | 24 (Hamlet uses the first 8) |
 | gold / bone / bodies | 80 / 30 / 40 |
-| workers | 12 (the steady state at the default valve is about 50, so the stream visibly grows) |
+| workers | 12 (the steady state at the default valve is about 34, 40 once the pits are fed, so the stream visibly grows; the town keeps 17, its slots plus `worker.idle_cap`, and musters the rest; it was 55 / 64 at work 0.40) |
 | living | 10 (`living_cap` 16 from the crypt district's huts) |
-| valve | work 0.40 · war 0.45 · flood 0.15 |
+| valve | work 0.25 · war 0.60 · flood 0.15 (E4, the run's manager's A1 day-1 ruling, 2026-11-17; was 0.40 · 0.45 · 0.15). Under A1 the muster goes to Vei, and below a WAR share of about 0.54 (`opening.bone_edge.war_share`, `view_hud.bone_war_share`) a new game's pits eat every body and the mill makes no bone (MECHANICS §4.2's table); 0.60 keeps a margin over it |
 | Relish | home, phylactery 0, no clones or vats |
 | first dungeon | Old Sluice (tier 1, Bellringer), flagged "first"; starter party `opening.starter_party` = 8 units; the chest holds a husk and the first blueprint |
 
@@ -54,6 +54,17 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
 - **(a) Never raid held or refilled forts** (IDLE §8's extra row, at least +20%; `autoplay_ablation_held`). The bot's raid
   pick skips every held fort, so a fort is raided until its warden falls and is then left until Vei retakes it. A refilled
   fort is a held one (IDLE §7), so this is the whole rule. Nothing else in the policy changes.
+  **E4 step 6, an accepted miss** (the run's manager, 2026-11-17 11:39 ruling 1; for the step 9 vision review). The
+  target was a 20–25% cost in levels at day 8 (the 2026-11-16 16:18 ruling (c)). It costs **78%** at 3379877 (28
+  levels against sessions' 128) and **77%** with the retake's kept yield and the craft at 500 bone, 3 remnants (27
+  against 116; one seed, 8 days). The cause is a relic wall, not rich held raids: once every fort it can reach is held,
+  the no-held bot has nothing it may raid (7–8 raids in 8 days against sessions' 146–159), so its queue waits on relics
+  from day 1, it never gets the bigs to reach t2, and its town stays at tier town with a 550 bone cap. Shawn's throttle
+  is in (`loot.recover_s` 8 h, `loot.reclear_decay` 0.5: a held clear pays 0.32 relics at a mean yield of 0.72, a flip
+  2.2–2.7). **No relic cap is shipped:** 12 a day gave 106 levels and Vei-ready day 6.33 (cost 74%), 6 a day 56 levels
+  and day 7.0 (52%), and the ablation banks 12–14 relics in 8 days under any cap, so a cap only slows sessions. A relic
+  source outside raids (an idle trickle) for a player who holds everything goes to step 9's vision review; it is not
+  built.
 - **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
   buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
   built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
@@ -101,7 +112,8 @@ E2a added is here with its value.
 
 | key | start | note |
 |---|---|---|
-| `opening.valve` | 0.40 / 0.45 / 0.15 | `economy.json` (work / war / flood); `directShare` 0.22 is removed |
+| `opening.valve` | 0.25 / 0.60 / 0.15 | `economy.json` (work / war / flood; 0.40 / 0.45 / 0.15 before E4's A1 day-1 ruling, §0); `directShare` 0.22 is removed |
+| `opening.bone_edge.war_share` | 0.54 | `economy.json`: a new game's bone edge, measured (§0, MECHANICS §4.2) |
 | `valve.slew_per_s` | 0.10 (L1) | about 10 s for a full swing |
 | `field_src_per_pit` | 0.15 | `realm.json` top level (the `field` block is ground's): Covington's field source is `src_main · (1 + field_src_per_pit · pits)` |
 | `sim.prewarm_ticks`, `sim.prewarm_dt` | 90, 0.2 s | `economy.json`: the field pre-warm at new game and load |
@@ -162,7 +174,7 @@ E2a added is here with its value.
 | `town.projection_rows_per_call` | 0 | a test override, not a tunable: above 0 a view call refreshes up to that many of its own rows, exactly (the exactness, purity, persist and contract tests set 1000) |
 | `queue.max_len` | 8 | the build queue's length (IDLE §5, E2b-2 T3.2), the town's stand-in's 8 |
 | `idle.catchup_gate_tol` | 0.01 | the catch-up gate (IDLE §4, E2b-2 T3.3a, the run's manager's rule): a 10 s core step against 0.5 s over 12 h with no input. Vei's and Covington's stocks within 1% at every 600 s sample, each overflow tally within 1% at the 12 h endpoint (a) and within max(1% of it, its floor) at every sample (b), the same outcomes. The core step's share of IDLE's 2% `idle.catchup_tol`. Read only by `tests/slow/convergence.gd` (its assertion) and `test_step_accuracy` (the judge's test) |
-| `idle.catchup_gate_tally_floor` | gold 6, bone 1 | (b)'s floor: a fixed amount per tally, what one 10 s step's lag can carry. **Bone 1:** at 10 s pre_vei's convoy runs 10–15 mass of corpses behind 0.5 s's (the start-of-step pickup cap, MECHANICS §4.2), about 0.7 bone of the mill's overflow; the worst (b) residual at 10 s over 12 h on the three starts is 0.74 bone (pre_vei at 600 s, where 1% of the tally is 0.65). A fifth of the judge test's 5-bone mid-run fault. **Gold 6:** no gold tally moves at any start; the largest gold income among them is 0.6 gold/s of trade (pre_vei: Market 2, four stalls at `stall.rate` 0.15; midgame_2flips and fresh 0.3), and 0.6 × 10 s = 6 gold, a whole number |
+| `idle.catchup_gate_tally_floor` | gold 6, bone 1 | (b)'s floor: a fixed amount per tally, what one 10 s step's lag can carry. **Bone 1:** set when at 10 s pre_vei's convoy ran 10–15 mass of corpses behind 0.5 s's (the start-of-step pickup cap, MECHANICS §4.2), about 0.7 bone of the mill's overflow. It stays: since E4's claim that convoy lands as 0.5 s's does, and pre_vei's bone-over (b) at 15 s reads 0.18 of the floor (1.09 before). the worst (b) residual at 10 s over 12 h on the three starts is 0.74 bone (pre_vei at 600 s, where 1% of the tally is 0.65). A fifth of the judge test's 5-bone mid-run fault. **Gold 6:** no gold tally moves at any start; the largest gold income among them is 0.6 gold/s of trade (pre_vei: Market 2, four stalls at `stall.rate` 0.15; midgame_2flips and fresh 0.3), and 0.6 × 10 s = 6 gold, a whole number |
 | `idle.gap_s` | 30 s | IDLE §4 When: a frame on the frame path whose real time (its sim `dt` / `time_scale`) is above this goes through catch-up instead of having its remainder past `sim.max_substeps_per_frame` dropped; under it, frames stay live play (MECHANICS §1.3). Real time, so debug fast-forward stays live |
 | `idle.catchup_max_s` | 604 800 s (7 d) | the most a load catches up; more is dropped and flagged (`cmd_load`'s `capped`): a sanity cap, not a design lever (IDLE §4) |
 | `idle.catchup_dt_max_s` | 10 s | catch-up's longest core step for its first `idle.catchup_dt_long_after_s`: the largest step the gate (`idle.catchup_gate_tol`, E2b-2 T3.3a) passes at every start over 12 h; 15 s fails it at pre_vei (bone over (b) 1.09 of 1.00) |
@@ -199,7 +211,7 @@ E2a added is here with its value.
 | `backups.clone_respawn_s`, `unmade_respawn_s` | 60, 600 | E3-2 (MECHANICS §7): after a run-ending death she is `dead` this long, then wakes at Covington (from a ready clone, or reformed when unmade); `view_backups().death.respawn_s` and the seeds' `death_ends` show it. Read REQUIRED |
 | `phylactery.revive_hp`, `max_per_dungeon` | 0.5, 1 | `max_per_dungeon` (REQUIRED from E3-2): the in-place revives a dungeon may use; `view_backups().death` reads `phylactery` only while it is above 0. `revive_hp` is the dungeon's |
 | `essence.per_living`, `per_undead`, `lifetime_s` | 1, 1, 12 | `lifetime_s` is the existing raid.json name |
-| `loot.reclear_decay`, `loot.recover_s` | 0.5, 28800 s | each clear that pays loot (a flip, a counter-garrison clear) multiplies a fort's loot yield by 0.5; the yield climbs back linearly to 1 over 8 h from its last clear (a retake resets it to 1). MECHANICS §5.3 |
+| `loot.reclear_decay`, `loot.recover_s` | 0.5, 28800 s | each clear that pays loot (a flip, a counter-garrison clear) multiplies a fort's loot yield by 0.5; the yield climbs back linearly to 1 over 8 h from its last clear. A retake leaves it as it was (the run's manager, 2026-11-17: a fort lost and retaken has already been looted, so losing it costs, not pays; the old reset to 1 made each re-flip a full-yield raid, 45% of sessions' relics). MECHANICS §5.3 |
 | `vei.fronts_required`, `break_beats`, `loss_backlog_keep` | 3, 20, 0.35 | `vei.json`; `lapse_cost` 4: a beat below the ferry takes 4 pips back (MECHANICS §6) |
 | `vei.guards` `rate_per_uncleared`, `cap`, `life_s`; `unit.hp`, `unit.dmg` | 1.0/s, 12, 6 s; 49.5, 8.8 | tuned in D-c so no ±5% move swings the win rate by a cliff; hp and dmg sit off Relish's 30-hp hit counts on purpose |
 | `vei.weaves.dmg`, `period_beats` | 13.5, 3 | off the 30-hp hit counts as above |
@@ -207,7 +219,7 @@ E2a added is here with its value.
 | `K`, `S_vei` | 36 000 000, 8.0 | `K` E4 step 3: ×3000 for the live backlog (sessions about 5.6M at day 1, 61M at day 5, 140M at day 8; continuous 204M), so sessions reaches odds 0.6 at about day 4.7, continuous at about day 3.4 (28% sooner; at d6ad1b7 sessions crosses 0.6 at about day 5.4, between its looks, and continuous at 3.48), and night 1 takes the odds from 0.02 to 0.11, not 0.98 to 0.998. Was 12000 (the audit's ×4.8 canon), sized for the 18k knife edge below. The fixtures' and the demo seed's backlogs were scaled by the same 3000 so their odds stay put. `S_vei` unchanged |
 | `vei.fronts.giants.need_base`, `carvers.need_base`; `carvers.need_per_pool` | 2, 2; 0.012 | E4 step 2's sizing (try 1; were 14 and 18): with giants' `need_per_pool` 0.02, giants needs 14 at Vei's full pool of 600. Giants' 14 sits above the best t1 skeleton's wits (9), so one t1 skeleton never fills it (the manager's ruling 4 at step 2); it takes two or three. **Carvers' `need_per_pool` 0.02 → 0.012 (9.2 at a full pool) is the one re-size of the R2 ruling**, when the bot's Vei-ready moved to the full pool (IDLE §8). Less 3 × `q` (about 6.7) carvers' want is about 2.5 beef, so one t1 big with beef 3 meets it: carvers needs a keeper, not a composition. **At d6ad1b7, Vei-ready at her full pool (3 of 4 and odds ≥ 0.6), with the in-wave readout (the pool she has then, at the look) beside it:** sessions **day 6.0001** (518 406.5 s; in-wave 518 400 s, the same look), continuous day 3.4837 (in-wave 3.4836), 42% sooner and outside the 10–30% band, ablation_keep never (giants 0). Both are **odds-bound**: sessions meets all three fronts at a full pool from day 5.0 (giants 19/14, swarm 24.1/24, carvers 13.7/9.2), but its odds are 0.5967 at day 5's last look (5.347) and 0.6356 at day 6's first, so it lands 6.5 s past day 6. At ready, sessions brings giants 14/14 (a wraith and a skeleton, wits 7 each), swarm 31.4/24, carvers 13.7/9.2 (one beef-7 zombie), raw 15.7/58. **Before R2** (carvers 0.02, the fronts at the pool she had then, at 5b86232): sessions day 5.34, continuous day 4.38 (18% sooner), both inside a tithe wave's dip; at a full pool neither had 3 of 4 in 8 days |
 | The fight grade at Vei-ready (E4 step 3) | 20 seeds | The demo seed with the boss bot at score 70 (`--boss-autoplay=70`, `--boss-seed` 1–20), at d6ad1b7. **At sessions' Vei-ready** (`--boss-cfg` needs giving the demo sessions' have/need on arrival: giants 1.00, swarm 1.31, carvers 1.49, raw 0.27) **with its backups** (1 phylactery charge and 4 clones; vats best case): **19/20 won (95%)**. With the demo's 1 + 1 backups at the same ratios: 12/20 (60%). The demo as shipped (its fronts at 2.40, 1.87 and 4.09 of need, 1 + 1): 10/20 (50%). Before E4 (the old config, 1 + 1): 13/20 (65%). So the ratios at Vei-ready make the fight no harder than the demo's; the clones she holds decide it. Every fight clears giants, swarm and carvers in phase 1 (20.0 s at sessions' ratios: giants at exactly its need takes `phase1.ref_s`) |
-| `economy.craft.husk` `bone`, `remnants` | 300, 6 | **GUESS** (lever (b), the sizing stop's ruling 2: slow and costly; `cmd_craft_husk`). A new game's 200 bone cap is under it until the Bone Mill raises the cap. Sized with the needs above so sessions reaches Vei-ready on day 5–6. The price paces it little: bone sits at its cap, so 500 bone made the same 13 crafts in sessions (and never reached Vei-ready); the bot's conditions pace it (a short front, room in the crypt, a keeper-grade fill, the queue's head not waiting on bone), and the remnants it grinds bind. Crafts over 8 days: at 5b86232 sessions 13 (7 by day 4), continuous 9 by day 4.4, ablation_keep 14; at d6ad1b7 (carvers 9.2) sessions 12 (5 by day 4), continuous 10 by day 3.48, ablation_keep 14 |
+| `economy.craft.husk` `bone`, `remnants` | 500, 3 | **GUESS** (lever (b), the sizing stop's ruling 2: slow and costly; `cmd_craft_husk`). **Re-priced 2026-11-17** (were 300, 6; the vision review of E4 M1, item 6: make it a real bone sink, the bone binding and the remnants a light raid-side gate; the run's manager's 11:39 ruling 3). About 600 bone, the review's figure, is never payable in sessions: at 600 it sits at its 550 bone cap from day 1 to day 7 (0 crafts in 8 days, Vei-ready 7.0001, 70 levels; the step 6 stop's probe at 3379877). 500 is 91% of that store, so while sessions' cap is 550 (to day 4) it crafts at most one a session; at day 8's 2 250 cap it crafts two in a session, twice. 3 or 4 remnants gave identical sessions runs in the stop's probe (at 3379877, with the old retake reset), where the bone binds. **With the kept yield the remnants bind for continuous:** 500 / 4 puts it at day 3.5991 (40.0% sooner) against 3.3035 at 500 / 3, because 3 remnants leave it enough to raise a 4-big party by 17.5 h, which flips 5 forts within the hour (sessions at 500 / 4 not re-measured). Measured with the retake's kept yield (MECHANICS §5.3), one seed, 8 days: sessions crafts 12 (6 by day 4; 11 at 300, 6) and is Vei-ready on day 6.0001 (518 406.5 s, as at 300, 6), 116 levels; continuous crafts 9, all by day 2.4, and is Vei-ready on day 3.3035, **44.9% sooner** (past IDLE §8's 10–30% and the ruling's 38% report line; reported, not tuned); ablation_keep crafts 8 and is never ready (fronts 1 of 3). A new game's 200 bone cap is under it until the Bone Mill raises the cap. Sized with the needs above so sessions reaches Vei-ready on day 5–6. The history below is from E4 step 2 (5b86232, d6ad1b7), at 300, 6 except the one 500-bone trial named: the price paced it little then: bone sat at its cap, so a 500-bone trial made the same 13 crafts in sessions (and never reached Vei-ready); the bot's conditions pace it (a short front, room in the crypt, a keeper-grade fill, the queue's head not waiting on bone), and the remnants it grinds bind. Crafts over 8 days: at 5b86232 sessions 13 (7 by day 4), continuous 9 by day 4.4, ablation_keep 14; at d6ad1b7 (carvers 9.2) sessions 12 (5 by day 4), continuous 10 by day 3.48, ablation_keep 14 |
 | `vei.fronts.swarm.per_backlog`, `raw.per_backlog` | 5e-7, 2.5e-7 | E4 step 3 (the manager's ruling: mass alone clears exactly one front, swarm). Swarm is met by mass at about 48M (odds 0.57). Raw's backlog term stays under its need through 8 days of every profile (60% of 58 at ablation_keep's 139M, 88% at continuous's 204M), so raw needs power from bigs. It brings about a quarter of raw's need at sessions' day-5 backlog. Past the 8-day horizon mass alone would clear raw; a saturating term (on the odds) would close that, as a follow-up. Were 0.0006 and 0.0012 |
 
 **Lots per tier** (`economy.json` `town.tiers.<tier>.lot_ids`; sizes are `town.json`'s: lot-01..04 and
@@ -291,7 +303,7 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Raising Pit | Hamlet | 0.03 | 15 / 150 | 30 / 305 | 50 / 450 | 80 / 720 | 130 / 1150 | 210 / 1840 / 1 | 335 / 2945 / 1 | 535 / 4710 / 1 |
 | Charnel House | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 50 / 410 | 80 / 655 | 130 / 1050 / 1 | 210 / 1680 / 1 | 335 / 2690 / 1 |
 | Market | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 45 / 410 | 75 / 650 | 120 / 1040 / 1 | 190 / 1675 / 1 | 300 / 2685 / 1 |
-| House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 35 / 280 | 55 / 455 | 90 / 730 / 1 | 140 / 1180 / 1 | 225 / 1880 / 1 |
+| House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 135 / 70 | 155 / 155 | 175 / 360 / 1 | 200 / 825 / 1 | 225 / 1880 / 1 |
 | Well | Hamlet | 0.01 | 30 / 10 | 60 / 20 | 90 / 30 |  |  |  |  |  |
 | Bakery | Hamlet | 0.01 | 50 / 10 | 100 / 20 | 150 / 30 |  |  |  |  |  |
 | Bone Mill | Hamlet | 0.03 | 60 / 0 | 20 / 190 | 30 / 285 | 50 / 455 | 80 / 730 | 130 / 1170 / 1 | 210 / 1870 / 1 | 335 / 2990 / 1 |
@@ -308,6 +320,24 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Plaza | Town | 0.15 | 350 / 150 / 2 |  |  |  |  |  |  |  |
 | Statue of Relish | Town | 0.15 | 400 / 150 / 3 |  |  |  |  |  |  |  |
 | Reliquary | Town | 0.2 | 600 / 250 / 4 |  |  |  |  |  |  |  |
+
+**The House's gold → bone handover** (E4 step 8, the brief's item). The House is a living building bought with gold,
+and the only one whose ladder runs past level 3. Config C priced its L4 to L8 on the dead's bone ladder, so L4 went
+from 120 gold / 30 bone to 35 / 280. In bone, the price that binds, that is ×9.3 in one level against ×1.5 to 2
+below it. It is also past a new game's 200 bone cap before any mill.
+- **What the sessions profile shows** (20512b1's tree, the bot's first 5 days):
+  - It builds five Houses by day 1, raises them to L2 at day 2.2 and to L3 at day 4.2. It hasn't queued L4 by
+    Vei-ready (day 5.3), so the change reaches the profiles only through the bot's choices.
+  - Gold sits at its cap (16,250) from day 1. Bone refills to its 550 cap each 4 h away and drains in each session.
+  - At its away rate (about 550 bone per 4 h, 0.038/s), L3 is 13 min of bone and the old L4 was 2 h (51% of the cap).
+- **Now:** L1–L3 and L8 keep their prices, and L4 to L7 run geometrically between them in each currency. Gold rises
+  ×1.13 a level (120 → 225) and bone ×2.29 (30 → 1,880), rounded to 5.
+  - In bone-time each level is about 2.3× the last (L4 31 min, L5 68 min).
+  - L4 and L5 (70 and 155 bone) fit a new game's 200 cap.
+  - The bone share of a level's price rises from 20% at L3 to 89% at L8. The handover stays, spread over five levels.
+  - L4–L8 cost 3,290 bone in all, against 4,525 before, and 890 gold against 545.
+- `test_build_ladder` checks it: each currency never falls from one level to the next and rises at most 2.5×, and L4
+  and L5 fit the new-game cap.
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead

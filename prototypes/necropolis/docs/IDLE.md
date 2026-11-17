@@ -243,9 +243,22 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
     at midgame_2flips and fresh (+0.1%), −24.8 at pre_vei (−4.1%, of 605 live; −11% at 3 h). It moves no
     stock: Covington's living sit at their cap throughout at all three (26, 88 and 16), so the migrants
     above it are dropped in both runs.
+  - **The in-flight overlay** (E4, found under ruling A1's I1 red: town living 61.5% apart at 30 min). Live play
+    reads the field as `_publish` leaves it: a result `field.lag_ticks` (2) old with the ticks still in flight
+    re-applied on top, so an inject cell carries two periods of its injects. `catchup_step` publishes its bare
+    result (as after `flush()`), and where both colours inject the contest wipes that result: on the 8 × 6 field
+    Bellwether shares Covington's cell with an orange inject, and read exactly 0 (none) caught up against +0.94
+    to +0.60 (green) live, so its migrants arrived only live. Each field step now ends with
+    `InfluenceField.overlay_in_flight` (the step's injects `lag_ticks` times on the published arrays only, never
+    the pipeline's base) before the village owners: Bellwether +0.706 at the first field step against +0.699 live,
+    +0.6006 against +0.6005 at 30 min; the threshold-free start's owners go from 1 of 12 apart to 0.
+    Tests: `test_field_catchup` (the inject cells read as live play's published field, worst 0.0000 against the
+    bare step's 0.3080; the base and the next step unchanged), `test_catchup._i1_field` (60 s closed against
+    open, the same owners).
   - **T3.3c's living gap** (`tests/test_away.gd`'s walk-home catch-up, 16 living live against 10.1 caught up)
-    is the shrunk field's: on its 8 × 6 field with no pre-warm, Covington's village is green live and goes
-    unowned at catch-up's first field step, so 0.12 living of migrants arrive in 10 min against 7.2 live.
+    was put down to the shrunk field (on its 8 × 6 field with no pre-warm, Covington's village is green live and
+    goes unowned at catch-up's first field step, so 0.12 living of migrants arrive in 10 min against 7.2 live).
+    It is the in-flight overlay's symptom on the same field (not re-measured since the fix).
     On the shipped field, pre-warmed, the owners match at 10 of 11 samples (one village apart once, not the
     green one), the migrants are 6.84 against 6.87 and both end at the cap of 16.
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
@@ -367,7 +380,11 @@ takes over 1 s.
     0.28% (fresh) at 15 s at `4d9a265`, the backlog the worst at each. That compares with 0.55%,
     0.50% and 0.14% at `9b5fc99`; 1.50% (midgame_2flips, bone), 0.50% and 0.14% at `40d62c0`; and
     0.80%, 0.48% and 0.14% at `55c281f`.
-  - **The residual: the start-of-step pickup cap** (MECHANICS §4.2). A pickup is held to what the
+  - **The residual: the start-of-step pickup cap** (MECHANICS §4.2). **Closed at E4 by the claim**
+    (the A1 I1 ruling (1); MECHANICS §4.2, the hold and the claim): a leg claims the corpses formed
+    since the step's start and GameState takes them after the realm step, so pre_vei's convoy lands
+    the same at 3 s and 10 s as at 0.5 s (`test_step_accuracy`). The record below is from before it.
+    A pickup is held to what the
     fort held at the step's start, and the realm step owns the corpses formed inside it. So at a fort
     with no living, where Vei's shipping dies as it lands, those corpses wait for the next step's
     legs. Measured on pre_vei over 24 h at 0.5, 2, 5 and 10 s (the harness's clipped steps, sampled
@@ -407,7 +424,9 @@ takes over 1 s.
     - **On file, not built:** the realm step taking the convoy's pickup as a sink inside the step.
       It needs the shortfall reconciled (a pickup a fort can't give is owed back to the convoy),
       and it changes MECHANICS §1.3's order, TownSim before the realm step. The run's manager kept
-      the order and the hold (E2b-2 T3.3a).
+      the order and the hold (E2b-2 T3.3a). E4's claim is not this sink. It keeps the order and the
+      hold and owes nothing, because GameState takes the claim after the realm step from what the
+      fort holds, and the rest stays there.
   - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s, err(0.5) / err(0.25)). At
     `4d9a265`: every midgame_2flips error is under 0.03% (the backlog 0.008% and 0.019%, ratio 2.4;
     its pools' ratios 0.6 to 5.8 on errors of 0.002% to 0.028%). fresh's backlog and Vei's dead are
@@ -603,6 +622,13 @@ takes over 1 s.
   shrunk to 8 × 6 for both). Stocks are Vei's and Covington's (`convergence.gd`'s KEY), each against
   max(|live|, its floor); rates are the mint and its WAR and FLOOD, TownSim's worker inflow and gold, bone
   and living nets, and Vei's sustained differential. Both ledgers balance to 2.4e-12 or better.
+  - **At 12 h the feed's rates are judged over a window** (E4, a measurement correction with the convoy's
+    claim; `test_catchup.accuracy`'s `window_s`): the mint, its WAR and FLOOD and the worker inflow on
+    their means over the next 600 s of live play in both runs, with their 12 h values printed. The feed
+    saws with each landed load, so one instant compares two phases. With the claim, fresh read 12.80
+    caught up against 9.40 live (36.2%) while its minted totals were 0.0015% apart and its 600 s means
+    0.05%. Without the claim, fresh passed on its phase (0.84%) and read 12.80 against 9.40 600 s later.
+    The 2 h default case and I1 still read the instant.
   - midgame_2flips: 2 h, the backlog 0.008%, Vei's dead 0.12%, Covington's stocks under 0.0005%, the
     rates under 0.003%, 1 held fort each, Covington identical, outcomes equal (25 waves, a retake); 12 h,
     the backlog 0.025%, Vei's dead 0.22%, the differential 0.10%, outcomes equal (181 waves, a retake).
@@ -660,7 +686,8 @@ same profile with the game closed.
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
 - **Overflow is tallied beside the ledger** (`ledger().stores`; gold and bone are not mass, so the mass
   soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was not stored (T3.3;
-  W: "Gold is full: 2,162 not stored").
+  W: "Gold is full: 2,162 not stored"), since E4 step 7 as a ready action, not a loss: "Gold filled up, 2,162 not
+  stored: queue more, or raid for relics" (§7).
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on
@@ -699,13 +726,26 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
       bone fact holds until P4 makes rot a source of bone.
+    - **the pits eating every body** (E4, the run's manager's A1 day-1 ruling): never on bone while the mill is
+      starved `pits_first` (the head row's `starved`), the mill exists and a new one wouldn't help, so the line names
+      the bone short and the lever, ahead of the producer form: "Well can't be afforded, 7 bone short at the
+      current income of 0/s bone: the pits are eating every body. Raise WAR, or move it down"
+      (`idle.report.afford_starved_fmt`; `afford_starved_last_fmt` without the move down, the same rule). Below a new
+      game's bone edge (`view_hud.bone_war_share`, MECHANICS §4.2) day 1's first queue sits here.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
     the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
     fort for relics" (`kind` `raid`, `target` `""`), in place of "Queue empty" (W: no build can be planned
-    without relics, so the two would contradict each other). The full store's line stays in losses for now
-    (E4 moves it). A non-empty queue never gets this prompt; the wall below is its form.
+    without relics, so the two would contradict each other). The full store's own line is a ready action too
+    (below). A non-empty queue never gets this prompt; the wall below is its form.
+  - **A store that filled up** (E4 step 7, the brief's "stores full: queue more, or raid for relics"; it was a
+    loss until then): each store whose cap clipped at least `idle.report.overflow_min` while you were away gets
+    "Gold filled up, 2,162 not stored: queue more, or raid for relics" (`overflow_fmt`, kind `overflow`, target
+    `queue`), after the queue's lines. "Filled up", not "is full", because the store may have been spent since.
+    What it says to do: queue a build that spends it, or raid for the relics a gated build waits on. With the
+    stores full and the queue empty it follows the raid prompt above, which is the same advice with the amount
+    left out.
   - **The relics wall** (W2, the run's manager for Shawn): a queue of only relic-gated builds is the plateau
     Shawn wants visible, and the walk skips such an entry (`skipped_gate`, reason `no_relics`), so it never
     became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
@@ -726,9 +766,11 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     after". A start that didn't wait stays "started right away" (`started_now_fmt`). The cutoff is the
     report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
     "briefly" in `_unpaid_lines`; not a tuning number.
-- **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
-  each building the Thrift stance idled (E3-1),
-  each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
+- **losses:** "Ashgate retaken (WAR 4.1/s against Vei's pressure, 5.2 times base): raid it to win it back" (the
+  cause, from B1 (ii)), villages lost, each building that went unpaid,
+  each building the Thrift stance idled (E3-1). A store that filled up is no longer a loss (E4 step 7: it is
+  a ready action, above; it was "Gold is full: 2,162 not stored" here, W's words for what came in over its cap,
+  never called waste).
   An absence with no losses says **"Nothing lost."**
   - **Unpaid** (R1, the run's manager; W words it as a returning player reads it): one line per building
     that was unpaid at some time during the absence, in lot order, with how long it was stopped in all (its
@@ -783,7 +825,9 @@ dismissed) and the `away_report` event.
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
 
 **The ablations stay** (BALANCE §2), measured in days under the sessions profile, plus one more:
-"never raid held or refilled forts" must cost at least +20%.
+"never raid held or refilled forts" must cost at least +20%. (E4 step 6 aimed it at 20–25% of levels at day 8; it
+costs 77–78%, from a relic wall, an accepted miss with no relic cap shipped: BALANCE §2 (a). A relic source outside
+raids for a player who holds everything goes to step 9's vision review.)
 
 **The stock rule:** no stock grows without bound over a 7-day sessions run. Every store is capped,
 and the queue spends into growth.
@@ -886,6 +930,39 @@ The profiles:
       both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
     - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
       runs. AUTOPLAY_DAYS=8 measures it.
+    - **Relish's corpse-limited raise at a draining held fort** (E4 step 5, ruling A1; not chased): with the WAR truly 0
+      (the muster in the FLOOD), test_catchup's seven-retakes start has her at Greywall raising its corpses while its
+      garrison drains. Live play raises each corpse at once (its dead 0.000); a 10 s catch-up step spreads her raise
+      over the step (dead about 0.06; Catchup.simulacrum_out_s's note), so the garrison reaches 0 at 3 711 s against
+      3 678 s and the fort breaks 32.5 s late (3 831.2 s against 3 798.7 s: 3.25 steps, over the 2-step bound),
+      reordering the retakes. With her at home all 7 match within 0.24 s; the test runs so. Before A1 the muster's WAR
+      (7.37 mass/s) fed the forts and hid it.
+    - **The I1 gate fails days 1–2 at A1's start valve** (E4 step 5, A1 with the A1 day-1 valve ruling; an open item for
+      the steps 5–8 review, the manager's A1 I1 ruling). Day 1: workers 50/46, living 86/70, the crypt L2 closed against
+      L1 open; the first command answered otherwise is a queue at 14 400 s (queue_len 7 closed, 8 open). At the old valve
+      the first away is a dead stall at the bone cliff (bone flat at 28), which is why it passed there; the proof tree
+      (the route forced to WAR) passes too. **The seed** (one bounded probe of 1 200–3 600 s of that away, no build in
+      it): the closed run mills 1.7% less (220.5 against 224.3 mass), from the start-of-step pickup cap on dead-limited
+      loads (MECHANICS §4.2). The convoy leaves as soon as a fort holds `job.haul.auto_min_dead` (4 mass), so every load
+      is the fort's corpses (about 4.2, against a carry of 14 × crew), and at the catch-up's 3 s steps the cap leaves
+      the corpses formed before each pickup at the fort (30.5 mass over 99 trips, against 3.4 at 0.5 s), where some are
+      cleared (+8.3). The convoys' targets are the same (99 departures, fort for fort): not the haul phase. **The
+      amplifier:** the bone-bound queue. A Raising Pit level lands a step apart, and each later bone-timed start shifts
+      from there (bone at 4 h: 260 closed, 229 open). With the cap lifted in a probe, the window agrees within 0.35%,
+      but 4 h still parts (267 against 226), so the end gap is the queue's sensitivity near the bone edge, not a
+      catch-up bias.
+      - **The seed is fixed by the convoy's claim** (MECHANICS §4.2, the hold and the claim). In the same window the
+        caught-up run now mills 224.25 against 223.54 (+0.32%, from −1.7%), with both ledgers exact; bone at 4 h is
+        264 closed, 230 open.
+      - **The gate is still red on days 1–2: an open item for the steps 5–8 review, kept visible.**
+        - Day 1: workers 48/46, living 86/70, essence 51/45, husks 0/1, remnants 16/26, the backlog 13.5% apart,
+          and the crypt L2 closed against L1 open.
+        - Day 2: workers 56/54, living 126/94, husks 0/4, remnants 12/29, the backlog 16.3% apart, and the forge L1
+          closed against L2 open.
+        - The first command answered otherwise is unchanged by the fix: the queue of an Embalmer on lot-12 at
+          14 400 s, `queue_full` closed and accepted open.
+        - So what's left is the amplifier: a bone-bound queue near the bone edge turns any small offset into a
+          build a step apart.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
@@ -956,12 +1033,17 @@ The profiles:
 - **town_only**: the sessions schedule, playing only the town (the queue, the stances, the vats). It never raids, so it
   never gets a husk.
 - **away_risk**: the sessions run to the end of day 3's last session, saved there. If nothing is held then, it falls
-  back to the midgame_2flips fixture and says so. Then 24 h away, twice from that save:
-  - as the sessions bot left it;
-  - after the prepared setup: the held forts that read `will_fall` or `thin` raided; WAR raised in 0.05 steps
-    (`view_projection`, WORK and FLOOD keeping their ratio) until "WAR supports N of M" covers every held fort; a siege at
-    the thinnest held fort (`will_fall`, then `thin`, then the lower `garrison_rate`); and a simulacrum crafted and
-    deployed there when one can be.
+  back to the midgame_2flips fixture and says so. Then 24 h away, three times from that save:
+  - at the default valve (`default`: the opening's 0.25 / 0.60 / 0.15, undoing the in-session WAR top-up, ruling 3),
+    graded against "at least half";
+  - as the sessions bot left it (`as_left`: its topped-up WAR), a report row;
+  - after the prepared setup (E4 step 5, ruling B1 (ii): what a player does reading each held fort's margin forecast,
+    `view_fort().hold`, before a long absence): a siege and a simulacrum (crafted when none is ready) at the held fort
+    with the lowest margin, the one the next wave will pick; then WAR raised in 0.05 steps (WORK and FLOOD keeping their
+    ratio) until no held fort reads under its need, and no further: WAR is global, so a player raises it only as far as
+    the weakest fort needs, and every step costs growth. No raids (they used to raid the `thin` forts first; a raid takes
+    Relish away for the hour before leaving). Before B1 (ii) the WAR step stopped on "WAR supports N of M", which is
+    steady and flat in Vei's pressure.
 
   It measures the held forts lost.
 - **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least
@@ -1070,7 +1152,15 @@ The policies (the run's manager's, for Shawn):
     (83 in sessions by day 8 before this) while a front Vei will test is short; a player grinds the weakest into a body
     for that front, but not with the bone the next build is waiting on.
 - **Stances**: Vigil and Harvest on.
-- **The valve** stays at its default, except in away_risk's prepared setup.
+- **The valve** (ruling 3 of 2026-11-17 03:28: the bots raise WAR in-session for held forts where a player would): in
+  every look the bot sets WAR to the least 0.05 step that covers every held fort WAR can save (WORK and FLOOD keeping
+  their ratio), floored at the opening valve's 0.60. A fort's support scales with WAR, so it needs WAR × need / war_in
+  (`view_fort().hold`). A fort with no WAR yet (just flipped) waits a look, and one needing more than 0.95 is let go:
+  a player can't hold it with WAR, and every step costs growth. WAR comes back down only with two steps of slack, and
+  then to a step above the need (the floor when nothing needs more), so the bot doesn't trim it every minute. The
+  first build flipped 0.75 ↔ 0.80 each look in continuous (69 changes). **The player's reason:** the forecast shows a
+  fort under its need, so they add WAR until it holds, and they take it back when growth covers it. away_risk's
+  default row resets the valve to the opening's; its prepared row raises it further.
 
 ## 9. Who builds what
 - **economy:**

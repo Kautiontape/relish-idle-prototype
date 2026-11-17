@@ -94,6 +94,10 @@ var reorder := true
 var no_held := false  # ablation (a): never raid a held (or refilled) fort
 var static_raids := false  # static: one raid a session at the day's tier
 var stop_at_vei := false
+var war_topup := true  # ruling 3 (03:28): WAR set in-session for the held forts, where a player would (_war_topup)
+var war_log: Array = []  # each valve change _war_topup made: {t, from, to, low_before, low_after, covered, let_go}
+const WAR_STEP := 0.05  # _war_topup and prepare_away move WAR in these steps
+const WAR_MAX := 0.95  # the most WAR either sets
 var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants or carvers front is short
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
@@ -373,6 +377,7 @@ func _act(queue_set := true) -> void:
 	if str(rel["state"]) == "at_fort" or str(rel["state"]) == "at_vei":
 		_cmd("move", ["covington"])
 	_stances()
+	_war_topup()
 	_craft_husk()
 	_raise()
 	_place()
@@ -389,6 +394,62 @@ func _stances() -> void:
 	for st in s.view_stances()["stances"]:
 		if str(st["id"]) in STANCES and not bool(st["on"]):
 			_cmd("stance", [str(st["id"]), true])
+
+
+## Ruling 3 (03:28; E4 step 5): in every look the bot sets the valve's WAR (WORK and FLOOD keeping their ratio) to the
+## least WAR_STEP that covers every held fort WAR can save, floored at the new game's (economy.json opening.valve): what a
+## player reading view_fort().hold does in a session. A fort's support scales with the valve's WAR (the bot never runs
+## the Muster stance, so the settled WAR is mint × war), so it needs war × need / war_in. A fort with no WAR yet (war_in
+## 0: no dispatch has reached it since its flip) waits for the next look. One needing more than WAR_MAX is let go: a
+## player can't hold it with WAR, and every step costs growth. WAR comes back down as the need allows (the need grows as
+## mint^α, the WAR as mint) or a fort falls, but only with two steps of slack, and then to a step above the need (to
+## the floor when no fort needs more): a player doesn't trim WAR every minute. (Without that band the bot flipped 0.75
+## ↔ 0.80 each look in continuous, 69 changes, the margin at the lower step dipping under 0 a minute later.) One
+## command, then one more step while a covered fort still reads short. Each change goes in war_log.
+func _war_topup() -> void:
+	if not war_topup:
+		return
+	var tg: Dictionary = s.view_hud()["valve_target"]
+	var v0 := float(tg["war"])
+	var v_floor := float(s._cfgs["economy"]["opening"]["valve"]["war"])
+	var want := v_floor
+	var low := INF
+	var cover: Array = []
+	var gone: Array = []
+	for f in s.view_realm()["forts"]:
+		var h: Dictionary = f["hold"]
+		if not bool(f["held"]) or float(h["war_in"]) <= 0.0:
+			continue
+		low = minf(low, float(h["margin"]))
+		var v := v0 * float(h["need"]) / float(h["war_in"])
+		if v > WAR_MAX + 1e-9:
+			gone.append(str(f["id"]))
+		else:
+			want = maxf(want, v)
+			cover.append(str(f["id"]))
+	var war := minf(WAR_MAX, ceilf(want / WAR_STEP - 1e-6) * WAR_STEP)
+	if war < v0 - 1e-6:
+		if war > v0 - 2.0 * WAR_STEP + 1e-6:
+			return
+		if war > v_floor + 1e-6:
+			war += WAR_STEP
+	if absf(war - v0) < 1e-6:
+		return
+	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
+	_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])
+	if war < WAR_MAX - 1e-9 and _low_of(cover) < 0.0:
+		war = minf(WAR_MAX, war + WAR_STEP)
+		_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])
+	war_log.append({"t": _r(s.t), "from": _r(v0), "to": _r(war), "low_before": _r(low), "low_after": _r(_low_of(cover)),
+		"covered": cover, "let_go": gone})
+
+
+## The lowest view_fort().hold.margin among `ids`, INF with none.
+func _low_of(ids: Array) -> float:
+	var low := INF
+	for id in ids:
+		low = minf(low, float(s.view_fort(str(id))["hold"]["margin"]))
+	return low
 
 
 ## Raise: whenever a husk is held and the crypt has room, with every remnant that fits (SlabLogic.evaluate, read-only: a
@@ -1528,33 +1589,16 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 ## away_risk's prepared setup before a 24 h absence: the weak held forts (margin will_fall or thin) raided, WAR raised
 ## until it supports every held fort (view_projection; WORK and FLOOD keep their ratio), a siege at the thinnest held
 ## fort (a spare big, else the last party member), and a simulacrum there if one is ready or can be crafted.
+## "Prepared" (E4 step 5, ruling B1 (ii); IDLE §8): what a player does before a long absence, reading each held fort's
+## margin forecast (view_fort().hold: its settled WAR against its one-wave need; the lowest margin draws the next wave).
+## The counters go to the lowest margin (one siege big undead and one simulacrum); then the valve's WAR rises in 0.05
+## steps, WORK and FLOOD keeping their ratio, until no held fort reads under its need, and no further: WAR is global,
+## so a player raises it only as far as the weakest fort needs, and growth pays for every step. Relish goes home.
+## Before B1 (ii) it raided the thin forts and raised WAR until war_supports (steady, flat in Vei's pressure) was met.
 func prepare_away() -> Dictionary:
 	var rec := {"raided": [], "valve": {}, "siege": {}, "simulacrum": {}}
 	_act()
-	for f in _held_forts_by_need():
-		if str(f["margin"]) == "will_fall" or str(f["margin"]) == "thin":
-			var o := _raid(str(f["id"]), s.t + 3600.0)
-			(rec["raided"] as Array).append({"fort": str(f["id"]), "margin": str(f["margin"]),
-				"exit": str(raids[-1].get("exit", "")) if not o.is_empty() else "not raided"})
-	_act()
-	var hud := s.view_hud()
-	var m := int(hud["war_supports"]["m"])
-	var tg: Dictionary = hud["valve_target"]
-	var best := {"war": float(tg["war"]), "n": int(hud["war_supports"]["n"]), "m": m}
-	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
-	var war := float(tg["war"])
-	while int(best["n"]) < m and war < 0.95 - 1e-9:
-		war = minf(0.95, war + 0.05)
-		var vv := {"work": float(tg["work"]) / wf * (1.0 - war), "war": war, "flood": float(tg["flood"]) / wf * (1.0 - war)}
-		var nn := int(s.view_projection(vv)["war_supports"]["n"])
-		if nn > int(best["n"]):
-			best = {"war": war, "n": nn, "m": m, "valve": vv}
-	if best.has("valve"):
-		var vv: Dictionary = best["valve"]
-		best["ok"] = bool(_cmd("valve", [vv["work"], vv["war"], vv["flood"]])["ok"])
-	rec["valve"] = best
-	var byneed := _held_forts_by_need()
-	var thin := str(byneed[0]["id"]) if not byneed.is_empty() else ""
+	var thin := _lowest_hold()
 	if thin != "":
 		var uid := ""
 		var party: Array = []
@@ -1577,10 +1621,29 @@ func prepare_away() -> Dictionary:
 		if int(s.view_inventory()["simulacra_ready"]) >= 1:
 			var dr := _cmd("deploy", [thin])
 			rec["simulacrum"]["deploy"] = "ok" if bool(dr["ok"]) else str(dr["reason"])
+		_tick_to(s.t + 1.0)
+	var tg: Dictionary = s.view_hud()["valve_target"]
+	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
+	var war := float(tg["war"])
+	rec["valve"] = {"from": war, "war": war, "min_margin": _min_hold_margin()}
+	while float(rec["valve"]["min_margin"]) < 0.0 and war < 0.95 - 1e-9:
+		war = minf(0.95, war + 0.05)
+		var ok := bool(_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])["ok"])
+		_tick_to(s.t + 1.0)
+		rec["valve"] = {"from": float(tg["war"]), "war": war, "ok": ok, "min_margin": _min_hold_margin()}
 	if str(s.view_relish()["state"]) != "home":
 		_cmd("move", ["covington"])
 		_tick_until(func(): return str(s.view_relish()["state"]) == "home", s.t + 600.0)
 	return rec
+
+
+## away_risk's default row (the 03:28 target's premise: the day-3 state at the default valve): the valve back to the new
+## game's (economy.json opening.valve), undoing the in-session top-up (ruling 3, _war_topup).
+func default_valve() -> Dictionary:
+	var v: Dictionary = s._cfgs["economy"]["opening"]["valve"]
+	var from: Dictionary = s.view_hud()["valve_target"].duplicate()
+	var r := _cmd("valve", [float(v["work"]), float(v["war"]), float(v["flood"])])
+	return {"from": from, "ok": bool(r["ok"]), "min_margin": _min_hold_margin()}
 
 
 ## away_risk_real's WAR cut: the valve's WAR to 0, WORK and FLOOD keeping their ratio (a player who turned WAR down for
@@ -1591,6 +1654,28 @@ func cut_war() -> Dictionary:
 	var r := _cmd("valve", [float(tg["work"]) / wf, 0.0, float(tg["flood"]) / wf])
 	return {"from": tg.duplicate(), "ok": bool(r["ok"]), "reason": str(r["reason"]),
 		"war_supports": s.view_hud()["war_supports"].duplicate()}
+
+
+## The held fort with the lowest margin in its forecast (view_fort().hold.margin; ties in world order), "" with none.
+func _lowest_hold() -> String:
+	var best := ""
+	var low := INF
+	for f in s.view_realm()["forts"]:
+		if bool(f["held"]):
+			var m := float(s.view_fort(str(f["id"]))["hold"]["margin"])
+			if m < low:
+				low = m
+				best = str(f["id"])
+	return best
+
+
+## The lowest held margin (view_fort().hold.margin), INF with none held.
+func _min_hold_margin() -> float:
+	var low := INF
+	for f in s.view_realm()["forts"]:
+		if bool(f["held"]):
+			low = minf(low, float(s.view_fort(str(f["id"]))["hold"]["margin"]))
+	return low
 
 
 ## The held forts, the most in need first: will_fall, thin, safe, then the lower garrison_rate, then world order.
@@ -1830,7 +1915,7 @@ func policy() -> Dictionary:
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
 		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (view_catalog().husk_craft: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the bone left covers the queue head's bone, of the kind whose fill brings the larger share of a short front's want",
-		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
+		"stances": "vigil and harvest on", "valve": "in every look, WAR to the least 0.05 step covering every held fort WAR can save (WORK:FLOOD kept), floored at the opening valve's; a fort needing more than 0.95 is let go (ruling 3); away_risk's default row resets it, its prepared row raises it further",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}
 
@@ -1948,6 +2033,10 @@ func summary() -> Dictionary:
 	out["reorders"] = reorders
 	out["refusals"] = refusals
 	out["notes"] = notes
+	var wmax := 0.0
+	for w in war_log:
+		wmax = maxf(wmax, float(w["to"]))
+	out["war_topup"] = {"on": war_topup, "changes": war_log.size(), "max": _r(wmax), "valve_war_end": _r(float(s.view_hud()["valve_target"]["war"])), "log": war_log.slice(0, 60)}
 	return out
 
 
@@ -2294,7 +2383,7 @@ static func _p_away_risk(t: TestUtil, cfg: Dictionary, real := false) -> void:
 	t.ok(bool(lead.s.cmd_save("risk")["ok"]), "away_risk: the start is saved")
 	var out := {"source": src, "t_leave": lead.s.t}
 	# [name, away s, WAR cut first, the prepared setup]
-	var variants: Array = [["default", DAY, false, false], ["prepared", DAY, false, true]]
+	var variants: Array = [["default", DAY, false, false, true], ["as_left", DAY, false, false], ["prepared", DAY, false, true]]
 	if real:
 		variants = [["war_cut", DAY, true, false], ["default_72h", 3 * DAY, false, false], ["prepared_72h", 3 * DAY, false, true]]
 	_away_variants(t, cfg, lead.dir, "risk", lead.s.t, variants, out)
@@ -2331,6 +2420,8 @@ static func _away_variants(t: TestUtil, cfg: Dictionary, dir: String, slot: Stri
 		var prep := {}
 		if bool(vr[2]):
 			prep["war_cut"] = b.cut_war()
+		if vr.size() > 4 and bool(vr[4]):
+			prep["valve_default"] = b.default_valve()
 		if bool(vr[3]):
 			prep.merge(b.prepare_away())
 		b._row("leave")

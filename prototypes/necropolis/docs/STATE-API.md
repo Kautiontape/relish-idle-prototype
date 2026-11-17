@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 10)
+# Necropolis: GameState API (api_version 11)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -377,6 +377,21 @@ from `BALANCE.md` §0.
     (i) on the gold-trap stop): an unpaid building held off by the income reads `upkeep` (not `unpaid`) as a queued
     upgrade's reason and `waited_on`, and `view_away`'s `ready` lists such buildings on one line
     (`idle.report.unpaid_upkeep_fmt`: the income and "Build a Market", kind `queue`, target `queue`). No key changes.
+
+  `api_version` 11 (E4 step 5, WAR against fort count; the run's manager's ruling of 2026-11-17 03:28; one entry, later
+  step 5 commits add to it) added:
+  - **The muster's destination** (ruling A1; MECHANICS §3.2, §4.1): TownSim's muster (the workers above
+    `worker.idle_cap`) now goes to Vei's queue with the FLOOD; only while the Muster stance acts does it join WAR.
+    A meaning change: `view_hud.split.war` / `.flood`, `view_rates.war` / `.flood`, the lanes, `view_projection`,
+    `view_stances().projected` and the wave train's settled WAR (§3.5) all follow it. New keys:
+    `view_hud.split.muster` (mass/s) and `.muster_to` (`"flood"` or `"war"`), and `view_town.workers.muster_to`
+    (where the muster goes now). `workers.muster_steady` is unchanged in shape; it musters to `muster_to`.
+  - **The bone cliff's readout** (the run's manager's ruling of 2026-11-17 05:58, "A1 day 1"; MECHANICS §4.2): under
+    A1 a low WAR share leaves the pits eating every body, so the mill makes no bone. New keys:
+    `view_town.buildings[].lever` (the lever for its `starved` reason: `"raise_war"` for `"pits_first"`);
+    `view_town.queue[].short` (`{gold, bone}` a head waiting on funds is short of), `.starved` (the mills' reason while
+    it is short of bone) and `.lever`; and `view_hud.bone_war_share` (a new game's bone edge, for the valve readout).
+    The away report's head line names the bone short and the lever (§5.19).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -431,7 +446,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 10
+const API_VERSION := 11
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -682,7 +697,8 @@ func tick(dt: float, max_substeps := 0) -> int   # returns the substeps run
      before (TownSim's `rates.feed`). Split it into WORK, WAR and FLOOD.
   3. **TownSim.** Workforce, on this step's WORK (`work · dt`, in the same step: E2b replaced WORK
      arriving one substep late). Also jobs, haul, mill, pit burn, living, gold, bone, morale,
-     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's WAR. Then the
+     construction and upkeep. Emits `building_*` and `tier_up`. Its muster joins this step's FLOOD (v11; WAR while the
+     Muster stance acts). Then the
      tiers rise and the build queue is processed (v6; MECHANICS §4.4): its `next` entries start, in order,
      and emit `queue_started`.
   4. **Relish's travel and state** (GameState). Position, heading and arrival.
@@ -1112,8 +1128,9 @@ Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
   plus the husks waiting at the `big_undead` cap, the cap `cmd_raise_big_undead`'s own `at_cap` reads; a husk that
   can't be raised would sit waiting).
 - **Effect:** instant. It takes the `craft.husk.remnants` weakest remnants (the smallest `magnitude` first, then the
-  oldest uid) and `craft.husk.bone` bone (shipped 6 and 300, GUESS: slow and costly, the bone competing with the build
-  queue; a new game's 200 bone cap is under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
+  oldest uid) and `craft.husk.bone` bone (shipped 3 and 500 since 2026-11-17, were 6 and 300; GUESS: slow and costly,
+  the bone binding and competing with the build queue, the remnants a light raid-side gate; a new game's 200 bone cap is
+  under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
   save's uid counter, kind, rarity: "common"}` to the husks, as a raid's loot does. No building, and Relish needn't be
   home (raising the husk at the slab needs her, §4.3 `cmd_raise_big_undead`). Neither bone nor remnants are mass, so the
   ledger books nothing. No event. **Phase I (town):** a button at the crypt slab, its price and reason from
@@ -1411,7 +1428,7 @@ Game.state.cmd_debug_skip_time(600.0)  # -> {ok: true, reason: "", substeps: 120
 | | `convoys` | the load of a convoy on its way home |
 | | `work_pending` (+3) | WORK in flight to TownSim: 0 at every substep boundary from E2b (TownSim takes each step's WORK in that step, §3 step 3). Only a save written before that can hold some, which the next step delivers. |
 
-- **Internal transfers book nothing:** the valve split, WORK into workers, muster into WAR, haul
+- **Internal transfers book nothing:** the valve split, WORK into workers, muster into FLOOD (or WAR), haul
   pickups, combat, drain, Vei's conversion (dead and undead into living) and her shipping, tithe
   surges, the redirect and simulacra raises, and the raid writeback's kills, flip and chaff.
 - Not mass, so not in the ledger: gold, bone, Covington's living (people), relics, essence, items.
@@ -1425,7 +1442,8 @@ Types are exact. "mass" means a float in mass units.
 ### 5.1 `view_hud()` · E2
 Every field is live from E2a:
 - `sign`, `drain_s` and `odds` are the sustained readout (§5.14);
-- `split` is the last substep's mass/s, after the slew (WAR includes TownSim's muster), and the
+- `split` is the last substep's mass/s, after the slew (FLOOD includes TownSim's muster, or WAR while the Muster
+  stance acts: v11, `split.muster_to`), and the
   `mint` entry's `rate` is that substep's mint (MECHANICS §3.2): `view_rates`' `work`, `war`, `flood`
   and `mint` `in`;
 - the `workers`, `bodies`, `gold`, `bone` and `living` entries are TownSim's: the same stocks and
@@ -1444,13 +1462,15 @@ Every field is live from E2a:
 | `time_scale` | float | |
 | `paused` | bool | |
 | `rates` | Array[Dictionary] | one per `HUD_RATE_IDS`, in order: `{id: String, rate: float, stock: float, cap: float, unit: String}`. `rate` is the signed net per sim-second; for `mint` it is production (≥ 0). `stock` is `-1.0` for mint; `cap` is `-1.0` when uncapped. |
-| `split` | Dictionary | `{work, war, flood}`: mass/s now, after the slew; `war` includes muster (`muster_mass / dt`) |
+| `split` | Dictionary | `{work, war, flood, muster, muster_to}`: mass/s now, after the slew. `muster` (v11) is TownSim's muster (`muster_mass / dt`), which `flood` includes, or `war` while the Muster stance acts; `muster_to` (v11, String) says which: `"flood"` or `"war"` (MECHANICS §3.2, ruling A1) |
 | `valve`, `valve_target` | Dictionary | `{work, war, flood}` fractions summing to 1 |
+| `bone_war_share` | float | v11 (the A1 day-1 ruling): the valve's WAR share under which a new game's mill makes no bone (the pits have first call on the bodies and eat every one), with FLOOD at the opening's and WORK the rest; for the valve readout to mark. A new game's measured edge, `economy.json` `opening.bone_edge.war_share` (0.54; `test_day1_queues` brackets it), not this state's: it is a growth feedback over minutes with no closed form. Later in a game the live signal is the mill's `starved` and `lever` (§5.9). Constant per config |
 | `workers_steady` | float | workers: `(work / worker.mass) · lifetime`; no cap |
 | `workers_steady_kept` | float | workers: the workforce TownSim's ODE settles at for the current inflow, lifetime, idle rot, staffable slots and idle cap; same as `view_town.workers.steady_kept` (v4) |
 | `game_id` | String | a stable identity for one game: fresh per new game, kept across its saves and loads (api-request #18). Derived from the seed, never from the rng: `"%08x" % (seed & 0xffffffff)`, 8 hex digits (`SaveIO.game_id_for`). Two games with the same seed share an id (only tests and fixtures do that). Fixtures carry none and compute it at load. |
 | `war_overflow` | float | mass/s: the last substep's WAR that fell through to Vei (`view_lanes` `war:covington:vei`); 0 while a WAR target has room (v4) |
 | `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
+| `hold_mult` | float | v11 (E4 step 5, ruling B1): Vei's pressure at held forts, max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`); 1.0 in a new game (MECHANICS §3.4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
@@ -1494,7 +1514,7 @@ each of `GameState.RATE_IDS`.
 | id | unit | in | out | net |
 |---|---|---|---|---|
 | `mint` | mass/s | pits' production | sent through the valve | 0 (a pass-through flow) |
-| `work`, `war`, `flood` | mass/s | `mint · valve` share (WAR also gets muster × `worker.mass`) | delivered (= in) | 0 |
+| `work`, `war`, `flood` | mass/s | `mint · valve` share (FLOOD also gets muster × `worker.mass`, or WAR while the Muster stance acts; v11) | delivered (= in) | 0 |
 | `workers` | workers/s | `work / worker.mass` | rot + muster | in − out |
 | `bodies` | mass/s | haul + rot return | pit burn + mill | in − out |
 | `gold` | gold/s | trade, less what overflowed the gold cap (v6) | upkeep | in − out |
@@ -1610,14 +1630,15 @@ dungeon's configs (v6, below); the hold's readouts
 | `first_clear` | bool | never cleared, so its chest holds a guaranteed blueprint |
 | `first_dungeon` | bool | carries the first-dungeon guarantee (Old Sluice at start) |
 | `clears_since_retaken` | int | |
-| `yield_mult` | float | the loot yield now, 0..1 (v6, live; MECHANICS §5.3): `loot.reclear_decay` per clear that paid loot (a flip, a counter-garrison clear), climbing back linearly to exactly 1 over `loot.recover_s` from the last clear; 1 after a retake. The dungeon seed's `fort.yield_mult` is the same value at issue |
+| `yield_mult` | float | the loot yield now, 0..1 (v6, live; MECHANICS §5.3): `loot.reclear_decay` per clear that paid loot (a flip, a counter-garrison clear), climbing back linearly to exactly 1 over `loot.recover_s` from the last clear; a retake leaves it as it was (it was 1 after a retake until 2026-11-17, a value change with no key change). The dungeon seed's `fort.yield_mult` is the same value at issue |
 | `warden` | Dictionary | `{archetype: String, name: String, tells: Array[String]}` (v6, T3.4a, api-request #5): `archetype` is `raid.json` `wardens.by_fort[id]` (`"bellringer"` for a fort it doesn't list); `name` and `tells` are that archetype's `wardens.archetypes.<id>.name` and `.tells`, the dungeon's own text (`""` and `[]` for an archetype the config doesn't list). A card shows the name and the tells (the Watchtower's "every tell" is the config's whole list today) |
 | `loot_hint` | String | display text (v6, T3.4a): the first dungeon reads `loot.json` `hints.first_dungeon_hint`; any other fort reads `hints["t<tier>.<archetype>"]`, `""` when the config has no such key. The raid seed's `loot_hint` is the same string |
 | `threat` | Dictionary | `{party_strength: float, garrison_strength: float, risk: "low"\|"risky"\|"deadly", risk_pct: float}`; `risk_pct` is a percentage, `0.0`..`100.0` (not a fraction), and `-1.0` without a Watchtower (always `-1.0` until the Watchtower computes it) |
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here, summed when several are (they stack); 0 when none. Each one's charges fall by what it raises and it crumbles at 0; a retake loses them all (MECHANICS §3.6, §3.4) |
 | `siege` | Array[String] | big-undead uids placed here |
-| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). |
+| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool, next: bool, next_s: float}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). `next` (v11, E4 step 5 B1 (ii)): the fort is the one the next wave would go to if it were chosen now, or the warned one during a warning (`view_vei.tithe.next_target`); `next_s` (v11) the seconds to the next wave, `-1.0` before the clock starts. |
+| `hold` | Dictionary | v11 (E4 step 5, ruling B1 (ii)): the margin forecast the wave's target rule reads, `{war_in, need, margin, pressure_mult, fall_s, margin_cause}`. `war_in` is the settled WAR to it (mass/s: the valve's target at the pits' trough feed, split as the last dispatch splits WAR; not the convoy's sawtooth, so not `war_in` above), `need` its one-wave need (mass/s, MECHANICS §3.4: the least WAR at which one full wave from its settled garrison doesn't break it), `margin` = `war_in − need` (the lowest contested margin draws the next wave), `pressure_mult` Vei's pressure there (`view_hud.hold_mult`), `fall_s` and `margin_cause` as above. A fort not held reads `0.0`, `1.0`, `-1.0` and `""`. Also on `view_realm.forts`. |
 | `can_descend` | bool | `cmd_begin_dungeon(id)` would succeed now |
 | `reason` | String | the reason it would return (`""`, `busy`, `dead`, `not_at_fort`) |
 ```gdscript
@@ -1719,7 +1740,8 @@ until the first substep.
   current inflow `r`, lifetime `L`, idle rot multiplier `m`, staffable slots `S` and idle cap `C`
   (`TownSim.workforce_steady`; the inputs `steady` uses): `r·L` when `r·L ≤ S`; else `S + (r·L −
   S)/m` when that is within `S + C`; else `S + C` (the idle pool pinned at its cap). With `m = 0`
-  and `r·L > S` it is `S + C`. `workers.muster_steady` is the workers/s mustered to WAR there:
+  and `r·L > S` it is `S + C`. `workers.muster_steady` is the workers/s mustered there, to
+  `workers.muster_to` (v11: `"flood"`, Vei's queue, or `"war"` while the Muster stance acts):
   `0` unless pinned, then `r − (S + m·C)/L` (`r − S/L` at `m = 0`).
 - `buildings[].output` (per second, at the current staffing; `{}` while constructing or unpaid, and
   for a building with none): a pit `{mint: P_per_pit · pits, burn: pit.burn_per_s · pits · its
@@ -1764,6 +1786,8 @@ in it: that is correct, not a mismatch.
 | `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
 | `affordable_in_s` | float | v7 (R2): when its funds come at today's net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
+| `short` | Dictionary | v11 (the A1 day-1 ruling): `{gold, bone}`, what a `waiting_funds` head is short of at the walk's stocks (its cost less what is left once the `next` entries ahead are paid); `0.0` each for every other status. With `affordable_in_s` at `-1.0` it names what a "never" waits on |
+| `starved`, `lever` | String | v11 (the A1 day-1 ruling): while `short.bone` > 0, the mills' `starved` reason (as on the mill's building row) and its `lever`: a head that can never be afforded on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`; `""` otherwise. Per step, never saved |
 
 **`affordable_in_s`** (v7, R2; from the E2b-2 vision review's item 3, the run's manager's ruling for Shawn: the
 queue never stalls or jumps, so the player gets the data instead, and E3's autoplayer reads it too; MECHANICS
@@ -1808,6 +1832,7 @@ Each `buildings` entry:
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
 | `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
 | `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. The town reads it in Phase I and owns the text |
+| `lever` | String | v11 (the A1 day-1 ruling): the lever that fixes `starved`, from `economy.json` `town.starved_lever`: `"raise_war"` for `"pits_first"` (more WAR makes more corpses at the forts, so bodies outrun the pits' want); `""` for `""`, for `"no_bodies"` and for a building with no mill slots |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 | `foreman_mult` | float | v8 (E3-3): the multiplier this building's job output gets from its foreman now (MECHANICS §4.2): `foreman.mult + speed · foreman.speed_k` while one works there; 1.0 with no foreman, and where one gives nothing (a passive building, or one not `active`: unpaid, idled by Thrift, mid-upgrade, no hands staffed). Its `output` already includes it |
 ```gdscript
@@ -1870,9 +1895,10 @@ substep's rates; that one would carry a substep of drift):
   computes them (`bodies` with the trip-averaged haul);
 - `mint`: the change in the next step's mint (the pits' production);
 - `work`, `war`, `flood`: Δmint × the valve (the current valve slewed one substep toward its target, the
-  one the next step splits with; the current valve while no slew is pending). `war` leaves out any change
-  in TownSim's muster;
-- `backlog`: Δflood plus the change in the WAR that falls through to Vei at the next step's WAR
+  one the next step splits with; the current valve while no slew is pending). `flood` adds the change in
+  TownSim's muster (mass/s), which joins it (v11, ruling A1); `war` leaves out any change in the muster
+  while the Muster stance sends it there;
+- `backlog`: Δflood (with the muster's) plus the change in the WAR that falls through to Vei at the next step's WAR
   (`RealmSim.war_at`, the split `view_projection` reads). The dispatch it splits by is session-only, so
   before the first substep after a load all of Δwar falls through (as in `view_projection`, §5.17);
 - `corpses`: 0.0.
@@ -1991,7 +2017,8 @@ haul scaled by the haulers and the convoy's speed; 0 while no convoy is out) les
 draw (their want while the store holds bodies, else the pits first); the stalls' gold less the gold upkeep; the
 bone milled less the bone upkeep; the migrants less the departures; each 0 at its store's cap while it would
 rise. `mint` is the next step's (the pits' feed), `work`, `war` and `flood` Δmint × the valve the next step
-splits with (`war` plus Muster's Δmuster × `worker.mass`), `backlog` Δflood plus the change in the WAR that falls
+splits with, plus the muster's change on its route (v11: FLOOD, or WAR where Muster acts, so toggling Muster moves the
+whole muster × `worker.mass` from `flood` to `war`), `backlog` Δflood plus the change in the WAR that falls
 through to Vei (`RealmSim.war_at`), `corpses` minus the haul's change. **Not projected** (they need the sim
 stepped): what morale does over time (Thrift idling a Well or the Statue lowers the morale target, which morale
 eases toward at `morale.ease_per_s`, so departures and Hearth's condition move later, not now); the first
@@ -2114,7 +2141,7 @@ and `have` were 0.0, `cleared` false and `fronts_met` 0.
 | `digest_q` | float | |
 | `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
 | `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |
-| `tithe` | Dictionary | `{target: String, eta_s: float, warning: bool, wave_active: bool, wave_s_left: float}`. `target` is `""` and `eta_s` is `-1.0` before a target is chosen. |
+| `tithe` | Dictionary | `{target: String, eta_s: float, warning: bool, wave_active: bool, wave_s_left: float, next_target: String, next_s: float}`. `target` is `""` and `eta_s` is `-1.0` before a target is chosen. `next_target` (v11, E4 step 5 B1 (ii); the telegraph) is the fort the rule would pick now (the contested fort with the lowest `view_fort.hold.margin`, MECHANICS §3.4), `""` before the clock starts; it can change until the warning (`tithe.warning_s` ahead) fixes `target`, and during the warning it is the warned fort (`target`). While a wave runs it is the pick for the wave after. `next_s` (v11) is the seconds to the next wave (during a warning, `eta_s`), `-1.0` before the clock starts. |
 | `can_begin` | bool | `cmd_begin_boss()` would succeed |
 | `reason` | String | `""`, `busy`, `dead` or `not_at_vei` |
 | `won` | bool | |
@@ -2217,7 +2244,7 @@ valve, for the live valve drag. The same math as the live views, at a hypothetic
 | key | type | meaning |
 |---|---|---|
 | `valve` | Dictionary | `{work, war, flood}`: the valve evaluated (normalised; the current one for an invalid input) |
-| `split` | Dictionary | `{work, war, flood, war_overflow}` mass/s: this substep's mint × the valve, WAR plus TownSim's muster as it is now; `war_overflow` the WAR that falls through to Vei at that WAR (every target at its limit), as `view_hud.war_overflow` reads it |
+| `split` | Dictionary | `{work, war, flood, war_overflow}` mass/s: this substep's mint × the valve, FLOOD plus TownSim's muster as it is now (WAR plus it while the Muster stance acts; v11); `war_overflow` the WAR that falls through to Vei at that WAR (every target at its limit), as `view_hud.war_overflow` reads it |
 | `workers_steady` | float | workers: `view_town.workers.steady` × the WORK share against the current one (TownSim's steady workforce is `WORK / worker.mass × lifetime`, linear in WORK); `mint × work / worker.mass × lifetime` when the current WORK share is 0. The map's stand-in scaled the same way |
 | `backlog_diff` | float | mass/s: the sustained differential (`view_vei.diff_ema`) moved by the change in FLOOD, in the WAR that falls through to Vei, and in the WAR to each fort whose garrison isn't pinned at 0 (in steady state the extra drains on to her queue, since the garrison's pull doesn't grow with it). The map's stand-in added Δflood + Δwar × a fixed fraction; this is that, from the sim's own split |
 | `war_supports` | Dictionary | `{n: int, m: int}`, as `view_hud.war_supports`, at the valve's WAR |
@@ -2233,11 +2260,9 @@ Game.state.view_projection({"work": 0.4, "war": 0.45, "flood": 0.15}, true)   # 
 # -> {..., margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 1.463, margin_verified: true},
 #               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.872, margin_verified: true}}}
 #    (both unsettled at the cap: Ashgate is a knife-edge, and Relish's arrival at Greywall will cut Old Sluice's WAR)
-Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # only TownSim's muster (3.95/s) is WAR
-# -> {..., split: {work: 10.24, war: 3.95, flood: 2.56, war_overflow: 0.0}, workers_steady: 122.88, backlog_diff: 0.84,
-#     war_supports: {n: 2, m: 2},
-#     margins: {"ashgate": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.367, margin_verified: false},
-#               "old-sluice": {margin: "thin", margin_cause: "wave", fall_s: -1.0, garrison_rate: 0.126, margin_verified: false}}}
+Game.state.view_projection({"work": 0.8, "war": 0.0, "flood": 0.2})   # no WAR: TownSim's muster (3.95/s) joins the FLOOD (v11)
+# -> {..., split: {work: 10.24, war: 0.0, flood: 6.51, war_overflow: 0.0}, workers_steady: 122.88, ...,
+#     war_supports: {n: 0, m: 2}, margins: {...}}   (before v11 the muster was this valve's WAR: war 3.95, n 2)
 Game.state.view_projection({"work": -1.0})   # one cmd_set_valve refuses: evaluated at the current valve
 ```
 
@@ -2313,14 +2338,19 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
   the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
   `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind), in place of
-  `"Queue empty"` (W: no build can be planned without relics).
-- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
-  it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
-  with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
-  retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
-  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
-  in `ledger().stores`, from `idle.report.overflow_min` (1) not stored (`overflow`, `""`), `"Gold is full: 120
-  not stored"` (W: not called waste); before it, from v7 (R1), each building that went unpaid during the absence,
+  `"Queue empty"` (W: no build can be planned without relics). Last (E4 step 7; text and report rules only, no key
+  or shape change, so no version bump), each store's overflow from the change in `ledger().stores`, from
+  `idle.report.overflow_min` (1) not stored (`overflow`, `"queue"`, so the map's click dives to the queue),
+  `"Gold filled up, 120 not stored: queue more, or raid for relics"`. It was a loss until E4 step 7 (`overflow`,
+  `""`, `"Gold is full: 120 not stored"`).
+- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), with its cause from its
+  `fort_retaken` (v11, B1 (ii): `war_in` and `pressure_mult`, one decimal each), `"Vespers retaken (WAR 5.4/s
+  against Vei's pressure, 8.4 times base): raid it to win it back"`, or, when Relish stood there and walked
+  home (its `relish_returned` was collected with the rest, so this line and `view_relish().returned` are how
+  the player learns of it), `"Vespers retaken (WAR 5.4/s against Vei's pressure, 8.4 times base), Relish walked
+  home: raid it to win it back"`. Every number in the line is a bare token (no `×` or bracket glued to it), so
+  the map's rate and mass patterns style it; each village yours when you left (`player`) and
+  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; then, from v7 (R1), each building that went unpaid during the absence,
   in lot order (`unpaid`, its lot id), worded by W: `"<label> stopped for <time>, <store> ran out: <what it
   stopped doing>"`, `"Statue of Relish stopped for 1 h 12 m, gold ran out: lifted no morale, deaths shook the town
   harder"`. The time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6):
@@ -2358,9 +2388,11 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "living 0/s · 0", kind: "stream", target: ""}],
 #     ready: [{text: "2 husks: raise at the slab", kind: "slab", target: "slab"},
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
-#     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
+#     losses: [{text: "Old Sluice retaken (WAR 0.5/s against Vei's pressure, 1.0 times base): raid it to win it back",
+#               kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
-# it"; with gold near its cap, losses add "Gold is full: 2,162 not stored" (tests/test_away.gd), and, with its bone
+# it"; with gold near its cap, ready adds "Gold filled up, 2,162 not stored: queue more, or raid for relics"
+# (overflow, "queue"; a loss until E4 step 7; tests/test_away.gd), and, with its bone
 # over its cap as midgame_2flips' is, ready shows "Your stores are full and the queue is empty: raid a fort for
 # relics" (raid, "") in place of "Queue empty" (R2; W)
 Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)
@@ -2407,11 +2439,11 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed). Which building goes idle follows the shed order since R1 (decorations, then the passive no-job buildings, then the job buildings, the WAR chain last: MECHANICS §4.3, `economy.json` `upkeep.shed_order`): the event's meaning is unchanged, so a gold floor that used to raise it for a raising pit first now raises it for the Statue | E2 |
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
-| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
+| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). `war_in: float` (v11, E4 step 5 B1 (ii)): the WAR it had at the retake (mass/s, its last `r_in`), and `pressure_mult: float` (v11) Vei's pressure there (`view_hud.hold_mult`); the away report names both (§5.19). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
 | `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started 3 h 12 m after you left, when the tier rose" (W's wording): `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |
-| `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays at the retake's 1), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
+| `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays as the retake left it), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
 | `tithe_warning` | `wave_id: int`, `fort_id: String`, `eta_s: float`, `surge: float` (living mass/s before counters) | E2 |
 | `tithe_wave` | `wave_id: int`, `fort_id: String`, `surge: float` (after counters), `duration_s: float`, `relish_here: bool`, `siege_block: float` (fraction cancelled) | E2 |
 | `stance_fired` | `stance_id: String`, `active: bool`, `beat_id: int`: a stance's `active` changed, at the beat `beat_id` (its `fired_beat_id`, §5.11), for every stance, on or off (v8, E3-1: `active` is the condition alone). Raised by the core step's stance step (§3 step 1), at most once per stance per `stance.hold_s`; stamped with the step's `t`, after that step's realm events inside it | E3 (live from E3-1) |
@@ -2566,7 +2598,7 @@ order, each clamped. The sim has kept running during the run.
    A held fort's raid that cleared its counter-garrison then raises `counter_garrison_cleared
    {fort_id, killed_mass}` (§6; v6): the run records whether its fort was held when it began, the fort
    must still be held when the result is applied (one Vei retaked during the raid banks its loot as a
-   retreat does, with no event and no yield spend: the retake's `yield_c` of 1 stands), and
+   retreat does, with no event and no yield spend: its `yield_c` stays as the retake left it), and
    `killed_mass` is step 1's clamped kill.
 
    `fort.first_clear` and the run-wide `first_dungeon` flag clear only when `warden_beaten` is true
@@ -2871,7 +2903,7 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 ### 9.4 Fixtures (`tests/fixtures/`, loaded by `cmd_debug_load_fixture` and the tests)
 | file | represents |
 |---|---|
-| `day1.json` | `cmd_new_game(1)` at t ≈ 0: the BALANCE §0 start. Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15; Relish home, no phylactery, no clones or vats; Old Sluice flagged first. |
+| `day1.json` | `cmd_new_game(1)` at t ≈ 0: the BALANCE §0 start. Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls); gold/bone/bodies 80/30/40; 12 workers; 10 living (cap 16); valve 0.40/0.45/0.15 (saved: the start valve before E4's A1 day-1 ruling, now 0.25/0.60/0.15; a test that means today's start sets `opening.valve`, as test_day1_queues does); Relish home, no phylactery, no clones or vats; Old Sluice flagged first. |
 | `midgame_2flips.json` | About 1 h in, Village tier (it rises by itself on the first substep): the start set plus a House, a Well and a Bone Mill (lots 5–7), which ran the hour. Old Sluice and Ashgate are held, with a tithe warning on Ashgate. Vei's backlog is hand-shaped to 4000 (odds ≈ 0.25), since an hour of the full mint would leave it near `pre_vei`'s. Relish is travelling Covington → Greywall. 2 husks, 4 remnants, 3 big undead (one in the crypt, one as a foreman, one sieging Ashgate), a haul convoy in flight (to Greywall), 1 owned blueprint (`embalmer`), forge level 1, relics 3, essence 14. |
 | `pre_vei.json` | About 3 h in, City tier: 20 buildings (the start set with the pit and the market at level 2, three more pits, two houses, a well, a bakery, a bone mill, a statue, a Chapel of Vats, a forge, an inn, a graveyard, a watchtower, the Walls and the Reliquary, whose blueprint is owned), up for the last 30 min and none unpaid. Odds ≈ 0.6, a party of 4 big undead assigned to fronts, one each (the assignments are in the fixture; from E3-5 the fronts are live, and at the shipped `vei.json` none is met: have / need giants 5.6 / 26, swarm 17.2 / 24, carvers 5.3 / 30, raw 25.0 / 58, so 0 of 4, short of the 3 of 4 this fixture was meant to stand for, BALANCE §1's Vei-ready row; until E3-5 they read 0), 1 phylactery charge and 1 clone ready. Relish is `at_vei`, so `cmd_begin_boss()` succeeds, and `won` is false. |
 | `v1_day1.json`, `v1_midgame_2flips.json` | The E1 (save v1) `day1` and `midgame_2flips`, kept as they were for the v1 → v2 migration tests. Not loadable by name. |

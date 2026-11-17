@@ -44,6 +44,12 @@ extends RefCounted
 ##                         GameState gives tithe.siege_block at each fort a big undead sieges, flat, one per
 ##                         fort; a siege adds no kill power, which isn't built). A fort retaken inside the step
 ##                         loses its block for the rest of it (_unsieged)
+##   hold_mult: float      Vei's pressure at held forts (E4 step 5, ruling B1; GameState.hold_mult): her living's
+##                         pull on a held fort's garrison is × this (_k_dq). Missing, not finite or under 1 means 1.
+##                         Kept as `hold_mult` for the readouts
+##   target_war: float     the settled WAR (mass/s; GameState._train_war, the valve's target at the pits' trough
+##                         feed) the tithe's target rule splits over the forts (war_at), so the pick doesn't follow
+##                         the convoy's sawtooth (E4 step 5, ruling B1 (ii); _tithe_target). Missing means `war`
 
 ## Every realm.json key RealmSim reads, as "key" or "section.key" paths. setup() reads them once into
 ## the members below (no defaults in the code: the numbers live in the config alone), and
@@ -52,7 +58,8 @@ extends RefCounted
 const REQUIRED := ["k_kill", "k_destroy", "k_clear", "r_drain", "R_vei", "S_vei", "vei_pool_cap", "K", "covFalloff",
 	"veiPolicy", "start_living_frac", "tithe.period_s", "tithe.backlog_scale", "tithe.warning_s", "tithe.surge_s",
 	"tithe.surge_mult", "tithe.relish_mult", "tithe.march_back_s", "hold.reship_share", "hold.break_s",
-	"hold.safe_horizon_s", "hold.probe_dt_s", "hold.probe_s", "hold.train_settle_tol", "hold.train_max_cycles"]
+	"hold.safe_horizon_s", "hold.probe_dt_s", "hold.probe_s", "hold.train_settle_tol", "hold.train_max_cycles",
+	"hold.need_tol", "hold.need_iters", "hold.need_odds_step", "hold.margin_eps"]
 ## A step's rates that a split step (step()) averages over its parts, weighted by time.
 const _PART_FORT_RATES := ["r_in", "r_drain", "r_shipped", "r_dead_out", "r_raised", "r_staged", "r_redirected", "r_kills", "r_surge"]
 const _PART_VEI_RATES := ["r_in_undead", "r_in_dead", "r_converted", "r_shipped"]
@@ -120,6 +127,19 @@ var war_route := "forts"
 var r_flood := 0.0  # mass/s of FLOOD last step
 var r_war_to_vei := 0.0  # mass/s of WAR that fell through to Vei last step
 var digest_q := 1.0  # the q of the last step; readout() uses it
+## Vei's pressure at held forts (E4 step 5, B1): the last step's `hold_mult` input (GameState also sets it between
+## steps, as the state stands: _sync_hold_mult). Every pull at a held fort and every hold readout reads it (_k_dq).
+## Not saved: GameState derives it from the buildings.
+var hold_mult := 1.0
+## The one-wave need's tunables (E4 step 5, ruling B1 (ii); need_of) and the target rule's tie (_lowest_margin).
+var _need_tol := 0.0  # hold.need_tol: the bisection stops when its bracket is this narrow, mass/s
+var _need_iters := 0  # hold.need_iters: at most this many halvings
+var _need_odds_step := 0.0  # hold.need_odds_step: her odds snapped down to this grid for the need's reship
+var _margin_eps := 0.0  # hold.margin_eps: margins this close (mass/s) tie, and ties go in world order
+## need_of's results by their inputs (session only; a pure function's memo, so a hit and a miss give the same bits).
+var _need_cache := {}
+## The inputs of the part being stepped (_step_part): the warning's target rule reads its support from them.
+var _part_inputs := {}
 ## Living that marched back to her pool last step from above their forts' caps, mass/s (MECHANICS §3.4).
 var r_marched := 0.0
 ## The mass that landed above her pool's cap last step and was lost: the ledger's pool_overflow.
@@ -191,7 +211,7 @@ var _disp_lim: Array[float] = []
 ## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_s is
 ## deprecated: a copy of grace_s kept for old readers, not saved. The loot yield (saved; GameState reads
 ## it, MECHANICS §5.3): yield_c, the yield just after the last clear that paid loot, and yield_t, the
-## sim time of that clear; a retake resets yield_c to 1.
+## sim time of that clear; a retake leaves both as they are (the spent yield keeps recovering).
 func setup(world: Dictionary, tunables: Dictionary) -> void:
 	t = tunables.duplicate(true)
 	_k_kill = _tf("k_kill")
@@ -217,6 +237,11 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_horizon_s = maxf(0.0, _tf("hold.safe_horizon_s"))
 	_probe_dt = maxf(0.01, _tf("hold.probe_dt_s"))
 	_probe_s = maxf(0.0, _tf("hold.probe_s"))
+	_need_tol = maxf(1e-6, _tf("hold.need_tol"))
+	_need_iters = maxi(1, int(_tf("hold.need_iters")))
+	_need_odds_step = maxf(0.0, _tf("hold.need_odds_step"))
+	_margin_eps = maxf(0.0, _tf("hold.margin_eps"))
+	_need_cache = {}
 	_settle_tol = maxf(0.0, _tf("hold.train_settle_tol"))
 	_max_cycles = maxi(1, int(_tf("hold.train_max_cycles")))
 	var start_frac := _tf("start_living_frac")
@@ -283,6 +308,14 @@ func node_pos(id: String) -> Vector2:
 ## Flipped and not yet retaken (in grace or contested).
 static func is_held(f: Dictionary) -> bool:
 	return bool(f.get("held", false))
+
+
+## Her living's pull on `f`'s garrison per living mass, per second: k_destroy / q (q floored at 1), × hold_mult at a
+## held fort, in grace or contested (E4 step 5, ruling B1: in grace nothing is shipped there, so it changes little).
+## Every pull site (fort_step, _load, _leave_at, dead_rates) and readout (garrison_rate_of, _wave_breaks and the
+## train's scratch forts, which carry `held`) reads it, so the margin chip and war_supports follow the step's math.
+func _k_dq(f: Dictionary, q: float) -> float:
+	return _k_destroy / maxf(1.0, q) * (hold_mult if is_held(f) else 1.0)
 
 
 ## Held and still in grace: Vei ships nothing there and no wave targets it.
@@ -435,6 +468,8 @@ func step(dt: float, inputs: Dictionary) -> void:
 	pool_overflow = 0.0  # per step: a step that does nothing leaves nothing to book
 	if not (dt > 0.0) or not is_finite(dt):
 		return
+	var hm := float(inputs.get("hold_mult", 1.0))
+	hold_mult = hm if is_finite(hm) and hm > 1.0 else 1.0
 	var done := 0.0
 	var parts := 0
 	var acc := {}
@@ -550,6 +585,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 	var redirect_fort: String = str(inputs.get("redirect_fort", ""))
 	var redirect_rate: float = maxf(0.0, float(inputs.get("redirect_rate", 0.0)))
 	var siege: Variant = inputs.get("siege_block", {})
+	_part_inputs = inputs
 	pool_overflow = 0.0
 	var ev0 := events.size()
 	var inv: float = 1.0 / dt
@@ -809,7 +845,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 func _load(f: Dictionary, dt: float, w_in: float, raise_in: float, keep: bool, q: float, passes: int) -> float:
 	_n_load += 1
 	var k_kill := _k_kill
-	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_dq := _k_dq(f, q)
 	var k_clear := _k_clear
 	var r := _r_drain
 	var cap := float(f["cap"])
@@ -900,7 +936,7 @@ func _split_at(f: Dictionary, back: float, dt: float, s_in: float, w_in: float, 
 func _leave_at(f: Dictionary, dt: float, l0: float, u0: float, s_in: float, a_in: float, q: float) -> float:
 	if not (a_in > 0.0):
 		return -1.0
-	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_dq := _k_dq(f, q)
 	var cap := float(f["cap"])
 	if not (k_dq > 0.0) or not (a_in / k_dq > cap):
 		return -1.0  # at or under the cap, with U at 0, the living only rise
@@ -975,7 +1011,7 @@ static func _leave_s(l1: float, c: float, cap: float, tau: float, l_star: float,
 ## has it).
 func fort_step(f: Dictionary, dt: float, s_in: float, w_in: float, raise_want: float, keep: bool, q: float, leave := true) -> void:
 	var k_kill := _k_kill
-	var k_dq := _k_destroy / maxf(1.0, q)
+	var k_dq := _k_dq(f, q)
 	var k_clear := _k_clear
 	var r := _r_drain
 	var cap := float(f["cap"])
@@ -1174,22 +1210,24 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 	_ud = maxf(0.0, total - _ue - _ug)
 
 
-## A hold ends, `at` seconds into the step (IDLE I6): the event, the fort's yield refreshes (MECHANICS
-## §5.3), and every simulacrum planted there (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the
-## step's later parts raise nothing for it. GameState sends a siege big undead there home.
+## A hold ends, `at` seconds into the step (IDLE I6): the event, and every simulacrum planted there
+## (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the step's later parts raise nothing for it.
+## GameState sends a siege big undead there home. The fort's loot yield is left as it is (MECHANICS §5.3; the
+## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
 func _retaken(f: Dictionary, cause: String, at: float) -> void:
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
 	f["zero_s"] = 0.0
 	f["clears_since_retaken"] = 0
-	f["yield_c"] = 1.0
 	var alive: Array = []
 	for sm in simulacra:
 		if str(sm.get("fort_id", "")) != str(f["id"]):
 			alive.append(sm)
 	simulacra = alive
-	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "_at": at})
+	# (B1 (ii)) the WAR it had and Vei's pressure there, for the away report's cause
+	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "war_in": maxf(0.0, float(f.get("r_in", 0.0))),
+		"pressure_mult": hold_mult, "_at": at})
 
 
 ## The raises at a fort without living over a step, mass/s: `want` (Relish's and the simulacra's,
@@ -1515,14 +1553,31 @@ func _end_wave() -> void:
 	tithe["wave"] = {}
 
 
-## The next wave's target: the contested fort (held, past its grace) with the most undead, else the
-## fort not in grace receiving the most WAR now (this step's r_in); ties go to the first in world
-## order. "" only when every fort is in grace (or there are none).
-func _tithe_target() -> String:
-	var best := {}
+## The next wave's target (E4 step 5, ruling B1 (ii)): the contested fort (held, past its grace) with the lowest
+## margin, its settled support less its one-wave need (margins_of at `inputs`, the part's being stepped by default:
+## the settled WAR `target_war`, so the pick doesn't follow the convoy's sawtooth), ties within hold.margin_eps to
+## the first in world order; else the fort not in grace receiving the most WAR now (this step's r_in), ties to the
+## first in world order. "" only when every fort is in grace (or there are none). Before B1 (ii) a wave went to the
+## contested fort with the most undead, so the strongest garrison drew every wave and the weak forts were never
+## tested. GameState reads it between steps for the telegraph (view_vei().tithe.next_target), passing the margins it
+## already holds for those inputs (`margins`, GameState._margin_view) so they aren't derived twice.
+func _tithe_target(inputs := {}, margins := {}) -> String:
+	var ins: Dictionary = inputs if not inputs.is_empty() else _part_inputs
+	var ids: Array[String] = []
+	var mg := PackedFloat64Array()
+	var ok: Array[bool] = []
+	var mm := margins
 	for f in forts:
-		if is_contested(f) and (best.is_empty() or f["undead"] > best["undead"]):
-			best = f
+		if is_contested(f):
+			if mm.is_empty():
+				mm = margins_of(ins)
+			ids.append(str(f["id"]))
+			mg.append(float(mm[f["id"]]["margin"]))
+			ok.append(true)
+	var i := _lowest_margin(mg, ok)
+	if i >= 0:
+		return ids[i]
+	var best := {}
 	if best.is_empty():
 		for f in forts:
 			if not in_grace(f) and (best.is_empty() or f["r_in"] > best["r_in"]):
@@ -1549,7 +1604,6 @@ func dead_rates(redirect_fort: String, redirect_rate: float, q: float) -> Packed
 		if float(sm["charges"]) > 0.0:
 			var fid := str(sm["fort_id"])
 			sims[fid] = float(sims.get(fid, 0.0)) + maxf(0.0, float(sm["rate"]))
-	var k_dq := _k_destroy / maxf(1.0, q)
 	var out := PackedFloat64Array()
 	out.resize(forts.size())
 	for i in forts.size():
@@ -1562,7 +1616,7 @@ func dead_rates(redirect_fort: String, redirect_rate: float, q: float) -> Packed
 		var relish := redirect_fort != "" and id == redirect_fort
 		if relish or sims.has(id):
 			var raise := (maxf(0.0, redirect_rate) if relish else 0.0) + float(sims.get(id, 0.0))
-			var pull := k_dq * l0
+			var pull := _k_dq(f, q) * l0  # (per fort: × hold_mult at a held one, B1)
 			rate += (pull if u0 > 0.0 else minf(pull, maxf(0.0, float(f["r_in"])) + raise)) - raise
 		out[i] = rate
 	return out
@@ -1581,12 +1635,120 @@ static func dead_at(dead: float, rate: float, s: float) -> float:
 ## Her reship into a contested fort now, mass/s, before her pool limits it (step 2): reship_share ×
 ## (1 + backlog_scale · odds now) × S_vei · cap / Σcap.
 func reship_rate(f: Dictionary) -> float:
+	return _reship_at(float(f["cap"]), odds())
+
+
+## reship_rate for a fort of `cap` at her odds `o`.
+func _reship_at(cap: float, o: float) -> float:
 	var sum_cap := 0.0
 	for g in forts:
 		sum_cap += float(g["cap"])
 	if not (sum_cap > 0.0):
 		return 0.0
-	return _reship_share * (1.0 + _backlog_scale * odds()) * _S_vei * float(f["cap"]) / sum_cap
+	return _reship_share * (1.0 + _backlog_scale * o) * _S_vei * cap / sum_cap
+
+
+## A held fort's one-wave need (E4 step 5, ruling B1 (ii); MECHANICS §3.5), mass/s: the least WAR to it (w_in) at
+## which it holds without waves (garrison_rate ≥ 0) and one full wave doesn't break it (_wave_breaks), with Relish's
+## raise there (`redirect`, up to `raise_max`), her tide (`tide`: the wave × tithe.relish_mult), the siege's `block`
+## and digest cost `q`. It starts from the fort's settled garrison (support / r_drain, the level its support holds),
+## so the garrison now doesn't enter: the need belongs to the fort, Vei and the counters there, not to the moment
+## (at the sessions day-3 state it equals the need from the garrison now to 0.2%). Her reship reads her odds snapped
+## down to hold.need_odds_step, so the need moves with her backlog in steps and is memoised on its inputs
+## (_need_cache): the clock and the wave train read the same bits, and a train probe pays for it about once an hour.
+## Bisection on w_in, the bracket's top to hold.need_tol in at most hold.need_iters halvings: from the steady need
+## (below it the fort falls with no wave) to the pinned bound (× her pull, her living `break_s` after a wave lands on
+## a garrison at 0 from its start; above it the garrison is off 0 before the break), doubled while it still breaks.
+## Roughly k_dq · (cap + 120) at the day-3 state, so about linear in hold_mult.
+func need_of(f: Dictionary, redirect: bool, raise_max: float, tide: bool, block: float, q: float) -> float:
+	var cap := float(f["cap"])
+	var qq := maxf(1.0, q)
+	var o := odds()
+	if _need_odds_step > 0.0:
+		o = floorf(o / _need_odds_step) * _need_odds_step
+	var s := _reship_at(cap, o)
+	var kd := _k_destroy / qq * hold_mult  # (her pull at a held fort: _k_dq)
+	var blk := clampf(block, 0.0, 1.0)
+	var rmax := maxf(0.0, raise_max) if redirect else 0.0
+	var key := [cap, s, kd, blk, tide, rmax]
+	var hit: Variant = _need_cache.get(key)
+	if hit != null:
+		return float(hit)
+	var raise := minf(rmax, s)
+	var hold_off := _r_drain * s / _k_kill if _k_kill > 0.0 else INF
+	var lo := maxf(0.0, minf(hold_off, kd * (cap + _march * s)) - raise)
+	var pf := {"cap": cap, "undead": INF, "held": true}
+	var need := lo
+	if not _need_safe(pf, lo, s, redirect, rmax, tide, blk, qq, hold_off):
+		var c := _surge_mult_t * _S_vei * (1.0 - blk) * (_relish_mult if tide else 1.0)
+		var x := 0.0
+		var t1 := cap / (s + c) if s + c > 0.0 else INF
+		if t1 < _surge_s:
+			x = (s + c) * _march * (1.0 - exp(-(_surge_s - t1) / _march))
+		if _break_s > _surge_s:
+			x = s * _march + (x - s * _march) * exp(-(_break_s - _surge_s) / _march)
+		var hi := maxf(lo + _need_tol, kd * (cap + maxf(0.0, x)) - raise)
+		var grow := 0
+		while not _need_safe(pf, hi, s, redirect, rmax, tide, blk, qq, hold_off) and grow < 16:
+			lo = hi
+			hi *= 2.0
+			grow += 1
+		for _k in _need_iters:
+			if hi - lo <= _need_tol:
+				break
+			var mid := 0.5 * (lo + hi)
+			if _need_safe(pf, mid, s, redirect, rmax, tide, blk, qq, hold_off):
+				hi = mid
+			else:
+				lo = mid
+		need = hi
+	if _need_cache.size() >= 4096:
+		_need_cache = {}
+	_need_cache[key] = need
+	return need
+
+
+## need_of's test at WAR `w`: it holds without waves and one wave from its settled garrison doesn't break it.
+func _need_safe(pf: Dictionary, w: float, s: float, redirect: bool, rmax: float, tide: bool, blk: float, q: float,
+		hold_off: float) -> bool:
+	var a := w + minf(rmax, s)
+	if a < minf(hold_off, _k_dq(pf, q) * (float(pf["cap"]) + _march * s)):
+		return false
+	return not _wave_breaks(pf, a, s, w, redirect, rmax, tide, blk, q, hold_off)
+
+
+## Each held fort's support, one-wave need and margin (E4 step 5, ruling B1 (ii)) at step `inputs` (RealmSim.step's,
+## or GameState's realm inputs between steps): {fort_id: {war_in, need, margin}}, war_in the settled WAR
+## `target_war` split as the last dispatch splits it (war_at; `war` when it is missing), need need_of's with Relish's
+## raise and tide and the siege there, margin war_in − need. Pure.
+func margins_of(inputs: Dictionary) -> Dictionary:
+	var wars: Array = war_at(maxf(0.0, float(inputs.get("target_war", inputs.get("war", 0.0)))))[0]
+	var q := maxf(1.0, float(inputs.get("digest_q", 1.0)))
+	var tide_fort := str(inputs.get("tide_fort", ""))
+	var redirect_fort := str(inputs.get("redirect_fort", ""))
+	var raise := maxf(0.0, float(inputs.get("redirect_rate", 0.0)))
+	var sg: Variant = inputs.get("siege_block", {})
+	var siege: Dictionary = sg if sg is Dictionary else {}
+	var out := {}
+	for i in forts.size():
+		var f: Dictionary = forts[i]
+		if not is_held(f):
+			continue
+		var id: String = f["id"]
+		var w := float(wars[i])
+		var need := need_of(f, id == redirect_fort, raise, id == tide_fort, _siege_at(siege, id), q)
+		out[id] = {"war_in": w, "need": need, "margin": w - need}
+	return out
+
+
+## The index of the lowest of `margins` among those `ok` says to consider, ties within hold.margin_eps going to the
+## first (world order); -1 when none is.
+func _lowest_margin(margins: PackedFloat64Array, ok: Array[bool]) -> int:
+	var best := -1
+	for i in margins.size():
+		if ok[i] and (best < 0 or margins[i] < margins[best] - _margin_eps):
+			best = i
+	return best
 
 
 ## WAR's split at `war` mass/s over the last step's targets, with the weights and limits its dispatch
@@ -1706,7 +1868,7 @@ func garrison_rate_of(f: Dictionary, w_in: float, redirect: bool, raise_max: flo
 	var s := reship_rate(f)
 	var a := maxf(0.0, w_in) + (minf(maxf(0.0, raise_max), s) if redirect else 0.0)
 	var hold_off := _r_drain * s / _k_kill if _k_kill > 0.0 else INF
-	var pile := _k_destroy * (float(f["cap"]) + _march * s) / maxf(1.0, q)
+	var pile := _k_dq(f, q) * (float(f["cap"]) + _march * s)  # (× hold_mult, B1)
 	return a - minf(hold_off, pile)
 
 
@@ -1729,6 +1891,7 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 	var g := maxf(0.0, float(f["undead"]))
 	var ceil_l := cap + _march * s
 	var kills_on_landing := a >= hold_off
+	var kd := _k_dq(f, q)  # her pull at this held fort, × hold_mult (B1); the scratch fort below is held too
 	var u0 := g
 	var l0 := 0.0
 	if kills_on_landing:
@@ -1736,13 +1899,13 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 			u0 = minf(g, a / r)
 	else:
 		l0 = ceil_l
-		var den := 1.0 - _march * _k_kill * _k_destroy / (q * r) if r > 0.0 else 0.0
+		var den := 1.0 - _march * _k_kill * kd / r if r > 0.0 else 0.0
 		if den > 0.0:
 			l0 = maxf(cap, (cap + _march * s - _march * _k_kill * a / r) / den)
 		if r > 0.0:
-			u0 = minf(g, maxf(0.0, (a - _k_destroy * l0 / q) / r))
+			u0 = minf(g, maxf(0.0, (a - kd * l0) / r))
 	var c := _surge_mult_t * _S_vei * (1.0 - clampf(block, 0.0, 1.0)) * (_relish_mult if tide else 1.0)
-	var pf := {"cap": cap, "living": l0, "undead": u0, "dead": 0.0}
+	var pf := {"cap": cap, "living": l0, "undead": u0, "dead": 0.0, "held": true}
 	var want := maxf(0.0, raise_max) if redirect else 0.0
 	var el := 0.0
 	var zero := 0.0
@@ -1772,7 +1935,7 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 		el += h
 		if el >= _surge_s - _EPS_S and float(pf["undead"]) > 0.0:
 			var ue := float(pf["undead"])
-			if kills_on_landing and _k_kill * ue >= s and a >= r * ue + _k_destroy * float(pf["living"]) / q:
+			if kills_on_landing and _k_kill * ue >= s and a >= r * ue + kd * float(pf["living"]):
 				return false
 			if not kills_on_landing and float(pf["living"]) <= ceil_l:
 				return false
@@ -1796,7 +1959,7 @@ func _wave_breaks(f: Dictionary, a: float, s: float, w_in: float, redirect: bool
 ##   zero clock runs as step 9 runs it (only the time at 0 counts; fort_step's leave-0 split, E2b-2 T3.3a).
 ##   A fort whose clock reaches break_s is broken and leaves the held set.
 ## - Targets, as _tithe_target: at each warning the contested fort (held, past grace, not broken) with the
-##   most undead, ties in world order. A fort in grace is never a target, and a pending warning naming one
+##   lowest margin, its `sup` WAR less its one-wave need (need_of, once per fort per probe), ties in world order. A fort in grace is never a target, and a pending warning naming one
 ##   is dropped and made again at once, as the clock does. With no contested fort the second branch picks
 ##   a fort that isn't held (every held fort is in grace or broken), so that wave threatens none ("" in
 ##   `targets`).
@@ -1826,6 +1989,7 @@ func train_probe(sup: Dictionary, q: float) -> Dictionary:
 	var w := PackedFloat64Array()
 	var want := PackedFloat64Array()
 	var surge := PackedFloat64Array()
+	var margin := PackedFloat64Array()  # each probed fort's support less its one-wave need (_train_target)
 	var keep: Array[bool] = []
 	var alive: Array[bool] = []
 	for f in forts:
@@ -1836,7 +2000,7 @@ func train_probe(sup: Dictionary, q: float) -> Dictionary:
 		ids.append(id)
 		cap.append(float(f["cap"]))
 		pfs.append({"cap": float(f["cap"]), "living": maxf(0.0, float(f["living"])), "undead": maxf(0.0, float(f["undead"])),
-			"dead": maxf(0.0, float(f["dead"]))})
+			"dead": maxf(0.0, float(f["dead"])), "held": true})  # (held: fort_step's pull × hold_mult, B1)
 		zero.append(maxf(0.0, float(f["zero_s"])))
 		grace.append(maxf(0.0, float(f["grace_s"])))
 		s_re.append(reship_rate(f))
@@ -1844,6 +2008,7 @@ func train_probe(sup: Dictionary, q: float) -> Dictionary:
 		keep.append(bool(e[1]))
 		want.append(maxf(0.0, float(e[2])) if bool(e[1]) else 0.0)
 		surge.append(_surge_mult_t * _S_vei * (1.0 - clampf(float(e[4]), 0.0, 1.0)) * (_relish_mult if bool(e[3]) else 1.0))
+		margin.append(maxf(0.0, float(e[0])) - need_of(f, bool(e[1]), float(e[2]), bool(e[3]), float(e[4]), qq))  # (B1 (ii))
 		alive.append(true)
 	var n := ids.size()
 	var out := {"forts": {}, "settled": false, "p": 0, "cycles": 0, "steps": 0, "targets": []}
@@ -1879,7 +2044,7 @@ func train_probe(sup: Dictionary, q: float) -> Dictionary:
 		# ---- the events at this moment: the warning (the step that reaches warning_s, or a wave due now
 		# with none), then a wave's start (sampled first, before its surge)
 		if not has_warn and next_s <= _warning_s + _EPS_S:
-			warn_i = _train_target(pfs, grace, alive)
+			warn_i = _train_target(margin, grace, alive)
 			has_warn = true
 		if next_s <= _EPS_S:
 			var k := samples.size()
@@ -2025,14 +2190,14 @@ func _train_still(pfs: Array[Dictionary], grace: PackedFloat64Array, alive: Arra
 	return true
 
 
-## _tithe_target over the train's scratch forts: the unbroken one past grace with the most undead (ties
-## to the first, world order), or -1 (the wave goes to a fort the probe doesn't hold).
-static func _train_target(pfs: Array[Dictionary], grace: PackedFloat64Array, alive: Array[bool]) -> int:
-	var best := -1
-	for i in pfs.size():
-		if alive[i] and not (grace[i] > 0.0) and (best < 0 or float(pfs[i]["undead"]) > float(pfs[best]["undead"])):
-			best = i
-	return best
+## _tithe_target over the train's scratch forts: the unbroken one past grace with the lowest `margin` (its support
+## in `sup` less need_of's, fixed for the probe: her odds, q and the support don't move in it), ties within
+## hold.margin_eps to the first, world order; or -1 (the wave goes to a fort the probe doesn't hold).
+func _train_target(margin: PackedFloat64Array, grace: PackedFloat64Array, alive: Array[bool]) -> int:
+	var ok: Array[bool] = []
+	for i in margin.size():
+		ok.append(alive[i] and not (grace[i] > 0.0))
+	return _lowest_margin(margin, ok)
 
 
 ## train_probe's settled test at sample `k` (see there): the smallest p (1 .. k − first) for which the

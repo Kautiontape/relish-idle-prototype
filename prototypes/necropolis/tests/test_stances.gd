@@ -26,10 +26,16 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## with the fixtures' backlog re-saved to match (pre_vei 54M, midgame_2flips 12M, through the sim). day1's state and
 ## events stay, and its report's backlog line gains "· odds A -> B"; pre_vei's events stay; midgame starts fewer waves
 ## (4 355 steps). The reports agree with test_backups' and test_big_undead's. The notes below are from before.
+## Re-pinned at E4 step 5's A1 (the muster joins FLOOD unless the Muster stance acts; the standing re-pin rule): A1's
+## route alone, the same runs as test_backups' A1 re-pin (whose reasons apply: day1's bodies end at 0 below the bone
+## edge, midgame_2flips' backlog +230,846 -> +285,393 over 4 356 steps, pre_vei's +1,692,203 -> +1,867,726). The
+## states, and midgame_2flips' events for its waves' shifted moments; day1's and pre_vei's events are unchanged. The
+## proof tree (A1 with the route forced to WAR, the early-return off, the old start valve) passes the old pins. Was:
+## day1 f0770dea… / 31d28a99…, midgame_2flips a78060c3… / d65e73ac… / de13aae3…, pre_vei febd8f3c… / 73b76696….
 const TIP := {
-	"day1": {"state": "f0770dea4e6b375fdb5c39b93e0522d4b37b46dbb3330e00f22f5c0629cc2c85",
+	"day1": {"state": "fbc9c79e62dc856e69d09c8468037cb0f6cd426ec5fd46e5e4fa951f89ef8b6b",
 		"events": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-		"away": "31d28a99e4efc264f50298e678d56b1fbd8b58a2e932376f5743780b813c523b", "steps": 4320, "n_events": 0},
+		"away": "4f807d582bdab4438a59f072de13bc7190c471c3faba89df978b687cfa3bc958", "steps": 4320, "n_events": 0},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -38,15 +44,27 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 365 events less stance_fired); Old Sluice's
 	# retake is unchanged (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village
 	# Bellwether lost to Vei". With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
-	"midgame_2flips": {"state": "eddec8267b5eaf04dc486e16370207748e560ca971e6333c08f07ca085f7b9ed",
-		"events": "d65e73ac632b43279456c3e4548c2d3995c93bfad1a7957ed6f4c4c97e95742f",
-		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 237},
+	# E4 step 7: the away report only (the full store's line moved from losses to ready), as test_backups' re-pin;
+	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…)
+	# E4's in-flight overlay (the standing re-pin rule): the state only, for Bellwether's end owner (player, as live play
+	# reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was eddec826…)
+	# E4 step 5 B1 (ii) (the standing re-pin rule), as test_backups' re-pin: Old Sluice retaken at 4 618.6 s under the
+	# lowest-margin rule (was 4 986.1 s), fort_retaken's two new keys, the retake line's cause. The same proof tree passes
+	# the old pins (was ccdf38fd… / 0466a66d… / e0a288bf…)
+	"midgame_2flips": {"state": "22a85c67268629792e832f5b20a42cb5fbc08e2598b0f152ca6ded8a0e2af944",
+		"events": "f17e78e57a431cf40ea91355d57f364ba071f83bb8bec84836dcc7fbe674c33e",
+		"away": "1d3c4855bb029af3b6dfa1433ca9c105a4abfc55f6ccd95432e33da2dcb40af0", "steps": 4356, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
-	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").
-	"pre_vei": {"state": "febd8f3c141aa3793aefe0914417b9817237b176737dae0f6112d6cb97d939a0",
+	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market"). The proof (the E4 step 4 review's
+	# item 6): f24595a (the same code as 52bb714, which re-pinned here) with upkeep.resume_net_min -1e9 passes the old
+	# pins of all three suites (this one and test_big_undead from before 52bb714, test_backups from f24595a^): 0 FAIL.
+	# E4's convoy claim (the standing re-pin rule): pre_vei's state and away report, as test_backups' re-pin (the convoy
+	# lands the corpses formed inside each step; the events unchanged). The claim off passes the old pins (was
+	# 58a6cc49… / a8a97ed8…).
+	"pre_vei": {"state": "de513152d69743260fd894dbb6ca6af748470f4dae3104227ef2955e0cdd70b7",
 		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
-		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 10},
+		"away": "0915402c0be357206af1a20c74afe1c3041807f967ac0e1d7c7b178a1c0866f8", "steps": 4321, "n_events": 10},
 }
 
 
@@ -476,6 +494,9 @@ func _thrift_upgrade_held() -> void:
 	a.town_sim.bone = 1000.0
 	a.relics = 10
 	a.cmd_set_stance("thrift", true)
+	# E4 step 5 (A1): the town's trade grew because its muster reached the forts as WAR; the muster joins the FLOOD now,
+	# so Muster (the second slot) keeps it WAR and the setup's 30 minutes as they were
+	a.cmd_set_stance("muster", true)
 	_beat(a)
 	a.cmd_queue_build("", "lot-14")
 	a.clock_override = CLOCK
@@ -486,10 +507,12 @@ func _thrift_upgrade_held() -> void:
 	n.clock_override = CLOCK + 1800
 	n.cmd_load("thriftup")
 	var lines: Array = n.view_away()["losses"].filter(func(l): return l["kind"] == "unpaid")
-	# Thrift stops acting 19 m in (the town's trade grows): its line ends there, and only then does the upgrade start
-	t.ok(lines.size() == 1 and str(lines[0]["text"]).begins_with("Chapel of Vats") and str(lines[0]["text"]).contains("idled by Thrift for 19 m")
+	# Thrift stops acting 11 m in (the town's trade grows): its line ends there, and only then does the upgrade start.
+	# (15 m before E4 step 5's A1, when the muster reached WAR at the idle cap of 10; Muster's cap of 0 sends more;
+	# 19 m before E4's in-flight overlay, when the caught-up Bellwether read none and its migrants never came)
+	t.ok(lines.size() == 1 and str(lines[0]["text"]).begins_with("Chapel of Vats") and str(lines[0]["text"]).contains("idled by Thrift for 11 m")
 		and n.town_sim.buildings["lot-14"]["level"] == 2,
-		"30 min away: Thrift's line for the Chapel ends when Thrift stops (19 m), not at the end of the absence, and the upgrade built after: %s %s" % [
+		"30 min away: Thrift's line for the Chapel ends when Thrift stops (11 m), not at the end of the absence, and the upgrade built after: %s %s" % [
 		n.town_sim.buildings["lot-14"]["state"], str(lines)])
 
 

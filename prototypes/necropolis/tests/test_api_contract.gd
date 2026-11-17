@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 10,
+	"API_VERSION": 11,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -252,7 +252,7 @@ func _schema_self_check() -> void:
 		{"t": 1.0, "type": "building_unpaid", "lot_id": "lot-04", "building_id": "market", "unpaid": true},
 		{"t": 1.0, "type": "tier_up", "tier": "village", "from": "hamlet"},
 		{"t": 4712.5, "type": "fort_flipped", "fort_id": "old-sluice", "run_id": 1, "hold_s": 375.0},
-		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "broken"},
+		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "broken", "war_in": 4.1, "pressure_mult": 5.2},
 		{"t": 1.0, "type": "big_undead_returned", "uid": "u4", "fort_id": "old-sluice"},
 		{"t": 192.5, "type": "queue_started", "building_id": "market", "lot_id": "lot-13", "level": 1, "upgrade": false, "waited_on": "needs_tier"},
 		{"t": 4712.5, "type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 31.4},
@@ -615,8 +615,17 @@ func _persistence(s: GameState) -> void:
 	_cmd(s, "cmd_load", ["future"], false)
 	t.ok(s.cmd_load("future")["reason"] == "bad_version" and s.cmd_load("junk")["reason"] == "no_save" and s.cmd_load("nothing")["reason"] == "no_save",
 		"bad_version for a future file, no_save for a corrupt or missing one")
-	# T3.3c: the away report, from a chunked load 10 min on with gold at its cap (an overflow among the losses)
+	# T3.3c: the away report, from a chunked load 10 min on with gold at its cap (an overflow: a ready line since E4
+	# step 7) and one paying building unpaid when you leave (an unpaid line among the losses; until E4 step 7 the
+	# overflow was the loss)
 	s.cmd_debug_grant({"gold": 1.0e9})
+	for lot_id in s.town_sim.buildings:
+		var bd: Dictionary = s.town_sim.buildings[lot_id]
+		var bid := str(bd["building_id"])
+		if str(bd["state"]) == "active" and s.town_sim.upkeep_gold_of(bid) > 0.0 and not s.town_sim.earns_gold(bid):
+			bd["state"] = "unpaid"
+			bd["unpaid_s"] = 0.0
+			break
 	_cmd(s, "cmd_save", ["away"], true)
 	s.clock_override += 600
 	t.ok(s.cmd_load("away", true)["ok"] and s.catching_up(), "(setup) a chunked load 10 min on")
