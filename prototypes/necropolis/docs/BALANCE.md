@@ -73,6 +73,13 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
   against 116 (77%)**, over the 60% line, so the miss is accepted and reported. The cause: the no-held bot doesn't stop
   at t1. Its 8 raids are 4 at t1, 2 at t2 and 2 at t3 (7 flips, 4 retakes), so its highest tier flipped is 3 (at most one of
   its raids was lost, so at least one t3 raid flipped), a tier it can't hold. No third lever, per the ruling.
+  **Why it never pays, probed** (the step 9 review's item 6, E4 step 10; tools21's tr_probe at b475eb3, one seed, 8
+  days, logged at each session start): no raiding profile meets the condition. Sessions flips up to t3 (Mourner's Gate)
+  in its first 20 min session and t4 on day 5, holding 3–6 forts, with 3–6 forts at or under its highest tier unheld at
+  every session start (from day 2: Hollow Redoubt, Pale Bastion and Mourner's Gate, t3). The no-held bot sits at t3
+  holding the 3 t1 forts, with 6 t2–t3 forts unheld. Sessions held 24 h closed from day 1's end pays 0 (its highest tier
+  is already 3). While it pays it is 2 relics a day by construction, against sessions' 93 raid relics in 8 days (about
+  12 a day). A finding for the manager, not tuned
 - **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
   buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
   built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
