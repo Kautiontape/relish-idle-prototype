@@ -901,9 +901,10 @@ The profiles:
     - At d6ad1b7 (the R2 readout and carvers 9.2) the 8-day row passes days 1–4 (slip 6.9, 28.5, 59.9, 99.6 s) and
       fails from day 5. Its first differing command is a husk craft at 346 115 s (day 4's 00:00 session), done in the
       closed run and refused `no_bone` in the open one, and days 5–8 differ in husks, remnants and essence. The first
-      differing wave target is on day 2 (wave 250, about 10 s apart), with every stock still in tolerance. So the
-      break is again a town stock that differs between the open and closed runs (bone here; at 7a8d469 day 4 also
-      read bone 900 against 550), not the step. Not chased.
+      differing wave target is on day 2 (wave 250, about 10 s apart), with every stock still in tolerance. It reads as
+      the same kind of break, a town stock that parts between the open and closed runs (bone here; at 7a8d469 day 4
+      also read bone 900 against 550), but that's an inference: the step sweep that showed step-independence was run
+      at 7a8d469, not re-run here. Not chased.
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
