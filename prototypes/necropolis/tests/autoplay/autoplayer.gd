@@ -133,7 +133,8 @@ var refusals := {}
 var results := {"validated": 0, "invalid": 0, "applied": 0, "refused": 0, "errors": []}
 var ledger_max := 0.0
 var vei_ready_t := -1.0
-var first := {"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
+var vei_ready_wave_t := -1.0  # the old readout beside it (the sizing stop's ruling R2): fronts at her pool then, at the look
+var first :={"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
 	"bone_wait_seen": -1.0, "bone_wait_event": -1.0, "lots_full": -1.0}
 var _fine_day := {}
 var _win := {}
@@ -417,7 +418,8 @@ func _slab_fill(kind: String, remnants: Array, slab: Dictionary) -> Array:
 ## backlog and q terms now (VeiFronts.have_need's have, without the stat sum), from view_vei and the vei config. The
 ## full pool's need, not today's (E4 step 3): her pool dips through every tithe wave, and a want read in the dip let one
 ## keeper meet it alone, so the second was released, raided and was lost (sessions lost a keeper so at 168.09 h and
-## 168.17 h); the dip is gone in seconds, and the fight is judged at the pool she has then.
+## 168.17 h). A dip lasts the wave's surge (realm.json tithe.surge_s, 40 s) and the refill after it (11–24 s), and
+## between waves she sits at her cap, the state the player sees most. The fight is judged at the pool she has then.
 func _big_want() -> Dictionary:
 	var v := s.view_vei()
 	var cap := float(v["pool_cap"])
@@ -425,9 +427,27 @@ func _big_want() -> Dictionary:
 	for fr in v["fronts"]:
 		var fid := str(fr["id"])
 		var fc: Dictionary = c["vei"]["fronts"][fid]
-		out[fid] = float(fc["need_base"]) + float(fc["need_per_pool"]) * cap - float(fc["per_backlog"]) * float(v["backlog"]) \
+		out[fid] = _full_need(fid, cap) - float(fc["per_backlog"]) * float(v["backlog"]) \
 			- float(fc["per_q"]) * float(v["digest_q"])
 	return out
+
+
+## A front's need at Vei's full pool `cap`: need_base + need_per_pool x cap (VeiFronts.have_need's need at living_pool
+## = cap). _big_want and the Vei-ready readout (_full_met) both read it.
+func _full_need(fid: String, cap: float) -> float:
+	var fc: Dictionary = c["vei"]["fronts"][fid]
+	return float(fc["need_base"]) + float(fc["need_per_pool"]) * cap
+
+
+## How many of view_vei `v`'s fronts are met at her full pool: each front's have (which doesn't read the pool) against
+## _full_need at v's pool_cap. The bot's Vei-ready reads this (the sizing stop's ruling R2), so the pacing number doesn't
+## hang on where in a tithe wave the look falls; the fight still judges the fronts at the pool she has then.
+func _full_met(v: Dictionary) -> int:
+	var n := 0
+	for fr in v["fronts"]:
+		if float(fr["have"]) >= _full_need(str(fr["id"]), float(v["pool_cap"])):
+			n += 1
+	return n
 
 
 ## keep_fronts' keepers (E4 step 2; two fronts from the sizing stop's ruling, IDLE §8): the bigs that stay home on giants
@@ -1012,18 +1032,25 @@ func _begin_note(fid: String, f: Dictionary, held: bool) -> void:
 			"label": "big undead held and placed lean on the GUESS stand-ins: the masses raised are an upper bound, and a won raid loses each party member at t2 0.712, t3 0.48, t4 0.41 (BALANCE §8); vats best case"}
 
 
+## Vei-ready (BALANCE §1, IDLE §8): odds >= VEI_READY_ODDS and fronts_required fronts met at her full pool (_full_met;
+## the sizing stop's ruling R2), at the look and again on arrival at her node. vei_ready_wave_t is the readout before
+## R2 (the fronts at the pool she has then), recorded at the look only, so it never moves Relish: today's need is never
+## over the full pool's, so it falls at or before vei_ready_t, inside a tithe wave's dip or between waves.
 func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if int(v["fronts_met"]) < int(v["fronts_required"]) or float(v["odds"]) < VEI_READY_ODDS \
-			or str(s.view_relish()["state"]) != "home":
+	if float(v["odds"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
+		return
+	if vei_ready_wave_t < 0.0 and int(v["fronts_met"]) >= int(v["fronts_required"]):
+		vei_ready_wave_t = s.t
+	if _full_met(v) < int(v["fronts_required"]):
 		return
 	if not bool(_cmd("move", ["vei"])["ok"]):
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
+	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
@@ -1698,7 +1725,7 @@ func _row(kind: String) -> Dictionary:
 func _day_end() -> void:
 	var row := _row("day_end")
 	fronts_daily.append({"day": int(round(s.t / DAY)), "fronts": row["fronts"], "met": row["fronts_met"],
-		"required": row["fronts_required"]})
+		"met_full": _full_met(s.view_vei()), "required": row["fronts_required"]})
 	if sample_i1:
 		i1.append(_i1_sample())
 
@@ -1787,7 +1814,10 @@ func summary() -> Dictionary:
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
-		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
+		"never": vei_ready_t < 0.0, "ready_wave_t": vei_ready_wave_t,
+		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
+		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
+		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})

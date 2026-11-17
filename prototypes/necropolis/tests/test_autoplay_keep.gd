@@ -7,7 +7,8 @@ extends RefCounted
 ## - the slab fill puts giants' stat first when that brings more of its want, and raid_all keeps the magnitude fill;
 ## - two-front keeping (the sizing stop's ruling): both fronts' keepers at cap 6, the better-covered front's at cap 4, a
 ##   big that qualifies on both kept once;
-## - the crypt's levels head the fill once a big is kept, or the crypt is full while a husk waits, and not before.
+## - the crypt's levels head the fill once a big is kept, or the crypt is full while a husk waits, and not before;
+## - Vei-ready needs the odds and the fronts met at her full pool, not only in a tithe wave's dip (the sizing stop's R2).
 
 var t := TestUtil.new()
 
@@ -322,4 +323,41 @@ func run() -> int:
 	g._vei_check(g.s.t + 3600.0)
 	t.ok(g.vei_ready_t >= 0.0, "fronts met and odds %.3f: Vei-ready at %.0f s" % [float(g.s.view_vei()["odds"]), g.vei_ready_t])
 	g.cleanup()
+	_full_pool_ready(c)
 	return t.failures
+
+
+## The sizing stop's ruling R2: the bot's Vei-ready reads the fronts at her full pool (_full_met), not at the pool she
+## has then. With fronts_required 2, odds 2/3 (a backlog of 2K, whose mass also meets swarm at any pool) and her pool
+## drawn to 0, as in a tithe wave's dip, carvers' 3 × q meets today's need but not the full pool's: no Vei-ready, and the
+## old readout (vei_ready_wave_t) records the look without moving Relish. A carvers keeper that meets the full pool's
+## need makes her Vei-ready on arrival.
+func _full_pool_ready(c: Dictionary) -> void:
+	var c2 := c.duplicate(true)
+	c2["vei"]["fronts_required"] = 2
+	var r := Autoplayer._bot("keep_test_full_pool", c2, {"print_rows": false})
+	r.new_game()
+	r.s.realm.vei["undead_queue"] = 2.0 * float(c2["realm"]["K"])
+	r.s.realm.vei["living_pool"] = 0.0
+	var v := r.s.view_vei()
+	var cap := float(v["pool_cap"])
+	var full_need := r._full_need("carvers", cap)
+	var car_have := 0.0
+	for fr in v["fronts"]:
+		if str(fr["id"]) == "carvers":
+			car_have = float(fr["have"])
+	t.ok(int(v["fronts_met"]) == 2 and r._full_met(v) == 1 and car_have < full_need,
+		"setup: at pool 0 two fronts are met (%d), at her full pool %.0f one (%d): carvers %.2f under %.2f" % [
+		int(v["fronts_met"]), cap, r._full_met(v), car_have, full_need])
+	var t0 := r.s.t
+	r._vei_check(r.s.t + 3600.0)
+	t.ok(r.vei_ready_t < 0.0 and is_equal_approx(r.vei_ready_wave_t, t0) and str(r.s.view_relish()["state"]) == "home",
+		"met only in the dip: no Vei-ready (%.0f), the wave readout at the look (%.0f), and Relish stays home" % [
+		r.vei_ready_t, r.vei_ready_wave_t])
+	var k := _big(r.s, 0.0, ceilf(full_need - car_have) + 1.0)
+	r._place()
+	t.ok(r._keep == [k] and _front(r.s, k) == "carvers", "(setup) the beef big is kept on carvers: %s" % str(r._keep))
+	r._vei_check(r.s.t + 3600.0)
+	t.ok(r.vei_ready_t > t0 and is_equal_approx(r.vei_ready_wave_t, t0),
+		"carvers met at her full pool: Vei-ready on arrival (%.0f s), the wave readout unchanged" % r.vei_ready_t)
+	r.cleanup()

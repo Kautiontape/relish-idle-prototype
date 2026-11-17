@@ -111,7 +111,8 @@ func _formula() -> void:
 		if f["cleared"]:
 			met += 1
 	# at the shipped vei.json (E4 step 3: mass alone clears exactly swarm; E4 step 2's sizing re-pin, giants and carvers
-	# need_base 2): giants 9 / 6 met by its bigs, swarm 51 / 16 met by mass, carvers 3q / 6 open, raw 12 + 22.5 / 46 open
+	# need_base 2; carvers need_per_pool 0.012 since the R2 re-size): giants 9 / 6 met by its bigs, swarm 51 / 16 met by
+	# mass, carvers 3q / 4.4 open, raw 12 + 22.5 / 46 open
 	t.ok(fr.map(func(f): return f["cleared"]) == [true, true, false, false], "swarm met by mass and giants by its bigs; raw and carvers open: %s" % str(fr.map(func(f): return f["cleared"])))
 	t.ok(vv["fronts_met"] == met and vv["fronts_met"] == 2 and vv["fronts_required"] == 3, "fronts_met 2 (the cleared count), fronts_required 3")
 	# the backlog moves have where it counts (swarm and raw), and the pool moves need
