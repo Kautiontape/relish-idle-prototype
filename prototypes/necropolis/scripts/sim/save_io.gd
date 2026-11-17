@@ -734,7 +734,9 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.relics = int(inv["relics"])
 	gs.essence = int(inv["essence"])
 	gs.simulacra_ready = int(inv.get("simulacra_ready", 0))  # E3-4: read back; a save without it reads 0
-	gs.relic_trickle_s = float(inv.get("relic_trickle_s", 0.0))  # E4 step 9: a save without it reads 0
+	# E4 step 9: a save without it reads 0. Clamped to [0, one period] (the step 9 review's item 2): a sound save holds
+	# less than a period, since each step pays every whole one, and a corrupt 1e300 would loop _relic_trickle for good
+	gs.relic_trickle_s = clampf(float(inv.get("relic_trickle_s", 0.0)), 0.0, maxf(0.0, gs._req_f("economy.relic_trickle.period_s")))
 	gs.big_undead = []
 	for b in m["big_undead"]:
 		var st := {}

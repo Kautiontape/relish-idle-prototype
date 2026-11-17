@@ -55,4 +55,23 @@ func run() -> int:
 	var i1: Dictionary = cu.i1(c, "new", script, HOURS * 3600.0, 0.25, tol)
 	print("  [catchup_accuracy] I1, a new game's session left %.0f h, closed vs open: %s" % [HOURS, i1["lines"]])
 	t.ok(i1["ok"], "I1 over %.0f h: closed equals open within %s, the same outcomes: %s" % [HOURS, conv._pct(tol), i1["lines"]])
+	_trickle_30h(c)
 	return t.failures
+
+
+## The step 9 review's item 1, the steady case: the relic trickle over 30 h, open against closed (the real runner's steps),
+## from midgame_2flips with every t1 fort held for 2 days (test_relic_trickle.start): both pay the same relics and carry the
+## same seconds (2 relics and 6 h). The transition (a fort lost inside a step) is the default suite's.
+func _trickle_30h(c: Dictionary) -> void:
+	var tr = load("res://tests/test_relic_trickle.gd")
+	var s: GameState = tr.start(c, 0.0, false)
+	var period := float(c["economy"]["relic_trickle"]["period_s"])
+	var r0 := s.relics
+	var runs: Array = tr.open_closed(c, s, 30.0 * 3600.0)
+	var cl: GameState = runs[0]
+	var op: GameState = runs[1]
+	var want := 30.0 * 3600.0 - 2.0 * period
+	print("  [catchup_accuracy] the relic trickle over 30 h, every t1 fort held: relics %d -> %d closed, %d open; carried %.3f s closed, %.3f s open" % [
+		r0, cl.relics, op.relics, cl.relic_trickle_s, op.relic_trickle_s])
+	t.ok(cl.relics == r0 + 2 and op.relics == r0 + 2 and absf(cl.relic_trickle_s - want) < 1e-3 and absf(op.relic_trickle_s - want) < 1e-3,
+		"the trickle over 30 h, open and closed: 2 relics each and %.0f s carried (closed %.3f, open %.3f)" % [want, cl.relic_trickle_s, op.relic_trickle_s])

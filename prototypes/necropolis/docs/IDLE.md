@@ -1001,6 +1001,13 @@ The profiles:
         - The first difference is now a held fort: at the 14 569 s raid, old-sluice is held open and not closed
           (the first away's realm, not its bone).
         - The first command answered otherwise is a husk raise at 86 400 s (`unknown_husk` open).
+    - **The relic trickle, open against closed** (the step 9 review's item 1; MECHANICS §2's relics row). Its
+      condition is read at each step's start. So each time it flips inside a catch-up step, the closed run's paying
+      seconds differ from the open run's by at most that step (10 to 20 s, against its 12 h period).
+      - test_relic_trickle `_open_closed_break` asserts it over 20 min at 10 s steps, with a fort breaking
+        mid-step.
+      - catchup_accuracy checks the steady case: 30 h with every t1 fort held, the same 2 relics and carried
+        seconds.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
