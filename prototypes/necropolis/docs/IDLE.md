@@ -1025,6 +1025,12 @@ The policies (the run's manager's, for Shawn):
     a sliver of cover elsewhere, and a front of weak bigs mustn't crowd out a front that could be met. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3);
     before it only the better-covered front was kept, so at most 2 keepers on 1 front and giants was never kept in
     sessions.
+  - **Churn, measured (the E4 code review's item 5; the summary's `vei.keep_churn`, at 2fe96cc):** no flip-backs in
+    any profile, so the three-deep tie-break stays. Sessions: 435 looks, 7 keeper changes, 2 keepers dropped while
+    held, the other order never chosen. Continuous: 4 929 looks, 6 changes, 2 drops, and the coverage tie-break
+    picked the other order on 862 looks, the same order every time. ablation_keep keeps no one. A look on an
+    unchanged state keeps the same keepers and sends no command (test_autoplay_keep). The crypt latch only ever sets
+    (`vei.crypt_up_h`: sessions 4.0 h, continuous 7.05 h), so it can't churn.
   - **The player's reason:** a big that brings a good part of a front Vei will test is worth more at home than on a
     raid, where a death loses the whole party (A8). With two fronts short, a player keeps what each needs, and still
     sends two raiders so the raids reach t3.
@@ -1042,7 +1048,11 @@ The policies (the run's manager's, for Shawn):
   - **The husk craft** (lever (b), the sizing stop's ruling 2; every profile): one t1 husk (`cmd_craft_husk`, the
     weakest `craft.husk.remnants` and `craft.husk.bone`, GUESS) when giants or carvers is short of its want (the full
     pool's, less what the bigs on it bring), the crypt has room for one more (bigs and husks waiting under the cap), a
-    remnant is left for the raise and the queue's head doesn't wait on bone. The kind is the one whose slab fill, on
+    remnant is left for the raise and the bone left after the price covers the queue head's bone (the E4 code review's
+    item 6; it used to check only that the head didn't wait on bone, so a craft could make a ready head wait; at
+    bf2d1e9 sessions crafts 5 husks in 8 days, not 12, and is Vei-ready on day 5.3334, not 6.0001; continuous is
+    unchanged, 10 crafts and day 3.48; ablation_keep crafts 6, not 14, and is still never ready). It reads
+    all of this from `view_catalog().husk_craft` (kinds, price, reason; item 3), not the configs. The kind is the one whose slab fill, on
     the remnants the craft leaves, brings the larger share of a short front's want, and none is made unless that share
     is at least `KEEP_SHARE`, so the body would be a keeper candidate there. (Without that floor, continuous ground its
     thin remnants into wits-2 skeletons and its giants front sat at 9/14 from day 3, so it reached Vei after sessions.)
