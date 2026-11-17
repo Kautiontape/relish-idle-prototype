@@ -628,7 +628,12 @@ takes over 1 s.
     saws with each landed load, so one instant compares two phases. With the claim, fresh read 12.80
     caught up against 9.40 live (36.2%) while its minted totals were 0.0015% apart and its 600 s means
     0.05%. Without the claim, fresh passed on its phase (0.84%) and read 12.80 against 9.40 600 s later.
-    The 2 h default case and I1 still read the instant.
+    The 2 h default case and I1 still read the instant. **The window's premise is asserted** (E4 review
+    item 4): a mean over the window is off by at most about swing × cycle ÷ window, so each start's live
+    mint must cycle in at most a tenth of it, or not saw past the tolerance. Measured: fresh saws 30.8% on
+    a 21.4 s cycle, pre_vei 36.6% on 8.5 s, midgame_2flips not at all. **What a player sees:** the instant
+    mint a player returns to mid-cycle can read up to about 36% off live's for a few minutes (the
+    endpoint), though the totals and the means agree; a readout matter for the final report.
   - midgame_2flips: 2 h, the backlog 0.008%, Vei's dead 0.12%, Covington's stocks under 0.0005%, the
     rates under 0.003%, 1 held fort each, Covington identical, outcomes equal (25 waves, a retake); 12 h,
     the backlog 0.025%, Vei's dead 0.22%, the differential 0.10%, outcomes equal (181 waves, a retake).
@@ -936,7 +941,10 @@ The profiles:
       over the step (dead about 0.06; Catchup.simulacrum_out_s's note), so the garrison reaches 0 at 3 711 s against
       3 678 s and the fort breaks 32.5 s late (3 831.2 s against 3 798.7 s: 3.25 steps, over the 2-step bound),
       reordering the retakes. With her at home all 7 match within 0.24 s; the test runs so. Before A1 the muster's WAR
-      (7.37 mass/s) fed the forts and hid it.
+      (7.37 mass/s) fed the forts and hid it. The gap stays under test (E4 review item 3): test_catchup's
+      _retakes_relish leaves her raising at Greywall and asserts the known bound (the same 7 forts retaken, Greywall
+      32.5 s late, over the 2-step bound and within 4 steps, the other six within 2 steps), so a fix to the spread
+      shows there and this record changes with it.
     - **The I1 gate fails days 1–2 at A1's start valve** (E4 step 5, A1 with the A1 day-1 valve ruling; an open item for
       the steps 5–8 review, the manager's A1 I1 ruling). Day 1: workers 50/46, living 86/70, the crypt L2 closed against
       L1 open; the first command answered otherwise is a queue at 14 400 s (queue_len 7 closed, 8 open). At the old valve

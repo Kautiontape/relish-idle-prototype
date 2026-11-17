@@ -55,6 +55,7 @@ func run() -> int:
 	_gap_events()
 	_accuracy_2h()
 	_retakes_bound()
+	_retakes_relish()
 	_threshold_free()
 	_i1()
 	_i1_field()
@@ -780,11 +781,13 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, wind
 			var e := absf(float(ma[k]) - float(mb[k])) / maxf(absf(float(mb[k])), rfl)
 			w = maxf(w, e)
 			wparts.append("%s %s" % [k, conv._pct(e)])
-		out["window"] = {"s": window_s, "worst": w}
+		out["window"] = {"s": window_s, "worst": w, "cycle_s": float(mb["_cycle_s"]), "swing": float(mb["_swing"]),
+			"cycle_s_cu": float(ma["_cycle_s"])}
 		out["worst"] = maxf(float(out["worst"]), w)
 		out["ok"] = bool(out["ok"]) and w <= tol
-		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s" % [
-			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts))]
+		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s; the live mint's saw %s over the window, a cycle of %.1f s (caught up %.1f s)" % [
+			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts)), conv._pct(float(mb["_swing"])),
+			float(mb["_cycle_s"]), float(ma["_cycle_s"])]
 	DirAccess.remove_absolute(dir + "/acc.json")
 	DirAccess.remove_absolute(dir)
 	return out
@@ -800,13 +803,36 @@ static func _window_means(s: GameState, window_s: float) -> Dictionary:
 	for k in WINDOWED:
 		sum[k] = 0.0
 	var n := maxi(1, int(round(window_s / 0.5)))
+	var mint: Array[float] = []
 	for i in n:
 		s.tick(0.5)
 		var r := _rates(s)
+		mint.append(float(r["mint"]))
 		for k in WINDOWED:
 			sum[k] = float(sum[k]) + float(r[k])
 	for k in WINDOWED:
 		sum[k] = float(sum[k]) / n
+	# the mint's saw over the window (E4 review item 4): `_cycle_s` the window over its upward crossings of the window's
+	# mean (a crossing counts once it has been under the mean by a quarter of the swing, so substep jitter doesn't),
+	# INF with none; `_swing` (max − min) ÷ the mean. A mean over the window is off by at most about swing × cycle ÷
+	# window of the mean, so the window must hold many cycles
+	var mu := float(sum["mint"])
+	var lo := INF
+	var hi := -INF
+	for v in mint:
+		lo = minf(lo, v)
+		hi = maxf(hi, v)
+	var band := 0.25 * (hi - lo)
+	var ups := 0
+	var armed := false
+	for v in mint:
+		if v < mu - band:
+			armed = true
+		elif armed and v >= mu:
+			ups += 1
+			armed = false
+	sum["_cycle_s"] = window_s / ups if ups > 0 else INF
+	sum["_swing"] = (hi - lo) / maxf(absf(mu), 1e-9)
 	return sum
 
 
@@ -884,7 +910,8 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 		(ob["flips"] as Array).size(), (ob["waves"] as Array).size(), (ob["builds"] as Array).size(), (ob["retaken"] as Array).size(),
 		"none" if tparts.is_empty() else ", ".join(PackedStringArray(tparts)), String.num_scientific(la), String.num_scientific(lb)]
 	return {"ok": ok, "lines": lines, "worst": worst, "stocks": stocks, "rates": rates, "held": held, "town_same": town_same,
-		"outcomes": differ, "late": conv.outcome_times(oa, ob, step_at), "retaken": [(oa["retaken"] as Array).size(), (ob["retaken"] as Array).size()]}
+		"outcomes": differ, "late": conv.outcome_times(oa, ob, step_at), "retaken": [(oa["retaken"] as Array).size(), (ob["retaken"] as Array).size()],
+		"retaken_at": [oa["retaken"], ob["retaken"]]}
 
 
 static func _rates(s: GameState) -> Dictionary:
@@ -928,15 +955,7 @@ func _accuracy_2h() -> void:
 func _retakes_bound() -> void:
 	var c := cfgs({"economy.idle.catchup_max_steps": 120})
 	var conv = load("res://tests/slow/convergence.gd").new()
-	var s := _mk(c)
-	t.ok(s.from_dict(JSON.parse_string(conv.start_json("midgame_2flips")))["ok"], "(setup) midgame_2flips loads")
-	var g := {"greywall": 10.0, "vespers": 20.0, "chime-fort": 60.0, "lantern-keep": 100.0, "hollow-redoubt": 150.0}
-	for id in g:
-		s.realm.hold(id, 0.0)
-		s.realm.fort_by_id(id)["undead"] = g[id]
-		s.realm.fort_by_id(id)["living"] = 0.0
-	t.ok(s.cmd_set_valve(0.85, 0.0, 0.15)["ok"], "(setup) the valve's WAR at 0")
-	s.valve = s.valve_target.duplicate()
+	var s := _seven_held(c)
 	# E4 step 5 (ruling A1): the muster joins the FLOOD now, so the WAR really is 0, and Relish (travelling to Greywall
 	# in the fixture) would raise its corpses while its garrison drains: a catch-up step spreads her corpse-limited raise
 	# over the step (Catchup.simulacrum_out_s's note), so caught up Greywall broke 32.5 s late (3.25 steps of 10 s; IDLE
@@ -948,6 +967,57 @@ func _retakes_bound() -> void:
 	t.ok(int(r["retaken"][1]) >= 3 and r["retaken"][0] == r["retaken"][1] and (r["late"] as Array).is_empty() and r["ok"],
 		"%d retakes live, %d caught up, each within %s × 10 s of live's (misses %s); the rest of compare() holds: %s" % [
 		int(r["retaken"][1]), int(r["retaken"][0]), str(conv.TIME_BOUND_STEPS), str(r["late"]), r["lines"]])
+
+
+## The seven-retakes start (_retakes_bound, _retakes_relish): midgame_2flips with five more forts held on hand-set
+## garrisons and no living, every one past its grace, and the valve's WAR at 0, slewed.
+func _seven_held(c: Dictionary) -> GameState:
+	var conv = load("res://tests/slow/convergence.gd").new()
+	var s := _mk(c)
+	t.ok(s.from_dict(JSON.parse_string(conv.start_json("midgame_2flips")))["ok"], "(setup) midgame_2flips loads")
+	var g := {"greywall": 10.0, "vespers": 20.0, "chime-fort": 60.0, "lantern-keep": 100.0, "hollow-redoubt": 150.0}
+	for id in g:
+		s.realm.hold(id, 0.0)
+		s.realm.fort_by_id(id)["undead"] = g[id]
+		s.realm.fort_by_id(id)["living"] = 0.0
+	t.ok(s.cmd_set_valve(0.85, 0.0, 0.15)["ok"], "(setup) the valve's WAR at 0")
+	s.valve = s.valve_target.duplicate()
+	return s
+
+
+## E4 review item 3: the open/closed gap _retakes_bound steps around (IDLE §8), kept under test. Relish is left as the
+## fixture has her, travelling to Greywall, so she raises its corpses while its garrison drains. Live play raises each
+## corpse at once; a 10 s catch-up step spreads her corpse-limited raise over the step (Catchup.simulacrum_out_s's
+## note), so the caught-up Greywall breaks late. Asserted as the known bound: the same forts retaken, Greywall later
+## than the 2-step bound but within 4 steps (3.25 recorded: 3 831.2 s against 3 798.7 s), every other fort within the
+## bound. If the spread is ever fixed, the first half trips, and IDLE §8's record changes with it.
+func _retakes_relish() -> void:
+	var c := cfgs({"economy.idle.catchup_max_steps": 120})
+	var s := _seven_held(c)
+	t.ok(str(s.relish["target"]) == "greywall", "(setup) Relish is bound for Greywall: %s" % str(s.relish["target"]))
+	s._ledger.reset(GameState.Ledger.total(s._held()))
+	var r := accuracy(c, JSON.stringify(s.to_dict()), 1200.0, float(c["economy"]["idle"]["catchup_tol"]))
+	print("  [catchup] seven held forts, WAR 0, Relish raising at Greywall, 20 min caught up at 10 s vs live: %s" % r["lines"])
+	var at: Array = [{}, {}]  # each run's first retake per fort id (the list's "<id> (<cause>)"): caught up, live
+	for k in 2:
+		for e in r["retaken_at"][k]:
+			var id := str(e[0]).get_slice(" ", 0)
+			if not (at[k] as Dictionary).has(id):
+				at[k][id] = float(e[1])
+	var ids: Array = (at[1] as Dictionary).keys()
+	ids.sort()
+	var ids_cu: Array = (at[0] as Dictionary).keys()
+	ids_cu.sort()
+	var bound := 2.0 * 10.0  # convergence.TIME_BOUND_STEPS × the catch-up's 10 s step
+	var gd := float(at[0].get("greywall", INF)) - float(at[1].get("greywall", -INF))
+	var others: Array = []
+	for id in ids:
+		if id != "greywall" and at[0].has(id) and absf(float(at[0][id]) - float(at[1][id])) > bound:
+			others.append("%s Δ %.1f s" % [id, float(at[0][id]) - float(at[1][id])])
+	t.ok(ids.size() >= 3 and ids == ids_cu, "the same %d forts retaken both ways: %s against %s" % [ids.size(), str(ids_cu), str(ids)])
+	t.ok(gd > bound and gd <= 2.0 * bound, "the known bound: caught-up Greywall breaks %.1f s late (over the %.0f s bound, within %.0f s)" % [
+		gd, bound, 2.0 * bound])
+	t.ok(others.is_empty(), "every other fort within %.0f s of live's (misses: %s)" % [bound, str(others)])
 
 
 ## A threshold-free start, where every step is in one smooth regime, so a catch-up's 10 s step equals
