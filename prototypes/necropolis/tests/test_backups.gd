@@ -28,10 +28,17 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## The tip's 12 h catch-ups (646f288, E3-1, before the vats grew): each fixture saved and loaded 12 h on, with
 ## test_stances' harness configs (the field shrunk). identity() hashes the whole state (to_dict()), every event the
 ## catch-up collected and its away report.
+## Re-pinned at E4 step 3 (the standing re-pin rule; the feature-off proofs were made at their own commits): K 12000 ->
+## 36M with the fixtures' backlog re-saved to match (pre_vei 54M, midgame_2flips 12M, through the sim). day1's state and
+## events stay, and its report's backlog line gains "· odds A -> B"; pre_vei's events stay, its state and report move;
+## midgame's odds no longer drift up at the live scale, so fewer waves start (4 355 steps, 240 events). The values
+## still agree with test_big_undead's caught runs and test_stances' reports. The notes below are from before.
+## Re-pinned at E4 (API v9, the husk craft; the standing re-pin rule): the three states only, since to_dict() carries
+## api_version. The proof: e299d87 with API_VERSION set back to 8 passes the old pins, events and reports unchanged.
 const TIP := {
-	"day1": {"state": "4ba81b807dbcb7691e4930b9d72b641c1b1fbc5f3d5a238c57a5fd2905f8ffe2",
+	"day1": {"state": "9c3111ddb10818a99d4f386f9884fefa65adbff695690d27424dc96da823687d",
 		"events": "7adf8ca1cc296dda1400a30dc17e06fe586208e878f465b1cb8eed498c982412",
-		"away": "977a359676d37ffbebe0472847672d4adc73cc50b00708cec3a4ce95d8918f6f", "steps": 4320, "n_events": 3},
+		"away": "31d28a99e4efc264f50298e678d56b1fbd8b58a2e932376f5743780b813c523b", "steps": 4320, "n_events": 3},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -40,12 +47,12 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 368 events); Old Sluice's retake is unchanged
 	# (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village Bellwether lost to Vei".
 	# With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
-	"midgame_2flips": {"state": "3eaa11f0a41cdff63215de5adfb91871227afc1c1220adb1c9eb3b522b6f8e84",
-		"events": "9a72a12c778a9f191dc40d3463c844b565a42dabdc654981ef2f990ebbc003f6",
-		"away": "e2bc458078af958d89e77a3966400d2b4883d8554d32c588a492714cf0782472", "steps": 4424, "n_events": 368},
-	"pre_vei": {"state": "3983ed76900e24729627fce8fae16be54c74579c6fe702bb45d69bff67e3fdb6",
+	"midgame_2flips": {"state": "743de2788077e40e479ae4bf7bf7c2c228499aaf0ff9ddf185da18827739fc75",
+		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
+		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 240},
+	"pre_vei": {"state": "43b6da98609fe2fa088a27729d6bef18a22fdddef1bb34ded0f873b543d0202d",
 		"events": "794d7e0224d331e98c2019bfe0b5d175b34798a7420c5d42e015f585f2182d39",
-		"away": "47c37eeb42384917945ace19104f947301da6faf9c612df41baa3cfc32d5de35", "steps": 4321, "n_events": 16},
+		"away": "f1b76d9e37b0b61823342af55ddf419cb305435c162771c7b982288a7940d927", "steps": 4321, "n_events": 16},
 }
 
 

@@ -545,7 +545,10 @@ func _realm_views() -> void:
 	var vf := s.view_field()
 	t.ok(vf["field"] == s.field and vf["world_size"] == [2048.0, 1440.0] and vf["tick_hz"] == 5.0, "view_field: the live field")
 	var vv := s.view_vei()
-	t.ok(_ids(vv["fronts"]) == GameState.FRONT_IDS and vv["fronts_required"] == 3 and vv["fronts_met"] == 0, "four fronts, 3 required")
+	# E4 step 2's sizing (carvers need_base 2): at a new game's empty pool carvers' 3 × q alone meets it; nothing else is met
+	var met_new: Array = vv["fronts"].filter(func(f): return bool(f["cleared"])).map(func(f): return str(f["id"]))
+	t.ok(_ids(vv["fronts"]) == GameState.FRONT_IDS and vv["fronts_required"] == 3 and vv["fronts_met"] == met_new.size()
+		and met_new.all(func(x): return x == "carvers"), "four fronts, 3 required; met at a new game: %s" % str(met_new))
 	t.ok(vv["tithe"]["target"] == "" and vv["tithe"]["eta_s"] == -1.0 and not vv["tithe"]["warning"], "no flip yet, so no tithe")
 	var l := s.ledger()
 	t.ok(l["held"].keys() == GameState.Ledger.HELD and l["sources"].keys() == GameState.Ledger.SOURCES

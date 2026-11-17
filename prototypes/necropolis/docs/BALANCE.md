@@ -28,7 +28,7 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | first warden beaten (fort flipped) | under 10 min |
 | first tithe wave | about 12–15 min (after the first flip) |
 | town reaches Village / Town / City | about 20 min / 1 h / 2 h |
-| Vei-ready (odds ≥ 0.6 and 3 of 4 fronts met) | **2.5–3.5 h** |
+| Vei-ready (odds ≥ 0.6 and 3 of 4 fronts met at her full pool, IDLE §8) | **2.5–3.5 h** |
 | idle | see IDLE.md §7: most growth happens while away |
 
 ## 2. Lever-ablation targets ("the economies feed each other")
@@ -204,7 +204,11 @@ E2a added is here with its value.
 | `vei.guards` `rate_per_uncleared`, `cap`, `life_s`; `unit.hp`, `unit.dmg` | 1.0/s, 12, 6 s; 49.5, 8.8 | tuned in D-c so no ±5% move swings the win rate by a cliff; hp and dmg sit off Relish's 30-hp hit counts on purpose |
 | `vei.weaves.dmg`, `period_beats` | 13.5, 3 | off the 30-hp hit counts as above |
 | `vei.backups` `revive_hp_frac`, `iframes_s`, `shove_px`, `shove_recover_s`, `ready_trance` | 1.0, 3 s, 180 px, 3 s, false | a revive in the Vei fight is at full hp but does not ready the trance; V1 (1+1) 65%, V2 (0+0) 15% at score 70 |
-| `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
+| `K`, `S_vei` | 36 000 000, 8.0 | `K` E4 step 3: ×3000 for the live backlog (sessions about 5.6M at day 1, 61M at day 5, 140M at day 8; continuous 204M), so sessions reaches odds 0.6 at about day 4.7, continuous at about day 3.4 (28% sooner; at d6ad1b7 sessions crosses 0.6 at about day 5.4, between its looks, and continuous at 3.48), and night 1 takes the odds from 0.02 to 0.11, not 0.98 to 0.998. Was 12000 (the audit's ×4.8 canon), sized for the 18k knife edge below. The fixtures' and the demo seed's backlogs were scaled by the same 3000 so their odds stay put. `S_vei` unchanged |
+| `vei.fronts.giants.need_base`, `carvers.need_base`; `carvers.need_per_pool` | 2, 2; 0.012 | E4 step 2's sizing (try 1; were 14 and 18): with giants' `need_per_pool` 0.02, giants needs 14 at Vei's full pool of 600. Giants' 14 sits above the best t1 skeleton's wits (9), so one t1 skeleton never fills it (the manager's ruling 4 at step 2); it takes two or three. **Carvers' `need_per_pool` 0.02 → 0.012 (9.2 at a full pool) is the one re-size of the R2 ruling**, when the bot's Vei-ready moved to the full pool (IDLE §8). Less 3 × `q` (about 6.7) carvers' want is about 2.5 beef, so one t1 big with beef 3 meets it: carvers needs a keeper, not a composition. **At d6ad1b7, Vei-ready at her full pool (3 of 4 and odds ≥ 0.6), with the in-wave readout (the pool she has then, at the look) beside it:** sessions **day 6.0001** (518 406.5 s; in-wave 518 400 s, the same look), continuous day 3.4837 (in-wave 3.4836), 42% sooner and outside the 10–30% band, ablation_keep never (giants 0). Both are **odds-bound**: sessions meets all three fronts at a full pool from day 5.0 (giants 19/14, swarm 24.1/24, carvers 13.7/9.2), but its odds are 0.5967 at day 5's last look (5.347) and 0.6356 at day 6's first, so it lands 6.5 s past day 6. At ready, sessions brings giants 14/14 (a wraith and a skeleton, wits 7 each), swarm 31.4/24, carvers 13.7/9.2 (one beef-7 zombie), raw 15.7/58. **Before R2** (carvers 0.02, the fronts at the pool she had then, at 5b86232): sessions day 5.34, continuous day 4.38 (18% sooner), both inside a tithe wave's dip; at a full pool neither had 3 of 4 in 8 days |
+| The fight grade at Vei-ready (E4 step 3) | 20 seeds | The demo seed with the boss bot at score 70 (`--boss-autoplay=70`, `--boss-seed` 1–20), at d6ad1b7. **At sessions' Vei-ready** (`--boss-cfg` needs giving the demo sessions' have/need on arrival: giants 1.00, swarm 1.31, carvers 1.49, raw 0.27) **with its backups** (1 phylactery charge and 4 clones; vats best case): **19/20 won (95%)**. With the demo's 1 + 1 backups at the same ratios: 12/20 (60%). The demo as shipped (its fronts at 2.40, 1.87 and 4.09 of need, 1 + 1): 10/20 (50%). Before E4 (the old config, 1 + 1): 13/20 (65%). So the ratios at Vei-ready make the fight no harder than the demo's; the clones she holds decide it. Every fight clears giants, swarm and carvers in phase 1 (20.0 s at sessions' ratios: giants at exactly its need takes `phase1.ref_s`) |
+| `economy.craft.husk` `bone`, `remnants` | 300, 6 | **GUESS** (lever (b), the sizing stop's ruling 2: slow and costly; `cmd_craft_husk`). A new game's 200 bone cap is under it until the Bone Mill raises the cap. Sized with the needs above so sessions reaches Vei-ready on day 5–6. The price paces it little: bone sits at its cap, so 500 bone made the same 13 crafts in sessions (and never reached Vei-ready); the bot's conditions pace it (a short front, room in the crypt, a keeper-grade fill, the queue's head not waiting on bone), and the remnants it grinds bind. Crafts over 8 days: at 5b86232 sessions 13 (7 by day 4), continuous 9 by day 4.4, ablation_keep 14; at d6ad1b7 (carvers 9.2) sessions 12 (5 by day 4), continuous 10 by day 3.48, ablation_keep 14 |
+| `vei.fronts.swarm.per_backlog`, `raw.per_backlog` | 5e-7, 2.5e-7 | E4 step 3 (the manager's ruling: mass alone clears exactly one front, swarm). Swarm is met by mass at about 48M (odds 0.57). Raw's backlog term stays under its need through 8 days of every profile (60% of 58 at ablation_keep's 139M, 88% at continuous's 204M), so raw needs power from bigs. It brings about a quarter of raw's need at sessions' day-5 backlog. Past the 8-day horizon mass alone would clear raw; a saturating term (on the odds) would close that, as a follow-up. Were 0.0006 and 0.0012 |
 
 **Lots per tier** (`economy.json` `town.tiers.<tier>.lot_ids`; sizes are `town.json`'s: lot-01..04 and
 lot-13..16 are size 2, lot-05..12 and lot-17..22 size 1, lot-23 and lot-24 size 3):
@@ -309,6 +313,9 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
   `q` > 2. Calibrate pits, `K` and `S_vei` together in E4.
+  - **E4 step 3: there is no knife edge in the live game.** The town's inflow outruns her digestion all run, and the
+    backlog grows to about 1e8 by day 8. So `K` and the fronts' `per_backlog` were sized for that scale (§5), not for
+    18k.
 - **Redirect value at low `q`** is small under `cheap`. If the +30% ablation fails, raise
   `raise_rate` or let the redirect add the haul bonus.
 - **FLOOD as a no-brainer** once `q` is high. The tithe waves and WORK's diminishing returns must keep
@@ -486,7 +493,8 @@ held_door).
     the tier's `chest_by_tier.husk_kinds`, blueprints by `first_blueprint`;
   - a win adds `RaidLoot.chest` at yield 0 with the seed's `first_clear` and `chest_husk` (the first-clear blueprint,
     or a relic when all are owned via `opts.blueprints`, and the first dungeon's husk);
-  - a held clear is `RaidLoot.held_clear`, and a held death banks nothing.
+  - a held clear is `RaidLoot.held_clear` (from E4 step 2 it includes the tier's chest husk roll at
+    `husk_chance` × yield), and a held death banks nothing.
 - **Masses:** on the seed's own fort, through `RaidLogic.LedgerV2`, the scene's own builder.
   - killed = `killed_frac` × living. A held clear kills exactly the seed's living, so the writeback raises
     `counter_garrison_cleared`.

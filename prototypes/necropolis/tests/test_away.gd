@@ -646,6 +646,14 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	t.ok(heads == streams and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
 		"the gains open with the %d streams, in order: %s" % [streams.size(), str(heads)])
 	t.ok(str(rep["gains"][0]["text"]).begins_with("backlog ▲ +") or str(rep["gains"][0]["text"]).begins_with("backlog ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
+	# E4 step 3: "away: +N, odds A → B", the odds now as view_vei reads them, and rising with the backlog
+	var bl_line := str(rep["gains"][0]["text"])
+	var odds_tail := bl_line.get_slice(" · odds ", 1)
+	var o_from := float(odds_tail.get_slice(" → ", 0))
+	var o_to := float(odds_tail.get_slice(" → ", 1))
+	t.ok(bl_line.contains(" · odds ") and odds_tail.get_slice(" → ", 1) == "%.2f" % float(n.view_vei()["odds"])
+		and (o_to >= o_from if bl_line.begins_with("backlog ▲") else o_to <= o_from),
+		"the backlog line ends with Vei's odds before and after, the after one view_vei's: %s" % bl_line)
 	t.ok(_find(rep, "gains", "refilled") == {"text": "Ashgate refilled", "kind": "refilled", "target": ""}, "gains: Ashgate refilled")
 	t.ok(_find(rep, "ready", "raid") == {"text": "Ashgate refilled: raid it", "kind": "raid", "target": "ashgate"}, "ready: Ashgate refilled: raid it")
 	t.ok(_find(rep, "ready", "slab") == {"text": "2 husks: raise at the slab", "kind": "slab", "target": "slab"}, "ready: 2 husks: raise at the slab")
@@ -711,7 +719,7 @@ func _report_consistency(s: GameState, n: GameState) -> void:
 		if l["kind"] != "stream":
 			continue
 		var id := str(l["text"]).split(" ")[0]
-		var nums := _numbers(str(l["text"]))
+		var nums := _numbers(str(l["text"]).get_slice(" · odds ", 0))  # the backlog line's odds tail is checked above
 		var total := float(want[id])
 		var rate := total / 43200.0
 		var ok := nums.size() == 2 and absf(nums[1] - total) <= 0.5 and absf(nums[0] - rate) <= maxf(0.05 * absf(rate), 0.0005)
@@ -1274,7 +1282,7 @@ func _report_self(c: Dictionary) -> Array:
 		var rows: Array = n.view_town()["queue"]
 		var row: Dictionary = rows[0] if not rows.is_empty() else {}
 		t.ok(rows.size() == (2 if behind else 1) and row.get("building_id", "") == "bone_mill" and row.get("reason", "") == "no_bone"
-			and row.get("affordable_in_s", 0.0) == -1.0 and float(n.view_rates()["rates"]["bone"]["net"]) == 0.0,
+			and row.get("affordable_in_s", 0.0) == -1.0 and absf(float(n.view_rates()["rates"]["bone"]["net"])) <= BuildRules.NET_EPS,
 			"(setup) 10 min on, the mill's level %d waits on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), ", a House behind it" if behind else ""])
 		var name := StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0)))
 		var want := "%s can't be afforded at the current income of %s bone, and nothing else makes bone%s" % [name,

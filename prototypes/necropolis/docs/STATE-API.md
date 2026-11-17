@@ -1,4 +1,4 @@
-# Necropolis: GameState API (api_version 8)
+# Necropolis: GameState API (api_version 9)
 
 The frozen contract between the economy unit (GameState) and the scene units (map, town,
 dungeon/boss, ground). `MECHANICS.md` §1.2 is the source of the names; this file gives every
@@ -357,6 +357,13 @@ from `BALANCE.md` §0.
     at: "vei", respawn_s: 0.0}` per backup in `backups_spent`, the phylactery charges first, then the clones
     (`VeiFronts.next_backup`'s order), after `vei_result` and before a final death's `relish_died` (was: spent with no
     event). No new event type.
+
+  `api_version` 9 (E4 step 2's sizing stop, the run's manager's ruling 2: lever (b), the husk craft) added:
+  - **§4.3 `cmd_craft_husk(kind)`**: the weakest `economy.json` `craft.husk.remnants` remnants and `craft.husk.bone`
+    bone into a t1 husk (`loot.json` `chest_by_tier["1"].husk_kinds`); reasons `catching_up`, `unknown_kind`,
+    `no_remnants`, `no_bone`; extra `husk`. Its costs are GUESS;
+  - **§5.10 `view_catalog().husk_craft`**: `{kinds, cost: {bone, remnants}, can_craft, reason}`.
+  The save shape is unchanged (a crafted husk is a husk). The town's UI for it is a Phase I item.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1071,6 +1078,24 @@ Game.state.cmd_place_big_undead("u4", "town:lot-04")  # -> {ok: true, reason: ""
   not the stock). No event; no uid (both are counts). It is allowed while a run is open (§9.1 Open runs).
 ```gdscript
 Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
+```
+
+**`cmd_craft_husk(kind: String)` · E4 (v9; lever (b), the E4 sizing stop's ruling 2)**
+- **Args:** one of the t1 chest's husk kinds, `loot.json` `chest_by_tier["1"].husk_kinds` (`view_catalog().husk_craft.kinds`;
+  shipped: `skeleton`, `zombie`).
+- **Extras:** `husk: Dictionary`, the husk made, as `view_inventory().husks` lists it: `{uid: String, kind: String,
+  rarity: String}` (`{}` on a refusal).
+- **Reasons**, checked in this order: `unknown_kind`; `no_remnants` (fewer than `economy.json` `craft.husk.remnants`);
+  `no_bone` (the bone store under `craft.husk.bone`).
+- **Effect:** instant. It takes the `craft.husk.remnants` weakest remnants (the smallest `magnitude` first, then the
+  oldest uid) and `craft.husk.bone` bone (shipped 6 and 300, GUESS: slow and costly, the bone competing with the build
+  queue; a new game's 200 bone cap is under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
+  save's uid counter, kind, rarity: "common"}` to the husks, as a raid's loot does. No building, and Relish needn't be
+  home (raising the husk at the slab needs her, §4.3 `cmd_raise_big_undead`). Neither bone nor remnants are mass, so the
+  ledger books nothing. No event. **Phase I (town):** a button at the crypt slab, its price and reason from
+  `view_catalog().husk_craft`.
+```gdscript
+Game.state.cmd_craft_husk("skeleton")  # -> {ok: true, reason: "", husk: {uid: "h41", kind: "skeleton", rarity: "common"}}
 ```
 
 **`cmd_deploy_simulacrum(fort_id: String)` · E3 (live from E3-4, v8)**
@@ -1790,6 +1815,7 @@ has finished, and a lot under construction is not free. From T2.4 (E2a) the gate
 | `buildings` | Array[Dictionary] | one per building id (below) |
 | `crafts` | Array[Dictionary] | per `CRAFT_IDS`: `{item_id: String, cost: {essence: int, relics: int}, can_craft: bool, reason: String}`: `reason` is what `cmd_craft` would answer now, `""` when it would craft (from E3-4 the same rule, `needs_building` read from `craft_slots`, §4.3), and `cost` is `economy.json` `craft.<item_id>` |
 | `blueprints` | Array[Dictionary] | `{id: String, owned: bool}` |
+| `husk_craft` | Dictionary | v9 (E4, lever (b)): `{kinds: Array[String], cost: {bone: float, remnants: int}, can_craft: bool, reason: String}`: the kinds `cmd_craft_husk` makes (`loot.json` `chest_by_tier["1"].husk_kinds`), its price (`economy.json` `craft.husk`, GUESS), and the reason it would answer now for any of those kinds (`no_remnants`, `no_bone`, or `""`, §4.3). The town shows it in Phase I |
 
 Each `buildings` entry:
 

@@ -297,6 +297,8 @@ func _convergence() -> void:
 	var hw := {"relics": 0.0, "remnants": 0.0, "husks": 0.0, "blueprints": 0.0, "essence": 0.0}
 	for pair in [["relics", "relics"], ["remnants", "remnants"], ["essence", "essence_motes"]]:
 		hw[pair[0]] = (1.0 - dh) * (float(hc[pair[1]][0]) + float(hc[pair[1]][1])) * 0.5
+	# E4 step 2: held_clear also rolls the tier's chest husk at husk_chance x yield
+	hw["husks"] = (1.0 - dh) * float(_cfgs["loot"]["chest_by_tier"]["3"]["husk_chance"]) * float(hd["fort"].get("yield_mult", 1.0))
 	for k in KINDS:
 		_mean("held (t3): mean %s a run (held_clear)" % k, ch["mean"][k], ch["se"][k], hw[k])
 	print("  [standins] convergence held (t3): died %.4f (%.4f), retreat %.4f, loot %s against %s" % [float(ch["relish_died"]) / N_DRAWS,

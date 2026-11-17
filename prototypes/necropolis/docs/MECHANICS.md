@@ -648,16 +648,17 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
     takes the cancelled fraction per fort as its `siege_block` input: GameState gives `tithe.siege_block` at each
     fort with at least one big undead placed `fort:<id>` (`_siege_blocks`), flat, one per fort. It is the siege's
     only effect: it adds no kill power (not built; E4 only if the hold band needs it).
-  - **The margin chip credits no siege** (E3-3, the run's manager's ruling: a new feature must never make the chip
-    say "safe" at a fort that falls). `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s
-    margins, read every fort as if unsieged (`GameState._forecast_siege`), while RealmSim's step applies the block.
-    So the chip is conservative: a fort reads safe only if it holds without its siege, and it may read thin where
-    the siege actually holds it. Why: the wave train's support is the WAR at the sampling instant, held over the
-    whole forecast. Credited, a block let that error turn safe where the sim breaks the fort. One substep after
-    midgame_2flips' load, the train reads Ashgate's WAR at 1.427 and Old Sluice's at 0.970 against the 1.119 and
-    0.761 they settle at a minute later. On those garrisons the blunted waves never rotate to Old Sluice, which the
-    sim breaks at 1 315 s; with the valve's WAR cut to 0.05 the sieged Ashgate itself read safe and fell at 988 s
-    (`margin_truth`). Crediting the siege is an E4 item, once the train's support mirrors the sim.
+  - **The margin chip credits the siege** (from E4; `GameState._forecast_siege` is the step's `_siege_blocks`).
+    `view_fort`'s `margin`, `fall_s` and wave train, and `view_projection`'s margins, read each fort's block as
+    RealmSim's step applies it. E3-3 credited none (the run's manager's ruling: a new feature must never make the
+    chip say "safe" at a fort that falls), because the wave train's support was then the WAR at the sampling
+    instant, a landed load's burst held over the whole forecast, and credited, a block let that error turn safe
+    where the sim breaks the fort. One substep after midgame_2flips' load the train read Ashgate's WAR at 1.427 and
+    Old Sluice's at 0.970 against the 1.119 and 0.761 they settle at a minute later; with the valve's WAR cut to
+    0.05 the sieged Ashgate read safe and fell at 988 s (`margin_truth`). On the settled support (§3.5, E4 must-fix
+    #1) that case reads thin, credited (`test_big_undead`'s `_siege_chip_war05`). Its revert proof, never
+    committed: the instant support with the block credited reads it safe again, and Old Sluice safe with Relish
+    travelling to Greywall (`test_wave_train`'s `_arrival`).
 
   Defending a flip is a real decision.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
@@ -779,6 +780,17 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     epoch (since the last grace end or break), and the probe stops early once settled or every fort is
     broken. A set still unsettled there reads thin, not safe. It also stops at `hold.safe_horizon_s` of
     probe time, which counts as held (only a clock pushed far off, in tests, gets there).
+  - **The support it reads is the settled WAR** (E4 must-fix #1; `GameState._train_war_at`): the mint at the pits'
+    trough feed (`TownSim.trough_feed`: the rot alone, burned up to what the staffed pits can burn, as with no load
+    landing and an empty store) × the valve's WAR share, plus the muster TownSim settles at on that mint's WORK
+    (`TownSim.workforce_steady`). Before, it read the substep's mint and muster, a landed load's feed of 1 and the
+    WORK burst it musters, held across the whole forecast. One substep after midgame_2flips' load that read 9.713
+    mass/s against the 7.617 the split settles at a minute later; over a convoy cycle (the sessions bot's day 2) the
+    split swings 63.5 ↔ 98.7 and the settled WAR reads 63.5, its minimum, without flicker (an average over the
+    last trip read 77.7–98.7). It ignores the bodies in store, so a large stock reads low for as long as the pits
+    burn it at full: pessimistic, not false (a follow-up). It isn't guaranteed to err early: the train isn't
+    monotone in WAR (midgame_2flips at a WAR share of 0.45 reads Ashgate safe at the settled 7.617 and thin at
+    the burst's 9.713; it holds). `view_projection` reads the same settled WAR at its valve.
   - **What it reads that isn't in today's flows yet**, both committed and changed only by a command: the
     WAR **at the valve's target** (it slews there at `valve.slew_per_s`, at most 20 s for a full swing),
     and **Relish where she is travelling to** (her trip takes seconds at `relish.travel_speed`): her tide
@@ -895,8 +907,11 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
 - A retake of its fort loses it, charges and all (§3.4; IDLE I6, so one at a fort that falls while you're away is
   lost too).
 - Catch-up clips a step at a simulacrum running out, while its corpses keep up (IDLE §4).
-- The margin chip credits no simulacrum (§3.5's readouts read Relish's raise alone), as it credits no siege:
-  conservative, and E4's to credit.
+- The margin chip credits no simulacrum (§3.5's readouts read Relish's raise alone): conservative. E4 credits the
+  siege (§3.4) but not this. A simulacrum's charges run out (300 at 1.0 mass/s: at most 300 s of raise), well
+  inside the cycles the wave train settles over, so a standing credit would read safe where the fort falls once
+  they are spent. Crediting it needs a per-fort charge budget in `RealmSim.train_probe`, and a run-out event its
+  quiet stretches clip at. Not built (E4 follow-up).
 - The tide is hers alone.
 
 ## 4. Economic: Covington
@@ -1565,6 +1580,9 @@ The Watchtower turns the bands into exact percentages and lists every tell.
   | raw | power plus backlog |
 
   Each threshold scales with Vei's living pool. You need `vei.fronts_required` (3 of 4).
+  E4 step 3 (the manager's ruling): mass alone clears exactly one front, swarm. Raw needs power from bigs as well as
+  the backlog, and giants and carvers need composition. The backlog terms are sized for the live backlog, about 1e8 by
+  day 8 (BALANCE §5).
   Live from E3-5: `view_vei` and the boss seed carry each front's have and need, `VeiFronts.have_need` on her
   backlog, living pool, `q` and the party (an assigned member counts on its front, an unassigned one on the front of
   its highest stat), so the dialog, the town's front chip and the fight read the same numbers (STATE-API §5.14, §7.2).

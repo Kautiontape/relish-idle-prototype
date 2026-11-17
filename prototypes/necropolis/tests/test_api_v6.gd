@@ -1350,7 +1350,7 @@ func _catchup_chunked_api() -> void:
 		"cmd_unqueue": [0], "cmd_reorder_queue": [[]], "cmd_set_job_priority": [GameState.JOB_IDS.duplicate()],
 		"cmd_set_staff_cap": ["lot-02", 1], "cmd_set_stance": ["vigil", true], "cmd_raise_big_undead": ["h1", [], "x"],
 		"cmd_rename_big_undead": ["u1", "x"], "cmd_place_big_undead": ["u1", "crypt"], "cmd_craft": ["simulacrum"],
-		"cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
+		"cmd_craft_husk": ["skeleton"], "cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
 		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
 		"cmd_abort_dungeon": [], "cmd_run_checkpoint": [1, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}],
 		"cmd_dismiss_away": [],
@@ -1469,6 +1469,8 @@ func _run_checkpoint_api() -> void:
 	for f in bs["fronts"]:
 		f["need"] = 0.0
 		f["have"] = 0.0
+	# E4 step 3: the fixture's backlog is 3000x the parent's (18000 -> 54M, as realm.json K), so it is scaled back
+	bs["backlog"] = float(bs["backlog"]) / 3000.0
 	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
 		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")
 	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")

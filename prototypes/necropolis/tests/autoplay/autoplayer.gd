@@ -41,6 +41,9 @@ const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_pr
 const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to this
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
+const VEI_READY_ODDS := 0.6  # BALANCE §1's Vei-ready: odds >= 0.6 and fronts_required fronts met (E4 step 3: the odds gate)
+const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
+const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
 ## BALANCE §2's "removed" for ablation (b): the dead's buildings (BALANCE §7's list) cost no bone at any level.
 const DEAD_BUILDINGS := ["raising_pit", "charnel_house", "bone_mill", "stables", "graveyard", "embalmer", "forge"]
@@ -74,6 +77,10 @@ const LADDER := [
 	["house", "lot-20"], ["stables", "lot-15"], ["embalmer", "lot-12"], ["ossuary_tower", "lot-16"],
 ]
 
+## The crypt's levels (E4 step 2's sizing, ruling 2: economy.json big_undead.per_crypt_level, a place a level), put at
+## the head of the list from the first look that keeps a big, or finds the crypt full while a husk waits (_crypt_up).
+const CRYPT_LEVELS := [["crypt", "lot-01", 2], ["crypt", "lot-01", 3]]
+
 static var _list_cache: Array = []
 
 var profile := ""
@@ -89,6 +96,11 @@ var static_raids := false  # static: one raid a session at the day's tier
 var stop_at_vei := false
 var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants or carvers front is short
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
+var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
+var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
+var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
+var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
+var crafted: Array = []  # every husk crafted (_craft_husk): [t_h, kind]
 var print_rows := true
 var open_rows := false
 var live_days := false  # emit a day_end row when live time crosses a day boundary (continuous)
@@ -99,6 +111,7 @@ var cmd_log: Array = []
 var div: Array = []
 var rows: Array = []
 var i1: Array = []
+var wave_targets := {}  # with sample_i1: each tithe wave's fort and start t, by wave_id (the I1 report's target row)
 var notes: Array = []
 var builds: Array = []
 var done: Array = []
@@ -120,7 +133,8 @@ var refusals := {}
 var results := {"validated": 0, "invalid": 0, "applied": 0, "refused": 0, "errors": []}
 var ledger_max := 0.0
 var vei_ready_t := -1.0
-var first := {"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
+var vei_ready_wave_t := -1.0  # the old readout beside it (the sizing stop's ruling R2): fronts at her pool then, at the look
+var first :={"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
 	"bone_wait_seen": -1.0, "bone_wait_event": -1.0, "lots_full": -1.0}
 var _fine_day := {}
 var _win := {}
@@ -243,6 +257,8 @@ func _exec(op: String, a: Array) -> Dictionary:
 			return s.cmd_staff_vat(int(a[0]), bool(a[1]))
 		"craft":
 			return s.cmd_craft(str(a[0]))
+		"craft_husk":
+			return s.cmd_craft_husk(str(a[0]))
 		"stance":
 			return s.cmd_set_stance(str(a[0]), bool(a[1]))
 		"move":
@@ -301,6 +317,7 @@ func _act(queue_set := true) -> void:
 	if str(rel["state"]) == "at_fort" or str(rel["state"]) == "at_vei":
 		_cmd("move", ["covington"])
 	_stances()
+	_craft_husk()
 	_raise()
 	_place()
 	_vats()
@@ -319,7 +336,8 @@ func _stances() -> void:
 
 
 ## Raise: whenever a husk is held and the crypt has room, with every remnant that fits (SlabLogic.evaluate, read-only: a
-## remnant it can't place would refuse the whole raise as invalid_recipe), the largest magnitude first. She must be home.
+## remnant it can't place would refuse the whole raise as invalid_recipe), the largest magnitude first (keep_fronts:
+## _slab_fill's front-first fill). She must be home. Each raise is logged in `raised`.
 func _raise() -> void:
 	if str(s.view_relish()["state"]) != "home":
 		return
@@ -329,20 +347,23 @@ func _raise() -> void:
 		if int(bu["count"]) >= int(bu["cap"]):
 			return
 		var inv := s.view_inventory()
-		var raised := false
+		var done := false
 		for h in inv["husks"]:
 			var kind := str(h["kind"])
-			var pick := _fit(kind, inv["remnants"], slab)
+			var pick := _slab_fill(kind, inv["remnants"], slab)
 			if pick.is_empty():
 				continue
 			var uids: Array = []
 			for r in pick:
 				uids.append(str(r["uid"]))
 			var nm := str(SlabLogic.evaluate(kind, pick, slab)["name"]).substr(0, 24).strip_edges()
-			if bool(_cmd("raise", [str(h["uid"]), uids, nm if nm != "" else "Raised"])["ok"]):
-				raised = true
+			var rr := _cmd("raise", [str(h["uid"]), uids, nm if nm != "" else "Raised"])
+			if bool(rr["ok"]):
+				var st: Dictionary = rr["big_undead"]["stats"]
+				raised.append([_r(s.t / 3600.0), kind, float(st.get("wits", 0.0)), float(st.get("beef", 0.0))])
+				done = true
 				break
-		if not raised:
+		if not done:
 			return
 
 
@@ -350,9 +371,16 @@ static func _uid_n(uid: String) -> int:
 	return int(uid.substr(1)) if uid.length() > 1 else 0
 
 
-static func _fit(kind: String, remnants: Array, slab: Dictionary) -> Array:
+## Remnants tried in key order, each kept if SlabLogic can still place them all: the aspect `prefer` first (none: no
+## preference), then the larger magnitude, then the older uid.
+static func _fit_key(r: Dictionary, prefer: String) -> int:
+	var first := 0 if prefer == "" or str(r["aspect"]) == prefer else 1
+	return first * 10000000000000 + (1000 - int(r["magnitude"])) * 1000000000 + _uid_n(str(r["uid"]))
+
+
+static func _fit(kind: String, remnants: Array, slab: Dictionary, prefer := "") -> Array:
 	var cands := remnants.duplicate()
-	cands.sort_custom(func(a, b): return (1000 - int(a["magnitude"])) * 1000000000 + _uid_n(str(a["uid"])) < (1000 - int(b["magnitude"])) * 1000000000 + _uid_n(str(b["uid"])))
+	cands.sort_custom(func(a, b): return _fit_key(a, prefer) < _fit_key(b, prefer))
 	var pick: Array = []
 	for r in cands:
 		var trial := pick.duplicate()
@@ -362,17 +390,167 @@ static func _fit(kind: String, remnants: Array, slab: Dictionary) -> Array:
 	return pick
 
 
+## keep_fronts' fill (E4 step 2): of the magnitude fill and the fills with the stat of giants or carvers first, the one
+## that brings the larger share of that front's want (_big_want; ties to the earlier, giants before carvers). A front
+## whose want is met without bigs is not tried. Off: the magnitude fill.
+func _slab_fill(kind: String, remnants: Array, slab: Dictionary) -> Array:
+	var pick := _fit(kind, remnants, slab)
+	if not keep_fronts:
+		return pick
+	var want := _big_want()
+	var best := 0.0
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var st := str(c["vei"]["fronts"][fid]["stat"])
+		var trial := _fit(kind, remnants, slab, st)
+		if trial.is_empty():
+			continue
+		var sc := float(SlabLogic.evaluate(kind, trial, slab)["stats"].get(st, 0.0)) / w
+		if sc > best:
+			best = sc
+			pick = trial
+	return pick
+
+
+## What the bigs must bring to each front: its need at Vei's full pool (need_base + need_per_pool x pool_cap) less its
+## backlog and q terms now (VeiFronts.have_need's have, without the stat sum), from view_vei and the vei config. The
+## full pool's need, not today's (E4 step 3): her pool dips through every tithe wave, and a want read in the dip let one
+## keeper meet it alone, so the second was released, raided and was lost (sessions lost a keeper so at 168.09 h and
+## 168.17 h). A dip lasts the wave's surge (realm.json tithe.surge_s, 40 s) and the refill after it (11–24 s), and
+## between waves she sits at her cap, the state the player sees most. The fight is judged at the pool she has then.
+func _big_want() -> Dictionary:
+	var v := s.view_vei()
+	var cap := float(v["pool_cap"])
+	var out := {}
+	for fr in v["fronts"]:
+		var fid := str(fr["id"])
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		out[fid] = _full_need(fid, cap) - float(fc["per_backlog"]) * float(v["backlog"]) \
+			- float(fc["per_q"]) * float(v["digest_q"])
+	return out
+
+
+## A front's need at Vei's full pool `cap`: need_base + need_per_pool x cap (VeiFronts.have_need's need at living_pool
+## = cap). _big_want and the Vei-ready readout (_full_met) both read it.
+func _full_need(fid: String, cap: float) -> float:
+	var fc: Dictionary = c["vei"]["fronts"][fid]
+	return float(fc["need_base"]) + float(fc["need_per_pool"]) * cap
+
+
+## How many of view_vei `v`'s fronts are met at her full pool: each front's have (which doesn't read the pool) against
+## _full_need at v's pool_cap. The bot's Vei-ready reads this (the sizing stop's ruling R2), so the pacing number doesn't
+## hang on where in a tithe wave the look falls; the fight still judges the fronts at the pool she has then.
+func _full_met(v: Dictionary) -> int:
+	var n := 0
+	for fr in v["fronts"]:
+		if float(fr["have"]) >= _full_need(str(fr["id"]), float(v["pool_cap"])):
+			n += 1
+	return n
+
+
+## keep_fronts' keepers (E4 step 2; two fronts from the sizing stop's ruling, IDLE §8): the bigs that stay home on giants
+## and carvers while the rest raid. On each of the two whose want (_big_want) is positive, the candidates are the bigs
+## whose stat there brings at least KEEP_SHARE of the want, best first (ties to the older uid). The front whose candidates
+## alone cover the larger share of its want (ties to giants) takes its keepers first, as many as meet its want; the other
+## then takes its own from the bigs left, as many as meet its want. At most cap - RAID_ROOM in all, and a big keeps one
+## front. The other order is taken instead when it meets more fronts, or as many and keeps more of today's keepers
+## (_kept_of), or as many of both with more coverage (_alloc's cov): a front of weak bigs that fills every place first
+## would leave a front it could have met unkept, and a keeper meeting a front isn't sent to raid for a sliver of cover
+## elsewhere (sessions at 96 h: two new beef-3 skeletons took giants' wits 5 and 4 places, 1.43 against 1.41).
+## {uids: the keepers in that order, front_of: {uid: front}}; {} when no big qualifies.
+func _keepers() -> Dictionary:
+	if not keep_fronts:
+		return {}
+	var bu := s.view_big_undead()
+	var k := int(bu["cap"]) - RAID_ROOM
+	if k <= 0:
+		return {}
+	var want := _big_want()
+	var order: Array = []  # [the share its candidates cover alone, front, candidates, want]
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		var rows: Array = []
+		for b in bu["big_undead"]:
+			var x := float(fc["per_stat"]) * float(b["stats"].get(str(fc["stat"]), 0.0))
+			if x >= KEEP_SHARE * w:
+				rows.append([x, str(b["uid"])])
+		if rows.is_empty():
+			continue
+		rows.sort_custom(func(r1, r2): return float(r1[0]) > float(r2[0]) or (float(r1[0]) == float(r2[0]) and _uid_n(str(r1[1])) < _uid_n(str(r2[1]))))
+		var sum := 0.0
+		for r in rows.slice(0, k):
+			sum += float(r[0])
+			if sum >= w:
+				break
+		order.append([sum / w, fid, rows, w])
+	order.sort_custom(func(o1, o2): return float(o1[0]) > float(o2[0]) or (float(o1[0]) == float(o2[0]) and str(o1[1]) == "giants"))
+	var best := _alloc(order, k)
+	if order.size() == 2:  # the other order, when it meets more fronts, or as many and keeps more of today's keepers, or covers more
+		var alt := _alloc([order[1], order[0]], k)
+		var ka := _kept_of(alt["uids"])
+		var kb := _kept_of(best["uids"])
+		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and (ka > kb
+				or (ka == kb and float(alt["cov"]) > float(best["cov"]) + 1e-9))):
+			best = alt
+	return {} if (best["uids"] as Array).is_empty() else {"uids": best["uids"], "front_of": best["front_of"]}
+
+
+## How many of `uids` are keepers now (_keep, the last look's).
+func _kept_of(uids: Array) -> int:
+	var n := 0
+	for u in uids:
+		n += 1 if _keep.has(u) else 0
+	return n
+
+
+## _keepers' fill in one front order: each front in turn takes its candidates not yet kept, best first, until its want is
+## met, at most k in all. {uids, front_of, met: the fronts whose want it meets, cov: the sum of each front's share, at
+## most 1}.
+static func _alloc(order: Array, k: int) -> Dictionary:
+	var uids: Array = []
+	var front_of := {}
+	var met := 0
+	var cov := 0.0
+	for o in order:
+		var sum := 0.0
+		for r in o[2]:
+			if uids.size() >= k or sum >= float(o[3]):
+				break
+			var u := str(r[1])
+			if front_of.has(u):
+				continue
+			uids.append(u)
+			front_of[u] = str(o[1])
+			sum += float(r[0])
+		met += 1 if sum >= float(o[3]) else 0
+		cov += minf(1.0, sum / float(o[3]))
+	return {"uids": uids, "front_of": front_of, "met": met, "cov": cov}
+
+
 ## Placement: the party fills first (the oldest bigs, up to PARTY_MAX), each assigned the front of its best stat; the
 ## first spare big goes foreman at the Market, or at the Bone Mill while bone binds (the queue's head waits on bone);
 ## later spares stay in the crypt. Sieges only in away_risk's prepared setup.
 ## bank_bigs (E3-7, the manager's ruling 4 at the E3-6b stop): once the giants or carvers front is short (_bank_now), the
 ## party holds the bigs on giants and carvers between raids (_bank_fronts: only a party member has a front), and _raid
 ## empties it before each raid, so no raid takes a big (_reach: t1 only; the held door off). This look puts them back.
+## keep_fronts (E4 step 2): the keepers (_keepers) join the party first, on their front, and the party fills from the
+## other bigs as above; _raid leaves the keepers home (_reach counts the raiders only). No keeper: the E3 placement.
 func _place() -> void:
 	var uids: Array = []
 	for b in s.view_big_undead()["big_undead"]:
 		uids.append(str(b["uid"]))
-	var want := uids.slice(0, PARTY_MAX)
+	var keep := _keepers()
+	_keep = (keep.get("uids", []) as Array).duplicate()
+	var rest: Array = []
+	for u in uids:
+		if not _keep.has(u):
+			rest.append(u)
+	var want: Array = _keep + rest.slice(0, PARTY_MAX)
 	var have: Array = []
 	for p in s.view_party()["party"]:
 		have.append(str(p["uid"]))
@@ -383,11 +561,11 @@ func _place() -> void:
 	else:
 		for b in s.view_big_undead()["big_undead"]:
 			if str(b["place"]) == "party":
-				var f := _best_front(b["stats"])
+				var f := str(keep["front_of"][str(b["uid"])]) if _keep.has(str(b["uid"])) else _best_front(b["stats"])
 				if str(b["front"]) != f:
 					_cmd("front", [str(b["uid"]), f])
-	if uids.size() > PARTY_MAX:
-		var spare := str(uids[PARTY_MAX])
+	if rest.size() > PARTY_MAX:
+		var spare := str(rest[PARTY_MAX])
 		var lot := _foreman_lot(s.view_town())
 		var cur := ""
 		for b in s.view_big_undead()["big_undead"]:
@@ -472,6 +650,79 @@ func _craft() -> void:
 			_cmd("craft", ["phylactery_charge"])
 
 
+## The husk craft (E4 step 2's sizing stop, the manager's ruling 2: lever (b); every profile): one t1 husk from the
+## weakest remnants and bone (cmd_craft_husk) whenever _husk_kind finds one worth making. Each is logged in `crafted`.
+func _craft_husk() -> void:
+	var kind := _husk_kind(false)
+	if kind != "" and bool(_cmd("craft_husk", [kind])["ok"]):
+		crafted.append([_r(s.t / 3600.0), kind])
+
+
+## The husk the bot would craft now, "" for none. It crafts when giants or carvers is short (_short_fronts), the crypt has
+## room for one more (the bigs and the husks waiting under the cap; `ignore_room` skips this, for _fill's crypt trigger),
+## a remnant would be left for the raise, the bone covers economy.json craft.husk's price, and the queue's head doesn't
+## wait on bone. The kind (loot.json chest_by_tier 1's husk_kinds) is the one whose slab fill (_slab_fill, on the
+## remnants the craft leaves: GameState.husk_craft_pick) brings the larger share of a short front's want, in list order
+## on a tie; none is made unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a
+## body too weak to keep isn't worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons
+## and its giants front sat at 9/14 from day 3).
+func _husk_kind(ignore_room: bool) -> String:
+	var hc: Dictionary = c["economy"]["craft"]["husk"]
+	var n := int(hc["remnants"])
+	var tn := s.view_town()
+	if float(tn["bone"]) < float(hc["bone"]):
+		return ""
+	var inv := s.view_inventory()
+	var rems: Array = inv["remnants"]
+	if rems.size() <= n:
+		return ""
+	var bu := s.view_big_undead()
+	if not ignore_room and int(bu["count"]) + (inv["husks"] as Array).size() >= int(bu["cap"]):
+		return ""
+	var q: Array = tn["queue"]
+	var h := _head(q)
+	if h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone":
+		return ""
+	var short := _short_fronts(bu)
+	if short.is_empty():
+		return ""
+	var picked := {}
+	for r in GameState.husk_craft_pick(rems, n):
+		picked[str(r["uid"])] = true
+	var rest: Array = rems.filter(func(r): return not picked.has(str(r["uid"])))
+	var slab: Dictionary = c["town"]["slab"]
+	var best := ""
+	var best_sc := 0.0
+	for kind in c["loot"]["chest_by_tier"]["1"]["husk_kinds"]:
+		var st: Dictionary = SlabLogic.evaluate(str(kind), _slab_fill(str(kind), rest, slab), slab)["stats"]
+		for fid in short:
+			var fc: Dictionary = c["vei"]["fronts"][fid]
+			var sc := float(fc["per_stat"]) * float(st.get(str(fc["stat"]), 0.0)) / float(short[fid])
+			if sc > best_sc:
+				best_sc = sc
+				best = str(kind)
+	return best if best_sc >= KEEP_SHARE else ""
+
+
+## Giants and carvers where the bigs on the front (front == it) bring less than its want (_big_want, at Vei's full pool):
+## {front: want}.
+func _short_fronts(bu: Dictionary) -> Dictionary:
+	var want := _big_want()
+	var out := {}
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		var have := 0.0
+		for b in bu["big_undead"]:
+			if str(b["front"]) == fid:
+				have += float(fc["per_stat"]) * float(b["stats"].get(str(fc["stat"]), 0.0))
+		if have < w:
+			out[fid] = w
+	return out
+
+
 static func _list(cfg: Dictionary) -> Array:
 	if not _list_cache.is_empty():
 		return _list_cache
@@ -490,8 +741,15 @@ static func _list(cfg: Dictionary) -> Array:
 
 
 ## The queue: kept filled from the priority list. An item is queued once the level below it on its lot is built,
-## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look.
+## building or queued; a refusal (cost_exceeds_cap, mostly) leaves it for a later look. From the first look that keeps a
+## big (_keep), or finds the crypt full (big undead at the cap) while a husk waits or the bot would craft one but for the
+## room (_husk_kind), the crypt's levels (CRYPT_LEVELS) head the list: a keeper takes a place a raider would use, a husk
+## that can't be raised is a big lost, and a level is a place (big_undead.per_crypt_level).
 func _fill() -> void:
+	if not _crypt_up:
+		var bu := s.view_big_undead()
+		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"])
+			and (not (s.view_inventory()["husks"] as Array).is_empty() or _husk_kind(true) != ""))
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -502,7 +760,8 @@ func _fill() -> void:
 		var cur: Array = plan.get(str(e["lot_id"]), ["", 0])
 		plan[str(e["lot_id"])] = [str(e["building_id"]), maxi(int(cur[1]), int(e["level"]))]
 	var n := q.size()
-	for it in _list(c):
+	var walk: Array = CRYPT_LEVELS + _list(c) if _crypt_up else _list(c)
+	for it in walk:
 		if n >= qmax:
 			break
 		var lot: String = it[1]
@@ -650,7 +909,10 @@ static func _gt(a: Array, b: Array) -> bool:
 func _reach() -> int:
 	if _banking:
 		return 1  # bank_bigs: the party is emptied before every raid
-	var n := (s.view_party()["party"] as Array).size()
+	var n := 0
+	for p in s.view_party()["party"]:
+		if not _keep.has(str(p["uid"])):
+			n += 1  # keep_fronts: the keepers stay home, so only the raiders count
 	var profs: Dictionary = c["raid"]["autopilot"]["party_profiles"]
 	var reach := 1
 	for tier in [2, 3, 4]:
@@ -701,6 +963,14 @@ func _resolve(seed: Dictionary, held: bool) -> Dictionary:
 func _raid(fid: String, limit: float) -> Dictionary:
 	if _banking and not (s.view_party()["party"] as Array).is_empty():
 		_cmd("party", [[]])  # bank_bigs: no raid takes a big (their fronts go with them; the next look restores both)
+	elif not _keep.is_empty():
+		var go: Array = []
+		var pty: Array = s.view_party()["party"]
+		for p in pty:
+			if not _keep.has(str(p["uid"])):
+				go.append(str(p["uid"]))
+		if go.size() != pty.size():
+			_cmd("party", [go])  # keep_fronts: the keepers stay home (as above, the next look restores them)
 	if not bool(_cmd("move", [fid])["ok"]):
 		return {}
 	if not _tick_until(func(): return _at(fid), s.t + 600.0):
@@ -762,17 +1032,25 @@ func _begin_note(fid: String, f: Dictionary, held: bool) -> void:
 			"label": "big undead held and placed lean on the GUESS stand-ins: the masses raised are an upper bound, and a won raid loses each party member at t2 0.712, t3 0.48, t4 0.41 (BALANCE §8); vats best case"}
 
 
+## Vei-ready (BALANCE §1, IDLE §8): odds >= VEI_READY_ODDS and fronts_required fronts met at her full pool (_full_met;
+## the sizing stop's ruling R2), at the look and again on arrival at her node. vei_ready_wave_t is the readout before
+## R2 (the fronts at the pool she has then), recorded at the look only, so it never moves Relish: today's need is never
+## over the full pool's, so it falls at or before vei_ready_t, inside a tithe wave's dip or between waves.
 func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if int(v["fronts_met"]) < int(v["fronts_required"]) or str(s.view_relish()["state"]) != "home":
+	if float(v["odds"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
+		return
+	if vei_ready_wave_t < 0.0 and int(v["fronts_met"]) >= int(v["fronts_required"]):
+		vei_ready_wave_t = s.t
+	if _full_met(v) < int(v["fronts_required"]):
 		return
 	if not bool(_cmd("move", ["vei"])["ok"]):
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]):
+	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
@@ -1039,14 +1317,77 @@ func _i1_sample() -> Dictionary:
 	var bl := {}
 	for b in tn["buildings"]:
 		bl[str(b["lot_id"])] = "%s L%d" % [str(b["building_id"]), int(b["level"])]
-	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids()}
+	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids(),
+		"pool_wave": _pool_wave()}
+
+
+## Vei's tithe clock and her pool's rates at an I1 sample, for i1_compare's pool bound (E4 step 3, the manager's
+## ruling (ii)): the running wave (wave_id -1 when none, its s_left and multiplier), the clock (next_s counts down to
+## wave next_id: the warned one, else the next to be warned), the period it would schedule now, her q and the fort
+## shipping of the last step (r_shipped less the surge), and the configs the bound reads.
+func _pool_wave() -> Dictionary:
+	var tp: Dictionary = s.realm.tithe
+	var wv: Dictionary = tp.get("wave", {})
+	var wn: Dictionary = tp.get("warning", {})
+	var give := float(s.realm.vei["r_shipped"])
+	for f in s.realm.forts:
+		give -= float(f.get("r_surge", 0.0))
+	var r: Dictionary = c["realm"]
+	return {"started": bool(tp.get("started", false)), "wave_id": int(wv.get("wave_id", -1)),
+		"s_left": float(wv.get("s_left", 0.0)), "mult": float(wv.get("mult", -1.0)), "next_s": float(tp.get("next_s", 0.0)),
+		"next_id": int(wn["wave_id"]) if not wn.is_empty() else int(tp.get("next_id", 0)), "period": s.realm.tithe_period(),
+		"q": maxf(1.0, s.realm.digest_q), "give": maxf(0.0, give), "surge_s": float(r["tithe"]["surge_s"]),
+		"surge_mult": float(r["tithe"]["surge_mult"]), "S_vei": float(r["S_vei"]), "R_vei": float(r["R_vei"])}
+
+
+## The I1 gate's bound on Vei's pool (E4 step 3, ruling (ii)), from a closed sample's `a` and an open one's `b`
+## pool_wave. Vei draws her pool down through a wave (its surge plus her fort shipping, less what she converts) and
+## refills it to the cap after; when her refill ends well inside a period, both runs' pools sit in [cap - D, cap]
+## however far their wave clocks have slipped, D being one wave's net drawdown:
+##   D = surge_s x max(0, mult x S_vei + give - R_vei / q),
+## with the larger of the two runs' give and q (the larger q converts slower), and the running wave's multiplier (the
+## larger of the two), else surge_mult (siege and Relish only lower it). `slip` is the closed run's start of a common
+## wave less the open run's (> 0: the open run's waves come first). A run is drawn inside a wave or its refill
+## (D / (R_vei / q - give) after the wave's end). `applies` when the two runs' wave states differ: one drawn and the
+## other not, or both drawn on different clocks; with the same state the pool stays on catchup_tol. `premise` is false
+## when she can't refill (R_vei / q <= give) or the refill doesn't end inside the shorter period; D then never applies.
+static func pool_wave_bound(a: Dictionary, b: Dictionary) -> Dictionary:
+	if a.is_empty() or b.is_empty():
+		return {}
+	var q := maxf(float(a["q"]), float(b["q"]))
+	var give := maxf(float(a["give"]), float(b["give"]))
+	var mult := maxf(float(a["mult"]), float(b["mult"]))
+	if mult < 0.0:
+		mult = float(b["surge_mult"])
+	var surge_s := float(b["surge_s"])
+	var conv := float(b["R_vei"]) / q
+	var d := surge_s * maxf(0.0, mult * float(b["S_vei"]) + give - conv)
+	var refill := conv - give
+	var refill_s := d / refill if refill > 0.0 else INF
+	var premise := refill > 0.0 and surge_s + refill_s < minf(float(a["period"]), float(b["period"]))
+	var n := maxi(int(a["next_id"]), int(b["next_id"]))
+	var slip := (float(a["next_s"]) + float(n - int(a["next_id"])) * float(a["period"])) - (
+		float(b["next_s"]) + float(n - int(b["next_id"])) * float(b["period"]))
+	var drawn := []
+	for w in [a, b]:
+		var since := surge_s - float(w["s_left"]) if int(w["wave_id"]) >= 0 else float(w["period"]) - float(w["next_s"])
+		drawn.append(bool(w["started"]) and (int(w["wave_id"]) >= 0 or since - surge_s <= refill_s))
+	var same: bool = (not drawn[0] and not drawn[1]) or (absf(slip) < 1e-6 and int(a["wave_id"]) == int(b["wave_id"]))
+	return {"bound": d, "slip": slip, "q": q, "give": give, "mult": mult, "refill_s": refill_s if refill > 0.0 else -1.0, "premise": premise,
+		"drawn_closed": drawn[0], "drawn_open": drawn[1], "applies": premise and not same}
 
 
 ## The I1 gate's check of a closed sample `a` against the open one `b`: the same t exactly, every stock within `tol`, the
-## same buildings and levels, the same held forts. A stock in the open sample's `bounds` (the bodies: one convoy load) is
+## same buildings and levels, the same held forts. A stock in either sample's `bounds` (the bodies: one convoy load) is
 ## judged by its absolute difference against that bound instead, never tighter than `tol` (with no haulers staffed the
-## load is 0); `bounded` holds its delta and bound, and it stays out of `worst`. The first quantity that differs, and by
-## how much, leads `why`.
+## load is 0). The load is carry x the larger of the two runs' staffed haulers (E4 step 0, the E3 review's item 3: the
+## open run's alone made a closed run with more haulers fail on a load it was allowed). `bounded` holds its delta, bound
+## and both runs' haulers, and it stays out of `worst`. Vei's pool is judged the same way within one wave's drawdown
+## (pool_wave_bound's D) when the two runs' wave states differ (E4 step 3, the manager's ruling (ii): her tithe clocks
+## slip apart, so one run can be mid-surge while the other is full); with the same state it stays on `tol`. `pool_wave`
+## holds the bound's working, applied or not. The first quantity that differs, and by how much, leads `why`.
+## tests/test_i1_gate.gd proves each branch on synthetic samples (two loads dropped fails on the bodies; a pool gap over
+## D fails).
 static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var why: Array = []
 	var errs := {}
@@ -1054,19 +1395,34 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var worst := ["", 0.0]
 	if float(a["t"]) != float(b["t"]):
 		why.append("t %.2f closed vs %.2f open" % [float(a["t"]), float(b["t"])])
-	var bounds: Dictionary = b.get("bounds", {})
+	var ba: Dictionary = a.get("bounds", {})
+	var bb: Dictionary = b.get("bounds", {})
+	var pw := pool_wave_bound(a.get("pool_wave", {}), b.get("pool_wave", {}))
 	for k in b["stocks"]:
 		var y := float(b["stocks"][k])
 		var den := maxf(absf(y), float(b["floors"].get(k, 1.0)))
 		var d := absf(float(a["stocks"][k]) - y)
 		var e := d / maxf(den, 1e-12)
 		errs[k] = e
-		if bounds.has(k):
-			var bd := maxf(float(bounds[k]["bound"]), tol * den)
-			bounded[k] = {"delta": d, "bound": bd, "load": float(bounds[k]["bound"])}
+		if k == "vei_pool" and bool(pw.get("applies", false)):
+			var bd := maxf(float(pw["bound"]), tol * den)
+			bounded[k] = {"delta": d, "bound": bd, "wave": pw}
 			if d > bd:
-				why.append("%s %s closed vs %s open (delta %s over the bound %s: %s x %s haulers)" % [k, str(_r(float(a["stocks"][k]))),
-					str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(float(bounds[k]["carry"]))), str(_r(float(bounds[k]["haulers"])))])
+				why.append("vei_pool %s closed vs %s open (delta %s over the bound %s: one wave's drawdown, the clocks %s s apart)" % [
+					str(_r(float(a["stocks"][k]))), str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(float(pw["slip"])))])
+			continue
+		if ba.has(k) or bb.has(k):
+			var la: Dictionary = ba.get(k, {})
+			var lb: Dictionary = bb.get(k, {})
+			var carry := float(lb.get("carry", la.get("carry", 0.0)))
+			var h_closed := float(la.get("haulers", 0.0))
+			var h_open := float(lb.get("haulers", 0.0))
+			var load := carry * maxf(h_closed, h_open)
+			var bd := maxf(load, tol * den)
+			bounded[k] = {"delta": d, "bound": bd, "load": load, "carry": carry, "haulers_closed": h_closed, "haulers_open": h_open}
+			if d > bd:
+				why.append("%s %s closed vs %s open (delta %s over the bound %s: %s x max(%s closed, %s open) haulers)" % [k,
+					str(_r(float(a["stocks"][k]))), str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(carry)), str(_r(h_closed)), str(_r(h_open))])
 			continue
 		if e > float(worst[1]):
 			worst = [k, e]
@@ -1081,7 +1437,7 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 			why.append("buildings %d closed vs %d open" % [(a["buildings"] as Dictionary).size(), (b["buildings"] as Dictionary).size()])
 	if a["held"] != b["held"]:
 		why.append("held %s closed vs %s open" % [str(a["held"]), str(b["held"])])
-	return {"ok": why.is_empty(), "why": why, "errs": errs, "bounded": bounded, "worst": worst}
+	return {"ok": why.is_empty(), "why": why, "errs": errs, "bounded": bounded, "worst": worst, "pool_wave": pw}
 
 
 # -------------------------------------------------------------------------------------------- away risk ---
@@ -1222,6 +1578,9 @@ func _on_event(e: Dictionary, where: String) -> void:
 			clears.append({"t": t, "fort": str(e["fort_id"])})
 		"tier_up":
 			tiers.append({"t": t, "tier": str(e["tier"]), "where": where})
+		"tithe_wave":
+			if sample_i1:
+				wave_targets[int(e["wave_id"])] = [str(e["fort_id"]), t]
 
 
 ## [gold, bone, relics] of a construction at `level` (buildings.json: cost, then level_costs).
@@ -1280,7 +1639,8 @@ static func _band(t: float) -> String:
 
 
 func _big_counts(bu: Dictionary) -> Dictionary:
-	var out := {"held": int(bu["count"]), "cap": int(bu["cap"]), "party": 0, "foreman": 0, "siege": 0, "crypt": 0}
+	var out := {"held": int(bu["count"]), "cap": int(bu["cap"]), "party": 0, "foreman": 0, "siege": 0, "crypt": 0,
+		"keep": _keep.size()}
 	for b in bu["big_undead"]:
 		var p := str(b["place"])
 		if p == "party":
@@ -1365,7 +1725,7 @@ func _row(kind: String) -> Dictionary:
 func _day_end() -> void:
 	var row := _row("day_end")
 	fronts_daily.append({"day": int(round(s.t / DAY)), "fronts": row["fronts"], "met": row["fronts_met"],
-		"required": row["fronts_required"]})
+		"met_full": _full_met(s.view_vei()), "required": row["fronts_required"]})
 	if sample_i1:
 		i1.append(_i1_sample())
 
@@ -1373,16 +1733,19 @@ func _day_end() -> void:
 # ----------------------------------------------------------------------------------------------- summary ---
 func policy() -> Dictionary:
 	return {
-		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots)%s" % (
+		"queue": "kept filled to queue_max from the fixed priority list (BUILD_LIST then LADDER, explicit lots; the crypt's levels 2 and 3 at its head from the first look that keeps a big, or finds the crypt full while a husk waits)%s" % (
 			"; reorder: the soonest-affordable entry to the head when the head reads -1 or later than another" if reorder else "; no reorder (static)"),
 		"raids": ("one a session at the day's tier (days 1-2 t1, 3-4 t2, 5-6 t3, 7-8 t4)" if static_raids else
 			"the highest tier the party reaches (tier T needs raid.json party_profiles[T]'s bigs), the first dungeon first, higher yield, unheld before held") +
 			"; never retreat; held forts once yield_mult >= %.1f%s; deaths %s; held door on" % [HELD_RAID_YIELD, " (never: ablation a)" if no_held else "", deaths] +
-			("; bank_bigs: once giants or carvers is short, the party holds the bigs on those fronts between raids and is emptied before each raid (t1 only; the held door off)" if bank_bigs else ""),
-		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (largest magnitude first)",
+			("; bank_bigs: once giants or carvers is short, the party holds the bigs on those fronts between raids and is emptied before each raid (t1 only; the held door off)" if bank_bigs else "") +
+			("; keep_fronts: keepers stay home, so the reach counts the raiders only" if keep_fronts else "; raid_all: every big in the party rides"),
+		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (%s)" % (
+			"giants' or carvers' stat first when that brings a larger share of the front's want, else the largest magnitude" if keep_fronts else "largest magnitude first"),
+		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
-		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared)",
+		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (economy.json craft.husk: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
 		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}
@@ -1451,7 +1814,10 @@ func summary() -> Dictionary:
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
-		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily}
+		"never": vei_ready_t < 0.0, "ready_wave_t": vei_ready_wave_t,
+		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
+		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
+		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})
@@ -1646,6 +2012,7 @@ static func _bot(name: String, cfg: Dictionary, o := {}) -> Autoplayer:
 	b.static_raids = bool(o.get("static", false))
 	b.reorder = not bool(o.get("static", false))
 	b.bank_bigs = bool(o.get("bank_bigs", false))
+	b.keep_fronts = not b.bank_bigs and not bool(o.get("raid_all", false))
 	b.print_rows = bool(o.get("print_rows", true))
 	return b
 
@@ -1707,6 +2074,8 @@ static func run_profile(name: String, t: TestUtil) -> int:
 			_p_versus(t, name, cfg, {"bank_bigs": true}, cfg)
 		"ablation_held":
 			_p_versus(t, name, cfg, {"no_held": true}, cfg)
+		"ablation_keep":
+			_p_versus(t, name, cfg, {"raid_all": true}, cfg)
 		"ablation_bone":
 			_p_versus(t, name, cfgs("no_bone_prices"), {}, cfg)
 		"sensitivity":
@@ -1719,9 +2088,11 @@ static func run_profile(name: String, t: TestUtil) -> int:
 
 ## The I1 gate (a real assertion): sessions closed (the leader, its commands logged) against sessions_open, the same
 ## commands at the same sim t on a game left open between sessions. At each day's end: the same t exactly, the bodies
-## within one convoy load (job.haul.carry x the haulers staffed, i1_compare's `bounds`), every other stock within
+## within one convoy load (job.haul.carry x the larger of the two runs' haulers staffed, i1_compare's `bounds`), Vei's
+## pool within one wave's drawdown when the wave states differ (pool_wave_bound), every other stock within
 ## idle.catchup_tol, the same buildings and levels, the same held forts; and every replayed command answered as the
-## leader's was.
+## leader's was. Each day prints the wave clocks' slip and D; the run ends with a report row (not a gate): the first
+## wave whose target fort differs between the runs (AUTOPLAY_DAYS=8 measures it over 8 days).
 static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 	var days := days_env(2)
 	var tol := float(cfg["economy"]["idle"]["catchup_tol"])
@@ -1740,27 +2111,61 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		var r := i1_compare(lead.i1[d], fol.i1[d], tol)
 		var parts: Array = []
 		for k in r["errs"]:
+			if k == "vei_pool" and (r["bounded"] as Dictionary).has(k):
+				var bp: Dictionary = r["bounded"][k]
+				parts.append("vei_pool %s/%s delta %s, bound %s (one wave's drawdown)" % [str(_r(float(lead.i1[d]["stocks"][k]))),
+					str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bp["delta"]))), str(_r(float(bp["bound"])))])
+				continue
 			if (r["bounded"] as Dictionary).has(k):
 				var bk: Dictionary = r["bounded"][k]
-				var lb: Dictionary = fol.i1[d]["bounds"][k]
-				parts.append("%s %s/%s delta %s, bound %s (one load: %s x %s haulers)" % [k, str(_r(float(lead.i1[d]["stocks"][k]))),
-					str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bk["delta"]))), str(_r(float(bk["bound"]))),
-					str(_r(float(lb["carry"]))), str(_r(float(lb["haulers"])))])
+				parts.append("%s %s/%s delta %s, bound %s (one load: %s x max(%s closed, %s open) haulers)" % [k,
+					str(_r(float(lead.i1[d]["stocks"][k]))), str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bk["delta"]))),
+					str(_r(float(bk["bound"]))), str(_r(float(bk["carry"]))), str(_r(float(bk["haulers_closed"]))), str(_r(float(bk["haulers_open"])))])
 				continue
 			parts.append("%s %s/%s %.4f%%" % [k, str(_r(float(lead.i1[d]["stocks"][k]))), str(_r(float(fol.i1[d]["stocks"][k]))),
 				float(r["errs"][k]) * 100.0])
 		print("  [autoplay] I1 day %d (t %.0f): %s; worst %s %.4f%%; buildings %s; held %s" % [d + 1, float(fol.i1[d]["t"]),
 			", ".join(PackedStringArray(parts)), str(r["worst"][0]), float(r["worst"][1]) * 100.0,
 			"same" if lead.i1[d]["buildings"] == fol.i1[d]["buildings"] else "DIFFER", str(fol.i1[d]["held"])])
-		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"], "bounded": r["bounded"]})
+		var pw: Dictionary = r["pool_wave"]
+		if not pw.is_empty():
+			print("  [autoplay] I1 day %d pool waves: clocks %s s apart (closed less open), D %s (q %s, give %s, x%s, refill %s s), drawn closed %s open %s: %s" % [
+				d + 1, str(_r(float(pw["slip"]))), str(_r(float(pw["bound"]))), str(_r(float(pw["q"]))), str(_r(float(pw["give"]))),
+				str(_r(float(pw["mult"]))), str(_r(float(pw["refill_s"]))), str(pw["drawn_closed"]), str(pw["drawn_open"]),
+				"D applies" if bool(pw["applies"]) else ("same wave state: catchup_tol" if bool(pw["premise"]) else "no refill inside a period: catchup_tol")])
+		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"], "bounded": r["bounded"],
+			"pool_wave": pw})
 		if not bool(r["ok"]) and first_bad == "":
 			first_bad = "day %d: %s" % [d + 1, str(r["why"][0])]
-		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, the bodies within one convoy load, every other stock within %.0f%%, buildings and levels, held forts)%s" % [
+		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, the bodies within one convoy load, Vei's pool within one wave's drawdown when the wave states differ, every other stock within %.0f%%, buildings and levels, held forts)%s" % [
 			d + 1, tol * 100.0, "" if bool(r["ok"]) else ": " + "; ".join(PackedStringArray(r["why"]))])
 	t.ok(lead.i1.size() == days and fol.i1.size() == days, "I1: a sample at each of the %d days' ends (closed %d, open %d)" % [days, lead.i1.size(), fol.i1.size()])
 	t.ok(fol.div.is_empty(), "I1: every one of the %d replayed commands was answered as the closed run's, and every raid resolved the same%s" % [
 		lead.cmd_log.size(), "" if fol.div.is_empty() else ": first " + str(fol.div[0])])
-	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10)}})
+	# a report row, not a gate (E4 step 3, the manager's ruling): the wave clocks slip apart (the catch-up's backlog gap,
+	# within catchup_tol, moves her odds and so her period), and past the warning lead a wave can pick another target
+	var ids: Array = lead.wave_targets.keys()
+	ids.sort()
+	var both := 0
+	var first_target := {}
+	for id in ids:
+		if not fol.wave_targets.has(id):
+			continue
+		both += 1
+		if str(lead.wave_targets[id][0]) != str(fol.wave_targets[id][0]):
+			var tc := float(lead.wave_targets[id][1])
+			first_target = {"wave_id": id, "day": int(tc / DAY) + 1, "closed": [lead.wave_targets[id][0], _r(tc)],
+				"open": [fol.wave_targets[id][0], _r(float(fol.wave_targets[id][1]))]}
+			break
+	print("  [autoplay] I1 wave targets (a report row, not a gate): %d waves in both runs over %d days; %s" % [both, days,
+		"none differs" if first_target.is_empty() else "the first to differ is wave %d on day %d: %s closed at t %s, %s open at t %s" % [
+			int(first_target["wave_id"]), int(first_target["day"]), str(first_target["closed"][0]), str(first_target["closed"][1]),
+			str(first_target["open"][0]), str(first_target["open"][1])]])
+	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
+	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
+	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
+	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10),
+		"wave_targets": {"compared": both, "first_differs": first_target}}})
 	lead.cleanup()
 	fol.cleanup()
 

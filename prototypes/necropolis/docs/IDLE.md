@@ -82,7 +82,10 @@ is the "not properly tuned" failure, and it must be visible before you leave (be
 **Raiding a held fort** fights its counter-garrison:
 - the dungeon seed uses the living there;
 - it has no warden room, so it is a shorter run;
-- clearing the room clears the counter-garrison (a clamped delta) and banks loot;
+- clearing the room clears the counter-garrison (a clamped delta) and banks loot (`loot.held_clear`, yield-scaled);
+- the loot includes the tier's chest husk roll, at `chest_by_tier.<T>.husk_chance` × yield, of its `husk_kinds`
+  (E4 step 2, the manager's ruling). Before this a held clear dropped no husk, so a player whose bigs were lost had no
+  way back to the tiers that drop them: in E3's sessions run 96 of 102 raids were held t1 clears and husks sat at 0;
 - this is how active play defends territory before you leave.
 
 **Loot recovers with real time.** The decay from repeated clears, `loot.reclear_decay`, relaxes back
@@ -774,7 +777,7 @@ dismissed) and the `away_report` event.
 | dead air: active minutes in which nothing has positive projected value | < 10% |
 | continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days |
-| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do |
+| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
@@ -833,10 +836,21 @@ The profiles:
   one convoy load, every other stock within `idle.catchup_tol` (gold and bone against 1% of their cap, Vei's pool against
   its cap, the rest against 1.0), the same buildings and levels, the same held forts, and every command answered as the
   closed run's was.
-  - The bodies' bound is computed at each sample: `job.haul.carry` × the haulers staffed in the open run (view_town's
-    `jobs` row), never tighter than `catchup_tol` (with no haulers it is 0). The check prints the delta and the bound and
-    fails over it. The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other
-    targets than an open run's (the haul phase).
+  - The bodies' bound is computed at each sample: `job.haul.carry` × the larger of the two runs' staffed haulers
+    (view_town's `jobs` row; E4 step 0 took the max, where E3 read the open run's alone), never tighter than
+    `catchup_tol` (with no haulers it is 0). `carry` is the load per hauler per trip: a convoy picks up carry × its crew,
+    the haulers × their foreman's multiplier (× `flip.haul_mult` at a held fort), so the bound, which counts neither
+    multiplier, can only be too tight. The check prints the delta, the bound and both haulers counts and fails over it.
+    The run's manager ruled this at the E3-6b stop (below). E4 item: a closed run's convoys pick other targets than an
+    open run's (the haul phase).
+  - **The bodies branch's proof is `tests/test_i1_gate.gd`** (default suite, E4 step 0, the manager's ruling): it calls
+    `i1_compare` on synthetic samples that differ only in the bodies. Two loads dropped fails on the bodies; just under
+    one load passes on the bound, though it is 25% of the store; just over one load fails; a closed run with more
+    haulers than the open one widens the bound either way round; with no haulers `catchup_tol` is the bound; a stock
+    outside the bound still fails on `catchup_tol`. Its own revert proofs (never committed): the open run's haulers
+    alone fail the more-haulers case, and no bounds branch fails the suite.
+  - `_p_i1` also asserts the closed leader's harness checks (`finish`: every result validated and applied, the ledger
+    balanced), where E3 asserted only the open run's.
   - At 01a7191 both days pass. Day 2's bodies are 24.66 apart against a bound of 84 (14 × 6 haulers). The backlog is
     0.52% and 0.64% apart; every other stock is identical.
   - Revert proofs (sim edits, never committed):
@@ -855,9 +869,57 @@ The profiles:
     are the same, and all 161 commands answered the same.
   - convergence.gd's catch-up gate leaves the bodies ungated for this reason ("within about one convoy load at any dt").
     The I1 gate keeps them, as "every stock" asks: the run's manager decides.
+  - **Vei's pool, one wave's drawdown (E4 step 3, the manager's ruling (ii)).** At K 36M her odds sit on the steep part
+    of their curve (0.14–0.27 over days 1–2), so the catch-up's backlog gap (0.32–0.38%, within `catchup_tol`; 0.65–0.89%
+    at K 12000, where dOdds/dBacklog was 250 times smaller) moves her tithe period, 210 s × Δodds a wave. The two runs'
+    wave clocks slip 7.9 s by day 1 and 29.8 s by day 2, so at day 2's sample the open run was 11 s into wave 441's
+    surge (pool 553.16) while the closed run's wave was 18.7 s off (pool at its 600 cap): 7.8%.
+    - Her pool refills to its cap within seconds of a wave (at R_vei / q − give, about 16.5/s), well inside a period of
+      about 362 s, so both pools sit in [cap − D, cap] however far the clocks slip, D being one wave's net drawdown:
+      `surge_s × max(0, mult × S_vei + give − R_vei / q)`, with the larger of the two runs' give (her fort shipping,
+      r_shipped less the surge) and q, and the running wave's multiplier, else `tithe.surge_mult`.
+    - `_i1_sample` records her wave state (`_pool_wave`); `i1_compare` applies D only when the two runs' wave states
+      differ (one inside a wave or its refill, the other not, or both drawn on different clocks), else `catchup_tol`;
+      with no refill inside a period D never applies. Each day prints the slip and D. At the step 3 commit day 1 is in
+      the same state (clocks 7.9 s apart, neither drawn: 2%), and day 2 passes on D (250.2; the gap 46.84).
+    - test_i1_gate's pool cases, on day 2's measured samples: the gap passes on D; one over D fails; neither drawn, or
+      both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
+    - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
+      runs. AUTOPLAY_DAYS=8 measures it.
+    - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
+      sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
+      At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
+      answer differently is a queue command in the 08:00 session of day 4 (288 761 s): the queue is full in the open
+      run (refused `queue_full`) and has room in the closed one, so the closed run starts a build first and ends a
+      House level ahead (living 134 against 126, lot-07 L3 against L2). At 7a8d469, with `catchup_dt_max_s` and
+      `catchup_dt_long_s` both 10/15, 3 and 2, the first differing command was the same queue command at the same
+      moment (274 631.5 s), while the slip fell about ten times (days 1–3: 7.9/29.8/62.5 s, 3.2/10.9/22.4, 0.6/3.1/6.9)
+      and the first differing wave target moved from day 4 to day 5. A smaller step is also out of budget
+      (catchup_bench's worst start, against 2 s and 10 s: 10 s 1.69 and 11.47; 3 s 4.30 and 53.0; 2 s 6.06 and 80.4),
+      so the step stays 10 s and the gate stays 2 days. Why the two queues part isn't chased yet: it's an open item of
+      E4's steps 1–3 milestone.
+    - At d6ad1b7 (the R2 readout and carvers 9.2) the 8-day row passes days 1–4 (slip 6.9, 28.5, 59.9, 99.6 s) and
+      fails from day 5. Its first differing command is a husk craft at 346 115 s (day 4's 00:00 session), done in the
+      closed run and refused `no_bone` in the open one, and days 5–8 differ in husks, remnants and essence. The first
+      differing wave target is on day 2 (wave 250, about 10 s apart), with every stock still in tolerance. It reads as
+      the same kind of break, a town stock that parts between the open and closed runs (bone here; at 7a8d469 day 4
+      also read bone 900 against 550), but that's an inference: the step sweep that showed step-independence was run
+      at 7a8d469, not re-run here. Not chased.
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
+- **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
+  Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
+  - **The fronts are read at her full pool** (`_full_met`: each front's have against need_base + need_per_pool ×
+    pool_cap, the need `_big_want` reads), at the look and again on arrival (E4 step 2, the manager's ruling R2 at the
+    readout stop). Before R2 they were read at the pool she had then, and both profiles' readies fell inside a tithe
+    wave's dip (sessions at 461 328 s, pool 462 → 444 of 600 across the walk; continuous at 378 300 s, 411 → 375), so
+    the pacing number hung on the wave phase, and at her full pool, between waves, neither had 3 met.
+  - The old readout is kept beside it: the summary's `vei.ready_wave_t`, the first look whose fronts at the pool she
+    has then meet `fronts_required` with the odds. It's taken at the look only and never moves Relish, so it falls
+    at or before `ready_t`. BALANCE §5 gives both.
+  - **The fight still judges the fronts at the pool she has then**, so striking during a tithe stays the player's
+    opportunity (warnings telegraph each wave). That's for the vision review; the fight is unchanged.
 - **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
   default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
   that catch-up's `building_done` events.
@@ -891,6 +953,8 @@ The profiles:
   session at the day's tier (days 1–2 t1, 3–4 t2, 5–6 t3, 7–8 t4), whatever the party.
 - **ablation_held**, **ablation_bone**, **sensitivity**: sessions with one change (BALANCE §2), each run beside the
   sessions baseline for its deltas.
+- **ablation_keep** (E4 step 2): sessions with the E3 raid-everything policy (`raid_all`: no keepers, the magnitude
+  fill), beside the sessions baseline. The fronts aren't decorative only if it reaches Vei later, or never.
 
 The policies (the run's manager's, for Shawn):
 - **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
@@ -907,6 +971,13 @@ The policies (the run's manager's, for Shawn):
   - **Reorder** (not in static): when the head (the first entry that isn't `skipped_gate`) reads `affordable_in_s` −1,
     or later than another entry, the soonest-affordable entry moves to the head with `cmd_reorder_queue`. The Bone Mill
     is not first by fiat: the reorder puts it first, because Market level 2 reads −1 on bone with no mill.
+  - **The crypt's levels** (E4 step 2's sizing stop, the manager's ruling 2): from the first look that keeps a big
+    (keep_fronts), or finds the crypt full (big undead at the cap) while a husk waits (every profile), crypt levels 2
+    and 3 head the list (150 g, 60 b and 1 relic, then 300 g, 120 b and 2 relics; `big_undead.per_crypt_level` adds a
+    place a level, so cap 4 → 6). The latch holds for the run. **The player's reason:** a big kept home takes a place
+    a raider would use, a husk that can't be raised is a body wasted, and a crypt level is the only way to more room.
+    Before this the bot never levelled the crypt (cap 4 on all 8 days of sessions). The full-crypt trigger alone never
+    fired in sessions (afbb436 at try 1's needs): raiders die faster than the crypt fills.
 - **Raids** go to the highest tier the party reaches, with no death-rate filter, and the bot never retreats.
   - The sim gates no raid tier (`cmd_begin_dungeon` refuses only `unknown_fort`, `busy`, `dead` and `not_at_fort`), so
     the reach is the stand-ins' own premise: tier T needs at least as many bigs in the party as raid.json
@@ -914,13 +985,50 @@ The policies (the run's manager's, for Shawn):
   - Within that: the first dungeon while it is flagged, then the higher yield, an unheld fort before a held one, then
     world order. A held fort is raided once its `yield_mult` is back to 0.5.
 - **Raise**: whenever a husk is held and the crypt has room, with every remnant that fits (`SlabLogic.evaluate`, largest
-  magnitude first). Relish must be home for it.
+  magnitude first). Relish must be home for it. From E4 step 2 (keep_fronts, every profile but ablation_keep and
+  bank_bigs) the bot also tries the fills that put giants' or carvers' stat (wits, beef) first. It keeps the fill that
+  brings the larger share of that front's **want**: its need less its backlog and `q` terms, which is what the bigs
+  must bring.
 - **Placement**: the party fills first, with the oldest bigs, up to three (the largest standard party). Each member gets
   the front of its best stat. The first spare goes foreman at the Market, or at the Bone Mill while the queue's head
   waits on bone. Later spares stay in the crypt. Sieges only in away_risk's prepared setup.
+- **Keepers** (keep_fronts, E4 step 2): the player's bank-or-raid choice.
+  - On giants and carvers, a big whose stat brings at least `KEEP_SHARE` (0.25) of the front's want is a keeper
+    candidate. The front whose candidates alone cover the larger share of its want (ties to giants) takes its keepers
+    first, best first, as many as meet its want; the other front then takes its own from the bigs left, the same way.
+    At most the big-undead cap less `RAID_ROOM` (2, room for two raiders, who reach t3) in all, and a big keeps one
+    front. The other front order is used instead when it meets more fronts, or as many and keeps more of today's
+    keepers, or as many of both with more coverage (each front's share capped at 1). In sessions with the husk craft
+    (e299d87, try 1's needs) two new beef-3 skeletons at 96 h made carvers-first cover 1.43 against giants-first's
+    1.41, both meeting one front; giants' wits 5 and 4 keepers were released to raid and died, and giants fell from
+    15/14 on day 4 to 6/14. **The player's reason** for the order rule: a keeper meeting a front isn't sent raiding for
+    a sliver of cover elsewhere, and a front of weak bigs mustn't crowd out a front that could be met. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3);
+    before it only the better-covered front was kept, so at most 2 keepers on 1 front and giants was never kept in
+    sessions.
+  - **The player's reason:** a big that brings a good part of a front Vei will test is worth more at home than on a
+    raid, where a death loses the whole party (A8). With two fronts short, a player keeps what each needs, and still
+    sends two raiders so the raids reach t3.
+  - The want is the front's need at Vei's **full** pool (need_base + need_per_pool × pool_cap) less today's backlog and
+    q terms (E4 step 3's fix). It read today's need before, and her pool dips through every tithe wave: in the dip one
+    keeper met the want alone, and the second was released, raided and was lost (sessions, at 168.09 h and 168.17 h).
+  - Keepers join the party first, on that front, so they count at every look. Before each raid they leave the party
+    and stay home, so the reach counts the raiders only. A death, which loses the whole party, never takes them.
+  - No keeper: the E3 placement exactly.
+  - Its proof is **ablation_keep** (the E3 policy, every big on every raid, the magnitude fill), which must reach Vei
+    later than sessions, or never.
 - **Vats** are staffed as soon as a Chapel exists. This is labelled "best case".
 - **Crafting**: one phylactery charge whenever the catalog allows it and none is held. No simulacra, except in
   away_risk's prepared setup.
+  - **The husk craft** (lever (b), the sizing stop's ruling 2; every profile): one t1 husk (`cmd_craft_husk`, the
+    weakest `craft.husk.remnants` and `craft.husk.bone`, GUESS) when giants or carvers is short of its want (the full
+    pool's, less what the bigs on it bring), the crypt has room for one more (bigs and husks waiting under the cap), a
+    remnant is left for the raise and the queue's head doesn't wait on bone. The kind is the one whose slab fill, on
+    the remnants the craft leaves, brings the larger share of a short front's want, and none is made unless that share
+    is at least `KEEP_SHARE`, so the body would be a keeper candidate there. (Without that floor, continuous ground its
+    thin remnants into wits-2 skeletons and its giants front sat at 9/14 from day 3, so it reached Vei after sessions.)
+    It runs before the raise, so the husk rises in the same look. **The player's reason:** remnants pile up unused
+    (83 in sessions by day 8 before this) while a front Vei will test is short; a player grinds the weakest into a body
+    for that front, but not with the bone the next build is waiting on.
 - **Stances**: Vigil and Harvest on.
 - **The valve** stays at its default, except in away_risk's prepared setup.
 

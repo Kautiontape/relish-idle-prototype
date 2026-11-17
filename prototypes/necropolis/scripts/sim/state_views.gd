@@ -366,7 +366,8 @@ static func war_supports(gs: GameState, wars: Array) -> Dictionary:
 ## field equals the live views', the margins with `settled` (E2b-2 T3.4b).
 ## Margins: by default (a drag) the one-wave probe, each row margin_verified false; with `settled` the wave
 ## train at that valve (gs._train_valve, cached on the valve's WAR and the state), margin_verified true, the
-## same verdict view_fort reads at the current valve.
+## same verdict view_fort reads at the current valve. The train and the fall clock's plan read the settled WAR
+## at the valve (gs._train_war_at: the trough feed's mint and the steady muster at its WORK; E4 must-fix #1).
 static func projection(gs: GameState, valve_in: Dictionary, settled := false) -> Dictionary:
 	var v := gs._projection_valve(valve_in)
 	var mint := float(gs._split["mint"])
@@ -385,8 +386,11 @@ static func projection(gs: GameState, valve_in: Dictionary, settled := false) ->
 	var diff := float(gs._readout["diff_ema"]) + (float(split["flood"]) - float(gs._split["flood"])) \
 		+ (float(wa[1]) - float(gs.realm.r_war_to_vei))
 	var margins := {}
-	var train: Dictionary = gs._train_valve(war)["forts"] if settled else {}
-	var plan := gs._train_support(war, false)  # the valve's split with Relish where she is travelling to
+	# the train and the fall clock's plan read the settled WAR at that valve (gs._train_war_at, E4 must-fix #1),
+	# as view_fort reads it at the valve's target; garrison_rate and war_supports stay at the split above
+	var war_s := gs._train_war_at(v)
+	var train: Dictionary = gs._train_valve(war_s)["forts"] if settled else {}
+	var plan := gs._train_support(war_s, false)  # the valve's split with Relish where she is travelling to
 	for i in gs.realm.forts.size():
 		var f: Dictionary = gs.realm.forts[i]
 		if float(f["undead"]) > 0.0:
@@ -416,7 +420,11 @@ static func catalog(gs: GameState) -> Dictionary:
 	var bp_list: Array = []
 	for b in bps:
 		bp_list.append({"id": b, "owned": gs.blueprints.has(b)})
-	return {"rev": gs.rev, "buildings": out, "crafts": crafts, "blueprints": bp_list}
+	# v9 (E4, lever (b)): the husk craft (cmd_craft_husk), its kinds, price and the kind-free reason it would answer now
+	var hw := gs._husk_craft_reason("")
+	var husk := {"kinds": gs.husk_craft_kinds(), "cost": {"bone": gs._req_f("economy.craft.husk.bone"),
+		"remnants": int(gs._req_f("economy.craft.husk.remnants"))}, "can_craft": hw == "", "reason": hw}
+	return {"rev": gs.rev, "buildings": out, "crafts": crafts, "blueprints": bp_list, "husk_craft": husk}
 
 
 static func beat_id(gs: GameState) -> int:
@@ -925,15 +933,20 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var gains: Array = []
 	var ready: Array = []
 	var losses: Array = []
-	# gains: each stream's net rate and net total, the backlog with its arrow
+	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
+	# "away: +N, odds A → B"; odds = backlog / (backlog + K), MECHANICS §3 step 8)
 	var now := away_streams(gs)
+	var k_odds := gs._req_f("realm.K")
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])
 		var rate := total / away_s if away_s > 0.0 else 0.0
 		var arrow := str(rep["arrow_up"]) if total > 0.0 else (str(rep["arrow_down"]) if total < 0.0 else str(rep["arrow_flat"]))
 		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
+		var b0 := float(b["streams"]["backlog"])
+		var b1 := float(now["backlog"])
 		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
-			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total)}), "stream", ""))
+			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total),
+			"odds_from": "%.2f" % (b0 / (b0 + k_odds)), "odds_to": "%.2f" % (b1 / (b1 + k_odds))}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
 	for e in evs:

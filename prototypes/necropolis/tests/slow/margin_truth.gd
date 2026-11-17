@@ -11,7 +11,12 @@ extends RefCounted
 ##   muster burst, 192 mass/s of WAR against 49.7 by 300 s, which a t0 sample would read), then Ashgate and
 ##   Vespers held, contested, and her clock started; and "midgame, WAR 0.05", midgame_2flips with its
 ##   valve's WAR share cut to 0.05 and the rest to FLOOD, where both held forts fall. (A cut to WORK doesn't
-##   do it: TownSim musters the WORK it can't use, and Ashgate keeps its 1.12 mass/s.)
+##   do it: TownSim musters the WORK it can't use, and Ashgate keeps its 1.12 mass/s.) And (E4 must-fix #1)
+##   "pre_vei+2 burst, WORK 0.10": pre_vei+2's setup with no tick(600), so its t0 sample reads the opening muster
+##   burst, and the valve at (0.10, 0.05, 0.85). One substep in the split's WAR is 175.6 mass/s against the 4.15 the
+##   train reads settled (GameState._train_war_at); the sim retakes Vespers at 675 s and Ashgate at 952 s. Read on
+##   the instant support (before E4), both forts' t0 samples said safe; settled, Vespers reads will_fall and
+##   Ashgate thin. Its revert proof, never committed: the instant support with no siege credited fails it.
 ## - Asserted: every "safe" sample's fort is still held 8 h on (the worst lie is safe, then broken
 ##   overnight; safe_broke()), and at least one safe sample over all starts (else the check is vacuous). No
 ##   fall is excused. R1 (the E2b-2 vision review; MECHANICS §4.3) deleted E2b-2's known gap, which counted a
@@ -43,7 +48,8 @@ func run() -> int:
 	var c = load("res://tests/slow/convergence.gd").new()
 	c.t = t
 	var starts := [["midgame_2flips", "midgame_2flips", ""], ["pre_vei", "pre_vei", ""], ["fresh", "fresh", ""],
-		["pre_vei+2", "pre_vei", "hold2"], ["midgame, WAR 0.05", "midgame_2flips", "war05"]]
+		["pre_vei+2", "pre_vei", "hold2"], ["midgame, WAR 0.05", "midgame_2flips", "war05"],
+		["pre_vei+2 burst, WORK 0.10", "pre_vei", "burst"]]
 	var safe_total := 0
 	var lines: Array = []
 	for st in starts:
@@ -53,6 +59,11 @@ func run() -> int:
 			s.realm.hold("ashgate", 0.0)
 			s.realm.hold("vespers", 0.0)
 			s.realm.start_tithe()
+		elif st[2] == "burst":  # (E4 must-fix #1) no tick(600): the t0 sample reads pre_vei's opening muster burst
+			s.realm.hold("ashgate", 0.0)
+			s.realm.hold("vespers", 0.0)
+			s.realm.start_tithe()
+			t.ok(s.cmd_set_valve(0.10, 0.05, 0.85)["ok"], "(setup) the valve's WORK share 0.10 and WAR 0.05, the rest to FLOOD")
 		elif st[2] == "war05":
 			t.ok(s.cmd_set_valve(0.40, 0.05, 0.55)["ok"], "(setup) the valve's WAR share 0.05, the rest to FLOOD")
 		var r := _run(s)

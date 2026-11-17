@@ -6,7 +6,7 @@ extends RefCounted
 
 ## STATE-API §1.4, verbatim. GameState may carry more constants.
 const DOC_CONSTANTS := {
-	"API_VERSION": 8,
+	"API_VERSION": 9,
 	"SAVE_VERSION": 2,
 	"RELISH_STATES": ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"],
 	"RATE_IDS": ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"],
@@ -384,6 +384,12 @@ func _exercise(s: GameState) -> void:
 	s.relics = maxi(s.relics, 1)
 	_cmd(s, "cmd_craft", ["simulacrum"], true)
 	_cmd(s, "cmd_craft", ["nope"], false)
+	# v9 (E4, lever (b)): the husk craft needs economy.json craft.husk's remnants and bone
+	for i in int(s._req_f("economy.craft.husk.remnants")):
+		s.remnants.append({"uid": s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1 + i})
+	s.town_sim.bone = maxf(s.town_sim.bone, s._req_f("economy.craft.husk.bone"))
+	_cmd(s, "cmd_craft_husk", ["skeleton"], true)
+	_cmd(s, "cmd_craft_husk", ["nope"], false)
 	_cmd(s, "cmd_deploy_simulacrum", ["vespers"], true)
 	_cmd(s, "cmd_deploy_simulacrum", ["nope"], false)
 	_cmd(s, "cmd_staff_vat", [1, true], true)

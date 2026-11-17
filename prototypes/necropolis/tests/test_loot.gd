@@ -161,7 +161,30 @@ func run() -> int:
 		held_ok = held_ok and n > 0 and int(h["essence"]) >= 2 and (h["blueprints"] as Array).is_empty()
 	t.ok(held_ok, "held_clear is non-empty at yield 1 and carries essence motes")
 	var h0 := RaidLoot.held_clear(_rng(1), 2, 0.0, cfg)
-	t.ok(int(h0["relics"]) == 0 and int(h0["essence"]) == 0 and (h0["remnants"] as Array).is_empty(), "held_clear shrinks to nothing at yield 0")
+	t.ok(int(h0["relics"]) == 0 and int(h0["essence"]) == 0 and (h0["remnants"] as Array).is_empty()
+		and (h0["husks"] as Array).is_empty(), "held_clear shrinks to nothing at yield 0 (no husk either)")
+	# E4 step 2 (the manager's ruling): the held clear rolls the tier's chest husk, husk_chance x yield, of husk_kinds
+	var hk_ok := true
+	var hk_rate := {}
+	for tier in [1, 2, 3, 4]:
+		var tb: Dictionary = cfg["chest_by_tier"][str(tier)]
+		for y in [1.0, 0.5]:
+			var n_h := 0
+			for i in 2000:
+				var hh := RaidLoot.held_clear(_rng(100000 * tier + 1000 * int(y * 10) + i), tier, y, cfg)
+				for k in hh["husks"]:
+					hk_ok = hk_ok and (tb["husk_kinds"] as Array).has(str(k["kind"]))
+				n_h += (hh["husks"] as Array).size()
+				hk_ok = hk_ok and (hh["husks"] as Array).size() <= 1
+			hk_rate["t%d@%.1f" % [tier, y]] = float(n_h) / 2000.0
+			hk_ok = hk_ok and absf(float(n_h) / 2000.0 - float(tb["husk_chance"]) * y) < 0.035
+	t.ok(hk_ok, "held_clear rolls at most one husk of chest_by_tier.<T>.husk_kinds at husk_chance x yield (2000 rolls per tier and yield, within 0.035): %s" % str(hk_rate))
+	var same := true
+	for i in 20:
+		var ha := RaidLoot.held_clear(_rng(i), 3, 1.0, cfg)
+		var hb := RaidLoot.held_clear(_rng(i), 3, 1.0, cfg)
+		same = same and ha == hb
+	t.ok(same, "held_clear with its husk roll is deterministic in its rng")
 
 	t.suite("loot_card_line")
 	var fort := {"tier": 2, "warden": {"archetype": "bellringer"}, "first_clear": true, "first_dungeon": false,

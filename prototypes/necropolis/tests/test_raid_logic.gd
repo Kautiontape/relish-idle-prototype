@@ -1310,8 +1310,12 @@ func _held_clear_tests(t: TestUtil, cfg: Dictionary) -> void:
 		"held_clear items merge into found_loot")
 	t.ok(not merged.has("essence") or int(merged["essence"]) == 0, "the held_clear essence is not merged (the motes carry it)")
 
-	t.ok(RaidLogic.held_payoff(hc) == "+%d relics · +%d remnants · +%d essence" % [int(hc["relics"]), (hc["remnants"] as Array).size(), int(hc["essence"])],
-		"payoff line counts the roll: " + RaidLogic.held_payoff(hc))
+	var hk_n := (hc["husks"] as Array).size()
+	t.ok(RaidLogic.held_payoff(hc) == "+%d relics · +%d remnants · +%d essence" % [int(hc["relics"]), (hc["remnants"] as Array).size(), int(hc["essence"])]
+		+ (" · +%d husk" % hk_n if hk_n > 0 else ""), "payoff line counts the roll: " + RaidLogic.held_payoff(hc))
+	t.ok(RaidLogic.held_payoff({"relics": 0, "remnants": [], "essence": 2, "husks": [{"kind": "zombie"}]}) == "+0 relics · +0 remnants · +2 essence · +1 husk"
+		and not RaidLogic.held_payoff({"relics": 1, "remnants": [], "essence": 2, "husks": []}).contains("husk"),
+		"payoff line names the held clear's husk only when one dropped (E4 step 2)")
 
 	# the result of a held clear validates: retreated, loot = found + held items + carried bonus motes
 	var seed_d := RaidLogic.demo_seed(cfg)

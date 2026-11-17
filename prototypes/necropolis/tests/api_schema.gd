@@ -96,6 +96,7 @@ const COMMANDS := {
 	"cmd_rename_big_undead": {"name": S},
 	"cmd_place_big_undead": {"place": S},
 	"cmd_craft": {"count": I},
+	"cmd_craft_husk": {"husk": {"uid": S, "kind": S}},  # v9 (E4): view_inventory's husk record ({} on a refusal)
 	"cmd_deploy_simulacrum": {"charges": F, "ready_left": I},
 	"cmd_staff_vat": {"staffed": B},
 	"cmd_set_party": {"party": [S]},
@@ -146,6 +147,7 @@ const REASONS := {
 	"cmd_place_big_undead": ["catching_up", "unknown_uid", "busy", "bad_place", "unknown_lot", "empty_lot",
 		"foreman_taken", "unknown_fort"],
 	"cmd_craft": ["catching_up", "unknown_item", "needs_building", "no_essence", "no_relics"],
+	"cmd_craft_husk": ["catching_up", "unknown_kind", "no_remnants", "no_bone"],
 	"cmd_deploy_simulacrum": ["catching_up", "unknown_fort", "none_ready"],
 	"cmd_staff_vat": ["catching_up", "unknown_slot"],
 	"cmd_set_party": ["catching_up", "busy", "unknown_uid", "duplicate_uid"],
@@ -261,6 +263,7 @@ const VIEWS := {
 		"buildings": [CATALOG_BUILDING],
 		"crafts": [{"item_id": S, "cost": {"essence": I, "relics": I}, "can_craft": B, "reason": S}],
 		"blueprints": [{"id": S, "owned": B}],
+		"husk_craft": {"kinds": [S], "cost": {"bone": F, "remnants": I}, "can_craft": B, "reason": S},  # v9 (E4)
 	},
 	"view_stances": {
 		"slots": I, "used": I, "beat_id": I,

@@ -32,7 +32,7 @@
     "report": {
       "streams": ["backlog", "mint", "workers", "bodies", "gold", "bone", "living"],
       "stream_labels": { "backlog": "backlog", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
-      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total}",
+      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · odds {odds_from} → {odds_to}",
       "arrow_up": "▲", "arrow_down": "▼", "arrow_flat": "■",
       "plus": "+", "minus": "−", "rate_unit": "/s", "thousands": ",", "rate_sig_digits": 2, "rate_max_decimals": 3,
       "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
@@ -114,7 +114,8 @@
   },
   "craft": {
     "simulacrum": { "essence": 20, "relics": 1 },
-    "phylactery_charge": { "essence": 15, "relics": 0 }
+    "phylactery_charge": { "essence": 15, "relics": 0 },
+    "husk": { "_doc": "GUESS (E4 step 2's sizing, lever (b)): cmd_craft_husk grinds this many remnants (the weakest) and this much bone into a t1 husk (loot.json chest_by_tier 1's husk_kinds). Slow and costly by its price: the bone competes with the build queue. Sized so sessions reaches Vei-ready on day 5-6 (BALANCE §5).", "bone": 300, "remnants": 6 }
   },
   "relics": { "cap": 12 },
   "essence": { "cap": 60 },

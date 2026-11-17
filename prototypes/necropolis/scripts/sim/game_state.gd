@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 8
+const API_VERSION := 9
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -43,7 +43,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.opening.starter_party", "economy.stance.base_slots", "economy.worker.mass", "economy.pit.bonus",
 	"economy.town.migrant_rate",
 	"realm.relish.travel_speed", "realm.relish.home_stance_bonus", "realm.readout.sign_eps", "realm.readout.ema_s",
-	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei",
+	"realm.vei_pool_cap", "realm.field_src_per_pit", "realm.valve.slew_per_s", "realm.P_base", "realm.P_per_pit", "realm.R_vei", "realm.K",
 	"realm.q.q0", "realm.q.q_forge", "realm.q.q_raise_max", "realm.q.q_max", "realm.q.raise_half_mass",
 	# T3.4b: the wave train's frame refresh (_train_frame)
 	"realm.hold.train_frame_phase", "realm.hold.train_starve_frames",
@@ -67,6 +67,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# E3-4: the crafts' costs (MECHANICS §3.6; cmd_craft and view_catalog's crafts, _craft_cost)
 	"economy.craft.simulacrum.essence", "economy.craft.simulacrum.relics", "economy.craft.phylactery_charge.essence",
 	"economy.craft.phylactery_charge.relics",
+	# E4 (the sizing stop's ruling 2, lever (b)): the husk craft's price (cmd_craft_husk, view_catalog's husk_craft)
+	"economy.craft.husk.bone", "economy.craft.husk.remnants",
 	# E3-4: a planted simulacrum's raise and charges (MECHANICS §3.6; cmd_deploy_simulacrum)
 	"realm.simulacrum.rate", "realm.simulacrum.charges"]
 ## economy.json idle.report's keys (E2b-2 T3.3c, IDLE §7): the away report's templates and its three numbers.
@@ -1556,7 +1558,7 @@ func _sync_foremen() -> void:
 ## for each fort with at least one big undead placed `fort:<id>`. One siege per fort counts (a second is allowed and
 ## adds nothing) and the block is flat, whatever the big's stats; a siege adds no kill power. Read from the places as
 ## they stand: the core step's inputs and _restore_dispatch's call it, so a placement reaches the next step at once.
-## The margin and forecast don't (_forecast_siege). A retake sends the siege home (_emit_realm), so the next step has
+## The margin and forecast credit the same (_forecast_siege, from E4). A retake sends the siege home (_emit_realm), so the next step has
 ## no block there; RealmSim drops it for the rest of the step the retake falls in (RealmSim.step).
 func _siege_blocks() -> Dictionary:
 	var out := {}
@@ -1569,16 +1571,14 @@ func _siege_blocks() -> Dictionary:
 	return out
 
 
-## The siege block the margin and forecast credit (E3-3, the run's manager's ruling: a new feature must never make the
-## chip say "safe" at a fort that falls): none. view_fort's margin, fall_s and the wave train, view_projection's
-## margins, read every fort as if unsieged (_fort_readout, _train_support), while RealmSim's step applies the block.
-## The wave train's support is the WAR at the sampling instant, held over the whole forecast; with a block crediting
-## a fort near its band's edge, that error can turn "safe" where the sim breaks it (E3-3's diagnosis: midgame_2flips
-## one substep in reads Ashgate's WAR 1.427 against the 1.119 it settles at a minute later). So the chip is
-## conservative: a fort reads safe only if it holds without its siege, and it may read thin where the siege holds it.
-## Crediting the siege is E4's, once the train's support mirrors the sim (MECHANICS §3.4).
+## The siege block the margin and forecast credit (MECHANICS §3.4): the step's own (_siege_blocks), from E4. E3-3 credited
+## none (the run's manager's ruling: a new feature must never make the chip say "safe" at a fort that falls): the wave
+## train then read the WAR at the sampling instant, a landed load's burst held over the whole forecast, and with a block
+## crediting a fort near its band's edge that error turned "safe" where the sim broke it (midgame_2flips at a WAR share
+## of 0.05, Ashgate retaken at 988 s). The train reads the settled WAR since E4 (_train_war_at), and credited, that case
+## reads thin (test_big_undead's _siege_chip_war05; margin_truth).
 func _forecast_siege() -> Dictionary:
-	return {}
+	return _siege_blocks()
 
 
 ## Takes a big undead out of the party. Its front goes too: fronts are for party members.
@@ -1672,6 +1672,54 @@ func _craft_reason(item_id: String) -> String:
 ## A craft's cost, {essence: int, relics: int}: economy.json craft.<item_id> (REQUIRED). `item_id` is one of CRAFT_IDS.
 func _craft_cost(item_id: String) -> Dictionary:
 	return {"essence": int(_req_f("economy.craft.%s.essence" % item_id)), "relics": int(_req_f("economy.craft.%s.relics" % item_id))}
+
+
+## §4.3 · E4 (the sizing stop's ruling 2, lever (b); v9): grinds remnants and bone into a t1 husk, at once. Reasons,
+## after catching_up, in _husk_craft_reason's order: unknown_kind (not one of the t1 chest's husk_kinds, loot.json
+## chest_by_tier 1), no_remnants (fewer than economy.json craft.husk.remnants), no_bone (under craft.husk.bone). It
+## takes the weakest remnants (husk_craft_pick: the smallest magnitude first, then the oldest uid) and the bone, and
+## adds {uid: h<n> from the save's uid counter, kind, rarity "common"} to the husks, as a raid's loot does. The extra is
+## that husk. No event; no building, and Relish needn't be home (raising it at the slab needs her). Its costs are GUESS.
+func cmd_craft_husk(kind: String) -> Dictionary:
+	if _catchup.active:
+		return _refuse_catching_up({"husk": {}})
+	var why := _husk_craft_reason(kind)
+	if why != "":
+		return {"ok": false, "reason": why, "husk": {}}
+	for r in husk_craft_pick(remnants, int(_req_f("economy.craft.husk.remnants"))):
+		_take_uid(remnants, r["uid"])
+	town_sim.bone -= _req_f("economy.craft.husk.bone")
+	var h := {"uid": _mint_uid("h"), "kind": kind, "rarity": "common"}
+	husks.append(h)
+	rev += 1
+	return {"ok": true, "reason": "", "husk": h.duplicate()}
+
+
+## The kinds cmd_craft_husk makes: the t1 chest's husk_kinds (loot.json chest_by_tier 1), [] when it has none.
+func husk_craft_kinds() -> Array:
+	var t1: Variant = _sec("loot", "chest_by_tier").get("1", {})
+	return ((t1 as Dictionary).get("husk_kinds", []) as Array).duplicate() if t1 is Dictionary else []
+
+
+## Why cmd_craft_husk(kind) would refuse now, "" when it would craft. `kind` "" skips the kind check (view_catalog's
+## husk_craft reads the kind-free reason).
+func _husk_craft_reason(kind: String) -> String:
+	if kind != "" and not husk_craft_kinds().has(kind):
+		return "unknown_kind"
+	if remnants.size() < int(_req_f("economy.craft.husk.remnants")):
+		return "no_remnants"
+	if town_sim.bone < _req_f("economy.craft.husk.bone"):
+		return "no_bone"
+	return ""
+
+
+## The remnants cmd_craft_husk takes from `rems`: the `n` weakest, the smallest magnitude first, then the oldest uid
+## (r<n>'s n). Static, so the autoplayer can read what a craft would leave.
+static func husk_craft_pick(rems: Array, n: int) -> Array:
+	var c := rems.duplicate()
+	c.sort_custom(func(a, b): return int(a["magnitude"]) < int(b["magnitude"]) or (int(a["magnitude"]) == int(b["magnitude"])
+		and int(str(a["uid"]).substr(1)) < int(str(b["uid"]).substr(1))))
+	return c.slice(0, maxi(0, n))
 
 
 ## §4.3 · E3 (live from E3-4; MECHANICS §3.6): plants a simulacrum at any fort, held or not; several at one fort
@@ -2060,8 +2108,8 @@ func _fort_wars() -> Array:
 	return out
 
 
-## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with no siege credited
-## (_forecast_siege, E3-3: conservative) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
+## A fort's hold readouts at `w_in` mass/s of WAR to it, at Relish's position now and with its siege credited
+## (_forecast_siege, from E4) (MECHANICS §3.5; RealmSim.readout_of). `train` is the fort's wave-train verdict (_train_live or
 ## _train_valve's `forts` entry): given, the margin is the train's; left out, the one-wave margin. `plan`
 ## is the fort's _train_support entry (the planned support the train reads): given, fall_s is the earlier
 ## of the clocks at the current and the planned support.
@@ -2086,13 +2134,28 @@ func _train_live() -> Dictionary:
 	return _train(_train_war(), true)
 
 
-## The WAR the live train reads, mass/s: this substep's mint × the valve's target share, plus TownSim's
-## muster as it is now. The valve slews to its target at valve.slew_per_s (at most 20 s for a full swing),
-## and nothing but a command changes the target, so the train reads where it is going, as it reads Relish
-## where she is travelling to (_train_support). With the valve at its target it is this substep's WAR
-## (_split.war), bit for bit; and it is the WAR view_projection reads at the target valve.
+## The WAR the live train reads, mass/s: _train_war_at the valve's target. The valve slews to its target at
+## valve.slew_per_s (at most 20 s for a full swing), and nothing but a command changes the target, so the train
+## reads where it is going, as it reads Relish where she is travelling to (_train_support). It is the WAR
+## view_projection's train reads at the target valve, bit for bit.
 func _train_war() -> float:
-	return float(_split["mint"]) * float(valve_target["war"]) + float(_split["muster"])
+	return _train_war_at(valve_target)
+
+
+## The settled WAR the wave train reads at valve `v` (E4 must-fix #1; MECHANICS §3.5), mass/s: the mint at the
+## pits' trough feed (TownSim.trough_feed: the rot alone, no load landing) × v.war, plus the muster TownSim settles
+## at on that mint's WORK (TownSim.workforce_steady at mint × v.work / worker mass, the lifetime, slots and idle cap
+## now). Before, the train read this substep's mint and muster: a landed load's feed of 1 and the WORK burst it
+## musters, held across the whole forecast. After midgame_2flips' load that read 9.713 against the 7.617 the split
+## settles at a minute on; over a convoy cycle the split swings 63.5 ↔ 98.7 and this reads 63.5, its minimum.
+## It ignores the bodies in store, so a big stock reads low for as long as the pits burn it at full.
+func _train_war_at(v: Dictionary) -> float:
+	var mint := _mint(town_sim.pit_weight(), town_sim.trough_feed())
+	var wm := worker_mass()
+	var r := mint * float(v["work"]) / wm if wm > 0.0 else 0.0
+	var steady := TownSim.workforce_steady(r, town_sim.lifetime_s(relish["state"] == "home"), town_sim._idle_rot,
+		float(town_sim.staffing.get("slots", 0.0)), town_sim.idle_cap())
+	return mint * float(v["war"]) + float(steady["muster"]) * wm
 
 
 ## The wave train at `war` mass/s of WAR (view_projection's valve with `settled`), cached (_train).
@@ -2178,7 +2241,7 @@ func _train_frame(substeps: int) -> bool:
 
 
 ## train_probe's `sup` {fort_id: [w_in, redirect, raise_max, tide, block]} for every held fort (`block` from
-## _forecast_siege: none credited, E3-3), at `war`
+## _forecast_siege: the step's, credited from E4), at `war`
 ## mass/s of WAR split as the last dispatch splits it (RealmSim.war_at). Relish's committed arrival: while
 ## she travels to a fort, the train reads her there (her tide and redirect, and the split with her tide
 ## moved there, RealmSim.war_at_tide), since her trip takes seconds (relish.travel_speed) and nothing
@@ -2200,7 +2263,7 @@ func _train_support(war: float, live: bool) -> Dictionary:
 		fx = {"tide_fort": dest, "redirect_fort": dest}
 	else:
 		wars = realm.war_at(war)[0]
-	var siege := _forecast_siege()  # (E3-3: the forecast credits no siege; the step does)
+	var siege := _forecast_siege()  # (the step's blocks, credited from E4)
 	var sup := {}
 	for i in realm.forts.size():
 		var f: Dictionary = realm.forts[i]
