@@ -1128,8 +1128,9 @@ Game.state.cmd_craft("phylactery_charge")  # -> {ok: true, reason: "", count: 1}
   plus the husks waiting at the `big_undead` cap, the cap `cmd_raise_big_undead`'s own `at_cap` reads; a husk that
   can't be raised would sit waiting).
 - **Effect:** instant. It takes the `craft.husk.remnants` weakest remnants (the smallest `magnitude` first, then the
-  oldest uid) and `craft.husk.bone` bone (shipped 6 and 300, GUESS: slow and costly, the bone competing with the build
-  queue; a new game's 200 bone cap is under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
+  oldest uid) and `craft.husk.bone` bone (shipped 3 and 500 since 2026-11-17, were 6 and 300; GUESS: slow and costly,
+  the bone binding and competing with the build queue, the remnants a light raid-side gate; a new game's 200 bone cap is
+  under it until the Bone Mill raises the cap), and adds `{uid: h<n> from the
   save's uid counter, kind, rarity: "common"}` to the husks, as a raid's loot does. No building, and Relish needn't be
   home (raising the husk at the slab needs her, §4.3 `cmd_raise_big_undead`). Neither bone nor remnants are mass, so the
   ledger books nothing. No event. **Phase I (town):** a button at the crypt slab, its price and reason from

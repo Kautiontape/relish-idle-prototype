@@ -825,7 +825,9 @@ dismissed) and the `away_report` event.
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
 
 **The ablations stay** (BALANCE §2), measured in days under the sessions profile, plus one more:
-"never raid held or refilled forts" must cost at least +20%.
+"never raid held or refilled forts" must cost at least +20%. (E4 step 6 aimed it at 20–25% of levels at day 8; it
+costs 77–78%, from a relic wall, an accepted miss with no relic cap shipped: BALANCE §2 (a). A relic source outside
+raids for a player who holds everything goes to step 9's vision review.)
 
 **The stock rule:** no stock grows without bound over a 7-day sessions run. Every store is capped,
 and the queue spends into growth.
