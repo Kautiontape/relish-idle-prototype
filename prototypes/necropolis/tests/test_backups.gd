@@ -60,7 +60,10 @@ const TIP := {
 	# With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
 	# E4 step 7 (the standing re-pin rule): the away report only, for the full store's line moving from losses to ready
 	# ("Gold filled up, 193 not stored: queue more, or raid for relics", target the queue); the state and events are
-	# unchanged (was 61a7e99c…). The same for pre_vei below (bone; was 982d56f5…)
+	# unchanged (was 61a7e99c…). The same for pre_vei below (bone; was 982d56f5…). Revert proof (E4 review item 5): on
+	# 75f0ddf with its state_views.gd and economy.json back at 75f0ddf^ (the line under losses) only these six away pins
+	# fail here and in test_stances and test_big_undead, reading the old hashes with the states and events as pinned, and
+	# with the old hashes all 272 of the three suites pass
 	# E4's in-flight overlay (the standing re-pin rule; IDLE §4): the state only, for Bellwether's end owner (player, as
 	# live play reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was
 	# b1469601…). The proof: the overlay's call disabled passes the old pins

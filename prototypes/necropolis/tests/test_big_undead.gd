@@ -72,7 +72,8 @@ const PARENT := {
 	"pre_vei": {"live": {"state": "a100f0087bc79b1d", "events": "618ddc3b937abcfb", "n_events": 15},
 		"caught": {"state": "700b706edae0115d", "events": "e3093d57d7355dc3", "away": "0915402c0be35720", "n_events": 15, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
-	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
+	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged; with
+	# the line back under losses the old hashes pass (test_backups' revert proof, E4 review item 5)
 	# E4 step 5 B1 (ii) (the standing re-pin rule): midgame_2flips live and caught, PARENT_C3 too, as test_backups' re-pin
 	# (the lowest-margin rule retakes Old Sluice sooner; fort_retaken's war_in and pressure_mult; the retake line's
 	# cause). day1 and pre_vei hold nothing that is retaken here and don't move. The proof tree (the most-undead rule,

@@ -45,7 +45,8 @@ const TIP := {
 	# retake is unchanged (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village
 	# Bellwether lost to Vei". With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
 	# E4 step 7: the away report only (the full store's line moved from losses to ready), as test_backups' re-pin;
-	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…)
+	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…); with the line back under losses the old
+	# hashes pass (test_backups' revert proof, E4 review item 5)
 	# E4's in-flight overlay (the standing re-pin rule): the state only, for Bellwether's end owner (player, as live play
 	# reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was eddec826…)
 	# E4 step 5 B1 (ii) (the standing re-pin rule), as test_backups' re-pin: Old Sluice retaken at 4 618.6 s under the

@@ -104,6 +104,22 @@ func _threshold_row() -> void:
 	var no := Autoplayer.threshold_row({"t": 1.0, "op": "party", "args": [], "ok": true, "reason": "", "snap": {"bone": 1.0}}, {"bone": 2.0}, [])
 	t.ok(not bool(no["straddle"]) and (no["thresholds"] as Array).is_empty() and no["differ"].keys() == ["bone"],
 		"an op with no known threshold: no straddle, the stocks that differ listed: %s" % JSON.stringify(no))
+	# the step 4 review's item 7: the straddle carries its stock gap, so 328.92 against 284.09 reads as runs already
+	# 15.8% apart (over the 2% tolerance), not a tie on the line; the queue's 7 against 8 is 12.5%
+	t.ok(absf(float(st["stock_gap"]) - 44.83 / 284.09) < 1e-3 and absf(float(st["thresholds"][0]["gap"]) - 44.83) < 1e-6
+		and float(st["thresholds"][1]["gap_rel"]) == 0.0 and absf(float(qs["stock_gap"]) - 0.125) < 1e-9 and float(no["stock_gap"]) == 0.0,
+		"the stock gap beside the straddle: bone %s (%s), the queue %s; no threshold, 0" % [str(st["thresholds"][0]["gap"]),
+		Autoplayer.conv_pct(float(st["stock_gap"])), Autoplayer.conv_pct(float(qs["stock_gap"]))])
+	# and the bodies row: the gap at every replayed command against one load, counting the breaks the gate's day-end
+	# samples miss (day 4's 140.6 against the bound 126, at 6563284)
+	var br := {"n": 0, "worst": -1.0, "worst_t": -1.0, "worst_bound": 0.0, "breaks": 0, "first_break": {}}
+	Autoplayer.bodies_gap_add(br, 10.0, 50.0, 40.0, 126.0)
+	Autoplayer.bodies_gap_add(br, 20.0, 300.0, 159.4, 126.0)
+	Autoplayer.bodies_gap_add(br, 30.0, 100.0, 300.0, 126.0)
+	Autoplayer.bodies_gap_add(br, 40.0, 0.0, 0.0, 0.0)
+	t.ok(int(br["n"]) == 4 and int(br["breaks"]) == 2 and float(br["worst"]) == 200.0 and float(br["worst_t"]) == 30.0
+		and float(br["first_break"]["t"]) == 20.0 and float(br["first_break"]["gap"]) == 140.6,
+		"the bodies row counts each command, the widest gap and each break over one load, the first kept: %s" % JSON.stringify(br))
 
 
 ## Vei's pool (E4 step 3, the manager's ruling (ii)), on day 2's measured samples at K 36M: the closed run full, 18.7 s

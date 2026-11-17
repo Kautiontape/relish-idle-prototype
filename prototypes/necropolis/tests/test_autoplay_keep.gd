@@ -363,7 +363,36 @@ func run() -> int:
 	t.ok(g.vei_ready_t >= 0.0, "fronts met and odds %.3f: Vei-ready at %.0f s" % [float(g.s.view_vei()["odds"]), g.vei_ready_t])
 	g.cleanup()
 	_full_pool_ready(c)
+	_pump_lost_cause(c)
 	return t.failures
+
+
+## E4 review item 11 (a): prepare_away's WAR pump (_pump_war) lets a lost cause go, as _war_topup does in a session.
+## midgame_2flips with both held forts past their grace and the valve's WAR at 0.10. (0) Vei's pressure ×(mint ÷
+## mint_ref)^α with mint_ref a hundredth of the mint: both forts need more than WAR_MAX, so the pump leaves the valve
+## (before, it ran to WAR_MAX for them). (1) The shipped pressure: it raises WAR until neither reads a margin under 0.
+func _pump_lost_cause(c: Dictionary) -> void:
+	for k in 2:
+		var b := Autoplayer._bot("pump_test_%d" % k, c, {"print_rows": false})
+		b.s = b._fresh()
+		b.s.debug_enabled = true
+		t.ok(bool(b.s.cmd_debug_load_fixture("midgame_2flips")["ok"]), "(setup) midgame_2flips loads")
+		for id in ["ashgate", "old-sluice"]:
+			b.s.realm.hold(id, 0.0)
+		if k == 0:
+			b.s._mint_ref = 0.01 * (b.s._p_base + b.s._p_per_pit * float(b.s.town_sim.pits()))
+		var tg: Dictionary = b.s.view_hud()["valve_target"]
+		var wf := float(tg["work"]) + float(tg["flood"])
+		b.s.cmd_set_valve(float(tg["work"]) / wf * 0.9, 0.1, float(tg["flood"]) / wf * 0.9)
+		b.s._core_step(0.5)
+		var r := b._pump_war()
+		if k == 0:
+			t.ok((r["let_go"] as Array).size() == 2 and absf(float(r["war"]) - 0.1) < 1e-9 and r.size() == 4 and b.s.hold_mult() > 20.0,
+				"×%.1f pressure: both forts are lost causes and WAR stays at 0.10: %s" % [b.s.hold_mult(), str(r)])
+		else:
+			t.ok((r["let_go"] as Array).is_empty() and float(r["war"]) > 0.1 + 1e-9 and float(r["war"]) <= Autoplayer.WAR_MAX
+				and float(r["min_margin"]) >= 0.0, "×%.2f pressure: WAR rises until both hold: %s" % [b.s.hold_mult(), str(r)])
+		b.cleanup()
 
 
 ## The sizing stop's ruling R2: the bot's Vei-ready reads the fronts at her full pool (_full_met), not at the pool she
