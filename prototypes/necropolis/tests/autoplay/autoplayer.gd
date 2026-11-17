@@ -115,6 +115,7 @@ var sample_i1 := false
 # what it saw
 var cmd_log: Array = []
 var div: Array = []
+var thr_row := {}  # the replay's first command answered otherwise than the leader's, with its thresholds (threshold_row)
 var rows: Array = []
 var i1: Array = []
 var wave_targets := {}  # with sample_i1: each tithe wave's fort and start t, by wave_id (the I1 report's target row)
@@ -301,14 +302,63 @@ func _after(op: String, a: Array, r: Dictionary) -> void:
 
 func _cmd(op: String, a: Array, extra := {}) -> Dictionary:
 	var t0 := s.t
+	var pre := _stock_snap() if record else {}
 	var r := _exec(op, a)
 	_after(op, a, r)
 	if record:
 		var e := {"t": t0, "op": op, "args": [] if op == "apply" else a.duplicate(true), "ok": bool(r.get("ok", false)),
-			"reason": str(r.get("reason", ""))}
+			"reason": str(r.get("reason", "")), "snap": pre}
 		e.merge(extra)
 		cmd_log.append(e)
 	return r
+
+
+## The town stocks a command's answer can turn on, read just before it (the I1 replay's threshold row).
+func _stock_snap() -> Dictionary:
+	var tn := s.view_town()
+	var inv := s.view_inventory()
+	return {"bone": float(tn["bone"]), "gold": float(tn["gold"]), "relics": int(inv["relics"]),
+		"remnants": (inv["remnants"] as Array).size(), "husks": (inv["husks"] as Array).size(),
+		"queue_len": (tn["queue"] as Array).size(), "bodies": float(tn["bodies"])}
+
+
+## The thresholds `op`'s answer turns on, read from this run's state: [stock, "ge" | "lt", value]. A husk craft needs the
+## bone and the remnants at their price; a queue command needs the queue under queue_max. Other ops: none known.
+func _thresholds(op: String) -> Array:
+	match op:
+		"craft_husk":
+			var cost: Dictionary = s.view_catalog()["husk_craft"]["cost"]
+			return [["bone", "ge", float(cost["bone"])], ["remnants", "ge", float(cost["remnants"])]]
+		"queue":
+			return [["queue_len", "lt", float(s.view_town()["queue_max"])]]
+	return []
+
+
+## The I1 replay's threshold row (the E4 review's item 9; a report row, not a gate), for the first command answered
+## otherwise than the leader's: each of its thresholds with the closed run's stock (logged before the leader's command)
+## and the open run's (just before the replayed one), and whether the threshold lies between them (a straddle: one run
+## on each side). The other stocks that differ are listed too. {} when nothing diverged.
+static func threshold_row(e: Dictionary, open_snap: Dictionary, thr: Array) -> Dictionary:
+	var closed: Dictionary = e.get("snap", {})
+	var rows: Array = []
+	var straddle := false
+	for th in thr:
+		var k := str(th[0])
+		var c := float(closed.get(k, 0.0))
+		var o := float(open_snap.get(k, 0.0))
+		var v := float(th[2])
+		var pc := c >= v if str(th[1]) == "ge" else c < v
+		var po := o >= v if str(th[1]) == "ge" else o < v
+		rows.append({"stock": k, "need": "%s %s" % ["≥" if str(th[1]) == "ge" else "<", str(_r(v))], "closed": _r(c), "open": _r(o),
+			"straddle": pc != po})
+		straddle = straddle or pc != po
+	var other := {}
+	for k in closed:
+		if not open_snap.has(k) or absf(float(closed[k]) - float(open_snap[k])) <= 1e-6:
+			continue
+		other[k] = [_r(float(closed[k])), _r(float(open_snap[k]))]
+	return {"t": float(e["t"]), "op": str(e["op"]), "args": str(e.get("args", [])), "closed": "%s %s" % [str(e["ok"]), str(e["reason"])],
+		"thresholds": rows, "straddle": straddle, "differ": other}
 
 
 # ----------------------------------------------------------------------------------- the town's turn ---
@@ -1279,6 +1329,8 @@ func _replay_one(e: Dictionary) -> void:
 	var op := str(e["op"])
 	var a: Array = e["args"]
 	var r := {}
+	var pre := _stock_snap() if thr_row.is_empty() else {}
+	var thr := _thresholds(op) if thr_row.is_empty() else []
 	if op == "begin":
 		var fid := str(a[0])
 		var f := s.view_fort(fid)
@@ -1314,6 +1366,9 @@ func _replay_one(e: Dictionary) -> void:
 		_after(op, a, r)
 	if bool(r.get("ok", false)) != bool(e["ok"]) or str(r.get("reason", "")) != str(e["reason"]):
 		_div(e, "answered %s %s" % [str(r.get("ok", false)), str(r.get("reason", ""))])
+		if thr_row.is_empty():
+			thr_row = threshold_row(e, pre, thr)
+			thr_row["open"] = "%s %s" % [str(r.get("ok", false)), str(r.get("reason", ""))]
 
 
 func _div(e: Dictionary, why: String) -> void:
@@ -2191,11 +2246,24 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		"none differs" if first_target.is_empty() else "the first to differ is wave %d on day %d: %s closed at t %s, %s open at t %s" % [
 			int(first_target["wave_id"]), int(first_target["day"]), str(first_target["closed"][0]), str(first_target["closed"][1]),
 			str(first_target["open"][0]), str(first_target["open"][1])]])
+	# the threshold row (the E4 review's item 9, a report row, not a gate): the first command answered otherwise, the
+	# stock its answer turns on and the threshold, closed against open, so a run says whether it is a straddle
+	var tr: Dictionary = fol.thr_row
+	if tr.is_empty():
+		print("  [autoplay] I1 threshold (a report row, not a gate): every replayed command answered as the closed run's")
+	else:
+		var parts: Array = []
+		for th in tr["thresholds"]:
+			parts.append("%s %s: closed %s, open %s%s" % [th["stock"], th["need"], str(th["closed"]), str(th["open"]), " (straddle)" if bool(th["straddle"]) else ""])
+		print("  [autoplay] I1 threshold (a report row, not a gate): the first command answered otherwise is %s %s at t %s (closed %s, open %s); %s; %s; other stocks apart (closed, open): %s" % [
+			tr["op"], tr["args"], str(_r(float(tr["t"]))), tr["closed"], tr["open"],
+			"; ".join(PackedStringArray(parts)) if not parts.is_empty() else "no threshold known for this op",
+			"a threshold straddle" if bool(tr["straddle"]) else "not a straddle of a known threshold", JSON.stringify(tr["differ"])])
 	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
 	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
 	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
 	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10),
-		"wave_targets": {"compared": both, "first_differs": first_target}}})
+		"wave_targets": {"compared": both, "first_differs": first_target}, "threshold": tr}})
 	lead.cleanup()
 	fol.cleanup()
 
