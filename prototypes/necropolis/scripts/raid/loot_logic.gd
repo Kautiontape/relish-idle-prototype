@@ -104,9 +104,7 @@ static func chest(rng: RandomNumberGenerator, info: Dictionary, owned_blueprints
 	var n_rem := scaled_count(rng, float(_range(rng, t.get("remnants", [0, 0]))), y)
 	for i in n_rem:
 		(out["remnants"] as Array).append(_remnant(rng, tier, arche, cfg))
-	var kinds: Array = t.get("husk_kinds", [])
-	if not kinds.is_empty() and rng.randf() < clampf(float(t.get("husk_chance", 0.0)) * maxf(0.0, y), 0.0, 1.0):
-		(out["husks"] as Array).append({"kind": str(kinds[rng.randi_range(0, kinds.size() - 1)])})
+	_husk_roll(rng, t, y, out)
 	if bool(info.get("chest_husk", false)):
 		(out["husks"] as Array).append({"kind": str(cfg.get("first_dungeon_husk", "skeleton"))})
 	if bool(info.get("first_clear", false)):
@@ -133,8 +131,18 @@ static func first_blueprint(tier: int, owned: Array, cfg: Dictionary) -> String:
 	return ""
 
 
+## The chest's husk roll, shared with held_clear: one husk of chest_by_tier.<T>.husk_kinds (uniform) at
+## husk_chance x yield (clamped to 0..1), appended to out.husks.
+static func _husk_roll(rng: RandomNumberGenerator, t: Dictionary, y: float, out: Dictionary) -> void:
+	var kinds: Array = t.get("husk_kinds", [])
+	if not kinds.is_empty() and rng.randf() < clampf(float(t.get("husk_chance", 0.0)) * maxf(0.0, y), 0.0, 1.0):
+		(out["husks"] as Array).append({"kind": str(kinds[rng.randi_range(0, kinds.size() - 1)])})
+
+
 ## Clearing a held fort's counter-garrison: a smaller table. `essence` is the bonus of fresh motes
-## (the scene spawns them; the loot shape carries the count).
+## (the scene spawns them; the loot shape carries the count). E4 step 2 (the manager's ruling): it also
+## rolls the tier's chest husk (_husk_roll: chest_by_tier.<T>.husk_chance x yield, husk_kinds), last, so a
+## held fort is a source of husks that needs no big; the loot recovery throttles it like the rest.
 static func held_clear(rng: RandomNumberGenerator, tier: int, yield_mult: float, cfg: Dictionary) -> Dictionary:
 	var h: Dictionary = cfg.get("held_clear", {})
 	var out := empty_loot()
@@ -143,6 +151,7 @@ static func held_clear(rng: RandomNumberGenerator, tier: int, yield_mult: float,
 	for i in n_rem:
 		(out["remnants"] as Array).append(_remnant(rng, tier, "", cfg))
 	out["essence"] = scaled_count(rng, float(_range(rng, h.get("essence_motes", [0, 0]))), yield_mult)
+	_husk_roll(rng, _by_tier(cfg.get("chest_by_tier", {}), maxi(1, tier)), yield_mult, out)
 	return out
 
 

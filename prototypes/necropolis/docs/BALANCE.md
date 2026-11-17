@@ -486,7 +486,8 @@ held_door).
     the tier's `chest_by_tier.husk_kinds`, blueprints by `first_blueprint`;
   - a win adds `RaidLoot.chest` at yield 0 with the seed's `first_clear` and `chest_husk` (the first-clear blueprint,
     or a relic when all are owned via `opts.blueprints`, and the first dungeon's husk);
-  - a held clear is `RaidLoot.held_clear`, and a held death banks nothing.
+  - a held clear is `RaidLoot.held_clear` (from E4 step 2 it includes the tier's chest husk roll at
+    `husk_chance` × yield), and a held death banks nothing.
 - **Masses:** on the seed's own fort, through `RaidLogic.LedgerV2`, the scene's own builder.
   - killed = `killed_frac` × living. A held clear kills exactly the seed's living, so the writeback raises
     `counter_garrison_cleared`.

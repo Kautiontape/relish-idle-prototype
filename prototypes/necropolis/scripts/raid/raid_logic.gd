@@ -287,10 +287,13 @@ static func held_banner(fort_name: String) -> String:
 	return "COUNTER-GARRISON CLEARED" if fort_name == "" else "COUNTER-GARRISON CLEARED · %s holds" % fort_name
 
 
-## The banner's second line: what the clear paid (the essence bonus counts as the motes that spawn).
+## The banner's second line: what the clear paid (the essence bonus counts as the motes that spawn), and
+## the husk when the roll gave one (E4 step 2: held_clear's chest husk roll).
 static func held_payoff(loot: Dictionary) -> String:
 	var c := loot_counts(loot)
-	return "+%d relics · +%d remnants · +%d essence" % [int(c["relics"]), int(c["remnants"]), int(c["essence"])]
+	var line := "+%d relics · +%d remnants · +%d essence" % [int(c["relics"]), int(c["remnants"]), int(c["essence"])]
+	var hk: Array = loot.get("husks", [])
+	return line + (" · +%d husk" % hk.size() if not hk.is_empty() else "")
 
 
 ## The held_clear roll's essence bonus: how many fresh mass-0 motes the scene spawns.

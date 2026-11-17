@@ -82,7 +82,10 @@ is the "not properly tuned" failure, and it must be visible before you leave (be
 **Raiding a held fort** fights its counter-garrison:
 - the dungeon seed uses the living there;
 - it has no warden room, so it is a shorter run;
-- clearing the room clears the counter-garrison (a clamped delta) and banks loot;
+- clearing the room clears the counter-garrison (a clamped delta) and banks loot (`loot.held_clear`, yield-scaled);
+- the loot includes the tier's chest husk roll, at `chest_by_tier.<T>.husk_chance` × yield, of its `husk_kinds`
+  (E4 step 2, the manager's ruling). Before this a held clear dropped no husk, so a player whose bigs were lost had no
+  way back to the tiers that drop them: in E3's sessions run 96 of 102 raids were held t1 clears and husks sat at 0;
 - this is how active play defends territory before you leave.
 
 **Loot recovers with real time.** The decay from repeated clears, `loot.reclear_decay`, relaxes back
@@ -902,6 +905,8 @@ The profiles:
   session at the day's tier (days 1–2 t1, 3–4 t2, 5–6 t3, 7–8 t4), whatever the party.
 - **ablation_held**, **ablation_bone**, **sensitivity**: sessions with one change (BALANCE §2), each run beside the
   sessions baseline for its deltas.
+- **ablation_keep** (E4 step 2): sessions with the E3 raid-everything policy (`raid_all`: no keepers, the magnitude
+  fill), beside the sessions baseline. The fronts aren't decorative only if it reaches Vei later, or never.
 
 The policies (the run's manager's, for Shawn):
 - **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
@@ -925,10 +930,22 @@ The policies (the run's manager's, for Shawn):
   - Within that: the first dungeon while it is flagged, then the higher yield, an unheld fort before a held one, then
     world order. A held fort is raided once its `yield_mult` is back to 0.5.
 - **Raise**: whenever a husk is held and the crypt has room, with every remnant that fits (`SlabLogic.evaluate`, largest
-  magnitude first). Relish must be home for it.
+  magnitude first). Relish must be home for it. From E4 step 2 (keep_fronts, every profile but ablation_keep and
+  bank_bigs) the bot also tries the fills that put giants' or carvers' stat (wits, beef) first. It keeps the fill that
+  brings the larger share of that front's **want**: its need less its backlog and `q` terms, which is what the bigs
+  must bring.
 - **Placement**: the party fills first, with the oldest bigs, up to three (the largest standard party). Each member gets
   the front of its best stat. The first spare goes foreman at the Market, or at the Bone Mill while the queue's head
   waits on bone. Later spares stay in the crypt. Sieges only in away_risk's prepared setup.
+- **Keepers** (keep_fronts, E4 step 2): the player's bank-or-raid choice.
+  - On giants and carvers, a big whose stat brings at least `KEEP_SHARE` (0.25) of the front's want is a keeper
+    candidate. Candidates are taken best first, at most the big-undead cap less `RAID_ROOM` (2, room for two raiders,
+    who reach t3), and only as many as meet the want. The front whose keepers cover the larger share is the one kept.
+  - Keepers join the party first, on that front, so they count at every look. Before each raid they leave the party
+    and stay home, so the reach counts the raiders only. A death, which loses the whole party, never takes them.
+  - No keeper: the E3 placement exactly.
+  - Its proof is **ablation_keep** (the E3 policy, every big on every raid, the magnitude fill), which must reach Vei
+    later than sessions, or never.
 - **Vats** are staffed as soon as a Chapel exists. This is labelled "best case".
 - **Crafting**: one phylactery charge whenever the catalog allows it and none is held. No simulacra, except in
   away_risk's prepared setup.

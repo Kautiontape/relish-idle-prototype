@@ -41,6 +41,8 @@ const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_pr
 const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to this
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
+const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
+const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
 ## BALANCE §2's "removed" for ablation (b): the dead's buildings (BALANCE §7's list) cost no bone at any level.
 const DEAD_BUILDINGS := ["raising_pit", "charnel_house", "bone_mill", "stables", "graveyard", "embalmer", "forge"]
@@ -89,6 +91,9 @@ var static_raids := false  # static: one raid a session at the day's tier
 var stop_at_vei := false
 var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants or carvers front is short
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
+var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
+var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
+var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
 var print_rows := true
 var open_rows := false
 var live_days := false  # emit a day_end row when live time crosses a day boundary (continuous)
@@ -319,7 +324,8 @@ func _stances() -> void:
 
 
 ## Raise: whenever a husk is held and the crypt has room, with every remnant that fits (SlabLogic.evaluate, read-only: a
-## remnant it can't place would refuse the whole raise as invalid_recipe), the largest magnitude first. She must be home.
+## remnant it can't place would refuse the whole raise as invalid_recipe), the largest magnitude first (keep_fronts:
+## _slab_fill's front-first fill). She must be home. Each raise is logged in `raised`.
 func _raise() -> void:
 	if str(s.view_relish()["state"]) != "home":
 		return
@@ -329,20 +335,23 @@ func _raise() -> void:
 		if int(bu["count"]) >= int(bu["cap"]):
 			return
 		var inv := s.view_inventory()
-		var raised := false
+		var done := false
 		for h in inv["husks"]:
 			var kind := str(h["kind"])
-			var pick := _fit(kind, inv["remnants"], slab)
+			var pick := _slab_fill(kind, inv["remnants"], slab)
 			if pick.is_empty():
 				continue
 			var uids: Array = []
 			for r in pick:
 				uids.append(str(r["uid"]))
 			var nm := str(SlabLogic.evaluate(kind, pick, slab)["name"]).substr(0, 24).strip_edges()
-			if bool(_cmd("raise", [str(h["uid"]), uids, nm if nm != "" else "Raised"])["ok"]):
-				raised = true
+			var rr := _cmd("raise", [str(h["uid"]), uids, nm if nm != "" else "Raised"])
+			if bool(rr["ok"]):
+				var st: Dictionary = rr["big_undead"]["stats"]
+				raised.append([_r(s.t / 3600.0), kind, float(st.get("wits", 0.0)), float(st.get("beef", 0.0))])
+				done = true
 				break
-		if not raised:
+		if not done:
 			return
 
 
@@ -350,9 +359,16 @@ static func _uid_n(uid: String) -> int:
 	return int(uid.substr(1)) if uid.length() > 1 else 0
 
 
-static func _fit(kind: String, remnants: Array, slab: Dictionary) -> Array:
+## Remnants tried in key order, each kept if SlabLogic can still place them all: the aspect `prefer` first (none: no
+## preference), then the larger magnitude, then the older uid.
+static func _fit_key(r: Dictionary, prefer: String) -> int:
+	var first := 0 if prefer == "" or str(r["aspect"]) == prefer else 1
+	return first * 10000000000000 + (1000 - int(r["magnitude"])) * 1000000000 + _uid_n(str(r["uid"]))
+
+
+static func _fit(kind: String, remnants: Array, slab: Dictionary, prefer := "") -> Array:
 	var cands := remnants.duplicate()
-	cands.sort_custom(func(a, b): return (1000 - int(a["magnitude"])) * 1000000000 + _uid_n(str(a["uid"])) < (1000 - int(b["magnitude"])) * 1000000000 + _uid_n(str(b["uid"])))
+	cands.sort_custom(func(a, b): return _fit_key(a, prefer) < _fit_key(b, prefer))
 	var pick: Array = []
 	for r in cands:
 		var trial := pick.duplicate()
@@ -362,17 +378,99 @@ static func _fit(kind: String, remnants: Array, slab: Dictionary) -> Array:
 	return pick
 
 
+## keep_fronts' fill (E4 step 2): of the magnitude fill and the fills with the stat of giants or carvers first, the one
+## that brings the larger share of that front's want (_big_want; ties to the earlier, giants before carvers). A front
+## whose want is met without bigs is not tried. Off: the magnitude fill.
+func _slab_fill(kind: String, remnants: Array, slab: Dictionary) -> Array:
+	var pick := _fit(kind, remnants, slab)
+	if not keep_fronts:
+		return pick
+	var want := _big_want()
+	var best := 0.0
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var st := str(c["vei"]["fronts"][fid]["stat"])
+		var trial := _fit(kind, remnants, slab, st)
+		if trial.is_empty():
+			continue
+		var sc := float(SlabLogic.evaluate(kind, trial, slab)["stats"].get(st, 0.0)) / w
+		if sc > best:
+			best = sc
+			pick = trial
+	return pick
+
+
+## What the bigs must bring to each front now: its need less its backlog and q terms (VeiFronts.have_need's have, without
+## the stat sum), from view_vei and the vei config.
+func _big_want() -> Dictionary:
+	var v := s.view_vei()
+	var out := {}
+	for fr in v["fronts"]:
+		var fid := str(fr["id"])
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		out[fid] = float(fr["need"]) - float(fc["per_backlog"]) * float(v["backlog"]) - float(fc["per_q"]) * float(v["digest_q"])
+	return out
+
+
+## keep_fronts' keepers (E4 step 2; IDLE §8): the bigs that stay home on giants or carvers while the rest raid. On each
+## of the two whose want (_big_want) is positive, the bigs whose stat there brings at least KEEP_SHARE of the want, the
+## best first (ties to the older uid), at most cap - RAID_ROOM of them, and only as many as meet the want. The front whose
+## keepers cover the larger share of its want is kept (ties to giants). {} when no big qualifies.
+func _keepers() -> Dictionary:
+	if not keep_fronts:
+		return {}
+	var bu := s.view_big_undead()
+	var k := int(bu["cap"]) - RAID_ROOM
+	if k <= 0:
+		return {}
+	var want := _big_want()
+	var best := {}
+	var best_cov := 0.0
+	for fid in BANK_FRONTS:
+		var w := float(want.get(fid, 0.0))
+		if w <= 0.0:
+			continue
+		var fc: Dictionary = c["vei"]["fronts"][fid]
+		var rows: Array = []
+		for b in bu["big_undead"]:
+			var x := float(fc["per_stat"]) * float(b["stats"].get(str(fc["stat"]), 0.0))
+			if x >= KEEP_SHARE * w:
+				rows.append([x, str(b["uid"])])
+		rows.sort_custom(func(r1, r2): return float(r1[0]) > float(r2[0]) or (float(r1[0]) == float(r2[0]) and _uid_n(str(r1[1])) < _uid_n(str(r2[1]))))
+		var uids: Array = []
+		var sum := 0.0
+		for r in rows.slice(0, k):
+			uids.append(str(r[1]))
+			sum += float(r[0])
+			if sum >= w:
+				break
+		if not uids.is_empty() and sum / w > best_cov:
+			best_cov = sum / w
+			best = {"front": fid, "uids": uids}
+	return best
+
+
 ## Placement: the party fills first (the oldest bigs, up to PARTY_MAX), each assigned the front of its best stat; the
 ## first spare big goes foreman at the Market, or at the Bone Mill while bone binds (the queue's head waits on bone);
 ## later spares stay in the crypt. Sieges only in away_risk's prepared setup.
 ## bank_bigs (E3-7, the manager's ruling 4 at the E3-6b stop): once the giants or carvers front is short (_bank_now), the
 ## party holds the bigs on giants and carvers between raids (_bank_fronts: only a party member has a front), and _raid
 ## empties it before each raid, so no raid takes a big (_reach: t1 only; the held door off). This look puts them back.
+## keep_fronts (E4 step 2): the keepers (_keepers) join the party first, on their front, and the party fills from the
+## other bigs as above; _raid leaves the keepers home (_reach counts the raiders only). No keeper: the E3 placement.
 func _place() -> void:
 	var uids: Array = []
 	for b in s.view_big_undead()["big_undead"]:
 		uids.append(str(b["uid"]))
-	var want := uids.slice(0, PARTY_MAX)
+	var keep := _keepers()
+	_keep = (keep.get("uids", []) as Array).duplicate()
+	var rest: Array = []
+	for u in uids:
+		if not _keep.has(u):
+			rest.append(u)
+	var want: Array = _keep + rest.slice(0, PARTY_MAX)
 	var have: Array = []
 	for p in s.view_party()["party"]:
 		have.append(str(p["uid"]))
@@ -383,11 +481,11 @@ func _place() -> void:
 	else:
 		for b in s.view_big_undead()["big_undead"]:
 			if str(b["place"]) == "party":
-				var f := _best_front(b["stats"])
+				var f := str(keep["front"]) if _keep.has(str(b["uid"])) else _best_front(b["stats"])
 				if str(b["front"]) != f:
 					_cmd("front", [str(b["uid"]), f])
-	if uids.size() > PARTY_MAX:
-		var spare := str(uids[PARTY_MAX])
+	if rest.size() > PARTY_MAX:
+		var spare := str(rest[PARTY_MAX])
 		var lot := _foreman_lot(s.view_town())
 		var cur := ""
 		for b in s.view_big_undead()["big_undead"]:
@@ -650,7 +748,10 @@ static func _gt(a: Array, b: Array) -> bool:
 func _reach() -> int:
 	if _banking:
 		return 1  # bank_bigs: the party is emptied before every raid
-	var n := (s.view_party()["party"] as Array).size()
+	var n := 0
+	for p in s.view_party()["party"]:
+		if not _keep.has(str(p["uid"])):
+			n += 1  # keep_fronts: the keepers stay home, so only the raiders count
 	var profs: Dictionary = c["raid"]["autopilot"]["party_profiles"]
 	var reach := 1
 	for tier in [2, 3, 4]:
@@ -701,6 +802,14 @@ func _resolve(seed: Dictionary, held: bool) -> Dictionary:
 func _raid(fid: String, limit: float) -> Dictionary:
 	if _banking and not (s.view_party()["party"] as Array).is_empty():
 		_cmd("party", [[]])  # bank_bigs: no raid takes a big (their fronts go with them; the next look restores both)
+	elif not _keep.is_empty():
+		var go: Array = []
+		var pty: Array = s.view_party()["party"]
+		for p in pty:
+			if not _keep.has(str(p["uid"])):
+				go.append(str(p["uid"]))
+		if go.size() != pty.size():
+			_cmd("party", [go])  # keep_fronts: the keepers stay home (as above, the next look restores them)
 	if not bool(_cmd("move", [fid])["ok"]):
 		return {}
 	if not _tick_until(func(): return _at(fid), s.t + 600.0):
@@ -1289,7 +1398,8 @@ static func _band(t: float) -> String:
 
 
 func _big_counts(bu: Dictionary) -> Dictionary:
-	var out := {"held": int(bu["count"]), "cap": int(bu["cap"]), "party": 0, "foreman": 0, "siege": 0, "crypt": 0}
+	var out := {"held": int(bu["count"]), "cap": int(bu["cap"]), "party": 0, "foreman": 0, "siege": 0, "crypt": 0,
+		"keep": _keep.size()}
 	for b in bu["big_undead"]:
 		var p := str(b["place"])
 		if p == "party":
@@ -1387,8 +1497,11 @@ func policy() -> Dictionary:
 		"raids": ("one a session at the day's tier (days 1-2 t1, 3-4 t2, 5-6 t3, 7-8 t4)" if static_raids else
 			"the highest tier the party reaches (tier T needs raid.json party_profiles[T]'s bigs), the first dungeon first, higher yield, unheld before held") +
 			"; never retreat; held forts once yield_mult >= %.1f%s; deaths %s; held door on" % [HELD_RAID_YIELD, " (never: ablation a)" if no_held else "", deaths] +
-			("; bank_bigs: once giants or carvers is short, the party holds the bigs on those fronts between raids and is emptied before each raid (t1 only; the held door off)" if bank_bigs else ""),
-		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (largest magnitude first)",
+			("; bank_bigs: once giants or carvers is short, the party holds the bigs on those fronts between raids and is emptied before each raid (t1 only; the held door off)" if bank_bigs else "") +
+			("; keep_fronts: keepers stay home, so the reach counts the raiders only" if keep_fronts else "; raid_all: every big in the party rides"),
+		"raise": "whenever a husk is held and the crypt has room, with every remnant that fits (%s)" % (
+			"giants' or carvers' stat first when that brings a larger share of the front's want, else the largest magnitude" if keep_fronts else "largest magnitude first"),
+		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, at most cap - %d, as many as meet it; the front they cover more of" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
 		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared)",
@@ -1460,7 +1573,7 @@ func summary() -> Dictionary:
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
-		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily}
+		"never": vei_ready_t < 0.0, "fronts_daily": fronts_daily, "raised": raised}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})
@@ -1655,6 +1768,7 @@ static func _bot(name: String, cfg: Dictionary, o := {}) -> Autoplayer:
 	b.static_raids = bool(o.get("static", false))
 	b.reorder = not bool(o.get("static", false))
 	b.bank_bigs = bool(o.get("bank_bigs", false))
+	b.keep_fronts = not b.bank_bigs and not bool(o.get("raid_all", false))
 	b.print_rows = bool(o.get("print_rows", true))
 	return b
 
@@ -1716,6 +1830,8 @@ static func run_profile(name: String, t: TestUtil) -> int:
 			_p_versus(t, name, cfg, {"bank_bigs": true}, cfg)
 		"ablation_held":
 			_p_versus(t, name, cfg, {"no_held": true}, cfg)
+		"ablation_keep":
+			_p_versus(t, name, cfg, {"raid_all": true}, cfg)
 		"ablation_bone":
 			_p_versus(t, name, cfgs("no_bone_prices"), {}, cfg)
 		"sensitivity":
