@@ -292,7 +292,7 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Raising Pit | Hamlet | 0.03 | 15 / 150 | 30 / 305 | 50 / 450 | 80 / 720 | 130 / 1150 | 210 / 1840 / 1 | 335 / 2945 / 1 | 535 / 4710 / 1 |
 | Charnel House | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 50 / 410 | 80 / 655 | 130 / 1050 / 1 | 210 / 1680 / 1 | 335 / 2690 / 1 |
 | Market | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 45 / 410 | 75 / 650 | 120 / 1040 / 1 | 190 / 1675 / 1 | 300 / 2685 / 1 |
-| House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 35 / 280 | 55 / 455 | 90 / 730 / 1 | 140 / 1180 / 1 | 225 / 1880 / 1 |
+| House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 135 / 70 | 155 / 155 | 175 / 360 / 1 | 200 / 825 / 1 | 225 / 1880 / 1 |
 | Well | Hamlet | 0.01 | 30 / 10 | 60 / 20 | 90 / 30 |  |  |  |  |  |
 | Bakery | Hamlet | 0.01 | 50 / 10 | 100 / 20 | 150 / 30 |  |  |  |  |  |
 | Bone Mill | Hamlet | 0.03 | 60 / 0 | 20 / 190 | 30 / 285 | 50 / 455 | 80 / 730 | 130 / 1170 / 1 | 210 / 1870 / 1 | 335 / 2990 / 1 |
@@ -309,6 +309,24 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Plaza | Town | 0.15 | 350 / 150 / 2 |  |  |  |  |  |  |  |
 | Statue of Relish | Town | 0.15 | 400 / 150 / 3 |  |  |  |  |  |  |  |
 | Reliquary | Town | 0.2 | 600 / 250 / 4 |  |  |  |  |  |  |  |
+
+**The House's gold → bone handover** (E4 step 8, the brief's item). The House is a living building bought with gold,
+and the only one whose ladder runs past level 3. Config C priced its L4 to L8 on the dead's bone ladder, so L4 went
+from 120 gold / 30 bone to 35 / 280. In bone, the price that binds, that is ×9.3 in one level against ×1.5 to 2
+below it. It is also past a new game's 200 bone cap before any mill.
+- **What the sessions profile shows** (20512b1's tree, the bot's first 5 days):
+  - It builds five Houses by day 1, raises them to L2 at day 2.2 and to L3 at day 4.2. It hasn't queued L4 by
+    Vei-ready (day 5.3), so the change reaches the profiles only through the bot's choices.
+  - Gold sits at its cap (16,250) from day 1. Bone refills to its 550 cap each 4 h away and drains in each session.
+  - At its away rate (about 550 bone per 4 h, 0.038/s), L3 is 13 min of bone and the old L4 was 2 h (51% of the cap).
+- **Now:** L1–L3 and L8 keep their prices, and L4 to L7 run geometrically between them in each currency. Gold rises
+  ×1.13 a level (120 → 225) and bone ×2.29 (30 → 1,880), rounded to 5.
+  - In bone-time each level is about 2.3× the last (L4 31 min, L5 68 min).
+  - L4 and L5 (70 and 155 bone) fit a new game's 200 cap.
+  - The bone share of a level's price rises from 20% at L3 to 89% at L8. The handover stays, spread over five levels.
+  - L4–L8 cost 3,290 bone in all, against 4,525 before, and 890 gold against 545.
+- `test_build_ladder` checks it: each currency never falls from one level to the next and rises at most 2.5×, and L4
+  and L5 fit the new-game cap.
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead

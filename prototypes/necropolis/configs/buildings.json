@@ -55,7 +55,7 @@
     "build_work": 60.0,
     "lot_size": 1,
     "max_level": 8,
-    "level_costs": [{"gold": 80.0, "bone": 20.0, "relics": 0}, {"gold": 120.0, "bone": 30.0, "relics": 0}, {"gold": 35.0, "bone": 280.0, "relics": 0}, {"gold": 55.0, "bone": 455.0, "relics": 0}, {"gold": 90.0, "bone": 730.0, "relics": 1}, {"gold": 140.0, "bone": 1180.0, "relics": 1}, {"gold": 225.0, "bone": 1880.0, "relics": 1}],
+    "level_costs": [{"gold": 80.0, "bone": 20.0, "relics": 0}, {"gold": 120.0, "bone": 30.0, "relics": 0}, {"gold": 135.0, "bone": 70.0, "relics": 0}, {"gold": 155.0, "bone": 155.0, "relics": 0}, {"gold": 175.0, "bone": 360.0, "relics": 1}, {"gold": 200.0, "bone": 825.0, "relics": 1}, {"gold": 225.0, "bone": 1880.0, "relics": 1}],
     "requires": {"tier": "hamlet", "blueprint": "", "building": ""},
     "jobs": {},
     "effects": {"living_cap": 8.0}
