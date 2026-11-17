@@ -54,9 +54,12 @@ const TIP := {
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
 	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").
-	"pre_vei": {"state": "58a6cc4947a4fe63e7beb3874148c2236550db9c1c07444f461ceb2998ceb417",
+	# E4's convoy claim (the standing re-pin rule): pre_vei's state and away report, as test_backups' re-pin (the convoy
+	# lands the corpses formed inside each step; the events unchanged). The claim off passes the old pins (was
+	# 58a6cc49… / a8a97ed8…).
+	"pre_vei": {"state": "de513152d69743260fd894dbb6ca6af748470f4dae3104227ef2955e0cdd70b7",
 		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
-		"away": "a8a97ed818aeb64e80551e6ae132bcf5d846506a10834b2f47b539f39c310826", "steps": 4321, "n_events": 10},
+		"away": "0915402c0be357206af1a20c74afe1c3041807f967ac0e1d7c7b178a1c0866f8", "steps": 4321, "n_events": 10},
 }
 
 

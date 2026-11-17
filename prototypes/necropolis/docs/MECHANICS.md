@@ -973,7 +973,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). What formed there since the step's start it claims, up to the carry and headroom the load leaves, and that is taken after the realm step (§4.2, the hold and the claim). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -1083,22 +1083,30 @@ mass; bodies, rot return, WORK and muster are mass.
     q's inputs), so after a load the convoy sees what the session saw, within the save's 15-digit
     rounding (`test_step_accuracy`). A session-only rate such as `r_kills` would read 0 for a step
     after every load, and the pick could differ.
-  - **The hold, and its gap.** A pickup is also held to what the fort held at the step's start, less
-    this step's earlier pickups there. GameState takes it off the fort before the realm step, which
-    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). Where the corpses
-    grow inside the step, a long step's legs can't take those made inside it, and they wait for the
-    next step's legs. That happens at forts with no living where Vei's shipping dies as it lands:
-    pre_vei's six corpse forts, 1.88 mass/s between them. At 10 s pre_vei's convoy runs 10 to 15 mass
-    behind 0.5 s's from the first minute (9.5 at 60 s, 12.9 at 600 s), and its forts hold that much
-    more. The bone its mill makes over the cap, `ledger().stores.bone.overflow`, is 1.14% behind at
-    600 s, falling to 0.04% by 12 h. Applying the pickups after the realm step, without the hold,
-    measured 0.22% (an experiment only). Taking them needs either the realm step delivering an owed
-    pickup or the pickups moving after it (§1.3's order), and both are rules the run's manager kept
-    (E2b-2 T3.3a: the hold and §1.3's order stay; the sink is on file, IDLE §4). The gap is bounded:
-    measured over 24 h it is the step's own corpses (their rate × dt / 2 on average) plus at most
-    about one load per fort (summed, up to 28 mass at pre_vei's gold floor), and it doesn't grow
-    (IDLE §4). The catch-up gate's bone floor
-    (`idle.catchup_gate_tally_floor`) carries it.
+  - **The hold and the claim.** A pickup's load is held to what the fort held at the step's start,
+    less this step's earlier loads there. GameState takes it off the fort before the realm step, which
+    owns the corpses made inside it, so the ledger stays exact (`test_ledger`). What formed at the
+    fort since the step's start, as the projection reads it at the leg's moment (`dead_at` less the
+    start's `dead`, less this step's earlier claims there), the leg **claims**, up to what its load
+    leaves of the carry and the headroom (E4, the run's manager's A1 I1 ruling (1)). GameState takes
+    each claim after the realm step (`_take_claims`), at most what the fort then holds, so the realm
+    step keeps first call on those corpses. The claim rides the convoy while that leg is still on its
+    way back, else goes into the body store up to its cap (`TownSim.land_claim`); what isn't taken
+    stays at the fort. Mass only moves between held pools, nothing is owed, no save field is added,
+    and §1.3's order and the hold stay. It is not E2b-2 T3.3a's on-file sink inside the realm step.
+    - **Why.** A leg is dead-limited wherever the convoy leaves as soon as a fort holds
+      `job.haul.auto_min_dead`, as it does early on: about 4.2 mass a load against a carry of 14 per
+      hauler. Held to the step's start alone, a long step's legs left the corpses formed before each
+      pickup at the fort. In the I1 gate's first away that was 30.5 mass over 99 legs at 3 s against
+      3.4 at 0.5 s, and at forts with living the clearing took some (+8.3), so the caught-up run
+      landed and milled 1.7% less and the bone-bound queue amplified it (IDLE §8).
+    - **With the claim** pre_vei's convoy lands the same over 600 s, 30 min and 1 h at 3 s and 10 s as
+      at 0.5 s, and leaves the same corpses and load (1 129.81 mass at 600 s at all three;
+      `test_step_accuracy`). Before, 600 s at 10 s was 13.3 mass behind; at 10 s the convoy ran 10 to
+      15 mass behind 0.5 s's from the first minute and the bone over the cap was 1.14% behind at 600 s.
+      convergence_1h's 15 s row for pre_vei reads Σdead 0.000% (63.1% before) and its bone-over tally
+      0.18 of its 1.0 floor (1.09). The catch-up gate's bone floor (`idle.catchup_gate_tally_floor`)
+      stays.
 
 ### 4.3 The living
 - `living' = migrants − departures`, capped at `living_cap`: `opening.living_cap` (16, the crypt

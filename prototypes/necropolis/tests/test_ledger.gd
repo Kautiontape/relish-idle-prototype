@@ -302,10 +302,12 @@ func _any_dt() -> void:
 
 
 ## E2b-2 T3.3a (MECHANICS §4.2): the convoy reads each fort's corpses at its own moment in the step, and
-## a pickup is held to what the fort held at the step's start (GameState takes it off before the realm
-## step, which owns the corpses made inside it). pre_vei's forts hold no living and Vei's shipping dies as
-## it lands, so their corpses grow inside every step: the projection at a leg's moment is above what the
-## fort holds. 1 h of 10 s core steps balances at every step, and no pool goes negative.
+## a pickup's load is held to what the fort held at the step's start (GameState takes it off before the
+## realm step, which owns the corpses made inside it); the corpses formed since, the leg claims, and
+## GameState takes the claim after the realm step from what the fort then holds (E4). pre_vei's forts hold
+## no living and Vei's shipping dies as it lands, so their corpses grow inside every step: the projection at
+## a leg's moment is above what the fort holds, and its dead-limited legs claim. 1 h of 10 s core steps balances at
+## every step, and no pool goes negative.
 func _convoy_moment() -> void:
 	var s := GameState.new(_cfgs())
 	s.debug_enabled = true

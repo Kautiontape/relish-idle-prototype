@@ -12,7 +12,9 @@ extends RefCounted
 ##   (RealmSim.dead_at off the snapshot's dead_rate), for its pick and its pickup. midgame_2flips'
 ##   convoy, fixed on Greywall where Relish raises the corpses as they form, lands the same over 1 h
 ##   at 10 s as at 0.5 s; and a departure inside a step picks the fort the projection leads with, not
-##   the stale snapshot's.
+##   the stale snapshot's. A pickup loads what the fort held at the step's start and claims what formed
+##   since; GameState takes the claim after the realm step (E4, the A1 I1 ruling), so pre_vei's
+##   dead-limited convoy lands the same over 600 s at 3 s and 10 s as at 0.5 s.
 ## - The gate's judge (convergence.gd judge(), the function its 10 s assertion calls; IDLE §4) on
 ##   synthetic 12 h series sampled every 600 s, with every case sized from economy.json idle's tol and
 ##   floors: a fixed lag under the floor passes; a mid-run fault that recovers by the endpoint passes
@@ -22,6 +24,7 @@ extends RefCounted
 ##   convergence.gd's TIME_BOUND_STEPS × that step of the reference's.
 
 var t := TestUtil.new()
+const Ledger := preload("res://scripts/sim/ledger.gd")
 const Q := 1.2  # digest_q for the realm cases
 const WAR := 0.6  # mass/s of WAR, all of it staged at the contested fort
 
@@ -32,6 +35,8 @@ func run() -> int:
 	_zero_clock_outcome()
 	_convoy_greywall()
 	_convoy_pick()
+	_convoy_claim_sweep()
+	_claim_taking()
 	_convoy_after_load()
 	_gate_judge()
 	return t.failures
@@ -276,8 +281,11 @@ func _convoy_greywall() -> void:
 ## TownSim alone: a convoy back at Covington 1 s into a 1.5 s step leaves again then. Fort a has 10
 ## corpses its clearing takes at 4 mass/s (dead_rate −4), fort b 8 that stay: at 1 s a has 6 and b 8, so
 ## the convoy picks b; the snapshot (10 against 8) picked a. Then a pickup at a's own moment: 2 s out, a
-## convoy finds a's corpses at 10 − 2 · 2 = 6, not 10; and where they grow (dead_rate +3) it takes the
-## 10 a held at the step's start, not 16 (the realm step owns the ones made inside it).
+## convoy finds a's corpses at 10 − 2 · 2 = 6, not 10; and where they grow (dead_rate +3) it loads the
+## 10 a held at the step's start, not 16 (the realm step owns the ones made inside it), and claims the 6
+## formed since (E4, the A1 I1 ruling: GameState takes them after the realm step), its load still on the
+## way back at the step's end. The claim is held to what the load leaves of the carry (3 haulers, 42):
+## at 40 corpses it claims 2.
 func _convoy_pick() -> void:
 	var cfgs := TestUtil.configs()
 	var speed := float(cfgs["economy"]["job"]["haul"]["speed"])
@@ -301,13 +309,95 @@ func _convoy_pick() -> void:
 	s.step(1.5, inp.call([fort.call("a", 10.0, -4.0), fort.call("b", 8.0, 0.0)]))
 	t.ok(s.haul["current"] == "b" and (s.haul["convoys"] as Array).size() == 1 and float(s.haul["convoys"][0]["t"]) > 0.0,
 		"leaving 1 s into the step the convoy picks b (8 corpses) over a (10 at the step's start, 6 then): %s" % s.haul["current"])
-	for c in [[-2.0, 6.0], [3.0, 10.0], [0.0, 10.0]]:
+	var carry := float(cfgs["economy"]["job"]["haul"]["carry"]) * 3.0
+	for c in [[10.0, -2.0, 6.0, 0.0], [10.0, 3.0, 10.0, 6.0], [10.0, 0.0, 10.0, 0.0], [40.0, 3.0, 40.0, carry - 40.0]]:
 		s = mk.call()
-		var o := s.step(3.0, inp.call([fort.call("a", 10.0, c[0])]))
+		var o := s.step(3.0, inp.call([fort.call("a", c[0], c[1])]))
 		var got := 0.0
 		for p in o["pickups"]:
 			got += float(p["mass"])
-		t.near(got, c[1], 1e-9, "a pickup 2 s into the step at a fort with 10 corpses and dead_rate %+.0f takes %.0f" % [c[0], c[1]])
+		var claimed := 0.0
+		var landed := false
+		for cl in o["claims"]:
+			claimed += float(cl["mass"])
+			landed = landed or bool(cl["landed"])
+		t.near(float(s.haul["convoys"][0]["crew"]) * carry / 3.0, carry, 1e-9, "the convoy's crew is 3 haulers (carry %.0f)" % carry)
+		t.near(got, c[2], 1e-9, "a pickup 2 s into the step at a fort with %.0f corpses and dead_rate %+.0f loads %.0f" % [c[0], c[1], c[2]])
+		t.near(claimed, c[3], 1e-9, "and claims %.0f formed inside the step (its load not landed: %s)" % [c[3], str(not landed)])
+		t.ok(not landed, "and its claim waits on the convoy, still on its way back")
+
+
+## The claim over a run (E4, the A1 I1 ruling (1); MECHANICS §4.2): pre_vei's forts hold no living and Vei's shipping
+## dies as it lands, so their corpses grow inside every step and the convoy's legs are dead-limited. 600 s from it at
+## 3 s and 10 s core steps (clipped as convergence.gd clips) land what 0.5 s lands, and leave the same corpses at the
+## forts and in the convoy. With the pickup held to the step's start alone (no claim), 3 s landed 2.4 mass less and
+## 10 s 13.3 less (1 116.5 against 1 129.5), the difference waiting at the forts.
+func _convoy_claim_sweep() -> void:
+	var c = load("res://tests/slow/convergence.gd").new()
+	var js: String = c.start_json("pre_vei")
+	var got := {}
+	for dt in [0.5, 3.0, 10.0]:
+		var s: GameState = c.load_state(js)
+		var t0 := s.t
+		var landed := 0.0
+		while s.t - t0 < 600.0 - 1e-6:
+			var h := minf(dt, 600.0 - (s.t - t0))
+			var e: float = c.next_event_s(s)
+			if e > 1e-6 and e < h:
+				h = e
+			s._core_step(h)
+			landed += float(s.town_sim.rates["bodies"]["haul"]) * h
+		var dead := 0.0
+		for f in s.realm.forts:
+			dead += float(f["dead"])
+		var load := 0.0
+		for cv in s.town_sim.haul["convoys"]:
+			load += float(cv["load"])
+		got[dt] = [landed, dead, load]
+	var ref: Array = got[0.5]
+	for dt in [3.0, 10.0]:
+		var g: Array = got[dt]
+		t.ok(absf(g[0] - ref[0]) < 0.01 and absf(g[1] - ref[1]) < 0.01 and absf(g[2] - ref[2]) < 0.01,
+			"pre_vei 600 s at %.0f s: the convoy lands %.4f (0.5 s: %.4f), the forts keep %.4f corpses (%.4f), its load %.4f (%.4f)" % [
+				dt, g[0], ref[0], g[1], ref[1], g[2], ref[2]])
+
+
+## GameState._take_claims, after the realm step: a claim takes at most what its fort holds (the realm step had first
+## call), onto the convoy while its leg is still on the way back, else into the body store up to its cap, and what
+## isn't taken stays at the fort. The held mass is the same before and after (the ledger's pools only move).
+func _claim_taking() -> void:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var f: Dictionary = s.realm.forts[0]
+	var id := str(f["id"])
+	var held := func() -> float:
+		return Ledger.total(Ledger.held(s.realm, s.town_sim, s.work_pending, float(TestUtil.configs()["economy"]["worker"]["mass"])))
+	var cap := s.town_sim.body_cap()
+	# landed: into the store, at most the fort's 2
+	f["dead"] = 2.0
+	s.town_sim.bodies = 0.0
+	s.town_sim.haul["convoys"] = []
+	var h0: float = held.call()
+	s._take_claims([{"fort_id": id, "mass": 5.0, "landed": true}], 1.0)
+	t.ok(float(f["dead"]) == 0.0 and s.town_sim.bodies == 2.0, "a landed claim of 5 at a fort holding 2 moves the 2 into the store (dead %.3f, bodies %.3f)" % [
+		float(f["dead"]), s.town_sim.bodies])
+	t.near(held.call(), h0, 1e-9, "and the held mass is unchanged")
+	# not landed: onto the convoy on its way back
+	f["dead"] = 10.0
+	s.town_sim.bodies = 0.0
+	s.town_sim.haul["convoys"] = [{"fort": id, "phase": "back", "t": 0.5, "trip_s": 2.0, "load": 3.0, "crew": 3.0}]
+	h0 = held.call()
+	s._take_claims([{"fort_id": id, "mass": 5.0, "landed": false}], 1.0)
+	t.ok(float(f["dead"]) == 5.0 and float(s.town_sim.haul["convoys"][0]["load"]) == 8.0 and s.town_sim.bodies == 0.0,
+		"a claim of 5 whose leg is on its way back rides the convoy (load 3 -> %.3f, dead %.3f)" % [float(s.town_sim.haul["convoys"][0]["load"]), float(f["dead"])])
+	t.near(held.call(), h0, 1e-9, "and the held mass is unchanged")
+	# a full store: nothing moves
+	f["dead"] = 10.0
+	s.town_sim.bodies = cap
+	s.town_sim.haul["convoys"] = []
+	s._take_claims([{"fort_id": id, "mass": 5.0, "landed": true}], 1.0)
+	t.ok(float(f["dead"]) == 10.0 and s.town_sim.bodies == cap, "at the body cap (%.0f) a landed claim stays at the fort (dead %.3f)" % [cap, float(f["dead"])])
 
 
 ## The projection reads only saved state (RealmSim.dead_rates: the forts' pools, their r_shipped and r_in,

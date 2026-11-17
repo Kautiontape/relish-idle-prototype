@@ -731,7 +731,13 @@ func _gap_events() -> void:
 ## both from the same save. Returns {ok, lines, ledger: [catch-up, live], stocks: {id: rel}, rates: {id:
 ## rel}, held: [catch-up, live], town_same, outcomes: [the lists that differ]}. Shared with the slow
 ## suite (12 h) and the I1 helper.
-static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> Dictionary:
+## With `window_s` > 0 (the slow suite's 12 h starts; E4, the A1 I1 fix's measurement correction) the rates the
+## feed drives (WINDOWED: the mint reads the last step's burned / wanted, and its split and the workers' inflow
+## follow it) are judged on their means over the next `window_s` live at 0.5 s in both runs, and their endpoint
+## values are printed, not asserted. The feed saws with the convoy's loads (fresh's mint 9.4 to 12.8 a cycle), so
+## one instant compares two phases: fresh at 12 h read 36.2% apart on a minted total 0.0015% apart and 600 s means
+## 0.05% apart, and before the claim it passed at 12 h on its phase (0.84%) and read 36% apart 600 s later.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0) -> Dictionary:
 	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute(dir)
 	var src := GameState.new(c)
@@ -752,10 +758,46 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 	live.cmd_load("acc")
 	live.drain_events()
 	live.tick(seconds)
-	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol)
+	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol, WINDOWED if window_s > 0.0 else [])
+	if window_s > 0.0:
+		var conv = load("res://tests/slow/convergence.gd")
+		var ma := _window_means(cu, window_s)
+		var mb := _window_means(live, window_s)
+		var rfl := 0.01 * maxf(1.0, float(mb["mint"]))
+		var w := 0.0
+		var wparts: Array = []
+		for k in WINDOWED:
+			var e := absf(float(ma[k]) - float(mb[k])) / maxf(absf(float(mb[k])), rfl)
+			w = maxf(w, e)
+			wparts.append("%s %s" % [k, conv._pct(e)])
+		out["window"] = {"s": window_s, "worst": w}
+		out["worst"] = maxf(float(out["worst"]), w)
+		out["ok"] = bool(out["ok"]) and w <= tol
+		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s" % [
+			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts))]
 	DirAccess.remove_absolute(dir + "/acc.json")
 	DirAccess.remove_absolute(dir)
 	return out
+
+
+## The rates the pits' feed drives (accuracy()'s window).
+const WINDOWED := ["mint", "war", "flood", "worker_in"]
+
+
+## Each WINDOWED rate's mean over `window_s` more of live play at 0.5 s.
+static func _window_means(s: GameState, window_s: float) -> Dictionary:
+	var sum := {}
+	for k in WINDOWED:
+		sum[k] = 0.0
+	var n := maxi(1, int(round(window_s / 0.5)))
+	for i in n:
+		s.tick(0.5)
+		var r := _rates(s)
+		for k in WINDOWED:
+			sum[k] = float(sum[k]) + float(r[k])
+	for k in WINDOWED:
+		sum[k] = float(sum[k]) / n
+	return sum
 
 
 ## Two runs of the same span compared (accuracy(), the I1 helper; also returns `late`, the time-bound misses,
@@ -766,8 +808,9 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float) -> D
 ## max(|live|, 1% of the mint)), the held forts (±1), Covington's buildings (id, level, state per lot) and
 ## the outcomes in order (convergence.gd's outcome lists), each flip and retake within the outcomes' time
 ## bound (convergence.gd's TIME_BOUND_STEPS) × `a`'s catch-up step at that moment: its `dt` for the first
-## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run.
-static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float) -> Dictionary:
+## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run. The rates in `printed_only` are
+## reported but left out of `worst` and `ok` (accuracy()'s window judges them instead).
+static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float, printed_only: Array = []) -> Dictionary:
 	var conv = load("res://tests/slow/convergence.gd")
 	var sa: Dictionary = conv.sample(a)
 	var sb: Dictionary = conv.sample(b)
@@ -787,7 +830,8 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 	for k in rb:
 		var e := absf(float(ra[k]) - float(rb[k])) / maxf(absf(float(rb[k])), rfl)
 		rates[k] = e
-		worst = maxf(worst, e)
+		if not printed_only.has(k):
+			worst = maxf(worst, e)
 	var held := [0, 0]
 	for i in 2:
 		for f in [a, b][i].realm.forts:

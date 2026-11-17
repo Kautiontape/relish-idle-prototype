@@ -14,8 +14,15 @@ extends RefCounted
 ##   step's average over a landing against one 0.5 s substep's: at 12 h every stock and outcome matches
 ##   (Covington identical) and the mint and its split read 16% apart (14% before R1; the 0.5 s WAR swings
 ##   33 to 49 mass/s around its 42 over a convoy's cycle).
+## - The feed's rates (the mint, its split and the workers' inflow) are judged on their means over the next WINDOW_S
+##   of live play in both runs, their 12 h endpoint printed (E4, a measurement correction with the convoy's claim,
+##   test_catchup.accuracy's window). The feed saws with each landed load, so the endpoint compares two phases: with
+##   the claim fresh read 12.80 caught up against 9.40 live (36.2%) while its minted totals were 0.0015% apart
+##   (483 952 / 483 959) and its 600 s means 0.05% (11.047 / 11.052); without it fresh passed on its phase (12.69 /
+##   12.80, 0.84%) and read 12.80 / 9.40 600 s later, with 600 s means 0.26% apart.
 
 const HOURS := 12.0
+const WINDOW_S := 600.0
 
 var t := TestUtil.new()
 
@@ -28,7 +35,7 @@ func run() -> int:
 	var c: Dictionary = cu.cfgs()
 	var tol := float(c["economy"]["idle"]["catchup_tol"])
 	for st in ["midgame_2flips", "fresh", "pre_vei"]:
-		var r: Dictionary = cu.accuracy(c, conv.start_json(st), HOURS * 3600.0, tol)
+		var r: Dictionary = cu.accuracy(c, conv.start_json(st), HOURS * 3600.0, tol, WINDOW_S)
 		print("  [catchup_accuracy] %s, %.0f h caught up vs live: %s%s" % [st, HOURS, "pass" if r["ok"] else "FAIL", "; " + str(r["lines"])])
 		if st != "pre_vei":
 			t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])

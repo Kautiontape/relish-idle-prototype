@@ -63,8 +63,12 @@ const PARENT := {
 	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
 	# The caught values agree with test_backups' re-pinned pre_vei.
-	"pre_vei": {"live": {"state": "a9cdb710249e07e4", "events": "618ddc3b937abcfb", "n_events": 15},
-		"caught": {"state": "ffeda0ced7cff3b0", "events": "e3093d57d7355dc3", "away": "a8a97ed818aeb64e", "n_events": 15, "steps": 4321}},
+	# E4's convoy claim (the standing re-pin rule): pre_vei's states, live and caught, and its caught report, as
+	# test_backups' re-pin (the convoy lands the corpses formed inside each step, live at 0.5 s too; the events
+	# unchanged). day1's and midgame_2flips' convoys land nothing here. The claim off passes the old pins (was a9cdb710…
+	# live, ffeda0ce… / a8a97ed8… caught).
+	"pre_vei": {"live": {"state": "a100f0087bc79b1d", "events": "618ddc3b937abcfb", "n_events": 15},
+		"caught": {"state": "700b706edae0115d", "events": "e3093d57d7355dc3", "away": "0915402c0be35720", "n_events": 15, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
 	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
 	"midgame_2flips": {"live": {"state": "7b0b81e015745ff4", "events": "64c42f4e26ef70ac", "n_events": 123},

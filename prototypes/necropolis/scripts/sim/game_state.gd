@@ -2637,6 +2637,19 @@ func _apply_pickups(picks: Array) -> void:
 			f["dead"] = float(f["dead"]) - minf(maxf(0.0, float(p["mass"])), float(f["dead"]))
 
 
+## Takes the convoy legs' claims (TownSim._haul: the corpses formed at a fort inside this step before a leg's
+## pickup) after the realm step, which had first call on them: each at most what its fort holds now, landed by
+## TownSim.land_claim (onto the convoy still on its way back, else into the body store up to its cap). What isn't
+## taken stays at the fort. Mass moves between held pools only, so the ledger is unchanged (MECHANICS §4.2).
+func _take_claims(claims: Array, dt: float) -> void:
+	for cl in claims:
+		var f := realm.fort_by_id(str(cl["fort_id"]))
+		if f.is_empty():
+			continue
+		var got := town_sim.land_claim(minf(float(cl["mass"]), maxf(0.0, float(f["dead"]))), bool(cl["landed"]), dt)
+		f["dead"] = maxf(0.0, float(f["dead"]) - got)
+
+
 ## Re-emits a TownSim event with this substep's t. `building_started` gains `upgrade` (§6).
 func _emit_town(ev: Dictionary) -> void:
 	var e := ev.duplicate(true)
@@ -2709,6 +2722,7 @@ func _core_step(dt: float) -> Array:
 	}
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
+	_take_claims(town["claims"], dt)  # the corpses the convoy's legs claimed inside the step, now the realm step is done
 	var cleared := realm.cleared_total - cleared0
 	var evs := _emit_realm(realm.drain_timed(), dt, mark)
 	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them, and a dead Relish's

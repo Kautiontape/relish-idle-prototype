@@ -72,9 +72,14 @@ const TIP := {
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
 	# +0.01 g/s instead of sitting at 18, and the report gains the "Still stopped, ... Build a Market" line. day1 and
 	# midgame_2flips shed nothing in their 12 h, so they don't move.
-	"pre_vei": {"state": "f23659ffea8861c02c38b3ff1afca09e23bb2a25b0d2f047411f40162a0463fe",
+	# E4's convoy claim (the A1 I1 ruling (1); the standing re-pin rule): pre_vei's state and away report. Its dead-limited
+	# legs now take the corpses formed inside each 10 s step, so the convoy lands more and the 12 h backlog reads
+	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
+	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
+	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
+	"pre_vei": {"state": "4dff39f043de4ce62089f25691de39ef06f592e01ad75cc74cfa87cae1b56a17",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "a8a97ed818aeb64e80551e6ae132bcf5d846506a10834b2f47b539f39c310826", "steps": 4321, "n_events": 15},
+		"away": "0915402c0be357206af1a20c74afe1c3041807f967ac0e1d7c7b178a1c0866f8", "steps": 4321, "n_events": 15},
 }
 
 

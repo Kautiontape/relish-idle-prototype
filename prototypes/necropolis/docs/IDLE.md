@@ -380,7 +380,11 @@ takes over 1 s.
     0.28% (fresh) at 15 s at `4d9a265`, the backlog the worst at each. That compares with 0.55%,
     0.50% and 0.14% at `9b5fc99`; 1.50% (midgame_2flips, bone), 0.50% and 0.14% at `40d62c0`; and
     0.80%, 0.48% and 0.14% at `55c281f`.
-  - **The residual: the start-of-step pickup cap** (MECHANICS §4.2). A pickup is held to what the
+  - **The residual: the start-of-step pickup cap** (MECHANICS §4.2). **Closed at E4 by the claim**
+    (the A1 I1 ruling (1); MECHANICS §4.2, the hold and the claim): a leg claims the corpses formed
+    since the step's start and GameState takes them after the realm step, so pre_vei's convoy lands
+    the same at 3 s and 10 s as at 0.5 s (`test_step_accuracy`). The record below is from before it.
+    A pickup is held to what the
     fort held at the step's start, and the realm step owns the corpses formed inside it. So at a fort
     with no living, where Vei's shipping dies as it lands, those corpses wait for the next step's
     legs. Measured on pre_vei over 24 h at 0.5, 2, 5 and 10 s (the harness's clipped steps, sampled
@@ -420,7 +424,9 @@ takes over 1 s.
     - **On file, not built:** the realm step taking the convoy's pickup as a sink inside the step.
       It needs the shortfall reconciled (a pickup a fort can't give is owed back to the convoy),
       and it changes MECHANICS §1.3's order, TownSim before the realm step. The run's manager kept
-      the order and the hold (E2b-2 T3.3a).
+      the order and the hold (E2b-2 T3.3a). E4's claim is not this sink. It keeps the order and the
+      hold and owes nothing, because GameState takes the claim after the realm step from what the
+      fort holds, and the rest stays there.
   - As dt → 0 (`tests/slow/convergence_fine.gd`, against 0.125 s, err(0.5) / err(0.25)). At
     `4d9a265`: every midgame_2flips error is under 0.03% (the backlog 0.008% and 0.019%, ratio 2.4;
     its pools' ratios 0.6 to 5.8 on errors of 0.002% to 0.028%). fresh's backlog and Vei's dead are
@@ -616,6 +622,13 @@ takes over 1 s.
   shrunk to 8 × 6 for both). Stocks are Vei's and Covington's (`convergence.gd`'s KEY), each against
   max(|live|, its floor); rates are the mint and its WAR and FLOOD, TownSim's worker inflow and gold, bone
   and living nets, and Vei's sustained differential. Both ledgers balance to 2.4e-12 or better.
+  - **At 12 h the feed's rates are judged over a window** (E4, a measurement correction with the convoy's
+    claim; `test_catchup.accuracy`'s `window_s`): the mint, its WAR and FLOOD and the worker inflow on
+    their means over the next 600 s of live play in both runs, with their 12 h values printed. The feed
+    saws with each landed load, so one instant compares two phases. With the claim, fresh read 12.80
+    caught up against 9.40 live (36.2%) while its minted totals were 0.0015% apart and its 600 s means
+    0.05%. Without the claim, fresh passed on its phase (0.84%) and read 12.80 against 9.40 600 s later.
+    The 2 h default case and I1 still read the instant.
   - midgame_2flips: 2 h, the backlog 0.008%, Vei's dead 0.12%, Covington's stocks under 0.0005%, the
     rates under 0.003%, 1 held fort each, Covington identical, outcomes equal (25 waves, a retake); 12 h,
     the backlog 0.025%, Vei's dead 0.22%, the differential 0.10%, outcomes equal (181 waves, a retake).
@@ -935,6 +948,18 @@ The profiles:
       from there (bone at 4 h: 260 closed, 229 open). With the cap lifted in a probe, the window agrees within 0.35%,
       but 4 h still parts (267 against 226), so the end gap is the queue's sensitivity near the bone edge, not a
       catch-up bias.
+      - **The seed is fixed by the convoy's claim** (MECHANICS §4.2, the hold and the claim). In the same window the
+        caught-up run now mills 224.25 against 223.54 (+0.32%, from −1.7%), with both ledgers exact; bone at 4 h is
+        264 closed, 230 open.
+      - **The gate is still red on days 1–2: an open item for the steps 5–8 review, kept visible.**
+        - Day 1: workers 48/46, living 86/70, essence 51/45, husks 0/1, remnants 16/26, the backlog 13.5% apart,
+          and the crypt L2 closed against L1 open.
+        - Day 2: workers 56/54, living 126/94, husks 0/4, remnants 12/29, the backlog 16.3% apart, and the forge L1
+          closed against L2 open.
+        - The first command answered otherwise is unchanged by the fix: the queue of an Embalmer on lot-12 at
+          14 400 s, `queue_full` closed and accepted open.
+        - So what's left is the amplifier: a bone-bound queue near the bone edge turns any small offset into a
+          build a step apart.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
