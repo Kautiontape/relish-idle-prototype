@@ -634,7 +634,28 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 		why = "cost_exceeds_cap"
 	if why == "" and relics < int(cost["relics"]):
 		why = "no_relics"
+	if why == "" and not bool(e["upgrade"]) and upkeep_short(gs, bid, lots):
+		why = "upkeep"
 	return why
+
+
+## The upkeep gate (the E4 ruling (3), plan.md 2026-11-15 02:22; E4 step 4, the gold trap): a new building whose gold
+## upkeep would take the town's net gold negative waits, skipped as a gate (reason `upkeep`) so the entries behind it
+## (a Market level that would pay for it) still start. Net gold here is TownSim.gold_income (today's staffing and
+## living, read from state) less every building's upkeep on the walk's `lots`, working, unpaid, Thrift-idled or under
+## construction, the entries this walk started ahead of it among them, and its own: the town's full bill, so a town
+## that already can't pay what stands adds nothing to it. A building that earns gold (stall jobs) is exempt, as in the
+## shed order, and so is one with no gold upkeep. Upgrades add no upkeep (it is flat per building), so only new
+## buildings are gated. Re-checked on every walk, like every gate.
+static func upkeep_short(gs: GameState, building_id: String, lots: Dictionary) -> bool:
+	var ts := gs.town_sim
+	var own := ts.upkeep_gold_of(building_id)
+	if own <= 0.0 or ts.earns_gold(building_id):
+		return false
+	var bill := own
+	for lot_id in lots:
+		bill += ts.upkeep_gold_of(str(lots[lot_id]["building_id"]))
+	return ts.gold_income() - bill < -NET_EPS
 
 
 ## The core step's processing (§3 step 3, right after rise_tiers): one walk, then each `next` entry starts

@@ -45,7 +45,7 @@
         "needs_building": "when the building it needs was built", "no_relics": "when the relics came in",
         "no_gold": "when the gold came in", "no_bone": "when the bone came in", "lot_taken": "when its lot came free",
         "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when it was back at work",
-        "cost_exceeds_cap": "when its cap rose"
+        "cost_exceeds_cap": "when its cap rose", "upkeep": "when the gold income could pay its upkeep"
       },
       "refilled_fmt": "{fort} refilled", "raid_fmt": "{fort} refilled: raid it",
       "husk_one_fmt": "{n} husk: raise at the slab", "husks_fmt": "{n} husks: raise at the slab",
@@ -60,6 +60,7 @@
       "afford_never_self_fmt": "{name} can't be afforded at the current income of {rate} {store}, and {raise}: move it down",
       "afford_never_self_last_fmt": "{name} can't be afforded at the current income of {rate} {store}, and {raise}",
       "afford_relics_last_fmt": "{name} needs relics: raid a fort",
+      "afford_upkeep_fmt": "{name} waits: the current income of {rate} gold can't pay its upkeep: build a Market",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },

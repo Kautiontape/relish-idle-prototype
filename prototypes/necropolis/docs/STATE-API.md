@@ -369,6 +369,10 @@ from `BALANCE.md` §0.
   - **§4.3 `cmd_craft_husk`'s reason `at_cap`** (the E4 code review): the crypt has no room for another husk (its big
     undead plus the husks waiting reach the `big_undead` cap), checked last; `view_catalog().husk_craft.reason`
     reads it too. The save shape is unchanged.
+  - **§4.4 `cmd_queue_build`'s gate `upkeep`** (E4 step 4, the E4 ruling (3)): a new building whose gold upkeep would
+    take net gold negative is `skipped_gate` with reason `upkeep`, and `waited_on` / `queue_started.waited_on` can
+    read `upkeep` (`idle.report.waited_on.upkeep`). §5.19 `view_away`'s `ready` gains a line for the first such entry
+    (`idle.report.afford_upkeep_fmt`, kind `queue`, target `queue`). No key changes.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -961,6 +965,13 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
   `skipped_gate` with that reason and starts when the gate clears. Affordability (gold, bone) never
   refuses: it holds the queue.
+- **The upkeep gate** (v10, E4 step 4, the run's manager's E4 ruling (3)): a new building whose gold upkeep
+  would take net gold negative is `skipped_gate` with reason `upkeep`. Net gold is the stalls' income now
+  (today's staffing and living, from state) less the gold upkeep of every building on its lots (working,
+  unpaid, Thrift-idled or under construction, and the entries the same walk starts ahead of it) and its own.
+  A building with stall jobs (the Market) is exempt, as is one with no gold upkeep; an upgrade adds no upkeep
+  (it is flat per building), so it is never held. The entries behind it still start, so a Market level
+  queued after it can pay for it. `view_away` names the first such entry (§5.19).
 - **Effect:** appends `{building_id, lot_id, upgrade, waited_on}` and bumps `rev`. The core step processes
   the queue (§3, step 3; MECHANICS §4.4).
 ```gdscript

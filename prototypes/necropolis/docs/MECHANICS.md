@@ -1233,6 +1233,16 @@ processing does.
   `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
   (`under_construction`) or an unpaid building (`unpaid`). A gated entry shows `skipped_gate` with that
   reason and is re-checked every step.
+- **The upkeep gate** (E4 step 4, the run's manager's E4 ruling (3), plan.md 2026-11-15 02:22: "a queued build
+  whose upkeep would take net gold negative waits with a reason"): a new building is gated `upkeep` when the
+  stalls' gold income now (`TownSim.gold_income`: min(staffed stalls · `stall.rate`, living · `shop_rate`) ·
+  price · a Market foreman's multiplier, read from state, so it is the same before a load's first step) is
+  under the gold upkeep of every building on the walk's lots (working, unpaid, Thrift-idled, under
+  construction, and the entries this walk starts ahead of it) plus its own. A building with stall jobs is
+  exempt (the shed order's rule: holding it could never pay the bill back), as is one with no gold upkeep.
+  Upkeep is flat per building, so an upgrade adds none and is never held. It is a gate, not a funds wait: the
+  entries behind it start, so a Market level queued after it can pay for it. It closes the gold trap's way in
+  (BALANCE §6), not the trap itself.
 - **The level an entry builds:** 1 for a new build. An upgrade builds one level above what its lot will
   have once every entry ahead of it for that lot, and the construction under way there, are done: two
   queued upgrades of a level-1 lot build 2, then 3. The level is recomputed from the order on every walk,

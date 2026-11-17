@@ -685,7 +685,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 
 	# 4. stalls: gold = min(staffed · stall.rate, living · shop_rate) · price, × a Market foreman's multiplier after
 	# that cap (E3-3; trade_rate stays the sales)
-	var sales := minf(_job("stall") * _stall_rate, living * _shop_rate)
+	var sales := _sales()
 	var gold_in := sales * _price * _job_f("stall") * dt
 	gold += gold_in
 
@@ -1789,6 +1789,30 @@ func _sum_built(key: String) -> float:
 
 func body_cap() -> float:
 	return _body_cap + _sum_built("body_cap")
+
+
+## The stalls' sales now (step 4): min(staffed stalls · stall.rate, living · shop_rate).
+func _sales() -> float:
+	return minf(_job("stall") * _stall_rate, living * _shop_rate)
+
+
+## The gold the stalls bring in a second at today's staffing and living (step 4's rate, read from state, not from
+## the last step's `rates`): _sales() · price · a Market foreman's multiplier. The queue's upkeep gate (BuildRules
+## upkeep_short) reads it, so it is the same before a load's first step as after it.
+func gold_income() -> float:
+	return _sales() * _price * _job_f("stall")
+
+
+## A building's gold upkeep a second (buildings.json `upkeep.gold`; flat per building, not per level), 0 for an
+## unknown id.
+func upkeep_gold_of(building_id: String) -> float:
+	return float(_defs.get(building_id, {}).get("upkeep_gold", 0.0))
+
+
+## Whether a building earns gold (it has stall jobs), so idling or gating it can't pay its bill back (the shed order's
+## exemption, and the upkeep gate's).
+func earns_gold(building_id: String) -> bool:
+	return int((_defs.get(building_id, {}).get("jobs", {}) as Dictionary).get("stall", 0)) > 0
 
 
 ## economy.json gold.cap plus the buildings' `gold_cap` effects (the Market, per level; IDLE §6). A

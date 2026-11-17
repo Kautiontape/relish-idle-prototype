@@ -72,6 +72,7 @@ func run() -> int:
 	_rule2_holds_nothing()
 	_rule3_waited_on()
 	_rule4_relics()
+	_rule5_upkeep()
 	_funds_hold()
 	_levels()
 	_view_matches_step()
@@ -359,6 +360,52 @@ func _rule4_relics() -> void:
 	var e2: Dictionary = _q(two)[0]
 	t.ok(r2["reason"] == "no_gold" and e2["status"] == "skipped_gate" and e2["reason"] == "no_relics" and e2["cost"]["relics"] == r2["cost"]["relics"],
 		"both short: the catalog says %s, the queue skipped_gate / %s, cost.relics %d both" % [r2["reason"], e2["reason"], e2["cost"]["relics"]])
+
+
+## The upkeep gate (the E4 ruling (3); E4 step 4): a new building whose gold upkeep would take net gold negative
+## (TownSim.gold_income less the full bill of the walk's lots and its own) is skipped_gate with reason `upkeep`, and
+## the entries behind it still start. The walk counts its own starts: with room for one House's 0.01 g/s and not two,
+## the first starts and the second is gated. An upgrade adds no upkeep, so it isn't gated; a step starts what the walk
+## says; a richer town (more living buying at the stalls) clears the gate on the next walk.
+func _rule5_upkeep() -> void:
+	t.suite("build_queue-rule5-upkeep")
+	var s := _mk()
+	s.tick(s.substep_s())
+	var ts := s.town_sim
+	var house := ts.upkeep_gold_of("house")
+	var bill := 0.0
+	for lot_id in ts.buildings:
+		bill += ts.upkeep_gold_of(str(ts.buildings[lot_id]["building_id"]))
+	# the stalls' sales are living-bound at a small living: income per living at living 1, then the living whose
+	# income leaves room for 1.5 Houses
+	ts.living = 1.0
+	var per := ts.gold_income()
+	ts.living = (bill + 1.5 * house) / per
+	t.near(ts.gold_income(), bill + 1.5 * house, 1e-9, "(setup) income %.4f = the bill %.4f + 1.5 Houses' upkeep, living-bound" % [ts.gold_income(), bill])
+	_funds(s, 1000.0, 200.0)
+	var lots: Array = []
+	for r in s.view_catalog()["buildings"]:
+		if r["building_id"] == "house":
+			lots = r["lots"]
+	t.ok(lots.size() >= 2, "(setup) two free lots for a House: %s" % str(lots))
+	t.ok(s.cmd_queue_build("house", str(lots[0]))["ok"] and s.cmd_queue_build("house", str(lots[1]))["ok"]
+		and s.cmd_queue_build("", "lot-04")["ok"], "two Houses and the Market's next level queued")
+	var q := _q(s)
+	t.ok(q[0]["status"] == "next" and q[1]["status"] == "skipped_gate" and q[1]["reason"] == "upkeep" and q[2]["status"] == "next",
+		"room for one House: the first is next, the second skipped_gate / upkeep, the Market's level behind it next: %s" % str(_col(q, "status")) + " " + str(_col(q, "reason")))
+	s.drain_events()
+	BuildRules.process_queue(s)
+	var st := _started(s.drain_events())
+	t.ok(st.size() == 2 and st[0]["lot_id"] == lots[0] and st[1]["lot_id"] == "lot-04" and (s.build_queue as Array).size() == 1,
+		"the queue starts the first House and the Market level, the gated House waits: %s" % str(st.map(func(x): return x["lot_id"])))
+	ts.living = (bill + 3.0 * house) / per
+	q = _q(s)
+	t.ok(q.size() == 1 and q[0]["status"] == "next" and q[0]["reason"] == "", "more living at the stalls: the gate clears on the next walk: %s" % str(q))
+	# an earner is exempt, and a town whose income can't pay what stands gates every new upkeep building
+	ts.living = 0.0
+	t.ok(not BuildRules.upkeep_short(s, "market", {}) and BuildRules.upkeep_short(s, "house", {}),
+		"no income: a Market (stall jobs) is exempt, a House is gated")
+	t.ok(not BuildRules.upkeep_short(s, "crypt", {}) or ts.upkeep_gold_of("crypt") > 0.0, "a building with no gold upkeep isn't gated")
 
 
 ## An unaffordable head holds the queue (it saves toward it): nothing behind it starts first, and it starts

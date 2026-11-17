@@ -1006,12 +1006,15 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		var rows: Array = w["rows"]
 		var stuck := true
 		var wall := -1
+		var upk := -1  # E4 step 4: the first entry the upkeep gate holds (BuildRules.upkeep_short), its own line
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			match str(row["status"]):
 				"skipped_gate":
 					if wall < 0 and str(row["reason"]) == "no_relics":
 						wall = i
+					if upk < 0 and str(row["reason"]) == "upkeep":
+						upk = i
 				"waiting_funds":
 					if float(row["affordable_in_s"]) >= 0.0:
 						stuck = false
@@ -1025,6 +1028,10 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
+			elif i == upk:
+				ready.append(_away_line(str(rep["afford_upkeep_fmt"]).format({
+					"name": _building_name(gs, rep, str(row["building_id"]), int(row["level"])),
+					"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)

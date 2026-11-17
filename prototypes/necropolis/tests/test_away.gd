@@ -860,6 +860,7 @@ func _report() -> void:
 	r2.append_array(_report_move_down(c))  # F2: "move it down" only when it lets another entry start
 	r2.append_array(_report_wall(c))  # W2: the relics wall, when no entry can start
 	r2.append_array(_report_brief_start(c))  # W2: a start that waited, under a minute in
+	r2.append(_report_upkeep(c))  # E4 step 4: the entry the upkeep gate holds
 	var reps: Array = [n.view_away(), q.view_away(), g.view_away(), _away(c, _greywall(c), "tokw", 600).view_away()] + r2
 	_report_shown()
 	_report_nothing_lost()
@@ -1061,7 +1062,7 @@ func _report_words() -> void:
 	var c := cfgs()
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var words: Dictionary = rep["waited_on"]
-	t.ok(words.size() == 12, "idle.report.waited_on has 12 reasons (%d: %s)" % [words.size(), str(words.keys())])
+	t.ok(words.size() == 13, "idle.report.waited_on has 13 reasons, upkeep (E4 step 4's gate) the 13th (%d: %s)" % [words.size(), str(words.keys())])
 	var bad: Array = []
 	for w in words:
 		var why := StateViews._why_started(rep, str(w))
@@ -1348,6 +1349,31 @@ func _report_full(c: Dictionary) -> Array:
 			"%s (gold %.1f of %.0f, bone %.1f of %.0f, queue %d): the raid prompt %s, Queue empty %s" % [cs[0], n.town_sim.gold, n.town_sim.gold_cap(),
 			n.town_sim.bone, n.town_sim.bone_cap(), n.build_queue.size(), "shown" if has else "not shown", "shown" if empty else "not shown"])
 	return reps
+
+
+## E4 step 4 (the ruling (3) gate): pre_vei, a City on one Market whose full upkeep is over its gold income, with a House
+## queued on a free lot. The upkeep gate holds it through the absence (skipped_gate, reason upkeep), and `ready` has
+## idle.report.afford_upkeep_fmt for it: its name, the gold income now, and the Market to build (kind queue, target queue).
+func _report_upkeep(c: Dictionary) -> Dictionary:
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("pre_vei")
+	s.tick(0.5)
+	var lots: Array = []
+	for r in s.view_catalog()["buildings"]:
+		if r["building_id"] == "house":
+			lots = r["lots"]
+	t.ok(not lots.is_empty() and s.cmd_queue_build("house", str(lots[0]))["ok"], "(setup) pre_vei: a House queued on %s" % str(lots.slice(0, 1)))
+	s.drain_events()
+	var n := _away(c, s, "upkeep", 600)
+	var rows: Array = n.view_town()["queue"]
+	var line: Array = (n.view_away()["ready"] as Array).filter(func(l): return str(l["text"]).contains("can't pay its upkeep"))
+	var want := str(c["economy"]["idle"]["report"]["afford_upkeep_fmt"]).format({"name": "House",
+		"rate": StateViews._fmt_rate(c["economy"]["idle"]["report"], n.town_sim.gold_income())})
+	t.ok(rows.size() == 1 and rows[0]["status"] == "skipped_gate" and rows[0]["reason"] == "upkeep",
+		"pre_vei's full upkeep over its income: the House is held by the upkeep gate through the absence: %s/%s" % [rows[0]["status"] if not rows.is_empty() else "", rows[0]["reason"] if not rows.is_empty() else ""])
+	t.ok(line.size() == 1 and str(line[0]["text"]) == want and line[0]["kind"] == "queue" and line[0]["target"] == "queue",
+		"ready names it: \"%s\"" % (str(line[0]["text"]) if not line.is_empty() else ""))
+	return n.view_away()
 
 
 ## W2 (the run's manager, for Shawn; IDLE §7): the relics wall. The queue's walk gates a relic shortfall, so a relic-gated
