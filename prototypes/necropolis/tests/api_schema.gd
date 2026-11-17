@@ -235,6 +235,8 @@ const VIEWS := {
 		# api_version 11 (E4 step 5, B1): Vei's pressure at held forts
 		"hold_mult": F,
 		"relics": I, "relics_cap": I, "essence": I, "essence_cap": I,
+		# api_version 12 (E4 step 9, ruling 3): the idle relic trickle
+		"highest_tier_flipped": I, "relic_trickle": {"paying": B, "next_s": F},
 		"sign": I, "drain_s": F, "odds": F, "won": B,
 	},
 	"view_rates": {"rates": {"*": {"in": F, "out": F, "net": F, "unit": S}}},

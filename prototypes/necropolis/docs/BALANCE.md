@@ -65,6 +65,16 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
   and day 7.0 (52%), and the ablation banks 12–14 relics in 8 days under any cap, so a cap only slows sessions. A relic
   source outside raids (an idle trickle) for a player who holds everything goes to step 9's vision review; it is not
   built.
+  **E4 step 9, the idle relic trickle, built and kept; the miss accepted** (the run's manager's rulings on step 9 (3),
+  2026-11-17 12:45 and 14:24): one relic per 12 h (`economy.json` `relic_trickle.period_s`) while every fort at or below
+  the highest tier ever flipped is held (MECHANICS §2's relics row). Measured at the odds lever (one seed, 8 days): it
+  **never pays** in sessions, continuous or ablation_held. Sessions' and continuous's rows are identical to the runs
+  without it (Vei-ready 6.0001 and 4.8291, so the ruling's keep test passes), and ablation_held still makes **27 levels
+  against 116 (77%)**, over the 60% line, so the miss is accepted and reported. The cause: the no-held bot doesn't stop
+  at t1. Its 8 raids are 4 at t1, 2 at t2 and 2 at t3 (7 flips, 4 retakes), so its highest tier flipped is 3, a tier it
+  can't hold, and it never holds more than 2 of the 3 t1 forts anyway. A trickle keyed to the tier held now would
+  still not pay it; only one keyed to what its party can reach (a bot stand-in, which the sim doesn't gate) would. No
+  third lever, per the ruling.
 - **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
   buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
   built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in

@@ -53,8 +53,18 @@ static func hud(gs: GameState) -> Dictionary:
 		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
 		"hold_mult": gs.realm.hold_mult,  # (v11, B1) Vei's pressure at held forts, as synced (fort_hold's; E4 review item 9)
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
+		# v12 (E4 step 9, ruling 3): the idle relic trickle, and the tier it reads
+		"highest_tier_flipped": gs.highest_tier_flipped(), "relic_trickle": relic_trickle(gs),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
+
+
+## view_hud.relic_trickle (v12, E4 step 9, ruling 3; GameState._relic_trickle): {paying, next_s}: whether it pays now
+## (every fort at or below highest_tier_flipped held), and the paying seconds left to its next relic (-1.0 while not).
+static func relic_trickle(gs: GameState) -> Dictionary:
+	var on := gs.relic_trickle_paying()
+	var period := gs._req_f("economy.relic_trickle.period_s")
+	return {"paying": on, "next_s": maxf(0.0, period - gs.relic_trickle_s) if on else -1.0}
 
 
 ## §5.2 · E2, live for every id from E2a (_rate_io): the valve streams and the realm's corpses and

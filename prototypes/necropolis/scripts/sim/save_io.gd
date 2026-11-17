@@ -275,6 +275,9 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 	# v8 (E3-4): the simulacra ready, optional (a save without them reads 0), an int when present
 	if (m["inventory"] as Dictionary).has("simulacra_ready") and not fits(m["inventory"]["simulacra_ready"], _I):
 		return "inventory simulacra_ready"
+	# E4 step 9 (ruling 3): the relic trickle's accrued seconds, optional (a save without them reads 0), a float when present
+	if (m["inventory"] as Dictionary).has("relic_trickle_s") and not fits(m["inventory"]["relic_trickle_s"], _F):
+		return "inventory relic_trickle_s"
 	var uids := {}
 	for h in m["inventory"]["husks"]:
 		if uids.has(h["uid"]):
@@ -589,6 +592,10 @@ static func dump(gs: GameState) -> Dictionary:
 	# while a run is open
 	if not gs.run.is_empty():
 		d["pending_retreat"] = StateRuns.pending_of(gs)
+	# E4 step 9 (ruling 3): the relic trickle's accrued seconds, written once it has accrued any (a save that never
+	# paid is byte for byte as before)
+	if gs.relic_trickle_s > 0.0:
+		d["inventory"]["relic_trickle_s"] = gs.relic_trickle_s
 	return SaveIO.canon(d)
 
 
@@ -727,6 +734,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.relics = int(inv["relics"])
 	gs.essence = int(inv["essence"])
 	gs.simulacra_ready = int(inv.get("simulacra_ready", 0))  # E3-4: read back; a save without it reads 0
+	gs.relic_trickle_s = float(inv.get("relic_trickle_s", 0.0))  # E4 step 9: a save without it reads 0
 	gs.big_undead = []
 	for b in m["big_undead"]:
 		var st := {}

@@ -401,6 +401,11 @@ from `BALANCE.md` §0.
   - **`view_vei.strain`**: `backlog / (backlog + K)`, what the odds were until v12. Her tithe period, reship and
     one-wave need read it, unchanged, so the hold calibration doesn't move; it is never shown as odds.
     `RealmSim.odds()` is renamed `strain()`, and `RealmSim.readout().odds` is `.strain` (not contract).
+  - **The idle relic trickle** (the run's manager's rulings on step 9 (3), 2026-11-17 12:45 and 14:24; MECHANICS
+    §2's relics row): `view_hud.highest_tier_flipped` and `view_hud.relic_trickle {paying, next_s}` (§5.1), and the save's optional
+    `inventory.relic_trickle_s` (the accrued paying seconds; written once non-zero, so a save that never paid is
+    byte for byte as before; absent, it loads as 0; §9.1). The highest tier flipped is derived from the forts' saved
+    `flipped_count` (never reset), so it needs no save key of its own, and an old save reads its own history.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1481,6 +1486,8 @@ Every field is live from E2a:
 | `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
 | `hold_mult` | float | v11 (E4 step 5, ruling B1): Vei's pressure at held forts, max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`); 1.0 in a new game (MECHANICS §3.4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
+| `highest_tier_flipped` | int | v12 (E4 step 9, ruling 3): the top tier among forts ever flipped (`view_fort.flipped_count` > 0), 0 before any flip |
+| `relic_trickle` | Dictionary | v12 (E4 step 9, ruling 3; MECHANICS §2's relics row): `{paying: bool, next_s: float}`. The idle relic trickle pays one relic per `economy.json` `relic_trickle.period_s` (12 h) of game time while every fort at or below `highest_tier_flipped` is held (read at each step's start, open and caught up alike), into the relic store (lost at `relics_cap`). `next_s` is the paying seconds left to its next relic, `-1.0` while it doesn't pay; the accrued seconds are kept while it doesn't |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
 | `odds` | float | The win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `realm.json` `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`). Until v12, the strain itself. A meaning change, not a shape change: nothing in the fight reads them (her tithe period, reship and need read the strain), and the boss seed, the away report's "odds A → B", the save summary and the map valve's "odds in 10 min" show these same odds |
@@ -2753,7 +2760,7 @@ take the router's legacy path (§2.3).
 | `villages` | Array[Dictionary] | `{id, owner}` |
 | `town` | Dictionary | TownSim (`TownSim.to_dict()`: stocks, buildings with their staff caps, ladder, convoy, forge, morale, rates, pending events) plus GameState's `tier`, `haul.target` and `work_pending` |
 | `stances` | Dictionary | toggles and hold timers, and from v8 (E3-1) the optional `state` (below) |
-| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` (from E3-4 optional on load: an int when present, else `corrupt`; absent it reads 0) |
+| `inventory` | Dictionary | husks, remnants, blueprints, relics, essence, `simulacra_ready` (from E3-4 optional on load: an int when present, else `corrupt`; absent it reads 0), `relic_trickle_s` (v12, E4 step 9: the idle relic trickle's accrued paying seconds, `view_hud.relic_trickle`; written only once non-zero; optional on load, a number when present, else `corrupt`; absent it reads 0) |
 | `big_undead` | Array[Dictionary] | the entries, with `place` and `front`, and from v8 (E3-3) `filled_slots: int`, optional: an int when present (else `corrupt`), and a record without it loads as 1 (§5.12) |
 | `party` | Array[String] | |
 | `backups` | Dictionary | `{phylactery_charges, clones_ready, vats: [{slot, staffed, grow}]}` |

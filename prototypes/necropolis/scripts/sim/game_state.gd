@@ -36,7 +36,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.relic_trickle.period_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
@@ -151,6 +151,11 @@ var first_dungeon_id := ""  # "" once a won raid result has cleared it (T1.4)
 var cleared_forts := {}  # fort_id -> true once a win has spent its first clear (T1.4)
 # --- stocks and inventories (views §5.12) ---
 var relics := 0
+## The idle relic trickle (E4 step 9, ruling 3; _relic_trickle): the paying seconds toward its next relic (saved,
+## inventory.relic_trickle_s, optional: a save without it reads 0), and the relics it paid this session (not saved;
+## the bots' tally)
+var relic_trickle_s := 0.0
+var trickle_paid := 0
 var essence := 0
 var husks: Array = []
 var remnants: Array = []
@@ -597,6 +602,8 @@ func cmd_new_game(seed: int) -> Dictionary:
 	paused = false
 	run = {}
 	relics = 0
+	relic_trickle_s = 0.0
+	trickle_paid = 0
 	essence = 0
 	husks = []
 	remnants = []
@@ -2643,6 +2650,46 @@ func _sync_hold_mult() -> void:
 	realm.hold_mult = hold_mult()
 
 
+## The highest tier the player has ever flipped (E4 step 9, the manager's 2026-11-17 14:24 ruling on step 9 (3)): the
+## top tier among forts with flipped_count > 0, 0 before any flip. flipped_count is saved, never reset and counts every
+## flip, so this needs no field of its own and an old save reads its own history.
+func highest_tier_flipped() -> int:
+	var h := 0
+	for f in realm.forts:
+		if int(f.get("flipped_count", 0)) > 0:
+			h = maxi(h, int(f["tier"]))
+	return h
+
+
+## The idle relic trickle pays (the same ruling, MECHANICS §2's relics row): no raidable fort remains, read as every fort at or
+## below the highest tier ever flipped being held, after at least one flip. A player walled at a tier (every fort they
+## can take is theirs, the next tier out of reach) still gets relics; one fort lost back to Vei stops it.
+func relic_trickle_paying() -> bool:
+	var h := highest_tier_flipped()
+	if h < 1:
+		return false
+	for f in realm.forts:
+		if int(f["tier"]) <= h and not RealmSim.is_held(f):
+			return false
+	return true
+
+
+## A step of the trickle while it pays: `dt` joins relic_trickle_s, and each economy.json relic_trickle.period_s of it
+## pays one relic into the store, lost if the store is at its cap (as loot is). The accrued time is kept while it
+## doesn't pay. Catch-up runs it per step, reading the condition at the step's start, so open and closed play can
+## differ by at most one step's length each time the condition flips.
+func _relic_trickle(dt: float) -> void:
+	var period := _req_f("economy.relic_trickle.period_s")
+	if not (period > 0.0):
+		return
+	relic_trickle_s += dt
+	while relic_trickle_s >= period:
+		relic_trickle_s -= period
+		if relics < _cap_of("relics"):
+			relics += 1
+			trickle_paid += 1
+
+
 ## The inputs the wave's target rule reads, from the state as it stands (E4 step 5, ruling B1 (ii)): the settled WAR,
 ## q, Relish's tide and raise, the sieges, as the next core step will give them. The margin views and the telegraph
 ## (StateViews.fort_hold, next_wave) read these, not the last step's _realm_inputs, so a loaded state reads as the
@@ -2757,6 +2804,7 @@ func _core_step(dt: float) -> Array:
 		return []
 	t += dt
 	var mark := _events.size()  # this step's events start here (a realm event inside the step goes first)
+	var trickle_on := relic_trickle_paying()  # (E4 step 9, ruling 3) read from the state the step starts from
 	_sync_foremen()  # (E3-3) TownSim's foremen as the big undead stand; a no-op unless a place changed
 	# §3 step 1: the stances (E3-1): at a new beat their conditions are read from the state the step starts from,
 	# then the ones acting are given to TownSim for this step
@@ -2810,6 +2858,8 @@ func _core_step(dt: float) -> Array:
 	_grow_vats(dt, town["vat_hands"])
 	if relish["state"] == "dead":
 		_count_down_respawn(dt)
+	if trickle_on:
+		_relic_trickle(dt)
 	# §3 step 7: the ledger books this step's source and sinks (held is read live). Ledger.source, sink and
 	# overflow's own sums, inline (E2b-2 T3.3b2: their key checks format a message every call, about 1 µs each,
 	# ten a step); the keys are the ledger's fixed set
