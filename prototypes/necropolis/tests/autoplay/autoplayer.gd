@@ -435,8 +435,10 @@ func _big_want() -> Dictionary:
 ## whose stat there brings at least KEEP_SHARE of the want, best first (ties to the older uid). The front whose candidates
 ## alone cover the larger share of its want (ties to giants) takes its keepers first, as many as meet its want; the other
 ## then takes its own from the bigs left, as many as meet its want. At most cap - RAID_ROOM in all, and a big keeps one
-## front. The other order is taken instead when it meets more fronts, or as many with more coverage (_alloc's cov): a
-## front of weak bigs that fills every place first would leave a front it could have met unkept, and its bigs to raid.
+## front. The other order is taken instead when it meets more fronts, or as many and keeps more of today's keepers
+## (_kept_of), or as many of both with more coverage (_alloc's cov): a front of weak bigs that fills every place first
+## would leave a front it could have met unkept, and a keeper meeting a front isn't sent to raid for a sliver of cover
+## elsewhere (sessions at 96 h: two new beef-3 skeletons took giants' wits 5 and 4 places, 1.43 against 1.41).
 ## {uids: the keepers in that order, front_of: {uid: front}}; {} when no big qualifies.
 func _keepers() -> Dictionary:
 	if not keep_fronts:
@@ -468,11 +470,22 @@ func _keepers() -> Dictionary:
 		order.append([sum / w, fid, rows, w])
 	order.sort_custom(func(o1, o2): return float(o1[0]) > float(o2[0]) or (float(o1[0]) == float(o2[0]) and str(o1[1]) == "giants"))
 	var best := _alloc(order, k)
-	if order.size() == 2:  # the other order, when it meets more fronts or (as many) covers more
+	if order.size() == 2:  # the other order, when it meets more fronts, or as many and keeps more of today's keepers, or covers more
 		var alt := _alloc([order[1], order[0]], k)
-		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and float(alt["cov"]) > float(best["cov"]) + 1e-9):
+		var ka := _kept_of(alt["uids"])
+		var kb := _kept_of(best["uids"])
+		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and (ka > kb
+				or (ka == kb and float(alt["cov"]) > float(best["cov"]) + 1e-9))):
 			best = alt
 	return {} if (best["uids"] as Array).is_empty() else {"uids": best["uids"], "front_of": best["front_of"]}
+
+
+## How many of `uids` are keepers now (_keep, the last look's).
+func _kept_of(uids: Array) -> int:
+	var n := 0
+	for u in uids:
+		n += 1 if _keep.has(u) else 0
+	return n
 
 
 ## _keepers' fill in one front order: each front in turn takes its candidates not yet kept, best first, until its want is

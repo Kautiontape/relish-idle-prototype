@@ -91,6 +91,23 @@ func _two_fronts(c: Dictionary) -> void:
 		"the order that meets both fronts is kept (giants first: A, B; carvers: C, D): %s, A on %s" % [str(bo._keep), _front(bo.s, a)])
 	bo.cleanup()
 
+	# sessions at 96 h: three giants keepers (0.43, 0.36, 0.29: met) and one carvers keeper (0.41); two more carvers bigs
+	# (0.41 each) arrive. Carvers first meets carvers and covers 1.43, giants first meets giants and covers 1.41: one front
+	# either way, so the keepers already kept stay, rather than sending giants' second and third out to raid
+	var bs := Autoplayer._bot("keep_test_stay", c6, {"print_rows": false})
+	bs.new_game()
+	var gk: Array = []
+	for sh in [0.43, 0.36, 0.29]:
+		gk.append(_big(bs.s, _stat_for(c, w["giants"], "giants", sh), 0.0))
+	var c1 := _big(bs.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.41))
+	bs._place()
+	t.ok(bs._keep == gk + [c1], "setup: giants' three and carvers' one are kept: %s" % str(bs._keep))
+	_big(bs.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.41))
+	_big(bs.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.41))
+	bs._place()
+	t.ok(bs._keep == gk + [c1], "two more carvers bigs, one front met either way: today's keepers stay (%s)" % str(bs._keep))
+	bs.cleanup()
+
 
 ## The crypt's levels (the sizing stop's ruling): no crypt entry while the crypt has room; once it is full (big undead at
 ## the cap) and a husk waits, the fill queues crypt level 2 first, and the latch holds after the husk is gone.
