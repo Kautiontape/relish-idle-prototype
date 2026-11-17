@@ -63,6 +63,7 @@ func run() -> int:
 	_workforce()
 	_ladder()
 	_haul()
+	_haul_wait()
 	_over_cap()
 	_mill_stall_pit()
 	_forge()
@@ -358,6 +359,52 @@ func _haul() -> void:
 		got += float(p["mass"])
 	t.near(got, 50.0, 1e-9, "a 600 s step makes many trips, taking exactly the fort's 50 dead")
 	t.ok(s.bodies <= s.body_cap() + 1e-9, "and the store stays within its cap")
+
+
+## E4 step 10 (the I1 bone-gap probe; _haul_wait_s): an auto convoy at home with no fort above auto_min_dead leaves at the
+## step's first sim.substep_s mark after a fort's corpses pass it, as live play's next substep does, not at the step's end.
+## A fort two seconds out, 1 below the threshold and forming 1/s, passes it at 1.0 s; the pick is strict, so the convoy
+## leaves at the 1.5 s mark. Revert proof (on 0b2a9ec's code): the 3 s step leaves the convoy at home.
+func _haul_wait() -> void:
+	var speed := float(_eco("job")["haul"]["speed"])
+	var amin := float(_eco("job")["haul"]["auto_min_dead"])
+	var x := speed * 2.0
+	var fort := func(at: float, rate: float) -> Dictionary:
+		var f := _fort("a", x, amin - 1.0 + at)
+		f["dead_rate"] = rate
+		return f
+	# live: one 0.5 s step crossing inside it has no mark to leave at, as before
+	var s := _haul_sim()
+	s.step(0.5, _inp({"forts": [fort.call(0.75, 1.0)]}))
+	t.ok(s.haul["convoys"].is_empty(), "a 0.5 s step (live play) whose fort crosses auto_min_dead inside it sends nobody")
+	# live: six 0.5 s steps, the fort's corpses advanced as the realm would
+	var lv := _haul_sim()
+	for i in 6:
+		lv.step(0.5, _inp({"forts": [fort.call(0.5 * i, 1.0)]}))
+	# caught up: one 3 s step from the same start
+	var cu := _haul_sim()
+	cu.step(3.0, _inp({"forts": [fort.call(0.0, 1.0)]}))
+	var lc: Dictionary = lv.haul["convoys"][0] if not (lv.haul["convoys"] as Array).is_empty() else {}
+	var cc: Dictionary = cu.haul["convoys"][0] if not (cu.haul["convoys"] as Array).is_empty() else {}
+	t.ok(not lc.is_empty() and str(lc["phase"]) == "out" and absf(float(lc["t"]) - 0.75) < 1e-9,
+		"(setup) live, it leaves at the 1.5 s substep and is 1.5 s of its 2 s trip out at 3 s: %s" % str(lc))
+	t.ok(not cc.is_empty() and str(cc["phase"]) == "out" and str(cc["fort"]) == "a" and absf(float(cc["t"]) - float(lc.get("t", -1.0))) < 1e-9,
+		"one 3 s step leaves at the same 1.5 s mark, not at the step's end: %s" % str(cc))
+	# a 10 s step: it leaves at 1.5 s and at its 3.5 s arrival loads the fort's corpses then: the snapshot's (amin − 1),
+	# picked up, and the 3.5 formed since the step's start, claimed
+	var lg := _haul_sim()
+	var o := lg.step(10.0, _inp({"forts": [fort.call(0.0, 1.0)]}))
+	var picked := 0.0
+	for p in o["pickups"]:
+		picked += float(p["mass"])
+	var cl: Array = o["claims"]
+	t.ok(absf(picked - (amin - 1.0)) < 1e-9 and not cl.is_empty() and absf(float(cl[0]["mass"]) - 3.5) < 1e-9,
+		"a 10 s step's first leg leaves at 1.5 s and loads what the fort holds at its 3.5 s arrival (picked %.3f, claimed %s)" % [
+		picked, str(cl.map(func(c): return snappedf(float(c["mass"]), 0.001)))])
+	# a fort that never forms corpses, or a set target, waits as before
+	var none := _haul_sim()
+	none.step(3.0, _inp({"forts": [fort.call(0.0, 0.0)]}))
+	t.ok(none.haul["convoys"].is_empty(), "no corpses forming: a 3 s step sends nobody")
 
 
 # ------------------------------------------------- an over-cap store (I1) ----

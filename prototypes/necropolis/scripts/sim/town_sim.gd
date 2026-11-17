@@ -94,6 +94,7 @@ var _living_cap := 0.0
 var _haul_speed := 0.0
 var _carry := 0.0
 var _auto_min := 0.0
+var _substep := 0.0  # economy.json sim.substep_s, live play's step (_haul_wait_s); 0 when absent
 var _haul_mult := 0.0
 var _mill_mass := 0.0
 var _mill_rate := 0.0
@@ -233,6 +234,7 @@ func setup(cfgs: Dictionary) -> void:
 	_haul_speed = _num(cfgs, "economy.job.haul.speed")
 	_carry = _num(cfgs, "economy.job.haul.carry")
 	_auto_min = _num(cfgs, "economy.job.haul.auto_min_dead")
+	_substep = float((cfgs.get("economy", {}) as Dictionary).get("sim", {}).get("substep_s", 0.0))
 	_mill_mass = _num(cfgs, "economy.job.mill.mass_per_s")
 	_mill_rate = _num(cfgs, "economy.job.mill.rate")
 	_forge_rate = _num(cfgs, "economy.job.forge.rate")
@@ -518,6 +520,7 @@ func clone() -> TownSim:
 	c._haul_speed = _haul_speed
 	c._carry = _carry
 	c._auto_min = _auto_min
+	c._substep = _substep
 	c._haul_mult = _haul_mult
 	c._mill_mass = _mill_mass
 	c._mill_rate = _mill_rate
@@ -927,6 +930,11 @@ func idle_cap() -> float:
 ## inside the realm step. Without it a long step's dead-limited leg missed them, and they waited at the
 ## fort, where some were cleared: the I1 first away's convoy, leaving at auto_min_dead, made 99 such legs
 ## in 2 400 s and landed 1.7% less at 3 s than at 0.5 s (MECHANICS §4.2).
+## The wait (E4 step 10, the I1 bone-gap probe): an auto convoy at home with no fort above auto_min_dead leaves at
+## the step's first sim.substep_s mark after a fort's projected corpses pass it (_haul_wait_s), as live play's next
+## substep finds it. Before (0b2a9ec), it waited for the step's end: over a build-free hour of the I1 first away (from 3 000 s)
+## a 3 s catch-up milled 303 bone mass against 246 at 0.5 s and open (the pits' feed loop amplifies the later, larger
+## loads), and the sessions run's bone read 233 caught up against 59 open at 14 400 s.
 ## Returns the mass landed.
 func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
@@ -955,7 +963,13 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 				break
 			var fid := _haul_pick(forts, target, taken, late, dt - left)
 			if fid == "":
-				break
+				var s_dep := _haul_wait_s(forts, target, taken, late, dt - left, dt)
+				if s_dep >= dt or clampf(lvl + net * (s_dep - at_lvl), 0.0, hi) >= cap - EPS:
+					break
+				left = dt - s_dep
+				fid = _haul_pick(forts, target, taken, late, s_dep)
+				if fid == "":
+					break
 			var trip := maxf(MIN_TRIP_S, cov.distance_to(_xy(by_id[fid].get("pos", [0.0, 0.0]))) / speed)
 			convoys.append({"fort": fid, "phase": "out", "t": 0.0, "trip_s": trip, "load": 0.0, "crew": crew_now})
 			haul["current"] = fid
@@ -1023,6 +1037,34 @@ func land_claim(mass: float, landed: bool, dt: float) -> float:
 			rb["in"] = float(rb["in"]) + got / dt
 			rb["haul"] = float(rb["haul"]) + got / dt
 	return got
+
+
+## The moment, seconds into the step, an auto convoy waiting at home after `at` finds a target: the first sim.substep_s
+## mark of the step at or after the first fort's projected corpses (RealmSim.dead_at, less this step's legs) pass
+## job.haul.auto_min_dead, as live play's next substep would find it; `dt` (none in the step) when no fort passes it
+## before the step's end or the target is set. A live step is one substep, so it has no mark inside: live play is as
+## before, and a catch-up step no longer holds the convoy at home to its end.
+func _haul_wait_s(forts: Array, target: String, taken: Dictionary, late: Dictionary, at: float, dt: float) -> float:
+	if target != "auto" or not (_substep > 0.0):
+		return dt
+	var cross := INF
+	for f in forts:
+		var rate := float(f.get("dead_rate", 0.0))
+		if not (rate > 0.0):
+			continue
+		var id := str(f.get("id", ""))
+		var s := (_auto_min + float(taken.get(id, 0.0)) + float(late.get(id, 0.0)) - maxf(0.0, float(f.get("dead", 0.0)))) / rate
+		cross = minf(cross, s)
+	if cross >= dt:
+		return dt
+	var k := ceilf(maxf(cross, at) / _substep - 1e-9)
+	var s_dep: float = k * _substep
+	if s_dep <= at + 1e-9:
+		s_dep += _substep
+	# the pick is strict (dead > auto_min_dead): a mark exactly on the crossing finds none, so the next mark
+	if s_dep <= cross + 1e-9:
+		s_dep += _substep
+	return s_dep if s_dep < dt - 1e-9 else dt
 
 
 ## The convoy's target at a departure `at` seconds into the step: the set one, or (auto) the fort with

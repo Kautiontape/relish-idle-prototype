@@ -957,8 +957,9 @@ The profiles:
       cleared (+8.3). The convoys' targets are the same (99 departures, fort for fort): not the haul phase. **The
       amplifier:** the bone-bound queue. A Raising Pit level lands a step apart, and each later bone-timed start shifts
       from there (bone at 4 h: 260 closed, 229 open). With the cap lifted in a probe, the window agrees within 0.35%,
-      but 4 h still parts (267 against 226), so the end gap is the queue's sensitivity near the bone edge, not a
-      catch-up bias.
+      but 4 h still parts (267 against 226), so the end gap read as the queue's sensitivity near the bone edge, not a
+      catch-up bias. That held for that window only: past it, at the first away's 3 s steps, it was one (step 10's
+      probe, below).
       - **The seed is fixed by the convoy's claim** (MECHANICS §4.2, the hold and the claim). In the same window the
         caught-up run now mills 224.25 against 223.54 (+0.32%, from −1.7%), with both ledgers exact; bone at 4 h is
         264 closed, 230 open.
@@ -971,6 +972,35 @@ The profiles:
           14 400 s, `queue_full` closed and accepted open.
         - So what's left is the amplifier: a bone-bound queue near the bone edge turns any small offset into a
           build a step apart.
+      - **The amplifier's source was a catch-up bias (E4 step 10, the I1 bone-gap probe, measured at 0b2a9ec).**
+        - The first away (1 200 to 14 400 s) catches up at 3.06 s steps. Over its build-free hour from the 3 000 s
+          state, the bone made reads +123.0 open and +122.8 to +123.0 caught up at 0.5, 0.83 and 1 s steps, but
+          +151.7 at 3.06 s (milled +23%) and +138 to +151 at 5, 7 and 10 s.
+        - Either knockout, in the caught-up run alone, removes it at 3 s: the pits' feed bonus at 0 (+71.9 against
+          +71.9 at 0.5 s), or auto_min_dead at 0.5 (+124.0 against +124.3).
+        - **The cause:** an auto convoy at home with no fort above auto_min_dead re-checked only at a step's start or
+          after a landing. A catch-up step held it home to the step's end, so its loads came later and larger, and
+          the pits' feed loop turned that into more mint, more corpses and more bone.
+        - In the sessions run, bone read 233 closed against 59 open at 14 400 s, and the Bone Mill L2 started 1 790 s
+          early.
+      - **Fixed** (TownSim._haul_wait_s; MECHANICS §4.2; measured on the fix's own code): the waiting convoy leaves at the step's first
+        sim.substep_s mark after a fort's projected corpses pass the threshold, as live play's next substep finds
+        it.
+        - Live play is bit for bit as before, since a live step has no mark inside it.
+        - At 3.06 s the hour reads +122.8. The first away's builds start 0.9 to 65 s apart (the mill L2 2.1 s).
+          At 14 400 s bone is 62.7 closed against 59.3 open, with the same queue and levels.
+        - Test: test_town_sim `_haul_wait`. Its revert proof: the 3 s and 10 s cases fail on 0b2a9ec's code.
+      - **The residual (not chased):** with the fix, 5, 7 and 10 s steps still read +138, +132 and +151, and the
+        same two knockouts remove it at 10 s (+73.3 against +71.9; +123.7 against +124.3). Nights catch up at
+        catchup_dt_max_s, 10 s. One unconfirmed reading: the convoy's corpse projection (the last realm step's
+        dead_rate) lags the feed loop's cycle of about 24 s.
+      - **The gate with the fix** (sessions_open, 2 days) is still red, but closer.
+        - Day 1: living 70/70 (was 70/62), the backlog 0.02% apart (was 4.7%), the wave clocks 2.2 s apart (was
+          78.6), essence 49/45, remnants 25/24, and the crypt L2 closed against L1 open.
+        - Day 2: living 86/78, husks 0/3, remnants 30/36, and 21 buildings against 20.
+        - The first difference is now a held fort: at the 14 569 s raid, old-sluice is held open and not closed
+          (the first away's realm, not its bone).
+        - The first command answered otherwise is a husk raise at 86 400 s (`unknown_husk` open).
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
