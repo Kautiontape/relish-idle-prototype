@@ -71,14 +71,19 @@ const PARENT := {
 		"caught": {"state": "700b706edae0115d", "events": "e3093d57d7355dc3", "away": "0915402c0be35720", "n_events": 15, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
 	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
-	"midgame_2flips": {"live": {"state": "7b0b81e015745ff4", "events": "64c42f4e26ef70ac", "n_events": 123},
-		"caught": {"state": "7cf1dab369931400", "events": "9edee23084f847b2", "away": "9e4483b4708fee1a", "n_events": 241, "steps": 4356}},
+	# E4 step 5 B1 (ii) (the standing re-pin rule): midgame_2flips live and caught, PARENT_C3 too, as test_backups' re-pin
+	# (the lowest-margin rule retakes Old Sluice sooner; fort_retaken's war_in and pressure_mult; the retake line's
+	# cause). day1 and pre_vei hold nothing that is retaken here and don't move. The proof tree (the most-undead rule,
+	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 7b0b81e0… / 64c42f4e…
+	# live, 7cf1dab3… / 9edee230… / 9e4483b4… caught; PARENT_C3 41a73272… live, 7ae237fa… / 70cd4e03… caught)
+	"midgame_2flips": {"live": {"state": "aa33406ee63dcdda", "events": "f0094e8ce5a052a2", "n_events": 123},
+		"caught": {"state": "fb2fbcd7af9ef17e", "events": "9d7e28db25274e96", "away": "1125e651125aee81", "n_events": 241, "steps": 4356}},
 }
 ## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
 ## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
-## E4 step 3 as PARENT is.
-const PARENT_C3 := {"live": {"state": "41a7327294750a1f", "events": "64c42f4e26ef70ac", "n_events": 123},
-	"caught": {"state": "7ae237fa9f4d7180", "events": "9edee23084f847b2", "away": "70cd4e031693869d", "n_events": 241, "steps": 4356}}
+## E4 step 3 as PARENT is, and at B1 (ii) (above).
+const PARENT_C3 := {"live": {"state": "6982227bd19fd694", "events": "f0094e8ce5a052a2", "n_events": 123},
+	"caught": {"state": "3cacefd0b08443fe", "events": "9d7e28db25274e96", "away": "066cdb6ccd27c016", "n_events": 241, "steps": 4356}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 

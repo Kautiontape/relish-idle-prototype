@@ -766,7 +766,8 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     after". A start that didn't wait stays "started right away" (`started_now_fmt`). The cutoff is the
     report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
     "briefly" in `_unpaid_lines`; not a tuning number.
-- **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
+- **losses:** "Ashgate retaken (WAR 4.1/s against Vei's pressure, 5.2 times base): raid it to win it back" (the
+  cause, from B1 (ii)), villages lost, each building that went unpaid,
   each building the Thrift stance idled (E3-1). A store that filled up is no longer a loss (E4 step 7: it is
   a ready action, above; it was "Gold is full: 2,162 not stored" here, W's words for what came in over its cap,
   never called waste).
@@ -1032,10 +1033,13 @@ The profiles:
 - **away_risk**: the sessions run to the end of day 3's last session, saved there. If nothing is held then, it falls
   back to the midgame_2flips fixture and says so. Then 24 h away, twice from that save:
   - as the sessions bot left it;
-  - after the prepared setup: the held forts that read `will_fall` or `thin` raided; WAR raised in 0.05 steps
-    (`view_projection`, WORK and FLOOD keeping their ratio) until "WAR supports N of M" covers every held fort; a siege at
-    the thinnest held fort (`will_fall`, then `thin`, then the lower `garrison_rate`); and a simulacrum crafted and
-    deployed there when one can be.
+  - after the prepared setup (E4 step 5, ruling B1 (ii): what a player does reading each held fort's margin forecast,
+    `view_fort().hold`, before a long absence): a siege and a simulacrum (crafted when none is ready) at the held fort
+    with the lowest margin, the one the next wave will pick; then WAR raised in 0.05 steps (WORK and FLOOD keeping their
+    ratio) until no held fort reads under its need, and no further: WAR is global, so a player raises it only as far as
+    the weakest fort needs, and every step costs growth. No raids (they used to raid the `thin` forts first; a raid takes
+    Relish away for the hour before leaving). Before B1 (ii) the WAR step stopped on "WAR supports N of M", which is
+    steady and flat in Vei's pressure.
 
   It measures the held forts lost.
 - **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least

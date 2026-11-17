@@ -351,10 +351,16 @@ func _chip_predicts() -> void:
 ## - The wave train (view_fort, the shipped settings): it starts from today's state, but that doesn't make
 ##   this fort's slow fall reachable: its 60 undead decay to the level its WAR holds within about a minute,
 ##   and its first wave pins it past break_s, so the train breaks it and it reads thin (wave), as the one-wave
-##   probe did. A slow fall no wave in the train breaks is a shielded one: Old Sluice with its WAR just under
-##   the edge (a rate of −G / (1.5 × the horizon), so fall_s is about 1.5 × the horizon) beside Ashgate at 3.0
-##   mass/s, whose larger garrison draws every wave. The train never hits Old Sluice, the set settles, and
-##   its slow fall reads thin (fall): slow attrition, not a wave, is the threat (the reviewer's case).
+##   probe did. Old Sluice with its WAR just under the edge (a rate of −G / (1.5 × the horizon), so fall_s is
+##   about 1.5 × the horizon) beside Ashgate at 3.0 mass/s, with a siege (tithe.siege_block) and Relish's tide
+##   (tithe.relish_mult) at Old Sluice. Under the lowest-margin rule (B1 (ii)) a slow faller's WAR is under its
+##   steady need, so its margin is the lowest and the first wave goes to it; at its steady edge any wave pins it,
+##   so it breaks even with the siege and her tide: thin (wave). Before B1 (ii) this was the shielded slow fall,
+##   Ashgate's larger garrison drawing every wave, and it read thin (fall) (slow attrition, not a wave, the
+##   reviewer's case); the margin rule sends the waves to the weak fort, so that shielding is gone, and the
+##   train path's thin (fall) has no case here any more (the one-wave probe's below still pins it). Side finding,
+##   not chased: with the clock past the horizon (no wave in the train) the train still marks this fort broken
+##   within 11 probe steps, though its fall_s is 1.5 × the horizon.
 func _chip_slow_fall() -> void:
 	t.suite("api-v6-chip-slow-fall")
 	var horizon := float(TestUtil.configs()["realm"]["hold"]["safe_horizon_s"])
@@ -370,7 +376,9 @@ func _chip_slow_fall() -> void:
 	var roa := lone.readout_of(fa, wa, false, 4.0, false, 0.0, 2.0, tra["forts"]["ashgate"])
 	t.ok(roa["garrison_rate"] < 0.0 and float(roa["fall_s"]) > horizon and bool(tra["forts"]["ashgate"]["broken"]) and [roa["margin"], roa["margin_cause"]] == ["thin", "wave"],
 		"the train: T3.2's slow faller (q 2, 60 undead, fall_s %.0f s) is broken by its first waves (%s): thin (wave)" % [roa["fall_s"], str(tra["targets"])])
-	# the wave train, shipped settings: a shielded slow faller reads thin (fall)
+	# the wave train: Old Sluice a slow faller beside Ashgate at 3.0. It has the lowest margin, draws the first wave and
+	# breaks, even with a siege and Relish's tide there (it sits at its steady edge, so any wave pins it): thin (wave)
+	var blk := float(TestUtil.configs()["realm"]["tithe"]["siege_block"])
 	var two := _slow_sim(TestUtil.configs())
 	for id in ["ashgate", "old-sluice"]:
 		two.hold(id, 0.0)
@@ -381,13 +389,13 @@ func _chip_slow_fall() -> void:
 	var wo := off_o / (1.0 + 1.0 / (1.5 * horizon * two._r_drain))  # its level G = wo / r falls at G / 1.5 h
 	fo["undead"] = wo / two._r_drain
 	two.fort_by_id("ashgate")["undead"] = 3.0 / two._r_drain
-	var tr2 := two.train_probe({"ashgate": [3.0, false, 4.0, false, 0.0], "old-sluice": [wo, false, 4.0, false, 0.0]}, 1.2)
-	var ro2 := two.readout_of(fo, wo, false, 4.0, false, 0.0, 1.2, tr2["forts"]["old-sluice"])
-	t.ok(ro2["garrison_rate"] < 0.0 and float(ro2["fall_s"]) > horizon and not (tr2["targets"] as Array).has("old-sluice")
-		and bool(tr2["settled"]) and not bool(tr2["forts"]["old-sluice"]["broken"]),
-		"the premise: Old Sluice's rate %.5f < 0, fall_s %.0f s past the horizon; every wave to Ashgate (%s); the set settles" % [
-		ro2["garrison_rate"], ro2["fall_s"], str(tr2["targets"])])
-	t.ok([ro2["margin"], ro2["margin_cause"]] == ["thin", "fall"], "the train: the shielded slow fall reads %s (%s)" % [ro2["margin"], ro2["margin_cause"]])
+	var tr2 := two.train_probe({"ashgate": [3.0, false, 4.0, false, 0.0], "old-sluice": [wo, false, 4.0, true, blk]}, 1.2)
+	var ro2 := two.readout_of(fo, wo, false, 4.0, true, blk, 1.2, tr2["forts"]["old-sluice"])
+	t.ok(ro2["garrison_rate"] < 0.0 and float(ro2["fall_s"]) > horizon and str(tr2["targets"][0]) == "old-sluice"
+		and bool(tr2["forts"]["old-sluice"]["broken"]),
+		"the premise: Old Sluice's rate %.5f < 0, fall_s %.0f s past the horizon; the lowest margin, it draws the first wave (%s) and breaks (siege %.1f, Relish's tide)" % [
+		ro2["garrison_rate"], ro2["fall_s"], str(tr2["targets"]), blk])
+	t.ok([ro2["margin"], ro2["margin_cause"]] == ["thin", "wave"], "the train: the slow fall reads %s (%s), not the shielded thin (fall)" % [ro2["margin"], ro2["margin_cause"]])
 	# the one-wave probe (a drag), as T3.2 pinned it
 	for short_probe in [false, true]:
 		var all := TestUtil.configs().duplicate(true)

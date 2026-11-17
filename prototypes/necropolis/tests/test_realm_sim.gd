@@ -1082,7 +1082,9 @@ func _contest(t: TestUtil) -> void:
 			for e in sim.drain_timed():
 				if e[1]["type"] == "fort_retaken" and at < 0.0:
 					at = el + float(e[0])
-					t.ok(e[1] == {"type": "fort_retaken", "fort_id": f["id"], "cause": "broken"}, "dt %.1f: fort_retaken {fort_id, cause: broken}" % dt)
+					# (v11) the WAR it had at the break (0 here: no undead feed) and Vei's pressure (×1, no mint ref)
+					t.ok(e[1] == {"type": "fort_retaken", "fort_id": f["id"], "cause": "broken", "war_in": 0.0, "pressure_mult": 1.0},
+						"dt %.1f: fort_retaken {fort_id, cause: broken, war_in, pressure_mult}: %s" % [dt, str(e[1])])
 			el += dt
 			if not checked and el >= 20.0 and el < grace + brk:
 				checked = true

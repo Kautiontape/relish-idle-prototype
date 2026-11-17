@@ -48,9 +48,12 @@ const TIP := {
 	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…)
 	# E4's in-flight overlay (the standing re-pin rule): the state only, for Bellwether's end owner (player, as live play
 	# reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was eddec826…)
-	"midgame_2flips": {"state": "ccdf38fdbfe5972f618e1e6d1ce5a792a31a6ed9bf108a26d91b5e13a4aad7fd",
-		"events": "0466a66d3a07a137c07caaa467ba8b23cdb353044712df331894a1cdc174385b",
-		"away": "e0a288bf141791df9677c4b80c2eba395abac4206708b15e6417ea0741110910", "steps": 4356, "n_events": 237},
+	# E4 step 5 B1 (ii) (the standing re-pin rule), as test_backups' re-pin: Old Sluice retaken at 4 618.6 s under the
+	# lowest-margin rule (was 4 986.1 s), fort_retaken's two new keys, the retake line's cause. The same proof tree passes
+	# the old pins (was ccdf38fd… / 0466a66d… / e0a288bf…)
+	"midgame_2flips": {"state": "22a85c67268629792e832f5b20a42cb5fbc08e2598b0f152ca6ded8a0e2af944",
+		"events": "f17e78e57a431cf40ea91355d57f364ba071f83bb8bec84836dcc7fbe674c33e",
+		"away": "1d3c4855bb029af3b6dfa1433ca9c105a4abfc55f6ccd95432e33da2dcb40af0", "steps": 4356, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
 	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").

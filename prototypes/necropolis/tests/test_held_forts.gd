@@ -143,6 +143,9 @@ func _retake_effects(r: Dictionary) -> void:
 	t.ok(k >= 0 and k + 1 < evs.size() and evs[k + 1] == {"type": "big_undead_returned", "uid": "u9", "fort_id": "ashgate", "t": evs[k]["t"]},
 		"Ashgate's retake: big_undead_returned {uid: u9, fort_id: ashgate} right after it, at its t: %s" % (str(evs.slice(k, k + 2)) if k >= 0 else "none"))
 	t.ok(k >= 0 and absf(fmod(float(evs[k]["t"]), 10.0)) > 1e-6, "the retake is stamped inside its 10 s step (%.3f s from the start)" % (float(evs[k]["t"]) if k >= 0 else -1.0))
+	# (E4 step 5, B1 (ii)) its cause for the away report: the WAR it had (none: the run's valve sends no WAR) and Vei's pressure
+	t.ok(k >= 0 and float(evs[k]["pressure_mult"]) == s.hold_mult() and float(evs[k]["war_in"]) >= 0.0,
+		"fort_retaken carries war_in and pressure_mult (×%.3f): %s" % [s.hold_mult(), str(evs[k]) if k >= 0 else "none"])
 	var b := s._find_uid(s.big_undead, "u9")
 	t.ok(b["place"] == "crypt" and s.view_fort("ashgate")["siege"] == [], "u9 is in the crypt; Ashgate has no siege")
 	var mono := true

@@ -663,7 +663,9 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	t.ok(_find(rep, "ready", "queue").is_empty() and _find(rep, "ready", "raid", "stores are full")
 		== {"text": "Your stores are full and the queue is empty: raid a fort for relics", "kind": "raid", "target": ""},
 		"ready: the stores full and the queue empty, the raid prompt in place of Queue empty: %s" % str(rep["ready"].map(func(l): return l["text"])))
-	t.ok(_find(rep, "losses", "retaken") == {"text": "Old Sluice retaken: raid it to win it back", "kind": "retaken", "target": "old-sluice"}, "losses: Old Sluice retaken")
+	var os_text := _retaken_text(c, n, "old-sluice", "Old Sluice", false)
+	t.ok(_find(rep, "losses", "retaken") == {"text": os_text, "kind": "retaken", "target": "old-sluice"},
+		"losses: Old Sluice retaken, with its fort_retaken's WAR and Vei's pressure: %s" % os_text)
 	# (E3-3: with u9's siege blunting Ashgate's waves the report loses Bellwether first, then Tarnish)
 	t.ok(_find(rep, "losses", "village_lost", "Tarnish") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
 	var over := float(n.ledger()["stores"]["gold"]["overflow"])
@@ -923,13 +925,26 @@ func _report_filled(reps: Array) -> void:
 		"no report shows the raid prompt beside a queue line, and none says today's, stores kept, wasted or unpaid")
 
 
+## A retake's loss line as economy.json words it (B1 (ii)): its collected fort_retaken's war_in and pressure_mult,
+## one decimal each; "" when no fort_retaken for `id` was collected.
+static func _retaken_text(c: Dictionary, n: GameState, id: String, fort_name: String, walked: bool) -> String:
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	for e in n.catchup_events():
+		if e["type"] == "fort_retaken" and e["fort_id"] == id:
+			return str(rep["retaken_home_fmt"] if walked else rep["retaken_fmt"]).format({"fort": fort_name,
+				"war": "%.1f" % float(e["war_in"]), "mult": "%.1f" % float(e["pressure_mult"])})
+	return ""
+
+
 ## The losses' walk-home line: Greywall retaken while Relish stood there, during a 10 min load's catch-up:
-## "Greywall retaken, Relish walked home: raid it to win it back", and view_relish().returned tells it too.
+## "Greywall retaken (WAR …/s against Vei's pressure, … times base), Relish walked home: raid it to win it back",
+## and view_relish().returned tells it too.
 func _report_walked_home() -> void:
 	var c := cfgs()
 	var n := _away(c, _greywall(c), "walked", 600)
 	var l := _find(n.view_away(), "losses", "retaken")
-	t.ok(l == {"text": "Greywall retaken, Relish walked home: raid it to win it back", "kind": "retaken", "target": "greywall"}
+	var want := _retaken_text(c, n, "greywall", "Greywall", true)
+	t.ok(want != "" and l == {"text": want, "kind": "retaken", "target": "greywall"}
 		and n.view_relish()["returned"]["fort_id"] == "greywall" and n.catchup_events().any(func(e): return e["type"] == "relish_returned"),
 		"losses: Greywall retaken, Relish walked home (her relish_returned collected; view_relish().returned): %s" % str(l))
 

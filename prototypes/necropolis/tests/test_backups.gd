@@ -64,9 +64,16 @@ const TIP := {
 	# E4's in-flight overlay (the standing re-pin rule; IDLE §4): the state only, for Bellwether's end owner (player, as
 	# live play reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was
 	# b1469601…). The proof: the overlay's call disabled passes the old pins
-	"midgame_2flips": {"state": "54ae71490698087d9633a94208fe6ff3589e8a89da332db9bc04e0e2c2b85c10",
-		"events": "7eb703c3b30d590a9bf73446b5a1531efa8cb6dd30cf1af234bee0b9f318e862",
-		"away": "e0a288bf141791df9677c4b80c2eba395abac4206708b15e6417ea0741110910", "steps": 4356, "n_events": 240},
+	# E4 step 5 B1 (ii) (the standing re-pin rule): the lowest-margin target rule sends Old Sluice a wave one period sooner
+	# (4 485.5 s, not 4 853.0 s: the most-undead rule gave that wave to Ashgate), so it is retaken at 4 618.6 s, not
+	# 4 986.1 s (the wave counts are the same, Ashgate's 115 and Greywall's 2; the backlog +5); fort_retaken gains
+	# war_in and pressure_mult, and the report's retake line its cause. Vei's pressure stays ×1 here (the mint stays
+	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
+	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
+	# e0a288bf…)
+	"midgame_2flips": {"state": "875e15d2f5a0ab76766cf4d633e8aa2767e0331ad3fccbd518476ee9a03811d5",
+		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
+		"away": "1d3c4855bb029af3b6dfa1433ca9c105a4abfc55f6ccd95432e33da2dcb40af0", "steps": 4356, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at

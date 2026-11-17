@@ -1469,6 +1469,7 @@ Every field is live from E2a:
 | `game_id` | String | a stable identity for one game: fresh per new game, kept across its saves and loads (api-request #18). Derived from the seed, never from the rng: `"%08x" % (seed & 0xffffffff)`, 8 hex digits (`SaveIO.game_id_for`). Two games with the same seed share an id (only tests and fixtures do that). Fixtures carry none and compute it at load. |
 | `war_overflow` | float | mass/s: the last substep's WAR that fell through to Vei (`view_lanes` `war:covington:vei`); 0 while a WAR target has room (v4) |
 | `war_supports` | Dictionary | `{n: int, m: int}`: `m` held forts, `n` of them with `garrison_rate` ≥ 0 at the current valve (v6) |
+| `hold_mult` | float | v11 (E4 step 5, ruling B1): Vei's pressure at held forts, max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`); 1.0 in a new game (MECHANICS §3.4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
@@ -1635,7 +1636,8 @@ dungeon's configs (v6, below); the hold's readouts
 | `relish_here`, `tide`, `redirect` | bool | she stands here; her tide applies (also in its dungeon); her redirect applies (not in its dungeon) |
 | `simulacrum_charges` | float | mass left across simulacra planted here, summed when several are (they stack); 0 when none. Each one's charges fall by what it raises and it crumbles at 0; a retake loses them all (MECHANICS §3.6, §3.4) |
 | `siege` | Array[String] | big-undead uids placed here |
-| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). |
+| `tithe` | Dictionary | `{targeted: bool, eta_s: float, wave_active: bool, next: bool, next_s: float}`; `eta_s` is `-1.0` when not targeted. Targeted while a warning names the fort (`eta_s`: seconds to its wave) or its wave runs (`eta_s` 0.0, `wave_active`). `next` (v11, E4 step 5 B1 (ii)): the fort is the one the next wave would go to if it were chosen now, or the warned one during a warning (`view_vei.tithe.next_target`); `next_s` (v11) the seconds to the next wave, `-1.0` before the clock starts. |
+| `hold` | Dictionary | v11 (E4 step 5, ruling B1 (ii)): the margin forecast the wave's target rule reads, `{war_in, need, margin, pressure_mult, fall_s, margin_cause}`. `war_in` is the settled WAR to it (mass/s: the valve's target at the pits' trough feed, split as the last dispatch splits WAR; not the convoy's sawtooth, so not `war_in` above), `need` its one-wave need (mass/s, MECHANICS §3.4: the least WAR at which one full wave from its settled garrison doesn't break it), `margin` = `war_in − need` (the lowest contested margin draws the next wave), `pressure_mult` Vei's pressure there (`view_hud.hold_mult`), `fall_s` and `margin_cause` as above. A fort not held reads `0.0`, `1.0`, `-1.0` and `""`. Also on `view_realm.forts`. |
 | `can_descend` | bool | `cmd_begin_dungeon(id)` would succeed now |
 | `reason` | String | the reason it would return (`""`, `busy`, `dead`, `not_at_fort`) |
 ```gdscript
@@ -2138,7 +2140,7 @@ and `have` were 0.0, `cleared` false and `fronts_met` 0.
 | `digest_q` | float | |
 | `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
 | `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |
-| `tithe` | Dictionary | `{target: String, eta_s: float, warning: bool, wave_active: bool, wave_s_left: float}`. `target` is `""` and `eta_s` is `-1.0` before a target is chosen. |
+| `tithe` | Dictionary | `{target: String, eta_s: float, warning: bool, wave_active: bool, wave_s_left: float, next_target: String, next_s: float}`. `target` is `""` and `eta_s` is `-1.0` before a target is chosen. `next_target` (v11, E4 step 5 B1 (ii); the telegraph) is the fort the rule would pick now (the contested fort with the lowest `view_fort.hold.margin`, MECHANICS §3.4), `""` before the clock starts; it can change until the warning (`tithe.warning_s` ahead) fixes `target`, and during the warning it is the warned fort (`target`). While a wave runs it is the pick for the wave after. `next_s` (v11) is the seconds to the next wave (during a warning, `eta_s`), `-1.0` before the clock starts. |
 | `can_begin` | bool | `cmd_begin_boss()` would succeed |
 | `reason` | String | `""`, `busy`, `dead` or `not_at_vei` |
 | `won` | bool | |
@@ -2340,10 +2342,13 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   `idle.report.overflow_min` (1) not stored (`overflow`, `"queue"`, so the map's click dives to the queue),
   `"Gold filled up, 120 not stored: queue more, or raid for relics"`. It was a loss until E4 step 7 (`overflow`,
   `""`, `"Gold is full: 120 not stored"`).
-- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
-  it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
-  with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
-  retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
+- **losses:** each fort retaken during the absence, in order (`retaken`, the fort), with its cause from its
+  `fort_retaken` (v11, B1 (ii): `war_in` and `pressure_mult`, one decimal each), `"Vespers retaken (WAR 5.4/s
+  against Vei's pressure, 8.4 times base): raid it to win it back"`, or, when Relish stood there and walked
+  home (its `relish_returned` was collected with the rest, so this line and `view_relish().returned` are how
+  the player learns of it), `"Vespers retaken (WAR 5.4/s against Vei's pressure, 8.4 times base), Relish walked
+  home: raid it to win it back"`. Every number in the line is a bare token (no `×` or bracket glued to it), so
+  the map's rate and mass patterns style it; each village yours when you left (`player`) and
   Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; then, from v7 (R1), each building that went unpaid during the absence,
   in lot order (`unpaid`, its lot id), worded by W: `"<label> stopped for <time>, <store> ran out: <what it
   stopped doing>"`, `"Statue of Relish stopped for 1 h 12 m, gold ran out: lifted no morale, deaths shook the town
@@ -2382,7 +2387,8 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "living 0/s · 0", kind: "stream", target: ""}],
 #     ready: [{text: "2 husks: raise at the slab", kind: "slab", target: "slab"},
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
-#     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
+#     losses: [{text: "Old Sluice retaken (WAR 0.5/s against Vei's pressure, 1.0 times base): raid it to win it back",
+#               kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
 # it"; with gold near its cap, ready adds "Gold filled up, 2,162 not stored: queue more, or raid for relics"
 # (overflow, "queue"; a loss until E4 step 7; tests/test_away.gd), and, with its bone
@@ -2432,7 +2438,7 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 | `building_unpaid` | `lot_id`, `building_id`, `unpaid: bool` (`true` = went idle, `false` = resumed). Which building goes idle follows the shed order since R1 (decorations, then the passive no-job buildings, then the job buildings, the WAR chain last: MECHANICS §4.3, `economy.json` `upkeep.shed_order`): the event's meaning is unchanged, so a gold floor that used to raise it for a raising pit first now raises it for the Statue | E2 |
 | `tier_up` | `tier: String` (the new tier), `from: String` | E2 (GameState's, in the substep a building completing makes the requirements hold; once per rise, so several in a substep when a fixture or debug placement skips tiers) |
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
-| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
+| `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). `war_in: float` (v11, E4 step 5 B1 (ii)): the WAR it had at the retake (mass/s, its last `r_in`), and `pressure_mult: float` (v11) Vei's pressure there (`view_hud.hold_mult`); the away report names both (§5.19). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
 | `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started 3 h 12 m after you left, when the tier rose" (W's wording): `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |

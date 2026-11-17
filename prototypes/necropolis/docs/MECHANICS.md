@@ -420,6 +420,19 @@ GameState owns `relish = {state, at, target, pos, heading, dead_s_left}`, where 
   is that grace), then a contest between two pools (IDLE.md §3; E2b-2 T3.1 replaced E2a's timer,
   which retook the fort when `held_s` ran out, cause `expired`).
 
+**Vei's pressure at held forts** (E4 step 5, rulings B1 and B1 (ii)): her living's pull on a held fort's
+garrison (grace or contested) is `k_destroy / q × hold_mult` (RealmSim `_k_dq`), with `hold_mult` =
+max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`) (GameState.hold_mult). The settled mint is
+`P_base + P_per_pit · pits` (working pits; no feed, no foremen), so it is a step function of the buildings and
+reads the same open and closed; `mint_ref` 8.0 is a new game's one pit, so a new game reads ×1 and the table
+below is unchanged there. α 0.85 (the ruled fallback's ceiling; at 0.7 the sessions day-3 state, settled
+mint 92, m 5.5, lost no fort in 24 h away, and the default valve's 0.60 WAR share keeps every margin
+positive). Sub-linear: WAR grows with the mint, the need with mint^α, so a growing necropolis finds holding
+somewhat easier, never trivial. Her mass, pool, fronts and boss seed don't read it. Every pull site and
+readout reads it (fort_step, `_load`, `_leave_at`, `dead_rates`, `garrison_rate_of`, `_wave_breaks`,
+`need_of` and the train's scratch forts). GameState sets it at each core step's start (its input), at its
+end and on a load (`_sync_hold_mult`). Not saved.
+
 **The hold's state** (RealmSim, saved): `held`, `grace_s` (grace left) and `zero_s` (seconds the
 garrison has sat at 0 since it last didn't). A save from before E2b-2 carries `held_s` instead: a
 fort with `held_s > 0` loads held, with `grace_s = held_s` and `zero_s = 0`.
@@ -582,11 +595,21 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   (`tithe_warning` event), with the target shown on the map and on the fort's ring. The target
   stays fixed for that wave, whatever changes before it starts. It is made at the end of the step
   that reaches `warning_s`, so it can come up to one step late, never early, and its `eta_s` is the
-  exact time left: the wave's own time doesn't depend on the step. (The target reads that step's
-  WAR, a rate constant over the step.)
-- **Targets:** contested held forts first (past their grace), the one with the most of your undead
-  there; else the fort receiving the most WAR at that moment. A fort in grace is never a target
-  (above). Ties go to world order, so with no WAR anywhere it is the first fort not in grace.
+  exact time left: the wave's own time doesn't depend on the step.
+- **Targets** (E4 step 5, ruling B1 (ii)): contested held forts first (past their grace), the one with the
+  **lowest margin**: its settled support (the step's `target_war`, GameState's `_train_war`: the valve's
+  target at the pits' trough feed, split as the last dispatch splits WAR, so the pick doesn't follow the
+  convoy's sawtooth) less its **one-wave need** (`RealmSim.need_of`: the least WAR at which it holds with
+  no waves and one full wave from its settled garrison, support / `r_drain`, doesn't break it, with
+  Relish's raise and tide and the siege there; a bisection to `hold.need_tol` in at most
+  `hold.need_iters` halvings, her reship at her odds snapped down to `hold.need_odds_step`, memoised).
+  Margins within `hold.margin_eps` tie, and ties go to world order. Else the fort receiving the most WAR
+  at that moment; with no WAR anywhere, the first fort not in grace. A fort in grace is never a target
+  (above). Before B1 (ii) the wave went to the most undead, so the strongest garrison drew every wave
+  and shielded the weak (at the sessions day-3 state no fort fell at any pressure up to ×16). The need
+  is about `k_dq` · (cap + 120) there, so it scales with `hold_mult` (§3.4). The telegraph: the fort the
+  rule would pick now and the time to the next wave are in the views before the warning fixes it
+  (STATE-API §5.4 `tithe.next_target`, §5.5 `hold`).
 - **The wave:** a surge of `tithe.surge_mult` × `S_vei` living/s from her pool into the target for
   `tithe.surge_s` (`tithe_wave` event when it starts). The pool bounds it. It ignores the per-fort
   shipping share, the fort's space and its cap. Her normal shipping comes after it in the step and
@@ -758,7 +781,8 @@ Relish's tide and the full forts' limits as they stand), her reship `S` (above, 
     leaves the held set. A clock not yet started (only a test or debug holds a fort with no flip) runs as
     if started now.
   - **Targets**, as `_tithe_target`: at each warning, the contested fort (held, past grace, not broken)
-    with the most undead, ties in world order. A fort in grace is never a target; a pending warning naming
+    with the lowest margin, its `sup` WAR less its one-wave need (`need_of`, once per fort per probe: her
+    odds, q and the support don't move in the probe), ties in world order. A fort in grace is never a target; a pending warning naming
     one is dropped and made again at once, as the clock does. The target is fixed at the warning, so a
     wave warned while every held fort is in grace goes elsewhere even if the grace ends before it lands.
     With no contested fort the rule's second branch (the fort receiving the most WAR) picks a fort that

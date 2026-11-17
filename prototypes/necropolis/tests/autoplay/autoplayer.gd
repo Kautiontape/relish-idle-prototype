@@ -1528,33 +1528,16 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 ## away_risk's prepared setup before a 24 h absence: the weak held forts (margin will_fall or thin) raided, WAR raised
 ## until it supports every held fort (view_projection; WORK and FLOOD keep their ratio), a siege at the thinnest held
 ## fort (a spare big, else the last party member), and a simulacrum there if one is ready or can be crafted.
+## "Prepared" (E4 step 5, ruling B1 (ii); IDLE §8): what a player does before a long absence, reading each held fort's
+## margin forecast (view_fort().hold: its settled WAR against its one-wave need; the lowest margin draws the next wave).
+## The counters go to the lowest margin (one siege big undead and one simulacrum); then the valve's WAR rises in 0.05
+## steps, WORK and FLOOD keeping their ratio, until no held fort reads under its need, and no further: WAR is global,
+## so a player raises it only as far as the weakest fort needs, and growth pays for every step. Relish goes home.
+## Before B1 (ii) it raided the thin forts and raised WAR until war_supports (steady, flat in Vei's pressure) was met.
 func prepare_away() -> Dictionary:
 	var rec := {"raided": [], "valve": {}, "siege": {}, "simulacrum": {}}
 	_act()
-	for f in _held_forts_by_need():
-		if str(f["margin"]) == "will_fall" or str(f["margin"]) == "thin":
-			var o := _raid(str(f["id"]), s.t + 3600.0)
-			(rec["raided"] as Array).append({"fort": str(f["id"]), "margin": str(f["margin"]),
-				"exit": str(raids[-1].get("exit", "")) if not o.is_empty() else "not raided"})
-	_act()
-	var hud := s.view_hud()
-	var m := int(hud["war_supports"]["m"])
-	var tg: Dictionary = hud["valve_target"]
-	var best := {"war": float(tg["war"]), "n": int(hud["war_supports"]["n"]), "m": m}
-	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
-	var war := float(tg["war"])
-	while int(best["n"]) < m and war < 0.95 - 1e-9:
-		war = minf(0.95, war + 0.05)
-		var vv := {"work": float(tg["work"]) / wf * (1.0 - war), "war": war, "flood": float(tg["flood"]) / wf * (1.0 - war)}
-		var nn := int(s.view_projection(vv)["war_supports"]["n"])
-		if nn > int(best["n"]):
-			best = {"war": war, "n": nn, "m": m, "valve": vv}
-	if best.has("valve"):
-		var vv: Dictionary = best["valve"]
-		best["ok"] = bool(_cmd("valve", [vv["work"], vv["war"], vv["flood"]])["ok"])
-	rec["valve"] = best
-	var byneed := _held_forts_by_need()
-	var thin := str(byneed[0]["id"]) if not byneed.is_empty() else ""
+	var thin := _lowest_hold()
 	if thin != "":
 		var uid := ""
 		var party: Array = []
@@ -1577,6 +1560,16 @@ func prepare_away() -> Dictionary:
 		if int(s.view_inventory()["simulacra_ready"]) >= 1:
 			var dr := _cmd("deploy", [thin])
 			rec["simulacrum"]["deploy"] = "ok" if bool(dr["ok"]) else str(dr["reason"])
+		_tick_to(s.t + 1.0)
+	var tg: Dictionary = s.view_hud()["valve_target"]
+	var wf := maxf(1e-9, float(tg["work"]) + float(tg["flood"]))
+	var war := float(tg["war"])
+	rec["valve"] = {"from": war, "war": war, "min_margin": _min_hold_margin()}
+	while float(rec["valve"]["min_margin"]) < 0.0 and war < 0.95 - 1e-9:
+		war = minf(0.95, war + 0.05)
+		var ok := bool(_cmd("valve", [float(tg["work"]) / wf * (1.0 - war), war, float(tg["flood"]) / wf * (1.0 - war)])["ok"])
+		_tick_to(s.t + 1.0)
+		rec["valve"] = {"from": float(tg["war"]), "war": war, "ok": ok, "min_margin": _min_hold_margin()}
 	if str(s.view_relish()["state"]) != "home":
 		_cmd("move", ["covington"])
 		_tick_until(func(): return str(s.view_relish()["state"]) == "home", s.t + 600.0)
@@ -1591,6 +1584,28 @@ func cut_war() -> Dictionary:
 	var r := _cmd("valve", [float(tg["work"]) / wf, 0.0, float(tg["flood"]) / wf])
 	return {"from": tg.duplicate(), "ok": bool(r["ok"]), "reason": str(r["reason"]),
 		"war_supports": s.view_hud()["war_supports"].duplicate()}
+
+
+## The held fort with the lowest margin in its forecast (view_fort().hold.margin; ties in world order), "" with none.
+func _lowest_hold() -> String:
+	var best := ""
+	var low := INF
+	for f in s.view_realm()["forts"]:
+		if bool(f["held"]):
+			var m := float(s.view_fort(str(f["id"]))["hold"]["margin"])
+			if m < low:
+				low = m
+				best = str(f["id"])
+	return best
+
+
+## The lowest held margin (view_fort().hold.margin), INF with none held.
+func _min_hold_margin() -> float:
+	var low := INF
+	for f in s.view_realm()["forts"]:
+		if bool(f["held"]):
+			low = minf(low, float(s.view_fort(str(f["id"]))["hold"]["margin"]))
+	return low
 
 
 ## The held forts, the most in need first: will_fall, thin, safe, then the lower garrison_rate, then world order.

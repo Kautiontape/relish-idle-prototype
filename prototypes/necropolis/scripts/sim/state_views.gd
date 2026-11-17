@@ -51,6 +51,7 @@ static func hud(gs: GameState) -> Dictionary:
 		"bone_war_share": gs._bone_war_share,
 		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
 		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
+		"hold_mult": gs.hold_mult(),  # (v11, B1) Vei's pressure at held forts
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
@@ -159,7 +160,7 @@ static func fort_entry(gs: GameState, f: Dictionary, w_in: float, train := {}, p
 	var archetype := gs._warden_archetype(id)
 	var ro := gs._fort_readout(f, w_in, train, plan)
 	var held := RealmSim.is_held(f)
-	return {
+	var out := {
 		"id": id, "name": str(f["name"]), "tier": int(f["tier"]), "cap": float(f["cap"]),
 		"pos": GameState._xy(f["pos"]),
 		"living": float(f["living"]), "undead": float(f["undead"]), "dead": float(f["dead"]),
@@ -180,6 +181,8 @@ static func fort_entry(gs: GameState, f: Dictionary, w_in: float, train := {}, p
 		"tithe": fort_tithe(gs, id),
 		"can_descend": why == "", "reason": why,
 	}
+	out["hold"] = fort_hold(gs, id, out)  # (v11, B1 (ii)) the margin forecast
+	return out
 
 
 ## view_fort.tithe: targeted while a warning names the fort or its wave runs; eta_s is the time to
@@ -190,7 +193,22 @@ static func fort_tithe(gs: GameState, id: String) -> Dictionary:
 	var warned: bool = not w.is_empty() and w["fort_id"] == id
 	var active: bool = not wv.is_empty() and wv["fort_id"] == id
 	var eta := maxf(0.0, float(gs.realm.tithe["next_s"])) if warned else (0.0 if active else -1.0)
-	return {"targeted": warned or active, "eta_s": eta, "wave_active": active}
+	var nx := next_wave(gs)
+	return {"targeted": warned or active, "eta_s": eta, "wave_active": active,
+		"next": str(nx["target"]) == id, "next_s": float(nx["next_s"])}
+
+
+## The telegraph (E4 step 5, ruling B1 (ii); v11): the fort the next wave would go to if it were chosen now
+## (RealmSim._tithe_target at the realm inputs: the lowest contested margin), and the seconds to the next wave
+## (-1.0 before the clock starts). Before the warning (tithe.warning_s ahead) the clock names no target; this
+## does, and it can change until the warning fixes it. During a warning it is the warned fort.
+static func next_wave(gs: GameState) -> Dictionary:
+	var started := bool(gs.realm.tithe.get("started", false))
+	if not started:
+		return {"target": "", "next_s": -1.0}
+	var w: Dictionary = gs.realm.tithe.get("warning", {})
+	return {"target": str(w["fort_id"]) if not w.is_empty() else gs.realm._tithe_target(gs._margin_inputs()),
+		"next_s": maxf(0.0, float(gs.realm.tithe["next_s"]))}
 
 
 ## view_vei.tithe: the running wave's fort (eta_s 0.0), else the warned one (eta_s to its wave),
@@ -198,7 +216,9 @@ static func fort_tithe(gs: GameState, id: String) -> Dictionary:
 static func vei_tithe(gs: GameState) -> Dictionary:
 	var w: Dictionary = gs.realm.tithe.get("warning", {})
 	var wv: Dictionary = gs.realm.tithe.get("wave", {})
-	var out := {"target": "", "eta_s": -1.0, "warning": not w.is_empty(), "wave_active": not wv.is_empty(), "wave_s_left": 0.0}
+	var nx := next_wave(gs)
+	var out := {"target": "", "eta_s": -1.0, "warning": not w.is_empty(), "wave_active": not wv.is_empty(), "wave_s_left": 0.0,
+		"next_target": str(nx["target"]), "next_s": float(nx["next_s"])}
 	if not wv.is_empty():
 		out["target"] = str(wv["fort_id"])
 		out["eta_s"] = 0.0
@@ -222,6 +242,27 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 	var train: Dictionary = gs._train_live()["forts"].get(id, {}) if held else {}
 	var plan: Array = gs._train_support(gs._train_war(), true).get(id, []) if held else []
 	out.merge(fort_entry(gs, f, float(gs._fort_wars()[i]), train, plan))
+	return out
+
+
+## view_fort().hold (E4 step 5, ruling B1 (ii); v11): the margin forecast the wave's target rule reads
+## (RealmSim.margins_of at the realm inputs): `war_in` the settled WAR to it (the valve's target at the pits'
+## trough feed, mass/s), `need` its one-wave need (RealmSim.need_of: the least WAR at which one full wave from
+## its settled garrison doesn't break it), `margin` war_in − need (the lowest contested margin draws the next
+## wave), `pressure_mult` Vei's pressure there (GameState.hold_mult), and the chip's `fall_s` and `margin_cause`.
+## A fort not held reads zeros, ×1 and "".
+static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionary:
+	var out := {"war_in": 0.0, "need": 0.0, "margin": 0.0, "pressure_mult": 1.0, "fall_s": -1.0, "margin_cause": ""}
+	var f := gs.realm.fort_by_id(id)
+	if f.is_empty() or not RealmSim.is_held(f):
+		return out
+	var e: Dictionary = gs.realm.margins_of(gs._margin_inputs()).get(id, {})
+	out["war_in"] = float(e.get("war_in", 0.0))
+	out["need"] = float(e.get("need", 0.0))
+	out["margin"] = float(e.get("margin", 0.0))
+	out["pressure_mult"] = gs.hold_mult()
+	out["fall_s"] = float(entry.get("fall_s", -1.0))
+	out["margin_cause"] = str(entry.get("margin_cause", ""))
 	return out
 
 
@@ -999,10 +1040,12 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 					"why": _why_started(rep, w)}), "build", ""))
 	# forts refilled: held now, not retaken while away, the loot yield below full when you left and full now
 	var retaken: Array = []
+	var retake_ev := {}  # fort_id -> its last fort_retaken (B1 (ii): the cause)
 	var walked := {}
 	for e in evs:
 		if e["type"] == "fort_retaken":
 			retaken.append(str(e["fort_id"]))
+			retake_ev[str(e["fort_id"])] = e
 		elif e["type"] == "relish_returned":
 			walked[str(e["fort_id"])] = true
 	for f in gs.realm.forts:
@@ -1077,10 +1120,13 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		if lost >= float(rep["overflow_min"]):
 			ready.append(_away_line(str(rep["overflow_fmt"]).format({"store": str(rep["store_labels"][k]), "n": _fmt_count(rep, lost)}), "overflow", "queue"))
 	# losses: each fort retaken (Relish's walk home with it), each village lost, each building unpaid or idled
+	# (B1 (ii)) with its cause: the WAR it had against Vei's pressure there, from its fort_retaken
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)
 		var fmt := str(rep["retaken_home_fmt"] if walked.has(id) else rep["retaken_fmt"])
-		losses.append(_away_line(fmt.format({"fort": str(f.get("name", id))}), "retaken", id))
+		var ev: Dictionary = retake_ev.get(id, {})
+		losses.append(_away_line(fmt.format({"fort": str(f.get("name", id)), "war": _fmt_abs(rep, float(ev.get("war_in", 0.0)), 1),
+			"mult": _fmt_abs(rep, float(ev.get("pressure_mult", 1.0)), 1)}), "retaken", id))
 	for tw in gs.towns:
 		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))

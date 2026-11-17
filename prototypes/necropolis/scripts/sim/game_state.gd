@@ -37,6 +37,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
 	"realm.relish.tide_bias", "economy.queue.max_len",
+	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
 	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
 	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
@@ -248,6 +249,8 @@ var _slew_per_s := 0.0  # realm.json valve.slew_per_s
 var _p_base := 0.0  # realm.json P_base
 var _p_per_pit := 0.0  # realm.json P_per_pit
 var _pit_bonus := 0.0  # economy.json pit.bonus
+var _mint_ref := 0.0  # realm.json hold.mint_ref (E4 step 5, B1: hold_mult)
+var _mint_alpha := 0.0  # realm.json hold.mint_alpha
 var _q_raise_max := 0.0  # realm.json q.q_raise_max (q.q0 stays live: a test changes it after setup)
 var _q_forge := 0.0  # realm.json q.q_forge
 var _q_max := 0.0  # realm.json q.q_max
@@ -335,6 +338,8 @@ func setup(cfgs: Dictionary) -> void:
 	_p_base = _req_f("realm.P_base")
 	_p_per_pit = _req_f("realm.P_per_pit")
 	_pit_bonus = _req_f("economy.pit.bonus")
+	_mint_ref = _req_f("realm.hold.mint_ref")
+	_mint_alpha = _req_f("realm.hold.mint_alpha")
 	_q_raise_max = _req_f("realm.q.q_raise_max")
 	_q_forge = _req_f("realm.q.q_forge")
 	_q_max = _req_f("realm.q.q_max")
@@ -2592,6 +2597,36 @@ func _split_of(mint: float, v: Dictionary, muster: float, to_war: bool) -> Dicti
 		"flood": mint * float(v["flood"]) + (0.0 if to_war else muster), "muster": muster, "muster_war": to_war}
 
 
+## Vei's pressure at held forts (E4 step 5, ruling B1; MECHANICS §3.4): max(1, (settled mint ÷ hold.mint_ref)^
+## hold.mint_alpha), the factor on her living's pull on a held fort's garrison (RealmSim._k_dq). The settled mint is
+## P_base + P_per_pit · the working pits: no feed term and no foremen, so it is a step function of the buildings (a
+## pit's start or stop, an unpaid one), the same open and closed, and a new game's one pit (8.0) reads ×1 at any feed.
+## Sub-linear (α < 1): a growing necropolis finds holding somewhat easier, never trivial. Her mass, pool, fronts and
+## boss seed don't read it.
+func hold_mult() -> float:
+	if not (_mint_ref > 0.0):
+		return 1.0
+	var m := pow((_p_base + _p_per_pit * float(town_sim.pits())) / _mint_ref, _mint_alpha)
+	return maxf(1.0, m) if is_finite(m) else 1.0
+
+
+## RealmSim's held-fort pressure as the state stands (hold_mult): set at a core step's start (its input, which
+## dead_rates reads too) and end (the readouts read the state after it), and on a load, so the readouts and the next
+## step read the same value open and closed.
+func _sync_hold_mult() -> void:
+	realm.hold_mult = hold_mult()
+
+
+## The inputs the wave's target rule reads, from the state as it stands (E4 step 5, ruling B1 (ii)): the settled WAR,
+## q, Relish's tide and raise, the sieges, as the next core step will give them. The margin views and the telegraph
+## (StateViews.fort_hold, next_wave) read these, not the last step's _realm_inputs, so a loaded state reads as the
+## live one did (q and the trough feed move at a step's end).
+func _margin_inputs() -> Dictionary:
+	var fx := _relish_effects()
+	return {"target_war": _train_war(), "digest_q": digest_q(), "tide_fort": fx["tide_fort"], "redirect_fort": fx["redirect_fort"],
+		"redirect_rate": _raise_rate, "siege_block": _siege_blocks()}
+
+
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
 ## snapshot of the forts before this step's realm step, Covington, the haul target, the relics. Each
 ## fort's `dead_rate` is RealmSim's projection of its corpses over the step (RealmSim.dead_rates, with
@@ -2688,6 +2723,7 @@ func _core_step(dt: float) -> Array:
 	_slew_valve(dt)
 	var mint := _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var work := mint * float(valve["work"])
+	_sync_hold_mult()  # (B1) the held-fort pressure this step: TownSim's convoy reads RealmSim.dead_rates with it
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
 	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending, true))
@@ -2718,7 +2754,8 @@ func _core_step(dt: float) -> Array:
 		"war": _split["war"], "flood": _split["flood"], "digest_q": digest_q(),
 		"tide_fort": fx["tide_fort"], "tide_bias": _req_f("realm.relish.tide_bias"),
 		"redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate,
-		"siege_block": _siege_blocks(),
+		"siege_block": _siege_blocks(), "hold_mult": realm.hold_mult,
+		"target_war": _train_war(),  # (B1 (ii)) the settled WAR the wave's target rule splits: not the sawtooth's
 	}
 	var cleared0 := realm.cleared_total
 	realm.step(dt, _realm_inputs)
@@ -2745,8 +2782,9 @@ func _core_step(dt: float) -> Array:
 	sto["bone"]["overflow"] = float(sto["bone"]["overflow"]) + float(town["bone_overflow"])
 	snk["pool_overflow"] = float(snk["pool_overflow"]) + realm.pool_overflow  # the march-back past Vei's pool cap (MECHANICS §3.4)
 	_note_realm_flows(dt, cleared)
-	# §3 step 8: the readouts
+	# §3 step 8: the readouts (B1: they read the held-fort pressure of the state after the step, as a load would)
 	_update_readout(dt, realm.vei["r_in_undead"], realm.r_digested_undead)
+	_sync_hold_mult()
 	return evs
 
 
@@ -2971,8 +3009,10 @@ func _restore_dispatch() -> void:
 	var war := float(_split["war"])
 	var fx := _relish_effects()
 	var bias := _req_f("realm.relish.tide_bias")
+	_sync_hold_mult()  # (B1) the held-fort pressure of the saved state, as the step that wrote it ended
 	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],
-		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": _siege_blocks()}
+		"tide_bias": bias, "redirect_fort": fx["redirect_fort"], "redirect_rate": _raise_rate, "siege_block": _siege_blocks(),
+		"hold_mult": realm.hold_mult, "target_war": _train_war()}
 	var w: Array[float] = []
 	var given := 0.0
 	var level := 0.0

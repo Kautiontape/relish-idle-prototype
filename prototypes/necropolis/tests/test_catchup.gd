@@ -691,13 +691,23 @@ func _live_frames() -> void:
 
 
 ## The events of a gap under idle.report_min_s go to the scenes' queue as live (no report replaces them):
-## midgame_2flips 20 min in, Old Sluice's garrison sits at 0 and is retaken within 300 s, and that
-## fort_retaken reaches drain_events() from a 300 s frame. A 900 s frame collects it for the report
-## instead, and queues none.
+## midgame_2flips 180 s before the 30 s window its first retake falls in (found live), so a fort is retaken
+## within 300 s, and that fort_retaken reaches drain_events() from a 300 s frame. A 900 s frame collects it for
+## the report instead, and queues none. (Before B1 (ii) the start was a fixed 20 min, when Old Sluice sat at 0
+## under the most-undead rule; the lowest-margin rule moves which fort falls and when, so the setup finds it.)
 func _gap_events() -> void:
 	var c := cfgs()
 	var s := _start(c, "midgame_2flips")
-	s.tick(1200.0)
+	var scan := _mk(c)
+	scan.from_dict(s.to_dict())
+	scan.drain_events()
+	var first := -1.0
+	while first < 0.0 and scan.t - s.t < 10800.0:
+		scan.tick(30.0)
+		if scan.drain_events().any(func(e): return e["type"] == "fort_retaken"):
+			first = scan.t - s.t
+	t.ok(first > 0.0, "(setup) live, midgame_2flips loses its first fort %.0f s in" % first)
+	s.tick(maxf(0.0, first - 180.0))
 	s.drain_events()
 	var cap := s.max_substeps_per_frame()
 	var live := _mk(c)

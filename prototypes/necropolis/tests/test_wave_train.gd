@@ -26,7 +26,98 @@ func run() -> int:
 	_frame()
 	_reset()
 	_retarget()
+	_margin_target()
+	_margin_views()
 	return t.failures
+
+
+## E4 step 5, ruling B1 (ii): a wave goes to the contested fort with the lowest margin, its settled WAR less its
+## one-wave need (RealmSim.need_of), ties within hold.margin_eps in world order, and the train picks as the clock does.
+func _margin_target() -> void:
+	t.suite("wave-target-margin")
+	var cfg := TestUtil.configs()
+	var tol := float(cfg["realm"]["hold"]["need_tol"])
+	var sim := _mk({"ashgate": [3.0 / _r, 0.0, 0.0], "old-sluice": [1.0 / _r, 0.0, 0.0]}, sim_period())
+	var f := sim.fort_by_id("ashgate")
+	var n1 := sim.need_of(f, false, 0.0, false, 0.0, 1.2)
+	var s := sim.reship_rate(f)
+	var hold_off := sim._r_drain * s / sim._k_kill
+	var pf := {"cap": float(f["cap"]), "undead": INF, "held": true}
+	t.ok(sim._need_safe(pf, n1, s, false, 0.0, false, 0.0, 1.2, hold_off)
+		and not sim._need_safe(pf, n1 - 2.0 * tol, s, false, 0.0, false, 0.0, 1.2, hold_off),
+		"the need (%.4f) holds one wave from the settled garrison, and %.4f under it doesn't" % [n1, 2.0 * tol])
+	t.ok(sim.need_of(f, false, 0.0, false, 0.0, 1.2) == n1, "memoised: the same bits")
+	sim._need_cache = {}
+	t.ok(sim.need_of(f, false, 0.0, false, 0.0, 1.2) == n1, "recomputed after the memo is cleared: the same bits")
+	var ns := sim.need_of(f, false, 0.0, false, 0.6, 1.2)
+	var nt := sim.need_of(f, false, 0.0, true, 0.0, 1.2)
+	t.ok(ns < n1 and nt < n1, "a siege (%.4f) and her tide (%.4f) lower it (%.4f)" % [ns, nt, n1])
+	sim.hold_mult = 4.0
+	var n4 := sim.need_of(f, false, 0.0, false, 0.0, 1.2)
+	sim.hold_mult = 1.0
+	t.ok(n4 > 3.0 * n1 and n4 < 4.5 * n1, "×4 Vei pressure needs about ×4 the WAR: %.4f against %.4f" % [n4, n1])
+	var all4: Array[bool] = [true, true, true, true]
+	var two: Array[bool] = [true, true]
+	var off: Array[bool] = [true, false, true, true]
+	t.ok(sim._lowest_margin(PackedFloat64Array([1.0, 0.5, 0.5005, 2.0]), all4) == 1
+		and sim._lowest_margin(PackedFloat64Array([0.5, 0.4995]), two) == 0
+		and sim._lowest_margin(PackedFloat64Array([0.5, 0.498]), two) == 1
+		and sim._lowest_margin(PackedFloat64Array([1.0, 0.5, 0.7, 2.0]), off) == 2,
+		"the lowest margin wins; within hold.margin_eps the first in world order; only the forts asked about")
+	# the support is the settled WAR (target_war), not the step's: the pick doesn't follow the convoy's sawtooth. It is
+	# split as the last dispatch split it (war_at), so a sim that has stepped once (before any step every fort reads 0)
+	var sm := _mk({"ashgate": [3.0 / _r, 0.0, 0.0], "old-sluice": [1.0 / _r, 0.0, 0.0]}, sim_period())
+	sm.step(0.5, {"war": 2.0, "digest_q": 1.2})
+	var mk := sm.margins_of({"war": 2.0, "target_war": 4.0, "digest_q": 1.2})
+	t.ok(float(mk["ashgate"]["war_in"]) > 0.0 and mk == sm.margins_of({"war": 9.0, "target_war": 4.0, "digest_q": 1.2})
+		and mk != sm.margins_of({"war": 2.0, "digest_q": 1.2}), "margins_of reads target_war, not war: %s" % str(mk))
+	# the weak fort draws the wave: Old Sluice at 1.0 mass/s (the fewer undead too) against Ashgate at 3.0; before B1 (ii)
+	# the wave went to the most undead, Ashgate, and Old Sluice was never tested
+	var tr := sim.train_probe(_sup({"ashgate": 3.0, "old-sluice": 1.0}), 1.2)
+	var na := sim.need_of(sim.fort_by_id("old-sluice"), false, 0.0, false, 0.0, 1.2)
+	t.ok((tr["targets"] as Array).size() >= 1 and str(tr["targets"][0]) == "old-sluice",
+		"the train sends the first wave to Old Sluice (margin %.3f) over Ashgate (%.3f): %s" % [1.0 - na, 3.0 - n1, str(tr["targets"])])
+
+
+## The must-shows' keys (v11): view_fort().hold (margin = war_in − need, Vei's pressure), view_vei().tithe's
+## predicted next target (the lowest contested margin) and next_s, view_hud().hold_mult; and a new game reads ×1.
+func _margin_views() -> void:
+	t.suite("wave-target-views")
+	# midgame_2flips with its two held forts past their grace (the fixture has both in grace, and its due clock warns
+	# the fallback, Greywall), its clock a wave period off, and Vei's pressure ×2^α (mint_ref half the mint now)
+	var s := _fixture("midgame_2flips")
+	for id in ["ashgate", "old-sluice"]:
+		s.realm.hold(id, 0.0)
+	s._mint_ref = 0.5 * (s._p_base + s._p_per_pit * float(s.town_sim.pits()))
+	s.realm.tithe["warning"] = {}
+	s.realm.tithe["next_s"] = s.realm.tithe_period()
+	s._core_step(0.5)
+	var low := ""
+	var lm := INF
+	for f in s.realm.forts:
+		if not RealmSim.is_held(f):
+			continue
+		var h: Dictionary = s.view_fort(str(f["id"]))["hold"]
+		t.near(float(h["margin"]), float(h["war_in"]) - float(h["need"]), 1e-9, "%s: margin is war_in − need (%s)" % [f["id"], str(h)])
+		t.ok(float(h["pressure_mult"]) == s.hold_mult() and float(h["need"]) > 0.0, "%s: Vei's pressure ×%.3f and a need" % [f["id"], s.hold_mult()])
+		if RealmSim.is_contested(f) and float(h["margin"]) < lm - 0.001:
+			lm = float(h["margin"])
+			low = str(f["id"])
+	var tv: Dictionary = s.view_vei()["tithe"]
+	t.ok(low != "" and str(tv["next_target"]) == low and float(tv["next_s"]) > float(s.realm._warning_s) and not tv["warning"],
+		"before the warning, the telegraph names the lowest margin %s: %s" % [low, str(tv)])
+	t.ok(low != "" and bool(s.view_fort(low)["tithe"]["next"]), "view_fort().tithe.next marks it")
+	t.ok(float(s.view_hud()["hold_mult"]) == s.hold_mult() and s.hold_mult() > 1.0, "view_hud().hold_mult %.3f" % s.hold_mult())
+	# the warning fixes the target: the clock warns the fort the rule picks, and the telegraph then names the warned fort
+	s.realm.tithe["next_s"] = 0.5 * float(s.realm._warning_s)
+	s._core_step(0.5)
+	tv = s.view_vei()["tithe"]
+	t.ok(tv["warning"] and str(tv["target"]) == low and str(tv["next_target"]) == str(tv["target"]) and float(tv["next_s"]) == float(tv["eta_s"]),
+		"the warning names %s, and the telegraph the warned wave: %s" % [low, str(tv)])
+	var n := GameState.new(TestUtil.configs())
+	n.cmd_new_game(1)
+	n._core_step(0.5)
+	t.ok(n.hold_mult() == 1.0 and n.realm.hold_mult == 1.0, "a new game reads ×1 (its one pit's mint is hold.mint_ref)")
 
 
 ## A RealmSim with `held` {fort_id: [undead, living, grace_s]} held and every other fort full of corpses,
@@ -131,17 +222,19 @@ func _settles() -> void:
 	t.ok(_retaken(evs).is_empty() and _waves(evs).size() >= 8, "RealmSim at 0.5 s holds it through %d waves" % _waves(evs).size())
 
 
-## The shielded fort. Ashgate (1.2 mass/s, A) and Old Sluice (0.4, B), both at their levels: A has the
-## larger garrison at every warning, so every wave goes to A and B is never hit, its state the same at every
-## wave's start (a per-fort "no weaker than last cycle" would call it settled). A takes three cycles to
-## repeat. With hold.train_max_cycles 2 the set hasn't settled by the cap, so B reads thin (wave), not safe;
-## with the shipped 4 it has, and B reads what the joint rule gives (safe: no wave can reach it while A
-## outranks it). Then Old Sluice at 0.81 next to Ashgate at 1.19 (the split 2.0 mass/s of WAR gives them):
-## A's garrison falls below B's at the second warning, so the train tests B, and B breaks.
+## The shielded fort. Ashgate (1.2 mass/s, A) and Old Sluice (2.0, B), both at their levels, the same cap and so the
+## same one-wave need: A has the lower margin at every warning (B1 (ii)), so every wave goes to A, which holds them,
+## and B is never hit, its state the same at every wave's start (a per-fort "no weaker than last cycle" would call it
+## settled). A takes three cycles to repeat. With hold.train_max_cycles 2 the set hasn't settled by the cap, so B
+## reads thin (wave), not safe; with the shipped 4 it has, and B reads what the joint rule gives (safe: no wave can
+## reach it while A's margin is lower). Then Old Sluice at 0.81 next to Ashgate at 1.19 (the split 2.0 mass/s of WAR
+## gives them): Old Sluice has the lower margin, so the train's first wave tests it, and it breaks. (Before B1 (ii)
+## the most undead drew each wave: a weak B at 0.4 was the shielded one, and at 0.81 it drew only the second wave.
+## Under the margin rule a weak fort can't hide behind a strong one.)
 func _shielded() -> void:
 	t.suite("wave-train-shielded")
 	var wa := 1.2
-	var wb := 0.4
+	var wb := 2.0
 	for cap_c in [2, 4]:
 		var cfg := TestUtil.configs()
 		cfg["realm"]["hold"]["train_max_cycles"] = cap_c
@@ -169,9 +262,9 @@ func _shielded() -> void:
 	var w_b: float = wars[1]
 	var s2 := _mk({"ashgate": [w_a / _r, 0.0, 0.0], "old-sluice": [w_b / _r, 0.0, 0.0]}, sim_period())
 	var tr := s2.train_probe(_sup({"ashgate": w_a, "old-sluice": w_b}), 1.2)
-	t.ok(w_a > w_b and (tr["targets"] as Array).slice(0, 2) == ["ashgate", "old-sluice"] and bool(tr["forts"]["old-sluice"]["broken"])
+	t.ok(w_a > w_b and str(tr["targets"][0]) == "old-sluice" and bool(tr["forts"]["old-sluice"]["broken"])
 		and _word(s2, "old-sluice", w_b, tr["forts"]["old-sluice"]) == ["thin", "wave"],
-		"Ashgate %.3f, Old Sluice %.3f: the second wave goes to Old Sluice (%s), which breaks: thin (wave)" % [w_a, w_b, str(tr["targets"])])
+		"Ashgate %.3f, Old Sluice %.3f: the first wave goes to Old Sluice, the lower margin (%s), which breaks: thin (wave)" % [w_a, w_b, str(tr["targets"])])
 
 
 ## The settled test (RealmSim._train_settled) on made-up samples, two forts, both waves at A (index 0): B,
@@ -209,9 +302,10 @@ func _settled_rule() -> void:
 
 
 ## The targets follow _tithe_target's rule, as RealmSim's own steps run forward pick them: Ashgate and Old
-## Sluice with 2.0 and 3.0 mass/s of WAR split by the dispatch, garrisons at their levels. The fort with
-## more undead takes each wave; at 2.0 Ashgate's first wave leaves it below Old Sluice at the second
-## warning, so Old Sluice takes the second (and is retaken in both); at 3.0 Ashgate keeps them all.
+## Sluice with 2.0 and 3.0 mass/s of WAR split by the dispatch, garrisons at their levels. The lowest margin takes
+## each wave (B1 (ii)): Old Sluice, which the split gives less. At 2.0 it breaks on the first and is retaken, and
+## Ashgate, then the only contested fort, takes the rest; at 3.0 it holds every wave and Ashgate is never tested.
+## (Before B1 (ii) the most undead took each wave: Ashgate first, Old Sluice the second at 2.0, Ashgate all at 3.0.)
 func _targets_sim() -> void:
 	t.suite("wave-train-targets")
 	for war in [2.0, 3.0]:
@@ -232,9 +326,11 @@ func _targets_sim() -> void:
 		t.ok(n >= 2 and got.slice(0, n) == want.slice(0, n) and ret_sim == ret_probe,
 			"WAR %.1f: the probe's targets %s are RealmSim's %s; retaken: probe %s, sim %s" % [war, str(want), str(got.slice(0, n)), str(ret_probe), str(ret_sim)])
 		if war == 2.0:
-			t.ok(want.slice(0, 2) == ["ashgate", "old-sluice"], "WAR 2.0: Old Sluice takes the second wave")
+			t.ok(float(wars[1]) < float(wars[0]) and want[0] == "old-sluice" and want.slice(1).all(func(x): return x == "ashgate")
+				and ret_probe == ["old-sluice"], "WAR 2.0: Old Sluice (the lower margin) takes the first wave and breaks; Ashgate the rest")
 		else:
-			t.ok(want.all(func(x): return x == "ashgate"), "WAR 3.0: Ashgate takes every wave")
+			t.ok(want.all(func(x): return x == "old-sluice") and ret_probe.is_empty(),
+				"WAR 3.0: Old Sluice (the lower margin) takes every wave and holds")
 
 
 ## A fort in grace: Ashgate with 300 s of grace and a pending warning naming it, the wave due in 100 s. The
@@ -537,9 +633,10 @@ func _frame() -> void:
 	t.ok(count.call() == c0 + 1, "core steps outside a substep (a catch-up): the next read probes, though rev hasn't moved")
 
 
-## The re-targeted warning (MECHANICS §3.4, T3.4b §4): a warning names Ashgate (contested, the most
-## undead); Ashgate enters grace (a new hold); the warning is dropped at once and the next step's warning
-## names Old Sluice. view_vei().tithe and view_fort's tithe follow, and a new tithe_warning names Old Sluice.
+## The re-targeted warning (MECHANICS §3.4, T3.4b §4): a warning names Old Sluice (contested, the lowest margin: it
+## gets less of a new game's WAR than Ashgate); Old Sluice enters grace (a new hold); the warning is dropped at once
+## and the next step's warning names Ashgate. view_vei().tithe and view_fort's tithe follow, and a new tithe_warning
+## names Ashgate. (Before B1 (ii) the most undead drew the warning, so the case had Ashgate first at 40 undead.)
 func _retarget() -> void:
 	t.suite("wave-train-retarget")
 	var s := GameState.new(TestUtil.configs())
@@ -555,16 +652,19 @@ func _retarget() -> void:
 	s.drain_events()
 	s.tick(s.substep_s())
 	var ev1 := s.drain_events().filter(func(e): return e["type"] == "tithe_warning")
-	t.ok(ev1.size() == 1 and ev1[0]["fort_id"] == "ashgate" and s.view_vei()["tithe"]["target"] == "ashgate"
-		and s.view_fort("ashgate")["tithe"]["targeted"], "the warning names Ashgate: %s" % str(ev1))
-	s.realm.hold("ashgate", 300.0)  # Ashgate enters grace
-	t.ok(s.view_vei()["tithe"]["target"] == "" and not s.view_vei()["tithe"]["warning"] and not s.view_fort("ashgate")["tithe"]["targeted"],
+	var m_os := float(s.view_fort("old-sluice")["hold"]["margin"])
+	var m_ash := float(s.view_fort("ashgate")["hold"]["margin"])
+	t.ok(ev1.size() == 1 and ev1[0]["fort_id"] == "old-sluice" and s.view_vei()["tithe"]["target"] == "old-sluice"
+		and s.view_fort("old-sluice")["tithe"]["targeted"] and m_os < m_ash,
+		"the warning names Old Sluice (margin %.3f, Ashgate's %.3f): %s" % [m_os, m_ash, str(ev1)])
+	s.realm.hold("old-sluice", 300.0)  # Old Sluice enters grace
+	t.ok(s.view_vei()["tithe"]["target"] == "" and not s.view_vei()["tithe"]["warning"] and not s.view_fort("old-sluice")["tithe"]["targeted"],
 		"in grace: the warning is dropped, at once")
 	s.tick(s.substep_s())
 	var ev2 := s.drain_events().filter(func(e): return e["type"] == "tithe_warning")
 	var vt: Dictionary = s.view_vei()["tithe"]
-	var os_t: Dictionary = s.view_fort("old-sluice")["tithe"]
-	t.ok(ev2.size() == 1 and ev2[0]["fort_id"] == "old-sluice" and int(ev2[0]["wave_id"]) == int(ev1[0]["wave_id"]) + 1,
-		"the next step warns again, naming Old Sluice (wave %s): %s" % [str(ev2[0]["wave_id"]) if ev2.size() > 0 else "-", str(ev2)])
-	t.ok(vt["target"] == "old-sluice" and vt["warning"] and os_t["targeted"] and float(os_t["eta_s"]) > 0.0
-		and not s.view_fort("ashgate")["tithe"]["targeted"], "view_vei and view_fort show Old Sluice targeted (eta %.1f s), Ashgate not" % float(os_t["eta_s"]))
+	var ash_t: Dictionary = s.view_fort("ashgate")["tithe"]
+	t.ok(ev2.size() == 1 and ev2[0]["fort_id"] == "ashgate" and int(ev2[0]["wave_id"]) == int(ev1[0]["wave_id"]) + 1,
+		"the next step warns again, naming Ashgate (wave %s): %s" % [str(ev2[0]["wave_id"]) if ev2.size() > 0 else "-", str(ev2)])
+	t.ok(vt["target"] == "ashgate" and vt["warning"] and ash_t["targeted"] and float(ash_t["eta_s"]) > 0.0
+		and not s.view_fort("old-sluice")["tithe"]["targeted"], "view_vei and view_fort show Ashgate targeted (eta %.1f s), Old Sluice not" % float(ash_t["eta_s"]))
