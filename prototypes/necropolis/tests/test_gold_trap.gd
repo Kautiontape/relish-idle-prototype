@@ -63,6 +63,21 @@ func run() -> int:
 	var row: Dictionary = (m.view_town()["queue"] as Array)[0]
 	t.ok(row["status"] == "skipped_gate" and row["reason"] == "upkeep",
 		"the queue reads the income as its reason, not the stocks: %s / %s" % [row["status"], row["reason"]])
+	# the trap's exit (the E4 step 4 review's item 4): with the lever queued too, one more night (12 h) away starts the
+	# Market's upgrade, and its stalls' income brings the held buildings back
+	var n_held := _unpaid(m).size()
+	t.ok(bool(m.cmd_queue_build("", mk)["ok"]), "(setup) the lever queued: the Market on %s to level %d" % [mk, lv + 1])
+	var x := _away(c, m, "trap_c", 12 * 3600)
+	var lv_x := int(x.town_sim.buildings[mk]["level"])
+	t.ok(lv_x == lv + 1 and str(x.town_sim.buildings[mk]["state"]) != "constructing",
+		"a night later the Market is built to level %d (%s)" % [lv_x, str(x.town_sim.buildings[mk]["state"])])
+	var still_ok := true
+	for lot_id in x.town_sim.buildings:
+		if str(x.town_sim.buildings[lot_id]["state"]) == "unpaid":
+			still_ok = still_ok and x.town_sim.held_by_income(str(lot_id))
+	t.ok(_unpaid(x).size() < n_held and still_ok and x.town_sim.gold_income() > income,
+		"and the held buildings come back as the income allows: %d unpaid (was %d; the rest still held by the income), income %.3f g/s (was %.3f)" % [
+			_unpaid(x).size(), n_held, x.town_sim.gold_income(), income])
 	_cleanup()
 	return t.failures
 

@@ -56,7 +56,9 @@ const TIP := {
 		"away": "1d3c4855bb029af3b6dfa1433ca9c105a4abfc55f6ccd95432e33da2dcb40af0", "steps": 4356, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
-	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").
+	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market"). The proof (the E4 step 4 review's
+	# item 6): f24595a (the same code as 52bb714, which re-pinned here) with upkeep.resume_net_min -1e9 passes the old
+	# pins of all three suites (this one and test_big_undead from before 52bb714, test_backups from f24595a^): 0 FAIL.
 	# E4's convoy claim (the standing re-pin rule): pre_vei's state and away report, as test_backups' re-pin (the convoy
 	# lands the corpses formed inside each step; the events unchanged). The claim off passes the old pins (was
 	# 58a6cc49… / a8a97ed8…).

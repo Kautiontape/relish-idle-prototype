@@ -101,7 +101,7 @@
   "pit": { "burn_per_s": 0.6, "bonus": 0.6 },
   "upkeep": { "unpaid_hold_s": 30.0, "shed_order": ["decoration", "passive", "job", "war_mill", "war_haul", "war_pit"],
     "resume_net_min": 0.0,
-    "_doc": "resume_net_min (gold/s; E4 step 4, the manager's ruling on the gold-trap stop): an unpaid building resumes only while the gold income exceeds the paying upkeep plus its own by more than this (0: strictly positive), besides its stocks covering one hold. A town whose income can't pay every building keeps the rest unpaid and saves the surplus." },
+    "_doc": "resume_net_min (gold/s; E4 step 4, the manager's ruling on the gold-trap stop): an unpaid building resumes only while the gold income exceeds the paying upkeep plus its own by more than this (0: strictly positive), besides its stocks covering one hold. A town whose income can't pay every building keeps the rest unpaid and saves the surplus. One margin (7e5602c, TownSim.income_pays): the income beats a bill by more than resume_net_min + NET_EPS (1e-9), read from state; the resume rule, held_by_income and the queue's upkeep gate all judge by it, so a tie is refused by all three at any step size." },
   "forge": { "level_work": [120.0, 240.0, 360.0, 480.0, 600.0, 720.0, 840.0, 960.0], "level_relics": [1, 1, 1, 1, 2, 2, 2, 2] },
   "town": {
     "projection_refresh_s": 5.0,

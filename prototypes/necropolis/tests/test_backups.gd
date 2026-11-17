@@ -78,7 +78,9 @@ const TIP := {
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
 	# +0.01 g/s instead of sitting at 18, and the report gains the "Still stopped, ... Build a Market" line. day1 and
-	# midgame_2flips shed nothing in their 12 h, so they don't move.
+	# midgame_2flips shed nothing in their 12 h, so they don't move. The proof (the E4 step 4 review's item 6): f24595a
+	# with upkeep.resume_net_min -1e9 passes f24595a^'s pins here (and test_big_undead's and test_stances' from before
+	# 52bb714, the same code): 0 FAIL.
 	# E4's convoy claim (the A1 I1 ruling (1); the standing re-pin rule): pre_vei's state and away report. Its dead-limited
 	# legs now take the corpses formed inside each 10 s step, so the convoy lands more and the 12 h backlog reads
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34

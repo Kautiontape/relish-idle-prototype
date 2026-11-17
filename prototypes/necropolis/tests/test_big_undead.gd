@@ -62,7 +62,9 @@ const PARENT := {
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule), live and caught:
 	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
-	# The caught values agree with test_backups' re-pinned pre_vei.
+	# The caught values agree with test_backups' re-pinned pre_vei. The proof (the E4 step 4 review's item 6): f24595a
+	# (the same code as 52bb714, which re-pinned here) with upkeep.resume_net_min -1e9 passes the old pins of all three
+	# suites (this one and test_stances from before 52bb714, test_backups from f24595a^): 0 FAIL.
 	# E4's convoy claim (the standing re-pin rule): pre_vei's states, live and caught, and its caught report, as
 	# test_backups' re-pin (the convoy lands the corpses formed inside each step, live at 0.5 s too; the events
 	# unchanged). day1's and midgame_2flips' convoys land nothing here. The claim off passes the old pins (was a9cdb710…

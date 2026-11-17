@@ -632,6 +632,39 @@ func _upkeep() -> void:
 			back_at = i + 1.0
 	t.ok(back_at > 0.0 and it.buildings["lot-05"]["state"] == "active" and not it.held_by_income("lot-05"),
 		"with the income there it resumes (at %.0f s)" % back_at)
+	# the rule's two exemptions (the E4 step 4 review's item 2), with no gold income at all. A gold earner is never shed
+	# for gold, so here the Market and a House both carry a bone upkeep and are shed for bone; once the bone covers a
+	# hold the Market (its stalls are the income: holding it off could never pay its bill back) resumes, while the House
+	# beside it, a gold payer that earns nothing, stays held by the income
+	var ex := _sim({"buildings.market.upkeep": {"gold": 0.03, "bone": 0.01}, "buildings.house.upkeep": {"gold": 0.01, "bone": 0.01}})
+	ex.place_building("lot-05", "house", 1)
+	ex.ladder = []
+	ex.gold = 1000.0
+	ex.bone = 0.0
+	ex.step(1.0, _inp())
+	t.ok(ex.buildings["lot-04"]["state"] == "unpaid" and ex.buildings["lot-05"]["state"] == "unpaid",
+		"(setup) no bone: the Market and the House go unpaid for their bone upkeep")
+	ex.bone = 100.0
+	for i in int(hold) + 5:
+		ex.step(1.0, _inp())
+	t.ok(ex.gold_income() == 0.0 and ex.buildings["lot-04"]["state"] != "unpaid" and not ex.held_by_income("lot-04"),
+		"an earner resumes with gold income 0 (the Market: %s, unstaffed)" % str(ex.buildings["lot-04"]["state"]))
+	t.ok(ex.buildings["lot-05"]["state"] == "unpaid" and ex.held_by_income("lot-05"),
+		"and a non-earner beside it stays held by the income (the House: %s)" % str(ex.buildings["lot-05"]["state"]))
+	# a building with no gold upkeep (bone only) isn't judged by the gold income: shed for bone, it resumes once its bone
+	# covers a hold, with no gold income
+	var bo := _sim({"buildings.house.upkeep": {"gold": 0.0, "bone": 0.01}})
+	bo.place_building("lot-05", "house", 1)
+	bo.ladder = []
+	bo.gold = 1000.0
+	bo.bone = 0.0
+	bo.step(1.0, _inp())
+	t.ok(bo.buildings["lot-05"]["state"] == "unpaid", "(setup) a bone-upkeep house goes unpaid with no bone")
+	bo.bone = 100.0
+	for i in int(hold) + 5:
+		bo.step(1.0, _inp())
+	t.ok(bo.gold_income() == 0.0 and bo.buildings["lot-05"]["state"] == "active" and not bo.held_by_income("lot-05"),
+		"no gold upkeep: it resumes on its bone with gold income 0 (%s)" % str(bo.buildings["lot-05"]["state"]))
 	# broke with no income: stocks never go negative and the market (the gold earner) keeps going
 	s = _sim()
 	s.ladder = []
@@ -1162,6 +1195,38 @@ func _room_cache() -> void:
 			break
 	t.ok(back, "and resumes")
 	_cache_ok(u, r0, "an upkeep switch (resumed)")
+	# the same switch with the resume rule's income test on (the shipped config; the E4 step 4 review's item 3): shed
+	# with nobody selling, held by the income past its hold, then resumed once the stalls' income pays it
+	var ui := _sim()
+	ui.set_ladder(["pit", "haul"])
+	ui.gold = 0.0
+	ui.restaff()
+	var lot := ""
+	for i in 50:
+		r0 = _rooms_now(ui)
+		for e in ui.step(0.5, _inp())["events"]:
+			if lot == "" and e["type"] == "building_unpaid" and e["unpaid"]:
+				lot = str(e["lot_id"])
+		if lot != "":
+			break
+	_cache_ok(ui, r0, "an upkeep switch (unpaid, income test on)")
+	ui.gold = 1000.0
+	for i in int(2.0 * float(_eco("upkeep")["unpaid_hold_s"])) + 10:  # 0.5 s steps: the hold and 5 s more
+		ui.step(0.5, _inp())
+	t.ok(lot != "" and ui.buildings[lot]["state"] == "unpaid" and ui.held_by_income(lot),
+		"(setup) %s goes unpaid and stays held by the income with nobody selling" % lot)
+	ui.workers = 4.0
+	ui.living = 100.0
+	ui.set_ladder(["stall", "pit", "haul"])
+	var back_i := false
+	for i in 400:
+		r0 = _rooms_now(ui)
+		for e in ui.step(0.5, _inp())["events"]:
+			back_i = back_i or (e["type"] == "building_unpaid" and not e["unpaid"] and str(e["lot_id"]) == lot)
+		if back_i:
+			break
+	t.ok(back_i, "and resumes once the stalls' income pays it")
+	_cache_ok(ui, r0, "an upkeep switch (resumed by the income test)")
 	# a load: another layout's dict into this instance
 	var a := _sim()
 	var b := _rich()

@@ -1223,6 +1223,9 @@ mass; bodies, rot return, WORK and muster are mass.
       test reads `upkeep` as an upgrade's queue reason and `waited_on` (not `unpaid`), and the away report
       lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`). The
       Thrift stance's resume of the buildings it idled is unchanged; no command resumes an unpaid one.
+      Thrift's resume runs no income test (`TownSim.thrift_resume` sets them active), so when it stops acting
+      with the income still short, the shed order sheds them again at the next gold floor and the income
+      test then holds them unpaid: one cycle, not a thrash (the E4 step 4 review's item 5).
     - E2b T4.C: they used to be checked at the step's end, in lot order, on the stocks before the
       step's upkeep was paid. From pre_vei's gold floor a 10 s step resumed the raising pit
       (lot-02) at 7 804 s. The gold had crossed the house's (lot-05) lower threshold first, and,
