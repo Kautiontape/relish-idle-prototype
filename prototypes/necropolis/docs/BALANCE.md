@@ -71,10 +71,8 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
   **never pays** in sessions, continuous or ablation_held. Sessions' and continuous's rows are identical to the runs
   without it (Vei-ready 6.0001 and 4.8291, so the ruling's keep test passes), and ablation_held still makes **27 levels
   against 116 (77%)**, over the 60% line, so the miss is accepted and reported. The cause: the no-held bot doesn't stop
-  at t1. Its 8 raids are 4 at t1, 2 at t2 and 2 at t3 (7 flips, 4 retakes), so its highest tier flipped is 3, a tier it
-  can't hold, and it never holds more than 2 of the 3 t1 forts anyway. A trickle keyed to the tier held now would
-  still not pay it; only one keyed to what its party can reach (a bot stand-in, which the sim doesn't gate) would. No
-  third lever, per the ruling.
+  at t1. Its 8 raids are 4 at t1, 2 at t2 and 2 at t3 (7 flips, 4 retakes), so its highest tier flipped is 3 (at most one of
+  its raids was lost, so at least one t3 raid flipped), a tier it can't hold. No third lever, per the ruling.
 - **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
   buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
   built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in

@@ -1057,12 +1057,13 @@ The profiles:
   It measures the held forts lost.
 
   **E4 step 9's rulings on its misses** (the run's manager, 2026-11-17 12:45, items 2 and 4; 14:24):
-  - The prepared setup loses 0 of 6 (the aim is 10–25%, "not 0"): accepted, with α at 0.85. The one lever allowed was a
+  - The prepared setup loses 0 of 6 (the aim is 10–25%, "not 0"; measured at 4ee7125 and 515092a, not re-run since
+    the odds lever, which leaves the hold calibration alone): accepted, with α at 0.85. The one lever allowed was a
     10–15% jitter on the wave size in realm.json only, aiming at a fort lost in 1–3 of 10 prepared seeds. RealmSim has no
     random draw at all (its waves are fully determined), so a jitter needs code. It was skipped, per the ruling's
     fallback, and is reported.
   - Relish's hold band is dead from 8 h to day 1.0 (the t1 forts need 0.28–0.42 against the 0.60 floor; the step 5–8
-    milestone's band_probe): accepted. There the forecast shows "holds" with its margin (`view_fort().hold`), so the
+    milestone's band_probe at 4ee7125, not re-run since): accepted. There the forecast shows "holds" with its margin (`view_fort().hold`), so the
     player still reads how safe each fort is.
 - **away_risk_real** (E3-7): away_risk's default setup lost none of 4 held forts in 24 h, so it can't grade "at least
   half". This profile makes the risk real. From the same save it is away three times:
