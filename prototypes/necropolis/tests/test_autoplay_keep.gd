@@ -60,6 +60,36 @@ func run() -> int:
 	t.ok(e3._keep.is_empty() and _party(e3.s).size() == 3 and e3._reach() == 4,
 		"raid_all keeps none, and the whole party reaches t4: %s, %d" % [str(e3._keep), e3._reach()])
 
+	# E4 step 3: a dip in Vei's pool (every tithe wave draws it) doesn't release a keeper. Two carvers bigs that meet the
+	# want at her full pool together, each over what the want would be with her pool at 0 (the old rule read today's
+	# need, so one alone met it and the other was released to raid)
+	var dp := Autoplayer._bot("keep_test_dip", c, {"print_rows": false})
+	dp.new_game()
+	var cap := float(dp.s.view_vei()["pool_cap"])
+	dp.s.realm.vei["living_pool"] = cap
+	var wfull: float = dp._big_want()["carvers"]
+	var pool_term := float(c["vei"]["fronts"]["carvers"]["need_per_pool"]) * cap
+	var beef := wfull - pool_term + 0.5
+	t.ok(beef < wfull and 2.0 * beef >= wfull and beef >= Autoplayer.KEEP_SHARE * wfull,
+		"setup: each big (beef %.1f) is under carvers' full-pool want (%.1f), the two meet it, and each would meet the want at an empty pool (%.1f)" % [
+		beef, wfull, wfull - pool_term])
+	var k1 := _big(dp.s, 0.0, beef)
+	var k2 := _big(dp.s, 0.0, beef)
+	dp._place()
+	t.ok(dp._keep == [k1, k2], "at her full pool both are kept on carvers: %s" % str(dp._keep))
+	dp.s.realm.vei["living_pool"] = 0.0
+	var v0 := dp.s.view_vei()
+	var live_need := 0.0
+	for fr in v0["fronts"]:
+		if str(fr["id"]) == "carvers":
+			live_need = float(fr["need"])
+	t.ok(live_need - float(c["vei"]["fronts"]["carvers"]["per_q"]) * float(v0["digest_q"]) <= beef,
+		"setup: with her pool at 0 today's need (%.1f) less the q term is within one big's beef" % live_need)
+	t.near(float(dp._big_want()["carvers"]), wfull, 1e-9, "the want reads her full pool's need, not today's")
+	dp._place()
+	t.ok(dp._keep == [k1, k2], "with her pool drawn to 0 both stay kept: %s" % str(dp._keep))
+	dp.cleanup()
+
 	# the fill: a skeleton (two nerve slots: wits or speed) with two big speed remnants and two small wits ones
 	var slab: Dictionary = c["town"]["slab"]
 	var rems := [

@@ -404,15 +404,20 @@ func _slab_fill(kind: String, remnants: Array, slab: Dictionary) -> Array:
 	return pick
 
 
-## What the bigs must bring to each front now: its need less its backlog and q terms (VeiFronts.have_need's have, without
-## the stat sum), from view_vei and the vei config.
+## What the bigs must bring to each front: its need at Vei's full pool (need_base + need_per_pool x pool_cap) less its
+## backlog and q terms now (VeiFronts.have_need's have, without the stat sum), from view_vei and the vei config. The
+## full pool's need, not today's (E4 step 3): her pool dips through every tithe wave, and a want read in the dip let one
+## keeper meet it alone, so the second was released, raided and was lost (sessions lost a keeper so at 168.09 h and
+## 168.17 h); the dip is gone in seconds, and the fight is judged at the pool she has then.
 func _big_want() -> Dictionary:
 	var v := s.view_vei()
+	var cap := float(v["pool_cap"])
 	var out := {}
 	for fr in v["fronts"]:
 		var fid := str(fr["id"])
 		var fc: Dictionary = c["vei"]["fronts"][fid]
-		out[fid] = float(fr["need"]) - float(fc["per_backlog"]) * float(v["backlog"]) - float(fc["per_q"]) * float(v["digest_q"])
+		out[fid] = float(fc["need_base"]) + float(fc["need_per_pool"]) * cap - float(fc["per_backlog"]) * float(v["backlog"]) \
+			- float(fc["per_q"]) * float(v["digest_q"])
 	return out
 
 

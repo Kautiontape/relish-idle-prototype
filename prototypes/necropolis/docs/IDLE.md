@@ -961,6 +961,9 @@ The policies (the run's manager's, for Shawn):
   - On giants and carvers, a big whose stat brings at least `KEEP_SHARE` (0.25) of the front's want is a keeper
     candidate. Candidates are taken best first, at most the big-undead cap less `RAID_ROOM` (2, room for two raiders,
     who reach t3), and only as many as meet the want. The front whose keepers cover the larger share is the one kept.
+  - The want is the front's need at Vei's **full** pool (need_base + need_per_pool × pool_cap) less today's backlog and
+    q terms (E4 step 3's fix). It read today's need before, and her pool dips through every tithe wave: in the dip one
+    keeper met the want alone, and the second was released, raided and was lost (sessions, at 168.09 h and 168.17 h).
   - Keepers join the party first, on that front, so they count at every look. Before each raid they leave the party
     and stay home, so the reach counts the raiders only. A death, which loses the whole party, never takes them.
   - No keeper: the E3 placement exactly.
