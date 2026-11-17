@@ -86,8 +86,8 @@ her. The ground itself streams like a current toward Vei wherever the realm is l
   forts first. Relish standing there, or a big undead placed as a siege, blunts it. Her waves come
   faster as her queue clogs, so the closer you are to winning, the harder she fights.
 - **Read the war at a glance.** Vei's domain shows three numbers: the backlog (a countable stack at
-  her gates), the sustained differential (▲ or ▼, in/s), and the drain time. Her odds grow as the
-  backlog grows.
+  her gates), the sustained differential (▲ or ▼, in/s), and the drain time. Your odds against her
+  grow with time and, up to a cap, as the backlog grows (MECHANICS §3.5).
 - **Descend.** When Relish stands at a fortress, you can dive into it: its dungeon.
 - **Bounce home.** Click Covington to dive into the town. One click, a short dive, and the routes
   become streets.

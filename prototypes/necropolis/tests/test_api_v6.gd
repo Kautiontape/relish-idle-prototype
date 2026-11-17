@@ -214,7 +214,7 @@ func _by_hand() -> void:
 	var pile := float(cfg["k_destroy"]) * (80.0 + float(cfg["tithe"]["march_back_s"]) * sh) / s.digest_q()
 	var rate := -minf(hold_off, pile)
 	var vf := s.view_fort("ashgate")
-	t.ok(s.realm.odds() == 0.0 and s.digest_q() == 1.2, "odds 0, q 1.2 (setup)")
+	t.ok(s.realm.strain() == 0.0 and s.digest_q() == 1.2, "strain 0, q 1.2 (setup)")
 	t.near(float(vf["garrison_rate"]), rate, 1e-12, "garrison_rate = −min(r_drain · S / k_kill = %.6f, k_destroy · (cap + τ · S) / q = %.6f)" % [hold_off, pile])
 	t.near(float(vf["fall_s"]), float(cfg["hold"]["break_s"]), 1e-9, "no WAR: fall_s = min(30, 0 / r_drain) / −rate + break_s = break_s (%.3f)" % float(vf["fall_s"]))
 	var ro_w := s.realm.readout_of(ash, 0.1, false, 4.0, false, 0.0, s.digest_q())
@@ -1483,6 +1483,10 @@ func _run_checkpoint_api() -> void:
 		f["have"] = 0.0
 	# E4 step 3: the fixture's backlog is 3000x the parent's (18000 -> 54M, as realm.json K), so it is scaled back
 	bs["backlog"] = float(bs["backlog"]) / 3000.0
+	# E4 step 9 (option B): the seed's odds are the win odds (view_vei's); the parent's were the strain, set back here
+	t.ok(float(bs["odds"]) == float(m.view_vei()["odds"]) and float(bs["odds"]) != m.realm.strain(),
+		"pre_vei's boss seed carries view_vei's win odds (%.4f), not the strain (%.4f)" % [float(bs["odds"]), m.realm.strain()])
+	bs["odds"] = m.realm.strain()
 	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
 		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")
 	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")

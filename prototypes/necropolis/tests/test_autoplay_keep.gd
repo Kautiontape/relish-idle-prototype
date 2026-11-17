@@ -352,6 +352,10 @@ func run() -> int:
 	# E4 step 3: Vei-ready is BALANCE §1's, odds >= 0.6 as well as the fronts (fronts_required 0 here, so only the odds gate)
 	var c0 := c.duplicate(true)
 	c0["vei"]["fronts_required"] = 0
+	# (E4 step 9) the odds at the strain (time_weight 0, backlog_cap 1), so the backlog set below sets them: this checks
+	# the gate; test_win_odds checks that the odds it reads are the win odds
+	c0["realm"]["odds"]["time_weight"] = 0.0
+	c0["realm"]["odds"]["backlog_cap"] = 1.0
 	var g := Autoplayer._bot("keep_test_odds", c0, {"print_rows": false})
 	g.new_game()
 	g._vei_check(g.s.t + 3600.0)
@@ -403,6 +407,8 @@ func _pump_lost_cause(c: Dictionary) -> void:
 func _full_pool_ready(c: Dictionary) -> void:
 	var c2 := c.duplicate(true)
 	c2["vei"]["fronts_required"] = 2
+	c2["realm"]["odds"]["time_weight"] = 0.0  # (E4 step 9) the odds at the strain, as in _keep's odds gate
+	c2["realm"]["odds"]["backlog_cap"] = 1.0
 	var r := Autoplayer._bot("keep_test_full_pool", c2, {"print_rows": false})
 	r.new_game()
 	r.s.realm.vei["undead_queue"] = 2.0 * float(c2["realm"]["K"])

@@ -242,15 +242,21 @@ static func drain_at(backlog: float, diff: float) -> float:
 	return backlog / -diff if diff < 0.0 else -1.0
 
 
-## Odds after `window_s` at a differential: b / (b + K) with b = max(backlog + diff x window, 0).
-static func odds_at(backlog: float, diff: float, window_s: float, k: float) -> float:
+## Odds after `window_s` at a differential: b / (b + K) with b = max(backlog + diff x window, 0). With `odds_cfg`
+## (realm.json's `odds` block; E4 step 9, option B) they are the win odds view_vei shows, at the age `age_s` +
+## window: GameState.win_odds_of on that strain. Without it, the strain alone (as before).
+static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds_cfg := {}, age_s := 0.0) -> float:
 	var b := maxf(backlog + diff * window_s, 0.0)
-	return b / (b + k) if b + k > 0.0 else 0.0
+	var s := b / (b + k) if b + k > 0.0 else 0.0
+	if odds_cfg.is_empty():
+		return s
+	return GameState.win_odds_of(age_s + window_s, s, float(odds_cfg.get("time_weight", 0.0)),
+		float(odds_cfg.get("time_s", 0.0)), float(odds_cfg.get("backlog_cap", 1.0)))
 
 
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
-## same formulas; `now` is the current differential (diff_ema), `then` diff_at's.
-static func payoff(vei: Dictionary, proj: Dictionary, base_split: Dictionary, k: float) -> Dictionary:
+## same formulas; `now` is the current differential (diff_ema), `then` diff_at's. `odds_cfg` and `age_s` as odds_at.
+static func payoff(vei: Dictionary, proj: Dictionary, base_split: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
 	var c := _c()
 	var backlog := float(vei.get("backlog", 0.0))
 	var window := float(c["drain_window_s"])
@@ -258,7 +264,7 @@ static func payoff(vei: Dictionary, proj: Dictionary, base_split: Dictionary, k:
 	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(float(vei.get("diff_ema", 0.0)), proj, base_split, float(c["war_drain_frac"]))}
 	for side in diffs:
 		var d: float = diffs[side]
-		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k)}
+		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k, odds_cfg, age_s)}
 	return out
 
 

@@ -46,10 +46,16 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## +230,846 -> +285,393, one step more (4 356); the same waves at shifted moments. pre_vei: WAR 40.9 -> 22.9, the backlog
 ## +1,692,203 -> +1,867,726; its events are unchanged. Was: day1 49bfe8be… / 7adf8ca1… / 31d28a99…, midgame_2flips
 ## b2cf7165… / 3909f7cd… / de13aae3…, pre_vei 5bc97b17… / (events) / 73b76696… (state / events / away).
+## Re-pinned at E4 step 9's odds lever (option B; API v12; the standing re-pin rule): the three states, for api_version
+## 12 (the odds are not saved, so nothing else in the state moves), and the three away reports, whose backlog line's
+## "odds A → B" are now the win odds. The proof: the change at realm.json odds time_weight 0, backlog_cap 1 (the strain,
+## bit for bit) fails only the three states here, and with API_VERSION set back to 11 passes every old pin in this
+## suite, test_stances and test_big_undead; the events don't move. Was: day1 a8ee3651…, midgame_2flips 875e15d2…,
+## pre_vei 4dff39f0… (states), 4f807d58… / 1d3c4855… / 0915402c… (away reports).
 const TIP := {
-	"day1": {"state": "a8ee36519d9b90ad7ddd27d4b4104cadf4e6d3c7a7fe365a51cb1bd45f0a3120",
+	"day1": {"state": "60e6df8c49ec6175fe35b3b10c8ca0383c3ae27250f74d4c744d57d462205476",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
-		"away": "4f807d582bdab4438a59f072de13bc7190c471c3faba89df978b687cfa3bc958", "steps": 4320, "n_events": 2},
+		"away": "ab49446c969569f989a1f08c655f3247f929c4c7837d0e7820a1f43e45afd839", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -74,9 +80,9 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "875e15d2f5a0ab76766cf4d633e8aa2767e0331ad3fccbd518476ee9a03811d5",
+	"midgame_2flips": {"state": "033dd1148f66cc38b730e6e882a8c831bfa8d671c2d9cd1dfb9cc5e7eea52df3",
 		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
-		"away": "1d3c4855bb029af3b6dfa1433ca9c105a4abfc55f6ccd95432e33da2dcb40af0", "steps": 4356, "n_events": 240},
+		"away": "330008c2b9838f07917f3f4b503f5b83cf77bb43299b8ec361438f9cdb6991ec", "steps": 4356, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -89,9 +95,9 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
-	"pre_vei": {"state": "4dff39f043de4ce62089f25691de39ef06f592e01ad75cc74cfa87cae1b56a17",
+	"pre_vei": {"state": "ae145315f65c97ca88a3397f77192af73a8b8ec8fc7b0cef3ecb6b8860089232",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "0915402c0be357206af1a20c74afe1c3041807f967ac0e1d7c7b178a1c0866f8", "steps": 4321, "n_events": 15},
+		"away": "50f7cc0b2696b50d0f54f21abaddb8d858442e4410f8a7ad9148fa415774d44d", "steps": 4321, "n_events": 15},
 }
 
 

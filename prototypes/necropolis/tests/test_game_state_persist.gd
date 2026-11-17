@@ -766,7 +766,9 @@ func _fixtures() -> void:
 	t.ok(vt["next_tier"]["have"] >= 20 and vt["buildings"].all(func(x): return x["state"] != "unpaid")
 		and ["walls", "chapel_of_vats", "reliquary"].all(func(id): return vt["lots"].any(func(l): return l["building_id"] == id)),
 		"pre_vei: a city of 20 buildings (Walls, a Chapel of Vats, the Reliquary), none unpaid")
-	t.near(v.view_vei()["odds"], 0.6, 0.005, "pre_vei: odds about 0.6")
+	# (E4 step 9, option B) the fixture was made at odds = strain about 0.6; the win odds read its 3 h age as well
+	t.near(v.view_vei()["strain"], 0.6, 0.005, "pre_vei: strain about 0.6")
+	t.ok(v.view_vei()["odds"] == v.win_odds(v.t, v.view_vei()["strain"]), "pre_vei: odds %.3f, the win odds at its age" % v.view_vei()["odds"])
 	t.ok(v.party_uids.size() == 4 and v.big_undead.all(func(b): return b["front"] != "" and b["place"] == "party"), "pre_vei: a party of 4, each on a front")
 	t.ok(v._phylactery_charges == 1 and v.view_backups()["clones_ready"] == 1, "pre_vei: 1 phylactery charge, 1 clone ready")
 	t.ok(v.view_backups()["phylactery_charges"] == 1 and v.view_relish()["phylactery_charges"] == 1

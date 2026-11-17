@@ -49,15 +49,15 @@ func _need_edge() -> void:
 	for i in 200:
 		var mid := 0.5 * (lo + hi)
 		sim.vei["undead_queue"] = mid
-		if floorf(sim.odds() / step) >= 30.0:
+		if floorf(sim.strain() / step) >= 30.0:
 			hi = mid
 		else:
 			lo = mid
 	sim.vei["undead_queue"] = lo
-	var o_lo := sim.odds()
+	var o_lo := sim.strain()
 	var n_lo: float = need.call()
 	sim.vei["undead_queue"] = hi
-	var o_hi := sim.odds()
+	var o_hi := sim.strain()
 	var n_hi: float = need.call()
 	t.ok((hi - lo) / hi < 1e-12 and floorf(o_lo / step) == 29.0 and floorf(o_hi / step) == 30.0,
 		"(setup) backlogs %s and %s, a hair apart (%.1e relative), read odds %.9f and %.9f: bins 29 and 30" % [str(lo), str(hi),
@@ -72,8 +72,8 @@ func _need_edge() -> void:
 	sim.vei["undead_queue"] = hi * 1.001
 	var in_bin: float = need.call()
 	sim._need_cache = {}
-	t.ok(floorf(sim.odds() / step) == 30.0 and in_bin == n_hi and need.call() == n_hi,
-		"a backlog 0.1%% further into bin 30 (odds %.5f) reads bin 30's bits, memoised and recomputed" % sim.odds())
+	t.ok(floorf(sim.strain() / step) == 30.0 and in_bin == n_hi and need.call() == n_hi,
+		"a backlog 0.1%% further into bin 30 (odds %.5f) reads bin 30's bits, memoised and recomputed" % sim.strain())
 
 
 ## E4 review item 7: fort_retaken's war_in (the away report's "WAR n/s") is the settled WAR the fort's margin chip

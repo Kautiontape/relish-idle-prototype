@@ -19,6 +19,7 @@
   "readout": {"ema_s": 120.0, "sign_eps": 0.05},
   "q": {"q0": 1.2, "q_forge": 0.1, "q_raise_max": 0.6, "raise_half_mass": 200.0, "q_max": 4.0},
   "K": 36000000.0,
+  "odds": {"_doc": "E4 step 9 (the manager's 2026-11-17 13:44 ruling, option B; MECHANICS 3.5): the win odds a player reads, the boss seed's and Vei-ready's are time_weight * age / (age + time_s) + (1 - time_weight) * min(backlog_cap, strain), age the game's sim seconds and strain = backlog / (backlog + K). Her tithe period, reship and one-wave need read the strain alone. time_weight 0 with backlog_cap 1 is the strain (the revert proof). Sized in one pass (BALANCE 5): w 0.7 and time_s 4 days keep sessions at day 6.0 and put continuous at day 4.83 (19.5% sooner); backlog_cap 0.8 binds neither (their strains at ready are 0.632 and 0.735) but floors the odds' 0.6 at day 4.24 for any backlog. Read REQUIRED by GameState.", "time_weight": 0.7, "time_s": 345600.0, "backlog_cap": 0.8},
   "start_living_frac": 0.85,
 
   "field": {

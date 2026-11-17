@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 11
+const API_VERSION := 12
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -38,6 +38,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
 	"realm.relish.tide_bias", "economy.queue.max_len",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
+	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
 	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
 	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
@@ -892,7 +893,7 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 # ------------------------------------------------------------------- runs ----
 ## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
 ## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
-## if that would not be finite); odds = backlog / (backlog + K).
+## if that would not be finite); odds is the win odds at the game's age (win_odds), strain her backlog / (backlog + K).
 func _vei_readout() -> Dictionary:
 	var ema := float(_readout["diff_ema"])
 	var eps := _req_f("realm.readout.sign_eps")
@@ -901,12 +902,33 @@ func _vei_readout() -> Dictionary:
 	if ema < 0.0:
 		var d := backlog / -ema
 		drain = d if is_finite(d) else -1.0
+	var strain := realm.strain()
 	return {
 		"diff": _diff, "diff_ema": ema,
-		"odds": realm.odds(),
+		"odds": win_odds(t, strain), "strain": strain,
 		"sign": 1 if ema > eps else (-1 if ema < -eps else 0),
 		"drain_s": drain,
 	}
+
+
+## The win odds (MECHANICS §3.5; E4 step 9, the manager's 2026-11-17 13:44 ruling, option B) at the game's age `age_s`
+## (sim seconds since the new game, `t`) and Vei's strain `strain` (RealmSim.strain): realm.json odds.time_weight ·
+## age / (age + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain). The odds a player reads, the boss
+## seed's and the bots' Vei-ready are these; her tithe period, reship and one-wave need read the strain alone, so
+## nothing in the fight reads them. Read live (a test may change the config after setup). time_weight 0 with
+## backlog_cap 1 is the strain bit for bit (the revert proof).
+func win_odds(age_s: float, strain: float) -> float:
+	return win_odds_of(age_s, strain, _req_f("realm.odds.time_weight"), _req_f("realm.odds.time_s"),
+		_req_f("realm.odds.backlog_cap"))
+
+
+## win_odds on explicit tunables (pure; the map's valve payoff projects with it from realm.json): w · age / (age + T) +
+## (1 − w) · min(cap, strain), w clamped to 0..1; the age term is 0 at age 0 or with T ≤ 0 and no age.
+static func win_odds_of(age_s: float, strain: float, w: float, time_s: float, cap: float) -> float:
+	var ww := clampf(w, 0.0, 1.0)
+	var a := maxf(0.0, age_s)
+	var tau := a / (a + time_s) if a + time_s > 0.0 else 0.0
+	return ww * tau + (1.0 - ww) * minf(cap, strain)
 
 
 ## §3 step 8: `diff = inflow − digestion` (mass/s: what entered Vei's undead queue last substep, less

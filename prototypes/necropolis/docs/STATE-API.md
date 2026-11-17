@@ -392,6 +392,15 @@ from `BALANCE.md` §0.
     `view_town.queue[].short` (`{gold, bone}` a head waiting on funds is short of), `.starved` (the mills' reason while
     it is short of bone) and `.lever`; and `view_hud.bone_war_share` (a new game's bone edge, for the valve readout).
     The away report's head line names the bone short and the lever (§5.19).
+
+  `api_version` 12 (E4 step 9, the odds lever; the run's manager's ruling of 2026-11-17 13:44, option B) added:
+  - **The win odds**: `view_hud.odds`, `view_vei.odds`, the boss seed's `odds`, the save summary's and the away
+    report's "odds A → B" are `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) ·
+    min(`odds.backlog_cap`, strain) (§5.1), mostly time-based with the backlog term capped. A meaning change, not a
+    shape change. `GameState.win_odds_of` is the pure formula (the map valve's "odds in 10 min" projects with it).
+  - **`view_vei.strain`**: `backlog / (backlog + K)`, what the odds were until v12. Her tithe period, reship and
+    one-wave need read it, unchanged, so the hold calibration doesn't move; it is never shown as odds.
+    `RealmSim.odds()` is renamed `strain()`, and `RealmSim.readout().odds` is `.strain` (not contract).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -446,7 +455,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 11
+const API_VERSION := 12
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -1474,7 +1483,7 @@ Every field is live from E2a:
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
-| `odds` | float | `backlog / (backlog + K)`, 0..1 |
+| `odds` | float | The win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `realm.json` `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`). Until v12, the strain itself. A meaning change, not a shape change: nothing in the fight reads them (her tithe period, reship and need read the strain), and the boss seed, the away report's "odds A → B", the save summary and the map valve's "odds in 10 min" show these same odds |
 | `won` | bool | |
 ```gdscript
 {rev: 3, game_id: "0000002a", t: 1.0, time_scale: 1.0, paused: false,
@@ -2138,6 +2147,7 @@ and `have` were 0.0, `cleared` false and `fronts_met` 0.
 | `diff` | float | mass/s: the raw differential this substep (0.0 after a load until the first substep) |
 | `diff_ema` | float | mass/s: the EMA over `readout.ema_s` |
 | `sign`, `drain_s`, `odds` | int, float, float | as in `view_hud` |
+| `strain` | float | v12 (E4 step 9, option B): `backlog / (backlog + K)`, 0..1. Her tithe period, her reship into held forts and the one-wave need read it (MECHANICS §3.4); it is not shown as odds. `odds` is the win odds, which read it with the game's age (`view_hud.odds`) |
 | `digest_q` | float | |
 | `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
 | `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |

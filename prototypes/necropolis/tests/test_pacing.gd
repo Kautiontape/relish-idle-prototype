@@ -39,7 +39,7 @@ func run() -> int:
 	var idle := {"war": base_mint * float(v["war"]), "flood": base_mint * float(v["flood"]), "digest_q": float(cfg["q"]["q0"])}
 	for i in 3600 * 2:  # 1 sim-hour at dt 0.5
 		sim.step(0.5, idle)
-	var idle_odds: float = sim.readout()["odds"]
+	var idle_odds: float = sim.readout()["strain"]
 	t.ok(idle_odds < 0.35, "1h idle (base minting only) does not approach victory (odds %.2f)" % idle_odds)
 	t.ok(not _negative(sim), "no negative pool after 1h idle")
 
@@ -79,12 +79,12 @@ func run() -> int:
 		if _negative(sim2):
 			neg = true
 		if odds_at_30m < 0.0 and sim2.elapsed >= 1800.0:
-			odds_at_30m = sim2.readout()["odds"]
-		if hours_to_60 < 0.0 and sim2.readout()["odds"] >= 0.6:
+			odds_at_30m = sim2.readout()["strain"]
+		if hours_to_60 < 0.0 and sim2.readout()["strain"] >= 0.6:
 			hours_to_60 = sim2.elapsed / 3600.0
 	var ro: Dictionary = sim2.readout()
 	print("  [pacing] (info) 30min odds %.3f · 4h odds %.3f · differential %.1f/s · hours to 60%%: %s" %
-		[odds_at_30m, ro["odds"], ro["differential"], ("%.2f" % hours_to_60) if hours_to_60 > 0 else "never"])
+		[odds_at_30m, ro["strain"], ro["differential"], ("%.2f" % hours_to_60) if hours_to_60 > 0 else "never"])
 	t.ok(not neg, "no negative pool over the 4h active model")
 
 	# --- quality is the gate: with digestion off, higher q survives garrisons --

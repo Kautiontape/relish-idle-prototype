@@ -304,6 +304,7 @@ const VIEWS := {
 	"view_vei": {
 		"backlog": F, "living_pool": F, "pool_cap": F, "diff": F, "diff_ema": F,
 		"sign": I, "drain_s": F, "odds": F, "digest_q": F,
+		"strain": F,  # api_version 12 (E4 step 9, option B): backlog / (backlog + K); `odds` is the win odds
 		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S], "counted": [S]}],
 		"fronts_required": I, "fronts_met": I,
 		# next_target, next_s: api_version 11 (E4 step 5, B1 (ii)): the telegraph
