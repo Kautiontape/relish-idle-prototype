@@ -886,21 +886,39 @@ The profiles:
       both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
     - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
       runs. AUTOPLAY_DAYS=8 measures it.
-    - **I1 holds 3 days at K 36M; day 4 is a known limit** (E4 step 2's sizing stop, the manager's ruling 1). At
-      152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4: closed is a House level
-      ahead (living 134 against 126, lot-07 L3 against L2). The first command to answer differently is a queue command
-      in the 08:00 session of day 4 (288 761 s), refused `queue_full` open and with room closed: the closed run started
-      a build first. A smaller catch-up step doesn't move that break. At 7a8d469, with `catchup_dt_max_s` and
+    - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
+      sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
+      At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
+      answer differently is a queue command in the 08:00 session of day 4 (288 761 s): the queue is full in the open
+      run (refused `queue_full`) and has room in the closed one, so the closed run starts a build first and ends a
+      House level ahead (living 134 against 126, lot-07 L3 against L2). At 7a8d469, with `catchup_dt_max_s` and
       `catchup_dt_long_s` both 10/15, 3 and 2, the first differing command was the same queue command at the same
       moment (274 631.5 s), while the slip fell about ten times (days 1–3: 7.9/29.8/62.5 s, 3.2/10.9/22.4, 0.6/3.1/6.9)
       and the first differing wave target moved from day 4 to day 5. A smaller step is also out of budget
       (catchup_bench's worst start, against 2 s and 10 s: 10 s 1.69 and 11.47; 3 s 4.30 and 53.0; 2 s 6.06 and 80.4),
-      so the step stays 10 s and the gate stays 2 days.
+      so the step stays 10 s and the gate stays 2 days. Why the two queues part isn't chased yet: it's an open item of
+      E4's steps 1–3 milestone.
+    - At d6ad1b7 (the R2 readout and carvers 9.2) the 8-day row passes days 1–4 (slip 6.9, 28.5, 59.9, 99.6 s) and
+      fails from day 5. Its first differing command is a husk craft at 346 115 s (day 4's 00:00 session), done in the
+      closed run and refused `no_bone` in the open one, and days 5–8 differ in husks, remnants and essence. The first
+      differing wave target is on day 2 (wave 250, about 10 s apart), with every stock still in tolerance. So the
+      break is again a town stock that differs between the open and closed runs (bone here; at 7a8d469 day 4 also
+      read bone 900 against 550), not the step. Not chased.
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
 - **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
   Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
+  - **The fronts are read at her full pool** (`_full_met`: each front's have against need_base + need_per_pool ×
+    pool_cap, the need `_big_want` reads), at the look and again on arrival (E4 step 2, the manager's ruling R2 at the
+    readout stop). Before R2 they were read at the pool she had then, and both profiles' readies fell inside a tithe
+    wave's dip (sessions at 461 328 s, pool 462 → 444 of 600 across the walk; continuous at 378 300 s, 411 → 375), so
+    the pacing number hung on the wave phase, and at her full pool, between waves, neither had 3 met.
+  - The old readout is kept beside it: the summary's `vei.ready_wave_t`, the first look whose fronts at the pool she
+    has then meet `fronts_required` with the odds. It's taken at the look only and never moves Relish, so it falls
+    at or before `ready_t`. BALANCE §5 gives both.
+  - **The fight still judges the fronts at the pool she has then**, so striking during a tithe stays the player's
+    opportunity (warnings telegraph each wave). That's for the vision review; the fight is unchanged.
 - **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
   default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
   that catch-up's `building_done` events.
