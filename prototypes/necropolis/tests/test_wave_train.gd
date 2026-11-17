@@ -397,6 +397,10 @@ func _fixture(name: String) -> GameState:
 func _arrival() -> void:
 	t.suite("wave-train-committed")
 	var s := _fixture("midgame_2flips")
+	# E4 step 5 (ruling A1): the muster joins the FLOOD now, so the fixture's WAR (mint · 0.45 plus its 3.95 mass/s of
+	# muster, 9.71) is kept as a WAR share instead: 0.76 settled (9.73), and Old Sluice's margins sit where they did
+	t.ok(s.cmd_set_valve(0.09, 0.76, 0.15)["ok"], "(setup) the WAR share at 0.76, the fixture's WAR with its old muster")
+	s.valve = s.valve_target.duplicate()
 	s.tick(s.substep_s())
 	t.ok(s.relish["state"] == "travelling" and s.relish["target"] == "greywall", "(setup) she is travelling to Greywall")
 	var vf := s.view_fort("old-sluice")
@@ -425,9 +429,7 @@ func _arrival() -> void:
 	var n := int(v._train_cache.get("computed", 0))
 	var ts := v.town_sim
 	var mint_tr := v._mint(ts.pit_weight(), ts.trough_feed())
-	var st := TownSim.workforce_steady(mint_tr * 0.75 / v.worker_mass(), ts.lifetime_s(v.relish["state"] == "home"), ts._idle_rot,
-		float(ts.staffing.get("slots", 0.0)), ts.idle_cap())
-	var tw := mint_tr * 0.10 + float(st["muster"]) * v.worker_mass()  # the target's settled WAR (_settled_support)
+	var tw := mint_tr * 0.10  # the target's settled WAR (_settled_support): the muster is FLOOD without the Muster stance (A1)
 	t.ok(absf(v._train_war() - tw) < 1e-12 and v._train_valve(v._train_war()) == live and int(v._train_cache.get("computed", 0)) == n,
 		"the live train reads the target's WAR (%.3f, the split is at %.3f): the settled projection there is the same probe" % [v._train_war(), float(v._split["war"])])
 	var mid := v.realm.train_probe(v._train_support(float(v._split["war"]), true), v.digest_q())

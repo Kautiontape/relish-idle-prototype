@@ -48,25 +48,33 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## sim). day1 moves only its report (the backlog line's "· odds A -> B"); pre_vei keeps its events; midgame starts fewer
 ## waves. The caught events and reports agree with test_backups' and test_stances', and PARENT_C3's events still equal
 ## PARENT's midgame ones.
+## Re-pinned at E4 step 5's A1 (the muster joins FLOOD unless the Muster stance acts; the standing re-pin rule), live
+## and caught, PARENT_C3 too: A1's route alone (these hashes leave out api_version). The proof tree (A1 with the route
+## forced to WAR, the early-return off, the old start valve) passes the old pins. The caught values agree with
+## test_backups' A1 re-pin (its reasons: day1's bodies end at 0 below the bone edge, 3 -> 2 events; midgame's backlog
+## moves and it runs one step more, 4 356; pre_vei's events stay). Live: day1 3 -> 2 events, midgame_2flips 122 -> 123.
+## Was: day1 b2547329… / efef071d… live, dbed8b89… / 7adf8ca1… / 31d28a99… caught; pre_vei eee267d1… live, 7f1c4934… /
+## 73b76696… caught; midgame_2flips 28455d22… / ea617806… live, a73efc4b… / b70fcb08… / 167e638f… caught; PARENT_C3
+## b1b87959… live, 2d724838… / 235bce4c… caught.
 const PARENT := {
-	"day1": {"live": {"state": "b2547329ec83e8b8", "events": "efef071d942cfa48", "n_events": 3},
-		"caught": {"state": "dbed8b898b2a905b", "events": "7adf8ca1cc296dda", "away": "31d28a99e4efc264", "n_events": 3, "steps": 4320}},
+	"day1": {"live": {"state": "0b4b2c8c088675b2", "events": "d4879c9aa75cb133", "n_events": 2},
+		"caught": {"state": "3e768c1b3a617251", "events": "bf49daaddc2123e6", "away": "4f807d582bdab443", "n_events": 2, "steps": 4320}},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule), live and caught:
 	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
 	# The caught values agree with test_backups' re-pinned pre_vei.
-	"pre_vei": {"live": {"state": "eee267d107ec2fbd", "events": "618ddc3b937abcfb", "n_events": 15},
-		"caught": {"state": "7f1c4934d9f9b71f", "events": "e3093d57d7355dc3", "away": "73b76696c5f7c473", "n_events": 15, "steps": 4321}},
+	"pre_vei": {"live": {"state": "a9cdb710249e07e4", "events": "618ddc3b937abcfb", "n_events": 15},
+		"caught": {"state": "ffeda0ced7cff3b0", "events": "e3093d57d7355dc3", "away": "a8a97ed818aeb64e", "n_events": 15, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
 	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
-	"midgame_2flips": {"live": {"state": "28455d227ef8dfb9", "events": "ea617806913ef19a", "n_events": 122},
-		"caught": {"state": "a73efc4bf5c5eb49", "events": "b70fcb08d9680016", "away": "167e638fef59771b", "n_events": 240, "steps": 4355}},
+	"midgame_2flips": {"live": {"state": "7b0b81e015745ff4", "events": "64c42f4e26ef70ac", "n_events": 123},
+		"caught": {"state": "7cf1dab369931400", "events": "9edee23084f847b2", "away": "9e4483b4708fee1a", "n_events": 241, "steps": 4356}},
 }
 ## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
 ## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
 ## E4 step 3 as PARENT is.
-const PARENT_C3 := {"live": {"state": "b1b8795996bdf3a6", "events": "ea617806913ef19a", "n_events": 122},
-	"caught": {"state": "2d724838b9655d76", "events": "b70fcb08d9680016", "away": "235bce4c35be01e7", "n_events": 240, "steps": 4355}}
+const PARENT_C3 := {"live": {"state": "41a7327294750a1f", "events": "64c42f4e26ef70ac", "n_events": 123},
+	"caught": {"state": "7ae237fa9f4d7180", "events": "9edee23084f847b2", "away": "70cd4e031693869d", "n_events": 241, "steps": 4356}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 
@@ -962,9 +970,9 @@ static func _hash_caught(n: GameState) -> Dictionary:
 ## with both moved is kept for _fm_catchup (_mid_off).
 func _identity() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
-	for cs in [["day1", [], PARENT["day1"], "0e4f932 (re-pinned at E4 step 3)"], ["pre_vei", [], PARENT["pre_vei"], "0e4f932 (re-pinned at E4 step 3)"],
-			["midgame_2flips", ["u8", "u9"], PARENT["midgame_2flips"], "0e4f932 (re-pinned at E4 step 3)"],
-			["midgame_2flips", ["u9"], PARENT_C3, "2287fea (re-pinned at E4 step 3)"]]:
+	for cs in [["day1", [], PARENT["day1"], "0e4f932 (re-pinned at E4 step 3 and A1)"], ["pre_vei", [], PARENT["pre_vei"], "0e4f932 (re-pinned at E4 step 3 and A1)"],
+			["midgame_2flips", ["u8", "u9"], PARENT["midgame_2flips"], "0e4f932 (re-pinned at E4 step 3 and A1)"],
+			["midgame_2flips", ["u9"], PARENT_C3, "2287fea (re-pinned at E4 step 3 and A1)"]]:
 		var lv := _live(c, cs[0], cs[1], 21600.0)
 		if cs[1].size() == 2:
 			_mid_off = lv

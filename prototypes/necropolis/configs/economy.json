@@ -14,7 +14,8 @@
     "workers": 12.0,
     "living": 10.0,
     "living_cap": 16.0,
-    "valve": { "work": 0.40, "war": 0.45, "flood": 0.15 },
+    "valve": { "work": 0.25, "war": 0.60, "flood": 0.15 },
+    "bone_edge": { "_doc": "E4 (the A1 day-1 ruling): the WAR share under which a new game's Bone Mill makes no bone, FLOOD held at opening.valve's and WORK the rest: the pits have first call on the bodies and, below it, eat every one (a growth feedback over minutes, no closed form). Measured from cmd_new_game (tools' edge probe); test_day1_queues brackets it. The start valve keeps WAR above it. view_hud.bone_war_share shows it for the valve readout; a new game's edge, not a later state's.", "war_share": 0.54 },
     "first_dungeon": "old-sluice",
     "buildings": { "lot-01": "crypt", "lot-02": "raising_pit", "lot-03": "charnel_house", "lot-04": "market" }
   },
@@ -66,6 +67,8 @@
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },
       "afford_raise_self": { "gold": "nothing else makes gold", "bone": "nothing else makes bone" },
+      "afford_starved_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR, or move it down",
+      "afford_starved_last_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR",
       "full_tol": 0.01, "full_raid": "Your stores are full and the queue is empty: raid a fort for relics",
       "unpaid_fmt": "{name} stopped for {when}, {store} ran out: {stopped}", "unpaid_brief_fmt": "{name} stopped briefly, {store} ran out: {stopped}",
       "unpaid_none_fmt": "{name} stopped for {when}, {store} ran out", "unpaid_none_brief_fmt": "{name} stopped briefly, {store} ran out",
@@ -107,6 +110,7 @@
     "projection_phase": 0.5,
     "projection_starve_frames": 30,
     "projection_tol": { "rel": 0.01, "abs": 0.005 },
+    "starved_lever": { "_doc": "E4 (the A1 day-1 ruling): the lever per TownSim.mill_starved reason, on view_town's mill rows and a queue head short of bone. pits_first: the pits ate the bodies the mill wanted; more WAR makes more corpses at the forts.", "pits_first": "raise_war" },
     "migrant_rate": 0.012,
     "leave_rate": 0.004,
     "tiers": {

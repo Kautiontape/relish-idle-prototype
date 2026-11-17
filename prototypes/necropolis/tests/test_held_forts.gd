@@ -23,6 +23,10 @@ extends RefCounted
 ## E4 step 3: with the fixture's backlog at the live scale (12M against K 36M) her odds hold at 0.25 over the run
 ## instead of drifting up from it (4000 against K 12000), so her waves keep their 367 s period and both forts fall a
 ## little later than at E3-3 (Ashgate 980 → 1021 s without the siege, 1615 → 1755 s with it); SIEGE_RUN_S 1700 → 1900.
+## E4 step 5 (ruling A1): TownSim's muster goes to Vei's queue with the FLOOD now, so a valve of 0.5 / 0 / 0.5 sends no
+## WAR at all and both forts are broken at grace + break_s (494.5 s), a siege or not. The runs keep their premise, a
+## cut whose only WAR is TownSim's muster, with the Muster stance on (its muster still joins WAR). A flat WAR share of
+## the old muster's mean (4 mass/s) doesn't: Ashgate falls to the reship at about 1018 s and the siege buys 10 s.
 const GRACE_TOL := 1e-3
 const RETAKE_K := 0.005
 const RUN_S := 1500.0
@@ -56,7 +60,11 @@ func _run(c, js: String, dt: float, siege: bool, run_s: float) -> Dictionary:
 	var s: GameState = c.load_state(js)
 	if not siege:
 		s.cmd_place_big_undead("u9", "crypt")
+	# E4 step 5 (A1): the muster joins the FLOOD now, so the cut keeps the WAR it used to send through the Muster
+	# stance, whose muster still joins WAR
 	s.cmd_debug_set_state({"valve": {"work": 0.5, "war": 0.0, "flood": 0.5}})
+	var ms := s.cmd_set_stance("muster", true)
+	t.ok(bool(ms["ok"]), "(setup) Muster on: %s" % str(ms))
 	s.drain_events()
 	var t0 := s.t
 	var grace := float(s.realm.fort_by_id("ashgate")["grace_s"])

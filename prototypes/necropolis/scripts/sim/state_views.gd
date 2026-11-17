@@ -41,8 +41,14 @@ static func hud(gs: GameState) -> Dictionary:
 		rates.append({"id": id, "rate": rate, "stock": float(stock[id]), "cap": float(cap.get(id, -1.0)), "unit": GameState._RATE_UNITS[id]})
 	return {
 		"rev": gs.rev, "game_id": gs.game_id, "t": float(gs.t), "time_scale": float(gs.time_scale), "paused": gs.paused, "rates": rates,
-		"split": {"work": float(gs._split["work"]), "war": float(gs._split["war"]), "flood": float(gs._split["flood"])},
+		"split": {"work": float(gs._split["work"]), "war": float(gs._split["war"]), "flood": float(gs._split["flood"]),
+			# v11 (E4 step 5, A1): TownSim's muster in that split, and where it went (FLOOD, or WAR while Muster acts)
+			"muster": float(gs._split["muster"]), "muster_to": "war" if bool(gs._split["muster_war"]) else "flood"},
 		"valve": gs.valve.duplicate(), "valve_target": gs.valve_target.duplicate(),
+		# v11 (E4, the A1 day-1 ruling): the valve's WAR share under which a new game's mill makes no bone (the pits eat
+		# every body), for the valve readout to mark. A new game's measured edge (economy.json opening.bone_edge), not
+		# this state's: later the live signal is the mill's `starved` "pits_first" and its lever (§5.9)
+		"bone_war_share": gs._bone_war_share,
 		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
 		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
@@ -280,6 +286,9 @@ static func town(gs: GameState) -> Dictionary:
 			"upgrade_projected": (ups.get(lot_id, {}) as Dictionary).duplicate(),
 			# v6 (T3.4a): why its mills milled less than their hands want (TownSim's last step); "" for a building without mill slots
 			"starved": ts.mill_starved if ts.lot_mill_slots(lot_id) > 0 else "",
+			# v11 (E4, the A1 day-1 ruling): the lever that fixes that reason (economy.json town.starved_lever:
+			# "raise_war" for pits_first: more WAR, more corpses at the forts, bodies past the pits' want); "" for none
+			"lever": gs.starved_lever(ts.mill_starved) if ts.lot_mill_slots(lot_id) > 0 else "",
 			# v8 (E3-3): the multiplier its foreman gives its job output now (1.0 with none, or where one gives nothing)
 			"foreman_mult": ts.foreman_mult(lot_id),
 		})
@@ -294,6 +303,8 @@ static func town(gs: GameState) -> Dictionary:
 			"total": ts.workers, "idle": float(ts.staffing.get("idle", 0.0)), "in": float(w["in"]), "rot": float(w["rot"]),
 			"muster": float(w["muster"]), "steady": gs._workers_steady(),
 			"steady_kept": float(gs._workers_steady_kept()["kept"]), "muster_steady": float(gs._workers_steady_kept()["muster"]), "lifetime_s": ts.lifetime_s(gs.relish["state"] == "home"),
+			# v11 (E4 step 5, A1): where the muster goes now: "flood" (Vei's queue), or "war" while the Muster stance acts
+			"muster_to": "war" if ts.muster_all else "flood",
 		},
 		"living": ts.living, "living_cap": ts.living_cap(),
 		"migrants": float(r["living"]["in"]), "departures": float(r["living"]["out"]),
@@ -356,8 +367,9 @@ static func war_supports(gs: GameState, wars: Array) -> Dictionary:
 
 ## §5.17 · E2b-2 (api_version 6, api-requests #7 c, #13): the readouts at another valve, pure. The
 ## valve is normalised as cmd_set_valve normalises it; one it would refuse, or one within 1e-12 of
-## the current valve, is the current valve. At it: the split is this substep's mint × the valve (WAR
-## plus TownSim's muster as it is now), split.war_overflow the WAR that falls through to Vei, each
+## the current valve, is the current valve. At it: the split is this substep's mint × the valve (FLOOD
+## plus TownSim's muster as it is now, or WAR plus it while the Muster stance acts: GameState._split_of,
+## E4 step 5 A1), split.war_overflow the WAR that falls through to Vei, each
 ## fort's WAR the last dispatch's split of that WAR (RealmSim.war_at), workers_steady TownSim's
 ## steady workforce scaled by the WORK share (the steady state is linear in WORK), backlog_diff the
 ## sustained differential (view_vei.diff_ema) moved by the FLOOD, the fall-through and the WAR to the
@@ -371,8 +383,9 @@ static func war_supports(gs: GameState, wars: Array) -> Dictionary:
 static func projection(gs: GameState, valve_in: Dictionary, settled := false) -> Dictionary:
 	var v := gs._projection_valve(valve_in)
 	var mint := float(gs._split["mint"])
-	var war: float = mint * v["war"] + float(gs._split["muster"])
-	var split := {"work": mint * v["work"], "war": war, "flood": mint * v["flood"]}
+	var sp := gs._split_of(mint, v, float(gs._split["muster"]), bool(gs._split["muster_war"]))
+	var war := float(sp["war"])
+	var split := {"work": float(sp["work"]), "war": war, "flood": float(sp["flood"])}
 	var wa: Array = gs.realm.war_at(war)
 	var wars: Array = wa[0]
 	split["war_overflow"] = float(wa[1])
@@ -493,21 +506,30 @@ static func _stance_flows(gs: GameState, acting: Dictionary, now: Dictionary) ->
 	if acting.has("thrift"):
 		for lot_id in (ts.thrift_pick() if not now.has("thrift") else ts._lists()["thrift"]):
 			thrift[lot_id] = true
-	return ts.stance_flows(gs._top_jobs_of(acting), acting.has("muster"), thrift, gs.relish["state"] == "home", gs.green_towns)
+	var out := ts.stance_flows(gs._top_jobs_of(acting), acting.has("muster"), thrift, gs.relish["state"] == "home", gs.green_towns)
+	out["muster_war"] = acting.has("muster")  # the muster's route with these stances (GameState._split_of)
+	return out
 
 
 ## A toggled stance's flows `r` against today's `b` (stance_projections): {rate_id: Δ}, only the rates that move.
 static func _stance_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionary:
 	var v := gs._slewed_valve(gs.substep_s())
 	var dm := gs._mint(float(r["pits"]), float(r["feed"])) - gs._mint(float(b["pits"]), float(b["feed"]))
-	var d_must := (float(r["muster"]) - float(b["muster"])) * gs.worker_mass()
-	var war0 := float(gs._split["mint"]) * float(v["war"]) + float(gs._split["muster"])
-	var d_war := dm * float(v["war"]) + d_must
+	# the muster goes to WAR where Muster acts, else to FLOOD (GameState._split_of, E4 step 5 A1): toggling Muster moves
+	# the whole muster between the two, not only its change
+	var wm := gs.worker_mass()
+	var mr := float(r["muster"]) * wm
+	var mb := float(b["muster"]) * wm
+	var war_r := mr if bool(r["muster_war"]) else 0.0
+	var war_b := mb if bool(b["muster_war"]) else 0.0
+	var war0 := float(gs._split["mint"]) * float(v["war"]) + (float(gs._split["muster"]) if bool(gs._split["muster_war"]) else 0.0)
+	var d_war := dm * float(v["war"]) + war_r - war_b
+	var d_flood := dm * float(v["flood"]) + (mr - war_r) - (mb - war_b)
 	var fell := 0.0
 	if d_war != 0.0:
 		fell = float(gs.realm.war_at(war0 + d_war)[1]) - float(gs.realm.war_at(war0)[1])
-	var all := {"mint": dm, "work": dm * float(v["work"]), "war": d_war, "flood": dm * float(v["flood"]),
-		"backlog": dm * float(v["flood"]) + fell, "corpses": -(float(r["haul"]) - float(b["haul"]))}
+	var all := {"mint": dm, "work": dm * float(v["work"]), "war": d_war, "flood": d_flood,
+		"backlog": d_flood + fell, "corpses": -(float(r["haul"]) - float(b["haul"]))}
 	for id in ["workers", "bodies", "gold", "bone", "living"]:
 		all[id] = float(r[id]) - float(b[id])
 	var out := {}
@@ -834,17 +856,21 @@ static func _proj_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionar
 	var r0: Dictionary = b["rates"]
 	var v: Dictionary = b["valve"]
 	var dm := float(r["mint"]) - float(r0["mint"])
-	var war0 := float(r0["mint"]) * float(v["war"]) + float(r0["muster"])
+	var war0 := float(r0["mint"]) * float(v["war"]) + (float(r0["muster"]) if gs.town_sim.muster_all else 0.0)  # (A1: _split_of)
 	var fell := float(gs.realm.war_at(war0 + dm * float(v["war"]))[1]) - float(gs.realm.war_at(war0)[1])
+	# the change in TownSim's muster joins the FLOOD with it (A1; war leaves it out while the Muster stance acts)
+	var dmus := 0.0 if gs.town_sim.muster_all else float(r["muster"]) - float(r0["muster"])
 	var out := {}
 	for id in GameState.RATE_IDS:
 		match id:
 			"mint":
 				out[id] = dm
-			"work", "war", "flood":
+			"work", "war":
 				out[id] = dm * float(v[id])
+			"flood":
+				out[id] = dm * float(v[id]) + dmus
 			"backlog":
-				out[id] = dm * float(v["flood"]) + fell
+				out[id] = dm * float(v["flood"]) + dmus + fell
 			"corpses":
 				out[id] = 0.0
 			_:
@@ -1110,6 +1136,14 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 	if a < 0.0:
 		if s == "relics":
 			return str(rep["afford_relics_last_fmt"]).format({"name": name})
+		# E4 (the A1 day-1 ruling): never on bone while the pits eat every body (the row's `starved` pits_first): the
+		# bone it is short of and the lever, "Well can't be afforded, 7 bone short at the current income of 0/s bone:
+		# the pits are eating every body. Raise WAR, or move it down". Ahead of F1's own-producer form: a Bone Mill
+		# level waits on the same bodies, and a new mill wouldn't help
+		if s == "bone" and str(row.get("starved", "")) == "pits_first":
+			return str(rep["afford_starved_fmt" if movable else "afford_starved_last_fmt"]).format({"name": name,
+				"short": _fmt_count(rep, ceilf(float((row.get("short", {}) as Dictionary).get("bone", 0.0)))),
+				"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),

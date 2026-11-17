@@ -908,6 +908,8 @@ func _report_filled(reps: Array) -> void:
 		"afford_never_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": build a ") and not x.contains("move it down"),
 		"afford_never_self_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone: move it down"),
 		"afford_never_self_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone"),
+		"afford_starved_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR, or move it down"),
+		"afford_starved_last_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR"),
 		"full_raid": func(x: String): return x == "Your stores are full and the queue is empty: raid a fort for relics",
 		"queue_empty": func(x: String): return x == "Queue empty: plan the next build",
 	}
@@ -1266,10 +1268,21 @@ func _report_never_last(c: Dictionary) -> GameState:
 ## included), "build a Bone Mill" would name itself, so the line says afford_raise_self's fact instead, true at this
 ## commit (loot.json gives no bone; only a mill makes it): "Bone Mill level 2 can't be afforded at the current income of
 ## 0/s bone, and nothing else makes bone", with ": move it down" when an entry is behind it. A constructed state,
-## since F1 left day1 no such case: midgame_2flips, whose pits take every body (its mill makes 0 bone/s), with its
-## bone set to 50 and the mill's level 2 (190 bone) queued, alone and with a House behind it, each loaded 10 min on.
+## since F1 left day1 no such case: midgame_2flips, with its bone set to 50 and the mill's level 2 (190 bone) queued,
+## alone and with a House behind it, each loaded 10 min on, its mill's staff cap at 0 (it makes 0 bone/s, and wants
+## none). E4 (the run's manager's A1 day-1 ruling): with the mill staffed, midgame_2flips' pits eat every body (its
+## starved pits_first), so the line names the bone short and the lever instead, ahead of F1's fact (afford_starved_fmt:
+## "Bone Mill level 2 can't be afforded, 140 bone short at the current income of 0/s bone: the pits are eating every
+## body. Raise WAR, or move it down"); a new mill wouldn't help, so neither form says to build one.
 func _report_self(c: Dictionary) -> Array:
 	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var out: Array = []
+	for staffed in [false, true]:
+		out.append_array(_report_self_one(c, rep, staffed))
+	return out
+
+
+func _report_self_one(c: Dictionary, rep: Dictionary, staffed: bool) -> Array:
 	var out: Array = []
 	for behind in [false, true]:
 		var s := _mk(c)
@@ -1280,6 +1293,8 @@ func _report_self(c: Dictionary) -> Array:
 			if s.town_sim.buildings[lot_id]["building_id"] == "bone_mill":
 				mill = str(lot_id)
 		s.town_sim.bone = 50.0
+		if not staffed:
+			t.ok(s.cmd_set_staff_cap(mill, 0)["ok"], "(setup) the mill's staff cap at 0")
 		t.ok(mill != "" and s.cmd_queue_build("", mill)["ok"], "(setup) the Bone Mill's next level queued on %s" % mill)
 		if behind:
 			t.ok(s.cmd_queue_build("house", str(BuildRules.free_lots(s, 1)[0]))["ok"], "(setup) a House queued behind it")
@@ -1291,13 +1306,18 @@ func _report_self(c: Dictionary) -> Array:
 			and row.get("affordable_in_s", 0.0) == -1.0 and absf(float(n.view_rates()["rates"]["bone"]["net"])) <= BuildRules.NET_EPS,
 			"(setup) 10 min on, the mill's level %d waits on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), ", a House behind it" if behind else ""])
 		var name := StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0)))
+		t.ok(str(row.get("starved", "")) == ("pits_first" if staffed else ""), "(setup) the head's starved: %s" % str(row.get("starved", "")))
 		var want := "%s can't be afforded at the current income of %s bone, and nothing else makes bone%s" % [name,
 			StateViews._fmt_rate(rep, 0.0), ": move it down" if behind else ""]
+		if staffed:
+			want = str(rep["afford_starved_fmt" if behind else "afford_starved_last_fmt"]).format({"name": name,
+				"short": StateViews._fmt_count(rep, ceilf(float(row["short"]["bone"]))), "rate": StateViews._fmt_rate(rep, 0.0)})
 		var r := n.view_away()
 		var l := _find(r, "ready", "queue")
-		print("  [away] its own producer, never%s: %s" % [", an entry behind" if behind else "", str(l.get("text", ""))])
+		print("  [away] its own producer, never%s%s: %s" % [", staffed" if staffed else "", ", an entry behind" if behind else "", str(l.get("text", ""))])
 		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and not str(l["text"]).substr(name.length()).contains(StateViews._building_name(n, rep, "bone_mill", 1)),
-			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s: %s" % [
+			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s%s: %s" % [
+			" (the pits eat every body: raise WAR)" if staffed else " (unstaffed: nothing else makes bone)",
 			" (with \"move it down\": a House is behind it)" if behind else " (nothing behind it: no move down)", str(l)])
 		out.append(r)
 	return out

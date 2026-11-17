@@ -326,9 +326,13 @@ Names, to avoid confusion:
   toggles. `P_base` and `P_per_pit` (6.0; it was `P_per_slab`) are `realm.json` keys, `pit.bonus` and
   `pit.burn_per_s` are `economy.json`'s. `pits` is the working pits now and `feed` the feed of the
   step before (TownSim's `rates.feed`), both dimensionless (§1.3 step 2).
-- `work = mint · v.work` goes to TownSim as `work · dt` in the same step, `war = mint · v.war` plus
-  TownSim's muster (`muster_mass / dt`) goes to RealmSim dispatch, and `flood = mint · v.flood` goes
-  to `vei.undead_queue`.
+- `work = mint · v.work` goes to TownSim as `work · dt` in the same step, `war = mint · v.war` goes to
+  RealmSim dispatch, and `flood = mint · v.flood` plus TownSim's muster (`muster_mass / dt`) goes to
+  `vei.undead_queue`. While the Muster stance acts (§4.5), the whole muster joins WAR instead.
+  (E4 step 5, the run's manager's ruling A1, 2026-11-17: before it every muster joined WAR, so surplus
+  WORK reached the forts 1:1 and from about day 1 the valve had two real settings, FLOOD and not-FLOOD;
+  on the sessions day-3 state a WAR share of 0 still sent 54–84 mass/s of muster. Overflow to Vei's queue
+  feeds the idle win condition and moves pacing least. `view_hud.split.muster_to` shows the route.)
 - **Slew:** the valve vector moves toward the target by at most `valve.slew_per_s` of L1 distance per
   second, so the sum stays 1.
 - **WAR dispatch:** WAR splits over the forts with living (living > 0, **or living arriving this
@@ -376,7 +380,8 @@ Names, to avoid confusion:
   took it, `vei`) and the fall-through rate, for the lanes.
 - **The optimum split must move** over the arc and with Relish's position. Diminishing returns make
   sure of it:
-  - WORK beyond filled slots plus `worker.idle_cap` is wasted;
+  - WORK beyond filled slots plus `worker.idle_cap` is wasted for the town: it musters to Vei's queue
+    with the FLOOD (§3.2, ruling A1), so it feeds the backlog but not the forts;
   - FLOOD at low `q` is cheap for Vei;
   - WAR into strong garrisons arms her.
 
@@ -942,9 +947,10 @@ mass; bodies, rot return, WORK and muster are mass.
 - `view_town` shows the steady state, `(work / worker.mass) · lifetime`, beside the current count. That figure ignores the idle cap; `steady_kept` is where the workforce actually settles with it (STATE-API §5.9).
 - **Workers are allocated by the job ladder** (§4.5).
   - Workers beyond all slots idle at the crypt and rot slower (`worker.idle_rot_mult`).
-  - Idle beyond `worker.idle_cap` are mustered to WAR at once (`n · worker.mass` mass), so WORK is
-    never a black hole, but it is waste. The workforce never ends a step above the staffable slots
-    plus `idle_cap`. While the Muster stance acts the idle cap reads 0 (§4.5, `TownSim.idle_cap`).
+  - Idle beyond `worker.idle_cap` are mustered at once (`n · worker.mass` mass) to Vei's queue with the
+    FLOOD (§3.2, ruling A1), so WORK is never a black hole, but it is waste for the town. The workforce
+    never ends a step above the staffable slots plus `idle_cap`. While the Muster stance acts the idle
+    cap reads 0 (§4.5, `TownSim.idle_cap`) and the whole muster joins WAR.
 - **The update is exact** (IDLE §4). With the step's inflow held constant, the equation is linear in
   three regimes: all staffed (τ = `lifetime`), some idle (τ = `lifetime / idle_rot_mult`), and pinned
   at slots + `idle_cap` with the surplus mustered. Each boundary crossing is timed exactly, so one
@@ -1023,6 +1029,23 @@ mass; bodies, rot return, WORK and muster are mass.
     bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
     for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
     stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
+  - **The bone cliff** (E4, the run's manager's A1 day-1 ruling). Under A1 (§3.2) the muster goes to Vei, so
+    early bodies come from WAR's corpses at the forts and the workers' rot return. Below a WAR share of about 0.54
+    a new game's pits eat every body (0.20 mass/s of rot return; the forts' corpses are cleared as they form) and
+    the mill makes exactly 0; above it the feedback runs (bodies → pits → mint → WAR → corpses) and bone reaches
+    its cap within hours. A new game at FLOOD 0.15, the mill alone queued, 2 h (tools' edge probe):
+
+    | WAR share | 0.45 | 0.50 | 0.53 | 0.54 | 0.55 | 0.60 |
+    |---|---|---|---|---|---|---|
+    | bone milled in 2 h | 3.6 | 3.5 | 3.4 | 263 (from 30–60 min) | 324 (cap) | 367 (cap) |
+
+    It is a tipping point, not a per-fort inequality: at 0.40 the three nearest forts' WAR already beats their
+    living's pull (k_destroy / q · L), so no closed form reads it off a state. The cliff stays because it is
+    visible and one valve move fixes it (the ruling): the start valve is 0.25 / 0.60 / 0.15 (BALANCE §0); the
+    mill's row and a queue head short of bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
+    `short` names the bone, and the away report's head line says so (IDLE §7; STATE-API §5.9, §5.19);
+    `view_hud.bone_war_share` is a new game's edge (`economy.json` `opening.bone_edge.war_share`, bracketed by
+    test_day1_queues) for the valve readout. Pits-first and the yields are unchanged, and there is no mill floor.
   - Why τ, not pits-first on the step's whole supply (min(want_pit, B0 + in)): that version
     depended on dt. A load landing inside a long step fed only the pits, where shorter steps let
     the mills draw while it lasted; pre_vei's bone was 44.8% off at 15 s over 1 h (0.09% with the
@@ -1412,7 +1435,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Vigil | Relish is away from home or dead (any state but `home`) | `tend` to the top of the effective ladder |
 | Harvest | bodies < `stance.harvest_bodies_frac` (0.3) × the body cap | `haul` to the top |
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
-| Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once |
+| Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
@@ -1773,7 +1796,7 @@ Each line names the suites that cover it at the end of E2a (`tests/test_<name>.g
   play (`slow/margin_truth`).
 - **Town:** the workforce steady state; rot returns bodies; the gold formula; unpaid idling; the
   living cap; morale. Wired into GameState: WORK in the same substep, the pits and last step's feed drive the mint,
-  muster joins WAR, haul pickups come off the forts, the views read TownSim, v1 saves migrate
+  the muster joins FLOOD (WAR under Muster; E4 step 5 A1), haul pickups come off the forts, the views read TownSim, v1 saves migrate
   (`town_sim`, `game_state_town`). Building, upgrading, tiers, caps and the catalog agreeing with
   `cmd_build` (`game_state_build`).
 - **Ladder and stances:** ladder ordering (`town_sim`); the stances (E3-1, `stances`): each one's effect on the

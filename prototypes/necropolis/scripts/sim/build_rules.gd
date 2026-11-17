@@ -516,6 +516,16 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		var row := {"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
 			"work": gs.town_sim.construction_work(bid, level),
 			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))}
+		# v11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of at the walk's stocks (0 otherwise),
+		# and, while it is short of bone, why the mills made less than they want (TownSim.mill_starved) and the lever
+		# that fixes it: a "never" on bone with the pits eating every body reads "pits_first", "raise_war"
+		var short := {"gold": 0.0, "bone": 0.0}
+		if status == "waiting_funds":
+			short = {"gold": maxf(0.0, float(cost["gold"]) - gold), "bone": maxf(0.0, float(cost["bone"]) - bone)}
+		var starved := gs.town_sim.mill_starved if float(short["bone"]) > 0.0 else ""
+		row["short"] = short
+		row["starved"] = starved
+		row["lever"] = gs.starved_lever(starved)
 		if timed:
 			var at := _afford_at(gs, cost, tl, status != "skipped_gate")
 			waits.append(at[1])

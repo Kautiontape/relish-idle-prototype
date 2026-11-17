@@ -713,6 +713,12 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
       bone fact holds until P4 makes rot a source of bone.
+    - **the pits eating every body** (E4, the run's manager's A1 day-1 ruling): never on bone while the mill is
+      starved `pits_first` (the head row's `starved`), the mill exists and a new one wouldn't help, so the line names
+      the bone short and the lever, ahead of the producer form: "Well can't be afforded, 7 bone short at the
+      current income of 0/s bone: the pits are eating every body. Raise WAR, or move it down"
+      (`idle.report.afford_starved_fmt`; `afford_starved_last_fmt` without the move down, the same rule). Below a new
+      game's bone edge (`view_hud.bone_war_share`, MECHANICS §4.2) day 1's first queue sits here.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
@@ -908,6 +914,27 @@ The profiles:
       both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
     - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
       runs. AUTOPLAY_DAYS=8 measures it.
+    - **Relish's corpse-limited raise at a draining held fort** (E4 step 5, ruling A1; not chased): with the WAR truly 0
+      (the muster in the FLOOD), test_catchup's seven-retakes start has her at Greywall raising its corpses while its
+      garrison drains. Live play raises each corpse at once (its dead 0.000); a 10 s catch-up step spreads her raise
+      over the step (dead about 0.06; Catchup.simulacrum_out_s's note), so the garrison reaches 0 at 3 711 s against
+      3 678 s and the fort breaks 32.5 s late (3 831.2 s against 3 798.7 s: 3.25 steps, over the 2-step bound),
+      reordering the retakes. With her at home all 7 match within 0.24 s; the test runs so. Before A1 the muster's WAR
+      (7.37 mass/s) fed the forts and hid it.
+    - **The I1 gate fails days 1–2 at A1's start valve** (E4 step 5, A1 with the A1 day-1 valve ruling; an open item for
+      the steps 5–8 review, the manager's A1 I1 ruling). Day 1: workers 50/46, living 86/70, the crypt L2 closed against
+      L1 open; the first command answered otherwise is a queue at 14 400 s (queue_len 7 closed, 8 open). At the old valve
+      the first away is a dead stall at the bone cliff (bone flat at 28), which is why it passed there; the proof tree
+      (the route forced to WAR) passes too. **The seed** (one bounded probe of 1 200–3 600 s of that away, no build in
+      it): the closed run mills 1.7% less (220.5 against 224.3 mass), from the start-of-step pickup cap on dead-limited
+      loads (MECHANICS §4.2). The convoy leaves as soon as a fort holds `job.haul.auto_min_dead` (4 mass), so every load
+      is the fort's corpses (about 4.2, against a carry of 14 × crew), and at the catch-up's 3 s steps the cap leaves
+      the corpses formed before each pickup at the fort (30.5 mass over 99 trips, against 3.4 at 0.5 s), where some are
+      cleared (+8.3). The convoys' targets are the same (99 departures, fort for fort): not the haul phase. **The
+      amplifier:** the bone-bound queue. A Raising Pit level lands a step apart, and each later bone-timed start shifts
+      from there (bone at 4 h: 260 closed, 229 open). With the cap lifted in a probe, the window agrees within 0.35%,
+      but 4 h still parts (267 against 226), so the end gap is the queue's sensitivity near the bone edge, not a
+      catch-up bias.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to

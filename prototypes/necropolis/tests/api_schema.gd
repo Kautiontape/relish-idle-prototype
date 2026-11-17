@@ -189,6 +189,8 @@ const TOWN_BUILDING := {
 	"upgrade_projected": {"*": F},
 	# api_version 6 (T3.4a): why a building's mills milled less than their hands want
 	"starved": S,
+	# api_version 11 (E4, the A1 day-1 ruling): the lever that fixes it ("raise_war" for pits_first, else "")
+	"lever": S,
 	# api_version 8 (E3-3): the multiplier its foreman gives its job output (1.0 with none, or where one gives nothing)
 	"foreman_mult": F,
 }
@@ -198,6 +200,9 @@ const QUEUE_ENTRY := {
 	"waited_on": S,
 	# api_version 7 (R2): when its funds come at today's net rates (0.0 now, −1.0 never)
 	"affordable_in_s": F,
+	# api_version 11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of, and while short of bone the
+	# mills' starved reason and its lever
+	"short": {"gold": F, "bone": F}, "starved": S, "lever": S,
 }
 ## A line of view_away (api_version 6, E2b-2 T3.3c, api-request #7 d): `kind` one of AWAY_KINDS, `target` a
 ## fort id, "slab", "queue" or "".
@@ -218,7 +223,11 @@ const VIEWS := {
 	"view_hud": {
 		"game_id": S, "t": F, "time_scale": F, "paused": B,
 		"rates": [{"id": S, "rate": F, "stock": F, "cap": F, "unit": S}],
-		"split": VALVE, "valve": VALVE, "valve_target": VALVE, "workers_steady": F, "workers_steady_kept": F, "war_overflow": F,
+		# split: api_version 11 (E4 step 5, A1) adds muster and muster_to
+		"split": {"work": F, "war": F, "flood": F, "muster": F, "muster_to": S}, "valve": VALVE, "valve_target": VALVE,
+		# api_version 11 (E4, the A1 day-1 ruling): a new game's bone edge, the WAR share under which its mill makes none
+		"bone_war_share": F,
+		"workers_steady": F, "workers_steady_kept": F, "war_overflow": F,
 		"war_supports": {"n": I, "m": I},
 		"relics": I, "relics_cap": I, "essence": I, "essence_cap": I,
 		"sign": I, "drain_s": F, "odds": F, "won": B,
@@ -247,7 +256,8 @@ const VIEWS := {
 		"lots": [{"id": S, "size": I, "unlocked": B, "building_id": S}],
 		"buildings": [TOWN_BUILDING], "ladder": [S], "ladder_effective": [S],
 		"jobs": [{"id": S, "slots": I, "staffed": F}],
-		"workers": {"total": F, "idle": F, "in": F, "rot": F, "muster": F, "steady": F, "steady_kept": F, "muster_steady": F, "lifetime_s": F},
+		"workers": {"total": F, "idle": F, "in": F, "rot": F, "muster": F, "steady": F, "steady_kept": F, "muster_steady": F, "lifetime_s": F,
+			"muster_to": S},  # muster_to: api_version 11 (E4 step 5, A1)
 		"living": F, "living_cap": F, "migrants": F, "departures": F,
 		"morale": {"value": F, "target": F, "factors": [{"id": S, "delta": F}]},
 		"gold": F, "bone": F, "bodies": F, "bodies_cap": F, "trade_rate": F,

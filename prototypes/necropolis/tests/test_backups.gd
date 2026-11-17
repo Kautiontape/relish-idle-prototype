@@ -37,10 +37,19 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## api_version. The proof: e299d87 with API_VERSION set back to 8 passes the old pins, events and reports unchanged.
 ## Re-pinned at E4's review fixes (API v10, the craft's at_cap): the three states only, as at v9. The proof: the at_cap
 ## commit with API_VERSION set back to 9 passes the old pins, events and reports unchanged.
+## Re-pinned at E4 step 5's A1 (the muster joins FLOOD unless the Muster stance acts; API v11; the standing re-pin
+## rule): all three states (api_version 11 and A1's route), and each fixture's run for the route. The proof tree (A1
+## with the route forced to WAR, the early-return off and the old start valve) matches the old events and away reports,
+## its states differing only by api_version 11. day1: the muster leaves WAR (10.18 -> 4.23), and day1's saved valve sits
+## below the bone edge, so its bodies end at 0 (197.7 before), its mint +13 -> +9.4/s, its backlog +234,486 -> +226,861,
+## and one Harvest stance_fired fewer (beat 274's off; 3 -> 2 events). midgame_2flips: WAR 7.62 -> 4.65, the backlog
+## +230,846 -> +285,393, one step more (4 356); the same waves at shifted moments. pre_vei: WAR 40.9 -> 22.9, the backlog
+## +1,692,203 -> +1,867,726; its events are unchanged. Was: day1 49bfe8be… / 7adf8ca1… / 31d28a99…, midgame_2flips
+## b2cf7165… / 3909f7cd… / de13aae3…, pre_vei 5bc97b17… / (events) / 73b76696… (state / events / away).
 const TIP := {
-	"day1": {"state": "49bfe8beffe79a5eeb98c8f99bcc8d4f83d55b95d34f93d031215dae2f8ee270",
-		"events": "7adf8ca1cc296dda1400a30dc17e06fe586208e878f465b1cb8eed498c982412",
-		"away": "31d28a99e4efc264f50298e678d56b1fbd8b58a2e932376f5743780b813c523b", "steps": 4320, "n_events": 3},
+	"day1": {"state": "a8ee36519d9b90ad7ddd27d4b4104cadf4e6d3c7a7fe365a51cb1bd45f0a3120",
+		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
+		"away": "4f807d582bdab4438a59f072de13bc7190c471c3faba89df978b687cfa3bc958", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -55,17 +64,17 @@ const TIP := {
 	# E4's in-flight overlay (the standing re-pin rule; IDLE §4): the state only, for Bellwether's end owner (player, as
 	# live play reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was
 	# b1469601…). The proof: the overlay's call disabled passes the old pins
-	"midgame_2flips": {"state": "b2cf7165dc30883c17a277eefcdc27ac4781a4c4cd3b229dec4a7345c26fee6c",
-		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
-		"away": "de13aae3e94066ceb8fff2588e2bc4e8aae7eab90f8437392b5c264b01528e42", "steps": 4355, "n_events": 240},
+	"midgame_2flips": {"state": "54ae71490698087d9633a94208fe6ff3589e8a89da332db9bc04e0e2c2b85c10",
+		"events": "7eb703c3b30d590a9bf73446b5a1531efa8cb6dd30cf1af234bee0b9f318e862",
+		"away": "e0a288bf141791df9677c4b80c2eba395abac4206708b15e6417ea0741110910", "steps": 4356, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
 	# +0.01 g/s instead of sitting at 18, and the report gains the "Still stopped, ... Build a Market" line. day1 and
 	# midgame_2flips shed nothing in their 12 h, so they don't move.
-	"pre_vei": {"state": "5bc97b178adac2190e664ae2c2e6a9dbabaacfe28971e2efbc953e9a2f2a3cb4",
+	"pre_vei": {"state": "f23659ffea8861c02c38b3ff1afca09e23bb2a25b0d2f047411f40162a0463fe",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "73b76696c5f7c4735bd20f5090c3d0a61e1295478ece702ce2a4f5e7122ce231", "steps": 4321, "n_events": 15},
+		"away": "a8a97ed818aeb64e80551e6ae132bcf5d846506a10834b2f47b539f39c310826", "steps": 4321, "n_events": 15},
 }
 
 

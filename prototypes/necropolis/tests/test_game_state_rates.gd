@@ -31,7 +31,9 @@ func _busy() -> GameState:
 	var s := GameState.new(_cfgs())
 	s.debug_enabled = true
 	s.cmd_new_game(3)
-	s.cmd_debug_grant({"gold": 500.0, "bone": 200.0})
+	# workers past the idle cap, so a muster runs (A1's route checks): at the start valve's WORK 0.25 (the A1 day-1
+	# ruling) a new game's own workers stay under it for its first minutes
+	s.cmd_debug_grant({"gold": 500.0, "bone": 200.0, "workers": 30.0})
 	s.cmd_build("bone_mill", "lot-05")
 	s.cmd_debug_set_state({"forts": {"old-sluice": {"undead": 30.0, "dead": 40.0}, "ashgate": {"dead": 60.0}}})
 	s.cmd_debug_set_state({"relish_at": "old-sluice"})
@@ -78,8 +80,10 @@ func _each_id() -> void:
 	t.ok(r["mint"]["out"] == r["mint"]["in"] and r["mint"]["net"] == 0.0, "mint.out: all of it goes through the valve (net 0)")
 	var muster := float(tr["workers"]["muster"]) * mass
 	t.near(r["work"]["in"], mint * s.valve["work"], 1e-12, "work.in: mint · valve.work")
-	t.near(r["war"]["in"], mint * s.valve["war"] + muster, 1e-9, "war.in: mint · valve.war + muster × worker.mass")
-	t.near(r["flood"]["in"], mint * s.valve["flood"], 1e-12, "flood.in: mint · valve.flood")
+	# ruling A1 (API v11): the muster joins the FLOOD, or the WAR only while the Muster stance acts
+	t.ok(not s.town_sim.muster_all and muster > 0.0, "(setup) a muster this substep, the Muster stance off")
+	t.near(r["war"]["in"], mint * s.valve["war"], 1e-12, "war.in: mint · valve.war (the muster isn't WAR without the Muster stance)")
+	t.near(r["flood"]["in"], mint * s.valve["flood"] + muster, 1e-9, "flood.in: mint · valve.flood + muster × worker.mass (A1)")
 	t.near(r["war"]["in"], _sum(s, "r_in") + s.realm.r_war_to_vei, 1e-9, "war: what the forts (and Vei, on a fall-through) received")
 	t.ok(r["flood"]["in"] == s.realm.r_flood and s.work_pending == 0.0, "flood is what reached Vei; work went to TownSim in the same substep")
 	for id in ["work", "war", "flood"]:
@@ -136,7 +140,11 @@ func _hud() -> void:
 		ok = ok and e["id"] == id and e["unit"] == r[id]["unit"]
 		ok = ok and e["rate"] == (r[id]["in"] if id == "mint" else r[id]["net"])
 	t.ok(ok, "view_hud.rates: mint's rate is view_rates' mint.in, the rest are view_rates' nets")
-	t.ok(hud["split"] == {"work": r["work"]["in"], "war": r["war"]["in"], "flood": r["flood"]["in"]}, "view_hud.split is view_rates' work, war and flood")
+	var sp: Dictionary = hud["split"]
+	var muster := float(s.town_sim.rates["workers"]["muster"]) * s.worker_mass()
+	t.ok(sp.keys().size() == 5 and sp["work"] == r["work"]["in"] and sp["war"] == r["war"]["in"] and sp["flood"] == r["flood"]["in"]
+		and is_equal_approx(float(sp["muster"]), muster) and sp["muster_to"] == "flood",
+		"view_hud.split is view_rates' work, war and flood, plus the muster (in the flood: muster_to \"flood\"; v11)")
 
 
 ## The realm's streams are session-only: 0 after a load until the first substep. The valve's (the mint and

@@ -11,9 +11,9 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | buildings | Crypt, 1 Raising Pit, Charnel House, small Market (2 stalls) |
 | lots | 24 (Hamlet uses the first 8) |
 | gold / bone / bodies | 80 / 30 / 40 |
-| workers | 12 (the steady state at the default valve is about 50, so the stream visibly grows) |
+| workers | 12 (the steady state at the default valve is about 34, 40 once the pits are fed, so the stream visibly grows; the town keeps 17, its slots plus `worker.idle_cap`, and musters the rest; it was 55 / 64 at work 0.40) |
 | living | 10 (`living_cap` 16 from the crypt district's huts) |
-| valve | work 0.40 · war 0.45 · flood 0.15 |
+| valve | work 0.25 · war 0.60 · flood 0.15 (E4, the run's manager's A1 day-1 ruling, 2026-11-17; was 0.40 · 0.45 · 0.15). Under A1 the muster goes to Vei, and below a WAR share of about 0.54 (`opening.bone_edge.war_share`, `view_hud.bone_war_share`) a new game's pits eat every body and the mill makes no bone (MECHANICS §4.2's table); 0.60 keeps a margin over it |
 | Relish | home, phylactery 0, no clones or vats |
 | first dungeon | Old Sluice (tier 1, Bellringer), flagged "first"; starter party `opening.starter_party` = 8 units; the chest holds a husk and the first blueprint |
 
@@ -101,7 +101,8 @@ E2a added is here with its value.
 
 | key | start | note |
 |---|---|---|
-| `opening.valve` | 0.40 / 0.45 / 0.15 | `economy.json` (work / war / flood); `directShare` 0.22 is removed |
+| `opening.valve` | 0.25 / 0.60 / 0.15 | `economy.json` (work / war / flood; 0.40 / 0.45 / 0.15 before E4's A1 day-1 ruling, §0); `directShare` 0.22 is removed |
+| `opening.bone_edge.war_share` | 0.54 | `economy.json`: a new game's bone edge, measured (§0, MECHANICS §4.2) |
 | `valve.slew_per_s` | 0.10 (L1) | about 10 s for a full swing |
 | `field_src_per_pit` | 0.15 | `realm.json` top level (the `field` block is ground's): Covington's field source is `src_main · (1 + field_src_per_pit · pits)` |
 | `sim.prewarm_ticks`, `sim.prewarm_dt` | 90, 0.2 s | `economy.json`: the field pre-warm at new game and load |

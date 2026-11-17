@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 10
+const API_VERSION := 11
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -60,6 +60,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
 	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
 	"economy.stance.hearth_morale", "pulse.tempo_ms",
+	# E4 (the A1 day-1 ruling): a new game's bone edge (view_hud.bone_war_share) and the mill's lever per starved reason
+	"economy.opening.bone_edge.war_share", "economy.town.starved_lever",
 	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
 	# (StateViews.death_rule) and the phylactery's revives per dungeon (_phylactery_max)
 	"backups.vats.grow_per_s", "backups.backups.clone_respawn_s", "backups.backups.unmade_respawn_s",
@@ -94,7 +96,10 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"thrift_fmt", "thrift_brief_fmt", "thrift_none_fmt", "thrift_none_brief_fmt",
 	# E4 step 4 (v10): ready's line for the first entry the upkeep gate holds (BuildRules.upkeep_short), and the one for
 	# the buildings the resume rule's income test keeps unpaid (TownSim.held_by_income)
-	"afford_upkeep_fmt", "unpaid_upkeep_fmt"]
+	"afford_upkeep_fmt", "unpaid_upkeep_fmt",
+	# E4 (the A1 day-1 ruling): a head that can never be afforded on bone while the pits eat every body (the mill
+	# starved pits_first): the bone it is short of and the lever, with and without the move down
+	"afford_starved_fmt", "afford_starved_last_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]
@@ -259,6 +264,8 @@ var _harvest_frac := 0.0  # economy.json stance.harvest_bodies_frac
 var _hearth_morale := 0.0  # economy.json stance.hearth_morale
 var _stance_priority: Array = []  # economy.json stance.priority: the ladder stances, top first when several act
 var _stance_top_job := {}  # economy.json stance.top_job: ladder stance id -> the job it lifts
+var _bone_war_share := 0.0  # economy.json opening.bone_edge.war_share (view_hud.bone_war_share)
+var _starved_lever := {}  # economy.json town.starved_lever: TownSim.mill_starved reason -> its lever id
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
 ## (BuildRules.rise_tiers) reads only the buildings and their levels, which move structure_rev, and the
 ## tier, so until either moves it would find the same. Session only (E2b-2 T3.3b, lever 1).
@@ -272,9 +279,9 @@ var _step_forts_of: Array = []
 ## The mass ledger's sinks the core step books from TownSim's step (Ledger.sink's, inline: _core_step).
 const _TOWN_SINKS := ["rot_loss", "rot_overflow", "haul_overflow", "burned", "milled"]
 var _acc := 0.0
-## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which
-## `war` includes). Session only.
-var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+## mass/s of the last substep (step 3): the mint, its valve shares, and `muster` (TownSim's, which `flood` includes, or
+## `war` while the Muster stance acts: `muster_war`; _split_of). Session only.
+var _split := {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0, "muster_war": false}
 ## The realm's streams of the last substep for view_rates (§5.2), mass/s, as [in, out]: `corpses`
 ## (Σ forts: kills and redirected garrison kills in; Relish's and the simulacra's raises and k_clear
 ## out, the haul added at view time) and `backlog` (Vei's undead queue: its inflow in, her digestion
@@ -346,6 +353,9 @@ func setup(cfgs: Dictionary) -> void:
 	var top: Variant = _req("economy.stance.top_job")
 	_stance_priority = (pri as Array).duplicate() if pri is Array else []
 	_stance_top_job = (top as Dictionary).duplicate() if top is Dictionary else {}
+	_bone_war_share = _req_f("economy.opening.bone_edge.war_share")
+	var lev: Variant = _req("economy.town.starved_lever")
+	_starved_lever = (lev as Dictionary).duplicate() if lev is Dictionary else {}
 	for path in REQUIRED:  # the live ones too: a missing key is reported at load, not first at its use
 		_req(path)
 	var why_report := report_config_problem(cfgs)
@@ -499,6 +509,13 @@ func _req_f(path: String) -> float:
 	return float(v) if v is float or v is int else 0.0
 
 
+## The lever that fixes a mill's starved reason (TownSim.mill_starved; economy.json town.starved_lever): "raise_war"
+## for "pits_first" (E4, the A1 day-1 ruling: more WAR, more corpses at the forts, bodies past the pits' want);
+## "" for "" and for a reason with no lever named. view_town's mill rows and queue rows read it (STATE-API §5.9).
+func starved_lever(reason: String) -> String:
+	return str(_starved_lever.get(reason, "")) if reason != "" else ""
+
+
 func _cfg() -> Dictionary:
 	return _cfgs.get("realm", {})
 
@@ -582,7 +599,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	valve = _normalised(_req_f("economy.opening.valve.work"), _req_f("economy.opening.valve.war"), _req_f("economy.opening.valve.flood"))
 	valve_target = valve.duplicate()
 	work_pending = 0.0
-	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0}
+	_split = {"mint": 0.0, "work": 0.0, "war": 0.0, "flood": 0.0, "muster": 0.0, "muster_war": false}
 	_realm_flows = {"corpses": [0.0, 0.0], "backlog": [0.0, 0.0]}
 	_proj_cache = {}
 	_reset_train()
@@ -2155,8 +2172,11 @@ func _train_war() -> float:
 ## musters, held across the whole forecast. After midgame_2flips' load that read 9.713 against the 7.617 the split
 ## settles at a minute on; over a convoy cycle the split swings 63.5 ↔ 98.7 and this reads 63.5, its minimum.
 ## It ignores the bodies in store, so a big stock reads low for as long as the pits burn it at full.
+## The muster counts only while the Muster stance acts; otherwise it goes to FLOOD (_split_of, E4 step 5 A1).
 func _train_war_at(v: Dictionary) -> float:
 	var mint := _mint(town_sim.pit_weight(), town_sim.trough_feed())
+	if not town_sim.muster_all:
+		return mint * float(v["war"])
 	var wm := worker_mass()
 	var r := mint * float(v["work"]) / wm if wm > 0.0 else 0.0
 	var steady := TownSim.workforce_steady(r, town_sim.lifetime_s(relish["state"] == "home"), town_sim._idle_rot,
@@ -2561,6 +2581,17 @@ func _mint(pits: float, feed: float) -> float:
 	return (_p_base + _p_per_pit * pits) * (1.0 + _pit_bonus * feed)
 
 
+## The valve `v`'s split of `mint` (mass/s) with TownSim's `muster` (mass/s) (MECHANICS §3.2, §4.1; E4 step 5, ruling
+## A1): WORK, WAR and FLOOD at the valve's shares, and the muster to Vei's queue with the FLOOD, unless the Muster
+## stance acts (town_sim.muster_all: a deliberate act, every idle worker mustered), when the whole muster joins WAR.
+## Before A1 every muster joined WAR, so the WORK the slots and the idle cap couldn't keep reached the forts and the
+## valve had two real settings, FLOOD and not-FLOOD. `muster_war` records the route (view_hud.split.muster_to). `to_war`
+## the route (the core step's: town_sim.muster_all for the step; a reading of the last step's: its _split.muster_war).
+func _split_of(mint: float, v: Dictionary, muster: float, to_war: bool) -> Dictionary:
+	return {"mint": mint, "work": mint * float(v["work"]), "war": mint * float(v["war"]) + (muster if to_war else 0.0),
+		"flood": mint * float(v["flood"]) + (0.0 if to_war else muster), "muster": muster, "muster_war": to_war}
+
+
 ## §3 step 3's inputs: this step's WORK mass, Relish home, the villages that follow necrosis, a
 ## snapshot of the forts before this step's realm step, Covington, the haul target, the relics. Each
 ## fort's `dead_rate` is RealmSim's projection of its corpses over the step (RealmSim.dead_rates, with
@@ -2658,10 +2689,8 @@ func _core_step(dt: float) -> Array:
 	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
 	# opens its entries this step and this step's income counts
 	BuildRules.process_queue(self)
-	# TownSim's muster joins this step's WAR
-	var muster := float(town["muster_mass"]) / dt
-	_split = {"mint": mint, "work": work, "war": mint * valve["war"] + muster,
-		"flood": mint * valve["flood"], "muster": muster}
+	# TownSim's muster joins this step's FLOOD, or its WAR while the Muster stance acts (_split_of; E4 step 5, A1)
+	_split = _split_of(mint, valve, float(town["muster_mass"]) / dt, town_sim.muster_all)
 	# §3 step 4: Relish's travel and state (her arrival's moment inside the step, for a walk home: _emit_realm)
 	_arrived_t = -INF
 	if relish["state"] == "travelling":
@@ -2924,9 +2953,8 @@ func _restore_dispatch() -> void:
 		mint = float(rw.get("in", 0.0)) * wm / float(valve["work"])
 	else:
 		mint = _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
-	var war := mint * float(valve["war"]) + muster
-	_split = {"mint": mint, "work": mint * float(valve["work"]), "war": war, "flood": mint * float(valve["flood"]),
-		"muster": muster}
+	_split = _split_of(mint, valve, muster, town_sim.muster_all)  # (the stances are re-applied before this: from_dict)
+	var war := float(_split["war"])
 	var fx := _relish_effects()
 	var bias := _req_f("realm.relish.tide_bias")
 	_realm_inputs = {"war": war, "flood": _split["flood"], "digest_q": digest_q(), "tide_fort": fx["tide_fort"],

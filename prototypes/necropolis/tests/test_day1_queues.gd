@@ -16,6 +16,14 @@ extends RefCounted
 ##   until the tier opens it), as (b)'s last four do.
 ## Prints each entry's start, in seconds after the save. The field is shrunk (8 × 6) and its pre-warm off, as
 ## tests/test_away.gd does.
+## - The start state (E4, the A1 day-1 ruling): day1 is a new game saved at an older start valve, and a fixture
+##   keeps its saved valve, so (a) and (b) set the current one, economy.json opening.valve, with no slew: F1's
+##   promise is about a player who just queues at the default. Never a test-side valve.
+## - The bone edge (same ruling): under A1 the muster goes to Vei, and below a WAR share of opening.bone_edge.war_share
+##   the pits eat every body and the mill makes none (a growth feedback, measured, no closed form). From a new game
+##   with FLOOD at the opening's: (b) at the edge less 0.02 waits for ever on bone, and the views and the away report
+##   say why (the head's `short`, `starved` pits_first and lever raise_war, the mill's too, afford_starved's line); at
+##   the edge plus 0.02 every entry starts. The start valve keeps WAR above the edge.
 
 var t := TestUtil.new()
 var _dir := "user://test_day1_queues_%d" % OS.get_process_id()
@@ -32,8 +40,38 @@ func run() -> int:
 	t.ok(QUEUE_B.size() == int(c["economy"]["queue"]["max_len"]), "(setup) (b) is queue.max_len entries long")
 	_queue(c, "a", "the review's first overnight", QUEUE_A)
 	_queue(c, "b", "the trial's first eight", QUEUE_B)
+	_edge(c)
 	_cleanup()
 	return t.failures
+
+
+## The bone edge's bracket and its readouts (the header's last item).
+func _edge(c: Dictionary) -> void:
+	var open: Dictionary = c["economy"]["opening"]
+	var edge := float(open["bone_edge"]["war_share"])
+	t.ok(float(open["valve"]["war"]) >= edge + 0.05, "the start valve's WAR %.2f keeps 0.05 over the bone edge %.2f" % [float(open["valve"]["war"]), edge])
+	var lo: Array = _queue(c, "lo", "a new game at WAR %.2f" % (edge - 0.02), QUEUE_B, edge - 0.02, false)
+	var n: GameState = lo[0]
+	t.ok(not (lo[1] as Array).is_empty(), "(lo) below the edge (b) waits on bone for ever: never started %s" % str(lo[1]))
+	t.near(float(n.view_hud()["bone_war_share"]), edge, 0.0, "view_hud.bone_war_share is opening.bone_edge.war_share")
+	var head: Dictionary = n.view_town()["queue"][0]
+	var short: Dictionary = head["short"]
+	t.ok(str(head["reason"]) == "no_bone" and float(head["affordable_in_s"]) == -1.0 and float(short["bone"]) > 0.0
+		and float(short["bone"]) <= float(head["cost"]["bone"]) and float(short["gold"]) == 0.0,
+		"(lo) the head waits never on bone and names the bone it is short of: %s" % JSON.stringify(head))
+	t.ok(str(head["starved"]) == "pits_first" and str(head["lever"]) == "raise_war",
+		"(lo) the head reads the mills' reason pits_first and the lever raise_war")
+	var mills: Array = (n.view_town()["buildings"] as Array).filter(func(b): return n.town_sim.lot_mill_slots(str(b["lot_id"])) > 0)
+	t.ok(not mills.is_empty() and mills.all(func(b): return str(b["starved"]) == "pits_first" and str(b["lever"]) == "raise_war"),
+		"(lo) the mill reads starved pits_first and the lever raise_war")
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var fill := {"name": StateViews._building_name(n, rep, str(head["building_id"]), int(head["level"])),
+		"short": StateViews._fmt_count(rep, ceilf(float(short["bone"]))), "rate": StateViews._fmt_rate(rep, float(BuildRules.queue_net(n)["bone"]))}
+	var want := [str(rep["afford_starved_fmt"]).format(fill), str(rep["afford_starved_last_fmt"]).format(fill)]
+	var lines: Array = (n.view_away()["ready"] as Array).filter(func(l): return want.has(str(l["text"])) and str(l["kind"]) == "queue")
+	t.ok(lines.size() == 1, "(lo) the away report's head line says the same, afford_starved's words: %s" % JSON.stringify(n.view_away()["ready"]))
+	var hi: Array = _queue(c, "hi", "a new game at WAR %.2f" % (edge + 0.02), QUEUE_B, edge + 0.02, false)
+	t.ok((hi[1] as Array).is_empty(), "(hi) above the edge every entry of (b) starts")
 
 
 ## The smallest free lot that fits `building_id` (lot size, then lot order): not built on and not taken by an entry
@@ -53,11 +91,22 @@ static func _lot(c: Dictionary, s: GameState, building_id: String, taken: Dictio
 
 ## day1 a step in with every one of `ids` queued at once, each on its smallest free lot; saved, then loaded 8 h on:
 ## every entry starts, each start printed.
-func _queue(c: Dictionary, key: String, what: String, ids: Array) -> void:
+## Queues `ids` a step into day1 at the start valve (or, given `war` ≥ 0, into a new game at that WAR share, FLOOD
+## at the opening's and WORK the rest), saves, loads 8 h on and, for day1, checks every entry started. Returns
+## [the loaded GameState, the entries that never started].
+func _queue(c: Dictionary, key: String, what: String, ids: Array, war := -1.0, fixture := true) -> Array:
 	var s := GameState.new(c)
 	s.debug_enabled = true
 	s.save_dir = _dir
-	t.ok(s.cmd_debug_load_fixture("day1")["ok"], "(setup) day1 loads")
+	if fixture:
+		t.ok(s.cmd_debug_load_fixture("day1")["ok"], "(setup) day1 loads")
+	else:
+		s.cmd_new_game(1)
+	var v: Dictionary = c["economy"]["opening"]["valve"]
+	var w := float(v["war"]) if war < 0.0 else war
+	var r0 := s.cmd_set_valve(1.0 - float(v["flood"]) - w, w, float(v["flood"]))
+	s.valve = s.valve_target.duplicate()  # no slew: the start state
+	t.ok(r0["ok"] and is_equal_approx(float(s.valve["war"]), w), "(setup) (%s) the valve at WAR %.2f: %s" % [key, w, JSON.stringify(s.valve)])
 	s.tick(s.substep_s())  # a step's rates (a fixture loads with none)
 	var taken := {}
 	var plan: Array = []
@@ -95,9 +144,11 @@ func _queue(c: Dictionary, key: String, what: String, ids: Array) -> void:
 	var left: Array = n.view_town()["queue"].map(func(row): return "%s %s %s %s %.1f" % [row["building_id"], row["lot_id"], row["status"],
 		row["reason"], float(row["affordable_in_s"])])
 	print("  [day1_queues] (%s) starts: %s; still queued: %s" % [key, str(starts), str(left)])
-	t.ok(missed.is_empty() and n.build_queue.is_empty() and (at.values().all(func(v): return float(v) <= float(AWAY_S))),
-		"(%s) %s, %s: every entry starts within 8 h%s" % [key, what, ", ".join(PackedStringArray(ids)),
-		"" if missed.is_empty() else ": never started " + str(missed) + ", the queue " + str(left)])
+	if fixture:
+		t.ok(missed.is_empty() and n.build_queue.is_empty() and (at.values().all(func(x): return float(x) <= float(AWAY_S))),
+			"(%s) %s, %s: every entry starts within 8 h%s" % [key, what, ", ".join(PackedStringArray(ids)),
+			"" if missed.is_empty() else ": never started " + str(missed) + ", the queue " + str(left)])
+	return [n, missed]
 
 
 func _cleanup() -> void:

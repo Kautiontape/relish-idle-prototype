@@ -883,6 +883,11 @@ func _retakes_bound() -> void:
 		s.realm.fort_by_id(id)["living"] = 0.0
 	t.ok(s.cmd_set_valve(0.85, 0.0, 0.15)["ok"], "(setup) the valve's WAR at 0")
 	s.valve = s.valve_target.duplicate()
+	# E4 step 5 (ruling A1): the muster joins the FLOOD now, so the WAR really is 0, and Relish (travelling to Greywall
+	# in the fixture) would raise its corpses while its garrison drains: a catch-up step spreads her corpse-limited raise
+	# over the step (Catchup.simulacrum_out_s's note), so caught up Greywall broke 32.5 s late (3.25 steps of 10 s; IDLE
+	# §8). This test is Vei's reship's retakes, so she waits at home; with her there all 7 match within 0.24 s
+	s._place_relish("covington")
 	s._ledger.reset(GameState.Ledger.total(s._held()))  # the garrisons were set by hand
 	var r := accuracy(c, JSON.stringify(s.to_dict()), 1200.0, float(c["economy"]["idle"]["catchup_tol"]))
 	print("  [catchup] seven held forts, WAR 0, 20 min caught up at 10 s vs live: %s" % r["lines"])

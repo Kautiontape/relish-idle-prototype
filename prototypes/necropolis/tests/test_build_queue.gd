@@ -212,7 +212,7 @@ func _view_shape() -> void:
 	var house: Dictionary = TestUtil.configs()["buildings"]["house"]
 	t.ok(rows[0] == {"building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1,
 		"cost": {"gold": 40.0, "bone": 10.0, "relics": 0}, "work": float(house["build_work"]), "status": "next", "reason": "", "waited_on": "",
-		"affordable_in_s": 0.0},
+		"affordable_in_s": 0.0, "short": {"gold": 0.0, "bone": 0.0}, "starved": "", "lever": ""},
 		"a new build's row: %s" % str(rows[0]))
 	t.ok(rows[1]["building_id"] == "house" and rows[1]["upgrade"] and rows[1]["level"] == 2 and rows[1]["work"] == 2.0 * float(house["build_work"])
 		and rows[1]["cost"] == BuildRules.construction_cost(s, "house", 2),
