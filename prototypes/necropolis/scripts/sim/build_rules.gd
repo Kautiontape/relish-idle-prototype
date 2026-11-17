@@ -642,7 +642,8 @@ static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictiona
 
 
 ## The upkeep gate (the E4 ruling (3), plan.md 2026-11-15 02:22; E4 step 4, the gold trap): a new building whose gold
-## upkeep would take the town's net gold negative waits, skipped as a gate (reason `upkeep`) so the entries behind it
+## upkeep would take the town's net gold negative (or to 0: the resume rule's one margin, TownSim.income_pays, so a
+## building let in can always resume once shed) waits, skipped as a gate (reason `upkeep`) so the entries behind it
 ## (a Market level that would pay for it) still start. Net gold here is TownSim.gold_income (today's staffing and
 ## living, read from state) less every building's upkeep on the walk's `lots`, working, unpaid, Thrift-idled or under
 ## construction, the entries this walk started ahead of it among them, and its own: the town's full bill, so a town
@@ -657,7 +658,7 @@ static func upkeep_short(gs: GameState, building_id: String, lots: Dictionary) -
 	var bill := own
 	for lot_id in lots:
 		bill += ts.upkeep_gold_of(str(lots[lot_id]["building_id"]))
-	return ts.gold_income() - bill < -NET_EPS
+	return not ts.income_pays(ts.gold_income(), bill)  # the one margin (TownSim.income_pays): a tie waits
 
 
 ## The core step's processing (§3 step 3, right after rise_tiers): one walk, then each `next` entry starts

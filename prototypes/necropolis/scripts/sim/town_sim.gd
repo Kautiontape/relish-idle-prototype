@@ -1046,12 +1046,15 @@ func _upkeep(dt: float, events: Array, gold_in: float, bone_in: float) -> Dictio
 	var bn := bone - bone_in
 	var in_g := gold_in / dt
 	var in_b := bone_in / dt
+	# the income test reads the income from state, as held_by_income and the gate do (the step 4 review's must-fix);
+	# the paths below keep this step's own gold_in
+	var inc_g := gold_income()
 	while not cands.is_empty():
 		var pick := -1
 		var when := INF
 		for k in cands.size():
 			var d: Dictionary = _defs[buildings[cands[k][0]]["building_id"]]
-			if not _income_pays(in_g, due_g, float(d["upkeep_gold"]), int(d["jobs"].get("stall", 0)) > 0):
+			if not _income_pays(inc_g, due_g, float(d["upkeep_gold"]), int(d["jobs"].get("stall", 0)) > 0):
 				continue  # E4 step 4: the income can't pay it on top of the paying upkeep; it stays unpaid
 			var tg := _covers(g, in_g - due_g, (due_g + float(d["upkeep_gold"])) * span, at)
 			var tb := _covers(bn, in_b - due_b, (due_b + float(d["upkeep_bone"])) * span, at)
@@ -1818,7 +1821,18 @@ func gold_income() -> float:
 ## earns gold (`earns`: stall jobs, the shed order's exemption): its stalls are the income, so the test could never
 ## pass while it is off.
 func _income_pays(income: float, due: float, own: float, earns: bool) -> bool:
-	return own <= 0.0 or earns or income - due - own > _resume_net_min
+	return own <= 0.0 or earns or income_pays(income, due + own)
+
+
+## The one margin (the E4 step 4 review's must-fix): the gold income `income` pays a gold bill `bill` (both g/s) only
+## while it beats it by economy.json upkeep.resume_net_min and by more than float noise (BuildRules.NET_EPS). The resume
+## rule (_income_pays, in _upkeep), held_by_income and the queue's upkeep gate (BuildRules.upkeep_short) all read it,
+## each with gold_income() from state, so a tie (an income equal to the bill, as pre_vei's second House) is refused by
+## all three, at any step size. Before, _upkeep read the step's gold_in / dt with no epsilon while the gate read
+## gold_income() with −NET_EPS, so a tie resolved on rounding that depended on dt, and the gate admitted a net of 0 that
+## the resume rule refused.
+func income_pays(income: float, bill: float) -> bool:
+	return income - bill > _resume_net_min + BuildRules.NET_EPS
 
 
 ## Whether the unpaid building on `lot_id` is held off by the income now (its hold is over, but _income_pays says

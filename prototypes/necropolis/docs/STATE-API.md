@@ -973,6 +973,8 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   would take net gold negative is `skipped_gate` with reason `upkeep`. Net gold is the stalls' income now
   (today's staffing and living, from state) less the gold upkeep of every building on its lots (working,
   unpaid, Thrift-idled or under construction, and the entries the same walk starts ahead of it) and its own.
+  It waits unless the income beats that bill by more than `upkeep.resume_net_min` + 1e-9 g/s, the resume rule's
+  margin (MECHANICS §4.3), so a net of exactly 0 waits (text and rule only; no key change).
   A building with stall jobs (the Market) is exempt, as is one with no gold upkeep; an upgrade adds no upkeep
   (it is flat per building), so it is never held. The entries behind it still start, so a Market level
   queued after it can pay for it. `view_away` names the first such entry (§5.19).

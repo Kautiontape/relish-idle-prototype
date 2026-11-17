@@ -905,8 +905,11 @@ The profiles:
       the same kind of break, a town stock that parts between the open and closed runs (bone here; at 7a8d469 day 4
       also read bone 900 against 550), but that's an inference: the step sweep that showed step-independence was run
       at 7a8d469, not re-run here. Not chased.
-    - **The cause, from one bounded probe (E4, the manager's ruling (b) after the steps 0–3 milestone): a threshold
-      straddle on a bone offset, not the queue's event clips; the offset's source is only partly attributed.** The
+    - **The cause, from one bounded probe (E4, the manager's ruling (b) after the steps 0–3 milestone): the runs part
+      on a bone offset that broke the I1 bound before the bot's answer flipped; not the queue's event clips, and the
+      offset's source is only partly attributed.** The answer flips where the offset spans the craft's price, but the
+      offset is not small: a 15% bone gap at that command (328.92 against 284.09), and day 4's bodies gap reached
+      140.6 at a command, over the gate's one-load bound (126). The gate samples only day ends, so it passed. The
       probe replayed 6563284's 5-day row with every command's stocks logged just before it in both runs (bone to 0.01,
       the queue and its head, husks, remnants, bodies) and every build's start and finish time.
       - At the first differing command, the zombie craft at 346 115 s, the closed run holds 328.92 bone and the open
@@ -918,7 +921,8 @@ The profiles:
         first away period (1 943 s), while the closed run catches up.
       - Day 4's bone offset tracks the bodies gap, the convoy's phase (the haul phase item above): the largest bodies
         gap at a command grows 8.8, 67.5, 92.5, 140.6 over days 1–4, and bone parts by up to 2.9, 12.0, 6.4 and 22.1,
-        then 45 at the craft. Day 4's 140.6 is over the gate's one-load bound (126), which only samples day ends.
+        then 45 at the craft. Day 4's 140.6 is over the gate's one-load bound (126), which only samples day ends: a
+        bound break the gate can't see, not a benign straddle (the E4 step 4 review's I1 note).
       - **The away-period build lag is unattributed (an open item).** On day 1 the bodies and bone gaps are small (8.8
         and 2.9) and the closed run holds about 16 g *less* gold, yet its builds start later. The probe samples only at
         commands, which all fall in sessions, so it can't see inside an away period, where the lag starts. Candidates:
@@ -929,6 +933,8 @@ The profiles:
       - **The I1 replay's threshold row** (a report row, not a gate; Autoplayer.threshold_row, tested in test_i1_gate)
         prints the first command answered otherwise, with the stock its answer turns on, the threshold, closed against
         open, and whether it is a straddle. Known thresholds: the husk craft's bone and remnants, and the queue's room.
+        A straddle says only that the answer flipped there; how far apart the runs already were is the stocks' gap,
+        which can be past the bound (as here).
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.

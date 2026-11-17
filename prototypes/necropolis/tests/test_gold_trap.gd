@@ -36,6 +36,7 @@ func run() -> int:
 			lv = int(b["level"])
 	var lever := float(BuildRules.construction_cost(n, "market", lv + 1)["gold"])
 	t.ok(mk != "", "(setup) the gold lever: the Market on %s, level %d -> %d for %.0f gold" % [mk, lv, lv + 1, lever])
+	_tie(c, n)
 	var m := _away(c, n, "trap_b", 12 * 3600)
 	t.ok(m.town_sim.gold > lever,
 		"a night later (12 h) the gold has climbed past the lever: %.2f against %.0f (it was %.2f; %d buildings unpaid at the end)" % [
@@ -64,6 +65,65 @@ func run() -> int:
 		"the queue reads the income as its reason, not the stocks: %s / %s" % [row["status"], row["reason"]])
 	_cleanup()
 	return t.failures
+
+
+## The tie (the E4 step 4 review's must-fix: one margin, TownSim.income_pays). pre_vei 3 h on sits on it: the House,
+## the Well and the Bakery each have an upkeep (0.01) that would take the paying upkeep (0.59) to exactly the stalls'
+## 0.60, a net of about −1e-16 g/s. Every reader refuses it: the resume rule's test, held_by_income and the queue's gate,
+## and a rise in the income of 2 ulps still refuses (the old rule, `income − due − own > 0` on the step's gold_in / dt,
+## would resume there), while one past the margin passes. Then the same state run 10 min open (0.5 s ticks) and closed
+## (a load 10 min on: the catch-up's long steps) ends with the same buildings unpaid, the tied ones among them.
+func _tie(c: Dictionary, n: GameState) -> void:
+	var ts := n.town_sim
+	var income := ts.gold_income()
+	var due := 0.0
+	for e in ts._lists()["work"]:
+		due += float(e[1])
+	var tied: Array = []
+	for lot_id in ts.buildings:
+		var b: Dictionary = ts.buildings[lot_id]
+		var own := ts.upkeep_gold_of(str(b["building_id"]))
+		if str(b["state"]) == "unpaid" and float(b["unpaid_s"]) <= 0.0 and absf(income - due - own) <= BuildRules.NET_EPS:
+			tied.append(str(lot_id))
+	t.ok(not tied.is_empty(), "(setup) pre_vei 3 h on sits on the tie: %s unpaid, each at income %.17f = paying %.17f + its own" % [
+		str(tied), income, due])
+	if tied.is_empty():
+		return
+	var lot0: String = tied[0]
+	var own0 := ts.upkeep_gold_of(str(ts.buildings[lot0]["building_id"]))
+	var up := income + 2.0e-16  # 2 ulps of 0.6
+	t.ok(up > income and up - due - own0 > 0.0, "(setup) 2 ulps up, the old strict test would pass: net %s" % str(up - due - own0))
+	t.ok(not ts._income_pays(income, due, own0, false) and not ts._income_pays(up, due, own0, false) and ts.held_by_income(lot0),
+		"the tie is refused, at the income and 2 ulps above it (the resume rule's test), and held_by_income agrees")
+	t.ok(not ts.income_pays(due + own0, due + own0) and not ts.income_pays(due + own0 + 0.5e-9, due + own0)
+		and ts.income_pays(due + own0 + 2.0e-9, due + own0),
+		"the one margin: an income equal to the bill, or 0.5e-9 over it, doesn't pay it; 2e-9 over does")
+	var lots := {}  # the gate's bill for a new House: the paying buildings alone (the tie), then the gate's own reading
+	for e in ts._lists()["work"]:
+		lots[str(e[0])] = ts.buildings[str(e[0])]
+	t.ok(BuildRules.upkeep_short(n, "house", lots) == not ts.income_pays(income, due + ts.upkeep_gold_of("house")),
+		"the queue's gate reads the same rule on the same bill (a House on the paying lots: %s)" % str(BuildRules.upkeep_short(n, "house", lots)))
+	# open against closed, 10 min
+	var o := _away(c, n, "tie_open", 0)
+	o.drain_events()
+	var o_up: Array = []
+	for i in 1200:
+		o.tick(0.5)
+		for e in o.drain_events():
+			if str(e["type"]) == "building_unpaid" and not bool(e["unpaid"]):
+				o_up.append(str(e["lot_id"]))
+	var k := _away(c, n, "tie_closed", 600)
+	var k_up: Array = []
+	for e in k.catchup_events():
+		if str(e["type"]) == "building_unpaid" and not bool(e["unpaid"]):
+			k_up.append(str(e["lot_id"]))
+	var kept := true
+	for l in tied:
+		kept = kept and str(o.town_sim.buildings[l]["state"]) == "unpaid" and str(k.town_sim.buildings[l]["state"]) == "unpaid"
+		kept = kept and not o_up.has(l) and not k_up.has(l)
+	t.ok(absf(o.t - k.t) < 1e-6 and _unpaid(o) == _unpaid(k) and kept,
+		"10 min open and closed end with the same buildings unpaid (%s), the tied ones never resumed (resumed: open %s, closed %s)" % [
+			str(_unpaid(k)), str(o_up), str(k_up)])
 
 
 func _mk(c: Dictionary) -> GameState:
