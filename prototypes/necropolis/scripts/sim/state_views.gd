@@ -207,7 +207,7 @@ static func next_wave(gs: GameState) -> Dictionary:
 	if not started:
 		return {"target": "", "next_s": -1.0}
 	var w: Dictionary = gs.realm.tithe.get("warning", {})
-	return {"target": str(w["fort_id"]) if not w.is_empty() else gs.realm._tithe_target(gs._margin_inputs()),
+	return {"target": str(w["fort_id"]) if not w.is_empty() else str(gs._margin_view()["next"]),
 		"next_s": maxf(0.0, float(gs.realm.tithe["next_s"]))}
 
 
@@ -256,7 +256,7 @@ static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionar
 	var f := gs.realm.fort_by_id(id)
 	if f.is_empty() or not RealmSim.is_held(f):
 		return out
-	var e: Dictionary = gs.realm.margins_of(gs._margin_inputs()).get(id, {})
+	var e: Dictionary = gs._margin_view()["margins"].get(id, {})
 	out["war_in"] = float(e.get("war_in", 0.0))
 	out["need"] = float(e.get("need", 0.0))
 	out["margin"] = float(e.get("margin", 0.0))

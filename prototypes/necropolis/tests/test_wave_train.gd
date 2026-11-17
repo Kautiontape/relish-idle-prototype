@@ -118,6 +118,21 @@ func _margin_views() -> void:
 	n.cmd_new_game(1)
 	n._core_step(0.5)
 	t.ok(n.hold_mult() == 1.0 and n.realm.hold_mult == 1.0, "a new game reads ×1 (its one pit's mint is hold.mint_ref)")
+	# the per-state memo (GameState._margin_view): a frame's reads share one computation, and a step, a command or an
+	# edit to a held fort recomputes it, matching a fresh derivation each time
+	var fresh := func() -> Dictionary: return s.realm.margins_of(s._margin_inputs())
+	var m1: Dictionary = s._margin_view()
+	s.view_realm()
+	s.view_fort(low)
+	t.ok(is_same(s._margin_view(), m1) and m1["margins"] == fresh.call(), "reads in one state share the memo, and it is the fresh margins")
+	s.realm.hold(low, 300.0)
+	var m2: Dictionary = s._margin_view()
+	t.ok(not is_same(m2, m1) and m2["margins"] == fresh.call(), "a fort put in grace recomputes it")
+	t.ok(bool(s.cmd_set_valve(0.1, 0.8, 0.1)["ok"]) and not is_same(s._margin_view(), m2) and s._margin_view()["margins"] == fresh.call(),
+		"a command (the valve) recomputes it")
+	var m3: Dictionary = s._margin_view()
+	s._core_step(0.5)
+	t.ok(not is_same(s._margin_view(), m3) and s._margin_view()["margins"] == fresh.call(), "a step recomputes it")
 
 
 ## A RealmSim with `held` {fort_id: [undead, living, grace_s]} held and every other fort full of corpses,

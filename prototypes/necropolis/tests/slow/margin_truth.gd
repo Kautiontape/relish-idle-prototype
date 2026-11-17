@@ -17,6 +17,10 @@ extends RefCounted
 ##   train reads settled (GameState._train_war_at); the sim retakes Vespers at 675 s and Ashgate at 952 s. Read on
 ##   the instant support (before E4), both forts' t0 samples said safe; settled, Vespers reads will_fall and
 ##   Ashgate thin. Its revert proof, never committed: the instant support with no siege credited fails it.
+##   And (E4 step 5, B1 (ii), the lowest-margin target rule) "midgame ×4" and "pre_vei+2 ×4": midgame_2flips and
+##   pre_vei+2's setup with Vei's pressure at held forts ×4 (hold.mint_ref at the settled mint / 4^(1/α)), where
+##   the waves go to the weakest margin; there the telegraph (view_vei().tithe.next_target) read a substep before
+##   each warning must name the warned fort.
 ## - Asserted: every "safe" sample's fort is still held 8 h on (the worst lie is safe, then broken
 ##   overnight; safe_broke()), and at least one safe sample over all starts (else the check is vacuous). No
 ##   fall is excused. R1 (the E2b-2 vision review; MECHANICS §4.3) deleted E2b-2's known gap, which counted a
@@ -49,12 +53,16 @@ func run() -> int:
 	c.t = t
 	var starts := [["midgame_2flips", "midgame_2flips", ""], ["pre_vei", "pre_vei", ""], ["fresh", "fresh", ""],
 		["pre_vei+2", "pre_vei", "hold2"], ["midgame, WAR 0.05", "midgame_2flips", "war05"],
-		["pre_vei+2 burst, WORK 0.10", "pre_vei", "burst"]]
+		["pre_vei+2 burst, WORK 0.10", "pre_vei", "burst"],
+		["midgame ×4", "midgame_2flips", "press4"], ["pre_vei+2 ×4", "pre_vei", "hold2_press4"]]
 	var safe_total := 0
 	var lines: Array = []
 	for st in starts:
 		var s: GameState = c.load_state(c.start_json(st[1]))
-		if st[2] == "hold2":
+		var press := str(st[2]).ends_with("press4")
+		if press:  # (B1 (ii)) Vei's pressure ×4 at held forts: mint_ref at the settled mint / 4^(1/α)
+			s._mint_ref = (s._p_base + s._p_per_pit * float(s.town_sim.pits())) / pow(4.0, 1.0 / s._mint_alpha)
+		if st[2] == "hold2" or st[2] == "hold2_press4":
 			s.tick(600.0)  # past pre_vei's opening muster burst
 			s.realm.hold("ashgate", 0.0)
 			s.realm.hold("vespers", 0.0)
@@ -66,11 +74,18 @@ func run() -> int:
 			t.ok(s.cmd_set_valve(0.10, 0.05, 0.85)["ok"], "(setup) the valve's WORK share 0.10 and WAR 0.05, the rest to FLOOD")
 		elif st[2] == "war05":
 			t.ok(s.cmd_set_valve(0.40, 0.05, 0.55)["ok"], "(setup) the valve's WAR share 0.05, the rest to FLOOD")
-		var r := _run(s)
+		var r := _run(s, press)
 		safe_total += int(r["safe"])
 		lines.append_array(_report(st[0], r))
 		t.ok(r["safe_broke"].is_empty(), "%s: every safe fort stands 8 h on (%d safe samples)%s" % [st[0], r["safe"],
 			"" if r["safe_broke"].is_empty() else ": broke " + str(r["safe_broke"])])
+		if press:
+			var tele: Array = r["tele"]
+			var off := tele.filter(func(x): return x[1] != x[2])
+			t.ok(not tele.is_empty() and off.is_empty() and s.hold_mult() > 1.0,
+				"%s (×%.2f at the end): the telegraph a substep before each of its %d warnings names the warned fort%s" % [st[0],
+				s.hold_mult(), tele.size(), "" if off.is_empty() else ": [t, telegraph, warned] " + str(off.slice(0, 5))])
+			lines.append("  [margin_truth] %s: the warned forts %s" % [st[0], str(tele.map(func(x): return x[2]))])
 	for ln in lines:
 		print(ln)
 	t.ok(safe_total > 0, "the check is not vacuous: %d safe samples over all starts" % safe_total)
@@ -114,12 +129,16 @@ func check_safe_broke() -> int:
 
 ## Runs `s` for HOURS of 0.5 s ticks, sampling as above. Returns {samples: [[t, fort_id, margin, cause,
 ## fall_s, one-wave margin, one-wave cause, WAR to it]], retaken: {fort_id: t}, floors: {store: first floor
-## t or −1}, safe, safe_broke: [safe_broke()'s lines]}.
-func _run(s: GameState) -> Dictionary:
+## t or −1}, safe, safe_broke: [safe_broke()'s lines], tele}. With `tele` (B1 (ii)'s cases), tele is [[t, the
+## telegraph's next_target read a substep before the warning, the fort the tithe_warning names], ...].
+func _run(s: GameState, tele := false) -> Dictionary:
 	var step := s.substep_s()
 	var t0 := s.t
 	var samples: Array = []
 	var retaken := {}
+	var told: Array = []
+	var pred := ""
+	var warn_s := float(s.realm._warning_s)
 	# each store's stock after each tick, in plain Arrays (shared, so appending copies nothing): its first floor
 	var store_t := {}
 	for k in STORES:
@@ -127,10 +146,16 @@ func _run(s: GameState) -> Dictionary:
 	var next_sample := 0.0
 	var n := int(HOURS * 3600.0 / step)
 	for i in n:
+		pred = ""
+		if tele and bool(s.realm.tithe.get("started", false)) and (s.realm.tithe["warning"] as Dictionary).is_empty() \
+				and float(s.realm.tithe["next_s"]) - step <= warn_s:
+			pred = str(s.view_vei()["tithe"]["next_target"])
 		s.tick(step)
 		for e in s.drain_events():
 			if e["type"] == "fort_retaken" and not retaken.has(e["fort_id"]):
 				retaken[e["fort_id"]] = float(e["t"]) - t0
+			elif e["type"] == "tithe_warning" and pred != "":
+				told.append([snappedf(float(e["t"]) - t0, 0.5), pred, str(e["fort_id"])])
 		var el := s.t - t0
 		var ws := s._fort_wars()
 		for k in STORES:
@@ -154,7 +179,8 @@ func _run(s: GameState) -> Dictionary:
 				floors[k] = (i + 1) * step
 				break
 	var safe := samples.filter(func(smp): return smp[2] == "safe").size()
-	return {"samples": samples, "retaken": retaken, "floors": floors, "safe": safe, "safe_broke": safe_broke(samples, retaken)}
+	return {"samples": samples, "retaken": retaken, "floors": floors, "safe": safe, "safe_broke": safe_broke(samples, retaken),
+		"tele": told}
 
 
 ## The report lines for one start: the counts by word (train and one-wave), with what happened next.

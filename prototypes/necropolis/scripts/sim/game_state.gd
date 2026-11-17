@@ -301,6 +301,7 @@ var _proj_cache := {}
 ## read), computed (probes run: tests, benches)}. Session only: a new game and every load (from_dict:
 ## cmd_load, the fixtures) empty it (_reset_train).
 var _train_cache := {}
+var _margin_memo := {}
 var _ticks := 0  # live substeps run this session (_tick): rev less them is the commands' share of rev
 var _frame_path := false  # the shell drives tick() with a substep cap (the frame path): _train may serve the last refresh
 var _field_acc := 0.0
@@ -2621,6 +2622,23 @@ func _sync_hold_mult() -> void:
 ## q, Relish's tide and raise, the sieges, as the next core step will give them. The margin views and the telegraph
 ## (StateViews.fort_hold, next_wave) read these, not the last step's _realm_inputs, so a loaded state reads as the
 ## live one did (q and the trough feed move at a step's end).
+## The margin views' basis as the state stands (E4 step 5, B1 (ii)): {margins (RealmSim.margins_of at _margin_inputs),
+## next (RealmSim._tithe_target there, "" before the clock starts)}, computed once per state and shared by every fort's
+## view_fort().hold and .tithe and by view_vei().tithe (view_realm reads them for each fort: before, each fort entry
+## re-derived the inputs and the margins twice). Keyed on rev, t, Vei's pressure (hold_mult, mint_ref) and the realm's
+## train_state (the held forts' stocks and graces, the clock's warning and wave), so a step, a command or an edit that
+## moves any of them recomputes. Session only.
+func _margin_view() -> Dictionary:
+	var key := [rev, t, realm.hold_mult, _mint_ref, realm.train_state()]
+	if _margin_memo.get("key") == key:
+		return _margin_memo
+	var ins := _margin_inputs()
+	var mg := realm.margins_of(ins)
+	_margin_memo = {"key": key, "margins": mg,
+		"next": realm._tithe_target(ins, mg) if bool(realm.tithe.get("started", false)) else ""}
+	return _margin_memo
+
+
 func _margin_inputs() -> Dictionary:
 	var fx := _relish_effects()
 	return {"target_war": _train_war(), "digest_q": digest_q(), "tide_fort": fx["tide_fort"], "redirect_fort": fx["redirect_fort"],

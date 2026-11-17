@@ -1559,13 +1559,14 @@ func _end_wave() -> void:
 ## the first in world order; else the fort not in grace receiving the most WAR now (this step's r_in), ties to the
 ## first in world order. "" only when every fort is in grace (or there are none). Before B1 (ii) a wave went to the
 ## contested fort with the most undead, so the strongest garrison drew every wave and the weak forts were never
-## tested. GameState reads it between steps for the telegraph (view_vei().tithe.next_target).
-func _tithe_target(inputs := {}) -> String:
+## tested. GameState reads it between steps for the telegraph (view_vei().tithe.next_target), passing the margins it
+## already holds for those inputs (`margins`, GameState._margin_view) so they aren't derived twice.
+func _tithe_target(inputs := {}, margins := {}) -> String:
 	var ins: Dictionary = inputs if not inputs.is_empty() else _part_inputs
 	var ids: Array[String] = []
 	var mg := PackedFloat64Array()
 	var ok: Array[bool] = []
-	var mm := {}
+	var mm := margins
 	for f in forts:
 		if is_contested(f):
 			if mm.is_empty():
